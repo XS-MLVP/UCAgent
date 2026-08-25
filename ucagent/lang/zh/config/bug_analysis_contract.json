@@ -15,14 +15,17 @@
     "suffix": "%）"
   },
   "waveform_title_suffix": "波形",
+  "root_cause_titles": {
+    "analysis": "#### 根因分析",
+    "source_evidence": "#### 源码证据",
+    "causal_chain": "#### 因果链",
+    "fix": "#### 修复建议",
+    "retest": "#### 风险与复验",
+    "related_bugs": "#### 关联 Bug"
+  },
   "analysis_section_titles": {
     "overview": "###### Bug 概述",
     "symptoms": "###### 现象与严重度",
-    "trigger": "###### 触发条件与影响",
-    "root_cause": "###### 根因分析",
-    "source_evidence": "###### 源码证据",
-    "causal_chain": "###### 动态因果链",
-    "fix": "###### 修复建议",
-    "retest": "###### 风险与复验"
+    "trigger": "###### 触发条件与影响"
   }
 }

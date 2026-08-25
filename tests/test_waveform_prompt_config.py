@@ -9,7 +9,7 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from ucagent.checkers.toffee_report import check_dynamic_bug_analysis_content
-from ucagent.util.config import load_yaml_with_env_vars
+from ucagent.util.config import Config, load_yaml_with_env_vars
 
 
 def test_api_test_prompt_and_guide_require_api_checkpoint_association():
@@ -111,7 +111,15 @@ def test_default_prompt_requires_waveinfo_for_dynamic_bugs():
     assert "`WaveInfo`是必须调用的诊断工具" in system_prompt
     assert "不得豁免动态Bug的`WaveInfo`取证" in system_prompt
     assert "LLM不得复制或修改receipt字段" in system_prompt
-    assert 'WaveInfo(test_case_name="test_{DUT}_xxx"' in system_prompt
+    assert (
+        'WaveInfo(test_case_name="{OUT}/tests/test_{DUT}_xxx.py::test_{DUT}_xxx"'
+        in system_prompt
+    )
+    assert "recommended_call.test_case_name只是波形basename定位提示" in system_prompt
+    assert "只允许去掉标签最前面的`TC-`" in system_prompt
+    assert "本次运行由agent.cfg解析出的TC输出目录是`{OUT}/tests`" in system_prompt
+    assert "每个TC文件路径必须以`{OUT}/tests/`开头" in system_prompt
+    assert "相似节点只用于复制正确的完整报告node ID" in system_prompt
     assert "signal_catalog中确实存在时使用" in system_prompt
     assert "可以继续使用已验证的签名receipt和中央记录" in system_prompt
     assert "任务中途只运行部分用例时" in system_prompt
@@ -126,28 +134,40 @@ def test_default_prompt_requires_waveinfo_for_dynamic_bugs():
     assert "ApplyWaveInfoEvidence(target_file=..., bug_tag=..., test_case_tag=..., receipt_id=...)" in system_prompt
     assert "一个BG有多个Fail TC时分别调用" in system_prompt
     assert "同名BG跨CK或目标关联有歧义时传`checkpoint_path=" in system_prompt
-    assert "每个CK-scoped BG路径必须分别包含" in system_prompt
+    assert "动态Bug文档以完整FG/FC/CK/BG路径为验收单位" in system_prompt
     assert "不得手工复制receipt字段、中央波形或viewer token" in system_prompt
     assert "工具保留其他BG路径、兄弟TC和中央记录" in system_prompt
     assert "一个Fail TC揭示多个独立Bug时保留不同BG" in system_prompt
     assert "相同test_case_tag和不同bug_tag分别调用" in system_prompt
     assert "新增关联不需要replace_existing" in system_prompt
     assert "LLM不得复制或修改receipt字段" in system_prompt
-    assert "不可用时按Guide_Doc/dut_bug_analysis.md中的第 5.1 节完整标准案例和第 5.2 节骨架" in system_prompt
+    assert "不可用时按Guide_Doc/dut_bug_analysis.md中的第 5.1 节完整标准案例用文本工具建立相同结构" in system_prompt
     assert "以完整FG/FC/CK/BG路径为验收单位" in system_prompt
-    assert "不得在文档末尾另建与标签分离的全局根因分析章节" in system_prompt
-    assert "为每个新的CK-scoped BG/TC路径生成" in system_prompt
+    assert "同一CK/BG路径的后续Fail TC直接交给`ApplyWaveInfoEvidence`" in system_prompt
+    assert "每个根因实体使用文档级唯一<ROOT-XXX>标签" in system_prompt
+    assert "至少反向关联一个真实存在的完整BG路径" in system_prompt
+    assert "两个缺陷组合后才产生的错误使用独立<ROOT-XXX>" in system_prompt
+    assert "<ROOT-CAUSES>" in system_prompt
+    assert "<CAUSE-REF-ROOT-XXX>" in system_prompt
+    assert "<RELATED-BUG-FG-.../FC-.../CK-.../BG-...>" in system_prompt
+    assert "通过内嵌完整路径的<RELATED-BUG-FG-.../FC-.../CK-.../BG-...>" in system_prompt
+    assert "每个BG必须且只能通过一个<CAUSE-REF-ROOT-XXX>引用一个根因" in system_prompt
     assert "清除全部`<BUG-TODO>`" in system_prompt
     assert "<WAVEFORM-REF>" in system_prompt
     assert "<WAVEFORM-EVIDENCE>" in system_prompt
     assert "一个Fail TC无论关联多少BG都只有一份波形数据" in system_prompt
-    assert "同一真实pytest节点不能因路径前缀写法不同而成为两个TC" in system_prompt
-    assert "EQUIVALENT_TC_ASSOCIATION_DUPLICATE" in system_prompt
-    assert "keep_test_label" in system_prompt
-    assert "duplicate_test_label" in system_prompt
+    assert "receipt_test_mismatch" in system_prompt
+    assert "matching_final_receipt_not_found" in system_prompt
+    assert "details.recovery_call" in system_prompt
+    assert "保持test_case_tag不变" in system_prompt
+    assert "同一tool+status+target连续返回相同错误后必须停止" in system_prompt
+    assert "不得手工写receipt YAML、anchor、viewer URL或token" in system_prompt
     assert "`bug_tags`与`bug_evidence`必须覆盖全部关联BG" in system_prompt
     assert "`required_signals`并集" in system_prompt
     assert "CK失败本身不证明DUT存在Bug" in system_prompt
+    assert "不得为了满足失败CK门禁而修改当前Pass用例使其Fail" in system_prompt
+    assert "正确修复predicate、关联、采样或驱动后CK可以转为Pass" in system_prompt
+    assert "a+(~b)+0`表示`a-b-1" in system_prompt
     assert "测试激励/driver是否真正触发目标场景" in system_prompt
     assert "该TC关联的CK可以已经Pass" in system_prompt
     assert "独立的失败CK单向门禁" in system_prompt
@@ -156,14 +176,13 @@ def test_default_prompt_requires_waveinfo_for_dynamic_bugs():
     assert "这个CK可以已经被该TC成功触发并通过覆盖" in system_prompt
     assert "不要求每个Fail TC关联失败CK" in system_prompt
     assert "完整FG/FC/CK/BG路径为验收单位" in system_prompt
-    assert "不能跨CK共享最后一套字段" in system_prompt
-    assert "`Adder/Adder.v:10`和`Adder/Adder.v:L10-L14`均无效" in system_prompt
-    assert "`Adder/Adder.v:10-14`" in system_prompt
-    assert "`Adder/Adder.v:10-10`" in system_prompt
-    assert "`Adder/Adder.v:L10-L14`均无效" in system_prompt
-    assert "<BUG-SOURCE-FIRST-ERROR>" in system_prompt
-    assert "<BUG-SOURCE-PROPAGATION>" in system_prompt
-    assert "<BUG-SOURCE-OBSERVABLE>" in system_prompt
+    assert "同一CK分支内同一个BG只出现一次" in system_prompt
+    assert "`rtl/module.sv:10`和`rtl/module.sv:L10-L14`均无效" in system_prompt
+    assert "`rtl/module.sv:10-14`" in system_prompt
+    assert "`rtl/module.sv:10-10`" in system_prompt
+    assert "<ROOT-SOURCE-FIRST-ERROR>" in system_prompt
+    assert "<ROOT-SOURCE-PROPAGATION>" in system_prompt
+    assert "<ROOT-SOURCE-OBSERVABLE>" in system_prompt
     assert "不能直接复制静态Bug标签" in parent_task
     assert "真实WaveInfo confirmed证据" in parent_task
     assert "除已确认DUT Bug复现用例外，其他用例必须全部Pass" in parent_task
@@ -175,7 +194,7 @@ def test_default_prompt_requires_waveinfo_for_dynamic_bugs():
     assert "任何未分类Fail" in batch_task
     assert "record_dynamic_bug.py仅为可选骨架辅助" in batch_task
     assert "不可用时按Guide_Doc/dut_bug_analysis.md中的第 5.1 节完整标准案例和第 5.2 节骨架" in batch_task
-    assert "完成共享alignment_evidence、逐Bug证据和八个分析字段" in batch_task
+    assert "完成BG三个字段、唯一<CAUSE-REF-ROOT-XXX>、ROOT五个分析字段及双向链接" in batch_task
     assert "只处理当前反馈中的第一个阻塞项" in batch_task
     assert "同一记录的其他字段以及其他记录都不属于本次动作" in batch_task
     assert "RunTestCases只能运行当前批次已有的真实pytest验证用例" in batch_task
@@ -183,8 +202,8 @@ def test_default_prompt_requires_waveinfo_for_dynamic_bugs():
     assert "ReplaceStringInFile传只覆盖当前Checker阻塞位置的line_blocks" in batch_task
     assert "rerun_test、rerun_waveinfo或apply_evidence为false" in batch_task
     assert "逐个审查{OUT}/{DUT}_bug_analysis.md中的每个非零置信度<BG-*>" in review_task
-    assert "独立核对<BUG-SOURCE-FIRST-ERROR>是否为首个错误决策" in review_task
-    assert "不得因record_dynamic_bug.py成功或字段形式完整" in review_task
+    assert "独立核对<ROOT-SOURCE-FIRST-ERROR>" in review_task
+    assert "不能只检查标签存在或删除占位符" in review_task
     assert "禁止通过删除<TC-*>、<BG-*>或整个FG/FC/CK分支" in batch_task
     assert "一次`Step(1)`只表示仿真推进一步" in system_prompt
     assert "不能按固定信号名推断" in system_prompt
@@ -203,6 +222,26 @@ def test_default_prompt_requires_waveinfo_for_dynamic_bugs():
     assert "结论必须落在真实事务和有效响应窗口" in review_task
     assert "signal_groups和在线viewer是否同时包含时钟" in review_task
     assert "最终WaveInfo调用必须填写完整signal_groups" in batch_task
+
+    resolved_config = Config(config)
+    resolved_config.update_template({"OUT": "unity_test", "DUT": "Adder"})
+    resolved_system_prompt = resolved_config.mission.prompt.system
+    resolved_parent = next(
+        stage
+        for stage in resolved_config.stage
+        if stage.name == "comprehensive_verification_and_bug_analysis"
+    )
+    resolved_batch = next(
+        stage
+        for stage in resolved_parent.stage
+        if stage.name == "test_case_implementation_in_batch"
+    )
+    resolved_batch_task = "\n".join(str(item) for item in resolved_batch.task)
+    assert "TC输出目录是`unity_test/tests`" in resolved_system_prompt
+    assert "每个TC文件路径必须以`unity_test/tests/`开头" in resolved_system_prompt
+    assert "agent.cfg已解析本次TC输出目录为unity_test/tests" in resolved_batch_task
+    assert "{OUT}/tests" not in resolved_system_prompt
+    assert "{OUT}/tests" not in resolved_batch_task
     for marker in (
         "<STATIC-BUG-SUMMARY>",
         "<STATIC-BUG-DETAILS>",
@@ -314,7 +353,7 @@ def test_bug_analysis_guide_distinguishes_mcp_sentinels_and_evidence_windows():
     assert "```yaml" in guide
     assert "`waveform_analysis:` 必须是唯一顶层键" in guide
     assert "`bug_document_viewer_link`" in guide
-    assert "脚本不可用时也不阻塞整个流程" in guide
+    assert "Skill 禁用、未复制或脚本不可用时" in guide
     assert "调用 `ApplyWaveInfoEvidence`" in guide
     assert "同一 Bug 有多个 Fail TC 时，对每个 BG/TC 分别调用一次" in guide
     assert "目标 TC 不存在且 BG 位置唯一时" in guide
@@ -331,7 +370,7 @@ def test_bug_analysis_guide_distinguishes_mcp_sentinels_and_evidence_windows():
     assert "v2 逻辑定位" not in guide
     assert "普通增量 stage 使用`require_current_replay=false`" in guide
     assert "只有对应验证项配置`require_current_replay=true`" in guide
-    assert "不得改用粗体" in guide
+    assert "不得修改 Markdown 层级、标题、字段顺序或容器布局" in guide
     assert "YAML 与 viewer 只出现在该 TC 的中央记录中" in guide
     assert "先确认事务有效，再判断数据是否错误" in guide
     assert "调用一次 `Step(1)` 只表示仿真时间推进了一步" in guide
@@ -351,6 +390,19 @@ def test_bug_analysis_guide_distinguishes_mcp_sentinels_and_evidence_windows():
     assert "CK 可以已经 Pass" in guide
     assert "不要求每个 Fail TC 关联失败 CK" in guide
     assert "失败 CK 必须有同 CK Fail TC" in guide
+    assert "不得为了满足失败 CK 门禁而把当前 Pass 用例改成 Fail" in guide
+    assert "`a + (~b) + 0 = a - b - 1`" in guide
+    assert "Configured TC output directory`实际值" in guide
+    assert "禁止复制为实际标签" in guide
+    assert "只删除`:start-end`或`:line`报告行范围" in guide
+    assert "相似节点不代表路径等价" in guide
+    assert "recommended_call.test_case_name`只是波形文件 basename 定位提示" in guide
+    assert "相似节点同样只供核对拼写" in guide
+    assert "若 Apply 返回`receipt_test_mismatch`" in guide
+    assert "保持`test_case_tag`逐字不变" in guide
+    assert "原样调用一次 WaveInfo" in guide
+    assert "不得手工写 receipt-backed YAML" in guide
+    assert "同一 tool、status 和 target 连续返回相同错误后" in guide
     assert "`signal_groups` 的固定子字段为" in guide
     assert "clocks -> inputs -> outputs -> protocol -> key_signals" in guide
     assert "最终调用若缺少完整角色" in guide
@@ -373,11 +425,23 @@ def test_bug_analysis_guide_distinguishes_mcp_sentinels_and_evidence_windows():
         assert "输入" in skill and "输出" in skill and "协议" in skill
         assert "viewer" in skill
     assert "CK失败时必须先核对coverage/check function" in dynamic_bug_skill
+    assert (
+        "读取`.ucagent/runtime_config.json`中的`test_output_dir`"
+        in dynamic_bug_skill
+    )
+    assert "作为本次实际TC输出目录" in dynamic_bug_skill
+    assert "修复精确node ID前不得重复调用Check/Complete" in implementation_skill
     assert "测试激励/driver" in dynamic_bug_skill
     assert "CK Fail本身不能作为DUT Bug结论" in dynamic_bug_skill
     assert "不要求每个Fail TC关联失败CK" in dynamic_bug_skill
+    assert "不得把当前Pass用例改成Fail来满足门禁" in dynamic_bug_skill
+    assert "`a+(~b)+0`是`a-b-1`" in dynamic_bug_skill
+    assert "只去掉`TC-`" in dynamic_bug_skill
+    assert "相似节点只供复制完整报告node ID，不参与匹配" in dynamic_bug_skill
+    assert "原样执行`details.recovery_call`一次" in dynamic_bug_skill
     assert "验收单位是完整`FG/FC/CK/BG`路径" in dynamic_bug_skill
-    assert "每个CK作用域的BG路径都必须有" in dynamic_bug_skill
+    assert "每个 BG 必须且只能有一个根因" in dynamic_bug_skill
+    assert "内嵌完整FG/FC/CK/BG路径" in dynamic_bug_skill
     assert "`ApplyWaveInfoEvidence(..., checkpoint_path=" in dynamic_bug_skill
     assert "每个Fail TC都不预设责任方" in dynamic_bug_skill
     assert "`input | specification_expected | test_expected | actual | classification`" in dynamic_bug_skill
@@ -388,6 +452,11 @@ def test_bug_analysis_guide_distinguishes_mcp_sentinels_and_evidence_windows():
     assert "禁止调用`WaveInfo`、创建/更新非零BG或引用静态候选" in implementation_skill
     assert "`FAILED` TC关联的CK可以是`PASSED`" in implementation_skill
     assert "不要求每个Fail TC关联失败CK" in implementation_skill
+    assert "修改当前`PASSED`关联用例使其`FAILED`" in implementation_skill
+    assert "`a+(~b)+0`是`a-b-1`" in implementation_skill
+    assert "只去掉最前面的`TC-`" in implementation_skill
+    assert "Checker返回的相似节点只用于复制完整报告node ID" in implementation_skill
+    assert "原样执行`details.recovery_call`一次" in implementation_skill
 
 
 def test_bug_document_error_help_uses_current_machine_contract():
@@ -403,16 +472,21 @@ def test_bug_document_error_help_uses_current_machine_contract():
         "<BUG-OVERVIEW>",
         "<BUG-SYMPTOMS>",
         "<BUG-TRIGGER>",
-        "<BUG-ROOT-CAUSE>",
-        "<BUG-SOURCE-EVIDENCE>",
-        "<BUG-CAUSAL-CHAIN>",
-        "<BUG-FIX>",
-        "<BUG-RETEST>",
+        "<ROOT-CAUSES>",
+        "<CAUSE-REF-ROOT-NAME>",
+        "<ROOT-CAUSE-ANALYSIS>",
+        "<ROOT-SOURCE-EVIDENCE>",
+        "<ROOT-CAUSAL-CHAIN>",
+        "<ROOT-FIX>",
+        "<ROOT-RETEST>",
+        "<RELATED-BUGS>",
+        "<ROOT-NAME>",
+        "<RELATED-BUG-FG-NAME/FC-NAME/CK-NAME/BG-NAME-XX>",
         "<BUG-TODO>",
-        "<BUG-SOURCE-FIRST-ERROR>",
-        "<BUG-SOURCE-PROPAGATION>",
-        "<BUG-SOURCE-OBSERVABLE>",
-        "<BUG-SOURCE-UNAVAILABLE>",
+        "<ROOT-SOURCE-FIRST-ERROR>",
+        "<ROOT-SOURCE-PROPAGATION>",
+        "<ROOT-SOURCE-OBSERVABLE>",
+        "<ROOT-SOURCE-UNAVAILABLE>",
     ):
         assert marker in help_text
     assert "```yaml" in help_text
@@ -435,7 +509,8 @@ def test_bug_document_error_help_uses_current_machine_contract():
     assert "Do not rename, translate, omit, duplicate, or reorder them" in help_text
     assert "exact level-6 display title" in help_text
     assert "Guide_Doc/dut_bug_analysis.md section 5.1" in help_text
-    assert "Root cause analysis inside this BG entry" not in help_text
+    assert "Every BG path has exactly one root cause" in help_text
+    assert "bidirectional" in help_text
     assert "Angle-bracket tags may be hidden by Markdown" in help_text
     assert "every visible title must describe the actual item" in help_text
     assert "visible heading reuses the TC title" in help_text
@@ -448,7 +523,7 @@ def test_bug_document_error_help_uses_current_machine_contract():
     assert "specification expected, test expected, DUT actual, and classification" in help_text
     assert "coverage/check function, predicate, CovGroup.sample call" in help_text
     assert "Validation is scoped to the full FG/FC/CK/BG path" in help_text
-    assert "fields in one path never satisfy another path" in help_text
+    assert "Every CK-scoped BG path independently contains its three BG fields" in help_text
     assert "`Adder/Adder.v:10`" in help_text
     assert "`Adder/Adder.v:10-14` is valid" in help_text
     assert "`Adder/Adder.v:10-10`" in help_text
@@ -466,7 +541,7 @@ def test_bug_analysis_guide_examples_link_tests_to_central_waveform_records():
         / "ucagent/lang/zh/doc/Guide_Doc/dut_bug_analysis.md"
     )
     guide = guide_path.read_text(encoding="utf-8")
-    assert "每个 BG/TC 关联必须紧跟一个由工具生成的链接" in guide
+    assert "每个 BG/TC 紧随精确`<WAVEFORM-REF>`" in guide
     assert "<WAVEFORM-REF> [WAVEFORM-EVIDENCE](#waveform-" in guide
     assert "<WAVEFORM-EVIDENCE>" in guide
     heading = (
@@ -504,16 +579,18 @@ def test_bug_analysis_guide_documents_all_checker_markers_and_colocates_analysis
         "<BUG-OVERVIEW>",
         "<BUG-SYMPTOMS>",
         "<BUG-TRIGGER>",
-        "<BUG-ROOT-CAUSE>",
-        "<BUG-SOURCE-EVIDENCE>",
-        "<BUG-CAUSAL-CHAIN>",
-        "<BUG-FIX>",
-        "<BUG-RETEST>",
+        "<CAUSE-REF-ROOT-NAME>",
+        "<ROOT-CAUSE-ANALYSIS>",
+        "<ROOT-SOURCE-EVIDENCE>",
+        "<ROOT-CAUSAL-CHAIN>",
+        "<ROOT-FIX>",
+        "<ROOT-RETEST>",
+        "<RELATED-BUGS>",
         "<BUG-TODO>",
-        "<BUG-SOURCE-UNAVAILABLE>",
-        "<BUG-SOURCE-FIRST-ERROR>",
-        "<BUG-SOURCE-PROPAGATION>",
-        "<BUG-SOURCE-OBSERVABLE>",
+        "<ROOT-SOURCE-UNAVAILABLE>",
+        "<ROOT-SOURCE-FIRST-ERROR>",
+        "<ROOT-SOURCE-PROPAGATION>",
+        "<ROOT-SOURCE-OBSERVABLE>",
         "<STATIC-BUG-SUMMARY>",
         "<STATIC-BUG-DETAILS>",
         "<STATIC-BUG-PROGRESS>",
@@ -527,10 +604,10 @@ def test_bug_analysis_guide_documents_all_checker_markers_and_colocates_analysis
     assert "bug_evidence" in guide
     assert "required_signals" in guide
     assert "所有 BG 的`required_signals`并集" in guide
-    assert "有源码时，根因分析必须包含源码代码块" in guide
-    assert "<BUG-SOURCE-UNAVAILABLE>" in guide
-    assert "## 缺陷根因分析" not in guide
-    assert "不要在文档末尾再建立一个与 BG 标签分离的“根因分析汇总”" in guide
+    assert "每个 ROOT 的`<ROOT-SOURCE-EVIDENCE>`必须包含源码代码块" in guide
+    assert "<ROOT-SOURCE-UNAVAILABLE>" in guide
+    assert "一个 BG 必须且只能关联一个根因" in guide
+    assert "根因实体必须位于唯一`<ROOT-CAUSES>`分区" in guide
 
 
 def test_bug_analysis_guide_examples_embed_annotated_source_after_overview():
@@ -539,14 +616,14 @@ def test_bug_analysis_guide_examples_embed_annotated_source_after_overview():
         / "ucagent/lang/zh/doc/Guide_Doc/dut_bug_analysis.md"
     )
     guide = guide_path.read_text(encoding="utf-8")
-    assert guide.index("<BUG-OVERVIEW>") < guide.index("<BUG-SOURCE-EVIDENCE>")
+    assert guide.index("<BUG-OVERVIEW>") < guide.index("<ROOT-SOURCE-EVIDENCE>")
     source_example = guide.split("```systemverilog", 1)[1].split("```", 1)[0]
-    assert "<BUG-SOURCE-FIRST-ERROR>" in source_example
-    assert "<BUG-SOURCE-PROPAGATION>" in source_example
-    assert "<BUG-SOURCE-OBSERVABLE>" in source_example
+    assert "<ROOT-SOURCE-FIRST-ERROR>" in source_example
+    assert "<ROOT-SOURCE-PROPAGATION>" in source_example
+    assert "<ROOT-SOURCE-OBSERVABLE>" in source_example
 
 
-def test_dynamic_bug_template_does_not_split_root_cause_from_bug_entries():
+def test_dynamic_bug_template_has_canonical_root_cause_section():
     template_path = (
         Path(__file__).parents[1]
         / "ucagent/lang/zh/template/unity_test/{{DUT}}_bug_analysis.md"
@@ -557,7 +634,10 @@ def test_dynamic_bug_template_does_not_split_root_cause_from_bug_entries():
     assert "<DYNAMIC-BUGS>" in template
     assert "## 动态 Bug 记录" in template
     assert "## 波形证据" in template
-    assert "## 缺陷根因分析" not in template
+    assert "## 根因分析" in template
+    assert "<ROOT-CAUSES>\n</ROOT-CAUSES>" in template
+    assert template.index("</DYNAMIC-BUGS>") < template.index("<ROOT-CAUSES>")
+    assert template.index("</ROOT-CAUSES>") < template.index("<WAVEFORM-EVIDENCE>")
 
 
 def test_bug_analysis_guide_requires_scaffold_completion_with_or_without_skill():
@@ -583,14 +663,14 @@ def test_bug_analysis_guide_requires_scaffold_completion_with_or_without_skill()
     assert "- 失败用例：<TC-tests/test_adder.py::test_cin_carry>" not in guide
     assert "标准案例体现以下不可变边界" in guide
     assert "建立骨架并分阶段写入" in guide
-    assert "脚本不可用时也不阻塞整个流程" in guide
-    assert "参照Guide_Doc/dut_bug_analysis.md中的第 5.1 节完整标准案例和第 5.2 节骨架" in guide
+    assert "Skill 禁用、未复制或脚本不可用时" in guide
+    assert "按Guide_Doc/dut_bug_analysis.md中的第 5.2.2 节展开三个字段和根因引用" in guide
     assert "只处理反馈中的第一个阻塞项" in guide
     assert "调用 `ApplyWaveInfoEvidence`" in guide
     assert "不要为同一 BG 的后续 Fail TC 复制该结构" in guide
     assert "只接收`BG/TC/BD`" in guide
-    assert "八个分析章节中的全部 `<BUG-TODO>`" in guide
-    assert "任何非零 BG 残留占位都不能完成" in guide
+    assert "必须用真实结论替换全部`<BUG-TODO>`" in guide
+    assert "任何非零 BG 或 ROOT 残留`<BUG-TODO>`都不能完成阶段" in guide
 
     config = load_yaml_with_env_vars(
         str(Path(__file__).parents[1] / "ucagent/lang/zh/config/default.yaml")
@@ -664,9 +744,9 @@ def test_bug_analysis_guide_places_fields_after_all_tests():
 
     assert scaffold.count("<TC-") == 2
     assert scaffold.rindex("<TC-") < scaffold.index("<BUG-OVERVIEW>")
-    assert "第一个`<BUG-*>`字段出现后不得再追加 TC" in guide
-    assert "新增 TC 必须插入该 BG 的首个分析标题之前" in guide
-    assert "before the eight ordered `<BUG-*>` analysis fields" in agent_rules
+    assert "字段开始后不再出现 TC" in guide
+    assert "新增 TC 必须插入第一个 BG 字段之前" in guide
+    assert "before the three ordered `<BUG-*>` analysis fields" in agent_rules
     assert "never append another TC after the" in agent_rules
     assert "qualify every Guide_Doc section reference" in agent_rules
     assert "Guide_Doc/dut_bug_analysis.md section 5.1" in agent_rules
@@ -690,12 +770,78 @@ def test_bug_analysis_guide_canonical_example_is_checker_valid(tmp_path):
     )
     assert passed is True, message
 
-    yaml_text = example.split("```yaml\n", 1)[1].split("\n```", 1)[0]
-    payload = yaml.safe_load(yaml_text)
-    assert set(payload) == {"waveform_analysis"}
-    assert payload["waveform_analysis"]["bug_tags"] == [
-        "BG-SUM-CARRY-DROPPED-95"
+    assert re.findall(r"^### .+ <(ROOT-[^<>]+)>$", example, re.MULTILINE) == [
+        "ROOT-SUM-CARRY-WIDTH",
+        "ROOT-SATURATION-DETECTOR-CONSTANT",
     ]
+    assert re.findall(r"^###### .+ <(BG-[^<>]+)>$", example, re.MULTILINE) == [
+        "BG-SUM-CARRY-DROPPED-95",
+        "BG-FULL-RESULT-TRUNCATED-93",
+        "BG-SATURATION-DISABLED-92",
+    ]
+    assert re.findall(
+        r"^### .+ <(WAVEFORM-TC-[^<>]+)>$", example, re.MULTILINE
+    ) == [
+        "WAVEFORM-TC-tests/test_adder.py::test_cin_carry",
+        "WAVEFORM-TC-tests/test_adder.py::test_saturation_limit",
+    ]
+
+    shared_tc = "TC-tests/test_adder.py::test_cin_carry"
+    assert example.count(f"- 进位输入产生进位 <{shared_tc}>") == 2
+    assert example.count(f"<WAVEFORM-{shared_tc}>") == 1
+    shared_root = example.split(
+        "### 加法中间量宽度不足 <ROOT-SUM-CARRY-WIDTH>", 1
+    )[1].split(
+        "### 饱和溢出检测被固定为无效 "
+        "<ROOT-SATURATION-DETECTOR-CONSTANT>",
+        1,
+    )[0]
+    assert shared_root.count("<RELATED-BUG-") == 2
+    independent_root = example.split(
+        "### 饱和溢出检测被固定为无效 "
+        "<ROOT-SATURATION-DETECTOR-CONSTANT>",
+        1,
+    )[1].split("</ROOT-CAUSES>", 1)[0]
+    assert independent_root.count("<RELATED-BUG-") == 1
+
+    payloads = [
+        yaml.safe_load(yaml_text)["waveform_analysis"]
+        for yaml_text in re.findall(
+            r"```yaml\n(.*?)\n```", example, re.DOTALL
+        )
+    ]
+    assert len(payloads) == 2
+    by_test = {payload["test_case"]: payload for payload in payloads}
+    assert set(by_test) == {
+        "TC-tests/test_adder.py::test_cin_carry",
+        "TC-tests/test_adder.py::test_saturation_limit",
+    }
+    assert by_test[shared_tc]["bug_tags"] == [
+        "BG-FULL-RESULT-TRUNCATED-93",
+        "BG-SUM-CARRY-DROPPED-95",
+    ]
+    assert set(by_test[shared_tc]["bug_evidence"]) == set(
+        by_test[shared_tc]["bug_tags"]
+    )
+    shared_signal_groups = by_test[shared_tc]["signal_groups"]
+    documented_signals = {
+        signal
+        for field in ("clocks", "inputs", "outputs", "protocol", "key_signals")
+        for signal in shared_signal_groups[field]
+    }
+    required_signals = {
+        signal
+        for evidence in by_test[shared_tc]["bug_evidence"].values()
+        for signal in evidence["required_signals"]
+    }
+    assert required_signals <= documented_signals
+    saturation_tc = "TC-tests/test_adder.py::test_saturation_limit"
+    assert by_test[saturation_tc]["bug_tags"] == [
+        "BG-SATURATION-DISABLED-92"
+    ]
+    assert set(by_test[saturation_tc]["bug_evidence"]) == {
+        "BG-SATURATION-DISABLED-92"
+    }
 
 
 def test_dynamic_test_classification_precedes_global_waveform_sweep():

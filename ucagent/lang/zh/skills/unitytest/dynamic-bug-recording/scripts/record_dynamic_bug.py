@@ -9,6 +9,16 @@ from pathlib import Path
 from string import Template
 
 from ucagent.util.config import load_runtime_config
+from ucagent.util.bug_analysis_contract import (
+    RELATED_BUGS_TITLE,
+    ROOT_ANALYSIS_SECTION_MARKERS,
+    ROOT_ANALYSIS_SECTION_TITLES,
+    ROOT_ENTITY_TAG_PATTERN,
+    dynamic_bug_anchor_id,
+    related_bug_reference,
+    root_cause_anchor_id,
+    root_cause_reference,
+)
 
 DYNAMIC_BUGS_MARKER = "<DYNAMIC-BUGS>"
 DYNAMIC_BUGS_END_MARKER = "</DYNAMIC-BUGS>"
@@ -25,6 +35,9 @@ GENERIC_VISIBLE_TITLES = {
     "\u52a8\u6001 Bug",
     "\u5931\u8d25\u7528\u4f8b",
 }
+ROOT_CAUSES_MARKER = "<ROOT-CAUSES>"
+ROOT_CAUSES_END_MARKER = "</ROOT-CAUSES>"
+RELATED_BUGS_MARKER = "<RELATED-BUGS>"
 
 
 def load_asset_template(name):
@@ -39,7 +52,7 @@ def make_bug_analysis_document(dut):
     return bug_analysis_template.substitute(DUT=dut)
 
 
-def parse_args():
+def parse_args(test_output_dir="<resolved agent.cfg test output directory>"):
     parser = argparse.ArgumentParser(
         description=(
             "Insert one dynamic bug entry into {DUT}_bug_analysis.md. "
@@ -51,8 +64,9 @@ def parse_args():
         "-TC",
         required=True,
         help=(
-            "Test case tag, e.g. "
-            "TC-tests/test_ALU754_api.py::test_div"
+            "Exact current FAILED report node ID with TC- added after removing only the "
+            f"report file line range. Its file path must start with '{test_output_dir}/', "
+            "the value resolved from .ucagent/runtime_config.json."
         ),
     )
     parser.add_argument("-BD", required=True, help="Bug description")
@@ -126,14 +140,8 @@ def _workspace_relative_posix_path(path):
 
 
 def _normalize_tc_key(key, out_dir):
-    # Report keys are workspace-relative while TC tags are test-dir-relative.
-    normalized = re.sub(r":\d+(?:-\d+)?(?=::)", "", key)
-    parts = normalized.split("::")
-    file_path = _workspace_relative_posix_path(parts[0])
-    out_path = _workspace_relative_posix_path(out_dir)
-    if out_path not in ("", ".") and file_path.startswith(out_path + "/"):
-        file_path = file_path[len(out_path) + 1 :]
-    return "::".join([file_path, *parts[1:]])
+    del out_dir
+    return re.sub(r":\d+(?:-\d+)?(?=::)", "", str(key).strip())
 
 
 def _normalize_report_tc_key(key, out_dir=""):
@@ -154,13 +162,17 @@ def _parse_fg_fc_ck_items(raw_items, source_key):
     return parsed
 
 
-def resolve_fg_fc_ck_list_by_tc(tc_tag, out_dir):
+def resolve_fg_fc_ck_list_by_tc(tc_tag, out_dir, test_output_dir):
     file_path, class_name, func_name = parse_tc_target(tc_tag)
     if class_name:
         tc_target = f"{file_path}::{class_name}::{func_name}"
     else:
         tc_target = f"{file_path}::{func_name}"
     normalized_tc_target = _normalize_tc_key(tc_target, out_dir)
+    configured_test_dir = _workspace_relative_posix_path(test_output_dir)
+    has_configured_prefix = normalized_tc_target.split("::", 1)[0].startswith(
+        configured_test_dir + "/"
+    )
 
     report_path = os.path.join(os.getcwd(), out_dir, ".TEST_TEMPLATE_IMP_REPORT.json")
     if not os.path.exists(report_path):
@@ -176,8 +188,11 @@ def resolve_fg_fc_ck_list_by_tc(tc_tag, out_dir):
         )
 
     found = []
+    report_nodes = []
     for key, raw_items in mapping.items():
-        if _normalize_report_tc_key(key, out_dir) != normalized_tc_target:
+        report_node = _normalize_report_tc_key(key, out_dir)
+        report_nodes.append(report_node)
+        if not has_configured_prefix or report_node != normalized_tc_target:
             continue
         if not isinstance(raw_items, list):
             raise ValueError(
@@ -187,9 +202,25 @@ def resolve_fg_fc_ck_list_by_tc(tc_tag, out_dir):
 
     uniq = list(dict.fromkeys(found))
     if not uniq:
+        target_parts = normalized_tc_target.split("::")
+        target_file = target_parts[0]
+        target_function = target_parts[-1]
+        similar_nodes = [
+            node
+            for node in report_nodes
+            if os.path.basename(node.split("::", 1)[0]) == os.path.basename(target_file)
+            or node.split("::")[-1] == target_function
+        ][:10]
+        candidate_text = ", ".join(similar_nodes) if similar_nodes else "None"
         raise ValueError(
-            "Error: no FG/FC/CK mapping found in report for target TC: "
-            f"{tc_target}"
+            "Error: no exact FG/FC/CK report mapping exists for target TC "
+            f"'{tc_target}'. Configured TC output directory from "
+            f".ucagent/runtime_config.json: '{configured_test_dir}'. The TC file path must "
+            f"start with '{configured_test_dir}/'. Similar current FAILED report node IDs: "
+            f"{candidate_text}. "
+            "Similar nodes are lookup hints only and are not equivalent identities. Copy "
+            "the intended report node ID verbatim, remove only its file line range, add "
+            "TC-, and call this script again with the configured directory unchanged."
         )
     return uniq
 
@@ -291,16 +322,9 @@ def resolve_checkpoint_titles(function_file, fg, fc, ck):
     return fg_title, fc_title, ck_title
 
 
-def resolve_test_title(tc_tag, out_dir):
+def resolve_test_title(tc_tag):
     file_path, class_name, func_name = parse_tc_target(tc_tag)
-    normalized_out = _workspace_relative_posix_path(out_dir)
-    normalized_file = _workspace_relative_posix_path(file_path)
-    if normalized_out not in ("", ".") and normalized_file.startswith(
-        normalized_out + "/"
-    ):
-        source_path = normalized_file
-    else:
-        source_path = posixpath.join(normalized_out, normalized_file)
+    source_path = _workspace_relative_posix_path(file_path)
     if not os.path.isfile(source_path):
         raise FileNotFoundError(f"Error: test source not found: {source_path}")
     with open(source_path, "r", encoding="utf-8") as handle:
@@ -355,6 +379,19 @@ def bg_confidence(bg_tag):
     return conf
 
 
+def root_cause_tag_for_bg(bg_tag):
+    """Return the deterministic initial root-cause tag for a BG scaffold."""
+
+    match = re.fullmatch(r"BG-(.+)-\d{1,3}", bg_tag)
+    if match is None:
+        raise ValueError(f"Error: BG tag format invalid: {bg_tag}")
+    name = re.sub(r"[^A-Z0-9-]+", "-", match.group(1).upper()).strip("-")
+    candidate = f"ROOT-{name or 'UNNAMED'}"
+    if ROOT_ENTITY_TAG_PATTERN.fullmatch(candidate) is None:
+        candidate = f"ROOT-BUG-{name or 'UNNAMED'}"
+    return candidate
+
+
 def locate_section(lines):
     starts = [i for i, line in enumerate(lines) if line.strip() == DYNAMIC_BUGS_MARKER]
     ends = [i for i, line in enumerate(lines) if line.strip() == DYNAMIC_BUGS_END_MARKER]
@@ -406,8 +443,10 @@ def render_bug_entry(
     fc_title,
     ck_title,
     tc_title,
+    checkpoint_path,
 ):
     anchor = hashlib.sha256(tc.encode("utf-8")).hexdigest()[:16]
+    root_tag = root_cause_tag_for_bg(bg)
     return ensure_trailing_newline_block(
         dynamic_bug_entry_template.substitute(
             FG=fg,
@@ -422,6 +461,29 @@ def render_bug_entry(
             FC_TITLE=fc_title,
             CK_TITLE=ck_title,
             TC_TITLE=tc_title,
+            BUG_ANCHOR=dynamic_bug_anchor_id(checkpoint_path, bg),
+            ROOT_CAUSE_REFERENCE=root_cause_reference(root_tag, bd),
+        )
+    )
+
+
+def render_root_cause_entry(root_tag, bd, checkpoint_path, bg):
+    root_titles = dict(ROOT_ANALYSIS_SECTION_TITLES)
+    return ensure_trailing_newline_block(
+        "\n".join(
+            [
+                f'<a id="{root_cause_anchor_id(root_tag)}"></a>',
+                f"### {bd} <{root_tag}>",
+                *(
+                    value
+                    for field, marker in ROOT_ANALYSIS_SECTION_MARKERS
+                    for value in (root_titles[field], marker, TODO_MARKER)
+                ),
+                RELATED_BUGS_TITLE,
+                RELATED_BUGS_MARKER,
+                related_bug_reference(checkpoint_path, bg),
+                "",
+            ]
         )
     )
 
@@ -431,6 +493,10 @@ def subtree_from_tag(block, tag, end_marker=None):
     start = find_tag_line(lines, 0, len(lines), tag)
     if start < 0:
         raise ValueError(f"Error: scaffold asset does not contain <{tag}>.")
+    if tag.startswith("BG-") and start > 0 and lines[start - 1].lstrip().startswith(
+        '<a id="bug-'
+    ):
+        start -= 1
     end = len(lines)
     if end_marker is not None:
         marker_line = next(
@@ -445,12 +511,13 @@ def subtree_from_tag(block, tag, end_marker=None):
     return ensure_trailing_newline_block("".join(lines[start:end]))
 
 
-def insert_content(
+def _insert_dynamic_content(
     lines, fg, fc, ck, bg, tc, bd, fg_title, fc_title, ck_title, tc_title
 ):
     lines[:] = "".join(lines).splitlines(keepends=True)
     confidence = bg_confidence(bg)
     sec_start, sec_end = locate_section(lines)
+    checkpoint_path = f"{fg}/{fc}/{ck}"
 
     fg_line = find_tag_line(lines, sec_start + 1, sec_end, fg)
     entry_block = render_bug_entry(
@@ -465,6 +532,7 @@ def insert_content(
         fc_title,
         ck_title,
         tc_title,
+        checkpoint_path,
     )
     fc_block = subtree_from_tag(entry_block, fc)
     ck_bg_block = subtree_from_tag(entry_block, ck)
@@ -541,8 +609,87 @@ def insert_content(
     return "Inserted new CK/BG/TC under existing FG/FC."
 
 
+def ensure_root_cause_entry(lines, bg, bd, checkpoint_path):
+    """Create one root entity and keep its reverse BG link idempotent."""
+
+    starts = [i for i, line in enumerate(lines) if line.strip() == ROOT_CAUSES_MARKER]
+    ends = [i for i, line in enumerate(lines) if line.strip() == ROOT_CAUSES_END_MARKER]
+    if len(starts) != 1 or len(ends) != 1 or starts[0] >= ends[0]:
+        raise ValueError(
+            "Error: target markdown must contain one closed ROOT-CAUSES container "
+            "before WAVEFORM-EVIDENCE."
+        )
+    start, end = starts[0], ends[0]
+    root_tag = root_cause_tag_for_bg(bg)
+    root_token = f"<{root_tag}>"
+    entity_line = next(
+        (i for i in range(start + 1, end) if root_token in lines[i]),
+        -1,
+    )
+    relation = related_bug_reference(checkpoint_path, bg)
+    if entity_line < 0:
+        lines.insert(end, render_root_cause_entry(root_tag, bd, checkpoint_path, bg))
+        return
+    entity_end = next(
+        (
+            i
+            for i in range(entity_line + 1, end)
+            if re.fullmatch(
+                rf"###\s+.+\s+<{ROOT_ENTITY_TAG_PATTERN.pattern}>",
+                lines[i].strip(),
+            )
+        ),
+        end,
+    )
+    if any(relation.strip() == lines[i].strip() for i in range(entity_line, entity_end)):
+        return
+    related_line = next(
+        (i for i in range(entity_line, entity_end) if lines[i].strip() == RELATED_BUGS_MARKER),
+        -1,
+    )
+    if related_line < 0:
+        raise ValueError(f"Error: root cause entity {root_tag} is missing {RELATED_BUGS_MARKER}.")
+    lines.insert(entity_end, relation)
+
+
+def ensure_root_cause_container(lines):
+    starts = [i for i, line in enumerate(lines) if line.strip() == ROOT_CAUSES_MARKER]
+    ends = [i for i, line in enumerate(lines) if line.strip() == ROOT_CAUSES_END_MARKER]
+    if starts or ends:
+        if len(starts) != 1 or len(ends) != 1 or starts[0] >= ends[0]:
+            raise ValueError("Error: malformed ROOT-CAUSES container.")
+        return
+    evidence = next(
+        (i for i, line in enumerate(lines) if line.strip() == WAVEFORM_EVIDENCE_MARKER),
+        -1,
+    )
+    if evidence < 0:
+        raise ValueError("Error: target markdown is missing WAVEFORM-EVIDENCE marker.")
+    lines[evidence:evidence] = [
+        "## \u6839\u56e0\u5206\u6790\n",
+        ROOT_CAUSES_MARKER + "\n",
+        ROOT_CAUSES_END_MARKER + "\n",
+        "\n",
+    ]
+
+
+def insert_content(
+    lines, fg, fc, ck, bg, tc, bd, fg_title, fc_title, ck_title, tc_title
+):
+    message = _insert_dynamic_content(
+        lines, fg, fc, ck, bg, tc, bd, fg_title, fc_title, ck_title, tc_title
+    )
+    lines[:] = "".join(lines).splitlines(keepends=True)
+    ensure_root_cause_entry(lines, bg, bd, f"{fg}/{fc}/{ck}")
+    return message
+
+
 def main():
-    args = parse_args()
+    runtime_config = load_runtime_config(os.getcwd())
+    dut = runtime_config["DUT"]
+    out = runtime_config["OUT"]
+    configured_test_dir = runtime_config["test_output_dir"]
+    args = parse_args(configured_test_dir)
     validate_dynamic_bg_tag(args.BG)
     validate_tag(args.TC, "TC")
 
@@ -550,13 +697,11 @@ def main():
         normalize_visible_title(args.BD, args.BG)
     )
 
-    runtime_config = load_runtime_config(os.getcwd())
-    dut = runtime_config["DUT"]
-    out = runtime_config["OUT"]
-
-    fg_fc_ck_list = resolve_fg_fc_ck_list_by_tc(args.TC, out)
+    fg_fc_ck_list = resolve_fg_fc_ck_list_by_tc(
+        args.TC, out, configured_test_dir
+    )
     function_file = os.path.join(os.getcwd(), out, f"{dut}_functions_and_checks.md")
-    tc_title = resolve_test_title(args.TC, out)
+    tc_title = resolve_test_title(args.TC)
 
     target = os.path.join(os.getcwd(), out, f"{dut}_bug_analysis.md")
 
@@ -570,6 +715,7 @@ def main():
 
     with open(target, "r", encoding="utf-8") as f:
         lines = f.readlines()
+    ensure_root_cause_container(lines)
 
     msgs = []
     for fg, fc, ck in fg_fc_ck_list:

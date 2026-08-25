@@ -34,6 +34,10 @@ from ucagent.tools.waveform import WaveInfo
 from ucagent.util.config import load_yaml_with_env_vars
 from ucagent.util.bug_analysis_contract import (
     BUG_ANALYSIS_SECTION_TITLES,
+    dynamic_bug_anchor_id,
+    related_bug_reference,
+    root_cause_anchor_id,
+    root_cause_reference,
     waveform_record_heading,
     waveform_anchor_id,
     waveform_record_tag,
@@ -92,12 +96,17 @@ FINAL_SIGNAL_GROUPS = {
 
 CHECKPOINT = "FG-A/FC-A/CK-A"
 REPORT_TEST = "tests/test_a.py:1-20::test_a"
-DOCUMENT_TEST = "test_a.py::test_a"
+DOCUMENT_TEST = "tests/test_a.py::test_a"
 WORKSPACE_RELATIVE_DOCUMENT_TEST = "unity_test/tests/test_a.py::test_a"
 VIEWER_LINK = build_waveform_viewer_markdown_link(
     {"v": 1, "file": "tests/data/placeholder.vcd"}
 )
 TEST_DISPLAY_TITLE = "Reproduced result mismatch"
+ROOT_TAG = "ROOT-DYNAMIC-RESULT-WIDTH"
+ROOT_TITLE = "Dynamic result width is insufficient"
+ROOT_ANALYSIS = (
+    "The RTL slices the intermediate value before it reaches the result output."
+)
 
 
 def _dynamic_checkpoint_headings() -> str:
@@ -108,9 +117,15 @@ def _dynamic_checkpoint_headings() -> str:
     )
 
 
-def _dynamic_bug_heading(bug_tag: str = "BG-DYNAMIC-80") -> str:
+def _dynamic_bug_heading(
+    bug_tag: str = "BG-DYNAMIC-80",
+    checkpoint: str = CHECKPOINT,
+) -> str:
     confidence = bug_tag.rsplit("-", 1)[-1]
-    return f"###### Truncated result（{confidence}%） <{bug_tag}>\n"
+    return (
+        f'<a id="{dynamic_bug_anchor_id(checkpoint, bug_tag)}"></a>\n'
+        f"###### Truncated result（{confidence}%） <{bug_tag}>\n"
+    )
 
 
 def _dynamic_test_heading(
@@ -120,12 +135,12 @@ def _dynamic_test_heading(
     return f"- {title} <{test_label}>\n"
 
 
-SOURCE_EVIDENCE_BLOCK = """
+ROOT_SOURCE_EVIDENCE_BLOCK = """
 ```systemverilog
 // Adder/Adder.v:10-14
-12: logic [4:0] intermediate; // <BUG-SOURCE-FIRST-ERROR> width is too narrow for the full result
-13: assign intermediate = data + 1; // <BUG-SOURCE-PROPAGATION> truncation enters the result path
-14: assign result = intermediate[3:0]; // <BUG-SOURCE-OBSERVABLE> output exposes the truncated value
+12: logic [4:0] intermediate; // <ROOT-SOURCE-FIRST-ERROR> width is too narrow for the full result
+13: assign intermediate = data + 1; // <ROOT-SOURCE-PROPAGATION> truncation enters the result path
+14: assign result = intermediate[3:0]; // <ROOT-SOURCE-OBSERVABLE> output exposes the truncated value
 ```
 """.strip()
 COMPLETE_BUG_ANALYSIS = f"""
@@ -143,32 +158,76 @@ High severity; expected result 3 but observed result 2 in a stable reproducer.
 <BUG-TRIGGER>
 
 The request is valid with data 3 and affects the result output at CK-A.
-
-###### 根因分析
-<BUG-ROOT-CAUSE>
-
-The RTL slices the intermediate value before it reaches the result output.
-
-###### 源码证据
-<BUG-SOURCE-EVIDENCE>
-
-{SOURCE_EVIDENCE_BLOCK}
-
-###### 动态因果链
-<BUG-CAUSAL-CHAIN>
-
-Input data 3 reaches the request, truncation occurs in RTL, result becomes 2, and CK-A fails.
-
-###### 修复建议
-<BUG-FIX>
-
-Preserve the complete intermediate width until the result assignment.
-
-###### 风险与复验
-<BUG-RETEST>
-
-Retest boundary values, regress result-path cases, and confirm the corrected waveform event.
+{root_cause_reference(ROOT_TAG, ROOT_TITLE)}
 """.strip()
+
+
+def _root_cause_lines(
+    related_paths: list[tuple[str, str]],
+    *,
+    root_tag: str = ROOT_TAG,
+    root_title: str = ROOT_TITLE,
+    root_analysis: str = ROOT_ANALYSIS,
+    source_evidence: str = ROOT_SOURCE_EVIDENCE_BLOCK,
+    causal_chain: str = (
+        "Input data 3 reaches the request, truncation occurs in RTL, result becomes 2, "
+        "and the associated BG fails."
+    ),
+    fix: str = "Preserve the complete intermediate width until the result assignment.",
+    retest: str = (
+        "Retest boundary values, regress every associated result path, and confirm the "
+        "corrected waveform event."
+    ),
+) -> list[str]:
+    return [
+        "<ROOT-CAUSES>",
+        f'<a id="{root_cause_anchor_id(root_tag)}"></a>',
+        f"### {root_title} <{root_tag}>",
+        "#### 根因分析",
+        "<ROOT-CAUSE-ANALYSIS>",
+        root_analysis,
+        "#### 源码证据",
+        "<ROOT-SOURCE-EVIDENCE>",
+        source_evidence,
+        "#### 因果链",
+        "<ROOT-CAUSAL-CHAIN>",
+        causal_chain,
+        "#### 修复建议",
+        "<ROOT-FIX>",
+        fix,
+        "#### 风险与复验",
+        "<ROOT-RETEST>",
+        retest,
+        "#### 关联 Bug",
+        "<RELATED-BUGS>",
+        *(related_bug_reference(checkpoint, bug) for checkpoint, bug in related_paths),
+        "</ROOT-CAUSES>",
+    ]
+
+
+def _complete_analysis_document(
+    dynamic_body: str,
+    *,
+    related_paths: list[tuple[str, str]] | None = None,
+    root_analysis: str = ROOT_ANALYSIS,
+    source_evidence: str = ROOT_SOURCE_EVIDENCE_BLOCK,
+) -> str:
+    paths = related_paths or [(CHECKPOINT, "BG-DYNAMIC-80")]
+    return "\n".join(
+        [
+            "<DYNAMIC-BUGS>",
+            dynamic_body.rstrip(),
+            "</DYNAMIC-BUGS>",
+            *_root_cause_lines(
+                paths,
+                root_analysis=root_analysis,
+                source_evidence=source_evidence,
+            ),
+            "<WAVEFORM-EVIDENCE>",
+            "</WAVEFORM-EVIDENCE>",
+            "",
+        ]
+    )
 
 
 def _write_waveform(test_dir: Path) -> Path:
@@ -269,17 +328,25 @@ def _write_bug_doc(
     *,
     test_case: str = DOCUMENT_TEST,
     analysis: str = COMPLETE_BUG_ANALYSIS,
+    root_analysis: str = ROOT_ANALYSIS,
+    source_evidence: str = ROOT_SOURCE_EVIDENCE_BLOCK,
 ) -> None:
     lines = [
         "<DYNAMIC-BUGS>",
         "### Arithmetic behavior <FG-A>",
         "#### Result calculation <FC-A>",
         "##### Exact output <CK-A>",
+        f'<a id="{dynamic_bug_anchor_id(CHECKPOINT, "BG-DYNAMIC-80")}"></a>',
         "###### Truncated result（80%） <BG-DYNAMIC-80>",
         f"- {TEST_DISPLAY_TITLE} <TC-{test_case}>",
         waveform_reference(f"TC-{test_case}"),
         analysis,
         "</DYNAMIC-BUGS>",
+        *_root_cause_lines(
+            [(CHECKPOINT, "BG-DYNAMIC-80")],
+            root_analysis=root_analysis,
+            source_evidence=source_evidence,
+        ),
         "<WAVEFORM-EVIDENCE>",
     ]
     if block is not None:
@@ -309,6 +376,7 @@ def _write_central_waveform_document(
     ]
     for bug, tests in bugs.items():
         confidence = bug.rsplit("-", 1)[-1]
+        lines.append(f'<a id="{dynamic_bug_anchor_id(CHECKPOINT, bug)}"></a>')
         lines.append(f"###### Reproduced defect（{confidence}%） <{bug}>")
         for test_case in tests:
             test_label = f"TC-{test_case}"
@@ -319,8 +387,28 @@ def _write_central_waveform_document(
                 ]
             )
         if include_analysis:
-            lines.append(COMPLETE_BUG_ANALYSIS)
-    lines.extend(["</DYNAMIC-BUGS>", "<WAVEFORM-EVIDENCE>"])
+            root_tag = f"ROOT-{bug[len('BG-'):].rsplit('-', 1)[0]}"
+            root_title = f"Root cause for {bug}"
+            lines.append(
+                COMPLETE_BUG_ANALYSIS.replace(
+                    root_cause_reference(ROOT_TAG, ROOT_TITLE),
+                    root_cause_reference(root_tag, root_title),
+                )
+            )
+    lines.append("</DYNAMIC-BUGS>")
+    lines.append("<ROOT-CAUSES>")
+    if include_analysis:
+        for bug in bugs:
+            root_tag = f"ROOT-{bug[len('BG-'):].rsplit('-', 1)[0]}"
+            root_title = f"Root cause for {bug}"
+            lines.extend(
+                _root_cause_lines(
+                    [(CHECKPOINT, bug)],
+                    root_tag=root_tag,
+                    root_title=root_title,
+                )[1:-1]
+            )
+    lines.extend(["</ROOT-CAUSES>", "<WAVEFORM-EVIDENCE>"])
     for test_case, block in blocks.items():
         lines.extend(
             _waveform_block_lines(
@@ -995,7 +1083,7 @@ def test_multiple_invalid_waveform_blocks_are_reported_in_one_pass(tmp_path):
     )
     second_result = _call_waveinfo(
         tool,
-        test_case_name="test_b.py::test_b",
+        test_case_name="tests/test_b.py::test_b",
         pattern=pattern,
         logged_cycle=0,
         cycle_tolerance=2,
@@ -1010,11 +1098,11 @@ def test_multiple_invalid_waveform_blocks_are_reported_in_one_pass(tmp_path):
         tmp_path,
         [
             ("BG-DYNAMIC-A-80", DOCUMENT_TEST),
-            ("BG-DYNAMIC-B-80", "test_b.py::test_b"),
+            ("BG-DYNAMIC-B-80", "tests/test_b.py::test_b"),
         ],
         {
             DOCUMENT_TEST: first_block,
-            "test_b.py::test_b": second_block,
+            "tests/test_b.py::test_b": second_block,
         },
     )
     failed_tests = {
@@ -1041,7 +1129,7 @@ def test_multiple_invalid_waveform_blocks_are_reported_in_one_pass(tmp_path):
         "documented": first_block["modified_time_ns"],
         "receipt": first_block["modified_time_ns"] - 1,
     }
-    assert "test_b.py::test_b" not in str(message)
+    assert "tests/test_b.py::test_b" not in str(message)
 
 
 def test_current_replay_must_keep_the_documented_clock_candidate(
@@ -1403,7 +1491,7 @@ def test_waveform_bug_test_association_must_not_be_duplicated(tmp_path):
     assert "[Duplicate Waveform Association]" in str(error)
 
 
-def test_equivalent_test_paths_must_not_duplicate_one_ck_bug_association(tmp_path):
+def test_different_test_path_prefixes_are_not_equivalent(tmp_path):
     block = {"status": "confirmed", "receipt_id": "receipt-1"}
     _write_central_waveform_document(
         tmp_path,
@@ -1428,14 +1516,14 @@ def test_equivalent_test_paths_must_not_duplicate_one_ck_bug_association(tmp_pat
     )
 
     assert passed is False
-    assert "[Equivalent Waveform Association Duplicate]" in message["error"]
+    assert "[Waveform Analysis Association Incomplete]" in message["error"]
     details = message["details"]
-    assert details["code"] == "EQUIVALENT_TC_ASSOCIATION_DUPLICATE"
-    assert details["keep_test_label"] == f"TC-{DOCUMENT_TEST}"
-    assert details["duplicate_test_label"] == f"TC-{WORKSPACE_RELATIVE_DOCUMENT_TEST}"
-    assert details["rerun_test"] is False
-    assert details["rerun_waveinfo"] is False
-    assert details["apply_evidence"] is False
+    unmatched = details["unmatched_pairs"][0]
+    assert unmatched["test_case"] == WORKSPACE_RELATIVE_DOCUMENT_TEST
+    assert unmatched["reason"] == "test case is absent from the validation set"
+    assert unmatched["similar_report_test_cases"] == [
+        "tests/test_a.py::test_a"
+    ]
 
 
 def test_test_case_matching_does_not_use_function_name_substrings(tmp_path):
@@ -1612,13 +1700,13 @@ def test_dynamic_bug_document_rejects_static_labels_without_failed_report(tmp_pa
 
 
 def test_dynamic_bug_content_rejects_unfilled_scaffold(tmp_path):
-    scaffold = COMPLETE_BUG_ANALYSIS.replace(
-        "The RTL slices the intermediate value before it reaches the result output.",
-        "<BUG-TODO>\nRead RTL and fill the root cause.",
-    )
     (tmp_path / "bugs.md").write_text(
-        f"<DYNAMIC-BUGS>\n{_dynamic_checkpoint_headings()}"
-        f"{_dynamic_bug_heading()}{_dynamic_test_heading()}{scaffold}\n",
+        _complete_analysis_document(
+            f"{_dynamic_checkpoint_headings()}"
+            f"{_dynamic_bug_heading()}{_dynamic_test_heading()}"
+            f"{COMPLETE_BUG_ANALYSIS}",
+            root_analysis="<BUG-TODO>\nRead RTL and fill the root cause.",
+        ),
         encoding="utf-8",
     )
 
@@ -1627,11 +1715,9 @@ def test_dynamic_bug_content_rejects_unfilled_scaffold(tmp_path):
     )
 
     assert passed is False
-    assert "[Dynamic Bug Analysis Incomplete]" in message["error"]
-    assert "unfinished marker '<BUG-TODO>'" in message["error"]
-    assert "BG-DYNAMIC-80" in message["error"]
-    assert "complete canonical example" in message["error"]
-    assert "Guide_Doc/dut_bug_analysis.md section 5.1" in message["error"]
+    assert "[Root Cause Field Incomplete]" in message["error"]
+    assert "<BUG-TODO>" in message["error"]
+    assert ROOT_TAG in message["error"]
 
 
 @pytest.mark.parametrize(
@@ -1711,17 +1797,16 @@ def test_dynamic_bug_analysis_fields_must_follow_all_tests(tmp_path):
     assert passed is False
     assert "[Dynamic Bug Child Order Error]" in message["error"]
     assert f"<TC-{second_test}>" in message["error"]
-    assert "place all eight <BUG-*> fields after the final TC" in message["error"]
+    assert "place the three canonical BG fields after the final TC" in message["error"]
 
 
 def test_dynamic_bug_analysis_accepts_multiple_tests_before_fields(tmp_path):
     second_test = "test_a.py::test_second"
-    document = (
-        f"<DYNAMIC-BUGS>\n{_dynamic_checkpoint_headings()}"
+    document = _complete_analysis_document(
+        f"{_dynamic_checkpoint_headings()}"
         f"{_dynamic_bug_heading()}{_dynamic_test_heading()}"
         f"- Second reproducer <TC-{second_test}>\n"
-        f"{COMPLETE_BUG_ANALYSIS}\n"
-        "</DYNAMIC-BUGS>\n"
+        f"{COMPLETE_BUG_ANALYSIS}"
     )
     (tmp_path / "bugs.md").write_text(document, encoding="utf-8")
 
@@ -1786,8 +1871,10 @@ def test_dynamic_bug_content_does_not_parse_natural_language_placeholders(tmp_pa
         "the complete intermediate width until the result assignment.",
     )
     (tmp_path / "bugs.md").write_text(
-        f"<DYNAMIC-BUGS>\n{_dynamic_checkpoint_headings()}"
-        f"{_dynamic_bug_heading()}{_dynamic_test_heading()}{analysis}\n",
+        _complete_analysis_document(
+            f"{_dynamic_checkpoint_headings()}"
+            f"{_dynamic_bug_heading()}{_dynamic_test_heading()}{analysis}"
+        ),
         encoding="utf-8",
     )
 
@@ -1804,8 +1891,10 @@ def test_dynamic_bug_content_does_not_apply_prose_length_threshold(tmp_path):
         "x",
     )
     (tmp_path / "bugs.md").write_text(
-        f"<DYNAMIC-BUGS>\n{_dynamic_checkpoint_headings()}"
-        f"{_dynamic_bug_heading()}{_dynamic_test_heading()}{analysis}\n",
+        _complete_analysis_document(
+            f"{_dynamic_checkpoint_headings()}"
+            f"{_dynamic_bug_heading()}{_dynamic_test_heading()}{analysis}"
+        ),
         encoding="utf-8",
     )
 
@@ -1818,9 +1907,12 @@ def test_dynamic_bug_content_does_not_apply_prose_length_threshold(tmp_path):
 
 def test_dynamic_bug_content_requires_all_analysis_sections(tmp_path):
     (tmp_path / "bugs.md").write_text(
-        f"<DYNAMIC-BUGS>\n{_dynamic_checkpoint_headings()}"
-        f"{_dynamic_bug_heading()}{_dynamic_test_heading()}"
-        "**根因分析**\n只有泛化结论。\n",
+        _complete_analysis_document(
+            f"{_dynamic_checkpoint_headings()}"
+            f"{_dynamic_bug_heading()}{_dynamic_test_heading()}"
+            "**根因分析**\n只有泛化结论。\n"
+            f"{root_cause_reference(ROOT_TAG, ROOT_TITLE)}"
+        ),
         encoding="utf-8",
     )
 
@@ -1839,11 +1931,13 @@ def test_dynamic_bug_content_requires_all_analysis_sections(tmp_path):
 
 def test_dynamic_bug_content_rejects_noncanonical_display_heading(tmp_path):
     localized = COMPLETE_BUG_ANALYSIS.replace(
-        "###### 源码证据", "###### Source Evidence"
+        "###### 现象与严重度", "###### Symptoms"
     )
     (tmp_path / "bugs.md").write_text(
-        f"<DYNAMIC-BUGS>\n{_dynamic_checkpoint_headings()}"
-        f"{_dynamic_bug_heading()}{_dynamic_test_heading()}{localized}\n",
+        _complete_analysis_document(
+            f"{_dynamic_checkpoint_headings()}"
+            f"{_dynamic_bug_heading()}{_dynamic_test_heading()}{localized}"
+        ),
         encoding="utf-8",
     )
 
@@ -1853,11 +1947,11 @@ def test_dynamic_bug_content_rejects_noncanonical_display_heading(tmp_path):
 
     assert passed is False
     assert (
-        "field 'source_evidence' must use its exact level-6 title"
+        "field 'symptoms' must use its exact level-6 title"
         in message["error"]
     )
     assert "Guide_Doc/dut_bug_analysis.md section 5.1" in message["error"]
-    assert dict(BUG_ANALYSIS_SECTION_TITLES)["source_evidence"] not in message["error"]
+    assert dict(BUG_ANALYSIS_SECTION_TITLES)["symptoms"] not in message["error"]
 
 
 def test_dynamic_bug_content_rejects_marker_before_display_heading(tmp_path):
@@ -1866,8 +1960,10 @@ def test_dynamic_bug_content_rejects_marker_before_display_heading(tmp_path):
         "<BUG-OVERVIEW>\n###### Bug 概述",
     )
     (tmp_path / "bugs.md").write_text(
-        f"<DYNAMIC-BUGS>\n{_dynamic_checkpoint_headings()}"
-        f"{_dynamic_bug_heading()}{_dynamic_test_heading()}{inverted}\n",
+        _complete_analysis_document(
+            f"{_dynamic_checkpoint_headings()}"
+            f"{_dynamic_bug_heading()}{_dynamic_test_heading()}{inverted}"
+        ),
         encoding="utf-8",
     )
 
@@ -1882,16 +1978,19 @@ def test_dynamic_bug_content_rejects_marker_before_display_heading(tmp_path):
         if item["problem"].startswith("field 'overview'")
     )
     assert "immediately before marker '<BUG-OVERVIEW>'" in issue["problem"]
-    assert issue["line"] == 7
+    assert issue["line"] == 8
 
 
 def test_dynamic_bug_content_requires_canonical_source_line_range(tmp_path):
-    invalid_location = COMPLETE_BUG_ANALYSIS.replace(
+    invalid_location = ROOT_SOURCE_EVIDENCE_BLOCK.replace(
         "Adder/Adder.v:10-14", "Adder/Adder.v:10"
     )
     (tmp_path / "bugs.md").write_text(
-        f"<DYNAMIC-BUGS>\n{_dynamic_checkpoint_headings()}"
-        f"{_dynamic_bug_heading()}{_dynamic_test_heading()}{invalid_location}\n",
+        _complete_analysis_document(
+            f"{_dynamic_checkpoint_headings()}"
+            f"{_dynamic_bug_heading()}{_dynamic_test_heading()}{COMPLETE_BUG_ANALYSIS}",
+            source_evidence=invalid_location,
+        ),
         encoding="utf-8",
     )
 
@@ -1903,8 +2002,8 @@ def test_dynamic_bug_content_requires_canonical_source_line_range(tmp_path):
     assert "replace `Adder/Adder.v:10` with `Adder/Adder.v:10-14`" in message[
         "error"
     ]
-    assert "Do not recreate the BG/TC scaffold, rerun WaveInfo" in message["error"]
-    issue = message["details"]["issues"][0]
+    assert "do not need to be regenerated" in message["next_action"][0]
+    issue = message["details"]
     assert issue["code"] == "HDL_SOURCE_LOCATION_FORMAT"
     assert issue["observed"] == "Adder/Adder.v:10"
     assert issue["replacement"] == "Adder/Adder.v:10-14"
@@ -1912,12 +2011,15 @@ def test_dynamic_bug_content_requires_canonical_source_line_range(tmp_path):
 
 
 def test_dynamic_bug_content_rejects_l_prefixed_source_line_range(tmp_path):
-    invalid_location = COMPLETE_BUG_ANALYSIS.replace(
+    invalid_location = ROOT_SOURCE_EVIDENCE_BLOCK.replace(
         "Adder/Adder.v:10-14", "Adder/Adder.v:L10-L14"
     )
     (tmp_path / "bugs.md").write_text(
-        f"<DYNAMIC-BUGS>\n{_dynamic_checkpoint_headings()}"
-        f"{_dynamic_bug_heading()}{_dynamic_test_heading()}{invalid_location}\n",
+        _complete_analysis_document(
+            f"{_dynamic_checkpoint_headings()}"
+            f"{_dynamic_bug_heading()}{_dynamic_test_heading()}{COMPLETE_BUG_ANALYSIS}",
+            source_evidence=invalid_location,
+        ),
         encoding="utf-8",
     )
 
@@ -1926,7 +2028,7 @@ def test_dynamic_bug_content_rejects_l_prefixed_source_line_range(tmp_path):
     )
 
     assert passed is False
-    issue = message["details"]["issues"][0]
+    issue = message["details"]
     assert issue["code"] == "HDL_SOURCE_LOCATION_FORMAT"
     assert issue["observed"] == "Adder/Adder.v:L10-L14"
     assert issue["replacement"] == "Adder/Adder.v:10-14"
@@ -1936,15 +2038,15 @@ def test_dynamic_bug_content_accepts_single_line_as_explicit_range(tmp_path):
     single_line_source = """
 ```systemverilog
 // Adder/Adder.v:10-10
-10: assign result = data + 1; // <BUG-SOURCE-FIRST-ERROR> wrong expression; <BUG-SOURCE-PROPAGATION> drives result; <BUG-SOURCE-OBSERVABLE> visible at output
+10: assign result = data + 1; // <ROOT-SOURCE-FIRST-ERROR> wrong expression; <ROOT-SOURCE-PROPAGATION> drives result; <ROOT-SOURCE-OBSERVABLE> visible at output
 ```
 """.strip()
-    single_line = COMPLETE_BUG_ANALYSIS.replace(
-        SOURCE_EVIDENCE_BLOCK, single_line_source
-    )
     (tmp_path / "bugs.md").write_text(
-        f"<DYNAMIC-BUGS>\n{_dynamic_checkpoint_headings()}"
-        f"{_dynamic_bug_heading()}{_dynamic_test_heading()}{single_line}\n",
+        _complete_analysis_document(
+            f"{_dynamic_checkpoint_headings()}"
+            f"{_dynamic_bug_heading()}{_dynamic_test_heading()}{COMPLETE_BUG_ANALYSIS}",
+            source_evidence=single_line_source,
+        ),
         encoding="utf-8",
     )
 
@@ -1956,23 +2058,24 @@ def test_dynamic_bug_content_accepts_single_line_as_explicit_range(tmp_path):
 
 
 def test_dynamic_bug_content_requires_source_markers_inside_hdl_fence(tmp_path):
-    source_without_markers = SOURCE_EVIDENCE_BLOCK
+    source_without_markers = ROOT_SOURCE_EVIDENCE_BLOCK
     for marker in (
-        "<BUG-SOURCE-FIRST-ERROR>",
-        "<BUG-SOURCE-PROPAGATION>",
-        "<BUG-SOURCE-OBSERVABLE>",
+        "<ROOT-SOURCE-FIRST-ERROR>",
+        "<ROOT-SOURCE-PROPAGATION>",
+        "<ROOT-SOURCE-OBSERVABLE>",
     ):
         source_without_markers = source_without_markers.replace(marker, "")
-    misplaced = COMPLETE_BUG_ANALYSIS.replace(
-        SOURCE_EVIDENCE_BLOCK,
-        source_without_markers
-        + "\n<BUG-SOURCE-FIRST-ERROR>\n"
-        + "<BUG-SOURCE-PROPAGATION>\n"
-        + "<BUG-SOURCE-OBSERVABLE>",
-    )
     (tmp_path / "bugs.md").write_text(
-        f"<DYNAMIC-BUGS>\n{_dynamic_checkpoint_headings()}"
-        f"{_dynamic_bug_heading()}{_dynamic_test_heading()}{misplaced}\n",
+        _complete_analysis_document(
+            f"{_dynamic_checkpoint_headings()}"
+            f"{_dynamic_bug_heading()}{_dynamic_test_heading()}{COMPLETE_BUG_ANALYSIS}",
+            source_evidence=(
+                source_without_markers
+                + "\n<ROOT-SOURCE-FIRST-ERROR>\n"
+                + "<ROOT-SOURCE-PROPAGATION>\n"
+                + "<ROOT-SOURCE-OBSERVABLE>"
+            ),
+        ),
         encoding="utf-8",
     )
 
@@ -1981,17 +2084,18 @@ def test_dynamic_bug_content_requires_source_markers_inside_hdl_fence(tmp_path):
     )
 
     assert passed is False
-    assert "inside an HDL fenced code block" in message["error"]
+    assert "inside the HDL fence" in message["error"]
 
 
 def test_dynamic_bug_content_rejects_mixed_source_availability_branches(tmp_path):
-    mixed = COMPLETE_BUG_ANALYSIS.replace(
-        SOURCE_EVIDENCE_BLOCK,
-        f"<BUG-SOURCE-UNAVAILABLE>\n{SOURCE_EVIDENCE_BLOCK}",
-    )
     (tmp_path / "bugs.md").write_text(
-        f"<DYNAMIC-BUGS>\n{_dynamic_checkpoint_headings()}"
-        f"{_dynamic_bug_heading()}{_dynamic_test_heading()}{mixed}\n",
+        _complete_analysis_document(
+            f"{_dynamic_checkpoint_headings()}"
+            f"{_dynamic_bug_heading()}{_dynamic_test_heading()}{COMPLETE_BUG_ANALYSIS}",
+            source_evidence=(
+                f"<ROOT-SOURCE-UNAVAILABLE>\n{ROOT_SOURCE_EVIDENCE_BLOCK}"
+            ),
+        ),
         encoding="utf-8",
     )
 
@@ -2007,24 +2111,24 @@ def test_dynamic_bug_content_rejects_mixed_source_availability_branches(tmp_path
     ("analysis", "expected_problem"),
     [
         (
-            COMPLETE_BUG_ANALYSIS.replace("<BUG-FIX>\n", ""),
-            "marker '<BUG-FIX>' occurs 0 time(s)",
+            COMPLETE_BUG_ANALYSIS.replace("<BUG-SYMPTOMS>\n", ""),
+            "marker '<BUG-SYMPTOMS>' occurs 0 time(s)",
         ),
         (
             COMPLETE_BUG_ANALYSIS.replace(
-                "<BUG-FIX>\n", "<BUG-FIX>\n<BUG-FIX>\n"
+                "<BUG-SYMPTOMS>\n", "<BUG-SYMPTOMS>\n<BUG-SYMPTOMS>\n"
             ),
-            "marker '<BUG-FIX>' occurs 2 time(s)",
+            "marker '<BUG-SYMPTOMS>' occurs 2 time(s)",
         ),
         (
             COMPLETE_BUG_ANALYSIS.replace(
-                "###### 触发条件与影响\n<BUG-TRIGGER>", "__TRIGGER_FIELD__"
+                "###### Bug 概述\n<BUG-OVERVIEW>", "__OVERVIEW_FIELD__"
             ).replace(
-                "###### 根因分析\n<BUG-ROOT-CAUSE>",
-                "###### 触发条件与影响\n<BUG-TRIGGER>",
+                "###### 现象与严重度\n<BUG-SYMPTOMS>",
+                "###### Bug 概述\n<BUG-OVERVIEW>",
             ).replace(
-                "__TRIGGER_FIELD__",
-                "###### 根因分析\n<BUG-ROOT-CAUSE>",
+                "__OVERVIEW_FIELD__",
+                "###### 现象与严重度\n<BUG-SYMPTOMS>",
             ),
             "analysis fields are out of canonical order",
         ),
@@ -2034,8 +2138,10 @@ def test_dynamic_bug_content_rejects_invalid_marker_contract(
     tmp_path, analysis, expected_problem
 ):
     (tmp_path / "bugs.md").write_text(
-        f"<DYNAMIC-BUGS>\n{_dynamic_checkpoint_headings()}"
-        f"{_dynamic_bug_heading()}{_dynamic_test_heading()}{analysis}\n",
+        _complete_analysis_document(
+            f"{_dynamic_checkpoint_headings()}"
+            f"{_dynamic_bug_heading()}{_dynamic_test_heading()}{analysis}"
+        ),
         encoding="utf-8",
     )
 
@@ -2049,9 +2155,11 @@ def test_dynamic_bug_content_rejects_invalid_marker_contract(
 
 def test_dynamic_bug_content_accepts_source_backed_analysis(tmp_path):
     (tmp_path / "bugs.md").write_text(
-        f"<DYNAMIC-BUGS>\n{_dynamic_checkpoint_headings()}"
-        f"{_dynamic_bug_heading()}{_dynamic_test_heading()}"
-        f"{COMPLETE_BUG_ANALYSIS}\n",
+        _complete_analysis_document(
+            f"{_dynamic_checkpoint_headings()}"
+            f"{_dynamic_bug_heading()}{_dynamic_test_heading()}"
+            f"{COMPLETE_BUG_ANALYSIS}"
+        ),
         encoding="utf-8",
     )
 
@@ -2069,13 +2177,19 @@ def test_dynamic_bug_content_accepts_same_bug_tag_in_complete_ck_scoped_entries(
     second_test = _dynamic_test_heading(
         "TC-test_b.py::test_b", "Alternate result mismatch"
     )
+    second_checkpoint = "FG-A/FC-A/CK-B"
     (tmp_path / "bugs.md").write_text(
-        "<DYNAMIC-BUGS>\n"
-        f"{_dynamic_checkpoint_headings()}"
-        f"{_dynamic_bug_heading()}{_dynamic_test_heading()}{COMPLETE_BUG_ANALYSIS}\n"
-        "##### Alternate output <CK-B>\n"
-        f"{_dynamic_bug_heading()}{second_test}{COMPLETE_BUG_ANALYSIS}\n"
-        "</DYNAMIC-BUGS>\n",
+        _complete_analysis_document(
+            f"{_dynamic_checkpoint_headings()}"
+            f"{_dynamic_bug_heading()}{_dynamic_test_heading()}{COMPLETE_BUG_ANALYSIS}\n"
+            "##### Alternate output <CK-B>\n"
+            f"{_dynamic_bug_heading(checkpoint=second_checkpoint)}"
+            f"{second_test}{COMPLETE_BUG_ANALYSIS}",
+            related_paths=[
+                (CHECKPOINT, "BG-DYNAMIC-80"),
+                (second_checkpoint, "BG-DYNAMIC-80"),
+            ],
+        ),
         encoding="utf-8",
     )
 
@@ -2086,14 +2200,20 @@ def test_dynamic_bug_content_accepts_same_bug_tag_in_complete_ck_scoped_entries(
 
 
 def test_dynamic_bug_content_requires_fields_in_every_ck_scoped_bg_path(tmp_path):
+    second_checkpoint = "FG-A/FC-A/CK-B"
     (tmp_path / "bugs.md").write_text(
-        "<DYNAMIC-BUGS>\n"
-        f"{_dynamic_checkpoint_headings()}"
-        f"{_dynamic_bug_heading()}{_dynamic_test_heading()}{COMPLETE_BUG_ANALYSIS}\n"
-        "##### Alternate output <CK-B>\n"
-        f"{_dynamic_bug_heading()}"
-        f"{_dynamic_test_heading('TC-test_b.py::test_b', 'Alternate result mismatch')}"
-        "</DYNAMIC-BUGS>\n",
+        _complete_analysis_document(
+            f"{_dynamic_checkpoint_headings()}"
+            f"{_dynamic_bug_heading()}{_dynamic_test_heading()}{COMPLETE_BUG_ANALYSIS}\n"
+            "##### Alternate output <CK-B>\n"
+            f"{_dynamic_bug_heading(checkpoint=second_checkpoint)}"
+            f"{_dynamic_test_heading('TC-test_b.py::test_b', 'Alternate result mismatch')}"
+            f"{root_cause_reference(ROOT_TAG, ROOT_TITLE)}",
+            related_paths=[
+                (CHECKPOINT, "BG-DYNAMIC-80"),
+                (second_checkpoint, "BG-DYNAMIC-80"),
+            ],
+        ),
         encoding="utf-8",
     )
 
@@ -2107,15 +2227,16 @@ def test_dynamic_bug_content_requires_fields_in_every_ck_scoped_bg_path(tmp_path
 
 
 def test_dynamic_bug_content_accepts_explicit_black_box_analysis(tmp_path):
-    black_box = COMPLETE_BUG_ANALYSIS.replace(
-        SOURCE_EVIDENCE_BLOCK,
-        "<BUG-SOURCE-UNAVAILABLE>\n"
-        "The source is unavailable; the interface contract, failure log, and waveform "
-        "show truncation at the output boundary.",
-    )
     (tmp_path / "bugs.md").write_text(
-        f"<DYNAMIC-BUGS>\n{_dynamic_checkpoint_headings()}"
-        f"{_dynamic_bug_heading()}{_dynamic_test_heading()}{black_box}\n",
+        _complete_analysis_document(
+            f"{_dynamic_checkpoint_headings()}"
+            f"{_dynamic_bug_heading()}{_dynamic_test_heading()}{COMPLETE_BUG_ANALYSIS}",
+            source_evidence=(
+                "<ROOT-SOURCE-UNAVAILABLE>\n"
+                "The source is unavailable; the interface contract, failure log, and "
+                "waveform show truncation at the output boundary."
+            ),
+        ),
         encoding="utf-8",
     )
 
@@ -2127,13 +2248,12 @@ def test_dynamic_bug_content_accepts_explicit_black_box_analysis(tmp_path):
 
 
 def test_dynamic_bug_content_rejects_black_box_marker_without_analysis(tmp_path):
-    black_box = COMPLETE_BUG_ANALYSIS.replace(
-        SOURCE_EVIDENCE_BLOCK,
-        "<BUG-SOURCE-UNAVAILABLE>",
-    )
     (tmp_path / "bugs.md").write_text(
-        f"<DYNAMIC-BUGS>\n{_dynamic_checkpoint_headings()}"
-        f"{_dynamic_bug_heading()}{_dynamic_test_heading()}{black_box}\n",
+        _complete_analysis_document(
+            f"{_dynamic_checkpoint_headings()}"
+            f"{_dynamic_bug_heading()}{_dynamic_test_heading()}{COMPLETE_BUG_ANALYSIS}",
+            source_evidence="<ROOT-SOURCE-UNAVAILABLE>",
+        ),
         encoding="utf-8",
     )
 
@@ -2142,24 +2262,24 @@ def test_dynamic_bug_content_rejects_black_box_marker_without_analysis(tmp_path)
     )
 
     assert passed is False
-    assert "field 'source_evidence'" in message["error"]
-    assert "has no content beyond display/control markers" in message["error"]
+    assert "[Root Cause Field Incomplete]" in message["error"]
+    assert "<ROOT-SOURCE-EVIDENCE>" in message["error"]
 
 
 def test_dynamic_bug_content_rejects_noncanonical_source_annotation_text(tmp_path):
-    noncanonical_source = SOURCE_EVIDENCE_BLOCK.replace(
-        "<BUG-SOURCE-FIRST-ERROR>", "[分析-首错]"
+    noncanonical_source = ROOT_SOURCE_EVIDENCE_BLOCK.replace(
+        "<ROOT-SOURCE-FIRST-ERROR>", "[分析-首错]"
     ).replace(
-        "<BUG-SOURCE-PROPAGATION>", "[分析-传播]"
+        "<ROOT-SOURCE-PROPAGATION>", "[分析-传播]"
     ).replace(
-        "<BUG-SOURCE-OBSERVABLE>", "[分析-可见后果]"
-    )
-    analysis = COMPLETE_BUG_ANALYSIS.replace(
-        SOURCE_EVIDENCE_BLOCK, noncanonical_source
+        "<ROOT-SOURCE-OBSERVABLE>", "[分析-可见后果]"
     )
     (tmp_path / "bugs.md").write_text(
-        f"<DYNAMIC-BUGS>\n{_dynamic_checkpoint_headings()}"
-        f"{_dynamic_bug_heading()}{_dynamic_test_heading()}{analysis}\n",
+        _complete_analysis_document(
+            f"{_dynamic_checkpoint_headings()}"
+            f"{_dynamic_bug_heading()}{_dynamic_test_heading()}{COMPLETE_BUG_ANALYSIS}",
+            source_evidence=noncanonical_source,
+        ),
         encoding="utf-8",
     )
 
@@ -2168,10 +2288,8 @@ def test_dynamic_bug_content_rejects_noncanonical_source_annotation_text(tmp_pat
     )
 
     assert passed is False
-    assert "<BUG-SOURCE-FIRST-ERROR>" in message["error"]
-    assert "<BUG-SOURCE-PROPAGATION>" not in message["error"]
-    assert "<BUG-SOURCE-OBSERVABLE>" not in message["error"]
-    assert message["details"]["remaining_issue_count"] == 2
+    assert "<ROOT-SOURCE-FIRST-ERROR>" in message["error"]
+    assert "Repair only <ROOT-SOURCE-EVIDENCE>" in message["next_action"][0]
 
 
 @pytest.mark.parametrize(
@@ -2311,15 +2429,11 @@ def test_final_waveform_gate_rejects_document_only_forged_receipt(tmp_path):
 
 
 def test_final_waveform_gate_rejects_incomplete_workspace_relative_tc(tmp_path):
-    analysis = COMPLETE_BUG_ANALYSIS.replace(
-        "The RTL slices the intermediate value before it reaches the result output.",
-        "<BUG-TODO>",
-    )
     _write_bug_doc(
         tmp_path,
         None,
         test_case=WORKSPACE_RELATIVE_DOCUMENT_TEST,
-        analysis=analysis,
+        root_analysis="<BUG-TODO>",
     )
 
     passed, message = check_all_documented_waveform_bug_analysis(
@@ -2330,8 +2444,8 @@ def test_final_waveform_gate_rejects_incomplete_workspace_relative_tc(tmp_path):
     )
 
     assert passed is False
-    assert "[Dynamic Bug Analysis Incomplete]" in str(message)
-    assert "unfinished marker '<BUG-TODO>'" in str(message)
+    assert "[Root Cause Field Incomplete]" in str(message)
+    assert "<BUG-TODO>" in str(message)
 
 
 def test_final_waveform_gate_does_not_silently_drop_unmatched_tc(tmp_path):

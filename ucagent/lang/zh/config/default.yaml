@@ -71,21 +71,22 @@ mission:
       - 每个Fail TC都不预设责任方。进入WaveInfo、创建或更新非零BG、引用静态候选之前，必须先完成验证正确性分类；静态候选、已有断言、模板注释和可疑RTL都不能代替该分类
       - 测试结果的完成判定不是“所有真实DUT测试必须Pass”，而是：除已确认DUT Bug的复现用例外，其他用例全部Pass；所有保留的Fail都必须由正确测试稳定触发DUT设计缺陷，并完成非零置信度动态Bug记录、CK关联、源码根因分析和真实WaveInfo波形确认
       - 对每个已实现测试的Fail，先从功能规格、独立参考模型或可验证公式独立推导specification_expected，禁止直接相信模板注释、已有断言或可疑RTL；逐项记录并对比精确input、specification_expected、测试代码中的test_expected、DUT actual和classification。specification_expected与test_expected不一致时必须修正测试并重跑，禁止调用WaveInfo或记录Bug
+      - 若测试对输入做取反、编码、掩码、分包或添加carry/borrow等变换，必须基于实际驱动到DUT的值和规格定义的运算重新计算specification_expected；禁止使用变换前操作数推导的expected去比较变换后的DUT输入。例如二进制补码减法`a-b`需要驱动`a+(~b)+1`，`a+(~b)+0`表示`a-b-1`
       - expected一致后，继续核对测试激励、API/driver、callback、Step、采样边沿、有效条件、响应延迟、fixture、参考模型、复位和环境，再核对关联CK的coverage/check function、CovGroup.sample()及其采样时机。这些问题必须修复后重跑到Pass，不能以“测试Bug”、assert False或<BG-*-0>占位保留Fail。只有这些项目全部正确且DUT actual仍违反规格时，才允许调用WaveInfo并创建或更新非零BG；确认属于DUT设计Bug后保留正确的失败断言，不能修改预期值或弱化断言来误报Pass
       - 测试用例阶段默认把已提供的{OUT}/tests/{DUT}_api.py、{OUT}/tests/{DUT}_function_coverage_def.py及其中的create_dut、dut/env fixture、fake DUT路径、覆盖组创建和fc_cover绑定视为验证基础设施契约；除当前stage明确要求更新API/fixture外，不得为了绕过fixture、fake DUT、mark_function或覆盖率错误而重写、替换、复制或局部伪造这些实现，也不得删除覆盖标记或取消set_func_coverage上报。只有最早traceback和对应源码共同证明基础设施本身有缺陷时，才允许在其所属stage做最小修复，并先重跑对应的fixture/API Checker
       - `create_test_case_templates`模板构建阶段是明确例外：该阶段所有尚未实现的测试模板都必须以`assert False, "Not implemented"`结尾，防止空模板意外Pass；进入批量实现阶段后必须删除该占位断言并换成真实激励和预期检查。模板Fail仅表示“尚未实现”，不作为DUT Bug，不写入Bug文档
       - Mock、fixture、参考模型以及只验证测试框架/API调用链自身且不以DUT功能输出为判定对象的测试属于验证基础设施自检，必须全部Pass，不能作为DUT Bug记录；任何使用正确功能预期检查真实DUT输出的测试（包括API功能测试、综合验证、静态Bug动态验证和随机验证）若确认复现DUT Bug，则必须保持Fail并完整取证。这两个要求适用于不同测试目标，不矛盾
       - 深入分析发现的问题
       - 触发bug对应的测试用例必须 Fail，不能误报为 Pass
-      - CK失败本身不证明DUT存在Bug。必须先核对该CK的coverage/check function是否符合规格、CovGroup.sample调用与采样时机、测试激励/driver是否真正触发目标场景、预期值是否正确，以及结果采样边沿、有效条件和延迟；这些验证问题必须修复并重跑。只有验证逻辑正确后仍由DUT错误自然导致正确TC Fail，才可记录动态Bug；该TC关联的CK可以已经Pass。若CK自身仍Fail，再按下一条独立的失败CK单向门禁处理
+      - CK失败本身不证明DUT存在Bug。必须先核对该CK的coverage/check function是否符合规格、CovGroup.sample调用与采样时机、测试激励/driver是否真正触发目标场景、预期值是否正确，以及结果采样边沿、有效条件和延迟；这些验证问题必须修复并重跑。不得为了满足失败CK门禁而修改当前Pass用例使其Fail；正确修复predicate、关联、采样或驱动后CK可以转为Pass，此时该CK不再需要Fail复现用例。只有验证逻辑正确后仍由DUT错误自然导致正确TC Fail，才可记录动态Bug；该TC关联的CK可以已经Pass。若CK自身仍Fail，再按下一条独立的失败CK单向门禁处理
       - Check/Complete完成分类时，每个保留的Fail DUT测试必须在当前报告为其关联的至少一个CK下具有非零BG/TC记录；这个CK可以已经被该TC成功触发并通过覆盖，TC Fail与CK Fail是独立状态，绝不能由TC Fail反推关联CK也Fail，也不要求每个Fail TC关联失败CK。另一个独立的单向要求是：每个保留的失败CK必须至少有一个由当前报告关联到同一精确FG/FC/CK路径的正确Fail TC，并在该CK下具有非零BG/TC记录。该关系允许一个BG对应多个TC、一个TC对应多个BG，不是严格一一对应
-      - 动态Bug确认必须基于真实失败用例和真实波形：调用最终`WaveInfo`后，用`ApplyWaveInfoEvidence`原子维护BG侧`<WAVEFORM-REF>`和中央`<WAVEFORM-EVIDENCE>`中的唯一`<WAVEFORM-TC-...>`记录。一个Fail TC无论关联多少BG都只有一份波形数据；`bug_tags`与`bug_evidence`必须覆盖全部关联BG，顶层签名`signal_groups`必须包含各BG的`required_signals`并集。LLM不得复制或修改receipt字段、URL和token。BG内只保留TC和`<WAVEFORM-REF>`，YAML与viewer只放在中央记录中
-      - 同一真实pytest节点不能因路径前缀写法不同而成为两个TC；例如测试目录相对路径与工作区相对路径若解析到同一报告节点，仍只能保留一个BG/TC关联和一个中央波形记录。Checker报告`EQUIVALENT_TC_ASSOCIATION_DUPLICATE`时，按其`keep_test_label`保留既有证据，只删除`duplicate_test_label`对应的重复TC/引用/中央记录，不重跑测试或WaveInfo
+      - 动态Bug确认必须基于真实失败用例和真实波形：调用最终`WaveInfo`后，用`ApplyWaveInfoEvidence`原子维护BG侧`<WAVEFORM-REF>`和中央`<WAVEFORM-EVIDENCE>`中的唯一`<WAVEFORM-TC-...>`记录。一个Fail TC无论关联多少BG都只有一份波形数据；`bug_tags`与`bug_evidence`必须覆盖全部关联BG，顶层签名`signal_groups`必须包含各BG的`required_signals`并集。LLM不得复制或修改receipt字段、URL和token。BG内的波形关联部分只保留TC和`<WAVEFORM-REF>`，三个BG字段仍按规范填写；YAML与viewer只放在中央记录中
+      - 本次运行由agent.cfg解析出的TC输出目录是`{OUT}/tests`。每个TC文件路径必须以`{OUT}/tests/`开头，并逐字使用当前报告node ID（仅去掉报告附带的源码行范围）；不得增加、删除或替换该目录前缀、文件名、类名、参数ID。Checker返回的相似节点只用于复制正确的完整报告node ID，不参与身份匹配
       - `WaveInfo`找到可重放事件不等于自动确认DUT Bug。LLM必须先阅读功能规格、测试用例实际调用的API/driver、callback和Step顺序，确认输入驱动边沿、ready/valid或DUT实际使用的等价请求接受条件、响应有效/采样条件、backpressure/stall、pipeline或响应latency以及事务归属，再判断expected/actual。valid/enable无效、ready/accept未成立、复位/空闲/过渡状态、尚未到响应latency或协议声明data无效时的单点data mismatch只能作为调查线索，不能直接标记Bug；若规格明确要求在未接受请求或busy期间保持/忽略行为，则按该约束审查。这项语义审查必须结合规格、测试和RTL完成，不能按固定信号名推断
       - 一次`Step(1)`只表示仿真推进一步，绝不自动表示请求已接受或输出已有效。LLM必须检查API/driver内部是否已经Step、等待握手或采样，并从规格确定组合settle、指定边沿、固定N周期、out_valid/response_valid/done/ack成立或busy清零等真实结果有效条件；API调用后机械地只Step一次就读data产生的Fail应先按测试时序问题修复，不能记录为DUT Bug
       - 最终WaveInfo取证不能只查看发生不一致的目标data。调用前必须阅读DUT顶层端口、测试API/driver、规格和相关RTL，并通过`signal_groups`声明：时序DUT的实际时钟（组合DUT明确使用combinational且不虚构时钟）、当前功能相关的全部输入数据/选择/使能、相关输出数据/状态/有效位、接口实际存在的请求接受与响应有效控制，以及至少一个能解释功能选择、状态或错误传播的关键外部/内部信号。同一组真实完整路径必须进入timeline、签名receipt和在线viewer；`pattern`只负责定位事件，不能为了显示上下文而把所有信号都设成change触发条件。所有声明路径必须真实且已签名，LLM仍须从规格审查信号角色是否完整，不能按名字推断接口语义
-      - 动态Bug文档以完整FG/FC/CK/BG路径为验收单位。同一CK分支内同一个BG只出现一次：全部TC及引用连续放在BG标题后，八个<BUG-*>字段整体放在最后一个TC/引用后；字段开始后禁止再追加TC。同一RTL根因影响不同CK时可以在各CK下复用BG标签，但每个CK-scoped BG路径必须分别包含该CK关联TC、引用和完整八字段，不能跨CK共享最后一套字段。BG内不复制receipt、viewer或波形数据，每个TC的唯一波形只放在<WAVEFORM-EVIDENCE>中央分区并通过<WAVEFORM-REF>跳转。不得在文档末尾另建与标签分离的全局根因分析章节。尖括号标签在Markdown中可能不显示，因此FG/FC/CK/BG/TC每行必须同时写出具体中文可见名称：FG/FC/CK取自功能检查文档，BG取自具体缺陷描述，TC取自测试docstring；禁止只写标签或用“功能组/功能/检测点/动态Bug/失败用例”等类型名充当标题。中央波形标题逐字复用TC名称并追加“波形”。遵循Guide_Doc/dut_bug_analysis.md中的第 5.1 节完整标准案例的Markdown层级；八个字段分别先写“Bug 概述、现象与严重度、触发条件与影响、根因分析、源码证据、动态因果链、修复建议、风险与复验”六级标题，下一非空行写对应<BUG-*>标签，再写正文；不得改用粗体、调整级别或另创布局
-      - `record_dynamic_bug.py`是可选辅助：可用时为每个新的CK-scoped BG/TC路径生成具体中文可见名称、`<WAVEFORM-REF>`和八字段骨架；不可用时按Guide_Doc/dut_bug_analysis.md中的第 5.1 节完整标准案例和第 5.2 节骨架，用文本工具从相同来源建立相同路径，不能降低完成标准。同一CK/BG路径的后续Fail TC直接交给`ApplyWaveInfoEvidence`。随后完成TC共享的`alignment_evidence`、每个`bug_evidence.<BG>`的`required_signals/observed_behavior/source_correlation`及每个BG路径的八个固定分析字段，清除全部`<BUG-TODO>`。有源码时位置必须为不带`L`的`path:起始行-结束行`；多行示例为`Adder/Adder.v:10-14`，单行必须重复行号写成`Adder/Adder.v:10-10`，`Adder/Adder.v:10`和`Adder/Adder.v:L10-L14`均无效。使用`<BUG-SOURCE-FIRST-ERROR>`、`<BUG-SOURCE-PROPAGATION>`、`<BUG-SOURCE-OBSERVABLE>`三个因果标签；无源码时使用互斥的`<BUG-SOURCE-UNAVAILABLE>`
+      - 动态Bug文档以完整FG/FC/CK/BG路径为验收单位。同一CK分支内同一个BG只出现一次：全部TC及引用连续放在BG标题后，随后只写<BUG-OVERVIEW>、<BUG-SYMPTOMS>、<BUG-TRIGGER>三个字段。每个BG必须且只能通过一个<CAUSE-REF-ROOT-XXX>引用一个根因，该引用位于<BUG-TRIGGER>正文末尾。每个根因实体使用文档级唯一<ROOT-XXX>标签并至少反向关联一个真实存在的完整BG路径；<ROOT-CAUSE-ANALYSIS>、<ROOT-SOURCE-EVIDENCE>、<ROOT-CAUSAL-CHAIN>、<ROOT-FIX>、<ROOT-RETEST>只在唯一<ROOT-CAUSES>分区写一次。根因实体通过内嵌完整路径的<RELATED-BUG-FG-.../FC-.../CK-.../BG-...>和可点击链接列出BG，双向关系必须一致。两个缺陷组合后才产生的错误使用独立<ROOT-XXX>。同一根因关联多个BG时，ROOT因果链和复验必须覆盖所有分支差异。receipt、viewer和波形数据仍只放<WAVEFORM-EVIDENCE>中央分区。遵循Guide_Doc/dut_bug_analysis.md中的第 5.1 节完整标准案例，不得在BG中保留已迁移的BUG-SOURCE/CAUSAL/FIX/RETEST字段
+      - `record_dynamic_bug.py`是可选辅助：可用时创建BG的三个字段、唯一`<CAUSE-REF-ROOT-XXX>`和包含五个ROOT分析字段的根因实体；不可用时按Guide_Doc/dut_bug_analysis.md中的第 5.1 节完整标准案例用文本工具建立相同结构。同一CK/BG路径的后续Fail TC直接交给`ApplyWaveInfoEvidence`。随后完成TC中央证据、BG三个字段和ROOT五个字段，清除全部`<BUG-TODO>`。有源码时在<ROOT-SOURCE-EVIDENCE>使用不带`L`的`path:起始行-结束行`及`<ROOT-SOURCE-FIRST-ERROR>`、`<ROOT-SOURCE-PROPAGATION>`、`<ROOT-SOURCE-OBSERVABLE>`：`rtl/module.sv:10-14`有效，单行写`rtl/module.sv:10-10`，`rtl/module.sv:10`和`rtl/module.sv:L10-L14`均无效；无源码时使用互斥的`<ROOT-SOURCE-UNAVAILABLE>`
       - `ApplyWaveInfoEvidence`每次只维护一个精确FG/FC/CK/BG/TC路径。一个BG有多个Fail TC时分别调用；同一CK/BG内不复制BG。同名BG跨CK或目标关联有歧义时传`checkpoint_path="FG-.../FC-.../CK-..."`。一个Fail TC揭示多个独立Bug时保留不同BG，使用相同test_case_tag和不同bug_tag分别调用，所有关联共享一份中央记录。工具保留其他BG路径、兄弟TC和中央记录；新增关联不需要replace_existing，只有替换不同receipt时才显式设为true。不得手工复制receipt字段、中央波形或viewer token
       - 静态源码分析只产生候选Bug，且仅记录在`{OUT}/{DUT}_static_bug_analysis.md`。只有该候选被失败用例复现并经`WaveInfo`确认后，才能以独立的非`BG-STATIC-*`标签写入动态Bug文档；无法取得波形时不得将其确认为动态Bug
       - {DUT}的verilog源代码位于`{DUT}/{DUT}.v`目录下，其依赖或者上层语言的源码位于目录`{RTL_PATH}/`，文件后缀可能是.v、.sv、.vh、.scala等
@@ -120,11 +121,12 @@ mission:
       - 完成一个Stage后，再进入下一个Stage，直到所有Stage都完成，才算整个验证任务完成
       - 除非Complete工具（或者Check工具）要求等待人工确认，否则不需要人工介入，不需要询问任何问题
       - 对可复现失败用例进行动态Bug确认时，`WaveInfo`是必须调用的诊断工具。先运行失败用例生成新波形，再以测试名和相关pin/event pattern调用`WaveInfo`；波形内部信号仅可通过该工具按需获取，不能用shell猜测或手工编造波形结果
-      - `WaveInfo`无参数inventory返回recommended_call后，下一次必须逐字使用其中的非空test_case_name；inventory不产生receipt且不能作为Bug证据。如果实际工具调用仍为空测试名，不得重复inventory，应改正调用参数；MCP调用中未使用的参数使用工具schema给出的空字符串、空数组或-1哨兵，不要传null。工具返回中的null是规范化结果，不能把它再次作为MCP参数
-      - 当前DUT的`WaveInfo`调用范例：先调用`WaveInfo(test_case_name="test_{DUT}_xxx", pattern=[], logged_cycle=-1, clock_signal="", start_step=-1, end_step=-1)`读取该用例的step范围和signal_catalog；将`test_{DUT}_xxx`替换为inventory的recommended_call.test_case_name或失败用例的精确函数名
-      - metadata确认信号存在后，再调用`WaveInfo(test_case_name="test_{DUT}_xxx", pattern=[{{"signal":"TOP.{DUT}_top.{DUT}.result","event":"change","value":""}}], signal_groups={{"clock_mode":"combinational","clocks":[],"inputs":["TOP.{DUT}_top.{DUT}.a","TOP.{DUT}_top.{DUT}.b","TOP.{DUT}_top.{DUT}.op"],"outputs":["TOP.{DUT}_top.{DUT}.result"],"protocol":[],"key_signals":["TOP.{DUT}_top.{DUT}.op"]}}, logged_cycle=-1, clock_signal="", start_step=0, end_step=20, context_steps=1, max_points=200)`；示例层级只在signal_catalog中确实存在时使用，否则替换成catalog返回的精确完整路径，不要反复猜测层级或参数。若日志有cycle，则改用`clock_mode: clocked`，把真实时钟列入clocks并使用logged_cycle、精确clock_signal和cycle_tolerance进行对齐，不要同时臆测wave step
+      - `WaveInfo`无参数inventory返回的recommended_call.test_case_name只是波形basename定位提示，不建立pytest源码身份，也不能直接决定Bug证据调用。本次TC输出目录为`{OUT}/tests`；从metadata探索到最终取证都必须使用以`{OUT}/tests/`开头的完整pytest node ID，只允许去掉标签最前面的`TC-`。inventory不产生receipt且不能作为Bug证据；MCP调用中未使用的参数使用工具schema给出的空字符串、空数组或-1哨兵，不要传null。工具返回中的null是规范化结果，不能把它再次作为MCP参数
+      - 当前DUT的`WaveInfo`调用范例：先调用`WaveInfo(test_case_name="{OUT}/tests/test_{DUT}_xxx.py::test_{DUT}_xxx", pattern=[], logged_cycle=-1, clock_signal="", start_step=-1, end_step=-1)`读取该用例的step范围和signal_catalog；`{OUT}/tests`是agent.cfg解析出的本次实际TC输出目录，函数部分替换为Checker返回的完整node ID，inventory的basename只帮助确认波形文件是否存在
+      - metadata确认信号存在后，再调用`WaveInfo(test_case_name="{OUT}/tests/test_{DUT}_xxx.py::test_{DUT}_xxx", pattern=[{{"signal":"TOP.{DUT}_top.{DUT}.result","event":"change","value":""}}], signal_groups={{"clock_mode":"combinational","clocks":[],"inputs":["TOP.{DUT}_top.{DUT}.a","TOP.{DUT}_top.{DUT}.b","TOP.{DUT}_top.{DUT}.op"],"outputs":["TOP.{DUT}_top.{DUT}.result"],"protocol":[],"key_signals":["TOP.{DUT}_top.{DUT}.op"]}}, logged_cycle=-1, clock_signal="", start_step=0, end_step=20, context_steps=1, max_points=200)`；示例层级只在signal_catalog中确实存在时使用，否则替换成catalog返回的精确完整路径，不要反复猜测层级或参数。若日志有cycle，则改用`clock_mode: clocked`，把真实时钟列入clocks并使用logged_cycle、精确clock_signal和cycle_tolerance进行对齐，不要同时臆测wave step
       - 只传test_case_name和pattern、但既未提供logged_cycle+clock_signal也未同时提供start_step+end_step时，是全波形探索调用；即使找到事件也会返回`status: evidence_window_required`和`evidence_usable: false`，不能写成confirmed。必须逐字使用返回的`recommended_evidence_call`重新调用WaveInfo，并用新receipt取证；不能把`analysis_window.effective_start_step/effective_end_step`手工写入文档来冒充原调用参数
       - 最终显式窗口调用必须同时传非负start_step和end_step，不能与logged_cycle混用。成功后调用`ApplyWaveInfoEvidence(target_file=..., bug_tag=..., test_case_tag=..., receipt_id=...)`。同一TC关联多个BG时分别调用，但复用同一中央记录；新增Bug需要更多信号时重新取得包含信号并集的最终receipt，并用`replace_existing=true`替换。工具保留`required_signals`并重置需按新波形复核的语义字段
+      - `ApplyWaveInfoEvidence`返回`receipt_test_mismatch`或`matching_final_receipt_not_found`时，保持test_case_tag不变，优先逐字执行`details.recovery_call`取得新receipt，再用新receipt_id和原test_case_tag重调Apply；`similar_test_source_files`只提示可核对的文件，不允许自动选中或建立等价。不得猜测另一组路径参数，不得手工写receipt YAML、anchor、viewer URL或token。同一tool+status+target连续返回相同错误后必须停止尝试相似参数；没有recovery_call或执行后仍同错时，报告工具契约阻塞并停止修改当前Bug/波形记录
       - 最终调用必须提供完整`signal_groups`；若结果只有`bug_document_signal_groups_required`或`waveform_viewer_error`而没有`bug_document_fields`/`bug_document_viewer_link`，应补齐信号角色后重新调用，不能手工补YAML或viewer token。`protocol`仅在规格和接口确认没有ready/valid/enable/start/busy/done/ack等接受或有效控制时才可为空；`key_signals`至少包含一个与当前功能选择、状态或错误传播直接相关的真实信号
       - 中断或重启后可以继续使用已验证的签名receipt和中央记录；测试或波形后来变化不要求普通stage刷新已签名证据。只有对应验证项配置`require_current_replay=true`时才重放全部唯一TC并要求更新变化的中央记录；新增关联Bug需要扩展取证信号时也必须更新
       - 任务中途只运行部分用例时，不要因此删除已有TC/BG、修改有效receipt字段或重造viewer链接；继续使用工具返回且通过签名验证的证据。最终record_and_report_bugs阶段必须先运行完整DUT测试集合，再接受全部动态Bug TC的严格波形重放
@@ -1072,6 +1074,7 @@ stage:
       - "  - 如果源码不存在，需要给出可能的设计缺陷分析和修复建议"
       - "  - 阶段完成条件：除已确认DUT Bug复现用例外，其他用例必须全部Pass；每个剩余Fail必须在报告关联的至少一个CK下具有非零置信度动态Bug、源码根因和真实WaveInfo confirmed证据，该CK可以已经通过覆盖，不能由TC Fail反推CK Fail。独立地，每个剩余失败CK必须有报告关联到同一CK的正确Fail TC及非零BG/TC记录。一个BG可关联多个TC，一个TC也可揭示多个BG，不是严格一一对应；不是要求已确认Bug用例也Pass"
       - "  - 对每个Fail先从规格、独立参考模型或可验证公式推导specification_expected，并对照精确input、specification_expected、test_expected、DUT actual和classification；不能把模板注释、已有断言、静态候选或可疑RTL当作正确expected。若expected不一致，修正测试并重跑。然后核对API/driver、callback、Step、采样边沿、有效条件、响应延迟、fixture、参考模型、复位、环境，以及关联CK的coverage/check function、CovGroup.sample()和采样时机。分类完成前禁止调用WaveInfo、创建/更新非零BG或引用静态候选"
+      - "  - 输入经过取反、编码、掩码、分包或carry/borrow变换时，必须从实际驱动值和规格运算重新计算specification_expected；不能拿变换前操作数的expected比较变换后输入。尤其a+(~b)+0是a-b-1，a-b需要a+(~b)+1"
       - "  - 只有上述验证项全部正确且DUT actual仍违反规格时，才确定为DUT Bug；此时不要修改正确的测试预期或弱化断言，应保留由DUT错误行为自然触发的Fail。已实现测试禁止使用assert False等人工失败。create_test_case_templates阶段的空模板必须assert False，但进入本阶段实现该模板时必须删除占位断言。若属于测试、断言、预期值、fixture/API、参考模型、CK predicate/sample、复位/时序或环境问题，必须修复并重跑到Pass，不能记录为DUT Bug"
       - "  - 如果所有测试用例都通过了，需要再三确认是否都真的没有bug"
       - "  - 如果所有测试用例都失败了，大概率你编写测试有误，需要确认测试逻辑是否正确"
@@ -1079,7 +1082,8 @@ stage:
       - "  - 优先尝试复现{OUT}/{DUT}_static_bug_analysis.md中记录的高/中置信度静态分析潜在Bug"
       - "  - {OUT}/{DUT}_static_bug_analysis.md中的结论只是动态复现候选：必须先运行对应失败用例并真实调用WaveInfo确认波形，才可用新的非BG-STATIC-*标签写入{OUT}/{DUT}_bug_analysis.md；不能直接复制静态Bug标签或以静态分析代替波形证据"
       - "  - 每个非零动态Bug必须关联至少一个Fail TC；每个TC紧跟<WAVEFORM-REF>，全部唯一波形集中在<WAVEFORM-EVIDENCE>中。用ApplyWaveInfoEvidence写入真实receipt和viewer；同一TC关联多个Bug时只保留一份中央记录，并用bug_tags/bug_evidence列全关联及信号需求"
-      - "  - 不确定波形测试名时只调用一次无参数WaveInfo inventory；随后逐字使用recommended_call中的非空test_case_name进行metadata和pattern分析。inventory不产生receipt，实际调用参数仍为空时必须修正参数而不是重复inventory"
+      - "  - 不确定波形文件时只调用一次无参数WaveInfo inventory；recommended_call中的basename仅用于定位波形。实际metadata、pattern和最终取证的test_case_name必须从目标<TC-...>只去掉TC-后逐字使用完整pytest node ID，不能猜测或增删路径前缀"
+      - "  - agent.cfg已解析本次TC输出目录为{OUT}/tests。所有动态Bug TC标签、WaveInfo test_case_name和Apply test_case_tag中的文件路径都必须以{OUT}/tests/开头；从当前报告完整node ID只删除:start-end或:line并添加/删除TC-，不得采用Guide或Skill示例中的其他目录"
       - "  - Check/Complete失败时必须读取顶部failure_summary，并引用failed_checker_name、error_code和具体阻塞项继续修复；count_fail只是历史调用累计，failed_funct_point/failed_check_point为0也不能覆盖其他门禁。禁止将有具体error的失败归因于‘内部Checker机制’"
     checker:
       - name: test_check
@@ -1125,15 +1129,18 @@ stage:
           - "第9步：分析测试结果："
           - "  - 如果Pass且结果符合预期，则继续通过Check工具进行阶段检查"
           - "  - 如果Fail，不预设责任方。先从功能规格、独立参考模型或可验证公式独立推导specification_expected，不得直接相信模板注释、已有断言、静态候选或可疑RTL；为该TC逐项对照input、specification_expected、test_expected、DUT actual和classification。specification_expected与test_expected不一致时立即修正测试并重跑，禁止调用WaveInfo或记录Bug"
+          - "  - 输入经过取反、编码、掩码、分包或carry/borrow变换时，specification_expected必须由实际驱动值和规格运算重新计算；不能拿变换前操作数的expected比较变换后输入。a+(~b)+0表示a-b-1，a-b必须使用a+(~b)+1"
           - "  - expected一致后，依次核对测试激励、API/driver、callback、Step、采样边沿、有效条件、响应延迟、fixture、参考模型、复位和环境，再核对该TC关联CK的coverage/check function、CovGroup.sample()与采样时机。任一项错误都属于验证问题，修复后必须Pass，不得以测试Bug或BG-*-0占位保留Fail"
           - "  - 只有上述分类全部完成、验证逻辑正确且DUT actual仍违反规格时，才允许调用WaveInfo、创建或更新非零BG、引用静态候选，并保留正确断言自然触发的Fail；在此之前禁止进入波形取证或Bug记录"
           - "  - 当前批次只分析{LIST_CURRENT_CASES}及当前报告为这些TC关联的CK。属于未来未实现批次、且未与当前TC关联的失败CK，不得在本批次创建无关TC/BG或追逐覆盖；留到所属批次驱动和分类。最终综合与Bug记录阶段仍必须满足全部失败CK的单向门禁"
           - "  - 波形判错前必须阅读测试使用的API/driver、callback和Step顺序，明确输入驱动边沿、ready/valid或等价接受条件、输出有效条件、backpressure和latency，并核对测试是否过早读取或重复Step；只有协议允许的同一事务响应窗口中的expected/actual差异才能支持Bug。任意时间点或无效周期的data不一致只能继续调查，不能直接生成BG"
           - "  - 最终WaveInfo调用必须填写完整signal_groups：时序DUT的时钟、当前功能相关的输入数据/选择/使能、输出数据/状态/有效位、真实协议接受/响应控制，以及至少一个功能选择/状态/错误传播关键路径；组合DUT明确声明combinational且不虚构时钟。在线viewer必须显示同一签名信号集合，禁止只查看目标result后判Bug"
           - "  - 只有正确测试稳定复现DUT缺陷时才保留Fail。每个BG/TC紧跟<WAVEFORM-REF>，每个TC在中央<WAVEFORM-EVIDENCE>中恰有一份真实receipt记录；同一TC多Bug时bug_tags、bug_evidence和顶层信号并集必须完整。YAML和viewer只放在中央记录中"
-          - "  - record_dynamic_bug.py仅为可选骨架辅助；不可用时按Guide_Doc/dut_bug_analysis.md中的第 5.1 节完整标准案例和第 5.2 节骨架，用文本工具建立相同中文标题、Markdown层级和标签顺序。必须继续调用WaveInfo/ApplyWaveInfoEvidence，并完成共享alignment_evidence、逐Bug证据和八个分析字段，删除全部<BUG-TODO>"
+          - "  - record_dynamic_bug.py仅为可选骨架辅助；不可用时按Guide_Doc/dut_bug_analysis.md中的第 5.1 节完整标准案例和第 5.2 节骨架，用文本工具建立相同结构。必须继续调用WaveInfo/ApplyWaveInfoEvidence，并完成BG三个字段、唯一<CAUSE-REF-ROOT-XXX>、ROOT五个分析字段及双向链接，删除全部<BUG-TODO>"
           - "  - WaveInfo收据陈旧、缺失或无法重放时，必须重跑对应失败用例并重新调用WaveInfo更新证据；只要正确实现的测试仍Fail，禁止通过删除<TC-*>、<BG-*>或整个FG/FC/CK分支规避门禁。只有正确测试已经Pass或证据证明该记录并非DUT Bug时，才可按Guide重新分类或删除动态记录"
-          - "  - WaveInfo inventory只允许用于发现测试名；拿到recommended_call后，下一次调用必须使用其中的非空test_case_name。不要重复空参数inventory，也不要给可选参数传null，应使用schema中的空字符串、空数组或-1哨兵"
+          - "  - WaveInfo inventory只允许用于发现波形basename；它不建立pytest源码身份。实际调用必须从目标<TC-...>只去掉TC-后逐字使用完整test_case_name；不能按recommended_call删掉tests/或猜测其他前缀。不要重复空参数inventory，也不要给可选参数传null，应使用schema中的空字符串、空数组或-1哨兵"
+          - "  - agent.cfg已解析本次TC输出目录为{OUT}/tests。每个动态Bug TC文件路径必须以{OUT}/tests/开头；从报告node ID只删除:start-end或:line再添加TC-。Checker返回TEST_CASE_NODE_ID_MISMATCH时按其中Configured TC output directory和Similar current FAILED report node IDs修复首个记录；修复前禁止原样重试Check/Complete"
+          - "  - Apply返回receipt_test_mismatch或matching_final_receipt_not_found时保持test_case_tag不变，逐字执行details.recovery_call，再用新receipt_id重调Apply；相似文件列表只供核对，不参与匹配。禁止继续猜路径或手写receipt/YAML/viewer。同一tool+status+target连续同错且无有效recovery_call时停止修改并报告阻塞"
           - "  - 只传pattern且没有logged_cycle+clock_signal或完整start_step+end_step时只是探索调用；按recommended_evidence_call重调后，将新receipt交给ApplyWaveInfoEvidence写入该TC中央记录。不得手工复制机器字段、viewer token或effective窗口"
           - "  - 重跑时在断言日志中打印cycle_basis、transaction ID、相关pin和真实握手/状态；日志cycle必须经clock occurrence index对齐，不能直接当作wave step。WaveInfo的pattern/timeline应覆盖ready/valid或DUT实际使用的等价请求接受、响应有效、状态和事务锚点；<BG-STATIC-*>只允许存在于{DUT}_static_bug_analysis.md，动态bug文档必须使用独立<BG-NAME-xx>并提供confirmed波形证据"
           - "  - 触发bug对应的测试用例必须 Fail，不能误报为 Pass"
@@ -1146,7 +1153,7 @@ stage:
           - "  - 测试用例应当与功能点、测试点精准对应，不要冗余，不要一个测试用例关联过多功能点、测试点"
           - "  - Fail TC与CK覆盖状态彼此独立：正确TC可以发现DUT Bug而Fail，同时已成功触发关联CK使其Pass；不能由TC Fail反推CK Fail，也不要求每个Fail TC关联失败CK"
           - "  - 失败CK适用独立的单向门禁：必须有当前报告关联到同一精确FG/FC/CK的正确Fail TC，并在该CK下完成非零BG/TC记录；不得用未来批次或无关TC制造关联"
-          - "  - Bug文档以完整FG/FC/CK/BG路径为验收单位。同一CK内同一BG只保留一份八字段；同一根因跨不同CK时，每个CK-scoped BG路径都必须分别包含本CK关联TC、引用和完整八字段，不能把最后一个路径的字段作为其他路径共享内容。ApplyWaveInfoEvidence调用需传checkpoint_path消除同名BG歧义；中央波形仍按TC唯一"
+          - "  - Bug文档以完整FG/FC/CK/BG路径为验收单位。BG只保留OVERVIEW/SYMPTOMS/TRIGGER三个字段并在TRIGGER末尾关联唯一<CAUSE-REF-ROOT-XXX>；源码证据、因果链、修复、风险与复验集中到唯一<ROOT-CAUSES>实体。每个ROOT使用唯一<ROOT-XXX>并至少通过<RELATED-BUG-...>反向关联一个真实完整BG路径；同一ROOT可关联多个BG，组合缺陷使用独立ROOT。中央波形仍按TC唯一"
           - "  - 你非常关注Fail的测试用例，因为Fail可能意味着bug，发现确实是bug，你会保留测试用例为Fail并在bug分析文档中基于源码进行详细分析并给出修复建议"
           - "  - 如果源码不存在，需要给出可能的设计缺陷分析和修复建议"
           - "  - 不能为了让测试通过而修改测试逻辑，例如使用不合理的断言等，必须确保测试逻辑正确，否则会掩盖bug"
@@ -1272,7 +1279,7 @@ stage:
       - "  - 测试函数命名格式：test_static_{DUT}_<BugId>，例如test_static_{DUT}_bg_static_001"
       - "  - 通过`from {DUT}_api import *`导入env fixture和API"
       - "  - 在测试函数开始处添加功能覆盖标记（若有对应的<CK-*>检测点）"
-      - "  - 动态复现后调用WaveInfo和ApplyWaveInfoEvidence：BG侧只保留TC与<WAVEFORM-REF>，每个TC的唯一YAML/viewer位于中央<WAVEFORM-EVIDENCE>。同一TC多Bug共享记录并暴露信号并集"
+      - "  - 动态复现后调用WaveInfo和ApplyWaveInfoEvidence：BG侧的波形关联只保留TC与<WAVEFORM-REF>，三个BG字段仍需填写；每个TC的唯一YAML/viewer位于中央<WAVEFORM-EVIDENCE>。同一TC多Bug共享记录并暴露信号并集"
       - "  - 波形确认由LLM做协议语义审查：先阅读规格和测试API/driver、callback、Step顺序，确认驱动边沿、ready/valid或等价接受条件、busy/backpressure、响应latency和事务归属；不能把协议无效窗口或任意单点data mismatch直接当成静态候选已被动态证实"
       - "  - 最终WaveInfo的signal_groups必须覆盖时钟（若有）、当前静态候选涉及的输入数据/控制、输出数据/状态/有效位、真实协议控制和至少一个能连接静态根因与接口现象的关键内部/状态信号；viewer必须显示该完整集合，pattern仍只用于事件定位"
       - "  - 不得假设调用API后一个Step结果就有效；必须确认API内部是否已Step/等待，并按规格规定的边沿、周期数、valid/done/ack或busy清零条件采样。过早读取导致的Fail是测试时序问题，应修复后重跑"
@@ -1280,7 +1287,7 @@ stage:
       - "第4步：根据测试结果更新{OUT}/{DUT}_static_bug_analysis.md中的<LINK-BUG-[BG-TBD]>标签"
       - "  情况A - 测试Fail（Bug已证实）："
       - "    1. 在{OUT}/{DUT}_bug_analysis.md中添加完整动态Bug记录（含<FG-*>/<FC-*>/<CK-*>/<BG-NAME-xx>/<TC-*>完整层级）"
-      - "       - record_dynamic_bug.py是可选辅助；不可用时按Guide_Doc/dut_bug_analysis.md中的第 5.1 节完整标准案例和第 5.2 节骨架，用文本工具建立相同中文标题、Markdown层级和BG/TC/引用结构。随后完成中央共享与逐Bug波形字段、八个分析字段和源码因果标签，清除全部<BUG-TODO>后才能执行linkbug.py"
+      - "       - record_dynamic_bug.py是可选辅助；不可用时按Guide_Doc/dut_bug_analysis.md中的第 5.1 节完整标准案例建立相同BG三字段、ROOT五字段和双向链接。随后完成中央波形字段并清除全部<BUG-TODO>，再执行linkbug.py"
       - "    2. 将该静态Bug的 '<LINK-BUG-[BG-TBD]>' 替换为实际动态Bug标签"
       - "       - 若只对应一个动态Bug：<LINK-BUG-[BG-FSM-DEAD-92]>"
       - "       - 若对应多个动态Bug：<LINK-BUG-[BG-FSM-DEAD-92][BG-FSM-DEFAULT-85]>"
@@ -1452,10 +1459,10 @@ stage:
       - "  1.1 重新打开该BG关联的每个失败<TC-*>及其失败日志，确认严格断言、expected/actual、事务上下文和FG/FC/CK关联均正确；测试或基础设施问题必须修复到Pass，不得保留为DUT Bug"
       - "  1.2 使用TC中央记录中的真实receipt审查confirmed证据；核对共享alignment_evidence及当前bug_evidence.<BG>下的required_signals、observed_behavior、source_correlation。信号必须属于顶层签名信号并集，结论必须落在真实事务和有效响应窗口；若新增Bug需要更多信号，重新取证并替换中央记录"
       - "  1.2.1 核对每个receipt的signal_groups和在线viewer是否同时包含时钟（若有）、相关输入、相关输出、协议控制及功能关键路径；只显示目标data、缺少valid/ready等实际有效性锚点或缺少解释根因的关键状态时，必须重新调用最终WaveInfo补齐证据"
-      - "  1.3 重新读取<BUG-SOURCE-EVIDENCE>引用的真实RTL/HDL行及其上下文，独立核对<BUG-SOURCE-FIRST-ERROR>是否为首个错误决策、<BUG-SOURCE-PROPAGATION>是否解释错误如何到达输出、<BUG-SOURCE-OBSERVABLE>是否与波形可见后果一致；禁止只复述失败现象、测试名称或source_correlation"
-      - "  1.4 逐项核对<BUG-OVERVIEW>至<BUG-RETEST>八个字段：根因必须同时解释expected/actual和波形，修复必须直接消除首错而不是只掩盖输出，风险与复验必须覆盖受影响路径；发现泛化、猜测、行号不实或证据矛盾时直接重写对应字段"
-      - "  1.5 有源码分支必须使用不带L的真实path:起始行-结束行（单行重复行号）和完整HDL fenced代码块，三个<BUG-SOURCE-*>标签各一次且位于代码块内；无源码分支只使用<BUG-SOURCE-UNAVAILABLE>并完成黑盒因果分析，两种分支不得混用。八个字段必须使用Guide_Doc/dut_bug_analysis.md中的第 5.1 节规定的固定中文六级标题，同时依据机器标签、源码证据和真实内容判断完成状态"
-      - "  1.6 完成一个BG后重新读取其完整范围，确认所有TC波形、根因、源码证据、因果链、修复和复验互相一致，再继续下一个BG；不得因record_dynamic_bug.py成功或字段形式完整而跳过语义审查"
+      - "  1.3 重新读取关联ROOT的<ROOT-SOURCE-EVIDENCE>及真实RTL/HDL上下文，独立核对<ROOT-SOURCE-FIRST-ERROR>、<ROOT-SOURCE-PROPAGATION>、<ROOT-SOURCE-OBSERVABLE>与所有关联BG及波形是否一致"
+      - "  1.4 核对每个BG只有OVERVIEW/SYMPTOMS/TRIGGER三个字段和唯一<CAUSE-REF-ROOT-XXX>；核对ROOT五个分析字段及<RELATED-BUG-...>双向链接。一个ROOT关联多个BG时，因果链与复验必须覆盖全部分支"
+      - "  1.5 有源码分支在<ROOT-SOURCE-EVIDENCE>使用真实path:起始行-结束行和完整HDL fenced代码块，三个<ROOT-SOURCE-*>标签各一次且位于代码块内；无源码分支只使用<ROOT-SOURCE-UNAVAILABLE>，两种分支不得混用"
+      - "  1.6 完成一个ROOT后重新读取其全部关联BG和TC中央证据，确认现象、触发、源码、因果链、修复和复验互相一致，再继续下一个ROOT"
       - "第2步：回顾{OUT}/{DUT}_static_bug_analysis.md，确认所有静态分析Bug的验证结论已完整记录，已证实的Bug在{OUT}/{DUT}_bug_analysis.md中均有对应完整记录"
       - "第3步：再次阅读{DUT}的所有源代码，确认是否有遗漏的bug，若发现新bug，补充测试用例并进行bug记录"
       - "第4步：对所有测试用例进行回顾，确认测试逻辑合理，确认用例中的所有assert都合理有效"

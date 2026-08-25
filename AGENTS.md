@@ -323,10 +323,19 @@ Preserve these established semantics unless the task explicitly changes them:
   with multiple Bugs. The signed signal groups must cover the union of each
   associated BG's `required_signals`.
 - Within each dynamic `<BG-*>`, list every `<TC-*>` and its immediately following
-  `<WAVEFORM-REF>` before the eight ordered `<BUG-*>` analysis fields. The fields
+  `<WAVEFORM-REF>` before the three ordered `<BUG-*>` analysis fields. The fields
   begin only after the final TC/reference pair; never append another TC after the
   first analysis field. Each field uses its canonical level-six visible title,
   then its matching `<BUG-*>` marker on the next nonempty line, then its body.
+- Each dynamic BG contains only `<BUG-OVERVIEW>`, `<BUG-SYMPTOMS>`, and
+  `<BUG-TRIGGER>`. Its trigger ends with exactly one clickable
+  `<CAUSE-REF-ROOT-*>` reference. Each BG references exactly one root cause.
+- Define root causes once in the document-level `<ROOT-CAUSES>` section. Every
+  root entity has a document-wide unique `<ROOT-*>` tag, the five ordered ROOT
+  analysis fields, and at least one clickable `<RELATED-BUG-FG-*/FC-*/CK-*/BG-*>`
+  reverse reference. Every referenced BG must exist and both directions must
+  agree. A root cause may own multiple BG paths; a combination defect is its own
+  root cause.
 - A no-Bug result must remain valid without manufacturing waveform evidence.
 - Test log cycle values and wavekit steps may differ by zero or several cycles.
   Align evidence by clock occurrence and transaction context; never assume they

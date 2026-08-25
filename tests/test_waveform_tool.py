@@ -196,6 +196,9 @@ def test_no_argument_call_lists_latest_session_waveform_inventory(tmp_path):
         "pattern": [],
     }
     assert "Do not repeat inventory" in result["next_action"]
+    assert "discovery basename hint only" in result["next_action"]
+    assert "complete target pytest node ID" in result["next_action"]
+    assert "does not establish source-test identity" in result["next_action"]
     assert "waveform_analysis_receipt" not in result
     assert tool.analysis_receipts == []
 
@@ -227,7 +230,7 @@ def test_mcp_schema_uses_non_nullable_sentinel_arguments():
 
 
 def test_apply_waveinfo_evidence_schema_is_mcp_compatible(tmp_path):
-    waveinfo = _tool(tmp_path, tmp_path / "tests")
+    waveinfo = _tool(tmp_path, tmp_path / "unity_test" / "tests")
     tool = ApplyWaveInfoEvidence(
         waveinfo=waveinfo,
         workspace=str(tmp_path),
@@ -275,6 +278,12 @@ def test_apply_waveinfo_evidence_schema_is_mcp_compatible(tmp_path):
     assert "once for each distinct bug_tag" in tool.description
     assert "same receipt preserves completed analysis fields" in tool.description
     assert "The BG path entry must already exist" in tool.description
+    assert "Configured TC output directory for this run: 'unity_test/tests'" in (
+        waveinfo.description
+    )
+    assert "Configured TC output directory for this run: 'unity_test/tests'" in (
+        tool.description
+    )
     assert mcp_tool.name == "ApplyWaveInfoEvidence"
     assert mcp_tool.parameters == schema
 
@@ -1096,7 +1105,10 @@ def _write_dynamic_bug_scaffold(
         handle.write(content)
 
 
-def _final_apply_receipt(tool: WaveInfo, test_case_name: str = "test_apply") -> dict:
+def _final_apply_receipt(
+    tool: WaveInfo,
+    test_case_name: str = "tests/test_apply.py::test_apply",
+) -> dict:
     return _call(
         tool,
         test_case_name=test_case_name,
@@ -1221,8 +1233,14 @@ def test_apply_waveinfo_evidence_supports_multiple_tests_under_one_bug(tmp_path)
         newline="\r\n",
     )
     waveinfo = _tool(tmp_path, test_dir)
-    first_result = _final_apply_receipt(waveinfo, "test_apply")
-    second_result = _final_apply_receipt(waveinfo, "test_apply_secondary")
+    first_result = _final_apply_receipt(
+        waveinfo,
+        "tests/test_apply.py::test_apply",
+    )
+    second_result = _final_apply_receipt(
+        waveinfo,
+        "tests/test_apply_secondary.py::test_apply_secondary",
+    )
     first_id = first_result["waveform_analysis_receipt"]["receipt_id"]
     second_id = second_result["waveform_analysis_receipt"]["receipt_id"]
     tool = ApplyWaveInfoEvidence(
@@ -1320,7 +1338,10 @@ def test_apply_waveinfo_evidence_requires_docstring_for_created_tc(tmp_path):
     target.parent.mkdir(exist_ok=True)
     _write_dynamic_bug_scaffold(target)
     waveinfo = _tool(tmp_path, test_dir)
-    result = _final_apply_receipt(waveinfo, "test_missing_source")
+    result = _final_apply_receipt(
+        waveinfo,
+        "tests/test_missing.py::test_missing_source",
+    )
     tool = ApplyWaveInfoEvidence(
         waveinfo=waveinfo,
         workspace=str(tmp_path),
@@ -1375,7 +1396,10 @@ def test_apply_waveinfo_evidence_isolates_multiple_bugs_for_one_test(tmp_path):
     )
 
     waveinfo = _tool(tmp_path, test_dir)
-    wave_result = _final_apply_receipt(waveinfo, "test_apply")
+    wave_result = _final_apply_receipt(
+        waveinfo,
+        "tests/test_apply.py::test_apply",
+    )
     receipt_id = wave_result["waveform_analysis_receipt"]["receipt_id"]
     tool = ApplyWaveInfoEvidence(
         waveinfo=waveinfo,
@@ -1610,7 +1634,10 @@ def test_apply_waveinfo_evidence_rejects_missing_tc_when_bug_is_ambiguous(tmp_pa
         encoding="utf-8",
     )
     waveinfo = _tool(tmp_path, test_dir)
-    result = _final_apply_receipt(waveinfo, "test_apply_secondary")
+    result = _final_apply_receipt(
+        waveinfo,
+        "tests/test_apply_secondary.py::test_apply_secondary",
+    )
     receipt_id = result["waveform_analysis_receipt"]["receipt_id"]
     tool = ApplyWaveInfoEvidence(
         waveinfo=waveinfo,
@@ -1863,7 +1890,7 @@ def test_apply_waveinfo_evidence_auto_selects_latest_matching_final_receipt(tmp_
     )
     _final_apply_receipt(waveinfo)
     expected = _final_apply_receipt(waveinfo)
-    _final_apply_receipt(waveinfo, "test_other")
+    _final_apply_receipt(waveinfo, "tests/test_other.py::test_other")
     expected_id = expected["waveform_analysis_receipt"]["receipt_id"]
     tool = ApplyWaveInfoEvidence(
         waveinfo=waveinfo,
@@ -1910,6 +1937,69 @@ def test_apply_waveinfo_evidence_auto_selection_requires_matching_final_receipt(
 
     assert rejected["status"] == "matching_final_receipt_not_found"
     assert "final WaveInfo" in " ".join(rejected["suggestions"])
+    assert rejected["details"]["document_test_case_tag"] == (
+        "TC-tests/test_apply.py::test_apply"
+    )
+    assert rejected["details"]["required_waveinfo_test_case_name"] == (
+        "tests/test_apply.py::test_apply"
+    )
+    assert "equivalent" in " ".join(rejected["suggestions"])
+
+
+def test_apply_auto_selection_offers_recovery_for_similar_exact_basename_receipt(
+    tmp_path,
+):
+    test_dir = tmp_path / "out" / "tests"
+    session = _session(test_dir, "toffee_tmp_20260814150000_000")
+    _write_vcd(session, "test_apply")
+    (test_dir / "test_apply.py").write_text(
+        'def test_apply(env):\n    """Apply result mismatch"""\n    pass\n',
+        encoding="utf-8",
+    )
+    target = tmp_path / "out" / "Demo_bug_analysis.md"
+    target.parent.mkdir(exist_ok=True)
+    _write_dynamic_bug_scaffold(target)
+    waveinfo = _tool(tmp_path, test_dir)
+    short_receipt = _final_apply_receipt(
+        waveinfo,
+        "test_apply.py::test_apply",
+    )
+    tool = ApplyWaveInfoEvidence(
+        waveinfo=waveinfo,
+        workspace=str(tmp_path),
+        write_dirs=["out"],
+        un_write_dirs=[],
+    )
+
+    rejected = yaml.safe_load(
+        tool._run(
+            target_file="out/Demo_bug_analysis.md",
+            bug_tag="BG-DYNAMIC-80",
+            test_case_tag="TC-tests/test_apply.py::test_apply",
+        )
+    )
+
+    assert rejected["status"] == "matching_final_receipt_not_found"
+    details = rejected["details"]
+    assert details["required_waveinfo_test_case_name"] == (
+        "tests/test_apply.py::test_apply"
+    )
+    assert details["similar_final_receipts"] == [
+        {
+            "receipt_id": short_receipt["waveform_analysis_receipt"]["receipt_id"],
+            "test_case_name": "test_apply.py::test_apply",
+            "status": "events_found",
+        }
+    ]
+    assert details["similar_test_source_files"] == ["tests/test_apply.py"]
+    assert details["recovery_call"]["test_case_name"] == (
+        "tests/test_apply.py::test_apply"
+    )
+    suggestions = " ".join(rejected["suggestions"])
+    assert "details.recovery_call exactly" in suggestions
+    assert "unchanged test_case_tag" in suggestions
+    assert "Do not retry path variants" in suggestions
+    assert "waveform_analysis:" not in target.read_text(encoding="utf-8")
 
 
 def test_apply_waveinfo_evidence_uses_persisted_receipt_after_restart(tmp_path):
@@ -2166,6 +2256,19 @@ def test_apply_waveinfo_evidence_enforces_path_tag_and_receipt_test_boundaries(t
     session = _session(test_dir, "toffee_tmp_20260814150000_000")
     _write_vcd(session, "test_apply")
     _write_vcd(session, "test_other")
+    (test_dir / "test_apply.py").write_text(
+        'def test_apply(env):\n    """Apply result mismatch"""\n    pass\n',
+        encoding="utf-8",
+    )
+    (test_dir / "other").mkdir()
+    (test_dir / "other" / "test_apply.py").write_text(
+        'def test_apply(env):\n    """Similar path only"""\n    pass\n',
+        encoding="utf-8",
+    )
+    (test_dir / "test_other_apply.py").write_text(
+        'def test_apply(env):\n    """Other source"""\n    pass\n',
+        encoding="utf-8",
+    )
     allowed = tmp_path / "out" / "Demo_bug_analysis.md"
     blocked = tmp_path / "Guide_Doc" / "dut_bug_analysis.md"
     allowed.parent.mkdir(exist_ok=True)
@@ -2174,7 +2277,14 @@ def test_apply_waveinfo_evidence_enforces_path_tag_and_receipt_test_boundaries(t
     _write_dynamic_bug_scaffold(blocked)
     waveinfo = _tool(tmp_path, test_dir)
     apply_receipt = _final_apply_receipt(waveinfo)
-    other_receipt = _final_apply_receipt(waveinfo, "test_other")
+    other_receipt = _final_apply_receipt(
+        waveinfo,
+        "tests/test_other.py::test_other",
+    )
+    short_path_receipt = _final_apply_receipt(
+        waveinfo,
+        "test_apply.py::test_apply",
+    )
     wrong_file_receipt = _final_apply_receipt(
         waveinfo,
         "tests/test_other_apply.py::test_apply",
@@ -2211,6 +2321,13 @@ def test_apply_waveinfo_evidence_enforces_path_tag_and_receipt_test_boundaries(t
             receipt_id=wrong_file_receipt["waveform_analysis_receipt"]["receipt_id"],
         )
     )
+    same_file_missing_directory = yaml.safe_load(
+        tool._run(
+            **base_call,
+            target_file="out/Demo_bug_analysis.md",
+            receipt_id=short_path_receipt["waveform_analysis_receipt"]["receipt_id"],
+        )
+    )
     static_bug = yaml.safe_load(
         tool._run(
             target_file="out/Demo_bug_analysis.md",
@@ -2223,8 +2340,60 @@ def test_apply_waveinfo_evidence_enforces_path_tag_and_receipt_test_boundaries(t
     assert blocked_result["status"] == "invalid_target_file"
     assert mismatch["status"] == "receipt_test_mismatch"
     assert same_function_wrong_file["status"] == "receipt_test_mismatch"
+    assert same_file_missing_directory["status"] == "receipt_test_mismatch"
+    details = same_file_missing_directory["details"]
+    assert details["receipt_test_case_name"] == "test_apply.py::test_apply"
+    assert details["document_test_case_tag"] == "TC-tests/test_apply.py::test_apply"
+    assert details["required_waveinfo_test_case_name"] == (
+        "tests/test_apply.py::test_apply"
+    )
+    assert details["similar_test_source_files"] == [
+        "tests/test_apply.py",
+        "tests/other/test_apply.py",
+        "tests/test_other_apply.py",
+    ]
+    recovery_call = details["recovery_call"]
+    assert recovery_call["test_case_name"] == "tests/test_apply.py::test_apply"
+    assert recovery_call["pattern"] == [
+        {"signal": "TOP.dut.valid", "event": "rising", "value": ""}
+    ]
+    assert recovery_call["signal_groups"] == FINAL_SIGNAL_GROUPS
+    assert recovery_call["logged_cycle"] == -1
+    assert recovery_call["clock_signal"] == ""
+    assert recovery_call["start_step"] == 10
+    assert recovery_call["end_step"] == 25
+    assert recovery_call["cycle_tolerance"] == 5
+    assert recovery_call["clock_edge"] == "rising"
+    assert recovery_call["cycle_origin"] == 0
+    assert recovery_call["context_steps"] == 1
+    assert recovery_call["max_signals"] == 32
+    assert recovery_call["max_points"] == 200
+    assert recovery_call["max_files"] == 20
+    assert recovery_call["file_offset"] == 0
+    mismatch_suggestions = " ".join(same_file_missing_directory["suggestions"])
+    assert "hints only" in mismatch_suggestions
+    assert "not equivalent pytest node IDs" in mismatch_suggestions
+    assert "unchanged test_case_tag" in mismatch_suggestions
+    assert "guessed path variants" in mismatch_suggestions
+    assert "Do not manually write receipt-backed YAML" in mismatch_suggestions
     assert static_bug["status"] == "invalid_document_target"
     assert "waveform_analysis:" not in allowed.read_text(encoding="utf-8")
+
+    recovered = _call(waveinfo, **recovery_call)
+    recovered_receipt_id = recovered["waveform_analysis_receipt"]["receipt_id"]
+    applied = yaml.safe_load(
+        tool._run(
+            **base_call,
+            target_file="out/Demo_bug_analysis.md",
+            receipt_id=recovered_receipt_id,
+        )
+    )
+
+    assert applied["status"] == "evidence_applied"
+    assert applied["receipt_id"] == recovered_receipt_id
+    assert short_path_receipt["waveform_analysis_receipt"]["receipt_id"] not in (
+        allowed.read_text(encoding="utf-8")
+    )
 
 
 def test_parameterized_name_is_exact_and_invalid_name_is_rejected(tmp_path):

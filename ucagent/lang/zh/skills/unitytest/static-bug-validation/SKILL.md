@@ -22,7 +22,7 @@ description: 验证静态Bug候选并维护其与已完成动态Bug或BG-NA的LI
 1. 保留能稳定复现缺陷的正确断言和Fail结果。
 2. 在动态文档中创建独立非静态`<BG-NAME-XX>`，不能复用`BG-STATIC-*`。
 3. 为每个Fail TC保留一个`<WAVEFORM-REF>`，并在中央`<WAVEFORM-EVIDENCE>`分区保留该TC唯一的confirmed WaveInfo记录。
-4. 完成该动态BG的八个分析字段，以及中央记录中该BG对应的`required_signals`、`observed_behavior`和`source_correlation`。
+4. 为该动态BG选择且只选择一个根因；ROOT使用唯一`<ROOT-XXX>`标签并完成五个ROOT分析字段，通过`<CAUSE-REF-ROOT-XXX>`和内嵌完整路径的`<RELATED-BUG-FG-.../FC-.../CK-.../BG-...>`建立双向链接；BG只保留三个字段，中央记录保留该BG的波形结论。
 5. 用可选脚本同时更新静态汇总与详细区的LINK：
 
 同一Fail TC证实多个独立动态Bug时，保留不同BG，并对每个精确BG/TC分别调用`ApplyWaveInfoEvidence`；目标BG/TC之外的Bug记录不会被修改，中央仍只有一份波形记录。单独运行当前静态候选用例时不得删除历史TC/BG；最终记录阶段仍需完整测试运行和严格重放。

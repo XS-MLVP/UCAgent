@@ -12,12 +12,27 @@ from ucagent.util.waveform_viewer import (
 from ucagent.util.bug_analysis_contract import (
     BUG_ANALYSIS_SECTION_MARKERS as _BUG_ANALYSIS_SECTION_MARKERS,
     BUG_ANALYSIS_SECTION_TITLES as _BUG_ANALYSIS_SECTION_TITLES,
-    BUG_SOURCE_EVIDENCE_MARKERS as _BUG_SOURCE_EVIDENCE_MARKERS,
-    BUG_SOURCE_UNAVAILABLE_MARKER as _BUG_SOURCE_UNAVAILABLE_MARKER,
+    ROOT_ANALYSIS_SECTION_MARKERS as _ROOT_ANALYSIS_SECTION_MARKERS,
+    ROOT_ANALYSIS_SECTION_TITLES as _ROOT_ANALYSIS_SECTION_TITLES,
+    ROOT_SOURCE_EVIDENCE_MARKERS as _ROOT_SOURCE_EVIDENCE_MARKERS,
+    ROOT_SOURCE_UNAVAILABLE_MARKER as _ROOT_SOURCE_UNAVAILABLE_MARKER,
     BUG_TODO_MARKER as _BUG_TODO_MARKER,
     DOCUMENT_TAG_PATTERN as _DOCUMENT_TAG_PATTERN,
     DYNAMIC_BUGS_END_MARKER as _DYNAMIC_BUGS_END_MARKER,
     DYNAMIC_BUGS_MARKER as _DYNAMIC_BUGS_MARKER,
+    ROOT_CAUSE_REFERENCE_MARKER as _ROOT_CAUSE_REFERENCE_MARKER,
+    ROOT_CAUSE_REFERENCE_TAG_PREFIX as _ROOT_CAUSE_REFERENCE_TAG_PREFIX,
+    ROOT_CAUSES_END_MARKER as _ROOT_CAUSES_END_MARKER,
+    ROOT_CAUSES_MARKER as _ROOT_CAUSES_MARKER,
+    ROOT_ENTITY_TAG_PATTERN as _ROOT_ENTITY_TAG_PATTERN,
+    RELATED_BUG_TAG_PREFIX as _RELATED_BUG_TAG_PREFIX,
+    RELATED_BUGS_MARKER as _RELATED_BUGS_MARKER,
+    RELATED_BUGS_TITLE as _RELATED_BUGS_TITLE,
+    dynamic_bug_anchor_id as _dynamic_bug_anchor_id,
+    normalize_display_title as _normalize_display_title,
+    related_bug_reference as _related_bug_reference,
+    root_cause_anchor_id as _root_cause_anchor_id,
+    root_cause_reference as _root_cause_reference,
     WAVEFORM_BUG_ANALYSIS_FIELDS as _WAVEFORM_BUG_ANALYSIS_FIELDS,
     WAVEFORM_BLOCK_KEY as _WAVEFORM_BLOCK_KEY,
     WAVEFORM_EVIDENCE_END_MARKER as _WAVEFORM_EVIDENCE_END_MARKER,
@@ -38,7 +53,6 @@ from ucagent.checkers.base import Checker
 import copy
 from datetime import datetime
 import os
-import posixpath
 import re
 import textwrap
 import traceback
@@ -59,6 +73,36 @@ _HDL_FENCED_BLOCK = re.compile(
     r"(?P<body>.*?)^[ \t]*```[ \t]*$",
     re.IGNORECASE | re.MULTILINE | re.DOTALL,
 )
+_MAX_ROOT_RELATION_DIAGNOSTICS = 50
+
+
+def _root_relation_issue_result(issues: list[dict], bug_file: str) -> tuple[bool, dict]:
+    """Return a bounded batch of independently repairable ROOT/BG relation errors."""
+
+    shown = issues[:_MAX_ROOT_RELATION_DIAGNOSTICS]
+    remaining = len(issues) - len(shown)
+    rendered = "\n".join(f"- {issue['message']}" for issue in shown)
+    suppressed = (
+        f"\n- {remaining} additional relation error(s) were omitted; repair the listed "
+        "items and run Check/Complete once to obtain the next bounded batch."
+        if remaining
+        else ""
+    )
+    return False, {
+        "error": (
+            f"[Root Cause Relation Errors] Found {len(issues)} independently repairable "
+            f"ROOT/BG relation error(s) in '{bug_file}':\n{rendered}{suppressed}"
+        ),
+        "details": {
+            "issues": shown,
+            "remaining_issue_count": remaining,
+        },
+        "next_action": [
+            "Apply every listed exact line replacement or relation repair before calling "
+            "Check/Complete again. These Markdown relation repairs do not require rerunning "
+            "pytest, WaveInfo, or ApplyWaveInfoEvidence."
+        ],
+    }
 
 
 def _missing_hdl_location_issue(source_content: str) -> dict:
@@ -100,7 +144,8 @@ def _missing_hdl_location_issue(source_content: str) -> dict:
         "required": "path:start-end (use start=end for one line)",
         "replacement": replacement,
         "next_action": (
-            f"Replace `{observed}` with `{replacement}` in this BG path. "
+            f"Replace `{observed}` with `{replacement}` in the owning "
+            "<ROOT-SOURCE-EVIDENCE> field. "
             "The existing assertion, WaveInfo evidence, classification, and analysis fields "
             "do not need to be regenerated."
         ),
@@ -159,45 +204,51 @@ def parse_bug_label(label: str) -> tuple[str, float]:
 
 
 def _find_matching_test_case(parts: list[str], name_list) -> tuple[bool, str]:
-    """Match one documented pytest node to a report node without substring aliases."""
+    """Match one documented pytest node to an exact report node ID."""
 
     if len(parts) not in (2, 3):
         return False, ""
-    documented_file = posixpath.normpath(parts[0].replace("\\", "/"))
-    documented_nodes = tuple(part.strip() for part in parts[1:])
+    documented_node = "::".join(part.strip() for part in parts)
     for name in name_list:
         report_parts = str(name).split("::")
         if len(report_parts) != len(parts):
             continue
         report_file = re.sub(
-            r":\d+(?:-\d+)?$", "", report_parts[0].replace("\\", "/")
+            r":\d+(?:-\d+)?$", "", report_parts[0]
         )
-        report_file = posixpath.normpath(report_file)
-        if not (
-            report_file == documented_file
-            or report_file.endswith("/" + documented_file)
-            or documented_file.endswith("/" + report_file)
-        ):
-            continue
-        report_nodes = tuple(part.strip() for part in report_parts[1:])
-        nodes_match = True
-        for index, (documented_node, report_node) in enumerate(
-            zip(documented_nodes, report_nodes)
-        ):
-            if documented_node == report_node:
-                continue
-            is_final_node = index == len(documented_nodes) - 1
-            if (
-                is_final_node
-                and "[" not in documented_node
-                and report_node.startswith(documented_node + "[")
-            ):
-                continue
-            nodes_match = False
-            break
-        if nodes_match:
+        report_node = "::".join(
+            [report_file.strip(), *(part.strip() for part in report_parts[1:])]
+        )
+        if report_node == documented_node:
             return True, name
     return False, ""
+
+
+def _similar_report_test_cases(documented_test: str, name_list) -> list[str]:
+    """Return bounded report-node hints without creating identity aliases."""
+
+    documented_parts = documented_test.split("::")
+    documented_file = documented_parts[0]
+    documented_basename = os.path.basename(documented_file)
+    documented_function = documented_parts[-1]
+    candidates = []
+    for name in name_list:
+        report_parts = str(name).split("::")
+        if len(report_parts) not in (2, 3):
+            continue
+        report_file = re.sub(r":\d+(?:-\d+)?$", "", report_parts[0])
+        report_node = "::".join(
+            [report_file.strip(), *(part.strip() for part in report_parts[1:])]
+        )
+        report_function = report_parts[-1].strip()
+        if (
+            os.path.basename(report_file) == documented_basename
+            or report_function == documented_function
+            or documented_function.startswith(report_function + "[")
+            or report_function.startswith(documented_function + "[")
+        ):
+            candidates.append(report_node)
+    return sorted(dict.fromkeys(candidates))[:10]
 
 
 def _validate_dynamic_bug_document_labels(
@@ -271,6 +322,17 @@ def _parse_documented_dynamic_bug_records(
         if current is None:
             return
         current["content"] = "\n".join(lines[current["start"] + 1 : end_index])
+        references = re.findall(
+            rf"(?m)^[ \t]*<"
+            rf"{re.escape(_ROOT_CAUSE_REFERENCE_TAG_PREFIX)}"
+            rf"({_ROOT_ENTITY_TAG_PATTERN.pattern})>[ \t]+"
+            rf"\[([^\]\n]+)\]\(#([^)]+)\)[ \t]*$",
+            current["content"],
+        )
+        current["root_cause_references"] = [
+            {"title": title, "anchor": anchor, "tag": tag}
+            for tag, title, anchor in references
+        ]
         records.append(current)
         current = None
 
@@ -295,6 +357,9 @@ def _parse_documented_dynamic_bug_records(
             in_dynamic_container = False
             continue
         if not in_dynamic_container:
+            continue
+        if current is not None and re.fullmatch(r'<a id="bug-[0-9a-f]{16}"></a>', stripped):
+            close_current(index)
             continue
         if current is not None and stripped in analysis_markers | analysis_titles:
             if current["analysis_start_line"] is None:
@@ -354,6 +419,7 @@ def _parse_documented_dynamic_bug_records(
                     "display_title": display_title,
                     "tests": [],
                     "analysis_start_line": None,
+                    "root_cause_references": [],
                 }
             elif kind == "TC" and current is not None:
                 if current["analysis_start_line"] is not None:
@@ -363,7 +429,7 @@ def _parse_documented_dynamic_bug_records(
                             f"{index + 1} in '{bug_file}' appears after Bug analysis "
                             f"started at line {current['analysis_start_line']}. Put every "
                             "TC and its WAVEFORM-REF immediately under the owning BG, then "
-                            "place all eight <BUG-*> fields after the final TC."
+                            "place the three canonical BG fields after the final TC."
                         ),
                         "details": {
                             "bug": current["bug"],
@@ -423,6 +489,577 @@ def _parse_documented_dynamic_bug_records(
                 },
             }
     return True, records, ""
+
+
+def _parse_root_cause_relations(
+    workspace: str,
+    bug_file: str,
+    records: list[dict],
+) -> tuple[bool, object]:
+    """Validate the canonical root-cause graph and its BG back-links.
+
+    Every non-zero BG in a canonical root-cause document has exactly one
+    root-cause reference and every related-Bug entry points back to that same
+    checkpoint-scoped BG path.
+    """
+
+    path = os.path.join(workspace, bug_file)
+    with open(path, "r", encoding="utf-8") as handle:
+        lines = handle.read().splitlines()
+    stripped = [line.strip() for line in lines]
+    records_by_path = {record["path"]: record for record in records}
+    available_bug_paths = sorted(records_by_path)[:5]
+
+    def root_reference_candidates(root_titles: dict[str, str]) -> str:
+        candidates = [
+            _root_cause_reference(tag, title)
+            for tag, title in list(root_titles.items())[:5]
+        ]
+        return (
+            " | ".join(candidates)
+            if candidates
+            else "(none; create a ROOT entity first)"
+        )
+
+    def related_bug_candidates(paths: list[str] | None = None) -> str:
+        candidates = []
+        for bug_path in (available_bug_paths if paths is None else paths)[:5]:
+            checkpoint, bug = bug_path.rsplit("/", 1)
+            candidates.append(_related_bug_reference(checkpoint, bug))
+        return (
+            " | ".join(candidates)
+            if candidates
+            else "(none; add a real non-zero BG first)"
+        )
+
+    canonical_root_fields = " -> ".join(
+        marker for _key, marker in _ROOT_ANALYSIS_SECTION_MARKERS
+    ) + " -> " + _RELATED_BUGS_MARKER
+    starts = [i for i, value in enumerate(stripped) if value == _ROOT_CAUSES_MARKER]
+    ends = [i for i, value in enumerate(stripped) if value == _ROOT_CAUSES_END_MARKER]
+    if not starts and not ends:
+        if not records:
+            return True, ""
+        return False, {
+            "error": (
+                f"[Root Cause Container Missing] '{bug_file}' must contain one closed "
+                f"{_ROOT_CAUSES_MARKER} container. Add the canonical root-cause section "
+                "from Guide_Doc/dut_bug_analysis.md section 5.1."
+            )
+        }
+    if len(starts) != 1 or len(ends) != 1 or not starts[0] < ends[0]:
+        return False, {
+            "error": (
+                f"[Root Cause Container Format Error] '{bug_file}' must contain exactly "
+                f"one closed {_ROOT_CAUSES_MARKER} container."
+            )
+        }
+    start, end = starts[0], ends[0]
+    dynamic_end_indexes = [
+        index for index, value in enumerate(stripped) if value == _DYNAMIC_BUGS_END_MARKER
+    ]
+    waveform_start_indexes = [
+        index for index, value in enumerate(stripped) if value == _WAVEFORM_EVIDENCE_MARKER
+    ]
+    if (
+        len(dynamic_end_indexes) != 1
+        or len(waveform_start_indexes) != 1
+        or not dynamic_end_indexes[0] < start < end < waveform_start_indexes[0]
+    ):
+        return False, {
+            "error": (
+                f"[Root Cause Container Order Error] '{bug_file}' must place the closed "
+                f"{_ROOT_CAUSES_MARKER} container after DYNAMIC-BUGS and before "
+                "WAVEFORM-EVIDENCE."
+            )
+        }
+    if end >= len(stripped) or any(
+        value == _DYNAMIC_BUGS_MARKER for value in stripped[start + 1 : end]
+    ):
+        return False, {"error": "[Root Cause Container Format Error] nested DYNAMIC-BUGS is not allowed."}
+
+    entity_matches = []
+    entity_pattern = re.compile(
+        rf"^###\s+(.+?)\s+<({_ROOT_ENTITY_TAG_PATTERN.pattern})>\s*$"
+    )
+    for index in range(start + 1, end):
+        match = entity_pattern.match(stripped[index])
+        if match:
+            entity_matches.append((index, match.group(2)))
+    root_tags = [root_tag for _line_index, root_tag in entity_matches]
+    duplicate_root_tags = sorted(
+        root_tag for root_tag in set(root_tags) if root_tags.count(root_tag) > 1
+    )
+    if duplicate_root_tags:
+        return False, {
+            "error": (
+                "[Duplicate Root Cause] Every root cause must use one document-wide "
+                f"unique <ROOT-...> tag; duplicated: <{duplicate_root_tags[0]}>."
+            )
+        }
+    if not entity_matches:
+        if not records:
+            return True, ""
+        return False, {
+            "error": (
+                f"[Root Cause Entity Missing] '{bug_file}' has an empty "
+                f"{_ROOT_CAUSES_MARKER} container; add one <ROOT-...> entity "
+                "for each distinct root cause. Available BG path(s): "
+                f"{', '.join(available_bug_paths) if available_bug_paths else '(none)'}."
+            ),
+            "next_action": [
+                "Create one ROOT entity for each distinct cause, then use one of the "
+                f"available BG entries under <RELATED-BUGS>: {related_bug_candidates()}"
+            ],
+        }
+
+    dynamic_start = next(
+        (index for index, value in enumerate(stripped) if value == _DYNAMIC_BUGS_MARKER),
+        -1,
+    )
+    dynamic_end = next(
+        (index for index, value in enumerate(stripped) if value == _DYNAMIC_BUGS_END_MARKER),
+        len(stripped),
+    )
+    dynamic_anchors = [
+        value[7:-6]
+        for value in stripped[dynamic_start + 1 : dynamic_end]
+        if value.startswith('<a id="bug-') and value.endswith('"></a>')
+    ]
+    for record in records:
+        expected_bug_anchor = _dynamic_bug_anchor_id(record["checkpoint"], record["bug"])
+        heading_index = record["line"] - 1
+        adjacent_anchor = stripped[heading_index - 1] if heading_index > 0 else ""
+        if (
+            dynamic_anchors.count(expected_bug_anchor) != 1
+            or adjacent_anchor != f'<a id="{expected_bug_anchor}"></a>'
+        ):
+            return False, {
+                "error": (
+                    f"[Dynamic Bug Anchor Missing] {record['path']} must have one generated "
+                    f"anchor '#{expected_bug_anchor}' before its BG heading so related root "
+                    "cause links can jump to the exact CK-scoped entry. Add this exact line "
+                    f"immediately before the BG heading: <a id=\"{expected_bug_anchor}\"></a>."
+                )
+            }
+    related_paths: dict[str, set[str]] = {}
+    root_titles: dict[str, str] = {}
+    relation_issues = []
+    for entity_index, (line_index, root_tag) in enumerate(entity_matches):
+        try:
+            root_titles[root_tag] = _normalize_display_title(
+                entity_pattern.match(stripped[line_index]).group(1)
+            )
+        except ValueError as title_error:
+            return False, {
+                "error": f"[Root Cause Heading Format Error] <{root_tag}> needs meaningful visible text: {title_error}."
+            }
+        entity_end = (
+            entity_matches[entity_index + 1][0] - 1
+            if entity_index + 1 < len(entity_matches)
+            else end
+        )
+        entity_lines = stripped[line_index + 1 : entity_end]
+        expected_root_anchor = f'<a id="{_root_cause_anchor_id(root_tag)}"></a>'
+        anchor_count = stripped[start + 1 : end].count(expected_root_anchor)
+        if anchor_count != 1 or stripped[line_index - 1] != expected_root_anchor:
+            return False, {
+                "error": (
+                    f"[Root Cause Anchor Error] <{root_tag}> must have one generated "
+                    f"anchor '#{_root_cause_anchor_id(root_tag)}'. Add this exact line "
+                    f"immediately before the ROOT heading: "
+                    f"<a id=\"{_root_cause_anchor_id(root_tag)}\"></a>."
+                )
+            }
+        root_field_titles = dict(_ROOT_ANALYSIS_SECTION_TITLES)
+        field_positions = {}
+        for field_key, field_marker in _ROOT_ANALYSIS_SECTION_MARKERS:
+            marker_indexes = [
+                i for i, value in enumerate(entity_lines) if value == field_marker
+            ]
+            title_indexes = [
+                i for i, value in enumerate(entity_lines) if value == root_field_titles[field_key]
+            ]
+            if len(marker_indexes) != 1 or len(title_indexes) != 1:
+                return False, {
+                    "error": (
+                        f"[Root Cause Field Format Error] <{root_tag}> must contain exactly "
+                        f"one '{root_field_titles[field_key]}' immediately followed by "
+                        f"'{field_marker}'. Required ROOT order: {canonical_root_fields}."
+                    )
+                }
+            title_index, marker_index = title_indexes[0], marker_indexes[0]
+            if title_index + 1 != marker_index:
+                return False, {
+                    "error": (
+                        f"[Root Cause Field Order Error] '{root_field_titles[field_key]}' must "
+                        f"immediately precede {field_marker} under <{root_tag}>. "
+                        f"Required ROOT order: {canonical_root_fields}."
+                    )
+                }
+            field_positions[field_key] = (title_index, marker_index)
+        ordered_positions = [field_positions[key][0] for key, _marker in _ROOT_ANALYSIS_SECTION_MARKERS]
+        if ordered_positions != sorted(ordered_positions):
+            return False, {
+                "error": (
+                    f"[Root Cause Field Order Error] <{root_tag}> must keep ROOT "
+                    f"analysis fields in this order: {canonical_root_fields}."
+                )
+            }
+        related_title_index = next(
+            (i for i, value in enumerate(entity_lines) if value == _RELATED_BUGS_TITLE),
+            None,
+        )
+        related_index = next(
+            (i for i, value in enumerate(entity_lines) if value == _RELATED_BUGS_MARKER),
+            None,
+        )
+        if related_title_index is None or related_index is None:
+            return False, {
+                "error": (
+                    f"[Related Bug List Missing] <{root_tag}> must contain "
+                    f"{_RELATED_BUGS_TITLE} followed by {_RELATED_BUGS_MARKER}. "
+                    f"Add at least one exact entry, for example: {related_bug_candidates()}"
+                )
+            }
+        if related_title_index + 1 != related_index:
+            return False, {
+                "error": (
+                    f"[Related Bug List Order Error] '{_RELATED_BUGS_TITLE}' must "
+                    f"immediately precede {_RELATED_BUGS_MARKER}. Use this order: "
+                    f"{canonical_root_fields}."
+                )
+            }
+        if related_title_index <= ordered_positions[-1]:
+            return False, {
+                "error": (
+                    f"[Related Bug List Order Error] {_RELATED_BUGS_TITLE} must follow "
+                    f"all ROOT analysis fields under <{root_tag}>. Use this order: "
+                    f"{canonical_root_fields}."
+                )
+            }
+        for field_index, (field_key, field_marker) in enumerate(_ROOT_ANALYSIS_SECTION_MARKERS):
+            body_start = field_positions[field_key][1] + 1
+            body_end = (
+                field_positions[_ROOT_ANALYSIS_SECTION_MARKERS[field_index + 1][0]][0]
+                if field_index + 1 < len(_ROOT_ANALYSIS_SECTION_MARKERS)
+                else related_title_index
+            )
+            body = entity_lines[body_start:body_end]
+            body_for_completeness = body
+            if field_key == "source_evidence":
+                body_for_completeness = [
+                    value
+                    for value in body
+                    if value != _ROOT_SOURCE_UNAVAILABLE_MARKER
+                ]
+            if not re.sub(r"\s+", "", "".join(body_for_completeness)) or any(
+                _BUG_TODO_MARKER in value for value in body
+            ):
+                return False, {
+                    "error": (
+                        f"[Root Cause Field Incomplete] {field_marker} for <{root_tag}> "
+                        f"is empty or still contains {_BUG_TODO_MARKER}. Fill this ROOT "
+                        f"field before validating the next one; required order is "
+                        f"{canonical_root_fields}."
+                    )
+                }
+            if field_key == "source_evidence":
+                source_content = "\n".join(body)
+                unavailable = re.findall(
+                    rf"(?m)^[ \t]*{re.escape(_ROOT_SOURCE_UNAVAILABLE_MARKER)}[ \t]*$",
+                    source_content,
+                )
+                if len(unavailable) > 1:
+                    return False, {
+                        "error": (
+                            f"[Root Source Evidence Error] {field_marker} for <{root_tag}> "
+                            f"contains {_ROOT_SOURCE_UNAVAILABLE_MARKER} more than once. "
+                            f"Keep exactly one standalone {_ROOT_SOURCE_UNAVAILABLE_MARKER} "
+                            "and remove every HDL block and ROOT-SOURCE-* marker."
+                        ),
+                        "next_action": [
+                            f"Use either a complete HDL block with all {_ROOT_SOURCE_EVIDENCE_MARKERS} "
+                            f"or one {_ROOT_SOURCE_UNAVAILABLE_MARKER} plus black-box evidence; do not mix them."
+                        ],
+                    }
+                if unavailable:
+                    if _HDL_FENCED_BLOCK.search(source_content) or any(
+                        marker in source_content for marker in _ROOT_SOURCE_EVIDENCE_MARKERS
+                    ):
+                        return False, {
+                            "error": (
+                                f"[Root Source Evidence Error] {_ROOT_SOURCE_UNAVAILABLE_MARKER} "
+                                f"is mutually exclusive with HDL evidence under <{root_tag}>. "
+                                "Remove the unavailable marker if source is accessible, or "
+                                "remove the HDL fence and all ROOT-SOURCE-* markers for the black-box branch."
+                            ),
+                            "next_action": [
+                                "Choose exactly one source branch, then call Check/Complete again; "
+                                "WaveInfo and pytest evidence do not need to be rerun for this format repair."
+                            ],
+                        }
+                else:
+                    if _HDL_SOURCE_LOCATION.search(source_content) is None:
+                        issue = _missing_hdl_location_issue(source_content)
+                        return False, {
+                            "error": (
+                                f"[Root Source Evidence Error] {issue['problem']} under "
+                                f"<ROOT-SOURCE-EVIDENCE> of <{root_tag}>. "
+                                f"Use `{issue['required']}`; for one line repeat the number, "
+                                "for example `path/to/source.sv:10-10`."
+                            ),
+                            "details": issue,
+                            "next_action": [issue["next_action"]],
+                        }
+                    blocks = list(_HDL_FENCED_BLOCK.finditer(source_content))
+                    fenced_source = "\n".join(match.group("body") for match in blocks)
+                    if not blocks:
+                        return False, {
+                            "error": (
+                                f"[Root Source Evidence Error] {field_marker} for <{root_tag}> "
+                                "requires one complete HDL fenced code block. Add the real "
+                                "source location and put all ROOT-SOURCE-* markers inside it."
+                            ),
+                            "next_action": [
+                                "Edit only <ROOT-SOURCE-EVIDENCE>; do not move source markers to BG or waveform YAML."
+                            ],
+                        }
+                    for marker in _ROOT_SOURCE_EVIDENCE_MARKERS:
+                        if source_content.count(marker) != 1 or fenced_source.count(marker) != 1:
+                            return False, {
+                                "error": (
+                                    f"[Root Source Evidence Error] {marker} must occur exactly once "
+                                    f"inside the HDL fence under <{root_tag}>. Add or move the "
+                                    f"literal {marker} into a source-code comment; keep the other "
+                                    f"markers {_ROOT_SOURCE_EVIDENCE_MARKERS} in that same fence."
+                                ),
+                                "next_action": [
+                                    "Repair only <ROOT-SOURCE-EVIDENCE>, then call Check/Complete; "
+                                    "no pytest, WaveInfo, or ApplyWaveInfoEvidence rerun is required."
+                                ],
+                            }
+        related_lines = entity_lines[related_index + 1 :]
+        if any(value == _RELATED_BUGS_MARKER for value in related_lines):
+            return False, {"error": f"[Related Bug List Duplicate] <{root_tag}> contains more than one {_RELATED_BUGS_MARKER}."}
+        paths = set()
+        nonempty_related_lines = 0
+        for related_offset, value in enumerate(related_lines):
+            if not value:
+                continue
+            nonempty_related_lines += 1
+            document_line = line_index + related_index + related_offset + 3
+            related_match = re.fullmatch(
+                r"-\s+<RELATED-BUG-([^<>]+)>\s+"
+                r"\[([^\]\n]+)\]\(#([^)]+)\)",
+                value,
+            )
+            if related_match is None:
+                relation_issues.append(
+                    {
+                        "code": "RELATED_BUG_FORMAT_ERROR",
+                        "root": root_tag,
+                        "line": document_line,
+                        "observed": value,
+                        "message": (
+                            f"[Related Bug Format Error] Invalid related-Bug entry under "
+                            f"<{root_tag}> at line {document_line}: {value}. Replace it with "
+                            f"one exact available entry: {related_bug_candidates()}"
+                        ),
+                    }
+                )
+                continue
+            tagged_path = related_match.group(1)
+            visible_path = related_match.group(2)
+            path_parts = visible_path.split("/")
+            if (
+                len(path_parts) != 4
+                or not re.fullmatch(r"FG-[^<>/]+", path_parts[0])
+                or not re.fullmatch(r"FC-[^<>/]+", path_parts[1])
+                or not re.fullmatch(r"CK-[^<>/]+", path_parts[2])
+                or not re.fullmatch(r"BG-[^<>/]+", path_parts[3])
+                or tagged_path != visible_path
+            ):
+                relation_issues.append(
+                    {
+                        "code": "RELATED_BUG_PATH_ERROR",
+                        "root": root_tag,
+                        "line": document_line,
+                        "tagged_path": tagged_path,
+                        "visible_path": visible_path,
+                        "message": (
+                            f"[Related Bug Path Error] <{_RELATED_BUG_TAG_PREFIX}...> must "
+                            "embed the same exact FG/FC/CK/BG path as its link text; "
+                            f"line {document_line} under <{root_tag}> has visible path "
+                            f"'{visible_path}' and tagged path '{tagged_path}'. Replace the "
+                            "whole line with one exact available entry: "
+                            f"{related_bug_candidates()}"
+                        ),
+                    }
+                )
+                continue
+            checkpoint_path = "/".join(path_parts[:3])
+            bug_tag = path_parts[3]
+            bug_path = visible_path
+            expected_anchor = _dynamic_bug_anchor_id(checkpoint_path, bug_tag)
+            exact_relation = _related_bug_reference(checkpoint_path, bug_tag)
+            if related_match.group(3) != expected_anchor:
+                relation_issues.append(
+                    {
+                        "code": "RELATED_BUG_LINK_ERROR",
+                        "root": root_tag,
+                        "line": document_line,
+                        "path": bug_path,
+                        "expected_anchor": expected_anchor,
+                        "replacement": exact_relation,
+                        "message": (
+                            f"[Related Bug Link Error] {bug_path} must link to "
+                            f"'#{expected_anchor}' at line {document_line} under "
+                            f"<{root_tag}>. Replace the whole line with: {exact_relation}"
+                        ),
+                    }
+                )
+            if bug_path in paths:
+                relation_issues.append(
+                    {
+                        "code": "DUPLICATE_RELATED_BUG",
+                        "root": root_tag,
+                        "line": document_line,
+                        "path": bug_path,
+                        "message": (
+                            f"[Duplicate Related Bug] {bug_path} is listed more than once "
+                            f"under <{root_tag}> at line {document_line}. Keep one exact "
+                            "<RELATED-BUG-...> line."
+                        ),
+                    }
+                )
+                continue
+            paths.add(bug_path)
+        if not nonempty_related_lines:
+            relation_issues.append(
+                {
+                    "code": "RELATED_BUG_LIST_EMPTY",
+                    "root": root_tag,
+                    "line": line_index + related_index + 2,
+                    "message": (
+                        f"[Related Bug List Empty] <{root_tag}> must link at least one BG "
+                        f"path. Add one of these exact entries: {related_bug_candidates()}"
+                    ),
+                }
+            )
+        related_paths[root_tag] = paths
+
+    if relation_issues:
+        return _root_relation_issue_result(relation_issues, bug_file)
+
+    relation_issues = []
+    valid_record_roots = {}
+    for record in records:
+        references = record.get("root_cause_references", [])
+        if len(references) != 1:
+            candidate_text = (
+                " Available exact reference(s): "
+                + root_reference_candidates(root_titles)
+            )
+            relation_issues.append(
+                {
+                    "code": "ROOT_CAUSE_REFERENCE_ERROR",
+                    "path": record["path"],
+                    "line": record["line"],
+                    "message": (
+                        f"[Root Cause Reference Error] {record['path']} must contain exactly "
+                        f"one {_ROOT_CAUSE_REFERENCE_MARKER} at the end of <BUG-TRIGGER>, "
+                        f"pointing to its unique root cause.{candidate_text}"
+                    ),
+                }
+            )
+            continue
+        reference = references[0]
+        expected_anchor = _root_cause_anchor_id(reference["tag"])
+        if (
+            reference["anchor"] != expected_anchor
+            or reference["tag"] not in root_titles
+            or reference["title"] != root_titles.get(reference["tag"])
+        ):
+            relation_issues.append(
+                {
+                    "code": "ROOT_CAUSE_REFERENCE_TARGET_ERROR",
+                    "path": record["path"],
+                    "line": record["line"],
+                    "message": (
+                        f"[Root Cause Reference Target Error] {record['path']} points to "
+                        f"undefined or invalid root cause <{reference['tag']}>. Replace it "
+                        "with one exact available reference: "
+                        + root_reference_candidates(root_titles)
+                    ),
+                }
+            )
+            continue
+        valid_record_roots[record["path"]] = reference["tag"]
+        listed_roots = [
+            root_tag
+            for root_tag, paths in related_paths.items()
+            if record["path"] in paths
+        ]
+        if not listed_roots:
+            exact_relation = (
+                f"- <{_RELATED_BUG_TAG_PREFIX}{record['path']}> "
+                f"[{record['path']}](#{_dynamic_bug_anchor_id(record['checkpoint'], record['bug'])})"
+            )
+            relation_issues.append(
+                {
+                    "code": "ROOT_CAUSE_REVERSE_LINK_MISSING",
+                    "root": reference["tag"],
+                    "path": record["path"],
+                    "line": record["line"],
+                    "replacement": exact_relation,
+                    "message": (
+                        f"[Root Cause Reverse Link Missing] <{reference['tag']}> must list "
+                        f"{record['path']} under {_RELATED_BUGS_MARKER}. Add this exact line: "
+                        f"{exact_relation}"
+                    ),
+                }
+            )
+    for root_tag, paths in related_paths.items():
+        unknown = sorted(paths - set(records_by_path))
+        for path in unknown:
+            relation_issues.append(
+                {
+                    "code": "RELATED_BUG_TARGET_MISSING",
+                    "root": root_tag,
+                    "path": path,
+                    "message": (
+                        f"[Related Bug Target Missing] <{root_tag}> references undocumented "
+                        f"BG path: {path}. Replace the invalid line with one exact available "
+                        f"entry: {related_bug_candidates()}"
+                    ),
+                }
+            )
+        mismatched = sorted(
+            path
+            for path in paths - set(unknown)
+            if path in valid_record_roots and valid_record_roots[path] != root_tag
+        )
+        for path in mismatched:
+            target_root = valid_record_roots[path]
+            relation_issues.append(
+                {
+                    "code": "ROOT_CAUSE_BIDIRECTIONAL_LINK_MISMATCH",
+                    "root": root_tag,
+                    "path": path,
+                    "message": (
+                        f"[Root Cause Bidirectional Link Mismatch] <{root_tag}> lists "
+                        f"{path}, but that BG points to <{target_root}>. Remove this line "
+                        f"from <{root_tag}> and add it under <{target_root}>: "
+                        f"{related_bug_candidates([path])}. If <{root_tag}> is semantically "
+                        "correct instead, replace the BG-side reference with "
+                        f"{_root_cause_reference(root_tag, root_titles[root_tag])}."
+                    ),
+                }
+            )
+    if relation_issues:
+        return _root_relation_issue_result(relation_issues, bug_file)
+    return True, ""
 
 
 def _parse_waveform_analysis_blocks(
@@ -740,7 +1377,6 @@ def _required_waveform_pairs(
         return True, [], ""
 
     required = {}
-    report_associations = {}
     unmatched = []
     for record in records:
         for test in record["tests"]:
@@ -756,6 +1392,10 @@ def _required_waveform_pairs(
                             "checkpoint": record["checkpoint"],
                             "line": test["line"],
                             "reason": "test case is absent from the validation set",
+                            "similar_report_test_cases": _similar_report_test_cases(
+                                test["test_case"],
+                                failed_tc_and_cks.keys(),
+                            ),
                         }
                     )
                 continue
@@ -774,53 +1414,6 @@ def _required_waveform_pairs(
                         }
                     )
                 continue
-            report_association = (
-                record["bug"],
-                record["checkpoint"],
-                report_name,
-            )
-            existing = report_associations.get(report_association)
-            if existing is not None and existing["test_label"] != test["test_label"]:
-                candidates = [existing, test]
-                preferred = min(
-                    candidates,
-                    key=lambda item: (
-                        item["test_case"].split("::", 1)[0].count("/"),
-                        len(item["test_case"]),
-                    ),
-                )
-                duplicate = test if preferred is existing else existing
-                return False, [], {
-                    "error": (
-                        "[Equivalent Waveform Association Duplicate] The same pytest node "
-                        f"'{report_name}' is documented twice under "
-                        f"{record['checkpoint']}/{record['bug']}: "
-                        f"<{existing['test_label']}> at line {existing['line']} and "
-                        f"<{test['test_label']}> at line {test['line']}. Keep exactly one "
-                        "BG/TC association and one central waveform record for this pytest "
-                        "node."
-                    ),
-                    "details": {
-                        "code": "EQUIVALENT_TC_ASSOCIATION_DUPLICATE",
-                        "bug": record["bug"],
-                        "checkpoint": record["checkpoint"],
-                        "report_test_case": report_name,
-                        "keep_test_label": preferred["test_label"],
-                        "duplicate_test_label": duplicate["test_label"],
-                        "duplicate_line": duplicate["line"],
-                        "next_action": (
-                            f"Remove only <{duplicate['test_label']}> at line "
-                            f"{duplicate['line']}, its immediately following WAVEFORM-REF, "
-                            "and that label's duplicate central waveform record. Preserve "
-                            f"<{preferred['test_label']}> and its evidence, then call "
-                            "Check/Complete again."
-                        ),
-                        "rerun_test": False,
-                        "rerun_waveinfo": False,
-                        "apply_evidence": False,
-                    },
-                }
-            report_associations[report_association] = test
             pair = (record["bug"], test["test_label"])
             required[pair] = {
                 "bug": record["bug"],
@@ -979,8 +1572,7 @@ def _normalized_bug_analysis_field_text(content: str) -> str:
         content,
     )
     without_optional_markers = re.sub(
-        rf"(?m)^[ \t]*(?:{re.escape(_BUG_SOURCE_UNAVAILABLE_MARKER)}|"
-        rf"{re.escape(_BUG_TODO_MARKER)})[ \t]*$",
+        rf"(?m)^[ \t]*{re.escape(_BUG_TODO_MARKER)}[ \t]*$",
         "",
         without_display_headings,
     )
@@ -997,6 +1589,9 @@ def check_dynamic_bug_analysis_content(
     if not ok:
         return False, error
     if not blocks:
+        root_ok, root_error = _parse_root_cause_relations(workspace, bug_file, blocks)
+        if not root_ok:
+            return False, root_error
         return True, (
             "No documented non-zero-confidence dynamic Bugs require content validation."
         )
@@ -1033,9 +1628,32 @@ def check_dynamic_bug_analysis_content(
 
         if sections:
             markers_by_key = dict(_BUG_ANALYSIS_SECTION_MARKERS)
+            references = block.get("root_cause_references", [])
+            expected_reference = ""
+            if len(references) == 1:
+                expected_reference = (
+                    f"<{_ROOT_CAUSE_REFERENCE_TAG_PREFIX}{references[0]['tag']}> "
+                    f"[{references[0]['title']}](#{references[0]['anchor']})"
+                )
             for key, section in sections.items():
                 section_content = section["content"]
-                if not _normalized_bug_analysis_field_text(section_content):
+                field_text = section_content
+                if key == "trigger" and expected_reference:
+                    if not field_text.rstrip().endswith(expected_reference):
+                        issues.append(
+                            {
+                                "bug": block["bug"],
+                                "path": block["path"],
+                                "line": block["line"] + section["marker_line_offset"] + 1,
+                                "problem": (
+                                    "the trigger field must end with its only canonical "
+                                    f"root-cause reference: {expected_reference!r}"
+                                ),
+                            }
+                        )
+                    else:
+                        field_text = field_text.rstrip()[: -len(expected_reference)]
+                if not _normalized_bug_analysis_field_text(field_text):
                     issues.append(
                         {
                             "bug": block["bug"],
@@ -1050,116 +1668,29 @@ def check_dynamic_bug_analysis_content(
                         }
                     )
 
-            source_section = sections["source_evidence"]
-            source_content = source_section["content"]
-            source_line = block["line"] + source_section["marker_line_offset"] + 1
-            unavailable_markers = list(
-                re.finditer(
-                    rf"(?m)^[ \t]*{re.escape(_BUG_SOURCE_UNAVAILABLE_MARKER)}[ \t]*$",
-                    source_content,
+            legacy_markers = [
+                marker
+                for marker in (
+                    "<BUG-ROOT-CAUSE>",
+                    "<BUG-SOURCE-EVIDENCE>",
+                    "<BUG-CAUSAL-CHAIN>",
+                    "<BUG-FIX>",
+                    "<BUG-RETEST>",
                 )
-            )
-            if len(unavailable_markers) > 1:
+                if marker in content
+            ]
+            if legacy_markers:
                 issues.append(
                     {
                         "bug": block["bug"],
                         "path": block["path"],
-                        "line": source_line,
+                        "line": block["line"],
                         "problem": (
-                            f"marker {_BUG_SOURCE_UNAVAILABLE_MARKER!r} occurs "
-                            f"{len(unavailable_markers)} time(s); at most one is allowed"
+                            "moved ROOT-owned field marker(s) remain in the BG entry: "
+                            + ", ".join(legacy_markers)
                         ),
                     }
                 )
-            elif unavailable_markers:
-                conflicting_evidence = []
-                if _HDL_FENCED_BLOCK.search(source_content) is not None:
-                    conflicting_evidence.append("HDL fenced code block")
-                present_source_markers = [
-                    marker
-                    for marker in _BUG_SOURCE_EVIDENCE_MARKERS
-                    if marker in source_content
-                ]
-                if present_source_markers:
-                    conflicting_evidence.append(
-                        "source marker(s) " + ", ".join(present_source_markers)
-                    )
-                if conflicting_evidence:
-                    issues.append(
-                        {
-                            "bug": block["bug"],
-                            "path": block["path"],
-                            "line": source_line,
-                            "problem": (
-                                f"marker {_BUG_SOURCE_UNAVAILABLE_MARKER!r} is mutually "
-                                "exclusive with " + " and ".join(conflicting_evidence)
-                            ),
-                        }
-                    )
-            else:
-                missing_source_evidence = []
-                if _HDL_SOURCE_LOCATION.search(source_content) is None:
-                    missing_source_evidence.append(
-                        _missing_hdl_location_issue(source_content)
-                    )
-                hdl_blocks = list(_HDL_FENCED_BLOCK.finditer(source_content))
-                if not hdl_blocks:
-                    missing_source_evidence.append(
-                        {
-                            "code": "HDL_FENCE_MISSING",
-                            "problem": "complete HDL fenced code block is missing",
-                            "required": (
-                                "A fenced systemverilog/verilog/vhdl/scala/chisel block "
-                                "containing the cited source lines"
-                            ),
-                            "next_action": (
-                                "Add one complete HDL fenced block containing the real cited "
-                                "source lines and all three BUG-SOURCE markers."
-                            ),
-                        }
-                    )
-                fenced_source = "\n".join(
-                    match.group("body") for match in hdl_blocks
-                )
-                for marker in _BUG_SOURCE_EVIDENCE_MARKERS:
-                    marker_count = source_content.count(marker)
-                    if marker_count != 1:
-                        missing_source_evidence.append(
-                            {
-                                "code": "HDL_SOURCE_MARKER_COUNT",
-                                "problem": (
-                                    f"marker {marker!r} must occur exactly once "
-                                    f"(found {marker_count})"
-                                ),
-                                "required": f"Exactly one {marker} marker",
-                                "next_action": (
-                                    f"Put exactly one {marker} in a language-native comment "
-                                    "on the corresponding HDL source line."
-                                ),
-                            }
-                        )
-                    elif fenced_source.count(marker) != 1:
-                        missing_source_evidence.append(
-                            {
-                                "code": "HDL_SOURCE_MARKER_OUTSIDE_FENCE",
-                                "problem": (
-                                    f"marker {marker!r} must be inside an HDL fenced code block"
-                                ),
-                                "required": f"{marker} inside the cited HDL fence",
-                                "next_action": (
-                                    f"Move {marker} into a language-native comment on the "
-                                    "corresponding line inside the HDL fenced block."
-                                ),
-                            }
-                        )
-                if missing_source_evidence:
-                    for source_problem in missing_source_evidence:
-                        issues.append({
-                            "bug": block["bug"],
-                            "path": block["path"],
-                            "line": source_line,
-                            **source_problem,
-                        })
 
     if issues:
         issue = issues[0]
@@ -1212,6 +1743,9 @@ def check_dynamic_bug_analysis_content(
             },
             "next_action": next_action,
         }
+    root_ok, root_error = _parse_root_cause_relations(workspace, bug_file, blocks)
+    if not root_ok:
+        return False, root_error
     return True, f"Validated completed analysis for {len(blocks)} dynamic Bug entry(s)."
 
 
@@ -2367,12 +2901,23 @@ def check_failed_checkpoint_reproducers(
         "next_action": [
             "For a targeted test, derive an independent expected value from the specification, an independent reference model, or a verifiable formula. Compare exact input, specification expected, test expected, and DUT actual. If the expected values differ, fix the test and rerun; do not record a Bug.",
             "If expected values agree, validate the stimulus/driver, API callbacks and Step ordering, valid sampling condition and latency, fixture/reference model/reset/environment, then this checkpoint's coverage/check predicate, CovGroup.sample call, and sample timing. Fix the identified verification error and rerun. If the checkpoint was merely uncovered, add correct targeted stimulus; do not add an unrelated test or manufacture a failure.",
+            "Do not modify a currently PASSED associated test solely to make it fail for this gate. If the CK predicate, coverage association, sample timing, or stimulus is wrong, repair that verification logic. A correct repair may make the CK pass; in that case no FAILED reproducer is required for that CK. Only when the CK contract is valid and the DUT actually violates it should a correct test naturally fail.",
+            "After any stimulus transformation such as complementing, encoding, masking, packetizing, or adding a carry/borrow input, compute specification_expected from the actual driven values and the documented operation. Do not compare transformed inputs against an expected value derived from the untransformed operands.",
             "Only if all verification is correct and DUT actual still violates the specification, keep the strong reproducer assertion naturally failing, rerun until the report associates that FAILED test with this exact checkpoint, then obtain confirmed WaveInfo evidence and add the non-zero BG/TC record.",
         ],
     }
 
 
-def check_bug_tc_analysis(workspace:str, checks_in_tc:list, bug_file:str, target_ck_prefix:str, failed_tc_and_cks: dict, passed_tc_list: list, only_marked_ckp_in_tc: bool):
+def check_bug_tc_analysis(
+    workspace: str,
+    checks_in_tc: list,
+    bug_file: str,
+    target_ck_prefix: str,
+    failed_tc_and_cks: dict,
+    passed_tc_list: list,
+    only_marked_ckp_in_tc: bool,
+    test_output_dir: str = "",
+):
     try:
         all_tc_list = fc.get_unity_chip_doc_marks(
             os.path.join(workspace, bug_file), leaf_node="TC"
@@ -2407,6 +2952,13 @@ def check_bug_tc_analysis(workspace:str, checks_in_tc:list, bug_file:str, target
     tc_not_found_in_ftc_list = []
     tc_not_mark_the_cks_list = []
     tc_found_in_ptc_list = []
+    configured_test_dir = ""
+    if test_output_dir:
+        configured_test_dir = str(test_output_dir).replace("\\", "/").rstrip("/")
+        if os.path.isabs(configured_test_dir):
+            configured_test_dir = os.path.relpath(
+                configured_test_dir, workspace
+            ).replace("\\", "/")
     for tc in tc_list:
         checkpoint = tc.split("/BG-")[0]
         bug_label = tc.split("/TC-")[0]
@@ -2425,16 +2977,39 @@ def check_bug_tc_analysis(workspace:str, checks_in_tc:list, bug_file:str, target
         if len(tc_name_parts) < 2:
             return False, f"[Test Case Format Error] '{tc_name}' has incorrect format. [Correct Format] <TC-test_file.py::[ClassName::]test_case_name> where ClassName is optional. Example: <TC-test_add.py::test_overflow> or <TC-test_add.py::TestAdd::test_overflow>."
         is_zero_bug = (bug_rate == 0)
-        is_fail_tc, fail_tc_name = _find_matching_test_case(tc_name_parts, failed_tc_names)
+        has_configured_prefix = not configured_test_dir or tc_name_parts[0].startswith(
+            configured_test_dir + "/"
+        )
+        is_fail_tc, fail_tc_name = (
+            _find_matching_test_case(tc_name_parts, failed_tc_names)
+            if has_configured_prefix
+            else (False, "")
+        )
         # failed tc
         if is_fail_tc:
             if not is_zero_bug and checkpoint not in failed_tc_and_cks[fail_tc_name]:
                 tc_not_mark_the_cks_list.append((fail_tc_name, checkpoint))
         else:
             if not is_zero_bug:
-                tc_not_found_in_ftc_list.append((tc_name, bug_label))
+                tc_not_found_in_ftc_list.append(
+                    (
+                        tc_name,
+                        bug_label,
+                        tuple(
+                            _similar_report_test_cases(
+                                "::".join(tc_name_parts),
+                                failed_tc_names,
+                            )
+                        ),
+                        checkpoint,
+                    )
+                )
         # passed tc
-        is_pass_tc, pass_tc_name = _find_matching_test_case(tc_name_parts, passed_tc_list)
+        is_pass_tc, pass_tc_name = (
+            _find_matching_test_case(tc_name_parts, passed_tc_list)
+            if has_configured_prefix
+            else (False, "")
+        )
         if is_pass_tc and not is_fail_tc and not is_zero_bug:
             tc_found_in_ptc_list.append((tc_name, pass_tc_name))
 
@@ -2453,14 +3028,55 @@ def check_bug_tc_analysis(workspace:str, checks_in_tc:list, bug_file:str, target
                        "[Next action] Remove the stale BG/TC association if the test no longer reproduces the Bug. If the tag names the wrong test, replace it with the exact current failing pytest node ID. If a confirmed DUT defect should still reproduce, restore only the correct strong assertion and rerun; never manufacture a Fail or use BG-*-0."
                        ]
     # tc not found in fail tcs
-    tc_not_found_in_ftc_list = list(set(tc_not_found_in_ftc_list))
-    if len(tc_not_found_in_ftc_list) > 0 and not only_marked_ckp_in_tc:
-        ftc_msg = fc.list_str_abbr([f"{x[0]}(documented under {x[1]})" for x in tc_not_found_in_ftc_list])
-        return False, [f"[Test Case Not Found] Bug analysis document '{bug_file}' contains {len(tc_not_found_in_ftc_list)} test case(s) ({ftc_msg}) not found in the failed test list.",
-                       "[Observed] None of the listed document node IDs matches a current FAILED test in the validation report.",
-                       "[Required] A non-zero BG must reference an exact current failing node ID: <TC-test_file.py::[ClassName::]test_case_name>.",
-                       "[Next action] Run the documented node ID. If the report uses a different file/class/function node ID, replace <TC-*> with that exact value. If the test is absent or no longer fails, restore collection/reproduction or remove the stale BG/TC association; never manufacture a Fail or use BG-*-0."
-                       ]
+    tc_not_found_in_ftc_list = list(dict.fromkeys(tc_not_found_in_ftc_list))
+    if tc_not_found_in_ftc_list:
+        documented_tc, bug_path, similar_nodes, checkpoint = tc_not_found_in_ftc_list[0]
+        similar_hint = (
+            fc.list_str_abbr(list(similar_nodes)) if similar_nodes else "None"
+        )
+        configured_requirement = (
+            f"confirm that its file path begins with '{configured_test_dir}/' from "
+            "agent.cfg, "
+            if configured_test_dir
+            else ""
+        )
+        return False, [
+            (
+                f"[Test Case Node ID Mismatch] '{bug_file}' uses {documented_tc} under "
+                f"'{bug_path}', but that exact node ID is not a current FAILED report node. "
+                f"Fix this first mismatch before the remaining "
+                f"{len(tc_not_found_in_ftc_list) - 1} mismatch(es)."
+            ),
+            (
+                f"[Configured TC output directory] {configured_test_dir}. This resolved "
+                "agent.cfg value is the required file-path prefix for every TC in this "
+                "stage."
+                if configured_test_dir
+                else "[Configured TC output directory] Unavailable in this direct checker call."
+            ),
+            f"[Checkpoint] {checkpoint}",
+            (
+                "[Similar current FAILED report node IDs] "
+                f"{similar_hint}. Similar nodes are lookup hints only; they are not "
+                "equivalent identities and are never matched automatically."
+            ),
+            (
+                "[Required] Copy the intended pytest node ID verbatim from the current "
+                "RunTestCases/Check/Complete report, "
+                f"{configured_requirement}remove only the file ':start-end' "
+                "or ':line' range, and add the 'TC-' prefix. Do not add, remove, or rewrite "
+                "the configured directory prefix."
+            ),
+            (
+                "[Next action] If one similar node is the intended test, replace this stale "
+                "BG/TC identity with that exact report node ID, obtain a new WaveInfo receipt "
+                "using the same exact node ID, and use ApplyWaveInfoEvidence to rebuild its "
+                "central evidence. Do not hand-edit signed receipt/viewer fields and do not "
+                "call Check/Complete again until this identity is corrected. If no candidate "
+                "is the intended test, restore the missing failing test or remove the stale "
+                "BG/TC association."
+            ),
+        ]
     # tc not mark their checkpoints
     tc_not_mark_the_cks_list = list(set(tc_not_mark_the_cks_list))
     if len(tc_not_mark_the_cks_list) > 0:
@@ -2476,15 +3092,36 @@ def check_bug_tc_analysis(workspace:str, checks_in_tc:list, bug_file:str, target
     # fail tc not in bug doc
     failed_tc = [k for k, v in failed_tc_maps.items() if not v]
     if failed_tc:
-        return False, [f"[Unresolved Failed Cases] Found {len(failed_tc)} failed test case(s) without a non-zero-confidence confirmed DUT Bug record: {fc.list_str_abbr(failed_tc)}",
-                       *fc.description_bug_doc(),
-                       "[Observed] The listed tests are current FAILED tests with checkpoint associations, but no matching non-zero BG/TC relation explains them.",
-                       "[Required] Every remaining FAILED DUT test must be recorded under at least one of its report-associated checkpoints in a non-zero dynamic Bug.",
-                       "[Next action 1] For each listed TC, derive an independent expected value from the specification, an independent reference model, or a verifiable formula. Compare exact input, specification expected, test expected, and DUT actual. If the expected values differ, fix the test and rerun until Pass.",
-                       "[Next action 2] If expected values agree, validate stimulus/driver, API callbacks and Step ordering, valid sampling condition and latency, fixture/reference model/reset/environment, then each associated checkpoint's coverage/check predicate, CovGroup.sample call, and sample timing. Fix the identified verification error and rerun until Pass.",
-                       "[Next action 3] Only if all verification is correct and DUT actual still violates the specification, keep the strong assertion failing, obtain confirmed WaveInfo evidence, and add the exact CK/BG/TC relation and source root cause. A <BG-*-0> placeholder does not explain a failed test.",
-                       f"Completion invariant: every non-DUT-Bug case passes, and every remaining failed case is a fully analyzed DUT Bug reproducer in '{bug_file}'."
-                       ]
+        first_failed = failed_tc[0]
+        associated_checkpoints = failed_tc_and_cks.get(first_failed, [])
+        return False, [
+            (
+                f"[Unresolved Failed Cases] Found {len(failed_tc)} current FAILED test "
+                "case(s) without a matching non-zero dynamic Bug record. First unresolved "
+                f"node: {first_failed}."
+            ),
+            f"[Report-associated checkpoints] {fc.list_str_abbr(associated_checkpoints)}",
+            (
+                "[Next action 1] Classify this first test only: derive an independent "
+                "expected value from the specification and compare exact input, specification "
+                "expected, test expected, and DUT actual. Fix and rerun the test if its "
+                "expected value is wrong."
+            ),
+            (
+                "[Next action 2] If expected values agree, verify stimulus/driver, API and "
+                "Step ordering, sampling condition and latency, fixture/reference model/reset/"
+                "environment, and the associated checkpoint coverage/check predicate and "
+                "sample timing. Fix any "
+                "verification error and rerun until Pass."
+            ),
+            (
+                "[Next action 3] Only if all verification is correct and the DUT still violates "
+                "the specification, keep the strong assertion naturally failing, obtain "
+                "confirmed WaveInfo evidence, and record the exact CK/BG/TC and ROOT relation "
+                "using Guide_Doc/dut_bug_analysis.md section 5.1. A <BG-*-0> placeholder does "
+                "not classify a failed test."
+            ),
+        ]
     return True, ""
 
 def check_bug_ck_analysis(workspace:str, bug_analysis_file:str, failed_check: list,
@@ -2610,7 +3247,7 @@ def check_doc_struct(test_case_checks:list, doc_checks:list, doc_file:str, check
 def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="",
                  check_tc_in_doc=True, check_doc_in_tc=True, post_checker=None, only_marked_ckp_in_tc=False,
                  check_fail_ck_in_bug=True, func_RunTestCases=None, timeout_RunTestCases=0,
-                 waveform_tool=None, waveform_test_dir=None):
+                 waveform_tool=None, waveform_test_dir=None, test_output_dir=None):
     """Check the test report against documentation and bug analysis.
 
     Args:
@@ -2628,6 +3265,7 @@ def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="",
         timeout_RunTestCases: Retained for caller compatibility; no diagnostic rerun is performed.
         waveform_tool: The active WaveInfo tool instance used to verify in-memory call receipts.
         waveform_test_dir: Test directory searched by WaveInfo for the newest waveform session.
+        test_output_dir: Resolved agent.cfg TC output directory shown in diagnostics.
     Returns:
         A tuple indicating the success or failure of the check, along with an optional message.
     """
@@ -2750,7 +3388,14 @@ def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="",
             return ret, msg, -1
 
         ret, msg = check_bug_tc_analysis(
-            workspace, checks_in_tc, bug_file, target_ck_prefix, failed_funcs_bins, passed_tc_list, only_marked_ckp_in_tc
+            workspace,
+            checks_in_tc,
+            bug_file,
+            target_ck_prefix,
+            failed_funcs_bins,
+            passed_tc_list,
+            only_marked_ckp_in_tc,
+            test_output_dir=test_output_dir or "",
         )
         if not ret:
             return ret, msg, -1

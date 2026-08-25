@@ -36,6 +36,7 @@ def test_bug_record_scripts_have_distinct_owners_and_names():
     dynamic_script = RECORD_SCRIPTS[0].read_text(encoding="utf-8")
     assert not re.search(r"[\u4e00-\u9fff]", dynamic_script)
     assert "load_runtime_config(os.getcwd())" in dynamic_script
+    assert 'runtime_config["test_output_dir"]' in dynamic_script
     assert 'os.environ.get("DUT")' not in dynamic_script
     assert 'os.environ.get("OUT")' not in dynamic_script
     assert STATIC_RECORD_SCRIPT.is_file()
@@ -81,6 +82,22 @@ def _insert_content(module, lines, fg, fc, ck, bg, tc, bd):
     )
 
 
+@pytest.mark.parametrize(
+    ("bug_tag", "expected_root"),
+    (
+        ("BG-RESULT-WIDTH-90", "ROOT-RESULT-WIDTH"),
+        ("BG-FIX-90", "ROOT-BUG-FIX"),
+        ("BG-SOURCE-EVIDENCE-90", "ROOT-BUG-SOURCE-EVIDENCE"),
+    ),
+)
+def test_dynamic_bug_root_tag_avoids_reserved_control_markers(
+    bug_tag, expected_root
+):
+    module = _load_script(RECORD_SCRIPTS[0])
+
+    assert module.root_cause_tag_for_bg(bug_tag) == expected_root
+
+
 @pytest.mark.parametrize("script_path", RECORD_SCRIPTS)
 def test_dynamic_bug_record_script_rejects_static_tag(script_path):
     module = _load_script(script_path)
@@ -101,28 +118,17 @@ def test_dynamic_bug_record_script_rejects_static_tag(script_path):
 
 
 @pytest.mark.parametrize("script_path", RECORD_SCRIPTS)
-@pytest.mark.parametrize(
-    ("tc_tag", "report_key"),
-    (
-        (
-            "TC-tests/test_adder.py::test_overflow",
-            "unity_test/tests/test_adder.py:12-18::test_overflow",
-        ),
-        (
-            "TC-unity_test/tests/test_adder.py::test_overflow",
-            "unity_test/tests/test_adder.py:12::test_overflow",
-        ),
-    ),
-)
-def test_dynamic_bug_record_script_resolves_test_dir_relative_report_key(
-    script_path, tc_tag, report_key, tmp_path, monkeypatch
+def test_dynamic_bug_record_script_strips_only_report_line_range(
+    script_path, tmp_path, monkeypatch
 ):
     module = _load_script(script_path)
     out_dir = tmp_path / "unity_test"
     out_dir.mkdir()
     report = {
         "failed_test_case_with_check_point_list": {
-            report_key: ["FG-ARITHMETIC/FC-ADD/CK-OVERFLOW"]
+            "unity_test/tests/test_adder.py:12-18::test_overflow": [
+                "FG-ARITHMETIC/FC-ADD/CK-OVERFLOW"
+            ]
         }
     }
     (out_dir / ".TEST_TEMPLATE_IMP_REPORT.json").write_text(
@@ -130,13 +136,56 @@ def test_dynamic_bug_record_script_resolves_test_dir_relative_report_key(
     )
     monkeypatch.chdir(tmp_path)
 
-    assert module.resolve_fg_fc_ck_list_by_tc(tc_tag, "unity_test") == [
+    assert module.resolve_fg_fc_ck_list_by_tc(
+        "TC-unity_test/tests/test_adder.py::test_overflow",
+        "unity_test",
+        "unity_test/tests",
+    ) == [
         ("FG-ARITHMETIC", "FC-ADD", "CK-OVERFLOW")
     ]
 
 
 @pytest.mark.parametrize("script_path", RECORD_SCRIPTS)
-def test_dynamic_bug_record_script_resolves_absolute_class_test_report_key(
+def test_dynamic_bug_record_script_rejects_short_path_with_report_candidate(
+    script_path, tmp_path, monkeypatch
+):
+    module = _load_script(script_path)
+    out_dir = tmp_path / "unity_test"
+    out_dir.mkdir()
+    (out_dir / ".TEST_TEMPLATE_IMP_REPORT.json").write_text(
+        json.dumps(
+            {
+                "failed_test_case_with_check_point_list": {
+                    "unity_test/tests/test_adder.py:12-18::test_overflow": [
+                        "FG-ARITHMETIC/FC-ADD/CK-OVERFLOW"
+                    ]
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(ValueError) as error:
+        module.resolve_fg_fc_ck_list_by_tc(
+            "TC-tests/test_adder.py::test_overflow",
+            "unity_test",
+            "unity_test/tests",
+        )
+
+    message = str(error.value)
+    assert "no exact FG/FC/CK report mapping" in message
+    assert "unity_test/tests/test_adder.py::test_overflow" in message
+    assert (
+        "Configured TC output directory from .ucagent/runtime_config.json: "
+        "'unity_test/tests'"
+    ) in message
+    assert "not equivalent identities" in message
+    assert "configured directory unchanged" in message
+
+
+@pytest.mark.parametrize("script_path", RECORD_SCRIPTS)
+def test_dynamic_bug_record_script_rejects_node_outside_configured_output_dir(
     script_path, tmp_path, monkeypatch
 ):
     module = _load_script(script_path)
@@ -156,10 +205,14 @@ def test_dynamic_bug_record_script_resolves_absolute_class_test_report_key(
     )
     monkeypatch.chdir(tmp_path)
 
-    assert module.resolve_fg_fc_ck_list_by_tc(
-        "TC-tests/test_adder.py::TestAdder::test_overflow",
-        out_dir.as_posix(),
-    ) == [("FG-ARITHMETIC", "FC-ADD", "CK-OVERFLOW")]
+    with pytest.raises(ValueError) as error:
+        module.resolve_fg_fc_ck_list_by_tc(
+            f"TC-{out_dir.as_posix()}/tests/test_adder.py::TestAdder::test_overflow",
+            out_dir.as_posix(),
+            "unity_test/tests",
+        )
+
+    assert "TC file path must start with 'unity_test/tests/'" in str(error.value)
 
 
 @pytest.mark.parametrize("script_path", RECORD_SCRIPTS)
@@ -194,7 +247,7 @@ def test_dynamic_bug_record_script_resolves_visible_source_titles(
         function_file, "FG-ARITHMETIC", "FC-ADD", "CK-OVERFLOW"
     ) == ("算术功能", "加法结果", "进位输出")
     assert module.resolve_test_title(
-        "TC-tests/test_adder.py::test_overflow", "unity_test"
+        "TC-unity_test/tests/test_adder.py::test_overflow"
     ) == "进位输入产生进位"
 
     lines = module.make_bug_analysis_document("Adder").splitlines(keepends=True)
@@ -232,6 +285,7 @@ def test_dynamic_bug_record_script_main_writes_chinese_titles_from_runtime_sourc
                 "schema_version": 1,
                 "DUT": "Adder",
                 "OUT": "unity_test",
+                "test_output_dir": "custom_tc",
                 "runtime_options": {
                     "need_ref_model": False,
                     "mock_components_enabled": False,
@@ -241,13 +295,14 @@ def test_dynamic_bug_record_script_main_writes_chinese_titles_from_runtime_sourc
         encoding="utf-8",
     )
     out_dir = tmp_path / "unity_test"
-    tests_dir = out_dir / "tests"
+    tests_dir = tmp_path / "custom_tc"
+    out_dir.mkdir()
     tests_dir.mkdir(parents=True)
     (out_dir / ".TEST_TEMPLATE_IMP_REPORT.json").write_text(
         json.dumps(
             {
                 "failed_test_case_with_check_point_list": {
-                    "unity_test/tests/test_adder.py:1-4::test_overflow": [
+                    "custom_tc/test_adder.py:1-4::test_overflow": [
                         "FG-ARITHMETIC/FC-ADD/CK-OVERFLOW"
                     ]
                 }
@@ -276,7 +331,7 @@ def test_dynamic_bug_record_script_main_writes_chinese_titles_from_runtime_sourc
             "-BG",
             "BG-CARRY-DROPPED-95",
             "-TC",
-            "TC-tests/test_adder.py::test_overflow",
+            "TC-custom_tc/test_adder.py::test_overflow",
             "-BD",
             "完整和进位丢失",
         ],
@@ -289,7 +344,10 @@ def test_dynamic_bug_record_script_main_writes_chinese_titles_from_runtime_sourc
     assert "#### 加法结果 <FC-ADD>" in document
     assert "##### 进位输出 <CK-OVERFLOW>" in document
     assert "###### 完整和进位丢失（95%） <BG-CARRY-DROPPED-95>" in document
-    assert "- 进位输入产生进位 <TC-tests/test_adder.py::test_overflow>" in document
+    assert (
+        "- 进位输入产生进位 "
+        "<TC-custom_tc/test_adder.py::test_overflow>"
+    ) in document
     assert not (tmp_path / "wrong_output").exists()
 
 
@@ -320,14 +378,20 @@ def test_dynamic_bug_record_script_generates_incomplete_analysis_scaffold(script
         module.OVERVIEW_MARKER,
         "<BUG-SYMPTOMS>",
         "<BUG-TRIGGER>",
-        "<BUG-ROOT-CAUSE>",
-        "<BUG-SOURCE-EVIDENCE>",
-        "<BUG-CAUSAL-CHAIN>",
-        "<BUG-FIX>",
-        "<BUG-RETEST>",
     )
     assert document.index("<BG-CIN-OVERFLOW-98>") < document.index(markers[0])
     assert [document.count(marker) for marker in markers] == [1] * len(markers)
+    for marker in (
+        "<ROOT-CAUSE-ANALYSIS>",
+        "<ROOT-SOURCE-EVIDENCE>",
+        "<ROOT-CAUSAL-CHAIN>",
+        "<ROOT-FIX>",
+        "<ROOT-RETEST>",
+    ):
+        assert document.count(marker) == 1
+    assert "<CAUSE-REF-ROOT-CIN-OVERFLOW>" in document
+    assert "<RELATED-BUG-FG-ARITHMETIC/FC-ADD/CK-OVERFLOW/BG-CIN-OVERFLOW-98>" in document
+    assert "<BUG-ROOT-CAUSE>" not in document
     assert [document.index(marker) for marker in markers] == sorted(
         document.index(marker) for marker in markers
     )
@@ -346,11 +410,11 @@ def test_dynamic_bug_record_script_generates_incomplete_analysis_scaffold(script
         "###### Bug 概述",
         "###### 现象与严重度",
         "###### 触发条件与影响",
-        "###### 根因分析",
-        "###### 源码证据",
-        "###### 动态因果链",
-        "###### 修复建议",
-        "###### 风险与复验",
+            "#### 根因分析",
+            "#### 源码证据",
+            "#### 因果链",
+            "#### 修复建议",
+            "#### 风险与复验",
     ):
         assert heading in document
     assert document.index("<BG-CIN-OVERFLOW-98>") < document.index("</DYNAMIC-BUGS>")
@@ -517,6 +581,7 @@ def test_static_bug_record_script_uses_resolved_runtime_config(
                 "schema_version": 1,
                 "DUT": "Demo",
                 "OUT": "unity_test",
+                "test_output_dir": "unity_test/tests",
                 "runtime_options": {
                     "need_ref_model": False,
                     "mock_components_enabled": False,
@@ -603,6 +668,7 @@ def test_skill_path_loaders_use_resolved_runtime_config(
                 "schema_version": 1,
                 "DUT": "Demo",
                 "OUT": "unity_test",
+                "test_output_dir": "unity_test/tests",
                 "runtime_options": {
                     "need_ref_model": False,
                     "mock_components_enabled": False,
@@ -659,12 +725,24 @@ def test_static_bug_link_script_accepts_filled_dynamic_analysis(tmp_path):
         f"{marker}\n**Localized {key} title**\ncompleted evidence-backed content"
         for key, marker in module.DYNAMIC_BUG_SECTION_MARKERS
     )
+    sections += "\n<CAUSE-REF-ROOT-DIV> [Division cause](#root-cause-div)"
     bug_file = tmp_path / "bugs.md"
     bug_file.write_text(
         "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n<BG-DIV-INF-BY-NUM-95>\n"
         f"<{test_tag}>\n"
         f"{reference}\n"
         f"{sections}\n</DYNAMIC-BUGS>\n"
+        "<ROOT-CAUSES>\n"
+        "<a id=\"root-cause-div\"></a>\n"
+        "### Division cause <ROOT-DIV>\n"
+        "<ROOT-CAUSE-ANALYSIS>\ncompleted analysis\n"
+        "<ROOT-SOURCE-EVIDENCE>\ncompleted source evidence\n"
+        "<ROOT-CAUSAL-CHAIN>\ncompleted causal chain\n"
+        "<ROOT-FIX>\ncompleted fix\n"
+        "<ROOT-RETEST>\ncompleted retest\n"
+        "<RELATED-BUGS>\n"
+        "- <RELATED-BUG-FG-A/FC-A/CK-A/BG-DIV-INF-BY-NUM-95> [FG-A/FC-A/CK-A/BG-DIV-INF-BY-NUM-95](#bug-anchor)\n"
+        "</ROOT-CAUSES>\n"
         "<WAVEFORM-EVIDENCE>\n"
         f"<a id=\"{anchor}\"></a>\n"
         f"### <WAVEFORM-{test_tag}>\n"
@@ -693,7 +771,8 @@ def test_static_bug_link_script_accepts_filled_dynamic_analysis(tmp_path):
     )
     assert len(blocks) == 1
     assert "<TC-tests/test_a.py::test_a>" in blocks[0]
-    assert "<BUG-RETEST>" in blocks[0]
+    assert "<BUG-TRIGGER>" in blocks[0]
+    assert "<BUG-RETEST>" not in blocks[0]
 
 
 def test_static_bug_link_script_rejects_missing_dynamic_container(tmp_path):

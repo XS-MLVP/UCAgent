@@ -7,11 +7,17 @@ import stat
 from collections.abc import Sequence
 from ucagent.util.bug_analysis_contract import (
     BUG_ANALYSIS_SECTION_MARKERS,
-    BUG_SOURCE_EVIDENCE_MARKERS,
-    BUG_SOURCE_UNAVAILABLE_MARKER,
+    ROOT_SOURCE_EVIDENCE_MARKERS,
+    ROOT_SOURCE_UNAVAILABLE_MARKER,
+    ROOT_ANALYSIS_SECTION_MARKERS,
     BUG_TODO_MARKER,
     DYNAMIC_BUGS_MARKER,
     DYNAMIC_BUGS_END_MARKER,
+    RELATED_BUGS_MARKER,
+    ROOT_CAUSE_ANALYSIS_MARKER,
+    ROOT_CAUSE_REFERENCE_MARKER,
+    ROOT_CAUSES_END_MARKER,
+    ROOT_CAUSES_MARKER,
     WAVEFORM_BUG_ANALYSIS_FIELDS,
     WAVEFORM_BLOCK_KEY,
     WAVEFORM_EVIDENCE_END_MARKER,
@@ -1798,17 +1804,22 @@ def description_bug_doc():
     section_markers = " -> ".join(
         marker for _key, marker in BUG_ANALYSIS_SECTION_MARKERS
     )
-    source_markers = ", ".join(BUG_SOURCE_EVIDENCE_MARKERS)
+    root_section_markers = " -> ".join(
+        marker for _key, marker in ROOT_ANALYSIS_SECTION_MARKERS
+    )
+    source_markers = ", ".join(ROOT_SOURCE_EVIDENCE_MARKERS)
     shared_fields = ", ".join(WAVEFORM_LLM_ANALYSIS_FIELDS)
     bug_fields = ", ".join(WAVEFORM_BUG_ANALYSIS_FIELDS)
     return [
         "[Dynamic Bug Analysis Contract] Follow the active stage task and Guide_Doc/dut_bug_analysis.md for the complete workflow. A stage Skill, when available, is only an optional helper.",
-        f"  - Put dynamic Bug entries inside one closed {DYNAMIC_BUGS_MARKER} ... {DYNAMIC_BUGS_END_MARKER} container, followed by one closed {WAVEFORM_EVIDENCE_MARKER} ... {WAVEFORM_EVIDENCE_END_MARKER} container.",
+        f"  - Put dynamic Bug entries inside one closed {DYNAMIC_BUGS_MARKER} ... {DYNAMIC_BUGS_END_MARKER} container, root-cause entities inside one closed {ROOT_CAUSES_MARKER} ... {ROOT_CAUSES_END_MARKER} container, then waveform records inside one closed {WAVEFORM_EVIDENCE_MARKER} ... {WAVEFORM_EVIDENCE_END_MARKER} container.",
         "  - Use the exact semantic heading hierarchy shown in Guide_Doc/dut_bug_analysis.md section 5.1 for FG, FC, CK, BG, and TC. Angle-bracket tags may be hidden by Markdown, so every visible title must describe the actual item rather than repeat its type.",
         "  - XX must be 1..100 for a dynamically reproduced DUT Bug. A zero-confidence BG is ignored and cannot explain a failed test.",
         "  - Every non-zero BG must contain at least one correctly implemented FAILED TC mapped to the same checkpoint.",
-        "  - Validation is scoped to the full FG/FC/CK/BG path. Keep one BG occurrence per checkpoint branch, with all sibling TCs before one complete ordered set of eight analysis fields.",
-        "  - When one root cause affects FAILED TCs associated with different checkpoints, the same BG tag may repeat under those CK branches. Every CK-scoped BG path must independently contain that CK's associated TCs, references, and all eight fields; fields in one path never satisfy another path. Central waveform data remains unique per TC.",
+        "  - Validation is scoped to the full FG/FC/CK/BG path. Keep one BG occurrence per checkpoint branch, with all sibling TCs before the three BG fields and one root-cause reference.",
+        "  - When one root cause affects FAILED TCs associated with different checkpoints, the same BG tag may repeat under those CK branches. Every CK-scoped BG path independently contains its three BG fields and one reference; the shared ROOT entity contains the full root analysis once. Central waveform data remains unique per TC.",
+        f"  - Every BG path has exactly one root cause. Put one clickable {ROOT_CAUSE_REFERENCE_MARKER} at the end of <BUG-TRIGGER>; define the shared analysis once under {ROOT_CAUSE_ANALYSIS_MARKER}. A root cause may list multiple full BG paths under {RELATED_BUGS_MARKER}, and every link must be bidirectional. If a combination creates the defect, that combination is one distinct root cause.",
+        "  - Every root-cause entity must use one document-wide unique <ROOT-NAME> tag and a visible title. Each entity must list at least one existing full BG path under <RELATED-BUGS>; each BG path must point to exactly one root entity through one <CAUSE-REF-ROOT-NAME> tag. Every reverse entry embeds its full path in <RELATED-BUG-FG-NAME/FC-NAME/CK-NAME/BG-NAME-XX> and adds a clickable link; the embedded path, link text, target BG, and generated anchor must match exactly.",
         "  - Every remaining FAILED DUT test must appear under at least one non-zero BG at one of the exact checkpoints associated with that test in the current report.",
         "  - A FAILED TC may trigger and cover a checkpoint that is itself PASSED. TC status and checkpoint coverage status are independent; never require every FAILED TC to map to a failed checkpoint or infer checkpoint failure from TC failure.",
         "  - Every remaining failed checkpoint must have at least one correctly implemented FAILED TC that the current report associates with that exact FG/FC/CK path; the same CK/BG/TC relation must appear in the Bug document.",
@@ -1827,14 +1838,14 @@ def description_bug_doc():
         "  - Do not classify a data mismatch sampled while valid/enable is inactive, ready/accept is false, reset/idle/transition rules make data invalid, or the documented response latency has not elapsed. Such a point is only an investigation clue unless the specification explicitly requires behavior there.",
         "  - The first non-empty content after the central YAML fence must be the same final WaveInfo result's <WAVEFORM-VIEWER> tagged Markdown link. Its marker, /surfer/?wave= route, and signed token must not be edited or constructed manually.",
         f"  - Inside every non-zero BG, include each analysis marker exactly once and in this order: {section_markers}.",
-        "  - Put every TC and its WAVEFORM-REF directly after the owning BG heading. Put all eight <BUG-*> analysis fields after the final TC/reference; no TC may appear after the first analysis marker.",
+        "  - Put every TC and its WAVEFORM-REF directly after the owning BG heading. Put the three BG fields after the final TC/reference; no TC may appear after the first analysis marker.",
         f"  - Before each analysis marker, use the exact level-6 display title shown in Guide_Doc/dut_bug_analysis.md section 5.1, then write the field body after the marker. Keep this marker order: {section_markers}. Do not rename, translate, omit, duplicate, or reorder them.",
-        f"  - Fill every marked field with evidence-backed content and remove every {BUG_TODO_MARKER}. Follow the complete canonical reference in Guide_Doc/dut_bug_analysis.md section 5.1; do not invent alternate sections or layouts.",
-        f"  - With source access, <BUG-SOURCE-EVIDENCE> must contain a real HDL path:start-end and a complete HDL fenced block containing each marker exactly once: {source_markers}.",
+        f"  - Fill every marked BG field and every ROOT field with evidence-backed content and remove every {BUG_TODO_MARKER}. ROOT fields must appear in this order: {root_section_markers}; use the complete canonical reference in Guide_Doc/dut_bug_analysis.md section 5.1.",
+        f"  - With source access, <ROOT-SOURCE-EVIDENCE> must contain a real HDL path:start-end and a complete HDL fenced block containing each marker exactly once: {source_markers}.",
         "  - Source locations must use an inclusive numeric range without an `L` prefix: `Adder/Adder.v:10-14` is valid, while `Adder/Adder.v:10` must be repaired to `Adder/Adder.v:10-10` and `Adder/Adder.v:L10-L14` must be repaired to `Adder/Adder.v:10-14`. This format-only repair does not require new tests, WaveInfo, or Bug classification.",
-        f"  - Without source access, put one standalone {BUG_SOURCE_UNAVAILABLE_MARKER} in <BUG-SOURCE-EVIDENCE> and provide a black-box causal analysis from the interface contract, failure log, and waveform. This branch cannot contain an HDL fence or any {source_markers} marker.",
-        "  - After classification confirms a DUT Bug, create the BG/TC scaffold with record_dynamic_bug.py when available, or with text-editing tools using Guide_Doc/dut_bug_analysis.md section 5.1 when it is not. Then call ApplyWaveInfoEvidence for each BG/TC association before filling the central waveform conclusions and the BG's RTL/HDL analysis.",
-        "  - Keep all symptoms, trigger conditions, root cause, source evidence, causal chain, fix guidance, risk, and revalidation content inside the owning BG; do not create a detached global root-cause section.",
+        f"  - Without source access, put one standalone {ROOT_SOURCE_UNAVAILABLE_MARKER} in <ROOT-SOURCE-EVIDENCE> and provide a black-box causal analysis from the interface contract, failure log, and waveform. This branch cannot contain an HDL fence or any {source_markers} marker.",
+        "  - After classification confirms a DUT Bug, create the BG/TC scaffold with record_dynamic_bug.py when available, or with text-editing tools using Guide_Doc/dut_bug_analysis.md section 5.1 when it is not. Then call ApplyWaveInfoEvidence for each BG/TC association before filling the central waveform conclusions and the shared ROOT analysis.",
+        "  - Keep only manifestation, severity, scope, and trigger-specific impact in the BG. Keep source evidence, causal chain, fix, risk, and revalidation in the owning ROOT entity; keep receipt/viewer/signal evidence in the central TC record.",
         "  - Fix test code, expected values, fixtures/APIs, reference models, timing, and environment failures until they pass. Never preserve a non-Bug failure with assert False, weakened assertions, or BG-*-0.",
     ]
 
