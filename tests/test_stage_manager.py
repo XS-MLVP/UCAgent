@@ -921,3 +921,142 @@ def test_verify_stage_marks_only_current_checker_as_run():
     assert check_info[0]["last_msg"] == {"error": "current"}
     assert check_info[1]["checked_in_last_run"] is False
     assert check_info[1]["count_check"] == 1
+
+
+def _make_output_gate_stage(tmp_path, checker, output_files):
+    stage = VerifyStage.__new__(VerifyStage)
+    stage.name = "generic-output-stage"
+    stage.cfg = SimpleNamespace(skill=SimpleNamespace(use_skill=False))
+    stage.skill_list = {}
+    stage._is_reached = False
+    stage.reference_files = {}
+    stage.output_files = output_files
+    stage.workspace = str(tmp_path)
+    stage.checker = [checker]
+    stage._checker = [SimpleNamespace(name="configured_check")]
+    stage.check_info = [None]
+    stage.is_batch_success = False
+    stage.fail_count = 0
+    stage.continue_fail_count = 0
+    stage.succ_count = 0
+    stage.last_do_check_info_pass = None
+    stage.last_do_check_info_fail = None
+    return stage
+
+
+def test_verify_stage_checker_diagnostic_precedes_missing_output_gate(tmp_path):
+    class LineMapLikeChecker:
+        def check(self, **_kwargs):
+            return False, {
+                "error_code": "LINE_MAP_FILE_MISSING",
+                "error": "The current mapping file is missing.",
+                "artifact": "resolved/line_map/docs_spec_md_line_func_map.txt",
+                "line_block": "docs/spec.md:1-10",
+                "expected": "Create the canonical mapping file for this line block.",
+                "next_action": (
+                    "Create 'resolved/line_map/docs_spec_md_line_func_map.txt', "
+                    "then call `Check` again."
+                ),
+                "current_line_block_contents": [{
+                    "line_block": "docs/spec.md:1-10",
+                    "map_file": "resolved/line_map/docs_spec_md_line_func_map.txt",
+                }],
+            }
+
+    stage = _make_output_gate_stage(
+        tmp_path,
+        LineMapLikeChecker(),
+        ["resolved/line_map/*_line_func_map.txt"],
+    )
+
+    passed, check_info = stage._do_check()
+
+    assert passed is False
+    assert len(check_info) == 1
+    assert check_info[0]["checker_name"] == "configured_check"
+    assert check_info[0]["last_msg"]["current_line_block_contents"][0][
+        "map_file"
+    ] == "resolved/line_map/docs_spec_md_line_func_map.txt"
+    summary = StageManager._build_failure_summary(
+        stage,
+        check_info,
+        "generic remediation",
+        stage_index=5,
+    )
+    assert summary["failed_checker_name"] == "configured_check"
+    assert summary["failed_checker_class"] == "LineMapLikeChecker"
+    assert summary["error_code"] == "LINE_MAP_FILE_MISSING"
+    assert summary["artifact"] == (
+        "resolved/line_map/docs_spec_md_line_func_map.txt"
+    )
+    assert summary["line_block"] == "docs/spec.md:1-10"
+    assert summary["next_action"].startswith(
+        "Create 'resolved/line_map/docs_spec_md_line_func_map.txt'"
+    )
+
+
+def test_output_gate_reports_all_resolved_patterns_and_matches(tmp_path):
+    class PassingChecker:
+        def check(self, **_kwargs):
+            return True, "ok"
+
+    (tmp_path / "resolved").mkdir()
+    (tmp_path / "resolved" / "ready.md").write_text("ready\n", encoding="utf-8")
+    output_files = [
+        "resolved/ready.md",
+        "resolved/line_map/*_line_func_map.txt",
+        "resolved/reports/*.json",
+    ]
+    stage = _make_output_gate_stage(
+        tmp_path,
+        PassingChecker(),
+        output_files,
+    )
+    manager = StageManager.__new__(StageManager)
+    manager.stage_index = 0
+    manager.stages = [stage]
+    manager.last_check_info = None
+    manager.gen_fail_suggestion = lambda data: data
+
+    result = manager.check(30)
+    summary = result["failure_summary"]
+
+    assert result["check_pass"] is False
+    assert result["check_info"][-1]["last_msg"]["error"] == summary["error"]
+    assert summary["failed_checker_index"] == 1
+    assert summary["failed_checker_name"] == "stage_output_files"
+    assert summary["failed_checker_class"] == "OutputFileGate"
+    assert summary["error_code"] == "OUTPUT_FILE_PATTERN_MISSING"
+    assert summary["remaining_checkers_not_run"] == 0
+    assert "2 of 3" in summary["error"]
+    assert "resolved/line_map/*_line_func_map.txt" in summary["error"]
+    assert "resolved/reports/*.json" in summary["error"]
+    assert summary["observed"]["matches_by_pattern"] == {
+        "resolved/ready.md": ["resolved/ready.md"],
+        "resolved/line_map/*_line_func_map.txt": [],
+        "resolved/reports/*.json": [],
+    }
+    assert summary["observed"]["workspace"] == str(tmp_path)
+    assert summary["expected"]["required_patterns"] == output_files
+    assert summary["expected"]["missing_patterns"] == output_files[1:]
+    assert "literal '*'" in summary["next_action"]
+    assert summary["next_action"].endswith("Then call `Check` again.")
+
+
+def test_output_gate_complete_failure_names_complete_as_next_action(tmp_path):
+    class PassingChecker:
+        def check(self, **_kwargs):
+            return True, "ok"
+
+    stage = _make_output_gate_stage(
+        tmp_path,
+        PassingChecker(),
+        ["resolved/final.md"],
+    )
+
+    passed, check_info = stage._do_check(is_complete=True)
+
+    assert passed is False
+    diagnostic = check_info[-1]["last_msg"]["diagnostic"]
+    assert diagnostic["error_code"] == "OUTPUT_FILE_PATTERN_MISSING"
+    assert diagnostic["next_action"].endswith("Then call `Complete` again.")

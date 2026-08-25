@@ -716,6 +716,64 @@ class VerifyStage(object):
             self.last_do_check_info_fail = ck_info_snapshot
         return ck_pass, ck_info
 
+    def _check_output_files(self, is_complete=False):
+        """Validate every resolved stage output pattern and return one diagnostic."""
+        matches_by_pattern = OrderedDict()
+        missing_patterns = []
+        for pattern in self.output_files:
+            matches = sorted(
+                find_files_by_pattern(self.workspace, pattern, ignore_warn=True)
+            )
+            matches_by_pattern[pattern] = matches
+            if not matches:
+                missing_patterns.append(pattern)
+
+        if not missing_patterns:
+            return True, None
+
+        missing_text = ", ".join(f"'{pattern}'" for pattern in missing_patterns)
+        retry_tool = "Complete" if is_complete else "Check"
+        next_action = (
+            "Generate at least one concrete workspace file matching each missing resolved "
+            f"output pattern: {missing_text}. For patterns containing glob syntax, replace "
+            "the wildcard with concrete path text; do not create a filename containing a "
+            f"literal '*'. Then call `{retry_tool}` again."
+        )
+        diagnostic = OrderedDict({
+            "error_code": "OUTPUT_FILE_PATTERN_MISSING",
+            "error": (
+                f"[Output File Pattern Missing] {len(missing_patterns)} of "
+                f"{len(self.output_files)} required resolved output patterns matched no "
+                f"workspace path: {missing_text}."
+            ),
+            "observed": OrderedDict({
+                "workspace": os.path.abspath(self.workspace),
+                "matches_by_pattern": matches_by_pattern,
+            }),
+            "expected": OrderedDict({
+                "required_patterns": list(self.output_files),
+                "missing_patterns": missing_patterns,
+                "requirement": (
+                    "Every resolved output pattern must match at least one workspace path."
+                ),
+            }),
+            "next_action": next_action,
+        })
+        return False, OrderedDict({
+            "name": "OutputFileGate",
+            "checker_name": "stage_output_files",
+            "checker_class": "OutputFileGate",
+            "checked_in_last_run": True,
+            "last_check_pass": False,
+            "last_msg": OrderedDict({
+                "error": diagnostic["error"],
+                "diagnostic": diagnostic,
+            }),
+            "count_pass": 0,
+            "count_fail": 1,
+            "count_check": 1,
+        })
+
     def _do_check(self, *a, **kwargs):
         if self.cfg.skill.use_skill and self.skill_list:
             for k,[u,v,w] in self.skill_list.items():
@@ -732,17 +790,6 @@ class VerifyStage(object):
             self.fail_count += 1
             self.continue_fail_count += 1
             return False, emsg
-        success_out_file = True
-        success_out_msg = []
-        for k, v in {p: len(find_files_by_pattern(self.workspace, p)) for p in self.output_files}.items():
-            if v <= 0:
-                success_out_file = False
-                success_out_msg.append(k)
-        if not success_out_file:
-            self.fail_count += 1
-            self.continue_fail_count += 1
-            return False, OrderedDict({"error": f"Output file patterns not found in workspace. you need to generate those files.",
-                                       "failed_patterns": success_out_msg})
         self.check_pass = True
         stage_args = kwargs.pop("stage_args", {})
         if stage_args is None:
@@ -784,12 +831,21 @@ class VerifyStage(object):
                 if self.is_batch_success is False:
                     self.fail_count += 1
                 break
+        check_result = self.check_info
+        if self.check_pass:
+            output_pass, output_failure = self._check_output_files(
+                is_complete=bool(checker_kwargs.get("is_complete", False))
+            )
+            if not output_pass:
+                self.check_pass = False
+                self.fail_count += 1
+                check_result = [*self.check_info, output_failure]
         if self.check_pass:
             self.succ_count += 1
             self.continue_fail_count = 0
         else:
             self.continue_fail_count += 1
-        return self.check_pass, self.check_info
+        return self.check_pass, check_result
 
     def reset_continue_fail_count_with_batch_pass(self):
         self.is_batch_success = True
