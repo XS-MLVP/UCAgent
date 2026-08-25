@@ -47,6 +47,7 @@ def test_random_basic_functionality(env):
 
 
 ## 设计原则
+
 - 必须通过`ucagent.repeat_count()`获取循环次数
 - 测试用例名称的命名格式为`test_random_<test_name>`
 - 测试文件名称的命名格式为`test_{DUT}_random_<group_name>.py`

@@ -7,11 +7,15 @@
 ---
 
 {% for b in bugs %}
+
 ## Failed Property: `{{ b.property }}`
 
 ### <{{ b.fg_id }}> 关联的功能组
+
 ### <{{ b.fc_id }}> 关联的功能点
+
 ### <{{ b.id }}> {{ b.description }}
+
 <{{ b.ck_id }}>
 
 **FILE-RTL文件路径**: {{ b.rtl_file }}:{{ b.rtl_line }}

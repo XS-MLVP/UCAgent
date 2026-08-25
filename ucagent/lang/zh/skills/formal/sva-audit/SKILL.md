@@ -5,6 +5,8 @@ description: 环境分析技能。Checker 已自动解析日志并生成骨架�
 
 # 环境分析工作流 (Environment Analysis)
 
+Markdown 排版契约：本技能生成、维护或展示的任何 Markdown 中，每个 `#` 到 `######` 标题前后各保留一个空行；文件或 Markdown 示例首行标题不要求前置空行。标题后不得直接连接正文、列表、表格、下一级标题或代码围栏；规范机器伴随行是例外：字段标题后的 `<TAG>` 标记必须与标题紧邻，目标标题前的 `<a id="..."></a>` 锚点也必须与标题紧邻，以保持机器契约和链接有效。
+
 本技能指导如何分析验证结果并通过 **`update_analysis.py` 脚本** 将分析写入 `.formal_records.yaml`。
 
 本阶段的唯一事实来源是 `.formal_records.yaml.analysis`，必要时会联动修正 `.formal_records.yaml.spec`。
@@ -74,6 +76,7 @@ Checker 会验证所有条目是否已填写完整（无 `[LLM-TODO]`），通�
 如果在运行 EDA 工具时遇到语法错误（Syntax Error），请按以下优先级修复：
 
 ### 1. 缺失参数 (如 `WIDTH` 未定义)
+
 **禁止直接修改 `wrapper.sv`！** 改动会被系统自动渲染覆盖。
 应使用 `update_spec.py` 将参数记录在 YAML 中：
 ```bash
@@ -82,6 +85,7 @@ python3 .ucagent/skills/formal/func-spec/scripts/update_spec.py -action set_para
 完成后重新调用 `Check`，系统会自动渲染生成带参数定义的 SV 环境。
 
 ### 2. 信号位宽错误或缺失内部信号
+
 **禁止直接修改 `wrapper.sv`！**
 应使用 `add_signal` 动作：
 ```bash

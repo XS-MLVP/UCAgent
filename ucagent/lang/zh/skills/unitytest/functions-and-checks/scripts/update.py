@@ -5,6 +5,7 @@ import re
 from typing import Any, Dict, List, Tuple
 
 from ucagent.util.config import load_runtime_config
+from ucagent.util.markdown import ensure_markdown_heading_spacing
 
 
 PROJECT_ROOT = os.getcwd()
@@ -300,7 +301,7 @@ def main():
         message = update_ck(lines, args.FG, args.FC, items)
 
     with open(doc_path, "w", encoding="utf-8") as f:
-        f.writelines(lines)
+        f.write(ensure_markdown_heading_spacing("".join(lines)))
 
     print(message)
 

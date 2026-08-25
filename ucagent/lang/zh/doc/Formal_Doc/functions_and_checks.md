@@ -25,6 +25,7 @@
 <FG-*> 等标签结构为树状结构，同一个父节点下的子节点不能出现同名
 
 ### 层次关系
+
 ```
 DUT整体功能
 ├── 功能分组 <FG-*>
@@ -39,6 +40,7 @@ DUT整体功能
 ```
 
 ### 标签系统
+
 - **功能分组标签**：`<FG-{group-name}>` - 标识功能分组, 标识大的功能模块或逻辑分类。
 - **功能点标签**：`<FC-{function-name}>` - 标识具体的设计意图或功能规格。
 - **检测点标签**：`<CK-{check-point-name}>` - 标识具体的断言点。
@@ -111,11 +113,13 @@ DUT整体功能
 - 工作原理概述
 
 ### 端口接口说明
+
 - 输入端口：[端口名称、位宽、功能描述]
 - 输出端口：[端口名称、位宽、功能描述]
 - 控制信号：[控制信号说明]
 
 ### 状态机与时序
+
 - **状态机列表**：
 
 - **状态转移条件**：
@@ -172,6 +176,7 @@ DUT整体功能
 **❌ 错误的标签放置**
 ```markdown
 ### 具体功能1 <FC-FUNC1>
+
 功能描述内容...
 ```
 
@@ -189,6 +194,7 @@ DUT整体功能
 ### 推荐命名模式
 
 #### 功能分组命名
+
 ```markdown
 <FG-ARITHMETIC>    # 算术运算组
 <FG-LOGIC>         # 逻辑运算组
@@ -199,6 +205,7 @@ DUT整体功能
 ```
 
 #### 功能点命名
+
 ```markdown
 <FC-ADD>           # 加法功能
 <FC-FSM-TRANS>     # 状态跳转
@@ -207,6 +214,7 @@ DUT整体功能
 ```
 
 #### 检测点命名
+
 ```markdown
 <CK-NORM-*>        # 正常行为
 <CK-ERR-*>         # 错误/异常处理
@@ -220,41 +228,49 @@ DUT整体功能
 为了确保形式化验证的完备性和有效性，在设计检测点时建议参考以下高级模式：
 
 ### 模式 1：数据稳定性与单点修改保证 (Stability & Frame Conditions)
+
 - **目的**: 证明“只有该改的地方改了，其他地方都没动”。这是发现地址译码错误、数组越写、意外覆盖等 Bug 的关键。
 - **模式**: 结合条件蕴含与 `$stable`。
 - **示例**: `<CK-DATA-STABILITY> (Style: Seq, Symbolic) 验证非目标地址稳定性：当写入地址不等于 fv_idx 时，$stable(fv_mon_data)。`
 
 ### 模式 2：强制可达性与过约束检查 (Reachability & Sanity)
+
 - **目的**: 杜绝 `TRIVIALLY_TRUE`（无效证明）。如果环境约束写得太死（例如 `assume (reset == 1)`），所有属性都会伪通过。
 - **强制规则**: 必须为每一个关键状态（Full, Empty, Hit, Error, State_X）定义 Cover 检测点。
 - **示例**: `<CK-FULL-REACHABLE> (Style: Cover) 证明 FIFO 能够达到 Full 状态。`
 
 ### 模式 3：活性与不饥饿 (Liveness & No Starvation)
+
 - **目的**: 验证设计不会死锁或饥饿（Something Good Eventually Happens）。Formal 工具会寻找无限循环的反例。
 - **示例**: `<CK-REQ-EVENTUALLY-GRANT> (Style: Seq) 验证活性：如果 Request 置起且未撤销，Grant 最终必须置起 (s_eventually)。`
 
 ### 模式 4：构造正确性 (Construction Correctness)
+
 - **目的**: 验证复杂数据结构（如链表、树、Ring Buffer）的内部指针逻辑一致性。
 - **示例**: `<CK-PTR-MATH> (Style: Comb) 验证 FIFO 计数器：cnt == (wr_ptr - rd_ptr) & MASK。`
 
 ## 常用结构的典型检测点设计 (Best Practice Patterns)
 
 ### 1. 状态机 (FSM)
+
 - `<CK-FSM-ONE-HOT>` (Style: Comb): 验证状态寄存器必须是独热码（针对 One-hot 编码的状态机）。
 - `<CK-FSM-VALID-STATE>` (Style: Comb): 验证状态寄存器不会进入未定义的无效编码（针对二进制编码）。
 - `<CK-FSM-TRANS-RESET>` (Style: Seq): 验证复位释放后，状态机必须处于 IDLE/RESET 状态。
 - `<CK-FSM-DEADLOCK>` (Style: Seq): 验证状态机最终会回到 IDLE 状态（防止死锁）。
 
 ### 2. 握手协议 (Valid/Ready)
+
 - `<CK-VALID-STABILITY>` (Style: Seq): 验证 Valid 建立后，在 Ready 之前 Data 和 Control 必须保持稳定（不允许撤回请求）。
 - `<CK-HANDSHAKE-X-CHECK>` (Style: Comb): 验证 Valid 和 Ready 信号绝不为 X 态。
 - `<CK-DATA-TRANSFER>` (Style: Seq): 证明当 `valid && ready` 发生时，数据被正确采样或传输。
 
 ### 3. 仲裁器 (Arbiter)
+
 - `<CK-ARB-MUTEX>` (Style: Comb): 互斥性检查，同一时刻最多只有一个 Grant 有效（One-hot）。
 - `<CK-ARB-FAIRNESS>` (Style: Seq): 公平性检查，高优先级请求不能永远饿死低优先级请求。
 
 ### 4. 存储/队列 (FIFO/Buffer)
+
 - `<CK-FIFO-OVERFLOW>` (Style: Seq): 安全性检查，当 Full 时写请求必须被阻塞或忽略，且写指针不动。
 - `<CK-FIFO-UNDERFLOW>` (Style: Seq): 安全性检查，当 Empty 时读请求无效，读指针不动。
 - `<CK-FIFO-ORDERING>` (Style: Seq, Symbolic): 数据完整性检查，写入的数据必须按顺序读出，值不变。
@@ -268,9 +284,11 @@ DUT整体功能
 ## 完整示例：同步 FIFO (Formal Verification Edition)
 
 ### 设计规格
+
 一个深度为 16，数据位宽 32 位的同步 FIFO。支持 Flush 功能。
 
 ### 端口接口说明
+
 - `clk, rst_n`: 系统时钟与复位
 - `push, pop`: 写请求，读请求
 - `wdata`: 写数据 [31:0]
@@ -281,6 +299,7 @@ DUT整体功能
 ---
 
 ### 状态机与时序
+
 (此处无复杂状态机，主要为读写指针逻辑)
 - 指针逻辑：循环队列，位宽 5bit (含折叠位) 或 4bit + 标志位。
 - 时序：读写均为时钟上升沿触发。
@@ -364,18 +383,21 @@ DUT整体功能
 ## 质量检查清单
 
 ### 完整性检查
+
 - [ ] 每个功能分组至少包含一个功能点
 - [ ] 每个功能点至少包含一个检测点
 - [ ] 所有标签格式正确且唯一
 - [ ] 功能描述清晰完整
 
 ### 一致性检查
+
 - [ ] 命名风格统一
 - [ ] 标签放置位置正确
 - [ ] 检测点覆盖主要场景
 - [ ] 功能点之间无重复或遗漏
 
 ### 可测试性检查
+
 - [ ] 检测点可以通过测试用例验证
 - [ ] 检测条件明确可判断
 - [ ] 边界条件和异常情况已考虑

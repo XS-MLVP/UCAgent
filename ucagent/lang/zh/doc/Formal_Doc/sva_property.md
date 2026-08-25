@@ -11,20 +11,24 @@
 ## 1. 核心生成原则 (Core Principles)
 
 ### 原则 1：杜绝无效的“占位符”断言
+
 - **强制规则**: **严禁**生成如 `... |-> 1'b1;` 的占位符断言。如果你无法为检查点编写有意义的逻辑，必须生成 `TODO` 注释。
 - **正确示例**: `// TODO: <CK-COMPLEX-ALGO> requires a complex reference model and is not auto-generated.`
 
 ### 原则 2：精确断言标志位 (Flags)
+
 - **强制规则**: 必须基于精确的场景断言标志位。
 - **正向**: 在明确会导致标志位有效的场景下，断言其**必须**为1。
 - **负向**: 在明确保证不会触发标志位的“安全”输入子集下，断言其**必须**为0。
 - **禁止**: 严禁做宽泛的假设（例如假设常规输入永远不会溢出）。
 
 ### 原则 3：分而治之 (Divide and Conquer)
+
 - **强制规则**: 优先使用多个、具体的、独立的断言，而不是单一的复杂断言。
 - **示例**: 将“零值加法”分解为 `CK_ADD_A_PLUS_ZERO` 和 `CK_ADD_ZERO_PLUS_B`。
 
 ### 原则 4：领域特定逻辑 (Domain-Specific Logic)
+
 - **强制规则**: 必须遵守领域特定规则（如浮点数、总线协议）。
 - **IEEE 754 浮点数关键规则速查表 (必须遵守)**:
     | 场景              | 结果  | 备注                       |
@@ -71,6 +75,7 @@
 根据规划文档中的 `(Style: ...)` 标签选择模板。
 
 ### 2.1 组合逻辑模板 (Style: Comb)
+
 **适用**: 纯组合逻辑检查，不依赖时序历史。
 **禁止**: 严禁使用 `@(posedge clk)`, `##`, `$rose`, `$past`。
 
@@ -85,6 +90,7 @@ A_CK_NAME: assert property (CK_NAME);
 ```
 
 ### 2.2 时序逻辑模板 (Style: Seq)
+
 **适用**: 需要跨周期检查、状态机跳转、寄存器更新等。
 **必须**: 包含时钟定义和复位逻辑。
 
@@ -100,6 +106,7 @@ A_CK_NAME: assert property (CK_NAME);
 ```
 
 ### 2.3 覆盖属性模板 (Style: Cover)
+
 **适用**: 验证场景是否可达，或者特定序列是否发生。
 
 ```systemverilog
@@ -112,6 +119,7 @@ C_CK_NAME: cover property (CK_NAME);
 ```
 
 ### 2.4 环境约束模板 (Style: Assume)
+
 **适用**: 约束输入激励，排除非法输入组合。
 
 ```systemverilog
@@ -129,6 +137,7 @@ M_CK_NAME: assume property (CK_NAME);
 ## 3. 高级验证模式 (Advanced Patterns)
 
 ### 3.1 符号化索引稳定性 (Symbolic Index Constraint)
+
 **适用**: 当使用符号化索引 `fv_idx` 验证数组/RAM 时，**必须**添加以下约束以防止索引漂移和越界。
 
 ```systemverilog
@@ -156,6 +165,7 @@ M_CK_FV_IDX_KNOWN: assume property (CK_FV_IDX_KNOWN);
 ```
 
 ### 3.2 符号化索引单点修改保证 (Symbolic Single Point Change)
+
 **适用**: 验证存储阵列的数据更新。
 
 ```systemverilog
@@ -169,6 +179,7 @@ A_CK_MEM_UPDATE: assert property (CK_MEM_UPDATE);
 ```
 
 ### 3.3 握手协议稳定性 (Handshake Stability)
+
 **适用**: Valid/Ready 协议。
 
 ```systemverilog
@@ -180,6 +191,7 @@ M_CK_VALID_STABILITY: assume property (CK_VALID_STABILITY);
 ```
 
 ### 3.4 强制可达性覆盖 (Reachability Coverage)
+
 **适用**: 证明关键状态（Full, Empty, Error）可达，防止环境过约束。
 
 ```systemverilog
@@ -192,6 +204,7 @@ C_CK_REACHABLE_STATE: cover property (CK_REACHABLE_STATE);
 ```
 
 ### 3.5 活性属性 (Liveness)
+
 **适用**: 证明"某事**最终一定会发生**"，比 Cover（可达性）更强。
 
 - Cover = 某个状态**可以**到达
@@ -236,25 +249,30 @@ A_CK_REQ_EVENTUALLY_GRANTED: assert property (CK_REQ_EVENTUALLY_GRANTED);
 ## 4. 关键检查清单与最佳实践 (Checklist & Best Practices)
 
 ### 4.1 强制白盒验证 (White-box Verification)
+
 **必须**通过 Wrapper 引出 DUT 内部状态，不要仅依赖 IO。
 - **FIFO**: 引出 `readPtr`, `writePtr`, `count`, `empty`, `full`。
 - **FSM**: 引出 `state`, `next_state`。
 
 ### 4.2 复位极性核对 (Reset Polarity)
+
 - 检查 RTL：`if (reset)` -> 高有效；`if (!rst_n)` -> 低有效。
 - Wrapper 连接必须正确：`.reset(~rst_n)` 或 `.rst_n(rst_n)`。
 
 ### 4.3 优先级排除原则 (Priority Exclusion)
+
 在验证常规行为（如计数器递增）时，**必须**在前提中排除高优先级信号：
 - `(!io_flush)`
 - `(!io_clear)`
 - `(!is_bypass)`
 
 ### 4.4 Bypass 模式处理
+
 - 如果设计有直通模式（Empty 时写直接读），内部存储通常不更新。
 - 定义 `wire is_bypass = empty & write_valid & read_ready;` 并在涉及内部存储的断言中排除它。
 
 ### 4.5 时序操作符规范
+
 - **组合逻辑/状态定义**: 使用 `|->` (Same cycle)。
 - **时序逻辑/寄存器更新**: 使用 `|=>` (Next cycle)。
 

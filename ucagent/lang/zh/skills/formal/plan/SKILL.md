@@ -5,6 +5,8 @@ description: 通过脚本把验证规划写入 .formal_records.yaml 的 planning
 
 # Formal Planning
 
+Markdown 排版契约：本技能生成、维护或展示的任何 Markdown 中，每个 `#` 到 `######` 标题前后各保留一个空行；文件或 Markdown 示例首行标题不要求前置空行。标题后不得直接连接正文、列表、表格、下一级标题或代码围栏；规范机器伴随行是例外：字段标题后的 `<TAG>` 标记必须与标题紧邻，目标标题前的 `<a id="..."></a>` 锚点也必须与标题紧邻，以保持机器契约和链接有效。
+
 本技能用于维护 `.formal_records.yaml` 中的 `planning` 字段。
 
 本阶段的唯一事实来源是 `.formal_records.yaml.planning`。

@@ -5,6 +5,8 @@ description: 功能规格分析与测试点定义阶段及其子阶段专属技�
 
 # 功能规格分析与测试点定义
 
+Markdown 排版契约：本技能生成、维护或展示的任何 Markdown 中，每个 `#` 到 `######` 标题前后各保留一个空行；文件或 Markdown 示例首行标题不要求前置空行。标题后不得直接连接正文、列表、表格、下一级标题或代码围栏；规范机器伴随行是例外：字段标题后的 `<TAG>` 标记必须与标题紧邻，目标标题前的 `<a id="..."></a>` 锚点也必须与标题紧邻，以保持机器契约和链接有效。
+
 本技能服务于 `functional_specification_analysis` 阶段以及其下的 4 个子阶段：
 - `dut_function_grouping`
 - `function_point_definition`
@@ -71,33 +73,39 @@ CK 需要按“可验证场景”细分，通常可从以下维度拆：
 ## 反例与正例
 
 ### FG 反例
+
 - `FG-ADD-1`
 - `FG-STEP1`
 - `FG-TEST-CASE`
 
 ### FG 正例
+
 - `FG-API`
 - `FG-ARITHMETIC`
 - `FG-SPECIAL`
 - `FG-BOUNDARY`
 
 ### FC 反例
+
 - `FC-ALL`
 - `FC-LOGIC`
 - `FC-DETAIL-1`
 
 ### FC 正例
+
 - `FC-ADD`
 - `FC-MUL`
 - `FC-DIV`
 - `FC-PUSH`
 
 ### CK 反例
+
 - `CK-OK`
 - `CK-CHECK`
 - `CK-BASIC-FUNCTION`
 
 ### CK 正例
+
 - `CK-ADD-NORMAL`
 - `CK-ADD-OVERFLOW`
 - `CK-POP-EMPTY`
@@ -106,15 +114,18 @@ CK 需要按“可验证场景”细分，通常可从以下维度拆：
 ## 执行步骤
 
 ### 步骤1
+
 阅读 `reference_files` 中列出的文档，明确当前子阶段需要补充的是 FG、FC 还是 CK。
 
 ### 步骤2
+
 先完成当前批次分析，再整理当前层级要写入的内容：
 - FG 子阶段：只整理多个 `FG` 与各自描述
 - FC 子阶段：只在已存在的同一个 `FG` 下整理多个 `FC` 与各自描述
 - CK 子阶段：只在已存在的同一个 `FG/FC` 下整理多个 `CK` 与各自详细描述
 
 ### 步骤3
+
 有`RunSkillScript`时可以执行`update.py`批量插入；没有时直接使用文本编辑工具在唯一父节点下插入同样内容。修改后必须重新读取目标段，确认父子层级、标签唯一性和正式描述均正确。
 
 ### 步骤4：逐行查漏补缺

@@ -19,7 +19,9 @@
 > 共 {{ tt_entries | length }} 个 TRIVIALLY_TRUE 属性需要分析。
 
 {% for e in tt_entries %}
+
 ### <{{ e.id }}> {{ e.prop_name }}
+
 - **属性名**: {{ e.prop_name }}
 - **根因分类**: {{ e.root_cause or '' }}
 - **关联 Assume**: {{ e.related_assume or 'N/A' }}
@@ -36,7 +38,9 @@
 > 共 {{ fa_entries | length }} 个 FALSE 属性需要分析。
 
 {% for e in fa_entries %}
+
 ### <{{ e.id }}> {{ e.prop_name }}
+
 - **属性名**: {{ e.prop_name }}
 - **属性类型**: {{ e.prop_type or '' }}
 - **解决状态**: {{ e.resolution or '' }}

@@ -14,6 +14,7 @@ import psutil
 
 from ucagent.util.log import str_error, str_info, warning, info
 from ucagent.util import diff_ops, functions as fc
+from ucagent.util.markdown import ensure_markdown_heading_spacing
 from .formal_paths import FormalPaths
 from .models import (
     FormalRecords, CheckPoint, FunctionGroup, FunctionPoint, 
@@ -560,7 +561,7 @@ def _render_to_file(template_name: str, context: dict, output_path: str) -> None
         env.filters['indent'] = indent_filter
         
         template = env.from_string(template_content)
-        rendered = template.render(**context)
+        rendered = ensure_markdown_heading_spacing(template.render(**context))
         with open(output_path, 'w', encoding='utf-8') as f:
             f.write(rendered)
     except Exception as e:

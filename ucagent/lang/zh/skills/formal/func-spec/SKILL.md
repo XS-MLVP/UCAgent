@@ -5,6 +5,8 @@ description: 提取和分析被测模块(DUT)的功能规格和形式化检测�
 
 # 功能规格与检测点分析工作流 (Functional Spec)
 
+Markdown 排版契约：本技能生成、维护或展示的任何 Markdown 中，每个 `#` 到 `######` 标题前后各保留一个空行；文件或 Markdown 示例首行标题不要求前置空行。标题后不得直接连接正文、列表、表格、下一级标题或代码围栏；规范机器伴随行是例外：字段标题后的 `<TAG>` 标记必须与标题紧邻，目标标题前的 `<a id="..."></a>` 锚点也必须与标题紧邻，以保持机器契约和链接有效。
+
 本技能指导如何基于给定的基础信息，细化出该 DUT 应该包含的具体功能检测点，通过 **`update_spec.py` 脚本** 写入 `.formal_records.yaml`。
 
 本阶段的唯一事实来源是 `.formal_records.yaml.spec`。
@@ -14,9 +16,11 @@ description: 提取和分析被测模块(DUT)的功能规格和形式化检测�
 ## 步骤
 
 ### 1. 读取基础信息
+
 阅读输入说明、RTL 源码或预生成的文档骨架，理解 DUT 的核心功能。
 
 ### 2. 规划三级标签结构
+
 按照 `Guide_Doc/functions_and_checks.md` 中的规范，使用 `FG-XXX` (功能组)、`FC-XXX` (功能点)、`CK-XXX` (检测点) 组织层级。
 
 ### 3. 通过脚本写入 YAML
@@ -25,36 +29,42 @@ description: 提取和分析被测模块(DUT)的功能规格和形式化检测�
 在本工作流中，请优先通过 `RunSkillScript` 调用技能脚本，不要假设宿主 `python3` 环境具备所有依赖：
 
 #### 添加功能组 (FG)
+
 ```
 python3 .ucagent/skills/formal/func-spec/scripts/update_spec.py \
   -action add_fg -id FG-API -name "验证环境约束"
 ```
 
 #### 添加功能点 (FC)
+
 ```
 python3 .ucagent/skills/formal/func-spec/scripts/update_spec.py \
   -action add_fc -fg FG-API -id FC-API-INPUT-CONSTRAINT -desc "定义输入信号的合法约束条件"
 ```
 
 #### 添加检测点 (CK)
+
 ```
 python3 .ucagent/skills/formal/func-spec/scripts/update_spec.py \
   -action add_ck -fc FC-API-INPUT-CONSTRAINT -id CK-API-INPUT-NO-X -style Assume -desc "输入信号不能为 X 态"
 ```
 
 #### 修改条目
+
 ```
 python3 .ucagent/skills/formal/func-spec/scripts/update_spec.py \
   -action update -id CK-API-INPUT-NO-X -style Comb -desc "新的描述"
 ```
 
 #### 删除条目
+
 ```
 python3 .ucagent/skills/formal/func-spec/scripts/update_spec.py \
   -action delete -id CK-API-INPUT-NO-X
 ```
 
 #### 管理全局参数 (Parameters)
+
 用于定义 `WIDTH` 等硬件常量，会自动同步到 SV 模块头和实例化语句中。
 ```
 python3 .ucagent/skills/formal/func-spec/scripts/update_spec.py \
@@ -67,6 +77,7 @@ python3 .ucagent/skills/formal/func-spec/scripts/update_spec.py \
 ```
 
 #### 管理白盒观察信号 (Whitebox Signals)
+
 用于在 `wrapper.sv` 中手动声明一些用于观察内部逻辑的信号。
 ```
 python3 .ucagent/skills/formal/func-spec/scripts/update_spec.py \
@@ -79,6 +90,7 @@ python3 .ucagent/skills/formal/func-spec/scripts/update_spec.py \
 ```
 
 #### 查看当前结构 (Show)
+
 ```
 python3 .ucagent/skills/formal/func-spec/scripts/update_spec.py -action show
 ```
@@ -90,6 +102,7 @@ python3 .ucagent/skills/formal/func-spec/scripts/update_spec.py -action show
 Checker 会验证 YAML 结构完整性，通过后自动重建该文档。
 
 ## 核心规则
+
 1. 对于每一个状态转移或者核心功能 Seq 检测点，尽最大可能配对提供一个 Cover 检查（证明其可达性）。
 2. 在规划阶段严禁编写真实的 SystemVerilog 代码，只写逻辑描述。
 3. 必须包含 `FG-API`（环境约束）和 `FG-COVERAGE`（可达性覆盖）两个功能组。
