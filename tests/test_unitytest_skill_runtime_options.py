@@ -49,13 +49,14 @@ def _iter_stages(stages):
         yield from _iter_stages(stage.get("stage", []))
 
 
-def test_agent_runtime_config_persists_resolved_options_from_cfg(tmp_path):
+def test_agent_runtime_config_persists_resolved_values_from_cfg(tmp_path):
     cfg = Config(
         {
             "runtime_options": {
                 "need_ref_model": True,
                 "mock_components_enabled": False,
-            }
+            },
+            "tools": {"RunTestCases": {"test_dir": "custom_tests"}},
         }
     )
     cfg._temp_cfg = {"DUT": "Adder", "OUT": "unity_test"}
@@ -66,6 +67,7 @@ def test_agent_runtime_config_persists_resolved_options_from_cfg(tmp_path):
         "schema_version": 1,
         "DUT": "Adder",
         "OUT": "unity_test",
+        "test_output_dir": "custom_tests",
         "runtime_options": {
             "need_ref_model": True,
             "mock_components_enabled": False,
@@ -80,7 +82,8 @@ def test_agent_runtime_config_rejects_non_boolean_options(tmp_path, invalid_key)
             "runtime_options": {
                 "need_ref_model": True,
                 "mock_components_enabled": False,
-            }
+            },
+            "tools": {"RunTestCases": {"test_dir": "unity_test/tests"}},
         }
     )
     setattr(cfg.runtime_options, invalid_key, "true")
@@ -101,6 +104,7 @@ def test_template_script_reads_cfg_snapshot_instead_of_environment(
                 "schema_version": 1,
                 "DUT": "Adder",
                 "OUT": "unity_test",
+                "test_output_dir": "unity_test/tests",
                 "runtime_options": {
                     "need_ref_model": False,
                     "mock_components_enabled": True,
@@ -120,6 +124,43 @@ def test_template_script_reads_cfg_snapshot_instead_of_environment(
     }
 
 
+def test_runtime_config_requires_resolved_test_output_dir(tmp_path):
+    runtime_path = tmp_path / ".ucagent" / "runtime_config.json"
+    runtime_path.parent.mkdir()
+    runtime_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "DUT": "Adder",
+                "OUT": "unity_test",
+                "runtime_options": {
+                    "need_ref_model": False,
+                    "mock_components_enabled": True,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="test_output_dir.*non-empty string"):
+        load_runtime_config(str(tmp_path))
+
+
+def test_runtime_config_build_requires_resolved_test_output_dir(tmp_path):
+    cfg = Config(
+        {
+            "runtime_options": {
+                "need_ref_model": False,
+                "mock_components_enabled": True,
+            }
+        }
+    )
+    cfg._temp_cfg = {"DUT": "Adder", "OUT": "unity_test"}
+
+    with pytest.raises(ValueError, match="RunTestCases.test_dir.*non-empty string"):
+        save_runtime_config(str(tmp_path), cfg)
+
+
 def test_runtime_config_excludes_unrelated_cfg_and_secrets(tmp_path):
     cfg = Config(
         {
@@ -127,6 +168,7 @@ def test_runtime_config_excludes_unrelated_cfg_and_secrets(tmp_path):
                 "need_ref_model": False,
                 "mock_components_enabled": True,
             },
+            "tools": {"RunTestCases": {"test_dir": "unity_test/tests"}},
             "openai": {"openai_api_key": "must-not-be-exported"},
         }
     )
@@ -150,6 +192,7 @@ def test_template_script_main_uses_workspace_runtime_config(tmp_path, monkeypatc
                 "schema_version": 1,
                 "DUT": "Adder",
                 "OUT": "unity_test",
+                "test_output_dir": "unity_test/tests",
                 "runtime_options": {
                     "need_ref_model": True,
                     "mock_components_enabled": False,

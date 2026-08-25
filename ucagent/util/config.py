@@ -540,11 +540,21 @@ def build_runtime_config(cfg: Config) -> Dict[str, Any]:
         raise ValueError("Resolved configuration value 'DUT' must be a non-empty string.")
     if not isinstance(output, str) or not output.strip():
         raise ValueError("Resolved configuration value 'OUT' must be a non-empty string.")
+    try:
+        test_output_dir = cfg.get_value("tools.RunTestCases.test_dir", None)
+    except AttributeError:
+        test_output_dir = None
+    if not isinstance(test_output_dir, str) or not test_output_dir.strip():
+        raise ValueError(
+            "Resolved configuration value 'tools.RunTestCases.test_dir' must be a "
+            "non-empty string."
+        )
 
     return {
         "schema_version": 1,
         "DUT": dut,
         "OUT": output,
+        "test_output_dir": test_output_dir,
         "runtime_options": runtime_options,
     }
 
@@ -560,6 +570,12 @@ def validate_runtime_config(data: Any) -> Dict[str, Any]:
             raise ValueError(
                 f"Resolved runtime config value '{key}' must be a non-empty string."
             )
+    if not isinstance(data.get("test_output_dir"), str) or not data[
+        "test_output_dir"
+    ].strip():
+        raise ValueError(
+            "Resolved runtime config value 'test_output_dir' must be a non-empty string."
+        )
 
     runtime_options = data.get("runtime_options")
     if not isinstance(runtime_options, dict):
@@ -573,7 +589,7 @@ def validate_runtime_config(data: Any) -> Dict[str, Any]:
 
 
 def save_runtime_config(workspace: str, cfg: Config) -> Path:
-    """Persist resolved runtime options for skills, checkers, and other consumers."""
+    """Persist resolved runtime values for skills and other workspace consumers."""
     runtime_path = Path(
         get_abs_path_cwd_ucagent(workspace, RUNTIME_CONFIG_FILENAME)
     )
