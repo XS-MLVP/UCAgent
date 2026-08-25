@@ -1390,8 +1390,8 @@ def test_waveform_blocks_associate_one_test_with_multiple_bugs(tmp_path):
     assert list(blocks) == [f"TC-{test_case}"]
     assert blocks[f"TC-{test_case}"]["bugs"] == sorted([first_bug, second_bug])
     assert set(blocks[f"TC-{test_case}"]["association_lines"]) == {
-        first_bug,
-        second_bug,
+        f"{CHECKPOINT}/{first_bug}",
+        f"{CHECKPOINT}/{second_bug}",
     }
 
 
@@ -1489,6 +1489,88 @@ def test_waveform_bug_test_association_must_not_be_duplicated(tmp_path):
 
     assert passed is False
     assert "[Duplicate Waveform Association]" in str(error)
+    assert error["error_code"] == "DUPLICATE_WAVEFORM_ASSOCIATION"
+    duplicate = error["details"]["duplicate_associations"][0]
+    assert duplicate["path"].endswith(
+        f"BG-DYNAMIC-80/TC-{DOCUMENT_TEST}"
+    )
+    assert len(duplicate["lines"]) == 2
+    assert duplicate["remove_line"] == duplicate["lines"][1]
+
+
+def test_all_duplicate_waveform_associations_are_reported_together(tmp_path):
+    first_test = "tests/test_first.py::test_first"
+    second_test = "tests/test_second.py::test_second"
+    _write_central_waveform_document(
+        tmp_path,
+        [
+            ("BG-FIRST-80", first_test),
+            ("BG-FIRST-80", first_test),
+            ("BG-SECOND-90", second_test),
+            ("BG-SECOND-90", second_test),
+        ],
+        {
+            first_test: {"status": "confirmed", "receipt_id": "receipt-1"},
+            second_test: {"status": "confirmed", "receipt_id": "receipt-2"},
+        },
+    )
+
+    passed, _blocks, error = _parse_waveform_analysis_blocks(
+        str(tmp_path), "bugs.md"
+    )
+
+    assert passed is False
+    assert error["error_code"] == "DUPLICATE_WAVEFORM_ASSOCIATION"
+    duplicates = error["details"]["duplicate_associations"]
+    assert len(duplicates) == 2
+    assert error["details"]["remaining_duplicate_count"] == 0
+    assert {item["path"] for item in duplicates} == {
+        f"{CHECKPOINT}/BG-FIRST-80/TC-{first_test}",
+        f"{CHECKPOINT}/BG-SECOND-90/TC-{second_test}",
+    }
+
+
+def test_same_bug_and_test_association_is_allowed_across_checkpoints(tmp_path):
+    bug = "BG-DYNAMIC-80"
+    second_checkpoint = "FG-A/FC-A/CK-B"
+    test_label = f"TC-{DOCUMENT_TEST}"
+    block = {"status": "confirmed", "receipt_id": "receipt-1"}
+    lines = [
+        "<DYNAMIC-BUGS>",
+        "### Arithmetic behavior <FG-A>",
+        "#### Result calculation <FC-A>",
+        "##### Exact output <CK-A>",
+        f'<a id="{dynamic_bug_anchor_id(CHECKPOINT, bug)}"></a>',
+        f"###### Reproduced defect（80%） <{bug}>",
+        f"- {TEST_DISPLAY_TITLE} <{test_label}>",
+        waveform_reference(test_label),
+        "##### Alternate output <CK-B>",
+        f'<a id="{dynamic_bug_anchor_id(second_checkpoint, bug)}"></a>',
+        f"###### Reproduced defect（80%） <{bug}>",
+        f"- {TEST_DISPLAY_TITLE} <{test_label}>",
+        waveform_reference(test_label),
+        "</DYNAMIC-BUGS>",
+        "<ROOT-CAUSES>",
+        "</ROOT-CAUSES>",
+        "<WAVEFORM-EVIDENCE>",
+        *_waveform_block_lines(block, test_label, (bug,)),
+        "</WAVEFORM-EVIDENCE>",
+    ]
+    (tmp_path / "bugs.md").write_text(
+        "\n".join(lines) + "\n", encoding="utf-8"
+    )
+
+    passed, blocks, error = _parse_waveform_analysis_blocks(
+        str(tmp_path), "bugs.md"
+    )
+
+    assert passed is True, error
+    assert list(blocks) == [test_label]
+    assert blocks[test_label]["bugs"] == [bug]
+    assert set(blocks[test_label]["association_lines"]) == {
+        f"{CHECKPOINT}/{bug}",
+        f"{second_checkpoint}/{bug}",
+    }
 
 
 def test_different_test_path_prefixes_are_not_equivalent(tmp_path):

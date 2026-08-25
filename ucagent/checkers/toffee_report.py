@@ -867,17 +867,21 @@ def _parse_root_cause_relations(
     for record in records:
         expected_bug_anchor = _dynamic_bug_anchor_id(record["checkpoint"], record["bug"])
         heading_index = record["line"] - 1
-        adjacent_anchor = stripped[heading_index - 1] if heading_index > 0 else ""
+        anchor_index = heading_index - 1
+        while anchor_index > dynamic_start and not stripped[anchor_index]:
+            anchor_index -= 1
+        preceding_anchor = stripped[anchor_index] if anchor_index > dynamic_start else ""
         if (
             dynamic_anchors.count(expected_bug_anchor) != 1
-            or adjacent_anchor != f'<a id="{expected_bug_anchor}"></a>'
+            or preceding_anchor != f'<a id="{expected_bug_anchor}"></a>'
         ):
             return False, {
                 "error": (
                     f"[Dynamic Bug Anchor Missing] {record['path']} must have one generated "
                     f"anchor '#{expected_bug_anchor}' before its BG heading so related root "
-                    "cause links can jump to the exact CK-scoped entry. Add this exact line "
-                    f"immediately before the BG heading: <a id=\"{expected_bug_anchor}\"></a>."
+                    "cause links can jump to the exact CK-scoped entry. Put this exact line "
+                    "before the blank line that precedes the BG heading: "
+                    f"<a id=\"{expected_bug_anchor}\"></a>."
                 )
             }
     related_paths: dict[str, set[str]] = {}
@@ -893,19 +897,32 @@ def _parse_root_cause_relations(
                 "error": f"[Root Cause Heading Format Error] <{root_tag}> needs meaningful visible text: {title_error}."
             }
         entity_end = (
-            entity_matches[entity_index + 1][0] - 1
+            entity_matches[entity_index + 1][0]
             if entity_index + 1 < len(entity_matches)
             else end
         )
+        # A canonical ROOT heading is preceded by its generated anchor and the
+        # required blank line. Exclude both from the previous entity's body.
+        while entity_end > line_index + 1 and not stripped[entity_end - 1]:
+            entity_end -= 1
+        if (
+            entity_end > line_index + 1
+            and re.fullmatch(r'<a id="[^"]+"></a>', stripped[entity_end - 1])
+        ):
+            entity_end -= 1
         entity_lines = stripped[line_index + 1 : entity_end]
         expected_root_anchor = f'<a id="{_root_cause_anchor_id(root_tag)}"></a>'
         anchor_count = stripped[start + 1 : end].count(expected_root_anchor)
-        if anchor_count != 1 or stripped[line_index - 1] != expected_root_anchor:
+        anchor_index = line_index - 1
+        while anchor_index > start and not stripped[anchor_index]:
+            anchor_index -= 1
+        preceding_anchor = stripped[anchor_index] if anchor_index > start else ""
+        if anchor_count != 1 or preceding_anchor != expected_root_anchor:
             return False, {
                 "error": (
                     f"[Root Cause Anchor Error] <{root_tag}> must have one generated "
-                    f"anchor '#{_root_cause_anchor_id(root_tag)}'. Add this exact line "
-                    f"immediately before the ROOT heading: "
+                    f"anchor '#{_root_cause_anchor_id(root_tag)}'. Put this exact line "
+                    "before the blank line that precedes the ROOT heading: "
                     f"<a id=\"{_root_cause_anchor_id(root_tag)}\"></a>."
                 )
             }
@@ -1348,6 +1365,7 @@ def _parse_waveform_analysis_blocks(
         return False, {}, error
     associations: dict[str, set[str]] = {}
     association_lines: dict[tuple[str, str], int] = {}
+    duplicate_associations = []
     reference_indexes: set[int] = set()
     for record in records:
         for test in record["tests"]:
@@ -1360,17 +1378,16 @@ def _parse_waveform_analysis_blocks(
                         f"in '{bug_file}': {parse_error}."
                         )
                     }
-            pair = (record["bug"], test_label)
-            if pair in association_lines:
-                return False, {}, {
-                    "error": (
-                        f"[Duplicate Waveform Association] <{record['bug']}> references "
-                        f"<{test_label}> more than once. Keep one BG/TC association and one "
-                        "generated WAVEFORM-REF."
-                    )
-                }
+            pair = (record["path"], test_label)
             associations.setdefault(test_label, set()).add(record["bug"])
-            association_lines[pair] = test["line"]
+            if pair in association_lines:
+                duplicate_associations.append({
+                    "path": f"{record['path']}/{test_label}",
+                    "lines": [association_lines[pair], test["line"]],
+                    "remove_line": test["line"],
+                })
+            else:
+                association_lines[pair] = test["line"]
             next_index = test["line"]
             while next_index < dynamic_end and not stripped_lines[next_index]:
                 next_index += 1
@@ -1390,6 +1407,34 @@ def _parse_waveform_analysis_blocks(
                     },
                 }
             reference_indexes.add(next_index)
+
+    if duplicate_associations:
+        detail_limit = 20
+        shown = duplicate_associations[:detail_limit]
+        remaining = len(duplicate_associations) - len(shown)
+        locations = "; ".join(
+            f"{item['path']} at lines {item['lines'][0]} and {item['lines'][1]}"
+            for item in shown
+        )
+        suffix = f"; {remaining} additional duplicate(s) omitted" if remaining else ""
+        return False, {}, {
+            "error_code": "DUPLICATE_WAVEFORM_ASSOCIATION",
+            "error": (
+                f"[Duplicate Waveform Association] Found {len(duplicate_associations)} "
+                f"duplicate association(s) in '{bug_file}': {locations}{suffix}. Keep one "
+                "TC and one generated WAVEFORM-REF in each exact FG/FC/CK/BG path. The "
+                "same BG/TC may appear under a different checkpoint path."
+            ),
+            "details": {
+                "duplicate_associations": shown,
+                "remaining_duplicate_count": remaining,
+            },
+            "next_action": (
+                f"In '{bug_file}', remove the later TC and its WAVEFORM-REF at each "
+                "reported remove_line, only from that exact path. Preserve associations "
+                "under other FG/FC/CK paths, then call Check/Complete again."
+            ),
+        }
 
     for index in range(dynamic_start + 1, dynamic_end):
         stripped = stripped_lines[index]
@@ -1579,7 +1624,9 @@ def _parse_waveform_analysis_blocks(
             "data": payload,
             "bugs": expected_bugs,
             "association_lines": {
-                bug: association_lines[(bug, test_label)] for bug in expected_bugs
+                checkpoint_path: line
+                for (checkpoint_path, associated_test), line in association_lines.items()
+                if associated_test == test_label
             },
             "viewer_line": index + 1,
             "viewer_token": viewer_token,
@@ -1652,7 +1699,7 @@ def _required_waveform_pairs(
                         }
                     )
                 continue
-            pair = (record["bug"], test["test_label"])
+            pair = (record["path"], test["test_label"])
             required[pair] = {
                 "bug": record["bug"],
                 "test_label": test["test_label"],
@@ -3159,7 +3206,14 @@ def check_bug_tc_analysis(
     passed_tc_list: list,
     only_marked_ckp_in_tc: bool,
     test_output_dir: str = "",
+    require_all_documented_tests: bool = True,
 ):
+    """Validate current failed tests and their documented Bug associations.
+
+    A full report validates every documented TC. A targeted report validates TCs
+    present in that report while preserving unrelated historical Bug records for
+    the final full-suite gate.
+    """
     try:
         all_tc_list = fc.get_unity_chip_doc_marks(
             os.path.join(workspace, bug_file), leaf_node="TC"
@@ -3173,6 +3227,7 @@ def check_bug_tc_analysis(
                         *fc.description_bug_doc(),
                         ]
     failed_tc_names = failed_tc_and_cks.keys()
+    current_report_names = list(failed_tc_names) + list(passed_tc_list)
     failed_tc_maps = {k:False for k in failed_tc_names}
     for tc in all_tc_list:
         checkpoint = tc.split("/BG-", 1)[0]
@@ -3207,6 +3262,12 @@ def check_bug_tc_analysis(
         tc_name = tc.split("/TC-")[-1]
         tc_name_parts = tc_name.split("::")
         tc_name = "<TC-" + tc_name + ">"
+        if not require_all_documented_tests:
+            is_current, _current_name = _find_matching_test_case(
+                tc_name_parts, current_report_names
+            )
+            if not is_current:
+                continue
         info(f"Check TC: {tc} ({tc_name}) for bug analysis")
         if checkpoint not in checks_in_tc:
             ck_not_found_in_report.append(checkpoint)
@@ -3489,7 +3550,8 @@ def check_doc_struct(test_case_checks:list, doc_checks:list, doc_file:str, check
 def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="",
                  check_tc_in_doc=True, check_doc_in_tc=True, post_checker=None, only_marked_ckp_in_tc=False,
                  check_fail_ck_in_bug=True, func_RunTestCases=None, timeout_RunTestCases=0,
-                 waveform_tool=None, waveform_test_dir=None, test_output_dir=None):
+                 waveform_tool=None, waveform_test_dir=None, test_output_dir=None,
+                 require_all_documented_tests=True):
     """Check the test report against documentation and bug analysis.
 
     Args:
@@ -3508,6 +3570,10 @@ def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="",
         waveform_tool: The active WaveInfo tool instance used to verify in-memory call receipts.
         waveform_test_dir: Test directory searched by WaveInfo for the newest waveform session.
         test_output_dir: Resolved agent.cfg TC output directory shown in diagnostics.
+        require_all_documented_tests: Whether every documented TC must occur in this
+            report. Set false only for a checker that intentionally runs a selected
+            test subset; current report failures remain mandatory, and final full-suite
+            validation must use the default strict value.
     Returns:
         A tuple indicating the success or failure of the check, along with an optional message.
     """
@@ -3638,6 +3704,7 @@ def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="",
             passed_tc_list,
             only_marked_ckp_in_tc,
             test_output_dir=test_output_dir or "",
+            require_all_documented_tests=require_all_documented_tests,
         )
         if not ret:
             return ret, msg, -1

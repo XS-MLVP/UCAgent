@@ -227,4 +227,9 @@ def test_random_test_stage_documents_unified_stage_args_fallback():
     assert "文档结构/语言/代码风格等非DUT激励属性" in task_text
     assert "应跳过该CK并在stage_args.generated中说明确定的跳过原因" in task_text
     assert "不要为了制造随机用例而搜索或修改无关覆盖定义" in task_text
+    assert "是跨阶段累计文档" in task_text
+    assert "本阶段Check只运行{OUT}/tests/test_{DUT}_random*.py并产生局部报告" in task_text
+    assert "历史TC未出现在本轮报告不表示它已Pass" in task_text
+    assert "同名BG/TC跨不同CK时必须保留每条真实路径" in task_text
+    assert "本轮没有确认新的DUT Bug时无需新增BG" in task_text
     assert "Check(generated=" not in task_text

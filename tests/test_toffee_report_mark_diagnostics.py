@@ -204,6 +204,94 @@ def test_bug_analysis_does_not_match_short_path_to_report_node(
     assert "[Unresolved Failed Cases]" not in " ".join(message)
 
 
+def test_partial_report_preserves_unselected_historical_bug_test(tmp_path):
+    checkpoint = "FG-A/FC-A/CK-A"
+    current_test = "tests/test_current.py:1-3::test_current"
+    (tmp_path / "bugs.md").write_text(
+        "<FG-A>\n"
+        "<FC-A>\n"
+        "<CK-A>\n"
+        "<BG-HISTORICAL-80>\n"
+        "<TC-tests/test_historical.py::test_historical>\n"
+        "<BG-CURRENT-90>\n"
+        "<TC-tests/test_current.py::test_current>\n",
+        encoding="utf-8",
+    )
+
+    passed, message = check_bug_tc_analysis(
+        str(tmp_path),
+        [checkpoint],
+        "bugs.md",
+        "",
+        {current_test: [checkpoint]},
+        [],
+        True,
+        test_output_dir="tests",
+        require_all_documented_tests=False,
+    )
+
+    assert passed is True, message
+
+
+def test_full_report_rejects_unselected_historical_bug_test(tmp_path):
+    checkpoint = "FG-A/FC-A/CK-A"
+    current_test = "tests/test_current.py:1-3::test_current"
+    (tmp_path / "bugs.md").write_text(
+        "<FG-A>\n"
+        "<FC-A>\n"
+        "<CK-A>\n"
+        "<BG-HISTORICAL-80>\n"
+        "<TC-tests/test_historical.py::test_historical>\n"
+        "<BG-CURRENT-90>\n"
+        "<TC-tests/test_current.py::test_current>\n",
+        encoding="utf-8",
+    )
+
+    passed, message = check_bug_tc_analysis(
+        str(tmp_path),
+        [checkpoint],
+        "bugs.md",
+        "",
+        {current_test: [checkpoint]},
+        [],
+        True,
+        test_output_dir="tests",
+    )
+
+    assert passed is False
+    assert "[Test Case Node ID Mismatch]" in message[0]
+    assert "test_historical" in message[0]
+
+
+def test_partial_report_still_requires_exact_current_test_identity(tmp_path):
+    checkpoint = "FG-A/FC-A/CK-A"
+    current_test = "tests/test_current.py:1-3::test_current"
+    (tmp_path / "bugs.md").write_text(
+        "<FG-A>\n"
+        "<FC-A>\n"
+        "<CK-A>\n"
+        "<BG-CURRENT-90>\n"
+        "<TC-test_current.py::test_current>\n",
+        encoding="utf-8",
+    )
+
+    passed, message = check_bug_tc_analysis(
+        str(tmp_path),
+        [checkpoint],
+        "bugs.md",
+        "",
+        {current_test: [checkpoint]},
+        [],
+        True,
+        test_output_dir="tests",
+        require_all_documented_tests=False,
+    )
+
+    assert passed is False
+    assert "[Unresolved Failed Cases]" in message[0]
+    assert current_test in message[0]
+
+
 def test_failed_checkpoint_requires_failed_test_on_same_checkpoint(tmp_path):
     _write_function_doc(tmp_path / "functions.md")
     checkpoint = "FG-A/FC-A/CK-A"

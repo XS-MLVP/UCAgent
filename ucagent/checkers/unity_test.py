@@ -1974,6 +1974,7 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
             waveform_tool=self.get_waveform_tool_for_checker(),
             waveform_test_dir=self.test_dir,
             test_output_dir=self.get_configured_test_output_dir(),
+            require_all_documented_tests=False,
         )
         error_msgs["REPORT"] = self._compact_validation_report(report, return_tests)
         if not ret:

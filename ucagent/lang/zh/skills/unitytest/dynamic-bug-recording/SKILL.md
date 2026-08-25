@@ -5,9 +5,15 @@ description: 为失败测试已确认的动态DUT Bug创建规范BG/TC骨架和�
 
 # 动态 Bug 骨架记录
 
-Markdown 排版契约：本技能生成、维护或展示的任何 Markdown 中，每个 `#` 到 `######` 标题前后各保留一个空行；文件或 Markdown 示例首行标题不要求前置空行。标题后不得直接连接正文、列表、表格、下一级标题或代码围栏；规范机器伴随行是例外：字段标题后的 `<TAG>` 标记必须与标题紧邻，目标标题前的 `<a id="..."></a>` 锚点也必须与标题紧邻，以保持机器契约和链接有效。
+Markdown 排版契约：本技能生成、维护或展示的任何 Markdown 中，每个 `#` 到 `######` 标题前后各保留一个空行；标题前置空行没有例外：文件开头的标题、Markdown 示例围栏内首个标题和 `<a id="..."></a>` 锚点后的目标标题都必须有前置空行。标题前不得直接连接正文、列表、表格、下一级标题、代码围栏或锚点；字段标题后的规范机器标记（例如 `<BUG-*>`、`<ROOT-*>` 和 `<RELATED-BUGS>`）可以继续与标题紧邻。
 
 当前stage的`skill_list`包含本技能时，Skill启用条件下必须按本技能的方法完成动态Bug分类与文档维护；`record_dynamic_bug.py`只是可选的确定性骨架助手。当前stage没有确认动态Bug时，执行下述无Bug分支即表示已使用本技能，不得为了运行脚本而制造Bug。Skill整体禁用或当前stage显式设置`force_use_skill: false`时，仍按stage task、Guide_Doc和内置工具完成同一格式与验收标准。
+
+`{DUT}_bug_analysis.md`是跨阶段累计文档。当前stage只运行测试子集时，Checker报告是局部报告：只更新报告中逐字出现的TC；当前Fail必须分类，当前Pass不能继续作为动态Bug复现证据，完全未出现的历史TC保持原状。历史TC未出现在本轮报告不表示它已Pass、失效或路径错误，禁止仅因此删除、改名、移动或重新取证其TC/BG、ROOT关联和中央波形记录。最终完整测试报告才校验累计文档中的全部TC。
+
+同一TC可以按真实报告关系出现在多个完整`FG/FC/CK/BG`路径下，且相关CK可以已经通过覆盖，不能由TC Fail反推CK Fail。同一精确路径内不得重复TC；同名BG/TC跨不同CK时保留所有真实路径，并向`ApplyWaveInfoEvidence`传完整`checkpoint_path`。该TC在中央`<WAVEFORM-EVIDENCE>`中仍只有一份波形记录。
+
+当前stage没有确认新的DUT Bug时，不新增BG、ROOT或波形记录，但不得清空累计历史；只有整个累计文档从未记录动态Bug时，才使用`Guide_Doc/dut_bug_analysis.md`第2.1节的三个空容器结构。
 
 `RunTestCases`只运行已有的真实pytest验证用例，不执行普通Python、临时维护脚本或文档迁移脚本。不得创建伪pytest用例来修改或批量填充Bug文档。脚本存在时只通过`RunSkillScript`执行本技能声明的脚本；直接修改文档时使用文本工具，相同文本出现多次则用`ReplaceStringInFile`的`line_blocks=[[start, end]]`限定到当前Checker阻塞位置，并且一次只处理当前记录的当前字段。
 

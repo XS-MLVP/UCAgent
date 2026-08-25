@@ -1,3 +1,4 @@
+
 # DUT Bug 分析指南
 
 本文定义动态与静态 Bug 文档的唯一机器格式。尖括号标签在 Markdown 渲染后可能不可见，因此 FG/FC/CK/BG/TC 和根因实体必须同时写出能独立表达含义的中文可见标题；不能用类型名代替具体描述。动态 Bug 文档必须使用本文定义的 Markdown 层级、BG 三字段、ROOT 五字段、根因双向链接和中央波形结构；YAML 字段、签名 receipt 与 viewer token 必须由工具生成并保持原样。
@@ -39,11 +40,20 @@ Check/Complete 的最终分类必须同时满足三个方向：每个非零动�
 
 CK 失败本身不证明 DUT 存在 Bug。必须先检查该 CK 的 coverage/check function 是否真实表达规格、`CovGroup.sample()`调用和采样时机是否正确、测试激励或 driver 是否真正触发目标场景、独立规格 expected 与测试 expected 是否一致，以及结果是否在有效边沿、响应条件和延迟后采样。上述任一项错误都属于验证问题，必须修复并重跑。只有这些条件都正确后，DUT 错误行为仍使正确复现 TC 自然 Fail，才能创建非零动态 BG 并取证；该 TC 关联的 CK 可以已经 Pass。若 CK 自身仍 Fail，则独立应用“失败 CK 必须有同 CK Fail TC”的单向门禁。
 
+### 1.1 局部测试报告与累计 Bug 文档
+
+`{DUT}_bug_analysis.md`是跨阶段累计文档。有些阶段或批次只运行配置选中的测试子集，例如随机阶段只运行`{OUT}/tests/test_{DUT}_random*.py`。这种 Check/Complete 返回的是局部报告，只能更新报告中逐字出现的 TC：当前 Fail 必须完成分类，当前 Pass 不得继续作为动态 Bug 复现证据；完全未出现在本轮报告中的历史 TC 保持原状。历史 TC 缺席不表示它已 Pass、失效或 node ID 错误，禁止仅因此删除、改名、移动或重新取证其 TC/BG、ROOT 双向关联和中央波形记录。最终综合阶段运行完整 DUT 测试集合后，才对累计文档中的全部 TC 执行全量一致性门禁。
+
+同一 TC 可以真实触发多个 CK，并在多个完整`FG/FC/CK/BG`路径下出现；这些 CK 可以已经通过覆盖，不能由 TC Fail 反推 CK Fail。同一精确路径内，一个 TC 只能出现一次；同名 BG/TC 位于不同 CK 时是不同路径关联，必须全部保留。调用`ApplyWaveInfoEvidence`时用完整`checkpoint_path`消除路径歧义，而该 TC 在`<WAVEFORM-EVIDENCE>`中仍只保留一份中央波形记录。
+
+某个局部阶段没有确认新的 DUT Bug 时，不新增 BG、ROOT 或波形记录，但仍保留累计文档中的历史记录。只有整个累计文档从未记录任何动态 Bug 时，才使用第 2.1 节的三个空容器结构。
+
 ## 2. 文档分区
 
 `{DUT}_bug_analysis.md`必须各有一个封闭分区，且顺序固定：
 
 ````markdown
+
 # DUT 动态 Bug 分析
 
 ## 动态 Bug 记录
@@ -72,6 +82,7 @@ CK 失败本身不证明 DUT 存在 Bug。必须先检查该 CK 的 coverage/che
 没有发现动态 Bug 时仍必须保留唯一目标文件，不得省略文件、另建摘要文件、写`BG-*-0`占位或在容器内写“未发现 Bug”等说明。完成态必须是以下精确空结构；三个容器正文均为空，不含注释、TC/BG、ROOT 或波形记录：
 
 ```markdown
+
 # {DUT} 动态 Bug 分析
 
 ## 动态 Bug 记录
@@ -95,6 +106,7 @@ CK 失败本身不证明 DUT 存在 Bug。必须先检查该 CK 的 coverage/che
 标签顺序为`FG -> FC -> CK -> BG -> TC`。可见标题、Markdown 层级与标签必须写在同一行，并使用以下固定结构。可见标题是该条目的具体语义描述，不能只是标签类型的释义。一个非零置信度 BG 至少关联一个真实 Fail TC。一个 BG 的所有 TC 及其`<WAVEFORM-REF>`必须连续位于该`<BG-*>`标题之后；随后只写三个 BG 字段。`<BUG-TRIGGER>`正文末尾紧跟唯一的`<CAUSE-REF-ROOT-XXX>`，不再在 BG 中写源码、因果链、修复或复验字段：
 
 ```markdown
+
 ### 算术功能 <FG-ARITHMETIC>
 
 #### 加法结果 <FC-ADD>
@@ -130,10 +142,12 @@ CK 失败本身不证明 DUT 存在 Bug。必须先检查该 CK 的 coverage/che
 每个根因实体必须使用一个在整个文档中唯一的`<ROOT-XXX>`标签，并至少关联一个真实存在的完整 BG 路径；禁止创建孤立根因。一个 BG 必须且只能关联一个根因。如果两个缺陷组合后才产生可复现错误，该组合本身就是一个带独立`<ROOT-XXX>`标签的根因实体。一个根因可以关联多个不同 CK 作用域的 BG。BG 侧使用内嵌完整根因标签的`<CAUSE-REF-ROOT-XXX>`，根因侧使用内嵌完整 BG 路径的`<RELATED-BUG-FG-.../FC-.../CK-.../BG-...>`；两侧都紧跟可点击链接且必须双向一致。链接必须指向工具生成的稳定锚点。源码证据、因果链、修复建议、风险和复验只写在 ROOT 实体中，并覆盖该 ROOT 的全部关联 BG。
 
 ```markdown
+
 ## 根因分析
 
 <ROOT-CAUSES>
 <a id="root-cause-cin-overflow"></a>
+
 ### 中间量宽度不足 <ROOT-CIN-OVERFLOW>
 
 #### 根因分析
@@ -171,6 +185,7 @@ CK 失败本身不证明 DUT 存在 Bug。必须先检查该 CK 的 coverage/che
 <WAVEFORM-EVIDENCE>
 
 <a id="waveform-0123456789abcdef"></a>
+
 ### 进位输入触发溢出波形 <WAVEFORM-TC-tests/test_adder.py::test_overflow>
 
 ```yaml
@@ -283,6 +298,7 @@ ApplyWaveInfoEvidence(
 以下案例是动态 Bug 文档的完整标准结构。它同时展示两个独立 ROOT、三个 BG、两个 TC 和两份中央波形记录：第一个 ROOT 关联两个 BG，这两个 BG 由同一个 TC 揭示并共用唯一一份中央波形；第二个 ROOT 关联另一个 BG 和 TC，该 TC 拥有自己的中央波形。实际文档保留文档标题、Markdown 层级、标签位置、BG/ROOT 字段顺序和 fenced block 位置；FG/FC/CK/BG/TC 标题必须按实际语义填写。案例中的 receipt、fingerprint、时间和 viewer token 只说明字段形态；实际值必须来自当前工具结果。
 
 `````markdown
+
 # Adder 动态 Bug 分析
 
 ## 动态 Bug 记录
@@ -296,6 +312,7 @@ ApplyWaveInfoEvidence(
 ##### 进位输出 <CK-CARRY-OUT>
 
 <a id="bug-5f90c59ed3dbea70"></a>
+
 ###### 完整和进位丢失（95%） <BG-SUM-CARRY-DROPPED-95>
 
 - 进位输入产生进位 <TC-tests/test_adder.py::test_cin_carry>
@@ -320,6 +337,7 @@ ApplyWaveInfoEvidence(
 ##### 完整结果 <CK-FULL-RESULT>
 
 <a id="bug-e510f134f5bdaabd"></a>
+
 ###### 完整结果被截断（93%） <BG-FULL-RESULT-TRUNCATED-93>
 
 - 进位输入产生进位 <TC-tests/test_adder.py::test_cin_carry>
@@ -346,6 +364,7 @@ ApplyWaveInfoEvidence(
 ##### 饱和结果 <CK-SATURATION-OUTPUT>
 
 <a id="bug-d0f8a6d4227d547c"></a>
+
 ###### 饱和功能未生效（92%） <BG-SATURATION-DISABLED-92>
 
 - 饱和加法达到上限 <TC-tests/test_adder.py::test_saturation_limit>
@@ -373,6 +392,7 @@ ApplyWaveInfoEvidence(
 
 <ROOT-CAUSES>
 <a id="root-cause-sum-carry-width"></a>
+
 ### 加法中间量宽度不足 <ROOT-SUM-CARRY-WIDTH>
 
 #### 根因分析
@@ -406,6 +426,7 @@ ApplyWaveInfoEvidence(
 - <RELATED-BUG-FG-ARITHMETIC/FC-ADD-RESULT/CK-FULL-RESULT/BG-FULL-RESULT-TRUNCATED-93> [FG-ARITHMETIC/FC-ADD-RESULT/CK-FULL-RESULT/BG-FULL-RESULT-TRUNCATED-93](#bug-e510f134f5bdaabd)
 
 <a id="root-cause-saturation-detector-constant"></a>
+
 ### 饱和溢出检测被固定为无效 <ROOT-SATURATION-DETECTOR-CONSTANT>
 
 #### 根因分析
@@ -444,6 +465,7 @@ ApplyWaveInfoEvidence(
 <WAVEFORM-EVIDENCE>
 
 <a id="waveform-9f3516eabf18829d"></a>
+
 ### 进位输入产生进位波形 <WAVEFORM-TC-tests/test_adder.py::test_cin_carry>
 
 ```yaml
@@ -514,6 +536,7 @@ waveform_analysis:
 <WAVEFORM-VIEWER> [Open waveform](/surfer/?wave=TOOL_GENERATED_TOKEN_FOR_CARRY)
 
 <a id="waveform-547f03228d4694a0"></a>
+
 ### 饱和加法达到上限波形 <WAVEFORM-TC-tests/test_adder.py::test_saturation_limit>
 
 ```yaml
@@ -718,6 +741,7 @@ FG、FC、CK、BG、TC 都是一对多层次，不是一条固定单链。以下
 ##### [检查点具体名称] <CK-NAME>
 
 <a id="tool-generated-bug-anchor"></a>
+
 ###### [缺陷具体描述]（XX%） <BG-NAME-XX>
 
 - [测试 docstring 描述] <TC-test_file.py::test_name>
@@ -746,6 +770,7 @@ FG、FC、CK、BG、TC 都是一对多层次，不是一条固定单链。以下
 
 <ROOT-CAUSES>
 <a id="root-cause-name"></a>
+
 ### [根因具体描述] <ROOT-NAME>
 
 #### 根因分析
@@ -790,7 +815,7 @@ FG、FC、CK、BG、TC 都是一对多层次，不是一条固定单链。以下
 
 每个 BG 只保留三个唯一、有序、非空字段：`###### Bug 概述`/`<BUG-OVERVIEW>`、`###### 现象与严重度`/`<BUG-SYMPTOMS>`、`###### 触发条件与影响`/`<BUG-TRIGGER>`。`<BUG-TRIGGER>`先写真实触发条件和影响范围，最后一个非空块必须是唯一的`<CAUSE-REF-ROOT-XXX>`可点击链接。
 
-标题排版规则：普通 Markdown 标题前后各保留一个空行；文件首行标题不要求前置空行。机器契约中的伴随行是唯一例外：BG/ROOT 字段标题必须与紧随其后的 `<BUG-*>`、`<ROOT-*>` 或 `<RELATED-BUGS>` 标记相邻，BG/ROOT 的 `<a id="..."></a>` 锚点必须与目标标题相邻。不要在这些标题与机器伴随行之间自行插入空行。
+标题排版规则：每个 Markdown 标题前后各保留一个空行，标题前置空行没有例外。文件开头的标题、Markdown 示例围栏内的首个标题、BG/ROOT 的 `<a id="..."></a>` 锚点后的目标标题都必须有前置空行。BG/ROOT 字段标题后的 `<BUG-*>`、`<ROOT-*>` 或 `<RELATED-BUGS>` 标记仍必须与字段标题紧邻；不要在字段标题与这些后置机器标记之间插入空行。
 
 每个 ROOT 依次包含`<ROOT-CAUSE-ANALYSIS>`、`<ROOT-SOURCE-EVIDENCE>`、`<ROOT-CAUSAL-CHAIN>`、`<ROOT-FIX>`、`<ROOT-RETEST>`和`<RELATED-BUGS>`。一个 ROOT 关联多个 BG 时，因果链必须解释各 BG 如何从共同首错传播到不同观察点，复验必须覆盖所有关联 CK。`<ROOT-SOURCE-EVIDENCE>`有两种互斥模式：
 
@@ -802,6 +827,7 @@ FG、FC、CK、BG、TC 都是一对多层次，不是一条固定单链。以下
 无源码分支必须完整写成以下形态，不能只留下标记：
 
 ```markdown
+
 #### 源码证据
 <ROOT-SOURCE-EVIDENCE>
 <ROOT-SOURCE-UNAVAILABLE>

@@ -81,6 +81,12 @@ class RandomTestCasesChecker(BaseUnityChipCheckerTestCase):
         report_copy = fc.clean_report_with_keys(report)
         def get_emsg(m):
             msg =  {"error": m, "REPORT": report_copy}
+            if (
+                isinstance(m, dict)
+                and {"error_code", "error", "next_action"}.issubset(m)
+            ):
+                msg["error"] = m["error"]
+                msg["diagnostic"] = m
             if self.ret_std_out:
                 msg["STDOUT"] = str_out
             if self.ret_std_error:
@@ -95,6 +101,7 @@ class RandomTestCasesChecker(BaseUnityChipCheckerTestCase):
                                    waveform_tool=self.get_waveform_tool_for_checker(),
                                    waveform_test_dir=self.test_dir,
                                    test_output_dir=self.get_configured_test_output_dir(),
+                                   require_all_documented_tests=False,
                                    )
         if not ret:
             return ret, get_emsg(msg)

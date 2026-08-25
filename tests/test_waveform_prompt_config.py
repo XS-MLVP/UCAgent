@@ -328,6 +328,37 @@ def test_dynamic_bug_target_tc_forms_and_no_bug_result_are_consistent():
         assert "三个" in skill and "空" in skill and "容器" in skill
 
 
+def test_partial_test_report_contract_is_consistent_across_runtime_guidance():
+    repo_root = Path(__file__).parents[1]
+    config = load_yaml_with_env_vars(
+        str(repo_root / "ucagent/lang/zh/config/default.yaml")
+    )
+    random_stage = next(
+        stage for stage in config["stage"]
+        if stage["name"] == "generate_random_test_cases"
+    )
+    random_task = "\n".join(str(item) for item in random_stage["task"])
+    guide = (
+        repo_root / "ucagent/lang/zh/doc/Guide_Doc/dut_bug_analysis.md"
+    ).read_text(encoding="utf-8")
+    skill = (
+        repo_root
+        / "ucagent/lang/zh/skills/unitytest/dynamic-bug-recording/SKILL.md"
+    ).read_text(encoding="utf-8")
+
+    for text in (random_task, guide, skill):
+        assert "跨阶段累计文档" in text
+        assert "局部报告" in text
+        assert "历史" in text and "TC" in text
+        assert "同名" in text and "BG/TC" in text
+        assert "FG/FC/CK/BG" in text or "FG/FC/CK路径" in text
+        assert "中央" in text and "一份" in text
+
+    assert "只对局部报告中逐字出现的TC更新Fail/Pass分类" in random_task
+    assert "最终综合阶段运行完整 DUT 测试集合后" in guide
+    assert "当前Fail必须分类" in skill
+
+
 def test_system_prompt_distinguishes_infrastructure_and_dut_bug_failures():
     config_path = (
         Path(__file__).parents[1] / "ucagent/lang/zh/config/default.yaml"
@@ -706,7 +737,7 @@ def test_dynamic_bug_template_has_canonical_root_cause_section():
     )
     template = template_path.read_text(encoding="utf-8")
 
-    assert template.startswith("# {{DUT}} 动态 Bug 分析")
+    assert template.startswith("\n# {{DUT}} 动态 Bug 分析")
     assert "<DYNAMIC-BUGS>" in template
     assert "## 动态 Bug 记录" in template
     assert "## 波形证据" in template

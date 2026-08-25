@@ -68,7 +68,7 @@ mission:
       - 各stage相互独立；进入当前stage后，必须逐一用`ReadTextFile`读取其`reference_files`。即使已有文件内容也要重新调用，可用`count=1`轻量复核，或用`count=0`仅登记已读而不返回正文
       - Skill启用时，当前stage的`skill_list`默认是必须遵循的方法：先用`ListSkill`列出、用`ReadTextFile`读取对应`SKILL.md`，按其中方法完成任务，并在`Complete`前用`SetSkillUsage`记录；只有该stage显式设置`force_use_skill: false`时才可选。`general_skill_list`中的通用Skill始终可选。Skill脚本是否必须以对应`SKILL.md`为准，不能把“脚本可选”误解为整个Skill可跳过。Skill整体禁用（此时工作区可以没有`.ucagent/skills`）或stage显式设为可选时，仍须按当前stage的task和reference_files，使用内置文件工具完成同一产物与验收标准：创建或覆盖完整文件只调用`EditTextFile(path, content)`，追加时才传`append=true`；已有文件的少量局部修改只调用`ReplaceStringInFile(path, old_string, new_string)`，需要限定搜索范围时加`line_blocks=[[start, end], ...]`，默认搜索全文。只有需要删除大量完整文本行时，才先用`ReadTextFile`确认当前行号和SHA-256，再调用一次`DeleteTextLines(path, line_blocks, expected_sha256)`删除全部旧行块，重新读取缩短后的文件后用`ReplaceStringInFile`完成精确编辑或插入；不得用它处理少量修改。不要混用参数，也不要改用Python或shell绕过文件工具。完成后以Check/Complete反馈校验；不得因Skill整体禁用而暂停、跳过或降低任务标准
       - `RunTestCases`只运行已有的真实pytest验证用例，不是任意Python执行器，也不是文档编辑工具。禁止为了修改、迁移或批量填充产物而创建临时Python脚本或伪pytest用例并交给`RunTestCases`；文档重复文本必须用`ReplaceStringInFile`配合只覆盖当前阻塞位置的`line_blocks=[[start, end]]`逐处精确修改，已声明的Skill脚本只能用`RunSkillScript`执行
-      - 生成或修改Markdown文档时，每个`#`到`######`标题前后各保留一个空行；文件或Markdown示例首行标题不要求前置空行。标题后不得直接连接正文、列表、表格、下一级标题或代码围栏。规范机器伴随行（例如字段后的`<TAG>`标记，以及标题前的`<a id="..."></a>`锚点）是例外：字段标题必须与其标记紧邻，锚点必须与目标标题紧邻，以保持机器契约和链接有效；模板、Guide_Doc示例、Skill脚本和文本工具写入的最终文档都遵循同一规则
+      - 生成或修改Markdown文档时，每个`#`到`######`标题前后各保留一个空行，标题前置空行没有例外：文件开头的标题、Markdown示例围栏内的首个标题、`<a id="..."></a>`锚点后的目标标题都必须有前置空行。标题前不得直接连接正文、列表、表格、其他标题、代码围栏或锚点。字段标题后的规范机器标记（例如`<BUG-*>`、`<ROOT-*>`和`<RELATED-BUGS>`）可以继续与标题紧邻；模板、Guide_Doc示例、Skill脚本和文本工具写入的最终文档都遵循同一规则
       - 每个Fail TC都不预设责任方。进入WaveInfo、创建或更新非零BG、引用静态候选之前，必须先完成验证正确性分类；静态候选、已有断言、模板注释和可疑RTL都不能代替该分类
       - 测试结果的完成判定不是“所有真实DUT测试必须Pass”，而是：除已确认DUT Bug的复现用例外，其他用例全部Pass；所有保留的Fail都必须由正确测试稳定触发DUT设计缺陷，并完成非零置信度动态Bug记录、CK关联、源码根因分析和真实WaveInfo波形确认
       - 对每个已实现测试的Fail，先从功能规格、独立参考模型或可验证公式独立推导specification_expected，禁止直接相信模板注释、已有断言或可疑RTL；逐项记录并对比精确input、specification_expected、测试代码中的test_expected、DUT actual和classification。specification_expected与test_expected不一致时必须修正测试并重跑，禁止调用WaveInfo或记录Bug
@@ -1417,6 +1417,9 @@ stage:
       - " - 需要有合理的断言来检查输出是否符合预期，是否正确"
       - " - 如果随机测试Fail且测试逻辑合理，可能发现了芯片bug，需要保留Fail用例并在{OUT}/{DUT}_bug_analysis.md中基于源码分析bug和修复建议"
       - " - 随机测试中的测试代码、oracle/预期值、fixture/API、参考模型、复位/时序或环境失败必须修复到Pass；只有正确测试稳定复现DUT设计Bug时才保留Fail，并完成非零置信度动态Bug、CK、源码根因和WaveInfo confirmed证据"
+      - " - {OUT}/{DUT}_bug_analysis.md是跨阶段累计文档，而本阶段Check只运行{OUT}/tests/test_{DUT}_random*.py并产生局部报告。只对局部报告中逐字出现的TC更新Fail/Pass分类；历史TC未出现在本轮报告不表示它已Pass、失效或路径错误，禁止仅因此删除、改名或重新取证其TC/BG/ROOT/中央波形记录"
+      - " - 当前随机TC可按真实报告关系关联多个完整FG/FC/CK路径，且这些CK可以已通过覆盖；不得由TC Fail反推CK Fail。同名BG/TC跨不同CK时必须保留每条真实路径，调用ApplyWaveInfoEvidence时传完整checkpoint_path；同一精确FG/FC/CK/BG路径内不得重复同一TC，中央TC波形记录仍只有一份"
+      - " - 本轮没有确认新的DUT Bug时无需新增BG、ROOT或波形记录，但必须保留累计文档中的历史记录；只有累计文档从未记录任何动态Bug时才使用Guide_Doc/dut_bug_analysis.md第2.1节的三个空容器格式"
       - " - 随机测试动态复现Bug后调用WaveInfo与ApplyWaveInfoEvidence；BG侧写<WAVEFORM-REF>，唯一YAML/viewer集中到<WAVEFORM-EVIDENCE>。同一TC多Bug共享记录且信号取并集；不得修改receipt字段或token，status: unavailable不能完成阶段"
       - " - 随机波形中的单点data mismatch不能直接判Bug；LLM必须从规格和测试驱动代码确认ready/valid或等价接受/响应条件、Step采样边沿、backpressure、latency和事务归属，只在协议有效的失败事务窗口比较expected/actual"
       - " - 随机测试的最终WaveInfo signal_groups必须包含DUT时钟（若有）、生成该事务的相关输入、被检查的相关输出、协议有效/接受控制和至少一个能解释功能选择或错误传播的关键路径；在线viewer必须展示同一签名集合，不能只保留被断言的数据总线"
