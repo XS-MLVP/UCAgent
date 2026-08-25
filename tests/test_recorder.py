@@ -188,7 +188,7 @@ def test_bug_recorder_normalizes_and_caches_bug_list(tmp_path):
         "bug_name": "overflow_bug",
         "CK": ["FG-GROUP/FC-FUNCTION/CK-OVERFLOW", "CK-BOUNDARY"],
         "desc": "The result width truncates the carry bit; the output declaration is too narrow.",
-        "locations": ["rtl/adder.sv:128-229", "rtl/adder.sv:240,250-252"],
+        "locations": ["rtl/adder.sv:128-229", "rtl/adder.sv:240-240,250-252"],
         "confidence": 76,
     }]))
 
@@ -199,7 +199,7 @@ def test_bug_recorder_normalizes_and_caches_bug_list(tmp_path):
         "alias": [],
         "CK": ["FG-GROUP/FC-FUNCTION/CK-OVERFLOW", "FG-GROUP/FC-FUNCTION/CK-BOUNDARY"],
         "desc": "The result width truncates the carry bit; the output declaration is too narrow.",
-        "locations": ["rtl/adder.sv:128-229", "rtl/adder.sv:240,250-252"],
+        "locations": ["rtl/adder.sv:128-229", "rtl/adder.sv:240-240,250-252"],
         "severity": "medium",
         "confidence": 0.76,
         "ref": ["Adder_bug_analysis.md:8-9,12-13"],
@@ -881,7 +881,7 @@ def test_bug_recorder_generates_linked_markdown_summary_on_stage_complete(tmp_pa
         "bug_name": "overflow",
         "CK": ["CK-OVERFLOW"],
         "desc": "The result is truncated | the root cause is an undersized signal.\nCarry is lost.",
-        "locations": ["rtl/adder.sv:10-12,20"],
+        "locations": ["rtl/adder.sv:10-12,20-20"],
         "confidence": 0.90,
         "severity": "high",
     }])
