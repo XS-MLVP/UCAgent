@@ -148,8 +148,9 @@ class ToolSetSkillUsage(ManagerTool):
     """Check and set the skill usage of the current stage."""
     name: str = "SetSkillUsage"
     description: str = (
-        "Check the usage of the skills and set journal of the current stage. \n"
+        "Record usage of Skills available to the current stage. \n"
         "Analyze the conversation history and check usage of the skills specified in skill_list (if skills beyond the specified list were also used, analyze them as well).\n"
+        "Skills are optional unless the current stage explicitly marks them as required. For a required Skill, all three fields must be true before Complete; optional Skill non-use does not block Check or Complete.\n"
         "For each skill, analyze the following aspects:\n"
         "1. **list**: Whether the name and description of skill was listed in histoty context\n"
         "2. **read**: Whether the SKILL.md of skill was read by using tool `ReadTextFile`\n"
@@ -761,7 +762,17 @@ class StageManager(object):
         skills_to_use = [skill_name for skill_name in cstage.skill_list]
         if skills_to_use:
             formatted_skill_list = list_skills_in_format(_list_skills(self.workspace), self.workspace, skills_to_use)
-            tips["notes"] = tips.get("notes", "") + f"Firstly you must read the SKILL.md of the following skills to know how to complete current stage:\n{formatted_skill_list}\n"
+            if cstage.force_use_skill:
+                skill_note = (
+                    "This stage requires the following Skills. Read each SKILL.md, use "
+                    "its method, and record usage with SetSkillUsage before Complete:\n"
+                )
+            else:
+                skill_note = (
+                    "Optional Skills available for this stage are listed below. Use them "
+                    "when helpful; their absence or non-use does not block Check or Complete:\n"
+                )
+            tips["notes"] = tips.get("notes", "") + skill_note + formatted_skill_list + "\n"
 
         tips["process"] = f"{self.stage_index}/{len(self.stages)}"
         mession_tips = self.mission.get_value("prompt.tips")
@@ -846,32 +857,79 @@ class StageManager(object):
         return journals
 
     def set_current_stage_skill_usage(self, skill_usage: Dict[str, Any]):
-        """set the skill usage of curretn stage or return feedback based on skill_usage"""
+        """Record optional usage or validate evidence for forced stage Skills."""
         current_stage = self.get_current_stage()
-        if current_stage.skill_list:
-            for skill_name in current_stage.skill_list:
+        if not current_stage.skill_list:
+            return "No stage-specific Skill usage needs to be recorded."
+
+        force_use_skill = bool(getattr(current_stage, "force_use_skill", False))
+        for skill_name in current_stage.skill_list:
+            skill_info = skill_usage.get(skill_name)
+            if skill_info is None:
+                if force_use_skill:
+                    return (
+                        f"Required Skill '{skill_name}' is missing from skill_usage. "
+                        "List it with `ListSkill`, read its `SKILL.md`, use its method, "
+                        "then include its list/read/use state in `SetSkillUsage`."
+                    )
+                continue
+            if not isinstance(skill_info, dict):
+                return (
+                    f"Skill usage for '{skill_name}' must be an object containing "
+                    "boolean list, read, and use fields."
+                )
+            usage_flags = {}
+            for field_name in ("list", "read", "use"):
+                field_value = skill_info.get(field_name, False)
+                if not isinstance(field_value, bool):
+                    return (
+                        f"Skill usage field '{skill_name}.{field_name}' must be a "
+                        "boolean."
+                    )
+                usage_flags[field_name] = field_value
+
+            if force_use_skill:
                 skill_root = fc.get_workspace_skill_root(self.workspace)
                 skill_root_abs = os.path.abspath(skill_root)
                 skill_dir = os.path.abspath(os.path.join(skill_root_abs, skill_name))
-                if os.path.commonpath([skill_root_abs, skill_dir]) != skill_root_abs or not os.path.isdir(skill_dir):
-                    raise ValueError(f"Skill '{skill_name}' is not found in workspace. ")
-                if skill_name not in skill_usage:
-                    return f"You must use skill '{skill_name}' in current stage, using tool `ListSkill` to list and use it."
-                else:
-                    skill_info = skill_usage[skill_name]
-                    current_stage.set_usage_skill_list(skill_name, listed=skill_info.get("list", False), read=skill_info.get("read", False), used=skill_info.get("use", False))
-                    [u,v,w] = current_stage.skill_list[skill_name]
-                    if u and v and w:
-                        continue
-                    if not u:
-                        return f"You must re-complete the stage by using tool `ListSkill` to list and use the skill {skill_name}."
-                    if not v:
-                        return f"You must re-complete the stage by using tool `ReadTextFile` to read the SKILL.md of skill {skill_name} and use it"
-                    if not w:
-                        return f"You must re-complete the stage by using the skill {skill_name} according to the method steps mentioned in its SKILL.md."
-            current_stage.meta_set_skill_usage(skill_usage)
-            return "All skills in skill_list have been used."     
-        return "No skill need be used in current stage."
+                if (
+                    os.path.commonpath([skill_root_abs, skill_dir]) != skill_root_abs
+                    or not os.path.isdir(skill_dir)
+                ):
+                    return (
+                        f"Required Skill '{skill_name}' is not available in the workspace. "
+                        "Restore the configured Skill before calling `Complete`."
+                    )
+            current_stage.set_usage_skill_list(
+                skill_name,
+                listed=usage_flags["list"],
+                read=usage_flags["read"],
+                used=usage_flags["use"],
+            )
+
+            if force_use_skill:
+                listed, read, used = current_stage.skill_list[skill_name]
+                missing_actions = []
+                if not listed:
+                    missing_actions.append("list it with `ListSkill`")
+                if not read:
+                    missing_actions.append("read its `SKILL.md` with `ReadTextFile`")
+                if not used:
+                    missing_actions.append("complete the stage work using its method")
+                if missing_actions:
+                    return (
+                        f"Required Skill '{skill_name}' has incomplete usage evidence: "
+                        + ", ".join(missing_actions)
+                        + ". Then call `SetSkillUsage` again."
+                    )
+
+        current_stage.meta_set_skill_usage(skill_usage)
+        if force_use_skill:
+            return "All required stage Skills have complete usage evidence."
+        return (
+            "Optional stage Skill usage was recorded. Optional Skill non-use does not "
+            "block `Check` or `Complete`."
+        )
 
     def get_stage(self, index):
         if 0 <= index < len(self.stages):

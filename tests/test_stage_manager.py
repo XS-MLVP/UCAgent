@@ -928,6 +928,7 @@ def _make_output_gate_stage(tmp_path, checker, output_files):
     stage.name = "generic-output-stage"
     stage.cfg = SimpleNamespace(skill=SimpleNamespace(use_skill=False))
     stage.skill_list = {}
+    stage.force_use_skill = False
     stage._is_reached = False
     stage.reference_files = {}
     stage.output_files = output_files
@@ -1060,3 +1061,272 @@ def test_output_gate_complete_failure_names_complete_as_next_action(tmp_path):
     diagnostic = check_info[-1]["last_msg"]["diagnostic"]
     assert diagnostic["error_code"] == "OUTPUT_FILE_PATTERN_MISSING"
     assert diagnostic["next_action"].endswith("Then call `Complete` again.")
+
+
+def _make_precheck_gate_stage(tmp_path, checkers):
+    stage = VerifyStage.__new__(VerifyStage)
+    stage.name = "generic-precheck-stage"
+    stage.cfg = SimpleNamespace(skill=SimpleNamespace(use_skill=True))
+    stage.skill_list = {}
+    stage.force_use_skill = False
+    stage._is_reached = False
+    stage.reference_files = {}
+    stage.output_files = []
+    stage.workspace = str(tmp_path)
+    stage.checker = checkers
+    stage._checker = [
+        SimpleNamespace(name=f"configured_check_{index}")
+        for index, _checker in enumerate(checkers)
+    ]
+    stage.check_info = [None] * len(checkers)
+    stage.is_batch_success = False
+    stage.fail_count = 0
+    stage.continue_fail_count = 0
+    stage.succ_count = 0
+    stage.last_do_check_info_pass = None
+    stage.last_do_check_info_fail = None
+    stage.meta_data = {}
+    return stage
+
+
+class _RecordingChecker:
+    def __init__(self, calls, name):
+        self.calls = calls
+        self.name = name
+
+    def check(self, **kwargs):
+        self.calls.append((self.name, kwargs))
+        return True, "ok"
+
+
+def test_optional_skill_usage_does_not_block_check_or_complete(tmp_path):
+    calls = []
+    stage = _make_precheck_gate_stage(
+        tmp_path, [_RecordingChecker(calls, "checker")]
+    )
+    stage.skill_list = {"unitytest/optional-skill": [False, False, False]}
+
+    check_pass, _check_info = stage._do_check()
+    complete_pass, _complete_info = stage._do_check(is_complete=True)
+
+    assert check_pass is True
+    assert complete_pass is True
+    assert calls == [
+        ("checker", {}),
+        ("checker", {"is_complete": True}),
+    ]
+
+
+def test_forced_skill_usage_does_not_block_intermediate_check(tmp_path):
+    calls = []
+    stage = _make_precheck_gate_stage(
+        tmp_path, [_RecordingChecker(calls, "checker")]
+    )
+    stage.skill_list = {"unitytest/required-skill": [False, False, False]}
+    stage.force_use_skill = True
+
+    passed, _check_info = stage._do_check()
+
+    assert passed is True
+    assert calls == [("checker", {})]
+
+
+def test_forced_skill_usage_complete_failure_is_named_and_actionable(tmp_path):
+    calls = []
+    stage = _make_precheck_gate_stage(
+        tmp_path,
+        [
+            _RecordingChecker(calls, "first"),
+            _RecordingChecker(calls, "second"),
+        ],
+    )
+    stage.skill_list = {
+        "unitytest/required-a": [True, False, False],
+        "unitytest/required-b": [False, True, False],
+    }
+    stage.force_use_skill = True
+    manager = StageManager.__new__(StageManager)
+    manager.stage_index = 3
+    manager.stages = [None, None, None, stage]
+    manager.last_check_info = None
+    manager.gen_fail_suggestion = lambda data: data
+
+    result = manager.complete(30)
+    summary = result["failure_summary"]
+
+    assert result["check_pass"] is False
+    assert calls == []
+    assert summary["failed_checker_index"] == 0
+    assert summary["failed_checker_name"] == "stage_skill_usage"
+    assert summary["failed_checker_class"] == "SkillUsageGate"
+    assert summary["error_code"] == "SKILL_USAGE_INCOMPLETE"
+    assert summary["remaining_checkers_not_run"] == 2
+    assert summary["observed"]["incomplete_skills"] == {
+        "unitytest/required-a": {"list": True, "read": False, "use": False},
+        "unitytest/required-b": {"list": False, "read": True, "use": False},
+    }
+    assert summary["expected"]["required_usage"] == {
+        "unitytest/required-a": {"list": True, "read": True, "use": True},
+        "unitytest/required-b": {"list": True, "read": True, "use": True},
+    }
+    assert "UnknownChecker" not in str(summary)
+    assert 'SetSkillUsage(skill_usage={"unitytest/required-a"' in summary[
+        "next_action"
+    ]
+    assert '"list": true, "read": true, "use": true' in summary["next_action"]
+    assert summary["next_action"].endswith("`Complete` again.")
+
+
+def test_complete_reaches_checker_after_forced_skill_usage_is_complete(tmp_path):
+    calls = []
+    stage = _make_precheck_gate_stage(
+        tmp_path, [_RecordingChecker(calls, "checker")]
+    )
+    stage.skill_list = {"unitytest/required-skill": [True, True, True]}
+    stage.force_use_skill = True
+
+    passed, _check_info = stage._do_check(is_complete=True)
+
+    assert passed is True
+    assert calls == [("checker", {"is_complete": True})]
+
+
+def test_reference_file_gate_reports_all_files_and_exact_retry_tool(tmp_path):
+    calls = []
+    stage = _make_precheck_gate_stage(
+        tmp_path,
+        [
+            _RecordingChecker(calls, "first"),
+            _RecordingChecker(calls, "second"),
+        ],
+    )
+    stage.reference_files = {
+        "Guide_Doc/first.md": False,
+        "Guide_Doc/already-read.md": True,
+        "spec/second.md": False,
+    }
+    manager = StageManager.__new__(StageManager)
+    manager.stage_index = 4
+    manager.stages = [None, None, None, None, stage]
+    manager.last_check_info = None
+    manager.gen_fail_suggestion = lambda data: data
+
+    result = manager.check(30)
+    summary = result["failure_summary"]
+
+    assert calls == []
+    assert summary["failed_checker_name"] == "stage_reference_files"
+    assert summary["failed_checker_class"] == "ReferenceFileGate"
+    assert summary["error_code"] == "REFERENCE_FILES_UNREAD"
+    assert summary["remaining_checkers_not_run"] == 2
+    assert summary["observed"]["unread_files"] == [
+        "Guide_Doc/first.md",
+        "spec/second.md",
+    ]
+    assert "ReadTextFile(path='Guide_Doc/first.md')" in summary["next_action"]
+    assert "ReadTextFile(path='spec/second.md')" in summary["next_action"]
+    assert summary["next_action"].endswith("then call `Check` again.")
+    assert "`Complete`" not in summary["next_action"]
+
+    passed, complete_info = stage._do_check(is_complete=True)
+    assert passed is False
+    complete_diagnostic = complete_info[0]["last_msg"]["diagnostic"]
+    assert complete_diagnostic["next_action"].endswith(
+        "then call `Complete` again."
+    )
+    assert "`Check`" not in complete_diagnostic["next_action"]
+
+
+def test_invalid_direct_stage_args_uses_named_gate(tmp_path):
+    calls = []
+    stage = _make_precheck_gate_stage(
+        tmp_path, [_RecordingChecker(calls, "checker")]
+    )
+
+    passed, check_info = stage._do_check(stage_args=["not", "an", "object"])
+    summary = StageManager._build_failure_summary(
+        stage, check_info, "generic remediation", stage_index=2
+    )
+
+    assert passed is False
+    assert calls == []
+    assert summary["failed_checker_name"] == "stage_arguments"
+    assert summary["failed_checker_class"] == "StageArgumentGate"
+    assert summary["error_code"] == "STAGE_ARGS_INVALID"
+    assert summary["remaining_checkers_not_run"] == 1
+    assert summary["observed"] == {"type": "list"}
+    assert summary["next_action"].startswith("Call `Check` again")
+
+
+def test_current_tips_distinguish_optional_and_forced_skills(tmp_path):
+    stage = SimpleNamespace(
+        force_use_skill=False,
+        skill_list={"unitytest/example-skill": [False, False, False]},
+        reference_files={},
+        detail=lambda: {"name": "generic-stage"},
+    )
+    manager = StageManager.__new__(StageManager)
+    manager.stage_index = 0
+    manager.stages = [stage]
+    manager.workspace = str(tmp_path)
+    manager.mission = SimpleNamespace(
+        name="mission",
+        get_value=lambda _key: None,
+    )
+    manager.force_todo = False
+    manager.todo_panel = None
+
+    optional_tips = manager.get_current_tips()
+    stage.force_use_skill = True
+    forced_tips = manager.get_current_tips()
+
+    assert "Optional Skills available" in optional_tips
+    assert "non-use does not block Check or Complete" in optional_tips
+    assert "requires the following Skills" in forced_tips
+    assert "record usage with SetSkillUsage before Complete" in forced_tips
+
+
+def test_set_skill_usage_records_optional_non_use_without_requiring_all(tmp_path):
+    stage = _make_precheck_gate_stage(tmp_path, [])
+    stage.skill_list = {
+        "unitytest/used-skill": [False, False, False],
+        "unitytest/unused-skill": [False, False, False],
+    }
+    manager = StageManager.__new__(StageManager)
+    manager.workspace = str(tmp_path)
+    manager.stage_index = 0
+    manager.stages = [stage]
+
+    result = manager.set_current_stage_skill_usage({
+        "unitytest/used-skill": {"list": True, "read": True, "use": True},
+    })
+
+    assert "Optional stage Skill usage was recorded" in result
+    assert stage.skill_list == {
+        "unitytest/used-skill": [True, True, True],
+        "unitytest/unused-skill": [False, False, False],
+    }
+
+
+def test_set_skill_usage_accepts_complete_forced_evidence(tmp_path):
+    stage = _make_precheck_gate_stage(tmp_path, [])
+    stage.skill_list = {"unitytest/required-skill": [False, False, False]}
+    stage.force_use_skill = True
+    skill_dir = os.path.join(
+        fc.get_workspace_skill_root(str(tmp_path)),
+        "unitytest/required-skill",
+    )
+    os.makedirs(skill_dir)
+    manager = StageManager.__new__(StageManager)
+    manager.workspace = str(tmp_path)
+    manager.stage_index = 0
+    manager.stages = [stage]
+
+    result = manager.set_current_stage_skill_usage({
+        "unitytest/required-skill": {"list": True, "read": True, "use": True},
+    })
+
+    assert result == "All required stage Skills have complete usage evidence."
+    assert stage.skill_list == {
+        "unitytest/required-skill": [True, True, True],
+    }

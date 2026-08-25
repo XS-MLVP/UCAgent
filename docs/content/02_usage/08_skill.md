@@ -31,7 +31,7 @@ UCAgent 中的技能由以下几部分组成：
 
 - `SKILL.md` 不会在启动时全部自动加载进上下文
 - UCAgent 通常先通过 `ListSkill` 了解当前可用技能，再通过 `ReadTextFile` 读取某个技能的 `SKILL.md`
-- 只有阶段中显式配置到 `skill_list` 的技能，才会被强制要求使用
+- 阶段中的 `skill_list` 默认只提供可选技能；只有同时设置 `force_use_skill: true`，才会强制要求使用其中的技能
 
 ## 为什么使用技能
 
@@ -222,7 +222,7 @@ skill:
 
 ## 阶段级技能配置
 
-可在工作流阶段配置 `skill_list`和`force_use_skill`参数，声明本阶段必须使用的技能。
+可在工作流阶段配置 `skill_list` 和 `force_use_skill` 参数。`skill_list` 声明本阶段可用的技能，默认不强制使用；只有 `force_use_skill: true` 才声明本阶段必须使用这些技能。
 
 示例：
 
@@ -236,9 +236,9 @@ stages:
 
 含义：
 
-- 当前阶段使用 `unitytest/static-bug-analysis` 技能
-- UCAgent 在完成阶段前，不仅要使用该技能，还要通过技能使用记录校验
-- `force_use_skill` 参数为 True 时意味着强制使用，默认为False
+- 当前阶段可使用 `unitytest/static-bug-analysis` 技能
+- `force_use_skill: true` 表示必须使用该技能，并在 `Complete` 前通过技能使用记录校验
+- `force_use_skill` 默认为 `false`；此时未读取或未使用 `skill_list` 中的技能不会阻断 `Check` 或 `Complete`
 
 如果阶段配置了 `skill_list`，且 `force_use_skill` 参数为 True，但通过 `--no-use-skill` 或配置关闭了技能，则会报错。
 
@@ -251,7 +251,7 @@ stages:
 3. 使用 `ReadTextFile` 读取目标技能的 `SKILL.md`
 4. 按 `SKILL.md` 中的方法完成任务
 5. 如技能要求脚本，使用 `RunSkillScript` 执行对应命令
-6. 若当前阶段配置了 `skill_list`，在阶段完成前使用 `SetSkillUsage` 检查并设置技能使用情况
+6. 若实际使用了可选技能，可用 `SetSkillUsage` 记录使用情况；若阶段设置了 `force_use_skill: true`，则必须在 `Complete` 前用 `SetSkillUsage` 记录全部必需技能的完整使用情况
 
 对于强制技能，通常至少要满足三件事：
 
@@ -307,11 +307,11 @@ stages:
 
 用途：
 
-- 在阶段完成前，设置并校验本阶段的技能使用情况
+- 记录本阶段的技能使用情况；对于 `force_use_skill: true` 的阶段，在 `Complete` 前校验全部必需技能
 
 适用场景：
 
-- 当前阶段配置了 `skill_list`
+- 当前阶段配置了 `skill_list`，并且实际使用了可选技能或需要满足强制技能要求
 
 需要提交的三个维度：
 
@@ -334,7 +334,7 @@ stages:
 }
 ```
 
-如果 `skill_list` 中任一技能未满足这三项要求，阶段不能正常通过。
+普通 `skill_list` 中的技能未使用时不会阻断阶段。只有 `force_use_skill: true` 时，其中任一技能未满足这三项要求才会阻断 `Complete`；中间的 `Check` 仍可正常推进批次和校验工作。
 
 ## 常见注意事项
 

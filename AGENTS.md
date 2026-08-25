@@ -288,6 +288,12 @@ results, runtime `Guide_Doc`, templates, and skill instructions.
 - Any requirement to invoke a skill or validate skill-use evidence must be
   conditional on the resolved skill setting. It must not block Check or Complete
   when skills are disabled.
+- A stage-level `skill_list` advertises optional guidance by default. Only an
+  explicit `force_use_skill: true` may require complete Skill usage evidence,
+  and that evidence gate applies to `Complete`, not intermediate `Check` calls.
+  A forced gate failure must identify each Skill and its current
+  `listed`/`read`/`used` state, plus the exact `SetSkillUsage` call to make after
+  performing any missing actions.
 - Skill directories require `SKILL.md` with valid `name` and `description`
   frontmatter. Keep a skill concise and put deterministic repeated work in
   `scripts/`.

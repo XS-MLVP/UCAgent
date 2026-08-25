@@ -9,6 +9,7 @@ from ucagent.util.config import Config
 import ucagent.checkers as checkers
 from collections import OrderedDict
 import copy
+import json
 import time
 import os
 from typing import Dict, Any
@@ -716,6 +717,149 @@ class VerifyStage(object):
             self.last_do_check_info_fail = ck_info_snapshot
         return ck_pass, ck_info
 
+    @staticmethod
+    def _make_gate_failure(checker_name, checker_class, diagnostic):
+        """Build a named stage-gate failure compatible with checker summaries."""
+        return OrderedDict({
+            "name": checker_class,
+            "checker_name": checker_name,
+            "checker_class": checker_class,
+            "checked_in_last_run": True,
+            "last_check_pass": False,
+            "last_msg": OrderedDict({
+                "error": diagnostic["error"],
+                "diagnostic": diagnostic,
+            }),
+            "count_pass": 0,
+            "count_fail": 1,
+            "count_check": 1,
+        })
+
+    def _return_precheck_failure(self, checker_name, checker_class, diagnostic):
+        """Return one named pre-check failure followed by unrun configured checkers."""
+        for checker_info in self.check_info:
+            if checker_info is not None:
+                checker_info["checked_in_last_run"] = False
+        self.check_pass = False
+        self.is_batch_success = False
+        self.fail_count += 1
+        self.continue_fail_count += 1
+        gate_failure = self._make_gate_failure(
+            checker_name, checker_class, diagnostic
+        )
+        return False, [gate_failure, *([None] * len(self.checker))]
+
+    def _check_forced_skill_usage(self, is_complete=False):
+        """Require complete Skill evidence only for forced completion requests."""
+        if not (
+            is_complete
+            and self.cfg.skill.use_skill
+            and getattr(self, "force_use_skill", False)
+            and self.skill_list
+        ):
+            return None
+
+        incomplete_skills = OrderedDict()
+        required_usage = OrderedDict()
+        for skill_name, (listed, read, used) in self.skill_list.items():
+            usage = OrderedDict({
+                "list": bool(listed),
+                "read": bool(read),
+                "use": bool(used),
+            })
+            required_usage[skill_name] = {
+                "list": True,
+                "read": True,
+                "use": True,
+            }
+            if not all(usage.values()):
+                incomplete_skills[skill_name] = usage
+
+        if not incomplete_skills:
+            return None
+
+        usage_arg = json.dumps(required_usage, ensure_ascii=True)
+        diagnostic = OrderedDict({
+            "error_code": "SKILL_USAGE_INCOMPLETE",
+            "error": (
+                "[Skill Usage Incomplete] Forced Skill usage evidence is incomplete "
+                f"for: {', '.join(incomplete_skills)}."
+            ),
+            "observed": OrderedDict({
+                "incomplete_skills": incomplete_skills,
+            }),
+            "expected": OrderedDict({
+                "required_usage": required_usage,
+                "requirement": (
+                    "Every forced Skill must be listed, its SKILL.md must be read, "
+                    "and its method must be used before stage completion."
+                ),
+            }),
+            "next_action": (
+                "For each false field, call `ListSkill`, read that Skill's `SKILL.md` "
+                "with `ReadTextFile`, and complete the stage work using its method. "
+                f"Then call `SetSkillUsage(skill_usage={usage_arg})`, followed by "
+                "`Complete` again."
+            ),
+        })
+        return self._return_precheck_failure(
+            "stage_skill_usage", "SkillUsageGate", diagnostic
+        )
+
+    def _check_reference_files(self, is_complete=False):
+        """Return a named failure containing every unread reference file."""
+        unread_files = [
+            path for path, was_read in self.reference_files.items() if not was_read
+        ]
+        if not unread_files:
+            return None
+        read_calls = [f"ReadTextFile(path='{path}')" for path in unread_files]
+        retry_tool = "Complete" if is_complete else "Check"
+        diagnostic = OrderedDict({
+            "error_code": "REFERENCE_FILES_UNREAD",
+            "error": (
+                f"[Reference Files Unread] {len(unread_files)} required reference "
+                f"file(s) have not been read: {', '.join(unread_files)}."
+            ),
+            "observed": OrderedDict({
+                "unread_files": unread_files,
+            }),
+            "expected": OrderedDict({
+                "required_action": "Read every listed reference file before validation.",
+            }),
+            "next_action": (
+                f"Call {', '.join(read_calls)}, then call `{retry_tool}` again."
+            ),
+        })
+        return self._return_precheck_failure(
+            "stage_reference_files", "ReferenceFileGate", diagnostic
+        )
+
+    def _invalid_stage_args_failure(self, stage_args, is_complete=False):
+        """Return a named failure for a non-object stage_args value."""
+        retry_tool = "Complete" if is_complete else "Check"
+        diagnostic = OrderedDict({
+            "error_code": "STAGE_ARGS_INVALID",
+            "error": (
+                "[Stage Args Invalid] stage_args must be a JSON object, but received "
+                f"{type(stage_args).__name__}."
+            ),
+            "observed": OrderedDict({
+                "type": type(stage_args).__name__,
+            }),
+            "expected": OrderedDict({
+                "type": "object",
+                "example": {},
+            }),
+            "next_action": (
+                f"Call `{retry_tool}` again with stage_args as a JSON object; use "
+                "stage_args={} when this stage requires no custom arguments."
+            ),
+        })
+        return self._return_precheck_failure(
+            "stage_arguments", "StageArgumentGate", diagnostic
+        )
+
     def _check_output_files(self, is_complete=False):
         """Validate every resolved stage output pattern and return one diagnostic."""
         matches_by_pattern = OrderedDict()
@@ -759,43 +903,27 @@ class VerifyStage(object):
             }),
             "next_action": next_action,
         })
-        return False, OrderedDict({
-            "name": "OutputFileGate",
-            "checker_name": "stage_output_files",
-            "checker_class": "OutputFileGate",
-            "checked_in_last_run": True,
-            "last_check_pass": False,
-            "last_msg": OrderedDict({
-                "error": diagnostic["error"],
-                "diagnostic": diagnostic,
-            }),
-            "count_pass": 0,
-            "count_fail": 1,
-            "count_check": 1,
-        })
+        return False, self._make_gate_failure(
+            "stage_output_files", "OutputFileGate", diagnostic
+        )
 
     def _do_check(self, *a, **kwargs):
-        if self.cfg.skill.use_skill and self.skill_list:
-            for k,[u,v,w] in self.skill_list.items():
-                if u and v and w:
-                    continue
-                else:
-                    return False, "Please use tool 'SetSkillUsage' to check and set the skill usage of this stage before completing it."
         self._is_reached = True
-        if not all(c[1] for c in self.reference_files.items()):
-            emsg = OrderedDict({"error": "You need use tool `ReadTextFile` to read and understand the reference files", "files_need_read": []})
-            for k, v in self.reference_files.items():
-                if not v:
-                    emsg["files_need_read"].append(k + f" (Not readed, need ReadTextFile('{k}'))")
-            self.fail_count += 1
-            self.continue_fail_count += 1
-            return False, emsg
+        is_complete = bool(kwargs.get("is_complete", False))
+        skill_failure = self._check_forced_skill_usage(is_complete=is_complete)
+        if skill_failure is not None:
+            return skill_failure
+        reference_failure = self._check_reference_files(is_complete=is_complete)
+        if reference_failure is not None:
+            return reference_failure
         self.check_pass = True
         stage_args = kwargs.pop("stage_args", {})
         if stage_args is None:
             stage_args = {}
         if not isinstance(stage_args, dict):
-            return False, {"error": "stage_args must be a JSON object."}
+            return self._invalid_stage_args_failure(
+                stage_args, is_complete=is_complete
+            )
         checker_kwargs = {**stage_args, **kwargs}
         for checker_info in self.check_info:
             if checker_info is not None:
