@@ -267,6 +267,28 @@ results, runtime `Guide_Doc`, templates, and skill instructions.
 - Tagged Markdown is a machine-readable interface. Treat FG/FC/CK, BG/TC,
   FILE/LINK-BUG, progress markers, and fenced evidence blocks like an API.
 - Keep one canonical format instead of accepting several ambiguous variants.
+- In runtime Markdown, templates, Skill assets, and Markdown examples, surround
+  every ATX heading (`#` through `######`) with a blank line. A heading on the
+  first content line does not need a preceding blank line. Do not place a tag,
+  paragraph, list, table, another heading, or closing fence directly against a
+  heading. Canonical machine companion lines such as `<TAG>` markers and the
+  machine anchor `<a id="..."></a>` are the required exceptions: a companion
+  marker must remain immediately after its field heading, and an anchor must
+  remain immediately before its target heading. Markdown-generating scripts and
+  renderers must preserve the same spacing in their generated output.
+- The dynamic Bug document target is exactly
+  `{OUT}/{DUT}_bug_analysis.md`; its visible Markdown title is not a filename
+  rule. Do not derive or create another output filename from that title.
+- Serialize one exact report node ID according to its consumer: dynamic
+  Markdown uses `- {visible_title} <TC-{exact_report_node_id}>`; recorder/Apply
+  arguments and waveform YAML `test_case` use
+  `TC-{exact_report_node_id}`; WaveInfo `test_case_name` uses
+  `{exact_report_node_id}`. These forms differ only by the required Markdown
+  wrapper and `TC-` prefix; the node ID itself is byte-for-byte identical.
+- When no dynamic Bug is found, retain the canonical document title and the
+  three ordered sections, with empty closed `DYNAMIC-BUGS`, `ROOT-CAUSES`, and
+  `WAVEFORM-EVIDENCE` bodies. Do not put explanatory prose, TC/BG placeholders,
+  ROOT entities, or waveform records inside those empty containers.
 - Every normative `Guide_Doc` file must include a complete canonical reference
   example for its primary artifact contract. The example must show the entire
   finished artifact from its title through its closing section, including exact
