@@ -396,6 +396,7 @@ def test_check_and_complete_schemas_expose_one_stage_args_object():
         }
         assert stage_arg_types == {"object", "string"}
         assert "is_complete" not in str(schema)
+        assert "full_output" in schema["properties"]["stage_args"]["description"]
 
 
 def test_check_arguments_accept_only_stage_args_json_object():
@@ -460,9 +461,11 @@ def test_check_rejects_invalid_or_non_object_stage_args_string():
 
     invalid_json = tool.invoke({"stage_args": "not-json"})
     json_array = tool.invoke({"stage_args": '[{"refined":{}}]'})
+    invalid_full_output = tool.invoke({"stage_args": {"full_output": "yes"}})
 
     assert "must contain a valid JSON object" in invalid_json
     assert "must be a JSON object or a string containing one" in json_array
+    assert "stage_args.full_output must be a boolean" in invalid_full_output
 
 
 def test_fastmcp_complete_preserves_stage_args():
@@ -518,10 +521,12 @@ def test_stage_manager_check_and_complete_forward_stage_args():
     manager.next_stage = next_stage_func
 
     check_ret = manager.check(9, stage_args={
+        "full_output": True,
         "refined": {"CK": "check"},
         "detail": True,
     })
     complete_ret = manager.complete(10, stage_args={
+        "full_output": True,
         "refined": {"CK": "complete"},
     })
 
@@ -599,6 +604,24 @@ def test_check_failure_summary_precedes_verbose_diagnostics():
                         "[Test Association Missing] Toffee recorded 8 executed tests without "
                         "checkpoint associations: test_Demo_env_fixture.py::test_env_input."
                     ),
+                    "diagnostic": {
+                        "error_code": "TEST_ASSOCIATION_MISSING",
+                        "error": (
+                            "[Test Association Missing] Toffee recorded 8 executed tests "
+                            "without checkpoint associations: "
+                            "test_Demo_env_fixture.py::test_env_input."
+                        ),
+                        "observed": {
+                            "unassociated_tests": [
+                                "test_Demo_env_fixture.py::test_env_input"
+                            ],
+                        },
+                        "expected": "Every executed test has checkpoint associations.",
+                        "next_action": (
+                            "Associate the listed test with its exact checkpoint, then "
+                            "call `Check` again."
+                        ),
+                    },
                 },
             }]
 
@@ -698,7 +721,6 @@ def test_line_map_failure_summary_keeps_complete_uncovered_content():
     summary = StageManager._build_failure_summary(
         SimpleNamespace(name="functional_line_mapping_gap_analysis"),
         check_info,
-        "generic remediation",
         stage_index=8,
     )
 
@@ -808,13 +830,20 @@ def test_failure_summary_uses_current_run_not_historical_count_fail():
             "checked_in_last_run": True,
             "last_check_pass": False,
             "count_fail": 1,
-            "last_msg": {"error": "[Current Failure] concrete current diagnostic"},
+            "last_msg": {
+                "error": "[Current Failure] concrete current diagnostic",
+                "diagnostic": {
+                    "error_code": "CURRENT_FAILURE",
+                    "error": "[Current Failure] concrete current diagnostic",
+                    "next_action": "Fix current failure.",
+                },
+            },
         },
         None,
     ]
 
     summary = StageManager._build_failure_summary(
-        SimpleNamespace(name="stage"), check_info, "fix current failure", stage_index=7
+        SimpleNamespace(name="stage"), check_info, stage_index=7
     )
 
     assert summary["failed_checker_index"] == 1
@@ -830,6 +859,155 @@ def test_compact_check_result_keeps_legacy_diagnostics():
     }
 
     assert StageManager._compact_check_result(legacy_result) is legacy_result
+
+
+def test_failure_without_explicit_diagnostic_preserves_all_checker_output():
+    raw_message = {
+        "error": "[Test Function Failure] Check test functions failed.",
+        "details": [
+            "test_bad_name must start with test_api_Demo_env_",
+            "test_missing_env first arg must be env",
+        ],
+        "STDOUT": "full pytest stdout",
+        "STDERR": "full pytest stderr",
+    }
+
+    class FailingStage:
+        name = "evaluate_env_fixture"
+
+        @staticmethod
+        def do_check(**_kwargs):
+            return False, [{
+                "name": "UnityChipCheckerTestMustPass",
+                "checker_name": "env_fixture_test_check",
+                "checker_class": "UnityChipCheckerTestMustPass",
+                "checked_in_last_run": True,
+                "last_check_pass": False,
+                "last_msg": raw_message,
+            }]
+
+    manager = StageManager.__new__(StageManager)
+    manager.stage_index = 19
+    manager.stages = [None] * 19 + [FailingStage()]
+    manager.last_check_info = None
+    manager.gen_fail_suggestion = lambda _data: pytest.fail(
+        "Raw Checker output must not be summarized by the manager"
+    )
+
+    result = manager.check(30)
+
+    assert "failure_summary" not in result
+    assert result["check_info"][0]["last_msg"] == raw_message
+    assert "TEST_FUNCTION_FAILURE" not in str(result)
+    assert "original `check_info`" in result["action"]
+    assert "preserved without summarization" in result["action"]
+
+    complete_result = manager.complete(30)
+    assert "failure_summary" not in complete_result
+    assert complete_result["check_info"][0]["last_msg"] == raw_message
+    assert "call `Complete` again" in complete_result["action"]
+
+
+def test_stage_args_full_output_preserves_raw_output_with_diagnostic():
+    calls = []
+    raw_message = {
+        "error": "short error",
+        "diagnostic": {
+            "error_code": "EXPLICIT_FAILURE",
+            "error": "A deterministic failure occurred.",
+            "observed": {"item": "bad"},
+            "expected": {"item": "good"},
+            "next_action": "Fix the item, then call `Check` again.",
+            "checker_specific_context": {
+                "candidates": ["tests/test_a.py::test_a"],
+            },
+        },
+        "STDOUT": "complete raw output",
+    }
+
+    class FailingStage:
+        name = "diagnostic_stage"
+
+        @staticmethod
+        def do_check(**kwargs):
+            calls.append(kwargs)
+            return False, [{
+                "name": "ExplicitChecker",
+                "checker_name": "explicit_check",
+                "checker_class": "ExplicitChecker",
+                "checked_in_last_run": True,
+                "last_check_pass": False,
+                "last_msg": raw_message,
+            }]
+
+    manager = StageManager.__new__(StageManager)
+    manager.stage_index = 0
+    manager.stages = [FailingStage()]
+    manager.last_check_info = None
+    manager.gen_fail_suggestion = lambda _data: pytest.fail(
+        "full_output must bypass compact or generated suggestions"
+    )
+
+    result = manager.check(30, stage_args={
+        "full_output": True,
+        "refined": {"CK-A": "done"},
+    })
+
+    assert result["failure_summary"]["error_code"] == "EXPLICIT_FAILURE"
+    assert result["failure_summary"]["checker_specific_context"] == {
+        "candidates": ["tests/test_a.py::test_a"],
+    }
+    assert result["check_info"][0]["last_msg"] == raw_message
+    assert calls == [{
+        "timeout": 30,
+        "stage_args": {"refined": {"CK-A": "done"}},
+    }]
+
+
+def test_complete_stage_args_full_output_preserves_raw_diagnostic():
+    raw_message = {
+        "error": "short error",
+        "diagnostic": {
+            "error_code": "EXPLICIT_COMPLETE_FAILURE",
+            "error": "A deterministic completion failure occurred.",
+            "next_action": "Fix the item, then call `Complete` again.",
+        },
+        "STDERR": "complete raw stderr",
+    }
+
+    class FailingStage:
+        name = "diagnostic_stage"
+
+        @staticmethod
+        def do_check(**kwargs):
+            assert kwargs == {
+                "timeout": 30,
+                "stage_args": {},
+                "is_complete": True,
+            }
+            return False, [{
+                "name": "ExplicitChecker",
+                "checker_name": "explicit_check",
+                "checker_class": "ExplicitChecker",
+                "checked_in_last_run": True,
+                "last_check_pass": False,
+                "last_msg": raw_message,
+            }]
+
+    manager = StageManager.__new__(StageManager)
+    manager.stage_index = 0
+    manager.stages = [FailingStage()]
+    manager.last_check_info = None
+    manager.gen_fail_suggestion = lambda _data: pytest.fail(
+        "full_output must bypass compact or generated suggestions"
+    )
+
+    result = manager.complete(30, stage_args={"full_output": True})
+
+    assert result["failure_summary"]["error_code"] == (
+        "EXPLICIT_COMPLETE_FAILURE"
+    )
+    assert result["check_info"][0]["last_msg"] == raw_message
 
 
 def test_disabled_fail_suggestion_omits_duplicate_check_info():
@@ -864,6 +1042,38 @@ def test_disabled_fail_suggestion_omits_duplicate_check_info():
         "action": "repair this",
     }
     assert "check_info" not in compact
+
+
+def test_enabled_fail_suggestion_cannot_replace_checker_diagnostic():
+    stage = SimpleNamespace(
+        name="diagnostic_stage",
+        meta_set_llm_fail_suggestion=lambda suggestion: setattr(
+            stage, "saved_suggestion", suggestion
+        ),
+    )
+    manager = StageManager.__new__(StageManager)
+    manager.stage_index = 0
+    manager.stages = [stage]
+    manager.stage_need_llm_fail_suggestion = lambda _stage: True
+    manager.llm_fail_suggestion = object()
+    manager.gen_llm_suggestion = lambda *_args, **_kwargs: "refined action"
+    raw_result = {
+        "failure_summary": {
+            "error_code": "CHECKER_AUTHORED",
+            "error": "Checker-authored error",
+            "next_action": "Checker-authored action",
+        },
+        "check_pass": False,
+        "action": "Checker-authored action",
+        "check_info": [{"last_msg": {"STDOUT": "duplicate output"}}],
+    }
+
+    result = manager.gen_fail_suggestion(raw_result)
+
+    assert result["failure_summary"] == raw_result["failure_summary"]
+    assert result["action"] == "refined action"
+    assert "check_info" not in result
+    assert stage.saved_suggestion == "refined action"
 
 
 def test_verify_stage_marks_only_current_checker_as_run():
@@ -981,7 +1191,6 @@ def test_verify_stage_checker_diagnostic_precedes_missing_output_gate(tmp_path):
     summary = StageManager._build_failure_summary(
         stage,
         check_info,
-        "generic remediation",
         stage_index=5,
     )
     assert summary["failed_checker_name"] == "configured_check"
@@ -1145,6 +1354,7 @@ def test_forced_skill_usage_complete_failure_is_named_and_actionable(tmp_path):
         "unitytest/required-b": [False, True, False],
     }
     stage.force_use_skill = True
+    stage.cfg.skill.general_skill_list = ["unitytest/general-optional"]
     manager = StageManager.__new__(StageManager)
     manager.stage_index = 3
     manager.stages = [None, None, None, stage]
@@ -1169,6 +1379,7 @@ def test_forced_skill_usage_complete_failure_is_named_and_actionable(tmp_path):
         "unitytest/required-a": {"list": True, "read": True, "use": True},
         "unitytest/required-b": {"list": True, "read": True, "use": True},
     }
+    assert "unitytest/general-optional" not in str(summary)
     assert "UnknownChecker" not in str(summary)
     assert 'SetSkillUsage(skill_usage={"unitytest/required-a"' in summary[
         "next_action"
@@ -1245,7 +1456,7 @@ def test_invalid_direct_stage_args_uses_named_gate(tmp_path):
 
     passed, check_info = stage._do_check(stage_args=["not", "an", "object"])
     summary = StageManager._build_failure_summary(
-        stage, check_info, "generic remediation", stage_index=2
+        stage, check_info, stage_index=2
     )
 
     assert passed is False

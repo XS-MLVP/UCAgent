@@ -274,7 +274,14 @@ class MyCustomChecker(Checker):
         if not os.path.exists(file_path):
             return False, {
                 "error": f"文件{self.param1}不存在",
-                "suggestion": "请确保生成了所需文件"
+                "diagnostic": {
+                    "error_code": "REQUIRED_FILE_MISSING",
+                    "error": f"必需文件{self.param1}不存在。",
+                    "artifact": self.param1,
+                    "observed": {"exists": False},
+                    "expected": {"exists": True},
+                    "next_action": f"生成{self.param1}，然后重新调用Check。",
+                },
             }
         
         # 自定义检查逻辑
@@ -284,9 +291,20 @@ class MyCustomChecker(Checker):
         if len(content) < self.param2:
             return False, {
                 "error": f"文件内容过短，当前长度{len(content)}，要求至少{self.param2}字符",
-                "current_length": len(content),
-                "required_length": self.param2,
-                "suggestion": "请补充文件内容"
+                "diagnostic": {
+                    "error_code": "FILE_CONTENT_TOO_SHORT",
+                    "error": (
+                        f"文件{self.param1}只有{len(content)}字符，"
+                        f"少于最低要求{self.param2}字符。"
+                    ),
+                    "artifact": self.param1,
+                    "observed": {"character_count": len(content)},
+                    "expected": {"minimum_character_count": self.param2},
+                    "next_action": (
+                        f"为{self.param1}补充至少"
+                        f"{self.param2 - len(content)}字符有效内容，然后重新调用Check。"
+                    ),
+                },
             }
         
         # 检查通过
@@ -296,7 +314,32 @@ class MyCustomChecker(Checker):
         }
 ```
 
-#### 2.2.2 配置中使用自定义Checker
+#### 2.2.2 失败诊断与Check/Complete返回契约
+
+Checker拥有其失败诊断。能够确定失败原因和修复动作时，Checker必须明确返回一份有界诊断。若返回还包含完整日志等原始信息，将诊断放在`diagnostic`字段中：
+
+```python
+return False, {
+    "error": "完整原始错误；可同时保留details、STDOUT和STDERR",
+    "diagnostic": {
+        "error_code": "STABLE_MACHINE_READABLE_CODE",
+        "error": "具体失败对象、位置和观察到的问题。",
+        "observed": {"actual": "当前值"},
+        "expected": {"required": "期望值"},
+        "next_action": "修改明确的文件或输入，然后重新调用Check。",
+    },
+}
+```
+
+契约规则：
+
+1. 诊断至少包含非空的`error_code`、`error`和`next_action`；可以按问题补充有界的`artifact`、`location`、`observed`、`expected`、问题列表等字段。若整个Checker结果本身只有有界诊断字段，也可直接返回该映射；若同时返回`details`、`STDOUT`、`STDERR`等完整原始信息，则必须把有界诊断放入`diagnostic`字段，避免原始大段输出进入紧凑摘要。
+2. StageManager只能把Checker提供的完整`diagnostic`投影为`failure_summary`并增加阶段和Checker身份信息；必须原样保留Checker提供的其他诊断字段，不能从普通`error`、`details`、`STDOUT`、`STDERR`、异常类型或错误文本推断、拼装诊断。
+3. Checker不能确定独立可执行的修复动作时，不得制造宽泛`diagnostic`。此时Check/Complete不返回`failure_summary`，而是保留并显示Checker的完整原始结果，调用方应读取其中所有字段。
+4. 调用方仅在已有`failure_summary`仍不足以定位问题，或需要完整pytest/Checker输出时，使用`Check(stage_args={"full_output": true})`或`Complete(stage_args={"full_output": true})`。`full_output`必须是JSON布尔值，默认为`false`；它是StageManager保留字段，会在调用Checker前移除。
+5. 若当前阶段还有自定义参数，应与`full_output`放在同一个`stage_args`对象中，例如`Check(stage_args={"full_output": true, "refined": {"FG-A/FC-A/CK-A": "done"}})`；不得增加顶层`full_output`工具参数。
+
+#### 2.2.3 配置中使用自定义Checker
 
 ```yaml
 checker:
@@ -308,7 +351,7 @@ checker:
       need_human_check: false
 ```
 
-#### 2.2.3 部署自定义Checker
+#### 2.2.4 部署自定义Checker
 
 使用`--append-py-path`（简写`-app`）参数将自定义Checker所在目录加入Python路径：
 
@@ -318,7 +361,7 @@ python3 cli.py --emulate-config --config <path_to_config.yaml> --append-py-path 
 
 ### 2.3 Checker最佳实践
 
-1. **错误信息清晰**：提供具体的错误描述、当前值、期望值和修改建议
+1. **诊断由Checker提供**：确定性失败使用完整`diagnostic`契约；无法确定修复动作时保留全部原始错误，不生成宽泛诊断
 2. **异常处理**：捕获文件读取、解析等可能的异常，返回友好的错误信息
 3. **路径处理**：始终使用`self.get_path(relative_path)`获取绝对路径
 4. **结果结构化**：返回字典格式的结果，便于Agent理解和处理
@@ -439,4 +482,3 @@ Checker failed: file not found
 2. **增量开发**：先完成基础阶段，再逐步添加复杂功能
 3. **版本控制**：使用Git管理工作区和配置文件
 4. **日志记录**：启用日志记录便于问题排查
-

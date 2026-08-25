@@ -4,7 +4,6 @@
 import copy
 import json
 import os
-import re
 import time
 import traceback
 import random
@@ -277,7 +276,16 @@ def _prepare_stage_args(stage_args):
         )
     if _INTERNAL_STAGE_ARG_NAMES.intersection(stage_args):
         raise ValueError("stage_args contains fields reserved for internal dispatch")
+    if "full_output" in stage_args and not isinstance(stage_args["full_output"], bool):
+        raise TypeError("stage_args.full_output must be a boolean")
     return dict(stage_args)
+
+
+def _split_stage_control_args(stage_args):
+    """Remove manager-owned controls before dispatching stage-defined arguments."""
+    prepared = _prepare_stage_args(stage_args)
+    full_output = prepared.pop("full_output", False)
+    return prepared, full_output
 
 
 class ArgsDoCheck(BaseModel):
@@ -306,7 +314,9 @@ class ArgsDoCheck(BaseModel):
             "Current-stage custom arguments as a JSON object. Its keys and value shapes "
             "are defined by the current stage task and checker diagnostics. Prefer the "
             "object itself; if the caller cannot serialize a nested object correctly, pass "
-            "a string containing the complete valid JSON object as a fallback."
+            "a string containing the complete valid JSON object as a fallback. Set the "
+            "reserved boolean field full_output=true only when complete raw Checker output "
+            "such as pytest STDOUT/STDERR is needed; it is consumed before Checker dispatch."
         ),
     )
 
@@ -594,9 +604,11 @@ class StageManager(object):
         vstage.hist_commit(commit_message)
         return f"Stage '{vstage.name}' changes committed."
 
-    def gen_fail_suggestion(self, error_msg) -> str:
+    def gen_fail_suggestion(self, error_msg):
         stage = self.get_current_stage()
         if stage is None:
+            return error_msg
+        if not isinstance(error_msg, dict) or not error_msg.get("failure_summary"):
             return error_msg
         if self.stage_need_llm_fail_suggestion(stage) is False:
             return self._compact_check_result(error_msg)
@@ -608,7 +620,9 @@ class StageManager(object):
                 self.stage_need_llm_fail_suggestion,
             )
             stage.meta_set_llm_fail_suggestion(fail_suggestion)
-            return fail_suggestion
+            result = copy.deepcopy(error_msg)
+            result["action"] = fail_suggestion
+            return self._compact_check_result(result)
         except Exception as e:
             traceback.print_exc()
             warning(f"Generate fail suggestion failed: {str(e)}")
@@ -974,9 +988,10 @@ class StageManager(object):
                 "check_info": f"Stage index{self.stage_index} out of range. (Mission maybe completed, you can use the `GoToStage` tool to go back to a previous stage if needed)",
             })
         stage = self.stages[self.stage_index]
+        stage_args, full_output = _split_stage_control_args(stage_args)
         ck_pass, ck_info = stage.do_check(
             timeout=timeout,
-            stage_args=_prepare_stage_args(stage_args),
+            stage_args=stage_args,
         )
         ret_data = OrderedDict()
         batch_advanced = not ck_pass and bool(getattr(stage, "is_batch_success", False))
@@ -987,13 +1002,14 @@ class StageManager(object):
                     stage, ck_info, action, self.stage_index
                 )
             else:
-                action = (
-                    "Apply the remediation stated in 'failure_summary.error', then call `Check` "
-                    "again. This is a validation failure to resolve, not an internal Checker failure."
+                failure_summary = self._build_failure_summary(
+                    stage, ck_info, stage_index=self.stage_index
                 )
-                ret_data["failure_summary"] = self._build_failure_summary(
-                    stage, ck_info, action, self.stage_index
-                )
+                if failure_summary is not None:
+                    ret_data["failure_summary"] = failure_summary
+                    action = failure_summary["next_action"]
+                else:
+                    action = self._raw_failure_action("Check")
         ret_data["check_pass"] = ck_pass
         if not ck_pass:
             ret_data["action"] = action
@@ -1001,83 +1017,38 @@ class StageManager(object):
         self.last_check_info = copy.deepcopy(ret_data)
         if ck_pass:
             ret_data["message"] = f"Congratulations! Stage {self.stage_index} checks passed successfully, you can use tool 'Complete' to finish this stage."
+        elif full_output:
+            return ret_data
         elif batch_advanced:
             return self._compact_check_result(ret_data)
+        elif "failure_summary" not in ret_data:
+            return ret_data
         else:
             return self.gen_fail_suggestion(ret_data)
         return ret_data
 
     @staticmethod
-    def _error_text(error_data):
-        if isinstance(error_data, str):
-            return error_data
-        if isinstance(error_data, dict):
-            return " ".join(
-                StageManager._error_text(value)
-                for value in error_data.values()
-                if value not in (None, "", [], {})
-            )
-        if isinstance(error_data, (list, tuple)):
-            return " ".join(
-                StageManager._error_text(value)
-                for value in error_data
-                if value not in (None, "", [], {})
-            )
-        return str(error_data)
-
-    @staticmethod
-    def _extract_checker_error(last_msg):
-        if isinstance(last_msg, dict):
-            if last_msg.get("error") not in (None, "", [], {}):
-                return last_msg["error"]
-            for key in ("errors", "message", "reason"):
-                if last_msg.get(key) not in (None, "", [], {}):
-                    return last_msg[key]
-        if last_msg not in (None, "", [], {}):
-            return last_msg
-        return "The checker failed without a concrete error message. Call `Check` again and inspect the returned failure_summary."
-
-    @staticmethod
-    def _extract_actionable_diagnostic(last_msg):
-        """Return one bounded, structured diagnostic without exposing full checker output."""
+    def _extract_checker_diagnostic(last_msg):
+        """Return only an explicit Checker-authored diagnostic."""
         if not isinstance(last_msg, dict):
             return None
-        diagnostic = last_msg.get("diagnostic")
-        if not isinstance(diagnostic, dict):
-            candidates = last_msg.get("actionable_diagnostics")
-            if isinstance(candidates, list):
-                diagnostic = next(
-                    (item for item in candidates if isinstance(item, dict)), None
-                )
-        if not isinstance(diagnostic, dict):
-            if last_msg.get("error_code"):
-                diagnostic = last_msg
-            else:
-                return None
-        allowed = {
-            "error_code",
-            "error",
-            "artifact",
-            "location",
-            "line_block",
-            "source_block",
-            "observed",
-            "expected",
-            "next_action",
-            "issue_count",
-            "uncovered_line_count",
-            "uncovered_blocks",
-            "uncovered_content",
-        }
-        compact = {
-            key: copy.deepcopy(value)
-            for key, value in diagnostic.items()
-            if key in allowed and value not in (None, "", [], {})
-        }
-        return compact or None
+        candidates = []
+        if isinstance(last_msg.get("diagnostic"), dict):
+            candidates.append(last_msg["diagnostic"])
+        if last_msg.get("error_code"):
+            candidates.append(last_msg)
+        if not candidates:
+            return None
+        required = {"error_code", "error", "next_action"}
+        for diagnostic in candidates:
+            if required.issubset(diagnostic) and all(
+                diagnostic[key] not in (None, "", [], {}) for key in required
+            ):
+                return copy.deepcopy(diagnostic)
+        return None
 
     @classmethod
-    def _build_failure_summary(cls, stage, check_info, next_action, stage_index=None):
+    def _build_failure_summary(cls, stage, check_info, stage_index=None):
         checker_entries = check_info if isinstance(check_info, list) else [check_info]
         failed_index = None
         failed_entry = None
@@ -1098,21 +1069,11 @@ class StageManager(object):
                     break
 
         if failed_entry is None:
-            failed_entry = {"last_msg": check_info}
+            return None
         last_msg = failed_entry.get("last_msg")
-        diagnostic = cls._extract_actionable_diagnostic(last_msg)
-        error_data = (
-            diagnostic.get("error")
-            if diagnostic is not None and diagnostic.get("error")
-            else cls._extract_checker_error(last_msg)
-        )
-        error_text = cls._error_text(error_data)
-        error_label = re.search(r"\[([^\]]+)\]", error_text)
-        error_code = "CHECKER_FAILED"
-        if diagnostic is not None and diagnostic.get("error_code"):
-            error_code = diagnostic["error_code"]
-        elif error_label:
-            error_code = re.sub(r"[^A-Z0-9]+", "_", error_label.group(1).upper()).strip("_")
+        diagnostic = cls._extract_checker_diagnostic(last_msg)
+        if diagnostic is None:
+            return None
 
         checker_class = failed_entry.get("checker_class") or failed_entry.get("name") or "UnknownChecker"
         checker_name = failed_entry.get("checker_name") or checker_class
@@ -1124,32 +1085,25 @@ class StageManager(object):
             "failed_checker_index": failed_index,
             "failed_checker_name": checker_name,
             "failed_checker_class": checker_class,
-            "error_code": error_code,
-            "error": error_data,
-            "next_action": next_action,
+            "error_code": diagnostic["error_code"],
+            "error": diagnostic["error"],
+            "next_action": diagnostic["next_action"],
             "remaining_checkers_not_run": remaining_checkers,
-            "diagnostic_note": (
-                "This summary contains one bounded actionable failure. Historical checker "
-                "counters and duplicate check_info diagnostics are omitted from the tool response."
-            ),
         })
-        if diagnostic is not None:
-            for key in (
-                "artifact",
-                "location",
-                "line_block",
-                "source_block",
-                "observed",
-                "expected",
-                "next_action",
-                "issue_count",
-                "uncovered_line_count",
-                "uncovered_blocks",
-                "uncovered_content",
-            ):
-                if key in diagnostic:
-                    summary[key] = diagnostic[key]
+        reserved_summary_fields = set(summary)
+        for key, value in diagnostic.items():
+            if key not in reserved_summary_fields:
+                summary[key] = copy.deepcopy(value)
         return summary
+
+    @staticmethod
+    def _raw_failure_action(tool_name):
+        return (
+            "No explicit structured diagnostic was provided by the failed Checker. "
+            "Inspect every field in the original `check_info` below, including "
+            f"details, STDOUT, and STDERR; fix all reported errors, then call `{tool_name}` "
+            "again. The original Checker output has been preserved without summarization."
+        )
 
     @staticmethod
     def _batch_progress_action(tool_name):
@@ -1300,9 +1254,10 @@ class StageManager(object):
                             "Or you can use the `Exit` tool to exit the mission."),
                 "last_check_result": self.last_check_info,
             }
+        stage_args, full_output = _split_stage_control_args(stage_args)
         ck_pass, ck_info = self.stages[self.stage_index].do_check(
             timeout=timeout,
-            stage_args=_prepare_stage_args(stage_args),
+            stage_args=stage_args,
             is_complete=True,
         )
         stage = self.stages[self.stage_index]
@@ -1347,13 +1302,14 @@ class StageManager(object):
                     )
                 )
             else:
-                action = (
-                    "Apply the remediation stated in 'failure_summary.error', then call `Complete` "
-                    "again. This is a validation failure to resolve, not an internal Checker failure."
+                failure_summary = self._build_failure_summary(
+                    stage, ck_info, stage_index=self.stage_index
                 )
-                self.last_check_info["failure_summary"] = self._build_failure_summary(
-                    stage, ck_info, action, self.stage_index
-                )
+                if failure_summary is not None:
+                    self.last_check_info["failure_summary"] = failure_summary
+                    action = failure_summary["next_action"]
+                else:
+                    action = self._raw_failure_action("Complete")
         self.last_check_info["check_pass"] = ck_pass
         if not ck_pass:
             self.last_check_info["action"] = action
@@ -1378,12 +1334,16 @@ class StageManager(object):
             "message": message,
             "last_check_result": self.last_check_info,
         })
+        if full_output and not ck_pass:
+            return self.last_check_info
         if batch_advanced:
             return self._compact_check_result(OrderedDict({
                 "complete": False,
                 "message": "The current batch passed. Continue with the next batch.",
                 **self.last_check_info,
             }))
+        if not ck_pass and "failure_summary" not in self.last_check_info:
+            return self.last_check_info
         if not ck_pass:
             return self.gen_fail_suggestion(self.last_check_info)
         return ret

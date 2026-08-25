@@ -4,6 +4,10 @@ import os
 from ucagent.tools.testops import RunUnityChipTest
 import ucagent.util.functions as fc
 from ucagent.checkers.base import Checker, UnityChipBatchTask
+from ucagent.checkers.unity_test import (
+    _test_function_contract_failure,
+    _test_function_location,
+)
 from typing import Tuple
 from ucagent.util.log import info
 from collections import OrderedDict
@@ -92,9 +96,12 @@ class UnityChipCheckerTestMockTestBatch(Checker):
             }
         pass_results = []
         fail_results = OrderedDict()
+        retry_tool = "Complete" if is_complete else "Check"
         for target_mock, target_tests in task_map.items():
             info(f"Checking mock component test file(s) for '{target_mock}': {', '.join(target_tests)}")
-            ret, msg = self.do_one_check(target_tests, test_dir_full_path, timeout)
+            ret, msg = self.do_one_check(
+                target_tests, test_dir_full_path, timeout, retry_tool=retry_tool
+            )
             if not ret:
                 fail_results[target_mock] = msg
             else:
@@ -107,6 +114,22 @@ class UnityChipCheckerTestMockTestBatch(Checker):
             "Completed file changed."
         )
         if fail_results:
+            aggregate_issues = []
+            all_have_diagnostics = True
+            for target_mock, failure in fail_results.items():
+                diagnostic = failure.get("diagnostic") if isinstance(failure, dict) else None
+                observed = diagnostic.get("observed") if isinstance(diagnostic, dict) else None
+                issues = observed.get("issues") if isinstance(observed, dict) else None
+                if not isinstance(issues, list):
+                    all_have_diagnostics = False
+                    break
+                aggregate_issues.extend(
+                    f"{target_mock}: {issue}" for issue in issues
+                )
+            if all_have_diagnostics:
+                return False, _test_function_contract_failure(
+                    aggregate_issues, retry_tool=retry_tool
+                )
             return False, {
                 "error": "Some mock component test files check failed.",
                 "details": fail_results
@@ -114,7 +137,9 @@ class UnityChipCheckerTestMockTestBatch(Checker):
         return self.batch_task.do_complete(note_msg, is_complete, "", "", "")
 
 
-    def do_one_check(self, test_files, test_dir_full_path, timeout) -> Tuple[bool, object]:
+    def do_one_check(
+        self, test_files, test_dir_full_path, timeout, retry_tool="Check"
+    ) -> Tuple[bool, object]:
         if len(test_files) == 0:
             tfiles = ', '.join(self.target_file)
             return False, {"error": f"No test files found with pattern '{tfiles}' in workspace."}
@@ -127,22 +152,30 @@ class UnityChipCheckerTestMockTestBatch(Checker):
                                                          ex_python_path=self.workspace,
                                                          dtype="FUNC")
             for test_func in test_func_list:
+                location = _test_function_location(tfile, test_func)
                 if test_func.__name__.startswith(self.test_prefix) is False:
-                    error_cases.append(f"The '{test_func.__name__}' test function's name must start with '{self.test_prefix}'.")
-                    continue
+                    error_cases.append(
+                        f"{location}: The '{test_func.__name__}' test function's name "
+                        f"must start with '{self.test_prefix}'."
+                    )
                 args = fc.get_func_arg_list(test_func)
                 if self.first_arg and (len(args) < 1 or args[0] != self.first_arg):
-                    error_cases.append(f"The '{test_func.__name__}' test function's first arg must be '{self.first_arg}', but got ({', '.join(args)}).")
+                    error_cases.append(
+                        f"{location}: The '{test_func.__name__}' test function's first "
+                        f"arg must be '{self.first_arg}', but got ({', '.join(args)})."
+                    )
                 if self.last_arg and (len(args) < 1 or args[-1] != self.last_arg):
-                    error_cases.append(f"The '{test_func.__name__}' test function's last arg must be '{self.last_arg}', but got ({', '.join(args)}).")
+                    error_cases.append(
+                        f"{location}: The '{test_func.__name__}' test function's last "
+                        f"arg must be '{self.last_arg}', but got ({', '.join(args)})."
+                    )
             if len(test_func_list) < self.min_file_tests:
                 error_cases.append(f"Insufficient testcases: {len(test_func_list)} test functions found, minimum required is {self.min_file_tests} in file '{tfile}'. "+
                                     "Please ensure you have implemented enough test cases (need pytest function based not class based).")
         if len(error_cases) > 0:
-            return False, {
-                "error": "Check test functions failed.",
-                "details": error_cases
-            }
+            return False, _test_function_contract_failure(
+                error_cases, retry_tool=retry_tool
+            )
         # Run test
         timeout = timeout if timeout > 0 else self.timeout
         self.run_test.set_pre_call_back(

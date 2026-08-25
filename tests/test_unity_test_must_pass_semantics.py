@@ -3,6 +3,7 @@
 """Scope of the infrastructure-only all-Pass checker."""
 
 from ucagent.checkers.unity_test import UnityChipCheckerTestMustPass
+from ucagent.checkers.unity_test_mock import UnityChipCheckerTestMockTestBatch
 
 
 class _FailedInfrastructureRunner:
@@ -48,3 +49,79 @@ def test_all_pass_checker_explains_its_infrastructure_only_scope(tmp_path):
     assert "do not record these failures as DUT Bugs" in message["error"]
     assert "does not apply" in message["error"]
     assert "real DUT design Bugs" in message["error"]
+
+
+def test_all_pass_checker_returns_all_test_function_contract_issues(tmp_path):
+    test_dir = tmp_path / "tests"
+    test_dir.mkdir()
+    (test_dir / "test_env.py").write_text(
+        "def test_wrong_prefix(other):\n"
+        "    assert True\n\n"
+        "def test_api_Demo_env_wrong_arg(other):\n"
+        "    assert True\n",
+        encoding="utf-8",
+    )
+    checker = UnityChipCheckerTestMustPass(
+        target_file="tests/test_env.py",
+        test_dir="tests",
+        test_prefix="test_api_Demo_env_",
+        first_arg="env",
+    ).set_workspace(str(tmp_path))
+
+    passed, message = checker.do_check(timeout=10)
+
+    assert passed is False
+    diagnostic = message["diagnostic"]
+    assert diagnostic["error_code"] == "TEST_FUNCTION_CONTRACT_VIOLATION"
+    assert diagnostic["issue_count"] == 3
+    assert diagnostic["observed"]["issue_count"] == 3
+    assert diagnostic["observed"]["issues"] == message["details"]
+    assert any(
+        "test_wrong_prefix" in issue
+        for issue in diagnostic["observed"]["issues"]
+    )
+    assert any(
+        "test_api_Demo_env_wrong_arg" in issue
+        for issue in diagnostic["observed"]["issues"]
+    )
+    assert any("tests/test_env.py:1-1" in issue for issue in message["details"])
+    assert any("tests/test_env.py:4-4" in issue for issue in message["details"])
+    assert sum(
+        "tests/test_env.py:1-1" in issue for issue in message["details"]
+    ) == 2
+    assert diagnostic["next_action"].endswith("call `Check` again.")
+
+
+def test_mock_batch_checker_uses_the_same_explicit_diagnostic_contract(tmp_path):
+    test_dir = tmp_path / "tests"
+    test_dir.mkdir()
+    test_file = test_dir / "test_Demo_mock_unit.py"
+    test_file.write_text(
+        "def test_wrong_prefix(mock_dut):\n"
+        "    assert True\n",
+        encoding="utf-8",
+    )
+    checker = UnityChipCheckerTestMockTestBatch(
+        target_file="tests/Demo_mock_*.py",
+        test_file_prefix="test_Demo_mock_",
+        test_prefix="test_api_Demo_mock_",
+        first_arg="mock_dut",
+        cfg={"_temp_cfg": {"DUT": "Demo"}},
+    ).set_workspace(str(tmp_path))
+
+    passed, message = checker.do_one_check(
+        ["tests/test_Demo_mock_unit.py"],
+        str(test_dir),
+        timeout=10,
+        retry_tool="Complete",
+    )
+
+    assert passed is False
+    assert message["diagnostic"]["error_code"] == (
+        "TEST_FUNCTION_CONTRACT_VIOLATION"
+    )
+    assert message["diagnostic"]["observed"]["issue_count"] == 1
+    assert "tests/test_Demo_mock_unit.py:1-1" in message["details"][0]
+    assert message["diagnostic"]["next_action"].endswith(
+        "call `Complete` again."
+    )

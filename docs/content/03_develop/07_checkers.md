@@ -199,13 +199,26 @@ def __init__(self, file_path: str, word_min: int = 0, word_max: int = 10000, **k
 def do_check(self, timeout=0, **kwargs) -> tuple[bool, object]:
     # 返回 (bool, dict) 元组
     return True, {"message": "通过"}  # 或
-    return False, {"error": "失败原因"}
+    return False, {
+        "error": "失败原因及完整原始信息",
+        "diagnostic": {
+            "error_code": "DOCUMENT_TOO_SHORT",
+            "error": "文档只有 450 字，少于最低要求 500 字。",
+            "observed": {"word_count": 450},
+            "expected": {"minimum_word_count": 500},
+            "next_action": "在目标文档中补充至少 50 字有效内容，然后重新调用 Check。",
+        },
+    }
 ```
 
 **返回值格式**：
 
 - 第一个值：`bool`，表示是否通过
 - 第二个值：`dict` 或 `str`，提供详细信息
+- 只有 Checker 明确返回完整诊断时，StageManager 才会生成紧凑的 `failure_summary`；仅包含有界诊断字段时可直接返回该映射，同时包含完整日志等原始信息时则把有界映射放在 `diagnostic` 字段中
+- 诊断至少包含稳定的 `error_code`、具体 `error` 和可直接执行的 `next_action`
+- 如果 Checker 无法确定修复方法，不要制造宽泛诊断；在普通返回中保留完整 `error`、`details`、`STDOUT` 和 `STDERR`，Check/Complete 会原样显示
+- 调用方可用 `stage_args={"full_output": true}` 在存在结构化诊断时同时取得完整原始返回；该保留字段不会传入 Checker
 
 #### 3. 路径处理
 
@@ -222,10 +235,13 @@ abs_path = self.get_path(self.file_path)
 ```python
 return False, {
     "error": "文档字数不足",
-    "current_words": 450,
-    "required_min": 500,
-    "shortage": 50,
-    "suggestion": "还差 50 字"
+    "diagnostic": {
+        "error_code": "DOCUMENT_TOO_SHORT",
+        "error": "文档只有 450 字，少于最低要求 500 字。",
+        "observed": {"word_count": 450, "shortage": 50},
+        "expected": {"minimum_word_count": 500},
+        "next_action": "补充至少 50 字与当前章节相关的有效内容，然后重新调用 Check。"
+    }
 }
 ```
 

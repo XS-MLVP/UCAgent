@@ -67,6 +67,45 @@ def _test_name_matches_prefixes(test_name, prefixes):
     return any(test_name.startswith(prefix) for prefix in prefixes)
 
 
+def _test_function_contract_failure(error_cases, retry_tool="Check"):
+    """Return every deterministic test-function contract violation."""
+    issues = list(error_cases)
+    diagnostic = OrderedDict({
+        "error_code": "TEST_FUNCTION_CONTRACT_VIOLATION",
+        "error": (
+            f"[Test Function Contract Violation] Found {len(issues)} test-function "
+            "contract issue(s). Every issue is listed in observed.issues."
+        ),
+        "observed": OrderedDict({
+            "issue_count": len(issues),
+            "issues": issues,
+        }),
+        "expected": (
+            "Every matched pytest function must satisfy the configured file location, "
+            "name prefix, fixture argument order, and minimum per-file test count."
+        ),
+        "next_action": (
+            "Fix every item in observed.issues without weakening test assertions, then "
+            f"call `{retry_tool}` again."
+        ),
+        "issue_count": len(issues),
+    })
+    return {
+        "error": diagnostic["error"],
+        "diagnostic": diagnostic,
+        "details": issues,
+    }
+
+
+def _test_function_location(test_file, test_func):
+    """Return the canonical inclusive source location for a loaded test function."""
+    code = getattr(test_func, "__code__", None)
+    line_no = getattr(code, "co_firstlineno", None)
+    if isinstance(line_no, int) and line_no > 0:
+        return f"{test_file}:{line_no}-{line_no}"
+    return test_file
+
+
 class UnityChipCheckerMarkdownFileFormat(Checker):
     def __init__(self, markdown_file_list, no_line_break=False, **kw):
         self.markdown_file_list = markdown_file_list if isinstance(markdown_file_list, list) else [markdown_file_list]
@@ -666,22 +705,31 @@ class UnityChipCheckerTestMustPass(Checker):
                                                          ex_python_path=self.workspace,
                                                          dtype="FUNC")
             for test_func in test_func_list:
+                location = _test_function_location(tfile, test_func)
                 if test_func.__name__.startswith(self.test_prefix) is False:
-                    error_cases.append(f"The '{test_func.__name__}' test function's name must start with '{self.test_prefix}'.")
-                    continue
+                    error_cases.append(
+                        f"{location}: The '{test_func.__name__}' test function's name "
+                        f"must start with '{self.test_prefix}'."
+                    )
                 args = fc.get_func_arg_list(test_func)
                 if self.first_arg and (len(args) < 1 or args[0] != self.first_arg):
-                    error_cases.append(f"The '{test_func.__name__}' test function's first arg must be '{self.first_arg}', but got ({', '.join(args)}).")
+                    error_cases.append(
+                        f"{location}: The '{test_func.__name__}' test function's first "
+                        f"arg must be '{self.first_arg}', but got ({', '.join(args)})."
+                    )
                 if self.last_arg and (len(args) < 1 or args[-1] != self.last_arg):
-                    error_cases.append(f"The '{test_func.__name__}' test function's last arg must be '{self.last_arg}', but got ({', '.join(args)}).")
+                    error_cases.append(
+                        f"{location}: The '{test_func.__name__}' test function's last "
+                        f"arg must be '{self.last_arg}', but got ({', '.join(args)})."
+                    )
             if len(test_func_list) < self.min_file_tests:
                 error_cases.append(f"Insufficient testcases: {len(test_func_list)} test functions found, minimum required is {self.min_file_tests} in file '{tfile}'. "+
                                     "Please ensure you have implemented enough test cases (need pytest function based not class based).")
         if len(error_cases) > 0:
-            return False, {
-                "error": "Check test functions failed.",
-                "details": error_cases
-            }
+            retry_tool = "Complete" if kw.get("is_complete", False) else "Check"
+            return False, _test_function_contract_failure(
+                error_cases, retry_tool=retry_tool
+            )
         # run test
         timeout = timeout if timeout > 0 else self.timeout
         self.run_test.set_pre_call_back(
