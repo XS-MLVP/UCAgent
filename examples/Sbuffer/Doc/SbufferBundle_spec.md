@@ -1,8 +1,10 @@
+
 # SbufferBundle Specification Document
 
 > This document describes the specification of the `SbufferBundle` chip verification target. Keep the technical language precise, well-organized, and easy to reuse for verification. If an item does not exist, explicitly write "None" or "TBD"; do not delete the section.
 
 ## Introduction
+
 - **Design Background**: `SbufferBundle` is the base Chisel Bundle class for all Sbuffer-specific Bundle types in the XiangShan high-performance RISC-V processor. It extends `XSBundle` (the XiangShan base Bundle class) and mixes in `HasSbufferConst` (the trait providing parameter-derived constants for the store buffer subsystem). Every Sbuffer Bundle type — `DataWriteReq`, `MaskFlushReq`, and `SbufferEntryState` — extends `SbufferBundle` to inherit field width parameters and the implicit `Parameters` context. Source: `SbufferBundle.scala:1`, `engine_overview.txt:9`, `phase_01_types.txt:40-42`.
 - **Design Goals**: (1) Provide a single inheritance point that combines the XiangShan Bundle base (`XSBundle`) with the Sbuffer parameter trait (`HasSbufferConst`), so that all Sbuffer Bundle subtypes automatically receive both. (2) Carry the implicit `Parameters` argument from the Chisel elaboration context through the inheritance chain into every Sbuffer Bundle subclass. (3) Guarantee that every Sbuffer Bundle subclass can reference `HasSbufferConst` constants (e.g., `StoreBufferSize`, `VLEN`, `VWordOffsetWidth`) without separately declaring the `HasSbufferConst` mixin or `implicit p: Parameters`. (4) Serve as the type anchor for wire-level parameter resolution — the parameter values available through `SbufferBundle` determine the bit widths of fields in all subclass Bundles at elaboration time.
 
@@ -30,6 +32,7 @@ File list:
 - `SbufferBundle.scala:1`: Class declaration of `SbufferBundle`, extending `XSBundle` with `HasSbufferConst`, carrying `implicit p: Parameters`. One-line definition with no body content. Source: `SbufferBundle.scala:1`.
 
 ## Top-Level Interface Overview
+
 - **Module Name**: `SbufferBundle` (Chisel Bundle base class — not a Chisel Module)
 - **Port List**: None. SbufferBundle is a base Bundle class with no IO ports of its own. It is a pure inheritance convenience class that carries the `XSBundle` base type and `HasSbufferConst` parameter mixin. Individual ports are defined by subclasses (DataWriteReq, MaskFlushReq, SbufferEntryState) that extend SbufferBundle.
 
@@ -138,22 +141,26 @@ The `VWordOffsetWidth` constant determines the bit width of the `vwordOffset` fi
 (no subcomponents) — SbufferBundle is a pure inheritance base class with no internal submodules, no instantiated hardware units, and no child components. It extends two parent types (`XSBundle` as a class extension, `HasSbufferConst` as a trait mixin), neither of which is a Chisel Module or hardware unit. The class body is empty — it contains no field declarations, no method definitions, no module instantiations, and no wire/register assignments. Source: `SbufferBundle.scala:1`.
 
 ### State Machines and Timing
+
 - **State Machine List**: None. SbufferBundle is a passive Bundle base class with no sequential elements, no state machine, and no state register.
 - **State Transition Conditions**: N/A.
 - **Key Timing**: N/A. SbufferBundle introduces zero cycles of latency. It is an elaboration-time construct only — all constant resolution occurs at compile time. At the hardware level, SbufferBundle contributes no gates or wires.
 
 ### Configuration Registers and Storage
+
 None — SbufferBundle is a parameter-carrier class with no registers, memory, or configurable storage elements.
 
 - **Register Map Base Address**: No bus interface. SbufferBundle is a wire-level Bundle base class with no addressable registers.
 - **Configuration Flow**: N/A. The `Parameters` object is passed at elaboration time through the implicit constructor argument; there is no runtime configuration through SbufferBundle. All HasSbufferConst constants are statically computed from this Parameters object and are immutable after elaboration.
 
 ### Reset and Error Handling
+
 - **Reset Behavior**: N/A. SbufferBundle has no sequential elements and thus no reset behavior. Reset is the responsibility of the instantiating module or register file that uses subclasses of SbufferBundle.
 - **Error Reporting**: None. SbufferBundle has no error detection or reporting mechanism. The only possible error is a Chisel elaboration failure if the implicit `p: Parameters` is not in scope at instantiation time — this is a compile-time error caught by the Scala/Chisel compiler, not a runtime error.
 - **Self-Recovery Strategy**: None.
 
 ### Parameterization and Configurable Features
+
 - **Module Parameters**:
 
   | Parameter Name | Type/Range | Default | Functional Effect |
@@ -181,6 +188,7 @@ None — SbufferBundle is a parameter-carrier class with no registers, memory, o
 - **Compile Macros/Generation Options**: None. SbufferBundle has no conditional compilation or generation options beyond what HasSbufferConst provides.
 
 ## Verification Requirements and Coverage Suggestions
+
 - **Functional Coverage Points**: All `CK-*` check points defined in each functional group constitute coverage targets. SbufferBundle is an elaboration-time construct, so coverage is focused on compile-time constant resolution correctness:
   - All HasSbufferConst constants accessible from every SbufferBundle subclass.
   - Constant values consistent with the input Parameters object.

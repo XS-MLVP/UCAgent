@@ -5,7 +5,7 @@ description: Internal support skill for formal verification workspaces. This fol
 
 # Formal Shared Library
 
-Markdown formatting contract: every generated ATX heading (`#` through `######`) is surrounded by a blank line; only a heading on the first line of a document or Markdown example may omit the preceding blank line. A tag, paragraph, list, table, nested heading, or closing fence must not directly follow a heading. The one exception is a machine anchor `<a id="..."></a>`, which must remain immediately before its target heading so the link stays valid.
+Markdown formatting contract: every generated ATX heading (`#` through `######`) is surrounded by a blank line. Every heading must have a preceding blank line, including the first line of a document or Markdown example and a heading after a machine anchor `<a id="..."></a>`. A paragraph, list, table, nested heading, opening/closing fence, or anchor must not directly precede a heading. Machine field markers may remain immediately after their field headings.
 
 This is an internal packaging skill.
 

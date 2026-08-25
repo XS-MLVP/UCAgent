@@ -22,6 +22,7 @@ from ucagent.util.bug_analysis_contract import (
     waveform_reference,
 )
 from ucagent.util.functions import get_tools_from_cfg
+from ucagent.util.markdown import ensure_markdown_file_heading_spacing
 from ucagent.util.waveform_viewer import decode_waveform_viewer_token
 
 
@@ -1155,6 +1156,7 @@ def test_apply_waveinfo_evidence_accepts_text_created_scaffold_without_skill(tmp
     ]
     assert document_bytes.count(b"\r\n") == document.count("\n")
     assert document.count("waveform_analysis:") == 1
+    assert ensure_markdown_file_heading_spacing(str(target), document) == document
     assert f"receipt_id: {receipt_id}" in document
     assert result["bug_document_viewer_link"] in document
     assert "Bug analysis body remains LLM-authored." in document

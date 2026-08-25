@@ -593,6 +593,7 @@ KunMingHu架构采用了32KB的VIPT cache，从而引入了 cache 别名问题�
 #### 三级模块 ProbeEntry
 
 ##### 功能  
+
 Probe Queue中的子项，每一项对应负责一个Probe 请求, 接收 Probe Queue 生成的内部请求，在内部维护Probe过程中的状态, 等待 Main Pipe 完成对应数据块的修改返回应答后释放Probe Entry。
 
 ##### 整体框图
@@ -602,6 +603,7 @@ Probe Queue中的子项，每一项对应负责一个Probe 请求, 接收 Probe 
 ##### 接口时序
 
 ##### 关键电路  
+
 1\. Probe Entry状态机的设计  
 Probe Entry由一系列状态寄存器进行控制，由一个状态机进行Probe事务的执行。下面的表格中展示了每个Entry中包含的三个状态寄存器的含义以及状态机设计图：
 

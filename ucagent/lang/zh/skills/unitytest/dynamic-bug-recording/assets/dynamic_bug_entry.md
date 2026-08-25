@@ -1,3 +1,4 @@
+
 ### $FG_TITLE <$FG>
 
 #### $FC_TITLE <$FC>
@@ -5,6 +6,7 @@
 ##### $CK_TITLE <$CK>
 
 <a id="$BUG_ANCHOR"></a>
+
 ###### $BD（$CONFIDENCE%） <$BG>
 
 - $TC_TITLE <$TC>

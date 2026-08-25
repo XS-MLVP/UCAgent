@@ -1,3 +1,4 @@
+
 # Mux 缺陷分析
 
 ## 未测试通过检测点分析
@@ -5,6 +6,7 @@
 <FG-SELECT>
 
 #### 选择功能 <FC-BASIC-SELECT>
+
 - <CK-SEL-11> sel=11时选择信号错误：按照常规4选1多路选择器设计，sel=11应该选择in_data[3]作为输出，但当前设计选择了in_data[0]；Bug置信度 90% <BG-SEL_11_WRONG_CHANNEL-90>
   - 触发bug的测试用例:
     - <TC-test_mux_sel_11_bug.py::test_sel_11_should_select_in_data_3>

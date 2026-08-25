@@ -19,6 +19,7 @@ from ucagent.util.bug_analysis_contract import (
     TEST_CASE_SERIALIZATION,
 )
 from ucagent.util.markdown import (
+    ensure_markdown_file_heading_spacing,
     ensure_markdown_heading_spacing,
     markdown_heading_spacing_errors,
 )
@@ -135,16 +136,19 @@ def test_bug_analysis_paths_tc_forms_and_no_bug_shape_come_from_locale_contract(
 
 
 def test_markdown_heading_spacing_scan_ignores_non_markdown_fences():
-    sample = """# Document
+    sample = """
+# Document
 
 ```python
 # Python comment
 ```
 
 <a id="example-anchor"></a>
+
 ## Anchored heading
 
 ````markdown
+
 # Embedded document
 
 ```systemverilog
@@ -169,6 +173,7 @@ def test_markdown_heading_spacing_formatter_preserves_code_and_line_endings():
     formatted = ensure_markdown_heading_spacing(sample)
 
     assert formatted == (
+        "\r\n"
         "# Document\r\n"
         "\r\n"
         "text\r\n"
@@ -186,12 +191,61 @@ def test_markdown_heading_spacing_formatter_preserves_code_and_line_endings():
 def test_markdown_heading_companions_must_be_explicit():
     sample = "## Root field\n<ROOT-FIX>\ncontent\n"
 
-    assert markdown_heading_spacing_errors(sample) == [(1, "after")]
-    assert markdown_heading_spacing_errors(sample, ("<ROOT-FIX>",)) == []
+    assert markdown_heading_spacing_errors(sample) == [
+        (1, "before"),
+        (1, "after"),
+    ]
+    assert markdown_heading_spacing_errors(sample, ("<ROOT-FIX>",)) == [
+        (1, "before")
+    ]
     assert ensure_markdown_heading_spacing(sample) == (
-        "## Root field\n\n<ROOT-FIX>\ncontent\n"
+        "\n## Root field\n\n<ROOT-FIX>\ncontent\n"
     )
-    assert ensure_markdown_heading_spacing(sample, ("<ROOT-FIX>",)) == sample
+    assert ensure_markdown_heading_spacing(sample, ("<ROOT-FIX>",)) == (
+        "\n## Root field\n<ROOT-FIX>\ncontent\n"
+    )
+
+
+def test_markdown_heading_spacing_has_no_preceding_blank_exceptions():
+    sample = (
+        "# File heading\n\n"
+        '<a id="section"></a>\n'
+        "## Anchored heading\n\n"
+        "```markdown\n"
+        "### Embedded heading\n\n"
+        "```\n"
+    )
+
+    assert markdown_heading_spacing_errors(sample) == [
+        (1, "before"),
+        (4, "before"),
+        (7, "before"),
+    ]
+    formatted = ensure_markdown_heading_spacing(sample)
+    assert formatted.startswith("\n# File heading")
+    assert '<a id="section"></a>\n\n## Anchored heading' in formatted
+    assert "```markdown\n\n### Embedded heading" in formatted
+    assert markdown_heading_spacing_errors(formatted) == []
+
+
+def test_markdown_file_formatter_preserves_canonical_field_companions():
+    sample = "# Bug\n###### Overview\n<BUG-OVERVIEW>\ncontent\n"
+
+    formatted = ensure_markdown_file_heading_spacing("bug.md", sample)
+
+    assert formatted == (
+        "\n# Bug\n\n###### Overview\n<BUG-OVERVIEW>\ncontent\n"
+    )
+    assert ensure_markdown_file_heading_spacing("bug.txt", sample) == sample
+
+
+def test_markdown_formatter_reuses_blank_line_between_adjacent_headings():
+    sample = "# Parent\n## Child\nbody\n"
+
+    formatted = ensure_markdown_heading_spacing(sample)
+
+    assert formatted == "\n# Parent\n\n## Child\n\nbody\n"
+    assert ensure_markdown_heading_spacing(formatted) == formatted
 
 
 def test_runtime_markdown_headings_are_surrounded_by_blank_lines():

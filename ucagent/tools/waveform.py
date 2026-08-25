@@ -56,6 +56,7 @@ from ucagent.util.bug_analysis_contract import (
     waveform_reference,
 )
 from ucagent.util.log import warning
+from ucagent.util.markdown import ensure_markdown_file_heading_spacing
 from ucagent.util.waveform_viewer import (
     WaveformViewerProtocolError,
     build_waveform_viewer_markdown_link,
@@ -3705,14 +3706,26 @@ class ApplyWaveInfoEvidence(UCTool):
         if stripped_lines[previous] != expected_anchor:
             raise ValueError(
                 f"central record for '{test_case_tag}' must have anchor {expected_anchor} "
-                f"immediately before line {heading_index + 1}"
+                f"as the nearest non-empty line before heading line {heading_index + 1}"
             )
         next_headings = [
             index
             for _tag, _title, index in record_headings
             if index > heading_index
         ]
-        record_end = min(next_headings) - 1 if next_headings else evidence_end
+        record_end = min(next_headings) if next_headings else evidence_end
+        if next_headings:
+            while record_end > heading_index + 1 and not stripped_lines[record_end - 1]:
+                record_end -= 1
+            if not re.fullmatch(
+                r'<a id="[^"]+"></a>',
+                stripped_lines[record_end - 1],
+            ):
+                raise ValueError(
+                    f"central record at heading line {record_end + 1} must have a generated "
+                    "anchor as its nearest preceding non-empty line"
+                )
+            record_end -= 1
         open_index = heading_index + 1
         while open_index < record_end and not stripped_lines[open_index]:
             open_index += 1
@@ -3843,7 +3856,9 @@ class ApplyWaveInfoEvidence(UCTool):
         return (
             [
                 f'<a id="{waveform_anchor_id(test_case_tag)}"></a>{newline}',
+                newline,
                 f"{waveform_record_heading(test_case_tag, test_display_title)}{newline}",
+                newline,
                 f"{WAVEFORM_FENCE_OPEN}{newline}",
             ]
             + [f"{line}{newline}" for line in payload.splitlines()]
@@ -4163,7 +4178,10 @@ class ApplyWaveInfoEvidence(UCTool):
                     edits, key=lambda item: item[0], reverse=True
                 ):
                     updated_lines[start:end] = replacement
-                updated = "".join(updated_lines)
+                updated = ensure_markdown_file_heading_spacing(
+                    target_file,
+                    "".join(updated_lines),
+                )
                 relative_target = target.relative_to(Path(self.workspace)).as_posix()
                 if updated == original:
                     return OrderedDict(

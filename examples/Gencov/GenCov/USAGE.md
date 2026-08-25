@@ -1,6 +1,8 @@
+
 # GenCov 使用示例
 
 ### 运行命令示例
+
 ```bash
 # 初始化工作区（默认输出到 ../../output）
 make -C examples/Gencov init_IFU

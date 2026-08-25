@@ -1,3 +1,4 @@
+
 # 文档补丁包：Web Master 与近期功能增量
 
 本文档用于审查后再手工改原文。所有建议补丁集中在一个文件内。
@@ -14,6 +15,7 @@
 建议位置：现有“通过Web界面交互”章节之后
 
 ~~~md
+
 ## Web Master 新增能力（近期）
 
 以下能力已在近期版本中上线，建议结合本文其他章节使用：
@@ -35,6 +37,7 @@
 建议位置：现有 Web interaction 相关段落后
 
 ~~~md
+
 ## Recent Web Master Enhancements
 
 The following capabilities were added recently and are now available in Web Master workflows:
@@ -56,6 +59,7 @@ See also: docs/content/02_usage/07_web_master.md
 建议位置：在“--web-console 与 --web-terminal 区别”小节之后
 
 ~~~md
+
 ### Web 页面能力映射（补充）
 
 参数用于开启入口，页面用于完成操作。推荐映射如下：
@@ -89,6 +93,7 @@ See also: docs/content/02_usage/07_web_master.md
 建议位置：文末新增小节
 
 ~~~md
+
 ## 与 Web Master 协同使用
 
 TUI 与 Web 并非互斥，推荐按场景组合：
@@ -117,6 +122,7 @@ TUI 与 Web 并非互斥，推荐按场景组合：
 建议位置：命令清单后新增小节
 
 ~~~md
+
 ## Web Agent 页面与命令等价关系
 
 在 Agent 页面可直接完成以下等价操作：
@@ -141,6 +147,7 @@ TUI 与 Web 并非互斥，推荐按场景组合：
 建议位置：核心架构章节后新增小节
 
 ~~~md
+
 ## Web Master 架构补充
 
 近期版本在 Master 侧形成三页面协同架构：
@@ -168,6 +175,7 @@ TUI 与 Web 并非互斥，推荐按场景组合：
 建议位置：阶段控制说明段后新增小节
 
 ~~~md
+
 ## 阶段复盘（Web 视角）
 
 除命令行与 TUI 方式外，可在 Agent 页面进行阶段级复盘：
@@ -191,6 +199,7 @@ TUI 与 Web 并非互斥，推荐按场景组合：
 建议位置：并发运行说明后新增小节
 
 ~~~md
+
 ## Web Master 运维建议（多任务场景）
 
 当并发任务数量较多时，建议通过 Dashboard 提升运维效率：
@@ -209,6 +218,7 @@ TUI 与 Web 并非互斥，推荐按场景组合：
 建议位置：批量执行脚本说明后新增小节
 
 ~~~md
+
 ## 通过 Task 页面做批量任务闭环
 
 批量任务启动后，建议在 Task 页面完成闭环运维：
@@ -227,6 +237,7 @@ TUI 与 Web 并非互斥，推荐按场景组合：
 建议动作：若文件不存在则新建；若已存在则按需替换为下列模板骨架
 
 ~~~md
+
 # Web Master 使用指南
 
 ## 1. 功能概览

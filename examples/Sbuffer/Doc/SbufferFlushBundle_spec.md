@@ -1,8 +1,10 @@
+
 # SbufferFlushBundle Specification Document
 
 > This document describes the specification of the `SbufferFlushBundle` chip verification target. Keep the technical language precise, well-organized, and easy to reuse for verification. If an item does not exist, explicitly write "None" or "TBD"; do not delete the section.
 
 ## Introduction
+
 - **Design Background**: SbufferFlushBundle defines a custom 2-wire handshake protocol for coordinating flush and drain operations between the Sbuffer (Store Buffer) module and an external flush initiator (typically the commit stage or pipeline controller). It is not a Module with sequential logic — it is a Chisel Bundle type that groups two Boolean signals (valid and empty) into a handshake pair. The handshake is used by Sbuffer at its `io.flush` port, instantiated as `Flipped(new SbufferFlushBundle)`, meaning the signal directions are reversed relative to the bundle's own direction annotations. Source: `SbufferFlushBundle.scala:1-4`, `engine_overview.txt:32-33`, `phase_01_types.txt:61-63`.
 - **Design Goals**: (1) Provide a clear, minimal handshake for external agents to request a full pipeline flush. (2) Provide a completion signal that Sbuffer drives when all buffered entries have been drained. (3) Define direction semantics that map cleanly to Chisel `Flipped` port usage. (4) Enable the Sbuffer FSM to transition to drain-all state and back to idle based on the state of these two wires.
 
@@ -26,6 +28,7 @@ File list:
 - `SbufferFlushBundle.scala:1-4`: Bundle definition — two Boolean wires: `valid` (Output) and `empty` (Input). Extends Chisel `Bundle` directly (not SbufferBundle), so it does not inherit HasSbufferConst parameters.
 
 ## Top-Level Interface Overview
+
 - **Module Name**: `SbufferFlushBundle`
 - **Port List**:
 
@@ -134,6 +137,7 @@ The `empty` signal is defined as `Input(Bool())` within the bundle, meaning the 
 (no subcomponents) — SbufferFlushBundle is a Chisel Bundle type containing only two Boolean wires (valid and empty). It does not instantiate any submodules, inherit from any Module class, or depend on any other hardware unit.
 
 ### State Machines and Timing
+
 - **State Machine List**: None. SbufferFlushBundle is a combinational wire bundle with no sequential elements. The state machine tracking flush progress resides in the instantiating module (Sbuffer FSM).
 - **State Transition Conditions**: None.
 - **Key Timing**:
@@ -142,22 +146,26 @@ The `empty` signal is defined as `Input(Bool())` within the bundle, meaning the 
   - Sbuffer samples `valid` on each clock edge (FSM transition logic reads the wire combinatorially).
 
 ### Configuration Registers and Storage
+
 None — SbufferFlushBundle is a passive wire bundle with no registers, memory, or configurable storage elements.
 
 - **Register Map Base Address**: No bus interface — SbufferFlushBundle is an internal wire bundle.
 - **Configuration Flow**: N/A.
 
 ### Reset and Error Handling
+
 - **Reset Behavior**: N/A — SbufferFlushBundle has no reset-able state. After Sbuffer reset, the `valid` wire is driven by external logic (value is externally determined) and the `empty` wire is driven by Sbuffer (after reset propagation, Sbuffer is empty so `empty` asserts to true via GatedValidRegNext).
 - **Error Reporting**: None. SbufferFlushBundle defines no error signals. Error conditions during flush (e.g., Sbuffer failure to drain) must be detected by the testbench through FSM state monitoring and timeout mechanisms.
 - **Self-Recovery Strategy**: None. SbufferFlushBundle has no recovery mechanism. The external initiator may re-assert `valid` to retry a flush that did not complete as expected.
 
 ### Parameterization and Configurable Features
+
 - **Module Parameters**: None. SbufferFlushBundle extends `Bundle` directly with no constructor parameters and no parameterized widths or capacities. Both signals are single-bit Bool().
 - **Runtime Configuration**: None. The bundle has no configurable behavior at runtime.
 - **Compile Macros/Generation Options**: None.
 
 ## Verification Requirements and Coverage Suggestions
+
 - **Functional Coverage Points**: All `CK-*` check points above constitute coverage targets. Key cross-coverage scenarios:
   - Flush assertion in each of the 4 Sbuffer FSM states (x_idle, x_replace, x_drain_all, x_drain_sbuffer).
   - Flush with buffer fully empty (immediate empty assertion).

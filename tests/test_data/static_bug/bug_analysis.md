@@ -1,6 +1,7 @@
 <FG-CTRL>
 
 #### 控制功能 <FC-FSM>
+
 - <CK-FSM-GUARD> 测试FSM守卫 <BG-CONFIRMED-92>
   - <TC-GUARD-FAIL> 验证FSM守卫缺失
     - 测试结果：FAIL

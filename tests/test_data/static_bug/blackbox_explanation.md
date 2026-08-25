@@ -1,3 +1,4 @@
+
 # Static Bug Analysis
 
 <STATIC-BUG-SUMMARY>

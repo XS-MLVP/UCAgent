@@ -12,7 +12,7 @@ script_dir = os.path.dirname(os.path.abspath(__file__))
 STATIC_BUG_SUMMARY_MARKER = "<STATIC-BUG-SUMMARY>"
 STATIC_BUG_DETAILS_MARKER = "<STATIC-BUG-DETAILS>"
 STATIC_BUG_PROGRESS_MARKER = "<STATIC-BUG-PROGRESS>"
-static_bug_analysis_md_template = "# {DUT} RTL 源码静态分析报告\n\n"\
+static_bug_analysis_md_template = "\n# {DUT} RTL 源码静态分析报告\n\n"\
 f"{STATIC_BUG_SUMMARY_MARKER}\n\n"\
 "## 一、潜在Bug汇总\n\n"\
 "| 序号 | Bug标签 | 功能路径 | 描述摘要 | 置信度 | 涉及文件 | 动态Bug关联 |\n"\

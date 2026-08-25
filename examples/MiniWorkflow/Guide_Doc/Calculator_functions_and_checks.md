@@ -26,6 +26,7 @@ Your dut description here
 <FG-FUNCTYPE-A>
 
 #### 功能A1：功能A1的简单描述 <FC-A1>
+
 - <CK-NAME1> 检测点1：A1功能的细化，该细化需要能在测试用例中进行检测是否满足要求
 - <CK-NAME2> 检测点2：A1功能的细化，该细化需要能在测试用例中进行检测是否满足要求
 

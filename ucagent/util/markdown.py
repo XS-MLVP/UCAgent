@@ -7,7 +7,11 @@ import re
 
 _HEADING_RE = re.compile(r"^ {0,3}#{1,6}(?:[ \t]+.*)?$")
 _FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
-_ANCHOR_RE = re.compile(r'^<a id="[^"]+"></a>$')
+_MACHINE_HEADING_COMPANION_RE = re.compile(
+    r"^<(?:BUG-(?:OVERVIEW|SYMPTOMS|TRIGGER)|"
+    r"ROOT-(?:CAUSE-ANALYSIS|SOURCE-EVIDENCE|CAUSAL-CHAIN|FIX|RETEST)|"
+    r"RELATED-BUGS)>$"
+)
 
 
 def _fence_language(info: str) -> str:
@@ -22,15 +26,16 @@ def markdown_heading_spacing_errors(
     """Return heading line numbers whose surrounding blank line is missing.
 
     Only normal Markdown and fenced ``markdown``/``md`` examples are inspected;
-    other fenced languages are treated as opaque source code. Canonical machine
-    companion lines may be supplied when a document contract requires them to
-    remain adjacent to a field heading.
+    other fenced languages are treated as opaque source code. Every heading,
+    including the first line of a document or embedded example, requires a
+    preceding blank line. Canonical machine companion lines may be supplied
+    when a document contract requires them to remain adjacent after a field
+    heading.
     """
 
     lines = text.splitlines()
     companions = frozenset(line.strip() for line in heading_companions)
     fences: list[tuple[str, int, bool]] = []
-    markdown_openings: set[int] = set()
     errors: list[tuple[int, str]] = []
 
     for index, line in enumerate(lines):
@@ -47,8 +52,6 @@ def markdown_heading_spacing_errors(
             elif not fences or fences[-1][2]:
                 active = _fence_language(info) in {"md", "markdown"}
                 fences.append((token[0], len(token), active))
-                if active:
-                    markdown_openings.add(index)
             continue
 
         if fences and not fences[-1][2]:
@@ -56,12 +59,7 @@ def markdown_heading_spacing_errors(
         if not _HEADING_RE.fullmatch(line):
             continue
 
-        if (
-            index > 0
-            and index - 1 not in markdown_openings
-            and not _ANCHOR_RE.fullmatch(lines[index - 1].strip())
-            and lines[index - 1].strip()
-        ):
+        if index == 0 or lines[index - 1].strip():
             errors.append((index + 1, "before"))
         if (
             index + 1 >= len(lines)
@@ -86,7 +84,6 @@ def ensure_markdown_heading_spacing(
     lines = text.splitlines(keepends=True)
     bodies = [line.rstrip("\r\n") for line in lines]
     fences: list[tuple[str, int, bool]] = []
-    markdown_openings: set[int] = set()
     headings: set[int] = set()
 
     for index, line in enumerate(bodies):
@@ -103,8 +100,6 @@ def ensure_markdown_heading_spacing(
             elif not fences or fences[-1][2]:
                 active = _fence_language(info) in {"md", "markdown"}
                 fences.append((token[0], len(token), active))
-                if active:
-                    markdown_openings.add(index)
             continue
 
         if (not fences or fences[-1][2]) and _HEADING_RE.fullmatch(line):
@@ -113,18 +108,10 @@ def ensure_markdown_heading_spacing(
     output: list[str] = []
     for index, line in enumerate(lines):
         if index in headings:
-            if (
-                index >= 2
-                and _ANCHOR_RE.fullmatch(bodies[index - 2].strip())
-                and not bodies[index - 1].strip()
-                and output
-                and output[-1].rstrip("\r\n").strip() == ""
-            ):
-                output.pop()
-            if (
+            if index == 0 and not output:
+                output.append(newline)
+            elif (
                 index > 0
-                and index - 1 not in markdown_openings
-                and not _ANCHOR_RE.fullmatch(bodies[index - 1].strip())
                 and bodies[index - 1].strip()
                 and output
                 and output[-1].rstrip("\r\n").strip()
@@ -146,3 +133,17 @@ def ensure_markdown_heading_spacing(
 
     result = "".join(output)
     return result
+
+
+def ensure_markdown_file_heading_spacing(path: str, text: str) -> str:
+    """Normalize headings when *path* identifies a Markdown document or template."""
+
+    normalized_path = str(path).lower()
+    if not normalized_path.endswith((".md", ".md.j2")):
+        return text
+    companions = frozenset(
+        line.strip()
+        for line in text.splitlines()
+        if _MACHINE_HEADING_COMPANION_RE.fullmatch(line.strip())
+    )
+    return ensure_markdown_heading_spacing(text, companions)

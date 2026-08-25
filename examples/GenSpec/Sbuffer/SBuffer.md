@@ -1,4 +1,5 @@
 \newpage
+
 # Store 提交缓冲 SBuffer
 
 ## 功能描述

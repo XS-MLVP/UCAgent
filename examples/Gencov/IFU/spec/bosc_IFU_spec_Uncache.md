@@ -1,8 +1,10 @@
+
 # IfuUncacheUnit 规格说明文档
 
 > 本文档用于指导编写 `IfuUncacheUnit` 子模块的规格说明书。IfuUncacheUnit是IFU中负责处理uncache指令取指的子模块，包含一个4状态的状态机，用于判断并阻止MMIO指令的推测执行。
 
 ## 简介
+
 - **设计背景**：`IfuUncacheUnit`（Uncache处理单元）是IFU中负责从uncache总线提取指令的子模块。受PBMT属性影响，部分非缓存的指令数据是允许推测执行的，因此需要对MMIO指令进行特殊区分和阻止。
 
   Uncache指令的特点是每次总是返回64字节对齐的数据，这意味着如果指令跨越了64字节的边界，将会发送两次请求。对于跨页情况，前端uncache通路会返回crossPage状态标志，需要IFU做额外的拼接处理。
@@ -18,6 +20,7 @@
   - 支持处理器第一条指令的特殊处理
 
 ## 术语与缩写
+
 | 缩写 | 全称 | 说明 |
 | ---- | ---- | ---- |
 | MMIO | Memory-Mapped I/O | 内存映射I/O |
@@ -41,6 +44,7 @@
   - `object UncacheFsmState` - Uncache状态机枚举
 
 ## 顶层接口概览
+
 - **模块名称**：`IfuUncacheUnit`
 
 - **端口列表**：
@@ -232,6 +236,7 @@
   - 这是待完善的功能
 
 ### 状态机与时序
+
 - **状态机列表**：
   - UncacheFSM：4个状态（Idle、WaitLastCommit、SendReq、WaitResp）
 
@@ -242,6 +247,7 @@
   - WaitResp → Idle：1个周期
 
 ### 复位与错误处理
+
 - **复位行为**：
   - 接收Flush信号后，无条件调用uncacheReset()
   - 复位所有状态寄存器：
@@ -263,6 +269,7 @@
   - 不需要额外的自恢复逻辑
 
 ## 验证需求与覆盖建议
+
 - **功能覆盖点**：
   - **正常流程**：
     * 非MMIO uncche指令取指
@@ -296,6 +303,7 @@
 ## 潜在 bug 分析
 
 ### MMIO阻塞功能未实现（置信度 80%）
+
 - **触发条件**：需要阻止MMIO指令的推测执行
 - **影响范围**：可能导致MMIO指令的推测执行，影响正确性
 - **关联位置**：IfuUncacheUnit.scala:102-108，WaitLastCommit状态
@@ -311,6 +319,7 @@
   4. 测试MMIO阻塞的各种场景
 
 ### 跨页处理逻辑复杂（置信度 60%）
+
 - **触发条件**：uncache指令跨越页边界
 - **影响范围**：需要IFU主体和uncache单元协同处理，容易出错
 - **关联位置**：
@@ -323,6 +332,7 @@
   4. 验证crossPageCheck逻辑
 
 ### Flush时序问题（置信度 40%）
+
 - **触发条件**：Flush信号在uncache请求处理过程中到达
 - **影响范围**：可能导致状态不一致
 - **关联位置**：IfuUncacheUnit.scala:152-154，Flush处理
@@ -332,6 +342,7 @@
   3. 检查Flush与uncache通路Flush的同步
 
 ### 处理器第一条指令判断（置信度 30%）
+
 - **触发条件**：isFirstInstr信号不准确或时序不匹配
 - **影响范围**：可能导致错误地绕过MMIO阻塞
 - **关联位置**：IfuUncacheUnit.scala:102，isFirstInstr判断
@@ -341,6 +352,7 @@
   3. 确认isFirstInstr的复位逻辑
 
 ### ifuStall信号处理（置信度 30%）
+
 - **触发条件**：IFU暂停时uncache请求的处理
 - **影响范围**：可能导致uncache请求延迟或丢失
 - **关联位置**：IfuUncacheUnit.scala:133，ifuStall使用
@@ -350,6 +362,7 @@
   3. 检查暂停恢复后的请求处理
 
 ### uncacheFinish时序（置信度 20%）
+
 - **触发条件**：uncacheFinish标志的设置和清除时序
 - **影响范围**：可能导致resp.valid信号时序错误
 - **关联位置**：IfuUncacheUnit.scala:127-131，uncacheFinish计算

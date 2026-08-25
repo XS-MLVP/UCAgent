@@ -18,6 +18,7 @@ from .util.functions import (
 )
 import ucagent.util.functions as fc
 from .util.test_tools import ucagent_lib_path
+from .util.markdown import ensure_markdown_heading_spacing
 
 import ucagent.tools
 from .tools import *
@@ -535,13 +536,15 @@ class VerifyAgent:
             file_path = file_path[1:]
         file_path = os.path.abspath(os.path.join(self.workspace, file_path))
         dut_readme = os.path.join(self.workspace, self.dut_name, "README.md")
+        sections = []
+        if os.path.exists(dut_readme):
+            sections.append("# Goal Description\n")
+            with open(dut_readme, "r", encoding="utf-8") as df:
+                sections.append(df.read() + "\n")
+        sections.append("# Verification Instruction\n")
+        sections.append(self._default_system_prompt + "\n")
         with open(file_path, "w", encoding="utf-8") as f:
-            if os.path.exists(dut_readme):
-                f.write("# Goal Description\n")
-                with open(dut_readme, "r", encoding="utf-8") as df:
-                    f.write(df.read() + "\n")
-            f.write("# Verification Instruction\n")
-            f.write(self._default_system_prompt + "\n")
+            f.write(ensure_markdown_heading_spacing("".join(sections)))
 
     def render_template(self, template_cfg=None, tmp_overwrite=False):
         template_context = {

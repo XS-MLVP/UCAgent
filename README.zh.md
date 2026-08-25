@@ -1,3 +1,4 @@
+
 # UCAgent（UnityChip verification Agent）
 
 基于大模型进行自动化 UT 验证 AI 代理
@@ -142,6 +143,7 @@ UCAgent提供了Master模式，基于它可以通过Web界面进行Agent集中�
 ### 本地启动
 
 #### 1. 配置环境变量
+
 ```bash
 # 编辑一个自定义文件export ucagent需要的环境变量，例如：
 # export OPENAI_API_BASE=<your_openai_api_base>
@@ -178,6 +180,7 @@ docker run -it --rm \
 启动成功后，在浏览器中访问 `http://localhost:8800` 即可。
 
 ### 基本操作
+
 1. 在Web界面中，点击`+`按钮（或者launch按钮），创建一个新的任务。
 2. 在Agent列表中，点击API按钮，连接到具体Agent的控制页面。
 3. 在Agent控制页面中，点击web terminal按钮，打开在线终端。

@@ -1,3 +1,4 @@
+
 # AGENTS.md
 
 This file contains repository-level instructions for coding agents working on
@@ -268,14 +269,15 @@ results, runtime `Guide_Doc`, templates, and skill instructions.
   FILE/LINK-BUG, progress markers, and fenced evidence blocks like an API.
 - Keep one canonical format instead of accepting several ambiguous variants.
 - In runtime Markdown, templates, Skill assets, and Markdown examples, surround
-  every ATX heading (`#` through `######`) with a blank line. A heading on the
-  first content line does not need a preceding blank line. Do not place a tag,
-  paragraph, list, table, another heading, or closing fence directly against a
-  heading. Canonical machine companion lines such as `<TAG>` markers and the
-  machine anchor `<a id="..."></a>` are the required exceptions: a companion
-  marker must remain immediately after its field heading, and an anchor must
-  remain immediately before its target heading. Markdown-generating scripts and
-  renderers must preserve the same spacing in their generated output.
+  every ATX heading (`#` through `######`) with a blank line. Every heading must
+  have a preceding blank line without exception, including a heading at the
+  beginning of a file, the first heading inside a Markdown fence, and a heading
+  after a machine anchor `<a id="..."></a>`. Do not place a paragraph, list,
+  table, another heading, opening/closing fence, or anchor directly before a
+  heading. Canonical machine companion markers such as `<BUG-*>`, `<ROOT-*>`,
+  and `<RELATED-BUGS>` may remain immediately after their field headings.
+  Markdown-generating scripts and renderers must preserve the same spacing in
+  their generated output.
 - The dynamic Bug document target is exactly
   `{OUT}/{DUT}_bug_analysis.md`; its visible Markdown title is not a filename
   rule. Do not derive or create another output filename from that title.

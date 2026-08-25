@@ -26,6 +26,7 @@ from ucagent.checkers.toffee_report import parse_bug_label
 from ucagent.server.api_master import PdbMasterApiServer, PdbMasterClient
 from ucagent.util.config import load_yaml_with_env_vars
 from ucagent.util.functions import import_class_from_str
+from ucagent.util.markdown import markdown_heading_spacing_errors
 
 
 class _FakeStage:
@@ -897,6 +898,7 @@ def test_bug_recorder_generates_linked_markdown_summary_on_stage_complete(tmp_pa
 
     assert summary_path.exists() is True
     markdown = summary_path.read_text(encoding="utf-8")
+    assert markdown_heading_spacing_errors(markdown) == []
     assert "# Adder Bug Summary" in markdown
     assert "Total Bugs: 1" in markdown
     assert "| Name | Severity | Alias | CK | Analysis | Locations | Confidence | Ref |" in markdown

@@ -1,3 +1,4 @@
+
 # bosc_IFU 功能点与检测点描述
 
 ## DUT 整体功能描述
@@ -5,6 +6,7 @@
 bosc_IFU（Branch-oriented Out-of-order Superscalar Core - Instruction Fetch Unit）是处理器的指令取指单元，位于FTQ（Fetch Target Queue）和ICache之后，负责从ICache或uncache总线获取指令，进行指令定界、预译码和预测检查，最终将处理好的指令发送到IBuffer（指令缓冲区）。
 
 ### 主要功能
+
 - **指令定界**：在64字节fetch块中识别RVC（16位）和RVI（32位）指令边界
 - **指令紧密排列**：将稀疏的指令序列转换为紧密排列的形式
 - **预译码**：提前生成分支属性、CFI类型、跳转偏移量等信息
@@ -37,6 +39,7 @@ bosc_IFU（Branch-oriented Out-of-order Superscalar Core - Instruction Fetch Uni
 - `perf`：性能分析接口
 
 ### 流水线结构
+
 IFU采用3级流水线结构：
 - **S0级**：计算指令范围，准备取指
 - **S1级**：指令定界（InstrBoundary模块）

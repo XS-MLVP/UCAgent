@@ -1,8 +1,10 @@
+
 # Sbuffer Specification Document
 
 > This document describes the specification of the `Sbuffer` chip verification target. Keep the technical language precise, well-organized, and easy to reuse for verification. If an item does not exist, explicitly write "None" or "TBD"; do not delete the section.
 
 ## Introduction
+
 - **Design Background**: The Sbuffer (Store Buffer) sits between the load-store unit (LSU) and the L1 data cache (DCache) in the XiangShan high-performance RISC-V processor. It buffers store requests to hide DCache write latency, enables store-to-load forwarding, and manages writeback ordering to DCache. Sbuffer is a layer-0 module that instantiates two sub-modules: SbufferData (byte-level storage array) and StorePfWrapper (optional store prefetcher). Source: `engine_overview.txt:3-18`, `Sbuffer.scala:1-18`.
 - **Design Goals**: (1) Accept store enqueue requests from LSU on EnsbufferWidth (typically 2) parallel Decoupled ports. (2) Insert new entries or merge into existing entries sharing the same physical tag. (3) Provide store-to-load forwarding via CAM-based tag match on LoadPipelineWidth (typically 2) parallel query ports. (4) Evict entries to DCache using a 2-stage output pipeline, respecting same-block inflight constraints. (5) Support flush/drain through a custom handshake. (6) Track coherence timeout and replay timeout per entry, triggering eviction accordingly. (7) Enforce one-writer-per-cache-line invariant during DCache writeback.
 
@@ -53,6 +55,7 @@ File list:
 - `HasSbufferConst.scala:1-27`: Trait defining parameter-derived constants (EvictCycles, EvictCountBits, PTagWidth, VTagWidth, OffsetWidth, CacheLineVWords, etc.).
 
 ## Top-Level Interface Overview
+
 - **Module Name**: `Sbuffer`
 - **Port List**:
 
@@ -428,12 +431,15 @@ When DCache signals a replay for an entry, the entry's w_timeout flag is set and
 ### Subcomponent Description
 
 #### Component SbufferData
+
 SbufferData provides byte-level data and per-byte mask storage for all StoreBufferSize entries, organized as [entry][CacheLineVWords][VDataBytes]. Sbuffer writes to SbufferData through `writeReq` ports (ValidIO, no backpressure) during enqueue stage s2 and clears masks through `maskFlushReq` ports on DCache write completion. Sbuffer reads `dataOut` and `maskOut` combinatorially for DCache eviction data/mask generation and load forwarding. Sbuffer expects writes to be visible two cycles after the write request (2-cycle registered write pipeline), unconditional acceptance of ValidIO transactions, and all data/mask values reset to zero/false after reset. For details, refer to the document `SbufferData_spec.md`. Source: `Sbuffer.scala:20-21, 29-30, 281-306, 507-508, 550-553, 618-625`.
 
 #### Component StorePfWrapper
+
 StorePfWrapper is an optional store prefetch unit that trains on store address patterns observed during enqueue and issues speculative prefetch requests to warm the DCache. Sbuffer connects it conditionally based on compile-time parameters (`EnableStorePrefetchSPB`, `EnableStorePrefetchAtCommit`). When enabled, Sbuffer drives training events (`sbuffer_enq`) on enqueue fire and merges prefetcher output with immediate enqueue-triggered prefetch requests onto `io.store_prefetch`. When disabled, all ports are tied to DontCare and the prefetcher must not assert any `io.store_prefetch` request. The behavior Sbuffer relies on: StorePfWrapper consumes `sbuffer_enq` training events without backpressuring enqueue, and produces prefetch requests on its output port that Sbuffer forwards to `io.store_prefetch` under the Decoupled protocol. Source: `Sbuffer.scala:22, 202-233`.
 
 ### State Machines and Timing
+
 - **State Machine List**: The Sbuffer FSM has 4 architecturally visible states (encoded as Enum(4)):
   - **x_idle** (0): Normal operation — accepts enqueues, may trigger eviction to x_replace. Source: `Sbuffer.scala:364-371`.
   - **x_replace** (1): Evicting entries to DCache. Transitions back to x_idle when eviction condition clears, or to drain states on flush/uarch-drain. Source: `Sbuffer.scala:385-393`.
@@ -461,6 +467,7 @@ StorePfWrapper is an optional store prefetch unit that trains on store address p
   - **Uarch drain delay**: `do_uarch_drain` asserts 1 cycle after forward mismatch (GatedValidRegNext), 2 cycles after merge mismatch (double GatedValidRegNext). Source: `Sbuffer.scala:196`.
 
 ### Configuration Registers and Storage
+
 | Register Name/Address | Access Attribute | Bit Field | Default | Description | Read/Write Side Effects |
 | ------------- | -------- | ---- | ------ | ---- | ---------- |
 | sbuffer_state | internal | 2 bits | x_idle (0) | FSM state register. Encoded: 0=x_idle, 1=x_replace, 2=x_drain_all, 3=x_drain_sbuffer. | Written on state transitions per FSM rules. Reset to x_idle. |
@@ -478,6 +485,7 @@ StorePfWrapper is an optional store prefetch unit that trains on store address p
 - **Configuration Flow**: All state registers reset to zero/invalid state. The `sbuffer_state` FSM starts in x_idle. Runtime configuration via `io.csrCtrl.sbuffer_threshold` sets the eviction trigger occupancy threshold. The threshold is registered via `Constantin.createRecord`. Source: `Sbuffer.scala:348-349`.
 
 ### Reset and Error Handling
+
 - **Reset Behavior**: After active-high synchronous reset assertion:
   - `sbuffer_state = x_idle` (0). Source: `Sbuffer.scala:46`.
   - All `stateVec` entries are invalid (state_valid=false, state_inflight=false, w_timeout=false, w_sameblock_inflight=false). Source: `Sbuffer.scala:31`.
@@ -515,6 +523,7 @@ StorePfWrapper is an optional store prefetch unit that trains on store address p
   - No timeout for eviction completion — eviction waits indefinitely for DCache acceptance (backpressure).
 
 ### Parameterization and Configurable Features
+
 - **Module Parameters**:
 
   | Parameter Name | Type/Range | Default | Functional Effect |
@@ -546,6 +555,7 @@ StorePfWrapper is an optional store prefetch unit that trains on store address p
   - Store prefetch connectivity is gated by compile-time boolean parameters, with Chisel `if`/`else` conditional generation (not runtime mux).
 
 ## Verification Requirements and Coverage Suggestions
+
 - **Functional Coverage Points**: All `CK-*` check points defined in each functional group constitute coverage targets. Key cross-coverage scenarios:
   - Concurrent enqueue on both ports while eviction is active.
   - Concurrent enqueue and forward query to the same entry.

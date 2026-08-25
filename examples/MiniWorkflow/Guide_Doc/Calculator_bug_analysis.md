@@ -12,6 +12,7 @@
 <FG-FUNCTYPE-A>
 
 #### 功能A1：<FC-A1>
+
 - <CK-NAME1> 检测点1：由于什么原因导致了 <BG-BUGA-80>  BUGA，确定为Calculator设计bug概率的为 80%
   - <TC-test_my.py::test_case1> ...
 ...

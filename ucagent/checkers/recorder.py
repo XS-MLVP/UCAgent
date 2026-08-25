@@ -22,6 +22,7 @@ from ucagent.checkers.static_bug import (
 from ucagent.checkers.toffee_report import parse_bug_label
 from ucagent.util.functions import import_class_from_str
 from ucagent.util.log import info, warning
+from ucagent.util.markdown import ensure_markdown_heading_spacing
 
 
 class RecordType:
@@ -944,7 +945,9 @@ class BugRecordType(RecordType):
             )
 
         with open(resolved_output_path, "w", encoding="utf-8") as summary_file:
-            summary_file.write("\n".join(markdown_lines) + "\n")
+            summary_file.write(
+                ensure_markdown_heading_spacing("\n".join(markdown_lines) + "\n")
+            )
         info(
             f"Recorder generated Bug summary with {len(records)} record(s) at "
             f"'{output_name}'."

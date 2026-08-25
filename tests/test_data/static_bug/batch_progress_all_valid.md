@@ -1,3 +1,4 @@
+
 # Batch doc: all files analyzed, valid static bug format
 
 <STATIC-BUG-SUMMARY>

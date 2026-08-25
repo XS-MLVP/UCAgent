@@ -55,6 +55,7 @@ Skill不是完成本文档的前置条件。默认路径是先用`ReadTextFile`�
 ### 文档模板
 
 ```markdown
+
 # {DUT名称} 功能点与检测点描述
 
 ## DUT 整体功能描述
@@ -111,6 +112,7 @@ Skill不是完成本文档的前置条件。默认路径是先用`ReadTextFile`�
 
 **✅ 正确的标签放置**
 ```markdown
+
 ### 具体功能1
 
 <FC-FUNC1>
@@ -120,6 +122,7 @@ Skill不是完成本文档的前置条件。默认路径是先用`ReadTextFile`�
 
 **❌ 错误的标签放置**
 ```markdown
+
 ### 具体功能1 <FC-FUNC1>
 
 功能描述内容...
@@ -182,6 +185,7 @@ Skill不是完成本文档的前置条件。默认路径是先用`ReadTextFile`�
 ### 设计规格
 
 ```markdown
+
 # ALU 功能点与检测点描述
 
 ## DUT 整体功能描述
@@ -220,7 +224,6 @@ ALU（Arithmetic Logic Unit，算术逻辑单元）是CPU的核心组件，负�
 | 其他 | 保留     | out = 0, cout = 0 | 无定义 |
 
 ## 功能分组与检测点
-
 
 ### DUT测试API
 
