@@ -532,6 +532,7 @@ def test_stage_manager_check_and_complete_forward_stage_args():
 
     assert check_ret["check_pass"] is True
     assert complete_ret["complete"] is True
+    assert manager.validation_revision == 2
     assert stage.calls == [
         {
             "stage_args": {"refined": {"CK": "check"}, "detail": True},

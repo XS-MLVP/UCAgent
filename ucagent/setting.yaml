@@ -294,6 +294,7 @@ tui:
 
 loop_settings:
   max_loop_retry: 10       # maximum number of retries for a loop
+  max_stalled_rounds: 3    # pause after unchanged Checker diagnostics across completed agent rounds; 0 disables
   retry_delay_start: 5     # initial delay time in seconds before retrying
   retry_delay_end: 10      # maximum delay time in seconds before retrying
   loop_alive_time: 120     # active time before completed agent rounds may refresh retry count

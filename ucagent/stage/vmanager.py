@@ -476,6 +476,7 @@ class StageManager(object):
         self.stage_unskip_list = stage_unskip_list
         self.tool_inspect_file = tool_inspect_file
         self.reference_files = reference_files
+        self.validation_revision = 0
 
     @staticmethod
     def _safe_int(value, default=0):
@@ -1015,6 +1016,7 @@ class StageManager(object):
             ret_data["action"] = action
         ret_data["check_info"] = ck_info
         self.last_check_info = copy.deepcopy(ret_data)
+        self.validation_revision = getattr(self, "validation_revision", 0) + 1
         if ck_pass:
             ret_data["message"] = f"Congratulations! Stage {self.stage_index} checks passed successfully, you can use tool 'Complete' to finish this stage."
         elif full_output:
@@ -1314,6 +1316,7 @@ class StageManager(object):
         if not ck_pass:
             self.last_check_info["action"] = action
         self.last_check_info["check_info"] = ck_info
+        self.validation_revision = getattr(self, "validation_revision", 0) + 1
         if ck_pass:
             message = f"Stage {self.stage_index} completed successfully. "
             self._stage_complete(self.stages[self.stage_index])

@@ -431,6 +431,8 @@ UCAgent 支持通过环境变量配置各类参数，环境变量优先级高于
 | `HUMAN_CHECK_CK` | 验证复杂 DUT 时是否开启检测点人工检查 | `false` |
 | `UC_ENV_CMD_BACKEND_EX_ARGS` | 命令行后端执行时的额外参数 | 无 |
 
+`ucagent/setting.yaml`中的`loop_settings.max_stalled_rounds`控制外部 Agent 循环的停滞保护，默认值为`3`，也可以通过`--override loop_settings.max_stalled_rounds=VALUE`覆盖。只有一轮内实际调用了 Check/Complete，且阶段、Checker和Checker显式结构化诊断均与上一计数轮相同时才累计；阶段或批次推进、检查通过、诊断变化都会清零，无新检查的轮次不计数。达到阈值后 UCAgent 暂停`--loop`并等待人工处理，不退出任务、不修改产物，也不向`status`增加字段。设为`0`可关闭该保护；其他值必须是非负整数。
+
 ### 测试工具配置
 
 | 环境变量名 | 说明 | 默认值 |

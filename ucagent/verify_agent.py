@@ -35,6 +35,8 @@ import copy
 import threading
 import shutil
 import os
+import hashlib
+import json
 
 from .abackend import get_backend
 from langfuse import Langfuse
@@ -373,6 +375,11 @@ class VerifyAgent:
         self._need_break = False
         self._break_threads: set[int] = set()
         self._need_human = False
+        self._max_stalled_rounds = self._validated_max_stalled_rounds(
+            self.cfg.get_value("loop_settings.max_stalled_rounds", 3)
+        )
+        self._stalled_rounds = 0
+        self._last_stall_signature = None
         self._force_trace = False
         self._continue_msg = None
         self._mcps = None               # set by PdbMcpServer for api_master heartbeat
@@ -810,7 +817,12 @@ class VerifyAgent:
         self._need_human = False
         # conversation loop
         while not self.is_exit():
+            validation_revision = getattr(
+                self.stage_manager, "validation_revision", 0
+            )
+            stage_index = getattr(self.stage_manager, "stage_index", None)
             self.one_loop()
+            self._update_stalled_rounds(validation_revision, stage_index)
             if self.is_exit():
                 break
             if self.is_break():
@@ -827,6 +839,83 @@ class VerifyAgent:
         )
         info(f"Total time taken: {fmt_time_deta(time_end - self._time_start)}")
         return self
+
+    @staticmethod
+    def _validated_max_stalled_rounds(value):
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ValueError(
+                "loop_settings.max_stalled_rounds must be a non-negative integer"
+            )
+        return value
+
+    @staticmethod
+    def _checker_failure_signature(check_result):
+        if not isinstance(check_result, dict):
+            return None
+        summary = check_result.get("failure_summary")
+        if not isinstance(summary, dict):
+            return None
+        required = (
+            "stage_index",
+            "stage_name",
+            "failed_checker_name",
+            "failed_checker_class",
+            "error_code",
+            "error",
+        )
+        if any(summary.get(key) in (None, "", [], {}) for key in required):
+            return None
+        diagnostic = {key: summary[key] for key in required}
+        serialized = json.dumps(
+            diagnostic,
+            ensure_ascii=True,
+            sort_keys=True,
+            default=str,
+            separators=(",", ":"),
+        )
+        return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+    def _reset_stalled_rounds(self):
+        self._stalled_rounds = 0
+        self._last_stall_signature = None
+
+    def _update_stalled_rounds(self, previous_revision, previous_stage_index):
+        if self._max_stalled_rounds == 0:
+            return
+        current_revision = getattr(
+            self.stage_manager, "validation_revision", previous_revision
+        )
+        if current_revision == previous_revision:
+            return
+        current_stage_index = getattr(
+            self.stage_manager, "stage_index", previous_stage_index
+        )
+        check_result = getattr(self.stage_manager, "last_check_info", {})
+        if (
+            current_stage_index != previous_stage_index
+            or check_result.get("check_pass") is True
+            or check_result.get("progress_summary")
+        ):
+            self._reset_stalled_rounds()
+            return
+        signature = self._checker_failure_signature(check_result)
+        if signature is None:
+            self._reset_stalled_rounds()
+            return
+        if signature == self._last_stall_signature:
+            self._stalled_rounds += 1
+        else:
+            self._last_stall_signature = signature
+            self._stalled_rounds = 1
+        if self._stalled_rounds >= self._max_stalled_rounds:
+            summary = check_result["failure_summary"]
+            warning(
+                "Pausing the agent loop after "
+                f"{self._stalled_rounds} rounds with unchanged Checker diagnostic "
+                f"{summary['error_code']} in stage {summary['stage_index']} "
+                f"({summary['stage_name']})."
+            )
+            self._need_human = True
 
     def one_loop(self, msg=None):
         """Enhanced one loop with intelligent interaction logic based on configured mode"""
