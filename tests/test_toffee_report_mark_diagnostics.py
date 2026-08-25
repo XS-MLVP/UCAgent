@@ -4,17 +4,22 @@
 
 import os
 import sys
+from types import SimpleNamespace
+
+import pytest
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.abspath(os.path.join(current_dir, "..")))
 
 import ucagent.checkers.toffee_report as toffee_report
+from ucagent.checkers.unity_test import BaseUnityChipCheckerTestCase
 from ucagent.checkers.toffee_report import (
     check_bug_ck_analysis,
     check_bug_tc_analysis,
     check_failed_checkpoint_reproducers,
     check_report,
 )
+from ucagent.util.config import Config
 
 
 def _write_function_doc(path):
@@ -22,6 +27,24 @@ def _write_function_doc(path):
         "<FG-A>\n<FC-A>\n<CK-A>\n",
         encoding="utf-8",
     )
+
+
+def test_checker_reads_resolved_tc_output_dir_from_stage_manager_cfg():
+    checker = BaseUnityChipCheckerTestCase(test_dir="stale/tests")
+    checker.stage_manager = SimpleNamespace(
+        cfg=Config({"tools": {"RunTestCases": {"test_dir": "unity_test/tests"}}})
+    )
+
+    assert checker.get_configured_test_output_dir() == "unity_test/tests"
+
+
+def test_checker_reads_resolved_tc_output_dir_from_injected_cfg_before_manager():
+    checker = BaseUnityChipCheckerTestCase(
+        test_dir="stale/tests",
+        cfg=Config({"tools": {"RunTestCases": {"test_dir": "unity_test/tests"}}}),
+    )
+
+    assert checker.get_configured_test_output_dir() == "unity_test/tests"
 
 
 def test_check_report_prioritizes_empty_functional_coverage(tmp_path):
@@ -122,7 +145,7 @@ def test_bug_analysis_reports_missing_relation_without_claiming_call_absent(tmp_
         "<FC-A>\n"
         "<CK-A>\n"
         "<BG-BUG-80>\n"
-        "<TC-test_a.py::test_a>\n",
+        "<TC-tests/test_a.py::test_a>\n",
         encoding="utf-8",
     )
 
@@ -141,6 +164,44 @@ def test_bug_analysis_reports_missing_relation_without_claiming_call_absent(tmp_
     assert "report does not associate" in message[0]
     assert "does not by itself prove" in message[1]
     assert "have not called mark_function" not in " ".join(message)
+
+
+@pytest.mark.parametrize("only_marked_ckp_in_tc", (False, True))
+def test_bug_analysis_does_not_match_short_path_to_report_node(
+    tmp_path, only_marked_ckp_in_tc
+):
+    checkpoint = "FG-A/FC-A/CK-A"
+    test_case = "tests/test_a.py:1-3::test_a"
+    (tmp_path / "bugs.md").write_text(
+        "<FG-A>\n<FC-A>\n<CK-A>\n<BG-BUG-80>\n"
+        "<TC-test_a.py::test_a>\n",
+        encoding="utf-8",
+    )
+
+    passed, message = check_bug_tc_analysis(
+        str(tmp_path),
+        [checkpoint],
+        "bugs.md",
+        "",
+        {test_case: [checkpoint]},
+        [],
+        only_marked_ckp_in_tc,
+        test_output_dir="tests",
+    )
+
+    assert passed is False
+    assert "[Test Case Node ID Mismatch]" in message[0]
+    assert "<TC-test_a.py::test_a>" in message[0]
+    assert "[Configured TC output directory] tests" in message[1]
+    assert "resolved agent.cfg value" in message[1]
+    assert "FG-A/FC-A/CK-A" in message[2]
+    assert "tests/test_a.py::test_a" in message[3]
+    assert "lookup hints only" in message[3]
+    assert "not equivalent identities" in message[3]
+    assert "begins with 'tests/' from agent.cfg" in message[4]
+    assert "remove only the file ':start-end'" in message[4]
+    assert "do not call Check/Complete again" in message[5]
+    assert "[Unresolved Failed Cases]" not in " ".join(message)
 
 
 def test_failed_checkpoint_requires_failed_test_on_same_checkpoint(tmp_path):
@@ -186,6 +247,14 @@ def test_failed_checkpoint_requires_failed_test_on_same_checkpoint(tmp_path):
     ]
     assert "Possible Causes" not in str(message)
     assert "manufacture a failure" in " ".join(message["next_action"])
+    assert "Do not modify a currently PASSED associated test solely" in " ".join(
+        message["next_action"]
+    )
+    assert "A correct repair may make the CK pass" in " ".join(
+        message["next_action"]
+    )
+    assert "actual driven values" in " ".join(message["next_action"])
+    assert "untransformed operands" in " ".join(message["next_action"])
     next_action = "\n".join(message["next_action"])
     assert "derive an independent expected value" in next_action
     assert "coverage/check predicate" in next_action
@@ -299,7 +368,7 @@ def test_failed_test_can_be_documented_under_covered_checkpoint(
         "#### Result function <FC-A>\n"
         "##### Target result <CK-A>\n"
         "###### Target result defect（90%） <BG-DUT-DEFECT-90>\n"
-        "- Failing result case <TC-test_a.py::test_a>\n"
+        "- Failing result case <TC-tests/test_a.py::test_a>\n"
         "</DYNAMIC-BUGS>\n",
         encoding="utf-8",
     )
@@ -348,7 +417,7 @@ def test_failed_checkpoint_bug_branch_requires_same_checkpoint_failed_test(tmp_p
         "###### Target result defect（90%） <BG-TARGET-DEFECT-90>\n"
         "##### Other result <CK-OTHER>\n"
         "###### Other result defect（90%） <BG-OTHER-DEFECT-90>\n"
-        "- Failing result case <TC-test_a.py::test_a>\n"
+        "- Failing result case <TC-tests/test_a.py::test_a>\n"
         "</DYNAMIC-BUGS>\n",
         encoding="utf-8",
     )
@@ -383,7 +452,7 @@ def test_failed_checkpoint_bug_branch_accepts_same_checkpoint_failed_test(tmp_pa
         "#### Result function <FC-A>\n"
         "##### Target result <CK-A>\n"
         "###### Target result defect（90%） <BG-DUT-DEFECT-90>\n"
-        "- Failing result case <TC-test_a.py::test_a>\n"
+        "- Failing result case <TC-tests/test_a.py::test_a>\n"
         "</DYNAMIC-BUGS>\n",
         encoding="utf-8",
     )
@@ -405,7 +474,7 @@ def test_zero_confidence_placeholder_cannot_explain_failed_test(tmp_path):
     test_case = "tests/test_a.py:1-3::test_a"
     (tmp_path / "bugs.md").write_text(
         "<FG-A>\n<FC-A>\n<CK-A>\n<BG-PLACEHOLDER-0>\n"
-        "<TC-test_a.py::test_a>\n",
+        "<TC-tests/test_a.py::test_a>\n",
         encoding="utf-8",
     )
 
@@ -421,7 +490,9 @@ def test_zero_confidence_placeholder_cannot_explain_failed_test(tmp_path):
 
     assert passed is False
     assert "[Unresolved Failed Cases]" in message[0]
-    assert "<BG-*-0> placeholder does not explain" in " ".join(message)
+    assert "<BG-*-0> placeholder does not classify" in " ".join(message)
+    assert "[Dynamic Bug Analysis Contract]" not in " ".join(message)
+    assert len(message) == 5
     next_action = "\n".join(
         item for item in message if item.startswith("[Next action")
     )
@@ -471,7 +542,7 @@ def test_nonzero_dut_bug_record_allows_failed_test_classification(tmp_path):
     test_case = "tests/test_a.py:1-3::test_a"
     (tmp_path / "bugs.md").write_text(
         "<FG-A>\n<FC-A>\n<CK-A>\n<BG-DUT-DEFECT-90>\n"
-        "<TC-test_a.py::test_a>\n",
+        "<TC-tests/test_a.py::test_a>\n",
         encoding="utf-8",
     )
 
@@ -494,7 +565,7 @@ def test_failed_test_must_be_documented_under_target_checkpoint_prefix(tmp_path)
     test_case = "tests/test_api.py:1-3::test_add"
     (tmp_path / "bugs.md").write_text(
         "<FG-OTHER>\n<FC-OP>\n<CK-ADD>\n<BG-DUT-DEFECT-90>\n"
-        "<TC-test_api.py::test_add>\n",
+        "<TC-tests/test_api.py::test_add>\n",
         encoding="utf-8",
     )
 
@@ -518,7 +589,7 @@ def test_target_prefix_check_accepts_bug_at_actual_failed_checkpoint(tmp_path):
     test_case = "tests/test_api.py:1-3::test_add"
     (tmp_path / "bugs.md").write_text(
         "<FG-ADD>\n<FC-BASIC>\n<CK-RESULT>\n<BG-DUT-DEFECT-90>\n"
-        "<TC-test_api.py::test_add>\n",
+        "<TC-tests/test_api.py::test_add>\n",
         encoding="utf-8",
     )
 

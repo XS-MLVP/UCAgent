@@ -988,6 +988,21 @@ class BaseUnityChipCheckerTestCase(Checker):
             return None
         return self.get_tool_by_name("WaveInfo")
 
+    def get_configured_test_output_dir(self):
+        """Return the resolved TC output directory from the active stage manager."""
+
+        cfg = getattr(self.stage_manager, "cfg", None)
+        if cfg is None:
+            cfg = self.extra_kwargs.get("cfg")
+        if cfg is None:
+            return self.test_dir or ""
+        try:
+            return cfg.get_value(
+                "tools.RunTestCases.test_dir", self.test_dir or ""
+            )
+        except AttributeError:
+            return self.test_dir or ""
+
     def _ignored_test_prefixes(self):
         return _normalize_test_prefixes(self.ignore_tc_prefix)
 
@@ -1700,6 +1715,7 @@ class UnityChipCheckerDutApiTest(BaseUnityChipCheckerTestCase):
             self.api_ck_prefix,
             waveform_tool=self.get_waveform_tool_for_checker(),
             waveform_test_dir=os.path.dirname(self.target_file_api),
+            test_output_dir=self.get_configured_test_output_dir(),
         )
         if not ret:
             return ret, get_emsg(msg)
@@ -1909,6 +1925,7 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
             only_marked_ckp_in_tc=True,
             waveform_tool=self.get_waveform_tool_for_checker(),
             waveform_test_dir=self.test_dir,
+            test_output_dir=self.get_configured_test_output_dir(),
         )
         error_msgs["REPORT"] = self._compact_validation_report(report, return_tests)
         if not ret:
@@ -2062,6 +2079,7 @@ class UnityChipCheckerTestCase(BaseUnityChipCheckerTestCase):
             self.doc_bug_analysis,
             waveform_tool=self.get_waveform_tool_for_checker(),
             waveform_test_dir=self.test_dir,
+            test_output_dir=self.get_configured_test_output_dir(),
         )
         if not ret:
             info_runtest["error"] = msg
