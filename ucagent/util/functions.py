@@ -7,9 +7,11 @@ import stat
 from collections.abc import Sequence
 from ucagent.util.bug_analysis_contract import (
     BUG_ANALYSIS_SECTION_MARKERS,
+    DYNAMIC_BUG_DOCUMENT_PATH,
     ROOT_SOURCE_EVIDENCE_MARKERS,
     ROOT_SOURCE_UNAVAILABLE_MARKER,
     ROOT_ANALYSIS_SECTION_MARKERS,
+    TEST_CASE_SERIALIZATION,
     BUG_TODO_MARKER,
     DYNAMIC_BUGS_MARKER,
     DYNAMIC_BUGS_END_MARKER,
@@ -1812,7 +1814,10 @@ def description_bug_doc():
     bug_fields = ", ".join(WAVEFORM_BUG_ANALYSIS_FIELDS)
     return [
         "[Dynamic Bug Analysis Contract] Follow the active stage task and Guide_Doc/dut_bug_analysis.md for the complete workflow. A stage Skill, when available, is only an optional helper.",
+        f"  - The only dynamic Bug target is {DYNAMIC_BUG_DOCUMENT_PATH}. Its visible Markdown title is not a filename rule; never derive or create another filename from that title.",
+        f"  - Serialize one exact report node ID by consumer: Markdown `{TEST_CASE_SERIALIZATION['markdown_tag']}`; recorder/Apply arguments and waveform YAML test_case `{TEST_CASE_SERIALIZATION['tool_or_yaml']}`; WaveInfo test_case_name `{TEST_CASE_SERIALIZATION['waveinfo']}`. The node ID itself must remain byte-for-byte identical.",
         f"  - Put dynamic Bug entries inside one closed {DYNAMIC_BUGS_MARKER} ... {DYNAMIC_BUGS_END_MARKER} container, root-cause entities inside one closed {ROOT_CAUSES_MARKER} ... {ROOT_CAUSES_END_MARKER} container, then waveform records inside one closed {WAVEFORM_EVIDENCE_MARKER} ... {WAVEFORM_EVIDENCE_END_MARKER} container.",
+        "  - For a completed no-Bug result, keep the canonical document title and the three ordered closed containers, with every container body empty. Do not put explanatory prose, BG-*-0, TC/ROOT placeholders, comments, or waveform records in those bodies.",
         "  - Use the exact semantic heading hierarchy shown in Guide_Doc/dut_bug_analysis.md section 5.1 for FG, FC, CK, BG, and TC. Angle-bracket tags may be hidden by Markdown, so every visible title must describe the actual item rather than repeat its type.",
         "  - XX must be 1..100 for a dynamically reproduced DUT Bug. A zero-confidence BG is ignored and cannot explain a failed test.",
         "  - Every non-zero BG must contain at least one correctly implemented FAILED TC mapped to the same checkpoint.",

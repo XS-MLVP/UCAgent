@@ -98,6 +98,9 @@ def _load_locale_contract() -> dict:
     generic_titles = payload.get("generic_visible_titles")
     confidence = payload.get("bg_confidence")
     waveform_suffix = payload.get("waveform_title_suffix")
+    document_paths = payload.get("document_paths")
+    test_case_serialization = payload.get("test_case_serialization")
+    no_bug_document = payload.get("no_bug_document")
     root_cause_titles = payload.get("root_cause_titles")
     section_titles = payload.get("analysis_section_titles")
     expected_keys = [key for key, _marker in BUG_ANALYSIS_SECTION_MARKERS]
@@ -112,6 +115,55 @@ def _load_locale_contract() -> dict:
         raise RuntimeError("bg_confidence must define non-empty prefix and suffix")
     if not isinstance(waveform_suffix, str) or not waveform_suffix:
         raise RuntimeError("waveform_title_suffix must be a non-empty string")
+    if (
+        not isinstance(document_paths, dict)
+        or list(document_paths) != ["dynamic", "static"]
+        or document_paths.get("dynamic") != "{OUT}/{DUT}_bug_analysis.md"
+        or document_paths.get("static") != "{OUT}/{DUT}_static_bug_analysis.md"
+    ):
+        raise RuntimeError("document_paths must define the canonical dynamic/static paths")
+    expected_serialization = {
+        "markdown_tag": "- {visible_title} <TC-{exact_report_node_id}>",
+        "tool_or_yaml": "TC-{exact_report_node_id}",
+        "waveinfo": "{exact_report_node_id}",
+    }
+    if test_case_serialization != expected_serialization:
+        raise RuntimeError(
+            "test_case_serialization must define the three canonical TC forms"
+        )
+    expected_no_bug_markers = (
+        (DYNAMIC_BUGS_MARKER, DYNAMIC_BUGS_END_MARKER),
+        (ROOT_CAUSES_MARKER, ROOT_CAUSES_END_MARKER),
+        (WAVEFORM_EVIDENCE_MARKER, WAVEFORM_EVIDENCE_END_MARKER),
+    )
+    no_bug_sections = (
+        no_bug_document.get("sections")
+        if isinstance(no_bug_document, dict)
+        else None
+    )
+    if (
+        not isinstance(no_bug_document, dict)
+        or not isinstance(no_bug_document.get("title"), str)
+        or "{DUT}" not in no_bug_document["title"]
+        or no_bug_document.get("container_body_must_be_empty") is not True
+        or not isinstance(no_bug_sections, list)
+        or len(no_bug_sections) != len(expected_no_bug_markers)
+    ):
+        raise RuntimeError("no_bug_document must define the canonical empty document")
+    for section, (start_marker, end_marker) in zip(
+        no_bug_sections, expected_no_bug_markers
+    ):
+        if (
+            not isinstance(section, dict)
+            or list(section) != ["heading", "start_marker", "end_marker"]
+            or not isinstance(section.get("heading"), str)
+            or not section["heading"].startswith("## ")
+            or section.get("start_marker") != start_marker
+            or section.get("end_marker") != end_marker
+        ):
+            raise RuntimeError(
+                "no_bug_document sections must match the canonical container order"
+            )
     if (
         not isinstance(root_cause_titles, dict)
         or list(root_cause_titles)
@@ -154,6 +206,13 @@ GENERIC_DYNAMIC_TITLES = frozenset(_LOCALE_CONTRACT["generic_visible_titles"])
 _BG_CONFIDENCE_PREFIX = _LOCALE_CONTRACT["bg_confidence"]["prefix"]
 _BG_CONFIDENCE_SUFFIX = _LOCALE_CONTRACT["bg_confidence"]["suffix"]
 _WAVEFORM_TITLE_SUFFIX = _LOCALE_CONTRACT["waveform_title_suffix"]
+DYNAMIC_BUG_DOCUMENT_PATH = _LOCALE_CONTRACT["document_paths"]["dynamic"]
+STATIC_BUG_DOCUMENT_PATH = _LOCALE_CONTRACT["document_paths"]["static"]
+TEST_CASE_SERIALIZATION = dict(_LOCALE_CONTRACT["test_case_serialization"])
+NO_BUG_DOCUMENT_TITLE = _LOCALE_CONTRACT["no_bug_document"]["title"]
+NO_BUG_DOCUMENT_SECTIONS = tuple(
+    dict(section) for section in _LOCALE_CONTRACT["no_bug_document"]["sections"]
+)
 ROOT_CAUSE_ANALYSIS_TITLE = _LOCALE_CONTRACT["root_cause_titles"]["analysis"]
 ROOT_SOURCE_EVIDENCE_TITLE = _LOCALE_CONTRACT["root_cause_titles"]["source_evidence"]
 ROOT_CAUSAL_CHAIN_TITLE = _LOCALE_CONTRACT["root_cause_titles"]["causal_chain"]

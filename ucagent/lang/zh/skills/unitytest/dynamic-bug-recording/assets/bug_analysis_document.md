@@ -1,13 +1,16 @@
 # $DUT 动态 Bug 分析
 
 ## 动态 Bug 记录
+
 <DYNAMIC-BUGS>
 </DYNAMIC-BUGS>
 
 ## 根因分析
+
 <ROOT-CAUSES>
 </ROOT-CAUSES>
 
 ## 波形证据
+
 <WAVEFORM-EVIDENCE>
 </WAVEFORM-EVIDENCE>

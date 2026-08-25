@@ -15,6 +15,36 @@
     "suffix": "%）"
   },
   "waveform_title_suffix": "波形",
+  "document_paths": {
+    "dynamic": "{OUT}/{DUT}_bug_analysis.md",
+    "static": "{OUT}/{DUT}_static_bug_analysis.md"
+  },
+  "test_case_serialization": {
+    "markdown_tag": "- {visible_title} <TC-{exact_report_node_id}>",
+    "tool_or_yaml": "TC-{exact_report_node_id}",
+    "waveinfo": "{exact_report_node_id}"
+  },
+  "no_bug_document": {
+    "title": "# {DUT} 动态 Bug 分析",
+    "container_body_must_be_empty": true,
+    "sections": [
+      {
+        "heading": "## 动态 Bug 记录",
+        "start_marker": "<DYNAMIC-BUGS>",
+        "end_marker": "</DYNAMIC-BUGS>"
+      },
+      {
+        "heading": "## 根因分析",
+        "start_marker": "<ROOT-CAUSES>",
+        "end_marker": "</ROOT-CAUSES>"
+      },
+      {
+        "heading": "## 波形证据",
+        "start_marker": "<WAVEFORM-EVIDENCE>",
+        "end_marker": "</WAVEFORM-EVIDENCE>"
+      }
+    ]
+  },
   "root_cause_titles": {
     "analysis": "#### 根因分析",
     "source_evidence": "#### 源码证据",

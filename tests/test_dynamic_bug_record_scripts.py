@@ -11,6 +11,8 @@ import sys
 
 import pytest
 
+from ucagent.util.markdown import markdown_heading_spacing_errors
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 RECORD_SCRIPTS = (
@@ -37,11 +39,13 @@ def test_bug_record_scripts_have_distinct_owners_and_names():
     assert not re.search(r"[\u4e00-\u9fff]", dynamic_script)
     assert "load_runtime_config(os.getcwd())" in dynamic_script
     assert 'runtime_config["test_output_dir"]' in dynamic_script
+    assert "DYNAMIC_BUG_DOCUMENT_PATH.format" in dynamic_script
     assert 'os.environ.get("DUT")' not in dynamic_script
     assert 'os.environ.get("OUT")' not in dynamic_script
     assert STATIC_RECORD_SCRIPT.is_file()
     static_script = STATIC_RECORD_SCRIPT.read_text(encoding="utf-8")
     assert "load_runtime_config(os.getcwd())" in static_script
+    assert "STATIC_BUG_DOCUMENT_PATH.format" in static_script
     assert 'os.environ.get("DUT")' not in static_script
     assert 'os.environ.get("OUT")' not in static_script
     for script_path in (FUNCTIONS_UPDATE_SCRIPT, LINK_SCRIPT):
@@ -49,6 +53,9 @@ def test_bug_record_scripts_have_distinct_owners_and_names():
         assert "load_runtime_config(os.getcwd())" in script
         assert 'os.environ.get("DUT")' not in script
         assert 'os.environ.get("OUT")' not in script
+    link_script = LINK_SCRIPT.read_text(encoding="utf-8")
+    assert "DYNAMIC_BUG_DOCUMENT_PATH.format" in link_script
+    assert "STATIC_BUG_DOCUMENT_PATH.format" in link_script
     assert not list(
         (REPO_ROOT / "ucagent/lang/zh/skills/unitytest").glob(
             "*/scripts/recordbug.py"
@@ -375,6 +382,9 @@ def test_dynamic_bug_record_script_generates_incomplete_analysis_scaffold(script
     )
 
     document = "".join(lines)
+    assert markdown_heading_spacing_errors(
+        document, module.HEADING_COMPANION_MARKERS
+    ) == []
     markers = (
         module.OVERVIEW_MARKER,
         "<BUG-SYMPTOMS>",
@@ -520,6 +530,7 @@ def test_static_bug_record_template_uses_markers_before_localizable_titles():
     assert [document.index(token) for token in ordered_tokens] == sorted(
         document.index(token) for token in ordered_tokens
     )
+    assert markdown_heading_spacing_errors(document) == []
 
 
 @pytest.mark.parametrize(
@@ -642,7 +653,9 @@ def test_static_bug_record_script_uses_resolved_runtime_config(
 
     target = out_dir / "Demo_static_bug_analysis.md"
     assert target.is_file()
-    assert "# Demo RTL" in target.read_text(encoding="utf-8")
+    document = target.read_text(encoding="utf-8")
+    assert "# Demo RTL" in document
+    assert markdown_heading_spacing_errors(document) == []
     assert not (tmp_path / "wrong_output").exists()
 
 

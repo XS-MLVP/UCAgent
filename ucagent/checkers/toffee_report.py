@@ -18,6 +18,7 @@ from ucagent.util.bug_analysis_contract import (
     ROOT_SOURCE_UNAVAILABLE_MARKER as _ROOT_SOURCE_UNAVAILABLE_MARKER,
     BUG_TODO_MARKER as _BUG_TODO_MARKER,
     DOCUMENT_TAG_PATTERN as _DOCUMENT_TAG_PATTERN,
+    DYNAMIC_BUG_DOCUMENT_PATH as _DYNAMIC_BUG_DOCUMENT_PATH,
     DYNAMIC_BUGS_END_MARKER as _DYNAMIC_BUGS_END_MARKER,
     DYNAMIC_BUGS_MARKER as _DYNAMIC_BUGS_MARKER,
     ROOT_CAUSE_REFERENCE_MARKER as _ROOT_CAUSE_REFERENCE_MARKER,
@@ -25,6 +26,7 @@ from ucagent.util.bug_analysis_contract import (
     ROOT_CAUSES_END_MARKER as _ROOT_CAUSES_END_MARKER,
     ROOT_CAUSES_MARKER as _ROOT_CAUSES_MARKER,
     ROOT_ENTITY_TAG_PATTERN as _ROOT_ENTITY_TAG_PATTERN,
+    TEST_CASE_SERIALIZATION as _TEST_CASE_SERIALIZATION,
     RELATED_BUG_TAG_PREFIX as _RELATED_BUG_TAG_PREFIX,
     RELATED_BUGS_MARKER as _RELATED_BUGS_MARKER,
     RELATED_BUGS_TITLE as _RELATED_BUGS_TITLE,
@@ -74,6 +76,195 @@ _HDL_FENCED_BLOCK = re.compile(
     re.IGNORECASE | re.MULTILINE | re.DOTALL,
 )
 _MAX_ROOT_RELATION_DIAGNOSTICS = 50
+_MAX_DYNAMIC_CONTAINER_DIAGNOSTICS = 50
+
+
+def _missing_dynamic_bug_document_error(bug_file: str) -> dict:
+    """Return the exact canonical recovery for a missing dynamic Bug document."""
+
+    return {
+        "error_code": "DYNAMIC_BUG_DOCUMENT_MISSING",
+        "error": (
+            f"[Dynamic Bug Document Missing] Required canonical document '{bug_file}' "
+            "does not exist. A no-Bug result still requires this document."
+        ),
+        "next_action": (
+            f"Create only '{bug_file}' using the generated dynamic Bug template. If no "
+            "dynamic Bug was found, use the exact completed empty structure in "
+            "Guide_Doc/dut_bug_analysis.md section 2.1: keep the canonical title and "
+            "ordered empty DYNAMIC-BUGS, ROOT-CAUSES, and WAVEFORM-EVIDENCE containers. "
+            "Do not derive another filename from the title, then call `Check`/`Complete` "
+            "again."
+        ),
+    }
+
+
+def _strip_html_comments(lines: list[str]) -> tuple[list[str], int | None]:
+    """Remove HTML comment blocks while preserving source-line positions."""
+
+    cleaned_lines = []
+    in_comment = False
+    comment_start = None
+    for index, line in enumerate(lines):
+        remainder = line
+        fragments = []
+        while remainder:
+            if in_comment:
+                comment_end = remainder.find("-->")
+                if comment_end < 0:
+                    remainder = ""
+                    break
+                remainder = remainder[comment_end + 3 :]
+                in_comment = False
+                comment_start = None
+                continue
+
+            comment_start_index = remainder.find("<!--")
+            if comment_start_index < 0:
+                fragments.append(remainder)
+                remainder = ""
+                break
+            fragments.append(remainder[:comment_start_index])
+            comment_end = remainder.find("-->", comment_start_index + 4)
+            if comment_end < 0:
+                in_comment = True
+                comment_start = index + 1
+                remainder = ""
+                break
+            remainder = remainder[comment_end + 3 :]
+
+        cleaned_lines.append("".join(fragments))
+
+    return cleaned_lines, comment_start if in_comment else None
+
+
+def _substantive_lines_without_html_comments(
+    lines: list[str], start_index: int, end_index: int
+) -> list[tuple[int, str]]:
+    """Return nonblank container lines after removing complete HTML comments."""
+
+    cleaned_lines, unclosed_comment_line = _strip_html_comments(lines)
+    substantive = [
+        (index + 1, cleaned_lines[index].strip())
+        for index in range(start_index, end_index)
+        if cleaned_lines[index].strip()
+    ]
+
+    if (
+        unclosed_comment_line is not None
+        and start_index < unclosed_comment_line <= end_index
+    ):
+        substantive.append(
+            (unclosed_comment_line, "<!-- (unclosed HTML comment)")
+        )
+    return substantive
+
+
+def _dynamic_container_format_error(
+    bug_file: str,
+    start_indexes: list[int],
+    end_indexes: list[int],
+) -> dict:
+    """Return a Checker-authored repair for malformed dynamic container markers."""
+
+    start_lines = [index + 1 for index in start_indexes]
+    end_lines = [index + 1 for index in end_indexes]
+    return {
+        "error_code": "DYNAMIC_BUG_CONTAINER_FORMAT",
+        "error": (
+            f"[Dynamic Bug Container Format Error] '{bug_file}' must contain exactly "
+            f"one standalone {_DYNAMIC_BUGS_MARKER} and one standalone "
+            f"{_DYNAMIC_BUGS_END_MARKER}, in that order. Found opening marker line(s) "
+            f"{start_lines or '(none)'} and closing marker line(s) "
+            f"{end_lines or '(none)'}."
+        ),
+        "next_action": (
+            f"Repair the marker pair in '{bug_file}' so one closed DYNAMIC-BUGS body "
+            "remains. If no dynamically reproduced DUT Bug exists, leave that body "
+            "empty and preserve the empty ROOT-CAUSES and WAVEFORM-EVIDENCE "
+            "containers, then call `Check`/`Complete` again."
+        ),
+    }
+
+
+def _unparseable_dynamic_container_error(
+    bug_file: str,
+    substantive_lines: list[tuple[int, str]],
+) -> dict:
+    """Return every bounded malformed line when no dynamic machine tag is parseable."""
+
+    malformed_lines = _render_container_line_diagnostics(
+        bug_file, substantive_lines
+    )
+    return {
+        "error_code": "DYNAMIC_BUG_CONTAINER_UNPARSEABLE_CONTENT",
+        "error": (
+            f"[Dynamic Bug Container Unparseable Content] '{bug_file}' contains "
+            f"{len(substantive_lines)} substantive line(s) inside DYNAMIC-BUGS but no "
+            "canonical <FG-*>, <FC-*>, <CK-*>, <BG-*>, or <TC-*> machine tag. The "
+            "content cannot be accepted as an empty/no-Bug result or as Bug records:\n"
+            f"{malformed_lines}"
+        ),
+        "next_action": (
+            f"Edit only the configured dynamic Bug document '{bug_file}' (contract path "
+            f"{_DYNAMIC_BUG_DOCUMENT_PATH}); do not derive another filename from its "
+            "visible Markdown title. If no Bug was found, remove all content from the "
+            "DYNAMIC-BUGS, ROOT-CAUSES, and WAVEFORM-EVIDENCE bodies. Otherwise rebuild "
+            "the DYNAMIC-BUGS body with Guide_Doc/dut_bug_analysis.md section 5.1. Use "
+            f"Markdown `{_TEST_CASE_SERIALIZATION['markdown_tag']}`, record/Apply arguments "
+            f"and waveform YAML test_case `{_TEST_CASE_SERIALIZATION['tool_or_yaml']}`, "
+            f"and WaveInfo test_case_name `{_TEST_CASE_SERIALIZATION['waveinfo']}`. Repair "
+            "every listed line before calling `Check`/`Complete` again."
+        ),
+    }
+
+
+def _dynamic_container_without_bug_error(
+    bug_file: str,
+    substantive_lines: list[tuple[int, str]],
+) -> dict:
+    """Reject a nonempty container that has tags but defines no BG record."""
+
+    malformed_lines = _render_container_line_diagnostics(
+        bug_file, substantive_lines
+    )
+    return {
+        "error_code": "DYNAMIC_BUG_CONTAINER_NO_BUG_RECORD",
+        "error": (
+            f"[Dynamic Bug Container Has No Bug Record] '{bug_file}' contains "
+            "machine-tagged content inside DYNAMIC-BUGS but no canonical <BG-*> "
+            f"record:\n{malformed_lines}"
+        ),
+        "next_action": (
+            "If no dynamically reproduced DUT Bug exists, remove all content from the "
+            "DYNAMIC-BUGS, ROOT-CAUSES, and WAVEFORM-EVIDENCE bodies. Otherwise rebuild "
+            "the incomplete hierarchy as FG -> FC -> CK -> BG -> TC using "
+            "Guide_Doc/dut_bug_analysis.md section 5.1. Do not leave standalone FG/FC/CK/TC "
+            "scaffolds in a completed no-Bug document. Repair every listed line before "
+            "calling `Check`/`Complete` again."
+        ),
+    }
+
+
+def _render_container_line_diagnostics(
+    bug_file: str,
+    substantive_lines: list[tuple[int, str]],
+) -> str:
+    """Render one bounded list of exact file/line excerpts."""
+
+    shown = substantive_lines[:_MAX_DYNAMIC_CONTAINER_DIAGNOSTICS]
+    remaining = len(substantive_lines) - len(shown)
+    rendered = []
+    for line_number, content in shown:
+        excerpt = re.sub(r"\s+", " ", content).strip()
+        if len(excerpt) > 180:
+            excerpt = excerpt[:177] + "..."
+        rendered.append(f"- {bug_file}:{line_number}-{line_number}: `{excerpt}`")
+    if remaining:
+        rendered.append(
+            f"- {remaining} additional substantive line(s) omitted from this bounded batch."
+        )
+    return "\n".join(rendered)
 
 
 def _root_relation_issue_result(issues: list[dict], bug_file: str) -> tuple[bool, dict]:
@@ -307,12 +498,45 @@ def _parse_documented_dynamic_bug_records(
     with open(path, "r", encoding="utf-8") as handle:
         lines = handle.read().splitlines()
 
+    uncommented_lines, _unclosed_comment_line = _strip_html_comments(lines)
+    stripped_lines = [line.strip() for line in uncommented_lines]
+    dynamic_start_indexes = [
+        index
+        for index, value in enumerate(stripped_lines)
+        if value == _DYNAMIC_BUGS_MARKER
+    ]
+    dynamic_end_indexes = [
+        index
+        for index, value in enumerate(stripped_lines)
+        if value == _DYNAMIC_BUGS_END_MARKER
+    ]
+    if (
+        len(dynamic_start_indexes) != 1
+        or len(dynamic_end_indexes) != 1
+        or dynamic_start_indexes[0] >= dynamic_end_indexes[0]
+    ):
+        return False, [], _dynamic_container_format_error(
+            bug_file, dynamic_start_indexes, dynamic_end_indexes
+        )
+    dynamic_start = dynamic_start_indexes[0]
+    dynamic_end = dynamic_end_indexes[0]
+    substantive_dynamic_lines = _substantive_lines_without_html_comments(
+        lines, dynamic_start + 1, dynamic_end
+    )
+    if substantive_dynamic_lines and not any(
+        _DOCUMENT_TAG_PATTERN.search(content)
+        for _line_number, content in substantive_dynamic_lines
+    ):
+        return False, [], _unparseable_dynamic_container_error(
+            bug_file, substantive_dynamic_lines
+        )
+
     hierarchy = {"FG": None, "FC": None, "CK": None}
     records = []
     current = None
     fence_open = False
-    dynamic_container_lines = []
     first_bug_line = None
+    documented_bug_count = 0
     in_dynamic_container = False
     analysis_markers = {marker for _key, marker in _BUG_ANALYSIS_SECTION_MARKERS}
     analysis_titles = {title for _key, title in _BUG_ANALYSIS_SECTION_TITLES}
@@ -337,19 +561,19 @@ def _parse_documented_dynamic_bug_records(
         current = None
 
     for index, line in enumerate(lines):
-        stripped = line.strip()
+        parse_line = uncommented_lines[index]
+        stripped = parse_line.strip()
         if stripped.startswith("```"):
             fence_open = not fence_open
             continue
         if fence_open:
             continue
-        matches = list(_DOCUMENT_TAG_PATTERN.finditer(line))
+        matches = list(_DOCUMENT_TAG_PATTERN.finditer(parse_line))
         if first_bug_line is None and any(
             match.group(1) == "BG" for match in matches
         ):
             first_bug_line = index + 1
         if stripped == _DYNAMIC_BUGS_MARKER:
-            dynamic_container_lines.append(index + 1)
             in_dynamic_container = True
             continue
         if stripped == _DYNAMIC_BUGS_END_MARKER:
@@ -375,7 +599,7 @@ def _parse_documented_dynamic_bug_records(
             kind, value = match.groups()
             label = f"{kind}-{value}"
             try:
-                display_title = _parse_dynamic_tag_heading(line, kind, label)
+                display_title = _parse_dynamic_tag_heading(parse_line, kind, label)
             except ValueError as heading_error:
                 return False, [], {
                     "error": (
@@ -393,6 +617,7 @@ def _parse_documented_dynamic_bug_records(
             elif kind == "CK":
                 hierarchy["CK"] = label
             elif kind == "BG":
+                documented_bug_count += 1
                 try:
                     _bug_name, confidence = parse_bug_label(label)
                 except ValueError as error:
@@ -457,34 +682,21 @@ def _parse_documented_dynamic_bug_records(
                 )
 
     close_current(len(lines))
-    if len(dynamic_container_lines) != 1:
-        location_requirement = (
-            "before the first BG entry" if first_bug_line is not None else "in the document"
+    if substantive_dynamic_lines and documented_bug_count == 0:
+        return False, [], _dynamic_container_without_bug_error(
+            bug_file, substantive_dynamic_lines
         )
-        return False, [], {
-            "error": (
-                f"[Dynamic Bug Container Format Error] Existing dynamic Bug document "
-                f"'{bug_file}' must contain standalone marker {_DYNAMIC_BUGS_MARKER!r} "
-                f"exactly once {location_requirement}; found "
-                f"{len(dynamic_container_lines)} occurrence(s)."
-            ),
-            "details": {
-                "marker": _DYNAMIC_BUGS_MARKER,
-                "marker_lines": dynamic_container_lines,
-                "first_bug_line": first_bug_line,
-            },
-        }
     if first_bug_line is not None:
-        if dynamic_container_lines[0] > first_bug_line:
+        if dynamic_start + 1 > first_bug_line:
             return False, [], {
                 "error": (
                     f"[Dynamic Bug Container Order Error] Standalone marker "
-                    f"{_DYNAMIC_BUGS_MARKER!r} at line {dynamic_container_lines[0]} "
+                    f"{_DYNAMIC_BUGS_MARKER!r} at line {dynamic_start + 1} "
                     f"must appear before the first BG entry at line {first_bug_line}."
                 ),
                 "details": {
                     "marker": _DYNAMIC_BUGS_MARKER,
-                    "marker_line": dynamic_container_lines[0],
+                    "marker_line": dynamic_start + 1,
                     "first_bug_line": first_bug_line,
                 },
             }
@@ -506,7 +718,8 @@ def _parse_root_cause_relations(
     path = os.path.join(workspace, bug_file)
     with open(path, "r", encoding="utf-8") as handle:
         lines = handle.read().splitlines()
-    stripped = [line.strip() for line in lines]
+    uncommented_lines, _unclosed_comment_line = _strip_html_comments(lines)
+    stripped = [line.strip() for line in uncommented_lines]
     records_by_path = {record["path"]: record for record in records}
     available_bug_paths = sorted(records_by_path)[:5]
 
@@ -538,14 +751,19 @@ def _parse_root_cause_relations(
     starts = [i for i, value in enumerate(stripped) if value == _ROOT_CAUSES_MARKER]
     ends = [i for i, value in enumerate(stripped) if value == _ROOT_CAUSES_END_MARKER]
     if not starts and not ends:
-        if not records:
-            return True, ""
         return False, {
+            "error_code": "ROOT_CAUSE_CONTAINER_MISSING",
             "error": (
                 f"[Root Cause Container Missing] '{bug_file}' must contain one closed "
-                f"{_ROOT_CAUSES_MARKER} container. Add the canonical root-cause section "
-                "from Guide_Doc/dut_bug_analysis.md section 5.1."
-            )
+                f"{_ROOT_CAUSES_MARKER} container, including when no Bug was found."
+            ),
+            "next_action": (
+                f"Add one empty {_ROOT_CAUSES_MARKER} ... {_ROOT_CAUSES_END_MARKER} "
+                "section after DYNAMIC-BUGS and before WAVEFORM-EVIDENCE when there are "
+                "no dynamic Bugs. Otherwise add the canonical root-cause entities from "
+                "Guide_Doc/dut_bug_analysis.md section 5.1, then call `Check`/`Complete` "
+                "again."
+            ),
         }
     if len(starts) != 1 or len(ends) != 1 or not starts[0] < ends[0]:
         return False, {
@@ -599,6 +817,26 @@ def _parse_root_cause_relations(
         }
     if not entity_matches:
         if not records:
+            substantive_root_lines = _substantive_lines_without_html_comments(
+                lines, start + 1, end
+            )
+            if substantive_root_lines:
+                return False, {
+                    "error_code": "ROOT_CAUSE_CONTAINER_UNPARSEABLE_CONTENT",
+                    "error": (
+                        f"[Root Cause Container Unparseable Content] '{bug_file}' has no "
+                        "dynamic Bug or canonical <ROOT-*> entity, but ROOT-CAUSES is not "
+                        "empty:\n"
+                        f"{_render_container_line_diagnostics(bug_file, substantive_root_lines)}"
+                    ),
+                    "next_action": (
+                        "For a no-Bug result, remove all content from the ROOT-CAUSES body. "
+                        "If a dynamic Bug exists, first repair DYNAMIC-BUGS, then add one "
+                        "canonical ROOT entity for each distinct cause using "
+                        "Guide_Doc/dut_bug_analysis.md section 5.1. Repair every listed "
+                        "line before calling `Check`/`Complete` again."
+                    ),
+                }
             return True, ""
         return False, {
             "error": (
@@ -1585,6 +1823,8 @@ def check_dynamic_bug_analysis_content(
 ) -> tuple[bool, object]:
     """Require every non-zero dynamic Bug scaffold to contain completed analysis."""
 
+    if not os.path.isfile(os.path.join(workspace, bug_file)):
+        return False, _missing_dynamic_bug_document_error(bug_file)
     ok, blocks, error = _documented_dynamic_bug_blocks(workspace, bug_file)
     if not ok:
         return False, error
@@ -2690,10 +2930,7 @@ def _get_documented_dynamic_test_map(
 
     path = os.path.join(workspace, bug_file)
     if not os.path.isfile(path):
-        return True, {}, (
-            f"Bug analysis document '{bug_file}' does not exist; no dynamic Bugs require "
-            "final waveform validation."
-        )
+        return False, {}, _missing_dynamic_bug_document_error(bug_file)
     ok, records, error = _parse_documented_dynamic_bug_records(
         workspace, bug_file
     )
@@ -2744,6 +2981,11 @@ def check_all_documented_waveform_bug_analysis(
             )
             if not structure_ok:
                 return False, structure_error
+        content_ok, content_message = check_dynamic_bug_analysis_content(
+            workspace, bug_file
+        )
+        if not content_ok:
+            return False, content_message
         return True, message
     content_ok, content_message = check_dynamic_bug_analysis_content(
         workspace, bug_file

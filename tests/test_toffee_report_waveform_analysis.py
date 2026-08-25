@@ -1262,7 +1262,7 @@ def test_malformed_or_unassociated_waveform_block_is_rejected(tmp_path):
             "[Waveform Analysis YAML Error]",
         ),
         (
-            f"<DYNAMIC-BUGS>\n{_dynamic_checkpoint_headings()}</DYNAMIC-BUGS>\n"
+                "<DYNAMIC-BUGS>\n</DYNAMIC-BUGS>\n"
             "<WAVEFORM-EVIDENCE>\n"
             f'<a id="{waveform_anchor_id(test_label)}"></a>\n'
             f"{waveform_record_heading(test_label, TEST_DISPLAY_TITLE)}\n"
@@ -1581,6 +1581,8 @@ def test_zero_confidence_dynamic_bug_does_not_require_waveinfo(tmp_path):
                 _dynamic_bug_heading("BG-DYNAMIC-0").rstrip(),
                 _dynamic_test_heading().rstrip(),
                 "</DYNAMIC-BUGS>",
+                "<ROOT-CAUSES>",
+                "</ROOT-CAUSES>",
                 "<WAVEFORM-EVIDENCE>",
                 "</WAVEFORM-EVIDENCE>",
             ]
@@ -1826,7 +1828,7 @@ def test_dynamic_bug_analysis_accepts_multiple_tests_before_fields(tmp_path):
         (
             f"{_dynamic_checkpoint_headings()}{_dynamic_bug_heading()}"
             "<DYNAMIC-BUGS>\n",
-            "[Dynamic Bug Container Order Error]",
+            "[Dynamic Bug Container Format Error]",
         ),
     ],
 )
@@ -1861,7 +1863,109 @@ def test_existing_no_bug_document_still_requires_container(tmp_path, contents):
 
     assert passed is False
     assert "[Dynamic Bug Container Format Error]" in message["error"]
-    assert "found 0 occurrence(s)" in message["error"]
+    assert "opening marker line(s) (none)" in message["error"]
+    assert message["error_code"] == "DYNAMIC_BUG_CONTAINER_FORMAT"
+
+
+def test_dynamic_bug_content_accepts_empty_and_comment_only_no_bug_bodies(tmp_path):
+    for body in ("", "<!-- scaffold guidance only -->\n", "<!-- first\nsecond -->\n"):
+        (tmp_path / "bugs.md").write_text(
+            "# Demo Dynamic Bug Analysis\n"
+            "<DYNAMIC-BUGS>\n"
+            f"{body}"
+            "</DYNAMIC-BUGS>\n"
+            "<ROOT-CAUSES>\n"
+            f"{body}"
+            "</ROOT-CAUSES>\n"
+            "<WAVEFORM-EVIDENCE>\n"
+            "</WAVEFORM-EVIDENCE>\n",
+            encoding="utf-8",
+        )
+
+        passed, message = check_dynamic_bug_analysis_content(
+            str(tmp_path), "bugs.md"
+        )
+
+        assert passed is True, message
+
+
+def test_dynamic_bug_content_rejects_all_prose_only_machine_like_lines(tmp_path):
+    (tmp_path / "bugs.md").write_text(
+        "# Demo Dynamic Bug Analysis\n"
+        "<DYNAMIC-BUGS>\n"
+        "## FG-ARITHMETIC/FC-BOUNDARY/CK-POWER-2/BG-SUM-WIDTH-98\n"
+        "### TC-unity_test/tests/test_demo.py::test_full_chain\n"
+        "BUG-OVERVIEW: output width is wrong\n"
+        "BUG-TRIGGER: maximum operands\n"
+        "</DYNAMIC-BUGS>\n"
+        "<ROOT-CAUSES>\n"
+        "</ROOT-CAUSES>\n"
+        "<WAVEFORM-EVIDENCE>\n"
+        "</WAVEFORM-EVIDENCE>\n",
+        encoding="utf-8",
+    )
+
+    passed, message = check_dynamic_bug_analysis_content(
+        str(tmp_path), "bugs.md"
+    )
+
+    assert passed is False
+    assert message["error_code"] == "DYNAMIC_BUG_CONTAINER_UNPARSEABLE_CONTENT"
+    assert "bugs.md:3-3" in message["error"]
+    assert "bugs.md:4-4" in message["error"]
+    assert "bugs.md:5-5" in message["error"]
+    assert "bugs.md:6-6" in message["error"]
+    assert "- {visible_title} <TC-{exact_report_node_id}>" in message["next_action"]
+    assert "TC-{exact_report_node_id}" in message["next_action"]
+    assert "WaveInfo test_case_name `{exact_report_node_id}`" in message["next_action"]
+    assert "Guide_Doc/dut_bug_analysis.md section 5.1" in message["next_action"]
+
+
+def test_dynamic_bug_content_rejects_machine_tags_without_a_bug_record(tmp_path):
+    (tmp_path / "bugs.md").write_text(
+        "<DYNAMIC-BUGS>\n"
+        "### Arithmetic behavior <FG-ARITHMETIC>\n"
+        "#### Addition result <FC-ADD>\n"
+        "##### Full result <CK-FULL-RESULT>\n"
+        "- Full carry propagation <TC-unity_test/tests/test_demo.py::test_full_chain>\n"
+        "</DYNAMIC-BUGS>\n"
+        "<ROOT-CAUSES>\n</ROOT-CAUSES>\n"
+        "<WAVEFORM-EVIDENCE>\n</WAVEFORM-EVIDENCE>\n",
+        encoding="utf-8",
+    )
+
+    passed, message = check_dynamic_bug_analysis_content(
+        str(tmp_path), "bugs.md"
+    )
+
+    assert passed is False
+    assert message["error_code"] == "DYNAMIC_BUG_CONTAINER_NO_BUG_RECORD"
+    assert "bugs.md:2-2" in message["error"]
+    assert "bugs.md:5-5" in message["error"]
+    assert "standalone FG/FC/CK/TC scaffolds" in message["next_action"]
+
+
+@pytest.mark.parametrize(
+    "contents",
+    (
+        "<DYNAMIC-BUGS>\n",
+        "<DYNAMIC-BUGS>\n</DYNAMIC-BUGS>\n</DYNAMIC-BUGS>\n",
+        "</DYNAMIC-BUGS>\n<DYNAMIC-BUGS>\n",
+    ),
+)
+def test_dynamic_bug_content_rejects_missing_duplicate_or_reversed_close(
+    tmp_path, contents
+):
+    (tmp_path / "bugs.md").write_text(contents, encoding="utf-8")
+
+    passed, message = check_dynamic_bug_analysis_content(
+        str(tmp_path), "bugs.md"
+    )
+
+    assert passed is False
+    assert message["error_code"] == "DYNAMIC_BUG_CONTAINER_FORMAT"
+    assert "opening marker line(s)" in message["error"]
+    assert "closing marker line(s)" in message["error"]
 
 
 def test_dynamic_bug_content_does_not_parse_natural_language_placeholders(tmp_path):
@@ -2296,10 +2400,12 @@ def test_dynamic_bug_content_rejects_noncanonical_source_annotation_text(tmp_pat
     "contents",
     [
         "# No Bugs found\n<DYNAMIC-BUGS>\n</DYNAMIC-BUGS>\n"
+        "<ROOT-CAUSES>\n</ROOT-CAUSES>\n"
         "<WAVEFORM-EVIDENCE>\n</WAVEFORM-EVIDENCE>\n",
         f"<DYNAMIC-BUGS>\n{_dynamic_checkpoint_headings()}"
         f"{_dynamic_bug_heading('BG-DYNAMIC-0')}{_dynamic_test_heading()}"
         "</DYNAMIC-BUGS>\n"
+        "<ROOT-CAUSES>\n</ROOT-CAUSES>\n"
         "<WAVEFORM-EVIDENCE>\n</WAVEFORM-EVIDENCE>\n",
     ],
 )
@@ -2320,14 +2426,17 @@ def test_final_waveform_gate_allows_no_effective_dynamic_bugs_without_tool(
 
 
 @pytest.mark.parametrize(
-    "contents",
+    ("contents", "expected_error"),
     (
-        "<DYNAMIC-BUGS>\n",
-        "<DYNAMIC-BUGS>\n</DYNAMIC-BUGS>\n",
+        ("<DYNAMIC-BUGS>\n", "[Dynamic Bug Container Format Error]"),
+        (
+            "<DYNAMIC-BUGS>\n</DYNAMIC-BUGS>\n",
+            "[Waveform Container Format Error]",
+        ),
     ),
 )
 def test_final_waveform_gate_requires_complete_current_document_structure(
-    tmp_path, contents
+    tmp_path, contents, expected_error
 ):
     (tmp_path / "bugs.md").write_text(contents, encoding="utf-8")
 
@@ -2339,7 +2448,7 @@ def test_final_waveform_gate_requires_complete_current_document_structure(
     )
 
     assert passed is False
-    assert "[Waveform Container Format Error]" in str(message)
+    assert expected_error in str(message)
 
 
 def test_final_waveform_gate_rejects_static_bug_labels_in_dynamic_document(tmp_path):
@@ -2359,7 +2468,7 @@ def test_final_waveform_gate_rejects_static_bug_labels_in_dynamic_document(tmp_p
     assert "[Static Bug Label In Dynamic Document]" in str(message)
 
 
-def test_final_waveform_gate_allows_static_bug_name_as_plain_text(tmp_path):
+def test_final_waveform_gate_rejects_static_bug_name_as_plain_text(tmp_path):
     (tmp_path / "bugs.md").write_text(
         "# Review note\n<DYNAMIC-BUGS>\n"
         "Related static finding: BG-STATIC-001-SOURCE\n</DYNAMIC-BUGS>\n"
@@ -2374,11 +2483,12 @@ def test_final_waveform_gate_allows_static_bug_name_as_plain_text(tmp_path):
         waveform_test_dir="tests",
     )
 
-    assert passed is True
-    assert "No documented non-zero-confidence" in message
+    assert passed is False
+    assert message["error_code"] == "DYNAMIC_BUG_CONTAINER_UNPARSEABLE_CONTENT"
+    assert "bugs.md:3-3" in message["error"]
 
 
-def test_final_waveform_gate_allows_missing_document_as_no_bug_case(tmp_path):
+def test_final_waveform_gate_requires_no_bug_document_to_exist(tmp_path):
     passed, message = check_all_documented_waveform_bug_analysis(
         str(tmp_path),
         "bugs.md",
@@ -2386,14 +2496,18 @@ def test_final_waveform_gate_allows_missing_document_as_no_bug_case(tmp_path):
         waveform_test_dir="tests",
     )
 
-    assert passed is True
-    assert "does not exist" in message
+    assert passed is False
+    assert message["error_code"] == "DYNAMIC_BUG_DOCUMENT_MISSING"
+    assert "Guide_Doc/dut_bug_analysis.md section 2.1" in message["next_action"]
 
 
 def test_final_waveform_gate_requires_test_for_each_dynamic_bug(tmp_path):
     (tmp_path / "bugs.md").write_text(
         f"<DYNAMIC-BUGS>\n{_dynamic_checkpoint_headings()}"
-        f"{_dynamic_bug_heading()}",
+        f"{_dynamic_bug_heading()}"
+        "</DYNAMIC-BUGS>\n"
+        "<ROOT-CAUSES>\n</ROOT-CAUSES>\n"
+        "<WAVEFORM-EVIDENCE>\n</WAVEFORM-EVIDENCE>\n",
         encoding="utf-8",
     )
 

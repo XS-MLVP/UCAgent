@@ -4,6 +4,8 @@ import os
 import re
 
 from ucagent.util.config import load_runtime_config
+from ucagent.util.bug_analysis_contract import STATIC_BUG_DOCUMENT_PATH
+from ucagent.util.markdown import ensure_markdown_heading_spacing
 
 project_root = os.getcwd()
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -329,6 +331,8 @@ def update_target_md(target_md_path, formatted_output, dut_name):
     bg_detail_tag = f"<{bg}>"
     for line in lines:
         if bg_detail_tag in line or bg_table_pattern.search(line):
+            with open(target_md_path, 'w', encoding='utf-8') as f:
+                f.write(ensure_markdown_heading_spacing("".join(lines)))
             return f"Bug {bg} has been recorded"
 
     summary_line = formatted_output["summary_line"]
@@ -344,9 +348,9 @@ def update_target_md(target_md_path, formatted_output, dut_name):
     lang = formatted_output["lang"]
     code_snippet = formatted_output["code_snippet"]
 
-    fg_str = f"### <{fg}> {fgd}\n"
-    fc_str = f"#### <{fc}> {fcd}\n"
-    ck_str = f"##### <{ck}> {ckd}\n"
+    fg_str = f"### <{fg}> {fgd}\n\n"
+    fc_str = f"#### <{fc}> {fcd}\n\n"
+    ck_str = f"##### <{ck}> {ckd}\n\n"
     bg_str = (
         f"  - <{bg}> {bug_description}\n"
         f"    - <LINK-BUG-[BG-TBD]>\n"
@@ -491,7 +495,7 @@ def update_target_md(target_md_path, formatted_output, dut_name):
                 lines.insert(table_end_idx + 1, new_row)
 
     with open(target_md_path, 'w', encoding='utf-8') as f:
-        f.writelines(lines)
+        f.write(ensure_markdown_heading_spacing("".join(lines)))
 
     return f"Successfully record bug {bg} to file"
 
@@ -538,7 +542,9 @@ def main():
         print(formatted_output)
         return
 
-    target_md = os.path.join(project_root, OUT, f'{DUT}_static_bug_analysis.md')
+    target_md = os.path.join(
+        project_root, STATIC_BUG_DOCUMENT_PATH.format(OUT=OUT, DUT=DUT)
+    )
     result = update_target_md(target_md, formatted_output, DUT)
     print(result)
 

@@ -2,7 +2,17 @@
 
 本文定义动态与静态 Bug 文档的唯一机器格式。尖括号标签在 Markdown 渲染后可能不可见，因此 FG/FC/CK/BG/TC 和根因实体必须同时写出能独立表达含义的中文可见标题；不能用类型名代替具体描述。动态 Bug 文档必须使用本文定义的 Markdown 层级、BG 三字段、ROOT 五字段、根因双向链接和中央波形结构；YAML 字段、签名 receipt 与 viewer token 必须由工具生成并保持原样。
 
-TC目录只取当前Checker返回的`Configured TC output directory`实际值，不从本文案例推断。本文的`TC-tests/...`只展示Markdown层级，禁止复制为实际标签。实际标签必须从同一次Checker反馈的`Similar current FAILED report node IDs`选择完整node ID：确认文件路径以配置目录开头，只删除`:start-end`或`:line`报告行范围，然后在最前面加`TC-`；其余路径、类名、函数名和参数ID一个字符也不能增删。相似节点不代表路径等价。
+动态 Bug 的唯一目标文件是`{OUT}/{DUT}_bug_analysis.md`。“动态 Bug 分析”只是文档可见标题，不是文件名生成规则；禁止根据标题派生或创建另一个文件。静态候选只写入`{OUT}/{DUT}_static_bug_analysis.md`。
+
+同一个精确报告 node ID 在不同接口中只有以下三种固定序列化，node ID 本身必须逐字相同：
+
+| 使用位置 | 唯一写法 |
+|---|---|
+| 动态 Bug Markdown | `- {visible_title} <TC-{exact_report_node_id}>` |
+| `record_dynamic_bug.py`/`ApplyWaveInfoEvidence`参数及中央 YAML `test_case` | `TC-{exact_report_node_id}` |
+| `WaveInfo.test_case_name` | `{exact_report_node_id}` |
+
+TC目录只取当前Checker返回的`Configured TC output directory`实际值，不从本文案例推断。本文的`TC-tests/...`只展示Markdown层级，禁止复制为实际标签。实际 node ID 必须从同一次Checker反馈的`Similar current FAILED report node IDs`选择：确认文件路径以配置目录开头，只删除`:start-end`或`:line`报告行范围；Markdown、脚本/Apply与YAML在最前面加`TC-`，WaveInfo不加。其余路径、类名、函数名和参数ID一个字符也不能增删。相似节点不代表路径等价。
 
 ## 1. 先分类
 
@@ -37,16 +47,19 @@ CK 失败本身不证明 DUT 存在 Bug。必须先检查该 CK 的 coverage/che
 # DUT 动态 Bug 分析
 
 ## 动态 Bug 记录
+
 <DYNAMIC-BUGS>
 <!-- FG/FC/CK/BG/TC and Bug analysis live here. -->
 </DYNAMIC-BUGS>
 
 ## 根因分析
+
 <ROOT-CAUSES>
 <!-- Each root cause is defined once and linked to one or more BG paths. -->
 </ROOT-CAUSES>
 
 ## 波形证据
+
 <WAVEFORM-EVIDENCE>
 <!-- All unique per-TC waveform records live here. -->
 </WAVEFORM-EVIDENCE>
@@ -54,25 +67,57 @@ CK 失败本身不证明 DUT 存在 Bug。必须先检查该 CK 的 coverage/che
 
 `<DYNAMIC-BUGS>`中只放 Bug 层级、TC 引用和 Bug 分析，不放波形 YAML 或 viewer。`<ROOT-CAUSES>`位于动态 Bug 分区之后、中央波形分区之前；每个根因只定义一次，并通过内嵌完整 FG/FC/CK/BG 路径的`<RELATED-BUG-...>`及其可点击链接反向列出关联。`<WAVEFORM-EVIDENCE>`中集中放全部波形记录，不放 FG/FC/CK/BG 标签。
 
+### 2.1 未发现动态 Bug
+
+没有发现动态 Bug 时仍必须保留唯一目标文件，不得省略文件、另建摘要文件、写`BG-*-0`占位或在容器内写“未发现 Bug”等说明。完成态必须是以下精确空结构；三个容器正文均为空，不含注释、TC/BG、ROOT 或波形记录：
+
+```markdown
+# {DUT} 动态 Bug 分析
+
+## 动态 Bug 记录
+
+<DYNAMIC-BUGS>
+</DYNAMIC-BUGS>
+
+## 根因分析
+
+<ROOT-CAUSES>
+</ROOT-CAUSES>
+
+## 波形证据
+
+<WAVEFORM-EVIDENCE>
+</WAVEFORM-EVIDENCE>
+```
+
 ## 3. Bug 层级与引用
 
 标签顺序为`FG -> FC -> CK -> BG -> TC`。可见标题、Markdown 层级与标签必须写在同一行，并使用以下固定结构。可见标题是该条目的具体语义描述，不能只是标签类型的释义。一个非零置信度 BG 至少关联一个真实 Fail TC。一个 BG 的所有 TC 及其`<WAVEFORM-REF>`必须连续位于该`<BG-*>`标题之后；随后只写三个 BG 字段。`<BUG-TRIGGER>`正文末尾紧跟唯一的`<CAUSE-REF-ROOT-XXX>`，不再在 BG 中写源码、因果链、修复或复验字段：
 
 ```markdown
 ### 算术功能 <FG-ARITHMETIC>
+
 #### 加法结果 <FC-ADD>
+
 ##### 溢出输出 <CK-OVERFLOW>
+
 ###### 进位输入溢出丢失（98%） <BG-CIN-OVERFLOW-98>
+
 - 进位输入触发溢出 <TC-tests/test_adder.py::test_overflow>
   <WAVEFORM-REF> [WAVEFORM-EVIDENCE](#waveform-0123456789abcdef)
 
 ###### Bug 概述
+
 <BUG-OVERVIEW>
 ...
+
 ###### 现象与严重度
+
 <BUG-SYMPTOMS>
 ...
+
 ###### 触发条件与影响
+
 <BUG-TRIGGER>
 ...
 <CAUSE-REF-ROOT-CIN-OVERFLOW> [中间量宽度不足](#root-cause-cin-overflow)
@@ -86,25 +131,32 @@ CK 失败本身不证明 DUT 存在 Bug。必须先检查该 CK 的 coverage/che
 
 ```markdown
 ## 根因分析
+
 <ROOT-CAUSES>
 <a id="root-cause-cin-overflow"></a>
 ### 中间量宽度不足 <ROOT-CIN-OVERFLOW>
+
 #### 根因分析
 <ROOT-CAUSE-ANALYSIS>
 中间量在计算完整结果前被声明为过窄宽度，最高位在输出赋值前已经丢失。
+
 #### 源码证据
 <ROOT-SOURCE-EVIDENCE>
 <ROOT-SOURCE-UNAVAILABLE>
 当前示例省略具体 HDL；真实文档必须提供源码行范围或明确说明源码不可访问。
+
 #### 因果链
 <ROOT-CAUSAL-CHAIN>
 完整输入在有效窗口产生进位，过窄中间量截断最高位，所有关联 BG 的输出均观察到 `cout=0`。
+
 #### 修复建议
 <ROOT-FIX>
 将中间量扩展为 `WIDTH+1` 位，并在所有关联路径重新验证。
+
 #### 风险与复验
 <ROOT-RETEST>
 覆盖无进位、边界进位、最大值和随机组合，并回归所有关联 CK。
+
 #### 关联 Bug
 <RELATED-BUGS>
 - <RELATED-BUG-FG-ARITHMETIC/FC-ADD/CK-OVERFLOW/BG-CIN-OVERFLOW-98> [FG-ARITHMETIC/FC-ADD/CK-OVERFLOW/BG-CIN-OVERFLOW-98](#bug-0123456789abcdef)
@@ -120,6 +172,7 @@ CK 失败本身不证明 DUT 存在 Bug。必须先检查该 CK 的 coverage/che
 
 <a id="waveform-0123456789abcdef"></a>
 ### 进位输入触发溢出波形 <WAVEFORM-TC-tests/test_adder.py::test_overflow>
+
 ```yaml
 waveform_analysis:
   test_case: TC-tests/test_adder.py::test_overflow
@@ -233,64 +286,83 @@ ApplyWaveInfoEvidence(
 # Adder 动态 Bug 分析
 
 ## 动态 Bug 记录
+
 <DYNAMIC-BUGS>
 
 ### 算术功能 <FG-ARITHMETIC>
+
 #### 加法结果 <FC-ADD-RESULT>
+
 ##### 进位输出 <CK-CARRY-OUT>
+
 <a id="bug-5f90c59ed3dbea70"></a>
 ###### 完整和进位丢失（95%） <BG-SUM-CARRY-DROPPED-95>
+
 - 进位输入产生进位 <TC-tests/test_adder.py::test_cin_carry>
   <WAVEFORM-REF> [WAVEFORM-EVIDENCE](#waveform-9f3516eabf18829d)
 
 ###### Bug 概述
+
 <BUG-OVERVIEW>
 当 `a + b + cin` 产生第 `WIDTH+1` 位进位时，DUT 在组合加法路径中提前截断中间结果，导致 `cout` 始终为 0。
 
 ###### 现象与严重度
+
 <BUG-SYMPTOMS>
 边界用例 `a=8'hff, b=8'h00, cin=1` 的期望结果为 `{cout,sum}=9'h100`，实际结果为 `9'h000`。该问题会破坏所有依赖进位输出的多字加法，严重度为高。
 
 ###### 触发条件与影响
+
 <BUG-TRIGGER>
 触发条件是两个操作数与 `cin` 的无符号和大于 `2^WIDTH-1`。低 `WIDTH` 位未溢出时结果正常；发生进位时，`sum` 保留低位而 `cout` 丢失，影响 `CK-CARRY-OUT` 及其上层级联运算。
 <CAUSE-REF-ROOT-SUM-CARRY-WIDTH> [加法中间量宽度不足](#root-cause-sum-carry-width)
 
 ##### 完整结果 <CK-FULL-RESULT>
+
 <a id="bug-e510f134f5bdaabd"></a>
 ###### 完整结果被截断（93%） <BG-FULL-RESULT-TRUNCATED-93>
+
 - 进位输入产生进位 <TC-tests/test_adder.py::test_cin_carry>
   <WAVEFORM-REF> [WAVEFORM-EVIDENCE](#waveform-9f3516eabf18829d)
 
 ###### Bug 概述
+
 <BUG-OVERVIEW>
 完整结果检查要求把 `cout` 与 `sum` 作为一个 `WIDTH+1` 位结果比较；DUT 在产生进位时返回的组合结果缺少最高位。
 
 ###### 现象与严重度
+
 <BUG-SYMPTOMS>
 同一边界用例期望完整结果为 `9'h100`，实际 `{cout,sum}` 为 `9'h000`。依赖完整结果总线进行范围判断的使用方会把溢出结果误判为 0，严重度为高。
 
 ###### 触发条件与影响
+
 <BUG-TRIGGER>
 任意使完整无符号和超过 `WIDTH` 位的输入都会触发；影响 `CK-FULL-RESULT` 的整体数值语义。该 BG 与 `BG-SUM-CARRY-DROPPED-95` 由同一 TC 揭示，但仍是不同 CK 下的独立 BG 路径。
 <CAUSE-REF-ROOT-SUM-CARRY-WIDTH> [加法中间量宽度不足](#root-cause-sum-carry-width)
 
 #### 饱和加法 <FC-SATURATING-ADD>
+
 ##### 饱和结果 <CK-SATURATION-OUTPUT>
+
 <a id="bug-d0f8a6d4227d547c"></a>
 ###### 饱和功能未生效（92%） <BG-SATURATION-DISABLED-92>
+
 - 饱和加法达到上限 <TC-tests/test_adder.py::test_saturation_limit>
   <WAVEFORM-REF> [WAVEFORM-EVIDENCE](#waveform-547f03228d4694a0)
 
 ###### Bug 概述
+
 <BUG-OVERVIEW>
 启用无符号饱和加法后，DUT 没有在结果溢出时钳位到最大值，而是输出截断后的低位结果。
 
 ###### 现象与严重度
+
 <BUG-SYMPTOMS>
 用例驱动 `a=8'hff, b=8'h01, cin=0, saturate_en=1`，期望 `sat_sum=8'hff`，实际为 `8'h00`。所有依赖饱和保护的累加路径都可能回绕，严重度为高。
 
 ###### 触发条件与影响
+
 <BUG-TRIGGER>
 触发条件是 `saturate_en=1` 且无符号完整和大于 `8'hff`；不溢出时透传结果正常。该问题只影响饱和结果选择路径，与普通加法的进位输出检查相互独立。
 <CAUSE-REF-ROOT-SATURATION-DETECTOR-CONSTANT> [饱和溢出检测被固定为无效](#root-cause-saturation-detector-constant)
@@ -298,12 +370,15 @@ ApplyWaveInfoEvidence(
 </DYNAMIC-BUGS>
 
 ## 根因分析
+
 <ROOT-CAUSES>
 <a id="root-cause-sum-carry-width"></a>
 ### 加法中间量宽度不足 <ROOT-SUM-CARRY-WIDTH>
+
 #### 根因分析
 <ROOT-CAUSE-ANALYSIS>
 `sum_full` 只声明为 `WIDTH` 位，却承接 `WIDTH+1` 位表达式；赋值时最高进位位被截断，后续拼接只能在已截断值前补 0，因此无法恢复真实 `cout`。
+
 #### 源码证据
 <ROOT-SOURCE-EVIDENCE>
 首个错误位于 `rtl/Adder.sv:24-26`：
@@ -312,15 +387,19 @@ ApplyWaveInfoEvidence(
 25: assign sum_full = {1'b0, a} + {1'b0, b} + cin; // <ROOT-SOURCE-PROPAGATION> 宽表达式在写入 sum_full 时被截断。
 26: assign {cout, sum} = {1'b0, sum_full}; // <ROOT-SOURCE-OBSERVABLE> 输出端观察到固定为 0 的 cout。
 ```
+
 #### 因果链
 <ROOT-CAUSAL-CHAIN>
 测试在有效组合输入窗口驱动 `8'hff + 8'h00 + 1`；完整和为 `9'h100`；第 25 行写入 8 位 `sum_full` 后变为 `8'h00`；第 26 行再补零形成 `9'h000`；因此 `CK-CARRY-OUT` 观察到进位丢失，`CK-FULL-RESULT` 观察到完整结果被截断，两个关联 BG 与同一份波形和失败断言一致。
+
 #### 修复建议
 <ROOT-FIX>
 将 `sum_full` 声明为 `logic [WIDTH:0]`，直接执行 `assign {cout, sum} = sum_full;`，保持表达式和中间存储均为 `WIDTH+1` 位。
+
 #### 风险与复验
 <ROOT-RETEST>
 复验 `0+0+0`、最大值加 0、最大值加 1、最大值加最大值及随机输入；同时回归 `CK-CARRY-OUT` 和 `CK-FULL-RESULT`，并在新波形中确认最高位在 `sum_full`、`cout` 和完整结果之间一致传播。
+
 #### 关联 Bug
 <RELATED-BUGS>
 - <RELATED-BUG-FG-ARITHMETIC/FC-ADD-RESULT/CK-CARRY-OUT/BG-SUM-CARRY-DROPPED-95> [FG-ARITHMETIC/FC-ADD-RESULT/CK-CARRY-OUT/BG-SUM-CARRY-DROPPED-95](#bug-5f90c59ed3dbea70)
@@ -328,9 +407,11 @@ ApplyWaveInfoEvidence(
 
 <a id="root-cause-saturation-detector-constant"></a>
 ### 饱和溢出检测被固定为无效 <ROOT-SATURATION-DETECTOR-CONSTANT>
+
 #### 根因分析
 <ROOT-CAUSE-ANALYSIS>
 `saturation_overflow` 被常量 `1'b0` 驱动，导致饱和选择条件在所有输入下都为假；即使完整加法已经溢出，结果选择器也只会输出回绕后的低位结果。
+
 #### 源码证据
 <ROOT-SOURCE-EVIDENCE>
 首个错误位于 `rtl/Adder.sv:40-43`：
@@ -340,25 +421,31 @@ ApplyWaveInfoEvidence(
 42: assign saturated_sum = saturate_en && saturation_overflow ? {WIDTH{1'b1}} : sum_full; // <ROOT-SOURCE-PROPAGATION> 错误条件使选择器始终走普通结果分支。
 43: assign sat_sum = saturated_sum; // <ROOT-SOURCE-OBSERVABLE> 饱和输出观察到回绕值而不是最大值。
 ```
+
 #### 因果链
 <ROOT-CAUSAL-CHAIN>
 测试驱动 `8'hff + 8'h01` 并使能饱和；数学结果超过 8 位；第 41 行仍令 `saturation_overflow=0`；第 42 行选择已回绕的 `sum_full=8'h00`；第 43 行输出 `sat_sum=8'h00`，与关联 BG 的独立失败波形一致。
+
 #### 修复建议
 <ROOT-FIX>
 用 `WIDTH+1` 位完整和的最高位生成 `saturation_overflow`，并仅在 `saturate_en && saturation_overflow` 时选择 `{WIDTH{1'b1}}`；不要从已经截断的低位结果反推溢出。
+
 #### 风险与复验
 <ROOT-RETEST>
 分别复验饱和关闭、饱和开启但未溢出、恰好等于最大值、超过最大值和随机边界输入；确认修复不改变普通加法模式，并在第二份波形中确认检测信号与结果选择同步变化。
+
 #### 关联 Bug
 <RELATED-BUGS>
 - <RELATED-BUG-FG-ARITHMETIC/FC-SATURATING-ADD/CK-SATURATION-OUTPUT/BG-SATURATION-DISABLED-92> [FG-ARITHMETIC/FC-SATURATING-ADD/CK-SATURATION-OUTPUT/BG-SATURATION-DISABLED-92](#bug-d0f8a6d4227d547c)
 </ROOT-CAUSES>
 
 ## 波形证据
+
 <WAVEFORM-EVIDENCE>
 
 <a id="waveform-9f3516eabf18829d"></a>
 ### 进位输入产生进位波形 <WAVEFORM-TC-tests/test_adder.py::test_cin_carry>
+
 ```yaml
 waveform_analysis:
   test_case: TC-tests/test_adder.py::test_cin_carry
@@ -428,6 +515,7 @@ waveform_analysis:
 
 <a id="waveform-547f03228d4694a0"></a>
 ### 饱和加法达到上限波形 <WAVEFORM-TC-tests/test_adder.py::test_saturation_limit>
+
 ```yaml
 waveform_analysis:
   test_case: TC-tests/test_adder.py::test_saturation_limit
@@ -503,67 +591,112 @@ FG、FC、CK、BG、TC 都是一对多层次，不是一条固定单链。以下
 
 ```markdown
 <DYNAMIC-BUGS>
+
 ### 算术功能 <FG-ARITHMETIC>
+
 #### 加法结果 <FC-ADD-RESULT>
+
 ##### 求和输出 <CK-SUM-OUT>
+
 ###### 边界求和截断（95%） <BG-SUM-TRUNCATED-95>
+
 - 最大值加一求和 <TC-tests/test_adder.py::test_sum_max_plus_one>
 - 随机溢出求和 <TC-tests/test_adder.py::test_sum_random_overflow>
+
 ###### 模式切换后求和陈旧（90%） <BG-SUM-STALE-90>
+
 - 加法模式切换求和 <TC-tests/test_adder.py::test_sum_after_mode_switch>
 - 复位后首次求和 <TC-tests/test_adder.py::test_sum_after_reset>
+
 ##### 进位输出 <CK-CARRY-OUT>
+
 ###### 完整和进位丢失（95%） <BG-CARRY-DROPPED-95>
+
 - 进位输入产生进位 <TC-tests/test_adder.py::test_cin_carry>
 - 双最大值产生进位 <TC-tests/test_adder.py::test_double_max_carry>
+
 ###### 无溢出时进位误置（85%） <BG-CARRY-SPURIOUS-85>
+
 - 小数值相加无进位 <TC-tests/test_adder.py::test_small_add_no_carry>
 - 零值相加无进位 <TC-tests/test_adder.py::test_zero_add_no_carry>
+
 #### 减法结果 <FC-SUB-RESULT>
+
 ##### 差值输出 <CK-DIFFERENCE-OUT>
+
 ###### 负差值截断（92%） <BG-DIFFERENCE-TRUNCATED-92>
+
 - 小数减大数 <TC-tests/test_subtractor.py::test_negative_difference>
 - 随机负差值 <TC-tests/test_subtractor.py::test_random_negative_difference>
+
 ###### 相等操作数差值非零（88%） <BG-EQUAL-DIFFERENCE-NONZERO-88>
+
 - 最大值自减 <TC-tests/test_subtractor.py::test_max_minus_self>
 - 随机值自减 <TC-tests/test_subtractor.py::test_random_minus_self>
+
 ##### 借位输出 <CK-BORROW-OUT>
+
 ###### 负差值借位丢失（94%） <BG-BORROW-DROPPED-94>
+
 - 零减一产生借位 <TC-tests/test_subtractor.py::test_zero_minus_one_borrow>
 - 随机负差值借位 <TC-tests/test_subtractor.py::test_random_borrow>
+
 ###### 非负差值借位误置（84%） <BG-BORROW-SPURIOUS-84>
+
 - 最大值减零无借位 <TC-tests/test_subtractor.py::test_max_minus_zero_no_borrow>
 - 大数减小数无借位 <TC-tests/test_subtractor.py::test_positive_difference_no_borrow>
 
 ### 接口控制 <FG-PROTOCOL>
+
 #### 请求控制 <FC-REQUEST-CONTROL>
+
 ##### 请求接受 <CK-REQUEST-ACCEPT>
+
 ###### 就绪请求未接受（93%） <BG-READY-REQUEST-DROPPED-93>
+
 - 单周期就绪请求 <TC-tests/test_protocol.py::test_ready_request_accept>
 - 连续就绪请求 <TC-tests/test_protocol.py::test_back_to_back_accept>
+
 ###### 未就绪请求被误接受（89%） <BG-STALLED-REQUEST-ACCEPTED-89>
+
 - 背压期间单次请求 <TC-tests/test_protocol.py::test_stalled_request_rejected>
 - 背压期间连续请求 <TC-tests/test_protocol.py::test_stalled_burst_rejected>
+
 ##### 背压保持 <CK-BACKPRESSURE-HOLD>
+
 ###### 背压期间请求数据变化（91%） <BG-REQUEST-DATA-UNSTABLE-91>
+
 - 单周期背压数据保持 <TC-tests/test_protocol.py::test_request_hold_one_cycle>
 - 多周期背压数据保持 <TC-tests/test_protocol.py::test_request_hold_multi_cycle>
+
 ###### 背压解除后请求丢失（87%） <BG-REQUEST-LOST-AFTER-STALL-87>
+
 - 单周期背压解除 <TC-tests/test_protocol.py::test_request_after_short_stall>
 - 多周期背压解除 <TC-tests/test_protocol.py::test_request_after_long_stall>
+
 #### 响应控制 <FC-RESPONSE-CONTROL>
+
 ##### 响应有效 <CK-RESPONSE-VALID>
+
 ###### 结果就绪时有效信号缺失（94%） <BG-RESPONSE-VALID-MISSING-94>
+
 - 单次响应有效 <TC-tests/test_protocol.py::test_single_response_valid>
 - 连续响应有效 <TC-tests/test_protocol.py::test_back_to_back_response_valid>
+
 ###### 空闲周期有效信号误置（86%） <BG-RESPONSE-VALID-SPURIOUS-86>
+
 - 复位后空闲响应 <TC-tests/test_protocol.py::test_idle_valid_after_reset>
 - 请求间隔空闲响应 <TC-tests/test_protocol.py::test_idle_valid_between_requests>
+
 ##### 响应顺序 <CK-RESPONSE-ORDER>
+
 ###### 连续响应顺序颠倒（92%） <BG-RESPONSE-ORDER-REVERSED-92>
+
 - 两笔连续响应顺序 <TC-tests/test_protocol.py::test_two_response_order>
 - 随机突发响应顺序 <TC-tests/test_protocol.py::test_random_burst_order>
+
 ###### 背压后响应重复（88%） <BG-RESPONSE-DUPLICATED-88>
+
 - 单周期背压后响应 <TC-tests/test_protocol.py::test_response_after_short_stall>
 - 多周期背压后响应 <TC-tests/test_protocol.py::test_response_after_long_stall>
 </DYNAMIC-BUGS>
@@ -577,46 +710,64 @@ FG、FC、CK、BG、TC 都是一对多层次，不是一条固定单链。以下
 
 ```markdown
 <DYNAMIC-BUGS>
+
 ### [功能组具体名称] <FG-NAME>
+
 #### [功能具体名称] <FC-NAME>
+
 ##### [检查点具体名称] <CK-NAME>
+
 <a id="tool-generated-bug-anchor"></a>
 ###### [缺陷具体描述]（XX%） <BG-NAME-XX>
+
 - [测试 docstring 描述] <TC-test_file.py::test_name>
   <WAVEFORM-REF> [WAVEFORM-EVIDENCE](#tool-generated-anchor)
 - [另一个测试 docstring 描述] <TC-test_file.py::test_another_name>
   <WAVEFORM-REF> [WAVEFORM-EVIDENCE](#another-tool-generated-anchor)
+
 ###### Bug 概述
+
 <BUG-OVERVIEW>
 <BUG-TODO>
+
 ###### 现象与严重度
+
 <BUG-SYMPTOMS>
 <BUG-TODO>
+
 ###### 触发条件与影响
+
 <BUG-TRIGGER>
 <BUG-TODO>
 <CAUSE-REF-ROOT-NAME> [根因具体描述](#root-cause-name)
 </DYNAMIC-BUGS>
 
 ## 根因分析
+
 <ROOT-CAUSES>
 <a id="root-cause-name"></a>
 ### [根因具体描述] <ROOT-NAME>
+
 #### 根因分析
 <ROOT-CAUSE-ANALYSIS>
 <BUG-TODO>
+
 #### 源码证据
 <ROOT-SOURCE-EVIDENCE>
 <BUG-TODO>
+
 #### 因果链
 <ROOT-CAUSAL-CHAIN>
 <BUG-TODO>
+
 #### 修复建议
 <ROOT-FIX>
 <BUG-TODO>
+
 #### 风险与复验
 <ROOT-RETEST>
 <BUG-TODO>
+
 #### 关联 Bug
 <RELATED-BUGS>
 - <RELATED-BUG-FG-NAME/FC-NAME/CK-NAME/BG-NAME-XX> [FG-NAME/FC-NAME/CK-NAME/BG-NAME-XX](#tool-generated-bug-anchor)
@@ -638,6 +789,8 @@ FG、FC、CK、BG、TC 都是一对多层次，不是一条固定单链。以下
 ## 7. BG 与 ROOT 字段
 
 每个 BG 只保留三个唯一、有序、非空字段：`###### Bug 概述`/`<BUG-OVERVIEW>`、`###### 现象与严重度`/`<BUG-SYMPTOMS>`、`###### 触发条件与影响`/`<BUG-TRIGGER>`。`<BUG-TRIGGER>`先写真实触发条件和影响范围，最后一个非空块必须是唯一的`<CAUSE-REF-ROOT-XXX>`可点击链接。
+
+标题排版规则：普通 Markdown 标题前后各保留一个空行；文件首行标题不要求前置空行。机器契约中的伴随行是唯一例外：BG/ROOT 字段标题必须与紧随其后的 `<BUG-*>`、`<ROOT-*>` 或 `<RELATED-BUGS>` 标记相邻，BG/ROOT 的 `<a id="..."></a>` 锚点必须与目标标题相邻。不要在这些标题与机器伴随行之间自行插入空行。
 
 每个 ROOT 依次包含`<ROOT-CAUSE-ANALYSIS>`、`<ROOT-SOURCE-EVIDENCE>`、`<ROOT-CAUSAL-CHAIN>`、`<ROOT-FIX>`、`<ROOT-RETEST>`和`<RELATED-BUGS>`。一个 ROOT 关联多个 BG 时，因果链必须解释各 BG 如何从共同首错传播到不同观察点，复验必须覆盖所有关联 CK。`<ROOT-SOURCE-EVIDENCE>`有两种互斥模式：
 

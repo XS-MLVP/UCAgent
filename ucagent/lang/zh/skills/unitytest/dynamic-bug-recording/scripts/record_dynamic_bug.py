@@ -10,6 +10,8 @@ from string import Template
 
 from ucagent.util.config import load_runtime_config
 from ucagent.util.bug_analysis_contract import (
+    DYNAMIC_BUG_DOCUMENT_PATH,
+    BUG_ANALYSIS_SECTION_MARKERS,
     RELATED_BUGS_TITLE,
     ROOT_ANALYSIS_SECTION_MARKERS,
     ROOT_ANALYSIS_SECTION_TITLES,
@@ -19,6 +21,7 @@ from ucagent.util.bug_analysis_contract import (
     root_cause_anchor_id,
     root_cause_reference,
 )
+from ucagent.util.markdown import ensure_markdown_heading_spacing
 
 DYNAMIC_BUGS_MARKER = "<DYNAMIC-BUGS>"
 DYNAMIC_BUGS_END_MARKER = "</DYNAMIC-BUGS>"
@@ -38,6 +41,11 @@ GENERIC_VISIBLE_TITLES = {
 ROOT_CAUSES_MARKER = "<ROOT-CAUSES>"
 ROOT_CAUSES_END_MARKER = "</ROOT-CAUSES>"
 RELATED_BUGS_MARKER = "<RELATED-BUGS>"
+HEADING_COMPANION_MARKERS = frozenset(
+    [marker for _field, marker in BUG_ANALYSIS_SECTION_MARKERS]
+    + [marker for _field, marker in ROOT_ANALYSIS_SECTION_MARKERS]
+    + [RELATED_BUGS_MARKER]
+)
 
 
 def load_asset_template(name):
@@ -474,10 +482,11 @@ def render_root_cause_entry(root_tag, bd, checkpoint_path, bg):
             [
                 f'<a id="{root_cause_anchor_id(root_tag)}"></a>',
                 f"### {bd} <{root_tag}>",
+                "",
                 *(
                     value
                     for field, marker in ROOT_ANALYSIS_SECTION_MARKERS
-                    for value in (root_titles[field], marker, TODO_MARKER)
+                    for value in (root_titles[field], marker, TODO_MARKER, "")
                 ),
                 RELATED_BUGS_TITLE,
                 RELATED_BUGS_MARKER,
@@ -667,6 +676,7 @@ def ensure_root_cause_container(lines):
         raise ValueError("Error: target markdown is missing WAVEFORM-EVIDENCE marker.")
     lines[evidence:evidence] = [
         "## \u6839\u56e0\u5206\u6790\n",
+        "\n",
         ROOT_CAUSES_MARKER + "\n",
         ROOT_CAUSES_END_MARKER + "\n",
         "\n",
@@ -681,6 +691,9 @@ def insert_content(
     )
     lines[:] = "".join(lines).splitlines(keepends=True)
     ensure_root_cause_entry(lines, bg, bd, f"{fg}/{fc}/{ck}")
+    lines[:] = ensure_markdown_heading_spacing(
+        "".join(lines), HEADING_COMPANION_MARKERS
+    ).splitlines(keepends=True)
     return message
 
 
@@ -703,7 +716,9 @@ def main():
     function_file = os.path.join(os.getcwd(), out, f"{dut}_functions_and_checks.md")
     tc_title = resolve_test_title(args.TC)
 
-    target = os.path.join(os.getcwd(), out, f"{dut}_bug_analysis.md")
+    target = os.path.join(
+        os.getcwd(), DYNAMIC_BUG_DOCUMENT_PATH.format(OUT=out, DUT=dut)
+    )
 
     if not os.path.isabs(target):
         target = os.path.join(os.getcwd(), target)
@@ -738,7 +753,9 @@ def main():
         msgs.append(f"{msg} (resolved: {fg}/{fc}/{ck})")
 
     with open(target, "w", encoding="utf-8") as f:
-        f.writelines(lines)
+        f.write(
+            ensure_markdown_heading_spacing("".join(lines), HEADING_COMPANION_MARKERS)
+        )
 
     print(
         "; ".join(msgs)

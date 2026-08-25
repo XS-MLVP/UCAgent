@@ -1,10 +1,15 @@
 ### $FG_TITLE <$FG>
+
 #### $FC_TITLE <$FC>
+
 ##### $CK_TITLE <$CK>
+
 <a id="$BUG_ANCHOR"></a>
 ###### $BD（$CONFIDENCE%） <$BG>
+
 - $TC_TITLE <$TC>
   <WAVEFORM-REF> [WAVEFORM-EVIDENCE](#waveform-$ANCHOR)
+
 ###### Bug 概述
 <BUG-OVERVIEW>
 $BD

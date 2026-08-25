@@ -115,8 +115,47 @@ def test_empty_root_cause_container_is_valid_without_dynamic_bugs(tmp_path):
     assert passed, message
 
 
+def test_no_bug_document_requires_empty_root_cause_container(tmp_path):
+    (tmp_path / "bugs.md").write_text(
+        "<DYNAMIC-BUGS>\n</DYNAMIC-BUGS>\n"
+        "<WAVEFORM-EVIDENCE>\n</WAVEFORM-EVIDENCE>\n",
+        encoding="utf-8",
+    )
+
+    passed, message = check_dynamic_bug_analysis_content(str(tmp_path), "bugs.md")
+
+    assert passed is False
+    assert message["error_code"] == "ROOT_CAUSE_CONTAINER_MISSING"
+    assert "including when no Bug was found" in message["error"]
+
+
+def test_no_bug_document_rejects_prose_inside_root_cause_container(tmp_path):
+    (tmp_path / "bugs.md").write_text(
+        "<DYNAMIC-BUGS>\n</DYNAMIC-BUGS>\n"
+        "<ROOT-CAUSES>\nNo root cause because no Bug was found.\n</ROOT-CAUSES>\n"
+        "<WAVEFORM-EVIDENCE>\n</WAVEFORM-EVIDENCE>\n",
+        encoding="utf-8",
+    )
+
+    passed, message = check_dynamic_bug_analysis_content(str(tmp_path), "bugs.md")
+
+    assert passed is False
+    assert message["error_code"] == "ROOT_CAUSE_CONTAINER_UNPARSEABLE_CONTENT"
+    assert "bugs.md:4-4" in message["error"]
+
+
 def test_root_cause_entity_without_dynamic_bug_is_rejected(tmp_path):
-    _write_document(tmp_path, bugs=())
+    target = _write_document(tmp_path, bugs=())
+    content = target.read_text(encoding="utf-8")
+    target.write_text(
+        content.replace(
+            "### Arithmetic <FG-ARITHMETIC>\n"
+            "#### Addition <FC-ADD>\n"
+            "##### Result <CK-RESULT>\n",
+            "",
+        ),
+        encoding="utf-8",
+    )
 
     passed, message = check_dynamic_bug_analysis_content(str(tmp_path), "bugs.md")
 

@@ -9,6 +9,10 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from ucagent.checkers.toffee_report import check_dynamic_bug_analysis_content
+from ucagent.util.bug_analysis_contract import (
+    DYNAMIC_BUG_DOCUMENT_PATH,
+    TEST_CASE_SERIALIZATION,
+)
 from ucagent.util.config import Config, load_yaml_with_env_vars
 
 
@@ -254,6 +258,76 @@ def test_default_prompt_requires_waveinfo_for_dynamic_bugs():
     assert "LINK回填不依赖linkbug.py" in static_validation_task
 
 
+def test_dynamic_bug_target_tc_forms_and_no_bug_result_are_consistent():
+    repo_root = Path(__file__).parents[1]
+    config = load_yaml_with_env_vars(
+        str(repo_root / "ucagent/lang/zh/config/default.yaml")
+    )
+    system_prompt = config["mission"]["prompt"]["system"]
+    parent_stage = next(
+        stage
+        for stage in config["stage"]
+        if stage["name"] == "comprehensive_verification_and_bug_analysis"
+    )
+    batch_stage = next(
+        stage
+        for stage in parent_stage["stage"]
+        if stage["name"] == "test_case_implementation_in_batch"
+    )
+    batch_task = "\n".join(str(item) for item in batch_stage["task"])
+    guide = (
+        repo_root / "ucagent/lang/zh/doc/Guide_Doc/dut_bug_analysis.md"
+    ).read_text(encoding="utf-8")
+    skill_paths = (
+        "dynamic-bug-recording/SKILL.md",
+        "test-case-implementation-in-batch/SKILL.md",
+        "static-bug-validation/SKILL.md",
+    )
+    skills = [
+        (
+            repo_root
+            / "ucagent/lang/zh/skills/unitytest"
+            / relative_path
+        ).read_text(encoding="utf-8")
+        for relative_path in skill_paths
+    ]
+    from ucagent.util.functions import description_bug_doc
+
+    checker_help = "\n".join(description_bug_doc())
+
+    assert DYNAMIC_BUG_DOCUMENT_PATH == "{OUT}/{DUT}_bug_analysis.md"
+    for text in (system_prompt, batch_task, guide, checker_help, *skills):
+        assert DYNAMIC_BUG_DOCUMENT_PATH in text
+        assert "{DUT}_dynamic_bug_analysis.md" not in text
+        assert (
+            "可见Markdown标题" in text
+            or "visible Markdown title" in text
+            or "可见标题" in text
+        )
+
+    assert "- 可见测试名称 <TC-EXACT_REPORT_NODE_ID>" in system_prompt
+    assert "`TC-EXACT_REPORT_NODE_ID`" in system_prompt
+    assert "`EXACT_REPORT_NODE_ID`" in system_prompt
+    assert "- 可见测试名称 <TC-EXACT_REPORT_NODE_ID>" in batch_task
+    assert "'TC-EXACT_REPORT_NODE_ID'" in batch_task
+    assert "'EXACT_REPORT_NODE_ID'" in batch_task
+    for text in (guide, checker_help, *skills):
+        assert TEST_CASE_SERIALIZATION["markdown_tag"] in text
+        assert TEST_CASE_SERIALIZATION["tool_or_yaml"] in text
+        assert TEST_CASE_SERIALIZATION["waveinfo"] in text
+
+    assert "### 2.1 未发现动态 Bug" in guide
+    assert "三个容器正文均为空" in guide
+    assert "<DYNAMIC-BUGS>\n</DYNAMIC-BUGS>" in guide
+    assert "<ROOT-CAUSES>\n</ROOT-CAUSES>" in guide
+    assert "<WAVEFORM-EVIDENCE>\n</WAVEFORM-EVIDENCE>" in guide
+    assert "三个容器正文全部为空" in system_prompt
+    assert "三个空容器" in batch_task
+    assert "every container body empty" in checker_help
+    for skill in skills:
+        assert "三个" in skill and "空" in skill and "容器" in skill
+
+
 def test_system_prompt_distinguishes_infrastructure_and_dut_bug_failures():
     config_path = (
         Path(__file__).parents[1] / "ucagent/lang/zh/config/default.yaml"
@@ -446,7 +520,9 @@ def test_bug_analysis_guide_distinguishes_mcp_sentinels_and_evidence_windows():
     assert "每个Fail TC都不预设责任方" in dynamic_bug_skill
     assert "`input | specification_expected | test_expected | actual | classification`" in dynamic_bug_skill
     assert "静态候选不能覆盖TC级反证" in dynamic_bug_skill
-    assert "调用本技能、WaveInfo或创建/更新非零BG之前" in dynamic_bug_skill
+    assert "调用脚本、WaveInfo或创建/更新非零BG之前" in dynamic_bug_skill
+    assert "无Bug分支的完成条件" in dynamic_bug_skill
+    assert "可将本技能的`use`记录为true" in dynamic_bug_skill
     assert "只分析当前批次待实现TC及当前报告为这些TC关联的CK" in implementation_skill
     assert "`input | specification_expected | test_expected | actual | classification`" in implementation_skill
     assert "禁止调用`WaveInfo`、创建/更新非零BG或引用静态候选" in implementation_skill

@@ -5,11 +5,17 @@ description: 为失败测试已确认的动态DUT Bug创建规范BG/TC骨架和�
 
 # 动态 Bug 骨架记录
 
-本技能及脚本是可选辅助。
+Markdown 排版契约：本技能生成、维护或展示的任何 Markdown 中，每个 `#` 到 `######` 标题前后各保留一个空行；文件或 Markdown 示例首行标题不要求前置空行。标题后不得直接连接正文、列表、表格、下一级标题或代码围栏；规范机器伴随行是例外：字段标题后的 `<TAG>` 标记必须与标题紧邻，目标标题前的 `<a id="..."></a>` 锚点也必须与标题紧邻，以保持机器契约和链接有效。
+
+当前stage的`skill_list`包含本技能时，Skill启用条件下必须按本技能的方法完成动态Bug分类与文档维护；`record_dynamic_bug.py`只是可选的确定性骨架助手。当前stage没有确认动态Bug时，执行下述无Bug分支即表示已使用本技能，不得为了运行脚本而制造Bug。Skill整体禁用或当前stage显式设置`force_use_skill: false`时，仍按stage task、Guide_Doc和内置工具完成同一格式与验收标准。
 
 `RunTestCases`只运行已有的真实pytest验证用例，不执行普通Python、临时维护脚本或文档迁移脚本。不得创建伪pytest用例来修改或批量填充Bug文档。脚本存在时只通过`RunSkillScript`执行本技能声明的脚本；直接修改文档时使用文本工具，相同文本出现多次则用`ReplaceStringInFile`的`line_blocks=[[start, end]]`限定到当前Checker阻塞位置，并且一次只处理当前记录的当前字段。
 
-仅在正确测试稳定复现DUT设计缺陷后使用本技能。每个Fail TC都不预设责任方；调用本技能、WaveInfo或创建/更新非零BG之前，必须从规格、独立参考模型或可验证公式推导`specification_expected`，并完成`input | specification_expected | test_expected | actual | classification`对照。不得直接相信模板注释、已有断言、静态候选或可疑RTL；静态候选不能覆盖TC级反证。expected不一致时修正测试并重跑，禁止记录Bug。
+仅在正确测试稳定复现DUT设计缺陷后进入本技能的Bug记录分支或运行骨架脚本。每个Fail TC都不预设责任方；调用脚本、WaveInfo或创建/更新非零BG之前，必须从规格、独立参考模型或可验证公式推导`specification_expected`，并完成`input | specification_expected | test_expected | actual | classification`对照。不得直接相信模板注释、已有断言、静态候选或可疑RTL；静态候选不能覆盖TC级反证。expected不一致时修正测试并重跑，禁止记录Bug。
+
+动态 Bug 的唯一目标是`{OUT}/{DUT}_bug_analysis.md`；可见标题不是文件名规则，不得另建文件。同一报告 node ID 的固定写法是：Markdown使用`- {visible_title} <TC-{exact_report_node_id}>`；本脚本、Apply参数及中央YAML `test_case`使用`TC-{exact_report_node_id}`；WaveInfo `test_case_name`使用`{exact_report_node_id}`。`visible_title`替换为测试docstring的首个非空描述行。没有动态 Bug 时保留该文件，并让`DYNAMIC-BUGS`、`ROOT-CAUSES`、`WAVEFORM-EVIDENCE`三个容器正文全部为空。
+
+无Bug分支的完成条件是：所有失败都已按本技能完成责任分类，验证问题已修复并重跑为Pass，当前阶段没有正确测试稳定复现DUT设计缺陷，且上述三个容器保持规范空结构。此时不得调用`record_dynamic_bug.py`、WaveInfo或Apply，也不得创建BG/TC/ROOT/波形占位；完成这些核对后可将本技能的`use`记录为true。
 
 expected一致后，必须核对测试激励/driver、API callback、Step、采样边沿、有效条件、响应延迟、fixture、参考模型、复位和环境。输入经过取反、编码、掩码、分包或carry/borrow变换时，必须从实际驱动值和规格运算重新计算expected；不能用变换前操作数的expected比较变换后输入，`a+(~b)+0`是`a-b-1`，而`a-b`需要`a+(~b)+1`。CK失败时必须先核对coverage/check function，并继续核对CK predicate、`CovGroup.sample()`执行与采样时机；这些验证问题必须修复并重跑，CK Fail本身不能作为DUT Bug结论。不得把当前Pass用例改成Fail来满足门禁；修复验证逻辑后CK可以转为Pass，此时不再需要Fail复现用例。只有全部验证项正确且DUT actual仍违反规格时，才允许继续。调用前还需确认当前报告将该Fail TC关联到目标精确FG/FC/CK路径，并准备非零置信度`BG-*`、从当前报告逐字生成的`TC-*`和简短描述。Fail TC可以成功触发并覆盖关联CK，不能由TC Fail反推CK Fail，也不要求每个Fail TC关联失败CK。阶段结束时，每个保留的Fail TC必须在其报告关联的至少一个CK下进入非零BG；独立地，每个保留的失败CK也必须有同一CK下的真实Fail TC。不能用本技能制造Bug记录。
 

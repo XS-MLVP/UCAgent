@@ -8,13 +8,16 @@ from typing import List
 import yaml
 
 from ucagent.util.config import load_runtime_config
+from ucagent.util.markdown import ensure_markdown_heading_spacing
 from ucagent.util.bug_analysis_contract import (
+    DYNAMIC_BUG_DOCUMENT_PATH,
     RELATED_BUG_TAG_PREFIX,
     ROOT_ANALYSIS_SECTION_MARKERS,
     ROOT_CAUSE_REFERENCE_TAG_PREFIX,
     ROOT_CAUSES_END_MARKER,
     ROOT_CAUSES_MARKER,
     ROOT_ENTITY_TAG_PATTERN,
+    STATIC_BUG_DOCUMENT_PATH,
 )
 
 
@@ -120,7 +123,9 @@ def get_target_md_path(runtime_config=None) -> str:
     dut = runtime_config["DUT"]
     out_dir = runtime_config["OUT"]
 
-    path = os.path.join(PROJECT_ROOT, out_dir, f"{dut}_static_bug_analysis.md")
+    path = os.path.join(
+        PROJECT_ROOT, STATIC_BUG_DOCUMENT_PATH.format(OUT=out_dir, DUT=dut)
+    )
     if not os.path.exists(path):
         raise FileNotFoundError(
             f"Error: target file not found: {path}. Please ensure static bug analysis has been generated first."
@@ -133,7 +138,9 @@ def get_bug_analysis_md_path(runtime_config=None) -> str:
     dut = runtime_config["DUT"]
     out_dir = runtime_config["OUT"]
 
-    path = os.path.join(PROJECT_ROOT, out_dir, f"{dut}_bug_analysis.md")
+    path = os.path.join(
+        PROJECT_ROOT, DYNAMIC_BUG_DOCUMENT_PATH.format(OUT=out_dir, DUT=dut)
+    )
     if not os.path.exists(path):
         raise FileNotFoundError(
             f"Error: target file not found: {path}. Please ensure bug analysis has been generated first."
@@ -602,7 +609,7 @@ def update_static_bug_link(target_md: str, static_bg: str, link_targets: List[st
         )
 
     with open(target_md, "w", encoding="utf-8") as f:
-        f.writelines(lines)
+        f.write(ensure_markdown_heading_spacing("".join(lines)))
 
     return (
         f"Successfully linked {static_bg} to {summary_value} in "
