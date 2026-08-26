@@ -24,6 +24,9 @@ _NEGATED_BOOL_PATTERN = re.compile(
 )
 _DELETE_OVERRIDE = object()
 RUNTIME_CONFIG_FILENAME = "runtime_config.json"
+CURRENT_TEST_REPORT_FILENAME = "current_test_report.json"
+CURRENT_TEST_REPORT_SCHEMA_VERSION = 1
+CURRENT_TEST_REPORT_RELATIVE_PATH = f".ucagent/{CURRENT_TEST_REPORT_FILENAME}"
 REQUIRED_RUNTIME_BOOL_OPTIONS = (
     "need_ref_model",
     "mock_components_enabled",
@@ -566,6 +569,7 @@ def build_runtime_config(cfg: Config) -> Dict[str, Any]:
         "OUT": output,
         "test_output_dir": test_output_dir,
         "ucagent_python_path": ucagent_python_path,
+        "current_test_report": CURRENT_TEST_REPORT_RELATIVE_PATH,
         "runtime_options": runtime_options,
     }
 
@@ -586,6 +590,12 @@ def validate_runtime_config(data: Any) -> Dict[str, Any]:
     ].strip():
         raise ValueError(
             "Resolved runtime config value 'test_output_dir' must be a non-empty string."
+        )
+    current_test_report = data.get("current_test_report")
+    if current_test_report != CURRENT_TEST_REPORT_RELATIVE_PATH:
+        raise ValueError(
+            "Resolved runtime config value 'current_test_report' must be "
+            f"'{CURRENT_TEST_REPORT_RELATIVE_PATH}'."
         )
     ucagent_python_path = data.get("ucagent_python_path")
     if not isinstance(ucagent_python_path, str) or not ucagent_python_path.strip():
@@ -642,6 +652,74 @@ def load_runtime_config(workspace: str) -> Dict[str, Any]:
             "Start UCAgent for this workspace before using runtime consumers."
         )
     return validate_runtime_config(load_json_file(str(runtime_path)))
+
+
+def _current_test_report_path(workspace: str) -> Path:
+    """Return the workspace-local report shared by test consumers and Skills."""
+    runtime_config = load_runtime_config(workspace)
+    return Path(workspace) / runtime_config["current_test_report"]
+
+
+def clear_current_test_report(workspace: str) -> None:
+    """Invalidate a previous stage's report when a stage becomes active."""
+    target = Path(workspace) / CURRENT_TEST_REPORT_RELATIVE_PATH
+    try:
+        target.unlink()
+    except FileNotFoundError:
+        pass
+
+
+def save_current_test_report(
+    workspace: str,
+    report: Dict[str, Any],
+    context: Optional[Dict[str, Any]] = None,
+) -> Path:
+    """Publish the latest structured Unity test report for runtime consumers.
+
+    The report is deliberately kept outside the DUT output directory so a Skill
+    cannot accidentally bind itself to a stage-private or historical report.
+    ``context`` is diagnostic metadata only; the actual test report remains under
+    the stable ``report`` key.
+    """
+    if not isinstance(report, dict):
+        raise TypeError("Current test report must be a mapping.")
+    if context is not None and not isinstance(context, dict):
+        raise TypeError("Current test report context must be a mapping.")
+    target = _current_test_report_path(workspace)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "schema_version": CURRENT_TEST_REPORT_SCHEMA_VERSION,
+        "report": report,
+        "context": context or {},
+    }
+    temporary = target.with_suffix(target.suffix + ".tmp")
+    save_json_file(str(temporary), payload)
+    os.replace(temporary, target)
+    return target
+
+
+def load_current_test_report(workspace: str) -> Dict[str, Any]:
+    """Load and validate the latest structured test report for a workspace."""
+    target = _current_test_report_path(workspace)
+    if not target.is_file():
+        raise FileNotFoundError(
+            f"Current test report not found: {target}. Run the current stage's "
+            "real test cases with Check or RunTestCases before using a test-report Skill."
+        )
+    payload = load_json_file(str(target))
+    if not isinstance(payload, dict):
+        raise ValueError(f"Current test report {target} must be a JSON object.")
+    if payload.get("schema_version") != CURRENT_TEST_REPORT_SCHEMA_VERSION:
+        raise ValueError(
+            f"Current test report {target} has an unsupported schema_version."
+        )
+    report = payload.get("report")
+    if not isinstance(report, dict):
+        raise ValueError(f"Current test report {target} has no report object.")
+    context = payload.get("context", {})
+    if not isinstance(context, dict):
+        raise ValueError(f"Current test report {target} has invalid context metadata.")
+    return payload
 
 
 def find_file_in_paths(filename, search_paths):

@@ -16,6 +16,7 @@ from ucagent.tools.testops import (
     RunUnityChipTest,
     _classify_pytest_execution,
 )
+from ucagent.util.config import Config, load_current_test_report, save_runtime_config
 from ucagent.util.functions import load_toffee_report
 
 
@@ -165,6 +166,75 @@ def test_unity_test_reports_missing_or_invalid_toffee_output(
     assert report["execution"]["diagnostic_code"] == expected_code
     assert report["execution"]["pytest_diagnostic_code"] == "OK"
     assert report["execution"]["invocation_success"] is False
+
+
+def test_unity_test_publishes_current_report_with_invocation_context(
+    tmp_path, monkeypatch
+):
+    cfg = Config(
+        {
+            "runtime_options": {
+                "need_ref_model": False,
+                "mock_components_enabled": False,
+            },
+            "tools": {"RunTestCases": {"test_dir": "tests"}},
+        }
+    )
+    cfg._temp_cfg = {"DUT": "Demo", "OUT": "unity_test"}
+    save_runtime_config(str(tmp_path), cfg)
+    test_dir = tmp_path / "tests"
+    test_dir.mkdir()
+    test_file = test_dir / "test_demo.py"
+    test_file.write_text("def test_failure():\n    assert False\n", encoding="utf-8")
+    tool = RunUnityChipTest(workspace=str(tmp_path), report_dir="report")
+    tool.set_report_context(
+        {
+            "source": "checker",
+            "stage_index": 22,
+            "stage_name": "basic_api_functional_test",
+        }
+    )
+
+    def fake_run_pytest(self, *_args, **_kwargs):
+        self.last_execution = {
+            "pytest_returncode": 1,
+            "invocation_success": False,
+            "diagnostic_code": "PYTEST_ASSERTION_FAILURE",
+            "report_exists": False,
+            "report_has_tests": False,
+        }
+        self._last_process_stdout = "1 failed"
+        self._last_process_stderr = ""
+        report_dir = Path(self.result_dir)
+        report_dir.mkdir(parents=True, exist_ok=True)
+        abstract_key = f"{test_file}:1-2::test_failure"
+        (report_dir / self.result_json_path).write_text(
+            json.dumps(
+                {
+                    "test_abstract_info": {abstract_key: "FAILED"},
+                    "coverages": {"functional": {}},
+                }
+            ),
+            encoding="utf-8",
+        )
+        return False, "1 failed", ""
+
+    monkeypatch.setattr(RunPyTest, "do", fake_run_pytest)
+
+    report, _stdout, _stderr = tool.do("tests", pytest_ex_args="test_demo.py")
+    published = load_current_test_report(str(tmp_path))
+
+    assert published["schema_version"] == 1
+    assert published["report"] == report
+    assert published["report"]["tests"]["fails"] == 1
+    assert published["context"] == {
+        "source": "checker",
+        "stage_index": 22,
+        "stage_name": "basic_api_functional_test",
+        "test_dir_or_file": "tests",
+        "pytest_ex_args": "test_demo.py",
+        "result_path": str(tmp_path / "report/toffee_report.json"),
+    }
 
 
 def test_toffee_report_lists_only_failed_parameterized_instances(tmp_path):

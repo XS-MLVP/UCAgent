@@ -12,6 +12,7 @@ import sys
 import pytest
 
 from ucagent.util.markdown import markdown_heading_spacing_errors
+from ucagent.util.config import Config, save_current_test_report, save_runtime_config
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -73,6 +74,31 @@ def _load_script(path: Path):
     return module
 
 
+def _write_runtime_contract(
+    workspace,
+    report=None,
+    *,
+    dut="Adder",
+    out="unity_test",
+    test_output_dir="unity_test/tests",
+):
+    cfg = Config(
+        {
+            "runtime_options": {
+                "need_ref_model": False,
+                "mock_components_enabled": False,
+            },
+            "tools": {"RunTestCases": {"test_dir": test_output_dir}},
+        }
+    )
+    cfg._temp_cfg = {"DUT": dut, "OUT": out}
+    save_runtime_config(str(workspace), cfg)
+    if report is not None:
+        save_current_test_report(
+            str(workspace), report, context={"stage_name": "test-stage"}
+        )
+
+
 def _insert_content(module, lines, fg, fc, ck, bg, tc, bd):
     return module.insert_content(
         lines,
@@ -87,6 +113,22 @@ def _insert_content(module, lines, fg, fc, ck, bg, tc, bd):
         "精确输出",
         "结果不匹配",
     )
+
+
+@pytest.mark.parametrize("script_path", RECORD_SCRIPTS)
+def test_dynamic_bug_script_requires_current_stage_report(
+    script_path, tmp_path, monkeypatch
+):
+    module = _load_script(script_path)
+    _write_runtime_contract(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(FileNotFoundError, match="Run the current stage's real test"):
+        module.resolve_fg_fc_ck_list_by_tc(
+            "TC-unity_test/tests/test_demo.py::test_failure",
+            "unity_test",
+            "unity_test/tests",
+        )
 
 
 @pytest.mark.parametrize(
@@ -138,9 +180,7 @@ def test_dynamic_bug_record_script_strips_only_report_line_range(
             ]
         }
     }
-    (out_dir / ".TEST_TEMPLATE_IMP_REPORT.json").write_text(
-        json.dumps(report), encoding="utf-8"
-    )
+    _write_runtime_contract(tmp_path, report)
     monkeypatch.chdir(tmp_path)
 
     assert module.resolve_fg_fc_ck_list_by_tc(
@@ -159,17 +199,15 @@ def test_dynamic_bug_record_script_rejects_short_path_with_report_candidate(
     module = _load_script(script_path)
     out_dir = tmp_path / "unity_test"
     out_dir.mkdir()
-    (out_dir / ".TEST_TEMPLATE_IMP_REPORT.json").write_text(
-        json.dumps(
-            {
-                "failed_test_case_with_check_point_list": {
-                    "unity_test/tests/test_adder.py:12-18::test_overflow": [
-                        "FG-ARITHMETIC/FC-ADD/CK-OVERFLOW"
-                    ]
-                }
+    _write_runtime_contract(
+        tmp_path,
+        {
+            "failed_test_case_with_check_point_list": {
+                "unity_test/tests/test_adder.py:12-18::test_overflow": [
+                    "FG-ARITHMETIC/FC-ADD/CK-OVERFLOW"
+                ]
             }
-        ),
-        encoding="utf-8",
+        },
     )
     monkeypatch.chdir(tmp_path)
 
@@ -207,9 +245,7 @@ def test_dynamic_bug_record_script_rejects_node_outside_configured_output_dir(
             report_key: ["FG-ARITHMETIC/FC-ADD/CK-OVERFLOW"]
         }
     }
-    (out_dir / ".TEST_TEMPLATE_IMP_REPORT.json").write_text(
-        json.dumps(report), encoding="utf-8"
-    )
+    _write_runtime_contract(tmp_path, report)
     monkeypatch.chdir(tmp_path)
 
     with pytest.raises(ValueError) as error:
@@ -294,6 +330,7 @@ def test_dynamic_bug_record_script_main_writes_chinese_titles_from_runtime_sourc
                 "OUT": "unity_test",
                 "test_output_dir": "custom_tc",
                 "ucagent_python_path": str(REPO_ROOT),
+                "current_test_report": ".ucagent/current_test_report.json",
                 "runtime_options": {
                     "need_ref_model": False,
                     "mock_components_enabled": False,
@@ -306,17 +343,16 @@ def test_dynamic_bug_record_script_main_writes_chinese_titles_from_runtime_sourc
     tests_dir = tmp_path / "custom_tc"
     out_dir.mkdir()
     tests_dir.mkdir(parents=True)
-    (out_dir / ".TEST_TEMPLATE_IMP_REPORT.json").write_text(
-        json.dumps(
-            {
-                "failed_test_case_with_check_point_list": {
-                    "custom_tc/test_adder.py:1-4::test_overflow": [
-                        "FG-ARITHMETIC/FC-ADD/CK-OVERFLOW"
-                    ]
-                }
+    save_current_test_report(
+        str(tmp_path),
+        {
+            "failed_test_case_with_check_point_list": {
+                "custom_tc/test_adder.py:1-4::test_overflow": [
+                    "FG-ARITHMETIC/FC-ADD/CK-OVERFLOW"
+                ]
             }
-        ),
-        encoding="utf-8",
+        },
+        context={"stage_name": "basic_api_functional_test"},
     )
     (out_dir / "Adder_functions_and_checks.md").write_text(
         "### 算术功能\n<FG-ARITHMETIC>\n\n"
@@ -595,6 +631,7 @@ def test_static_bug_record_script_uses_resolved_runtime_config(
                 "OUT": "unity_test",
                 "test_output_dir": "unity_test/tests",
                 "ucagent_python_path": str(REPO_ROOT),
+                "current_test_report": ".ucagent/current_test_report.json",
                 "runtime_options": {
                     "need_ref_model": False,
                     "mock_components_enabled": False,
@@ -685,6 +722,7 @@ def test_skill_path_loaders_use_resolved_runtime_config(
                 "OUT": "unity_test",
                 "test_output_dir": "unity_test/tests",
                 "ucagent_python_path": str(REPO_ROOT),
+                "current_test_report": ".ucagent/current_test_report.json",
                 "runtime_options": {
                     "need_ref_model": False,
                     "mock_components_enabled": False,

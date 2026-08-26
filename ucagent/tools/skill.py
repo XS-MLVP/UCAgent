@@ -12,7 +12,7 @@ import copy
 from pathlib import Path
 from typing import Optional, TypedDict, Any, List, Sequence
 import yaml
-from pydantic import Field, BaseModel
+from pydantic import Field, BaseModel, field_validator
 
 import subprocess
 from .uctool import UCTool, ArgsSchema, EmptyArgs
@@ -35,6 +35,29 @@ DEFAULT_SCRIPT_RUNNERS = {
     ".bash": "bash",
 }
 _SKILL_LIST_CACHE: dict[str, list["SkillMetadata"]] = {}
+
+
+def _record_stage_skill_evidence(agent, skill_names, evidence):
+    """Record evidence only when it was produced by the corresponding tool."""
+    stage_manager = getattr(agent, "stage_manager", None)
+    if stage_manager is None:
+        return
+    current_stage = stage_manager.get_current_stage()
+    if current_stage is None:
+        return
+    changed = False
+    for skill_name in skill_names:
+        if skill_name not in current_stage.skill_list:
+            continue
+        before = tuple(current_stage.skill_list[skill_name])
+        current_stage.set_usage_skill_list(
+            skill_name,
+            listed=evidence == "list",
+            used=evidence == "use",
+        )
+        changed = changed or tuple(current_stage.skill_list[skill_name]) != before
+    if changed:
+        stage_manager.save_stage_info()
 
 class SkillMetadata(TypedDict):
     """Metadata for a skill."""
@@ -404,22 +427,49 @@ class ListSkill(UCTool):
         result_lines.append("Tip: When the task description matches a skill description, use the `ReadTextFile` tool to read the corresponding skill's SKILL.md file, learn the skill, and apply it.")
         result= "\n".join(result_lines)
 
+        _record_stage_skill_evidence(
+            self.agent,
+            [skill["name"] for skill in skills_to_list],
+            "list",
+        )
+
         return result
 
 class ArgsRunSkillScript(BaseModel):
-    commands: List[List[str]] = Field(description="A list of commands to execute the skill script by RunSkillScript."\
-                                                   "Each command is a 3-element string array: [skill_name, skill_script, args]."\
-                                                   "skill_name is the path-style name of an available skill, such as unitytest/functions-and-checks."\
-                                                   "skill_script is the script filename with extension, not a path."\
-                                                   "The runner is inferred from the script extension, or from script_runner.json in the script directory."\
-                                                   "args is a single string of command arguments, for example: -ARG1 'VALUE1' -ARG2 'VALUE2'."\
-                                                   "Multiple commands can be provided in the list at once.")
+    commands: List[List[str]] = Field(
+        min_length=1,
+        description=(
+            "A nonempty JSON array of commands. Each command is exactly "
+            "[skill_name, skill_script, args], with all three values as strings. "
+            "Canonical object example: {\"commands\": "
+            "[[\"unitytest/functions-and-checks\", \"update.py\", "
+            "\"-MODE FG -ITEMS '[{\\\"fg\\\":\\\"FG-API\\\"}]'\"]]}. "
+            "If a backend serializes nested arrays as text, commands may be the JSON "
+            "string encoding of that same outer array. skill_script is a filename, not "
+            "a path; args is one shell-style argument string."
+        ),
+    )
+
+    @field_validator("commands", mode="before")
+    @classmethod
+    def parse_serialized_commands(cls, value):
+        """Normalize a backend-serialized nested array without accepting ad hoc syntax."""
+        if isinstance(value, str):
+            try:
+                value = json.loads(value)
+            except json.JSONDecodeError as error:
+                raise ValueError(
+                    "commands string fallback must encode one complete JSON array"
+                ) from error
+        return value
 
 class RunSkillScript(UCTool):
     name: str = "RunSkillScript"
     description: str = (
-        "Run the commands in a list declared in the SKILL.md of a skill"
-        "Support multiple commands in the list at once"
+        "Run one or more scripts declared by available Skills. Pass commands as a "
+        "real nonempty JSON array of 3-string arrays; a JSON-string encoding of the "
+        "same outer array is accepted only as a transport fallback. A script is "
+        "recorded as used only after its process exits successfully."
     )
     args_schema: Optional[ArgsSchema] = ArgsRunSkillScript
     workspace: str = Field(
@@ -459,6 +509,7 @@ class RunSkillScript(UCTool):
                 ".ucagent/runtime_config.json, then call `RunSkillScript` again."
             )
         run_result=""
+        used_skills = []
         for index, command in enumerate(commands, start=1):
             if len(command) != 3:
                 return f"Command {index} invalid: expected [skill_name, skill_script, args], got {len(command)} elements."
@@ -508,10 +559,12 @@ class RunSkillScript(UCTool):
                     env=env
                 )
                 run_result+=process.stdout
+                used_skills.append(skill_name)
             except subprocess.CalledProcessError as e:
                 return f"Command failed with exit code {e.returncode}:\n{e.stdout}"
             except FileNotFoundError as e:
                 raise ValueError(f"Command {index} runner not found: {runner}") from e
+        _record_stage_skill_evidence(self.agent, used_skills, "use")
         return run_result
 
 __all__ = ["ListSkill", "RunSkillScript"]

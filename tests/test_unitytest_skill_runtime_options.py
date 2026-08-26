@@ -8,6 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from pydantic import ValidationError
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
@@ -20,7 +21,13 @@ from ucagent.util.config import (
     save_runtime_config,
 )
 from ucagent.stage.vstage import VerifyStage, parse_vstage
-from ucagent.tools.skill import RunSkillScript, _get_skill_script_env, _scan_skills
+from ucagent.tools.skill import (
+    ArgsRunSkillScript,
+    ListSkill,
+    RunSkillScript,
+    _get_skill_script_env,
+    _scan_skills,
+)
 from ucagent.util.functions import copytree_incremental
 
 
@@ -29,7 +36,133 @@ CREATE_SCRIPT = (
     / "ucagent/lang/zh/skills/unitytest/create-test-case-templates/scripts/createtemplate.py"
 )
 CONFIG_PATH = REPO_ROOT / "ucagent/lang/zh/config/default.yaml"
+INC_CONFIG_PATH = REPO_ROOT / "ucagent/lang/zh/config/inc.yaml"
+VIBE_CONFIG_PATH = REPO_ROOT / "ucagent/lang/zh/config/vibe.yaml"
 SKILL_ROOT = REPO_ROOT / "ucagent/lang/zh/skills/unitytest"
+
+
+def _save_runtime_config_for_test(workspace):
+    cfg = Config(
+        {
+            "runtime_options": {
+                "need_ref_model": False,
+                "mock_components_enabled": False,
+            },
+            "tools": {"RunTestCases": {"test_dir": "unity_test/tests"}},
+        }
+    )
+    cfg._temp_cfg = {"DUT": "Demo", "OUT": "unity_test"}
+    save_runtime_config(str(workspace), cfg)
+
+
+def _write_test_skill(workspace, scripts):
+    skill_dir = workspace / ".ucagent/skills/unitytest/example-skill"
+    script_dir = skill_dir / "scripts"
+    script_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\n"
+        "name: example-skill\n"
+        "description: Exercise Skill evidence behavior.\n"
+        "---\n\n"
+        "# Example Skill\n",
+        encoding="utf-8",
+    )
+    for script_name, script_content in scripts.items():
+        (script_dir / script_name).write_text(script_content, encoding="utf-8")
+    return "unitytest/example-skill"
+
+
+def _skill_evidence_agent(stage, save_calls):
+    manager = SimpleNamespace(
+        cfg=SimpleNamespace(get_value=lambda _key, default=None: default),
+        get_current_stage=lambda: stage,
+        save_stage_info=lambda: save_calls.append(True),
+    )
+    return SimpleNamespace(stage_manager=manager)
+
+
+def test_run_skill_script_commands_accept_canonical_array_and_json_fallback():
+    commands = [["unitytest/example-skill", "run.py", "--mode verify"]]
+
+    direct = ArgsRunSkillScript.model_validate({"commands": commands})
+    serialized = ArgsRunSkillScript.model_validate(
+        {"commands": json.dumps(commands)}
+    )
+
+    assert direct.commands == commands
+    assert serialized.commands == commands
+
+
+def test_run_skill_script_commands_reject_empty_array():
+    with pytest.raises(ValidationError, match="at least 1 item"):
+        ArgsRunSkillScript.model_validate({"commands": []})
+
+
+def test_list_skill_records_and_persists_list_evidence(tmp_path):
+    skill_name = _write_test_skill(tmp_path, {})
+    stage = VerifyStage.__new__(VerifyStage)
+    stage.meta_data = {}
+    stage.skill_list = {skill_name: [False, False, False]}
+    save_calls = []
+    agent = _skill_evidence_agent(stage, save_calls)
+
+    result = ListSkill(workspace=str(tmp_path)).bind(agent)._run()
+
+    assert f"Skill Name: {skill_name}" in result
+    assert stage.skill_list[skill_name] == [True, False, False]
+    assert save_calls == [True]
+
+
+def test_successful_skill_script_records_and_persists_use_evidence(tmp_path):
+    _save_runtime_config_for_test(tmp_path)
+    skill_name = _write_test_skill(tmp_path, {"pass.py": "print('done')\n"})
+    stage = VerifyStage.__new__(VerifyStage)
+    stage.meta_data = {}
+    stage.skill_list = {skill_name: [True, True, False]}
+    save_calls = []
+    agent = _skill_evidence_agent(stage, save_calls)
+
+    result = RunSkillScript(workspace=str(tmp_path)).bind(agent)._run(
+        [[skill_name, "pass.py", ""]]
+    )
+
+    assert result == "done\n"
+    assert stage.skill_list[skill_name] == [True, True, True]
+    assert save_calls == [True]
+
+
+@pytest.mark.parametrize(
+    "commands",
+    (
+        [["unitytest/example-skill", "fail.py", ""]],
+        [
+            ["unitytest/example-skill", "pass.py", ""],
+            ["unitytest/example-skill", "fail.py", ""],
+        ],
+    ),
+)
+def test_failed_or_partial_skill_script_call_does_not_record_use(
+    tmp_path, commands
+):
+    _save_runtime_config_for_test(tmp_path)
+    skill_name = _write_test_skill(
+        tmp_path,
+        {
+            "pass.py": "print('done')\n",
+            "fail.py": "raise SystemExit(3)\n",
+        },
+    )
+    stage = VerifyStage.__new__(VerifyStage)
+    stage.meta_data = {}
+    stage.skill_list = {skill_name: [True, True, False]}
+    save_calls = []
+    agent = _skill_evidence_agent(stage, save_calls)
+
+    result = RunSkillScript(workspace=str(tmp_path)).bind(agent)._run(commands)
+
+    assert "Command failed with exit code 3" in result
+    assert stage.skill_list[skill_name] == [True, True, False]
+    assert save_calls == []
 
 
 def _load_create_script():
@@ -70,6 +203,7 @@ def test_agent_runtime_config_persists_resolved_values_from_cfg(tmp_path):
         "OUT": "unity_test",
         "test_output_dir": "custom_tests",
         "ucagent_python_path": str(REPO_ROOT),
+        "current_test_report": ".ucagent/current_test_report.json",
         "runtime_options": {
             "need_ref_model": True,
             "mock_components_enabled": False,
@@ -108,6 +242,7 @@ def test_template_script_reads_cfg_snapshot_instead_of_environment(
                 "OUT": "unity_test",
                 "test_output_dir": "unity_test/tests",
                 "ucagent_python_path": str(REPO_ROOT),
+                "current_test_report": ".ucagent/current_test_report.json",
                 "runtime_options": {
                     "need_ref_model": False,
                     "mock_components_enabled": True,
@@ -137,6 +272,7 @@ def test_runtime_config_requires_resolved_test_output_dir(tmp_path):
                 "DUT": "Adder",
                 "OUT": "unity_test",
                 "ucagent_python_path": str(REPO_ROOT),
+                "current_test_report": ".ucagent/current_test_report.json",
                 "runtime_options": {
                     "need_ref_model": False,
                     "mock_components_enabled": True,
@@ -160,6 +296,7 @@ def test_runtime_config_requires_ucagent_python_path(tmp_path):
                 "DUT": "Adder",
                 "OUT": "unity_test",
                 "test_output_dir": "unity_test/tests",
+                "current_test_report": ".ucagent/current_test_report.json",
                 "runtime_options": {
                     "need_ref_model": False,
                     "mock_components_enabled": True,
@@ -187,6 +324,7 @@ def test_runtime_config_rejects_invalid_ucagent_python_path(
                 "OUT": "unity_test",
                 "test_output_dir": "unity_test/tests",
                 "ucagent_python_path": invalid_path,
+                "current_test_report": ".ucagent/current_test_report.json",
                 "runtime_options": {
                     "need_ref_model": False,
                     "mock_components_enabled": True,
@@ -215,6 +353,7 @@ def test_runtime_config_rejects_different_ucagent_installation(tmp_path):
                 "OUT": "unity_test",
                 "test_output_dir": "unity_test/tests",
                 "ucagent_python_path": str(other_root),
+                "current_test_report": ".ucagent/current_test_report.json",
                 "runtime_options": {
                     "need_ref_model": False,
                     "mock_components_enabled": True,
@@ -345,6 +484,7 @@ def test_template_script_main_uses_workspace_runtime_config(tmp_path, monkeypatc
                 "OUT": "unity_test",
                 "test_output_dir": "unity_test/tests",
                 "ucagent_python_path": str(REPO_ROOT),
+                "current_test_report": ".ucagent/current_test_report.json",
                 "runtime_options": {
                     "need_ref_model": True,
                     "mock_components_enabled": False,
@@ -430,6 +570,44 @@ def test_runtime_options_stay_internal_and_update_checker_contracts(monkeypatch)
     assert template_args["args_check"] is True
     assert template_args["args_pattern"] == ["env", "ref_model"]
     assert "args_test_func_prefix" not in template_args
+    assert template_args["test_func_rules"] == "standard"
+    assert template_args["ignore_tc_prefix"] == "test_api_{DUT}_"
+
+    api_args = next(
+        checker["args"]
+        for checker in stages["basic_api_functional_test"]["checker"]
+        if checker["name"] == "api_test_check"
+    )
+    assert api_args["args_test_func_prefix"] == "test_api_{DUT}_"
+    assert api_args["test_func_prefix"] == "test_api_{DUT}_"
+    assert api_args["test_func_rules"] == "standard"
+
+    environment = {
+        stage["name"]: stage
+        for stage in stages["test_environment_implementation"]["stage"]
+    }
+    env_args = environment["evaluate_env_fixture"]["checker"][1]["args"]
+    assert env_args["test_prefix"] == "test_api_{DUT}_env_"
+    assert env_args["first_arg"] == "env"
+
+    mock_parent = environment["mock_functional_test"]
+    mock_args = next(
+        checker["args"] for checker in mock_parent["checker"]
+        if checker["clss"] == "UnityChipCheckerTestMustPass"
+    )
+    assert mock_args["test_prefix"] == "test_api_{DUT}_mock_"
+    mock_batch = mock_parent["stage"][0]["checker"][0]["args"]
+    assert mock_batch["test_prefix"] == "test_api_{DUT}_mock_"
+    assert mock_batch["first_arg"] == "mock_dut"
+
+    reference_args = next(
+        checker["args"]
+        for checker in stages["reference_model_fixture_imp"]["checker"]
+        if checker["clss"] == "UnityChipCheckerTestMustPass"
+    )
+    assert reference_args["test_prefix"] == (
+        "test_api_{DUT}_reference_model_"
+    )
 
     comprehensive = stages["comprehensive_verification_and_bug_analysis"]
     batch_stage = next(
@@ -444,6 +622,7 @@ def test_runtime_options_stay_internal_and_update_checker_contracts(monkeypatch)
     )
     assert batch_args["args_check"] is True
     assert batch_args["args_pattern"] == ["env", "ref_model"]
+    assert batch_args["test_func_rules"] == "standard"
 
     static_stage = stages["static_bug_validation"]
     static_args = next(
@@ -454,6 +633,67 @@ def test_runtime_options_stay_internal_and_update_checker_contracts(monkeypatch)
     assert static_args["args_check"] is True
     assert static_args["args_pattern"] == ["env", "ref_model"]
     assert static_args["args_test_func_prefix"] == "test_static_{DUT}_"
+    assert static_args["test_func_prefix"] == "test_static_{DUT}_"
+    assert static_args["test_func_file"] == (
+        "{OUT}/tests/test_{DUT}_static_verify_*.py"
+    )
+    assert static_args["test_func_rules"] == "standard"
+
+    random_args = next(
+        checker["args"]
+        for checker in stages["generate_random_test_cases"]["checker"]
+        if checker["name"] == "random_test_check"
+    )
+    assert random_args["args_test_func_prefix"] == "test_random_"
+    assert random_args["test_func_prefix"] == "test_random_"
+    assert random_args["test_func_rules"] == "standard"
+
+    standard_stage_names = {
+        "create_test_case_templates",
+        "comprehensive_verification_and_bug_analysis",
+        "test_case_implementation_in_batch",
+        "refine_test_cases_based_on_functional_points",
+        "line_coverage_analysis_and_improvement",
+        "verification_review_and_summary",
+        "record_and_report_bugs",
+    }
+    for stage in _iter_stages(config["stage"]):
+        if stage["name"] not in standard_stage_names:
+            continue
+        test_checkers = [
+            checker for checker in stage.get("checker", [])
+            if checker["clss"] in {
+                "UnityChipCheckerTestTemplate",
+                "UnityChipCheckerBatchTestsImplementation",
+                "UnityChipCheckerTestCase",
+                "UnityChipCheckerTestCaseWithLineCoverage",
+            }
+        ]
+        assert test_checkers
+        assert all(
+            checker["args"].get("test_func_rules") == "standard"
+            for checker in test_checkers
+        )
+
+
+def test_incremental_and_vibe_test_stages_keep_naming_contracts():
+    incremental = load_yaml_with_env_vars(str(INC_CONFIG_PATH))
+    incremental_stages = _stage_map(incremental)
+    api_checker = incremental_stages["update_env_and_api_test"]["checker"][0]
+    assert api_checker["args"]["test_func_prefix"] == "test_api_{DUT}_"
+    assert api_checker["args"]["test_func_rules"] == "standard"
+
+    for stage_name in (
+        "update_directed_testing_test_cases",
+        "update_random_test_cases",
+        "final_verification_and_report",
+    ):
+        checker = incremental_stages[stage_name]["checker"][0]
+        assert checker["args"]["test_func_rules"] == "standard"
+
+    vibe = load_yaml_with_env_vars(str(VIBE_CONFIG_PATH))
+    vibe_checker = vibe["stage"][0]["checker"][0]
+    assert vibe_checker["args"]["test_func_rules"] == "standard"
 
 
 def test_mock_stages_use_dedicated_skill_when_enabled(monkeypatch):
@@ -550,7 +790,8 @@ def test_default_workflow_requires_stage_skills_by_default(tmp_path, monkeypatch
 
     assert cfg.skill.use_skill is True
     assert cfg.launch.default_args.use_skill is True
-    assert "当前stage的`skill_list`默认是必须遵循的方法" in config["mission"]["prompt"]["system"]
+    assert "只有Skill启用且当前stage实际配置了非空`skill_list`时" in config["mission"]["prompt"]["system"]
+    assert "未配置`skill_list`或其为空时，不调用`SetSkillUsage`" in config["mission"]["prompt"]["system"]
     assert "`general_skill_list`中的通用Skill始终可选" in config["mission"]["prompt"]["system"]
     assert "不能把“脚本可选”误解为整个Skill可跳过" in config["mission"]["prompt"]["system"]
     assert "只有需要删除大量完整文本行时" in config["mission"]["prompt"]["system"]

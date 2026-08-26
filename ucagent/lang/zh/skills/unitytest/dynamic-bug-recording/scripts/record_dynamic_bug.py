@@ -1,14 +1,13 @@
 import argparse
 import ast
 import hashlib
-import json
 import os
 import posixpath
 import re
 from pathlib import Path
 from string import Template
 
-from ucagent.util.config import load_runtime_config
+from ucagent.util.config import load_current_test_report, load_runtime_config
 from ucagent.util.bug_analysis_contract import (
     DYNAMIC_BUG_DOCUMENT_PATH,
     BUG_ANALYSIS_SECTION_MARKERS,
@@ -182,12 +181,8 @@ def resolve_fg_fc_ck_list_by_tc(tc_tag, out_dir, test_output_dir):
         configured_test_dir + "/"
     )
 
-    report_path = os.path.join(os.getcwd(), out_dir, ".TEST_TEMPLATE_IMP_REPORT.json")
-    if not os.path.exists(report_path):
-        raise FileNotFoundError(f"Error: report file not found: {report_path}")
-
-    with open(report_path, "r", encoding="utf-8") as f:
-        report = json.load(f)
+    current_report = load_current_test_report(os.getcwd())
+    report = current_report["report"]
 
     mapping = report.get("failed_test_case_with_check_point_list")
     if not isinstance(mapping, dict):

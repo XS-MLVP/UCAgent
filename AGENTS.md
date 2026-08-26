@@ -122,6 +122,10 @@ active stage eventually calls each checker's `on_init()`.
 
 Follow these rules when implementing checkers:
 
+- Every Checker subclass with a custom `__init__` must call
+  `super().__init__()` before registering lifecycle callbacks or constructing a
+  `UnityChipBatchTask`. `Checker._cb_list` is an instance-only registry; do not
+  add class-level callback storage, lazy initialization, or test-time resets.
 - Keep `__init__` limited to validating/storing constructor parameters and
   creating lightweight helper objects. Do not scan workspace files or derive
   live task state in the constructor.
@@ -263,6 +267,36 @@ results, runtime `Guide_Doc`, templates, and skill instructions.
   When input has the wrong shape, state the required current structure and the
   exact repair action without teaching the LLM about historical alternatives.
 
+### Current-Contract-Only Development
+
+During active development, the repository targets only the latest canonical
+contract. Backward compatibility with superseded development contracts is not a
+goal unless the current task explicitly requests a bounded migration.
+
+- Implement the latest contract directly. Do not retain old aliases, argument
+  names, configuration fields, environment-variable fallbacks, tool schemas,
+  checker classes, tag formats, document layouts, parser branches, or prompt
+  instructions as compatibility paths.
+- When a contract is replaced, remove the superseded implementation and its
+  fallback or auto-conversion logic in the same change. Invalid old input must
+  fail with the current expected format and corrective action; it must not be
+  silently accepted, guessed, translated, or normalized.
+- Synchronize every affected contract layer: resolved configuration, runtime
+  code, prompts, `Guide_Doc`, templates, skills and scripts, contract files,
+  tests, fixtures, and maintained examples. Delete stale fixtures and examples
+  that exist only for the superseded contract.
+- Tests must construct and assert the current canonical contract. If a test
+  fails because it imports a removed interface or expects superseded behavior,
+  update or delete that test; do not restore the old production interface to
+  make the test pass.
+- Existing generated workspaces, copied skills, checkpoints, reports, and
+  `output/` artifacts do not justify compatibility code. Regenerate or restart
+  them against the latest contract instead of teaching runtime code to consume
+  stale development artifacts.
+- Before finishing a contract change, search the repository for removed names,
+  paths, tags, fields, and examples, and verify that no reachable compatibility
+  branch or conflicting normative guidance remains.
+
 ### Shared Runtime Contract
 
 - Tagged Markdown is a machine-readable interface. Treat FG/FC/CK, BG/TC,
@@ -327,15 +361,22 @@ results, runtime `Guide_Doc`, templates, and skill instructions.
 - Any requirement to invoke a skill or validate skill-use evidence must be
   conditional on the resolved skill setting. It must not block Check or Complete
   when skills are disabled.
-- When Skill support is enabled, a stage-level `skill_list` requires complete
-  Skill usage evidence by default. An explicit `force_use_skill: false` makes
+- Check Skill usage only when Skill support is enabled and the current stage
+  has a nonempty stage-level `skill_list`. A missing or empty `skill_list` must
+  not expose Skill status, require `SetSkillUsage`, or gate Check/Complete. A
+  nonempty stage-level `skill_list` requires complete Skill usage evidence by
+  default. An explicit `force_use_skill: false` makes
   that stage's Skills optional. `general_skill_list` entries are always optional
   and never enter the stage requirement. The evidence gate applies to
   `Complete`, not intermediate `Check` calls. When Skill support is disabled,
-  the gate is inactive even if a stage declares `skill_list`. A forced gate
-  failure must identify each Skill and its current
-  `listed`/`read`/`used` state, plus the exact `SetSkillUsage` call to make after
-  performing any missing actions.
+  the gate is inactive even if a stage declares `skill_list`. For each forced
+  Skill, `SetSkillUsage` must validate real `listed=true` and `read=true`
+  evidence, followed by either `used=true` for an applied method or
+  `used=false` with a nonempty no-applicable-work reason after a passing current
+  `Check`. A reason cannot create list/read evidence, replace `Check`, downgrade
+  observed use=true, or manufacture a Bug/artifact. A forced gate failure must
+  identify each Skill and its current `listed`/`read`/`used` state, plus the
+  exact `SetSkillUsage` call to make after performing any missing actions.
 - Skill directories require `SKILL.md` with valid `name` and `description`
   frontmatter. Keep a skill concise and put deterministic repeated work in
   `scripts/`.

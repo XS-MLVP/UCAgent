@@ -28,6 +28,7 @@ from ucagent.stage.vmanager import (
     ToolDoCheck,
     ToolDoComplete,
     ToolRunTestCases,
+    ToolSetSkillUsage,
 )
 from ucagent.tools.uctool import to_fastmcp
 from ucagent.util import functions as fc
@@ -42,6 +43,18 @@ def test_run_test_cases_contract_rejects_non_test_scripts():
     assert "maintenance script" in description
     assert "file-editing tools" in description
     assert "RunSkillScript" in description
+
+
+def test_set_skill_usage_contract_describes_observed_evidence_only():
+    description = ToolSetSkillUsage().description
+
+    assert "nonempty stage-specific skill_list" in description
+    assert "no configured skill_list has no Skill usage check" in description
+    assert "cannot create or upgrade list/read evidence" in description
+    assert "`ListSkill` records list=true" in description
+    assert "`ReadTextFile` records read=true" in description
+    assert "passing current `Check`" in description
+    assert "use=false" in description
 
 
 class _FakeStage:
@@ -862,6 +875,42 @@ def test_compact_check_result_keeps_legacy_diagnostics():
     assert StageManager._compact_check_result(legacy_result) is legacy_result
 
 
+def test_failure_summary_preserves_test_function_contract_issues():
+    diagnostic = {
+        "error_code": "TEST_FUNCTION_CONTRACT_VIOLATION",
+        "error": "Found two invalid test function names.",
+        "observed": {
+            "issue_count": 2,
+            "issues": [
+                "tests/test_Demo_api.py:3-3: test_api_basic is invalid",
+                "tests/test_Demo_random_x.py:8-8: test_random_ is invalid",
+            ],
+        },
+        "expected": "Every test function uses its stage-specific prefix.",
+        "next_action": "Rename both functions, then call `Check` again.",
+    }
+    summary = StageManager._build_failure_summary(
+        SimpleNamespace(name="basic_api_functional_test"),
+        [{
+            "name": "UnityChipCheckerDutApiTest",
+            "checker_name": "api_test_check",
+            "checker_class": "UnityChipCheckerDutApiTest",
+            "checked_in_last_run": True,
+            "last_check_pass": False,
+            "last_msg": {
+                "error": diagnostic["error"],
+                "diagnostic": diagnostic,
+                "details": diagnostic["observed"]["issues"],
+            },
+        }],
+        stage_index=12,
+    )
+
+    assert summary["error_code"] == "TEST_FUNCTION_CONTRACT_VIOLATION"
+    assert summary["observed"] == diagnostic["observed"]
+    assert summary["next_action"] == diagnostic["next_action"]
+
+
 def test_failure_without_explicit_diagnostic_preserves_all_checker_output():
     raw_message = {
         "error": "[Test Function Failure] Check test functions failed.",
@@ -1327,6 +1376,107 @@ def test_optional_skill_usage_does_not_block_check_or_complete(tmp_path):
     ]
 
 
+def test_stage_without_configured_skills_skips_skill_usage_gate(tmp_path):
+    calls = []
+    stage = _make_precheck_gate_stage(
+        tmp_path, [_RecordingChecker(calls, "checker")]
+    )
+    stage.force_use_skill = True
+    stage.cfg.skill.general_skill_list = ["unitytest/general-optional"]
+
+    check_pass, _check_info = stage._do_check()
+    complete_pass, _complete_info = stage._do_check(is_complete=True)
+
+    assert check_pass is True
+    assert complete_pass is True
+    assert calls == [
+        ("checker", {}),
+        ("checker", {"is_complete": True}),
+    ]
+
+    stage.task_list = []
+    stage.output_files = []
+    stage.parent = None
+    stage.substages = []
+    stage.need_human_check = False
+    stage.title = lambda: "generic-precheck-stage"
+    stage.task = lambda: []
+    assert "skill_list" not in stage.task_info()
+
+    manager = StageManager.__new__(StageManager)
+    manager.stage_index = 0
+    manager.stages = [stage]
+    assert manager.set_current_stage_skill_usage({}) == (
+        "No stage-specific Skill usage needs to be recorded."
+    )
+
+
+def test_status_omits_skill_list_for_stage_without_configured_skills(tmp_path):
+    stage = _make_precheck_gate_stage(tmp_path, [])
+    stage.title = lambda: "generic-precheck-stage"
+    stage.is_reached = lambda: False
+    stage.is_skipped = lambda: False
+    stage.get_time_start_str = lambda: ""
+    stage.get_time_end_str = lambda: ""
+    stage.get_time_cost_str = lambda: "0s"
+    stage.is_completed = lambda: False
+    stage.is_hmcheck_needed = lambda: False
+    stage.task_info = lambda: {}
+
+    manager = StageManager.__new__(StageManager)
+    manager.mission = SimpleNamespace(name="mission")
+    manager.stages = [stage]
+    manager.stage_index = 0
+    manager.cfg = stage.cfg
+    manager.last_check_info = None
+    manager.stage_need_llm_fail_suggestion = lambda _stage: False
+    manager.stage_need_llm_pass_suggestion = lambda _stage: False
+
+    status = manager.status()
+
+    assert "skill_list" not in status["stage_list"][0]
+
+
+def test_status_keeps_skill_list_for_configured_stage_skill(tmp_path):
+    stage = _make_precheck_gate_stage(tmp_path, [])
+    stage.title = lambda: "skill-stage"
+    stage.skill_list = {"unitytest/example": [False, False, False]}
+    stage.is_reached = lambda: False
+    stage.is_skipped = lambda: False
+    stage.get_time_start_str = lambda: ""
+    stage.get_time_end_str = lambda: ""
+    stage.get_time_cost_str = lambda: "0s"
+    stage.is_completed = lambda: False
+    stage.is_hmcheck_needed = lambda: False
+    stage.task_info = lambda: {}
+
+    manager = StageManager.__new__(StageManager)
+    manager.mission = SimpleNamespace(name="mission")
+    manager.stages = [stage]
+    manager.stage_index = 0
+    manager.cfg = stage.cfg
+    manager.last_check_info = None
+    manager.stage_need_llm_fail_suggestion = lambda _stage: False
+    manager.stage_need_llm_pass_suggestion = lambda _stage: False
+
+    status = manager.status()
+
+    assert status["stage_list"][0]["skill_list"] == ["unitytest/example"]
+
+
+def test_set_skill_usage_skips_injected_stage_skills_when_support_disabled(tmp_path):
+    stage = _make_precheck_gate_stage(tmp_path, [])
+    stage.skill_list = {"unitytest/required-skill": [False, False, False]}
+    stage.cfg.skill.use_skill = False
+    manager = StageManager.__new__(StageManager)
+    manager.stage_index = 0
+    manager.stages = [stage]
+
+    assert manager.set_current_stage_skill_usage({}) == (
+        "Skill support is disabled; no stage-specific Skill usage needs to be recorded."
+    )
+
+
 def test_forced_skill_usage_does_not_block_intermediate_check(tmp_path):
     calls = []
     stage = _make_precheck_gate_stage(
@@ -1376,15 +1526,31 @@ def test_forced_skill_usage_complete_failure_is_named_and_actionable(tmp_path):
         "unitytest/required-a": {"list": True, "read": False, "use": False},
         "unitytest/required-b": {"list": False, "read": True, "use": False},
     }
-    assert summary["expected"]["required_usage"] == {
+    assert summary["expected"]["applied_method_usage"] == {
         "unitytest/required-a": {"list": True, "read": True, "use": True},
         "unitytest/required-b": {"list": True, "read": True, "use": True},
+    }
+    assert summary["expected"]["no_applicable_usage"] == {
+        "unitytest/required-a": {
+            "list": True,
+            "read": True,
+            "use": False,
+            "reason": "Explain why this checked stage has no applicable object.",
+        },
+        "unitytest/required-b": {
+            "list": True,
+            "read": True,
+            "use": False,
+            "reason": "Explain why this checked stage has no applicable object.",
+        },
     }
     assert "unitytest/general-optional" not in str(summary)
     assert "UnknownChecker" not in str(summary)
     assert 'SetSkillUsage(skill_usage={"unitytest/required-a"' in summary[
         "next_action"
     ]
+    assert "no applicable object" in summary["next_action"]
+    assert "no script or artifact mutation is needed" in summary["next_action"]
     assert '"list": true, "read": true, "use": true' in summary["next_action"]
     assert summary["next_action"].endswith("`Complete` again.")
 
@@ -1396,11 +1562,56 @@ def test_complete_reaches_checker_after_forced_skill_usage_is_complete(tmp_path)
     )
     stage.skill_list = {"unitytest/required-skill": [True, True, True]}
     stage.force_use_skill = True
+    stage.meta_data = {}
+    stage.meta_set_skill_usage(stage.get_skill_usage(), validated=True)
 
     passed, _check_info = stage._do_check(is_complete=True)
 
     assert passed is True
     assert calls == [("checker", {"is_complete": True})]
+
+
+def test_complete_accepts_validated_no_applicable_skill_outcome(tmp_path):
+    calls = []
+    stage = _make_precheck_gate_stage(
+        tmp_path, [_RecordingChecker(calls, "checker")]
+    )
+    stage.skill_list = {"unitytest/dynamic-bug-recording": [True, True, False]}
+    stage.force_use_skill = True
+    stage.desc = "generic stage"
+    stage.task_list = []
+    stage.meta_set_skill_usage(
+        stage.get_skill_usage(),
+        validated=True,
+        reasons={
+            "unitytest/dynamic-bug-recording": (
+                "No confirmed dynamic DUT Bug exists in this checked stage."
+            )
+        },
+    )
+
+    passed, _check_info = stage._do_check(is_complete=True)
+    assert passed is True
+    assert calls == [("checker", {"is_complete": True})]
+    assert stage.is_skill_usage_validated() is True
+
+
+def test_complete_requires_set_skill_usage_validation_after_evidence(tmp_path):
+    calls = []
+    stage = _make_precheck_gate_stage(
+        tmp_path, [_RecordingChecker(calls, "checker")]
+    )
+    stage.skill_list = {"unitytest/required-skill": [True, True, True]}
+    stage.force_use_skill = True
+
+    passed, check_info = stage._do_check(is_complete=True)
+
+    assert passed is False
+    assert calls == []
+    diagnostic = check_info[0]["last_msg"]["diagnostic"]
+    assert diagnostic["error_code"] == "SKILL_USAGE_NOT_VALIDATED"
+    assert diagnostic["observed"]["incomplete_skills"] == {}
+    assert "call `SetSkillUsage" in diagnostic["next_action"]
 
 
 def test_reference_file_gate_reports_all_files_and_exact_retry_tool(tmp_path):
@@ -1495,7 +1706,116 @@ def test_current_tips_distinguish_optional_and_forced_skills(tmp_path):
     assert "Optional Skills available" in optional_tips
     assert "non-use does not block Check or Complete" in optional_tips
     assert "requires the following Skills" in forced_tips
-    assert "record usage with SetSkillUsage before Complete" in forced_tips
+    assert (
+        "ListSkill -> ReadTextFile(SKILL.md) -> perform the Skill method"
+        in forced_tips
+    )
+    assert "-> Check -> SetSkillUsage -> Complete" in forced_tips
+    assert "use=false with a nonempty reason" in forced_tips
+    assert "No confirmed dynamic DUT Bug exists" not in forced_tips
+
+    stage.skill_list = {
+        "unitytest/dynamic-bug-recording": [False, False, False]
+    }
+    dynamic_bug_tips = manager.get_current_tips()
+
+    assert '"use": false' in dynamic_bug_tips
+    assert "No confirmed dynamic DUT Bug exists" in dynamic_bug_tips
+
+
+def test_passing_check_records_text_skill_use_only_after_list_and_read(tmp_path):
+    calls = []
+    stage = _make_precheck_gate_stage(
+        tmp_path, [_RecordingChecker(calls, "checker")]
+    )
+    stage.skill_list = {"unitytest/required-skill": [False, False, False]}
+    stage.force_use_skill = True
+    os.makedirs(
+        os.path.join(
+            fc.get_workspace_skill_root(str(tmp_path)),
+            "unitytest/required-skill",
+        )
+    )
+    open(
+        os.path.join(
+            fc.get_workspace_skill_root(str(tmp_path)),
+            "unitytest/required-skill/SKILL.md",
+        ),
+        "w",
+        encoding="utf-8",
+    ).close()
+    manager = StageManager.__new__(StageManager)
+    manager.workspace = str(tmp_path)
+    manager.stage_index = 0
+    manager.stages = [stage]
+    manager.last_check_info = None
+    manager.validation_revision = 0
+    manager.gen_fail_suggestion = lambda data: data
+    save_calls = []
+    manager.save_stage_info = lambda: save_calls.append(True)
+
+    first_result = manager.check(30)
+
+    assert first_result["check_pass"] is True
+    assert stage.skill_list["unitytest/required-skill"] == [False, False, False]
+    assert save_calls == []
+
+    stage.set_usage_skill_list(
+        "unitytest/required-skill", listed=True, read=True
+    )
+    second_result = manager.check(30)
+
+    assert second_result["check_pass"] is True
+    assert stage.skill_list["unitytest/required-skill"] == [True, True, False]
+    assert save_calls == []
+
+    result = manager.set_current_stage_skill_usage({
+        "unitytest/required-skill": {"list": True, "read": True, "use": True},
+    })
+
+    assert result == "All required stage Skills have complete usage evidence."
+    assert stage.skill_list["unitytest/required-skill"] == [True, True, True]
+    assert save_calls == [True]
+
+
+def test_skill_read_evidence_is_persisted_only_for_real_skill_directory(tmp_path):
+    stage = _make_precheck_gate_stage(tmp_path, [])
+    stage.skill_list = {"unitytest/required-skill": [False, False, False]}
+    stage.force_unactive = False
+    save_calls = []
+    manager = SimpleNamespace(
+        get_current_stage=lambda: stage,
+        save_stage_info=lambda: save_calls.append(True),
+    )
+    stage.vmanager = manager
+
+    stage.on_file_read(
+        True,
+        ".ucagent/skills-shadow/unitytest/required-skill/SKILL.md",
+        "shadow",
+    )
+    assert stage.skill_list["unitytest/required-skill"] == [False, False, False]
+    assert save_calls == []
+
+    stage.on_file_read(
+        True,
+        ".ucagent/skills/unitytest/required-skill/SKILL.md",
+        "real",
+    )
+    assert stage.skill_list["unitytest/required-skill"] == [False, True, False]
+    assert save_calls == [True]
+
+    stage.skill_list["unitytest/required-skill"] = [False, False, False]
+    stage.on_file_read(
+        True,
+        os.path.join(
+            fc.get_workspace_skill_root(str(tmp_path)),
+            "unitytest/required-skill/SKILL.md",
+        ),
+        "real absolute path",
+    )
+    assert stage.skill_list["unitytest/required-skill"] == [False, True, False]
+    assert save_calls == [True, True]
 
 
 def test_set_skill_usage_records_optional_non_use_without_requiring_all(tmp_path):
@@ -1508,6 +1828,11 @@ def test_set_skill_usage_records_optional_non_use_without_requiring_all(tmp_path
     manager.workspace = str(tmp_path)
     manager.stage_index = 0
     manager.stages = [stage]
+    manager.save_stage_info = lambda: None
+    stage.set_usage_skill_list(
+        "unitytest/used-skill", listed=True, read=True, used=True
+    )
+    stage.check_pass = True
 
     result = manager.set_current_stage_skill_usage({
         "unitytest/used-skill": {"list": True, "read": True, "use": True},
@@ -1529,6 +1854,170 @@ def test_set_skill_usage_accepts_complete_forced_evidence(tmp_path):
         "unitytest/required-skill",
     )
     os.makedirs(skill_dir)
+    open(os.path.join(skill_dir, "SKILL.md"), "w", encoding="utf-8").close()
+    manager = StageManager.__new__(StageManager)
+    manager.workspace = str(tmp_path)
+    manager.stage_index = 0
+    manager.stages = [stage]
+    manager.save_stage_info = lambda: None
+    stage.check_pass = True
+    stage.set_usage_skill_list(
+        "unitytest/required-skill", listed=True, read=True
+    )
+    stage.check_pass = True
+
+    result = manager.set_current_stage_skill_usage({
+        "unitytest/required-skill": {
+            "list": True,
+            "read": True,
+            "use": False,
+            "reason": (
+                "No applicable Bug was confirmed; completed the Skill's no-Bug "
+                "branch without running its script."
+            ),
+        },
+    })
+
+    assert result == (
+        "All required stage Skills have complete usage evidence. "
+        "No-applicable-work was recorded for: unitytest/required-skill."
+    )
+    assert stage.skill_list == {
+        "unitytest/required-skill": [True, True, False],
+    }
+    assert stage.meta_data["skill_usage"]["validated"] is True
+    assert stage.meta_data["skill_usage"]["reasons"] == {
+        "unitytest/required-skill": (
+            "No applicable Bug was confirmed; completed the Skill's no-Bug "
+            "branch without running its script."
+        )
+    }
+
+
+def test_set_skill_usage_requires_check_for_current_forced_evidence(tmp_path):
+    stage = _make_precheck_gate_stage(tmp_path, [])
+    stage.skill_list = {"unitytest/required-skill": [True, True, False]}
+    stage.force_use_skill = True
+    skill_dir = os.path.join(
+        fc.get_workspace_skill_root(str(tmp_path)),
+        "unitytest/required-skill",
+    )
+    os.makedirs(skill_dir)
+    open(os.path.join(skill_dir, "SKILL.md"), "w", encoding="utf-8").close()
+    manager = StageManager.__new__(StageManager)
+    manager.workspace = str(tmp_path)
+    manager.stage_index = 0
+    manager.stages = [stage]
+
+    result = manager.set_current_stage_skill_usage({
+        "unitytest/required-skill": {
+            "list": True,
+            "read": True,
+            "use": False,
+            "reason": "No applicable Bug exists in the current stage result.",
+        },
+    })
+
+    assert "has not passed `Check`" in result
+    assert stage.is_skill_usage_validated() is False
+
+
+def test_set_skill_usage_requires_reason_for_no_applicable_outcome(tmp_path):
+    stage = _make_precheck_gate_stage(tmp_path, [])
+    stage.skill_list = {"unitytest/required-skill": [True, True, False]}
+    stage.force_use_skill = True
+    skill_dir = os.path.join(
+        fc.get_workspace_skill_root(str(tmp_path)),
+        "unitytest/required-skill",
+    )
+    os.makedirs(skill_dir)
+    open(os.path.join(skill_dir, "SKILL.md"), "w", encoding="utf-8").close()
+    manager = StageManager.__new__(StageManager)
+    manager.workspace = str(tmp_path)
+    manager.stage_index = 0
+    manager.stages = [stage]
+    stage.check_pass = True
+
+    result = manager.set_current_stage_skill_usage({
+        "unitytest/required-skill": {
+            "list": True,
+            "read": True,
+            "use": False,
+        },
+    })
+
+    assert "Provide a nonempty reason" in result
+    assert stage.is_skill_usage_validated() is False
+
+
+def test_skill_usage_restore_accepts_only_current_evidence_contract(tmp_path):
+    original = _make_precheck_gate_stage(tmp_path, [])
+    original.skill_list = {"unitytest/required-skill": [True, True, False]}
+    original.force_use_skill = True
+    original.meta_set_skill_usage(
+        original.get_skill_usage(),
+        validated=True,
+        reasons={"unitytest/required-skill": "No applicable work remained."},
+    )
+    persisted_meta = original.meta_data.copy()
+
+    restored = _make_precheck_gate_stage(tmp_path, [])
+    restored.skill_list = {"unitytest/required-skill": [False, False, False]}
+    restored.force_use_skill = True
+    restored.meta_data = persisted_meta
+
+    assert restored.restore_skill_usage() is True
+    assert restored.skill_list == {
+        "unitytest/required-skill": [True, True, False]
+    }
+    assert restored.is_skill_usage_validated() is True
+
+    stale = _make_precheck_gate_stage(tmp_path, [])
+    stale.skill_list = {"unitytest/required-skill": [False, False, False]}
+    stale.meta_data = {
+        "skill_usage": {
+            "unitytest/required-skill": {
+                "list": True,
+                "read": True,
+                "use": True,
+            }
+        }
+    }
+
+    assert stale.restore_skill_usage() is False
+    assert stale.skill_list == {
+        "unitytest/required-skill": [False, False, False]
+    }
+    assert "skill_usage" not in stale.meta_data
+
+
+def test_stage_activation_invalidates_previous_current_test_report(tmp_path):
+    current_report = tmp_path / ".ucagent/current_test_report.json"
+    current_report.parent.mkdir()
+    current_report.write_text('{"stale": true}', encoding="utf-8")
+    stage = VerifyStage.__new__(VerifyStage)
+    stage.workspace = str(tmp_path)
+    stage.pre_cmds = []
+    stage.checker = []
+    stage.skill_list = {}
+    stage.time_start = None
+    stage.name = "new-stage"
+
+    stage.on_init()
+
+    assert not current_report.exists()
+
+
+def test_set_skill_usage_rejects_unobserved_claims(tmp_path):
+    stage = _make_precheck_gate_stage(tmp_path, [])
+    stage.skill_list = {"unitytest/required-skill": [True, True, False]}
+    stage.force_use_skill = True
+    skill_dir = os.path.join(
+        fc.get_workspace_skill_root(str(tmp_path)),
+        "unitytest/required-skill",
+    )
+    os.makedirs(skill_dir)
+    open(os.path.join(skill_dir, "SKILL.md"), "w", encoding="utf-8").close()
     manager = StageManager.__new__(StageManager)
     manager.workspace = str(tmp_path)
     manager.stage_index = 0
@@ -1538,7 +2027,5 @@ def test_set_skill_usage_accepts_complete_forced_evidence(tmp_path):
         "unitytest/required-skill": {"list": True, "read": True, "use": True},
     })
 
-    assert result == "All required stage Skills have complete usage evidence."
-    assert stage.skill_list == {
-        "unitytest/required-skill": [True, True, True],
-    }
+    assert "has not passed `Check`" in result
+    assert stage.skill_list["unitytest/required-skill"] == [True, True, False]

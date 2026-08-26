@@ -140,31 +140,48 @@ class ToolSetCurrentStageJournal(ManagerTool):
 
 class ArgSkillUsage(BaseModel):
     skill_usage: Dict[str, Any] = Field(
-        description="The skill usage to set for the current stage. Cannot be empty."
+        description=(
+            "The current stage's stage-specific Skills and their list/read/use state. "
+            "Use this only when the current stage has a nonempty skill_list. "
+            "list, read, and use must be booleans. Each Skill may also include a "
+            "nonempty reason; reason is required when use=false records that the "
+            "Skill has no applicable object in the checked stage result."
+        )
     )
 
 class ToolSetSkillUsage(ManagerTool):
-    """Check and set the skill usage of the current stage."""
+    """Validate and record observed Skill usage for the current stage."""
     name: str = "SetSkillUsage"
     description: str = (
-        "Record usage of Skills available to the current stage. \n"
-        "Analyze the conversation history and check usage of the skills specified in skill_list (if skills beyond the specified list were also used, analyze them as well).\n"
-        "Skills in the current stage's skill_list are required by default unless that stage explicitly sets force_use_skill=false. General Skills remain optional and are never part of this required set. For a required Skill, all three fields must be true before Complete; optional Skill non-use does not block Check or Complete.\n"
-        "For each skill, analyze the following aspects:\n"
-        "1. **list**: Whether the name and description of skill was listed in histoty context\n"
-        "2. **read**: Whether the SKILL.md of skill was read by using tool `ReadTextFile`\n"
-        "3. **use**: Whether completion of the current stage task followed the method steps in SKILL.md, or executed any specified code in that file\n"
-        "**Returned dictionary format example**:\n"
-        "{\n"
-        "  'unitytest/ut-functions-and-checks': {'list': True, 'read': True, 'use': False},\n"
-        "  'ext/custom/skill-name': {'list': True, 'read': False, 'use': False}\n"
-        "}\n"
+        "Validate the current stage's Skill outcome before Complete only when that "
+        "stage has a nonempty stage-specific skill_list. A stage with no configured "
+        "skill_list has no Skill usage check and must not call this tool merely because "
+        "Skill support or general Skills are available. This tool cannot "
+        "create or upgrade list/read evidence: `ListSkill` records list=true, and "
+        "successfully reading that Skill's SKILL.md with `ReadTextFile` records "
+        "read=true. A fully successful `RunSkillScript` call records use=true for an "
+        "applied script. After list/read and a passing current `Check`, SetSkillUsage "
+        "may record use=true when a text method was applied, or validate use=false with "
+        "a nonempty reason when the method had no applicable object (for example, no "
+        "confirmed Bug, so no recording script was needed). Stage-specific Skills are "
+        "required by "
+        "default unless force_use_skill=false; general Skills remain optional. Pass a "
+        "JSON object. Applied method example: {\"unitytest/functions-and-checks\": "
+        "{\"list\": true, \"read\": true, \"use\": true}}. No-applicable-work "
+        "example: {\"unitytest/dynamic-bug-recording\": {\"list\": true, "
+        "\"read\": true, \"use\": false, \"reason\": \"No confirmed dynamic DUT "
+        "Bug exists in this stage; no recording action was needed.\"}}. A reason cannot "
+        "replace list/read or the current Check and must not be used to manufacture work."
     )
     args_schema: Optional[ArgsSchema] = ArgSkillUsage
 
     def _run(self, skill_usage: Dict[str, Any] = None, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
         if not skill_usage:
-            return "Skill usage content cannot be empty, use tool `ToolSetSkillUsage` to check the skill usage and set the skill usage content."
+            return (
+                "skill_usage cannot be empty. Complete the Skill evidence sequence, "
+                "then call `SetSkillUsage` with the current stage-specific Skill names "
+                "and boolean list/read/use fields."
+            )
         return self.function(skill_usage)
 
 
@@ -551,6 +568,12 @@ class StageManager(object):
             stage.set_reference_file_status(stage_info.get("task", {}).get("reference_files", {}))
             if "meta_data" in stage_info:
                 stage.meta_data = copy.deepcopy(stage_info["meta_data"])
+                restore_skill_usage = getattr(stage, "restore_skill_usage", None)
+                if callable(restore_skill_usage) and not restore_skill_usage():
+                    warning(
+                        f"Stage '{stage.name}' has invalid persisted Skill evidence; "
+                        "list/read/use evidence will be collected again."
+                    )
         self._go_skip_stage()
         for s in self.stages:
             s.set_stage_manager(self)
@@ -781,9 +804,25 @@ class StageManager(object):
         if skills_to_use:
             formatted_skill_list = list_skills_in_format(_list_skills(self.workspace), self.workspace, skills_to_use)
             if cstage.force_use_skill:
+                no_applicable_example = ""
+                if "unitytest/dynamic-bug-recording" in skills_to_use:
+                    no_applicable_example = (
+                        " For example, when no confirmed dynamic DUT Bug exists: "
+                        "{\"unitytest/dynamic-bug-recording\": {\"list\": true, "
+                        "\"read\": true, \"use\": false, \"reason\": \"No "
+                        "confirmed dynamic DUT Bug exists in this checked stage; no "
+                        "recording action was needed.\"}}."
+                    )
                 skill_note = (
-                    "This stage requires the following Skills. Read each SKILL.md, use "
-                    "its method, and record usage with SetSkillUsage before Complete:\n"
+                    "This stage requires the following Skills. Use this sequence: "
+                    "ListSkill -> ReadTextFile(SKILL.md) -> perform the Skill method "
+                    "(and RunSkillScript only when that method calls for a declared "
+                    "script), or determine that it has no applicable object -> Check -> "
+                    "SetSkillUsage -> Complete. After a passing Check, submit use=true "
+                    "for an applied text method, or use=false with a nonempty reason for "
+                    "no applicable object."
+                    + no_applicable_example
+                    + "\n"
                 )
             else:
                 skill_note = (
@@ -827,12 +866,11 @@ class StageManager(object):
         ret["all_completed"] = self._compute_all_completed()
         ret["stage_list"] = []
         for i, stage in enumerate(self.stages):
-            ret["stage_list"].append({
+            stage_status = {
                 "index": i,
                 "title": stage.title(),
                 "reached": stage.is_reached(),
                 "fail_count": stage.fail_count,
-                "skill_list": list(stage.skill_list.keys()) if self.cfg.skill.use_skill else [],
                 "is_skipped": stage.is_skipped(),
                 "time_start": stage.get_time_start_str(),
                 "time_end": stage.get_time_end_str(),
@@ -841,7 +879,10 @@ class StageManager(object):
                 "needs_human_check": stage.is_hmcheck_needed(),
                 "need_fail_llm_suggestion": self.stage_need_llm_fail_suggestion(stage),
                 "need_pass_llm_suggestion": self.stage_need_llm_pass_suggestion(stage),
-            })
+            }
+            if self.cfg.skill.use_skill and stage.skill_list:
+                stage_status["skill_list"] = list(stage.skill_list.keys())
+            ret["stage_list"].append(stage_status)
         ret["process"] = f"{self.stage_index}/{len(self.stages)}"
         cstage = self.stages[self.stage_index] if self.stage_index < len(self.stages) else None
         ret["current_task"] = "No stages available (Maybe mission is completed, you can use the `GoToStage` tool to go back to a previous stage if needed)"
@@ -875,27 +916,71 @@ class StageManager(object):
         return journals
 
     def set_current_stage_skill_usage(self, skill_usage: Dict[str, Any]):
-        """Record optional usage or validate evidence for forced stage Skills."""
+        """Validate real usage evidence recorded by Skill-aware tools and checks."""
         current_stage = self.get_current_stage()
         if not current_stage.skill_list:
             return "No stage-specific Skill usage needs to be recorded."
 
+        stage_cfg = getattr(current_stage, "cfg", None)
+        skill_cfg = getattr(stage_cfg, "skill", None)
+        if skill_cfg is None:
+            skill_cfg = getattr(getattr(self, "cfg", None), "skill", None)
+        if skill_cfg is not None and not bool(getattr(skill_cfg, "use_skill", True)):
+            return "Skill support is disabled; no stage-specific Skill usage needs to be recorded."
+
+        if not isinstance(skill_usage, dict):
+            return "skill_usage must be an object keyed by current stage Skill name."
+
+        unknown_skills = set(skill_usage) - set(current_stage.skill_list)
+        if unknown_skills:
+            return (
+                "skill_usage contains Skills that are not assigned to the current stage: "
+                f"{', '.join(sorted(unknown_skills))}. Remove them and call "
+                "`SetSkillUsage` again."
+            )
+
         force_use_skill = bool(getattr(current_stage, "force_use_skill", True))
+        reasons = {}
+        text_method_skills = []
+        no_applicable_skills = []
         for skill_name in current_stage.skill_list:
             skill_info = skill_usage.get(skill_name)
             if skill_info is None:
                 if force_use_skill:
                     return (
                         f"Required Skill '{skill_name}' is missing from skill_usage. "
-                        "List it with `ListSkill`, read its `SKILL.md`, use its method, "
-                        "then include its list/read/use state in `SetSkillUsage`."
+                        "List it with `ListSkill`, read its `SKILL.md`, then either "
+                        "apply its method or determine that the checked stage has no "
+                        "applicable object. After a passing `Check`, include the "
+                        "corresponding use=true or use=false with reason state in "
+                        "`SetSkillUsage`."
                     )
                 continue
             if not isinstance(skill_info, dict):
                 return (
                     f"Skill usage for '{skill_name}' must be an object containing "
-                    "boolean list, read, and use fields."
+                    "boolean list, read, and use fields, plus an optional reason."
                 )
+            unexpected_fields = set(skill_info) - {"list", "read", "use", "reason"}
+            if unexpected_fields:
+                return (
+                    f"Skill usage for '{skill_name}' has unsupported fields: "
+                    f"{', '.join(sorted(unexpected_fields))}. Use only list, read, use, "
+                    "and optional reason."
+                )
+            missing_fields = {"list", "read", "use"} - set(skill_info)
+            if missing_fields:
+                return (
+                    f"Skill usage for '{skill_name}' is missing required boolean fields: "
+                    f"{', '.join(sorted(missing_fields))}."
+                )
+            reason = skill_info.get("reason")
+            if reason is not None:
+                if not isinstance(reason, str) or not reason.strip():
+                    return (
+                        f"Skill usage reason for '{skill_name}' must be a nonempty string."
+                    )
+                reasons[skill_name] = reason.strip()
             usage_flags = {}
             for field_name in ("list", "read", "use"):
                 field_value = skill_info.get(field_name, False)
@@ -906,43 +991,116 @@ class StageManager(object):
                     )
                 usage_flags[field_name] = field_value
 
+            if usage_flags["use"] and reason is not None:
+                return (
+                    f"Skill '{skill_name}' has use=true, so reason is not allowed. "
+                    "Use reason only with use=false for a no-applicable-work outcome."
+                )
+
             if force_use_skill:
-                skill_root = fc.get_workspace_skill_root(self.workspace)
+                skill_workspace = getattr(
+                    current_stage, "workspace", getattr(self, "workspace", None)
+                )
+                if not skill_workspace:
+                    return (
+                        f"Cannot validate required Skill '{skill_name}': the current "
+                        "stage workspace is unavailable."
+                    )
+                skill_root = fc.get_workspace_skill_root(skill_workspace)
                 skill_root_abs = os.path.abspath(skill_root)
                 skill_dir = os.path.abspath(os.path.join(skill_root_abs, skill_name))
                 if (
                     os.path.commonpath([skill_root_abs, skill_dir]) != skill_root_abs
                     or not os.path.isdir(skill_dir)
+                    or not os.path.isfile(os.path.join(skill_dir, "SKILL.md"))
                 ):
                     return (
                         f"Required Skill '{skill_name}' is not available in the workspace. "
                         "Restore the configured Skill before calling `Complete`."
                     )
-            current_stage.set_usage_skill_list(
-                skill_name,
-                listed=usage_flags["list"],
-                read=usage_flags["read"],
-                used=usage_flags["use"],
-            )
+            listed, read, used = current_stage.skill_list[skill_name]
+            observed_flags = {
+                "list": bool(listed),
+                "read": bool(read),
+                "use": bool(used),
+            }
 
-            if force_use_skill:
-                listed, read, used = current_stage.skill_list[skill_name]
+            mismatched_observed_fields = [
+                field_name
+                for field_name in ("list", "read")
+                if usage_flags[field_name] != observed_flags[field_name]
+            ]
+            if mismatched_observed_fields:
+                required_actions = {
+                    "list": "call `ListSkill`" if not listed else "submit list=true",
+                    "read": (
+                        "read its `SKILL.md` with `ReadTextFile`"
+                        if not read else "submit read=true"
+                    ),
+                }
+                return (
+                    f"Skill usage for '{skill_name}' does not match observed evidence for: "
+                    f"{', '.join(mismatched_observed_fields)}. "
+                    + ", ".join(
+                        required_actions[field] for field in mismatched_observed_fields
+                    )
+                    + ", then call `SetSkillUsage` again."
+                )
+
+            if not listed or not read:
                 missing_actions = []
                 if not listed:
                     missing_actions.append("list it with `ListSkill`")
                 if not read:
                     missing_actions.append("read its `SKILL.md` with `ReadTextFile`")
-                if not used:
-                    missing_actions.append("complete the stage work using its method")
-                if missing_actions:
-                    return (
-                        f"Required Skill '{skill_name}' has incomplete usage evidence: "
-                        + ", ".join(missing_actions)
-                        + ". Then call `SetSkillUsage` again."
-                    )
+                return (
+                    f"Skill usage evidence for '{skill_name}' is incomplete: "
+                    + ", ".join(missing_actions)
+                    + ", then call `Check` and `SetSkillUsage` again."
+                )
 
-        current_stage.meta_set_skill_usage(skill_usage)
+            if usage_flags["use"]:
+                if not observed_flags["use"]:
+                    text_method_skills.append(skill_name)
+            else:
+                if observed_flags["use"]:
+                    return (
+                        f"Skill '{skill_name}' already has observed use=true evidence. "
+                        "Submit use=true; a reason cannot downgrade observed usage."
+                    )
+                if reason is None:
+                    return (
+                        f"Skill '{skill_name}' has use=false. Provide a nonempty reason "
+                        "explaining why the checked stage result has no applicable object, "
+                        "or apply the Skill method and submit use=true."
+                    )
+                no_applicable_skills.append(skill_name)
+
+        if not getattr(current_stage, "check_pass", False):
+            return (
+                "Current Skill evidence has not passed `Check` in its present state. "
+                "Call `Check` after ListSkill/ReadTextFile and after any Skill script or "
+                "method changes, then call `SetSkillUsage` again."
+            )
+
+        for skill_name in text_method_skills:
+            current_stage.set_usage_skill_list(
+                skill_name, used=True, validated_by_check=True
+            )
+
+        observed_usage = current_stage.get_skill_usage()
+        current_stage.meta_set_skill_usage(
+            observed_usage, validated=True, reasons=reasons
+        )
+        self.save_stage_info()
         if force_use_skill:
+            if no_applicable_skills:
+                return (
+                    "All required stage Skills have complete usage evidence. "
+                    "No-applicable-work was recorded for: "
+                    + ", ".join(no_applicable_skills)
+                    + "."
+                )
             return "All required stage Skills have complete usage evidence."
         return (
             "Optional stage Skill usage was recorded. Optional Skill non-use does not "
@@ -1472,6 +1630,12 @@ class StageManager(object):
         Run test cases.
         This tool is used to execute the test cases in the workspace.
         """
+        stage = self.get_current_stage()
+        self.free_pytest_run.run_test.set_report_context({
+            "source": "RunTestCases",
+            "stage_index": self.stage_index,
+            "stage_name": stage.name if stage is not None else None,
+        })
         ret = self.free_pytest_run.do_check(pytest_args, timeout=timeout, return_line_coverage=return_line_coverage, detail=detail)
         if raw_return:
             return ret

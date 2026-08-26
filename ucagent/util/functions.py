@@ -2628,6 +2628,9 @@ def get_interaction_messages(key, config_file=None):
 
 
 def is_run_report_pass(report, stdout, stderr):
+    contract_failure = report.get("test_function_contract") if isinstance(report, dict) else None
+    if contract_failure:
+        return False, contract_failure
     run_pass = report.get("run_test_success", False)
     if run_pass:
         return True, ""

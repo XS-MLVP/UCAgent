@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 from ucagent.util.test_tools import ucagent_lib_path
 from ucagent.util.functions import get_toffee_json_test_case, load_toffee_report
+from ucagent.util.config import save_current_test_report
 from ucagent.util.log import debug, info, warning
 import os
 import shutil
@@ -418,6 +419,15 @@ class RunUnityChipTest(RunPyTest):
         default="toffee_report.json",
         description="Path to save the JSON results of the Unity tests."
     )
+    report_context: dict = Field(
+        default_factory=dict,
+        description="Identity of the stage or tool invocation publishing the report.",
+    )
+
+    def set_report_context(self, context):
+        """Set diagnostic identity for the next published test report."""
+        self.report_context = dict(context or {})
+        return self
 
     def do(self,
              test_dir_or_file: str,
@@ -503,6 +513,21 @@ class RunUnityChipTest(RunPyTest):
             execution["diagnostic_code"] = "TOFFEE_REPORT_MISSING"
         ret_data["run_test_success"] = execution["invocation_success"]
         ret_data["execution"] = execution
+        try:
+            save_current_test_report(
+                self.workspace,
+                ret_data,
+                context={
+                    **self.report_context,
+                    "test_dir_or_file": test_dir_or_file,
+                    "pytest_ex_args": pytest_ex_args,
+                    "result_path": result_json_path,
+                },
+            )
+        except (OSError, TypeError, ValueError, RuntimeError) as error:
+            # A report publication failure must remain visible but must not turn
+            # a real pytest result into a different test result.
+            warning(f"Failed to publish current test report: {error}")
         info(f"Run UnityChip test report:\n{json.dumps(ret_data, indent=2)}\n")
         return ret_data, pyt_out, pyt_err
 
