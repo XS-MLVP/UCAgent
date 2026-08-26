@@ -8,6 +8,7 @@ import shutil
 import unittest
 import hashlib
 import asyncio
+import concurrent.futures
 import threading
 from unittest.mock import patch
 
@@ -1288,6 +1289,47 @@ class TestFileOpsTools(unittest.TestCase):
         self.assertIs(same_from_edit, same_from_replace)
         self.assertIs(same_from_edit, same_from_delete_lines)
         self.assertIsNot(same_from_edit, different_file)
+
+    def test_sync_file_locks_are_shared_for_the_same_canonical_path(self):
+        edit_tool = EditTextFile(workspace=self.workspace)
+        replace_tool = ReplaceStringInFile(workspace=self.workspace)
+
+        same_from_edit = edit_tool._get_sync_call_locks(
+            {"path": "nested/../simple.txt"}
+        )[0]
+        same_from_replace = replace_tool._get_sync_call_locks(
+            {"path": "simple.txt"}
+        )[0]
+        different_file = edit_tool._get_sync_call_locks(
+            {"path": "other.txt"}
+        )[0]
+
+        self.assertIs(same_from_edit, same_from_replace)
+        self.assertIsNot(same_from_edit, different_file)
+
+    def test_sync_invoke_waits_for_a_conflicting_path_lock(self):
+        tool = EditTextFile(workspace=self.workspace, lock_time_out=1)
+        call = {"path": "locked.txt", "content": "written\n"}
+        call_lock = tool._get_sync_call_locks(call)[0]
+        call_lock.acquire()
+        try:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(tool.invoke, call)
+                self.assertRaises(
+                    concurrent.futures.TimeoutError,
+                    future.result,
+                    timeout=0.1,
+                )
+                call_lock.release()
+                result = future.result(timeout=1)
+        finally:
+            try:
+                call_lock.release()
+            except RuntimeError:
+                pass
+
+        self.assertIn("Created 'locked.txt'", result)
+        self.assertEqual(tool.call_count, 1)
 
     def test_async_edits_to_different_files_can_run_concurrently(self):
         both_started = threading.Event()

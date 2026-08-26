@@ -23,6 +23,8 @@ import time
 
 _keyed_async_locks = weakref.WeakValueDictionary()
 _keyed_async_locks_guard = threading.Lock()
+_keyed_sync_locks = weakref.WeakValueDictionary()
+_keyed_sync_locks_guard = threading.Lock()
 
 
 class EmptyArgs(BaseModel):
@@ -116,15 +118,20 @@ class UCTool(BaseTool):
     )
     call_lock_arguments: tuple[str, ...] = Field(
         default=(),
-        description="Tool input paths used to serialize conflicting asynchronous calls."
+        description="Tool input paths used to serialize conflicting calls."
     )
     _async_lock: asyncio.Lock = PrivateAttr(default=None)
+    _sync_lock: Any = PrivateAttr(default_factory=threading.RLock)
 
     @property
     def async_lock(self) -> asyncio.Lock:
         if self._async_lock is None:
             self._async_lock = asyncio.Lock()
         return self._async_lock
+
+    @property
+    def sync_lock(self):
+        return self._sync_lock
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -238,18 +245,68 @@ class UCTool(BaseTool):
                 locks.append(lock)
         return locks
 
+    def _get_sync_call_locks(self, input) -> list:
+        tool_arguments = self._tool_arguments(input)
+        if not self.call_lock_arguments or not isinstance(tool_arguments, dict):
+            return [self.sync_lock]
+        workspace = os.path.realpath(str(getattr(self, "workspace", "")))
+        lock_keys = set()
+        for argument in self.call_lock_arguments:
+            value = tool_arguments.get(argument)
+            if isinstance(value, str) and value.strip():
+                lock_keys.add(os.path.realpath(os.path.join(workspace, value)))
+        if not lock_keys:
+            return [self.sync_lock]
+        locks = []
+        with _keyed_sync_locks_guard:
+            for key in sorted(lock_keys):
+                lock = _keyed_sync_locks.get(key)
+                if lock is None:
+                    lock = threading.RLock()
+                    _keyed_sync_locks[key] = lock
+                locks.append(lock)
+        return locks
+
     def invoke(self, input, config = None, **kwargs):
-        self.call_count += 1
-        self.is_in_call = True
-        try:
-            return super().invoke(input, config, **kwargs)
-        except ValidationError as e:
-            error_msg = f"[ERROR] Tool ({self.__class__.__name__}) invoke error: {str(e)}"
-            fc.warning(error_msg)
+        if self.is_disabled:
+            error_msg = f"[ERROR] Tool ({self.__class__.__name__}) is disabled. Reason: {self.disable_reason}"
             return self._error_output(input, error_msg)
+        call_locks = self._get_sync_call_locks(input)
+        acquired_locks = []
+        try:
+            deadline = time.monotonic() + self.lock_time_out
+            for call_lock in call_locks:
+                remaining = max(0.0, deadline - time.monotonic())
+                if not call_lock.acquire(timeout=remaining):
+                    raise TimeoutError
+                acquired_locks.append(call_lock)
+        except TimeoutError:
+            error_msg = f"[ERROR] Tool ({self.__class__.__name__}) is busy, get lock timeout ({self.lock_time_out} seconds). Please try again later."
+            fc.warning(error_msg)
+            for call_lock in reversed(acquired_locks):
+                call_lock.release()
+            return self._error_output(input, error_msg)
+        except Exception as e:
+            error_msg = f"[ERROR] Tool ({self.__class__.__name__}) acquire lock error: {str(e)}"
+            fc.warning(error_msg)
+            for call_lock in reversed(acquired_locks):
+                call_lock.release()
+            return self._error_output(input, error_msg)
+        try:
+            self.call_count += 1
+            self.is_in_call = True
+            try:
+                return super().invoke(input, config, **kwargs)
+            except ValidationError as e:
+                error_msg = f"[ERROR] Tool ({self.__class__.__name__}) invoke error: {str(e)}"
+                fc.warning(error_msg)
+                return self._error_output(input, error_msg)
+            finally:
+                self.is_in_call = False
+                self.last_call_time = time.time()
         finally:
-            self.is_in_call = False
-            self.last_call_time = time.time()
+            for call_lock in reversed(acquired_locks):
+                call_lock.release()
 
     def put_alive_data(self, data):
         self.stream_queue.put(data)
