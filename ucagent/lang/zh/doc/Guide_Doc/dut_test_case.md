@@ -52,6 +52,22 @@ def test_basic_functionality(env):
 
 API测试、功能测试模板、静态Bug动态验证测试和随机测试都必须遵守当前参考模型配置的参数顺序：
 
+测试函数名称同时是跨阶段机器契约，不能只满足pytest的`test_`收集规则。创建或更新TC时必须使用所属阶段的唯一格式：
+
+| 测试阶段 | 测试文件格式 | pytest函数格式 |
+|---|---|---|
+| env fixture自检 | `test_{DUT}_env_fixture.py` | `test_api_{DUT}_env_<name>` |
+| 参考模型自检 | `test_{DUT}_reference_model.py` | `test_api_{DUT}_reference_model_<name>` |
+| Mock组件自检 | `test_{DUT}_mock_<component>[_<name>].py` | `test_api_{DUT}_mock_<name>` |
+| API功能测试 | `test_{DUT}_api_<category>.py` | `test_api_{DUT}_<api>[_<scenario>]` |
+| 普通定向测试/模板 | `test_{DUT}_<feature>.py` | `test_<scenario>`，且不能冒用上述自检/API前缀 |
+| 静态Bug动态验证 | `test_{DUT}_static_verify_<name>.py` | `test_static_{DUT}_<bug_or_scenario>` |
+| 随机测试 | `test_{DUT}_random_<name>.py` | `test_random_<name>` |
+
+`{DUT}`使用当前运行时解析出的真实名称和大小写。每个表中前缀后都必须有非空且能说明场景的名称，不能把`test_`、`test_api_{DUT}_`、`test_static_{DUT}_`或`test_random_`本身当作完整函数名。`test_api_`、`test_static_`和`test_random_`是保留命名空间，只能用于表中对应的专用文件和阶段。普通定向测试不新增额外统一前缀，继续使用`test_<scenario>`，但名称不得以任何保留前缀开头；例如普通测试可命名为`test_add_boundary`，不能命名为`test_random_add_boundary`。
+
+命名错误必须在产生该TC的阶段修复，并同步更新当前函数传给`mark_function`的位置；不得通过移动到不受当前文件pattern匹配的位置、换用其他阶段前缀、添加`skip`或覆盖fixture来保留错误名称。`test_api_basic`、`test_ref_model`和`test_compute_api`不能作为API测试名称，因为它们缺少完整的`test_api_{DUT}_`命名空间。各专用阶段及后续综合测试阶段都会在导入测试模块、执行模块顶层代码和运行pytest之前静态检查函数名；一次检查会列出当前范围内的全部冲突，必须全部修正后再运行测试。
+
 | 参数位置 | 参数名 | 说明 |
 |---------|--------|------|
 | 第 1 个 | `env` | pytest fixture，必须 |

@@ -11,6 +11,8 @@ Markdown 排版契约：本技能生成、维护或展示的任何 Markdown 中�
 
 以当前批次已经生成的测试模板签名为准。实现测试逻辑时必须原样保留fixture参数及顺序，不得自行增加、删除、交换参数，也不得用`dut`或`mock_dut`替换`env`。
 
+命名也是跨阶段契约：普通定向TC继续使用`test_<scenario>`，但不得以保留的`test_api_`、`test_static_`或`test_random_`开头；API、静态Bug和随机TC只能在各自专用文件中使用对应完整前缀。不要通过改名到其他阶段、移动文件或添加`skip`绕过命名检查。
+
 动态 Bug 的唯一目标文件是`{OUT}/{DUT}_bug_analysis.md`，不得从可见标题派生另一个文件名。Markdown、record/Apply和中央YAML `test_case`使用函数级报告node（只删除源码行范围）。非参数化WaveInfo使用同一node；若报告含`tests.test_case_instances`，文档TC保持函数级node，WaveInfo选择一个实际FAILED参数化child，Apply验证其完整路径/类/函数父节点并在YAML `executed_test_case`记录该child。当前批次没有确认任何动态 Bug 时，保留唯一目标文件和三个空容器。
 
 | 测试类别 | 参数契约 |

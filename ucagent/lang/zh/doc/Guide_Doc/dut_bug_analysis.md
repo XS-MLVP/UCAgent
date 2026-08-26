@@ -613,7 +613,7 @@ waveform_analysis:
 
 ### 5.2 建立骨架并分阶段写入
 
-`record_dynamic_bug.py`是可选脚本，只接收`BG/TC/BD`并创建新 Bug 的第一份 BG/TC、三个字段、根因引用和 ROOT 五字段骨架。脚本从功能检查文档读取 FG/FC/CK 名称，从测试 docstring 读取 TC 名称，并用`BD`生成初始根因实体；LLM 必须用真实结论替换全部`<BUG-TODO>`，必要时重命名根因标签并同步引用。
+`record_dynamic_bug.py`是可选脚本，只接收`BG/TC/BD`并创建新 Bug 的第一份 BG/TC、三个字段、根因引用和 ROOT 五字段骨架。脚本从`.ucagent/runtime_config.json`读取实际TC目录和统一`current_test_report`路径；`Check`或`RunTestCases`真实运行Unity测试后发布当前阶段报告，进入新阶段时旧报告失效。脚本只从该报告的`failed_test_case_with_check_point_list`精确解析TC到FG/FC/CK的关系，不读取阶段私有报告；若当前报告不存在，先运行当前阶段真实测试，禁止手工创建、复制或猜测报告。脚本从功能检查文档读取 FG/FC/CK 名称，从测试 docstring 读取 TC 名称，并用`BD`生成初始根因实体；LLM 必须用真实结论替换全部`<BUG-TODO>`，必要时重命名根因标签并同步引用。
 
 #### 5.2.1 多分支层次骨架
 

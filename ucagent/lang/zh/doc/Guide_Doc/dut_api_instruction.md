@@ -301,6 +301,10 @@ tests/
 
 测试函数采用`test_<api_name>[_<test_scenario>]`的命名方式：
 
+这是硬性命名契约。由于API函数必须命名为`api_{DUT}_<function_name>`，每个API测试函数必须以完整、大小写敏感的`test_api_{DUT}_`开头。`test_api_basic`、`test_ref_model`、`test_compute_api`等没有包含精确DUT命名空间的名称均不合规；不能依靠测试内容、文件名、`skip`或后续阶段推断它们属于API测试。Checker会在运行pytest前一次列出目标API测试文件中的全部命名错误，必须在API测试阶段修正函数定义以及`mark_function`中引用的函数对象。
+
+下面的合法Python示例假定当前运行时解析出的DUT名称就是小写`adder`；若实际名称为`Adder`或其他值，必须在文件名、API函数名、测试函数名和`mark_function`函数对象引用中使用该实际值及其精确大小写。
+
 ```python
 # 基础功能测试
 def test_api_adder_add():
@@ -316,6 +320,12 @@ def test_api_adder_add_overflow():
 def test_api_adder_add_invalid_input():
     """测试加法API的无效输入处理"""
     pass
+
+# 错误：缺少完整的 api_adder 命名空间
+def test_api_basic(): ...
+
+# 错误：无法从名称判断其所属API和DUT
+def test_ref_model(): ...
 ```
 
 #### 测试用例编写规范

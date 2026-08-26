@@ -51,6 +51,7 @@ def test_random_basic_functionality(env):
 - 必须通过`ucagent.repeat_count()`获取循环次数
 - 测试用例名称的命名格式为`test_random_<test_name>`
 - 测试文件名称的命名格式为`test_{DUT}_random_<group_name>.py`
+- 这是本阶段的硬性命名契约。`test_random_`是随机测试保留前缀，只能出现在`test_{DUT}_random_<group_name>.py`中；普通定向测试、API、env、参考模型、Mock和静态验证不得使用该前缀。Checker会在运行测试前列出匹配范围内的全部命名错误。
 - 测试用例应该只依赖DUT提供的API接口
 - 传递给DUT API的值，必须是符合API要求，合理且随机的
 - 根据需要可以增加边界情况输入的概率

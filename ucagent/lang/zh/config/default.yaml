@@ -66,7 +66,7 @@ mission:
       - 按步骤有序进行，每步完成后用`Complete`工具进入下一个阶段
       - 你会根据`CurrentTips`的要求完成该阶段的所有任务，不会提前进行后续阶段的工作，例如编写测试用例
       - 各stage相互独立；进入当前stage后，必须逐一用`ReadTextFile`读取其`reference_files`。即使已有文件内容也要重新调用，可用`count=1`轻量复核，或用`count=0`仅登记已读而不返回正文
-      - Skill启用时，当前stage的`skill_list`默认是必须遵循的方法：先用`ListSkill`列出、用`ReadTextFile`读取对应`SKILL.md`，按其中方法完成任务，并在`Complete`前用`SetSkillUsage`记录；只有该stage显式设置`force_use_skill: false`时才可选。`general_skill_list`中的通用Skill始终可选。Skill脚本是否必须以对应`SKILL.md`为准，不能把“脚本可选”误解为整个Skill可跳过。Skill整体禁用（此时工作区可以没有`.ucagent/skills`）或stage显式设为可选时，仍须按当前stage的task和reference_files，使用内置文件工具完成同一产物与验收标准：创建或覆盖完整文件只调用`EditTextFile(path, content)`，追加时才传`append=true`；已有文件的少量局部修改只调用`ReplaceStringInFile(path, old_string, new_string)`，需要限定搜索范围时加`line_blocks=[[start, end], ...]`，默认搜索全文。只有需要删除大量完整文本行时，才先用`ReadTextFile`确认当前行号和SHA-256，再调用一次`DeleteTextLines(path, line_blocks, expected_sha256)`删除全部旧行块，重新读取缩短后的文件后用`ReplaceStringInFile`完成精确编辑或插入；不得用它处理少量修改。不要混用参数，也不要改用Python或shell绕过文件工具。完成后以Check/Complete反馈校验；不得因Skill整体禁用而暂停、跳过或降低任务标准
+      - 只有Skill启用且当前stage实际配置了非空`skill_list`时，才检查该stage的Skill使用；未配置`skill_list`或其为空时，不调用`SetSkillUsage`，Check/Complete也不执行Skill使用检查。非空`skill_list`默认是必须遵循的方法，唯一顺序是：`ListSkill` -> 用`ReadTextFile`读取对应`SKILL.md` -> 按Skill方法完成当前任务，或确认当前没有该Skill可处理的对象（仅当方法需要已声明脚本时才调用`RunSkillScript`）-> `Check` -> `SetSkillUsage` -> `Complete`。`ListSkill`、读取`SKILL.md`和完整成功的`RunSkillScript`会分别登记真实证据；`Check`只验证当前产物，不自动宣称脚本执行。`SetSkillUsage`只能在list/read已登记且当前`Check`通过后，记录`use=true`（方法已应用）或`use=false`并附加非空`reason`（当前没有可处理对象，例如没有确认Bug，因此无需运行记录脚本）；reason不能替代list/read/Check，也不能制造Bug。只有该stage显式设置`force_use_skill: false`时Skill才可选。`general_skill_list`中的通用Skill始终可选，不触发stage Skill使用检查。Skill脚本是否必须以对应`SKILL.md`为准，不能把“脚本可选”误解为整个Skill可跳过。Skill整体禁用（此时工作区可以没有`.ucagent/skills`）或stage显式设为可选时，仍须按当前stage的task和reference_files，使用内置文件工具完成同一产物与验收标准：创建或覆盖完整文件只调用`EditTextFile(path, content)`，追加时才传`append=true`；已有文件的少量局部修改只调用`ReplaceStringInFile(path, old_string, new_string)`，需要限定搜索范围时加`line_blocks=[[start, end], ...]`，默认搜索全文。只有需要删除大量完整文本行时，才先用`ReadTextFile`确认当前行号和SHA-256，再调用一次`DeleteTextLines(path, line_blocks, expected_sha256)`删除全部旧行块，重新读取缩短后的文件后用`ReplaceStringInFile`完成精确编辑或插入；不得用它处理少量修改。不要混用参数，也不要改用Python或shell绕过文件工具。完成后以Check/Complete反馈校验；不得因Skill整体禁用而暂停、跳过或降低任务标准
       - `RunTestCases`只运行已有的真实pytest验证用例，不是任意Python执行器，也不是文档编辑工具。禁止为了修改、迁移或批量填充产物而创建临时Python脚本或伪pytest用例并交给`RunTestCases`；文档重复文本必须用`ReplaceStringInFile`配合只覆盖当前阻塞位置的`line_blocks=[[start, end]]`逐处精确修改，已声明的Skill脚本只能用`RunSkillScript`执行
       - 生成或修改Markdown文档时，每个`#`到`######`标题前后各保留一个空行，标题前置空行没有例外：文件开头的标题、Markdown示例围栏内的首个标题、`<a id="..."></a>`锚点后的目标标题都必须有前置空行。标题前不得直接连接正文、列表、表格、其他标题、代码围栏或锚点。字段标题后的规范机器标记（例如`<BUG-*>`、`<ROOT-*>`和`<RELATED-BUGS>`）可以继续与标题紧邻；模板、Guide_Doc示例、Skill脚本和文本工具写入的最终文档都遵循同一规则
       - 每个Fail TC都不预设责任方。进入WaveInfo、创建或更新非零BG、引用静态候选之前，必须先完成验证正确性分类；静态候选、已有断言、模板注释和可疑RTL都不能代替该分类
@@ -75,6 +75,8 @@ mission:
       - 若测试对输入做取反、编码、掩码、分包或添加carry/borrow等变换，必须基于实际驱动到DUT的值和规格定义的运算重新计算specification_expected；禁止使用变换前操作数推导的expected去比较变换后的DUT输入。例如二进制补码减法`a-b`需要驱动`a+(~b)+1`，`a+(~b)+0`表示`a-b-1`
       - expected一致后，继续核对测试激励、API/driver、callback、Step、采样边沿、有效条件、响应延迟、fixture、参考模型、复位和环境，再核对关联CK的coverage/check function、CovGroup.sample()及其采样时机。这些问题必须修复后重跑到Pass，不能以“测试Bug”、assert False或<BG-*-0>占位保留Fail。只有这些项目全部正确且DUT actual仍违反规格时，才允许调用WaveInfo并创建或更新非零BG；确认属于DUT设计Bug后保留正确的失败断言，不能修改预期值或弱化断言来误报Pass
       - 测试用例阶段默认把已提供的{OUT}/tests/{DUT}_api.py、{OUT}/tests/{DUT}_function_coverage_def.py及其中的create_dut、dut/env fixture、fake DUT路径、覆盖组创建和fc_cover绑定视为验证基础设施契约；除当前stage明确要求更新API/fixture外，不得为了绕过fixture、fake DUT、mark_function或覆盖率错误而重写、替换、复制或局部伪造这些实现，也不得删除覆盖标记或取消set_func_coverage上报。只有最早traceback和对应源码共同证明基础设施本身有缺陷时，才允许在其所属stage做最小修复，并先重跑对应的fixture/API Checker
+      - 每个测试阶段的测试文件名和pytest函数名都是跨阶段契约，必须逐字满足当前stage给出的格式和大小写，且前缀后必须有非空、有意义的场景后缀。Checker报告TEST_FUNCTION_CONTRACT_VIOLATION时，修正其details列出的全部函数定义及mark_function中的函数对象引用；不得通过改文件到非目标目录、改成其他阶段前缀、添加skip、覆盖fixture或放宽Checker来逃避门禁。命名不合规的TC不能进入下一阶段
+      - env、参考模型、Mock、API、静态Bug验证和随机测试分别使用Guide_Doc/dut_test_case.md中定义的专用文件与函数前缀。普通定向测试沿用test_<scenario>，但不得使用保留的test_api_、test_static_、test_random_前缀；专用TC也不得放入普通测试文件。每个测试阶段会在导入测试模块和运行pytest之前静态检查当前范围内的全部函数名，并一次返回全部命名冲突
       - `create_test_case_templates`模板构建阶段是明确例外：该阶段所有尚未实现的测试模板都必须以`assert False, "Not implemented"`结尾，防止空模板意外Pass；进入批量实现阶段后必须删除该占位断言并换成真实激励和预期检查。模板Fail仅表示“尚未实现”，不作为DUT Bug，不写入Bug文档
       - Mock、fixture、参考模型以及只验证测试框架/API调用链自身且不以DUT功能输出为判定对象的测试属于验证基础设施自检，必须全部Pass，不能作为DUT Bug记录；任何使用正确功能预期检查真实DUT输出的测试（包括API功能测试、综合验证、静态Bug动态验证和随机验证）若确认复现DUT Bug，则必须保持Fail并完整取证。这两个要求适用于不同测试目标，不矛盾
       - 深入分析发现的问题
@@ -89,7 +91,7 @@ mission:
       - 一次`Step(1)`只表示仿真推进一步，绝不自动表示请求已接受或输出已有效。LLM必须检查API/driver内部是否已经Step、等待握手或采样，并从规格确定组合settle、指定边沿、固定N周期、out_valid/response_valid/done/ack成立或busy清零等真实结果有效条件；API调用后机械地只Step一次就读data产生的Fail应先按测试时序问题修复，不能记录为DUT Bug
       - 最终WaveInfo取证不能只查看发生不一致的目标data。调用前必须阅读DUT顶层端口、测试API/driver、规格和相关RTL，并通过`signal_groups`声明：时序DUT的实际时钟（组合DUT明确使用combinational且不虚构时钟）、当前功能相关的全部输入数据/选择/使能、相关输出数据/状态/有效位、接口实际存在的请求接受与响应有效控制，以及至少一个能解释功能选择、状态或错误传播的关键外部/内部信号。同一组真实完整路径必须进入timeline、签名receipt和在线viewer；`pattern`只负责定位事件，不能为了显示上下文而把所有信号都设成change触发条件。所有声明路径必须真实且已签名，LLM仍须从规格审查信号角色是否完整，不能按名字推断接口语义
       - 动态Bug文档以完整FG/FC/CK/BG路径为验收单位。同一CK分支内同一个BG只出现一次：全部TC及引用连续放在BG标题后，随后只写<BUG-OVERVIEW>、<BUG-SYMPTOMS>、<BUG-TRIGGER>三个字段。每个BG必须且只能通过一个<CAUSE-REF-ROOT-XXX>引用一个根因，该引用位于<BUG-TRIGGER>正文末尾。每个根因实体使用文档级唯一<ROOT-XXX>标签并至少反向关联一个真实存在的完整BG路径；<ROOT-CAUSE-ANALYSIS>、<ROOT-SOURCE-EVIDENCE>、<ROOT-CAUSAL-CHAIN>、<ROOT-FIX>、<ROOT-RETEST>只在唯一<ROOT-CAUSES>分区写一次。根因实体通过内嵌完整路径的<RELATED-BUG-FG-.../FC-.../CK-.../BG-...>和可点击链接列出BG，双向关系必须一致。两个缺陷组合后才产生的错误使用独立<ROOT-XXX>。同一根因关联多个BG时，ROOT因果链和复验必须覆盖所有分支差异。receipt、viewer和波形数据仍只放<WAVEFORM-EVIDENCE>中央分区。遵循Guide_Doc/dut_bug_analysis.md中的第 5.1 节完整标准案例，不得在BG中保留已迁移的BUG-SOURCE/CAUSAL/FIX/RETEST字段
-      - `record_dynamic_bug.py`是可选辅助：可用时创建BG的三个字段、唯一`<CAUSE-REF-ROOT-XXX>`和包含五个ROOT分析字段的根因实体；不可用时按Guide_Doc/dut_bug_analysis.md中的第 5.1 节完整标准案例用文本工具建立相同结构。同一CK/BG路径的后续Fail TC直接交给`ApplyWaveInfoEvidence`。随后完成TC中央证据、BG三个字段和ROOT五个字段，清除全部`<BUG-TODO>`。有源码时在<ROOT-SOURCE-EVIDENCE>使用不带`L`的`path:起始行-结束行`及`<ROOT-SOURCE-FIRST-ERROR>`、`<ROOT-SOURCE-PROPAGATION>`、`<ROOT-SOURCE-OBSERVABLE>`：`rtl/module.sv:10-14`有效，单行写`rtl/module.sv:10-10`，`rtl/module.sv:10`和`rtl/module.sv:L10-L14`均无效；无源码时使用互斥的`<ROOT-SOURCE-UNAVAILABLE>`
+      - `record_dynamic_bug.py`是可选辅助：可用时从`.ucagent/runtime_config.json`指定的统一`current_test_report`读取当前真实测试报告，创建BG的三个字段、唯一`<CAUSE-REF-ROOT-XXX>`和包含五个ROOT分析字段的根因实体；报告不存在时先用Check或RunTestCases运行当前阶段真实测试，禁止手工创建报告。脚本不可用时按Guide_Doc/dut_bug_analysis.md中的第 5.1 节完整标准案例用文本工具建立相同结构。同一CK/BG路径的后续Fail TC直接交给`ApplyWaveInfoEvidence`。随后完成TC中央证据、BG三个字段和ROOT五个字段，清除全部`<BUG-TODO>`。有源码时在<ROOT-SOURCE-EVIDENCE>使用不带`L`的`path:起始行-结束行`及`<ROOT-SOURCE-FIRST-ERROR>`、`<ROOT-SOURCE-PROPAGATION>`、`<ROOT-SOURCE-OBSERVABLE>`：`rtl/module.sv:10-14`有效，单行写`rtl/module.sv:10-10`，`rtl/module.sv:10`和`rtl/module.sv:L10-L14`均无效；无源码时使用互斥的`<ROOT-SOURCE-UNAVAILABLE>`
       - `ApplyWaveInfoEvidence`每次只维护一个精确FG/FC/CK/BG/TC路径。一个BG有多个Fail TC时分别调用；同一CK/BG内不复制BG。同名BG跨CK或目标关联有歧义时传`checkpoint_path="FG-.../FC-.../CK-..."`。一个Fail TC揭示多个独立Bug时保留不同BG，使用相同test_case_tag和不同bug_tag分别调用，所有关联共享一份中央记录。工具保留其他BG路径、兄弟TC和中央记录；新增关联不需要replace_existing，只有替换不同receipt时才显式设为true。不得手工复制receipt字段、中央波形或viewer token
       - 静态源码分析只产生候选Bug，且仅记录在`{OUT}/{DUT}_static_bug_analysis.md`。只有该候选被失败用例复现并经`WaveInfo`确认后，才能以独立的非`BG-STATIC-*`标签写入动态Bug文档；无法取得波形时不得将其确认为动态Bug
       - {DUT}的verilog源代码位于`{DUT}/{DUT}.v`目录下，其依赖或者上层语言的源码位于目录`{RTL_PATH}/`，文件后缀可能是.v、.sv、.vh、.scala等
@@ -165,7 +167,7 @@ mission:
       **技能系统:**
       - 有以下通用技能供全阶段按需使用；它们始终可选，不属于当前stage的强制`skill_list`。当任务描述与技能description相匹配时，优先阅读并使用:
       {general_skill_list}
-      - `CurrentTips`列出的当前stage专用Skill默认必须使用，除非该stage显式设置`force_use_skill: false`。先`ListSkill`、再读取每个专用Skill的`SKILL.md`并遵循其方法；在通过Complete推进前使用`SetSkillUsage`记录全部专用Skill的list/read/use状态。`SetSkillUsage`要早于`SetCurrentStageJournal`。
+      - 仅当`CurrentTips`列出当前stage专用Skill（即该stage配置了非空`skill_list`）时才检查Skill使用；没有列出时不要调用`SetSkillUsage`。列出的专用Skill默认必须使用，除非该stage显式设置`force_use_skill: false`。严格按`ListSkill` -> `ReadTextFile(SKILL.md)` -> 执行Skill方法或无适用对象分支 -> `Check` -> `SetSkillUsage` -> `Complete`推进；`SetSkillUsage`只在真实list/read和当前Check证据存在时记录`use=true`，或在无适用对象时记录`use=false`及非空reason，不能自行声明list/read为true。`SetSkillUsage`要早于`SetCurrentStageJournal`。
 
 
 mcp_server:
@@ -945,6 +947,7 @@ stage:
       - "第4步：编写测试函数，每个测试函数需要："
       - "  - 函数名格式：test_<api_name>[_<test_scenario>]，api_name对应API函数名称(例如api_{DUT}_add)，test_scenario描述测试场景（可选）"
       - "     - 命名举例：test_api_{DUT}_add_basic, test_api_{DUT}_add_overflow"
+      - "     - 这是硬性命名契约：目标API测试文件中的每个pytest函数都必须以test_api_{DUT}_开头；test_api_basic、test_ref_model、test_compute_api等缺少精确DUT命名空间的名称均不合规，必须在本阶段修正，不能传播到模板或综合测试阶段"
       - "  - 第一个参数必须为：env (pytest fixture)"
       - "  - 每个API测试函数都必须在函数开头添加对应API分组CK的覆盖率标记：env.dut.fc_cover['FG-API'].mark_function('FC-API-NAME', your_test_function, ['CK-API-XXX', ...])；FG/FC/CK必须来自{OUT}/{DUT}_functions_and_checks.md中该API实际对应的条目，不能只mark其他功能分组CK，也不能为通过Checker而批量标记无关API CK"
       - "  - API测试可以额外mark FG-API以外的CK，但这些关联是可选项，并且测试必须真实激励和断言其行为；额外功能CK不能替代当前测试必需的对应FG-API/FC/CK关联"
@@ -990,6 +993,8 @@ stage:
           args_check: $(NEED_REF_MODEL: false)
           args_pattern: ["env", "ref_model"]
           args_test_func_prefix: "test_api_{DUT}_"
+          test_func_prefix: "test_api_{DUT}_"
+          test_func_rules: standard
           args_error_msg: "第一个参数必须为env，第二个参数必须ref_model"
       - name: waveform_bug_analysis_check
         clss: "UnityChipCheckerWaveformBugAnalysis"
@@ -1031,8 +1036,10 @@ stage:
       - "  - 按需要，测试用例文件可以有多个，请确保文件名和测试函数名有意义"
       - "    - 好的测试用例文件名示例：test_{DUT}_arithmetic.py, test_{DUT}_stack_operations.py"
       - "    - 差的测试用例文件名示例：test_{DUT}_part1.py, test_{DUT}_misc.py, test_{DUT}_template1.py"
-      - "  - 请忽略test_{DUT}_api_*.py和test_{DUT}_mock_*.py中的测试用例（前缀为test_api_{DUT}_），他们已经在之前阶段实现完成"
+      - "  - 请忽略所有API、env、参考模型和Mock自检函数（函数前缀为完整的test_api_{DUT}_）以及对应的已完成测试；它们不属于普通模板。API函数命名错误仍必须先在basic_api_functional_test阶段修正，不能通过模板阶段的忽略规则掩盖"
       - "  - 该阶段编写的测试用例不能以test_api_{DUT}_开头"
+      - "  - 本阶段只创建普通测试模板：函数使用test_<scenario>，不得使用保留的test_api_、test_static_或test_random_前缀；这些前缀只允许出现在各自专用测试文件和阶段中"
+      - "  - 若Checker列出此前API测试文件中的test_api_basic、test_ref_model等非test_api_{DUT}_*函数，这是上游API测试命名契约错误：应回到basic_api_functional_test按TEST_FUNCTION_CONTRACT_VIOLATION一次修正全部函数名及mark_function引用。禁止在本阶段删除skip、重写env/fake DUT、移动/重命名API测试文件或给这些已实现测试补Not implemented"
       - "  - 该阶段不会生成有效代码行覆盖率数据、测试报告等，因此请忽略相关错误提示"
       - "  - 若存在{OUT}/{DUT}_static_bug_analysis.md，请优先为其中高/中置信度潜在Bug（<BG-STATIC-*>）创建针对性测试用例模板"
       - "参考Guide_Doc/dut_test_template.md了解模板格式"
@@ -1054,6 +1061,7 @@ stage:
           test_dir: "{OUT}/tests"
           ignore_tc_prefix: "test_api_{DUT}_"
           ignore_ck_prefix: "FG-API/"
+          test_func_rules: standard
           data_key: "TEST_TEMPLATE_IMP_REPORT"
           batch_size: $(BATCH_SIZE_TMP: 20)
           template_must_fail: $(TEMPLATE_MUST_FAIL: true)
@@ -1098,6 +1106,7 @@ stage:
           doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
           doc_bug_analysis: "{OUT}/{DUT}_bug_analysis.md"
           test_dir: "{OUT}/tests"
+          test_func_rules: standard
           ignore_tc_prefix:
             - "test_api_{DUT}_env_"
             - "test_api_{DUT}_reference_model_"
@@ -1189,6 +1198,7 @@ stage:
             doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
             doc_bug_analysis: "{OUT}/{DUT}_bug_analysis.md"
             test_dir: "{OUT}/tests"
+            test_func_rules: standard
             ignore_tc_prefix:
               - "test_api_{DUT}_env_"
               - "test_api_{DUT}_reference_model_"
@@ -1263,6 +1273,7 @@ stage:
           doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
           doc_bug_analysis: "{OUT}/{DUT}_bug_analysis.md"
           test_dir: "{OUT}/tests"
+          test_func_rules: standard
           ignore_tc_prefix:
             - "test_api_{DUT}_env_"
             - "test_api_{DUT}_reference_model_"
@@ -1349,6 +1360,9 @@ stage:
           args_check: $(NEED_REF_MODEL: false)
           args_pattern: ["env", "ref_model"]
           args_test_func_prefix: "test_static_{DUT}_"
+          test_func_prefix: "test_static_{DUT}_"
+          test_func_file: "{OUT}/tests/test_{DUT}_static_verify_*.py"
+          test_func_rules: standard
           args_error_msg: "静态Bug动态验证测试的第一个参数必须为env，第二个参数必须为ref_model"
     need_human_check: false
 
@@ -1375,6 +1389,7 @@ stage:
           doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
           doc_bug_analysis: "{OUT}/{DUT}_bug_analysis.md"
           test_dir: "{OUT}/tests"
+          test_func_rules: standard
           ignore_tc_prefix:
             - "test_api_{DUT}_env_"
             - "test_api_{DUT}_reference_model_"
@@ -1453,6 +1468,8 @@ stage:
           args_check: $(NEED_REF_MODEL: false)
           args_pattern: ["env", "ref_model"]
           args_test_func_prefix: "test_random_"
+          test_func_prefix: "test_random_"
+          test_func_rules: standard
           args_error_msg: "第一个参数必须为env，第二个参数必须ref_model"
     need_human_check: false # 验证复杂DUT时建议开启该人工检查
     skill_list:
@@ -1501,6 +1518,7 @@ stage:
           doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
           doc_bug_analysis: "{OUT}/{DUT}_bug_analysis.md"
           test_dir: "{OUT}/tests"
+          test_func_rules: standard
           ignore_tc_prefix:
             - "test_api_{DUT}_env_"
             - "test_api_{DUT}_reference_model_"
@@ -1548,6 +1566,7 @@ stage:
           doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
           doc_bug_analysis: "{OUT}/{DUT}_bug_analysis.md"
           test_dir: "{OUT}/tests"
+          test_func_rules: standard
           ignore_tc_prefix:
             - "test_api_{DUT}_env_"
             - "test_api_{DUT}_reference_model_"

@@ -15,6 +15,8 @@ Markdown 排版契约：本技能生成、维护或展示的任何 Markdown 中�
 
 新建`test_static_{DUT}_*`时，参考当前工作区已有的普通DUT测试模板，沿用其fixture参数和顺序：`def test_static_{DUT}_xxx(env):`或`def test_static_{DUT}_xxx(env, ref_model):`。真实DUT测试不能改用`mock_dut`；Mock组件独立单元测试不能用于证实静态RTL候选。
 
+静态验证文件必须使用`test_{DUT}_static_verify_<name>.py`，其中每个pytest函数必须以`test_static_{DUT}_`开头。普通定向TC不能冒用`test_static_`，API和随机TC也必须留在对应专用文件中；命名错误应在本阶段一次修正全部函数定义及其`mark_function`引用。
+
 `{OUT}/tests/{DUT}_api.py`、fixture、fake DUT和`fc_cover`绑定是已有公共基础设施。默认只新增或修改当前静态验证测试，不修改API/fixture或伪造覆盖组。只有最早traceback和接口契约明确证明基础设施缺陷时才做最小修复。
 
 一次`Step(1)`只推进仿真，不表示请求已接受或结果有效。必须检查API内部是否已经推进或等待，按规格确认ready/valid或等价接受条件、响应latency和有效采样点；无效窗口的单点data mismatch只能继续调查，不能确认Bug。

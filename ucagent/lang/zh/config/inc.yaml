@@ -182,6 +182,7 @@ stage:
       - " 1) 通过 `WorkDiff` 确认 API/fixture 的变更点。"
       - " 2) 更新/新增测试："
       - "    - 扫描 {OUT}/tests/test_{DUT}_api_*.py：为新增/变化的 API 添加覆盖测试；必要时修正旧测试的断言与期望。"
+      - "    - 文件内每个pytest函数必须以test_api_{DUT}_开头；缺少精确DUT命名空间的test_api_basic、test_ref_model等名称必须在本阶段修正，并同步mark_function中的函数对象引用"
       - "    - 若存在 test_{DUT}_env_fixture.py：确保 fixture 构建、清理、资源复用等行为有明确测试。"
       - " 3) 运行验证（按需选择更精准的目标）："
       - "    - `RunTestCases('test_{DUT}_api_*.py::your_test_function')` 用于快速定位 API 单测问题"
@@ -202,6 +203,8 @@ stage:
           target_file_tests: "{OUT}/tests/test_{DUT}_api*.py"
           doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
           doc_bug_analysis: "{OUT}/{DUT}_bug_analysis.md"
+          test_func_prefix: "test_api_{DUT}_"
+          test_func_rules: standard
     need_human_check: false # 验证复杂DUT时建议开启该人工检查
     reference_files:
       - "Guide_Doc/dut_api_instruction.md"
@@ -225,6 +228,7 @@ stage:
       - " 6) 如果没实现完所有新增/修改的测试用例，请回到第3步继续补齐。"
       - " 7) 调用 `Check` 检查所有测试用例；若无需更新则 `Complete`。"
       - "范围说明：本阶段只处理定向（directed）测试用例；随机测试在下一阶段单独处理。"
+      - "命名契约：普通定向测试函数使用带有非空场景后缀的test_<scenario>，不得使用保留的test_api_、test_static_或test_random_前缀；专用TC必须留在各自文件并满足Guide_Doc/dut_test_case.md中的完整前缀"
       - "注意：如果原来的bug已经修复，需要更新{OUT}/{DUT}_bug_analysis.md中对应的内容，例如删除已解决的bug记录等"
     checker:
       - name: test_check
@@ -233,6 +237,7 @@ stage:
           doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
           doc_bug_analysis: "{OUT}/{DUT}_bug_analysis.md"
           test_dir: "{OUT}/tests"
+          test_func_rules: standard
           ignore_tc_prefix:
             - "test_api_{DUT}_env_"
             - "test_api_{DUT}_reference_model_"
@@ -252,6 +257,7 @@ stage:
       - "步骤："
       - " 1) 分析已有 {OUT}/tests/test_{DUT}_random_*.py。"
       - " 2) 增量更新随机测试："
+      - "    - 随机测试文件必须为{OUT}/tests/test_{DUT}_random_<name>.py，文件内每个pytest函数必须以test_random_开头；不能用普通test_<scenario>或其他阶段前缀代替"
       - "    - 若接口/寄存器/状态空间变化：同步调整随机约束与合法值空间。"
       - "    - 若新增功能：增加能触发该功能的随机生成策略与必要的定向 bias。"
       - "    - 若新增检查点：补齐断言/覆盖收集等，使随机测试能观测并判定结果。"
@@ -267,6 +273,7 @@ stage:
           doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
           doc_bug_analysis: "{OUT}/{DUT}_bug_analysis.md"
           test_dir: "{OUT}/tests"
+          test_func_rules: standard
           ignore_tc_prefix:
             - "test_api_{DUT}_env_"
             - "test_api_{DUT}_reference_model_"
@@ -299,6 +306,7 @@ stage:
           doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
           doc_bug_analysis: "{OUT}/{DUT}_bug_analysis.md"
           test_dir: "{OUT}/tests"
+          test_func_rules: standard
           ignore_tc_prefix:
             - "test_api_{DUT}_env_"
             - "test_api_{DUT}_reference_model_"
