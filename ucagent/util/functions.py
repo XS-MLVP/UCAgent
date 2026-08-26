@@ -48,6 +48,7 @@ import traceback
 import subprocess
 import selectors
 import signal
+import tempfile
 import textwrap
 
 
@@ -352,14 +353,30 @@ def save_json_file(path: str, data):
     """
     dir_name = os.path.dirname(path)
     if dir_name and not os.path.exists(dir_name):
-        os.makedirs(dir_name)
-    with open(path, 'w', encoding='utf-8') as f:
-        try:
+        os.makedirs(dir_name, exist_ok=True)
+    target_dir = dir_name or os.curdir
+    temp_name = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=target_dir,
+            prefix=f".{os.path.basename(path)}.",
+            suffix=".tmp",
+            delete=False,
+        ) as f:
+            temp_name = f.name
             json.dump(data, f, indent=4, ensure_ascii=False)
-        except TypeError as e:
-            raise ValueError(f"Data provided is not JSON serializable: {e}")
-        except Exception as e:
-            raise RuntimeError(f"Unexpected error while saving JSON file {path}: {e}")
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(temp_name, path)
+    except TypeError as e:
+        raise ValueError(f"Data provided is not JSON serializable: {e}")
+    except Exception as e:
+        raise RuntimeError(f"Unexpected error while saving JSON file {path}: {e}")
+    finally:
+        if temp_name and os.path.exists(temp_name):
+            os.unlink(temp_name)
 
 def get_abs_path_cwd_ucagent(workspace, path):
     """
