@@ -6,7 +6,24 @@ from ucagent.checkers.base import Checker, UnityChipBatchTask
 import ucagent.util.functions as fc
 from ucagent.util.log import info
 from collections import OrderedDict
+import hashlib
 import os
+import re
+
+
+_MARKDOWN_TASK_DIGEST_SEPARATOR = "@sha256="
+
+
+def _markdown_task_path(task: str) -> str:
+    return str(task).split(_MARKDOWN_TASK_DIGEST_SEPARATOR, 1)[0]
+
+
+def _markdown_file_task(workspace: str, file_path: str) -> str:
+    digest = hashlib.sha256()
+    with open(os.path.join(workspace, file_path), "rb") as source_file:
+        for block in iter(lambda: source_file.read(1024 * 1024), b""):
+            digest.update(block)
+    return f"{file_path}{_MARKDOWN_TASK_DIGEST_SEPARATOR}{digest.hexdigest()}"
 
 
 def check_file_path_xml_tags(workspace, target_files) -> list:
@@ -53,24 +70,66 @@ class BatchFileProcess(Checker):
         self.batch_size = batch_size
         self.mini_inputs = mini_inputs
         self.batch_task = UnityChipBatchTask(name, self)
+        self._source_error = None
         self.set_human_check_needed(need_human_check)
 
     def get_pfile_list(self) -> list:
         markdown_files = []
         for p in self.file_pattern:
             markdown_files.extend(fc.find_files_by_pattern(self.workspace, p))
-        return markdown_files
+        return [
+            _markdown_file_task(self.workspace, markdown_file)
+            for markdown_file in sorted(set(markdown_files))
+        ]
+
+    def _display_result(self, value):
+        """Remove internal digest identities from LLM-facing batch results."""
+        if isinstance(value, str):
+            for task in self.batch_task.source_task_list:
+                value = value.replace(task, _markdown_task_path(task))
+            return re.sub(
+                rf"{re.escape(_MARKDOWN_TASK_DIGEST_SEPARATOR)}[0-9a-f]{{64}}",
+                "",
+                value,
+            )
+        if isinstance(value, list):
+            return [self._display_result(item) for item in value]
+        if isinstance(value, dict):
+            return {key: self._display_result(item) for key, item in value.items()}
+        return value
 
     def init_batch_task(self):
-        markdown_files = self.get_pfile_list()
+        try:
+            markdown_files = self.get_pfile_list()
+            self._source_error = None
+        except Exception as e:
+            error = f"Cannot fingerprint a target Markdown file: {e}"
+            self._source_error = {
+                "error": error,
+                "diagnostic": {
+                    "error_code": "MARKDOWN_BATCH_SOURCE_READ_FAILED",
+                    "error": error,
+                    "observed": str(e),
+                    "expected": "Every matched Markdown source file must be readable.",
+                    "next_action": (
+                        "Restore read access to the reported file, then call `Check` again."
+                    ),
+                },
+            }
+            return False
+        note_msg = []
+        self.batch_task.sync_source_task(
+            markdown_files,
+            note_msg,
+            "Target markdown file list changed.",
+        )
         if len(markdown_files) == 0:
             info("No files found with patterns: {}".format('\n'.join(self.file_pattern)))
             return False
-        if len(self.batch_task.source_task_list) > 0 or len(self.batch_task.cmp_task_list) > 0:
-            return True
-        self.batch_task.source_task_list = markdown_files
         self.batch_task.update_current_tbd()
-        init_files = '\n'.join(self.batch_task.source_task_list)
+        init_files = '\n'.join(
+            _markdown_task_path(task) for task in self.batch_task.source_task_list
+        )
         info(f"Load file list(size={len(self.batch_task.source_task_list)}): {init_files}")
         return True
 
@@ -83,22 +142,27 @@ class BatchFileProcess(Checker):
         ret = self.batch_task.get_template_data(
             "TOTAL_FILES", "COMPLETED_FILES", "CURRENT_FILES"
         )
+        ret["CURRENT_FILES"] = [
+            _markdown_task_path(task) for task in self.batch_task.tbd_task_list
+        ]
         ret["COMPLETE_PROGRESS"] = f"{ret['COMPLETED_FILES']}/{ret['TOTAL_FILES']}"
-        ret["CURRENT_FILE_NAME"] = ",".join(self.batch_task.tbd_task_list)
+        ret["CURRENT_FILE_NAME"] = ",".join(ret["CURRENT_FILES"])
         return ret
 
     def do_check(self, is_complete=False, **kw) -> tuple[bool, object]:
         """Check markdown files for headers of specified levels in batch."""
         if self.init_batch_task() is False:
+            if self._source_error is not None:
+                return False, self._source_error
             if self.mini_inputs > 0:
-                return True, {
+                return False, {
                     "error": "No target files find, please check your file patterns."
                 }
             return True, "Not target files found, skip check, default pass."
         if len(self.batch_task.source_task_list) < self.mini_inputs:
-            self.batch_task.source_task_list = []
+            found_count = len(self.batch_task.source_task_list)
             return False, {
-                "error": f"Not enough target files found({len(self.batch_task.source_task_list)}) for check, need at least {self.mini_inputs} files."
+                "error": f"Not enough target files found({found_count}) for check, need at least {self.mini_inputs} files."
             }
         # Get task file list
         if len(self.batch_task.source_task_list) == 0 and \
@@ -107,11 +171,43 @@ class BatchFileProcess(Checker):
                 "error": "No target files find, please check your file patterns."
             }
         for task_file in self.batch_task.tbd_task_list:
-            ret, msg = self.do_one_file_check(task_file)
+            ret, msg = self.do_one_file_check(_markdown_task_path(task_file))
             if not ret:
                 return False, {
                     "error": msg
                 }
+        try:
+            latest_tasks = self.get_pfile_list()
+        except Exception:
+            self.init_batch_task()
+            return False, self._source_error
+        if latest_tasks != self.batch_task.source_task_list:
+            previous_by_path = {
+                _markdown_task_path(task): task
+                for task in self.batch_task.source_task_list
+            }
+            latest_by_path = {
+                _markdown_task_path(task): task for task in latest_tasks
+            }
+            changed_files = sorted(
+                path
+                for path in set(previous_by_path) | set(latest_by_path)
+                if previous_by_path.get(path) != latest_by_path.get(path)
+            )
+            self.init_batch_task()
+            diagnostic = {
+                "error_code": "MARKDOWN_BATCH_SOURCE_CHANGED_DURING_CHECK",
+                "error": "Target Markdown content changed during batch validation.",
+                "observed": {"changed_files": changed_files[:20]},
+                "expected": "The validated file bytes must remain unchanged until progress is committed.",
+                "next_action": (
+                    "Re-read and revalidate the reported current files, then call `Check` again."
+                ),
+            }
+            return False, {
+                "error": diagnostic["error"],
+                "diagnostic": diagnostic,
+            }
         note_msg = []
         # Complete
         self.batch_task.sync_gen_task(
@@ -119,7 +215,10 @@ class BatchFileProcess(Checker):
             note_msg,
             "Completed file changed."
         )
-        return self.batch_task.do_complete(note_msg, is_complete, "", "", "")
+        passed, result = self.batch_task.do_complete(
+            note_msg, is_complete, "", "", ""
+        )
+        return passed, self._display_result(result)
 
 
     def do_one_file_check(self, file_path):
@@ -139,15 +238,27 @@ class WalkFilesOneByOne(BatchFileProcess):
 
     def on_file_read(self, success, pfile, message):
         if success:
-            if pfile.startswith(os.sep):
-                pfile = pfile[1:]
+            if os.path.isabs(pfile):
+                real_path = os.path.realpath(pfile)
+                workspace = os.path.realpath(self.workspace)
+                if os.path.commonpath([workspace, real_path]) == workspace:
+                    pfile = os.path.relpath(real_path, workspace)
+                else:
+                    pfile = pfile.lstrip(os.sep)
+            try:
+                task = _markdown_file_task(self.workspace, pfile)
+            except OSError:
+                return
             info("File read callback: {}, append to readed_files".format(pfile))
-            self.readed_files.append(pfile)
+            self.readed_files.append(task)
 
     def do_one_file_check(self, file_path):
-        for f in self.readed_files:
-            if f in file_path:
-                return True, ""
+        try:
+            current_task = _markdown_file_task(self.workspace, file_path)
+        except OSError as e:
+            return False, f"Cannot read file '{file_path}': {e}"
+        if current_task in self.readed_files:
+            return True, ""
         return False, f"File '{file_path}' was not read during the process. you Need use tool '{self.stage_manager.tool_read_text.name}' to read it."
 
     def do_check(self, is_complete=False, **kw) -> tuple[bool, object]:
