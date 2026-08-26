@@ -45,6 +45,7 @@ from ucagent.util.bug_analysis_contract import (
     WAVEFORM_REFERENCE_MARKER as _WAVEFORM_REFERENCE_MARKER,
     WAVEFORM_SIGNAL_GROUP_FIELDS as _WAVEFORM_SIGNAL_GROUP_FIELDS,
     normalize_test_case_tag as _normalize_test_case_tag,
+    test_case_identity_relation as _test_case_identity_relation,
     parse_dynamic_tag_heading as _parse_dynamic_tag_heading,
     parse_waveform_record_heading as _parse_waveform_record_heading,
     waveform_anchor_id as _waveform_anchor_id,
@@ -2126,6 +2127,11 @@ def _validate_receipt_identity(
         receipt_result.get("result_fingerprint"),
         "result_fingerprint does not match the WaveInfo call receipt",
     )
+    compare(
+        "executed_test_case",
+        (receipt.get("arguments") or {}).get("test_case_name"),
+        "executed_test_case does not match the WaveInfo call receipt",
+    )
     if not isinstance(selection, dict):
         errors.append("the WaveInfo receipt has no waveform_selection metadata")
         return errors
@@ -2409,9 +2415,15 @@ def check_waveform_bug_analysis(
 
         receipt_args = receipt.get("arguments", {})
         receipt_result = receipt.get("result", {})
-        receipt_test = str(receipt_args.get("test_case_name", "")).split("::")[-1]
-        documented_test = item["test_case"].split("::")[-1]
-        if receipt_test != documented_test:
+        receipt_test = str(receipt_args.get("test_case_name", ""))
+        documented_test = item["test_case"]
+        try:
+            identity_relation = _test_case_identity_relation(
+                documented_test, receipt_test
+            )
+        except ValueError:
+            identity_relation = None
+        if identity_relation is None:
             issues.append(
                 {
                     "message": (
@@ -2422,6 +2434,9 @@ def check_waveform_bug_analysis(
                         "bugs": item["bugs"],
                         "test_case": item["test_case"],
                         "line": line,
+                        "documented_test_case": documented_test,
+                        "executed_test_case": receipt_test,
+                        "identity_relation": identity_relation,
                     },
                 }
             )

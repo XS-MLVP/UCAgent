@@ -19,7 +19,7 @@ Markdown 排版契约：本技能生成、维护或展示的任何 Markdown 中�
 
 仅在正确测试稳定复现DUT设计缺陷后进入本技能的Bug记录分支或运行骨架脚本。每个Fail TC都不预设责任方；调用脚本、WaveInfo或创建/更新非零BG之前，必须从规格、独立参考模型或可验证公式推导`specification_expected`，并完成`input | specification_expected | test_expected | actual | classification`对照。不得直接相信模板注释、已有断言、静态候选或可疑RTL；静态候选不能覆盖TC级反证。expected不一致时修正测试并重跑，禁止记录Bug。
 
-动态 Bug 的唯一目标是`{OUT}/{DUT}_bug_analysis.md`；可见标题不是文件名规则，不得另建文件。同一报告 node ID 的固定写法是：Markdown使用`- {visible_title} <TC-{exact_report_node_id}>`；本脚本、Apply参数及中央YAML `test_case`使用`TC-{exact_report_node_id}`；WaveInfo `test_case_name`使用`{exact_report_node_id}`。`visible_title`替换为测试docstring的首个非空描述行。没有动态 Bug 时保留该文件，并让`DYNAMIC-BUGS`、`ROOT-CAUSES`、`WAVEFORM-EVIDENCE`三个容器正文全部为空。
+动态 Bug 的唯一目标是`{OUT}/{DUT}_bug_analysis.md`；可见标题不是文件名规则，不得另建文件。Markdown、本脚本、Apply和中央YAML `test_case`使用当前函数级报告node（只删除源码行范围）。非参数化WaveInfo使用同一node；若报告含`tests.test_case_instances`，文档TC保持函数级node，WaveInfo选择一个实际FAILED参数化child，Apply只接受同一完整路径/类/函数的child receipt，并由工具在YAML `executed_test_case`记录该child。`visible_title`取测试docstring首个非空描述行。没有动态 Bug 时保留三个空容器。
 
 无Bug分支的完成条件是：所有失败都已按本技能完成责任分类，验证问题已修复并重跑为Pass，当前阶段没有正确测试稳定复现DUT设计缺陷，且上述三个容器保持规范空结构。此时不得调用`record_dynamic_bug.py`、WaveInfo或Apply，也不得创建BG/TC/ROOT/波形占位；完成这些核对后可将本技能的`use`记录为true。
 
@@ -40,8 +40,10 @@ expected一致后，必须核对测试激励/driver、API callback、Step、采�
 
 随后必须调用最终WaveInfo，并用`ApplyWaveInfoEvidence`在`<WAVEFORM-EVIDENCE>...</WAVEFORM-EVIDENCE>`中创建该TC唯一的`<WAVEFORM-TC-...>`记录。中央记录标题逐字复用TC可见名称并追加“波形”。同一TC关联多个Bug时，对每个BG调用一次Apply工具；中央波形仍只有一份，并在`bug_tags`和`bug_evidence`中列出全部关联。
 
-TC、WaveInfo和Apply必须逐字使用Checker返回的完整pytest node ID，只允许删除报告附带的文件行范围；其文件路径必须以脚本从runtime config返回的`Configured TC output directory`开头。每次WaveInfo的`test_case_name`只去掉`TC-`。不得去掉或增加目录、改文件名或只传函数名。inventory的basename/recommended_call只用于定位波形，不建立源码身份；相似节点只供复制完整报告node ID，不参与匹配。
+文档TC和Apply必须逐字使用Checker返回的函数级pytest node，只允许删除报告附带的文件行范围；路径必须以runtime config中的`Configured TC output directory`开头。非参数化WaveInfo只去掉`TC-`；参数化聚合时从`tests.test_case_instances`选择实际FAILED child，不得自行拼接参数ID。child删除末尾`[...]`后必须与文档TC的完整路径/类/函数逐字相同；`file.py::test`与`tests/file.py::test`永远不等价。inventory和相似节点只供定位/核对，不参与匹配。
 
-Apply返回`receipt_test_mismatch`或`matching_final_receipt_not_found`时，保持test_case_tag不变，原样执行`details.recovery_call`一次，再用新receipt_id和原标签重调Apply。不得猜路径变体或手工写receipt YAML、anchor、viewer URL/token。同一tool+status+target连续同错后停止尝试相似参数；没有recovery_call或执行后仍同错时，停止修改当前Bug/波形记录并报告工具契约阻塞。
+`RunTestCases(target=...)`的target相对于上述配置TC目录，不能再次包含该目录前缀；Bug TC、WaveInfo和Apply则使用workspace相对完整路径。若工具返回`PYTEST_TARGET_DIRECTORY_PREFIX`，使用其中`correct_target`原样重试，不能把该修正解释为TC身份等价。
+
+Apply返回`receipt_test_mismatch`或`matching_final_receipt_not_found`时，保持函数级test_case_tag不变。若`details.parameterized_receipts`非空，将其中`test_case_name`与当前报告`tests.test_case_instances`逐字核对，选择实际FAILED child并用该完整node重新完成最终WaveInfo；否则原样执行`details.recovery_call`一次。再用新receipt_id重调Apply。不得按波形basename猜路径/参数ID或手写receipt YAML、anchor、viewer URL/token；无有效候选/恢复调用时停止并报告工具契约阻塞。
 
 同一CK/BG路径的后续失败TC直接调用`ApplyWaveInfoEvidence`，不要在该CK内复制BG；工具从目标测试函数docstring读取中文可见标题，并把新TC插入首个分析标题之前。若同名BG出现在多个CK下，先用脚本或文本工具建立目标CK下的完整BG/TC路径，再调用`ApplyWaveInfoEvidence(..., checkpoint_path="FG-.../FC-.../CK-...")`选择精确路径。测试源码和docstring必须先存在。技能未启用或脚本不可用时，使用文本编辑工具按相同来源填写具体中文名称，并复现Guide_Doc/dut_bug_analysis.md中的第 5.1 节层级与结构；任务要求和完成标准不变。

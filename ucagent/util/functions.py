@@ -27,6 +27,7 @@ from ucagent.util.bug_analysis_contract import (
     WAVEFORM_FENCE_OPEN,
     WAVEFORM_LLM_ANALYSIS_FIELDS,
     WAVEFORM_REFERENCE_MARKER,
+    test_case_parent,
 )
 from ucagent.util.log import info, warning
 import os
@@ -452,6 +453,9 @@ def load_toffee_report(
         "fails": len(fails),
     }
     ret_data["tests"]["test_cases"] = tests_map
+    instance_map = _get_toffee_test_case_instances(data, workspace, tests)
+    if instance_map:
+        ret_data["tests"]["test_case_instances"] = instance_map
     if return_test_details:
         ret_data["tests"]["test_case_details"] = _get_toffee_test_case_details(
             data, tests
@@ -517,6 +521,108 @@ def load_toffee_report(
     if len(test_fc_no_check_points) > 0:
         ret_data["test_function_with_no_check_point_mark_list"] = test_fc_no_check_points
     return ret_data
+
+
+_TOFFEE_NODE_RE = re.compile(
+    r"<TestReport\s+['\"](?P<node>[^'\"]+?)['\"]\s+when=",
+)
+
+
+def _get_toffee_test_case_instances(
+    data: dict, workspace: str, tests: list[tuple[str, str]]
+) -> dict:
+    """Expose failed parameterized pytest nodes under function-level report keys.
+
+    Toffee's abstract map is intentionally used for coverage and line ranges,
+    while each raw phase report contains the parameterized node that actually
+    executed.  Only failed children are emitted to keep LLM-facing reports bounded.
+    The file path from the abstract key is authoritative; only the
+    node/class/function suffix is taken from the raw report, so a pytest cwd
+    prefix cannot silently change test identity.
+    """
+
+    raw_tests = data.get("tests", [])
+    if not isinstance(raw_tests, list):
+        return {}
+
+    # Abstract entries contain source ranges and are the canonical report keys.
+    # Indexing them against raw tests is invalid for parametrization because one
+    # abstract function expands to many raw pytest items.
+    abstract_by_parent = {}
+    for report_key, status in tests:
+        try:
+            report_file, _line_from, _line_to, report_node = parse_test_case_location(
+                report_key, workspace
+            )
+            parent = "::".join([report_file, *report_node.split("::")])
+        except Exception:
+            continue
+        abstract_by_parent.setdefault(test_case_parent(parent), []).append(
+            (parent, status)
+        )
+
+    instances = {}
+    for raw_test in raw_tests:
+        if not isinstance(raw_test, dict):
+            continue
+        raw_status_data = raw_test.get("status") or {}
+        raw_status = (
+            str(raw_status_data.get("word", "")).upper()
+            if isinstance(raw_status_data, dict)
+            else ""
+        )
+        if raw_status not in {"PASSED", "FAILED", "ERROR", "SKIPPED"}:
+            phase_words = []
+            for phase in raw_test.get("phases", []):
+                phase_status = phase.get("status") if isinstance(phase, dict) else {}
+                if isinstance(phase_status, dict):
+                    phase_words.append(str(phase_status.get("word", "")).upper())
+            raw_status = (
+                "FAILED"
+                if any(word in {"FAILED", "ERROR"} for word in phase_words)
+                else "PASSED"
+            )
+        nodes = []
+        for phase in raw_test.get("phases", []):
+            if not isinstance(phase, dict):
+                continue
+            match = _TOFFEE_NODE_RE.search(str(phase.get("report", "")))
+            if match and match.group("node") not in nodes:
+                nodes.append(match.group("node").strip())
+        for node in nodes:
+            node_parts = node.split("::")
+            if len(node_parts) not in (2, 3):
+                continue
+            raw_function = node_parts[-1]
+            if raw_function.endswith("]") and "[" in raw_function:
+                raw_function = raw_function[: raw_function.find("[")]
+            raw_tail = tuple([*node_parts[1:-1], raw_function])
+            candidates = []
+            for abstract_parent, entries in abstract_by_parent.items():
+                abstract_parts = abstract_parent.split("::")
+                if (
+                    os.path.basename(abstract_parts[0]) == os.path.basename(node_parts[0])
+                    and tuple(abstract_parts[1:]) == raw_tail
+                ):
+                    candidates.extend(entries)
+            if len(candidates) != 1:
+                # Raw pytest paths are relative to pytest's cwd, while abstract
+                # paths are workspace-relative.  A unique same-file-basename and
+                # exact class/function correlation selects the authoritative
+                # abstract entry; ambiguity is never resolved by path guessing.
+                continue
+            canonical_parent, _aggregate_status = candidates[0]
+            canonical_node = "::".join([canonical_parent.split("::", 1)[0], *node_parts[1:]])
+            if (
+                test_case_parent(canonical_node) == canonical_node
+                or raw_status not in {"FAILED", "ERROR"}
+            ):
+                continue
+            entries = instances.setdefault(canonical_parent, [])
+            item = {"node_id": canonical_node, "status": "FAILED"}
+            if item not in entries:
+                entries.append(item)
+    return instances
 
 
 def _get_toffee_test_case_details(data: dict, tests: list) -> dict:
@@ -1815,7 +1921,7 @@ def description_bug_doc():
     return [
         "[Dynamic Bug Analysis Contract] Follow the active stage task and Guide_Doc/dut_bug_analysis.md for the complete workflow. A stage Skill, when available, is only an optional helper.",
         f"  - The only dynamic Bug target is {DYNAMIC_BUG_DOCUMENT_PATH}. Its visible Markdown title is not a filename rule; never derive or create another filename from that title.",
-        f"  - Serialize one exact report node ID by consumer: Markdown `{TEST_CASE_SERIALIZATION['markdown_tag']}`; recorder/Apply arguments and waveform YAML test_case `{TEST_CASE_SERIALIZATION['tool_or_yaml']}`; WaveInfo test_case_name `{TEST_CASE_SERIALIZATION['waveinfo']}`. The node ID itself must remain byte-for-byte identical.",
+        f"  - Keep the documented TC on the exact function-level report node: Markdown `{TEST_CASE_SERIALIZATION['markdown_tag']}`; recorder/Apply arguments and waveform YAML test_case `{TEST_CASE_SERIALIZATION['tool_or_yaml']}`. For a non-parameterized test, WaveInfo test_case_name is `{TEST_CASE_SERIALIZATION['waveinfo']}` for that same node. When Toffee aggregates parameterized executions, `tests.test_case_instances` lists exact child nodes; WaveInfo uses one FAILED child while the document TC stays unchanged. A child is related only when removing its final `[...]` leaves the byte-for-byte same workspace-relative path, optional class, and function.",
         f"  - Put dynamic Bug entries inside one closed {DYNAMIC_BUGS_MARKER} ... {DYNAMIC_BUGS_END_MARKER} container, root-cause entities inside one closed {ROOT_CAUSES_MARKER} ... {ROOT_CAUSES_END_MARKER} container, then waveform records inside one closed {WAVEFORM_EVIDENCE_MARKER} ... {WAVEFORM_EVIDENCE_END_MARKER} container.",
         "  - For a completed no-Bug result, keep the canonical document title and the three ordered closed containers, with every container body empty. Do not put explanatory prose, BG-*-0, TC/ROOT placeholders, comments, or waveform records in those bodies.",
         "  - Use the exact semantic heading hierarchy shown in Guide_Doc/dut_bug_analysis.md section 5.1 for FG, FC, CK, BG, and TC. Angle-bracket tags may be hidden by Markdown, so every visible title must describe the actual item rather than repeat its type.",

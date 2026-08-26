@@ -50,6 +50,8 @@ from ucagent.util.bug_analysis_contract import (
     normalize_test_case_tag,
     parse_dynamic_tag_heading,
     parse_waveform_record_heading,
+    test_case_identity_relation,
+    test_case_parent,
     waveform_anchor_id,
     waveform_record_heading,
     waveform_record_tag,
@@ -606,8 +608,9 @@ class ArgApplyWaveInfoEvidence(BaseModel):
             "absent, the tool creates it under the unique BG. The same TC may be associated "
             "with multiple distinct Bugs while retaining one central waveform record. The "
             "operation preserves sibling TCs and records owned by other tests. The signed "
-            "WaveInfo test_case_name must equal this value after removing only TC-; path "
-            "variants are not equivalent."
+            "WaveInfo test_case_name must equal this value after removing TC-, or may be one "
+            "parameterized child of the same exact workspace-relative file/class/function. "
+            "Different paths, classes, and functions are never equivalent."
         ),
     )
     receipt_id: str = Field(
@@ -1043,7 +1046,8 @@ class WaveInfo(UCTool):
     def _run_test_suggestion(self, normalized_name: str) -> str:
         return (
             f'Rerun the failing case alone with RunTestCases(target="<test-file>::'
-            f'{normalized_name}") and confirm the DUT fixture calls SetWaveform and '
+            f'{normalized_name}") relative to the configured TC output directory and '
+            "confirm the DUT fixture calls SetWaveform and "
             "dut.Finish() completes."
         )
 
@@ -1321,6 +1325,14 @@ class WaveInfo(UCTool):
 
         if not latest_matches:
             close_names = get_close_matches(normalized, available_names, n=8, cutoff=0.45)
+            parameterized_names = []
+            for available_name in available_names:
+                if (
+                    available_name.endswith("]")
+                    and "[" in available_name
+                    and available_name[: available_name.find("[")] == normalized
+                ):
+                    parameterized_names.append(available_name)
             if dat_matches:
                 code = "waveform_missing_but_test_data_exists"
                 message = (
@@ -1350,10 +1362,22 @@ class WaveInfo(UCTool):
                     "available_latest_session_test_names": available_names[:50],
                     "available_names_truncated": len(available_names) > 50,
                     "close_name_matches": close_names,
+                    "parameterized_waveform_names": parameterized_names,
                     "matching_data_files": dat_matches,
                     "stale_waveform_candidates_not_used": old_matches,
                 },
-                suggestions=common_suggestions,
+                suggestions=(
+                    [
+                        "The latest session has parameterized waveform basenames for this "
+                        "function. These names are hints only: cross-check their parameter "
+                        "suffixes against an exact FAILED child in report "
+                        "tests.test_case_instances, then pass that full child node to "
+                        "WaveInfo. Do not use a basename as a pytest node identity."
+                    ]
+                    + common_suggestions
+                    if parameterized_names
+                    else common_suggestions
+                ),
             )
 
         latest_matches.sort(
@@ -1677,6 +1701,7 @@ class WaveInfo(UCTool):
                 ("status", "confirmed"),
                 ("receipt_id", receipt_info.get("receipt_id")),
                 ("result_fingerprint", receipt_info.get("result_fingerprint")),
+                ("executed_test_case", invocation.get("test_case_name")),
             ]
         )
         for key in (
@@ -2943,8 +2968,10 @@ class ApplyWaveInfoEvidence(UCTool):
         "selected occurrence. Use checkpoint_path when the same BG tag repeats across CKs. "
         "Creating a missing TC reads its visible title from the target test's docstring, so "
         "the test source and a non-empty docstring must exist. "
-        "The receipt test_case_name must exactly equal test_case_tag after removing only TC-; "
-        "path-prefix variants are not equivalent. On an identity mismatch, keep test_case_tag "
+        "The receipt test_case_name must equal test_case_tag after removing TC-, or be one "
+        "parameterized child of the same exact workspace-relative file/class/function. "
+        "Path-prefix variants, different classes, and different functions are not equivalent. "
+        "On an identity mismatch, keep test_case_tag "
         "unchanged and execute the returned recovery_call instead of guessing another path or "
         "manually writing signed evidence. Similar source files are diagnostic hints only. "
         "The target must be an existing workspace-relative Markdown file inside the configured "
@@ -3081,9 +3108,9 @@ class ApplyWaveInfoEvidence(UCTool):
 
     @staticmethod
     def _test_case_matches(receipt_test: str, document_test: str) -> bool:
-        """Require the signed receipt and document to name the same pytest node ID."""
+        """Allow an exact node or its exact-path parameterized child instance."""
 
-        return receipt_test.strip() == document_test.strip()
+        return test_case_identity_relation(document_test, receipt_test) is not None
 
     def _similar_test_source_files(self, *test_case_names: str) -> list[str]:
         """Return bounded source-file hints without treating them as identities."""
@@ -3200,6 +3227,10 @@ class ApplyWaveInfoEvidence(UCTool):
                 ("document_test_case_tag", test_case_tag),
                 ("required_waveinfo_test_case_name", document_test),
                 (
+                    "identity_relation",
+                    test_case_identity_relation(document_test, receipt_test),
+                ),
+                (
                     "similar_test_source_files",
                     self._similar_test_source_files(document_test, receipt_test),
                 ),
@@ -3252,6 +3283,7 @@ class ApplyWaveInfoEvidence(UCTool):
             warning(f"Could not refresh persisted WaveInfo receipts: {error}")
 
         matched_receipts = []
+        parameterized_receipts = []
         similar_final_receipts = []
         receipts = sorted(
             self.waveinfo.analysis_receipts,
@@ -3262,7 +3294,25 @@ class ApplyWaveInfoEvidence(UCTool):
             receipt_test = str((receipt.get("arguments") or {}).get("test_case_name") or "")
             if not isinstance(receipt_id, str) or not receipt_id or not receipt_test:
                 continue
-            matches = self._test_case_matches(receipt_test, document_test)
+            try:
+                identity_relation = test_case_identity_relation(
+                    document_test, receipt_test
+                )
+            except ValueError:
+                identity_relation = None
+            matches = identity_relation is not None
+            result = receipt.get("result") or {}
+            if identity_relation == "parameterized_instance":
+                parameterized_receipts.append(
+                    OrderedDict(
+                        [
+                            ("receipt_id", receipt_id),
+                            ("test_case_name", receipt_test),
+                            ("status", result.get("status")),
+                            ("evidence_usable", result.get("evidence_usable")),
+                        ]
+                    )
+                )
             if not matches:
                 try:
                     same_waveform_basename = (
@@ -3271,7 +3321,6 @@ class ApplyWaveInfoEvidence(UCTool):
                     )
                 except ValueError:
                     same_waveform_basename = False
-                result = receipt.get("result") or {}
                 if same_waveform_basename and result.get("evidence_usable") is True:
                     similar_final_receipts.append(
                         OrderedDict(
@@ -3283,7 +3332,6 @@ class ApplyWaveInfoEvidence(UCTool):
                         )
                     )
                 continue
-            result = receipt.get("result") or {}
             matched_receipts.append(
                 OrderedDict(
                     [
@@ -3303,6 +3351,7 @@ class ApplyWaveInfoEvidence(UCTool):
                 ("document_test_case_tag", f"TC-{document_test}"),
                 ("required_waveinfo_test_case_name", document_test),
                 ("matching_receipts", matched_receipts[:10]),
+                ("parameterized_receipts", parameterized_receipts[:10]),
                 ("similar_final_receipts", similar_final_receipts[:10]),
                 (
                     "similar_test_source_files",
@@ -3324,7 +3373,18 @@ class ApplyWaveInfoEvidence(UCTool):
             "Keep the document TC unchanged. Candidate source files are hints only and do not "
             "make shortened or prefixed node IDs equivalent.",
         ]
-        if "recovery_call" in details:
+        if parameterized_receipts:
+            suggestions.extend(
+                [
+                    "The documented function has parameterized WaveInfo receipts. Cross-check "
+                    "their test_case_name values against an exact FAILED child in report "
+                    "tests.test_case_instances, call final WaveInfo with that full node, then "
+                    "apply the new receipt to the unchanged function-level test_case_tag.",
+                    "Do not select an instance by filename similarity or change the "
+                    "document TC tag to a guessed parameter variant.",
+                ]
+            )
+        elif "recovery_call" in details:
             suggestions.extend(
                 [
                     "Call WaveInfo once with details.recovery_call exactly.",
@@ -3765,7 +3825,11 @@ class ApplyWaveInfoEvidence(UCTool):
     ) -> str:
         """Read the canonical visible TC title from the target test's docstring."""
 
-        payload = normalize_test_case_tag(test_case_tag)[len("TC-") :]
+        # A parameterized pytest node is an execution child of its source
+        # function.  Resolve the visible title from that parent function while
+        # retaining the exact child node in the signed receipt.
+        parent_tag = test_case_parent(test_case_tag)
+        payload = parent_tag[len("TC-") :]
         parts = payload.split("::")
         file_path = Path(parts[0])
         class_name = parts[1] if len(parts) == 3 else None

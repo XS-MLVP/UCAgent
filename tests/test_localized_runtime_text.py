@@ -17,6 +17,7 @@ from ucagent.util.bug_analysis_contract import (
     ROOT_ANALYSIS_SECTION_MARKERS,
     STATIC_BUG_DOCUMENT_PATH,
     TEST_CASE_SERIALIZATION,
+    TEST_CASE_IDENTITY,
 )
 from ucagent.util.markdown import (
     ensure_markdown_file_heading_spacing,
@@ -117,6 +118,10 @@ def test_bug_analysis_paths_tc_forms_and_no_bug_shape_come_from_locale_contract(
         "waveinfo": "{exact_report_node_id}",
     }
     assert payload["test_case_serialization"] == TEST_CASE_SERIALIZATION
+    assert payload["test_case_identity"] == TEST_CASE_IDENTITY
+    assert TEST_CASE_IDENTITY["different_paths_are_equivalent"] is False
+    assert TEST_CASE_IDENTITY["different_classes_are_equivalent"] is False
+    assert TEST_CASE_IDENTITY["different_functions_are_equivalent"] is False
     assert NO_BUG_DOCUMENT_TITLE == "# {DUT} 动态 Bug 分析"
     assert list(NO_BUG_DOCUMENT_SECTIONS) == payload["no_bug_document"]["sections"]
     assert payload["no_bug_document"]["container_body_must_be_empty"] is True

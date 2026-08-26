@@ -11,7 +11,7 @@ Markdown 排版契约：本技能生成、维护或展示的任何 Markdown 中�
 
 以当前批次已经生成的测试模板签名为准。实现测试逻辑时必须原样保留fixture参数及顺序，不得自行增加、删除、交换参数，也不得用`dut`或`mock_dut`替换`env`。
 
-动态 Bug 的唯一目标文件是`{OUT}/{DUT}_bug_analysis.md`，不得从“动态 Bug 分析”等可见标题派生另一个文件名。同一个报告 node ID 在Markdown中写为`- {visible_title} <TC-{exact_report_node_id}>`（`visible_title`取测试docstring首个非空描述行），在record/Apply参数和中央YAML `test_case`中写为`TC-{exact_report_node_id}`，在WaveInfo `test_case_name`中写为`{exact_report_node_id}`；三处node ID逐字相同。当前批次没有确认任何动态 Bug 时，保留唯一目标文件和三个按顺序关闭的空容器，不在容器内写说明文字或占位记录。
+动态 Bug 的唯一目标文件是`{OUT}/{DUT}_bug_analysis.md`，不得从可见标题派生另一个文件名。Markdown、record/Apply和中央YAML `test_case`使用函数级报告node（只删除源码行范围）。非参数化WaveInfo使用同一node；若报告含`tests.test_case_instances`，文档TC保持函数级node，WaveInfo选择一个实际FAILED参数化child，Apply验证其完整路径/类/函数父节点并在YAML `executed_test_case`记录该child。当前批次没有确认任何动态 Bug 时，保留唯一目标文件和三个空容器。
 
 | 测试类别 | 参数契约 |
 |---|---|
@@ -102,7 +102,7 @@ TC与CK状态按以下规则解释：
 - `RunTestCases`可能执行很多测试用例，但当前步骤只针对当前批次TC及报告为这些TC关联的CK进行分析；未来批次的未关联失败CK不得扩张本批次范围
 - `record_dynamic_bug.py`只负责在封闭的`<DYNAMIC-BUGS>`分区生成带具体中文可见名称的`FG/FC/CK/BG/TC`、`<WAVEFORM-REF>`和分析字段骨架，不创建波形YAML，也不负责根因判断；脚本成功绝不表示Bug分析完成
 - 对可复现的动态Bug，必须真实调用`WaveInfo`取得最终receipt，再调用`ApplyWaveInfoEvidence`原子维护BG侧`<WAVEFORM-REF>`和中央`<WAVEFORM-EVIDENCE>`分区中的唯一`<WAVEFORM-TC-...>`记录。不要复制receipt字段或viewer token；BG内的波形关联只保留TC与引用，三个BG字段仍需填写，YAML和viewer只放在中央记录中
-- 从Checker的`Configured TC output directory`读取本次实际TC目录；每个TC文件路径必须以该值开头。metadata探索、pattern探索和最终取证的每次WaveInfo调用都使用Checker给出的完整报告node ID并只去掉最前面的`TC-`；不能删除或增加目录、改文件名或只传函数名。inventory中的basename/recommended_call只用于定位波形，不建立pytest源码身份。Checker返回的相似节点只用于复制完整报告node ID，绝不参与自动匹配；修复精确node ID前不得重复调用Check/Complete
+- 从Checker的`Configured TC output directory`读取实际TC目录；文档TC使用以该值开头的函数级报告node。非参数化WaveInfo只去掉`TC-`；参数化聚合时从`tests.test_case_instances`选择实际FAILED child，不能猜参数ID。child删除`[...]`后必须与文档TC的完整路径/类/函数逐字相同，不同路径绝不等价。`RunTestCases` target相对于配置TC目录，不得再次带该前缀；`PYTEST_TARGET_DIRECTORY_PREFIX.correct_target`是唯一重试值。inventory和相似节点只供定位/核对
 - 只带pattern但没有`logged_cycle+clock_signal`或完整`start_step+end_step`的调用属于探索调用；返回`evidence_window_required`时必须逐字使用`recommended_evidence_call`重调，不能把`analysis_window.effective_*`手工写入文档冒充原调用参数
 - 最终显式窗口调用必须同时提供`start_step`和`end_step`。成功后使用真实`receipt_id`调用`ApplyWaveInfoEvidence(target_file=..., bug_tag=..., test_case_tag=..., receipt_id=...)`。随后完成TC共享的`alignment_evidence`，并在`bug_evidence.<BG>`下完成该Bug的`required_signals`、`observed_behavior`、`source_correlation`
 - 同一Bug有多个Fail TC时，对每个TC分别调用一次Apply工具；同一Fail TC揭示多个独立Bug时，为每个BG用相同TC调用一次。一个TC始终只有一个中央波形记录，`bug_tags`和`bug_evidence`必须精确覆盖所有引用它的BG

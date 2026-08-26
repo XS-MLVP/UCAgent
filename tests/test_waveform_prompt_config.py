@@ -120,10 +120,13 @@ def test_default_prompt_requires_waveinfo_for_dynamic_bugs():
         in system_prompt
     )
     assert "recommended_call.test_case_name只是波形basename定位提示" in system_prompt
-    assert "只允许去掉标签最前面的`TC-`" in system_prompt
+    assert "tests.test_case_instances" in system_prompt
+    assert "实际FAILED参数化child" in system_prompt
+    assert "YAML `executed_test_case`记录该child" in system_prompt
     assert "本次运行由agent.cfg解析出的TC输出目录是`{OUT}/tests`" in system_prompt
-    assert "每个TC文件路径必须以`{OUT}/tests/`开头" in system_prompt
-    assert "相似节点只用于复制正确的完整报告node ID" in system_prompt
+    assert "每个文档TC文件路径必须以`{OUT}/tests/`开头" in system_prompt
+    assert "RunTestCases(target=...)`例外地相对于配置TC目录" in system_prompt
+    assert "不同路径绝不等价" in system_prompt
     assert "signal_catalog中确实存在时使用" in system_prompt
     assert "可以继续使用已验证的签名receipt和中央记录" in system_prompt
     assert "任务中途只运行部分用例时" in system_prompt
@@ -162,10 +165,11 @@ def test_default_prompt_requires_waveinfo_for_dynamic_bugs():
     assert "一个Fail TC无论关联多少BG都只有一份波形数据" in system_prompt
     assert "receipt_test_mismatch" in system_prompt
     assert "matching_final_receipt_not_found" in system_prompt
+    assert "details.parameterized_receipts" in system_prompt
     assert "details.recovery_call" in system_prompt
     assert "保持test_case_tag不变" in system_prompt
-    assert "同一tool+status+target连续返回相同错误后必须停止" in system_prompt
-    assert "不得手工写receipt YAML、anchor、viewer URL或token" in system_prompt
+    assert "同一tool+status+target连续同错" in system_prompt
+    assert "不得猜参数ID或手写receipt/YAML/viewer" in system_prompt
     assert "`bug_tags`与`bug_evidence`必须覆盖全部关联BG" in system_prompt
     assert "`required_signals`并集" in system_prompt
     assert "CK失败本身不证明DUT存在Bug" in system_prompt
@@ -242,7 +246,7 @@ def test_default_prompt_requires_waveinfo_for_dynamic_bugs():
     )
     resolved_batch_task = "\n".join(str(item) for item in resolved_batch.task)
     assert "TC输出目录是`unity_test/tests`" in resolved_system_prompt
-    assert "每个TC文件路径必须以`unity_test/tests/`开头" in resolved_system_prompt
+    assert "每个文档TC文件路径必须以`unity_test/tests/`开头" in resolved_system_prompt
     assert "agent.cfg已解析本次TC输出目录为unity_test/tests" in resolved_batch_task
     assert "{OUT}/tests" not in resolved_system_prompt
     assert "{OUT}/tests" not in resolved_batch_task
@@ -305,16 +309,18 @@ def test_dynamic_bug_target_tc_forms_and_no_bug_result_are_consistent():
             or "可见标题" in text
         )
 
-    assert "- 可见测试名称 <TC-EXACT_REPORT_NODE_ID>" in system_prompt
-    assert "`TC-EXACT_REPORT_NODE_ID`" in system_prompt
-    assert "`EXACT_REPORT_NODE_ID`" in system_prompt
-    assert "- 可见测试名称 <TC-EXACT_REPORT_NODE_ID>" in batch_task
-    assert "'TC-EXACT_REPORT_NODE_ID'" in batch_task
-    assert "'EXACT_REPORT_NODE_ID'" in batch_task
-    for text in (guide, checker_help, *skills):
+    assert "tests.test_case_instances" in system_prompt
+    assert "executed_test_case" in system_prompt
+    assert "tests.test_case_instances" in batch_task
+    assert "executed_test_case" in batch_task
+    for text in (guide, checker_help):
         assert TEST_CASE_SERIALIZATION["markdown_tag"] in text
         assert TEST_CASE_SERIALIZATION["tool_or_yaml"] in text
         assert TEST_CASE_SERIALIZATION["waveinfo"] in text
+    for skill in skills:
+        assert "函数级" in skill
+        assert "参数化" in skill
+        assert "不等价" in skill
 
     assert "### 2.1 未发现动态 Bug" in guide
     assert "三个容器正文均为空" in guide
@@ -535,14 +541,16 @@ def test_bug_analysis_guide_distinguishes_mcp_sentinels_and_evidence_windows():
         in dynamic_bug_skill
     )
     assert "作为本次实际TC输出目录" in dynamic_bug_skill
-    assert "修复精确node ID前不得重复调用Check/Complete" in implementation_skill
+    assert "PYTEST_TARGET_DIRECTORY_PREFIX.correct_target" in implementation_skill
+    assert "tests.test_case_instances" in implementation_skill
     assert "测试激励/driver" in dynamic_bug_skill
     assert "CK Fail本身不能作为DUT Bug结论" in dynamic_bug_skill
     assert "不要求每个Fail TC关联失败CK" in dynamic_bug_skill
     assert "不得把当前Pass用例改成Fail来满足门禁" in dynamic_bug_skill
     assert "`a+(~b)+0`是`a-b-1`" in dynamic_bug_skill
-    assert "只去掉`TC-`" in dynamic_bug_skill
-    assert "相似节点只供复制完整报告node ID，不参与匹配" in dynamic_bug_skill
+    assert "非参数化WaveInfo只去掉`TC-`" in dynamic_bug_skill
+    assert "实际FAILED child" in dynamic_bug_skill
+    assert "inventory和相似节点只供定位/核对，不参与匹配" in dynamic_bug_skill
     assert "原样执行`details.recovery_call`一次" in dynamic_bug_skill
     assert "验收单位是完整`FG/FC/CK/BG`路径" in dynamic_bug_skill
     assert "每个 BG 必须且只能有一个根因" in dynamic_bug_skill
@@ -561,8 +569,8 @@ def test_bug_analysis_guide_distinguishes_mcp_sentinels_and_evidence_windows():
     assert "不要求每个Fail TC关联失败CK" in implementation_skill
     assert "修改当前`PASSED`关联用例使其`FAILED`" in implementation_skill
     assert "`a+(~b)+0`是`a-b-1`" in implementation_skill
-    assert "只去掉最前面的`TC-`" in implementation_skill
-    assert "Checker返回的相似节点只用于复制完整报告node ID" in implementation_skill
+    assert "非参数化WaveInfo只去掉`TC-`" in implementation_skill
+    assert "inventory和相似节点只供定位/核对" in implementation_skill
     assert "原样执行`details.recovery_call`一次" in implementation_skill
 
 

@@ -5,15 +5,19 @@
 
 动态 Bug 的唯一目标文件是`{OUT}/{DUT}_bug_analysis.md`。“动态 Bug 分析”只是文档可见标题，不是文件名生成规则；禁止根据标题派生或创建另一个文件。静态候选只写入`{OUT}/{DUT}_static_bug_analysis.md`。
 
-同一个精确报告 node ID 在不同接口中只有以下三种固定序列化，node ID 本身必须逐字相同：
+文档中的 TC 身份始终使用当前报告的函数级 node ID：删除报告附带的源码行范围，但完整保留 workspace 相对文件路径、可选类名和函数名。非参数化用例在不同接口中使用同一个 node ID；若 Toffee 把多个参数化执行实例聚合到一个函数级报告项，报告的`tests.test_case_instances`会列出实际执行实例，此时文档/Apply/YAML继续使用稳定的函数级 TC，WaveInfo选择其中一个实际失败的精确参数化实例：
 
 | 使用位置 | 唯一写法 |
 |---|---|
 | 动态 Bug Markdown | `- {visible_title} <TC-{exact_report_node_id}>` |
 | `record_dynamic_bug.py`/`ApplyWaveInfoEvidence`参数及中央 YAML `test_case` | `TC-{exact_report_node_id}` |
-| `WaveInfo.test_case_name` | `{exact_report_node_id}` |
+| `WaveInfo.test_case_name` | 非参数化时为`{exact_report_node_id}`；聚合参数化时为`tests.test_case_instances`中的一个精确 FAILED child node |
 
-TC目录只取当前Checker返回的`Configured TC output directory`实际值，不从本文案例推断。本文的`TC-tests/...`只展示Markdown层级，禁止复制为实际标签。实际 node ID 必须从同一次Checker反馈的`Similar current FAILED report node IDs`选择：确认文件路径以配置目录开头，只删除`:start-end`或`:line`报告行范围；Markdown、脚本/Apply与YAML在最前面加`TC-`，WaveInfo不加。其余路径、类名、函数名和参数ID一个字符也不能增删。相似节点不代表路径等价。
+参数化 child 只有在删除末尾`[...]`后，与文档 TC 的完整路径、可选类名和函数名逐字相同时才属于该 TC。`file.py::test_x[p]`与`tests/file.py::test_x`、不同类或不同函数永远不等价，不能用文件名相似、函数名相同或目录前缀猜测建立关联。中央 YAML 中工具生成的`executed_test_case`记录实际 WaveInfo child，`test_case`仍记录文档 TC。
+
+TC目录只取当前Checker返回的`Configured TC output directory`实际值，不从本文案例推断。本文的`TC-tests/...`只展示Markdown层级，禁止复制为实际标签。实际文档 node ID 必须从同一次Checker反馈的当前报告选择：确认文件路径以配置目录开头，只删除`:start-end`或`:line`报告行范围；Markdown、脚本/Apply与YAML在最前面加`TC-`。其余路径、类名和函数名一个字符也不能增删。相似节点不代表路径等价。
+
+`RunTestCases(target=...)`是唯一使用另一种路径基准的接口：target 相对于工具返回的实际 pytest 工作目录/配置 TC 输出目录。例如配置目录为`unity_test/tests`时，运行该目录中的用例应传`test_file.py::test_x`，不得再传`unity_test/tests/test_file.py::test_x`。Bug 文档 TC、WaveInfo 和 Apply 仍使用 workspace 相对完整 node ID。工具若返回`PYTEST_TARGET_DIRECTORY_PREFIX`，必须逐字使用其中的`correct_target`重试；这只是修正 RunTestCases 调用，不表示两种 node 字符串等价。
 
 ## 1. 先分类
 
@@ -197,6 +201,7 @@ waveform_analysis:
   status: confirmed
   receipt_id: 0123456789abcdef0123456789abcdef
   result_fingerprint: ...
+  executed_test_case: tests/test_adder.py::test_overflow
   waveform_file: ...
   freshness_identity: ...
   size_bytes: 1234
@@ -253,7 +258,7 @@ BG 条目中的波形关联部分只保留 TC 和`<WAVEFORM-REF>`，其后三个
 
 MCP 调用中未使用的可选参数按工具 schema 传空字符串、空数组或`-1`哨兵；工具返回中的`null`是其 canonical 表示，不能再把`null`作为下一次 MCP 参数。
 
-TC 和 WaveInfo 使用同一个逐字身份。先读取Checker给出的实际`Configured TC output directory`和完整报告node ID；metadata探索、pattern探索和最终取证的每次WaveInfo调用都只从最终`<TC-...>`去掉最前面的`TC-`，不得修改配置目录、文件名、类名或参数ID，也不得只传函数名。
+先读取Checker给出的实际`Configured TC output directory`、函数级报告 node ID 和可选的`tests.test_case_instances`。非参数化时，WaveInfo只从最终`<TC-...>`去掉最前面的`TC-`。聚合参数化时，文档 TC 保持不变，metadata探索、pattern探索和最终取证必须从`tests.test_case_instances`选择一个实际 FAILED child，并对同一精确 child 完成 WaveInfo；不得只传函数名或自行拼接参数ID。
 
 无参数 inventory 中的`test_case_name_hint`和`recommended_call.test_case_name`只是波形文件 basename 定位提示，不建立 pytest 源码身份。它们可以帮助确认是否存在对应波形，但不能覆盖目标 TC 或报告给出的完整 node ID。Checker/工具返回的`similar_test_source_files`或相似节点同样只供核对拼写，不能自动选中、合并证据或替换标签。
 
@@ -275,7 +280,7 @@ ApplyWaveInfoEvidence(
 若 Apply 返回`receipt_test_mismatch`或`matching_final_receipt_not_found`：
 
 1. 保持`test_case_tag`逐字不变，不尝试增加或删除路径前缀。
-2. 若返回`details.recovery_call`，原样调用一次 WaveInfo；它保留旧最终 receipt 的窗口、pattern、signal groups 和其他参数，只把`test_case_name`改成目标 TC 要求的完整 node ID。
+2. 若`details.parameterized_receipts`非空，将其中的完整`test_case_name`与当前报告`tests.test_case_instances`逐字核对，选择实际 FAILED child 并用该 node 重新完成最终 WaveInfo；不得按波形 basename、文件名相似或参数字面猜测。若返回`details.recovery_call`，则原样调用一次 WaveInfo。
 3. 使用新调用返回的`receipt_id`和原`test_case_tag`再次调用 Apply。
 4. 不得手工写 receipt-backed YAML、waveform anchor、viewer URL 或 token。
 
@@ -477,6 +482,7 @@ waveform_analysis:
   status: confirmed
   receipt_id: 0123456789abcdef0123456789abcdef
   result_fingerprint: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+  executed_test_case: tests/test_adder.py::test_cin_carry
   waveform_file: unity_test/tests/waveform/test_cin_carry.fst
   freshness_identity: unity_test/tests/waveform/test_cin_carry.fst:4096:1787286677000000000
   size_bytes: 4096
@@ -547,6 +553,7 @@ waveform_analysis:
   status: confirmed
   receipt_id: fedcba9876543210fedcba9876543210
   result_fingerprint: fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210
+  executed_test_case: tests/test_adder.py::test_saturation_limit
   waveform_file: unity_test/tests/waveform/test_saturation_limit.fst
   freshness_identity: unity_test/tests/waveform/test_saturation_limit.fst:4352:1787286737000000000
   size_bytes: 4352
@@ -871,7 +878,7 @@ Skill 只是辅助，不能成为任务前置条件。`unitytest/dynamic-bug-rec
 - 每个 BG 的全部 TC/引用连续位于 BG 标题后，三个`<BUG-*>`字段位于最后一个 TC/引用后，字段开始后不再出现 TC。
 - 每个 BG/TC 紧随精确`<WAVEFORM-REF>`，链接到该 TC 的稳定锚点。
 - 每个关联 TC 在中央分区恰有一份记录，无重复、无孤儿。
-- 每个 TC 逐字使用当前报告中的完整 pytest node ID（只去掉报告附带的源码行范围）；路径前缀不同就是不同字符串，不能自动视为同一 TC。相似文件或节点列表只帮助找出正确拼写，不参与身份匹配。
+- 每个文档 TC 逐字使用当前函数级报告 node ID（只去掉报告附带的源码行范围）。非参数化 receipt 与其精确相等；参数化 receipt 必须是同一完整路径/类/函数的一个精确 FAILED child，中央`executed_test_case`与 receipt 一致。路径前缀不同就是不同身份；相似文件或节点列表只帮助核对拼写，不参与匹配。
 - `bug_tags`、BG/TC 引用和`bug_evidence`三者完全一致。
 - 所有逐 Bug `required_signals`都在顶层签名信号并集中，viewer显示同一信号集合。
 - receipt、fingerprint、窗口、pattern、signal_groups、viewer与真实工具结果一致。

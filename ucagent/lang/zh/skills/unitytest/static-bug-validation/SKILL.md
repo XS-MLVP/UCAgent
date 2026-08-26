@@ -9,7 +9,7 @@ Markdown 排版契约：本技能生成、维护或展示的任何 Markdown 中�
 
 逐个验证`{OUT}/{DUT}_static_bug_analysis.md`中的`<BG-STATIC-*>`候选。测试、参考模型、fixture、API、复位、采样或环境问题必须修复为Pass，不能记录成动态Bug。
 
-动态确认结果只写入`{OUT}/{DUT}_bug_analysis.md`，不得根据可见标题派生另一个文件。同一个报告 node ID 在Markdown中写为`- {visible_title} <TC-{exact_report_node_id}>`（`visible_title`取测试docstring首个非空描述行），在record/Apply参数和中央YAML `test_case`中写为`TC-{exact_report_node_id}`，在WaveInfo `test_case_name`中写为`{exact_report_node_id}`；三处node ID逐字相同。没有确认任何动态 Bug 时，动态文档保留三个按顺序关闭的空容器，容器内不写说明文字、占位记录或静态候选。
+动态确认结果只写入`{OUT}/{DUT}_bug_analysis.md`，不得根据可见标题派生另一个文件。Markdown、record/Apply和中央YAML `test_case`使用函数级报告node。非参数化WaveInfo使用同一node；报告含`tests.test_case_instances`时，文档TC保持函数级node，WaveInfo选择一个实际FAILED参数化child，且child必须与文档TC具有逐字相同的完整路径/类/函数父节点。不同路径永远不等价。没有确认动态 Bug 时保留三个空容器。
 
 `unitytest/dynamic-bug-recording`及其`record_dynamic_bug.py`可选用于首个动态BG/TC骨架；缺少该技能时直接使用文本编辑工具，按Guide_Doc/dut_bug_analysis.md中的第 5.1 节完整标准案例和第 5.2 节骨架填写具体中文可见名称、Markdown层级与标签顺序。FG/FC/CK名称来自功能检查文档，BG名称来自具体缺陷描述，TC名称来自测试docstring；不能只写尖括号标签或类型名。
 

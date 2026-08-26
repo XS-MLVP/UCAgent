@@ -437,6 +437,9 @@ def _confirmed_block(result: dict, pattern: list[dict]) -> dict:
         "status": "confirmed",
         "receipt_id": receipt["receipt_id"],
         "result_fingerprint": receipt["result_fingerprint"],
+        "executed_test_case": result["bug_document_fields"][
+            "waveform_analysis"
+        ]["executed_test_case"],
         "waveform_file": selection["waveform_file"],
         "freshness_identity": selection["freshness_identity"],
         "size_bytes": selection["size_bytes"],
@@ -477,6 +480,11 @@ def _explicit_block(result: dict, pattern: list[dict], wave_step: int) -> dict:
         "status": "confirmed",
         "receipt_id": receipt["receipt_id"],
         "result_fingerprint": receipt["result_fingerprint"],
+        "executed_test_case": (
+            (result.get("bug_document_fields") or {})
+            .get("waveform_analysis", {})
+            .get("executed_test_case", DOCUMENT_TEST)
+        ),
         "waveform_file": selection["waveform_file"],
         "freshness_identity": selection["freshness_identity"],
         "size_bytes": selection["size_bytes"],
@@ -559,6 +567,34 @@ def test_check_report_accepts_receipt_without_replaying_updated_waveform(
 
     assert passed is True, message
     assert bug_count == 1
+
+
+def test_check_report_accepts_exact_path_parameterized_child_receipt(tmp_path):
+    _write_functions(tmp_path)
+    test_dir = tmp_path / "tests"
+    waveform = _write_waveform(test_dir)
+    parameterized_waveform = waveform.with_name("test_a[case-1].vcd")
+    parameterized_waveform.write_text(VCD_CONTENT, encoding="ascii")
+    tool = WaveInfo(workspace=str(tmp_path), test_dir="tests", dut_name="Demo")
+    pattern = [{"signal": "TOP.dut.valid", "event": "rising"}]
+    executed_test = DOCUMENT_TEST + "[case-1]"
+    result = _call_waveinfo(
+        tool,
+        test_case_name=executed_test,
+        pattern=pattern,
+        logged_cycle=0,
+        cycle_tolerance=2,
+        clock_signal="TOP.dut.clk",
+    )
+    _write_bug_doc(tmp_path, _confirmed_block(result, pattern))
+
+    passed, message, bug_count = _check(tmp_path, tool)
+
+    assert passed is True, message
+    assert bug_count == 1
+    assert result["bug_document_fields"]["waveform_analysis"][
+        "executed_test_case"
+    ] == executed_test
 
 
 def test_missing_or_tampered_viewer_link_is_rejected(tmp_path):
@@ -2706,7 +2742,7 @@ def test_final_waveform_checker_accepts_workspace_relative_tc_path(tmp_path):
     pattern = [{"signal": "TOP.dut.valid", "event": "rising"}]
     result = _call_waveinfo(
         tool,
-        test_case_name=DOCUMENT_TEST,
+        test_case_name=WORKSPACE_RELATIVE_DOCUMENT_TEST,
         pattern=pattern,
         logged_cycle=0,
         cycle_tolerance=2,

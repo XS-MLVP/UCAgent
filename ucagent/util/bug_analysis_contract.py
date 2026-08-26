@@ -100,6 +100,7 @@ def _load_locale_contract() -> dict:
     waveform_suffix = payload.get("waveform_title_suffix")
     document_paths = payload.get("document_paths")
     test_case_serialization = payload.get("test_case_serialization")
+    test_case_identity = payload.get("test_case_identity")
     no_bug_document = payload.get("no_bug_document")
     root_cause_titles = payload.get("root_cause_titles")
     section_titles = payload.get("analysis_section_titles")
@@ -130,6 +131,23 @@ def _load_locale_contract() -> dict:
     if test_case_serialization != expected_serialization:
         raise RuntimeError(
             "test_case_serialization must define the three canonical TC forms"
+        )
+    expected_identity = {
+        "document_node": (
+            "function-level report node with the exact workspace-relative "
+            "path/class/function"
+        ),
+        "executed_node": (
+            "exact report node or a parameterized child of that same "
+            "path/class/function"
+        ),
+        "different_paths_are_equivalent": False,
+        "different_classes_are_equivalent": False,
+        "different_functions_are_equivalent": False,
+    }
+    if test_case_identity != expected_identity:
+        raise RuntimeError(
+            "test_case_identity must define the canonical parameterized-child relation"
         )
     expected_no_bug_markers = (
         (DYNAMIC_BUGS_MARKER, DYNAMIC_BUGS_END_MARKER),
@@ -209,6 +227,7 @@ _WAVEFORM_TITLE_SUFFIX = _LOCALE_CONTRACT["waveform_title_suffix"]
 DYNAMIC_BUG_DOCUMENT_PATH = _LOCALE_CONTRACT["document_paths"]["dynamic"]
 STATIC_BUG_DOCUMENT_PATH = _LOCALE_CONTRACT["document_paths"]["static"]
 TEST_CASE_SERIALIZATION = dict(_LOCALE_CONTRACT["test_case_serialization"])
+TEST_CASE_IDENTITY = dict(_LOCALE_CONTRACT["test_case_identity"])
 NO_BUG_DOCUMENT_TITLE = _LOCALE_CONTRACT["no_bug_document"]["title"]
 NO_BUG_DOCUMENT_SECTIONS = tuple(
     dict(section) for section in _LOCALE_CONTRACT["no_bug_document"]["sections"]
@@ -337,6 +356,52 @@ def normalize_test_case_tag(value: str) -> str:
     if file_path.startswith("/") or not file_path.endswith(".py"):
         raise ValueError("test case path must be a workspace-relative Python file")
     return "TC-" + "::".join([file_path, *(part.strip() for part in parts[1:])])
+
+
+def test_case_parent(value: str) -> str:
+    """Return the exact file/class/function node without a pytest parameter suffix.
+
+    The source path and optional class name remain byte-for-byte significant.  This
+    helper only models pytest's explicit ``function[param]`` child relationship; it
+    never treats two different paths as equivalent.
+    """
+
+    raw = str(value or "").strip()
+    has_tag = raw.startswith("TC-")
+    canonical = normalize_test_case_tag(raw if has_tag else f"TC-{raw}")
+    parts = canonical[len("TC-") :].split("::")
+    function = parts[-1]
+    if function.endswith("]") and "[" in function:
+        function = function[: function.find("[")]
+    parent = "::".join([*parts[:-1], function])
+    return f"TC-{parent}" if has_tag else parent
+
+
+def test_case_identity_relation(document_test: str, executed_test: str) -> str | None:
+    """Classify an executed pytest node relative to a documented TC.
+
+    ``exact`` is the normal identity.  ``parameterized_instance`` is allowed only
+    when the executed node has the exact documented path/class/function as its
+    parent.  Any other path, class, or function returns ``None``.
+    """
+
+    def canonical_identity(value: str) -> tuple[str, bool]:
+        raw = str(value or "").strip()
+        if raw.startswith("<") and raw.endswith(">"):
+            raw = raw[1:-1].strip()
+        tagged = raw if raw.startswith("TC-") else f"TC-{raw}"
+        canonical = normalize_test_case_tag(tagged)
+        return canonical, tagged == canonical
+
+    document, document_is_canonical = canonical_identity(document_test)
+    executed, executed_is_canonical = canonical_identity(executed_test)
+    if not document_is_canonical or not executed_is_canonical:
+        return None
+    if document == executed:
+        return "exact"
+    if test_case_parent(executed) == document:
+        return "parameterized_instance"
+    return None
 
 
 def waveform_anchor_id(test_case_tag: str) -> str:

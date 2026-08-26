@@ -18,6 +18,8 @@ from ucagent.tools import waveform as waveform_module
 from ucagent.tools.uctool import to_fastmcp
 from ucagent.util.bug_analysis_contract import (
     BUG_TODO_MARKER,
+    test_case_identity_relation as _test_case_identity_relation,
+    test_case_parent as _test_case_parent,
     waveform_record_heading,
     waveform_reference,
 )
@@ -764,6 +766,28 @@ def test_latest_session_does_not_fall_back_to_stale_waveform(tmp_path):
     assert result["status"] == "stale_waveform_only"
     assert result["details"]["stale_waveform_candidates_not_used"]
     assert result["details"]["available_latest_session_test_names"] == ["test_other"]
+
+
+def test_function_level_lookup_reports_parameterized_waveforms_as_hints_only(tmp_path):
+    test_dir = tmp_path / "tests"
+    session = _session(test_dir, "toffee_tmp_20260814150000_000")
+    _write_vcd(session, "test_value[case-1]")
+    _write_vcd(session, "test_value[case-2]")
+
+    result = _call(
+        _tool(tmp_path, test_dir),
+        test_case_name="tests/test_value.py::test_value",
+    )
+
+    assert result["status"] == "waveform_not_found_in_latest_session"
+    assert result["details"]["parameterized_waveform_names"] == [
+        "test_value[case-1]",
+        "test_value[case-2]",
+    ]
+    suggestion = " ".join(result["suggestions"])
+    assert "tests.test_case_instances" in suggestion
+    assert "basenames" in suggestion
+    assert "full child node" in suggestion
 
 
 def test_dat_without_waveform_has_actionable_diagnostic(tmp_path):
@@ -1948,6 +1972,49 @@ def test_apply_waveinfo_evidence_auto_selection_requires_matching_final_receipt(
     assert "equivalent" in " ".join(rejected["suggestions"])
 
 
+def test_apply_auto_selection_lists_exact_parameterized_receipt_nodes(tmp_path):
+    test_dir = tmp_path / "out" / "tests"
+    session = _session(test_dir, "toffee_tmp_20260814150000_000")
+    _write_vcd(session, "test_apply[case-1]")
+    target = tmp_path / "out" / "Demo_bug_analysis.md"
+    target.parent.mkdir(exist_ok=True)
+    _write_dynamic_bug_scaffold(target)
+    waveinfo = _tool(tmp_path, test_dir)
+    exploratory = _call(
+        waveinfo,
+        test_case_name="tests/test_apply.py::test_apply[case-1]",
+        pattern=[{"signal": "TOP.dut.valid", "event": "rising"}],
+    )
+    assert exploratory["status"] == "evidence_window_required"
+    tool = ApplyWaveInfoEvidence(
+        waveinfo=waveinfo,
+        workspace=str(tmp_path),
+        write_dirs=["out"],
+        un_write_dirs=[],
+    )
+
+    rejected = yaml.safe_load(
+        tool._run(
+            target_file="out/Demo_bug_analysis.md",
+            bug_tag="BG-DYNAMIC-80",
+            test_case_tag="TC-tests/test_apply.py::test_apply",
+        )
+    )
+
+    assert rejected["status"] == "matching_final_receipt_not_found"
+    assert rejected["details"]["parameterized_receipts"] == [
+        {
+            "receipt_id": exploratory["waveform_analysis_receipt"]["receipt_id"],
+            "test_case_name": "tests/test_apply.py::test_apply[case-1]",
+            "status": "evidence_window_required",
+            "evidence_usable": False,
+        }
+    ]
+    suggestion = " ".join(rejected["suggestions"])
+    assert "tests.test_case_instances" in suggestion
+    assert "call final WaveInfo" in suggestion
+
+
 def test_apply_auto_selection_offers_recovery_for_similar_exact_basename_receipt(
     tmp_path,
 ):
@@ -2413,3 +2480,69 @@ def test_parameterized_name_is_exact_and_invalid_name_is_rejected(tmp_path):
 
     invalid = _call(tool, test_case_name="tests/test_param.py")
     assert invalid["status"] == "invalid_test_case_name"
+
+
+def test_parameterized_identity_preserves_exact_path_class_and_function():
+    document = "unity_test/tests/test_param.py::TestParam::test_value"
+    child = document + "[a-b]"
+
+    assert _test_case_parent(child) == document
+    assert _test_case_parent(document + "[range[0]]") == document
+    assert _test_case_identity_relation(document, document) == "exact"
+    assert _test_case_identity_relation(document, child) == "parameterized_instance"
+    assert (
+        _test_case_identity_relation(
+            "tests/test_param.py::TestParam::test_value", child
+        )
+        is None
+    )
+    assert (
+        _test_case_identity_relation(
+            "unity_test/tests/test_param.py::OtherClass::test_value", child
+        )
+        is None
+    )
+    assert (
+        _test_case_identity_relation(
+            "unity_test/tests/test_param.py::TestParam::test_other", child
+        )
+        is None
+    )
+    assert (
+        _test_case_identity_relation(
+            document, "unity_test/tests/./test_param.py::TestParam::test_value[a-b]"
+        )
+        is None
+    )
+    assert (
+        _test_case_identity_relation(
+            document, r"unity_test\tests\test_param.py::TestParam::test_value[a-b]"
+        )
+        is None
+    )
+
+
+def test_parameterized_tc_title_resolves_from_parent_function_docstring(tmp_path):
+    test_dir = tmp_path / "unity_test" / "tests"
+    test_dir.mkdir(parents=True)
+    (test_dir / "test_param.py").write_text(
+        "class TestParam:\n"
+        "    def test_value(self, value):\n"
+        "        \"\"\"Parameterized value remains within range.\"\"\"\n"
+        "        assert value >= 0\n",
+        encoding="utf-8",
+    )
+    waveinfo = _tool(tmp_path, test_dir)
+    apply_tool = ApplyWaveInfoEvidence(
+        waveinfo=waveinfo,
+        workspace=str(tmp_path),
+        write_dirs=["out"],
+        un_write_dirs=["Guide_Doc"],
+    )
+
+    title = apply_tool._resolve_test_display_title(
+        "out/Demo_bug_analysis.md",
+        "TC-unity_test/tests/test_param.py::TestParam::test_value[3]",
+    )
+
+    assert title == "Parameterized value remains within range."

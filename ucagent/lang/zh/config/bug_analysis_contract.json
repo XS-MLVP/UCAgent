@@ -24,6 +24,13 @@
     "tool_or_yaml": "TC-{exact_report_node_id}",
     "waveinfo": "{exact_report_node_id}"
   },
+  "test_case_identity": {
+    "document_node": "function-level report node with the exact workspace-relative path/class/function",
+    "executed_node": "exact report node or a parameterized child of that same path/class/function",
+    "different_paths_are_equivalent": false,
+    "different_classes_are_equivalent": false,
+    "different_functions_are_equivalent": false
+  },
   "no_bug_document": {
     "title": "# {DUT} 动态 Bug 分析",
     "container_body_must_be_empty": true,
