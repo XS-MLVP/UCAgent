@@ -43,8 +43,12 @@ class UnityChipCheckerTestMockTestBatch(Checker):
         return ret
 
     def on_init(self):
-        self.batch_task.source_task_list = fc.find_files_by_pattern(
-            self.workspace, self.target_file
+        source_files = fc.find_files_by_pattern(self.workspace, self.target_file)
+        note_msg = []
+        self.batch_task.sync_source_task(
+            source_files,
+            note_msg,
+            "Mock component source file list changed.",
         )
         self.batch_task.update_current_tbd()
         info(f"Found {len(self.batch_task.source_task_list)} mock component files to check.")
@@ -66,7 +70,13 @@ class UnityChipCheckerTestMockTestBatch(Checker):
         if not os.path.exists(test_dir_full_path):
             return False, {"error": f"test directory '{self.test_dir}' does not exist in workspace."}
         # Sync source task
-        self.batch_task.source_task_list = fc.find_files_by_pattern(self.workspace, self.target_file)
+        source_files = fc.find_files_by_pattern(self.workspace, self.target_file)
+        note_msg = []
+        self.batch_task.sync_source_task(
+            source_files,
+            note_msg,
+            "Mock component source file list changed.",
+        )
         self.batch_task.update_current_tbd()
         if len(self.batch_task.source_task_list) == 0:
             return False, {
@@ -76,7 +86,7 @@ class UnityChipCheckerTestMockTestBatch(Checker):
         task_map = OrderedDict()
         no_test_files = []
         mock_file_prefix = os.path.basename(self.target_file).split("*")[0]
-        for task_file in self.batch_task.source_task_list:
+        for task_file in self.batch_task.tbd_task_list:
             # {OUT}/tests/{DUT}_mock_*.py => {OUT}/tests/test_{DUT}_mock_*.py
             dir_path = os.path.dirname(task_file)
             base_name = os.path.basename(task_file)
@@ -87,7 +97,7 @@ class UnityChipCheckerTestMockTestBatch(Checker):
                 }
             test_file = dir_path + "/" + self.test_file_prefix + mock_name + "*.py"
             test_file_list = fc.find_files_by_pattern(self.workspace, test_file)
-            if (not test_file_list) and (task_file in self.batch_task.tbd_task_list):
+            if not test_file_list:
                 no_test_files.append(f"{task_file} => {test_file} (not found)")
                 continue
             task_map[task_file] = test_file_list
@@ -108,10 +118,13 @@ class UnityChipCheckerTestMockTestBatch(Checker):
                 fail_results[target_mock] = msg
             else:
                 pass_results.append(target_mock)
-        note_msg = []
         # Complete
+        completed_tasks = list(self.batch_task.gen_task_list)
+        for task in pass_results:
+            if task not in completed_tasks:
+                completed_tasks.append(task)
         self.batch_task.sync_gen_task(
-            pass_results,
+            completed_tasks,
             note_msg,
             "Completed file changed."
         )

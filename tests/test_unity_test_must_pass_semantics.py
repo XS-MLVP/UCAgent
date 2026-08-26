@@ -2,6 +2,8 @@
 # -*- coding: utf-8 -*-
 """Scope of the infrastructure-only all-Pass checker."""
 
+from types import SimpleNamespace
+
 from ucagent.checkers.unity_test import UnityChipCheckerTestMustPass
 from ucagent.checkers.unity_test_mock import UnityChipCheckerTestMockTestBatch
 
@@ -127,3 +129,46 @@ def test_mock_batch_checker_uses_the_same_explicit_diagnostic_contract(tmp_path)
     assert message["diagnostic"]["next_action"].endswith(
         "call `Complete` again."
     )
+
+
+def test_mock_batch_checker_checks_only_current_batch(tmp_path):
+    test_dir = tmp_path / "tests"
+    test_dir.mkdir()
+    for name in ("a", "b"):
+        (test_dir / f"Demo_mock_{name}.py").write_text("", encoding="utf-8")
+        (test_dir / f"test_Demo_mock_{name}.py").write_text(
+            "def test_api_Demo_mock_case(mock_dut):\n    assert True\n",
+            encoding="utf-8",
+        )
+
+    checker = UnityChipCheckerTestMockTestBatch(
+        target_file="tests/Demo_mock_*.py",
+        test_file_prefix="test_Demo_mock_",
+        test_prefix="test_api_Demo_mock_",
+        first_arg="mock_dut",
+        batch_size=1,
+        cfg={"_temp_cfg": {"DUT": "Demo"}},
+    ).set_workspace(str(tmp_path)).set_stage(
+        SimpleNamespace(name="test_mock_components_in_batch")
+    )
+    checker.on_init()
+    checked_test_files = []
+
+    def pass_current(target_tests, *_args, **_kwargs):
+        checked_test_files.extend(target_tests)
+        return True, "pass"
+
+    checker.do_one_check = pass_current
+    passed, _message = checker.do_check()
+
+    assert passed is False
+    assert len(checked_test_files) == 1
+    assert len(checker.batch_task.gen_task_list) == 1
+    assert len(checker.batch_task.tbd_task_list) == 1
+
+    pending_source = tmp_path / checker.batch_task.tbd_task_list[0]
+    pending_source.unlink()
+    passed, _message = checker.do_check()
+
+    assert passed is True
+    assert checker.batch_task.tbd_task_list == []

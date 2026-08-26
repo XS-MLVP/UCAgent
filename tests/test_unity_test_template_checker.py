@@ -454,6 +454,39 @@ def test_template_scope_excludes_only_configured_api_checkpoints(tmp_path):
     assert checker.get_template_data()["TOTAL_CKS"] == 1
 
 
+def test_template_batch_checkpoint_is_initialized_and_restored(tmp_path):
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "functions.md").write_text(
+        "<FG-DATA>\n<FC-RESULT>\n<CK-A>\n<CK-B>\n",
+        encoding="utf-8",
+    )
+    stage = SimpleNamespace(name="create_test_case_templates")
+    checker = UnityChipCheckerTestTemplate(
+        doc_func_check="functions.md",
+        test_dir="tests",
+        batch_size=1,
+    ).set_workspace(str(tmp_path)).set_stage(stage)
+    checker.on_init()
+
+    assert checker.batch_task.checkpoint_file is not None
+    assert checker.batch_task.tbd_task_list == ["FG-DATA/FC-RESULT/CK-A"]
+
+    checker.batch_task.gen_task_list = ["FG-DATA/FC-RESULT/CK-A"]
+    passed, _message = checker.batch_task.do_complete([], False, "", "", "")
+    assert passed is False
+
+    restored = UnityChipCheckerTestTemplate(
+        doc_func_check="functions.md",
+        test_dir="tests",
+        batch_size=1,
+    ).set_workspace(str(tmp_path)).set_stage(stage)
+    restored.on_init()
+
+    assert restored.batch_task.gen_task_list == ["FG-DATA/FC-RESULT/CK-A"]
+    assert restored.batch_task.tbd_task_list == ["FG-DATA/FC-RESULT/CK-B"]
+    assert restored.get_template_data()["COVERED_CKS"] == 1
+
+
 def test_template_accepts_api_checkpoint_unmarked_when_api_scope_is_excluded(
     tmp_path, monkeypatch
 ):

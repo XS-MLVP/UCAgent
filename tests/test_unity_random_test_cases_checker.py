@@ -17,6 +17,7 @@ from ucagent.util.config import load_yaml_with_env_vars
 class _FakeStageManager:
     def __init__(self):
         self.data = {}
+        self.save_count = 0
         self.current_stage = SimpleNamespace(
             reset_continue_fail_count_with_batch_pass=lambda: None,
         )
@@ -26,6 +27,9 @@ class _FakeStageManager:
 
     def set_data(self, key, value):
         self.data[key] = value
+
+    def save_stage_info(self):
+        self.save_count += 1
 
     def get_current_stage(self):
         return self.current_stage
@@ -199,6 +203,50 @@ def test_random_test_cases_unknown_and_out_of_batch_labels_show_current_example(
     assert "not in the current batch" in error_text
     assert 'Check(stage_args={"generated": {"FG-A/FC-A/CK-A":' in error_text
     assert 'Check(stage_args="{\\"generated\\": {\\"FG-A/FC-A/CK-A\\":' in error_text
+
+
+def test_random_test_cases_restores_partial_current_batch(tmp_path):
+    entries = [
+        ("FG-A", "FC-A", "CK-A"),
+        ("FG-A", "FC-A", "CK-B"),
+    ]
+    checker, manager = _make_checker(tmp_path, entries, batch_size=2)
+    checker._run_random_tests = lambda timeout=0, **kwargs: (True, "pass")
+
+    passed, _message = checker.do_check(
+        generated={"FG-A/FC-A/CK-A": "generated A"}
+    )
+
+    assert passed is False
+    assert manager.save_count == 1
+    restored, _manager = _make_checker(tmp_path, entries, batch_size=2)
+    assert restored.batch_task.gen_task_list == ["FG-A/FC-A/CK-A"]
+    assert restored.batch_task.cmp_task_list == ["FG-A/FC-A/CK-A"]
+    assert restored.batch_task.tbd_task_list == [
+        "FG-A/FC-A/CK-A",
+        "FG-A/FC-A/CK-B",
+    ]
+
+
+def test_random_test_cases_does_not_commit_failed_validation(tmp_path):
+    checker, manager = _make_checker(
+        tmp_path,
+        [("FG-A", "FC-A", "CK-A")],
+        batch_size=1,
+    )
+    checker._run_random_tests = lambda timeout=0, **kwargs: (
+        False,
+        {"error": "random test failed"},
+    )
+
+    passed, _message = checker.do_check(
+        generated={"FG-A/FC-A/CK-A": "generated A"}
+    )
+
+    assert passed is False
+    assert checker.random_result == {}
+    assert checker.batch_task.gen_task_list == []
+    assert manager.save_count == 0
 
 
 def test_random_test_cases_rejects_nested_json_dictionary_string(tmp_path):

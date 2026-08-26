@@ -347,28 +347,35 @@ class RandomTestCasesChecker(BaseUnityChipCheckerTestCase):
                 ]
             }
 
+        candidate_random_result = copy.deepcopy(self.random_result)
+        candidate_completed_tasks = list(completed_tasks)
         for ck in valid_tasks:
-            self.random_result[ck] = generated_map[ck]
-            if ck not in completed_tasks:
-                completed_tasks.append(ck)
+            candidate_random_result[ck] = generated_map[ck]
+            if ck not in candidate_completed_tasks:
+                candidate_completed_tasks.append(ck)
 
+        random_test_pass, random_test_msg = self._run_random_tests(timeout=timeout, **kw)
+        if not random_test_pass:
+            return random_test_pass, random_test_msg
+
+        self.random_result = candidate_random_result
         self.batch_task.sync_gen_task(
-            completed_tasks,
+            candidate_completed_tasks,
             note_msg,
             "Random test-case CK records changed.",
         )
 
         if self.stage_manager is not None:
-            self.smanager_set_value(self._random_result_key, copy.deepcopy(self.random_result))
+            self.smanager_set_value(
+                self._random_result_key,
+                copy.deepcopy(self.random_result),
+                persist=not bool(self.data_key),
+            )
             if self.data_key:
                 self.smanager_set_value(self.data_key, OrderedDict({
                     "source_ck_list": current_doc_ck_list,
                     "generated_result": copy.deepcopy(self.random_result),
-                }))
-
-        random_test_pass, random_test_msg = self._run_random_tests(timeout=timeout, **kw)
-        if not random_test_pass:
-            return random_test_pass, random_test_msg
+                }), persist=True)
 
         ck_pass, ck_error = self.batch_task.do_complete(
             note_msg,

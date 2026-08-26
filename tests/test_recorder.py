@@ -72,6 +72,7 @@ class _UnsupportedMasterClient:
 class _FakeStageManager:
     def __init__(self, stage, master_clients=None):
         self.data = {}
+        self.save_count = 0
         self.stages = [stage]
         pdb = SimpleNamespace(_master_clients=master_clients or {})
         self.agent = SimpleNamespace(dut_name="Adder", pdb=pdb)
@@ -81,6 +82,9 @@ class _FakeStageManager:
 
     def set_data(self, key, value):
         self.data[key] = value
+
+    def save_stage_info(self):
+        self.save_count += 1
 
 
 def _write_bug_doc(tmp_path, entries, relative_path="Adder_bug_analysis.md"):
@@ -493,6 +497,7 @@ def test_bug_recorder_records_document_bugs_in_batches(tmp_path):
         "bug-a",
         "bug-b",
     ]
+    assert manager.save_count == 1
 
     passed, message = recorder.do_check(bug_list=[records["bug-a"]])
     assert passed is False

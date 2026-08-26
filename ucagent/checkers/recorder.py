@@ -1112,7 +1112,11 @@ class Recorder(Checker):
         if self.type_handler.persist_on_check and (
             passed or payload is not None or current_payload is not None
         ):
-            self.smanager_set_value(self.data_key, copy.deepcopy(payload))
+            self.smanager_set_value(
+                self.data_key,
+                copy.deepcopy(payload),
+                persist=True,
+            )
             info(
                 f"Recorder cached type '{self.record_type}' data under manager key "
                 f"'{self.data_key}'."

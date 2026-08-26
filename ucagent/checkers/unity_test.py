@@ -342,22 +342,26 @@ class UnityChipCheckerLabelStructureRefine(UnityChipCheckerLabelStructure):
         self.batch_task = UnityChipBatchTask("CK", self)
 
     def on_init(self):
-        if not self.batch_task.source_task_list:
-            source_task_list = self.smanager_get_value(self.data_key, [])
-            if not isinstance(source_task_list, list) or not source_task_list:
-                try:
-                    source_task_list = fc.get_unity_chip_doc_marks(
-                        self.get_path(self.doc_file),
-                        self.leaf_node,
-                        self.min_count,
-                    )
-                    self.smanager_set_value(self.data_key, copy.deepcopy(source_task_list))
-                    info(f"Initialized CK refine source from '{self.doc_file}' "
-                         f"(size={len(source_task_list)}) to data key '{self.data_key}'.")
-                except Exception as e:
-                    warning(f"Failed to initialize CK refine source from '{self.doc_file}': {e}")
-                    source_task_list = []
-            self.batch_task.source_task_list = copy.deepcopy(source_task_list)
+        source_task_list = self.smanager_get_value(self.data_key, [])
+        if not isinstance(source_task_list, list) or not source_task_list:
+            try:
+                source_task_list = fc.get_unity_chip_doc_marks(
+                    self.get_path(self.doc_file),
+                    self.leaf_node,
+                    self.min_count,
+                )
+                self.smanager_set_value(self.data_key, copy.deepcopy(source_task_list))
+                info(f"Initialized CK refine source from '{self.doc_file}' "
+                     f"(size={len(source_task_list)}) to data key '{self.data_key}'.")
+            except Exception as e:
+                warning(f"Failed to initialize CK refine source from '{self.doc_file}': {e}")
+                source_task_list = []
+        note_msg = []
+        self.batch_task.sync_source_task(
+            copy.deepcopy(source_task_list),
+            note_msg,
+            f"Original CK list in data key '{self.data_key}' changed.",
+        )
         saved_refine_result = self.smanager_get_value("_CK_REFINE_RESULT", {})
         if isinstance(saved_refine_result, dict):
             self.refine_result = copy.deepcopy(saved_refine_result)
@@ -437,7 +441,11 @@ class UnityChipCheckerLabelStructureRefine(UnityChipCheckerLabelStructure):
 
         for ck in valid_tasks:
             self.refine_result[ck] = refined_map[ck]
-        self.smanager_set_value("_CK_REFINE_RESULT", self.refine_result)
+        self.smanager_set_value(
+            "_CK_REFINE_RESULT",
+            copy.deepcopy(self.refine_result),
+            persist=True,
+        )
 
         completed_tasks = [ck for ck in self.batch_task.gen_task_list if ck in self.batch_task.source_task_list]
         for ck in valid_tasks:
@@ -1100,7 +1108,13 @@ class UnityChipCheckerCoverageGroupBatchImplementation(UnityChipCheckerCoverageG
         return data
 
     def on_init(self):
-        self.batch_task.source_task_list = self.smanager_get_value(self.data_key, [])
+        source_task_list = self.smanager_get_value(self.data_key, [])
+        note_msg = []
+        self.batch_task.sync_source_task(
+            source_task_list,
+            note_msg,
+            f"CK source list in data key '{self.data_key}' changed.",
+        )
         self.batch_task.update_current_tbd()
         try:
             _, self.cached_ck_file_blocks = fc.get_unity_chip_doc_marks(self.get_path(self.doc_file), "CK", 0, return_line_block=True)
@@ -1537,6 +1551,13 @@ class UnityChipCheckerTestFree(BaseUnityChipCheckerTestCase):
 
 class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.total_tests_count = 0
+        self.cached_ck_file_blocks = None
+        self.ignored_source_checkpoints = []
+        self.batch_task = UnityChipBatchTask("check_points", self)
+
     def _load_checkpoint_scope(self):
         all_doc_checkpoints, file_blocks = fc.get_unity_chip_doc_marks(
             self.get_path(self.doc_func_check),
@@ -1580,9 +1601,13 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
 
     def on_init(self):
         self.total_tests_count = 0
-        self.batch_task = UnityChipBatchTask("check_points", self)
         _, target_checkpoints, self.cached_ck_file_blocks = self._load_checkpoint_scope()
-        self.batch_task.source_task_list = target_checkpoints
+        note_msg = []
+        self.batch_task.sync_source_task(
+            target_checkpoints,
+            note_msg,
+            f"{self.doc_func_check} file CK points changed.",
+        )
         self.batch_task.update_current_tbd()
         info(
             f"Load template ck list(size={len(target_checkpoints)}, "
@@ -1754,7 +1779,7 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
                                  f"✓ Template structure follows the required format with proper TODO comments and fail assertions.",
                                  "Your test templates are ready for implementation! Each test function provides clear guidance for the actual test logic to be implemented."]
         if self.data_key:
-            self.smanager_set_value(self.data_key, raw_report)
+            self.smanager_set_value(self.data_key, raw_report, persist=True)
         if "STDOUT" in info_report:
             del info_report["STDOUT"]
         if "STDERR" in info_report:
@@ -2143,20 +2168,130 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
         ]
         self.pre_report_file = self.extra_kwargs.get("pre_report_file", None)
         self._last_batch_progress = None
+        self._batch_checkpoint_error = None
+        self.batch_task = UnityChipBatchTask("test_cases", self)
         info(f"{self.__class__.__name__} Batch size: {self.batch_size}")
         assert self.test_dir is not None, f"Need set test directory '{self.test_dir}'."
 
     def get_template_data(self):
-        completed = sum([t[1] for t in self.total_test_cases])
-        total = len(self.total_test_cases)
+        completed = len(self.batch_task.gen_task_list)
+        total = len(self.batch_task.source_task_list)
         is_valid = total > 0
         return {
             "COMPLETED_CASES":    completed if is_valid else "-",
             "TOTAL_CASES":        total if is_valid else "-",
-            "LIST_CURRENT_CASES": self.current_test_cases,
+            "LIST_CURRENT_CASES": list(self.batch_task.tbd_task_list),
             "TEST_BATCH_RUN_ARGS": self.get_run_args(self.test_dir)[0] if is_valid else "-",
             "BATCH_PROGRESS": self._format_batch_progress(),
         }
+
+    @staticmethod
+    def _duplicates(items):
+        seen = set()
+        duplicates = []
+        for item in items:
+            if item in seen and item not in duplicates:
+                duplicates.append(item)
+            seen.add(item)
+        return duplicates
+
+    def _sync_batch_views(self):
+        completed = set(self.batch_task.gen_task_list)
+        self.total_test_cases = [
+            (test_case, test_case in completed)
+            for test_case in self.batch_task.source_task_list
+        ]
+        self.current_test_cases = list(self.batch_task.tbd_task_list)
+
+    def _reconcile_batch_checkpoint(self, source_test_cases):
+        if self.batch_task.checkpoint_error is not None:
+            self._batch_checkpoint_error = copy.deepcopy(
+                self.batch_task.checkpoint_error
+            )
+            return
+
+        self._batch_checkpoint_error = None
+        loaded_source = list(self.batch_task.source_task_list)
+        loaded_gen = list(self.batch_task.gen_task_list)
+        loaded_tbd = list(self.batch_task.tbd_task_list)
+        loaded_cmp = list(self.batch_task.cmp_task_list)
+
+        duplicate_fields = {
+            field: duplicates
+            for field, items in (
+                ("source_task_list", loaded_source),
+                ("gen_task_list", loaded_gen),
+                ("tbd_task_list", loaded_tbd),
+                ("cmp_task_list", loaded_cmp),
+            )
+            if (duplicates := self._duplicates(items))
+        }
+        loaded_source_set = set(loaded_source)
+        unknown_tasks = sorted({
+            task
+            for tasks in (loaded_gen, loaded_tbd, loaded_cmp)
+            for task in tasks
+            if task not in loaded_source_set
+        })
+        if duplicate_fields or unknown_tasks:
+            self._batch_checkpoint_error = {
+                "error_code": "BATCH_CHECKPOINT_INVALID",
+                "error": (
+                    "The persisted test-case batch checkpoint contains duplicate or "
+                    "unknown task identities."
+                ),
+                "observed": {
+                    "duplicate_fields": duplicate_fields,
+                    "unknown_tasks": unknown_tasks,
+                    "checkpoint_file": self.batch_task.checkpoint_file,
+                },
+                "expected": (
+                    "Every persisted task identity must be unique and belong to the "
+                    "checkpoint's source_task_list."
+                ),
+                "next_action": (
+                    "Inspect the reported checkpoint and the initial template report, "
+                    "regenerate the invalid checkpoint from the current source task list, "
+                    "then restart UCAgent."
+                ),
+            }
+            return
+
+        source_set = set(source_test_cases)
+        completed = [task for task in loaded_gen if task in source_set]
+        completed_set = set(completed)
+        current = [
+            task
+            for task in loaded_tbd
+            if task in source_set and task not in completed_set
+        ]
+        current_set = set(current)
+        current_completed = [
+            task
+            for task in loaded_cmp
+            if task in current_set and task in completed_set
+        ]
+
+        previous_state = (
+            loaded_source,
+            loaded_gen,
+            loaded_tbd,
+            loaded_cmp,
+        )
+        self.batch_task.source_task_list = list(source_test_cases)
+        self.batch_task.gen_task_list = completed
+        self.batch_task.tbd_task_list = current
+        self.batch_task.cmp_task_list = current_completed
+        self.batch_task.update_current_tbd()
+        current_state = (
+            self.batch_task.source_task_list,
+            self.batch_task.gen_task_list,
+            self.batch_task.tbd_task_list,
+            self.batch_task.cmp_task_list,
+        )
+        if current_state != previous_state:
+            self.batch_task.savepoint_file()
+        self._sync_batch_views()
 
     def get_run_args(self, test_dir=None):
         failed_tests_files = set()
@@ -2253,7 +2388,7 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
         return super().on_init()
 
     def check_data(self):
-        if len(self.total_test_cases) == 0 and not self._is_init:
+        if not self._is_init:
             pre_report = self.smanager_get_value(self.data_key, None)
             if pre_report is None:
                 assert self.pre_report_file is not None, "Need set 'pre_report_file' to load previous test report from a file."
@@ -2277,12 +2412,23 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
                     failed_tc.append(k)
             if len(passed_tc) != 0:
                 warning(f"No test cases defined for implementation. However, {len(passed_tc)} test cases are already passing: {fc.list_str_abbr(passed_tc)}. ")
-            self.total_test_cases = [(self.rm_line_no(k), False) for k in sorted(failed_tc)]
-            if len(self.total_test_cases) == 0:
+            source_test_cases = [self.rm_line_no(k) for k in sorted(failed_tc)]
+            if len(source_test_cases) == 0:
                 return False, "No test cases found for implementation. All test cases are already passing. Nothing to do."
+            self._reconcile_batch_checkpoint(source_test_cases)
+            if self._batch_checkpoint_error is not None:
+                return False, self._batch_checkpoint_error
+            if self._last_batch_progress is None:
+                self._set_batch_progress(
+                    {},
+                    validation="pending" if self.current_test_cases else "passed",
+                    test_run="not_run",
+                )
             info(f"Total {len(self.total_test_cases)} test cases need to be implemented.")
-        if len(self.current_test_cases) == 0:
-            self.current_test_cases = [t[0] for t in self.total_test_cases if not t[1]][:self.batch_size]
+        elif self._batch_checkpoint_error is not None:
+            return False, self._batch_checkpoint_error
+        else:
+            self._sync_batch_views()
         info(f"Current batch: {len(self.current_test_cases)} test cases to implement: {fc.list_str_abbr(self.current_test_cases)}")
         info(f"Completed {sum([t[1] for t in self.total_test_cases])} out of {len(self.total_test_cases)} test cases.")
         return True, ""
@@ -2291,7 +2437,7 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
         """run batch of tests and check result."""
         success, msg = self.check_data()
         if not success:
-            return False, {"error": msg}
+            return False, msg if isinstance(msg, dict) else {"error": msg}
         if len(self.current_test_cases) == 0:
             return True, {"success": "All test cases have been implemented! Use tool `Complete to` finish this stage."}
         target_tests, failed_tests_files = self.get_run_args(self.test_dir)
@@ -2320,6 +2466,13 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
             info(f"implemented cases: {fc.list_str_abbr(return_tests.keys())}")
             error_msgs["error"] = f"The following test cases: `{fc.list_str_abbr(missing_tests)}` are missing in the tests implementation. " + \
                                    "Please ensure that all test cases are properly implemented and reported."
+            return False, error_msgs
+        if len(extends_tests) > 0:
+            error_msgs["error"] = (
+                f"The test run returned {len(extends_tests)} case(s) outside the current "
+                f"batch: {fc.list_str_abbr(extends_tests)}. Run exactly the current batch "
+                "targets before retrying Check."
+            )
             return False, error_msgs
 
         ret, msg, _ = check_report(
@@ -2361,11 +2514,25 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
                 batch_report=error_msgs["REPORT"],
             )
             return ret, error_msgs
-        # update total test cases status
-        for i, (tc, _) in enumerate(self.total_test_cases):
-            if tc in return_tests:
-                self.total_test_cases[i] = (tc, True)
-        self.current_test_cases = [t[0] for t in self.total_test_cases if not t[1]][:self.batch_size]
+        completed_batch_size = len(self.current_test_cases)
+        completed_test_cases = list(self.batch_task.gen_task_list)
+        for test_case in self.current_test_cases:
+            if test_case not in completed_test_cases:
+                completed_test_cases.append(test_case)
+        note_msg = []
+        self.batch_task.sync_gen_task(
+            completed_test_cases,
+            note_msg,
+            "Validated test cases changed.",
+        )
+        batch_pass, batch_message = self.batch_task.do_complete(
+            note_msg,
+            is_complete,
+            "in the initial template report",
+            f"validated from {self.test_dir}",
+            " Run and validate exactly the current test-case batch.",
+        )
+        self._sync_batch_views()
         self._last_batch_progress = {
             "committed": sum(completed for _test, completed in self.total_test_cases),
             "total": len(self.total_test_cases),
@@ -2376,14 +2543,11 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
             "validation": "pending" if self.current_test_cases else "passed",
             "test_run": "not_run" if self.current_test_cases else "executed",
         }
-        if len(self.current_test_cases) == 0:
+        if batch_pass:
             return True, {"success": "Congratulations! All test cases have been implemented! Use tool `Complete to` finish this stage."}
-        if is_complete:
-            return False, {"error": f"There are still {len(self.current_test_cases)} test cases remaining to be implemented: {fc.list_str_abbr(self.current_test_cases)}. " + \
-                                    f"Test case implemention progress: {sum([t[1] for t in self.total_test_cases])}/{len(self.total_test_cases)}. " + \
-                                     "Please continue implementing the remaining test cases before completing this stage."}
-        self.reset_continue_fail_count_with_batch_pass()
-        return False, {"success": f"Great! {len(self.current_test_cases)} test cases have been successfully implemented. " + \
+        if not isinstance(batch_message, dict) or "success" not in batch_message:
+            return batch_pass, batch_message
+        return False, {"success": f"Great! {completed_batch_size} test cases have been successfully implemented. " + \
                                   f"Next, please proceed to implement the following {len(self.current_test_cases)} test cases: {fc.list_str_abbr(self.current_test_cases)}. " + \
                                   f"Test case implemention progress: {sum([t[1] for t in self.total_test_cases])}/{len(self.total_test_cases)}. "}
 
@@ -3051,7 +3215,11 @@ class UnityChipCheckerRefineTestCases(Checker):
         )
 
         if self.stage_manager is not None:
-            self.smanager_set_value(self._refine_result_key, copy.deepcopy(self.refine_result))
+            self.smanager_set_value(
+                self._refine_result_key,
+                copy.deepcopy(self.refine_result),
+                persist=not bool(self.data_key),
+            )
             if self.data_key:
                 self.smanager_set_value(self.data_key, OrderedDict({
                     "source_ck_list": current_doc_ck_list,
@@ -3059,7 +3227,7 @@ class UnityChipCheckerRefineTestCases(Checker):
                     "ck_test_cases_map": copy.deepcopy(self.ck_test_cases_map),
                     "unresolved_mark_function": copy.deepcopy(self.unresolved_mark_function),
                     "total_test_cases_count": self.total_test_cases_count,
-                }))
+                }), persist=True)
 
         ck_pass, ck_error = self.batch_task.do_complete(
             note_msg,
