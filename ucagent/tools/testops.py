@@ -18,6 +18,131 @@ import psutil
 from typing import Tuple
 import subprocess
 import json
+import re
+import shlex
+
+
+def _pytest_target_path(target: str) -> tuple[str, str]:
+    """Split a pytest target into its filesystem path and node suffix."""
+
+    text = str(target)
+    if "::" not in text:
+        return text, ""
+    path, node = text.split("::", 1)
+    return path, "::" + node
+
+
+def _pytest_target_directory_errors(
+    targets: list[str], work_dir: str
+) -> list[dict]:
+    """Diagnose redundant directory prefixes without rewriting test identity."""
+
+    errors = []
+    work_dir = os.path.abspath(work_dir)
+    for target in targets:
+        if not target or target.startswith("-"):
+            continue
+        path_part, node_suffix = _pytest_target_path(target)
+        if not path_part.endswith((".py", ".pyc")) and not os.path.isabs(path_part):
+            continue
+        direct_candidate = os.path.abspath(os.path.join(work_dir, path_part))
+        if not os.path.isabs(path_part) and os.path.isfile(direct_candidate):
+            continue
+        candidates = []
+        if os.path.isabs(path_part):
+            candidates.append(os.path.abspath(path_part))
+        else:
+            ancestor = os.path.dirname(work_dir)
+            while ancestor and ancestor != os.path.dirname(ancestor):
+                candidates.append(os.path.abspath(os.path.join(ancestor, path_part)))
+                ancestor = os.path.dirname(ancestor)
+        resolved = next((candidate for candidate in candidates if os.path.isfile(candidate)), None)
+        if resolved is None:
+            continue
+        try:
+            relative = os.path.relpath(resolved, work_dir)
+        except ValueError:
+            continue
+        if relative == "." or relative.startswith("../"):
+            continue
+        correct_target = relative + node_suffix
+        if correct_target != target:
+            errors.append(
+                {
+                    "error_code": "PYTEST_TARGET_DIRECTORY_PREFIX",
+                    "provided_target": target,
+                    "pytest_working_directory": work_dir,
+                    "correct_target": correct_target,
+                    "message": (
+                        "RunTestCases target paths are relative to pytest_working_directory. "
+                        "Remove the duplicated configured test-directory prefix and retry "
+                        "with correct_target exactly. This diagnostic does not make the two "
+                        "node-ID strings equivalent."
+                    ),
+                }
+            )
+    return errors
+
+
+def _classify_pytest_execution(
+    returncode: int | None,
+    stdout: str,
+    stderr: str,
+    *,
+    report_exists: bool = False,
+    report_has_tests: bool = False,
+) -> dict:
+    """Classify pytest process state without hiding its original output."""
+
+    output = "\n".join(part for part in (stdout, stderr) if part)
+    lowered = output.lower()
+    if "timed out" in lowered:
+        code = "PYTEST_TIMEOUT"
+        success = False
+    elif "file or directory not found" in lowered:
+        code = "PYTEST_TARGET_NOT_FOUND"
+        success = False
+    elif re.search(
+        r"error collecting|errors during collection|error during collection|"
+        r"importerror while importing test module|internalerror|syntaxerror|"
+        r"indentationerror|taberror",
+        lowered,
+    ):
+        code = "PYTEST_COLLECTION_ERROR"
+        success = False
+    elif re.search(r"collected\s+0\s+items?|no tests ran", lowered):
+        code = "PYTEST_NO_TESTS_COLLECTED"
+        success = False
+    elif returncode == 0 and report_exists and not report_has_tests:
+        code = "PYTEST_NO_TESTS_COLLECTED"
+        success = False
+    elif returncode == 0:
+        code = "OK"
+        success = True
+    elif returncode == 1:
+        # A normal assertion failure is distinguishable from invocation failure;
+        # RunUnityChipTest marks it usable only when a non-empty Toffee report is
+        # available.  The report remains authoritative for DUT-vs-test analysis.
+        code = "PYTEST_ASSERTION_FAILURE"
+        success = report_exists and report_has_tests
+    elif returncode in (2, 3, 4, 5):
+        code = {
+            2: "PYTEST_INTERRUPTED",
+            3: "PYTEST_INTERNAL_ERROR",
+            4: "PYTEST_USAGE_ERROR",
+            5: "PYTEST_NO_TESTS_COLLECTED",
+        }[returncode]
+        success = False
+    else:
+        code = "PYTEST_PROCESS_ERROR"
+        success = False
+    return {
+        "pytest_returncode": returncode,
+        "invocation_success": success,
+        "diagnostic_code": code,
+        "report_exists": report_exists,
+        "report_has_tests": report_has_tests,
+    }
 
 
 class ArgRunPyTest(BaseModel):
@@ -61,6 +186,12 @@ class RunPyTest(UCTool):
         default={},
         description="Additional arguments to pass to pytest, e.g., {'verbose': True, 'capture': 'no'}."
     )
+    last_execution: dict = Field(
+        default_factory=dict,
+        description="Structured state from the most recent pytest invocation.",
+    )
+    _last_process_stdout: str = ""
+    _last_process_stderr: str = ""
 
     def do(self,
              test_dir_or_file: str,
@@ -71,9 +202,26 @@ class RunPyTest(UCTool):
              pytest_ex_env: dict = {},
              run_manager: CallbackManagerForToolRun = None, python_paths: list = None) -> Tuple[int, str, str]:
         """Run the Python tests."""
-        assert os.path.exists(test_dir_or_file), \
-            f"Test directory or file does not exist: {test_dir_or_file}"
+        if not os.path.exists(test_dir_or_file):
+            diagnostic = {
+                "error_code": "PYTEST_TARGET_NOT_FOUND",
+                "provided_test_directory_or_file": test_dir_or_file,
+                "resolved_path": os.path.abspath(test_dir_or_file),
+                "message": "The configured pytest directory or file does not exist.",
+            }
+            self.last_execution = {
+                "pytest_returncode": None,
+                "invocation_success": False,
+                "diagnostic_code": diagnostic["error_code"],
+                "report_exists": False,
+                "report_has_tests": False,
+                "target_error": diagnostic,
+            }
+            self._last_process_stdout = ""
+            self._last_process_stderr = json.dumps(diagnostic, indent=2)
+            return False, "", self._last_process_stderr if return_stderr else ""
         ret_stdout, ret_stderr = "", ""
+        invocation_stdout, invocation_stderr = "", ""
         env = os.environ.copy()
         pythonpath = env.get("PYTHONPATH", "")
         python_path_str = os.path.abspath(os.getcwd()) + ":" + ucagent_lib_path()
@@ -94,7 +242,7 @@ class RunPyTest(UCTool):
             if not pytest_ex_args:
                 test_target = ["."]
             elif isinstance(pytest_ex_args, str):
-                test_target = pytest_ex_args.split()
+                test_target = shlex.split(pytest_ex_args)
             elif isinstance(pytest_ex_args, list):
                 test_target = pytest_ex_args
             else:
@@ -107,32 +255,60 @@ class RunPyTest(UCTool):
             # Handle pytest_ex_args that may contain absolute paths
             if pytest_ex_args:
                 if isinstance(pytest_ex_args, str):
-                    test_target.extend(pytest_ex_args.split())
+                    test_target.extend(shlex.split(pytest_ex_args))
                 elif isinstance(pytest_ex_args, list):
                     test_target.extend(pytest_ex_args)
                 else:
                     raise ValueError(f"pytest_ex_args ({pytest_ex_args}) must be a string or a list.")
 
-        ENV_ARGS = env.get("UCA_PYTEST_ARGS", "").replace(";", " ").strip().split()
+        target_errors = _pytest_target_directory_errors(test_target, work_dir)
+        if target_errors:
+            diagnostic = target_errors[0]
+            self.last_execution = {
+                "pytest_returncode": None,
+                "invocation_success": False,
+                "diagnostic_code": diagnostic["error_code"],
+                "report_exists": False,
+                "report_has_tests": False,
+                "working_directory": work_dir,
+                "command_targets": test_target,
+                "target_error": diagnostic,
+            }
+            self._last_process_stdout = ""
+            self._last_process_stderr = json.dumps(diagnostic, indent=2)
+            return (
+                False,
+                "",
+                self._last_process_stderr if return_stderr else "",
+            )
+        ENV_ARGS = shlex.split(env.get("UCA_PYTEST_ARGS", "").replace(";", " ").strip())
         cmd = ["pytest", *ENV_ARGS, "-s", *self.get_pytest_args(), *test_target]
         info(f"Run command: PYTHONPATH={env['PYTHONPATH']} {' '.join(cmd)} (in {work_dir})\n")
         try:
             worker = subprocess.Popen(
                 cmd,
-                stdout=subprocess.PIPE if return_stdout else None,
-                stderr=subprocess.PIPE if return_stderr else None,
+                # Capture both streams internally so execution diagnostics can
+                # distinguish assertion failures from collection/usage errors.
+                # The public return values still honor return_stdout/return_stderr.
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
                 env=env,
                 bufsize=10,
                 cwd=work_dir
             )
             self.pre_call(worker)
-            ret_stdout, ret_stderr = worker.communicate(timeout=timeout)  # Set a timeout for the test run
-            if not return_stdout:
-                ret_stdout = ""
-            if not return_stderr:
-                ret_stderr = ""
-            return True, ret_stdout, ret_stderr
+            invocation_stdout, invocation_stderr = worker.communicate(timeout=timeout)
+            self._last_process_stdout = invocation_stdout
+            self._last_process_stderr = invocation_stderr
+            self.last_execution = _classify_pytest_execution(
+                worker.returncode, invocation_stdout, invocation_stderr
+            )
+            self.last_execution["working_directory"] = work_dir
+            self.last_execution["command_targets"] = test_target
+            ret_stdout = invocation_stdout if return_stdout else ""
+            ret_stderr = invocation_stderr if return_stderr else ""
+            return worker.returncode == 0, ret_stdout, ret_stderr
         except subprocess.TimeoutExpired as e:
             try:
                 worker.terminate()
@@ -141,16 +317,40 @@ class RunPyTest(UCTool):
                     worker.kill()
             except Exception as ex:
                 warning(f"Error terminating process: {ex}")
-            ret_stdout, ret_stderr = worker.communicate()
-            return False, ret_stdout, ret_stderr + f"\nTest run timed out after {e.timeout} seconds. You may try increasing the timeout argment."
+            invocation_stdout, invocation_stderr = worker.communicate()
+            timeout_message = (
+                f"\nTest run timed out after {e.timeout} seconds. "
+                "You may try increasing the timeout argument."
+            )
+            invocation_stderr += timeout_message
+            self._last_process_stdout = invocation_stdout
+            self._last_process_stderr = invocation_stderr
+            self.last_execution = _classify_pytest_execution(
+                worker.returncode, invocation_stdout, invocation_stderr
+            )
+            self.last_execution["diagnostic_code"] = "PYTEST_TIMEOUT"
+            ret_stdout = invocation_stdout if return_stdout else ""
+            ret_stderr = invocation_stderr if return_stderr else ""
+            return False, ret_stdout, ret_stderr
         except subprocess.CalledProcessError as e:
-            if return_stdout:
-                ret_stdout += e.stdout
-            if return_stderr:
-                ret_stderr += e.stderr
-            return False, ret_stdout, ret_stderr + f"\nCalledProcessError: {e}"
+            invocation_stdout = (e.stdout or "") if isinstance(e.stdout, str) else ""
+            invocation_stderr = (e.stderr or "") if isinstance(e.stderr, str) else ""
+            invocation_stderr += f"\nCalledProcessError: {e}"
+            self._last_process_stdout = invocation_stdout
+            self._last_process_stderr = invocation_stderr
+            self.last_execution = _classify_pytest_execution(
+                getattr(e, "returncode", None), invocation_stdout, invocation_stderr
+            )
+            return False, invocation_stdout if return_stdout else "", invocation_stderr if return_stderr else ""
         except Exception as e:
-            return False, "Test Fail", ret_stderr + f"\nException: {e}"
+            invocation_stderr = f"Exception: {e}"
+            self._last_process_stdout = ""
+            self._last_process_stderr = invocation_stderr
+            self.last_execution = _classify_pytest_execution(
+                None, "", invocation_stderr
+            )
+            self.last_execution["diagnostic_code"] = "PYTEST_INVOCATION_ERROR"
+            return False, "Test Fail" if return_stdout else "", invocation_stderr if return_stderr else ""
 
     def _run(self,
              test_dir_or_file: str,
@@ -162,11 +362,11 @@ class RunPyTest(UCTool):
         """Run the Python tests and return the output."""
         all_pass, pyt_out, pyt_err = self.do(
             test_dir_or_file,
-            pytest_ex_args,
-            return_stdout,
-            return_stderr,
-            timeout,
-            run_manager
+            pytest_ex_args=pytest_ex_args,
+            return_stdout=return_stdout,
+            return_stderr=return_stderr,
+            timeout=timeout,
+            run_manager=run_manager,
         )
         ret_str = "Test Pass" if all_pass else "Test Fail\n"
         if return_stdout:
@@ -241,17 +441,68 @@ class RunUnityChipTest(RunPyTest):
                                           run_manager,
                                           python_paths = [self.workspace, os.path.join(self.workspace, test_dir_or_file)])
         result_json_path = os.path.join(self.result_dir, self.result_json_path)
+        report_exists = os.path.exists(result_json_path)
+        report_error_code = None
         ret_data = {
-            "run_test_success": all_pass,
+            "run_test_success": False,
         }
-        if os.path.exists(result_json_path):
-            ret_data = load_toffee_report(
-                result_json_path,
-                self.workspace,
-                all_pass,
-                return_all_checks,
-                return_test_details=return_test_details,
-            )
+        if report_exists:
+            try:
+                ret_data = load_toffee_report(
+                    result_json_path,
+                    self.workspace,
+                    all_pass,
+                    return_all_checks,
+                    return_test_details=return_test_details,
+                )
+            except (OSError, ValueError, RuntimeError, TypeError) as error:
+                ret_data = {
+                    "run_test_success": False,
+                    "execution_error": {
+                        "diagnostic_code": "TOFFEE_REPORT_INVALID",
+                        "message": str(error),
+                        "report_path": result_json_path,
+                    },
+                }
+                report_error_code = "TOFFEE_REPORT_INVALID"
+        report_has_tests = bool(
+            isinstance(ret_data.get("tests"), dict)
+            and ret_data["tests"].get("total", 0) > 0
+        )
+        execution = _classify_pytest_execution(
+            self.last_execution.get("pytest_returncode"),
+            self._last_process_stdout,
+            self._last_process_stderr,
+            report_exists=report_exists and report_error_code is None,
+            report_has_tests=report_has_tests,
+        )
+        if (
+            self.last_execution.get("pytest_returncode") is None
+            and self.last_execution.get("diagnostic_code")
+        ):
+            execution.update(self.last_execution)
+        execution.update(
+            {
+                key: value
+                for key, value in self.last_execution.items()
+                if key not in execution
+            }
+        )
+        if report_error_code is not None:
+            execution["pytest_diagnostic_code"] = execution["diagnostic_code"]
+            execution["invocation_success"] = False
+            execution["diagnostic_code"] = report_error_code
+            execution["report_exists"] = report_exists
+        elif (
+            not report_exists
+            and execution["diagnostic_code"]
+            in {"OK", "PYTEST_ASSERTION_FAILURE"}
+        ):
+            execution["pytest_diagnostic_code"] = execution["diagnostic_code"]
+            execution["invocation_success"] = False
+            execution["diagnostic_code"] = "TOFFEE_REPORT_MISSING"
+        ret_data["run_test_success"] = execution["invocation_success"]
+        ret_data["execution"] = execution
         info(f"Run UnityChip test report:\n{json.dumps(ret_data, indent=2)}\n")
         return ret_data, pyt_out, pyt_err
 
@@ -265,11 +516,11 @@ class RunUnityChipTest(RunPyTest):
         """Run the Unity chip tests and return the output."""
         data, pyt_out, pyt_err = self.do(
             test_dir_or_file,
-            pytest_ex_args,
-            return_stdout,
-            return_stderr,
-            timeout,
-            run_manager
+            pytest_ex_args=pytest_ex_args,
+            return_stdout=return_stdout,
+            return_stderr=return_stderr,
+            timeout=timeout,
+            run_manager=run_manager,
         )
         ret_str = "[Test Report]:\n" + json.dumps(data, indent=2) + "\n"
         if return_stdout:

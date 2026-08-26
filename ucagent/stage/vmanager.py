@@ -332,7 +332,10 @@ class ToolRunTestCases(ManagerTool):
         "edit workspace artifacts. Use the available file-editing tools for document and "
         "source changes, and RunSkillScript only for an existing declared skill script. "
         "The current pytest directory is '{TEST_DIR}'; every target path is relative to "
-        "that directory."
+        "that directory. Do not repeat '{TEST_DIR}' in target. For example, a test below "
+        "that directory is addressed as 'test_file.py::test_name'. This target syntax is "
+        "different from workspace-relative TC tags and WaveInfo/Apply node IDs. If the tool "
+        "returns PYTEST_TARGET_DIRECTORY_PREFIX, retry with correct_target exactly."
     )
     args_schema: Optional[ArgsSchema] = ArgCheck
 
