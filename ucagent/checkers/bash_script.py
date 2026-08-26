@@ -12,6 +12,7 @@ class BashScriptChecker(Checker):
     """Checker for bash scripts."""
 
     def __init__(self, cmd:str, arguments: list[str]=[], pass_pattern: dict = {}, fail_pattern: dict = {}, need_human_check: bool = False, timeout: int = 0, **kw):
+        super().__init__()
         self.cmd = [cmd] + arguments
         self.arguments = arguments
         self.pass_pattern = pass_pattern # e.g., {"All tests passed": "success_message1", "Passed": "success_message2", ...}

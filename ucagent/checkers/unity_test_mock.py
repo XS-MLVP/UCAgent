@@ -5,8 +5,9 @@ from ucagent.tools.testops import RunUnityChipTest
 import ucagent.util.functions as fc
 from ucagent.checkers.base import Checker, UnityChipBatchTask
 from ucagent.checkers.unity_test import (
+    _iter_test_function_defs,
     _test_function_contract_failure,
-    _test_function_location,
+    _test_name_has_required_prefix,
 )
 from typing import Tuple
 from ucagent.util.log import info
@@ -20,6 +21,7 @@ class UnityChipCheckerTestMockTestBatch(Checker):
                  last_arg="",
                  batch_size=1, 
                  min_file_tests=1, timeout=300, **kw):
+        super().__init__()
         self.target_file = target_file
         self.test_file_prefix = test_file_prefix
         self.test_prefix = test_prefix
@@ -148,30 +150,37 @@ class UnityChipCheckerTestMockTestBatch(Checker):
             if test_dir_full_path not in self.get_path(tfile):
                 error_cases.append(f"The test file '{tfile}' is not under the test directory '{self.test_dir}'.")
                 continue
-            test_func_list = fc.get_target_from_file(self.get_path(tfile), f"test*",
-                                                         ex_python_path=self.workspace,
-                                                         dtype="FUNC")
+            test_func_list, parse_error = _iter_test_function_defs(self.get_path(tfile))
+            if parse_error is not None:
+                line = getattr(parse_error, "lineno", "?")
+                error_cases.append(
+                    f"{tfile}:{line}-{line}: unable to inspect test functions: {parse_error}"
+                )
+                continue
             for test_func in test_func_list:
-                location = _test_function_location(tfile, test_func)
-                if test_func.__name__.startswith(self.test_prefix) is False:
+                location = f"{tfile}:{test_func['line']}-{test_func['line']}"
+                if not _test_name_has_required_prefix(
+                    test_func["name"], [self.test_prefix]
+                ):
                     error_cases.append(
-                        f"{location}: The '{test_func.__name__}' test function's name "
-                        f"must start with '{self.test_prefix}'."
+                        f"{location}: The '{test_func['name']}' test function's name "
+                        f"must start with '{self.test_prefix}' followed by a nonempty "
+                        "descriptive suffix."
                     )
-                args = fc.get_func_arg_list(test_func)
+                args = test_func["args"]
                 if self.first_arg and (len(args) < 1 or args[0] != self.first_arg):
                     error_cases.append(
-                        f"{location}: The '{test_func.__name__}' test function's first "
+                        f"{location}: The '{test_func['name']}' test function's first "
                         f"arg must be '{self.first_arg}', but got ({', '.join(args)})."
                     )
                 if self.last_arg and (len(args) < 1 or args[-1] != self.last_arg):
                     error_cases.append(
-                        f"{location}: The '{test_func.__name__}' test function's last "
+                        f"{location}: The '{test_func['name']}' test function's last "
                         f"arg must be '{self.last_arg}', but got ({', '.join(args)})."
                     )
             if len(test_func_list) < self.min_file_tests:
                 error_cases.append(f"Insufficient testcases: {len(test_func_list)} test functions found, minimum required is {self.min_file_tests} in file '{tfile}'. "+
-                                    "Please ensure you have implemented enough test cases (need pytest function based not class based).")
+                                    "Please ensure the file contains enough pytest test definitions.")
         if len(error_cases) > 0:
             return False, _test_function_contract_failure(
                 error_cases, retry_tool=retry_tool

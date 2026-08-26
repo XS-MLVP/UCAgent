@@ -591,6 +591,7 @@ class FileLineMapChecker(Checker):
                  map_suffix="_line_func_map.txt",
                  map_location="line_map",
                  max_example_lines=20, need_human_check=False, must_has_no_miss_match=False, **kw):
+        super().__init__()
         self.source_file = source_file
         self.func_check_file = func_check_file
         self.map_file = map_file
@@ -634,6 +635,7 @@ class UnityChipBatchCheckerFileLineMap(Checker):
                  batch_size=1, max_block_lines=100, max_example_lines=20,
                  ignore_blank_lines=True, must_has_no_miss_match=True,
                  need_human_check=False, data_key=None, **kw):
+        super().__init__()
         self.name = name
         self.file_list = file_list if isinstance(file_list, list) else [file_list]
         self.func_check_file = func_check_file
@@ -649,9 +651,6 @@ class UnityChipBatchCheckerFileLineMap(Checker):
             raise ValueError("batch_size must be a positive integer")
         if self.max_block_lines < 1:
             raise ValueError("max_block_lines must be a positive integer")
-        # Checker keeps callback storage on the class for historical reasons;
-        # isolate this batcher's lifecycle callbacks per instance.
-        self._cb_list = {}
         self.batch_task = UnityChipBatchTask(name, self)
         self._task_errors = []
         self._completed_validation_errors = []

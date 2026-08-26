@@ -22,12 +22,36 @@ from ucagent.checkers import (
     UnityChipCheckerTestFree,
     UnityChipCheckerTestTemplate,
 )
-from ucagent.checkers.base import Checker
+from ucagent.checkers.base import Checker, UnityChipBatchTask
+from ucagent.checkers.unity_test import BaseUnityChipCheckerTestCase
+from ucagent.util.config import Config
 
 
 CHECKPOINT = "FG-API/FC-OPERATE/CK-BASIC"
 TEST_NODE = "unity_test/tests/test_Demo.py:1-2::test_demo"
 API_TEST_NODE = "unity_test/tests/test_Demo_api.py:1-2::test_api_Demo_operate"
+
+
+def test_checker_lifecycle_callbacks_are_isolated_per_instance():
+    class _BatchChecker(Checker):
+        def __init__(self, batch_name):
+            super().__init__()
+            assert self._cb_list == {}
+            self.batch_size = 1
+            self.batch_task = UnityChipBatchTask(batch_name, self)
+
+    first = _BatchChecker("first")
+    second = _BatchChecker("second")
+    calls = []
+    first.batch_task.on_init = lambda: calls.append("first")
+    second.batch_task.on_init = lambda: calls.append("second")
+
+    first.set_stage(SimpleNamespace(name="first-stage"))
+    assert calls == ["first"]
+
+    second.set_stage(SimpleNamespace(name="second-stage"))
+    assert calls == ["first", "second"]
+    assert first._cb_list is not second._cb_list
 
 
 def _write_workspace_files(tmp_path):
@@ -41,9 +65,14 @@ def _write_workspace_files(tmp_path):
         encoding="utf-8",
     )
     (tmp_path / "unity_test" / "Demo_bug_analysis.md").write_text(
-        "# Demo bug analysis\n\n"
+        "\n# Demo dynamic Bug analysis\n\n"
+        "## Dynamic Bug records\n\n"
         "<DYNAMIC-BUGS>\n"
         "</DYNAMIC-BUGS>\n\n"
+        "## Root cause analysis\n\n"
+        "<ROOT-CAUSES>\n"
+        "</ROOT-CAUSES>\n\n"
+        "## Waveform evidence\n\n"
         "<WAVEFORM-EVIDENCE>\n"
         "</WAVEFORM-EVIDENCE>\n",
         encoding="utf-8",
@@ -205,9 +234,7 @@ def test_coverage_checker_uses_temporary_workspace(tmp_path):
 
 def test_test_case_checkers_use_mocked_report_in_temporary_workspace(
     tmp_path,
-    monkeypatch,
 ):
-    monkeypatch.setattr(Checker, "_cb_list", {})
     _write_workspace_files(tmp_path)
     functions_doc = "unity_test/Demo_functions_and_checks.md"
     tests_dir = "unity_test/tests"
@@ -279,6 +306,199 @@ def test_checker_api_test_uses_mocked_report_in_temporary_workspace(tmp_path):
     assert "passed" in message["success"]
 
 
+def test_api_checker_rejects_nonconforming_test_function_name_before_pytest(tmp_path):
+    test_dir = _write_workspace_files(tmp_path)
+    (test_dir / "Demo_api.py").write_text(
+        "def api_Demo_operate(env, max_cycles=10):\n"
+        "    return None\n",
+        encoding="utf-8",
+    )
+    (test_dir / "test_Demo_api_basic.py").write_text(
+        "raise AssertionError('test module must not be imported before naming validation')\n\n"
+        "def test_api_basic(env):\n"
+        "    assert True\n",
+        encoding="utf-8",
+    )
+    (test_dir / "test_api_Demo_wrong_file.py").write_text(
+        "def test_api_Demo_operate_extra(env):\n"
+        "    assert True\n",
+        encoding="utf-8",
+    )
+    checker = UnityChipCheckerDutApiTest(
+        "api_Demo_",
+        "unity_test/tests/Demo_api.py",
+        "unity_test/tests/test_Demo_api*.py",
+        "unity_test/Demo_functions_and_checks.md",
+        "unity_test/Demo_bug_analysis.md",
+        test_func_prefix="test_api_Demo_",
+        test_func_rules="standard",
+        cfg=Config({"_temp_cfg": {"DUT": "Demo"}}),
+    ).set_workspace(str(tmp_path))
+
+    class _UnexpectedRunner:
+        def do(self, *_args, **_kwargs):
+            raise AssertionError("pytest must not run for an invalid test name")
+
+    checker.run_test = _UnexpectedRunner()
+    passed, message = checker.do_check(timeout=10)
+
+    assert passed is False
+    assert message["diagnostic"]["error_code"] == (
+        "TEST_FUNCTION_CONTRACT_VIOLATION"
+    )
+    assert message["diagnostic"]["observed"]["issue_count"] == 2
+    assert any(
+        "test_api_basic" in issue and "test_api_Demo_" in issue
+        for issue in message["details"]
+    )
+    assert any(
+        "test_api_Demo_wrong_file.py:1-1" in issue
+        and "reserved prefix 'test_api_'" in issue
+        for issue in message["details"]
+    )
+
+
+def test_standard_test_naming_contract_separates_stage_namespaces(tmp_path):
+    test_dir = tmp_path / "tests"
+    test_dir.mkdir()
+    (test_dir / "test_Demo_env_fixture.py").write_text(
+        "def test_api_Demo_env_reset(env):\n"
+        "    assert True\n",
+        encoding="utf-8",
+    )
+    (test_dir / "test_Demo_api_math.py").write_text(
+        "def test_api_basic(env):\n"
+        "    assert True\n",
+        encoding="utf-8",
+    )
+    (test_dir / "test_Demo_arithmetic.py").write_text(
+        "def test_add(env):\n"
+        "    assert True\n\n"
+        "def test_random_misplaced(env):\n"
+        "    assert True\n",
+        encoding="utf-8",
+    )
+    (test_dir / "test_Demo_random_stress.py").write_text(
+        "def test_random_stress(env):\n"
+        "    assert True\n\n"
+        "def test_random_(env):\n"
+        "    assert True\n",
+        encoding="utf-8",
+    )
+    (test_dir / "test_api_Demo_wrong_file.py").write_text(
+        "def test_api_Demo_add(env):\n"
+        "    assert True\n",
+        encoding="utf-8",
+    )
+    checker = BaseUnityChipCheckerTestCase(
+        test_dir="tests",
+        cfg=Config({"_temp_cfg": {"DUT": "Demo"}}),
+    ).set_workspace(str(tmp_path))
+
+    class _UnexpectedRunner:
+        def do(self, *_args, **_kwargs):
+            raise AssertionError("pytest must not run for naming conflicts")
+
+    checker.run_test = _UnexpectedRunner()
+    report, stdout, stderr = checker.do_check()
+    issues = report["test_function_contract"]["details"]
+
+    assert checker.test_func_rules == "standard"
+    assert report["run_test_success"] is False
+    assert stdout == ""
+    assert stderr == ""
+    assert len(issues) == 4
+    assert any(
+        "tests/test_Demo_api_math.py:1-1" in issue
+        and "test_api_Demo_" in issue
+        for issue in issues
+    )
+    assert any(
+        "tests/test_Demo_arithmetic.py:4-4" in issue
+        and "reserved prefix 'test_random_'" in issue
+        for issue in issues
+    )
+    assert any(
+        "tests/test_api_Demo_wrong_file.py:1-1" in issue
+        and "reserved prefix 'test_api_'" in issue
+        for issue in issues
+    )
+    assert any(
+        "tests/test_Demo_random_stress.py:4-4" in issue
+        and "nonempty descriptive suffix" in issue
+        for issue in issues
+    )
+    assert all("test_add" not in issue for issue in issues)
+
+
+def test_standard_test_naming_contract_does_not_fail_open_without_dut(tmp_path):
+    (tmp_path / "tests").mkdir()
+    checker = BaseUnityChipCheckerTestCase(
+        test_dir="tests",
+        test_func_rules="standard",
+        cfg=Config({}),
+    ).set_workspace(str(tmp_path))
+
+    issues = checker._test_function_name_issues(checker._stage_test_files())
+
+    assert len(issues) == 1
+    assert "cannot be resolved" in issues[0]
+    assert "resolved DUT name and a configured test_dir" in issues[0]
+
+
+def test_standard_test_naming_contract_supports_workspace_root(tmp_path):
+    (tmp_path / "test_Demo_api.py").write_text(
+        "def test_api_basic(env):\n"
+        "    assert True\n",
+        encoding="utf-8",
+    )
+    checker = BaseUnityChipCheckerTestCase(
+        test_dir="",
+        test_func_rules="standard",
+        cfg=Config({"_temp_cfg": {"DUT": "Demo"}}),
+    ).set_workspace(str(tmp_path))
+
+    issues = checker._test_function_name_issues(checker._stage_test_files())
+
+    assert len(issues) == 1
+    assert "test_Demo_api.py:1-1" in issues[0]
+    assert "test_api_Demo_" in issues[0]
+
+
+def test_test_function_naming_scope_only_checks_configured_stage_files(tmp_path):
+    test_dir = tmp_path / "tests"
+    test_dir.mkdir()
+    (test_dir / "test_Demo_directed.py").write_text(
+        "def test_directed(env):\n"
+        "    assert True\n",
+        encoding="utf-8",
+    )
+    static_file = test_dir / "test_Demo_static_verify_width.py"
+    static_file.write_text(
+        "def test_static_Demo_width(env):\n"
+        "    assert True\n",
+        encoding="utf-8",
+    )
+    checker = BaseUnityChipCheckerTestCase(
+        test_dir="tests",
+        test_func_file="tests/test_Demo_static_verify_*.py",
+        test_func_prefix="test_static_Demo_",
+    ).set_workspace(str(tmp_path))
+
+    assert checker._test_function_name_issues(checker._stage_test_files()) == []
+
+    (test_dir / "test_Demo_static_verify_bad.py").write_text(
+        "def test_width(env):\n"
+        "    assert True\n",
+        encoding="utf-8",
+    )
+    issues = checker._test_function_name_issues(checker._stage_test_files())
+
+    assert len(issues) == 1
+    assert "tests/test_Demo_static_verify_bad.py:1-1" in issues[0]
+    assert "test_static_Demo_" in issues[0]
+
+
 def test_checker_line_coverage_uses_temporary_workspace(tmp_path, monkeypatch):
     coverage_file = tmp_path / "uc_test_report" / "line_dat" / "code_coverage.json"
     coverage_file.parent.mkdir(parents=True)
@@ -304,6 +524,11 @@ def test_checker_line_coverage_uses_temporary_workspace(tmp_path, monkeypatch):
         cfg={"_temp_cfg": {"DUT": "Demo"}},
         min_line_coverage=0.8,
     ).set_workspace(str(tmp_path))
+
+    assert checker.test_func_rules == "standard"
+    assert checker._resolved_test_func_rules()[0]["prefixes"] == (
+        "test_api_Demo_env_"
+    )
 
     passed, message = checker.do_check()
 

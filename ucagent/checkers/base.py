@@ -32,6 +32,9 @@ def format_stage_args_examples(tool_name, stage_args):
 class Checker:
     """Base class for verification checkers."""
 
+    def __init__(self):
+        self._cb_list = {}
+
     workspace = None
     time_start = None
     is_in_check = False
@@ -42,7 +45,6 @@ class Checker:
     dut_name = None
     _is_init = False
     _need_human_check = False
-    _cb_list = {}
 
     def add_cb(self, key, cb):
         assert key in [CB_KEY_SET_WORKSPACE,
@@ -70,7 +72,7 @@ class Checker:
 
     def on_init(self):
         self._is_init = True
-        for cb in self._cb_list.get(CB_KEY_ON_INIT, []):
+        for cb in tuple(self._cb_list.get(CB_KEY_ON_INIT, [])):
             cb(self)
         return self
 
@@ -119,14 +121,14 @@ class Checker:
     def set_stage_manager(self, manager):
         assert manager is not None, "Stage Manager cannot be None."
         self.stage_manager = manager
-        for cb in self._cb_list.get(CB_KEY_SET_STAGE_MANAGER, []):
+        for cb in tuple(self._cb_list.get(CB_KEY_SET_STAGE_MANAGER, [])):
             cb(self)
         return self
 
     def set_stage(self, stage):
         assert stage is not None, "Stage cannot be None."
         self.stage = stage
-        for cb in self._cb_list.get(CB_KEY_SET_STAGE, []):
+        for cb in tuple(self._cb_list.get(CB_KEY_SET_STAGE, [])):
             cb(self)
         return self
 
@@ -284,7 +286,7 @@ class Checker:
         self.workspace = os.path.abspath(workspace)
         assert os.path.exists(self.workspace), \
             f"Workspace {self.workspace} does not exist. Please provide a valid workspace path."
-        for cb in self._cb_list.get(CB_KEY_SET_WORKSPACE, []):
+        for cb in tuple(self._cb_list.get(CB_KEY_SET_WORKSPACE, [])):
             cb(self)
         return self
 
@@ -748,6 +750,7 @@ class UpdateTempFromDataChecker(Checker):
     """Update Temporary Files from Data Checker."""
 
     def __init__(self, data_key: str, **kw):
+        super().__init__()
         self.data_key = data_key
 
     def get_template_data(self):
@@ -764,6 +767,7 @@ class OrginFileMustExistChecker(Checker):
     """File Must Exist Checker."""
 
     def __init__(self, files, **kw):
+        super().__init__()
         self.file_path_list = files if isinstance(files, list) else [files]
 
     def set_stage_manager(self, stage_manager):
@@ -788,6 +792,7 @@ class FilesMustNotExist(Checker):
     """Files Must not exist"""
 
     def __init__(self, target_files, **kw):
+        super().__init__()
         self.file_maps = {}
         target_files = target_files if isinstance(target_files, (tuple, list)) else [target_files]
         for f,m in target_files:
@@ -821,6 +826,7 @@ class VibeWorkSpaceInit(Checker):
                  dut_name: str = None,
                  init_msg: str = "",
                  **kw):
+        super().__init__()
         self.branch_name = branch_name
         self.data_key = data_key
         self.init_msg = init_msg or "Init git repo for Vibe Coding Assistant"

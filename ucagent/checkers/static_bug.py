@@ -340,6 +340,7 @@ class UnityChipCheckerStaticBugFormat(Checker):
     """
 
     def __init__(self, static_doc: str, functions_and_checks_doc: str, **kw):
+        super().__init__()
         self.static_doc               = static_doc
         self.functions_and_checks_doc = functions_and_checks_doc
 
@@ -570,6 +571,7 @@ class UnityChipCheckerStaticBugValidation(Checker):
 
     def __init__(self, static_doc: str, bug_analysis_doc: str,
                  functions_and_checks_doc: str, **kw):
+        super().__init__()
         self.static_doc               = static_doc
         self.bug_analysis_doc         = bug_analysis_doc
         self.functions_and_checks_doc = functions_and_checks_doc
@@ -803,6 +805,7 @@ class UnityChipBatchCheckerStaticBug(Checker):
 
     def __init__(self, static_doc: str, functions_and_checks_doc: str,
                  file_list, batch_size: int = 1, **kw):
+        super().__init__()
         self.static_doc = static_doc
         self.functions_and_checks_doc = functions_and_checks_doc
         self.file_list = file_list if isinstance(file_list, list) else [file_list]

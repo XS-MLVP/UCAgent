@@ -48,6 +48,7 @@ class BatchFileProcess(Checker):
     """process files in batch"""
 
     def __init__(self, name, file_pattern, batch_size=1, mini_inputs=1, need_human_check=False):
+        super().__init__()
         self.file_pattern = file_pattern if isinstance(file_pattern, list) else [file_pattern]
         self.batch_size = batch_size
         self.mini_inputs = mini_inputs
@@ -189,6 +190,7 @@ class MarkDownHeadChecker(Checker):
     """Checker for single markdown file headers."""
 
     def __init__(self, file_path:str, template_file:str, header_levels, need_human_check=False, **kw):
+        super().__init__()
         self.file_path = file_path
         self.template_file = template_file
         self.header_levels = tuple(header_levels) if isinstance(header_levels, list) else header_levels
@@ -254,6 +256,7 @@ class MustHaveCKs(Checker):
                  funcs_and_checks_doc:str,
                  leaf_node:str="CK",
                  **kw):
+        super().__init__()
         self.source_files = source_files if isinstance(source_files, list) else [source_files]
         self.funcs_and_checks_doc = funcs_and_checks_doc
         self.leaf_node = leaf_node

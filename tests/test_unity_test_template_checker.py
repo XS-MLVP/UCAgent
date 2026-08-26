@@ -381,11 +381,16 @@ def test_base_checker_supports_multiple_infrastructure_ignore_prefixes(tmp_path)
     class CaptureRunner:
         def __init__(self):
             self.pytest_args = None
+            self.report_context = None
 
         def set_workspace(self, _workspace):
             return self
 
         def set_pre_call_back(self, _callback):
+            return self
+
+        def set_report_context(self, context):
+            self.report_context = context
             return self
 
         def do(self, *_args, **kwargs):
@@ -411,6 +416,10 @@ def test_base_checker_supports_multiple_infrastructure_ignore_prefixes(tmp_path)
         "not test_api_Demo_env_ and not test_api_Demo_reference_model_ and not test_api_Demo_mock_",
         ".",
     ]
+    assert runner.report_context == {
+        "source": "checker",
+        "checker_class": "BaseUnityChipCheckerTestCase",
+    }
     assert checker._is_ignored_test_case(
         "tests/test_env.py:1-2::test_api_Demo_env_basic"
     )

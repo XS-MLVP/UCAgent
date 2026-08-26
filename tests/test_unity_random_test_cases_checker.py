@@ -70,9 +70,33 @@ def _make_checker(tmp_path, entries, batch_size=2):
         test_dir="tests",
         batch_size=batch_size,
         data_key="RANDOM_TEST_DATA",
+        test_func_prefix="test_random_",
     ).set_workspace(str(tmp_path)).set_stage(_FakeStage()).set_stage_manager(manager)
     checker.on_init()
     return checker, manager
+
+
+def test_random_checker_rejects_nonconforming_name_before_execution(tmp_path):
+    checker, _manager = _make_checker(
+        tmp_path,
+        [("FG-A", "FC-A", "CK-A")],
+    )
+    test_file = tmp_path / "tests" / "test_random_bad_name.py"
+    test_file.write_text(
+        "raise AssertionError('test module must not be imported before naming validation')\n\n"
+        "def test_bad_random_name(env):\n"
+        "    assert True\n",
+        encoding="utf-8",
+    )
+
+    passed, message = checker.test_check()
+
+    assert passed is False
+    assert message["diagnostic"]["error_code"] == (
+        "TEST_FUNCTION_CONTRACT_VIOLATION"
+    )
+    assert "test_bad_random_name" in message["details"][0]
+    assert "test_random_" in message["details"][0]
 
 
 def test_random_test_checker_rejects_mark_function_in_comment(tmp_path):

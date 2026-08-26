@@ -1003,6 +1003,7 @@ class Recorder(Checker):
         type_args: Optional[Dict[str, Any]] = None,
         **kwargs,
     ):
+        super().__init__()
         cfg = kwargs.pop("cfg", None)
         if cfg is not None:
             self.update_dut_name(cfg)

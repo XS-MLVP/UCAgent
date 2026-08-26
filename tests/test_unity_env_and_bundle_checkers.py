@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Tests for UnityChipCheckerBundleWrapper and UnityChipCheckerEnvFixtureTest."""
+"""Tests for Bundle wrappers and environment fixture self-tests."""
 
 import os
 import sys
@@ -8,8 +8,10 @@ import sys
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.abspath(os.path.join(current_dir, "..")))
 
-import pytest
-from ucagent.checkers.unity_test import UnityChipCheckerBundleWrapper, UnityChipCheckerEnvFixtureTest
+from ucagent.checkers.unity_test import (
+    UnityChipCheckerBundleWrapper,
+    UnityChipCheckerTestMustPass,
+)
 
 
 def wpath(rel):
@@ -34,39 +36,76 @@ def test_bundle_wrapper_insufficient():
     assert "Insufficient Bundle wrapper coverage" in m.get("error", "")
 
 
-def test_env_fixture_test_success():
-    workspace = wpath(".")
-    # Use the good env test file and directory
-    target_file = "test_data/env_tests/test_api_dummy_env_basic.py"
-    test_dir = "test_data/env_tests"
-    checker = UnityChipCheckerEnvFixtureTest(target_file=target_file, test_dir=test_dir, min_env_tests=1)
-    # set dut_name to match the required prefix test_api_<dut>_env_
-    checker.dut_name = "dummy"
-    checker.set_workspace(workspace)
-    # Inject a stub RunUnityChipTest to simulate a passing test run
+def test_env_fixture_test_success(tmp_path):
+    test_dir = tmp_path / "tests"
+    test_dir.mkdir()
+    (test_dir / "test_Demo_env_fixture.py").write_text(
+        "def test_api_Demo_env_basic(env):\n"
+        "    assert env is not None\n",
+        encoding="utf-8",
+    )
+
     class _StubRunner:
+        def set_pre_call_back(self, _callback):
+            return self
+
         def do(self, *args, **kwargs):
-            # Return a report with 1 total and 0 fails
-            return ({"tests": {"total": 1, "fails": 0}}, "", "")
+            return (
+                {
+                    "run_test_success": True,
+                    "tests": {
+                        "total": 1,
+                        "fails": 0,
+                        "test_cases": {
+                            "tests/test_Demo_env_fixture.py:1-2::"
+                            "test_api_Demo_env_basic": "PASSED",
+                        },
+                    },
+                },
+                "",
+                "",
+            )
+
+    checker = UnityChipCheckerTestMustPass(
+        target_file="tests/test_Demo_env_fixture.py",
+        test_dir="tests",
+        test_prefix="test_api_Demo_env_",
+        first_arg="env",
+    ).set_workspace(str(tmp_path))
     checker.run_test = _StubRunner()
+
     p, m = checker.do_check(timeout=10)
+
     assert p is True
     assert "passed" in m.get("message", "").lower()
 
 
-def test_env_fixture_test_wrong_prefix():
-    workspace = wpath(".")
-    # This file has a test function that does not match the required prefix
-    target_file = "test_data/env_tests/test_wrong_name.py"
-    test_dir = "test_data/env_tests"
-    checker = UnityChipCheckerEnvFixtureTest(target_file=target_file, test_dir=test_dir, min_env_tests=1)
-    checker.dut_name = "dummy"
-    checker.set_workspace(workspace)
-    # Inject stub to avoid calling real runner if code ever reaches it
+def test_env_fixture_test_wrong_prefix(tmp_path):
+    test_dir = tmp_path / "tests"
+    test_dir.mkdir()
+    (test_dir / "test_Demo_env_fixture.py").write_text(
+        "def test_env_wrong(env):\n"
+        "    assert True\n",
+        encoding="utf-8",
+    )
+
     class _StubRunner:
+        def set_pre_call_back(self, _callback):
+            return self
+
         def do(self, *args, **kwargs):
-            return ({"tests": {"total": 1, "fails": 0}}, "", "")
+            raise AssertionError("test execution must not start before validation")
+
+    checker = UnityChipCheckerTestMustPass(
+        target_file="tests/test_Demo_env_fixture.py",
+        test_dir="tests",
+        test_prefix="test_api_Demo_env_",
+        first_arg="env",
+    ).set_workspace(str(tmp_path))
     checker.run_test = _StubRunner()
+
     p, m = checker.do_check(timeout=10)
+
     assert p is False
-    assert "name must start with" in m.get("error", "")
+    assert m["diagnostic"]["error_code"] == "TEST_FUNCTION_CONTRACT_VIOLATION"
+    assert any("must start with 'test_api_Demo_env_'" in item for item in m["details"])

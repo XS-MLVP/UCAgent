@@ -3076,6 +3076,7 @@ class UnityChipCheckerWaveformBugAnalysis(Checker):
         require_current_replay: bool = False,
         **kwargs,
     ):
+        super().__init__()
         del kwargs
         if type(require_current_replay) is not bool:
             raise ValueError("require_current_replay must be a boolean")

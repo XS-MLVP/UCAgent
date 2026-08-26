@@ -55,6 +55,7 @@ def test_all_pass_checker_returns_all_test_function_contract_issues(tmp_path):
     test_dir = tmp_path / "tests"
     test_dir.mkdir()
     (test_dir / "test_env.py").write_text(
+        "raise AssertionError('test module must not be imported before contract validation')\n\n"
         "def test_wrong_prefix(other):\n"
         "    assert True\n\n"
         "def test_api_Demo_env_wrong_arg(other):\n"
@@ -84,10 +85,10 @@ def test_all_pass_checker_returns_all_test_function_contract_issues(tmp_path):
         "test_api_Demo_env_wrong_arg" in issue
         for issue in diagnostic["observed"]["issues"]
     )
-    assert any("tests/test_env.py:1-1" in issue for issue in message["details"])
-    assert any("tests/test_env.py:4-4" in issue for issue in message["details"])
+    assert any("tests/test_env.py:3-3" in issue for issue in message["details"])
+    assert any("tests/test_env.py:6-6" in issue for issue in message["details"])
     assert sum(
-        "tests/test_env.py:1-1" in issue for issue in message["details"]
+        "tests/test_env.py:3-3" in issue for issue in message["details"]
     ) == 2
     assert diagnostic["next_action"].endswith("call `Check` again.")
 
@@ -97,6 +98,7 @@ def test_mock_batch_checker_uses_the_same_explicit_diagnostic_contract(tmp_path)
     test_dir.mkdir()
     test_file = test_dir / "test_Demo_mock_unit.py"
     test_file.write_text(
+        "raise AssertionError('test module must not be imported before contract validation')\n\n"
         "def test_wrong_prefix(mock_dut):\n"
         "    assert True\n",
         encoding="utf-8",
@@ -121,7 +123,7 @@ def test_mock_batch_checker_uses_the_same_explicit_diagnostic_contract(tmp_path)
         "TEST_FUNCTION_CONTRACT_VIOLATION"
     )
     assert message["diagnostic"]["observed"]["issue_count"] == 1
-    assert "tests/test_Demo_mock_unit.py:1-1" in message["details"][0]
+    assert "tests/test_Demo_mock_unit.py:3-3" in message["details"][0]
     assert message["diagnostic"]["next_action"].endswith(
         "call `Complete` again."
     )
