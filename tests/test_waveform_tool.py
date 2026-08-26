@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import concurrent.futures
 import os
 from pathlib import Path
 import sys
@@ -1052,6 +1053,66 @@ def test_receipt_is_restored_after_tool_recreation(tmp_path):
             "TOP.dut.result[3:0]",
             "TOP.dut.ready",
         ],
+    }
+
+
+def test_waveinfo_call_locks_are_scoped_by_test_case(tmp_path):
+    first_tool = _tool(tmp_path, tmp_path / "tests")
+    second_tool = _tool(tmp_path, tmp_path / "tests")
+
+    first = first_tool._get_sync_call_locks(
+        {"test_case_name": "tests/test_demo.py::test_first"}
+    )[0]
+    same = second_tool._get_sync_call_locks(
+        {"test_case_name": "tests/test_demo.py::test_first"}
+    )[0]
+    different = first_tool._get_sync_call_locks(
+        {"test_case_name": "tests/test_demo.py::test_second"}
+    )[0]
+
+    assert first is same
+    assert first is not different
+
+
+def test_receipt_store_transaction_is_shared_across_waveinfo_instances(tmp_path):
+    first_tool = _tool(tmp_path, tmp_path / "tests")
+    second_tool = _tool(tmp_path, tmp_path / "tests")
+    store_lock = first_tool._receipt_store_lock()
+    assert store_lock is second_tool._receipt_store_lock()
+
+    def record(tool: WaveInfo, test_name: str):
+        return tool._record_analysis_receipt(
+            {"test_case_name": test_name},
+            {
+                "success": True,
+                "status": "metadata_only",
+                "evidence_usable": False,
+            },
+            context_files={},
+        )
+
+    store_lock.acquire()
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(record, second_tool, "test_second")
+            with pytest.raises(concurrent.futures.TimeoutError):
+                future.result(timeout=0.1)
+            store_lock.release()
+            second_receipt = future.result(timeout=1)
+    finally:
+        try:
+            store_lock.release()
+        except RuntimeError:
+            pass
+
+    first_receipt = record(first_tool, "test_first")
+    restored = _tool(tmp_path, tmp_path / "tests")
+    persisted = restored._load_persisted_receipts()
+    persisted_ids = {receipt["receipt_id"] for receipt in persisted}
+
+    assert persisted_ids == {
+        first_receipt["receipt_id"],
+        second_receipt["receipt_id"],
     }
 
 

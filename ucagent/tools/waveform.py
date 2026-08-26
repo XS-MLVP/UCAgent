@@ -23,6 +23,7 @@ import threading
 import textwrap
 import time
 from typing import Any, ClassVar, Literal, Optional
+import weakref
 
 from langchain_core.callbacks import CallbackManagerForToolRun
 from langchain_core.tools.base import ArgsSchema
@@ -69,6 +70,8 @@ from .uctool import UCTool
 
 
 _DOCUMENT_WRITE_LOCK = threading.Lock()
+_RECEIPT_STORE_LOCKS = weakref.WeakValueDictionary()
+_RECEIPT_STORE_LOCKS_GUARD = threading.Lock()
 
 
 WaveEvent = Literal["change", "rising", "falling", "equals", "unknown"]
@@ -717,6 +720,7 @@ class WaveInfo(UCTool):
     )
     args_schema: Optional[ArgsSchema] = ArgWaveInfo
     return_direct: bool = False
+    call_lock_arguments: tuple[str, ...] = ("test_case_name",)
 
     workspace: str = Field(default=".", description="UCAgent workspace root.")
     test_dir: str = Field(default=".", description="Rendered UnityChip pytest directory.")
@@ -780,6 +784,15 @@ class WaveInfo(UCTool):
 
     def _receipt_key_path(self) -> Path:
         return Path(self.workspace) / self._RECEIPT_KEY_RELATIVE
+
+    def _receipt_store_lock(self):
+        store_path = os.path.realpath(self._receipt_store_path())
+        with _RECEIPT_STORE_LOCKS_GUARD:
+            lock = _RECEIPT_STORE_LOCKS.get(store_path)
+            if lock is None:
+                lock = threading.RLock()
+                _RECEIPT_STORE_LOCKS[store_path] = lock
+            return lock
 
     def _receipt_scope_identity(self) -> str:
         scope = {
@@ -852,6 +865,13 @@ class WaveInfo(UCTool):
         self,
         key: bytes | None = None,
     ) -> list[dict[str, Any]]:
+        with self._receipt_store_lock():
+            return self._load_persisted_receipts_unlocked(key)
+
+    def _load_persisted_receipts_unlocked(
+        self,
+        key: bytes | None = None,
+    ) -> list[dict[str, Any]]:
         path = self._receipt_store_path()
         if not path.is_file():
             return []
@@ -919,17 +939,22 @@ class WaveInfo(UCTool):
         return list(merged.values())[-cls._RECEIPT_LIMIT :]
 
     def _load_analysis_receipts(self) -> None:
-        try:
-            self.analysis_receipts = self._load_persisted_receipts()
-        except Exception as error:
-            warning(f"Could not restore persisted WaveInfo receipts: {error}")
-            self.analysis_receipts = []
+        with self._receipt_store_lock():
+            try:
+                self.analysis_receipts = self._load_persisted_receipts_unlocked()
+            except Exception as error:
+                warning(f"Could not restore persisted WaveInfo receipts: {error}")
+                self.analysis_receipts = []
 
     def _persist_analysis_receipts(self) -> None:
+        with self._receipt_store_lock():
+            self._persist_analysis_receipts_unlocked()
+
+    def _persist_analysis_receipts_unlocked(self) -> None:
         key = self._read_receipt_key(create=True)
         if key is None:
             raise RuntimeError("Could not create the WaveInfo receipt signing key.")
-        persisted = self._load_persisted_receipts(key)
+        persisted = self._load_persisted_receipts_unlocked(key)
         merged = self._merge_receipts(persisted, self.analysis_receipts)
         scope_identity = self._receipt_scope_identity()
         for receipt in merged:
@@ -1521,17 +1546,18 @@ class WaveInfo(UCTool):
                 ),
             ]
         )
-        self.analysis_receipts.append(receipt)
-        if len(self.analysis_receipts) > self._RECEIPT_LIMIT:
-            del self.analysis_receipts[: -self._RECEIPT_LIMIT]
         persisted = False
-        try:
-            self._persist_analysis_receipts()
-            persisted = True
-        except Exception as error:
-            warning(
-                f"WaveInfo receipt '{receipt_id}' is memory-only because persistence failed: {error}"
-            )
+        with self._receipt_store_lock():
+            self.analysis_receipts.append(receipt)
+            if len(self.analysis_receipts) > self._RECEIPT_LIMIT:
+                del self.analysis_receipts[: -self._RECEIPT_LIMIT]
+            try:
+                self._persist_analysis_receipts()
+                persisted = True
+            except Exception as error:
+                warning(
+                    f"WaveInfo receipt '{receipt_id}' is memory-only because persistence failed: {error}"
+                )
         return OrderedDict(
             [
                 ("receipt_id", receipt_id),
@@ -1677,6 +1703,15 @@ class WaveInfo(UCTool):
     ) -> OrderedDict:
         """Return one persisted receipt for the exact current replay result."""
 
+        with self._receipt_store_lock():
+            return self._ensure_current_analysis_receipt_unlocked(invocation, replay)
+
+    def _ensure_current_analysis_receipt_unlocked(
+        self,
+        invocation: dict[str, Any],
+        replay: dict[str, Any],
+    ) -> OrderedDict:
+
         normalized_arguments = self.normalize_analysis_arguments(**invocation)
         context_files = self._analysis_context_snapshot(normalized_arguments)
         context_fingerprint = self._analysis_context_fingerprint(context_files)
@@ -1737,6 +1772,14 @@ class WaveInfo(UCTool):
 
     def get_analysis_receipt(self, receipt_id: str) -> dict[str, Any] | None:
         """Return a verified receipt from memory or the signed checkpoint store."""
+
+        with self._receipt_store_lock():
+            return self._get_analysis_receipt_unlocked(receipt_id)
+
+    def _get_analysis_receipt_unlocked(
+        self,
+        receipt_id: str,
+    ) -> dict[str, Any] | None:
 
         for receipt in reversed(self.analysis_receipts):
             if receipt.get("receipt_id") == receipt_id:
@@ -3486,6 +3529,14 @@ class ApplyWaveInfoEvidence(UCTool):
         document_test: str,
     ) -> tuple[str | None, OrderedDict]:
         """Return the newest signed final receipt matching the document TC."""
+
+        with self.waveinfo._receipt_store_lock():
+            return self._latest_matching_evidence_unlocked(document_test)
+
+    def _latest_matching_evidence_unlocked(
+        self,
+        document_test: str,
+    ) -> tuple[str | None, OrderedDict]:
 
         try:
             persisted = self.waveinfo._load_persisted_receipts()
