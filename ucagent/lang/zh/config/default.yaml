@@ -134,7 +134,7 @@ mission:
       - 最终显式窗口调用必须同时传非负start_step和end_step，不能与logged_cycle混用。成功后调用`ApplyWaveInfoEvidence(target_file=..., bug_tag=..., test_case_tag=..., receipt_id=...)`。同一TC关联多个BG时分别调用，但复用同一中央记录；新增Bug需要更多信号时重新取得包含信号并集的最终receipt，并用`replace_existing=true`替换。工具保留`required_signals`并重置需按新波形复核的语义字段
       - `ApplyWaveInfoEvidence`返回`receipt_test_mismatch`或`matching_final_receipt_not_found`时保持test_case_tag不变；若`details.parameterized_receipts`非空，从其`test_case_name`中选择与报告`tests.test_case_instances`逐字相同的FAILED child，使用该完整node重新调用最终WaveInfo，再用新receipt_id重调Apply；否则逐字执行`details.recovery_call`。相似文件和波形basename只供核对，不建立等价；不得猜参数ID或手写receipt/YAML/viewer。同一tool+status+target连续同错且无有效候选/恢复调用时停止并报告工具契约阻塞
       - 最终调用必须提供完整`signal_groups`；若结果只有`bug_document_signal_groups_required`或`waveform_viewer_error`而没有`bug_document_fields`/`bug_document_viewer_link`，应补齐信号角色后重新调用，不能手工补YAML或viewer token。`protocol`仅在规格和接口确认没有ready/valid/enable/start/busy/done/ack等接受或有效控制时才可为空；`key_signals`至少包含一个与当前功能选择、状态或错误传播直接相关的真实信号
-      - 中断或重启后可以继续使用已验证的签名receipt和中央记录；测试或波形后来变化不要求普通stage刷新已签名证据。只有对应验证项配置`require_current_replay=true`时才重放全部唯一TC并要求更新变化的中央记录；新增关联Bug需要扩展取证信号时也必须更新
+      - 中断或重启后可以继续使用已验证的签名receipt和中央记录；测试或波形后来变化不要求普通stage刷新已签名证据。对应验证项配置`require_current_replay=true`时，Checker重放全部唯一TC：精确TC、事件timeline、信号值、窗口、候选、信号集合及测试/driver/HDL源码上下文的签名语义指纹不变时，自动生成当前receipt并一次原子刷新全部变化的中央机器字段；语义或TC身份变化时不自动改文档，而返回当前receipt或精确诊断交给LLM复核。新增关联Bug需要扩展取证信号时也必须更新
       - 任务中途只运行部分用例时，不要因此删除已有TC/BG、修改有效receipt字段或重造viewer链接；继续使用工具返回且通过签名验证的证据。最终record_and_report_bugs阶段必须先运行完整DUT测试集合，再接受全部动态Bug TC的严格波形重放
       - 如果DUT目标说明中写有“不需要波形验证”或类似表述，其含义仅是无需开展独立的波形覆盖率或内部接口验证，不得豁免动态Bug的`WaveInfo`取证；`WaveInfo`用于确认外部功能失败的根因，属于动态Bug确认流程
       - 禁止无目的地大范围获取或遍历{DUT}内部信号；但最终动态Bug证据必须按当前功能选择最小且充分的`key_signals`，用于解释从接口输入到错误输出的关键选择、状态或传播过程
@@ -1154,7 +1154,7 @@ stage:
           - "  - record_dynamic_bug.py仅为可选骨架辅助；不可用时按Guide_Doc/dut_bug_analysis.md中的第 5.1 节完整标准案例和第 5.2 节骨架，用文本工具建立相同结构。必须继续调用WaveInfo/ApplyWaveInfoEvidence，并完成BG三个字段、唯一<CAUSE-REF-ROOT-XXX>、ROOT五个分析字段及双向链接，删除全部<BUG-TODO>"
           - "  - 动态Bug只写入唯一目标{OUT}/{DUT}_bug_analysis.md，不得根据可见标题另建文件。Markdown、record/Apply和中央YAML test_case使用函数级报告node；非参数化WaveInfo使用同一node。若tests.test_case_instances列出参数化实例，文档TC不变，WaveInfo选择实际FAILED child，YAML executed_test_case由Apply记录该child"
           - "  - 当前批次及最终检查均未确认动态Bug时，保留{OUT}/{DUT}_bug_analysis.md的标题及按顺序封闭的DYNAMIC-BUGS、ROOT-CAUSES、WAVEFORM-EVIDENCE三个空容器；容器正文不得写说明文字、BG-*-0、TC/ROOT或波形占位"
-          - "  - WaveInfo收据陈旧、缺失或无法重放时，必须重跑对应失败用例并重新调用WaveInfo更新证据；只要正确实现的测试仍Fail，禁止通过删除<TC-*>、<BG-*>或整个FG/FC/CK分支规避门禁。只有正确测试已经Pass或证据证明该记录并非DUT Bug时，才可按Guide重新分类或删除动态记录"
+          - "  - WaveInfo收据陈旧、缺失或无法重放时，先执行Check：严格重放会自动原子刷新语义等价的当前机器证据；若返回[Waveform Semantic Review Required]，直接使用诊断中已签名的current_receipt_id和精确ApplyWaveInfoEvidence调用，不要再次运行pytest或WaveInfo；只有重放失败、当前波形缺失或精确TC身份变化时才按诊断重跑/修复测试并重新调用WaveInfo。只要正确实现的测试仍Fail，禁止通过删除<TC-*>、<BG-*>或整个FG/FC/CK分支规避门禁"
           - "  - WaveInfo inventory只允许用于发现波形basename；它不建立pytest源码身份。非参数化调用从目标<TC-...>去掉TC-；参数化聚合调用从tests.test_case_instances选择同一完整路径/类/函数的实际FAILED child。不能按recommended_call改目录或自行拼接参数ID；不要重复inventory或给可选参数传null"
           - "  - agent.cfg已解析本次TC输出目录为{OUT}/tests。每个动态Bug TC文件路径必须以{OUT}/tests/开头；从报告node ID只删除:start-end或:line再添加TC-。Checker返回TEST_CASE_NODE_ID_MISMATCH时按其中Configured TC output directory和Similar current FAILED report node IDs修复首个记录；修复前禁止原样重试Check/Complete"
           - "  - Apply返回receipt_test_mismatch或matching_final_receipt_not_found时保持函数级test_case_tag不变；若details.parameterized_receipts非空，将其中test_case_name与报告tests.test_case_instances逐字核对，选FAILED child重做最终WaveInfo；否则逐字执行details.recovery_call。相似文件和波形basename不参与匹配；禁止猜路径/参数ID或手写receipt/YAML/viewer"
@@ -1539,8 +1539,8 @@ stage:
       - "第3步：根据更新后的当前批次列表继续记录，直到{OUT}/{DUT}_bug_analysis.md中所有置信度不为0的Bug全部完成；记录不能多于或少于current_batch要求的有效Bug，置信度为0的Bug不记录且不计入总数"
       - "第4步：全部Bug记录完成后调用Complete()完成当前阶段；如果最后一批尚未通过Check记录，也可以直接调用Complete(stage_args={\"bug_list\":[...]})"
       - "最终分类门禁：每次Check/Complete先重跑全部DUT测试并核对Fail与BG/TC/CK；因此不得删除仍由正确测试稳定复现的动态Bug来缩小current_batch或规避收据错误。测试/基础设施问题修复到Pass后才能移除错误记录，真实DUT Bug必须保留Fail并更新证据"
-      - "最终波形门禁：Check/Complete会再次扫描动态Bug文档中的全部非零置信度Bug，只接受真实WaveInfo收据支持且可在当前最新波形重放的status: confirmed证据；status: unavailable不能完成；动态Bug文档禁止<BG-STATIC-*>，静态发现只能保留在独立静态文档并通过<LINK-BUG-*>关联；没有动态Bug或只有置信度0条目时不要求WaveInfo"
-      - "最终波形重放前必须运行完整DUT测试集合；增量阶段只运行部分用例时，不要删除或改写已有TC的有效签名证据，但最终门禁不会跳过任何动态Bug TC的重放"
+      - "最终波形门禁：Check/Complete会再次扫描动态Bug文档中的全部非零置信度Bug，只接受真实WaveInfo收据支持且可在当前最新波形重放的status: confirmed证据；语义指纹不变的全部当前机器字段由Checker一次原子刷新并保留已有语义结论。status: unavailable不能完成；动态Bug文档禁止<BG-STATIC-*>，静态发现只能保留在独立静态文档并通过<LINK-BUG-*>关联；没有动态Bug或只有置信度0条目时不要求WaveInfo"
+      - "最终波形重放前必须运行完整DUT测试集合；增量阶段只运行部分用例时，不要删除或改写已有TC的有效签名证据，但最终门禁不会跳过任何动态Bug TC。若Checker返回[Waveform Semantic Review Required]，使用其中已签名的current_receipt_id和精确Apply调用后复核被重置字段，不要重复运行pytest/WaveInfo；TC消失、node ID变化或当前波形缺失时才按精确诊断处理，候选路径只作提示而不建立等价"
       - "stage_args.bug_list格式：优先把stage_args作为真实JSON对象传入，本阶段约定其中bug_list为JSON数组；如果嵌套对象无法正确传递，可以把完整stage_args JSON对象作为字符串传入，但不要只把bug_list数组单独编码成字符串。数组中的每个对象表示一个唯一Bug，并且必须包含bug_name、alias、CK、desc、locations、severity、confidence和ref字段"
       - "bug_name：字符串，填写{OUT}/{DUT}_bug_analysis.md中<BG-BUG_NAME-XX>标签的BUG_NAME部分，例如CIN_OVERFLOW；不要额外创造文档中不存在的Bug"
       - "alias：字符串数组，必须完整填写{OUT}/{DUT}_static_bug_analysis.md中通过<LINK-BUG-[BG-BUG_NAME-XX]>确认关联到该动态Bug的全部<BG-STATIC-*>标签名，例如[\"BG-STATIC-001-CIN_OVERFLOW\"]；一个动态Bug可有多个alias，一个静态Bug也可关联多个动态Bug；没有已确认静态Bug时填写空数组[]；BG-TBD、BG-NA和BG-STATIC-NULL不能作为alias"

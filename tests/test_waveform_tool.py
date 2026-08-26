@@ -1030,6 +1030,13 @@ def test_receipt_is_restored_after_tool_recreation(tmp_path):
     assert restored["receipt_id"] == receipt_id
     assert restored["arguments"]["test_case_name"] == "test_receipt_resume"
     assert restored["result"]["result_fingerprint"] == receipt_info["result_fingerprint"]
+    assert restored["result"]["semantic_fingerprint"]
+    assert restored["result"]["analysis_context_fingerprint"]
+    assert restored["result"]["analysis_context_files"] == {}
+    assert restored["result"]["patterns"] == result["patterns"]
+    assert restored["result"]["timeline"] == {
+        str(wave_step): entry for wave_step, entry in result["timeline"].items()
+    }
     assert restored["result"]["waveform_viewer"] == result["waveform_viewer"]
     assert restored["result"]["waveform_viewer"]["payload"] == {
         "v": 2,
@@ -1046,6 +1053,38 @@ def test_receipt_is_restored_after_tool_recreation(tmp_path):
             "TOP.dut.ready",
         ],
     }
+
+
+def test_current_analysis_receipt_reuses_exact_persisted_semantics(tmp_path):
+    test_dir = tmp_path / "tests"
+    session = _session(test_dir, "toffee_tmp_20260814150000_000")
+    _write_vcd(session, "test_receipt_reuse")
+    first_tool = _tool(tmp_path, test_dir)
+    result = _call(
+        first_tool,
+        test_case_name="tests/test_receipt_reuse.py::test_receipt_reuse",
+        pattern=[{"signal": "TOP.dut.valid", "event": "rising"}],
+        signal_groups=FINAL_SIGNAL_GROUPS,
+        start_step=10,
+        end_step=25,
+    )
+    receipt_id = result["waveform_analysis_receipt"]["receipt_id"]
+
+    resumed_tool = _tool(tmp_path, test_dir)
+    receipt = resumed_tool.get_analysis_receipt(receipt_id)
+    replay = resumed_tool.replay_analysis(**receipt["arguments"])
+    receipt_count = len(resumed_tool.analysis_receipts)
+
+    first_current = resumed_tool.ensure_current_analysis_receipt(
+        receipt["arguments"], replay
+    )
+    second_current = resumed_tool.ensure_current_analysis_receipt(
+        receipt["arguments"], replay
+    )
+
+    assert first_current["waveform_analysis_receipt"]["receipt_id"] == receipt_id
+    assert second_current["waveform_analysis_receipt"]["receipt_id"] == receipt_id
+    assert len(resumed_tool.analysis_receipts) == receipt_count
 
 
 def test_tampered_persisted_receipt_is_not_restored(tmp_path):

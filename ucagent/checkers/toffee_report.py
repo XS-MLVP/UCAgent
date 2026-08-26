@@ -55,6 +55,7 @@ from ucagent.util.bug_analysis_contract import (
 from ucagent.checkers.base import Checker
 import copy
 from datetime import datetime
+import json
 import os
 import re
 import textwrap
@@ -2249,15 +2250,110 @@ def _viewer_replay_contract(viewer: object) -> dict[str, object] | None:
     return contract
 
 
+def _waveform_semantic_change_details(
+    documented_result: dict,
+    current_result: dict,
+) -> dict[str, object]:
+    """Summarize signed semantic differences without dumping full timelines."""
+
+    compared_fields = (
+        "analysis_context_fingerprint",
+        "waveform_info",
+        "analysis_window",
+        "patterns",
+        "signal_groups",
+        "signals",
+        "event_summary",
+        "event_steps",
+        "timeline",
+        "cycle_alignment",
+    )
+
+    def canonical(value: object) -> str:
+        return json.dumps(
+            value,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        )
+
+    changed_fields = [
+        field
+        for field in compared_fields
+        if canonical(documented_result.get(field))
+        != canonical(current_result.get(field))
+    ]
+    documented_viewer = _viewer_replay_contract(
+        documented_result.get("waveform_viewer")
+    )
+    current_viewer = _viewer_replay_contract(current_result.get("waveform_viewer"))
+    if documented_viewer != current_viewer:
+        changed_fields.append("waveform_viewer")
+
+    details: dict[str, object] = {
+        "changed_semantic_fields": changed_fields or ["semantic_fingerprint"],
+    }
+    if "analysis_context_fingerprint" in changed_fields:
+        documented_files = documented_result.get("analysis_context_files") or {}
+        current_files = current_result.get("analysis_context_files") or {}
+        added_files = sorted(set(current_files) - set(documented_files))
+        removed_files = sorted(set(documented_files) - set(current_files))
+        changed_files = sorted(
+            path
+            for path in set(documented_files) & set(current_files)
+            if documented_files[path] != current_files[path]
+        )
+        details["analysis_context_fingerprints"] = {
+            "documented": documented_result.get("analysis_context_fingerprint"),
+            "current": current_result.get("analysis_context_fingerprint"),
+        }
+        details["analysis_context_file_changes"] = {
+            "added": added_files[:50],
+            "removed": removed_files[:50],
+            "changed": changed_files[:50],
+            "truncated": any(
+                len(paths) > 50
+                for paths in (added_files, removed_files, changed_files)
+            ),
+        }
+    if "cycle_alignment" in changed_fields:
+        details["selected_candidate"] = {
+            "documented": (
+                documented_result.get("cycle_alignment") or {}
+            ).get("selected_candidate"),
+            "current": (current_result.get("cycle_alignment") or {}).get(
+                "selected_candidate"
+            ),
+        }
+    if "event_steps" in changed_fields:
+        details["event_steps"] = {
+            "documented": list(documented_result.get("event_steps") or [])[:50],
+            "current": list(current_result.get("event_steps") or [])[:50],
+            "truncated": (
+                len(documented_result.get("event_steps") or []) > 50
+                or len(current_result.get("event_steps") or []) > 50
+            ),
+        }
+    if "waveform_viewer" in changed_fields:
+        details["waveform_viewer_contract"] = {
+            "documented": documented_viewer,
+            "current": current_viewer,
+        }
+    return details
+
+
 def check_waveform_bug_analysis(
     workspace: str,
     bug_file: str,
     target_ck_prefix: str,
     failed_tc_and_cks: dict,
     waveform_tool=None,
+    waveform_evidence_tool=None,
     waveform_test_dir: str | None = None,
     require_all_documented: bool = False,
     require_current_replay: bool = False,
+    _refresh_attempted: bool = False,
 ) -> tuple[bool, object]:
     """Require verified WaveInfo receipts for every non-zero dynamic Bug/TC pair."""
 
@@ -2373,6 +2469,7 @@ def check_waveform_bug_analysis(
             )
 
     issues = []
+    current_refreshes = []
     for item in validation_items:
         block = blocks[item["test_label"]]
         data = block["data"]
@@ -2839,13 +2936,73 @@ def check_waveform_bug_analysis(
         if not callable(replay_method):
             replay_method = waveform_tool.analyze
         replay = replay_method(**receipt_args)
+        current_receipt_id = ""
+        current_semantic_fingerprint = None
+        current_receipt_result = {}
+        if replay.get("success") is True and replay.get("evidence_usable") is True:
+            ensure_receipt = getattr(
+                waveform_tool,
+                "ensure_current_analysis_receipt",
+                None,
+            )
+            if not callable(ensure_receipt):
+                issues.append(
+                    {
+                        "message": (
+                            f"[Waveform Current Receipt Required] Current replay for "
+                            f"'{item['test_case']}' succeeded, but WaveInfo cannot create a "
+                            "signed current-evidence receipt."
+                        ),
+                        "details": {
+                            "bugs": item["bugs"],
+                            "test_case": item["test_case"],
+                            "line": line,
+                        },
+                    }
+                )
+                continue
+            current_evidence = ensure_receipt(receipt_args, replay)
+            current_receipt_info = current_evidence.get("waveform_analysis_receipt") or {}
+            current_receipt_id = str(current_receipt_info.get("receipt_id") or "")
+            if current_receipt_info.get("reusable_after_restart") is not True:
+                issues.append(
+                    {
+                        "message": (
+                            f"[Waveform Current Receipt Persistence Failed] Current replay for "
+                            f"'{item['test_case']}' succeeded, but its signed receipt was not "
+                            "persisted. Automatic document replacement is not allowed."
+                        ),
+                        "details": {
+                            "bugs": item["bugs"],
+                            "test_case": item["test_case"],
+                            "line": line,
+                            "current_receipt_id": current_receipt_id,
+                            "persistence": current_receipt_info.get("persistence"),
+                            "next_action": (
+                                "Restore write access to the workspace .ucagent receipt store, "
+                                "then call Check again. Do not edit receipt-backed document "
+                                "fields manually."
+                            ),
+                            "rerun_test": False,
+                            "rerun_waveinfo": False,
+                            "apply_evidence": False,
+                        },
+                    }
+                )
+                continue
+            current_receipt = waveform_tool.get_analysis_receipt(current_receipt_id)
+            current_receipt_result = (current_receipt or {}).get("result") or {}
+            current_semantic_fingerprint = current_receipt_result.get(
+                "semantic_fingerprint"
+            )
         update_call = {
             "tool": "ApplyWaveInfoEvidence",
             "arguments": {
                 "target_file": bug_file,
                 "bug_tag": item["bugs"][0],
                 "test_case_tag": item["test_label"],
-                "receipt_id": "",
+                "checkpoint_path": item.get("checkpoint", ""),
+                "receipt_id": current_receipt_id,
                 "replace_existing": True,
             },
         }
@@ -2880,87 +3037,126 @@ def check_waveform_bug_analysis(
                 }
             )
             continue
-        current_viewer = replay.get("waveform_viewer")
-        documented_replay_contract = _viewer_replay_contract(documented_viewer)
-        current_replay_contract = _viewer_replay_contract(current_viewer)
-        if current_replay_contract != documented_replay_contract:
+
+        documented_semantic_fingerprint = receipt_result.get("semantic_fingerprint")
+        if documented_semantic_fingerprint != current_semantic_fingerprint:
             issues.append(
                 {
                     "message": (
-                        f"[Waveform Viewer Link Changed] Current WaveInfo replay for "
-                        f"'{item['test_case']}' produced a different window, cursor, or "
-                        "signal list than the link at line "
-                        f"{block.get('viewer_line')}. Call final WaveInfo again and pass the "
-                        "new receipt to ApplyWaveInfoEvidence."
+                        f"[Waveform Semantic Review Required] Current replay for "
+                        f"'{item['test_case']}' changed the event timeline, signal values, "
+                        "signal context, test/driver/HDL source context, or another signed "
+                        "semantic input. Automatic document replacement is not allowed. Use "
+                        "the signed current receipt below with ApplyWaveInfoEvidence, then "
+                        "review every reset semantic field."
                     ),
                     "details": {
                         "bugs": item["bugs"],
                         "test_case": item["test_case"],
                         "line": line,
-                        "viewer_line": block.get("viewer_line"),
-                        "documented_waveform_viewer": documented_viewer,
-                        "current_waveform_viewer": current_viewer,
-                        "documented_replay_contract": documented_replay_contract,
-                        "current_replay_contract": current_replay_contract,
-                        "update_call_after_final_waveinfo": update_call,
+                        "documented_receipt_id": receipt_id,
+                        "current_receipt_id": current_receipt_id,
+                        "documented_semantic_fingerprint": documented_semantic_fingerprint,
+                        "current_semantic_fingerprint": current_semantic_fingerprint,
+                        "semantic_changes": _waveform_semantic_change_details(
+                            receipt_result,
+                            current_receipt_result,
+                        ),
+                        "update_call": update_call,
+                        "rerun_test": False,
+                        "rerun_waveinfo": False,
+                        "apply_evidence": True,
                     },
                 }
             )
             continue
-        if mode == "clock_aligned":
-            current_candidate = (
-                (replay.get("cycle_alignment") or {}).get("selected_candidate") or {}
+
+        if current_receipt_id != receipt_id:
+            current_refreshes.append(
+                {
+                    "bug_tag": item["bugs"][0],
+                    "checkpoint_path": item.get("checkpoint", ""),
+                    "test_case_tag": item["test_label"],
+                    "old_receipt_id": receipt_id,
+                    "new_receipt_id": current_receipt_id,
+                }
             )
-            candidate_errors = []
-            candidate_differences = {}
-            for key in ("clock_occurrence_index", "cycle_delta", "wave_step"):
-                if current_candidate.get(key) != data.get(key):
-                    candidate_errors.append(
-                        f"[Waveform Candidate Changed] Current '{key}' is "
-                        f"{current_candidate.get(key)}, documented value is {data.get(key)}."
-                    )
-                    candidate_differences[key] = {
-                        "documented": data.get(key),
-                        "current_waveinfo": current_candidate.get(key),
-                    }
-            if candidate_errors:
-                issues.append(
-                    {
-                        "message": "; ".join(candidate_errors) + " Call WaveInfo again and update the analysis.",
-                        "details": {
-                            "bugs": item["bugs"],
-                            "test_case": item["test_case"],
-                            "line": line,
-                            "field_differences": candidate_differences,
-                            "current_waveinfo": replay,
-                            "update_call_after_final_waveinfo": update_call,
-                        },
-                    }
-                )
+
+    if current_refreshes:
+        refresh_method = getattr(
+            waveform_evidence_tool,
+            "refresh_existing_evidence",
+            None,
+        )
+        if not callable(refresh_method):
+            issues.append(
+                {
+                    "message": (
+                        "[Waveform Current Evidence Refresh Unavailable] Current replay proved "
+                        "that one or more records are semantically unchanged, but the atomic "
+                        "evidence writer is unavailable."
+                    ),
+                    "details": {
+                        "test_cases": [
+                            item["test_case_tag"] for item in current_refreshes
+                        ],
+                        "next_action": (
+                            "Enable ApplyWaveInfoEvidence for this stage, then call Check again."
+                        ),
+                    },
+                }
+            )
         else:
-            current_event_steps = [
-                int(step)
-                for step, entry in replay.get("timeline", {}).items()
-                if isinstance(entry, dict) and entry.get("triggers")
-            ]
-            if data.get("wave_step") not in current_event_steps:
+            refresh_result = refresh_method(
+                target_file=bug_file,
+                refreshes=current_refreshes,
+            )
+            if refresh_result.get("success") is not True:
                 issues.append(
                     {
                         "message": (
-                            f"[Waveform Event Changed] Documented wave_step {data.get('wave_step')} "
-                            "is not a triggered event in the current waveform. Call WaveInfo "
-                            "again and update the analysis."
+                            "[Waveform Current Evidence Refresh Failed] Safe current-evidence "
+                            "records could not be written atomically."
                         ),
                         "details": {
-                            "bugs": item["bugs"],
-                            "test_case": item["test_case"],
-                            "line": line,
-                            "documented_wave_step": data.get("wave_step"),
-                            "current_event_steps": current_event_steps,
-                            "current_waveinfo": replay,
-                            "update_call_after_final_waveinfo": update_call,
+                            "refresh_result": refresh_result,
+                            "next_action": (
+                                "Apply the writer diagnostic without changing TC identity, then "
+                                "call Check again."
+                            ),
                         },
                     }
+                )
+            elif issues and not _refresh_attempted:
+                return check_waveform_bug_analysis(
+                    workspace,
+                    bug_file,
+                    target_ck_prefix,
+                    failed_tc_and_cks,
+                    waveform_tool=waveform_tool,
+                    waveform_evidence_tool=waveform_evidence_tool,
+                    waveform_test_dir=waveform_test_dir,
+                    require_all_documented=require_all_documented,
+                    require_current_replay=True,
+                    _refresh_attempted=True,
+                )
+            elif not issues:
+                refreshed_validation = check_waveform_bug_analysis(
+                    workspace,
+                    bug_file,
+                    target_ck_prefix,
+                    failed_tc_and_cks,
+                    waveform_tool=waveform_tool,
+                    waveform_evidence_tool=waveform_evidence_tool,
+                    waveform_test_dir=waveform_test_dir,
+                    require_all_documented=require_all_documented,
+                    require_current_replay=False,
+                )
+                if refreshed_validation[0] is not True:
+                    return refreshed_validation
+                return True, (
+                    f"Automatically refreshed {len(current_refreshes)} semantically unchanged "
+                    "central WaveInfo record(s), then validated the signed document."
                 )
 
     if issues:
@@ -3026,6 +3222,7 @@ def check_all_documented_waveform_bug_analysis(
     workspace: str,
     bug_file: str,
     waveform_tool=None,
+    waveform_evidence_tool=None,
     waveform_test_dir: str | None = None,
     require_current_replay: bool = False,
 ) -> tuple[bool, object]:
@@ -3060,6 +3257,7 @@ def check_all_documented_waveform_bug_analysis(
         "",
         documented_test_map,
         waveform_tool=waveform_tool,
+        waveform_evidence_tool=waveform_evidence_tool,
         waveform_test_dir=waveform_test_dir,
         require_all_documented=True,
         require_current_replay=require_current_replay,
@@ -3085,15 +3283,18 @@ class UnityChipCheckerWaveformBugAnalysis(Checker):
         self.require_current_replay = require_current_replay
 
     def do_check(self, **kwargs) -> tuple[bool, object]:
-        """Validate dynamic Bug analysis and active WaveInfo receipts."""
+        """Validate dynamic Bug analysis and safely refresh current WaveInfo evidence."""
         del kwargs
         waveform_tool = None
+        waveform_evidence_tool = None
         if self.stage_manager is not None:
             waveform_tool = self.get_tool_by_name("WaveInfo")
+            waveform_evidence_tool = self.get_tool_by_name("ApplyWaveInfoEvidence")
         passed, message = check_all_documented_waveform_bug_analysis(
             self.workspace,
             self.bug_file,
             waveform_tool=waveform_tool,
+            waveform_evidence_tool=waveform_evidence_tool,
             waveform_test_dir=self.test_dir,
             require_current_replay=self.require_current_replay,
         )

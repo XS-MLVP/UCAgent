@@ -30,7 +30,7 @@ from ucagent.checkers.unity_test import (
     UnityChipCheckerTestCase,
 )
 from ucagent.checkers.unity_test_random import RandomTestCasesChecker
-from ucagent.tools.waveform import WaveInfo
+from ucagent.tools.waveform import ApplyWaveInfoEvidence, WaveInfo
 from ucagent.util.config import load_yaml_with_env_vars
 from ucagent.util.bug_analysis_contract import (
     BUG_ANALYSIS_SECTION_TITLES,
@@ -1203,7 +1203,20 @@ def test_current_replay_must_keep_the_documented_clock_candidate(
     )
 
     assert passed is False
-    assert "[Waveform Candidate Changed]" in str(message)
+    assert "[Waveform Semantic Review Required]" in message["error"]
+    assert "cycle_alignment" in message["details"]["semantic_changes"][
+        "changed_semantic_fields"
+    ]
+    assert message["details"]["semantic_changes"]["selected_candidate"] == {
+        "documented": result["cycle_alignment"]["selected_candidate"],
+        "current": {
+            **result["cycle_alignment"]["selected_candidate"],
+            "wave_step": result["cycle_alignment"]["selected_candidate"]["wave_step"]
+            + 1,
+        },
+    }
+    assert message["details"]["current_receipt_id"]
+    assert message["details"]["rerun_waveinfo"] is False
 
 
 def test_current_replay_runs_once_for_multi_bug_central_record(tmp_path, monkeypatch):
@@ -2834,6 +2847,7 @@ def test_new_session_path_does_not_change_logical_viewer_contract(tmp_path):
         end_step=25,
     )
     original_viewer = copy.deepcopy(result["waveform_viewer"])
+    original_receipt_id = result["waveform_analysis_receipt"]["receipt_id"]
     _write_bug_doc(tmp_path, _explicit_block(result, pattern, wave_step=15))
 
     newer = (
@@ -2845,6 +2859,73 @@ def test_new_session_path_does_not_change_logical_viewer_contract(tmp_path):
     )
     newer.parent.mkdir(parents=True, exist_ok=True)
     newer.write_text(VCD_CONTENT, encoding="ascii")
+    evidence_tool = ApplyWaveInfoEvidence(
+        waveinfo=tool,
+        workspace=str(tmp_path),
+    )
+
+    passed, message = check_all_documented_waveform_bug_analysis(
+        str(tmp_path),
+        "bugs.md",
+        waveform_tool=tool,
+        waveform_evidence_tool=evidence_tool,
+        waveform_test_dir="tests",
+        require_current_replay=True,
+    )
+
+    assert passed is True, message
+    assert "Automatically refreshed 1 semantically unchanged" in message
+    updated_document = (tmp_path / "bugs.md").read_text(encoding="utf-8")
+    assert f"receipt_id: {original_receipt_id}" not in updated_document
+    assert "alignment_evidence: the input transition uniquely identifies the failing request" in updated_document
+    receipt_count = len(tool.analysis_receipts)
+
+    passed, message = check_all_documented_waveform_bug_analysis(
+        str(tmp_path),
+        "bugs.md",
+        waveform_tool=tool,
+        waveform_evidence_tool=evidence_tool,
+        waveform_test_dir="tests",
+        require_current_replay=True,
+    )
+
+    assert passed is True, message
+    assert len(tool.analysis_receipts) == receipt_count
+    replay = tool.replay_analysis(
+        **tool.get_analysis_receipt(
+            original_receipt_id
+        )["arguments"]
+    )
+    assert replay["waveform_selection"]["waveform_file"] != result[
+        "waveform_selection"
+    ]["waveform_file"]
+    assert replay["waveform_viewer"] == original_viewer
+
+
+def test_current_replay_requires_review_when_timeline_values_change(
+    tmp_path, monkeypatch
+):
+    test_dir = tmp_path / "tests"
+    _write_waveform(test_dir)
+    tool = WaveInfo(workspace=str(tmp_path), test_dir="tests", dut_name="Demo")
+    pattern = [{"signal": "TOP.dut.valid", "event": "rising"}]
+    result = _call_waveinfo(
+        tool,
+        test_case_name=DOCUMENT_TEST,
+        pattern=pattern,
+        start_step=10,
+        end_step=25,
+    )
+    _write_bug_doc(tmp_path, _explicit_block(result, pattern, wave_step=15))
+    original_document = (tmp_path / "bugs.md").read_text(encoding="utf-8")
+    original_replay = WaveInfo.replay_analysis
+
+    def changed_timeline(self, **kwargs):
+        replay = copy.deepcopy(original_replay(self, **kwargs))
+        replay["timeline"][15]["values"]["TOP.dut.result[3:0]"] = "4'hf"
+        return replay
+
+    monkeypatch.setattr(WaveInfo, "replay_analysis", changed_timeline)
 
     passed, message = check_all_documented_waveform_bug_analysis(
         str(tmp_path),
@@ -2854,16 +2935,257 @@ def test_new_session_path_does_not_change_logical_viewer_contract(tmp_path):
         require_current_replay=True,
     )
 
-    assert passed is True, message
-    replay = tool.replay_analysis(
-        **tool.get_analysis_receipt(
-            result["waveform_analysis_receipt"]["receipt_id"]
-        )["arguments"]
+    assert passed is False
+    assert "[Waveform Semantic Review Required]" in message["error"]
+    assert message["details"]["current_receipt_id"]
+    assert message["details"]["update_call"]["arguments"]["receipt_id"] == message[
+        "details"
+    ]["current_receipt_id"]
+    assert message["details"]["rerun_waveinfo"] is False
+    assert (tmp_path / "bugs.md").read_text(encoding="utf-8") == original_document
+
+
+def test_current_replay_requires_review_when_exact_test_source_changes(tmp_path):
+    test_dir = tmp_path / "tests"
+    test_dir.mkdir()
+    test_source = test_dir / "test_a.py"
+    test_source.write_text(
+        "def test_a(env):\n    assert env.result == 3\n",
+        encoding="utf-8",
     )
-    assert replay["waveform_selection"]["waveform_file"] != result[
-        "waveform_selection"
-    ]["waveform_file"]
-    assert replay["waveform_viewer"] == original_viewer
+    _write_waveform(test_dir)
+    tool = WaveInfo(workspace=str(tmp_path), test_dir="tests", dut_name="Demo")
+    pattern = [{"signal": "TOP.dut.valid", "event": "rising"}]
+    result = _call_waveinfo(
+        tool,
+        test_case_name=DOCUMENT_TEST,
+        pattern=pattern,
+        start_step=10,
+        end_step=25,
+    )
+    _write_bug_doc(tmp_path, _explicit_block(result, pattern, wave_step=15))
+    original_document = (tmp_path / "bugs.md").read_text(encoding="utf-8")
+    test_source.write_text(
+        "def test_a(env):\n    assert env.result == 4\n",
+        encoding="utf-8",
+    )
+    resumed_tool = WaveInfo(
+        workspace=str(tmp_path),
+        test_dir="tests",
+        dut_name="Demo",
+    )
+
+    passed, message = check_all_documented_waveform_bug_analysis(
+        str(tmp_path),
+        "bugs.md",
+        waveform_tool=resumed_tool,
+        waveform_test_dir="tests",
+        require_current_replay=True,
+    )
+
+    assert passed is False
+    assert "[Waveform Semantic Review Required]" in message["error"]
+    semantic_changes = message["details"]["semantic_changes"]
+    assert "analysis_context_fingerprint" in semantic_changes[
+        "changed_semantic_fields"
+    ]
+    assert semantic_changes["analysis_context_fingerprints"]["documented"]
+    assert semantic_changes["analysis_context_fingerprints"]["current"]
+    assert (
+        semantic_changes["analysis_context_fingerprints"]["documented"]
+        != semantic_changes["analysis_context_fingerprints"]["current"]
+    )
+    assert semantic_changes["analysis_context_file_changes"] == {
+        "added": [],
+        "removed": [],
+        "changed": ["tests/test_a.py"],
+        "truncated": False,
+    }
+    assert semantic_changes["changed_semantic_fields"] == [
+        "analysis_context_fingerprint"
+    ]
+    assert message["details"]["current_receipt_id"]
+    assert message["details"]["update_call"]["arguments"] == {
+        "target_file": "bugs.md",
+        "bug_tag": "BG-DYNAMIC-80",
+        "test_case_tag": f"TC-{DOCUMENT_TEST}",
+        "checkpoint_path": CHECKPOINT,
+        "receipt_id": message["details"]["current_receipt_id"],
+        "replace_existing": True,
+    }
+    assert message["details"]["rerun_test"] is False
+    assert message["details"]["rerun_waveinfo"] is False
+    assert (tmp_path / "bugs.md").read_text(encoding="utf-8") == original_document
+
+
+def test_current_replay_atomically_refreshes_all_semantically_unchanged_records(
+    tmp_path,
+):
+    test_dir = tmp_path / "tests"
+    first_waveform = _write_waveform(test_dir)
+    second_waveform = first_waveform.with_name("test_b.vcd")
+    second_waveform.write_text(VCD_CONTENT, encoding="ascii")
+    tool = WaveInfo(workspace=str(tmp_path), test_dir="tests", dut_name="Demo")
+    pattern = [{"signal": "TOP.dut.valid", "event": "rising"}]
+    second_test = "tests/test_b.py::test_b"
+    first_result = _call_waveinfo(
+        tool,
+        test_case_name=DOCUMENT_TEST,
+        pattern=pattern,
+        start_step=10,
+        end_step=25,
+    )
+    second_result = _call_waveinfo(
+        tool,
+        test_case_name=second_test,
+        pattern=pattern,
+        start_step=10,
+        end_step=25,
+    )
+    _write_central_waveform_document(
+        tmp_path,
+        [
+            ("BG-FIRST-DEFECT-80", DOCUMENT_TEST),
+            ("BG-SECOND-DEFECT-90", second_test),
+        ],
+        {
+            DOCUMENT_TEST: _explicit_block(first_result, pattern, wave_step=15),
+            second_test: _explicit_block(second_result, pattern, wave_step=15),
+        },
+        include_analysis=True,
+    )
+    old_receipts = {
+        first_result["waveform_analysis_receipt"]["receipt_id"],
+        second_result["waveform_analysis_receipt"]["receipt_id"],
+    }
+
+    newer_session = (
+        test_dir / "data" / "toffee_tmp_20260814160000_123" / "master"
+    )
+    newer_session.mkdir(parents=True, exist_ok=True)
+    (newer_session / "test_a.vcd").write_text(VCD_CONTENT, encoding="ascii")
+    (newer_session / "test_b.vcd").write_text(VCD_CONTENT, encoding="ascii")
+    evidence_tool = ApplyWaveInfoEvidence(
+        waveinfo=tool,
+        workspace=str(tmp_path),
+    )
+
+    passed, message = check_all_documented_waveform_bug_analysis(
+        str(tmp_path),
+        "bugs.md",
+        waveform_tool=tool,
+        waveform_evidence_tool=evidence_tool,
+        waveform_test_dir="tests",
+        require_current_replay=True,
+    )
+
+    assert passed is True, message
+    assert "Automatically refreshed 2 semantically unchanged" in message
+    updated_document = (tmp_path / "bugs.md").read_text(encoding="utf-8")
+    for old_receipt in old_receipts:
+        assert f"receipt_id: {old_receipt}" not in updated_document
+    assert updated_document.count("alignment_evidence: the input transition") == 2
+
+
+def test_current_replay_refresh_write_failure_leaves_document_unchanged(
+    tmp_path, monkeypatch
+):
+    test_dir = tmp_path / "tests"
+    _write_waveform(test_dir)
+    tool = WaveInfo(workspace=str(tmp_path), test_dir="tests", dut_name="Demo")
+    pattern = [{"signal": "TOP.dut.valid", "event": "rising"}]
+    result = _call_waveinfo(
+        tool,
+        test_case_name=DOCUMENT_TEST,
+        pattern=pattern,
+        start_step=10,
+        end_step=25,
+    )
+    _write_bug_doc(tmp_path, _explicit_block(result, pattern, wave_step=15))
+    original_document = (tmp_path / "bugs.md").read_text(encoding="utf-8")
+    newer = (
+        test_dir
+        / "data"
+        / "toffee_tmp_20260814160000_123"
+        / "master"
+        / "test_a.vcd"
+    )
+    newer.parent.mkdir(parents=True, exist_ok=True)
+    newer.write_text(VCD_CONTENT, encoding="ascii")
+    evidence_tool = ApplyWaveInfoEvidence(
+        waveinfo=tool,
+        workspace=str(tmp_path),
+    )
+
+    def fail_replace(*_args, **_kwargs):
+        raise RuntimeError("simulated concurrent write")
+
+    monkeypatch.setattr(ApplyWaveInfoEvidence, "_atomic_replace", fail_replace)
+
+    passed, message = check_all_documented_waveform_bug_analysis(
+        str(tmp_path),
+        "bugs.md",
+        waveform_tool=tool,
+        waveform_evidence_tool=evidence_tool,
+        waveform_test_dir="tests",
+        require_current_replay=True,
+    )
+
+    assert passed is False
+    assert "[Waveform Current Evidence Refresh Failed]" in message["error"]
+    assert "simulated concurrent write" in str(message)
+    assert (tmp_path / "bugs.md").read_text(encoding="utf-8") == original_document
+
+
+def test_current_replay_does_not_apply_memory_only_receipt(tmp_path, monkeypatch):
+    test_dir = tmp_path / "tests"
+    _write_waveform(test_dir)
+    tool = WaveInfo(workspace=str(tmp_path), test_dir="tests", dut_name="Demo")
+    pattern = [{"signal": "TOP.dut.valid", "event": "rising"}]
+    result = _call_waveinfo(
+        tool,
+        test_case_name=DOCUMENT_TEST,
+        pattern=pattern,
+        start_step=10,
+        end_step=25,
+    )
+    _write_bug_doc(tmp_path, _explicit_block(result, pattern, wave_step=15))
+    original_document = (tmp_path / "bugs.md").read_text(encoding="utf-8")
+    newer = (
+        test_dir
+        / "data"
+        / "toffee_tmp_20260814160000_123"
+        / "master"
+        / "test_a.vcd"
+    )
+    newer.parent.mkdir(parents=True, exist_ok=True)
+    newer.write_text(VCD_CONTENT, encoding="ascii")
+
+    def fail_persistence():
+        raise OSError("receipt store is read-only")
+
+    monkeypatch.setattr(tool, "_persist_analysis_receipts", fail_persistence)
+    evidence_tool = ApplyWaveInfoEvidence(
+        waveinfo=tool,
+        workspace=str(tmp_path),
+    )
+
+    passed, message = check_all_documented_waveform_bug_analysis(
+        str(tmp_path),
+        "bugs.md",
+        waveform_tool=tool,
+        waveform_evidence_tool=evidence_tool,
+        waveform_test_dir="tests",
+        require_current_replay=True,
+    )
+
+    assert passed is False
+    assert "[Waveform Current Receipt Persistence Failed]" in message["error"]
+    assert message["details"]["persistence"] == "memory_only"
+    assert message["details"]["rerun_test"] is False
+    assert message["details"]["rerun_waveinfo"] is False
+    assert message["details"]["apply_evidence"] is False
+    assert (tmp_path / "bugs.md").read_text(encoding="utf-8") == original_document
 
 
 def test_configured_final_waveform_checker_has_startup_description(tmp_path):
@@ -2886,4 +3208,6 @@ def test_configured_final_waveform_checker_has_startup_description(tmp_path):
     assert checker_config["clss"] == "UnityChipCheckerWaveformBugAnalysis"
     assert checker_config["args"]["require_current_replay"] is True
     assert checker.require_current_replay is True
-    assert description == "Validate dynamic Bug analysis and active WaveInfo receipts."
+    assert description == (
+        "Validate dynamic Bug analysis and safely refresh current WaveInfo evidence."
+    )

@@ -812,7 +812,9 @@ FG、FC、CK、BG、TC 都是一对多层次，不是一条固定单链。以下
 
 签名 receipt、中央 YAML 和 viewer 是持续保留的证据。普通增量 stage 使用`require_current_replay=false`：只验证文档、签名 receipt 与关联，不因后来测试、session 或波形文件变化而要求更新。
 
-只有对应验证项配置`require_current_replay=true`时，才对所有唯一 TC 重放当前波形。重放失败或窗口、候选、信号集合、事件变化时，按返回的 WaveInfo/Apply 调用取得新 receipt 并更新中央记录。
+只有对应验证项配置`require_current_replay=true`时，才对所有唯一 TC 重放当前波形。Checker 会为每个成功重放计算包含精确 TC、事件 timeline、信号值、取证窗口、测试/driver/HDL 源码上下文的签名语义指纹。语义指纹不变而只有 session、波形路径、时间、receipt 或 viewer token 等机器字段变化时，Checker 自动为所有此类 TC 生成当前 receipt，并在一次原子写入中刷新中央 YAML 和 viewer；已有`alignment_evidence`与逐 Bug 结论保持不变。重复调用 Check 不会反复创建 receipt 或改写文档。
+
+当前事件、信号值、窗口、候选周期、信号集合或测试/driver/HDL 源码上下文变化时，Checker 不自动替换文档，而是返回已签名的当前`receipt_id`和精确`ApplyWaveInfoEvidence(..., replace_existing=true)`调用。此时不需要再次运行 pytest 或 WaveInfo；执行返回的 Apply 调用，再根据当前规格、测试、波形和源码完成被重置的语义字段。若当前重放本身失败、TC 消失或精确 pytest node ID 变化，则没有可自动采用的当前 receipt；按诊断中的实际`test_dir`、精确 FAILED node ID、可用波形和下一步处理，禁止把相似路径或参数化实例自动视为同一 TC。
 
 新增一个关联 Bug 属于证据范围扩展：即使普通 stage 不重放，也必须确认当前 receipt 的信号并集足以分析新 Bug；不足时按上一节替换 receipt。
 
@@ -884,4 +886,4 @@ Skill 只是辅助，不能成为任务前置条件。`unitytest/dynamic-bug-rec
 - receipt、fingerprint、窗口、pattern、signal_groups、viewer与真实工具结果一致。
 - 共享与逐 Bug 语义结论均已完成，无`<BUG-TODO>`。
 - 任何非零 BG 或 ROOT 残留`<BUG-TODO>`都不能完成阶段。
-- 普通 stage 持续保留已签名证据；仅严格 current-replay stage 要求全面重放和必要更新。
+- 普通 stage 持续保留已签名证据；严格 current-replay stage 全面重放，并原子刷新语义等价的机器证据。TC 身份或语义证据变化时必须按 Checker 返回的当前 receipt/精确恢复动作复核，不自动猜测或改写关联。

@@ -448,6 +448,32 @@ def test_fixture_guidance_is_consistent_across_runtime_docs_and_skills():
     assert "最早traceback明确证明API/fixture实现本身有缺陷" in update_api_test_task
 
 
+def test_current_replay_contract_is_synchronized_across_runtime_guidance():
+    repo_root = Path(__file__).parents[1]
+    config = load_yaml_with_env_vars(
+        str(repo_root / "ucagent/lang/zh/config/default.yaml")
+    )
+    final_stage = next(
+        stage for stage in config["stage"]
+        if stage["name"] == "record_and_report_bugs"
+    )
+    final_task = "\n".join(str(item) for item in final_stage["task"])
+    guide = (
+        repo_root / "ucagent/lang/zh/doc/Guide_Doc/dut_bug_analysis.md"
+    ).read_text(encoding="utf-8")
+    implementation_skill = (
+        repo_root
+        / "ucagent/lang/zh/skills/unitytest/test-case-implementation-in-batch/SKILL.md"
+    ).read_text(encoding="utf-8")
+
+    assert "语义指纹不变的全部当前机器字段由Checker一次原子刷新" in final_task
+    assert "current_receipt_id和精确Apply调用" in final_task
+    assert "不要重复运行pytest/WaveInfo" in final_task
+    assert "自动为所有此类 TC 生成当前 receipt" in guide
+    assert "不需要再次运行 pytest 或 WaveInfo" in guide
+    assert "Checker会一次原子刷新语义指纹不变的当前机器证据" in implementation_skill
+
+
 def test_bug_analysis_guide_distinguishes_mcp_sentinels_and_evidence_windows():
     guide_path = (
         Path(__file__).parents[1]
