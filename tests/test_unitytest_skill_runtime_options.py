@@ -1007,6 +1007,8 @@ def test_all_default_workflow_skills_keep_scripts_optional():
 
     assert "record_dynamic_bug.py" in skill_docs["dynamic-bug-recording"]
     assert "record_static_bug.py" in skill_docs["static-bug-analysis"]
+    assert "current_batch_progress_markers" in skill_docs["static-bug-analysis"]
+    assert '<file sha256="CURRENT_SHA256">' in skill_docs["static-bug-analysis"]
     assert "ucagent_python_path" in skill_docs["functions-and-checks"]
     assert "python3 script" not in skill_docs["functions-and-checks"]
     assert '["unitytest/functions-and-checks", "update.py"' in skill_docs[

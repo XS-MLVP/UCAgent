@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import importlib.util
+import hashlib
 import json
 from pathlib import Path
 import re
@@ -649,6 +650,9 @@ def test_static_bug_record_script_uses_resolved_runtime_config(
     source = tmp_path / "rtl" / "dut.v"
     source.parent.mkdir()
     source.write_text("module dut;\nendmodule\n", encoding="utf-8")
+    unreviewed = tmp_path / "Demo_RTL" / "unreviewed.v"
+    unreviewed.parent.mkdir()
+    unreviewed.write_text("module unreviewed;\nendmodule\n", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(module, "project_root", str(tmp_path))
     monkeypatch.setattr(
@@ -692,6 +696,11 @@ def test_static_bug_record_script_uses_resolved_runtime_config(
     assert target.is_file()
     document = target.read_text(encoding="utf-8")
     assert "# Demo RTL" in document
+    source_digest = hashlib.sha256(source.read_bytes()).hexdigest()
+    assert (
+        f'<file sha256="{source_digest}">rtl/dut.v</file>' in document
+    )
+    assert "unreviewed.v</file>" not in document
     assert markdown_heading_spacing_errors(document) == []
     assert not (tmp_path / "wrong_output").exists()
 

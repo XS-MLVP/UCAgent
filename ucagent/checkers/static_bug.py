@@ -31,6 +31,7 @@ Tag hierarchy parsed by ``parse_nested_keys``::
               <FILE-filepath:line1-line2>   ← source location (required)
 """
 
+import hashlib
 import re
 import os
 from typing import List, Tuple
@@ -113,11 +114,24 @@ def _check_static_bug_section_markers(path: str) -> List[str]:
         )
     return errors
 
-# Regex for parsing <file>path</file> completion markers written by the LLM
-# into the static doc at the end of each batch.  Using a plain regex (not
-# an XML parser) because the surrounding markdown contains unclosed
-# angle-bracket tags like <FG-*> that would confuse an XML parser.
-_RE_FILE_PROGRESS_TAG = re.compile(r'<file>(.*?)</file>', re.DOTALL)
+# Static progress binds each analyzed path to the exact source bytes reviewed.
+# A plain regex is intentional because the surrounding Markdown contains
+# unclosed machine tags such as <FG-*> that are not XML.
+_STATIC_BUG_PROGRESS_MARKER = "<STATIC-BUG-PROGRESS>"
+_RE_FILE_PROGRESS_START = re.compile(r'<file\b')
+_RE_ANY_FILE_PROGRESS_TAG = re.compile(r'<file\b[^>]*>[^<\r\n]*</file>')
+_RE_FILE_PROGRESS_TAG = re.compile(
+    r'<file sha256="([0-9a-f]{64})">([^<\r\n]+)</file>'
+)
+
+
+def _static_progress_marker(file_path: str, digest: str) -> str:
+    return f'<file sha256="{digest}">{file_path}</file>'
+
+
+def _static_progress_path(task: str) -> str:
+    match = _RE_FILE_PROGRESS_TAG.fullmatch(str(task))
+    return match.group(2) if match else str(task)
 
 # Index at which the FILE key appears in path segments produced by
 # nested_keys_as_list (0-based: FG=0, FC=1, CK=2, BG-STATIC=3, LINK-BUG=4, FILE=5).
@@ -781,12 +795,11 @@ class UnityChipBatchCheckerStaticBug(Checker):
 
         | Source file | Potential bugs | Status |
         |-------------|---------------|--------|
-        | <file>path/to/file.v</file> | N | ✅ Done |
+        | <file sha256="...">path/to/file.v</file> | N | Done |
 
-    On the next invocation the checker parses every ``<file>…</file>`` tag
-    in ``static_doc`` to determine which files have been analyzed and which
-    remain.  This makes the checker fully stateless — it derives all
-    progress information from the document itself.
+    On the next invocation the checker validates every progress marker against
+    the current source bytes. A changed source digest invalidates the previous
+    completion and requires a new analysis marker.
 
     When all files have been analyzed the checker delegates final format
     validation to :class:`UnityChipCheckerStaticBugFormat`.
@@ -812,6 +825,8 @@ class UnityChipBatchCheckerStaticBug(Checker):
         self.batch_size = batch_size
         self.batch_task = UnityChipBatchTask("RTL_file_to_analyze", self)
         self.fmt_checker = UnityChipCheckerStaticBugFormat(self.static_doc, self.functions_and_checks_doc)
+        self._progress_error = None
+        self._source_error = None
 
     def set_workspace(self, workspace: str):
         super().set_workspace(workspace)
@@ -827,26 +842,214 @@ class UnityChipBatchCheckerStaticBug(Checker):
             found.extend(fc.find_files_by_pattern(self.workspace, pattern))
         return sorted(set(found))
 
-    def _get_analyzed_files(self) -> List[str]:
-        """Parse ``<file>…</file>`` completion markers from *static_doc*.
+    def _source_task(self, file_path: str) -> str:
+        """Return the canonical progress marker for the current source bytes."""
+        digest = hashlib.sha256()
+        with open(self.get_path(file_path), "rb") as source_file:
+            for block in iter(lambda: source_file.read(1024 * 1024), b""):
+                digest.update(block)
+        return _static_progress_marker(file_path, digest.hexdigest())
 
-        Uses a plain regex instead of an XML parser because the surrounding
-        markdown content contains unclosed angle-bracket tags (``<FG-*>`` etc.)
-        that would break XML parsing.
-        """
+    def _get_all_source_tasks(self) -> List[str]:
+        return [self._source_task(file_path) for file_path in self._get_all_source_files()]
+
+    @staticmethod
+    def _progress_failure(issue: dict, issues: List[dict], static_doc: str) -> dict:
+        diagnostic = {
+            "error_code": issue["error_code"],
+            "error": issue["error"],
+            "artifact": static_doc,
+            "observed": {
+                "issues": issues[:10],
+                "issue_count": len(issues),
+                "truncated": len(issues) > 10,
+            },
+            "expected": (
+                "Each current RTL source appears exactly once after "
+                "<STATIC-BUG-PROGRESS> as "
+                "<file sha256=\"CURRENT_SHA256\">workspace/path</file>."
+            ),
+            "next_action": issue["next_action"],
+        }
+        return {"error": diagnostic["error"], "diagnostic": diagnostic}
+
+    def _get_analyzed_tasks(self, source_tasks: List[str]) -> Tuple[List[str], dict | None]:
+        """Validate progress markers against the current source identities."""
         doc_path = self.get_path(self.static_doc)
         if not os.path.exists(doc_path):
-            return []
+            return [], None
         try:
             with open(doc_path, 'r', encoding='utf-8') as fh:
                 content = fh.read()
-            return [m.group(1).strip() for m in _RE_FILE_PROGRESS_TAG.finditer(content)]
         except Exception as e:
-            info(
-                f"UnityChipBatchCheckerStaticBug: failed to read <file> tags "
-                f"from '{self.static_doc}': {e}"
-            )
-            return []
+            issue = {
+                "error_code": "STATIC_BUG_PROGRESS_READ_FAILED",
+                "error": f"Cannot read static progress document '{self.static_doc}': {e}",
+                "next_action": (
+                    f"Restore a readable '{self.static_doc}', then call `Check` again."
+                ),
+            }
+            return [], self._progress_failure(issue, [issue], self.static_doc)
+
+        source_by_path = {
+            _static_progress_path(task): task for task in source_tasks
+        }
+        marker_count = sum(
+            line.strip() == _STATIC_BUG_PROGRESS_MARKER
+            for line in content.splitlines()
+        )
+        tag_starts = list(_RE_FILE_PROGRESS_START.finditer(content))
+        if not tag_starts:
+            return [], None
+        all_tags = list(_RE_ANY_FILE_PROGRESS_TAG.finditer(content))
+
+        issues = []
+        progress_offset = content.find(_STATIC_BUG_PROGRESS_MARKER)
+        if marker_count != 1:
+            issues.append({
+                "error_code": "STATIC_BUG_PROGRESS_SECTION_INVALID",
+                "error": (
+                    f"Static progress marker '{_STATIC_BUG_PROGRESS_MARKER}' must occur "
+                    f"exactly once before file progress entries; found {marker_count}."
+                ),
+                "observed": {"marker_count": marker_count},
+                "next_action": (
+                    f"Restore the three canonical report sections in '{self.static_doc}' "
+                    "and keep every file progress marker after <STATIC-BUG-PROGRESS>."
+                ),
+            })
+
+        matched_starts = {match.start() for match in all_tags}
+        for start in tag_starts:
+            if start.start() in matched_starts:
+                continue
+            line_end = content.find("\n", start.start())
+            if line_end < 0:
+                line_end = len(content)
+            raw_tag = content[start.start():line_end][:200]
+            issues.append({
+                "error_code": "STATIC_BUG_PROGRESS_MARKER_MALFORMED",
+                "error": f"Malformed static progress marker: {raw_tag}",
+                "observed": raw_tag,
+                "next_action": (
+                    "Replace it with the exact current_batch_progress_markers value "
+                    "returned by this Checker; do not calculate or edit the digest."
+                ),
+            })
+
+        analyzed = []
+        seen_paths = set()
+        for tag_match in all_tags:
+            raw_tag = tag_match.group(0)
+            exact = _RE_FILE_PROGRESS_TAG.fullmatch(raw_tag)
+            if exact is None:
+                issues.append({
+                    "error_code": "STATIC_BUG_PROGRESS_MARKER_MALFORMED",
+                    "error": f"Malformed static progress marker: {raw_tag[:200]}",
+                    "observed": raw_tag[:200],
+                    "next_action": (
+                        "Replace it with the exact current_batch_progress_markers value "
+                        "returned by this Checker; do not calculate or edit the digest."
+                    ),
+                })
+                continue
+            digest, file_path = exact.groups()
+            if progress_offset < 0 or tag_match.start() < progress_offset:
+                issues.append({
+                    "error_code": "STATIC_BUG_PROGRESS_MARKER_OUTSIDE_SECTION",
+                    "error": (
+                        f"Progress marker for '{file_path}' is outside the "
+                        "<STATIC-BUG-PROGRESS> section."
+                    ),
+                    "observed": raw_tag,
+                    "next_action": (
+                        "Move this exact marker into the progress table after "
+                        "<STATIC-BUG-PROGRESS>, then call `Check` again."
+                    ),
+                })
+                continue
+            if file_path in seen_paths:
+                issues.append({
+                    "error_code": "STATIC_BUG_PROGRESS_DUPLICATE",
+                    "error": f"Static progress contains duplicate entries for '{file_path}'.",
+                    "observed": raw_tag,
+                    "next_action": (
+                        f"Keep exactly one current progress row for '{file_path}' in "
+                        f"'{self.static_doc}', then call `Check` again."
+                    ),
+                })
+                continue
+            seen_paths.add(file_path)
+            expected_task = source_by_path.get(file_path)
+            if expected_task is None:
+                issues.append({
+                    "error_code": "STATIC_BUG_PROGRESS_UNKNOWN_FILE",
+                    "error": (
+                        f"Static progress references '{file_path}', which is not in the "
+                        "current configured RTL source set."
+                    ),
+                    "observed": raw_tag,
+                    "next_action": (
+                        f"Remove the progress row for '{file_path}' from "
+                        f"'{self.static_doc}', then call `Check` again."
+                    ),
+                })
+                continue
+            if raw_tag != expected_task:
+                expected_digest = _RE_FILE_PROGRESS_TAG.fullmatch(expected_task).group(1)
+                issues.append({
+                    "error_code": "STATIC_BUG_PROGRESS_SOURCE_CHANGED",
+                    "error": (
+                        f"RTL source '{file_path}' changed after its recorded static analysis."
+                    ),
+                    "observed": {"marker_sha256": digest},
+                    "expected": {"current_sha256": expected_digest},
+                    "next_action": (
+                        f"Re-read and re-analyze '{file_path}', update its findings, then "
+                        "replace the stale row marker with the exact marker in "
+                        "current_batch_progress_markers."
+                    ),
+                })
+                continue
+            analyzed.append(expected_task)
+
+        if issues:
+            return analyzed, self._progress_failure(issues[0], issues, self.static_doc)
+        return analyzed, None
+
+    def _refresh_batch_state(self) -> bool:
+        try:
+            source = self._get_all_source_tasks()
+            self._source_error = None
+        except Exception as e:
+            error = f"Cannot fingerprint the configured RTL source set: {e}"
+            self._source_error = {
+                "error": error,
+                "diagnostic": {
+                    "error_code": "STATIC_BUG_SOURCE_READ_FAILED",
+                    "error": error,
+                    "observed": str(e),
+                    "expected": "Every configured RTL source file must be readable.",
+                    "next_action": (
+                        "Restore read access to the reported source file, then call `Check` again."
+                    ),
+                },
+            }
+            return False
+        if not source:
+            self._progress_error = None
+            return False
+
+        analyzed, self._progress_error = self._get_analyzed_tasks(source)
+        note_msg = []
+        self.batch_task.sync_source_task(
+            source, note_msg, "RTL source files or their contents changed."
+        )
+        self.batch_task.sync_gen_task(
+            analyzed, note_msg, "Validated static progress markers changed."
+        )
+        self.batch_task.update_current_tbd()
+        return True
 
     def _init_batch_state(self) -> bool:
         """Refresh source/gen lists from the filesystem and *static_doc*.
@@ -858,28 +1061,13 @@ class UnityChipBatchCheckerStaticBug(Checker):
 
         Returns ``False`` when no source files match the configured patterns.
         """
-        all_files = self._get_all_source_files()
-        if not all_files:
+        if not self._refresh_batch_state():
             return False
 
-        analyzed = self._get_analyzed_files()
-        source = sorted(all_files)
-        gen = [f for f in analyzed if f in source]
-
-        self.batch_task.source_task_list = source
-        self.batch_task.gen_task_list = gen
-        # Retain only still-valid tbd items loaded from checkpoint
-        # (drop items already analyzed or no longer in source).
-        self.batch_task.tbd_task_list = [
-            f for f in self.batch_task.tbd_task_list
-            if f in source and f not in gen
-        ]
-        self.batch_task.cmp_task_list = []
-        self.batch_task.update_current_tbd()
-
         info(
-            f"UnityChipBatchCheckerStaticBug: {len(gen)}/{len(source)} files "
-            f"analyzed; current batch: {self.batch_task.tbd_task_list}"
+            f"UnityChipBatchCheckerStaticBug: {len(self.batch_task.gen_task_list)}/"
+            f"{len(self.batch_task.source_task_list)} files analyzed; current batch: "
+            f"{[_static_progress_path(task) for task in self.batch_task.tbd_task_list]}"
         )
         return True
 
@@ -959,40 +1147,104 @@ class UnityChipBatchCheckerStaticBug(Checker):
             "TOTAL_FILES": total,
             "ANALYZED_FILES": done,
             "ANALYSIS_PROGRESS": f"{done}/{total}",
-            "CURRENT_FILE_NAMES": ", ".join(self.batch_task.tbd_task_list),
+            "CURRENT_FILE_NAMES": ", ".join(
+                _static_progress_path(task) for task in self.batch_task.tbd_task_list
+            ),
+            "CURRENT_FILE_PROGRESS_MARKERS": list(self.batch_task.tbd_task_list),
         }
 
     def do_check(self, is_complete: bool = False, **kw) -> Tuple[bool, object]:
         """Drive batch static bug analysis."""
-        all_files = self._get_all_source_files()
-        if not all_files:
+        if not self._refresh_batch_state():
+            if self._source_error is not None:
+                return False, self._source_error
             return self._handle_no_source_files()
+        if self.batch_task.checkpoint_error is not None:
+            return False, {
+                "error": self.batch_task.checkpoint_error["error"],
+                "diagnostic": self.batch_task.checkpoint_error,
+            }
+        if self._progress_error is not None:
+            current_tasks = list(self.batch_task.tbd_task_list)
+            result = dict(self._progress_error)
+            result["current_batch"] = [
+                _static_progress_path(task) for task in current_tasks
+            ]
+            result["current_batch_progress_markers"] = current_tasks
+            return False, result
 
-        analyzed = self._get_analyzed_files()
-        gen = [f for f in analyzed if f in all_files]
+        try:
+            latest_source_tasks = self._get_all_source_tasks()
+        except Exception as e:
+            error = f"Cannot fingerprint the configured RTL source set: {e}"
+            return False, {
+                "error": error,
+                "diagnostic": {
+                    "error_code": "STATIC_BUG_SOURCE_READ_FAILED",
+                    "error": error,
+                    "observed": str(e),
+                    "expected": "Every configured RTL source file must be readable.",
+                    "next_action": (
+                        "Restore read access to the reported source file, then call `Check` again."
+                    ),
+                },
+            }
+        if latest_source_tasks != self.batch_task.source_task_list:
+            previous_by_path = {
+                _static_progress_path(task): task
+                for task in self.batch_task.source_task_list
+            }
+            latest_by_path = {
+                _static_progress_path(task): task for task in latest_source_tasks
+            }
+            changed_files = sorted(
+                path
+                for path in set(previous_by_path) | set(latest_by_path)
+                if previous_by_path.get(path) != latest_by_path.get(path)
+            )
+            self._refresh_batch_state()
+            diagnostic = {
+                "error_code": "STATIC_BUG_SOURCE_CHANGED_DURING_CHECK",
+                "error": "RTL source content changed during static progress validation.",
+                "observed": {"changed_files": changed_files[:20]},
+                "expected": "The analyzed RTL bytes must remain unchanged until progress is committed.",
+                "next_action": (
+                    "Re-read and re-analyze the reported current files, update the static "
+                    "findings, then copy the new current_batch_progress_markers values."
+                ),
+            }
+            return False, {
+                "error": diagnostic["error"],
+                "diagnostic": diagnostic,
+                "current_batch": [
+                    _static_progress_path(task)
+                    for task in self.batch_task.tbd_task_list
+                ],
+                "current_batch_progress_markers": list(
+                    self.batch_task.tbd_task_list
+                ),
+            }
 
         note_msg: List[str] = []
-        self.batch_task.sync_source_task(
-            sorted(all_files), note_msg, "Source file list changed."
-        )
-        self.batch_task.sync_gen_task(
-            gen, note_msg, "Analyzed files updated from document."
-        )
         passed, result = self.batch_task.do_complete(
             note_msg, is_complete,
             f"in source file patterns {self.file_list}",
-            f"in {self.static_doc} <file> progress tags",
+            f"in {self.static_doc} digest-bound <file sha256=...> progress tags",
             " Please use tool `CurrentFileTips` to get detailed task description.",
         )
         # Add current_batch to result for LLM prompts
-        current_batch = list(self.batch_task.tbd_task_list)
-        progress = f"{len(gen)}/{len(all_files)}"
-        remaining_files = len(all_files) - len(gen)
+        current_tasks = list(self.batch_task.tbd_task_list)
+        current_batch = [_static_progress_path(task) for task in current_tasks]
+        completed_count = len(self.batch_task.gen_task_list)
+        total_count = len(self.batch_task.source_task_list)
+        progress = f"{completed_count}/{total_count}"
+        remaining_files = total_count - completed_count
         if isinstance(result, dict):
             result["current_batch"] = current_batch
+            result["current_batch_progress_markers"] = current_tasks
             result["progress"] = progress
             result["remaining_files"] = remaining_files
-            result["analyzed_files"] = len(gen)
+            result["analyzed_files"] = completed_count
             result["analysis_progress"] = progress
             result["task"] = current_batch
         kw["empty_is_ok"] = not passed
@@ -1001,6 +1253,7 @@ class UnityChipBatchCheckerStaticBug(Checker):
             # Add batch info to fmt_result even on failure
             if isinstance(fmt_result, dict):
                 fmt_result["current_batch"] = current_batch
+                fmt_result["current_batch_progress_markers"] = current_tasks
                 fmt_result["progress"] = progress
                 fmt_result["remaining_files"] = remaining_files
                 fmt_result["task"] = current_batch

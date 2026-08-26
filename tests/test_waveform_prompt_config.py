@@ -259,6 +259,9 @@ def test_default_prompt_requires_waveinfo_for_dynamic_bugs():
         assert marker in static_validation_task
     assert "不能替代机器分区标签" in static_task
     assert "不能替代机器分区标签" in static_validation_task
+    assert "CURRENT_FILE_PROGRESS_MARKERS" in static_task
+    assert '<file sha256="' in static_task
+    assert "sha256由Checker基于当前文件原始字节计算" in static_task
     assert "LINK回填不依赖linkbug.py" in static_validation_task
 
 
@@ -716,7 +719,7 @@ def test_bug_analysis_guide_documents_all_checker_markers_and_colocates_analysis
         "<LINK-BUG-[BG-NA]>",
         "<FILE-path/to/file.v:起始行-结束行>",
         "<FG-NULL>/<FC-NULL>/<CK-NULL>/<BG-STATIC-NULL>",
-        "<file>path/to/file.v</file>",
+        '<file sha256="CURRENT_SHA256">path/to/file.v</file>',
         "<BUG-OVERVIEW>",
         "<BUG-SYMPTOMS>",
         "<BUG-TRIGGER>",

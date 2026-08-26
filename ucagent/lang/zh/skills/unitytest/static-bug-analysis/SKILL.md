@@ -58,11 +58,13 @@ Markdown 排版契约：本技能生成、维护或展示的任何 Markdown 中�
 - FILE格式：<FILE-相对路径/文件.v:起始行-结束行>（不带`L`；单行重复行号；相对workspace根目录，示例：rtl/dut.v:50-56）
 - 所有 <FG-*>/<FC-*>/<CK-*> 标签必须与 functions_and_checks.md 中的定义完全一致（区分大小写）
 - <BG-STATIC-NULL> 是唯一可以没有子标签的Bug条目,且仅用于表示在所有文件中都未发现任何Bug（不能应用于单文件没发现任何Bug）
-- `批次分析进度`中必须使用<file>和</file>标签标记文件路径
+- `批次分析进度`中必须使用`<file sha256="CURRENT_SHA256">路径</file>`标记当前输入身份。路径和64位小写SHA-256逐字复制Checker返回的`current_batch_progress_markers`，禁止自行计算、猜测或沿用旧值；`record_static_bug.py`会自行读取源文件计算该值
+- 同一路径源码内容变化后必须重新读取和分析，更新候选结论并替换为Checker给出的新进度标记；未知、重复、无摘要或摘要不匹配的标记都会失败
 
 ## `{DUT}_static_bug_analysis.md` 文档结构(供修改参考)
 
 ```
+
 # {DUT} RTL 源码静态分析报告
 
 <STATIC-BUG-SUMMARY>
@@ -78,8 +80,11 @@ Markdown 排版契约：本技能生成、维护或展示的任何 Markdown 中�
 ## 二、详细分析
 
 ### <FG-XXX> 功能组描述
+
 #### <FC-YYY> 功能点描述
+
 ##### <CK-ZZZ> 检测点描述
+
   - <BG-STATIC-001-NAME> Bug描述
     - <LINK-BUG-[BG-TBD]>
       - <FILE-ALU754_RTL/ALU754.v:xx-yy>
@@ -94,7 +99,7 @@ Markdown 排版契约：本技能生成、维护或展示的任何 Markdown 中�
 
 | 源文件 | 发现疑似Bug数 | 状态 |
 |--------|---------------|------|
-| <file>ALU754_RTL/ALU754.v</file> | 1 | ✅ 完成 |
+| <file sha256="0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef">ALU754_RTL/ALU754.v</file> | 1 | ✅ 完成 |
 
 ```
 
@@ -110,4 +115,4 @@ Markdown 排版契约：本技能生成、维护或展示的任何 Markdown 中�
 1. `RunSkillScript`工具允许一次性输入多条命令,若有多个记录内容,则列出多条命令,命令中只允许使用定义的参数,禁止额外参数,且参数值必须符合格式要求,每个参数必须使用单括号''括起来.
 2. 使用`RunSkillScript`工具时,若输入了10条命令行,前5条命令行执行正常,成功记录,但第6条命令执行失败时,根据反馈信息修改第6条命令以及后续命令中存在的相同问题,并且使用`RunSkillScript`工具重新执行第6条命令以及后续命令,已经成功的命令不需要重新执行,只需要执行未完成的命令.
 
-没有`RunSkillScript`时，直接按Guide_Doc/dut_bug_analysis.md中的第 7.2 节和本技能的文档结构编辑报告；不得等待脚本、跳过批次或只写展示标题。
+没有`RunSkillScript`时，直接按Guide_Doc/dut_bug_analysis.md section 8.1和本技能的文档结构编辑报告，并逐字复制Checker提供的当前进度标记；不得等待脚本、跳过批次或只写展示标题。

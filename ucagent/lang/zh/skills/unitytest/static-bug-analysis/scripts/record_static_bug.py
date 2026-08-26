@@ -1,4 +1,5 @@
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -123,22 +124,23 @@ def parse_nested_keys(
     return key_dict
 
 
-def build_initial_batch_analysis_rows(DUT):
-    rtl_root = os.path.join(project_root, f"{DUT}_RTL")
-    if not os.path.isdir(rtl_root):
-        return ""
-
-    file_rows = []
-    for root, _, files in os.walk(rtl_root):
-        for file_name in files:
-            if file_name == "filelist.txt":
-                continue
-            abs_path = os.path.join(root, file_name)
-            rel_path = os.path.relpath(abs_path, project_root).replace(os.sep, "/")
-            file_rows.append(rel_path)
-
-    file_rows.sort()
-    return "".join(f"| <file>{file_path}</file> | 0 | ✅ 完成 |\n" for file_path in file_rows)
+def progress_file_marker(source_file):
+    """Bind one progress row to the exact current workspace source bytes."""
+    root = os.path.realpath(project_root)
+    source_path = os.path.realpath(os.path.join(root, source_file))
+    if os.path.commonpath([root, source_path]) != root:
+        raise ValueError(
+            f"Source file '{source_file}' escapes the workspace. Use a workspace-relative path."
+        )
+    if not os.path.isfile(source_path):
+        raise ValueError(
+            f"Source file '{source_file}' does not exist. Fix -FILE and use `RunSkillScript` again."
+        )
+    digest = hashlib.sha256()
+    with open(source_path, "rb") as source_handle:
+        for block in iter(lambda: source_handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return f'<file sha256="{digest.hexdigest()}">{source_file}</file>'
 
 
 def parse_md_file(file_path):
@@ -318,10 +320,8 @@ def format_bug_report(dut, fg, fgd, fc, fcd, ck, ckd, bg, file_info, bug_descrip
 def update_target_md(target_md_path, formatted_output, dut_name):
     if not os.path.exists(target_md_path):
         os.makedirs(os.path.dirname(target_md_path), exist_ok=True)
-        initial_batch_rows = build_initial_batch_analysis_rows(dut_name)
         with open(target_md_path, 'w', encoding='utf-8') as f:
             f.write(static_bug_analysis_md_template.format(DUT=dut_name))
-            f.write(initial_batch_rows)
 
     with open(target_md_path, 'r', encoding='utf-8') as f:
         lines = f.readlines()
@@ -452,6 +452,7 @@ def update_target_md(target_md_path, formatted_output, dut_name):
         lines.insert(insert_point, insert_lines)
 
     if source_file:
+        current_file_cell = progress_file_marker(source_file)
         table_start_idx = -1
         table_end_idx = -1
         for i in range(batch_analysis_idx + 1, len(lines)):
@@ -477,7 +478,11 @@ def update_target_md(target_md_path, formatted_output, dut_name):
                 if len(cols) < 3:
                     continue
 
-                file_col = re.sub(r'</?file>', '', cols[0]).strip()
+                file_match = re.fullmatch(
+                    r'<file sha256="[0-9a-f]{64}">([^<\r\n]+)</file>',
+                    cols[0],
+                )
+                file_col = file_match.group(1) if file_match else ""
                 if cols[2]:
                     default_status = cols[2]
 
@@ -485,13 +490,13 @@ def update_target_md(target_md_path, formatted_output, dut_name):
                     found_file_row = True
                     count_match = re.search(r'\d+', cols[1])
                     current_count = int(count_match.group(0)) if count_match else 0
+                    cols[0] = current_file_cell
                     cols[1] = str(current_count + 1)
                     lines[i] = f"| {cols[0]} | {cols[1]} | {cols[2]} |\n"
                     break
 
             if not found_file_row:
-                file_cell = f"<file>{source_file}</file>"
-                new_row = f"| {file_cell} | 1 | {default_status} |\n"
+                new_row = f"| {current_file_cell} | 1 | {default_status} |\n"
                 lines.insert(table_end_idx + 1, new_row)
 
     with open(target_md_path, 'w', encoding='utf-8') as f:

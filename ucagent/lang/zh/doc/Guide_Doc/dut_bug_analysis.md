@@ -860,7 +860,53 @@ assign result = state; // <ROOT-SOURCE-OBSERVABLE> Error reaches the checked out
 
 静态候选只写在`{DUT}_static_bug_analysis.md`，使用`<BG-STATIC-NNN-NAME>`。文件必须依次包含`<STATIC-BUG-SUMMARY>`、`<STATIC-BUG-DETAILS>`和`<STATIC-BUG-PROGRESS>`。每个候选使用不带`L`的`<FILE-path/to/file.v:起始行-结束行>`定位（单行重复行号），并在汇总和详情中保持同一链接：待验证为`<LINK-BUG-[BG-TBD]>`，动态证实后为`<LINK-BUG-[BG-NAME-XX]>`，误报为`<LINK-BUG-[BG-NA]>`。
 
-若没有任何可分析文件，使用`<FG-NULL>/<FC-NULL>/<CK-NULL>/<BG-STATIC-NULL>`；输入文件标签写作`<file>path/to/file.v</file>`。静态候选动态证实后，必须创建独立非静态 BG，并遵循本文的中央波形格式；不能把`BG-STATIC-*`写进动态文档。
+每个已分析输入文件必须在进度表中使用`<file sha256="CURRENT_SHA256">path/to/file.v</file>`。路径和64位小写SHA-256必须逐字复制当前Checker返回的`current_batch_progress_markers`；摘要由Checker读取当前源文件原始字节计算，不得自行计算、猜测、缩短或沿用旧值。源码内容变化后旧标记立即失效，必须重新读取和分析该文件、更新候选结论，再复制Checker返回的新标记。未知路径、重复路径、旧的无摘要格式以及摘要不匹配均为失败。
+
+已分析所有可访问源码且未发现候选时，使用`<FG-NULL>/<FC-NULL>/<CK-NULL>/<BG-STATIC-NULL>`，并仍为每个已分析文件写入带摘要的进度标记。若工作区没有任何可访问RTL/HDL，则在三分区报告中说明黑盒限制，不得制造文件进度标记。静态候选动态证实后，必须创建独立非静态 BG，并遵循本文的中央波形格式；不能把`BG-STATIC-*`写进动态文档。
+
+### 8.1 静态报告完整标准案例
+
+以下案例展示一项待动态验证的静态候选和一个已完成输入文件。示例SHA-256只展示字段形态；实际报告必须逐字复制当前Checker提供的完整进度标记。
+
+```markdown
+
+# Adder RTL 源码静态分析报告
+
+<STATIC-BUG-SUMMARY>
+
+## 一、潜在Bug汇总
+
+| 序号 | Bug标签 | 功能路径 | 描述摘要 | 置信度 | 涉及文件 | 动态Bug关联 |
+|------|---------|----------|----------|--------|----------|-------------|
+| 001 | BG-STATIC-001-CARRY | FG-ARITH/FC-ADD/CK-CARRY | 进位条件遗漏 | 高 | rtl/adder.sv | LINK-BUG-[BG-TBD] |
+
+<STATIC-BUG-DETAILS>
+
+## 二、详细分析
+
+### <FG-ARITH> 算术功能
+
+#### <FC-ADD> 加法功能
+
+##### <CK-CARRY> 进位检测
+
+- <BG-STATIC-001-CARRY> 进位条件遗漏
+  - <LINK-BUG-[BG-TBD]>
+    - <FILE-rtl/adder.sv:25-27>
+
+      ```systemverilog
+      assign carry = a & b;
+      ```
+
+<STATIC-BUG-PROGRESS>
+
+## 三、批次分析进度
+
+| 源文件 | 发现疑似Bug数 | 状态 |
+|--------|---------------|------|
+| <file sha256="0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef">rtl/adder.sv</file> | 1 | 完成 |
+
+```
 
 ## 9. 可选 Skill
 
