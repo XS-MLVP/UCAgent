@@ -11,7 +11,7 @@ Markdown 排版契约：本技能生成、维护或展示的任何 Markdown 中�
 
 动态确认结果只写入`{OUT}/{DUT}_bug_analysis.md`，不得根据可见标题派生另一个文件。Markdown、record/Apply和中央YAML `test_case`使用函数级报告node。非参数化WaveInfo使用同一node；报告含`tests.test_case_instances`时，文档TC保持函数级node，WaveInfo选择一个实际FAILED参数化child，且child必须与文档TC具有逐字相同的完整路径/类/函数父节点。不同路径永远不等价。没有确认动态 Bug 时保留三个空容器。
 
-确认DUT Bug后，若公共`unitytest/dynamic-bug-recording`已启用且已复制，优先通过其`record_dynamic_bug.py`的`-MODE bug`写入精确BG/TC路径、三个BG字段、唯一ROOT引用和反向链接，再用`-MODE root`写入ROOT五字段，尽可能不主动编辑动态Bug文档。若执行一次`-MODE repair`和返回的`next_action`后相同文档格式阻塞仍存在，才按`error/details`或返回的`manual_edit_fallback`最小编辑，并立即重跑`-MODE repair`和Check。公共Skill不调用`SetSkillUsage`。脚本不写波形YAML，仍需真实WaveInfo和Apply；这些机器证据不得手工编辑。Skill缺失、禁用或脚本不可用时使用文本编辑工具，按Guide_Doc/dut_bug_analysis.md中的第 5.1 节完整标准案例填写相同结构。FG/FC/CK名称来自功能检查文档，BG名称来自具体缺陷描述，TC名称来自测试docstring；不能只写尖括号标签或类型名。
+确认DUT Bug后，若公共`unitytest/dynamic-bug-recording`已启用且已复制，优先通过其`record_dynamic_bug.py`的`-MODE bug`写入精确BG/TC路径、三个BG字段、唯一ROOT引用和反向链接，再用`-MODE root`写入ROOT五字段，尽可能不主动编辑动态Bug文档。BG机器锚点、ROOT容器、关闭标记或双向关系异常时调用一次`-MODE repair`重建全部生成式锚点和关系，不得按Checker逐条编辑缺失锚点；执行返回的`next_action`后相同文档格式阻塞仍存在，才按`error/details`或返回的`manual_edit_fallback`最小编辑，并立即重跑`-MODE repair`和Check。公共Skill不调用`SetSkillUsage`。脚本不写波形YAML，仍需真实WaveInfo和Apply；这些机器证据不得手工编辑。Skill缺失、禁用或脚本不可用时使用文本编辑工具，按Guide_Doc/dut_bug_analysis.md中的第 5.1 节完整标准案例填写相同结构。FG/FC/CK名称来自功能检查文档，BG名称来自具体缺陷描述，TC名称来自测试docstring；不能只写尖括号标签或类型名。
 
 新建`test_static_{DUT}_*`时，参考当前工作区已有的普通DUT测试模板，沿用其fixture参数和顺序：`def test_static_{DUT}_xxx(env):`或`def test_static_{DUT}_xxx(env, ref_model):`。真实DUT测试不能改用`mock_dut`；Mock组件独立单元测试不能用于证实静态RTL候选。
 

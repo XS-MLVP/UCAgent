@@ -24,7 +24,7 @@ CK失败时必须先核对coverage/check function、predicate和sample时机；C
 ## 固定工作流
 
 1. 运行当前stage的真实测试并取得当前报告。`record_dynamic_bug.py`只读取`.ucagent/runtime_config.json`中的`test_output_dir`和`current_test_report`，并将解析出的`test_output_dir`作为本次实际TC输出目录；报告缺失时重新运行当前stage真实测试，禁止创建、复制或修改报告。
-2. 如果脚本、Check或Complete报告ROOT容器、关闭标记或ROOT/BG反向关系异常，先调用`["unitytest/dynamic-bug-recording", "record_dynamic_bug.py", "-MODE repair"]`。`repair`不读取当前测试报告、不接受任何Bug/ROOT语义参数，只依据每个BG唯一的`<CAUSE-REF-ROOT-*>`重建ROOT反向关系，删除不受支持的`</RELATED-BUGS>`和`</ROOT>`，拆分粘连的`</ROOT-CAUSES>`，并保留全部BG/TC/ROOT分析正文和中央波形。若返回失败，先按`next_action`执行一次对应语义MODE并重调`repair`。只有相同文档阻塞仍存在、或结构损坏使该动作无法执行时，才用普通文本工具修复`error/details`指出的精确标记、路径或行；优先遵循返回的`manual_edit_fallback.scope`，保留其他BG、TC、ROOT分析和全部`WAVEFORM-EVIDENCE`内容，不用shell或临时Python。手工修复后立即执行`manual_edit_fallback.after_edit`；未返回该字段时立即重跑`-MODE repair`和`Check`。
+2. 如果脚本、Check或Complete报告BG机器锚点、ROOT容器、关闭标记或ROOT/BG反向关系异常，先调用`["unitytest/dynamic-bug-recording", "record_dynamic_bug.py", "-MODE repair"]`。`repair`不读取当前测试报告、不接受任何Bug/ROOT语义参数；它根据每个完整FG/FC/CK/BG路径重建唯一`bug-*`锚点，删除错误或重复的`bug-*`机器锚点但保留其他普通锚点，再依据每个BG唯一的`<CAUSE-REF-ROOT-*>`重建ROOT反向关系，删除不受支持的`</RELATED-BUGS>`和`</ROOT>`，拆分粘连的`</ROOT-CAUSES>`，并保留全部BG/TC/ROOT分析正文和中央波形。若返回失败，先按`next_action`执行一次对应语义MODE并重调`repair`。只有相同文档阻塞仍存在、或结构损坏使该动作无法执行时，才用普通文本工具修复`error/details`指出的精确标记、路径或行；优先遵循返回的`manual_edit_fallback.scope`，保留其他BG、TC、ROOT分析和全部`WAVEFORM-EVIDENCE`内容，不用shell或临时Python。手工修复后立即执行`manual_edit_fallback.after_edit`；未返回该字段时立即重跑`-MODE repair`和`Check`。
 3. 对每个新BG路径的第一份精确`FG/FC/CK/BG/TC`关联调用一次`-MODE bug`。命令同时写入三个完整BG字段、唯一ROOT引用和ROOT反向链接，不产生需要手工填写的BG字段；已有CK/BG的后续兄弟TC直接进入步骤5。
 4. 对每个不同ROOT调用一次`-MODE root`。该命令一次写入ROOT五个完整字段；同一ROOT关联多个BG时只调用一次或在分析更新后幂等重调，既有反向链接会保留。
 5. 使用最终`WaveInfo`取得签名receipt，再对每个精确BG/TC路径调用`ApplyWaveInfoEvidence`。Apply原子维护BG侧`<WAVEFORM-REF>`和TC唯一中央波形记录。
@@ -41,7 +41,9 @@ CK失败时必须先核对coverage/check function、predicate和sample时机；C
 - `next_skill_mode`是下一次脚本模式；`remaining_sequence`给出后续Skill、WaveInfo、Apply和Check的顺序。先完成下一次Skill调用，再执行后续工具，不得跳到Check后反复试错。
 - `continuation_rule`始终只约束`{OUT}/{DUT}_bug_analysis.md`。其他文档和代码仍按当前stage正常编辑。
 
-`MODE repair`成功后，使用`workflow_context.resume_mode`重试此前失败的`MODE bug`或`MODE root`调用；不要因为结构已修复就跳过原本尚未完成的语义字段。脚本失败时保留原有身份，先执行一次`next_action`和`workflow_context.remaining_sequence`；只有步骤2定义的文档恢复条件成立时才做最小文本修复，修复后立即回到Skill恢复流程。
+`MODE repair`成功后，如果它紧跟在失败的`MODE bug`或`MODE root`之后且该语义更新尚未完成，按`workflow_context`重试此前失败的精确调用；否则直接执行其中的`Check`，不得发明或重复一个BG/ROOT调用。不要因为结构已修复就跳过原本尚未完成的语义字段。脚本失败时保留原有身份，先执行一次`next_action`和`workflow_context.remaining_sequence`；只有步骤2定义的文档恢复条件成立时才做最小文本修复，修复后立即回到Skill恢复流程。
+
+正常`MODE repair`结果的`change_summary`是唯一需要复核的变更反馈：它提供写入前后SHA-256、锚点修复计数、ROOT/关系数量和有界ROOT标签。脚本不返回整份Markdown diff，也不回显全部BG路径；直接按`next_action`进入Check，由Checker验证当前完整文档。只有失败结果中的`error_code/details`用于定位精确恢复位置。
 
 ## BG 与 TC
 

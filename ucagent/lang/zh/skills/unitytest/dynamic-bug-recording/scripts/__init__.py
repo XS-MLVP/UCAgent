@@ -3,9 +3,10 @@ import os
 
 TASK_POLICY = (
     "动态 Bug 文档优先维护策略：对 `{BUG_DOCUMENT}` 尽可能使用当前 Skill，避免主动用"
-    "文本工具直接修改。其他文档和代码仍使用当前 stage 允许的普通工具。结构、关闭标记"
+    "文本工具直接修改。其他文档和代码仍使用当前 stage 允许的普通工具。结构、BG机器锚点、关闭标记"
     "或 ROOT/BG 关系异常时，先调用 RunSkillScript(commands=[[\"unitytest/"
     "dynamic-bug-recording\", \"record_dynamic_bug.py\", \"-MODE repair\"]])；"
+    "一次 repair 会重建全部生成式 BG 锚点，不要按 Checker 反馈逐个编辑锚点；"
     "BG/TC 三字段及唯一 ROOT 关联优先用 -MODE bug，ROOT 五字段优先用 -MODE root，"
     "波形机器证据只用 WaveInfo 和 ApplyWaveInfoEvidence。Skill 或 Check 报告文档格式异常时，"
     "先执行一次返回的 next_action 或 -MODE repair；若相同阻塞仍存在，或 Skill 返回 "

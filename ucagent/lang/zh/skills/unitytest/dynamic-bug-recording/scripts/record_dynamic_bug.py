@@ -1,5 +1,6 @@
 import argparse
 import ast
+from collections import Counter
 from contextlib import contextmanager
 import hashlib
 import json
@@ -203,12 +204,17 @@ def _workflow_context(
                 "purpose": "repair only machine-owned document structure and relations",
             }
         )
-    elif next_skill_mode == "retry_previous":
+    elif next_skill_mode == "retry_previous_if_pending":
         remaining_sequence.append(
             {
                 "action": "RunSkillScript",
                 "mode": resume_mode or "previous",
-                "purpose": "retry the exact Skill operation that was blocked",
+                "required": False,
+                "condition": (
+                    "Only when repair followed a failed -MODE bug or -MODE root call "
+                    "whose semantic update is still incomplete."
+                ),
+                "purpose": "retry that exact blocked Skill operation",
             }
         )
     if phase in {"bug_fields_recorded", "root_fields_recorded"}:
@@ -224,6 +230,10 @@ def _workflow_context(
                 },
                 {"action": "Check", "purpose": "validate the current document"},
             ]
+        )
+    elif phase == "document_structure_repaired":
+        remaining_sequence.append(
+            {"action": "Check", "purpose": "validate the repaired current document"}
         )
     return {
         "document_owner": SKILL_NAME,
@@ -1584,6 +1594,9 @@ _ROOT_TAG_PATTERN = ROOT_ENTITY_TAG_PATTERN.pattern
 _CAUSE_REFERENCE_PATTERN = re.compile(
     rf"^<CAUSE-REF-({_ROOT_TAG_PATTERN})>\s+\[([^\]\n]+)\]\(#([^)]+)\)\s*$"
 )
+_MACHINE_BUG_ANCHOR_PATTERN = re.compile(
+    r'^<a id="(bug-[^"\s<>]+)"></a>$'
+)
 _DYNAMIC_REPAIR_HEADING_PATTERNS = {
     "FG": re.compile(r"^###\s+.+?\s+<(FG-[^<>/]+)>\s*$"),
     "FC": re.compile(r"^####\s+.+?\s+<(FC-[^<>/]+)>\s*$"),
@@ -1743,8 +1756,94 @@ def _parse_repair_bg_assignments(visible, start, end, root_tags):
     return assignments
 
 
+def _repair_dynamic_bug_anchors(
+    lines,
+    visible,
+    dynamic_start,
+    dynamic_end,
+    root_tags,
+):
+    original_anchor_ids = [
+        match.group(1)
+        for index in range(dynamic_start + 1, dynamic_end)
+        if (match := _MACHINE_BUG_ANCHOR_PATTERN.fullmatch(visible[index]))
+    ]
+    initial_assignments = _parse_repair_bg_assignments(
+        visible,
+        dynamic_start,
+        dynamic_end,
+        root_tags,
+    )
+    initial_records = [
+        record
+        for records in initial_assignments.values()
+        for record in records
+    ]
+    expected_anchor_ids = [
+        dynamic_bug_anchor_id(record["checkpoint"], record["bug"])
+        for record in initial_records
+    ]
+    original_counts = Counter(original_anchor_ids)
+    expected_counts = Counter(expected_anchor_ids)
+    removed_count = sum((original_counts - expected_counts).values())
+    missing_count = sum((expected_counts - original_counts).values())
+    relocated_count = 0
+    for record, expected_anchor in zip(initial_records, expected_anchor_ids):
+        anchor_index = record["start"] - 1
+        while anchor_index > dynamic_start and not visible[anchor_index]:
+            anchor_index -= 1
+        if (
+            anchor_index <= dynamic_start
+            or visible[anchor_index] != f'<a id="{expected_anchor}"></a>'
+        ):
+            relocated_count += 1
+
+    anchor_indexes = [
+        index
+        for index in range(dynamic_start + 1, dynamic_end)
+        if _MACHINE_BUG_ANCHOR_PATTERN.fullmatch(visible[index])
+    ]
+    for index in reversed(anchor_indexes):
+        del lines[index]
+
+    visible = _outside_fence_lines(lines)
+    dynamic_start = visible.index(DYNAMIC_BUGS_MARKER)
+    dynamic_end = visible.index(DYNAMIC_BUGS_END_MARKER)
+    assignments = _parse_repair_bg_assignments(
+        visible,
+        dynamic_start,
+        dynamic_end,
+        root_tags,
+    )
+    records = [
+        record
+        for root_records in assignments.values()
+        for record in root_records
+    ]
+    for record in sorted(records, key=lambda item: item["start"], reverse=True):
+        insert_at = record["start"]
+        while insert_at > dynamic_start + 1 and not lines[insert_at - 1].strip():
+            del lines[insert_at - 1]
+            insert_at -= 1
+        expected_anchor = dynamic_bug_anchor_id(
+            record["checkpoint"], record["bug"]
+        )
+        lines[insert_at:insert_at] = [
+            "",
+            f'<a id="{expected_anchor}"></a>',
+            "",
+        ]
+
+    return {
+        "rebuilt_bug_anchor_count": len(records),
+        "removed_noncanonical_bug_anchor_count": removed_count,
+        "restored_missing_bug_anchor_count": missing_count,
+        "relocated_bug_anchor_count": relocated_count,
+    }
+
+
 def _repair_document_content(content):
-    """Rebuild ROOT reverse relations from canonical BG-side cause references."""
+    """Rebuild generated BG anchors and ROOT relations from canonical identities."""
 
     lines, newline, trailing_newline, removed = (
         _document_lines_with_normalized_root_closers(content)
@@ -1786,10 +1885,26 @@ def _repair_document_content(content):
     root_start, root_end = root_starts[0], root_ends[0]
     entities = _parse_repair_root_entities(lines, visible, root_start, root_end)
     root_tags = {entity["tag"] for entity in entities}
-    assignments = _parse_repair_bg_assignments(
+    anchor_details = _repair_dynamic_bug_anchors(
+        lines,
         visible,
         dynamic_starts[0],
         dynamic_ends[0],
+        root_tags,
+    )
+    visible = _outside_fence_lines(lines)
+    root_start = visible.index(ROOT_CAUSES_MARKER)
+    root_end = visible.index(ROOT_CAUSES_END_MARKER)
+    dynamic_start = visible.index(DYNAMIC_BUGS_MARKER)
+    dynamic_end = visible.index(DYNAMIC_BUGS_END_MARKER)
+    entities = _parse_repair_root_entities(
+        lines, visible, root_start, root_end
+    )
+    root_tags = {entity["tag"] for entity in entities}
+    assignments = _parse_repair_bg_assignments(
+        visible,
+        dynamic_start,
+        dynamic_end,
         root_tags,
     )
     orphaned = sorted(root_tags - set(assignments))
@@ -1815,6 +1930,7 @@ def _repair_document_content(content):
         "removed_markers": removed,
         "rebuilt_roots": dict(sorted(rebuilt.items())),
         "relation_count": sum(len(paths) for paths in rebuilt.values()),
+        **anchor_details,
     }
 
 
@@ -1835,25 +1951,50 @@ def _run_repair_operation(runtime_config, args, target):
     changed = repaired != original
     if changed:
         _atomic_write_text(target, repaired, expected_content=original)
+    root_tags = sorted(details["rebuilt_roots"])
+    root_tag_limit = 12
+    change_summary = {
+        "changed": changed,
+        "before_sha256": hashlib.sha256(original.encode("utf-8")).hexdigest(),
+        "after_sha256": hashlib.sha256(repaired.encode("utf-8")).hexdigest(),
+        "bug_anchors": {
+            "rebuilt_count": details["rebuilt_bug_anchor_count"],
+            "removed_noncanonical_count": details[
+                "removed_noncanonical_bug_anchor_count"
+            ],
+            "restored_missing_count": details[
+                "restored_missing_bug_anchor_count"
+            ],
+            "relocated_count": details["relocated_bug_anchor_count"],
+        },
+        "root_relations": {
+            "root_count": len(root_tags),
+            "relation_count": details["relation_count"],
+            "affected_root_tags": root_tags[:root_tag_limit],
+            "omitted_root_tag_count": max(0, len(root_tags) - root_tag_limit),
+            "normalized_closing_markers": details["removed_markers"],
+        },
+    }
     return {
         "operation": "repair",
         "success": True,
         "status": "repaired" if changed else "already_canonical",
         "target": target,
-        **details,
+        "change_summary": change_summary,
         "next_action": (
-            "Retry the pending -MODE bug or -MODE root call, then call Check. "
-            "Continue to prefer Skill operations while they can complete the update."
+            "If this repair followed a failed -MODE bug or -MODE root call whose "
+            "semantic update is still incomplete, retry that exact call once. "
+            "Otherwise call Check now. Do not edit generated BG anchors individually."
         ),
         "workflow_context": _workflow_context(
-            "relations_repaired",
-            identity={"root_paths": details["rebuilt_roots"]},
+            "document_structure_repaired",
             completed=[
+                "rebuilt generated dynamic BG anchors",
                 "normalized ROOT closing markers",
                 "rebuilt ROOT reverse relations from BG references",
             ],
-            next_skill_mode="retry_previous",
-            resume_mode="bug_or_root",
+            next_skill_mode="retry_previous_if_pending",
+            resume_mode="previous_failed_bug_or_root",
         ),
     }
 

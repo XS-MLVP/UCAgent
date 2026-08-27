@@ -617,7 +617,9 @@ def test_dynamic_bug_skill_script_rejects_arguments_from_the_other_mode(monkeypa
         module._run_repair_operation({}, repair_args, "unused")
 
 
-def test_dynamic_bug_skill_repair_rebuilds_relations_without_touching_analysis():
+def test_dynamic_bug_skill_repair_rebuilds_relations_without_touching_analysis(
+    tmp_path, monkeypatch
+):
     module = _load_script(RECORD_SCRIPTS[0])
     lines = module.make_bug_analysis_document("Adder").splitlines(keepends=True)
     entries = (
@@ -695,11 +697,26 @@ def test_dynamic_bug_skill_repair_rebuilds_relations_without_touching_analysis()
         "FG-ARITHMETIC/FC-ADD/CK-SIGN",
         "BG-SIGN-EXTENSION-92",
     )
+    first_anchor = module.dynamic_bug_anchor_id(
+        "FG-ARITHMETIC/FC-ADD/CK-OVERFLOW",
+        "BG-CARRY-DROPPED-95",
+    )
+    second_anchor = module.dynamic_bug_anchor_id(
+        "FG-ARITHMETIC/FC-ADD/CK-SIGN",
+        "BG-SIGN-EXTENSION-92",
+    )
     corrupted = document.replace(
         first_relation,
         first_relation + "\n" + second_relation + "\n</RELATED-BUGS>\n</ROOT>",
         1,
     ).replace("</ROOT-CAUSES>", "</RELATED-BUGS></ROOT-CAUSES>")
+    corrupted = corrupted.replace(
+        f'<a id="{first_anchor}"></a>',
+        '<a id="note-preserved"></a>\n\n'
+        '<a id="bug-overflow"></a>\n\n'
+        f'<a id="{first_anchor}"></a>',
+        1,
+    ).replace(f'<a id="{second_anchor}"></a>\n', "", 1)
 
     repaired, details = module._repair_document_content(corrupted)
 
@@ -720,7 +737,15 @@ def test_dynamic_bug_skill_repair_rebuilds_relations_without_touching_analysis()
     assert "Overview body for BG-CARRY-DROPPED-95." in repaired
     assert "Root analysis for ROOT-SIGN-EXTENSION." in repaired
     assert "waveform_analysis:\n  status: confirmed" in repaired
+    assert '<a id="note-preserved"></a>' in repaired
+    assert '<a id="bug-overflow"></a>' not in repaired
+    assert repaired.count(f'<a id="{first_anchor}"></a>') == 1
+    assert repaired.count(f'<a id="{second_anchor}"></a>') == 1
     assert details["relation_count"] == 2
+    assert details["rebuilt_bug_anchor_count"] == 2
+    assert details["removed_noncanonical_bug_anchor_count"] == 1
+    assert details["restored_missing_bug_anchor_count"] == 1
+    assert details["relocated_bug_anchor_count"] == 1
     assert details["removed_markers"] == {
         "</RELATED-BUGS>": 2,
         "</ROOT>": 1,
@@ -730,6 +755,55 @@ def test_dynamic_bug_skill_repair_rebuilds_relations_without_touching_analysis()
     assert repeated == repaired
     assert repeated_details["relation_count"] == 2
     assert repeated_details["removed_markers"] == {}
+    assert repeated_details["removed_noncanonical_bug_anchor_count"] == 0
+    assert repeated_details["restored_missing_bug_anchor_count"] == 0
+    assert repeated_details["relocated_bug_anchor_count"] == 0
+
+    target = tmp_path / "bugs.md"
+    target.write_text(corrupted, encoding="utf-8")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [str(RECORD_SCRIPTS[0]), "-MODE", "repair"],
+    )
+    result = module._run_repair_operation({}, module.parse_args(), str(target))
+    context = result["workflow_context"]
+    summary = result["change_summary"]
+    assert summary["changed"] is True
+    assert summary["before_sha256"] == hashlib.sha256(
+        corrupted.encode("utf-8")
+    ).hexdigest()
+    assert summary["after_sha256"] == hashlib.sha256(
+        repaired.encode("utf-8")
+    ).hexdigest()
+    assert summary["bug_anchors"] == {
+        "rebuilt_count": 2,
+        "removed_noncanonical_count": 1,
+        "restored_missing_count": 1,
+        "relocated_count": 1,
+    }
+    assert summary["root_relations"] == {
+        "root_count": 2,
+        "relation_count": 2,
+        "affected_root_tags": ["ROOT-CARRY-WIDTH", "ROOT-SIGN-EXTENSION"],
+        "omitted_root_tag_count": 0,
+        "normalized_closing_markers": {
+            "</RELATED-BUGS>": 2,
+            "</ROOT>": 1,
+        },
+    }
+    assert "rebuilt_roots" not in result
+    assert "relation_count" not in result
+    assert context["phase"] == "document_structure_repaired"
+    assert context["identity"] == {}
+    assert context["next_skill_mode"] == "retry_previous_if_pending"
+    assert context["remaining_sequence"][0]["required"] is False
+    assert [item["action"] for item in context["remaining_sequence"]] == [
+        "RunSkillScript",
+        "Check",
+    ]
+    assert "Otherwise call Check now" in result["next_action"]
+    assert "Do not edit generated BG anchors individually" in result["next_action"]
 
 
 def test_dynamic_bug_skill_keeps_incremental_shared_root_relations_canonical():
