@@ -148,7 +148,9 @@ def test_default_prompt_requires_waveinfo_for_dynamic_bugs():
     assert "相同test_case_tag和不同bug_tag分别调用" in system_prompt
     assert "新增关联不需要replace_existing" in system_prompt
     assert "LLM不得复制或修改receipt字段" in system_prompt
-    assert "动态Bug文档只通过该Skill的`record_dynamic_bug.py`和`ApplyWaveInfoEvidence`确定性维护" in system_prompt
+    assert "只有动态Bug文档`{OUT}/{DUT}_bug_analysis.md`由该Skill的`record_dynamic_bug.py`和`ApplyWaveInfoEvidence`确定性维护" in system_prompt
+    assert "其他文档和代码仍使用当前stage允许的普通工具" in system_prompt
+    assert "`-MODE repair`" in system_prompt
     assert "先用`-MODE bug`" in system_prompt
     assert "再用`-MODE root`" in system_prompt
     assert "Skill禁用或未复制时" in system_prompt
@@ -204,6 +206,7 @@ def test_default_prompt_requires_waveinfo_for_dynamic_bugs():
     assert "不得以测试Bug或BG-*-0占位保留Fail" in batch_task
     assert "任何未分类Fail" in batch_task
     assert "禁止直接编辑{OUT}/{DUT}_bug_analysis.md" in batch_task
+    assert "record_dynamic_bug.py的-MODE repair" in batch_task
     assert "record_dynamic_bug.py的-MODE bug" in batch_task
     assert "对每个不同ROOT调用-MODE root" in batch_task
     assert "Skill禁用或脚本未复制时" in batch_task

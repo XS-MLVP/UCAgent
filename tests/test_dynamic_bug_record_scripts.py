@@ -607,6 +607,227 @@ def test_dynamic_bug_skill_script_rejects_arguments_from_the_other_mode(monkeypa
     with pytest.raises(ValueError, match="root mode does not accept bug-only"):
         module._run_root_operation({}, root_args, "unused")
 
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [str(RECORD_SCRIPTS[0]), "-MODE", "repair", "-ROOT-TAG", "ROOT-A"],
+    )
+    repair_args = module.parse_args()
+    with pytest.raises(ValueError, match="repair mode accepts no semantic"):
+        module._run_repair_operation({}, repair_args, "unused")
+
+
+def test_dynamic_bug_skill_repair_rebuilds_relations_without_touching_analysis():
+    module = _load_script(RECORD_SCRIPTS[0])
+    lines = module.make_bug_analysis_document("Adder").splitlines(keepends=True)
+    entries = (
+        (
+            "CK-OVERFLOW",
+            "BG-CARRY-DROPPED-95",
+            "TC-tests/test_adder.py::test_carry",
+            "ROOT-CARRY-WIDTH",
+            "Carry width",
+        ),
+        (
+            "CK-SIGN",
+            "BG-SIGN-EXTENSION-92",
+            "TC-tests/test_adder.py::test_sign",
+            "ROOT-SIGN-EXTENSION",
+            "Sign extension",
+        ),
+    )
+    for ck, bg, tc, root_tag, root_title in entries:
+        module.insert_content(
+            lines,
+            "FG-ARITHMETIC",
+            "FC-ADD",
+            ck,
+            bg,
+            tc,
+            f"Analysis title for {bg}",
+            "Arithmetic",
+            "Addition",
+            f"Checkpoint {ck}",
+            f"Test {tc}",
+            root_tag=root_tag,
+            root_title=root_title,
+        )
+        module._update_bug_fields(
+            lines,
+            f"FG-ARITHMETIC/FC-ADD/{ck}",
+            bg,
+            f"Analysis title for {bg}",
+            {
+                "overview": f"Overview body for {bg}.",
+                "symptoms": f"Symptoms body for {bg}.",
+                "trigger": f"Trigger body for {bg}.",
+            },
+            root_tag,
+            root_title,
+        )
+        module._update_root_fields(
+            lines,
+            root_tag,
+            root_title,
+            {
+                "analysis": f"Root analysis for {root_tag}.",
+                "source_evidence": (
+                    "<ROOT-SOURCE-UNAVAILABLE>\n"
+                    f"Source evidence for {root_tag}."
+                ),
+                "causal_chain": f"Causal chain for {root_tag}.",
+                "fix": f"Fix for {root_tag}.",
+                "retest": f"Retest for {root_tag}.",
+            },
+        )
+
+    document = "".join(lines).replace(
+        "<WAVEFORM-EVIDENCE>\n",
+        "<WAVEFORM-EVIDENCE>\n"
+        "<WAVEFORM-TC-tests/test_adder.py::test_carry>\n"
+        "```yaml\nwaveform_analysis:\n  status: confirmed\n```\n",
+    )
+    first_relation = module.related_bug_reference(
+        "FG-ARITHMETIC/FC-ADD/CK-OVERFLOW",
+        "BG-CARRY-DROPPED-95",
+    )
+    second_relation = module.related_bug_reference(
+        "FG-ARITHMETIC/FC-ADD/CK-SIGN",
+        "BG-SIGN-EXTENSION-92",
+    )
+    corrupted = document.replace(
+        first_relation,
+        first_relation + "\n" + second_relation + "\n</RELATED-BUGS>\n</ROOT>",
+        1,
+    ).replace("</ROOT-CAUSES>", "</RELATED-BUGS></ROOT-CAUSES>")
+
+    repaired, details = module._repair_document_content(corrupted)
+
+    assert "</RELATED-BUGS>" not in repaired
+    assert "</ROOT>" not in repaired
+    assert repaired.count("</ROOT-CAUSES>") == 1
+    assert repaired.count(first_relation) == 1
+    assert repaired.count(second_relation) == 1
+    first_root = repaired.split("<ROOT-CARRY-WIDTH>", 1)[1].split(
+        "<ROOT-SIGN-EXTENSION>", 1
+    )[0]
+    second_root = repaired.split("<ROOT-SIGN-EXTENSION>", 1)[1].split(
+        "</ROOT-CAUSES>", 1
+    )[0]
+    assert first_relation in first_root
+    assert second_relation not in first_root
+    assert second_relation in second_root
+    assert "Overview body for BG-CARRY-DROPPED-95." in repaired
+    assert "Root analysis for ROOT-SIGN-EXTENSION." in repaired
+    assert "waveform_analysis:\n  status: confirmed" in repaired
+    assert details["relation_count"] == 2
+    assert details["removed_markers"] == {
+        "</RELATED-BUGS>": 2,
+        "</ROOT>": 1,
+    }
+
+    repeated, repeated_details = module._repair_document_content(repaired)
+    assert repeated == repaired
+    assert repeated_details["relation_count"] == 2
+    assert repeated_details["removed_markers"] == {}
+
+
+def test_dynamic_bug_skill_repair_rejects_ambiguous_bg_root_reference():
+    module = _load_script(RECORD_SCRIPTS[0])
+    lines = module.make_bug_analysis_document("Adder").splitlines(keepends=True)
+    module.insert_content(
+        lines,
+        "FG-ARITHMETIC",
+        "FC-ADD",
+        "CK-RESULT",
+        "BG-RESULT-90",
+        "TC-tests/test_adder.py::test_result",
+        "Result failure",
+        "Arithmetic",
+        "Addition",
+        "Result",
+        "Result test",
+        root_tag="ROOT-RESULT",
+        root_title="Result root",
+    )
+    document = "".join(lines)
+    existing_reference = module.root_cause_reference("ROOT-RESULT", "Result failure")
+    document = document.replace(
+        existing_reference,
+        existing_reference + "\n" + existing_reference,
+        1,
+    )
+
+    with pytest.raises(module.SkillDocumentError) as raised:
+        module._repair_document_content(document)
+
+    assert raised.value.error_code == "REPAIR_BUG_ROOT_REFERENCE_INVALID"
+    assert raised.value.workflow_context["next_skill_mode"] == "bug"
+
+
+def test_dynamic_bug_skill_results_expose_multi_call_workflow_context(
+    tmp_path, monkeypatch
+):
+    module = _load_script(RECORD_SCRIPTS[0])
+    target = tmp_path / "bugs.md"
+    target.write_text(module.make_bug_analysis_document("Adder"), encoding="utf-8")
+    monkeypatch.setattr(
+        module,
+        "resolve_fg_fc_ck_list_by_tc",
+        lambda *_args: [("FG-A", "FC-B", "CK-C")],
+    )
+    monkeypatch.setattr(module, "resolve_checkpoint_titles", lambda *_args: ("A", "B", "C"))
+    monkeypatch.setattr(module, "resolve_test_title", lambda *_args: "Test title")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            str(RECORD_SCRIPTS[0]),
+            "-MODE",
+            "bug",
+            "-BG",
+            "BG-RESULT-90",
+            "-TC",
+            "TC-tests/test_adder.py::test_result",
+            "-BD",
+            "Result failure",
+            "-CHECKPOINT",
+            "FG-A/FC-B/CK-C",
+            "-ROOT-TAG",
+            "ROOT-RESULT",
+            "-ROOT-TITLE",
+            "Result root",
+            "-OVERVIEW",
+            "Overview.",
+            "-SYMPTOMS",
+            "Symptoms.",
+            "-TRIGGER",
+            "Trigger.",
+        ],
+    )
+    result = module._run_bug_operation(
+        {"OUT": "out", "DUT": "Adder", "test_output_dir": "tests"},
+        module.parse_args(),
+        str(target),
+    )
+
+    context = result["workflow_context"]
+    assert context["phase"] == "bug_fields_recorded"
+    assert context["next_skill_mode"] == "root"
+    assert context["identity"] == {
+        "bug_tag": "BG-RESULT-90",
+        "test_case": "TC-tests/test_adder.py::test_result",
+        "checkpoint_paths": ["FG-A/FC-B/CK-C"],
+        "root_tag": "ROOT-RESULT",
+        "root_title": "Result root",
+    }
+    assert [item["action"] for item in context["remaining_sequence"]] == [
+        "RunSkillScript",
+        "WaveInfo",
+        "ApplyWaveInfoEvidence",
+        "Check",
+    ]
+
 
 def test_dynamic_bug_skill_script_moves_bg_root_relation_without_orphaning_old_root():
     module = _load_script(RECORD_SCRIPTS[0])

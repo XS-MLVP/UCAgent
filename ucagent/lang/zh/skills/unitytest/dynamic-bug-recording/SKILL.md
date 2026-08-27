@@ -5,7 +5,7 @@ description: 为正确失败测试确认的动态DUT Bug确定性维护BG、TC�
 
 # 动态 Bug 确定性记录
 
-当前stage的`skill_list`包含本技能且Skill启用时，已确认动态DUT Bug只通过本技能声明的`record_dynamic_bug.py`以及内置`WaveInfo`、`ApplyWaveInfoEvidence`维护。不要用`EditTextFile`、`ReplaceStringInFile`、`DeleteTextLines`、shell或临时Python直接修改`{OUT}/{DUT}_bug_analysis.md`。脚本以原子替换方式维护Markdown结构；同一命令可幂等重试，也可在后续stage继续追加新的精确路径、TC、BG或ROOT关联。
+当前stage的`skill_list`包含本技能且Skill启用时，已确认动态DUT Bug只通过本技能声明的`record_dynamic_bug.py`以及内置`WaveInfo`、`ApplyWaveInfoEvidence`维护。不要用`EditTextFile`、`ReplaceStringInFile`、`DeleteTextLines`、shell或临时Python直接创建、修改或修复`{OUT}/{DUT}_bug_analysis.md`；这个限制只针对动态Bug文档，其他文档和代码仍使用当前stage允许的普通工具。脚本以原子替换方式维护Markdown结构；同一命令可幂等重试，也可在后续stage继续追加新的精确路径、TC、BG或ROOT关联。
 
 Skill整体禁用、当前stage没有本Skill，或工作区未复制`.ucagent/skills`时，仍按stage task、Guide_Doc/dut_bug_analysis.md中的第 5.1 节（section 5.1）和内置文本编辑工具完成完全相同的规范产物；Skill缺失不得暂停、跳过Bug记录或降低证据标准。直接文本编辑只是禁用路径的可选替代，不是Skill启用时的记录方法。
 
@@ -24,12 +24,24 @@ CK失败时必须先核对coverage/check function、predicate和sample时机；C
 ## 固定工作流
 
 1. 运行当前stage的真实测试并取得当前报告。`record_dynamic_bug.py`只读取`.ucagent/runtime_config.json`中的`test_output_dir`和`current_test_report`，并将解析出的`test_output_dir`作为本次实际TC输出目录；报告缺失时重新运行当前stage真实测试，禁止创建、复制或修改报告。
-2. 对每个新BG路径的第一份精确`FG/FC/CK/BG/TC`关联调用一次`-MODE bug`。命令同时写入三个完整BG字段、唯一ROOT引用和ROOT反向链接，不产生需要手工填写的BG字段；已有CK/BG的后续兄弟TC直接进入步骤4。
-3. 对每个不同ROOT调用一次`-MODE root`。该命令一次写入ROOT五个完整字段；同一ROOT关联多个BG时只调用一次或在分析更新后幂等重调，既有反向链接会保留。
-4. 使用最终`WaveInfo`取得签名receipt，再对每个精确BG/TC路径调用`ApplyWaveInfoEvidence`。Apply原子维护BG侧`<WAVEFORM-REF>`和TC唯一中央波形记录。
-5. 调用`Check`。如果语义内容需要修订，使用对应`MODE`重调脚本；如果receipt需要修订，按工具返回的恢复调用重调WaveInfo/Apply。不要直接编辑Bug Markdown。
+2. 如果脚本、Check或Complete报告ROOT容器、关闭标记或ROOT/BG反向关系异常，只调用`["unitytest/dynamic-bug-recording", "record_dynamic_bug.py", "-MODE repair"]`。`repair`不读取当前测试报告、不接受任何Bug/ROOT语义参数，只依据每个BG唯一的`<CAUSE-REF-ROOT-*>`重建ROOT反向关系，删除不受支持的`</RELATED-BUGS>`和`</ROOT>`，拆分粘连的`</ROOT-CAUSES>`，并保留全部BG/TC/ROOT分析正文和中央波形。若返回失败，按`next_action`先用对应语义MODE消除歧义，再重调`repair`，禁止手工修文档。
+3. 对每个新BG路径的第一份精确`FG/FC/CK/BG/TC`关联调用一次`-MODE bug`。命令同时写入三个完整BG字段、唯一ROOT引用和ROOT反向链接，不产生需要手工填写的BG字段；已有CK/BG的后续兄弟TC直接进入步骤5。
+4. 对每个不同ROOT调用一次`-MODE root`。该命令一次写入ROOT五个完整字段；同一ROOT关联多个BG时只调用一次或在分析更新后幂等重调，既有反向链接会保留。
+5. 使用最终`WaveInfo`取得签名receipt，再对每个精确BG/TC路径调用`ApplyWaveInfoEvidence`。Apply原子维护BG侧`<WAVEFORM-REF>`和TC唯一中央波形记录。
+6. 调用`Check`。如果语义内容需要修订，使用对应`MODE`重调脚本；如果receipt需要修订，按工具返回的恢复调用重调WaveInfo/Apply。不要直接编辑Bug Markdown。
 
 `RunTestCases`只运行已有真实pytest用例；本脚本只能通过`RunSkillScript`执行。`RunSkillScript.commands`中的每条命令严格使用`[skill_name, skill_script, args]`三字符串结构。
+
+## 多次调用上下文
+
+新增一条动态Bug不是单次脚本调用。`MODE bug`、必要的`MODE repair`和`MODE root`每次都会返回`workflow_context`；后续调用以这个结构化字段为续跑上下文，不凭记忆重建身份：
+
+- `phase`说明刚完成或被阻塞的阶段；`completed`列出已确定性写入的内容。
+- `identity`保存后续调用必须逐字复用的BG、函数级TC、完整checkpoint和ROOT身份。不得换用相似node、同名BG的其他CK或新ROOT标签。
+- `next_skill_mode`是下一次脚本模式；`remaining_sequence`给出后续Skill、WaveInfo、Apply和Check的顺序。先完成下一次Skill调用，再执行后续工具，不得跳到Check后反复试错。
+- `continuation_rule`始终只约束`{OUT}/{DUT}_bug_analysis.md`。其他文档和代码仍按当前stage正常编辑。
+
+`MODE repair`成功后，使用`workflow_context.resume_mode`重试此前失败的`MODE bug`或`MODE root`调用；不要因为结构已修复就跳过原本尚未完成的语义字段。脚本失败时保留原有身份，执行`next_action`和`workflow_context.remaining_sequence`，不得直接编辑动态Bug文档。
 
 ## BG 与 TC
 

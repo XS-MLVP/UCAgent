@@ -50,6 +50,9 @@ GENERIC_VISIBLE_TITLES = {
 ROOT_CAUSES_MARKER = "<ROOT-CAUSES>"
 ROOT_CAUSES_END_MARKER = "</ROOT-CAUSES>"
 RELATED_BUGS_MARKER = "<RELATED-BUGS>"
+UNSUPPORTED_ROOT_CLOSING_MARKERS = ("</RELATED-BUGS>", "</ROOT>")
+SKILL_NAME = "unitytest/dynamic-bug-recording"
+SKILL_SCRIPT = "record_dynamic_bug.py"
 HEADING_COMPANION_MARKERS = frozenset(
     [marker for _field, marker in BUG_ANALYSIS_SECTION_MARKERS]
     + [marker for _field, marker in ROOT_ANALYSIS_SECTION_MARKERS]
@@ -99,6 +102,124 @@ FORBIDDEN_FIELD_TOKENS = (
 )
 
 
+class SkillDocumentError(ValueError):
+    """Describe a document failure with one deterministic Skill recovery action."""
+
+    def __init__(
+        self,
+        error_code,
+        error,
+        *,
+        details=None,
+        next_action,
+        workflow_context=None,
+    ):
+        super().__init__(error)
+        self.error_code = error_code
+        self.error = error
+        self.details = details or {}
+        self.next_action = next_action
+        self.workflow_context = workflow_context
+
+    def as_result(self, operation):
+        result = {
+            "operation": operation,
+            "success": False,
+            "error_code": self.error_code,
+            "error": self.error,
+            "details": self.details,
+            "next_action": self.next_action,
+        }
+        result["workflow_context"] = self.workflow_context or _workflow_context(
+            "skill_call_blocked",
+            next_skill_mode=("repair" if operation in {"bug", "root"} else operation),
+            resume_mode=operation,
+        )
+        return result
+
+
+def _repair_skill_call():
+    return {
+        "tool": "RunSkillScript",
+        "commands": [[SKILL_NAME, SKILL_SCRIPT, "-MODE repair"]],
+    }
+
+
+def _repair_next_action():
+    return (
+        "Call RunSkillScript with commands "
+        f"{_repair_skill_call()['commands']}, then retry the original Skill mode. "
+        "Do not edit the Bug document directly."
+    )
+
+
+def _workflow_context(
+    phase,
+    *,
+    identity=None,
+    completed=None,
+    next_skill_mode=None,
+    resume_mode=None,
+):
+    """Return compact continuation state for a multi-call Bug recording workflow."""
+
+    remaining_sequence = []
+    if next_skill_mode == "root":
+        remaining_sequence.append(
+            {
+                "action": "RunSkillScript",
+                "mode": "root",
+                "purpose": "complete the five ROOT analysis fields",
+                "reuse_identity": ["root_tag", "root_title"],
+            }
+        )
+    elif next_skill_mode == "repair":
+        remaining_sequence.append(
+            {
+                "action": "RunSkillScript",
+                "mode": "repair",
+                "purpose": "repair only machine-owned document structure and relations",
+            }
+        )
+    elif next_skill_mode == "retry_previous":
+        remaining_sequence.append(
+            {
+                "action": "RunSkillScript",
+                "mode": resume_mode or "previous",
+                "purpose": "retry the exact Skill operation that was blocked",
+            }
+        )
+    if phase in {"bug_fields_recorded", "root_fields_recorded"}:
+        remaining_sequence.extend(
+            [
+                {
+                    "action": "WaveInfo",
+                    "purpose": "produce the final signed receipt for the exact failed TC",
+                },
+                {
+                    "action": "ApplyWaveInfoEvidence",
+                    "purpose": "attach the receipt to each exact BG/TC/checkpoint path",
+                },
+                {"action": "Check", "purpose": "validate the current document"},
+            ]
+        )
+    return {
+        "document_owner": SKILL_NAME,
+        "owned_target": "{OUT}/{DUT}_bug_analysis.md",
+        "phase": phase,
+        "completed": completed or [],
+        "identity": identity or {},
+        "next_skill_mode": next_skill_mode,
+        "resume_mode": resume_mode,
+        "remaining_sequence": remaining_sequence,
+        "continuation_rule": (
+            "Keep every reported BG, TC, checkpoint, and ROOT identity byte-for-byte "
+            "unchanged across calls. Use only this Skill for the owned target; other "
+            "documents and code are outside this ownership boundary."
+        ),
+    }
+
+
 def load_asset_template(name):
     return Template((ASSET_DIR / name).read_text(encoding="utf-8"))
 
@@ -120,9 +241,12 @@ def parse_args(test_output_dir="<resolved agent.cfg test output directory>"):
     )
     parser.add_argument(
         "-MODE",
-        choices=("bug", "root"),
+        choices=("repair", "bug", "root"),
         required=True,
-        help="Use bug to upsert a BG/TC path or root to upsert one ROOT entity.",
+        help=(
+            "Use repair to rebuild machine-owned ROOT/BG relations, bug to upsert "
+            "a BG/TC path, or root to upsert one ROOT entity."
+        ),
     )
     parser.add_argument("-BG", help="Bug tag, e.g. BG-CIN-OVERFLOW-98")
     parser.add_argument(
@@ -1119,7 +1243,16 @@ def ensure_root_cause_container(lines):
     ends = [i for i, line in enumerate(lines) if line.strip() == ROOT_CAUSES_END_MARKER]
     if starts or ends:
         if len(starts) != 1 or len(ends) != 1 or starts[0] >= ends[0]:
-            raise ValueError("Error: malformed ROOT-CAUSES container.")
+            raise SkillDocumentError(
+                "ROOT_CAUSE_CONTAINER_MALFORMED",
+                "The Bug document must contain one closed ROOT-CAUSES container.",
+                details={
+                    "root_causes_start_count": len(starts),
+                    "root_causes_end_count": len(ends),
+                    "repair_call": _repair_skill_call(),
+                },
+                next_action=_repair_next_action(),
+            )
         return
     evidence = next(
         (i for i, line in enumerate(lines) if line.strip() == WAVEFORM_EVIDENCE_MARKER),
@@ -1303,6 +1436,398 @@ def _remove_stale_root_relation(lines, checkpoint_path, bg, root_tag):
             end -= len(entity_lines)
 
 
+def _repair_argument_values(args):
+    return {
+        "-BG": args.BG,
+        "-TC": args.TC,
+        "-BD": args.BD,
+        "-CHECKPOINT": args.CHECKPOINT,
+        "-ROOT-TAG": args.root_tag,
+        "-ROOT-TITLE": args.ROOT_TITLE,
+        "-OVERVIEW": args.OVERVIEW,
+        "-SYMPTOMS": args.SYMPTOMS,
+        "-TRIGGER": args.TRIGGER,
+        "-ANALYSIS": args.ANALYSIS,
+        "-CAUSAL-CHAIN": args.causal_chain,
+        "-FIX": args.FIX,
+        "-RETEST": args.RETEST,
+        "-SOURCE-LOCATION": args.source_location,
+        "-SOURCE-UNAVAILABLE": args.source_unavailable_reason,
+        "-FIRST-ERROR-LINE": args.first_error_line,
+        "-FIRST-ERROR-NOTE": args.first_error_note,
+        "-PROPAGATION-LINE": args.propagation_line,
+        "-PROPAGATION-NOTE": args.propagation_note,
+        "-OBSERVABLE-LINE": args.observable_line,
+        "-OBSERVABLE-NOTE": args.observable_note,
+    }
+
+
+def _document_lines_with_normalized_root_closers(content):
+    """Split merged ROOT closers and remove unsupported machine closing tags."""
+
+    has_only_crlf = "\r\n" in content and "\n" not in content.replace("\r\n", "")
+    newline = "\r\n" if has_only_crlf else "\n"
+    trailing_newline = content.endswith(("\n", "\r"))
+    repaired = []
+    removed = {marker: 0 for marker in UNSUPPORTED_ROOT_CLOSING_MARKERS}
+    in_fence = False
+    for line in content.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("```"):
+            repaired.append(line)
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            repaired.append(line)
+            continue
+
+        value = line
+        for marker in UNSUPPORTED_ROOT_CLOSING_MARKERS:
+            count = value.count(marker)
+            if count:
+                removed[marker] += count
+                value = value.replace(marker, "")
+
+        parts = value.split(ROOT_CAUSES_END_MARKER)
+        if len(parts) == 1:
+            if value.strip():
+                repaired.append(value)
+            elif line.strip() == "":
+                repaired.append(line)
+            continue
+        for index, part in enumerate(parts):
+            if part.strip():
+                repaired.append(part)
+            if index < len(parts) - 1:
+                repaired.append(ROOT_CAUSES_END_MARKER)
+
+    removed = {marker: count for marker, count in removed.items() if count}
+    return repaired, newline, trailing_newline, removed
+
+
+def _join_document_lines(lines, newline, trailing_newline):
+    content = newline.join(lines)
+    if trailing_newline:
+        content += newline
+    return content
+
+
+def _outside_fence_lines(lines):
+    visible = []
+    in_fence = False
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("```"):
+            in_fence = not in_fence
+            visible.append("")
+        elif in_fence:
+            visible.append("")
+        else:
+            visible.append(stripped)
+    return visible
+
+
+def _repair_failure(error_code, error, *, details=None, mode="bug"):
+    action = (
+        "Use -MODE bug for each reported BG path to establish exactly one valid "
+        "ROOT reference, then call -MODE repair again. Do not edit the Bug document "
+        "directly."
+    )
+    if mode == "root":
+        action = (
+            "Use -MODE root to restore the reported ROOT entity fields, then call "
+            "-MODE repair again. Do not edit the Bug document directly."
+        )
+    raise SkillDocumentError(
+        error_code,
+        error,
+        details=details,
+        next_action=action,
+        workflow_context=_workflow_context(
+            "repair_blocked",
+            next_skill_mode=mode,
+            resume_mode="repair",
+        ),
+    )
+
+
+_ROOT_TAG_PATTERN = ROOT_ENTITY_TAG_PATTERN.pattern
+_CAUSE_REFERENCE_PATTERN = re.compile(
+    rf"^<CAUSE-REF-({_ROOT_TAG_PATTERN})>\s+\[([^\]\n]+)\]\(#([^)]+)\)\s*$"
+)
+_DYNAMIC_REPAIR_HEADING_PATTERNS = {
+    "FG": re.compile(r"^###\s+.+?\s+<(FG-[^<>/]+)>\s*$"),
+    "FC": re.compile(r"^####\s+.+?\s+<(FC-[^<>/]+)>\s*$"),
+    "CK": re.compile(r"^#####\s+.+?\s+<(CK-[^<>/]+)>\s*$"),
+    "BG": re.compile(r"^######\s+.+?\s+<(BG-[^<>/]+)>\s*$"),
+}
+
+
+def _parse_repair_root_entities(lines, visible, start, end):
+    heading_pattern = re.compile(
+        rf"^###\s+(.+?)\s+<({_ROOT_TAG_PATTERN})>\s*$"
+    )
+    headings = []
+    for index in range(start + 1, end):
+        match = heading_pattern.fullmatch(visible[index])
+        if match:
+            headings.append((index, match.group(2), match.group(1).strip()))
+    tags = [tag for _index, tag, _title in headings]
+    duplicates = sorted(tag for tag in set(tags) if tags.count(tag) > 1)
+    if duplicates:
+        _repair_failure(
+            "REPAIR_ROOT_IDENTITY_AMBIGUOUS",
+            "ROOT entity tags must be document-wide unique before relations can be rebuilt.",
+            details={"duplicate_root_tags": duplicates},
+            mode="root",
+        )
+
+    entity_starts = [
+        _root_entity_start(lines, heading_index, start)
+        for heading_index, _tag, _title in headings
+    ]
+    entities = []
+    for position, (heading_index, tag, title) in enumerate(headings):
+        entity_end = (
+            entity_starts[position + 1] if position + 1 < len(headings) else end
+        )
+        related_indexes = [
+            index
+            for index in range(heading_index + 1, entity_end)
+            if visible[index] == RELATED_BUGS_MARKER
+        ]
+        if len(related_indexes) != 1:
+            _repair_failure(
+                "REPAIR_RELATED_BUGS_MARKER_INVALID",
+                f"<{tag}> must contain exactly one {RELATED_BUGS_MARKER} marker.",
+                details={
+                    "root_tag": tag,
+                    "related_bugs_marker_count": len(related_indexes),
+                },
+                mode="root",
+            )
+        entities.append(
+            {
+                "tag": tag,
+                "title": title,
+                "entity_end": entity_end,
+                "related_index": related_indexes[0],
+            }
+        )
+    return entities
+
+
+def _parse_repair_bg_assignments(visible, start, end, root_tags):
+    hierarchy = {"FG": None, "FC": None, "CK": None}
+    records = []
+    current = None
+
+    def close_current(boundary):
+        nonlocal current
+        if current is None:
+            return
+        current["end"] = boundary
+        records.append(current)
+        current = None
+
+    for index in range(start + 1, end):
+        matched = next(
+            (
+                (kind, match)
+                for kind, pattern in _DYNAMIC_REPAIR_HEADING_PATTERNS.items()
+                if (match := pattern.fullmatch(visible[index])) is not None
+            ),
+            None,
+        )
+        if matched is None:
+            continue
+        close_current(index)
+        kind, match = matched
+        tag = match.group(1)
+        if kind == "FG":
+            hierarchy.update({"FG": tag, "FC": None, "CK": None})
+        elif kind == "FC":
+            hierarchy.update({"FC": tag, "CK": None})
+        elif kind == "CK":
+            hierarchy["CK"] = tag
+        else:
+            if not all(hierarchy.values()):
+                _repair_failure(
+                    "REPAIR_BUG_PATH_INCOMPLETE",
+                    f"<{tag}> does not have one complete FG/FC/CK parent path.",
+                    details={"bug_tag": tag, "hierarchy": hierarchy.copy()},
+                )
+            current = {
+                "bug": tag,
+                "path": "/".join([*hierarchy.values(), tag]),
+                "checkpoint": "/".join(hierarchy.values()),
+                "start": index,
+            }
+    close_current(end)
+
+    paths = [record["path"] for record in records]
+    duplicates = sorted(path for path in set(paths) if paths.count(path) > 1)
+    if duplicates:
+        _repair_failure(
+            "REPAIR_BUG_IDENTITY_AMBIGUOUS",
+            "Each exact FG/FC/CK/BG path must occur only once before relations can be rebuilt.",
+            details={"duplicate_bug_paths": duplicates},
+        )
+
+    assignments = {}
+    for record in records:
+        references = []
+        hinted_lines = []
+        for index in range(record["start"] + 1, record["end"]):
+            if "<CAUSE-REF-ROOT-" in visible[index]:
+                hinted_lines.append(index + 1)
+            match = _CAUSE_REFERENCE_PATTERN.fullmatch(visible[index])
+            if match:
+                references.append(
+                    {
+                        "tag": match.group(1),
+                        "line": index + 1,
+                    }
+                )
+        if len(references) != 1:
+            _repair_failure(
+                "REPAIR_BUG_ROOT_REFERENCE_INVALID",
+                f"{record['path']} must contain exactly one canonical CAUSE-REF-ROOT reference.",
+                details={
+                    "bug_path": record["path"],
+                    "reference_count": len(references),
+                    "candidate_lines": hinted_lines,
+                },
+            )
+        root_tag = references[0]["tag"]
+        if root_tag not in root_tags:
+            _repair_failure(
+                "REPAIR_REFERENCED_ROOT_MISSING",
+                f"{record['path']} points to missing root entity <{root_tag}>.",
+                details={
+                    "bug_path": record["path"],
+                    "root_tag": root_tag,
+                    "reference_line": references[0]["line"],
+                },
+            )
+        assignments.setdefault(root_tag, []).append(record)
+    return assignments
+
+
+def _repair_document_content(content):
+    """Rebuild ROOT reverse relations from canonical BG-side cause references."""
+
+    lines, newline, trailing_newline, removed = (
+        _document_lines_with_normalized_root_closers(content)
+    )
+    visible = _outside_fence_lines(lines)
+    root_starts = [i for i, value in enumerate(visible) if value == ROOT_CAUSES_MARKER]
+    root_ends = [i for i, value in enumerate(visible) if value == ROOT_CAUSES_END_MARKER]
+    if len(root_starts) != 1 or len(root_ends) != 1 or root_starts[0] >= root_ends[0]:
+        raise SkillDocumentError(
+            "ROOT_CAUSE_CONTAINER_MALFORMED",
+            "The Bug document must contain one closed ROOT-CAUSES container.",
+            details={
+                "root_causes_start_count": len(root_starts),
+                "root_causes_end_count": len(root_ends),
+                "repair_call": _repair_skill_call(),
+            },
+            next_action=(
+                "Restore one unambiguous ROOT-CAUSES container through the owning Skill "
+                "mode, then call -MODE repair again. Do not edit semantic analysis fields."
+            ),
+        )
+    dynamic_starts = [i for i, value in enumerate(visible) if value == DYNAMIC_BUGS_MARKER]
+    dynamic_ends = [i for i, value in enumerate(visible) if value == DYNAMIC_BUGS_END_MARKER]
+    if (
+        len(dynamic_starts) != 1
+        or len(dynamic_ends) != 1
+        or dynamic_starts[0] >= dynamic_ends[0]
+    ):
+        _repair_failure(
+            "REPAIR_DYNAMIC_BUG_CONTAINER_INVALID",
+            "The Bug document must contain one closed DYNAMIC-BUGS container.",
+            details={
+                "dynamic_start_count": len(dynamic_starts),
+                "dynamic_end_count": len(dynamic_ends),
+            },
+        )
+
+    root_start, root_end = root_starts[0], root_ends[0]
+    entities = _parse_repair_root_entities(lines, visible, root_start, root_end)
+    root_tags = {entity["tag"] for entity in entities}
+    assignments = _parse_repair_bg_assignments(
+        visible,
+        dynamic_starts[0],
+        dynamic_ends[0],
+        root_tags,
+    )
+    orphaned = sorted(root_tags - set(assignments))
+    if orphaned:
+        _repair_failure(
+            "REPAIR_ROOT_WITHOUT_FORWARD_REFERENCE",
+            "Every ROOT entity must be selected by at least one BG before relations can be rebuilt.",
+            details={"root_tags": orphaned},
+        )
+
+    rebuilt = {}
+    for entity in reversed(entities):
+        records = sorted(assignments[entity["tag"]], key=lambda item: item["path"])
+        relations = [
+            related_bug_reference(record["checkpoint"], record["bug"])
+            for record in records
+        ]
+        lines[entity["related_index"] + 1 : entity["entity_end"]] = relations + [""]
+        rebuilt[entity["tag"]] = [record["path"] for record in records]
+
+    repaired_content = _join_document_lines(lines, newline, trailing_newline)
+    return repaired_content, {
+        "removed_markers": removed,
+        "rebuilt_roots": dict(sorted(rebuilt.items())),
+        "relation_count": sum(len(paths) for paths in rebuilt.values()),
+    }
+
+
+def _run_repair_operation(runtime_config, args, target):
+    del runtime_config
+    unexpected = [
+        name for name, value in _repair_argument_values(args).items() if value is not None
+    ]
+    if unexpected:
+        raise ValueError(
+            "Error: repair mode accepts no semantic Bug or ROOT arguments: "
+            + ", ".join(unexpected)
+            + ". Call only -MODE repair."
+        )
+    with open(target, "r", encoding="utf-8", newline="") as handle:
+        original = handle.read()
+    repaired, details = _repair_document_content(original)
+    changed = repaired != original
+    if changed:
+        _atomic_write_text(target, repaired, expected_content=original)
+    return {
+        "operation": "repair",
+        "success": True,
+        "status": "repaired" if changed else "already_canonical",
+        "target": target,
+        **details,
+        "next_action": (
+            "Retry the pending -MODE bug or -MODE root call, then call Check. "
+            "Do not edit the Bug document directly."
+        ),
+        "workflow_context": _workflow_context(
+            "relations_repaired",
+            identity={"root_paths": details["rebuilt_roots"]},
+            completed=[
+                "normalized ROOT closing markers",
+                "rebuilt ROOT reverse relations from BG references",
+            ],
+            next_skill_mode="retry_previous",
+            resume_mode="bug_or_root",
+        ),
+    }
+
+
 def _run_bug_operation(runtime_config, args, target):
     root_only = {
         "-ANALYSIS": args.ANALYSIS,
@@ -1416,6 +1941,23 @@ def _run_bug_operation(runtime_config, args, target):
             "Use -MODE root to complete the ROOT fields. Run final WaveInfo, then call "
             "ApplyWaveInfoEvidence for each exact BG/TC path."
         ),
+        "workflow_context": _workflow_context(
+            "bug_fields_recorded",
+            identity={
+                "bug_tag": args.BG,
+                "test_case": args.TC,
+                "checkpoint_paths": ["/".join(path) for path in resolved_paths],
+                "root_tag": root_tag,
+                "root_title": root_title,
+            },
+            completed=[
+                "upserted the exact BG/TC path",
+                "completed the three BG analysis fields",
+                "established the BG-to-ROOT identity",
+            ],
+            next_skill_mode="root",
+            resume_mode="bug",
+        ),
         "messages": messages,
     }
 
@@ -1461,6 +2003,11 @@ def _run_root_operation(runtime_config, args, target):
         "retest": args.RETEST,
     }
     _update_root_fields(lines, args.root_tag, args.ROOT_TITLE, fields)
+    entity_start, _root_line, entity_end = _root_entity_range(lines, args.root_tag)
+    related_bug_paths = re.findall(
+        r"<RELATED-BUG-([^<>]+)>",
+        "".join(lines[entity_start:entity_end]),
+    )
     lines[:] = ensure_markdown_heading_spacing(
         "".join(lines), HEADING_COMPANION_MARKERS
     ).splitlines(keepends=True)
@@ -1472,8 +2019,18 @@ def _run_root_operation(runtime_config, args, target):
         "root_tag": args.root_tag,
         "root_fields_completed": list(fields),
         "next_action": (
-            "Run Check and ApplyWaveInfoEvidence for every confirmed BG/TC path. Do not "
-            "edit the Bug Markdown file manually."
+            "Run final WaveInfo and ApplyWaveInfoEvidence for every confirmed BG/TC path, "
+            "then call Check. Do not edit the Bug Markdown file manually."
+        ),
+        "workflow_context": _workflow_context(
+            "root_fields_recorded",
+            identity={
+                "root_tag": args.root_tag,
+                "related_bug_paths": related_bug_paths,
+            },
+            completed=["completed the five ROOT analysis fields"],
+            next_skill_mode=None,
+            resume_mode="root",
         ),
     }
 
@@ -1486,20 +2043,37 @@ def main():
         target = _target_document(runtime_config)
         with _document_lock(target):
             _ensure_target_document(target, runtime_config["DUT"])
-            if args.MODE == "root":
+            if args.MODE == "repair":
+                result = _run_repair_operation(runtime_config, args, target)
+            elif args.MODE == "root":
                 result = _run_root_operation(runtime_config, args, target)
             else:
                 result = _run_bug_operation(runtime_config, args, target)
+    except SkillDocumentError as error:
+        print(
+            json.dumps(
+                error.as_result(args.MODE),
+                ensure_ascii=False,
+                sort_keys=True,
+            )
+        )
+        raise SystemExit(2) from error
     except (FileNotFoundError, OSError, RuntimeError, ValueError) as error:
         print(
             json.dumps(
                 {
                     "operation": args.MODE,
                     "success": False,
+                    "error_code": "DYNAMIC_BUG_SKILL_CALL_INVALID",
                     "error": str(error),
                     "next_action": (
                         "Fix the reported input or source evidence, then retry the same "
                         "MODE with the current report and document."
+                    ),
+                    "workflow_context": _workflow_context(
+                        "skill_call_blocked",
+                        next_skill_mode=args.MODE,
+                        resume_mode=args.MODE,
                     ),
                 },
                 ensure_ascii=False,

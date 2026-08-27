@@ -964,8 +964,59 @@ def test_disabled_skills_do_not_require_copied_skill_files(tmp_path):
 
     assert stage.skill_list == {}
     assert stage.force_use_skill is True
+    original_task = stage.task()
+    stage.on_init()
+    assert stage.task() == original_task
+    assert "-MODE repair" not in "\n".join(stage.task())
     passed, _check_info = stage._do_check(is_complete=True)
     assert passed is True
+
+
+def test_dynamic_bug_skill_hook_owns_only_the_dynamic_bug_document(tmp_path):
+    source = SKILL_ROOT / "dynamic-bug-recording"
+    destination = (
+        tmp_path
+        / ".ucagent/skills/unitytest/dynamic-bug-recording"
+    )
+    copytree_incremental(str(source), str(destination))
+    cfg = SimpleNamespace(
+        skill=SimpleNamespace(use_skill=True),
+        _temp_cfg={"OUT": "unity_test", "DUT": "Adder"},
+        hist_ignore_pattern=[],
+    )
+    original_task = [
+        "edit tests normally",
+        "update the functions-and-checks document with normal tools",
+    ]
+    stage = VerifyStage(
+        cfg=cfg,
+        workspace=str(tmp_path),
+        name="dynamic_bug_stage",
+        description="record dynamic bugs",
+        task=original_task,
+        checker=[],
+        reference_files=[],
+        skill_list=["unitytest/dynamic-bug-recording"],
+        output_files=[],
+    )
+
+    assert stage.task() == original_task
+    stage.on_init()
+    hooked_task = stage.task()
+
+    assert hooked_task[:2] == original_task
+    assert len(hooked_task) == 3
+    policy = hooked_task[-1]
+    assert "`unity_test/Adder_bug_analysis.md`" in policy
+    assert "{OUT}" not in policy
+    assert "其他文档和代码仍使用" in policy
+    assert "-MODE repair" in policy
+    assert "-MODE bug" in policy
+    assert "-MODE root" in policy
+    assert "workflow_context.remaining_sequence" in policy
+    assert "EditTextFile" in policy
+    assert "ReplaceStringInFile" in policy
+    assert "DeleteTextLines" in policy
 
 
 def test_all_default_workflow_skills_keep_scripts_optional():
