@@ -5,6 +5,7 @@
 import os
 import sys
 import asyncio
+import logging
 import pytest
 from types import SimpleNamespace
 
@@ -25,6 +26,7 @@ from ucagent.stage.vstage import VerifyStage
 from ucagent.stage.vmanager import ArgsDoCheck, StageManager, ToolDoCheck, ToolDoComplete
 from ucagent.tools.uctool import to_fastmcp
 from ucagent.util import functions as fc
+import ucagent.util.log as log_module
 
 
 class _FakeStage:
@@ -125,15 +127,17 @@ class _HintConfig:
         return self.values.get(key, default)
 
 
-def _hint_manager(stage_index, rules):
+def _hint_manager(stage_index, rules, stage_name=None):
     manager = StageManager.__new__(StageManager)
     cfg = _HintConfig({
         "experience.candidate_failure_hints": rules,
         "experience.max_candidate_failure_hints": 2,
     })
     manager.agent = _FakeAgent(cfg)
-    manager.stages = [_FakeStage(index) for index in range(28)]
+    manager.stages = [_FakeStage(index) for index in range(33)]
     manager.stage_index = stage_index
+    if stage_name is not None:
+        manager.stages[stage_index].name = stage_name
     return manager
 class _FakeCurrentStageManager:
     def __init__(self, current_stage):
@@ -288,16 +292,16 @@ def test_save_stage_info_persists_mission_name_and_exit_state(tmp_path):
     assert saved["all_completed"] is False
 
 
-def test_failure_hint_matches_unmarked_api_test_at_stage_20():
+def test_failure_hint_matches_unmarked_api_test_at_current_stage():
     rule = {
         "id": "unmarked_test_functions",
         "priority": 40,
-        "stages": ["20", "21", "22", "23", "24", "27"],
+        "stages": ["basic_api_functional_test"],
         "checkers": ["UnityChipCheckerDutApiTest"],
         "patterns": ["[Unmarked Test Functions]"],
         "hint": "mark bound methods with self.test_xxx",
     }
-    manager = _hint_manager(20, [rule])
+    manager = _hint_manager(22, [rule], "basic_api_functional_test")
 
     hints = manager._select_candidate_failure_hints({
         "check_info": [{
@@ -315,12 +319,12 @@ def test_failure_hint_matches_undocumented_case_at_static_validation_stage():
     rule = {
         "id": "undocumented_failed_cases",
         "priority": 50,
-        "stages": ["22", "23", "24", "27"],
+        "stages": ["static_bug_validation"],
         "checkers": ["UnityChipCheckerTestCase"],
         "patterns": ["[Undocumented Failed Cases]"],
         "hint": "preserve the checker nodeid exactly",
     }
-    manager = _hint_manager(24, [rule])
+    manager = _hint_manager(27, [rule], "static_bug_validation")
 
     hints = manager._select_candidate_failure_hints({
         "check_info": [{
@@ -332,6 +336,52 @@ def test_failure_hint_matches_undocumented_case_at_static_validation_stage():
     })
 
     assert hints == ["preserve the checker nodeid exactly"]
+
+
+def test_failure_hint_matches_dynamic_bug_repair_at_batch_stage():
+    rule = {
+        "id": "dynamic_bug_evidence_repair_order",
+        "priority": 44,
+        "stages": ["test_case_implementation_in_batch"],
+        "checkers": ["UnityChipCheckerBatchTestsImplementation"],
+        "patterns": ["[Waveform Reference Missing]"],
+        "hint": "repair one waveform association",
+    }
+    manager = _hint_manager(24, [rule], "test_case_implementation_in_batch")
+
+    hints = manager._select_candidate_failure_hints({
+        "check_info": [{
+            "name": "UnityChipCheckerBatchTestsImplementation",
+            "last_msg": {
+                "error": "[Waveform Reference Missing] TC must be followed by the exact reference",
+            },
+        }],
+    })
+
+    assert hints == ["repair one waveform association"]
+
+
+def test_failure_hint_matches_dynamic_bug_repair_at_api_test_stage():
+    rule = {
+        "id": "dynamic_bug_evidence_repair_order",
+        "priority": 44,
+        "stages": ["basic_api_functional_test"],
+        "checkers": ["UnityChipCheckerDutApiTest"],
+        "patterns": ["[Unresolved Failed Cases]"],
+        "hint": "triage API failures before applying waveform evidence",
+    }
+    manager = _hint_manager(22, [rule], "basic_api_functional_test")
+
+    hints = manager._select_candidate_failure_hints({
+        "check_info": [{
+            "name": "UnityChipCheckerDutApiTest",
+            "last_msg": {
+                "error": "[Unresolved Failed Cases] API failures need Bug evidence",
+            },
+        }],
+    })
+
+    assert hints == ["triage API failures before applying waveform evidence"]
 
 
 def test_experience_out_dir_is_workspace_relative(monkeypatch, tmp_path):
@@ -360,6 +410,41 @@ def test_experience_processing_requires_audit_or_distill():
     manager.agent.cfg.values["experience.llm_distill_enable"] = True
 
     assert manager._experience_processing_enabled() is True
+
+
+def test_experience_log_prefers_diagnostic_log_over_message_log(monkeypatch, tmp_path):
+    diagnostic_path = tmp_path / "diagnostic.log"
+    message_path = tmp_path / "message.log"
+    diagnostic_handler = logging.FileHandler(diagnostic_path)
+    message_handler = logging.FileHandler(message_path)
+    diagnostic_logger = logging.getLogger("test-experience-diagnostic")
+    message_logger = logging.getLogger("test-experience-message")
+    diagnostic_logger.handlers = [diagnostic_handler]
+    message_logger.handlers = [message_handler]
+    monkeypatch.setattr(log_module, "get_log_logger", lambda: diagnostic_logger)
+    monkeypatch.setattr(log_module, "get_msg_logger", lambda: message_logger)
+    manager = StageManager.__new__(StageManager)
+
+    try:
+        assert manager._get_experience_log_path() == str(diagnostic_path)
+    finally:
+        diagnostic_handler.close()
+        message_handler.close()
+
+
+def test_experience_log_falls_back_to_message_log(monkeypatch, tmp_path):
+    message_path = tmp_path / "message.log"
+    message_handler = logging.FileHandler(message_path)
+    message_logger = logging.getLogger("test-experience-message-fallback")
+    message_logger.handlers = [message_handler]
+    monkeypatch.setattr(log_module, "get_log_logger", lambda: None)
+    monkeypatch.setattr(log_module, "get_msg_logger", lambda: message_logger)
+    manager = StageManager.__new__(StageManager)
+
+    try:
+        assert manager._get_experience_log_path() == str(message_path)
+    finally:
+        message_handler.close()
 
 
 def _make_verify_stage(name, reference_files, parent=None):

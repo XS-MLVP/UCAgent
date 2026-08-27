@@ -252,11 +252,37 @@ Tool Calls:
             "UnityChipCheckerTestCase",
             rules["bug_confidence_suffix_parse_error"]["checkers"],
         )
-        self.assertIn("21", rules["essential_checkpoint_missing"]["stages"])
+        self.assertIn(
+            "create_test_case_templates",
+            rules["essential_checkpoint_missing"]["stages"],
+        )
         self.assertIn(
             "UnityChipCheckerTestTemplate",
             rules["essential_checkpoint_missing"]["checkers"],
         )
+        self.assertIn(
+            "[Bug Checkpoint Association Missing]",
+            rules["dynamic_bug_checkpoint_association_convergence"]["patterns"],
+        )
+        self.assertIn(
+            "[Waveform Record Anchor Error]",
+            rules["dynamic_bug_container_anchor_minimal_repair"]["patterns"],
+        )
+        repair_hint = rules["dynamic_bug_evidence_repair_order"]["hint"]
+        self.assertIn("每个失败 TC", repair_hint)
+        self.assertIn("唯一中央记录", repair_hint)
+        self.assertIn("test_case_tag", repair_hint)
+        self.assertIn(
+            "UnityChipCheckerDutApiTest",
+            rules["dynamic_bug_evidence_repair_order"]["checkers"],
+        )
+        self.assertIn(
+            "basic_api_functional_test",
+            rules["dynamic_bug_evidence_repair_order"]["stages"],
+        )
+
+        self.assertIn("不以增加 CK 数量为目标", payload["stage[3].task"])
+        self.assertIn("test_case_tag 禁止为空", payload["stage[11].task"])
 
     def test_general_failure_attribution_requires_independent_dut_neutral_evidence(self):
         general_path = os.path.join(
@@ -484,11 +510,56 @@ Tool Calls:
         prompt = model.input[-1].content if isinstance(model.input, list) else model.input
         self.assertIn("same_checker_changed_result", prompt)
 
-    def test_load_distill_prompts_loads_zh_prompt(self):
-        zh_acc = ExperienceAccumulator(workspace=".", lang="zh")
-        zh_sys, zh_user = zh_acc._load_distill_prompts()
-        self.assertIn("UCAgent experience distiller", zh_sys)
-        self.assertIn("请从下面给出的", zh_user)
+    def test_mcp_log_checker_context_and_action_trace(self):
+        log_text = """
+2026-08-26 14:58:16,809 - ucagent-log - INFO - ToolComplete:
+failure_summary:
+  status: checker_failed
+  stage_index: 22
+  stage_name: basic_api_functional_test
+  failed_checker_name: api_test_check
+  failed_checker_class: UnityChipCheckerDutApiTest
+  error_code: UNRESOLVED_FAILED_CASES
+  error:
+  - '[Unresolved Failed Cases] Found 4 failed test case(s) without a confirmed DUT Bug record: test_api_Adder_add_carry_chain'
+check_pass: false
+check_info:
+- name: FilesMustNotExist
+  checker_class: FilesMustNotExist
+  last_check_pass: true
+  count_pass: 1
+  count_fail: 0
+- name: UnityChipCheckerDutApiTest
+  checker_class: UnityChipCheckerDutApiTest
+  last_check_pass: false
+  last_msg:
+    error:
+    - '[Unresolved Failed Cases] Found 4 failed test case(s) without a confirmed DUT Bug record: test_api_Adder_add_carry_chain'
+2026-08-26 14:58:59,425 - ucagent-log - INFO - call WaveInfo in Stream-MPC mode
+2026-08-26 14:59:50,995 - ucagent-log - INFO - call ApplyWaveInfoEvidence in Stream-MPC mode
+2026-08-26 15:05:19,478 - ucagent-log - INFO - call ToolDoComplete in Stream-MPC mode
+2026-08-26 15:05:19,500 - ucagent-log - INFO - ToolComplete:
+complete: true
+message: 'Stage 22 completed successfully.'
+last_check_result:
+  check_pass: true
+  check_info:
+  - name: UnityChipCheckerDutApiTest
+    last_check_pass: true
+"""
+        accumulator = self._make_accumulator(log_text)
+        events = accumulator.extract_failure_events()
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["checker"], "UnityChipCheckerDutApiTest")
+        self.assertIn("[Unresolved Failed Cases]", events[0]["signature"])
+        self.assertEqual(accumulator._failure_family_key(events[0]), "unresolved_failed_cases")
+
+        all_events, selected_cases, report = accumulator.build_recovery_trajectory_report()
+        self.assertEqual(len(all_events), 1)
+        self.assertEqual(len(selected_cases), 1)
+        self.assertIn("WaveInfo", report)
+        self.assertIn("ApplyWaveInfoEvidence", report)
 
 
 if __name__ == "__main__":

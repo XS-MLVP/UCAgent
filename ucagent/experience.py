@@ -451,14 +451,15 @@ class ExperienceAccumulator:
 
     def _checker_action_start_index(self, lines: list[str], block_end: int) -> int:
         for pos in range(block_end, len(lines)):
-            if re.match(r"^\s*Tool Calls:\s*$", lines[pos]):
+            line = self._compact_line(lines[pos])
+            if re.match(r"^(?:Tool Calls:\s*$|call\s+[A-Za-z0-9_]+\s+in\s+Stream-MPC\s+mode)", line):
                 return pos
         return len(lines)
 
     def _checker_block_has_valid_tool_context(self, lines: list[str], checker_idx: int) -> bool:
-        checker_tools = ("Check", "Complete")
+        checker_tools = ("Check", "Complete", "ToolDoCheck", "ToolDoComplete", "ToolCheck", "ToolComplete")
         ignored_tools = ("CurrentTips", "AllStageJournal", "RoleInfo")
-        start = max(0, checker_idx - 180)
+        start = max(0, checker_idx - 250)
         for pos in range(checker_idx - 1, start - 1, -1):
             compact = self._compact_line(lines[pos])
             if not compact:
@@ -467,13 +468,19 @@ class ExperienceAccumulator:
                 return True
             if re.match(rf"^(?:-\s*)?(?:{'|'.join(checker_tools)})\s*\(", compact, re.I):
                 return True
+            if re.match(rf"^(?:ToolComplete|ToolCheck|call\s+(?:ToolDoComplete|ToolDoCheck|Check|Complete))\b", compact, re.I):
+                return True
             if re.match(rf"^(?:-\s*)?Name:\s*(?:{'|'.join(ignored_tools)})\b", compact, re.I):
                 return False
             if re.match(rf"^(?:-\s*)?(?:{'|'.join(ignored_tools)})\s*\(", compact, re.I):
                 return False
+            if re.match(rf"^call\s+(?:{'|'.join(ignored_tools)})\b", compact, re.I):
+                return False
             if re.match(r"^Name:\s*[A-Za-z_][A-Za-z0-9_]*\b", compact):
                 return False
             if re.match(r"^(?:-\s*)?[A-Za-z_][A-Za-z0-9_]*\s*\(", compact):
+                return False
+            if re.match(r"^call\s+[A-Za-z_][A-Za-z0-9_]*\s+in\s+Stream-MPC\s+mode", compact):
                 return False
         return False
 
@@ -481,11 +488,14 @@ class ExperienceAccumulator:
         idx = start
         while idx < len(lines):
             line = lines[idx]
-            if re.match(rf"^\s*-\s*name:\s*{CHECKER_NAME_PATTERN}\b", line):
+            compact = self._compact_line(line)
+            if re.match(rf"^\s*-\s*name:\s*{CHECKER_NAME_PATTERN}\b", compact):
                 break
-            if re.match(r"^\s*(?:check_pass|complete|action):\s*", line):
+            if re.match(r"^\s*(?:check_pass|complete|action):\s*", compact):
                 break
-            if line.startswith("[Important]"):
+            if re.match(r"^(?:ToolComplete|ToolCheck|call\s+[A-Za-z0-9_]+|Tool Calls:)\b", compact):
+                break
+            if compact.startswith("[Important]"):
                 break
             idx += 1
         return idx
@@ -1625,6 +1635,12 @@ class ExperienceAccumulator:
             ("missing_assertions", r"\[Missing Assertions\]|do not contain assert statements"),
             ("confidence_parse_error", r"\[Confidence Parse Error\]|confidence integer from 0 to 100"),
             ("undocumented_failed_cases", r"\[Undocumented Failed Cases\]|not documented in the bug analysis file"),
+            ("unresolved_failed_cases", r"\[Unresolved Failed Cases\]|without a non-zero-confidence confirmed DUT Bug record"),
+            ("unanalyzed_failed_checkpoints", r"\[Unanalyzed Failed Checkpoints\]|not associated with a non-zero-confidence DUT Bug"),
+            ("waveform_reference_missing", r"\[Waveform Reference Missing\]"),
+            ("waveform_record_anchor_error", r"\[Waveform Record Anchor Error\]"),
+            ("dynamic_bug_heading_format_error", r"\[Dynamic Bug Heading Format Error\]"),
+            ("documentation_inconsistency", r"\[Documentation Inconsistency\]"),
             ("remaining_to_be_implemented", r"remaining to be implemented"),
             ("test_case_not_found", r"\[Test Case Not Found\]|not found in the failed test list"),
             ("checkpoint_not_marked", r"\[Checkpoint Not Marked\]|without checkpoint marks"),
@@ -1746,8 +1762,10 @@ class ExperienceAccumulator:
     ) -> list[str]:
         keep_patterns = (
             r"^\s*Tool Calls:",
-            r"^\s*(ReadTextFile|SearchText|FindFiles|ReplaceStringInFile|EditTextFile|WriteTextFile|CreateFile|DeleteFile|RunTestCases|Check|Complete|CurrentTips)\b",
-            r"^\s*Name:\s*(ReadTextFile|SearchText|FindFiles|ReplaceStringInFile|EditTextFile|WriteTextFile|CreateFile|DeleteFile|RunTestCases|Check|Complete)\b",
+            r"^\s*(ReadTextFile|SearchText|FindFiles|ReplaceStringInFile|EditTextFile|WriteTextFile|CreateFile|DeleteFile|RunTestCases|Check|Complete|CurrentTips|WaveInfo|ApplyWaveInfoEvidence)\b",
+            r"^\s*Name:\s*(ReadTextFile|SearchText|FindFiles|ReplaceStringInFile|EditTextFile|WriteTextFile|CreateFile|DeleteFile|RunTestCases|Check|Complete|WaveInfo|ApplyWaveInfoEvidence)\b",
+            r"^\s*call\s+([A-Za-z0-9_]+)\s+in\s+Stream-MPC\s+mode",
+            r"^\s*call\s+([A-Za-z0-9_]+)\s+exit\s+Stream-MPC\s+mode",
             r"^\s*(path|file_path|filepath|directory|pattern|target):\s*(Guide_Doc|unity_test|tests|[^ ]+\.(?:md|py|v|sv|yaml|json)|def\s+test_)",
             r"\[INFO\]\s+Successfully\s+(?:replaced|wrote|written|created|deleted)",
             r"FilesMustNotExist check fail|Can not use conftest\.py|must not exist, but find",
@@ -1882,13 +1900,20 @@ class ExperienceAccumulator:
             if line.startswith(("next_checker_result:", "final_stage_status:")):
                 continue
             match = re.match(
-                r"^(ReadTextFile|SearchText|FindFiles|ReplaceStringInFile|EditTextFile|WriteTextFile|CreateFile|DeleteFile|RunTestCases|Check|Complete|CurrentTips)\b",
+                r"^(?:call\s+)?(ReadTextFile|SearchText|FindFiles|ReplaceStringInFile|EditTextFile|WriteTextFile|CreateFile|DeleteFile|RunTestCases|Check|Complete|CurrentTips|WaveInfo|ApplyWaveInfoEvidence)\b",
                 line,
             )
             if match:
                 current_tool = match.group(1)
+                if current_tool == "WaveInfo":
+                    self._append_unique_limited(result, "inspect waveform evidence with WaveInfo")
+                elif current_tool == "ApplyWaveInfoEvidence":
+                    self._append_unique_limited(result, "apply waveform evidence with ApplyWaveInfoEvidence")
                 continue
             if line.startswith("Name: "):
+                continue
+            if line.startswith("Run command: pytest"):
+                self._append_unique_limited(result, "rerun tests with pytest")
                 continue
             if line.startswith(("path:", "target:", "directory:", "pattern:")):
                 role = self._recovery_target_role(line)
@@ -2095,7 +2120,7 @@ class ExperienceAccumulator:
         signal_patterns = (
             r"\[Parse Error\]",
             r"\[(?:Missing Assertions|Confidence Parse Error)\]",
-            r"\[(?:Test Case|Checkpoint|Documentation|Coverage|Unmarked|Undocumented)[^\]]+\]",
+            r"\[(?:Test Case|Checkpoint|Documentation|Coverage|Unmarked|Undocumented|Unresolved|Unanalyzed|Dynamic Bug|Waveform)[^\]]*\]",
             r"Test template structure validation failed",
             r"You need use tool `ReadTextFile`",
             r"Not readed, need ReadTextFile",
@@ -2219,7 +2244,7 @@ class ExperienceAccumulator:
             r"not found in the failed test list",
             r"expected to be FAILED but actually PASSED",
             r"not documented in the bug analysis file",
-            r"\[(?:Test Case|Checkpoint|Documentation|Coverage|Unmarked|Undocumented|Possible Causes|Solution|Bug Analysis Document Format)[^\]]+\]",
+            r"\[(?:Test Case|Checkpoint|Documentation|Coverage|Unmarked|Undocumented|Unresolved|Unanalyzed|Dynamic Bug|Waveform|Possible Causes|Solution|Bug Analysis Document Format)[^\]]*\]",
         )
         return any(
             any(re.search(pattern, line, re.I) for pattern in signal_patterns)
@@ -2230,7 +2255,7 @@ class ExperienceAccumulator:
         keep_patterns = (
             rf"^\s*-?\s*name:\s+{CHECKER_NAME_PATTERN}\b",
             r"^\s*(error|suggestion|details|note|action):",
-            r"\[(?:Parse Error|Test Case|Checkpoint|Documentation|Coverage|Unmarked|Undocumented|Possible Causes|Solution|Bug Analysis Document Format)[^\]]*\]",
+            r"\[(?:Parse Error|Test Case|Checkpoint|Documentation|Coverage|Unmarked|Undocumented|Unresolved|Unanalyzed|Dynamic Bug|Waveform|Possible Causes|Solution|Bug Analysis Document Format)[^\]]*\]",
             r"You need use tool `ReadTextFile`",
             r"Not readed, need ReadTextFile",
             r"FilesMustNotExist check fail|Can not use conftest\.py|must not exist, but find",
@@ -2760,7 +2785,12 @@ class ExperienceAccumulator:
         return compact
 
     def _compact_line(self, line: str) -> str:
-        return re.sub(r"\s+", " ", line.strip())[:500]
+        text = re.sub(
+            r"^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2},\d+\s*-\s*.*?-\s*(?:INFO|WARN|WARNING|DEBUG|ERROR|CRITICAL)\s*-\s*",
+            "",
+            str(line or "").strip(),
+        )
+        return re.sub(r"\s+", " ", text.strip())[:500]
 
     def _compact_excerpt(self, lines: list[str]) -> str:
         compacted = []

@@ -5,20 +5,23 @@
 
 # Generic workflow guidance is injected for every DUT that includes this
 # overlay. Derive DUT-specific behavior from the current workspace at runtime.
+stage[3].task: "+可参考经验：功能规格细化以提高现有 CK 的可验证性和判定边界为目标，不以增加 CK 数量为目标。新增 CK 前先确认它具有独立的触发前提、可观察结果或不同验收结论；仅输入取值、边界样本、位模式、basic/bound/random 等场景变化应优先作为同一 CK 下的测试参数或多个 TC，而不是复制出近义 CK。若新增项与已有 CK 使用相同接口行为、相同 expected/actual 判定和相同根因，只补充原 CK 的说明、边界和测试建议。避免将少量 CK 扩张成大量后缀变体，因为每个 CK 都会放大后续 coverage、模板、测试实现和 Bug/WaveInfo 取证成本。"
+stage[11].task: "+可参考经验：API 功能测试同样受动态 Bug 与 WaveInfo 严格门禁约束。先逐个把失败分类为测试/API/env/reference model/时序问题或已证实 DUT Bug；前者修到 Pass，后者再建立 BG/TC。使用 failure_summary.details.recovery_call 或 recovery_calls 时逐字保留非空 target_file、bug_tag、test_case_tag 和 receipt_id；test_case_tag 禁止为空。按测试正确性与 CK 关联、BG/TC 骨架、最终 WaveInfo、ApplyWaveInfoEvidence、分析字段的顺序逐项收敛，每次只修 checker 点名项并立即 Check。已有中央记录未被报告缺失、陈旧、冲突或信号不足时保留原 receipt，不要为兄弟 TC/BG 的修改重新取证。用 SearchText 定位精确 BG/TC/WAVEFORM-TC 后做有界读取，不要反复读取或重写整份 bug_analysis，也不要反复运行未受本次修改影响的完整测试集。"
 stage[12].task: "+可参考经验：模板阶段只追求所有文档 CK 有模板且 mark_function 正确；模板必须保留 assert False, 'Not implemented'。Check 返回下一批 CK 时继续补齐，直到 unmarked_check_points=0 且 test_function_with_no_check_point_mark=0。"
-stage[13].stage[0].task: "+可参考经验：分批实现只做当前批次列出的测试和必要 helper；不要为了同一缺陷扩写大量额外测试或新增 FG/FC/CK。每次 Check 失败后若出现 candidate_failure_hints，把它当作候选排查清单，先核对是否与本轮 checker 报告一致；不一致时以 checker/CurrentTips 为准。若出现 `No bin matched for pattern`、`KeyError: 'FG-*'`、`Invalid key ...` 或 mark_function 归属不一致，先对照 functions_and_checks.md 与 coverage_def 校准 FG/FC/CK/bin，再判断 DUT 缺陷；不要在映射未对齐时就补 bug_analysis。若 checker 报 `remaining tests`，先完成当前批次列出的测试和必要 helper，再回头处理文档类错误。"
-stage[13].task: "+可参考经验：综合检查以 checker 报告为准；若出现 candidate_failure_hints，先核对提示是否命中本轮错误，再参考其纠偏；没有提示或提示不适用时回到原始 checker 报告分析。不要保留旧文件名、旧函数名或历史批次的 <TC-*>。若分批实现阶段同时出现 coverage/mark 错误、remaining tests 和 bug_analysis 错误，优先级依次为：1) coverage 与 mark_function 对齐；2) 完成当前批次剩余测试；3) 最后处理 Undocumented Failed Cases、Checkpoint Not Marked、Checkpoint Not Found。不要在测试仍未实现完或 FG/FC/CK 尚未对齐时，把失败直接固化为 bug_analysis 结论。"
+stage[13].stage[0].task: "+可参考经验：分批实现只做当前批次列出的测试和必要 helper；不要为了同一缺陷扩写大量额外测试或新增 FG/FC/CK。每次 Check 失败后若出现 candidate_failure_hints，把它当作候选排查清单，先核对是否与本轮 checker 报告一致；不一致时以 checker/CurrentTips 为准。若出现 `No bin matched for pattern`、`KeyError: 'FG-*'`、`Invalid key ...` 或 mark_function 归属不一致，先对照 functions_and_checks.md 与 coverage_def 校准 FG/FC/CK/bin，再判断 DUT 缺陷；不要在映射未对齐时就补 bug_analysis。若 checker 报 `remaining tests`，先完成当前批次列出的测试和必要 helper。动态 Bug 只在测试正确性、CK 归属和稳定复现均确认后记录；结构门禁失败时只修 checker 点名的一个 BG/TC/锚点并立即 Check。已有中央记录未被点名为缺失、陈旧、冲突或信号不足时保留原 receipt；用 SearchText 定位后有界读取目标块，不要反复读取或重写整份 bug_analysis，也不要在结构尚未通过时反复跑完整测试集。"
+stage[13].task: "+可参考经验：综合检查以 checker 报告为准；若出现 candidate_failure_hints，先核对提示是否命中本轮错误，再参考其纠偏；没有提示或提示不适用时回到原始 checker 报告分析。不要保留旧文件名、旧函数名或历史批次的 <TC-*>。处理顺序固定为：1) 测试/API/fixture/reference model/时序正确性；2) coverage 与 mark_function 的 FG/FC/CK 归属；3) BG/TC 层级和失败关联；4) 最终 WaveInfo receipt、WAVEFORM-REF、唯一中央记录和 viewer；5) 八个 Bug 分析字段。同一根因只有在每个 TC 都经独立证据确认且属于同一语义缺陷时才合并 BG；每个失败 TC 仍必须有唯一中央波形记录。每次只修 failure_summary 点名的最小块并立即 Check，不要批量重写文档。"
 stage[15].task: "+可参考经验：静态验证阶段的 FAILED nodeid 只用于定位，不代表 DUT 缺陷已经成立。遇到未记录失败时，先读取点名测试、直接调用的 API/fixture/reference model 和权威规格；独立推导预期、核对状态变化与观察时机，并单独复跑该 nodeid。只有预期行为有依据、失败稳定复现且实现证据一致时，才将精确 nodeid 写入对应 `<BG-*>`；测试或环境错误必须先修复，无法判定时不要写非零置信度 bug。禁止把一批失败未经逐项验证就统一归因到已有根因。"
 
 experience:
   max_candidate_failure_hints: 2
   # Runtime stage index mapping for the normal experience overlay load chain
   # (config.yaml + this general.yaml + DUT experience overlay). Rule `stages`
-  # fields use the flattened runtime index string, while stage/task overlays use
-  # the config tree path below, for example:
-  # - runtime "21" -> stage[11]
-  # - runtime "22" -> stage[12].stage[0]
+  # Built-in rules use stable stage names. Numeric stage keys remain supported
+  # for reviewed run-local hints. Stage/task overlays use the config tree path
+  # below, while this table records the corresponding runtime indexes:
   # - runtime "23" -> stage[12]
+  # - runtime "24" -> stage[13].stage[0]
+  # - runtime "25" -> stage[13]
   #
   # Raw default.yaml has extra optional stages; after project config overrides,
   # ignored optional stages are not parsed by parse_vstage(), so the runtime
@@ -40,74 +43,86 @@ experience:
       config_path: "stage[2].stage[2]"
       name: "check_point_design"
     - runtime_index: "5"
+      config_path: "stage[2].stage[3]"
+      name: "functional_line_mapping_gap_analysis"
+    - runtime_index: "6"
       config_path: "stage[2]"
       name: "functional_specification_analysis"
-    - runtime_index: "6"
-      config_path: "stage[3]"
-      name: "static_bug_analysis"
     - runtime_index: "7"
-      config_path: "stage[4].stage[0]"
-      name: "dut_creation_implementation"
+      config_path: "stage[3]"
+      name: "functional_specification_refine"
     - runtime_index: "8"
-      config_path: "stage[4].stage[1]"
-      name: "pytest_fixture_dut_implementation"
-    - runtime_index: "9"
       config_path: "stage[4]"
-      name: "dut_wrapper_implementation"
-    - runtime_index: "10"
+      name: "static_bug_analysis"
+    - runtime_index: "9"
       config_path: "stage[5].stage[0]"
-      name: "coverage_group_creation"
-    - runtime_index: "11"
-      config_path: "stage[5].stage[1].stage[0]"
-      name: "implemente_function_checks_in_batch"
-    - runtime_index: "12"
+      name: "dut_creation_implementation"
+    - runtime_index: "10"
       config_path: "stage[5].stage[1]"
-      name: "coverage_point_implementation"
-    - runtime_index: "13"
+      name: "pytest_fixture_dut_implementation"
+    - runtime_index: "11"
       config_path: "stage[5]"
-      name: "coverage_model_implementation"
-    - runtime_index: "14"
+      name: "dut_wrapper_implementation"
+    - runtime_index: "12"
       config_path: "stage[6].stage[0]"
-      name: "human_check_env_specification"
-    - runtime_index: "15"
+      name: "coverage_group_creation"
+    - runtime_index: "13"
+      config_path: "stage[6].stage[1].stage[0]"
+      name: "implemente_function_checks_in_batch"
+    - runtime_index: "14"
       config_path: "stage[6].stage[1]"
-      name: "bundle_wrapper_design"
+      name: "coverage_point_implementation"
+    - runtime_index: "15"
+      config_path: "stage[6]"
+      name: "coverage_model_implementation"
     - runtime_index: "16"
-      config_path: "stage[6].stage[5]"
-      name: "env_fixture_implementation"
+      config_path: "stage[7].stage[0]"
+      name: "human_check_env_specification"
     - runtime_index: "17"
-      config_path: "stage[6].stage[6]"
-      name: "evaluate_env_fixture"
+      config_path: "stage[7].stage[1]"
+      name: "bundle_wrapper_design"
     - runtime_index: "18"
-      config_path: "stage[6].stage[7]"
-      name: "human_check_env_implementation"
+      config_path: "stage[7].stage[5]"
+      name: "env_fixture_implementation"
     - runtime_index: "19"
-      config_path: "stage[7]"
-      name: "basic_api_implementation"
+      config_path: "stage[7].stage[6]"
+      name: "evaluate_env_fixture"
     - runtime_index: "20"
-      config_path: "stage[10]"
-      name: "basic_api_functional_test"
+      config_path: "stage[7].stage[7]"
+      name: "human_check_env_implementation"
     - runtime_index: "21"
-      config_path: "stage[11]"
-      name: "create_test_case_templates"
+      config_path: "stage[8]"
+      name: "basic_api_implementation"
     - runtime_index: "22"
-      config_path: "stage[12].stage[0]"
-      name: "test_case_implementation_in_batch"
+      config_path: "stage[11]"
+      name: "basic_api_functional_test"
     - runtime_index: "23"
       config_path: "stage[12]"
-      name: "comprehensive_verification_and_bug_analysis"
+      name: "create_test_case_templates"
     - runtime_index: "24"
-      config_path: "stage[13]"
-      name: "static_bug_validation"
+      config_path: "stage[13].stage[0]"
+      name: "test_case_implementation_in_batch"
     - runtime_index: "25"
-      config_path: "stage[14]"
-      name: "line_coverage_analysis_and_improvement"
+      config_path: "stage[13]"
+      name: "comprehensive_verification_and_bug_analysis"
     - runtime_index: "26"
-      config_path: "stage[15]"
-      name: "generate_random_test_cases"
+      config_path: "stage[14]"
+      name: "refine_test_cases_based_on_functional_points"
     - runtime_index: "27"
+      config_path: "stage[15]"
+      name: "static_bug_validation"
+    - runtime_index: "28"
       config_path: "stage[16]"
+      name: "line_coverage_analysis_and_improvement"
+    - runtime_index: "29"
+      config_path: "stage[17]"
+      name: "generate_random_test_cases"
+    - runtime_index: "30"
+      config_path: "stage[18]"
       name: "verification_review_and_summary"
+    - runtime_index: "31"
+      config_path: "stage[19]"
+      name: "record_and_report_bugs"
 
   candidate_failure_hints:
     - id: read_reference_files_first
@@ -128,7 +143,7 @@ experience:
 
       priority: 15
 
-      stages: ["22", "23", "24", "27"]
+      stages: ["test_case_implementation_in_batch", "comprehensive_verification_and_bug_analysis", "refine_test_cases_based_on_functional_points", "static_bug_validation", "verification_review_and_summary"]
 
       checkers:
 
@@ -148,7 +163,7 @@ experience:
 
       priority: 16
 
-      stages: ["22", "23", "24", "27"]
+      stages: ["test_case_implementation_in_batch", "comprehensive_verification_and_bug_analysis", "refine_test_cases_based_on_functional_points", "static_bug_validation", "verification_review_and_summary"]
 
       checkers:
 
@@ -166,7 +181,7 @@ experience:
 
     - id: bug_analysis_parse_error_missing_parent_tag
       priority: 18
-      stages: ["22", "23", "24", "27"]
+      stages: ["test_case_implementation_in_batch", "comprehensive_verification_and_bug_analysis", "refine_test_cases_based_on_functional_points", "static_bug_validation", "verification_review_and_summary"]
       checkers:
         - "UnityChipCheckerBatchTestsImplementation"
         - "UnityChipCheckerTestCase"
@@ -176,7 +191,7 @@ experience:
 
     - id: bug_confidence_suffix_parse_error
       priority: 19
-      stages: ["22", "23", "24", "27"]
+      stages: ["test_case_implementation_in_batch", "comprehensive_verification_and_bug_analysis", "refine_test_cases_based_on_functional_points", "static_bug_validation", "verification_review_and_summary"]
       checkers:
         - "UnityChipCheckerBatchTestsImplementation"
         - "UnityChipCheckerTestCase"
@@ -203,7 +218,7 @@ experience:
 
       priority: 20
 
-      stages: ["22", "23", "24", "27"]
+      stages: ["test_case_implementation_in_batch", "comprehensive_verification_and_bug_analysis", "refine_test_cases_based_on_functional_points", "static_bug_validation", "verification_review_and_summary"]
 
       checkers:
 
@@ -225,7 +240,7 @@ experience:
 
       priority: 22
 
-      stages: ["22", "23", "24", "27"]
+      stages: ["test_case_implementation_in_batch", "comprehensive_verification_and_bug_analysis", "refine_test_cases_based_on_functional_points", "static_bug_validation", "verification_review_and_summary"]
 
       checkers:
 
@@ -247,7 +262,7 @@ experience:
 
       priority: 24
 
-      stages: ["22", "23", "24", "27"]
+      stages: ["test_case_implementation_in_batch", "comprehensive_verification_and_bug_analysis", "refine_test_cases_based_on_functional_points", "static_bug_validation", "verification_review_and_summary"]
 
       checkers:
 
@@ -269,7 +284,7 @@ experience:
 
       priority: 26
 
-      stages: ["22", "23", "24", "27"]
+      stages: ["test_case_implementation_in_batch", "comprehensive_verification_and_bug_analysis", "refine_test_cases_based_on_functional_points", "static_bug_validation", "verification_review_and_summary"]
 
       checkers:
 
@@ -308,7 +323,7 @@ experience:
 
       priority: 30
 
-      stages: ["22", "23", "24", "27"]
+      stages: ["test_case_implementation_in_batch", "comprehensive_verification_and_bug_analysis", "refine_test_cases_based_on_functional_points", "static_bug_validation", "verification_review_and_summary"]
 
       checkers:
 
@@ -326,7 +341,7 @@ experience:
 
       priority: 32
 
-      stages: ["22", "23", "24", "27"]
+      stages: ["test_case_implementation_in_batch", "comprehensive_verification_and_bug_analysis", "refine_test_cases_based_on_functional_points", "static_bug_validation", "verification_review_and_summary"]
 
       checkers:
 
@@ -346,7 +361,7 @@ experience:
 
     - id: coverage_mark_no_bin_matched
       priority: 35
-      stages: ["17", "20", "21", "22", "23", "24", "27"]
+      stages: ["evaluate_env_fixture", "basic_api_functional_test", "create_test_case_templates", "test_case_implementation_in_batch", "comprehensive_verification_and_bug_analysis", "refine_test_cases_based_on_functional_points", "static_bug_validation", "verification_review_and_summary"]
       patterns:
         - "No bin matched for pattern"
       regex:
@@ -360,7 +375,7 @@ experience:
 
     - id: essential_checkpoint_missing
       priority: 34
-      stages: ["11", "21"]
+      stages: ["implemente_function_checks_in_batch", "create_test_case_templates"]
       checkers:
         - "UnityChipCheckerCoverageGroupBatchImplementation"
         - "UnityChipCheckerTestTemplate"
@@ -376,7 +391,7 @@ experience:
 
     - id: api_checker_signature_contract
       priority: 34
-      stages: ["19"]
+      stages: ["basic_api_implementation"]
       checkers:
         - "UnityChipCheckerDutApi"
       patterns:
@@ -390,7 +405,7 @@ experience:
 
     - id: api_test_file_not_discovered
       priority: 36
-      stages: ["20"]
+      stages: ["basic_api_functional_test"]
       checkers:
         - "UnityChipCheckerDutApiTest"
       patterns:
@@ -404,7 +419,7 @@ experience:
 
     - id: unassociated_checkpoint
       priority: 42
-      stages: ["20", "22", "23", "24", "27"]
+      stages: ["basic_api_functional_test", "test_case_implementation_in_batch", "comprehensive_verification_and_bug_analysis", "refine_test_cases_based_on_functional_points", "static_bug_validation", "verification_review_and_summary"]
       checkers:
         - "UnityChipCheckerDutApiTest"
         - "UnityChipCheckerBatchTestsImplementation"
@@ -418,9 +433,66 @@ experience:
         evidence:
           - "多轮运行都出现 checkpoint 无关联测试的 checker 失败，补齐或校正语义匹配的 mark_function 后继续推进。"
 
+    - id: dynamic_bug_checkpoint_association_convergence
+      priority: 43
+      stages: ["basic_api_functional_test", "test_case_implementation_in_batch", "comprehensive_verification_and_bug_analysis", "refine_test_cases_based_on_functional_points", "static_bug_validation", "verification_review_and_summary"]
+      checkers:
+        - "UnityChipCheckerDutApiTest"
+        - "UnityChipCheckerBatchTestsImplementation"
+        - "UnityChipCheckerTestCase"
+      patterns:
+        - "[Bug Checkpoint Association Missing]"
+        - "expected checkpoint relation:"
+      hint: "checker 报告 Bug Checkpoint Association Missing 时，先只处理报告列出的 TC/CK 对。读取该测试现有 mark_function 和本轮 Toffee 关联：若测试真实覆盖该 CK，修正 FG/FC/CK 字面量、当前函数对象、执行路径或 fixture 上报；若不覆盖，把 TC 移到其真实 CK 下或删除错误关联，不要给无关 CK 硬加标记。同一 owning CK 下，只有逐个独立确认测试预期、稳定失败和同一 RTL 因果链后，才把多个 TC 归入同一个 BG；不要为每个 TC 克隆同根因 BG，也不要跨不相关 CK 强行合并。修完点名关系后先单独复跑相关 TC，再 Check。"
+      source:
+        kind: log_reviewed
+        evidence:
+          - "分批实现日志中同一 RTL 根因被拆成多个动态记录，同时 TC 被放入未由 Toffee 记录的 CK，连续触发 Bug Checkpoint Association Missing；按真实 mark_function 关系逐对修复才能继续收敛。"
+
+    - id: dynamic_bug_evidence_repair_order
+      priority: 44
+      stages: ["basic_api_functional_test", "test_case_implementation_in_batch", "comprehensive_verification_and_bug_analysis", "refine_test_cases_based_on_functional_points", "static_bug_validation", "verification_review_and_summary"]
+      checkers:
+        - "UnityChipCheckerDutApiTest"
+        - "UnityChipCheckerBatchTestsImplementation"
+        - "UnityChipCheckerTestCase"
+        - "UnityChipCheckerWaveformBugAnalysis"
+      patterns:
+        - "[Dynamic Bug Analysis Incomplete]"
+        - "[Unresolved Failed Cases]"
+        - "[Unanalyzed Failed Checkpoints]"
+        - "[Waveform Analysis Missing]"
+        - "[Waveform Reference Missing]"
+        - "[Waveform Viewer Link Invalid]"
+      hint: "动态 Bug 门禁失败时按依赖顺序收敛，不要同时重写测试、覆盖率和整份文档：先确认点名 FAILED TC 是正确测试且 CK/mark_function 关系成立；再建立唯一 BG/TC 骨架；然后为每个失败 TC 调用最终 WaveInfo，并用 ApplyWaveInfoEvidence 原子生成紧随 TC 的 WAVEFORM-REF 和该 TC 唯一中央记录；最后才填写共享 alignment_evidence、逐 BG bug_evidence 与八个分析字段。同一 TC 多 BG 复用一条中央记录并补齐信号并集，不同 TC 各有自己的中央记录。checker 给出 recovery_call/recovery_calls 时逐字使用其中非空 target_file、bug_tag、test_case_tag、receipt_id，禁止用空 test_case_tag 调工具。每完成一个点名阻塞项立即 Check，不要在结构或 receipt 未通过时反复运行完整测试集。"
+      source:
+        kind: log_reviewed
+        evidence:
+          - "分批实现日志先后出现未解析失败、缺失波形引用、中央记录和分析字段错误；跨层批量改写使后续 checker 反复发现新的格式与关联问题。"
+
+    - id: dynamic_bug_container_anchor_minimal_repair
+      priority: 45
+      stages: ["basic_api_functional_test", "test_case_implementation_in_batch", "comprehensive_verification_and_bug_analysis", "refine_test_cases_based_on_functional_points", "static_bug_validation", "verification_review_and_summary"]
+      checkers:
+        - "UnityChipCheckerDutApiTest"
+        - "UnityChipCheckerBatchTestsImplementation"
+        - "UnityChipCheckerTestCase"
+        - "UnityChipCheckerWaveformBugAnalysis"
+      patterns:
+        - "[Dynamic Bug Container Format Error]"
+        - "[Dynamic Bug Heading Format Error]"
+        - "[Waveform Container Format Error]"
+        - "[Waveform Record Anchor Error]"
+        - "[Waveform Record Title Error]"
+      hint: "checker 报告容器或 waveform anchor/title 错误时，只修机器结构，不改测试结论：文档必须恰有一个闭合的 DYNAMIC-BUGS 容器，随后恰有一个闭合的 WAVEFORM-EVIDENCE 容器；BG 内只放连续的 TC/WAVEFORM-REF 后再放八个字段，中央 WAVEFORM-TC/YAML/viewer 只放在 WAVEFORM-EVIDENCE 中。使用 checker 点名的 TC、精确锚点和 ApplyWaveInfoEvidence 生成内容，不要手工复制 receipt、viewer token，不要移动或重建未被点名的其他 BG/TC。最小修复后立即 Check。"
+      source:
+        kind: log_reviewed
+        evidence:
+          - "分批实现日志连续出现动态容器、波形容器、中央记录锚点和标题错误；整份重写会破坏已正确关联，按点名结构做最小修复更稳定。"
+
     - id: dynamic_bug_link_missing_record
       priority: 52
-      stages: ["24"]
+      stages: ["static_bug_validation"]
       checkers:
         - "UnityChipCheckerStaticBugValidation"
       patterns:
@@ -436,7 +508,7 @@ experience:
 
     - id: static_bug_evidence_oracle_and_sampling_audit
       priority: 56
-      stages: ["24"]
+      stages: ["static_bug_validation"]
       checkers:
         - "UnityChipCheckerStaticBugValidation"
         - "UnityChipCheckerTestCase"
@@ -453,7 +525,7 @@ experience:
 
     - id: random_test_file_not_discovered
       priority: 44
-      stages: ["26"]
+      stages: ["generate_random_test_cases"]
       checkers:
         - "RandomTestCasesChecker"
       patterns:
@@ -467,7 +539,7 @@ experience:
 
     - id: template_tests_must_fail_not_implemented
       priority: 38
-      stages: ["21"]
+      stages: ["create_test_case_templates"]
       checkers:
         - "UnityChipCheckerTestTemplate"
       patterns:
@@ -487,7 +559,7 @@ experience:
 
     - id: unmarked_test_functions
       priority: 40
-      stages: ["20", "21", "22", "23", "24", "27"]
+      stages: ["basic_api_functional_test", "create_test_case_templates", "test_case_implementation_in_batch", "comprehensive_verification_and_bug_analysis", "refine_test_cases_based_on_functional_points", "static_bug_validation", "verification_review_and_summary"]
       checkers:
         - "UnityChipCheckerDutApiTest"
         - "UnityChipCheckerTestTemplate"
@@ -515,7 +587,7 @@ experience:
 
       priority: 50
 
-      stages: ["22", "23", "24", "27"]
+      stages: ["test_case_implementation_in_batch", "comprehensive_verification_and_bug_analysis", "refine_test_cases_based_on_functional_points", "static_bug_validation", "verification_review_and_summary"]
 
       checkers:
 
@@ -537,7 +609,7 @@ experience:
 
       priority: 60
 
-      stages: ["22"]
+      stages: ["test_case_implementation_in_batch"]
 
       checkers:
 
@@ -553,7 +625,7 @@ experience:
 
     - id: pytest_target_path_not_found
       priority: 38
-      stages: ["20", "22", "23"]
+      stages: ["basic_api_functional_test", "test_case_implementation_in_batch", "comprehensive_verification_and_bug_analysis", "refine_test_cases_based_on_functional_points"]
       patterns:
         - "file or directory not found"
         - "UsageError: file or directory not found"

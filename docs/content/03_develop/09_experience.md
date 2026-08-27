@@ -60,7 +60,7 @@ experience:
     - id: batch_progress_remaining_tests_prioritize_impl
       priority: 10
       enabled: true
-      stages: ["22", "23"]       # 适用的 Runtime Stage 编号
+      stages: ["test_case_implementation_in_batch"] # 优先使用稳定阶段名
       checkers:
         - "UnityChipCheckerBatchTestsImplementation"
       patterns:
@@ -78,7 +78,7 @@ experience:
 | `id` | `string` | 规则唯一标识符（建议小写下划线命名） |
 | `priority` | `int` | 优先级（数值越小越优先匹配，建议范围 10~90） |
 | `enabled` | `bool` | 是否启用该规则（默认 `true`） |
-| `stages` | `list[str]` | 生效的阶段索引列表（如 `["21", "22", "23"]`） |
+| `stages` | `list[str]` | 生效的阶段名或运行时索引列表；内置规则优先使用稳定阶段名，避免工作流增删阶段后索引漂移 |
 | `checkers` | `list[str]` | 触发匹配的 Checker 类名列表 |
 | `patterns` | `list[str]` | 精确字符串匹配项（命中国中任意一项即可） |
 | `regex` | `list[str]` | 正则表达式匹配项（支持复杂模式匹配） |
@@ -103,7 +103,7 @@ experience:
   candidate_failure_hints+:  # '+' 表示追加到通用规则列表后，不覆盖通用规则
     - id: adder_overflow_carry_alignment
       priority: 50
-      stages: ["22", "23"]
+      stages: ["test_case_implementation_in_batch", "comprehensive_verification_and_bug_analysis"]
       patterns:
         - "carry_out mismatch"
       hint: "Adder 溢出进位测试失败时，先核对 reference model 中的无符号进位推导是否包含了 cin，再确认 DUT 是否处于组合直通状态。"
@@ -146,12 +146,12 @@ make -i mcp_Adder ARGS="--loop --log --log-file log/exp.log --msg-file log/exp-m
 <workspace>/
 └── .ucagent/
     └── experience/
-        ├── stage_21_create_test_case_templates/
+        ├── stage_23_create_test_case_templates/
         │   ├── adder_verification_experience.md # 已脱敏的阶段经验摘要
         │   ├── prior_rule_audit.yaml            # 先验规则命中审计报告
         │   ├── adder_llm_failure_hints.yaml     # 模型提炼的候选经验规则 (Review-only)
         │   └── index.json                        # 产物索引与日志范围元数据
-        └── stage_22_test_case_implementation_in_batch/
+        └── stage_24_test_case_implementation_in_batch/
             ├── adder_verification_experience.md
             ├── prior_rule_audit.yaml
             └── index.json

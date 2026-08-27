@@ -12,7 +12,7 @@ experience:
   candidate_failure_hints+:
     - id: aes_round_state_reference_timing
       priority: 66
-      stages: ["22", "23"]
+      stages: ["test_case_implementation_in_batch", "comprehensive_verification_and_bug_analysis", "refine_test_cases_based_on_functional_points"]
       checkers:
         - "UnityChipCheckerTestCase"
         - "UnityChipCheckerBatchTestsImplementation"

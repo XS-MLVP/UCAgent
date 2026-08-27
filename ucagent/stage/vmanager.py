@@ -1113,7 +1113,7 @@ class StageManager(object):
             llm_max_events = self._get_cfg_value("experience.llm_max_events", 20)
             backend = getattr(getattr(self, "agent", None), "backend", None)
             llm_model = getattr(backend, "model", None) if llm_distill else None
-            log_path = self._get_msg_log_path()
+            log_path = self._get_experience_log_path()
             log_start_offset = self._stage_experience_log_start_offset(stage, log_path)
             log_start_identity = self._stage_experience_log_start_identity(stage, log_path)
             log_end_offset = self._stage_experience_log_end_offset(log_path)
@@ -1221,18 +1221,25 @@ class StageManager(object):
         except (KeyError, TypeError, ValueError):
             return None
 
-    def _get_msg_log_path(self):
+    def _get_experience_log_path(self):
         try:
             import logging
-            from ucagent.util.log import get_msg_logger
+            from ucagent.util.log import get_msg_logger, get_log_logger
 
-            logger = get_msg_logger()
+            # The ordinary log records checker diagnostics and tool actions.
+            # The message log is only a compact user-visible fallback.
+            logger = get_log_logger()
             if logger:
                 for handler in logger.handlers:
                     if isinstance(handler, logging.FileHandler):
                         return handler.baseFilename
+            msg_logger = get_msg_logger()
+            if msg_logger:
+                for handler in msg_logger.handlers:
+                    if isinstance(handler, logging.FileHandler):
+                        return handler.baseFilename
         except Exception as exc:
-            warning(f"Failed to resolve message log path for experience extraction: {exc}")
+            warning(f"Failed to resolve experience log path: {exc}")
         return None
 
     def complete(self, timeout, stage_args=None):

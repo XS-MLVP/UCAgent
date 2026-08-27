@@ -9,7 +9,7 @@ experience:
   candidate_failure_hints+:
     - id: e203_lsu_ctrl_downstream_icb_dependency
       priority: 72
-      stages: ["22", "23", "24"]
+      stages: ["test_case_implementation_in_batch", "comprehensive_verification_and_bug_analysis", "refine_test_cases_based_on_functional_points", "static_bug_validation"]
       match_scope: ["focused", "full"]
       checkers:
         - "UnityChipCheckerBatchTestsImplementation"

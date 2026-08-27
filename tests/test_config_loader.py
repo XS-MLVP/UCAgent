@@ -5,6 +5,7 @@ import os
 import sys
 import tempfile
 import unittest
+import yaml
 from unittest import mock
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -672,6 +673,50 @@ plain_text: not enabled
         self.assertEqual(cfg.stage[12].task, "CLI wins")
         loaded_names = [os.path.basename(path) for path in cfg._loaded_config_files]
         self.assertLess(loaded_names.index("config.yaml"), loaded_names.index("adder.yaml"))
+
+    def test_experience_stage_index_map_matches_resolved_workflow(self):
+        repo_root = os.path.abspath(os.path.join(current_dir, ".."))
+        with tempfile.TemporaryDirectory() as user_home:
+            with mock.patch.dict(
+                os.environ,
+                {"HOME": user_home, "USERPROFILE": user_home},
+                clear=True,
+            ):
+                cfg = get_config(config_file=os.path.join(repo_root, "config.yaml"))
+        actual = []
+
+        def collect(stages, prefix="stage"):
+            for index, stage in enumerate(stages):
+                path = f"{prefix}[{index}]"
+                if stage.get_value("ignore", False):
+                    continue
+                substages = stage.get_value("stage", None)
+                if substages:
+                    collect(substages, path + ".stage")
+                checker = stage.get_value("checker", [])
+                output_files = stage.get_value("output_files", [])
+                reference_files = stage.get_value("reference_files", [])
+                is_group = not checker and not output_files and not reference_files and bool(substages)
+                if not is_group:
+                    actual.append({
+                        "runtime_index": str(len(actual)),
+                        "config_path": path,
+                        "name": stage.name,
+                    })
+
+        collect(cfg.stage)
+        general_path = os.path.join(
+            repo_root,
+            "ucagent",
+            "lang",
+            "zh",
+            "experience",
+            "general.yaml",
+        )
+        with open(general_path, "r", encoding="utf-8") as handle:
+            expected = yaml.safe_load(handle)["experience"]["stage_index_config_tree"]
+
+        self.assertEqual(expected, actual)
 
 
 if __name__ == '__main__':

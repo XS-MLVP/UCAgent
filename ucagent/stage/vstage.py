@@ -499,7 +499,7 @@ class VerifyStage(object):
         if not self.vmanager._experience_processing_enabled():
             return
         try:
-            log_path = self.vmanager._get_msg_log_path()
+            log_path = self.vmanager._get_experience_log_path()
             if not log_path or not os.path.isfile(log_path):
                 return
             stat = os.stat(log_path)
