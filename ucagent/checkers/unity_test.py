@@ -25,6 +25,44 @@ DEFAULT_RESERVED_TEST_FUNCTION_PREFIXES = (
 )
 
 
+def _set_checker_failure(result, message):
+    """Attach one Checker failure while preserving its explicit diagnostic contract."""
+
+    if (
+        isinstance(message, dict)
+        and {"error_code", "error", "next_action"}.issubset(message)
+    ):
+        result["diagnostic"] = copy.deepcopy(message)
+        result["error"] = message["error"]
+    else:
+        result["error"] = message
+    return result
+
+
+def _report_failure_message(
+    message,
+    report,
+    *,
+    stdout="",
+    stderr="",
+    include_stdout=False,
+    include_stderr=False,
+):
+    """Wrap a Checker failure with its test report and optional process output."""
+
+    result = _set_checker_failure({"REPORT": report}, message)
+    if include_stdout:
+        result["STDOUT"] = stdout
+    if include_stderr:
+        result["STDERR"] = stderr
+    if "Signal bind error" in stderr:
+        result["WARNING"] = (
+            "The DUT signals are not handled properly by toffee Bundle, you should "
+            "fix this issue first."
+        )
+    return result
+
+
 def _normalize_test_prefixes(prefixes, field_name="test function prefix"):
     if prefixes in (None, ""):
         return []
@@ -2097,14 +2135,14 @@ class UnityChipCheckerDutApiTest(BaseUnityChipCheckerTestCase):
             if func_name not in test_functions:
                 api_un_tested.append(func_name)
         def get_emsg(m):
-            msg =  {"error": m, "REPORT": report_copy}
-            if self.ret_std_out:
-                msg["STDOUT"] = str_out
-            if self.ret_std_error:
-                msg["STDERR"] = str_err
-            if "Signal bind error" in str_err:
-                msg["WARNING"] = "The DUT signals are not handled properly by toffee Bundle, you should fix this issue first."
-            return msg
+            return _report_failure_message(
+                m,
+                report_copy,
+                stdout=str_out,
+                stderr=str_err,
+                include_stdout=self.ret_std_out,
+                include_stderr=self.ret_std_error,
+            )
         missing_coverage_message = self._missing_functional_coverage_message(report)
         if missing_coverage_message:
             return False, get_emsg(missing_coverage_message)
@@ -2493,12 +2531,13 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
                 validation="document_failed",
                 test_run="executed",
             )
-            error_msgs["error"] = self._with_batch_context(
+            contextual_failure = self._with_batch_context(
                 msg,
                 validation_mode="fresh_test_run",
                 batch_progress=batch_progress,
                 batch_report=error_msgs["REPORT"],
             )
+            _set_checker_failure(error_msgs, contextual_failure)
             return ret, error_msgs
         ret, msg = fc.check_has_assert_in_tc(self.workspace, report)
         if not ret:
@@ -2652,7 +2691,7 @@ class UnityChipCheckerTestCase(BaseUnityChipCheckerTestCase):
             test_output_dir=self.get_configured_test_output_dir(),
         )
         if not ret:
-            info_runtest["error"] = msg
+            _set_checker_failure(info_runtest, msg)
             if len(zero_list) > 0:
                 if isinstance(info_runtest["error"], list):
                     info_runtest["error"].append(zero_rate_msg)
@@ -2664,7 +2703,7 @@ class UnityChipCheckerTestCase(BaseUnityChipCheckerTestCase):
 
         ret, msg = fc.check_has_assert_in_tc(self.workspace, report)
         if not ret:
-            info_runtest["error"] = msg
+            _set_checker_failure(info_runtest, msg)
             return False, info_runtest
 
         # Success: All validations passed

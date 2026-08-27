@@ -21,6 +21,7 @@ if loaded_ucagent is not None and not loaded_ucagent_path.startswith(repo_packag
             del sys.modules[module_name]
 
 import ucagent.stage.vmanager as vmanager
+from ucagent.checkers.unity_test import _report_failure_message
 from ucagent.stage.vstage import VerifyStage
 from ucagent.stage.vmanager import (
     ArgsDoCheck,
@@ -597,6 +598,48 @@ def test_verify_stage_expands_stage_args_at_checker_boundary(tmp_path):
         "refined": {"FG-A/FC-A/CK-A": "done"},
         "detail": True,
     }]
+
+
+def test_report_wrapper_promotes_dynamic_bug_diagnostic_to_failure_summary():
+    diagnostic = {
+        "error_code": "ROOT_CAUSE_RELATION_INVALID",
+        "error": "ROOT reverse relations do not match BG references.",
+        "details": {
+            "skill_repair_call": {
+                "tool": "RunSkillScript",
+                "commands": [[
+                    "unitytest/dynamic-bug-recording",
+                    "record_dynamic_bug.py",
+                    "-MODE repair",
+                ]],
+            }
+        },
+        "next_action": "Run the deterministic repair mode, then call Check.",
+    }
+    wrapped = _report_failure_message(
+        diagnostic,
+        {"tests": {"test_cases": {}}},
+        stdout="pytest output",
+        include_stdout=True,
+    )
+
+    summary = StageManager._build_failure_summary(
+        SimpleNamespace(name="dynamic_bug_stage"),
+        [{
+            "checker_name": "dynamic_bug_check",
+            "checker_class": "UnityChipCheckerTestCase",
+            "checked_in_last_run": True,
+            "last_check_pass": False,
+            "last_msg": wrapped,
+        }],
+        stage_index=22,
+    )
+
+    assert wrapped["diagnostic"] == diagnostic
+    assert wrapped["REPORT"] == {"tests": {"test_cases": {}}}
+    assert wrapped["STDOUT"] == "pytest output"
+    assert summary["error_code"] == "ROOT_CAUSE_RELATION_INVALID"
+    assert summary["details"] == diagnostic["details"]
 
 
 def test_check_failure_summary_precedes_verbose_diagnostics():

@@ -315,6 +315,7 @@ def test_related_bug_link_errors_are_reported_in_one_batch(tmp_path):
     passed, message = check_dynamic_bug_analysis_content(str(tmp_path), "bugs.md")
 
     assert not passed
+    assert message["error_code"] == "ROOT_CAUSE_RELATION_INVALID"
     assert "[Root Cause Relation Errors] Found 2" in message["error"]
     assert message["details"]["remaining_issue_count"] == 0
     assert len(message["details"]["issues"]) == 2
@@ -324,4 +325,60 @@ def test_related_bug_link_errors_are_reported_in_one_batch(tmp_path):
     for bug, replacement in zip(bugs, expected_replacements):
         assert f"{CHECKPOINT}/{bug}" in message["error"]
         assert replacement in message["error"]
-    assert "Apply every listed exact line replacement" in message["next_action"][0]
+    assert message["details"]["skill_repair_call"] == {
+        "tool": "RunSkillScript",
+        "commands": [[
+            "unitytest/dynamic-bug-recording",
+            "record_dynamic_bug.py",
+            "-MODE repair",
+        ]],
+    }
+    assert "If CurrentTips lists unitytest/dynamic-bug-recording" in (
+        message["next_action"][0]
+    )
+
+
+@pytest.mark.parametrize("closing_marker", ("</RELATED-BUGS>", "</ROOT>"))
+def test_unsupported_root_closing_marker_requests_exact_removal(
+    tmp_path, closing_marker
+):
+    target = _write_document(tmp_path)
+    content = target.read_text(encoding="utf-8")
+    target.write_text(
+        content.replace("</ROOT-CAUSES>", closing_marker + "\n</ROOT-CAUSES>"),
+        encoding="utf-8",
+    )
+
+    passed, message = check_dynamic_bug_analysis_content(str(tmp_path), "bugs.md")
+
+    assert not passed
+    assert message["error_code"] == "ROOT_CAUSE_RELATION_INVALID"
+    issue = message["details"]["issues"][0]
+    assert issue["code"] == "UNSUPPORTED_ROOT_CLOSING_MARKER"
+    assert issue["observed"] == closing_marker
+    assert "Remove the exact line" in issue["message"]
+    assert "available entry" not in issue["message"]
+
+
+def test_merged_root_container_end_routes_to_skill_repair(tmp_path):
+    target = _write_document(tmp_path)
+    content = target.read_text(encoding="utf-8")
+    target.write_text(
+        content.replace(
+            "</ROOT-CAUSES>",
+            "</RELATED-BUGS></ROOT-CAUSES>",
+        ),
+        encoding="utf-8",
+    )
+
+    passed, message = check_dynamic_bug_analysis_content(str(tmp_path), "bugs.md")
+
+    assert not passed
+    assert message["error_code"] == "ROOT_CAUSE_CONTAINER_FORMAT_INVALID"
+    assert message["details"]["merged_end_marker_lines"]
+    assert message["details"]["skill_repair_call"]["commands"] == [[
+        "unitytest/dynamic-bug-recording",
+        "record_dynamic_bug.py",
+        "-MODE repair",
+    ]]
+    assert "do not edit the dynamic Bug document" in message["next_action"]

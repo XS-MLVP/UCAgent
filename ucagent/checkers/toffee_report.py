@@ -282,6 +282,7 @@ def _root_relation_issue_result(issues: list[dict], bug_file: str) -> tuple[bool
         else ""
     )
     return False, {
+        "error_code": "ROOT_CAUSE_RELATION_INVALID",
         "error": (
             f"[Root Cause Relation Errors] Found {len(issues)} independently repairable "
             f"ROOT/BG relation error(s) in '{bug_file}':\n{rendered}{suppressed}"
@@ -289,11 +290,21 @@ def _root_relation_issue_result(issues: list[dict], bug_file: str) -> tuple[bool
         "details": {
             "issues": shown,
             "remaining_issue_count": remaining,
+            "skill_repair_call": {
+                "tool": "RunSkillScript",
+                "commands": [[
+                    "unitytest/dynamic-bug-recording",
+                    "record_dynamic_bug.py",
+                    "-MODE repair",
+                ]],
+            },
         },
         "next_action": [
-            "Apply every listed exact line replacement or relation repair before calling "
-            "Check/Complete again. These Markdown relation repairs do not require rerunning "
-            "pytest, WaveInfo, or ApplyWaveInfoEvidence."
+            "If CurrentTips lists unitytest/dynamic-bug-recording, call the provided "
+            "details.skill_repair_call and do not edit the dynamic Bug document. Otherwise, "
+            "apply the listed exact repairs with normal text tools following "
+            "Guide_Doc/dut_bug_analysis.md section 5.1. Then call Check/Complete again; "
+            "pytest, WaveInfo, and ApplyWaveInfoEvidence do not need to be rerun."
         ],
     }
 
@@ -769,10 +780,35 @@ def _parse_root_cause_relations(
         }
     if len(starts) != 1 or len(ends) != 1 or not starts[0] < ends[0]:
         return False, {
+            "error_code": "ROOT_CAUSE_CONTAINER_FORMAT_INVALID",
             "error": (
                 f"[Root Cause Container Format Error] '{bug_file}' must contain exactly "
                 f"one closed {_ROOT_CAUSES_MARKER} container."
-            )
+            ),
+            "details": {
+                "root_causes_start_count": len(starts),
+                "root_causes_end_count": len(ends),
+                "merged_end_marker_lines": [
+                    index + 1
+                    for index, value in enumerate(stripped)
+                    if _ROOT_CAUSES_END_MARKER in value
+                    and value != _ROOT_CAUSES_END_MARKER
+                ][:_MAX_ROOT_RELATION_DIAGNOSTICS],
+                "skill_repair_call": {
+                    "tool": "RunSkillScript",
+                    "commands": [[
+                        "unitytest/dynamic-bug-recording",
+                        "record_dynamic_bug.py",
+                        "-MODE repair",
+                    ]],
+                },
+            },
+            "next_action": (
+                "If CurrentTips lists unitytest/dynamic-bug-recording, call "
+                "details.skill_repair_call and do not edit the dynamic Bug document. "
+                "Otherwise, make ROOT-CAUSES markers standalone according to "
+                "Guide_Doc/dut_bug_analysis.md section 5.1, then call Check/Complete again."
+            ),
         }
     start, end = starts[0], ends[0]
     dynamic_end_indexes = [
@@ -1106,6 +1142,21 @@ def _parse_root_cause_relations(
                 continue
             nonempty_related_lines += 1
             document_line = line_index + related_index + related_offset + 3
+            if value in {"</RELATED-BUGS>", "</ROOT>"}:
+                relation_issues.append(
+                    {
+                        "code": "UNSUPPORTED_ROOT_CLOSING_MARKER",
+                        "root": root_tag,
+                        "line": document_line,
+                        "observed": value,
+                        "message": (
+                            f"[Unsupported Root Closing Marker] Remove the exact line "
+                            f"'{value}' at line {document_line} under <{root_tag}>. "
+                            "The canonical ROOT entity has no matching closing marker."
+                        ),
+                    }
+                )
+                continue
             related_match = re.fullmatch(
                 r"-\s+<RELATED-BUG-([^<>]+)>\s+"
                 r"\[([^\]\n]+)\]\(#([^)]+)\)",
