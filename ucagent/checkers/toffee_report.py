@@ -290,20 +290,11 @@ def _root_relation_issue_result(issues: list[dict], bug_file: str) -> tuple[bool
         "details": {
             "issues": shown,
             "remaining_issue_count": remaining,
-            "skill_repair_call": {
-                "tool": "RunSkillScript",
-                "commands": [[
-                    "unitytest/dynamic-bug-recording",
-                    "record_dynamic_bug.py",
-                    "-MODE repair",
-                ]],
-            },
         },
         "next_action": [
-            "If CurrentTips lists unitytest/dynamic-bug-recording, call the provided "
-            "details.skill_repair_call and do not edit the dynamic Bug document. Otherwise, "
-            "apply the listed exact repairs with normal text tools following "
-            "Guide_Doc/dut_bug_analysis.md section 5.1. Then call Check/Complete again; "
+            "Apply only the listed exact marker, path, or link repairs according to "
+            "Guide_Doc/dut_bug_analysis.md section 5.1. Preserve unrelated BG, TC, ROOT "
+            "analysis, and WAVEFORM-EVIDENCE content. Then call Check/Complete again; "
             "pytest, WaveInfo, and ApplyWaveInfoEvidence do not need to be rerun."
         ],
     }
@@ -794,20 +785,12 @@ def _parse_root_cause_relations(
                     if _ROOT_CAUSES_END_MARKER in value
                     and value != _ROOT_CAUSES_END_MARKER
                 ][:_MAX_ROOT_RELATION_DIAGNOSTICS],
-                "skill_repair_call": {
-                    "tool": "RunSkillScript",
-                    "commands": [[
-                        "unitytest/dynamic-bug-recording",
-                        "record_dynamic_bug.py",
-                        "-MODE repair",
-                    ]],
-                },
             },
             "next_action": (
-                "If CurrentTips lists unitytest/dynamic-bug-recording, call "
-                "details.skill_repair_call and do not edit the dynamic Bug document. "
-                "Otherwise, make ROOT-CAUSES markers standalone according to "
-                "Guide_Doc/dut_bug_analysis.md section 5.1, then call Check/Complete again."
+                "Make the single <ROOT-CAUSES> and </ROOT-CAUSES> markers standalone "
+                "according to Guide_Doc/dut_bug_analysis.md section 5.1. Remove any "
+                "unsupported closing marker attached to the reported lines, preserve the "
+                "container body, then call Check/Complete again."
             ),
         }
     start, end = starts[0], ends[0]

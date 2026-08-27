@@ -605,16 +605,9 @@ def test_report_wrapper_promotes_dynamic_bug_diagnostic_to_failure_summary():
         "error_code": "ROOT_CAUSE_RELATION_INVALID",
         "error": "ROOT reverse relations do not match BG references.",
         "details": {
-            "skill_repair_call": {
-                "tool": "RunSkillScript",
-                "commands": [[
-                    "unitytest/dynamic-bug-recording",
-                    "record_dynamic_bug.py",
-                    "-MODE repair",
-                ]],
-            }
+            "repair_scope": ["ROOT reverse relations"],
         },
-        "next_action": "Run the deterministic repair mode, then call Check.",
+        "next_action": "Repair the listed exact relations, then call Check.",
     }
     wrapped = _report_failure_message(
         diagnostic,

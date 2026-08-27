@@ -148,9 +148,12 @@ def test_default_prompt_requires_waveinfo_for_dynamic_bugs():
     assert "相同test_case_tag和不同bug_tag分别调用" in system_prompt
     assert "新增关联不需要replace_existing" in system_prompt
     assert "LLM不得复制或修改receipt字段" in system_prompt
-    assert "只有动态Bug文档`{OUT}/{DUT}_bug_analysis.md`由该Skill的`record_dynamic_bug.py`和`ApplyWaveInfoEvidence`确定性维护" in system_prompt
+    assert "优先由该Skill的`record_dynamic_bug.py`和`ApplyWaveInfoEvidence`确定性维护动态Bug文档" in system_prompt
     assert "其他文档和代码仍使用当前stage允许的普通工具" in system_prompt
     assert "`-MODE repair`" in system_prompt
+    assert "若相同文档阻塞仍存在" in system_prompt
+    assert "返回`manual_edit_fallback`时按其`scope`和`after_edit`执行" in system_prompt
+    assert "并立即重跑`-MODE repair`和Check" in system_prompt
     assert "先用`-MODE bug`" in system_prompt
     assert "再用`-MODE root`" in system_prompt
     assert "Skill禁用或未复制时" in system_prompt
@@ -205,10 +208,13 @@ def test_default_prompt_requires_waveinfo_for_dynamic_bugs():
     assert "不能由TC Fail反推CK Fail" in parent_task
     assert "不得以测试Bug或BG-*-0占位保留Fail" in batch_task
     assert "任何未分类Fail" in batch_task
-    assert "禁止直接编辑{OUT}/{DUT}_bug_analysis.md" in batch_task
+    assert "尽可能不直接编辑{OUT}/{DUT}_bug_analysis.md" in batch_task
     assert "record_dynamic_bug.py的-MODE repair" in batch_task
-    assert "record_dynamic_bug.py的-MODE bug" in batch_task
+    assert "调用-MODE bug完整写入BG三个字段" in batch_task
     assert "对每个不同ROOT调用-MODE root" in batch_task
+    assert "若相同文档阻塞仍存在" in batch_task
+    assert "manual_edit_fallback" in batch_task
+    assert "随后立即重跑-MODE repair和Check" in batch_task
     assert "Skill禁用或脚本未复制时" in batch_task
     assert "完成BG三个字段、唯一<CAUSE-REF-ROOT-XXX>、ROOT五个分析字段及双向链接" in batch_task
     assert "只处理当前反馈中的第一个阻塞项" in batch_task
@@ -617,8 +623,12 @@ def test_bug_document_error_help_uses_current_machine_contract():
     help_text = "\n".join(description_bug_doc())
 
     assert "Follow the active stage task" in help_text
-    assert "maintain the Bug document only through that Skill's deterministic operations" in help_text
-    assert "Use text-editing tools only when Skill support or the script is unavailable" in help_text
+    assert "prefer that Skill's deterministic operations" in help_text
+    assert "avoid proactive direct edits to the Bug document" in help_text
+    assert "If the same blocker remains" in help_text
+    assert "immediately rerun -MODE repair and Check" in help_text
+    assert "scope and after_edit call in a returned manual_edit_fallback" in help_text
+    assert "When Skill support or the script is unavailable" in help_text
     assert "only an optional helper" not in help_text
     for marker in (
         "<DYNAMIC-BUGS>",
@@ -669,9 +679,11 @@ def test_bug_document_error_help_uses_current_machine_contract():
     assert "visible heading reuses the TC title" in help_text
     assert "Every remaining FAILED DUT test" in help_text
     assert "Every remaining failed checkpoint" in help_text
-    assert "call record_dynamic_bug.py with -MODE bug" in help_text
+    assert "prefer record_dynamic_bug.py with -MODE bug" in help_text
     assert "-MODE root for each distinct ROOT" in help_text
-    assert "do not edit the Bug Markdown directly" in help_text
+    assert "if the same blocker remains" in help_text
+    assert "manual_edit_fallback scope and after_edit call" in help_text
+    assert "immediately rerun -MODE repair and Check" in help_text
     assert "A failed checkpoint does not by itself prove a DUT Bug" in help_text
     assert "test stimulus/driver" in help_text
     assert "checkpoint that is itself PASSED" in help_text
@@ -824,7 +836,10 @@ def test_bug_analysis_guide_requires_scaffold_completion_with_or_without_skill()
     assert "只处理反馈中的第一个阻塞项" in guide
     assert "调用 `ApplyWaveInfoEvidence`" in guide
     assert "不要为同一 BG 的后续 Fail TC 复制该结构" in guide
-    assert "只能通过该Skill的`record_dynamic_bug.py`、`WaveInfo`和`ApplyWaveInfoEvidence`维护" in guide
+    assert "优先通过该Skill的`record_dynamic_bug.py`、`WaveInfo`和`ApplyWaveInfoEvidence`维护" in guide
+    assert "若相同文档阻塞仍存在" in guide
+    assert "按其`scope`编辑，并执行`after_edit`" in guide
+    assert "立即重跑`-MODE repair`和`Check`" in guide
     assert "调用`record_dynamic_bug.py -MODE bug`" in guide
     assert "调用`record_dynamic_bug.py -MODE root`" in guide
     assert "必须用真实结论替换全部`<BUG-TODO>`" not in guide

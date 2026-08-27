@@ -129,6 +129,7 @@ class SkillDocumentError(ValueError):
             "error": self.error,
             "details": self.details,
             "next_action": self.next_action,
+            "manual_edit_fallback": _manual_edit_fallback(),
         }
         result["workflow_context"] = self.workflow_context or _workflow_context(
             "skill_call_blocked",
@@ -149,8 +150,29 @@ def _repair_next_action():
     return (
         "Call RunSkillScript with commands "
         f"{_repair_skill_call()['commands']}, then retry the original Skill mode. "
-        "Do not edit the Bug document directly."
+        "If that bounded recovery cannot run or leaves the same document blocker, "
+        "follow manual_edit_fallback."
     )
+
+
+def _manual_edit_fallback():
+    """Describe the bounded text-edit fallback for an unrecoverable document error."""
+
+    return {
+        "allowed": True,
+        "precondition": (
+            "Attempt next_action once. Use this fallback only if the same document "
+            "blocker remains, or next_action cannot run because the machine-readable "
+            "document structure is malformed."
+        ),
+        "target": "{OUT}/{DUT}_bug_analysis.md",
+        "scope": (
+            "Use normal text-editing tools only on the exact malformed markers, paths, "
+            "or lines identified by error/details. Preserve all unrelated BG, TC, ROOT "
+            "analysis fields and WAVEFORM-EVIDENCE content."
+        ),
+        "after_edit": _repair_skill_call(),
+    }
 
 
 def _workflow_context(
@@ -214,8 +236,9 @@ def _workflow_context(
         "remaining_sequence": remaining_sequence,
         "continuation_rule": (
             "Keep every reported BG, TC, checkpoint, and ROOT identity byte-for-byte "
-            "unchanged across calls. Use only this Skill for the owned target; other "
-            "documents and code are outside this ownership boundary."
+            "unchanged across calls. Prefer this Skill for the owned target; use a "
+            "returned manual_edit_fallback only after its precondition is met. Other "
+            "documents and code are outside this preference."
         ),
     }
 
@@ -1531,12 +1554,12 @@ def _repair_failure(error_code, error, *, details=None, mode="bug"):
     action = (
         "Use -MODE bug for each reported BG path to establish exactly one valid "
         "ROOT reference, then call -MODE repair again. Do not edit the Bug document "
-        "directly."
+        "before attempting that bounded recovery once."
     )
     if mode == "root":
         action = (
             "Use -MODE root to restore the reported ROOT entity fields, then call "
-            "-MODE repair again. Do not edit the Bug document directly."
+            "-MODE repair again before using manual_edit_fallback."
         )
     raise SkillDocumentError(
         error_code,
@@ -1734,7 +1757,8 @@ def _repair_document_content(content):
             },
             next_action=(
                 "Restore one unambiguous ROOT-CAUSES container through the owning Skill "
-                "mode, then call -MODE repair again. Do not edit semantic analysis fields."
+                "mode, then call -MODE repair again. If that cannot run, use the returned "
+                "manual_edit_fallback without changing semantic analysis fields."
             ),
         )
     dynamic_starts = [i for i, value in enumerate(visible) if value == DYNAMIC_BUGS_MARKER]
@@ -1813,7 +1837,7 @@ def _run_repair_operation(runtime_config, args, target):
         **details,
         "next_action": (
             "Retry the pending -MODE bug or -MODE root call, then call Check. "
-            "Do not edit the Bug document directly."
+            "Continue to prefer Skill operations while they can complete the update."
         ),
         "workflow_context": _workflow_context(
             "relations_repaired",
@@ -2020,7 +2044,7 @@ def _run_root_operation(runtime_config, args, target):
         "root_fields_completed": list(fields),
         "next_action": (
             "Run final WaveInfo and ApplyWaveInfoEvidence for every confirmed BG/TC path, "
-            "then call Check. Do not edit the Bug Markdown file manually."
+            "then call Check. Keep receipt-backed YAML and viewer fields tool-managed."
         ),
         "workflow_context": _workflow_context(
             "root_fields_recorded",

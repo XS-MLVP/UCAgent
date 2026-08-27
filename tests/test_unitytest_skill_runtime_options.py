@@ -1010,13 +1010,18 @@ def test_dynamic_bug_skill_hook_owns_only_the_dynamic_bug_document(tmp_path):
     assert "`unity_test/Adder_bug_analysis.md`" in policy
     assert "{OUT}" not in policy
     assert "其他文档和代码仍使用" in policy
+    assert "优先维护策略" in policy
+    assert "尽可能使用当前 Skill" in policy
     assert "-MODE repair" in policy
     assert "-MODE bug" in policy
     assert "-MODE root" in policy
+    assert "相同阻塞仍存在" in policy
+    assert "manual_edit_fallback.allowed=true" in policy
+    assert "precondition" in policy
+    assert "after_edit" in policy
     assert "workflow_context.remaining_sequence" in policy
-    assert "EditTextFile" in policy
-    assert "ReplaceStringInFile" in policy
-    assert "DeleteTextLines" in policy
+    assert "禁止使用" not in policy
+    assert "不得绕过 Skill" not in policy
 
 
 def test_all_default_workflow_skills_keep_scripts_optional():

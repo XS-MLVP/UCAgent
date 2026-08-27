@@ -325,17 +325,11 @@ def test_related_bug_link_errors_are_reported_in_one_batch(tmp_path):
     for bug, replacement in zip(bugs, expected_replacements):
         assert f"{CHECKPOINT}/{bug}" in message["error"]
         assert replacement in message["error"]
-    assert message["details"]["skill_repair_call"] == {
-        "tool": "RunSkillScript",
-        "commands": [[
-            "unitytest/dynamic-bug-recording",
-            "record_dynamic_bug.py",
-            "-MODE repair",
-        ]],
-    }
-    assert "If CurrentTips lists unitytest/dynamic-bug-recording" in (
+    assert "skill_repair_call" not in message["details"]
+    assert "Guide_Doc/dut_bug_analysis.md section 5.1" in (
         message["next_action"][0]
     )
+    assert "RunSkillScript" not in message["next_action"][0]
 
 
 @pytest.mark.parametrize("closing_marker", ("</RELATED-BUGS>", "</ROOT>"))
@@ -360,7 +354,7 @@ def test_unsupported_root_closing_marker_requests_exact_removal(
     assert "available entry" not in issue["message"]
 
 
-def test_merged_root_container_end_routes_to_skill_repair(tmp_path):
+def test_merged_root_container_end_reports_exact_skill_neutral_repair(tmp_path):
     target = _write_document(tmp_path)
     content = target.read_text(encoding="utf-8")
     target.write_text(
@@ -376,9 +370,7 @@ def test_merged_root_container_end_routes_to_skill_repair(tmp_path):
     assert not passed
     assert message["error_code"] == "ROOT_CAUSE_CONTAINER_FORMAT_INVALID"
     assert message["details"]["merged_end_marker_lines"]
-    assert message["details"]["skill_repair_call"]["commands"] == [[
-        "unitytest/dynamic-bug-recording",
-        "record_dynamic_bug.py",
-        "-MODE repair",
-    ]]
-    assert "do not edit the dynamic Bug document" in message["next_action"]
+    assert "skill_repair_call" not in message["details"]
+    assert "standalone" in message["next_action"]
+    assert "Guide_Doc/dut_bug_analysis.md section 5.1" in message["next_action"]
+    assert "RunSkillScript" not in message["next_action"]

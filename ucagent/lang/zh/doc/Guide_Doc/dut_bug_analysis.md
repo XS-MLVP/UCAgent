@@ -613,11 +613,13 @@ waveform_analysis:
 
 ### 5.2 建立骨架并分阶段写入
 
-当`unitytest/dynamic-bug-recording`已启用且已复制时，动态Bug文档只能通过该Skill的`record_dynamic_bug.py`、`WaveInfo`和`ApplyWaveInfoEvidence`维护，LLM不得直接编辑目标Markdown。脚本从`.ucagent/runtime_config.json`读取实际TC目录和统一`current_test_report`路径；`Check`或`RunTestCases`真实运行Unity测试后发布当前阶段报告，进入新阶段时旧报告失效。脚本只从该报告的`failed_test_case_with_check_point_list`精确解析TC到FG/FC/CK的关系，不读取阶段私有报告；若当前报告不存在，先运行当前阶段真实测试，禁止手工创建、复制或猜测报告。脚本从功能检查文档读取 FG/FC/CK 名称，从测试 docstring 读取 TC 名称。
+当`unitytest/dynamic-bug-recording`已启用且已复制时，优先通过该Skill的`record_dynamic_bug.py`、`WaveInfo`和`ApplyWaveInfoEvidence`维护动态Bug文档，尽可能不让LLM主动编辑目标Markdown。脚本从`.ucagent/runtime_config.json`读取实际TC目录和统一`current_test_report`路径；`Check`或`RunTestCases`真实运行Unity测试后发布当前阶段报告，进入新阶段时旧报告失效。脚本只从该报告的`failed_test_case_with_check_point_list`精确解析TC到FG/FC/CK的关系，不读取阶段私有报告；若当前报告不存在，先运行当前阶段真实测试，禁止手工创建、复制或猜测报告。脚本从功能检查文档读取 FG/FC/CK 名称，从测试 docstring 读取 TC 名称。
+
+已有动态Bug文档出现格式问题时，先调用`-MODE repair`并执行一次返回的`next_action`。若相同文档阻塞仍存在，或格式损坏使该动作无法执行，LLM可用普通文本工具只修复`error/details`指出的精确标记、路径或行；返回`manual_edit_fallback`时按其`scope`编辑，并执行`after_edit`。修复必须保留其他BG、TC、ROOT分析和全部`WAVEFORM-EVIDENCE`内容，完成后立即重跑`-MODE repair`和`Check`。不得用shell或临时Python修改文档；receipt、中央YAML、viewer链接和token始终只能由`WaveInfo`与`ApplyWaveInfoEvidence`维护。
 
 对每个新BG路径的第一份精确FG/FC/CK/BG/TC关联调用`record_dynamic_bug.py -MODE bug`，一次写入BG三个字段、唯一`<CAUSE-REF-ROOT-XXX>`和ROOT反向链接；对每个不同根因调用`record_dynamic_bug.py -MODE root`，一次写入ROOT五个分析字段。有源码时脚本根据真实`path:start-end`和三组行号读取当前源码并生成完整围栏与源码标记；无源码时使用互斥的`-SOURCE-UNAVAILABLE`。已有CK/BG仅新增兄弟TC时直接调用WaveInfo/Apply；新增BG路径或修订BG/ROOT字段时重调对应MODE，脚本幂等更新并保留历史路径。脚本不创建波形YAML或viewer证据。
 
-Skill 禁用、未复制或脚本不可用时，才使用文本工具按本节标准建立和填写相同结构，产物和验收标准不变。
+Skill 禁用、未复制或脚本不可用时，直接使用文本工具按本节标准建立和填写相同结构；Skill 启用时仅在上述确定性恢复无法消除同一格式阻塞后使用最小编辑兜底。两条路径的产物和验收标准不变。
 
 #### 5.2.1 多分支层次骨架
 

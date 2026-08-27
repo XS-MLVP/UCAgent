@@ -764,6 +764,48 @@ def test_dynamic_bug_skill_repair_rejects_ambiguous_bg_root_reference():
     assert raised.value.error_code == "REPAIR_BUG_ROOT_REFERENCE_INVALID"
     assert raised.value.workflow_context["next_skill_mode"] == "bug"
 
+    result = raised.value.as_result("repair")
+    fallback = result["manual_edit_fallback"]
+    assert fallback["allowed"] is True
+    assert "Attempt next_action once" in fallback["precondition"]
+    assert fallback["target"] == "{OUT}/{DUT}_bug_analysis.md"
+    assert "exact malformed markers, paths, or lines" in fallback["scope"]
+    assert "Preserve all unrelated BG, TC, ROOT" in fallback["scope"]
+    assert fallback["after_edit"] == {
+        "tool": "RunSkillScript",
+        "commands": [[
+            "unitytest/dynamic-bug-recording",
+            "record_dynamic_bug.py",
+            "-MODE repair",
+        ]],
+    }
+
+
+def test_dynamic_bug_skill_invalid_call_does_not_allow_manual_document_edit(
+    tmp_path, monkeypatch, capsys
+):
+    module = _load_script(RECORD_SCRIPTS[0])
+    _write_runtime_contract(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            str(RECORD_SCRIPTS[0]),
+            "-MODE",
+            "repair",
+            "-ROOT-TAG",
+            "ROOT-INVALID-FOR-REPAIR",
+        ],
+    )
+
+    with pytest.raises(SystemExit, match="2"):
+        module.main()
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["error_code"] == "DYNAMIC_BUG_SKILL_CALL_INVALID"
+    assert "manual_edit_fallback" not in result
+
 
 def test_dynamic_bug_skill_results_expose_multi_call_workflow_context(
     tmp_path, monkeypatch
