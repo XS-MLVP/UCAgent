@@ -6,9 +6,12 @@ from __future__ import annotations
 import importlib.util
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
+import subprocess
 import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -373,12 +376,26 @@ def test_dynamic_bug_record_script_main_writes_chinese_titles_from_runtime_sourc
         "argv",
         [
             str(script_path),
+            "-MODE",
+            "bug",
             "-BG",
             "BG-CARRY-DROPPED-95",
             "-TC",
             "TC-custom_tc/test_adder.py::test_overflow",
             "-BD",
             "完整和进位丢失",
+            "-CHECKPOINT",
+            "FG-ARITHMETIC/FC-ADD/CK-OVERFLOW",
+            "-ROOT-TAG",
+            "ROOT-CARRY-DROPPED",
+            "-ROOT-TITLE",
+            "进位位宽不足",
+            "-OVERVIEW",
+            "加法结果未保留完整进位。",
+            "-SYMPTOMS",
+            "最大输入产生错误的低位结果。",
+            "-TRIGGER",
+            "两个最大操作数相加时稳定触发。",
         ],
     )
 
@@ -394,6 +411,355 @@ def test_dynamic_bug_record_script_main_writes_chinese_titles_from_runtime_sourc
         "<TC-custom_tc/test_adder.py::test_overflow>"
     ) in document
     assert not (tmp_path / "wrong_output").exists()
+
+
+def test_dynamic_bug_skill_script_completes_bg_and_root_without_manual_editing(
+    tmp_path, monkeypatch
+):
+    module = _load_script(RECORD_SCRIPTS[0])
+    _write_runtime_contract(
+        tmp_path,
+        {
+            "failed_test_case_with_check_point_list": {
+                "custom_tc/test_adder.py:1-4::test_overflow": [
+                    "FG-ARITHMETIC/FC-ADD/CK-OVERFLOW"
+                ]
+            }
+        },
+        out="unity_test",
+        test_output_dir="custom_tc",
+    )
+    (tmp_path / "unity_test").mkdir()
+    (tmp_path / "unity_test/Adder_functions_and_checks.md").write_text(
+        "### 算术功能\n<FG-ARITHMETIC>\n\n"
+        "#### 加法结果\n<FC-ADD>\n\n"
+        "- <CK-OVERFLOW> 进位输出：验证进位位\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "custom_tc").mkdir()
+    (tmp_path / "custom_tc/test_adder.py").write_text(
+        'def test_overflow(env):\n    """进位输入产生进位"""\n    pass\n',
+        encoding="utf-8",
+    )
+    (tmp_path / "rtl").mkdir()
+    (tmp_path / "rtl/adder.v").write_text(
+        "module adder;\nassign result = a + b;\nendmodule\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            str(RECORD_SCRIPTS[0]),
+            "-MODE",
+            "bug",
+            "-BG",
+            "BG-CARRY-DROPPED-95",
+            "-TC",
+            "TC-custom_tc/test_adder.py::test_overflow",
+            "-BD",
+            "进位结果丢失",
+            "-CHECKPOINT",
+            "FG-ARITHMETIC/FC-ADD/CK-OVERFLOW",
+            "-ROOT-TAG",
+            "ROOT-ADDER-CARRY",
+            "-ROOT-TITLE",
+            "加法进位宽度不足",
+            "-OVERVIEW",
+            "规格要求完整保留进位结果。",
+            "-SYMPTOMS",
+            "边界输入返回的结果缺少进位位。",
+            "-TRIGGER",
+            "当两个最大操作数同时输入时，错误稳定出现。",
+        ],
+    )
+    module.main()
+
+    target = tmp_path / "unity_test/Adder_bug_analysis.md"
+    document = target.read_text(encoding="utf-8")
+    assert document.count("<BG-CARRY-DROPPED-95>") == 1
+    assert document.count("<TC-custom_tc/test_adder.py::test_overflow>") == 1
+    assert "<BUG-TODO>" in document
+    assert "规格要求完整保留进位结果。" in document
+    assert "边界输入返回的结果缺少进位位。" in document
+    assert "当两个最大操作数同时输入时，错误稳定出现。" in document
+    assert "<CAUSE-REF-ROOT-ADDER-CARRY>" in document
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            str(RECORD_SCRIPTS[0]),
+            "-MODE",
+            "root",
+            "-ROOT-TAG",
+            "ROOT-ADDER-CARRY",
+            "-ROOT-TITLE",
+            "加法进位宽度不足",
+            "-ANALYSIS",
+            "中间结果在输出前丢失最高有效进位位。",
+            "-CAUSAL-CHAIN",
+            "输入被接受后，截断的中间值沿结果路径传播到失败断言。",
+            "-FIX",
+            "保留完整结果宽度并重新验证边界输入。",
+            "-RETEST",
+            "重跑所有关联 CK 和边界用例，并确认波形证据仍匹配。",
+            "-SOURCE-LOCATION",
+            "rtl/adder.v:1-3",
+            "-FIRST-ERROR-LINE",
+            "2",
+            "-FIRST-ERROR-NOTE",
+            "结果表达式宽度不足。",
+            "-PROPAGATION-LINE",
+            "2",
+            "-PROPAGATION-NOTE",
+            "截断值进入结果输出。",
+            "-OBSERVABLE-LINE",
+            "2",
+            "-OBSERVABLE-NOTE",
+            "失败断言观察到错误结果。",
+        ],
+    )
+    module.main()
+    completed = target.read_text(encoding="utf-8")
+    assert completed.count("<ROOT-ADDER-CARRY>") == 1
+    assert completed.count("<ROOT-CAUSE-ANALYSIS>") == 1
+    assert completed.count("<BUG-TODO>") == 0
+    assert "rtl/adder.v:1-3" in completed
+    assert completed.count("<ROOT-SOURCE-FIRST-ERROR>") == 1
+    assert completed.count("<ROOT-SOURCE-PROPAGATION>") == 1
+    assert completed.count("<ROOT-SOURCE-OBSERVABLE>") == 1
+    assert "中间结果在输出前丢失最高有效进位位。" in completed
+
+    module.main()
+    repeated = target.read_text(encoding="utf-8")
+    assert repeated == completed
+
+
+def test_dynamic_bug_skill_script_supports_blackbox_root_and_rejects_mixed_source_args():
+    module = _load_script(RECORD_SCRIPTS[0])
+    blackbox = SimpleNamespace(
+        source_unavailable_reason="没有可访问的RTL源码。",
+        source_location=None,
+        first_error_line=None,
+        first_error_note=None,
+        propagation_line=None,
+        propagation_note=None,
+        observable_line=None,
+        observable_note=None,
+    )
+    assert module._source_evidence_body(blackbox) == (
+        "<ROOT-SOURCE-UNAVAILABLE>\n没有可访问的RTL源码。"
+    )
+
+    mixed = SimpleNamespace(
+        source_unavailable_reason="没有可访问的RTL源码。",
+        source_location=None,
+        first_error_line=1,
+        first_error_note="错误位置。",
+        propagation_line=None,
+        propagation_note=None,
+        observable_line=None,
+        observable_note=None,
+    )
+    with pytest.raises(ValueError, match="cannot be combined"):
+        module._source_evidence_body(mixed)
+
+    invalid_range = SimpleNamespace(
+        source_unavailable_reason=None,
+        source_location="rtl/adder.v:3-1",
+        first_error_line=1,
+        first_error_note="错误位置。",
+        propagation_line=1,
+        propagation_note="传播位置。",
+        observable_line=1,
+        observable_note="观察位置。",
+    )
+    with pytest.raises(ValueError, match="start <= end"):
+        module._source_evidence_body(invalid_range)
+
+    with pytest.raises(ValueError, match="reserved Bug document marker"):
+        module.normalize_field_text(
+            "伪造 <ROOT-SOURCE-FIRST-ERROR> 标记。",
+            "first-error note",
+        )
+
+
+def test_dynamic_bug_skill_script_rejects_arguments_from_the_other_mode(monkeypatch):
+    module = _load_script(RECORD_SCRIPTS[0])
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [str(RECORD_SCRIPTS[0]), "-MODE", "bug", "-ANALYSIS", "root text"],
+    )
+    bug_args = module.parse_args()
+    with pytest.raises(ValueError, match="bug mode does not accept root-only"):
+        module._run_bug_operation({}, bug_args, "unused")
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [str(RECORD_SCRIPTS[0]), "-MODE", "root", "-BG", "BG-A-90"],
+    )
+    root_args = module.parse_args()
+    with pytest.raises(ValueError, match="root mode does not accept bug-only"):
+        module._run_root_operation({}, root_args, "unused")
+
+
+def test_dynamic_bug_skill_script_moves_bg_root_relation_without_orphaning_old_root():
+    module = _load_script(RECORD_SCRIPTS[0])
+    lines = module.make_bug_analysis_document("Adder").splitlines(keepends=True)
+    module.insert_content(
+        lines,
+        "FG-ARITHMETIC",
+        "FC-ADD",
+        "CK-OVERFLOW",
+        "BG-SECOND-90",
+        "TC-tests/test_adder.py::test_second",
+        "Second Bug.",
+        "算术功能",
+        "结果计算",
+        "精确输出",
+        "第二个结果不匹配",
+        root_tag="ROOT-SECOND",
+        root_title="第二个根因",
+    )
+    _insert_content(
+        module,
+        lines,
+        "FG-ARITHMETIC",
+        "FC-ADD",
+        "CK-OVERFLOW",
+        "BG-CIN-OVERFLOW-98",
+        "TC-tests/test_adder.py::test_overflow",
+        "Overflow is not raised.",
+    )
+    module._remove_stale_root_relation(
+        lines,
+        "FG-ARITHMETIC/FC-ADD/CK-OVERFLOW",
+        "BG-CIN-OVERFLOW-98",
+        "ROOT-NEW-CAUSE",
+    )
+    module.insert_content(
+        lines,
+        "FG-ARITHMETIC",
+        "FC-ADD",
+        "CK-OVERFLOW",
+        "BG-CIN-OVERFLOW-98",
+        "TC-tests/test_adder.py::test_overflow",
+        "Overflow is not raised.",
+        "算术功能",
+        "结果计算",
+        "精确输出",
+        "结果不匹配",
+        root_tag="ROOT-NEW-CAUSE",
+        root_title="新的根因",
+    )
+    module._update_bug_fields(
+        lines,
+        "FG-ARITHMETIC/FC-ADD/CK-OVERFLOW",
+        "BG-CIN-OVERFLOW-98",
+        "更新后的溢出标题",
+        {
+            "overview": "完整结果被截断。",
+            "symptoms": "边界结果错误。",
+            "trigger": "溢出输入触发。",
+        },
+        "ROOT-NEW-CAUSE",
+        "新的根因",
+    )
+    document = "".join(lines)
+    assert "<ROOT-CIN-OVERFLOW>" not in document
+    assert "<CAUSE-REF-ROOT-CIN-OVERFLOW>" not in document
+    assert "<CAUSE-REF-ROOT-NEW-CAUSE>" in document
+    assert "###### 更新后的溢出标题（98%） <BG-CIN-OVERFLOW-98>" in document
+    assert "<RELATED-BUG-FG-ARITHMETIC/FC-ADD/CK-OVERFLOW/BG-CIN-OVERFLOW-98>" in document
+    assert document.count("<ROOT-NEW-CAUSE>") == 1
+    assert '<a id="root-cause-second"></a>' in document
+    assert document.count("<ROOT-SECOND>") == 1
+    assert "<RELATED-BUG-FG-ARITHMETIC/FC-ADD/CK-OVERFLOW/BG-SECOND-90>" in document
+
+
+def test_dynamic_bug_skill_script_serializes_concurrent_process_updates(tmp_path):
+    _write_runtime_contract(
+        tmp_path,
+        {
+            "failed_test_case_with_check_point_list": {
+                "unity_test/tests/test_adder.py:1-3::test_overflow": [
+                    "FG-ARITHMETIC/FC-ADD/CK-OVERFLOW"
+                ]
+            }
+        },
+        out="unity_test",
+        test_output_dir="unity_test/tests",
+    )
+    out_dir = tmp_path / "unity_test"
+    tests_dir = out_dir / "tests"
+    out_dir.mkdir(exist_ok=True)
+    tests_dir.mkdir(exist_ok=True)
+    (out_dir / "Adder_functions_and_checks.md").write_text(
+        "### 算术功能\n<FG-ARITHMETIC>\n\n"
+        "#### 加法结果\n<FC-ADD>\n\n"
+        "- <CK-OVERFLOW> 进位输出：验证进位位\n",
+        encoding="utf-8",
+    )
+    (tests_dir / "test_adder.py").write_text(
+        'def test_overflow(env):\n    """进位输入产生进位"""\n    pass\n',
+        encoding="utf-8",
+    )
+    common_args = [
+        "-TC",
+        "TC-unity_test/tests/test_adder.py::test_overflow",
+        "-BD",
+        "进位结果丢失",
+        "-CHECKPOINT",
+        "FG-ARITHMETIC/FC-ADD/CK-OVERFLOW",
+        "-ROOT-TITLE",
+        "进位根因",
+        "-OVERVIEW",
+        "结果被截断。",
+        "-SYMPTOMS",
+        "边界结果错误。",
+        "-TRIGGER",
+        "边界输入触发。",
+    ]
+    commands = [
+        [
+            sys.executable,
+            str(RECORD_SCRIPTS[0]),
+            "-MODE",
+            "bug",
+        ]
+        + [
+            "-BG",
+            bg,
+            "-ROOT-TAG",
+            root,
+        ]
+        + common_args
+        for bg, root in (
+            ("BG-CONCURRENT-A-90", "ROOT-CONCURRENT-A"),
+            ("BG-CONCURRENT-B-90", "ROOT-CONCURRENT-B"),
+        )
+    ]
+    environment = os.environ.copy()
+    environment["PYTHONPATH"] = str(REPO_ROOT)
+    with subprocess.Popen(
+        commands[0], cwd=tmp_path, env=environment, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
+    ) as first, subprocess.Popen(
+        commands[1], cwd=tmp_path, env=environment, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
+    ) as second:
+        first_output = first.communicate(timeout=30)[0]
+        second_output = second.communicate(timeout=30)[0]
+        assert first.returncode == 0, first_output
+        assert second.returncode == 0, second_output
+    document = (out_dir / "Adder_bug_analysis.md").read_text(encoding="utf-8")
+    assert document.count("<BG-CONCURRENT-A-90>") == 1
+    assert document.count("<BG-CONCURRENT-B-90>") == 1
+    assert document.count("<ROOT-CONCURRENT-A>") == 1
+    assert document.count("<ROOT-CONCURRENT-B>") == 1
 
 
 @pytest.mark.parametrize("script_path", RECORD_SCRIPTS)

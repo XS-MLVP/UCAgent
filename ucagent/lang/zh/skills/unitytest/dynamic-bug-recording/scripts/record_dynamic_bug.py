@@ -1,16 +1,26 @@
 import argparse
 import ast
+from contextlib import contextmanager
 import hashlib
+import json
 import os
 import posixpath
 import re
+import stat
+import tempfile
 from pathlib import Path
 from string import Template
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - Windows has no POSIX advisory locks.
+    fcntl = None
 
 from ucagent.util.config import load_current_test_report, load_runtime_config
 from ucagent.util.bug_analysis_contract import (
     DYNAMIC_BUG_DOCUMENT_PATH,
     BUG_ANALYSIS_SECTION_MARKERS,
+    BUG_ANALYSIS_SECTION_TITLES,
     RELATED_BUGS_TITLE,
     ROOT_ANALYSIS_SECTION_MARKERS,
     ROOT_ANALYSIS_SECTION_TITLES,
@@ -45,6 +55,48 @@ HEADING_COMPANION_MARKERS = frozenset(
     + [marker for _field, marker in ROOT_ANALYSIS_SECTION_MARKERS]
     + [RELATED_BUGS_MARKER]
 )
+SOURCE_MARKERS = (
+    "<ROOT-SOURCE-FIRST-ERROR>",
+    "<ROOT-SOURCE-PROPAGATION>",
+    "<ROOT-SOURCE-OBSERVABLE>",
+)
+SOURCE_UNAVAILABLE_MARKER = "<ROOT-SOURCE-UNAVAILABLE>"
+SOURCE_LOCATION_PATTERN = re.compile(
+    r"(?P<path>[^:\r\n]+\.(?P<extension>sv|svh|v|vh|vhd|vhdl|scala)):"
+    r"(?P<start>\d+)-(?P<end>\d+)$",
+    re.IGNORECASE,
+)
+SOURCE_LANGUAGE = {
+    "sv": ("systemverilog", "//"),
+    "svh": ("systemverilog", "//"),
+    "v": ("verilog", "//"),
+    "vh": ("verilog", "//"),
+    "vhd": ("vhdl", "--"),
+    "vhdl": ("vhdl", "--"),
+    "scala": ("scala", "//"),
+}
+FORBIDDEN_FIELD_TOKENS = (
+    DYNAMIC_BUGS_MARKER,
+    DYNAMIC_BUGS_END_MARKER,
+    ROOT_CAUSES_MARKER,
+    ROOT_CAUSES_END_MARKER,
+    WAVEFORM_EVIDENCE_MARKER,
+    WAVEFORM_EVIDENCE_END_MARKER,
+    TODO_MARKER,
+    *[marker for _field, marker in BUG_ANALYSIS_SECTION_MARKERS],
+    *[marker for _field, marker in ROOT_ANALYSIS_SECTION_MARKERS],
+    RELATED_BUGS_MARKER,
+    "<CAUSE-REF-",
+    "<RELATED-BUG-",
+    "<WAVEFORM-",
+    "<FG-",
+    "<FC-",
+    "<CK-",
+    "<BG-",
+    "<TC-",
+    *SOURCE_MARKERS,
+    SOURCE_UNAVAILABLE_MARKER,
+)
 
 
 def load_asset_template(name):
@@ -62,21 +114,44 @@ def make_bug_analysis_document(dut):
 def parse_args(test_output_dir="<resolved agent.cfg test output directory>"):
     parser = argparse.ArgumentParser(
         description=(
-            "Insert one dynamic bug entry into {DUT}_bug_analysis.md. "
-            "FG/FC/CK are inferred from TC target test function."
+            "Deterministically upsert dynamic Bug and root-cause records in "
+            "{DUT}_bug_analysis.md."
         )
     )
-    parser.add_argument("-BG", required=True, help="Bug tag, e.g. BG-CIN-OVERFLOW-98")
+    parser.add_argument(
+        "-MODE",
+        choices=("bug", "root"),
+        required=True,
+        help="Use bug to upsert a BG/TC path or root to upsert one ROOT entity.",
+    )
+    parser.add_argument("-BG", help="Bug tag, e.g. BG-CIN-OVERFLOW-98")
     parser.add_argument(
         "-TC",
-        required=True,
         help=(
             "Exact current FAILED report node ID with TC- added after removing only the "
-            f"report file line range. Its file path must start with '{test_output_dir}/', "
-            "the value resolved from .ucagent/runtime_config.json."
+            f"report file line range. The path must start with '{test_output_dir}/'."
         ),
     )
-    parser.add_argument("-BD", required=True, help="Bug description")
+    parser.add_argument("-BD", help="Bug title and description")
+    parser.add_argument("-CHECKPOINT", help="Exact current report path FG/FC/CK")
+    parser.add_argument("-ROOT-TAG", dest="root_tag", help="Root entity tag, e.g. ROOT-RESULT-WIDTH")
+    parser.add_argument("-ROOT-TITLE", help="Visible root entity title")
+    parser.add_argument("-OVERVIEW", help="Complete Bug overview field body")
+    parser.add_argument("-SYMPTOMS", help="Complete Bug symptoms field body")
+    parser.add_argument("-TRIGGER", help="Complete Bug trigger field body")
+    parser.add_argument("-ANALYSIS", help="Complete ROOT analysis field body")
+    parser.add_argument("-CAUSAL-CHAIN", dest="causal_chain", help="Complete ROOT causal chain body")
+    parser.add_argument("-FIX", help="Complete ROOT fix field body")
+    parser.add_argument("-RETEST", help="Complete ROOT retest field body")
+    source = parser.add_mutually_exclusive_group()
+    source.add_argument("-SOURCE-LOCATION", dest="source_location")
+    source.add_argument("-SOURCE-UNAVAILABLE", dest="source_unavailable_reason")
+    parser.add_argument("-FIRST-ERROR-LINE", dest="first_error_line", type=int)
+    parser.add_argument("-FIRST-ERROR-NOTE", dest="first_error_note")
+    parser.add_argument("-PROPAGATION-LINE", dest="propagation_line", type=int)
+    parser.add_argument("-PROPAGATION-NOTE", dest="propagation_note")
+    parser.add_argument("-OBSERVABLE-LINE", dest="observable_line", type=int)
+    parser.add_argument("-OBSERVABLE-NOTE", dest="observable_note")
     return parser.parse_args()
 
 
@@ -97,6 +172,45 @@ def validate_dynamic_bg_tag(tag):
         raise ValueError(
             "Error: -BG confidence must be greater than 0 for a confirmed dynamic Bug."
         )
+
+
+def validate_root_tag(tag):
+    if ROOT_ENTITY_TAG_PATTERN.fullmatch(str(tag or "").strip()) is None:
+        raise ValueError(
+            "Error: --root-tag must use the unique ROOT-NAME form and cannot reuse "
+            "a ROOT control marker."
+        )
+
+
+def normalize_field_text(value, source):
+    text = str(value or "").strip()
+    if not text:
+        raise ValueError(f"Error: {source} must be non-empty.")
+    if any(token in text for token in FORBIDDEN_FIELD_TOKENS):
+        raise ValueError(
+            f"Error: {source} contains a reserved Bug document marker. Pass only the "
+            "field body; this script writes headings, markers, links, and anchors."
+        )
+    if re.search(r"(?m)^\s*#{1,6}\s", text) or "```" in text:
+        raise ValueError(
+            f"Error: {source} cannot contain Markdown headings or fenced blocks."
+        )
+    return text
+
+
+def parse_checkpoint_path(checkpoint_path):
+    parts = str(checkpoint_path or "").strip().strip("/").split("/")
+    if len(parts) != 3:
+        raise ValueError(
+            "Error: -CHECKPOINT must contain exact FG-NAME/FC-NAME/CK-NAME tags."
+        )
+    expected = (("FG", parts[0]), ("FC", parts[1]), ("CK", parts[2]))
+    for prefix, value in expected:
+        if re.fullmatch(rf"{prefix}-[A-Z0-9][A-Z0-9-]*", value) is None:
+            raise ValueError(
+                "Error: -CHECKPOINT must contain exact FG-NAME/FC-NAME/CK-NAME tags."
+            )
+    return tuple(parts)
 
 
 def normalize_visible_title(value, source):
@@ -447,9 +561,10 @@ def render_bug_entry(
     ck_title,
     tc_title,
     checkpoint_path,
+    root_tag=None,
 ):
     anchor = hashlib.sha256(tc.encode("utf-8")).hexdigest()[:16]
-    root_tag = root_cause_tag_for_bg(bg)
+    root_tag = root_tag or root_cause_tag_for_bg(bg)
     return ensure_trailing_newline_block(
         dynamic_bug_entry_template.substitute(
             FG=fg,
@@ -492,6 +607,325 @@ def render_root_cause_entry(root_tag, bd, checkpoint_path, bg):
     )
 
 
+def _replace_body(lines, start, end, value, source):
+    text = str(value or "").strip() if source == "root source_evidence" else normalize_field_text(value, source)
+    if not text:
+        raise ValueError(f"Error: {source} must be non-empty.")
+    replacement = [line + "\n" for line in text.splitlines()]
+    old_length = end - start
+    lines[start:end] = replacement + ["\n"]
+    return len(replacement) + 1 - old_length
+
+
+def _checkpoint_bg_range(lines, checkpoint_path, bg):
+    fg, fc, ck = parse_checkpoint_path(checkpoint_path)
+    sec_start, sec_end = locate_section(lines)
+    fg_line = find_tag_line(lines, sec_start + 1, sec_end, fg)
+    if fg_line < 0:
+        raise ValueError(f"Error: dynamic Bug path {checkpoint_path} is missing <{fg}>.")
+    fg_end = next_boundary(lines, fg_line + 1, sec_end, [lambda t: "<FG-" in t])
+    fc_line = find_tag_line(lines, fg_line + 1, fg_end, fc)
+    if fc_line < 0:
+        raise ValueError(f"Error: dynamic Bug path {checkpoint_path} is missing <{fc}>.")
+    fc_end = next_boundary(lines, fc_line + 1, fg_end, [lambda t: "<FC-" in t])
+    ck_line = find_tag_line(lines, fc_line + 1, fc_end, ck)
+    if ck_line < 0:
+        raise ValueError(f"Error: dynamic Bug path {checkpoint_path} is missing <{ck}>.")
+    ck_end = next_boundary(
+        lines,
+        ck_line + 1,
+        fc_end,
+        [lambda t: "<CK-" in t, lambda t: "<FC-" in t],
+    )
+    bg_line = find_tag_line(lines, ck_line + 1, ck_end, bg)
+    if bg_line < 0:
+        raise ValueError(
+            f"Error: dynamic Bug path {checkpoint_path} is missing <{bg}>."
+        )
+    bg_end = next_boundary(
+        lines,
+        bg_line + 1,
+        ck_end,
+        [lambda t: "<BG-" in t, lambda t: "<CK-" in t, lambda t: "<FC-" in t],
+    )
+    return bg_line, bg_end
+
+
+def _update_bug_fields(
+    lines,
+    checkpoint_path,
+    bg,
+    bug_title,
+    fields,
+    root_tag,
+    root_label,
+):
+    bg_line, bg_end = _checkpoint_bg_range(lines, checkpoint_path, bg)
+    lines[bg_line] = f"###### {bug_title}（{bg_confidence(bg)}%） <{bg}>\n"
+    marker_indexes = {}
+    title_indexes = {}
+    titles = dict(BUG_ANALYSIS_SECTION_TITLES)
+    for key, marker in BUG_ANALYSIS_SECTION_MARKERS:
+        marker_index = next(
+            (
+                index
+                for index in range(bg_line + 1, bg_end)
+                if lines[index].strip() == marker
+            ),
+            -1,
+        )
+        if marker_index < 0:
+            raise ValueError(f"Error: <{bg}> is missing {marker}.")
+        marker_indexes[key] = marker_index
+        title_indexes[key] = next(
+            (
+                index
+                for index in range(bg_line + 1, marker_index)
+                if lines[index].strip() == titles[key]
+            ),
+            -1,
+        )
+        if title_indexes[key] < 0:
+            raise ValueError(f"Error: <{bg}> is missing {titles[key]}.")
+
+    ordered_keys = [key for key, _marker in BUG_ANALYSIS_SECTION_MARKERS]
+    for position, key in enumerate(ordered_keys):
+        value = fields.get(key)
+        if key not in marker_indexes or value is None:
+            continue
+        marker_index = marker_indexes[key]
+        body_end = (
+            title_indexes[ordered_keys[position + 1]]
+            if position + 1 < len(ordered_keys)
+            else bg_end
+        )
+        delta = _replace_body(
+            lines, marker_index + 1, body_end, value, f"bug {key}"
+        )
+        for marker_key, index in list(marker_indexes.items()):
+            if index > marker_index:
+                marker_indexes[marker_key] = index + delta
+        for title_key, index in list(title_indexes.items()):
+            if index > marker_index:
+                title_indexes[title_key] = index + delta
+        bg_end += delta
+
+    trigger_index = marker_indexes["trigger"]
+    trigger_end = bg_end
+    trigger_body = [
+        line
+        for line in lines[trigger_index + 1 : trigger_end]
+        if not line.strip().startswith("<CAUSE-REF-ROOT-")
+    ]
+    if root_tag:
+        root_reference = root_cause_reference(root_tag, root_label)
+        while trigger_body and not trigger_body[-1].strip():
+            trigger_body.pop()
+        trigger_body.extend([root_reference + "\n"])
+    lines[trigger_index + 1 : trigger_end] = trigger_body
+
+
+def _root_entity_range(lines, root_tag):
+    starts = [i for i, line in enumerate(lines) if line.strip() == ROOT_CAUSES_MARKER]
+    ends = [i for i, line in enumerate(lines) if line.strip() == ROOT_CAUSES_END_MARKER]
+    if len(starts) != 1 or len(ends) != 1 or starts[0] >= ends[0]:
+        raise ValueError("Error: target markdown must contain one closed ROOT-CAUSES container.")
+    start, end = starts[0], ends[0]
+    token = f"<{root_tag}>"
+    root_line = next((i for i in range(start + 1, end) if token in lines[i]), -1)
+    if root_line < 0:
+        raise ValueError(f"Error: root cause entity <{root_tag}> does not exist.")
+    entity_start = _root_entity_start(lines, root_line, start)
+    entity_end = next(
+        (
+            i
+            for i in range(root_line + 1, end)
+            if re.match(r"^###\s+.+\s+<ROOT-[A-Z0-9][A-Z0-9-]*>\s*$", lines[i].strip())
+        ),
+        end,
+    )
+    return entity_start, root_line, entity_end
+
+
+def _root_entity_start(lines, heading_index, container_start):
+    index = heading_index - 1
+    while index > container_start and not lines[index].strip():
+        index -= 1
+    if index > container_start and lines[index].lstrip().startswith(
+        '<a id="root-cause-'
+    ):
+        return index
+    return heading_index
+
+
+def _update_root_fields(lines, root_tag, root_title, fields):
+    _entity_start, root_line, entity_end = _root_entity_range(lines, root_tag)
+    if root_title:
+        heading = lines[root_line].rstrip("\n")
+        lines[root_line] = re.sub(
+            r"^###\s+.+?\s+(<ROOT-[A-Z0-9][A-Z0-9-]*>)\s*$",
+            lambda match: f"### {normalize_visible_title(root_title, root_tag)} {match.group(1)}\n",
+            heading,
+        )
+    marker_indexes = {}
+    title_indexes = {}
+    titles = dict(ROOT_ANALYSIS_SECTION_TITLES)
+    for key, marker in ROOT_ANALYSIS_SECTION_MARKERS:
+        marker_indexes[key] = next(
+            (i for i in range(root_line + 1, entity_end) if lines[i].strip() == marker),
+            -1,
+        )
+        if marker_indexes[key] < 0:
+            raise ValueError(f"Error: <{root_tag}> is missing {marker}.")
+        title_indexes[key] = next(
+            (
+                i
+                for i in range(root_line + 1, marker_indexes[key])
+                if lines[i].strip() == titles[key]
+            ),
+            -1,
+        )
+        if title_indexes[key] < 0:
+            raise ValueError(f"Error: <{root_tag}> is missing {titles[key]}.")
+    related_title_index = next(
+        (i for i in range(root_line + 1, entity_end) if lines[i].strip() == RELATED_BUGS_TITLE),
+        -1,
+    )
+    if related_title_index < 0:
+        raise ValueError(f"Error: <{root_tag}> is missing {RELATED_BUGS_TITLE}.")
+    ordered_keys = [key for key, _marker in ROOT_ANALYSIS_SECTION_MARKERS]
+    for position, key in enumerate(ordered_keys):
+        value = fields.get(key)
+        if key not in marker_indexes or value is None:
+            continue
+        marker_index = marker_indexes[key]
+        body_end = (
+            title_indexes[ordered_keys[position + 1]]
+            if position + 1 < len(ordered_keys)
+            else related_title_index
+        )
+        delta = _replace_body(
+            lines, marker_index + 1, body_end, value, f"root {key}"
+        )
+        for field_key, index in list(marker_indexes.items()):
+            if index > marker_index:
+                marker_indexes[field_key] = index + delta
+        for title_key, index in list(title_indexes.items()):
+            if index > marker_index:
+                title_indexes[title_key] = index + delta
+        if related_title_index > marker_index:
+            related_title_index += delta
+        entity_end += delta
+
+
+def _source_evidence_body(args):
+    if args.source_unavailable_reason is not None:
+        if any(
+            value is not None
+            for value in (
+                args.first_error_line,
+                args.first_error_note,
+                args.propagation_line,
+                args.propagation_note,
+                args.observable_line,
+                args.observable_note,
+            )
+        ):
+            raise ValueError(
+                "Error: --source-unavailable cannot be combined with source line evidence."
+            )
+        reason = normalize_field_text(args.source_unavailable_reason, "source-unavailable reason")
+        return f"{SOURCE_UNAVAILABLE_MARKER}\n{reason}"
+    if not args.source_location:
+        raise ValueError(
+            "Error: --source-location is required for the HDL source branch."
+        )
+    match = SOURCE_LOCATION_PATTERN.fullmatch(args.source_location.strip())
+    if match is None or int(match.group("start")) > int(match.group("end")):
+        raise ValueError(
+            "Error: --source-location must use path:start-end with start <= end."
+        )
+    if any(value is None for value in (
+        args.first_error_line,
+        args.first_error_note,
+        args.propagation_line,
+        args.propagation_note,
+        args.observable_line,
+        args.observable_note,
+    )):
+        raise ValueError(
+            "Error: HDL source evidence requires each of the three line and note pairs."
+        )
+    extension = match.group("extension").lower()
+    language, comment = SOURCE_LANGUAGE[extension]
+    location_start = int(match.group("start"))
+    location_end = int(match.group("end"))
+    for line in (args.first_error_line, args.propagation_line, args.observable_line):
+        if not location_start <= line <= location_end:
+            raise ValueError(
+                "Error: each source evidence line must be inside --source-location."
+            )
+    notes = (
+        (
+            "ROOT-SOURCE-FIRST-ERROR",
+            args.first_error_line,
+            normalize_field_text(args.first_error_note, "first-error note"),
+        ),
+        (
+            "ROOT-SOURCE-PROPAGATION",
+            args.propagation_line,
+            normalize_field_text(args.propagation_note, "propagation note"),
+        ),
+        (
+            "ROOT-SOURCE-OBSERVABLE",
+            args.observable_line,
+            normalize_field_text(args.observable_note, "observable note"),
+        ),
+    )
+    workspace = os.path.realpath(os.getcwd())
+    source_relative_path = match.group("path")
+    if os.path.isabs(source_relative_path):
+        raise ValueError("Error: --source-location path must be workspace-relative.")
+    source_path = os.path.realpath(os.path.join(workspace, source_relative_path))
+    if os.path.commonpath([workspace, source_path]) != workspace:
+        raise ValueError("Error: --source-location escapes the workspace.")
+    if not os.path.isfile(source_path):
+        raise FileNotFoundError(
+            f"Error: source file from --source-location does not exist: {match.group('path')}"
+        )
+    with open(source_path, "r", encoding="utf-8") as source_file:
+        all_source_lines = source_file.read().splitlines()
+    if location_end > len(all_source_lines):
+        raise ValueError(
+            f"Error: --source-location ends at line {location_end}, but the source has "
+            f"only {len(all_source_lines)} lines."
+        )
+    code_lines = list(all_source_lines[location_start - 1 : location_end])
+    if any(marker in "\n".join(code_lines) for marker in SOURCE_MARKERS):
+        raise ValueError(
+            "Error: the selected source excerpt already contains ROOT-SOURCE markers. "
+            "Use the unmodified RTL source range."
+        )
+    annotations = {}
+    for marker, line_number, note in notes:
+        annotations.setdefault(line_number, []).append(f"<{marker}> {note}")
+    for line_number, values in annotations.items():
+        index = line_number - location_start
+        separator = " " if code_lines[index].strip() else ""
+        code_lines[index] = (
+            code_lines[index]
+            + separator
+            + comment
+            + " "
+            + f" {comment} ".join(values)
+        )
+    return (
+        f"{args.source_location}\n\n```{language}\n"
+        + "\n".join(code_lines)
+        + "\n```"
+    )
+
+
 def subtree_from_tag(block, tag, end_marker=None):
     lines = block.splitlines(keepends=True)
     start = find_tag_line(lines, 0, len(lines), tag)
@@ -516,7 +950,18 @@ def subtree_from_tag(block, tag, end_marker=None):
 
 
 def _insert_dynamic_content(
-    lines, fg, fc, ck, bg, tc, bd, fg_title, fc_title, ck_title, tc_title
+    lines,
+    fg,
+    fc,
+    ck,
+    bg,
+    tc,
+    bd,
+    fg_title,
+    fc_title,
+    ck_title,
+    tc_title,
+    root_tag=None,
 ):
     lines[:] = "".join(lines).splitlines(keepends=True)
     confidence = bg_confidence(bg)
@@ -537,6 +982,7 @@ def _insert_dynamic_content(
         ck_title,
         tc_title,
         checkpoint_path,
+        root_tag,
     )
     fc_block = subtree_from_tag(entry_block, fc)
     ck_bg_block = subtree_from_tag(entry_block, ck)
@@ -613,7 +1059,14 @@ def _insert_dynamic_content(
     return "Inserted new CK/BG/TC under existing FG/FC."
 
 
-def ensure_root_cause_entry(lines, bg, bd, checkpoint_path):
+def ensure_root_cause_entry(
+    lines,
+    bg,
+    bd,
+    checkpoint_path,
+    root_tag=None,
+    root_title=None,
+):
     """Create one root entity and keep its reverse BG link idempotent."""
 
     starts = [i for i, line in enumerate(lines) if line.strip() == ROOT_CAUSES_MARKER]
@@ -624,7 +1077,7 @@ def ensure_root_cause_entry(lines, bg, bd, checkpoint_path):
             "before WAVEFORM-EVIDENCE."
         )
     start, end = starts[0], ends[0]
-    root_tag = root_cause_tag_for_bg(bg)
+    root_tag = root_tag or root_cause_tag_for_bg(bg)
     root_token = f"<{root_tag}>"
     entity_line = next(
         (i for i in range(start + 1, end) if root_token in lines[i]),
@@ -632,7 +1085,12 @@ def ensure_root_cause_entry(lines, bg, bd, checkpoint_path):
     )
     relation = related_bug_reference(checkpoint_path, bg)
     if entity_line < 0:
-        lines.insert(end, render_root_cause_entry(root_tag, bd, checkpoint_path, bg))
+        lines.insert(
+            end,
+            render_root_cause_entry(
+                root_tag, root_title or bd, checkpoint_path, bg
+            ),
+        )
         return
     entity_end = next(
         (
@@ -679,60 +1137,246 @@ def ensure_root_cause_container(lines):
 
 
 def insert_content(
-    lines, fg, fc, ck, bg, tc, bd, fg_title, fc_title, ck_title, tc_title
+    lines,
+    fg,
+    fc,
+    ck,
+    bg,
+    tc,
+    bd,
+    fg_title,
+    fc_title,
+    ck_title,
+    tc_title,
+    root_tag=None,
+    root_title=None,
 ):
     message = _insert_dynamic_content(
-        lines, fg, fc, ck, bg, tc, bd, fg_title, fc_title, ck_title, tc_title
+        lines,
+        fg,
+        fc,
+        ck,
+        bg,
+        tc,
+        bd,
+        fg_title,
+        fc_title,
+        ck_title,
+        tc_title,
+        root_tag,
     )
     lines[:] = "".join(lines).splitlines(keepends=True)
-    ensure_root_cause_entry(lines, bg, bd, f"{fg}/{fc}/{ck}")
+    ensure_root_cause_entry(
+        lines,
+        bg,
+        bd,
+        f"{fg}/{fc}/{ck}",
+        root_tag=root_tag,
+        root_title=root_title,
+    )
     lines[:] = ensure_markdown_heading_spacing(
         "".join(lines), HEADING_COMPANION_MARKERS
     ).splitlines(keepends=True)
     return message
 
 
-def main():
-    runtime_config = load_runtime_config(os.getcwd())
-    dut = runtime_config["DUT"]
-    out = runtime_config["OUT"]
-    configured_test_dir = runtime_config["test_output_dir"]
-    args = parse_args(configured_test_dir)
+@contextmanager
+def _document_lock(path):
+    """Serialize process-level updates to one Bug document."""
+    directory = os.path.dirname(path) or os.curdir
+    os.makedirs(directory, exist_ok=True)
+    lock_path = os.path.join(directory, f".{os.path.basename(path)}.lock")
+    with open(lock_path, "a+", encoding="utf-8") as handle:
+        if fcntl is not None:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            if fcntl is not None:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+def _atomic_write_text(path, content, expected_content=None):
+    """Replace one Bug document atomically after a complete in-memory mutation."""
+    directory = os.path.dirname(path) or os.curdir
+    temporary = None
+    existing_mode = stat.S_IMODE(os.stat(path).st_mode) if os.path.exists(path) else None
+    try:
+        os.makedirs(directory, exist_ok=True)
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=directory,
+            prefix=f".{os.path.basename(path)}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            temporary = handle.name
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        if expected_content is not None:
+            with open(path, "r", encoding="utf-8") as current_handle:
+                if current_handle.read() != expected_content:
+                    raise RuntimeError(
+                        "target Bug document changed while the update was prepared; "
+                        "retry the same command with the current document"
+                    )
+        if existing_mode is not None:
+            os.chmod(temporary, existing_mode)
+        os.replace(temporary, path)
+    finally:
+        if temporary and os.path.exists(temporary):
+            os.unlink(temporary)
+
+
+def _target_document(runtime_config):
+    return os.path.join(
+        os.getcwd(),
+        DYNAMIC_BUG_DOCUMENT_PATH.format(
+            OUT=runtime_config["OUT"],
+            DUT=runtime_config["DUT"],
+        ),
+    )
+
+
+def _ensure_target_document(target, dut):
+    if not os.path.exists(target):
+        _atomic_write_text(target, make_bug_analysis_document(dut))
+
+
+def _load_document(target):
+    with open(target, "r", encoding="utf-8") as handle:
+        original = handle.read()
+    lines = original.splitlines(keepends=True)
+    ensure_root_cause_container(lines)
+    return lines, original
+
+
+def _remove_stale_root_relation(lines, checkpoint_path, bg, root_tag):
+    """Move one BG path between roots without leaving an orphan reverse link."""
+    relation_token = f"<RELATED-BUG-{checkpoint_path}/{bg}>"
+    start = next(
+        (i for i, line in enumerate(lines) if line.strip() == ROOT_CAUSES_MARKER),
+        -1,
+    )
+    end = next(
+        (i for i, line in enumerate(lines) if line.strip() == ROOT_CAUSES_END_MARKER),
+        -1,
+    )
+    if start < 0 or end < 0 or start >= end:
+        return
+    heading_pattern = re.compile(r"^###\s+.+\s+(<ROOT-[A-Z0-9][A-Z0-9-]*>)\s*$")
+    headings = [
+        i
+        for i in range(start + 1, end)
+        if heading_pattern.match(lines[i].strip())
+    ]
+    entity_starts = [
+        _root_entity_start(lines, heading_index, start)
+        for heading_index in headings
+    ]
+    for position, heading_index in reversed(list(enumerate(headings))):
+        heading_match = heading_pattern.match(lines[heading_index].strip())
+        if heading_match is None:
+            continue
+        existing_root = heading_match.group(1)[1:-1]
+        if existing_root == root_tag:
+            continue
+        entity_start = entity_starts[position]
+        entity_end = entity_starts[position + 1] if position + 1 < len(headings) else end
+        if entity_end >= end or not heading_pattern.match(lines[entity_end].strip()):
+            entity_end = end
+        entity_lines = lines[entity_start:entity_end]
+        original_length = len(entity_lines)
+        entity_lines = [
+            line for line in entity_lines if relation_token not in line
+        ]
+        lines[entity_start:entity_end] = entity_lines
+        if len(entity_lines) == original_length:
+            continue
+        remaining = any(
+            "<RELATED-BUG-" in line for line in entity_lines
+        )
+        if not remaining:
+            del lines[entity_start : entity_start + len(entity_lines)]
+            end -= len(entity_lines)
+
+
+def _run_bug_operation(runtime_config, args, target):
+    root_only = {
+        "-ANALYSIS": args.ANALYSIS,
+        "-CAUSAL-CHAIN": args.causal_chain,
+        "-FIX": args.FIX,
+        "-RETEST": args.RETEST,
+        "-SOURCE-LOCATION": args.source_location,
+        "-SOURCE-UNAVAILABLE": args.source_unavailable_reason,
+        "-FIRST-ERROR-LINE": args.first_error_line,
+        "-FIRST-ERROR-NOTE": args.first_error_note,
+        "-PROPAGATION-LINE": args.propagation_line,
+        "-PROPAGATION-NOTE": args.propagation_note,
+        "-OBSERVABLE-LINE": args.observable_line,
+        "-OBSERVABLE-NOTE": args.observable_note,
+    }
+    unexpected = [name for name, value in root_only.items() if value is not None]
+    if unexpected:
+        raise ValueError(
+            "Error: bug mode does not accept root-only arguments: "
+            + ", ".join(unexpected)
+            + ". Use a separate -MODE root call."
+        )
+    required = (
+        args.BG,
+        args.TC,
+        args.BD,
+        args.CHECKPOINT,
+        args.root_tag,
+        args.ROOT_TITLE,
+        args.OVERVIEW,
+        args.SYMPTOMS,
+        args.TRIGGER,
+    )
+    if not all(required):
+        raise ValueError(
+            "Error: bug mode requires -BG, -TC, -BD, -CHECKPOINT, -ROOT-TAG, "
+            "-ROOT-TITLE, -OVERVIEW, -SYMPTOMS, and -TRIGGER."
+        )
     validate_dynamic_bg_tag(args.BG)
     validate_tag(args.TC, "TC")
-
-    escaped_bd = escape_markdown_asterisk(
-        normalize_visible_title(args.BD, args.BG)
+    escaped_bd = escape_markdown_asterisk(normalize_visible_title(args.BD, args.BG))
+    resolved_paths = resolve_fg_fc_ck_list_by_tc(
+        args.TC,
+        runtime_config["OUT"],
+        runtime_config["test_output_dir"],
     )
-
-    fg_fc_ck_list = resolve_fg_fc_ck_list_by_tc(
-        args.TC, out, configured_test_dir
-    )
-    function_file = os.path.join(os.getcwd(), out, f"{dut}_functions_and_checks.md")
-    tc_title = resolve_test_title(args.TC)
-
-    target = os.path.join(
-        os.getcwd(), DYNAMIC_BUG_DOCUMENT_PATH.format(OUT=out, DUT=dut)
-    )
-
-    if not os.path.isabs(target):
-        target = os.path.join(os.getcwd(), target)
-    if not os.path.exists(target):
-        os.makedirs(os.path.dirname(target), exist_ok=True)
-        initial_content = make_bug_analysis_document(dut)
-        with open(target, "w", encoding="utf-8") as f:
-            f.write(initial_content)
-
-    with open(target, "r", encoding="utf-8") as f:
-        lines = f.readlines()
-    ensure_root_cause_container(lines)
-
-    msgs = []
-    for fg, fc, ck in fg_fc_ck_list:
-        fg_title, fc_title, ck_title = resolve_checkpoint_titles(
-            function_file, fg, fc, ck
+    checkpoint = parse_checkpoint_path(args.CHECKPOINT)
+    if checkpoint not in resolved_paths:
+        available = ", ".join("/".join(path) for path in resolved_paths)
+        raise ValueError(
+            f"Error: -CHECKPOINT '{args.CHECKPOINT}' is not associated with -TC "
+            f"in the current report. Available paths: {available}."
         )
-        msg = insert_content(
+    resolved_paths = [checkpoint]
+    function_file = os.path.join(
+        os.getcwd(),
+        runtime_config["OUT"],
+        f"{runtime_config['DUT']}_functions_and_checks.md",
+    )
+    tc_title = resolve_test_title(args.TC)
+    root_tag = args.root_tag
+    validate_root_tag(root_tag)
+    root_title = normalize_visible_title(args.ROOT_TITLE, root_tag)
+    fields = {
+        "overview": args.OVERVIEW,
+        "symptoms": args.SYMPTOMS,
+        "trigger": args.TRIGGER,
+    }
+    lines, original = _load_document(target)
+    messages = []
+    for fg, fc, ck in resolved_paths:
+        checkpoint_path = f"{fg}/{fc}/{ck}"
+        _remove_stale_root_relation(lines, checkpoint_path, args.BG, root_tag)
+        message = insert_content(
             lines,
             fg,
             fc,
@@ -740,22 +1384,130 @@ def main():
             args.BG,
             args.TC,
             escaped_bd,
-            fg_title,
-            fc_title,
-            ck_title,
+            *resolve_checkpoint_titles(function_file, fg, fc, ck),
             tc_title,
+            root_tag=root_tag,
+            root_title=root_title,
         )
-        msgs.append(f"{msg} (resolved: {fg}/{fc}/{ck})")
-
-    with open(target, "w", encoding="utf-8") as f:
-        f.write(
-            ensure_markdown_heading_spacing("".join(lines), HEADING_COMPANION_MARKERS)
+        _update_bug_fields(
+            lines,
+            checkpoint_path,
+            args.BG,
+            escaped_bd,
+            fields,
+            root_tag,
+            root_title,
         )
+        messages.append(f"{message} ({fg}/{fc}/{ck})")
+    lines[:] = ensure_markdown_heading_spacing(
+        "".join(lines), HEADING_COMPANION_MARKERS
+    ).splitlines(keepends=True)
+    _atomic_write_text(target, "".join(lines), expected_content=original)
+    return {
+        "operation": "bug",
+        "success": True,
+        "target": target,
+        "paths": ["/".join(path) for path in resolved_paths],
+        "bug_tag": args.BG,
+        "test_case": args.TC,
+        "root_tag": root_tag,
+        "bug_fields_completed": True,
+        "next_action": (
+            "Use -MODE root to complete the ROOT fields. Run final WaveInfo, then call "
+            "ApplyWaveInfoEvidence for each exact BG/TC path."
+        ),
+        "messages": messages,
+    }
 
-    print(
-        "; ".join(msgs)
-        + f" -> {target}. Incomplete scaffold marker: {TODO_MARKER}."
+
+def _run_root_operation(runtime_config, args, target):
+    del runtime_config
+    bug_only = {
+        "-BG": args.BG,
+        "-TC": args.TC,
+        "-BD": args.BD,
+        "-CHECKPOINT": args.CHECKPOINT,
+        "-OVERVIEW": args.OVERVIEW,
+        "-SYMPTOMS": args.SYMPTOMS,
+        "-TRIGGER": args.TRIGGER,
+    }
+    unexpected = [name for name, value in bug_only.items() if value is not None]
+    if unexpected:
+        raise ValueError(
+            "Error: root mode does not accept bug-only arguments: "
+            + ", ".join(unexpected)
+            + ". Use a separate -MODE bug call."
+        )
+    required = (
+        args.root_tag,
+        args.ROOT_TITLE,
+        args.ANALYSIS,
+        args.causal_chain,
+        args.FIX,
+        args.RETEST,
     )
+    if not all(required):
+        raise ValueError(
+            "Error: root mode requires -ROOT-TAG, -ROOT-TITLE, -ANALYSIS, "
+            "-CAUSAL-CHAIN, -FIX, and -RETEST."
+        )
+    validate_root_tag(args.root_tag)
+    lines, original = _load_document(target)
+    fields = {
+        "analysis": args.ANALYSIS,
+        "source_evidence": _source_evidence_body(args),
+        "causal_chain": args.causal_chain,
+        "fix": args.FIX,
+        "retest": args.RETEST,
+    }
+    _update_root_fields(lines, args.root_tag, args.ROOT_TITLE, fields)
+    lines[:] = ensure_markdown_heading_spacing(
+        "".join(lines), HEADING_COMPANION_MARKERS
+    ).splitlines(keepends=True)
+    _atomic_write_text(target, "".join(lines), expected_content=original)
+    return {
+        "operation": "root",
+        "success": True,
+        "target": target,
+        "root_tag": args.root_tag,
+        "root_fields_completed": list(fields),
+        "next_action": (
+            "Run Check and ApplyWaveInfoEvidence for every confirmed BG/TC path. Do not "
+            "edit the Bug Markdown file manually."
+        ),
+    }
+
+
+def main():
+    runtime_config = load_runtime_config(os.getcwd())
+    configured_test_dir = runtime_config["test_output_dir"]
+    args = parse_args(configured_test_dir)
+    try:
+        target = _target_document(runtime_config)
+        with _document_lock(target):
+            _ensure_target_document(target, runtime_config["DUT"])
+            if args.MODE == "root":
+                result = _run_root_operation(runtime_config, args, target)
+            else:
+                result = _run_bug_operation(runtime_config, args, target)
+    except (FileNotFoundError, OSError, RuntimeError, ValueError) as error:
+        print(
+            json.dumps(
+                {
+                    "operation": args.MODE,
+                    "success": False,
+                    "error": str(error),
+                    "next_action": (
+                        "Fix the reported input or source evidence, then retry the same "
+                        "MODE with the current report and document."
+                    ),
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+            )
+        )
+        raise SystemExit(2) from error
+    print(json.dumps(result, ensure_ascii=False, sort_keys=True))
 
 
 if __name__ == "__main__":

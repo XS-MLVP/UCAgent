@@ -302,8 +302,8 @@ stages:
 ```json
 {
   "commands": [
-    ["unitytest/dynamic-bug-recording","record_dynamic_bug.py","-BG 'BG-OVERFLOW-95' -TC 'TC-unity_test/tests/test_a.py::test_overflow' -BD '溢出结果错误'"],
-    ["unitytest/dynamic-bug-recording","record_dynamic_bug.py","-BG 'BG-STATE-90' -TC 'TC-unity_test/tests/test_b.py::test_state' -BD '状态转换错误'"]
+    ["unitytest/dynamic-bug-recording","record_dynamic_bug.py","-MODE bug -BG 'BG-OVERFLOW-95' -TC 'TC-unity_test/tests/test_a.py::test_overflow' -BD '溢出结果错误' -CHECKPOINT 'FG-ARITHMETIC/FC-ADD/CK-OVERFLOW' -ROOT-TAG 'ROOT-RESULT-WIDTH' -ROOT-TITLE '结果位宽不足' -OVERVIEW '完整结果在输出前被截断。' -SYMPTOMS '边界输入稳定返回错误结果。' -TRIGGER '结果超出低位宽度时触发。'"],
+    ["unitytest/dynamic-bug-recording","record_dynamic_bug.py","-MODE root -ROOT-TAG 'ROOT-RESULT-WIDTH' -ROOT-TITLE '结果位宽不足' -ANALYSIS '中间结果位宽不足。' -SOURCE-UNAVAILABLE '当前工作区没有可访问RTL。' -CAUSAL-CHAIN '合法输入经过截断路径后形成错误输出。' -FIX '扩大结果路径位宽。' -RETEST '重跑边界与关联覆盖用例。'"]
   ]
 }
 ```

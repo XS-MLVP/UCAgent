@@ -102,7 +102,7 @@ TC与CK状态按以下规则解释：
 - `create_test_case_templates`阶段生成空模板时必须使用`assert False, "Not implemented"`；当前实现阶段必须删除该占位断言，换成真实激励和严格预期检查
 - 已实现测试禁止用`assert False`制造Fail，禁止修改正确预期或弱化断言来制造Pass，也禁止用`BG-*-0`保留测试/基础设施失败
 - `RunTestCases`可能执行很多测试用例，但当前步骤只针对当前批次TC及报告为这些TC关联的CK进行分析；未来批次的未关联失败CK不得扩张本批次范围
-- `record_dynamic_bug.py`只负责在封闭的`<DYNAMIC-BUGS>`分区生成带具体中文可见名称的`FG/FC/CK/BG/TC`、`<WAVEFORM-REF>`和分析字段骨架，不创建波形YAML，也不负责根因判断；脚本成功绝不表示Bug分析完成
+- Skill启用且当前stage列出`dynamic-bug-recording`时，`record_dynamic_bug.py`通过`-MODE bug`确定性写入一个完整`FG/FC/CK/BG/TC`路径、三个BG字段、唯一`<CAUSE-REF-ROOT-XXX>`和ROOT反向链接，再通过`-MODE root`写入ROOT五字段；它不创建波形YAML，脚本成功后仍需真实WaveInfo和Apply证据。Skill禁用、未复制或脚本不可用时才使用文本工具完成相同结构
 - 对可复现的动态Bug，必须真实调用`WaveInfo`取得最终receipt，再调用`ApplyWaveInfoEvidence`原子维护BG侧`<WAVEFORM-REF>`和中央`<WAVEFORM-EVIDENCE>`分区中的唯一`<WAVEFORM-TC-...>`记录。不要复制receipt字段或viewer token；BG内的波形关联只保留TC与引用，三个BG字段仍需填写，YAML和viewer只放在中央记录中
 - 从Checker的`Configured TC output directory`读取实际TC目录；文档TC使用以该值开头的函数级报告node。非参数化WaveInfo只去掉`TC-`；参数化聚合时从`tests.test_case_instances`选择实际FAILED child，不能猜参数ID。child删除`[...]`后必须与文档TC的完整路径/类/函数逐字相同，不同路径绝不等价。`RunTestCases` target相对于配置TC目录，不得再次带该前缀；`PYTEST_TARGET_DIRECTORY_PREFIX.correct_target`是唯一重试值。inventory和相似节点只供定位/核对
 - 只带pattern但没有`logged_cycle+clock_signal`或完整`start_step+end_step`的调用属于探索调用；返回`evidence_window_required`时必须逐字使用`recommended_evidence_call`重调，不能把`analysis_window.effective_*`手工写入文档冒充原调用参数
@@ -124,14 +124,19 @@ TC与CK状态按以下规则解释：
 
 ### 步骤5: Bug记录
 
-#### 5.1 生成骨架
+#### 5.1 记录动态 Bug
 
-针对确认的DUT Bug，默认可使用文本编辑工具逐字参照Guide_Doc/dut_bug_analysis.md中的第 5.1 节完整标准案例和第 5.2 节骨架，为当前精确FG/FC/CK建立一次带`<BUG-TODO>`的未完成BG结构和第一份TC。若共享技能`unitytest/dynamic-bug-recording`可用，也可以通过`RunSkillScript`执行一次只接收`BG/TC/BD`的`record_dynamic_bug.py`生成相同中文骨架；同一CK/BG路径的后续Fail TC直接交给`ApplyWaveInfoEvidence`创建。若同一根因跨多个CK，则每个CK都建立并完成独立的CK-scoped BG路径。下方`EXACT_TC_TAG_FROM_CHECKER`必须替换为Checker返回的完整实际标签：
+Skill启用且当前stage列出`dynamic-bug-recording`时，禁止直接编辑`{OUT}/{DUT}_bug_analysis.md`。参照`Guide_Doc/dut_bug_analysis.md section 5.1`确认字段语义，但只通过`RunSkillScript`按以下顺序完成记录：对每个新BG路径的第一份精确FG/FC/CK/BG/TC关联调用`-MODE bug`一次，再对每个不同ROOT调用`-MODE root`一次；已有CK/BG仅新增兄弟TC时直接调用WaveInfo/Apply。下方所有值必须替换为当前报告、功能检查文档、测试docstring和真实分析结论；不能传Markdown标题、机器标签、ROOT引用或代码围栏作为字段正文：
 ```text
-["unitytest/dynamic-bug-recording", "record_dynamic_bug.py", "-BG 'BG-CIN-OVERFLOW-98' -TC 'EXACT_TC_TAG_FROM_CHECKER' -BD '完整加法已截断但overflow仍为0。'"]
+["unitytest/dynamic-bug-recording", "record_dynamic_bug.py", "-MODE bug -BG 'BG-CIN-OVERFLOW-98' -TC 'TC-{OUT}/tests/test_{DUT}_carry.py::test_carry' -BD '进位结果丢失' -CHECKPOINT 'FG-ARITHMETIC/FC-ADD/CK-CARRY' -ROOT-TAG 'ROOT-ADDER-CARRY-WIDTH' -ROOT-TITLE '加法进位位宽不足' -OVERVIEW '规格要求完整保留加法进位，实际结果在输出前被截断。' -SYMPTOMS '最大操作数组合稳定返回缺少最高进位位的错误结果。' -TRIGGER '两个操作数之和超出结果低位宽度时稳定触发。'"]
 ```
 
-脚本参数仅为`BG/TC/BD`。不要把脚本输出当成完成结果，也不要在仍有`<BUG-TODO>`时调用`Check`或`Complete`。
+随后为每个不同ROOT调用：
+```text
+["unitytest/dynamic-bug-recording", "record_dynamic_bug.py", "-MODE root -ROOT-TAG 'ROOT-ADDER-CARRY-WIDTH' -ROOT-TITLE '加法进位位宽不足' -ANALYSIS '中间结果在输出前按低位宽度截断，最高进位位因此丢失。' -SOURCE-LOCATION 'rtl/adder.sv:24-28' -FIRST-ERROR-LINE 25 -FIRST-ERROR-NOTE '首次丢失最高进位位。' -PROPAGATION-LINE 26 -PROPAGATION-NOTE '截断值进入结果赋值路径。' -OBSERVABLE-LINE 27 -OBSERVABLE-NOTE '错误结果到达测试断言。' -CAUSAL-CHAIN '合法输入被接受后，位宽不足先截断进位，截断值再传到结果输出。' -FIX '扩大中间结果与输出路径宽度并保留进位位。' -RETEST '重跑关联CK和边界用例并复核签名波形。'"]
+```
+
+没有可访问源码时，改用互斥的`-SOURCE-UNAVAILABLE`，不要传任何源码行参数。重复调用或跨stage追加、修订时重调对应MODE即可；脚本会幂等更新，不会删除历史TC/BG/ROOT。Skill禁用、未复制或脚本不可用时，才按`Guide_Doc/dut_bug_analysis.md section 5.1`使用文本工具完成相同结构。
 
 #### 5.2 LLM 填写分析
 
@@ -140,7 +145,7 @@ TC与CK状态按以下规则解释：
 1. 复核步骤4已经完成的`input | specification_expected | test_expected | actual | classification`，确认分类为DUT Bug；再读取事务上下文和对应CK原文，并阅读测试使用的API/driver、callback与`Step`顺序，确认真实驱动边沿、接受条件和输出采样窗口。分类记录缺失或任一验证项仍有疑问时停止Bug记录，返回步骤4，禁止调用WaveInfo。
 2. 调用`WaveInfo`取得最终confirmed证据；`signal_groups`覆盖该TC关联的全部Bug所需信号并集。随后调用`ApplyWaveInfoEvidence`，由工具创建缺失的兄弟TC、引用和中央记录，不得手工创建另一套BG层级；同名BG跨CK时必须传精确`checkpoint_path="FG-.../FC-.../CK-..."`。打开viewer确认签名信号集合均已显示。目标TC已有不同真实receipt时显式传`replace_existing=true`，再重新完成被重置的语义结论。
 3. 打开DUT RTL/HDL，定位能解释波形错误的首个错误决策和传播路径；不要只复述测试失败或`source_correlation`。
-4. 使用`EditTextFile`或`ReplaceStringInFile`直接编辑已生成的BG条目，逐项替换所有`<BUG-TODO>`及其提示文字，完成：Bug概述、现象与等级、触发条件与影响范围、根因分析、源码证据与逐行分析、动态因果链、修复建议、风险与复验计划。必须清除全部`<BUG-TODO>`，不得换成“待补充”等自然语言占位。
+4. Skill启用时，使用对应`-MODE bug`和`-MODE root`重调脚本替换字段正文；Skill禁用时才用`EditTextFile`或`ReplaceStringInFile`直接编辑。两条路径都必须完成Bug概述、现象与等级、触发条件与影响范围、根因分析、源码证据与逐行分析、动态因果链、修复建议、风险与复验计划，并清除全部`<BUG-TODO>`。
 5. 有源码时，在ROOT的`<ROOT-SOURCE-EVIDENCE>`中写不带`L`的真实`path:起始行-结束行`和完整HDL fenced代码块；`<ROOT-SOURCE-FIRST-ERROR>`、`<ROOT-SOURCE-PROPAGATION>`、`<ROOT-SOURCE-OBSERVABLE>`各出现一次并位于代码注释中。无源码时使用`<ROOT-SOURCE-UNAVAILABLE>`完成黑盒分析，两种分支互斥。
 6. 重新读取整个BG条目，确认根因、源码、波形和修复互相一致，且该BG内没有任何占位文本。
 
@@ -148,7 +153,7 @@ WaveInfo 收据陈旧、缺失或无法重放时先调用 Check。严格重放�
 
 动态条目容器使用独立行`<DYNAMIC-BUGS>`定位。每个BG只包含全部TC/引用、`<BUG-OVERVIEW>`、`<BUG-SYMPTOMS>`、`<BUG-TRIGGER>`和TRIGGER末尾的唯一`<CAUSE-REF-ROOT-XXX>`。每个ROOT使用唯一`<ROOT-XXX>`并依次包含`<ROOT-CAUSE-ANALYSIS>`、`<ROOT-SOURCE-EVIDENCE>`、`<ROOT-CAUSAL-CHAIN>`、`<ROOT-FIX>`、`<ROOT-RETEST>`、`<RELATED-BUGS>`。ROOT反向项内嵌完整BG路径；中央波形仍按TC唯一。
 
-文本编辑或可选脚本生成结构，LLM负责分析和填空；两步缺一不可。根因、源码、因果链、修复和复验只在ROOT写一次，并用双向可点击链接关联一个或多个BG；BG只保留现象和触发作用域。
+Skill启用时脚本生成并维护结构和字段，LLM只提供经过核对的参数正文；Skill禁用时才由LLM使用文本工具完成相同结构。根因、源码、因果链、修复和复验只在ROOT写一次，并用双向可点击链接关联一个或多个BG；BG只保留现象和触发作用域。
 
 ### 步骤6：阶段检查
 
@@ -161,7 +166,7 @@ WaveInfo 收据陈旧、缺失或无法重放时先调用 Check。严格重放�
 - 允许一次性列举多条命令,但每条命令必须独立完整,且必须符合格式要求,例如记录Fail但合理的测试用例时,若有10个Fail但合理的测试用例待记录
 - 其他参数值替换为每个测试用例记录内容,只允许使用定义的参数,禁止额外参数,且参数值必须符合上述格式要求,每个参数必须使用单括号括起来
 - 使用`RunSkillScript`工具时,若有10条命令要执行,前5条命令行执行正常,成功记录,但第6条命令执行失败时,根据反馈信息修改第6条命令以及后续命令中存在的相同问题,并且使用`RunSkillScript`工具重新执行第6条命令以及后续命令,已经成功的命令不需要重新执行,只需要执行未完成的命令,直至所有命令执行完毕
-- 共享技能`unitytest/dynamic-bug-recording`及其`record_dynamic_bug.py`可用时，用于每个新的CK-scoped BG/TC路径；共享技能未复制、Skill整体禁用或脚本不可用时，使用文本编辑工具按Guide_Doc/dut_bug_analysis.md中的第 5.1 节完整标准案例和第 5.2 节骨架建立相同中文路径。同一CK/BG内的后续兄弟TC、引用和中央记录由`ApplyWaveInfoEvidence`维护；同名BG跨CK时传`checkpoint_path`选择精确路径。随后完成共享`alignment_evidence`、逐Bug语义字段和每个路径的BG分析章节。不得跳过填空步骤。
+- 共享技能`unitytest/dynamic-bug-recording`可用时，必须用`record_dynamic_bug.py`的`-MODE bug`和`-MODE root`完成每个新CK-scoped BG路径及ROOT字段，禁止直接编辑动态Bug文档；共享技能未复制、Skill整体禁用或脚本不可用时，才使用文本编辑工具按Guide_Doc/dut_bug_analysis.md中的第 5.1 节完整标准案例建立相同中文路径。同一CK/BG内的后续兄弟TC、引用和中央记录由`ApplyWaveInfoEvidence`维护；同名BG跨CK时传`checkpoint_path`选择精确路径。随后完成共享`alignment_evidence`和逐Bug语义字段。不得跳过任何字段。
 
 
 ### 约束条件示例

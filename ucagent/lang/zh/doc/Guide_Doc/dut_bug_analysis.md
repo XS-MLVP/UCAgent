@@ -613,7 +613,11 @@ waveform_analysis:
 
 ### 5.2 建立骨架并分阶段写入
 
-`record_dynamic_bug.py`是可选脚本，只接收`BG/TC/BD`并创建新 Bug 的第一份 BG/TC、三个字段、根因引用和 ROOT 五字段骨架。脚本从`.ucagent/runtime_config.json`读取实际TC目录和统一`current_test_report`路径；`Check`或`RunTestCases`真实运行Unity测试后发布当前阶段报告，进入新阶段时旧报告失效。脚本只从该报告的`failed_test_case_with_check_point_list`精确解析TC到FG/FC/CK的关系，不读取阶段私有报告；若当前报告不存在，先运行当前阶段真实测试，禁止手工创建、复制或猜测报告。脚本从功能检查文档读取 FG/FC/CK 名称，从测试 docstring 读取 TC 名称，并用`BD`生成初始根因实体；LLM 必须用真实结论替换全部`<BUG-TODO>`，必要时重命名根因标签并同步引用。
+当`unitytest/dynamic-bug-recording`已启用且已复制时，动态Bug文档只能通过该Skill的`record_dynamic_bug.py`、`WaveInfo`和`ApplyWaveInfoEvidence`维护，LLM不得直接编辑目标Markdown。脚本从`.ucagent/runtime_config.json`读取实际TC目录和统一`current_test_report`路径；`Check`或`RunTestCases`真实运行Unity测试后发布当前阶段报告，进入新阶段时旧报告失效。脚本只从该报告的`failed_test_case_with_check_point_list`精确解析TC到FG/FC/CK的关系，不读取阶段私有报告；若当前报告不存在，先运行当前阶段真实测试，禁止手工创建、复制或猜测报告。脚本从功能检查文档读取 FG/FC/CK 名称，从测试 docstring 读取 TC 名称。
+
+对每个新BG路径的第一份精确FG/FC/CK/BG/TC关联调用`record_dynamic_bug.py -MODE bug`，一次写入BG三个字段、唯一`<CAUSE-REF-ROOT-XXX>`和ROOT反向链接；对每个不同根因调用`record_dynamic_bug.py -MODE root`，一次写入ROOT五个分析字段。有源码时脚本根据真实`path:start-end`和三组行号读取当前源码并生成完整围栏与源码标记；无源码时使用互斥的`-SOURCE-UNAVAILABLE`。已有CK/BG仅新增兄弟TC时直接调用WaveInfo/Apply；新增BG路径或修订BG/ROOT字段时重调对应MODE，脚本幂等更新并保留历史路径。脚本不创建波形YAML或viewer证据。
+
+Skill 禁用、未复制或脚本不可用时，才使用文本工具按本节标准建立和填写相同结构，产物和验收标准不变。
 
 #### 5.2.1 多分支层次骨架
 
@@ -806,7 +810,7 @@ FG、FC、CK、BG、TC 都是一对多层次，不是一条固定单链。以下
 </ROOT-CAUSES>
 ```
 
-方括号内的文字是必须替换的可见标题，不是允许保留的模板文本。BG、根因和波形锚点必须按规范生成，双向链接目标必须精确一致。LLM 必须完成 BG 的三个字段和 ROOT 的五个字段，不得修改 Markdown 层级、标题、字段顺序或容器布局。不要为同一 BG 的后续 Fail TC 复制该结构；新增 TC 必须插入第一个 BG 字段之前。调用 `ApplyWaveInfoEvidence`写入中央记录后，必须清除全部 `<BUG-TODO>`。
+方括号内的文字是必须替换的可见标题，不是允许保留的模板文本。BG、根因和波形锚点必须按规范生成，双向链接目标必须精确一致。启用`dynamic-bug-recording`时，LLM只负责提交经过证据核对的字段参数，由脚本写入 BG 的三个字段和 ROOT 的五个字段；不得修改 Markdown 层级、标题、字段顺序或容器布局。Skill不可用时才由LLM使用文本工具完成同一字段。不要为同一 BG 的后续 Fail TC 复制该结构；新增 TC 必须插入第一个 BG 字段之前，Skill启用时由 `ApplyWaveInfoEvidence` 执行插入。调用 `ApplyWaveInfoEvidence`写入中央记录后，必须清除全部 `<BUG-TODO>`。
 
 ## 6. 证据保留与重放
 
@@ -910,13 +914,13 @@ assign result = state; // <ROOT-SOURCE-OBSERVABLE> Error reaches the checked out
 
 ## 9. 可选 Skill
 
-Skill 只是辅助，不能成为任务前置条件。`unitytest/dynamic-bug-recording`可创建首个 BG/TC/引用骨架，`unitytest/static-bug-validation`可原子更新静态 LINK。Skill 禁用、未复制或脚本不可用时，使用文本工具按本文标签建立相同结构并继续任务，产物和验收标准完全相同。
+Skill支持是可选的，但启用并复制`unitytest/dynamic-bug-recording`后，Bug文档记录必须走其确定性`-MODE bug`和`-MODE root`操作，再由WaveInfo/Apply写入签名波形证据；LLM不直接编辑动态Bug Markdown。`unitytest/static-bug-validation`可原子更新静态 LINK。Skill 禁用、未复制或脚本不可用时，使用文本工具按本文标签建立相同结构并继续任务，产物和验收标准完全相同。
 
 ## 10. 完成检查
 
 - Check/Complete 失败时，只处理反馈中的第一个阻塞项和明确`next_action`；同一记录的其他字段和其他记录不属于本次动作，不得顺带修改或全局替换。修复后再次检查以取得下一项。若反馈中的`rerun_test`、`rerun_waveinfo`或`apply_evidence`为`false`，禁止对应重跑或Apply；纯格式或语义字段修复不得重建BG/TC或重新分类Bug。
 - 根因关系失败时，优先使用反馈中列出的完整可用引用：BG 侧选择一条完整`<CAUSE-REF-ROOT-...>`链接，ROOT 侧选择或添加一条完整`<RELATED-BUG-FG-.../FC-.../CK-.../BG-...>`链接。不得只复制可见标题、只写 Markdown 链接或猜测锚点；候选均不符合语义时，先修正 ROOT 划分，再重新检查。
-- `RunTestCases`只运行已有的真实pytest验证用例，不是任意Python或文档维护脚本执行器。禁止创建临时脚本或伪pytest用例来修改、迁移或批量填充本文档。使用文本工具修改文档；相同文本出现多次时，给`ReplaceStringInFile`传只覆盖当前阻塞位置的`line_blocks=[[start, end]]`，每次只填写当前记录、当前字段的真实结论。已声明的Skill脚本只能通过`RunSkillScript`执行。
+- `RunTestCases`只运行已有的真实pytest验证用例，不是任意Python或文档维护脚本执行器。禁止创建临时脚本或伪pytest用例来修改、迁移或批量填充本文档。Skill不可用时才使用文本工具修改文档；相同文本出现多次时，给`ReplaceStringInFile`传只覆盖当前阻塞位置的`line_blocks=[[start, end]]`，每次只填写当前记录、当前字段的真实结论。已声明的Skill脚本只能通过`RunSkillScript`执行。
 - 三个容器各出现一次、均正确关闭，并按`DYNAMIC-BUGS -> ROOT-CAUSES -> WAVEFORM-EVIDENCE`排序。
 - 文档标题、分区标题、FG/FC/CK/BG/TC 层级、BG 三字段和 ROOT 五字段与Guide_Doc/dut_bug_analysis.md中的第 5.1 节完整标准案例一致。
 - 每个中央波形标题逐字复用关联 TC 的可见标题并追加“波形”。
