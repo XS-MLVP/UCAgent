@@ -460,6 +460,20 @@ Preserve these established semantics unless the task explicitly changes them:
 ## Code Style and Scope
 
 - Match nearby style; the repository is not uniformly autoformatted.
+- Keep implementations concise and remove redundant code. Do not introduce an
+  abstraction merely to claim reuse or make the implementation look layered.
+- A helper function with exactly one call site is unnecessary. Inline its logic
+  at that call site instead of retaining a one-use helper.
+- Every source file must have a meaningful module/file docstring, and every
+  function and class must have a meaningful docstring describing its contract.
+  Add succinct comments at critical non-obvious lifecycle, concurrency,
+  security, state-transition, or parsing logic; do not narrate obvious code.
+- Implement feature behavior as a general contract that covers the real problem
+  domain. Do not accumulate ad hoc branches, special cases, fixture-specific
+  exceptions, or one-off patches for only the observed example or latest request.
+- Self-test every distinct feature point and its important failure boundaries.
+  Run sufficient focused and proportional regression tests before stating that
+  the implementation is correct, complete, or has no remaining problems.
 - Use UTF-8. Files in `ucagent/lang/zh/` may contain Chinese. Do not put Chinese
   literals in generic implementation Python files outside the language tree,
   including Unicode escapes that decode to Chinese at runtime. When generic
@@ -469,11 +483,7 @@ Preserve these established semantics unless the task explicitly changes them:
 - Keep generic checker and tool diagnostics language-neutral. Refer to stable
   field keys, machine tags, and exact Guide_Doc paths; do not embed or echo a
   locale's full display-title list into generic runtime messages.
-- Keep Python identifiers and implementation comments concise and conventional.
 - Prefer standard parsers and structured data over ad hoc string replacement.
-- Add comments only for non-obvious lifecycle, security, or parsing logic.
-- Avoid broad abstractions for a single checker/tool unless they clearly reduce
-  duplication or establish a reusable contract.
 - Preserve public constructor arguments and defaults unless compatibility is
   explicitly out of scope.
 - Keep user-facing checker/tool errors concise enough for an LLM context window.
