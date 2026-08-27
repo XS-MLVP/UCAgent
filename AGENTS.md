@@ -421,6 +421,17 @@ Preserve these established semantics unless the task explicitly changes them:
   its unique record in the document-level `<WAVEFORM-EVIDENCE>` section. The
   record's fenced `yaml` block must have `waveform_analysis` as its sole
   top-level key, name every associated BG, and contain a verifiable receipt.
+- A verified signed waveform receipt and central record remain valid when later
+  Checks rotate sessions or remove the original waveform file. Ordinary Checks
+  must not replay or refresh historical evidence. Only a gate configured with
+  `require_current_replay=true` may require current waveform replay and
+  atomically refresh semantically equivalent machine evidence. A cached-report
+  document preflight always uses `require_current_replay=false`; it may reject a
+  malformed document but must never run tests, refresh evidence, or complete a
+  batch.
+- A waveform Markdown anchor is the stable 16-hex SHA-256-derived identity of
+  the canonical TC tag. It is not the 32-hex signed `receipt_id`, must not change
+  when evidence is refreshed, and must never be supplied as an Apply receipt.
 - A failed TC has exactly one central waveform record even when it is associated
   with multiple Bugs. The signed signal groups must cover the union of each
   associated BG's `required_signals`.

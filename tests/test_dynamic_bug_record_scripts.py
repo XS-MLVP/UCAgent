@@ -683,11 +683,24 @@ def test_dynamic_bug_skill_repair_rebuilds_relations_without_touching_analysis(
             },
         )
 
+    receipt_id = "263069e6bb9ca563f00b12dbe453c501"
+    waveform_test = entries[0][2]
+    signed_machine_evidence = (
+        "```yaml\n"
+        "waveform_analysis:\n"
+        f"  test_case: {waveform_test}\n"
+        "  status: confirmed\n"
+        f"  receipt_id: {receipt_id}\n"
+        "```\n"
+        "<WAVEFORM-VIEWER> [Open waveform](http://viewer.invalid/token)\n"
+    )
     document = "".join(lines).replace(
         "<WAVEFORM-EVIDENCE>\n",
-        "<WAVEFORM-EVIDENCE>\n"
-        "<WAVEFORM-TC-tests/test_adder.py::test_carry>\n"
-        "```yaml\nwaveform_analysis:\n  status: confirmed\n```\n",
+        "<WAVEFORM-EVIDENCE>\n\n"
+        f'<a id="waveform-{receipt_id}"></a>\n\n'
+        "### Test TC-tests/test_adder.py::test_carry波形 "
+        "<WAVEFORM-TC-tests/test_adder.py::test_carry>\n\n"
+        f"{signed_machine_evidence}",
     )
     first_relation = module.related_bug_reference(
         "FG-ARITHMETIC/FC-ADD/CK-OVERFLOW",
@@ -717,6 +730,12 @@ def test_dynamic_bug_skill_repair_rebuilds_relations_without_touching_analysis(
         f'<a id="{first_anchor}"></a>',
         1,
     ).replace(f'<a id="{second_anchor}"></a>\n', "", 1)
+    corrupted = corrupted.replace(
+        module.waveform_reference(waveform_test),
+        f"<WAVEFORM-REF> [WAVEFORM-EVIDENCE](#waveform-{receipt_id})",
+        1,
+    )
+    corrupted = corrupted.replace(module.waveform_reference(entries[1][2]), "", 1)
 
     repaired, details = module._repair_document_content(corrupted)
 
@@ -736,7 +755,16 @@ def test_dynamic_bug_skill_repair_rebuilds_relations_without_touching_analysis(
     assert second_relation in second_root
     assert "Overview body for BG-CARRY-DROPPED-95." in repaired
     assert "Root analysis for ROOT-SIGN-EXTENSION." in repaired
-    assert "waveform_analysis:\n  status: confirmed" in repaired
+    stable_waveform_anchor = module.waveform_anchor_id(waveform_test)
+    assert signed_machine_evidence in repaired
+    assert f'<a id="{stable_waveform_anchor}"></a>' in repaired
+    assert f'<a id="waveform-{receipt_id}"></a>' not in repaired
+    assert module.waveform_reference(waveform_test) in repaired
+    assert module.waveform_reference(entries[1][2]) in repaired
+    assert (
+        f"<WAVEFORM-REF> [WAVEFORM-EVIDENCE](#waveform-{receipt_id})"
+        not in repaired
+    )
     assert '<a id="note-preserved"></a>' in repaired
     assert '<a id="bug-overflow"></a>' not in repaired
     assert repaired.count(f'<a id="{first_anchor}"></a>') == 1
@@ -746,6 +774,12 @@ def test_dynamic_bug_skill_repair_rebuilds_relations_without_touching_analysis(
     assert details["removed_noncanonical_bug_anchor_count"] == 1
     assert details["restored_missing_bug_anchor_count"] == 1
     assert details["relocated_bug_anchor_count"] == 1
+    assert details["rebuilt_waveform_anchor_count"] == 1
+    assert details["removed_noncanonical_waveform_anchor_count"] == 1
+    assert details["restored_missing_waveform_anchor_count"] == 1
+    assert details["relocated_waveform_anchor_count"] == 1
+    assert details["rebuilt_waveform_reference_count"] == 2
+    assert details["corrected_waveform_reference_count"] == 2
     assert details["removed_markers"] == {
         "</RELATED-BUGS>": 2,
         "</ROOT>": 1,
@@ -758,6 +792,10 @@ def test_dynamic_bug_skill_repair_rebuilds_relations_without_touching_analysis(
     assert repeated_details["removed_noncanonical_bug_anchor_count"] == 0
     assert repeated_details["restored_missing_bug_anchor_count"] == 0
     assert repeated_details["relocated_bug_anchor_count"] == 0
+    assert repeated_details["removed_noncanonical_waveform_anchor_count"] == 0
+    assert repeated_details["restored_missing_waveform_anchor_count"] == 0
+    assert repeated_details["relocated_waveform_anchor_count"] == 0
+    assert repeated_details["corrected_waveform_reference_count"] == 0
 
     target = tmp_path / "bugs.md"
     target.write_text(corrupted, encoding="utf-8")
@@ -782,6 +820,17 @@ def test_dynamic_bug_skill_repair_rebuilds_relations_without_touching_analysis(
         "restored_missing_count": 1,
         "relocated_count": 1,
     }
+    assert summary["waveform_anchors"] == {
+        "rebuilt_count": 1,
+        "removed_noncanonical_count": 1,
+        "restored_missing_count": 1,
+        "relocated_count": 1,
+    }
+    assert summary["waveform_references"] == {
+        "rebuilt_count": 2,
+        "removed_count": 1,
+        "corrected_count": 2,
+    }
     assert summary["root_relations"] == {
         "root_count": 2,
         "relation_count": 2,
@@ -804,6 +853,30 @@ def test_dynamic_bug_skill_repair_rebuilds_relations_without_touching_analysis(
     ]
     assert "Otherwise call Check now" in result["next_action"]
     assert "Do not edit generated BG anchors individually" in result["next_action"]
+
+
+def test_dynamic_bug_skill_repair_rejects_duplicate_central_waveform_identity():
+    module = _load_script(RECORD_SCRIPTS[0])
+    test_case = "TC-tests/test_adder.py::test_carry"
+    heading = (
+        "### Carry result波形 "
+        "<WAVEFORM-TC-tests/test_adder.py::test_carry>"
+    )
+    document = module.make_bug_analysis_document("Adder").replace(
+        "<WAVEFORM-EVIDENCE>\n",
+        "<WAVEFORM-EVIDENCE>\n\n"
+        f'<a id="{module.waveform_anchor_id(test_case)}"></a>\n\n'
+        f"{heading}\n\n"
+        "```yaml\nwaveform_analysis: {}\n```\n\n"
+        f'<a id="{module.waveform_anchor_id(test_case)}"></a>\n\n'
+        f"{heading}\n",
+    )
+
+    with pytest.raises(module.SkillDocumentError) as raised:
+        module._repair_document_content(document)
+
+    assert raised.value.error_code == "REPAIR_WAVEFORM_RECORD_IDENTITY_AMBIGUOUS"
+    assert raised.value.details["duplicate_test_case_tags"] == [test_case]
 
 
 def test_dynamic_bug_skill_keeps_incremental_shared_root_relations_canonical():

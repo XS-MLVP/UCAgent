@@ -615,7 +615,7 @@ waveform_analysis:
 
 当公共Skill `unitytest/dynamic-bug-recording`已启用且已复制时，优先通过该Skill的`record_dynamic_bug.py`、`WaveInfo`和`ApplyWaveInfoEvidence`维护动态Bug文档，尽可能不让LLM主动编辑目标Markdown。该公共Skill全阶段可发现、始终可选，不进入stage专用`skill_list`，也不调用`SetSkillUsage`。脚本从`.ucagent/runtime_config.json`读取实际TC目录和统一`current_test_report`路径；`Check`或`RunTestCases`真实运行Unity测试后发布当前阶段报告，进入新阶段时旧报告失效。脚本只从该报告的`failed_test_case_with_check_point_list`精确解析TC到FG/FC/CK的关系，不读取阶段私有报告；若当前报告不存在，先运行当前阶段真实测试，禁止手工创建、复制或猜测报告。脚本从功能检查文档读取 FG/FC/CK 名称，从测试 docstring 读取 TC 名称。
 
-已有动态Bug文档出现格式问题时，先调用`-MODE repair`并执行一次返回的`next_action`。该模式按完整FG/FC/CK/BG路径一次重建全部生成式`bug-*`锚点和ROOT反向关系，同时规范ROOT关闭标记；错误、重复或缺失的BG机器锚点不应由LLM逐条编辑。若相同文档阻塞仍存在，或格式损坏使该动作无法执行，LLM可用普通文本工具只修复`error/details`指出的精确标记、路径或行；返回`manual_edit_fallback`时按其`scope`编辑，并执行`after_edit`。修复必须保留其他BG、TC、ROOT分析和全部`WAVEFORM-EVIDENCE`内容，完成后立即重跑`-MODE repair`和`Check`。不得用shell或临时Python修改文档；receipt、中央YAML、viewer链接和token始终只能由`WaveInfo`与`ApplyWaveInfoEvidence`维护。
+已有动态Bug文档出现格式问题时，先调用`-MODE repair`并执行一次返回的`next_action`。该模式按完整FG/FC/CK/BG路径一次重建全部生成式`bug-*`锚点和ROOT反向关系，同时从规范TC身份重建中央`waveform-*`锚点与BG侧`<WAVEFORM-REF>`并规范ROOT关闭标记；错误、重复或缺失的机器锚点不应由LLM逐条编辑。16位波形锚点由TC身份的SHA-256稳定派生，不是32位`receipt_id`，receipt更新后锚点仍不变。repair保留中央YAML、receipt、viewer/token、TC身份及所有分析正文；重复中央TC或结构歧义会失败而不会猜测。若相同文档阻塞仍存在，或格式损坏使该动作无法执行，LLM可用普通文本工具只修复`error/details`指出的精确标记、路径或行；返回`manual_edit_fallback`时按其`scope`编辑，并执行`after_edit`。修复必须保留其他BG、TC、ROOT分析和全部`WAVEFORM-EVIDENCE`内容，完成后立即重跑`-MODE repair`和`Check`。不得用shell或临时Python修改文档；receipt、中央YAML、viewer链接和token始终只能由`WaveInfo`与`ApplyWaveInfoEvidence`维护。
 
 对每个新BG路径的第一份精确FG/FC/CK/BG/TC关联调用`record_dynamic_bug.py -MODE bug`，一次写入BG三个字段、唯一`<CAUSE-REF-ROOT-XXX>`和ROOT反向链接；对每个不同根因调用`record_dynamic_bug.py -MODE root`，一次写入ROOT五个分析字段。有源码时脚本根据真实`path:start-end`和三组行号读取当前源码并生成完整围栏与源码标记；无源码时使用互斥的`-SOURCE-UNAVAILABLE`。已有CK/BG仅新增兄弟TC时直接调用WaveInfo/Apply；新增BG路径或修订BG/ROOT字段时重调对应MODE，脚本幂等更新并保留历史路径。脚本不创建波形YAML或viewer证据。
 
@@ -816,7 +816,7 @@ FG、FC、CK、BG、TC 都是一对多层次，不是一条固定单链。以下
 
 ## 6. 证据保留与重放
 
-签名 receipt、中央 YAML 和 viewer 是持续保留的证据。普通增量 stage 使用`require_current_replay=false`：只验证文档、签名 receipt 与关联，不因后来测试、session 或波形文件变化而要求更新。
+签名 receipt、中央 YAML 和 viewer 是持续保留的证据。普通增量 stage 使用`require_current_replay=false`：只验证文档、签名 receipt 与关联，不因后来测试、session、波形文件轮换或原文件丢失而要求更新。批次文档预检也固定使用该模式，只能拒绝格式或关联问题，不能执行测试、刷新证据或推进批次。
 
 只有对应验证项配置`require_current_replay=true`时，才对所有唯一 TC 重放当前波形。Checker 会为每个成功重放计算包含精确 TC、事件 timeline、信号值、取证窗口、测试/driver/HDL 源码上下文的签名语义指纹。语义指纹不变而只有 session、波形路径、时间、receipt 或 viewer token 等机器字段变化时，Checker 自动为所有此类 TC 生成当前 receipt，并在一次原子写入中刷新中央 YAML 和 viewer；已有`alignment_evidence`与逐 Bug 结论保持不变。重复调用 Check 不会反复创建 receipt 或改写文档。
 

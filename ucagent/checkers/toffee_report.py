@@ -1429,18 +1429,40 @@ def _parse_waveform_analysis_blocks(
                 next_index += 1
             expected_reference = _waveform_reference(test_label)
             if next_index >= dynamic_end or stripped_lines[next_index] != expected_reference:
+                stable_anchor = _waveform_anchor_id(test_label)
+                observed_reference = (
+                    stripped_lines[next_index]
+                    if next_index < dynamic_end
+                    else "<end-of-DYNAMIC-BUGS>"
+                )
                 return False, {}, {
+                    "error_code": "WAVEFORM_REFERENCE_INVALID",
                     "error": (
                         f"[Waveform Reference Missing] <{test_label}> at line {test['line']} "
                         f"under <{record['bug']}> must be followed by exact reference "
-                        f"'{expected_reference}'. Call ApplyWaveInfoEvidence to create or "
-                        "repair the association."
+                        f"'{expected_reference}', not '{observed_reference}'."
+                    ),
+                    "next_action": (
+                        "When the dynamic-bug-recording Skill is available, call "
+                        "[\"unitytest/dynamic-bug-recording\", "
+                        "\"record_dynamic_bug.py\", \"-MODE repair\"] once. Otherwise "
+                        f"place '{expected_reference}' immediately after <{test_label}> and "
+                        "remove any other standalone WAVEFORM-REF for only that BG/TC pair. "
+                        "Preserve all non-marker text, the TC identity, and central signed "
+                        "YAML, then call Check again."
                     ),
                     "details": {
                         "bug": record["bug"],
                         "test_case": test_label,
                         "line": test["line"],
+                        "stable_anchor_id": stable_anchor,
+                        "expected_reference": expected_reference,
+                        "observed_reference": observed_reference,
+                        "receipt_id_is_distinct": True,
                     },
+                    "rerun_test": False,
+                    "rerun_waveinfo": False,
+                    "apply_evidence": False,
                 }
             reference_indexes.add(next_index)
 
@@ -1533,10 +1555,30 @@ def _parse_waveform_analysis_blocks(
         expected_anchor = _waveform_anchor_id(test_label)
         if anchor_match.group(1) != expected_anchor:
             return False, {}, {
+                "error_code": "WAVEFORM_RECORD_ANCHOR_INVALID",
                 "error": (
                     f"[Waveform Record Anchor Error] Record <{_waveform_record_tag(test_label)}> "
                     f"must use anchor '{expected_anchor}', not '{anchor_match.group(1)}'."
-                )
+                ),
+                "next_action": (
+                    "When the dynamic-bug-recording Skill is available, call "
+                    "[\"unitytest/dynamic-bug-recording\", "
+                    "\"record_dynamic_bug.py\", \"-MODE repair\"] once. Otherwise "
+                    f"replace only this central anchor with '<a id=\"{expected_anchor}\"></a>' "
+                    "and make every BG-side WAVEFORM-REF for the same TC target that stable "
+                    "anchor. Preserve the signed YAML receipt_id, viewer, and TC identity, "
+                    "then call Check again."
+                ),
+                "details": {
+                    "test_case": test_label,
+                    "anchor_line": anchor_line,
+                    "stable_anchor_id": expected_anchor,
+                    "observed_anchor_id": anchor_match.group(1),
+                    "receipt_id_is_distinct": True,
+                },
+                "rerun_test": False,
+                "rerun_waveinfo": False,
+                "apply_evidence": False,
             }
         if test_label in blocks:
             return False, {}, {
@@ -1607,11 +1649,25 @@ def _parse_waveform_analysis_blocks(
             index += 1
         if index >= evidence_end:
             return False, {}, {
+                "error_code": "WAVEFORM_VIEWER_LINK_MISSING",
                 "error": (
                     f"[Waveform Viewer Link Missing] Central record for <{test_label}> "
                     "has no tool-generated WAVEFORM-VIEWER link."
                 ),
-                "details": {"recovery_call": recovery_call},
+                "next_action": (
+                    "Execute recovery_call exactly once using the signed receipt_id from "
+                    "the central YAML, then call Check again. Do not derive receipt_id from "
+                    "the 16-hex stable Markdown anchor."
+                ),
+                "recovery_call": recovery_call,
+                "details": {
+                    "recovery_call": recovery_call,
+                    "stable_anchor_id": _waveform_anchor_id(test_label),
+                    "receipt_id_is_distinct": True,
+                },
+                "rerun_test": False,
+                "rerun_waveinfo": False,
+                "apply_evidence": True,
             }
         try:
             viewer_token, viewer_payload = parse_waveform_viewer_markdown_link(
@@ -1619,11 +1675,25 @@ def _parse_waveform_analysis_blocks(
             )
         except WaveformViewerProtocolError as viewer_error:
             return False, {}, {
+                "error_code": "WAVEFORM_VIEWER_LINK_INVALID",
                 "error": (
                     f"[Waveform Viewer Link Invalid] Line {index + 1} for <{test_label}> "
                     f"must be the tool-generated WAVEFORM-VIEWER link: {viewer_error}."
                 ),
-                "details": {"recovery_call": recovery_call},
+                "next_action": (
+                    "Execute recovery_call exactly once using the signed receipt_id from "
+                    "the central YAML, then call Check again. Do not derive receipt_id from "
+                    "the 16-hex stable Markdown anchor."
+                ),
+                "recovery_call": recovery_call,
+                "details": {
+                    "recovery_call": recovery_call,
+                    "stable_anchor_id": _waveform_anchor_id(test_label),
+                    "receipt_id_is_distinct": True,
+                },
+                "rerun_test": False,
+                "rerun_waveinfo": False,
+                "apply_evidence": True,
             }
         documented_bugs = payload.get("bug_tags")
         bug_evidence = payload.get("bug_evidence")

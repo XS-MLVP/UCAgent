@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
 """Unity test checker for UCAgent verification."""
 
+import hashlib
 import re
 from typing import Tuple
 import ucagent.util.functions as fc
-from ucagent.util.config import Config
+from ucagent.util.config import Config, load_current_test_report
 from ucagent.util.log import info, warning
 from ucagent.tools.testops import RunUnityChipTest
 import os
@@ -1431,8 +1432,14 @@ class BaseUnityChipCheckerTestCase(Checker):
             f"{self.test_dir.rstrip('/')}/test_*.py",
         )
 
-    def _set_test_report_context(self):
-        """Identify the active stage/checker in the shared current report."""
+    def _test_report_context_details(self):
+        """Return Checker-specific identities for the shared current report."""
+
+        return {}
+
+    def _build_test_report_context(self):
+        """Build the active stage/checker identity for the shared current report."""
+
         stage = self.get_stage()
         context = {
             "source": "checker",
@@ -1442,7 +1449,13 @@ class BaseUnityChipCheckerTestCase(Checker):
             context["stage_name"] = stage.name
         if self.stage_manager is not None:
             context["stage_index"] = self.stage_manager.stage_index
-        self.run_test.set_report_context(context)
+        context.update(self._test_report_context_details())
+        return context
+
+    def _set_test_report_context(self):
+        """Publish the active stage/checker identity with the next test report."""
+
+        self.run_test.set_report_context(self._build_test_report_context())
 
     def _check_test_func_args(self, report, str_out, str_err):
         """
@@ -2347,6 +2360,121 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
     def rm_line_no(self, s):
         return re.sub(r":\d+-\d+", "", s)
 
+    def _current_batch_source_sha256(self):
+        """Hash every source file that owns a test in the current batch."""
+
+        source_files = sorted({
+            test_case.split("::", 1)[0]
+            for test_case in self.current_test_cases
+        })
+        source_hashes = {}
+        for source_file in source_files:
+            with open(self.get_path(source_file), "rb") as handle:
+                source_hashes[source_file] = hashlib.sha256(handle.read()).hexdigest()
+        return source_hashes
+
+    def _test_report_context_details(self):
+        """Bind a published report to the exact current batch and test sources."""
+
+        return {
+            "batch_test_cases": list(self.current_test_cases),
+            "test_source_sha256": self._current_batch_source_sha256(),
+        }
+
+    def _load_cached_batch_report(self, target_tests):
+        """Return a persisted report only when every batch identity still matches."""
+
+        try:
+            payload = load_current_test_report(self.workspace)
+        except (FileNotFoundError, OSError, TypeError, ValueError, RuntimeError):
+            return None
+        report = payload.get("report")
+        context = payload.get("context")
+        if not isinstance(report, dict) or not isinstance(context, dict):
+            return None
+        expected_context = {
+            **self._build_test_report_context(),
+            "test_dir_or_file": self.test_dir,
+            "pytest_ex_args": target_tests,
+        }
+        if any(context.get(key) != value for key, value in expected_context.items()):
+            return None
+        execution = report.get("execution")
+        if (
+            report.get("run_test_success") is not True
+            or not isinstance(execution, dict)
+            or execution.get("invocation_success") is not True
+        ):
+            return None
+        reported_cases = report.get("tests", {}).get("test_cases", {})
+        if not isinstance(reported_cases, dict):
+            return None
+        return_tests = {
+            self.rm_line_no(test_case): status
+            for test_case, status in reported_cases.items()
+        }
+        if (
+            len(return_tests) != len(reported_cases)
+            or set(return_tests) != set(self.current_test_cases)
+        ):
+            return None
+        return report, return_tests
+
+    def _cached_document_preflight(self, target_tests):
+        """Reject stale document defects without rerunning the unchanged test batch."""
+
+        cached = self._load_cached_batch_report(target_tests)
+        if cached is None:
+            return None
+        report, return_tests = cached
+        ret, message, _ = check_report(
+            self.workspace,
+            report,
+            self.doc_func_check,
+            self.doc_bug_analysis,
+            only_marked_ckp_in_tc=True,
+            waveform_tool=self.get_waveform_tool_for_checker(),
+            waveform_test_dir=self.test_dir,
+            test_output_dir=self.get_configured_test_output_dir(),
+            require_all_documented_tests=False,
+        )
+        if ret:
+            return None
+        batch_report = self._compact_validation_report(report, return_tests)
+        batch_progress = self._set_batch_progress(
+            return_tests,
+            validation="document_failed",
+            test_run="not_run",
+        )
+        failure = self._with_batch_context(
+            message,
+            validation_mode="cached_report_document_preflight",
+            batch_progress=batch_progress,
+            batch_report=batch_report,
+        )
+        failure.setdefault("error_code", "BATCH_DOCUMENT_PREFLIGHT_FAILED")
+        failure.setdefault(
+            "error",
+            "The current Bug document does not validate against the unchanged current batch report.",
+        )
+        failure.setdefault(
+            "next_action",
+            "Follow the first reported Bug-document diagnostic. Use the "
+            "dynamic-bug-recording Skill's -MODE repair only for generated anchors, "
+            "references, containers, or relations; use its matching bug/root mode for "
+            "semantic fields. When the Skill cannot recover malformed structure, apply "
+            "only the exact bounded manual repair. Then call Check again. Do not rerun "
+            "pytest or WaveInfo for this document-only failure.",
+        )
+        failure.update({
+            "rerun_test": False,
+            "rerun_waveinfo": False,
+            "batch_advanced": False,
+        })
+        result = {"REPORT": report}
+        _set_checker_failure(result, failure)
+        return False, result
+
     @staticmethod
     def _compact_validation_report(report, return_tests):
         tests = report.get("tests", {})
@@ -2482,6 +2610,9 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
         if len(failed_tests_files) > 0:
             return False, {"error": f"The following test files do not exist: {fc.list_str_abbr(failed_tests_files)}. " + \
                             "Please check your test case names and ensure they are correct."}
+        preflight_result = self._cached_document_preflight(target_tests)
+        if preflight_result is not None:
+            return preflight_result
         info(f"Checking {len(self.current_test_cases)} test cases: {target_tests}")
         report, str_out, str_err = super().do_check(pytest_args=target_tests, timeout=timeout, **kw)
         test_pass, test_msg = fc.is_run_report_pass(report, str_out, str_err)
@@ -2524,7 +2655,8 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
             test_output_dir=self.get_configured_test_output_dir(),
             require_all_documented_tests=False,
         )
-        error_msgs["REPORT"] = self._compact_validation_report(report, return_tests)
+        batch_report = self._compact_validation_report(report, return_tests)
+        error_msgs["REPORT"] = report
         if not ret:
             batch_progress = self._set_batch_progress(
                 return_tests,
@@ -2535,7 +2667,7 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
                 msg,
                 validation_mode="fresh_test_run",
                 batch_progress=batch_progress,
-                batch_report=error_msgs["REPORT"],
+                batch_report=batch_report,
             )
             _set_checker_failure(error_msgs, contextual_failure)
             return ret, error_msgs
@@ -2550,7 +2682,7 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
                 msg["error"],
                 validation_mode="fresh_test_run",
                 batch_progress=batch_progress,
-                batch_report=error_msgs["REPORT"],
+                batch_report=batch_report,
             )
             return ret, error_msgs
         completed_batch_size = len(self.current_test_cases)

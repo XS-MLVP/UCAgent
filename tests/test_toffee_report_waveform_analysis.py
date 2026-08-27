@@ -626,6 +626,10 @@ def test_missing_or_tampered_viewer_link_is_rejected(tmp_path):
     passed, message, _ = _check(tmp_path, tool)
     assert passed is False
     assert "[Waveform Viewer Link Missing]" in str(message)
+    assert message["error_code"] == "WAVEFORM_VIEWER_LINK_MISSING"
+    assert message["rerun_test"] is False
+    assert message["rerun_waveinfo"] is False
+    assert message["apply_evidence"] is True
 
     tampered = copy.deepcopy(result["waveform_viewer"]["payload"])
     tampered["cursor"] = str(int(tampered["cursor"]) + 1)
@@ -663,6 +667,11 @@ def test_invalid_viewer_link_returns_structured_apply_recovery_call(tmp_path):
 
     assert passed is False
     assert "[Waveform Viewer Link Invalid]" in error["error"]
+    assert error["error_code"] == "WAVEFORM_VIEWER_LINK_INVALID"
+    assert error["recovery_call"] == recovery
+    assert error["rerun_test"] is False
+    assert error["rerun_waveinfo"] is False
+    assert error["apply_evidence"] is True
     assert recovery == {
         "tool": "ApplyWaveInfoEvidence",
         "arguments": {
@@ -1498,6 +1507,48 @@ def test_waveform_reference_must_be_the_first_nonempty_line_after_tc(tmp_path):
 
     assert passed is False
     assert "[Waveform Reference Missing]" in str(error)
+    assert error["error_code"] == "WAVEFORM_REFERENCE_INVALID"
+    assert error["details"]["stable_anchor_id"] == waveform_anchor_id(
+        f"TC-{DOCUMENT_TEST}"
+    )
+    assert error["details"]["receipt_id_is_distinct"] is True
+    assert error["rerun_test"] is False
+    assert error["rerun_waveinfo"] is False
+    assert error["apply_evidence"] is False
+
+
+def test_receipt_id_cannot_replace_stable_waveform_anchor(tmp_path):
+    _write_central_waveform_document(
+        tmp_path,
+        [("BG-DYNAMIC-80", DOCUMENT_TEST)],
+        {DOCUMENT_TEST: {"status": "confirmed", "receipt_id": "receipt-1"}},
+    )
+    path = tmp_path / "bugs.md"
+    test_tag = f"TC-{DOCUMENT_TEST}"
+    stable_anchor = waveform_anchor_id(test_tag)
+    receipt_id = "263069e6bb9ca563f00b12dbe453c501"
+    path.write_text(
+        path.read_text(encoding="utf-8").replace(
+            f'<a id="{stable_anchor}"></a>',
+            f'<a id="waveform-{receipt_id}"></a>',
+        ),
+        encoding="utf-8",
+    )
+
+    passed, _blocks, error = _parse_waveform_analysis_blocks(
+        str(tmp_path), "bugs.md"
+    )
+
+    assert passed is False
+    assert error["error_code"] == "WAVEFORM_RECORD_ANCHOR_INVALID"
+    assert error["details"]["test_case"] == test_tag
+    assert isinstance(error["details"]["anchor_line"], int)
+    assert error["details"]["stable_anchor_id"] == stable_anchor
+    assert error["details"]["observed_anchor_id"] == f"waveform-{receipt_id}"
+    assert error["details"]["receipt_id_is_distinct"] is True
+    assert error["rerun_test"] is False
+    assert error["rerun_waveinfo"] is False
+    assert error["apply_evidence"] is False
 
 
 def test_waveform_reference_must_be_unique_for_each_bug_test_association(tmp_path):
@@ -2832,6 +2883,52 @@ def test_partial_run_defers_replay_but_final_gate_requires_current_waveform(tmp_
     assert passed is False
     assert "[Waveform Current Replay Required]" in str(message)
     assert "stale_waveform_only" in str(message)
+
+
+def test_signed_historical_receipt_survives_original_waveform_file_loss(tmp_path):
+    test_dir = tmp_path / "tests"
+    waveform_file = _write_waveform(test_dir)
+    first_tool = WaveInfo(workspace=str(tmp_path), test_dir="tests", dut_name="Demo")
+    pattern = [{"signal": "TOP.dut.valid", "event": "rising"}]
+    result = _call_waveinfo(
+        first_tool,
+        test_case_name=DOCUMENT_TEST,
+        pattern=pattern,
+        start_step=10,
+        end_step=25,
+    )
+    _write_bug_doc(tmp_path, _explicit_block(result, pattern, wave_step=15))
+    receipt_id = result["waveform_analysis_receipt"]["receipt_id"]
+
+    waveform_file.unlink()
+    resumed_tool = WaveInfo(
+        workspace=str(tmp_path),
+        test_dir="tests",
+        dut_name="Demo",
+    )
+
+    passed, message = check_all_documented_waveform_bug_analysis(
+        str(tmp_path),
+        "bugs.md",
+        waveform_tool=resumed_tool,
+        waveform_test_dir="tests",
+        require_current_replay=False,
+    )
+
+    assert passed is True, message
+    assert "Current waveform replay is disabled for this stage" in message
+    assert resumed_tool.get_analysis_receipt(receipt_id) is not None
+
+    passed, message = check_all_documented_waveform_bug_analysis(
+        str(tmp_path),
+        "bugs.md",
+        waveform_tool=resumed_tool,
+        waveform_test_dir="tests",
+        require_current_replay=True,
+    )
+
+    assert passed is False
+    assert "[Waveform Current Replay Required]" in str(message)
 
 
 def test_new_session_path_does_not_change_logical_viewer_contract(tmp_path):

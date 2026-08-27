@@ -126,6 +126,30 @@ def _patch_successful_batch(monkeypatch):
     )
 
 
+def _cached_batch_payload(checker):
+    target_tests, _missing = checker.get_run_args(checker.test_dir)
+    report = {
+        "run_test_success": True,
+        "execution": {"invocation_success": True},
+        "tests": {
+            "total": len(checker.current_test_cases),
+            "fails": len(checker.current_test_cases),
+            "test_cases": {
+                test_case: "FAILED"
+                for test_case in checker.current_test_cases
+            },
+        },
+    }
+    return {
+        "report": report,
+        "context": {
+            **checker._build_test_report_context(),
+            "test_dir_or_file": checker.test_dir,
+            "pytest_ex_args": target_tests,
+        },
+    }
+
+
 def test_successful_batch_is_restored_after_checker_recreation(tmp_path, monkeypatch):
     report = _initial_report(["test_a", "test_b", "test_c"])
     checker, stage = _checker(tmp_path, report)
@@ -194,6 +218,135 @@ def test_failed_batch_validation_does_not_persist_completion(tmp_path, monkeypat
         "tests/test_demo.py::test_a",
         "tests/test_demo.py::test_b",
     ]
+
+
+def test_cached_document_preflight_rejects_without_rerunning_tests(
+    tmp_path,
+    monkeypatch,
+):
+    checker, _stage = _checker(tmp_path, _initial_report(["test_a", "test_b"]))
+    payload = _cached_batch_payload(checker)
+    monkeypatch.setattr(
+        unity_test_module,
+        "load_current_test_report",
+        lambda _workspace: copy.deepcopy(payload),
+    )
+
+    def unexpected_test_run(*_args, **_kwargs):
+        raise AssertionError("cached document preflight must not execute pytest")
+
+    monkeypatch.setattr(BaseUnityChipCheckerTestCase, "do_check", unexpected_test_run)
+    monkeypatch.setattr(
+        unity_test_module,
+        "check_report",
+        lambda *_args, **_kwargs: (
+            False,
+            {
+                "error_code": "WAVEFORM_RECORD_ANCHOR_INVALID",
+                "error": "stable waveform anchor is invalid",
+                "next_action": "run repair",
+            },
+            -1,
+        ),
+    )
+
+    passed, message = checker.do_check()
+
+    assert passed is False
+    assert message["diagnostic"]["error_code"] == "WAVEFORM_RECORD_ANCHOR_INVALID"
+    assert (
+        message["diagnostic"]["validation_mode"]
+        == "cached_report_document_preflight"
+    )
+    assert message["diagnostic"]["batch_progress"]["test_run"] == "not_run"
+    assert message["diagnostic"]["rerun_test"] is False
+    assert message["diagnostic"]["rerun_waveinfo"] is False
+    assert message["diagnostic"]["batch_advanced"] is False
+    assert message["REPORT"] == payload["report"]
+    assert checker.batch_task.gen_task_list == []
+
+
+def test_passing_cached_document_preflight_still_runs_fresh_batch(
+    tmp_path,
+    monkeypatch,
+):
+    checker, _stage = _checker(tmp_path, _initial_report(["test_a", "test_b"]))
+    payload = _cached_batch_payload(checker)
+    monkeypatch.setattr(
+        unity_test_module,
+        "load_current_test_report",
+        lambda _workspace: copy.deepcopy(payload),
+    )
+    test_run_count = 0
+
+    def run_current_batch(current_checker, **_kwargs):
+        nonlocal test_run_count
+        test_run_count += 1
+        report = copy.deepcopy(payload["report"])
+        report["tests"]["test_cases"] = {
+            test_case: "PASSED"
+            for test_case in current_checker.current_test_cases
+        }
+        report["tests"]["fails"] = 0
+        return report, "", ""
+
+    monkeypatch.setattr(BaseUnityChipCheckerTestCase, "do_check", run_current_batch)
+    monkeypatch.setattr(
+        unity_test_module.fc,
+        "is_run_report_pass",
+        lambda *_args, **_kwargs: (True, ""),
+    )
+    monkeypatch.setattr(
+        unity_test_module.fc,
+        "check_has_assert_in_tc",
+        lambda *_args, **_kwargs: (True, {"success": "ok"}),
+    )
+    monkeypatch.setattr(
+        unity_test_module,
+        "check_report",
+        lambda *_args, **_kwargs: (True, "ok", {}),
+    )
+
+    checker.do_check()
+
+    assert test_run_count == 1
+    assert checker.batch_task.gen_task_list == checker.batch_task.source_task_list
+
+
+def test_cached_document_preflight_is_invalidated_by_test_source_change(
+    tmp_path,
+    monkeypatch,
+):
+    checker, _stage = _checker(tmp_path, _initial_report(["test_a", "test_b"]))
+    payload = _cached_batch_payload(checker)
+    (tmp_path / "tests/test_demo.py").write_text(
+        "# changed test source\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        unity_test_module,
+        "load_current_test_report",
+        lambda _workspace: copy.deepcopy(payload),
+    )
+    test_run_count = 0
+
+    def run_current_batch(current_checker, **_kwargs):
+        nonlocal test_run_count
+        test_run_count += 1
+        return copy.deepcopy(payload["report"]), "", ""
+
+    monkeypatch.setattr(BaseUnityChipCheckerTestCase, "do_check", run_current_batch)
+    monkeypatch.setattr(
+        unity_test_module.fc,
+        "is_run_report_pass",
+        lambda *_args, **_kwargs: (False, {"error": "stop after fresh run"}),
+    )
+
+    passed, message = checker.do_check()
+
+    assert passed is False
+    assert message["error"] == "stop after fresh run"
+    assert test_run_count == 1
 
 
 def test_restart_reconciles_completed_tasks_with_changed_source_list(

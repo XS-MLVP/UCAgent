@@ -27,9 +27,13 @@ from ucagent.util.bug_analysis_contract import (
     ROOT_ANALYSIS_SECTION_TITLES,
     ROOT_ENTITY_TAG_PATTERN,
     dynamic_bug_anchor_id,
+    normalize_test_case_tag,
+    parse_waveform_record_heading,
     related_bug_reference,
     root_cause_anchor_id,
     root_cause_reference,
+    waveform_anchor_id,
+    waveform_reference,
 )
 from ucagent.util.markdown import ensure_markdown_heading_spacing
 
@@ -720,7 +724,7 @@ def render_bug_entry(
     checkpoint_path,
     root_tag=None,
 ):
-    anchor = hashlib.sha256(tc.encode("utf-8")).hexdigest()[:16]
+    anchor = waveform_anchor_id(tc)[len("waveform-") :]
     root_tag = root_tag or root_cause_tag_for_bg(bg)
     return ensure_trailing_newline_block(
         dynamic_bug_entry_template.substitute(
@@ -1577,6 +1581,12 @@ def _repair_failure(error_code, error, *, details=None, mode="bug"):
             "Use -MODE root to restore the reported ROOT entity fields, then call "
             "-MODE repair again before using manual_edit_fallback."
         )
+    elif mode == "document":
+        action = (
+            "This structure is ambiguous and cannot be repaired deterministically. "
+            "Use manual_edit_fallback only for the reported lines or duplicate identity, "
+            "preserve signed YAML and semantic analysis, then call -MODE repair again."
+        )
     raise SkillDocumentError(
         error_code,
         error,
@@ -1584,7 +1594,9 @@ def _repair_failure(error_code, error, *, details=None, mode="bug"):
         next_action=action,
         workflow_context=_workflow_context(
             "repair_blocked",
-            next_skill_mode=mode,
+            next_skill_mode=(
+                "manual_edit_fallback" if mode == "document" else mode
+            ),
             resume_mode="repair",
         ),
     )
@@ -1596,6 +1608,15 @@ _CAUSE_REFERENCE_PATTERN = re.compile(
 )
 _MACHINE_BUG_ANCHOR_PATTERN = re.compile(
     r'^<a id="(bug-[^"\s<>]+)"></a>$'
+)
+_MACHINE_WAVEFORM_ANCHOR_PATTERN = re.compile(
+    r'^<a id="(waveform-[^"\s<>]+)"></a>$'
+)
+_DYNAMIC_TC_HEADING_PATTERN = re.compile(
+    r"^-\s+.+?\s+<(TC-[^<>]+)>\s*$"
+)
+_WAVEFORM_REFERENCE_LINE_PATTERN = re.compile(
+    r"^<WAVEFORM-REF>\s+\[[^\]\n]+\]\(#[^)]+\)\s*$"
 )
 _DYNAMIC_REPAIR_HEADING_PATTERNS = {
     "FG": re.compile(r"^###\s+.+?\s+<(FG-[^<>/]+)>\s*$"),
@@ -1842,8 +1863,254 @@ def _repair_dynamic_bug_anchors(
     }
 
 
+def _repair_dynamic_waveform_references(
+    lines,
+    visible,
+    dynamic_start,
+    dynamic_end,
+    root_tags,
+):
+    """Rebuild BG-side references from canonical TC headings."""
+
+    assignments = _parse_repair_bg_assignments(
+        visible,
+        dynamic_start,
+        dynamic_end,
+        root_tags,
+    )
+    records = [
+        record
+        for root_records in assignments.values()
+        for record in root_records
+    ]
+    test_records = []
+    for record in records:
+        tests = []
+        hinted_lines = []
+        for index in range(record["start"] + 1, record["end"]):
+            if "<TC-" not in visible[index]:
+                continue
+            hinted_lines.append(index + 1)
+            match = _DYNAMIC_TC_HEADING_PATTERN.fullmatch(visible[index])
+            if match is None:
+                _repair_failure(
+                    "REPAIR_TEST_CASE_HEADING_AMBIGUOUS",
+                    f"{record['path']} contains a noncanonical TC heading.",
+                    details={
+                        "bug_path": record["path"],
+                        "candidate_lines": hinted_lines,
+                    },
+                    mode="document",
+                )
+            raw_tag = match.group(1)
+            try:
+                canonical_tag = normalize_test_case_tag(raw_tag)
+            except ValueError as error:
+                _repair_failure(
+                    "REPAIR_TEST_CASE_IDENTITY_INVALID",
+                    f"{record['path']} contains an invalid TC identity: {error}.",
+                    details={"bug_path": record["path"], "line": index + 1},
+                    mode="document",
+                )
+            if raw_tag != canonical_tag:
+                _repair_failure(
+                    "REPAIR_TEST_CASE_IDENTITY_NONCANONICAL",
+                    f"{record['path']} contains a noncanonical TC identity.",
+                    details={
+                        "bug_path": record["path"],
+                        "line": index + 1,
+                        "observed": raw_tag,
+                        "expected": canonical_tag,
+                    },
+                    mode="document",
+                )
+            tests.append({"tag": canonical_tag, "index": index})
+        test_tags = [test["tag"] for test in tests]
+        duplicates = sorted(
+            tag for tag in set(test_tags) if test_tags.count(tag) > 1
+        )
+        if duplicates:
+            _repair_failure(
+                "REPAIR_TEST_CASE_ASSOCIATION_AMBIGUOUS",
+                f"{record['path']} contains duplicate TC associations.",
+                details={
+                    "bug_path": record["path"],
+                    "duplicate_test_case_tags": duplicates,
+                },
+                mode="document",
+            )
+        test_records.extend(tests)
+
+    owned_test_indexes = {test["index"] for test in test_records}
+    unowned_test_lines = [
+        index + 1
+        for index in range(dynamic_start + 1, dynamic_end)
+        if "<TC-" in visible[index] and index not in owned_test_indexes
+    ]
+    if unowned_test_lines:
+        _repair_failure(
+            "REPAIR_TEST_CASE_OWNER_AMBIGUOUS",
+            "Every TC heading must belong to one complete FG/FC/CK/BG path.",
+            details={"unowned_test_case_lines": unowned_test_lines},
+            mode="document",
+        )
+
+    reference_indexes = []
+    for index in range(dynamic_start + 1, dynamic_end):
+        if "<WAVEFORM-REF>" not in visible[index]:
+            continue
+        if _WAVEFORM_REFERENCE_LINE_PATTERN.fullmatch(visible[index]) is None:
+            _repair_failure(
+                "REPAIR_WAVEFORM_REFERENCE_AMBIGUOUS",
+                "A WAVEFORM-REF marker is embedded in noncanonical content.",
+                details={"line": index + 1, "observed": visible[index]},
+                mode="document",
+            )
+        reference_indexes.append(index)
+
+    already_canonical_count = 0
+    for test in test_records:
+        next_index = test["index"] + 1
+        while next_index < dynamic_end and not visible[next_index]:
+            next_index += 1
+        if (
+            next_index < dynamic_end
+            and visible[next_index] == waveform_reference(test["tag"])
+        ):
+            already_canonical_count += 1
+    for index in reversed(reference_indexes):
+        del lines[index]
+
+    visible = _outside_fence_lines(lines)
+    dynamic_start = visible.index(DYNAMIC_BUGS_MARKER)
+    dynamic_end = visible.index(DYNAMIC_BUGS_END_MARKER)
+    canonical_tests = []
+    for index in range(dynamic_start + 1, dynamic_end):
+        match = _DYNAMIC_TC_HEADING_PATTERN.fullmatch(visible[index])
+        if match is not None:
+            canonical_tests.append((index, normalize_test_case_tag(match.group(1))))
+    for index, test_tag in reversed(canonical_tests):
+        indent = re.match(r"^[ \t]*", lines[index]).group(0)
+        lines[index + 1 : index + 1] = [
+            f"{indent}  {waveform_reference(test_tag)}"
+        ]
+
+    return {
+        "rebuilt_waveform_reference_count": len(canonical_tests),
+        "removed_waveform_reference_count": len(reference_indexes),
+        "corrected_waveform_reference_count": max(
+            0, len(canonical_tests) - already_canonical_count
+        ),
+    }
+
+
+def _repair_central_waveform_anchors(lines, visible):
+    """Rebuild central waveform anchors without touching fenced signed evidence."""
+
+    evidence_starts = [
+        index for index, value in enumerate(visible)
+        if value == WAVEFORM_EVIDENCE_MARKER
+    ]
+    evidence_ends = [
+        index for index, value in enumerate(visible)
+        if value == WAVEFORM_EVIDENCE_END_MARKER
+    ]
+    if (
+        len(evidence_starts) != 1
+        or len(evidence_ends) != 1
+        or evidence_starts[0] >= evidence_ends[0]
+    ):
+        _repair_failure(
+            "REPAIR_WAVEFORM_CONTAINER_INVALID",
+            "The Bug document must contain one closed WAVEFORM-EVIDENCE container.",
+            details={
+                "waveform_start_count": len(evidence_starts),
+                "waveform_end_count": len(evidence_ends),
+            },
+            mode="document",
+        )
+    evidence_start, evidence_end = evidence_starts[0], evidence_ends[0]
+    headings = []
+    for index in range(evidence_start + 1, evidence_end):
+        if "<WAVEFORM-TC-" not in visible[index]:
+            continue
+        try:
+            test_tag, _title = parse_waveform_record_heading(visible[index])
+        except ValueError as error:
+            _repair_failure(
+                "REPAIR_WAVEFORM_RECORD_HEADING_INVALID",
+                f"The central waveform heading at line {index + 1} is invalid: {error}.",
+                details={"line": index + 1, "observed": visible[index]},
+                mode="document",
+            )
+        headings.append({"tag": test_tag, "index": index})
+    test_tags = [heading["tag"] for heading in headings]
+    duplicates = sorted(tag for tag in set(test_tags) if test_tags.count(tag) > 1)
+    if duplicates:
+        _repair_failure(
+            "REPAIR_WAVEFORM_RECORD_IDENTITY_AMBIGUOUS",
+            "Each canonical TC may own only one central waveform record.",
+            details={"duplicate_test_case_tags": duplicates},
+            mode="document",
+        )
+
+    anchor_indexes = [
+        index
+        for index in range(evidence_start + 1, evidence_end)
+        if _MACHINE_WAVEFORM_ANCHOR_PATTERN.fullmatch(visible[index])
+    ]
+    original_anchor_ids = [
+        _MACHINE_WAVEFORM_ANCHOR_PATTERN.fullmatch(visible[index]).group(1)
+        for index in anchor_indexes
+    ]
+    expected_anchor_ids = [waveform_anchor_id(heading["tag"]) for heading in headings]
+    original_counts = Counter(original_anchor_ids)
+    expected_counts = Counter(expected_anchor_ids)
+    removed_count = sum((original_counts - expected_counts).values())
+    missing_count = sum((expected_counts - original_counts).values())
+    relocated_count = 0
+    for heading, expected_anchor in zip(headings, expected_anchor_ids):
+        previous = heading["index"] - 1
+        while previous > evidence_start and not visible[previous]:
+            previous -= 1
+        if (
+            previous <= evidence_start
+            or visible[previous] != f'<a id="{expected_anchor}"></a>'
+        ):
+            relocated_count += 1
+
+    for index in reversed(anchor_indexes):
+        del lines[index]
+    visible = _outside_fence_lines(lines)
+    evidence_start = visible.index(WAVEFORM_EVIDENCE_MARKER)
+    evidence_end = visible.index(WAVEFORM_EVIDENCE_END_MARKER)
+    canonical_headings = []
+    for index in range(evidence_start + 1, evidence_end):
+        if "<WAVEFORM-TC-" not in visible[index]:
+            continue
+        test_tag, _title = parse_waveform_record_heading(visible[index])
+        canonical_headings.append((index, test_tag))
+    for index, test_tag in reversed(canonical_headings):
+        insert_at = index
+        while insert_at > evidence_start + 1 and not lines[insert_at - 1].strip():
+            del lines[insert_at - 1]
+            insert_at -= 1
+        lines[insert_at:insert_at] = [
+            "",
+            f'<a id="{waveform_anchor_id(test_tag)}"></a>',
+            "",
+        ]
+
+    return {
+        "rebuilt_waveform_anchor_count": len(canonical_headings),
+        "removed_noncanonical_waveform_anchor_count": removed_count,
+        "restored_missing_waveform_anchor_count": missing_count,
+        "relocated_waveform_anchor_count": relocated_count,
+    }
+
+
 def _repair_document_content(content):
-    """Rebuild generated BG anchors and ROOT relations from canonical identities."""
+    """Rebuild generated Bug/waveform anchors and relations from canonical identities."""
 
     lines, newline, trailing_newline, removed = (
         _document_lines_with_normalized_root_closers(content)
@@ -1893,6 +2160,18 @@ def _repair_document_content(content):
         root_tags,
     )
     visible = _outside_fence_lines(lines)
+    dynamic_start = visible.index(DYNAMIC_BUGS_MARKER)
+    dynamic_end = visible.index(DYNAMIC_BUGS_END_MARKER)
+    waveform_reference_details = _repair_dynamic_waveform_references(
+        lines,
+        visible,
+        dynamic_start,
+        dynamic_end,
+        root_tags,
+    )
+    visible = _outside_fence_lines(lines)
+    waveform_anchor_details = _repair_central_waveform_anchors(lines, visible)
+    visible = _outside_fence_lines(lines)
     root_start = visible.index(ROOT_CAUSES_MARKER)
     root_end = visible.index(ROOT_CAUSES_END_MARKER)
     dynamic_start = visible.index(DYNAMIC_BUGS_MARKER)
@@ -1931,6 +2210,8 @@ def _repair_document_content(content):
         "rebuilt_roots": dict(sorted(rebuilt.items())),
         "relation_count": sum(len(paths) for paths in rebuilt.values()),
         **anchor_details,
+        **waveform_reference_details,
+        **waveform_anchor_details,
     }
 
 
@@ -1967,6 +2248,21 @@ def _run_repair_operation(runtime_config, args, target):
             ],
             "relocated_count": details["relocated_bug_anchor_count"],
         },
+        "waveform_anchors": {
+            "rebuilt_count": details["rebuilt_waveform_anchor_count"],
+            "removed_noncanonical_count": details[
+                "removed_noncanonical_waveform_anchor_count"
+            ],
+            "restored_missing_count": details[
+                "restored_missing_waveform_anchor_count"
+            ],
+            "relocated_count": details["relocated_waveform_anchor_count"],
+        },
+        "waveform_references": {
+            "rebuilt_count": details["rebuilt_waveform_reference_count"],
+            "removed_count": details["removed_waveform_reference_count"],
+            "corrected_count": details["corrected_waveform_reference_count"],
+        },
         "root_relations": {
             "root_count": len(root_tags),
             "relation_count": details["relation_count"],
@@ -1990,6 +2286,7 @@ def _run_repair_operation(runtime_config, args, target):
             "document_structure_repaired",
             completed=[
                 "rebuilt generated dynamic BG anchors",
+                "rebuilt TC-derived waveform anchors and BG references",
                 "normalized ROOT closing markers",
                 "rebuilt ROOT reverse relations from BG references",
             ],
