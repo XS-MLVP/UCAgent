@@ -484,10 +484,11 @@ def test_current_replay_contract_is_synchronized_across_runtime_guidance():
     ).read_text(encoding="utf-8")
 
     assert "语义指纹不变的全部当前机器字段由Checker一次原子刷新" in final_task
-    assert "current_receipt_id和精确Apply调用" in final_task
-    assert "不要重复运行pytest/WaveInfo" in final_task
+    assert "review_batch_call" in final_task
+    assert "ReviewWaveInfoEvidenceBatch一次原子提交全部items" in final_task
+    assert "不要逐TC调用Apply或重复运行pytest/WaveInfo/Check" in final_task
     assert "自动为所有此类 TC 生成当前 receipt" in guide
-    assert "不需要再次运行 pytest 或 WaveInfo" in guide
+    assert "不需要再次运行 pytest、WaveInfo、逐项`ApplyWaveInfoEvidence`" in guide
     assert "Checker会一次原子刷新语义指纹不变的当前机器证据" in implementation_skill
 
 

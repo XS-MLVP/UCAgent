@@ -118,7 +118,7 @@ TC与CK状态按以下规则解释：
 - `<BG-STATIC-*>`只允许写在`{DUT}_static_bug_analysis.md`；一旦测试动态证实，必须在`{DUT}_bug_analysis.md`新建独立`<BG-NAME-xx>`并提供confirmed波形证据，再从静态文档用`<LINK-BUG-*>`关联
 - 日志中的cycle与wavekit的wave step不是同一概念，二者可能相差0到数个周期且时间戳尺度也可能不同；必须指定clock_signal，通过clock occurrence index对齐，并在候选有歧义时增强日志后重跑
 - 找不到波形时，按`WaveInfo`返回的测试名称、最新session、`.dat`、SetWaveform、dut.Finish和文件损坏诊断逐项处理；不能改用旧session或其他测试的波形
-- 中断或重启后可以复用通过验证的`WaveInfo` receipt；当前批次只运行部分用例时，不得删除历史TC/BG、手工改写有效receipt或重造viewer链接。最终记录阶段必须运行完整测试集合并严格重放全部动态Bug TC；Checker会一次原子刷新语义指纹不变的当前机器证据，TC身份或波形语义变化时才返回当前receipt/精确恢复动作交给LLM复核
+- 中断或重启后可以复用通过验证的`WaveInfo` receipt；当前批次只运行部分用例时，不得删除历史TC/BG、手工改写有效receipt或重造viewer链接。最终记录阶段必须运行完整测试集合并严格重放全部动态Bug TC；Checker会一次原子刷新语义指纹不变的当前机器证据，语义变化时一次返回完整`review_batch_call`，由`ReviewWaveInfoEvidenceBatch`准备并原子提交全部复核项，不得逐TC调用Apply或重复运行pytest/WaveInfo/Check；TC身份变化或当前波形缺失才按精确恢复动作处理
 - `bug_document_viewer_link`必须由`ApplyWaveInfoEvidence`直接写入；不得让LLM复制或修改标记、URL和token
 - Apply返回`receipt_test_mismatch`或`matching_final_receipt_not_found`时，保持test_case_tag不变并原样执行`details.recovery_call`一次，再用新receipt_id和原标签重调Apply；不得猜测路径变体或手工写receipt YAML、anchor、viewer URL/token。同一tool+status+target连续同错后停止尝试相似参数；没有recovery_call或执行后仍同错时，停止修改当前Bug/波形记录并报告工具契约阻塞
 
@@ -149,7 +149,7 @@ Skill启用且公共`dynamic-bug-recording`可用时，尽可能不直接编辑`
 5. 有源码时，在ROOT的`<ROOT-SOURCE-EVIDENCE>`中写不带`L`的真实`path:起始行-结束行`和完整HDL fenced代码块；`<ROOT-SOURCE-FIRST-ERROR>`、`<ROOT-SOURCE-PROPAGATION>`、`<ROOT-SOURCE-OBSERVABLE>`各出现一次并位于代码注释中。无源码时使用`<ROOT-SOURCE-UNAVAILABLE>`完成黑盒分析，两种分支互斥。
 6. 重新读取整个BG条目，确认根因、源码、波形和修复互相一致，且该BG内没有任何占位文本。
 
-WaveInfo 收据陈旧、缺失或无法重放时先调用 Check。严格重放会自动原子刷新精确 TC、timeline、信号值、窗口、候选、信号集合和测试/driver/HDL 源码上下文均等价的机器字段；若返回`[Waveform Semantic Review Required]`，直接使用诊断中的`current_receipt_id`和精确`ApplyWaveInfoEvidence(..., replace_existing=true)`调用，再完成被重置的语义字段，不要重复运行 pytest 或 WaveInfo。只有当前重放失败、波形缺失或精确 TC 身份变化时，才按诊断重跑/修复测试并重新调用 WaveInfo；相似路径和参数化候选只作提示。只要正确实现的测试仍 Fail，禁止删除 `<TC-*>`、`<BG-*>` 或整个 FG/FC/CK 分支来绕过验收。
+WaveInfo 收据陈旧、缺失或无法重放时先调用 Check。严格重放会自动原子刷新精确 TC、timeline、信号值、窗口、候选、信号集合和测试/driver/HDL 源码上下文均等价的机器字段；若返回`[Waveform Semantic Batch Review Required]`，原样执行`review_batch_call`取得全部当前签名上下文，统一阅读`changed_source_files`后为全部items补齐review，再由`ReviewWaveInfoEvidenceBatch`一次原子提交，最后只运行一次Check；不要逐TC调用Apply或重复运行pytest/WaveInfo/Check。只有当前重放失败、波形缺失或精确 TC 身份变化时，才按诊断重跑/修复测试并重新调用 WaveInfo；相似路径和参数化候选只作提示。只要正确实现的测试仍 Fail，禁止删除 `<TC-*>`、`<BG-*>` 或整个 FG/FC/CK 分支来绕过验收。
 
 动态条目容器使用独立行`<DYNAMIC-BUGS>`定位。每个BG只包含全部TC/引用、`<BUG-OVERVIEW>`、`<BUG-SYMPTOMS>`、`<BUG-TRIGGER>`和TRIGGER末尾的唯一`<CAUSE-REF-ROOT-XXX>`。每个ROOT使用唯一`<ROOT-XXX>`并依次包含`<ROOT-CAUSE-ANALYSIS>`、`<ROOT-SOURCE-EVIDENCE>`、`<ROOT-CAUSAL-CHAIN>`、`<ROOT-FIX>`、`<ROOT-RETEST>`、`<RELATED-BUGS>`。ROOT反向项内嵌完整BG路径；中央波形仍按TC唯一。
 

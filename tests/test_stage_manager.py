@@ -635,6 +635,55 @@ def test_report_wrapper_promotes_dynamic_bug_diagnostic_to_failure_summary():
     assert summary["details"] == diagnostic["details"]
 
 
+def test_waveform_batch_review_diagnostic_preserves_full_tool_call():
+    diagnostic = {
+        "error_code": "WAVEFORM_SEMANTIC_BATCH_REVIEW_REQUIRED",
+        "error": "Two current waveform records require one semantic review batch.",
+        "next_action": "Prepare and submit the complete batch, then call Check once.",
+        "review_batch_call": {
+            "tool": "ReviewWaveInfoEvidenceBatch",
+            "arguments": {
+                "target_file": "unity_test/Demo_bug_analysis.md",
+                "items": [
+                    {
+                        "bug_tag": "BG-DYNAMIC-80",
+                        "checkpoint_path": "FG-A/FC-A/CK-A",
+                        "test_case_tag": "TC-unity_test/tests/test_a.py::test_a",
+                        "receipt_id": "a" * 32,
+                    },
+                    {
+                        "bug_tag": "BG-DYNAMIC-90",
+                        "checkpoint_path": "FG-B/FC-B/CK-B",
+                        "test_case_tag": "TC-unity_test/tests/test_b.py::test_b",
+                        "receipt_id": "b" * 32,
+                    },
+                ],
+            },
+        },
+        "rerun_test": False,
+        "rerun_waveinfo": False,
+    }
+    summary = StageManager._build_failure_summary(
+        SimpleNamespace(name="record_and_report_bugs"),
+        [{
+            "checker_name": "final_waveform_bug_analysis_check",
+            "checker_class": "UnityChipCheckerWaveformBugAnalysis",
+            "checked_in_last_run": True,
+            "last_check_pass": False,
+            "last_msg": {
+                "error": diagnostic["error"],
+                "diagnostic": diagnostic,
+            },
+        }],
+        stage_index=31,
+    )
+
+    assert summary["error_code"] == diagnostic["error_code"]
+    assert summary["review_batch_call"] == diagnostic["review_batch_call"]
+    assert summary["rerun_test"] is False
+    assert summary["rerun_waveinfo"] is False
+
+
 def test_check_failure_summary_precedes_verbose_diagnostics():
     class FailingStage:
         name = "comprehensive_verification_and_bug_analysis"

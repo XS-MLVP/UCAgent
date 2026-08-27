@@ -429,6 +429,16 @@ Preserve these established semantics unless the task explicitly changes them:
   document preflight always uses `require_current_replay=false`; it may reject a
   malformed document but must never run tests, refresh evidence, or complete a
   batch.
+- A `require_current_replay=true` gate must replay all unique documented TCs in
+  one Check. It must batch and atomically refresh every semantically unchanged
+  record without LLM work. If signed semantic inputs changed, return the complete
+  bounded review queue in one diagnostic and use `ReviewWaveInfoEvidenceBatch`
+  to prepare all current contexts and atomically apply all completed reviews.
+  Do not expose only one changed TC per Check, require repeated full-test reruns
+  between review items, or send the LLM through individual Apply calls. A batch
+  item failure must leave the original document unchanged and identify the exact
+  item. A concurrent target-document change is a batch-level conflict: preserve
+  that external content and report the document scope instead of blaming one TC.
 - A waveform Markdown anchor is the stable 16-hex SHA-256-derived identity of
   the canonical TC tag. It is not the 32-hex signed `receipt_id`, must not change
   when evidence is refreshed, and must never be supplied as an Apply receipt.

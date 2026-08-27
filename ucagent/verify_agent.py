@@ -266,9 +266,13 @@ class VerifyAgent:
             write_dirs=self.cfg.write_dirs,
             un_write_dirs=self.cfg.un_write_dirs,
         )
+        self.tool_review_waveinfo_evidence_batch = ReviewWaveInfoEvidenceBatch(
+            evidence_writer=self.tool_apply_waveinfo_evidence,
+        )
         self.tool_list_waveform = [
             self.tool_waveinfo,
             self.tool_apply_waveinfo_evidence,
+            self.tool_review_waveinfo_evidence_batch,
         ]
         self.tool_list_file = [
             # Directory and file listing tools

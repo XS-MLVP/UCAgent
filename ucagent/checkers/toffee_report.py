@@ -2277,10 +2277,70 @@ def _validate_receipt_identity(
 
 
 def _waveform_issue_result(issues: list[dict]) -> tuple[bool, object]:
-    """Return only the first blocking waveform error with later issues suppressed."""
+    """Return one actionable waveform result, batching semantic-review issues."""
     if not issues:
         return True, ""
     issue = issues[0]
+    if issue.get("repair_kind") == "semantic_review":
+        review_issues = [
+            item for item in issues if item.get("repair_kind") == "semantic_review"
+        ]
+        batch_items = []
+        review_changes = []
+        for item in review_issues[:128]:
+            details = item["details"]
+            arguments = details["update_call"]["arguments"]
+            batch_items.append(
+                {
+                    "bug_tag": arguments["bug_tag"],
+                    "checkpoint_path": arguments.get("checkpoint_path", ""),
+                    "test_case_tag": arguments["test_case_tag"],
+                    "receipt_id": arguments["receipt_id"],
+                }
+            )
+            review_changes.append(
+                {
+                    "test_case": details["test_case"],
+                    "semantic_changes": details["semantic_changes"],
+                }
+            )
+        target_file = review_issues[0]["details"]["update_call"]["arguments"][
+            "target_file"
+        ]
+        non_review_count = len(issues) - len(review_issues)
+        error = (
+            f"[Waveform Semantic Batch Review Required] Current replay found "
+            f"{len(review_issues)} central TC record(s) whose signed semantic inputs "
+            "changed. Review them as one batch; do not repair one TC and rerun Check "
+            "between items. First execute review_batch_call exactly as returned to load "
+            "bounded current contexts, then submit one completed atomic review batch. "
+            "Do not rerun pytest, WaveInfo, or individual ApplyWaveInfoEvidence calls."
+        )
+        next_action = (
+            "Call ReviewWaveInfoEvidenceBatch once with review omitted for all returned "
+            "items. Read the union of changed_source_files once, complete every returned "
+            "review, call the same tool once more with all reviews, then call Check once."
+        )
+        return False, {
+            "error_code": "WAVEFORM_SEMANTIC_BATCH_REVIEW_REQUIRED",
+            "error": error,
+            "next_action": next_action,
+            "review_count": len(review_issues),
+            "batched_review_count": len(batch_items),
+            "remaining_review_count": len(review_issues) - len(batch_items),
+            "remaining_non_review_issue_count": non_review_count,
+            "semantic_changes": review_changes,
+            "review_batch_call": {
+                "tool": "ReviewWaveInfoEvidenceBatch",
+                "arguments": {
+                    "target_file": target_file,
+                    "items": batch_items,
+                },
+            },
+            "rerun_test": False,
+            "rerun_waveinfo": False,
+            "apply_evidence": False,
+        }
     remaining_issue_count = len(issues) - 1
     details = copy.deepcopy(issue.get("details", {}))
     details["remaining_issue_count"] = remaining_issue_count
@@ -2457,7 +2517,6 @@ def check_waveform_bug_analysis(
     waveform_test_dir: str | None = None,
     require_all_documented: bool = False,
     require_current_replay: bool = False,
-    _refresh_attempted: bool = False,
 ) -> tuple[bool, object]:
     """Require verified WaveInfo receipts for every non-zero dynamic Bug/TC pair."""
 
@@ -3103,7 +3162,7 @@ def check_waveform_bug_analysis(
             "tool": "ApplyWaveInfoEvidence",
             "arguments": {
                 "target_file": bug_file,
-                "bug_tag": item["bugs"][0],
+                "bug_tag": item["bug"],
                 "test_case_tag": item["test_label"],
                 "checkpoint_path": item.get("checkpoint", ""),
                 "receipt_id": current_receipt_id,
@@ -3146,13 +3205,13 @@ def check_waveform_bug_analysis(
         if documented_semantic_fingerprint != current_semantic_fingerprint:
             issues.append(
                 {
+                    "repair_kind": "semantic_review",
                     "message": (
-                        f"[Waveform Semantic Review Required] Current replay for "
+                        f"[Waveform Semantic Batch Review Required] Current replay for "
                         f"'{item['test_case']}' changed the event timeline, signal values, "
                         "signal context, test/driver/HDL source context, or another signed "
-                        "semantic input. Automatic document replacement is not allowed. Use "
-                        "the signed current receipt below with ApplyWaveInfoEvidence, then "
-                        "review every reset semantic field."
+                        "semantic input. Automatic document replacement is not allowed; this "
+                        "TC will be included in the complete batch review diagnostic."
                     ),
                     "details": {
                         "bugs": item["bugs"],
@@ -3178,7 +3237,7 @@ def check_waveform_bug_analysis(
         if current_receipt_id != receipt_id:
             current_refreshes.append(
                 {
-                    "bug_tag": item["bugs"][0],
+                    "bug_tag": item["bug"],
                     "checkpoint_path": item.get("checkpoint", ""),
                     "test_case_tag": item["test_label"],
                     "old_receipt_id": receipt_id,
@@ -3231,8 +3290,8 @@ def check_waveform_bug_analysis(
                         },
                     }
                 )
-            elif issues and not _refresh_attempted:
-                return check_waveform_bug_analysis(
+            elif issues:
+                refreshed_validation = check_waveform_bug_analysis(
                     workspace,
                     bug_file,
                     target_ck_prefix,
@@ -3241,9 +3300,11 @@ def check_waveform_bug_analysis(
                     waveform_evidence_tool=waveform_evidence_tool,
                     waveform_test_dir=waveform_test_dir,
                     require_all_documented=require_all_documented,
-                    require_current_replay=True,
-                    _refresh_attempted=True,
+                    require_current_replay=False,
                 )
+                if refreshed_validation[0] is not True:
+                    return refreshed_validation
+                return _waveform_issue_result(issues)
             elif not issues:
                 refreshed_validation = check_waveform_bug_analysis(
                     workspace,
@@ -3404,6 +3465,14 @@ class UnityChipCheckerWaveformBugAnalysis(Checker):
         )
         if passed:
             return True, {"success": message}
+        if (
+            isinstance(message, dict)
+            and {"error_code", "error", "next_action"}.issubset(message)
+        ):
+            return False, {
+                "error": message["error"],
+                "diagnostic": copy.deepcopy(message),
+            }
         return False, message
 
 

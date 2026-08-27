@@ -84,6 +84,8 @@ CK失败时必须先核对coverage/check function、predicate和sample时机；C
 
 中央`waveform-<16hex>`锚点和BG侧链接由规范TC身份稳定派生，和WaveInfo返回的32位`receipt_id`是两个不同字段。receipt刷新时锚点不变，禁止把锚点后缀传给Apply。普通增量Check使用`require_current_replay=false`，原波形文件后来丢失也不使已验证的签名历史receipt失效；只有显式`require_current_replay=true`的最终门禁可以要求当前重放和机器证据刷新。
 
+最终门禁会在一次Check中重放全部唯一TC，并自动原子刷新全部语义未变记录。若返回`[Waveform Semantic Batch Review Required]`，原样执行`review_batch_call`中的`ReviewWaveInfoEvidenceBatch`，先不填写review以取得全部当前签名上下文和`changed_source_files`并集；统一阅读后，为每项填写`alignment_evidence`及每个关联BG的`observed_behavior`、`source_correlation`，再一次调用该工具原子提交整批，最后只运行一次Check。不得逐TC调用Apply、直接编辑中央YAML，或在各项之间重复运行pytest、WaveInfo、Check。任一项失败时文档保持原样，按返回的`item_index`修正整批输入后重试。
+
 ```text
 ApplyWaveInfoEvidence(target_file="{OUT}/{DUT}_bug_analysis.md", bug_tag="BG-CARRY-DROPPED-95", test_case_tag="TC-{OUT}/tests/test_{DUT}_carry.py::test_carry", receipt_id="RECEIPT_FROM_FINAL_WAVEINFO", checkpoint_path="FG-ARITHMETIC/FC-ADD/CK-CARRY")
 ```

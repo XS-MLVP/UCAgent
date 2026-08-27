@@ -645,6 +645,151 @@ class ArgApplyWaveInfoEvidence(BaseModel):
         return self
 
 
+class WaveInfoBugReview(BaseModel):
+    """LLM-authored conclusions for one Bug associated with a reviewed TC."""
+
+    observed_behavior: str = Field(
+        ...,
+        min_length=1,
+        description=(
+            "Current observed behavior grounded in the signed waveform timeline, failing "
+            "test, and specification."
+        ),
+    )
+    source_correlation: str = Field(
+        ...,
+        min_length=1,
+        description=(
+            "Correlation between the current waveform evidence and relevant source, driver, "
+            "API, or black-box boundary evidence."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def normalize_values(self):
+        for field_name in ("observed_behavior", "source_correlation"):
+            value = getattr(self, field_name).strip()
+            if not value or BUG_TODO_MARKER in value:
+                raise ValueError(f"{field_name} must contain a completed review conclusion")
+            setattr(self, field_name, value)
+        return self
+
+
+class WaveInfoEvidenceReview(BaseModel):
+    """Completed semantic review for one current central waveform record."""
+
+    alignment_evidence: str = Field(
+        ...,
+        min_length=1,
+        description=(
+            "Current test-log-to-waveform alignment conclusion grounded in the signed "
+            "timeline and transaction context."
+        ),
+    )
+    bug_evidence: dict[str, WaveInfoBugReview] = Field(
+        ...,
+        min_length=1,
+        description=(
+            "One conclusion mapping for every BG associated with this central TC. Keys are "
+            "exact BG-* tags; required_signals remain machine-preserved and are not supplied."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def normalize_values(self):
+        self.alignment_evidence = self.alignment_evidence.strip()
+        if not self.alignment_evidence or BUG_TODO_MARKER in self.alignment_evidence:
+            raise ValueError("alignment_evidence must contain a completed review conclusion")
+        normalized = {}
+        for bug_tag, review in self.bug_evidence.items():
+            tag = bug_tag.strip().strip("<>")
+            if not re.fullmatch(r"BG-[^<>\r\n]+", tag) or tag.startswith("BG-STATIC-"):
+                raise ValueError("bug_evidence keys must be exact dynamic BG-* tags")
+            if tag in normalized:
+                raise ValueError(f"duplicate bug_evidence key '{tag}'")
+            normalized[tag] = review
+        self.bug_evidence = normalized
+        return self
+
+
+class WaveInfoEvidenceReviewItem(BaseModel):
+    """One current-replay item prepared or completed in a batch review."""
+
+    bug_tag: str = Field(
+        ...,
+        min_length=1,
+        description="Exact BG-* tag used to locate this TC's existing document path.",
+    )
+    checkpoint_path: str = Field(
+        default="",
+        description="Exact FG-*/FC-*/CK-* path when the BG occurrence is ambiguous.",
+    )
+    test_case_tag: str = Field(
+        ...,
+        min_length=1,
+        description="Exact TC-* tag for the unique central waveform record.",
+    )
+    receipt_id: str = Field(
+        ...,
+        min_length=1,
+        description="Signed current receipt_id returned by the current-replay Checker.",
+    )
+    review: WaveInfoEvidenceReview | None = Field(
+        default=None,
+        description=(
+            "Omit in the first call to retrieve all signed review contexts without editing. "
+            "Provide in the second call to atomically apply the complete batch."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def normalize_values(self):
+        for field_name in ("bug_tag", "test_case_tag", "receipt_id"):
+            value = getattr(self, field_name).strip()
+            if not value:
+                raise ValueError(f"{field_name} must not be blank")
+            setattr(self, field_name, value)
+        self.checkpoint_path = self.checkpoint_path.strip()
+        return self
+
+
+class ArgReviewWaveInfoEvidenceBatch(BaseModel):
+    """Arguments for preparing or atomically applying a current-evidence review batch."""
+
+    target_file: str = Field(
+        ...,
+        min_length=1,
+        description=(
+            "Existing dynamic Bug-analysis Markdown file, relative to the workspace and "
+            "inside an enabled write directory."
+        ),
+    )
+    items: list[WaveInfoEvidenceReviewItem] = Field(
+        ...,
+        min_length=1,
+        max_length=128,
+        description=(
+            "All changed central TCs from one Checker review batch. Omit review from every "
+            "item to prepare contexts, or provide review for every item to apply atomically."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def normalize_values(self):
+        self.target_file = self.target_file.strip()
+        if not self.target_file:
+            raise ValueError("target_file must not be blank")
+        review_states = {item.review is not None for item in self.items}
+        if len(review_states) != 1:
+            raise ValueError(
+                "all batch items must either omit review or provide a completed review"
+            )
+        normalized_tests = [normalize_test_case_tag(item.test_case_tag) for item in self.items]
+        if len(normalized_tests) != len(set(normalized_tests)):
+            raise ValueError("items must contain at most one review for each central TC")
+        return self
+
+
 @dataclass(frozen=True)
 class _WaveSelection:
     test_case_name: str
@@ -1588,9 +1733,13 @@ class WaveInfo(UCTool):
         test_case_name = str(invocation.get("test_case_name") or "")
         file_part = test_case_name.split("::", 1)[0].strip()
         if file_part.endswith(".py"):
-            candidate = (workspace / file_part).resolve(strict=False)
-            if candidate.is_file():
-                selected.add(candidate)
+            for candidate in (
+                workspace / file_part,
+                test_parent / file_part,
+            ):
+                resolved = candidate.resolve(strict=False)
+                if resolved.is_file():
+                    selected.add(resolved)
 
         for root, include_python in ((workspace, False), (test_parent, True)):
             if not root.is_dir():
@@ -4851,4 +5000,501 @@ class ApplyWaveInfoEvidence(UCTool):
             )
             return make_llm_tool_ret(result, check_pass=False)
         result = self.apply_evidence(**args.model_dump(mode="json"))
+        return make_llm_tool_ret(result, check_pass=False)
+
+
+class ReviewWaveInfoEvidenceBatch(UCTool):
+    """Prepare or atomically apply semantic reviews for current waveform receipts."""
+
+    name: str = "ReviewWaveInfoEvidenceBatch"
+    description: str = (
+        "Batch the manual part of require_current_replay waveform review. Pass every item "
+        "from the Checker's review_batch_call with review omitted to receive bounded signed "
+        "waveform context for all changed TCs without editing the Bug document. Read any "
+        "reported changed source files once, then call this tool again with a completed review "
+        "for every item. The second call validates every receipt, TC, BG association, and review "
+        "before one atomic document replacement; no partial batch is written. It preserves "
+        "required_signals and writes receipt-backed machine fields without requiring separate "
+        "ApplyWaveInfoEvidence calls. Do not use it for semantically unchanged records because "
+        "the current-replay Checker refreshes those automatically."
+    )
+    args_schema: Optional[ArgsSchema] = ArgReviewWaveInfoEvidenceBatch
+    return_direct: bool = False
+
+    evidence_writer: Any = Field(default=None, exclude=True, repr=False)
+
+    def __init__(self, evidence_writer: ApplyWaveInfoEvidence, **kwargs):
+        super().__init__(**kwargs)
+        self.evidence_writer = evidence_writer
+        configured_test_dir = os.path.relpath(
+            evidence_writer.waveinfo.test_dir,
+            evidence_writer.workspace,
+        ).replace(os.sep, "/")
+        self.description = (
+            f"{self.description} Configured TC output directory for this run: "
+            f"'{configured_test_dir}'."
+        )
+
+    def _prepare_item(
+        self,
+        target_file: str,
+        item: WaveInfoEvidenceReviewItem,
+    ) -> tuple[dict[str, Any] | None, OrderedDict | None]:
+        """Validate one current receipt and return bounded LLM review context."""
+
+        writer = self.evidence_writer
+        try:
+            bug_tag, test_case_tag = writer._normalize_target_tags(
+                item.bug_tag,
+                item.test_case_tag,
+            )
+            checkpoint_path = writer._normalize_checkpoint_path(item.checkpoint_path)
+        except ValueError as error:
+            return None, writer.waveinfo._error("invalid_document_target", str(error))
+
+        receipt = writer.waveinfo.get_analysis_receipt(item.receipt_id)
+        evidence = writer.waveinfo.get_bug_document_evidence(item.receipt_id)
+        if receipt is None or evidence.get("success") is not True:
+            return None, evidence
+        receipt_test = str(evidence.get("test_case_name") or "")
+        try:
+            test_matches = writer._test_case_matches(
+                receipt_test,
+                test_case_tag[len("TC-") :],
+            )
+        except ValueError as error:
+            return None, writer.waveinfo._error("invalid_test_case_target", str(error))
+        if not test_matches:
+            return None, writer._receipt_test_mismatch_error(
+                receipt_id=item.receipt_id,
+                receipt_test=receipt_test,
+                test_case_tag=test_case_tag,
+            )
+
+        receipt_result = receipt.get("result") or {}
+        selection, selection_error = writer.waveinfo._discover_waveform(receipt_test)
+        if selection_error is not None:
+            return None, selection_error
+        assert selection is not None
+        receipt_freshness = (
+            receipt_result.get("waveform_selection") or {}
+        ).get("freshness_identity")
+        current_freshness = writer.waveinfo._selection_info(selection).get(
+            "freshness_identity"
+        )
+        if receipt_freshness != current_freshness:
+            return None, writer.waveinfo._error(
+                "review_waveform_stale",
+                f"Waveform changed after current replay for '{test_case_tag}'.",
+                details={
+                    "receipt_id": item.receipt_id,
+                    "receipt_freshness_identity": receipt_freshness,
+                    "current_freshness_identity": current_freshness,
+                },
+                suggestions=[
+                    "Call Check once to rebuild the complete review batch from the latest "
+                    "full-test waveform session."
+                ],
+            )
+        current_context = writer.waveinfo._analysis_context_snapshot(
+            receipt.get("arguments") or {}
+        )
+        current_context_fingerprint = writer.waveinfo._analysis_context_fingerprint(
+            current_context
+        )
+        if (
+            receipt_result.get("analysis_context_fingerprint")
+            != current_context_fingerprint
+        ):
+            return None, writer.waveinfo._error(
+                "review_context_stale",
+                f"Source context changed after current replay for '{test_case_tag}'.",
+                details={
+                    "receipt_id": item.receipt_id,
+                    "receipt_analysis_context_fingerprint": receipt_result.get(
+                        "analysis_context_fingerprint"
+                    ),
+                    "current_analysis_context_fingerprint": current_context_fingerprint,
+                },
+                suggestions=[
+                    "Call Check once to rebuild the complete review batch from the changed "
+                    "test, driver, API, or HDL context."
+                ],
+            )
+
+        target, path_error = writer._resolve_target(target_file)
+        if path_error:
+            return None, writer.waveinfo._error("invalid_target_file", path_error)
+        assert target is not None
+        try:
+            with target.open("r", encoding="utf-8", newline="") as handle:
+                lines = handle.read().splitlines(keepends=True)
+            region = writer._find_target_region(
+                lines,
+                bug_tag,
+                test_case_tag,
+                target_file,
+                checkpoint_path,
+            )
+            if region.open_index is None or region.close_index is None:
+                raise ValueError(f"central record for '{test_case_tag}' does not exist")
+            existing = writer._read_existing_analysis(
+                lines,
+                region.open_index,
+                region.close_index,
+            )
+            if region.test_index is None or region.reference_index is None:
+                raise ValueError(
+                    f"'{bug_tag}/{test_case_tag}' is not an existing BG/TC waveform "
+                    "association"
+                )
+            associated_bug_tags = set(region.associated_bug_tags)
+            documented_bug_tags = existing.get("bug_tags")
+            documented_bug_evidence = existing.get("bug_evidence")
+            if (
+                not isinstance(documented_bug_tags, list)
+                or not all(isinstance(tag, str) for tag in documented_bug_tags)
+                or set(documented_bug_tags) != associated_bug_tags
+                or not isinstance(documented_bug_evidence, dict)
+                or set(documented_bug_evidence) != associated_bug_tags
+            ):
+                raise ValueError(
+                    f"central Bug associations for '{test_case_tag}' do not exactly match "
+                    "its existing BG-side references"
+                )
+        except (OSError, UnicodeError, ValueError) as error:
+            return None, writer.waveinfo._error(
+                "review_target_invalid",
+                f"Could not prepare review context for '{test_case_tag}': {error}",
+            )
+
+        current_result = receipt_result
+        old_receipt_id = existing.get("receipt_id")
+        old_receipt = (
+            writer.waveinfo.get_analysis_receipt(old_receipt_id)
+            if isinstance(old_receipt_id, str)
+            else None
+        )
+        old_files = ((old_receipt or {}).get("result") or {}).get(
+            "analysis_context_files"
+        ) or {}
+        current_files = current_result.get("analysis_context_files") or {}
+        timeline = current_result.get("timeline") or {}
+        timeline_items = list(timeline.items()) if isinstance(timeline, dict) else []
+        event_steps = set(current_result.get("event_steps") or [])
+        selected_timeline = [entry for entry in timeline_items if entry[0] in event_steps]
+        for entry in timeline_items:
+            if entry not in selected_timeline:
+                selected_timeline.append(entry)
+            if len(selected_timeline) >= 16:
+                break
+
+        associated_bugs = list(region.associated_bug_tags)
+        context = OrderedDict(
+            [
+                ("bug_tag", bug_tag),
+                ("checkpoint_path", checkpoint_path),
+                ("test_case_tag", test_case_tag),
+                ("receipt_id", item.receipt_id),
+                ("associated_bug_tags", associated_bugs),
+                ("analysis_arguments", copy.deepcopy(receipt.get("arguments") or {})),
+                ("analysis_window", copy.deepcopy(current_result.get("analysis_window"))),
+                ("event_summary", copy.deepcopy(current_result.get("event_summary"))),
+                ("event_steps", list(current_result.get("event_steps") or [])),
+                ("cycle_alignment", copy.deepcopy(current_result.get("cycle_alignment"))),
+                ("signal_groups", copy.deepcopy(current_result.get("signal_groups"))),
+                ("timeline_excerpt", OrderedDict(selected_timeline)),
+                ("timeline_truncated_for_review", len(timeline_items) > len(selected_timeline)),
+                (
+                    "analysis_context_file_changes",
+                    {
+                        "added": sorted(set(current_files) - set(old_files)),
+                        "removed": sorted(set(old_files) - set(current_files)),
+                        "changed": sorted(
+                            path
+                            for path in set(old_files) & set(current_files)
+                            if old_files[path] != current_files[path]
+                        ),
+                    },
+                ),
+                ("existing_alignment_evidence", existing.get("alignment_evidence")),
+                ("existing_bug_evidence", copy.deepcopy(existing.get("bug_evidence"))),
+            ]
+        )
+        internal = {
+            "bug_tag": bug_tag,
+            "test_case_tag": test_case_tag,
+            "checkpoint_path": checkpoint_path,
+            "associated_bugs": associated_bugs,
+            "evidence": evidence,
+            "context": context,
+        }
+        return internal, None
+
+    def review_batch(
+        self,
+        *,
+        target_file: str,
+        items: list[dict[str, Any]],
+    ) -> OrderedDict:
+        """Prepare all contexts or atomically apply one complete review batch."""
+
+        try:
+            args = ArgReviewWaveInfoEvidenceBatch(
+                target_file=target_file,
+                items=items,
+            )
+        except Exception as error:
+            return self.evidence_writer.waveinfo._error(
+                "invalid_arguments",
+                f"Invalid ReviewWaveInfoEvidenceBatch arguments: {error}",
+            )
+
+        target, path_error = self.evidence_writer._resolve_target(args.target_file)
+        if path_error:
+            return self.evidence_writer.waveinfo._error("invalid_target_file", path_error)
+        assert target is not None
+        try:
+            if target.stat().st_size > self.evidence_writer._MAX_DOCUMENT_BYTES:
+                return self.evidence_writer.waveinfo._error(
+                    "target_file_too_large",
+                    f"Target document is larger than "
+                    f"{self.evidence_writer._MAX_DOCUMENT_BYTES} bytes.",
+                )
+        except OSError as error:
+            return self.evidence_writer.waveinfo._error(
+                "invalid_target_file",
+                f"Could not inspect target_file '{args.target_file}': {error}",
+            )
+
+        prepared = []
+        for index, item in enumerate(args.items):
+            context, error = self._prepare_item(args.target_file, item)
+            if error is not None:
+                error.setdefault("details", {})["item_index"] = index
+                error["details"]["test_case_tag"] = item.test_case_tag
+                return error
+            assert context is not None
+            prepared.append(context)
+
+        if args.items[0].review is None:
+            review_items = []
+            changed_files = set()
+            for context in prepared:
+                review_context = context["context"]
+                review_items.append(review_context)
+                file_changes = review_context["analysis_context_file_changes"]
+                changed_files.update(file_changes["added"])
+                changed_files.update(file_changes["removed"])
+                changed_files.update(file_changes["changed"])
+            return OrderedDict(
+                [
+                    ("success", True),
+                    ("status", "review_context_ready"),
+                    ("target_file", args.target_file),
+                    ("review_count", len(review_items)),
+                    ("changed_source_files", sorted(changed_files)),
+                    ("items", review_items),
+                    (
+                        "next_action",
+                        "Review all items together. Read each changed_source_files path once, "
+                        "then call ReviewWaveInfoEvidenceBatch again with the same target_file "
+                        "and item identities plus a completed review for every item. Do not "
+                        "rerun pytest, WaveInfo, ApplyWaveInfoEvidence, or directly edit the "
+                        "Bug document before that batch call.",
+                    ),
+                ]
+            )
+
+        try:
+            with target.open("r", encoding="utf-8", newline="") as handle:
+                original = handle.read()
+            original_mode = stat.S_IMODE(target.stat().st_mode)
+        except (OSError, UnicodeError) as error:
+            return self.evidence_writer.waveinfo._error(
+                "document_update_failed",
+                f"Could not read '{args.target_file}' for batch review: {error}",
+            )
+
+        temp_name = None
+        active_item_index = None
+        active_test_case_tag = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                newline="",
+                dir=target.parent,
+                prefix=f".{target.stem}.review.",
+                suffix=".md",
+                delete=False,
+            ) as handle:
+                temp_name = handle.name
+                handle.write(original)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.chmod(temp_name, original_mode)
+            temp_target = Path(temp_name)
+            temp_relative = temp_target.relative_to(
+                Path(self.evidence_writer.workspace)
+            ).as_posix()
+
+            updated_items = []
+            for index, (item, context) in enumerate(zip(args.items, prepared)):
+                active_item_index = index
+                active_test_case_tag = item.test_case_tag
+                applied = self.evidence_writer.apply_evidence(
+                    target_file=temp_relative,
+                    bug_tag=context["bug_tag"],
+                    test_case_tag=context["test_case_tag"],
+                    checkpoint_path=context["checkpoint_path"],
+                    receipt_id=item.receipt_id,
+                    replace_existing=True,
+                )
+                if applied.get("success") is not True:
+                    applied.setdefault("details", {})["item_index"] = index
+                    applied["details"]["test_case_tag"] = item.test_case_tag
+                    return applied
+
+                refreshed, error = self._prepare_item(temp_relative, item)
+                if error is not None:
+                    error.setdefault("details", {})["item_index"] = index
+                    error["details"]["test_case_tag"] = item.test_case_tag
+                    return error
+                assert refreshed is not None and item.review is not None
+                review_bugs = set(item.review.bug_evidence)
+                associated_bugs = set(refreshed["associated_bugs"])
+                if review_bugs != associated_bugs:
+                    return self.evidence_writer.waveinfo._error(
+                        "review_bug_set_mismatch",
+                        f"Review for '{item.test_case_tag}' must cover every associated BG "
+                        "exactly once.",
+                        details={
+                            "item_index": index,
+                            "expected_bug_tags": sorted(associated_bugs),
+                            "observed_bug_tags": sorted(review_bugs),
+                        },
+                    )
+
+                with _DOCUMENT_WRITE_LOCK:
+                    with temp_target.open("r", encoding="utf-8", newline="") as handle:
+                        before_review = handle.read()
+                    newline = "\r\n" if "\r\n" in before_review else "\n"
+                    lines = before_review.splitlines(keepends=True)
+                    region = self.evidence_writer._find_target_region(
+                        lines,
+                        refreshed["bug_tag"],
+                        refreshed["test_case_tag"],
+                        temp_relative,
+                        refreshed["checkpoint_path"],
+                    )
+                    if (
+                        region.record_start is None
+                        or region.record_end is None
+                        or region.open_index is None
+                        or region.close_index is None
+                    ):
+                        raise ValueError(
+                            f"central record for '{item.test_case_tag}' disappeared"
+                        )
+                    analysis = self.evidence_writer._read_existing_analysis(
+                        lines,
+                        region.open_index,
+                        region.close_index,
+                    )
+                    analysis["alignment_evidence"] = item.review.alignment_evidence
+                    bug_evidence = analysis.get("bug_evidence")
+                    if not isinstance(bug_evidence, dict):
+                        raise ValueError(
+                            f"central bug_evidence for '{item.test_case_tag}' is malformed"
+                        )
+                    for bug_tag, review in item.review.bug_evidence.items():
+                        bug_fields = bug_evidence.get(bug_tag)
+                        if not isinstance(bug_fields, dict):
+                            raise ValueError(
+                                f"central bug_evidence.{bug_tag} is malformed"
+                            )
+                        bug_fields["observed_behavior"] = review.observed_behavior
+                        bug_fields["source_correlation"] = review.source_correlation
+                    record_lines = self.evidence_writer._render_evidence_record(
+                        analysis,
+                        refreshed["evidence"]["bug_document_viewer_link"],
+                        refreshed["test_case_tag"],
+                        region.test_display_title,
+                        newline,
+                    )
+                    lines[region.record_start : region.record_end] = record_lines
+                    after_review = ensure_markdown_file_heading_spacing(
+                        temp_relative,
+                        "".join(lines),
+                    )
+                    self.evidence_writer._atomic_replace(
+                        temp_target,
+                        before_review,
+                        after_review,
+                    )
+                updated_items.append(
+                    OrderedDict(
+                        [
+                            ("test_case_tag", refreshed["test_case_tag"]),
+                            ("receipt_id", item.receipt_id),
+                            ("bug_tags", refreshed["associated_bugs"]),
+                        ]
+                    )
+                )
+
+            active_item_index = None
+            active_test_case_tag = None
+            with temp_target.open("r", encoding="utf-8", newline="") as handle:
+                updated = handle.read()
+            self.evidence_writer._atomic_replace(target, original, updated)
+        except (OSError, UnicodeError, ValueError, RuntimeError) as error:
+            details = {
+                "scope": "document",
+                "target_file": args.target_file,
+            }
+            if active_item_index is not None:
+                details = {
+                    "scope": "item",
+                    "item_index": active_item_index,
+                    "test_case_tag": active_test_case_tag,
+                }
+            return self.evidence_writer.waveinfo._error(
+                "batch_review_failed",
+                f"Could not atomically apply current waveform review batch: {error}",
+                details=details,
+                suggestions=[
+                    "Repair only the reported receipt, TC, BG association, review field, or "
+                    "concurrent document change, then retry the entire batch.",
+                    "Do not split the batch into direct Markdown edits.",
+                ],
+            )
+        finally:
+            if temp_name and os.path.exists(temp_name):
+                os.unlink(temp_name)
+
+        return OrderedDict(
+            [
+                ("success", True),
+                ("status", "review_batch_applied"),
+                ("target_file", args.target_file),
+                ("updated", updated_items),
+                (
+                    "next_action",
+                    "Call Check once. Semantically unchanged current records will remain "
+                    "automatic; do not rerun individual WaveInfo or Apply calls.",
+                ),
+            ]
+        )
+
+    def _run(
+        self,
+        target_file: str,
+        items: list[dict[str, Any]],
+        run_manager: Optional[CallbackManagerForToolRun] = None,
+    ) -> str:
+        """Prepare or apply a complete current-evidence review batch."""
+
+        del run_manager
+        result = self.review_batch(target_file=target_file, items=items)
         return make_llm_tool_ret(result, check_pass=False)

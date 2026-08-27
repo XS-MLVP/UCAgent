@@ -14,7 +14,7 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from ucagent.tools import ApplyWaveInfoEvidence, WaveInfo
+from ucagent.tools import ApplyWaveInfoEvidence, ReviewWaveInfoEvidenceBatch, WaveInfo
 from ucagent.tools import waveform as waveform_module
 from ucagent.tools.uctool import to_fastmcp
 from ucagent.util.bug_analysis_contract import (
@@ -289,6 +289,21 @@ def test_apply_waveinfo_evidence_schema_is_mcp_compatible(tmp_path):
         tool.description
     )
     assert mcp_tool.name == "ApplyWaveInfoEvidence"
+    assert mcp_tool.parameters == schema
+
+
+def test_review_waveinfo_evidence_batch_schema_is_mcp_compatible(tmp_path):
+    waveinfo = _tool(tmp_path, tmp_path / "unity_test" / "tests")
+    writer = ApplyWaveInfoEvidence(waveinfo=waveinfo, workspace=str(tmp_path))
+    tool = ReviewWaveInfoEvidenceBatch(evidence_writer=writer)
+    schema = tool.tool_call_schema.model_json_schema()
+    mcp_tool = to_fastmcp(tool)
+
+    assert set(schema["properties"]) == {"target_file", "items"}
+    assert set(schema["required"]) == {"target_file", "items"}
+    assert schema["properties"]["items"]["maxItems"] == 128
+    assert "one atomic document replacement" in tool.description
+    assert mcp_tool.name == "ReviewWaveInfoEvidenceBatch"
     assert mcp_tool.parameters == schema
 
 
@@ -1268,6 +1283,404 @@ def _final_apply_receipt(
         start_step=10,
         end_step=25,
     )
+
+
+def test_review_waveinfo_evidence_batch_prepares_and_atomically_applies_all_items(
+    tmp_path,
+):
+    test_dir = tmp_path / "out" / "tests"
+    session = _session(test_dir, "toffee_tmp_20260814150000_000")
+    _write_vcd(session, "test_apply")
+    _write_vcd(session, "test_second")
+    first_source = test_dir / "test_apply.py"
+    second_source = test_dir / "test_second.py"
+    first_source.write_text("def test_apply(env):\n    assert env.result == 1\n", encoding="utf-8")
+    second_source.write_text("def test_second(env):\n    assert env.result == 2\n", encoding="utf-8")
+    target = tmp_path / "out" / "Demo_bug_analysis.md"
+    target.parent.mkdir(exist_ok=True)
+    second_tag = "TC-tests/test_second.py::test_second"
+    _write_dynamic_bug_scaffold(target, additional_test_case_tags=(second_tag,))
+    waveinfo = _tool(tmp_path, test_dir)
+    old_first = _final_apply_receipt(waveinfo)
+    old_second = _final_apply_receipt(
+        waveinfo,
+        test_case_name="tests/test_second.py::test_second",
+    )
+    writer = ApplyWaveInfoEvidence(
+        waveinfo=waveinfo,
+        workspace=str(tmp_path),
+        write_dirs=["out"],
+        un_write_dirs=[],
+    )
+    base_items = [
+        {
+            "bug_tag": "BG-DYNAMIC-80",
+            "test_case_tag": "TC-tests/test_apply.py::test_apply",
+        },
+        {
+            "bug_tag": "BG-DYNAMIC-80",
+            "checkpoint_path": "FG-A/FC-A/CK-A",
+            "test_case_tag": second_tag,
+        },
+    ]
+    for item, result in zip(base_items, (old_first, old_second)):
+        applied = writer.apply_evidence(
+            target_file="out/Demo_bug_analysis.md",
+            receipt_id=result["waveform_analysis_receipt"]["receipt_id"],
+            **item,
+        )
+        assert applied["success"] is True
+
+    first_source.write_text("def test_apply(env):\n    assert env.result == 3\n", encoding="utf-8")
+    second_source.write_text("def test_second(env):\n    assert env.result == 4\n", encoding="utf-8")
+    current_first = _final_apply_receipt(waveinfo)
+    current_second = _final_apply_receipt(
+        waveinfo,
+        test_case_name="tests/test_second.py::test_second",
+    )
+    review_items = []
+    for item, result in zip(base_items, (current_first, current_second)):
+        review_items.append(
+            {
+                **item,
+                "receipt_id": result["waveform_analysis_receipt"]["receipt_id"],
+            }
+        )
+    tool = ReviewWaveInfoEvidenceBatch(evidence_writer=writer)
+
+    prepared = tool.review_batch(
+        target_file="out/Demo_bug_analysis.md",
+        items=review_items,
+    )
+
+    assert prepared["status"] == "review_context_ready"
+    assert prepared["review_count"] == 2
+    assert prepared["changed_source_files"] == [
+        "out/tests/test_apply.py",
+        "out/tests/test_second.py",
+    ]
+    assert len(prepared["items"]) == 2
+    assert all(item["timeline_excerpt"] for item in prepared["items"])
+    assert prepared["items"][0]["checkpoint_path"] == ""
+    original = target.read_text(encoding="utf-8")
+
+    completed_items = []
+    for index, item in enumerate(prepared["items"], start=1):
+        completed_items.append(
+            {
+                **item,
+                "review": {
+                    "alignment_evidence": f"current transaction alignment {index}",
+                    "bug_evidence": {
+                        "BG-DYNAMIC-80": {
+                            "observed_behavior": f"current observed mismatch {index}",
+                            "source_correlation": f"current source correlation {index}",
+                        }
+                    },
+                },
+            }
+        )
+    applied = tool.review_batch(
+        target_file="out/Demo_bug_analysis.md",
+        items=completed_items,
+    )
+
+    assert applied["status"] == "review_batch_applied"
+    assert len(applied["updated"]) == 2
+    updated = target.read_text(encoding="utf-8")
+    assert updated != original
+    for index, result in enumerate((current_first, current_second), start=1):
+        receipt_id = result["waveform_analysis_receipt"]["receipt_id"]
+        assert f"receipt_id: {receipt_id}" in updated
+        assert f"current transaction alignment {index}" in updated
+        assert f"current observed mismatch {index}" in updated
+        assert f"current source correlation {index}" in updated
+    assert BUG_TODO_MARKER not in updated
+
+
+def test_review_waveinfo_evidence_batch_rejects_one_invalid_review_without_writes(
+    tmp_path,
+):
+    test_dir = tmp_path / "out" / "tests"
+    session = _session(test_dir, "toffee_tmp_20260814150000_000")
+    _write_vcd(session, "test_apply")
+    target = tmp_path / "out" / "Demo_bug_analysis.md"
+    target.parent.mkdir(exist_ok=True)
+    _write_dynamic_bug_scaffold(target)
+    waveinfo = _tool(tmp_path, test_dir)
+    first = _final_apply_receipt(waveinfo)
+    second = _final_apply_receipt(waveinfo)
+    writer = ApplyWaveInfoEvidence(waveinfo=waveinfo, workspace=str(tmp_path))
+    assert writer.apply_evidence(
+        target_file="out/Demo_bug_analysis.md",
+        bug_tag="BG-DYNAMIC-80",
+        checkpoint_path="FG-A/FC-A/CK-A",
+        test_case_tag="TC-tests/test_apply.py::test_apply",
+        receipt_id=first["waveform_analysis_receipt"]["receipt_id"],
+    )["success"]
+    original = target.read_text(encoding="utf-8")
+    tool = ReviewWaveInfoEvidenceBatch(evidence_writer=writer)
+
+    rejected = tool.review_batch(
+        target_file="out/Demo_bug_analysis.md",
+        items=[
+            {
+                "bug_tag": "BG-DYNAMIC-80",
+                "checkpoint_path": "FG-A/FC-A/CK-A",
+                "test_case_tag": "TC-tests/test_apply.py::test_apply",
+                "receipt_id": second["waveform_analysis_receipt"]["receipt_id"],
+                "review": {
+                    "alignment_evidence": "current alignment",
+                    "bug_evidence": {
+                        "BG-WRONG-90": {
+                            "observed_behavior": "current mismatch",
+                            "source_correlation": "current source correlation",
+                        }
+                    },
+                },
+            }
+        ],
+    )
+
+    assert rejected["status"] == "review_bug_set_mismatch"
+    assert rejected["details"]["item_index"] == 0
+    assert target.read_text(encoding="utf-8") == original
+
+
+def test_review_waveinfo_evidence_batch_rejects_unassociated_bug_path(tmp_path):
+    test_dir = tmp_path / "out" / "tests"
+    session = _session(test_dir, "toffee_tmp_20260814150000_000")
+    _write_vcd(session, "test_apply")
+    target = tmp_path / "out" / "Demo_bug_analysis.md"
+    target.parent.mkdir(exist_ok=True)
+    _write_dynamic_bug_scaffold(target)
+    waveinfo = _tool(tmp_path, test_dir)
+    receipt = _final_apply_receipt(waveinfo)
+    writer = ApplyWaveInfoEvidence(waveinfo=waveinfo, workspace=str(tmp_path))
+    assert writer.apply_evidence(
+        target_file="out/Demo_bug_analysis.md",
+        bug_tag="BG-DYNAMIC-80",
+        checkpoint_path="FG-A/FC-A/CK-A",
+        test_case_tag="TC-tests/test_apply.py::test_apply",
+        receipt_id=receipt["waveform_analysis_receipt"]["receipt_id"],
+    )["success"]
+    content = target.read_text(encoding="utf-8")
+    target.write_text(
+        content.replace(
+            "</DYNAMIC-BUGS>",
+            "###### Different defect（90%） <BG-OTHER-90>\n"
+            "<BUG-OVERVIEW>\n"
+            "Different Bug without this TC association.\n"
+            "</DYNAMIC-BUGS>",
+        ),
+        encoding="utf-8",
+    )
+    original = target.read_text(encoding="utf-8")
+    tool = ReviewWaveInfoEvidenceBatch(evidence_writer=writer)
+
+    rejected = tool.review_batch(
+        target_file="out/Demo_bug_analysis.md",
+        items=[
+            {
+                "bug_tag": "BG-OTHER-90",
+                "checkpoint_path": "FG-A/FC-A/CK-A",
+                "test_case_tag": "TC-tests/test_apply.py::test_apply",
+                "receipt_id": receipt["waveform_analysis_receipt"]["receipt_id"],
+            }
+        ],
+    )
+
+    assert rejected["status"] == "review_target_invalid"
+    assert rejected["details"]["item_index"] == 0
+    assert "not an existing BG/TC waveform association" in rejected["error"]
+    assert target.read_text(encoding="utf-8") == original
+
+
+def test_review_waveinfo_evidence_batch_rejects_source_changes_after_prepare(
+    tmp_path,
+):
+    test_dir = tmp_path / "out" / "tests"
+    session = _session(test_dir, "toffee_tmp_20260814150000_000")
+    _write_vcd(session, "test_apply")
+    test_source = test_dir / "test_apply.py"
+    test_source.write_text("def test_apply(env):\n    assert env.result == 1\n", encoding="utf-8")
+    target = tmp_path / "out" / "Demo_bug_analysis.md"
+    target.parent.mkdir(exist_ok=True)
+    _write_dynamic_bug_scaffold(target)
+    waveinfo = _tool(tmp_path, test_dir)
+    old_result = _final_apply_receipt(waveinfo)
+    writer = ApplyWaveInfoEvidence(waveinfo=waveinfo, workspace=str(tmp_path))
+    base_item = {
+        "bug_tag": "BG-DYNAMIC-80",
+        "checkpoint_path": "FG-A/FC-A/CK-A",
+        "test_case_tag": "TC-tests/test_apply.py::test_apply",
+    }
+    assert writer.apply_evidence(
+        target_file="out/Demo_bug_analysis.md",
+        receipt_id=old_result["waveform_analysis_receipt"]["receipt_id"],
+        **base_item,
+    )["success"]
+    test_source.write_text("def test_apply(env):\n    assert env.result == 2\n", encoding="utf-8")
+    current_result = _final_apply_receipt(waveinfo)
+    review_item = {
+        **base_item,
+        "receipt_id": current_result["waveform_analysis_receipt"]["receipt_id"],
+    }
+    tool = ReviewWaveInfoEvidenceBatch(evidence_writer=writer)
+    assert tool.review_batch(
+        target_file="out/Demo_bug_analysis.md",
+        items=[review_item],
+    )["status"] == "review_context_ready"
+    original = target.read_text(encoding="utf-8")
+    test_source.write_text("def test_apply(env):\n    assert env.result == 3\n", encoding="utf-8")
+
+    rejected = tool.review_batch(
+        target_file="out/Demo_bug_analysis.md",
+        items=[
+            {
+                **review_item,
+                "review": {
+                    "alignment_evidence": "current alignment",
+                    "bug_evidence": {
+                        "BG-DYNAMIC-80": {
+                            "observed_behavior": "current mismatch",
+                            "source_correlation": "current source correlation",
+                        }
+                    },
+                },
+            }
+        ],
+    )
+
+    assert rejected["status"] == "review_context_stale"
+    assert rejected["details"]["item_index"] == 0
+    assert target.read_text(encoding="utf-8") == original
+
+
+def test_review_waveinfo_evidence_batch_rejects_waveform_rotation_after_prepare(
+    tmp_path,
+):
+    test_dir = tmp_path / "out" / "tests"
+    session = _session(test_dir, "toffee_tmp_20260814150000_000")
+    _write_vcd(session, "test_apply")
+    target = tmp_path / "out" / "Demo_bug_analysis.md"
+    target.parent.mkdir(exist_ok=True)
+    _write_dynamic_bug_scaffold(target)
+    waveinfo = _tool(tmp_path, test_dir)
+    old_result = _final_apply_receipt(waveinfo)
+    writer = ApplyWaveInfoEvidence(waveinfo=waveinfo, workspace=str(tmp_path))
+    base_item = {
+        "bug_tag": "BG-DYNAMIC-80",
+        "checkpoint_path": "FG-A/FC-A/CK-A",
+        "test_case_tag": "TC-tests/test_apply.py::test_apply",
+    }
+    assert writer.apply_evidence(
+        target_file="out/Demo_bug_analysis.md",
+        receipt_id=old_result["waveform_analysis_receipt"]["receipt_id"],
+        **base_item,
+    )["success"]
+    review_item = {
+        **base_item,
+        "receipt_id": old_result["waveform_analysis_receipt"]["receipt_id"],
+    }
+    tool = ReviewWaveInfoEvidenceBatch(evidence_writer=writer)
+    assert tool.review_batch(
+        target_file="out/Demo_bug_analysis.md",
+        items=[review_item],
+    )["status"] == "review_context_ready"
+    original = target.read_text(encoding="utf-8")
+    newer = _session(test_dir, "toffee_tmp_20260814160000_000")
+    _write_vcd(newer, "test_apply")
+
+    rejected = tool.review_batch(
+        target_file="out/Demo_bug_analysis.md",
+        items=[
+            {
+                **review_item,
+                "review": {
+                    "alignment_evidence": "current alignment",
+                    "bug_evidence": {
+                        "BG-DYNAMIC-80": {
+                            "observed_behavior": "current mismatch",
+                            "source_correlation": "current source correlation",
+                        }
+                    },
+                },
+            }
+        ],
+    )
+
+    assert rejected["status"] == "review_waveform_stale"
+    assert rejected["details"]["item_index"] == 0
+    assert target.read_text(encoding="utf-8") == original
+
+
+def test_review_waveinfo_evidence_batch_preserves_concurrent_document_change(
+    tmp_path,
+    monkeypatch,
+):
+    test_dir = tmp_path / "out" / "tests"
+    session = _session(test_dir, "toffee_tmp_20260814150000_000")
+    _write_vcd(session, "test_apply")
+    target = tmp_path / "out" / "Demo_bug_analysis.md"
+    target.parent.mkdir(exist_ok=True)
+    _write_dynamic_bug_scaffold(target)
+    waveinfo = _tool(tmp_path, test_dir)
+    first = _final_apply_receipt(waveinfo)
+    second = _final_apply_receipt(waveinfo)
+    writer = ApplyWaveInfoEvidence(waveinfo=waveinfo, workspace=str(tmp_path))
+    base_item = {
+        "bug_tag": "BG-DYNAMIC-80",
+        "checkpoint_path": "FG-A/FC-A/CK-A",
+        "test_case_tag": "TC-tests/test_apply.py::test_apply",
+    }
+    assert writer.apply_evidence(
+        target_file="out/Demo_bug_analysis.md",
+        receipt_id=first["waveform_analysis_receipt"]["receipt_id"],
+        **base_item,
+    )["success"]
+    before = target.read_text(encoding="utf-8")
+    external = before + "\nexternal concurrent note\n"
+    original_replace = ApplyWaveInfoEvidence._atomic_replace
+
+    def concurrent_replace(target_path, original, updated):
+        if target_path == target:
+            target.write_text(external, encoding="utf-8")
+        original_replace(target_path, original, updated)
+
+    monkeypatch.setattr(
+        ApplyWaveInfoEvidence,
+        "_atomic_replace",
+        staticmethod(concurrent_replace),
+    )
+    tool = ReviewWaveInfoEvidenceBatch(evidence_writer=writer)
+
+    rejected = tool.review_batch(
+        target_file="out/Demo_bug_analysis.md",
+        items=[
+            {
+                **base_item,
+                "receipt_id": second["waveform_analysis_receipt"]["receipt_id"],
+                "review": {
+                    "alignment_evidence": "current alignment",
+                    "bug_evidence": {
+                        "BG-DYNAMIC-80": {
+                            "observed_behavior": "current mismatch",
+                            "source_correlation": "current source correlation",
+                        }
+                    },
+                },
+            }
+        ],
+    )
+
+    assert rejected["status"] == "batch_review_failed"
+    assert "changed while evidence was being prepared" in rejected["error"]
+    assert rejected["details"] == {
+        "scope": "document",
+        "target_file": "out/Demo_bug_analysis.md",
+    }
+    assert target.read_text(encoding="utf-8") == external
 
 
 def test_apply_waveinfo_evidence_accepts_text_created_scaffold_without_skill(tmp_path):
