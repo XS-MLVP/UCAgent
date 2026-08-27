@@ -16,6 +16,7 @@ def get_chat_model_openai(
     rate_limiter,
     api_mode: str | None = None,
     probe: bool = False,
+    streaming: bool | None = None,
 ) -> Any:
     """Get OpenAI chat model instance.
 
@@ -25,6 +26,7 @@ def get_chat_model_openai(
         rate_limiter: Optional LangChain rate limiter.
         api_mode: Negotiated protocol, if the backend selected one.
         probe: Whether to build a bounded startup-probe model.
+        streaming: Explicit streaming mode; defaults to the historical callback behavior.
 
     Returns:
         ChatOpenAI instance.
@@ -88,7 +90,16 @@ def get_chat_model_openai(
             if isinstance(model_kwargs, dict):
                 model_kwargs.pop(key, None)
     if callbacks:
-        kw.update({"callbacks": callbacks, "streaming": True})
+        kw["callbacks"] = callbacks
+    request_stream_usage = False
+    if streaming is None:
+        if callbacks:
+            kw["streaming"] = True
+            request_stream_usage = True
+    else:
+        kw["streaming"] = streaming
+        request_stream_usage = streaming
+    if request_stream_usage:
         # Request usage in the final streaming chunk when the provider supports
         # the OpenAI stream-options contract.
         kw.setdefault("stream_usage", True)
@@ -293,6 +304,7 @@ def get_chat_model(
     cfg: Config,
     callbacks: Any = None,
     openai_api_mode: str | None = None,
+    streaming: bool | None = None,
 ) -> Any:
     if not cfg.rate_limiter.enabled:
         rate_limiter = None
@@ -316,6 +328,7 @@ def get_chat_model(
                 callbacks,
                 rate_limiter,
                 api_mode=openai_api_mode,
+                streaming=streaming,
             )
         return globals()[func](cfg, callbacks, rate_limiter)
     else:

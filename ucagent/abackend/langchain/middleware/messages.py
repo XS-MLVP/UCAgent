@@ -1,6 +1,7 @@
 """Messages summarization middleware."""
 
 import math
+import threading
 import time
 from collections import OrderedDict
 from typing import Any, Dict, Union
@@ -199,17 +200,42 @@ class MessageStatistic:
 
 
 class StreamedOutputCallbackHandler(BaseCallbackHandler):
-    """Track streamed output characters without presenting them as tokens."""
+    """Track streamed characters and the current model's output-token rate."""
 
     def __init__(self):
         super().__init__()
+        self._lock = threading.Lock()
         self.total_characters = 0
-        self.last_characters = 0
-        self.last_access_time = 0.0
-        self.last_character_speed = 0.0
+        self._generation_started_at: float | None = None
+        self._first_output_at: float | None = None
+        self._generation_characters = 0
+        self._generation_chunks = 0
+        self._last_token_speed = 0.0
+        self._active = False
+
+    def _start_generation(self) -> None:
+        now = time.perf_counter()
+        with self._lock:
+            self._generation_started_at = now
+            self._first_output_at = None
+            self._generation_characters = 0
+            self._generation_chunks = 0
+            self._active = True
+
+    def on_llm_start(self, serialized, prompts, **kwargs) -> None:
+        """Start timing a text-model request."""
+        del serialized, prompts, kwargs
+        self._start_generation()
+
+    def on_chat_model_start(self, serialized, messages, **kwargs) -> None:
+        """Start timing a chat-model request."""
+        del serialized, messages, kwargs
+        self._start_generation()
 
     def on_llm_new_token(self, token: str, **kwargs) -> None:
-        self.total_characters += len(token)
+        now = time.perf_counter()
+        emitted_characters = len(token)
+        has_output = bool(token)
         chunk = kwargs.get("chunk")
         message = getattr(chunk, "message", None)
         if message and hasattr(message, "tool_call_chunks"):
@@ -217,30 +243,94 @@ class StreamedOutputCallbackHandler(BaseCallbackHandler):
                 tool_name = tool_call.get("name")
                 args = tool_call.get("args")
                 if tool_name:
-                    self.total_characters += len(tool_name)
+                    emitted_characters += len(tool_name)
+                    has_output = True
                 if args:
-                    self.total_characters += len(args)
+                    emitted_characters += len(args)
+                    has_output = True
+        with self._lock:
+            if not self._active:
+                self._generation_started_at = now
+                self._active = True
+            self.total_characters += emitted_characters
+            self._generation_characters += emitted_characters
+            if has_output:
+                if self._first_output_at is None:
+                    self._first_output_at = now
+                self._generation_chunks += 1
+
+    def _finish_generation(self, output_tokens: int | None) -> None:
+        now = time.perf_counter()
+        with self._lock:
+            estimated_tokens = max(
+                self._generation_chunks,
+                math.ceil(self._generation_characters / 4),
+            )
+            produced_tokens = (
+                output_tokens if output_tokens is not None else estimated_tokens
+            )
+            started_at = (
+                self._first_output_at
+                if self._first_output_at is not None
+                else self._generation_started_at
+            )
+            elapsed = now - started_at if started_at is not None else 0.0
+            self._last_token_speed = (
+                produced_tokens / elapsed if elapsed > 0.0 else 0.0
+            )
+            self._active = False
+
+    def on_llm_end(self, response, **kwargs) -> None:
+        """Finalize speed using provider output usage when it is available."""
+        del kwargs
+        output_tokens = []
+        for generation_list in getattr(response, "generations", None) or []:
+            for generation in generation_list:
+                message = getattr(generation, "message", None)
+                usage = getattr(message, "usage_metadata", None)
+                value = usage.get("output_tokens") if isinstance(usage, dict) else None
+                if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+                    output_tokens.append(value)
+        exact_output_tokens = sum(output_tokens) if output_tokens else None
+        if exact_output_tokens is None:
+            llm_output = getattr(response, "llm_output", None)
+            if isinstance(llm_output, dict):
+                usage = llm_output.get("token_usage") or llm_output.get("usage")
+                if isinstance(usage, dict):
+                    for key in ("output_tokens", "completion_tokens"):
+                        value = usage.get(key)
+                        if (
+                            isinstance(value, int)
+                            and not isinstance(value, bool)
+                            and value >= 0
+                        ):
+                            exact_output_tokens = value
+                            break
+        self._finish_generation(exact_output_tokens)
+
+    def on_llm_error(self, error, **kwargs) -> None:
+        """Preserve an estimated rate for output produced before an error."""
+        del error, kwargs
+        self._finish_generation(None)
 
     def get_speed(self) -> float:
-        if self.last_access_time == 0.0:
-            self.last_access_time = time.time()
-            self.last_characters = self.total_characters
-            return 0.0
-        now_time = time.time()
-        delta_time = now_time - self.last_access_time
-        if delta_time < 1.0:
-            return self.last_character_speed
-        delta_characters = self.total_characters - self.last_characters
-        self.last_access_time = now_time
-        self.last_character_speed = delta_characters / delta_time
-        self.last_characters = self.total_characters
-        return self.last_character_speed
+        """Return live estimated speed or the last completed provider-backed speed."""
+        with self._lock:
+            if not self._active or self._first_output_at is None:
+                return self._last_token_speed if not self._active else 0.0
+            estimated_tokens = max(
+                self._generation_chunks,
+                math.ceil(self._generation_characters / 4),
+            )
+            elapsed = time.perf_counter() - self._first_output_at
+            return estimated_tokens / elapsed if elapsed > 0.0 else 0.0
 
     def total(self) -> int:
-        return self.total_characters
+        with self._lock:
+            return self.total_characters
 
 
-# Backward-compatible import name. Values from this callback are characters.
+# Backward-compatible class name; total() remains a streamed-character count.
 TokenSpeedCallbackHandler = StreamedOutputCallbackHandler
 
 

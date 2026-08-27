@@ -28,13 +28,15 @@ class UCAgentLangChainBackend(AgentBackendBase):
             self.openai_api_mode = negotiate_openai_api_mode(self.config)
         self.model = get_chat_model(
             self.config,
-            [self.cb_stream_output] if vagent.stream_output else None,
+            [self.cb_stream_output],
             openai_api_mode=self.openai_api_mode,
+            streaming=vagent.stream_output,
         )
         self.sumary_model = get_chat_model(
             self.config,
-            [self.cb_summary_stream_output] if vagent.stream_output else None,
+            [self.cb_summary_stream_output],
             openai_api_mode=self.openai_api_mode,
+            streaming=vagent.stream_output,
         )
 
         if vagent.context_management_strategy == "TrimAndSummaryMiddleware":
@@ -264,7 +266,7 @@ class UCAgentLangChainBackend(AgentBackendBase):
         return self.message_statistic.get_statistics()
 
     def token_speed(self):
-        return -1.0
+        return self.cb_stream_output.get_speed()
 
     def token_total(self):
         usage = self.get_statistics()["provider_usage"]["all"]

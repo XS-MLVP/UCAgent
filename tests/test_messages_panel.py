@@ -18,6 +18,7 @@ from ucagent.tui.app import VerifyApp
 from ucagent.tui.widgets.console import ConsoleEntry, ConsoleWidget, ConsoleWidgetState
 from ucagent.tui.widgets.console_input import ConsoleInput
 from ucagent.tui.widgets.messages_panel import MessagesPanel
+from ucagent.tui.widgets.status_bar import StatusBar
 
 
 class TestMessagesPanelPayloadProcessing:
@@ -565,6 +566,24 @@ class _FakeWorker:
 
 
 class TestVerifyAppPersistence:
+    @pytest.mark.asyncio
+    async def test_status_bar_displays_langchain_token_speed(self):
+        vpdb = _FakeVPDB()
+        vpdb.agent.status_info = lambda: {
+            "Run Time": "1s",
+            "LLM": "test-model",
+            "Token Speed": "12.35 tok/s",
+            "Stream": True,
+            "Interaction Mode": "test",
+        }
+
+        app = VerifyApp(vpdb)
+        async with app.run_test():
+            status_bar = app.query_one("#status-bar", StatusBar)
+            status_bar.update_content()
+
+            assert "Speed: 12.35 tok/s" in status_bar._raw_text
+
     @pytest.mark.asyncio
     async def test_cleanup_saves_and_next_app_restores_messages(self):
         vpdb = _FakeVPDB()

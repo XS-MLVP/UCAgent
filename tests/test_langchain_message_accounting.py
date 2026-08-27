@@ -126,6 +126,70 @@ def test_stream_callback_counts_characters_and_handles_missing_chunk():
     assert callback.total() == 6
 
 
+def test_stream_callback_uses_provider_output_tokens_for_speed(monkeypatch):
+    timestamps = iter((10.0, 11.0, 12.0, 13.0))
+    monkeypatch.setattr(
+        "ucagent.abackend.langchain.middleware.messages.time.perf_counter",
+        lambda: next(timestamps),
+    )
+    callback = StreamedOutputCallbackHandler()
+    callback.on_chat_model_start({}, [[]])
+    callback.on_llm_new_token("first")
+    callback.on_llm_new_token("second")
+    response = SimpleNamespace(
+        generations=[
+            [
+                SimpleNamespace(
+                    message=AIMessage(
+                        content="firstsecond",
+                        usage_metadata={
+                            "input_tokens": 20,
+                            "output_tokens": 10,
+                            "total_tokens": 30,
+                        },
+                    )
+                )
+            ]
+        ],
+        llm_output=None,
+    )
+
+    callback.on_llm_end(response)
+
+    assert callback.get_speed() == pytest.approx(5.0)
+
+
+def test_stream_callback_times_non_streamed_provider_output(monkeypatch):
+    timestamps = iter((20.0, 24.0))
+    monkeypatch.setattr(
+        "ucagent.abackend.langchain.middleware.messages.time.perf_counter",
+        lambda: next(timestamps),
+    )
+    callback = StreamedOutputCallbackHandler()
+    callback.on_chat_model_start({}, [[]])
+    response = SimpleNamespace(
+        generations=[],
+        llm_output={"token_usage": {"completion_tokens": 8}},
+    )
+
+    callback.on_llm_end(response)
+
+    assert callback.get_speed() == pytest.approx(2.0)
+
+
+def test_stream_callback_reports_live_estimated_speed(monkeypatch):
+    timestamps = iter((30.0, 31.0, 33.0))
+    monkeypatch.setattr(
+        "ucagent.abackend.langchain.middleware.messages.time.perf_counter",
+        lambda: next(timestamps),
+    )
+    callback = StreamedOutputCallbackHandler()
+    callback.on_chat_model_start({}, [[]])
+    callback.on_llm_new_token("abcd")
+
+    assert callback.get_speed() == pytest.approx(0.5)
+
+
 def test_provider_usage_can_arrive_after_an_initial_response_without_usage():
     statistic = MessageStatistic()
     initial = AIMessage(content="answer", id="same-response")
@@ -312,7 +376,7 @@ def test_backend_binds_tools_after_verify_agent_finishes_tool_setup(monkeypatch)
     model = _FakeSummaryModel()
     created = {}
     negotiations = []
-    selected_modes = []
+    model_calls = []
     vagent = SimpleNamespace(
         stream_output=False,
         context_management_strategy="TrimAndSummaryMiddleware",
@@ -328,8 +392,15 @@ def test_backend_binds_tools_after_verify_agent_finishes_tool_setup(monkeypatch)
     )
     monkeypatch.setattr(
         "ucagent.abackend.langchain.agent.get_chat_model",
-        lambda config, callbacks, openai_api_mode=None: (
-            selected_modes.append(openai_api_mode) or model
+        lambda config, callbacks, openai_api_mode=None, streaming=None: (
+            model_calls.append(
+                {
+                    "callbacks": callbacks,
+                    "openai_api_mode": openai_api_mode,
+                    "streaming": streaming,
+                }
+            )
+            or model
         ),
     )
 
@@ -347,7 +418,13 @@ def test_backend_binds_tools_after_verify_agent_finishes_tool_setup(monkeypatch)
     )
     assert backend.message_manage_node.tools == []
     assert negotiations == [backend.config]
-    assert selected_modes == ["responses", "responses"]
+    assert [call["openai_api_mode"] for call in model_calls] == [
+        "responses",
+        "responses",
+    ]
+    assert [call["streaming"] for call in model_calls] == [False, False]
+    assert model_calls[0]["callbacks"] == [backend.cb_stream_output]
+    assert model_calls[1]["callbacks"] == [backend.cb_summary_stream_output]
 
     vagent.test_tools = [{"type": "function", "function": {"name": "Read"}}]
     backend.init()
@@ -447,6 +524,7 @@ def test_status_keeps_token_and_compression_metrics_compact():
     agent.backend = SimpleNamespace(
         model_name=lambda: "test-model",
         temperature=lambda: 0,
+        token_speed=lambda: 12.345,
         get_statistics=lambda: {"provider_usage": {"all": provider_usage}},
         _stat_msg_count_ai=1,
         _stat_msg_count_tool=0,
@@ -464,11 +542,12 @@ def test_status_keeps_token_and_compression_metrics_compact():
 
     status = agent.status_info()
 
-    assert len(status) == 18
+    assert len(status) == 19
     assert status["SummaryMode"] == "TrimAndSummaryMiddleware"
     assert status["ProviderTokens"] == "complete 120/12/132"
     assert status["Context"].endswith("/1000,msg=1/10")
     assert status["Compression"] == "token_limit tok=1200>300,msg=12>3"
+    assert status["Token Speed"] == "12.35 tok/s"
     assert not {
         "ProviderInputTokens",
         "MainProviderInputTokens",
@@ -476,6 +555,10 @@ def test_status_keeps_token_and_compression_metrics_compact():
         "TokenEstimateScale",
         "LastCompression",
     }.intersection(status)
+
+    agent.backend.token_speed = lambda: -1.0
+
+    assert "Token Speed" not in agent.status_info()
 
 
 def test_live_middleware_max_token_setter_updates_the_active_limit():
@@ -541,3 +624,59 @@ def test_openai_streaming_requests_provider_usage(monkeypatch):
     assert captured["stream_usage"] is True
     assert captured["stop"] == ["END"]
     assert captured["model_kwargs"] == {"extra_body_option": "value"}
+
+
+def test_openai_callbacks_do_not_force_explicit_non_streaming(monkeypatch):
+    captured = {}
+
+    class _FakeChatOpenAI:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr("langchain_openai.ChatOpenAI", _FakeChatOpenAI)
+    cfg = SimpleNamespace(
+        openai=SimpleNamespace(
+            as_dict=lambda: {
+                "model_name": "test-model",
+                "openai_api_key": "test-key",
+            }
+        ),
+        seed=1,
+    )
+    callback = object()
+
+    get_chat_model_openai(
+        cfg,
+        callbacks=[callback],
+        rate_limiter=None,
+        streaming=False,
+    )
+
+    assert captured["callbacks"] == [callback]
+    assert captured["streaming"] is False
+    assert "stream_usage" not in captured
+
+
+def test_openai_without_callbacks_preserves_configured_streaming(monkeypatch):
+    captured = {}
+
+    class _FakeChatOpenAI:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr("langchain_openai.ChatOpenAI", _FakeChatOpenAI)
+    cfg = SimpleNamespace(
+        openai=SimpleNamespace(
+            as_dict=lambda: {
+                "model_name": "test-model",
+                "openai_api_key": "test-key",
+                "streaming": True,
+            }
+        ),
+        seed=1,
+    )
+
+    get_chat_model_openai(cfg, callbacks=None, rate_limiter=None)
+
+    assert captured["streaming"] is True
+    assert "stream_usage" not in captured

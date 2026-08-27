@@ -30,6 +30,7 @@ from .interaction import EnhancedInteractionLogic, AdvancedInteractionLogic
 from .version import __version__, __email__
 
 import time
+import math
 import random
 import signal
 import copy
@@ -1140,6 +1141,17 @@ class VerifyAgent:
         else:
             provider_tokens = "unavailable"
 
+        token_speed = -1.0
+        backend_token_speed = getattr(self.backend, "token_speed", None)
+        if callable(backend_token_speed):
+            value = backend_token_speed()
+            if (
+                isinstance(value, (int, float))
+                and not isinstance(value, bool)
+                and math.isfinite(value)
+            ):
+                token_speed = float(value)
+
         context_status = "unavailable"
         compression_status = "none"
         message_node = self.message_manage_node
@@ -1185,6 +1197,8 @@ class VerifyAgent:
                 "Run Time": fmt_time_deta(self.stage_manager.get_time_cost()),
             }
         )
+        if token_speed >= 0.0:
+            stats["Token Speed"] = f"{token_speed:.2f} tok/s"
         return stats
 
     def message_get_str(self, index, count):
