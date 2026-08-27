@@ -102,7 +102,7 @@ TC与CK状态按以下规则解释：
 - `create_test_case_templates`阶段生成空模板时必须使用`assert False, "Not implemented"`；当前实现阶段必须删除该占位断言，换成真实激励和严格预期检查
 - 已实现测试禁止用`assert False`制造Fail，禁止修改正确预期或弱化断言来制造Pass，也禁止用`BG-*-0`保留测试/基础设施失败
 - `RunTestCases`可能执行很多测试用例，但当前步骤只针对当前批次TC及报告为这些TC关联的CK进行分析；未来批次的未关联失败CK不得扩张本批次范围
-- Skill启用且当前stage列出`dynamic-bug-recording`时，`record_dynamic_bug.py`通过`-MODE bug`确定性写入一个完整`FG/FC/CK/BG/TC`路径、三个BG字段、唯一`<CAUSE-REF-ROOT-XXX>`和ROOT反向链接，再通过`-MODE root`写入ROOT五字段；它不创建波形YAML，脚本成功后仍需真实WaveInfo和Apply证据。Skill禁用、未复制或脚本不可用时才使用文本工具完成相同结构
+- Skill启用且公共`dynamic-bug-recording`可用时，`record_dynamic_bug.py`通过`-MODE bug`确定性写入一个完整`FG/FC/CK/BG/TC`路径、三个BG字段、唯一`<CAUSE-REF-ROOT-XXX>`和ROOT反向链接，再通过`-MODE root`写入ROOT五字段；它不创建波形YAML，脚本成功后仍需真实WaveInfo和Apply证据。公共Skill不调用`SetSkillUsage`；Skill禁用、未复制或脚本不可用时使用文本工具完成相同结构
 - 对可复现的动态Bug，必须真实调用`WaveInfo`取得最终receipt，再调用`ApplyWaveInfoEvidence`原子维护BG侧`<WAVEFORM-REF>`和中央`<WAVEFORM-EVIDENCE>`分区中的唯一`<WAVEFORM-TC-...>`记录。不要复制receipt字段或viewer token；BG内的波形关联只保留TC与引用，三个BG字段仍需填写，YAML和viewer只放在中央记录中
 - 从Checker的`Configured TC output directory`读取实际TC目录；文档TC使用以该值开头的函数级报告node。非参数化WaveInfo只去掉`TC-`；参数化聚合时从`tests.test_case_instances`选择实际FAILED child，不能猜参数ID。child删除`[...]`后必须与文档TC的完整路径/类/函数逐字相同，不同路径绝不等价。`RunTestCases` target相对于配置TC目录，不得再次带该前缀；`PYTEST_TARGET_DIRECTORY_PREFIX.correct_target`是唯一重试值。inventory和相似节点只供定位/核对
 - 只带pattern但没有`logged_cycle+clock_signal`或完整`start_step+end_step`的调用属于探索调用；返回`evidence_window_required`时必须逐字使用`recommended_evidence_call`重调，不能把`analysis_window.effective_*`手工写入文档冒充原调用参数
@@ -126,7 +126,7 @@ TC与CK状态按以下规则解释：
 
 #### 5.1 记录动态 Bug
 
-Skill启用且当前stage列出`dynamic-bug-recording`时，尽可能不直接编辑`{OUT}/{DUT}_bug_analysis.md`。参照`Guide_Doc/dut_bug_analysis.md section 5.1`确认字段语义，并优先通过`RunSkillScript`按以下顺序完成记录：对每个新BG路径的第一份精确FG/FC/CK/BG/TC关联调用`-MODE bug`一次，再对每个不同ROOT调用`-MODE root`一次；已有CK/BG仅新增兄弟TC时直接调用WaveInfo/Apply。执行一次`-MODE repair`和返回的`next_action`后若相同文档格式阻塞仍存在，才按`error/details`或返回的`manual_edit_fallback`最小编辑，并立即重跑`-MODE repair`和Check。下方所有值必须替换为当前报告、功能检查文档、测试docstring和真实分析结论；不能传Markdown标题、机器标签、ROOT引用或代码围栏作为字段正文：
+Skill启用且公共`dynamic-bug-recording`可用时，尽可能不直接编辑`{OUT}/{DUT}_bug_analysis.md`。参照`Guide_Doc/dut_bug_analysis.md section 5.1`确认字段语义，并优先通过`RunSkillScript`按以下顺序完成记录：对每个新BG路径的第一份精确FG/FC/CK/BG/TC关联调用`-MODE bug`一次，再对每个不同ROOT调用`-MODE root`一次；已有CK/BG仅新增兄弟TC时直接调用WaveInfo/Apply。执行一次`-MODE repair`和返回的`next_action`后若相同文档格式阻塞仍存在，才按`error/details`或返回的`manual_edit_fallback`最小编辑，并立即重跑`-MODE repair`和Check。公共Skill不调用`SetSkillUsage`。下方所有值必须替换为当前报告、功能检查文档、测试docstring和真实分析结论；不能传Markdown标题、机器标签、ROOT引用或代码围栏作为字段正文：
 ```text
 ["unitytest/dynamic-bug-recording", "record_dynamic_bug.py", "-MODE bug -BG 'BG-CIN-OVERFLOW-98' -TC 'TC-{OUT}/tests/test_{DUT}_carry.py::test_carry' -BD '进位结果丢失' -CHECKPOINT 'FG-ARITHMETIC/FC-ADD/CK-CARRY' -ROOT-TAG 'ROOT-ADDER-CARRY-WIDTH' -ROOT-TITLE '加法进位位宽不足' -OVERVIEW '规格要求完整保留加法进位，实际结果在输出前被截断。' -SYMPTOMS '最大操作数组合稳定返回缺少最高进位位的错误结果。' -TRIGGER '两个操作数之和超出结果低位宽度时稳定触发。'"]
 ```

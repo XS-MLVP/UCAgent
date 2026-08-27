@@ -5,9 +5,9 @@ description: 为正确失败测试确认的动态DUT Bug优先确定性维护BG�
 
 # 动态 Bug 确定性记录
 
-当前stage的`skill_list`包含本技能且Skill启用时，优先通过本技能声明的`record_dynamic_bug.py`以及内置`WaveInfo`、`ApplyWaveInfoEvidence`维护已确认动态DUT Bug，避免主动用文本工具编辑`{OUT}/{DUT}_bug_analysis.md`。脚本以原子替换方式维护Markdown结构；同一命令可幂等重试，也可在后续stage继续追加新的精确路径、TC、BG或ROOT关联。若脚本不能恢复已有文档的格式损坏，可按下述受控兜底只修复诊断指出的最小范围。这个编辑偏好只针对动态Bug文档；其他文档和代码仍使用当前stage允许的普通工具。
+Skill启用且本公共Skill可用时，优先通过本技能声明的`record_dynamic_bug.py`以及内置`WaveInfo`、`ApplyWaveInfoEvidence`维护已确认动态DUT Bug，避免主动用文本工具编辑`{OUT}/{DUT}_bug_analysis.md`。脚本以原子替换方式维护Markdown结构；同一命令可幂等重试，也可在后续stage继续追加新的精确路径、TC、BG或ROOT关联。若脚本不能恢复已有文档的格式损坏，可按下述受控兜底只修复诊断指出的最小范围。这个编辑偏好只针对动态Bug文档；其他文档和代码仍使用当前stage允许的普通工具。
 
-本Skill是可选加速路径。Skill整体禁用、当前stage没有本Skill，或工作区未复制`.ucagent/skills`时，仍按stage task、Guide_Doc/dut_bug_analysis.md中的第 5.1 节（section 5.1）和内置文本编辑工具完成完全相同的规范产物；Skill缺失不得暂停、跳过Bug记录或降低证据标准。
+本Skill是`general_skill_list`中的公共可选加速路径，全阶段可发现，不属于任何stage的强制`skill_list`，不调用`SetSkillUsage`。Skill整体禁用、公共Skill未配置，或工作区未复制`.ucagent/skills`时，仍按stage task、Guide_Doc/dut_bug_analysis.md中的第 5.1 节（section 5.1）和内置文本编辑工具完成完全相同的规范产物；Skill缺失不得暂停、跳过Bug记录或降低证据标准。
 
 `{OUT}/{DUT}_bug_analysis.md`是跨阶段累计文档；当前报告可能只是局部报告。历史TC/BG/ROOT和中央波形必须保留，缺少当前报告的TC不代表它已Pass或失效。同名BG/TC在不同CK下不等价，路径验收单位始终是完整`FG/FC/CK/BG`；一个TC的中央波形仍只有一份。
 
@@ -19,7 +19,7 @@ CK失败时必须先核对coverage/check function、predicate和sample时机；C
 
 在记录前还要核对测试激励/driver、API callback、Step顺序、复位和响应有效窗口，确认Fail不是验证基础设施问题。
 
-当前Fail必须分类。无Bug分支的完成条件是验证问题均已修复到Pass且没有正确测试稳定复现DUT缺陷；此时不运行本脚本、不调用WaveInfo或Apply，也不新增BG、TC、ROOT或波形占位。累计文档已有历史记录时保持原状；累计文档从未记录Bug时保留规范标题和三个空容器。当前`Check`通过后，用`SetSkillUsage`提交`list=true/read=true/use=false`和非空`reason`。有确认Bug并成功执行下述脚本方法时，在`Check`通过后可将本技能的`use`记录为true。
+当前Fail必须分类。无Bug分支的完成条件是验证问题均已修复到Pass且没有正确测试稳定复现DUT缺陷；此时不运行本脚本、不调用WaveInfo或Apply，也不新增BG、TC、ROOT或波形占位。累计文档已有历史记录时保持原状；累计文档从未记录Bug时保留规范标题和三个空容器。公共Skill没有使用证据门禁：无Bug时直接继续当前stage的`Check`/`Complete`，有确认Bug时执行下述方法后再`Check`。
 
 ## 固定工作流
 
@@ -90,4 +90,4 @@ ApplyWaveInfoEvidence(target_file="{OUT}/{DUT}_bug_analysis.md", bug_tag="BG-CAR
 
 ## 完成条件
 
-每个保留Fail TC都在当前报告关联的至少一个精确CK下具有非零BG；每个仍失败CK也有同一CK下的真实Fail TC。每个BG的三个字段完整且只引用一个ROOT；每个ROOT的五个字段完整并反向关联全部所属BG路径；每个TC紧跟真实`<WAVEFORM-REF>`且只有一份中央confirmed证据。文档中不存在`<BUG-TODO>`，Check通过后才记录Skill使用并推进stage。
+每个保留Fail TC都在当前报告关联的至少一个精确CK下具有非零BG；每个仍失败CK也有同一CK下的真实Fail TC。每个BG的三个字段完整且只引用一个ROOT；每个ROOT的五个字段完整并反向关联全部所属BG路径；每个TC紧跟真实`<WAVEFORM-REF>`且只有一份中央confirmed证据。文档中不存在`<BUG-TODO>`，Check通过后直接推进stage；公共Skill不记录stage专用使用状态。

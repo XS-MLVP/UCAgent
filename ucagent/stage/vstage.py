@@ -602,8 +602,10 @@ class VerifyStage(object):
         for c in self.checker:
             c.on_init()
 
-        # setup function of vstage by skill in skill_list
-        if hasattr(self, 'skill_list') and self.skill_list:
+        # Stage-specific and general Skills may install optional task hooks. General
+        # Skills remain outside self.skill_list and therefore never enter its usage gate.
+        setup_skill_names = self._get_skill_hook_names()
+        if setup_skill_names:
             import importlib.util
             import sys
             def add_hook(method_name: str, hook_func):
@@ -617,7 +619,7 @@ class VerifyStage(object):
             self.add_hook = add_hook
             skills_dir = fc.get_workspace_skill_root(self.workspace)
             skills_dir_abs = os.path.abspath(skills_dir)
-            for skill_name in self.skill_list.keys():
+            for skill_name in setup_skill_names:
                 skill_dir = os.path.abspath(os.path.join(skills_dir_abs, skill_name))
                 if os.path.commonpath([skills_dir_abs, skill_dir]) != skills_dir_abs:
                     warning(f"Skill '{skill_name}' is outside workspace skill root, skipping setup_vstage.")
@@ -1323,6 +1325,27 @@ class VerifyStage(object):
             validated_skill_list.append(skill_name)
 
         return {k: [False, False, False] for k in validated_skill_list}
+
+    def _get_skill_hook_names(self):
+        """Return deduplicated stage-specific and optional general Skill hooks."""
+
+        skill_cfg = getattr(getattr(self, "cfg", None), "skill", None)
+        if not bool(getattr(skill_cfg, "use_skill", False)):
+            return []
+
+        names = list(getattr(self, "skill_list", {}))
+        general_skill_list = getattr(skill_cfg, "general_skill_list", []) or []
+        if not isinstance(general_skill_list, list):
+            warning("skill.general_skill_list must be a list; skipping general Skill hooks.")
+            return names
+        for skill_name in general_skill_list:
+            if not isinstance(skill_name, str) or not skill_name.strip():
+                warning("Ignoring invalid empty or non-string general Skill hook entry.")
+                continue
+            skill_name = skill_name.strip()
+            if skill_name not in names:
+                names.append(skill_name)
+        return names
 
 
 def parse_vstage(root_cfg, cfg, workspace, tool_read_text, prefix=""):

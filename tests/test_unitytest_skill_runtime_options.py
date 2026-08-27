@@ -113,6 +113,30 @@ def test_list_skill_records_and_persists_list_evidence(tmp_path):
     assert save_calls == [True]
 
 
+def test_list_skill_keeps_general_skill_outside_stage_usage_evidence(tmp_path):
+    skill_name = _write_test_skill(tmp_path, {})
+    stage = VerifyStage.__new__(VerifyStage)
+    stage.meta_data = {}
+    stage.skill_list = {}
+    save_calls = []
+    manager = SimpleNamespace(
+        cfg=SimpleNamespace(
+            get_value=lambda key, default=None: (
+                [skill_name] if key == "skill.general_skill_list" else default
+            )
+        ),
+        get_current_stage=lambda: stage,
+        save_stage_info=lambda: save_calls.append(True),
+    )
+    agent = SimpleNamespace(stage_manager=manager)
+
+    result = ListSkill(workspace=str(tmp_path)).bind(agent)._run()
+
+    assert f"Skill Name: {skill_name}" in result
+    assert stage.skill_list == {}
+    assert save_calls == []
+
+
 def test_successful_skill_script_records_and_persists_use_evidence(tmp_path):
     _save_runtime_config_for_test(tmp_path)
     skill_name = _write_test_skill(tmp_path, {"pass.py": "print('done')\n"})
@@ -790,6 +814,9 @@ def test_default_workflow_requires_stage_skills_by_default(tmp_path, monkeypatch
 
     assert cfg.skill.use_skill is True
     assert cfg.launch.default_args.use_skill is True
+    assert cfg.skill.general_skill_list == [
+        "unitytest/dynamic-bug-recording"
+    ]
     assert "只有Skill启用且当前stage实际配置了非空`skill_list`时" in config["mission"]["prompt"]["system"]
     assert "未配置`skill_list`或其为空时，不调用`SetSkillUsage`" in config["mission"]["prompt"]["system"]
     assert "`general_skill_list`中的通用Skill始终可选" in config["mission"]["prompt"]["system"]
@@ -846,9 +873,7 @@ def test_default_workflow_requires_stage_skills_by_default(tmp_path, monkeypatch
         "generate_random_test_cases",
         "verification_review_and_summary",
     ):
-        assert stages[stage_name]["skill_list"] == [
-            "unitytest/dynamic-bug-recording"
-        ]
+        assert stages[stage_name].get("skill_list", []) == []
 
 
 def test_stage_force_use_skill_defaults_true_and_allows_explicit_opt_out(tmp_path):
@@ -972,7 +997,7 @@ def test_disabled_skills_do_not_require_copied_skill_files(tmp_path):
     assert passed is True
 
 
-def test_dynamic_bug_skill_hook_owns_only_the_dynamic_bug_document(tmp_path):
+def test_dynamic_bug_general_skill_hook_targets_only_bug_document_stages(tmp_path):
     source = SKILL_ROOT / "dynamic-bug-recording"
     destination = (
         tmp_path
@@ -980,7 +1005,10 @@ def test_dynamic_bug_skill_hook_owns_only_the_dynamic_bug_document(tmp_path):
     )
     copytree_incremental(str(source), str(destination))
     cfg = SimpleNamespace(
-        skill=SimpleNamespace(use_skill=True),
+        skill=SimpleNamespace(
+            use_skill=True,
+            general_skill_list=["unitytest/dynamic-bug-recording"],
+        ),
         _temp_cfg={"OUT": "unity_test", "DUT": "Adder"},
         hist_ignore_pattern=[],
     )
@@ -996,11 +1024,17 @@ def test_dynamic_bug_skill_hook_owns_only_the_dynamic_bug_document(tmp_path):
         task=original_task,
         checker=[],
         reference_files=[],
-        skill_list=["unitytest/dynamic-bug-recording"],
+        skill_list=[],
         output_files=[],
     )
+    stage.checker = [SimpleNamespace(
+        doc_bug_analysis="unity_test/Adder_bug_analysis.md",
+        on_init=lambda: None,
+        filter_vstage_task=lambda task: task,
+    )]
 
     assert stage.task() == original_task
+    assert stage.skill_list == {}
     stage.on_init()
     hooked_task = stage.task()
 
@@ -1020,8 +1054,40 @@ def test_dynamic_bug_skill_hook_owns_only_the_dynamic_bug_document(tmp_path):
     assert "precondition" in policy
     assert "after_edit" in policy
     assert "workflow_context.remaining_sequence" in policy
+    assert "公共 Skill 不调用 SetSkillUsage" in policy
     assert "禁止使用" not in policy
     assert "不得绕过 Skill" not in policy
+
+    unrelated_stage = VerifyStage(
+        cfg=cfg,
+        workspace=str(tmp_path),
+        name="unrelated_stage",
+        description="unrelated work",
+        task=original_task,
+        checker=[],
+        reference_files=[],
+        skill_list=[],
+        output_files=[],
+    )
+    unrelated_stage.on_init()
+    assert unrelated_stage.task() == original_task
+
+    read_only_stage = VerifyStage(
+        cfg=cfg,
+        workspace=str(tmp_path),
+        name="read_only_bug_review",
+        description="read the bug document without validating or writing it",
+        task=original_task,
+        checker=[],
+        reference_files=[],
+        skill_list=[],
+        output_files=[],
+    )
+    read_only_stage.reference_files = {
+        str(tmp_path / "unity_test" / "Adder_bug_analysis.md"): False
+    }
+    read_only_stage.on_init()
+    assert read_only_stage.task() == original_task
 
 
 def test_all_default_workflow_skills_keep_scripts_optional():

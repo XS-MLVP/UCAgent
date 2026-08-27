@@ -604,7 +604,8 @@ def test_bug_analysis_guide_distinguishes_mcp_sentinels_and_evidence_windows():
     assert "静态候选不能覆盖TC级反证" in dynamic_bug_skill
     assert "调用脚本、WaveInfo或创建/更新非零BG之前" in dynamic_bug_skill
     assert "无Bug分支的完成条件" in dynamic_bug_skill
-    assert "可将本技能的`use`记录为true" in dynamic_bug_skill
+    assert "公共Skill没有使用证据门禁" in dynamic_bug_skill
+    assert "不调用`SetSkillUsage`" in dynamic_bug_skill
     assert "只分析当前批次待实现TC及当前报告为这些TC关联的CK" in implementation_skill
     assert "`input | specification_expected | test_expected | actual | classification`" in implementation_skill
     assert "禁止调用`WaveInfo`、创建/更新非零BG或引用静态候选" in implementation_skill
