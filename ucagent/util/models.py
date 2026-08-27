@@ -71,6 +71,12 @@ def get_chat_model_openai(
             kw.pop(key, None)
             if isinstance(model_kwargs, dict):
                 model_kwargs.pop(key, None)
+        reasoning_effort = kw.pop("reasoning_effort", None)
+        if reasoning_effort is not None:
+            reasoning = kw.get("reasoning")
+            if not isinstance(reasoning, dict):
+                reasoning = {}
+            kw["reasoning"] = {**reasoning, "effort": reasoning_effort}
         kw["use_responses_api"] = True
         kw["output_version"] = "responses/v1"
     elif api_mode == "chat_completions":

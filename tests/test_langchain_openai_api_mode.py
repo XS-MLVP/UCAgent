@@ -27,6 +27,7 @@ def _config(api_mode="auto", probe_timeout=10):
                 "openai_api_base": "https://example.test/v1",
                 "api_mode": api_mode,
                 "responses_probe_timeout": probe_timeout,
+                "reasoning_effort": "xhigh",
                 "top_p": 0.9,
                 "model_kwargs": {"stop": ["END"]},
             },
@@ -59,6 +60,8 @@ def test_auto_mode_prefers_responses_and_uses_a_bounded_probe(monkeypatch):
     assert constructor["streaming"] is False
     assert "seed" not in constructor
     assert "stop" not in constructor
+    assert constructor["reasoning"] == {"effort": "xhigh"}
+    assert "reasoning_effort" not in constructor
     assert calls[1] == {"invoke": ("Reply with OK.", {"max_tokens": 8})}
 
 
@@ -218,10 +221,14 @@ def test_responses_and_chat_models_receive_protocol_specific_options(monkeypatch
     assert responses["output_version"] == "responses/v1"
     assert responses["streaming"] is True
     assert responses["stream_usage"] is True
+    assert responses["reasoning"] == {"effort": "xhigh"}
+    assert "reasoning_effort" not in responses
     assert "seed" not in responses
     assert "stop" not in responses
     assert chat["use_responses_api"] is False
     assert chat["use_previous_response_id"] is False
+    assert chat["reasoning_effort"] == "xhigh"
+    assert "reasoning" not in chat
     assert chat["seed"] == 42
     assert chat["stop"] == ["END"]
     assert "output_version" not in chat
@@ -246,12 +253,38 @@ def test_real_chat_openai_payloads_use_the_selected_protocol():
     assert "messages" not in responses_payload
     assert "seed" not in responses_payload
     assert "stop" not in responses_payload
+    assert responses_payload["reasoning"] == {"effort": "xhigh"}
+    assert "reasoning_effort" not in responses_payload
     assert chat_model._use_responses_api(chat_payload) is False
     assert "messages" in chat_payload
     assert "input" not in chat_payload
     assert chat_payload["seed"] == 42
     assert chat_payload["stop"] == ["END"]
+    assert chat_payload["reasoning_effort"] == "xhigh"
+    assert "reasoning" not in chat_payload
     assert cfg.as_dict() == original_config
+
+
+def test_responses_reasoning_effort_preserves_other_reasoning_options(monkeypatch):
+    captured = {}
+
+    class _FakeChatOpenAI:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr("langchain_openai.ChatOpenAI", _FakeChatOpenAI)
+    cfg = _config()
+    cfg.openai.reasoning = {"summary": "auto", "effort": "low"}
+
+    get_chat_model_openai(
+        cfg,
+        callbacks=None,
+        rate_limiter=None,
+        api_mode="responses",
+    )
+
+    assert captured["reasoning"] == {"summary": "auto", "effort": "xhigh"}
+    assert "reasoning_effort" not in captured
 
 
 def test_responses_content_blocks_render_without_protocol_dicts():
@@ -280,13 +313,17 @@ def test_default_openai_mode_environment_values_parse(monkeypatch):
     setting_path = Path(__file__).parents[1] / "ucagent" / "setting.yaml"
     monkeypatch.delenv("OPENAI_API_MODE", raising=False)
     monkeypatch.delenv("OPENAI_RESPONSES_PROBE_TIMEOUT", raising=False)
+    monkeypatch.delenv("OPENAI_REASONING_EFFORT", raising=False)
 
     defaults = load_yaml_with_env_vars(setting_path)["openai"]
     assert defaults["api_mode"] == "auto"
     assert defaults["responses_probe_timeout"] == 10
+    assert defaults["reasoning_effort"] == "xhigh"
 
     monkeypatch.setenv("OPENAI_API_MODE", "chat_completions")
     monkeypatch.setenv("OPENAI_RESPONSES_PROBE_TIMEOUT", "2.5")
+    monkeypatch.setenv("OPENAI_REASONING_EFFORT", "vendor-deep-think")
     overridden = load_yaml_with_env_vars(setting_path)["openai"]
     assert overridden["api_mode"] == "chat_completions"
     assert overridden["responses_probe_timeout"] == 2.5
+    assert overridden["reasoning_effort"] == "vendor-deep-think"
