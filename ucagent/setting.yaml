@@ -212,6 +212,8 @@ openai:
   model_name: "$(OPENAI_MODEL: <your_chat_model_name>)"
   openai_api_key: "$(OPENAI_API_KEY: [your_api_key])"
   openai_api_base: "$(OPENAI_API_BASE: http://<your_chat_model_url>/v1)"
+  api_mode: "$(OPENAI_API_MODE: auto)"
+  responses_probe_timeout: $(OPENAI_RESPONSES_PROBE_TIMEOUT: 10)
   temperature: $(OPENAI_TEMPERATURE: null) # eg: 0.7
   top_p: $(OPENAI_TOP_P: null)             # eg: 0.9
   model_kwargs:

@@ -1,11 +1,12 @@
 #coding=utf-8
+"""LangChain backend integration for UCAgent."""
 
 from ucagent.abackend.base import AgentBackendBase
 from ucagent.util.log import info, warning, error
 from .middleware import MessageStatistic, TokenSpeedCallbackHandler, TrimAndSummaryMiddleware
 from langchain.agents import create_agent
 from langgraph.checkpoint.memory import MemorySaver
-from ucagent.util.models import get_chat_model
+from ucagent.util.models import get_chat_model, negotiate_openai_api_mode
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, ToolMessage
 from ucagent.util.functions import dump_as_json, get_ai_message_tool_call
 
@@ -22,13 +23,18 @@ class UCAgentLangChainBackend(AgentBackendBase):
         self.cb_summary_stream_output = TokenSpeedCallbackHandler()
         # Retain the old attribute for callers that inspect the backend directly.
         self.cb_token_speed = self.cb_stream_output
+        self.openai_api_mode = None
+        if self.config.get_value("model_type", "openai") == "openai":
+            self.openai_api_mode = negotiate_openai_api_mode(self.config)
         self.model = get_chat_model(
             self.config,
             [self.cb_stream_output] if vagent.stream_output else None,
+            openai_api_mode=self.openai_api_mode,
         )
         self.sumary_model = get_chat_model(
             self.config,
             [self.cb_summary_stream_output] if vagent.stream_output else None,
+            openai_api_mode=self.openai_api_mode,
         )
 
         if vagent.context_management_strategy == "TrimAndSummaryMiddleware":
@@ -85,21 +91,30 @@ class UCAgentLangChainBackend(AgentBackendBase):
         return self.message_manage_node
 
     def _process_msg_content(self, msg):
+        """Render user-visible text from provider-neutral LangChain content blocks."""
         if isinstance(msg, str):
             return msg
         if isinstance(msg, dict):
-            key = msg.get("type", "")
-            if not key:
+            block_type = msg.get("type")
+            if block_type in {"text", "output_text"}:
+                return self._process_msg_content(msg.get("text", ""))
+            if block_type == "refusal":
+                return self._process_msg_content(msg.get("refusal", ""))
+            if block_type in {"thinking", "summary_text"}:
+                return self._process_msg_content(
+                    msg.get("thinking", msg.get("text", ""))
+                )
+            if block_type == "reasoning":
+                return self._process_msg_content(msg.get("summary", ""))
+            if block_type:
+                return ""
+            if not msg:
+                return ""
+            if len(msg) != 1:
                 return str(msg)
-            v = msg.get(key)
-            if not v:
-                return str(msg)
-            return self._process_msg_content(v)
+            return self._process_msg_content(next(iter(msg.values())))
         if isinstance(msg, list):
-            str_text = ""
-            for m in msg:
-                str_text += self._process_msg_content(m)
-            return str_text
+            return "".join(self._process_msg_content(item) for item in msg)
         return str(msg)
 
     def do_work_stream(self, instructions, config):

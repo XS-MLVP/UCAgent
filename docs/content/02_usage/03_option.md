@@ -365,6 +365,8 @@ UCAgent 支持通过环境变量配置各类参数，环境变量优先级高于
 | `OPENAI_MODEL` | OpenAI 对话模型名称 | 无（需配置） |
 | `OPENAI_API_KEY` | OpenAI API 密钥 | 无（需配置） |
 | `OPENAI_API_BASE` | OpenAI API 基础 URL | 无（需配置） |
+| `OPENAI_API_MODE` | LangChain 后端使用的 OpenAI API 模式：`auto`、`responses` 或 `chat_completions` | `auto` |
+| `OPENAI_RESPONSES_PROBE_TIMEOUT` | 启动时 Responses API 能力探测超时秒数，必须为正数 | `10` |
 | `OPENAI_TEMPERATURE` | OpenAI 模型 temperature 参数 | 未设置 |
 | `OPENAI_TOP_P` | OpenAI 模型 top_p 参数 | 未设置 |
 | `ANTHROPIC_MODEL` | Anthropic Claude 模型名称 | `claude-3-7-sonnet-20250219` |

@@ -311,6 +311,8 @@ def test_context_estimate_includes_bound_tool_schemas():
 def test_backend_binds_tools_after_verify_agent_finishes_tool_setup(monkeypatch):
     model = _FakeSummaryModel()
     created = {}
+    negotiations = []
+    selected_modes = []
     vagent = SimpleNamespace(
         stream_output=False,
         context_management_strategy="TrimAndSummaryMiddleware",
@@ -321,8 +323,14 @@ def test_backend_binds_tools_after_verify_agent_finishes_tool_setup(monkeypatch)
     )
 
     monkeypatch.setattr(
+        "ucagent.abackend.langchain.agent.negotiate_openai_api_mode",
+        lambda config: negotiations.append(config) or "responses",
+    )
+    monkeypatch.setattr(
         "ucagent.abackend.langchain.agent.get_chat_model",
-        lambda config, callbacks: model,
+        lambda config, callbacks, openai_api_mode=None: (
+            selected_modes.append(openai_api_mode) or model
+        ),
     )
 
     def fake_create_agent(**kwargs):
@@ -333,8 +341,13 @@ def test_backend_binds_tools_after_verify_agent_finishes_tool_setup(monkeypatch)
         "ucagent.abackend.langchain.agent.create_agent", fake_create_agent
     )
 
-    backend = UCAgentLangChainBackend(vagent, SimpleNamespace())
+    backend = UCAgentLangChainBackend(
+        vagent,
+        SimpleNamespace(get_value=lambda key, default=None: "openai"),
+    )
     assert backend.message_manage_node.tools == []
+    assert negotiations == [backend.config]
+    assert selected_modes == ["responses", "responses"]
 
     vagent.test_tools = [{"type": "function", "function": {"name": "Read"}}]
     backend.init()
