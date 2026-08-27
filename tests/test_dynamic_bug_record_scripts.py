@@ -732,6 +732,41 @@ def test_dynamic_bug_skill_repair_rebuilds_relations_without_touching_analysis()
     assert repeated_details["removed_markers"] == {}
 
 
+def test_dynamic_bug_skill_keeps_incremental_shared_root_relations_canonical():
+    module = _load_script(RECORD_SCRIPTS[0])
+    lines = module.make_bug_analysis_document("Adder").splitlines(keepends=True)
+    entries = (
+        ("CK-FIRST", "BG-FIRST-90", "TC-tests/test_adder.py::test_first"),
+        ("CK-SECOND", "BG-SECOND-90", "TC-tests/test_adder.py::test_second"),
+    )
+    for checkpoint, bug, test_case in entries:
+        module.insert_content(
+            lines,
+            "FG-ARITHMETIC",
+            "FC-ADD",
+            checkpoint,
+            bug,
+            test_case,
+            bug,
+            "Arithmetic",
+            "Addition",
+            checkpoint,
+            test_case,
+            root_tag="ROOT-SHARED-WIDTH",
+            root_title="Shared width root",
+        )
+
+    document = "".join(lines)
+    assert document.splitlines().count("</ROOT-CAUSES>") == 1
+    assert all(
+        line == "</ROOT-CAUSES>" or "</ROOT-CAUSES>" not in line
+        for line in document.splitlines()
+    )
+    repaired, details = module._repair_document_content(document)
+    assert repaired == document
+    assert details["relation_count"] == 2
+
+
 def test_dynamic_bug_skill_repair_rejects_ambiguous_bg_root_reference():
     module = _load_script(RECORD_SCRIPTS[0])
     lines = module.make_bug_analysis_document("Adder").splitlines(keepends=True)

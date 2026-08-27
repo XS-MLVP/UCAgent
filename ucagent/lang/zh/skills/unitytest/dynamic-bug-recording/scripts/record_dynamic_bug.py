@@ -749,6 +749,7 @@ def render_root_cause_entry(root_tag, bd, checkpoint_path, bg):
                 RELATED_BUGS_MARKER,
                 related_bug_reference(checkpoint_path, bg),
                 "",
+                "",
             ]
         )
     )
@@ -1258,7 +1259,12 @@ def ensure_root_cause_entry(
     )
     if related_line < 0:
         raise ValueError(f"Error: root cause entity {root_tag} is missing {RELATED_BUGS_MARKER}.")
-    lines.insert(entity_end, relation)
+    insert_at = entity_end
+    while insert_at > related_line + 1 and not lines[insert_at - 1].strip():
+        insert_at -= 1
+    lines.insert(insert_at, ensure_trailing_newline_block(relation))
+    if insert_at == entity_end:
+        lines.insert(insert_at + 1, "\n")
 
 
 def ensure_root_cause_container(lines):
@@ -1948,10 +1954,11 @@ def _run_bug_operation(runtime_config, args, target):
             root_title,
         )
         messages.append(f"{message} ({fg}/{fc}/{ck})")
-    lines[:] = ensure_markdown_heading_spacing(
+    candidate = ensure_markdown_heading_spacing(
         "".join(lines), HEADING_COMPANION_MARKERS
-    ).splitlines(keepends=True)
-    _atomic_write_text(target, "".join(lines), expected_content=original)
+    )
+    candidate, _repair_details = _repair_document_content(candidate)
+    _atomic_write_text(target, candidate, expected_content=original)
     return {
         "operation": "bug",
         "success": True,
