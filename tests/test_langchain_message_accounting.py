@@ -487,10 +487,10 @@ def test_conversation_summary_defaults_and_disabled_limits_parse(monkeypatch):
 
     defaults = load_yaml_with_env_vars(setting_path)["conversation_summary"]
 
-    assert defaults["max_tokens"] == 102400
+    assert defaults["max_tokens"] == 204800
     assert defaults["max_summary_tokens"] == 8192
     assert defaults["max_keep_msgs"] == 100
-    assert defaults["tail_keep_msgs"] == 10
+    assert defaults["tail_keep_msgs"] == 1
 
     monkeypatch.setenv("SUMMARY_MAX_CTX_TOKEN", "0")
     monkeypatch.setenv("SUMMARY_MAX_KEEP_MSG", "0")

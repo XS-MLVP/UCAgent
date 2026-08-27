@@ -254,10 +254,10 @@ skill:
 # Reference doc: https://langchain-ai.lang.chat/langmem/reference/short_term/#langmem.short_term.SummarizationNode
 conversation_summary:
   context_management_strategy: TrimAndSummaryMiddleware    # default use TrimAndSummaryMiddleware strategy to manage conversation history
-  max_tokens: $(SUMMARY_MAX_CTX_TOKEN: 102400)    # estimated input-token trigger; 0 disables this trigger
+  max_tokens: $(SUMMARY_MAX_CTX_TOKEN: 204800)    # estimated input-token trigger; 0 disables this trigger
   max_summary_tokens: $(SUMMARY_MAX_SUM_TOKEN: 8192)  # positive output-token budget for each generated summary
   max_keep_msgs: $(SUMMARY_MAX_KEEP_MSG: 100)    # independent message-count trigger; 0 disables this trigger
-  tail_keep_msgs: $(SUMMARY_TAIL_KEEP_MSG: 3)    # keep the last N messages to the LLM no matter what
+  tail_keep_msgs: $(SUMMARY_TAIL_KEEP_MSG: 1)    # keep the last N messages to the LLM no matter what
 
 rate_limiter:
   enabled: $(ENABLE_LLM_RATE_LIMIT: false)
