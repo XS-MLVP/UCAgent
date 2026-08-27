@@ -1056,6 +1056,32 @@ def test_receipt_is_restored_after_tool_recreation(tmp_path):
     }
 
 
+def test_receipt_with_multi_digit_timeline_steps_survives_json_round_trip(tmp_path):
+    test_dir = tmp_path / "tests"
+    first_tool = _tool(tmp_path, test_dir)
+    receipt_info = first_tool._record_analysis_receipt(
+        {"test_case_name": "tests/test_timeline.py::test_timeline"},
+        {
+            "success": True,
+            "status": "events_found",
+            "evidence_usable": True,
+            "timeline": {
+                0: {"signals": {"TOP.dut.valid": "0"}},
+                1: {"signals": {"TOP.dut.valid": "1"}},
+                3: {"signals": {"TOP.dut.valid": "0"}},
+                13: {"signals": {"TOP.dut.valid": "1"}},
+            },
+        },
+        context_files={},
+    )
+
+    resumed_tool = _tool(tmp_path, test_dir)
+    restored = resumed_tool.get_analysis_receipt(receipt_info["receipt_id"])
+
+    assert restored is not None
+    assert list(restored["result"]["timeline"]) == ["0", "1", "3", "13"]
+
+
 def test_waveinfo_call_locks_are_scoped_by_test_case(tmp_path):
     first_tool = _tool(tmp_path, tmp_path / "tests")
     second_tool = _tool(tmp_path, tmp_path / "tests")

@@ -815,12 +815,21 @@ class WaveInfo(UCTool):
             for key, value in receipt.items()
             if key != "integrity_hmac"
         }
+        # JSON object keys are strings after persistence. Normalize before sorting so
+        # integer waveform-step keys produce the same HMAC before and after reload.
+        persisted_shape = json.loads(
+            json.dumps(
+                unsigned,
+                ensure_ascii=False,
+                separators=(",", ":"),
+                default=str,
+            )
+        )
         return json.dumps(
-            unsigned,
+            persisted_shape,
             ensure_ascii=False,
             sort_keys=True,
             separators=(",", ":"),
-            default=str,
         ).encode("utf-8")
 
     def _read_receipt_key(self, *, create: bool) -> bytes | None:
