@@ -3,7 +3,11 @@
 
 from ucagent.abackend.base import AgentBackendBase
 from ucagent.util.log import info, warning, error
-from .middleware import MessageStatistic, TokenSpeedCallbackHandler, TrimAndSummaryMiddleware
+from .middleware import (
+    MessageStatistic,
+    TokenSpeedCallbackHandler,
+    TrimAndSummaryMiddleware,
+)
 from langchain.agents import create_agent
 from langgraph.checkpoint.memory import MemorySaver
 from ucagent.util.models import get_chat_model, negotiate_openai_api_mode
@@ -21,20 +25,24 @@ class UCAgentLangChainBackend(AgentBackendBase):
         self.message_statistic = MessageStatistic()
         self.cb_stream_output = TokenSpeedCallbackHandler()
         self.cb_summary_stream_output = TokenSpeedCallbackHandler()
+        self.cb_runtime_output = TokenSpeedCallbackHandler()
         # Retain the old attribute for callers that inspect the backend directly.
-        self.cb_token_speed = self.cb_stream_output
+        self.cb_token_speed = self.cb_runtime_output
+        # Stream events replace this tuple atomically, keeping status rendering
+        # independent from the graph's live state lock.
+        self._status_messages = ()
         self.openai_api_mode = None
         if self.config.get_value("model_type", "openai") == "openai":
             self.openai_api_mode = negotiate_openai_api_mode(self.config)
         self.model = get_chat_model(
             self.config,
-            [self.cb_stream_output],
+            [self.cb_stream_output, self.cb_runtime_output],
             openai_api_mode=self.openai_api_mode,
             streaming=vagent.stream_output,
         )
         self.sumary_model = get_chat_model(
             self.config,
-            [self.cb_summary_stream_output],
+            [self.cb_summary_stream_output, self.cb_runtime_output],
             openai_api_mode=self.openai_api_mode,
             streaming=vagent.stream_output,
         )
@@ -133,6 +141,7 @@ class UCAgentLangChainBackend(AgentBackendBase):
                 self.vagent.message_echo(self._process_msg_content(msg.content), end="")
             else:
                 index = len(data["messages"])
+                self._status_messages = tuple(data["messages"])
                 if index == last_msg_index:
                     continue
                 last_msg_index = index
@@ -150,6 +159,7 @@ class UCAgentLangChainBackend(AgentBackendBase):
             if self.vagent.is_break():
                 break
             index = len(step["messages"])
+            self._status_messages = tuple(step["messages"])
             if index == last_msg_index:
                 continue
             last_msg_index = index
@@ -190,10 +200,16 @@ class UCAgentLangChainBackend(AgentBackendBase):
     def messages_get_raw(self):
         try:
             values = self.agent.get_state(self.get_work_config()).values
-            return values.get("messages", [])
+            messages = values.get("messages", [])
+            self._status_messages = tuple(messages)
+            return messages
         except Exception as e:
             warning(f"Failed to get messages from agent state: {e}")
         return []
+
+    def messages_get_status(self):
+        """Return the latest stream snapshot without acquiring graph state."""
+        return list(self._status_messages)
 
     @staticmethod
     def _pending_tool_calls(messages):
@@ -266,7 +282,10 @@ class UCAgentLangChainBackend(AgentBackendBase):
         return self.message_statistic.get_statistics()
 
     def token_speed(self):
-        return self.cb_stream_output.get_speed()
+        return self.cb_runtime_output.get_speed()
+
+    def idle(self):
+        return self.cb_runtime_output.get_idle()
 
     def token_total(self):
         usage = self.get_statistics()["provider_usage"]["all"]

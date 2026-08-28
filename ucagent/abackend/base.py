@@ -55,6 +55,10 @@ class AgentBackendBase(object):
         """
         raise NotImplementedError("Subclasses must implement this method.")
 
+    def messages_get_status(self):
+        """Return a message snapshot suitable for status rendering."""
+        return self.messages_get_raw()
+
     def do_work_values(self, instructions, config):
         """
         Perform work based on the given instructions and configuration.
@@ -119,6 +123,10 @@ class AgentBackendBase(object):
 
         :return: Token speed.
         """
+        return -1.0
+
+    def idle(self) -> float:
+        """Get the current or latest model-request idle time."""
         return -1.0
 
     def stream_character_total(self) -> int:

@@ -200,7 +200,10 @@ class MessageStatistic:
 
 
 class StreamedOutputCallbackHandler(BaseCallbackHandler):
-    """Track streamed characters and the current model's output-token rate."""
+    """Track model output rate and each request's pre-output idle time."""
+
+    # Shorter spans mostly measure provider buffering and local scheduling.
+    _MIN_STREAM_SPEED_WINDOW = 0.25
 
     def __init__(self):
         super().__init__()
@@ -208,9 +211,13 @@ class StreamedOutputCallbackHandler(BaseCallbackHandler):
         self.total_characters = 0
         self._generation_started_at: float | None = None
         self._first_output_at: float | None = None
+        self._last_output_at: float | None = None
         self._generation_characters = 0
         self._generation_chunks = 0
-        self._last_token_speed = 0.0
+        self._speed_characters = 0
+        self._speed_chunks = 0
+        self._last_token_speed = -1.0
+        self._last_idle = -1.0
         self._active = False
 
     def _start_generation(self) -> None:
@@ -218,8 +225,12 @@ class StreamedOutputCallbackHandler(BaseCallbackHandler):
         with self._lock:
             self._generation_started_at = now
             self._first_output_at = None
+            self._last_output_at = None
             self._generation_characters = 0
             self._generation_chunks = 0
+            self._speed_characters = 0
+            self._speed_chunks = 0
+            self._last_idle = -1.0
             self._active = True
 
     def on_llm_start(self, serialized, prompts, **kwargs) -> None:
@@ -234,10 +245,12 @@ class StreamedOutputCallbackHandler(BaseCallbackHandler):
 
     def on_llm_new_token(self, token: str, **kwargs) -> None:
         now = time.perf_counter()
-        emitted_characters = len(token)
-        has_output = bool(token)
         chunk = kwargs.get("chunk")
         message = getattr(chunk, "message", None)
+        if isinstance(message, ToolMessage):
+            return
+        emitted_characters = len(token)
+        has_output = bool(token)
         if message and hasattr(message, "tool_call_chunks"):
             for tool_call in message.tool_call_chunks:
                 tool_name = tool_call.get("name")
@@ -248,6 +261,50 @@ class StreamedOutputCallbackHandler(BaseCallbackHandler):
                 if args:
                     emitted_characters += len(args)
                     has_output = True
+        if message and not has_output:
+            content = getattr(message, "content", None)
+            blocks = content if isinstance(content, list) else [content]
+            for block in blocks:
+                fragment = ""
+                if isinstance(block, str):
+                    fragment = block
+                elif isinstance(block, dict):
+                    block_type = block.get("type")
+                    if block_type in {"text", "output_text", "summary_text"}:
+                        fragment = block.get("text", "")
+                    elif block_type == "refusal":
+                        fragment = block.get("refusal", "")
+                    elif block_type in {"reasoning", "thinking", "reasoning_content"}:
+                        summary = block.get("summary")
+                        if isinstance(summary, list):
+                            fragment = "".join(
+                                item.get("text", "")
+                                for item in summary
+                                if isinstance(item, dict)
+                            )
+                        elif isinstance(summary, str):
+                            fragment = summary
+                        else:
+                            fragment = (
+                                block.get("thinking")
+                                or block.get("reasoning")
+                                or block.get("text")
+                                or ""
+                            )
+                    elif block_type in {
+                        "function_call",
+                        "tool_call",
+                        "tool_call_chunk",
+                    }:
+                        name = block.get("name") or ""
+                        arguments = (
+                            block.get("arguments") or block.get("args") or ""
+                        )
+                        if isinstance(name, str) and isinstance(arguments, str):
+                            fragment = name + arguments
+                if isinstance(fragment, str) and fragment:
+                    emitted_characters += len(fragment)
+                    has_output = True
         with self._lock:
             if not self._active:
                 self._generation_started_at = now
@@ -257,31 +314,67 @@ class StreamedOutputCallbackHandler(BaseCallbackHandler):
             if has_output:
                 if self._first_output_at is None:
                     self._first_output_at = now
+                    self._last_idle = max(
+                        0.0,
+                        now
+                        - (
+                            self._generation_started_at
+                            if self._generation_started_at is not None
+                            else now
+                        ),
+                    )
+                else:
+                    self._speed_characters += emitted_characters
+                    self._speed_chunks += 1
+                self._last_output_at = now
                 self._generation_chunks += 1
 
     def _finish_generation(self, output_tokens: int | None) -> None:
         now = time.perf_counter()
         with self._lock:
-            estimated_tokens = max(
+            estimated_generation_tokens = max(
                 self._generation_chunks,
                 math.ceil(self._generation_characters / 4),
             )
-            produced_tokens = (
-                output_tokens if output_tokens is not None else estimated_tokens
+            if self._first_output_at is not None:
+                # The first chunk may contain buffered work produced during Idle.
+                # Only later deltas form an observable streaming-rate window.
+                produced_tokens = max(
+                    self._speed_chunks,
+                    math.ceil(self._speed_characters / 4),
+                )
+                ended_at = self._last_output_at or self._first_output_at
+                elapsed = ended_at - self._first_output_at
+            else:
+                produced_tokens = (
+                    output_tokens
+                    if output_tokens is not None
+                    else estimated_generation_tokens
+                )
+                elapsed = (
+                    now - self._generation_started_at
+                    if self._generation_started_at is not None
+                    else 0.0
+                )
+                self._last_idle = (
+                    elapsed if self._generation_started_at is not None else -1.0
+                )
+            measurable_stream = (
+                self._first_output_at is None
+                or (
+                    self._speed_chunks > 0
+                    and elapsed >= self._MIN_STREAM_SPEED_WINDOW
+                )
             )
-            started_at = (
-                self._first_output_at
-                if self._first_output_at is not None
-                else self._generation_started_at
-            )
-            elapsed = now - started_at if started_at is not None else 0.0
             self._last_token_speed = (
-                produced_tokens / elapsed if elapsed > 0.0 else 0.0
+                produced_tokens / elapsed
+                if measurable_stream and elapsed > 0.0
+                else -1.0
             )
             self._active = False
 
     def on_llm_end(self, response, **kwargs) -> None:
-        """Finalize speed using provider output usage when it is available."""
+        """Finalize stream speed or provider-backed nonstream speed."""
         del kwargs
         output_tokens = []
         for generation_list in getattr(response, "generations", None) or []:
@@ -317,13 +410,35 @@ class StreamedOutputCallbackHandler(BaseCallbackHandler):
         """Return live estimated speed or the last completed provider-backed speed."""
         with self._lock:
             if not self._active or self._first_output_at is None:
-                return self._last_token_speed if not self._active else 0.0
+                return self._last_token_speed
             estimated_tokens = max(
-                self._generation_chunks,
-                math.ceil(self._generation_characters / 4),
+                self._speed_chunks,
+                math.ceil(self._speed_characters / 4),
+            )
+            observed_elapsed = (
+                (self._last_output_at or self._first_output_at)
+                - self._first_output_at
             )
             elapsed = time.perf_counter() - self._first_output_at
-            return estimated_tokens / elapsed if elapsed > 0.0 else 0.0
+            if (
+                self._speed_chunks < 1
+                or observed_elapsed < self._MIN_STREAM_SPEED_WINDOW
+            ):
+                return -1.0
+            return estimated_tokens / elapsed
+
+    def get_idle(self) -> float:
+        """Return live or completed pre-output idle time for the latest request."""
+        with self._lock:
+            if self._generation_started_at is None:
+                return -1.0
+            if self._first_output_at is None:
+                if self._active:
+                    return max(
+                        0.0, time.perf_counter() - self._generation_started_at
+                    )
+                return self._last_idle
+            return self._last_idle
 
     def total(self) -> int:
         with self._lock:

@@ -1120,8 +1120,9 @@ class VerifyAgent:
         self.message_manage_node.force_summary(self.messages_get_raw())
 
     def status_info(self):
-        msg_info = self.message_info()
-        msg_c, msg_s = msg_info.get("count", "-"), msg_info.get("size", "-")
+        messages = self.backend.messages_get_status()
+        msg_c = len(messages)
+        msg_s = sum(len(message.text) for message in messages)
         msg_stat = self.backend.get_statistics()
         provider_usage_by_source = msg_stat.get("provider_usage", {})
         provider_usage = provider_usage_by_source.get("all", {})
@@ -1141,24 +1142,27 @@ class VerifyAgent:
         else:
             provider_tokens = "unavailable"
 
-        token_speed = -1.0
-        backend_token_speed = getattr(self.backend, "token_speed", None)
-        if callable(backend_token_speed):
-            value = backend_token_speed()
+        def backend_metric(name):
+            metric = getattr(self.backend, name, None)
+            if not callable(metric):
+                return -1.0
+            value = metric()
             if (
                 isinstance(value, (int, float))
                 and not isinstance(value, bool)
                 and math.isfinite(value)
             ):
-                token_speed = float(value)
+                return float(value)
+            return -1.0
+
+        token_speed = backend_metric("token_speed")
+        idle = backend_metric("idle")
 
         context_status = "unavailable"
         compression_status = "none"
         message_node = self.message_manage_node
         if message_node is not None and hasattr(message_node, "get_context_metrics"):
-            context_metrics = message_node.get_context_metrics(
-                self.messages_get_raw()
-            )
+            context_metrics = message_node.get_context_metrics(messages)
             context_status = (
                 f"tok={context_metrics['context_tokens_estimated']}/"
                 f"{context_metrics['max_tokens']},"
@@ -1197,8 +1201,8 @@ class VerifyAgent:
                 "Run Time": fmt_time_deta(self.stage_manager.get_time_cost()),
             }
         )
-        if token_speed >= 0.0:
-            stats["Token Speed"] = f"{token_speed:.2f} tok/s"
+        stats["Token Speed"] = f"{max(0.0, token_speed):.2f} tok/s"
+        stats["Idle"] = f"{max(0.0, idle):.2f} s"
         return stats
 
     def message_get_str(self, index, count):

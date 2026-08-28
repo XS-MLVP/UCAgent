@@ -8,7 +8,9 @@ from langchain_core.messages import (
     RemoveMessage,
     SystemMessage,
     ToolMessage,
+    ToolMessageChunk,
 )
+from langchain_core.outputs import ChatGenerationChunk
 
 from ucagent.abackend.langchain.middleware.messages import (
     MessageStatistic,
@@ -126,7 +128,7 @@ def test_stream_callback_counts_characters_and_handles_missing_chunk():
     assert callback.total() == 6
 
 
-def test_stream_callback_uses_provider_output_tokens_for_speed(monkeypatch):
+def test_stream_speed_uses_observed_output_and_excludes_idle(monkeypatch):
     timestamps = iter((10.0, 11.0, 12.0, 13.0))
     monkeypatch.setattr(
         "ucagent.abackend.langchain.middleware.messages.time.perf_counter",
@@ -144,8 +146,8 @@ def test_stream_callback_uses_provider_output_tokens_for_speed(monkeypatch):
                         content="firstsecond",
                         usage_metadata={
                             "input_tokens": 20,
-                            "output_tokens": 10,
-                            "total_tokens": 30,
+                            "output_tokens": 1_000_000,
+                            "total_tokens": 1_000_020,
                         },
                     )
                 )
@@ -156,10 +158,11 @@ def test_stream_callback_uses_provider_output_tokens_for_speed(monkeypatch):
 
     callback.on_llm_end(response)
 
-    assert callback.get_speed() == pytest.approx(5.0)
+    assert callback.get_speed() == pytest.approx(2.0)
+    assert callback.get_idle() == pytest.approx(1.0)
 
 
-def test_stream_callback_times_non_streamed_provider_output(monkeypatch):
+def test_nonstream_speed_uses_total_response_time(monkeypatch):
     timestamps = iter((20.0, 24.0))
     monkeypatch.setattr(
         "ucagent.abackend.langchain.middleware.messages.time.perf_counter",
@@ -175,19 +178,287 @@ def test_stream_callback_times_non_streamed_provider_output(monkeypatch):
     callback.on_llm_end(response)
 
     assert callback.get_speed() == pytest.approx(2.0)
+    assert callback.get_idle() == pytest.approx(4.0)
 
 
 def test_stream_callback_reports_live_estimated_speed(monkeypatch):
-    timestamps = iter((30.0, 31.0, 33.0))
+    now = [30.0]
+    monkeypatch.setattr(
+        "ucagent.abackend.langchain.middleware.messages.time.perf_counter",
+        lambda: now[0],
+    )
+    callback = StreamedOutputCallbackHandler()
+    callback.on_chat_model_start({}, [[]])
+    now[0] = 31.0
+    callback.on_llm_new_token("abcd")
+    assert callback.get_speed() == -1.0
+    now[0] = 32.0
+    callback.on_llm_new_token("efgh")
+    now[0] = 33.0
+
+    assert callback.get_speed() == pytest.approx(0.5)
+    assert callback.get_idle() == pytest.approx(1.0)
+
+
+def test_stream_speed_is_unavailable_before_output(monkeypatch):
+    now = [10.0]
+    monkeypatch.setattr(
+        "ucagent.abackend.langchain.middleware.messages.time.perf_counter",
+        lambda: now[0],
+    )
+    callback = StreamedOutputCallbackHandler()
+
+    assert callback.get_speed() == -1.0
+
+    callback.on_chat_model_start({}, [[]])
+    assert callback.get_speed() == -1.0
+    now[0] = 20.0
+    assert callback.get_idle() == pytest.approx(10.0)
+    assert callback.get_speed() == -1.0
+
+
+def test_stream_callback_counts_tool_call_as_first_output(monkeypatch):
+    timestamps = iter((10.0, 11.0, 14.0))
     monkeypatch.setattr(
         "ucagent.abackend.langchain.middleware.messages.time.perf_counter",
         lambda: next(timestamps),
     )
     callback = StreamedOutputCallbackHandler()
     callback.on_chat_model_start({}, [[]])
+    callback.on_llm_new_token("")
+    callback.on_llm_new_token(
+        "",
+        chunk=SimpleNamespace(
+            message=SimpleNamespace(
+                tool_call_chunks=[{"name": "Check", "args": ""}]
+            )
+        ),
+    )
+
+    assert callback.get_idle() == pytest.approx(4.0)
+
+
+def test_responses_reasoning_summary_counts_as_first_output(monkeypatch):
+    now = [10.0]
+    monkeypatch.setattr(
+        "ucagent.abackend.langchain.middleware.messages.time.perf_counter",
+        lambda: now[0],
+    )
+    callback = StreamedOutputCallbackHandler()
+    callback.on_chat_model_start({}, [[]])
+    now[0] = 14.0
+    callback.on_llm_new_token(
+        "",
+        chunk=SimpleNamespace(
+            message=SimpleNamespace(
+                content=[
+                    {
+                        "type": "reasoning",
+                        "summary": [
+                            {"type": "summary_text", "text": "inspect"}
+                        ],
+                    }
+                ],
+                tool_call_chunks=[],
+            )
+        ),
+    )
+
+    assert callback.get_idle() == pytest.approx(4.0)
+    now[0] = 16.0
+    assert callback.get_speed() == -1.0
+
+
+def test_responses_function_call_content_is_tool_chunk_fallback(monkeypatch):
+    now = [20.0]
+    monkeypatch.setattr(
+        "ucagent.abackend.langchain.middleware.messages.time.perf_counter",
+        lambda: now[0],
+    )
+    callback = StreamedOutputCallbackHandler()
+    callback.on_chat_model_start({}, [[]])
+    now[0] = 23.0
+    callback.on_llm_new_token(
+        "",
+        chunk=SimpleNamespace(
+            message=SimpleNamespace(
+                content=[
+                    {
+                        "type": "function_call",
+                        "name": "Read",
+                        "arguments": '{"path":"dut.v"}',
+                    }
+                ],
+                tool_call_chunks=[],
+            )
+        ),
+    )
+
+    assert callback.get_idle() == pytest.approx(3.0)
+
+
+def test_idle_resets_for_each_model_request_and_excludes_tool_time(monkeypatch):
+    now = [20.0]
+    monkeypatch.setattr(
+        "ucagent.abackend.langchain.middleware.messages.time.perf_counter",
+        lambda: now[0],
+    )
+    callback = StreamedOutputCallbackHandler()
+    callback.on_chat_model_start({}, [[]])
+    now[0] = 22.0
+    callback.on_llm_new_token("first")
+
+    assert callback.get_idle() == pytest.approx(2.0)
+
+    now[0] = 23.0
+    callback.on_llm_end(SimpleNamespace(generations=[], llm_output=None))
+
+    # Advancing time while a tool runs does not change model-request Idle.
+    now[0] = 100.0
+    assert callback.get_idle() == pytest.approx(2.0)
+
+    callback.on_chat_model_start({}, [[]])
+    now[0] = 104.0
+    assert callback.get_idle() == pytest.approx(4.0)
+    now[0] = 105.0
+    assert callback.get_idle() == pytest.approx(5.0)
+
+    callback.on_llm_new_token("second")
+    now[0] = 200.0
+    assert callback.get_idle() == pytest.approx(5.0)
+
+
+def test_nonstream_idle_is_live_and_freezes_at_response_end(monkeypatch):
+    now = [10.0]
+    monkeypatch.setattr(
+        "ucagent.abackend.langchain.middleware.messages.time.perf_counter",
+        lambda: now[0],
+    )
+    callback = StreamedOutputCallbackHandler()
+    callback.on_chat_model_start({}, [[]])
+    now[0] = 15.0
+    assert callback.get_idle() == pytest.approx(5.0)
+    now[0] = 25.0
+    callback.on_llm_end(
+        SimpleNamespace(
+            generations=[],
+            llm_output={"token_usage": {"completion_tokens": 8}},
+        )
+    )
+    assert callback.get_idle() == pytest.approx(15.0)
+    assert callback.get_speed() == pytest.approx(8 / 15)
+
+
+def test_tool_result_content_is_not_model_output(monkeypatch):
+    now = [10.0]
+    monkeypatch.setattr(
+        "ucagent.abackend.langchain.middleware.messages.time.perf_counter",
+        lambda: now[0],
+    )
+    callback = StreamedOutputCallbackHandler()
+    tool_chunk = ChatGenerationChunk(
+        message=ToolMessageChunk(
+            content="x" * 100_000,
+            tool_call_id="call-1",
+            name="Read",
+        )
+    )
+
+    callback.on_llm_new_token(
+        tool_chunk.text,
+        chunk=tool_chunk,
+    )
+
+    assert callback.total() == 0
+    assert callback.get_speed() == -1.0
+    assert callback.get_idle() == -1.0
+
+
+def test_stream_speed_uses_separate_windows_across_tool_calls(monkeypatch):
+    now = [0.0]
+    monkeypatch.setattr(
+        "ucagent.abackend.langchain.middleware.messages.time.perf_counter",
+        lambda: now[0],
+    )
+    callback = StreamedOutputCallbackHandler()
+
+    callback.on_chat_model_start({}, [[]])
+    now[0] = 10.0
     callback.on_llm_new_token("abcd")
+    now[0] = 12.0
+    callback.on_llm_new_token("efgh")
+    now[0] = 20.0
+    callback.on_llm_end(
+        SimpleNamespace(
+            generations=[],
+            llm_output={"token_usage": {"completion_tokens": 80_000}},
+        )
+    )
 
     assert callback.get_speed() == pytest.approx(0.5)
+    assert callback.get_idle() == pytest.approx(10.0)
+
+    # Tool execution does not start or extend a model request.
+    now[0] = 210.0
+    assert callback.get_speed() == pytest.approx(0.5)
+    assert callback.get_idle() == pytest.approx(10.0)
+
+    now[0] = 220.0
+    callback.on_chat_model_start({}, [[]])
+    assert callback.get_speed() == pytest.approx(0.5)
+    now[0] = 230.0
+    assert callback.get_idle() == pytest.approx(10.0)
+    callback.on_llm_new_token("abcdefgh")
+    now[0] = 235.0
+    callback.on_llm_new_token("ijkl")
+    now[0] = 300.0
+    callback.on_llm_end(
+        SimpleNamespace(
+            generations=[],
+            llm_output={"token_usage": {"completion_tokens": 20_000}},
+        )
+    )
+
+    assert callback.get_idle() == pytest.approx(10.0)
+    assert callback.get_speed() == pytest.approx(0.2)
+
+
+def test_single_buffered_stream_chunk_has_no_measurable_speed(monkeypatch):
+    timestamps = iter((10.0, 20.0, 20.001))
+    monkeypatch.setattr(
+        "ucagent.abackend.langchain.middleware.messages.time.perf_counter",
+        lambda: next(timestamps),
+    )
+    callback = StreamedOutputCallbackHandler()
+    callback.on_chat_model_start({}, [[]])
+    callback.on_llm_new_token("x" * 100_000)
+    callback.on_llm_end(
+        SimpleNamespace(
+            generations=[],
+            llm_output={"token_usage": {"completion_tokens": 100_000}},
+        )
+    )
+
+    assert callback.get_speed() == -1.0
+    assert callback.get_idle() == pytest.approx(10.0)
+
+
+def test_buffered_stream_burst_has_no_measurable_speed(monkeypatch):
+    timestamps = iter((10.0, 20.0, 20.01, 20.02))
+    monkeypatch.setattr(
+        "ucagent.abackend.langchain.middleware.messages.time.perf_counter",
+        lambda: next(timestamps),
+    )
+    callback = StreamedOutputCallbackHandler()
+    callback.on_chat_model_start({}, [[]])
+    callback.on_llm_new_token("x" * 100_000)
+    callback.on_llm_new_token("y" * 100_000)
+    callback.on_llm_end(
+        SimpleNamespace(generations=[], llm_output=None)
+    )
+
+    assert callback.get_speed() == -1.0
+    assert callback.get_idle() == pytest.approx(10.0)
 
 
 def test_provider_usage_can_arrive_after_an_initial_response_without_usage():
@@ -384,7 +655,13 @@ def test_backend_binds_tools_after_verify_agent_finishes_tool_setup(monkeypatch)
         max_keep_msgs=10,
         max_token=1_000_000,
         tail_keep_msgs=2,
+        thread_id="thread",
+        session_id=SimpleNamespace(hex="session"),
+        langfuse_enable=False,
     )
+
+    def config_value(key, default=None):
+        return "openai" if key == "model_type" else default
 
     monkeypatch.setattr(
         "ucagent.abackend.langchain.agent.negotiate_openai_api_mode",
@@ -414,7 +691,7 @@ def test_backend_binds_tools_after_verify_agent_finishes_tool_setup(monkeypatch)
 
     backend = UCAgentLangChainBackend(
         vagent,
-        SimpleNamespace(get_value=lambda key, default=None: "openai"),
+        SimpleNamespace(get_value=config_value),
     )
     assert backend.message_manage_node.tools == []
     assert negotiations == [backend.config]
@@ -423,14 +700,37 @@ def test_backend_binds_tools_after_verify_agent_finishes_tool_setup(monkeypatch)
         "responses",
     ]
     assert [call["streaming"] for call in model_calls] == [False, False]
-    assert model_calls[0]["callbacks"] == [backend.cb_stream_output]
-    assert model_calls[1]["callbacks"] == [backend.cb_summary_stream_output]
+    assert model_calls[0]["callbacks"] == [
+        backend.cb_stream_output,
+        backend.cb_runtime_output,
+    ]
+    assert model_calls[1]["callbacks"] == [
+        backend.cb_summary_stream_output,
+        backend.cb_runtime_output,
+    ]
 
     vagent.test_tools = [{"type": "function", "function": {"name": "Read"}}]
     backend.init()
 
     assert backend.message_manage_node.tools == vagent.test_tools
     assert created["tools"] == vagent.test_tools
+    assert "callbacks" not in backend.get_work_config()
+
+    vagent.langfuse_enable = True
+    vagent.langfuse_handler = object()
+    assert backend.get_work_config()["callbacks"] == [vagent.langfuse_handler]
+
+    tool_message = ToolMessage(
+        content="done", tool_call_id="call-1", name="Read"
+    )
+    snapshot = [HumanMessage(content="run"), tool_message]
+    backend._status_messages = tuple(snapshot)
+    backend.state_record_mesg(tool_message)
+    assert backend.messages_get_status() == snapshot
+    assert backend.messages_get_status() is not backend.messages_get_status()
+
+    backend.cb_runtime_output.on_chat_model_start({}, [[]])
+    assert backend.idle() >= 0.0
 
 
 def test_compression_does_not_recalibrate_from_usage_for_the_old_context():
@@ -525,14 +825,17 @@ def test_status_keeps_token_and_compression_metrics_compact():
         model_name=lambda: "test-model",
         temperature=lambda: 0,
         token_speed=lambda: 12.345,
+        idle=lambda: 8.765,
+        messages_get_status=lambda: messages,
         get_statistics=lambda: {"provider_usage": {"all": provider_usage}},
         _stat_msg_count_ai=1,
         _stat_msg_count_tool=0,
         _stat_msg_count_system=1,
     )
     agent.message_manage_node = middleware
-    agent.message_info = lambda: {"count": 2, "size": 9}
-    agent.messages_get_raw = lambda: messages
+    agent.messages_get_raw = lambda: (_ for _ in ()).throw(
+        AssertionError("status rendering must not read live graph state")
+    )
     agent.is_break = lambda: False
     agent.stream_output = True
     agent.seed = 1
@@ -542,12 +845,15 @@ def test_status_keeps_token_and_compression_metrics_compact():
 
     status = agent.status_info()
 
-    assert len(status) == 19
+    assert len(status) == 20
     assert status["SummaryMode"] == "TrimAndSummaryMiddleware"
     assert status["ProviderTokens"] == "complete 120/12/132"
     assert status["Context"].endswith("/1000,msg=1/10")
     assert status["Compression"] == "token_limit tok=1200>300,msg=12>3"
     assert status["Token Speed"] == "12.35 tok/s"
+    assert status["Idle"] == "8.77 s"
+    assert "TTFT" not in status
+    assert "Gap" not in status
     assert not {
         "ProviderInputTokens",
         "MainProviderInputTokens",
@@ -558,7 +864,11 @@ def test_status_keeps_token_and_compression_metrics_compact():
 
     agent.backend.token_speed = lambda: -1.0
 
-    assert "Token Speed" not in agent.status_info()
+    assert agent.status_info()["Token Speed"] == "0.00 tok/s"
+
+    agent.backend.idle = lambda: -1.0
+
+    assert agent.status_info()["Idle"] == "0.00 s"
 
 
 def test_live_middleware_max_token_setter_updates_the_active_limit():
