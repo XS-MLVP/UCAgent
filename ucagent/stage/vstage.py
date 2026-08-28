@@ -46,6 +46,7 @@ class VerifyStage(object):
                  checker,
                  reference_files,
                  skill_list,
+                 output_files,
                  experience_hook=False,
                  force_use_skill=True,
                  prefix = "",
