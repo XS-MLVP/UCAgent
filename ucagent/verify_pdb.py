@@ -16,7 +16,13 @@ import signal
 import threading
 import traceback
 from ucagent.util.log import L_GREEN, L_YELLOW, L_RED, RESET, L_BLUE
-import readline
+try:
+    import readline
+except ImportError:
+    try:
+        import pyreadline3 as readline
+    except ImportError:
+        readline = None
 import random
 from collections import OrderedDict
 from typing import TYPE_CHECKING
