@@ -105,6 +105,9 @@ def init_log_logger(name: str = "ucagent-log", level: int = logging.DEBUG,
     __log_logger__ = logging.getLogger(name)
     __log_logger__.setLevel(level)
     __log_logger__.handlers.clear()
+    # This logger owns a dedicated file handler. Propagating the same record to
+    # Textual's root handler duplicates it in the TUI with a source-location tag.
+    __log_logger__.propagate = False
     log_path = os.path.dirname(log_file)
     if log_path and not os.path.exists(log_path):
         os.makedirs(log_path)
@@ -122,6 +125,7 @@ def init_msg_logger(name: str = "ucagent-msg", level: int = logging.INFO,
     __msg_logger__ = logging.getLogger(name)
     __msg_logger__.setLevel(level)
     __msg_logger__.handlers.clear()
+    __msg_logger__.propagate = False
     log_path = os.path.dirname(log_file)
     if log_path and not os.path.exists(log_path):
         os.makedirs(log_path)
