@@ -2,14 +2,17 @@
 
 import copy
 import os
+import ast
 from collections import OrderedDict
 from typing import Tuple
 
 import ucagent.util.functions as fc
 from ucagent.checkers.base import UnityChipBatchTask, format_stage_args_examples
-from ucagent.checkers.unity_test import BaseUnityChipCheckerTestCase
-from typing import Tuple
-import inspect
+from ucagent.checkers.unity_test import (
+    BaseUnityChipCheckerTestCase,
+    _iter_test_function_defs,
+    _test_function_contract_failure,
+)
 from ucagent.checkers.toffee_report import check_report
 from ucagent.util.log import warning
 
@@ -17,9 +20,9 @@ from ucagent.util.log import warning
 class RandomTestCasesChecker(BaseUnityChipCheckerTestCase):
     """Batch checker for random test-case generation records.
 
-    The checker does not inspect random test-file structure. A CK is considered
-    done when it appears in the current batch's ``generated`` argument. Matching
-    random test files are still executed when they exist.
+    A CK is considered done when it appears in the current batch's ``generated``
+    argument. Matching random test files are statically validated before they are
+    imported and executed.
     """
 
     def __init__(self, target_test_file, mini_file_count=1, min_test_count=1,
@@ -30,6 +33,10 @@ class RandomTestCasesChecker(BaseUnityChipCheckerTestCase):
                  batch_size=10,
                  **kw):
         kw["min_tests"] = min_test_count
+        if kw.get("test_func_prefix") is None:
+            kw["test_func_prefix"] = "test_random_"
+        if kw.get("test_func_file") is None:
+            kw["test_func_file"] = target_test_file
         super().__init__(batch_size=batch_size, **kw)
         self.target_test_file = target_test_file
         self.mini_file_count = mini_file_count
@@ -49,24 +56,51 @@ class RandomTestCasesChecker(BaseUnityChipCheckerTestCase):
         if len(test_files) < self.mini_file_count:
             return False, f"Random test cases check fail: found {len(test_files)} test files, " \
                           f"expected at least {self.mini_file_count} files with pattern: {self.target_test_file}."
+        naming_files = (
+            self._stage_test_files() if self.test_func_rules else test_files
+        )
+        naming_issues = self._test_function_name_issues(naming_files)
+        if naming_issues:
+            retry_tool = "Complete" if kw.get("is_complete", False) else "Check"
+            return False, _test_function_contract_failure(
+                naming_issues,
+                retry_tool=retry_tool,
+            )
         total_test_count = 0
         for tfile in test_files:
-            random_tc_list = fc.get_target_from_file(self.get_path(tfile), self.test_case_name_pattern,
-                                           ex_python_path=self.workspace,
-                                           dtype="FUNC")
+            random_tc_list, parse_error = _iter_test_function_defs(
+                self.get_path(tfile)
+            )
+            if parse_error is not None:
+                line = getattr(parse_error, "lineno", "?")
+                return False, _test_function_contract_failure([
+                    f"{tfile}:{line}-{line}: unable to inspect random test "
+                    f"functions: {parse_error}"
+                ])
             total_test_count += len(random_tc_list)
+            with open(self.get_path(tfile), "r", encoding="utf-8") as source_file:
+                test_source = source_file.read()
+            source_tree = ast.parse(test_source, filename=tfile)
+            source_nodes = {
+                node.lineno: node
+                for node in ast.walk(source_tree)
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and node.name.startswith("test_")
+            }
             for tfunc in random_tc_list:
-                args = fc.get_func_arg_list(tfunc)
+                args = tfunc["args"]
                 if len(args) < 1 or args[0] != "env":
-                    return False, {"error": f"The '{tfile + ':' + tfunc.__name__}' Env test function's first arg must be 'env', but got ({', '.join(args)})."}
-                func_source = inspect.getsource(tfunc)
+                    return False, {"error": f"The '{tfile + ':' + tfunc['name']}' Env test function's first arg must be 'env', but got ({', '.join(args)})."}
+                func_source = ast.get_source_segment(
+                    test_source, source_nodes[tfunc["line"]]
+                ) or ""
                 for mc, v in self.must_func_code_snippet.items():
                     if mc == ".mark_function":
                         snippet_found = fc.has_executable_mark_function_call(func_source)
                     else:
                         snippet_found = mc in func_source
                     if not snippet_found:
-                        return False, {"error": f"The '{tfile + ':' + tfunc.__name__}' Env test function must contain "
+                        return False, {"error": f"The '{tfile + ':' + tfunc['name']}' Env test function must contain "
                                                 f"'{mc}', {v}"}
         if total_test_count < self.min_test_count:
             return False, f"Random test cases check fail: found {total_test_count} test cases, " \
@@ -81,6 +115,12 @@ class RandomTestCasesChecker(BaseUnityChipCheckerTestCase):
         report_copy = fc.clean_report_with_keys(report)
         def get_emsg(m):
             msg =  {"error": m, "REPORT": report_copy}
+            if (
+                isinstance(m, dict)
+                and {"error_code", "error", "next_action"}.issubset(m)
+            ):
+                msg["error"] = m["error"]
+                msg["diagnostic"] = m
             if self.ret_std_out:
                 msg["STDOUT"] = str_out
             if self.ret_std_error:
@@ -94,6 +134,8 @@ class RandomTestCasesChecker(BaseUnityChipCheckerTestCase):
                                    check_fail_ck_in_bug=False,
                                    waveform_tool=self.get_waveform_tool_for_checker(),
                                    waveform_test_dir=self.test_dir,
+                                   test_output_dir=self.get_configured_test_output_dir(),
+                                   require_all_documented_tests=False,
                                    )
         if not ret:
             return ret, get_emsg(msg)
@@ -305,28 +347,35 @@ class RandomTestCasesChecker(BaseUnityChipCheckerTestCase):
                 ]
             }
 
+        candidate_random_result = copy.deepcopy(self.random_result)
+        candidate_completed_tasks = list(completed_tasks)
         for ck in valid_tasks:
-            self.random_result[ck] = generated_map[ck]
-            if ck not in completed_tasks:
-                completed_tasks.append(ck)
+            candidate_random_result[ck] = generated_map[ck]
+            if ck not in candidate_completed_tasks:
+                candidate_completed_tasks.append(ck)
 
+        random_test_pass, random_test_msg = self._run_random_tests(timeout=timeout, **kw)
+        if not random_test_pass:
+            return random_test_pass, random_test_msg
+
+        self.random_result = candidate_random_result
         self.batch_task.sync_gen_task(
-            completed_tasks,
+            candidate_completed_tasks,
             note_msg,
             "Random test-case CK records changed.",
         )
 
         if self.stage_manager is not None:
-            self.smanager_set_value(self._random_result_key, copy.deepcopy(self.random_result))
+            self.smanager_set_value(
+                self._random_result_key,
+                copy.deepcopy(self.random_result),
+                persist=not bool(self.data_key),
+            )
             if self.data_key:
                 self.smanager_set_value(self.data_key, OrderedDict({
                     "source_ck_list": current_doc_ck_list,
                     "generated_result": copy.deepcopy(self.random_result),
-                }))
-
-        random_test_pass, random_test_msg = self._run_random_tests(timeout=timeout, **kw)
-        if not random_test_pass:
-            return random_test_pass, random_test_msg
+                }), persist=True)
 
         ck_pass, ck_error = self.batch_task.do_complete(
             note_msg,

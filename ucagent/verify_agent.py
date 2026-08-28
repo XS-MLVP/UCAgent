@@ -18,6 +18,7 @@ from .util.functions import (
 )
 import ucagent.util.functions as fc
 from .util.test_tools import ucagent_lib_path
+from .util.markdown import ensure_markdown_heading_spacing
 
 import ucagent.tools
 from .tools import *
@@ -29,12 +30,15 @@ from .interaction import EnhancedInteractionLogic, AdvancedInteractionLogic
 from .version import __version__, __email__
 
 import time
+import math
 import random
 import signal
 import copy
 import threading
 import shutil
 import os
+import hashlib
+import json
 
 from .abackend import get_backend
 from langfuse import Langfuse
@@ -271,9 +275,13 @@ class VerifyAgent:
             write_dirs=self.cfg.write_dirs,
             un_write_dirs=self.cfg.un_write_dirs,
         )
+        self.tool_review_waveinfo_evidence_batch = ReviewWaveInfoEvidenceBatch(
+            evidence_writer=self.tool_apply_waveinfo_evidence,
+        )
         self.tool_list_waveform = [
             self.tool_waveinfo,
             self.tool_apply_waveinfo_evidence,
+            self.tool_review_waveinfo_evidence_batch,
         ]
         self.tool_list_file = [
             # Directory and file listing tools
@@ -352,7 +360,7 @@ class VerifyAgent:
             "conversation_summary.max_tokens", 20 * 1024
         )
         self.max_summary_tokens = self.cfg.get_value(
-            "conversation_summary.max_summary_tokens", 1 * 1024
+            "conversation_summary.max_summary_tokens", 8 * 1024
         )
         self.context_management_strategy = self.cfg.get_value(
             "conversation_summary.context_management_strategy",
@@ -381,6 +389,11 @@ class VerifyAgent:
         self._need_break = False
         self._break_threads: set[int] = set()
         self._need_human = False
+        self._max_stalled_rounds = self._validated_max_stalled_rounds(
+            self.cfg.get_value("loop_settings.max_stalled_rounds", 3)
+        )
+        self._stalled_rounds = 0
+        self._last_stall_signature = None
         self._force_trace = False
         self._continue_msg = None
         self._mcps = None               # set by PdbMcpServer for api_master heartbeat
@@ -481,19 +494,50 @@ class VerifyAgent:
         success = {}
         if self.message_manage_node is None:
             return success
-        for k, v in cfg.items():
-            if hasattr(self.message_manage_node, k):
-                setattr(self.message_manage_node, k, v)
-                success[k] = v
+        aliases = {"max_token": "max_tokens"}
+        for requested_key, value in cfg.items():
+            key = aliases.get(requested_key, requested_key)
+            if not hasattr(self.message_manage_node, key):
+                continue
+            if key in {
+                "max_tokens",
+                "max_summary_tokens",
+                "max_keep_msgs",
+                "tail_keep_msgs",
+            }:
+                try:
+                    value = int(value)
+                except (TypeError, ValueError):
+                    continue
+                if value < 0 or (key == "max_summary_tokens" and value == 0):
+                    continue
+                candidate_max_keep = (
+                    value
+                    if key == "max_keep_msgs"
+                    else self.message_manage_node.max_keep_msgs
+                )
+                candidate_tail_keep = (
+                    value
+                    if key == "tail_keep_msgs"
+                    else self.message_manage_node.tail_keep_msgs
+                )
+                if (
+                    candidate_max_keep > 0
+                    and candidate_tail_keep > candidate_max_keep
+                ):
+                    continue
+            setattr(self.message_manage_node, key, value)
+            if hasattr(self, key):
+                setattr(self, key, value)
+            if key == "max_tokens":
+                self.max_token = value
+            success[requested_key] = value
         return success
 
     def summary_mode(self):
         if self.message_manage_node is None:
             return "None"
-        name = self.message_manage_node.__class__.__name__
-        if self.context_management_strategy == "TrimAndSummaryMiddleware":
-            return f"{name}({self.max_keep_msgs})"
-        return f"{name}({self.max_token})"
+        return self.message_manage_node.__class__.__name__
 
     def summary_max_tokens(self):
         return self.max_summary_tokens
@@ -505,13 +549,15 @@ class VerifyAgent:
             file_path = file_path[1:]
         file_path = os.path.abspath(os.path.join(self.workspace, file_path))
         dut_readme = os.path.join(self.workspace, self.dut_name, "README.md")
+        sections = []
+        if os.path.exists(dut_readme):
+            sections.append("# Goal Description\n")
+            with open(dut_readme, "r", encoding="utf-8") as df:
+                sections.append(df.read() + "\n")
+        sections.append("# Verification Instruction\n")
+        sections.append(self._default_system_prompt + "\n")
         with open(file_path, "w", encoding="utf-8") as f:
-            if os.path.exists(dut_readme):
-                f.write("# Goal Description\n")
-                with open(dut_readme, "r", encoding="utf-8") as df:
-                    f.write(df.read() + "\n")
-            f.write("# Verification Instruction\n")
-            f.write(self._default_system_prompt + "\n")
+            f.write(ensure_markdown_heading_spacing("".join(sections)))
 
     def render_template(self, template_cfg=None, tmp_overwrite=False):
         template_context = {
@@ -787,7 +833,12 @@ class VerifyAgent:
         self._need_human = False
         # conversation loop
         while not self.is_exit():
+            validation_revision = getattr(
+                self.stage_manager, "validation_revision", 0
+            )
+            stage_index = getattr(self.stage_manager, "stage_index", None)
             self.one_loop()
+            self._update_stalled_rounds(validation_revision, stage_index)
             if self.is_exit():
                 break
             if self.is_break():
@@ -804,6 +855,83 @@ class VerifyAgent:
         )
         info(f"Total time taken: {fmt_time_deta(time_end - self._time_start)}")
         return self
+
+    @staticmethod
+    def _validated_max_stalled_rounds(value):
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ValueError(
+                "loop_settings.max_stalled_rounds must be a non-negative integer"
+            )
+        return value
+
+    @staticmethod
+    def _checker_failure_signature(check_result):
+        if not isinstance(check_result, dict):
+            return None
+        summary = check_result.get("failure_summary")
+        if not isinstance(summary, dict):
+            return None
+        required = (
+            "stage_index",
+            "stage_name",
+            "failed_checker_name",
+            "failed_checker_class",
+            "error_code",
+            "error",
+        )
+        if any(summary.get(key) in (None, "", [], {}) for key in required):
+            return None
+        diagnostic = {key: summary[key] for key in required}
+        serialized = json.dumps(
+            diagnostic,
+            ensure_ascii=True,
+            sort_keys=True,
+            default=str,
+            separators=(",", ":"),
+        )
+        return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+    def _reset_stalled_rounds(self):
+        self._stalled_rounds = 0
+        self._last_stall_signature = None
+
+    def _update_stalled_rounds(self, previous_revision, previous_stage_index):
+        if self._max_stalled_rounds == 0:
+            return
+        current_revision = getattr(
+            self.stage_manager, "validation_revision", previous_revision
+        )
+        if current_revision == previous_revision:
+            return
+        current_stage_index = getattr(
+            self.stage_manager, "stage_index", previous_stage_index
+        )
+        check_result = getattr(self.stage_manager, "last_check_info", {})
+        if (
+            current_stage_index != previous_stage_index
+            or check_result.get("check_pass") is True
+            or check_result.get("progress_summary")
+        ):
+            self._reset_stalled_rounds()
+            return
+        signature = self._checker_failure_signature(check_result)
+        if signature is None:
+            self._reset_stalled_rounds()
+            return
+        if signature == self._last_stall_signature:
+            self._stalled_rounds += 1
+        else:
+            self._last_stall_signature = signature
+            self._stalled_rounds = 1
+        if self._stalled_rounds >= self._max_stalled_rounds:
+            summary = check_result["failure_summary"]
+            warning(
+                "Pausing the agent loop after "
+                f"{self._stalled_rounds} rounds with unchanged Checker diagnostic "
+                f"{summary['error_code']} in stage {summary['stage_index']} "
+                f"({summary['stage_name']})."
+            )
+            self._need_human = True
 
     def one_loop(self, msg=None):
         """Enhanced one loop with intelligent interaction logic based on configured mode"""
@@ -981,7 +1109,7 @@ class VerifyAgent:
         return OrderedDict(
             {
                 "count": len(messages),
-                "size": sum([len(m.content) for m in messages]),
+                "size": sum(len(m.text) for m in messages),
                 "last_20type": ">".join([m.type for m in messages[-20:]]),
                 "to_llm": self.backend.get_statistics(),
             }
@@ -1000,9 +1128,65 @@ class VerifyAgent:
         self.message_manage_node.force_summary(self.messages_get_raw())
 
     def status_info(self):
-        msg_info = self.message_info()
-        msg_c, msg_s = msg_info.get("count", "-"), msg_info.get("size", "-")
+        messages = self.backend.messages_get_status()
+        msg_c = len(messages)
+        msg_s = sum(len(message.text) for message in messages)
         msg_stat = self.backend.get_statistics()
+        provider_usage_by_source = msg_stat.get("provider_usage", {})
+        provider_usage = provider_usage_by_source.get("all", {})
+        provider_usage_available = provider_usage.get("responses_with_usage", 0) > 0
+        if provider_usage_available:
+            usage_status = (
+                "partial"
+                if provider_usage.get("responses_without_usage", 0) > 0
+                else "complete"
+            )
+            provider_tokens = (
+                f"{usage_status} "
+                f"{provider_usage.get('input_tokens', 0)}/"
+                f"{provider_usage.get('output_tokens', 0)}/"
+                f"{provider_usage.get('total_tokens', 0)}"
+            )
+        else:
+            provider_tokens = "unavailable"
+
+        def backend_metric(name):
+            metric = getattr(self.backend, name, None)
+            if not callable(metric):
+                return -1.0
+            value = metric()
+            if (
+                isinstance(value, (int, float))
+                and not isinstance(value, bool)
+                and math.isfinite(value)
+            ):
+                return float(value)
+            return -1.0
+
+        token_speed = backend_metric("token_speed")
+        idle = backend_metric("idle")
+
+        context_status = "unavailable"
+        compression_status = "none"
+        message_node = self.message_manage_node
+        if message_node is not None and hasattr(message_node, "get_context_metrics"):
+            context_metrics = message_node.get_context_metrics(messages)
+            context_status = (
+                f"tok={context_metrics['context_tokens_estimated']}/"
+                f"{context_metrics['max_tokens']},"
+                f"msg={context_metrics['context_message_count']}/"
+                f"{context_metrics['max_keep_msgs']}"
+            )
+            last_compression = context_metrics.get("last_compression")
+            if last_compression:
+                compression_status = (
+                    f"{last_compression.get('reason', 'unknown')} "
+                    f"tok={last_compression.get('before_tokens_estimated', '-')}>"
+                    f"{last_compression.get('after_tokens_estimated', '-')},"
+                    f"msg={last_compression.get('before_messages', '-')}>"
+                    f"{last_compression.get('after_messages', '-')}"
+                )
+
         stats = OrderedDict(
             {
                 "UCAgent": self.__version__,
@@ -1018,13 +1202,15 @@ class VerifyAgent:
                 "AI-Message": self.backend._stat_msg_count_ai,
                 "Tool-Message": self.backend._stat_msg_count_tool,
                 "Sys-Message": self.backend._stat_msg_count_system,
-                "MsgIn(bytes)": msg_stat["message_in"],
-                "MsgOut(bytes)": msg_stat["message_out"],
+                "ProviderTokens": provider_tokens,
+                "Context": context_status,
+                "Compression": compression_status,
                 "Start Time": fmt_time_stamp(self._time_start),
                 "Run Time": fmt_time_deta(self.stage_manager.get_time_cost()),
-                f"Token Reception({self.backend.token_total()})/TPS": self.backend.token_speed(),
             }
         )
+        stats["Token Speed"] = f"{max(0.0, token_speed):.2f} tok/s"
+        stats["Idle"] = f"{max(0.0, idle):.2f} s"
         return stats
 
     def message_get_str(self, index, count):

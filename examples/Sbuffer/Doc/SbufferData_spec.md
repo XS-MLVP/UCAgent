@@ -1,8 +1,10 @@
+
 # SbufferData Specification Document
 
 > This document describes the specification of the `SbufferData` chip verification target. Keep the technical language precise, well-organized, and easy to reuse for verification. If an item does not exist, explicitly write "None" or "TBD"; do not delete the section.
 
 ## Introduction
+
 - **Design Background**: `SbufferData` is a byte-level storage array instantiated by the `Sbuffer` module. It provides write data and per-byte dirty mask storage for each store buffer entry, organized as [entry][virtual word offset][byte]. Sbuffer reads `dataOut` and `maskOut` for DCache eviction data/mask generation and store-to-load forwarding. Source: `SbufferData.scala:1-3`, `engine_overview.txt:9`.
 - **Design Goals**: (1) Accept write commands on EnsbufferWidth parallel ValidIO ports, storing data and per-byte masks at the specified entry and virtual word offset. (2) Accept mask flush commands on NumDcacheWriteResp parallel ValidIO ports, clearing all mask bits for a completed entry. (3) Provide combinational read access to the stored data and mask arrays. (4) Support full cache line write via the `wline` flag, bypassing per-offset addressing. (5) Provide unconditional acceptance of all ValidIO transactions — no backpressure.
 
@@ -25,6 +27,7 @@ File list:
 - `SbufferData.scala:1-93`: Top-level SbufferData module — data Reg array, mask RegInit array, 2-cycle write pipeline (GatedValidRegNext), 2-cycle mask flush pipeline, dataOut/maskOut combinational outputs.
 
 ## Top-Level Interface Overview
+
 - **Module Name**: `SbufferData`
 - **Port List**:
 
@@ -163,6 +166,7 @@ When a mask flush command fires, all mask bits for the target entry are cleared 
 (no submodules) — SbufferData instantiates no child modules. It uses Chisel Reg, RegInit, and GatedValidRegNext primitives directly.
 
 ### State Machines and Timing
+
 - **State Machine List**: None. SbufferData has no architecturally visible finite state machine. It operates as a pure storage array with pipelined write and flush combinational-to-registered paths.
 - **State Transition Conditions**: N/A.
 - **Key Timing**:
@@ -172,6 +176,7 @@ When a mask flush command fires, all mask bits for the target entry are cleared 
   - Concurrent write and read: A write that fires on cycle N is visible on `dataOut`/`maskOut` starting at cycle N+2 (registered). A read on cycle N+1 sees the pre-write value.
 
 ### Configuration Registers and Storage
+
 | Register Name/Address | Access Attribute | Bit Field | Default | Description | Read/Write Side Effects |
 | ------------- | -------- | ---- | ------ | ---- | ---------- |
 | data | internal (Reg) | Vec(StoreBufferSize, Vec(CacheLineVWords, Vec(VDataBytes, UInt(8.W)))) | All zeros (uninitialized, reset sets to 0) | Byte-level storage array for write data per entry per virtual word offset. Source: `SbufferData.scala:11`. | Written on `write_byte` condition (pipeline stage s2). Read combinational via dataOut. |
@@ -181,6 +186,7 @@ When a mask flush command fires, all mask bits for the target entry are cleared 
 - **Configuration Flow**: All storage resets to zero/false. No runtime configuration registers. All behavior is determined by the data and mask array state driven by writeReq and maskFlushReq commands.
 
 ### Reset and Error Handling
+
 - **Reset Behavior**: After active-high synchronous reset assertion:
   - All `mask` register entries are reset to false at all virtual word offsets and all byte positions (via RegInit). Source: `SbufferData.scala:13-19`.
   - The `data` register is a plain Reg (not RegInit) and resets to all zeros (Chisel Reg semantics). Source: `SbufferData.scala:11`.
@@ -190,6 +196,7 @@ When a mask flush command fires, all mask bits for the target entry are cleared 
 - **Self-Recovery Strategy**: None. SbufferData has no self-recovery mechanism. Correctness relies on the parent Sbuffer to manage entry lifecycle and ensure protocol constraints (one-hot wvec, no concurrent write/flush to same entry).
 
 ### Parameterization and Configurable Features
+
 - **Module Parameters**:
 
   | Parameter Name | Type/Range | Default | Functional Effect |
@@ -205,6 +212,7 @@ When a mask flush command fires, all mask bits for the target entry are cleared 
 - **Compile Macros/Generation Options**: None.
 
 ## Verification Requirements and Coverage Suggestions
+
 - **Functional Coverage Points**: All `CK-*` check points defined in each functional group constitute coverage targets. Additional cross-coverage scenarios:
   - Concurrent write to one entry and mask flush to a different entry in overlapping pipeline cycles.
   - Sequential write, read, flush sequence for a single entry through all virtual word offsets.

@@ -78,6 +78,7 @@ from ucagent.lang.zh.skills.formal.lib.formal_tools import (
 class BaseFormalChecker(Checker):
     """Base class for formal verification checkers."""
     def __init__(self, dut_name, **kwargs):
+        super().__init__()
         self.dut_name = dut_name
         self.paths = FormalPaths(dut=dut_name)
 

@@ -13,6 +13,7 @@ Spec 文档是进行芯片验证与回归管理的基础。很多团队在项目
 ---
 
 ### `genspec.yaml` 配置要点
+
 `genspec.yaml` 负责告诉 UCAgent 如何组织任务。如需了解具体内容请查看该文件。
 参考spec模板文件为 `SpecDoc/dut_spec_template.md`。
 
@@ -53,6 +54,7 @@ Spec 文档是进行芯片验证与回归管理的基础。很多团队在项目
 ---
 
 ### 运行命令示例
+
 ```bash
 # 准备环境(创建 output目录)
 cp examples/GenSpec/

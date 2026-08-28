@@ -1,3 +1,4 @@
+
 # Browser FST fallback converter
 
 This crate builds the WebAssembly module used by the bundled Surfer page when

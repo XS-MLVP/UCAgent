@@ -1,3 +1,4 @@
+
 # AGENTS.md
 
 This file contains repository-level instructions for coding agents working on
@@ -88,6 +89,12 @@ Important rules:
 - After template resolution, `VerifyAgent` writes the non-secret shared snapshot
   `<workspace>/.ucagent/runtime_config.json`. External scripts and other runtime
   consumers should use `load_runtime_config(workspace)`.
+- The runtime snapshot must include `ucagent_python_path`: an absolute Python
+  import root containing the exact running `ucagent` package. Derive it from the
+  loaded package location, not the current directory, repository name, an
+  environment variable, or an assumed installation layout. Validate that the
+  path contains `ucagent/__init__.py`; an absent, relative, or stale path must
+  fail with an instruction to restart UCAgent and regenerate the snapshot.
 - Keep secrets out of runtime snapshots, prompts, logs, checker results, and test
   fixtures. Never dump the full config because it can contain API keys/tokens.
 - When adding a runtime option, define a positive, unambiguous field under
@@ -115,6 +122,10 @@ active stage eventually calls each checker's `on_init()`.
 
 Follow these rules when implementing checkers:
 
+- Every Checker subclass with a custom `__init__` must call
+  `super().__init__()` before registering lifecycle callbacks or constructing a
+  `UnityChipBatchTask`. `Checker._cb_list` is an instance-only registry; do not
+  add class-level callback storage, lazy initialization, or test-time resets.
 - Keep `__init__` limited to validating/storing constructor parameters and
   creating lightweight helper objects. Do not scan workspace files or derive
   live task state in the constructor.
@@ -127,6 +138,21 @@ Follow these rules when implementing checkers:
   change behavior. It may be called repeatedly while rendering descriptions.
 - `do_check(is_complete=False, **kwargs)` performs live validation and returns
   `(bool, str|dict|list)`. Prefer structured, concise, actionable diagnostics.
+- A Checker owns failure diagnosis. When a failure can be repaired
+  deterministically, return an explicit diagnostic mapping containing at least
+  `error_code`, `error`, and `next_action`, plus bounded `observed`, `expected`,
+  artifact, and location fields where useful. The bounded Checker result may be
+  the diagnostic itself; when the result also carries raw output, put the
+  bounded mapping under `diagnostic`. Stage management may project this contract
+  into `failure_summary` and add stage/Checker identity metadata, but must
+  preserve all Checker-authored diagnostic fields and must not infer or
+  synthesize a summary from ordinary `error`, `details`, `STDOUT`, or `STDERR`
+  fields.
+- When a Checker does not provide a complete explicit diagnostic, Check and
+  Complete must preserve its entire original result. The reserved boolean
+  `stage_args.full_output` requests the original result even when an explicit
+  diagnostic normally permits compact output; consume this field before
+  dispatching the remaining stage arguments to Checkers.
 - Every overridden `do_check` must have a meaningful docstring. `Checker.__str__`
   asserts that this description exists during stage-info generation.
 - A failed checker must explain the exact failing artifact, the relevant current
@@ -241,11 +267,64 @@ results, runtime `Guide_Doc`, templates, and skill instructions.
   When input has the wrong shape, state the required current structure and the
   exact repair action without teaching the LLM about historical alternatives.
 
+### Current-Contract-Only Development
+
+During active development, the repository targets only the latest canonical
+contract. Backward compatibility with superseded development contracts is not a
+goal unless the current task explicitly requests a bounded migration.
+
+- Implement the latest contract directly. Do not retain old aliases, argument
+  names, configuration fields, environment-variable fallbacks, tool schemas,
+  checker classes, tag formats, document layouts, parser branches, or prompt
+  instructions as compatibility paths.
+- When a contract is replaced, remove the superseded implementation and its
+  fallback or auto-conversion logic in the same change. Invalid old input must
+  fail with the current expected format and corrective action; it must not be
+  silently accepted, guessed, translated, or normalized.
+- Synchronize every affected contract layer: resolved configuration, runtime
+  code, prompts, `Guide_Doc`, templates, skills and scripts, contract files,
+  tests, fixtures, and maintained examples. Delete stale fixtures and examples
+  that exist only for the superseded contract.
+- Tests must construct and assert the current canonical contract. If a test
+  fails because it imports a removed interface or expects superseded behavior,
+  update or delete that test; do not restore the old production interface to
+  make the test pass.
+- Existing generated workspaces, copied skills, checkpoints, reports, and
+  `output/` artifacts do not justify compatibility code. Regenerate or restart
+  them against the latest contract instead of teaching runtime code to consume
+  stale development artifacts.
+- Before finishing a contract change, search the repository for removed names,
+  paths, tags, fields, and examples, and verify that no reachable compatibility
+  branch or conflicting normative guidance remains.
+
 ### Shared Runtime Contract
 
 - Tagged Markdown is a machine-readable interface. Treat FG/FC/CK, BG/TC,
   FILE/LINK-BUG, progress markers, and fenced evidence blocks like an API.
 - Keep one canonical format instead of accepting several ambiguous variants.
+- In runtime Markdown, templates, Skill assets, and Markdown examples, surround
+  every ATX heading (`#` through `######`) with a blank line. Every heading must
+  have a preceding blank line without exception, including a heading at the
+  beginning of a file, the first heading inside a Markdown fence, and a heading
+  after a machine anchor `<a id="..."></a>`. Do not place a paragraph, list,
+  table, another heading, opening/closing fence, or anchor directly before a
+  heading. Canonical machine companion markers such as `<BUG-*>`, `<ROOT-*>`,
+  and `<RELATED-BUGS>` may remain immediately after their field headings.
+  Markdown-generating scripts and renderers must preserve the same spacing in
+  their generated output.
+- The dynamic Bug document target is exactly
+  `{OUT}/{DUT}_bug_analysis.md`; its visible Markdown title is not a filename
+  rule. Do not derive or create another output filename from that title.
+- Serialize one exact report node ID according to its consumer: dynamic
+  Markdown uses `- {visible_title} <TC-{exact_report_node_id}>`; recorder/Apply
+  arguments and waveform YAML `test_case` use
+  `TC-{exact_report_node_id}`; WaveInfo `test_case_name` uses
+  `{exact_report_node_id}`. These forms differ only by the required Markdown
+  wrapper and `TC-` prefix; the node ID itself is byte-for-byte identical.
+- When no dynamic Bug is found, retain the canonical document title and the
+  three ordered sections, with empty closed `DYNAMIC-BUGS`, `ROOT-CAUSES`, and
+  `WAVEFORM-EVIDENCE` bodies. Do not put explanatory prose, TC/BG placeholders,
+  ROOT entities, or waveform records inside those empty containers.
 - Every normative `Guide_Doc` file must include a complete canonical reference
   example for its primary artifact contract. The example must show the entire
   finished artifact from its title through its closing section, including exact
@@ -282,12 +361,35 @@ results, runtime `Guide_Doc`, templates, and skill instructions.
 - Any requirement to invoke a skill or validate skill-use evidence must be
   conditional on the resolved skill setting. It must not block Check or Complete
   when skills are disabled.
+- Check Skill usage only when Skill support is enabled and the current stage
+  has a nonempty stage-level `skill_list`. A missing or empty `skill_list` must
+  not expose Skill status, require `SetSkillUsage`, or gate Check/Complete. A
+  nonempty stage-level `skill_list` requires complete Skill usage evidence by
+  default. An explicit `force_use_skill: false` makes
+  that stage's Skills optional. `general_skill_list` entries are always optional
+  and never enter the stage requirement. The evidence gate applies to
+  `Complete`, not intermediate `Check` calls. When Skill support is disabled,
+  the gate is inactive even if a stage declares `skill_list`. For each forced
+  Skill, `SetSkillUsage` must validate real `listed=true` and `read=true`
+  evidence, followed by either `used=true` for an applied method or
+  `used=false` with a nonempty no-applicable-work reason after a passing current
+  `Check`. A reason cannot create list/read evidence, replace `Check`, downgrade
+  observed use=true, or manufacture a Bug/artifact. A forced gate failure must
+  identify each Skill and its current `listed`/`read`/`used` state, plus the
+  exact `SetSkillUsage` call to make after performing any missing actions.
 - Skill directories require `SKILL.md` with valid `name` and `description`
   frontmatter. Keep a skill concise and put deterministic repeated work in
   `scripts/`.
 - Skill scripts execute with the DUT workspace as the current directory. Read
   resolved runtime configuration from `.ucagent/runtime_config.json`; do not
   reinterpret feature environment variables.
+- Python Skill scripts that import `ucagent` must run through `RunSkillScript`.
+  Before starting the child process, `RunSkillScript` must load
+  `ucagent_python_path` from `.ucagent/runtime_config.json`, place it first in
+  the child `PYTHONPATH` without duplicating it, and preserve other import paths.
+  This contract must work both for an installed package and direct source-tree
+  execution; do not require a separate UCAgent installation or infer the source
+  root from the copied Skill script's location.
 - A nonempty `scripts/__init__.py` can install `setup_vstage` hooks. Avoid hidden
   import-time side effects and make hooks idempotent.
 - Skills are copied into a workspace at agent initialization. Source changes do
@@ -319,14 +421,44 @@ Preserve these established semantics unless the task explicitly changes them:
   its unique record in the document-level `<WAVEFORM-EVIDENCE>` section. The
   record's fenced `yaml` block must have `waveform_analysis` as its sole
   top-level key, name every associated BG, and contain a verifiable receipt.
+- A verified signed waveform receipt and central record remain valid when later
+  Checks rotate sessions or remove the original waveform file. Ordinary Checks
+  must not replay or refresh historical evidence. Only a gate configured with
+  `require_current_replay=true` may require current waveform replay and
+  atomically refresh semantically equivalent machine evidence. A cached-report
+  document preflight always uses `require_current_replay=false`; it may reject a
+  malformed document but must never run tests, refresh evidence, or complete a
+  batch.
+- A `require_current_replay=true` gate must replay all unique documented TCs in
+  one Check. It must batch and atomically refresh every semantically unchanged
+  record without LLM work. If signed semantic inputs changed, return the complete
+  bounded review queue in one diagnostic and use `ReviewWaveInfoEvidenceBatch`
+  to prepare all current contexts and atomically apply all completed reviews.
+  Do not expose only one changed TC per Check, require repeated full-test reruns
+  between review items, or send the LLM through individual Apply calls. A batch
+  item failure must leave the original document unchanged and identify the exact
+  item. A concurrent target-document change is a batch-level conflict: preserve
+  that external content and report the document scope instead of blaming one TC.
+- A waveform Markdown anchor is the stable 16-hex SHA-256-derived identity of
+  the canonical TC tag. It is not the 32-hex signed `receipt_id`, must not change
+  when evidence is refreshed, and must never be supplied as an Apply receipt.
 - A failed TC has exactly one central waveform record even when it is associated
   with multiple Bugs. The signed signal groups must cover the union of each
   associated BG's `required_signals`.
 - Within each dynamic `<BG-*>`, list every `<TC-*>` and its immediately following
-  `<WAVEFORM-REF>` before the eight ordered `<BUG-*>` analysis fields. The fields
+  `<WAVEFORM-REF>` before the three ordered `<BUG-*>` analysis fields. The fields
   begin only after the final TC/reference pair; never append another TC after the
   first analysis field. Each field uses its canonical level-six visible title,
   then its matching `<BUG-*>` marker on the next nonempty line, then its body.
+- Each dynamic BG contains only `<BUG-OVERVIEW>`, `<BUG-SYMPTOMS>`, and
+  `<BUG-TRIGGER>`. Its trigger ends with exactly one clickable
+  `<CAUSE-REF-ROOT-*>` reference. Each BG references exactly one root cause.
+- Define root causes once in the document-level `<ROOT-CAUSES>` section. Every
+  root entity has a document-wide unique `<ROOT-*>` tag, the five ordered ROOT
+  analysis fields, and at least one clickable `<RELATED-BUG-FG-*/FC-*/CK-*/BG-*>`
+  reverse reference. Every referenced BG must exist and both directions must
+  agree. A root cause may own multiple BG paths; a combination defect is its own
+  root cause.
 - A no-Bug result must remain valid without manufacturing waveform evidence.
 - Test log cycle values and wavekit steps may differ by zero or several cycles.
   Align evidence by clock occurrence and transaction context; never assume they
@@ -338,6 +470,20 @@ Preserve these established semantics unless the task explicitly changes them:
 ## Code Style and Scope
 
 - Match nearby style; the repository is not uniformly autoformatted.
+- Keep implementations concise and remove redundant code. Do not introduce an
+  abstraction merely to claim reuse or make the implementation look layered.
+- A helper function with exactly one call site is unnecessary. Inline its logic
+  at that call site instead of retaining a one-use helper.
+- Every source file must have a meaningful module/file docstring, and every
+  function and class must have a meaningful docstring describing its contract.
+  Add succinct comments at critical non-obvious lifecycle, concurrency,
+  security, state-transition, or parsing logic; do not narrate obvious code.
+- Implement feature behavior as a general contract that covers the real problem
+  domain. Do not accumulate ad hoc branches, special cases, fixture-specific
+  exceptions, or one-off patches for only the observed example or latest request.
+- Self-test every distinct feature point and its important failure boundaries.
+  Run sufficient focused and proportional regression tests before stating that
+  the implementation is correct, complete, or has no remaining problems.
 - Use UTF-8. Files in `ucagent/lang/zh/` may contain Chinese. Do not put Chinese
   literals in generic implementation Python files outside the language tree,
   including Unicode escapes that decode to Chinese at runtime. When generic
@@ -347,11 +493,7 @@ Preserve these established semantics unless the task explicitly changes them:
 - Keep generic checker and tool diagnostics language-neutral. Refer to stable
   field keys, machine tags, and exact Guide_Doc paths; do not embed or echo a
   locale's full display-title list into generic runtime messages.
-- Keep Python identifiers and implementation comments concise and conventional.
 - Prefer standard parsers and structured data over ad hoc string replacement.
-- Add comments only for non-obvious lifecycle, security, or parsing logic.
-- Avoid broad abstractions for a single checker/tool unless they clearly reduce
-  duplication or establish a reusable contract.
 - Preserve public constructor arguments and defaults unless compatibility is
   explicitly out of scope.
 - Keep user-facing checker/tool errors concise enough for an LLM context window.

@@ -5,6 +5,7 @@ from typing import Annotated, Optional, List, Tuple, Union
 from ucagent.util.log import info, str_info, str_return, str_error, str_data, warning
 from ucagent.util.functions import is_text_file, get_file_size, bytes_to_human_readable
 from ucagent.util.functions import get_diff, match_pattern_list
+from ucagent.util.markdown import ensure_markdown_file_heading_spacing
 from .uctool import UCTool
 
 from langchain_core.callbacks import (
@@ -28,6 +29,11 @@ except ImportError:  # pragma: no cover - exercised through a patched module val
 
 
 DEFAULT_MAX_DIFF_CHARS = 20000
+_MARKDOWN_WRITE_DESCRIPTION = (
+    " For .md and .md.j2 targets, every successful write also normalizes the "
+    "required blank lines around ATX headings while preserving canonical machine "
+    "field companions."
+)
 
 
 def _normalize_relative_path(path: str, *, allow_workspace: bool = False) -> str:
@@ -1192,6 +1198,7 @@ class EditTextFile(UCTool, BaseReadWrite):
         "for a small exact replacement in an existing file. Repeating a successful "
         "create/overwrite call with the same content is treated as success; append calls "
         "always append again."
+        + _MARKDOWN_WRITE_DESCRIPTION
     )
     args_schema: Optional[ArgsSchema] = ArgEditTextFile
     return_direct: bool = False
@@ -1243,6 +1250,7 @@ class EditTextFile(UCTool, BaseReadWrite):
                     if file_exists
                     else f"Created '{path}' with {len(content)} characters"
                 )
+            new_content = ensure_markdown_file_heading_spacing(path, new_content)
 
             if file_exists and new_content == original_content:
                 result = {
@@ -1711,6 +1719,7 @@ class DeleteTextLines(UCTool, BaseReadWrite):
         "All ranges are validated before writing; overlapping or adjacent blocks are merged, "
         "and any invalid or out-of-range block cancels the entire operation. This tool does "
         "not delete files."
+        + _MARKDOWN_WRITE_DESCRIPTION
     )
     args_schema: Optional[ArgsSchema] = ArgDeleteTextLines
     return_direct: bool = False
@@ -1812,7 +1821,10 @@ class DeleteTextLines(UCTool, BaseReadWrite):
                 kept_lines.extend(original_lines[cursor:start - 1])
                 cursor = end
             kept_lines.extend(original_lines[cursor:])
-            new_content = "".join(kept_lines)
+            new_content = ensure_markdown_file_heading_spacing(
+                path,
+                "".join(kept_lines),
+            )
             deleted_line_count = sum(end - start + 1 for start, end in merged_ranges)
             new_sha256 = _sha256_bytes(new_content.encode("utf-8"))
             diff_result, _ = _bounded_diff(original_content, new_content, path)
@@ -1834,7 +1846,7 @@ class DeleteTextLines(UCTool, BaseReadWrite):
                     "changed": True,
                     "deleted_line_count": deleted_line_count,
                     "deleted_line_blocks": normalized_blocks,
-                    "remaining_line_count": len(original_lines) - deleted_line_count,
+                    "remaining_line_count": len(new_content.splitlines(keepends=True)),
                     "before_sha256": original_sha256,
                     "after_sha256": new_sha256,
                 },
@@ -1920,6 +1932,7 @@ class ReplaceStringInFile(UCTool, BaseReadWrite):
         "inside one normalized block. Use EditTextFile to create, overwrite, or append to "
         "a file. Repeating an already-applied replacement is reported as an actionable "
         "mismatch; calling with identical old_string and new_string is treated as success."
+        + _MARKDOWN_WRITE_DESCRIPTION
     )
     args_schema: Optional[ArgsSchema] = ArgReplaceStringInFile
     return_direct: bool = False
@@ -2022,6 +2035,7 @@ class ReplaceStringInFile(UCTool, BaseReadWrite):
                 + replacement_content
                 + original_content[match_offset + len(old_content):]
             )
+            new_content = ensure_markdown_file_heading_spacing(path, new_content)
             if new_content == original_content:
                 result = {
                     "changed": False,

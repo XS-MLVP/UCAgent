@@ -9,9 +9,13 @@ from ucagent.util.config import Config
 import ucagent.checkers as checkers
 from collections import OrderedDict
 import copy
+import json
 import time
 import os
 from typing import Dict, Any
+
+SKILL_USAGE_EVIDENCE_SCHEMA_VERSION = 1
+
 
 def update_dict(d, u):
     d.update(u)
@@ -42,9 +46,8 @@ class VerifyStage(object):
                  checker,
                  reference_files,
                  skill_list,
-                 output_files,
                  experience_hook=False,
-                 force_use_skill=False,
+                 force_use_skill=True,
                  prefix = "",
                  skip=False,
                  tool_read_text=None,
@@ -60,6 +63,10 @@ class VerifyStage(object):
         """
         self.cfg = cfg
         self.name = name
+        if not isinstance(force_use_skill, bool):
+            raise ValueError(
+                f"Stage '{self.name}' force_use_skill must be a boolean."
+            )
         self.prefix = prefix
         self.skip = skip
         self.need_fail_llm_suggestion = need_fail_llm_suggestion
@@ -125,9 +132,6 @@ class VerifyStage(object):
         self.hist_ign_list = cfg.hist_ignore_pattern
         self.append_on_complete_callback(self._sync_workspace_back_on_complete)
 
-        if not self.cfg.skill.use_skill and skill_list and force_use_skill:
-            raise ValueError(f"Enable the arg(--use-skill) to use skill, or remove the skill_list and force_use_skill specified in stage '{self.name}'.")
-
     def meta_set_journal(self, journal):
         self.meta_data['journal'] = copy.deepcopy(journal)
 
@@ -146,8 +150,139 @@ class VerifyStage(object):
     def meta_get_llm_fail_suggestion(self):
         return self.meta_data.get('llm_fail_suggestion', None)
 
-    def meta_set_skill_usage(self, skill_usage: Dict[str, Any]):
-        self.meta_data['skill_usage'] = copy.deepcopy(skill_usage)
+    def meta_set_skill_usage(
+        self,
+        skill_usage: Dict[str, Any],
+        validated: bool = False,
+        reasons: Dict[str, str] | None = None,
+    ):
+        self.meta_data['skill_usage'] = {
+            "schema_version": SKILL_USAGE_EVIDENCE_SCHEMA_VERSION,
+            "validated": bool(validated),
+            "skills": copy.deepcopy(skill_usage),
+            "reasons": copy.deepcopy(reasons or {}),
+        }
+
+    def get_skill_usage(self):
+        """Return the canonical list/read/use projection for stage Skills."""
+        return {
+            skill_name: {
+                "list": bool(flags[0]),
+                "read": bool(flags[1]),
+                "use": bool(flags[2]),
+            }
+            for skill_name, flags in self.skill_list.items()
+        }
+
+    def get_skill_usage_reasons(self):
+        evidence = self.meta_data.get("skill_usage")
+        if not isinstance(evidence, dict):
+            return {}
+        reasons = evidence.get("reasons", {})
+        return reasons if isinstance(reasons, dict) else {}
+
+    def restore_skill_usage(self):
+        """Restore only evidence written under the current persisted contract."""
+        evidence = self.meta_data.get("skill_usage")
+        if evidence is None:
+            return True
+        if not isinstance(evidence, dict):
+            self.meta_data.pop("skill_usage", None)
+            return False
+        if evidence.get("schema_version") != SKILL_USAGE_EVIDENCE_SCHEMA_VERSION:
+            self.meta_data.pop("skill_usage", None)
+            return False
+        if type(evidence.get("validated")) is not bool:
+            self.meta_data.pop("skill_usage", None)
+            return False
+        saved_skills = evidence.get("skills")
+        if not isinstance(saved_skills, dict):
+            self.meta_data.pop("skill_usage", None)
+            return False
+        reasons = evidence.get("reasons")
+        if not isinstance(reasons, dict):
+            self.meta_data.pop("skill_usage", None)
+            return False
+        if set(saved_skills) != set(self.skill_list):
+            self.meta_data.pop("skill_usage", None)
+            return False
+        if not set(reasons).issubset(self.skill_list):
+            self.meta_data.pop("skill_usage", None)
+            return False
+        if any(
+            not isinstance(reason, str) or not reason.strip()
+            for reason in reasons.values()
+        ):
+            self.meta_data.pop("skill_usage", None)
+            return False
+
+        restored = {}
+        expected_fields = {"list", "read", "use"}
+        for skill_name in self.skill_list:
+            flags = saved_skills.get(skill_name)
+            if flags is None:
+                continue
+            if not isinstance(flags, dict) or set(flags) != expected_fields:
+                self.meta_data.pop("skill_usage", None)
+                return False
+            if any(type(flags[field]) is not bool for field in expected_fields):
+                self.meta_data.pop("skill_usage", None)
+                return False
+            restored[skill_name] = [
+                flags["list"], flags["read"], flags["use"]
+            ]
+
+        if any(
+            not restored[skill_name][0]
+            or not restored[skill_name][1]
+            or restored[skill_name][2]
+            for skill_name in reasons
+        ):
+            self.meta_data.pop("skill_usage", None)
+            return False
+        if evidence["validated"] and getattr(self, "force_use_skill", True):
+            for skill_name, (listed, read, used) in restored.items():
+                if not listed or not read or (not used and skill_name not in reasons):
+                    self.meta_data.pop("skill_usage", None)
+                    return False
+
+        for skill_name, flags in restored.items():
+            self.skill_list[skill_name] = flags
+        return True
+
+    def is_skill_usage_validated(self):
+        """Return whether SetSkillUsage validated the current evidence snapshot."""
+        evidence = self.meta_data.get("skill_usage")
+        if not (
+            isinstance(evidence, dict)
+            and evidence.get("schema_version")
+            == SKILL_USAGE_EVIDENCE_SCHEMA_VERSION
+            and evidence.get("validated") is True
+            and evidence.get("skills") == self.get_skill_usage()
+        ):
+            return False
+        reasons = evidence.get("reasons")
+        if not isinstance(reasons, dict) or not set(reasons).issubset(self.skill_list):
+            return False
+        if any(
+            not isinstance(reason, str) or not reason.strip()
+            for reason in reasons.values()
+        ):
+            return False
+        if any(
+            not self.skill_list[skill_name][0]
+            or not self.skill_list[skill_name][1]
+            or self.skill_list[skill_name][2]
+            for skill_name in reasons
+        ):
+            return False
+        if getattr(self, "force_use_skill", True):
+            for skill_name, (listed, read, used) in self.skill_list.items():
+                if not listed or not read:
+                    return False
+                if not used and skill_name not in reasons:
+                    return False
+        return True
 
     def append_on_complete_callback(self, callback):
         if not callable(callback):
@@ -198,10 +333,24 @@ class VerifyStage(object):
             else:
                 info(f"Workspace sync-back skipped for {url}: {msg}")
 
-    def set_usage_skill_list(self,skill_name,listed=False, read=False, used=False):
+    def set_usage_skill_list(
+        self,
+        skill_name,
+        listed=False,
+        read=False,
+        used=False,
+        validated_by_check=False,
+    ):
         if skill_name in self.skill_list:
             [u,v,w] = self.skill_list[skill_name]
-            self.skill_list[skill_name] = [listed or u, read or v, used or w]
+            updated = [listed or u, read or v, used or w]
+            if updated != self.skill_list[skill_name]:
+                self.skill_list[skill_name] = updated
+                self.meta_set_skill_usage(
+                    self.get_skill_usage(), validated=False
+                )
+                if not validated_by_check and hasattr(self, "check_pass"):
+                    self.check_pass = False
 
     def hist_init(self):
         if not os.path.exists(self.hist_sav_dir):
@@ -447,12 +596,18 @@ class VerifyStage(object):
 
     def on_init(self):
         self._mark_experience_log_start()
+        # A test-report Skill must consume evidence produced in this stage, not
+        # whichever Unity test happened to run in the preceding stage.
+        from ucagent.util.config import clear_current_test_report
+        clear_current_test_report(self.workspace)
         self._process_cmds(self.pre_cmds, "Pre-Bash")
         for c in self.checker:
             c.on_init()
 
-        # setup function of vstage by skill in skill_list
-        if hasattr(self, 'skill_list') and self.skill_list:
+        # Stage-specific and general Skills may install optional task hooks. General
+        # Skills remain outside self.skill_list and therefore never enter its usage gate.
+        setup_skill_names = self._get_skill_hook_names()
+        if setup_skill_names:
             import importlib.util
             import sys
             def add_hook(method_name: str, hook_func):
@@ -466,8 +621,7 @@ class VerifyStage(object):
             self.add_hook = add_hook
             skills_dir = fc.get_workspace_skill_root(self.workspace)
             skills_dir_abs = os.path.abspath(skills_dir)
-            print(f"DEBUG: stage={self.name}, skill_list={self.skill_list}")
-            for skill_name in self.skill_list.keys():
+            for skill_name in setup_skill_names:
                 skill_dir = os.path.abspath(os.path.join(skills_dir_abs, skill_name))
                 if os.path.commonpath([skills_dir_abs, skill_dir]) != skills_dir_abs:
                     warning(f"Skill '{skill_name}' is outside workspace skill root, skipping setup_vstage.")
@@ -602,9 +756,14 @@ class VerifyStage(object):
         self.vmanager = manager
 
     def is_skill_path(self, file_path):
-        skill_root = fc.get_workspace_skill_root(self.workspace)
-        abs_file_path = os.path.abspath(self.workspace + os.path.sep + file_path)
-        return abs_file_path.startswith(skill_root)
+        skill_root = os.path.abspath(fc.get_workspace_skill_root(self.workspace))
+        abs_file_path = os.path.abspath(
+            os.path.join(self.workspace, os.fspath(file_path))
+        )
+        try:
+            return os.path.commonpath([skill_root, abs_file_path]) == skill_root
+        except ValueError:
+            return False
 
     def _mark_reference_file_read(self, file_path):
         if file_path in self.reference_files and not self.reference_files[file_path]:
@@ -621,13 +780,17 @@ class VerifyStage(object):
         self._mark_reference_file_read(file_path)
 
         if self.is_skill_path(file_path):
-            abs_path = os.path.abspath(self.workspace + os.path.sep + file_path)
+            abs_path = os.path.abspath(
+                os.path.join(self.workspace, os.fspath(file_path))
+            )
             if os.path.basename(abs_path) == "SKILL.md":
                 skill_root = os.path.abspath(fc.get_workspace_skill_root(self.workspace))
                 skill_dir = os.path.dirname(abs_path)
                 skill_name = os.path.relpath(skill_dir, skill_root).replace(os.path.sep, "/")
                 if skill_name in self.skill_list:
                     self.set_usage_skill_list(skill_name, read=True)
+                    if self.vmanager is not None:
+                        self.vmanager.save_stage_info()
                     info(f"[{self.__class__.__name__}.{self.name}] Skill {skill_name} has been read by the LLM.")
 
     def __repr__(self):
@@ -741,39 +904,262 @@ class VerifyStage(object):
             self.last_do_check_info_fail = ck_info_snapshot
         return ck_pass, ck_info
 
+    @staticmethod
+    def _make_gate_failure(checker_name, checker_class, diagnostic):
+        """Build a named stage-gate failure compatible with checker summaries."""
+        return OrderedDict({
+            "name": checker_class,
+            "checker_name": checker_name,
+            "checker_class": checker_class,
+            "checked_in_last_run": True,
+            "last_check_pass": False,
+            "last_msg": OrderedDict({
+                "error": diagnostic["error"],
+                "diagnostic": diagnostic,
+            }),
+            "count_pass": 0,
+            "count_fail": 1,
+            "count_check": 1,
+        })
+
+    def _return_precheck_failure(self, checker_name, checker_class, diagnostic):
+        """Return one named pre-check failure followed by unrun configured checkers."""
+        for checker_info in self.check_info:
+            if checker_info is not None:
+                checker_info["checked_in_last_run"] = False
+        self.check_pass = False
+        self.is_batch_success = False
+        self.fail_count += 1
+        self.continue_fail_count += 1
+        gate_failure = self._make_gate_failure(
+            checker_name, checker_class, diagnostic
+        )
+        return False, [gate_failure, *([None] * len(self.checker))]
+
+    def _check_forced_skill_usage(self, is_complete=False):
+        """Require complete Skill evidence only for forced completion requests."""
+        if not (
+            is_complete
+            and self.cfg.skill.use_skill
+            and getattr(self, "force_use_skill", True)
+            and self.skill_list
+        ):
+            return None
+
+        incomplete_skills = OrderedDict()
+        required_usage = OrderedDict()
+        persisted_reasons = self.get_skill_usage_reasons()
+        persisted_snapshot = self.meta_data.get("skill_usage")
+        reasons_are_current = bool(
+            isinstance(persisted_snapshot, dict)
+            and persisted_snapshot.get("validated") is True
+            and persisted_snapshot.get("skills") == self.get_skill_usage()
+        )
+        for skill_name, (listed, read, used) in self.skill_list.items():
+            usage = OrderedDict({
+                "list": bool(listed),
+                "read": bool(read),
+                "use": bool(used),
+            })
+            required_usage[skill_name] = {
+                "list": True,
+                "read": True,
+                "use": True,
+            }
+            not_applicable = bool(
+                reasons_are_current
+                and not used
+                and isinstance(persisted_reasons.get(skill_name), str)
+                and persisted_reasons[skill_name].strip()
+            )
+            if not listed or not read or (not used and not not_applicable):
+                incomplete_skills[skill_name] = usage
+
+        usage_validated = self.is_skill_usage_validated()
+        if not incomplete_skills and usage_validated:
+            return None
+
+        applied_usage_arg = json.dumps(required_usage, ensure_ascii=True)
+        no_applicable_usage = OrderedDict()
+        for skill_name, (_listed, _read, used) in self.skill_list.items():
+            no_applicable_usage[skill_name] = OrderedDict({
+                "list": True,
+                "read": True,
+                "use": bool(used),
+            })
+            if not used:
+                no_applicable_usage[skill_name]["reason"] = (
+                    "Explain why this checked stage has no applicable object."
+                )
+        no_applicable_usage_arg = json.dumps(
+            no_applicable_usage, ensure_ascii=True
+        )
+        error_code = (
+            "SKILL_USAGE_INCOMPLETE" if incomplete_skills else "SKILL_USAGE_NOT_VALIDATED"
+        )
+        diagnostic = OrderedDict({
+            "error_code": error_code,
+            "error": (
+                (
+                    "[Skill Usage Incomplete] Forced Skill usage evidence is incomplete "
+                    f"for: {', '.join(incomplete_skills)}."
+                )
+                if incomplete_skills
+                else "[Skill Usage Not Validated] Complete requires a successful SetSkillUsage call for the current evidence."
+            ),
+            "observed": OrderedDict({
+                "incomplete_skills": incomplete_skills,
+            }),
+            "expected": OrderedDict({
+                "applied_method_usage": required_usage,
+                "no_applicable_usage": no_applicable_usage,
+                "requirement": (
+                    "Every forced Skill must be listed, its SKILL.md must be read, "
+                    "and then it must have either use=true for an applied method or "
+                    "use=false with a nonempty no-applicable-work reason after a "
+                    "passing current Check."
+                ),
+            }),
+            "next_action": (
+                (
+                    "For each false list/read field, call `ListSkill` and read that "
+                    "Skill's `SKILL.md` with `ReadTextFile`. Then either apply the "
+                    "Skill method, including a declared script only when the method "
+                    "requires it, or determine that this stage has no applicable object "
+                    "and no script or artifact mutation is needed. Call `Check` after "
+                    "list/read and any applicable work. Then "
+                )
+                if incomplete_skills
+                else ""
+            )
+            + "call `SetSkillUsage` with one current-stage object. For applied methods: "
+            + f"`SetSkillUsage(skill_usage={applied_usage_arg})`. When no Skill has an "
+            "applicable object, use: "
+            + f"`SetSkillUsage(skill_usage={no_applicable_usage_arg})`. A stage may mix "
+            "these per-Skill outcomes. Then call `Complete` again.",
+        })
+        return self._return_precheck_failure(
+            "stage_skill_usage", "SkillUsageGate", diagnostic
+        )
+
+    def _check_reference_files(self, is_complete=False):
+        """Return a named failure containing every unread reference file."""
+        unread_files = [
+            path for path, was_read in self.reference_files.items() if not was_read
+        ]
+        if not unread_files:
+            return None
+        read_calls = [f"ReadTextFile(path='{path}')" for path in unread_files]
+        retry_tool = "Complete" if is_complete else "Check"
+        diagnostic = OrderedDict({
+            "error_code": "REFERENCE_FILES_UNREAD",
+            "error": (
+                f"[Reference Files Unread] {len(unread_files)} required reference "
+                f"file(s) have not been read: {', '.join(unread_files)}."
+            ),
+            "observed": OrderedDict({
+                "unread_files": unread_files,
+            }),
+            "expected": OrderedDict({
+                "required_action": "Read every listed reference file before validation.",
+            }),
+            "next_action": (
+                f"Call {', '.join(read_calls)}, then call `{retry_tool}` again."
+            ),
+        })
+        return self._return_precheck_failure(
+            "stage_reference_files", "ReferenceFileGate", diagnostic
+        )
+
+    def _invalid_stage_args_failure(self, stage_args, is_complete=False):
+        """Return a named failure for a non-object stage_args value."""
+        retry_tool = "Complete" if is_complete else "Check"
+        diagnostic = OrderedDict({
+            "error_code": "STAGE_ARGS_INVALID",
+            "error": (
+                "[Stage Args Invalid] stage_args must be a JSON object, but received "
+                f"{type(stage_args).__name__}."
+            ),
+            "observed": OrderedDict({
+                "type": type(stage_args).__name__,
+            }),
+            "expected": OrderedDict({
+                "type": "object",
+                "example": {},
+            }),
+            "next_action": (
+                f"Call `{retry_tool}` again with stage_args as a JSON object; use "
+                "stage_args={} when this stage requires no custom arguments."
+            ),
+        })
+        return self._return_precheck_failure(
+            "stage_arguments", "StageArgumentGate", diagnostic
+        )
+
+    def _check_output_files(self, is_complete=False):
+        """Validate every resolved stage output pattern and return one diagnostic."""
+        matches_by_pattern = OrderedDict()
+        missing_patterns = []
+        for pattern in self.output_files:
+            matches = sorted(
+                find_files_by_pattern(self.workspace, pattern, ignore_warn=True)
+            )
+            matches_by_pattern[pattern] = matches
+            if not matches:
+                missing_patterns.append(pattern)
+
+        if not missing_patterns:
+            return True, None
+
+        missing_text = ", ".join(f"'{pattern}'" for pattern in missing_patterns)
+        retry_tool = "Complete" if is_complete else "Check"
+        next_action = (
+            "Generate at least one concrete workspace file matching each missing resolved "
+            f"output pattern: {missing_text}. For patterns containing glob syntax, replace "
+            "the wildcard with concrete path text; do not create a filename containing a "
+            f"literal '*'. Then call `{retry_tool}` again."
+        )
+        diagnostic = OrderedDict({
+            "error_code": "OUTPUT_FILE_PATTERN_MISSING",
+            "error": (
+                f"[Output File Pattern Missing] {len(missing_patterns)} of "
+                f"{len(self.output_files)} required resolved output patterns matched no "
+                f"workspace path: {missing_text}."
+            ),
+            "observed": OrderedDict({
+                "workspace": os.path.abspath(self.workspace),
+                "matches_by_pattern": matches_by_pattern,
+            }),
+            "expected": OrderedDict({
+                "required_patterns": list(self.output_files),
+                "missing_patterns": missing_patterns,
+                "requirement": (
+                    "Every resolved output pattern must match at least one workspace path."
+                ),
+            }),
+            "next_action": next_action,
+        })
+        return False, self._make_gate_failure(
+            "stage_output_files", "OutputFileGate", diagnostic
+        )
+
     def _do_check(self, *a, **kwargs):
-        if self.cfg.skill.use_skill and self.skill_list:
-            for k,[u,v,w] in self.skill_list.items():
-                if u and v and w:
-                    continue
-                else:
-                    return False, "Please use tool 'SetSkillUsage' to check and set the skill usage of this stage before completing it."
         self._is_reached = True
-        if not all(c[1] for c in self.reference_files.items()):
-            emsg = OrderedDict({"error": "You need use tool `ReadTextFile` to read and understand the reference files", "files_need_read": []})
-            for k, v in self.reference_files.items():
-                if not v:
-                    emsg["files_need_read"].append(k + f" (Not readed, need ReadTextFile('{k}'))")
-            self.fail_count += 1
-            self.continue_fail_count += 1
-            return False, emsg
-        success_out_file = True
-        success_out_msg = []
-        for k, v in {p: len(find_files_by_pattern(self.workspace, p)) for p in self.output_files}.items():
-            if v <= 0:
-                success_out_file = False
-                success_out_msg.append(k)
-        if not success_out_file:
-            self.fail_count += 1
-            self.continue_fail_count += 1
-            return False, OrderedDict({"error": f"Output file patterns not found in workspace. you need to generate those files.",
-                                       "failed_patterns": success_out_msg})
+        is_complete = bool(kwargs.get("is_complete", False))
+        skill_failure = self._check_forced_skill_usage(is_complete=is_complete)
+        if skill_failure is not None:
+            return skill_failure
+        reference_failure = self._check_reference_files(is_complete=is_complete)
+        if reference_failure is not None:
+            return reference_failure
         self.check_pass = True
         stage_args = kwargs.pop("stage_args", {})
         if stage_args is None:
             stage_args = {}
         if not isinstance(stage_args, dict):
-            return False, {"error": "stage_args must be a JSON object."}
+            return self._invalid_stage_args_failure(
+                stage_args, is_complete=is_complete
+            )
         checker_kwargs = {**stage_args, **kwargs}
         for checker_info in self.check_info:
             if checker_info is not None:
@@ -809,12 +1195,21 @@ class VerifyStage(object):
                 if self.is_batch_success is False:
                     self.fail_count += 1
                 break
+        check_result = self.check_info
+        if self.check_pass:
+            output_pass, output_failure = self._check_output_files(
+                is_complete=bool(checker_kwargs.get("is_complete", False))
+            )
+            if not output_pass:
+                self.check_pass = False
+                self.fail_count += 1
+                check_result = [*self.check_info, output_failure]
         if self.check_pass:
             self.succ_count += 1
             self.continue_fail_count = 0
         else:
             self.continue_fail_count += 1
-        return self.check_pass, self.check_info
+        return self.check_pass, check_result
 
     def reset_continue_fail_count_with_batch_pass(self):
         self.is_batch_success = True
@@ -902,8 +1297,22 @@ class VerifyStage(object):
             "reference_files":  {k: ("Readed" if v else "Not Read") for k, v in self.reference_files.items()},
             "output_files":     self.output_files,
         })
-        if self.cfg.skill.use_skill:
-            data["skill_list"] = {k: ["Listed" if u else "Not Listed", "Read" if v else "Not Read", "Used" if w else "Not Used"] for k, [u,v,w] in self.skill_list.items()}
+        if self.cfg.skill.use_skill and self.skill_list:
+            reasons = self.get_skill_usage_reasons()
+            data["skill_list"] = {
+                skill_name: [
+                    "Listed" if listed else "Not Listed",
+                    "Read" if read else "Not Read",
+                    (
+                        "Used"
+                        if used
+                        else "Not Applicable"
+                        if skill_name in reasons and self.is_skill_usage_validated()
+                        else "Not Used"
+                    ),
+                ]
+                for skill_name, [listed, read, used] in self.skill_list.items()
+            }
         if with_parent:
             if self.parent:
                 data["upper_task"] = self.parent.task_info(with_parent=False)
@@ -953,6 +1362,27 @@ class VerifyStage(object):
             return False
         raise ValueError(f"Stage '{self.name}' experience-hook must be a boolean.")
 
+    def _get_skill_hook_names(self):
+        """Return deduplicated stage-specific and optional general Skill hooks."""
+
+        skill_cfg = getattr(getattr(self, "cfg", None), "skill", None)
+        if not bool(getattr(skill_cfg, "use_skill", False)):
+            return []
+
+        names = list(getattr(self, "skill_list", {}))
+        general_skill_list = getattr(skill_cfg, "general_skill_list", []) or []
+        if not isinstance(general_skill_list, list):
+            warning("skill.general_skill_list must be a list; skipping general Skill hooks.")
+            return names
+        for skill_name in general_skill_list:
+            if not isinstance(skill_name, str) or not skill_name.strip():
+                warning("Ignoring invalid empty or non-string general Skill hook entry.")
+                continue
+            skill_name = skill_name.strip()
+            if skill_name not in names:
+                names.append(skill_name)
+        return names
+
 
 def parse_vstage(root_cfg, cfg, workspace, tool_read_text, prefix=""):
     if cfg is None:
@@ -968,7 +1398,7 @@ def parse_vstage(root_cfg, cfg, workspace, tool_read_text, prefix=""):
         reference_files = stage.get_value('reference_files', [])
         skill_list = stage.get_value('skill_list', [])
         experience_hook = stage.get_value('experience-hook', False)
-        force_use_skill = stage.get_value('force_use_skill', False)
+        force_use_skill = stage.get_value('force_use_skill', True)
         skip = stage.get_value('skip', False)
         ignore = stage.get_value('ignore', False)
         need_fail_llm_suggestion=stage.get_value('need_fail_llm_suggestion', None)

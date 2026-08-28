@@ -23,6 +23,10 @@ description: 创建测试用例模板阶段专属技能，用于生成正确的p
 
 `mark_function`失败时，先核对模板中的FG/FC/CK字符串是否逐字存在于当前功能文档和覆盖率定义，并读取最早traceback定位责任行。若证据明确指向上游基础设施，应报告准确文件、行号和不变量缺失，并回到对应API/fixture/覆盖率阶段修复；不得在本阶段就地改造提供的模板。
 
+本阶段通过函数命名隔离已完成的上游测试。API测试文件中的函数必须已经以完整、大小写敏感的`test_api_{DUT}_`开头；`test_api_basic`、`test_ref_model`、`test_compute_api`等名称表示API阶段未完成命名契约。出现`TEST_FUNCTION_CONTRACT_VIOLATION`时，应回到API测试阶段按`details`一次修正全部函数定义和`mark_function`函数对象引用。禁止在模板阶段删除`skip`、覆盖fixture、启用真实DUT、移动/重命名API测试文件，或给已实现API测试添加`Not implemented`。
+
+普通模板函数使用`test_<scenario>`，不得占用`test_api_`、`test_static_`、`test_random_`保留前缀。保留前缀只能与其专用测试文件和阶段成对使用；发现错位时修正所属文件/阶段和完整函数前缀，不要用`skip`或移动到Checker范围外规避。
+
 模板示例：
 
 ```python

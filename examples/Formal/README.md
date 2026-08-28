@@ -1,3 +1,4 @@
+
 # Formal Verification with UCAgent
 
 UCAgent Formal 是一个基于大语言模型驱动的自动化形式化验证框架，能够自动完成从 RTL 分析到 SVA 生成、工具执行和 Bug 报告的全流程验证。底层形式化引擎使用**形式化属性验证工具 FormalMC**（华大九天），它通过将 RTL 建模为自动机并遍历全状态空间来检验断言，具备业界领先的引擎和验证策略。

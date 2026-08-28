@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
 """Unity test checker for UCAgent verification."""
 
+import hashlib
 import re
 from typing import Tuple
 import ucagent.util.functions as fc
-from ucagent.util.config import Config
+from ucagent.util.config import Config, load_current_test_report
 from ucagent.util.log import info, warning
 from ucagent.tools.testops import RunUnityChipTest
 import os
@@ -18,8 +19,52 @@ from ucagent.checkers.base import Checker, UnityChipBatchTask, format_stage_args
 from ucagent.checkers.toffee_report import check_report, check_line_coverage
 from collections import OrderedDict
 
+DEFAULT_RESERVED_TEST_FUNCTION_PREFIXES = (
+    "test_api_",
+    "test_static_",
+    "test_random_",
+)
 
-def _normalize_test_prefixes(prefixes):
+
+def _set_checker_failure(result, message):
+    """Attach one Checker failure while preserving its explicit diagnostic contract."""
+
+    if (
+        isinstance(message, dict)
+        and {"error_code", "error", "next_action"}.issubset(message)
+    ):
+        result["diagnostic"] = copy.deepcopy(message)
+        result["error"] = message["error"]
+    else:
+        result["error"] = message
+    return result
+
+
+def _report_failure_message(
+    message,
+    report,
+    *,
+    stdout="",
+    stderr="",
+    include_stdout=False,
+    include_stderr=False,
+):
+    """Wrap a Checker failure with its test report and optional process output."""
+
+    result = _set_checker_failure({"REPORT": report}, message)
+    if include_stdout:
+        result["STDOUT"] = stdout
+    if include_stderr:
+        result["STDERR"] = stderr
+    if "Signal bind error" in stderr:
+        result["WARNING"] = (
+            "The DUT signals are not handled properly by toffee Bundle, you should "
+            "fix this issue first."
+        )
+    return result
+
+
+def _normalize_test_prefixes(prefixes, field_name="test function prefix"):
     if prefixes in (None, ""):
         return []
     if isinstance(prefixes, str):
@@ -28,13 +73,13 @@ def _normalize_test_prefixes(prefixes):
         values = list(prefixes)
     else:
         raise TypeError(
-            "ignore_tc_prefix must be a string or a list/tuple of strings."
+            f"{field_name} must be a string or a list/tuple of strings."
         )
     normalized = []
     for prefix in values:
         if not isinstance(prefix, str):
             raise TypeError(
-                "ignore_tc_prefix entries must be strings."
+                f"{field_name} entries must be strings."
             )
         prefix = prefix.strip()
         if prefix and prefix not in normalized:
@@ -67,8 +112,166 @@ def _test_name_matches_prefixes(test_name, prefixes):
     return any(test_name.startswith(prefix) for prefix in prefixes)
 
 
+def _test_name_has_required_prefix(test_name, prefixes):
+    """Require both a stage prefix and a nonempty descriptive suffix."""
+    return any(
+        test_name.startswith(prefix) and len(test_name) > len(prefix)
+        for prefix in prefixes
+    )
+
+
+def _test_function_contract_failure(error_cases, retry_tool="Check"):
+    """Return every deterministic test-function contract violation."""
+    issues = list(error_cases)
+    diagnostic = OrderedDict({
+        "error_code": "TEST_FUNCTION_CONTRACT_VIOLATION",
+        "error": (
+            f"[Test Function Contract Violation] Found {len(issues)} test-function "
+            "contract issue(s). Every issue is listed in observed.issues."
+        ),
+        "observed": OrderedDict({
+            "issue_count": len(issues),
+            "issues": issues,
+        }),
+        "expected": (
+            "Every matched pytest function must satisfy the configured file location, "
+            "name prefix, fixture argument order, and minimum per-file test count."
+        ),
+        "next_action": (
+            "Fix every item in observed.issues without weakening test assertions, then "
+            f"call `{retry_tool}` again."
+        ),
+        "issue_count": len(issues),
+    })
+    return {
+        "error": diagnostic["error"],
+        "diagnostic": diagnostic,
+        "details": issues,
+    }
+
+
+def _test_function_contract_report(error_cases, retry_tool="Check"):
+    """Represent a naming failure in the base pytest report contract."""
+    return {
+        "run_test_success": False,
+        "test_function_contract": _test_function_contract_failure(
+            error_cases,
+            retry_tool=retry_tool,
+        ),
+    }
+
+
+def _iter_test_function_defs(test_file):
+    """Read pytest function definitions without importing or executing a module."""
+    try:
+        with open(test_file, "r", encoding="utf-8") as source_file:
+            tree = ast.parse(source_file.read(), filename=test_file)
+    except (OSError, UnicodeError, SyntaxError) as exc:
+        return [], exc
+
+    class _Visitor(ast.NodeVisitor):
+        def __init__(self):
+            self.class_stack = []
+            self.functions = []
+
+        def visit_ClassDef(self, node):
+            if not node.name.startswith("Test"):
+                return
+            self.class_stack.append(node.name)
+            self.generic_visit(node)
+            self.class_stack.pop()
+
+        def _visit_function(self, node):
+            if node.name.startswith("test_"):
+                self.functions.append({
+                    "name": node.name,
+                    "qualname": "::".join(self.class_stack + [node.name]),
+                    "line": node.lineno,
+                    "end_line": getattr(node, "end_lineno", node.lineno),
+                    "args": [
+                        arg.arg for arg in (
+                            list(node.args.posonlyargs) + list(node.args.args)
+                        )
+                    ],
+                })
+            # Pytest does not collect nested functions. Do not descend into a
+            # test body and report helper functions as stage test cases.
+
+        visit_FunctionDef = _visit_function
+        visit_AsyncFunctionDef = _visit_function
+
+    visitor = _Visitor()
+    visitor.visit(tree)
+    return visitor.functions, None
+
+
+def _test_function_name_issues_for_files(
+    workspace,
+    test_files,
+    prefixes,
+    ignored_prefixes=None,
+    forbidden_prefixes=None,
+    contract_name=None,
+):
+    """Validate test names in files using a side-effect-free source scan."""
+    prefixes = _normalize_test_prefixes(prefixes, field_name="test_func_prefix")
+    ignored_prefixes = _normalize_test_prefixes(
+        ignored_prefixes, field_name="ignore_tc_prefix"
+    )
+    forbidden_prefixes = _normalize_test_prefixes(
+        forbidden_prefixes, field_name="forbidden_test_func_prefix"
+    )
+    if not prefixes and not forbidden_prefixes:
+        return []
+    issues = []
+    contract_context = (
+        f" under the '{contract_name}' contract" if contract_name else ""
+    )
+    for test_file in test_files:
+        real_file = (
+            test_file
+            if os.path.isabs(test_file)
+            else os.path.join(workspace, test_file)
+        )
+        definitions, parse_error = _iter_test_function_defs(real_file)
+        if parse_error is not None:
+            line = getattr(parse_error, "lineno", "?")
+            issues.append(
+                f"{test_file}:{line}-{line}: unable to inspect test function names: {parse_error}"
+            )
+            continue
+        for definition in definitions:
+            name = definition["name"]
+            if _test_name_matches_prefixes(name, ignored_prefixes):
+                continue
+            reserved_prefix = next(
+                (prefix for prefix in forbidden_prefixes if name.startswith(prefix)),
+                None,
+            )
+            allowed = bool(prefixes and _test_name_has_required_prefix(name, prefixes))
+            if reserved_prefix:
+                issues.append(
+                    f"{test_file}:{definition['line']}-{definition['line']}: The "
+                    f"'{name}' test function uses reserved prefix '{reserved_prefix}'"
+                    f"{contract_context}. Put it in the dedicated stage/file and use "
+                    "that stage's complete prefix, or rename this ordinary test so it "
+                    "does not use a reserved prefix."
+                )
+                continue
+            if allowed:
+                continue
+            if prefixes and not allowed:
+                issues.append(
+                    f"{test_file}:{definition['line']}-{definition['line']}: The "
+                    f"'{name}' test function's name{contract_context} must start with one of: "
+                    f"{', '.join(prefixes)}, followed by a nonempty descriptive suffix."
+                )
+    return issues
+
+
 class UnityChipCheckerMarkdownFileFormat(Checker):
     def __init__(self, markdown_file_list, no_line_break=False, **kw):
+        super().__init__()
         self.markdown_file_list = markdown_file_list if isinstance(markdown_file_list, list) else [markdown_file_list]
         self.no_line_break = no_line_break
 
@@ -99,6 +302,7 @@ class UnityChipCheckerLabelStructure(Checker):
         Initialize the checker with the documentation file, the specific label (leaf node) to check,
         and the minimum count required for that label.
         """
+        super().__init__()
         self.doc_file = doc_file
         self.leaf_node = leaf_node
         self.min_count = min_count
@@ -177,22 +381,26 @@ class UnityChipCheckerLabelStructureRefine(UnityChipCheckerLabelStructure):
         self.batch_task = UnityChipBatchTask("CK", self)
 
     def on_init(self):
-        if not self.batch_task.source_task_list:
-            source_task_list = self.smanager_get_value(self.data_key, [])
-            if not isinstance(source_task_list, list) or not source_task_list:
-                try:
-                    source_task_list = fc.get_unity_chip_doc_marks(
-                        self.get_path(self.doc_file),
-                        self.leaf_node,
-                        self.min_count,
-                    )
-                    self.smanager_set_value(self.data_key, copy.deepcopy(source_task_list))
-                    info(f"Initialized CK refine source from '{self.doc_file}' "
-                         f"(size={len(source_task_list)}) to data key '{self.data_key}'.")
-                except Exception as e:
-                    warning(f"Failed to initialize CK refine source from '{self.doc_file}': {e}")
-                    source_task_list = []
-            self.batch_task.source_task_list = copy.deepcopy(source_task_list)
+        source_task_list = self.smanager_get_value(self.data_key, [])
+        if not isinstance(source_task_list, list) or not source_task_list:
+            try:
+                source_task_list = fc.get_unity_chip_doc_marks(
+                    self.get_path(self.doc_file),
+                    self.leaf_node,
+                    self.min_count,
+                )
+                self.smanager_set_value(self.data_key, copy.deepcopy(source_task_list))
+                info(f"Initialized CK refine source from '{self.doc_file}' "
+                     f"(size={len(source_task_list)}) to data key '{self.data_key}'.")
+            except Exception as e:
+                warning(f"Failed to initialize CK refine source from '{self.doc_file}': {e}")
+                source_task_list = []
+        note_msg = []
+        self.batch_task.sync_source_task(
+            copy.deepcopy(source_task_list),
+            note_msg,
+            f"Original CK list in data key '{self.data_key}' changed.",
+        )
         saved_refine_result = self.smanager_get_value("_CK_REFINE_RESULT", {})
         if isinstance(saved_refine_result, dict):
             self.refine_result = copy.deepcopy(saved_refine_result)
@@ -272,7 +480,11 @@ class UnityChipCheckerLabelStructureRefine(UnityChipCheckerLabelStructure):
 
         for ck in valid_tasks:
             self.refine_result[ck] = refined_map[ck]
-        self.smanager_set_value("_CK_REFINE_RESULT", self.refine_result)
+        self.smanager_set_value(
+            "_CK_REFINE_RESULT",
+            copy.deepcopy(self.refine_result),
+            persist=True,
+        )
 
         completed_tasks = [ck for ck in self.batch_task.gen_task_list if ck in self.batch_task.source_task_list]
         for ck in valid_tasks:
@@ -290,6 +502,7 @@ class UnityChipCheckerLabelStructureRefine(UnityChipCheckerLabelStructure):
 
 class UnityChipCheckerDutCreation(Checker):
     def __init__(self, target_file, **kw):
+        super().__init__()
         self.target_file = target_file
         self.update_dut_name(kw["cfg"])
         ucagent_msg = f"You need use:\n`if ucagent.is_imp_test_template():\n" + \
@@ -333,6 +546,7 @@ class UnityChipCheckerDutCreation(Checker):
 
 class UnityChipCheckerMockComponent(Checker):
     def __init__(self, target_file, min_mock=1, **kw):
+        super().__init__()
         self.target_file = target_file
         self.min_mock = min_mock
 
@@ -340,6 +554,14 @@ class UnityChipCheckerMockComponent(Checker):
         """Check the Mock component implementation for correctness."""
         class_count = 0
         mock_file_list = fc.find_files_by_pattern(self.workspace, self.target_file)
+        if not mock_file_list:
+            return False, {
+                "error": (
+                    f"Mock component file pattern '{self.target_file}' does not exist "
+                    "or matched no files in the workspace. Create the expected Mock "
+                    "component file, or correct the configured workspace-relative pattern."
+                ),
+            }
         for mock_file in mock_file_list:
             ret, msg = self.do_check_one_file(mock_file)
             if ret == False:
@@ -382,6 +604,7 @@ class UnityChipCheckerMockComponent(Checker):
 
 class UnityChipCheckerBundleWrapper(Checker):
     def __init__(self, target_file, min_bundles=1, **kw):
+        super().__init__()
         self.target_file = target_file
         self.min_bundles = min_bundles
 
@@ -415,6 +638,7 @@ class UnityChipCheckerBaseFixture(Checker):
                  min_count=1,
                  fix_count=-1,
                  **kw):
+        super().__init__()
         self.target_file = target_file
         self.fixture_name = fixture_name
         self.first_arg = first_arg
@@ -629,6 +853,7 @@ class UnityChipCheckerTestMustPass(Checker):
                  first_arg="",
                  last_arg="",
                  min_file_tests=1, timeout=300, **kw):
+        super().__init__()
         self.target_file_list = target_file if isinstance(target_file, list) else [target_file]
         self.min_file_tests = max(1, min_file_tests)
         self.run_test = RunUnityChipTest()
@@ -662,26 +887,42 @@ class UnityChipCheckerTestMustPass(Checker):
             if test_dir_full_path not in self.get_path(tfile):
                 error_cases.append(f"The test file '{tfile}' is not under the test directory '{self.test_dir}'.")
                 continue
-            test_func_list = fc.get_target_from_file(self.get_path(tfile), f"test*",
-                                                         ex_python_path=self.workspace,
-                                                         dtype="FUNC")
+            test_func_list, parse_error = _iter_test_function_defs(self.get_path(tfile))
+            if parse_error is not None:
+                line = getattr(parse_error, "lineno", "?")
+                error_cases.append(
+                    f"{tfile}:{line}-{line}: unable to inspect test functions: {parse_error}"
+                )
+                continue
             for test_func in test_func_list:
-                if test_func.__name__.startswith(self.test_prefix) is False:
-                    error_cases.append(f"The '{test_func.__name__}' test function's name must start with '{self.test_prefix}'.")
-                    continue
-                args = fc.get_func_arg_list(test_func)
+                location = f"{tfile}:{test_func['line']}-{test_func['line']}"
+                if not _test_name_has_required_prefix(
+                    test_func["name"], [self.test_prefix]
+                ):
+                    error_cases.append(
+                        f"{location}: The '{test_func['name']}' test function's name "
+                        f"must start with '{self.test_prefix}' followed by a nonempty "
+                        "descriptive suffix."
+                    )
+                args = test_func["args"]
                 if self.first_arg and (len(args) < 1 or args[0] != self.first_arg):
-                    error_cases.append(f"The '{test_func.__name__}' test function's first arg must be '{self.first_arg}', but got ({', '.join(args)}).")
+                    error_cases.append(
+                        f"{location}: The '{test_func['name']}' test function's first "
+                        f"arg must be '{self.first_arg}', but got ({', '.join(args)})."
+                    )
                 if self.last_arg and (len(args) < 1 or args[-1] != self.last_arg):
-                    error_cases.append(f"The '{test_func.__name__}' test function's last arg must be '{self.last_arg}', but got ({', '.join(args)}).")
+                    error_cases.append(
+                        f"{location}: The '{test_func['name']}' test function's last "
+                        f"arg must be '{self.last_arg}', but got ({', '.join(args)})."
+                    )
             if len(test_func_list) < self.min_file_tests:
                 error_cases.append(f"Insufficient testcases: {len(test_func_list)} test functions found, minimum required is {self.min_file_tests} in file '{tfile}'. "+
-                                    "Please ensure you have implemented enough test cases (need pytest function based not class based).")
+                                    "Please ensure the file contains enough pytest test definitions.")
         if len(error_cases) > 0:
-            return False, {
-                "error": "Check test functions failed.",
-                "details": error_cases
-            }
+            retry_tool = "Complete" if kw.get("is_complete", False) else "Check"
+            return False, _test_function_contract_failure(
+                error_cases, retry_tool=retry_tool
+            )
         # run test
         timeout = timeout if timeout > 0 else self.timeout
         self.run_test.set_pre_call_back(
@@ -727,6 +968,7 @@ class UnityChipCheckerTestMustPass(Checker):
 
 class UnityChipCheckerDutApi(Checker):
     def __init__(self, api_prefix, target_file, min_apis=1, **kw):
+        super().__init__()
         self.api_prefix = api_prefix
         self.target_file = target_file
         self.min_apis = min_apis
@@ -782,6 +1024,7 @@ class UnityChipCheckerCoverageGroup(Checker):
     """
 
     def __init__(self, test_dir, cov_file, doc_file, check_types, **kw):
+        super().__init__()
         self.test_dir = test_dir
         self.cov_file = cov_file
         self.doc_file = doc_file
@@ -904,7 +1147,13 @@ class UnityChipCheckerCoverageGroupBatchImplementation(UnityChipCheckerCoverageG
         return data
 
     def on_init(self):
-        self.batch_task.source_task_list = self.smanager_get_value(self.data_key, [])
+        source_task_list = self.smanager_get_value(self.data_key, [])
+        note_msg = []
+        self.batch_task.sync_source_task(
+            source_task_list,
+            note_msg,
+            f"CK source list in data key '{self.data_key}' changed.",
+        )
         self.batch_task.update_current_tbd()
         try:
             _, self.cached_ck_file_blocks = fc.get_unity_chip_doc_marks(self.get_path(self.doc_file), "CK", 0, return_line_block=True)
@@ -948,8 +1197,10 @@ class BaseUnityChipCheckerTestCase(Checker):
     def __init__(self, doc_func_check=None, test_dir=None, doc_bug_analysis=None, min_tests=1, timeout=15, ignore_tc_prefix="",
                  data_key=None, ret_std_error=True, ret_std_out=True, batch_size=1000, need_human_check=False,
                  args_check=False, args_pattern=None, args_test_func_prefix=None,
-                 args_error_msg=None,
+                 args_error_msg=None, test_func_prefix=None, test_func_file=None,
+                 test_func_rules=None, forbidden_test_func_prefix=None,
                  **extra_kwargs):
+        super().__init__()
         self.doc_func_check = doc_func_check
         self.doc_bug_analysis = doc_bug_analysis
         self.test_dir = test_dir
@@ -967,6 +1218,26 @@ class BaseUnityChipCheckerTestCase(Checker):
         self.args_pattern = args_pattern
         self.args_test_func_prefix = args_test_func_prefix
         self.args_error_msg = args_error_msg
+        # ``test_func_prefix`` is the naming contract for this stage.  Keep it
+        # separate from argument validation so a stage can validate names even
+        # when it does not validate fixture parameters.
+        self.test_func_prefix = test_func_prefix
+        self.test_func_file = test_func_file
+        if (
+            test_func_rules is None
+            and test_func_prefix is None
+            and test_dir
+            and extra_kwargs.get("cfg") is not None
+        ):
+            test_func_rules = "standard"
+        if test_func_rules not in (None, "standard") and not isinstance(
+            test_func_rules, (list, tuple)
+        ):
+            raise TypeError(
+                "test_func_rules must be 'standard' or a list/tuple of mappings."
+            )
+        self.test_func_rules = test_func_rules
+        self.forbidden_test_func_prefix = forbidden_test_func_prefix
 
     def set_workspace(self, workspace: str):
         """
@@ -988,6 +1259,21 @@ class BaseUnityChipCheckerTestCase(Checker):
             return None
         return self.get_tool_by_name("WaveInfo")
 
+    def get_configured_test_output_dir(self):
+        """Return the resolved TC output directory from the active stage manager."""
+
+        cfg = getattr(self.stage_manager, "cfg", None)
+        if cfg is None:
+            cfg = self.extra_kwargs.get("cfg")
+        if cfg is None:
+            return self.test_dir or ""
+        try:
+            return cfg.get_value(
+                "tools.RunTestCases.test_dir", self.test_dir or ""
+            )
+        except AttributeError:
+            return self.test_dir or ""
+
     def _ignored_test_prefixes(self):
         return _normalize_test_prefixes(self.ignore_tc_prefix)
 
@@ -1000,6 +1286,176 @@ class BaseUnityChipCheckerTestCase(Checker):
         if not prefixes:
             return None
         return " and ".join(f"not {prefix}" for prefix in prefixes)
+
+    def _test_function_name_issues(self, test_files):
+        """Return naming violations for the configured stage test scope."""
+        rules = self._resolved_test_func_rules()
+        if rules is None and self.test_func_rules == "standard":
+            return [
+                "test_func_rules='standard' cannot be resolved: the checker requires "
+                "a non-empty resolved DUT name and a configured test_dir. Check the "
+                "stage's resolved configuration before retrying the stage check."
+            ]
+        if rules:
+            issues = []
+            configured_files = set(test_files)
+            for rule in rules:
+                if not isinstance(rule, dict):
+                    raise TypeError("test_func_rules entries must be mappings.")
+                pattern = rule.get("file_pattern", rule.get("pattern"))
+                if not isinstance(pattern, str) or not pattern.strip():
+                    raise ValueError(
+                        "test_func_rules entries require a non-empty file_pattern."
+                    )
+                rule_files = set(fc.find_files_by_glob(self.workspace, pattern))
+                for test_file in sorted(configured_files & rule_files):
+                    issues.extend(
+                        _test_function_name_issues_for_files(
+                            self.workspace,
+                            [test_file],
+                            rule.get("prefixes", rule.get("test_func_prefix", "")),
+                            ignored_prefixes=rule.get("ignored_prefixes", ""),
+                            forbidden_prefixes=rule.get("forbidden_prefixes", ""),
+                            contract_name=rule.get("contract"),
+                        )
+                    )
+                    configured_files.remove(test_file)
+            # A rule set is an explicit file/function contract. Any test file
+            # outside the declared patterns is reported instead of silently
+            # allowing it to enter a later stage with an unknown identity.
+            for test_file in sorted(configured_files):
+                issues.append(
+                    f"{test_file}: no test function naming rule matched this file; "
+                    "add it to the correct stage-specific test file pattern or move "
+                    "the tests to the stage that owns them."
+                )
+            return issues
+        return _test_function_name_issues_for_files(
+            self.workspace,
+            test_files,
+            self.test_func_prefix,
+            ignored_prefixes=self._ignored_test_prefixes(),
+            forbidden_prefixes=self.forbidden_test_func_prefix,
+        )
+
+    def _resolved_test_func_rules(self):
+        """Resolve the built-in mixed-stage naming contract from the DUT config."""
+        if self.test_func_rules != "standard":
+            return self.test_func_rules
+        cfg = self.extra_kwargs.get("cfg")
+        dut_name = None
+        if cfg is not None:
+            try:
+                temp_cfg = cfg.get_value("_temp_cfg", {})
+            except AttributeError:
+                temp_cfg = cfg.get("_temp_cfg", {}) if isinstance(cfg, dict) else {}
+            if isinstance(temp_cfg, dict):
+                dut_name = temp_cfg.get("DUT")
+            elif isinstance(temp_cfg, Config):
+                dut_name = temp_cfg.get_value("DUT")
+        if not isinstance(dut_name, str) or not dut_name.strip():
+            return None
+        if self.test_dir is None:
+            return None
+        root = self.test_dir.rstrip("/")
+
+        def test_pattern(name):
+            return f"{root}/{name}" if root else name
+
+        return [
+            {
+                "contract": "env fixture tests",
+                "file_pattern": test_pattern(f"test_{dut_name}_env_fixture.py"),
+                "prefixes": f"test_api_{dut_name}_env_",
+            },
+            {
+                "contract": "reference-model tests",
+                "file_pattern": test_pattern(
+                    f"test_{dut_name}_reference_model*.py"
+                ),
+                "prefixes": f"test_api_{dut_name}_reference_model_",
+            },
+            {
+                "contract": "Mock tests",
+                "file_pattern": test_pattern(f"test_{dut_name}_mock_*.py"),
+                "prefixes": f"test_api_{dut_name}_mock_",
+            },
+            {
+                "contract": "API tests",
+                "file_pattern": test_pattern(f"test_{dut_name}_api*.py"),
+                "prefixes": f"test_api_{dut_name}_",
+                "forbidden_prefixes": [
+                    f"test_api_{dut_name}_env_",
+                    f"test_api_{dut_name}_reference_model_",
+                    f"test_api_{dut_name}_mock_",
+                ],
+            },
+            {
+                "contract": "static-Bug tests",
+                "file_pattern": test_pattern(
+                    f"test_{dut_name}_static_verify_*.py"
+                ),
+                "prefixes": f"test_static_{dut_name}_",
+            },
+            {
+                "contract": "random tests",
+                "file_pattern": test_pattern(f"test_{dut_name}_random*.py"),
+                "prefixes": "test_random_",
+            },
+            {
+                "contract": "ordinary directed tests",
+                "file_pattern": test_pattern("**/test_*.py"),
+                "prefixes": "test_",
+                "forbidden_prefixes": DEFAULT_RESERVED_TEST_FUNCTION_PREFIXES,
+            },
+        ]
+
+    def _stage_test_files(self):
+        """Return files whose function names belong to the current stage scope."""
+        rules = self._resolved_test_func_rules()
+        if rules is None and self.test_func_rules == "standard":
+            return []
+        if rules:
+            patterns = []
+            for rule in rules:
+                if isinstance(rule, dict):
+                    pattern = rule.get("file_pattern", rule.get("pattern"))
+                    if pattern:
+                        patterns.append(pattern)
+            return fc.find_files_by_glob(self.workspace, patterns)
+        if self.test_func_file:
+            return fc.find_files_by_pattern(self.workspace, self.test_func_file)
+        if not self.test_dir:
+            return []
+        return fc.find_files_by_pattern(
+            self.workspace,
+            f"{self.test_dir.rstrip('/')}/test_*.py",
+        )
+
+    def _test_report_context_details(self):
+        """Return Checker-specific identities for the shared current report."""
+
+        return {}
+
+    def _build_test_report_context(self):
+        """Build the active stage/checker identity for the shared current report."""
+
+        stage = self.get_stage()
+        context = {
+            "source": "checker",
+            "checker_class": self.__class__.__name__,
+        }
+        if stage is not None:
+            context["stage_name"] = stage.name
+        if self.stage_manager is not None:
+            context["stage_index"] = self.stage_manager.stage_index
+        context.update(self._test_report_context_details())
+        return context
+
+    def _set_test_report_context(self):
+        """Publish the active stage/checker identity with the next test report."""
+
+        self.run_test.set_report_context(self._build_test_report_context())
 
     def _check_test_func_args(self, report, str_out, str_err):
         """
@@ -1061,6 +1517,14 @@ class BaseUnityChipCheckerTestCase(Checker):
         Returns:
             report, str_out, str_err: A tuple where the first element is a boolean indicating success or failure,
         """
+        naming_issues = self._test_function_name_issues(self._stage_test_files())
+        if naming_issues:
+            retry_tool = "Complete" if is_complete else "Check"
+            return (
+                _test_function_contract_report(naming_issues, retry_tool=retry_tool),
+                "",
+                "",
+            )
         if not os.path.exists(self.get_path(self.doc_func_check)):
             return {}, "", f"[Document Missing] Functions and checkpoints document {self.doc_func_check} does not exist in the workspace. "+\
                             "Please verify the document path is correct and check if the function description stage task has been completed (see Guide_Doc/dut_functions_and_checks.md)."
@@ -1073,6 +1537,7 @@ class BaseUnityChipCheckerTestCase(Checker):
             pytest_args = pytest_args if pytest_args else "."
             pytest_args = pytest_args.split()
             pytest_args = ["-k", ignore_expression] + pytest_args
+        self._set_test_report_context()
         report, str_out, str_err = self.run_test.do(
             self.test_dir,
             pytest_ex_args=pytest_args,
@@ -1137,6 +1602,13 @@ class UnityChipCheckerTestFree(BaseUnityChipCheckerTestCase):
 
 class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.total_tests_count = 0
+        self.cached_ck_file_blocks = None
+        self.ignored_source_checkpoints = []
+        self.batch_task = UnityChipBatchTask("check_points", self)
+
     def _load_checkpoint_scope(self):
         all_doc_checkpoints, file_blocks = fc.get_unity_chip_doc_marks(
             self.get_path(self.doc_func_check),
@@ -1180,9 +1652,13 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
 
     def on_init(self):
         self.total_tests_count = 0
-        self.batch_task = UnityChipBatchTask("check_points", self)
         _, target_checkpoints, self.cached_ck_file_blocks = self._load_checkpoint_scope()
-        self.batch_task.source_task_list = target_checkpoints
+        note_msg = []
+        self.batch_task.sync_source_task(
+            target_checkpoints,
+            note_msg,
+            f"{self.doc_func_check} file CK points changed.",
+        )
         self.batch_task.update_current_tbd()
         info(
             f"Load template ck list(size={len(target_checkpoints)}, "
@@ -1354,7 +1830,7 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
                                  f"✓ Template structure follows the required format with proper TODO comments and fail assertions.",
                                  "Your test templates are ready for implementation! Each test function provides clear guidance for the actual test logic to be implemented."]
         if self.data_key:
-            self.smanager_set_value(self.data_key, raw_report)
+            self.smanager_set_value(self.data_key, raw_report, persist=True)
         if "STDOUT" in info_report:
             del info_report["STDOUT"]
         if "STDERR" in info_report:
@@ -1560,7 +2036,16 @@ class UnityChipCheckerDutApiTest(BaseUnityChipCheckerTestCase):
     def __init__(self, api_prefix, target_file_api, target_file_tests, doc_func_check,
                  doc_bug_analysis, min_tests=1, timeout=15,
                  api_ck_prefix="FG-API/", **kw):
-        super().__init__(doc_func_check, "", doc_bug_analysis, min_tests, timeout, **kw)
+        if kw.get("test_func_prefix") is None:
+            kw["test_func_prefix"] = f"test_{api_prefix}"
+        super().__init__(
+            doc_func_check,
+            os.path.dirname(target_file_tests),
+            doc_bug_analysis,
+            min_tests,
+            timeout,
+            **kw,
+        )
         self.api_prefix = api_prefix
         self.target_file_api = target_file_api
         self.target_file_tests = target_file_tests
@@ -1619,10 +2104,21 @@ class UnityChipCheckerDutApiTest(BaseUnityChipCheckerTestCase):
             return False, {"error": f"Function and check documentation file {self.doc_func_check} does not exist in workspace. "}
         if not os.path.exists(self.get_path(self.target_file_api)):
             return False, {"error": f"DUT API file '{self.target_file_api}' does not exist in workspace."}
+        naming_files = (
+            self._stage_test_files() if self.test_func_rules else test_files
+        )
+        naming_issues = self._test_function_name_issues(naming_files)
+        if naming_issues:
+            retry_tool = "Complete" if kw.get("is_complete", False) else "Check"
+            return False, _test_function_contract_failure(
+                naming_issues,
+                retry_tool=retry_tool,
+            )
         # call pytest
         targets = " ".join(test_files)
         assert isinstance(timeout, int), f"timeout must be an integer. But got {type(timeout)}:{timeout}."
         timeout = timeout if timeout > 0 else self.timeout
+        self._set_test_report_context()
         report, str_out, str_err = self.run_test.do(
             "", 
             pytest_ex_args=targets,
@@ -1652,14 +2148,14 @@ class UnityChipCheckerDutApiTest(BaseUnityChipCheckerTestCase):
             if func_name not in test_functions:
                 api_un_tested.append(func_name)
         def get_emsg(m):
-            msg =  {"error": m, "REPORT": report_copy}
-            if self.ret_std_out:
-                msg["STDOUT"] = str_out
-            if self.ret_std_error:
-                msg["STDERR"] = str_err
-            if "Signal bind error" in str_err:
-                msg["WARNING"] = "The DUT signals are not handled properly by toffee Bundle, you should fix this issue first."
-            return msg
+            return _report_failure_message(
+                m,
+                report_copy,
+                stdout=str_out,
+                stderr=str_err,
+                include_stdout=self.ret_std_out,
+                include_stderr=self.ret_std_error,
+            )
         missing_coverage_message = self._missing_functional_coverage_message(report)
         if missing_coverage_message:
             return False, get_emsg(missing_coverage_message)
@@ -1700,6 +2196,7 @@ class UnityChipCheckerDutApiTest(BaseUnityChipCheckerTestCase):
             self.api_ck_prefix,
             waveform_tool=self.get_waveform_tool_for_checker(),
             waveform_test_dir=os.path.dirname(self.target_file_api),
+            test_output_dir=self.get_configured_test_output_dir(),
         )
         if not ret:
             return ret, get_emsg(msg)
@@ -1721,19 +2218,131 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
             # (test_case_name, is_completed: boolean)
         ]
         self.pre_report_file = self.extra_kwargs.get("pre_report_file", None)
+        self._last_batch_progress = None
+        self._batch_checkpoint_error = None
+        self.batch_task = UnityChipBatchTask("test_cases", self)
         info(f"{self.__class__.__name__} Batch size: {self.batch_size}")
         assert self.test_dir is not None, f"Need set test directory '{self.test_dir}'."
 
     def get_template_data(self):
-        completed = sum([t[1] for t in self.total_test_cases])
-        total = len(self.total_test_cases)
+        completed = len(self.batch_task.gen_task_list)
+        total = len(self.batch_task.source_task_list)
         is_valid = total > 0
         return {
             "COMPLETED_CASES":    completed if is_valid else "-",
             "TOTAL_CASES":        total if is_valid else "-",
-            "LIST_CURRENT_CASES": self.current_test_cases,
+            "LIST_CURRENT_CASES": list(self.batch_task.tbd_task_list),
             "TEST_BATCH_RUN_ARGS": self.get_run_args(self.test_dir)[0] if is_valid else "-",
+            "BATCH_PROGRESS": self._format_batch_progress(),
         }
+
+    @staticmethod
+    def _duplicates(items):
+        seen = set()
+        duplicates = []
+        for item in items:
+            if item in seen and item not in duplicates:
+                duplicates.append(item)
+            seen.add(item)
+        return duplicates
+
+    def _sync_batch_views(self):
+        completed = set(self.batch_task.gen_task_list)
+        self.total_test_cases = [
+            (test_case, test_case in completed)
+            for test_case in self.batch_task.source_task_list
+        ]
+        self.current_test_cases = list(self.batch_task.tbd_task_list)
+
+    def _reconcile_batch_checkpoint(self, source_test_cases):
+        if self.batch_task.checkpoint_error is not None:
+            self._batch_checkpoint_error = copy.deepcopy(
+                self.batch_task.checkpoint_error
+            )
+            return
+
+        self._batch_checkpoint_error = None
+        loaded_source = list(self.batch_task.source_task_list)
+        loaded_gen = list(self.batch_task.gen_task_list)
+        loaded_tbd = list(self.batch_task.tbd_task_list)
+        loaded_cmp = list(self.batch_task.cmp_task_list)
+
+        duplicate_fields = {
+            field: duplicates
+            for field, items in (
+                ("source_task_list", loaded_source),
+                ("gen_task_list", loaded_gen),
+                ("tbd_task_list", loaded_tbd),
+                ("cmp_task_list", loaded_cmp),
+            )
+            if (duplicates := self._duplicates(items))
+        }
+        loaded_source_set = set(loaded_source)
+        unknown_tasks = sorted({
+            task
+            for tasks in (loaded_gen, loaded_tbd, loaded_cmp)
+            for task in tasks
+            if task not in loaded_source_set
+        })
+        if duplicate_fields or unknown_tasks:
+            self._batch_checkpoint_error = {
+                "error_code": "BATCH_CHECKPOINT_INVALID",
+                "error": (
+                    "The persisted test-case batch checkpoint contains duplicate or "
+                    "unknown task identities."
+                ),
+                "observed": {
+                    "duplicate_fields": duplicate_fields,
+                    "unknown_tasks": unknown_tasks,
+                    "checkpoint_file": self.batch_task.checkpoint_file,
+                },
+                "expected": (
+                    "Every persisted task identity must be unique and belong to the "
+                    "checkpoint's source_task_list."
+                ),
+                "next_action": (
+                    "Inspect the reported checkpoint and the initial template report, "
+                    "regenerate the invalid checkpoint from the current source task list, "
+                    "then restart UCAgent."
+                ),
+            }
+            return
+
+        source_set = set(source_test_cases)
+        completed = [task for task in loaded_gen if task in source_set]
+        completed_set = set(completed)
+        current = [
+            task
+            for task in loaded_tbd
+            if task in source_set and task not in completed_set
+        ]
+        current_set = set(current)
+        current_completed = [
+            task
+            for task in loaded_cmp
+            if task in current_set and task in completed_set
+        ]
+
+        previous_state = (
+            loaded_source,
+            loaded_gen,
+            loaded_tbd,
+            loaded_cmp,
+        )
+        self.batch_task.source_task_list = list(source_test_cases)
+        self.batch_task.gen_task_list = completed
+        self.batch_task.tbd_task_list = current
+        self.batch_task.cmp_task_list = current_completed
+        self.batch_task.update_current_tbd()
+        current_state = (
+            self.batch_task.source_task_list,
+            self.batch_task.gen_task_list,
+            self.batch_task.tbd_task_list,
+            self.batch_task.cmp_task_list,
+        )
+        if current_state != previous_state:
+            self.batch_task.savepoint_file()
+        self._sync_batch_views()
 
     def get_run_args(self, test_dir=None):
         failed_tests_files = set()
@@ -1751,9 +2360,127 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
     def rm_line_no(self, s):
         return re.sub(r":\d+-\d+", "", s)
 
+    def _current_batch_source_sha256(self):
+        """Hash every source file that owns a test in the current batch."""
+
+        source_files = sorted({
+            test_case.split("::", 1)[0]
+            for test_case in self.current_test_cases
+        })
+        source_hashes = {}
+        for source_file in source_files:
+            with open(self.get_path(source_file), "rb") as handle:
+                source_hashes[source_file] = hashlib.sha256(handle.read()).hexdigest()
+        return source_hashes
+
+    def _test_report_context_details(self):
+        """Bind a published report to the exact current batch and test sources."""
+
+        return {
+            "batch_test_cases": list(self.current_test_cases),
+            "test_source_sha256": self._current_batch_source_sha256(),
+        }
+
+    def _load_cached_batch_report(self, target_tests):
+        """Return a persisted report only when every batch identity still matches."""
+
+        try:
+            payload = load_current_test_report(self.workspace)
+        except (FileNotFoundError, OSError, TypeError, ValueError, RuntimeError):
+            return None
+        report = payload.get("report")
+        context = payload.get("context")
+        if not isinstance(report, dict) or not isinstance(context, dict):
+            return None
+        expected_context = {
+            **self._build_test_report_context(),
+            "test_dir_or_file": self.test_dir,
+            "pytest_ex_args": target_tests,
+        }
+        if any(context.get(key) != value for key, value in expected_context.items()):
+            return None
+        execution = report.get("execution")
+        if (
+            report.get("run_test_success") is not True
+            or not isinstance(execution, dict)
+            or execution.get("invocation_success") is not True
+        ):
+            return None
+        reported_cases = report.get("tests", {}).get("test_cases", {})
+        if not isinstance(reported_cases, dict):
+            return None
+        return_tests = {
+            self.rm_line_no(test_case): status
+            for test_case, status in reported_cases.items()
+        }
+        if (
+            len(return_tests) != len(reported_cases)
+            or set(return_tests) != set(self.current_test_cases)
+        ):
+            return None
+        return report, return_tests
+
+    def _cached_document_preflight(self, target_tests):
+        """Reject stale document defects without rerunning the unchanged test batch."""
+
+        cached = self._load_cached_batch_report(target_tests)
+        if cached is None:
+            return None
+        report, return_tests = cached
+        ret, message, _ = check_report(
+            self.workspace,
+            report,
+            self.doc_func_check,
+            self.doc_bug_analysis,
+            only_marked_ckp_in_tc=True,
+            waveform_tool=self.get_waveform_tool_for_checker(),
+            waveform_test_dir=self.test_dir,
+            test_output_dir=self.get_configured_test_output_dir(),
+            require_all_documented_tests=False,
+        )
+        if ret:
+            return None
+        batch_report = self._compact_validation_report(report, return_tests)
+        batch_progress = self._set_batch_progress(
+            return_tests,
+            validation="document_failed",
+            test_run="not_run",
+        )
+        failure = self._with_batch_context(
+            message,
+            validation_mode="cached_report_document_preflight",
+            batch_progress=batch_progress,
+            batch_report=batch_report,
+        )
+        failure.setdefault("error_code", "BATCH_DOCUMENT_PREFLIGHT_FAILED")
+        failure.setdefault(
+            "error",
+            "The current Bug document does not validate against the unchanged current batch report.",
+        )
+        failure.setdefault(
+            "next_action",
+            "Follow the first reported Bug-document diagnostic. Use the "
+            "dynamic-bug-recording Skill's -MODE repair only for generated anchors, "
+            "references, containers, or relations; use its matching bug/root mode for "
+            "semantic fields. When the Skill cannot recover malformed structure, apply "
+            "only the exact bounded manual repair. Then call Check again. Do not rerun "
+            "pytest or WaveInfo for this document-only failure.",
+        )
+        failure.update({
+            "rerun_test": False,
+            "rerun_waveinfo": False,
+            "batch_advanced": False,
+        })
+        result = {"REPORT": report}
+        _set_checker_failure(result, failure)
+        return False, result
+
     @staticmethod
     def _compact_validation_report(report, return_tests):
         tests = report.get("tests", {})
+        unmarked_checkpoints = report.get("unmarked_check_point_list", [])
+        if not isinstance(unmarked_checkpoints, list):
+            unmarked_checkpoints = []
         return {
             "run_test_success": report.get("run_test_success", False),
             "tests": {
@@ -1768,15 +2495,66 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
             "failed_test_case_checkpoints": report.get(
                 "failed_test_case_with_check_point_list", {}
             ),
-            "unmarked_checkpoints": report.get("unmarked_check_point_list", []),
+            "unmarked_checkpoints": {
+                "count": len(unmarked_checkpoints),
+                "items": unmarked_checkpoints[:10],
+                "truncated": len(unmarked_checkpoints) > 10,
+            },
         }
+
+    def _format_batch_progress(self):
+        if self._last_batch_progress is None:
+            return "not run"
+        progress = self._last_batch_progress
+        return (
+            f"committed {progress['committed']}/{progress['total']}; "
+            f"current batch executed {progress['executed']}/{progress['batch_total']}; "
+            f"passed {progress['passed']}; failed {progress['failed']}; "
+            f"validation {progress['validation']}; test run {progress['test_run']}"
+        )
+
+    def _set_batch_progress(
+        self,
+        return_tests,
+        *,
+        validation,
+        test_run,
+    ):
+        self._last_batch_progress = {
+            "committed": sum(completed for _test, completed in self.total_test_cases),
+            "total": len(self.total_test_cases),
+            "batch_total": len(self.current_test_cases),
+            "executed": len(return_tests),
+            "passed": sum(status == "PASSED" for status in return_tests.values()),
+            "failed": sum(status != "PASSED" for status in return_tests.values()),
+            "validation": validation,
+            "test_run": test_run,
+        }
+        return copy.deepcopy(self._last_batch_progress)
+
+    @staticmethod
+    def _with_batch_context(
+        message,
+        *,
+        validation_mode,
+        batch_progress,
+        batch_report,
+    ):
+        if isinstance(message, dict):
+            contextual = copy.deepcopy(message)
+        else:
+            contextual = {"error": message}
+        contextual["validation_mode"] = validation_mode
+        contextual["batch_progress"] = copy.deepcopy(batch_progress)
+        contextual["batch_report"] = copy.deepcopy(batch_report)
+        return contextual
 
     def on_init(self):
         self.check_data()
         return super().on_init()
 
     def check_data(self):
-        if len(self.total_test_cases) == 0 and not self._is_init:
+        if not self._is_init:
             pre_report = self.smanager_get_value(self.data_key, None)
             if pre_report is None:
                 assert self.pre_report_file is not None, "Need set 'pre_report_file' to load previous test report from a file."
@@ -1800,12 +2578,23 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
                     failed_tc.append(k)
             if len(passed_tc) != 0:
                 warning(f"No test cases defined for implementation. However, {len(passed_tc)} test cases are already passing: {fc.list_str_abbr(passed_tc)}. ")
-            self.total_test_cases = [(self.rm_line_no(k), False) for k in sorted(failed_tc)]
-            if len(self.total_test_cases) == 0:
+            source_test_cases = [self.rm_line_no(k) for k in sorted(failed_tc)]
+            if len(source_test_cases) == 0:
                 return False, "No test cases found for implementation. All test cases are already passing. Nothing to do."
+            self._reconcile_batch_checkpoint(source_test_cases)
+            if self._batch_checkpoint_error is not None:
+                return False, self._batch_checkpoint_error
+            if self._last_batch_progress is None:
+                self._set_batch_progress(
+                    {},
+                    validation="pending" if self.current_test_cases else "passed",
+                    test_run="not_run",
+                )
             info(f"Total {len(self.total_test_cases)} test cases need to be implemented.")
-        if len(self.current_test_cases) == 0:
-            self.current_test_cases = [t[0] for t in self.total_test_cases if not t[1]][:self.batch_size]
+        elif self._batch_checkpoint_error is not None:
+            return False, self._batch_checkpoint_error
+        else:
+            self._sync_batch_views()
         info(f"Current batch: {len(self.current_test_cases)} test cases to implement: {fc.list_str_abbr(self.current_test_cases)}")
         info(f"Completed {sum([t[1] for t in self.total_test_cases])} out of {len(self.total_test_cases)} test cases.")
         return True, ""
@@ -1814,13 +2603,16 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
         """run batch of tests and check result."""
         success, msg = self.check_data()
         if not success:
-            return False, {"error": msg}
+            return False, msg if isinstance(msg, dict) else {"error": msg}
         if len(self.current_test_cases) == 0:
             return True, {"success": "All test cases have been implemented! Use tool `Complete to` finish this stage."}
         target_tests, failed_tests_files = self.get_run_args(self.test_dir)
         if len(failed_tests_files) > 0:
             return False, {"error": f"The following test files do not exist: {fc.list_str_abbr(failed_tests_files)}. " + \
                             "Please check your test case names and ensure they are correct."}
+        preflight_result = self._cached_document_preflight(target_tests)
+        if preflight_result is not None:
+            return preflight_result
         info(f"Checking {len(self.current_test_cases)} test cases: {target_tests}")
         report, str_out, str_err = super().do_check(pytest_args=target_tests, timeout=timeout, **kw)
         test_pass, test_msg = fc.is_run_report_pass(report, str_out, str_err)
@@ -1844,6 +2636,13 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
             error_msgs["error"] = f"The following test cases: `{fc.list_str_abbr(missing_tests)}` are missing in the tests implementation. " + \
                                    "Please ensure that all test cases are properly implemented and reported."
             return False, error_msgs
+        if len(extends_tests) > 0:
+            error_msgs["error"] = (
+                f"The test run returned {len(extends_tests)} case(s) outside the current "
+                f"batch: {fc.list_str_abbr(extends_tests)}. Run exactly the current batch "
+                "targets before retrying Check."
+            )
+            return False, error_msgs
 
         ret, msg, _ = check_report(
             self.workspace,
@@ -1853,28 +2652,73 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
             only_marked_ckp_in_tc=True,
             waveform_tool=self.get_waveform_tool_for_checker(),
             waveform_test_dir=self.test_dir,
+            test_output_dir=self.get_configured_test_output_dir(),
+            require_all_documented_tests=False,
         )
-        error_msgs["REPORT"] = self._compact_validation_report(report, return_tests)
+        batch_report = self._compact_validation_report(report, return_tests)
+        error_msgs["REPORT"] = report
         if not ret:
-            error_msgs["error"] = msg
+            batch_progress = self._set_batch_progress(
+                return_tests,
+                validation="document_failed",
+                test_run="executed",
+            )
+            contextual_failure = self._with_batch_context(
+                msg,
+                validation_mode="fresh_test_run",
+                batch_progress=batch_progress,
+                batch_report=batch_report,
+            )
+            _set_checker_failure(error_msgs, contextual_failure)
             return ret, error_msgs
         ret, msg = fc.check_has_assert_in_tc(self.workspace, report)
         if not ret:
-            error_msgs["error"] = msg["error"]
+            batch_progress = self._set_batch_progress(
+                return_tests,
+                validation="assertion_failed",
+                test_run="executed",
+            )
+            error_msgs["error"] = self._with_batch_context(
+                msg["error"],
+                validation_mode="fresh_test_run",
+                batch_progress=batch_progress,
+                batch_report=batch_report,
+            )
             return ret, error_msgs
-        # update total test cases status
-        for i, (tc, _) in enumerate(self.total_test_cases):
-            if tc in return_tests:
-                self.total_test_cases[i] = (tc, True)
-        self.current_test_cases = [t[0] for t in self.total_test_cases if not t[1]][:self.batch_size]
-        if len(self.current_test_cases) == 0:
+        completed_batch_size = len(self.current_test_cases)
+        completed_test_cases = list(self.batch_task.gen_task_list)
+        for test_case in self.current_test_cases:
+            if test_case not in completed_test_cases:
+                completed_test_cases.append(test_case)
+        note_msg = []
+        self.batch_task.sync_gen_task(
+            completed_test_cases,
+            note_msg,
+            "Validated test cases changed.",
+        )
+        batch_pass, batch_message = self.batch_task.do_complete(
+            note_msg,
+            is_complete,
+            "in the initial template report",
+            f"validated from {self.test_dir}",
+            " Run and validate exactly the current test-case batch.",
+        )
+        self._sync_batch_views()
+        self._last_batch_progress = {
+            "committed": sum(completed for _test, completed in self.total_test_cases),
+            "total": len(self.total_test_cases),
+            "batch_total": len(self.current_test_cases),
+            "executed": 0,
+            "passed": 0,
+            "failed": 0,
+            "validation": "pending" if self.current_test_cases else "passed",
+            "test_run": "not_run" if self.current_test_cases else "executed",
+        }
+        if batch_pass:
             return True, {"success": "Congratulations! All test cases have been implemented! Use tool `Complete to` finish this stage."}
-        if is_complete:
-            return False, {"error": f"There are still {len(self.current_test_cases)} test cases remaining to be implemented: {fc.list_str_abbr(self.current_test_cases)}. " + \
-                                    f"Test case implemention progress: {sum([t[1] for t in self.total_test_cases])}/{len(self.total_test_cases)}. " + \
-                                     "Please continue implementing the remaining test cases before completing this stage."}
-        self.reset_continue_fail_count_with_batch_pass()
-        return False, {"success": f"Great! {len(self.current_test_cases)} test cases have been successfully implemented. " + \
+        if not isinstance(batch_message, dict) or "success" not in batch_message:
+            return batch_pass, batch_message
+        return False, {"success": f"Great! {completed_batch_size} test cases have been successfully implemented. " + \
                                   f"Next, please proceed to implement the following {len(self.current_test_cases)} test cases: {fc.list_str_abbr(self.current_test_cases)}. " + \
                                   f"Test case implemention progress: {sum([t[1] for t in self.total_test_cases])}/{len(self.total_test_cases)}. "}
 
@@ -1929,22 +2773,39 @@ class UnityChipCheckerTestCase(BaseUnityChipCheckerTestCase):
 
         # Basic validation: Check if tests exist
         if report.get("tests") is None:
-            info_runtest["error"] = ["[Test Execution Failed] No test cases found in the report.",
-                                     "[Possible Causes]",
-                                     "1. Test files are not named with 'test_' prefix",
-                                     "2. Test functions do not start with 'test_' or are missing the 'env' parameter",
-                                     "3. Import errors exist in test files",
-                                     "[Solution] Check STDOUT/STDERR output to locate the specific error. Ensure test cases are correctly defined (see Guide_Doc/dut_test_case.md)."]
+            info_runtest["error"] = {
+                "error": "[Test Report Missing] The test run produced no tests mapping.",
+                "observed": "report.tests is missing",
+                "required": (
+                    "The run must collect the intended test_*.py files and return a tests "
+                    "mapping with exact pytest node IDs and statuses."
+                ),
+                "next_action": (
+                    "Read the first concrete collection/import error in STDOUT/STDERR and "
+                    "fix that exact file and line. If no such error exists, rename the "
+                    "intended file/function to test_*, preserve its required fixture "
+                    "signature from Guide_Doc/dut_test_case.md, then rerun Check."
+                ),
+            }
             return False, info_runtest
         
         # Validate minimum test count requirement
         if report["tests"]["total"] < self.min_tests:
-            info_runtest["error"] = [f"[Insufficient Test Cases] Currently only {report['tests']['total']} test case(s), " +\
-                                     f"minimum requirement is {self.min_tests}.",
-                                       "[Solution]",
-                                       "1. Ensure all necessary test scenarios have been implemented",
-                                       "2. Test functions must be named with 'test_' prefix",
-                                       "3. Ensure each function group has adequate test coverage (see Guide_Doc/dut_test_case.md)"]
+            current_total = report["tests"]["total"]
+            info_runtest["error"] = {
+                "error": (
+                    f"[Insufficient Test Cases] Collected {current_total} test case(s); "
+                    f"the required minimum is {self.min_tests}."
+                ),
+                "observed": current_total,
+                "required": self.min_tests,
+                "next_action": (
+                    f"Add or restore at least {self.min_tests - current_total} meaningful "
+                    "test case(s) for the uncovered specification scenarios, ensure each "
+                    "file/function uses the test_* naming contract, then rerun Check. See "
+                    "Guide_Doc/dut_test_case.md."
+                ),
+            }
             return False, info_runtest
         
         # Parse documentation marks for validation
@@ -1959,9 +2820,10 @@ class UnityChipCheckerTestCase(BaseUnityChipCheckerTestCase):
             self.doc_bug_analysis,
             waveform_tool=self.get_waveform_tool_for_checker(),
             waveform_test_dir=self.test_dir,
+            test_output_dir=self.get_configured_test_output_dir(),
         )
         if not ret:
-            info_runtest["error"] = msg
+            _set_checker_failure(info_runtest, msg)
             if len(zero_list) > 0:
                 if isinstance(info_runtest["error"], list):
                     info_runtest["error"].append(zero_rate_msg)
@@ -1973,7 +2835,7 @@ class UnityChipCheckerTestCase(BaseUnityChipCheckerTestCase):
 
         ret, msg = fc.check_has_assert_in_tc(self.workspace, report)
         if not ret:
-            info_runtest["error"] = msg
+            _set_checker_failure(info_runtest, msg)
             return False, info_runtest
 
         # Success: All validations passed
@@ -2000,8 +2862,17 @@ class UnityChipCheckerTestCaseWithLineCoverage(UnityChipCheckerTestCase):
                  test_dir=None, doc_bug_analysis=None, cfg=None,
                  min_tests=1, timeout=15, ignore_tc_prefix="", data_key=None,
                  **extra_kwargs):
-        super().__init__(doc_func_check, test_dir, doc_bug_analysis, min_tests, timeout, ignore_tc_prefix, data_key, **extra_kwargs)
-        self.extra_kwargs = extra_kwargs
+        super().__init__(
+            doc_func_check,
+            test_dir,
+            doc_bug_analysis,
+            min_tests,
+            timeout,
+            ignore_tc_prefix,
+            data_key,
+            cfg=cfg,
+            **extra_kwargs,
+        )
         assert cfg is not None, "cfg is required."
         self.update_dut_name(cfg)
         dut_name = self.dut_name
@@ -2515,7 +3386,11 @@ class UnityChipCheckerRefineTestCases(Checker):
         )
 
         if self.stage_manager is not None:
-            self.smanager_set_value(self._refine_result_key, copy.deepcopy(self.refine_result))
+            self.smanager_set_value(
+                self._refine_result_key,
+                copy.deepcopy(self.refine_result),
+                persist=not bool(self.data_key),
+            )
             if self.data_key:
                 self.smanager_set_value(self.data_key, OrderedDict({
                     "source_ck_list": current_doc_ck_list,
@@ -2523,7 +3398,7 @@ class UnityChipCheckerRefineTestCases(Checker):
                     "ck_test_cases_map": copy.deepcopy(self.ck_test_cases_map),
                     "unresolved_mark_function": copy.deepcopy(self.unresolved_mark_function),
                     "total_test_cases_count": self.total_test_cases_count,
-                }))
+                }), persist=True)
 
         ck_pass, ck_error = self.batch_task.do_complete(
             note_msg,

@@ -1,3 +1,4 @@
+
 # UCAgent (UnityChip Verification Agent)
 
 AI-powered automated UT verification agent based on large language models
@@ -143,6 +144,7 @@ UCAgent provides Master mode, based on which you can perform centralized Agent m
 ### Local Startup
 
 #### 1. Configure Environment Variables
+
 ```bash
 # Edit a custom file to export environment variables required by ucagent, for example:
 # export OPENAI_API_BASE=<your_openai_api_base>
@@ -179,6 +181,7 @@ If ghcr.io is not accessible, you can directly replace it with mirror addresses 
 After successful startup, visit `http://localhost:8800` in your browser.
 
 ### Basic Operations
+
 1. In the web interface, click the `+` button (or launch button) to create a new task.
 2. In the Agent list, click the API button to connect to the control page of a specific Agent.
 3. In the Agent control page, click the web terminal button to open the online terminal.

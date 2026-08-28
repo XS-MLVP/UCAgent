@@ -22,6 +22,7 @@ from ucagent.checkers.static_bug import (
 from ucagent.checkers.toffee_report import parse_bug_label
 from ucagent.util.functions import import_class_from_str
 from ucagent.util.log import info, warning
+from ucagent.util.markdown import ensure_markdown_heading_spacing
 
 
 class RecordType:
@@ -944,7 +945,9 @@ class BugRecordType(RecordType):
             )
 
         with open(resolved_output_path, "w", encoding="utf-8") as summary_file:
-            summary_file.write("\n".join(markdown_lines) + "\n")
+            summary_file.write(
+                ensure_markdown_heading_spacing("\n".join(markdown_lines) + "\n")
+            )
         info(
             f"Recorder generated Bug summary with {len(records)} record(s) at "
             f"'{output_name}'."
@@ -1000,6 +1003,7 @@ class Recorder(Checker):
         type_args: Optional[Dict[str, Any]] = None,
         **kwargs,
     ):
+        super().__init__()
         cfg = kwargs.pop("cfg", None)
         if cfg is not None:
             self.update_dut_name(cfg)
@@ -1108,7 +1112,11 @@ class Recorder(Checker):
         if self.type_handler.persist_on_check and (
             passed or payload is not None or current_payload is not None
         ):
-            self.smanager_set_value(self.data_key, copy.deepcopy(payload))
+            self.smanager_set_value(
+                self.data_key,
+                copy.deepcopy(payload),
+                persist=True,
+            )
             info(
                 f"Recorder cached type '{self.record_type}' data under manager key "
                 f"'{self.data_key}'."

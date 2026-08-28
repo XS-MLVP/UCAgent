@@ -1,3 +1,4 @@
+
 # 技能 SKILL
 
 ## 什么是技能
@@ -31,14 +32,15 @@ UCAgent 中的技能由以下几部分组成：
 
 - `SKILL.md` 不会在启动时全部自动加载进上下文
 - UCAgent 通常先通过 `ListSkill` 了解当前可用技能，再通过 `ReadTextFile` 读取某个技能的 `SKILL.md`
-- 只有阶段中显式配置到 `skill_list` 的技能，才会被强制要求使用
+- 技能启用时，阶段 `skill_list` 中的专用技能默认必须使用；只有该阶段显式设置 `force_use_skill: false` 时才可选
+- `general_skill_list` 中的通用技能始终可选，不会进入阶段的强制使用校验
 
 ## 为什么使用技能
 
 - 稳定性更高：相比于工作流,技能能够对阶段行为进行更为详细的描述,以及通过定制化脚本,稳定执行流程较为固定的复杂操作,提高文档编辑相关操作的正确性
 - 上下文更省：通过`渐进式加载`机制,只有在需要时才加载完整的技能信息
 - 复用性更强：同一个技能目录可以在多个任务中重复使用
-- 可约束执行：对于必须遵循固定步骤的任务，可以通过阶段配置强制使用技能
+- 可约束执行：阶段专用技能默认要求遵循；仅在确实适合可选使用时通过阶段配置显式关闭强制校验
 
 ## 技能目录结构
 
@@ -222,7 +224,7 @@ skill:
 
 ## 阶段级技能配置
 
-可在工作流阶段配置 `skill_list`和`force_use_skill`参数，声明本阶段必须使用的技能。
+可在工作流阶段配置 `skill_list` 和 `force_use_skill` 参数。只有技能启用且当前阶段配置了非空 `skill_list` 时，才检查本阶段专用技能的使用；未配置或空列表不会触发 `SetSkillUsage` 或阶段 Skill 门禁。非空 `skill_list` 声明本阶段专用且默认必须使用的技能；只有显式设置 `force_use_skill: false`，才把该阶段的专用技能改为可选。`general_skill_list` 是独立的全阶段通用技能集合，始终可选且不触发阶段 Skill 门禁。
 
 示例：
 
@@ -231,16 +233,16 @@ stages:
   - name: example-stage
     skill_list:
       - "unitytest/static-bug-analysis"
-    force_use_skill: True
 ```
 
 含义：
 
-- 当前阶段使用 `unitytest/static-bug-analysis` 技能
-- UCAgent 在完成阶段前，不仅要使用该技能，还要通过技能使用记录校验
-- `force_use_skill` 参数为 True 时意味着强制使用，默认为False
+- 当前阶段必须使用 `unitytest/static-bug-analysis` 技能，并在 `Complete` 前通过技能使用记录校验
+- `force_use_skill` 默认为 `true`，通常无需显式填写
+- 若要让当前阶段的 `skill_list` 可选，显式设置 `force_use_skill: false`；此时未读取或未使用这些技能不会阻断 `Check` 或 `Complete`
+- `general_skill_list` 不受 `force_use_skill` 影响，始终不会阻断阶段
 
-如果阶段配置了 `skill_list`，且 `force_use_skill` 参数为 True，但通过 `--no-use-skill` 或配置关闭了技能，则会报错。
+通过 `--no-use-skill` 或配置关闭技能时，所有阶段 Skill 使用门禁均不生效，工作流不会因 `skill_list` 或其默认值而报错。阶段仍须通过 task、Guide_Doc、内置工具和 Checker 完成同一任务与验收标准。
 
 ## 技能使用流程
 
@@ -250,14 +252,17 @@ stages:
 2. 通过 `ListSkill` 查看当前可用技能
 3. 使用 `ReadTextFile` 读取目标技能的 `SKILL.md`
 4. 按 `SKILL.md` 中的方法完成任务
-5. 如技能要求脚本，使用 `RunSkillScript` 执行对应命令
-6. 若当前阶段配置了 `skill_list`，在阶段完成前使用 `SetSkillUsage` 检查并设置技能使用情况
+5. 仅当技能方法要求已声明脚本时，使用 `RunSkillScript` 执行对应命令
+6. 调用 `Check` 校验当前产物；`Check`不会自动把Skill登记为已使用
+7. 仅当当前stage配置了非空`skill_list`时，调用`SetSkillUsage`验证并保存全部必需证据；已应用文本方法时提交`use: true`，没有适用对象时提交`use: false`和非空`reason`
+8. 调用 `Complete` 推进阶段；显式设为可选的阶段技能可在实际使用后记录，通用技能不进入强制校验
 
-对于强制技能，通常至少要满足三件事：
+对于强制技能，必须满足以下条件：
 
 - 已通过 `ListSkill` 列出
 - 已通过 `ReadTextFile` 读取对应 `SKILL.md`
-- 实际执行过程已遵循技能步骤或调用了技能指定脚本
+- 当前`Check`已通过
+- 二选一记录结果：已应用方法时提交`use: true`；没有适用对象时提交`use: false`和非空`reason`
 
 ## 技能相关工具
 
@@ -287,18 +292,18 @@ stages:
 
 特点：
 
-- `command` 为3元素数组，3个元素分别为[skill_name,skill_script,args]
-- 支持一次执行多条命令，也就是以`command`为元素构成的数组
+- `commands` 是非空数组，每项都是3个字符串组成的`[skill_name, skill_script, args]`
+- 优先传真实嵌套JSON数组；只有后端无法正确传输嵌套数组时，才把完整外层数组编码成JSON字符串
 - 按顺序逐条执行
-- 某条失败后直接返回错误，不会继续后续命令
+- 某条失败后直接返回错误，不会继续后续命令；整次调用全部成功后才登记脚本使用证据
 
 示意：
 
 ```json
 {
   "commands": [
-    ["unitytest/dynamic-bug-recording","record_dynamic_bug.py","-BG 'BG-OVERFLOW-95' -TC 'TC-tests/test_a.py::test_overflow' -BD '溢出结果错误'"],
-    ["unitytest/dynamic-bug-recording","record_dynamic_bug.py","-BG 'BG-STATE-90' -TC 'TC-tests/test_b.py::test_state' -BD '状态转换错误'"]
+    ["unitytest/dynamic-bug-recording","record_dynamic_bug.py","-MODE bug -BG 'BG-OVERFLOW-95' -TC 'TC-unity_test/tests/test_a.py::test_overflow' -BD '溢出结果错误' -CHECKPOINT 'FG-ARITHMETIC/FC-ADD/CK-OVERFLOW' -ROOT-TAG 'ROOT-RESULT-WIDTH' -ROOT-TITLE '结果位宽不足' -OVERVIEW '完整结果在输出前被截断。' -SYMPTOMS '边界输入稳定返回错误结果。' -TRIGGER '结果超出低位宽度时触发。'"],
+    ["unitytest/dynamic-bug-recording","record_dynamic_bug.py","-MODE root -ROOT-TAG 'ROOT-RESULT-WIDTH' -ROOT-TITLE '结果位宽不足' -ANALYSIS '中间结果位宽不足。' -SOURCE-UNAVAILABLE '当前工作区没有可访问RTL。' -CAUSAL-CHAIN '合法输入经过截断路径后形成错误输出。' -FIX '扩大结果路径位宽。' -RETEST '重跑边界与关联覆盖用例。'"]
   ]
 }
 ```
@@ -307,20 +312,22 @@ stages:
 
 用途：
 
-- 在阶段完成前，设置并校验本阶段的技能使用情况
+- 验证并保存本阶段专用技能的当前证据；它不能根据模型声明创建或提升list/read或脚本执行证据，但可在真实list/read和当前`Check`通过后确认文本方法的`use: true`，或确认带非空reason的无适用对象`use: false`
 
 适用场景：
 
-- 当前阶段配置了 `skill_list`
+- 当前阶段配置了 `skill_list`，需要满足默认强制要求，或实际使用了显式设为可选的阶段技能
 
 需要提交的三个维度：
 
 - `list`
-  - 是否已通过 `ListSkill` 看到该技能
+  - 成功调用 `ListSkill` 后自动登记
 - `read`
-  - 是否已通过 `ReadTextFile` 读取该技能的 `SKILL.md`
+  - 成功通过 `ReadTextFile` 读取该技能的 `SKILL.md` 后自动登记
 - `use`
-  - 是否实际按技能说明执行了任务
+  - 整次 `RunSkillScript` 全部成功后自动登记脚本路径；文本方法在list/read已登记且当前`Check`通过后，由`SetSkillUsage`登记为`true`；无适用对象分支由`SetSkillUsage`保持为`false`
+- `reason`（仅`use: false`时必填）
+  - 非空说明文本；当当前阶段没有Skill可处理的对象、因而无需运行脚本或修改产物时，用它记录已执行的无适用对象分支。`use: true`时不得填写；它不能替代list/read或当前`Check`
 
 示意：
 
@@ -329,12 +336,13 @@ stages:
   "unitytest/static-bug-analysis": {
     "list": true,
     "read": true,
-    "use": true
+    "use": false,
+    "reason": "当前批次没有可分析的RTL源文件，已按Skill的黑盒分支完成且未运行脚本。"
   }
 }
 ```
 
-如果 `skill_list` 中任一技能未满足这三项要求，阶段不能正常通过。
+只有技能启用且当前stage实际配置了非空`skill_list`时，才检查该stage的Skill使用；未配置`skill_list`或列表为空时，不要求调用`SetSkillUsage`，`Check`和`Complete`也不执行Skill使用门禁。非空`skill_list`中任一技能未满足要求都会阻断`Complete`，除非该阶段显式设置`force_use_skill: false`。固定顺序是`ListSkill -> ReadTextFile(SKILL.md) -> 执行方法或无适用对象分支 -> Check -> SetSkillUsage -> Complete`。已应用文本方法或成功脚本调用时提交`use: true`；当前阶段没有可处理对象时，通过`Check`后提交`use: false`及非空`reason`，明确说明没有需要该Skill处理的对象。`use: false`不能跳过`ListSkill`、读取`SKILL.md`或当前`Check`，也不能制造Bug或其他产物。证据在产生时立即持久化，使用当前契约写入的证据可在同一阶段重启后恢复；格式不合法或版本不符的状态不会恢复。`general_skill_list`始终可选且不触发stage Skill使用门禁；技能整体禁用时，阶段Skill门禁不生效。
 
 ## 常见注意事项
 

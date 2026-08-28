@@ -33,6 +33,7 @@ Directory layout:
   blackbox_explanation.md             — non-empty explanation for black-box verification (no source files)
 """
 
+import hashlib
 import os
 import sys
 
@@ -58,6 +59,12 @@ WORKSPACE = DATA_DIR
 
 FC_DOC       = "fc_doc.md"
 BUG_ANALYSIS = "bug_analysis.md"
+
+
+def progress_marker(workspace, relative_path):
+    with open(os.path.join(workspace, relative_path), "rb") as source_file:
+        digest = hashlib.sha256(source_file.read()).hexdigest()
+    return f'<file sha256="{digest}">{relative_path}</file>'
 
 
 def fmt_checker(static_doc: str, fc_doc: str = FC_DOC) -> UnityChipCheckerStaticBugFormat:
@@ -154,7 +161,7 @@ def test_static_report_sections_use_markers_not_display_titles(tmp_path):
         "## Localized details\n<STATIC-BUG-DETAILS>\n"
         "<FG-CTRL>\n<FC-FSM>\n<CK-FSM-GUARD>\n"
         "<BG-STATIC-001-GUARD>\n<LINK-BUG-[BG-TBD]>\n"
-        "<FILE-rtl/DUT.v:1>\n"
+        "<FILE-rtl/DUT.v:1-1>\n"
         "## Localized progress\n<STATIC-BUG-PROGRESS>\n"
     )
     (tmp_path / "static.md").write_text(body, encoding="utf-8")
@@ -438,9 +445,35 @@ class TestEdgeCases:
         assert_pass(fmt_checker("static_ok_multi.md").do_check(), "multirange")
 
     def test_file_tag_single_line(self):
-        """FILE tag with a single line number (e.g. :13) is valid."""
-        # static_ok_one.md uses <FILE-rtl/DUT.v:13>
+        """FILE tag repeats the line number for a single line."""
+        # static_ok_one.md uses <FILE-rtl/DUT.v:13-13>
         assert_pass(fmt_checker("static_ok_one.md").do_check(), "single_line")
+
+    def test_file_tag_rejects_bare_single_line(self, tmp_path):
+        """FILE tag must use an explicit inclusive range even for one line."""
+        (tmp_path / "rtl").mkdir()
+        (tmp_path / "rtl/DUT.v").write_text(
+            "module DUT; endmodule\n", encoding="utf-8"
+        )
+        (tmp_path / "fc.md").write_text(
+            "<FG-CTRL>\n<FC-FSM>\n<CK-FSM-GUARD>\n", encoding="utf-8"
+        )
+        (tmp_path / "static.md").write_text(
+            "<STATIC-BUG-SUMMARY>\n<STATIC-BUG-DETAILS>\n"
+            "<FG-CTRL>\n<FC-FSM>\n<CK-FSM-GUARD>\n"
+            "<BG-STATIC-001-GUARD>\n<LINK-BUG-[BG-TBD]>\n"
+            "<FILE-rtl/DUT.v:1>\n<STATIC-BUG-PROGRESS>\n",
+            encoding="utf-8",
+        )
+        checker = UnityChipCheckerStaticBugFormat(
+            static_doc="static.md", functions_and_checks_doc="fc.md"
+        ).set_workspace(str(tmp_path))
+
+        assert_fail(
+            checker.do_check(),
+            "replace 'rtl/DUT.v:1' with 'rtl/DUT.v:1-1'",
+            "line1-line2",
+        )
 
     def test_format_and_validation_agree_on_null(self):
         """Both checkers must pass for the NULL sentinel doc."""
@@ -581,13 +614,136 @@ class TestBatchCheckerProgressTracking:
         _, msg = c.do_check()
         assert msg.get("remaining_files") == 1
 
-    def test_unknown_file_in_tag_not_counted(self):
-        """A <file> tag whose path is not in the source list is ignored."""
+    def test_unknown_file_in_tag_fails_explicitly(self):
+        """A progress path outside the configured source set is rejected."""
         c = batch_checker("batch_progress_wrong_path.md", file_list=["rtl/*.v"])
         passed, msg = c.do_check()
         assert passed is False
-        # Both DUT.v and DUT2.v are still pending
-        assert msg.get("progress", "").startswith("0/")
+        assert msg["diagnostic"]["error_code"] == "STATIC_BUG_PROGRESS_UNKNOWN_FILE"
+
+    def test_legacy_progress_marker_without_digest_fails(self, tmp_path):
+        (tmp_path / "rtl").mkdir()
+        (tmp_path / "rtl/DUT.v").write_text("module DUT; endmodule\n", encoding="utf-8")
+        (tmp_path / "fc.md").write_text(
+            "<FG-NULL><FC-NULL><CK-NULL>\n", encoding="utf-8"
+        )
+        (tmp_path / "static.md").write_text(
+            "<STATIC-BUG-SUMMARY>\n<STATIC-BUG-DETAILS>\n"
+            "<FG-NULL><FC-NULL><CK-NULL><BG-STATIC-NULL>\n"
+            "<STATIC-BUG-PROGRESS>\n<file>rtl/DUT.v</file>\n",
+            encoding="utf-8",
+        )
+        checker = UnityChipBatchCheckerStaticBug(
+            static_doc="static.md",
+            functions_and_checks_doc="fc.md",
+            file_list=["rtl/*.v"],
+        ).set_workspace(str(tmp_path))
+
+        passed, message = checker.do_check()
+
+        assert passed is False
+        assert message["diagnostic"]["error_code"] == (
+            "STATIC_BUG_PROGRESS_MARKER_MALFORMED"
+        )
+
+    def test_duplicate_progress_marker_fails(self, tmp_path):
+        (tmp_path / "rtl").mkdir()
+        (tmp_path / "rtl/DUT.v").write_text("module DUT; endmodule\n", encoding="utf-8")
+        (tmp_path / "fc.md").write_text(
+            "<FG-NULL><FC-NULL><CK-NULL>\n", encoding="utf-8"
+        )
+        marker = progress_marker(str(tmp_path), "rtl/DUT.v")
+        (tmp_path / "static.md").write_text(
+            "<STATIC-BUG-SUMMARY>\n<STATIC-BUG-DETAILS>\n"
+            "<FG-NULL><FC-NULL><CK-NULL><BG-STATIC-NULL>\n"
+            f"<STATIC-BUG-PROGRESS>\n{marker}\n{marker}\n",
+            encoding="utf-8",
+        )
+        checker = UnityChipBatchCheckerStaticBug(
+            static_doc="static.md",
+            functions_and_checks_doc="fc.md",
+            file_list=["rtl/*.v"],
+        ).set_workspace(str(tmp_path))
+
+        passed, message = checker.do_check()
+
+        assert passed is False
+        assert message["diagnostic"]["error_code"] == "STATIC_BUG_PROGRESS_DUPLICATE"
+
+    def test_source_content_change_invalidates_progress_marker(self, tmp_path):
+        (tmp_path / "rtl").mkdir()
+        source = tmp_path / "rtl/DUT.v"
+        source.write_text("module DUT; endmodule\n", encoding="utf-8")
+        (tmp_path / "fc.md").write_text(
+            "<FG-NULL><FC-NULL><CK-NULL>\n", encoding="utf-8"
+        )
+        marker = progress_marker(str(tmp_path), "rtl/DUT.v")
+        (tmp_path / "static.md").write_text(
+            "<STATIC-BUG-SUMMARY>\n<STATIC-BUG-DETAILS>\n"
+            "<FG-NULL><FC-NULL><CK-NULL><BG-STATIC-NULL>\n"
+            f"<STATIC-BUG-PROGRESS>\n{marker}\n",
+            encoding="utf-8",
+        )
+        checker = UnityChipBatchCheckerStaticBug(
+            static_doc="static.md",
+            functions_and_checks_doc="fc.md",
+            file_list=["rtl/*.v"],
+        ).set_workspace(str(tmp_path))
+        assert checker.do_check()[0] is True
+
+        source.write_text("module DUT; wire changed; endmodule\n", encoding="utf-8")
+        passed, message = checker.do_check()
+
+        assert passed is False
+        assert message["diagnostic"]["error_code"] == (
+            "STATIC_BUG_PROGRESS_SOURCE_CHANGED"
+        )
+        assert message["current_batch"] == ["rtl/DUT.v"]
+        current_marker = message["current_batch_progress_markers"][0]
+        assert current_marker != marker
+        assert current_marker == progress_marker(str(tmp_path), "rtl/DUT.v")
+
+    def test_source_changed_during_check_is_not_committed(self, tmp_path, monkeypatch):
+        (tmp_path / "rtl").mkdir()
+        source = tmp_path / "rtl/DUT.v"
+        source.write_text("module DUT; endmodule\n", encoding="utf-8")
+        (tmp_path / "fc.md").write_text(
+            "<FG-NULL><FC-NULL><CK-NULL>\n", encoding="utf-8"
+        )
+        marker = progress_marker(str(tmp_path), "rtl/DUT.v")
+        (tmp_path / "static.md").write_text(
+            "<STATIC-BUG-SUMMARY>\n<STATIC-BUG-DETAILS>\n"
+            "<FG-NULL><FC-NULL><CK-NULL><BG-STATIC-NULL>\n"
+            f"<STATIC-BUG-PROGRESS>\n{marker}\n",
+            encoding="utf-8",
+        )
+        checker = UnityChipBatchCheckerStaticBug(
+            static_doc="static.md",
+            functions_and_checks_doc="fc.md",
+            file_list=["rtl/*.v"],
+        ).set_workspace(str(tmp_path))
+        original_get_tasks = checker._get_all_source_tasks
+        calls = 0
+
+        def change_before_commit():
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                source.write_text(
+                    "module DUT; wire changed; endmodule\n", encoding="utf-8"
+                )
+            return original_get_tasks()
+
+        monkeypatch.setattr(checker, "_get_all_source_tasks", change_before_commit)
+
+        passed, message = checker.do_check()
+
+        assert passed is False
+        assert message["diagnostic"]["error_code"] == (
+            "STATIC_BUG_SOURCE_CHANGED_DURING_CHECK"
+        )
+        assert checker.batch_task.gen_task_list == []
+        assert message["current_batch"] == ["rtl/DUT.v"]
 
 
 class TestBatchCheckerBatchSize:
@@ -652,6 +808,10 @@ class TestBatchCheckerTemplateData:
         assert data["ANALYZED_FILES"] == 0
         assert data["ANALYSIS_PROGRESS"] == "0/2"
         assert data["CURRENT_FILE_NAMES"] != ""
+        assert all(
+            marker.startswith('<file sha256="')
+            for marker in data["CURRENT_FILE_PROGRESS_MARKERS"]
+        )
 
     def test_template_progress_one(self):
         data = self._get_data("batch_progress_one.md")

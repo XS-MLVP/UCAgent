@@ -8,7 +8,6 @@ import sys
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.abspath(os.path.join(current_dir, "..")))
 
-import pytest
 from ucagent.checkers.unity_test import UnityChipCheckerMockComponent
 
 
@@ -40,9 +39,7 @@ def test_mock_checker_bad_prefix():
     checker = UnityChipCheckerMockComponent(target_file, min_mock=1).set_workspace(workspace)
     p, m = checker.do_check()
     assert p is False
-    # Since classes are filtered by pattern 'Mock*', a file without any Mock* classes
-    # should trigger insufficient coverage instead of bad prefix message.
-    assert "Insufficient Mock component coverage" in m.get("error", "")
+    assert "No Mock component class found" in m.get("error", "")
 
 
 def test_mock_checker_missing_method():

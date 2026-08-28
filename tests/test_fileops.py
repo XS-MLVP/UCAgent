@@ -8,6 +8,7 @@ import shutil
 import unittest
 import hashlib
 import asyncio
+import concurrent.futures
 import threading
 from unittest.mock import patch
 
@@ -1009,6 +1010,37 @@ class TestFileOpsTools(unittest.TestCase):
         with open(target, "r", encoding="utf-8") as file_obj:
             self.assertEqual(file_obj.read(), "updated\n")
 
+    def test_text_mutation_tools_normalize_markdown_heading_spacing(self):
+        edit = EditTextFile(workspace=self.workspace)
+        edit._run(
+            path="document.md",
+            content="# Title\ntext\n###### Field\n<BUG-OVERVIEW>\nbody\n",
+        )
+        target = os.path.join(self.workspace, "document.md")
+        with open(target, "r", encoding="utf-8") as file_obj:
+            self.assertEqual(
+                file_obj.read(),
+                "\n# Title\n\ntext\n\n###### Field\n<BUG-OVERVIEW>\nbody\n",
+            )
+
+        ReplaceStringInFile(workspace=self.workspace)._run(
+            path="document.md",
+            old_string="body\n",
+            new_string="body\n## Added\ndetail\n",
+        )
+        with open(target, "r", encoding="utf-8") as file_obj:
+            self.assertIn("body\n\n## Added\n\ndetail", file_obj.read())
+
+        delete_target = os.path.join(self.workspace, "delete.md")
+        with open(delete_target, "w", encoding="utf-8") as file_obj:
+            file_obj.write("\n# First\n\nbody\nremove\n## Second\n\ntext\n")
+        DeleteTextLines(workspace=self.workspace)._run(
+            path="delete.md",
+            line_blocks=[[5, 5]],
+        )
+        with open(delete_target, "r", encoding="utf-8") as file_obj:
+            self.assertIn("body\n\n## Second", file_obj.read())
+
     def test_edit_text_file_append_creates_missing_file(self):
         target = os.path.join(self.workspace, "appended.txt")
 
@@ -1127,7 +1159,8 @@ class TestFileOpsTools(unittest.TestCase):
             )
 
     def test_edit_text_file_converts_to_unambiguous_mcp_schema(self):
-        mcp_tool = to_fastmcp(EditTextFile(workspace=self.workspace))
+        tool = EditTextFile(workspace=self.workspace)
+        mcp_tool = to_fastmcp(tool)
 
         self.assertEqual(set(mcp_tool.parameters["required"]), {"path", "content"})
         self.assertFalse(mcp_tool.parameters.get("additionalProperties", True))
@@ -1135,6 +1168,7 @@ class TestFileOpsTools(unittest.TestCase):
             set(mcp_tool.parameters["properties"]),
             {"path", "content", "append", "expected_sha256"},
         )
+        self.assertIn(".md and .md.j2 targets", tool.description)
 
     def test_delete_text_lines_converts_to_unambiguous_mcp_schema(self):
         tool = DeleteTextLines(workspace=self.workspace)
@@ -1158,6 +1192,7 @@ class TestFileOpsTools(unittest.TestCase):
         self.assertIn("use ReplaceStringInFile", tool.description)
         self.assertIn("original pre-deletion line numbers", tool.description)
         self.assertIn("use [[10, 20]] for one range", tool.description)
+        self.assertIn(".md and .md.j2 targets", tool.description)
 
     def test_replace_string_converts_line_blocks_to_mcp_schema(self):
         tool = ReplaceStringInFile(workspace=self.workspace)
@@ -1185,6 +1220,7 @@ class TestFileOpsTools(unittest.TestCase):
         self.assertIn("do not pass [start, end]", mcp_tool.parameters[
             "properties"
         ]["line_blocks"]["description"])
+        self.assertIn(".md and .md.j2 targets", tool.description)
 
     def test_async_validation_error_does_not_leak_tool_lock(self):
         async def run_calls():
@@ -1253,6 +1289,47 @@ class TestFileOpsTools(unittest.TestCase):
         self.assertIs(same_from_edit, same_from_replace)
         self.assertIs(same_from_edit, same_from_delete_lines)
         self.assertIsNot(same_from_edit, different_file)
+
+    def test_sync_file_locks_are_shared_for_the_same_canonical_path(self):
+        edit_tool = EditTextFile(workspace=self.workspace)
+        replace_tool = ReplaceStringInFile(workspace=self.workspace)
+
+        same_from_edit = edit_tool._get_sync_call_locks(
+            {"path": "nested/../simple.txt"}
+        )[0]
+        same_from_replace = replace_tool._get_sync_call_locks(
+            {"path": "simple.txt"}
+        )[0]
+        different_file = edit_tool._get_sync_call_locks(
+            {"path": "other.txt"}
+        )[0]
+
+        self.assertIs(same_from_edit, same_from_replace)
+        self.assertIsNot(same_from_edit, different_file)
+
+    def test_sync_invoke_waits_for_a_conflicting_path_lock(self):
+        tool = EditTextFile(workspace=self.workspace, lock_time_out=1)
+        call = {"path": "locked.txt", "content": "written\n"}
+        call_lock = tool._get_sync_call_locks(call)[0]
+        call_lock.acquire()
+        try:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(tool.invoke, call)
+                self.assertRaises(
+                    concurrent.futures.TimeoutError,
+                    future.result,
+                    timeout=0.1,
+                )
+                call_lock.release()
+                result = future.result(timeout=1)
+        finally:
+            try:
+                call_lock.release()
+            except RuntimeError:
+                pass
+
+        self.assertIn("Created 'locked.txt'", result)
+        self.assertEqual(tool.call_count, 1)
 
     def test_async_edits_to_different_files_can_run_concurrently(self):
         both_started = threading.Event()

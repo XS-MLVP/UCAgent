@@ -1,3 +1,4 @@
+
 # 参数说明
 
 ## 参数与选项
@@ -364,6 +365,9 @@ UCAgent 支持通过环境变量配置各类参数，环境变量优先级高于
 | `OPENAI_MODEL` | OpenAI 对话模型名称 | 无（需配置） |
 | `OPENAI_API_KEY` | OpenAI API 密钥 | 无（需配置） |
 | `OPENAI_API_BASE` | OpenAI API 基础 URL | 无（需配置） |
+| `OPENAI_API_MODE` | LangChain 后端使用的 OpenAI API 模式：`auto`、`responses` 或 `chat_completions` | `auto` |
+| `OPENAI_RESPONSES_PROBE_TIMEOUT` | 启动时 Responses API 能力探测超时秒数，必须为正数 | `10` |
+| `OPENAI_REASONING_EFFORT` | LangChain 后端的思考程度；按当前 OpenAI 或兼容模型服务支持的字符串原样传递 | `xhigh` |
 | `OPENAI_TEMPERATURE` | OpenAI 模型 temperature 参数 | 未设置 |
 | `OPENAI_TOP_P` | OpenAI 模型 top_p 参数 | 未设置 |
 | `ANTHROPIC_MODEL` | Anthropic Claude 模型名称 | `claude-3-7-sonnet-20250219` |
@@ -392,10 +396,12 @@ UCAgent 支持通过环境变量配置各类参数，环境变量优先级高于
 
 | 环境变量名 | 说明 | 默认值 |
 | :-------- | :--- | :----- |
-| `SUMMARY_MAX_CTX_TOKEN` | 会话上下文最大 token 数 | `51200` |
-| `SUMMARY_MAX_SUM_TOKEN` | 生成摘要的最大 token 数 | `1024` |
-| `SUMMARY_MAX_KEEP_MSG` | 内存中保留的最大消息数 | `100` |
+| `SUMMARY_MAX_CTX_TOKEN` | 触发压缩的预估上下文 token 上限；`0` 表示禁用该触发条件 | `102400` |
+| `SUMMARY_MAX_SUM_TOKEN` | 每次生成摘要的输出 token 上限，必须大于 `0` | `8192` |
+| `SUMMARY_MAX_KEEP_MSG` | 独立触发压缩的上下文消息数上限；`0` 表示禁用该触发条件 | `100` |
 | `SUMMARY_TAIL_KEEP_MSG` | 传递给 LLM 的最近消息保留数 | `10` |
+
+`SUMMARY_MAX_CTX_TOKEN` 和 `SUMMARY_MAX_KEEP_MSG` 是两个独立触发条件，任意一个超限都会压缩。上下文 token 在模型调用前属于预估值；运行过程中若模型服务返回 usage，LangChain 后端会使用最近一次实际输入 token 校准后续估算。`status` 中的 `ProviderTokens` 以 `input/output/total` 显示服务端累计 token，`Context` 显示当前预估值与阈值，`Compression` 显示最近一次压缩的原因和前后规模。
 
 ### LLM 限流配置
 
@@ -428,6 +434,8 @@ UCAgent 支持通过环境变量配置各类参数，环境变量优先级高于
 | :-------- | :--- | :----- |
 | `HUMAN_CHECK_CK` | 验证复杂 DUT 时是否开启检测点人工检查 | `false` |
 | `UC_ENV_CMD_BACKEND_EX_ARGS` | 命令行后端执行时的额外参数 | 无 |
+
+`ucagent/setting.yaml`中的`loop_settings.max_stalled_rounds`控制外部 Agent 循环的停滞保护，默认值为`3`，也可以通过`--override loop_settings.max_stalled_rounds=VALUE`覆盖。只有一轮内实际调用了 Check/Complete，且阶段、Checker和Checker显式结构化诊断均与上一计数轮相同时才累计；阶段或批次推进、检查通过、诊断变化都会清零，无新检查的轮次不计数。达到阈值后 UCAgent 暂停`--loop`并等待人工处理，不退出任务、不修改产物，也不向`status`增加字段。设为`0`可关闭该保护；其他值必须是非负整数。
 
 ### 测试工具配置
 

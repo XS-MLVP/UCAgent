@@ -18,6 +18,7 @@ from ucagent.util.config import load_yaml_with_env_vars
 class _FakeStageManager:
     def __init__(self, data=None):
         self.data = dict(data or {})
+        self.save_count = 0
         self.current_stage = SimpleNamespace(reset_continue_fail_count_with_batch_pass=lambda: None)
 
     def get_data(self, key, default=None):
@@ -25,6 +26,9 @@ class _FakeStageManager:
 
     def set_data(self, key, value):
         self.data[key] = value
+
+    def save_stage_info(self):
+        self.save_count += 1
 
     def get_current_stage(self):
         return self.current_stage
@@ -275,6 +279,36 @@ def test_refine_test_cases_requires_refined_argument_for_current_batch(tmp_path)
     assert 'Check(stage_args={"refined": {"FG-A/FC-A/CK-A":' in msg["error"][2]
     assert "JSON-string fallback" in msg["error"][2]
     assert 'Check(stage_args="{\\"refined\\": {\\"FG-A/FC-A/CK-A\\":' in msg["error"][2]
+
+
+def test_refine_test_cases_restores_partial_current_batch(tmp_path):
+    entries = [
+        ("FG-A", "FC-A", "CK-A"),
+        ("FG-A", "FC-A", "CK-B"),
+    ]
+    checker, manager, _tests_dir, _doc = _make_checker(
+        tmp_path,
+        entries,
+        batch_size=2,
+    )
+
+    passed, _msg = checker.do_check(
+        refined={"FG-A/FC-A/CK-A": "reviewed A"}
+    )
+
+    assert passed is False
+    assert manager.save_count == 1
+    restored, _manager, _tests_dir, _doc = _make_checker(
+        tmp_path,
+        entries,
+        batch_size=2,
+    )
+    assert restored.batch_task.gen_task_list == ["FG-A/FC-A/CK-A"]
+    assert restored.batch_task.cmp_task_list == ["FG-A/FC-A/CK-A"]
+    assert restored.batch_task.tbd_task_list == [
+        "FG-A/FC-A/CK-A",
+        "FG-A/FC-A/CK-B",
+    ]
 
 
 def test_refine_test_cases_complete_error_shows_complete_call_example(tmp_path):

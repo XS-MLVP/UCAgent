@@ -3682,6 +3682,10 @@ class VerifyPDB(Pdb):
         cfg_update.update(self.agent.set_messages_cfg(cfg))
         message(yam_str(cfg_update))
 
+    def do_message_config(self, arg):
+        """Compatibility alias for messages_config."""
+        return self.do_messages_config(arg)
+
     def do_messages_summary(self, arg):
         """Summarize the chat history"""
         self.agent.message_summary()

@@ -23,6 +23,7 @@ import threading
 import textwrap
 import time
 from typing import Any, ClassVar, Literal, Optional
+import weakref
 
 from langchain_core.callbacks import CallbackManagerForToolRun
 from langchain_core.tools.base import ArgsSchema
@@ -50,12 +51,15 @@ from ucagent.util.bug_analysis_contract import (
     normalize_test_case_tag,
     parse_dynamic_tag_heading,
     parse_waveform_record_heading,
+    test_case_identity_relation,
+    test_case_parent,
     waveform_anchor_id,
     waveform_record_heading,
     waveform_record_tag,
     waveform_reference,
 )
 from ucagent.util.log import warning
+from ucagent.util.markdown import ensure_markdown_file_heading_spacing
 from ucagent.util.waveform_viewer import (
     WaveformViewerProtocolError,
     build_waveform_viewer_markdown_link,
@@ -66,6 +70,8 @@ from .uctool import UCTool
 
 
 _DOCUMENT_WRITE_LOCK = threading.Lock()
+_RECEIPT_STORE_LOCKS = weakref.WeakValueDictionary()
+_RECEIPT_STORE_LOCKS_GUARD = threading.Lock()
 
 
 WaveEvent = Literal["change", "rising", "falling", "equals", "unknown"]
@@ -199,7 +205,9 @@ class WaveInfoAnalysisArgs(BaseModel):
         description=(
             "Test function name or full pytest node ID. Omit it to list waveform "
             "files in the newest session. When provided, the final :: component is "
-            "used as the exact waveform basename, including parameter IDs."
+            "used as the exact waveform basename, including parameter IDs. For Bug "
+            "evidence, use the complete target TC node ID with only the leading TC- "
+            "removed; inventory basename hints are not source-test identities."
         ),
     )
     pattern: list[WaveSignalPattern] | None = Field(
@@ -390,7 +398,9 @@ class ArgWaveInfo(BaseModel):
         default="",
         description=(
             "Test function name or full pytest node ID. Leave empty only to list "
-            "waveform files in the newest session."
+            "waveform files in the newest session. For Bug evidence, copy the complete "
+            "target TC tag and remove only its leading TC-; do not remove or add path "
+            "components. Inventory basename hints are discovery-only."
         ),
     )
     pattern: list[WaveInfoToolPattern] = Field(
@@ -573,23 +583,37 @@ class ArgApplyWaveInfoEvidence(BaseModel):
         min_length=1,
         description=(
             "Exact non-static, non-zero-confidence dynamic Bug tag, for example "
-            "BG-ADD-OVERFLOW-95. Angle brackets are optional. The BG must already exist. "
-            "If the target TC is absent, the BG must occur exactly once so insertion is "
-            "unambiguous. Reuse this value in separate calls when one Bug has multiple "
-            "failing test cases; never copy the BG for another TC. When one failing test "
-            "exposes multiple independent Bugs, call the tool separately with each distinct "
-            "bug_tag instead of merging those Bugs into one BG."
+            "BG-ADD-OVERFLOW-95. Angle brackets are optional. The BG path entry must already "
+            "exist. The same Bug tag may repeat under different CK branches when one root "
+            "cause affects tests associated with those CKs; pass checkpoint_path to select "
+            "the exact occurrence. Within one CK branch, add sibling TCs to the existing BG "
+            "occurrence. When one failing test exposes multiple independent Bugs, call the "
+            "tool separately with each distinct bug_tag."
+        ),
+    )
+    checkpoint_path: str = Field(
+        default="",
+        description=(
+            "Exact FG/FC/CK path owning the target BG occurrence, for example "
+            "FG-ARITHMETIC/FC-ADD/CK-OVERFLOW. Required when the same bug_tag/test_case_tag "
+            "pair is ambiguous or when a missing TC must be inserted into a bug_tag that "
+            "appears under multiple CK branches; otherwise it may be blank."
         ),
     )
     test_case_tag: str = Field(
         ...,
         min_length=1,
         description=(
-            "Exact TC tag under bug_tag, for example "
-            "TC-tests/test_add.py::test_overflow. Angle brackets are optional. If the TC is "
+            "Exact TC tag under bug_tag, copied from the current report node ID after "
+            "removing only its file line range and adding TC-. Its file path must begin "
+            "with the configured TC output directory shown by the current stage/Checker. "
+            "Angle brackets are optional. If the TC is "
             "absent, the tool creates it under the unique BG. The same TC may be associated "
             "with multiple distinct Bugs while retaining one central waveform record. The "
-            "operation preserves sibling TCs and records owned by other tests."
+            "operation preserves sibling TCs and records owned by other tests. The signed "
+            "WaveInfo test_case_name must equal this value after removing TC-, or may be one "
+            "parameterized child of the same exact workspace-relative file/class/function. "
+            "Different paths, classes, and functions are never equivalent."
         ),
     )
     receipt_id: str = Field(
@@ -617,6 +641,152 @@ class ArgApplyWaveInfoEvidence(BaseModel):
                 raise ValueError(f"{field_name} must not be blank")
             setattr(self, field_name, value)
         self.receipt_id = self.receipt_id.strip()
+        self.checkpoint_path = self.checkpoint_path.strip()
+        return self
+
+
+class WaveInfoBugReview(BaseModel):
+    """LLM-authored conclusions for one Bug associated with a reviewed TC."""
+
+    observed_behavior: str = Field(
+        ...,
+        min_length=1,
+        description=(
+            "Current observed behavior grounded in the signed waveform timeline, failing "
+            "test, and specification."
+        ),
+    )
+    source_correlation: str = Field(
+        ...,
+        min_length=1,
+        description=(
+            "Correlation between the current waveform evidence and relevant source, driver, "
+            "API, or black-box boundary evidence."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def normalize_values(self):
+        for field_name in ("observed_behavior", "source_correlation"):
+            value = getattr(self, field_name).strip()
+            if not value or BUG_TODO_MARKER in value:
+                raise ValueError(f"{field_name} must contain a completed review conclusion")
+            setattr(self, field_name, value)
+        return self
+
+
+class WaveInfoEvidenceReview(BaseModel):
+    """Completed semantic review for one current central waveform record."""
+
+    alignment_evidence: str = Field(
+        ...,
+        min_length=1,
+        description=(
+            "Current test-log-to-waveform alignment conclusion grounded in the signed "
+            "timeline and transaction context."
+        ),
+    )
+    bug_evidence: dict[str, WaveInfoBugReview] = Field(
+        ...,
+        min_length=1,
+        description=(
+            "One conclusion mapping for every BG associated with this central TC. Keys are "
+            "exact BG-* tags; required_signals remain machine-preserved and are not supplied."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def normalize_values(self):
+        self.alignment_evidence = self.alignment_evidence.strip()
+        if not self.alignment_evidence or BUG_TODO_MARKER in self.alignment_evidence:
+            raise ValueError("alignment_evidence must contain a completed review conclusion")
+        normalized = {}
+        for bug_tag, review in self.bug_evidence.items():
+            tag = bug_tag.strip().strip("<>")
+            if not re.fullmatch(r"BG-[^<>\r\n]+", tag) or tag.startswith("BG-STATIC-"):
+                raise ValueError("bug_evidence keys must be exact dynamic BG-* tags")
+            if tag in normalized:
+                raise ValueError(f"duplicate bug_evidence key '{tag}'")
+            normalized[tag] = review
+        self.bug_evidence = normalized
+        return self
+
+
+class WaveInfoEvidenceReviewItem(BaseModel):
+    """One current-replay item prepared or completed in a batch review."""
+
+    bug_tag: str = Field(
+        ...,
+        min_length=1,
+        description="Exact BG-* tag used to locate this TC's existing document path.",
+    )
+    checkpoint_path: str = Field(
+        default="",
+        description="Exact FG-*/FC-*/CK-* path when the BG occurrence is ambiguous.",
+    )
+    test_case_tag: str = Field(
+        ...,
+        min_length=1,
+        description="Exact TC-* tag for the unique central waveform record.",
+    )
+    receipt_id: str = Field(
+        ...,
+        min_length=1,
+        description="Signed current receipt_id returned by the current-replay Checker.",
+    )
+    review: WaveInfoEvidenceReview | None = Field(
+        default=None,
+        description=(
+            "Omit in the first call to retrieve all signed review contexts without editing. "
+            "Provide in the second call to atomically apply the complete batch."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def normalize_values(self):
+        for field_name in ("bug_tag", "test_case_tag", "receipt_id"):
+            value = getattr(self, field_name).strip()
+            if not value:
+                raise ValueError(f"{field_name} must not be blank")
+            setattr(self, field_name, value)
+        self.checkpoint_path = self.checkpoint_path.strip()
+        return self
+
+
+class ArgReviewWaveInfoEvidenceBatch(BaseModel):
+    """Arguments for preparing or atomically applying a current-evidence review batch."""
+
+    target_file: str = Field(
+        ...,
+        min_length=1,
+        description=(
+            "Existing dynamic Bug-analysis Markdown file, relative to the workspace and "
+            "inside an enabled write directory."
+        ),
+    )
+    items: list[WaveInfoEvidenceReviewItem] = Field(
+        ...,
+        min_length=1,
+        max_length=128,
+        description=(
+            "All changed central TCs from one Checker review batch. Omit review from every "
+            "item to prepare contexts, or provide review for every item to apply atomically."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def normalize_values(self):
+        self.target_file = self.target_file.strip()
+        if not self.target_file:
+            raise ValueError("target_file must not be blank")
+        review_states = {item.review is not None for item in self.items}
+        if len(review_states) != 1:
+            raise ValueError(
+                "all batch items must either omit review or provide a completed review"
+            )
+        normalized_tests = [normalize_test_case_tag(item.test_case_tag) for item in self.items]
+        if len(normalized_tests) != len(set(normalized_tests)):
+            raise ValueError("items must contain at most one review for each central TC")
         return self
 
 
@@ -670,6 +840,9 @@ class WaveInfo(UCTool):
         "List or inspect waveforms generated by UnityChip pytest cases. Call WaveInfo "
         "without arguments to list file metadata from the newest toffee_tmp_* session. "
         "Provide test_case_name to inspect one exact waveform and optionally analyze events. "
+        "For Bug evidence, test_case_name must be the complete target TC pytest node ID "
+        "with only the leading TC- removed. Inventory basenames locate waveform files but "
+        "do not define or shorten the source-test identity. "
         "The tool searches only the newest toffee_tmp_* session, prefers FST, "
         "and never substitutes another test or a stale session. Signal queries use "
         "wavekit syntax and must be supplied as structured pattern entries. "
@@ -692,6 +865,7 @@ class WaveInfo(UCTool):
     )
     args_schema: Optional[ArgsSchema] = ArgWaveInfo
     return_direct: bool = False
+    call_lock_arguments: tuple[str, ...] = ("test_case_name",)
 
     workspace: str = Field(default=".", description="UCAgent workspace root.")
     test_dir: str = Field(default=".", description="Rendered UnityChip pytest directory.")
@@ -717,6 +891,12 @@ class WaveInfo(UCTool):
     _RECEIPT_KEY_RELATIVE: ClassVar[Path] = Path(
         ".ucagent/.waveinfo_receipt_key"
     )
+    _ANALYSIS_CONTEXT_SUFFIXES: ClassVar[frozenset[str]] = frozenset(
+        {".py", ".v", ".vh", ".sv", ".svh", ".vhd", ".vhdl", ".scala"}
+    )
+    _ANALYSIS_CONTEXT_EXCLUDED_DIRS: ClassVar[frozenset[str]] = frozenset(
+        {".git", ".ucagent", "__pycache__", "data"}
+    )
 
     def __init__(
         self,
@@ -732,6 +912,14 @@ class WaveInfo(UCTool):
             if os.path.isabs(test_dir)
             else os.path.abspath(os.path.join(self.workspace, test_dir))
         )
+        configured_test_dir = os.path.relpath(
+            self.test_dir, self.workspace
+        ).replace(os.sep, "/")
+        self.description = (
+            f"{self.description} Configured TC output directory for this run: "
+            f"'{configured_test_dir}'. Exact source node IDs must start with "
+            f"'{configured_test_dir}/'."
+        )
         self.dut_name = dut_name
         self.analysis_receipts = []
         self._load_analysis_receipts()
@@ -741,6 +929,15 @@ class WaveInfo(UCTool):
 
     def _receipt_key_path(self) -> Path:
         return Path(self.workspace) / self._RECEIPT_KEY_RELATIVE
+
+    def _receipt_store_lock(self):
+        store_path = os.path.realpath(self._receipt_store_path())
+        with _RECEIPT_STORE_LOCKS_GUARD:
+            lock = _RECEIPT_STORE_LOCKS.get(store_path)
+            if lock is None:
+                lock = threading.RLock()
+                _RECEIPT_STORE_LOCKS[store_path] = lock
+            return lock
 
     def _receipt_scope_identity(self) -> str:
         scope = {
@@ -763,12 +960,21 @@ class WaveInfo(UCTool):
             for key, value in receipt.items()
             if key != "integrity_hmac"
         }
+        # JSON object keys are strings after persistence. Normalize before sorting so
+        # integer waveform-step keys produce the same HMAC before and after reload.
+        persisted_shape = json.loads(
+            json.dumps(
+                unsigned,
+                ensure_ascii=False,
+                separators=(",", ":"),
+                default=str,
+            )
+        )
         return json.dumps(
-            unsigned,
+            persisted_shape,
             ensure_ascii=False,
             sort_keys=True,
             separators=(",", ":"),
-            default=str,
         ).encode("utf-8")
 
     def _read_receipt_key(self, *, create: bool) -> bytes | None:
@@ -810,6 +1016,13 @@ class WaveInfo(UCTool):
         ).hexdigest()
 
     def _load_persisted_receipts(
+        self,
+        key: bytes | None = None,
+    ) -> list[dict[str, Any]]:
+        with self._receipt_store_lock():
+            return self._load_persisted_receipts_unlocked(key)
+
+    def _load_persisted_receipts_unlocked(
         self,
         key: bytes | None = None,
     ) -> list[dict[str, Any]]:
@@ -880,17 +1093,22 @@ class WaveInfo(UCTool):
         return list(merged.values())[-cls._RECEIPT_LIMIT :]
 
     def _load_analysis_receipts(self) -> None:
-        try:
-            self.analysis_receipts = self._load_persisted_receipts()
-        except Exception as error:
-            warning(f"Could not restore persisted WaveInfo receipts: {error}")
-            self.analysis_receipts = []
+        with self._receipt_store_lock():
+            try:
+                self.analysis_receipts = self._load_persisted_receipts_unlocked()
+            except Exception as error:
+                warning(f"Could not restore persisted WaveInfo receipts: {error}")
+                self.analysis_receipts = []
 
     def _persist_analysis_receipts(self) -> None:
+        with self._receipt_store_lock():
+            self._persist_analysis_receipts_unlocked()
+
+    def _persist_analysis_receipts_unlocked(self) -> None:
         key = self._read_receipt_key(create=True)
         if key is None:
             raise RuntimeError("Could not create the WaveInfo receipt signing key.")
-        persisted = self._load_persisted_receipts(key)
+        persisted = self._load_persisted_receipts_unlocked(key)
         merged = self._merge_receipts(persisted, self.analysis_receipts)
         scope_identity = self._receipt_scope_identity()
         for receipt in merged:
@@ -1013,7 +1231,8 @@ class WaveInfo(UCTool):
     def _run_test_suggestion(self, normalized_name: str) -> str:
         return (
             f'Rerun the failing case alone with RunTestCases(target="<test-file>::'
-            f'{normalized_name}") and confirm the DUT fixture calls SetWaveform and '
+            f'{normalized_name}") relative to the configured TC output directory and '
+            "confirm the DUT fixture calls SetWaveform and "
             "dut.Finish() completes."
         )
 
@@ -1189,9 +1408,11 @@ class WaveInfo(UCTool):
                 ("recommended_call", recommended_call),
                 (
                     "next_action",
-                    "Use the non-empty recommended_call.test_case_name verbatim in the "
-                    "next WaveInfo call to parse one waveform. Do not repeat inventory: "
-                    "inventory does not create Bug-analysis evidence or a receipt.",
+                    "recommended_call.test_case_name is a waveform-discovery basename "
+                    "hint only. To inspect a Bug TC, replace it with the complete target "
+                    "pytest node ID copied from <TC-...> after removing only TC-. Do not "
+                    "repeat inventory: inventory does not establish source-test identity "
+                    "or create Bug-analysis evidence or a receipt.",
                 ),
             ]
         )
@@ -1289,6 +1510,14 @@ class WaveInfo(UCTool):
 
         if not latest_matches:
             close_names = get_close_matches(normalized, available_names, n=8, cutoff=0.45)
+            parameterized_names = []
+            for available_name in available_names:
+                if (
+                    available_name.endswith("]")
+                    and "[" in available_name
+                    and available_name[: available_name.find("[")] == normalized
+                ):
+                    parameterized_names.append(available_name)
             if dat_matches:
                 code = "waveform_missing_but_test_data_exists"
                 message = (
@@ -1318,10 +1547,22 @@ class WaveInfo(UCTool):
                     "available_latest_session_test_names": available_names[:50],
                     "available_names_truncated": len(available_names) > 50,
                     "close_name_matches": close_names,
+                    "parameterized_waveform_names": parameterized_names,
                     "matching_data_files": dat_matches,
                     "stale_waveform_candidates_not_used": old_matches,
                 },
-                suggestions=common_suggestions,
+                suggestions=(
+                    [
+                        "The latest session has parameterized waveform basenames for this "
+                        "function. These names are hints only: cross-check their parameter "
+                        "suffixes against an exact FAILED child in report "
+                        "tests.test_case_instances, then pass that full child node to "
+                        "WaveInfo. Do not use a basename as a pytest node identity."
+                    ]
+                    + common_suggestions
+                    if parameterized_names
+                    else common_suggestions
+                ),
             )
 
         latest_matches.sort(
@@ -1387,6 +1628,8 @@ class WaveInfo(UCTool):
         self,
         invocation: dict[str, Any],
         result: OrderedDict,
+        *,
+        context_files: dict[str, str] | None = None,
     ) -> OrderedDict:
         try:
             normalized_arguments = self.normalize_analysis_arguments(**invocation)
@@ -1403,6 +1646,14 @@ class WaveInfo(UCTool):
         receipt_id = secrets.token_hex(16)
         recorded_at = self._format_time(time.time())
         event_steps = self._event_steps(result)
+        if context_files is None:
+            context_files = self._analysis_context_snapshot(normalized_arguments)
+        context_fingerprint = self._analysis_context_fingerprint(context_files)
+        semantic_fingerprint = self.analysis_semantic_fingerprint(
+            invocation,
+            result,
+            context_fingerprint=context_fingerprint,
+        )
         receipt = OrderedDict(
             [
                 ("receipt_id", receipt_id),
@@ -1420,6 +1671,9 @@ class WaveInfo(UCTool):
                                 "result_fingerprint",
                                 hashlib.sha256(canonical_result.encode("utf-8")).hexdigest(),
                             ),
+                            ("semantic_fingerprint", semantic_fingerprint),
+                            ("analysis_context_fingerprint", context_fingerprint),
+                            ("analysis_context_files", copy.deepcopy(context_files)),
                             (
                                 "waveform_selection",
                                 copy.deepcopy(result.get("waveform_selection")),
@@ -1427,10 +1681,12 @@ class WaveInfo(UCTool):
                             ("waveform_info", copy.deepcopy(result.get("waveform_info"))),
                             ("analysis_window", copy.deepcopy(result.get("analysis_window"))),
                             ("event_summary", copy.deepcopy(result.get("event_summary"))),
+                            ("patterns", copy.deepcopy(result.get("patterns"))),
                             ("cycle_alignment", copy.deepcopy(result.get("cycle_alignment"))),
                             ("signal_groups", copy.deepcopy(result.get("signal_groups"))),
                             ("signals", copy.deepcopy(result.get("signals"))),
                             ("event_steps", event_steps),
+                            ("timeline", copy.deepcopy(result.get("timeline"))),
                             (
                                 "waveform_viewer",
                                 copy.deepcopy(result.get("waveform_viewer")),
@@ -1444,17 +1700,18 @@ class WaveInfo(UCTool):
                 ),
             ]
         )
-        self.analysis_receipts.append(receipt)
-        if len(self.analysis_receipts) > self._RECEIPT_LIMIT:
-            del self.analysis_receipts[: -self._RECEIPT_LIMIT]
         persisted = False
-        try:
-            self._persist_analysis_receipts()
-            persisted = True
-        except Exception as error:
-            warning(
-                f"WaveInfo receipt '{receipt_id}' is memory-only because persistence failed: {error}"
-            )
+        with self._receipt_store_lock():
+            self.analysis_receipts.append(receipt)
+            if len(self.analysis_receipts) > self._RECEIPT_LIMIT:
+                del self.analysis_receipts[: -self._RECEIPT_LIMIT]
+            try:
+                self._persist_analysis_receipts()
+                persisted = True
+            except Exception as error:
+                warning(
+                    f"WaveInfo receipt '{receipt_id}' is memory-only because persistence failed: {error}"
+                )
         return OrderedDict(
             [
                 ("receipt_id", receipt_id),
@@ -1465,8 +1722,222 @@ class WaveInfo(UCTool):
             ]
         )
 
+    def _analysis_context_paths(self, invocation: dict[str, Any]) -> list[Path]:
+        """Return bounded source inputs whose changes require semantic review."""
+
+        workspace = Path(self.workspace).resolve()
+        test_root = Path(self.test_dir).resolve()
+        test_parent = test_root.parent
+        selected: set[Path] = set()
+
+        test_case_name = str(invocation.get("test_case_name") or "")
+        file_part = test_case_name.split("::", 1)[0].strip()
+        if file_part.endswith(".py"):
+            for candidate in (
+                workspace / file_part,
+                test_parent / file_part,
+            ):
+                resolved = candidate.resolve(strict=False)
+                if resolved.is_file():
+                    selected.add(resolved)
+
+        for root, include_python in ((workspace, False), (test_parent, True)):
+            if not root.is_dir():
+                continue
+            for path in root.rglob("*"):
+                if not path.is_file() or path.suffix.lower() not in self._ANALYSIS_CONTEXT_SUFFIXES:
+                    continue
+                try:
+                    relative_parts = path.resolve().relative_to(workspace).parts
+                except ValueError:
+                    continue
+                if any(part in self._ANALYSIS_CONTEXT_EXCLUDED_DIRS for part in relative_parts):
+                    continue
+                if any(part.startswith("toffee_tmp_") for part in relative_parts):
+                    continue
+                if path.suffix.lower() == ".py":
+                    if not include_python:
+                        continue
+                    try:
+                        path.resolve().relative_to(test_root)
+                    except ValueError:
+                        pass
+                    else:
+                        continue
+                selected.add(path.resolve())
+        return sorted(selected, key=lambda path: path.as_posix())
+
+    def _analysis_context_snapshot(
+        self,
+        invocation: dict[str, Any],
+    ) -> OrderedDict[str, str]:
+        """Return signed relative paths and hashes for relevant source context."""
+
+        workspace = Path(self.workspace).resolve()
+        snapshot = OrderedDict()
+        for path in self._analysis_context_paths(invocation):
+            try:
+                relative = path.relative_to(workspace).as_posix()
+                payload = path.read_bytes()
+            except (OSError, ValueError):
+                continue
+            snapshot[relative] = hashlib.sha256(payload).hexdigest()
+        return snapshot
+
+    @staticmethod
+    def _analysis_context_fingerprint(context_files: dict[str, str]) -> str:
+        """Hash an exact test, driver, and HDL source-context snapshot."""
+
+        canonical = json.dumps(
+            context_files,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _semantic_viewer_payload(viewer: object) -> dict[str, Any] | None:
+        """Return stable viewer fields that participate in evidence meaning."""
+
+        if not isinstance(viewer, dict):
+            return None
+        payload = viewer.get("payload")
+        if not isinstance(payload, dict):
+            return None
+        keys = ("v", "test_dir", "test_case", "start", "end", "cursor", "signals")
+        return {key: copy.deepcopy(payload.get(key)) for key in keys}
+
+    def analysis_semantic_fingerprint(
+        self,
+        invocation: dict[str, Any],
+        result: dict[str, Any],
+        *,
+        context_fingerprint: str | None = None,
+    ) -> str:
+        """Hash stable replay evidence while excluding volatile session metadata."""
+
+        normalized_arguments = self.normalize_analysis_arguments(**invocation)
+        semantic_result = OrderedDict(
+            [
+                ("success", result.get("success")),
+                ("status", result.get("status")),
+                ("evidence_usable", result.get("evidence_usable")),
+                ("waveform_info", copy.deepcopy(result.get("waveform_info"))),
+                ("analysis_window", copy.deepcopy(result.get("analysis_window"))),
+                ("patterns", copy.deepcopy(result.get("patterns"))),
+                ("signal_groups", copy.deepcopy(result.get("signal_groups"))),
+                ("signals", copy.deepcopy(result.get("signals"))),
+                ("event_summary", copy.deepcopy(result.get("event_summary"))),
+                ("timeline", copy.deepcopy(result.get("timeline"))),
+                ("cycle_alignment", copy.deepcopy(result.get("cycle_alignment"))),
+                (
+                    "waveform_viewer",
+                    self._semantic_viewer_payload(result.get("waveform_viewer")),
+                ),
+                (
+                    "analysis_context_fingerprint",
+                    context_fingerprint
+                    if context_fingerprint is not None
+                    else self._analysis_context_fingerprint(
+                        self._analysis_context_snapshot(invocation)
+                    ),
+                ),
+            ]
+        )
+        canonical = json.dumps(
+            {"arguments": normalized_arguments, "result": semantic_result},
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        )
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+    def ensure_current_analysis_receipt(
+        self,
+        invocation: dict[str, Any],
+        replay: dict[str, Any],
+    ) -> OrderedDict:
+        """Return one persisted receipt for the exact current replay result."""
+
+        with self._receipt_store_lock():
+            return self._ensure_current_analysis_receipt_unlocked(invocation, replay)
+
+    def _ensure_current_analysis_receipt_unlocked(
+        self,
+        invocation: dict[str, Any],
+        replay: dict[str, Any],
+    ) -> OrderedDict:
+
+        normalized_arguments = self.normalize_analysis_arguments(**invocation)
+        context_files = self._analysis_context_snapshot(normalized_arguments)
+        context_fingerprint = self._analysis_context_fingerprint(context_files)
+        semantic_fingerprint = self.analysis_semantic_fingerprint(
+            normalized_arguments,
+            replay,
+            context_fingerprint=context_fingerprint,
+        )
+        selection = replay.get("waveform_selection") or {}
+        freshness_identity = selection.get("freshness_identity")
+        persisted_receipt_ids: set[str] = set()
+        try:
+            persisted = self._load_persisted_receipts()
+            persisted_receipt_ids = {
+                receipt["receipt_id"]
+                for receipt in persisted
+                if isinstance(receipt.get("receipt_id"), str)
+            }
+            self.analysis_receipts = self._merge_receipts(
+                self.analysis_receipts,
+                persisted,
+            )
+        except Exception as error:
+            warning(f"Could not refresh persisted WaveInfo receipts: {error}")
+
+        for receipt in reversed(self.analysis_receipts):
+            receipt_result = receipt.get("result") or {}
+            receipt_selection = receipt_result.get("waveform_selection") or {}
+            if (
+                receipt.get("receipt_id") in persisted_receipt_ids
+                and receipt.get("arguments") == normalized_arguments
+                and receipt_result.get("semantic_fingerprint") == semantic_fingerprint
+                and receipt_selection.get("freshness_identity") == freshness_identity
+            ):
+                result = copy.deepcopy(replay)
+                receipt_info = OrderedDict(
+                    [
+                        ("receipt_id", receipt.get("receipt_id")),
+                        ("recorded_at", receipt.get("recorded_at")),
+                        ("result_fingerprint", receipt_result.get("result_fingerprint")),
+                        ("persistence", "workspace_checkpoint"),
+                        ("reusable_after_restart", True),
+                    ]
+                )
+                result["waveform_analysis_receipt"] = receipt_info
+                self._attach_bug_document_fields(result, normalized_arguments, receipt_info)
+                return result
+
+        result = copy.deepcopy(replay)
+        receipt_info = self._record_analysis_receipt(
+            normalized_arguments,
+            result,
+            context_files=context_files,
+        )
+        result["waveform_analysis_receipt"] = receipt_info
+        self._attach_bug_document_fields(result, normalized_arguments, receipt_info)
+        return result
+
     def get_analysis_receipt(self, receipt_id: str) -> dict[str, Any] | None:
         """Return a verified receipt from memory or the signed checkpoint store."""
+
+        with self._receipt_store_lock():
+            return self._get_analysis_receipt_unlocked(receipt_id)
+
+    def _get_analysis_receipt_unlocked(
+        self,
+        receipt_id: str,
+    ) -> dict[str, Any] | None:
 
         for receipt in reversed(self.analysis_receipts):
             if receipt.get("receipt_id") == receipt_id:
@@ -1563,7 +2034,10 @@ class WaveInfo(UCTool):
                     [
                         ("signal", item.signal),
                         ("event", item.event),
-                        ("value", item.value or ""),
+                        (
+                            "value",
+                            "" if item.value is None else str(item.value),
+                        ),
                     ]
                 )
             )
@@ -1642,6 +2116,7 @@ class WaveInfo(UCTool):
                 ("status", "confirmed"),
                 ("receipt_id", receipt_info.get("receipt_id")),
                 ("result_fingerprint", receipt_info.get("result_fingerprint")),
+                ("executed_test_case", invocation.get("test_case_name")),
             ]
         )
         for key in (
@@ -2895,7 +3370,7 @@ class ApplyWaveInfoEvidence(UCTool):
 
     name: str = "ApplyWaveInfoEvidence"
     description: str = (
-        "Associate one exact dynamic BG/TC with one signed final WaveInfo receipt. The tool "
+        "Associate one exact FG/FC/CK/BG/TC path with one signed final WaveInfo receipt. The tool "
         "atomically creates or repairs the BG-side WAVEFORM-REF link and the TC's single "
         "central WAVEFORM-TC record. Reusing the TC for another Bug adds that Bug to bug_tags "
         "and bug_evidence instead of duplicating waveform data; call once for each distinct "
@@ -2904,9 +3379,16 @@ class ApplyWaveInfoEvidence(UCTool):
         "same receipt preserves completed analysis fields. Replacing a different receipt "
         "requires replace_existing=true, preserves required_signals, and resets semantic "
         "conclusions to BUG-TODO. receipt_id may be blank to select the newest matching final "
-        "receipt. The BG must already exist; a missing TC is created under its unique BG. "
+        "receipt. The BG path entry must already exist; a missing TC is created under the "
+        "selected occurrence. Use checkpoint_path when the same BG tag repeats across CKs. "
         "Creating a missing TC reads its visible title from the target test's docstring, so "
         "the test source and a non-empty docstring must exist. "
+        "The receipt test_case_name must equal test_case_tag after removing TC-, or be one "
+        "parameterized child of the same exact workspace-relative file/class/function. "
+        "Path-prefix variants, different classes, and different functions are not equivalent. "
+        "On an identity mismatch, keep test_case_tag "
+        "unchanged and execute the returned recovery_call instead of guessing another path or "
+        "manually writing signed evidence. Similar source files are diagnostic hints only. "
         "The target must be an existing workspace-relative Markdown file inside the configured "
         "write directories."
     )
@@ -2933,6 +3415,13 @@ class ApplyWaveInfoEvidence(UCTool):
         self.write_dirs = copy.deepcopy(write_dirs)
         self.un_write_dirs = copy.deepcopy(un_write_dirs)
         self.waveinfo = waveinfo
+        configured_test_dir = os.path.relpath(
+            waveinfo.test_dir, self.workspace
+        ).replace(os.sep, "/")
+        self.description = (
+            f"{self.description} Configured TC output directory for this run: "
+            f"'{configured_test_dir}'."
+        )
 
     @staticmethod
     def _is_within(path: Path, directory: Path) -> bool:
@@ -3007,6 +3496,20 @@ class ApplyWaveInfoEvidence(UCTool):
             )
         return bug, test
 
+    @classmethod
+    def _normalize_checkpoint_path(cls, checkpoint_path: str) -> str:
+        if not checkpoint_path.strip():
+            return ""
+        parts = [part.strip().strip("<>") for part in checkpoint_path.split("/")]
+        if len(parts) != 3:
+            raise ValueError(
+                "checkpoint_path must contain exactly FG-.../FC-.../CK-..."
+            )
+        return "/".join(
+            cls._normalize_tag(part, kind)
+            for part, kind in zip(parts, ("FG", "FC", "CK"))
+        )
+
     @staticmethod
     def _plain_data(value: Any) -> Any:
         if isinstance(value, dict):
@@ -3020,26 +3523,178 @@ class ApplyWaveInfoEvidence(UCTool):
 
     @staticmethod
     def _test_case_matches(receipt_test: str, document_test: str) -> bool:
-        """Match exact qualified node IDs while allowing WaveInfo basename calls."""
+        """Allow an exact node or its exact-path parameterized child instance."""
 
-        receipt_parts = receipt_test.strip().split("::")
-        document_parts = document_test.strip().split("::")
-        if len(receipt_parts) == 1:
-            return (
-                WaveInfo._normalize_test_case_name(receipt_test)
-                == WaveInfo._normalize_test_case_name(document_test)
+        return test_case_identity_relation(document_test, receipt_test) is not None
+
+    def _similar_test_source_files(self, *test_case_names: str) -> list[str]:
+        """Return bounded source-file hints without treating them as identities."""
+
+        test_dir = Path(self.waveinfo.test_dir).resolve(strict=False)
+        if not test_dir.is_dir():
+            return []
+        requested_names = []
+        for test_case_name in test_case_names:
+            file_part = test_case_name.strip().split("::", 1)[0]
+            if file_part.endswith(".py"):
+                name = Path(file_part).name
+                if name not in requested_names:
+                    requested_names.append(name)
+        if not requested_names:
+            return []
+
+        source_files = []
+        for path in test_dir.rglob("*.py"):
+            try:
+                resolved = path.resolve(strict=True)
+            except OSError:
+                continue
+            if resolved.is_file() and self._is_within(resolved, test_dir):
+                source_files.append(resolved)
+        available_names = sorted({path.name for path in source_files})
+        selected_names = list(requested_names)
+        for requested_name in requested_names:
+            for name in get_close_matches(
+                requested_name,
+                available_names,
+                n=10,
+                cutoff=0.45,
+            ):
+                if name not in selected_names:
+                    selected_names.append(name)
+        name_rank = {name: index for index, name in enumerate(selected_names)}
+        candidates = sorted(
+            (path for path in source_files if path.name in name_rank),
+            key=lambda path: (name_rank[path.name], len(path.parts), str(path)),
+        )
+        display_root = test_dir.parent
+        displayed = []
+        for path in candidates:
+            try:
+                value = str(path.relative_to(display_root))
+            except ValueError:
+                value = self.waveinfo._display_path(path)
+            if value not in displayed:
+                displayed.append(value)
+            if len(displayed) >= 10:
+                break
+        return displayed
+
+    def _waveinfo_recovery_call(
+        self,
+        receipt_id: str,
+        required_test_case_name: str,
+    ) -> OrderedDict | None:
+        """Rebuild a signed call in the non-nullable MCP argument shape."""
+
+        receipt = self.waveinfo.get_analysis_receipt(receipt_id)
+        if receipt is None:
+            return None
+        try:
+            arguments = WaveInfoAnalysisArgs(**(receipt.get("arguments") or {}))
+        except Exception:
+            return None
+        return OrderedDict(
+            [
+                ("test_case_name", required_test_case_name),
+                ("pattern", self.waveinfo._mcp_pattern_entries(arguments.pattern)),
+                (
+                    "signal_groups",
+                    self.waveinfo._mcp_signal_groups(arguments.signal_groups),
+                ),
+                (
+                    "logged_cycle",
+                    arguments.logged_cycle if arguments.logged_cycle is not None else -1,
+                ),
+                ("cycle_tolerance", arguments.cycle_tolerance),
+                ("clock_signal", arguments.clock_signal or ""),
+                ("clock_edge", arguments.clock_edge),
+                ("cycle_origin", arguments.cycle_origin),
+                (
+                    "start_step",
+                    arguments.start_step if arguments.start_step is not None else -1,
+                ),
+                (
+                    "end_step",
+                    arguments.end_step if arguments.end_step is not None else -1,
+                ),
+                ("context_steps", arguments.context_steps),
+                ("max_signals", arguments.max_signals),
+                ("max_points", arguments.max_points),
+                ("max_files", arguments.max_files),
+                ("file_offset", arguments.file_offset),
+            ]
+        )
+
+    def _receipt_test_mismatch_error(
+        self,
+        *,
+        receipt_id: str,
+        receipt_test: str,
+        test_case_tag: str,
+    ) -> OrderedDict:
+        """Explain the exact identity mismatch and provide one deterministic recovery."""
+
+        document_test = test_case_tag[len("TC-") :]
+        details = OrderedDict(
+            [
+                ("receipt_test_case_name", receipt_test),
+                ("document_test_case_tag", test_case_tag),
+                ("required_waveinfo_test_case_name", document_test),
+                (
+                    "identity_relation",
+                    test_case_identity_relation(document_test, receipt_test),
+                ),
+                (
+                    "similar_test_source_files",
+                    self._similar_test_source_files(document_test, receipt_test),
+                ),
+            ]
+        )
+        recovery_call = self._waveinfo_recovery_call(receipt_id, document_test)
+        if recovery_call is not None:
+            details["recovery_call"] = recovery_call
+        suggestions = [
+            "Keep test_case_tag unchanged. Similar source-file paths are hints only; they "
+            "are not equivalent pytest node IDs and must not be auto-selected.",
+        ]
+        if recovery_call is not None:
+            suggestions.extend(
+                [
+                    "Call WaveInfo once with details.recovery_call exactly.",
+                    "Then call ApplyWaveInfoEvidence with the new receipt_id and the unchanged "
+                    "test_case_tag; do not retry Apply with guessed path variants.",
+                ]
             )
-        if receipt_parts[0].endswith(".py"):
-            return receipt_parts == document_parts
-        if len(receipt_parts) > len(document_parts):
-            return False
-        return receipt_parts == document_parts[-len(receipt_parts) :]
+        else:
+            suggestions.append(
+                "Create one final WaveInfo receipt using details.required_waveinfo_test_case_name "
+                "exactly, then retry Apply with that new receipt_id."
+            )
+        suggestions.append(
+            "Do not manually write receipt-backed YAML, waveform anchors, viewer URLs, or tokens."
+        )
+        return self.waveinfo._error(
+            "receipt_test_mismatch",
+            f"Receipt '{receipt_id}' analyzed '{receipt_test}', not the exact target "
+            f"'<{test_case_tag}>'.",
+            details=details,
+            suggestions=suggestions,
+        )
 
     def _latest_matching_evidence(
         self,
         document_test: str,
     ) -> tuple[str | None, OrderedDict]:
         """Return the newest signed final receipt matching the document TC."""
+
+        with self.waveinfo._receipt_store_lock():
+            return self._latest_matching_evidence_unlocked(document_test)
+
+    def _latest_matching_evidence_unlocked(
+        self,
+        document_test: str,
+    ) -> tuple[str | None, OrderedDict]:
 
         try:
             persisted = self.waveinfo._load_persisted_receipts()
@@ -3051,6 +3706,8 @@ class ApplyWaveInfoEvidence(UCTool):
             warning(f"Could not refresh persisted WaveInfo receipts: {error}")
 
         matched_receipts = []
+        parameterized_receipts = []
+        similar_final_receipts = []
         receipts = sorted(
             self.waveinfo.analysis_receipts,
             key=lambda item: str(item.get("recorded_at") or ""),
@@ -3061,12 +3718,43 @@ class ApplyWaveInfoEvidence(UCTool):
             if not isinstance(receipt_id, str) or not receipt_id or not receipt_test:
                 continue
             try:
-                matches = self._test_case_matches(receipt_test, document_test)
+                identity_relation = test_case_identity_relation(
+                    document_test, receipt_test
+                )
             except ValueError:
-                continue
-            if not matches:
-                continue
+                identity_relation = None
+            matches = identity_relation is not None
             result = receipt.get("result") or {}
+            if identity_relation == "parameterized_instance":
+                parameterized_receipts.append(
+                    OrderedDict(
+                        [
+                            ("receipt_id", receipt_id),
+                            ("test_case_name", receipt_test),
+                            ("status", result.get("status")),
+                            ("evidence_usable", result.get("evidence_usable")),
+                        ]
+                    )
+                )
+            if not matches:
+                try:
+                    same_waveform_basename = (
+                        self.waveinfo._normalize_test_case_name(receipt_test)
+                        == self.waveinfo._normalize_test_case_name(document_test)
+                    )
+                except ValueError:
+                    same_waveform_basename = False
+                if same_waveform_basename and result.get("evidence_usable") is True:
+                    similar_final_receipts.append(
+                        OrderedDict(
+                            [
+                                ("receipt_id", receipt_id),
+                                ("test_case_name", receipt_test),
+                                ("status", result.get("status")),
+                            ]
+                        )
+                    )
+                continue
             matched_receipts.append(
                 OrderedDict(
                     [
@@ -3081,16 +3769,69 @@ class ApplyWaveInfoEvidence(UCTool):
             if evidence.get("success") is True:
                 return receipt_id, evidence
 
+        details = OrderedDict(
+            [
+                ("document_test_case_tag", f"TC-{document_test}"),
+                ("required_waveinfo_test_case_name", document_test),
+                ("matching_receipts", matched_receipts[:10]),
+                ("parameterized_receipts", parameterized_receipts[:10]),
+                ("similar_final_receipts", similar_final_receipts[:10]),
+                (
+                    "similar_test_source_files",
+                    self._similar_test_source_files(
+                        document_test,
+                        *(item["test_case_name"] for item in similar_final_receipts[:10]),
+                    ),
+                ),
+            ]
+        )
+        if similar_final_receipts:
+            recovery_call = self._waveinfo_recovery_call(
+                similar_final_receipts[0]["receipt_id"],
+                document_test,
+            )
+            if recovery_call is not None:
+                details["recovery_call"] = recovery_call
+        suggestions = [
+            "Keep the document TC unchanged. Candidate source files are hints only and do not "
+            "make shortened or prefixed node IDs equivalent.",
+        ]
+        if parameterized_receipts:
+            suggestions.extend(
+                [
+                    "The documented function has parameterized WaveInfo receipts. Cross-check "
+                    "their test_case_name values against an exact FAILED child in report "
+                    "tests.test_case_instances, call final WaveInfo with that full node, then "
+                    "apply the new receipt to the unchanged function-level test_case_tag.",
+                    "Do not select an instance by filename similarity or change the "
+                    "document TC tag to a guessed parameter variant.",
+                ]
+            )
+        elif "recovery_call" in details:
+            suggestions.extend(
+                [
+                    "Call WaveInfo once with details.recovery_call exactly.",
+                    "Then retry ApplyWaveInfoEvidence with the new receipt_id and the unchanged "
+                    "test_case_tag.",
+                ]
+            )
+        else:
+            suggestions.extend(
+                [
+                    "Run the exact failing test so it emits a current waveform.",
+                    "Call final WaveInfo with details.required_waveinfo_test_case_name exactly, "
+                    "an explicit window or clock alignment, and complete signal_groups.",
+                ]
+            )
+        suggestions.append(
+            "Do not retry path variants or manually write receipt-backed YAML, anchors, viewer "
+            "URLs, or tokens."
+        )
         return None, self.waveinfo._error(
             "matching_final_receipt_not_found",
             f"No signed final WaveInfo receipt can be applied to '<TC-{document_test}>'.",
-            details={"matching_receipts": matched_receipts[:10]},
-            suggestions=[
-                "Run the exact failing test so it emits a current waveform.",
-                "Call final WaveInfo with an explicit window or clock alignment and "
-                "complete signal_groups, then retry ApplyWaveInfoEvidence with "
-                "receipt_id blank.",
-            ],
+            details=details,
+            suggestions=suggestions,
         )
 
     @staticmethod
@@ -3125,8 +3866,9 @@ class ApplyWaveInfoEvidence(UCTool):
         bug_tag: str,
         test_case_tag: str,
         target_file: str,
+        checkpoint_path: str = "",
     ) -> _DocumentEvidenceTarget:
-        """Locate one BG reference and the TC's single central evidence record."""
+        """Locate one checkpoint-scoped BG/TC and the TC's central evidence record."""
 
         stripped_lines = [line.strip() for line in lines]
         marker_indexes = {
@@ -3158,11 +3900,15 @@ class ApplyWaveInfoEvidence(UCTool):
 
         current_bug = None
         current_bug_index = None
+        hierarchy: dict[str, str | None] = {"FG": None, "FC": None, "CK": None}
+        current_checkpoint = ""
         available_bugs: list[str] = []
-        bug_locations: list[tuple[str, int]] = []
+        bug_locations: list[tuple[str, int, str]] = []
         structure_boundaries = [dynamic_end]
         section_locations: list[tuple[int, int]] = []
-        test_locations: list[tuple[str | None, str, int, int | None, str]] = []
+        test_locations: list[
+            tuple[str | None, str, int, int | None, str, str]
+        ] = []
         target_tests: list[tuple[int, int | None]] = []
         section_markers = {marker for _name, marker in BUG_ANALYSIS_SECTION_MARKERS}
         section_titles = {title for _name, title in BUG_ANALYSIS_SECTION_TITLES}
@@ -3205,14 +3951,32 @@ class ApplyWaveInfoEvidence(UCTool):
                     raise ValueError(
                         f"invalid {kind} heading at line {index + 1}: {error}"
                     ) from error
-                if kind in {"FG", "FC", "CK"}:
+                if kind == "FG":
+                    hierarchy.update({"FG": label, "FC": None, "CK": None})
+                    current_checkpoint = ""
+                    current_bug = None
+                    current_bug_index = None
+                    structure_boundaries.append(index)
+                elif kind == "FC":
+                    hierarchy.update({"FC": label, "CK": None})
+                    current_checkpoint = ""
+                    current_bug = None
+                    current_bug_index = None
+                    structure_boundaries.append(index)
+                elif kind == "CK":
+                    hierarchy["CK"] = label
+                    current_checkpoint = "/".join(
+                        part
+                        for part in (hierarchy["FG"], hierarchy["FC"], hierarchy["CK"])
+                        if part is not None
+                    )
                     current_bug = None
                     current_bug_index = None
                     structure_boundaries.append(index)
                 elif kind == "BG":
                     current_bug = label
                     current_bug_index = index
-                    bug_locations.append((label, index))
+                    bug_locations.append((label, index, current_checkpoint))
                     structure_boundaries.append(index)
                     if label not in available_bugs:
                         available_bugs.append(label)
@@ -3230,9 +3994,20 @@ class ApplyWaveInfoEvidence(UCTool):
                             f"invalid TC heading at line {index + 1}: {error}"
                         ) from error
                     test_locations.append(
-                        (current_bug, label, index, current_bug_index, display_title)
+                        (
+                            current_bug,
+                            label,
+                            index,
+                            current_bug_index,
+                            display_title,
+                            current_checkpoint,
+                        )
                     )
-                    if current_bug == bug_tag and label == test_case_tag:
+                    if (
+                        current_bug == bug_tag
+                        and label == test_case_tag
+                        and (not checkpoint_path or current_checkpoint == checkpoint_path)
+                    ):
                         target_tests.append((index, current_bug_index))
         if in_fence:
             raise ValueError(f"'{target_file}' contains an unclosed Markdown fence")
@@ -3241,11 +4016,25 @@ class ApplyWaveInfoEvidence(UCTool):
             raise ValueError(
                 f"bug_tag '{bug_tag}' was not found in '{target_file}'; available BG tags: {shown}"
             )
+        matching_bug_locations = [
+            (index, checkpoint)
+            for label, index, checkpoint in bug_locations
+            if label == bug_tag and (not checkpoint_path or checkpoint == checkpoint_path)
+        ]
+        if checkpoint_path and not matching_bug_locations:
+            available_paths = [
+                checkpoint for label, _index, checkpoint in bug_locations if label == bug_tag
+            ]
+            raise ValueError(
+                f"bug_tag '{bug_tag}' does not occur under checkpoint_path "
+                f"'{checkpoint_path}' in '{target_file}'; available checkpoint paths: "
+                f"{', '.join(available_paths[:10]) or '<none>'}"
+            )
         if len(target_tests) > 1:
             locations = ", ".join(str(index + 1) for index, _owner in target_tests)
             raise ValueError(
                 f"'{bug_tag}/{test_case_tag}' is ambiguous in '{target_file}' at lines "
-                f"{locations}; exactly one association is required"
+                f"{locations}; pass checkpoint_path to select one exact FG/FC/CK/BG/TC path"
             )
 
         def bug_end_index(bug_index: int) -> int:
@@ -3263,7 +4052,8 @@ class ApplyWaveInfoEvidence(UCTool):
             pair_end = bug_end_index(bug_index)
             sibling_indexes = sorted(
                 index
-                for owner_bug, _label, index, owner_index, _title in test_locations
+                for owner_bug, _label, index, owner_index, _title, _checkpoint
+                in test_locations
                 if owner_bug == bug_tag and owner_index == bug_index and index > test_index
             )
             if sibling_indexes:
@@ -3279,12 +4069,13 @@ class ApplyWaveInfoEvidence(UCTool):
                 )
             reference_index = refs[0] if refs else None
         else:
-            matching_bugs = [index for label, index in bug_locations if label == bug_tag]
+            matching_bugs = [index for index, _checkpoint in matching_bug_locations]
             if len(matching_bugs) != 1:
                 locations = ", ".join(str(index + 1) for index in matching_bugs)
                 raise ValueError(
                     f"test_case_tag '{test_case_tag}' is absent and bug_tag '{bug_tag}' "
-                    f"occurs {len(matching_bugs)} times at lines {locations}"
+                    f"occurs {len(matching_bugs)} times at matching lines {locations}; "
+                    "pass checkpoint_path to select one exact FG/FC/CK/BG path"
                 )
             bug_index = matching_bugs[0]
             bug_end = bug_end_index(bug_index)
@@ -3298,7 +4089,8 @@ class ApplyWaveInfoEvidence(UCTool):
             )
             siblings = [
                 index
-                for owner_bug, _label, index, owner_index, _title in test_locations
+                for owner_bug, _label, index, owner_index, _title, _checkpoint
+                in test_locations
                 if owner_bug == bug_tag and owner_index == bug_index
             ]
             if siblings:
@@ -3340,7 +4132,8 @@ class ApplyWaveInfoEvidence(UCTool):
             sorted(
                 {
                     owner_bug
-                    for owner_bug, label, _index, _owner_index, _title in test_locations
+                    for owner_bug, label, _index, _owner_index, _title, _checkpoint
+                    in test_locations
                     if owner_bug is not None and label == test_case_tag
                 }
                 | {bug_tag}
@@ -3356,7 +4149,8 @@ class ApplyWaveInfoEvidence(UCTool):
         if not matching_records:
             matching_test_titles = {
                 title
-                for _owner, label, _index, _owner_index, title in test_locations
+                for _owner, label, _index, _owner_index, title, _checkpoint
+                in test_locations
                 if label == test_case_tag
             }
             if not matching_test_titles and test_index is None:
@@ -3380,7 +4174,8 @@ class ApplyWaveInfoEvidence(UCTool):
         _canonical, record_title, heading_index = matching_records[0]
         matching_test_titles = {
             title
-            for _owner, label, _index, _owner_index, title in test_locations
+            for _owner, label, _index, _owner_index, title, _checkpoint
+            in test_locations
             if label == test_case_tag
         }
         if matching_test_titles != {record_title}:
@@ -3394,14 +4189,26 @@ class ApplyWaveInfoEvidence(UCTool):
         if stripped_lines[previous] != expected_anchor:
             raise ValueError(
                 f"central record for '{test_case_tag}' must have anchor {expected_anchor} "
-                f"immediately before line {heading_index + 1}"
+                f"as the nearest non-empty line before heading line {heading_index + 1}"
             )
         next_headings = [
             index
             for _tag, _title, index in record_headings
             if index > heading_index
         ]
-        record_end = min(next_headings) - 1 if next_headings else evidence_end
+        record_end = min(next_headings) if next_headings else evidence_end
+        if next_headings:
+            while record_end > heading_index + 1 and not stripped_lines[record_end - 1]:
+                record_end -= 1
+            if not re.fullmatch(
+                r'<a id="[^"]+"></a>',
+                stripped_lines[record_end - 1],
+            ):
+                raise ValueError(
+                    f"central record at heading line {record_end + 1} must have a generated "
+                    "anchor as its nearest preceding non-empty line"
+                )
+            record_end -= 1
         open_index = heading_index + 1
         while open_index < record_end and not stripped_lines[open_index]:
             open_index += 1
@@ -3441,7 +4248,11 @@ class ApplyWaveInfoEvidence(UCTool):
     ) -> str:
         """Read the canonical visible TC title from the target test's docstring."""
 
-        payload = normalize_test_case_tag(test_case_tag)[len("TC-") :]
+        # A parameterized pytest node is an execution child of its source
+        # function.  Resolve the visible title from that parent function while
+        # retaining the exact child node in the signed receipt.
+        parent_tag = test_case_parent(test_case_tag)
+        payload = parent_tag[len("TC-") :]
         parts = payload.split("::")
         file_path = Path(parts[0])
         class_name = parts[1] if len(parts) == 3 else None
@@ -3532,7 +4343,9 @@ class ApplyWaveInfoEvidence(UCTool):
         return (
             [
                 f'<a id="{waveform_anchor_id(test_case_tag)}"></a>{newline}',
+                newline,
                 f"{waveform_record_heading(test_case_tag, test_display_title)}{newline}",
+                newline,
                 f"{WAVEFORM_FENCE_OPEN}{newline}",
             ]
             + [f"{line}{newline}" for line in payload.splitlines()]
@@ -3587,12 +4400,247 @@ class ApplyWaveInfoEvidence(UCTool):
             if temp_name and os.path.exists(temp_name):
                 os.unlink(temp_name)
 
+    def refresh_existing_evidence(
+        self,
+        *,
+        target_file: str,
+        refreshes: list[dict[str, str]],
+    ) -> OrderedDict:
+        """Atomically refresh existing records whose signed semantics are unchanged."""
+
+        target, path_error = self._resolve_target(target_file)
+        if path_error:
+            return self.waveinfo._error("invalid_target_file", path_error)
+        assert target is not None
+        if not refreshes:
+            return OrderedDict(
+                [("success", True), ("status", "no_refresh_required"), ("updated", [])]
+            )
+
+        prepared = []
+        seen_tests = set()
+        try:
+            persisted_receipts = {
+                receipt.get("receipt_id"): receipt
+                for receipt in self.waveinfo._load_persisted_receipts()
+                if isinstance(receipt.get("receipt_id"), str)
+            }
+        except Exception as error:
+            return self.waveinfo._error(
+                "refresh_receipt_store_unavailable",
+                f"Could not load the signed receipt store: {error}",
+            )
+        for refresh in refreshes:
+            try:
+                bug_tag, test_case_tag = self._normalize_target_tags(
+                    refresh.get("bug_tag", ""),
+                    refresh.get("test_case_tag", ""),
+                )
+                checkpoint_path = self._normalize_checkpoint_path(
+                    refresh.get("checkpoint_path", "")
+                )
+            except ValueError as error:
+                return self.waveinfo._error("invalid_document_target", str(error))
+            if test_case_tag in seen_tests:
+                return self.waveinfo._error(
+                    "duplicate_refresh_target",
+                    f"refreshes must contain one entry per central TC; duplicated '{test_case_tag}'.",
+                )
+            seen_tests.add(test_case_tag)
+            old_receipt_id = refresh.get("old_receipt_id", "").strip()
+            new_receipt_id = refresh.get("new_receipt_id", "").strip()
+            old_receipt = persisted_receipts.get(old_receipt_id)
+            new_receipt = persisted_receipts.get(new_receipt_id)
+            if old_receipt is None or new_receipt is None:
+                return self.waveinfo._error(
+                    "refresh_receipt_not_found",
+                    f"Could not load both signed receipts for '{test_case_tag}'.",
+                    details={
+                        "old_receipt_id": old_receipt_id,
+                        "new_receipt_id": new_receipt_id,
+                    },
+                )
+            old_result = old_receipt.get("result") or {}
+            new_result = new_receipt.get("result") or {}
+            old_semantic = old_result.get("semantic_fingerprint")
+            new_semantic = new_result.get("semantic_fingerprint")
+            if (
+                not isinstance(old_semantic, str)
+                or not old_semantic
+                or old_semantic != new_semantic
+            ):
+                return self.waveinfo._error(
+                    "refresh_semantic_review_required",
+                    f"Current evidence for '{test_case_tag}' is not semantically identical "
+                    "to the documented receipt; automatic replacement is not allowed.",
+                    details={
+                        "old_receipt_id": old_receipt_id,
+                        "new_receipt_id": new_receipt_id,
+                        "old_semantic_fingerprint": old_semantic,
+                        "new_semantic_fingerprint": new_semantic,
+                    },
+                )
+            evidence = self.waveinfo.get_bug_document_evidence(new_receipt_id)
+            if evidence.get("success") is not True:
+                return evidence
+            receipt_test = str(evidence.get("test_case_name") or "")
+            document_test = test_case_tag[len("TC-") :]
+            try:
+                test_matches = self._test_case_matches(receipt_test, document_test)
+            except ValueError as error:
+                return self.waveinfo._error("invalid_test_case_target", str(error))
+            if not test_matches:
+                return self._receipt_test_mismatch_error(
+                    receipt_id=new_receipt_id,
+                    receipt_test=receipt_test,
+                    test_case_tag=test_case_tag,
+                )
+            prepared.append(
+                {
+                    "bug_tag": bug_tag,
+                    "test_case_tag": test_case_tag,
+                    "checkpoint_path": checkpoint_path,
+                    "old_receipt_id": old_receipt_id,
+                    "new_receipt_id": new_receipt_id,
+                    "evidence": evidence,
+                }
+            )
+
+        try:
+            with _DOCUMENT_WRITE_LOCK:
+                with target.open("r", encoding="utf-8", newline="") as handle:
+                    original = handle.read()
+                updated = original
+                updated_tests = []
+                for item in prepared:
+                    newline = "\r\n" if "\r\n" in updated else "\n"
+                    lines = updated.splitlines(keepends=True)
+                    region = self._find_target_region(
+                        lines,
+                        item["bug_tag"],
+                        item["test_case_tag"],
+                        target_file,
+                        item["checkpoint_path"],
+                    )
+                    if (
+                        region.record_start is None
+                        or region.record_end is None
+                        or region.open_index is None
+                        or region.close_index is None
+                    ):
+                        raise ValueError(
+                            f"central record for '{item['test_case_tag']}' does not exist"
+                        )
+                    existing = self._read_existing_analysis(
+                        lines,
+                        region.open_index,
+                        region.close_index,
+                    )
+                    if existing.get("receipt_id") != item["old_receipt_id"]:
+                        raise RuntimeError(
+                            f"central record for '{item['test_case_tag']}' changed from expected "
+                            f"receipt '{item['old_receipt_id']}'"
+                        )
+                    existing_bug_tags = existing.get("bug_tags")
+                    existing_bug_evidence = existing.get("bug_evidence")
+                    if (
+                        not isinstance(existing_bug_tags, list)
+                        or sorted(existing_bug_tags) != sorted(region.associated_bug_tags)
+                        or not isinstance(existing_bug_evidence, dict)
+                    ):
+                        raise ValueError(
+                            f"central Bug associations for '{item['test_case_tag']}' are malformed "
+                            "or do not match its BG-side references"
+                        )
+
+                    receipt_fields = self._plain_data(
+                        item["evidence"]["bug_document_fields"][WAVEFORM_BLOCK_KEY]
+                    )
+                    receipt_signals = self._receipt_signals(receipt_fields)
+                    required_signals = {
+                        signal
+                        for bug_fields in existing_bug_evidence.values()
+                        if isinstance(bug_fields, dict)
+                        for signal in bug_fields.get("required_signals", [])
+                        if isinstance(signal, str) and signal
+                    }
+                    missing_required_signals = sorted(required_signals - receipt_signals)
+                    if missing_required_signals:
+                        raise ValueError(
+                            f"new receipt for '{item['test_case_tag']}' is missing required "
+                            f"signals: {missing_required_signals}"
+                        )
+
+                    generated = OrderedDict(
+                        [
+                            ("test_case", item["test_case_tag"]),
+                            ("bug_tags", list(existing_bug_tags)),
+                        ]
+                    )
+                    generated.update(receipt_fields)
+                    for field_name in WAVEFORM_LLM_ANALYSIS_FIELDS:
+                        value = existing.get(field_name)
+                        if (
+                            not isinstance(value, str)
+                            or not value.strip()
+                            or BUG_TODO_MARKER in value
+                        ):
+                            raise ValueError(
+                                f"cannot preserve incomplete semantic field '{field_name}' for "
+                                f"'{item['test_case_tag']}'"
+                            )
+                        generated[field_name] = value
+                    generated["bug_evidence"] = copy.deepcopy(existing_bug_evidence)
+                    record_lines = self._render_evidence_record(
+                        generated,
+                        item["evidence"]["bug_document_viewer_link"],
+                        item["test_case_tag"],
+                        region.test_display_title,
+                        newline,
+                    )
+                    lines[region.record_start : region.record_end] = record_lines
+                    updated = ensure_markdown_file_heading_spacing(
+                        target_file,
+                        "".join(lines),
+                    )
+                    updated_tests.append(
+                        OrderedDict(
+                            [
+                                ("test_case_tag", item["test_case_tag"]),
+                                ("old_receipt_id", item["old_receipt_id"]),
+                                ("new_receipt_id", item["new_receipt_id"]),
+                            ]
+                        )
+                    )
+                if updated != original:
+                    self._atomic_replace(target, original, updated)
+        except (OSError, UnicodeError, ValueError, RuntimeError) as error:
+            return self.waveinfo._error(
+                "current_evidence_refresh_failed",
+                f"Could not atomically refresh current WaveInfo evidence in "
+                f"'{target_file}': {error}",
+                suggestions=[
+                    "Repair the reported document or receipt mismatch, then call Check again.",
+                    "Do not rename a TC or select a similar pytest node ID automatically.",
+                ],
+            )
+
+        return OrderedDict(
+            [
+                ("success", True),
+                ("status", "current_evidence_refreshed"),
+                ("target_file", target_file),
+                ("updated", updated_tests),
+            ]
+        )
+
     def apply_evidence(
         self,
         *,
         target_file: str,
         bug_tag: str,
         test_case_tag: str,
+        checkpoint_path: str = "",
         receipt_id: str = "",
         replace_existing: bool = False,
     ) -> OrderedDict:
@@ -3606,6 +4654,7 @@ class ApplyWaveInfoEvidence(UCTool):
             bug_tag, test_case_tag = self._normalize_target_tags(
                 bug_tag, test_case_tag
             )
+            checkpoint_path = self._normalize_checkpoint_path(checkpoint_path)
         except ValueError as error:
             return self.waveinfo._error("invalid_document_target", str(error))
 
@@ -3626,10 +4675,10 @@ class ApplyWaveInfoEvidence(UCTool):
         except ValueError as error:
             return self.waveinfo._error("invalid_test_case_target", str(error))
         if not test_matches:
-            return self.waveinfo._error(
-                "receipt_test_mismatch",
-                f"Receipt '{receipt_id}' analyzed '{receipt_test}', not the target "
-                f"'<{test_case_tag}>'.",
+            return self._receipt_test_mismatch_error(
+                receipt_id=receipt_id,
+                receipt_test=receipt_test,
+                test_case_tag=test_case_tag,
             )
 
         try:
@@ -3656,6 +4705,7 @@ class ApplyWaveInfoEvidence(UCTool):
                     bug_tag,
                     test_case_tag,
                     target_file,
+                    checkpoint_path,
                 )
                 existing = (
                     self._read_existing_analysis(
@@ -3849,7 +4899,10 @@ class ApplyWaveInfoEvidence(UCTool):
                     edits, key=lambda item: item[0], reverse=True
                 ):
                     updated_lines[start:end] = replacement
-                updated = "".join(updated_lines)
+                updated = ensure_markdown_file_heading_spacing(
+                    target_file,
+                    "".join(updated_lines),
+                )
                 relative_target = target.relative_to(Path(self.workspace)).as_posix()
                 if updated == original:
                     return OrderedDict(
@@ -3859,6 +4912,7 @@ class ApplyWaveInfoEvidence(UCTool):
                             ("target_file", relative_target),
                             ("bug_tag", bug_tag),
                             ("test_case_tag", test_case_tag),
+                            ("checkpoint_path", checkpoint_path or None),
                             ("receipt_id", receipt_id),
                             ("receipt_selection", receipt_selection),
                             ("created_test_case", False),
@@ -3874,8 +4928,11 @@ class ApplyWaveInfoEvidence(UCTool):
                 "document_update_failed",
                 f"Could not apply WaveInfo evidence to '{target_file}': {error}",
                 suggestions=[
-                    "Keep one unambiguous target BG inside the closed DYNAMIC-BUGS container "
-                    "and one closed central WAVEFORM-EVIDENCE container.",
+                    "Keep one unambiguous target FG/FC/CK/BG/TC path inside the closed "
+                    "DYNAMIC-BUGS container. If the BG tag repeats across checkpoints, pass "
+                    "the exact checkpoint_path.",
+                    "Keep one closed central WAVEFORM-EVIDENCE container and one central "
+                    "record per TC.",
                     "Resolve duplicate tags, unclosed Markdown fences, permission "
                     "restrictions, or concurrent edits, then retry.",
                 ],
@@ -3888,6 +4945,7 @@ class ApplyWaveInfoEvidence(UCTool):
                 ("target_file", relative_target),
                 ("bug_tag", bug_tag),
                 ("test_case_tag", test_case_tag),
+                ("checkpoint_path", checkpoint_path or None),
                 ("receipt_id", receipt_id),
                 ("receipt_selection", receipt_selection),
                 ("created_test_case", created_test_case),
@@ -3898,14 +4956,17 @@ class ApplyWaveInfoEvidence(UCTool):
                 ("completion_required", reset_fields),
                 (
                     "next_action",
-                    "Apply evidence directly to each remaining exact BG/TC pair. For another "
-                    "failing TC under this BG, the tool creates a missing sibling TC, so do "
-                    "not copy the BG. For another independent Bug exposed by this TC, apply "
+                    "Apply evidence directly to each remaining exact FG/FC/CK/BG/TC path. "
+                    "Within the same CK/BG path, add sibling TCs instead of duplicating the "
+                    "BG occurrence. When the same Bug root affects a different CK, create and "
+                    "complete that CK-scoped BG path and pass checkpoint_path. For another "
+                    "independent Bug exposed by this TC, apply "
                     "the same central record to that Bug's distinct BG and expand final "
                     "WaveInfo signal_groups to the union required by all associated Bugs. "
                     "Then replace each remaining <BUG-TODO> field after reviewing the "
                     "specification, test-driver/API ordering, WaveInfo timeline, and RTL. "
-                    "Complete the shared Bug analysis sections once before Check/Complete.",
+                    "Complete all eight Bug analysis sections once in every CK-scoped BG path "
+                    "before Check/Complete.",
                 ),
             ]
         )
@@ -3915,6 +4976,7 @@ class ApplyWaveInfoEvidence(UCTool):
         target_file: str,
         bug_tag: str,
         test_case_tag: str,
+        checkpoint_path: str = "",
         receipt_id: str = "",
         replace_existing: bool = False,
         run_manager: Optional[CallbackManagerForToolRun] = None,
@@ -3927,6 +4989,7 @@ class ApplyWaveInfoEvidence(UCTool):
                 target_file=target_file,
                 bug_tag=bug_tag,
                 test_case_tag=test_case_tag,
+                checkpoint_path=checkpoint_path,
                 receipt_id=receipt_id,
                 replace_existing=replace_existing,
             )
@@ -3937,4 +5000,501 @@ class ApplyWaveInfoEvidence(UCTool):
             )
             return make_llm_tool_ret(result, check_pass=False)
         result = self.apply_evidence(**args.model_dump(mode="json"))
+        return make_llm_tool_ret(result, check_pass=False)
+
+
+class ReviewWaveInfoEvidenceBatch(UCTool):
+    """Prepare or atomically apply semantic reviews for current waveform receipts."""
+
+    name: str = "ReviewWaveInfoEvidenceBatch"
+    description: str = (
+        "Batch the manual part of require_current_replay waveform review. Pass every item "
+        "from the Checker's review_batch_call with review omitted to receive bounded signed "
+        "waveform context for all changed TCs without editing the Bug document. Read any "
+        "reported changed source files once, then call this tool again with a completed review "
+        "for every item. The second call validates every receipt, TC, BG association, and review "
+        "before one atomic document replacement; no partial batch is written. It preserves "
+        "required_signals and writes receipt-backed machine fields without requiring separate "
+        "ApplyWaveInfoEvidence calls. Do not use it for semantically unchanged records because "
+        "the current-replay Checker refreshes those automatically."
+    )
+    args_schema: Optional[ArgsSchema] = ArgReviewWaveInfoEvidenceBatch
+    return_direct: bool = False
+
+    evidence_writer: Any = Field(default=None, exclude=True, repr=False)
+
+    def __init__(self, evidence_writer: ApplyWaveInfoEvidence, **kwargs):
+        super().__init__(**kwargs)
+        self.evidence_writer = evidence_writer
+        configured_test_dir = os.path.relpath(
+            evidence_writer.waveinfo.test_dir,
+            evidence_writer.workspace,
+        ).replace(os.sep, "/")
+        self.description = (
+            f"{self.description} Configured TC output directory for this run: "
+            f"'{configured_test_dir}'."
+        )
+
+    def _prepare_item(
+        self,
+        target_file: str,
+        item: WaveInfoEvidenceReviewItem,
+    ) -> tuple[dict[str, Any] | None, OrderedDict | None]:
+        """Validate one current receipt and return bounded LLM review context."""
+
+        writer = self.evidence_writer
+        try:
+            bug_tag, test_case_tag = writer._normalize_target_tags(
+                item.bug_tag,
+                item.test_case_tag,
+            )
+            checkpoint_path = writer._normalize_checkpoint_path(item.checkpoint_path)
+        except ValueError as error:
+            return None, writer.waveinfo._error("invalid_document_target", str(error))
+
+        receipt = writer.waveinfo.get_analysis_receipt(item.receipt_id)
+        evidence = writer.waveinfo.get_bug_document_evidence(item.receipt_id)
+        if receipt is None or evidence.get("success") is not True:
+            return None, evidence
+        receipt_test = str(evidence.get("test_case_name") or "")
+        try:
+            test_matches = writer._test_case_matches(
+                receipt_test,
+                test_case_tag[len("TC-") :],
+            )
+        except ValueError as error:
+            return None, writer.waveinfo._error("invalid_test_case_target", str(error))
+        if not test_matches:
+            return None, writer._receipt_test_mismatch_error(
+                receipt_id=item.receipt_id,
+                receipt_test=receipt_test,
+                test_case_tag=test_case_tag,
+            )
+
+        receipt_result = receipt.get("result") or {}
+        selection, selection_error = writer.waveinfo._discover_waveform(receipt_test)
+        if selection_error is not None:
+            return None, selection_error
+        assert selection is not None
+        receipt_freshness = (
+            receipt_result.get("waveform_selection") or {}
+        ).get("freshness_identity")
+        current_freshness = writer.waveinfo._selection_info(selection).get(
+            "freshness_identity"
+        )
+        if receipt_freshness != current_freshness:
+            return None, writer.waveinfo._error(
+                "review_waveform_stale",
+                f"Waveform changed after current replay for '{test_case_tag}'.",
+                details={
+                    "receipt_id": item.receipt_id,
+                    "receipt_freshness_identity": receipt_freshness,
+                    "current_freshness_identity": current_freshness,
+                },
+                suggestions=[
+                    "Call Check once to rebuild the complete review batch from the latest "
+                    "full-test waveform session."
+                ],
+            )
+        current_context = writer.waveinfo._analysis_context_snapshot(
+            receipt.get("arguments") or {}
+        )
+        current_context_fingerprint = writer.waveinfo._analysis_context_fingerprint(
+            current_context
+        )
+        if (
+            receipt_result.get("analysis_context_fingerprint")
+            != current_context_fingerprint
+        ):
+            return None, writer.waveinfo._error(
+                "review_context_stale",
+                f"Source context changed after current replay for '{test_case_tag}'.",
+                details={
+                    "receipt_id": item.receipt_id,
+                    "receipt_analysis_context_fingerprint": receipt_result.get(
+                        "analysis_context_fingerprint"
+                    ),
+                    "current_analysis_context_fingerprint": current_context_fingerprint,
+                },
+                suggestions=[
+                    "Call Check once to rebuild the complete review batch from the changed "
+                    "test, driver, API, or HDL context."
+                ],
+            )
+
+        target, path_error = writer._resolve_target(target_file)
+        if path_error:
+            return None, writer.waveinfo._error("invalid_target_file", path_error)
+        assert target is not None
+        try:
+            with target.open("r", encoding="utf-8", newline="") as handle:
+                lines = handle.read().splitlines(keepends=True)
+            region = writer._find_target_region(
+                lines,
+                bug_tag,
+                test_case_tag,
+                target_file,
+                checkpoint_path,
+            )
+            if region.open_index is None or region.close_index is None:
+                raise ValueError(f"central record for '{test_case_tag}' does not exist")
+            existing = writer._read_existing_analysis(
+                lines,
+                region.open_index,
+                region.close_index,
+            )
+            if region.test_index is None or region.reference_index is None:
+                raise ValueError(
+                    f"'{bug_tag}/{test_case_tag}' is not an existing BG/TC waveform "
+                    "association"
+                )
+            associated_bug_tags = set(region.associated_bug_tags)
+            documented_bug_tags = existing.get("bug_tags")
+            documented_bug_evidence = existing.get("bug_evidence")
+            if (
+                not isinstance(documented_bug_tags, list)
+                or not all(isinstance(tag, str) for tag in documented_bug_tags)
+                or set(documented_bug_tags) != associated_bug_tags
+                or not isinstance(documented_bug_evidence, dict)
+                or set(documented_bug_evidence) != associated_bug_tags
+            ):
+                raise ValueError(
+                    f"central Bug associations for '{test_case_tag}' do not exactly match "
+                    "its existing BG-side references"
+                )
+        except (OSError, UnicodeError, ValueError) as error:
+            return None, writer.waveinfo._error(
+                "review_target_invalid",
+                f"Could not prepare review context for '{test_case_tag}': {error}",
+            )
+
+        current_result = receipt_result
+        old_receipt_id = existing.get("receipt_id")
+        old_receipt = (
+            writer.waveinfo.get_analysis_receipt(old_receipt_id)
+            if isinstance(old_receipt_id, str)
+            else None
+        )
+        old_files = ((old_receipt or {}).get("result") or {}).get(
+            "analysis_context_files"
+        ) or {}
+        current_files = current_result.get("analysis_context_files") or {}
+        timeline = current_result.get("timeline") or {}
+        timeline_items = list(timeline.items()) if isinstance(timeline, dict) else []
+        event_steps = set(current_result.get("event_steps") or [])
+        selected_timeline = [entry for entry in timeline_items if entry[0] in event_steps]
+        for entry in timeline_items:
+            if entry not in selected_timeline:
+                selected_timeline.append(entry)
+            if len(selected_timeline) >= 16:
+                break
+
+        associated_bugs = list(region.associated_bug_tags)
+        context = OrderedDict(
+            [
+                ("bug_tag", bug_tag),
+                ("checkpoint_path", checkpoint_path),
+                ("test_case_tag", test_case_tag),
+                ("receipt_id", item.receipt_id),
+                ("associated_bug_tags", associated_bugs),
+                ("analysis_arguments", copy.deepcopy(receipt.get("arguments") or {})),
+                ("analysis_window", copy.deepcopy(current_result.get("analysis_window"))),
+                ("event_summary", copy.deepcopy(current_result.get("event_summary"))),
+                ("event_steps", list(current_result.get("event_steps") or [])),
+                ("cycle_alignment", copy.deepcopy(current_result.get("cycle_alignment"))),
+                ("signal_groups", copy.deepcopy(current_result.get("signal_groups"))),
+                ("timeline_excerpt", OrderedDict(selected_timeline)),
+                ("timeline_truncated_for_review", len(timeline_items) > len(selected_timeline)),
+                (
+                    "analysis_context_file_changes",
+                    {
+                        "added": sorted(set(current_files) - set(old_files)),
+                        "removed": sorted(set(old_files) - set(current_files)),
+                        "changed": sorted(
+                            path
+                            for path in set(old_files) & set(current_files)
+                            if old_files[path] != current_files[path]
+                        ),
+                    },
+                ),
+                ("existing_alignment_evidence", existing.get("alignment_evidence")),
+                ("existing_bug_evidence", copy.deepcopy(existing.get("bug_evidence"))),
+            ]
+        )
+        internal = {
+            "bug_tag": bug_tag,
+            "test_case_tag": test_case_tag,
+            "checkpoint_path": checkpoint_path,
+            "associated_bugs": associated_bugs,
+            "evidence": evidence,
+            "context": context,
+        }
+        return internal, None
+
+    def review_batch(
+        self,
+        *,
+        target_file: str,
+        items: list[dict[str, Any]],
+    ) -> OrderedDict:
+        """Prepare all contexts or atomically apply one complete review batch."""
+
+        try:
+            args = ArgReviewWaveInfoEvidenceBatch(
+                target_file=target_file,
+                items=items,
+            )
+        except Exception as error:
+            return self.evidence_writer.waveinfo._error(
+                "invalid_arguments",
+                f"Invalid ReviewWaveInfoEvidenceBatch arguments: {error}",
+            )
+
+        target, path_error = self.evidence_writer._resolve_target(args.target_file)
+        if path_error:
+            return self.evidence_writer.waveinfo._error("invalid_target_file", path_error)
+        assert target is not None
+        try:
+            if target.stat().st_size > self.evidence_writer._MAX_DOCUMENT_BYTES:
+                return self.evidence_writer.waveinfo._error(
+                    "target_file_too_large",
+                    f"Target document is larger than "
+                    f"{self.evidence_writer._MAX_DOCUMENT_BYTES} bytes.",
+                )
+        except OSError as error:
+            return self.evidence_writer.waveinfo._error(
+                "invalid_target_file",
+                f"Could not inspect target_file '{args.target_file}': {error}",
+            )
+
+        prepared = []
+        for index, item in enumerate(args.items):
+            context, error = self._prepare_item(args.target_file, item)
+            if error is not None:
+                error.setdefault("details", {})["item_index"] = index
+                error["details"]["test_case_tag"] = item.test_case_tag
+                return error
+            assert context is not None
+            prepared.append(context)
+
+        if args.items[0].review is None:
+            review_items = []
+            changed_files = set()
+            for context in prepared:
+                review_context = context["context"]
+                review_items.append(review_context)
+                file_changes = review_context["analysis_context_file_changes"]
+                changed_files.update(file_changes["added"])
+                changed_files.update(file_changes["removed"])
+                changed_files.update(file_changes["changed"])
+            return OrderedDict(
+                [
+                    ("success", True),
+                    ("status", "review_context_ready"),
+                    ("target_file", args.target_file),
+                    ("review_count", len(review_items)),
+                    ("changed_source_files", sorted(changed_files)),
+                    ("items", review_items),
+                    (
+                        "next_action",
+                        "Review all items together. Read each changed_source_files path once, "
+                        "then call ReviewWaveInfoEvidenceBatch again with the same target_file "
+                        "and item identities plus a completed review for every item. Do not "
+                        "rerun pytest, WaveInfo, ApplyWaveInfoEvidence, or directly edit the "
+                        "Bug document before that batch call.",
+                    ),
+                ]
+            )
+
+        try:
+            with target.open("r", encoding="utf-8", newline="") as handle:
+                original = handle.read()
+            original_mode = stat.S_IMODE(target.stat().st_mode)
+        except (OSError, UnicodeError) as error:
+            return self.evidence_writer.waveinfo._error(
+                "document_update_failed",
+                f"Could not read '{args.target_file}' for batch review: {error}",
+            )
+
+        temp_name = None
+        active_item_index = None
+        active_test_case_tag = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                newline="",
+                dir=target.parent,
+                prefix=f".{target.stem}.review.",
+                suffix=".md",
+                delete=False,
+            ) as handle:
+                temp_name = handle.name
+                handle.write(original)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.chmod(temp_name, original_mode)
+            temp_target = Path(temp_name)
+            temp_relative = temp_target.relative_to(
+                Path(self.evidence_writer.workspace)
+            ).as_posix()
+
+            updated_items = []
+            for index, (item, context) in enumerate(zip(args.items, prepared)):
+                active_item_index = index
+                active_test_case_tag = item.test_case_tag
+                applied = self.evidence_writer.apply_evidence(
+                    target_file=temp_relative,
+                    bug_tag=context["bug_tag"],
+                    test_case_tag=context["test_case_tag"],
+                    checkpoint_path=context["checkpoint_path"],
+                    receipt_id=item.receipt_id,
+                    replace_existing=True,
+                )
+                if applied.get("success") is not True:
+                    applied.setdefault("details", {})["item_index"] = index
+                    applied["details"]["test_case_tag"] = item.test_case_tag
+                    return applied
+
+                refreshed, error = self._prepare_item(temp_relative, item)
+                if error is not None:
+                    error.setdefault("details", {})["item_index"] = index
+                    error["details"]["test_case_tag"] = item.test_case_tag
+                    return error
+                assert refreshed is not None and item.review is not None
+                review_bugs = set(item.review.bug_evidence)
+                associated_bugs = set(refreshed["associated_bugs"])
+                if review_bugs != associated_bugs:
+                    return self.evidence_writer.waveinfo._error(
+                        "review_bug_set_mismatch",
+                        f"Review for '{item.test_case_tag}' must cover every associated BG "
+                        "exactly once.",
+                        details={
+                            "item_index": index,
+                            "expected_bug_tags": sorted(associated_bugs),
+                            "observed_bug_tags": sorted(review_bugs),
+                        },
+                    )
+
+                with _DOCUMENT_WRITE_LOCK:
+                    with temp_target.open("r", encoding="utf-8", newline="") as handle:
+                        before_review = handle.read()
+                    newline = "\r\n" if "\r\n" in before_review else "\n"
+                    lines = before_review.splitlines(keepends=True)
+                    region = self.evidence_writer._find_target_region(
+                        lines,
+                        refreshed["bug_tag"],
+                        refreshed["test_case_tag"],
+                        temp_relative,
+                        refreshed["checkpoint_path"],
+                    )
+                    if (
+                        region.record_start is None
+                        or region.record_end is None
+                        or region.open_index is None
+                        or region.close_index is None
+                    ):
+                        raise ValueError(
+                            f"central record for '{item.test_case_tag}' disappeared"
+                        )
+                    analysis = self.evidence_writer._read_existing_analysis(
+                        lines,
+                        region.open_index,
+                        region.close_index,
+                    )
+                    analysis["alignment_evidence"] = item.review.alignment_evidence
+                    bug_evidence = analysis.get("bug_evidence")
+                    if not isinstance(bug_evidence, dict):
+                        raise ValueError(
+                            f"central bug_evidence for '{item.test_case_tag}' is malformed"
+                        )
+                    for bug_tag, review in item.review.bug_evidence.items():
+                        bug_fields = bug_evidence.get(bug_tag)
+                        if not isinstance(bug_fields, dict):
+                            raise ValueError(
+                                f"central bug_evidence.{bug_tag} is malformed"
+                            )
+                        bug_fields["observed_behavior"] = review.observed_behavior
+                        bug_fields["source_correlation"] = review.source_correlation
+                    record_lines = self.evidence_writer._render_evidence_record(
+                        analysis,
+                        refreshed["evidence"]["bug_document_viewer_link"],
+                        refreshed["test_case_tag"],
+                        region.test_display_title,
+                        newline,
+                    )
+                    lines[region.record_start : region.record_end] = record_lines
+                    after_review = ensure_markdown_file_heading_spacing(
+                        temp_relative,
+                        "".join(lines),
+                    )
+                    self.evidence_writer._atomic_replace(
+                        temp_target,
+                        before_review,
+                        after_review,
+                    )
+                updated_items.append(
+                    OrderedDict(
+                        [
+                            ("test_case_tag", refreshed["test_case_tag"]),
+                            ("receipt_id", item.receipt_id),
+                            ("bug_tags", refreshed["associated_bugs"]),
+                        ]
+                    )
+                )
+
+            active_item_index = None
+            active_test_case_tag = None
+            with temp_target.open("r", encoding="utf-8", newline="") as handle:
+                updated = handle.read()
+            self.evidence_writer._atomic_replace(target, original, updated)
+        except (OSError, UnicodeError, ValueError, RuntimeError) as error:
+            details = {
+                "scope": "document",
+                "target_file": args.target_file,
+            }
+            if active_item_index is not None:
+                details = {
+                    "scope": "item",
+                    "item_index": active_item_index,
+                    "test_case_tag": active_test_case_tag,
+                }
+            return self.evidence_writer.waveinfo._error(
+                "batch_review_failed",
+                f"Could not atomically apply current waveform review batch: {error}",
+                details=details,
+                suggestions=[
+                    "Repair only the reported receipt, TC, BG association, review field, or "
+                    "concurrent document change, then retry the entire batch.",
+                    "Do not split the batch into direct Markdown edits.",
+                ],
+            )
+        finally:
+            if temp_name and os.path.exists(temp_name):
+                os.unlink(temp_name)
+
+        return OrderedDict(
+            [
+                ("success", True),
+                ("status", "review_batch_applied"),
+                ("target_file", args.target_file),
+                ("updated", updated_items),
+                (
+                    "next_action",
+                    "Call Check once. Semantically unchanged current records will remain "
+                    "automatic; do not rerun individual WaveInfo or Apply calls.",
+                ),
+            ]
+        )
+
+    def _run(
+        self,
+        target_file: str,
+        items: list[dict[str, Any]],
+        run_manager: Optional[CallbackManagerForToolRun] = None,
+    ) -> str:
+        """Prepare or apply a complete current-evidence review batch."""
+
+        del run_manager
+        result = self.review_batch(target_file=target_file, items=items)
         return make_llm_tool_ret(result, check_pass=False)

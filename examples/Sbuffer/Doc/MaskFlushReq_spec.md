@@ -1,8 +1,10 @@
+
 # MaskFlushReq Specification Document
 
 > This document describes the specification of the `MaskFlushReq` chip verification target. Keep the technical language precise, well-organized, and easy to reuse for verification. If an item does not exist, explicitly write "None" or "TBD"; do not delete the section.
 
 ## Introduction
+
 - **Design Background**: `MaskFlushReq` is a Chisel Bundle type that carries the mask flush command from the Sbuffer DCache response path into the `SbufferData` storage module. It is instantiated as `Flipped(ValidIO(new MaskFlushReq))` on each of the `NumDcacheWriteResp` mask flush ports of `SbufferData`. When DCache signals a write-hit completion for a store buffer entry, the parent Sbuffer drives `maskFlushReq` with the completed entry's one-hot wvec to clear all dirty-mask bits for that entry. Source: `engine_overview.txt:9`, `phase_01_types.txt:58-59`.
 - **Design Goals**: (1) Carry a one-hot entry selector (`wvec`) of width `StoreBufferSize` to identify which store buffer entry's mask should be cleared. (2) Provide the minimal signaling needed for SbufferData to compute per-entry mask clear enables. (3) Support concurrent mask flush requests on multiple ports targeting different entries, with OR-reduction handling when multiple ports target the same entry.
 
@@ -21,6 +23,7 @@ File list:
 - `MaskFlushReq.scala:1-4`: Top-level MaskFlushReq Bundle definition. Single class with one field: wvec. Extends SbufferBundle for parameter inheritance.
 
 ## Top-Level Interface Overview
+
 - **Module Name**: `MaskFlushReq` (Bundle type, not a Chisel Module)
 - **Port List** (Bundle fields as consumed by SbufferData via `maskFlushReq` ValidIO ports):
 
@@ -101,11 +104,13 @@ The `wvec` field is a one-hot UInt of width `StoreBufferSize` that selects which
 (no submodules) — MaskFlushReq is a leaf Bundle type with no child module instantiations. It extends SbufferBundle and contains only a single combinatorial field declaration.
 
 ### State Machines and Timing
+
 - **State Machine List**: None. MaskFlushReq is a Bundle type with no state.
 - **State Transition Conditions**: N/A.
 - **Key Timing**: N/A. The `wvec` field is a combinatorial signal driven on the same cycle as the `maskFlushReq.valid` assertion. The Bundle itself introduces zero cycles of latency.
 
 ### Configuration Registers and Storage
+
 | Register Name/Address | Access Attribute | Bit Field | Default | Description | Read/Write Side Effects |
 | ------------- | -------- | ---- | ------ | ---- | ---------- |
 | None | N/A | N/A | N/A | MaskFlushReq is a combinatorial Bundle with no internal storage registers. | N/A |
@@ -114,11 +119,13 @@ The `wvec` field is a one-hot UInt of width `StoreBufferSize` that selects which
 - **Configuration Flow**: N/A. No runtime configuration. Field width is fixed at elaboration time by HasSbufferConst parameters.
 
 ### Reset and Error Handling
+
 - **Reset Behavior**: N/A. Bundle types have no reset behavior. The `wvec` field is combinatorial.
 - **Error Reporting**: None. MaskFlushReq has no error detection or reporting mechanism.
 - **Self-Recovery Strategy**: None. Error handling for protocol violations (e.g., non-one-hot wvec) is the caller Sbuffer's responsibility.
 
 ### Parameterization and Configurable Features
+
 - **Module Parameters**:
 
   | Parameter Name | Type/Range | Default | Functional Effect |
@@ -129,6 +136,7 @@ The `wvec` field is a one-hot UInt of width `StoreBufferSize` that selects which
 - **Compile Macros/Generation Options**: None.
 
 ## Verification Requirements and Coverage Suggestions
+
 - **Functional Coverage Points**: All `CK-*` check points defined in each functional group constitute coverage targets. Additional cross-coverage scenarios:
   - Mask flush on every entry index [0, StoreBufferSize-1].
   - Concurrent write and mask flush to different entries (coverage of the protocol constraint that write and flush never target the same entry simultaneously).

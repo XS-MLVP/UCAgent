@@ -38,6 +38,10 @@ fake DUT也必须沿用同一个`dut` fixture：fixture会为它创建功能覆�
 
 模板自身错误只修改模板。只有明确证据证明上游API/fixture/覆盖率实现违反其既有契约时，才回到所属阶段做最小修复并重跑专用Checker；禁止通过删除`mark_function`、忽略异常或改造提供的API模板来让模板阶段表面通过。
 
+模板阶段依赖上游TC命名契约隔离已完成测试。`test_{DUT}_api_*.py`中的每个API测试函数必须已经使用`test_api_{DUT}_*`；如果检查结果列出该文件中的`test_api_basic`、`test_ref_model`、`test_compute_api`等名称，应回到API测试阶段一次修正全部函数定义及其`mark_function`引用。不要删除这些测试的`skip`、改写`env`/fake DUT、给已实现API测试添加`Not implemented`，也不要把文件改名或移走来绕过模板检查。
+
+本阶段创建的普通模板函数使用`test_<scenario>`，但`test_api_`、`test_static_`和`test_random_`是其他阶段的保留前缀，普通模板不得使用。专用前缀与专用测试文件必须成对出现；例如`test_random_add`只能由随机测试阶段写入`test_{DUT}_random_<name>.py`，不能作为普通模板名称。
+
 ## 空测试用例示例
 
 ### 基本示例

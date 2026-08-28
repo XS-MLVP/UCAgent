@@ -141,30 +141,48 @@ class ToolSetCurrentStageJournal(ManagerTool):
 
 class ArgSkillUsage(BaseModel):
     skill_usage: Dict[str, Any] = Field(
-        description="The skill usage to set for the current stage. Cannot be empty."
+        description=(
+            "The current stage's stage-specific Skills and their list/read/use state. "
+            "Use this only when the current stage has a nonempty skill_list. "
+            "list, read, and use must be booleans. Each Skill may also include a "
+            "nonempty reason; reason is required when use=false records that the "
+            "Skill has no applicable object in the checked stage result."
+        )
     )
 
 class ToolSetSkillUsage(ManagerTool):
-    """Check and set the skill usage of the current stage."""
+    """Validate and record observed Skill usage for the current stage."""
     name: str = "SetSkillUsage"
     description: str = (
-        "Check the usage of the skills and set journal of the current stage. \n"
-        "Analyze the conversation history and check usage of the skills specified in skill_list (if skills beyond the specified list were also used, analyze them as well).\n"
-        "For each skill, analyze the following aspects:\n"
-        "1. **list**: Whether the name and description of skill was listed in histoty context\n"
-        "2. **read**: Whether the SKILL.md of skill was read by using tool `ReadTextFile`\n"
-        "3. **use**: Whether completion of the current stage task followed the method steps in SKILL.md, or executed any specified code in that file\n"
-        "**Returned dictionary format example**:\n"
-        "{\n"
-        "  'unitytest/ut-functions-and-checks': {'list': True, 'read': True, 'use': False},\n"
-        "  'ext/custom/skill-name': {'list': True, 'read': False, 'use': False}\n"
-        "}\n"
+        "Validate the current stage's Skill outcome before Complete only when that "
+        "stage has a nonempty stage-specific skill_list. A stage with no configured "
+        "skill_list has no Skill usage check and must not call this tool merely because "
+        "Skill support or general Skills are available. This tool cannot "
+        "create or upgrade list/read evidence: `ListSkill` records list=true, and "
+        "successfully reading that Skill's SKILL.md with `ReadTextFile` records "
+        "read=true. A fully successful `RunSkillScript` call records use=true for an "
+        "applied script. After list/read and a passing current `Check`, SetSkillUsage "
+        "may record use=true when a text method was applied, or validate use=false with "
+        "a nonempty reason when the method had no applicable object (for example, no "
+        "confirmed Bug, so no recording script was needed). Stage-specific Skills are "
+        "required by "
+        "default unless force_use_skill=false; general Skills remain optional. Pass a "
+        "JSON object. Applied method example: {\"unitytest/functions-and-checks\": "
+        "{\"list\": true, \"read\": true, \"use\": true}}. No-applicable-work "
+        "example: {\"unitytest/dynamic-bug-recording\": {\"list\": true, "
+        "\"read\": true, \"use\": false, \"reason\": \"No confirmed dynamic DUT "
+        "Bug exists in this stage; no recording action was needed.\"}}. A reason cannot "
+        "replace list/read or the current Check and must not be used to manufacture work."
     )
     args_schema: Optional[ArgsSchema] = ArgSkillUsage
 
     def _run(self, skill_usage: Dict[str, Any] = None, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
         if not skill_usage:
-            return "Skill usage content cannot be empty, use tool `ToolSetSkillUsage` to check the skill usage and set the skill usage content."
+            return (
+                "skill_usage cannot be empty. Complete the Skill evidence sequence, "
+                "then call `SetSkillUsage` with the current stage-specific Skill names "
+                "and boolean list/read/use fields."
+            )
         return self.function(skill_usage)
 
 
@@ -276,7 +294,16 @@ def _prepare_stage_args(stage_args):
         )
     if _INTERNAL_STAGE_ARG_NAMES.intersection(stage_args):
         raise ValueError("stage_args contains fields reserved for internal dispatch")
+    if "full_output" in stage_args and not isinstance(stage_args["full_output"], bool):
+        raise TypeError("stage_args.full_output must be a boolean")
     return dict(stage_args)
+
+
+def _split_stage_control_args(stage_args):
+    """Remove manager-owned controls before dispatching stage-defined arguments."""
+    prepared = _prepare_stage_args(stage_args)
+    full_output = prepared.pop("full_output", False)
+    return prepared, full_output
 
 
 class ArgsDoCheck(BaseModel):
@@ -305,7 +332,9 @@ class ArgsDoCheck(BaseModel):
             "Current-stage custom arguments as a JSON object. Its keys and value shapes "
             "are defined by the current stage task and checker diagnostics. Prefer the "
             "object itself; if the caller cannot serialize a nested object correctly, pass "
-            "a string containing the complete valid JSON object as a fallback."
+            "a string containing the complete valid JSON object as a fallback. Set the "
+            "reserved boolean field full_output=true only when complete raw Checker output "
+            "such as pytest STDOUT/STDERR is needed; it is consumed before Checker dispatch."
         ),
     )
 
@@ -314,9 +343,17 @@ class ToolRunTestCases(ManagerTool):
     """Run test cases in current workspace."""
     name: str = "RunTestCases"
     description: str = (
-        "This tool is used to execute the test cases in the workspace. "
-        "Returns the result of the test execution. You should call this tool after you have implemented or modified the DUT or test cases. "
-        "Current test directory is set to the '{TEST_DIR}',  the file path you passed should be relative to this directory."
+        "Run real pytest verification tests in the workspace and return their test and "
+        "coverage report. Use this only for pytest test targets after implementing or "
+        "modifying verification tests. It is not a Python script runner: never create or "
+        "run a temporary pytest test, maintenance script, or document-migration script to "
+        "edit workspace artifacts. Use the available file-editing tools for document and "
+        "source changes, and RunSkillScript only for an existing declared skill script. "
+        "The current pytest directory is '{TEST_DIR}'; every target path is relative to "
+        "that directory. Do not repeat '{TEST_DIR}' in target. For example, a test below "
+        "that directory is addressed as 'test_file.py::test_name'. This target syntax is "
+        "different from workspace-relative TC tags and WaveInfo/Apply node IDs. If the tool "
+        "returns PYTEST_TARGET_DIRECTORY_PREFIX, retry with correct_target exactly."
     )
     args_schema: Optional[ArgsSchema] = ArgCheck
 
@@ -460,6 +497,7 @@ class StageManager(object):
         self.stage_unskip_list = stage_unskip_list
         self.tool_inspect_file = tool_inspect_file
         self.reference_files = reference_files
+        self.validation_revision = 0
 
     @staticmethod
     def _safe_int(value, default=0):
@@ -531,6 +569,12 @@ class StageManager(object):
             stage.set_reference_file_status(stage_info.get("task", {}).get("reference_files", {}))
             if "meta_data" in stage_info:
                 stage.meta_data = copy.deepcopy(stage_info["meta_data"])
+                restore_skill_usage = getattr(stage, "restore_skill_usage", None)
+                if callable(restore_skill_usage) and not restore_skill_usage():
+                    warning(
+                        f"Stage '{stage.name}' has invalid persisted Skill evidence; "
+                        "list/read/use evidence will be collected again."
+                    )
         self._go_skip_stage()
         for s in self.stages:
             s.set_stage_manager(self)
@@ -588,10 +632,14 @@ class StageManager(object):
         vstage.hist_commit(commit_message)
         return f"Stage '{vstage.name}' changes committed."
 
-    def gen_fail_suggestion(self, error_msg) -> str:
+    def gen_fail_suggestion(self, error_msg):
         stage = self.get_current_stage()
         if stage is None:
             return error_msg
+        if not isinstance(error_msg, dict) or not error_msg.get("failure_summary"):
+            return error_msg
+        if self.stage_need_llm_fail_suggestion(stage) is False:
+            return self._compact_check_result(error_msg)
         try:
             fail_suggestion = self.gen_llm_suggestion(
                 error_msg,
@@ -600,7 +648,9 @@ class StageManager(object):
                 self.stage_need_llm_fail_suggestion,
             )
             stage.meta_set_llm_fail_suggestion(fail_suggestion)
-            return fail_suggestion
+            result = copy.deepcopy(error_msg)
+            result["action"] = fail_suggestion
+            return self._compact_check_result(result)
         except Exception as e:
             traceback.print_exc()
             warning(f"Generate fail suggestion failed: {str(e)}")
@@ -754,7 +804,33 @@ class StageManager(object):
         skills_to_use = [skill_name for skill_name in cstage.skill_list]
         if skills_to_use:
             formatted_skill_list = list_skills_in_format(_list_skills(self.workspace), self.workspace, skills_to_use)
-            tips["notes"] = tips.get("notes", "") + f"Firstly you must read the SKILL.md of the following skills to know how to complete current stage:\n{formatted_skill_list}\n"
+            if cstage.force_use_skill:
+                no_applicable_example = ""
+                if "unitytest/dynamic-bug-recording" in skills_to_use:
+                    no_applicable_example = (
+                        " For example, when no confirmed dynamic DUT Bug exists: "
+                        "{\"unitytest/dynamic-bug-recording\": {\"list\": true, "
+                        "\"read\": true, \"use\": false, \"reason\": \"No "
+                        "confirmed dynamic DUT Bug exists in this checked stage; no "
+                        "recording action was needed.\"}}."
+                    )
+                skill_note = (
+                    "This stage requires the following Skills. Use this sequence: "
+                    "ListSkill -> ReadTextFile(SKILL.md) -> perform the Skill method "
+                    "(and RunSkillScript only when that method calls for a declared "
+                    "script), or determine that it has no applicable object -> Check -> "
+                    "SetSkillUsage -> Complete. After a passing Check, submit use=true "
+                    "for an applied text method, or use=false with a nonempty reason for "
+                    "no applicable object."
+                    + no_applicable_example
+                    + "\n"
+                )
+            else:
+                skill_note = (
+                    "Optional Skills available for this stage are listed below. Use them "
+                    "when helpful; their absence or non-use does not block Check or Complete:\n"
+                )
+            tips["notes"] = tips.get("notes", "") + skill_note + formatted_skill_list + "\n"
 
         tips["process"] = f"{self.stage_index}/{len(self.stages)}"
         mession_tips = self.mission.get_value("prompt.tips")
@@ -791,12 +867,11 @@ class StageManager(object):
         ret["all_completed"] = self._compute_all_completed()
         ret["stage_list"] = []
         for i, stage in enumerate(self.stages):
-            ret["stage_list"].append({
+            stage_status = {
                 "index": i,
                 "title": stage.title(),
                 "reached": stage.is_reached(),
                 "fail_count": stage.fail_count,
-                "skill_list": list(stage.skill_list.keys()) if self.cfg.skill.use_skill else [],
                 "is_skipped": stage.is_skipped(),
                 "time_start": stage.get_time_start_str(),
                 "time_end": stage.get_time_end_str(),
@@ -805,7 +880,10 @@ class StageManager(object):
                 "needs_human_check": stage.is_hmcheck_needed(),
                 "need_fail_llm_suggestion": self.stage_need_llm_fail_suggestion(stage),
                 "need_pass_llm_suggestion": self.stage_need_llm_pass_suggestion(stage),
-            })
+            }
+            if self.cfg.skill.use_skill and stage.skill_list:
+                stage_status["skill_list"] = list(stage.skill_list.keys())
+            ret["stage_list"].append(stage_status)
         ret["process"] = f"{self.stage_index}/{len(self.stages)}"
         cstage = self.stages[self.stage_index] if self.stage_index < len(self.stages) else None
         ret["current_task"] = "No stages available (Maybe mission is completed, you can use the `GoToStage` tool to go back to a previous stage if needed)"
@@ -839,32 +917,196 @@ class StageManager(object):
         return journals
 
     def set_current_stage_skill_usage(self, skill_usage: Dict[str, Any]):
-        """set the skill usage of curretn stage or return feedback based on skill_usage"""
+        """Validate real usage evidence recorded by Skill-aware tools and checks."""
         current_stage = self.get_current_stage()
-        if current_stage.skill_list:
-            for skill_name in current_stage.skill_list:
-                skill_root = fc.get_workspace_skill_root(self.workspace)
+        if not current_stage.skill_list:
+            return "No stage-specific Skill usage needs to be recorded."
+
+        stage_cfg = getattr(current_stage, "cfg", None)
+        skill_cfg = getattr(stage_cfg, "skill", None)
+        if skill_cfg is None:
+            skill_cfg = getattr(getattr(self, "cfg", None), "skill", None)
+        if skill_cfg is not None and not bool(getattr(skill_cfg, "use_skill", True)):
+            return "Skill support is disabled; no stage-specific Skill usage needs to be recorded."
+
+        if not isinstance(skill_usage, dict):
+            return "skill_usage must be an object keyed by current stage Skill name."
+
+        unknown_skills = set(skill_usage) - set(current_stage.skill_list)
+        if unknown_skills:
+            return (
+                "skill_usage contains Skills that are not assigned to the current stage: "
+                f"{', '.join(sorted(unknown_skills))}. Remove them and call "
+                "`SetSkillUsage` again."
+            )
+
+        force_use_skill = bool(getattr(current_stage, "force_use_skill", True))
+        reasons = {}
+        text_method_skills = []
+        no_applicable_skills = []
+        for skill_name in current_stage.skill_list:
+            skill_info = skill_usage.get(skill_name)
+            if skill_info is None:
+                if force_use_skill:
+                    return (
+                        f"Required Skill '{skill_name}' is missing from skill_usage. "
+                        "List it with `ListSkill`, read its `SKILL.md`, then either "
+                        "apply its method or determine that the checked stage has no "
+                        "applicable object. After a passing `Check`, include the "
+                        "corresponding use=true or use=false with reason state in "
+                        "`SetSkillUsage`."
+                    )
+                continue
+            if not isinstance(skill_info, dict):
+                return (
+                    f"Skill usage for '{skill_name}' must be an object containing "
+                    "boolean list, read, and use fields, plus an optional reason."
+                )
+            unexpected_fields = set(skill_info) - {"list", "read", "use", "reason"}
+            if unexpected_fields:
+                return (
+                    f"Skill usage for '{skill_name}' has unsupported fields: "
+                    f"{', '.join(sorted(unexpected_fields))}. Use only list, read, use, "
+                    "and optional reason."
+                )
+            missing_fields = {"list", "read", "use"} - set(skill_info)
+            if missing_fields:
+                return (
+                    f"Skill usage for '{skill_name}' is missing required boolean fields: "
+                    f"{', '.join(sorted(missing_fields))}."
+                )
+            reason = skill_info.get("reason")
+            if reason is not None:
+                if not isinstance(reason, str) or not reason.strip():
+                    return (
+                        f"Skill usage reason for '{skill_name}' must be a nonempty string."
+                    )
+                reasons[skill_name] = reason.strip()
+            usage_flags = {}
+            for field_name in ("list", "read", "use"):
+                field_value = skill_info.get(field_name, False)
+                if not isinstance(field_value, bool):
+                    return (
+                        f"Skill usage field '{skill_name}.{field_name}' must be a "
+                        "boolean."
+                    )
+                usage_flags[field_name] = field_value
+
+            if usage_flags["use"] and reason is not None:
+                return (
+                    f"Skill '{skill_name}' has use=true, so reason is not allowed. "
+                    "Use reason only with use=false for a no-applicable-work outcome."
+                )
+
+            if force_use_skill:
+                skill_workspace = getattr(
+                    current_stage, "workspace", getattr(self, "workspace", None)
+                )
+                if not skill_workspace:
+                    return (
+                        f"Cannot validate required Skill '{skill_name}': the current "
+                        "stage workspace is unavailable."
+                    )
+                skill_root = fc.get_workspace_skill_root(skill_workspace)
                 skill_root_abs = os.path.abspath(skill_root)
                 skill_dir = os.path.abspath(os.path.join(skill_root_abs, skill_name))
-                if os.path.commonpath([skill_root_abs, skill_dir]) != skill_root_abs or not os.path.isdir(skill_dir):
-                    raise ValueError(f"Skill '{skill_name}' is not found in workspace. ")
-                if skill_name not in skill_usage:
-                    return f"You must use skill '{skill_name}' in current stage, using tool `ListSkill` to list and use it."
-                else:
-                    skill_info = skill_usage[skill_name]
-                    current_stage.set_usage_skill_list(skill_name, listed=skill_info.get("list", False), read=skill_info.get("read", False), used=skill_info.get("use", False))
-                    [u,v,w] = current_stage.skill_list[skill_name]
-                    if u and v and w:
-                        continue
-                    if not u:
-                        return f"You must re-complete the stage by using tool `ListSkill` to list and use the skill {skill_name}."
-                    if not v:
-                        return f"You must re-complete the stage by using tool `ReadTextFile` to read the SKILL.md of skill {skill_name} and use it"
-                    if not w:
-                        return f"You must re-complete the stage by using the skill {skill_name} according to the method steps mentioned in its SKILL.md."
-            current_stage.meta_set_skill_usage(skill_usage)
-            return "All skills in skill_list have been used."     
-        return "No skill need be used in current stage."
+                if (
+                    os.path.commonpath([skill_root_abs, skill_dir]) != skill_root_abs
+                    or not os.path.isdir(skill_dir)
+                    or not os.path.isfile(os.path.join(skill_dir, "SKILL.md"))
+                ):
+                    return (
+                        f"Required Skill '{skill_name}' is not available in the workspace. "
+                        "Restore the configured Skill before calling `Complete`."
+                    )
+            listed, read, used = current_stage.skill_list[skill_name]
+            observed_flags = {
+                "list": bool(listed),
+                "read": bool(read),
+                "use": bool(used),
+            }
+
+            mismatched_observed_fields = [
+                field_name
+                for field_name in ("list", "read")
+                if usage_flags[field_name] != observed_flags[field_name]
+            ]
+            if mismatched_observed_fields:
+                required_actions = {
+                    "list": "call `ListSkill`" if not listed else "submit list=true",
+                    "read": (
+                        "read its `SKILL.md` with `ReadTextFile`"
+                        if not read else "submit read=true"
+                    ),
+                }
+                return (
+                    f"Skill usage for '{skill_name}' does not match observed evidence for: "
+                    f"{', '.join(mismatched_observed_fields)}. "
+                    + ", ".join(
+                        required_actions[field] for field in mismatched_observed_fields
+                    )
+                    + ", then call `SetSkillUsage` again."
+                )
+
+            if not listed or not read:
+                missing_actions = []
+                if not listed:
+                    missing_actions.append("list it with `ListSkill`")
+                if not read:
+                    missing_actions.append("read its `SKILL.md` with `ReadTextFile`")
+                return (
+                    f"Skill usage evidence for '{skill_name}' is incomplete: "
+                    + ", ".join(missing_actions)
+                    + ", then call `Check` and `SetSkillUsage` again."
+                )
+
+            if usage_flags["use"]:
+                if not observed_flags["use"]:
+                    text_method_skills.append(skill_name)
+            else:
+                if observed_flags["use"]:
+                    return (
+                        f"Skill '{skill_name}' already has observed use=true evidence. "
+                        "Submit use=true; a reason cannot downgrade observed usage."
+                    )
+                if reason is None:
+                    return (
+                        f"Skill '{skill_name}' has use=false. Provide a nonempty reason "
+                        "explaining why the checked stage result has no applicable object, "
+                        "or apply the Skill method and submit use=true."
+                    )
+                no_applicable_skills.append(skill_name)
+
+        if not getattr(current_stage, "check_pass", False):
+            return (
+                "Current Skill evidence has not passed `Check` in its present state. "
+                "Call `Check` after ListSkill/ReadTextFile and after any Skill script or "
+                "method changes, then call `SetSkillUsage` again."
+            )
+
+        for skill_name in text_method_skills:
+            current_stage.set_usage_skill_list(
+                skill_name, used=True, validated_by_check=True
+            )
+
+        observed_usage = current_stage.get_skill_usage()
+        current_stage.meta_set_skill_usage(
+            observed_usage, validated=True, reasons=reasons
+        )
+        self.save_stage_info()
+        if force_use_skill:
+            if no_applicable_skills:
+                return (
+                    "All required stage Skills have complete usage evidence. "
+                    "No-applicable-work was recorded for: "
+                    + ", ".join(no_applicable_skills)
+                    + "."
+                )
+            return "All required stage Skills have complete usage evidence."
+        return (
+            "Optional stage Skill usage was recorded. Optional Skill non-use does not "
+            "block `Check` or `Complete`."
+        )
 
     def get_stage(self, index):
         if 0 <= index < len(self.stages):
@@ -908,63 +1150,70 @@ class StageManager(object):
                 "check_pass": False,
                 "check_info": f"Stage index{self.stage_index} out of range. (Mission maybe completed, you can use the `GoToStage` tool to go back to a previous stage if needed)",
             })
-        ck_pass, ck_info = self.stages[self.stage_index].do_check(
+        stage = self.stages[self.stage_index]
+        stage_args, full_output = _split_stage_control_args(stage_args)
+        ck_pass, ck_info = stage.do_check(
             timeout=timeout,
-            stage_args=_prepare_stage_args(stage_args),
+            stage_args=stage_args,
         )
         ret_data = OrderedDict()
+        batch_advanced = not ck_pass and bool(getattr(stage, "is_batch_success", False))
         if not ck_pass:
-            action = (
-                "Apply the remediation stated in 'failure_summary.error', then call `Check` "
-                "again. This is a validation failure to resolve, not an internal Checker failure."
-            )
-            ret_data["failure_summary"] = self._build_failure_summary(
-                self.stages[self.stage_index], ck_info, action, self.stage_index
-            )
+            if batch_advanced:
+                action = self._batch_progress_action("Check")
+                ret_data["progress_summary"] = self._build_batch_progress_summary(
+                    stage, ck_info, action, self.stage_index
+                )
+            else:
+                failure_summary = self._build_failure_summary(
+                    stage, ck_info, stage_index=self.stage_index
+                )
+                if failure_summary is not None:
+                    ret_data["failure_summary"] = failure_summary
+                    action = failure_summary["next_action"]
+                else:
+                    action = self._raw_failure_action("Check")
         ret_data["check_pass"] = ck_pass
         if not ck_pass:
             ret_data["action"] = action
             self._attach_candidate_failure_hints(ret_data)
         ret_data["check_info"] = ck_info
         self.last_check_info = copy.deepcopy(ret_data)
+        self.validation_revision = getattr(self, "validation_revision", 0) + 1
         if ck_pass:
             ret_data["message"] = f"Congratulations! Stage {self.stage_index} checks passed successfully, you can use tool 'Complete' to finish this stage."
+        elif full_output:
+            return ret_data
+        elif batch_advanced:
+            return self._compact_check_result(ret_data)
+        elif "failure_summary" not in ret_data:
+            return ret_data
         else:
             return self.gen_fail_suggestion(ret_data)
         return ret_data
 
     @staticmethod
-    def _error_text(error_data):
-        if isinstance(error_data, str):
-            return error_data
-        if isinstance(error_data, dict):
-            return " ".join(
-                StageManager._error_text(value)
-                for value in error_data.values()
-                if value not in (None, "", [], {})
-            )
-        if isinstance(error_data, (list, tuple)):
-            return " ".join(
-                StageManager._error_text(value)
-                for value in error_data
-                if value not in (None, "", [], {})
-            )
-        return str(error_data)
-
-    @staticmethod
-    def _extract_checker_error(last_msg):
-        if isinstance(last_msg, dict):
-            if last_msg.get("error") not in (None, "", [], {}):
-                return last_msg["error"]
-            for key in ("errors", "message", "reason"):
-                if last_msg.get(key) not in (None, "", [], {}):
-                    return last_msg[key]
-        if last_msg not in (None, "", [], {}):
-            return last_msg
-        return "The checker failed without a concrete error message. Call `Check` again and inspect the returned failure_summary."
+    def _extract_checker_diagnostic(last_msg):
+        """Return only an explicit Checker-authored diagnostic."""
+        if not isinstance(last_msg, dict):
+            return None
+        candidates = []
+        if isinstance(last_msg.get("diagnostic"), dict):
+            candidates.append(last_msg["diagnostic"])
+        if last_msg.get("error_code"):
+            candidates.append(last_msg)
+        if not candidates:
+            return None
+        required = {"error_code", "error", "next_action"}
+        for diagnostic in candidates:
+            if required.issubset(diagnostic) and all(
+                diagnostic[key] not in (None, "", [], {}) for key in required
+            ):
+                return copy.deepcopy(diagnostic)
+        return None
 
     @classmethod
-    def _build_failure_summary(cls, stage, check_info, next_action, stage_index=None):
+    def _build_failure_summary(cls, stage, check_info, stage_index=None):
         checker_entries = check_info if isinstance(check_info, list) else [check_info]
         failed_index = None
         failed_entry = None
@@ -985,31 +1234,92 @@ class StageManager(object):
                     break
 
         if failed_entry is None:
-            failed_entry = {"last_msg": check_info}
-        error_data = cls._extract_checker_error(failed_entry.get("last_msg"))
-        error_text = cls._error_text(error_data)
-        error_label = re.search(r"\[([^\]]+)\]", error_text)
-        error_code = "CHECKER_FAILED"
-        if error_label:
-            error_code = re.sub(r"[^A-Z0-9]+", "_", error_label.group(1).upper()).strip("_")
+            return None
+        last_msg = failed_entry.get("last_msg")
+        diagnostic = cls._extract_checker_diagnostic(last_msg)
+        if diagnostic is None:
+            return None
 
         checker_class = failed_entry.get("checker_class") or failed_entry.get("name") or "UnknownChecker"
         checker_name = failed_entry.get("checker_name") or checker_class
         remaining_checkers = max(0, len(checker_entries) - (failed_index + 1)) if failed_index is not None else 0
-        return OrderedDict({
+        summary = OrderedDict({
             "status": "checker_failed",
             "stage_index": stage_index,
             "stage_name": getattr(stage, "name", ""),
             "failed_checker_index": failed_index,
             "failed_checker_name": checker_name,
             "failed_checker_class": checker_class,
-            "error_code": error_code,
-            "error": error_data,
+            "error_code": diagnostic["error_code"],
+            "error": diagnostic["error"],
+            "next_action": diagnostic["next_action"],
+            "remaining_checkers_not_run": remaining_checkers,
+        })
+        reserved_summary_fields = set(summary)
+        for key, value in diagnostic.items():
+            if key not in reserved_summary_fields:
+                summary[key] = copy.deepcopy(value)
+        return summary
+
+    @staticmethod
+    def _raw_failure_action(tool_name):
+        return (
+            "No explicit structured diagnostic was provided by the failed Checker. "
+            "Inspect every field in the original `check_info` below, including "
+            f"details, STDOUT, and STDERR; fix all reported errors, then call `{tool_name}` "
+            "again. The original Checker output has been preserved without summarization."
+        )
+
+    @staticmethod
+    def _batch_progress_action(tool_name):
+        return (
+            "The current batch passed and the next batch is ready. Work only on the next "
+            "batch shown in 'progress_summary.progress', follow the current stage task and "
+            f"checker-provided argument contract, then call `{tool_name}` again. Do not redo "
+            "the completed batch or diagnose this progress result as a Checker failure."
+        )
+
+    @classmethod
+    def _build_batch_progress_summary(
+        cls, stage, check_info, next_action, stage_index=None
+    ):
+        checker_entries = check_info if isinstance(check_info, list) else [check_info]
+        progress_index = None
+        progress_entry = None
+        for index, entry in enumerate(checker_entries):
+            if not isinstance(entry, dict):
+                continue
+            if entry.get("checked_in_last_run") and entry.get("last_check_pass") is False:
+                progress_index = index
+                progress_entry = entry
+                break
+        if progress_entry is None:
+            progress_entry = {"last_msg": check_info}
+
+        checker_class = (
+            progress_entry.get("checker_class")
+            or progress_entry.get("name")
+            or "UnknownChecker"
+        )
+        checker_name = progress_entry.get("checker_name") or checker_class
+        remaining_checkers = (
+            max(0, len(checker_entries) - (progress_index + 1))
+            if progress_index is not None
+            else 0
+        )
+        return OrderedDict({
+            "status": "batch_advanced",
+            "stage_index": stage_index,
+            "stage_name": getattr(stage, "name", ""),
+            "checker_index": progress_index,
+            "checker_name": checker_name,
+            "checker_class": checker_class,
+            "progress": copy.deepcopy(progress_entry.get("last_msg")),
             "next_action": next_action,
             "remaining_checkers_not_run": remaining_checkers,
             "diagnostic_note": (
-                "Cumulative count_fail is historical. Use last_check_pass and this failure_summary "
-                "to diagnose the current Check/Complete call. Detailed diagnostics follow in check_info."
+                "This is successful batch progress, not a validation failure. Only the next "
+                "batch in the progress payload is currently actionable."
             ),
         })
 
@@ -1017,10 +1327,17 @@ class StageManager(object):
     def _compact_check_result(check_result):
         if not isinstance(check_result, dict):
             return check_result
-        if not check_result.get("failure_summary"):
+        if not check_result.get("failure_summary") and not check_result.get("progress_summary"):
             return check_result
         compact_result = OrderedDict()
-        for key in ("failure_summary", "check_pass", "complete", "action", "message"):
+        for key in (
+            "failure_summary",
+            "progress_summary",
+            "check_pass",
+            "complete",
+            "action",
+            "message",
+        ):
             if key in check_result:
                 compact_result[key] = copy.deepcopy(check_result[key])
         return compact_result or check_result
@@ -1250,9 +1567,10 @@ class StageManager(object):
                             "Or you can use the `Exit` tool to exit the mission."),
                 "last_check_result": self.last_check_info,
             }
+        stage_args, full_output = _split_stage_control_args(stage_args)
         ck_pass, ck_info = self.stages[self.stage_index].do_check(
             timeout=timeout,
-            stage_args=_prepare_stage_args(stage_args),
+            stage_args=stage_args,
             is_complete=True,
         )
         stage = self.stages[self.stage_index]
@@ -1287,18 +1605,29 @@ class StageManager(object):
                 info("Human check approved for stage " + stage.name)
 
         self.last_check_info = OrderedDict()
+        batch_advanced = not ck_pass and bool(getattr(stage, "is_batch_success", False))
         if not ck_pass:
-            action = (
-                "Apply the remediation stated in 'failure_summary.error', then call `Complete` "
-                "again. This is a validation failure to resolve, not an internal Checker failure."
-            )
-            self.last_check_info["failure_summary"] = self._build_failure_summary(
-                stage, ck_info, action, self.stage_index
-            )
+            if batch_advanced:
+                action = self._batch_progress_action("Check")
+                self.last_check_info["progress_summary"] = (
+                    self._build_batch_progress_summary(
+                        stage, ck_info, action, self.stage_index
+                    )
+                )
+            else:
+                failure_summary = self._build_failure_summary(
+                    stage, ck_info, stage_index=self.stage_index
+                )
+                if failure_summary is not None:
+                    self.last_check_info["failure_summary"] = failure_summary
+                    action = failure_summary["next_action"]
+                else:
+                    action = self._raw_failure_action("Complete")
         self.last_check_info["check_pass"] = ck_pass
         if not ck_pass:
             self.last_check_info["action"] = action
         self.last_check_info["check_info"] = ck_info
+        self.validation_revision = getattr(self, "validation_revision", 0) + 1
         if ck_pass:
             message = f"Stage {self.stage_index} completed successfully. "
             self._stage_complete(self.stages[self.stage_index])
@@ -1319,6 +1648,16 @@ class StageManager(object):
             "message": message,
             "last_check_result": self.last_check_info,
         })
+        if full_output and not ck_pass:
+            return self.last_check_info
+        if batch_advanced:
+            return self._compact_check_result(OrderedDict({
+                "complete": False,
+                "message": "The current batch passed. Continue with the next batch.",
+                **self.last_check_info,
+            }))
+        if not ck_pass and "failure_summary" not in self.last_check_info:
+            return self.last_check_info
         if not ck_pass:
             self._attach_candidate_failure_hints(self.last_check_info)
             return self.gen_fail_suggestion(self.last_check_info)
@@ -1632,6 +1971,12 @@ class StageManager(object):
         Run test cases.
         This tool is used to execute the test cases in the workspace.
         """
+        stage = self.get_current_stage()
+        self.free_pytest_run.run_test.set_report_context({
+            "source": "RunTestCases",
+            "stage_index": self.stage_index,
+            "stage_name": stage.name if stage is not None else None,
+        })
         ret = self.free_pytest_run.do_check(pytest_args, timeout=timeout, return_line_coverage=return_line_coverage, detail=detail)
         if raw_return:
             return ret

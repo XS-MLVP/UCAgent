@@ -17,6 +17,7 @@ from ucagent.util.config import load_yaml_with_env_vars
 class _FakeStageManager:
     def __init__(self):
         self.data = {}
+        self.save_count = 0
         self.current_stage = SimpleNamespace(
             reset_continue_fail_count_with_batch_pass=lambda: None,
         )
@@ -26,6 +27,9 @@ class _FakeStageManager:
 
     def set_data(self, key, value):
         self.data[key] = value
+
+    def save_stage_info(self):
+        self.save_count += 1
 
     def get_current_stage(self):
         return self.current_stage
@@ -70,9 +74,33 @@ def _make_checker(tmp_path, entries, batch_size=2):
         test_dir="tests",
         batch_size=batch_size,
         data_key="RANDOM_TEST_DATA",
+        test_func_prefix="test_random_",
     ).set_workspace(str(tmp_path)).set_stage(_FakeStage()).set_stage_manager(manager)
     checker.on_init()
     return checker, manager
+
+
+def test_random_checker_rejects_nonconforming_name_before_execution(tmp_path):
+    checker, _manager = _make_checker(
+        tmp_path,
+        [("FG-A", "FC-A", "CK-A")],
+    )
+    test_file = tmp_path / "tests" / "test_random_bad_name.py"
+    test_file.write_text(
+        "raise AssertionError('test module must not be imported before naming validation')\n\n"
+        "def test_bad_random_name(env):\n"
+        "    assert True\n",
+        encoding="utf-8",
+    )
+
+    passed, message = checker.test_check()
+
+    assert passed is False
+    assert message["diagnostic"]["error_code"] == (
+        "TEST_FUNCTION_CONTRACT_VIOLATION"
+    )
+    assert "test_bad_random_name" in message["details"][0]
+    assert "test_random_" in message["details"][0]
 
 
 def test_random_test_checker_rejects_mark_function_in_comment(tmp_path):
@@ -177,6 +205,50 @@ def test_random_test_cases_unknown_and_out_of_batch_labels_show_current_example(
     assert 'Check(stage_args="{\\"generated\\": {\\"FG-A/FC-A/CK-A\\":' in error_text
 
 
+def test_random_test_cases_restores_partial_current_batch(tmp_path):
+    entries = [
+        ("FG-A", "FC-A", "CK-A"),
+        ("FG-A", "FC-A", "CK-B"),
+    ]
+    checker, manager = _make_checker(tmp_path, entries, batch_size=2)
+    checker._run_random_tests = lambda timeout=0, **kwargs: (True, "pass")
+
+    passed, _message = checker.do_check(
+        generated={"FG-A/FC-A/CK-A": "generated A"}
+    )
+
+    assert passed is False
+    assert manager.save_count == 1
+    restored, _manager = _make_checker(tmp_path, entries, batch_size=2)
+    assert restored.batch_task.gen_task_list == ["FG-A/FC-A/CK-A"]
+    assert restored.batch_task.cmp_task_list == ["FG-A/FC-A/CK-A"]
+    assert restored.batch_task.tbd_task_list == [
+        "FG-A/FC-A/CK-A",
+        "FG-A/FC-A/CK-B",
+    ]
+
+
+def test_random_test_cases_does_not_commit_failed_validation(tmp_path):
+    checker, manager = _make_checker(
+        tmp_path,
+        [("FG-A", "FC-A", "CK-A")],
+        batch_size=1,
+    )
+    checker._run_random_tests = lambda timeout=0, **kwargs: (
+        False,
+        {"error": "random test failed"},
+    )
+
+    passed, _message = checker.do_check(
+        generated={"FG-A/FC-A/CK-A": "generated A"}
+    )
+
+    assert passed is False
+    assert checker.random_result == {}
+    assert checker.batch_task.gen_task_list == []
+    assert manager.save_count == 0
+
+
 def test_random_test_cases_rejects_nested_json_dictionary_string(tmp_path):
     checker, _manager = _make_checker(
         tmp_path,
@@ -224,4 +296,12 @@ def test_random_test_stage_documents_unified_stage_args_fallback():
     assert "stage_args" in task_text
     assert "字符串fallback示例" in task_text
     assert "完整合法JSON对象" in task_text
+    assert "文档结构/语言/代码风格等非DUT激励属性" in task_text
+    assert "应跳过该CK并在stage_args.generated中说明确定的跳过原因" in task_text
+    assert "不要为了制造随机用例而搜索或修改无关覆盖定义" in task_text
+    assert "是跨阶段累计文档" in task_text
+    assert "本阶段Check只运行{OUT}/tests/test_{DUT}_random*.py并产生局部报告" in task_text
+    assert "历史TC未出现在本轮报告不表示它已Pass" in task_text
+    assert "同名BG/TC跨不同CK时必须保留每条真实路径" in task_text
+    assert "本轮没有确认新的DUT Bug时无需新增BG" in task_text
     assert "Check(generated=" not in task_text

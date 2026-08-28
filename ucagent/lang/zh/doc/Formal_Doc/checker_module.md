@@ -1,9 +1,11 @@
+
 # {DUT} 形式化验证环境 (Checker Module) 模板指南
 
 本指南展示 Checker 模块的代码骨架结构、端口声明规范和时钟块定义。
 在验证环境中，所有 SVA 断言都会被注入到这个模块的对应区域中。
 
 ## 模块定义
+
 ```systemverilog
 module {DUT}_checker (
     // AI 将根据 {OUT}/{DUT}_basic_info.md 自动填充端口
@@ -82,6 +84,7 @@ endmodule
 ```
 
 ## 注意事项
+
 1. **端口列表**: Checker 的端口列表应与 DUT 的接口保持一致，AI 会尝试自动同步。
 2. **时钟与复位**: Checker 模块必须包含时钟和复位信号。
 3. **注入锚点**: 请勿修改或删除 `<UCAgent-Inject-...>` 注释块，它们是 AI 工作的关键。

@@ -381,11 +381,16 @@ def test_base_checker_supports_multiple_infrastructure_ignore_prefixes(tmp_path)
     class CaptureRunner:
         def __init__(self):
             self.pytest_args = None
+            self.report_context = None
 
         def set_workspace(self, _workspace):
             return self
 
         def set_pre_call_back(self, _callback):
+            return self
+
+        def set_report_context(self, context):
+            self.report_context = context
             return self
 
         def do(self, *_args, **kwargs):
@@ -411,6 +416,10 @@ def test_base_checker_supports_multiple_infrastructure_ignore_prefixes(tmp_path)
         "not test_api_Demo_env_ and not test_api_Demo_reference_model_ and not test_api_Demo_mock_",
         ".",
     ]
+    assert runner.report_context == {
+        "source": "checker",
+        "checker_class": "BaseUnityChipCheckerTestCase",
+    }
     assert checker._is_ignored_test_case(
         "tests/test_env.py:1-2::test_api_Demo_env_basic"
     )
@@ -443,6 +452,39 @@ def test_template_scope_excludes_only_configured_api_checkpoints(tmp_path):
         "FG-DATA/FC-RESULT/CK-NON-API"
     ]
     assert checker.get_template_data()["TOTAL_CKS"] == 1
+
+
+def test_template_batch_checkpoint_is_initialized_and_restored(tmp_path):
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "functions.md").write_text(
+        "<FG-DATA>\n<FC-RESULT>\n<CK-A>\n<CK-B>\n",
+        encoding="utf-8",
+    )
+    stage = SimpleNamespace(name="create_test_case_templates")
+    checker = UnityChipCheckerTestTemplate(
+        doc_func_check="functions.md",
+        test_dir="tests",
+        batch_size=1,
+    ).set_workspace(str(tmp_path)).set_stage(stage)
+    checker.on_init()
+
+    assert checker.batch_task.checkpoint_file is not None
+    assert checker.batch_task.tbd_task_list == ["FG-DATA/FC-RESULT/CK-A"]
+
+    checker.batch_task.gen_task_list = ["FG-DATA/FC-RESULT/CK-A"]
+    passed, _message = checker.batch_task.do_complete([], False, "", "", "")
+    assert passed is False
+
+    restored = UnityChipCheckerTestTemplate(
+        doc_func_check="functions.md",
+        test_dir="tests",
+        batch_size=1,
+    ).set_workspace(str(tmp_path)).set_stage(stage)
+    restored.on_init()
+
+    assert restored.batch_task.gen_task_list == ["FG-DATA/FC-RESULT/CK-A"]
+    assert restored.batch_task.tbd_task_list == ["FG-DATA/FC-RESULT/CK-B"]
+    assert restored.get_template_data()["COVERED_CKS"] == 1
 
 
 def test_template_accepts_api_checkpoint_unmarked_when_api_scope_is_excluded(

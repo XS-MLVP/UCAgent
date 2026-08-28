@@ -7,6 +7,19 @@ from typing import List
 
 import yaml
 
+from ucagent.util.config import load_runtime_config
+from ucagent.util.markdown import ensure_markdown_heading_spacing
+from ucagent.util.bug_analysis_contract import (
+    DYNAMIC_BUG_DOCUMENT_PATH,
+    RELATED_BUG_TAG_PREFIX,
+    ROOT_ANALYSIS_SECTION_MARKERS,
+    ROOT_CAUSE_REFERENCE_TAG_PREFIX,
+    ROOT_CAUSES_END_MARKER,
+    ROOT_CAUSES_MARKER,
+    ROOT_ENTITY_TAG_PATTERN,
+    STATIC_BUG_DOCUMENT_PATH,
+)
+
 
 PROJECT_ROOT = os.getcwd()
 DYNAMIC_BUGS_MARKER = "<DYNAMIC-BUGS>"
@@ -17,16 +30,10 @@ STATIC_BUG_SUMMARY_MARKER = "<STATIC-BUG-SUMMARY>"
 STATIC_BUG_DETAILS_MARKER = "<STATIC-BUG-DETAILS>"
 STATIC_BUG_PROGRESS_MARKER = "<STATIC-BUG-PROGRESS>"
 DYNAMIC_BUG_TODO_MARKER = "<BUG-TODO>"
-DYNAMIC_BUG_SOURCE_UNAVAILABLE_MARKER = "<BUG-SOURCE-UNAVAILABLE>"
 DYNAMIC_BUG_SECTION_MARKERS = (
     ("overview", "<BUG-OVERVIEW>"),
     ("symptoms", "<BUG-SYMPTOMS>"),
     ("trigger", "<BUG-TRIGGER>"),
-    ("root_cause", "<BUG-ROOT-CAUSE>"),
-    ("source_evidence", "<BUG-SOURCE-EVIDENCE>"),
-    ("causal_chain", "<BUG-CAUSAL-CHAIN>"),
-    ("fix", "<BUG-FIX>"),
-    ("retest", "<BUG-RETEST>"),
 )
 
 
@@ -111,15 +118,14 @@ def waveform_reference(test_tag: str) -> str:
     return f"<WAVEFORM-REF> [WAVEFORM-EVIDENCE](#waveform-{anchor})"
 
 
-def get_target_md_path() -> str:
-    dut = os.environ.get("DUT")
-    out_dir = os.environ.get("OUT")
-    if not dut or not out_dir:
-        raise ValueError(
-            "Error: environment variable DUT or OUT is missing. Please run this script via `RunSkillScript`."
-        )
+def get_target_md_path(runtime_config=None) -> str:
+    runtime_config = runtime_config or load_runtime_config(os.getcwd())
+    dut = runtime_config["DUT"]
+    out_dir = runtime_config["OUT"]
 
-    path = os.path.join(PROJECT_ROOT, out_dir, f"{dut}_static_bug_analysis.md")
+    path = os.path.join(
+        PROJECT_ROOT, STATIC_BUG_DOCUMENT_PATH.format(OUT=out_dir, DUT=dut)
+    )
     if not os.path.exists(path):
         raise FileNotFoundError(
             f"Error: target file not found: {path}. Please ensure static bug analysis has been generated first."
@@ -127,15 +133,14 @@ def get_target_md_path() -> str:
     return path
 
 
-def get_bug_analysis_md_path() -> str:
-    dut = os.environ.get("DUT")
-    out_dir = os.environ.get("OUT")
-    if not dut or not out_dir:
-        raise ValueError(
-            "Error: environment variable DUT or OUT is missing. Please run this script via `RunSkillScript`."
-        )
+def get_bug_analysis_md_path(runtime_config=None) -> str:
+    runtime_config = runtime_config or load_runtime_config(os.getcwd())
+    dut = runtime_config["DUT"]
+    out_dir = runtime_config["OUT"]
 
-    path = os.path.join(PROJECT_ROOT, out_dir, f"{dut}_bug_analysis.md")
+    path = os.path.join(
+        PROJECT_ROOT, DYNAMIC_BUG_DOCUMENT_PATH.format(OUT=out_dir, DUT=dut)
+    )
     if not os.path.exists(path):
         raise FileNotFoundError(
             f"Error: target file not found: {path}. Please ensure bug analysis has been generated first."
@@ -251,12 +256,83 @@ def has_dynamic_bug_field_content(content: str) -> bool:
         content,
     )
     without_optional_markers = re.sub(
-        rf"(?m)^[ \t]*(?:{re.escape(DYNAMIC_BUG_SOURCE_UNAVAILABLE_MARKER)}|"
-        rf"{re.escape(DYNAMIC_BUG_TODO_MARKER)})[ \t]*$",
+        rf"(?m)^[ \t]*{re.escape(DYNAMIC_BUG_TODO_MARKER)}[ \t]*$",
         "",
         without_display_headings,
     )
     return bool(re.sub(r"\s+", "", without_optional_markers))
+
+
+def ensure_root_cause_link_complete(lines: List[str], target_bg: str) -> None:
+    """Check the lightweight root-cause relation before static LINK-BUG updates."""
+
+    starts = [i for i, line in enumerate(lines) if line.strip() == ROOT_CAUSES_MARKER]
+    ends = [i for i, line in enumerate(lines) if line.strip() == ROOT_CAUSES_END_MARKER]
+    if not starts and not ends:
+        raise ValueError(
+            "Error: linked dynamic BG requires one closed ROOT-CAUSES container with "
+            "one exact <CAUSE-REF-ROOT-NAME> and reverse RELATED-BUG path."
+        )
+    if len(starts) != 1 or len(ends) != 1 or starts[0] >= ends[0]:
+        raise ValueError("Error: ROOT-CAUSES must be one closed canonical container.")
+    dynamic_end = next(
+        (i for i, line in enumerate(lines) if line.strip() == DYNAMIC_BUGS_END_MARKER),
+        -1,
+    )
+    if dynamic_end < 0 or not dynamic_end < starts[0] < ends[0]:
+        raise ValueError("Error: ROOT-CAUSES must follow DYNAMIC-BUGS.")
+    target_refs = []
+    for block in collect_dynamic_bg_blocks(lines, target_bg):
+        sections, problems = parse_dynamic_bug_sections(block)
+        if not problems and "trigger" in sections:
+            target_refs.extend(
+                line.strip()
+                for line in sections["trigger"].splitlines()
+                if line.strip().startswith(f"<{ROOT_CAUSE_REFERENCE_TAG_PREFIX}")
+            )
+    if len(target_refs) != 1:
+        raise ValueError(
+            f"Error: linked BG '{target_bg}' must contain exactly one <{ROOT_CAUSE_REFERENCE_TAG_PREFIX}ROOT-NAME>."
+        )
+    root_match = re.match(
+        rf"^<{re.escape(ROOT_CAUSE_REFERENCE_TAG_PREFIX)}"
+        rf"({ROOT_ENTITY_TAG_PATTERN.pattern})>\s+",
+        target_refs[0],
+    )
+    if root_match is None:
+        raise ValueError(f"Error: {target_refs[0]} does not name a canonical root-cause tag.")
+    root_tag = root_match.group(1)
+    root_lines = lines[starts[0] + 1 : ends[0]]
+    entity_start = next(
+        (i for i, line in enumerate(root_lines) if f"<{root_tag}>" in line),
+        -1,
+    )
+    entity_end = next(
+        (
+            i
+            for i in range(entity_start + 1, len(root_lines))
+            if re.fullmatch(
+                rf"###\s+.+\s+<{ROOT_ENTITY_TAG_PATTERN.pattern}>",
+                root_lines[i].strip(),
+            )
+        ),
+        len(root_lines),
+    )
+    entity = "".join(root_lines[entity_start:entity_end]) if entity_start >= 0 else ""
+    if (
+        not entity
+        or DYNAMIC_BUG_TODO_MARKER in entity
+        or any(marker not in entity for _field, marker in ROOT_ANALYSIS_SECTION_MARKERS)
+        or "<RELATED-BUGS>" not in entity
+        or not re.search(
+            rf"<{re.escape(RELATED_BUG_TAG_PREFIX)}[^<>]*/{re.escape(target_bg)}>",
+            entity,
+        )
+    ):
+        raise ValueError(
+            f"Error: root cause <{root_tag}> must be complete and reverse-link "
+            f"<{target_bg}> before static Bug linking."
+        )
 
 
 def collect_confirmed_waveform_records(lines: List[str]) -> dict[str, dict]:
@@ -382,6 +458,7 @@ def ensure_dynamic_bg_complete(lines: List[str], target_bg: str) -> None:
                 f"Error: linked BG tag '{target_bg}' is only an incomplete scaffold ({detail}). "
                 "Fill its real WaveInfo evidence and all analysis fields before linking."
             )
+        ensure_root_cause_link_complete(lines, target_bg)
 
 
 def ensure_static_bg_exists_in_static_report(lines: List[str], static_bg: str) -> None:
@@ -532,7 +609,7 @@ def update_static_bug_link(target_md: str, static_bg: str, link_targets: List[st
         )
 
     with open(target_md, "w", encoding="utf-8") as f:
-        f.writelines(lines)
+        f.write(ensure_markdown_heading_spacing("".join(lines)))
 
     return (
         f"Successfully linked {static_bg} to {summary_value} in "
@@ -544,8 +621,9 @@ def main():
     args = parse_args()
     validate_static_bg(args.SBG)
     link_targets = parse_link_targets(args.LBG)
-    target_md = get_target_md_path()
-    bug_analysis_md = get_bug_analysis_md_path()
+    runtime_config = load_runtime_config(os.getcwd())
+    target_md = get_target_md_path(runtime_config)
+    bug_analysis_md = get_bug_analysis_md_path(runtime_config)
     ensure_link_targets_exist_in_bug_analysis(link_targets, bug_analysis_md)
     print(update_static_bug_link(target_md, args.SBG, link_targets))
 

@@ -25,6 +25,7 @@ stage:
     desc: "DUT验证需求细化与测试用例完善"
     task:
       - "按照人类专家的要求/思路，对{DUT}的验证（文档、测试用例、测试报告等）进行细化和完善"
+      - "测试命名必须遵守Guide_Doc/dut_test_case.md：env、参考模型、Mock、API、静态Bug验证和随机测试使用各自专用文件与函数前缀；普通定向测试使用test_<scenario>且不得占用test_api_、test_static_、test_random_保留前缀"
     checker:
       - name: test_check
         clss: "UnityChipCheckerTestCase"
@@ -32,6 +33,7 @@ stage:
           doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
           doc_bug_analysis: "{OUT}/{DUT}_bug_analysis.md"
           test_dir: "{OUT}/tests"
+          test_func_rules: standard
           ignore_tc_prefix:
             - "test_api_{DUT}_env_"
             - "test_api_{DUT}_reference_model_"

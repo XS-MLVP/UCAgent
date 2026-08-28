@@ -5,6 +5,8 @@ description: 通过脚本把 DUT 基本信息写入 .formal_records.yaml 的 bas
 
 # Formal Basic Info
 
+Markdown 排版契约：本技能生成、维护或展示的任何 Markdown 中，每个 `#` 到 `######` 标题前后各保留一个空行；标题前置空行没有例外：文件开头的标题、Markdown 示例围栏内首个标题和 `<a id="..."></a>` 锚点后的目标标题都必须有前置空行。标题前不得直接连接正文、列表、表格、下一级标题、代码围栏或锚点；字段标题后的规范机器标记（例如 `<BUG-*>`、`<ROOT-*>` 和 `<RELATED-BUGS>`）可以继续与标题紧邻。
+
 本技能用于维护 `.formal_records.yaml` 中的 `basic_info` 字段。
 
 本阶段的唯一事实来源是 `.formal_records.yaml.basic_info`。

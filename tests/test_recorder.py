@@ -26,6 +26,7 @@ from ucagent.checkers.toffee_report import parse_bug_label
 from ucagent.server.api_master import PdbMasterApiServer, PdbMasterClient
 from ucagent.util.config import load_yaml_with_env_vars
 from ucagent.util.functions import import_class_from_str
+from ucagent.util.markdown import markdown_heading_spacing_errors
 
 
 class _FakeStage:
@@ -71,6 +72,7 @@ class _UnsupportedMasterClient:
 class _FakeStageManager:
     def __init__(self, stage, master_clients=None):
         self.data = {}
+        self.save_count = 0
         self.stages = [stage]
         pdb = SimpleNamespace(_master_clients=master_clients or {})
         self.agent = SimpleNamespace(dut_name="Adder", pdb=pdb)
@@ -80,6 +82,9 @@ class _FakeStageManager:
 
     def set_data(self, key, value):
         self.data[key] = value
+
+    def save_stage_info(self):
+        self.save_count += 1
 
 
 def _write_bug_doc(tmp_path, entries, relative_path="Adder_bug_analysis.md"):
@@ -188,7 +193,7 @@ def test_bug_recorder_normalizes_and_caches_bug_list(tmp_path):
         "bug_name": "overflow_bug",
         "CK": ["FG-GROUP/FC-FUNCTION/CK-OVERFLOW", "CK-BOUNDARY"],
         "desc": "The result width truncates the carry bit; the output declaration is too narrow.",
-        "locations": ["rtl/adder.sv:128-229", "rtl/adder.sv:240,250-252"],
+        "locations": ["rtl/adder.sv:128-229", "rtl/adder.sv:240-240,250-252"],
         "confidence": 76,
     }]))
 
@@ -199,7 +204,7 @@ def test_bug_recorder_normalizes_and_caches_bug_list(tmp_path):
         "alias": [],
         "CK": ["FG-GROUP/FC-FUNCTION/CK-OVERFLOW", "FG-GROUP/FC-FUNCTION/CK-BOUNDARY"],
         "desc": "The result width truncates the carry bit; the output declaration is too narrow.",
-        "locations": ["rtl/adder.sv:128-229", "rtl/adder.sv:240,250-252"],
+        "locations": ["rtl/adder.sv:128-229", "rtl/adder.sv:240-240,250-252"],
         "severity": "medium",
         "confidence": 0.76,
         "ref": ["Adder_bug_analysis.md:8-9,12-13"],
@@ -492,6 +497,7 @@ def test_bug_recorder_records_document_bugs_in_batches(tmp_path):
         "bug-a",
         "bug-b",
     ]
+    assert manager.save_count == 1
 
     passed, message = recorder.do_check(bug_list=[records["bug-a"]])
     assert passed is False
@@ -881,7 +887,7 @@ def test_bug_recorder_generates_linked_markdown_summary_on_stage_complete(tmp_pa
         "bug_name": "overflow",
         "CK": ["CK-OVERFLOW"],
         "desc": "The result is truncated | the root cause is an undersized signal.\nCarry is lost.",
-        "locations": ["rtl/adder.sv:10-12,20"],
+        "locations": ["rtl/adder.sv:10-12,20-20"],
         "confidence": 0.90,
         "severity": "high",
     }])
@@ -897,6 +903,7 @@ def test_bug_recorder_generates_linked_markdown_summary_on_stage_complete(tmp_pa
 
     assert summary_path.exists() is True
     markdown = summary_path.read_text(encoding="utf-8")
+    assert markdown_heading_spacing_errors(markdown) == []
     assert "# Adder Bug Summary" in markdown
     assert "Total Bugs: 1" in markdown
     assert "| Name | Severity | Alias | CK | Analysis | Locations | Confidence | Ref |" in markdown

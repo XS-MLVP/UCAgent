@@ -7,11 +7,19 @@ import stat
 from collections.abc import Sequence
 from ucagent.util.bug_analysis_contract import (
     BUG_ANALYSIS_SECTION_MARKERS,
-    BUG_SOURCE_EVIDENCE_MARKERS,
-    BUG_SOURCE_UNAVAILABLE_MARKER,
+    DYNAMIC_BUG_DOCUMENT_PATH,
+    ROOT_SOURCE_EVIDENCE_MARKERS,
+    ROOT_SOURCE_UNAVAILABLE_MARKER,
+    ROOT_ANALYSIS_SECTION_MARKERS,
+    TEST_CASE_SERIALIZATION,
     BUG_TODO_MARKER,
     DYNAMIC_BUGS_MARKER,
     DYNAMIC_BUGS_END_MARKER,
+    RELATED_BUGS_MARKER,
+    ROOT_CAUSE_ANALYSIS_MARKER,
+    ROOT_CAUSE_REFERENCE_MARKER,
+    ROOT_CAUSES_END_MARKER,
+    ROOT_CAUSES_MARKER,
     WAVEFORM_BUG_ANALYSIS_FIELDS,
     WAVEFORM_BLOCK_KEY,
     WAVEFORM_EVIDENCE_END_MARKER,
@@ -19,6 +27,7 @@ from ucagent.util.bug_analysis_contract import (
     WAVEFORM_FENCE_OPEN,
     WAVEFORM_LLM_ANALYSIS_FIELDS,
     WAVEFORM_REFERENCE_MARKER,
+    test_case_parent,
 )
 from ucagent.util.log import info, warning
 import os
@@ -39,6 +48,7 @@ import traceback
 import subprocess
 import selectors
 import signal
+import tempfile
 import textwrap
 
 
@@ -343,14 +353,30 @@ def save_json_file(path: str, data):
     """
     dir_name = os.path.dirname(path)
     if dir_name and not os.path.exists(dir_name):
-        os.makedirs(dir_name)
-    with open(path, 'w', encoding='utf-8') as f:
-        try:
+        os.makedirs(dir_name, exist_ok=True)
+    target_dir = dir_name or os.curdir
+    temp_name = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=target_dir,
+            prefix=f".{os.path.basename(path)}.",
+            suffix=".tmp",
+            delete=False,
+        ) as f:
+            temp_name = f.name
             json.dump(data, f, indent=4, ensure_ascii=False)
-        except TypeError as e:
-            raise ValueError(f"Data provided is not JSON serializable: {e}")
-        except Exception as e:
-            raise RuntimeError(f"Unexpected error while saving JSON file {path}: {e}")
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(temp_name, path)
+    except TypeError as e:
+        raise ValueError(f"Data provided is not JSON serializable: {e}")
+    except Exception as e:
+        raise RuntimeError(f"Unexpected error while saving JSON file {path}: {e}")
+    finally:
+        if temp_name and os.path.exists(temp_name):
+            os.unlink(temp_name)
 
 def get_abs_path_cwd_ucagent(workspace, path):
     """
@@ -444,6 +470,9 @@ def load_toffee_report(
         "fails": len(fails),
     }
     ret_data["tests"]["test_cases"] = tests_map
+    instance_map = _get_toffee_test_case_instances(data, workspace, tests)
+    if instance_map:
+        ret_data["tests"]["test_case_instances"] = instance_map
     if return_test_details:
         ret_data["tests"]["test_case_details"] = _get_toffee_test_case_details(
             data, tests
@@ -509,6 +538,108 @@ def load_toffee_report(
     if len(test_fc_no_check_points) > 0:
         ret_data["test_function_with_no_check_point_mark_list"] = test_fc_no_check_points
     return ret_data
+
+
+_TOFFEE_NODE_RE = re.compile(
+    r"<TestReport\s+['\"](?P<node>[^'\"]+?)['\"]\s+when=",
+)
+
+
+def _get_toffee_test_case_instances(
+    data: dict, workspace: str, tests: list[tuple[str, str]]
+) -> dict:
+    """Expose failed parameterized pytest nodes under function-level report keys.
+
+    Toffee's abstract map is intentionally used for coverage and line ranges,
+    while each raw phase report contains the parameterized node that actually
+    executed.  Only failed children are emitted to keep LLM-facing reports bounded.
+    The file path from the abstract key is authoritative; only the
+    node/class/function suffix is taken from the raw report, so a pytest cwd
+    prefix cannot silently change test identity.
+    """
+
+    raw_tests = data.get("tests", [])
+    if not isinstance(raw_tests, list):
+        return {}
+
+    # Abstract entries contain source ranges and are the canonical report keys.
+    # Indexing them against raw tests is invalid for parametrization because one
+    # abstract function expands to many raw pytest items.
+    abstract_by_parent = {}
+    for report_key, status in tests:
+        try:
+            report_file, _line_from, _line_to, report_node = parse_test_case_location(
+                report_key, workspace
+            )
+            parent = "::".join([report_file, *report_node.split("::")])
+        except Exception:
+            continue
+        abstract_by_parent.setdefault(test_case_parent(parent), []).append(
+            (parent, status)
+        )
+
+    instances = {}
+    for raw_test in raw_tests:
+        if not isinstance(raw_test, dict):
+            continue
+        raw_status_data = raw_test.get("status") or {}
+        raw_status = (
+            str(raw_status_data.get("word", "")).upper()
+            if isinstance(raw_status_data, dict)
+            else ""
+        )
+        if raw_status not in {"PASSED", "FAILED", "ERROR", "SKIPPED"}:
+            phase_words = []
+            for phase in raw_test.get("phases", []):
+                phase_status = phase.get("status") if isinstance(phase, dict) else {}
+                if isinstance(phase_status, dict):
+                    phase_words.append(str(phase_status.get("word", "")).upper())
+            raw_status = (
+                "FAILED"
+                if any(word in {"FAILED", "ERROR"} for word in phase_words)
+                else "PASSED"
+            )
+        nodes = []
+        for phase in raw_test.get("phases", []):
+            if not isinstance(phase, dict):
+                continue
+            match = _TOFFEE_NODE_RE.search(str(phase.get("report", "")))
+            if match and match.group("node") not in nodes:
+                nodes.append(match.group("node").strip())
+        for node in nodes:
+            node_parts = node.split("::")
+            if len(node_parts) not in (2, 3):
+                continue
+            raw_function = node_parts[-1]
+            if raw_function.endswith("]") and "[" in raw_function:
+                raw_function = raw_function[: raw_function.find("[")]
+            raw_tail = tuple([*node_parts[1:-1], raw_function])
+            candidates = []
+            for abstract_parent, entries in abstract_by_parent.items():
+                abstract_parts = abstract_parent.split("::")
+                if (
+                    os.path.basename(abstract_parts[0]) == os.path.basename(node_parts[0])
+                    and tuple(abstract_parts[1:]) == raw_tail
+                ):
+                    candidates.extend(entries)
+            if len(candidates) != 1:
+                # Raw pytest paths are relative to pytest's cwd, while abstract
+                # paths are workspace-relative.  A unique same-file-basename and
+                # exact class/function correlation selects the authoritative
+                # abstract entry; ambiguity is never resolved by path guessing.
+                continue
+            canonical_parent, _aggregate_status = candidates[0]
+            canonical_node = "::".join([canonical_parent.split("::", 1)[0], *node_parts[1:]])
+            if (
+                test_case_parent(canonical_node) == canonical_node
+                or raw_status not in {"FAILED", "ERROR"}
+            ):
+                continue
+            entries = instances.setdefault(canonical_parent, [])
+            item = {"node_id": canonical_node, "status": "FAILED"}
+            if item not in entries:
+                entries.append(item)
+    return instances
 
 
 def _get_toffee_test_case_details(data: dict, tests: list) -> dict:
@@ -1798,15 +1929,31 @@ def description_bug_doc():
     section_markers = " -> ".join(
         marker for _key, marker in BUG_ANALYSIS_SECTION_MARKERS
     )
-    source_markers = ", ".join(BUG_SOURCE_EVIDENCE_MARKERS)
+    root_section_markers = " -> ".join(
+        marker for _key, marker in ROOT_ANALYSIS_SECTION_MARKERS
+    )
+    source_markers = ", ".join(ROOT_SOURCE_EVIDENCE_MARKERS)
     shared_fields = ", ".join(WAVEFORM_LLM_ANALYSIS_FIELDS)
     bug_fields = ", ".join(WAVEFORM_BUG_ANALYSIS_FIELDS)
     return [
-        "[Dynamic Bug Analysis Contract] Follow the active stage task and Guide_Doc/dut_bug_analysis.md for the complete workflow. A stage Skill, when available, is only an optional helper.",
-        f"  - Put dynamic Bug entries inside one closed {DYNAMIC_BUGS_MARKER} ... {DYNAMIC_BUGS_END_MARKER} container, followed by one closed {WAVEFORM_EVIDENCE_MARKER} ... {WAVEFORM_EVIDENCE_END_MARKER} container.",
+        "[Dynamic Bug Analysis Contract] Follow the active stage task and Guide_Doc/dut_bug_analysis.md for the complete workflow. When the active stage enables dynamic-bug-recording and its script is available, prefer that Skill's deterministic operations and ApplyWaveInfoEvidence, and avoid proactive direct edits to the Bug document. For a document-format blocker, attempt the returned next_action or -MODE repair once. If the same blocker remains or malformed structure prevents that recovery, edit only the exact reported markers, paths, or lines, preserve unrelated analysis and WAVEFORM-EVIDENCE content, and immediately rerun -MODE repair and Check. Follow the scope and after_edit call in a returned manual_edit_fallback. When Skill support or the script is unavailable, use text-editing tools for the same canonical contract.",
+        f"  - The only dynamic Bug target is {DYNAMIC_BUG_DOCUMENT_PATH}. Its visible Markdown title is not a filename rule; never derive or create another filename from that title.",
+        f"  - Keep the documented TC on the exact function-level report node: Markdown `{TEST_CASE_SERIALIZATION['markdown_tag']}`; recorder/Apply arguments and waveform YAML test_case `{TEST_CASE_SERIALIZATION['tool_or_yaml']}`. For a non-parameterized test, WaveInfo test_case_name is `{TEST_CASE_SERIALIZATION['waveinfo']}` for that same node. When Toffee aggregates parameterized executions, `tests.test_case_instances` lists exact child nodes; WaveInfo uses one FAILED child while the document TC stays unchanged. A child is related only when removing its final `[...]` leaves the byte-for-byte same workspace-relative path, optional class, and function.",
+        f"  - Put dynamic Bug entries inside one closed {DYNAMIC_BUGS_MARKER} ... {DYNAMIC_BUGS_END_MARKER} container, root-cause entities inside one closed {ROOT_CAUSES_MARKER} ... {ROOT_CAUSES_END_MARKER} container, then waveform records inside one closed {WAVEFORM_EVIDENCE_MARKER} ... {WAVEFORM_EVIDENCE_END_MARKER} container.",
+        "  - For a completed no-Bug result, keep the canonical document title and the three ordered closed containers, with every container body empty. Do not put explanatory prose, BG-*-0, TC/ROOT placeholders, comments, or waveform records in those bodies.",
         "  - Use the exact semantic heading hierarchy shown in Guide_Doc/dut_bug_analysis.md section 5.1 for FG, FC, CK, BG, and TC. Angle-bracket tags may be hidden by Markdown, so every visible title must describe the actual item rather than repeat its type.",
         "  - XX must be 1..100 for a dynamically reproduced DUT Bug. A zero-confidence BG is ignored and cannot explain a failed test.",
         "  - Every non-zero BG must contain at least one correctly implemented FAILED TC mapped to the same checkpoint.",
+        "  - Validation is scoped to the full FG/FC/CK/BG path. Keep one BG occurrence per checkpoint branch, with all sibling TCs before the three BG fields and one root-cause reference.",
+        "  - When one root cause affects FAILED TCs associated with different checkpoints, the same BG tag may repeat under those CK branches. Every CK-scoped BG path independently contains its three BG fields and one reference; the shared ROOT entity contains the full root analysis once. Central waveform data remains unique per TC.",
+        f"  - Every BG path has exactly one root cause. Put one clickable {ROOT_CAUSE_REFERENCE_MARKER} at the end of <BUG-TRIGGER>; define the shared analysis once under {ROOT_CAUSE_ANALYSIS_MARKER}. A root cause may list multiple full BG paths under {RELATED_BUGS_MARKER}, and every link must be bidirectional. If a combination creates the defect, that combination is one distinct root cause.",
+        "  - Every root-cause entity must use one document-wide unique <ROOT-NAME> tag and a visible title. Each entity must list at least one existing full BG path under <RELATED-BUGS>; each BG path must point to exactly one root entity through one <CAUSE-REF-ROOT-NAME> tag. Every reverse entry embeds its full path in <RELATED-BUG-FG-NAME/FC-NAME/CK-NAME/BG-NAME-XX> and adds a clickable link; the embedded path, link text, target BG, and generated anchor must match exactly.",
+        "  - Every remaining FAILED DUT test must appear under at least one non-zero BG at one of the exact checkpoints associated with that test in the current report.",
+        "  - A FAILED TC may trigger and cover a checkpoint that is itself PASSED. TC status and checkpoint coverage status are independent; never require every FAILED TC to map to a failed checkpoint or infer checkpoint failure from TC failure.",
+        "  - Every remaining failed checkpoint must have at least one correctly implemented FAILED TC that the current report associates with that exact FG/FC/CK path; the same CK/BG/TC relation must appear in the Bug document.",
+        "  - Do not assume which side caused a FAILED TC. Before WaveInfo or a non-zero BG, derive an independent expected value from the specification, an independent reference model, or a verifiable formula. Record and compare the exact input, specification expected, test expected, DUT actual, and classification. If the two expected values differ, fix the test and rerun; do not record a Bug.",
+        "  - If the expected values agree, validate the test stimulus/driver, API callbacks and Step ordering, valid sampling edge/condition and latency, fixtures, reference model, reset, and environment. Then validate the associated checkpoint coverage/check function, predicate, CovGroup.sample call, and sample timing. Fix each verification error and rerun before using WaveInfo.",
+        "  - A failed checkpoint does not by itself prove a DUT Bug. Only after the preceding checks are correct and the DUT actual still violates the specification may the FAILED TC proceed to WaveInfo and a non-zero dynamic BG.",
         f"  - The first non-empty content after every TC must be the exact {WAVEFORM_REFERENCE_MARKER} link generated by ApplyWaveInfoEvidence. Do not place YAML or a viewer inside a BG entry.",
         f"  - Each failed TC has exactly one central WAVEFORM-TC record whose visible heading reuses the TC title followed by the waveform suffix. Its {WAVEFORM_FENCE_OPEN} mapping must use {WAVEFORM_BLOCK_KEY} as the only top-level key and must be followed by the tool-generated WAVEFORM-VIEWER link. Do not copy, invent, or edit receipt-backed fields.",
         f"  - Complete shared field {shared_fields} once per TC. Under bug_evidence, complete {bug_fields} once for every associated BG. bug_tags and bug_evidence must exactly match all BG/TC references.",
@@ -1819,13 +1966,14 @@ def description_bug_doc():
         "  - Do not classify a data mismatch sampled while valid/enable is inactive, ready/accept is false, reset/idle/transition rules make data invalid, or the documented response latency has not elapsed. Such a point is only an investigation clue unless the specification explicitly requires behavior there.",
         "  - The first non-empty content after the central YAML fence must be the same final WaveInfo result's <WAVEFORM-VIEWER> tagged Markdown link. Its marker, /surfer/?wave= route, and signed token must not be edited or constructed manually.",
         f"  - Inside every non-zero BG, include each analysis marker exactly once and in this order: {section_markers}.",
-        "  - Put every TC and its WAVEFORM-REF directly after the owning BG heading. Put all eight <BUG-*> analysis fields after the final TC/reference; no TC may appear after the first analysis marker.",
+        "  - Put every TC and its WAVEFORM-REF directly after the owning BG heading. Put the three BG fields after the final TC/reference; no TC may appear after the first analysis marker.",
         f"  - Before each analysis marker, use the exact level-6 display title shown in Guide_Doc/dut_bug_analysis.md section 5.1, then write the field body after the marker. Keep this marker order: {section_markers}. Do not rename, translate, omit, duplicate, or reorder them.",
-        f"  - Fill every marked field with evidence-backed content and remove every {BUG_TODO_MARKER}. Follow the complete canonical reference in Guide_Doc/dut_bug_analysis.md section 5.1; do not invent alternate sections or layouts.",
-        f"  - With source access, <BUG-SOURCE-EVIDENCE> must contain a real HDL path:L1-L2 and a complete HDL fenced block containing each marker exactly once: {source_markers}.",
-        f"  - Without source access, put one standalone {BUG_SOURCE_UNAVAILABLE_MARKER} in <BUG-SOURCE-EVIDENCE> and provide a black-box causal analysis from the interface contract, failure log, and waveform. This branch cannot contain an HDL fence or any {source_markers} marker.",
-        "  - Create the BG/TC scaffold with record_dynamic_bug.py when available, or with text-editing tools using Guide_Doc/dut_bug_analysis.md section 5.1 when it is not. Then call ApplyWaveInfoEvidence for each BG/TC association before filling the central waveform conclusions and the BG's RTL/HDL analysis.",
-        "  - Keep all symptoms, trigger conditions, root cause, source evidence, causal chain, fix guidance, risk, and revalidation content inside the owning BG; do not create a detached global root-cause section.",
+        f"  - Fill every marked BG field and every ROOT field with evidence-backed content and remove every {BUG_TODO_MARKER}. ROOT fields must appear in this order: {root_section_markers}; use the complete canonical reference in Guide_Doc/dut_bug_analysis.md section 5.1.",
+        f"  - With source access, <ROOT-SOURCE-EVIDENCE> must contain a real HDL path:start-end and a complete HDL fenced block containing each marker exactly once: {source_markers}.",
+        "  - Source locations must use an inclusive numeric range without an `L` prefix: `Adder/Adder.v:10-14` is valid, while `Adder/Adder.v:10` must be repaired to `Adder/Adder.v:10-10` and `Adder/Adder.v:L10-L14` must be repaired to `Adder/Adder.v:10-14`. This format-only repair does not require new tests, WaveInfo, or Bug classification.",
+        f"  - Without source access, put one standalone {ROOT_SOURCE_UNAVAILABLE_MARKER} in <ROOT-SOURCE-EVIDENCE> and provide a black-box causal analysis from the interface contract, failure log, and waveform. This branch cannot contain an HDL fence or any {source_markers} marker.",
+        "  - After classification confirms a DUT Bug and dynamic-bug-recording is available, prefer record_dynamic_bug.py with -MODE bug for the first exact TC association under each new BG path and -MODE root for each distinct ROOT. For a document-format blocker, attempt the returned next_action or -MODE repair once; edit only the exact reported markers, paths, or lines if the same blocker remains or malformed structure prevents that recovery, then immediately rerun -MODE repair and Check. Follow a returned manual_edit_fallback scope and after_edit call. Preserve unrelated analysis and WAVEFORM-EVIDENCE content. Add later sibling TCs under an existing CK/BG through WaveInfo and ApplyWaveInfoEvidence. When the Skill or script is unavailable, use text-editing tools to produce the same Guide_Doc/dut_bug_analysis.md section 5.1 contract.",
+        "  - Keep only manifestation, severity, scope, and trigger-specific impact in the BG. Keep source evidence, causal chain, fix, risk, and revalidation in the owning ROOT entity; keep receipt/viewer/signal evidence in the central TC record.",
         "  - Fix test code, expected values, fixtures/APIs, reference models, timing, and environment failures until they pass. Never preserve a non-Bug failure with assert False, weakened assertions, or BG-*-0.",
     ]
 
@@ -2497,11 +2645,19 @@ def get_interaction_messages(key, config_file=None):
 
 
 def is_run_report_pass(report, stdout, stderr):
+    contract_failure = report.get("test_function_contract") if isinstance(report, dict) else None
+    if contract_failure:
+        return False, contract_failure
     run_pass = report.get("run_test_success", False)
     if run_pass:
         return True, ""
     return False, {
-        "error": "[Run Failed] Running test cases / generating report failed! Check STDOUT and STDERR output to identify the cause (common issues: import errors, syntax errors, undefined fixtures, DUT compilation failures, etc.).",
+        "error": (
+            "[Run Failed] Test execution or report generation failed. Read STDERR and "
+            "STDOUT, fix the first concrete error at its reported file and line, then "
+            "rerun the same tests. Do not edit the Bug document until "
+            "run_test_success is true."
+        ),
         "STDOUT": stdout,
         "STDERR": stderr,
     }

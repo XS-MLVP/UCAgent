@@ -5,6 +5,8 @@ description: RTL源码静态Bug分析阶段专属技能,用于指导 static_bug_
 
 # 静态Bug分析
 
+Markdown 排版契约：本技能生成、维护或展示的任何 Markdown 中，每个 `#` 到 `######` 标题前后各保留一个空行；标题前置空行没有例外：文件开头的标题、Markdown 示例围栏内首个标题和 `<a id="..."></a>` 锚点后的目标标题都必须有前置空行。标题前不得直接连接正文、列表、表格、下一级标题、代码围栏或锚点；字段标题后的规范机器标记（例如 `<BUG-*>`、`<ROOT-*>` 和 `<RELATED-BUGS>`）可以继续与标题紧邻。
+
 ## 分析步骤：
 
 对于 {DUT}_RTL 目录下的所有源文件(.v,.sv,.scals)，按照以下步骤，依次对每个源文件进行静态Bug分析：
@@ -28,7 +30,7 @@ description: RTL源码静态Bug分析阶段专属技能,用于指导 static_bug_
 - `CKD`: 检测点描述,可直接复用{OUT}/{DUT}_functions_and_checks.md中的描述(10字以内)
 - `BG`: Bug标签，格式为BG-STATIC-NNN-NAME，其中NNN为三位数字递增(001开始,保持序号的连续)，NAME为简要描述. 示例: BG-STATIC-001-CARRY-INPUT
 - `BD`: 潜在Bug的简要描述,描述中不允许存在空格
-- `FILE`: 潜在Bug涉及的源文件路径和相关代码的行数范围，格式为"Adder_RTL/文件.v:L1-L2",其中L1和L2分别是起始行和结束行,可以是单行或多行. 示例: "Adder_RTL/Adder.v:10-14"(代码务必高度相关且简洁,只列出与潜在Bug相关的代码)
+- `FILE`: 潜在Bug涉及的源文件路径和相关代码的行数范围，格式为"Adder_RTL/文件.v:起始行-结束行"，不带`L`；单行必须重复行号，例如"Adder_RTL/Adder.v:10-10"，多行示例为"Adder_RTL/Adder.v:10-14"（代码务必高度相关且简洁，只列出与潜在Bug相关的代码）
 - `CL`: Bug置信度,描述对该Bug存在的确信程度. 示例: "高"、"中"、"低"
 
 ### 步骤2: Bug记录
@@ -41,24 +43,28 @@ description: RTL源码静态Bug分析阶段专属技能,用于指导 static_bug_
 ```
 
 ## 核心原则
+
 - 1.**只改不删**: 检查发现错误需要进行修改时,只修改格式错误的部分,不能将格式错误的条目删除,只能修改(因为已经分析出了有潜在Bug,所以不能删除这个条目,只能这个条目的格式有错误需要修改)
 - 2.**结构完整**: {OUT}/{DUT}_static_bug_analysis.md中共有3个栏目,唯一机器边界依次是`<STATIC-BUG-SUMMARY>`、`<STATIC-BUG-DETAILS>`、`<STATIC-BUG-PROGRESS>`。每个标记必须独占一行、恰好出现一次且顺序固定；中文标题只是展示文本，可以本地化。每次修改只在对应标记范围内追加或修改，不要删除、复制、改名或调换标记.
 - 3.**一致性**: `潜在Bug汇总`和`详细分析`下的内容要相互一致,如果`潜在Bug汇总`中已经有了某个BG条目,则`详细分析`中必须有对应的BG条目,反之亦然.
 - 4.**等价写入**: 首次创建完整报告时使用`EditTextFile(path, content)`；对已有报告添加或修正BG条目时使用`ReplaceStringInFile(path, old_string, new_string)`。也可使用可选脚本。无论采用哪种方式，都必须同步维护三个固定分区，重新读取目标段确认一致后再调用Checker.
 
 ## 关键规则
+
 - 来源:所有 <FG-*>/<FC-*>/<CK-*> 必须来自 {OUT}/{DUT}_functions_and_checks.md；不存在的须先添加到{OUT}/{DUT}_functions_and_checks.md再使用
 - 多Bug:一个 <CK-*> 下可以有多个 <BG-STATIC-*> 标签，每个代表一个独立Bug
 - 每个 <BG-STATIC-*>（NULL除外）必须有且仅有一个 <LINK-BUG-[BG-TBD]> 子标签
-- 每个 <LINK-BUG-[BG-TBD]> 必须有至少一个 <FILE-path:L1-L2> 子标签，并附上对应RTL源码片段
-- FILE格式：<FILE-相对路径/文件.v:L1-L2>（相对workspace根目录，示例：rtl/dut.v:50-56）
+- 每个 <LINK-BUG-[BG-TBD]> 必须有至少一个 <FILE-path:1-2> 子标签，并附上对应RTL源码片段
+- FILE格式：<FILE-相对路径/文件.v:起始行-结束行>（不带`L`；单行重复行号；相对workspace根目录，示例：rtl/dut.v:50-56）
 - 所有 <FG-*>/<FC-*>/<CK-*> 标签必须与 functions_and_checks.md 中的定义完全一致（区分大小写）
 - <BG-STATIC-NULL> 是唯一可以没有子标签的Bug条目,且仅用于表示在所有文件中都未发现任何Bug（不能应用于单文件没发现任何Bug）
-- `批次分析进度`中必须使用<file>和</file>标签标记文件路径
+- `批次分析进度`中必须使用`<file sha256="CURRENT_SHA256">路径</file>`标记当前输入身份。路径和64位小写SHA-256逐字复制Checker返回的`current_batch_progress_markers`，禁止自行计算、猜测或沿用旧值；`record_static_bug.py`会自行读取源文件计算该值
+- 同一路径源码内容变化后必须重新读取和分析，更新候选结论并替换为Checker给出的新进度标记；未知、重复、无摘要或摘要不匹配的标记都会失败
 
 ## `{DUT}_static_bug_analysis.md` 文档结构(供修改参考)
 
 ```
+
 # {DUT} RTL 源码静态分析报告
 
 <STATIC-BUG-SUMMARY>
@@ -74,8 +80,11 @@ description: RTL源码静态Bug分析阶段专属技能,用于指导 static_bug_
 ## 二、详细分析
 
 ### <FG-XXX> 功能组描述
+
 #### <FC-YYY> 功能点描述
+
 ##### <CK-ZZZ> 检测点描述
+
   - <BG-STATIC-001-NAME> Bug描述
     - <LINK-BUG-[BG-TBD]>
       - <FILE-ALU754_RTL/ALU754.v:xx-yy>
@@ -90,7 +99,7 @@ description: RTL源码静态Bug分析阶段专属技能,用于指导 static_bug_
 
 | 源文件 | 发现疑似Bug数 | 状态 |
 |--------|---------------|------|
-| <file>ALU754_RTL/ALU754.v</file> | 1 | ✅ 完成 |
+| <file sha256="0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef">ALU754_RTL/ALU754.v</file> | 1 | ✅ 完成 |
 
 ```
 
@@ -106,4 +115,4 @@ description: RTL源码静态Bug分析阶段专属技能,用于指导 static_bug_
 1. `RunSkillScript`工具允许一次性输入多条命令,若有多个记录内容,则列出多条命令,命令中只允许使用定义的参数,禁止额外参数,且参数值必须符合格式要求,每个参数必须使用单括号''括起来.
 2. 使用`RunSkillScript`工具时,若输入了10条命令行,前5条命令行执行正常,成功记录,但第6条命令执行失败时,根据反馈信息修改第6条命令以及后续命令中存在的相同问题,并且使用`RunSkillScript`工具重新执行第6条命令以及后续命令,已经成功的命令不需要重新执行,只需要执行未完成的命令.
 
-没有`RunSkillScript`时，直接按Guide_Doc/dut_bug_analysis.md中的第 7.2 节和本技能的文档结构编辑报告；不得等待脚本、跳过批次或只写展示标题。
+没有`RunSkillScript`时，直接按Guide_Doc/dut_bug_analysis.md section 8.1和本技能的文档结构编辑报告，并逐字复制Checker提供的当前进度标记；不得等待脚本、跳过批次或只写展示标题。

@@ -13,6 +13,7 @@
 - env：针对dut的抽象封装（引脚封装，功能封装，环境封装等），至少有一个，根据需要可以有多个
 
 ### dut Fixture
+
 DUT fixture负责：
 
 1. **实例化DUT**：创建和初始化被测设计
@@ -133,6 +134,7 @@ def dut(request):
 不同类型的电路需要不同的时钟配置：
 
 ##### 时序电路
+
 ```python
 # 单时钟系统
 dut.InitClock("clk")
@@ -143,6 +145,7 @@ dut.InitClock("clk_mem")     # 内存时钟
 ```
 
 ##### 组合电路
+
 ```python  
 # 组合电路不需要InitClock
 ```
