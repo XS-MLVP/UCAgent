@@ -32,9 +32,9 @@ class StatusBar(Horizontal):
         fields = [
             ("Run Time", stats.get("Run Time", "-")),
             ("Model", stats.get("LLM", "-")),
+            ("Speed", stats.get("Token Speed", "0.00 tok/s")),
+            ("Idle", stats.get("Idle", "0.00 s")),
         ]
-        if "Token Speed" in stats:
-            fields.append(("Speed", stats["Token Speed"]))
         fields.extend(
             [
                 ("Backend", backend_type),

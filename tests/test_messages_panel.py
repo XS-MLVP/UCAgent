@@ -573,6 +573,7 @@ class TestVerifyAppPersistence:
             "Run Time": "1s",
             "LLM": "test-model",
             "Token Speed": "12.35 tok/s",
+            "Idle": "8.77 s",
             "Stream": True,
             "Interaction Mode": "test",
         }
@@ -583,6 +584,19 @@ class TestVerifyAppPersistence:
             status_bar.update_content()
 
             assert "Speed: 12.35 tok/s" in status_bar._raw_text
+            assert "Idle: 8.77 s" in status_bar._raw_text
+
+    @pytest.mark.asyncio
+    async def test_status_bar_keeps_zero_speed_and_idle_placeholders(self):
+        vpdb = _FakeVPDB()
+
+        app = VerifyApp(vpdb)
+        async with app.run_test():
+            status_bar = app.query_one("#status-bar", StatusBar)
+            status_bar.update_content()
+
+            assert "Speed: 0.00 tok/s" in status_bar._raw_text
+            assert "Idle: 0.00 s" in status_bar._raw_text
 
     @pytest.mark.asyncio
     async def test_cleanup_saves_and_next_app_restores_messages(self):
