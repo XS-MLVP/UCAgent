@@ -31,7 +31,9 @@ def get_chat_model_openai(cfg: Config, callbacks, rate_limiter) -> Any:
     if model_name:
         kw["model"] = model_name
     if "seed" not in kw:
-        kw["seed"] = cfg.seed
+        seed = getattr(cfg, "seed", None)
+        if isinstance(seed, int):
+            kw["seed"] = seed
     if callbacks:
         kw.update({"callbacks": callbacks, "streaming": True})
     if rate_limiter:
