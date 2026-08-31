@@ -486,7 +486,7 @@ ARGUMENT_DEPENDENCIES = (
     ArgumentDependency(
         source_dest="backend",
         source_option="--backend",
-        applies=lambda value: value is not None and value != "langchain",
+        applies=lambda value: value is not None and value not in {"langchain", "blank"},
         requires=(
             ArgumentRequirement(
                 alternatives=(
@@ -511,6 +511,11 @@ def validate_argument_dependencies(
 ) -> None:
     """Validate declarative cross-argument dependencies."""
     for dependency in dependencies:
+        if (
+            getattr(args, "as_master", None) is not None
+            and dependency.source_dest == "backend"
+        ):
+            continue
         source_value = getattr(args, dependency.source_dest, None)
         if not dependency.applies(source_value):
             continue
@@ -1135,21 +1140,19 @@ def run() -> None:
             info(f"Failed to start Web UI: {e}")
             sys.exit(1)
 
-    # --as-master with no positional args → spin up a fake DUT under /tmp or persistent directory
-    if getattr(args, 'as_master', None) is not None and args.workspace is None:
-        if getattr(args, 'as_master_persist', None) is not None:
-            # Use persistent directory
-            args.workspace = args.as_master_persist
-            os.makedirs(args.workspace, exist_ok=True)
+    # Master keeps the PDB control surface but never initializes a model backend.
+    if getattr(args, 'as_master', None) is not None:
+        if args.workspace is None:
+            if getattr(args, 'as_master_persist', None) is not None:
+                args.workspace = args.as_master_persist
+                os.makedirs(args.workspace, exist_ok=True)
+            else:
+                temp_dir = tempfile.TemporaryDirectory(prefix="ucagent_master_")
+                args.workspace = temp_dir.name
+                args._temp_dir = temp_dir
+        if args.dut is None:
             args.dut = "empty"
-            args.human = True
-        else:
-            # Use temporary directory
-            temp_dir = tempfile.TemporaryDirectory(prefix="ucagent_master_")
-            args.workspace = temp_dir.name
-            args.dut = "empty"
-            args.human = True
-            args._temp_dir = temp_dir
+        args.human = True
         if args.config is None:
             args.config = "master.yaml"
 
@@ -1224,7 +1227,25 @@ def run() -> None:
     if args.mcp_server_host is not None:
         args.override = _append_override(args.override, "mcp_server.host", args.mcp_server_host)
 
-    if args.backend:
+    if args.as_master is not None:
+        if args.backend:
+            args.override = _append_override(
+                args.override, "launch.default_args.backend", args.backend
+            )
+        args.override = _append_override(args.override, "backend.key_name", "blank")
+        args.override = _append_override(args.override, "langfuse.enable", False)
+        args.override = _append_override(
+            args.override,
+            "vmanager.llm_suggestion.check_fail_refinement.enable",
+            False,
+        )
+        args.override = _append_override(
+            args.override,
+            "vmanager.llm_suggestion.check_pass_refinement.enable",
+            False,
+        )
+        args.no_embed_tools = True
+    elif args.backend:
         args.override = _append_override(args.override, "backend.key_name", args.backend)
 
     if args.extra_skill_path and args.use_skill is False:
@@ -1366,10 +1387,21 @@ def run() -> None:
             agent.emulate_config()
         else:
             agent.run()
+            while args.as_master is not None and not agent.is_exit():
+                agent.set_break(True)
+                agent.check_pdb_trace()
     except AssertionError as e:
         info(f"Fail: {e}")
         sys.exit(1)
     finally:
+        if args.as_master is not None:
+            pdb = getattr(agent, "pdb", None)
+            master_server = getattr(pdb, "_master_api_server", None)
+            if master_server is not None and master_server.is_running:
+                try:
+                    pdb.do_master_api_stop("")
+                except Exception as e:
+                    info(f"Warning: failed to stop Master API server: {e}")
         try:
             agent.exit()
         except Exception as e:

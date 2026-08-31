@@ -100,6 +100,13 @@ def test_langchain_backend_does_not_require_mcp_server():
     assert args.backend == "langchain"
 
 
+def test_blank_backend_does_not_require_mcp_server():
+    """BlankBackend is a local no-model backend and has no MCP dependency."""
+    args = _parse_args("workspace", "dut", "--backend", "blank")
+
+    assert args.backend == "blank"
+
+
 def test_non_langchain_backend_requires_mcp_server(capsys):
     with pytest.raises(SystemExit) as exc_info:
         _parse_args("workspace", "dut", "--backend", "claude")

@@ -14,7 +14,9 @@ cmd_timeout: 300
 
 # backend
 backend:
-  key_name: "langchain"  # options: langchain, claude, opencode, copilot, etc.
+  key_name: "langchain"  # options: blank, langchain, claude, opencode, copilot, etc.
+  blank:
+    clss: ucagent.abackend.BlankBackend
   langchain:
     clss: ucagent.abackend.langchain.UCAgentLangChainBackend
   claude:

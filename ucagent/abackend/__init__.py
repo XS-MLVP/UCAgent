@@ -3,6 +3,7 @@
 """Agent backend package."""
 
 from .base import AgentBackendBase
+from .blank import BlankBackend
 from .cmdline import UCAgentCmdLineBackend
 from ucagent.util.config import Config
 
