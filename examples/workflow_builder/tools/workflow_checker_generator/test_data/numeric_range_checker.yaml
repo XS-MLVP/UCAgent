@@ -1,0 +1,20 @@
+name: numeric_range_checker
+description: "Validate a numeric score range."
+
+entry:
+  file: checkers/numeric_range_checker.py
+  class_name: NumericRangeChecker
+  method: do_check
+
+rules:
+  type: json_numeric_range
+  field: score
+  minimum: 0
+  maximum: 100
+
+auto_tests: true
+
+register:
+  stage: smoke_read_generated_docs
+  args:
+    path: .workflow/checker_tests/cases/numeric_range_checker/valid.json

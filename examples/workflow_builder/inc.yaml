@@ -1,0 +1,107 @@
+ex_tools:
+  - "examples.workflow_builder.tools.workflow_tool_generator.uc_tools.WorkflowToolGenerator"
+  - "examples.workflow_builder.tools.workflow_checker_generator.uc_tools.WorkflowCheckerGenerator"
+  - "examples.workflow_builder.tools.workflow_config_generator.uc_tools.WorkflowConfigGenerator"
+  - "examples.workflow_builder.tools.workflow_guidedoc_generator.uc_tools.WorkflowGuideDocGenerator"
+  - "examples.workflow_builder.tools.workflow_evaluation_control.uc_tools.StructuredJsonStore"
+  - "examples.workflow_builder.tools.workflow_evaluation_control.uc_tools.IncrementalContextInventory"
+  - "examples.workflow_builder.tools.workflow_evaluation_control.uc_tools.IncrementalCandidateStager"
+  - "examples.workflow_builder.tools.workflow_evaluation_control.uc_tools.IncrementalChangeDeployer"
+  - "examples.workflow_builder.tools.workflow_evaluation_control.uc_tools.EvaluationCommandRunner"
+  - "examples.workflow_builder.tools.workflow_evaluation_control.uc_tools.StaticEvaluationAudit"
+tools:
+  RunTestCases: {test_dir: ".workflow/tool_tests/cases"}
+template_overwrite:
+  TEST_WORKFLOW_ROOT: "workflow"
+un_write_dirs: ["eval/", "res/", "config.yaml", "inc.yaml", "Makefile", "wfgen/"]
+write_dirs: ["tmp"]
+mission:
+  name: "Approved Generated Workflow Incremental Maintenance"
+  prompt:
+    system: |
+      只根据 eval/approvals.json 中 decision=approved 的评估 finding 或用户建议修改生成工作流。
+      没有批准项时必须记录 no_change，禁止自行扩大范围。不得启动任何 UCAgent 子工作流。
+      res/ 为用户维护的只读专业知识；结构化 JSON 只能由 StructuredJsonStore 或部署工具修改。
+      启动时必须先读取 tmp/inc_runs/current.json，获得本轮唯一 run_id 和 run_dir。候选、fixture、日志、检查回执和备份必须按 run_id、batch_id、attempt_id 放入本轮目录，禁止跨运行或跨批次复用。
+      普通文件工具禁止直接修改 workflow/；正式文件只能由 IncrementalChangeDeployer 在验证逐文件批准后部署。
+      用户批准只限定允许修改的 finding 或建议范围，不审批中间部署版本。同一批准范围内 make check 失败后必须创建新 attempt、归档当前正式版本并继续修复，不得因旧部署的 review、pending、deferred 或 approved 状态停止覆盖。
+      配置阶段正文至少一百个有效中英文或数字字符；reference_files/output_files 只能是确定存在的具体文件。
+      所有表述性文字必须使用中文，包括修复说明、分析、结论、影响、建议、审批说明和证据描述；规则 ID、JSON/YAML 字段、文件路径、命令、类名、函数名及真实源码保持原文。
+stage:
+  - name: understand_generated_workflow
+    desc: "读取最小架构基线，建立受批准修复可复用的认知索引"
+    task:
+      - |
+        严格按照 Guide_Doc/incremental_workflow_discovery.md 建立修复前的最小架构基线。先读取 tmp/inc_runs/current.json 得到 run_dir，并调用 IncrementalContextInventory(action='initialize', workflow_root='workflow', resource_root='res', output_path='<run_dir>/context/incremental_context_report.json', overwrite=true) 生成固定核心文件及 SHA256 骨架；尖括号表示使用 current.json 中真实 run_dir 拼接，不得原样写入。禁止自己编写哈希脚本，也禁止运行 make、pytest、Verilator 或行为测试。只完整读取本阶段明确列出的配置、中心规范、README、五份关键用户/开发者文档、环境入口、res/common.json、审批和既有部署记录。禁止枚举或读取全部 Guide_Doc、docs、res、输入资源、工具、Checker、spec、测试、fixture、输出、日志、缓存和旧运行。通过中心规范与两份开发者文档建立组件地图，不做逐函数代码审计。随后调用 IncrementalContextInventory(action='update', ...) 批量提交分析并 action='validate'。报告只用于定位批准项的下一步深读范围，完成后立即 Complete，不得创建候选或修改 workflow/、eval/、res/。
+    reference_files:
+      - "Guide_Doc/incremental_workflow_discovery.md"
+      - "eval/approvals.json"
+      - "eval/applied_changes.json"
+      - "workflow/.workflow/workflow_spec.yaml"
+      - "workflow/.workflow/acceptance_rules.yaml"
+      - "workflow/config.yaml"
+      - "workflow/config/inc.yaml"
+      - "workflow/setup.py"
+      - "workflow/ucagent_setup.sh"
+      - "workflow/requirements.txt"
+      - "workflow/README.md"
+      - "workflow/docs/README.md"
+      - "workflow/docs/02输入输出.md"
+      - "workflow/docs/03步骤及检查.md"
+      - "workflow/docs/04开发者文档-tools.md"
+      - "workflow/docs/05开发者文档-checkers.md"
+      - "res/common.json"
+      - "tmp/inc_runs/current.json"
+    output_files: ["tmp/inc_runs/current.json"]
+    checker:
+      - name: generated_workflow_context_complete
+        clss: "examples.workflow_builder.tools.workflow_evaluation_control.uc_checkers.IncrementalContextReportChecker"
+        args: {workflow_root: "workflow", report_path: "tmp/inc_runs/current.json", resource_root: "res"}
+  - name: plan_approved_changes
+    desc: "验证评估结果与用户批准，形成严格限定的增量候选计划"
+    task:
+      - |
+        读取短执行契约、tmp/inc_runs/current.json 指向的本轮认知报告和本阶段明确列出的评估/审批 JSON。使用 StructuredJsonStore 验证来源、指纹、决定时间、已有部署与用户资源；只接受仍有效的 approved 记录。eval/incremental_report.json 的本轮 run_id 必须与 current.json 中 run_id 完全相同。计划阶段只形成轻量批次清单：每批仅包含一个批准项或同一组件的紧密相关批准项，记录 batch_id、批准ID、来源ID、直接目标组件、预期同步文件类别和专项验证，不复制 finding 全文，也不读取工具/Checker 源码、spec、测试或 fixture。每个批次从 attempt-001 开始，候选固定放入 <run_dir>/batches/<batch_id>/attempts/<attempt_id>/candidate/。部署版本的历史 review 只作为旧数据展示，不构成覆盖条件。写入计划后立即 Complete，不得预读全部修复面或直接修改结构化 JSON。
+    reference_files: ["Guide_Doc/incremental_execution.md", "tmp/inc_runs/current.json", "eval/summary.json", "eval/user_suggestions.json", "eval/approvals.json", "eval/applied_changes.json", "res/common.json"]
+    output_files: ["eval/incremental_report.json"]
+  - name: deploy_approved_changes
+    desc: "同步修改受影响契约并以批准证据部署候选文件"
+    task:
+      - |
+        先读取 tmp/inc_runs/current.json、本轮认知报告、计划、批准和部署记录，然后严格按批次执行。选择第一个有效批次，只读取该批直接影响的实现、对应 spec、注册或绑定、直接测试和必要文档片段。对于已有正式目标，必须先调用 IncrementalCandidateStager，按 workflow_root 相对路径把本批所有待修改文件逐字节复制到唯一 attempt 的 candidate 目录；禁止使用普通 CopyFile 跨边界复制，禁止凭记忆、摘要或 YAML 重新序列化来重建完整文件。新增文件可以直接在 candidate 创建。只在精确副本上实施批准范围内修改，然后调用 IncrementalChangeDeployer，显式传入 run_id、batch_id、attempt_id、唯一 change_id 和逐文件 approval_ids。流程配置批准项的 recommendation、直接同步契约与计划 affected_file_categories 明确要求同步中心 spec 时，该同步属于原批准范围，相关正式文件必须在同一批次一并暂存、修改和部署，不得把必要同步误判为越权。部署器会先归档被替换的真实正式文件，再原子覆盖并形成 supersedes 版本链；旧版本是否曾被批准、拒绝、暂缓或未验收都不得阻塞同一有效批准范围内的新尝试。任一批失败只诊断该批，不重新读取无关组件。工具、Checker、流程、环境和文档修改仍遵守各自最小同步边界。所有初始批准批次部署完成后立即结束阶段，后续 make check 失败修复由最终阶段创建该批的新 attempt 继续处理。
+    reference_files: ["Guide_Doc/incremental_execution.md", "tmp/inc_runs/current.json", "eval/approvals.json", "eval/applied_changes.json", "eval/incremental_report.json"]
+    output_files: ["eval/applied_changes.json"]
+    checker:
+      - name: approved_changes_deployed
+        clss: "examples.workflow_builder.tools.workflow_evaluation_control.uc_checkers.IncrementalApplicationChecker"
+        args: {workflow_root: "workflow", manifest_path: "eval/applied_changes.json"}
+      - name: applied_changes_have_approval
+        clss: "examples.workflow_builder.tools.workflow_evaluation_control.uc_checkers.IncrementalApprovalChecker"
+        args: {approvals_path: "eval/approvals.json", changes_path: "eval/applied_changes.json", require_all_current: true}
+  - name: verify_and_report_increment
+    desc: "在正式工作流中运行全量检查与受影响测试，只有 make check 返回零才允许完成"
+    task:
+      - |
+        按短执行契约和认知报告只对已经部署到 workflow/ 的目标运行确定性检查，不测试候选副本。先读取 tmp/inc_runs/current.json，再调用 StaticEvaluationAudit(workflow_root='workflow', output_path='<run_dir>/checks/incremental-static-audit.json')，然后调用 EvaluationCommandRunner(workflow_root='workflow', command='make_check')，在正式 workflow/ 根目录实际执行完整 make check；命令工具会把返回码、输出尾部和正式工作流指纹保存到本轮 checks 目录。返回码必须严格等于零，禁止使用 passed_with_findings、低严重程度 finding 或“预存问题”伪装通过。若失败原因处于当前有效批准范围内，必须读取完整输出，为对应 batch 创建下一个唯一 attempt；先用 IncrementalCandidateStager 从此刻的正式目标初始化精确候选，再修改、部署并重新运行静态审计和 make check，禁止复用旧 attempt 或手工重建完整文件。不设固定重试次数，持续到返回码为零。不得因任何历史部署 review 状态停止，也不得只修改测试期望迎合实现。若失败超出批准范围或命令因外部依赖无法执行，则不得越权修改；应写入 failed 或 blocked 报告和 open finding，并在 summary 中填写 blocking_reason_code=outside_approved_scope 或 external_execution_block、make_check_receipt=<工具返回的 receipt_path>，随后 Complete 结束本轮，等待新的批准或外部状态变化，不得重复执行未发生状态变化的检查。
+
+        make check 返回零只是强制最低门槛，验证还必须覆盖认知报告为相关组件记录的接口和同步关系，不能用 make check 代替受影响的专项测试。工具修复至少验证真实输入、失败输入、输出语义和下游 Checker 消费；Checker 修复至少验证正例、反例、参数绑定和中心源码一致；流程修复至少按 UCAgent 先内建变量、后自定义变量的两步替换模型验证展开后无残留或重复路径组件，同时检查阶段 DAG、声明产物与真实读写，以及 workflow_spec 与主配置和增量配置的同名阶段契约一致；文档和环境修复必须验证命令、路径和实现一致。可调用 EvaluationCommandRunner 白名单命令，但严禁 ChildWorkflowSupervisor 和任何完整子流程。incremental_report 必须包含十个 INC-* 同名 check，并在 INC-REGRESSION 与 INC-RECHECK 的结构化 evidence 中保存 command、argv、真实 returncode 和输出尾部；不得用自然语言摘要替代返回码。此前已经部署且哈希未漂移的 no_change 也必须重新运行 make check 并验证十项检查，禁止机械写 skipped。静态审计中的每个 critical/high finding 必须作为独立且仍为 open 的 finding 进入报告，在 requirement_refs 中单独包含其精确 rule_id、在证据中包含精确 path 和 location，并使 INC-SOURCE-SYNC 或 INC-REGRESSION 失败、整体 status=failed；仍能复现的问题禁止标记 fix_applied_pending_recheck。将命令、返回码、输出尾部、失败与回滚建议通过 StructuredJsonStore 写入 contract_version=2 报告。只有本轮确实部署、静态审计不再复现、make check 返回零且全部专项测试通过的修改才能标记 fix_applied_pending_recheck，绝不能提前把 finding 写为 resolved。
+    reference_files: ["Guide_Doc/incremental_execution.md", "tmp/inc_runs/current.json", "eval/applied_changes.json", "eval/incremental_report.json"]
+    output_files: ["tmp/inc_runs/current.json", "eval/incremental_report.json"]
+    checker:
+      - name: incremental_report_complete
+        clss: "examples.workflow_builder.tools.workflow_evaluation_control.uc_checkers.EvaluationJsonReportChecker"
+        args:
+          report_path: "eval/incremental_report.json"
+          required_checks: ["INC-AUTHORIZATION", "INC-PROVENANCE", "INC-FRESHNESS", "INC-SCOPE", "INC-CANDIDATE", "INC-SOURCE-SYNC", "INC-REGRESSION", "INC-DEPLOYMENT", "INC-RECHECK", "INC-CHALLENGE"]
+      - name: incremental_guide_complete
+        clss: "examples.workflow_builder.tools.workflow_evaluation_control.uc_checkers.EvaluationGuideCoverageChecker"
+        args: {guide_path: "Guide_Doc/incremental_evaluation.md", required_markers: ["INC-AUTHORIZATION", "INC-CHALLENGE"], min_effective_lines: 300}
+      - name: incremental_static_audit_covered
+        clss: "examples.workflow_builder.tools.workflow_evaluation_control.uc_checkers.IncrementalAuditCoverageChecker"
+        args: {audit_path: "tmp/inc_runs/current.json", report_path: "eval/incremental_report.json"}
+      - name: incremental_make_check_passed
+        clss: "examples.workflow_builder.tools.workflow_evaluation_control.uc_checkers.IncrementalRegressionChecker"
+        args: {workflow_root: "workflow", manifest_path: "eval/applied_changes.json"}
+      - name: all_current_approvals_deployed
+        clss: "examples.workflow_builder.tools.workflow_evaluation_control.uc_checkers.IncrementalApprovalChecker"
+        args: {approvals_path: "eval/approvals.json", changes_path: "eval/applied_changes.json", require_all_current: true}
