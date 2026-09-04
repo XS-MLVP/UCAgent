@@ -1,6 +1,8 @@
-# experience/adder.yaml
+# Adder experience overlay.
+# Checked-in DUT overlays may describe verification dimensions, but must not
+# contain oracle values, known failures, root causes, or prior-run evidence.
 include:
-  - general.yaml  # 2. 引入同目录下的通用经验
+  - general.yaml
 
 # Enable Adder experience extraction only from this overlay.
 # Runtime stage 23 -> default.yaml stage[12] create_test_case_templates.

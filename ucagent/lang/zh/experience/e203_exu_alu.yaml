@@ -1,3 +1,6 @@
+# E203 EXU ALU experience overlay.
+# Checked-in DUT overlays may describe verification dimensions, but must not
+# contain oracle values, known failures, root causes, or prior-run evidence.
 include:
   - general.yaml
 
@@ -5,9 +8,12 @@ stage[12].experience-hook: true
 stage[13].stage[0].experience-hook: true
 stage[13].experience-hook: true
 
+stage[13].stage[0].task: "+模块专属验证维度：依据当前工作区中的规格、端口和 RTL，独立推导算术、控制及访存相关操作的输入输出关系与事务边界。对存在握手或外部依赖的路径，应由测试环境按接口契约建模并记录请求接受、响应接受和取消条件；不得使用历史超时结论或预设根因替代本次观测。"
+stage[13].task: "+分析本模块失败时，先从当前工作区资料独立推导预期，再核对操作解码、输入条件、握手进度、外部 responder、状态推进和采样时机。只有环境完成规格要求的事务且结果仍稳定违反规格，才记录为 DUT Bug。"
+
 experience:
   candidate_failure_hints+:
-    - id: e203_exu_alu_agu_response_handshake_model
+    - id: e203_exu_current_contract_transaction_progress
       priority: 76
       stages: ["test_case_implementation_in_batch", "comprehensive_verification_and_bug_analysis", "refine_test_cases_based_on_functional_points", "static_bug_validation"]
       match_scope: ["focused", "full"]
@@ -15,12 +21,6 @@ experience:
         - "UnityChipCheckerBatchTestsImplementation"
         - "UnityChipCheckerTestCase"
         - "UnityChipCheckerStaticBugValidation"
-      patterns:
-        - "FG-ALU-AGU/FC-AGU-AMOADD"
-        - "AMOADD WRITE命令未发出"
-        - "AMOADD READ命令未完成"
-      hint: "e203_exu_alu 的 AMOADD 用例超时时，先把外部总线环境建成按 ready/valid 驱动的事务级 responder，并逐笔记录命令接受与响应接受。不要把持续有效的信号当作多笔事务，也不要让响应永久保持；超时前先核对测试环境是否真正完成了所需握手，再判断是否为 RTL bug。"
-      source:
-        kind: log_reviewed
-        evidence:
-          - "e203_exu_alu 日志中的 AMOADD 超时由 responder 时序驱动问题引起，尚未形成 RTL 缺陷证据。"
+      regex:
+        - "(?i)(?:handshake|ready|valid|request|response|timeout).*(?:failed|error|missing|incomplete)|(?:failed|error|missing|incomplete).*(?:handshake|ready|valid|request|response|timeout)"
+      hint: "这类事务推进失败应先依据当前工作区接口契约独立列出请求接受、响应接受和终止条件，再逐拍核对测试环境与外部 responder 是否完成这些条件；不得把超时本身或历史归因直接当作 DUT Bug。"

@@ -1,3 +1,6 @@
+# E203 LSU controller experience overlay.
+# Checked-in DUT overlays may describe verification dimensions, but must not
+# contain oracle values, known failures, root causes, or prior-run evidence.
 include:
   - general.yaml
 
@@ -5,23 +8,19 @@ stage[12].experience-hook: true
 stage[13].stage[0].experience-hook: true
 stage[13].experience-hook: true
 
+stage[13].stage[0].task: "+模块专属验证维度：依据当前工作区中的规格、端口和 RTL，独立推导请求路由、仲裁、背压、异常与响应路径的事务契约。测试环境必须按本次接口资料实现所需的上下游行为，并区分请求保持、事务接受和事务完成；不得把未建模的外部依赖或历史运行结论当作 DUT 行为。"
+stage[13].task: "+分析本模块失败时，先从当前工作区资料独立推导预期，再核对路由选择、握手条件、上下游 responder、状态推进、异常条件和采样时机。只有测试环境满足完整事务前提且结果仍稳定违反规格，才记录为 DUT Bug。"
+
 experience:
   candidate_failure_hints+:
-    - id: e203_lsu_ctrl_downstream_icb_dependency
-      priority: 72
+    - id: e203_lsu_current_contract_route_and_response
+      priority: 76
       stages: ["test_case_implementation_in_batch", "comprehensive_verification_and_bug_analysis", "refine_test_cases_based_on_functional_points", "static_bug_validation"]
       match_scope: ["focused", "full"]
       checkers:
         - "UnityChipCheckerBatchTestsImplementation"
         - "UnityChipCheckerTestCase"
         - "UnityChipCheckerStaticBugValidation"
-      patterns:
-        - "FG-ICB-SEPARATION/FC-ICB-CMD-READY"
-        - "FG-ICB-SEPARATION/FC-ICB-EXCP-READY"
       regex:
-        - "(?:AGU|NICE|ICB).*(?:timeout|response|ready)|(?:timeout|response|ready).*(?:AGU|NICE|ICB)"
-      hint: "e203_lsu_ctrl 的 ICB ready/response 路径超时时，先确认测试环境是否提供了完成该事务所需的下游 memory responder。缺少外部响应时，只能验证组合路由、请求保持和局部状态；未完成事务导致的超时、未覆盖或零置信度占位项应标为环境限制/BG-NA，不能升级为 DUT bug。"
-      source:
-        kind: log_reviewed
-        evidence:
-          - "e203_lsu_ctrl 日志确认，部分 ICB 事务路径依赖下游响应；静态候选经动态核验未形成已确认 DUT 缺陷。"
+        - "(?i)(?:route|ready|valid|request|response|backpressure|timeout).*(?:failed|error|missing|incomplete)|(?:failed|error|missing|incomplete).*(?:route|ready|valid|request|response|backpressure|timeout)"
+      hint: "这类路由或响应失败应先依据当前工作区接口契约独立确认选择条件、背压规则和事务完成条件，再逐拍核对上下游环境；未完成外部前提时不得把超时、未覆盖或缺少响应直接归因于 DUT。"

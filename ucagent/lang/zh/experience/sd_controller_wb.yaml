@@ -1,3 +1,6 @@
+# SD controller Wishbone experience overlay.
+# Checked-in DUT overlays may describe verification dimensions, but must not
+# contain oracle values, known failures, root causes, or prior-run evidence.
 include:
   - general.yaml
 

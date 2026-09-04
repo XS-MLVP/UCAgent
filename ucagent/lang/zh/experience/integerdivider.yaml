@@ -1,6 +1,6 @@
 # IntegerDivider experience overlay.
-# Keep DUT-specific verification semantics here; reusable checker workflow
-# rules should stay in general.yaml.
+# Checked-in DUT overlays may describe verification dimensions, but must not
+# contain oracle values, known failures, root causes, or prior-run evidence.
 
 include:
   - general.yaml
@@ -9,6 +9,20 @@ stage[12].experience-hook: true
 stage[13].stage[0].experience-hook: true
 stage[13].experience-hook: true
 
-stage[13].stage[0].task: "+可参考经验：IntegerDivider/RISC-V 32M 有符号除法测试不要直接用 Python `//` 或 `%` 作为预期值；Python `//` 是向下取整，RISC-V `div/rem` 是向零截断，余数与被除数同号。建议先写统一 helper/ref_model：除零时商为 0xFFFFFFFF 且余数为被除数，INT_MIN/-1 时商为 INT_MIN 且余数为 0，其余情况用 `abs(a)//abs(b)` 得到商绝对值后按符号恢复，再用 `r = a - q*b` 算余数。除零、INT_MIN/-1 等边界输入是必须送入 DUT 的验证场景，API/fixture 不要用 ValueError 或参数检查提前挡掉。连续多次除法、随机链式、同时取商/余数或同一测试内多次 API 调用时，每次操作前后优先 `env.wait_idle(20)`，不要把未等待导致的 busy/stale result 误判为算术 bug。有符号结果可能以 32-bit raw unsigned bit pattern 返回；断言前应统一用 `& 0xFFFFFFFF` 比较，或把 DUT 输出经 `to_signed32()` 转成有符号数。只有 bit pattern 归一后仍不一致，才按可能 DUT bug 继续分析。若测试失败先核对预期/参考模型语义、等待时序和 signed/raw32 表示，再判断是否为 DUT bug。"
-stage[13].task: "+可参考经验：综合验证 IntegerDivider 失败用例时，优先区分 DUT bug、RISC-V 除法语义误判、等待时序问题和 32-bit signed/raw 表示差异。特别检查 INT_MIN/正数、INT_MIN/-1、正/负交叉符号、除零、余数为 0 的场景：商应向零截断，余数为 0 时不要再强制判定符号同号；若实际值和预期值只是同一 32-bit bit pattern 的有符号/无符号展示差异，先统一表示后再比较。只有确认测试预期、reference model、wait_idle 时序和结果表示均符合 RISC-V 后，才把失败记录为 bug_analysis 中的非 0 置信度 BG/TC。"
-stage[17].task: "+可参考经验：生成 IntegerDivider 随机/链式测试时，先复用同一个 RISC-V 语义 helper/ref_model，再生成随机输入；除零和 INT_MIN/-1 不应被 API 参数校验提前跳过。循环、pipeline、连续 API 调用、同时读取商和余数的场景要在每次操作前后 `env.wait_idle(20)`。断言前统一 signed/raw32 表示：要么两边都 `& 0xFFFFFFFF`，要么把 DUT 输出转成 `to_signed32()` 后再比较。"
+stage[13].stage[0].task: "+模块专属验证维度：依据当前工作区中的规格、接口和权威指令语义，独立推导各运算模式的结果，不得直接使用语言内置运算、已有断言或 DUT 实现作为 oracle。测试应覆盖符号组合、正常与规格定义的特殊输入类别、连续请求和不同结果选择；驱动与采样必须遵循本次接口的握手、忙闲和有效条件。"
+stage[13].task: "+分析本模块失败时，先从当前工作区资料独立推导预期，再核对运算模式、输入与输出的位宽及符号解释、reference model、握手等待和采样时机。只有这些验证条件均正确且归一到规格定义的表示后仍稳定不符，才记录为 DUT Bug。"
+stage[17].task: "+生成本模块随机或连续场景时，先依据当前工作区规格建立独立 reference model，再覆盖操作模式、输入类别、请求序列与结果选择的组合。每次操作按接口契约完成驱动和采样，断言前按规格统一位宽与符号表示；不得嵌入历史失败向量或固定答案。"
+
+experience:
+  candidate_failure_hints+:
+    - id: integerdivider_current_spec_result_alignment
+      priority: 76
+      stages: ["test_case_implementation_in_batch", "comprehensive_verification_and_bug_analysis", "refine_test_cases_based_on_functional_points", "random_test_generation_and_execution"]
+      match_scope: ["focused", "full"]
+      checkers:
+        - "UnityChipCheckerBatchTestsImplementation"
+        - "UnityChipCheckerTestCase"
+        - "RandomTestCasesChecker"
+      regex:
+        - "(?i)(?:div|quotient|remainder|商|余数).*(?:mismatch|failed|error|不一致)|(?:mismatch|failed|error|不一致).*(?:div|quotient|remainder|商|余数)"
+      hint: "这类运算结果失败应先依据当前工作区规格独立推导本次输入的预期，再核对操作模式、位宽、符号解释、握手和采样时机；不得直接采用语言内置运算、已有 expected 或 DUT 结果作为 oracle。"

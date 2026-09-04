@@ -1,3 +1,6 @@
+# ALU754 experience overlay.
+# Checked-in DUT overlays may describe verification dimensions, but must not
+# contain oracle values, known failures, root causes, or prior-run evidence.
 include:
   - general.yaml
 
@@ -5,23 +8,19 @@ stage[12].experience-hook: true
 stage[13].stage[0].experience-hook: true
 stage[13].experience-hook: true
 
+stage[13].stage[0].task: "+模块专属验证维度：依据当前工作区中的规格和接口，独立推导各运算模式的数值语义、输入分类、结果编码、状态输出和响应时序。reference model 不得复制 DUT 实现或已有测试结论；每个可观察输出都应按本次规格分别建立断言，并覆盖正常、边界和异常输入类别。"
+stage[13].task: "+分析本模块失败时，先从当前工作区资料独立推导预期，再核对操作选择、输入与结果编码、状态输出、采样时机和 reference model。不得因部分输出符合预期而放宽其他断言；只有验证链路正确后仍稳定违反规格，才记录为 DUT Bug。"
+
 experience:
   candidate_failure_hints+:
-    - id: alu754_ieee_special_values_and_encoding
-      priority: 74
+    - id: alu754_current_spec_encoding_and_status
+      priority: 76
       stages: ["test_case_implementation_in_batch", "comprehensive_verification_and_bug_analysis", "refine_test_cases_based_on_functional_points", "static_bug_validation"]
       match_scope: ["focused", "full"]
       checkers:
         - "UnityChipCheckerBatchTestsImplementation"
         - "UnityChipCheckerTestCase"
         - "UnityChipCheckerStaticBugValidation"
-      patterns:
-        - "FG-MUL/FC-MUL-SPECIAL"
-        - "FG-MUL/FC-MUL-OVERFLOW"
-        - "FG-ADD/FC-ADD-SPECIAL"
-        - "FG-ADD/FC-ADD-OVERFLOW"
-      hint: "ALU754 的特殊值或溢出用例失败时，先按 IEEE-754 语义建立独立的位级 reference，并分别核对结果编码与状态标志。不要因某个 flag 符合预期就放宽 result 断言，也不要为通过当前用例反向修改 expected；只有 reference、采样时机和输入分类均已校准后仍稳定失败，才记录为 DUT bug。"
-      source:
-        kind: log_reviewed
-        evidence:
-          - "ALU754 日志中，特殊值和溢出类失败同时涉及结果编码与状态标志，不能只检查其中一项。"
+      regex:
+        - "(?i)(?:special|overflow|underflow|encoding|status|flag).*(?:mismatch|failed|error)|(?:mismatch|failed|error).*(?:special|overflow|underflow|encoding|status|flag)"
+      hint: "这类编码或状态相关失败应先依据当前工作区规格独立确定输入类别、结果表示和各状态输出的判定条件，再核对采样时机；不得因某一输出符合预期而放宽其他断言，也不得反向采用 DUT 结果作为 expected。"

@@ -357,6 +357,78 @@ Tool Calls:
         self.assertTrue(hook_overrides)
         self.assertTrue(all(hook_overrides.values()))
 
+    def test_dut_overlays_are_non_oracular_and_do_not_contain_run_evidence(self):
+        """DUT tasks and candidate hints must not disclose answers or prior runs."""
+        experience_dir = os.path.join(
+            current_dir,
+            "..",
+            "ucagent",
+            "lang",
+            "zh",
+            "experience",
+        )
+        profile_names = sorted(
+            name
+            for name in os.listdir(experience_dir)
+            if name.endswith((".yaml", ".yml"))
+            and name not in {"general.yaml", "distill_prompt.yaml"}
+        )
+        self.assertTrue(profile_names)
+
+        forbidden_markers = (
+            "source:",
+            "evidence:",
+            "log_reviewed",
+            "0xFFFFFFFF",
+            "INT_MIN",
+            "AMOADD",
+            "mem_empt",
+            "FIFO_TX_MEM_DEPTH",
+            "wait_idle(20)",
+        )
+        for profile_name in profile_names:
+            with self.subTest(profile=profile_name):
+                with open(os.path.join(experience_dir, profile_name), encoding="utf-8") as handle:
+                    payload = yaml.safe_load(handle)
+                self.assertEqual(payload.get("include"), ["general.yaml"])
+                text = yaml.safe_dump(payload, allow_unicode=True, sort_keys=True)
+                for marker in forbidden_markers:
+                    self.assertNotIn(marker, text)
+
+                task_values = [
+                    value
+                    for key, value in payload.items()
+                    if key.startswith("stage[") and key.endswith(".task")
+                ]
+                for task in task_values:
+                    self.assertIn("当前工作区", task)
+                    self.assertIn("独立", task)
+                    self.assertNotRegex(task, r"\b(?:0x[0-9a-f]+|0b[01]+|\d+'[bdho][0-9a-fx_z]+)\b")
+
+                experience = payload.get("experience", {})
+                candidate_rules = experience.get("candidate_failure_hints+", [])
+                for rule in candidate_rules:
+                    self.assertNotIn("source", rule)
+                    self.assertTrue(rule.get("patterns") or rule.get("regex"))
+                    hint = rule.get("hint", "")
+                    self.assertIn("当前工作区", hint)
+                    self.assertIn("独立", hint)
+                    self.assertNotRegex(hint, r"\b(?:0x[0-9a-f]+|0b[01]+|\d+'[bdho][0-9a-fx_z]+)\b")
+
+        safe_candidate_profiles = {
+            "aes_key_expand_128.yaml",
+            "alu754.yaml",
+            "e203_exu_alu.yaml",
+            "e203_lsu_ctrl.yaml",
+            "integerdivider.yaml",
+            "sd_crc_16.yaml",
+            "sd_tx_fifo.yaml",
+        }
+        for profile_name in safe_candidate_profiles:
+            with open(os.path.join(experience_dir, profile_name), encoding="utf-8") as handle:
+                payload = yaml.safe_load(handle)
+            self.assertTrue(payload["experience"]["candidate_failure_hints+"])
+
     def test_recovery_ignores_later_checker_failure(self):
         accumulator = self._make_accumulator()
         events = [

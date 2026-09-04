@@ -1,3 +1,6 @@
+# SD TX FIFO experience overlay.
+# Checked-in DUT overlays may describe verification dimensions, but must not
+# contain oracle values, known failures, root causes, or prior-run evidence.
 include:
   - general.yaml
 
@@ -5,27 +8,20 @@ stage[12].experience-hook: true
 stage[13].stage[0].experience-hook: true
 stage[13].experience-hook: true
 
-stage[13].stage[0].task: "+模块专属经验：sd_tx_fifo 的 mem_empt 是 FIFO occupancy，参考值必须按被 full/empty 门控后实际接受的写次数减实际接受的读次数逐步维护，并覆盖指针环绕；不要只对低位地址相减，也不要根据直觉硬编码 expected。q 是 ram[adr_o] 的组合输出；若 API 语义要返回本次 pop 的数据，必须在 rd 触发 adr_o 递增前采样 q，或显式定义并测试后递增观察语义。先校准该 oracle 和采样时序，再把读数据或 mem_empt 差异记为 DUT bug。"
-stage[13].task: "+模块专属经验：综合验证时，mem_empt 的环绕用独立软件队列/accepted-write-minus-accepted-read 模型交叉检查，容量为 FIFO_TX_MEM_DEPTH；只要实际 occupancy 与该模型一致，就不得把指针差表达式本身记录为缺陷。对于 q，README 与 RTL 都定义为当前 adr_o 对应 RAM 数据，失败前先审查 env.read 是否在 rd 边沿后等待并读取了已更新地址。"
-stage[15].task: "+模块专属经验：静态分析若怀疑 mem_empt 或 q，先生成能打印每步 accepted write/read、参考 occupancy、adr_i/adr_o 及采样边沿的最小测试。只有独立模型与 RTL 在相同观察时刻仍不一致，才建立 <LINK-BUG-[BG-*]>；否则使用 <LINK-BUG-[BG-NA]> 并保留 oracle/采样语义说明。"
+stage[13].stage[0].task: "+模块专属验证维度：依据当前工作区中的规格、接口和 RTL，独立推导队列顺序、容量边界、读写接受条件、状态量和数据可观察时机。reference model 应按实际被接口接受的事务逐步更新，并覆盖空满转换、指针环绕、连续及并发读写；不得复制 DUT 表达式、已有断言、历史失败序列或固定答案。"
+stage[13].task: "+分析本模块失败时，先从当前工作区资料独立推导预期，再逐拍核对实际接受的读写事务、参考队列状态、边界条件、驱动顺序和采样边沿。接口对数据与状态的观察语义必须由本次规格和实现证据确认；只有验证链路正确后仍稳定违反规格，才记录为 DUT Bug。"
+stage[15].task: "+验证本模块静态候选时，依据当前工作区规格设计最小动态测试，并记录每拍输入、握手、参考状态和观察时机。预期必须由独立模型推导；只有动态结果在相同事务与采样语义下稳定违反规格，才建立动态 Bug 链接。"
 
 experience:
   candidate_failure_hints+:
-    - id: sd_tx_fifo_occupancy_and_q_sampling_oracle
-      priority: 74
+    - id: sd_tx_fifo_current_contract_queue_alignment
+      priority: 76
       stages: ["test_case_implementation_in_batch", "comprehensive_verification_and_bug_analysis", "refine_test_cases_based_on_functional_points", "static_bug_validation", "verification_review_and_summary"]
       match_scope: ["focused", "full"]
       checkers:
         - "UnityChipCheckerBatchTestsImplementation"
         - "UnityChipCheckerTestCase"
         - "UnityChipCheckerStaticBugValidation"
-      patterns:
-        - "mem_empt"
-        - "数据应匹配"
-        - "FIFO occupancy"
-      hint: "sd_tx_fifo 专属：mem_empt 的黄金预期值来自软件 occupancy 计数，而不是指针低位或固定常量。每一步仅在写未满/读非空且握手实际完成时更新参考计数。当前 RTL 的 q 直接对应当前 adr_o；env.read 若在 rd 时钟边沿和后续等待之后才读取 q，读到的是更新后地址数据，不能据此直接判 RTL FIFO 顺序错误。先改为边沿前采样，或按接口明确的后更新语义建立预期，再判断 bug。"
-      source:
-        kind: log_reviewed
-        evidence:
-          - "general2 日志中写4/读3/再写4得到 mem_empt=5，写满8/读6/再写6得到 mem_empt=8；两者与 accepted operation 计数一致，但测试均错误断言 expected=4。"
-          - "general2 的 env.read 在 rd 置位并 Step 后继续等待，再返回 q；RTL 为 assign q = ram[adr_o]，因此 q 会随已递增 adr_o 改变。"
+      regex:
+        - "(?i)(?:fifo|queue|empty|full|occupancy|读|写).*(?:mismatch|failed|error|timeout|不一致)|(?:mismatch|failed|error|timeout|不一致).*(?:fifo|queue|empty|full|occupancy|读|写)"
+      hint: "这类队列数据或状态失败应先依据当前工作区接口契约独立维护参考事务序列，并按实际被接受的读写操作逐拍核对状态和观察时机；不得复制 DUT 表达式、已有 expected 或历史序列来判断正确性。"

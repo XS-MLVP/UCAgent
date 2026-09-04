@@ -1,3 +1,6 @@
+# SD CRC experience overlay.
+# Checked-in DUT overlays may describe verification dimensions, but must not
+# contain oracle values, known failures, root causes, or prior-run evidence.
 include:
   - general.yaml
 
@@ -5,23 +8,19 @@ stage[12].experience-hook: true
 stage[13].stage[0].experience-hook: true
 stage[13].experience-hook: true
 
+stage[13].stage[0].task: "+模块专属验证维度：依据当前工作区中的规格、接口和 RTL，独立推导校验状态的逐拍转移，明确输入组织、位序、初始状态、复位、使能与观察时机。reference model 必须按本次规格实现，不得直接套用参数未核实的库、已有断言、历史向量或 DUT 代码；测试应覆盖单步、连续输入、控制切换和边界序列。"
+stage[13].task: "+分析本模块失败时，先从当前工作区资料独立推导逐拍预期，再核对算法参数、输入位序、复位与使能语义、reference model 和采样边沿。只有模型参数及观察时机均与本次规格一致后仍稳定不符，才记录为 DUT Bug。"
+
 experience:
   candidate_failure_hints+:
-    - id: sd_crc_16_bit_serial_lfsr_oracle
-      priority: 74
+    - id: sd_crc_current_spec_sequence_alignment
+      priority: 76
       stages: ["test_case_implementation_in_batch", "comprehensive_verification_and_bug_analysis", "refine_test_cases_based_on_functional_points", "static_bug_validation"]
       match_scope: ["focused", "full"]
       checkers:
         - "UnityChipCheckerBatchTestsImplementation"
         - "UnityChipCheckerTestCase"
         - "UnityChipCheckerStaticBugValidation"
-      patterns:
-        - "FG-CRC-ALGORITHM/FC-LFSR-SHIFT"
-        - "FG-CRC-ALGORITHM/FC-FEEDBACK-LOGIC"
-        - "FG-BASIC-CRC/FC-MULTI-BIT-CRC"
-        - "FG-TIMING/FC-ASYNC-RESET"
-      hint: "sd_crc_16 的 LFSR、反馈、多 bit 或复位用例失败时，先按 RTL 的单 bit、单时钟沿语义建立 reference。不要直接套用字节级 CRC 库或未说明 bit-order 的已知向量；先明确输入位序、复位极性、使能保持和读值时机，再逐步比对状态。只有模型与采样时序一致后仍稳定不符，才建立 DUT bug。"
-      source:
-        kind: log_reviewed
-        evidence:
-          - "sd_crc_16 日志覆盖了算法、单 bit、多 bit、已知向量和复位时序；模板失败本身不能作为 CRC 缺陷证据。"
+      regex:
+        - "(?i)(?:crc|checksum|lfsr|校验).*(?:mismatch|failed|error|不一致)|(?:mismatch|failed|error|不一致).*(?:crc|checksum|lfsr|校验)"
+      hint: "这类校验状态失败应先依据当前工作区规格独立确认算法参数、输入组织、位序、初始状态和控制时序，再逐拍对齐 reference model 与采样边沿；不得套用参数未核实的库或历史向量作为 expected。"

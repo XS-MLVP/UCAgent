@@ -85,29 +85,45 @@ experience:
 | `match_scope` | `list[str]` | 匹配文本范围：`["focused"]`（默认，仅检查 error/details 字段）或 `["full"]`（完整返回文本） |
 | `hint` | `string` | 注入给大模型的行动纠偏提示词（需清晰指明排查步骤） |
 
-### 3.3 DUT 专属配置与追加语法 (`+`)
+### 3.3 DUT 专属配置与公平边界
 
-针对特定模块（如 `adder`、`integerdivider`、`aes` 等），可在 `ucagent/lang/zh/experience/<DUT>.yaml` 中引入通用经验并追加专属经验：
+针对特定模块，可在 `ucagent/lang/zh/experience/<DUT>.yaml` 中引入通用经验并补充安全的验证维度。DUT overlay 只允许描述从当前工作区资料可独立推导的检查范围、建模方法和失败分类，不得提供 oracle 答案。
+
+禁止在已入库的 DUT overlay 中保存以下内容：
+
+- 精确 expected、固定输入输出向量、常数或可复制的 reference model 实现；
+- 历史日志、已知失败序列、稳定失败的测试名、源码根因和修复结论；
+- 精确的 FG/FC/CK 路径、Bug 标签，或依赖历史问题专属名称和结论的触发条件。
+
+允许 DUT overlay 定义 `candidate_failure_hints`，但触发条件只能使用公开模块语义和稳定失败类别，hint 只能引导 Agent 回到当前工作区规格进行独立推导和重新验证。不得在入库规则中保留 `source.evidence`；历史运行证据只能保存在审计或蒸馏旁路产物中。
+
+推荐同时使用阶段任务和安全候选提示：
 
 ```yaml
-# ucagent/lang/zh/experience/adder.yaml
+# ucagent/lang/zh/experience/<DUT>.yaml
 include:
-  - general.yaml  # 引入通用经验
+  - general.yaml
 
-# 开启特定阶段的经验收集 Hook
+# 仅开启特定阶段的经验收集 Hook
 stage[12].experience-hook: true
 stage[13].stage[0].experience-hook: true
 stage[13].experience-hook: true
 
+stage[13].stage[0].task: "+模块专属验证维度：依据当前工作区中的规格、接口和实现，独立建立 reference model，覆盖该模块声明的正常、边界、异常和时序场景。不得复制 DUT 实现、已有断言或历史运行结论。"
+stage[13].task: "+分析失败时，先核对规格预期、测试环境、模型、输入输出表示、握手和采样时机；只有验证链路正确后仍稳定违反规格，才记录为 DUT Bug。"
+
 experience:
-  candidate_failure_hints+:  # '+' 表示追加到通用规则列表后，不覆盖通用规则
-    - id: adder_overflow_carry_alignment
-      priority: 50
+  candidate_failure_hints+:
+    - id: current_contract_transaction_alignment
+      priority: 76
       stages: ["test_case_implementation_in_batch", "comprehensive_verification_and_bug_analysis"]
-      patterns:
-        - "carry_out mismatch"
-      hint: "Adder 溢出进位测试失败时，先核对 reference model 中的无符号进位推导是否包含了 cin，再确认 DUT 是否处于组合直通状态。"
+      match_scope: ["focused", "full"]
+      regex:
+        - "(?i)(?:handshake|response).*(?:failed|error|timeout)"
+      hint: "这类事务失败应先依据当前工作区接口契约独立列出请求、响应和完成条件，再核对环境与采样时机；不得把超时或历史归因直接当作 DUT Bug。"
 ```
+
+阶段任务中的模块名称只用于选择配置，不代表该文件可以提供该模块的正确答案。若无法从当前工作区资料独立推导预期，应暂停归因并补充权威输入，而不是从经验文件猜测。
 
 ---
 
@@ -122,6 +138,15 @@ UCAgent 提供了灵活的 CLI 参数来控制经验系统的运行模式：
 | **先验规则审计** | `--experience-audit` | 注入经验，并在 Stage 完成后审计先验规则的命中与覆盖情况 | 生成 `prior_rule_audit.yaml` |
 | **LLM 经验蒸馏** | `--experience-distill` | 注入经验，并在 Stage 完成后调用模型提炼 Review-only 候选规则 | 生成 `llm_failure_hints.yaml` |
 | **完整模式** | `--experience` | 同时启用 Profile 加载、先验审计与 LLM 蒸馏 | 生成完整经验分析产物 |
+
+当 `--experience-profile`、`--experience-audit`、`--experience-distill` 或 `--experience` 遇到没有已入库 profile 的安全 DUT 名称时，UCAgent 会在当前语言的 `experience/` 目录自动创建小写文件名的冷启动 profile：
+
+```yaml
+include:
+  - general.yaml
+```
+
+该文件只启用通用经验，不携带 DUT 结论，也不自动生成专属候选规则。它不包含 `experience-hook`，因此 `--experience` 在这个新 profile 上不会产生阶段审计或蒸馏产物；需要这些产物时，应在人工审查后显式添加对应阶段 hook。
 
 ### 典型执行命令
 
