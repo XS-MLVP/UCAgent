@@ -658,6 +658,38 @@ plain_text: not enabled
         with self.assertRaisesRegex(FileNotFoundError, "Available profiles:.*adder"):
             resolve_experience_profile("unknown_dut", lang="zh")
 
+    def test_resolve_experience_profile_creates_general_only_profile_when_requested(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            experience_dir = os.path.join(temp_dir, "lang", "zh", "experience")
+            os.makedirs(experience_dir)
+            with open(os.path.join(experience_dir, "general.yaml"), "w", encoding="utf-8") as handle:
+                handle.write("experience: {}\n")
+
+            with mock.patch.object(
+                config_module,
+                "__file__",
+                os.path.join(temp_dir, "util", "config.py"),
+            ):
+                profile = resolve_experience_profile(
+                    "New_DUT",
+                    lang="zh",
+                    create_if_missing=True,
+                )
+                repeated = resolve_experience_profile(
+                    "new_dut",
+                    lang="zh",
+                    create_if_missing=True,
+                )
+
+            self.assertEqual(profile, repeated)
+            self.assertEqual(os.path.basename(profile), "new_dut.yaml")
+            with open(profile, encoding="utf-8") as handle:
+                self.assertEqual(handle.read(), "include:\n  - general.yaml\n")
+
+    def test_resolve_experience_profile_rejects_unsafe_generated_filename(self):
+        with self.assertRaisesRegex(ValueError, "safe experience profile filename"):
+            resolve_experience_profile("../new_dut", lang="zh", create_if_missing=True)
+
     def test_experience_profile_loads_after_base_config_and_before_cli_override(self):
         repo_root = os.path.abspath(os.path.join(current_dir, ".."))
         profile = os.path.join(repo_root, "ucagent", "lang", "zh", "experience", "adder.yaml")

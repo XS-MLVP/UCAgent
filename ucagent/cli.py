@@ -1375,7 +1375,7 @@ def run() -> None:
     if any((args.experience, args.experience_profile, args.experience_audit, args.experience_distill)):
         from ucagent.util.config import resolve_experience_profile
 
-        experience_profile = resolve_experience_profile(args.dut)
+        experience_profile = resolve_experience_profile(args.dut, create_if_missing=True)
 
     # Create and configure the agent
     agent = VerifyAgent(

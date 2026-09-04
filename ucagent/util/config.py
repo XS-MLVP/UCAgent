@@ -849,12 +849,14 @@ def _merge_config_file(cfg, config_file, loaded_configs, loading_stack=None, lan
         loading_stack.pop()
 
 
-def resolve_experience_profile(dut_name, lang=None):
+def resolve_experience_profile(dut_name, lang=None, create_if_missing=False):
     """Resolve the packaged experience profile for a DUT.
 
     Profile names are DUT names without the ``.yaml`` suffix and match
     case-insensitively.  ``general.yaml`` is a shared include, not a DUT
-    profile, so it is deliberately excluded from the lookup.
+    profile, so it is deliberately excluded from the lookup.  When
+    ``create_if_missing`` is true, create a lower-case, general-only profile
+    in the requested language for a previously unseen safe DUT identifier.
     """
     dut_key = str(dut_name or "").strip().casefold()
     if not dut_key:
@@ -887,6 +889,34 @@ def resolve_experience_profile(dut_name, lang=None):
             f"Experience profile for DUT '{dut_name}' is ambiguous: {matches}. "
             "Specify a configured language before selecting a profile."
         )
+    if create_if_missing:
+        target_lang = str(lang or "zh").strip()
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", target_lang):
+            raise ValueError(f"Experience language '{target_lang}' is not a safe directory name.")
+        if not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", dut_key):
+            raise ValueError(
+                f"DUT name '{dut_name}' cannot be represented as a safe experience profile filename."
+            )
+        experience_dir = os.path.join(language_root, target_lang, "experience")
+        general_profile = os.path.join(experience_dir, "general.yaml")
+        if not os.path.isfile(general_profile):
+            raise FileNotFoundError(
+                f"Cannot create an experience profile for DUT '{dut_name}': "
+                f"shared profile '{general_profile}' was not found."
+            )
+        profile_path = os.path.abspath(os.path.join(experience_dir, f"{dut_key}.yaml"))
+        if not os.path.isfile(profile_path):
+            try:
+                with open(profile_path, "x", encoding="utf-8", newline="\n") as handle:
+                    handle.write("include:\n  - general.yaml\n")
+            except FileExistsError:
+                pass
+            else:
+                info(
+                    f"Created general-only experience profile for DUT '{dut_name}': "
+                    f"'{profile_path}'."
+                )
+        return profile_path
     profiles = ", ".join(sorted(set(available), key=str.casefold)) or "(none)"
     raise FileNotFoundError(
         f"Experience profile for DUT '{dut_name}' was not found. "
