@@ -64,6 +64,41 @@ and fabricated evidence from being accepted.
 - Do not create a commit unless explicitly requested. When requested, group
   commits by coherent feature and use clear English commit messages.
 
+## Documentation Scope Contract
+
+Documentation updates must follow the subject and abstraction level of each
+document. A runtime behavior change does not authorize repeating its details in
+every document that happens to mention the affected feature.
+
+- Put feature-specific behavior, limitations, architecture, backend selection,
+  command availability, and operational caveats in that feature's dedicated
+  documentation. Update other documents only when their own instructions would
+  otherwise be incorrect or incomplete for the task they teach.
+- Keep `README.md`, `README.zh.md`, and `README.en.md` focused on their existing
+  high-level introduction and onboarding flow. Do not add implementation details
+  or special-mode explanations merely to advertise or restate a code change.
+- Keep general CLI option references concise: document the public option syntax
+  and its direct purpose. Put mode-specific backend semantics, lifecycle details,
+  and command restrictions in the mode's dedicated documentation instead of
+  expanding the generic option table.
+- Do not rewrite existing setup steps, environment-variable examples, or command
+  examples in unrelated documents unless the change is necessary for that
+  document's own workflow or the task explicitly requests it.
+- Prefer one authoritative explanation and link to it when another document
+  genuinely needs more detail. Do not duplicate the same explanatory paragraphs
+  across README files, option references, tutorials, and feature guides.
+- For Master mode specifically, document the Master process's blank backend,
+  separation from child-Agent backend configuration, retained PDB control
+  surface, and unsupported model-work commands only in
+  `docs/content/02_usage/07_web_master.md`. Do not add those details to README
+  files or the general CLI option reference.
+- Synchronizing affected contract layers means updating every layer whose
+  normative behavior actually changes; it does not mean spreading background
+  explanation into documents at a different scope or abstraction level.
+- Before finishing documentation work, inspect the documentation-only diff and
+  remove incidental wording, formatting, examples, and repeated explanations
+  outside the smallest set of authoritative documents required by the task.
+
 ## Configuration Contract
 
 Configuration is loaded in this order:

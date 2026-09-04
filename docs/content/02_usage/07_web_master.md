@@ -26,6 +26,8 @@ Web Master 不只是状态展示，而是完整的任务管理入口，核心能
 
 ### 2.1 启动 Master
 
+Master 保留本地 PDB 控制台，用于执行 Master API、任务、终端、状态和文件管理命令，但不会初始化、探测或调用 API/命令行模型后端。执行 `loop`、`chat`、`next_round` 等模型工作命令时，`BlankBackend` 会直接返回不支持，不会调用模型。
+
 ```bash
 # 推荐：持久化模式
 ucagent --as-master-persist --as-master
@@ -42,6 +44,10 @@ http://localhost:8800
 ```bash
 ucagent --as-master-persist --as-master --as-master-password "your_password"
 ```
+
+Master 启动本身不要求模型地址、API Key 或模型名称。若需要从 Launch 页面启动子 Agent，可在 Master 进程环境中配置模型变量；它们只用于构造子 Agent 的启动环境。
+
+Master 模式下的 `--backend` 用于设置 Launch 页启动子 Agent 时的默认 backend；Master 当前进程始终使用无模型 backend。
 
 ### 2.2 连接 Agent 到 Master
 
@@ -205,4 +211,3 @@ Master 支持统一代理转发到 task/agent 的 cmd、terminal、web-console �
 1. Launch/Task/Agent 页面能力变化
 2. 阶段批量控制与复盘能力变化
 3. 代理与 WebSocket 兼容性变化
-
