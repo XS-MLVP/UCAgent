@@ -2102,11 +2102,6 @@ class VerifyPDB(Pdb):
           start_mcp_server --no-file-ops
           start_mcp_server --no-file-ops 127.0.0.1 5001
         """
-        if self._mcp_server is not None and self._mcp_server.is_running:
-            echo_y(f"MCP server is already running at {self._mcp_server.url()}.")
-            echo_y("Use 'stop_mcp_server' first before starting a new instance.")
-            return
-        from ucagent.server import PdbMcpServer
         host = self.agent.cfg.mcp_server.host
         port = self.agent.cfg.mcp_server.port
         port_specified = False
@@ -2147,18 +2142,40 @@ class VerifyPDB(Pdb):
                 from ucagent.util.functions import find_available_port
                 port = find_available_port(port + 1)
                 echo_y(f"Default port was busy; using port {port} instead.")
-        try:
-            self._mcp_server = PdbMcpServer(
-                self, host=host, port=port, no_file_ops=no_file_ops
-            )
-            ok, msg = self._mcp_server.start()
-        except Exception as e:
-            echo_r(f"Failed to start MCP server: {e}")
-            return
+        ok, msg = self.start_mcp_server(
+            host=host,
+            port=port,
+            no_file_ops=no_file_ops,
+        )
         if ok:
             echo_g(msg)
         else:
             echo_r(msg)
+
+    def start_mcp_server(
+        self,
+        host: str,
+        port: int,
+        no_file_ops: bool = False,
+    ):
+        """Start MCP synchronously enough to prove readiness before model work."""
+
+        if self._mcp_server is not None and self._mcp_server.is_running:
+            return False, (
+                f"MCP server is already running at {self._mcp_server.url()}. "
+                "Stop it before starting a new instance."
+            )
+        from ucagent.server import PdbMcpServer
+
+        try:
+            server = PdbMcpServer(
+                self, host=host, port=port, no_file_ops=no_file_ops
+            )
+            ok, msg = server.start()
+        except Exception as exc:
+            return False, f"Failed to start MCP server: {exc}"
+        self._mcp_server = server if ok else None
+        return ok, msg
 
     def do_stop_mcp_server(self, arg):
         """

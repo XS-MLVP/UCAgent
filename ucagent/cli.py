@@ -13,6 +13,7 @@ import argparse
 import bdb
 import base64
 import ast
+import json
 import ntpath
 import posixpath
 import shutil
@@ -390,6 +391,22 @@ def _append_override(overrides: Optional[OverrideValues], key: str, value: Any) 
     return result
 
 
+def _plugin_discovery_overrides(
+    overrides: Optional[OverrideValues],
+) -> List[OverrideDict]:
+    """Return only overrides needed before a plugin workflow is selected."""
+
+    if overrides is None:
+        return []
+    values = overrides if isinstance(overrides, list) else [overrides]
+    return [
+        {key: value}
+        for item in values
+        for key, value in item.items()
+        if key == "plugin.search_paths" or key.startswith("plugin.search_paths[")
+    ]
+
+
 def get_override_dict(override_str: Optional[str]) -> OverrideValues:
     """Parse override string into dictionary.
 
@@ -593,6 +610,35 @@ def get_args() -> argparse.Namespace:
         type=str, 
         default=None, 
         help="Path to the configuration file"
+    )
+    parser.add_argument(
+        "--plugin",
+        action="append",
+        default=[],
+        type=str,
+        help=(
+            "Activate an installed UCAgent plugin name or a local plugin project path; "
+            "can be used multiple times"
+        ),
+    )
+    parser.add_argument(
+        "--plugin-workflow",
+        type=str,
+        default=None,
+        help="Use a selected plugin workflow as [plugin-name:]workflow-name",
+    )
+    parser.add_argument(
+        "--list-plugins",
+        action="store_true",
+        default=False,
+        help="List installed UCAgent plugin entry-point names and exit",
+    )
+    parser.add_argument(
+        "--validate-plugin",
+        action="append",
+        default=[],
+        type=str,
+        help="Validate an installed plugin name or local plugin project path and exit",
     )
     parser.add_argument(
         "--template-dir", 
@@ -1130,6 +1176,63 @@ def run() -> None:
         upgrade(args.upgrade)
         sys.exit(0)
 
+    if args.list_plugins:
+        from ucagent.plugins import (
+            available_plugin_names,
+            configured_plugin_search_paths,
+        )
+        from ucagent.util.config import get_config
+
+        discovery_cfg = get_config(
+            args.config,
+            _plugin_discovery_overrides(args.override),
+            args.workspace,
+        )
+        discovery_cfg.update_template(
+            {
+                "WORKSPACE": os.path.abspath(args.workspace) if args.workspace else "",
+                "DUT": args.dut or "",
+                "OUT": args.output,
+            }
+        )
+        search_paths = configured_plugin_search_paths(discovery_cfg)
+        for plugin_name in available_plugin_names(search_paths):
+            print(plugin_name)
+        return
+
+    if args.validate_plugin:
+        from ucagent.plugins import (
+            configured_plugin_search_paths,
+            load_plugins,
+            plugin_summary,
+        )
+        from ucagent.util.config import get_config
+
+        discovery_cfg = get_config(
+            args.config,
+            _plugin_discovery_overrides(args.override),
+            args.workspace,
+        )
+        discovery_cfg.update_template(
+            {
+                "WORKSPACE": os.path.abspath(args.workspace) if args.workspace else "",
+                "DUT": args.dut or "",
+                "OUT": args.output,
+            }
+        )
+        search_paths = configured_plugin_search_paths(discovery_cfg)
+        validated = load_plugins(
+            args.validate_plugin, search_paths=search_paths
+        )
+        print(
+            json.dumps(
+                [plugin_summary(plugin) for plugin in validated],
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
+        return
+
     if args.web_console is not None and \
        args.web_console_session_host is None and \
        args.web_console_session_port is None:
@@ -1178,8 +1281,69 @@ def run() -> None:
     args.workspace = _prepare_workspace_archive_source(args.workspace, args.dut, args.workspace_base)
 
     from ucagent.verify_agent import VerifyAgent
+    from ucagent.plugins import (
+        collect_plugin_resources,
+        configured_plugin_search_paths,
+        load_plugins,
+        resolve_plugin_workflow,
+        validate_workflow_dependencies,
+    )
+    from ucagent.util.config import get_config
     from ucagent.util.log import init_log_logger, init_msg_logger
     from ucagent.util.functions import append_python_path, find_available_port
+
+    # Workflow-owned keys do not exist until its config layer is selected. The
+    # discovery pass needs only plugin search-path overrides; the final agent
+    # config applies and validates the complete override list afterwards.
+    discovery_cfg = get_config(
+        args.config,
+        _plugin_discovery_overrides(args.override),
+        args.workspace,
+    )
+    discovery_cfg.update_template(
+        {
+            "WORKSPACE": os.path.abspath(args.workspace),
+            "DUT": args.dut,
+            "OUT": args.output,
+        }
+    )
+    plugin_search_paths = configured_plugin_search_paths(discovery_cfg)
+    loaded_plugins = load_plugins(
+        args.plugin, search_paths=plugin_search_paths
+    )
+    workflow_resources = resolve_plugin_workflow(
+        loaded_plugins, args.plugin_workflow
+    )
+    workflow_config_file = None
+    template_target = None
+    template_context_factory = None
+    selected_plugin_workflow = None
+    plugin_runtime_config_keys = [
+        key
+        for loaded in loaded_plugins
+        for key in loaded.plugin.runtime_config_keys
+    ]
+    if workflow_resources is not None:
+        workflow_plugin, workflow = workflow_resources
+        validate_workflow_dependencies(workflow_plugin.plugin.name, workflow)
+        if workflow.template_dir is not None and args.template_dir is not None:
+            raise ValueError("plugin workflow template_dir and --template-dir are mutually exclusive")
+        workflow_config_file = str(workflow.config_file)
+        selected_plugin_workflow = (
+            f"{workflow_plugin.plugin.name}:{workflow.name}"
+        )
+        plugin_runtime_config_keys.extend(workflow.runtime_config_keys)
+        if workflow.template_dir is not None:
+            args.template_dir = str(workflow.template_dir.parent)
+            template_target = workflow.template_target
+        template_context_factory = workflow.template_context_factory
+    plugin_docs, plugin_skills = collect_plugin_resources(
+        loaded_plugins, workflow_resources
+    )
+    plugin_guide_doc_paths = [str(path) for path in plugin_docs]
+    plugin_skill_paths = [
+        (plugin_name, str(path)) for plugin_name, path in plugin_skills
+    ]
 
     # Initialize logging if requested
     if args.log_file or args.msg_file or args.log:
@@ -1215,13 +1379,7 @@ def run() -> None:
     args.override = args.override or []
     if args.mcp_server_port == -1:
         args.mcp_server_port = find_available_port()
-    mcp_cmd = None
-    if args.mcp_server:
-        mcp_cmd = "start_mcp_server"
-    if args.mcp_server_no_file_tools:
-        mcp_cmd = "start_mcp_server_no_file_ops"
-    if mcp_cmd is not None:
-        init_cmds += [f"{mcp_cmd} {args.mcp_server_host} {args.mcp_server_port}"]
+    start_mcp_server = args.mcp_server or args.mcp_server_no_file_tools
     if args.mcp_server_port is not None:
         args.override = _append_override(args.override, "mcp_server.port", args.mcp_server_port)
     if args.mcp_server_host is not None:
@@ -1369,6 +1527,14 @@ def run() -> None:
         enable_context_manage_tools=args.enable_context_manage_tools,
         exit_on_completion=args.exit_on_completion,
         meta=args.meta,
+        plugins=loaded_plugins,
+        plugin_guide_doc_paths=plugin_guide_doc_paths,
+        plugin_skill_paths=plugin_skill_paths,
+        workflow_config_file=workflow_config_file,
+        plugin_workflow=selected_plugin_workflow,
+        template_target=template_target,
+        template_context_factory=template_context_factory,
+        plugin_runtime_config_keys=list(dict.fromkeys(plugin_runtime_config_keys)),
     )
     if args.web_console_session_host is not None or \
        args.web_console_session_port is not None:
@@ -1376,6 +1542,29 @@ def run() -> None:
             "host": args.web_console_session_host,
             "port": args.web_console_session_port,
         }
+
+    # Command-line backends need MCP before their first model invocation.  PDB
+    # startup commands are interaction-driven and therefore cannot provide this
+    # ordering in a headless run.
+    if start_mcp_server:
+        mcp_host = (
+            args.mcp_server_host
+            if args.mcp_server_host is not None
+            else agent.cfg.mcp_server.host
+        )
+        mcp_port = (
+            args.mcp_server_port
+            if args.mcp_server_port is not None
+            else agent.cfg.mcp_server.port
+        )
+        ok, msg = agent.pdb.start_mcp_server(
+            host=mcp_host,
+            port=mcp_port,
+            no_file_ops=args.mcp_server_no_file_tools,
+        )
+        if not ok:
+            raise RuntimeError(msg)
+        info(msg)
 
     # Set break mode if human interaction or TUI is requested
     if args.human or args.tui:

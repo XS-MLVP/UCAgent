@@ -106,12 +106,12 @@ mission:
       - 其他文件操作和搜索工具按需使用
 
       **Check/Complete失败处理：**
-      - Check或Complete返回失败且包含`failure_summary`时，该内容是Checker显式提供的结构化诊断；必须先按其中的`failed_checker_name`、`error_code`、`error`、`observed`和`next_action`处理具体阻塞项。若没有`failure_summary`，表示Checker没有提供可独立执行的诊断，必须完整读取返回的`check_info`，包括details、STDOUT和STDERR，不能只复述顶层error
-      - 若`failure_summary`仍不足以定位问题或需要完整pytest/Checker输出，使用相同阶段参数重调`Check(stage_args={"full_output":true,...})`或`Complete(stage_args={"full_output":true,...})`；full_output只控制返回信息，不会传给Checker。默认不得无条件开启，以免重复占用上下文
-      - Check或Complete返回`progress_summary.status: batch_advanced`时表示当前批次已成功且下一批已就绪，不是Checker失败；只处理`progress_summary.progress`给出的下一批并遵循其参数契约，不得重做已完成批次，也不得把`check_pass: false`单独解释为验证失败
-      - 向用户或阶段日志说明失败原因时，有failure_summary则必须引用`error_code`，没有则必须引用check_info中的原始错误；两种情况都必须包含至少一个具体文件、测试、标签或缺失项。禁止仅表述为“内部Checker机制不通过”“Checker计数异常”或“需要人工确认”
-      - `count_fail`是该Checker的历史失败调用累计值，不是当前失败测试数；`failed_funct_point: 0`、`failed_check_point: 0`或pytest结果符合预期，也不代表其他门禁已经通过。只有顶层`check_pass: true`或`complete: true`才表示本次检查通过
-      - Checker失败默认表示仍有可修复的验证项。只有返回明确的内部异常和traceback且没有业务错误时，才能判定为工具内部故障；若返回被截断且存在`failure_summary`，以该Checker显式诊断为准；若不存在则用stage_args.full_output=true重调一次取得完整原始错误。不得在文件未变化时反复调用Complete而忽略具体错误
+      - Check或Complete返回失败且包含`failure_summary`时，该内容是验证阶段提供的结构化诊断；必须先按其中的`error_code`、`error`、`observed`和`next_action`处理具体阻塞项。若没有`failure_summary`，表示当前验证没有提供可独立执行的诊断，必须完整读取返回的`check_info`，包括details、STDOUT和STDERR，不能只复述顶层error
+      - 若`failure_summary`仍不足以定位问题或需要完整pytest/验证输出，使用相同阶段参数重调`Check(stage_args={"full_output":true,...})`或`Complete(stage_args={"full_output":true,...})`；full_output只控制返回信息，不会传给验证逻辑。默认不得无条件开启，以免重复占用上下文
+      - Check或Complete返回`progress_summary.status: batch_advanced`时表示当前批次已成功且下一批已就绪，不是验证失败；只处理`progress_summary.progress`给出的下一批并遵循其参数契约，不得重做已完成批次，也不得把`check_pass: false`单独解释为验证失败
+      - 向用户或阶段日志说明失败原因时，有failure_summary则必须引用`error_code`，没有则必须引用check_info中的原始错误；两种情况都必须包含至少一个具体文件、测试、标签或缺失项。禁止仅表述为“内部验证机制不通过”“验证计数异常”或“需要人工确认”
+      - `count_fail`是该验证门禁的历史失败调用累计值，不是当前失败测试数；`failed_funct_point: 0`、`failed_check_point: 0`或pytest结果符合预期，也不代表其他门禁已经通过。只有顶层`check_pass: true`或`complete: true`才表示本次检查通过
+      - 验证失败默认表示仍有可修复项。只有返回明确的内部异常和traceback且没有业务错误时，才能判定为工具内部故障；若返回被截断且存在`failure_summary`，以其中的显式诊断为准；若不存在则用stage_args.full_output=true重调一次取得完整原始错误。不得在文件未变化时反复调用Complete而忽略具体错误
 
       **指导文档：**
       - 位于Guide_Doc/目录下
@@ -313,7 +313,7 @@ stage:
         desc: "功能规格逐行查漏补缺[{LINE_MAP_PROGRESS}|{COUNT_CK}]"
         task:
           - "目标：逐行审查当前批次的目标文档，把每条有功能意义的非空白内容映射到 {OUT}/{DUT}_functions_and_checks.md 中准确的 FG/FC/CK；只有确实不描述 DUT 功能、接口、约束、状态、时序、异常或边界行为的非空白内容才能使用带具体理由的 IGNORE。当前进度：{COMPLETED_LINE_BLOCKS}/{TOTAL_LINE_BLOCKS}；当前行块：{CURRENT_LINE_BLOCKS}"
-          - "输入边界：目标文件、物理行范围、map_file 和原文只以 Check/Complete 返回的 current_line_block_contents 或 next_line_block_contents 为准；这些 content 只是当前行块，不是全文。Guide_Doc 只提供格式，不是覆盖目标；不得猜测未返回的文件，也不得修改、重排或插空行到目标文档来适配映射"
+          - "输入边界：当前规范目标文件为 {CURRENT_LINE_MAP_TARGETS}。物理行范围和原文以当前行块为准；Check/Complete 返回的 current_line_block_contents 或 next_line_block_contents 可提供同一批次的结构化内容。这些 content 只是当前行块，不是全文。Guide_Doc 只提供格式，不是覆盖目标；不得猜测未返回的文件，也不得修改、重排或插空行到目标文档来适配映射"
           - "执行循环：读取当前行块；仅在标题层级、表头、术语或前置条件不足以判断语义时，用 ReadTextFile 读取 file 指向的上下文；逐条分类并写入 map_file；随后调用 Check。每批通过后只处理返回的下一批，全部通过后再调用 Complete"
           - "语义责任：Checker 只能确认映射语法、物理行范围、CK 标签存在、IGNORE 有理由以及非空白行已覆盖，不能确认所选 CK 或 IGNORE 理由在语义上正确。必须依据 Spec 和权威接口文档判断；不能把功能行挂到语义相近但错误的 CK，也不能用 IGNORE 掩盖规格缺口"
           - "CK 修正条件：只有当前行及其必要上下文证明 CK 缺失、含糊、重复、粒度错误或与 Spec 不符时，才修改 {OUT}/{DUT}_functions_and_checks.md；按可独立激励、观测和判定的行为拆分，并明确触发条件、输入/边界、接口或信号、状态/时序及预期结果。单纯的映射语法、路径或理由错误只修复诊断指定的映射项，不要无关地重写 CK"
@@ -1097,7 +1097,7 @@ stage:
       - "  - 每个非零动态Bug必须关联至少一个Fail TC；每个TC紧跟<WAVEFORM-REF>，全部唯一波形集中在<WAVEFORM-EVIDENCE>中。用ApplyWaveInfoEvidence写入真实receipt和viewer；同一TC关联多个Bug时只保留一份中央记录，并用bug_tags/bug_evidence列全关联及信号需求"
       - "  - 不确定波形文件时只调用一次无参数WaveInfo inventory；recommended_call中的basename仅用于定位波形。非参数化用例的WaveInfo node是目标<TC-...>去掉TC-；报告含tests.test_case_instances时，文档TC保持函数级node，WaveInfo选择其中一个实际FAILED child并始终使用该精确实例，不能猜参数ID"
       - "  - agent.cfg已解析本次TC输出目录为{OUT}/tests。文档TC和Apply使用以{OUT}/tests/开头的workspace相对函数级node；参数化receipt只允许同一完整路径/类/函数的child，不同路径不等价。RunTestCases target相对于{OUT}/tests，不得再次包含该前缀；PYTEST_TARGET_DIRECTORY_PREFIX返回的correct_target是唯一重试值"
-      - "  - Check/Complete失败且包含failure_summary时，必须引用failed_checker_name、error_code和具体阻塞项继续修复；没有failure_summary时必须读取完整check_info中的details/STDOUT/STDERR，不能把宽泛error当作完整原因，必要时用stage_args.full_output=true取得原始返回。count_fail只是历史调用累计，failed_funct_point/failed_check_point为0也不能覆盖其他门禁。禁止将有具体error的失败归因于‘内部Checker机制’"
+      - "  - Check/Complete失败且包含failure_summary时，必须引用error_code和具体阻塞项继续修复；没有failure_summary时必须读取完整check_info中的details/STDOUT/STDERR，不能把宽泛error当作完整原因，必要时用stage_args.full_output=true取得原始返回。count_fail只是历史调用累计，failed_funct_point/failed_check_point为0也不能覆盖其他门禁。禁止将有具体error的失败归因于‘内部验证机制’"
     checker:
       - name: test_check
         clss: "UnityChipCheckerTestCase"

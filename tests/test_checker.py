@@ -205,6 +205,81 @@ def test_checker_dut_api_and_fixtures_use_temporary_workspace(tmp_path):
     assert all("passed" in str(message) for _passed, message in results)
 
 
+def test_dut_api_checker_returns_structured_failure_diagnostics(tmp_path):
+    """Every DUT API source failure provides a bounded, actionable diagnostic."""
+
+    test_dir = tmp_path / "unity_test" / "tests"
+    test_dir.mkdir(parents=True)
+    target = "unity_test/tests/Demo_api.py"
+    target_path = tmp_path / target
+    checker = UnityChipCheckerDutApi("api_Demo", target, 1).set_workspace(str(tmp_path))
+
+    passed, diagnostic = checker.do_check()
+    assert passed is False
+    assert diagnostic["error_code"] == "DUT_API_FILE_MISSING"
+
+    failure_cases = (
+        (
+            "def api_Demo_bad(:\n",
+            "DUT_API_PARSE_FAILED",
+        ),
+        (
+            "def unrelated(env, max_cycles=1):\n    return None\n",
+            "DUT_API_COUNT_INSUFFICIENT",
+        ),
+        (
+            "def api_Demo_bad(value):\n    return value\n",
+            "DUT_API_SIGNATURE_INVALID",
+        ),
+        (
+            "def api_Demo_bad(env, max_cycles=1):\n    return None\n",
+            "DUT_API_DOCSTRING_MISSING",
+        ),
+        (
+            "def api_Demo_bad(env, max_cycles=1):\n"
+            "    \"\"\"Run one operation.\n\n"
+            "    Args:\n"
+            "        env: Verification environment.\n"
+            "    \"\"\"\n"
+            "    return None\n",
+            "DUT_API_DOCSTRING_SECTION_MISSING",
+        ),
+    )
+    for source, error_code in failure_cases:
+        target_path.write_text(source, encoding="utf-8")
+        passed, diagnostic = checker.do_check()
+        assert passed is False
+        assert diagnostic["error_code"] == error_code
+        assert diagnostic["error"]
+        assert diagnostic["next_action"]
+        assert diagnostic["artifact"] == target
+        assert diagnostic["location"].startswith(target)
+        assert "observed" in diagnostic
+        assert "expected" in diagnostic
+
+
+def test_dut_api_checker_bounds_invalid_signature_details(tmp_path):
+    """A large invalid API set is summarized instead of flooding stage context."""
+
+    target = "Demo_api.py"
+    (tmp_path / target).write_text(
+        "\n".join(
+            f"def api_Demo_bad_{index}(value):\n    return value"
+            for index in range(25)
+        ),
+        encoding="utf-8",
+    )
+    checker = UnityChipCheckerDutApi("api_Demo", target, 1).set_workspace(str(tmp_path))
+
+    passed, diagnostic = checker.do_check()
+
+    assert passed is False
+    assert diagnostic["error_code"] == "DUT_API_SIGNATURE_INVALID"
+    assert diagnostic["observed"]["invalid_api_count"] == 25
+    assert len(diagnostic["observed"]["signatures"]) == 20
+    assert diagnostic["observed"]["truncated"] is True
+
+
 def test_coverage_checker_uses_temporary_workspace(tmp_path):
     test_dir = _write_workspace_files(tmp_path)
     (test_dir / "Demo_function_coverage_def.py").write_text(

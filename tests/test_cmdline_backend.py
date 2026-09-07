@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 """Tests for command-line backend process interruption."""
 
+import json
 import os
 import shlex
 import sys
@@ -117,6 +118,39 @@ def test_render_config_files_uses_context_and_creates_parent_dir(tmp_path, monke
     rendered_file = workspace / "nested" / "config.json"
     assert rendered_file.read_text(encoding="utf-8") == (
         '{"url": "http://127.0.0.1:5678/mcp", "model": "test-model"}'
+    )
+
+
+def test_opencode_template_denies_shell_and_external_workspace_access(
+    tmp_path, monkeypatch
+):
+    """Rendered OpenCode sessions must use MCP gates inside the DUT workspace."""
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    template_file = os.path.abspath(
+        os.path.join(current_dir, "..", "ucagent", "assets", "mcp_opencode.json")
+    )
+    config = SimpleNamespace(mcp_server=SimpleNamespace(port=5678))
+    monkeypatch.setenv("OPENAI_MODEL", "test-model")
+    monkeypatch.setenv("OPENAI_API_BASE", "http://example.test/v1")
+    monkeypatch.setenv("OPENAI_API_KEY", "not-rendered")
+
+    backend = UCAgentCmdLineBackend(
+        _FakeAgent(workspace=str(workspace)),
+        config=config,
+        cli_cmd_ctx="",
+        render_files={template_file: "{CWD}/opencode.json"},
+    )
+    backend.init()
+
+    rendered = json.loads((workspace / "opencode.json").read_text(encoding="utf-8"))
+    assert rendered["permission"] == {
+        "bash": "deny",
+        "external_directory": "deny",
+    }
+    assert rendered["provider"]["ucagent"]["options"]["apiKey"] == (
+        "{env:OPENAI_API_KEY}"
     )
 
 

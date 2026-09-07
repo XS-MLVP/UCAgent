@@ -643,8 +643,7 @@ def _failure_result(error="same actionable failure"):
         "failure_summary": {
             "stage_index": 19,
             "stage_name": "generate_random_test_cases",
-            "failed_checker_name": "random_test_check",
-            "failed_checker_class": "RandomTestCasesChecker",
+            "failed_validation_gate_index": 0,
             "error_code": "TEST_REPORT_MISMATCH",
             "error": error,
             "next_action": "Repair the reported artifact and call Check again.",

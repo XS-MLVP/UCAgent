@@ -282,6 +282,16 @@ write_dirs:
 guide_doc:
   path: "{GUIDE_DOC}"
   enable: true
+  # Plugin workflows may retain selected core docs, replace them with an
+  # identically located plugin doc, or omit them from the runtime copy.
+  core_copy_policy:
+    default_action: retain
+    retain: []
+    override: []
+    ignore: []
+
+plugin:
+  search_paths: [] # Local plugin project or collection directories; installed plugins use Python entry points
 
 tools:
   RunTestCases:
@@ -395,7 +405,7 @@ hist_ignore_pattern:
   - "__pycache__"
   - "*.pyc"
   - ".*"
-  - "data"
+  - "tests/data"
   - ".git"
 
 

@@ -1068,6 +1068,7 @@ class UnityChipBatchCheckerFileLineMap(Checker):
                 "LINE_MAP_PROGRESS": "-/-",
                 "COUNT_CK": "-",
                 "CURRENT_LINE_BLOCKS": "",
+                "CURRENT_LINE_MAP_TARGETS": "",
                 "MAX_LINE_BLOCK_LINES": self.max_block_lines,
             }
         source_tasks = self.batch_task.source_task_list
@@ -1081,6 +1082,11 @@ class UnityChipBatchCheckerFileLineMap(Checker):
             "COUNT_CK": self._ck_count,
             "CURRENT_LINE_BLOCKS": ", ".join(
                 _line_block_base(task) for task in self.batch_task.tbd_task_list
+            ),
+            "CURRENT_LINE_MAP_TARGETS": ", ".join(
+                f"{_line_block_base(task)} -> "
+                f"{_mapping_file_for_source(self._split_line_block(task)[0], self.map_location, self.map_suffix)}"
+                for task in self.batch_task.tbd_task_list
             ),
             "MAX_LINE_BLOCK_LINES": self.max_block_lines,
         }

@@ -12,6 +12,11 @@
 - 将工具暴露为 MCP Server 工具（供外部 IDE/客户端调用）
 - 控制选择哪些工具被暴露与如何调用
 
+如果扩展需要独立安装、持有包内资产或读取运行时路径策略，请按
+[插件开发与发布](09_plugins.md) 封装。插件可以只提供 Tool，也可以独立提供 Checker、
+Skill、Guide_Doc 或工作流，不要求同时提供这些能力。`--ex-tools` 仍适合无需上下文的
+临时零参工具。
+
 涉及关键位置：
 
 - `ucagent/tools/uctool.py`：工具基类 UCTool、to_fastmcp（LangChain Tool → FastMCP Tool）

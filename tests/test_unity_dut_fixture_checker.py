@@ -156,7 +156,10 @@ def test_api_checker_do_check_prioritizes_missing_coverage_diagnostic(tmp_path):
         "functions_and_checks.md",
         "bug_analysis.md",
     ).set_workspace(str(tmp_path))
-    checker.run_test = SimpleNamespace(do=lambda *args, **kwargs: (report, "", ""))
+    checker.run_test = SimpleNamespace(
+        set_report_context=lambda context: None,
+        do=lambda *args, **kwargs: (report, "", ""),
+    )
     checker._check_test_func_args = lambda current_report, stdout, stderr: (
         current_report,
         stdout,
@@ -423,6 +426,7 @@ def test_api_checker_reports_checkpoint_association_cause(tmp_path):
         "bug_analysis.md",
     ).set_workspace(str(tmp_path))
     checker.run_test = SimpleNamespace(
+        set_report_context=lambda context: None,
         do=lambda *args, **kwargs: (
             report,
             "original pytest output",

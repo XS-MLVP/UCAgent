@@ -11,6 +11,7 @@ from ucagent.checkers.base import UnityChipBatchTask, format_stage_args_examples
 from ucagent.checkers.unity_test import (
     BaseUnityChipCheckerTestCase,
     _iter_test_function_defs,
+    _normalize_checkpoint_prefixes,
     _test_function_contract_failure,
 )
 from ucagent.checkers.toffee_report import check_report
@@ -31,6 +32,7 @@ class RandomTestCasesChecker(BaseUnityChipCheckerTestCase):
                                          ".mark_function": "you must use this function to mark the function coverage and check points."
                                          },
                  batch_size=10,
+                 ignore_ck_prefix="",
                  **kw):
         kw["min_tests"] = min_test_count
         if kw.get("test_func_prefix") is None:
@@ -43,6 +45,7 @@ class RandomTestCasesChecker(BaseUnityChipCheckerTestCase):
         self.min_test_count = min_test_count
         self.test_case_name_pattern = test_case_name_pattern
         self.must_func_code_snippet = must_func_code_snippet
+        self.ignore_ck_prefix = _normalize_checkpoint_prefixes(ignore_ck_prefix)
         self.total_random_test_count = 0
         self.batch_size = batch_size
         self.random_result = OrderedDict()
@@ -131,6 +134,7 @@ class RandomTestCasesChecker(BaseUnityChipCheckerTestCase):
         ret, msg, _ = check_report(self.workspace,
                                    report, self.doc_func_check, self.doc_bug_analysis,
                                    only_marked_ckp_in_tc=True,
+                                   ignore_ck_prefix=self.ignore_ck_prefix,
                                    check_fail_ck_in_bug=False,
                                    waveform_tool=self.get_waveform_tool_for_checker(),
                                    waveform_test_dir=self.test_dir,
@@ -150,12 +154,24 @@ class RandomTestCasesChecker(BaseUnityChipCheckerTestCase):
             raise FileNotFoundError(
                 f"Function and check documentation file {self.doc_func_check} does not exist in workspace."
             )
-        return fc.get_unity_chip_doc_marks(
+        checkpoints, file_blocks = fc.get_unity_chip_doc_marks(
             doc_path,
             leaf_node="CK",
             mini_leaf_count=min_count,
             return_line_block=True,
         )
+        checkpoints = [
+            checkpoint
+            for checkpoint in checkpoints
+            if not any(
+                checkpoint.startswith(prefix) for prefix in self.ignore_ck_prefix
+            )
+        ]
+        if min_count > 0 and len(checkpoints) < min_count:
+            raise ValueError(
+                "No in-scope CK remains after applying ignore_ck_prefix."
+            )
+        return checkpoints, file_blocks
 
     def _sync_source_from_doc(self, current_doc_ck_list, note_msg=None):
         if note_msg is None:

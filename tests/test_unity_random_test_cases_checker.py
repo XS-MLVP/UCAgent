@@ -61,7 +61,7 @@ def _write_doc(path, entries):
     path.write_text("\n".join(lines), encoding="utf-8")
 
 
-def _make_checker(tmp_path, entries, batch_size=2):
+def _make_checker(tmp_path, entries, batch_size=2, ignore_ck_prefix=""):
     doc = tmp_path / "functions_and_checks.md"
     tests_dir = tmp_path / "tests"
     tests_dir.mkdir(exist_ok=True)
@@ -75,9 +75,28 @@ def _make_checker(tmp_path, entries, batch_size=2):
         batch_size=batch_size,
         data_key="RANDOM_TEST_DATA",
         test_func_prefix="test_random_",
+        ignore_ck_prefix=ignore_ck_prefix,
     ).set_workspace(str(tmp_path)).set_stage(_FakeStage()).set_stage_manager(manager)
     checker.on_init()
     return checker, manager
+
+
+def test_random_checker_excludes_configured_checkpoint_prefix(tmp_path):
+    """Random-test batches must omit checkpoints owned by a later workflow phase."""
+
+    checker, _manager = _make_checker(
+        tmp_path,
+        [
+            ("FG-FUNC", "FC-OP", "CK-VALUE"),
+            ("FG-PPA-1", "FC-PERF", "CK-LATENCY"),
+        ],
+        ignore_ck_prefix=["FG-PPA-"],
+    )
+
+    assert checker.batch_task.source_task_list == ["FG-FUNC/FC-OP/CK-VALUE"]
+    assert checker.get_template_data()["LIST_CURRENT_CKS"][0]["CK"] == (
+        "FG-FUNC/FC-OP/CK-VALUE"
+    )
 
 
 def test_random_checker_rejects_nonconforming_name_before_execution(tmp_path):

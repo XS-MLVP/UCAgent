@@ -56,7 +56,8 @@ class VerifyStage(object):
                  need_human_check=False,
                  substages=None,
                  pre_cmds=None,
-                 post_cmds=None
+                 post_cmds=None,
+                 checker_registry=None,
                  ):
         """
         Initialize the VerifyStage.
@@ -78,9 +79,13 @@ class VerifyStage(object):
         self.task_list = convert_task_form_cfg(task)
         self._checker = checker
         self.workspace = workspace
+        self.checker_registry = dict(checker_registry or {})
         self.checker = [
-            import_class_from_str(c.clss, checkers)(**update_dict(c.args.as_dict(),
-                                                                  {"cfg": self.cfg})).set_extra(
+            (
+                self.checker_registry[c.clss]
+                if "." not in c.clss and c.clss in self.checker_registry
+                else import_class_from_str(c.clss, checkers)
+            )(**update_dict(c.args.as_dict(), {"cfg": self.cfg})).set_extra(
                 **c.extra_args.as_dict()
             ).set_workspace(workspace).set_stage(self) for c in self._checker
         ]
@@ -395,6 +400,46 @@ class VerifyStage(object):
         }
         self._cached_stage_outcome = None
 
+    def hist_snapshot(self, msg="Internal workflow snapshot"):
+        """Commit a deterministic internal workflow checkpoint and return its hash."""
+
+        self.hist_commit(msg=msg)
+        commit = self.meta_data.get("commit", {})
+        commit_hash = commit.get("hash") if isinstance(commit, dict) else None
+        if not isinstance(commit_hash, str) or not commit_hash:
+            raise RuntimeError("Internal stage history did not return a commit hash")
+        return commit_hash
+
+    def hist_has_commit(self, commit_hash):
+        """Return whether a canonical commit hash exists in stage-owned history."""
+
+        if (
+            not isinstance(commit_hash, str)
+            or len(commit_hash) != 40
+            or commit_hash != commit_hash.lower()
+            or any(character not in "0123456789abcdef" for character in commit_hash)
+        ):
+            return False
+        try:
+            repo = diff_ops.git.Repo(self.hist_sav_dir)
+        except (
+            diff_ops.git.exc.InvalidGitRepositoryError,
+            diff_ops.git.exc.NoSuchPathError,
+        ):
+            return False
+        try:
+            repo.git.cat_file("-e", f"{commit_hash}^{{commit}}")
+            commit = repo.commit(commit_hash)
+            return commit.hexsha == commit_hash
+        except (
+            diff_ops.git.exc.BadName,
+            diff_ops.git.exc.GitCommandError,
+            ValueError,
+        ):
+            return False
+        finally:
+            repo.close()
+
     def hist_diff(self, target_file=".", show_diff=False,
                   start_line=1, line_count=-1, max_line_limit=500):
         self.hist_sync()
@@ -455,15 +500,31 @@ class VerifyStage(object):
             changed_files = {}
             seen_history_files = set()
             for root, dirnames, filenames in os.walk(src_path):
+                relative_root = os.path.relpath(root, src_path).replace(os.sep, "/")
+                if relative_root == ".":
+                    relative_root = ""
                 dirnames[:] = [
                     dirname for dirname in dirnames
-                    if not fc.match_pattern_list(dirname, self.hist_ign_list)
+                    if not (
+                        fc.match_pattern_list(dirname, self.hist_ign_list)
+                        or fc.match_pattern_list(
+                            "/".join(
+                                part for part in (relative_root, dirname) if part
+                            ),
+                            self.hist_ign_list,
+                        )
+                    )
                 ]
                 for filename in filenames:
-                    if fc.match_pattern_list(filename, self.hist_ign_list):
+                    relative_file = "/".join(
+                        part for part in (relative_root, filename) if part
+                    )
+                    if fc.match_pattern_list(
+                        filename, self.hist_ign_list
+                    ) or fc.match_pattern_list(relative_file, self.hist_ign_list):
                         continue
                     abs_path = os.path.join(root, filename)
-                    rel_to_src = os.path.relpath(abs_path, src_path).replace(os.sep, "/")
+                    rel_to_src = relative_file
                     hist_file_path = os.path.join(self.hist_src_dir, rel_to_src).replace(os.sep, "/")
                     seen_history_files.add(hist_file_path)
                     with open(abs_path, "rb") as fh:
@@ -729,6 +790,18 @@ class VerifyStage(object):
         assert manager is not None, "Stage Manager cannot be None."
         for c in self.checker:
             c.set_stage_manager(manager)
+            run_test = getattr(c, "run_test", None)
+            set_paths = getattr(run_test, "set_extra_python_paths", None)
+            if callable(set_paths):
+                existing = list(getattr(run_test, "extra_python_paths", []) or [])
+                configured = list(
+                    getattr(manager, "test_python_import_roots", []) or []
+                )
+                merged = []
+                for path in [*configured, *existing]:
+                    if path not in merged:
+                        merged.append(path)
+                set_paths(merged)
         self.vmanager = manager
 
     def is_skill_path(self, file_path):
@@ -1234,6 +1307,8 @@ class VerifyStage(object):
         return tshort
 
     def detail(self):
+        """Return the complete stage state used by internal persistence and debugging."""
+
         return OrderedDict({
                 "task": self.task_info(),
                 "section_index": self.prefix,
@@ -1246,6 +1321,22 @@ class VerifyStage(object):
                 "needs_human_check": self.is_hmcheck_needed(),
                 "last_human_check_result": self._hum_check_passed,
                 "last_human_check_msg": self._hum_check_msg,
+        })
+
+    def public_detail(self):
+        """Return stage guidance without validation implementation metadata."""
+
+        return OrderedDict({
+            "task": self.task_info(),
+            "section_index": self.prefix,
+            "reached": self.is_reached(),
+            "is_completed": self.is_completed(),
+            "check_pass": self.check_pass,
+            "fail_count": self.fail_count,
+            "is_skipped": self.is_skipped(),
+            "needs_human_check": self.is_hmcheck_needed(),
+            "last_human_check_result": self._hum_check_passed,
+            "last_human_check_msg": self._hum_check_msg,
         })
 
     def description(self):
@@ -1348,7 +1439,11 @@ class VerifyStage(object):
         return names
 
 
-def parse_vstage(root_cfg, cfg, workspace, tool_read_text, prefix=""):
+def parse_vstage(
+    root_cfg, cfg, workspace, tool_read_text, prefix="", checker_registry=None
+):
+    """Parse configured verification stages with an optional plugin Checker registry."""
+
     if cfg is None:
         return []
     assert isinstance(cfg, list), "cfg.stage must be a list of VerifyStage configurations."
@@ -1372,7 +1467,14 @@ def parse_vstage(root_cfg, cfg, workspace, tool_read_text, prefix=""):
             warning(f"Stage '{stage.name}' is set to be ignored, skipping its parsing.")
             continue
         index = i + 1
-        substages = parse_vstage(root_cfg, stage.get_value('stage', None), workspace, tool_read_text, prefix + f"{index}.")
+        substages = parse_vstage(
+            root_cfg,
+            stage.get_value('stage', None),
+            workspace,
+            tool_read_text,
+            prefix + f"{index}.",
+            checker_registry,
+        )
         if skip:
             warning(f"Stage '{stage.name}' is set to be skipped.")
             for sb in substages:
@@ -1402,12 +1504,15 @@ def parse_vstage(root_cfg, cfg, workspace, tool_read_text, prefix=""):
             need_pass_llm_suggestion=need_pass_llm_suggestion,
             need_human_check=need_human_check,
             pre_cmds=stage.get_value('pre_cmds', None),
-            post_cmds=stage.get_value('post_cmds', None)
+            post_cmds=stage.get_value('post_cmds', None),
+            checker_registry=checker_registry,
         ))
     return ret
 
 
-def get_root_stage(cfg, workspace, tool_read_text):
+def get_root_stage(cfg, workspace, tool_read_text, checker_registry=None):
+    """Create the root stage and parse children with registered plugin Checkers."""
+
     root = VerifyStage(
         cfg=cfg,
         workspace=workspace,
@@ -1419,6 +1524,9 @@ def get_root_stage(cfg, workspace, tool_read_text):
         skill_list=[],
         force_use_skill=False,
         output_files=[],
+        checker_registry=checker_registry,
     )
-    root.substages = parse_vstage(cfg, cfg.stage, workspace, tool_read_text)
+    root.substages = parse_vstage(
+        cfg, cfg.stage, workspace, tool_read_text, checker_registry=checker_registry
+    )
     return root

@@ -64,7 +64,7 @@ def _initial_report(test_names):
     }
 
 
-def _checker(tmp_path, report, *, batch_size=2):
+def _checker(tmp_path, report, *, batch_size=2, **checker_kwargs):
     test_dir = tmp_path / "tests"
     test_dir.mkdir(exist_ok=True)
     (test_dir / "test_demo.py").write_text("# test source\n", encoding="utf-8")
@@ -79,6 +79,7 @@ def _checker(tmp_path, report, *, batch_size=2):
         pre_report_file=".TEST_TEMPLATE_IMP_REPORT.json",
         ret_std_out=False,
         ret_std_error=False,
+        **checker_kwargs,
     )
     checker.set_workspace(str(tmp_path)).set_stage(stage)
     checker.set_stage_manager(manager)
@@ -218,6 +219,40 @@ def test_failed_batch_validation_does_not_persist_completion(tmp_path, monkeypat
         "tests/test_demo.py::test_a",
         "tests/test_demo.py::test_b",
     ]
+
+
+def test_batch_report_validation_can_be_specialized_without_replacing_progress(
+    tmp_path,
+    monkeypatch,
+):
+    """A workflow-specific report gate must retain the shared batch state machine."""
+
+    report = _initial_report(["test_a", "test_b", "test_c"])
+    checker, _stage = _checker(tmp_path, report)
+    _patch_successful_batch(monkeypatch)
+    observed_reports = []
+
+    def reject_with_workflow_contract(current_report):
+        observed_reports.append(current_report)
+        return False, {
+            "error_code": "WORKFLOW_BATCH_REJECTED",
+            "error": "workflow-specific evidence is incomplete",
+            "next_action": "repair the current batch evidence",
+        }, "workflow_failed"
+
+    monkeypatch.setattr(
+        checker,
+        "_validate_current_batch_report",
+        reject_with_workflow_contract,
+    )
+
+    passed, message = checker.do_check()
+
+    assert passed is False
+    assert len(observed_reports) == 1
+    assert message["diagnostic"]["error_code"] == "WORKFLOW_BATCH_REJECTED"
+    assert message["diagnostic"]["batch_progress"]["validation"] == "workflow_failed"
+    assert checker.batch_task.gen_task_list == []
 
 
 def test_cached_document_preflight_rejects_without_rerunning_tests(
@@ -372,6 +407,49 @@ def test_restart_reconciles_completed_tasks_with_changed_source_list(
         "tests/test_demo.py::test_d",
     ]
     assert restored.get_template_data()["COMPLETED_CASES"] == 1
+
+
+def test_restart_reconciles_tests_excluded_by_checkpoint_scope(tmp_path):
+    """A changed CK scope must remove only tests wholly owned by that phase."""
+
+    report = _initial_report(
+        ["test_functional", "test_ppa", "test_mixed", "test_unassociated"]
+    )
+    test_cases = list(report["tests"]["test_cases"])
+    report["test_case_with_check_point_list"] = {
+        test_cases[0]: ["FG-A/FC-A/CK-A"],
+        test_cases[1]: ["FG-PPA-1/FC-PERF/CK-LATENCY"],
+        test_cases[2]: [
+            "FG-A/FC-A/CK-MIXED",
+            "FG-PPA-1/FC-PERF/CK-MIXED",
+        ],
+    }
+    original, _ = _checker(tmp_path, report, batch_size=4)
+    original.batch_task.gen_task_list = [
+        "tests/test_demo.py::test_functional",
+        "tests/test_demo.py::test_ppa",
+    ]
+    original.batch_task.savepoint_file()
+
+    restored, _ = _checker(
+        tmp_path,
+        report,
+        batch_size=4,
+        ignore_ck_prefix="FG-PPA-",
+    )
+
+    assert restored.batch_task.source_task_list == [
+        "tests/test_demo.py::test_functional",
+        "tests/test_demo.py::test_unassociated",
+        "tests/test_demo.py::test_mixed",
+    ]
+    assert restored.batch_task.gen_task_list == [
+        "tests/test_demo.py::test_functional"
+    ]
+    assert restored.current_test_cases == [
+        "tests/test_demo.py::test_mixed",
+        "tests/test_demo.py::test_unassociated",
+    ]
 
 
 def test_restart_rejects_unknown_checkpoint_progress(tmp_path):

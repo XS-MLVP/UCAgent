@@ -99,6 +99,91 @@ def test_check_report_describes_unassociated_checkpoint_as_report_state(tmp_path
     assert "mark_function" not in message
 
 
+def test_check_report_excludes_checkpoints_owned_by_another_phase(tmp_path):
+    """A scoped report must ignore only configured later-phase checkpoints."""
+
+    (tmp_path / "functions.md").write_text(
+        "<FG-A>\n<FC-A>\n<CK-A>\n\n"
+        "<FG-PPA-1>\n<FC-PERF>\n<CK-LATENCY>\n",
+        encoding="utf-8",
+    )
+    functional = "FG-A/FC-A/CK-A"
+    performance = "FG-PPA-1/FC-PERF/CK-LATENCY"
+    test_case = "tests/test_a.py:1-3::test_a"
+    report = {
+        "total_funct_point": 2,
+        "total_check_point": 2,
+        "test_function_with_no_check_point_mark": 0,
+        "all_check_point_list": [functional, performance],
+        "failed_check_point_list": [performance],
+        "unmarked_check_points": 1,
+        "unmarked_check_point_list": [performance],
+        "failed_test_case_with_check_point_list": {},
+        "test_case_with_check_point_list": {test_case: [functional]},
+        "tests": {"test_cases": {test_case: "PASSED"}},
+    }
+
+    passed, message, _ = check_report(
+        str(tmp_path),
+        report,
+        "functions.md",
+        "bugs.md",
+        ignore_ck_prefix="FG-PPA-",
+    )
+
+    assert passed is True, message
+
+
+def test_check_report_keeps_functional_failures_when_later_phase_is_excluded(
+    tmp_path,
+):
+    """Checkpoint exclusions must not hide failures in the retained scope."""
+
+    (tmp_path / "functions.md").write_text(
+        "<FG-A>\n<FC-A>\n<CK-A>\n\n"
+        "<FG-PPA-1>\n<FC-PERF>\n<CK-LATENCY>\n",
+        encoding="utf-8",
+    )
+    functional = "FG-A/FC-A/CK-A"
+    performance = "FG-PPA-1/FC-PERF/CK-LATENCY"
+    test_case = "tests/test_a.py:1-3::test_a"
+    report = {
+        "total_funct_point": 2,
+        "total_check_point": 2,
+        "test_function_with_no_check_point_mark": 0,
+        "all_check_point_list": [functional, performance],
+        "failed_check_point_list": [functional, performance],
+        "unmarked_check_points": 0,
+        "failed_test_case_with_check_point_list": {},
+        "test_case_with_check_point_list": {test_case: [functional]},
+        "tests": {
+            "total": 1,
+            "fails": 0,
+            "test_cases": {test_case: "PASSED"},
+        },
+    }
+
+    passed, message, _ = check_report(
+        str(tmp_path),
+        report,
+        "functions.md",
+        "bugs.md",
+        ignore_ck_prefix="FG-PPA-",
+    )
+
+    assert passed is False
+    assert "[Failed Checkpoint Reproducer Missing]" in message["error"]
+    assert message["details"]["failed_checkpoints_without_failed_test"] == [
+        {
+            "checkpoint": functional,
+            "associated_tests": [
+                {"test_case": test_case, "status": "PASSED"},
+            ],
+        }
+    ]
+    assert performance not in str(message)
+
+
 def test_check_report_does_not_rerun_legacy_mark_function_diagnostic(tmp_path):
     _write_function_doc(tmp_path / "functions.md")
     (tmp_path / "tests").mkdir()

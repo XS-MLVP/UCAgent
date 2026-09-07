@@ -67,6 +67,7 @@ def _make_checker(
     data_key="REFINE_DATA",
     manager_data=None,
     ignore_tc_prefix="test_ignore_",
+    ignore_ck_prefix="",
 ):
     doc = tmp_path / "functions_and_checks.md"
     tests_dir = tmp_path / "tests"
@@ -77,11 +78,30 @@ def _make_checker(
         "functions_and_checks.md",
         test_dir="tests",
         ignore_tc_prefix=ignore_tc_prefix,
+        ignore_ck_prefix=ignore_ck_prefix,
         batch_size=batch_size,
         data_key=data_key,
     ).set_workspace(str(tmp_path)).set_stage(_FakeStage()).set_stage_manager(manager)
     checker.on_init()
     return checker, manager, tests_dir, doc
+
+
+def test_refine_checker_excludes_configured_checkpoint_prefix(tmp_path):
+    """Refinement batches must omit checkpoints owned by a later workflow phase."""
+
+    checker, _manager, _tests_dir, _doc = _make_checker(
+        tmp_path,
+        [
+            ("FG-FUNC", "FC-OP", "CK-VALUE"),
+            ("FG-PPA-1", "FC-PERF", "CK-LATENCY"),
+        ],
+        ignore_ck_prefix="FG-PPA-",
+    )
+
+    assert checker.batch_task.source_task_list == ["FG-FUNC/FC-OP/CK-VALUE"]
+    assert checker.get_template_data()["LIST_CURRENT_CKS"][0]["CK"] == (
+        "FG-FUNC/FC-OP/CK-VALUE"
+    )
 
 
 def test_get_ck_test_cases_info_uses_mark_function_not_fc_cover_receiver(tmp_path):

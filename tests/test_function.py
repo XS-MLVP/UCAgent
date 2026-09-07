@@ -108,7 +108,109 @@ def test_render_template_dir(tmp_path):
     assert "unity_test/alu_functions_and_checks.md" in rendered_files
     assert "unity_test/tests/alu_api.py" in rendered_files
     assert (tmp_path / "unity_test" / "alu_bug_analysis.md").is_file()
+
+
+def test_render_template_target_preserves_non_template_files(tmp_path):
+    """Target-mode rendering must merge only template-owned files."""
+
+    template = tmp_path / "template"
+    template.mkdir()
+    (template / "{{DUT}}.txt").write_text("DUT={{DUT}} OUT={{OUT}}\n", encoding="utf-8")
+    output = tmp_path / "generated"
+    output.mkdir()
+    preserved = output / "existing.txt"
+    preserved.write_text("literal {{DUT}}\n", encoding="utf-8")
+
+    rendered = render_template_dir(
+        str(tmp_path),
+        str(template),
+        {"DUT": "alu", "OUT": "generated"},
+        target_dir="{OUT}",
+    )
+
+    assert rendered == ["generated/alu.txt"]
+    assert (output / "alu.txt").read_text(encoding="utf-8") == "DUT=alu OUT=generated\n"
+    assert preserved.read_text(encoding="utf-8") == "literal {{DUT}}\n"
     assert not (tmp_path / "unity_test" / "{{DUT}}_bug_analysis.md").exists()
+
+
+def test_render_template_dir_excludes_installer_bytecode(tmp_path):
+    """Installed template bytecode must never be copied into a workspace."""
+
+    template = tmp_path / "installed" / "templates" / "unit_design"
+    cache = template / "tests" / "__pycache__"
+    cache.mkdir(parents=True)
+    (template / "tests" / "{{DUT}}_reference.py").write_text(
+        'DUT = "{{DUT}}"\n', encoding="utf-8"
+    )
+    (cache / "{{DUT}}_reference.cpython-312.pyc").write_bytes(b"compiled")
+    (template / "tests" / "stale.pyo").write_bytes(b"optimized")
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    rendered = render_template_dir(
+        str(workspace),
+        str(template),
+        {"DUT": "alu", "OUT": "output"},
+        target_dir="{OUT}",
+    )
+
+    assert rendered == ["output/tests/alu_reference.py"]
+    assert (workspace / "output" / "tests" / "alu_reference.py").read_text(
+        encoding="utf-8"
+    ) == 'DUT = "alu"\n'
+    assert not (workspace / "output" / "tests" / "__pycache__").exists()
+    assert not (workspace / "output" / "tests" / "stale.pyo").exists()
+
+    default_workspace = tmp_path / "default-workspace"
+    default_workspace.mkdir()
+    default_rendered = render_template_dir(
+        str(default_workspace),
+        str(template),
+        {"DUT": "alu"},
+    )
+
+    assert default_rendered == ["unit_design/tests/alu_reference.py"]
+    assert not (
+        default_workspace / "unit_design" / "tests" / "__pycache__"
+    ).exists()
+    assert not (
+        default_workspace / "unit_design" / "tests" / "stale.pyo"
+    ).exists()
+
+
+def test_sync_dir_to_matches_relative_ignore_paths_without_broad_name_matches(
+    tmp_path,
+):
+    """History sync must honor path rules while retaining similarly named artifacts."""
+
+    source = tmp_path / "source"
+    target = tmp_path / "target"
+    (source / "performance" / "waves").mkdir(parents=True)
+    (source / "performance" / "results").mkdir(parents=True)
+    (source / "metadata").mkdir(parents=True)
+    (source / "tests" / "database").mkdir(parents=True)
+    (source / "performance" / "waves" / "tc.vcd").write_text(
+        "wave\n", encoding="utf-8"
+    )
+    (source / "performance" / "results" / "tc.json").write_text(
+        "{}\n", encoding="utf-8"
+    )
+    (source / "metadata" / "ledger.json").write_text("{}\n", encoding="utf-8")
+    (source / "tests" / "database" / "kept.json").write_text(
+        "{}\n", encoding="utf-8"
+    )
+
+    fc.sync_dir_to(
+        str(source),
+        str(target),
+        ["performance/waves", "tests/data"],
+    )
+
+    assert not (target / "performance" / "waves").exists()
+    assert (target / "performance" / "results" / "tc.json").is_file()
+    assert (target / "metadata" / "ledger.json").is_file()
+    assert (target / "tests" / "database" / "kept.json").is_file()
 
 
 
@@ -198,6 +300,10 @@ def test_replace_bash_var():
     print("Data:", data)
     print("Replaced string:", result)
     print("------------------------")
+    assert result == "Hello, Alice! Welcome to Wonderland. Your score is 100."
+    assert fc.replace_bash_var("$(missing:)", {}) == ""
+    assert fc.replace_bash_var("$(missing: fallback)", {}) == "fallback"
+    assert fc.replace_bash_var("$(present: fallback)", {"present": ""}) == ""
 
 
 def test_check_file_block():

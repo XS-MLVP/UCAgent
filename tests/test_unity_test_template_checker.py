@@ -487,6 +487,109 @@ def test_template_batch_checkpoint_is_initialized_and_restored(tmp_path):
     assert restored.get_template_data()["COVERED_CKS"] == 1
 
 
+def test_template_batch_allows_future_checkpoints_to_remain_unassociated(
+    tmp_path, monkeypatch
+):
+    """Only the current template batch must have a test association."""
+
+    first = "FG-DATA/FC-RESULT/CK-A"
+    second = "FG-DATA/FC-RESULT/CK-B"
+    test_case = "tests/test_result.py:1-3::test_result"
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "functions.md").write_text(
+        "<FG-DATA>\n<FC-RESULT>\n<CK-A>\n<CK-B>\n",
+        encoding="utf-8",
+    )
+    report = {
+        "run_test_success": True,
+        "tests": {
+            "total": 1,
+            "fails": 1,
+            "test_cases": {test_case: "FAILED"},
+            "test_case_details": {test_case: _assertion_detail()},
+        },
+        "total_funct_point": 1,
+        "total_check_point": 2,
+        "all_check_point_list": [first, second],
+        "failed_check_point_list": [first, second],
+        "unmarked_check_points": 1,
+        "unmarked_check_point_list": [second],
+        "test_function_with_no_check_point_mark": 0,
+    }
+    monkeypatch.setattr(
+        BaseUnityChipCheckerTestCase,
+        "do_check",
+        lambda _self, **_kwargs: (report, "", ""),
+    )
+    checker = UnityChipCheckerTestTemplate(
+        doc_func_check="functions.md",
+        test_dir="tests",
+        batch_size=1,
+    ).set_workspace(str(tmp_path)).set_stage(
+        SimpleNamespace(name="create_test_case_templates")
+    )
+    checker.on_init()
+
+    passed, message = checker.do_check()
+
+    assert passed is False
+    assert "Now the next 1 check_points" in message["success"]
+    assert checker.batch_task.gen_task_list == [first]
+    assert checker.batch_task.tbd_task_list == [second]
+
+
+def test_template_batch_rejects_associations_for_future_checkpoints(
+    tmp_path, monkeypatch
+):
+    """Templates cannot bypass the current batch advertised by CurrentTips."""
+
+    first = "FG-DATA/FC-RESULT/CK-A"
+    second = "FG-DATA/FC-RESULT/CK-B"
+    test_case = "tests/test_result.py:1-3::test_result"
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "functions.md").write_text(
+        "<FG-DATA>\n<FC-RESULT>\n<CK-A>\n<CK-B>\n",
+        encoding="utf-8",
+    )
+    report = {
+        "run_test_success": True,
+        "tests": {
+            "total": 1,
+            "fails": 1,
+            "test_cases": {test_case: "FAILED"},
+            "test_case_details": {test_case: _assertion_detail()},
+        },
+        "total_funct_point": 1,
+        "total_check_point": 2,
+        "all_check_point_list": [first, second],
+        "failed_check_point_list": [first, second],
+        "unmarked_check_points": 0,
+        "unmarked_check_point_list": [],
+        "test_function_with_no_check_point_mark": 0,
+    }
+    monkeypatch.setattr(
+        BaseUnityChipCheckerTestCase,
+        "do_check",
+        lambda _self, **_kwargs: (report, "", ""),
+    )
+    checker = UnityChipCheckerTestTemplate(
+        doc_func_check="functions.md",
+        test_dir="tests",
+        batch_size=1,
+    ).set_workspace(str(tmp_path)).set_stage(
+        SimpleNamespace(name="create_test_case_templates")
+    )
+    checker.on_init()
+
+    passed, diagnostic = checker.do_check()
+
+    assert passed is False
+    assert diagnostic["error_code"] == "TEST_TEMPLATE_FUTURE_BATCH_ASSOCIATION"
+    assert diagnostic["observed"]["future_checkpoints"] == [second]
+    assert checker.batch_task.gen_task_list == []
+    assert checker.batch_task.tbd_task_list == [first]
+
+
 def test_template_accepts_api_checkpoint_unmarked_when_api_scope_is_excluded(
     tmp_path, monkeypatch
 ):
@@ -636,3 +739,56 @@ def test_load_toffee_report_optionally_extracts_failure_type(tmp_path):
     assert details["phase"] == "call"
     assert details["exception_type"] == "AssertionError"
     assert "Not implemented" in details["exception"]
+
+
+def test_load_toffee_report_normalizes_symlinked_workspace_coverage_paths(tmp_path):
+    real_workspace = tmp_path / "real-workspace"
+    test_file = real_workspace / "output" / "tests" / "test_demo.py"
+    test_file.parent.mkdir(parents=True)
+    test_file.write_text("def test_demo():\n    assert True\n", encoding="utf-8")
+
+    workspace_alias = tmp_path / "workspace-alias"
+    workspace_alias.symlink_to(real_workspace, target_is_directory=True)
+    test_id = f"{test_file}:1-2::test_demo"
+    report_file = real_workspace / "toffee_report.json"
+    report_file.write_text(
+        json.dumps(
+            {
+                "test_abstract_info": {test_id: "PASSED"},
+                "coverages": {
+                    "functional": {
+                        "point_num_total": 1,
+                        "point_num_hints": 1,
+                        "bin_num_total": 1,
+                        "bin_num_hints": 1,
+                        "groups": [
+                            {
+                                "name": "FG-DEMO",
+                                "points": [
+                                    {
+                                        "name": "FC-DEMO",
+                                        "functions": {"CK-DEMO": [test_id]},
+                                        "bins": [{"name": "CK-DEMO", "hints": 1}],
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = load_toffee_report(
+        str(report_file),
+        str(workspace_alias),
+        run_test_success=True,
+        return_all_checks=True,
+    )
+
+    canonical_id = "output/tests/test_demo.py:1-2::test_demo"
+    assert report["tests"]["test_cases"] == {canonical_id: "PASSED"}
+    assert report["test_case_with_check_point_list"] == {
+        canonical_id: ["FG-DEMO/FC-DEMO/CK-DEMO"]
+    }

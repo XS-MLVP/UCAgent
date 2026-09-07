@@ -3941,7 +3941,7 @@ def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="",
                  check_tc_in_doc=True, check_doc_in_tc=True, post_checker=None, only_marked_ckp_in_tc=False,
                  check_fail_ck_in_bug=True, func_RunTestCases=None, timeout_RunTestCases=0,
                  waveform_tool=None, waveform_test_dir=None, test_output_dir=None,
-                 require_all_documented_tests=True):
+                 require_all_documented_tests=True, ignore_ck_prefix=""):
     """Check the test report against documentation and bug analysis.
 
     Args:
@@ -3964,13 +3964,37 @@ def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="",
             report. Set false only for a checker that intentionally runs a selected
             test subset; current report failures remain mandatory, and final full-suite
             validation must use the default strict value.
+        ignore_ck_prefix: One prefix or a sequence of prefixes for checkpoints owned by
+            another validation phase and excluded from this report's scope.
     Returns:
         A tuple indicating the success or failure of the check, along with an optional message.
     """
 
+    if ignore_ck_prefix in (None, ""):
+        ignored_prefixes = []
+    elif isinstance(ignore_ck_prefix, str):
+        ignored_prefixes = [ignore_ck_prefix]
+    elif isinstance(ignore_ck_prefix, (list, tuple)):
+        ignored_prefixes = list(ignore_ck_prefix)
+    else:
+        raise TypeError("ignore_ck_prefix must be a string or a list/tuple of strings.")
+    if any(not isinstance(prefix, str) for prefix in ignored_prefixes):
+        raise TypeError("ignore_ck_prefix entries must be strings.")
+    ignored_prefixes = [prefix.strip() for prefix in ignored_prefixes if prefix.strip()]
+
+    def in_scope(checkpoint):
+        """Return whether one checkpoint belongs to this report phase."""
+
+        return (
+            isinstance(checkpoint, str)
+            and checkpoint.startswith(target_ck_prefix)
+            and not any(checkpoint.startswith(prefix) for prefix in ignored_prefixes)
+        )
+
     ret, doc_ck_list = get_doc_ck_list_from_doc(workspace, doc_file, target_ck_prefix)
     if not ret:
         return ret, doc_ck_list, -1
+    doc_ck_list = [checkpoint for checkpoint in doc_ck_list if in_scope(checkpoint)]
     missing_coverage_message = fc.get_missing_functional_coverage_message(report)
     if missing_coverage_message:
         return False, missing_coverage_message, -1
@@ -3980,7 +4004,11 @@ def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="",
         return False, f"[Test Association Missing] Toffee recorded {report['test_function_with_no_check_point_mark']} executed test function(s) without any checkpoint association. " + \
                        mark_function_desc, -1
 
-    checks_in_tc  = [b for b in report.get("all_check_point_list", []) if b.startswith(target_ck_prefix)]
+    checks_in_tc = [
+        checkpoint
+        for checkpoint in report.get("all_check_point_list", [])
+        if in_scope(checkpoint)
+    ]
     if len(checks_in_tc) == 0:
         warning(f"No test functions found for check point prefix '{target_ck_prefix}'. Please ensure test cases are correctly marked with this prefix.")
         warning(f"Current test check points: {fc.list_str_abbr(report.get('bins_all', []))}")
@@ -3988,7 +4016,11 @@ def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="",
     if not ret:
         return ret, msg, -1
 
-    failed_checks_in_tc = [b for b in report.get("failed_check_point_list", []) if b.startswith(target_ck_prefix)]
+    failed_checks_in_tc = [
+        checkpoint
+        for checkpoint in report.get("failed_check_point_list", [])
+        if in_scope(checkpoint)
+    ]
     marked_checks_in_tc = [c for c in checks_in_tc if c not in report.get("unmarked_check_point_list", [])]
     if only_marked_ckp_in_tc:
         failed_checks_in_tc = [b for b in failed_checks_in_tc if b in marked_checks_in_tc]
@@ -4018,6 +4050,26 @@ def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="",
                 "Check/Complete again."
             ),
         }, -1
+    failed_funcs_bins = {
+        test_case: [checkpoint for checkpoint in checkpoints if in_scope(checkpoint)]
+        for test_case, checkpoints in failed_funcs_bins.items()
+        if isinstance(checkpoints, list)
+    }
+    failed_funcs_bins = {
+        test_case: checkpoints
+        for test_case, checkpoints in failed_funcs_bins.items()
+        if checkpoints
+    }
+    associated_test_checkpoints = report.get(
+        "test_case_with_check_point_list", {}
+    )
+    if not isinstance(associated_test_checkpoints, dict):
+        associated_test_checkpoints = {}
+    associated_test_checkpoints = {
+        test_case: [checkpoint for checkpoint in checkpoints if in_scope(checkpoint)]
+        for test_case, checkpoints in associated_test_checkpoints.items()
+        if isinstance(checkpoints, list)
+    }
 
     failed_status_tests = {
         test_case for test_case, status in test_cases.items() if status == "FAILED"
@@ -4067,7 +4119,7 @@ def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="",
             ret, msg = check_failed_checkpoint_reproducers(
                 failed_checks_in_tc,
                 failed_funcs_bins,
-                report.get("test_case_with_check_point_list", {}),
+                associated_test_checkpoints,
                 test_cases,
                 bug_file,
             )
@@ -4114,7 +4166,7 @@ def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="",
     if report.get('unmarked_check_points', 0) > 0 and not only_marked_ckp_in_tc:
         unmark_check_points = [
             ck for ck in report.get('unmarked_check_point_list', [])
-            if ck.startswith(target_ck_prefix)
+            if in_scope(ck)
         ]
         if len(unmark_check_points) > 0:
             return False, fc.description_checkpoint_association_missing(

@@ -518,7 +518,11 @@ class Config:
         return self
 
 
-def build_runtime_config(cfg: Config) -> Dict[str, Any]:
+def build_runtime_config(
+    cfg: Config,
+    runtime_config_keys: Optional[List[str]] = None,
+    launch_context: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
     """Build the non-secret runtime snapshot shared with workspace consumers."""
     if not isinstance(cfg, Config):
         raise TypeError("Runtime config can only be built from a Config instance.")
@@ -563,7 +567,7 @@ def build_runtime_config(cfg: Config) -> Dict[str, Any]:
             "Cannot resolve the current UCAgent Python import path."
         )
 
-    return {
+    result = {
         "schema_version": 1,
         "DUT": dut,
         "OUT": output,
@@ -572,6 +576,24 @@ def build_runtime_config(cfg: Config) -> Dict[str, Any]:
         "current_test_report": CURRENT_TEST_REPORT_RELATIVE_PATH,
         "runtime_options": runtime_options,
     }
+    plugin_options = {}
+    for key in runtime_config_keys or []:
+        value = cfg.get_value(key, None)
+        if isinstance(value, bool) or value is None or isinstance(value, str):
+            plugin_options[key] = value
+        elif isinstance(value, int):
+            plugin_options[key] = value
+        elif isinstance(value, float) and value == value and abs(value) != float("inf"):
+            plugin_options[key] = value
+        else:
+            raise ValueError(
+                f"Declared runtime config value {key!r} must be a finite JSON scalar."
+            )
+    if plugin_options:
+        result["plugin_options"] = plugin_options
+    if launch_context is not None:
+        result["launch_context"] = dict(launch_context)
+    return result
 
 
 def validate_runtime_config(data: Any) -> Dict[str, Any]:
@@ -630,15 +652,71 @@ def validate_runtime_config(data: Any) -> Dict[str, Any]:
             raise ValueError(
                 f"Resolved config value runtime_options.{key} must be a boolean."
             )
+    plugin_options = data.get("plugin_options")
+    if plugin_options is not None:
+        if not isinstance(plugin_options, dict):
+            raise ValueError("Resolved runtime config plugin_options must be a mapping.")
+        for key, value in plugin_options.items():
+            if not isinstance(key, str) or not key.strip():
+                raise ValueError("Resolved runtime plugin option keys must be non-empty strings.")
+            if not isinstance(value, (str, int, float, bool, type(None))):
+                raise ValueError(
+                    f"Resolved runtime plugin option {key!r} must be a JSON scalar."
+                )
+            if isinstance(value, float) and (
+                value != value or abs(value) == float("inf")
+            ):
+                raise ValueError(
+                    f"Resolved runtime plugin option {key!r} must be finite."
+                )
+    launch_context = data.get("launch_context")
+    if launch_context is not None:
+        if not isinstance(launch_context, dict):
+            raise ValueError("Resolved runtime config launch_context must be a mapping.")
+        expected_launch_keys = {
+            "config_file",
+            "plugin_selectors",
+            "plugin_workflow",
+            "workflow_config_file",
+        }
+        if set(launch_context) != expected_launch_keys:
+            raise ValueError(
+                "Resolved runtime launch_context must contain exactly config_file, "
+                "plugin_selectors, plugin_workflow, and workflow_config_file."
+            )
+        for key in ("config_file", "plugin_workflow", "workflow_config_file"):
+            value = launch_context[key]
+            if value is not None and (not isinstance(value, str) or not value.strip()):
+                raise ValueError(
+                    f"Resolved runtime launch_context.{key} must be null or a non-empty string."
+                )
+        selectors = launch_context["plugin_selectors"]
+        if not isinstance(selectors, list) or any(
+            not isinstance(value, str) or not value.strip() for value in selectors
+        ):
+            raise ValueError(
+                "Resolved runtime launch_context.plugin_selectors must be a list of non-empty strings."
+            )
     return data
 
 
-def save_runtime_config(workspace: str, cfg: Config) -> Path:
+def save_runtime_config(
+    workspace: str,
+    cfg: Config,
+    runtime_config_keys: Optional[List[str]] = None,
+    launch_context: Optional[Dict[str, Any]] = None,
+) -> Path:
     """Persist resolved runtime values for skills and other workspace consumers."""
     runtime_path = Path(
         get_abs_path_cwd_ucagent(workspace, RUNTIME_CONFIG_FILENAME)
     )
-    runtime_data = validate_runtime_config(build_runtime_config(cfg))
+    runtime_data = validate_runtime_config(
+        build_runtime_config(
+            cfg,
+            runtime_config_keys=runtime_config_keys,
+            launch_context=launch_context,
+        )
+    )
     save_json_file(str(runtime_path), runtime_data)
     return runtime_path
 
@@ -812,10 +890,18 @@ def _merge_config_file(cfg, config_file, loaded_configs, loading_stack=None):
         loading_stack.pop()
 
 
-def get_config(config_file=None, cfg_override=None, workspace=None):
+def get_config(
+    config_file=None,
+    cfg_override=None,
+    workspace=None,
+    workflow_config_file=None,
+):
     """
     Get the configuration for the agent.
-    :param config_file: Path to the configuration file.
+    :param config_file: Path to the explicit user configuration file.
+    :param cfg_override: Final key/value overrides.
+    :param workspace: Workspace whose local settings are loaded.
+    :param workflow_config_file: Optional plugin workflow baseline config.
     :return: Configuration dictionary.
     """
     # ignore repeated loaded configs
@@ -846,7 +932,16 @@ def get_config(config_file=None, cfg_override=None, workspace=None):
     assert os.path.isfile(lang_config_file), f"Language configuration file '{lang_config_file}' not found."
     _merge_config_file(cfg, lang_config_file, loaded_configs)
 
-    # 4. load workspace config
+    # 4. load the selected plugin workflow baseline
+    if workflow_config_file is not None:
+        workflow_config_path = os.path.abspath(os.fspath(workflow_config_file))
+        if not os.path.isfile(workflow_config_path):
+            raise FileNotFoundError(
+                f"Workflow config file '{workflow_config_file}' was not found."
+            )
+        _merge_config_file(cfg, workflow_config_path, loaded_configs)
+
+    # 5. load workspace config
     if workspace is not None:
         cwd_setting_file = get_abs_path_cwd_ucagent(workspace, "setting.yaml")
         if os.path.isfile(cwd_setting_file):
@@ -854,7 +949,7 @@ def get_config(config_file=None, cfg_override=None, workspace=None):
         else:
             info(f"Workspace config file '{cwd_setting_file}' not found, ignore.")
 
-    # 5. find user specified config file
+    # 6. find user specified config file
     target_file = config_file
     if config_file is None:
         target_file = 'config.yaml'  # Default configuration file
@@ -870,7 +965,7 @@ def get_config(config_file=None, cfg_override=None, workspace=None):
         user_config_file_path = os.path.abspath(user_config_file_path)
         _merge_config_file(cfg, user_config_file_path, loaded_configs)
 
-    # set override values
+    # 7. set override values
     cfg.set_values(cfg_override)
     object.__setattr__(cfg, "_loaded_config_files", list(loaded_configs))
     return cfg.freeze()

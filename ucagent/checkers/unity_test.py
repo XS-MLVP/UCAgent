@@ -2,7 +2,12 @@
 """Unity test checker for UCAgent verification."""
 
 import hashlib
+import fnmatch
+import json
 import re
+import subprocess
+import sys
+import tempfile
 from typing import Tuple
 import ucagent.util.functions as fc
 from ucagent.util.config import Config, load_current_test_report
@@ -12,7 +17,6 @@ import os
 import glob
 import traceback
 import copy
-import inspect
 import ast
 
 from ucagent.checkers.base import Checker, UnityChipBatchTask, format_stage_args_examples
@@ -24,6 +28,73 @@ DEFAULT_RESERVED_TEST_FUNCTION_PREFIXES = (
     "test_static_",
     "test_random_",
 )
+
+
+def _python_source_definitions(target_file, pattern, definition_type):
+    """Parse top-level Python definitions without importing workspace code."""
+
+    with open(target_file, "r", encoding="utf-8") as source_file:
+        source = source_file.read()
+    tree = ast.parse(source, filename=target_file)
+    if definition_type == "function":
+        node_types = (ast.FunctionDef, ast.AsyncFunctionDef)
+    elif definition_type == "class":
+        node_types = (ast.ClassDef,)
+    else:
+        raise ValueError("definition_type must be 'function' or 'class'")
+    definitions = [
+        node
+        for node in tree.body
+        if isinstance(node, node_types) and fnmatch.fnmatch(node.name, pattern)
+    ]
+    return source, definitions
+
+
+def _python_positional_args(definition):
+    """Return positional argument names from one AST function definition."""
+
+    return [
+        argument.arg
+        for argument in [*definition.args.posonlyargs, *definition.args.args]
+    ]
+
+
+def _python_definition_source(source, definition):
+    """Return the exact source segment for one parsed Python definition."""
+
+    return ast.get_source_segment(source, definition) or ""
+
+
+def _ast_qualified_name(node):
+    """Return a dotted static name for an AST name or attribute expression."""
+
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        parent = _ast_qualified_name(node.value)
+        return f"{parent}.{node.attr}" if parent else node.attr
+    return ""
+
+
+def _pytest_fixture_contract(definition):
+    """Return whether a function has a pytest fixture decorator and its scope."""
+
+    for decorator in definition.decorator_list:
+        call = decorator if isinstance(decorator, ast.Call) else None
+        target = call.func if call is not None else decorator
+        if _ast_qualified_name(target).rsplit(".", 1)[-1] != "fixture":
+            continue
+        scope = None
+        if call is not None:
+            for keyword in call.keywords:
+                if (
+                    keyword.arg == "scope"
+                    and isinstance(keyword.value, ast.Constant)
+                    and isinstance(keyword.value.value, str)
+                ):
+                    scope = keyword.value.value
+        return True, scope
+    return False, None
 
 
 def _set_checker_failure(result, message):
@@ -517,23 +588,20 @@ class UnityChipCheckerDutCreation(Checker):
         """Check the DUT creation function for correctness."""
         if not os.path.exists(self.get_path(self.target_file)):
             return False, {"error": f"file '{self.target_file}' does not exist."}
-        func_list = fc.get_target_from_file(self.get_path(self.target_file), "create_dut",
-                                            ex_python_path=self.workspace,
-                                            dtype="FUNC")
+        source, func_list = _python_source_definitions(
+            self.get_path(self.target_file), "create_dut", "function"
+        )
         if not func_list:
             return False, {"error": f"No 'create_dut' functions found in '{self.target_file}'."}
         if len(func_list) != 1:
             return False, {"error": f"Multiple 'create_dut' functions found in '{self.target_file}'. Expected only one."}
         cdut_func = func_list[0]
-        args = fc.get_func_arg_list(cdut_func)
+        args = _python_positional_args(cdut_func)
         # check args
         if len(args) != 1 or args[0] != "request":
             return False, {"error": f"The 'create_dut' fixture has only one arg named 'request', but got ({', '.join(args)})."}
-        dut = func_list[0](None)
-        for need_func in ["Step", "StepRis"]:
-            assert hasattr(dut, need_func), f"The 'create_dut' function in '{self.target_file}' did not return a valid DUT instance with '{need_func}' method."
         # check 'get_coverage_data_path'
-        func_source = inspect.getsource(cdut_func)
+        func_source = _python_definition_source(source, cdut_func)
         for k, (v, f) in self.source_code_need.items():
             message = v
             if f:
@@ -576,27 +644,34 @@ class UnityChipCheckerMockComponent(Checker):
         return True, {"message": f"{self.__class__.__name__} check for {self.target_file} ({len(mock_file_list)} files) passed."}
 
     def do_check_one_file(self, mock_file):
+        """Statically validate Mock classes in one workspace source file."""
+
         if not os.path.exists(self.get_path(mock_file)):
             return False, {"error": f"Mock component file '{mock_file}' does not exist. " + \
                            f"You need to define Mock components like: 'class Mock<COMPONENT_NAME>:' in the target file: {mock_file}. "}
-        class_list = fc.get_target_from_file(self.get_path(mock_file), "Mock*",
-                                            ex_python_path=self.workspace,
-                                            dtype="CLASS")
+        _, class_list = _python_source_definitions(
+            self.get_path(mock_file), "Mock*", "class"
+        )
         if len(class_list) < 1:
             return False, {
                 "error": f"No Mock component class found in file: {mock_file}, You need to define Mock components like: 'class Mock<COMPONENT_NAME>:' in the file: {mock_file}.  ",
             }
         # check on_clock_edge
         for cls in class_list:
-            if not hasattr(cls, "on_clock_edge"):
+            methods = [
+                node
+                for node in cls.body
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and node.name == "on_clock_edge"
+            ]
+            if not methods:
                 return False, {
-                    "error": f"The Mock class '{cls.__name__}' in file: {mock_file} is missing the required method 'on_clock_edge(self, cycles)'. Please implement this method to handle clock edge events."
+                    "error": f"The Mock class '{cls.name}' in file: {mock_file} is missing the required method 'on_clock_edge(self, cycles)'. Please implement this method to handle clock edge events."
                 }
-            method = getattr(cls, "on_clock_edge")
-            args = fc.get_func_arg_list(method)
+            args = _python_positional_args(methods[0])
             if len(args) != 2 or args[0] != "self" or args[1] != "cycles":
                 return False, {
-                    "error": f"The 'on_clock_edge' method in Mock class '{cls.__name__}' in file {mock_file} must have exactly two arguments: 'self' and 'cycles', but got ({', '.join(args)})."
+                    "error": f"The 'on_clock_edge' method in Mock class '{cls.name}' in file {mock_file} must have exactly two arguments: 'self' and 'cycles', but got ({', '.join(args)})."
                 }
         info(f"find {len(class_list)} Mock classes in file: {mock_file}.")
         return len(class_list), {"message": f"{self.__class__.__name__} check for {mock_file} passed."}
@@ -613,13 +688,17 @@ class UnityChipCheckerBundleWrapper(Checker):
         if not os.path.exists(self.get_path(self.target_file)):
             return False, {"error": f"Bundle wrapper file '{self.target_file}' does not exist." + \
                            f"You need to define Bundle wrappers like: 'class <Name>(Bundle):' in the target file: {self.target_file}. "}
-        bundle_list = fc.get_target_from_file(self.get_path(self.target_file), "*",
-                                              ex_python_path=self.workspace,
-                                              dtype="CLASS")
-        for icls in bundle_list[:]:
-            bases = [base.__name__ for base in icls.__bases__]
-            if "Bundle" not in bases:
-                bundle_list.remove(icls)
+        _, class_list = _python_source_definitions(
+            self.get_path(self.target_file), "*", "class"
+        )
+        bundle_list = [
+            definition
+            for definition in class_list
+            if "Bundle" in {
+                _ast_qualified_name(base).rsplit(".", 1)[-1]
+                for base in definition.bases
+            }
+        ]
         if len(bundle_list) < self.min_bundles:
             return False, {
                 "error": f"Insufficient Bundle wrapper coverage: {len(bundle_list)} Bundle classes found, minimum required is {self.min_bundles}. " +\
@@ -653,39 +732,39 @@ class UnityChipCheckerBaseFixture(Checker):
         """Check the fixture implementation for correctness."""
         if not os.path.exists(self.get_path(self.target_file)):
             return False, {"error": f"fixture file '{self.target_file}' does not exist."}
-        fixture_func_list = fc.get_target_from_file(self.get_path(self.target_file), self.fixture_name,
-                                             ex_python_path=self.workspace,
-                                             dtype="FUNC")
+        source, fixture_func_list = _python_source_definitions(
+            self.get_path(self.target_file), self.fixture_name, "function"
+        )
         for fx_func in fixture_func_list:
-            args = fc.get_func_arg_list(fx_func)
+            args = _python_positional_args(fx_func)
             if self.first_arg is not None and (len(args) < 1 or args[0] != self.first_arg):
-                return False, {"error": f"The '{fx_func.__name__}' fixture's first arg must be '{self.first_arg}', but got ({', '.join(args)})."}
+                return False, {"error": f"The '{fx_func.name}' fixture's first arg must be '{self.first_arg}', but got ({', '.join(args)})."}
             if self.last_arg is not None and (len(args) < 1 or args[-1] != self.last_arg):
-                return False, {"error": f"The '{fx_func.__name__}' fixture's last arg must be '{self.last_arg}', but got ({', '.join(args)})."}
-            if not (hasattr(fx_func, '_pytestfixturefunction') or "pytest_fixture" in str(fx_func)):
-                return False, {"error": f"The '{fx_func.__name__}' fixture in '{self.target_file}' is not decorated with @pytest.fixture()."}
-            scope_value = fc.get_fixture_scope(fx_func)
-            if isinstance(scope_value, str):
-                if scope_value != self.scope:
-                    return False, {"error": f"The '{fx_func.__name__}' fixture in '{self.target_file}' has invalid scope '{scope_value}'. The expected scope is '{self.scope}'."}
-            func_source = inspect.getsource(fx_func)
+                return False, {"error": f"The '{fx_func.name}' fixture's last arg must be '{self.last_arg}', but got ({', '.join(args)})."}
+            is_fixture, scope_value = _pytest_fixture_contract(fx_func)
+            if not is_fixture:
+                return False, {"error": f"The '{fx_func.name}' fixture in '{self.target_file}' is not decorated with @pytest.fixture()."}
+            effective_scope = scope_value or "function"
+            if effective_scope != self.scope:
+                return False, {"error": f"The '{fx_func.name}' fixture in '{self.target_file}' has invalid scope '{effective_scope}'. The expected scope is '{self.scope}'."}
+            func_source = _python_definition_source(source, fx_func)
             for k, (v, f) in self.source_code_need.items():
                 message = v
                 if f:
                     message += f" {f(self.dut_name)}"
                 if k not in func_source:
-                    info(f"[{self.__class__.__name__}]Check source code of fixture '{fx_func.__name__}' in file '{self.target_file}': missing '{k}' in source:\n{func_source}\n.")
+                    info(f"[{self.__class__.__name__}]Check source code of fixture '{fx_func.name}' in file '{self.target_file}': missing '{k}' in source:\n{func_source}\n.")
                     return False, {"error":  message}
             if self.source_code_cb:
-                ret, msg = self.source_code_cb(func_source, fx_func)
+                ret, msg = self.source_code_cb(func_source, fx_func.name)
                 if not ret:
                     return False, msg
         if len(fixture_func_list) < self.min_count:
             return False, {"error": f"Insufficient fixture coverage: {len(fixture_func_list)} fixtures found, minimum required is {self.min_count}. "+\
-                                    f"You have defined {len(fixture_func_list)} fixtures: {', '.join([f.__name__ for f in fixture_func_list])} in file '{self.target_file}'."}
+                                    f"You have defined {len(fixture_func_list)} fixtures: {', '.join([f.name for f in fixture_func_list])} in file '{self.target_file}'."}
         if self.fix_count > 0 and len(fixture_func_list) != self.fix_count:
             return False, {"error": f"Incorrect fixture count: {len(fixture_func_list)} fixtures found, expected exactly {self.fix_count}. "+\
-                                    f"You have defined {len(fixture_func_list)} fixtures: {', '.join([f.__name__ for f in fixture_func_list])} in file '{self.target_file}'."}
+                                    f"You have defined {len(fixture_func_list)} fixtures: {', '.join([f.name for f in fixture_func_list])} in file '{self.target_file}'."}
         return True, {"message": f"{self.__class__.__name__} fixture check for {self.target_file} passed."}
 
 
@@ -719,19 +798,19 @@ class UnityChipCheckerDutFixture(UnityChipCheckerBaseFixture):
         has_groups = len(call.args) >= 2 or "g" in keyword_names
         return has_request and has_groups
 
-    def _check_lifecycle(self, source_code, dut_func):
+    def _check_lifecycle(self, source_code, dut_func_name):
         tree = ast.parse(source_code)
         fixture_node = next(
             (
                 node for node in tree.body
                 if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-                and node.name == dut_func.__name__
+                and node.name == dut_func_name
             ),
             None,
         )
         if fixture_node is None:
             return False, {
-                "error": f"Cannot parse the '{dut_func.__name__}' fixture body in "
+                "error": f"Cannot parse the '{dut_func_name}' fixture body in "
                          f"'{self.target_file}'."
             }
 
@@ -779,13 +858,13 @@ class UnityChipCheckerDutFixture(UnityChipCheckerBaseFixture):
         visitor.visit(fixture_node)
         yield_lines = [node.lineno for node, _ in visitor.yields]
         if not yield_lines:
-            return False, {"error": f"The '{dut_func.__name__}' fixture in '{self.target_file}' does not contain 'yield' statement. Pytest fixtures should yield the DUT instance for proper setup/teardown."}
+            return False, {"error": f"The '{dut_func_name}' fixture in '{self.target_file}' does not contain 'yield' statement. Pytest fixtures should yield the DUT instance for proper setup/teardown."}
 
         func_coverage_calls = [call for call, _ in visitor.func_coverage_calls]
         if not func_coverage_calls:
             return False, {
                 "error":
-                    f"The '{dut_func.__name__}' fixture in '{self.target_file}' must call "
+                    f"The '{dut_func_name}' fixture in '{self.target_file}' must call "
                     "'set_func_coverage(request, func_coverage_group)' during teardown. "
                     "Calling mark_function in tests is not enough: without set_func_coverage, "
                     "Toffee reports no functional coverage groups and every test appears unmarked."
@@ -799,7 +878,7 @@ class UnityChipCheckerDutFixture(UnityChipCheckerBaseFixture):
         if not valid_func_coverage_calls:
             return False, {
                 "error":
-                    f"The '{dut_func.__name__}' fixture in '{self.target_file}' must pass both "
+                    f"The '{dut_func_name}' fixture in '{self.target_file}' must pass both "
                     "the pytest 'request' and the coverage group data to "
                     "'set_func_coverage(request, func_coverage_group)'."
             }
@@ -811,7 +890,7 @@ class UnityChipCheckerDutFixture(UnityChipCheckerBaseFixture):
         if not unconditional_yield_lines:
             return False, {
                 "error":
-                    f"The '{dut_func.__name__}' fixture in '{self.target_file}' must yield the "
+                    f"The '{dut_func_name}' fixture in '{self.target_file}' must yield the "
                     "DUT on an unconditional fixture path; a yield nested under if/loop/match "
                     "cannot guarantee setup for every test."
             }
@@ -824,7 +903,7 @@ class UnityChipCheckerDutFixture(UnityChipCheckerBaseFixture):
         if not teardown_calls:
             return False, {
                 "error":
-                    f"The '{dut_func.__name__}' fixture in '{self.target_file}' must call "
+                    f"The '{dut_func_name}' fixture in '{self.target_file}' must call "
                     "'set_func_coverage(request, func_coverage_group)' on an unconditional "
                     "teardown path after 'yield'. Calls before yield, inside nested functions, "
                     "or under if/loop/match branches cannot guarantee that final coverage "
@@ -967,7 +1046,11 @@ class UnityChipCheckerTestMustPass(Checker):
 
 
 class UnityChipCheckerDutApi(Checker):
+    """Validate the public DUT API surface without importing workspace code."""
+
     def __init__(self, api_prefix, target_file, min_apis=1, **kw):
+        """Store the expected API prefix, source path, and minimum API count."""
+
         super().__init__()
         self.api_prefix = api_prefix
         self.target_file = target_file
@@ -975,14 +1058,37 @@ class UnityChipCheckerDutApi(Checker):
 
     def do_check(self, timeout=0, **kw) -> Tuple[bool, object]:
         """Check the DUT API implementation for correctness."""
-        if not os.path.exists(self.get_path(self.target_file)):
-            return False, {"error": f"DUT API file '{self.target_file}' does not exist."}
-        func_list = fc.get_target_from_file(self.get_path(self.target_file), f"{self.api_prefix}*",
-                                         ex_python_path=self.workspace,
-                                         dtype="FUNC")
+        target_path = self.get_path(self.target_file)
+        if not os.path.exists(target_path):
+            return False, {
+                "error_code": "DUT_API_FILE_MISSING",
+                "error": f"DUT API file '{self.target_file}' does not exist.",
+                "next_action": f"Create '{self.target_file}' and define the required public DUT APIs.",
+                "artifact": self.target_file,
+                "location": self.target_file,
+                "observed": {"exists": False},
+                "expected": {"exists": True, "api_prefix": self.api_prefix},
+            }
+        try:
+            _, func_list = _python_source_definitions(
+                target_path, f"{self.api_prefix}*", "function"
+            )
+        except (OSError, SyntaxError, UnicodeError) as exc:
+            location = self.target_file
+            if isinstance(exc, SyntaxError) and exc.lineno:
+                location = f"{self.target_file}:{exc.lineno}"
+            return False, {
+                "error_code": "DUT_API_PARSE_FAILED",
+                "error": f"DUT API file '{self.target_file}' could not be parsed as Python source.",
+                "next_action": "Fix the reported source error, then run Check again.",
+                "artifact": self.target_file,
+                "location": location,
+                "observed": str(exc),
+                "expected": "A UTF-8 Python source file accepted by ast.parse.",
+            }
         failed_apis = []
         for func in func_list:
-            args = fc.get_func_arg_list(func)
+            args = _python_positional_args(func)
             if not args or len(args) < 2:
                 failed_apis.append(func)
                 continue
@@ -991,25 +1097,62 @@ class UnityChipCheckerDutApi(Checker):
             if not args[-1].startswith("max_cycles"):
                 failed_apis.append(func)
         if len(failed_apis) > 0:
+            signatures = [
+                f"{func.name}({', '.join(_python_positional_args(func))})"
+                for func in failed_apis[:20]
+            ]
             return False, {
-                "error": f"The following API functions in file '{self.target_file}' have invalid or missing arguments. The first arg must be 'env' and the last arg must be 'max_cycles=default_value'",
-                "failed_apis": [f"{func}({', '.join(fc.get_func_arg_list(func))})" for func in failed_apis]
+                "error_code": "DUT_API_SIGNATURE_INVALID",
+                "error": f"DUT API functions in '{self.target_file}' have invalid or missing arguments.",
+                "next_action": "Make every public DUT API start with 'env' and end with 'max_cycles=default_value'.",
+                "artifact": self.target_file,
+                "location": self.target_file,
+                "observed": {
+                    "invalid_api_count": len(failed_apis),
+                    "signatures": signatures,
+                    "truncated": len(failed_apis) > len(signatures),
+                },
+                "expected": "Every matching API has first argument 'env' and last argument 'max_cycles=default_value'.",
+                "failed_apis": signatures,
             }
         if len(func_list) < self.min_apis:
             return False, {
-                "error": f"Insufficient DUT API coverage: {len(func_list)} API functions found, minimum required is {self.min_apis}. " + \
-                         f"You need to define APIs like: 'def {self.api_prefix}<API_NAME>(env, ...)'. " + \
-                         f"Review your task details and ensure that the API functions are defined correctly in the target file '{self.target_file}'.",
+                "error_code": "DUT_API_COUNT_INSUFFICIENT",
+                "error": f"Found {len(func_list)} DUT API functions in '{self.target_file}'; at least {self.min_apis} are required.",
+                "next_action": f"Define at least {self.min_apis} public functions whose names start with '{self.api_prefix}'.",
+                "artifact": self.target_file,
+                "location": self.target_file,
+                "observed": {"api_count": len(func_list)},
+                "expected": {
+                    "minimum_api_count": self.min_apis,
+                    "api_prefix": self.api_prefix,
+                },
             }
         for func in func_list:
-            if not func.__doc__ or len(func.__doc__.strip()) == 0:
+            docstring = ast.get_docstring(func, clean=False)
+            if not docstring or len(docstring.strip()) == 0:
                 return False, {
-                    "error": f"The API function '{func.__name__}' is missing a docstring. Please provide a clear description of its purpose and usage."
+                    "error_code": "DUT_API_DOCSTRING_MISSING",
+                    "error": f"DUT API function '{func.name}' is missing a docstring.",
+                    "next_action": f"Add a docstring with 'Args:' and 'Returns:' sections to '{func.name}'.",
+                    "artifact": self.target_file,
+                    "location": f"{self.target_file}:{func.lineno}",
+                    "observed": {"function": func.name, "docstring": None},
+                    "expected": "A non-empty docstring containing 'Args:' and 'Returns:' sections.",
                 }
             for doc_key in ["Args:", "Returns:"]:
-                if doc_key not in func.__doc__:
+                if doc_key not in docstring:
                     return False, {
-                        "error": f"The API function '{func.__name__}' is missing the '{doc_key}' section in its docstring."
+                        "error_code": "DUT_API_DOCSTRING_SECTION_MISSING",
+                        "error": f"DUT API function '{func.name}' is missing the '{doc_key}' docstring section.",
+                        "next_action": f"Add the '{doc_key}' section to the docstring for '{func.name}'.",
+                        "artifact": self.target_file,
+                        "location": f"{self.target_file}:{func.lineno}",
+                        "observed": {
+                            "function": func.name,
+                            "missing_section": doc_key,
+                        },
+                        "expected": "A docstring containing both 'Args:' and 'Returns:' sections.",
                     }
         return True, {"message": f"{self.__class__.__name__} check for {self.target_file} passed."}
 
@@ -1034,34 +1177,162 @@ class UnityChipCheckerCoverageGroup(Checker):
                 raise ValueError(f"Invalid check type '{ct}'. Must be one of 'FG', 'FC', or 'CK'.")
 
     def basic_check(self):
+        """Validate and materialize coverage definitions outside the agent process."""
+
         # File existence validation
         def mk_emsg(msg):
             return {"error": msg + " Please make sure you are processing the right file."}
-        if not os.path.exists(self.get_path(self.cov_file)):
+        target_file = self.get_path(self.cov_file)
+        if not os.path.exists(target_file):
             return False, mk_emsg(f"Functional coverage file '{self.cov_file}' not found in workspace.")
-        # Module import validation
-        funcs = fc.get_target_from_file(self.get_path(self.cov_file), "get_coverage_groups",
-                                        ex_python_path=self.workspace,
-                                        dtype="FUNC")
+        _, funcs = _python_source_definitions(
+            target_file, "get_coverage_groups", "function"
+        )
         if not funcs:
             return False, mk_emsg(f"No 'get_coverage_groups' functions found in '{self.cov_file}'.")
         if len(funcs) != 1:
             return False, mk_emsg(f"Multiple 'get_coverage_groups' functions found in '{self.cov_file}'. Only one is allowed.")
         get_coverage_groups = funcs[0]
-        args = fc.get_func_arg_list(get_coverage_groups)
+        args = _python_positional_args(get_coverage_groups)
         if len(args) != 1 or args[0] != "dut":
             return False, mk_emsg(f"The 'get_coverage_groups' function in: {self.cov_file} must have one argument named 'dut', but got ({', '.join(args)}).")
-        class fake_dut:
-            def __getattribute__(self, name):
-                return self
-        groups = get_coverage_groups(fake_dut())
+
+        marker = "__UCAGENT_COVERAGE_PROBE_RESULT__="
+        probe = r'''
+import importlib.util
+import json
+import os
+import sys
+
+target_file, workspace, marker, import_paths_json = sys.argv[1:5]
+target_dir = os.path.dirname(target_file)
+import_paths = json.loads(import_paths_json)
+for import_path in (target_dir, workspace):
+    if import_path and import_path not in import_paths:
+        import_paths.append(import_path)
+sys.path[:0] = [path for path in import_paths if path not in sys.path]
+
+
+class FakeDut:
+    """Resolve arbitrary DUT signals without requiring a live simulator."""
+
+    def __getattr__(self, _name):
+        return self
+
+    def __getitem__(self, _key):
+        return self
+
+
+try:
+    from toffee.funcov import CovGroup
+
+    spec = importlib.util.spec_from_file_location(
+        "_ucagent_coverage_probe_target", target_file
+    )
+    if spec is None or spec.loader is None:
+        raise ImportError("unable to create a module loader")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    factory = getattr(module, "get_coverage_groups")
+    groups = factory(FakeDut())
+    if not isinstance(groups, list):
+        raise TypeError(
+            "get_coverage_groups must return list, got "
+            + type(groups).__name__
+        )
+    if not groups:
+        raise ValueError("get_coverage_groups returned an empty list")
+    invalid = [type(group).__name__ for group in groups if not isinstance(group, CovGroup)]
+    if invalid:
+        raise TypeError("coverage entries must be CovGroup instances, got " + invalid[0])
+    result = {"ok": True, "groups": [group.as_dict() for group in groups]}
+except Exception as exc:
+    result = {
+        "ok": False,
+        "error_type": type(exc).__name__,
+        "error": str(exc)[:2000],
+    }
+print(marker + json.dumps(result, sort_keys=True))
+'''
+        child_env = os.environ.copy()
+        child_env["PYTHONDONTWRITEBYTECODE"] = "1"
+        current_ucagent_root = os.path.realpath(
+            os.path.join(os.path.dirname(__file__), "..", "..")
+        )
+        probe_import_paths = [current_ucagent_root]
+        for import_path in sys.path:
+            resolved = os.path.realpath(import_path or os.getcwd())
+            if os.path.isdir(resolved) and resolved not in probe_import_paths:
+                probe_import_paths.append(resolved)
+        try:
+            with tempfile.TemporaryDirectory(
+                prefix="ucagent-coverage-probe-"
+            ) as pycache_dir:
+                child_env["PYTHONPYCACHEPREFIX"] = pycache_dir
+                completed = subprocess.run(
+                    [
+                        sys.executable,
+                        "-I",
+                        "-B",
+                        "-c",
+                        probe,
+                        os.path.abspath(target_file),
+                        os.path.abspath(self.workspace),
+                        marker,
+                        json.dumps(probe_import_paths),
+                    ],
+                    cwd=self.workspace,
+                    env=child_env,
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                    check=False,
+                )
+        except subprocess.TimeoutExpired:
+            return False, mk_emsg(
+                f"The coverage definition probe timed out for '{self.cov_file}'."
+            )
+        marker_index = completed.stdout.rfind(marker)
+        if marker_index < 0:
+            return False, mk_emsg(
+                f"The isolated coverage definition probe failed for '{self.cov_file}' "
+                f"with exit code {completed.returncode}. stderr: "
+                f"{completed.stderr[-2000:]}"
+            )
+        try:
+            probe_result = json.loads(
+                completed.stdout[marker_index + len(marker):].strip()
+            )
+        except json.JSONDecodeError as exc:
+            return False, mk_emsg(
+                f"The isolated coverage definition probe returned invalid JSON for "
+                f"'{self.cov_file}': {exc}."
+            )
+        if not isinstance(probe_result, dict) or not probe_result.get("ok"):
+            error_type = (
+                probe_result.get("error_type", "ProbeError")
+                if isinstance(probe_result, dict)
+                else "ProbeError"
+            )
+            error_message = (
+                probe_result.get("error", "invalid probe result")
+                if isinstance(probe_result, dict)
+                else "invalid probe result"
+            )
+            return False, mk_emsg(
+                f"The isolated coverage definition probe failed for '{self.cov_file}': "
+                f"{error_type}: {error_message}"
+            )
+        groups = probe_result.get("groups")
+        if not isinstance(groups, list) or not all(
+            isinstance(group, dict) for group in groups
+        ):
+            return False, mk_emsg(
+                f"The isolated coverage definition probe returned malformed groups for "
+                f"'{self.cov_file}'."
+            )
         if not groups:
             return False, mk_emsg(f"The 'get_coverage_groups' function returned no groups in target file: {self.cov_file}")
-        if not isinstance(groups, list):
-            return False, mk_emsg(f"The 'get_coverage_groups' function in: {self.cov_file} must return a list of coverage groups, but got {type(groups)}.")
-        from toffee.funcov import CovGroup
-        if not all(isinstance(g, CovGroup) for g in groups):
-            return False, mk_emsg(f"All items returned by 'get_coverage_groups' in: {self.cov_file} must be instances of 'toffee.funcov.CovGroup', but got {type(groups[0])}.")
         return True, groups
 
     def do_check(self, timeout=0, **kw) -> Tuple[bool, str]:
@@ -1083,8 +1354,7 @@ class UnityChipCheckerCoverageGroup(Checker):
         def append_v(v):
             assert v not in marks, f"Duplicate mark '{v}' found in {ctype} groups."
             marks.append(v)
-        for g in func_groups:
-            data = g.as_dict()
+        for data in func_groups:
             if ctype == "FG":
                 v = data["name"]
                 append_v(v)
@@ -1455,7 +1725,13 @@ class BaseUnityChipCheckerTestCase(Checker):
     def _set_test_report_context(self):
         """Publish the active stage/checker identity with the next test report."""
 
-        self.run_test.set_report_context(self._build_test_report_context())
+        # Lightweight test doubles used by callers may implement only ``do``;
+        # the real RunUnityChipTest runner always exposes this optional context
+        # hook.  Reporting must remain usable without requiring a workspace
+        # object to be imported in the checker process.
+        set_context = getattr(self.run_test, "set_report_context", None)
+        if set_context is not None:
+            set_context(self._build_test_report_context())
 
     def _check_test_func_args(self, report, str_out, str_err):
         """
@@ -1532,10 +1808,27 @@ class BaseUnityChipCheckerTestCase(Checker):
             lambda p: self.set_check_process(p, self.timeout)  # Set the process for the checker
         )
         timeout = timeout if timeout > 0 else self.timeout
+        configured_pytest_options = self.extra_kwargs.get("pytest_options", [])
+        if not isinstance(configured_pytest_options, list) or any(
+            not isinstance(option, str) or not option.strip()
+            for option in configured_pytest_options
+        ):
+            return (
+                _test_function_contract_report(
+                    ["pytest_options must be a list of non-empty command arguments."],
+                    retry_tool="Complete" if is_complete else "Check",
+                ),
+                "",
+                "",
+            )
+        if isinstance(pytest_args, str):
+            pytest_args = pytest_args.split() if pytest_args else []
+        else:
+            pytest_args = list(pytest_args)
+        pytest_args = list(configured_pytest_options) + pytest_args
         ignore_expression = self._pytest_ignore_expression()
         if ignore_expression:
-            pytest_args = pytest_args if pytest_args else "."
-            pytest_args = pytest_args.split()
+            pytest_args = pytest_args if pytest_args else ["."]
             pytest_args = ["-k", ignore_expression] + pytest_args
         self._set_test_report_context()
         report, str_out, str_err = self.run_test.do(
@@ -1788,19 +2081,62 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
             ck for ck in report.get('unmarked_check_point_list', [])
             if ck in target_bins_docs
         ]
-        if unmarked_doc_checkpoints:
+        initialized_batch = bool(self.batch_task.source_task_list)
+        required_associations = set(target_bins_docs)
+        if initialized_batch:
+            required_associations = set(self.batch_task.gen_task_list)
+            required_associations.update(self.batch_task.tbd_task_list)
+        missing_required_associations = [
+            checkpoint
+            for checkpoint in unmarked_doc_checkpoints
+            if checkpoint in required_associations
+        ]
+        if missing_required_associations:
             info_runtest["error"] = fc.description_checkpoint_association_missing(
-                unmarked_doc_checkpoints
+                missing_required_associations
             )
             return False, info_runtest
 
         # All structural and association checks passed; batch progress can now
-        # be derived without masking the reason a checkpoint was omitted.
-        target_bins_test = [
+        # be derived from test associations rather than coverage declarations.
+        associated_target_checkpoints = [
             checkpoint
-            for checkpoint in all_bins_test
-            if checkpoint in target_bins_docs
+            for checkpoint in target_bins_docs
+            if checkpoint not in unmarked_doc_checkpoints
         ]
+        if initialized_batch:
+            allowed_associations = set(self.batch_task.gen_task_list)
+            allowed_associations.update(self.batch_task.tbd_task_list)
+            future_associations = [
+                checkpoint
+                for checkpoint in associated_target_checkpoints
+                if checkpoint not in allowed_associations
+            ]
+            if future_associations:
+                bounded_future = future_associations[:20]
+                return False, {
+                    "error_code": "TEST_TEMPLATE_FUTURE_BATCH_ASSOCIATION",
+                    "error": (
+                        "Test templates associate checkpoints outside the current batch."
+                    ),
+                    "next_action": (
+                        "Remove templates for future checkpoints and create only the checkpoint "
+                        "templates listed by CurrentTips, then call Check again."
+                    ),
+                    "artifact": self.test_dir,
+                    "location": self.test_dir,
+                    "observed": {
+                        "future_checkpoint_count": len(future_associations),
+                        "future_checkpoints": bounded_future,
+                        "truncated": len(future_associations) > len(bounded_future),
+                    },
+                    "expected": {
+                        "current_checkpoints": list(self.batch_task.tbd_task_list),
+                        "previously_completed_checkpoints": list(
+                            self.batch_task.gen_task_list
+                        ),
+                    },
+                }
         note_msg = []
         self.batch_task.sync_source_task(
             target_bins_docs,
@@ -1808,9 +2144,9 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
             f"{self.doc_func_check} file CK points changed.",
         )
         self.batch_task.sync_gen_task(
-            target_bins_test,
+            associated_target_checkpoints,
             note_msg,
-            "Test cases CK points changed.",
+            "Test checkpoint associations changed.",
         )
         ckpass, emssage = self.batch_task.do_complete(
             note_msg,
@@ -1825,7 +2161,7 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
         # Success message with template-specific details
         info_report["success"] = ["Test template validation successful!",
                                  f"✓ Generated {report['tests']['total']} test case templates (all properly failing as expected).",
-                                 f"✓ All {len(target_bins_test)} in-scope check points are properly documented and marked in test functions.",
+                                 f"✓ All {len(associated_target_checkpoints)} in-scope check points completed so far are properly documented and marked in test functions.",
                                  f"✓ Coverage mapping is consistent between documentation and test implementation.",
                                  f"✓ Template structure follows the required format with proper TODO comments and fail assertions.",
                                  "Your test templates are ready for implementation! Each test function provides clear guidance for the actual test logic to be implemented."]
@@ -2129,9 +2465,9 @@ class UnityChipCheckerDutApiTest(BaseUnityChipCheckerTestCase):
         if not test_pass:
             return False, test_msg
         report_copy = fc.clean_report_with_keys(report)
-        func_list = fc.get_target_from_file(self.get_path(self.target_file_api), f"{self.api_prefix}*",
-                                         ex_python_path=self.workspace,
-                                         dtype="FUNC")
+        _, func_list = _python_source_definitions(
+            self.get_path(self.target_file_api), f"{self.api_prefix}*", "function"
+        )
         if len(func_list) == 0:
             return False, {"error": f"No DUT API functions with prefix '{self.api_prefix}' found in '{self.target_file_api}'. "+\
                                      "Note: the api name is case-sensitive."}
@@ -2140,7 +2476,7 @@ class UnityChipCheckerDutApiTest(BaseUnityChipCheckerTestCase):
         test_functions = []
         api_un_tested = []
         for func in func_list:
-            func_name = func.__name__
+            func_name = func.name
             for k in test_keys:
                 if func_name in k:
                     test_functions.append(func_name)
@@ -2218,6 +2554,9 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
             # (test_case_name, is_completed: boolean)
         ]
         self.pre_report_file = self.extra_kwargs.get("pre_report_file", None)
+        self.ignore_ck_prefix = _normalize_checkpoint_prefixes(
+            self.extra_kwargs.get("ignore_ck_prefix", "")
+        )
         self._last_batch_progress = None
         self._batch_checkpoint_error = None
         self.batch_task = UnityChipBatchTask("test_cases", self)
@@ -2433,6 +2772,7 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
             self.doc_func_check,
             self.doc_bug_analysis,
             only_marked_ckp_in_tc=True,
+            ignore_ck_prefix=self.extra_kwargs.get("ignore_ck_prefix", ""),
             waveform_tool=self.get_waveform_tool_for_checker(),
             waveform_test_dir=self.test_dir,
             test_output_dir=self.get_configured_test_output_dir(),
@@ -2474,6 +2814,30 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
         result = {"REPORT": report}
         _set_checker_failure(result, failure)
         return False, result
+
+    def _validate_current_batch_report(self, report):
+        """Validate one executed batch using the verification workflow contract."""
+
+        ret, message, _ = check_report(
+            self.workspace,
+            report,
+            self.doc_func_check,
+            self.doc_bug_analysis,
+            only_marked_ckp_in_tc=True,
+            ignore_ck_prefix=self.extra_kwargs.get("ignore_ck_prefix", ""),
+            waveform_tool=self.get_waveform_tool_for_checker(),
+            waveform_test_dir=self.test_dir,
+            test_output_dir=self.get_configured_test_output_dir(),
+            require_all_documented_tests=False,
+        )
+        if not ret:
+            return False, message, "document_failed"
+        ret, message = fc.check_has_assert_in_tc(self.workspace, report)
+        if not ret:
+            if isinstance(message, dict) and "error" in message:
+                message = message["error"]
+            return False, message, "assertion_failed"
+        return True, "", "passed"
 
     @staticmethod
     def _compact_validation_report(report, return_tests):
@@ -2568,9 +2932,33 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
             info(f"Loaded previous test report complete.")
             passed_tc = []
             failed_tc = []
+            checkpoint_associations = pre_report.get(
+                "test_case_with_check_point_list", {}
+            )
+            if not isinstance(checkpoint_associations, dict):
+                checkpoint_associations = {}
             for k,v in pre_report.get("tests", {}).get("test_cases", {}).items():
                 if self._is_ignored_test_case(k):
                     info(f"{self.__class__.__name__} ignore test case: {k}")
+                    continue
+                associated_checkpoints = checkpoint_associations.get(k)
+                if (
+                    self.ignore_ck_prefix
+                    and isinstance(associated_checkpoints, list)
+                    and associated_checkpoints
+                    and all(
+                        isinstance(checkpoint, str)
+                        and any(
+                            checkpoint.startswith(prefix)
+                            for prefix in self.ignore_ck_prefix
+                        )
+                        for checkpoint in associated_checkpoints
+                    )
+                ):
+                    info(
+                        f"{self.__class__.__name__} ignore test case outside the "
+                        f"checkpoint scope: {k}"
+                    )
                     continue
                 if v == "PASSED":
                     passed_tc.append(k)
@@ -2644,23 +3032,13 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
             )
             return False, error_msgs
 
-        ret, msg, _ = check_report(
-            self.workspace,
-            report,
-            self.doc_func_check,
-            self.doc_bug_analysis,
-            only_marked_ckp_in_tc=True,
-            waveform_tool=self.get_waveform_tool_for_checker(),
-            waveform_test_dir=self.test_dir,
-            test_output_dir=self.get_configured_test_output_dir(),
-            require_all_documented_tests=False,
-        )
+        ret, msg, validation = self._validate_current_batch_report(report)
         batch_report = self._compact_validation_report(report, return_tests)
         error_msgs["REPORT"] = report
         if not ret:
             batch_progress = self._set_batch_progress(
                 return_tests,
-                validation="document_failed",
+                validation=validation,
                 test_run="executed",
             )
             contextual_failure = self._with_batch_context(
@@ -2669,21 +3047,10 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
                 batch_progress=batch_progress,
                 batch_report=batch_report,
             )
-            _set_checker_failure(error_msgs, contextual_failure)
-            return ret, error_msgs
-        ret, msg = fc.check_has_assert_in_tc(self.workspace, report)
-        if not ret:
-            batch_progress = self._set_batch_progress(
-                return_tests,
-                validation="assertion_failed",
-                test_run="executed",
-            )
-            error_msgs["error"] = self._with_batch_context(
-                msg["error"],
-                validation_mode="fresh_test_run",
-                batch_progress=batch_progress,
-                batch_report=batch_report,
-            )
+            if validation == "assertion_failed":
+                error_msgs["error"] = contextual_failure
+            else:
+                _set_checker_failure(error_msgs, contextual_failure)
             return ret, error_msgs
         completed_batch_size = len(self.current_test_cases)
         completed_test_cases = list(self.batch_task.gen_task_list)
@@ -2818,6 +3185,7 @@ class UnityChipCheckerTestCase(BaseUnityChipCheckerTestCase):
             report,
             self.doc_func_check,
             self.doc_bug_analysis,
+            ignore_ck_prefix=self.extra_kwargs.get("ignore_ck_prefix", ""),
             waveform_tool=self.get_waveform_tool_for_checker(),
             waveform_test_dir=self.test_dir,
             test_output_dir=self.get_configured_test_output_dir(),
@@ -2911,11 +3279,13 @@ class UnityChipCheckerRefineTestCases(Checker):
                  ignore_tc_prefix="",
                  batch_size=10,
                  data_key=None,
+                 ignore_ck_prefix="",
                  **extra_kwargs):
         super().__init__()
         self.doc_func_check = doc_func_check
         self.test_dir = test_dir
         self.ignore_tc_prefix = ignore_tc_prefix
+        self.ignore_ck_prefix = _normalize_checkpoint_prefixes(ignore_ck_prefix)
         self.batch_size = batch_size
         self.data_key = data_key
         self.refine_result = OrderedDict()
@@ -2932,12 +3302,24 @@ class UnityChipCheckerRefineTestCases(Checker):
             raise FileNotFoundError(
                 f"Function and check documentation file {self.doc_func_check} does not exist in workspace."
             )
-        return fc.get_unity_chip_doc_marks(
+        checkpoints, file_blocks = fc.get_unity_chip_doc_marks(
             doc_path,
             leaf_node="CK",
             mini_leaf_count=min_count,
             return_line_block=True,
         )
+        checkpoints = [
+            checkpoint
+            for checkpoint in checkpoints
+            if not any(
+                checkpoint.startswith(prefix) for prefix in self.ignore_ck_prefix
+            )
+        ]
+        if min_count > 0 and len(checkpoints) < min_count:
+            raise ValueError(
+                "No in-scope CK remains after applying ignore_ck_prefix."
+            )
+        return checkpoints, file_blocks
 
     def _sync_source_from_doc(self, current_doc_ck_list, note_msg=None):
         if note_msg is None:

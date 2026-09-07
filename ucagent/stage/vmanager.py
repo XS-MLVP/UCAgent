@@ -476,6 +476,8 @@ class StageManager(object):
             tool_inspect_file=None,
             reference_files=None,
             force_stage_index_explicit=False,
+            checker_registry=None,
+            test_python_import_roots=None,
     ):
         """
         Initialize the StageManager with an empty list of stages.
@@ -484,7 +486,13 @@ class StageManager(object):
         self.workspace = workspace
         self.force_todo = force_todo
         self.todo_panel = todo_panel
-        self.free_pytest_run = UnityChipCheckerTestFree("", cfg.tools.RunTestCases.test_dir, "").set_workspace(workspace)
+        self.free_pytest_run = UnityChipCheckerTestFree(
+            "", cfg.tools.RunTestCases.test_dir, ""
+        ).set_workspace(workspace)
+        self.test_python_import_roots = list(test_python_import_roots or [])
+        self.free_pytest_run.run_test.set_extra_python_paths(
+            self.test_python_import_roots
+        )
         self.agent = agent
         self.tool_read_text = tool_read_text
         self.ucagent_info = ucagent_info
@@ -496,6 +504,7 @@ class StageManager(object):
         self.stage_unskip_list = stage_unskip_list
         self.tool_inspect_file = tool_inspect_file
         self.reference_files = reference_files
+        self.checker_registry = dict(checker_registry or {})
         self.validation_revision = 0
 
     @staticmethod
@@ -533,7 +542,12 @@ class StageManager(object):
 
     def init_stage(self):
         from ucagent.stage import VerifyStage
-        self.root_stage = get_root_stage(self.cfg, self.workspace, self.tool_read_text)
+        self.root_stage = get_root_stage(
+            self.cfg,
+            self.workspace,
+            self.tool_read_text,
+            self.checker_registry,
+        )
         self.stages = self.root_stage.get_substages()
         if self.reference_files:
             for si, flist in self.reference_files.items():
@@ -787,9 +801,12 @@ class StageManager(object):
         cstage = self.stages[self.stage_index]
         tips = OrderedDict()
         tips["mission"] = self.mission.name
+        stage_detail = getattr(cstage, "public_detail", None)
+        if not callable(stage_detail):
+            stage_detail = getattr(cstage, "detail")
         tips["current_stage"] = OrderedDict({
             "index": self.stage_index,
-            **cstage.detail(),
+            **stage_detail(),
         })
         ref_files = []
         for k, v in cstage.reference_files.items():
@@ -854,7 +871,10 @@ class StageManager(object):
         ret["mission"] = self.mission.name
         ret["stage_list"] = []
         for i, stage in enumerate(self.stages):
-            ret["stage_list"].append(stage.detail())
+            stage_detail = getattr(stage, "public_detail", None)
+            if not callable(stage_detail):
+                stage_detail = getattr(stage, "detail")
+            ret["stage_list"].append(stage_detail())
             ret["stage_list"][-1]["index"] = i
         ret["current_stage_index"] = self.stage_index
         ret["current_stage_name"] = self.stages[self.stage_index].name if self.stage_index < len(self.stages) else None
@@ -890,7 +910,9 @@ class StageManager(object):
             ret["current_stage_index"] = self.stage_index
             ret["current_stage_name"] = cstage.name
             ret["current_task"] = cstage.task_info()
-        ret["last_check_result"] = self._compact_check_result(self.last_check_info)
+        ret["last_check_result"] = self._compact_check_result(
+            self._public_check_result(self.last_check_info)
+        )
         return ret
 
     def get_current_stage(self):
@@ -1177,6 +1199,7 @@ class StageManager(object):
             ret_data["action"] = action
         ret_data["check_info"] = ck_info
         self.last_check_info = copy.deepcopy(ret_data)
+        ret_data = self._public_check_result(ret_data)
         self.validation_revision = getattr(self, "validation_revision", 0) + 1
         if ck_pass:
             ret_data["message"] = f"Congratulations! Stage {self.stage_index} checks passed successfully, you can use tool 'Complete' to finish this stage."
@@ -1192,7 +1215,7 @@ class StageManager(object):
 
     @staticmethod
     def _extract_checker_diagnostic(last_msg):
-        """Return only an explicit Checker-authored diagnostic."""
+        """Return only an explicit validation diagnostic."""
         if not isinstance(last_msg, dict):
             return None
         candidates = []
@@ -1238,20 +1261,16 @@ class StageManager(object):
         if diagnostic is None:
             return None
 
-        checker_class = failed_entry.get("checker_class") or failed_entry.get("name") or "UnknownChecker"
-        checker_name = failed_entry.get("checker_name") or checker_class
         remaining_checkers = max(0, len(checker_entries) - (failed_index + 1)) if failed_index is not None else 0
         summary = OrderedDict({
-            "status": "checker_failed",
+            "status": "validation_failed",
             "stage_index": stage_index,
             "stage_name": getattr(stage, "name", ""),
-            "failed_checker_index": failed_index,
-            "failed_checker_name": checker_name,
-            "failed_checker_class": checker_class,
+            "failed_validation_gate_index": failed_index,
             "error_code": diagnostic["error_code"],
             "error": diagnostic["error"],
             "next_action": diagnostic["next_action"],
-            "remaining_checkers_not_run": remaining_checkers,
+            "remaining_validation_gates_not_run": remaining_checkers,
         })
         reserved_summary_fields = set(summary)
         for key, value in diagnostic.items():
@@ -1262,10 +1281,10 @@ class StageManager(object):
     @staticmethod
     def _raw_failure_action(tool_name):
         return (
-            "No explicit structured diagnostic was provided by the failed Checker. "
+            "No explicit structured diagnostic was provided by the failed validation gate. "
             "Inspect every field in the original `check_info` below, including "
             f"details, STDOUT, and STDERR; fix all reported errors, then call `{tool_name}` "
-            "again. The original Checker output has been preserved without summarization."
+            "again. The original validation output has been preserved without summarization."
         )
 
     @staticmethod
@@ -1273,8 +1292,8 @@ class StageManager(object):
         return (
             "The current batch passed and the next batch is ready. Work only on the next "
             "batch shown in 'progress_summary.progress', follow the current stage task and "
-            f"checker-provided argument contract, then call `{tool_name}` again. Do not redo "
-            "the completed batch or diagnose this progress result as a Checker failure."
+            f"the provided argument contract, then call `{tool_name}` again. Do not redo "
+            "the completed batch or diagnose this progress result as a gate failure."
         )
 
     @classmethod
@@ -1294,12 +1313,6 @@ class StageManager(object):
         if progress_entry is None:
             progress_entry = {"last_msg": check_info}
 
-        checker_class = (
-            progress_entry.get("checker_class")
-            or progress_entry.get("name")
-            or "UnknownChecker"
-        )
-        checker_name = progress_entry.get("checker_name") or checker_class
         remaining_checkers = (
             max(0, len(checker_entries) - (progress_index + 1))
             if progress_index is not None
@@ -1309,14 +1322,12 @@ class StageManager(object):
             "status": "batch_advanced",
             "stage_index": stage_index,
             "stage_name": getattr(stage, "name", ""),
-            "checker_index": progress_index,
-            "checker_name": checker_name,
-            "checker_class": checker_class,
+            "validation_gate_index": progress_index,
             "progress": copy.deepcopy(progress_entry.get("last_msg")),
             "next_action": next_action,
-            "remaining_checkers_not_run": remaining_checkers,
+            "remaining_validation_gates_not_run": remaining_checkers,
             "diagnostic_note": (
-                "This is successful batch progress, not a validation failure. Only the next "
+                "This is successful batch progress, not a gate failure. Only the next "
                 "batch in the progress payload is currently actionable."
             ),
         })
@@ -1339,6 +1350,45 @@ class StageManager(object):
             if key in check_result:
                 compact_result[key] = copy.deepcopy(check_result[key])
         return compact_result or check_result
+
+    @staticmethod
+    def _public_check_info(check_info):
+        """Remove validation implementation identities from one public result."""
+
+        def redact(value):
+            if isinstance(value, dict):
+                return {
+                    key: redact(item)
+                    for key, item in value.items()
+                    if key not in {"checker_name", "checker_class"}
+                }
+            if isinstance(value, list):
+                return [redact(item) for item in value]
+            return copy.deepcopy(value)
+
+        public_info = redact(check_info)
+        entries = public_info if isinstance(public_info, list) else [public_info]
+        for entry in entries:
+            if not isinstance(entry, dict) or "last_msg" not in entry:
+                continue
+            entry.pop("name", None)
+        return public_info
+
+    @classmethod
+    def _public_check_result(cls, check_result):
+        """Return an LLM-facing check result with complete task diagnostics."""
+
+        public_result = copy.deepcopy(check_result)
+        if not isinstance(public_result, dict):
+            return public_result
+        if "check_info" in public_result:
+            public_result["check_info"] = cls._public_check_info(
+                public_result["check_info"]
+            )
+        nested = public_result.get("last_check_result")
+        if isinstance(nested, dict):
+            public_result["last_check_result"] = cls._public_check_result(nested)
+        return public_result
 
     def save_stage_info(self):
         all_completed = self._refresh_all_completed()
@@ -1411,12 +1461,12 @@ class StageManager(object):
 
     def complete(self, timeout, stage_args=None):
         if self.stage_index >= len(self.stages):
-            return {
+            return self._public_check_result({
                 "complete": False,
                 "message": ("No more stages to complete. You can review your work and use the `GoToStage` tool to go back to a previous stage if needed. "
                             "Or you can use the `Exit` tool to exit the mission."),
                 "last_check_result": self.last_check_info,
-            }
+            })
         stage_args, full_output = _split_stage_control_args(stage_args)
         ck_pass, ck_info = self.stages[self.stage_index].do_check(
             timeout=timeout,
@@ -1429,7 +1479,7 @@ class StageManager(object):
                 return {"complete": False,
                         "error": "Please use tool 'SetCurrentStageJournal' to set the journal of this stage before completing it."}
         if ck_pass:
-            llm_msg = self.gen_pass_suggestion(ck_info)
+            llm_msg = self.gen_pass_suggestion(self._public_check_info(ck_info))
             ck_pass = stage.get_approved()
             if not ck_pass:
                 if isinstance(llm_msg, str):
@@ -1498,18 +1548,21 @@ class StageManager(object):
             "message": message,
             "last_check_result": self.last_check_info,
         })
+        public_last_check_info = self._public_check_result(self.last_check_info)
+        ret["last_check_result"] = public_last_check_info
         if full_output and not ck_pass:
-            return self.last_check_info
+            return public_last_check_info
         if batch_advanced:
+            public_check_info = self._public_check_result(self.last_check_info)
             return self._compact_check_result(OrderedDict({
                 "complete": False,
                 "message": "The current batch passed. Continue with the next batch.",
-                **self.last_check_info,
+                **public_check_info,
             }))
         if not ck_pass and "failure_summary" not in self.last_check_info:
-            return self.last_check_info
+            return public_last_check_info
         if not ck_pass:
-            return self.gen_fail_suggestion(self.last_check_info)
+            return self.gen_fail_suggestion(public_last_check_info)
         return ret
 
     def exit(self):

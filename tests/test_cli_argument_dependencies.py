@@ -147,3 +147,73 @@ def test_non_langchain_backend_allows_embed_tools_when_mcp_is_enabled():
 
     assert args.mcp_server is True
     assert args.no_embed_tools is False
+
+
+def test_cli_starts_mcp_before_headless_backend_run(tmp_path):
+    """Headless command-line backends must receive a ready MCP endpoint."""
+
+    with mock.patch(
+        "sys.argv",
+        [
+            "ucagent",
+            str(tmp_path),
+            "dut",
+            "--backend",
+            "opencode",
+            "--mcp-server-no-file-tools",
+            "--mcp-server-port",
+            "-1",
+        ],
+    ), mock.patch("ucagent.verify_agent.VerifyAgent") as verify_agent:
+        agent = verify_agent.return_value
+        agent.cfg.mcp_server.host = "127.0.0.1"
+        lifecycle = []
+
+        def start_mcp(**kwargs):
+            lifecycle.append(("start_mcp", kwargs))
+            return True, "MCP server started"
+
+        def run_agent():
+            lifecycle.append(("run", {}))
+
+        agent.pdb.start_mcp_server.side_effect = start_mcp
+        agent.run.side_effect = run_agent
+
+        run()
+
+    kwargs = verify_agent.call_args.kwargs
+    assert not any(
+        command.startswith("start_mcp_server")
+        for command in kwargs["init_cmd"]
+    )
+    assert lifecycle[0][0] == "start_mcp"
+    assert lifecycle[0][1]["host"] == "127.0.0.1"
+    assert isinstance(lifecycle[0][1]["port"], int)
+    assert lifecycle[0][1]["no_file_ops"] is True
+    assert lifecycle[1] == ("run", {})
+
+
+def test_cli_aborts_before_backend_run_when_mcp_start_fails(tmp_path):
+    """An unavailable MCP endpoint must stop command-line model execution."""
+
+    with mock.patch(
+        "sys.argv",
+        [
+            "ucagent",
+            str(tmp_path),
+            "dut",
+            "--backend",
+            "opencode",
+            "--mcp-server-no-file-tools",
+        ],
+    ), mock.patch("ucagent.verify_agent.VerifyAgent") as verify_agent:
+        agent = verify_agent.return_value
+        agent.pdb.start_mcp_server.return_value = (
+            False,
+            "MCP server failed to start",
+        )
+
+        with pytest.raises(RuntimeError, match="MCP server failed to start"):
+            run()
+
+    agent.run.assert_not_called()

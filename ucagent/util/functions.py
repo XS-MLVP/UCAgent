@@ -505,7 +505,7 @@ def load_toffee_report(
                     bins_unmarked.append(bin_full_name)
                 else:
                     for tf in test_funcs:
-                        func_key = rm_workspace_prefix(workspace, tf)
+                        func_key = workspace_relative_path(workspace, tf)
                         if func_key not in bins_funcs:
                             bins_funcs[func_key] = []
                         if func_key in fails:
@@ -1206,42 +1206,76 @@ def find_skill_dir_by_name(root_dir, target_dir_name):
             return os.path.join(root, target_dir_name)
     return None
 
-def render_template_dir(workspace, template_dir, kwargs):
+def render_template_dir(workspace, template_dir, kwargs, target_dir=None):
     """
     Render all template files in a directory with the provided keyword arguments.
     :param workspace: The workspace directory where the templates are located.
     :param template_dir: The directory containing the template files.
     :param kwargs: Keyword arguments to be used in the templates.
+    :param target_dir: Optional workspace-relative destination directory.
     :return: A dictionary mapping file names to rendered content.
     """
     assert os.path.exists(workspace), f"Workspace {workspace} does not exist."
     assert os.path.exists(template_dir), f"Template directory {template_dir} does not exist."
     import jinja2
     import shutil
-    dst_dir = os.path.join(workspace, os.path.basename(template_dir))
-    if os.path.exists(dst_dir):
-        shutil.rmtree(dst_dir)
-    shutil.copytree(template_dir, dst_dir)
+    workspace_path = Path(workspace).resolve()
+    template_path = Path(template_dir)
+    copied_relative_files = []
+    for path in template_path.rglob("*"):
+        relative_path = path.relative_to(template_path)
+        if (
+            path.is_file()
+            and "__pycache__" not in relative_path.parts
+            and path.suffix not in {".pyc", ".pyo"}
+        ):
+            copied_relative_files.append(relative_path.as_posix())
+    ignore_compiled_python = shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo")
+    if target_dir is None:
+        dst_dir = workspace_path / os.path.basename(template_dir)
+        if dst_dir.exists():
+            shutil.rmtree(dst_dir)
+        shutil.copytree(template_dir, dst_dir, ignore=ignore_compiled_python)
+    else:
+        target_value = render_template(str(target_dir), kwargs)
+        target_path = Path(target_value)
+        if target_path.is_absolute():
+            raise ValueError("Template target must be workspace-relative")
+        dst_dir = (workspace_path / target_path).resolve()
+        try:
+            dst_dir.relative_to(workspace_path)
+        except ValueError as exc:
+            raise ValueError("Template target must remain inside the workspace") from exc
+        if dst_dir == workspace_path:
+            raise ValueError("Template target must not be the workspace root")
+        dst_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(
+            template_dir,
+            dst_dir,
+            dirs_exist_ok=True,
+            ignore=ignore_compiled_python,
+        )
+    dst_dir = str(dst_dir)
     rendered_files = []
     env = jinja2.Environment(loader=jinja2.FileSystemLoader(dst_dir), keep_trailing_newline=True)
-    for root, _, files in os.walk(dst_dir):
-        for fname in files:
-            abs_path = os.path.join(root, fname)
-            new_fname = jinja2.Template(fname).render(**kwargs)
-            new_abs_path = os.path.join(root, new_fname)
-            if new_fname != fname:
-                os.rename(abs_path, new_abs_path)
-                abs_path = new_abs_path
-            if "/__pycache__/" in abs_path or not is_text_file(abs_path):
-                continue
-            info(f"Rendering template file: {abs_path}")
-            with open(abs_path, "r", encoding="utf-8") as f:
-                content = f.read()
-            template = env.from_string(content)
-            rendered_content = template.render(**kwargs)
-            with open(abs_path, "w", encoding="utf-8") as f:
-                f.write(rendered_content)
-            rendered_files.append(os.path.relpath(abs_path, workspace))
+    for relative_file in copied_relative_files:
+        abs_path = os.path.join(dst_dir, relative_file)
+        root, fname = os.path.split(abs_path)
+        new_fname = jinja2.Template(fname).render(**kwargs)
+        new_abs_path = os.path.join(root, new_fname)
+        if new_fname != fname:
+            os.rename(abs_path, new_abs_path)
+            abs_path = new_abs_path
+        if not is_text_file(abs_path):
+            continue
+        info(f"Rendering template file: {abs_path}")
+        with open(abs_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        template = env.from_string(content)
+        rendered_content = template.render(**kwargs)
+        with open(abs_path, "w", encoding="utf-8") as f:
+            f.write(rendered_content)
+        rendered_files.append(os.path.relpath(abs_path, workspace))
     return rendered_files
 
 
@@ -1694,6 +1728,8 @@ def create_verify_mcps(mcp_tools: list, host: str, port: int, logger=None):
 
 
 def start_verify_mcps(server, old_getLogger):
+    """Run a configured uvicorn MCP server and propagate startup failures."""
+
     import logging
     from ucagent.util.log import info
     import anyio
@@ -1703,11 +1739,13 @@ def start_verify_mcps(server, old_getLogger):
         anyio.run(_run)
     except Exception as e:
         info(f"FastMCP server exit with: {e}")
-    info("FastMCP server stopped.")
-    # logging.getLogger was already restored in create_verify_mcps; this is kept
-    # for safety in case old_getLogger is still the real function (no-op then).
-    if old_getLogger is not None:
-        logging.getLogger = old_getLogger
+        raise
+    finally:
+        info("FastMCP server stopped.")
+        # logging.getLogger was already restored in create_verify_mcps; this is
+        # kept for safety when old_getLogger is still the real function.
+        if old_getLogger is not None:
+            logging.getLogger = old_getLogger
 
 
 def stop_verify_mcps(server):
@@ -2331,7 +2369,7 @@ def replace_bash_var(in_str, data: dict):
     def replace_match(match):
         key = match.group("key").strip()
         default = match.group("default").strip()
-        return str(data.get(key, default)) if default else str(data.get(key))
+        return str(data[key]) if key in data else default
 
     return re.sub(pattern, replace_match, in_str)
 
@@ -2837,24 +2875,41 @@ def get_xml_tag_list(workspace, xml_file, tag_name: str) -> list:
 
 
 def match_pattern_list(name: str, pattern_list: list) -> bool:
-    """Check if the name matches any pattern in the pattern list."""
+    """Match basename rules or exact source-relative path/subtree rules."""
+
+    normalized_name = name.replace(os.sep, "/").strip("/")
     for pattern in pattern_list:
-        if "*" in pattern:
-            if fnmatch.fnmatch(name, pattern):
+        normalized_pattern = str(pattern).replace(os.sep, "/").strip("/")
+        if "/" in normalized_pattern:
+            if any(character in normalized_pattern for character in "*?["):
+                if fnmatch.fnmatch(normalized_name, normalized_pattern):
+                    return True
+            elif normalized_name == normalized_pattern or normalized_name.startswith(
+                normalized_pattern + "/"
+            ):
+                return True
+        elif any(character in normalized_pattern for character in "*?["):
+            if fnmatch.fnmatch(normalized_name, normalized_pattern):
                 return True
         else:
-            if pattern in name:
+            if normalized_pattern in normalized_name:
                 return True
     return False
 
 
-def sync_dir_to(source_dir, target_dir, ignore_pattern_list=[]):
+def sync_dir_to(
+    source_dir,
+    target_dir,
+    ignore_pattern_list=None,
+    _relative_root="",
+):
     """Sync source directory to target directory with incremental updates and deletion support.
 
     Args:
         source_dir: Source directory path
         target_dir: Target directory path
-        ignore_pattern_list: List of patterns to ignore during sync
+        ignore_pattern_list: Basename or source-relative POSIX path patterns to ignore
+        _relative_root: Internal source-relative recursion prefix
 
     Returns:
         target_dir: The target directory path
@@ -2864,6 +2919,7 @@ def sync_dir_to(source_dir, target_dir, ignore_pattern_list=[]):
         - Removes files/directories in target that don't exist in source
         - Recursively syncs subdirectories
     """
+    ignore_pattern_list = list(ignore_pattern_list or [])
     if not os.path.exists(source_dir):
         raise Exception(f"Source directory '{source_dir}' does not exist.")
     if not os.path.isdir(source_dir):
@@ -2874,14 +2930,17 @@ def sync_dir_to(source_dir, target_dir, ignore_pattern_list=[]):
     source_items = set()
     # Sync items from source to target
     for item in os.listdir(source_dir):
-        if match_pattern_list(item, ignore_pattern_list):
+        relative_item = "/".join(part for part in (_relative_root, item) if part)
+        if match_pattern_list(item, ignore_pattern_list) or match_pattern_list(
+            relative_item, ignore_pattern_list
+        ):
             continue
         source_items.add(item)
         s = os.path.join(source_dir, item)
         d = os.path.join(target_dir, item)
         if os.path.isdir(s):
             # Recursively sync subdirectories
-            sync_dir_to(s, d, ignore_pattern_list)
+            sync_dir_to(s, d, ignore_pattern_list, relative_item)
         else:
             # Check if file needs to be copied
             need_copy = False
@@ -2899,7 +2958,10 @@ def sync_dir_to(source_dir, target_dir, ignore_pattern_list=[]):
                 shutil.copy2(s, d)
     # Remove items in target that don't exist in source
     for item in os.listdir(target_dir):
-        if match_pattern_list(item, ignore_pattern_list):
+        relative_item = "/".join(part for part in (_relative_root, item) if part)
+        if match_pattern_list(item, ignore_pattern_list) or match_pattern_list(
+            relative_item, ignore_pattern_list
+        ):
             continue
         if item not in source_items:
             d = os.path.join(target_dir, item)
@@ -2911,12 +2973,14 @@ def sync_dir_to(source_dir, target_dir, ignore_pattern_list=[]):
                 info(f"Removed file from target: {item}")
     return target_dir
 
-def copy_skill_files(cfg, workspace, root_dir):
-    """Copy skill files to workspace,include default skills and additional skills.
+def copy_skill_files(cfg, workspace, root_dir, plugin_skill_paths=None):
+    """Copy core, configured, and active-plugin Skill collections to a workspace.
+
     Args:
         cfg: Configuration object
         workspace: Workspace directory path
         root_dir: Root directory path
+        plugin_skill_paths: Plugin-name and Skill-root pairs contributed by active plugins.
     """
     dst_path = get_workspace_skill_root(workspace)
     copy_tasks = []
@@ -2927,6 +2991,10 @@ def copy_skill_files(cfg, workspace, root_dir):
     if cfg.skill.extra_skill_path:
         extra_skill_path = os.path.abspath(cfg.skill.extra_skill_path)
         copy_tasks.append((extra_skill_path, os.path.join(dst_path, "ext")))
+    for plugin_name, plugin_skill_path in plugin_skill_paths or []:
+        source = os.path.abspath(plugin_skill_path)
+        target = os.path.join(dst_path, "ext", plugin_name)
+        copy_tasks.append((source, target))
     # Copy skills to workspace
     for src_path, target_path in copy_tasks:
         if os.path.exists(src_path):

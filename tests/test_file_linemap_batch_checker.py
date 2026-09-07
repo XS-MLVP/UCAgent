@@ -567,6 +567,7 @@ def test_batch_checker_does_not_scan_or_check_before_on_init(tmp_path, monkeypat
         "LINE_MAP_PROGRESS": "-/-",
         "COUNT_CK": "-",
         "CURRENT_LINE_BLOCKS": "",
+        "CURRENT_LINE_MAP_TARGETS": "",
         "MAX_LINE_BLOCK_LINES": 100,
     }
     passed, result = checker.do_check(is_complete=False)
@@ -578,6 +579,9 @@ def test_batch_checker_does_not_scan_or_check_before_on_init(tmp_path, monkeypat
     assert [_line_block_base(task) for task in checker.batch_task.source_task_list] == [
         "src/dut.md:1-1"
     ]
+    assert checker.get_template_data()["CURRENT_LINE_MAP_TARGETS"] == (
+        "src/dut.md:1-1 -> out/line_map/src_dut_md_line_func_map.txt"
+    )
 
     monkeypatch.setattr(
         "ucagent.checkers.file_linemap.fc.find_files_by_pattern", fail_if_scanned

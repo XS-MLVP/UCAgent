@@ -191,8 +191,23 @@ class RunPyTest(UCTool):
         default_factory=dict,
         description="Structured state from the most recent pytest invocation.",
     )
+    extra_python_paths: list[str] = Field(
+        default_factory=list,
+        description="Trusted import roots prepended for isolated pytest execution.",
+        exclude=True,
+    )
     _last_process_stdout: str = ""
     _last_process_stderr: str = ""
+
+    def set_extra_python_paths(self, paths: list[str]) -> "RunPyTest":
+        """Set trusted import roots that precede caller-provided Python paths."""
+
+        if not isinstance(paths, list) or any(
+            not isinstance(path, str) or not path.strip() for path in paths
+        ):
+            raise ValueError("extra Python paths must be a list of non-empty strings")
+        self.extra_python_paths = list(paths)
+        return self
 
     def do(self,
              test_dir_or_file: str,
@@ -225,13 +240,24 @@ class RunPyTest(UCTool):
         invocation_stdout, invocation_stderr = "", ""
         env = os.environ.copy()
         pythonpath = env.get("PYTHONPATH", "")
-        python_path_str = os.path.abspath(os.getcwd()) + ":" + ucagent_lib_path()
-        if python_paths is not None:
-            for p in python_paths:
-                if os.path.exists(p):
-                    python_path_str += ":" + os.path.abspath(p)
-                    debug(f"Add python path: {p}")
-        env["PYTHONPATH"] = python_path_str + ((":" + pythonpath) if pythonpath else "")
+        requested_python_paths = [
+            *self.extra_python_paths,
+            *(python_paths or []),
+        ]
+        import_roots = [os.path.abspath(os.getcwd()), ucagent_lib_path()]
+        for path in requested_python_paths:
+            if os.path.exists(path):
+                resolved = os.path.abspath(path)
+                if resolved not in import_roots:
+                    import_roots.append(resolved)
+                    debug(f"Add python path: {path}")
+        if pythonpath:
+            import_roots.extend(
+                path
+                for path in pythonpath.split(os.pathsep)
+                if path and path not in import_roots
+            )
+        env["PYTHONPATH"] = os.pathsep.join(import_roots)
         if "XSPCOMM_LOG_LEVEL" not in env:
             env["XSPCOMM_LOG_LEVEL"] = "4"  # 1-DEBUG, 2-INFO, 3-WARNING, 4-ERROR, 5-FATAL
         env.update(pytest_ex_env)

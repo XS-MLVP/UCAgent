@@ -67,6 +67,42 @@ def test_run_pytest_relative_target_executes_without_identity_rewrite(tmp_path):
     assert stderr == ""
 
 
+def test_run_pytest_trusted_import_root_precedes_workspace(tmp_path):
+    """Internal generated packages must win over same-named input directories."""
+
+    tests = tmp_path / "tests"
+    tests.mkdir()
+    workspace_package = tmp_path / "dut"
+    workspace_package.mkdir()
+    (workspace_package / "__init__.py").write_text(
+        "SOURCE = 'workspace'\n", encoding="utf-8"
+    )
+    private_root = tmp_path / "private"
+    private_package = private_root / "dut"
+    private_package.mkdir(parents=True)
+    (private_package / "__init__.py").write_text(
+        "SOURCE = 'private'\n", encoding="utf-8"
+    )
+    (tests / "test_import.py").write_text(
+        "import dut\n\ndef test_import_priority():\n"
+        "    assert dut.SOURCE == 'private'\n",
+        encoding="utf-8",
+    )
+    tool = RunPyTest().set_extra_python_paths([str(private_root)])
+
+    passed, stdout, stderr = tool.do(
+        str(tests),
+        pytest_ex_args="test_import.py",
+        return_stdout=True,
+        return_stderr=True,
+        python_paths=[str(tmp_path)],
+    )
+
+    assert passed is True
+    assert "1 passed" in stdout
+    assert stderr == ""
+
+
 def test_run_pytest_missing_target_preserves_pytest_diagnostic(tmp_path):
     tool = RunPyTest()
 

@@ -8,6 +8,10 @@
       "timeout": 600000000
     }
   },
+  "permission": {
+    "bash": "deny",
+    "external_directory": "deny"
+  },
   "provider": {
     "ucagent": {
       "npm": "@ai-sdk/openai-compatible",

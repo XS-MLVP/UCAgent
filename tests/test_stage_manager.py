@@ -735,8 +735,8 @@ def test_check_failure_summary_precedes_verbose_diagnostics():
 
     assert next(iter(result)) == "failure_summary"
     assert result["failure_summary"]["stage_index"] == 25
-    assert result["failure_summary"]["failed_checker_name"] == "test_check"
-    assert result["failure_summary"]["failed_checker_class"] == "UnityChipCheckerTestCase"
+    assert result["failure_summary"]["failed_validation_gate_index"] == 0
+    assert "checker" not in str(result["failure_summary"]).lower()
     assert result["failure_summary"]["error_code"] == "TEST_ASSOCIATION_MISSING"
     assert "test_Demo_env_fixture.py::test_env_input" in result["failure_summary"]["error"]
     assert rendered.index("failure_summary:") < rendered.index("verbose pytest output")
@@ -864,11 +864,16 @@ def test_check_reports_batch_advance_as_progress_not_failure():
     assert result["check_pass"] is False
     assert "failure_summary" not in result
     assert result["progress_summary"]["status"] == "batch_advanced"
-    assert result["progress_summary"]["checker_name"] == "random_test_check"
+    assert result["progress_summary"]["validation_gate_index"] == 0
+    assert "checker" not in str(result["progress_summary"]).lower()
+    assert manager.last_check_info["check_info"][0]["checker_class"] == (
+        "RandomTestCasesChecker"
+    )
+    assert "check_info" not in result
     assert result["progress_summary"]["progress"]["current_batch"] == [
         {"CK": "FG-A/FC-A/CK-NEXT"}
     ]
-    assert "not a validation failure" in result["progress_summary"]["diagnostic_note"]
+    assert "not a gate failure" in result["progress_summary"]["diagnostic_note"]
     assert "Do not redo the completed batch" in result["action"]
     assert "check_info" not in result
 
@@ -945,10 +950,9 @@ def test_failure_summary_uses_current_run_not_historical_count_fail():
         SimpleNamespace(name="stage"), check_info, stage_index=7
     )
 
-    assert summary["failed_checker_index"] == 1
-    assert summary["failed_checker_name"] == "current_check"
+    assert summary["failed_validation_gate_index"] == 1
     assert summary["error_code"] == "CURRENT_FAILURE"
-    assert summary["remaining_checkers_not_run"] == 1
+    assert summary["remaining_validation_gates_not_run"] == 1
 
 
 def test_compact_check_result_keeps_legacy_diagnostics():
@@ -958,6 +962,40 @@ def test_compact_check_result_keeps_legacy_diagnostics():
     }
 
     assert StageManager._compact_check_result(legacy_result) is legacy_result
+
+
+def test_public_check_result_recursively_hides_validation_implementation_identity():
+    """LLM-facing results must retain evidence without Python class identities."""
+
+    internal = {
+        "check_pass": False,
+        "check_info": [{
+            "name": "PrivateValidationClass",
+            "checker_name": "configured_private_gate",
+            "checker_class": "PrivateValidationClass",
+            "last_msg": {
+                "diagnostic": {
+                    "error_code": "PUBLIC_ERROR",
+                    "error": "tests/test_design.py::test_case failed",
+                    "checker_name": "nested_private_gate",
+                    "checker_class": "NestedPrivateValidationClass",
+                    "artifact": "tests/test_design.py",
+                    "next_action": "Repair the assertion and call Check again.",
+                }
+            },
+        }],
+    }
+
+    public = StageManager._public_check_result(internal)
+
+    assert internal["check_info"][0]["checker_class"] == "PrivateValidationClass"
+    assert "checker" not in str(public).lower()
+    assert public["check_info"][0]["last_msg"]["diagnostic"] == {
+        "error_code": "PUBLIC_ERROR",
+        "error": "tests/test_design.py::test_case failed",
+        "artifact": "tests/test_design.py",
+        "next_action": "Repair the assertion and call Check again.",
+    }
 
 
 def test_failure_summary_preserves_test_function_contract_issues():
@@ -1328,8 +1366,8 @@ def test_verify_stage_checker_diagnostic_precedes_missing_output_gate(tmp_path):
         check_info,
         stage_index=5,
     )
-    assert summary["failed_checker_name"] == "configured_check"
-    assert summary["failed_checker_class"] == "LineMapLikeChecker"
+    assert summary["failed_validation_gate_index"] == 0
+    assert "checker" not in str(summary).lower()
     assert summary["error_code"] == "LINE_MAP_FILE_MISSING"
     assert summary["artifact"] == (
         "resolved/line_map/docs_spec_md_line_func_map.txt"
@@ -1368,11 +1406,9 @@ def test_output_gate_reports_all_resolved_patterns_and_matches(tmp_path):
 
     assert result["check_pass"] is False
     assert result["check_info"][-1]["last_msg"]["error"] == summary["error"]
-    assert summary["failed_checker_index"] == 1
-    assert summary["failed_checker_name"] == "stage_output_files"
-    assert summary["failed_checker_class"] == "OutputFileGate"
+    assert summary["failed_validation_gate_index"] == 1
     assert summary["error_code"] == "OUTPUT_FILE_PATTERN_MISSING"
-    assert summary["remaining_checkers_not_run"] == 0
+    assert summary["remaining_validation_gates_not_run"] == 0
     assert "2 of 3" in summary["error"]
     assert "resolved/line_map/*_line_func_map.txt" in summary["error"]
     assert "resolved/reports/*.json" in summary["error"]
@@ -1602,11 +1638,9 @@ def test_forced_skill_usage_complete_failure_is_named_and_actionable(tmp_path):
 
     assert result["check_pass"] is False
     assert calls == []
-    assert summary["failed_checker_index"] == 0
-    assert summary["failed_checker_name"] == "stage_skill_usage"
-    assert summary["failed_checker_class"] == "SkillUsageGate"
+    assert summary["failed_validation_gate_index"] == 0
     assert summary["error_code"] == "SKILL_USAGE_INCOMPLETE"
-    assert summary["remaining_checkers_not_run"] == 2
+    assert summary["remaining_validation_gates_not_run"] == 2
     assert summary["observed"]["incomplete_skills"] == {
         "unitytest/required-a": {"list": True, "read": False, "use": False},
         "unitytest/required-b": {"list": False, "read": True, "use": False},
@@ -1630,7 +1664,7 @@ def test_forced_skill_usage_complete_failure_is_named_and_actionable(tmp_path):
         },
     }
     assert "unitytest/general-optional" not in str(summary)
-    assert "UnknownChecker" not in str(summary)
+    assert "checker" not in str(summary).lower()
     assert 'SetSkillUsage(skill_usage={"unitytest/required-a"' in summary[
         "next_action"
     ]
@@ -1723,10 +1757,9 @@ def test_reference_file_gate_reports_all_files_and_exact_retry_tool(tmp_path):
     summary = result["failure_summary"]
 
     assert calls == []
-    assert summary["failed_checker_name"] == "stage_reference_files"
-    assert summary["failed_checker_class"] == "ReferenceFileGate"
+    assert summary["failed_validation_gate_index"] == 0
     assert summary["error_code"] == "REFERENCE_FILES_UNREAD"
-    assert summary["remaining_checkers_not_run"] == 2
+    assert summary["remaining_validation_gates_not_run"] == 2
     assert summary["observed"]["unread_files"] == [
         "Guide_Doc/first.md",
         "spec/second.md",
@@ -1758,10 +1791,9 @@ def test_invalid_direct_stage_args_uses_named_gate(tmp_path):
 
     assert passed is False
     assert calls == []
-    assert summary["failed_checker_name"] == "stage_arguments"
-    assert summary["failed_checker_class"] == "StageArgumentGate"
+    assert summary["failed_validation_gate_index"] == 0
     assert summary["error_code"] == "STAGE_ARGS_INVALID"
-    assert summary["remaining_checkers_not_run"] == 1
+    assert summary["remaining_validation_gates_not_run"] == 1
     assert summary["observed"] == {"type": "list"}
     assert summary["next_action"].startswith("Call `Check` again")
 

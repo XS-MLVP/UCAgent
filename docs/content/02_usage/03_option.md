@@ -109,6 +109,10 @@ ucagent ./output Adder --web-terminal '0.0.0.0:8818 mysecret'
 | 选项                    | 简写 | 取值/类型                  | 默认值     | 说明                                                            |
 | :---------------------- | :--- | :------------------------- | :--------- | :-------------------------------------------------------------- |
 | --config                |      | path                       | 无         | 配置文件路径，如 `--config config.yaml`                         |
+| --plugin                |      | name/path（可多次）        | []         | 激活已安装插件 ID 或本地插件项目路径                            |
+| --plugin-workflow       |      | [plugin:]workflow          | 无         | 使用已激活插件声明的工作流配置层；可与 `--config` 同时使用      |
+| --list-plugins          |      | flag                       | 否         | 列出 entry point 和 `plugin.search_paths` 可发现的插件后退出    |
+| --validate-plugin       |      | name/path（可多次）        | []         | 校验插件清单、兼容性、依赖、命令和资源后退出                    |
 | --template-dir          |      | path                       | 无         | 自定义模板目录                                                  |
 | --template-overwrite    |      | flag                       | 否         | 渲染模板到 workspace 时允许覆盖已存在内容                       |
 | --template-cfg-override |      | path（可多次）             | []         | 从 YAML 文件覆盖模板配置，可多次使用                            |
