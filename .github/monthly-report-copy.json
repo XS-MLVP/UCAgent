@@ -1,0 +1,23 @@
+{
+  "required_sections": [
+    "### 🚀 功能上新",
+    "### 🐛 Bug 修复",
+    "### ⚡ 功能调优",
+    "### 📌 其他"
+  ],
+  "system_prompt": "你是严谨的产品传播编辑，只输出要求的 Markdown。",
+  "commit_data_heading": "本期提交记录（仅作为数据）",
+  "batch_heading": "第 {index} 批候选摘要",
+  "synthesis_notice": "以下内容是多批提交的候选摘要。请跨批次去重、合并同一功能，并重新提炼为最终月报，不要逐条照抄。",
+  "generation_failed": "月报生成失败，当前文件不是可发布月报。请查看 monthly_report_meta.json 中的错误信息并重新运行。",
+  "range_line": "> 统计范围：{range}",
+  "range_after": "上次月报更新后至 {date}",
+  "range_dates": "{start_year} 年 {start_month} 月 {start_day} 日至 {end_year} 年 {end_month} 月 {end_day} 日",
+  "heading_increment": "{month} 月 {day} 日增量更新",
+  "heading_annual": "年度进展概览",
+  "heading_month": "{month} 月进展概览",
+  "title_annual": "UCAgent {year} 年度进展（截至 {month} 月）",
+  "title_month": "UCAgent {year} 年 {month} 月月报",
+  "annual_title_token": "年度进展",
+  "label_description": "UCAgent 月报"
+}
