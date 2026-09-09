@@ -15,6 +15,20 @@ from ucagent.util.config import Config, load_yaml_with_env_vars, _merge_config_f
 
 
 class TestConfigLoader(unittest.TestCase):
+    def test_default_launch_disables_llm_suggestions(self):
+        """Keep launch-time LLM pass/fail suggestions opt-in by default."""
+
+        config_path = os.path.join(current_dir, "..", "ucagent", "setting.yaml")
+        config = load_yaml_with_env_vars(config_path)
+        default_env = {
+            key: value
+            for item in config["launch"]["default_env"]
+            if isinstance(item, dict)
+            for key, value in item.items()
+        }
+
+        self.assertIs(default_env["ENABLE_LLM_SUGGESTION"], False)
+
     def test_default_document_path_uses_template_overwrite(self):
         config_path = os.path.join(
             current_dir, "..", "ucagent", "lang", "zh", "config", "default.yaml"

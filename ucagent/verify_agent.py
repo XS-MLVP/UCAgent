@@ -689,7 +689,7 @@ class VerifyAgent:
         self._break_threads: set[int] = set()
         self._need_human = False
         self._max_stalled_rounds = self._validated_max_stalled_rounds(
-            self.cfg.get_value("loop_settings.max_stalled_rounds", 3)
+            self.cfg.get_value("loop_settings.max_stalled_rounds", 0)
         )
         self._stalled_rounds = 0
         self._last_stall_signature = None

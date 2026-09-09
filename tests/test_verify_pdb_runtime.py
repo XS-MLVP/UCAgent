@@ -17,6 +17,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(current_dir, "..")))
 
 from ucagent.verify_pdb import VerifyPDB
 from ucagent.verify_agent import VerifyAgent
+from ucagent.util.config import load_yaml_with_env_vars
 from ucagent.util.log import info
 from ucagent.util.markdown import markdown_heading_spacing_errors
 
@@ -740,6 +741,36 @@ def test_disabled_stall_protection_does_not_pause_agent():
 
     assert agent._stalled_rounds == 0
     assert agent._need_human is False
+
+
+def test_default_config_disables_stalled_checker_pause():
+    """Keep automatic Checker-stall escalation opt-in at repository defaults."""
+    config_path = os.path.join(current_dir, "..", "ucagent", "setting.yaml")
+
+    config = load_yaml_with_env_vars(config_path)
+
+    assert config["loop_settings"]["max_stalled_rounds"] == 0
+
+
+def test_swarm_launch_does_not_force_human_check():
+    """Keep the example human-check injection documented but inactive."""
+
+    makefile_path = os.path.join(current_dir, "..", "Makefile")
+    with open(makefile_path, encoding="utf-8") as makefile_handle:
+        makefile = makefile_handle.read()
+    override = (
+        "--override launch.default_args.extra_args[0:0]=@base64:"
+        "LS1vdmVycmlkZQpzdGFnZVstMV0ubmVlZF9odW1hbl9jaGVjaz1UcnVl"
+    )
+    active_lines = [
+        line for line in makefile.splitlines() if not line.lstrip().startswith("#")
+    ]
+
+    assert override not in "\n".join(active_lines)
+    assert any(
+        override in line and line.lstrip().startswith("#")
+        for line in makefile.splitlines()
+    )
 
 
 @pytest.mark.parametrize("value", [True, -1, 1.5, "3", None])

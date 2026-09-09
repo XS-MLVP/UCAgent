@@ -182,7 +182,7 @@ launch:
     - "OPENAI_MODEL"
     - "OPENAI_API_KEY"
     - "OPENAI_API_BASE"
-    - "ENABLE_LLM_SUGGESTION": true
+    - "ENABLE_LLM_SUGGESTION": false
     - "NEED_REF_MODEL": false
     - "IGNORE_MOCK_COMPONENT": true
     - "ENABLE_LLM_FAIL_SUGGESTION": "$ENABLE_LLM_SUGGESTION"
@@ -310,7 +310,7 @@ tui:
 
 loop_settings:
   max_loop_retry: 10       # maximum number of retries for a loop
-  max_stalled_rounds: 3    # pause after unchanged Checker diagnostics across completed agent rounds; 0 disables
+  max_stalled_rounds: 0    # disabled by default; positive values pause after unchanged Checker diagnostics
   retry_delay_start: 5     # initial delay time in seconds before retrying
   retry_delay_end: 10      # maximum delay time in seconds before retrying
   loop_alive_time: 120     # active time before completed agent rounds may refresh retry count
