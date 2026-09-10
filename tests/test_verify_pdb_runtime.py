@@ -237,7 +237,7 @@ def test_chcwd_controls_pdb_and_shell_command_cwd(tmp_path, capsys):
 def test_cmd_timeout_command_shows_and_sets_idle_timeout(probe_pdb, capsys):
     probe_pdb.execute_command("cmd_timeout")
     output = capsys.readouterr().out
-    assert "Shell command idle timeout: 30 seconds" in output
+    assert "Shell command idle timeout: 1200 seconds" in output
 
     probe_pdb.execute_command("cmd_timeout 1.5")
     output = capsys.readouterr().out

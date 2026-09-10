@@ -3079,9 +3079,21 @@ def get_func_params_regex(source_code: str) -> list[str]:
     return params
 
 
-def process_bash_cmd(CWD, cmd, echo_func, interrupted_fc=None):
-    """
-    Process a bash command and return the output.
+def process_bash_cmd(
+    CWD,
+    cmd,
+    echo_func,
+    interrupted_fc=None,
+    idle_timeout=None,
+    activity_fc=None,
+):
+    """Run a shell command while streaming output and honoring cancellation.
+
+    ``idle_timeout`` measures seconds since the last stdout/stderr byte or
+    active callback report. A non-positive value or ``None`` disables the
+    timeout. The command and its descendants are terminated as one process
+    group when cancellation or the idle timeout fires. The timeout is reported
+    as a command failure, while explicit cancellation remains an interruption.
     """
     def _terminate_process(process):
         if process.poll() is not None:
@@ -3118,6 +3130,7 @@ def process_bash_cmd(CWD, cmd, echo_func, interrupted_fc=None):
                                bufsize=0, **popen_kwargs)
     output_lines = []
     interrupted = False
+    last_output_at = time.monotonic()
     line_buffer = ""
     decoder = codecs.getincrementaldecoder(locale.getpreferredencoding(False))(errors="replace")
 
@@ -3188,8 +3201,30 @@ def process_bash_cmd(CWD, cmd, echo_func, interrupted_fc=None):
                     _terminate_process(process)
                     info(f"Bash command '{cmd}' aborted.")
                     break
-                _drain_stdout(timeout=0.1)
+                read_any = _drain_stdout(timeout=0.1)
+                tool_active = False
+                if callable(activity_fc):
+                    try:
+                        tool_active = bool(activity_fc())
+                    except Exception:
+                        # Treat an unavailable probe as active work so a
+                        # backend cannot kill a command during a tool call.
+                        tool_active = True
+                if read_any or tool_active:
+                    last_output_at = time.monotonic()
                 if process.poll() is not None:
+                    break
+                if (
+                    idle_timeout is not None
+                    and idle_timeout > 0
+                    and time.monotonic() - last_output_at >= idle_timeout
+                ):
+                    warning(
+                        f"Terminating process {process.pid} after "
+                        f"{idle_timeout:g} seconds without output or active tool calls."
+                    )
+                    _terminate_process(process)
+                    info(f"Bash command '{cmd}' timed out while idle.")
                     break
         except KeyboardInterrupt:
             interrupted = True

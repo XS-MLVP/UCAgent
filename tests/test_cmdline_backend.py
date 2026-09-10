@@ -91,6 +91,90 @@ def test_process_bash_cmd_interrupts_partial_line_output():
     assert backend._fail_count == 0
 
 
+def test_process_bash_cmd_idle_timeout_is_a_retryable_failure():
+    """A silent backend process becomes a failure without requesting human input."""
+    agent = _FakeAgent()
+    backend = UCAgentCmdLineBackend(
+        agent, config=object(), cli_cmd_ctx="", command_idle_timeout=0.2
+    )
+    backend.CWD = current_dir
+
+    cmd = f"{shlex.quote(sys.executable)} -c 'import time; time.sleep(30)'"
+    start = time.time()
+    return_code, output_lines = backend.process_bash_cmd(cmd)
+    elapsed = time.time() - start
+
+    assert elapsed < 5
+    assert return_code is not None
+    assert return_code != 0
+    assert output_lines == []
+    assert agent.is_break() is False
+    assert backend._fail_count == 1
+
+
+def test_process_bash_cmd_idle_timeout_waits_for_active_tool():
+    """An active MCP tool suppresses the command idle timer until it finishes."""
+    agent = _FakeAgent()
+    busy_until = time.monotonic() + 0.35
+
+    class _BusyTool:
+        """Minimal tool activity probe for the backend timeout contract."""
+
+        def is_busy(self):
+            return time.monotonic() < busy_until
+
+    agent.test_tools = [_BusyTool()]
+    backend = UCAgentCmdLineBackend(
+        agent, config=object(), cli_cmd_ctx="", command_idle_timeout=0.2
+    )
+    backend.CWD = current_dir
+
+    cmd = f"{shlex.quote(sys.executable)} -c 'import time; time.sleep(30)'"
+    start = time.monotonic()
+    return_code, _output_lines = backend.process_bash_cmd(cmd)
+    elapsed = time.monotonic() - start
+
+    assert elapsed >= 0.45
+    assert elapsed < 5
+    assert return_code != 0
+    assert agent.is_break() is False
+    assert backend._fail_count == 1
+
+
+def test_repeated_idle_timeouts_pause_after_failure_limit():
+    """Repeated command timeouts use the existing automatic failure pause."""
+    agent = _FakeAgent()
+    backend = UCAgentCmdLineBackend(
+        agent,
+        config=object(),
+        cli_cmd_ctx="",
+        command_idle_timeout=0.1,
+        max_continue_fails=2,
+    )
+    backend.CWD = current_dir
+    cmd = f"{shlex.quote(sys.executable)} -c 'import time; time.sleep(30)'"
+
+    backend.process_bash_cmd(cmd)
+    assert agent.is_break() is False
+    backend.process_bash_cmd(cmd)
+
+    assert agent.is_break() is True
+    assert backend._fail_count == 2
+
+
+def test_process_bash_cmd_uses_configured_cmd_timeout():
+    """The global command timeout is inherited when backend-specific config is absent."""
+    class _Config:
+        @staticmethod
+        def get_value(key, default=None):
+            assert key == "cmd_timeout"
+            return 0.2
+
+    agent = _FakeAgent()
+    backend = UCAgentCmdLineBackend(agent, config=_Config(), cli_cmd_ctx="")
+    assert backend.command_idle_timeout == 0.2
+
+
 def test_render_config_files_uses_context_and_creates_parent_dir(tmp_path, monkeypatch):
     workspace = tmp_path / "workspace"
     workspace.mkdir()

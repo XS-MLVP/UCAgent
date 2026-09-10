@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING
 from ucagent.tui.utils import PersistentConsoleMirror
 from ucagent.util.config import Config
 
-DEFAULT_CMD_IDLE_TIMEOUT = 30.0
+DEFAULT_CMD_IDLE_TIMEOUT = 1200.0
 CMD_OUTPUT_POLL_INTERVAL = 1.0
 SHELL_COMMAND_DANGEROUS = {
     "chmod", "chown", "cp", "dd", "fdisk", "format", "halt", "kill",

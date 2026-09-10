@@ -21,6 +21,7 @@ class UCAgentCmdLineBackend(AgentBackendBase):
                  cfg_bash_enable=False,
                  post_bash_cmd=None, abort_pattern=None,
                  max_continue_fails=20,
+                 command_idle_timeout=None,
                  **kwargs):
         super().__init__(vagent, config, **kwargs)
         self.cli_cmd_new = cli_cmd_new
@@ -33,6 +34,28 @@ class UCAgentCmdLineBackend(AgentBackendBase):
         self.render_files = render_files or {}
         self.cfg_bash_cmd = cfg_bash_cmd or []
         self.cfg_bash_enable = cfg_bash_enable
+        if command_idle_timeout is None:
+            get_value = getattr(config, "get_value", None)
+            command_idle_timeout = (
+                get_value("cmd_timeout", 1200) if callable(get_value) else 1200
+            )
+        if isinstance(command_idle_timeout, bool):
+            raise ValueError("command_idle_timeout must be a non-negative number")
+        if isinstance(command_idle_timeout, str) and command_idle_timeout.lower() in {
+            "off",
+            "none",
+            "disabled",
+        }:
+            command_idle_timeout = 0
+        try:
+            command_idle_timeout = float(command_idle_timeout)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "command_idle_timeout must be a non-negative number or off"
+            ) from exc
+        if command_idle_timeout < 0:
+            raise ValueError("command_idle_timeout must be a non-negative number")
+        self.command_idle_timeout = command_idle_timeout
 
     def _get_assets_path(self):
         current_path = os.path.dirname(os.path.abspath(__file__))
@@ -54,10 +77,15 @@ class UCAgentCmdLineBackend(AgentBackendBase):
         return self.config.mcp_server.port
 
     def process_bash_cmd(self, cmd):
-        """
-        Process a bash command and return the output.
-        """
-        return_code, output_lines, interrupted = process_bash_cmd(self.CWD, cmd, self._echo_message, self.vagent.is_break)
+        """Run a backend command with output and tool-activity monitoring."""
+        return_code, output_lines, interrupted = process_bash_cmd(
+            self.CWD,
+            cmd,
+            self._echo_message,
+            self.vagent.is_break,
+            idle_timeout=self.command_idle_timeout,
+            activity_fc=self._has_active_tool_call,
+        )
         if interrupted:
             self._fail_count = 0
             return return_code, output_lines
@@ -69,6 +97,22 @@ class UCAgentCmdLineBackend(AgentBackendBase):
         else:
             self._fail_count = 0
         return return_code, output_lines
+
+    def _has_active_tool_call(self):
+        """Return whether an MCP-exposed UCAgent tool is currently running."""
+        for tool in getattr(self.vagent, "test_tools", ()):
+            is_busy = getattr(tool, "is_busy", None)
+            is_hot = getattr(tool, "is_hot", None)
+            try:
+                if callable(is_busy) and is_busy():
+                    return True
+                if callable(is_hot) and is_hot():
+                    return True
+            except Exception:
+                # A failed activity probe must not terminate a potentially
+                # active tool call merely because its state is unavailable.
+                return True
+        return False
 
     def _get_dft_ctx(self):
         ctx = os.environ.copy()
