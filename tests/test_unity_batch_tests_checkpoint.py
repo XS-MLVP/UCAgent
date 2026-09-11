@@ -100,7 +100,7 @@ def _patch_successful_batch(monkeypatch):
                 "fails": 0,
                 "test_cases": test_cases,
             },
-            "failed_check_point_list": [],
+            "unhit_check_point_list": [],
             "failed_test_case_with_check_point_list": {},
             "unmarked_check_point_list": [],
         }, "", ""

@@ -257,7 +257,7 @@ def test_api_test_checker_does_not_import_api_after_isolated_run(
         "test_function_with_no_check_point_mark": 0,
         "test_function_with_no_check_point_mark_list": [],
         "all_check_point_list": ["FG-API/FC-OPERATE/CK-BASIC"],
-        "failed_check_point_list": [],
+        "unhit_check_point_list": [],
         "failed_test_case_with_check_point_list": {},
         "test_case_with_check_point_list": {
             test_node: ["FG-API/FC-OPERATE/CK-BASIC"]

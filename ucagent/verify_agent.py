@@ -18,6 +18,7 @@ from .util.functions import (
     rm_workspace_prefix,
 )
 import ucagent.util.functions as fc
+from datetime import datetime, timezone
 from .util.test_tools import ucagent_lib_path
 from .util.markdown import ensure_markdown_heading_spacing
 
@@ -73,6 +74,51 @@ def _guide_doc_destination(root: str, relative_path: str) -> str:
                 f"{current}"
             )
     return str(current)
+
+
+def template_target_read_only_conflict(
+    tmp_dir_path: Path, protected_values: Any, workspace: Path
+) -> str | None:
+    """Return the first read-only value whose protection conflicts with a render.
+
+    Rendering writes once during initialization, before read-only bits are
+    applied, so one template-rendered file inside the render target may
+    protect itself: the template bootstraps its content and the workflow
+    denies every later write. Any directory-level overlap in either
+    direction stays a configuration error because the render would need to
+    create or update many files inside a path declared read-only.
+    """
+
+    workspace_resolved = workspace.resolve()
+    for protected_value in protected_values:
+        if (
+            not isinstance(protected_value, str)
+            or not protected_value.strip()
+            or any(character in protected_value for character in "*?[]")
+        ):
+            continue
+        protected_path = Path(protected_value)
+        if not protected_path.is_absolute():
+            protected_path = workspace / protected_path
+        protected_path = protected_path.resolve()
+        try:
+            protected_path.relative_to(workspace_resolved)
+        except ValueError:
+            continue
+        if (
+            tmp_dir_path == protected_path
+            or tmp_dir_path.is_relative_to(protected_path)
+        ):
+            return protected_value
+        if protected_path.is_relative_to(tmp_dir_path):
+            single_file_inside_target = (
+                protected_path != tmp_dir_path
+                and protected_path.suffix != ""
+                and not protected_path.is_dir()
+            )
+            if not single_file_inside_target:
+                return protected_value
+    return None
 
 
 class VerifyAgent:
@@ -868,6 +914,7 @@ class VerifyAgent:
             "Email": __email__,
             "CWD": self.workspace,
             "UC_LIB_PATH": ucagent_lib_path(),
+            "RENDERED_AT": datetime.now(timezone.utc).isoformat(),
         }
         configured_template_values = self.cfg.template_overwrite.as_dict()
         if any(not isinstance(key, str) for key in configured_template_values):
@@ -891,30 +938,16 @@ class VerifyAgent:
                 raise ValueError("Template target must remain inside the workspace") from exc
             if tmp_dir_path == Path(self.workspace).resolve():
                 raise ValueError("Template target must not be the workspace root")
-            for protected_value in self.cfg.get_value("un_write_dirs", []):
-                if (
-                    not isinstance(protected_value, str)
-                    or not protected_value.strip()
-                    or any(character in protected_value for character in "*?[]")
-                ):
-                    continue
-                protected_path = Path(protected_value)
-                if not protected_path.is_absolute():
-                    protected_path = Path(self.workspace) / protected_path
-                protected_path = protected_path.resolve()
-                try:
-                    protected_path.relative_to(Path(self.workspace).resolve())
-                except ValueError:
-                    continue
-                if (
-                    tmp_dir_path == protected_path
-                    or tmp_dir_path.is_relative_to(protected_path)
-                    or protected_path.is_relative_to(tmp_dir_path)
-                ):
-                    raise ValueError(
-                        "Template target must not overlap a configured read-only path: "
-                        f"{protected_value}"
-                    )
+            conflict = template_target_read_only_conflict(
+                tmp_dir_path,
+                self.cfg.get_value("un_write_dirs", []),
+                Path(self.workspace),
+            )
+            if conflict is not None:
+                raise ValueError(
+                    "Template target must not overlap a configured read-only path: "
+                    f"{conflict}"
+                )
             tmp_dir = str(tmp_dir_path)
             info(f"Rendering template from {self.template} to {tmp_dir}")
             if not os.path.exists(tmp_dir) or tmp_overwrite:

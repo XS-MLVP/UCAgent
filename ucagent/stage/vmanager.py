@@ -795,6 +795,27 @@ class StageManager(object):
             tools.append(ToolSetSkillUsage().set_function(self.tool_set_skill_usage))
         return tools
 
+    def _previous_stage_journal(self, stage_index, limit=800):
+        """Return a bounded excerpt of the previous stage's recorded journal.
+
+        The excerpt deliberately favors the beginning of the journal, where
+        the agent records what was broken and what was fixed; later progress
+        notes matter less for the next stage.
+        """
+
+        if stage_index <= 0:
+            return ""
+        previous = self.stages[stage_index - 1]
+        if not previous.is_completed():
+            return ""
+        journal = previous.meta_get_journal() if callable(getattr(previous, "meta_get_journal", None)) else None
+        if not isinstance(journal, str) or not journal.strip():
+            return ""
+        excerpt = journal.strip()
+        if len(excerpt) > limit:
+            excerpt = excerpt[:limit] + "...[truncated]"
+        return excerpt
+
     def get_current_tips(self):
         if self.stage_index >= len(self.stages):
             return "Your mission is completed. No more stages available. You can use `Exit` tool to exit the mission or `GoToStage` tool to go to a specific stage to review."
@@ -808,6 +829,13 @@ class StageManager(object):
             "index": self.stage_index,
             **stage_detail(),
         })
+        # Carry the immediately preceding stage's journal forward so hard-won
+        # lessons (for example numeric-encoding bugs fixed on the Python
+        # reference) are visible when the next stage starts implementing the
+        # same behavior in another form.
+        previous_journal = self._previous_stage_journal(self.stage_index)
+        if previous_journal:
+            tips["previous_stage_journal"] = previous_journal
         ref_files = []
         for k, v in cstage.reference_files.items():
             if v:
@@ -852,7 +880,7 @@ class StageManager(object):
         mession_tips = self.mission.get_value("prompt.tips")
         if mession_tips is not None:
             mession_tips = mession_tips.as_dict()
-            current_tips = mession_tips.get("allways", [])
+            current_tips = mession_tips.get("always", [])
             random_tips = mession_tips.get("random", [])
             if random_tips:
                 rindex = random.randint(0, len(random_tips) - 1)
@@ -1165,6 +1193,86 @@ class StageManager(object):
             return True
         return False
 
+    # Same-signature failure streak that triggers an escalation note.  A
+    # repeated identical failure means incremental edits are not converging;
+    # the agent needs to be pushed back to first principles or to reporting
+    # a structural conflict instead of continuing to guess.
+    REPEAT_FAILURE_ESCALATION_THRESHOLD = 8
+
+    def _escalate_repeated_failure(self, stage_index, failure_summary):
+        """Return the failure summary with an escalation note when looping.
+
+        Tracks consecutive failures carrying the same error_code and location
+        on one stage.  From the threshold-th repetition onward the diagnostic
+        gains an explicit stop-and-rethink instruction.
+        """
+
+        if not isinstance(failure_summary, dict):
+            return failure_summary
+        signature = (
+            failure_summary.get("error_code"),
+            failure_summary.get("location"),
+        )
+        state = getattr(self, "_repeat_failure_state", None)
+        if state is None:
+            state = self._repeat_failure_state = {}
+        previous = state.get(stage_index)
+        if previous is not None and previous[0] == signature:
+            count = previous[1] + 1
+        else:
+            count = 1
+        state[stage_index] = (signature, count)
+        if count < self.REPEAT_FAILURE_ESCALATION_THRESHOLD:
+            return failure_summary
+        escalation = (
+            f"ESCALATION: this exact failure (same error_code and location) has "
+            f"now repeated {count} times. Stop making small edits to the same "
+            "spot. Re-derive the complete behavior table from README/Spec "
+            "(encodings, widths, thresholds, and timing) and compare it against "
+            "the implementation in one pass; if the authority itself is "
+            "ambiguous or the two contracts cannot both be satisfied, write "
+            "that structural conflict to the stage journal with the exact "
+            "evidence instead of guessing again."
+        )
+        result = copy.deepcopy(failure_summary)
+        result["repeat_failure_count"] = count
+        result["next_action"] = f"{escalation}\n{result.get('next_action', '')}".strip()
+        return result
+
+    def _reset_repeat_failure_state(self, stage_index):
+        """Clear the loop tracker when a stage stops failing identically."""
+
+        state = getattr(self, "_repeat_failure_state", None)
+        if state is not None:
+            state.pop(stage_index, None)
+
+    @staticmethod
+    def _ignored_stage_args_keys(stage, stage_args):
+        """Return sorted stage_args keys that no gate in the stage declares."""
+        if not isinstance(stage_args, dict) or not stage_args:
+            return []
+        declared: set = set()
+        for checker in getattr(stage, "checker", None) or []:
+            declared.update(getattr(checker, "accepted_stage_args", None) or ())
+        return sorted(str(key) for key in stage_args if key not in declared)
+
+    @staticmethod
+    def _annotate_ignored_stage_args(ret_data, ignored):
+        """Echo stage_args keys that every gate ignored into the response."""
+
+        if not ignored or not isinstance(ret_data, dict):
+            return
+        warning = (
+            f"Warning: stage_args keys ignored by every validation gate: "
+            f"{', '.join(ignored)}. The current stage did not record them; use "
+            "only the keys documented by the current stage task or checker "
+            "diagnostics."
+        )
+        ret_data["ignored_stage_args"] = list(ignored)
+        ret_data["message"] = f"{ret_data.get('message', '')} {warning}".strip()
+        if "action" in ret_data and isinstance(ret_data["action"], str):
+            ret_data["action"] = f"{ret_data['action']} {warning}"
+
     def check(self, timeout, stage_args=None):
         if not self.stage_index < len(self.stages):
             return OrderedDict({
@@ -1173,6 +1281,7 @@ class StageManager(object):
             })
         stage = self.stages[self.stage_index]
         stage_args, full_output = _split_stage_control_args(stage_args)
+        ignored_stage_args = self._ignored_stage_args_keys(stage, stage_args)
         ck_pass, ck_info = stage.do_check(
             timeout=timeout,
             stage_args=stage_args,
@@ -1190,6 +1299,9 @@ class StageManager(object):
                     stage, ck_info, stage_index=self.stage_index
                 )
                 if failure_summary is not None:
+                    failure_summary = self._escalate_repeated_failure(
+                        self.stage_index, failure_summary
+                    )
                     ret_data["failure_summary"] = failure_summary
                     action = failure_summary["next_action"]
                 else:
@@ -1201,8 +1313,14 @@ class StageManager(object):
         self.last_check_info = copy.deepcopy(ret_data)
         ret_data = self._public_check_result(ret_data)
         self.validation_revision = getattr(self, "validation_revision", 0) + 1
+        if ck_pass or batch_advanced:
+            self._reset_repeat_failure_state(self.stage_index)
         if ck_pass:
             ret_data["message"] = f"Congratulations! Stage {self.stage_index} checks passed successfully, you can use tool 'Complete' to finish this stage."
+        self._annotate_ignored_stage_args(ret_data, ignored_stage_args)
+        if not ck_pass and ignored_stage_args:
+            ret_data.setdefault("action", "")
+            ret_data["action"] = (ret_data["action"] or "").strip()
         elif full_output:
             return ret_data
         elif batch_advanced:
@@ -1346,9 +1464,19 @@ class StageManager(object):
             "complete",
             "action",
             "message",
+            "ignored_stage_args",
         ):
             if key in check_result:
                 compact_result[key] = copy.deepcopy(check_result[key])
+        # The compact response already carries the repair action inside
+        # failure_summary.next_action; repeating the identical text as a
+        # top-level action doubles the token cost without adding guidance.
+        failure_summary = compact_result.get("failure_summary")
+        if (
+            isinstance(failure_summary, dict)
+            and compact_result.get("action") == failure_summary.get("next_action")
+        ):
+            del compact_result["action"]
         return compact_result or check_result
 
     @staticmethod
@@ -1468,12 +1596,13 @@ class StageManager(object):
                 "last_check_result": self.last_check_info,
             })
         stage_args, full_output = _split_stage_control_args(stage_args)
-        ck_pass, ck_info = self.stages[self.stage_index].do_check(
+        stage = self.stages[self.stage_index]
+        ignored_stage_args = self._ignored_stage_args_keys(stage, stage_args)
+        ck_pass, ck_info = stage.do_check(
             timeout=timeout,
             stage_args=stage_args,
             is_complete=True,
         )
-        stage = self.stages[self.stage_index]
         if ck_pass:
             if stage.meta_get_journal() is None:
                 return {"complete": False,
@@ -1519,6 +1648,9 @@ class StageManager(object):
                     stage, ck_info, stage_index=self.stage_index
                 )
                 if failure_summary is not None:
+                    failure_summary = self._escalate_repeated_failure(
+                        self.stage_index, failure_summary
+                    )
                     self.last_check_info["failure_summary"] = failure_summary
                     action = failure_summary["next_action"]
                 else:
@@ -1529,6 +1661,7 @@ class StageManager(object):
         self.last_check_info["check_info"] = ck_info
         self.validation_revision = getattr(self, "validation_revision", 0) + 1
         if ck_pass:
+            self._reset_repeat_failure_state(self.stage_index)
             message = f"Stage {self.stage_index} completed successfully. "
             self._stage_complete(self.stages[self.stage_index])
             self.next_stage()
@@ -1541,6 +1674,10 @@ class StageManager(object):
                 message += f"Current stage index is now {self.stage_index}. Use `CurrentTips` tool to get your new task. "
                 self.stages[self.stage_index].set_reached(True)
                 self.stages[self.stage_index].on_init()
+                # next_stage() persisted this stage's task snapshot before its
+                # checkers ran on_init, so batch progress placeholders like "-/-"
+                # would stay stale until the next Check; re-save the live view.
+                self.save_stage_info()
         else:
             message = f"Stage {self.stage_index} not completed. Please check the task requirements."
         ret = OrderedDict({
@@ -1550,6 +1687,8 @@ class StageManager(object):
         })
         public_last_check_info = self._public_check_result(self.last_check_info)
         ret["last_check_result"] = public_last_check_info
+        self._annotate_ignored_stage_args(ret, ignored_stage_args)
+        self._annotate_ignored_stage_args(public_last_check_info, ignored_stage_args)
         if full_output and not ck_pass:
             return public_last_check_info
         if batch_advanced:

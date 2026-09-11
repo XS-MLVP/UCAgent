@@ -19,6 +19,8 @@ from ucagent.util.log import warning
 
 
 class RandomTestCasesChecker(BaseUnityChipCheckerTestCase):
+    accepted_stage_args = ("generated",)
+
     """Batch checker for random test-case generation records.
 
     A CK is considered done when it appears in the current batch's ``generated``
@@ -135,7 +137,7 @@ class RandomTestCasesChecker(BaseUnityChipCheckerTestCase):
                                    report, self.doc_func_check, self.doc_bug_analysis,
                                    only_marked_ckp_in_tc=True,
                                    ignore_ck_prefix=self.ignore_ck_prefix,
-                                   check_fail_ck_in_bug=False,
+                                   check_unhit_ck_in_bug=False,
                                    waveform_tool=self.get_waveform_tool_for_checker(),
                                    waveform_test_dir=self.test_dir,
                                    test_output_dir=self.get_configured_test_output_dir(),

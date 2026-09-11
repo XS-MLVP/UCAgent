@@ -97,13 +97,17 @@ def _classify_pytest_execution(
 
     output = "\n".join(part for part in (stdout, stderr) if part)
     lowered = output.lower()
-    if "timed out" in lowered:
+    # Substring diagnostics are trusted only for failing runs: a passing run
+    # (returncode 0) may legitimately print phrases like "timed out" inside
+    # assertion messages or logs, and those must not flip the classification.
+    failed_run = returncode != 0
+    if failed_run and "timed out" in lowered:
         code = "PYTEST_TIMEOUT"
         success = False
-    elif "file or directory not found" in lowered:
+    elif failed_run and "file or directory not found" in lowered:
         code = "PYTEST_TARGET_NOT_FOUND"
         success = False
-    elif re.search(
+    elif failed_run and re.search(
         r"error collecting|errors during collection|error during collection|"
         r"importerror while importing test module|internalerror|syntaxerror|"
         r"indentationerror|taberror",
@@ -111,7 +115,7 @@ def _classify_pytest_execution(
     ):
         code = "PYTEST_COLLECTION_ERROR"
         success = False
-    elif re.search(r"collected\s+0\s+items?|no tests ran", lowered):
+    elif failed_run and re.search(r"collected\s+0\s+items?|no tests ran", lowered):
         code = "PYTEST_NO_TESTS_COLLECTED"
         success = False
     elif returncode == 0 and report_exists and not report_has_tests:

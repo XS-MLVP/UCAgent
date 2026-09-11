@@ -311,7 +311,7 @@ def _report() -> dict:
         "total_check_point": 1,
         "test_function_with_no_check_point_mark": 0,
         "all_check_point_list": [CHECKPOINT],
-        "failed_check_point_list": [CHECKPOINT],
+        "unhit_check_point_list": [CHECKPOINT],
         "failed_test_case_with_check_point_list": {REPORT_TEST: [CHECKPOINT]},
         "unmarked_check_points": 0,
         "unmarked_check_point_list": [],
@@ -975,7 +975,7 @@ def test_batch_checker_compacts_validation_report():
             "fails": 1,
             "test_cases": {REPORT_TEST: "FAILED"},
         },
-        "failed_checkpoints": [CHECKPOINT],
+        "unhit_checkpoints": [CHECKPOINT],
         "failed_test_case_checkpoints": {REPORT_TEST: [CHECKPOINT]},
         "unmarked_checkpoints": {
             "count": 0,

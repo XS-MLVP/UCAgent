@@ -46,6 +46,10 @@ class Checker:
     dut_name = None
     _is_init = False
     _need_human_check = False
+    # Stage-defined stage_args keys this checker consumes.  The stage manager
+    # warns when a submitted key is declared by no gate in the current stage,
+    # so silently dropped submissions cannot masquerade as recorded work.
+    accepted_stage_args: tuple[str, ...] = ()
 
     def add_cb(self, key, cb):
         assert key in [CB_KEY_SET_WORKSPACE,

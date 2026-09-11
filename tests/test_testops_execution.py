@@ -323,3 +323,29 @@ def test_toffee_report_lists_only_failed_parameterized_instances(tmp_path):
             }
         ]
     }
+
+
+def test_classifier_ignores_failure_phrases_in_passing_runs():
+    """A returncode-0 run stays OK even when its output mentions failures."""
+
+    passing = _classify_pytest_execution(
+        0,
+        "test_transaction ... assert raised TimeoutError('transaction timed out')\n"
+        "1 passed in 0.02s",
+        "file or directory not found: fixture hint printed by a test",
+        report_exists=True,
+        report_has_tests=True,
+    )
+    assert passing["diagnostic_code"] == "OK"
+    assert passing["invocation_success"] is True
+
+    timed_out = _classify_pytest_execution(
+        1, "!!! KeyboardInterrupt !!!", "test timed out", report_exists=False
+    )
+    assert timed_out["diagnostic_code"] == "PYTEST_TIMEOUT"
+    assert timed_out["invocation_success"] is False
+
+    collection = _classify_pytest_execution(
+        2, "ERROR: error collecting tests", "", report_exists=False
+    )
+    assert collection["diagnostic_code"] == "PYTEST_COLLECTION_ERROR"

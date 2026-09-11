@@ -16,7 +16,7 @@ from ucagent.checkers.unity_test import BaseUnityChipCheckerTestCase
 from ucagent.checkers.toffee_report import (
     check_bug_ck_analysis,
     check_bug_tc_analysis,
-    check_failed_checkpoint_reproducers,
+    check_unhit_checkpoint_reproducers,
     check_report,
 )
 from ucagent.util.config import Config
@@ -115,7 +115,7 @@ def test_check_report_excludes_checkpoints_owned_by_another_phase(tmp_path):
         "total_check_point": 2,
         "test_function_with_no_check_point_mark": 0,
         "all_check_point_list": [functional, performance],
-        "failed_check_point_list": [performance],
+        "unhit_check_point_list": [performance],
         "unmarked_check_points": 1,
         "unmarked_check_point_list": [performance],
         "failed_test_case_with_check_point_list": {},
@@ -152,7 +152,7 @@ def test_check_report_keeps_functional_failures_when_later_phase_is_excluded(
         "total_check_point": 2,
         "test_function_with_no_check_point_mark": 0,
         "all_check_point_list": [functional, performance],
-        "failed_check_point_list": [functional, performance],
+        "unhit_check_point_list": [functional, performance],
         "unmarked_check_points": 0,
         "failed_test_case_with_check_point_list": {},
         "test_case_with_check_point_list": {test_case: [functional]},
@@ -172,8 +172,8 @@ def test_check_report_keeps_functional_failures_when_later_phase_is_excluded(
     )
 
     assert passed is False
-    assert "[Failed Checkpoint Reproducer Missing]" in message["error"]
-    assert message["details"]["failed_checkpoints_without_failed_test"] == [
+    assert "[Unhit Checkpoint Reproducer Missing]" in message["error"]
+    assert message["details"]["unhit_checkpoints_without_failed_test"] == [
         {
             "checkpoint": functional,
             "associated_tests": [
@@ -377,7 +377,7 @@ def test_partial_report_still_requires_exact_current_test_identity(tmp_path):
     assert current_test in message[0]
 
 
-def test_failed_checkpoint_requires_failed_test_on_same_checkpoint(tmp_path):
+def test_unhit_checkpoint_requires_failed_test_on_same_checkpoint(tmp_path):
     _write_function_doc(tmp_path / "functions.md")
     checkpoint = "FG-A/FC-A/CK-A"
     passed_test = "tests/test_a.py:1-3::test_a"
@@ -390,7 +390,7 @@ def test_failed_checkpoint_requires_failed_test_on_same_checkpoint(tmp_path):
         "total_check_point": 1,
         "test_function_with_no_check_point_mark": 0,
         "all_check_point_list": [checkpoint],
-        "failed_check_point_list": [checkpoint],
+        "unhit_check_point_list": [checkpoint],
         "failed_test_case_with_check_point_list": {},
         "test_case_with_check_point_list": {passed_test: [checkpoint]},
         "unmarked_check_points": 0,
@@ -409,8 +409,8 @@ def test_failed_checkpoint_requires_failed_test_on_same_checkpoint(tmp_path):
     )
 
     assert passed is False
-    assert "[Failed Checkpoint Reproducer Missing]" in message["error"]
-    assert message["details"]["failed_checkpoints_without_failed_test"] == [
+    assert "[Unhit Checkpoint Reproducer Missing]" in message["error"]
+    assert message["details"]["unhit_checkpoints_without_failed_test"] == [
         {
             "checkpoint": checkpoint,
             "associated_tests": [
@@ -438,12 +438,12 @@ def test_failed_checkpoint_requires_failed_test_on_same_checkpoint(tmp_path):
     )
 
 
-def test_failed_checkpoint_reproducer_rejects_failed_test_on_other_checkpoint():
+def test_unhit_checkpoint_reproducer_rejects_failed_test_on_other_checkpoint():
     checkpoint = "FG-A/FC-A/CK-A"
     other_checkpoint = "FG-A/FC-A/CK-OTHER"
     test_case = "tests/test_a.py:1-3::test_a"
 
-    passed, message = check_failed_checkpoint_reproducers(
+    passed, message = check_unhit_checkpoint_reproducers(
         [checkpoint],
         {test_case: [other_checkpoint]},
         {test_case: [other_checkpoint]},
@@ -453,16 +453,16 @@ def test_failed_checkpoint_reproducer_rejects_failed_test_on_other_checkpoint():
 
     assert passed is False
     assert checkpoint in message["error"]
-    assert message["details"]["failed_checkpoints_without_failed_test"][0][
+    assert message["details"]["unhit_checkpoints_without_failed_test"][0][
         "associated_tests"
     ] == []
 
 
-def test_failed_checkpoint_reproducer_accepts_failed_test_on_same_checkpoint():
+def test_unhit_checkpoint_reproducer_accepts_failed_test_on_same_checkpoint():
     checkpoint = "FG-A/FC-A/CK-A"
     test_case = "tests/test_a.py:1-3::test_a"
 
-    passed, message = check_failed_checkpoint_reproducers(
+    passed, message = check_unhit_checkpoint_reproducers(
         [checkpoint],
         {test_case: [checkpoint]},
         {test_case: [checkpoint]},
@@ -474,11 +474,11 @@ def test_failed_checkpoint_reproducer_accepts_failed_test_on_same_checkpoint():
     assert message == ""
 
 
-def test_failed_checkpoint_reproducer_rejects_passed_test_in_failed_relation():
+def test_unhit_checkpoint_reproducer_rejects_passed_test_in_failed_relation():
     checkpoint = "FG-A/FC-A/CK-A"
     test_case = "tests/test_a.py:1-3::test_a"
 
-    passed, message = check_failed_checkpoint_reproducers(
+    passed, message = check_unhit_checkpoint_reproducers(
         [checkpoint],
         {test_case: [checkpoint]},
         {test_case: [checkpoint]},
@@ -487,8 +487,8 @@ def test_failed_checkpoint_reproducer_rejects_passed_test_in_failed_relation():
     )
 
     assert passed is False
-    assert "[Failed Checkpoint Reproducer Missing]" in message["error"]
-    assert message["details"]["failed_checkpoints_without_failed_test"][0][
+    assert "[Unhit Checkpoint Reproducer Missing]" in message["error"]
+    assert message["details"]["unhit_checkpoints_without_failed_test"][0][
         "associated_tests"
     ] == [{"test_case": test_case, "status": "PASSED"}]
 
@@ -502,7 +502,7 @@ def test_check_report_rejects_failed_status_without_checkpoint_relation(tmp_path
         "total_check_point": 1,
         "test_function_with_no_check_point_mark": 0,
         "all_check_point_list": [checkpoint],
-        "failed_check_point_list": [checkpoint],
+        "unhit_check_point_list": [checkpoint],
         "failed_test_case_with_check_point_list": {},
         "test_case_with_check_point_list": {test_case: [checkpoint]},
         "unmarked_check_points": 0,
@@ -550,7 +550,7 @@ def test_failed_test_can_be_documented_under_covered_checkpoint(
         "total_check_point": 1,
         "test_function_with_no_check_point_mark": 0,
         "all_check_point_list": [checkpoint],
-        "failed_check_point_list": [],
+        "unhit_check_point_list": [],
         "failed_test_case_with_check_point_list": {test_case: [checkpoint]},
         "test_case_with_check_point_list": {test_case: [checkpoint]},
         "unmarked_check_points": 0,
@@ -578,7 +578,7 @@ def test_failed_test_can_be_documented_under_covered_checkpoint(
     assert marked_count == 1
 
 
-def test_failed_checkpoint_bug_branch_requires_same_checkpoint_failed_test(tmp_path):
+def test_unhit_checkpoint_bug_branch_requires_same_checkpoint_failed_test(tmp_path):
     checkpoint = "FG-A/FC-A/CK-A"
     other_checkpoint = "FG-A/FC-A/CK-OTHER"
     test_case = "tests/test_a.py:1-3::test_a"
@@ -604,19 +604,19 @@ def test_failed_checkpoint_bug_branch_requires_same_checkpoint_failed_test(tmp_p
 
     assert passed is False
     assert marked_count == -1
-    assert "[Failed Checkpoint Bug Relation Missing]" in message["error"]
+    assert "[Unhit Checkpoint Bug Relation Missing]" in message["error"]
     assert message["details"]["missing_checkpoint_relations"] == [
         {
             "checkpoint": checkpoint,
             "report_failed_tests": [test_case],
         }
     ]
-    assert "CK failure alone does not prove a DUT Bug" in " ".join(
+    assert "An unhit CK alone does not prove a DUT Bug" in " ".join(
         message["next_action"]
     )
 
 
-def test_failed_checkpoint_bug_branch_accepts_same_checkpoint_failed_test(tmp_path):
+def test_unhit_checkpoint_bug_branch_accepts_same_checkpoint_failed_test(tmp_path):
     checkpoint = "FG-A/FC-A/CK-A"
     test_case = "tests/test_a.py:1-3::test_a"
     (tmp_path / "bugs.md").write_text(
@@ -694,7 +694,7 @@ def test_zero_confidence_placeholder_cannot_explain_failed_checkpoint(tmp_path):
 
     assert passed is False
     assert marked_count == -1
-    assert "[Unanalyzed Failed Checkpoints]" in message[0]
+    assert "[Unanalyzed Unhit Checkpoints]" in message[0]
     assert "lambda x: True" in " ".join(message)
     assert "Never use" in " ".join(message)
     next_action = "\n".join(

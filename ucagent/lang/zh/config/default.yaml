@@ -110,7 +110,7 @@ mission:
       - 若`failure_summary`仍不足以定位问题或需要完整pytest/验证输出，使用相同阶段参数重调`Check(stage_args={"full_output":true,...})`或`Complete(stage_args={"full_output":true,...})`；full_output只控制返回信息，不会传给验证逻辑。默认不得无条件开启，以免重复占用上下文
       - Check或Complete返回`progress_summary.status: batch_advanced`时表示当前批次已成功且下一批已就绪，不是验证失败；只处理`progress_summary.progress`给出的下一批并遵循其参数契约，不得重做已完成批次，也不得把`check_pass: false`单独解释为验证失败
       - 向用户或阶段日志说明失败原因时，有failure_summary则必须引用`error_code`，没有则必须引用check_info中的原始错误；两种情况都必须包含至少一个具体文件、测试、标签或缺失项。禁止仅表述为“内部验证机制不通过”“验证计数异常”或“需要人工确认”
-      - `count_fail`是该验证门禁的历史失败调用累计值，不是当前失败测试数；`failed_funct_point: 0`、`failed_check_point: 0`或pytest结果符合预期，也不代表其他门禁已经通过。只有顶层`check_pass: true`或`complete: true`才表示本次检查通过
+      - `count_fail`是该验证门禁的历史失败调用累计值，不是当前失败测试数；`unhit_funct_point: 0`、`unhit_check_point: 0`（未命中覆盖点计数，不是失败测试数）或pytest结果符合预期，也不代表其他门禁已经通过。只有顶层`check_pass: true`或`complete: true`才表示本次检查通过
       - 验证失败默认表示仍有可修复项。只有返回明确的内部异常和traceback且没有业务错误时，才能判定为工具内部故障；若返回被截断且存在`failure_summary`，以其中的显式诊断为准；若不存在则用stage_args.full_output=true重调一次取得完整原始错误。不得在文件未变化时反复调用Complete而忽略具体错误
 
       **指导文档：**
@@ -147,7 +147,7 @@ mission:
       {skill_system}
       现在调用`CurrentTips`，开始你的验证工作！
     tips:
-      allways:
+      always:
         - "阶段任务执行步骤":
           - "(1) 阅读reference_files列出的参考文档"
           - "(2) 完成目标任务"
@@ -1097,7 +1097,7 @@ stage:
       - "  - 每个非零动态Bug必须关联至少一个Fail TC；每个TC紧跟<WAVEFORM-REF>，全部唯一波形集中在<WAVEFORM-EVIDENCE>中。用ApplyWaveInfoEvidence写入真实receipt和viewer；同一TC关联多个Bug时只保留一份中央记录，并用bug_tags/bug_evidence列全关联及信号需求"
       - "  - 不确定波形文件时只调用一次无参数WaveInfo inventory；recommended_call中的basename仅用于定位波形。非参数化用例的WaveInfo node是目标<TC-...>去掉TC-；报告含tests.test_case_instances时，文档TC保持函数级node，WaveInfo选择其中一个实际FAILED child并始终使用该精确实例，不能猜参数ID"
       - "  - agent.cfg已解析本次TC输出目录为{OUT}/tests。文档TC和Apply使用以{OUT}/tests/开头的workspace相对函数级node；参数化receipt只允许同一完整路径/类/函数的child，不同路径不等价。RunTestCases target相对于{OUT}/tests，不得再次包含该前缀；PYTEST_TARGET_DIRECTORY_PREFIX返回的correct_target是唯一重试值"
-      - "  - Check/Complete失败且包含failure_summary时，必须引用error_code和具体阻塞项继续修复；没有failure_summary时必须读取完整check_info中的details/STDOUT/STDERR，不能把宽泛error当作完整原因，必要时用stage_args.full_output=true取得原始返回。count_fail只是历史调用累计，failed_funct_point/failed_check_point为0也不能覆盖其他门禁。禁止将有具体error的失败归因于‘内部验证机制’"
+      - "  - Check/Complete失败且包含failure_summary时，必须引用error_code和具体阻塞项继续修复；没有failure_summary时必须读取完整check_info中的details/STDOUT/STDERR，不能把宽泛error当作完整原因，必要时用stage_args.full_output=true取得原始返回。count_fail只是历史调用累计，unhit_funct_point/unhit_check_point是未命中覆盖点计数而非失败测试数，为0也不能覆盖其他门禁。禁止将有具体error的失败归因于‘内部验证机制’"
     checker:
       - name: test_check
         clss: "UnityChipCheckerTestCase"

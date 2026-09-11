@@ -1113,7 +1113,9 @@ class VerifyStage(object):
                 "required_action": "Read every listed reference file before validation.",
             }),
             "next_action": (
-                f"Call {', '.join(read_calls)}, then call `{retry_tool}` again."
+                f"Call {', '.join(read_calls)}, then call `{retry_tool}` again. "
+                "Only the workflow ReadTextFile tool registers as reading; files "
+                "opened with the backend-native read/edit tools do not count."
             ),
         })
         return self._return_precheck_failure(

@@ -3521,14 +3521,14 @@ def get_doc_ck_list_from_doc(workspace: str, doc_file: str, target_ck_prefix:str
     return True, [v for v in marked_checks if v.startswith(target_ck_prefix)]
 
 
-def check_failed_checkpoint_reproducers(
-    failed_checks: list,
+def check_unhit_checkpoint_reproducers(
+    unhit_checks: list,
     failed_tc_and_cks: dict,
     test_case_with_cks: dict,
     test_cases: dict,
     bug_file: str,
 ):
-    """Require every failed checkpoint to be associated with a failed test."""
+    """Require every unhit checkpoint to be associated with a failed test."""
 
     failed_tc_and_cks = failed_tc_and_cks if isinstance(failed_tc_and_cks, dict) else {}
     test_case_with_cks = test_case_with_cks if isinstance(test_case_with_cks, dict) else {}
@@ -3542,7 +3542,7 @@ def check_failed_checkpoint_reproducers(
     }
     missing = list(dict.fromkeys(
         checkpoint
-        for checkpoint in failed_checks
+        for checkpoint in unhit_checks
         if checkpoint not in reproduced_checkpoints
     ))
     if not missing:
@@ -3565,15 +3565,15 @@ def check_failed_checkpoint_reproducers(
 
     return False, {
         "error": (
-            f"[Failed Checkpoint Reproducer Missing] {len(missing)} failed checkpoint(s) "
+            f"[Unhit Checkpoint Reproducer Missing] {len(missing)} unhit checkpoint(s) "
             "have no FAILED test associated with the same exact checkpoint: "
             f"{fc.list_str_abbr(missing)}."
         ),
         "details": {
-            "failed_checkpoints_without_failed_test": association_details,
+            "unhit_checkpoints_without_failed_test": association_details,
         },
         "required": (
-            "Every remaining failed checkpoint must have at least one correctly implemented "
+            "Every remaining unhit checkpoint must have at least one correctly implemented "
             "FAILED test that the current report associates with that exact FG/FC/CK path. "
             f"That same CK/BG/TC relation must be recorded in '{bug_file}'."
         ),
@@ -3817,25 +3817,25 @@ def check_bug_tc_analysis(
         ]
     return True, ""
 
-def check_bug_ck_analysis(workspace:str, bug_analysis_file:str, failed_check: list,
-                          check_fail_ck_in_bug=True, target_ck_prefix:str ="",
+def check_bug_ck_analysis(workspace:str, bug_analysis_file:str, unhit_checks: list,
+                          check_unhit_ck_in_bug=True, target_ck_prefix:str ="",
                           failed_tc_and_cks=None):
-    """Check failed checkpoint in bug analysis documentation."""
+    """Check unhit checkpoints recorded in the bug analysis documentation."""
 
     ret, marked_bug_checks = get_bug_ck_list_from_doc(workspace, bug_analysis_file, target_ck_prefix)
     if not ret:
         return False, marked_bug_checks, -1
 
-    if check_fail_ck_in_bug:
+    if check_unhit_ck_in_bug:
         un_related_tc_marks = [
-            ck for ck in failed_check if ck not in marked_bug_checks
+            ck for ck in unhit_checks if ck not in marked_bug_checks
         ]
-        # failed checkpoints must be analyzed in bug doc
+        # unhit checkpoints must be analyzed in bug doc
         if un_related_tc_marks:
             return False, [
-                f"[Unanalyzed Failed Checkpoints] {len(un_related_tc_marks)} failed checkpoint(s) have no non-zero-confidence DUT Bug record in '{bug_analysis_file}': {fc.list_str_abbr(un_related_tc_marks)}.",
-                "[Observed] The current report marks these checkpoints as failed, but the Bug document has no non-zero BG under the exact checkpoint paths.",
-                "[Required] Every remaining failed checkpoint must be documented under its exact FG/FC/CK path and must retain at least one report-associated FAILED TC.",
+                f"[Unanalyzed Unhit Checkpoints] {len(un_related_tc_marks)} unhit checkpoint(s) have no non-zero-confidence DUT Bug record in '{bug_analysis_file}': {fc.list_str_abbr(un_related_tc_marks)}.",
+                "[Observed] The current report never hit these checkpoints, but the Bug document has no non-zero BG under the exact checkpoint paths.",
+                "[Required] Every remaining unhit checkpoint must be documented under its exact FG/FC/CK path and must retain at least one report-associated FAILED TC.",
                 "[Next action 1] Use a targeted test to derive an independent expected value from the specification, an independent reference model, or a verifiable formula; compare exact input, specification expected, test expected, and DUT actual. Correct an inconsistent test expected and rerun.",
                 "[Next action 2] Validate the stimulus/driver, API callbacks and Step ordering, valid sampling condition and latency, fixture/reference model/reset/environment, then the CK coverage/check predicate, CovGroup.sample call, and sample timing. Fix the identified verification error or add correct stimulus for an uncovered CK, then rerun.",
                 "[Next action 3] Only if all verification is correct and DUT actual still violates the specification, keep the strict check and reproducer naturally failing, obtain confirmed WaveInfo evidence, and add the exact FG/FC/CK/BG/TC relation.",
@@ -3868,7 +3868,7 @@ def check_bug_ck_analysis(workspace:str, bug_analysis_file:str, failed_check: li
 
             missing_documented_reproducers = [
                 checkpoint
-                for checkpoint in failed_check
+                for checkpoint in unhit_checks
                 if checkpoint not in documented_reproducers
             ]
             if missing_documented_reproducers:
@@ -3885,20 +3885,20 @@ def check_bug_ck_analysis(workspace:str, bug_analysis_file:str, failed_check: li
                 ]
                 return False, {
                     "error": (
-                        f"[Failed Checkpoint Bug Relation Missing] "
-                        f"{len(missing_documented_reproducers)} failed checkpoint(s) "
+                        f"[Unhit Checkpoint Bug Relation Missing] "
+                        f"{len(missing_documented_reproducers)} unhit checkpoint(s) "
                         "have no non-zero BG/FAILED TC relation under the same exact "
                         f"checkpoint in '{bug_analysis_file}': "
                         f"{fc.list_str_abbr(missing_documented_reproducers)}."
                     ),
                     "details": {"missing_checkpoint_relations": details},
                     "required": (
-                        "For every remaining failed checkpoint, the Bug document must place "
+                        "For every remaining unhit checkpoint, the Bug document must place "
                         "at least one current report-associated FAILED TC under a non-zero BG "
                         "within that exact FG/FC/CK branch."
                     ),
                     "next_action": [
-                        "CK failure alone does not prove a DUT Bug. For a targeted listed test, derive an independent expected value from the specification, an independent reference model, or a verifiable formula; compare exact input, specification expected, test expected, and DUT actual. Fix an inconsistent test expected and rerun.",
+                        "An unhit CK alone does not prove a DUT Bug. For a targeted listed test, derive an independent expected value from the specification, an independent reference model, or a verifiable formula; compare exact input, specification expected, test expected, and DUT actual. Fix an inconsistent test expected and rerun.",
                         "If expected values agree, validate the stimulus/driver, API callbacks and Step ordering, valid sampling condition and latency, fixture/reference model/reset/environment, then this CK's coverage/check predicate, CovGroup.sample call, and sample timing. Fix the identified verification error and rerun.",
                         "Only if all verification is correct and DUT actual still violates the specification, place the naturally failing report-associated TC under the non-zero BG in this exact CK branch and complete confirmed WaveInfo evidence; do not add an unrelated or artificial failure.",
                     ],
@@ -3939,7 +3939,7 @@ def check_doc_struct(test_case_checks:list, doc_checks:list, doc_file:str, check
 
 def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="",
                  check_tc_in_doc=True, check_doc_in_tc=True, post_checker=None, only_marked_ckp_in_tc=False,
-                 check_fail_ck_in_bug=True, func_RunTestCases=None, timeout_RunTestCases=0,
+                 check_unhit_ck_in_bug=True, func_RunTestCases=None, timeout_RunTestCases=0,
                  waveform_tool=None, waveform_test_dir=None, test_output_dir=None,
                  require_all_documented_tests=True, ignore_ck_prefix=""):
     """Check the test report against documentation and bug analysis.
@@ -3954,7 +3954,7 @@ def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="",
         check_doc_in_tc: Whether to check documentation in test cases.
         post_checker: An optional post-checker function.
         only_marked_ckp_in_tc: Whether to only consider marked check points in test cases (enable this in batch testing mode).
-        check_fail_ck_in_bug: Whether to check failed check points in bug analysis document.
+        check_unhit_ck_in_bug: Whether to require unhit checkpoints to be analyzed in the bug analysis document.
         func_RunTestCases: Retained for caller compatibility; no diagnostic rerun is performed.
         timeout_RunTestCases: Retained for caller compatibility; no diagnostic rerun is performed.
         waveform_tool: The active WaveInfo tool instance used to verify in-memory call receipts.
@@ -4016,14 +4016,14 @@ def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="",
     if not ret:
         return ret, msg, -1
 
-    failed_checks_in_tc = [
+    unhit_checks_in_tc = [
         checkpoint
-        for checkpoint in report.get("failed_check_point_list", [])
+        for checkpoint in report.get("unhit_check_point_list", [])
         if in_scope(checkpoint)
     ]
     marked_checks_in_tc = [c for c in checks_in_tc if c not in report.get("unmarked_check_point_list", [])]
     if only_marked_ckp_in_tc:
-        failed_checks_in_tc = [b for b in failed_checks_in_tc if b in marked_checks_in_tc]
+        unhit_checks_in_tc = [b for b in unhit_checks_in_tc if b in marked_checks_in_tc]
 
     failed_funcs_bins = report.get("failed_test_case_with_check_point_list", {})
     test_cases = report.get("tests", {}).get("test_cases", None)
@@ -4114,10 +4114,10 @@ def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="",
     passed_tc_list = [k for k,v in test_cases.items() if v == "PASSED"]
 
     bug_ck_list_size = -1
-    if len(failed_checks_in_tc) > 0 or os.path.exists(os.path.join(workspace, bug_file)) or failed_funcs_bins:
-        if check_fail_ck_in_bug:
-            ret, msg = check_failed_checkpoint_reproducers(
-                failed_checks_in_tc,
+    if len(unhit_checks_in_tc) > 0 or os.path.exists(os.path.join(workspace, bug_file)) or failed_funcs_bins:
+        if check_unhit_ck_in_bug:
+            ret, msg = check_unhit_checkpoint_reproducers(
+                unhit_checks_in_tc,
                 failed_funcs_bins,
                 associated_test_checkpoints,
                 test_cases,
@@ -4129,8 +4129,8 @@ def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="",
         ret, msg, bug_ck_list_size = check_bug_ck_analysis(
             workspace,
             bug_file,
-            failed_checks_in_tc,
-            check_fail_ck_in_bug=check_fail_ck_in_bug,
+            unhit_checks_in_tc,
+            check_unhit_ck_in_bug=check_unhit_ck_in_bug,
             target_ck_prefix=target_ck_prefix,
             failed_tc_and_cks=failed_funcs_bins,
         )

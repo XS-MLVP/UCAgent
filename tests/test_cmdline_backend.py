@@ -273,3 +273,57 @@ def test_codex_template_includes_env_key_only_when_openai_api_key_exists(tmp_pat
 
     without_key = (workspace / "without-key.toml").read_text(encoding="utf-8")
     assert 'env_key = "OPENAI_API_KEY"' not in without_key
+
+
+def test_idle_timeout_suppressed_by_workspace_file_changes(tmp_path):
+    """A silent process that keeps writing files is forward progress."""
+
+    output_dir = tmp_path / "output"
+    output_dir.mkdir()
+    agent = _FakeAgent(workspace=str(tmp_path))
+    agent.output_dir = str(output_dir)
+    backend = UCAgentCmdLineBackend(
+        agent, config=object(), cli_cmd_ctx="", command_idle_timeout=0.3
+    )
+    backend.CWD = current_dir
+
+    marker = output_dir / "progress.txt"
+    cmd = (
+        f"{shlex.quote(sys.executable)} -c "
+        "'import time\n"
+        "for i in range(8):\n"
+        "    time.sleep(0.2)\n"
+        f"    open(r\"{marker}\", \"a\").write(f\"{{i}}\\n\")\n"
+        "time.sleep(30)'"
+    )
+    start = time.monotonic()
+    return_code, _lines = backend.process_bash_cmd(cmd)
+    elapsed = time.monotonic() - start
+
+    assert return_code != 0
+    assert elapsed >= 1.2, "file changes must suppress the idle timeout"
+    assert elapsed < 15, "final 30s sleep must still trip the idle timeout"
+    assert marker.read_text(encoding="utf-8").count("\n") == 8
+
+
+def test_idle_timeout_fires_without_file_changes(tmp_path):
+    """No output and no file activity still times out at the configured limit."""
+
+    output_dir = tmp_path / "output"
+    output_dir.mkdir()
+    (output_dir / "static.txt").write_text("unchanged\n", encoding="utf-8")
+    agent = _FakeAgent(workspace=str(tmp_path))
+    agent.output_dir = str(output_dir)
+    backend = UCAgentCmdLineBackend(
+        agent, config=object(), cli_cmd_ctx="", command_idle_timeout=0.3
+    )
+    backend.CWD = current_dir
+
+    cmd = f"{shlex.quote(sys.executable)} -c 'import time; time.sleep(30)'"
+    start = time.monotonic()
+    return_code, _lines = backend.process_bash_cmd(cmd)
+    elapsed = time.monotonic() - start
+
+    assert return_code != 0
+    assert elapsed < 2.0
+    assert backend._fail_count == 1

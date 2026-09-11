@@ -526,6 +526,7 @@ def test_stage_manager_check_and_complete_forward_stage_args():
     manager.gen_fail_suggestion = lambda data: data
     manager.gen_pass_suggestion = lambda ck_info: ""
     manager._stage_complete = lambda _stage: None
+    manager.save_stage_info = lambda: None
 
     def next_stage_func():
         manager.stage_index += 1
@@ -1766,15 +1767,14 @@ def test_reference_file_gate_reports_all_files_and_exact_retry_tool(tmp_path):
     ]
     assert "ReadTextFile(path='Guide_Doc/first.md')" in summary["next_action"]
     assert "ReadTextFile(path='spec/second.md')" in summary["next_action"]
-    assert summary["next_action"].endswith("then call `Check` again.")
+    assert "then call `Check` again." in summary["next_action"]
+    assert "backend-native read/edit tools do not count" in summary["next_action"]
     assert "`Complete`" not in summary["next_action"]
 
     passed, complete_info = stage._do_check(is_complete=True)
     assert passed is False
     complete_diagnostic = complete_info[0]["last_msg"]["diagnostic"]
-    assert complete_diagnostic["next_action"].endswith(
-        "then call `Complete` again."
-    )
+    assert "then call `Complete` again." in complete_diagnostic["next_action"]
     assert "`Check`" not in complete_diagnostic["next_action"]
 
 
@@ -2146,3 +2146,137 @@ def test_set_skill_usage_rejects_unobserved_claims(tmp_path):
 
     assert "has not passed `Check`" in result
     assert stage.skill_list["unitytest/required-skill"] == [True, True, False]
+
+
+def test_stage_manager_warns_on_undeclared_stage_args():
+    """stage_args keys no gate declares must be echoed back, not swallowed."""
+
+    stage = _RecordingCheckStage()
+    accepted_checker = SimpleNamespace(accepted_stage_args=("alpha",))
+    other_checker = SimpleNamespace(accepted_stage_args=())
+    manager = StageManager.__new__(StageManager)
+    manager.stage_index = 0
+    manager.stages = [stage]
+    manager.last_check_info = None
+    manager.llm_fail_suggestion = None
+    manager.llm_pass_suggestion = None
+    manager.all_completed = False
+    manager.gen_fail_suggestion = lambda data: data
+    manager.gen_pass_suggestion = lambda ck_info: ""
+    manager._stage_complete = lambda _stage: None
+    manager.save_stage_info = lambda: None
+    manager.validation_revision = 0
+
+    def next_stage_func():
+        manager.stage_index += 1
+        manager.all_completed = manager.stage_index >= len(manager.stages)
+        return None if manager.all_completed else manager.stages[manager.stage_index]
+
+    manager.next_stage = next_stage_func
+    stage_checker_list = [accepted_checker, other_checker]
+    stage_holder = SimpleNamespace(checker=stage_checker_list)
+
+    ignored = StageManager._ignored_stage_args_keys(
+        stage_holder, {"alpha": 1, "beta": 2, "gamma": 3}
+    )
+    assert ignored == ["beta", "gamma"]
+    assert StageManager._ignored_stage_args_keys(stage_holder, {"alpha": 1}) == []
+    assert StageManager._ignored_stage_args_keys(stage_holder, {}) == []
+
+    ret_data = {"message": "base", "action": "do work"}
+    StageManager._annotate_ignored_stage_args(ret_data, ["beta"])
+    assert ret_data["ignored_stage_args"] == ["beta"]
+    assert "ignored by every validation gate: beta" in ret_data["message"]
+    assert "ignored by every validation gate: beta" in ret_data["action"]
+    StageManager._annotate_ignored_stage_args(ret_data, [])
+    assert ret_data["ignored_stage_args"] == ["beta"]
+
+
+def test_compact_check_result_dedupes_action_and_keeps_ignored_args():
+    """Compact failures drop duplicated action text and keep stage-arg warnings."""
+
+    duplicated = {
+        "failure_summary": {"error_code": "x", "next_action": "repair the artifact"},
+        "action": "repair the artifact",
+        "check_pass": False,
+        "check_info": {"huge": "raw" * 1000},
+        "message": "Stage 3 not completed.",
+        "ignored_stage_args": ["beta"],
+    }
+    compact = StageManager._compact_check_result(duplicated)
+    assert "action" not in compact
+    assert compact["failure_summary"]["next_action"] == "repair the artifact"
+    assert compact["ignored_stage_args"] == ["beta"]
+    assert "check_info" not in compact
+
+    distinct = dict(duplicated, action="LLM-refined suggestion")
+    compact2 = StageManager._compact_check_result(distinct)
+    assert compact2["action"] == "LLM-refined suggestion"
+
+    progress_only = {"progress_summary": {"status": "batch_advanced"}, "action": "next batch"}
+    compact3 = StageManager._compact_check_result(progress_only)
+    assert compact3["action"] == "next batch"
+
+
+def test_repeated_identical_failure_gains_escalation_note():
+    """A same-signature failure streak escalates to stop-and-rethink guidance."""
+
+    manager = StageManager.__new__(StageManager)
+    summary = {"error_code": "rtl_regression_failed", "location": "node_x",
+               "next_action": "repair the node"}
+
+    versions = []
+    for _ in range(StageManager.REPEAT_FAILURE_ESCALATION_THRESHOLD + 1):
+        escalated = manager._escalate_repeated_failure(3, summary)
+        versions.append(escalated)
+
+    below = versions[StageManager.REPEAT_FAILURE_ESCALATION_THRESHOLD - 2]
+    assert "ESCALATION" not in below["next_action"]
+    at_threshold = versions[StageManager.REPEAT_FAILURE_ESCALATION_THRESHOLD - 1]
+    assert "ESCALATION" in at_threshold["next_action"]
+    assert "repeated 8 times" in at_threshold["next_action"]
+    assert at_threshold["repeat_failure_count"] == 8
+    above = versions[StageManager.REPEAT_FAILURE_ESCALATION_THRESHOLD]
+    assert above["repeat_failure_count"] == 9
+
+    # A different signature resets the streak; a pass clears the tracker.
+    other = manager._escalate_repeated_failure(
+        3, {"error_code": "other_code", "location": "y", "next_action": "n"}
+    )
+    assert "ESCALATION" not in other["next_action"]
+    manager._reset_repeat_failure_state(3)
+    again = manager._escalate_repeated_failure(3, summary)
+    assert "ESCALATION" not in again["next_action"]
+
+
+def test_previous_stage_journal_carried_into_tips():
+    """CurrentTips surfaces the completed previous stage's journal excerpt."""
+
+    class _Stage:
+        def __init__(self, completed, journal):
+            self._completed = completed
+            self._journal = journal
+
+        def is_completed(self):
+            return self._completed
+
+        def meta_get_journal(self):
+            return self._journal
+
+    manager = SimpleNamespace()
+    long_journal = "## Fixed Bugs\n" + "detail " * 300
+    manager.stages = [
+        _Stage(True, long_journal),
+        _Stage(False, None),
+    ]
+    excerpt = StageManager._previous_stage_journal(manager, 1)  # type: ignore[arg-type]
+    assert excerpt.startswith("## Fixed Bugs")
+    assert len(excerpt) <= 800 + len("...[truncated]")
+    assert "...[truncated]" in excerpt
+    assert StageManager._previous_stage_journal(manager, 0) == ""  # type: ignore[arg-type]
+    incomplete_prev = [SimpleNamespace(), _Stage(True, "j")]
+    incomplete_prev[0].is_completed = lambda: True
+    incomplete_prev[0].meta_get_journal = lambda: None
+    assert StageManager._previous_stage_journal(  # type: ignore[arg-type]
+        SimpleNamespace(stages=incomplete_prev), 1
+    ) == ""

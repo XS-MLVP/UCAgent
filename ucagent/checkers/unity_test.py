@@ -437,6 +437,8 @@ class UnityChipCheckerLabelStructure(Checker):
 
 
 class UnityChipCheckerLabelStructureRefine(UnityChipCheckerLabelStructure):
+    accepted_stage_args = ("refined",)
+
     def __init__(self,
                  doc_file,
                  leaf_node,
@@ -1850,19 +1852,21 @@ class UnityChipCheckerTestFree(BaseUnityChipCheckerTestCase):
         if not test_pass:
             return False, test_msg
         # refine report:
+        # ``unhit_checkpoints`` are coverage bins never hit in this run; they are
+        # not test failures.  ``hit_checkpoints`` are bins with at least one
+        # coverage hit; mark_function associations live in
+        # ``test_case_with_check_point_list`` and are a different dimension.
         free_report = OrderedDict({
             "run_test_success": report.get("run_test_success", False),
             "tests": report.get("tests", {}),
-            "failed_ck": report.get("failed_check_point_list", {}),
-            "failed_tc": report.get("failed_test_case_with_check_point_list",{})
+            "unhit_checkpoints": report.get("unhit_check_point_list", []),
+            "failed_test_case_checkpoints": report.get("failed_test_case_with_check_point_list",{})
         })
-        marked_bins = []
-        failed_check_point_list = report.get("failed_check_point_list", [])
-        for b in report.get("all_check_point_list", []):
-            if b not in failed_check_point_list:
-                marked_bins.append(b)
-                continue
-        free_report["marked_check_point_list"] = marked_bins
+        unhit_checkpoints = report.get("unhit_check_point_list", [])
+        free_report["hit_checkpoints"] = [
+            b for b in report.get("all_check_point_list", [])
+            if b not in unhit_checkpoints
+        ]
         if return_line_coverage:
             line_coverage_data = {}
             line_coverage_file = self.extra_kwargs.get("coverage_json", "uc_test_report/line_dat/code_coverage.json")
@@ -2683,10 +2687,10 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
             self.batch_task.savepoint_file()
         self._sync_batch_views()
 
-    def get_run_args(self, test_dir=None):
+    def get_run_args(self, test_dir=None, test_cases=None):
         failed_tests_files = set()
         target_tests = ""
-        for t in self.current_test_cases:
+        for t in (test_cases if test_cases is not None else self.current_test_cases):
             args = t.split(":")
             test_file, test_parm = args[0], (":"+":".join(args[1:])) if len(args) > 1 else ""
             test_path = self.get_path(test_file)
@@ -2855,7 +2859,7 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
                 ),
                 "test_cases": return_tests,
             },
-            "failed_checkpoints": report.get("failed_check_point_list", []),
+            "unhit_checkpoints": report.get("unhit_check_point_list", []),
             "failed_test_case_checkpoints": report.get(
                 "failed_test_case_with_check_point_list", {}
             ),
@@ -3273,6 +3277,8 @@ class UnityChipCheckerTestCaseWithLineCoverage(UnityChipCheckerTestCase):
 
 
 class UnityChipCheckerRefineTestCases(Checker):
+    accepted_stage_args = ("refined",)
+
     def __init__(self,
                  doc_func_check,
                  test_dir=None,

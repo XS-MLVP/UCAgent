@@ -4,6 +4,7 @@
 from .base import AgentBackendBase
 from jinja2 import Environment, FileSystemLoader
 from ucagent.util.log import warning, info
+import ucagent.util.functions as fc
 from ucagent.util.functions import get_abs_path_cwd_ucagent, process_bash_cmd
 import os
 
@@ -78,6 +79,9 @@ class UCAgentCmdLineBackend(AgentBackendBase):
 
     def process_bash_cmd(self, cmd):
         """Run a backend command with output and tool-activity monitoring."""
+        # Snapshot the file-recency baseline before the command runs so the
+        # command's first artifact change resets the idle timer immediately.
+        self._workspace_files_changed()
         return_code, output_lines, interrupted = process_bash_cmd(
             self.CWD,
             cmd,
@@ -98,8 +102,14 @@ class UCAgentCmdLineBackend(AgentBackendBase):
             self._fail_count = 0
         return return_code, output_lines
 
-    def _has_active_tool_call(self):
-        """Return whether an MCP-exposed UCAgent tool is currently running."""
+    def _has_active_tool_call(self, activity_marks=None):
+        """Report MCP tool activity and workspace file changes as progress.
+
+        The idle timer must not fire while a tool call is running or while the
+        monitored command keeps changing files under the workspace: a backend
+        may spend minutes writing artifacts without printing anything, and
+        that is still forward progress.
+        """
         for tool in getattr(self.vagent, "test_tools", ()):
             is_busy = getattr(tool, "is_busy", None)
             is_hot = getattr(tool, "is_hot", None)
@@ -112,7 +122,56 @@ class UCAgentCmdLineBackend(AgentBackendBase):
                 # A failed activity probe must not terminate a potentially
                 # active tool call merely because its state is unavailable.
                 return True
+        if activity_marks is not None and self._workspace_files_changed():
+            activity_marks.append("workspace_files_changed")
         return False
+
+    def _workspace_files_changed(self):
+        """Return whether a monitored workspace file changed since the last poll.
+
+        Reuses the TUI/server changed-files machinery: ``newest_file_mtime``
+        reads the scan cache that ``list_files_by_mtime`` refreshes on every
+        call and only rescans proactively when that existing logic has not
+        run within the activity window. A newer most-recent mtime counts as
+        forward progress for the idle timer.
+        """
+
+        if not self.command_idle_timeout:
+            return False
+        directory = getattr(self.vagent, "output_dir", None) or getattr(
+            self.vagent, "workspace", None
+        )
+        if not directory:
+            return False
+        try:
+            newest_mtime = fc.newest_file_mtime(
+                directory, max_age=self._file_activity_max_age()
+            )
+        except Exception:
+            # A failed poll must not look like forward progress.
+            return False
+        watermark = getattr(self, "_workspace_mtime_watermark", None)
+        if watermark is None:
+            # The baseline is taken before the command starts (or on the
+            # first poll when no pre-baseline existed), so the command's very
+            # first file change already counts as forward progress.
+            self._workspace_mtime_watermark = newest_mtime or 0.0
+            return False
+        self._workspace_mtime_watermark = max(watermark, newest_mtime or 0.0)
+        return newest_mtime is not None and newest_mtime > watermark
+
+    def _file_activity_max_age(self) -> float:
+        """Bound the proactive rescan interval for the shared activity cache.
+
+        The interval is at fastest once every 5 seconds (waiting for the
+        TUI/server changed-files logic to refresh the cache) and at slowest
+        ``min(5, idle_timeout / 3)`` so file progress is still observed well
+        before the idle timer can fire.
+        """
+
+        if not self.command_idle_timeout:
+            return 5.0
+        return min(5.0, self.command_idle_timeout / 3.0)
 
     def _get_dft_ctx(self):
         ctx = os.environ.copy()

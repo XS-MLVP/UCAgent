@@ -464,3 +464,69 @@ if __name__ == "__main__":
     #test_markdown_headers()
     #test_markdown_get_miss_headers()
     test_parse_line_CK_map_file()
+
+
+def test_check_has_assert_ignores_comments_and_fragments(tmp_path):
+    """Comments, identifier fragments, and unittest methods are not assertions."""
+
+    workspace = tmp_path / "workspace"
+    test_dir = workspace / "tests"
+    test_dir.mkdir(parents=True)
+    (test_dir / "test_weak.py").write_text(
+        "def test_weak():\n"
+        "    # no assert needed here\n"
+        "    asserted_count = 0\n"
+        "    self.assertEqual(1, 1)\n"
+        "    return asserted_count\n",
+        encoding="utf-8",
+    )
+    (test_dir / "test_strong.py").write_text(
+        "import pytest\n"
+        "def test_strong():\n"
+        "    with pytest.raises(ValueError):\n"
+        "        raise ValueError('x')\n",
+        encoding="utf-8",
+    )
+    report = {
+        "tests": {
+            "test_cases": {
+                "tests/test_weak.py:1-4::test_weak": "PASSED",
+                "tests/test_strong.py:1-4::test_strong": "PASSED",
+            }
+        }
+    }
+    ret, msg = fc.check_has_assert_in_tc(str(workspace), report)
+    assert ret is False
+    assert "test_weak" in msg["error"]
+    assert "test_strong" not in msg["error"]
+
+
+def test_newest_file_mtime_reuses_recent_scan(tmp_path):
+    """A fresh changed-files scan is reused instead of rescanning."""
+
+    (tmp_path / "a.txt").write_text("x\n", encoding="utf-8")
+
+    calls = {"count": 0}
+    original = fc.list_files_by_mtime
+
+    def counting_call(directory, *args, **kwargs):
+        calls["count"] += 1
+        return original(directory, *args, **kwargs)
+
+    first = fc.newest_file_mtime(str(tmp_path), max_age=5.0)
+    assert first == (tmp_path / "a.txt").stat().st_mtime
+
+    import ucagent.util.functions as functions_module
+    functions_module._FILE_ACTIVITY_CACHE.clear()
+    functions_module.list_files_by_mtime = counting_call
+    try:
+        original(tmp_path)  # any existing caller (TUI/server) refreshes the cache
+        reused = fc.newest_file_mtime(str(tmp_path), max_age=5.0)
+        assert reused == first
+        assert calls["count"] == 0, "fresh cache must be reused without a rescan"
+
+        stale = fc.newest_file_mtime(str(tmp_path), max_age=0.0)
+        assert stale == first
+        assert calls["count"] == 1, "a stale cache triggers exactly one proactive rescan"
+    finally:
+        functions_module.list_files_by_mtime = original

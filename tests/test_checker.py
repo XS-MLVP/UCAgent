@@ -98,7 +98,7 @@ def _passing_report(test_node=TEST_NODE):
         "test_function_with_no_check_point_mark": 0,
         "test_function_with_no_check_point_mark_list": [],
         "all_check_point_list": [CHECKPOINT],
-        "failed_check_point_list": [],
+        "unhit_check_point_list": [],
         "failed_test_case_with_check_point_list": {},
         "test_case_with_check_point_list": {test_node: [CHECKPOINT]},
         "unmarked_check_points": 0,

@@ -482,11 +482,13 @@ def load_toffee_report(
     fc_data = data.get("coverages", {}).get("functional", {})
     ret_data["total_funct_point"] = fc_data.get("point_num_total", 0)
     ret_data["total_check_point"] = fc_data.get("bin_num_total",   0)
-    ret_data["failed_funct_point"] = ret_data["total_funct_point"] - fc_data.get("point_num_hints", 0)
-    ret_data["failed_check_point"] = ret_data["total_check_point"] - fc_data.get("bin_num_hints",   0)
-    # failed bins:
+    # ``hints`` counts coverage-bin hits, so these fields mean "not hit in this
+    # run"; naming them ``unhit_*`` keeps them distinct from failed test cases.
+    ret_data["unhit_funct_point"] = ret_data["total_funct_point"] - fc_data.get("point_num_hints", 0)
+    ret_data["unhit_check_point"] = ret_data["total_check_point"] - fc_data.get("bin_num_hints",   0)
+    # unhit bins:
     # groups->points->bins
-    bins_fail = []
+    bins_unhit = []
     bins_unmarked = []
     bins_funcs = {}
     failed_funcs_bins = {}
@@ -497,9 +499,9 @@ def load_toffee_report(
             cv_funcs = p.get("functions", {})
             for b in p.get("bins", []):
                 bin_full_name = rm_blank_in_str("%s/%s/%s" % (g["name"], p["name"], b["name"]))
-                bin_is_fail = b["hints"] == 0
-                if bin_is_fail:
-                    bins_fail.append(bin_full_name)
+                bin_is_unhit = b["hints"] == 0
+                if bin_is_unhit:
+                    bins_unhit.append(bin_full_name)
                 test_funcs = cv_funcs.get(b["name"], [])
                 if len(test_funcs) < 1:
                     bins_unmarked.append(bin_full_name)
@@ -524,8 +526,8 @@ def load_toffee_report(
     if return_all_checks:
         ret_data["all_check_point_list"] = bins_all
         ret_data["test_case_with_check_point_list"] = bins_funcs
-    if len(bins_fail) > 0:
-        ret_data["failed_check_point_list"] = bins_fail
+    if len(bins_unhit) > 0:
+        ret_data["unhit_check_point_list"] = bins_unhit
     ret_data["unmarked_check_points"] = len(bins_unmarked)
     if len(bins_unmarked) > 0:
         ret_data["unmarked_check_point_list"] = bins_unmarked
@@ -1542,7 +1544,34 @@ def list_files_by_mtime(
         collect(target)
 
     files.sort(key=lambda x: x[0])
+    # Every scan refreshes the shared file-activity cache so idle monitors
+    # can reuse the TUI/server changed-files work instead of rescanning.
+    newest = max((entry[1] for entry in files), default=None)
+    _FILE_ACTIVITY_CACHE[str(root)] = (time.monotonic(), newest)
     return files[:max_files]
+
+
+_FILE_ACTIVITY_CACHE: dict[str, tuple[float, float]] = {}
+
+
+def newest_file_mtime(
+    directory: str | os.PathLike[str],
+    max_age: float = 1.0,
+) -> float | None:
+    """Return the newest regular-file mtime under one directory, reuse-first.
+
+    ``list_files_by_mtime`` underpins the TUI and server changed-files status
+    and refreshes a shared scan cache on every call.  This accessor returns
+    the cached newest mtime while that scan is younger than ``max_age`` and
+    only rescans proactively when the existing logic has not run recently.
+    """
+
+    key = str(Path(directory).resolve())
+    cached = _FILE_ACTIVITY_CACHE.get(key)
+    if cached is not None and time.monotonic() - cached[0] <= max_age:
+        return cached[1]
+    list_files_by_mtime(directory)
+    return _FILE_ACTIVITY_CACHE.get(key, (0.0, None))[1]
 
 
 def fix_json_string(json_str):
@@ -1987,11 +2016,11 @@ def description_bug_doc():
         f"  - Every BG path has exactly one root cause. Put one clickable {ROOT_CAUSE_REFERENCE_MARKER} at the end of <BUG-TRIGGER>; define the shared analysis once under {ROOT_CAUSE_ANALYSIS_MARKER}. A root cause may list multiple full BG paths under {RELATED_BUGS_MARKER}, and every link must be bidirectional. If a combination creates the defect, that combination is one distinct root cause.",
         "  - Every root-cause entity must use one document-wide unique <ROOT-NAME> tag and a visible title. Each entity must list at least one existing full BG path under <RELATED-BUGS>; each BG path must point to exactly one root entity through one <CAUSE-REF-ROOT-NAME> tag. Every reverse entry embeds its full path in <RELATED-BUG-FG-NAME/FC-NAME/CK-NAME/BG-NAME-XX> and adds a clickable link; the embedded path, link text, target BG, and generated anchor must match exactly.",
         "  - Every remaining FAILED DUT test must appear under at least one non-zero BG at one of the exact checkpoints associated with that test in the current report.",
-        "  - A FAILED TC may trigger and cover a checkpoint that is itself PASSED. TC status and checkpoint coverage status are independent; never require every FAILED TC to map to a failed checkpoint or infer checkpoint failure from TC failure.",
-        "  - Every remaining failed checkpoint must have at least one correctly implemented FAILED TC that the current report associates with that exact FG/FC/CK path; the same CK/BG/TC relation must appear in the Bug document.",
+        "  - A FAILED TC may trigger and cover a checkpoint that is itself PASSED. TC status and checkpoint coverage status are independent; never require every FAILED TC to map to an unhit checkpoint or infer checkpoint non-coverage from TC failure.",
+        "  - Every remaining unhit checkpoint must have at least one correctly implemented FAILED TC that the current report associates with that exact FG/FC/CK path; the same CK/BG/TC relation must appear in the Bug document.",
         "  - Do not assume which side caused a FAILED TC. Before WaveInfo or a non-zero BG, derive an independent expected value from the specification, an independent reference model, or a verifiable formula. Record and compare the exact input, specification expected, test expected, DUT actual, and classification. If the two expected values differ, fix the test and rerun; do not record a Bug.",
         "  - If the expected values agree, validate the test stimulus/driver, API callbacks and Step ordering, valid sampling edge/condition and latency, fixtures, reference model, reset, and environment. Then validate the associated checkpoint coverage/check function, predicate, CovGroup.sample call, and sample timing. Fix each verification error and rerun before using WaveInfo.",
-        "  - A failed checkpoint does not by itself prove a DUT Bug. Only after the preceding checks are correct and the DUT actual still violates the specification may the FAILED TC proceed to WaveInfo and a non-zero dynamic BG.",
+        "  - An unhit checkpoint does not by itself prove a DUT Bug. Only after the preceding checks are correct and the DUT actual still violates the specification may the FAILED TC proceed to WaveInfo and a non-zero dynamic BG.",
         f"  - The first non-empty content after every TC must be the exact {WAVEFORM_REFERENCE_MARKER} link generated by ApplyWaveInfoEvidence. Do not place YAML or a viewer inside a BG entry.",
         f"  - Each failed TC has exactly one central WAVEFORM-TC record whose visible heading reuses the TC title followed by the waveform suffix. Its {WAVEFORM_FENCE_OPEN} mapping must use {WAVEFORM_BLOCK_KEY} as the only top-level key and must be followed by the tool-generated WAVEFORM-VIEWER link. Do not copy, invent, or edit receipt-backed fields.",
         f"  - Complete shared field {shared_fields} once per TC. Under bug_evidence, complete {bug_fields} once for every associated BG. bug_tags and bug_evidence must exactly match all BG/TC references.",
@@ -2322,8 +2351,14 @@ def check_has_assert_in_tc(workspace, report, target_tc_prefix="", ignore_tc_pre
     """Check tc has assert or not"""
 
     def has_assert(text_str):
-        for key in ["assert", "pytest.raises"]:
-            if len([l for l in text_str.splitlines() if key in l.strip()]) > 0:
+        # Match real assertions only: full-line comments, identifier fragments
+        # like ``asserted_count``, and unittest methods such as ``assertEqual``
+        # must not satisfy the gate that the diagnostic text below promises.
+        for line in text_str.splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            if re.search(r"\bassert\b|pytest\.raises\b", line):
                 return True
         return False
 
@@ -3094,7 +3129,12 @@ def process_bash_cmd(
     timeout. The command and its descendants are terminated as one process
     group when cancellation or the idle timeout fires. The timeout is reported
     as a command failure, while explicit cancellation remains an interruption.
+    ``activity_fc`` may return a falsy value while still marking activity by
+    mutating the shared ``activity_marks`` list, so callers can report
+    side-channel work (for example observed file changes) without blocking
+    the tool-call probe.
     """
+    activity_marks: list = []
     def _terminate_process(process):
         if process.poll() is not None:
             info(f"Process {process.pid} already terminated.")
@@ -3205,12 +3245,13 @@ def process_bash_cmd(
                 tool_active = False
                 if callable(activity_fc):
                     try:
-                        tool_active = bool(activity_fc())
+                        tool_active = bool(activity_fc(activity_marks))
                     except Exception:
                         # Treat an unavailable probe as active work so a
                         # backend cannot kill a command during a tool call.
                         tool_active = True
-                if read_any or tool_active:
+                if read_any or tool_active or activity_marks:
+                    activity_marks.clear()
                     last_output_at = time.monotonic()
                 if process.poll() is not None:
                     break

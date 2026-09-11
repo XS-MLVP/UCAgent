@@ -120,7 +120,7 @@ mission:
       - 在计划通过`Complete`工具推进到下一个阶段前，需要通过工具`CheckSkillUsage`检查技能使用情况
       - 技能中的 `RunSkillScript` 工具可以执行技能脚本，自动生成文档框架，大幅提升效率
     tips:
-      allways:
+      always:
         - "你需要通过Complete工具来判断你是否完成了当前阶段的任务"
         - "你需要完成所有阶段的任务，才算完成整个验证任务"
         - "不清楚目标时，需要通过工具RoleInfo获取角色信息和基本指导"

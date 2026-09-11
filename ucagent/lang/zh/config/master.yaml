@@ -5,7 +5,7 @@ mission:
       当前进程是Master控制进程，不初始化或调用任何模型后端。
       使用PDB中的Master API、任务、终端、状态和文件管理命令进行控制；模型对话与Agent工作循环命令在此模式下不可用。
     tips:
-      allways: []
+      always: []
       random: []
 
 tools:
