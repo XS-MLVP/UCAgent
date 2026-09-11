@@ -1,0 +1,1249 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="design-with-ppa-dashboard" content="2.0">
+  <title>{{DUT}} PPA Optimization</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --page: #f4f7f6;
+      --surface: #fff;
+      --subtle: #edf3f1;
+      --text: #172321;
+      --muted: #64716f;
+      --border: #ccd7d4;
+      --accent: #08766a;
+      --good: #28764d;
+      --bad: #a63c3c;
+      --warn: #8a610d;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --page: #101715;
+        --surface: #18211f;
+        --subtle: #21302c;
+        --text: #edf5f3;
+        --muted: #a6b6b2;
+        --border: #394a46;
+        --accent: #73d4c3;
+        --good: #80d3a5;
+        --bad: #ef9292;
+        --warn: #e5bc6a;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-width: 320px;
+      background: var(--page);
+      color: var(--text);
+      font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    }
+    a { color: var(--accent); text-underline-offset: 3px; }
+    button, .button, .file-control {
+      min-height: 36px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 7px 11px;
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      background: var(--surface);
+      color: var(--text);
+      font: inherit;
+      text-decoration: none;
+      cursor: pointer;
+    }
+    button:hover, .button:hover, .file-control:hover { border-color: var(--accent); }
+    button:focus-visible, a:focus-visible, input:focus-visible {
+      outline: 3px solid color-mix(in srgb, var(--accent) 35%, transparent);
+      outline-offset: 2px;
+    }
+    button:disabled { cursor: wait; opacity: .65; }
+    .file-control input {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      clip-path: inset(50%);
+      overflow: hidden;
+    }
+    header { border-bottom: 1px solid var(--border); background: var(--surface); }
+    .header-inner, main, footer {
+      width: min(1180px, calc(100% - 32px));
+      margin: 0 auto;
+    }
+    .header-inner {
+      min-height: 108px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      padding: 18px 0;
+    }
+    h1, h2, h3, p { margin-top: 0; }
+    h1 { margin-bottom: 6px; font-size: clamp(22px, 3vw, 30px); line-height: 1.2; }
+    h2 { margin-bottom: 4px; font-size: 18px; }
+    h3 { margin-bottom: 3px; font-size: 14px; }
+    .eyebrow { margin: 0 0 3px; color: var(--accent); font-size: 12px; font-weight: 750; }
+    .meta, .note, footer { color: var(--muted); }
+    .meta { display: flex; flex-wrap: wrap; gap: 8px 14px; margin: 0; font-size: 13px; }
+    .actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+    .primary { border-color: var(--accent); background: var(--accent); color: #fff; }
+    main { padding: 22px 0 34px; }
+    .panel {
+      margin-bottom: 18px;
+      padding: 18px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--surface);
+    }
+    .panel-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 14px;
+    }
+    .panel-head p { margin-bottom: 0; }
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      min-height: 24px;
+      padding: 2px 9px;
+      border-radius: 999px;
+      background: var(--subtle);
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .chip[data-state="accepted"], .chip[data-state="complete"], .chip[data-state="success"] { color: var(--good); }
+    .chip[data-state="rejected"], .chip[data-state="error"] { color: var(--muted); }
+    .chip[data-state="active"] { color: var(--warn); }
+    .progress-grid {
+      display: grid;
+      grid-template-columns: minmax(250px, .8fr) minmax(0, 2fr);
+      gap: 18px;
+    }
+    .progress-card { padding: 15px; border-radius: 8px; background: var(--subtle); }
+    .progress-number { margin: 5px 0 1px; font-size: 32px; font-weight: 750; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .progress-limits { margin: 0 0 8px; color: var(--muted); font-size: 12px; }
+    .track { height: 8px; overflow: hidden; border-radius: 999px; background: var(--border); }
+    .bar { width: 0; height: 100%; background: var(--accent); transition: width .25s ease; }
+    .facts {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      margin: 0;
+    }
+    .facts div, .metric, .chart-card {
+      min-width: 0;
+      padding: 13px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+    dt, .metric-label { color: var(--muted); font-size: 12px; }
+    dd { margin: 3px 0 0; font-weight: 700; overflow-wrap: anywhere; }
+    .metrics { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
+    .metric.primary-metric { border-color: var(--accent); background: var(--subtle); }
+    .metric-value { display: block; margin-top: 5px; font-size: 20px; font-variant-numeric: tabular-nums; }
+    .metric small { display: block; margin-top: 3px; color: var(--muted); }
+    .charts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .chart-card.wide { grid-column: 1 / -1; }
+    canvas { display: block; width: 100%; height: 240px; margin-top: 9px; }
+    .chart-tooltip {
+      position: fixed;
+      z-index: 1000;
+      pointer-events: none;
+      padding: 7px 10px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--surface);
+      color: var(--text);
+      font: 12px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.15);
+      white-space: nowrap;
+      max-width: 420px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      display: none;
+    }
+    .chart-tooltip .tt-title { font-weight: 600; margin-bottom: 2px; }
+    .chart-tooltip .tt-row { display: flex; gap: 6px; align-items: baseline; }
+    .chart-tooltip .tt-label { color: var(--muted); }
+    .chart-tooltip .tt-value { font-weight: 500; }
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { padding: 9px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
+    th { color: var(--muted); font-size: 12px; white-space: nowrap; }
+    td.numeric, th.numeric { text-align: right; font-variant-numeric: tabular-nums; }
+    tr.rejected-row { background: color-mix(in srgb, var(--subtle) 55%, transparent); }
+    tr.rejected-row td { color: var(--muted); }
+    td.rejection-cell { min-width: 310px; max-width: 520px; }
+    .rejection-title { display: block; color: var(--bad); font-weight: 700; }
+    .rejection-detail { display: block; margin-top: 3px; color: var(--muted); font-size: 11px; line-height: 1.45; }
+    tr:not(.rejected-row) .rejection-title { color: var(--good); }
+    td.artifact-cell { min-width: 175px; }
+    .artifact-links { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+    .artifact-links a { overflow-wrap: anywhere; }
+    .delta { display: block; font-size: 11px; color: var(--muted); }
+    .delta[data-direction="improved"] { color: var(--good); }
+    .delta[data-direction="regressed"] { color: var(--bad); }
+    .pagination { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+    .pagination label { color: var(--muted); font-size: 12px; }
+    .pagination select, .pagination input { min-height: 34px; padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); font: inherit; }
+    .pagination input { width: 76px; }
+    .pagination button { min-width: 76px; min-height: 34px; padding: 5px 9px; }
+    .filter-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; margin: 4px 0 12px; color: var(--muted); font-size: 12px; }
+    .filter-controls fieldset { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; margin: 0; padding: 0; border: 0; }
+    .filter-controls legend { margin-right: 2px; color: var(--muted); font-weight: 700; }
+    .filter-controls label { display: inline-flex; align-items: center; gap: 5px; min-height: 30px; color: var(--text); cursor: pointer; }
+    .filter-controls input { accent-color: var(--accent); }
+    #metric-filters { display: contents; }
+    .links { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 0; padding: 0; list-style: none; }
+    footer { padding: 0 0 26px; font-size: 12px; }
+    @media (max-width: 820px) {
+      .header-inner, .progress-grid { display: block; }
+      .actions { justify-content: flex-start; margin-top: 14px; }
+      .facts, .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .charts { grid-template-columns: 1fr; }
+      .chart-card.wide { grid-column: auto; }
+    }
+    @media (max-width: 480px) { .facts, .metrics { grid-template-columns: 1fr; } }
+
+    /* Self-contained UCAgent operational shell for file:// use. */
+    :root {
+      color-scheme: dark;
+      --page: #0f1117;
+      --surface: #1a1d25;
+      --subtle: #22262f;
+      --raised: #2a2e3a;
+      --border: #2e3340;
+      --text: #c8cdd6;
+      --muted: #6b7280;
+      --bright: #e8ecf2;
+      --accent: #4f8ef7;
+      --accent-dark: #2d5cb8;
+      --good: #36d399;
+      --bad: #f87272;
+      --warn: #fbbd23;
+      --radius: 6px;
+      --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    }
+    html[data-theme="light"] {
+      color-scheme: light;
+      --page: #f4f7fb;
+      --surface: #fff;
+      --subtle: #eef3f9;
+      --raised: #dde7f2;
+      --border: #ccd7e6;
+      --text: #182432;
+      --muted: #5f738a;
+      --bright: #0f172a;
+      --accent: #2563eb;
+      --accent-dark: #1d4ed8;
+      --good: #16a34a;
+      --bad: #dc2626;
+      --warn: #d97706;
+    }
+    html[data-theme="graphite"] {
+      color-scheme: dark;
+      --page: #151a20;
+      --surface: #202730;
+      --subtle: #293341;
+      --raised: #344154;
+      --border: #3a4658;
+      --text: #d7dee8;
+      --muted: #95a4b8;
+      --bright: #f3f6fb;
+      --accent: #38bdf8;
+      --accent-dark: #0284c7;
+      --good: #34d399;
+      --bad: #f87171;
+      --warn: #fbbf24;
+    }
+    * { margin: 0; padding: 0; }
+    html, body { width: 100%; height: 100%; }
+    body {
+      background: var(--page);
+      color: var(--text);
+      font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      overflow: hidden;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; text-underline-offset: 2px; }
+    button, .button, .file-control {
+      min-height: 28px;
+      gap: 5px;
+      padding: 4px 10px;
+      border-radius: var(--radius);
+      background: var(--subtle);
+      color: var(--text);
+      font-size: 12px;
+      line-height: 1.2;
+    }
+    button:hover, .button:hover, .file-control:hover {
+      border-color: var(--accent);
+      color: var(--bright);
+      text-decoration: none;
+    }
+    button:focus-visible, a:focus-visible, input:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+    .app-header {
+      height: 48px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 0 16px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+      overflow: hidden;
+    }
+    .brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+    .logo { color: var(--bright); font-size: 15px; font-weight: 700; white-space: nowrap; }
+    .logo span { color: var(--accent); }
+    .header-separator { width: 1px; height: 20px; background: var(--border); }
+    .dut-title {
+      color: var(--text);
+      font: 600 12px/1.3 var(--mono);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .header-spacer { flex: 1; }
+    .header-meta { color: var(--muted); font-size: 11px; white-space: nowrap; }
+    .header-actions { display: flex; align-items: center; gap: 6px; }
+    .theme-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 2px;
+      padding: 2px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: var(--subtle);
+    }
+    .theme-toggle button {
+      min-height: 22px;
+      padding: 3px 8px;
+      border: 0;
+      border-radius: 999px;
+      background: transparent;
+      color: var(--muted);
+      font-size: 10px;
+    }
+    .theme-toggle button:hover { color: var(--text); }
+    .theme-toggle button.active { background: var(--accent); color: #fff; }
+    .primary { border-color: var(--accent-dark); background: var(--accent-dark); color: #fff; }
+    .primary:hover { border-color: var(--accent); background: var(--accent); color: #fff; }
+    .app-shell { height: calc(100% - 48px); display: flex; overflow: hidden; }
+    .sidebar {
+      width: 272px;
+      min-width: 272px;
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+      border-right: 1px solid var(--border);
+      background: var(--surface);
+    }
+    .sidebar-section { padding: 13px 14px; border-bottom: 1px solid var(--border); }
+    .sidebar-section:last-child { border-bottom: 0; }
+    .section-label {
+      margin-bottom: 9px;
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .8px;
+      text-transform: uppercase;
+    }
+    .status-line { display: flex; align-items: center; gap: 7px; min-width: 0; }
+    .status-dot { width: 8px; height: 8px; flex: 0 0 auto; border-radius: 50%; background: var(--warn); }
+    .status-dot[data-state="complete"], .status-dot[data-state="success"] { background: var(--good); }
+    .status-dot[data-state="error"] { background: var(--bad); }
+    .status-copy { min-width: 0; color: var(--bright); font-weight: 600; }
+    .sidebar-meta { margin-top: 7px; color: var(--muted); font: 11px/1.55 var(--mono); }
+    .progress-number {
+      margin: 5px 0 1px;
+      color: var(--bright);
+      font: 700 25px/1.2 var(--mono);
+      white-space: nowrap;
+    }
+    .progress-limits { margin: 0 0 9px; color: var(--muted); font-size: 11px; white-space: nowrap; }
+    .track { height: 5px; overflow: hidden; border-radius: 3px; background: var(--raised); }
+    .bar { width: 0; height: 100%; background: var(--accent); transition: width .25s ease; }
+    .facts { display: block; margin: 12px 0 0; }
+    .facts .fact-row {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 5px 0;
+      border: 0;
+      border-bottom: 1px solid rgba(46, 51, 64, .6);
+      border-radius: 0;
+      background: transparent;
+    }
+    .facts .fact-row:last-child { border-bottom: 0; }
+    dt { color: var(--muted); font-size: 11px; }
+    dd { margin: 0; color: var(--text); font: 600 11px/1.4 var(--mono); text-align: right; overflow-wrap: anywhere; }
+    .filter-group { margin-top: 11px; }
+    .filter-group:first-of-type { margin-top: 0; }
+    .filter-title { margin-bottom: 6px; color: var(--muted); font-size: 10px; font-weight: 600; }
+    .filter-list { display: flex; flex-wrap: wrap; gap: 5px 10px; }
+    .filter-list label, #metric-filters label {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      min-height: 22px;
+      color: var(--text);
+      font: 11px/1.3 var(--mono);
+      cursor: pointer;
+    }
+    input[type="checkbox"] { accent-color: var(--accent); }
+    #metric-filters { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; }
+    .report-links { display: flex; flex-direction: column; gap: 6px; }
+    .report-links a { overflow-wrap: anywhere; font: 11px/1.35 var(--mono); }
+    .sidebar-foot { margin-top: auto; color: var(--muted); font-size: 10px; }
+    .workspace { width: auto; flex: 1; min-width: 0; margin: 0; overflow-y: auto; padding: 16px 18px 28px; }
+    .workspace-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 10px;
+    }
+    h1 { margin: 0; color: var(--bright); font-size: 16px; line-height: 1.3; }
+    h2 { margin: 0; color: var(--bright); font-size: 13px; line-height: 1.35; }
+    h3 { margin: 0; color: var(--text); font-size: 12px; line-height: 1.35; }
+    .note, .meta { color: var(--muted); font-size: 11px; }
+    .meta { display: inline; margin: 0; }
+    .panel { margin: 0 0 14px; padding: 0; border-radius: var(--radius); overflow: hidden; }
+    .panel-head {
+      min-height: 42px;
+      align-items: center;
+      gap: 12px;
+      margin: 0;
+      padding: 8px 11px;
+      border-bottom: 1px solid var(--border);
+    }
+    .panel-head-copy { min-width: 0; }
+    .panel-head .note { margin: 2px 0 0; }
+    .chip {
+      min-height: 19px;
+      padding: 1px 6px;
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      background: var(--raised);
+      font: 600 10px/1.3 var(--mono);
+    }
+    .chip[data-state="accepted"], .chip[data-state="complete"], .chip[data-state="success"] { border-color: rgba(54, 211, 153, .4); color: var(--good); }
+    .chip[data-state="active"] { border-color: rgba(251, 189, 35, .35); color: var(--warn); }
+    .metrics { display: grid; grid-template-columns: 1.15fr repeat(4, minmax(0, 1fr)); gap: 0; }
+    .metric { min-width: 0; min-height: 86px; padding: 12px; border: 0; border-right: 1px solid var(--border); border-radius: 0; }
+    .metric:last-child { border-right: 0; }
+    .metric.primary-metric { border-color: var(--border); background: rgba(79, 142, 247, .08); box-shadow: inset 3px 0 0 var(--accent); }
+    .metric-label { color: var(--muted); font-size: 10px; font-weight: 600; text-transform: uppercase; }
+    .metric-value { display: block; margin-top: 6px; color: var(--bright); font: 700 18px/1.25 var(--mono); overflow-wrap: anywhere; }
+    .metric small { display: block; margin-top: 4px; color: var(--muted); font-size: 10px; }
+    .charts-section { margin-bottom: 14px; }
+    .charts-toolbar { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+    .charts { gap: 12px; }
+    .chart-card { padding: 10px; border-radius: var(--radius); background: var(--surface); }
+    .chart-card .note { min-height: 16px; margin: 2px 0 0; }
+    canvas { height: 240px; margin-top: 5px; }
+    .table-wrap { max-height: 520px; overflow: auto; }
+    table { font-size: 11px; }
+    th, td { padding: 7px 9px; }
+    th { position: sticky; top: 0; z-index: 1; background: var(--subtle); color: var(--muted); font-size: 10px; font-weight: 600; }
+    td { font-family: var(--mono); }
+    tbody tr:hover td { background: rgba(42, 46, 58, .58); }
+    tr.rejected-row { background: rgba(42, 46, 58, .42); }
+    td.rejection-cell { min-width: 300px; max-width: 500px; font-family: inherit; }
+    .rejection-detail { font: 10px/1.5 var(--mono); overflow-wrap: anywhere; }
+    .artifact-links { gap: 3px; }
+    .delta { font-size: 10px; }
+    .pagination { gap: 6px; margin: 0; padding: 8px 10px; }
+    .pagination label { font-size: 10px; }
+    .pagination select, .pagination input { min-height: 27px; padding: 3px 7px; border-radius: 4px; background: var(--subtle); font: 11px/1.2 var(--mono); }
+    .pagination input { width: 68px; }
+    .pagination button { min-width: 64px; min-height: 27px; padding: 3px 8px; }
+    @media (max-width: 980px) {
+      .header-meta { display: none; }
+      .metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .metric { border-bottom: 1px solid var(--border); }
+      .metric:nth-child(3) { border-right: 0; }
+      .charts { grid-template-columns: 1fr; }
+      .chart-card.wide { grid-column: auto; }
+    }
+    @media (max-width: 720px) {
+      html, body { height: auto; min-height: 100%; }
+      body { overflow: auto; }
+      .app-header { height: auto; min-height: 48px; flex-wrap: wrap; padding: 8px 10px; }
+      .header-spacer { display: none; }
+      .header-actions { width: 100%; flex-wrap: wrap; overflow-x: visible; }
+      .app-shell { height: auto; display: block; overflow: visible; }
+      .sidebar { width: 100%; min-width: 0; max-height: none; border-right: 0; border-bottom: 1px solid var(--border); }
+      .sidebar-section { padding: 10px 12px; }
+      .facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 14px; }
+      .workspace { overflow: visible; padding: 12px 10px 22px; }
+      .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .metric, .metric:nth-child(3) { border-right: 1px solid var(--border); }
+      .metric:nth-child(even) { border-right: 0; }
+      .metric:last-child { grid-column: 1 / -1; border-right: 0; }
+      .charts-toolbar { align-items: flex-start; }
+      .table-wrap { max-height: none; }
+    }
+    @media (max-width: 420px) {
+      .dut-title { max-width: 150px; }
+      .metrics { grid-template-columns: 1fr; }
+      .metric, .metric:nth-child(even), .metric:last-child { border-right: 0; }
+      .facts { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body data-dashboard-contract="design-with-ppa/v2" data-dut="{{DUT}}" data-output="{{OUT}}" data-rendered-at="{{RENDERED_AT}}">
+  <header class="app-header">
+    <div class="brand">
+      <div class="logo">UC<span>Agent</span></div>
+      <div class="header-separator" aria-hidden="true"></div>
+      <div class="dut-title">{{DUT}} / PPA Optimization</div>
+    </div>
+    <div class="header-spacer"></div>
+    <span class="header-meta" id="resource-mode">Relative URL / read-only auto-refresh</span>
+    <span class="header-meta" id="last-updated">Not loaded</span>
+    <div class="header-actions">
+      <div class="theme-toggle" id="dashboard-theme-toggle" role="group" aria-label="Dashboard theme">
+        <button type="button" class="active" data-theme-option="dark" aria-pressed="true">Dark</button>
+        <button type="button" data-theme-option="light" aria-pressed="false">Light</button>
+        <button type="button" data-theme-option="graphite" aria-pressed="false">Graphite</button>
+      </div>
+      <button id="refresh-button" type="button" title="Reload dashboard resources">Refresh</button>
+      <a class="button primary" id="toffee-report-link" href="../uc_test_report/index.html" target="_blank" rel="noopener">Toffee report</a>
+      <label class="file-control" id="workspace-control" hidden>
+        Select workspace
+        <input id="workspace-directory" type="file" webkitdirectory multiple aria-label="Select workspace directory">
+      </label>
+    </div>
+  </header>
+
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="PPA run controls and status">
+      <section class="sidebar-section">
+        <h2 class="section-label">Run Status</h2>
+        <div class="status-line">
+          <span class="status-dot" id="overall-status-dot" data-state="active" aria-hidden="true"></span>
+          <span class="status-copy" id="overall-state" data-state="active">Waiting for optimization data</span>
+        </div>
+        <div class="sidebar-meta" id="rtl-language">RTL: -</div>
+      </section>
+
+      <section class="sidebar-section" aria-labelledby="progress-title">
+        <h2 class="section-label" id="progress-title">Iteration Progress</h2>
+        <div class="status-line"><span class="chip" id="iteration-state" data-state="active">Base pending</span></div>
+        <div class="progress-number" id="iteration-progress">0 / 5</div>
+        <p class="progress-limits" id="iteration-limits">minimum pending / max 1000</p>
+        <div class="track" role="progressbar" id="progress-track" aria-label="Minimum optimization iterations" aria-valuemin="0" aria-valuemax="5" aria-valuenow="0"><div class="bar" id="progress-bar"></div></div>
+        <dl class="facts">
+          <div class="fact-row"><dt>Best version</dt><dd id="best-iteration">-</dd></div>
+          <div class="fact-row"><dt>Stop reason</dt><dd id="stop-reason">In progress</dd></div>
+          <div class="fact-row"><dt>Current task</dt><dd id="current-task">Record base</dd></div>
+          <div class="fact-row"><dt>Evaluated</dt><dd id="evaluated-count">-</dd></div>
+          <div class="fact-row"><dt>Without metrics</dt><dd id="omitted-count">-</dd></div>
+          <div class="fact-row"><dt>No improvement</dt><dd id="no-improvement">0 / 3</dd></div>
+        </dl>
+      </section>
+
+      <section class="sidebar-section" aria-labelledby="filters-title">
+        <h2 class="section-label" id="filters-title">Display Filters</h2>
+        <div class="filter-group">
+          <div class="filter-title">Versions</div>
+          <div class="filter-list">
+            <label><input id="filter-accepted" type="checkbox" checked> Accepted</label>
+            <label><input id="filter-rejected" type="checkbox" checked> Rejected</label>
+          </div>
+        </div>
+        <div class="filter-group">
+          <div class="filter-title">Metrics</div>
+          <div id="metric-filters" aria-label="Metric filters"></div>
+        </div>
+      </section>
+
+      <section class="sidebar-section" aria-labelledby="links-title">
+        <h2 class="section-label" id="links-title">Reports</h2>
+        <nav class="report-links" aria-label="PPA report artifacts">
+          <a href="{{DUT}}_design_summary.md" target="_blank" rel="noopener">Design summary</a>
+          <a href="{{DUT}}_final_ppa_report.json" target="_blank" rel="noopener">Final PPA report</a>
+          <a href="reports/ppa/base.json" target="_blank" rel="noopener">Base PPA report</a>
+          <a href="{{DUT}}_performance_curve.json" target="_blank" rel="noopener">Version curve data</a>
+        </nav>
+      </section>
+
+      <div class="sidebar-section sidebar-foot">Read-only dashboard / refreshes every 15 seconds</div>
+    </aside>
+
+    <main class="workspace">
+      <div class="workspace-head">
+        <div>
+          <h1>PPA Optimization Results</h1>
+          <p class="note">Accepted versions satisfy functional, evidence, hard-target, and strict Pareto gates.</p>
+        </div>
+      </div>
+
+      <section class="panel" aria-labelledby="summary-title">
+        <div class="panel-head">
+          <div class="panel-head-copy"><h2 id="summary-title">Selected PPA Summary</h2><p class="note" id="report-source">Waiting for a PPA report</p></div>
+          <span class="chip" id="report-status" data-state="active">Pending</span>
+        </div>
+        <div class="metrics">
+          <article class="metric primary-metric"><span class="metric-label">Selection PPA score</span><strong class="metric-value" id="ppa-score-value">-</strong><small id="ppa-score-detail">Base = 1.0; higher is better</small></article>
+          <article class="metric"><span class="metric-label">Design type</span><strong class="metric-value" id="design-type">-</strong><small>Detected from synthesis and timing reports</small></article>
+          <article class="metric"><span class="metric-label">Area</span><strong class="metric-value" id="area-value">-</strong><small>Library area</small></article>
+          <article class="metric"><span class="metric-label" id="timing-label">Maximum frequency / critical delay</span><strong class="metric-value" id="timing-value">-</strong><small id="timing-detail">Waiting for timing data</small></article>
+          <article class="metric"><span class="metric-label">Power</span><strong class="metric-value" id="power-value">-</strong><small>Total power from merged activity</small></article>
+        </div>
+      </section>
+
+      <section class="charts-section" aria-labelledby="curves-title">
+        <div class="charts-toolbar">
+          <div><h2 id="curves-title">Version Metrics</h2><p class="note">Solid points are accepted; hollow grey points are rejected; the larger point is the selected best version. Positive normalized improvement is better.</p></div>
+          <a href="{{DUT}}_performance_curve.json" target="_blank" rel="noopener">Open curve JSON</a>
+        </div>
+        <div class="charts">
+          <article class="chart-card wide"><h3>Selection PPA Score</h3><p class="note">Timing efficiency x area efficiency x power efficiency. Best is selected only from accepted versions; base = 1.0.</p><canvas id="ppa-score-chart" aria-label="PPA selection score curve"></canvas></article>
+          <article class="chart-card"><h3>Frequency / Critical-Path Delay</h3><p class="note">Equivalent timing metric reported by the analysis tools</p><canvas id="timing-chart" aria-label="Timing metric curve"></canvas></article>
+          <article class="chart-card"><h3>Throughput / Latency</h3><p class="note">Calculated from deterministic performance test simulations</p><canvas id="performance-chart" aria-label="Performance metric curve"></canvas></article>
+          <article class="chart-card"><h3>Area</h3><p class="note">Lower is better</p><canvas id="area-chart" aria-label="Area curve"></canvas></article>
+          <article class="chart-card"><h3>Power</h3><p class="note">Lower is better</p><canvas id="power-chart" aria-label="Power curve"></canvas></article>
+          <article class="chart-card wide"><h3>Normalized Improvement from Base</h3><p class="note">Metrics with different units shown on one percentage scale</p><canvas id="improvement-chart" aria-label="Normalized improvement curve"></canvas></article>
+        </div>
+      </section>
+
+      <section class="panel" aria-labelledby="iterations-title">
+        <div class="panel-head">
+          <div class="panel-head-copy"><h2 id="iterations-title">Version History</h2><p class="note">Rejected versions show each regressed metric or failed gate relative to the preceding accepted version.</p></div>
+        </div>
+        <div class="table-wrap"><table><thead id="iteration-head"><tr><th>Version</th><th>Decision</th><th>Rejection details</th><th>Sources and reports</th></tr></thead><tbody id="iteration-body"><tr><td colspan="4" class="note">Waiting for curve data</td></tr></tbody></table></div>
+        <div class="pagination" aria-label="Version history pagination">
+          <label for="iteration-page-size">Rows</label>
+          <select id="iteration-page-size" aria-label="Versions per page">
+            <option value="25">25</option>
+            <option value="50" selected>50</option>
+            <option value="100">100</option>
+            <option value="250">250</option>
+          </select>
+          <label for="iteration-page-size-custom">Custom</label>
+          <input id="iteration-page-size-custom" type="number" min="1" max="1000" step="1" value="50" inputmode="numeric" aria-label="Custom versions per page">
+          <button id="iteration-prev" type="button">Previous</button>
+          <span class="meta" id="iteration-page-status" aria-live="polite">Page 1 / 1</span>
+          <button id="iteration-next" type="button">Next</button>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script id="design-with-ppa-snapshot" type="application/json">{"schema_version":"1.0","runtime":null,"state":null,"finalPpa":null,"curve":null}</script>
+  <script>
+    (() => {
+      "use strict";
+
+      const DASHBOARD_SCHEMA = "design-with-ppa/v2";
+      const EMBEDDED_SNAPSHOT = (() => {
+        const element = document.getElementById("design-with-ppa-snapshot");
+        try { return element ? JSON.parse(element.textContent) : {}; }
+        catch (_error) { return {}; }
+      })();
+      const DUT = "{{DUT}}";
+      const OUTPUT_PATH = "{{OUT}}".replace(/\\/g, "/").replace(/^\.\//, "").replace(/\/$/, "");
+      const OUTPUT_DEPTH = OUTPUT_PATH.split("/").filter((part) => part && part !== ".").length;
+      const WORKSPACE_PREFIX = "../".repeat(OUTPUT_DEPTH);
+      const FILE_MODE = window.location.protocol === "file:";
+      const REFRESH_INTERVAL_MS = 15000;
+      const COLORS = ["#4f8ef7", "#36d399", "#fbbd23", "#a78bfa", "#22d3ee", "#fb923c", "#f472b6", "#84cc16"];
+      const PREFERENCES_KEY = `design-with-ppa.dashboard.v2.preferences:${DUT}:${OUTPUT_PATH}`;
+      const readPreferences = () => {
+        const validate = (value) => value && value.schema_version === "1.0" ? value : null;
+        try {
+          if (FILE_MODE && window.location.hash.startsWith("#dwp=")) {
+            const value = validate(JSON.parse(decodeURIComponent(window.location.hash.slice(5))));
+            if (value) return value;
+          }
+        } catch (_error) { /* Ignore malformed user-controlled fragments. */ }
+        try {
+          return validate(JSON.parse(window.localStorage.getItem(PREFERENCES_KEY) || "null")) || {};
+        } catch (_error) { return {}; }
+      };
+      const savedPreferences = readPreferences();
+      let workspaceFiles = new Map();
+      let latestCurve = null;
+      let refreshTimer = null;
+      let resizeTimer = null;
+      let loading = false;
+      let iterationPage = 1;
+      let iterationPageSize = 50;
+      if (Number.isInteger(savedPreferences.iteration_page) && savedPreferences.iteration_page >= 1) iterationPage = savedPreferences.iteration_page;
+      if (Number.isInteger(savedPreferences.iteration_page_size) && savedPreferences.iteration_page_size >= 1 && savedPreferences.iteration_page_size <= 1000) iterationPageSize = savedPreferences.iteration_page_size;
+      const THEME_NAMES = new Set(["dark", "light", "graphite"]);
+      const displayFilters = { accepted: true, rejected: true, metrics: new Map() };
+      if (savedPreferences.filters && typeof savedPreferences.filters.accepted === "boolean") displayFilters.accepted = savedPreferences.filters.accepted;
+      if (savedPreferences.filters && typeof savedPreferences.filters.rejected === "boolean") displayFilters.rejected = savedPreferences.filters.rejected;
+      const savedMetrics = savedPreferences.filters && savedPreferences.filters.metrics;
+      if (savedMetrics && typeof savedMetrics === "object" && !Array.isArray(savedMetrics)) {
+        Object.entries(savedMetrics).forEach(([metricId, visible]) => {
+          if (typeof metricId === "string" && metricId && typeof visible === "boolean") displayFilters.metrics.set(metricId, visible);
+        });
+      }
+
+      const byId = (id) => document.getElementById(id);
+      const resource = (workspacePath, href = null, snapshotKey = null) => ({ workspacePath, href: href || `${WORKSPACE_PREFIX}${workspacePath}`, snapshotKey });
+      const outputResource = (name, snapshotKey = null) => resource(`${OUTPUT_PATH}/${name}`, name, snapshotKey);
+      const SOURCES = Object.freeze({
+        runtimeConfig: resource(".ucagent/runtime_config.json", null, "runtime"),
+        iterationState: resource(".ucagent/design_with_ppa/state.json", null, "state"),
+        currentTestReport: resource(".ucagent/current_test_report.json"),
+        currentPpa: outputResource("reports/ppa/current.json"),
+        finalPpa: outputResource(`${DUT}_final_ppa_report.json`, "finalPpa"),
+        curve: outputResource(`${DUT}_performance_curve.json`, "curve"),
+      });
+      const normalizePath = (value) => typeof value === "string" ? value.replace(/\\/g, "/").replace(/^\.\//, "").replace(/\/+/g, "/") : "";
+      const isSafeWorkspacePath = (value) => value && !value.startsWith("/") && !value.split("/").includes("..");
+      const setText = (id, value) => { byId(id).textContent = value; };
+      const setChip = (id, label, state) => {
+        const element = byId(id);
+        element.textContent = label;
+        element.dataset.state = state;
+        if (id === "overall-state") byId("overall-status-dot").dataset.state = state;
+      };
+      const finite = (value) => value !== null && value !== "" && Number.isFinite(Number(value));
+      const format = (value, digits = 5) => finite(value) ? new Intl.NumberFormat("en-US", { maximumSignificantDigits: digits }).format(Number(value)) : "-";
+      const persistPreferences = (theme = document.documentElement.dataset.theme || "dark") => {
+        const payload = {
+          schema_version: "1.0",
+          theme: THEME_NAMES.has(theme) ? theme : "dark",
+          filters: {
+            accepted: displayFilters.accepted,
+            rejected: displayFilters.rejected,
+            metrics: Object.fromEntries(displayFilters.metrics),
+          },
+          iteration_page: iterationPage,
+          iteration_page_size: iterationPageSize,
+        };
+        const serialized = JSON.stringify(payload);
+        try { window.localStorage.setItem(PREFERENCES_KEY, serialized); }
+        catch (_error) { /* Storage can be unavailable in hardened file:// contexts. */ }
+        if (FILE_MODE) {
+          const fragment = `#dwp=${encodeURIComponent(serialized)}`;
+          try { if (window.location.hash !== fragment) window.history.replaceState(null, "", fragment); }
+          catch (_error) { /* The dashboard remains usable when URL history is locked. */ }
+        }
+      };
+      const applyTheme = (name, persist = true) => {
+        const selected = THEME_NAMES.has(name) ? name : "dark";
+        document.documentElement.dataset.theme = selected;
+        document.documentElement.style.colorScheme = selected === "light" ? "light" : "dark";
+        document.querySelectorAll("#dashboard-theme-toggle [data-theme-option]").forEach((button) => {
+          const active = button.dataset.themeOption === selected;
+          button.classList.toggle("active", active);
+          button.setAttribute("aria-pressed", String(active));
+        });
+        if (persist) persistPreferences(selected);
+        if (latestCurve) renderCurve({ ok: true, data: latestCurve });
+      };
+
+      const indexWorkspaceFiles = (files) => {
+        const index = new Map();
+        Array.from(files || []).forEach((file) => {
+          const parts = normalizePath(file.webkitRelativePath || file.name).split("/");
+          if (parts.length > 1) parts.shift();
+          index.set(parts.join("/"), file);
+        });
+        return index;
+      };
+      const readText = async (source) => {
+        if (FILE_MODE) {
+          const file = workspaceFiles.get(source.workspacePath);
+          if (file) return file.text();
+          if (source.snapshotKey && EMBEDDED_SNAPSHOT[source.snapshotKey]) {
+            return JSON.stringify(EMBEDDED_SNAPSHOT[source.snapshotKey]);
+          }
+          throw new Error(`Select a workspace directory to read ${source.workspacePath}`);
+        }
+        const response = await fetch(source.href, { cache: "no-store" });
+        if (!response.ok) throw new Error(`${source.workspacePath}: HTTP ${response.status}`);
+        return response.text();
+      };
+      const readJson = async (source) => {
+        try { return { ok: true, data: JSON.parse(await readText(source)) }; }
+        catch (error) { return { ok: false, error }; }
+      };
+      const pluginOption = (runtime, key) => {
+        const options = runtime && runtime.plugin_options;
+        return options && Object.prototype.hasOwnProperty.call(options, key) ? options[key] : null;
+      };
+      const currentTask = (state) => {
+        if (!state || !state.schema_version) return "Record base";
+        if (state.status === "complete") return "Prepare final delivery";
+        if (state.status === "awaiting_candidate") return `Implement candidate ${Number(state.candidate_count || 0) + 1}`;
+        return "Repair iteration evidence";
+      };
+      const stopReasonLabel = (reason) => ({
+        base_only: "Base only",
+        no_pareto_improvement: "No Pareto improvement",
+        max_iterations_reached: "Maximum iterations reached",
+      })[reason] || (typeof reason === "string" && reason ? reason.replace(/_/g, " ") : "In progress");
+      const renderProgress = (state, runtime, curve) => {
+        const configuredMin = pluginOption(runtime, "design_with_ppa.min_optimization_iterations");
+        const configuredMax = pluginOption(runtime, "design_with_ppa.max_optimization_iterations");
+        const minimum = Number.isInteger(state && state.min_optimization_iterations) ? state.min_optimization_iterations : Number.isInteger(configuredMin) ? configuredMin : 5;
+        const maximum = Number.isInteger(state && state.max_optimization_iterations) ? state.max_optimization_iterations : Number.isInteger(configuredMax) ? configuredMax : 1000;
+        const patience = Number.isInteger(state && state.no_improvement_patience) ? state.no_improvement_patience : Number.isInteger(pluginOption(runtime, "design_with_ppa.no_improvement_patience")) ? pluginOption(runtime, "design_with_ppa.no_improvement_patience") : 3;
+        const count = Number.isInteger(state && state.candidate_count) ? state.candidate_count : 0;
+        const progressTarget = Math.max(1, minimum);
+        const percent = minimum === 0 ? (state && state.status === "complete" ? 100 : 0) : Math.min(100, count / progressTarget * 100);
+        const noImprovementCount = Number.isInteger(state && state.no_improvement_count) ? state.no_improvement_count : 0;
+        setText("iteration-progress", `${count} / ${minimum}`);
+        setText("iteration-limits", `${count >= minimum ? "minimum met" : `${minimum - count} to minimum`} / max ${maximum}`);
+        byId("progress-bar").style.width = `${percent}%`;
+        byId("progress-track").setAttribute("aria-valuemax", String(progressTarget));
+        byId("progress-track").setAttribute("aria-valuenow", String(Math.min(count, progressTarget)));
+        setText("best-iteration", Number.isInteger(state && state.best_iteration) ? `v${state.best_iteration}` : "-");
+        setText("stop-reason", stopReasonLabel(state && state.stop_reason));
+        setText("no-improvement", `${noImprovementCount} / ${patience}`);
+        setText("current-task", currentTask(state));
+        setText("evaluated-count", curve && Array.isArray(curve.iterations) ? String(curve.iterations.length) : "-");
+        setText("omitted-count", curve && Array.isArray(curve.omitted_iterations) ? String(curve.omitted_iterations.length) : "-");
+        const complete = state && state.status === "complete";
+        setChip("iteration-state", complete ? "Optimization complete" : state ? "Evaluating candidates" : "Base pending", complete ? "complete" : "active");
+        setChip("overall-state", complete ? "Delivery complete" : state ? "Optimization in progress" : "Waiting for optimization data", complete ? "complete" : "active");
+        const language = pluginOption(runtime, "design_with_ppa.rtl.language");
+        setText("rtl-language", `RTL: ${typeof language === "string" && language ? language : "-"}`);
+      };
+      const renderPpa = (result, label) => {
+        if (!result || !result.ok || !result.data || result.data.status !== "success") { setChip("report-status", "Pending", "active"); return; }
+        const report = result.data;
+        const summary = report.summary || {};
+        const timing = summary.timing || {};
+        setChip("report-status", "Complete", "success");
+        setText("report-source", label);
+        setText("design-type", summary.design_type || timing.design_type || "-");
+        setText("area-value", format(summary.area && summary.area.total));
+        if (finite(timing.maximum_frequency_hz)) {
+          setText("timing-label", "Maximum frequency");
+          setText("timing-value", `${format(Number(timing.maximum_frequency_hz) / 1e6)} MHz`);
+          setText("timing-detail", "Equivalent minimum clock period");
+        } else {
+          setText("timing-label", "Critical-path delay");
+          setText("timing-value", `${format(timing.critical_path_delay_ns)} ns`);
+          setText("timing-detail", "Equivalent combinational timing metric");
+        }
+        setText("power-value", `${format(summary.power && summary.power.total_w)} W`);
+      };
+      const renderPpaScore = (curve) => {
+        const metric = curve && curve.selection_metric;
+        if (!metric || metric.status !== "available" || !finite(metric.best_value)) {
+          setText("ppa-score-value", "-");
+          setText("ppa-score-detail", "PPA score unavailable");
+          return;
+        }
+        setText("ppa-score-value", `${format(metric.best_value, 6)}x`);
+        setText("ppa-score-detail", `Top score v${metric.best_iteration} / base = 1.0 / diagnostic ranking; delivered best is Pareto-selected`);
+      };
+      const seriesCategory = (series) => {
+        const id = String(series.metric_id || "").toLowerCase();
+        const unit = String(series.unit || "").toLowerCase();
+        if (id.includes("area") || unit.includes("area")) return "area";
+        if (id.includes("power") || unit === "w" || unit.includes("watt")) return "power";
+        if (id.includes("frequency") || id.includes("critical_path") || id.includes("clock_period")) return "timing";
+        return "performance";
+      };
+      const prepareCanvas = (canvas) => {
+        const ratio = window.devicePixelRatio || 1;
+        const width = Math.max(300, canvas.clientWidth || 300);
+        const height = 240;
+        canvas.width = Math.round(width * ratio);
+        canvas.height = Math.round(height * ratio);
+        const context = canvas.getContext("2d");
+        context.setTransform(ratio, 0, 0, ratio, 0, 0);
+        context.clearRect(0, 0, width, height);
+        return { context, width, height };
+      };
+      const chartHitData = new Map();
+      const tooltip = (() => {
+        const el = document.createElement("div");
+        el.className = "chart-tooltip";
+        el.setAttribute("role", "tooltip");
+        document.body.append(el);
+        return el;
+      })();
+      const showTooltip = (clientX, clientY, title, rows) => {
+        tooltip.replaceChildren();
+        const titleEl = document.createElement("div");
+        titleEl.className = "tt-title";
+        titleEl.textContent = title;
+        tooltip.append(titleEl);
+        rows.forEach((row) => {
+          const rowEl = document.createElement("div");
+          rowEl.className = "tt-row";
+          const label = document.createElement("span");
+          label.className = "tt-label";
+          label.textContent = row[0];
+          const value = document.createElement("span");
+          value.className = "tt-value";
+          value.textContent = row[1];
+          rowEl.append(label, value);
+          tooltip.append(rowEl);
+        });
+        tooltip.style.display = "block";
+        const box = tooltip.getBoundingClientRect();
+        let left = clientX + 14;
+        let top = clientY - box.height - 10;
+        if (left + box.width > window.innerWidth - 8) left = clientX - box.width - 14;
+        if (top < 8) top = clientY + 16;
+        tooltip.style.left = `${left}px`;
+        tooltip.style.top = `${top}px`;
+      };
+      const hideTooltip = () => { tooltip.style.display = "none"; };
+      const attachChartInteraction = (canvas, entries) => {
+        const findHit = (event) => {
+          const rect = canvas.getBoundingClientRect();
+          const px = event.clientX - rect.left;
+          const py = event.clientY - rect.top;
+          let best = null;
+          let bestDist = Infinity;
+          entries.forEach((entry) => {
+            const dx = entry.cx - px;
+            const dy = entry.cy - py;
+            const dist = dx * dx + dy * dy;
+            if (dist < bestDist) { bestDist = dist; best = entry; }
+          });
+          return bestDist <= 18 * 18 ? best : null;
+        };
+        canvas.style.cursor = "default";
+        canvas.onmousemove = (event) => {
+          const hit = findHit(event);
+          if (!hit) { hideTooltip(); canvas.style.cursor = "default"; return; }
+          canvas.style.cursor = "pointer";
+          showTooltip(event.clientX, event.clientY, hit.title, hit.rows);
+        };
+        canvas.onmouseleave = hideTooltip;
+        canvas.onclick = (event) => {
+          const hit = findHit(event);
+          if (!hit) return;
+          const iteration = hit.iteration;
+          if (!Number.isInteger(iteration)) return;
+          const iterationRow = document.querySelector(
+            `#iteration-body td:first-child`
+          );
+          // Navigate the iteration table to the page containing this version.
+          const totalVersions = latestCurve && Array.isArray(latestCurve.iterations) ? latestCurve.iterations.length : 0;
+          if (!totalVersions) return;
+          const targetPage = Math.max(1, Math.ceil((iteration + 1) / iterationPageSize));
+          if (targetPage !== iterationPage) {
+            iterationPage = targetPage;
+            renderIterations(latestCurve);
+          }
+          const row = Array.from(document.querySelectorAll("#iteration-body tr"))
+            .find((tr) => tr.cells[0] && tr.cells[0].textContent === `v${iteration}`);
+          if (row) {
+            row.scrollIntoView({ block: "center", behavior: "smooth" });
+            row.style.outline = "2px solid var(--accent)";
+            row.style.outlineOffset = "1px";
+            setTimeout(() => { row.style.outline = ""; }, 2000);
+          }
+        };
+      };
+      const drawChart = (canvasId, seriesList, normalized) => {
+        const canvas = byId(canvasId);
+        const { context, width, height } = prepareCanvas(canvas);
+        const style = getComputedStyle(document.documentElement);
+        const muted = style.getPropertyValue("--muted").trim();
+        const border = style.getPropertyValue("--border").trim();
+        const surface = style.getPropertyValue("--surface").trim();
+        const rows = seriesList.map((series) => ({ series, points: (series.points || []).filter((point) => finite(normalized ? point.normalized_improvement_percent : point.value)) })).filter((row) => row.points.length);
+        if (!rows.length) { context.fillStyle = muted; context.textAlign = "center"; context.font = "13px system-ui"; context.fillText("No chart data", width / 2, height / 2); return; }
+        const all = rows.flatMap((row) => row.points.map((point) => Number(normalized ? point.normalized_improvement_percent : point.value)));
+        let min = Math.min(...all);
+        let max = Math.max(...all);
+        if (normalized) { min = Math.min(min, 0); max = Math.max(max, 0); }
+        if (min === max) { const pad = Math.abs(min || 1) * .1; min -= pad; max += pad; }
+        const maxIteration = Math.max(1, ...rows.flatMap((row) => row.points.map((point) => Number(point.iteration) || 0)));
+        const box = { left: 50, right: width - 16, top: 25 + Math.floor(rows.length / 2) * 13, bottom: height - 38 };
+        const x = (iteration) => box.left + (Number(iteration) || 0) / maxIteration * (box.right - box.left);
+        const y = (value) => box.bottom - (Number(value) - min) / (max - min) * (box.bottom - box.top);
+        context.strokeStyle = border; context.fillStyle = muted; context.font = "11px system-ui"; context.textAlign = "right";
+        for (let index = 0; index <= 4; index += 1) {
+          const value = min + (max - min) * index / 4;
+          const py = y(value);
+          context.beginPath(); context.moveTo(box.left, py); context.lineTo(box.right, py); context.stroke(); context.fillText(format(value, 4), box.left - 6, py + 4);
+        }
+        context.textAlign = "center";
+        for (let iteration = 0; iteration <= maxIteration; iteration += 1) context.fillText(`v${iteration}`, x(iteration), box.bottom + 17);
+        if (normalized && min < 0 && max > 0) { context.strokeStyle = muted; context.beginPath(); context.moveTo(box.left, y(0)); context.lineTo(box.right, y(0)); context.stroke(); }
+        const hitEntries = [];
+        rows.forEach((row, seriesIndex) => {
+          const color = COLORS[seriesIndex % COLORS.length];
+          row.points.slice(1).forEach((point, pointIndex) => {
+            const previous = row.points[pointIndex];
+            const segmentAccepted = previous.accepted === true && point.accepted === true;
+            context.strokeStyle = segmentAccepted ? color : muted;
+            context.lineWidth = segmentAccepted ? 2 : 1;
+            context.setLineDash(segmentAccepted ? [] : [4, 4]);
+            context.beginPath();
+            context.moveTo(x(previous.iteration), y(normalized ? previous.normalized_improvement_percent : previous.value));
+            context.lineTo(x(point.iteration), y(normalized ? point.normalized_improvement_percent : point.value));
+            context.stroke();
+          });
+          context.setLineDash([]);
+          row.points.forEach((point) => {
+            const cx = x(point.iteration);
+            const cy = y(normalized ? point.normalized_improvement_percent : point.value);
+            context.beginPath(); context.arc(cx, cy, point.best ? 6 : 4, 0, Math.PI * 2); context.fillStyle = point.accepted ? color : surface; context.fill(); context.strokeStyle = point.accepted ? color : muted; context.lineWidth = point.best ? 3 : 1; context.stroke();
+            const status = point.best ? "best" : point.accepted ? "accepted" : "rejected";
+            const rows = [
+              ["version", `v${point.iteration}`],
+              ["decision", status],
+              ["value", `${format(point.value, 6)}${row.series.unit ? ` ${row.series.unit}` : ""}`],
+            ];
+            if (normalized && finite(point.normalized_improvement_percent))
+              rows.push(["vs base", `${format(point.normalized_improvement_percent, 4)}%`]);
+            hitEntries.push({ cx, cy, iteration: point.iteration, title: `${row.series.metric_id} — v${point.iteration}`, rows });
+          });
+          context.fillStyle = color; context.textAlign = "left"; context.fillText(row.series.metric_id, box.left + (seriesIndex % 2) * Math.max(150, (box.right - box.left) / 2), 11 + Math.floor(seriesIndex / 2) * 13);
+        });
+        attachChartInteraction(canvas, hitEntries);
+      };
+      const renderIterations = (curve) => {
+        const head = byId("iteration-head");
+        const body = byId("iteration-body");
+        head.replaceChildren(); body.replaceChildren();
+        const iterations = (curve && Array.isArray(curve.iterations) ? curve.iterations : []).filter((iteration) => iteration && (iteration.accepted === true ? displayFilters.accepted : displayFilters.rejected));
+        const totalPages = Math.max(1, Math.ceil(iterations.length / iterationPageSize));
+        iterationPage = Math.min(Math.max(1, iterationPage), totalPages);
+        byId("iteration-prev").disabled = iterationPage <= 1;
+        byId("iteration-next").disabled = iterationPage >= totalPages;
+        setText("iteration-page-status", `Page ${iterationPage} / ${totalPages} / ${iterations.length} versions`);
+        if (!iterations.length) {
+          const row = document.createElement("tr"); const cell = document.createElement("td"); cell.colSpan = 4; cell.className = "note"; cell.textContent = "No versions match the active filters"; row.append(cell); body.append(row); return;
+        }
+        const order = (Array.isArray(curve.metric_order) ? curve.metric_order : []).filter((metricId) => displayFilters.metrics.get(metricId) !== false);
+        const header = document.createElement("tr");
+        ["Version", "Decision", "Rejection details", "Sources and reports", "PPA score", ...order].forEach((label, index) => { const cell = document.createElement("th"); cell.textContent = label; if (index >= 4) cell.className = "numeric"; header.append(cell); });
+        head.append(header);
+        const pageStart = (iterationPage - 1) * iterationPageSize;
+        iterations.slice(pageStart, pageStart + iterationPageSize).forEach((iteration) => {
+          const row = document.createElement("tr");
+          if (iteration.accepted !== true) row.className = "rejected-row";
+          const version = document.createElement("td"); version.textContent = `v${iteration.iteration}`;
+          const decision = document.createElement("td"); const chip = document.createElement("span"); chip.className = "chip"; chip.textContent = iteration.best ? "best" : iteration.accepted ? "accepted" : "rejected"; chip.dataset.state = iteration.accepted ? "accepted" : "rejected"; decision.append(chip);
+          const reason = document.createElement("td"); reason.className = "rejection-cell";
+          const reasonTitle = document.createElement("span"); reasonTitle.className = "rejection-title";
+          const rejection = iteration.rejection && typeof iteration.rejection === "object" ? iteration.rejection : null;
+          const reasonCode = rejection && rejection.code || iteration.rejection_reason;
+          const reasonLabels = {
+            pareto_regression: "Strict Pareto regression",
+            no_pareto_improvement: "No primary metric strictly improved",
+            hard_performance_target_failed: "Hard performance target failed",
+            functional_regression_failed: "Full functional regression failed",
+            incomplete_functional_or_ppa_evidence: "Incomplete functional or PPA evidence",
+          };
+          reasonTitle.textContent = reasonCode ? (reasonLabels[reasonCode] || reasonCode) : (iteration.kind === "base" ? "Base version" : "Passed strict Pareto gate");
+          reason.append(reasonTitle);
+          if (rejection) {
+            const compared = rejection.compared_to_iteration;
+            if (Number.isInteger(compared)) {
+              const detail = document.createElement("span"); detail.className = "rejection-detail"; detail.textContent = `Compared with accepted v${compared}`; reason.append(detail);
+            }
+            const metrics = Array.isArray(rejection.metrics) ? rejection.metrics : [];
+            metrics.forEach((metric) => {
+              const detail = document.createElement("span"); detail.className = "rejection-detail";
+              const unit = metric.unit ? ` ${metric.unit}` : "";
+              if (metric.assessment === "hard_target_failed") {
+                const operator = metric.direction === "max" ? "≥" : "≤";
+                detail.textContent = `${metric.metric_id}: ${format(metric.current_value, 6)}${unit}; required ${operator} ${format(metric.target_value, 6)}${unit}`;
+              } else {
+                const percent = finite(metric.percent_change) ? `; regressed ${format(Math.abs(metric.percent_change), 4)}%` : "";
+                detail.textContent = `${metric.metric_id}: ${format(metric.previous_value, 6)} → ${format(metric.current_value, 6)}${unit}${percent}`;
+              }
+              reason.append(detail);
+            });
+            if (rejection.test_summary) {
+              const detail = document.createElement("span"); detail.className = "rejection-detail"; detail.textContent = rejection.test_summary; reason.append(detail);
+            }
+          }
+          const artifactCell = document.createElement("td"); artifactCell.className = "artifact-cell";
+          const artifactLinks = document.createElement("div"); artifactLinks.className = "artifact-links";
+          const artifacts = iteration.artifacts && typeof iteration.artifacts === "object" ? iteration.artifacts : {};
+          const appendArtifactLink = (label, path) => {
+            const normalized = normalizePath(path);
+            if (!isSafeWorkspacePath(normalized)) return;
+            const link = document.createElement("a"); link.textContent = label; link.href = `${WORKSPACE_PREFIX}${normalized}`; link.target = "_blank"; link.rel = "noopener"; artifactLinks.append(link);
+          };
+          (Array.isArray(artifacts.rtl_sources) ? artifacts.rtl_sources : []).forEach((source, index) => {
+            const originalPath = normalizePath(source && source.original_path);
+            const fileName = originalPath.split("/").pop() || `source-${index + 1}`;
+            appendArtifactLink(`Source / ${fileName}`, source && source.path);
+          });
+          appendArtifactLink("Snapshot manifest", artifacts.snapshot_manifest);
+          appendArtifactLink("Iteration report", artifacts.iteration_report);
+          artifactCell.append(artifactLinks);
+          row.append(version, decision, reason, artifactCell);
+          const score = document.createElement("td"); score.className = "numeric";
+          const scoreValue = iteration.ppa_score && iteration.ppa_score.value;
+          score.textContent = finite(scoreValue) ? `${format(scoreValue, 6)}x` : "-";
+          score.title = iteration.selection_eligible ? "eligible for best-version selection" : "diagnostic only; rejected versions are not eligible";
+          row.append(score);
+          order.forEach((metricId) => {
+            const metric = iteration.metrics && iteration.metrics[metricId] || {};
+            const cell = document.createElement("td"); cell.className = "numeric";
+            const available = finite(metric.value);
+            const value = document.createElement("span"); value.textContent = available ? `${format(metric.value)} ${metric.unit || ""}`.trim() : "-";
+            const delta = document.createElement("span"); delta.className = "delta";
+            const improvement = Number(metric.normalized_improvement_percent);
+            delta.textContent = !available || metric.normalized_improvement_percent === null || !Number.isFinite(improvement) ? "Unavailable" : `${improvement > 0 ? "+" : ""}${format(improvement, 3)}%`;
+            delta.dataset.direction = improvement > 0 ? "improved" : improvement < 0 ? "regressed" : "unchanged";
+            cell.append(value, delta); row.append(cell);
+          });
+          body.append(row);
+        });
+      };
+      const renderMetricFilters = (series) => {
+        const container = byId("metric-filters");
+        const metricIds = [];
+        series.forEach((item) => {
+          const metricId = item && item.metric_id;
+          if (typeof metricId === "string" && metricId && !metricIds.includes(metricId)) metricIds.push(metricId);
+        });
+        const active = new Set(metricIds);
+        Array.from(displayFilters.metrics.keys()).forEach((metricId) => { if (!active.has(metricId)) displayFilters.metrics.delete(metricId); });
+        container.replaceChildren();
+        metricIds.forEach((metricId) => {
+          if (!displayFilters.metrics.has(metricId)) displayFilters.metrics.set(metricId, true);
+          const label = document.createElement("label");
+          const input = document.createElement("input"); input.type = "checkbox"; input.checked = displayFilters.metrics.get(metricId) !== false; input.dataset.metricId = metricId;
+          input.addEventListener("change", () => { displayFilters.metrics.set(metricId, input.checked); persistPreferences(); if (latestCurve) renderCurve({ ok: true, data: latestCurve }); });
+          label.append(input, document.createTextNode(metricId)); container.append(label);
+        });
+      };
+      const versionIsVisible = (point) => point && (point.accepted === true ? displayFilters.accepted : displayFilters.rejected);
+      const visibleSeries = (series) => series.filter((item) => {
+        const metricId = item && item.metric_id;
+        return typeof metricId === "string" && displayFilters.metrics.get(metricId) !== false;
+      }).map((item) => ({ ...item, points: Array.isArray(item.points) ? item.points.filter(versionIsVisible) : [] }));
+      const renderCurve = (result) => {
+        const curve = result && result.ok ? result.data : null;
+        latestCurve = curve;
+        const series = curve && Array.isArray(curve.series) ? curve.series : [];
+        renderMetricFilters(series);
+        const filtered = visibleSeries(series);
+        const scoreMetric = curve && curve.selection_metric || {};
+        const scoreSeries = {
+          metric_id: scoreMetric.metric_id || "ppa.selection_score",
+          unit: scoreMetric.unit || "x_base",
+          direction: "max",
+          points: Array.isArray(scoreMetric.points) ? scoreMetric.points.filter(versionIsVisible) : [],
+        };
+        renderPpaScore(curve);
+        drawChart("ppa-score-chart", [scoreSeries], false);
+        drawChart("timing-chart", filtered.filter((item) => seriesCategory(item) === "timing"), false);
+        drawChart("performance-chart", filtered.filter((item) => seriesCategory(item) === "performance"), false);
+        drawChart("area-chart", filtered.filter((item) => seriesCategory(item) === "area"), false);
+        drawChart("power-chart", filtered.filter((item) => seriesCategory(item) === "power"), false);
+        drawChart("improvement-chart", filtered, true);
+        renderIterations(curve);
+      };
+      const deriveToffeeReportPath = (payload) => {
+        const context = payload && typeof payload.context === "object" ? payload.context : {};
+        const resultPath = normalizePath(context.result_path);
+        if (!isSafeWorkspacePath(resultPath)) return "uc_test_report/index.html";
+        const parts = resultPath.split("/");
+        parts[parts.length - 1] = "index.html";
+        return parts.join("/");
+      };
+      const updateToffeeLink = (result) => {
+        const path = deriveToffeeReportPath(result && result.ok ? result.data : null);
+        const link = byId("toffee-report-link");
+        link.href = `${WORKSPACE_PREFIX}${path}`;
+        link.dataset.reportPath = path;
+      };
+      const refreshDashboard = async () => {
+        if (loading) return;
+        loading = true; byId("refresh-button").disabled = true;
+        try {
+          const [runtime, state, testReport, finalPpa, currentPpa, curve] = await Promise.all([
+            readJson(SOURCES.runtimeConfig), readJson(SOURCES.iterationState), readJson(SOURCES.currentTestReport), readJson(SOURCES.finalPpa), readJson(SOURCES.currentPpa), readJson(SOURCES.curve),
+          ]);
+          renderProgress(state.ok ? state.data : null, runtime.ok ? runtime.data : null, curve.ok ? curve.data : null);
+          renderPpa(finalPpa.ok ? finalPpa : currentPpa, finalPpa.ok ? "Final PPA" : "Current PPA");
+          renderCurve(curve); updateToffeeLink(testReport);
+          setText("last-updated", `Updated ${new Intl.DateTimeFormat("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date())}`);
+        } finally { byId("refresh-button").disabled = false; loading = false; }
+      };
+      const initialize = () => {
+        if (document.body.dataset.dashboardContract !== DASHBOARD_SCHEMA) return;
+        byId("filter-accepted").checked = displayFilters.accepted;
+        byId("filter-rejected").checked = displayFilters.rejected;
+        byId("iteration-page-size-custom").value = String(iterationPageSize);
+        const pageSizeSelect = byId("iteration-page-size");
+        if (Array.from(pageSizeSelect.options).some((option) => Number(option.value) === iterationPageSize)) pageSizeSelect.value = String(iterationPageSize);
+        else pageSizeSelect.selectedIndex = -1;
+        applyTheme(savedPreferences.theme, false);
+        byId("dashboard-theme-toggle").addEventListener("click", (event) => {
+          const button = event.target.closest("[data-theme-option]");
+          if (button) applyTheme(button.dataset.themeOption);
+        });
+        if (FILE_MODE) {
+          byId("workspace-control").hidden = false;
+          setText("resource-mode", "Local files / read-only auto-refresh");
+          byId("workspace-directory").addEventListener("change", (event) => { workspaceFiles = indexWorkspaceFiles(event.target.files); refreshDashboard(); });
+        }
+        byId("refresh-button").addEventListener("click", refreshDashboard);
+        byId("filter-accepted").addEventListener("change", (event) => { displayFilters.accepted = event.target.checked; persistPreferences(); if (latestCurve) renderCurve({ ok: true, data: latestCurve }); });
+        byId("filter-rejected").addEventListener("change", (event) => { displayFilters.rejected = event.target.checked; persistPreferences(); if (latestCurve) renderCurve({ ok: true, data: latestCurve }); });
+        byId("iteration-page-size").addEventListener("change", (event) => {
+          const selected = Number(event.target.value);
+          if (Number.isInteger(selected) && selected >= 1 && selected <= 1000) {
+            iterationPageSize = selected;
+            byId("iteration-page-size-custom").value = String(selected);
+            iterationPage = 1;
+            persistPreferences();
+            if (latestCurve) renderIterations(latestCurve);
+          }
+        });
+        byId("iteration-page-size-custom").addEventListener("change", (event) => {
+          const custom = Number(event.target.value);
+          if (Number.isInteger(custom) && custom >= 1 && custom <= 1000) {
+            iterationPageSize = custom;
+            iterationPage = 1;
+            if (Array.from(pageSizeSelect.options).some((option) => Number(option.value) === custom)) pageSizeSelect.value = String(custom);
+            else pageSizeSelect.selectedIndex = -1;
+            persistPreferences();
+            if (latestCurve) renderIterations(latestCurve);
+          } else {
+            event.target.value = String(iterationPageSize);
+          }
+        });
+        byId("iteration-prev").addEventListener("click", () => {
+          iterationPage = Math.max(1, iterationPage - 1);
+          persistPreferences();
+          if (latestCurve) renderIterations(latestCurve);
+        });
+        byId("iteration-next").addEventListener("click", () => {
+          const totalPages = Math.max(1, Math.ceil((latestCurve && Array.isArray(latestCurve.iterations) ? latestCurve.iterations.length : 0) / iterationPageSize));
+          iterationPage = Math.min(totalPages, iterationPage + 1);
+          persistPreferences();
+          if (latestCurve) renderIterations(latestCurve);
+        });
+        window.addEventListener("resize", () => { if (resizeTimer !== null) window.clearTimeout(resizeTimer); resizeTimer = window.setTimeout(() => { if (latestCurve) renderCurve({ ok: true, data: latestCurve }); }, 100); });
+        refreshTimer = window.setInterval(refreshDashboard, REFRESH_INTERVAL_MS);
+        window.addEventListener("beforeunload", () => { if (refreshTimer !== null) window.clearInterval(refreshTimer); if (resizeTimer !== null) window.clearTimeout(resizeTimer); }, { once: true });
+        refreshDashboard();
+      };
+      initialize();
+    })();
+  </script>
+</body>
+</html>

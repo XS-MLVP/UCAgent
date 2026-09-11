@@ -1,0 +1,9 @@
+observation_contract:
+  schema_version: "1.0"
+  events: []
+  checkpoints:
+    - id: FG-DESIGN/FC-BEHAVIOR/CK-EXPECTED
+      observation: pins
+      event: null
+      fields: [replace_with_public_pin]
+      predicate_intent: Replace with the exact public observation for this functional CK.

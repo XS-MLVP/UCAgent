@@ -40,6 +40,7 @@ from ucagent.checkers.base import Checker
 from ucagent.cli import _plugin_discovery_overrides, run
 from ucagent.stage.vstage import parse_vstage
 from ucagent.tools.uctool import UCTool, to_fastmcp
+from ucagent.tools.fileops import is_file_writeable as _is_file_writeable
 from ucagent.util.config import Config
 from ucagent.verify_agent import VerifyAgent
 
@@ -211,6 +212,7 @@ def test_local_plugin_import_root_is_available_to_test_subprocesses(
         ]
     finally:
         agent.exit()
+
 
 def test_plugin_import_root_is_available_to_stage_checker_pytest(
     tmp_path: Path,
@@ -1574,6 +1576,77 @@ def test_verify_agent_rejects_doc_contribution_when_runtime_docs_are_disabled(
         )
 
 
+def test_verify_agent_allows_protected_template_file_inside_render_target(
+    tmp_path: Path,
+) -> None:
+    """One template-rendered file may protect itself inside the render target."""
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    template_root = tmp_path / "templates"
+    template = template_root / "managed"
+    template.mkdir(parents=True)
+    (template / "generated.txt").write_text("generated\n", encoding="utf-8")
+    (template / "locked.py").write_text("managed = True\n", encoding="utf-8")
+
+    agent = VerifyAgent(
+        workspace=str(workspace),
+        dut_name="dut",
+        output="out",
+        config_file="master.yaml",
+        cfg_override=[
+            {"backend.key_name": "blank"},
+            {"template": "managed"},
+            {"un_write_dirs": ["out/locked.py"]},
+        ],
+        template_dir=str(template_root),
+        template_target="{OUT}",
+        no_embed_tools=True,
+        no_history=True,
+    )
+    assert (workspace / "out" / "generated.txt").read_text(
+        encoding="utf-8"
+    ) == "generated\n"
+    locked = workspace / "out" / "locked.py"
+    assert locked.read_text(encoding="utf-8") == "managed = True\n"
+    assert not (locked.stat().st_mode & 0o200), "rendered file must be read-only"
+    ok, reason = _is_file_writeable(
+        "out/locked.py", un_write_dirs=["out/locked.py"]
+    )
+    assert ok is False, reason
+    del agent
+
+
+def test_verify_agent_rejects_protected_directory_inside_render_target(
+    tmp_path: Path,
+) -> None:
+    """Directory-level read-only protection inside a render target stays invalid."""
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    template_root = tmp_path / "templates"
+    template = template_root / "blocked"
+    template.mkdir(parents=True)
+    (template / "generated.txt").write_text("generated\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="read-only path"):
+        VerifyAgent(
+            workspace=str(workspace),
+            dut_name="dut",
+            output="out",
+            config_file="master.yaml",
+            cfg_override=[
+                {"backend.key_name": "blank"},
+                {"template": "blocked"},
+                {"un_write_dirs": ["out/ro_dir"]},
+            ],
+            template_dir=str(template_root),
+            template_target="{OUT}",
+            no_embed_tools=True,
+            no_history=True,
+        )
+
+
 def test_verify_agent_rejects_template_target_overlapping_read_only_input(
     tmp_path: Path,
 ) -> None:
@@ -1696,3 +1769,25 @@ def test_verify_agent_renders_dynamic_workflow_template_context(
         ) == "language=chisel\n"
     finally:
         agent.exit()
+
+
+def test_design_with_ppa_local_plugin_creates_mcp_compatible_tool(tmp_path: Path) -> None:
+    """The shipped DesignWithPPA project must load, locate assets, and convert to MCP."""
+
+    repository = Path(__file__).resolve().parent.parent
+    project = repository / "examples" / "DesignWithPPA"
+    loaded = load_plugin(str(project))
+    tools = create_plugin_tools([loaded], _context(tmp_path))
+
+    assert loaded.plugin.name == "design-with-ppa"
+    assert plugin_summary(loaded)["tool_factories"] == 1
+    assert [tool.name for tool in tools] == ["AnalyzePPA", "RunDesignConsistency"]
+    assert tools[0]._DEFAULT_LIBERTY.is_file()
+    parameters = to_fastmcp(tools[0]).parameters
+    rtl_schema = parameters["properties"]["rtl_files"]
+    assert rtl_schema["anyOf"][0] == {"items": {"type": "string"}, "type": "array"}
+    waveform_schema = parameters["properties"]["waveform_files"]
+    assert waveform_schema["anyOf"][0] == {"items": {"type": "string"}, "type": "array"}
+    consistency_parameters = to_fastmcp(tools[1]).parameters
+    assert consistency_parameters["properties"]["test_dir"]["default"] == "{OUT}/tests"
+    assert consistency_parameters["properties"]["test_glob"]["default"] == "{OUT}/tests/test_{DUT}_*.py"

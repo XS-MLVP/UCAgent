@@ -1,0 +1,1542 @@
+template: unit_design
+
+template_overwrite:
+  RTL_LANGUAGE: "Verilog"
+  RTL_LANGUAGE_ID: "verilog"
+  RTL_SOURCE_FILE: "{DUT}.v"
+  RTL_SOURCE_GLOB: "{OUT}/rtl/*.v"
+  RTL_SOURCE_TEMPLATE: "verilog-2005"
+  RTL_SOURCE_TEMPLATE_BODY: ""
+  RTL_CODING_GUIDE: "Guide_Doc/coding_standard_verilog.md"
+  RTL_CODING_GUIDE_FILE: "coding_standard_verilog.md"
+  RTL_LIBRARY_PATHS: "[]"
+  RTL_LIBRARY_GLOB: "{DUT}/lib/**/*.v"
+  RTL_SOURCE_VALIDATION_CHECKER: "RTLLineCoverageChecker"
+  RTL_SOURCE_VALIDATION_DESC: "RTL 代码行覆盖率 [{COVERAGE_COMPLETE}]"
+  RTL_SOURCE_VALIDATION_TASK: "运行 Check 获取 RTL 行覆盖率，补充测试直到覆盖率门禁通过。"
+  RTL_SOURCE_VALIDATION_GUIDE: "Guide_Doc/rtl_line_coverage.md"
+  RTL_SOURCE_VALIDATION_GUIDE_FILE: "rtl_line_coverage.md"
+  RTL_SOURCE_VALIDATION_REPORT: "{OUT}/{DUT}_line_coverage_analysis.md"
+
+design_with_ppa:
+  # Minimum number of candidate rounds.  The search continues beyond this
+  # value while a complete candidate strictly improves the Pareto metrics.
+  min_optimization_iterations: $(DESIGN_WITH_PPA_MIN_OPTIMIZATION_ITERATIONS: 5)
+  # Safety ceiling; unlike the minimum, reaching it terminates the search.
+  max_optimization_iterations: $(DESIGN_WITH_PPA_MAX_OPTIMIZATION_ITERATIONS: 1000)
+  no_improvement_patience: $(DESIGN_WITH_PPA_NO_IMPROVEMENT_PATIENCE: 3)
+  # Metric categories that must not regress against the previously accepted
+  # version for a candidate to be accepted.  Comma-separated subset of
+  # performance, area, timing, power.  The default protects performance and
+  # timing so area and power are optimized without losing performance.
+  no_regression_metrics: $(DESIGN_WITH_PPA_NO_REGRESSION_METRICS: performance,timing)
+  # Selection-score exponents per PPA dimension: the score is
+  # timing_efficiency^w * area_efficiency^w * power_efficiency^w.  A weight
+  # of 0 removes a dimension; every weight defaults to 1.0.  Custom
+  # performance metrics carry no weight: the timing dimension already
+  # represents them through the frequency metric.
+  score_weights:
+    timing: 1.0
+    area: 1.0
+    power: 1.0
+  rtl:
+    language: verilog
+    source_glob: "{OUT}/rtl/*.v"
+    source_template: verilog-2005
+    library_paths: []
+    library_path_append: "$(DESIGN_WITH_PPA_RTL_LIBRARY_PATHS:)"
+    language_options: {}
+    python_dut:
+      interface: "automatic"
+      options: {}
+  ppa:
+    waveform_scope: "TOP.{DUT}"
+    liberty_file: null
+    sdc_file: null
+    clock_port: null
+    clock_period_ns: null
+    max_timing_paths: 10
+    max_power_instances: 10
+
+guide_doc:
+  plugin_copy_policy:
+    default_action: ignore
+    retain:
+      - "{RTL_CODING_GUIDE_FILE}"
+      - design_document_sync.md
+      - design_final_report.md
+      - design_input_and_architecture.md
+      - design_observation_contract.md
+      - design_ut_contract.md
+      - performance_contract.md
+      - performance_measurement.md
+      - ppa_optimization.md
+      - python_dut_interface.md
+      - python_executable_spec.md
+      - rtl_backend.md
+      - "{RTL_SOURCE_VALIDATION_GUIDE_FILE}"
+      - rtl_design_constraints.md
+    ignore: []
+  core_copy_policy:
+    default_action: ignore
+    retain:
+      - dut_api_instruction.md
+      - dut_fixture.md
+      - dut_function_coverage_def.md
+      - dut_functions_and_checks.md
+      - dut_line_coverage.md
+      - dut_line_func_map.md
+      - dut_test_case.md
+      - dut_test_case_random.md
+      - dut_test_template.md
+    override: []
+    ignore: []
+
+skill:
+  # Core UnityTest general skills describe verification-only Bug workflows that are
+  # not part of this design mission. Workflow-local optional skills remain available.
+  general_skill_list: []
+
+tools:
+  RunTestCases:
+    test_dir: "{OUT}/tests"
+  ignore_tools: ["WorkDiff", "WorkCommit", "RunBashCommand"]
+
+# The rendered shared conftest is template-managed: every pytest gate depends
+# on its managed backend selector, so the workflow denies writes to it and
+# UCAgent marks it read-only at initialization.
+un_write_dirs:
+  - "{OUT}/tests/conftest.py"
+
+hist_ignore_pattern:
+  - ".pytest_cache"
+  - "__pycache__"
+  - "*.pyc"
+  - ".*"
+  - ".git"
+  - "tests/data"
+  - "performance/waves"
+
+mission:
+  name: "{DUT}模块设计"
+  prompt:
+    system: |
+
+      使用 `{RTL_LANGUAGE}` 设计并优化 `{DUT}` 单元电路；全部电路源码必须匹配
+      `{RTL_SOURCE_GLOB}`。只读使用 `{DUT}/README.md`、`{DUT}/spec/**/*.md` 和配置列出的
+      `{RTL_LIBRARY_PATHS}` 只读库源码，所有交付物只写入 `{OUT}`。
+
+      先实现 Python 可执行规格、统一 API 和一套 FG/FC/CK pytest，再实现
+      `{RTL_LANGUAGE}` 电路；两者必须通过同一套功能与性能测试。不得复制测试逻辑、弱化断言、
+      skip/xfail 或伪造验证证据。Python 代码只通过 `RunTestCases` 或 Check/Complete 执行；
+      `{RTL_LANGUAGE}` 验证、波形收集和 PPA 分析只通过 Check/Complete 执行。
+
+      README、Spec、已确认的 architecture 和 FG/FC/CK 功能合同是行为权威。Python reference
+      是这些需求的可执行实现，不是永久冻结或不可修改的 oracle。reference 创建后，任何阶段若
+      由需求、测试或 Check 证据发现其功能、状态、reset、时序、非法输入或边界行为不符合权威
+      合同，都可以修正 `{OUT}/tests/{DUT}_reference.py`，并同步受影响的 adapter、API、fixture、
+      coverage predicate、测试 expected 和文档。修正后必须重新运行受影响的 Python 测试；已经
+      存在 RTL 或 PPA 证据时，还必须重新通过同一 TC 的 RTL 回归并重建失效证据。不得为了迁就
+      当前 RTL 的错误输出、错误测试、旧 expected 或 PPA 结果而修改 reference 或功能合同。动态
+      修正 Python reference 时，必须同步核对对应 FG/FC/CK 的功能覆盖；TC 可以与 reference
+      一同完善，也可以单独完善，但最终必须重新运行所有受影响 TC，并确认对应功能覆盖真实命中、
+      相关测试门禁全部通过。
+
+      文件读取、编辑、阶段推进和验证必须使用当前会话中以 `unitytest_` 开头的工作流工具，
+      例如 `unitytest_ReadTextFile`、`unitytest_CurrentTips`、`unitytest_Check` 和
+      `unitytest_Complete`。OpenCode 原生的 `read`、`edit`、`glob`、`grep` 或其他文件工具
+      不能替代这些工作流工具，否则读取和验证不会被记录；不要调用 shell、直接 Python 命令或
+      临时脚本执行测试。`{OUT}/tests/conftest.py` 是模板托管的只读文件（工作流已设为不可写）：
+      任何阶段都不要修改或重写它；发现它与 architecture、统一环境规范或 adapter 公开能力
+      不一致时，在阶段日志中报告具体不一致并继续处理其他产物，由模板维护方修复。
+
+      RTL 顶层端口必须严格保持 architecture 与 Python reference 的公共端口集合。不要为了
+      覆盖、诊断或事件元数据增加 `conversion_kind`、`zero_kind` 等额外 RTL 端口；这些字段
+      属于 adapter 的 backend-neutral 观测，应由 adapter 根据同一组公开输入、输出和确定性
+      参考语义归一化，或在无法可靠观测时保持缺失并由测试合同调整。不要把内部构建信号暴露
+      成设计接口。
+
+      每个阶段先调用 `CurrentTips`，完整读取当前 `reference_files`，优先修改当前任务列出的主要
+      产物。若证据指向已经存在的共享 reference 或测试基础设施与权威合同不一致，按上述规则同步
+      修正相关文件，而不是受主要产物列表阻止。完成后调用 Check，按 `error_code`、`artifact`、
+      `observed`、`expected` 和 `next_action` 修复；通过后记录阶段日志并调用 Complete。Skill
+      不可用时直接使用阶段任务、Guide_Doc、模板和工具完成相同交付。Check/Complete 默认只返回
+      精简诊断；确实需要完整 `check_info`、逐门禁明细或原始 STDOUT/STDERR 时，用相同阶段
+      参数重调一次并加 `stage_args={"full_output": true}`，不要默认开启。
+
+      `CurrentTips` 列出的 reference_files、当前 output_files、工具诊断，以及上述证据驱动修正
+      规则明确命名的共享 Python 文件是完整任务接口；需要修正 reference 时直接读取固定路径
+      `{OUT}/tests/{DUT}_reference.py`，不搜索包实现或无关源码。不调用内建 Explore/task/subagent，
+      不使用 shell、直接 Python 命令或临时脚本执行测试。
+    tips:
+      always:
+        - "先调用 CurrentTips，逐一读取当前阶段列出的 reference_files，再处理当前阶段的主要产物；需求或验证证据证明共享 reference/测试基础设施不符合权威合同时，可以同步修正并重跑受影响门禁。"
+        - "写完当前任务后调用 Check；修正全部明确诊断并通过后，记录阶段日志并调用 Complete。"
+        - "Check/Complete 默认返回精简诊断（failure_summary 或 progress_summary）；诊断不足以定位问题时，用相同阶段参数重调 `Check(stage_args={\"full_output\": true})` 或 `Complete(stage_args={\"full_output\": true})` 获取完整 check_info 与 STDOUT/STDERR。full_output 只控制返回信息不影响验证；默认不要开启，以免重复占用上下文。"
+        - "Python reference、API、fixture、coverage 和测试只通过 RunTestCases 或 Check/Complete 执行。"
+        - "Python reference 不是永久冻结的 oracle：只按 README、Spec、architecture 和 FG/FC/CK 修正；动态修正时同步核对对应 FG/FC/CK 的功能覆盖；TC 可以与 reference 一同完善，也可以单独完善，但最终必须让受影响 TC、功能覆盖和相关门禁通过；不得为匹配错误 RTL、错误测试、旧 expected 或 PPA 结果而改。"
+        - "只编写当前选定的 `{RTL_LANGUAGE}` 电路源码；验证与 PPA 分析由 Check/Complete 执行。"
+        - "CurrentTips 列出的参考文件、当前产物、工具诊断及固定路径 `{OUT}/tests/{DUT}_reference.py` 是完整输入；仅在需求或验证证据要求时读取并修正 reference，不调用内建 Explore/task/subagent，不搜索包实现或无关源码。"
+        - "`{OUT}/tests/conftest.py` 是模板托管的只读文件：不要尝试修改或重写它；发现不一致时在阶段中报告，不要绕过写保护。"
+      random:
+        - "批处理阶段每次 Check 后重新调用 CurrentTips，优先完成其中列出的当前 batch；若其他 batch 的内容已正确完成，保留这些内容，Check 会按同一合同验证并更新真实进度，不得为匹配批次提示而回退正确产物。"
+        - "测试或工具失败时先修复最早的具体错误，不使用 skip、xfail、弱化断言或手写证据。"
+
+stage:
+  - name: design_contract
+    desc: "需求计划、基础信息、功能合同与接口架构"
+    task:
+      - "目标：把只读 README/Spec 转化为可实现、可测试的设计合同基线——需求计划、接口基础信息、唯一 FG/FC/CK 功能合同、逐行 Spec 映射与冻结 architecture，为后续全部实现与验证提供权威输入。"
+      - "第1步：只读分析 `{DUT}/README.md` 与全部 Spec，先形成需求计划，再单独整理基础接口信息。"
+      - "第2步：独立建立唯一 FG/FC/CK 功能合同，覆盖全部可由 DUT 公共接口观测的功能、边界、reset、时序和非法输入行为；测试框架、fixture、用例数量、覆盖流程和报告要求留在计划中，不伪装成功能 CK。"
+      - "第3步：逐行映射每份 Spec，细化所有 CK，并在独立阶段冻结可实现、可测试的 architecture。"
+      - "第4步：每个子阶段只维护其 output_files 指定的一类产物；只在 `{OUT}` 写入，并按 CurrentTips、Check、Complete 顺序推进。"
+    stage:
+      - name: design_needs_and_plan
+        desc: "只读输入基线与设计计划"
+        task:
+          - "目标：从只读 README/Spec 建立完整的设计与验证计划，逐项记录需求来源、输入歧义与实现风险，作为后续所有阶段的可追溯需求基线；本阶段不产生任何设计实现。"
+          - "第1步：调用 CurrentTips，读取 `{DUT}/README.md` 和按 workspace-relative POSIX 路径排序的 `{DUT}/spec/**/*.md`；任何输入缺失或为空时先按诊断处理，不能修改 `{DUT}`。"
+          - "第2步：逐份提取设计目标、功能范围、硬约束、外部库要求、性能要求、输入中的歧义和实现风险；每项结论保留 README 或 Spec 路径与物理行。"
+          - "第3步：把实现、Python executable spec、共享 UT、当前语言源码、性能证据、PPA 优化和最终交付的顺序写入 `{OUT}/{DUT}_design_needs_and_plan.md`；同时记录 API、fixture、用例数量、coverage 和报告等验证流程要求，后续不得把这些流程要求写成功能 CK。"
+          - "第4步：本阶段只修改 `{OUT}/{DUT}_design_needs_and_plan.md`；不提前编辑基础信息、FG/FC/CK 或 architecture。调用 Check 修正输入或 Markdown 问题，全部通过后调用 Complete。"
+        reference_files:
+          - "{DUT}/README.md"
+          - "{DUT}/spec/**/*.md"
+          - "Guide_Doc/design_input_and_architecture.md"
+          - "Guide_Doc/design_ut_contract.md"
+        checker:
+          - name: design_inputs
+            clss: DesignInputContractChecker
+            args:
+              readme_file: "{DUT}/README.md"
+              spec_glob: "{DUT}/spec/**/*.md"
+              manifest_file: "{OUT}/reports/design_input_manifest.json"
+          - name: contract_markdown
+            clss: DesignMarkdownFileFormatChecker
+            args:
+              markdown_file_list: "{OUT}/{DUT}_design_needs_and_plan.md"
+              no_line_break: true
+        output_files:
+          - "{OUT}/{DUT}_design_needs_and_plan.md"
+
+      - name: design_basic_information
+        desc: "职责、接口线索与时序基础信息"
+        task:
+          - "目标：提取设计本身的职责、候选 top、端口/参数与接口时序线索，形成 architecture 阶段的决策输入；输入未定论的事项显式留待 architecture 解决，不自行猜测。"
+          - "第1步：调用 CurrentTips，读取 README、全部 Spec、已完成的 `{OUT}/{DUT}_design_needs_and_plan.md` 和 `Guide_Doc/design_input_and_architecture.md`；只提取设计本身的信息，不重复验证流程。"
+          - "第2步：在 `{OUT}/{DUT}_basic_info.md` 写清模块职责、候选 top module、参数及合法范围，并用表格列出每个候选端口的名称、方向、位宽、signedness、编码/单位、用途和需求来源。"
+          - "第3步：单独说明组合或时序意图、clock/reset 线索、transaction、latency、handshake、backpressure、非法输入、数据格式和外部库接口；输入没有定论时明确记录待 architecture 阶段解决的问题，不自行猜测。"
+          - "第4步：本阶段只修改 `{OUT}/{DUT}_basic_info.md`；不编辑设计计划、FG/FC/CK 或 architecture。调用 Check 修正 Markdown 问题，全部通过后调用 Complete。"
+        reference_files:
+          - "{DUT}/README.md"
+          - "{DUT}/spec/**/*.md"
+          - "Guide_Doc/design_input_and_architecture.md"
+          - "{OUT}/{DUT}_design_needs_and_plan.md"
+        checker:
+          - name: basic_info_markdown
+            clss: DesignMarkdownFileFormatChecker
+            args:
+              markdown_file_list: "{OUT}/{DUT}_basic_info.md"
+              no_line_break: true
+        output_files:
+          - "{OUT}/{DUT}_basic_info.md"
+
+      - name: design_function_contract
+        desc: "FG/FC/CK 功能与检测点合同"
+        task:
+          - "目标：建立唯一、完整、严格 FG -> FC -> CK 三层的功能合同，只收录可通过公共接口观测的 DUT 行为，成为后续测试、覆盖与 RTL 验证的权威结构。"
+          - "第1步：调用 CurrentTips，读取 README、全部 Spec、设计计划、基础信息和 `Guide_Doc/design_ut_contract.md`，只处理 `{OUT}/{DUT}_functions_and_checks.md`。"
+          - "第2步：建立严格 FG -> FC -> CK 三层树；只纳入可通过公共 pin、transaction 或 backend-neutral 事件观测的 DUT 行为，覆盖正常、边界、非法输入、reset、序列、握手和组合条件。输入中缺失、复用或不规范的标签必须补齐或拆分；PPA 指标单独放入 `FG-PPA`。"
+          - "第3步：为每个 CK 写出触发条件、输入、可观察结果和全部 Spec 路径/物理行；跨 Spec 描述同一触发和同一可观察结果时合并为一个 CK，不允许无法形成真实 predicate 的流程型或笼统 CK。"
+          - "第4步：把测试 API/fixture、用例数量、coverage/report 等流程要求留在设计计划，不创建对应 CK；这些 Spec 行在后续行映射中使用具体 IGNORE 理由。"
+          - "第5步：调用 Check 修正文档格式、标签层级、ID 或功能内容；全部通过后调用 Complete。"
+        reference_files:
+          - "{DUT}/README.md"
+          - "{DUT}/spec/**/*.md"
+          - "Guide_Doc/design_ut_contract.md"
+          - "{OUT}/{DUT}_design_needs_and_plan.md"
+          - "{OUT}/{DUT}_basic_info.md"
+        checker:
+          - name: function_contract_markdown
+            clss: DesignMarkdownFileFormatChecker
+            args:
+              markdown_file_list: "{OUT}/{DUT}_functions_and_checks.md"
+              no_line_break: true
+          - name: portable_label_ids
+            clss: DesignFunctionalContractChecker
+            args:
+              doc_file: "{OUT}/{DUT}_functions_and_checks.md"
+          - name: functional_labels
+            clss: DesignLabelStructureChecker
+            args:
+              doc_file: "{OUT}/{DUT}_functions_and_checks.md"
+              leaf_node: CK
+              min_count: 1
+              must_have_prefix: ""
+              data_key: DESIGN_CK_LIST
+        output_files:
+          - "{OUT}/{DUT}_functions_and_checks.md"
+
+      - name: design_spec_line_mapping
+        desc: "Spec 逐行映射 [{COMPLETED_LINE_BLOCKS}/{TOTAL_LINE_BLOCKS}]"
+        task:
+          - "目标：让每份 Spec 的每个非空物理行都有语义准确的 FG/FC/CK 映射或有具体理由的 IGNORE，实现需求到检测点的逐行可追溯。"
+          - "第1步：每个批次开始和每次 Check 后立即调用 CurrentTips；优先处理当前 Spec 行块 `{CURRENT_LINE_BLOCKS}`，规范映射目标为 `{CURRENT_LINE_MAP_TARGETS}`。已经正确映射的其他行块可以保留，Check 会复验并计入进度。"
+          - "第2步：按 `Guide_Doc/dut_line_func_map.md` 读取当前行块原文和已有 FG/FC/CK，只把每个非空物理行映射到语义准确的完整标签路径；确实不描述功能、接口、约束、状态、时序或边界时才写具体 IGNORE 理由。"
+          - "第3步：若 CurrentTips 列出 `ext/design-with-ppa/spec-line-mapping`，读取其 SKILL.md 后，把本批语义决定一次性传给 `write_line_map.py`，由脚本原子维护规范映射；未列出 Skill 时，手工将当前范围累计写入 `{OUT}/line_map/*_line_func_map.txt`。每个区间必须使用包含端点的 `start-end`，单行也写成 `10-10`；每块不超过 `{MAX_LINE_BLOCK_LINES}` 行，不创建带行号后缀的替代文件。"
+          - "第4步：调用 Check 复验当前 batch，并同步统计规范映射文件中其他已正确完成的行块；按 `error_code` 修正遗漏、范围、标签或理由后再次 Check。"
+          - "第5步：Check 通过后再次调用 CurrentTips 获取下一批；只有 CurrentTips 显示无剩余行块时才调用 Complete。"
+        reference_files:
+          - "Guide_Doc/design_input_and_architecture.md"
+          - "Guide_Doc/dut_line_func_map.md"
+          - "{OUT}/{DUT}_functions_and_checks.md"
+          - "{OUT}/{DUT}_design_needs_and_plan.md"
+        skill_list:
+          - "ext/design-with-ppa/spec-line-mapping"
+        checker:
+          - name: spec_line_mapping
+            clss: DesignSpecLineMapBatchChecker
+            args:
+              name: design_spec_lines
+              file_list:
+                - "{DUT}/spec/**/*.md"
+              func_check_file: "{OUT}/{DUT}_functions_and_checks.md"
+              map_location: "{OUT}/line_map"
+              map_suffix: "_line_func_map.txt"
+              batch_size: 2
+              max_block_lines: 100
+              ignore_blank_lines: true
+              must_has_no_miss_match: true
+              data_key: DESIGN_CK_LIST
+        output_files:
+          - "{OUT}/line_map/*_line_func_map.txt"
+
+      - name: design_function_contract_refinement
+        desc: "检测点细化 [{COMPLETED_POINTS}/{TOTAL_POINTS}]"
+        task:
+          - "目标：把每个 CK 细化为粒度合适、能形成真实 predicate 的检测点——合并等价重复、移除流程型 CK、不丢失真实行为，并保持 Spec 行引用闭合。"
+          - "第1步：每批开始调用 CurrentTips；优先复核当前原始 CK `{LIST_CURRENT_POINTS}`。若已经正确复核其他 canonical CK，可在同一次 stage_args.refined 中一并提交并计入进度。"
+          - "第2步：对每个 CK 检查粒度、触发、输入、期望、边界、非法输入、reset、序列和组合条件；合并触发与可观察结果等价的重复 CK，删除或移出只描述 pytest/API/fixture/用例数量/coverage/report 流程的 CK；必要时新增或拆分真正的 DUT 行为 CK，但不丢失原行为。"
+          - "第3步：同步修改 `{OUT}/{DUT}_functions_and_checks.md` 和 `{OUT}/line_map/*_line_func_map.txt`；合并、拆分或重命名 CK 时原子更新全部 Spec 行引用，确保 ID 唯一、引用闭合。"
+          - "第4步：用 `Check(stage_args={\"refined\": {\"<完整CK路径>\": \"具体复核结果\"}})` 至少提交当前批次原始 CK；可同时提交已正确完成的其他 canonical CK，不得提交未知 CK。不得手工创建或编辑内部批次状态。"
+          - "第5步：Check 通过后再次调用 CurrentTips；无剩余 CK 时调用 Complete。"
+        reference_files:
+          - "Guide_Doc/design_ut_contract.md"
+          - "{OUT}/{DUT}_functions_and_checks.md"
+        checker:
+          - name: functional_label_refinement
+            clss: DesignLabelStructureRefineChecker
+            args:
+              doc_file: "{OUT}/{DUT}_functions_and_checks.md"
+              leaf_node: CK
+              data_key: DESIGN_CK_LIST
+              must_have_prefix: ""
+          - name: refined_line_map_references
+            clss: DesignLineMapReferenceChecker
+            args:
+              file_list:
+                - "{DUT}/spec/**/*.md"
+              func_check_file: "{OUT}/{DUT}_functions_and_checks.md"
+              map_location: "{OUT}/line_map"
+              map_suffix: "_line_func_map.txt"
+              max_block_lines: 100
+        output_files:
+          - "{OUT}/{DUT}_functions_and_checks.md"
+          - "{OUT}/line_map/*_line_func_map.txt"
+
+      - name: design_architecture_contract
+        desc: "接口与架构冻结"
+        task:
+          - "目标：冻结可实现、可测试的接口与架构（唯一 top、端口、参数、clock/reset、时序与综合约束）；后续 reference、RTL 和性能合同都必须服从该冻结接口。"
+          - "第1步：调用 CurrentTips，读取其中列出的全部需求摘要、最终 FG/FC/CK 与 architecture 规范，确定唯一 top module，并明确使用 `{RTL_LANGUAGE}` 实现。"
+          - "第2步：在 `{OUT}/{DUT}_architecture.md` 的 canonical YAML 中锁定参数范围、全部端口方向/位宽/signedness，以及 clock/reset 边沿、极性、同步语义。"
+          - "第3步：明确 transaction、latency、handshake、backpressure、组合/时序意图、非法输入、未定义行为、多时钟和 CDC 策略。"
+          - "第4步：声明可综合子集、禁止 latch/X/Z/initial/delay/force/release/仿真系统任务，并为每项功能写可测接受条件。"
+          - "第5步：调用 Check 修正缺失字段或跨文档不一致，全部通过后调用 Complete；后续 reference、RTL 和性能合同必须服从该冻结接口。"
+        reference_files:
+          - "{DUT}/README.md"
+          - "{DUT}/spec/**/*.md"
+          - "Guide_Doc/design_input_and_architecture.md"
+          - "Guide_Doc/rtl_design_constraints.md"
+          - "{RTL_CODING_GUIDE}"
+          - "{OUT}/{DUT}_design_needs_and_plan.md"
+          - "{OUT}/{DUT}_basic_info.md"
+          - "{OUT}/{DUT}_functions_and_checks.md"
+        checker:
+          - name: architecture_markdown
+            clss: DesignMarkdownFileFormatChecker
+            args:
+              markdown_file_list: "{OUT}/{DUT}_architecture.md"
+              no_line_break: true
+          - name: architecture_contract
+            clss: DesignArchitectureChecker
+            args:
+              architecture_file: "{OUT}/{DUT}_architecture.md"
+              input_manifest_file: "{OUT}/reports/design_input_manifest.json"
+        output_files:
+          - "{OUT}/{DUT}_architecture.md"
+
+  - name: python_executable_spec_and_ut
+    desc: "Python 可执行规格与统一 UT"
+    task:
+      - "目标：建立可执行的 Python 规格与统一验证环境——pin-compatible reference、统一 adapter/fixture/API、观测与覆盖模型、完整功能与确定性随机 UT，并全部通过 Python 门禁。"
+      - "第1步：按冻结 architecture 分别完成 pin-compatible Python reference、统一环境 adapter、唯一 `env` fixture 和共享测试 API；每个子阶段以其 output_files 为主要产物，但后续证据驱动的 reference 修正始终允许。"
+      - "第2步：用独立 smoke 阶段验证 reset、非默认合法 transaction 和非法 API，再开始 coverage 与完整功能 UT。"
+      - "第3步：按 FG/FC/CK 建立覆盖模型和带占位断言的测试模板。"
+      - "第4步：逐批实现 directed、boundary、invalid、reset、sequence、组合和 deterministic-random 用例。"
+      - "第5步：用 RunTestCases 执行 Python 测试，用 Check/Complete 复验，直到全部通过。"
+    stage:
+      - name: python_reference_model
+        desc: "Python pin-compatible 可执行参考模型"
+        task:
+          - "目标：实现与 architecture 端口严格一致、行为确定的 Python 可执行规格，作为 RTL 实现与验证的行为基准；它按权威合同动态修正，不是冻结 oracle。"
+          - "第1步：调用 CurrentTips，读取其中列出的 `Guide_Doc/python_dut_interface.md`、`Guide_Doc/python_executable_spec.md` 和 architecture，把全部端口准确写入 `{OUT}/tests/{DUT}_reference.py` 的 `PinSpec`；当前所需公共接口及完整签名都在这两份 Guide_Doc 中，只从 `design_with_ppa` 导入 `PinSpec` 和 `ReferenceDUT`，不得调用 Explore/task/subagent 或搜索导入包实现。"
+          - "第2步：实现 reference 的确定性内部状态、reset、`_refresh_comb`、`_step`，需要 checkpoint 时实现完整 state capture/restore；禁止 wall-clock。若 architecture/Spec 提供离散编码表或 packed 数据布局，必须逐项写成 literal lookup table 或显式 pack/unpack 规则，并让 decode、encode 和测试 expected 共用同一规范结果；不能用未经证明的移位公式、DUT 输出或当前失败结果反推编码。"
+          - "reference 中 `PIN_SPECS` 创建的 `self.<pin>` 是不可替换的 `ReferencePin`；输入引脚只能写 `self.<pin>.value = value`，输出引脚只能写 `.value` 或 `drive_output(\"<pin>\", value)`，绝不能写 `self.<pin> = value`。"
+          - "第3步：本阶段主要修改 `{OUT}/tests/{DUT}_reference.py`，不提前实现 adapter、fixture、API 或测试；调用 Check 修复端口、方法、占位或 pin 赋值错误，通过后 Complete。这个通过状态不冻结 reference：后续阶段发现它与权威功能需求不一致时仍应修正并重跑受影响测试。"
+        reference_files:
+          - "Guide_Doc/python_dut_interface.md"
+          - "Guide_Doc/python_executable_spec.md"
+          - "{OUT}/{DUT}_architecture.md"
+        checker:
+          - name: python_reference_contract
+            clss: PythonReferenceContractChecker
+            args:
+              architecture_file: "{OUT}/{DUT}_architecture.md"
+              reference_file: "{OUT}/tests/{DUT}_reference.py"
+        output_files:
+          - "{OUT}/tests/{DUT}_reference.py"
+
+      - name: shared_environment_adapter
+        desc: "统一测试环境与 transaction adapter"
+        task:
+          - "目标：实现统一环境 adapter，让同一套测试无差别驱动 Python 与 RTL 双 backend，transaction、异常与 timeout 语义保持一致。"
+          - "第1步：调用 CurrentTips，读取 architecture、已完成的 reference 和 `Guide_Doc/python_dut_interface.md`；本阶段只实现 `{OUT}/tests/{DUT}_adapter.py`。"
+          - "第2步：使用模板已有的统一 DUT factory 和立即写入模式；实现选择由运行时托管，不新增、解析或暴露任何测试运行选项，也不导入特定实现。若 architecture 声明时钟，在 reset 或任何 Step 前按原名调用 `InitClock` 注册全部时钟。"
+          - "第3步：保持不同实现的 transaction、异常和 timeout 语义一致；按 `Guide_Doc/python_dut_interface.md` 实现 accepted/observation/response 三个 transaction helper。接受点保存 immutable operation/mode/precision/输入 identity；真实 post-refresh/post-step 等待点追加状态；响应合并原 identity、结果与 latency 并移除 active transaction；拒绝不存在的 transaction ID。"
+          - "第4步：实现 reset、组合刷新、周期推进、coverage sampling、波形绑定/刷新与 finish；写完全部立即输入后先 RefreshComb，需要时序推进时再 Step，并在每个观察点记录真实事件，测试不得伪造事件。"
+          - "第5步：调用 Check 修复统一环境方法、clock 注册、factory 或残留占位；通过后 Complete。不要无证据改动 fixture、API 或测试；若本阶段证据同时证明 reference 不符合权威功能需求，修正 reference 并重新执行其合同与当前 adapter 检查。"
+        reference_files:
+          - "Guide_Doc/python_dut_interface.md"
+          - "Guide_Doc/python_executable_spec.md"
+          - "{OUT}/{DUT}_architecture.md"
+          - "{OUT}/tests/{DUT}_reference.py"
+        checker:
+          - name: python_adapter_contract
+            clss: PythonAdapterContractChecker
+            args:
+              architecture_file: "{OUT}/{DUT}_architecture.md"
+              adapter_file: "{OUT}/tests/{DUT}_adapter.py"
+        output_files:
+          - "{OUT}/tests/{DUT}_adapter.py"
+
+      - name: shared_environment_fixture
+        desc: "唯一 env fixture 与测试证据绑定"
+        task:
+          - "目标：确认模板托管的唯一 `env` fixture（只读文件）与统一环境规范和 adapter 工厂兼容，正确绑定 coverage/波形证据后落盘。"
+          - "第1步：调用 CurrentTips，读取统一环境规范、architecture 和已通过的 adapter；`{OUT}/tests/conftest.py` 是模板渲染的只读托管文件，本阶段只读确认，不得修改或重写。"
+          - "第2步：确认它保留模板托管的实现选择逻辑：从 `design_with_ppa` 导入并在 `pytest_addoption(parser)` 中调用 `register_managed_test_options(parser)`，env fixture 经 `managed_test_implementation(request.config)` 选择 backend；`pytest_configure(config)` 通过 `config.addinivalue_line(\"markers\", \"performance: ...\")` 注册带说明的 marker。对外只公开 `env` fixture，不增加 `dut` fixture。"
+          - "第3步：确认初始化顺序为 create adapter、`get_coverage_groups(env)`、`bind_coverage`、必要的 coverage/waveform artifact 绑定、最后 reset；coverage predicate 输入固定为归一化 `env`，所有资源在 yield 后可靠写入报告并 finish。"
+          - "第4步：发现 conftest 与 architecture、统一环境规范或 adapter 公开能力不兼容时，停止并报告具体不一致；不要在 workspace 内改写该只读文件，也不要把覆盖组换成空列表或在 reset/Step 后才绑定证据。调用 Check 复验全部确认项；若执行证据暴露 reference 行为错误，按权威功能需求修正 reference 后重新运行相关 smoke；全部通过后 Complete。"
+        reference_files:
+          - "Guide_Doc/python_dut_interface.md"
+          - "Guide_Doc/python_executable_spec.md"
+          - "{OUT}/{DUT}_architecture.md"
+          - "{OUT}/tests/{DUT}_adapter.py"
+        checker:
+          - name: python_env_fixture_contract
+            clss: PythonEnvFixtureContractChecker
+            args:
+              architecture_file: "{OUT}/{DUT}_architecture.md"
+              conftest_file: "{OUT}/tests/conftest.py"
+        output_files:
+          - "{OUT}/tests/conftest.py"
+
+      - name: shared_test_api
+        desc: "统一公开测试 API"
+        task:
+          - "目标：实现统一公开测试 API，使 DUT transaction/reset 通过相同的参数、超时与双 backend 语义发起，测试不依赖具体实现。"
+          - "第1步：调用 CurrentTips，读取 architecture、功能合同、统一环境规范和 adapter 的公开能力；本阶段只实现 `{OUT}/tests/{DUT}_api.py`。"
+          - "第2步：按功能 transaction 实现 `api_{DUT}_*`，并为 reset/reinitialize 等重复使用的 DUT 动作提供对应公开 API；DUT transaction/reset 优先通过这些 API 发起，以统一参数、超时和双 backend 语义。不得访问私有 DUT、私有事件/transaction helper 或伪造事件证据。每个公开 API 的第一参数固定为 `env`，需要等待的 API 最后参数固定为 `max_cycles=<正数默认值>`，docstring 必须同时包含 `Args:` 和 `Returns:`。"
+          - "第3步：API 负责校验不可表示或非法输入，按先写完全部立即输入、RefreshComb、必要时 Step、再 RefreshComb/观察输出的顺序调用统一环境；握手接受后保存 transaction identity，每个后续 Step 后立即检查响应，最后一个 `max_cycles` 边沿也必须观察。"
+          - "第4步：返回值、异常和 timeout 合同不得依赖具体实现；调用 Check 修复签名、命名或文档错误。若 API 场景证明 reference 的功能、状态或时序实现不符合权威合同，可以同步修正 reference 并重新运行受影响节点；通过后 Complete。"
+        reference_files:
+          - "Guide_Doc/python_dut_interface.md"
+          - "Guide_Doc/python_executable_spec.md"
+          - "Guide_Doc/design_ut_contract.md"
+          - "{OUT}/{DUT}_architecture.md"
+          - "{OUT}/{DUT}_functions_and_checks.md"
+          - "{OUT}/tests/{DUT}_adapter.py"
+        checker:
+          - name: shared_api
+            clss: DesignDutApiChecker
+            args:
+              api_prefix: "api_{DUT}_"
+              target_file: "{OUT}/tests/{DUT}_api.py"
+              min_apis: 1
+        output_files:
+          - "{OUT}/tests/{DUT}_api.py"
+
+      - name: python_executable_spec_smoke
+        desc: "Python 可执行规格集成 smoke"
+        task:
+          - "目标：用固定命名的 reset、legal、invalid 三个 smoke 节点证明 reference、adapter、fixture、API 的集成链路真实可用，再进入完整功能 UT。"
+          - "第1步：调用 CurrentTips，读取已经通过静态合同的 reference、adapter、fixture、API 和 smoke 规范；本阶段只实现 `{OUT}/tests/test_{DUT}_smoke.py`。"
+          - "第2步：实现固定命名的 reset、legal transaction 和 invalid API 三个 smoke 节点，第一参数都为 `env`。测试不得读取实现类型、访问私有 DUT、调用私有事件/transaction helper、读取 active transaction 状态或篡改事件证据。"
+          - "第3步：legal transaction 使用可静态识别的非默认数据，并精确比较独立写出的非默认 expected；禁止全零、复位等价输入输出、从 DUT 输出反推 expected 或弱化断言。invalid 节点必须验证 API 明确拒绝非法请求。"
+          - "第4步：用 RunTestCases 逐个执行三个精确节点，保留必要 STDOUT/STDERR；若失败证据明确指向基础设施、reference、adapter、fixture 或 API，可以只回修被证据指向的共享产物并重新执行其合同检查，不能 skip/xfail，也不能提前编写后续功能测试。"
+          - "第5步：调用 Check 执行完整静态复核和受控 smoke pytest；全部通过并生成 smoke evidence 后 Complete，不手写报告或直接 import 工作区模块。"
+        reference_files:
+          - "Guide_Doc/python_dut_interface.md"
+          - "Guide_Doc/python_executable_spec.md"
+          - "{OUT}/{DUT}_architecture.md"
+          - "{OUT}/tests/{DUT}_reference.py"
+          - "{OUT}/tests/{DUT}_adapter.py"
+          - "{OUT}/tests/{DUT}_api.py"
+          - "{OUT}/tests/conftest.py"
+        checker:
+          - name: executable_spec_smoke
+            clss: PythonExecutableSpecChecker
+            args:
+              test_dir: "{OUT}/tests"
+              architecture_file: "{OUT}/{DUT}_architecture.md"
+              reference_file: "{OUT}/tests/{DUT}_reference.py"
+              adapter_file: "{OUT}/tests/{DUT}_adapter.py"
+              api_file: "{OUT}/tests/{DUT}_api.py"
+              conftest_file: "{OUT}/tests/conftest.py"
+              smoke_test_file: "{OUT}/tests/test_{DUT}_smoke.py"
+              summary_file: "{OUT}/reports/{DUT}_python_smoke.json"
+              timeout: 120
+        output_files:
+          - "{OUT}/tests/test_{DUT}_smoke.py"
+          - "{OUT}/reports/{DUT}_python_smoke.json"
+          - "{OUT}/tests/{DUT}_reference.py"
+          - "{OUT}/tests/{DUT}_adapter.py"
+          - "{OUT}/tests/{DUT}_api.py"
+          - "{OUT}/tests/conftest.py"
+
+      - name: functional_observation_contract
+        desc: "功能 CK 的统一观测合同"
+        task:
+          - "目标：为每个功能 CK 定义统一、backend-neutral 的观测方式——公开 pin 优先、瞬时行为用事件；不为观测增加设计端口或测试注入标志。"
+          - "第1步：调用 CurrentTips，读取最终功能合同、architecture 和 `Guide_Doc/design_observation_contract.md`；本阶段只修改 `{OUT}/{DUT}_observation_contract.yaml`。"
+          - "第2步：枚举除 `FG-PPA` 外的每个 CK，优先选择公开 pin 观测；仅对握手、等待、响应或 API 拒绝等瞬时行为定义 backend-neutral 事件。"
+          - "第3步：为每个事件定义真实 capture 时点、字段名、公开来源与说明；字段只能来自公开输入、公开输出、接受时保存的 transaction identity、cycle 状态或由公开值确定性推导的分类。"
+          - "第4步：每个功能 CK 在 checkpoints 中恰好出现一次，并写明 pins/event、所需字段和可执行 predicate 意图；不得增加 RTL 诊断端口、读取私有 DUT、使用测试注入标志或任意 transaction ID 差异。"
+          - "第5步：调用 Check 修复 schema、遗漏 CK、未知事件或字段来源；全部通过后 Complete，不编辑 adapter、API 或 coverage。"
+        reference_files:
+          - "Guide_Doc/design_observation_contract.md"
+          - "Guide_Doc/design_ut_contract.md"
+          - "{OUT}/{DUT}_architecture.md"
+          - "{OUT}/{DUT}_functions_and_checks.md"
+        checker:
+          - name: observation_contract
+            clss: DesignObservationContractChecker
+            args:
+              contract_file: "{OUT}/{DUT}_observation_contract.yaml"
+              doc_file: "{OUT}/{DUT}_functions_and_checks.md"
+              architecture_file: "{OUT}/{DUT}_architecture.md"
+              ignore_ck_prefix:
+                - "FG-PPA/"
+                - "FG-PPA-"
+        output_files:
+          - "{OUT}/{DUT}_observation_contract.yaml"
+
+      - name: functional_observation_instrumentation
+        desc: "统一 env 观测事件实现"
+        task:
+          - "目标：在 adapter/API 的真实执行点产生合同事件并立即采样 coverage，使 Python 与 RTL 的观测字段语义一致，事件不可由测试伪造。"
+          - "第1步：调用 CurrentTips，读取 observation contract、architecture 和统一环境规范；本阶段只修改 `{OUT}/tests/{DUT}_adapter.py` 与 `{OUT}/tests/{DUT}_api.py`。"
+          - "第2步：在真实 API 校验、RefreshComb、Step、transaction 接受、等待和响应点产生合同事件；接受事件用显式关键字保存不可变请求身份，观察/响应事件由统一 helper 自动沿用该身份并只显式增加新状态或结果，不得重复传入已保存身份。"
+          - "第3步：一次写完全部立即输入后先 RefreshComb；需要状态推进时再 Step，边沿后需要观察组合输出时再次 RefreshComb。事件记录后立即 sample coverage，不由测试直接写事件。"
+          - "第4步：所有字段只能从公开 pin、统一 cycle/transaction 状态或公开值的确定性推导获得；adapter 的公共 `cycle` 从 0 开始，每执行一个底层 Step 后恰好增加 1，接受/响应事件只使用该值；Python 与 RTL backend 的字段名称、类型和语义必须一致，不增加设计端口。"
+          - "第5步：调用 Check 静态复核 adapter/API 与 observation contract；修复缺失事件、字段或公开接口问题，通过后 Complete，不编辑 coverage predicate。"
+        reference_files:
+          - "Guide_Doc/design_observation_contract.md"
+          - "Guide_Doc/python_dut_interface.md"
+          - "{OUT}/{DUT}_architecture.md"
+          - "{OUT}/{DUT}_functions_and_checks.md"
+          - "{OUT}/{DUT}_observation_contract.yaml"
+        checker:
+          - name: adapter_contract_after_observation
+            clss: PythonAdapterContractChecker
+            args:
+              architecture_file: "{OUT}/{DUT}_architecture.md"
+              adapter_file: "{OUT}/tests/{DUT}_adapter.py"
+          - name: api_contract_after_observation
+            clss: DesignDutApiChecker
+            args:
+              api_prefix: "api_{DUT}_"
+              target_file: "{OUT}/tests/{DUT}_api.py"
+              min_apis: 1
+          - name: observation_instrumentation
+            clss: DesignObservationInstrumentationChecker
+            args:
+              contract_file: "{OUT}/{DUT}_observation_contract.yaml"
+              doc_file: "{OUT}/{DUT}_functions_and_checks.md"
+              architecture_file: "{OUT}/{DUT}_architecture.md"
+              adapter_file: "{OUT}/tests/{DUT}_adapter.py"
+              api_file: "{OUT}/tests/{DUT}_api.py"
+              ignore_ck_prefix:
+                - "FG-PPA/"
+                - "FG-PPA-"
+        output_files:
+          - "{OUT}/tests/{DUT}_adapter.py"
+          - "{OUT}/tests/{DUT}_api.py"
+
+      - name: functional_coverage_structure
+        desc: "FG/FC 覆盖模型结构"
+        task:
+          - "目标：建立与功能合同一一对应的 FG/FC/CK 覆盖模型结构（全部占位 predicate、不含 FG-PPA），为逐批实现 predicate 固定结构。"
+          - "第1步：调用 CurrentTips，读取其中列出的最终 `{OUT}/{DUT}_functions_and_checks.md` 与覆盖规范；本阶段只枚举功能 CK，`FG-PPA` 下的性能/流程 CK 留给后续性能合同、性能 TC 和优化门禁。"
+          - "第2步：若 CurrentTips 列出 `ext/design-with-ppa/shared-ut-structure`，读取其 SKILL.md 并调用 `scaffold.py -MODE coverage-structure` 一次生成完整骨架；未列出 Skill 时，在 `{OUT}/tests/{DUT}_function_coverage_def.py` 为每个功能 FG 创建一个 `CovGroup`、为每个功能 FC 创建一个 watch point，并在其 bins 映射中准确声明全部功能 CK。两条路径都不得声明 `FG-PPA`。"
+          - "第3步：本阶段不实现 CK 条件；每个 CK 的值必须保持统一占位 `lambda _env: False`，不得提前编写未来批次 predicate。"
+          - "第4步：确认 `conftest.py` 把 coverage groups 绑定到 `env.fc_cover`，API/adapter 在可观察事务后实际 sample；coverage predicate 的输入固定是归一化 `env`，不能直接读取后端 DUT。"
+          - "第5步：调用 Check 修正 FG/FC/CK 缺失、重复、错层或非占位 predicate；结构通过后调用 Complete。"
+        reference_files:
+          - "Guide_Doc/design_ut_contract.md"
+          - "Guide_Doc/design_observation_contract.md"
+          - "{OUT}/{DUT}_functions_and_checks.md"
+          - "{OUT}/{DUT}_observation_contract.yaml"
+          - "{OUT}/tests/{DUT}_adapter.py"
+          - "{OUT}/tests/conftest.py"
+        skill_list:
+          - "ext/design-with-ppa/shared-ut-structure"
+        checker:
+          - name: coverage_structure
+            clss: DesignCoverageStructureChecker
+            args:
+              test_dir: "{OUT}/tests"
+              cov_file: "{OUT}/tests/{DUT}_function_coverage_def.py"
+              doc_file: "{OUT}/{DUT}_functions_and_checks.md"
+              architecture_file: "{OUT}/{DUT}_architecture.md"
+              adapter_file: "{OUT}/tests/{DUT}_adapter.py"
+              check_types: [FG, FC]
+              ignore_ck_prefix:
+                - "FG-PPA/"
+                - "FG-PPA-"
+        output_files:
+          - "{OUT}/tests/{DUT}_function_coverage_def.py"
+
+      - name: functional_coverage_checkpoints
+        desc: "CK 覆盖模型实现 [{COMPLETED_POINTS}/{TOTAL_POINTS}]"
+        task:
+          - "目标：把每个功能 CK 的 predicate 实现为读取真实公共观测的布尔表达式，使覆盖命中等价于真实行为发生，而非测试自我声明。"
+          - "第1步：每批开始调用 CurrentTips；优先实现当前 CK `{LIST_CURRENT_POINTS}`，对应文档节选为 `{LIST_CK_FILE_BLOCKS}`。若其他 CK predicate 已正确实现，保留它们，Check 会按相同合同复验并计入进度。"
+          - "第2步：读取 `{OUT}/{DUT}_observation_contract.yaml` 中当前 CK 的 pins/event、fields 和 predicate_intent；观测 instrumentation 已在前一阶段冻结，本阶段不得修改 adapter、API 或事件合同。"
+          - "第3步：先由你为每个当前 CK 决定一个读取真实公共观测的 Python 布尔表达式。若 CurrentTips 列出 `ext/design-with-ppa/shared-ut-structure`，读取其 SKILL.md 并将当前 batch 一次性传给 `scaffold.py -MODE coverage-predicates`；未列出 Skill 时，手工把当前 CK 的 `lambda _env: False` 替换为顶层命名 predicate。未实现 CK 保持占位，任何已正确实现的 CK 不回退；函数只接收一个 env 参数，bins 仅通过函数名引用。"
+          - "第4步：predicate 只读取合同声明的公开 pin 或 `last_event`/`last_event_data` 字段，并完整表达 CK 的触发、输入条件和可观察结果；不能只判断事件名、使用常量、任意 transaction ID 算术或恒真条件。两个 CK 无法通过真实观测区分时返回功能合同与 observation contract 合并，不伪造差异。"
+          - "第5步：调用 Check 复验当前 batch 和源码中其他已实现 predicate，并同步真实统计；按结构化诊断修复所有已实现但不合法的 predicate。Check 后再次 CurrentTips 获取剩余批次；无剩余 CK 时 Complete。"
+        reference_files:
+          - "Guide_Doc/design_ut_contract.md"
+          - "Guide_Doc/design_observation_contract.md"
+          - "{OUT}/{DUT}_functions_and_checks.md"
+          - "{OUT}/{DUT}_observation_contract.yaml"
+        skill_list:
+          - "ext/design-with-ppa/shared-ut-structure"
+        checker:
+          - name: coverage_checkpoint_batch
+            clss: DesignCoverageGroupBatchChecker
+            args:
+              test_dir: "{OUT}/tests"
+              cov_file: "{OUT}/tests/{DUT}_function_coverage_def.py"
+              doc_file: "{OUT}/{DUT}_functions_and_checks.md"
+              architecture_file: "{OUT}/{DUT}_architecture.md"
+              adapter_file: "{OUT}/tests/{DUT}_adapter.py"
+              batch_size: 20
+              data_key: DESIGN_CK_LIST
+              ignore_ck_prefix:
+                - "FG-PPA/"
+                - "FG-PPA-"
+        output_files:
+          - "{OUT}/tests/{DUT}_function_coverage_def.py"
+
+      - name: shared_test_templates
+        desc: "统一测试模板 [{COVERED_CKS}/{TOTAL_CKS}]"
+        task:
+          - "目标：为每个功能 CK 建立结构固定的测试模板——真实 mark_function 关联加占位断言，先锁定测试集合与身份，再分批实现。"
+          - "第1步：每批开始调用 CurrentTips；优先为当前 CK `{LIST_CKS_TO_BE_COVERED}` 创建模板，文档节选为 `{LIST_CK_FILE_BLOCKS}`。若其他 canonical CK 模板已经正确创建，保留它们，Check 会一起验证并计入进度。"
+          - "第2步：若 CurrentTips 列出 `ext/design-with-ppa/shared-ut-structure`，读取其 SKILL.md 并将完整 `{LIST_CKS_TO_BE_COVERED}` 一次性传给 `scaffold.py -MODE test-templates`；脚本按 FG 建立稳定 `test_{DUT}_*.py` 和每 CK 一个独立函数。未列出 Skill 时手工完成同一结构。所有函数第一参数固定 `env`。"
+          - "第3步：每个模板第一条业务动作使用字面量 FG/FC/CK 调用真实 `mark_function`，函数末尾保留 `assert False, \"Not implemented\"`。"
+          - "第4步：本阶段不写激励和通过断言；性能测试不属于当前功能模板。调用 Check 验证完整模板集合，并同步当前与提前完成批次的统计。"
+          - "第5步：Check 通过后再次 CurrentTips；无剩余 CK 时 Complete。"
+        reference_files:
+          - "Guide_Doc/design_ut_contract.md"
+          - "{OUT}/{DUT}_functions_and_checks.md"
+        skill_list:
+          - "ext/design-with-ppa/shared-ut-structure"
+        checker:
+          - name: functional_test_templates
+            clss: DesignTestTemplateChecker
+            args:
+              doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
+              test_dir: "{OUT}/tests"
+              ignore_tc_prefix:
+                - "test_{DUT}_smoke"
+                - "test_{DUT}_performance"
+                - "test_{DUT}_ppa"
+              ignore_ck_prefix:
+                - "FG-PPA/"
+                - "FG-PPA-"
+              test_func_rules: standard
+              data_key: DESIGN_TEST_TEMPLATE_REPORT
+              # Each CurrentTips response includes the current CK excerpts;
+              # keep template batches small enough for the LLM context.
+              batch_size: 5
+              template_must_fail: true
+              args_check: false
+        output_files:
+          - "{OUT}/tests/test_{DUT}_*.py"
+
+      - name: shared_test_implementation
+        desc: "统一功能测试实现 [{COMPLETED_CASES}/{TOTAL_CASES}]"
+        task:
+          - "目标：把模板逐批实现为具有独立 expected、完整激励与真实断言的测试，并在 Python reference 上全部通过；证据指向 reference 缺陷时按权威合同同步修正。"
+          - "当前优先实现和分析的测试节点": "{LIST_CURRENT_CASES}"
+          - "第1步：每批开始调用 CurrentTips，逐个打开当前测试节点的 docstring、mark_function、关联 CK 与 API。若其他模板已经被正确实现，不要恢复占位；Check 会把这些节点纳入同一次验证并更新进度。"
+          - "第2步：为每个节点设计独立 expected、完整输入、reset/前置状态和可观察断言；删除占位断言，不从 DUT 输出反推 expected。"
+          - "第3步：在原模板函数中逐个实现并立即落盘，禁止追加同名 `def`；每次保存后检查整文件顶层测试函数名唯一，且 `mark_function` 引用该唯一函数。测试文件在模块顶层从 `{DUT}_api` 导入所需 `api_{DUT}_*`；DUT transaction/reset 优先调用这些 API。禁止访问 `env._dut`、私有事件/transaction 方法、active transaction 表，或给 `last_event`、`last_event_data` 等公开观测字段赋值。每个返回值都用 `==` 对比从 README、Spec、architecture 和 FG/FC/CK 独立推导的精确 expected；reference 只有在先确认符合这些权威来源后才能用于交叉核对。禁止非零、truthiness、范围合法性或自比较代替功能结果。"
+          - "第4步：每完成一个文件，用 `RunTestCases('{TEST_BATCH_RUN_ARGS}')` 运行当前精确节点；target 相对 `{OUT}/tests`，不得直接 import 或运行临时脚本。"
+          - "第5步：先用 README、Spec、architecture 和 FG/FC/CK 判断失败根因。若证据表明 reference 的功能、状态、reset、时序、非法输入或边界实现不符合这些权威合同，应直接修正 reference；它不是永久冻结文件。动态修正 reference 时必须同步核对对应 FG/FC/CK 的功能覆盖；TC 可以与 reference 一同完善，也可以单独完善，不要求同一轮修改，但最终必须重新运行所有受影响 TC，确认功能覆盖真实命中并通过相关门禁。同步修正被影响的 observation contract、coverage predicate、adapter、API、fixture 或 expected，并重新运行当前节点及所有受影响的 Python 节点。若 reference 已符合权威合同而测试失败，只修复测试基础设施或独立 expected；不得把 reference/expected 改成当前失败结果。已正确完成的其他批次测试必须保留。"
+          - "第6步：Check 通过后再次 CurrentTips；无剩余节点时 Complete。"
+        reference_files:
+          - "Guide_Doc/design_ut_contract.md"
+          - "Guide_Doc/python_executable_spec.md"
+          - "Guide_Doc/design_observation_contract.md"
+          - "{DUT}/README.md"
+          - "{DUT}/spec/**/*.md"
+          - "{OUT}/{DUT}_architecture.md"
+          - "{OUT}/{DUT}_functions_and_checks.md"
+          - "{OUT}/{DUT}_observation_contract.yaml"
+          - "{OUT}/tests/{DUT}_reference.py"
+          - "{OUT}/tests/{DUT}_adapter.py"
+          - "{OUT}/tests/{DUT}_api.py"
+          - "{OUT}/tests/{DUT}_function_coverage_def.py"
+          - "{OUT}/tests/conftest.py"
+        checker:
+          - name: functional_test_batch
+            clss: DesignAllPassBatchTestsChecker
+            args:
+              doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
+              test_dir: "{OUT}/tests"
+              test_func_rules: standard
+              ignore_tc_prefix:
+                - "test_{DUT}_smoke"
+                - "test_{DUT}_performance"
+                - "test_{DUT}_ppa"
+              ignore_ck_prefix:
+                - "FG-PPA/"
+                - "FG-PPA-"
+              batch_size: 5
+              data_key: DESIGN_TEST_TEMPLATE_REPORT
+              pre_report_file: "{OUT}/.DESIGN_TEST_TEMPLATE_REPORT.json"
+              args_check: false
+              ret_std_out: true
+              ret_std_error: true
+        output_files:
+          - "{OUT}/tests/test_{DUT}_*.py"
+          - "{OUT}/{DUT}_observation_contract.yaml"
+          - "{OUT}/tests/{DUT}_reference.py"
+          - "{OUT}/tests/{DUT}_adapter.py"
+          - "{OUT}/tests/{DUT}_api.py"
+          - "{OUT}/tests/{DUT}_function_coverage_def.py"
+          - "{OUT}/tests/conftest.py"
+
+      - name: shared_test_refinement
+        desc: "按 CK 复核测试 [{COMPLETED_CKS}/{TOTAL_CKS}]"
+        task:
+          - "目标：按 CK 复核每个测试真实构造触发条件、独立 expected 与 reset/sequence，补充缺失场景，消除只有 mark_function 的空关联。"
+          - "当前优先复核的 CK": "{LIST_CURRENT_CKS}"
+          - "第1步：每批开始调用 CurrentTips，读取当前 CK 文档节选和关联测试，确认测试真实构造触发条件。"
+          - "第2步：确认每个测试有独立 expected、可观察断言、正确 reset/sequence，且不是只有 mark_function 的空关联。"
+          - "第3步：补充当前 CK 缺失的 boundary、invalid、reset 或组合场景，并通过 RunTestCases 执行新增节点。"
+          - "若复核发现 reference 对该 CK 的行为与 README、Spec、architecture 或 FG/FC/CK 不一致，修正 reference 和受影响 expected 后重新运行相关节点；不要把已确认的需求改成当前实现结果。"
+          - "第4步：用 `Check(stage_args={\"refined\": {\"<完整CK路径>\": \"具体复核结果\"}})` 至少登记当前批次；可同时登记已经正确复核的其他 canonical CK，未知或无证据的记录仍会失败。"
+          - "第5步：Check 通过后再次 CurrentTips；无剩余 CK 时 Complete。"
+        reference_files:
+          - "Guide_Doc/design_ut_contract.md"
+          - "Guide_Doc/python_executable_spec.md"
+          - "{DUT}/README.md"
+          - "{DUT}/spec/**/*.md"
+          - "{OUT}/{DUT}_architecture.md"
+          - "{OUT}/{DUT}_functions_and_checks.md"
+          - "{OUT}/tests/{DUT}_reference.py"
+          - "{OUT}/tests/{DUT}_api.py"
+        checker:
+          - name: functional_test_refinement
+            clss: DesignRefineTestCasesChecker
+            args:
+              doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
+              test_dir: "{OUT}/tests"
+              ignore_tc_prefix:
+                - "test_{DUT}_smoke"
+                - "test_{DUT}_performance"
+                - "test_{DUT}_ppa"
+              ignore_ck_prefix:
+                - "FG-PPA/"
+                - "FG-PPA-"
+              batch_size: 10
+              data_key: DESIGN_TEST_REFINEMENT
+        output_files:
+          - "{OUT}/tests/test_{DUT}_*.py"
+
+      - name: deterministic_random_tests
+        desc: "确定性随机测试 [{COMPLETED_CKS}/{TOTAL_CKS}]"
+        task:
+          - "目标：用固定 seed 的受约束随机输入扩大状态/数据覆盖；不适合随机化的 CK 以具体理由登记且不做随机 mark 关联，随机测试只声明其实际命中的 CK。"
+          - "当前优先判断和处理的 CK": "{LIST_CURRENT_CKS}"
+          - "第1步：每批开始调用 CurrentTips，逐项判断当前 CK 是否能通过受约束的确定性随机输入扩大状态/数据覆盖。"
+          - "第2步：适合时在 `test_{DUT}_random*.py` 使用固定 seed、`ucagent.repeat_count()`、字面量 mark_function、独立 expected 和真实断言；mark_function 只关联该随机测试采样能实际命中的 CK。"
+          - "第3步：用 RunTestCases 运行新增随机节点并修复全部失败；不适合随机化的 CK 写出与其行为相关的具体理由，且不要在随机测试中 mark_function 这些 CK。"
+          - "随机向量暴露 reference 与权威功能合同不一致时可以修正 reference，并重跑受影响的 directed 与 random 节点；若 reference 符合合同，则修复测试或输入约束，不能用当前输出反推 expected。"
+          - "第4步：调用 `Check(stage_args={\"generated\": {\"<完整CK路径>\": \"用例路径或不适用理由\"}})`，至少提交当前批次；可同时提交已正确分析的其他 canonical CK，Check 会运行完整随机测试集合后统一记账。"
+          - "第5步：Check 通过后再次 CurrentTips；无剩余 CK 时 Complete。"
+        reference_files:
+          - "Guide_Doc/design_ut_contract.md"
+          - "Guide_Doc/python_executable_spec.md"
+          - "{DUT}/README.md"
+          - "{DUT}/spec/**/*.md"
+          - "{OUT}/{DUT}_architecture.md"
+          - "{OUT}/{DUT}_functions_and_checks.md"
+          - "{OUT}/tests/{DUT}_reference.py"
+          - "{OUT}/tests/{DUT}_api.py"
+        checker:
+          - name: random_test_batch
+            clss: DesignRandomTestCasesChecker
+            args:
+              doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
+              test_dir: "{OUT}/tests"
+              target_test_file: "{OUT}/tests/test_{DUT}_random*.py"
+              batch_size: 10
+              data_key: DESIGN_RANDOM_TEST_REPORT
+              ignore_ck_prefix:
+                - "FG-PPA/"
+                - "FG-PPA-"
+              args_check: false
+        output_files:
+          - "{OUT}/tests/test_{DUT}_random*.py"
+
+      - name: python_reference_all_pass
+        desc: "Python reference 全功能门禁"
+        task:
+          - "目标：Python 全功能门禁——全部 directed、boundary、invalid、reset、sequence、组合与 random 节点通过，无占位断言，每个 CK 关联且覆盖 predicate 真实命中，并生成 regression 摘要。"
+          - "第1步：调用 CurrentTips，确认所有功能模板已实现、所有 CK 已关联且随机批次已完成。"
+          - "第2步：用 RunTestCases 运行全部 directed、boundary、invalid、reset、sequence、组合和 random 节点。"
+          - "第3步：Python reference 在本门禁仍可修改。先对照 README、Spec、architecture 和 FG/FC/CK 修正其功能、状态、reset、时序、非法输入或边界实现，再同步受影响的 adapter、API、fixture、coverage、expected 和测试。动态修正 reference 时必须同步核对对应 FG/FC/CK 的功能覆盖；TC 可以与 reference 一同完善，也可以单独完善，但最终必须重新运行所有受影响 TC，并确认对应功能覆盖真实命中、相关测试门禁全部通过。不得为了让错误测试通过而反推 reference/expected，也不得 skip、xfail、弱化断言或保留 DUT Bug。"
+          - "第4步：确认不存在 `assert False, \"Not implemented\"`，每个 CK 被明确关联且对应功能覆盖 predicate 合法命中。"
+          - "第5步：调用 Complete 进行独立全量复验并生成 Python regression 摘要；失败后按诊断修复再重试。"
+        reference_files:
+          - "Guide_Doc/python_executable_spec.md"
+          - "Guide_Doc/design_ut_contract.md"
+          - "{DUT}/README.md"
+          - "{DUT}/spec/**/*.md"
+          - "{OUT}/{DUT}_architecture.md"
+          - "{OUT}/{DUT}_functions_and_checks.md"
+          - "{OUT}/tests/{DUT}_reference.py"
+          - "{OUT}/tests/{DUT}_adapter.py"
+          - "{OUT}/tests/{DUT}_api.py"
+          - "{OUT}/tests/{DUT}_function_coverage_def.py"
+          - "{OUT}/tests/conftest.py"
+        checker:
+          - name: core_python_all_pass
+            clss: DesignPythonAllPassChecker
+            args:
+              target_file:
+                - "{OUT}/tests/test_{DUT}_functional*.py"
+                - "{OUT}/tests/test_{DUT}_random*.py"
+              test_dir: "{OUT}/tests"
+              test_prefix: "test_"
+              first_arg: env
+              min_file_tests: 1
+              timeout: 300
+          - name: python_all_pass_receipt
+            clss: PythonReferenceRegressionChecker
+            args:
+              test_dir: "{OUT}/tests"
+              test_glob: "{OUT}/tests/test_{DUT}_*.py"
+              exclude_test_globs:
+                - "{OUT}/tests/test_{DUT}_performance*.py"
+                - "{OUT}/tests/test_{DUT}_ppa*.py"
+              input_manifest_file: "{OUT}/reports/design_input_manifest.json"
+              contract_files:
+                - "{OUT}/{DUT}_architecture.md"
+                - "{OUT}/{DUT}_functions_and_checks.md"
+              summary_file: "{OUT}/reports/{DUT}_python_regression.json"
+              markdown_summary_file: "{OUT}/{DUT}_python_test_summary.md"
+              timeout: 300
+              ret_std_out: true
+              ret_std_error: true
+        output_files:
+          - "{OUT}/tests/{DUT}_reference.py"
+          - "{OUT}/tests/{DUT}_adapter.py"
+          - "{OUT}/tests/{DUT}_api.py"
+          - "{OUT}/tests/{DUT}_function_coverage_def.py"
+          - "{OUT}/tests/conftest.py"
+          - "{OUT}/tests/test_{DUT}_*.py"
+          - "{OUT}/reports/{DUT}_python_regression.json"
+          - "{OUT}/{DUT}_python_test_summary.md"
+
+  - name: rtl_preliminary_design
+    desc: "RTL 概要设计（实现思路与可复用基础）"
+    task:
+      - "目标：在编写任何 RTL 源码之前，结合硬件实现特征与可复用基础形成一份概要设计，写入 `{OUT}/{DUT}_rtl_design.md`，作为后续实现的思路基线；它是设计构思记录，不是行为权威，README/Spec/architecture 与 FG/FC/CK 仍为权威。"
+      - "第1步：调用 CurrentTips，读取冻结 architecture、FG/FC/CK 功能合同、README 与全部 Spec、`{RTL_CODING_GUIDE}`；浏览 `{RTL_LIBRARY_PATHS}` 只读库中与当前语言匹配、可复用的模块及其端口契约；Python reference 只作为行为基准参考，不要求逐行对应。"
+      - "第2步：按硬件特征构思实现思路：模块划分与层次、clock/reset 策略、控制状态机、数据通路与位宽/符号扩展、时序与 latency、valid/ready 握手与 backpressure、流水或纯组合选择、舍入/饱和/溢出等数值处理；明确软件顺序执行模型与综合硬件的本质差异，允许与 Python 实现结构不同。"
+      - "第3步：明确可复用项与自研取舍：列出准备复用的库模块/函数及其端口契约与理由；没有可复用基础或示例代码时，写明自研模块的划分依据和主要风险。"
+      - "第4步：把上述构思组织成结构清晰的概要设计写入 `{OUT}/{DUT}_rtl_design.md`（建议含模块划分、状态与数据通路说明、数值处理策略、与 Python 版本的差异清单、风险列表），本阶段不编写任何 RTL 源码，也不修改 reference、测试或其他设计文档。"
+      - "第5步：调用 Check 验证目标文件存在且 Markdown 格式有效；通过后记录阶段日志并调用 Complete。后续实现与该设计不一致时，以权威合同为准并同步更新该文档。"
+    reference_files:
+      - "Guide_Doc/rtl_design_constraints.md"
+      - "{RTL_CODING_GUIDE}"
+      - "{RTL_LIBRARY_GLOB}"
+      - "{DUT}/README.md"
+      - "{DUT}/spec/**/*.md"
+      - "{OUT}/{DUT}_architecture.md"
+      - "{OUT}/{DUT}_functions_and_checks.md"
+      - "{OUT}/tests/{DUT}_reference.py"
+    checker:
+      - name: rtl_design_markdown
+        clss: DesignMarkdownFileFormatChecker
+        args:
+          markdown_file_list: "{OUT}/{DUT}_rtl_design.md"
+          no_line_break: true
+    output_files:
+      - "{OUT}/{DUT}_rtl_design.md"
+
+  - name: rtl_tdd_implementation
+    desc: "{RTL_LANGUAGE} RTL 生成与同套测试门禁"
+    task:
+      - "目标：用选定语言实现与 Python executable spec 行为一致的 RTL，复用只读库，通过同一套功能测试与 authored 源码行覆盖率门禁。"
+      - "第1步：先回顾 `{OUT}/{DUT}_rtl_design.md` 的概要设计思路（构思记录，非权威），再只使用工作流选定的 `{RTL_LANGUAGE}` 编写 top 与必要子模块。"
+      - "第2步：先阅读 `Guide_Doc/rtl_design_constraints.md` 和 `{RTL_CODING_GUIDE}`，再按 architecture 与 Python executable spec 编写源码。"
+      - "第3步：在每个源码文件开头写与实际实现一致的模块/类功能说明；在每个端口和参数旁说明方向、位宽、signedness、协议含义、合法范围及其对精度或资源的影响。"
+      - "第4步：在 clock/reset、组合路径、状态转移、流水级、握手和核心数据通路前写出简洁但具体的时序与逻辑说明；对编码、扩展、截断、舍入、饱和、溢出和非法输入写明处理方式。"
+      - "第5步：调用 Check/Complete 执行语法、综合和 RTL 测试。"
+      - "第6步：在 RTL 模式运行已经通过 Python 的同一套功能测试，修复全部差异。"
+      - "第7步：补充真实测试直到当前语言的源码覆盖门禁通过，登记第一版功能 base。"
+    stage:
+      - name: rtl_implementation_and_validation
+        desc: "{RTL_LANGUAGE} 实现与自动验证"
+        task:
+          - "目标：按冻结 architecture 与 Python executable spec 用选定语言实现可综合、注释完整的 RTL，复用只读库，通过语法、综合与托管构建验证。"
+          - "第1步：调用 CurrentTips，确认使用 `{RTL_LANGUAGE}` 编写电路，并且你创建的全部电路源码都匹配 `{RTL_SOURCE_GLOB}`。"
+          - "第2步：依据 architecture、Python executable spec、`Guide_Doc/rtl_design_constraints.md` 和 `{RTL_CODING_GUIDE}` 实现 top、参数与必要子模块；编码规范是建议基线，确需偏离时记录可验证理由。"
+          - "第3步：为每个源码文件补充文件级和模块/类级注释，说明功能目的、输入输出关系、接口协议、参数合法范围、clock/reset 边沿与极性、同步/异步语义、latency 和 transaction 定义；注释必须与 architecture 和 Python executable spec 一致。"
+          - "第4步：为每个端口写方向、位宽、signedness、单位或编码含义；在核心组合/时序逻辑前说明数据流、状态更新、握手/backpressure、非直观位宽转换、舍入/饱和/溢出及非法输入处理。每个注释块应解释设计意图和必要取舍，不要求逐行翻译代码。"
+          - "第5步：注释要求来自 `{RTL_CODING_GUIDE}` 的建议规范，不是独立风格门禁；允许为 Spec、外部 IP 或 PPA 做有依据的偏离，但要在源码附近写 `RTL-GUIDE-DEVIATION` 及范围、理由和验证依据。不要在注释中描述任何中间语言、转换器或内部构建过程。"
+          - "第6步：只读库目录为 `{RTL_LIBRARY_PATHS}`；逐一阅读其中与 `{RTL_LANGUAGE}` 匹配的库源码，复用已经提供的模块/函数并保持其端口契约。只引用匹配当前语言的库，不复制或修改库源码，不把构建缓存当交付源码。"
+          - "第7步：检查组合逻辑在全部路径都有确定输出、寄存状态只在约定边沿更新，并按 README、Spec、architecture 与 FG/FC/CK 核对 reset、signed/width、latency/handshake 和非法输入策略。若此时发现 reference 实现违背这些权威合同，先修正 reference 并重跑 Python 门禁；否则保持 reference/expected 不变并让 RTL 与其一致。"
+          - "第8步：调用 Check 执行语法、综合与同套测试；根据诊断修正 `{RTL_LANGUAGE}` 源码、top、language options 或 architecture。只有证据证明 reference 不符合权威功能合同时才修正 reference，并重新运行受影响的 Python 与 RTL 节点。"
+          - "第9步：Check 通过后调用 Complete；adapter 始终使用 `create_dut`，不要导入其他 DUT 模块。"
+        skill_list:
+          - "ext/design-with-ppa/rtl-tdd-backend"
+        force_use_skill: false
+        reference_files:
+          - "Guide_Doc/rtl_design_constraints.md"
+          - "{RTL_CODING_GUIDE}"
+          - "Guide_Doc/rtl_backend.md"
+          - "Guide_Doc/python_executable_spec.md"
+          - "{DUT}/README.md"
+          - "{DUT}/spec/**/*.md"
+          - "{OUT}/{DUT}_architecture.md"
+          - "{OUT}/{DUT}_functions_and_checks.md"
+          - "{OUT}/tests/{DUT}_reference.py"
+          - "{OUT}/{DUT}_rtl_design.md"
+          - "{RTL_LIBRARY_GLOB}"
+        checker:
+          - name: rtl_backend_build
+            clss: RTLBackendBuildChecker
+            args:
+              architecture_file: "{OUT}/{DUT}_architecture.md"
+              manifest_file: ".ucagent/design_with_ppa/rtl_backend_manifest.json"
+              input_manifest_file: "{OUT}/reports/design_input_manifest.json"
+              contract_files:
+                - "{OUT}/{DUT}_architecture.md"
+                - "{OUT}/{DUT}_functions_and_checks.md"
+              timeout: 600
+        output_files:
+          - "{RTL_SOURCE_GLOB}"
+
+      - name: rtl_shared_regression
+        desc: "RTL 同套测试回归 [Pass {RTL_TESTS_PASSED}/{RTL_TESTS_TOTAL} TC]"
+        task:
+          - "目标：让已经通过 Python 的同一套功能/随机测试在 RTL backend 全部通过；差异按 README/Spec 权威归因到 RTL、adapter 或 reference 并修复。"
+          - "第1步：调用 CurrentTips，确认本阶段只复用已通过 Python 的功能/随机测试，不创建第二套 RTL 专用 expected；标题中的 Pass 数来自最近一次 Check 的真实 RTL 结果。"
+          - "第2步：调用 Check/Complete；每次调用都会先对当前同一目标 TC 集复验 Python executable specification，再使用当前 `{RTL_LANGUAGE}` 源码执行 RTL 回归。"
+          - "第3步：若诊断表明 Python reference 失败，先对照 README、Spec、architecture 和 FG/FC/CK 定位根因；reference 不是永久冻结文件，其功能、状态、reset、时序、非法输入或边界实现错误时应直接修正，并同步受影响的 adapter、API、fixture、coverage、expected 或共用测试。重新运行同一目标且 Python 当前版本通过后，系统才会比较 RTL。"
+          - "第4步：若诊断表明 Python reference 通过而 RTL 失败，先对照 README、Spec 和 FG/FC/CK 复核该失败向量的 expected 与 reference：若 TC 或 reference 自身与权威合同不一致，先修正它们并重跑受影响的 Python 节点，系统确认 Python 当前版本通过后再比较 RTL；否则保持与 README/Spec 一致的 expected，不要把测试期望改成 RTL 的错误输出，逐个失败向量检查端口打包、decode/product/accumulate/encode 数据路径、signed width、数值单位/缩放、舍入/饱和，以及全部时钟在 reset/首次 Step 前的注册、RefreshComb/Step 顺序、latency 和 handshake，只修复证据指向的当前 `{RTL_LANGUAGE}` 实现。"
+          - "第5步：需要快速复验一个失败节点时，使用诊断中 `rtl_debug.targeted_check` 的精确参数调用 Check；target 必须是相对 `{OUT}/tests` 的一个非性能 pytest node。系统会自动用相同节点依次验证 Python reference 和当前 RTL。定向 Check 只更新当前进度，不生成全量通过凭据。"
+          - "第6步：RTL 失败时系统保留最近失败运行的波形。若诊断中 `rtl_debug.waveform_retained=true`，使用同一对象的 `waveform_test_case_name` 调用 WaveInfo，先列出或筛选 clock/reset、handshake、输入、输出和相关内部信号，再依据真实边沿与数据变化修复当前 RTL；不要用 RunTestCases 重新生成 RTL 波形。WaveInfo 的三步调用（无参数清单 → 信号目录与事件 pattern → 精确窗口/周期对齐）、共享测试访问内部信号的边界、临时 `$display` 日志与高频根因清单见 `Guide_Doc/rtl_backend.md` 的“RTL 调试方法”一节。"
+          - "第7步：不得直接运行或 import RTL 测试、skip/xfail 或弱化断言；RunTestCases 只验证 Python，不能证明本阶段 RTL 通过。单 TC 修复后继续 Check；最终调用不带 test_target 的 Complete 全量复验并生成 `{OUT}/reports/{DUT}_rtl_regression.json` 和 `{OUT}/{DUT}_rtl_test_summary.md`。"
+        skill_list:
+          - "ext/design-with-ppa/rtl-tdd-backend"
+        force_use_skill: false
+        reference_files:
+          - "Guide_Doc/rtl_backend.md"
+          - "Guide_Doc/design_ut_contract.md"
+          - "Guide_Doc/python_executable_spec.md"
+          - "{DUT}/README.md"
+          - "{DUT}/spec/**/*.md"
+          - "{OUT}/{DUT}_architecture.md"
+          - "{OUT}/{DUT}_functions_and_checks.md"
+          - "{OUT}/tests/{DUT}_reference.py"
+          - "{OUT}/tests/{DUT}_adapter.py"
+          - "{OUT}/tests/{DUT}_api.py"
+          - "{OUT}/tests/{DUT}_function_coverage_def.py"
+          - "{OUT}/tests/conftest.py"
+        checker:
+          - name: rtl_all_pass
+            clss: RTLAllPassRegressionChecker
+            args:
+              test_dir: "{OUT}/tests"
+              test_glob: "{OUT}/tests/test_{DUT}_*.py"
+              exclude_test_globs:
+                - "{OUT}/tests/test_{DUT}_performance*.py"
+                - "{OUT}/tests/test_{DUT}_ppa*.py"
+              input_manifest_file: "{OUT}/reports/design_input_manifest.json"
+              contract_files:
+                - "{OUT}/{DUT}_architecture.md"
+                - "{OUT}/{DUT}_functions_and_checks.md"
+              rtl_architecture_file: "{OUT}/{DUT}_architecture.md"
+              rtl_manifest_file: ".ucagent/design_with_ppa/rtl_backend_manifest.json"
+              summary_file: "{OUT}/reports/{DUT}_rtl_regression.json"
+              markdown_summary_file: "{OUT}/{DUT}_rtl_test_summary.md"
+              timeout: 600
+              ret_std_out: true
+              ret_std_error: true
+
+      - name: rtl_line_coverage
+        desc: "{RTL_SOURCE_VALIDATION_DESC}"
+        task:
+          - "目标：让 authored `{RTL_LANGUAGE}` 源码中的无效或无关代码尽可能少，并把行覆盖率提升到阈值以上——可用手段按优先级：删除与 Spec 无关的 RTL 代码（最直接）、为可达行为增加针对性测试、把确实必要的共享/基础库代码登记为有 proof 的 ignore；复用的只读库源码不计入本门禁的覆盖率统计。"
+          - "第1步：调用 CurrentTips，完整读取 `{RTL_SOURCE_VALIDATION_GUIDE}`、architecture、功能合同、README 和全部 Spec；当前 `{RTL_LANGUAGE}` 源码与共用测试均列在 output_files，可按诊断读取和维护。阶段标题显示 `pending/...` 时表示尚未得到当前覆盖率，不是 0% 实测值。"
+          - "第2步：先执行：`{RTL_SOURCE_VALIDATION_TASK}` 然后调用 Check。Check 会自动重建当前 `{RTL_LANGUAGE}` 的托管测试运行时，以 RTL backend 运行完整的非性能共享 TC，并收集 `{OUT}/uc_test_report/toffee_report.json`、`{OUT}/uc_test_report/line_dat/code_coverage.json` 和 `merged.info`；不要手动添加 backend 参数或直接运行 RTL pytest。"
+          - "第3步：若 `error_code=rtl_design_test_failed`，先修复第一个功能失败。Python reference 失败且与权威功能合同不一致时可以修正 reference 及受影响的共享测试基础设施；Python reference 已按合同通过而 RTL 失败时只修 RTL/backend。不要为了提高覆盖率修改 reference、期望值、跳过用例或添加 Bug 记录；此时尚未进入有效覆盖率分析。"
+          - "第4步：若 `error_code=rtl_synthesis_failed`，先读取 `location`、`observed.tool_output` 和 `observed.synthesis_hazards`。对于 `real/realtime/time`、`$itor/$rtoi`、`$exp2`、`#delay`、`initial/wait` 等位置，删除仿真专用写法，用定宽整数/定点、case/lookup、时钟寄存器和显式状态替换；若 `error_code=rtl_synthesis_width_warning`，逐项修复 `observed.width_warnings` 中不足以表示常量值的 literal/intermediate 位宽与 signedness。保持 architecture、Python expected 和测试断言不变，然后调用 Check；此时 RTL regression、coverage 和 PPA 都尚未运行。"
+          - "第5步：若 `error_code=rtl_line_coverage_generation_failed`，根据诊断中的 artifact 状态、Toffee error、pytest returncode 和 stdout/stderr 检查 fixture：RTL DUT 必须在 reset/Step 前绑定覆盖率，收尾时先 `Finish()` 写完 dat，再调用 `set_line_coverage()` 注册它；修复后重新运行完整当前 TC 集。"
+          - "第6步：按 `Guide_Doc/rtl_line_coverage.md` 的“覆盖率排障流程”逐项检查：`get_coverage_groups(env)` → `adapter.bind_coverage(groups)` →（RTL）`adapter.configure_test_artifacts(...)` 必须在首个 reset/Step 前完成；测试运行后依次 `set_func_coverage(request, groups)` → `adapter.finish()` → `set_line_coverage(request, coverage_path, ignore=...)`。再读取 `uc_test_report/toffee_report.json:coverages.line.error`、`line_dat/code_coverage.json` 和 `merged.info`，不要手写或复制这些机器文件。"
+          - "第7步：若 `error_code=rtl_line_coverage_below_threshold`，先用 machine JSON 定位 authored `{RTL_LANGUAGE}` 的真实未覆盖行并分类（死代码 / 缺测试 / 共享基础代码），再按优先级选择提升手段：(1) 删除与 Spec 无关或不可达的生成/遗留 RTL 代码——减少分母是最直接的方式，删除前确认 architecture 与功能合同不引用它；(2) 为 Spec 中可达但未测的行为增加 directed/boundary/reset/sequence/random 测试；(3) 对确实必需但无法逐行触发的共享/公共功能代码或基础库 glue 代码，同时写入 raw `.ignore` 和 `{RTL_SOURCE_VALIDATION_REPORT}` 的唯一 proof（标明 proof kind 与精确理由）。三种手段按行分类混合使用，不要只用增加测试一种。"
+          - "第8步：每个正常 `api_{DUT}_*` 调用都必须用 `==` 比较独立推导的精确期望值，禁止 `is not None`、`!= 0`、truthiness 或自比较；测试修改先用 RunTestCases 验证 reference 路径，再调用 Check 自动复验当前 `{RTL_LANGUAGE}` 实现，并按完整诊断修复。实现选择和 pytest 参数由运行时自动管理，不要在测试中手动切换。"
+          - "第9步：确认 `{OUT}/uc_test_report/toffee_report.json` 的全部共享 TC 为 PASSED，`line_dat/code_coverage.json` 和 `merged.info` 已由同一次 RTL 回归生成，公开 authored-source 分析报告与 machine JSON 数值一致，功能回归和覆盖率门禁全部通过后调用 Complete。"
+        reference_files:
+          - "Guide_Doc/design_ut_contract.md"
+          - "Guide_Doc/rtl_backend.md"
+          - "{RTL_CODING_GUIDE}"
+          - "{RTL_SOURCE_VALIDATION_GUIDE}"
+          - "{OUT}/{DUT}_architecture.md"
+          - "{OUT}/{DUT}_functions_and_checks.md"
+          - "{DUT}/README.md"
+          - "{DUT}/spec/**/*.md"
+        checker:
+          - name: rtl_line_coverage_check
+            clss: "{RTL_SOURCE_VALIDATION_CHECKER}"
+            args:
+              doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
+              test_dir: "{OUT}/tests"
+              test_func_rules: standard
+              ignore_tc_prefix:
+                - "test_{DUT}_performance"
+                - "test_{DUT}_ppa"
+              ignore_ck_prefix:
+                - "FG-PPA/"
+                - "FG-PPA-"
+              # The Checker injects the managed implementation selector.
+              # LLM-authored tests must not add or depend on this option.
+              pytest_options: []
+              coverage_ignore: "{OUT}/tests/{DUT}.ignore"
+              coverage_analysis: "{RTL_SOURCE_VALIDATION_REPORT}"
+              rtl_architecture_file: "{OUT}/{DUT}_architecture.md"
+              rtl_manifest_file: ".ucagent/design_with_ppa/rtl_backend_manifest.json"
+              rtl_regression_file: "{OUT}/reports/{DUT}_rtl_regression.json"
+              input_manifest_file: "{OUT}/reports/design_input_manifest.json"
+              contract_files:
+                - "{OUT}/{DUT}_architecture.md"
+                - "{OUT}/{DUT}_functions_and_checks.md"
+              timeout: 600
+              min_line_coverage: 0.9
+        output_files:
+          - "{RTL_SOURCE_VALIDATION_REPORT}"
+          - "{OUT}/tests/{DUT}.ignore"
+          - "{RTL_SOURCE_GLOB}"
+          - "{OUT}/tests/test_{DUT}_*.py"
+
+  - name: performance_contract
+    desc: "性能指标合同 [{PERFORMANCE_METRIC_COUNT}]"
+    task:
+      - "目标：把 Spec 中全部 latency、throughput、frequency、area、power 和 custom 要求固化为带稳定 ID、单位、方向与 Spec 行 traceability 的可测量指标合同。"
+      - "第1步：调用 CurrentTips，逐行读取 Spec 中所有 latency、throughput、frequency、area、power 和 custom 性能要求。"
+      - "第2步：在 `{OUT}/{DUT}_performance_contract.yaml` 为每项指标定义稳定 ID、kind、unit、direction、aggregation 和精确 Spec 路径/物理行。"
+      - "第3步：Spec 有数值阈值时准确记录 target 与 `hard_requirement: true`；无阈值时使用 `target: null` 和 `hard_requirement: false`。"
+      - "第4步：为每个指标规划一个 `test_{DUT}_performance_*` measurement node、clock/time base 和固定 observation window；合同至少需要两个不同性能 TC 节点。"
+      - "第5步：调用 Check 修正 traceability、单位、方向、top 或 YAML schema，全部通过后 Complete。"
+    reference_files:
+      - "Guide_Doc/performance_contract.md"
+      - "{OUT}/{DUT}_architecture.md"
+      - "{DUT}/spec/**/*.md"
+    checker:
+      - name: performance_contract
+        clss: PerformanceContractChecker
+        args:
+          contract_file: "{OUT}/{DUT}_performance_contract.yaml"
+          input_manifest_file: "{OUT}/reports/design_input_manifest.json"
+          architecture_file: "{OUT}/{DUT}_architecture.md"
+    output_files:
+      - "{OUT}/{DUT}_performance_contract.yaml"
+
+  - name: performance_test_authoring
+    desc: "专有性能测试用例 [{PERFORMANCE_TEST_COUNT}]"
+    skill_list:
+      - "ext/design-with-ppa/performance-tc-scaffold"
+    task:
+      - "目标：为每项性能指标实现一一绑定的 `test_{DUT}_performance_*` measurement 节点并在 Python 模式全部通过，测量方法与合同完全一致。"
+      - "第1步：调用 CurrentTips，读取性能合同的全部 metric 与 measurement_test；在 `{OUT}/tests/test_{DUT}_performance*.py` 实现至少两个函数。"
+      - "第2步：若 CurrentTips 列出 `ext/design-with-ppa/performance-tc-scaffold`，读取其 SKILL.md 并先调用 `scaffold_performance_tests.py`，从性能合同准确生成全部 measurement_test 节点；未列出 Skill 时手工创建。每个函数必须以 `test_{DUT}_performance_` 开头、使用 `@pytest.mark.performance`、第一参数为 `env` 并包含 `request`。"
+      - "第3步：按 `Guide_Doc/performance_measurement.md` 使用共享 API、确定性 stimulus/固定 seed、仿真 cycle/time 和 transaction 计算指标；禁止 pytest wall-clock。"
+      - "第4步：Python 模式分支必须验证功能结果和性能换算；RTL 模式分支在固定 observation window 后 flush，并调用 `write_performance_result` 写入当前波形的 sidecar。"
+      - "第5步：逐个用 `RunTestCases('test_{DUT}_performance.py::test_{DUT}_performance_...')` 运行 Python 模式，修复全部失败；不得直接 import 测试或 reference。"
+      - "第6步：若性能向量证明 reference 的功能、状态或时序不符合 README、Spec、architecture 或 FG/FC/CK，可以修正 reference，并重新运行受影响的全部功能与性能节点；不得为了得到更好性能数据而改变功能语义或 expected。调用 Check 核对命名、marker、node/合同一一绑定并复跑全部 Python 性能 TC；至少两个节点全部通过后 Complete。"
+    reference_files:
+      - "Guide_Doc/performance_contract.md"
+      - "Guide_Doc/performance_measurement.md"
+      - "Guide_Doc/python_dut_interface.md"
+      - "Guide_Doc/python_executable_spec.md"
+      - "{DUT}/README.md"
+      - "{DUT}/spec/**/*.md"
+      - "{OUT}/{DUT}_architecture.md"
+      - "{OUT}/{DUT}_functions_and_checks.md"
+      - "{OUT}/{DUT}_performance_contract.yaml"
+      - "{OUT}/tests/{DUT}_reference.py"
+      - "{OUT}/tests/{DUT}_api.py"
+    checker:
+      - name: performance_test_contract
+        clss: PerformanceTestContractChecker
+        args:
+          test_glob: "{OUT}/tests/test_{DUT}_performance*.py"
+          contract_file: "{OUT}/{DUT}_performance_contract.yaml"
+          min_tests: 2
+      - name: python_performance_regression
+        clss: PythonReferenceRegressionChecker
+        args:
+          test_dir: "{OUT}/tests"
+          test_glob: "{OUT}/tests/test_{DUT}_performance*.py"
+          pytest_args: ["-m", "performance"]
+          input_manifest_file: "{OUT}/reports/design_input_manifest.json"
+          contract_files:
+            - "{OUT}/{DUT}_architecture.md"
+            - "{OUT}/{DUT}_functions_and_checks.md"
+            - "{OUT}/{DUT}_performance_contract.yaml"
+          summary_file: "{OUT}/reports/{DUT}_python_performance_regression.json"
+          markdown_summary_file: "{OUT}/{DUT}_python_performance_test_summary.md"
+          timeout: 600
+          ret_std_out: true
+          ret_std_error: true
+    output_files:
+      - "{OUT}/tests/test_{DUT}_performance*.py"
+      - "{OUT}/tests/{DUT}_reference.py"
+      - "{OUT}/reports/{DUT}_python_performance_regression.json"
+      - "{OUT}/{DUT}_python_performance_test_summary.md"
+
+  - name: performance_evidence
+    desc: "RTL 性能波形与可复现证据"
+    task:
+      - "目标：在 RTL backend 重跑全部性能 TC，生成 TC、sidecar、波形与 hash 一一对应的可复现性能证据，不修改已通过的测量定义。"
+      - "第1步：调用 CurrentTips，确认性能合同和至少两个 Python 性能 TC 已通过；不要修改 measurement node、seed、parameters 或 observation window。"
+      - "第2步：调用 Check/Complete，使用当前 `{RTL_LANGUAGE}` 运行全部标记的性能 TC 并更新 sidecar/波形。"
+      - "第3步：若功能结果、metric、duration、unit 或 timeout 失败，先用权威功能合同判断根因；reference 不符合需求时可以修正并重跑 Python 功能/性能门禁，reference 已通过而 RTL 失败时修正共享 adapter/测试或 `{RTL_LANGUAGE}` 源码。"
+      - "第4步：若 TC/sidecar/waveform/hash 不一一对应，确保 fixture 在 reset/首次 Step 前绑定唯一真实波形，并在 sidecar 前 flush；禁止手写、拼接或从 Python shadow/reference trace 合成波形。"
+      - "第5步：全部 TC Pass 后调用 Complete，生成有序 `{OUT}/performance/performance_manifest.json`；禁止手工创建或编辑机器证据。"
+    reference_files:
+      - "Guide_Doc/performance_measurement.md"
+      - "Guide_Doc/rtl_backend.md"
+      - "Guide_Doc/python_executable_spec.md"
+      - "{DUT}/README.md"
+      - "{DUT}/spec/**/*.md"
+      - "{OUT}/{DUT}_architecture.md"
+      - "{OUT}/{DUT}_functions_and_checks.md"
+      - "{OUT}/{DUT}_performance_contract.yaml"
+      - "{OUT}/tests/{DUT}_reference.py"
+      - "{OUT}/tests/{DUT}_adapter.py"
+      - "{OUT}/tests/{DUT}_api.py"
+      - "{OUT}/tests/conftest.py"
+    checker:
+      - name: performance_backend_sync
+        clss: RTLBackendBuildChecker
+        args:
+          architecture_file: "{OUT}/{DUT}_architecture.md"
+          manifest_file: ".ucagent/design_with_ppa/rtl_backend_manifest.json"
+          input_manifest_file: "{OUT}/reports/design_input_manifest.json"
+          contract_files:
+            - "{OUT}/{DUT}_architecture.md"
+            - "{OUT}/{DUT}_functions_and_checks.md"
+          timeout: 600
+      - name: performance_artifacts
+        clss: PerformanceArtifactChecker
+        args:
+          test_dir: "{OUT}/tests"
+          results_glob: "{OUT}/performance/results/*.json"
+          contract_file: "{OUT}/{DUT}_performance_contract.yaml"
+          manifest_file: "{OUT}/performance/performance_manifest.json"
+          rtl_manifest_file: ".ucagent/design_with_ppa/rtl_backend_manifest.json"
+          input_manifest_file: "{OUT}/reports/design_input_manifest.json"
+          contract_files:
+            - "{OUT}/{DUT}_architecture.md"
+            - "{OUT}/{DUT}_functions_and_checks.md"
+            - "{OUT}/{DUT}_performance_contract.yaml"
+          timeout: 600
+          ret_std_out: true
+          ret_std_error: true
+    output_files:
+      - "{OUT}/performance/results/*.json"
+      - "{OUT}/performance/waves/*"
+      - "{OUT}/performance/performance_manifest.json"
+
+  - name: ppa_optimization
+    desc: "PPA base、Pareto 候选循环与最佳版本固化"
+    task:
+      - "目标：在保持全部功能与性能门禁通过的前提下，通过 Pareto 候选循环优化 PPA，并确定性固化与呈现最佳版本。"
+      - "第1步：先建立不可修改的 round 0 功能/PPA base，再进入候选循环；base 不计入候选次数。"
+      - "第2步：候选阶段每轮只编写一个有界优化假设并修改当前语言源码；Check 自动重建、运行相同功能/性能 TC、生成 PPA 和逐项 diff。"
+      - "第3步：达到最少轮数后仍继续搜索，直到连续无改善达到 patience 或达到最大保护上限；工具失败不计为无改善。"
+      - "第4步：循环终止后由确定性门禁从全部 accepted 版本选择并恢复最佳版本，再生成 final PPA、连续版本曲线和只读看板。"
+      - "第5步：reference 即使进入本阶段也不是永久不可修改；但任何需求驱动的 reference/共享测试修正都会使既有功能、性能和 PPA base 失效，必须重新通过上游同套 TC 并重建 base，不能在旧 base 上继续比较。"
+    stage:
+      - name: ppa_base_characterization
+        desc: "round 0 功能与 PPA 基线"
+        task:
+          - "目标：在不修改任何设计产物的前提下，从当前全部性能波形建立 round 0 功能与 PPA 基线，作为后续所有候选比较的唯一参照。"
+          - "第1步：调用 CurrentTips，读取性能合同和 Guide_Doc/ppa_optimization.md；本阶段不得修改任何 RTL、测试、性能合同或波形。"
+          - "第2步：调用 Check。Check 自动确认当前 RTL backend、重跑相同性能 TC、完整功能回归，并从全部性能波形建立 round 0 PPA。"
+          - "第3步：修复任何功能、性能证据、Liberty、时序约束或分析工具错误；若证据证明 reference 不符合权威功能合同，可以修正它并重新通过 Python/RTL/性能门禁后再建 base。不得手写或编辑自动生成的基线、版本记录和 PPA 证据。"
+          - "第4步：Check 通过后确认 base 指标摘要，再调用 Complete；最少优化轮数为 0 时 base 会直接进入终止状态。"
+        reference_files:
+          - "Guide_Doc/ppa_optimization.md"
+          - "{OUT}/{DUT}_performance_contract.yaml"
+        checker:
+          - name: base_backend_sync
+            clss: RTLBackendBuildChecker
+            args:
+              architecture_file: "{OUT}/{DUT}_architecture.md"
+              manifest_file: ".ucagent/design_with_ppa/rtl_backend_manifest.json"
+              input_manifest_file: "{OUT}/reports/design_input_manifest.json"
+              contract_files:
+                - "{OUT}/{DUT}_architecture.md"
+                - "{OUT}/{DUT}_functions_and_checks.md"
+              timeout: 600
+          - name: base_performance_refresh
+            clss: PerformanceArtifactChecker
+            args:
+              test_dir: "{OUT}/tests"
+              results_glob: "{OUT}/performance/results/*.json"
+              contract_file: "{OUT}/{DUT}_performance_contract.yaml"
+              manifest_file: "{OUT}/performance/performance_manifest.json"
+              rtl_manifest_file: ".ucagent/design_with_ppa/rtl_backend_manifest.json"
+              input_manifest_file: "{OUT}/reports/design_input_manifest.json"
+              contract_files:
+                - "{OUT}/{DUT}_architecture.md"
+                - "{OUT}/{DUT}_functions_and_checks.md"
+                - "{OUT}/{DUT}_performance_contract.yaml"
+              timeout: 600
+              ret_std_out: true
+              ret_std_error: true
+          - name: ppa_base
+            clss: PPABaseCharacterizationChecker
+            args: &ppa_iteration_args
+              test_dir: "{OUT}/tests"
+              functional_test_glob: "{OUT}/tests/test_{DUT}_*.py"
+              performance_contract_file: "{OUT}/{DUT}_performance_contract.yaml"
+              performance_manifest_file: "{OUT}/performance/performance_manifest.json"
+              ppa_report_file: "{OUT}/reports/ppa/current.json"
+              rtl_backend_manifest_file: ".ucagent/design_with_ppa/rtl_backend_manifest.json"
+              ledger_file: "{OUT}/{DUT}_optimization_ledger.yaml"
+              base_report_file: "{OUT}/reports/ppa/base.json"
+              iteration_report_dir: "{OUT}/reports/ppa/iterations"
+              input_manifest_file: "{OUT}/reports/design_input_manifest.json"
+              design_contract_files:
+                - "{OUT}/{DUT}_architecture.md"
+                - "{OUT}/{DUT}_functions_and_checks.md"
+              timeout: 1800
+              rel_tolerance: 0.000001
+              abs_tolerance: 0.000000000001
+              ret_std_out: true
+              ret_std_error: true
+        output_files:
+          - "{OUT}/reports/ppa/base.json"
+          - "{OUT}/reports/ppa/iterations/iteration-000.json"
+          - "{OUT}/{DUT}_optimization_ledger.yaml"
+
+      - name: ppa_candidate_optimization
+        desc: "Pareto 候选循环 [{PPA_CANDIDATE_COUNT}/{PPA_MIN_OPTIMIZATION_ITERATIONS} min, {PPA_MAX_OPTIMIZATION_ITERATIONS} max]"
+        skill_list:
+          - "ext/design-with-ppa/ppa-iteration-analysis"
+        force_use_skill: false
+        task:
+          - "目标：每轮只验证一个有界优化假设——只改当前语言源码，经同套功能/性能 TC 与 Pareto 接受门禁（无回退保护类别：{PPA_NO_REGRESSION_METRICS}；至少一项指标严格改善）判定接受或自动回退，直到满足最少轮数并达到终止条件。"
+          - "第1步：每次开始和每次 Check 后立即调用 CurrentTips；已评估 {PPA_CANDIDATE_COUNT} 轮，距最少轮数 {PPA_REMAINING_MIN_ITERATIONS}，连续无改善 {PPA_NO_IMPROVEMENT_COUNT}/{PPA_NO_IMPROVEMENT_PATIENCE}。"
+          - "第2步：根据上次 Check 的 accepted {PPA_ACCEPTED_ITERATION}、best {PPA_BEST_ITERATION}、单一 PPA score 及相对 previous/base/best 的逐项 diff，选择一个有界 hotspot。"
+          - "第3步：为 candidate {PPA_NEXT_CANDIDATE} 按 Guide_Doc/ppa_optimization.md 重写 {OUT}/reports/ppa/candidate_hypothesis.yaml，iteration 必须连续；随后只修改 {RTL_LANGUAGE} 源码。"
+          - "第4步：调用 Check 自动重建 backend、运行全部功能测试和完全相同的性能 TC、分析 PPA、执行 Pareto 接受门禁判定；一次只评估一个候选。"
+          - "第5步：accepted 后从新版本继续；rejected 后源码会自动恢复上一 accepted。不得修改自动生成的报告、版本记录、恢复证据、波形或测试身份。"
+          - "第6步：工具或基础设施错误先修复后重试，不消耗无改善次数。若发现 reference 与权威功能合同不一致，允许修正，但必须让旧 base 失效并重新完成 Python、RTL、性能和 base 门禁，不能把 reference 修改混入一个候选比较。Check 要求新候选时再次 CurrentTips；只有返回终止状态后才 Complete。"
+        reference_files:
+          - "Guide_Doc/ppa_optimization.md"
+          - "{OUT}/{DUT}_performance_contract.yaml"
+        checker:
+          - name: candidate_backend_sync
+            clss: RTLBackendBuildChecker
+            args:
+              architecture_file: "{OUT}/{DUT}_architecture.md"
+              manifest_file: ".ucagent/design_with_ppa/rtl_backend_manifest.json"
+              input_manifest_file: "{OUT}/reports/design_input_manifest.json"
+              contract_files:
+                - "{OUT}/{DUT}_architecture.md"
+                - "{OUT}/{DUT}_functions_and_checks.md"
+              timeout: 600
+          - name: candidate_performance_refresh
+            clss: PerformanceArtifactChecker
+            args:
+              test_dir: "{OUT}/tests"
+              results_glob: "{OUT}/performance/results/*.json"
+              contract_file: "{OUT}/{DUT}_performance_contract.yaml"
+              manifest_file: "{OUT}/performance/performance_manifest.json"
+              rtl_manifest_file: ".ucagent/design_with_ppa/rtl_backend_manifest.json"
+              input_manifest_file: "{OUT}/reports/design_input_manifest.json"
+              contract_files:
+                - "{OUT}/{DUT}_architecture.md"
+                - "{OUT}/{DUT}_functions_and_checks.md"
+                - "{OUT}/{DUT}_performance_contract.yaml"
+              timeout: 600
+              ret_std_out: true
+              ret_std_error: true
+          - name: ppa_candidate
+            clss: PPACandidateOptimizationChecker
+            args: *ppa_iteration_args
+        output_files:
+          - "{RTL_SOURCE_GLOB}"
+          - "{OUT}/reports/ppa/iterations/*.json"
+          - "{OUT}/{DUT}_optimization_ledger.yaml"
+
+      - name: ppa_best_version_finalization
+        desc: "最佳 accepted 版本确定性恢复"
+        task:
+          - "目标：由确定性门禁从全部完整 accepted 记录执行 Pareto 选择并原子恢复最佳版本源码，不手工挑选、复制或编辑任何版本。"
+          - "第1步：调用 CurrentTips，确认候选循环已返回终止状态；不要自行选择、复制或编辑任何版本。"
+          - "第2步：调用 Check。Check 从全部完整 accepted 记录执行 Pareto 选择，原子恢复最佳 {RTL_LANGUAGE} 源码并绑定其不可变 PPA report。"
+          - "第3步：若自动生成的优化记录、版本证据或 PPA 身份失败，只修复诊断指出的基础设施或损坏问题，不手写接受状态。"
+          - "第4步：Check 通过后确认 best iteration/report，再调用 Complete；backend 同步由本阶段自动完成。"
+        reference_files:
+          - "Guide_Doc/ppa_optimization.md"
+        checker:
+          - name: best_version
+            clss: PPABestVersionChecker
+            args:
+              ledger_file: "{OUT}/{DUT}_optimization_ledger.yaml"
+              final_report_file: "{OUT}/{DUT}_final_ppa_report.json"
+          - name: finalized_backend_sync
+            clss: RTLBackendBuildChecker
+            args:
+              architecture_file: "{OUT}/{DUT}_architecture.md"
+              manifest_file: ".ucagent/design_with_ppa/rtl_backend_manifest.json"
+              input_manifest_file: "{OUT}/reports/design_input_manifest.json"
+              contract_files:
+                - "{OUT}/{DUT}_architecture.md"
+                - "{OUT}/{DUT}_functions_and_checks.md"
+              timeout: 600
+        output_files:
+          - "{RTL_SOURCE_GLOB}"
+          - "{OUT}/{DUT}_final_ppa_report.json"
+
+      - name: ppa_result_artifacts
+        desc: "最终 PPA、连续版本曲线与只读看板"
+        task:
+          - "目标：生成与最佳 accepted 版本一致的最终 PPA、连续版本曲线和只读看板，完整呈现 base、accepted 与 rejected 的优化历程。"
+          - "第1步：调用 CurrentTips，确认 final PPA 已指向最佳 accepted 版本；本阶段不修改 RTL、测试、文档或机器报告。"
+          - "第2步：调用 Check 生成并验证 {OUT}/{DUT}_performance_curve.json，其中连续列出 base、accepted 和 rejected 版本、分类指标，以及 base=1.0 且越大越好的单一 PPA score。"
+          - "第3步：确认 {OUT}/{DUT}_ppa_dashboard.html 直接打开即可从内嵌只读快照展示完整进度、单一 PPA score 与曲线；通过相对 URL 访问时自动刷新 ledger、state、PPA/curve 与 Toffee 链接，并保留分页、accepted/rejected filter 和灰色拒绝版本。"
+          - "第4步：机器结果通过后调用 Complete；设计总结和最终全 TC 一致性在最后文档阶段完成。"
+        reference_files:
+          - "Guide_Doc/ppa_optimization.md"
+          - "{OUT}/{DUT}_final_ppa_report.json"
+        checker:
+          - name: ppa_result_artifacts
+            clss: PPAResultArtifactsChecker
+            args:
+              ledger_file: "{OUT}/{DUT}_optimization_ledger.yaml"
+              final_report_file: "{OUT}/{DUT}_final_ppa_report.json"
+              design_summary_file: "{OUT}/{DUT}_design_summary.md"
+              performance_curve_json_file: "{OUT}/{DUT}_performance_curve.json"
+              dashboard_file: "{OUT}/{DUT}_ppa_dashboard.html"
+              input_manifest_file: "{OUT}/reports/design_input_manifest.json"
+              timeout: 600
+        output_files:
+          - "{OUT}/{DUT}_final_ppa_report.json"
+          - "{OUT}/{DUT}_performance_curve.json"
+          - "{OUT}/{DUT}_ppa_dashboard.html"
+
+  - name: final_documentation_sync
+    desc: "最终 RTL 文档同步与全量无 Bug 交付"
+    task:
+      - "目标：让最终文档与最佳 accepted RTL 完全一致，并以 Python reference 与最终 RTL 通过同一套全部 TC 作为交付门禁，无 Bug 交付。"
+      - "第1步：分别同步接口/architecture、需求/功能合同和最终设计总结；每个子阶段只修改其 output_files。"
+      - "第2步：文档只反映最佳 accepted RTL 的实现结构，不改变功能合同、FG/FC/CK ID、测试、性能合同、RTL 或机器报告。"
+      - "第3步：绝对最后的验证子阶段自动运行 Python reference 与最终 RTL 的同一套全部 TC，保留完整 RTL Toffee HTML，并写入文档同步附录。"
+      - "第4步：任何功能失败都必须修复；不得创建、保留或引用 Bug 分析文档。"
+    stage:
+      - name: final_interface_and_architecture_docs
+        desc: "最终接口、时序与 architecture 同步"
+        task:
+          - "目标：让 architecture 与 basic info 的接口、时序说明与最佳 accepted RTL 的实际实现完全一致，不改动 RTL、测试或其他文档。"
+          - "第1步：调用 CurrentTips，读取 Guide_Doc/design_document_sync.md、architecture、basic info、最终 {RTL_LANGUAGE} 源码和 final PPA。"
+          - "第2步：逐项核对 top module、参数、端口方向/位宽/signedness、clock/reset、组合/时序语义、latency、handshake、backpressure、非法输入和综合约束。"
+          - "第3步：只更新 {OUT}/{DUT}_architecture.md 与 {OUT}/{DUT}_basic_info.md 中对应说明；canonical interface 必须与最终 RTL 一致，不修改 RTL、测试或其他文档。"
+          - "第4步：调用 Check 修正结构、接口或 Markdown 问题，全部通过后 Complete。"
+        reference_files:
+          - "Guide_Doc/design_document_sync.md"
+          - "Guide_Doc/rtl_design_constraints.md"
+          - "{OUT}/{DUT}_architecture.md"
+          - "{OUT}/{DUT}_basic_info.md"
+          - "{OUT}/{DUT}_final_ppa_report.json"
+          - "{RTL_SOURCE_GLOB}"
+        checker:
+          - name: final_architecture_contract
+            clss: DesignArchitectureChecker
+            args:
+              architecture_file: "{OUT}/{DUT}_architecture.md"
+              input_manifest_file: "{OUT}/reports/design_input_manifest.json"
+          - name: final_basic_info_markdown
+            clss: DesignMarkdownFileFormatChecker
+            args:
+              markdown_file_list: "{OUT}/{DUT}_basic_info.md"
+              no_line_break: true
+        output_files:
+          - "{OUT}/{DUT}_architecture.md"
+          - "{OUT}/{DUT}_basic_info.md"
+
+      - name: final_requirement_and_function_docs
+        desc: "最终需求计划与 FG/FC/CK 实现说明同步"
+        task:
+          - "目标：同步需求计划与功能合同的最终实现说明和验证状态，不改变 FG/FC/CK 身份、层级与 Spec 行映射。"
+          - "第1步：调用 CurrentTips，读取 Guide_Doc/design_document_sync.md、设计计划、功能合同、最终 architecture、最终源码和性能结果。"
+          - "第2步：更新需求计划中的最终实现选择、验证状态、资源取舍和已解决风险；更新功能合同中的实现说明与接受条件。"
+          - "第3步：不得改变既有 FG/FC/CK ID、层级、语义或 Spec 行映射；性能指标仍由性能合同和 PPA 报告定义。"
+          - "第4步：只修改 {OUT}/{DUT}_design_needs_and_plan.md、{OUT}/{DUT}_functions_and_checks.md 及必须同步的 line-map 引用；调用 Check，全部通过后 Complete。"
+        reference_files:
+          - "Guide_Doc/design_document_sync.md"
+          - "Guide_Doc/design_ut_contract.md"
+          - "{OUT}/{DUT}_architecture.md"
+          - "{OUT}/{DUT}_design_needs_and_plan.md"
+          - "{OUT}/{DUT}_functions_and_checks.md"
+          - "{OUT}/{DUT}_performance_curve.json"
+          - "{RTL_SOURCE_GLOB}"
+        checker:
+          - name: final_plan_markdown
+            clss: DesignMarkdownFileFormatChecker
+            args:
+              markdown_file_list: "{OUT}/{DUT}_design_needs_and_plan.md"
+              no_line_break: true
+          - name: final_function_contract
+            clss: DesignFunctionalContractChecker
+            args:
+              doc_file: "{OUT}/{DUT}_functions_and_checks.md"
+          - name: final_function_labels
+            clss: DesignLabelStructureChecker
+            args:
+              doc_file: "{OUT}/{DUT}_functions_and_checks.md"
+              leaf_node: CK
+              min_count: 1
+              must_have_prefix: ""
+              data_key: DESIGN_CK_LIST
+          - name: final_line_map_references
+            clss: DesignLineMapReferenceChecker
+            args:
+              file_list:
+                - "{DUT}/spec/**/*.md"
+              func_check_file: "{OUT}/{DUT}_functions_and_checks.md"
+              map_location: "{OUT}/line_map"
+              map_suffix: "_line_func_map.txt"
+              max_block_lines: 100
+        output_files:
+          - "{OUT}/{DUT}_design_needs_and_plan.md"
+          - "{OUT}/{DUT}_functions_and_checks.md"
+          - "{OUT}/line_map/*_line_func_map.txt"
+
+      - name: final_design_summary
+        desc: "最佳版本设计与 PPA 总结"
+        task:
+          - "目标：在设计总结中准确记录最佳版本的设计结构、停止原因、优化配置，以及相对 base 的 PPA 指标变化与实现取舍。"
+          - "第1步：调用 CurrentTips，读取 Guide_Doc/design_final_report.md、最终 architecture、performance curve、optimization ledger 和 final PPA。"
+          - "第2步：只更新 {OUT}/{DUT}_design_summary.md，准确记录最终 top、RTL language、停止原因、最少/最大迭代配置、连续无改善阈值、无回退保护指标类别、最后 accepted 与 best iteration/report。"
+          - "第3步：总结相对 base 的 frequency/critical delay、latency、throughput、area、power 和 custom 指标变化，说明最终实现取舍，并以相对路径链接 PPA dashboard。"
+          - "第4步：不得改写 RTL、测试、ledger、PPA、curve 或 dashboard；调用 Check 修复 Markdown 格式，通过后 Complete。"
+        reference_files:
+          - "Guide_Doc/design_final_report.md"
+          - "{OUT}/{DUT}_architecture.md"
+          - "{OUT}/{DUT}_optimization_ledger.yaml"
+          - "{OUT}/{DUT}_final_ppa_report.json"
+          - "{OUT}/{DUT}_performance_curve.json"
+          - "{OUT}/{DUT}_ppa_dashboard.html"
+        checker:
+          - name: final_summary_markdown
+            clss: DesignMarkdownFileFormatChecker
+            args:
+              markdown_file_list: "{OUT}/{DUT}_design_summary.md"
+              no_line_break: true
+        output_files:
+          - "{OUT}/{DUT}_design_summary.md"
+
+      - name: final_documentation_and_delivery_validation
+        desc: "最终同套全 TC、Toffee 与文档身份门禁"
+        task:
+          - "目标：最终交付门禁——Python reference 与最终 RTL 通过同一套全部 TC，五份最终文档与最终 RTL hash 绑定同步，确认无 Bug 分析文档后交付。"
+          - "第1步：调用 CurrentTips，确认前面三类最终文档已同步；本阶段不主动改写 RTL、reference、测试、性能合同、ledger、PPA、curve 或 dashboard，只运行最终证据门禁。"
+          - "第2步：调用 Check。Check 自动收集同一套全部 TC，分别运行 Python reference 和最终 {RTL_LANGUAGE} backend；不需要也不得手工指定 backend。"
+          - "第3步：若任一 TC 失败、两端节点集合不同或 Toffee 未覆盖全部 TC，按 STDOUT/STDERR 的首个根因修复相应源产物后重新通过受影响阶段。reference 与权威功能合同不一致时仍可修正，并重新建立失效的 Python/RTL/性能/PPA 证据；reference 已按合同通过而 RTL 失败时不得改 reference/expected，只修 RTL/backend。不得 skip、xfail 或弱化断言。"
+          - "第4步：全量一致性通过后，Check 自动为五份最终文档写入 Final RTL synchronization 附录并生成 documentation sync manifest；不得手写哈希或收据。"
+          - "第5步：确认不存在任何 Bug 分析文档，最终 RTL hash 等于 best accepted 记录，final PPA 和 dashboard 可读取；Check 通过后调用 Complete。"
+        reference_files:
+          - "Guide_Doc/design_document_sync.md"
+          - "Guide_Doc/design_final_report.md"
+          - "{OUT}/{DUT}_architecture.md"
+          - "{OUT}/{DUT}_basic_info.md"
+          - "{OUT}/{DUT}_design_needs_and_plan.md"
+          - "{OUT}/{DUT}_functions_and_checks.md"
+          - "{OUT}/{DUT}_design_summary.md"
+          - "{RTL_SOURCE_GLOB}"
+        checker:
+          - name: final_all_tc_delivery
+            clss: DesignFinalDeliveryChecker
+            args:
+              ledger_file: "{OUT}/{DUT}_optimization_ledger.yaml"
+              final_report_file: "{OUT}/{DUT}_final_ppa_report.json"
+              design_summary_file: "{OUT}/{DUT}_design_summary.md"
+              performance_curve_json_file: "{OUT}/{DUT}_performance_curve.json"
+              dashboard_file: "{OUT}/{DUT}_ppa_dashboard.html"
+              input_manifest_file: "{OUT}/reports/design_input_manifest.json"
+              test_dir: "{OUT}/tests"
+              test_glob: "{OUT}/tests/test_{DUT}_*.py"
+              rtl_manifest_file: ".ucagent/design_with_ppa/rtl_backend_manifest.json"
+              final_validation_file: "{OUT}/reports/{DUT}_final_all_tc_validation.json"
+              timeout: 600
+              ret_std_out: true
+              ret_std_error: true
+          - name: documentation_sync
+            clss: DesignDocumentationSyncChecker
+            args:
+              documentation_files:
+                - "{OUT}/{DUT}_architecture.md"
+                - "{OUT}/{DUT}_basic_info.md"
+                - "{OUT}/{DUT}_design_needs_and_plan.md"
+                - "{OUT}/{DUT}_functions_and_checks.md"
+                - "{OUT}/{DUT}_design_summary.md"
+              rtl_manifest_file: ".ucagent/design_with_ppa/rtl_backend_manifest.json"
+              final_validation_file: "{OUT}/reports/{DUT}_final_all_tc_validation.json"
+              sync_manifest_file: "{OUT}/reports/{DUT}_documentation_sync.json"
+        output_files:
+          - "{OUT}/{DUT}_architecture.md"
+          - "{OUT}/{DUT}_basic_info.md"
+          - "{OUT}/{DUT}_design_needs_and_plan.md"
+          - "{OUT}/{DUT}_functions_and_checks.md"
+          - "{OUT}/{DUT}_design_summary.md"
+          - "{OUT}/reports/{DUT}_final_all_tc_validation.json"
+          - "{OUT}/reports/{DUT}_documentation_sync.json"
+          - "{OUT}/reports/design_with_ppa/*_toffee_report.json"

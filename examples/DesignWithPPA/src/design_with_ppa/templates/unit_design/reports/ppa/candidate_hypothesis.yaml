@@ -1,0 +1,5 @@
+iteration: 1
+hypothesis: Replace with one bounded selected-language source transformation after base registration.
+target_hotspot: Replace with an exact timing path, cell type, or power hotspot from the accepted PPA report.
+expected_metrics:
+  - ppa.area.total
