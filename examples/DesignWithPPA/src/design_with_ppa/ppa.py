@@ -1610,6 +1610,13 @@ class AnalyzePPA(UCTool):
             # script tokens and preserve the ABC network-flow mapping steps.
             "-script +strash,dc2,dretime,strash,;&get,-n,;&dch,-f,;&nf,;&put",
             "clean -purge",
+            # Map constant nets to dedicated tie cells so the emitted netlist
+            # contains no constant-driver `assign` statements, and rename all
+            # internal $-prefixed objects to driver-derived public names so
+            # no escaped identifiers remain.  OpenSTA's Verilog reader rejects
+            # both constructs.
+            "hilomap -hicell LOGIC1_X1 Z -locell LOGIC0_X1 Z",
+            "autoname",
             f'tee -o "mapped_stats.json" stat -json -liberty {self._yosys_quote(str(liberty))}',
             'write_verilog -noattr -noexpr -nodec "mapped.v"',
             'write_json "mapped.json"',

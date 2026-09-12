@@ -75,19 +75,21 @@ assign carry_o  = extended_sum[WIDTH];
 
 ## Signed 算术与比较
 
-- 只有确实表示二补码的信号才声明为 `signed`，同一表达式中的操作数先对齐 signedness 和宽度。
-- 不依赖 unsigned/signed 混合运算的隐式规则。建立显式 signed 中间 wire，再执行比较、乘法或算术右移。
-- 使用 `>>>` 前确保左操作数已声明为 signed；逻辑右移统一使用 `>>`。
-- 比较前显式扩展到相同宽度；不要让参数、integer 或无尺寸常量改变表达式类型。
+- 不在 wire/reg/input/output 声明上使用 `signed` 关键字：yosys 生成的网表会保留
+  `wire signed` 声明，而 OpenSTA 3.1.0 的 Verilog reader 无法解析它，PPA 阶段会因此
+  失败。全部信号使用无符号声明，用二补码位模式承载负数——按位行为与 signed 声明
+  完全一致。
+- 负数运算靠显式手工符号扩展：用 `{operand[MSB], operand}` 拼接复制符号位到统一
+  宽度后再相加、相乘或比较；在无符号上下文中直接零扩展会破坏负数。
+- 比较与加减在同一个符号扩展宽度上按二补码进行；编码器、饱和与幅值比较按无符号
+  处理。
+- 逻辑右移统一使用 `>>`；需要算术右移时先手工复制符号位再右移，不使用 `>>>`。
 
 ```verilog
-wire signed [WIDTH:0] lhs_ext;
-wire signed [WIDTH:0] rhs_ext;
-wire signed [WIDTH:0] signed_sum;
-
-assign lhs_ext    = {lhs[WIDTH-1], lhs};
-assign rhs_ext    = {rhs[WIDTH-1], rhs};
-assign signed_sum = lhs_ext + rhs_ext;
+// 全无符号二补码数据通路：先显式符号扩展到统一宽度，再相加。
+wire [WIDTH:0] lhs_ext = {lhs[WIDTH-1], lhs};
+wire [WIDTH:0] rhs_ext = {rhs[WIDTH-1], rhs};
+wire [WIDTH:0] sum_ext = lhs_ext + rhs_ext;
 ```
 
 ## 组合逻辑

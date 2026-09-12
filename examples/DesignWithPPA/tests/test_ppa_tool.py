@@ -6,9 +6,11 @@ import json
 import builtins
 import hashlib
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
+import time
 
 import pytest
 from pydantic import ValidationError
@@ -888,6 +890,49 @@ def test_real_mixed_waveform_analysis_produces_complete_report(tmp_path: Path) -
         tc["weight"] for tc in report["waveform_aggregation"]["test_cases"]
     ) == pytest.approx(1.0)
     json.dumps(report, allow_nan=False)
+
+
+@pytest.mark.skipif(
+    shutil.which("yosys") is None,
+    reason="Yosys is required for the netlist hygiene test",
+)
+def test_synthesized_netlist_avoids_opensta_rejected_constructs(
+    tmp_path: Path,
+) -> None:
+    """Mapped netlists must not emit constant assigns or escaped identifiers.
+
+    OpenSTA's Verilog reader rejects constant-driver ``assign`` statements and
+    escaped ``$``-prefixed identifiers, so synthesis maps constant nets to the
+    bundled Liberty tie cells with hilomap and renames internal objects with
+    autoname before writing the netlist.
+    """
+
+    (tmp_path / "const_tie.v").write_text(
+        "module const_tie(input clk_i, input a_i, input [1:0] sel_i,"
+        " output reg [3:0] y_o);\n"
+        "  always @(posedge clk_i) begin\n"
+        "    case ({1'b1, sel_i})\n"
+        "      3'b1_00: y_o <= 4'd1;\n"
+        "      3'b1_01: y_o <= {3'd2, a_i};\n"
+        "      3'b1_10: y_o <= {a_i, 3'd5};\n"
+        "      default: y_o <= 4'b0;\n"
+        "    endcase\n"
+        "  end\n"
+        "endmodule\n",
+        encoding="ascii",
+    )
+    tool = _tool(tmp_path)
+    tool._synthesize(
+        [tmp_path / "const_tie.v"],
+        "const_tie",
+        tool._DEFAULT_LIBERTY,
+        tmp_path,
+        time.monotonic() + 120,
+    )
+    netlist = (tmp_path / "mapped.v").read_text(encoding="ascii")
+    assert re.search(r"=\s*1'[bhd]", netlist) is None
+    assert "\\" not in netlist
+    assert "LOGIC0_X1" in netlist or "LOGIC1_X1" in netlist
 
 
 @pytest.mark.skipif(
