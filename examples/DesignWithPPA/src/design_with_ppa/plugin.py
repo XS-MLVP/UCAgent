@@ -163,7 +163,7 @@ def get_plugin() -> Plugin:
                 ),
             ),
         ),
-        requires_ucagent=">=26.9.2.dev26",
+        requires_ucagent=">=26.9.2.dev6",
         python_requirements=(
             "vcdvcd>=2.3.5,<3.0.0",
             "pylibfst>=0.2.1,<0.3.0",

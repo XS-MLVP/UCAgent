@@ -13,7 +13,7 @@ authors = [
     {name = "XS-MLVP", email = "unitychip@bosc.ac.cn"},
 ]
 dependencies = [
-    "UCAgent>=26.9.2.dev26",
+    "UCAgent>=26.9.2.dev6",
     "vcdvcd>=2.3.5,<3.0.0",
     "pylibfst>=0.2.1,<0.3.0",
 ]

@@ -7,7 +7,7 @@
 - `RunDesignConsistency`：一键验证 Python reference、RTL、完整测试集、Toffee 报告和 PPA 报告的一致性；
 - `unit-design-tdd`：从 README 和设计 Spec 开始，生成并验证 Verilog 或 Chisel 单元模块，并执行 PPA 优化。
 
-Python 发行包名为 `ucagent-design-with-ppa`，插件 ID 为 `design-with-ppa`，要求 Python 3.11 及以上和 `UCAgent>=26.9.2.dev26`。
+Python 发行包名为 `ucagent-design-with-ppa`，插件 ID 为 `design-with-ppa`，要求 Python 3.11 及以上和 `UCAgent>=26.9.2.dev6`。
 
 ## 构建与安装
 

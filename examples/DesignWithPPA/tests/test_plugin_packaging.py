@@ -43,8 +43,8 @@ def test_plugin_metadata_requires_dynamic_template_context_release() -> None:
     project = tomllib.loads(
         (PLUGIN_SOURCE.parent / "pyproject.toml").read_text(encoding="utf-8")
     )
-    assert plugin.requires_ucagent == ">=26.9.2.dev26"
-    assert "UCAgent>=26.9.2.dev26" in project["project"]["dependencies"]
+    assert plugin.requires_ucagent == ">=26.9.2.dev6"
+    assert "UCAgent>=26.9.2.dev6" in project["project"]["dependencies"]
     assert plugin.version == "0.4.7"
     assert project["project"]["version"] == "0.4.7"
     excluded = project["tool"]["setuptools"]["exclude-package-data"]["*"]
