@@ -360,6 +360,7 @@ def _run_workflow_ppa(
             rtl_library_provenance=rtl_library_rows,
             trusted_rtl_library_files=rtl_library_files,
             trusted_rtl_files=prepared.analysis_verilog_files,
+            rtl_systemverilog=rtl_language_backend.analysis_systemverilog,
         )
     finally:
         shutil.rmtree(build_root, ignore_errors=True)

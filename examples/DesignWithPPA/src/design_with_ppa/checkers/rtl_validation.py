@@ -1867,7 +1867,9 @@ class RTLBackendBuildChecker(Checker):
                 for path in analysis_files
             )
             yosys_script = (
-                f"read_verilog {yosys_sources}; "
+                f"read_verilog "
+                f"{'-sv ' if self.rtl_language_backend.analysis_systemverilog else ''}"
+                f"{yosys_sources}; "
                 f"hierarchy -check -top {top}; proc; check"
             )
             active_operation = "yosys_smoke"
@@ -1888,7 +1890,7 @@ class RTLBackendBuildChecker(Checker):
                 parser_output = _redact_backend_output(
                     f"{yosys_result.stdout}\n{yosys_result.stderr}",
                     6000,
-                    (workspace,),
+                    (workspace, *private_analysis_files),
                 ).strip()
                 if hazard_evidence:
                     error_text = (
@@ -1925,26 +1927,22 @@ class RTLBackendBuildChecker(Checker):
                         "4. Once synthesis passes, fix the first shared RTL test failure "
                         "before investigating line coverage."
                     )
-                observed = (
-                    {"returncode": yosys_result.returncode}
-                    if private_analysis_files
-                    else {
-                        "returncode": yosys_result.returncode,
-                        "stdout_tail": _redact_backend_output(
-                            yosys_result.stdout, 6000, (workspace,)
-                        ),
-                        "stderr_tail": _redact_backend_output(
-                            yosys_result.stderr, 6000, (workspace,)
-                        ),
-                        "tool_output": parser_output,
-                        "tool_errors": tool_error_lines(
-                            f"{yosys_result.stdout}\n{yosys_result.stderr}"
-                        ),
-                        "synthesis_hazards": hazard_evidence,
-                        "tests_not_run": "RTL regression, line coverage, and PPA were not run because synthesis failed",
-                        "coverage_pipeline": _coverage_pipeline_status("synthesis"),
-                    }
-                )
+                observed = {
+                    "returncode": yosys_result.returncode,
+                    "stdout_tail": _redact_backend_output(
+                        yosys_result.stdout, 6000, (workspace, *private_analysis_files)
+                    ),
+                    "stderr_tail": _redact_backend_output(
+                        yosys_result.stderr, 6000, (workspace, *private_analysis_files)
+                    ),
+                    "tool_output": parser_output,
+                    "tool_errors": tool_error_lines(
+                        f"{yosys_result.stdout}\n{yosys_result.stderr}"
+                    ),
+                    "synthesis_hazards": hazard_evidence,
+                    "tests_not_run": "RTL regression, line coverage, and PPA were not run because synthesis failed",
+                    "coverage_pipeline": _coverage_pipeline_status("synthesis"),
+                }
                 return False, diagnostic(
                     "rtl_synthesis_failed",
                     error_text,

@@ -1587,12 +1587,15 @@ class AnalyzePPA(UCTool):
         liberty: Path,
         run_dir: Path,
         deadline: float,
+        *,
+        systemverilog: bool = False,
     ) -> dict[str, Any]:
         """Run Yosys and return mapped/generic structured artifacts and logs."""
 
         script = run_dir / "synth.ys"
         lines = [
             "read_verilog "
+            + ("-sv " if systemverilog else "")
             + " ".join(self._yosys_quote(str(path)) for path in rtl_files),
             f"hierarchy -check -top {top_module}",
             # Keep the analysis bounded for generated arithmetic cones.  The
@@ -2129,8 +2132,14 @@ class AnalyzePPA(UCTool):
         rtl_library_provenance: list[dict[str, Any]] | None = None,
         trusted_rtl_library_files: tuple[Path, ...] | None = None,
         trusted_rtl_files: tuple[Path, ...] | None = None,
+        rtl_systemverilog: bool = False,
     ) -> dict[str, Any]:
-        """Execute PPA with optional trusted inputs and authored provenance."""
+        """Execute PPA with optional trusted inputs and authored provenance.
+
+        ``rtl_systemverilog`` must be set when trusted RTL files were emitted
+        in SystemVerilog form by a language backend, so Yosys reads them with
+        SystemVerilog mode enabled.
+        """
 
         diagnostics: list[dict[str, Any]] = []
         info(
@@ -2341,7 +2350,12 @@ class AnalyzePPA(UCTool):
                 self.put_alive_data("PPA: synthesizing and technology-mapping RTL with Yosys")
                 info("[AnalyzePPA] Phase 1/4: Yosys synthesis + technology mapping (this is the longest step)...")
                 synthesis = self._synthesize(
-                    rtl_files, arguments.top_module, liberty, run_dir, deadline
+                    rtl_files,
+                    arguments.top_module,
+                    liberty,
+                    run_dir,
+                    deadline,
+                    systemverilog=rtl_systemverilog,
                 )
                 report["provenance"]["tools"]["yosys"] = {
                     "executable": synthesis["executable"],

@@ -137,6 +137,10 @@ class RTLLanguageBackend(ABC):
     display_name: str
     source_extensions: tuple[str, ...]
     source_template: str
+    # Set by backends whose prepare() output uses SystemVerilog constructs
+    # (firtool emits always_comb even for simple modules); every downstream
+    # Yosys reader must enable SystemVerilog mode for those files.
+    analysis_systemverilog: bool = False
 
     @abstractmethod
     def default_source_glob(self, output_dir: str) -> str:
@@ -290,6 +294,7 @@ class ChiselLanguageBackend(RTLLanguageBackend):
     display_name = "Chisel"
     source_extensions = (".scala",)
     source_template = "chisel-7"
+    analysis_systemverilog = True
 
     def default_source_glob(self, output_dir: str) -> str:
         """Select every authored Chisel source in the RTL delivery directory."""
@@ -589,6 +594,10 @@ class ChiselLanguageBackend(RTLLanguageBackend):
             "    gen = constructor.newInstance().asInstanceOf[RawModule],\n"
             "    firtoolOpts = Array(\n"
             '      "-disable-all-randomization",\n'
+            # Lower locals and packed arrays to plain mux/case logic so the
+            # emitted Verilog has no SystemVerilog automatic-array
+            # initializers that the synthesis toolchain cannot read.
+            '      "-lowering-options=disallowLocalVariables,disallowPackedArrays",\n'
             '      "-strip-debug-info",\n'
             '      "-default-layer-specialization=enable"\n'
             "    )\n"

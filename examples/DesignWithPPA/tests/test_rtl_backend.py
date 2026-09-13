@@ -717,7 +717,7 @@ def test_real_chisel_7_elaboration_with_mill_0_4(tmp_path: Path) -> None:
             shutil.which("yosys"),
             "-q",
             "-p",
-            f'read_verilog "{generated}"; hierarchy -check -top StreamAdd; proc; check',
+            f'read_verilog -sv "{generated}"; hierarchy -check -top StreamAdd; proc; check',
         ],
         text=True,
         capture_output=True,
@@ -737,6 +737,77 @@ def test_real_chisel_7_elaboration_with_mill_0_4(tmp_path: Path) -> None:
         "library_source_count": 1,
     }
     assert java_major_version >= 17
+
+
+
+
+@pytest.mark.skipif(
+    shutil.which("mill") is None or shutil.which("yosys") is None,
+    reason="Mill and Yosys are required for real Chisel elaboration",
+)
+def test_real_chisel_lut_elaboration_stays_yosys_readable(tmp_path: Path) -> None:
+    """Lookup-table Chisel must elaborate to Verilog Yosys can still read.
+
+    firtool otherwise emits SystemVerilog ``automatic`` local arrays for
+    ``MuxLookup``/``VecInit`` tables; plain-Verilog or array-initializer
+    parsing in Yosys rejects them, which used to fail the synthesis smoke
+    for every table-driven RTL design.
+    """
+
+    workspace = tmp_path / "workspace"
+    source = workspace / "output" / "rtl" / "LutEncode.scala"
+    source.parent.mkdir(parents=True)
+    source.write_text(
+        "import chisel3._\n"
+        "import chisel3.util.MuxLookup\n"
+        "\n"
+        "/** Encodes one 4-bit selector through a 16-entry signed table. */\n"
+        "class LutEncode extends RawModule {\n"
+        "  val sel_i = IO(Input(UInt(4.W)))\n"
+        "  val y_o = IO(Output(SInt(27.W)))\n"
+        "\n"
+        "  private val table: Seq[(UInt, SInt)] =\n"
+        "    (0 until 16).map(index => index.U(4.W) -> (index * 4096).S(27.W))\n"
+        "  y_o := MuxLookup(sel_i, 0.S(27.W))(table)\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    build_dir = tmp_path / "private"
+    build_dir.mkdir()
+    backend = ChiselLanguageBackend()
+    prepared = backend.prepare(
+        RTLPreparationRequest(
+            workspace=workspace.resolve(),
+            language="chisel",
+            top_module="LutEncode",
+            source_files=(source.resolve(),),
+            library_files=(),
+            build_dir=build_dir,
+            language_options=backend.normalize_options({}),
+            python_dut_options={},
+            timeout=300,
+        )
+    )
+
+    generated = prepared.analysis_verilog_files[0]
+    verilog = generated.read_text(encoding="utf-8")
+    assert backend.analysis_systemverilog is True
+    assert "module LutEncode(" in verilog
+    assert "automatic" not in verilog
+    completed = subprocess.run(
+        [
+            shutil.which("yosys"),
+            "-q",
+            "-p",
+            f'read_verilog -sv "{generated}"; '
+            "hierarchy -check -top LutEncode; proc; check",
+        ],
+        text=True,
+        capture_output=True,
+        timeout=120,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
 
 
 
@@ -1092,6 +1163,7 @@ def test_language_backend_keeps_generated_verilog_ephemeral(
         display_name = "Test Chisel"
         source_extensions = (".scala",)
         source_template = "test-chisel-module"
+        analysis_systemverilog = True
 
         def default_source_glob(self, output_dir: str) -> str:
             """Return the test language source pattern."""
@@ -1194,8 +1266,9 @@ def test_language_backend_keeps_generated_verilog_ephemeral(
             if command[0] == sys.executable:
                 return subprocess.CompletedProcess(command, 0, "", "")
             if command[0] == "yosys":
-                match = re.search(r'read_verilog "([^"]+)"', command[-1])
+                match = re.search(r'read_verilog(?: -sv)? "([^"]+)"', command[-1])
                 assert match is not None
+                assert "read_verilog -sv " in command[-1]
                 private_paths.append(Path(match.group(1)))
                 assert private_paths[-1].is_file()
                 if reject_private_analysis:
@@ -1290,9 +1363,12 @@ def test_language_backend_keeps_generated_verilog_ephemeral(
         assert passed is False
         assert result["error_code"] == "rtl_synthesis_failed"
         assert result["artifact"] == "output/rtl/*.scala"
-        assert result["observed"] == {"returncode": 1}
-        assert "Verilog" not in json.dumps(result)
+        observed = result["observed"]
+        assert observed["returncode"] == 1
+        assert "SystemVerilog parse failed" in observed["tool_output"]
+        assert "<rtl-validation-input>" in observed["tool_output"]
         assert all(str(path) not in json.dumps(result) for path in private_paths)
+        assert all(path.name not in json.dumps(result) for path in private_paths)
     finally:
         unregister_rtl_language(backend.name)
     assert backend.name not in available_rtl_languages()
