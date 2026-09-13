@@ -62,6 +62,7 @@ from .common import (
     _exception_contract_diagnostic,
     _hash_rows,
     _line_ranges_text,
+    excluded_test_paths,
     _validated_input_identity,
 )
 from .coverage_model import (
@@ -1561,6 +1562,7 @@ class RTLSourceEvidenceChecker(Checker):
         cfg: Any,
         rtl_manifest_file: str,
         rtl_regression_file: str,
+        exclude_test_globs: tuple[str, ...] = (),
         **kwargs: Any,
     ) -> None:
         """Store public evidence paths without scanning the workspace."""
@@ -1573,6 +1575,7 @@ class RTLSourceEvidenceChecker(Checker):
         self.coverage_ignore = coverage_ignore
         self.rtl_manifest_file = rtl_manifest_file
         self.rtl_regression_file = rtl_regression_file
+        self.exclude_test_globs = tuple(exclude_test_globs)
         self._validated = False
 
     def get_template_data(self) -> dict[str, str]:
@@ -1623,15 +1626,19 @@ class RTLSourceEvidenceChecker(Checker):
             if regression.get("backend") != "rtl" or regression.get("status") != "pass":
                 raise ValueError("the current RTL all-pass regression receipt is invalid")
             test_dir = resolve_workspace_path(workspace, self.test_dir, must_exist=True)
+            excluded_paths = excluded_test_paths(workspace, self.exclude_test_globs)
             current_sources = sorted(
                 {
                     *rtl_files,
                     *(
                         path.resolve()
                         for path in test_dir.rglob("*.py")
-                        if path.is_file()
-                        and not path.is_symlink()
-                        and "__pycache__" not in path.parts
+                        if (
+                            path.is_file()
+                            and not path.is_symlink()
+                            and "__pycache__" not in path.parts
+                            and path.resolve() not in excluded_paths
+                        )
                     ),
                 },
                 key=lambda path: path.as_posix(),

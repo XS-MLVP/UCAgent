@@ -1035,6 +1035,9 @@ stage:
               doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
               test_dir: "{OUT}/tests"
               test_func_rules: standard
+              exclude_test_globs:
+                - "{OUT}/tests/test_{DUT}_performance*.py"
+                - "{OUT}/tests/test_{DUT}_ppa*.py"
               ignore_tc_prefix:
                 - "test_{DUT}_performance"
                 - "test_{DUT}_ppa"

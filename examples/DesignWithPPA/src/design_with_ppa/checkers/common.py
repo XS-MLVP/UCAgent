@@ -7,13 +7,37 @@ import hashlib
 import json
 from pathlib import Path
 import re
-from typing import Any
+from typing import Any, Sequence
 from ..contracts import (
     diagnostic,
     load_json,
     resolve_workspace_path,
     sha256_file,
 )
+
+
+
+
+
+def excluded_test_paths(workspace: Path, patterns: Sequence[str]) -> set[Path]:
+    """Resolve workspace-relative exclude_test_globs into concrete file paths.
+
+    Every consumer that binds or runs the shared test suite must apply the
+    same exclusion, otherwise receipt hash sets and current hash sets cover
+    different files and the binding can never match.
+    """
+
+    excluded: set[Path] = set()
+    for pattern in patterns:
+        pattern_path = Path(pattern)
+        if pattern_path.is_absolute() or ".." in pattern_path.parts:
+            raise ValueError("exclude_test_globs must remain workspace-relative")
+        excluded.update(
+            path.resolve()
+            for path in workspace.glob(pattern)
+            if path.is_file() and not path.is_symlink()
+        )
+    return excluded
 
 
 

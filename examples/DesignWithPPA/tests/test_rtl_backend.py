@@ -965,6 +965,94 @@ def test_chisel_source_validation_uses_only_authored_and_regression_evidence(
 
 
 
+def test_chisel_source_evidence_applies_regression_test_exclusions(
+    tmp_path: Path,
+) -> None:
+    """Excluded test families must not break the receipt hash binding.
+
+    The shared RTL regression receipt excludes performance and PPA test
+    files, so the evidence gate must hash the same set; otherwise the
+    binding can never match once the template renders those tests.
+    """
+
+    cfg = _chisel_config()
+    source = tmp_path / "output" / "rtl" / "dut.scala"
+    source.parent.mkdir(parents=True)
+    source.write_text(
+        "import chisel3._\nclass dut extends RawModule { val y = IO(Output(Bool())); y := false.B }\n",
+        encoding="utf-8",
+    )
+    test_file = tmp_path / "output" / "tests" / "test_dut_functional.py"
+    test_file.parent.mkdir(parents=True)
+    test_file.write_text("def test_contract():\n    assert True\n", encoding="utf-8")
+    performance_file = tmp_path / "output" / "tests" / "test_dut_performance.py"
+    performance_file.write_text(
+        "def test_latency():\n    assert True\n", encoding="utf-8"
+    )
+    rtl_config, backend = resolve_rtl_config(cfg)
+    rtl_rows = _hash_rows(tmp_path, [source.resolve()])
+    generated_content = _write_workspace_python_dut(
+        tmp_path, "class DUT:\n    pass\n"
+    )
+    _write_json(
+        tmp_path / ".ucagent" / "design_with_ppa" / "rtl_backend_manifest.json",
+        {
+            "schema_version": "1.4",
+            "rtl_language": "chisel",
+            "rtl_config": rtl_config.identity(),
+            "rtl_sources": rtl_rows,
+            "rtl_libraries": [],
+            "synthesis_smoke": "pass",
+            "python_dut_import": {"module": "dut", "class": "DUTdut"},
+            "python_dut_builder": {"coverage": True, "waveform_format": "vcd"},
+            "generated_content": generated_content,
+        },
+    )
+    _write_json(
+        tmp_path / "output" / "reports" / "dut_rtl_regression.json",
+        {
+            "backend": "rtl",
+            "status": "pass",
+            "rtl_libraries": [],
+            "sources": _hash_rows(
+                tmp_path,
+                sorted(
+                    [source.resolve(), test_file.resolve()],
+                    key=lambda path: path.as_posix(),
+                ),
+            ),
+        },
+    )
+
+    unfiltered = RTLSourceEvidenceChecker(
+        test_dir="output/tests",
+        coverage_analysis="output/dut_chisel_source_validation.md",
+        coverage_ignore="output/tests/dut.ignore",
+        rtl_manifest_file=".ucagent/design_with_ppa/rtl_backend_manifest.json",
+        rtl_regression_file="output/reports/dut_rtl_regression.json",
+        cfg=cfg,
+    ).set_workspace(str(tmp_path))
+    passed, result = unfiltered.do_check()
+    assert passed is False
+    assert result["error_code"] == "rtl_source_evidence_invalid"
+    assert "changed after the all-pass regression" in result["observed"]["reason"]
+
+    filtered = RTLSourceEvidenceChecker(
+        test_dir="output/tests",
+        coverage_analysis="output/dut_chisel_source_validation.md",
+        coverage_ignore="output/tests/dut.ignore",
+        rtl_manifest_file=".ucagent/design_with_ppa/rtl_backend_manifest.json",
+        rtl_regression_file="output/reports/dut_rtl_regression.json",
+        exclude_test_globs=("output/tests/test_dut_performance*.py",),
+        cfg=cfg,
+    ).set_workspace(str(tmp_path))
+    passed, result = filtered.do_check()
+    assert passed is True, result
+    assert result["source_files"] == ["output/rtl/dut.scala"]
+
+
+
+
 def test_rtl_library_paths_append_environment_and_bind_verilog_sources(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

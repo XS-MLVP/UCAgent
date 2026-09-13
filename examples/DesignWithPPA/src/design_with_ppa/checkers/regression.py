@@ -28,6 +28,7 @@ from .common import (
     _exception_contract_diagnostic,
     _hash_rows,
     _validated_input_identity,
+    excluded_test_paths,
 )
 from .evidence import (
     _public_pytest_failure,
@@ -185,16 +186,7 @@ class _BackendRegressionChecker(Checker):
             else:
                 rtl_dut_identity = None
             test_dir = resolve_workspace_path(workspace, self.test_dir, must_exist=True)
-            excluded_paths: set[Path] = set()
-            for pattern in self.exclude_test_globs:
-                pattern_path = Path(pattern)
-                if pattern_path.is_absolute() or ".." in pattern_path.parts:
-                    raise ValueError("exclude_test_globs must remain workspace-relative")
-                excluded_paths.update(
-                    path.resolve()
-                    for path in workspace.glob(pattern)
-                    if path.is_file() and not path.is_symlink()
-                )
+            excluded_paths = excluded_test_paths(workspace, self.exclude_test_globs)
             test_files = sorted(
                 path.resolve()
                 for path in workspace.glob(self.test_glob)
