@@ -72,6 +72,35 @@ def managed_test_implementation(pytest_config: Any) -> str:
     return implementation
 
 
+_EPHEMERAL_BUILD_DIR_RE = re.compile(r"/\.build-[A-Za-z0-9_]+/")
+
+
+def normalize_line_coverage_source_paths(dat_file: str | os.PathLike[str]) -> None:
+    """Point one coverage file at installed sources instead of staging paths.
+
+    The managed RTL runtime compiles in an ephemeral ``.build-*`` staging
+    directory and installs the result one level higher, but the native
+    runtime records the staging paths inside every coverage ``.dat``.
+    Downstream report rendering aborts when a recorded source file no
+    longer exists, so rewrite the staging component back to the installed
+    location before the file is registered.  Best effort: unreadable or
+    unwritable files are left untouched and never fail the test run.
+    """
+
+    path = Path(dat_file)
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return
+    normalized = _EPHEMERAL_BUILD_DIR_RE.sub("/", text)
+    if normalized == text:
+        return
+    try:
+        path.write_text(normalized, encoding="utf-8")
+    except OSError:
+        pass
+
+
 def _portable_rtl_dut_identity(
     reference_factory: Callable[[], "ReferenceDUT"],
 ) -> tuple[Path, str, str]:

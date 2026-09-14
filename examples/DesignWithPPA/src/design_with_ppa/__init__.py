@@ -29,6 +29,7 @@ _EXPORT_GROUPS = {
         "ReferenceXPort",
         "create_dut",
         "managed_test_implementation",
+        "normalize_line_coverage_source_paths",
         "prepare_native_artifact_path",
         "register_managed_test_options",
     ),

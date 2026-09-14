@@ -346,6 +346,13 @@ def test_design_dashboard_renders_as_a_relative_read_only_application(
     assert "managed_test_implementation(request.config)" in conftest
     assert "--design-backend" not in conftest
     assert '"performance: deterministic simulation performance case' in conftest
+    assert "normalize_line_coverage_source_paths(coverage_path)" in conftest
+    assert conftest.index("adapter.finish()") < conftest.index(
+        "normalize_line_coverage_source_paths(coverage_path)"
+    )
+    assert conftest.index("normalize_line_coverage_source_paths(coverage_path)") < (
+        conftest.index("set_line_coverage(")
+    )
     assert "RTL_SOURCE_TEMPLATE_BODY" not in rtl_scaffold
     for required in (
         "// Module: dut",

@@ -6,6 +6,7 @@ import pytest
 from design_with_ppa import (
     get_performance_waveform_path,
     managed_test_implementation,
+    normalize_line_coverage_source_paths,
     register_managed_test_options,
 )
 from toffee_test.reporter import (
@@ -78,6 +79,10 @@ def env(request):
         # after the backend has closed the file, matching ToffeeRequest.finish.
         adapter.finish()
         if coverage_path is not None:
+            # The native runtime records the ephemeral staging directory of the
+            # managed build; point those entries at the installed sources so the
+            # report renderer can open every recorded file.
+            normalize_line_coverage_source_paths(coverage_path)
             set_line_coverage(
                 request,
                 coverage_path,

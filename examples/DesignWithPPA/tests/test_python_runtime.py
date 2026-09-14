@@ -77,6 +77,7 @@ from design_with_ppa.python_dut import (  # noqa: E402
     ReferenceDUT,
     create_dut,
     managed_test_implementation,
+    normalize_line_coverage_source_paths,
     register_managed_test_options,
 )
 from design_with_ppa.rtl import (  # noqa: E402
@@ -958,3 +959,43 @@ def test_prepare_native_artifact_path_creates_and_validates(tmp_path: Path) -> N
     blocked.write_text("occupies the path\n", encoding="utf-8")
     with pytest.raises(PythonDUTError):
         prepare_native_artifact_path(blocked / "child" / "a.dat", "coverage")
+
+
+
+
+def test_normalize_line_coverage_source_paths_targets_installed_sources(
+    tmp_path: Path,
+) -> None:
+    """Registered coverage must stop referencing ephemeral staging directories."""
+
+    dat = tmp_path / "case.dat"
+    dat.write_bytes(
+        (
+            "# SystemC::Coverage-3\n"
+            "C '\x02f/workspace/run/design_with_ppa/python-dut/"
+            ".build-1k794z8q/dut/dut_top.sv"
+            "\x03l\x0210\x03n\x0210\x03t\x02toggle' 12\n"
+            "C '\x02f/workspace/design/rtl/dut.v\x03l\x025\x03t\x02line' 7\n"
+        ).encode("utf-8")
+    )
+
+    normalize_line_coverage_source_paths(dat)
+
+    text = dat.read_text(encoding="utf-8")
+    assert ".build-" not in text
+    assert (
+        "/workspace/run/design_with_ppa/python-dut/dut/dut_top.sv" in text
+    )
+    assert "/workspace/design/rtl/dut.v" in text
+
+    clean = tmp_path / "clean.dat"
+    clean.write_text(
+        "C '\x02f/workspace/design/rtl/dut.v\x03l\x025\x03t\x02line' 7\n",
+        encoding="utf-8",
+    )
+    before = clean.read_bytes()
+    normalize_line_coverage_source_paths(clean)
+    assert clean.read_bytes() == before
+
+    normalize_line_coverage_source_paths(tmp_path / "missing.dat")
+    normalize_line_coverage_source_paths(tmp_path)
