@@ -89,7 +89,7 @@ mission:
       | GenerateChecker | 生成 checker.sv + wrapper.sv |
       | GenerateFormalScript | 生成 TCL 脚本 |
       | RunSkillScript | 执行技能脚本（例如运行形式化验证、生成文档骨架） |
-      | SetCurrentStageJournal | 阶段日志记录（推进前必调）|
+      | SetCurrentStageJournal | 阶段日志记录（推进前必调；mode=append 增量追加）|
       | Detail / Status | Mission 详情 / 摘要与阶段状态 |
 
       # ══════════════════════════════════════════════════════════════

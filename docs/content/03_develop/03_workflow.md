@@ -963,7 +963,7 @@ mission:
       4. 确保文档符合 Markdown 格式规范
 
       请使用工具 ReadTextFile 读取文件内容，使用 EditTextFile 创建或修改文件。
-      在计划通过Complete工具推进到下一个阶段前，需要通过工具SetCurrentStageJournal 进行阶段日志记录，方便后续追踪和分析。
+      在计划通过Complete工具推进到下一个阶段前，需要通过工具SetCurrentStageJournal进行阶段日志记录（mode=replace整体记录，mode=append增量追加），方便后续追踪和分析。
       完成每个阶段后，务必使用 Complete 工具检查并推进到下一阶段。
 ```
 

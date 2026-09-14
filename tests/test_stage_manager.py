@@ -29,6 +29,7 @@ from ucagent.stage.vmanager import (
     ToolDoCheck,
     ToolDoComplete,
     ToolRunTestCases,
+    ToolSetCurrentStageJournal,
     ToolSetSkillUsage,
 )
 from ucagent.tools.uctool import to_fastmcp
@@ -2280,3 +2281,120 @@ def test_previous_stage_journal_carried_into_tips():
     assert StageManager._previous_stage_journal(  # type: ignore[arg-type]
         SimpleNamespace(stages=incomplete_prev), 1
     ) == ""
+
+
+class _JournalStage:
+    """Minimal current-stage double storing its journal like VerifyStage."""
+
+    def __init__(self, journal=None):
+        self.meta_data = {} if journal is None else {"journal": journal}
+
+    def meta_set_journal(self, journal):
+        self.meta_data["journal"] = journal
+
+    def meta_get_journal(self):
+        return self.meta_data.get("journal", None)
+
+
+def test_set_current_stage_journal_append_mode_appends_after_existing_record():
+    stage = _JournalStage("first record")
+    manager = SimpleNamespace(get_current_stage=lambda: stage)
+
+    ret = StageManager.set_current_stage_journal(
+        manager, "second record", mode="append"
+    )  # type: ignore[arg-type]
+
+    assert ret == "Append journal success."
+    assert stage.meta_get_journal() == "first record\n\nsecond record"
+
+
+def test_set_current_stage_journal_append_mode_replaces_missing_or_blank_journal():
+    for empty in (None, "", "   \n  "):
+        stage = _JournalStage(empty)
+        manager = SimpleNamespace(get_current_stage=lambda: stage)
+
+        ret = StageManager.set_current_stage_journal(
+            manager, "first record", mode="append"
+        )  # type: ignore[arg-type]
+
+        assert ret == "Append journal success."
+        assert stage.meta_get_journal() == "first record"
+
+
+def test_set_current_stage_journal_replace_mode_rewrites_existing_journal():
+    stage = _JournalStage("old record")
+    manager = SimpleNamespace(get_current_stage=lambda: stage)
+
+    ret = StageManager.set_current_stage_journal(manager, "new record")  # type: ignore[arg-type]
+
+    assert ret == "Set journal success."
+    assert stage.meta_get_journal() == "new record"
+
+    stage = _JournalStage("old record")
+    manager = SimpleNamespace(get_current_stage=lambda: stage)
+    ret = StageManager.set_current_stage_journal(
+        manager, "new record", mode="replace"
+    )  # type: ignore[arg-type]
+
+    assert ret == "Set journal success."
+    assert stage.meta_get_journal() == "new record"
+
+
+def test_set_current_stage_journal_without_current_stage():
+    manager = SimpleNamespace(get_current_stage=lambda: None)
+
+    assert (
+        StageManager.set_current_stage_journal(manager, "x")  # type: ignore[arg-type]
+        == "No current stage available."
+    )
+    assert (
+        StageManager.set_current_stage_journal(
+            manager, "x", mode="append"
+        )  # type: ignore[arg-type]
+        == "No current stage available."
+    )
+
+
+def test_set_current_stage_journal_tool_contract():
+    calls = []
+
+    def record(journal, mode="replace"):
+        calls.append((journal, mode))
+        return journal
+
+    tool = ToolSetCurrentStageJournal().set_function(record)
+    mcp_tool = to_fastmcp(tool)
+
+    assert asyncio.run(mcp_tool.run({"journal": "progress"})) == "progress"
+    assert calls == [("progress", "replace")]
+
+    assert asyncio.run(mcp_tool.run({"journal": "more", "mode": "append"})) == "more"
+    assert calls[-1] == ("more", "append")
+
+    assert (
+        asyncio.run(mcp_tool.run({"journal": ""}))
+        == "Journal content cannot be empty."
+    )
+    assert len(calls) == 2
+
+
+def test_new_tools_expose_journal_tool(monkeypatch, tmp_path):
+    stages = [_FakeStage(index) for index in range(2)]
+    cfg = _cfg()
+
+    monkeypatch.setattr(vmanager, "get_root_stage", lambda *_args: _FakeRootStage(stages))
+    monkeypatch.setattr(vmanager, "get_llm_check_instance", lambda *_args: None)
+
+    manager = StageManager(
+        str(tmp_path),
+        cfg,
+        _FakeAgent(cfg),
+        tool_read_text=None,
+        ucagent_info=_saved_info(),
+        tool_inspect_file=[],
+    )
+    manager.init_stage()
+
+    names = [tool.name for tool in manager.new_tools()]
+    assert "SetCurrentStageJournal" in names
+    assert "AppendCurrentStageJournal" not in names

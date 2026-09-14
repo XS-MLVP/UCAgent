@@ -8,7 +8,7 @@ import time
 import traceback
 import random
 from collections import OrderedDict
-from typing import Optional, Callable, Dict, Any, Union
+from typing import Optional, Callable, Dict, Any, Union, Literal
 
 from langchain_core.callbacks import (
     CallbackManagerForToolRun,
@@ -113,17 +113,28 @@ class ToolAllStageJournal(ManagerTool):
 
 class ArgSetCurrentStageJournal(BaseModel):
     journal: str = Field(
-        description="The journal content to set for the current stage. Cannot be empty."
+        description="The journal content to set for or append to the current stage journal. Cannot be empty."
+    )
+    mode: Literal["replace", "append"] = Field(
+        default="replace",
+        description=(
+            "How to apply the journal content: 'replace' rewrites the whole "
+            "journal of the current stage; 'append' adds the content to the "
+            "end of the already recorded journal, joining records with one "
+            "blank line."
+        )
     )
 
 
 class ToolSetCurrentStageJournal(ManagerTool):
-    """set the journal of the current stage."""
+    """set or append to the journal of the current stage."""
     name: str = "SetCurrentStageJournal"
     description: str = (
         "Set the journal of the current stage. \n"
         "This tool is used to record important information during the current stage. When completing the stage, the journal should be set. \n"
         "The journal content should be concise and clear and only the necessary information should be included.\n"
+        "Use mode='append' to add new progress to the end of the already recorded journal without rewriting it; "
+        "the default mode='replace' rewrites the whole journal. When the current journal is empty, mode='append' behaves like mode='replace'. \n"
         "eg: - What you have done in this stage.\n"
         "    - What problems you have encountered and how you solved them.\n"
         "    - Experience or lessons learned during this stage.\n"
@@ -132,11 +143,12 @@ class ToolSetCurrentStageJournal(ManagerTool):
     )
     args_schema: Optional[ArgsSchema] = ArgSetCurrentStageJournal
 
-    def _run(self, journal: str = "",
+    def _run(self, journal: str = "", mode: str = "replace",
              run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
         if not journal:
             return "Journal content cannot be empty."
-        return self.function(journal)
+        return self.function(journal, mode)
+
 
 class ArgSkillUsage(BaseModel):
     skill_usage: Dict[str, Any] = Field(
@@ -946,9 +958,23 @@ class StageManager(object):
     def get_current_stage(self):
         return self.get_stage(self.stage_index)
 
-    def set_current_stage_journal(self, journal):
+    def set_current_stage_journal(self, journal, mode="replace"):
+        """Set or append to the current stage journal.
+
+        mode='replace' rewrites the whole journal. mode='append' adds the
+        content after the existing records, joining them with one blank line;
+        an unset or blank current journal is written directly, so appending
+        never leaves a leading separator.
+        """
         stage = self.get_current_stage()
         if stage:
+            current = stage.meta_get_journal()
+            if mode == "append":
+                if isinstance(current, str) and current.strip():
+                    stage.meta_set_journal(current + "\n\n" + journal)
+                else:
+                    stage.meta_set_journal(journal)
+                return "Append journal success."
             stage.meta_set_journal(journal)
             return "Set journal success."
         return "No current stage available."
@@ -1725,13 +1751,14 @@ class StageManager(object):
             "message": "Not all stages are completed yet. Please complete all stages before exiting."
         }
 
-    def tool_set_journal(self, journal):
+    def tool_set_journal(self, journal, mode="replace"):
         """
-        Set the journal of the current stage.
+        Set or append to the journal of the current stage.
         This is used to when current stage is completed or the LLM context is compressed and other similar situations.
+        mode='append' records incremental progress without rewriting already recorded journal entries.
         The journal content should be concise and clear and only the necessary information should be included.
         """
-        ret = make_llm_tool_ret(self.set_current_stage_journal(journal))
+        ret = make_llm_tool_ret(self.set_current_stage_journal(journal, mode))
         info("ToolSetCurrentStageJournal:\n" + ret)
         return self.attach_todo_summary(ret)
 
