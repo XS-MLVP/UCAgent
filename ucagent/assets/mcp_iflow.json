@@ -5,5 +5,6 @@
       "httpUrl": "http://127.0.0.1:{{PORT}}/mcp",
       "timeout": 600000000000
     }
-  }
+  }{% if OPENAI_CONTEXT_SIZE %},
+  "tokensLimit": {{OPENAI_CONTEXT_SIZE}}{% endif %}
 }

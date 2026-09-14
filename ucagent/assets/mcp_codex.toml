@@ -1,12 +1,15 @@
 {% if OPENAI_API_BASE %}
 model_provider = "ucagent"
-model = "{{OPENAI_MODEL|default("gpt-5.5")}}"
+model = "{{OPENAI_MODEL|default("gpt-5.6-sol")}}"
 model_reasoning_effort = "xhigh"
 network_access = "enabled"
 disable_response_storage = true
 windows_wsl_setup_acknowledged = true
 model_verbosity = "high"
 personality = "pragmatic"
+{% if OPENAI_CONTEXT_SIZE %}
+model_auto_compact_token_limit = {{OPENAI_CONTEXT_SIZE}}
+{% endif %}
 
 [model_providers.ucagent]
 name = "ucagent"

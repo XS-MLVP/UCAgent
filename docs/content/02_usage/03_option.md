@@ -369,6 +369,8 @@ UCAgent 支持通过环境变量配置各类参数，环境变量优先级高于
 | `OPENAI_MODEL` | OpenAI 对话模型名称 | 无（需配置） |
 | `OPENAI_API_KEY` | OpenAI API 密钥 | 无（需配置） |
 | `OPENAI_API_BASE` | OpenAI API 基础 URL | 无（需配置） |
+| `OPENAI_CONTEXT_SIZE` | 命令行后端所用模型的上下文窗口大小（token 数），渲染进各后端的上下文窗口配置；未设置时使用后端默认值 | 未设置 |
+| `OPENAI_OUTPUT_SIZE` | 命令行后端所用模型的单次响应输出上限（token 数），仅 opencode/kilo 后端在已声明上下文窗口时生效 | 未设置 |
 | `OPENAI_API_MODE` | LangChain 后端使用的 OpenAI API 模式：`auto`、`responses` 或 `chat_completions` | `auto` |
 | `OPENAI_RESPONSES_PROBE_TIMEOUT` | 启动时 Responses API 能力探测超时秒数，必须为正数 | `10` |
 | `OPENAI_REASONING_EFFORT` | LangChain 后端的思考程度；按当前 OpenAI 或兼容模型服务支持的字符串原样传递 | `xhigh` |

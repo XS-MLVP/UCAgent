@@ -184,6 +184,8 @@ launch:
     - "OPENAI_MODEL"
     - "OPENAI_API_KEY"
     - "OPENAI_API_BASE"
+    - "OPENAI_CONTEXT_SIZE"
+    - "OPENAI_OUTPUT_SIZE"
     - "ENABLE_LLM_SUGGESTION": false
     - "NEED_REF_MODEL": false
     - "IGNORE_MOCK_COMPONENT": true
@@ -208,6 +210,7 @@ launch:
     - "ANTHROPIC_DEFAULT_HAIKU_MODEL": "$ANTHROPIC_SML_MODEL"
     - "CLAUDE_CODE_SUBAGENT_MODEL": "$ANTHROPIC_SML_MODEL"
     - "CLAUDE_CODE_EFFORT_LEVEL": "max"
+    - "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "$OPENAI_CONTEXT_SIZE"
 
 # Model support: openai, anthropic, google_genai
 model_type: $(UC_MODEL_TYPE: openai)
