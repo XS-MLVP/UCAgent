@@ -1,0 +1,28 @@
+schema_version: "1.0"
+dut: {{DUT}}
+top_module: {{DUT}}
+metrics:
+  - id: replace_latency_metric
+    kind: latency
+    source:
+      path: {{DUT}}/spec/replace.md
+      line: 1
+    unit: cycle
+    direction: min
+    target: null
+    hard_requirement: false
+    aggregation: max
+    measurement_test: "{{OUT}}/tests/test_{{DUT}}_performance.py::test_{{DUT}}_performance_latency"
+    clock_or_time_base: cycle
+  - id: replace_throughput_metric
+    kind: throughput
+    source:
+      path: {{DUT}}/spec/replace.md
+      line: 1
+    unit: transaction/cycle
+    direction: max
+    target: null
+    hard_requirement: false
+    aggregation: mean
+    measurement_test: "{{OUT}}/tests/test_{{DUT}}_performance.py::test_{{DUT}}_performance_throughput"
+    clock_or_time_base: cycle

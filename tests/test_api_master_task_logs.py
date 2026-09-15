@@ -7,6 +7,7 @@ import tempfile
 import time
 from unittest.mock import patch
 
+import pytest
 from fastapi.testclient import TestClient
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -176,6 +177,23 @@ def test_task_launch_command_preserves_human_mode():
         )
 
         assert "--human" in argv
+
+
+@pytest.mark.parametrize(
+    ("use_skill", "expected_option"),
+    [(True, "--use-skill"), (False, "--no-use-skill")],
+)
+def test_task_launch_command_preserves_skill_mode(use_skill, expected_option):
+    with tempfile.TemporaryDirectory() as master_ws:
+        server = PdbMasterApiServer(workspace=master_ws)
+
+        argv, _env = server._build_ucagent_command(
+            {"use_skill": use_skill},
+            {"workspace_dir": master_ws, "picker_workspace": master_ws, "dut_name": "Adder"},
+            {"host": "0.0.0.0", "port": 8765, "password": "pw"},
+        )
+
+        assert expected_option in argv
 
 
 def test_launch_request_env_overrides_default_env():

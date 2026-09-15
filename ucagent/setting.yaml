@@ -8,13 +8,17 @@ lang: "zh"
 # init commands to run at the start of the agent
 init_cmds: []
 
-# Idle timeout for VerifyPDB bash commands, in seconds. The timer resets when
-# stdout/stderr output arrives. Set to 0 or "off" to disable.
-cmd_timeout: 300
+# Idle timeout for shell commands, including VerifyPDB and command-line
+# backends, in seconds. The timer resets when stdout/stderr output arrives.
+# Command-line backends also suspend it while an MCP tool is active. Set to 0
+# or "off" to disable.
+cmd_timeout: 1200
 
 # backend
 backend:
-  key_name: "langchain"  # options: langchain, claude, opencode, copilot, etc.
+  key_name: "langchain"  # options: blank, langchain, claude, opencode, copilot, etc.
+  blank:
+    clss: ucagent.abackend.BlankBackend
   langchain:
     clss: ucagent.abackend.langchain.UCAgentLangChainBackend
   claude:
@@ -136,7 +140,7 @@ launch:
     exit_on_completion: true          # --exit-on-completion flag
     web_console: "0.0.0.0:-1"         # --web-console flag
     loop: true                        # -l flag
-    use_skill: false
+    use_skill: true
     extra_skill_path: ""
     use_zip_workspace: true           # if true, launch task with a master-hosted workspace .tar.gz URL
     picker_args: []                   # additional picker export arguments used by Compile DUT
@@ -180,7 +184,9 @@ launch:
     - "OPENAI_MODEL"
     - "OPENAI_API_KEY"
     - "OPENAI_API_BASE"
-    - "ENABLE_LLM_SUGGESTION": true
+    - "OPENAI_CONTEXT_SIZE"
+    - "OPENAI_OUTPUT_SIZE"
+    - "ENABLE_LLM_SUGGESTION": false
     - "NEED_REF_MODEL": false
     - "IGNORE_MOCK_COMPONENT": true
     - "ENABLE_LLM_FAIL_SUGGESTION": "$ENABLE_LLM_SUGGESTION"
@@ -204,6 +210,7 @@ launch:
     - "ANTHROPIC_DEFAULT_HAIKU_MODEL": "$ANTHROPIC_SML_MODEL"
     - "CLAUDE_CODE_SUBAGENT_MODEL": "$ANTHROPIC_SML_MODEL"
     - "CLAUDE_CODE_EFFORT_LEVEL": "max"
+    - "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "$OPENAI_CONTEXT_SIZE"
 
 # Model support: openai, anthropic, google_genai
 model_type: $(UC_MODEL_TYPE: openai)
@@ -212,6 +219,9 @@ openai:
   model_name: "$(OPENAI_MODEL: <your_chat_model_name>)"
   openai_api_key: "$(OPENAI_API_KEY: [your_api_key])"
   openai_api_base: "$(OPENAI_API_BASE: http://<your_chat_model_url>/v1)"
+  api_mode: "$(OPENAI_API_MODE: auto)"
+  responses_probe_timeout: $(OPENAI_RESPONSES_PROBE_TIMEOUT: 10)
+  reasoning_effort: "$(OPENAI_REASONING_EFFORT: xhigh)"
   temperature: $(OPENAI_TEMPERATURE: null) # eg: 0.7
   top_p: $(OPENAI_TOP_P: null)             # eg: 0.9
   model_kwargs:
@@ -241,22 +251,23 @@ langfuse:
   base_url: $(LANGFUSE_URL, http://localhost:3000)
 
 skill:
-  use_skill: false # Enable SKILL
+  use_skill: true # Enable SKILL by default; override with --no-use-skill to disable
   extra_skill_path: "" # path for additional skills, only works when use_skill is True
   max_skill_list_count: 15  # max number of skills to list
   enable_skill_list: [] # skills can be used, if empty, all skills are enabled
   disable_skill_list: [] # skills that are not able to use, if empty, all skills are enabled
-  general_skill_list: [] # skills that are general to use for all stage
+  general_skill_list: # optional general skills available to every stage; never forced
+    - "unitytest/dynamic-bug-recording"
 
 # This is the setting for conversation summary
-# Adjust the max_tokens and max_summary_tokens according to your needs and model capabilities
+# Automatic compression starts when either enabled limit is exceeded.
 # Reference doc: https://langchain-ai.lang.chat/langmem/reference/short_term/#langmem.short_term.SummarizationNode
 conversation_summary:
   context_management_strategy: TrimAndSummaryMiddleware    # default use TrimAndSummaryMiddleware strategy to manage conversation history
-  max_tokens: $(SUMMARY_MAX_CTX_TOKEN: 51200)    # default 50k tokens for 128k context model
-  max_summary_tokens: $(SUMMARY_MAX_SUM_TOKEN: 1024)  # suggested 10% of the model's context length
-  max_keep_msgs: $(SUMMARY_MAX_KEEP_MSG: 100)    # max messages to keep in memory, older messages will be removed (not the messages to LLM)
-  tail_keep_msgs: $(SUMMARY_TAIL_KEEP_MSG: 10)   # keep the last N messages to the LLM no matter what
+  max_tokens: $(SUMMARY_MAX_CTX_TOKEN: 204800)    # estimated input-token trigger; 0 disables this trigger
+  max_summary_tokens: $(SUMMARY_MAX_SUM_TOKEN: 8192)  # positive output-token budget for each generated summary
+  max_keep_msgs: $(SUMMARY_MAX_KEEP_MSG: 100)    # independent message-count trigger; 0 disables this trigger
+  tail_keep_msgs: $(SUMMARY_TAIL_KEEP_MSG: 1)    # keep the last N messages to the LLM no matter what
 
 rate_limiter:
   enabled: $(ENABLE_LLM_RATE_LIMIT: false)
@@ -276,6 +287,16 @@ write_dirs:
 guide_doc:
   path: "{GUIDE_DOC}"
   enable: true
+  # Plugin workflows may retain selected core docs, replace them with an
+  # identically located plugin doc, or omit them from the runtime copy.
+  core_copy_policy:
+    default_action: retain
+    retain: []
+    override: []
+    ignore: []
+
+plugin:
+  search_paths: [] # Local plugin project or collection directories; installed plugins use Python entry points
 
 tools:
   RunTestCases:
@@ -294,9 +315,10 @@ tui:
 
 loop_settings:
   max_loop_retry: 10       # maximum number of retries for a loop
+  max_stalled_rounds: 0    # disabled by default; positive values pause after unchanged Checker diagnostics
   retry_delay_start: 5     # initial delay time in seconds before retrying
   retry_delay_end: 10      # maximum delay time in seconds before retrying
-  loop_alive_time: 120     # time in seconds to consider a loop alive before resetting retry count
+  loop_alive_time: 120     # active time before completed agent rounds may refresh retry count
 
 hooks:
   continue: >
@@ -388,7 +410,7 @@ hist_ignore_pattern:
   - "__pycache__"
   - "*.pyc"
   - ".*"
-  - "data"
+  - "tests/data"
   - ".git"
 
 

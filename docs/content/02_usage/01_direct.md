@@ -1,3 +1,4 @@
+
 # 直接使用模式
 
 ## 直接使用
@@ -14,6 +15,8 @@ openai:
   model_name: "$(OPENAI_MODEL: Qwen/Qwen3-Coder-30B-A3B-Instruct)" # 模型名称
   openai_api_key: "$(OPENAI_API_KEY: YOUR_API_KEY)" # API密钥
   openai_api_base: "$(OPENAI_API_BASE: http://10.156.154.242:8000/v1)" # API基础URL
+  api_mode: "$(OPENAI_API_MODE: auto)" # 优先探测Responses，不支持时回退Chat Completions
+  reasoning_effort: "$(OPENAI_REASONING_EFFORT: xhigh)" # 思考程度，按服务端支持的值原样传递
 # 向量嵌入模型配置
 # 用于文档搜索和记忆功能，不需要可通过 --no-embed-tools 关闭
 embed:
@@ -29,10 +32,26 @@ UCAgent 的配置文件支持 Bash 风格的环境变量占位：`$(VAR: default
   - `openai.model_name: "$(OPENAI_MODEL: <your_chat_model_name>)"`
   - `openai.openai_api_key: "$(OPENAI_API_KEY: [your_api_key])"`
   - `openai.openai_api_base: "$(OPENAI_API_BASE: http://<your_chat_model_url>/v1)"`
+  - `openai.reasoning_effort: "$(OPENAI_REASONING_EFFORT: xhigh)"`
   - `embed.model_name: "$(EMBED_MODEL: <your_embedding_model_name>)"`
   - 也支持其他提供商：`model_type` 可选 `openai`、`anthropic`、`google_genai`（详见 `ucagent/setting.yaml`）。
 
 你可以仅通过导出环境变量完成模型与端点切换，而无需改动配置文件。
+
+LangChain 后端默认在启动时用当前模型执行一次极小的 Responses API
+能力探测。探测成功后，主模型和摘要模型均使用 Responses API；服务端明确不支持
+该协议时，再探测 Chat Completions，成功后才完成回退。认证失败、模型不存在、限流、
+网络故障和探测超时不会触发回退，以免掩盖真实配置或服务故障。可设置
+`OPENAI_API_MODE=responses` 强制使用 Responses，或设置
+`OPENAI_API_MODE=chat_completions` 跳过探测并固定使用 Chat Completions。协议差异参见
+[OpenAI Responses 迁移文档](https://developers.openai.com/api/docs/guides/migrate-to-responses)。
+
+LangChain 后端默认将思考程度设为 `xhigh`。在 Responses 模式下发送为
+`reasoning.effort`，在 Chat Completions 模式下发送为 `reasoning_effort`。
+`OPENAI_REASONING_EFFORT` 的值不会由 UCAgent 限定或改写，应设置为当前模型服务支持的
+字符串；因此同一配置也适用于通过 OpenAI 兼容接口接入的 DeepSeek、GLM 等模型。
+OpenAI 模型的可用值取决于具体模型，参见
+[OpenAI reasoning guide](https://developers.openai.com/api/docs/guides/reasoning)。
 
 示例：设置聊天模型与端点
 
@@ -43,6 +62,12 @@ export OPENAI_MODEL='Qwen/Qwen3-Coder-30B-A3B-Instruct'
 # 指定 API Key 与 Base（按你的服务商填写）
 export OPENAI_API_KEY='你的API密钥'
 export OPENAI_API_BASE='https://你的-openai-兼容端点/v1'
+
+# 可选：auto（默认）、responses 或 chat_completions
+export OPENAI_API_MODE='auto'
+
+# 可选：思考程度，默认 xhigh；按当前模型服务支持的值设置
+export OPENAI_REASONING_EFFORT='xhigh'
 
 # 可选：嵌入模型（若使用检索/记忆等功能）
 export EMBED_MODEL='text-embedding-3-large'
@@ -62,6 +87,8 @@ openai:
   openai_api_base: <your_openai_api_base_url> # API基础URL
   model_name: <your_model_name> # 模型名称，如 gpt-4o-mini
   openai_api_key: <your_openai_api_key> # API密钥
+  api_mode: auto # 优先Responses，服务端明确不支持时回退Chat Completions
+  reasoning_effort: xhigh # 思考程度，按服务端支持的值原样传递
 
 # 向量嵌入模型配置
 # 用于文档搜索和记忆功能，不需要可通过 --no-embed-tools 关闭

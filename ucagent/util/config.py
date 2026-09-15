@@ -3,9 +3,17 @@
 import os
 import re
 import yaml
+from pathlib import Path
 from typing import Dict, Any, Optional, Union, List
 from yaml.constructor import SafeConstructor
-from .functions import render_template, dump_as_json, replace_bash_var, get_abs_path_cwd_ucagent
+from .functions import (
+    render_template,
+    dump_as_json,
+    replace_bash_var,
+    get_abs_path_cwd_ucagent,
+    load_json_file,
+    save_json_file,
+)
 from .log import info
 import base64
 
@@ -15,6 +23,19 @@ _NEGATED_BOOL_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _DELETE_OVERRIDE = object()
+RUNTIME_CONFIG_FILENAME = "runtime_config.json"
+CURRENT_TEST_REPORT_FILENAME = "current_test_report.json"
+CURRENT_TEST_REPORT_SCHEMA_VERSION = 1
+CURRENT_TEST_REPORT_RELATIVE_PATH = f".ucagent/{CURRENT_TEST_REPORT_FILENAME}"
+REQUIRED_RUNTIME_BOOL_OPTIONS = (
+    "need_ref_model",
+    "mock_components_enabled",
+)
+
+
+def _current_ucagent_python_path() -> Path:
+    """Return the import root containing this loaded UCAgent package."""
+    return Path(__file__).resolve().parents[2]
 
 
 class UCAgentConfigLoader(yaml.SafeLoader):
@@ -497,6 +518,288 @@ class Config:
         return self
 
 
+def build_runtime_config(
+    cfg: Config,
+    runtime_config_keys: Optional[List[str]] = None,
+    launch_context: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Build the non-secret runtime snapshot shared with workspace consumers."""
+    if not isinstance(cfg, Config):
+        raise TypeError("Runtime config can only be built from a Config instance.")
+
+    runtime_options = cfg.get_value("runtime_options", None)
+    if runtime_options is None:
+        raise ValueError("Configuration is missing required 'runtime_options'.")
+    if isinstance(runtime_options, Config):
+        runtime_options = runtime_options.as_dict()
+    elif isinstance(runtime_options, dict):
+        runtime_options = dict(runtime_options)
+    else:
+        raise TypeError("Configuration value 'runtime_options' must be a mapping.")
+
+    for key in REQUIRED_RUNTIME_BOOL_OPTIONS:
+        if type(runtime_options.get(key)) is not bool:
+            raise ValueError(
+                f"Configuration value 'runtime_options.{key}' must be a boolean."
+            )
+
+    template_values = cfg.__dict__.get("_temp_cfg")
+    if not isinstance(template_values, dict):
+        raise ValueError("Configuration is missing resolved DUT/OUT template values.")
+    dut = template_values.get("DUT")
+    output = template_values.get("OUT")
+    if not isinstance(dut, str) or not dut.strip():
+        raise ValueError("Resolved configuration value 'DUT' must be a non-empty string.")
+    if not isinstance(output, str) or not output.strip():
+        raise ValueError("Resolved configuration value 'OUT' must be a non-empty string.")
+    try:
+        test_output_dir = cfg.get_value("tools.RunTestCases.test_dir", None)
+    except AttributeError:
+        test_output_dir = None
+    if not isinstance(test_output_dir, str) or not test_output_dir.strip():
+        raise ValueError(
+            "Resolved configuration value 'tools.RunTestCases.test_dir' must be a "
+            "non-empty string."
+        )
+    ucagent_python_path = str(_current_ucagent_python_path())
+    if not (Path(ucagent_python_path) / "ucagent" / "__init__.py").is_file():
+        raise ValueError(
+            "Cannot resolve the current UCAgent Python import path."
+        )
+
+    result = {
+        "schema_version": 1,
+        "DUT": dut,
+        "OUT": output,
+        "test_output_dir": test_output_dir,
+        "ucagent_python_path": ucagent_python_path,
+        "current_test_report": CURRENT_TEST_REPORT_RELATIVE_PATH,
+        "runtime_options": runtime_options,
+    }
+    plugin_options = {}
+    for key in runtime_config_keys or []:
+        value = cfg.get_value(key, None)
+        if isinstance(value, bool) or value is None or isinstance(value, str):
+            plugin_options[key] = value
+        elif isinstance(value, int):
+            plugin_options[key] = value
+        elif isinstance(value, float) and value == value and abs(value) != float("inf"):
+            plugin_options[key] = value
+        else:
+            raise ValueError(
+                f"Declared runtime config value {key!r} must be a finite JSON scalar."
+            )
+    if plugin_options:
+        result["plugin_options"] = plugin_options
+    if launch_context is not None:
+        result["launch_context"] = dict(launch_context)
+    return result
+
+
+def validate_runtime_config(data: Any) -> Dict[str, Any]:
+    """Validate a runtime snapshot before it is consumed."""
+    if not isinstance(data, dict):
+        raise ValueError("Resolved runtime config must be a JSON object.")
+    if data.get("schema_version") != 1:
+        raise ValueError("Resolved runtime config has an unsupported schema_version.")
+    for key in ("DUT", "OUT"):
+        if not isinstance(data.get(key), str) or not data[key].strip():
+            raise ValueError(
+                f"Resolved runtime config value '{key}' must be a non-empty string."
+            )
+    if not isinstance(data.get("test_output_dir"), str) or not data[
+        "test_output_dir"
+    ].strip():
+        raise ValueError(
+            "Resolved runtime config value 'test_output_dir' must be a non-empty string."
+        )
+    current_test_report = data.get("current_test_report")
+    if current_test_report != CURRENT_TEST_REPORT_RELATIVE_PATH:
+        raise ValueError(
+            "Resolved runtime config value 'current_test_report' must be "
+            f"'{CURRENT_TEST_REPORT_RELATIVE_PATH}'."
+        )
+    ucagent_python_path = data.get("ucagent_python_path")
+    if not isinstance(ucagent_python_path, str) or not ucagent_python_path.strip():
+        raise ValueError(
+            "Resolved runtime config value 'ucagent_python_path' must be a "
+            "non-empty string."
+        )
+    import_root = Path(ucagent_python_path)
+    if not import_root.is_absolute():
+        raise ValueError(
+            "Resolved runtime config value 'ucagent_python_path' must be an "
+            "absolute path."
+        )
+    if not (import_root / "ucagent" / "__init__.py").is_file():
+        raise ValueError(
+            "Resolved runtime config value 'ucagent_python_path' does not contain "
+            "an importable ucagent package. Restart UCAgent for this workspace to "
+            "regenerate .ucagent/runtime_config.json."
+        )
+    if import_root.resolve() != _current_ucagent_python_path():
+        raise ValueError(
+            "Resolved runtime config value 'ucagent_python_path' does not match the "
+            "currently running UCAgent package. Restart UCAgent for this workspace "
+            "to regenerate .ucagent/runtime_config.json."
+        )
+
+    runtime_options = data.get("runtime_options")
+    if not isinstance(runtime_options, dict):
+        raise ValueError("Resolved runtime config has no runtime_options mapping.")
+    for key in REQUIRED_RUNTIME_BOOL_OPTIONS:
+        if type(runtime_options.get(key)) is not bool:
+            raise ValueError(
+                f"Resolved config value runtime_options.{key} must be a boolean."
+            )
+    plugin_options = data.get("plugin_options")
+    if plugin_options is not None:
+        if not isinstance(plugin_options, dict):
+            raise ValueError("Resolved runtime config plugin_options must be a mapping.")
+        for key, value in plugin_options.items():
+            if not isinstance(key, str) or not key.strip():
+                raise ValueError("Resolved runtime plugin option keys must be non-empty strings.")
+            if not isinstance(value, (str, int, float, bool, type(None))):
+                raise ValueError(
+                    f"Resolved runtime plugin option {key!r} must be a JSON scalar."
+                )
+            if isinstance(value, float) and (
+                value != value or abs(value) == float("inf")
+            ):
+                raise ValueError(
+                    f"Resolved runtime plugin option {key!r} must be finite."
+                )
+    launch_context = data.get("launch_context")
+    if launch_context is not None:
+        if not isinstance(launch_context, dict):
+            raise ValueError("Resolved runtime config launch_context must be a mapping.")
+        expected_launch_keys = {
+            "config_file",
+            "plugin_selectors",
+            "plugin_workflow",
+            "workflow_config_file",
+        }
+        if set(launch_context) != expected_launch_keys:
+            raise ValueError(
+                "Resolved runtime launch_context must contain exactly config_file, "
+                "plugin_selectors, plugin_workflow, and workflow_config_file."
+            )
+        for key in ("config_file", "plugin_workflow", "workflow_config_file"):
+            value = launch_context[key]
+            if value is not None and (not isinstance(value, str) or not value.strip()):
+                raise ValueError(
+                    f"Resolved runtime launch_context.{key} must be null or a non-empty string."
+                )
+        selectors = launch_context["plugin_selectors"]
+        if not isinstance(selectors, list) or any(
+            not isinstance(value, str) or not value.strip() for value in selectors
+        ):
+            raise ValueError(
+                "Resolved runtime launch_context.plugin_selectors must be a list of non-empty strings."
+            )
+    return data
+
+
+def save_runtime_config(
+    workspace: str,
+    cfg: Config,
+    runtime_config_keys: Optional[List[str]] = None,
+    launch_context: Optional[Dict[str, Any]] = None,
+) -> Path:
+    """Persist resolved runtime values for skills and other workspace consumers."""
+    runtime_path = Path(
+        get_abs_path_cwd_ucagent(workspace, RUNTIME_CONFIG_FILENAME)
+    )
+    runtime_data = validate_runtime_config(
+        build_runtime_config(
+            cfg,
+            runtime_config_keys=runtime_config_keys,
+            launch_context=launch_context,
+        )
+    )
+    save_json_file(str(runtime_path), runtime_data)
+    return runtime_path
+
+
+def load_runtime_config(workspace: str) -> Dict[str, Any]:
+    """Load the shared resolved runtime snapshot from a workspace."""
+    runtime_path = Path(workspace) / ".ucagent" / RUNTIME_CONFIG_FILENAME
+    if not runtime_path.is_file():
+        raise FileNotFoundError(
+            f"Resolved runtime config not found: {runtime_path}. "
+            "Start UCAgent for this workspace before using runtime consumers."
+        )
+    return validate_runtime_config(load_json_file(str(runtime_path)))
+
+
+def _current_test_report_path(workspace: str) -> Path:
+    """Return the workspace-local report shared by test consumers and Skills."""
+    runtime_config = load_runtime_config(workspace)
+    return Path(workspace) / runtime_config["current_test_report"]
+
+
+def clear_current_test_report(workspace: str) -> None:
+    """Invalidate a previous stage's report when a stage becomes active."""
+    target = Path(workspace) / CURRENT_TEST_REPORT_RELATIVE_PATH
+    try:
+        target.unlink()
+    except FileNotFoundError:
+        pass
+
+
+def save_current_test_report(
+    workspace: str,
+    report: Dict[str, Any],
+    context: Optional[Dict[str, Any]] = None,
+) -> Path:
+    """Publish the latest structured Unity test report for runtime consumers.
+
+    The report is deliberately kept outside the DUT output directory so a Skill
+    cannot accidentally bind itself to a stage-private or historical report.
+    ``context`` is diagnostic metadata only; the actual test report remains under
+    the stable ``report`` key.
+    """
+    if not isinstance(report, dict):
+        raise TypeError("Current test report must be a mapping.")
+    if context is not None and not isinstance(context, dict):
+        raise TypeError("Current test report context must be a mapping.")
+    target = _current_test_report_path(workspace)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "schema_version": CURRENT_TEST_REPORT_SCHEMA_VERSION,
+        "report": report,
+        "context": context or {},
+    }
+    temporary = target.with_suffix(target.suffix + ".tmp")
+    save_json_file(str(temporary), payload)
+    os.replace(temporary, target)
+    return target
+
+
+def load_current_test_report(workspace: str) -> Dict[str, Any]:
+    """Load and validate the latest structured test report for a workspace."""
+    target = _current_test_report_path(workspace)
+    if not target.is_file():
+        raise FileNotFoundError(
+            f"Current test report not found: {target}. Run the current stage's "
+            "real test cases with Check or RunTestCases before using a test-report Skill."
+        )
+    payload = load_json_file(str(target))
+    if not isinstance(payload, dict):
+        raise ValueError(f"Current test report {target} must be a JSON object.")
+    if payload.get("schema_version") != CURRENT_TEST_REPORT_SCHEMA_VERSION:
+        raise ValueError(
+            f"Current test report {target} has an unsupported schema_version."
+        )
+    report = payload.get("report")
+    if not isinstance(report, dict):
+        raise ValueError(f"Current test report {target} has no report object.")
+    context = payload.get("context", {})
+    if not isinstance(context, dict):
+        raise ValueError(f"Current test report {target} has invalid context metadata.")
+    return payload
+
+
 def find_file_in_paths(filename, search_paths):
     """
     Search for a file in a list of directories.
@@ -587,10 +890,18 @@ def _merge_config_file(cfg, config_file, loaded_configs, loading_stack=None):
         loading_stack.pop()
 
 
-def get_config(config_file=None, cfg_override=None, workspace=None):
+def get_config(
+    config_file=None,
+    cfg_override=None,
+    workspace=None,
+    workflow_config_file=None,
+):
     """
     Get the configuration for the agent.
-    :param config_file: Path to the configuration file.
+    :param config_file: Path to the explicit user configuration file.
+    :param cfg_override: Final key/value overrides.
+    :param workspace: Workspace whose local settings are loaded.
+    :param workflow_config_file: Optional plugin workflow baseline config.
     :return: Configuration dictionary.
     """
     # ignore repeated loaded configs
@@ -621,7 +932,16 @@ def get_config(config_file=None, cfg_override=None, workspace=None):
     assert os.path.isfile(lang_config_file), f"Language configuration file '{lang_config_file}' not found."
     _merge_config_file(cfg, lang_config_file, loaded_configs)
 
-    # 4. load workspace config
+    # 4. load the selected plugin workflow baseline
+    if workflow_config_file is not None:
+        workflow_config_path = os.path.abspath(os.fspath(workflow_config_file))
+        if not os.path.isfile(workflow_config_path):
+            raise FileNotFoundError(
+                f"Workflow config file '{workflow_config_file}' was not found."
+            )
+        _merge_config_file(cfg, workflow_config_path, loaded_configs)
+
+    # 5. load workspace config
     if workspace is not None:
         cwd_setting_file = get_abs_path_cwd_ucagent(workspace, "setting.yaml")
         if os.path.isfile(cwd_setting_file):
@@ -629,7 +949,7 @@ def get_config(config_file=None, cfg_override=None, workspace=None):
         else:
             info(f"Workspace config file '{cwd_setting_file}' not found, ignore.")
 
-    # 5. find user specified config file
+    # 6. find user specified config file
     target_file = config_file
     if config_file is None:
         target_file = 'config.yaml'  # Default configuration file
@@ -645,7 +965,7 @@ def get_config(config_file=None, cfg_override=None, workspace=None):
         user_config_file_path = os.path.abspath(user_config_file_path)
         _merge_config_file(cfg, user_config_file_path, loaded_configs)
 
-    # set override values
+    # 7. set override values
     cfg.set_values(cfg_override)
     object.__setattr__(cfg, "_loaded_config_files", list(loaded_configs))
     return cfg.freeze()

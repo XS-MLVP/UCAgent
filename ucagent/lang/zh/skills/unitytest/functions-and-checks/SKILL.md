@@ -5,13 +5,15 @@ description: 功能规格分析与测试点定义阶段及其子阶段专属技�
 
 # 功能规格分析与测试点定义
 
-本技能服务于 `functional_specification_analysis` 阶段以及其下的 3 个子阶段：
+Markdown 排版契约：本技能生成、维护或展示的任何 Markdown 中，每个 `#` 到 `######` 标题前后各保留一个空行；标题前置空行没有例外：文件开头的标题、Markdown 示例围栏内首个标题和 `<a id="..."></a>` 锚点后的目标标题都必须有前置空行。标题前不得直接连接正文、列表、表格、下一级标题、代码围栏或锚点；字段标题后的规范机器标记（例如 `<BUG-*>`、`<ROOT-*>` 和 `<RELATED-BUGS>`）可以继续与标题紧邻。
+
+本技能服务于 `functional_specification_analysis` 阶段以及其下的 4 个子阶段：
 - `dut_function_grouping`
 - `function_point_definition`
 - `check_point_design`
+- `functional_line_mapping_gap_analysis`
 
-本阶段对 `{OUT}/{DUT}_functions_and_checks.md` 的新增内容，统一通过 `scripts/update.py` 完成。
-不要手工直接插入 FG/FC/CK 条目；先分析，再按当前子阶段批量写入对应层级。
+前三个子阶段直接维护`{OUT}/{DUT}_functions_and_checks.md`；逐行查漏补缺子阶段还会维护当前行块返回的`map_file`，并且只在规格证明CK需要修正时更新功能检查点文档。首次创建完整文档使用`EditTextFile(path, content)`；后续按当前子阶段局部加入或修正FG/FC/CK时使用`ReplaceStringInFile(path, old_string, new_string)`。`scripts/update.py`只是可选的批量助手，不是完成任务的前置条件。两种写入方式必须产生相同的规范层级。
 
 ## 分析原则
 
@@ -71,33 +73,39 @@ CK 需要按“可验证场景”细分，通常可从以下维度拆：
 ## 反例与正例
 
 ### FG 反例
+
 - `FG-ADD-1`
 - `FG-STEP1`
 - `FG-TEST-CASE`
 
 ### FG 正例
+
 - `FG-API`
 - `FG-ARITHMETIC`
 - `FG-SPECIAL`
 - `FG-BOUNDARY`
 
 ### FC 反例
+
 - `FC-ALL`
 - `FC-LOGIC`
 - `FC-DETAIL-1`
 
 ### FC 正例
+
 - `FC-ADD`
 - `FC-MUL`
 - `FC-DIV`
 - `FC-PUSH`
 
 ### CK 反例
+
 - `CK-OK`
 - `CK-CHECK`
 - `CK-BASIC-FUNCTION`
 
 ### CK 正例
+
 - `CK-ADD-NORMAL`
 - `CK-ADD-OVERFLOW`
 - `CK-POP-EMPTY`
@@ -106,18 +114,31 @@ CK 需要按“可验证场景”细分，通常可从以下维度拆：
 ## 执行步骤
 
 ### 步骤1
+
 阅读 `reference_files` 中列出的文档，明确当前子阶段需要补充的是 FG、FC 还是 CK。
 
 ### 步骤2
-先完成当前批次分析，再一次性整理成脚本入参：
+
+先完成当前批次分析，再整理当前层级要写入的内容：
 - FG 子阶段：只整理多个 `FG` 与各自描述
 - FC 子阶段：只在已存在的同一个 `FG` 下整理多个 `FC` 与各自描述
 - CK 子阶段：只在已存在的同一个 `FG/FC` 下整理多个 `CK` 与各自详细描述
 
 ### 步骤3
-使用 `RunSkillScript` 执行 `update.py`，一次调用完成同层级批量插入。
 
-## 脚本调用规范
+有`RunSkillScript`时可以执行`update.py`批量插入；没有时直接使用文本编辑工具在唯一父节点下插入同样内容。修改后必须重新读取目标段，确认父子层级、标签唯一性和正式描述均正确。
+
+### 步骤4：逐行查漏补缺
+
+在 `functional_line_mapping_gap_analysis` 子阶段，按 `Check`/`Complete` 返回的当前行块逐条判断语义，并严格使用返回的 `map_file`。完整格式和执行契约见 `Guide_Doc/dut_line_func_map.md`。
+
+- 功能内容映射到语义准确且已声明的 `FG/FC/CK`；非功能内容才使用带具体理由的 `IGNORE`；空白行不映射；不得使用 `MISSMT`。
+- Checker 只能证明语法、CK 存在性、范围、IGNORE 理由和逐行覆盖，不能证明 CK 选择或 IGNORE 理由在语义上正确。
+- 只有规格上下文证明 CK 确实缺失、含糊或粒度错误时才修改功能检查点文档；映射语法、路径或理由错误只按 `failure_summary.next_action` 修复对应映射项。
+- CK 标签发生变化时，同步迁移已有行映射以及工作区中已存在的覆盖率、测试用例和 Bug 证据引用。
+- 每批写完后调用 `Check`；失败时先按 `error_code`、`artifact/location`、`expected` 和 `next_action` 修复，不能在文件未变化时重复检查。
+
+## 可选脚本调用规范
 
 均适用于阶段：`functional_specification_analysis`
 
@@ -125,8 +146,8 @@ CK 需要按“可验证场景”细分，通常可从以下维度拆：
 
 适用子阶段：`dut_function_grouping`
 
-```bash
-python3 script -MODE FG -ITEMS '[{"fg":"FG-API","title":"DUT测试API","desc":"提供DUT对外测试时需要使用的标准操作接口。"},{"fg":"FG-ARITHMETIC","title":"算术运算功能分组","desc":"包含加法、乘法、除法等核心算术运算能力。"}]'
+```json
+["unitytest/functions-and-checks", "update.py", "-MODE FG -ITEMS '[{\"fg\":\"FG-API\",\"title\":\"DUT测试API\",\"desc\":\"提供DUT对外测试时需要使用的标准操作接口。\"},{\"fg\":\"FG-ARITHMETIC\",\"title\":\"算术运算功能分组\",\"desc\":\"包含加法、乘法、除法等核心算术运算能力。\"}]'"]
 ```
 
 要求：
@@ -139,8 +160,8 @@ python3 script -MODE FG -ITEMS '[{"fg":"FG-API","title":"DUT测试API","desc":"�
 
 适用子阶段：`function_point_definition`
 
-```bash
-python3 script -MODE FC -FG 'FG-ARITHMETIC' -ITEMS '[{"fc":"FC-ADD","title":"加法运算","desc":"实现 IEEE 754 单精度浮点加法，覆盖正常值、特殊值以及异常边界。"},{"fc":"FC-MUL","title":"乘法运算","desc":"实现 IEEE 754 单精度浮点乘法，并检测溢出与下溢。"}]'
+```json
+["unitytest/functions-and-checks", "update.py", "-MODE FC -FG 'FG-ARITHMETIC' -ITEMS '[{\"fc\":\"FC-ADD\",\"title\":\"加法运算\",\"desc\":\"实现 IEEE 754 单精度浮点加法，覆盖正常值、特殊值以及异常边界。\"},{\"fc\":\"FC-MUL\",\"title\":\"乘法运算\",\"desc\":\"实现 IEEE 754 单精度浮点乘法，并检测溢出与下溢。\"}]'"]
 ```
 
 要求：
@@ -153,8 +174,8 @@ python3 script -MODE FC -FG 'FG-ARITHMETIC' -ITEMS '[{"fc":"FC-ADD","title":"加
 
 适用子阶段：`check_point_design`
 
-```bash
-python3 script -MODE CK -FG 'FG-ARITHMETIC' -FC 'FC-ADD' -ITEMS '[{"ck":"CK-ADD-NORMAL","desc":"规格化数加法：验证正数、负数以及异号数相加的结果正确性。"},{"ck":"CK-ADD-OVERFLOW","desc":"加法溢出：验证结果超出最大规格化数范围时 overflow 标志正确。"}]'
+```json
+["unitytest/functions-and-checks", "update.py", "-MODE CK -FG 'FG-ARITHMETIC' -FC 'FC-ADD' -ITEMS '[{\"ck\":\"CK-ADD-NORMAL\",\"desc\":\"规格化数加法：验证正数、负数以及异号数相加的结果正确性。\"},{\"ck\":\"CK-ADD-OVERFLOW\",\"desc\":\"加法溢出：验证结果超出最大规格化数范围时 overflow 标志正确。\"}]'"]
 ```
 
 要求：
@@ -170,12 +191,15 @@ python3 script -MODE CK -FG 'FG-ARITHMETIC' -FC 'FC-ADD' -ITEMS '[{"ck":"CK-ADD-
 - `FG`、`FC`、`CK` 的插入顺序必须遵守层级：先有 FG，再有 FC，最后有 CK
 - 当前调用只处理当前层级，不要在一次调用中混插 FG/FC/CK，也不要跨层级补写
 - `desc` 必须是最终要写入文档的正式描述，不要传占位文本
-- 发现标签已存在时，应修改参数或补充遗漏内容，不要手工改坏层级结构
+- 发现标签已存在时，只修正或补充目标条目，不要重复创建标签或改坏层级结构
 - 尽量在对应的子阶段使用对应的MODE,不要在插入`FG`的阶段额外插入了`FC`甚至`CK`
 
-## RunSkillScript 使用说明
+## 可选RunSkillScript使用说明
 
-- `script` 替换为 `update.py` 的路径
+- 把上面的三元组作为`RunSkillScript.commands`中的一项；脚本名固定为`update.py`，不要直接用shell或`python3`运行Skill脚本
+- `RunSkillScript`会读取`.ucagent/runtime_config.json`中的`ucagent_python_path`加载当前正在运行的UCAgent；源码方式启动时不要求额外安装`ucagent`
 - `-ITEMS` 参数值必须整体使用单引号包裹
 - 若一次批量调用中前几项成功、后续失败，应根据报错修正后重新执行失败那一批，不需要重复已经成功的工作
 - 完成当前子阶段写入后，继续执行阶段检查或推进下一子阶段
+
+没有`RunSkillScript`时，按`Guide_Doc/dut_functions_and_checks.md`中的完整Markdown结构直接编辑即可，不得停在分析阶段或等待脚本环境。

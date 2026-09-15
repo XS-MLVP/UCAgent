@@ -1,7 +1,17 @@
 
-# {{DUT}} 缺陷分析
+# {{DUT}} 动态 Bug 分析
 
-## 未测试通过检测点分析
+## 动态 Bug 记录
 
-## 缺陷根因分析
+<DYNAMIC-BUGS>
+</DYNAMIC-BUGS>
 
+## 根因分析
+
+<ROOT-CAUSES>
+</ROOT-CAUSES>
+
+## 波形证据
+
+<WAVEFORM-EVIDENCE>
+</WAVEFORM-EVIDENCE>

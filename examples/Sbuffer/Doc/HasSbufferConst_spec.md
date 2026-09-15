@@ -1,8 +1,10 @@
+
 # HasSbufferConst Specification Document
 
 > This document describes the specification of the `HasSbufferConst` chip verification target. Keep the technical language precise, well-organized, and easy to reuse for verification. If an item does not exist, explicitly write "None" or "TBD"; do not delete the section.
 
 ## Introduction
+
 - **Design Background**: `HasSbufferConst` is a Chisel trait that computes and provides all parameter-derived constants used by the Sbuffer store buffer subsystem in the XiangShan high-performance RISC-V processor. It extends `HasXSParameter` (the XiangShan base parameter trait) to inherit base hardware configuration values such as `CacheLineSize`, `PAddrBits`, `VAddrBits`, `StoreBufferSize`, and `DataBytes`. From these base parameters, `HasSbufferConst` computes derived constants including cache geometry widths, address tag widths, timeout thresholds, index widths, and virtual word dimensions. Every Sbuffer module (`Sbuffer`, `SbufferData`) and Bundle type (via `SbufferBundle`) depends on `HasSbufferConst` for correct hardware width determination. Source: `HasSbufferConst.scala:1-27`, `engine_overview.txt:9, 34-48`, `phase_01_types.txt:101-116`.
 - **Design Goals**: (1) Compute all Sbuffer-specific derived constants from the `HasXSParameter` base parameters at elaboration time. (2) Provide these constants as publicly readable members accessible through the Scala inheritance chain. (3) Guarantee that the same constant values are visible to all consuming modules and Bundles within a single elaboration context. (4) Compute derived constants using the formulas documented in the XiangShan architecture specification (address decomposition, cache geometry, entry indexing). (5) Enforce static invariants on configuration values (e.g., `EvictCycles` must be a power of 2).
 
@@ -46,6 +48,7 @@ File list:
 - `HasSbufferConst.scala:1-27`: Trait defining all Sbuffer parameter-derived constants. Includes `EvictCycles`, `SbufferReplayDelayCycles`, `EvictCountBits`, `MissqReplayCountBits`, `NumDcacheWriteResp`, and cache/address geometry constants (SbufferIndexWidth, CacheLineBytes, CacheLineWords, OffsetWidth, WordsWidth, PTagWidth, VTagWidth, WordOffsetWidth, CacheLineVWords, VWordsWidth, VWordWidth, VWordOffsetWidth). Source: `HasSbufferConst.scala:1-27`.
 
 ## Top-Level Interface Overview
+
 - **Module Name**: `HasSbufferConst` (Chisel trait — not a Chisel Module)
 - **Port List**: None. HasSbufferConst is a compile-time constant provider with no hardware ports. All members are `val` integer constants resolved at elaboration time.
 
@@ -215,22 +218,26 @@ Verify that word-level and virtual-word-level offset widths partition the physic
 (no submodules) — HasSbufferConst is a pure Chisel trait with no instantiated child modules, no hardware units, and no internal components. It extends `HasXSParameter` as a parent trait, but `HasXSParameter` is a trait (not a Module) providing base parameters. All members of HasSbufferConst are compile-time `val` integer constants. Source: `HasSbufferConst.scala:1-27`.
 
 ### State Machines and Timing
+
 - **State Machine List**: None. HasSbufferConst is a compile-time trait with no sequential elements, no state machine, and no state registers.
 - **State Transition Conditions**: N/A.
 - **Key Timing**: N/A. HasSbufferConst introduces zero cycles of latency. All constant computation occurs at Scala compilation / Chisel elaboration time. At the hardware level, constants become literal values in the generated Verilog with no gate-level impact.
 
 ### Configuration Registers and Storage
+
 None — HasSbufferConst defines no registers, memory, or configurable storage elements. All members are immutable `val` Scala integer constants.
 
 - **Register Map Base Address**: No bus interface. HasSbufferConst is a compile-time trait with no addressable registers.
 - **Configuration Flow**: N/A. All constants are statically computed from the `HasXSParameter` base parameters at elaboration time. There is no runtime configuration mechanism.
 
 ### Reset and Error Handling
+
 - **Reset Behavior**: N/A. HasSbufferConst has no sequential elements and thus no reset behavior.
 - **Error Reporting**: The only error detection in HasSbufferConst is the `require(isPow2(EvictCycles))` assertion at `HasSbufferConst.scala:4`. This is a Chisel elaboration-time assertion — if `EvictCycles` is not a power of 2, Chisel elaboration fails with a runtime exception before Verilog is generated. `NumDcacheWriteResp` is hardcoded to 1; change requires source modification. No other assertions or error signals exist.
 - **Self-Recovery Strategy**: None. Errors are compile-time only.
 
 ### Parameterization and Configurable Features
+
 - **Module Parameters**:
 
   | Parameter Name | Type/Range | Default | Functional Effect |
@@ -259,6 +266,7 @@ None — HasSbufferConst defines no registers, memory, or configurable storage e
 - **Compile Macros/Generation Options**: None. HasSbufferConst has no conditional compilation or preprocessor macros beyond the standard Chisel/`require` elaboration checks.
 
 ## Verification Requirements and Coverage Suggestions
+
 - **Functional Coverage Points**: All `CK-*` check points defined in each functional group constitute coverage targets. Key cross-coverage scenarios:
   - Constant values for minimum valid configuration (smallest StoreBufferSize, CacheLineSize, VLEN).
   - Constant values for maximum realistic configuration (large StoreBufferSize, VLEN=256).

@@ -32,10 +32,16 @@ class StatusBar(Horizontal):
         fields = [
             ("Run Time", stats.get("Run Time", "-")),
             ("Model", stats.get("LLM", "-")),
-            ("Backend", backend_type),
-            ("Stream", stats.get("Stream", "-")),
-            ("Mode", stats.get("Interaction Mode", "-")),
+            ("Speed", stats.get("Token Speed", "0.00 tok/s")),
+            ("Idle", stats.get("Idle", "0.00 s")),
         ]
+        fields.extend(
+            [
+                ("Backend", backend_type),
+                ("Stream", stats.get("Stream", "-")),
+                ("Mode", stats.get("Interaction Mode", "-")),
+            ]
+        )
 
         parts = [f"{label}: {self._format_value(value)}" for label, value in fields]
         left = " | ".join(parts)

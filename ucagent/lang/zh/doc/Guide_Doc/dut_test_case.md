@@ -48,9 +48,25 @@ def test_basic_functionality(env):
     assert actual_result == expected_result, f"预期: {expected_result}, 实际: {actual_result}"
 ```
 
-### API 测试函数的参数规范（重要）
+### DUT功能测试函数的参数规范（重要）
 
-以 `test_api_{DUT}_` 为前缀的 **API 测试函数**有严格的参数顺序要求：
+API测试、功能测试模板、静态Bug动态验证测试和随机测试都必须遵守当前参考模型配置的参数顺序：
+
+测试函数名称同时是跨阶段机器契约，不能只满足pytest的`test_`收集规则。创建或更新TC时必须使用所属阶段的唯一格式：
+
+| 测试阶段 | 测试文件格式 | pytest函数格式 |
+|---|---|---|
+| env fixture自检 | `test_{DUT}_env_fixture.py` | `test_api_{DUT}_env_<name>` |
+| 参考模型自检 | `test_{DUT}_reference_model.py` | `test_api_{DUT}_reference_model_<name>` |
+| Mock组件自检 | `test_{DUT}_mock_<component>[_<name>].py` | `test_api_{DUT}_mock_<name>` |
+| API功能测试 | `test_{DUT}_api_<category>.py` | `test_api_{DUT}_<api>[_<scenario>]` |
+| 普通定向测试/模板 | `test_{DUT}_<feature>.py` | `test_<scenario>`，且不能冒用上述自检/API前缀 |
+| 静态Bug动态验证 | `test_{DUT}_static_verify_<name>.py` | `test_static_{DUT}_<bug_or_scenario>` |
+| 随机测试 | `test_{DUT}_random_<name>.py` | `test_random_<name>` |
+
+`{DUT}`使用当前运行时解析出的真实名称和大小写。每个表中前缀后都必须有非空且能说明场景的名称，不能把`test_`、`test_api_{DUT}_`、`test_static_{DUT}_`或`test_random_`本身当作完整函数名。`test_api_`、`test_static_`和`test_random_`是保留命名空间，只能用于表中对应的专用文件和阶段。普通定向测试不新增额外统一前缀，继续使用`test_<scenario>`，但名称不得以任何保留前缀开头；例如普通测试可命名为`test_add_boundary`，不能命名为`test_random_add_boundary`。
+
+命名错误必须在产生该TC的阶段修复，并同步更新当前函数传给`mark_function`的位置；不得通过移动到不受当前文件pattern匹配的位置、换用其他阶段前缀、添加`skip`或覆盖fixture来保留错误名称。`test_api_basic`、`test_ref_model`和`test_compute_api`不能作为API测试名称，因为它们缺少完整的`test_api_{DUT}_`命名空间。各专用阶段及后续综合测试阶段都会在导入测试模块、执行模块顶层代码和运行pytest之前静态检查函数名；一次检查会列出当前范围内的全部冲突，必须全部修正后再运行测试。
 
 | 参数位置 | 参数名 | 说明 |
 |---------|--------|------|
@@ -89,7 +105,9 @@ def test_api_{DUT}_add_basic(ref_model, env): ...
 def test_api_{DUT}_add_basic(dut, env, ref_model): ...
 ```
 
-> **注意：** 检查器会自动验证所有 `test_api_{DUT}_*` 函数的参数顺序。若启用了 `ref_model` fixture，则必须将 `ref_model` 作为第二个参数，否则检查将不通过。
+> **注意：** 对应阶段的检查器会验证目标测试函数的参数顺序。若启用了`ref_model` fixture，则必须将`ref_model`作为第二个参数，否则检查不通过。
+
+Mock组件独立测试使用另一套固定契约：`def test_api_{DUT}_mock_xxx(mock_dut):`。运行配置中的`need_ref_model: true`不会给Mock测试增加`ref_model`；`mock_components_enabled: true`也不会让普通DUT测试把`env`替换为`mock_dut`。这两个值必须取自已解析的`agent.cfg.runtime_options`或`.ucagent/runtime_config.json`，不能由测试代码直接读取环境变量。
 
 ## 覆盖率关联机制
 
@@ -100,6 +118,8 @@ env.dut.fc_cover["{功能分组}"].mark_function("{功能点}", {测试函数}, 
 ```
 
 需要在测试函数的最开始就通过mark_function进行覆盖率关联。不建议在函数结束时关联，因为有可能测试不通过导致关联失败。一次调用mark_function只能关联一个功能点中的多个测试点，如果一个测试用例覆盖多个功能点，需要多次调用mark_function分别进行标记
+
+测试阶段应把现有`{DUT}_api.py`、`dut/env` fixture、fake DUT路径和`{DUT}_function_coverage_def.py`视为公共契约。`mark_function`失败时先核对FG/FC/CK字面量并读取最早traceback；不得在测试文件中伪造`fc_cover`，也不得为了单个测试通过而重写提供的API模板、替换fixture、删除覆盖标记或破坏覆盖率上报。只有证据明确证明公共基础设施本身违反契约时，才做最小修复并重跑其专用Checker。
 
 
 **参数说明：**
@@ -412,18 +432,21 @@ def test_mathematical_properties(env):
 ## 质量保证检查清单
 
 ### 测试完整性
+
 - [ ] 每个测试函数都有明确的docstring说明
 - [ ] 每个测试函数都进行了覆盖率标记
 - [ ] 所有检查点都被至少一个测试覆盖
 - [ ] 测试数据覆盖典型值、边界值、异常值
 
 ### 测试质量
+
 - [ ] 断言信息清晰，便于定位问题
 - [ ] 测试逻辑简单明确，避免复杂嵌套
 - [ ] 测试之间相互独立，无依赖关系
 - [ ] 适当使用参数化测试减少重复代码
 
 ### 可维护性
+
 - [ ] 测试命名规范，体现测试意图
 - [ ] 测试文件组织合理，便于查找
 - [ ] 测试辅助函数复用性好

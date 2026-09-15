@@ -17,6 +17,7 @@ from ucagent.util.config import load_yaml_with_env_vars
 class _FakeStageManager:
     def __init__(self):
         self.data = {}
+        self.save_count = 0
         self.current_stage = SimpleNamespace(
             reset_continue_fail_count_with_batch_pass=lambda: None,
         )
@@ -26,6 +27,9 @@ class _FakeStageManager:
 
     def set_data(self, key, value):
         self.data[key] = value
+
+    def save_stage_info(self):
+        self.save_count += 1
 
     def get_current_stage(self):
         return self.current_stage
@@ -57,7 +61,7 @@ def _write_doc(path, entries):
     path.write_text("\n".join(lines), encoding="utf-8")
 
 
-def _make_checker(tmp_path, entries, batch_size=2):
+def _make_checker(tmp_path, entries, batch_size=2, ignore_ck_prefix=""):
     doc = tmp_path / "functions_and_checks.md"
     tests_dir = tmp_path / "tests"
     tests_dir.mkdir(exist_ok=True)
@@ -70,9 +74,52 @@ def _make_checker(tmp_path, entries, batch_size=2):
         test_dir="tests",
         batch_size=batch_size,
         data_key="RANDOM_TEST_DATA",
+        test_func_prefix="test_random_",
+        ignore_ck_prefix=ignore_ck_prefix,
     ).set_workspace(str(tmp_path)).set_stage(_FakeStage()).set_stage_manager(manager)
     checker.on_init()
     return checker, manager
+
+
+def test_random_checker_excludes_configured_checkpoint_prefix(tmp_path):
+    """Random-test batches must omit checkpoints owned by a later workflow phase."""
+
+    checker, _manager = _make_checker(
+        tmp_path,
+        [
+            ("FG-FUNC", "FC-OP", "CK-VALUE"),
+            ("FG-PPA-1", "FC-PERF", "CK-LATENCY"),
+        ],
+        ignore_ck_prefix=["FG-PPA-"],
+    )
+
+    assert checker.batch_task.source_task_list == ["FG-FUNC/FC-OP/CK-VALUE"]
+    assert checker.get_template_data()["LIST_CURRENT_CKS"][0]["CK"] == (
+        "FG-FUNC/FC-OP/CK-VALUE"
+    )
+
+
+def test_random_checker_rejects_nonconforming_name_before_execution(tmp_path):
+    checker, _manager = _make_checker(
+        tmp_path,
+        [("FG-A", "FC-A", "CK-A")],
+    )
+    test_file = tmp_path / "tests" / "test_random_bad_name.py"
+    test_file.write_text(
+        "raise AssertionError('test module must not be imported before naming validation')\n\n"
+        "def test_bad_random_name(env):\n"
+        "    assert True\n",
+        encoding="utf-8",
+    )
+
+    passed, message = checker.test_check()
+
+    assert passed is False
+    assert message["diagnostic"]["error_code"] == (
+        "TEST_FUNCTION_CONTRACT_VIOLATION"
+    )
+    assert "test_bad_random_name" in message["details"][0]
+    assert "test_random_" in message["details"][0]
 
 
 def test_random_test_checker_rejects_mark_function_in_comment(tmp_path):
@@ -111,10 +158,10 @@ def test_random_test_cases_requires_generated_argument_with_check_example(tmp_pa
     assert "No valid CK labels were recorded" in message["error"][0]
     assert message["error"][1]["current_batch"][0]["CK"] == "FG-A/FC-A/CK-A"
     guidance = message["error"][2]
-    assert "Call the Check tool with the top-level `generated` argument" in guidance
-    assert 'Check(generated={"FG-A/FC-A/CK-A":' in guidance
-    assert "string containing a JSON dictionary" in guidance
-    assert 'Check(generated="{\\"FG-A/FC-A/CK-A\\":' in guidance
+    assert "Call the Check tool with the stage_args JSON object" in guidance
+    assert 'Check(stage_args={"generated": {"FG-A/FC-A/CK-A":' in guidance
+    assert "JSON-string fallback" in guidance
+    assert 'Check(stage_args="{\\"generated\\": {\\"FG-A/FC-A/CK-A\\":' in guidance
 
 
 def test_random_test_cases_complete_error_uses_complete_example(tmp_path):
@@ -127,9 +174,9 @@ def test_random_test_cases_complete_error_uses_complete_example(tmp_path):
 
     assert passed is False
     guidance = message["error"][2]
-    assert "Call the Complete tool with the top-level `generated` argument" in guidance
-    assert 'Complete(generated={"FG-A/FC-A/CK-A":' in guidance
-    assert 'Complete(generated="{\\"FG-A/FC-A/CK-A\\":' in guidance
+    assert "Call the Complete tool with the stage_args JSON object" in guidance
+    assert 'Complete(stage_args={"generated": {"FG-A/FC-A/CK-A":' in guidance
+    assert 'Complete(stage_args="{\\"generated\\": {\\"FG-A/FC-A/CK-A\\":' in guidance
 
 
 def test_random_test_cases_invalid_generated_formats_show_check_example(tmp_path):
@@ -141,16 +188,16 @@ def test_random_test_cases_invalid_generated_formats_show_check_example(tmp_path
     passed, message = checker.do_check(generated=["FG-A/FC-A/CK-A"])
 
     assert passed is False
-    assert "must be a dictionary" in message["error"]
-    assert 'Check(generated={"FG-A/FC-A/CK-A":' in message["error"]
-    assert 'Check(generated="{\\"FG-A/FC-A/CK-A\\":' in message["error"]
+    assert "stage_args.generated must be a JSON object" in message["error"]
+    assert 'Check(stage_args={"generated": {"FG-A/FC-A/CK-A":' in message["error"]
+    assert 'Check(stage_args="{\\"generated\\": {\\"FG-A/FC-A/CK-A\\":' in message["error"]
 
     passed, message = checker.do_check(generated="FG-A/FC-A/CK-A generated")
 
     assert passed is False
-    assert "could not be parsed as a dictionary" in message["error"]
-    assert 'Check(generated={"FG-A/FC-A/CK-A":' in message["error"]
-    assert 'Check(generated="{\\"FG-A/FC-A/CK-A\\":' in message["error"]
+    assert "stage_args.generated must be a JSON object" in message["error"]
+    assert 'Check(stage_args={"generated": {"FG-A/FC-A/CK-A":' in message["error"]
+    assert 'Check(stage_args="{\\"generated\\": {\\"FG-A/FC-A/CK-A\\":' in message["error"]
 
 
 def test_random_test_cases_unknown_and_out_of_batch_labels_show_current_example(tmp_path):
@@ -173,11 +220,55 @@ def test_random_test_cases_unknown_and_out_of_batch_labels_show_current_example(
     error_text = "\n".join(str(item) for item in message["error"])
     assert "not in the current function/check document" in error_text
     assert "not in the current batch" in error_text
-    assert 'Check(generated={"FG-A/FC-A/CK-A":' in error_text
-    assert 'Check(generated="{\\"FG-A/FC-A/CK-A\\":' in error_text
+    assert 'Check(stage_args={"generated": {"FG-A/FC-A/CK-A":' in error_text
+    assert 'Check(stage_args="{\\"generated\\": {\\"FG-A/FC-A/CK-A\\":' in error_text
 
 
-def test_random_test_cases_accepts_json_dictionary_string(tmp_path):
+def test_random_test_cases_restores_partial_current_batch(tmp_path):
+    entries = [
+        ("FG-A", "FC-A", "CK-A"),
+        ("FG-A", "FC-A", "CK-B"),
+    ]
+    checker, manager = _make_checker(tmp_path, entries, batch_size=2)
+    checker._run_random_tests = lambda timeout=0, **kwargs: (True, "pass")
+
+    passed, _message = checker.do_check(
+        generated={"FG-A/FC-A/CK-A": "generated A"}
+    )
+
+    assert passed is False
+    assert manager.save_count == 1
+    restored, _manager = _make_checker(tmp_path, entries, batch_size=2)
+    assert restored.batch_task.gen_task_list == ["FG-A/FC-A/CK-A"]
+    assert restored.batch_task.cmp_task_list == ["FG-A/FC-A/CK-A"]
+    assert restored.batch_task.tbd_task_list == [
+        "FG-A/FC-A/CK-A",
+        "FG-A/FC-A/CK-B",
+    ]
+
+
+def test_random_test_cases_does_not_commit_failed_validation(tmp_path):
+    checker, manager = _make_checker(
+        tmp_path,
+        [("FG-A", "FC-A", "CK-A")],
+        batch_size=1,
+    )
+    checker._run_random_tests = lambda timeout=0, **kwargs: (
+        False,
+        {"error": "random test failed"},
+    )
+
+    passed, _message = checker.do_check(
+        generated={"FG-A/FC-A/CK-A": "generated A"}
+    )
+
+    assert passed is False
+    assert checker.random_result == {}
+    assert checker.batch_task.gen_task_list == []
+    assert manager.save_count == 0
+
+
+def test_random_test_cases_rejects_nested_json_dictionary_string(tmp_path):
     checker, _manager = _make_checker(
         tmp_path,
         [("FG-A", "FC-A", "CK-A")],
@@ -188,14 +279,12 @@ def test_random_test_cases_accepts_json_dictionary_string(tmp_path):
         generated='{"FG-A/FC-A/CK-A": "generated deterministic random test"}',
     )
 
-    assert passed is True
-    assert "All CK are done" in message["success"]
-    assert checker.random_result == {
-        "FG-A/FC-A/CK-A": "generated deterministic random test",
-    }
+    assert passed is False
+    assert "stage_args.generated must be a JSON object" in message["error"]
+    assert checker.random_result == {}
 
 
-def test_random_test_cases_complete_accepts_json_dictionary_string(tmp_path):
+def test_random_test_cases_complete_rejects_nested_json_string(tmp_path):
     checker, _manager = _make_checker(
         tmp_path,
         [("FG-A", "FC-A", "CK-A")],
@@ -207,14 +296,12 @@ def test_random_test_cases_complete_accepts_json_dictionary_string(tmp_path):
         generated='{"FG-A/FC-A/CK-A": "completed random-test analysis"}',
     )
 
-    assert passed is True
-    assert "complete success" in message["success"]
-    assert checker.random_result == {
-        "FG-A/FC-A/CK-A": "completed random-test analysis",
-    }
+    assert passed is False
+    assert "stage_args.generated must be a JSON object" in message["error"]
+    assert checker.random_result == {}
 
 
-def test_random_test_stage_documents_json_string_fallback():
+def test_random_test_stage_documents_unified_stage_args_fallback():
     repo_root = os.path.abspath(os.path.join(current_dir, ".."))
     config = load_yaml_with_env_vars(
         os.path.join(repo_root, "ucagent/lang/zh/config/default.yaml")
@@ -225,7 +312,15 @@ def test_random_test_stage_documents_json_string_fallback():
     )
     task_text = json.dumps(stage["task"], ensure_ascii=False)
 
-    assert "内容为JSON对象的字符串" in task_text
-    assert "RandomTestCasesChecker会在内部进行JSON解析" in task_text
-    assert "字符串调用示例" in task_text
-    assert "不能写成字符串" not in task_text
+    assert "stage_args" in task_text
+    assert "字符串fallback示例" in task_text
+    assert "完整合法JSON对象" in task_text
+    assert "文档结构/语言/代码风格等非DUT激励属性" in task_text
+    assert "应跳过该CK并在stage_args.generated中说明确定的跳过原因" in task_text
+    assert "不要为了制造随机用例而搜索或修改无关覆盖定义" in task_text
+    assert "是跨阶段累计文档" in task_text
+    assert "本阶段Check只运行{OUT}/tests/test_{DUT}_random*.py并产生局部报告" in task_text
+    assert "历史TC未出现在本轮报告不表示它已Pass" in task_text
+    assert "同名BG/TC跨不同CK时必须保留每条真实路径" in task_text
+    assert "本轮没有确认新的DUT Bug时无需新增BG" in task_text
+    assert "Check(generated=" not in task_text

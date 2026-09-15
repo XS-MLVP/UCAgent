@@ -1,241 +1,42 @@
 ---
 name: static-bug-validation
-description: 静态分析Bug验证与动态关联阶段专属技能,用于指导建立静态 Bug 与动态 Bug 的标签级追踪链接
+description: 验证静态Bug候选并维护其与已完成动态Bug或BG-NA的LINK-BUG关联。
 ---
 
-# 静态分析Bug验证与动态关联
+# 静态 Bug 动态验证
 
-## 目标
+Markdown 排版契约：本技能生成、维护或展示的任何 Markdown 中，每个 `#` 到 `######` 标题前后各保留一个空行；标题前置空行没有例外：文件开头的标题、Markdown 示例围栏内首个标题和 `<a id="..."></a>` 锚点后的目标标题都必须有前置空行。标题前不得直接连接正文、列表、表格、下一级标题、代码围栏或锚点；字段标题后的规范机器标记（例如 `<BUG-*>`、`<ROOT-*>` 和 `<RELATED-BUGS>`）可以继续与标题紧邻。
 
-本阶段的目标是逐个处理`{OUT}/{DUT}_static_bug_analysis.md`中的`<LINK-BUG-[BG-TBD]>`占位标签,通过动态测试给出验证结论,并将静态Bug与动态Bug建立稳定的一一或一对多追踪关系.
+逐个验证`{OUT}/{DUT}_static_bug_analysis.md`中的`<BG-STATIC-*>`候选。测试、参考模型、fixture、API、复位、采样或环境问题必须修复为Pass，不能记录成动态Bug。
 
-本技能提供两个脚本:
-- `recordbug.py`: 将新证实的动态Bug按规范写入`{OUT}/{DUT}_bug_analysis.md`
-- `linkbug.py`: 将静态Bug与动态Bug的关联关系回填到`{OUT}/{DUT}_static_bug_analysis.md`
+动态确认结果只写入`{OUT}/{DUT}_bug_analysis.md`，不得根据可见标题派生另一个文件。Markdown、record/Apply和中央YAML `test_case`使用函数级报告node。非参数化WaveInfo使用同一node；报告含`tests.test_case_instances`时，文档TC保持函数级node，WaveInfo选择一个实际FAILED参数化child，且child必须与文档TC具有逐字相同的完整路径/类/函数父节点。不同路径永远不等价。没有确认动态 Bug 时保留三个空容器。
 
-这两个脚本分工如下:
-- `recordbug.py`负责创建或更新动态Bug记录
-- `linkbug.py`负责把静态Bug条目下的`<LINK-BUG-[BG-TBD]>`替换成最终结论
+确认DUT Bug后，若公共`unitytest/dynamic-bug-recording`已启用且已复制，优先通过其`record_dynamic_bug.py`的`-MODE bug`写入精确BG/TC路径、三个BG字段、唯一ROOT引用和反向链接，再用`-MODE root`写入ROOT五字段，尽可能不主动编辑动态Bug文档。BG机器锚点、ROOT容器、关闭标记或双向关系异常时调用一次`-MODE repair`重建全部生成式锚点和关系，不得按Checker逐条编辑缺失锚点；执行返回的`next_action`后相同文档格式阻塞仍存在，才按`error/details`或返回的`manual_edit_fallback`最小编辑，并立即重跑`-MODE repair`和Check。公共Skill不调用`SetSkillUsage`。脚本不写波形YAML，仍需真实WaveInfo和Apply；这些机器证据不得手工编辑。Skill缺失、禁用或脚本不可用时使用文本编辑工具，按Guide_Doc/dut_bug_analysis.md中的第 5.1 节完整标准案例填写相同结构。FG/FC/CK名称来自功能检查文档，BG名称来自具体缺陷描述，TC名称来自测试docstring；不能只写尖括号标签或类型名。
 
-也就是说:
-- 若当前静态Bug已经有可直接复用的动态Bug记录,可以直接调用`linkbug.py`
-- 若当前静态Bug还没有动态Bug记录,则必须先调用`recordbug.py`,再调用`linkbug.py`
+新建`test_static_{DUT}_*`时，参考当前工作区已有的普通DUT测试模板，沿用其fixture参数和顺序：`def test_static_{DUT}_xxx(env):`或`def test_static_{DUT}_xxx(env, ref_model):`。真实DUT测试不能改用`mock_dut`；Mock组件独立单元测试不能用于证实静态RTL候选。
 
-## 执行步骤
+静态验证文件必须使用`test_{DUT}_static_verify_<name>.py`，其中每个pytest函数必须以`test_static_{DUT}_`开头。普通定向TC不能冒用`test_static_`，API和随机TC也必须留在对应专用文件中；命名错误应在本阶段一次修正全部函数定义及其`mark_function`引用。
 
-### 步骤1: 扫描待验证静态Bug
+`{OUT}/tests/{DUT}_api.py`、fixture、fake DUT和`fc_cover`绑定是已有公共基础设施。默认只新增或修改当前静态验证测试，不修改API/fixture或伪造覆盖组。只有最早traceback和接口契约明确证明基础设施缺陷时才做最小修复。
 
-操作:
-- 读取`{OUT}/{DUT}_static_bug_analysis.md`
-- 列出所有仍然带有`<LINK-BUG-[BG-TBD]>`的`<BG-STATIC-*>`条目
-- 明确每个静态Bug当前对应的:
-  - 功能组`<FG-*>`
-  - 功能点`<FC-*>`
-  - 检测点`<CK-*>`
-  - 源码定位`<FILE-*>`
+一次`Step(1)`只推进仿真，不表示请求已接受或结果有效。必须检查API内部是否已经推进或等待，按规格确认ready/valid或等价接受条件、响应latency和有效采样点；无效窗口的单点data mismatch只能继续调查，不能确认Bug。
 
-注意:
-- 只处理当前确认过的静态Bug,不要一次性随意修改整个文档
-- 若某个静态Bug已经是`<LINK-BUG-[BG-NA]>`或已经关联到真实`BG-*`,说明它已经有结论,除非结论有误,否则不要重复处理
+最终WaveInfo必须提供完整`signal_groups`，覆盖时钟（若有）、相关输入、输出、协议控制和连接静态根因的关键状态/传播信号，viewer显示同一签名集合。中断或重启后保留已验证receipt；普通阶段不因波形变化重写证据，最终记录阶段完整重放，并由Checker原子刷新语义等价的当前机器证据。TC身份或语义变化时按Checker返回的当前receipt/精确恢复动作复核。
 
-### 步骤2: 检查是否已有可复用的动态验证结果
+确认DUT Bug时：
 
-操作:
-- 检查`{OUT}/{DUT}_bug_analysis.md`
-- 检查已有测试用例,尤其是Fail测试
-- 判断当前静态Bug是否已经被某个动态Bug记录证实
+1. 保留能稳定复现缺陷的正确断言和Fail结果。
+2. 在动态文档中创建独立非静态`<BG-NAME-XX>`，不能复用`BG-STATIC-*`。
+3. 为每个Fail TC保留一个`<WAVEFORM-REF>`，并在中央`<WAVEFORM-EVIDENCE>`分区保留该TC唯一的confirmed WaveInfo记录。
+4. 为该动态BG选择且只选择一个根因；ROOT使用唯一`<ROOT-XXX>`标签并完成五个ROOT分析字段，通过`<CAUSE-REF-ROOT-XXX>`和内嵌完整路径的`<RELATED-BUG-FG-.../FC-.../CK-.../BG-...>`建立双向链接；BG只保留三个字段，中央记录保留该BG的波形结论。
+5. 用可选脚本同时更新静态汇总与详细区的LINK：
 
-判定规则:
-- 若已经存在可以直接对应的动态Bug记录,则无需重复补写测试,直接进入步骤5进行链接回填
-- 若尚无对应动态Bug记录,则进入步骤3编写或补充动态验证测试
+同一Fail TC证实多个独立动态Bug时，保留不同BG，并对每个精确BG/TC分别调用`ApplyWaveInfoEvidence`；目标BG/TC之外的Bug记录不会被修改，中央仍只有一份波形记录。单独运行当前静态候选用例时不得删除历史TC/BG；最终记录阶段仍需完整测试运行和严格重放。
 
-注意:
-- “可以直接对应”不是看名字像不像,而是要基于功能点、触发条件、失败现象、源码根因是否一致来判断
-- 多个静态Bug允许对应同一个动态Bug
-- 一个静态Bug也允许最终对应多个动态Bug
-
-### 步骤3: 编写或补充动态验证测试
-
-操作:
-- 针对仍未确认的静态Bug,编写动态验证测试用例
-- 测试文件写入`{OUT}/tests/test_{DUT}_static_verify_*.py`
-- 测试函数命名格式为`test_static_{DUT}_<BugId>`
-- 通过`from {DUT}_api import *`导入env fixture和API
-- 若该静态Bug对应明确的`<CK-*>`,则在测试函数起始位置添加功能覆盖标记
-
-注意:
-- 测试目标是验证静态分析提出的缺陷是否真实存在
-- 若验证结果是Fail且Fail合理,应保留该测试为Fail
-- 不允许为了让测试通过而修改断言或弱化测试
-- 若某个静态Bug本身是误报,则测试结果应支持其为误报的结论
-
-### 步骤4: 形成动态Bug结论并写入动态Bug文档
-
-操作:
-- 运行动态验证测试
-- 结合测试结果、功能预期、源码分析形成结论
-
-结论分为两类:
-
-1. Bug已证实
-- 在`{OUT}/{DUT}_bug_analysis.md`中补充完整动态Bug记录
-- 动态Bug标签形如`BG-XXX-90`
-- 若一个静态Bug对应多个动态Bug,则应先把这些动态Bug都记录完整
-
-2. 静态分析误报
-- 不在`bug_analysis.md`中新增虚假的动态Bug
-- 该静态Bug在`static_bug_analysis.md`中的关联标签应改为`BG-NA`
-
-注意:
-- 先有动态Bug记录,再回填静态Bug链接
-- 不能先把静态Bug链接改掉,再回头补`bug_analysis.md`
-
-当Bug已证实时,使用`RunSkillScript`执行`recordbug.py`,命令格式如下:
-
-```bash
-python3 script -BG 'BG-ADD-SPECIAL-VALUE-90' -TC 'TC-unity_test/tests/test_ALU754_arithmetic.py::test_add_special' -BD '+INF 与 -INF 相加时未返回 NaN，而是错误输出 0x00000000。' -ROOT '根因分析内容' -FILE 'ALU754_RTL/ieee_add.v:33-64' -FIX '修复建议内容'
+```text
+["unitytest/static-bug-validation", "linkbug.py", "-SBG 'BG-STATIC-001-CIN-OVERFLOW' -LBG 'BG-CIN-OVERFLOW-98'"]
 ```
 
-其中:
-- `script`替换为`recordbug.py`脚本路径
-- `-BG`是动态Bug标签
-- `-TC`是用于证实该Bug的失败测试用例标签
-- `-BD`是Bug简述
-- `-ROOT`是根因分析
-- `-FILE`是关联源码位置
-- `-FIX`是修复建议
+一个静态候选关联多个动态Bug时，`-LBG`使用逗号分隔。候选被证明不成立时使用`-LBG 'BG-NA'`。脚本会拒绝不存在或未完成的动态BG。
 
-注意:
-- `recordbug.py`会把记录写入`{OUT}/{DUT}_bug_analysis.md`
-- `linkbug.py`在写回真实`BG-*`前,会检查这些`BG-*`是否已经真实存在于`bug_analysis.md`
-- 因此,若`recordbug.py`尚未成功执行,`linkbug.py`会拒绝把`BG-*`写回静态报告
-
-### 步骤5: 使用脚本回填静态Bug链接
-
-操作:
-- 当某个静态Bug已经确定最终对应的动态Bug标签后,使用`RunSkillScript`执行`linkbug.py`
-- 该脚本会同步更新两个位置:
-  - `## 一、潜在Bug汇总`表格中的“动态Bug关联”列
-  - `## 二、详细分析`中该`<BG-STATIC-*>`条目下的`<LINK-BUG-[...]>`标签
-
-命令格式如下:
-
-```bash
-python3 script -SBG 'BG-STATIC-001-XXX' -LBG 'BG-ADD-XXX-90'
-python3 script -SBG 'BG-STATIC-002-YYY' -LBG 'BG-NA'
-python3 script -SBG 'BG-STATIC-003-ZZZ' -LBG 'BG-FSM-DEAD-92,BG-FSM-DEFAULT-85'
-```
-
-其中:
-- `script`替换为`linkbug.py`脚本路径
-- `-SBG`表示`static_bug_analysis.md`中原始静态Bug标签,必须是`BG-STATIC-*`
-- `-LBG`表示要写回的链接目标:
-  - 若Bug已证实,填写一个或多个真实动态Bug标签`BG-*`
-  - 若静态Bug是误报,填写`BG-NA`
-  - 若有多个动态Bug,使用英文逗号`,`分隔,脚本会写成`<LINK-BUG-[BG-1][BG-2]>`
-
-执行`linkbug.py`前,脚本会做以下校验:
-- `-SBG`必须真实存在于`{OUT}/{DUT}_static_bug_analysis.md`的汇总表和详细分析中
-- 若`-LBG`不是`BG-NA`,则其中每个动态Bug标签都必须真实存在于`{OUT}/{DUT}_bug_analysis.md`
-- 若任一校验失败,脚本会报错并停止,不会修改静态报告
-
-### 步骤6: 检查替换结果
-
-操作:
-- 执行脚本后,重新检查目标静态Bug对应的两个位置是否已一致更新:
-  - 汇总表的最后一列
-  - 详细分析中的`<LINK-BUG-[...]>`
-
-注意:
-- 这两个位置必须完全一致
-- 若脚本报错,根据报错修正参数后重试
-- 已成功回填的静态Bug不需要重复执行
-
-### 步骤7: 完成阶段收尾
-
-操作:
-- 重复步骤1到步骤6,直到所有`<LINK-BUG-[BG-TBD]>`都被替换
-- 确认阶段结束时:
-  - `static_bug_analysis.md`中不再存在任何`<LINK-BUG-[BG-TBD]>`
-  - 所有已证实静态Bug都能在`bug_analysis.md`中找到对应动态Bug记录
-  - 所有误报静态Bug都被标记为`BG-NA`
-
-## 核心原则
-
-- 1.**先验证,后回填**: 先确认动态验证结论,再更新静态Bug链接
-- 2.**只改链接,不改Bug主体**: `linkbug.py`只修改指定静态Bug的链接标签与汇总表关联列,不改动其余正文
-- 3.**两处同步**: 汇总表和详细分析中的链接结果必须保持一致
-- 4.**真实关联**: 只有在`bug_analysis.md`中已有完整记录的动态Bug,才能写回真实`BG-*`
-- 5.**误报显式标记**: 误报必须写为`BG-NA`,不能保留`BG-TBD`
-- 6.**先记动态Bug,再回填静态Bug**: 新发现的动态Bug必须先通过`recordbug.py`写入`bug_analysis.md`,再通过`linkbug.py`建立关联
-- 7.**脚本唯一入口**: `bug_analysis.md`中的新增动态Bug记录必须通过`recordbug.py`, `static_bug_analysis.md`中的链接回填必须通过`linkbug.py`,不要手工直接编辑
-
-## 关键规则
-
-- `-SBG`必须是`BG-STATIC-*`格式
-- `-LBG`必须是以下两种之一:
-  - 单个`BG-*`
-  - 多个`BG-*`用英文逗号分隔
-  - 或者`BG-NA`
-- 汇总表中写入格式为:
-  - `LINK-BUG-[BG-XXX-90]`
-  - `LINK-BUG-[BG-XXX-90][BG-YYY-85]`
-  - `LINK-BUG-[BG-NA]`
-- 详细分析中写入格式为:
-  - `<LINK-BUG-[BG-XXX-90]>`
-  - `<LINK-BUG-[BG-XXX-90][BG-YYY-85]>`
-  - `<LINK-BUG-[BG-NA]>`
-- 一个`<BG-STATIC-*>`条目下应当只有一个`<LINK-BUG-[...]>`标签
-- 若脚本发现目标静态Bug不存在,或者该条目下没有唯一可替换的`LINK-BUG`标签,必须报错并停止
-- 若`-LBG`为真实动态Bug标签,则这些标签必须先存在于`bug_analysis.md`
-
-## `RunSkillScript`使用说明
-
-1. 允许一次输入多条命令,可以先执行若干条`recordbug.py`,再执行对应的`linkbug.py`
-2. 若前几条命令执行成功,后续某条失败,只需要修正失败命令以及其后未执行完成的命令,不需要重复执行已成功命令
-3. 参数值必须使用单引号包裹,尤其是`-LBG`中有逗号时更需要加引号
-4. 若一个静态Bug最终对应多个动态Bug,多个BG标签必须在同一条命令的`-LBG`里一次性给出
-5. 若本轮需要新建动态Bug记录,推荐顺序是:
-   - 先执行`recordbug.py`
-   - 再执行`linkbug.py`
-
-## 示例
-
-### 示例1: 证实为单个动态Bug
-
-```bash
-python3 recordbug.py -BG 'BG-MUL-OVERFLOW-THRESHOLD-85' -TC 'TC-unity_test/tests/test_ALU754_arithmetic.py::test_mul_overflow' -BD '最大规格化数乘以 2.0 时未拉高 overflow，也未输出 +INF。' -ROOT '根因分析内容' -FILE 'ALU754_RTL/ieee_mul.v:47-50' -FIX '修复建议内容'
-python3 script -SBG 'BG-STATIC-007-OVERFLOW-THRESHOLD' -LBG 'BG-MUL-OVERFLOW-THRESHOLD-85'
-```
-
-替换效果:
-- 汇总表:
-  - `LINK-BUG-[BG-TBD]` -> `LINK-BUG-[BG-MUL-OVERFLOW-THRESHOLD-85]`
-- 详细分析:
-  - `<LINK-BUG-[BG-TBD]>` -> `<LINK-BUG-[BG-MUL-OVERFLOW-THRESHOLD-85]>`
-
-### 示例2: 判定为误报
-
-```bash
-python3 script -SBG 'BG-STATIC-003-DENORMAL-LOSS' -LBG 'BG-NA'
-```
-
-替换效果:
-- 汇总表:
-  - `LINK-BUG-[BG-TBD]` -> `LINK-BUG-[BG-NA]`
-- 详细分析:
-  - `<LINK-BUG-[BG-TBD]>` -> `<LINK-BUG-[BG-NA]>`
-
-### 示例3: 对应多个动态Bug
-
-```bash
-python3 recordbug.py -BG 'BG-FSM-DEAD-92' -TC 'TC-unity_test/tests/test_demo.py::test_static_demo_1' -BD '第一个动态Bug描述' -ROOT '根因分析1' -FILE 'rtl/demo.v:10-20' -FIX '修复建议1'
-python3 recordbug.py -BG 'BG-FSM-DEFAULT-85' -TC 'TC-unity_test/tests/test_demo.py::test_static_demo_2' -BD '第二个动态Bug描述' -ROOT '根因分析2' -FILE 'rtl/demo.v:30-40' -FIX '修复建议2'
-python3 script -SBG 'BG-STATIC-020-FSM-ISSUE' -LBG 'BG-FSM-DEAD-92,BG-FSM-DEFAULT-85'
-```
-
-替换效果:
-- 汇总表:
-  - `LINK-BUG-[BG-FSM-DEAD-92][BG-FSM-DEFAULT-85]`
-- 详细分析:
-  - `<LINK-BUG-[BG-FSM-DEAD-92][BG-FSM-DEFAULT-85]>`
+技能禁用或脚本不可用时，使用文本编辑工具按`Guide_Doc/dut_bug_analysis.md`建立同一动态结构并直接编辑静态汇总和详情中的两处LINK标签，再执行相同验证；不得因为缺少Skill而暂停或降低验收标准。

@@ -24,8 +24,10 @@ import ucagent.checkers as checkers
 from ucagent.checkers.recorder import Recorder, RecordType
 from ucagent.checkers.toffee_report import parse_bug_label
 from ucagent.server.api_master import PdbMasterApiServer, PdbMasterClient
+from ucagent.stage.vmanager import StageManager
 from ucagent.util.config import load_yaml_with_env_vars
 from ucagent.util.functions import import_class_from_str
+from ucagent.util.markdown import markdown_heading_spacing_errors
 
 
 class _FakeStage:
@@ -71,6 +73,7 @@ class _UnsupportedMasterClient:
 class _FakeStageManager:
     def __init__(self, stage, master_clients=None):
         self.data = {}
+        self.save_count = 0
         self.stages = [stage]
         pdb = SimpleNamespace(_master_clients=master_clients or {})
         self.agent = SimpleNamespace(dut_name="Adder", pdb=pdb)
@@ -80,6 +83,9 @@ class _FakeStageManager:
 
     def set_data(self, key, value):
         self.data[key] = value
+
+    def save_stage_info(self):
+        self.save_count += 1
 
 
 def _write_bug_doc(tmp_path, entries, relative_path="Adder_bug_analysis.md"):
@@ -188,7 +194,7 @@ def test_bug_recorder_normalizes_and_caches_bug_list(tmp_path):
         "bug_name": "overflow_bug",
         "CK": ["FG-GROUP/FC-FUNCTION/CK-OVERFLOW", "CK-BOUNDARY"],
         "desc": "The result width truncates the carry bit; the output declaration is too narrow.",
-        "locations": ["rtl/adder.sv:128-229", "rtl/adder.sv:240,250-252"],
+        "locations": ["rtl/adder.sv:128-229", "rtl/adder.sv:240-240,250-252"],
         "confidence": 76,
     }]))
 
@@ -199,7 +205,7 @@ def test_bug_recorder_normalizes_and_caches_bug_list(tmp_path):
         "alias": [],
         "CK": ["FG-GROUP/FC-FUNCTION/CK-OVERFLOW", "FG-GROUP/FC-FUNCTION/CK-BOUNDARY"],
         "desc": "The result width truncates the carry bit; the output declaration is too narrow.",
-        "locations": ["rtl/adder.sv:128-229", "rtl/adder.sv:240,250-252"],
+        "locations": ["rtl/adder.sv:128-229", "rtl/adder.sv:240-240,250-252"],
         "severity": "medium",
         "confidence": 0.76,
         "ref": ["Adder_bug_analysis.md:8-9,12-13"],
@@ -288,7 +294,26 @@ def test_bug_recorder_reuses_existing_records_on_complete(tmp_path):
     assert message["bug_count"] == 0
 
 
-def test_bug_recorder_accepts_json_string_bug_list(tmp_path):
+def test_bug_recorder_reads_legacy_string_checkpoint(tmp_path):
+    _write_bug_doc(tmp_path, [("overflow_bug", 76, "CK-OVERFLOW")])
+    recorder, manager, _stage = _make_recorder(tmp_path)
+    records = _with_expected_bug_metadata(recorder, [{
+        "bug_name": "overflow_bug",
+        "CK": ["CK-OVERFLOW"],
+        "desc": "The output is truncated because the result signal is too narrow.",
+        "locations": ["rtl/adder.sv:128-229"],
+        "confidence": 0.76,
+    }])
+    manager.data["BUG_RECORDS"] = json.dumps(records)
+
+    assert recorder.get_template_data()["COMPLETED_BUGS"] == 1
+    passed, message = recorder.do_check(is_complete=True)
+
+    assert passed is True
+    assert message["bug_count"] == 1
+
+
+def test_bug_recorder_rejects_nested_json_string_bug_list(tmp_path):
     _write_bug_doc(tmp_path, [("overflow_bug", 76, "CK-OVERFLOW")])
     recorder, manager, _stage = _make_recorder(tmp_path)
     bug_list = json.dumps(_with_expected_bug_metadata(recorder, [{
@@ -301,9 +326,10 @@ def test_bug_recorder_accepts_json_string_bug_list(tmp_path):
 
     passed, message = recorder.do_check(bug_list=bug_list)
 
-    assert passed is True
-    assert message["bug_count"] == 1
-    assert manager.data["BUG_RECORDS"][0]["bug_name"] == "overflow_bug"
+    assert passed is False
+    assert "must be a JSON array, got str" in message["error"]
+    assert "complete stage_args object as a JSON string" in message["error"]
+    assert "BUG_RECORDS" not in manager.data
 
 
 def test_bug_recorder_missing_bug_list_shows_check_object_and_string_examples(tmp_path):
@@ -314,15 +340,19 @@ def test_bug_recorder_missing_bug_list_shows_check_object_and_string_examples(tm
 
     assert passed is False
     assert message["current_batch"][0]["bug_name"] == "overflow_bug"
-    error_text = message["error"]
-    assert "Call the Check tool with the top-level `bug_list` argument" in error_text
-    assert 'Object template: Check(bug_list=[{"bug_name": "overflow_bug"' in error_text
-    assert 'String fallback: Check(bug_list="[{\\"bug_name\\": \\"overflow_bug\\"' in error_text
-    assert '"CK": ["FG-GROUP/FC-FUNCTION/CK-OVERFLOW"]' in error_text
-    assert '"confidence": 0.76' in error_text
-    assert '"ref": ["Adder_bug_analysis.md:8-9"]' in error_text
-    assert '"severity": "REPLACE_WITH_LOWEST_LOW_MEDIUM_HIGH_HIGHEST"' in error_text
-    assert "Required `severity` accepts lowest, low, medium, high, highest" in error_text
+    assert message["error_code"] == "BUG_RECORD_SUBMISSION_REQUIRED"
+    assert "have not been recorded" in message["error"]
+    action_text = message["next_action"]
+    assert "Call the Check tool with the stage_args JSON object" in action_text
+    assert 'Object template: Check(stage_args={"bug_list": [{"bug_name": "overflow_bug"' in action_text
+    assert 'JSON-string fallback: Check(stage_args="{\\"bug_list\\": [{\\"bug_name\\": \\"overflow_bug\\"' in action_text
+    assert '"CK": ["FG-GROUP/FC-FUNCTION/CK-OVERFLOW"]' in action_text
+    assert '"confidence": 0.76' in action_text
+    assert '"ref": ["Adder_bug_analysis.md:8-9"]' in action_text
+    assert '"severity": "REPLACE_WITH_LOWEST_LOW_MEDIUM_HIGH_HIGHEST"' in action_text
+    assert "Required `severity` accepts lowest, low, medium, high, highest" in action_text
+    assert message["observed"]["unrecorded_bug_names"] == ["overflow_bug"]
+    assert "stage_args.bug_list" in message["expected"]
 
 
 def test_bug_recorder_missing_bug_list_shows_complete_examples(tmp_path):
@@ -332,10 +362,12 @@ def test_bug_recorder_missing_bug_list_shows_complete_examples(tmp_path):
     passed, message = recorder.do_check(is_complete=True)
 
     assert passed is False
-    error_text = message["error"]
-    assert "Call the Complete tool with the top-level `bug_list` argument" in error_text
-    assert 'Object template: Complete(bug_list=[{"bug_name": "overflow_bug"' in error_text
-    assert 'String fallback: Complete(bug_list="[{\\"bug_name\\": \\"overflow_bug\\"' in error_text
+    assert message["error_code"] == "BUG_RECORD_SUBMISSION_REQUIRED"
+    assert "have not been recorded" in message["error"]
+    action_text = message["next_action"]
+    assert "Call the Complete tool with the stage_args JSON object" in action_text
+    assert 'Object template: Complete(stage_args={"bug_list": [{"bug_name": "overflow_bug"' in action_text
+    assert 'JSON-string fallback: Complete(stage_args="{\\"bug_list\\": [{\\"bug_name\\": \\"overflow_bug\\"' in action_text
 
 
 def test_bug_recorder_rejects_invalid_json_string_bug_list(tmp_path):
@@ -345,10 +377,11 @@ def test_bug_recorder_rejects_invalid_json_string_bug_list(tmp_path):
     passed, message = recorder.do_check(bug_list="[{'bug_name': 'not-json'}]")
 
     assert passed is False
-    assert "must contain a valid JSON array" in message["error"]
+    assert message["error_code"] == "BUG_RECORD_FORMAT_INVALID"
+    assert "must be a JSON array, got str" in message["error"]
     assert message["current_batch"][0]["bug_name"] == "overflow_bug"
-    assert 'Object template: Check(bug_list=[{"bug_name": "overflow_bug"' in message["error"]
-    assert "String fallback: Check(bug_list=" in message["error"]
+    assert 'Object template: Check(stage_args={"bug_list": [{"bug_name": "overflow_bug"' in message["next_action"]
+    assert "JSON-string fallback: Check(stage_args=" in message["next_action"]
     assert "BUG_RECORDS" not in manager.data
 
 
@@ -361,14 +394,15 @@ def test_bug_recorder_rejects_non_array_bug_list_with_call_examples(tmp_path):
     })
 
     assert passed is False
-    assert "must be a JSON array or a string containing one" in message["error"]
+    assert message["error_code"] == "BUG_RECORD_FORMAT_INVALID"
+    assert "must be a JSON array" in message["error"]
     assert message["current_batch"][0]["bug_name"] == "overflow_bug"
-    assert 'Object template: Check(bug_list=[{"bug_name": "overflow_bug"' in message["error"]
-    assert "String fallback: Check(bug_list=" in message["error"]
+    assert 'Object template: Check(stage_args={"bug_list": [{"bug_name": "overflow_bug"' in message["next_action"]
+    assert "JSON-string fallback: Check(stage_args=" in message["next_action"]
     assert "BUG_RECORDS" not in manager.data
 
 
-def test_bug_recorder_complete_accepts_json_string_bug_list(tmp_path):
+def test_bug_recorder_complete_rejects_nested_json_string_bug_list(tmp_path):
     _write_bug_doc(tmp_path, [("overflow_bug", 76, "CK-OVERFLOW")])
     recorder, manager, _stage = _make_recorder(tmp_path)
     bug_list = json.dumps(_with_expected_bug_metadata(recorder, [{
@@ -384,9 +418,9 @@ def test_bug_recorder_complete_accepts_json_string_bug_list(tmp_path):
         bug_list=bug_list,
     )
 
-    assert passed is True
-    assert message["bug_count"] == 1
-    assert manager.data["BUG_RECORDS"][0]["bug_name"] == "overflow_bug"
+    assert passed is False
+    assert "must be a JSON array, got str" in message["error"]
+    assert "BUG_RECORDS" not in manager.data
 
 
 def test_bug_recorder_reuses_existing_bug_label_parser(tmp_path):
@@ -419,10 +453,11 @@ def test_bug_recorder_rejects_invalid_source_location(tmp_path):
     }]))
 
     assert passed is False
+    assert message["error_code"] == "BUG_RECORD_FORMAT_INVALID"
     assert "invalid line range" in message["error"]
     assert message["current_batch"][0]["bug_name"] == "overflow_bug"
-    assert 'Object template: Check(bug_list=[{"bug_name": "overflow_bug"' in message["error"]
-    assert "String fallback: Check(bug_list=" in message["error"]
+    assert 'Object template: Check(stage_args={"bug_list": [{"bug_name": "overflow_bug"' in message["next_action"]
+    assert "JSON-string fallback: Check(stage_args=" in message["next_action"]
     assert "BUG_RECORDS" not in manager.data
 
 
@@ -457,9 +492,10 @@ def test_bug_recorder_records_document_bugs_in_batches(tmp_path):
 
     passed, message = recorder.do_check(bug_list=[records["bug-c"]])
     assert passed is False
+    assert message["error_code"] == "BUG_RECORD_BATCH_SCOPE_INVALID"
     assert "not in the current batch" in message["error"]
-    assert 'Object template: Check(bug_list=[{"bug_name": "bug-a"' in message["error"]
-    assert "String fallback: Check(bug_list=" in message["error"]
+    assert 'Object template: Check(stage_args={"bug_list": [{"bug_name": "bug-a"' in message["next_action"]
+    assert "JSON-string fallback: Check(stage_args=" in message["next_action"]
     assert "BUG_RECORDS" not in manager.data
 
     passed, message = recorder.do_check(
@@ -472,17 +508,20 @@ def test_bug_recorder_records_document_bugs_in_batches(tmp_path):
         "bug-a",
         "bug-b",
     ]
+    assert manager.save_count == 1
 
     passed, message = recorder.do_check(bug_list=[records["bug-a"]])
     assert passed is False
+    assert message["error_code"] == "BUG_RECORD_BATCH_SCOPE_INVALID"
     assert "already recorded" in message["error"]
-    assert 'Object template: Check(bug_list=[{"bug_name": "bug-c"' in message["error"]
+    assert 'Object template: Check(stage_args={"bug_list": [{"bug_name": "bug-c"' in message["next_action"]
 
     passed, message = recorder.do_check(is_complete=True)
     assert passed is False
+    assert message["error_code"] == "BUG_RECORD_SUBMISSION_REQUIRED"
     assert message["progress"] == "2/3"
-    assert 'Object template: Complete(bug_list=[{"bug_name": "bug-c"' in message["error"]
-    assert "String fallback: Complete(bug_list=" in message["error"]
+    assert 'Object template: Complete(stage_args={"bug_list": [{"bug_name": "bug-c"' in message["next_action"]
+    assert "JSON-string fallback: Complete(stage_args=" in message["next_action"]
 
     passed, message = recorder.do_check(bug_list=[records["bug-c"]])
     assert passed is True
@@ -515,7 +554,34 @@ def test_bug_recorder_rejects_records_not_declared_in_document(tmp_path):
     assert "BUG_RECORDS" not in manager.data
 
 
-def test_bug_recorder_requires_bug_analysis_document(tmp_path):
+def test_bug_recorder_treats_missing_bug_document_as_no_bugs(tmp_path):
+    recorder, manager, stage = _make_recorder(
+        tmp_path,
+        initialize=False,
+        output="reports/{{DUT}}_bug_summary.md",
+    )
+    Path(tmp_path, "Adder_bug_analysis.md").unlink()
+    recorder.on_init()
+
+    passed, message = recorder.do_check(is_complete=True)
+
+    assert passed is True
+    assert message["bug_count"] == 0
+    assert message["progress"] == "0/0"
+    assert manager.data["BUG_RECORDS"] == []
+
+    stage.complete()
+
+    summary = Path(tmp_path, "reports/Adder_bug_summary.md").read_text(
+        encoding="utf-8"
+    )
+    assert "Total Bugs: 0" in summary
+
+
+def test_bug_recorder_requires_dynamic_document_for_confirmed_static_links(tmp_path):
+    _write_static_bug_doc(tmp_path, [
+        ("BG-STATIC-001-CONFIRMED", ["BG-dynamic-90"], "CK-STATIC"),
+    ])
     recorder, manager, _stage = _make_recorder(tmp_path, initialize=False)
     Path(tmp_path, "Adder_bug_analysis.md").unlink()
     recorder.on_init()
@@ -524,6 +590,7 @@ def test_bug_recorder_requires_bug_analysis_document(tmp_path):
 
     assert passed is False
     assert "does not exist" in message["error"]
+    assert "confirmed dynamic links" in message["error"]
     assert "BUG_RECORDS" not in manager.data
 
 
@@ -676,7 +743,7 @@ def test_bug_recorder_maps_confirmed_static_aliases_and_exact_document_refs(tmp_
             "confidence": 0.80,
         },
     ])
-    passed, message = recorder.do_check(bug_list=json.dumps(records))
+    passed, message = recorder.do_check(bug_list=records)
 
     assert passed is True
     assert message["bug_count"] == 2
@@ -833,7 +900,7 @@ def test_bug_recorder_generates_linked_markdown_summary_on_stage_complete(tmp_pa
         "bug_name": "overflow",
         "CK": ["CK-OVERFLOW"],
         "desc": "The result is truncated | the root cause is an undersized signal.\nCarry is lost.",
-        "locations": ["rtl/adder.sv:10-12,20"],
+        "locations": ["rtl/adder.sv:10-12,20-20"],
         "confidence": 0.90,
         "severity": "high",
     }])
@@ -849,6 +916,7 @@ def test_bug_recorder_generates_linked_markdown_summary_on_stage_complete(tmp_pa
 
     assert summary_path.exists() is True
     markdown = summary_path.read_text(encoding="utf-8")
+    assert markdown_heading_spacing_errors(markdown) == []
     assert "# Adder Bug Summary" in markdown
     assert "Total Bugs: 1" in markdown
     assert "| Name | Severity | Alias | CK | Analysis | Locations | Confidence | Ref |" in markdown
@@ -1311,32 +1379,46 @@ def test_default_workflow_ends_with_record_and_report_bugs_stage():
         assert field in task_text
     assert "lowest、low、medium、high、highest" in task_text
     assert "severity：必填" in task_text
-    assert "Check(bug_list=[" in task_text
-    assert "JSON数组的字符串" in task_text
-    assert "字符串调用示例" in task_text
-    assert "Complete(bug_list=[...])" in task_text
-    assert any(
-        'Complete(bug_list="[...]")' in item
-        for item in stage["task"]
-        if isinstance(item, str)
-    )
+    assert "Check(stage_args=" in task_text
+    assert "bug_list" in task_text
+    assert "完整stage_args JSON对象作为字符串" in task_text
+    assert "字符串fallback示例" in task_text
+    assert "Complete(stage_args=" in task_text
+    assert "Check(bug_list=" not in task_text
     assert "FG-ARITHMETIC/FC-ADD/CK-CIN-OVERFLOW" in task_text
     assert "{LIST_CURRENT_BUGS}" in task_text
     assert "{COMPLETED_BUGS}/{TOTAL_BUGS}" in task_text
     assert "置信度为0的Bug" in task_text
     assert "调用Check()获取当前批次" not in task_text
-    assert [checker["args"]["type"] for checker in stage["checker"]] == ["bug"]
-    assert stage["checker"][0]["args"]["bug_file"] == (
+    assert "不得删除仍由正确测试稳定复现的动态Bug" in task_text
+    assert [checker["clss"] for checker in stage["checker"]] == [
+        "UnityChipCheckerTestCase",
+        "UnityChipCheckerWaveformBugAnalysis",
+        "Recorder",
+    ]
+    recorder_checkers = [
+        checker for checker in stage["checker"] if checker["clss"] == "Recorder"
+    ]
+    assert [checker["args"]["type"] for checker in recorder_checkers] == ["bug"]
+    waveform_checker = next(
+        checker
+        for checker in stage["checker"]
+        if checker["clss"] == "UnityChipCheckerWaveformBugAnalysis"
+    )
+    recorder_checker = recorder_checkers[0]
+    assert waveform_checker["args"]["bug_file"] == (
         "{OUT}/{DUT}_bug_analysis.md"
     )
-    assert stage["checker"][0]["args"]["static_bug_file"] == (
+    assert waveform_checker["args"]["test_dir"] == "{OUT}/tests"
+    assert recorder_checker["args"]["bug_file"] == "{OUT}/{DUT}_bug_analysis.md"
+    assert recorder_checker["args"]["static_bug_file"] == (
         "{OUT}/{DUT}_static_bug_analysis.md"
     )
-    assert stage["checker"][0]["args"]["output"] == (
+    assert recorder_checker["args"]["output"] == (
         "{OUT}/{DUT}_bug_summary.md"
     )
     assert "output_files" not in stage
-    assert "bug_files" not in stage["checker"][0]["args"]
+    assert "bug_files" not in recorder_checker["args"]
     assert all("Complete(task_list" not in instruction for instruction in stage["task"])
 
 
@@ -1478,3 +1560,63 @@ def test_master_client_rejects_non_json_record_report():
 
     assert passed is False
     assert "JSON serializable" in message
+
+
+def test_bug_recorder_failure_projects_into_failure_summary(tmp_path):
+    """Recorder failures carry the explicit diagnostic stage management projects."""
+
+    _write_bug_doc(tmp_path, [("overflow_bug", 76, "CK-OVERFLOW")])
+    recorder, _manager, _stage = _make_recorder(tmp_path)
+
+    passed, message = recorder.do_check(bug_list=_with_expected_bug_metadata(recorder, [{
+        "bug_name": "overflow_bug",
+        "CK": ["CK-OVERFLOW"],
+        "desc": "Root cause",
+        "locations": ["rtl/adder.sv:229-128"],
+        "confidence": 0.76,
+    }]))
+    assert passed is False
+
+    diagnostic = StageManager._extract_checker_diagnostic(message)
+    assert diagnostic is not None
+    assert diagnostic["error_code"] == "BUG_RECORD_FORMAT_INVALID"
+
+    entry = {
+        "checked_in_last_run": True,
+        "last_check_pass": False,
+        "last_msg": message,
+    }
+    stage = SimpleNamespace(name="record_and_report_bugs")
+    summary = StageManager._build_failure_summary(stage, [entry], stage_index=37)
+
+    assert summary["error_code"] == "BUG_RECORD_FORMAT_INVALID"
+    assert summary["error"] == message["error"]
+    assert summary["next_action"] == message["next_action"]
+    assert summary["current_batch"][0]["bug_name"] == "overflow_bug"
+
+
+def test_bug_recorder_declares_bug_list_as_accepted_stage_arg(tmp_path):
+    """stage_args.bug_list must not be reported as ignored by every gate."""
+
+    _write_bug_doc(tmp_path, [("overflow_bug", 76, "CK-OVERFLOW")])
+    recorder, _manager, stage = _make_recorder(tmp_path)
+    stage.checker = [recorder]
+
+    assert recorder.accepted_stage_args == ("bug_list",)
+    assert StageManager._ignored_stage_args_keys(stage, {"bug_list": []}) == []
+    assert StageManager._ignored_stage_args_keys(
+        stage, {"bug_list": [], "other": 1}
+    ) == ["other"]
+
+
+def test_bug_recorder_invalid_stored_records_report_state_diagnostic(tmp_path):
+    _write_bug_doc(tmp_path, [("overflow_bug", 76, "CK-OVERFLOW")])
+    recorder, manager, _stage = _make_recorder(tmp_path)
+    manager.data["BUG_RECORDS"] = [{"bug_name": 123}]
+
+    passed, message = recorder.do_check()
+
+    assert passed is False
+    assert message["error_code"] == "BUG_RECORD_STATE_INVALID"
+    assert "Previously stored Bug records are invalid" in message["error"]
+    assert "stage_args.bug_list" in message["next_action"]

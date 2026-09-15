@@ -1,763 +1,941 @@
-# DUT 缺陷分析文档
-
-## 概述
-
-当测试执行过程中发现某些检查点（Check Point）未能通过时，需要在 `{DUT}_bug_analysis.md` 文档中进行详细的缺陷分析。本文档用于记录和分析测试用例失败的检查点，评估缺陷的严重程度，并提供根因分析。
-
-## 文档结构
-
-缺陷分析文档包含以下部分：
-1. **Bug概述** - 按 <FG-*>, <FC-*>, <CK-*>, <BG-*> 的层级结构标记并列出所有Bug描述，在bug描述下用 <TC-*> 列出所有由该bug导致的Fail测试用例
-2. **Bug分析** - 基于源代码，对bug根本原因进行深入分析和归类
-
-**注意：**
-- 所有Bug都需要有至少一个Fail的测试用例与其对应
-- 没检测通过的检查点（Checkpoint）当bug处理，就没有对应Fail的测试用例，也需要添加一个`assert False`的测试用例用于标记
-- <FG-*> 等标签结构为树状结构，同一个父节点下的子节点不能出现同名
-- 在 <BG-*-xx> 中给bug命名时，应当取简洁、有意义、可读性强、容易理解的名字
-- 在 <TC-*>标签中，测试用例如果是基于Class的，也需要带上类名，例如： <TC-test_example.py::TestMyClassName::test_function_name>
-- 在 <TC-*>标签中标记的测试用例必须为 Fail ，只有测试用例没有通过才能证明它触发了bug
-
-
-### 在进行缺陷根因分析时，需要结合源代码进行分析（{DUT}的源文件通常为{DUT}.v、{DUT}.sv、或者{DUT}.scala），并在文档中把bug相关的部分列出来，用注释说明bug原因，例如：
-
-**Verilog代码bug示例：**
-```verilog
-// Adder.v 第8-12行，位宽错误导致溢出处理异常
-8:   input [WIDTH-1:0] a,
-9:   input [WIDTH-1:0] b, 
-10:  output [WIDTH-2:0] sum,    // BUG: 应该是 [WIDTH-1:0]，少了1位导致高位截断
-11:  output cout
-12: );
-13: 
-14: assign {cout, sum} = a + b + cin;  // 由于sum位宽不足，高位丢失
-```
-
-然后同样以源代码的方式给出修复建议：
-
-**Verilog修复示例：**
-```verilog
-// 修复后的Adder.v 第8-16行
-8:   input [WIDTH-1:0] a,
-9:   input [WIDTH-1:0] b, 
-10:  output [WIDTH-1:0] sum,    // 修复: 恢复正确的位宽定义
-11:  output cout
-12: );
-13: 
-14: wire [WIDTH:0] full_result = a + b + cin;  // 使用完整位宽进行计算
-15: assign sum = full_result[WIDTH-1:0];       // 取低位作为结果
-16: assign cout = full_result[WIDTH];          // 取最高位作为进位输出
-```
-
-**注意**： 在给出代码时，需要在第一行的注释中说明是哪个文件，每一行的开头为行号。
-
-## Bug分析格式
-
-### 基本语法规则
-
-- 使用功能组标签 `<FG-*>` 对失败检查点进行分组
-- 使用功能点标签 `<FC-*>` 标识具体功能
-- 使用检查点标签 `<CK-*>` 标识失败的具体检查点
-- 使用Bug标签 `<BG-*-xx>` 标识缺陷名称和置信度（xx取值0-100）
-- 使用多个测试用例标签 `<TC-*>` 标识测出bug的所有测试用例，这些测试用例必须为Fail（Fail的测试用例意味着bug）
-
-例如：
-
-```
-## 未测试通过检测点分析
-
-<FG-ARITHMETIC>
-
-#### 加法功能 <FC-ADD>
-- <CK-BOUNDARY> 边界值处理：当操作数为最大值时，结果计算错误，Bug置信度 85% <BG-MAXBOUNDARY-85>
-  - 触发bug的测试用例:
-    -  <TC-test_example.py::test_case_1> test_example.py::test_case_1 用例说明
-    -  <TC-test_example.py::test_case_2> test_example.py::test_case_2 用例说明
-    ...
-  - Bug根因分析：
-  ...
-```
-
-### 置信度评估指南
-
-| 置信度范围 | 含义 | 建议处理方式 |
-|-----------|------|-------------|
-| 90-100% | 确认存在缺陷 | 立即修复 |
-| 70-89% | 很可能存在缺陷 | 优先修复 |
-| 50-69% | 可能存在缺陷 | 进一步调查 |
-| 20-49% | 不确定是否缺陷 | 低优先级调查 |
-| 1-19% | 很可能是测试问题 | 检查测试用例 |
-| 0% | 已知忽略点 | 需要说明忽略原因 |
 
-### 完整示例
+# DUT Bug 分析指南
 
-下列示例演示了一个（虚构的）算术逻辑单元（ALU）在一次回归中发现的缺陷记录方式。示例重点演示：标签层级、置信度书写、一条 Bug 下多测试用例的列出方式、以及临时占位测试用例的用法。
-
-## 未测试通过检测点分析
-
-<FG-ARITHMETIC>
-
-#### 加法功能 <FC-ADD>
-- <CK-CIN-OVERFLOW> 带进位溢出处理异常：在最大无符号数 + 1 + cin=1 时未正确拉高溢出标志；Bug 置信度 98% <BG-CIN_OVERFLOW-98>
-  - 触发 Bug 的测试用例：
-    - <TC-tests/test_adder.py::test_add_with_cin_overflow_boundary> 边界 + 进位溢出
-    - <TC-tests/test_adder.py::test_add_with_cin_random> 随机激励下复现（多次）
-  - 备注：两条测试均稳定 Fail，波形比对一致，已锁定 RTL 逻辑问题
-
-- <CK-BOUNDARY> 最大值 + 1 结果截断：期望得到进位或正确饱和，但结果被截断；Bug 置信度 85% <BG-ADD_BOUNDARY-85>
-  - 触发 Bug 的测试用例：
-    - <TC-tests/test_adder.py::test_add_unsigned_max_plus_one>
-  - 备注：与 <CK-CIN-OVERFLOW> 共享部分根因（位宽+溢出逻辑）
-
-#### 减法功能 <FC-SUB>
-- <CK-BORROW> 借位信号错误：当被减数 < 减数时 borrow 未置位；Bug 置信度 92% <BG-SUB_BORROW-92>
-  - 触发 Bug 的测试用例：
-    - <TC-tests/test_sub.py::test_sub_basic_borrow>
-    - <TC-tests/test_sub.py::test_sub_chain_with_borrow>
-
-- <CK-UNDERFLOW> 下溢标志不稳定：同一输入在不同仿真次序下标志位不一致；Bug 置信度 72% <BG-SUB_UNDERFLOW-72>
-  - 触发 Bug 的测试用例：
-    - <TC-tests/test_sub.py::test_sub_underflow_flag>
-  - 备注：疑似组合逻辑竞争 / 采样时序问题
-
-<FG-LOGIC>
-
-#### 位操作功能 <FC-BITOP>
-- <CK-SHL> 左移超范围行为未定义：移位数 >= 宽度时出现 X 或旧值残留；Bug 置信度 88% <BG-SHL_RANGE-88>
-  - 触发 Bug 的测试用例：
-    - <TC-tests/test_shift.py::test_shl_over_width>
-    - <TC-tests/test_shift.py::test_shl_boundary>
-
-- <CK-SHR> 算术右移符号扩展错误：负数高位填充值不正确；Bug 置信度 95% <BG-SHR_SIGNEXT-95>
-  - 触发 Bug 的测试用例：
-    - <TC-tests/test_shift.py::test_shr_sign_extend>
-
-#### 比较功能 <FC-COMPARE>
-- <CK-EQUAL> 罕见输入组合下偶发失配：无法稳定复现，疑似测试激励或未初始化寄存器影响；Bug 置信度 18% <BG-CMP_EQUAL-18>
-  - 触发（疑似）测试用例：
-    - <TC-tests/test_compare.py::test_equal_random_sweep>
-  - 后续计划：添加更高可控度的定向激励并捕获波形
-
-<FG-CONTROL>
-
-#### 分支预测 <FC-BRANCH>
-- <CK-MISPREDICT> 特定随机模式下预测准确率低：确认是当前版本有意降级策略；Bug 置信度 0% <BG-BR_PRED_POLICY-0>
-  - 占位测试用例（设计已知限制）：
-    - <TC-tests/test_branch.py::test_branch_random_policy_guard>  // assert False 标记（未来删除）
-  - 说明：作为已知策略限制记录，后续版本若策略升级需重新评估
-
-
-### 标签与字段书写要点（示例总结）
-
-| 层级 | 示例 | 说明 |
-|------|------|------|
-| 功能组 FG | <FG-ARITHMETIC> | 顶层功能域，全部大写 |
-| 功能点 FC | <FC-ADD> | 具体子功能 |
-| 检查点 CK | <CK-CIN-OVERFLOW> | 单一可验证点，短横线分隔 |
-| 缺陷 BUG | <BG-CIN_OVERFLOW-98> | 后缀数字=置信度（0-100） |
-| 测试用例 TC | <TC-tests/test_adder.py::test_add_with_cin_overflow_boundary> | 路径+函数全称 |
-
-补充规范：
-1. 一个 <CK-*> 允许关联多个 <BG-*>
-2. 若一个 Bug 影响多个检查点，需在`根因分析`部分统一列出受影响集合
-3. 临时占位测试需带有清晰注释，避免长期遗留
-
-## 缺陷根因分析
-
-根因分析部分不使用标签，直接使用路径格式（如 `FG-ARITHMETIC/FC-ADD/CK-CIN-OVERFLOW`）来引用失败的检查点和BUG，不能有`<`或者`>`出现。
-
-### 分析框架
-
-每个缺陷分析应包含：
-1. **缺陷描述** - 简明扼要描述问题现象
-2. **影响范围** - 列出受影响的检查点 / 关联 Bug 标签
-3. **根本原因** - 分析问题的根本原因（需要基于源代码）
-4. **修复建议** - 提供具体的修复方案（可附代码差异、伪代码）
-5. **验证方法** - 说明如何验证修复效果（新增/复用哪些测试、波形关键观察点）
-
-### 根因分析示例
-
-#### 1. 进位处理缺陷
-
-**缺陷描述：** 加法器在处理带进位输入的溢出场景时，未能正确设置溢出标志位。
-
-**影响范围：**
-- FG-ARITHMETIC/FC-ADD/CK-CIN-OVERFLOW （BG-CIN_OVERFLOW-98）
-- FG-ARITHMETIC/FC-ADD/CK-BOUNDARY （BG-ADD_BOUNDARY-85）
-
-**根本原因：** 
-在RTL设计中，溢出检测逻辑只考虑了两个操作数的加法结果，忽略了进位输入对溢出判断的影响。具体来说，当 `(a + b + cin) > MAX_VALUE` 时，应该设置溢出标志，但当前实现只检查了 `(a + b) > MAX_VALUE`。
-
-**具体代码缺陷：**
-```verilog
-// Adder.v 第25-30行，溢出检测逻辑错误
-25: wire [WIDTH-1:0] sum_temp;
-26: wire carry_temp;
-27: 
-28: assign {carry_temp, sum_temp} = a + b;          // BUG: 未考虑cin
-29: assign {cout, sum} = {carry_temp, sum_temp} + cin;
-30: assign overflow = carry_temp;                   // BUG: 溢出判断错误
-```
-
-**修复建议：**
-```verilog
-// 正确的实现
-wire [WIDTH:0] full_sum = a + b + cin;
-assign {cout, sum} = full_sum[WIDTH:0];
-assign overflow = full_sum[WIDTH];                  // 正确的溢出检测
-```
-
-**验证方法：** 重新执行涉及 CK-CIN-OVERFLOW 的两个测试用例，并添加定向向量：`a = MAX`, `b = 1`, `cin = 1`；波形中重点确认：进位链、sum 高位、overflow 标志；修复后应全部 Pass。
-
-#### 2. 移位操作缺陷
-
-**缺陷描述：** 左移和右移操作在移位位数等于或超过数据位宽时行为不符合预期。
-
-**影响范围：**
-- FG-LOGIC/FC-BITOP/CK-SHL （BG-SHL_RANGE-88）
-- FG-LOGIC/FC-BITOP/CK-SHR （BG-SHR_SIGNEXT-95）
-
-**根本原因：**
-设计中未对移位位数进行有效性检查，当移位位数 >= 数据位宽时，应该有明确的行为定义（如清零或保持原值），但当前实现产生了不确定的结果。
-
-**具体代码缺陷：**
-```systemverilog
-// Shifter.sv 第67-75行，移位范围检查缺失
-67: always_comb begin
-68:   case (operation)
-69:     SHL: result = data << shift_amount;         // BUG: 未检查shift_amount范围
-70:     SHR: result = data >> shift_amount;         // BUG: 可能产生不确定结果
-71:     ASR: result = $signed(data) >>> shift_amount; // BUG: 同样的问题
-72:   endcase
-73: end
-```
-
-**修复建议：**
-```systemverilog
-// 添加移位位数检查
-localparam int MAX_SHIFT = $clog2(WIDTH);
-wire shift_valid = shift_amount < MAX_SHIFT;
-
-always_comb begin
-  case (operation)
-    SHL: result = shift_valid ? (data << shift_amount) : '0;
-    SHR: result = shift_valid ? (data >> shift_amount) : '0;
-    ASR: result = shift_valid ? ($signed(data) >>> shift_amount) : {WIDTH{data[WIDTH-1]}};
-  endcase
-end
-```
-
-**验证方法：** 使用边界移位位数（31, 32, 33 对于32位数据）进行测试，确认结果的一致性。
-
-#### 3. 状态机转换错误
-
-**缺陷描述：** 缓存控制器在同时收到读写请求时进入了错误状态，导致后续操作异常。
-
-**影响范围：**
-- FG-CONTROL/FC-CACHE/CK-CONFLICT
-- FG-CONTROL/FC-CACHE/CK-STATE-TRANS
-
-**根本原因：**
-状态机设计时未考虑读写冲突的异常情况处理，当同时收到读写请求时，应该拒绝操作并返回错误状态，但当前实现选择了其中一个操作继续执行。
-
-**具体代码缺陷：**
-```systemverilog
-// CacheController.sv 第112-125行，状态转换逻辑错误
-112: IDLE: begin
-113:   if (read_req && !write_req) begin
-114:     current_state <= READ_STATE;
-115:   end else if (!read_req && write_req) begin
-116:     current_state <= WRITE_STATE;
-117:   end else if (read_req && write_req) begin    // BUG: 冲突处理错误
-118:     current_state <= READ_STATE;              // 应该进入ERROR_STATE
-119:     read_ack <= 1'b1;                         // BUG: 错误地确认读操作
-120:   end
-121: end
-```
-
-**修复建议：**
-```systemverilog
-// 正确的冲突处理
-IDLE: begin
-  if (read_req && write_req) begin
-    current_state <= ERROR_STATE;
-    error_code <= ERR_CONFLICT;
-  end else if (read_req) begin
-    current_state <= READ_STATE;
-  end else if (write_req) begin
-    current_state <= WRITE_STATE;
-  end
-end
-```
-
-**验证方法：** 构造同时发起读写请求的测试场景，验证错误状态和错误码的正确设置。
-
-#### 4. Chisel 流水线缺陷
-
-**缺陷描述：** ALU流水线在处理数据冒险时出现计算错误，特别是连续相关操作时。
-
-**影响范围：**
-- FG-PIPELINE/FC-HAZARD/CK-DATA-HAZARD
-- FG-PIPELINE/FC-FORWARD/CK-BYPASS
-
-**根本原因：**
-流水线前递逻辑实现不完整，未正确处理写后读（RAW）数据冒险，导致使用了过期的寄存器值。
-
-**具体代码缺陷：**
-```scala
-// Pipeline.scala 第156-168行，前递逻辑不完整
-156: // EX阶段
-157: val ex_result = Wire(UInt(32.W))
-158: val ex_alu_op = Wire(UInt(4.W))
-159: 
-160: when(id_ex_reg.valid) {
-161:   val operand_a = Mux(forward_a === 0.U, 
-162:                       rf.read_data1,           // BUG: 可能是过期数据
-163:                       ex_wb_result)            // 只考虑了EX->EX前递
-164:   val operand_b = Mux(forward_b === 0.U,
-165:                       rf.read_data2,           // BUG: 同样的问题
-166:                       ex_wb_result)            // 缺少MEM->EX前递
-167:   ex_result := alu.compute(operand_a, operand_b, ex_alu_op)
-168: }
-```
-
-**修复建议：**
-```scala
-// 完整的前递逻辑
-val operand_a = MuxCase(rf.read_data1, Seq(
-  (forward_a === 1.U) -> mem_wb_result,    // MEM->EX前递
-  (forward_a === 2.U) -> ex_wb_result      // EX->EX前递
-))
-val operand_b = MuxCase(rf.read_data2, Seq(
-  (forward_b === 1.U) -> mem_wb_result,    // MEM->EX前递  
-  (forward_b === 2.U) -> ex_wb_result      // EX->EX前递
-))
-```
-
-**验证方法：** 编写连续相关指令的测试序列，验证数据前递的正确性和计算结果的准确性。
-
-#### 5. 未知缺陷待调查
-
-**缺陷描述：** 某些检查点失败但暂时无法确定根本原因。
-
-**影响范围：**
-- FG-LOGIC/FC-COMPARE/CK-EQUAL （BG-CMP_EQUAL-18）
-
-**当前状态：** 正在调查中，需要更详细的仿真分析和波形查看。
-
-**下一步行动：**
-1. 收集更多失败案例的输入数据
-2. 进行详细的时序仿真分析
-3. 检查相关的组合逻辑实现
-4. 与设计团队进行技术讨论
-
-## 质量保证要求
-
-### 强制要求
-
-1. **完整性检查**：每个Bug都必须有对应的标签 `BG-*-xx` 标签
-2. **置信度评估**：置信度必须基于客观分析，不能随意设定
-3. **根因分析**：高置信度（>70%）的缺陷必须提供详细的根因分析
-4. **修复跟踪**：每个缺陷都应有对应的修复计划和验证方法
-
-### 文档维护
-
-- 缺陷修复后及时更新文档状态
-- 保留历史记录以供后续分析参考
-- 定期回顾分析质量，持续改进分析方法
-
------
-
-**重要提示：** 
-- 在文本中引用标签时，为防止被解析导致错误，需要去掉尖括号，例如`FG-CONTROL`、`CK-MISPREDICT`、`BG-*-xx`等
-- Bug 对应的测试用例应该 Fail，功能正常的检查点对应的测试用例应该 Pass；若出现`全部测试用例 Fail`，应优先排查：测试基线 / 复位时序 / 公共依赖环境。
-- 当一个测试用例覆盖多个测试点时，如可行，应拆分为多个细粒度用例，使定位和覆盖统计更清晰。
-- 标签`BG-*-xx`中xx为0时，表示该标签用于为占位，其后续的测试用例标签`TC-*`可以为Pass或者Fail，如果不为零，这些测试用例必须为Fail。
-- 当Check Point为Fail且并没有对应的Fail测试用例说明其是否有bug时，需要用标签`BG-*-0`进行标记，在后续验证中需要再次对Bug置信度为0的标记进行深入分析。
-
----
-
-## 静态分析Bug文档规范（`{DUT}_static_bug_analysis.md`）
-
-静态分析阶段通过源码审查（不运行仿真）发现潜在设计缺陷，其结果记录在独立文件 `{OUT}/{DUT}_static_bug_analysis.md` 中，与动态测试结果文件 `{DUT}_bug_analysis.md` 相互补充，共同构成完整的Bug记录体系。
-
-### 标签层级结构
-
-静态分析文档与动态测试文档使用**完全相同的** `FG → FC → CK` 层级组织结构。`<BG-STATIC-*>` 挂靠在 `<CK-*>` 之下，其下一级是**动态Bug关联标签 `<LINK-BUG-*>`**，用于在 `static_bug_validation` 阶段建立静态Bug与动态Bug之间的可追踪链接。每个 `<LINK-BUG-*>` 下还必须包含**源文件位置标签 `<FILE-*>`**，标记该Bug在源代码中的具体位置。
-
-**重要**：一个 `<CK-*>` 检测点下可以挂靠多个 `<BG-STATIC-*>` 标签，每个标签代表在该检测点发现的一个独立Bug。
-
-```
-<FG-功能组>                                 ← 与 _functions_and_checks.md 共用或新增 <FG-STATIC>
-  <FC-功能点>                               ← 与 _functions_and_checks.md 共用或新增 <FC-STATIC-*>
-    <CK-检测点>                             ← 一个CK检测点（可挂靠多个BG-STATIC）
-      <BG-STATIC-序号-名称1>                ← 第一个静态Bug
-        <LINK-BUG-[BG-TBD]>                 ← 静态分析时默认填写，validation阶段必须替换
-          <FILE-filepath:line1-line2>       ← 源文件位置（必填），紧排在 LINK-BUG 行下
-      <BG-STATIC-序号-名称2>                ← 第二个静态Bug（同一CK下）
-        <LINK-BUG-[BG-TBD]>
-          <FILE-filepath:line1-line2>
-```
-
-`<BG-STATIC-*>` 下的 `<LINK-BUG-*>` 子标签状态转换：
-
-| 子标签 | 状态 | 含义 |
-|--------|------|------|
-| `<LINK-BUG-[BG-TBD]>` | 待验证 | 静态分析阶段默认填写，表示尚未有对应动态测试结果 |
-| `<LINK-BUG-[BG-NAME-xx]>` | 已证实（单个） | 替换 `<LINK-BUG-[BG-TBD]>`，填写 `_bug_analysis.md` 中对应动态Bug的实际标签名 |
-| `<LINK-BUG-[BG-NAME1-xx][BG-NAME2-xx]>` | 已证实（多个） | 一个静态Bug对应多个动态Bug时，用多个 `[BG-*]` 方括号组依次拼写；每个标签均须在 `_bug_analysis.md` 中存在 |
-| `<LINK-BUG-[BG-NA]>` | 误报 | 替换 `<LINK-BUG-[BG-TBD]>`，表示经动态测试验证该潜在Bug不存在 |
-
-**`static_bug_validation` 阶段的核心任务就是消除所有 `<LINK-BUG-[BG-TBD]>`：**
-- 扫描 `_static_bug_analysis.md` 中所有 `<LINK-BUG-[BG-TBD]>` 标签
-- 对每一个编写动态测试用例，根据测试结果将 `<LINK-BUG-[BG-TBD]>` 替换为 `<LINK-BUG-[BG-NAME-xx]>`（或多标签形式）或 `<LINK-BUG-[BG-NA]>`
-- 阶段完成时 `_static_bug_analysis.md` 中**不允许有任何 `<LINK-BUG-[BG-TBD]>` 残留**
-
-`<LINK-BUG-*>` 标签是标准的层级标签，可由 `parse_nested_keys` 统一解析（层级：`FG → FC → CK → BG-STATIC → LINK-BUG`）。
-
-与动态格式的对比：
-
-| 层级 | 动态测试文档（`_bug_analysis.md`） | 静态分析文档（`_static_bug_analysis.md`） |
-|------|----------------------------------|------------------------------------------|
-| 功能组 | `<FG-*>` | `<FG-*>`（同，可引用已有或新增 `<FG-STATIC>`） |
-| 功能点 | `<FC-*>` | `<FC-*>`（同，可引用已有或新增 `<FC-STATIC-*>`） |
-| 检测点 | `<CK-*>` | `<CK-*>`（同，可引用已有或在 `_functions_and_checks.md` 中新增） |
-| 静态Bug标签 | 无 | `<BG-STATIC-序号[-名称]>`（挂靠在 CK 之下） |
-| 动态Bug关联 | `<BG-功能名-置信度数字>`（直接在 CK 下） | `<LINK-BUG-[BG-TBD]>` / `<LINK-BUG-[BG-NAME-xx]>` / `<LINK-BUG-[BG-NA]>`（挂靠在 BG-STATIC 之下） |
-| 源文件位置 | 无 | `<FILE-filepath:line1-line2>`（挂靠在 LINK-BUG 之下，**必填**） |
-| 测试用例 | `<TC-*>`（必须 Fail） | **不出现**（写入 `_bug_analysis.md`） |
-
-### 源文件位置标签 `<FILE-filepath:linerange>`
-
-每个 `<LINK-BUG-*>` 标签下必须紧跟至少一个 `<FILE-*>` 子标签，标明该静态Bug在源代码中的具体位置，格式为：
-
-```
-  - <FILE-filepath:line1-line2[,line3-line4,...]>
-```
-
-| 字段 | 说明 | 示例 |
-|------|------|------|
-| `filepath` | 源文件**相对于工作区根目录**的相对路径，不含空格 | `UartTx.v`，`src/rtl/fsm.v` |
-| `:` | 路径与行号分隔符（固定为英文冒号） | `:` |
-| `line1-line2` | 连续行范围，start ≤ end | `50-56`，`100-120` |
-| `,line3-line4` | 多个不连续行范围，逗号分隔 | `50-56,100-120` |
-
-**一个 `<LINK-BUG-*>` 可以携带多个 `<FILE-*>` 标签**，对应同一静态Bug涉及多个文件或多处代码段的情形：
-
-```
-  - <LINK-BUG-[BG-TBD]>
-    - <FILE-UartTx.v:50-56>
-    - <FILE-UartTx.v:100-105>
-    - <FILE-pkg/uart_pkg.sv:22-24>
-```
-
-#### 未发现Bug（在所有文件中都未发现任何bug）
-
-在所有文件中都未发现潜在Bug时，用标签`<FG-NULL><FC-NULL><CK-NULL><BG-STATIC-NULL>` 表示。该标签无需 `<LINK-BUG-*>` 子标签，因此也无需 `<LINK-BUG-*>`和`<FILE-*>` 子标签。
-
-`<BG-STATIC-NULL>`仅在所有文件中都未发现任何Bug时使用，不能和`<BG-STATIC-*>`同时使用。
-
-
-**Checker 强制验证**：每个非 NULL 的 `<BG-STATIC-*>` 下的 `<LINK-BUG-*>` 子标签必须至少包含一个格式合法的 `<FILE-*>` 子标签，否则报错。同时 Checker 会通过 `self.get_path(filepath)` 验证 `filepath` 指向的源文件在工作区中实际存在；若文件不存在则报错，提示将路径更正为相对于工作区根目录的正确相对路径（例如 `rtl/dut.v:50-56`，而非绝对路径）。
-
-**源代码引用要求**：在 `<FILE-*>` 标签行下方（作为自由文本子内容），必须贴出对应的 RTL 源代码片段（fenced code block），以便审阅者无需打开原始文件即可理解Bug上下文：
-
-```markdown
-  - <FILE-UartTx.v:50-56>
-    ```verilog
-    50: always @(posedge clk) begin
-    51:   case (state)
-    52:     IDLE: if (start) state <= SEND;   // BUG: 未检查 tx_busy
-    53:     SEND: if (bit_cnt == 8) state <= IDLE;
-    54:     // default 分支缺失
-    55:   endcase
-    56: end
-    ```
-```
-
-### 批次分析进度标记 `<file>`
-
-`static_bug_analysis` 阶段采用**批次推进**方式：`UnityChipBatchCheckerStaticBug` Checker 每次从待分析文件列表中取出若干个文件（由 `batch_size` 控制，默认为 1），由 LLM 对其进行静态审查并将结果写入 `{DUT}_static_bug_analysis.md`。
-
-每完成一批次的分析后，LLM 需要在 `{DUT}_static_bug_analysis.md` **末尾**维护一个 **`## 批次分析进度`** 进度表格，记录每个已分析文件及其发现的疑似Bug数量。
-
-#### 进度表格格式
+本文定义动态与静态 Bug 文档的唯一机器格式。尖括号标签在 Markdown 渲染后可能不可见，因此 FG/FC/CK/BG/TC 和根因实体必须同时写出能独立表达含义的中文可见标题；不能用类型名代替具体描述。动态 Bug 文档必须使用本文定义的 Markdown 层级、BG 三字段、ROOT 五字段、根因双向链接和中央波形结构；YAML 字段、签名 receipt 与 viewer token 必须由工具生成并保持原样。
+
+动态 Bug 的唯一目标文件是`{OUT}/{DUT}_bug_analysis.md`。“动态 Bug 分析”只是文档可见标题，不是文件名生成规则；禁止根据标题派生或创建另一个文件。静态候选只写入`{OUT}/{DUT}_static_bug_analysis.md`。
+
+文档中的 TC 身份始终使用当前报告的函数级 node ID：删除报告附带的源码行范围，但完整保留 workspace 相对文件路径、可选类名和函数名。非参数化用例在不同接口中使用同一个 node ID；若 Toffee 把多个参数化执行实例聚合到一个函数级报告项，报告的`tests.test_case_instances`会列出实际执行实例，此时文档/Apply/YAML继续使用稳定的函数级 TC，WaveInfo选择其中一个实际失败的精确参数化实例：
+
+| 使用位置 | 唯一写法 |
+|---|---|
+| 动态 Bug Markdown | `- {visible_title} <TC-{exact_report_node_id}>` |
+| `record_dynamic_bug.py`/`ApplyWaveInfoEvidence`参数及中央 YAML `test_case` | `TC-{exact_report_node_id}` |
+| `WaveInfo.test_case_name` | 非参数化时为`{exact_report_node_id}`；聚合参数化时为`tests.test_case_instances`中的一个精确 FAILED child node |
+
+参数化 child 只有在删除末尾`[...]`后，与文档 TC 的完整路径、可选类名和函数名逐字相同时才属于该 TC。`file.py::test_x[p]`与`tests/file.py::test_x`、不同类或不同函数永远不等价，不能用文件名相似、函数名相同或目录前缀猜测建立关联。中央 YAML 中工具生成的`executed_test_case`记录实际 WaveInfo child，`test_case`仍记录文档 TC。
+
+TC目录只取当前Checker返回的`Configured TC output directory`实际值，不从本文案例推断。本文的`TC-tests/...`只展示Markdown层级，禁止复制为实际标签。实际文档 node ID 必须从同一次Checker反馈的当前报告选择：确认文件路径以配置目录开头，只删除`:start-end`或`:line`报告行范围；Markdown、脚本/Apply与YAML在最前面加`TC-`。其余路径、类名和函数名一个字符也不能增删。相似节点不代表路径等价。
+
+`RunTestCases(target=...)`是唯一使用另一种路径基准的接口：target 相对于工具返回的实际 pytest 工作目录/配置 TC 输出目录。例如配置目录为`unity_test/tests`时，运行该目录中的用例应传`test_file.py::test_x`，不得再传`unity_test/tests/test_file.py::test_x`。Bug 文档 TC、WaveInfo 和 Apply 仍使用 workspace 相对完整 node ID。工具若返回`PYTEST_TARGET_DIRECTORY_PREFIX`，必须逐字使用其中的`correct_target`重试；这只是修正 RunTestCases 调用，不表示两种 node 字符串等价。
+
+## 1. 先分类
+
+- 每个 Fail TC 都不预设责任方。正确测试稳定 Fail 且规格、采样和预期均正确：保留严格断言，记录动态 DUT Bug。
+- 测试、参考模型、fixture、API、Mock、复位、时序、依赖或环境错误：修复到 Pass，不记录 DUT Bug。
+- 仅由源码审查发现、尚未动态复现：只写入`{DUT}_static_bug_analysis.md`，使用`BG-STATIC-*`。
+- 静态候选经测试确认：动态文档新建独立`BG-NAME-XX`，静态文档用`LINK-BUG`关联。
+
+动态 Bug 的 Fail 测试必须有真实 WaveInfo 证据。不能弱化断言、伪造 receipt、复制 viewer token，或删除仍能稳定复现 Bug 的 TC/BG 来绕过验收。
+
+进入 WaveInfo、创建或更新非零 BG、引用静态候选之前，对每个 Fail TC 必须完成以下门禁：
+
+1. 从功能规格、独立参考模型或可验证公式独立计算`specification_expected`。不得直接相信模板注释、已有断言、静态候选或可疑 RTL；静态候选不能覆盖 TC 级反证。
+   若激励包含取反、编码、掩码、分包或 carry/borrow 等变换，必须从实际驱动到 DUT 的值和规格运算重新计算预期，不能拿变换前操作数的预期比较变换后的输入。例如`a + (~b) + 0 = a - b - 1`，实现`a - b`必须驱动`a + (~b) + 1`。
+2. 明确对照`input | specification_expected | test_expected | actual | classification`。`specification_expected`与`test_expected`不一致时，修正测试并重跑到 Pass，禁止调用 WaveInfo 或记录 Bug。
+3. expected 一致后，核对测试激励、API/driver、callback、`Step`、采样边沿、有效条件、响应延迟、fixture、参考模型、复位和环境。
+4. 核对该 TC 关联 CK 的 coverage/check function 是否真实表达规格、`CovGroup.sample()`是否执行以及采样时机是否正确。CK predicate 或 sample 错误属于验证问题，必须修复并重跑。
+   不得为了满足失败 CK 门禁而把当前 Pass 用例改成 Fail。正确修复 predicate、关联、采样或驱动后，CK 可以转为 Pass；此时该 CK 不再需要 Fail 复现用例。只有 CK 契约正确且 DUT 确实违反规格时，正确测试才应自然 Fail。
+5. 只有上述项目全部正确、DUT `actual`仍违反规格时，才能将`classification`写为 DUT Bug，随后调用 WaveInfo 并创建或更新非零 BG。其他分类必须修复到 Pass。
+
+批量实现阶段只分析当前批次 TC 及当前报告为这些 TC 关联的 CK。属于未来未实现批次、且未与当前 TC 关联的失败 CK，不得在当前批次创建无关 TC/BG；留到所属批次驱动和分类。最终综合与 Bug 记录阶段仍必须满足全部失败 CK 的单向门禁。
+
+Check/Complete 的最终分类必须同时满足三个方向：每个非零动态 BG 至少关联一个由当前报告确认、且映射到同一 CK 的正确 Fail TC；每个阶段结束时仍为 Fail 的 DUT 测试必须在其报告关联的至少一个 CK 下进入非零动态 BG；每个阶段结束时仍失败的 CK 必须至少有一个由当前报告关联到该精确 FG/FC/CK 路径的正确 Fail TC，并在相同 CK/BG/TC 关系下完成记录。前两个条件不要求 Fail TC 所关联的 CK 也失败：TC 可以因断言发现 DUT Bug 而 Fail，同时成功触发并覆盖该 CK，因此 CK 可以已经 Pass。TC 状态与 CK 覆盖状态相互独立，不能由 TC Fail 反推 CK Fail。失败 CK 的要求是另一个单向条件。整体关系是多对多而不是一一对应：一个 BG 可以有多个 Fail TC，一个 Fail TC也可以揭示多个独立 BG。测试、断言、预期值、fixture、API、参考模型、覆盖检查或采样、复位、时序、依赖和环境问题必须修复到 Pass，不得为了满足关系检查制造 Fail、关联无关 TC 或写入动态 DUT Bug。
+
+CK 失败本身不证明 DUT 存在 Bug。必须先检查该 CK 的 coverage/check function 是否真实表达规格、`CovGroup.sample()`调用和采样时机是否正确、测试激励或 driver 是否真正触发目标场景、独立规格 expected 与测试 expected 是否一致，以及结果是否在有效边沿、响应条件和延迟后采样。上述任一项错误都属于验证问题，必须修复并重跑。只有这些条件都正确后，DUT 错误行为仍使正确复现 TC 自然 Fail，才能创建非零动态 BG 并取证；该 TC 关联的 CK 可以已经 Pass。若 CK 自身仍 Fail，则独立应用“失败 CK 必须有同 CK Fail TC”的单向门禁。
+
+### 1.1 局部测试报告与累计 Bug 文档
+
+`{DUT}_bug_analysis.md`是跨阶段累计文档。有些阶段或批次只运行配置选中的测试子集，例如随机阶段只运行`{OUT}/tests/test_{DUT}_random*.py`。这种 Check/Complete 返回的是局部报告，只能更新报告中逐字出现的 TC：当前 Fail 必须完成分类，当前 Pass 不得继续作为动态 Bug 复现证据；完全未出现在本轮报告中的历史 TC 保持原状。历史 TC 缺席不表示它已 Pass、失效或 node ID 错误，禁止仅因此删除、改名、移动或重新取证其 TC/BG、ROOT 双向关联和中央波形记录。最终综合阶段运行完整 DUT 测试集合后，才对累计文档中的全部 TC 执行全量一致性门禁。
+
+同一 TC 可以真实触发多个 CK，并在多个完整`FG/FC/CK/BG`路径下出现；这些 CK 可以已经通过覆盖，不能由 TC Fail 反推 CK Fail。同一精确路径内，一个 TC 只能出现一次；同名 BG/TC 位于不同 CK 时是不同路径关联，必须全部保留。调用`ApplyWaveInfoEvidence`时用完整`checkpoint_path`消除路径歧义，而该 TC 在`<WAVEFORM-EVIDENCE>`中仍只保留一份中央波形记录。
+
+某个局部阶段没有确认新的 DUT Bug 时，不新增 BG、ROOT 或波形记录，但仍保留累计文档中的历史记录。只有整个累计文档从未记录任何动态 Bug 时，才使用第 2.1 节的三个空容器结构。
+
+## 2. 文档分区
+
+`{DUT}_bug_analysis.md`必须各有一个封闭分区，且顺序固定：
 
 ````markdown
-## 批次分析进度
 
-| 源文件 | 发现疑似Bug数 | 状态 |
-|--------|-------------|------|
-| <file>UartTx/UartTx.v</file> | 1 | ✅ 完成 |
-| <file>UartTx/uart_pkg.sv</file> | 0 | ✅ 完成 |
+# DUT 动态 Bug 分析
+
+## 动态 Bug 记录
+
+<DYNAMIC-BUGS>
+<!-- FG/FC/CK/BG/TC and Bug analysis live here. -->
+</DYNAMIC-BUGS>
+
+## 根因分析
+
+<ROOT-CAUSES>
+<!-- Each root cause is defined once and linked to one or more BG paths. -->
+</ROOT-CAUSES>
+
+## 波形证据
+
+<WAVEFORM-EVIDENCE>
+<!-- All unique per-TC waveform records live here. -->
+</WAVEFORM-EVIDENCE>
 ````
 
-**操作规则：**
+`<DYNAMIC-BUGS>`中只放 Bug 层级、TC 引用和 Bug 分析，不放波形 YAML 或 viewer。`<ROOT-CAUSES>`位于动态 Bug 分区之后、中央波形分区之前；每个根因只定义一次，并通过内嵌完整 FG/FC/CK/BG 路径的`<RELATED-BUG-...>`及其可点击链接反向列出关联。`<WAVEFORM-EVIDENCE>`中集中放全部波形记录，不放 FG/FC/CK/BG 标签。
 
-1. **首次追加**：若文档末尾尚无 `## 批次分析进度` 章节，先创建该章节和表格标题行，再添加文件行；
-2. **后续批次**：直接在已有表格中**追加新行**，不重新创建章节；
-3. 每个已分析文件**一行**，格式固定为 `| <file>文件路径</file> | N | ✅ 完成 |`。
+### 2.1 未发现动态 Bug
 
-**列说明：**
-
-| 列 | 要求 | 示例 |
-|----|------|------|
-| 源文件 | `<file>` 标签包裹路径，与工作区根目录的相对路径**完全一致**（大小写敏感） | `<file>UartTx/UartTx.v</file>` |
-| 发现疑似Bug数 | 本批次分析该文件发现的疑似 Bug 数量（整数，可为 0） | `1`、`0` |
-| 状态 | 固定写 `✅ 完成` | — |
-
-**Checker 的状态推导机制（无状态）：**
-
-`UnityChipBatchCheckerStaticBug` 是**无状态**的，每次检查时通过正则解析文档中所有 `<file>…</file>` 标记来确定已完成的文件列表：
-
-- 若某文件的路径出现在任意 `<file>` 标记中（无论其位于纯文本还是表格行内），则认为该文件已完成分析；
-- 否则该文件将被纳入下一批次；
-- 当所有文件均有对应标记后，Checker 自动调用 `UnityChipCheckerStaticBugFormat` 执行完整格式校验；
-- `<file>` 标记（进度追踪）与 `<FILE-*>` 源文件位置标签（Bug 层级中的结构化标签）**功能不同，勿混淆**。
-
-> **注意**：`## 批次分析进度` 章节是追加在文档正文之后的**进度元数据**，不属于标签层级结构，`parse_nested_keys` 不会解析它；`<file>` 标签内容中的斜杠、冒号等字符不影响主体文档的标签解析。
-
-### 静态Bug标签 `<BG-STATIC-*>`
-
-静态Bug标签格式为 `<BG-STATIC-序号>` 或 `<BG-STATIC-序号-名称>`，序号从 `001` 开始递增：
-
-- `<BG-STATIC-001>` — 纯序号形式
-- `<BG-STATIC-001-FSM-DEAD>` — 推荐格式，附加简洁名称提高可读性
-- `<BG-STATIC-NULL>` — **无Bug声明**：静态审查完成后**所有文件都未发现任何潜在缺陷**时使用；**不需要** `<LINK-BUG-*>` 子标签；**不允许**与其他 `<BG-STATIC-*>` 标签共存。Checker 强制验证：若文档中既无任何 `<BG-STATIC-*>` 标签、又无 `<BG-STATIC-NULL>`，则报错。
-
-**`<FG-*>`/`<FC-*>`/`<CK-*>` 的来源规则：**
-
-| 情形 | 做法 |
-|------|------|
-| 静态bug对应已有功能点 | 直接使用 `_functions_and_checks.md` 中已有的 `<FG-*>`、`<FC-*>`、`<CK-*>` 标签 |
-| 静态bug对应已有功能点但缺少检测点 | 在 `_functions_and_checks.md` 中补充新 `<CK-*>` 检测点，再在静态文档中引用 |
-| 静态bug对应全新功能域（源码中发现但原规格未覆盖） | 在 `_functions_and_checks.md` 中新增 `<FG-STATIC>`、`<FC-STATIC-*>`、`<CK-STATIC-*>`，再引用 |
-
-高/中置信度潜在Bug新增的 `<CK-*>` 检测点，必须可通过 DUT 输入输出端口观测（不依赖内部信号状态），以确保后续动态测试可验证。
-
-### 静态分析置信度
-
-| 置信度 | 含义 | 后续处理 |
-|--------|------|---------|
-| 高 | RTL 逻辑明确有误，无需仿真即可判断是Bug | 必须补充 `<CK-*>` 检测点；动态测试阶段优先复现 |
-| 中 | 代码逻辑可疑，行为不确定，需测试验证 | 应补充 `<CK-*>` 检测点；动态测试阶段进行验证 |
-| 低 | 边界条件存疑或风格问题，可能不影响功能 | 可在资源充裕时进行验证，检测点可选 |
-
-### `{DUT}_static_bug_analysis.md` 文档结构
+没有发现动态 Bug 时仍必须保留唯一目标文件，不得省略文件、另建摘要文件、写`BG-*-0`占位或在容器内写“未发现 Bug”等说明。完成态必须是以下精确空结构；三个容器正文均为空，不含注释、TC/BG、ROOT 或波形记录：
 
 ```markdown
-# {DUT} RTL 源码静态分析报告
 
-## 一、架构概述
+# {DUT} 动态 Bug 分析
 
-（简要描述模块层次、数据流、关键设计单元）
+## 动态 Bug 记录
 
-## 二、审查范围
+<DYNAMIC-BUGS>
+</DYNAMIC-BUGS>
 
-- 审查文件列表：...
-- 对应功能测试点文档：{OUT}/{DUT}_functions_and_checks.md
+## 根因分析
 
-## 三、潜在Bug汇总
+<ROOT-CAUSES>
+</ROOT-CAUSES>
 
-（按置信度从高到低排列；动态Bug关联列初始全部填写 LINK-BUG-[BG-TBD]，validation 后更新）
+## 波形证据
+
+<WAVEFORM-EVIDENCE>
+</WAVEFORM-EVIDENCE>
+```
+
+## 3. Bug 层级与引用
+
+标签顺序为`FG -> FC -> CK -> BG -> TC`。可见标题、Markdown 层级与标签必须写在同一行，并使用以下固定结构。可见标题是该条目的具体语义描述，不能只是标签类型的释义。一个非零置信度 BG 至少关联一个真实 Fail TC。一个 BG 的所有 TC 及其`<WAVEFORM-REF>`必须连续位于该`<BG-*>`标题之后；随后只写三个 BG 字段。`<BUG-TRIGGER>`正文末尾紧跟唯一的`<CAUSE-REF-ROOT-XXX>`，不再在 BG 中写源码、因果链、修复或复验字段：
+
+```markdown
+
+### 算术功能 <FG-ARITHMETIC>
+
+#### 加法结果 <FC-ADD>
+
+##### 溢出输出 <CK-OVERFLOW>
+
+###### 进位输入溢出丢失（98%） <BG-CIN-OVERFLOW-98>
+
+- 进位输入触发溢出 <TC-tests/test_adder.py::test_overflow>
+  <WAVEFORM-REF> [WAVEFORM-EVIDENCE](#waveform-0123456789abcdef)
+
+###### Bug 概述
+
+<BUG-OVERVIEW>
+...
+
+###### 现象与严重度
+
+<BUG-SYMPTOMS>
+...
+
+###### 触发条件与影响
+
+<BUG-TRIGGER>
+...
+<CAUSE-REF-ROOT-CIN-OVERFLOW> [中间量宽度不足](#root-cause-cin-overflow)
+```
+
+可见标题来源固定：FG 和 FC 使用`{OUT}/{DUT}_functions_and_checks.md`中对应功能层级的标题；CK 使用同一文档中该 CK 的检查点名称；BG 使用该缺陷的具体问题描述；TC 使用测试函数 docstring 的首个非空描述行。若同一 TC 关联多个 BG，各处必须使用相同 TC 可见标题。锚点由规范化 TC 标签稳定计算，禁止手工猜测或改写。使用`ApplyWaveInfoEvidence`创建或修复`<WAVEFORM-REF>`。
+
+同一 Bug 有多个 Fail TC：每个 TC 各有一条引用和一份中央记录。同一 Fail TC 触发多个 Bug：每个 BG 下都引用相同锚点，但中央记录仍只有一份。
+
+每个根因实体必须使用一个在整个文档中唯一的`<ROOT-XXX>`标签，并至少关联一个真实存在的完整 BG 路径；禁止创建孤立根因。一个 BG 必须且只能关联一个根因。如果两个缺陷组合后才产生可复现错误，该组合本身就是一个带独立`<ROOT-XXX>`标签的根因实体。一个根因可以关联多个不同 CK 作用域的 BG。BG 侧使用内嵌完整根因标签的`<CAUSE-REF-ROOT-XXX>`，根因侧使用内嵌完整 BG 路径的`<RELATED-BUG-FG-.../FC-.../CK-.../BG-...>`；两侧都紧跟可点击链接且必须双向一致。链接必须指向工具生成的稳定锚点。源码证据、因果链、修复建议、风险和复验只写在 ROOT 实体中，并覆盖该 ROOT 的全部关联 BG。
+
+```markdown
+
+## 根因分析
+
+<ROOT-CAUSES>
+<a id="root-cause-cin-overflow"></a>
+
+### 中间量宽度不足 <ROOT-CIN-OVERFLOW>
+
+#### 根因分析
+<ROOT-CAUSE-ANALYSIS>
+中间量在计算完整结果前被声明为过窄宽度，最高位在输出赋值前已经丢失。
+
+#### 源码证据
+<ROOT-SOURCE-EVIDENCE>
+<ROOT-SOURCE-UNAVAILABLE>
+当前示例省略具体 HDL；真实文档必须提供源码行范围或明确说明源码不可访问。
+
+#### 因果链
+<ROOT-CAUSAL-CHAIN>
+完整输入在有效窗口产生进位，过窄中间量截断最高位，所有关联 BG 的输出均观察到 `cout=0`。
+
+#### 修复建议
+<ROOT-FIX>
+将中间量扩展为 `WIDTH+1` 位，并在所有关联路径重新验证。
+
+#### 风险与复验
+<ROOT-RETEST>
+覆盖无进位、边界进位、最大值和随机组合，并回归所有关联 CK。
+
+#### 关联 Bug
+<RELATED-BUGS>
+- <RELATED-BUG-FG-ARITHMETIC/FC-ADD/CK-OVERFLOW/BG-CIN-OVERFLOW-98> [FG-ARITHMETIC/FC-ADD/CK-OVERFLOW/BG-CIN-OVERFLOW-98](#bug-0123456789abcdef)
+</ROOT-CAUSES>
+```
+
+## 4. 中央波形记录
+
+每个规范化 TC 在整个文档中有且只有一个`<WAVEFORM-TC-...>`记录。中央记录的可见标题必须逐字复用对应 TC 的可见标题并追加“波形”：
+
+````markdown
+<WAVEFORM-EVIDENCE>
+
+<a id="waveform-0123456789abcdef"></a>
+
+### 进位输入触发溢出波形 <WAVEFORM-TC-tests/test_adder.py::test_overflow>
+
+```yaml
+waveform_analysis:
+  test_case: TC-tests/test_adder.py::test_overflow
+  bug_tags:
+    - BG-CARRY-95
+    - BG-CIN-OVERFLOW-98
+  status: confirmed
+  receipt_id: 0123456789abcdef0123456789abcdef
+  result_fingerprint: ...
+  executed_test_case: tests/test_adder.py::test_overflow
+  waveform_file: ...
+  freshness_identity: ...
+  size_bytes: 1234
+  session_started_at: ...
+  modified_at: ...
+  modified_time_ns: 1234
+  observed_at: ...
+  pattern: [...]
+  signal_groups:
+    clock_mode: clocked
+    clocks: [...]
+    inputs: [...]
+    outputs: [...]
+    protocol: [...]
+    key_signals: [...]
+  analysis_mode: explicit_window
+  start_step: 100
+  end_step: 120
+  context_steps: 1
+  max_points: 200
+  wave_step: 110
+  timeline_truncated: false
+  alignment_evidence: ...
+  bug_evidence:
+    BG-CARRY-95:
+      required_signals: [...]
+      observed_behavior: ...
+      source_correlation: ...
+    BG-CIN-OVERFLOW-98:
+      required_signals: [...]
+      observed_behavior: ...
+      source_correlation: ...
+```
+<WAVEFORM-VIEWER> [viewer](/surfer/?wave=...)
+
+</WAVEFORM-EVIDENCE>
+````
+
+YAML 的唯一顶层键是`waveform_analysis`。关闭围栏后的第一条非空内容必须是同一 receipt 生成的`<WAVEFORM-VIEWER>`链接。
+
+结构约束：
+
+- `test_case`必须等于记录标签中的规范化 TC。
+- `bug_tags`必须是排序、去重、非空列表，并精确等于所有引用该 TC 的 BG。
+- `bug_evidence`键必须精确等于`bug_tags`。
+- `alignment_evidence`描述该 TC 共享的日志、时钟边沿、事务接受、响应有效和波形定位关系，只写一次。
+- 每个 BG 的`required_signals`是非空、去重的精确信号路径列表；必须全部包含在顶层签名`signal_groups`中。
+- 每个 BG 独立填写`observed_behavior`和`source_correlation`，避免把多个根因混成一段结论。
+- 顶层`signal_groups`及 viewer 必须暴露所有 BG 的`required_signals`并集，以及完整时钟、输入、输出、协议和功能上下文。
+
+BG 条目中的波形关联部分只保留 TC 和`<WAVEFORM-REF>`，其后三个 BG 字段仍按本文结构填写；YAML 与 viewer 只出现在该 TC 的中央记录中。
+
+## 5. WaveInfo 与 Apply 工具
+
+MCP 调用中未使用的可选参数按工具 schema 传空字符串、空数组或`-1`哨兵；工具返回中的`null`是其 canonical 表示，不能再把`null`作为下一次 MCP 参数。
+
+先读取Checker给出的实际`Configured TC output directory`、函数级报告 node ID 和可选的`tests.test_case_instances`。非参数化时，WaveInfo只从最终`<TC-...>`去掉最前面的`TC-`。聚合参数化时，文档 TC 保持不变，metadata探索、pattern探索和最终取证必须从`tests.test_case_instances`选择一个实际 FAILED child，并对同一精确 child 完成 WaveInfo；不得只传函数名或自行拼接参数ID。
+
+无参数 inventory 中的`test_case_name_hint`和`recommended_call.test_case_name`只是波形文件 basename 定位提示，不建立 pytest 源码身份。它们可以帮助确认是否存在对应波形，但不能覆盖目标 TC 或报告给出的完整 node ID。Checker/工具返回的`similar_test_source_files`或相似节点同样只供核对拼写，不能自动选中、合并证据或替换标签。
+
+1. 阅读规格、测试 API/driver/callback 和`Step`顺序，确认真实驱动边沿、请求接受条件、响应有效条件和采样延迟。
+2. 先用 WaveInfo inventory/metadata 找到正确测试波形和信号目录。只给`test_case_name`和`pattern`、但没有完整对齐窗口时是探索调用；`status: evidence_window_required`不能作为最终证据，必须逐字使用 `recommended_evidence_call`再次调用，不能把 `effective_start_step/effective_end_step` 手工复制进文档。
+3. 用结构化 pattern 定位真实失败事务。日志 cycle 与 wave step 可能相差多个周期；按时钟 occurrence 和事务上下文对齐，不能直接当作同一索引。
+4. 最终调用使用`logged_cycle + clock_signal`或完整`start_step + end_step`，并提供完整`signal_groups`。`start_step` 和 `end_step` 必须同时提供，且不能与`logged_cycle`混用。成功的最终取证返回会包含 `bug_document_fields`与`bug_document_viewer_link`；`waveform_analysis:` 必须是唯一顶层键，二者只能通过 Apply 写入。
+5. 用真实`receipt_id`调用：
+
+```text
+ApplyWaveInfoEvidence(
+  target_file="{OUT}/{DUT}_bug_analysis.md",
+  bug_tag="BG-CIN-OVERFLOW-98",
+  test_case_tag="TC-tests/test_adder.py::test_overflow",
+  receipt_id="..."
+)
+```
+
+若 Apply 返回`receipt_test_mismatch`或`matching_final_receipt_not_found`：
+
+1. 保持`test_case_tag`逐字不变，不尝试增加或删除路径前缀。
+2. 若`details.parameterized_receipts`非空，将其中的完整`test_case_name`与当前报告`tests.test_case_instances`逐字核对，选择实际 FAILED child 并用该 node 重新完成最终 WaveInfo；不得按波形 basename、文件名相似或参数字面猜测。若返回`details.recovery_call`，则原样调用一次 WaveInfo。
+3. 使用新调用返回的`receipt_id`和原`test_case_tag`再次调用 Apply。
+4. 不得手工写 receipt-backed YAML、waveform anchor、viewer URL 或 token。
+
+同一 tool、status 和 target 连续返回相同错误后，不得继续尝试相似参数。没有`recovery_call`，或原样执行后仍返回同一错误时，将其报告为工具契约阻塞并停止修改当前 Bug/波形记录；不要用文本编辑替代签名工具。
+
+6. 根据规格、timeline 和 RTL 完成中央波形语义字段、BG 三字段和 ROOT 五字段。`<BUG-TODO>`不能残留。
+
+`signal_groups` 的固定子字段为`clock_mode`、`clocks`、`inputs`、`outputs`、`protocol`和`key_signals`。viewer 中的顺序按`clocks -> inputs -> outputs -> protocol -> key_signals`构造。最终调用若缺少完整角色，先从`signal_catalog`补全真实路径；例如接口确实存在`TOP.dut.ready`时应放入`protocol`，不能只显示结果 data。
+
+先确认事务有效，再判断数据是否错误。调用一次 `Step(1)` 只表示仿真时间推进了一步；必须检查 API 内部是否已经调用 `Step`、等待握手或采样结果。无效周期的一次单点 data mismatch 只能作为继续调查的线索。请求接受、响应有效和信号角色必须结合规格、API/driver和RTL判断，不能根据特定信号名猜测。
+
+同一 TC 新增 Bug 时，对新 BG 再调用一次 Apply。若原 receipt 已包含新 Bug 所需信号，工具复用中央记录并保留已有分析；若需要新增信号，重新调用最终 WaveInfo，使`signal_groups`成为所有 Bug 所需信号的并集，再使用`replace_existing=true`。替换不同 receipt 时，工具保留各 BG 的`required_signals`，并重置共享和逐 Bug 语义结论，要求重新审查。
+
+同一 Bug 有多个 Fail TC 时，对每个 BG/TC 分别调用一次。目标 TC 不存在且 BG 位置唯一时，Apply 会从目标测试函数的非空 docstring 读取中文可见标题，在该 BG 的首个分析标题之前创建 TC 和引用；测试源码或 docstring 不存在时会拒绝生成，LLM 不得猜测标题。LLM 不得手工复制 BG、创建兄弟 TC或拼接 receipt。同一 Fail TC 揭示多个独立 Bug 时，使用相同 TC 和不同 BG 分别调用；每次调用只更新目标关联，不会覆盖其他 Bug。签名窗口和 `signal_groups` 同时支持各缺陷时才能复用 receipt。
+
+### 5.1 完整标准案例
+
+以下完整案例中的`tests/...`仅用于展示结构，不提供实际TC目录。实际操作必须使用Checker明确返回的`Configured TC output directory`及完整FAILED report node ID，禁止从案例复制任何TC路径。
+
+以下案例是动态 Bug 文档的完整标准结构。它同时展示两个独立 ROOT、三个 BG、两个 TC 和两份中央波形记录：第一个 ROOT 关联两个 BG，这两个 BG 由同一个 TC 揭示并共用唯一一份中央波形；第二个 ROOT 关联另一个 BG 和 TC，该 TC 拥有自己的中央波形。实际文档保留文档标题、Markdown 层级、标签位置、BG/ROOT 字段顺序和 fenced block 位置；FG/FC/CK/BG/TC 标题必须按实际语义填写。案例中的 receipt、fingerprint、时间和 viewer token 只说明字段形态；实际值必须来自当前工具结果。
+
+`````markdown
+
+# Adder 动态 Bug 分析
+
+## 动态 Bug 记录
+
+<DYNAMIC-BUGS>
+
+### 算术功能 <FG-ARITHMETIC>
+
+#### 加法结果 <FC-ADD-RESULT>
+
+##### 进位输出 <CK-CARRY-OUT>
+
+<a id="bug-5f90c59ed3dbea70"></a>
+
+###### 完整和进位丢失（95%） <BG-SUM-CARRY-DROPPED-95>
+
+- 进位输入产生进位 <TC-tests/test_adder.py::test_cin_carry>
+  <WAVEFORM-REF> [WAVEFORM-EVIDENCE](#waveform-9f3516eabf18829d)
+
+###### Bug 概述
+
+<BUG-OVERVIEW>
+当 `a + b + cin` 产生第 `WIDTH+1` 位进位时，DUT 在组合加法路径中提前截断中间结果，导致 `cout` 始终为 0。
+
+###### 现象与严重度
+
+<BUG-SYMPTOMS>
+边界用例 `a=8'hff, b=8'h00, cin=1` 的期望结果为 `{cout,sum}=9'h100`，实际结果为 `9'h000`。该问题会破坏所有依赖进位输出的多字加法，严重度为高。
+
+###### 触发条件与影响
+
+<BUG-TRIGGER>
+触发条件是两个操作数与 `cin` 的无符号和大于 `2^WIDTH-1`。低 `WIDTH` 位未溢出时结果正常；发生进位时，`sum` 保留低位而 `cout` 丢失，影响 `CK-CARRY-OUT` 及其上层级联运算。
+<CAUSE-REF-ROOT-SUM-CARRY-WIDTH> [加法中间量宽度不足](#root-cause-sum-carry-width)
+
+##### 完整结果 <CK-FULL-RESULT>
+
+<a id="bug-e510f134f5bdaabd"></a>
+
+###### 完整结果被截断（93%） <BG-FULL-RESULT-TRUNCATED-93>
+
+- 进位输入产生进位 <TC-tests/test_adder.py::test_cin_carry>
+  <WAVEFORM-REF> [WAVEFORM-EVIDENCE](#waveform-9f3516eabf18829d)
+
+###### Bug 概述
+
+<BUG-OVERVIEW>
+完整结果检查要求把 `cout` 与 `sum` 作为一个 `WIDTH+1` 位结果比较；DUT 在产生进位时返回的组合结果缺少最高位。
+
+###### 现象与严重度
+
+<BUG-SYMPTOMS>
+同一边界用例期望完整结果为 `9'h100`，实际 `{cout,sum}` 为 `9'h000`。依赖完整结果总线进行范围判断的使用方会把溢出结果误判为 0，严重度为高。
+
+###### 触发条件与影响
+
+<BUG-TRIGGER>
+任意使完整无符号和超过 `WIDTH` 位的输入都会触发；影响 `CK-FULL-RESULT` 的整体数值语义。该 BG 与 `BG-SUM-CARRY-DROPPED-95` 由同一 TC 揭示，但仍是不同 CK 下的独立 BG 路径。
+<CAUSE-REF-ROOT-SUM-CARRY-WIDTH> [加法中间量宽度不足](#root-cause-sum-carry-width)
+
+#### 饱和加法 <FC-SATURATING-ADD>
+
+##### 饱和结果 <CK-SATURATION-OUTPUT>
+
+<a id="bug-d0f8a6d4227d547c"></a>
+
+###### 饱和功能未生效（92%） <BG-SATURATION-DISABLED-92>
+
+- 饱和加法达到上限 <TC-tests/test_adder.py::test_saturation_limit>
+  <WAVEFORM-REF> [WAVEFORM-EVIDENCE](#waveform-547f03228d4694a0)
+
+###### Bug 概述
+
+<BUG-OVERVIEW>
+启用无符号饱和加法后，DUT 没有在结果溢出时钳位到最大值，而是输出截断后的低位结果。
+
+###### 现象与严重度
+
+<BUG-SYMPTOMS>
+用例驱动 `a=8'hff, b=8'h01, cin=0, saturate_en=1`，期望 `sat_sum=8'hff`，实际为 `8'h00`。所有依赖饱和保护的累加路径都可能回绕，严重度为高。
+
+###### 触发条件与影响
+
+<BUG-TRIGGER>
+触发条件是 `saturate_en=1` 且无符号完整和大于 `8'hff`；不溢出时透传结果正常。该问题只影响饱和结果选择路径，与普通加法的进位输出检查相互独立。
+<CAUSE-REF-ROOT-SATURATION-DETECTOR-CONSTANT> [饱和溢出检测被固定为无效](#root-cause-saturation-detector-constant)
+
+</DYNAMIC-BUGS>
+
+## 根因分析
+
+<ROOT-CAUSES>
+<a id="root-cause-sum-carry-width"></a>
+
+### 加法中间量宽度不足 <ROOT-SUM-CARRY-WIDTH>
+
+#### 根因分析
+<ROOT-CAUSE-ANALYSIS>
+`sum_full` 只声明为 `WIDTH` 位，却承接 `WIDTH+1` 位表达式；赋值时最高进位位被截断，后续拼接只能在已截断值前补 0，因此无法恢复真实 `cout`。
+
+#### 源码证据
+<ROOT-SOURCE-EVIDENCE>
+首个错误位于 `rtl/Adder.sv:24-26`：
+```systemverilog
+24: logic [WIDTH-1:0] sum_full; // <ROOT-SOURCE-FIRST-ERROR> 中间量少一位，无法保存进位。
+25: assign sum_full = {1'b0, a} + {1'b0, b} + cin; // <ROOT-SOURCE-PROPAGATION> 宽表达式在写入 sum_full 时被截断。
+26: assign {cout, sum} = {1'b0, sum_full}; // <ROOT-SOURCE-OBSERVABLE> 输出端观察到固定为 0 的 cout。
+```
+
+#### 因果链
+<ROOT-CAUSAL-CHAIN>
+测试在有效组合输入窗口驱动 `8'hff + 8'h00 + 1`；完整和为 `9'h100`；第 25 行写入 8 位 `sum_full` 后变为 `8'h00`；第 26 行再补零形成 `9'h000`；因此 `CK-CARRY-OUT` 观察到进位丢失，`CK-FULL-RESULT` 观察到完整结果被截断，两个关联 BG 与同一份波形和失败断言一致。
+
+#### 修复建议
+<ROOT-FIX>
+将 `sum_full` 声明为 `logic [WIDTH:0]`，直接执行 `assign {cout, sum} = sum_full;`，保持表达式和中间存储均为 `WIDTH+1` 位。
+
+#### 风险与复验
+<ROOT-RETEST>
+复验 `0+0+0`、最大值加 0、最大值加 1、最大值加最大值及随机输入；同时回归 `CK-CARRY-OUT` 和 `CK-FULL-RESULT`，并在新波形中确认最高位在 `sum_full`、`cout` 和完整结果之间一致传播。
+
+#### 关联 Bug
+<RELATED-BUGS>
+- <RELATED-BUG-FG-ARITHMETIC/FC-ADD-RESULT/CK-CARRY-OUT/BG-SUM-CARRY-DROPPED-95> [FG-ARITHMETIC/FC-ADD-RESULT/CK-CARRY-OUT/BG-SUM-CARRY-DROPPED-95](#bug-5f90c59ed3dbea70)
+- <RELATED-BUG-FG-ARITHMETIC/FC-ADD-RESULT/CK-FULL-RESULT/BG-FULL-RESULT-TRUNCATED-93> [FG-ARITHMETIC/FC-ADD-RESULT/CK-FULL-RESULT/BG-FULL-RESULT-TRUNCATED-93](#bug-e510f134f5bdaabd)
+
+<a id="root-cause-saturation-detector-constant"></a>
+
+### 饱和溢出检测被固定为无效 <ROOT-SATURATION-DETECTOR-CONSTANT>
+
+#### 根因分析
+<ROOT-CAUSE-ANALYSIS>
+`saturation_overflow` 被常量 `1'b0` 驱动，导致饱和选择条件在所有输入下都为假；即使完整加法已经溢出，结果选择器也只会输出回绕后的低位结果。
+
+#### 源码证据
+<ROOT-SOURCE-EVIDENCE>
+首个错误位于 `rtl/Adder.sv:40-43`：
+```systemverilog
+40: logic saturation_overflow;
+41: assign saturation_overflow = 1'b0; // <ROOT-SOURCE-FIRST-ERROR> 溢出检测被固定为无效。
+42: assign saturated_sum = saturate_en && saturation_overflow ? {WIDTH{1'b1}} : sum_full; // <ROOT-SOURCE-PROPAGATION> 错误条件使选择器始终走普通结果分支。
+43: assign sat_sum = saturated_sum; // <ROOT-SOURCE-OBSERVABLE> 饱和输出观察到回绕值而不是最大值。
+```
+
+#### 因果链
+<ROOT-CAUSAL-CHAIN>
+测试驱动 `8'hff + 8'h01` 并使能饱和；数学结果超过 8 位；第 41 行仍令 `saturation_overflow=0`；第 42 行选择已回绕的 `sum_full=8'h00`；第 43 行输出 `sat_sum=8'h00`，与关联 BG 的独立失败波形一致。
+
+#### 修复建议
+<ROOT-FIX>
+用 `WIDTH+1` 位完整和的最高位生成 `saturation_overflow`，并仅在 `saturate_en && saturation_overflow` 时选择 `{WIDTH{1'b1}}`；不要从已经截断的低位结果反推溢出。
+
+#### 风险与复验
+<ROOT-RETEST>
+分别复验饱和关闭、饱和开启但未溢出、恰好等于最大值、超过最大值和随机边界输入；确认修复不改变普通加法模式，并在第二份波形中确认检测信号与结果选择同步变化。
+
+#### 关联 Bug
+<RELATED-BUGS>
+- <RELATED-BUG-FG-ARITHMETIC/FC-SATURATING-ADD/CK-SATURATION-OUTPUT/BG-SATURATION-DISABLED-92> [FG-ARITHMETIC/FC-SATURATING-ADD/CK-SATURATION-OUTPUT/BG-SATURATION-DISABLED-92](#bug-d0f8a6d4227d547c)
+</ROOT-CAUSES>
+
+## 波形证据
+
+<WAVEFORM-EVIDENCE>
+
+<a id="waveform-9f3516eabf18829d"></a>
+
+### 进位输入产生进位波形 <WAVEFORM-TC-tests/test_adder.py::test_cin_carry>
+
+```yaml
+waveform_analysis:
+  test_case: TC-tests/test_adder.py::test_cin_carry
+  bug_tags:
+    - BG-FULL-RESULT-TRUNCATED-93
+    - BG-SUM-CARRY-DROPPED-95
+  status: confirmed
+  receipt_id: 0123456789abcdef0123456789abcdef
+  result_fingerprint: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+  executed_test_case: tests/test_adder.py::test_cin_carry
+  waveform_file: unity_test/tests/waveform/test_cin_carry.fst
+  freshness_identity: unity_test/tests/waveform/test_cin_carry.fst:4096:1787286677000000000
+  size_bytes: 4096
+  session_started_at: 2026-08-21T14:30:00+08:00
+  modified_at: 2026-08-21T14:31:17+08:00
+  modified_time_ns: 1787286677000000000
+  observed_at: 2026-08-21T14:31:18+08:00
+  pattern:
+    - signal: TOP.dut.cin
+      event: equals
+      value: "0x1"
+    - signal: TOP.dut.sum[7:0]
+      event: equals
+      value: "0x0"
+  signal_groups:
+    clock_mode: combinational
+    clocks: []
+    inputs:
+      - TOP.dut.a[7:0]
+      - TOP.dut.b[7:0]
+      - TOP.dut.cin
+    outputs:
+      - TOP.dut.sum[7:0]
+      - TOP.dut.cout
+    protocol: []
+    key_signals:
+      - TOP.dut.sum_full[7:0]
+  analysis_mode: explicit_window
+  start_step: 40
+  end_step: 44
+  context_steps: 1
+  max_points: 200
+  wave_step: 42
+  timeline_truncated: false
+  alignment_evidence: 测试在 step 40 驱动输入并等待组合稳定；step 42 的输入仍为 ff、00、1，输出已稳定为 00、0，与同一次断言采样对应。
+  bug_evidence:
+    BG-FULL-RESULT-TRUNCATED-93:
+      required_signals:
+        - TOP.dut.a[7:0]
+        - TOP.dut.b[7:0]
+        - TOP.dut.cin
+        - TOP.dut.sum[7:0]
+        - TOP.dut.cout
+      observed_behavior: 完整结果应为 9'h100，但 {cout,sum} 为 9'h000，最高位缺失使整体数值错误。
+      source_correlation: rtl/Adder.sv:24-26 的中间量截断直接解释完整结果少一位的现象。
+    BG-SUM-CARRY-DROPPED-95:
+      required_signals:
+        - TOP.dut.a[7:0]
+        - TOP.dut.b[7:0]
+        - TOP.dut.cin
+        - TOP.dut.sum_full[7:0]
+        - TOP.dut.sum[7:0]
+        - TOP.dut.cout
+      observed_behavior: 完整输入和应为 9'h100，但中间量与输出均为 0，最高进位没有到达 cout。
+      source_correlation: rtl/Adder.sv:24-26 的 sum_full 宽度截断与波形中丢失的最高位一致。
+```
+<WAVEFORM-VIEWER> [Open waveform](/surfer/?wave=TOOL_GENERATED_TOKEN_FOR_CARRY)
+
+<a id="waveform-547f03228d4694a0"></a>
+
+### 饱和加法达到上限波形 <WAVEFORM-TC-tests/test_adder.py::test_saturation_limit>
+
+```yaml
+waveform_analysis:
+  test_case: TC-tests/test_adder.py::test_saturation_limit
+  bug_tags:
+    - BG-SATURATION-DISABLED-92
+  status: confirmed
+  receipt_id: fedcba9876543210fedcba9876543210
+  result_fingerprint: fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210
+  executed_test_case: tests/test_adder.py::test_saturation_limit
+  waveform_file: unity_test/tests/waveform/test_saturation_limit.fst
+  freshness_identity: unity_test/tests/waveform/test_saturation_limit.fst:4352:1787286737000000000
+  size_bytes: 4352
+  session_started_at: 2026-08-21T14:32:00+08:00
+  modified_at: 2026-08-21T14:32:17+08:00
+  modified_time_ns: 1787286737000000000
+  observed_at: 2026-08-21T14:32:18+08:00
+  pattern:
+    - signal: TOP.dut.saturate_en
+      event: equals
+      value: "0x1"
+    - signal: TOP.dut.sat_sum[7:0]
+      event: equals
+      value: "0x0"
+  signal_groups:
+    clock_mode: combinational
+    clocks: []
+    inputs:
+      - TOP.dut.a[7:0]
+      - TOP.dut.b[7:0]
+      - TOP.dut.cin
+      - TOP.dut.saturate_en
+    outputs:
+      - TOP.dut.sat_sum[7:0]
+    protocol: []
+    key_signals:
+      - TOP.dut.sum_full[7:0]
+      - TOP.dut.saturation_overflow
+      - TOP.dut.saturated_sum[7:0]
+  analysis_mode: explicit_window
+  start_step: 70
+  end_step: 74
+  context_steps: 1
+  max_points: 200
+  wave_step: 72
+  timeline_truncated: false
+  alignment_evidence: 测试在 step 70 驱动 ff、01、0 并使能饱和；step 72 的输入保持稳定，溢出检测仍为 0，sat_sum 已稳定为 00，与该用例的断言采样对应。
+  bug_evidence:
+    BG-SATURATION-DISABLED-92:
+      required_signals:
+        - TOP.dut.a[7:0]
+        - TOP.dut.b[7:0]
+        - TOP.dut.saturate_en
+        - TOP.dut.sum_full[7:0]
+        - TOP.dut.saturation_overflow
+        - TOP.dut.saturated_sum[7:0]
+        - TOP.dut.sat_sum[7:0]
+      observed_behavior: saturate_en 为 1 且完整和溢出时，saturation_overflow 仍为 0，sat_sum 输出回绕值 00 而不是 ff。
+      source_correlation: rtl/Adder.sv:40-43 的常量溢出检测与波形中始终为 0 的 saturation_overflow 一致。
+```
+<WAVEFORM-VIEWER> [Open waveform](/surfer/?wave=TOOL_GENERATED_TOKEN_FOR_SATURATION)
+
+</WAVEFORM-EVIDENCE>
+`````
+
+标准案例体现以下不可变边界：文档中有两个唯一 ROOT 和三个完整 BG；`ROOT-SUM-CARRY-WIDTH`通过两条完整路径关联两个 BG，两个 BG 分别反向引用同一个 ROOT，ROOT 五字段仍只写一次；`ROOT-SATURATION-DETECTOR-CONSTANT`只关联第三个 BG，说明独立根因必须建立独立实体。同一个`TC-tests/test_adder.py::test_cin_carry`可以出现在两个 BG 下，但两个引用都跳到唯一的中央记录；该记录的`bug_tags`和`bug_evidence`同时列出两个 BG，`signal_groups`覆盖两份`required_signals`的并集。另一个 TC 具有第二份独立中央记录，不能把两个 TC 的 YAML 或 viewer 合并。每个 BG 只写三个字段并只引用一个 ROOT；每个 ROOT 至少反向关联一个 BG；源码路径含真实行范围，每个 ROOT 的三个源码因果标签各在自己的 HDL fenced block 中出现一次。
+
+### 5.2 建立骨架并分阶段写入
+
+当公共Skill `unitytest/dynamic-bug-recording`已启用且已复制时，优先通过该Skill的`record_dynamic_bug.py`、`WaveInfo`和`ApplyWaveInfoEvidence`维护动态Bug文档，尽可能不让LLM主动编辑目标Markdown。该公共Skill全阶段可发现、始终可选，不进入stage专用`skill_list`，也不调用`SetSkillUsage`。脚本从`.ucagent/runtime_config.json`读取实际TC目录和统一`current_test_report`路径；`Check`或`RunTestCases`真实运行Unity测试后发布当前阶段报告，进入新阶段时旧报告失效。脚本只从该报告的`failed_test_case_with_check_point_list`精确解析TC到FG/FC/CK的关系，不读取阶段私有报告；若当前报告不存在，先运行当前阶段真实测试，禁止手工创建、复制或猜测报告。脚本从功能检查文档读取 FG/FC/CK 名称，从测试 docstring 读取 TC 名称。
+
+已有动态Bug文档出现格式问题时，先调用`-MODE repair`并执行一次返回的`next_action`。该模式按完整FG/FC/CK/BG路径一次重建全部生成式`bug-*`锚点和ROOT反向关系，同时从规范TC身份重建中央`waveform-*`锚点与BG侧`<WAVEFORM-REF>`并规范ROOT关闭标记；错误、重复或缺失的机器锚点不应由LLM逐条编辑。16位波形锚点由TC身份的SHA-256稳定派生，不是32位`receipt_id`，receipt更新后锚点仍不变。repair保留中央YAML、receipt、viewer/token、TC身份及所有分析正文；重复中央TC或结构歧义会失败而不会猜测。若相同文档阻塞仍存在，或格式损坏使该动作无法执行，LLM可用普通文本工具只修复`error/details`指出的精确标记、路径或行；返回`manual_edit_fallback`时按其`scope`编辑，并执行`after_edit`。修复必须保留其他BG、TC、ROOT分析和全部`WAVEFORM-EVIDENCE`内容，完成后立即重跑`-MODE repair`和`Check`。不得用shell或临时Python修改文档；receipt、中央YAML、viewer链接和token始终只能由`WaveInfo`与`ApplyWaveInfoEvidence`维护。
+
+对每个新BG路径的第一份精确FG/FC/CK/BG/TC关联调用`record_dynamic_bug.py -MODE bug`，一次写入BG三个字段、唯一`<CAUSE-REF-ROOT-XXX>`和ROOT反向链接；对每个不同根因调用`record_dynamic_bug.py -MODE root`，一次写入ROOT五个分析字段。有源码时脚本根据真实`path:start-end`和三组行号读取当前源码并生成完整围栏与源码标记；无源码时使用互斥的`-SOURCE-UNAVAILABLE`。已有CK/BG仅新增兄弟TC时直接调用WaveInfo/Apply；新增BG路径或修订BG/ROOT字段时重调对应MODE，脚本幂等更新并保留历史路径。脚本不创建波形YAML或viewer证据。
+
+Skill 禁用、未复制或脚本不可用时，直接使用文本工具按本节标准建立和填写相同结构；Skill 启用时仅在上述确定性恢复无法消除同一格式阻塞后使用最小编辑兜底。两条路径的产物和验收标准不变。
+
+#### 5.2.1 多分支层次骨架
+
+FG、FC、CK、BG、TC 都是一对多层次，不是一条固定单链。以下树形说明可省略重复字段以突出层级；实际文档中的每个 BG 必须按Guide_Doc/dut_bug_analysis.md中的第 5.2.2 节展开三个字段和根因引用。
+
+```markdown
+<DYNAMIC-BUGS>
+
+### 算术功能 <FG-ARITHMETIC>
+
+#### 加法结果 <FC-ADD-RESULT>
+
+##### 求和输出 <CK-SUM-OUT>
+
+###### 边界求和截断（95%） <BG-SUM-TRUNCATED-95>
+
+- 最大值加一求和 <TC-tests/test_adder.py::test_sum_max_plus_one>
+- 随机溢出求和 <TC-tests/test_adder.py::test_sum_random_overflow>
+
+###### 模式切换后求和陈旧（90%） <BG-SUM-STALE-90>
+
+- 加法模式切换求和 <TC-tests/test_adder.py::test_sum_after_mode_switch>
+- 复位后首次求和 <TC-tests/test_adder.py::test_sum_after_reset>
+
+##### 进位输出 <CK-CARRY-OUT>
+
+###### 完整和进位丢失（95%） <BG-CARRY-DROPPED-95>
+
+- 进位输入产生进位 <TC-tests/test_adder.py::test_cin_carry>
+- 双最大值产生进位 <TC-tests/test_adder.py::test_double_max_carry>
+
+###### 无溢出时进位误置（85%） <BG-CARRY-SPURIOUS-85>
+
+- 小数值相加无进位 <TC-tests/test_adder.py::test_small_add_no_carry>
+- 零值相加无进位 <TC-tests/test_adder.py::test_zero_add_no_carry>
+
+#### 减法结果 <FC-SUB-RESULT>
+
+##### 差值输出 <CK-DIFFERENCE-OUT>
+
+###### 负差值截断（92%） <BG-DIFFERENCE-TRUNCATED-92>
+
+- 小数减大数 <TC-tests/test_subtractor.py::test_negative_difference>
+- 随机负差值 <TC-tests/test_subtractor.py::test_random_negative_difference>
+
+###### 相等操作数差值非零（88%） <BG-EQUAL-DIFFERENCE-NONZERO-88>
+
+- 最大值自减 <TC-tests/test_subtractor.py::test_max_minus_self>
+- 随机值自减 <TC-tests/test_subtractor.py::test_random_minus_self>
+
+##### 借位输出 <CK-BORROW-OUT>
+
+###### 负差值借位丢失（94%） <BG-BORROW-DROPPED-94>
+
+- 零减一产生借位 <TC-tests/test_subtractor.py::test_zero_minus_one_borrow>
+- 随机负差值借位 <TC-tests/test_subtractor.py::test_random_borrow>
+
+###### 非负差值借位误置（84%） <BG-BORROW-SPURIOUS-84>
+
+- 最大值减零无借位 <TC-tests/test_subtractor.py::test_max_minus_zero_no_borrow>
+- 大数减小数无借位 <TC-tests/test_subtractor.py::test_positive_difference_no_borrow>
+
+### 接口控制 <FG-PROTOCOL>
+
+#### 请求控制 <FC-REQUEST-CONTROL>
+
+##### 请求接受 <CK-REQUEST-ACCEPT>
+
+###### 就绪请求未接受（93%） <BG-READY-REQUEST-DROPPED-93>
+
+- 单周期就绪请求 <TC-tests/test_protocol.py::test_ready_request_accept>
+- 连续就绪请求 <TC-tests/test_protocol.py::test_back_to_back_accept>
+
+###### 未就绪请求被误接受（89%） <BG-STALLED-REQUEST-ACCEPTED-89>
+
+- 背压期间单次请求 <TC-tests/test_protocol.py::test_stalled_request_rejected>
+- 背压期间连续请求 <TC-tests/test_protocol.py::test_stalled_burst_rejected>
+
+##### 背压保持 <CK-BACKPRESSURE-HOLD>
+
+###### 背压期间请求数据变化（91%） <BG-REQUEST-DATA-UNSTABLE-91>
+
+- 单周期背压数据保持 <TC-tests/test_protocol.py::test_request_hold_one_cycle>
+- 多周期背压数据保持 <TC-tests/test_protocol.py::test_request_hold_multi_cycle>
+
+###### 背压解除后请求丢失（87%） <BG-REQUEST-LOST-AFTER-STALL-87>
+
+- 单周期背压解除 <TC-tests/test_protocol.py::test_request_after_short_stall>
+- 多周期背压解除 <TC-tests/test_protocol.py::test_request_after_long_stall>
+
+#### 响应控制 <FC-RESPONSE-CONTROL>
+
+##### 响应有效 <CK-RESPONSE-VALID>
+
+###### 结果就绪时有效信号缺失（94%） <BG-RESPONSE-VALID-MISSING-94>
+
+- 单次响应有效 <TC-tests/test_protocol.py::test_single_response_valid>
+- 连续响应有效 <TC-tests/test_protocol.py::test_back_to_back_response_valid>
+
+###### 空闲周期有效信号误置（86%） <BG-RESPONSE-VALID-SPURIOUS-86>
+
+- 复位后空闲响应 <TC-tests/test_protocol.py::test_idle_valid_after_reset>
+- 请求间隔空闲响应 <TC-tests/test_protocol.py::test_idle_valid_between_requests>
+
+##### 响应顺序 <CK-RESPONSE-ORDER>
+
+###### 连续响应顺序颠倒（92%） <BG-RESPONSE-ORDER-REVERSED-92>
+
+- 两笔连续响应顺序 <TC-tests/test_protocol.py::test_two_response_order>
+- 随机突发响应顺序 <TC-tests/test_protocol.py::test_random_burst_order>
+
+###### 背压后响应重复（88%） <BG-RESPONSE-DUPLICATED-88>
+
+- 单周期背压后响应 <TC-tests/test_protocol.py::test_response_after_short_stall>
+- 多周期背压后响应 <TC-tests/test_protocol.py::test_response_after_long_stall>
+</DYNAMIC-BUGS>
+```
+
+禁止把同一 FG/FC/CK/BG 标签复制成多个平行节点。已有父节点时在该节点范围内添加新的子节点；同一 BG 的多个 TC 只增加 TC 与引用，不复制三个 BG 字段。同一 TC 关联多个 BG 时，在每个 BG 下保留同名 TC 与相同中央锚点，但中央波形记录仍只有一份。
+
+#### 5.2.2 单个 BG 的完整字段骨架
+
+以下骨架用于展开上图中的每个新 BG；方括号内容必须替换为实际可见名称。两个 TC 示例刻意放在三个 BG 字段之前，用于强调固定顺序：
+
+```markdown
+<DYNAMIC-BUGS>
+
+### [功能组具体名称] <FG-NAME>
+
+#### [功能具体名称] <FC-NAME>
+
+##### [检查点具体名称] <CK-NAME>
+
+<a id="tool-generated-bug-anchor"></a>
+
+###### [缺陷具体描述]（XX%） <BG-NAME-XX>
+
+- [测试 docstring 描述] <TC-test_file.py::test_name>
+  <WAVEFORM-REF> [WAVEFORM-EVIDENCE](#tool-generated-anchor)
+- [另一个测试 docstring 描述] <TC-test_file.py::test_another_name>
+  <WAVEFORM-REF> [WAVEFORM-EVIDENCE](#another-tool-generated-anchor)
+
+###### Bug 概述
+
+<BUG-OVERVIEW>
+<BUG-TODO>
+
+###### 现象与严重度
+
+<BUG-SYMPTOMS>
+<BUG-TODO>
+
+###### 触发条件与影响
+
+<BUG-TRIGGER>
+<BUG-TODO>
+<CAUSE-REF-ROOT-NAME> [根因具体描述](#root-cause-name)
+</DYNAMIC-BUGS>
+
+## 根因分析
+
+<ROOT-CAUSES>
+<a id="root-cause-name"></a>
+
+### [根因具体描述] <ROOT-NAME>
+
+#### 根因分析
+<ROOT-CAUSE-ANALYSIS>
+<BUG-TODO>
+
+#### 源码证据
+<ROOT-SOURCE-EVIDENCE>
+<BUG-TODO>
+
+#### 因果链
+<ROOT-CAUSAL-CHAIN>
+<BUG-TODO>
+
+#### 修复建议
+<ROOT-FIX>
+<BUG-TODO>
+
+#### 风险与复验
+<ROOT-RETEST>
+<BUG-TODO>
+
+#### 关联 Bug
+<RELATED-BUGS>
+- <RELATED-BUG-FG-NAME/FC-NAME/CK-NAME/BG-NAME-XX> [FG-NAME/FC-NAME/CK-NAME/BG-NAME-XX](#tool-generated-bug-anchor)
+</ROOT-CAUSES>
+```
+
+方括号内的文字是必须替换的可见标题，不是允许保留的模板文本。BG、根因和波形锚点必须按规范生成，双向链接目标必须精确一致。启用`dynamic-bug-recording`时，LLM只负责提交经过证据核对的字段参数，由脚本写入 BG 的三个字段和 ROOT 的五个字段；不得修改 Markdown 层级、标题、字段顺序或容器布局。Skill不可用时才由LLM使用文本工具完成同一字段。不要为同一 BG 的后续 Fail TC 复制该结构；新增 TC 必须插入第一个 BG 字段之前，Skill启用时由 `ApplyWaveInfoEvidence` 执行插入。调用 `ApplyWaveInfoEvidence`写入中央记录后，必须清除全部 `<BUG-TODO>`。
+
+## 6. 证据保留与重放
+
+签名 receipt、中央 YAML 和 viewer 是持续保留的证据。普通增量 stage 使用`require_current_replay=false`：只验证文档、签名 receipt 与关联，不因后来测试、session、波形文件轮换或原文件丢失而要求更新。批次文档预检也固定使用该模式，只能拒绝格式或关联问题，不能执行测试、刷新证据或推进批次。
+
+只有对应验证项配置`require_current_replay=true`时，才对所有唯一 TC 重放当前波形。Checker 会为每个成功重放计算包含精确 TC、事件 timeline、信号值、取证窗口、测试/driver/HDL 源码上下文的签名语义指纹。语义指纹不变而只有 session、波形路径、时间、receipt 或 viewer token 等机器字段变化时，Checker 自动为所有此类 TC 生成当前 receipt，并在一次原子写入中刷新中央 YAML 和 viewer；已有`alignment_evidence`与逐 Bug 结论保持不变。重复调用 Check 不会反复创建 receipt 或改写文档。
+
+当前事件、信号值、窗口、候选周期、信号集合或测试/driver/HDL 源码上下文变化时，Checker 不自动替换文档，而是一次返回全部变化 TC 的有界`review_batch_call`。先原样调用`ReviewWaveInfoEvidenceBatch`且不填写`review`，工具只读取并返回每项当前签名参数、窗口、事件、候选、信号、timeline 摘要、已有结论和`changed_source_files`并集，不改文档。统一阅读变化源码后，在相同 items 的每项补齐`review.alignment_evidence`，并为该 TC 的每个精确 BG 补齐`review.bug_evidence.<BG>.observed_behavior/source_correlation`；第二次调用会先验证整批，再用当前 receipt 的机器字段和这些结论一次原子替换全部中央记录，保留`required_signals`。任一项不完整或receipt/TC/BG不匹配时整批不写入并返回精确`item_index`；最终替换前文档被并发修改时保留外部内容并返回`scope: document`，不把整批冲突归因于某个TC。整个过程不需要再次运行 pytest、WaveInfo、逐项`ApplyWaveInfoEvidence`或在 TC 之间反复 Check；批量提交后只调用一次 Check。若当前重放本身失败、TC 消失或精确 pytest node ID 变化，则没有可自动采用的当前 receipt；按诊断中的实际`test_dir`、精确 FAILED node ID、可用波形和下一步处理，禁止把相似路径或参数化实例自动视为同一 TC。
+
+新增一个关联 Bug 属于证据范围扩展：即使普通 stage 不重放，也必须确认当前 receipt 的信号并集足以分析新 Bug；不足时按上一节替换 receipt。
+
+移除或重新分类 Bug 时，同步删除该 BG/TC 引用及中央记录中的`bug_tags`/`bug_evidence`项。如果 TC 的最后一个 Bug 关联被移除，必须删除整份中央`<WAVEFORM-TC-...>`记录，不能留下孤儿波形。
+
+## 7. BG 与 ROOT 字段
+
+每个 BG 只保留三个唯一、有序、非空字段：`###### Bug 概述`/`<BUG-OVERVIEW>`、`###### 现象与严重度`/`<BUG-SYMPTOMS>`、`###### 触发条件与影响`/`<BUG-TRIGGER>`。`<BUG-TRIGGER>`先写真实触发条件和影响范围，最后一个非空块必须是唯一的`<CAUSE-REF-ROOT-XXX>`可点击链接。
+
+标题排版规则：每个 Markdown 标题前后各保留一个空行，标题前置空行没有例外。文件开头的标题、Markdown 示例围栏内的首个标题、BG/ROOT 的 `<a id="..."></a>` 锚点后的目标标题都必须有前置空行。BG/ROOT 字段标题后的 `<BUG-*>`、`<ROOT-*>` 或 `<RELATED-BUGS>` 标记仍必须与字段标题紧邻；不要在字段标题与这些后置机器标记之间插入空行。
+
+每个 ROOT 依次包含`<ROOT-CAUSE-ANALYSIS>`、`<ROOT-SOURCE-EVIDENCE>`、`<ROOT-CAUSAL-CHAIN>`、`<ROOT-FIX>`、`<ROOT-RETEST>`和`<RELATED-BUGS>`。一个 ROOT 关联多个 BG 时，因果链必须解释各 BG 如何从共同首错传播到不同观察点，复验必须覆盖所有关联 CK。`<ROOT-SOURCE-EVIDENCE>`有两种互斥模式：
+
+- 有源码：包含不带`L`的真实`path:起始行-结束行`与完整 HDL fenced 代码；单行也重复行号。在语言原生注释中各放一次`<ROOT-SOURCE-FIRST-ERROR>`、`<ROOT-SOURCE-PROPAGATION>`、`<ROOT-SOURCE-OBSERVABLE>`。
+- 无可访问源码：单独写`<ROOT-SOURCE-UNAVAILABLE>`，用规格、接口、日志和波形完成黑盒因果链，不虚构源码位置。
+
+有源码位置必须逐字使用不带`L`的`path:起始行-结束行`。例如`Adder/Adder.v:10-14`有效；单行必须重复行号写成`Adder/Adder.v:10-10`，不能写成`Adder/Adder.v:10`；`Adder/Adder.v:L10-L14`也无效，必须改成`Adder/Adder.v:10-14`。这类纯格式修复不需要重新运行测试、WaveInfo或Bug分类。
+
+无源码分支必须完整写成以下形态，不能只留下标记：
+
+```markdown
+
+#### 源码证据
+<ROOT-SOURCE-EVIDENCE>
+<ROOT-SOURCE-UNAVAILABLE>
+当前工作区未提供可访问的 RTL/HDL。接口规格规定请求在 `valid && ready` 时接受，失败日志和已确认波形共同显示响应有效周期的 `result` 比期望值少 1；因此根因范围限定在接受后到结果输出之间的状态更新或算术路径，不能虚构具体文件与行号。
+```
+
+验收单位是完整`FG/FC/CK/BG`路径。同一 CK 分支内，同一个 BG 只出现一次，并保留该路径自己的三个 BG 字段。共享 ROOT 的五个字段不在各 BG 重复；每个 TC 仍只有一份中央波形记录。
+
+有源码时，每个 ROOT 的`<ROOT-SOURCE-EVIDENCE>`必须包含源码代码块。例如：
+
+```systemverilog
+// path/to/file.sv:10-12
+assign accepted = valid && ready; // <ROOT-SOURCE-FIRST-ERROR> Wrong acceptance condition.
+assign state_n = accepted ? NEXT : state; // <ROOT-SOURCE-PROPAGATION> Error enters state.
+assign result = state; // <ROOT-SOURCE-OBSERVABLE> Error reaches the checked output.
+```
+
+根因实体必须位于唯一`<ROOT-CAUSES>`分区，每个实体使用一个文档级唯一的`<ROOT-XXX>`标签，不能再建立其他自由文本“根因分析汇总”。每个 BG 恰好通过一个`<CAUSE-REF-ROOT-XXX>`引用一个根因；每个根因至少通过一个`<RELATED-BUG-FG-.../FC-.../CK-.../BG-...>`反向关联真实存在的完整 BG 路径，禁止孤立根因；关系标签内嵌目标标记，链接文本、目标和锚点必须完全一致。一个根因可以关联多个 BG，但一个 BG 不得引用多个根因。组合条件形成缺陷时，将该组合作为一个具有独立`<ROOT-XXX>`标签的根因实体。
+
+## 8. 静态 Bug 标签
+
+静态候选只写在`{DUT}_static_bug_analysis.md`，使用`<BG-STATIC-NNN-NAME>`。文件必须依次包含`<STATIC-BUG-SUMMARY>`、`<STATIC-BUG-DETAILS>`和`<STATIC-BUG-PROGRESS>`。每个候选使用不带`L`的`<FILE-path/to/file.v:起始行-结束行>`定位（单行重复行号），并在汇总和详情中保持同一链接：待验证为`<LINK-BUG-[BG-TBD]>`，动态证实后为`<LINK-BUG-[BG-NAME-XX]>`，误报为`<LINK-BUG-[BG-NA]>`。
+
+每个已分析输入文件必须在进度表中使用`<file sha256="CURRENT_SHA256">path/to/file.v</file>`。路径和64位小写SHA-256必须逐字复制当前Checker返回的`current_batch_progress_markers`；摘要由Checker读取当前源文件原始字节计算，不得自行计算、猜测、缩短或沿用旧值。源码内容变化后旧标记立即失效，必须重新读取和分析该文件、更新候选结论，再复制Checker返回的新标记。未知路径、重复路径、旧的无摘要格式以及摘要不匹配均为失败。
+
+已分析所有可访问源码且未发现候选时，使用`<FG-NULL>/<FC-NULL>/<CK-NULL>/<BG-STATIC-NULL>`，并仍为每个已分析文件写入带摘要的进度标记。若工作区没有任何可访问RTL/HDL，则在三分区报告中说明黑盒限制，不得制造文件进度标记。静态候选动态证实后，必须创建独立非静态 BG，并遵循本文的中央波形格式；不能把`BG-STATIC-*`写进动态文档。
+
+### 8.1 静态报告完整标准案例
+
+以下案例展示一项待动态验证的静态候选和一个已完成输入文件。示例SHA-256只展示字段形态；实际报告必须逐字复制当前Checker提供的完整进度标记。
+
+```markdown
+
+# Adder RTL 源码静态分析报告
+
+<STATIC-BUG-SUMMARY>
+
+## 一、潜在Bug汇总
 
 | 序号 | Bug标签 | 功能路径 | 描述摘要 | 置信度 | 涉及文件 | 动态Bug关联 |
-|------|---------|---------|---------|--------|---------|------------|
-| 001 | BG-STATIC-001-NAME | FG-XXX/FC-YYY/CK-ZZZ | 描述... | 高 | Foo.v | LINK-BUG-[BG-TBD] |
-| 002 | BG-STATIC-002-NAME | FG-XXX/FC-YYY/CK-ZZZ | 描述... | 中 | Foo.v | LINK-BUG-[BG-TBD] |
+|------|---------|----------|----------|--------|----------|-------------|
+| 001 | BG-STATIC-001-CARRY | FG-ARITH/FC-ADD/CK-CARRY | 进位条件遗漏 | 高 | rtl/adder.sv | LINK-BUG-[BG-TBD] |
 
-## 四、详细分析
+<STATIC-BUG-DETAILS>
 
-（与动态bug文档相同的层级结构，Bug标签改为 <BG-STATIC-*>；每个 <BG-STATIC-*> 下必须紧跟一行动态Bug关联子标签）
+## 二、详细分析
 
-### <FG-功能组> 功能组描述
-#### <FC-功能点> 功能点描述
-##### <CK-检测点> 检测点描述
-  - <BG-STATIC-001-NAME> Bug描述
-    - <LINK-BUG-[BG-TBD]>    ← 静态分析阶段默认填写；validation后替换为 <LINK-BUG-[BG-NAME-xx]> 或 <LINK-BUG-[BG-NA]>
-      - <FILE-{DUT}.v:xx-yy>   ← 必填；标记Bug所在源文件和行号范围
-        ```verilog
-        xx: ...
-        yy: ...
-        ```
-    - **触发条件**：（输入/状态组合）
-    - **预期行为**：（正确应有的输出）
-    - **推断实际行为**：（RTL 推断出的错误输出）
-    - **修复建议**：
-      ```verilog
-      // 修复后
-      xx: ...   // 修复说明
+### <FG-ARITH> 算术功能
+
+#### <FC-ADD> 加法功能
+
+##### <CK-CARRY> 进位检测
+
+- <BG-STATIC-001-CARRY> 进位条件遗漏
+  - <LINK-BUG-[BG-TBD]>
+    - <FILE-rtl/adder.sv:25-27>
+
+      ```systemverilog
+      assign carry = a & b;
       ```
+
+<STATIC-BUG-PROGRESS>
+
+## 三、批次分析进度
+
+| 源文件 | 发现疑似Bug数 | 状态 |
+|--------|---------------|------|
+| <file sha256="0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef">rtl/adder.sv</file> | 1 | 完成 |
+
 ```
 
-> **注意**：`<LINK-BUG-[BG-TBD]>` 是每条静态Bug的**必填子标签**，在 `static_bug_analysis` 阶段写入，紧排在 `<BG-STATIC-*>` 行的下一子条目。`<FILE-filepath:line1-line2>` 是 `<LINK-BUG-*>` 的**必填子标签**，紧排在 `<LINK-BUG-*>` 行的下一子条目，并附带 RTL 源代码片段。`static_bug_validation` 阶段结束后不允许有 `<LINK-BUG-[BG-TBD]>` 残留。
+## 9. 可选 Skill
 
-### 动态Bug关联标签规范（`<LINK-BUG-[BG-TBD]>` → `<LINK-BUG-[BG-NAME-xx]>` / `<LINK-BUG-[BG-NA]>`）
+Skill支持是可选的，但启用并复制`unitytest/dynamic-bug-recording`后，Bug文档记录必须走其确定性`-MODE bug`和`-MODE root`操作，再由WaveInfo/Apply写入签名波形证据；LLM不直接编辑动态Bug Markdown。`unitytest/static-bug-validation`可原子更新静态 LINK。Skill 禁用、未复制或脚本不可用时，使用文本工具按本文标签建立相同结构并继续任务，产物和验收标准完全相同。
 
-每个 `<BG-STATIC-*>` 下方的第一个子项**必须**是动态Bug关联标签，格式固定为：
+## 10. 完成检查
 
-```
-  - <LINK-BUG-[标签内容]>
-```
-
-其中 `[标签内容]` 按如下规则确定：
-
-| 标签格式 | 阶段 | 含义 | 要求 |
-|----------|------|------|------|
-| `<LINK-BUG-[BG-TBD]>` | `static_bug_analysis` 写入 | 待验证，尚未有动态测试结果 | 所有新建静态Bug的默认值，不允许在 `static_bug_validation` 结束时残留 |
-| `<LINK-BUG-[BG-NAME-xx]>` | `static_bug_validation` 更新 | 已证实，对应单个动态Bug | 必须在 `{DUT}_bug_analysis.md` 中存在对应完整 `<BG-NAME-xx>` + `<TC-*>` 记录 |
-| `<LINK-BUG-[BG-N1-xx][BG-N2-xx]>` | `static_bug_validation` 更新 | 已证实，对应多个动态Bug | 用多个 `[BG-*]` 方括号组依次拼写；每个动态Bug均须在 `{DUT}_bug_analysis.md` 中有完整记录 |
-| `<LINK-BUG-[BG-NA]>` | `static_bug_validation` 更新 | 误报，经动态测试验证该潜在Bug不存在 | 在该行下方（可选）添加一行误判说明 |
-
-**`static_bug_validation` 阶段完成标准**：`{DUT}_static_bug_analysis.md` 中不存在任何 `<LINK-BUG-[BG-TBD]>` 标签，Checker 会通过 `parse_nested_keys` 解析该文件强制验证此规则。
-
-### 完整示例（三阶段演进）
-
-以 UartTx 模块为例，展示从静态发现到动态验证的完整标签演进过程。
-
-**阶段一：`static_bug_analysis` 阶段完成时**（所有静态Bug均为 `<LINK-BUG-[BG-TBD]>`）
-
-```markdown
-## 三、潜在Bug汇总
-
-| 序号 | Bug标签 | 功能路径 | 描述摘要 | 置信度 | 涉及文件 | 动态Bug关联 |
-|------|---------|---------|---------|--------|---------|------------|
-| 001 | BG-STATIC-001-FSM-DEAD | FG-CONTROL/FC-FSM/CK-FSM-BUSY-CONFLICT | FSM跳转缺少tx_busy保护 | 高 | UartTx.v | LINK-BUG-[BG-TBD] |
-| 002 | BG-STATIC-002-FSM-DEFAULT | FG-CONTROL/FC-FSM/CK-FSM-BUSY-CONFLICT | FSM缺少default分支 | 高 | UartTx.v | LINK-BUG-[BG-TBD] |
-| 003 | BG-STATIC-003-WIDTH-MISMATCH | FG-TIMING/FC-BAUD/CK-BAUD-OVERFLOW | baud_cnt位宽可能不足 | 中 | UartTx.v | LINK-BUG-[BG-TBD] |
-
-## 四、详细分析
-
-### <FG-CONTROL> 控制组
-#### <FC-FSM> 状态机功能
-##### <CK-FSM-BUSY-CONFLICT> 状态机检测点（该检测点下发现两个Bug）
-  - <BG-STATIC-001-FSM-DEAD> IDLE→SEND 跳转缺少 tx_busy 保护，start 在发送中拉高时可能进入未定义状态；置信度：高
-    - <LINK-BUG-[BG-TBD]>
-      - <FILE-UartTx.v:50-56>
-        ```verilog
-        50: always @(posedge clk) begin
-        51:   case (state)
-        52:     IDLE: if (start) state <= SEND;          // BUG: 未检查 tx_busy
-        53:     SEND: if (bit_cnt == 8) state <= IDLE;
-        54:     // default 分支缺失
-        55:   endcase
-        56: end
-        ```
-  - <BG-STATIC-002-FSM-DEFAULT> FSM缺少default分支，可能进入非法状态；置信度：高
-    - <LINK-BUG-[BG-TBD]>
-      - <FILE-UartTx.v:50-56>
-        ```verilog
-        50: always @(posedge clk) begin
-        51:   case (state)
-        52:     IDLE: if (start) state <= SEND;
-        53:     SEND: if (bit_cnt == 8) state <= IDLE;
-        54:     // BUG: default 分支缺失，可能导致锁死
-        55:   endcase
-        56: end
-        ```
-
-### <FG-TIMING>
-#### 波特率计数功能 <FC-BAUD>
-##### <CK-BAUD-OVERFLOW> baud_cnt 位宽为 8 位，当分频系数超过 255 时可能截断；置信度：中 
-  - <BG-STATIC-002-WIDTH-MISMATCH>
-    - <LINK-BUG-[BG-TBD]>
-      - <FILE-UartTx.v:20>
-        ```verilog
-        20: reg [7:0] baud_cnt;   // BUG: 8位宽不足以确论覆盖所有分频参数
-        ```
-
-**阶段二：`static_bug_validation` 阶段完成时**（`<LINK-BUG-[BG-TBD]>` 全部被替换，无残留）
-
-```markdown
-## 三、潜在Bug汇总
-
-| 序号 | Bug标签 | 功能路径 | 描述摘要 | 置信度 | 涉及文件 | 动态Bug关联 |
-|------|---------|---------|---------|--------|---------|------------|
-| 001 | BG-STATIC-001-FSM-DEAD | FG-CONTROL/FC-FSM/CK-FSM-BUSY-CONFLICT | FSM跳转缺少tx_busy保护 | 高 | UartTx.v | LINK-BUG-[BG-FSM-DEAD-92] |
-| 002 | BG-STATIC-002-FSM-DEFAULT | FG-CONTROL/FC-FSM/CK-FSM-BUSY-CONFLICT | FSM缺少default分支 | 高 | UartTx.v | LINK-BUG-[BG-FSM-DEFAULT-85] |
-| 003 | BG-STATIC-003-WIDTH-MISMATCH | FG-TIMING/FC-BAUD/CK-BAUD-OVERFLOW | baud_cnt位宽可能不足 | 中 | UartTx.v | LINK-BUG-[BG-NA] |
-
-## 四、详细分析
-
-### <FG-CONTROL>
-#### <FC-FSM> 状态机功能
-##### <CK-FSM-BUSY-CONFLICT> 状态机检测点（该检测点下发现两个Bug）
-  - <BG-STATIC-001-FSM-DEAD> IDLE→SEND 跳转缺少 tx_busy 保护，start 在发送中拉高时可能进入未定义状态；置信度：高
-    - <LINK-BUG-[BG-FSM-DEAD-92]>    ← 已替换，该静态Bug证实对应一个动态Bug
-      - <FILE-UartTx.v:50-56>    ← 源文件位置不变
-        ```verilog
-        50: always @(posedge clk) begin
-        51:   case (state)
-        52:     IDLE: if (start) state <= SEND;          // BUG: 未检查 tx_busy
-        53:     SEND: if (bit_cnt == 8) state <= IDLE;
-        54:     // default 分支缺失
-        55:   endcase
-        56: end
-        ```
-  - <BG-STATIC-002-FSM-DEFAULT> FSM缺少default分支，可能进入非法状态；置信度：高
-    - <LINK-BUG-[BG-FSM-DEFAULT-85]>    ← 已替换，该静态Bug证实对应一个动态Bug
-      - <FILE-UartTx.v:50-56>    ← 源文件位置不变
-        ```verilog
-        50: always @(posedge clk) begin
-        51:   case (state)
-        52:     IDLE: if (start) state <= SEND;
-        53:     SEND: if (bit_cnt == 8) state <= IDLE;
-        54:     // BUG: default 分支缺失，可能导致锁死
-        55:   endcase
-        56: end
-        ```
-
-### <FG-TIMING>
-#### <FC-BAUD> 波特率计数功能
-##### <CK-BAUD-OVERFLOW> baud_cnt 位宽为 8 位，当分频系数超过 255 时可能截断；置信度：中 
-  - <BG-STATIC-003-WIDTH-MISMATCH>
-    - <LINK-BUG-[BG-NA]>             ← 已替换，误报
-      - <FILE-UartTx.v:20>    ← 源文件位置不变
-        ```verilog
-        20: reg [7:0] baud_cnt;   // 实际参数通过 parameter 约束不超过 200，8位宽足够
-        ```
-    - 误判说明：波特率参数通过 `parameter` 约束不超过 200，8 位宽足够
-```
-
-**阶段三：`{DUT}_bug_analysis.md` 中对应的动态Bug记录**（由 `static_bug_validation` 阶段写入）
-
-```markdown
-### <FG-CONTROL>
-#### <FC-FSM> 状态机功能
-##### <CK-FSM-BUSY-CONFLICT> 测试 start 在 tx_busy=1 期间重新置位时 FSM 行为
-  - <BG-FSM-DEAD-92>
-    - <TC-FSM-REENTRANT-FAIL> start_during_send：验证FSM重入保护
-      - 测试结果：FAIL ← 证实静态分析Bug BG-STATIC-001-FSM-DEAD
-
-##### <CK-FSM-BUSY-CONFLICT> 测试缺少 default 分支时 FSM 进入非法状态的行为
-  - <BG-FSM-DEFAULT-85>
-    - <TC-FSM-ILLEGAL-STATE> illegal_state_enter：验证default分支缺失
-      - 测试结果：FAIL ← 证实静态分析Bug BG-STATIC-002-FSM-DEFAULT
-```
-
-### 标签书写要点
-
-| 层级 | 格式示例 | 说明 |
-|------|---------|------|
-| 功能组 FG | `<FG-CONTROL>` | 与 `_functions_and_checks.md` 共用，或新增 `<FG-STATIC>` |
-| 功能点 FC | `<FC-FSM>` | 与 `_functions_and_checks.md` 共用，或新增 `<FC-STATIC-*>` |
-| 检测点 CK | `<CK-FSM-BUSY-CONFLICT>` | 需同步写入 `_functions_and_checks.md`（高/中置信度必须） |
-| 静态Bug | `<BG-STATIC-001-FSM-DEAD>` | 挂靠在 `<CK-*>` 之后，序号+名称格式；**一个 `<CK-*>` 下可以有多个 `<BG-STATIC-*>` 标签** |
-| 静态Bug（无Bug声明） | `<BG-STATIC-NULL>` | 挂靠在 `<FG-NULL>`、`<FC-NULL>`、`<CK-NULL>` 之后；不需要 `<LINK-BUG-*>` 子标签；不可与其他 `<BG-STATIC-*>` 共存 |
-| 动态Bug关联（待验证） | `<LINK-BUG-[BG-TBD]>` | 每个 `<BG-STATIC-*>` 的**必填**子标签，`static_bug_analysis` 阶段写入 |
-| 动态Bug关联（已证实，单个） | `<LINK-BUG-[BG-FSM-DEAD-92]>` | `static_bug_validation` 后替换，需在 `_bug_analysis.md` 中有对应完整记录 |
-| 动态Bug关联（已证实，多个） | `<LINK-BUG-[BG-FSM-DEAD-92][BG-FSM-DEFAULT-85]>` | 一个静态Bug证实存在多个动态Bug时，用多个 `[BG-*]` 方括号组依次拼写；每个标签均须在 `_bug_analysis.md` 中有完整记录 |
-| 动态Bug关联（误报） | `<LINK-BUG-[BG-NA]>` | `static_bug_validation` 后替换，可选附加误判说明行 |
-| 源文件位置（单个范围） | `<FILE-UartTx.v:50-56>` | 每个 `<LINK-BUG-*>` 的**必填**子标签；路径相对于项目根目录；行号范围 `N-M` |
-| 源文件位置（多范围） | `<FILE-UartTx.v:50-56,100-120>` | 同一文件的多个不连续行范围，逗号分隔 |
-| 源文件位置（多文件） | `<FILE-pkg/uart_pkg.sv:22-24>` | 同一 `<LINK-BUG-*>` 下可配置多个 `<FILE-*>` 子标签 |
-
-**注意**：
-- `<BG-STATIC-*>` 标签仅在 `{DUT}_static_bug_analysis.md` 中使用，不出现在 `{DUT}_bug_analysis.md` 中
-- **一个 `<CK-*>` 检测点下可以挂靠多个 `<BG-STATIC-*>` 标签，每个标签代表在该检测点发现的一个独立Bug**
-- `<BG-STATIC-NULL>` 是必须显式书写的无Bug声明，不可省略——若 `_static_bug_analysis.md` 中既无任何 `<BG-STATIC-*>` 又无 `<BG-STATIC-NULL>`，Checker 将报错
-- `<LINK-BUG-*>` 标签仅在 `{DUT}_static_bug_analysis.md` 中使用，不出现在 `{DUT}_bug_analysis.md` 中
-- `<FILE-*>` 标签是 `<LINK-BUG-*>` 的必填子标签，Checker 强制验证其存在和格式；`<FILE-*>` 行下方必须附带对应 RTL 源代码片段
-- `static_bug_validation` 阶段结束后，`{DUT}_static_bug_analysis.md` 中**不允许有任何 `<LINK-BUG-[BG-TBD]>` 残留**，Checker 通过 `parse_nested_keys` 强制验证
-- 在文中引用标签时去掉尖括号，例如 `BG-STATIC-001`，防止解析错误
-- 静态分析报告的主体文档内容须使用 `{DOC_GEN_LANG}` 指定的语言编写
+- Check/Complete 失败时，只处理反馈中的第一个阻塞项和明确`next_action`；同一记录的其他字段和其他记录不属于本次动作，不得顺带修改或全局替换。修复后再次检查以取得下一项。若反馈中的`rerun_test`、`rerun_waveinfo`或`apply_evidence`为`false`，禁止对应重跑或Apply；纯格式或语义字段修复不得重建BG/TC或重新分类Bug。
+- 根因关系失败时，优先使用反馈中列出的完整可用引用：BG 侧选择一条完整`<CAUSE-REF-ROOT-...>`链接，ROOT 侧选择或添加一条完整`<RELATED-BUG-FG-.../FC-.../CK-.../BG-...>`链接。不得只复制可见标题、只写 Markdown 链接或猜测锚点；候选均不符合语义时，先修正 ROOT 划分，再重新检查。
+- `RunTestCases`只运行已有的真实pytest验证用例，不是任意Python或文档维护脚本执行器。禁止创建临时脚本或伪pytest用例来修改、迁移或批量填充本文档。Skill不可用时才使用文本工具修改文档；相同文本出现多次时，给`ReplaceStringInFile`传只覆盖当前阻塞位置的`line_blocks=[[start, end]]`，每次只填写当前记录、当前字段的真实结论。已声明的Skill脚本只能通过`RunSkillScript`执行。
+- 三个容器各出现一次、均正确关闭，并按`DYNAMIC-BUGS -> ROOT-CAUSES -> WAVEFORM-EVIDENCE`排序。
+- 文档标题、分区标题、FG/FC/CK/BG/TC 层级、BG 三字段和 ROOT 五字段与Guide_Doc/dut_bug_analysis.md中的第 5.1 节完整标准案例一致。
+- 每个中央波形标题逐字复用关联 TC 的可见标题并追加“波形”。
+- 每个非零 BG 至少有一个真实 Fail TC、完整三个 BG 字段和唯一 ROOT 引用。
+- 每个阶段结束时仍为 Fail 的 DUT 测试都在其报告关联的至少一个 CK 下具有非零 BG/TC 记录；不存在未分类 Fail。该 CK 可以已经被 TC 成功触发并通过覆盖，不要求每个 Fail TC 关联失败 CK。
+- 每个阶段结束时仍失败的 CK 都有至少一个由当前报告关联到同一精确 CK 的正确 Fail TC，并在该 CK 下具有非零 BG/TC 记录。
+- 每个 BG 的全部 TC/引用连续位于 BG 标题后，三个`<BUG-*>`字段位于最后一个 TC/引用后，字段开始后不再出现 TC。
+- 每个 BG/TC 紧随精确`<WAVEFORM-REF>`，链接到该 TC 的稳定锚点。
+- 每个关联 TC 在中央分区恰有一份记录，无重复、无孤儿。
+- 每个文档 TC 逐字使用当前函数级报告 node ID（只去掉报告附带的源码行范围）。非参数化 receipt 与其精确相等；参数化 receipt 必须是同一完整路径/类/函数的一个精确 FAILED child，中央`executed_test_case`与 receipt 一致。路径前缀不同就是不同身份；相似文件或节点列表只帮助核对拼写，不参与匹配。
+- `bug_tags`、BG/TC 引用和`bug_evidence`三者完全一致。
+- 所有逐 Bug `required_signals`都在顶层签名信号并集中，viewer显示同一信号集合。
+- receipt、fingerprint、窗口、pattern、signal_groups、viewer与真实工具结果一致。
+- 共享与逐 Bug 语义结论均已完成，无`<BUG-TODO>`。
+- 任何非零 BG 或 ROOT 残留`<BUG-TODO>`都不能完成阶段。
+- 普通 stage 持续保留已签名证据；严格 current-replay stage 全面重放，并原子刷新语义等价的机器证据。TC 身份或语义证据变化时必须按 Checker 返回的当前 receipt/精确恢复动作复核，不自动猜测或改写关联。

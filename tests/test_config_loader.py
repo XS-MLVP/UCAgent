@@ -15,6 +15,77 @@ from ucagent.util.config import Config, load_yaml_with_env_vars, _merge_config_f
 
 
 class TestConfigLoader(unittest.TestCase):
+    def test_default_launch_disables_llm_suggestions(self):
+        """Keep launch-time LLM pass/fail suggestions opt-in by default."""
+
+        config_path = os.path.join(current_dir, "..", "ucagent", "setting.yaml")
+        config = load_yaml_with_env_vars(config_path)
+        default_env = {
+            key: value
+            for item in config["launch"]["default_env"]
+            if isinstance(item, dict)
+            for key, value in item.items()
+        }
+
+        self.assertIs(default_env["ENABLE_LLM_SUGGESTION"], False)
+
+    def test_default_document_path_uses_template_overwrite(self):
+        config_path = os.path.join(
+            current_dir, "..", "ucagent", "lang", "zh", "config", "default.yaml"
+        )
+        config_data = load_yaml_with_env_vars(config_path)
+
+        self.assertEqual(config_data["template_overwrite"]["DOC_PATH"], "{DUT}_Doc")
+        functional_stage = next(
+            stage
+            for stage in config_data["stage"]
+            if stage["name"] == "functional_specification_analysis"
+        )
+        self.assertIn("{DOC_PATH}/*.md", functional_stage["reference_files"])
+        line_map_stage = next(
+            stage
+            for stage in functional_stage["stage"]
+            if stage["name"] == "functional_line_mapping_gap_analysis"
+        )
+        self.assertIn(
+            "{DOC_PATH}/*.md",
+            line_map_stage["checker"][0]["args"]["file_list"],
+        )
+
+        config = Config(config_data)
+        config.update_template({"DUT": "Adder"})
+        config.update_template(config.template_overwrite.as_dict())
+        resolved = config.as_dict()
+        resolved_functional_stage = next(
+            stage
+            for stage in resolved["stage"]
+            if stage["name"] == "functional_specification_analysis"
+        )
+        self.assertIn("Adder_Doc/*.md", resolved_functional_stage["reference_files"])
+
+        labeled_spec_path = os.path.join(
+            current_dir, "..", "ucagent", "lang", "zh", "config", "labeled_spec.yaml"
+        )
+        labeled_spec = load_yaml_with_env_vars(labeled_spec_path)
+        self.assertIn("{DOC_PATH}/", "\n".join(labeled_spec["stage[2].task"]))
+        self.assertIn(
+            "{DOC_PATH}/*.md",
+            labeled_spec["stage[2].checker"][1]["args"]["source_files"],
+        )
+
+    def test_default_prompt_requires_stage_local_reference_file_reads(self):
+        config_path = os.path.join(
+            current_dir, "..", "ucagent", "lang", "zh", "config", "default.yaml"
+        )
+
+        config = load_yaml_with_env_vars(config_path)
+        system_prompt = config["mission"]["prompt"]["system"]
+
+        self.assertIn("各stage相互独立", system_prompt)
+        self.assertIn("逐一用`ReadTextFile`读取其`reference_files`", system_prompt)
+        self.assertIn("`count=1`轻量复核", system_prompt)
+        self.assertIn("`count=0`仅登记已读而不返回正文", system_prompt)
+
     def test_load_yaml_with_negated_bool_scalars(self):
         yaml_content = """
 plain_true: true

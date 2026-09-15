@@ -2,12 +2,13 @@
 
 from curses import echo
 from .tools.context import ArbitContextSummary
-from .util.config import get_config
+from .util.config import get_config, save_runtime_config
 from .util.log import echo_g, echo_r, info, message, warning, error, msg_msg
 from .util.functions import (
     fmt_time_deta,
     fmt_time_stamp,
     get_template_path,
+    render_template,
     render_template_dir,
     import_and_instance_tools,
     copy_skill_files,
@@ -17,7 +18,9 @@ from .util.functions import (
     rm_workspace_prefix,
 )
 import ucagent.util.functions as fc
+from datetime import datetime, timezone
 from .util.test_tools import ucagent_lib_path
+from .util.markdown import ensure_markdown_heading_spacing
 
 import ucagent.tools
 from .tools import *
@@ -27,21 +30,95 @@ from .stage import StageManager
 from .verify_pdb import VerifyPDB
 from .interaction import EnhancedInteractionLogic, AdvancedInteractionLogic
 from .version import __version__, __email__
+from .plugins import (
+    PluginContext,
+    collect_plugin_resources,
+    create_plugin_checker_registry,
+    create_plugin_tools,
+)
 
 import time
+import math
 import random
 import signal
 import copy
 import threading
 import shutil
+import filecmp
 import os
+import hashlib
+import json
 
 from .abackend import get_backend
 from langfuse import Langfuse
 from langfuse.langchain import CallbackHandler
 from uuid import uuid4
-from typing import Any, Dict, List, Optional, OrderedDict
+from typing import Any, Callable, Dict, List, Mapping, Optional, OrderedDict
+from pathlib import Path
 import traceback
+
+
+def _guide_doc_destination(root: str, relative_path: str) -> str:
+    """Return one Guide_Doc destination after rejecting symlink components."""
+
+    current = Path(root)
+    if current.is_symlink():
+        raise ValueError(
+            f"Guide_Doc destination must not be a symbolic link: {current}"
+        )
+    for part in Path(relative_path).parts:
+        current /= part
+        if current.is_symlink():
+            raise ValueError(
+                "Guide_Doc destination path must not contain symbolic links: "
+                f"{current}"
+            )
+    return str(current)
+
+
+def template_target_read_only_conflict(
+    tmp_dir_path: Path, protected_values: Any, workspace: Path
+) -> str | None:
+    """Return the first read-only value whose protection conflicts with a render.
+
+    Rendering writes once during initialization, before read-only bits are
+    applied, so one template-rendered file inside the render target may
+    protect itself: the template bootstraps its content and the workflow
+    denies every later write. Any directory-level overlap in either
+    direction stays a configuration error because the render would need to
+    create or update many files inside a path declared read-only.
+    """
+
+    workspace_resolved = workspace.resolve()
+    for protected_value in protected_values:
+        if (
+            not isinstance(protected_value, str)
+            or not protected_value.strip()
+            or any(character in protected_value for character in "*?[]")
+        ):
+            continue
+        protected_path = Path(protected_value)
+        if not protected_path.is_absolute():
+            protected_path = workspace / protected_path
+        protected_path = protected_path.resolve()
+        try:
+            protected_path.relative_to(workspace_resolved)
+        except ValueError:
+            continue
+        if (
+            tmp_dir_path == protected_path
+            or tmp_dir_path.is_relative_to(protected_path)
+        ):
+            return protected_value
+        if protected_path.is_relative_to(tmp_dir_path):
+            single_file_inside_target = (
+                protected_path != tmp_dir_path
+                and protected_path.suffix != ""
+                and not protected_path.is_dir()
+            )
+            if not single_file_inside_target:
+                return protected_value
+    return None
 
 
 class VerifyAgent:
@@ -79,6 +156,16 @@ class VerifyAgent:
         enable_context_manage_tools: bool = False,
         exit_on_completion: bool = False,
         meta: Optional[Dict[str, Any]] = None,
+        plugins: Optional[List[Any]] = None,
+        plugin_guide_doc_paths: Optional[List[str]] = None,
+        plugin_skill_paths: Optional[List[tuple[str, str]]] = None,
+        workflow_config_file: Optional[str] = None,
+        plugin_workflow: Optional[str] = None,
+        template_target: Optional[str] = None,
+        template_context_factory: Optional[
+            Callable[[Any, Mapping[str, Any]], Mapping[str, Any]]
+        ] = None,
+        plugin_runtime_config_keys: Optional[List[str]] = None,
     ):
         """Initialize the Verify Agent with configuration and an optional agent.
 
@@ -107,6 +194,14 @@ class VerifyAgent:
             force_stage_index (int, optional): Force starting from a specific stage index. Defaults to 0.
             no_write_targets (list, optional): List of files/directories that cannot be written to. Defaults to None.
             interaction_mode (str, optional): Interaction mode - 'standard', 'enhanced', or 'advanced'. Defaults to 'standard'.
+            plugins (list, optional): Validated UCAgent plugins selected for this run.
+            plugin_guide_doc_paths (list, optional): Additional selected-workflow Guide_Doc resources.
+            plugin_skill_paths (list, optional): Additional plugin-name and selected-workflow Skill roots.
+            workflow_config_file (str, optional): Selected plugin workflow baseline configuration.
+            plugin_workflow (str, optional): Qualified selected plugin workflow ID.
+            template_target (str, optional): Workspace-relative template destination.
+            template_context_factory (callable, optional): Selected workflow hook that derives template values from resolved config.
+            plugin_runtime_config_keys (list, optional): Safe resolved config scalars exported for plugin consumers.
         """
         saved_info = {}
         if not no_history:
@@ -119,6 +214,11 @@ class VerifyAgent:
         self.workspace = os.path.abspath(workspace)
         self.__version__ = __version__
         self.config_file = "" if config_file is None else str(config_file)
+        self.workflow_config_file = (
+            "" if workflow_config_file is None else str(workflow_config_file)
+        )
+        self.plugin_workflow = "" if plugin_workflow is None else str(plugin_workflow)
+        self.template_target = template_target
         saved_meta = saved_info.get("meta") if isinstance(saved_info.get("meta"), dict) else {}
         self.meta = copy.deepcopy(saved_meta)
         if meta:
@@ -126,7 +226,34 @@ class VerifyAgent:
             updated_info = copy.deepcopy(saved_info)
             updated_info["meta"] = copy.deepcopy(self.meta)
             fc.save_ucagent_info(self.workspace, updated_info)
-        self.cfg = get_config(config_file, cfg_override, self.workspace)
+        self.cfg = get_config(
+            config_file,
+            cfg_override,
+            self.workspace,
+            workflow_config_file=workflow_config_file,
+        )
+        self.plugins = list(plugins or [])
+        self.plugin_checker_registry = create_plugin_checker_registry(self.plugins)
+        plugin_python_import_roots = [
+            str(loaded.python_import_root)
+            for loaded in self.plugins
+            if getattr(loaded, "python_import_root", None) is not None
+        ]
+        plugin_docs, plugin_skills = collect_plugin_resources(self.plugins)
+        resolved_plugin_docs = []
+        seen_plugin_docs = set()
+        for path in [*plugin_docs, *(plugin_guide_doc_paths or [])]:
+            canonical = os.path.realpath(path)
+            if canonical not in seen_plugin_docs:
+                seen_plugin_docs.add(canonical)
+                resolved_plugin_docs.append(canonical)
+        resolved_plugin_skills = []
+        seen_plugin_skills = set()
+        for plugin_name, path in [*plugin_skills, *(plugin_skill_paths or [])]:
+            item = (plugin_name, os.path.realpath(path))
+            if item not in seen_plugin_skills:
+                seen_plugin_skills.add(item)
+                resolved_plugin_skills.append(item)
         temp_args = {
             "OUT": output,
             "DUT": dut_name,
@@ -134,51 +261,250 @@ class VerifyAgent:
             "WORKSPACE": self.workspace,
         }
         self.cfg.update_template(temp_args)
+        from ucagent.plugins import (
+            resolve_guide_doc_copy_policy,
+            resolve_plugin_guide_doc_copy_policy,
+            resolve_workflow_template_context,
+        )
+
+        self.workflow_template_context = resolve_workflow_template_context(
+            template_context_factory,
+            self.cfg,
+            temp_args,
+        )
         template_overwrite = self.cfg.template_overwrite.as_dict()
-        self.cfg.update_template(template_overwrite)
+        resolved_template_values = dict(template_overwrite)
+        resolved_template_values.update(self.workflow_template_context)
+        self.cfg.update_template(resolved_template_values)
         self.cfg.un_freeze()
         self.cfg.seed = seed if seed is not None else random.randint(1, 999999)
         self.cfg._temp_cfg = temp_args
         self.cfg.freeze()
+        guide_doc_copy_policy = resolve_guide_doc_copy_policy(self.cfg)
+        plugin_guide_doc_copy_policy = resolve_plugin_guide_doc_copy_policy(
+            self.cfg
+        )
+        self.runtime_config_path = save_runtime_config(
+            self.workspace,
+            self.cfg,
+            runtime_config_keys=list(plugin_runtime_config_keys or []),
+            launch_context={
+                "config_file": (
+                    os.path.abspath(self.config_file) if self.config_file else None
+                ),
+                "plugin_selectors": [item.selector for item in self.plugins],
+                "plugin_workflow": self.plugin_workflow or None,
+                "workflow_config_file": (
+                    os.path.abspath(self.workflow_config_file)
+                    if self.workflow_config_file
+                    else None
+                ),
+            },
+        )
         self.output_dir = os.path.join(self.workspace, output)
         # copy doc/Guide_Doc to workspace
         guide_doc_path = os.path.join(self.workspace, self.cfg.guide_doc.path)
-        if not os.path.exists(guide_doc_path) and self.cfg.guide_doc.enable:
-            doc_guide_path = os.path.join(
-                os.path.dirname(os.path.abspath(__file__)),
-                "lang",
-                self.cfg.lang,
-                "doc",
-                "Guide_Doc",
+        if resolved_plugin_docs and not self.cfg.guide_doc.enable:
+            raise ValueError(
+                "Plugin Guide_Doc contributions require guide_doc.enable to be true"
             )
-            doc_files_to_append = []
-            if len(guid_doc_path) > 0:
-                for gfile in guid_doc_path:
-                    if os.path.exists(gfile) is False:
-                        warning(
-                            f"Specified guid_doc_path {gfile} does not exist, ignore it"
-                        )
-                        continue
-                    if os.path.isfile(gfile):
-                        doc_files_to_append.append(gfile)
-                        continue
-                    if os.path.isdir(gfile):
-                        doc_guide_path = gfile
-                        continue
-                    assert False, (
-                        f"Specified guid_doc_path {gfile} is not a valid file or directory"
+        doc_guide_path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)),
+            "lang",
+            self.cfg.lang,
+            "doc",
+            "Guide_Doc",
+        )
+        doc_files_to_append = []
+        if self.cfg.guide_doc.enable and len(guid_doc_path) > 0:
+            for gfile in guid_doc_path:
+                if os.path.exists(gfile) is False:
+                    warning(
+                        f"Specified guid_doc_path {gfile} does not exist, ignore it"
                     )
-                assert os.path.exists(doc_guide_path), (
-                    f"Specified guid_doc_path {doc_guide_path} does not exist"
+                    continue
+                if os.path.isfile(gfile):
+                    doc_files_to_append.append(gfile)
+                    continue
+                if os.path.isdir(gfile):
+                    doc_guide_path = gfile
+                    continue
+                assert False, (
+                    f"Specified guid_doc_path {gfile} is not a valid file or directory"
                 )
-            shutil.copytree(doc_guide_path, guide_doc_path)
-            for f in doc_files_to_append:
-                shutil.copy(f, guide_doc_path)
+            assert os.path.exists(doc_guide_path), (
+                f"Specified guid_doc_path {doc_guide_path} does not exist"
+            )
+        base_document_sources = {}
+        if os.path.isdir(doc_guide_path):
+            for source_root, _, source_files in os.walk(doc_guide_path):
+                relative_root = os.path.relpath(source_root, doc_guide_path)
+                for source_file in source_files:
+                    relative_path = (
+                        source_file
+                        if relative_root == "."
+                        else os.path.join(relative_root, source_file)
+                    )
+                    relative_path = Path(relative_path).as_posix()
+                    base_document_sources[relative_path] = os.path.join(
+                        source_root, source_file
+                    )
+        for source in doc_files_to_append:
+            base_document_sources[os.path.basename(source)] = source
+
+        plugin_document_sources = {}
+        for plugin_guide_path in resolved_plugin_docs:
+            source = os.path.realpath(plugin_guide_path)
+            if os.path.isdir(source):
+                for source_root, _, source_files in os.walk(source):
+                    relative_root = os.path.relpath(source_root, source)
+                    for source_file in source_files:
+                        source_path = os.path.join(source_root, source_file)
+                        relative_path = (
+                            source_file
+                            if relative_root == "."
+                            else os.path.join(relative_root, source_file)
+                        )
+                        relative_path = Path(relative_path).as_posix()
+                        previous = plugin_document_sources.get(relative_path)
+                        if previous is not None and not filecmp.cmp(
+                            source_path, previous, shallow=False
+                        ):
+                            raise ValueError(
+                                "Plugin Guide_Doc sources conflict for runtime path "
+                                f"{relative_path}: {previous} and {source_path}"
+                            )
+                        plugin_document_sources[relative_path] = source_path
+            elif os.path.isfile(source):
+                relative_path = os.path.basename(source)
+                previous = plugin_document_sources.get(relative_path)
+                if previous is not None and not filecmp.cmp(
+                    source, previous, shallow=False
+                ):
+                    raise ValueError(
+                        "Plugin Guide_Doc sources conflict for runtime path "
+                        f"{relative_path}: {previous} and {source}"
+                    )
+                plugin_document_sources[relative_path] = source
+            else:
+                raise FileNotFoundError(f"Plugin Guide_Doc path was not found: {source}")
+
+        configured_core_paths = set(
+            guide_doc_copy_policy.retain
+            + guide_doc_copy_policy.override
+            + guide_doc_copy_policy.ignore
+        )
+        missing_core_paths = sorted(configured_core_paths - set(base_document_sources))
+        if missing_core_paths:
+            raise ValueError(
+                "Guide_Doc core copy policy references files not provided by the "
+                f"active language defaults: {missing_core_paths}"
+            )
+        configured_plugin_paths = set(
+            plugin_guide_doc_copy_policy.retain
+            + plugin_guide_doc_copy_policy.ignore
+        )
+        missing_plugin_paths = sorted(
+            configured_plugin_paths - set(plugin_document_sources)
+        )
+        if missing_plugin_paths:
+            raise ValueError(
+                "Guide_Doc plugin copy policy references files not provided by "
+                f"active plugins: {missing_plugin_paths}"
+            )
+        missing_overrides = sorted(
+            set(guide_doc_copy_policy.override)
+            - {
+                path
+                for path in plugin_document_sources
+                if plugin_guide_doc_copy_policy.action_for(path) == "retain"
+            }
+        )
+        if missing_overrides:
+            raise ValueError(
+                "Guide_Doc core copy policy requires plugin replacements for: "
+                f"{missing_overrides}"
+            )
+
+        if os.path.lexists(guide_doc_path):
+            runtime_doc_root = Path(guide_doc_path)
+            runtime_doc_paths = [runtime_doc_root, *runtime_doc_root.rglob("*")]
+            symbolic_paths = [
+                str(path) for path in runtime_doc_paths if path.is_symlink()
+            ]
+            if symbolic_paths:
+                raise ValueError(
+                    "Guide_Doc destination tree must not contain symbolic links: "
+                    f"{symbolic_paths[:20]}"
+                )
+            # An interrupted prior run may leave protected runtime documents
+            # read-only. Current un_write_dirs are reapplied after initialization.
+            fc.chmode_rw([str(path) for path in runtime_doc_paths])
+
+        if self.cfg.guide_doc.enable:
+            os.makedirs(guide_doc_path, exist_ok=True)
+            for relative_path, source in base_document_sources.items():
+                action = guide_doc_copy_policy.action_for(relative_path)
+                destination = _guide_doc_destination(
+                    guide_doc_path, relative_path
+                )
+                if action in {"ignore", "override"}:
+                    if os.path.isfile(destination):
+                        os.unlink(destination)
+                    elif os.path.exists(destination):
+                        raise ValueError(
+                            "Guide_Doc file destination is not a regular file: "
+                            f"{destination}"
+                        )
+                    continue
+                os.makedirs(os.path.dirname(destination), exist_ok=True)
+                if not os.path.exists(destination):
+                    shutil.copy2(source, destination)
+
+        for relative_path, source in plugin_document_sources.items():
+            base_source = base_document_sources.get(relative_path)
+            if plugin_guide_doc_copy_policy.action_for(relative_path) == "ignore":
+                if base_source is None:
+                    destination = _guide_doc_destination(
+                        guide_doc_path, relative_path
+                    )
+                    if os.path.isfile(destination):
+                        os.unlink(destination)
+                    elif os.path.exists(destination):
+                        raise ValueError(
+                            "Guide_Doc file destination is not a regular file: "
+                            f"{destination}"
+                        )
+                continue
+            if base_source is not None:
+                action = guide_doc_copy_policy.action_for(relative_path)
+                if action == "ignore":
+                    raise ValueError(
+                        "Plugin Guide_Doc provides a core runtime path configured as "
+                        f"ignored: {relative_path}"
+                    )
+                if action == "retain" and filecmp.cmp(
+                    source, base_source, shallow=False
+                ):
+                    continue
+                if action == "retain":
+                    raise ValueError(
+                        "Plugin Guide_Doc conflicts with a retained base runtime "
+                        f"document for path {relative_path}: {base_source} and {source}"
+                    )
+            destination = _guide_doc_destination(guide_doc_path, relative_path)
+            os.makedirs(os.path.dirname(destination), exist_ok=True)
+            shutil.copy2(source, destination)
 
         # if use_skill is enabled, copy skills to workspace, and add skill tools
         self.tool_skill = []
         if self.cfg.skill.use_skill:
-            copy_skill_files(self.cfg, self.workspace,root_dir=os.path.dirname(os.path.abspath(__file__)))  
+            copy_skill_files(
+                self.cfg,
+                self.workspace,
+                root_dir=os.path.dirname(os.path.abspath(__file__)),
+                plugin_skill_paths=resolved_plugin_skills,
+            )
             self.tool_skill += [ListSkill(self.workspace).bind(self),RunSkillScript(self.workspace).bind(self)]
 
         self.thread_id = (
@@ -212,6 +538,8 @@ class VerifyAgent:
                 self.tool_search_text,
             ],
             reference_files=reference_files,
+            checker_registry=self.plugin_checker_registry,
+            test_python_import_roots=plugin_python_import_roots,
         )
         self._default_system_prompt = (
             sys_tips if sys_tips else self.get_default_system_prompt()
@@ -251,6 +579,36 @@ class VerifyAgent:
         self.cwd_read_only_files = fc.chmode_ro_by_pattern(
             self.workspace, self.cfg.get_value("un_write_dirs", [])
         )
+        self.tool_waveinfo = WaveInfo(
+            workspace=self.workspace,
+            test_dir=self.cfg.tools.RunTestCases.test_dir,
+            dut_name=self.dut_name,
+        )
+        self.tool_apply_waveinfo_evidence = ApplyWaveInfoEvidence(
+            waveinfo=self.tool_waveinfo,
+            workspace=self.workspace,
+            write_dirs=self.cfg.write_dirs,
+            un_write_dirs=self.cfg.un_write_dirs,
+        )
+        self.tool_review_waveinfo_evidence_batch = ReviewWaveInfoEvidenceBatch(
+            evidence_writer=self.tool_apply_waveinfo_evidence,
+        )
+        self.tool_list_waveform = [
+            self.tool_waveinfo,
+            self.tool_apply_waveinfo_evidence,
+            self.tool_review_waveinfo_evidence_batch,
+        ]
+        self.tool_list_plugin = create_plugin_tools(
+            self.plugins,
+            PluginContext(
+                workspace=Path(self.workspace),
+                output_dir=os.path.relpath(self.output_dir, self.workspace),
+                write_dirs=tuple(self.cfg.write_dirs),
+                un_write_dirs=tuple(self.cfg.un_write_dirs),
+                cfg=self.cfg,
+                plugin_root=Path(self.workspace),
+            ),
+        )
         self.tool_list_file = [
             # Directory and file listing tools
             self.tool_list_dir,
@@ -267,6 +625,11 @@ class VerifyAgent:
                 un_write_dirs=self.cfg.un_write_dirs,
             ),
             EditTextFile(
+                self.workspace,
+                write_dirs=self.cfg.write_dirs,
+                un_write_dirs=self.cfg.un_write_dirs,
+            ),
+            DeleteTextLines(
                 self.workspace,
                 write_dirs=self.cfg.write_dirs,
                 un_write_dirs=self.cfg.un_write_dirs,
@@ -303,6 +666,25 @@ class VerifyAgent:
             self.cfg.get_value("ex_tools", []), ucagent.tools
         ) + import_and_instance_tools(ex_tools, ucagent.tools) + self.tool_skill
 
+        non_plugin_tools = (
+            self.tool_list_base
+            + self.tool_list_waveform
+            + self.tool_list_file
+            + self.tool_list_task
+            + self.tool_list_ext
+        )
+        non_plugin_names = {tool.name for tool in non_plugin_tools}
+        conflicting_plugin_names = sorted(
+            tool.name
+            for tool in self.tool_list_plugin
+            if tool.name in non_plugin_names
+        )
+        if conflicting_plugin_names:
+            raise ValueError(
+                "Plugin tool names conflict with registered UCAgent tools: "
+                f"{conflicting_plugin_names}"
+            )
+
         # Export workspace path via environment variable for ext tools
         os.environ["UCAGENT_WORKSPACE"] = self.workspace
 
@@ -323,7 +705,7 @@ class VerifyAgent:
             "conversation_summary.max_tokens", 20 * 1024
         )
         self.max_summary_tokens = self.cfg.get_value(
-            "conversation_summary.max_summary_tokens", 1 * 1024
+            "conversation_summary.max_summary_tokens", 8 * 1024
         )
         self.context_management_strategy = self.cfg.get_value(
             "conversation_summary.context_management_strategy",
@@ -352,6 +734,11 @@ class VerifyAgent:
         self._need_break = False
         self._break_threads: set[int] = set()
         self._need_human = False
+        self._max_stalled_rounds = self._validated_max_stalled_rounds(
+            self.cfg.get_value("loop_settings.max_stalled_rounds", 0)
+        )
+        self._stalled_rounds = 0
+        self._last_stall_signature = None
         self._force_trace = False
         self._continue_msg = None
         self._mcps = None               # set by PdbMcpServer for api_master heartbeat
@@ -399,6 +786,8 @@ class VerifyAgent:
                 )
         self.test_tools = fc.get_tools_from_cfg(
             self.tool_list_base
+            + self.tool_list_waveform
+            + self.tool_list_plugin
             + self.tool_list_file
             + self.tool_list_task
             + self.tool_list_ext
@@ -451,19 +840,50 @@ class VerifyAgent:
         success = {}
         if self.message_manage_node is None:
             return success
-        for k, v in cfg.items():
-            if hasattr(self.message_manage_node, k):
-                setattr(self.message_manage_node, k, v)
-                success[k] = v
+        aliases = {"max_token": "max_tokens"}
+        for requested_key, value in cfg.items():
+            key = aliases.get(requested_key, requested_key)
+            if not hasattr(self.message_manage_node, key):
+                continue
+            if key in {
+                "max_tokens",
+                "max_summary_tokens",
+                "max_keep_msgs",
+                "tail_keep_msgs",
+            }:
+                try:
+                    value = int(value)
+                except (TypeError, ValueError):
+                    continue
+                if value < 0 or (key == "max_summary_tokens" and value == 0):
+                    continue
+                candidate_max_keep = (
+                    value
+                    if key == "max_keep_msgs"
+                    else self.message_manage_node.max_keep_msgs
+                )
+                candidate_tail_keep = (
+                    value
+                    if key == "tail_keep_msgs"
+                    else self.message_manage_node.tail_keep_msgs
+                )
+                if (
+                    candidate_max_keep > 0
+                    and candidate_tail_keep > candidate_max_keep
+                ):
+                    continue
+            setattr(self.message_manage_node, key, value)
+            if hasattr(self, key):
+                setattr(self, key, value)
+            if key == "max_tokens":
+                self.max_token = value
+            success[requested_key] = value
         return success
 
     def summary_mode(self):
         if self.message_manage_node is None:
             return "None"
-        name = self.message_manage_node.__class__.__name__
-        if self.context_management_strategy == "TrimAndSummaryMiddleware":
-            return f"{name}({self.max_keep_msgs})"
-        return f"{name}({self.max_token})"
+        return self.message_manage_node.__class__.__name__
 
     def summary_max_tokens(self):
         return self.max_summary_tokens
@@ -475,30 +895,69 @@ class VerifyAgent:
             file_path = file_path[1:]
         file_path = os.path.abspath(os.path.join(self.workspace, file_path))
         dut_readme = os.path.join(self.workspace, self.dut_name, "README.md")
+        sections = []
+        if os.path.exists(dut_readme):
+            sections.append("# Goal Description\n")
+            with open(dut_readme, "r", encoding="utf-8") as df:
+                sections.append(df.read() + "\n")
+        sections.append("# Verification Instruction\n")
+        sections.append(self._default_system_prompt + "\n")
         with open(file_path, "w", encoding="utf-8") as f:
-            if os.path.exists(dut_readme):
-                f.write("# Goal Description\n")
-                with open(dut_readme, "r", encoding="utf-8") as df:
-                    f.write(df.read() + "\n")
-            f.write("# Verification Instruction\n")
-            f.write(self._default_system_prompt + "\n")
+            f.write(ensure_markdown_heading_spacing("".join(sections)))
 
     def render_template(self, template_cfg=None, tmp_overwrite=False):
+        resolved_values = self.cfg.__dict__.get("_temp_cfg", {})
         template_context = {
             "DUT": self.dut_name,
+            "OUT": resolved_values.get("OUT", ""),
             "Version": __version__,
             "Email": __email__,
             "CWD": self.workspace,
             "UC_LIB_PATH": ucagent_lib_path(),
+            "RENDERED_AT": datetime.now(timezone.utc).isoformat(),
         }
+        configured_template_values = self.cfg.template_overwrite.as_dict()
+        if any(not isinstance(key, str) for key in configured_template_values):
+            raise ValueError("Template override names must be strings")
+        template_context.update(configured_template_values)
+        template_context.update(self.workflow_template_context)
         if template_cfg is not None:
             template_context.update(template_cfg)
         if self.template is not None:
-            tmp_dir = os.path.join(self.workspace, os.path.basename(self.template))
+            target = self.template_target or os.path.basename(self.template)
+            target = render_template(target, resolved_values)
+            if not isinstance(target, str) or not target.strip():
+                raise ValueError("Template target must resolve to a non-empty string")
+            target_path = Path(target)
+            if target_path.is_absolute():
+                raise ValueError("Template target must be workspace-relative")
+            tmp_dir_path = (Path(self.workspace) / target_path).resolve()
+            try:
+                tmp_dir_path.relative_to(Path(self.workspace).resolve())
+            except ValueError as exc:
+                raise ValueError("Template target must remain inside the workspace") from exc
+            if tmp_dir_path == Path(self.workspace).resolve():
+                raise ValueError("Template target must not be the workspace root")
+            conflict = template_target_read_only_conflict(
+                tmp_dir_path,
+                self.cfg.get_value("un_write_dirs", []),
+                Path(self.workspace),
+            )
+            if conflict is not None:
+                raise ValueError(
+                    "Template target must not overlap a configured read-only path: "
+                    f"{conflict}"
+                )
+            tmp_dir = str(tmp_dir_path)
             info(f"Rendering template from {self.template} to {tmp_dir}")
             if not os.path.exists(tmp_dir) or tmp_overwrite:
                 try:
-                    render_template_dir(self.workspace, self.template, template_context)
+                    render_template_dir(
+                        self.workspace,
+                        self.template,
+                        template_context,
+                        target_dir=self.template_target,
+                    )
                 except Exception as e:
                     debug(traceback.format_exc())
                     error(
@@ -625,6 +1084,9 @@ class VerifyAgent:
             "DUT": self.dut_name,
             "config_file": self.config_file,
             "config_arg": self.config_file,
+            "workflow_config_file": self.workflow_config_file,
+            "plugin_workflow": self.plugin_workflow,
+            "plugins": [item.selector for item in self.plugins],
             "mission_name": self.cfg.mission.name,
             "meta": copy.deepcopy(self.meta),
         }
@@ -635,6 +1097,8 @@ class VerifyAgent:
         return self._is_exit
 
     def exit(self):
+        """Persist runtime state, stop owned services, and restore input modes."""
+
         if self.is_exit():
             return
         try:
@@ -645,6 +1109,12 @@ class VerifyAgent:
             except Exception as exc:
                 warning(f"Failed to save stage information on exit: {exc}")
             self._sync_workspace_back_on_exit()
+            pdb = getattr(self, "pdb", None)
+            mcp_server = getattr(pdb, "_mcp_server", None)
+            if mcp_server is not None and mcp_server.is_running:
+                ok, msg = mcp_server.stop()
+                if not ok:
+                    warning(msg)
         finally:
             fc.chmode_rw(self.cwd_read_only_files)
 
@@ -757,7 +1227,12 @@ class VerifyAgent:
         self._need_human = False
         # conversation loop
         while not self.is_exit():
+            validation_revision = getattr(
+                self.stage_manager, "validation_revision", 0
+            )
+            stage_index = getattr(self.stage_manager, "stage_index", None)
             self.one_loop()
+            self._update_stalled_rounds(validation_revision, stage_index)
             if self.is_exit():
                 break
             if self.is_break():
@@ -774,6 +1249,82 @@ class VerifyAgent:
         )
         info(f"Total time taken: {fmt_time_deta(time_end - self._time_start)}")
         return self
+
+    @staticmethod
+    def _validated_max_stalled_rounds(value):
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ValueError(
+                "loop_settings.max_stalled_rounds must be a non-negative integer"
+            )
+        return value
+
+    @staticmethod
+    def _checker_failure_signature(check_result):
+        if not isinstance(check_result, dict):
+            return None
+        summary = check_result.get("failure_summary")
+        if not isinstance(summary, dict):
+            return None
+        required = (
+            "stage_index",
+            "stage_name",
+            "failed_validation_gate_index",
+            "error_code",
+            "error",
+        )
+        if any(summary.get(key) in (None, "", [], {}) for key in required):
+            return None
+        diagnostic = {key: summary[key] for key in required}
+        serialized = json.dumps(
+            diagnostic,
+            ensure_ascii=True,
+            sort_keys=True,
+            default=str,
+            separators=(",", ":"),
+        )
+        return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+    def _reset_stalled_rounds(self):
+        self._stalled_rounds = 0
+        self._last_stall_signature = None
+
+    def _update_stalled_rounds(self, previous_revision, previous_stage_index):
+        if self._max_stalled_rounds == 0:
+            return
+        current_revision = getattr(
+            self.stage_manager, "validation_revision", previous_revision
+        )
+        if current_revision == previous_revision:
+            return
+        current_stage_index = getattr(
+            self.stage_manager, "stage_index", previous_stage_index
+        )
+        check_result = getattr(self.stage_manager, "last_check_info", {})
+        if (
+            current_stage_index != previous_stage_index
+            or check_result.get("check_pass") is True
+            or check_result.get("progress_summary")
+        ):
+            self._reset_stalled_rounds()
+            return
+        signature = self._checker_failure_signature(check_result)
+        if signature is None:
+            self._reset_stalled_rounds()
+            return
+        if signature == self._last_stall_signature:
+            self._stalled_rounds += 1
+        else:
+            self._last_stall_signature = signature
+            self._stalled_rounds = 1
+        if self._stalled_rounds >= self._max_stalled_rounds:
+            summary = check_result["failure_summary"]
+            warning(
+                "Pausing the agent loop after "
+                f"{self._stalled_rounds} rounds with unchanged Checker diagnostic "
+                f"{summary['error_code']} in stage {summary['stage_index']} "
+                f"({summary['stage_name']})."
+            )
+            self._need_human = True
 
     def one_loop(self, msg=None):
         """Enhanced one loop with intelligent interaction logic based on configured mode"""
@@ -921,6 +1472,12 @@ class VerifyAgent:
                 self.do_work_stream(instructions, config)
             else:
                 self.do_work_values(instructions, config)
+        except Exception as work_error:
+            try:
+                self.backend.recover_pending_tool_calls(work_error)
+            except Exception as recovery_error:
+                warning(f"Failed to recover tool call state: {recovery_error}")
+            raise
         finally:
             self._is_work_busy = False
             if self._exit_on_completion_pending:
@@ -945,7 +1502,7 @@ class VerifyAgent:
         return OrderedDict(
             {
                 "count": len(messages),
-                "size": sum([len(m.content) for m in messages]),
+                "size": sum(len(m.text) for m in messages),
                 "last_20type": ">".join([m.type for m in messages[-20:]]),
                 "to_llm": self.backend.get_statistics(),
             }
@@ -964,9 +1521,65 @@ class VerifyAgent:
         self.message_manage_node.force_summary(self.messages_get_raw())
 
     def status_info(self):
-        msg_info = self.message_info()
-        msg_c, msg_s = msg_info.get("count", "-"), msg_info.get("size", "-")
+        messages = self.backend.messages_get_status()
+        msg_c = len(messages)
+        msg_s = sum(len(message.text) for message in messages)
         msg_stat = self.backend.get_statistics()
+        provider_usage_by_source = msg_stat.get("provider_usage", {})
+        provider_usage = provider_usage_by_source.get("all", {})
+        provider_usage_available = provider_usage.get("responses_with_usage", 0) > 0
+        if provider_usage_available:
+            usage_status = (
+                "partial"
+                if provider_usage.get("responses_without_usage", 0) > 0
+                else "complete"
+            )
+            provider_tokens = (
+                f"{usage_status} "
+                f"{provider_usage.get('input_tokens', 0)}/"
+                f"{provider_usage.get('output_tokens', 0)}/"
+                f"{provider_usage.get('total_tokens', 0)}"
+            )
+        else:
+            provider_tokens = "unavailable"
+
+        def backend_metric(name):
+            metric = getattr(self.backend, name, None)
+            if not callable(metric):
+                return -1.0
+            value = metric()
+            if (
+                isinstance(value, (int, float))
+                and not isinstance(value, bool)
+                and math.isfinite(value)
+            ):
+                return float(value)
+            return -1.0
+
+        token_speed = backend_metric("token_speed")
+        idle = backend_metric("idle")
+
+        context_status = "unavailable"
+        compression_status = "none"
+        message_node = self.message_manage_node
+        if message_node is not None and hasattr(message_node, "get_context_metrics"):
+            context_metrics = message_node.get_context_metrics(messages)
+            context_status = (
+                f"tok={context_metrics['context_tokens_estimated']}/"
+                f"{context_metrics['max_tokens']},"
+                f"msg={context_metrics['context_message_count']}/"
+                f"{context_metrics['max_keep_msgs']}"
+            )
+            last_compression = context_metrics.get("last_compression")
+            if last_compression:
+                compression_status = (
+                    f"{last_compression.get('reason', 'unknown')} "
+                    f"tok={last_compression.get('before_tokens_estimated', '-')}>"
+                    f"{last_compression.get('after_tokens_estimated', '-')},"
+                    f"msg={last_compression.get('before_messages', '-')}>"
+                    f"{last_compression.get('after_messages', '-')}"
+                )
+
         stats = OrderedDict(
             {
                 "UCAgent": self.__version__,
@@ -982,13 +1595,15 @@ class VerifyAgent:
                 "AI-Message": self.backend._stat_msg_count_ai,
                 "Tool-Message": self.backend._stat_msg_count_tool,
                 "Sys-Message": self.backend._stat_msg_count_system,
-                "MsgIn(bytes)": msg_stat["message_in"],
-                "MsgOut(bytes)": msg_stat["message_out"],
+                "ProviderTokens": provider_tokens,
+                "Context": context_status,
+                "Compression": compression_status,
                 "Start Time": fmt_time_stamp(self._time_start),
                 "Run Time": fmt_time_deta(self.stage_manager.get_time_cost()),
-                f"Token Reception({self.backend.token_total()})/TPS": self.backend.token_speed(),
             }
         )
+        stats["Token Speed"] = f"{max(0.0, token_speed):.2f} tok/s"
+        stats["Idle"] = f"{max(0.0, idle):.2f} s"
         return stats
 
     def message_get_str(self, index, count):

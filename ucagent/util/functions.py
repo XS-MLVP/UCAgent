@@ -5,6 +5,30 @@ import shutil
 import socket
 import stat
 from collections.abc import Sequence
+from ucagent.util.bug_analysis_contract import (
+    BUG_ANALYSIS_SECTION_MARKERS,
+    DYNAMIC_BUG_DOCUMENT_PATH,
+    ROOT_SOURCE_EVIDENCE_MARKERS,
+    ROOT_SOURCE_UNAVAILABLE_MARKER,
+    ROOT_ANALYSIS_SECTION_MARKERS,
+    TEST_CASE_SERIALIZATION,
+    BUG_TODO_MARKER,
+    DYNAMIC_BUGS_MARKER,
+    DYNAMIC_BUGS_END_MARKER,
+    RELATED_BUGS_MARKER,
+    ROOT_CAUSE_ANALYSIS_MARKER,
+    ROOT_CAUSE_REFERENCE_MARKER,
+    ROOT_CAUSES_END_MARKER,
+    ROOT_CAUSES_MARKER,
+    WAVEFORM_BUG_ANALYSIS_FIELDS,
+    WAVEFORM_BLOCK_KEY,
+    WAVEFORM_EVIDENCE_END_MARKER,
+    WAVEFORM_EVIDENCE_MARKER,
+    WAVEFORM_FENCE_OPEN,
+    WAVEFORM_LLM_ANALYSIS_FIELDS,
+    WAVEFORM_REFERENCE_MARKER,
+    test_case_parent,
+)
 from ucagent.util.log import info, warning
 import os
 from typing import List, Tuple, Union
@@ -24,6 +48,7 @@ import traceback
 import subprocess
 import selectors
 import signal
+import tempfile
 import textwrap
 
 
@@ -328,14 +353,30 @@ def save_json_file(path: str, data):
     """
     dir_name = os.path.dirname(path)
     if dir_name and not os.path.exists(dir_name):
-        os.makedirs(dir_name)
-    with open(path, 'w', encoding='utf-8') as f:
-        try:
+        os.makedirs(dir_name, exist_ok=True)
+    target_dir = dir_name or os.curdir
+    temp_name = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=target_dir,
+            prefix=f".{os.path.basename(path)}.",
+            suffix=".tmp",
+            delete=False,
+        ) as f:
+            temp_name = f.name
             json.dump(data, f, indent=4, ensure_ascii=False)
-        except TypeError as e:
-            raise ValueError(f"Data provided is not JSON serializable: {e}")
-        except Exception as e:
-            raise RuntimeError(f"Unexpected error while saving JSON file {path}: {e}")
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(temp_name, path)
+    except TypeError as e:
+        raise ValueError(f"Data provided is not JSON serializable: {e}")
+    except Exception as e:
+        raise RuntimeError(f"Unexpected error while saving JSON file {path}: {e}")
+    finally:
+        if temp_name and os.path.exists(temp_name):
+            os.unlink(temp_name)
 
 def get_abs_path_cwd_ucagent(workspace, path):
     """
@@ -429,6 +470,9 @@ def load_toffee_report(
         "fails": len(fails),
     }
     ret_data["tests"]["test_cases"] = tests_map
+    instance_map = _get_toffee_test_case_instances(data, workspace, tests)
+    if instance_map:
+        ret_data["tests"]["test_case_instances"] = instance_map
     if return_test_details:
         ret_data["tests"]["test_case_details"] = _get_toffee_test_case_details(
             data, tests
@@ -438,11 +482,13 @@ def load_toffee_report(
     fc_data = data.get("coverages", {}).get("functional", {})
     ret_data["total_funct_point"] = fc_data.get("point_num_total", 0)
     ret_data["total_check_point"] = fc_data.get("bin_num_total",   0)
-    ret_data["failed_funct_point"] = ret_data["total_funct_point"] - fc_data.get("point_num_hints", 0)
-    ret_data["failed_check_point"] = ret_data["total_check_point"] - fc_data.get("bin_num_hints",   0)
-    # failed bins:
+    # ``hints`` counts coverage-bin hits, so these fields mean "not hit in this
+    # run"; naming them ``unhit_*`` keeps them distinct from failed test cases.
+    ret_data["unhit_funct_point"] = ret_data["total_funct_point"] - fc_data.get("point_num_hints", 0)
+    ret_data["unhit_check_point"] = ret_data["total_check_point"] - fc_data.get("bin_num_hints",   0)
+    # unhit bins:
     # groups->points->bins
-    bins_fail = []
+    bins_unhit = []
     bins_unmarked = []
     bins_funcs = {}
     failed_funcs_bins = {}
@@ -453,15 +499,15 @@ def load_toffee_report(
             cv_funcs = p.get("functions", {})
             for b in p.get("bins", []):
                 bin_full_name = rm_blank_in_str("%s/%s/%s" % (g["name"], p["name"], b["name"]))
-                bin_is_fail = b["hints"] == 0
-                if bin_is_fail:
-                    bins_fail.append(bin_full_name)
+                bin_is_unhit = b["hints"] == 0
+                if bin_is_unhit:
+                    bins_unhit.append(bin_full_name)
                 test_funcs = cv_funcs.get(b["name"], [])
                 if len(test_funcs) < 1:
                     bins_unmarked.append(bin_full_name)
                 else:
                     for tf in test_funcs:
-                        func_key = rm_workspace_prefix(workspace, tf)
+                        func_key = workspace_relative_path(workspace, tf)
                         if func_key not in bins_funcs:
                             bins_funcs[func_key] = []
                         if func_key in fails:
@@ -479,8 +525,9 @@ def load_toffee_report(
     ret_data["failed_test_case_with_check_point_list"] = failed_funcs_bins
     if return_all_checks:
         ret_data["all_check_point_list"] = bins_all
-    if len(bins_fail) > 0:
-        ret_data["failed_check_point_list"] = bins_fail
+        ret_data["test_case_with_check_point_list"] = bins_funcs
+    if len(bins_unhit) > 0:
+        ret_data["unhit_check_point_list"] = bins_unhit
     ret_data["unmarked_check_points"] = len(bins_unmarked)
     if len(bins_unmarked) > 0:
         ret_data["unmarked_check_point_list"] = bins_unmarked
@@ -493,6 +540,108 @@ def load_toffee_report(
     if len(test_fc_no_check_points) > 0:
         ret_data["test_function_with_no_check_point_mark_list"] = test_fc_no_check_points
     return ret_data
+
+
+_TOFFEE_NODE_RE = re.compile(
+    r"<TestReport\s+['\"](?P<node>[^'\"]+?)['\"]\s+when=",
+)
+
+
+def _get_toffee_test_case_instances(
+    data: dict, workspace: str, tests: list[tuple[str, str]]
+) -> dict:
+    """Expose failed parameterized pytest nodes under function-level report keys.
+
+    Toffee's abstract map is intentionally used for coverage and line ranges,
+    while each raw phase report contains the parameterized node that actually
+    executed.  Only failed children are emitted to keep LLM-facing reports bounded.
+    The file path from the abstract key is authoritative; only the
+    node/class/function suffix is taken from the raw report, so a pytest cwd
+    prefix cannot silently change test identity.
+    """
+
+    raw_tests = data.get("tests", [])
+    if not isinstance(raw_tests, list):
+        return {}
+
+    # Abstract entries contain source ranges and are the canonical report keys.
+    # Indexing them against raw tests is invalid for parametrization because one
+    # abstract function expands to many raw pytest items.
+    abstract_by_parent = {}
+    for report_key, status in tests:
+        try:
+            report_file, _line_from, _line_to, report_node = parse_test_case_location(
+                report_key, workspace
+            )
+            parent = "::".join([report_file, *report_node.split("::")])
+        except Exception:
+            continue
+        abstract_by_parent.setdefault(test_case_parent(parent), []).append(
+            (parent, status)
+        )
+
+    instances = {}
+    for raw_test in raw_tests:
+        if not isinstance(raw_test, dict):
+            continue
+        raw_status_data = raw_test.get("status") or {}
+        raw_status = (
+            str(raw_status_data.get("word", "")).upper()
+            if isinstance(raw_status_data, dict)
+            else ""
+        )
+        if raw_status not in {"PASSED", "FAILED", "ERROR", "SKIPPED"}:
+            phase_words = []
+            for phase in raw_test.get("phases", []):
+                phase_status = phase.get("status") if isinstance(phase, dict) else {}
+                if isinstance(phase_status, dict):
+                    phase_words.append(str(phase_status.get("word", "")).upper())
+            raw_status = (
+                "FAILED"
+                if any(word in {"FAILED", "ERROR"} for word in phase_words)
+                else "PASSED"
+            )
+        nodes = []
+        for phase in raw_test.get("phases", []):
+            if not isinstance(phase, dict):
+                continue
+            match = _TOFFEE_NODE_RE.search(str(phase.get("report", "")))
+            if match and match.group("node") not in nodes:
+                nodes.append(match.group("node").strip())
+        for node in nodes:
+            node_parts = node.split("::")
+            if len(node_parts) not in (2, 3):
+                continue
+            raw_function = node_parts[-1]
+            if raw_function.endswith("]") and "[" in raw_function:
+                raw_function = raw_function[: raw_function.find("[")]
+            raw_tail = tuple([*node_parts[1:-1], raw_function])
+            candidates = []
+            for abstract_parent, entries in abstract_by_parent.items():
+                abstract_parts = abstract_parent.split("::")
+                if (
+                    os.path.basename(abstract_parts[0]) == os.path.basename(node_parts[0])
+                    and tuple(abstract_parts[1:]) == raw_tail
+                ):
+                    candidates.extend(entries)
+            if len(candidates) != 1:
+                # Raw pytest paths are relative to pytest's cwd, while abstract
+                # paths are workspace-relative.  A unique same-file-basename and
+                # exact class/function correlation selects the authoritative
+                # abstract entry; ambiguity is never resolved by path guessing.
+                continue
+            canonical_parent, _aggregate_status = candidates[0]
+            canonical_node = "::".join([canonical_parent.split("::", 1)[0], *node_parts[1:]])
+            if (
+                test_case_parent(canonical_node) == canonical_node
+                or raw_status not in {"FAILED", "ERROR"}
+            ):
+                continue
+            entries = instances.setdefault(canonical_parent, [])
+            item = {"node_id": canonical_node, "status": "FAILED"}
+            if item not in entries:
+                entries.append(item)
+    return instances
 
 
 def _get_toffee_test_case_details(data: dict, tests: list) -> dict:
@@ -1059,42 +1208,76 @@ def find_skill_dir_by_name(root_dir, target_dir_name):
             return os.path.join(root, target_dir_name)
     return None
 
-def render_template_dir(workspace, template_dir, kwargs):
+def render_template_dir(workspace, template_dir, kwargs, target_dir=None):
     """
     Render all template files in a directory with the provided keyword arguments.
     :param workspace: The workspace directory where the templates are located.
     :param template_dir: The directory containing the template files.
     :param kwargs: Keyword arguments to be used in the templates.
+    :param target_dir: Optional workspace-relative destination directory.
     :return: A dictionary mapping file names to rendered content.
     """
     assert os.path.exists(workspace), f"Workspace {workspace} does not exist."
     assert os.path.exists(template_dir), f"Template directory {template_dir} does not exist."
     import jinja2
     import shutil
-    dst_dir = os.path.join(workspace, os.path.basename(template_dir))
-    if os.path.exists(dst_dir):
-        shutil.rmtree(dst_dir)
-    shutil.copytree(template_dir, dst_dir)
+    workspace_path = Path(workspace).resolve()
+    template_path = Path(template_dir)
+    copied_relative_files = []
+    for path in template_path.rglob("*"):
+        relative_path = path.relative_to(template_path)
+        if (
+            path.is_file()
+            and "__pycache__" not in relative_path.parts
+            and path.suffix not in {".pyc", ".pyo"}
+        ):
+            copied_relative_files.append(relative_path.as_posix())
+    ignore_compiled_python = shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo")
+    if target_dir is None:
+        dst_dir = workspace_path / os.path.basename(template_dir)
+        if dst_dir.exists():
+            shutil.rmtree(dst_dir)
+        shutil.copytree(template_dir, dst_dir, ignore=ignore_compiled_python)
+    else:
+        target_value = render_template(str(target_dir), kwargs)
+        target_path = Path(target_value)
+        if target_path.is_absolute():
+            raise ValueError("Template target must be workspace-relative")
+        dst_dir = (workspace_path / target_path).resolve()
+        try:
+            dst_dir.relative_to(workspace_path)
+        except ValueError as exc:
+            raise ValueError("Template target must remain inside the workspace") from exc
+        if dst_dir == workspace_path:
+            raise ValueError("Template target must not be the workspace root")
+        dst_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(
+            template_dir,
+            dst_dir,
+            dirs_exist_ok=True,
+            ignore=ignore_compiled_python,
+        )
+    dst_dir = str(dst_dir)
     rendered_files = []
     env = jinja2.Environment(loader=jinja2.FileSystemLoader(dst_dir), keep_trailing_newline=True)
-    for root, _, files in os.walk(dst_dir):
-        for fname in files:
-            abs_path = os.path.join(root, fname)
-            new_fname = jinja2.Template(fname).render(**kwargs)
-            new_abs_path = os.path.join(root, new_fname)
-            if new_fname != fname:
-                os.rename(abs_path, new_abs_path)
-                abs_path = new_abs_path
-            if "/__pycache__/" in abs_path or not is_text_file(abs_path):
-                continue
-            info(f"Rendering template file: {abs_path}")
-            with open(abs_path, "r", encoding="utf-8") as f:
-                content = f.read()
-            template = env.from_string(content)
-            rendered_content = template.render(**kwargs)
-            with open(abs_path, "w", encoding="utf-8") as f:
-                f.write(rendered_content)
-            rendered_files.append(os.path.relpath(abs_path, workspace))
+    for relative_file in copied_relative_files:
+        abs_path = os.path.join(dst_dir, relative_file)
+        root, fname = os.path.split(abs_path)
+        new_fname = jinja2.Template(fname).render(**kwargs)
+        new_abs_path = os.path.join(root, new_fname)
+        if new_fname != fname:
+            os.rename(abs_path, new_abs_path)
+            abs_path = new_abs_path
+        if not is_text_file(abs_path):
+            continue
+        info(f"Rendering template file: {abs_path}")
+        with open(abs_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        template = env.from_string(content)
+        rendered_content = template.render(**kwargs)
+        with open(abs_path, "w", encoding="utf-8") as f:
+            f.write(rendered_content)
+        rendered_files.append(os.path.relpath(abs_path, workspace))
     return rendered_files
 
 
@@ -1310,7 +1493,7 @@ def list_files_by_mtime(
     subdir: str | Sequence[str] | None = None,
     ignore_patterns: str = "*.pyc,*.log,*.tmp,*.fst,*.dat,*.vcd,*.bin,*.ini,.*",
 ) -> list[tuple[float, float, str]]:
-    """列出目录中的文件并按修改时间倒序排列"""
+    """Return files ordered from most recently modified to oldest."""
     root = Path(directory).resolve()
     if not root.is_dir():
         return []
@@ -1361,7 +1544,34 @@ def list_files_by_mtime(
         collect(target)
 
     files.sort(key=lambda x: x[0])
+    # Every scan refreshes the shared file-activity cache so idle monitors
+    # can reuse the TUI/server changed-files work instead of rescanning.
+    newest = max((entry[1] for entry in files), default=None)
+    _FILE_ACTIVITY_CACHE[str(root)] = (time.monotonic(), newest)
     return files[:max_files]
+
+
+_FILE_ACTIVITY_CACHE: dict[str, tuple[float, float]] = {}
+
+
+def newest_file_mtime(
+    directory: str | os.PathLike[str],
+    max_age: float = 1.0,
+) -> float | None:
+    """Return the newest regular-file mtime under one directory, reuse-first.
+
+    ``list_files_by_mtime`` underpins the TUI and server changed-files status
+    and refreshes a shared scan cache on every call.  This accessor returns
+    the cached newest mtime while that scan is younger than ``max_age`` and
+    only rescans proactively when the existing logic has not run recently.
+    """
+
+    key = str(Path(directory).resolve())
+    cached = _FILE_ACTIVITY_CACHE.get(key)
+    if cached is not None and time.monotonic() - cached[0] <= max_age:
+        return cached[1]
+    list_files_by_mtime(directory)
+    return _FILE_ACTIVITY_CACHE.get(key, (0.0, None))[1]
 
 
 def fix_json_string(json_str):
@@ -1547,6 +1757,8 @@ def create_verify_mcps(mcp_tools: list, host: str, port: int, logger=None):
 
 
 def start_verify_mcps(server, old_getLogger):
+    """Run a configured uvicorn MCP server and propagate startup failures."""
+
     import logging
     from ucagent.util.log import info
     import anyio
@@ -1556,11 +1768,13 @@ def start_verify_mcps(server, old_getLogger):
         anyio.run(_run)
     except Exception as e:
         info(f"FastMCP server exit with: {e}")
-    info("FastMCP server stopped.")
-    # logging.getLogger was already restored in create_verify_mcps; this is kept
-    # for safety in case old_getLogger is still the real function (no-op then).
-    if old_getLogger is not None:
-        logging.getLogger = old_getLogger
+        raise
+    finally:
+        info("FastMCP server stopped.")
+        # logging.getLogger was already restored in create_verify_mcps; this is
+        # kept for safety when old_getLogger is still the real function.
+        if old_getLogger is not None:
+            logging.getLogger = old_getLogger
 
 
 def stop_verify_mcps(server):
@@ -1574,15 +1788,15 @@ def stop_verify_mcps(server):
 
 def get_diff(old_lines, new_lines, file_name):
     import difflib
-    diff = difflib.unified_diff(
+    diff = "".join(difflib.unified_diff(
         old_lines,
         new_lines,
         fromfile=file_name + "(old)",
         tofile=file_name + "(new)",
-    )
+    ))
     if not diff:
         return "\n[DIFF]\nNo changes detected."
-    return "\n[DIFF]\n" + "".join(diff)
+    return "\n[DIFF]\n" + diff
 
 
 def max_str(str_data, max_size=10):
@@ -1767,7 +1981,9 @@ def get_str_array_diff(str_list1, str_list2):
 
 
 def clean_report_with_keys(
-    report: dict, keys: list = None, default_keys=["all_check_point_list"]
+    report: dict,
+    keys: list = None,
+    default_keys=["all_check_point_list", "test_case_with_check_point_list"],
 ) -> dict:
     data = copy.deepcopy(report)
     target_keys = []
@@ -1777,29 +1993,55 @@ def clean_report_with_keys(
 
 
 def description_bug_doc():
+    section_markers = " -> ".join(
+        marker for _key, marker in BUG_ANALYSIS_SECTION_MARKERS
+    )
+    root_section_markers = " -> ".join(
+        marker for _key, marker in ROOT_ANALYSIS_SECTION_MARKERS
+    )
+    source_markers = ", ".join(ROOT_SOURCE_EVIDENCE_MARKERS)
+    shared_fields = ", ".join(WAVEFORM_LLM_ANALYSIS_FIELDS)
+    bug_fields = ", ".join(WAVEFORM_BUG_ANALYSIS_FIELDS)
     return [
-        "[Bug Analysis Document Format] (see Guide_Doc/dut_bug_analysis.md for details)",
-        "  Tag hierarchy: <FG-GROUP> / <FC-FUNCTION> / <CK-CHECKPOINT> / <BG-BUGNAME-XX> / <TC-FAILEDTESTCASE>",
-        "  - Confidence(XX): integer 0~100, indicating confidence level (0=known ignore/placeholder, 100=confirmed bug)",
-        "  - <TC-*> format: <TC-test_xxx.py::[ClassName::]test_func_name>, ClassName is optional",
-        "  - Each <BG-*> must have at least one FAILED <TC-*> test case",
-        "  - Failed checkpoints should also be recorded as bugs, using 'assert False' as placeholder if needed",
-        "  Format example:",
-        "    <FG-LOGIC>",
-        "            <FC-ADD>",
-        "                <CK-BASIC>",
-        "                    <BG-ADD_OVERFLOW-80> Addition overflow handling error, 80% confidence",
-        "                       <TC-test_add.py::test_add_overflow> Overflow boundary test",
-        "                       <TC-test_add.py::test_add_max_value> Max value test",
-        "                   Bug root cause analysis:",
-        "                   ```verilog",
-        "                     // Adder.v line 10, bit-width error",
-        "                     10: output [WIDTH-2:0] sum,  // BUG: should be [WIDTH-1:0]",
-        "                   ```",
-        "                   Fix suggestion:",
-        "                   ```verilog",
-        "                     10: output [WIDTH-1:0] sum,  // FIX: restore correct bit-width",
-        "                   ```",
+        "[Dynamic Bug Analysis Contract] Follow the active stage task and Guide_Doc/dut_bug_analysis.md for the complete workflow. When the active stage enables dynamic-bug-recording and its script is available, prefer that Skill's deterministic operations and ApplyWaveInfoEvidence, and avoid proactive direct edits to the Bug document. For a document-format blocker, attempt the returned next_action or -MODE repair once. If the same blocker remains or malformed structure prevents that recovery, edit only the exact reported markers, paths, or lines, preserve unrelated analysis and WAVEFORM-EVIDENCE content, and immediately rerun -MODE repair and Check. Follow the scope and after_edit call in a returned manual_edit_fallback. When Skill support or the script is unavailable, use text-editing tools for the same canonical contract.",
+        f"  - The only dynamic Bug target is {DYNAMIC_BUG_DOCUMENT_PATH}. Its visible Markdown title is not a filename rule; never derive or create another filename from that title.",
+        f"  - Keep the documented TC on the exact function-level report node: Markdown `{TEST_CASE_SERIALIZATION['markdown_tag']}`; recorder/Apply arguments and waveform YAML test_case `{TEST_CASE_SERIALIZATION['tool_or_yaml']}`. For a non-parameterized test, WaveInfo test_case_name is `{TEST_CASE_SERIALIZATION['waveinfo']}` for that same node. When Toffee aggregates parameterized executions, `tests.test_case_instances` lists exact child nodes; WaveInfo uses one FAILED child while the document TC stays unchanged. A child is related only when removing its final `[...]` leaves the byte-for-byte same workspace-relative path, optional class, and function.",
+        f"  - Put dynamic Bug entries inside one closed {DYNAMIC_BUGS_MARKER} ... {DYNAMIC_BUGS_END_MARKER} container, root-cause entities inside one closed {ROOT_CAUSES_MARKER} ... {ROOT_CAUSES_END_MARKER} container, then waveform records inside one closed {WAVEFORM_EVIDENCE_MARKER} ... {WAVEFORM_EVIDENCE_END_MARKER} container.",
+        "  - For a completed no-Bug result, keep the canonical document title and the three ordered closed containers, with every container body empty. Do not put explanatory prose, BG-*-0, TC/ROOT placeholders, comments, or waveform records in those bodies.",
+        "  - Use the exact semantic heading hierarchy shown in Guide_Doc/dut_bug_analysis.md section 5.1 for FG, FC, CK, BG, and TC. Angle-bracket tags may be hidden by Markdown, so every visible title must describe the actual item rather than repeat its type.",
+        "  - XX must be 1..100 for a dynamically reproduced DUT Bug. A zero-confidence BG is ignored and cannot explain a failed test.",
+        "  - Every non-zero BG must contain at least one correctly implemented FAILED TC mapped to the same checkpoint.",
+        "  - Validation is scoped to the full FG/FC/CK/BG path. Keep one BG occurrence per checkpoint branch, with all sibling TCs before the three BG fields and one root-cause reference.",
+        "  - When one root cause affects FAILED TCs associated with different checkpoints, the same BG tag may repeat under those CK branches. Every CK-scoped BG path independently contains its three BG fields and one reference; the shared ROOT entity contains the full root analysis once. Central waveform data remains unique per TC.",
+        f"  - Every BG path has exactly one root cause. Put one clickable {ROOT_CAUSE_REFERENCE_MARKER} at the end of <BUG-TRIGGER>; define the shared analysis once under {ROOT_CAUSE_ANALYSIS_MARKER}. A root cause may list multiple full BG paths under {RELATED_BUGS_MARKER}, and every link must be bidirectional. If a combination creates the defect, that combination is one distinct root cause.",
+        "  - Every root-cause entity must use one document-wide unique <ROOT-NAME> tag and a visible title. Each entity must list at least one existing full BG path under <RELATED-BUGS>; each BG path must point to exactly one root entity through one <CAUSE-REF-ROOT-NAME> tag. Every reverse entry embeds its full path in <RELATED-BUG-FG-NAME/FC-NAME/CK-NAME/BG-NAME-XX> and adds a clickable link; the embedded path, link text, target BG, and generated anchor must match exactly.",
+        "  - Every remaining FAILED DUT test must appear under at least one non-zero BG at one of the exact checkpoints associated with that test in the current report.",
+        "  - A FAILED TC may trigger and cover a checkpoint that is itself PASSED. TC status and checkpoint coverage status are independent; never require every FAILED TC to map to an unhit checkpoint or infer checkpoint non-coverage from TC failure.",
+        "  - Every remaining unhit checkpoint must have at least one correctly implemented FAILED TC that the current report associates with that exact FG/FC/CK path; the same CK/BG/TC relation must appear in the Bug document.",
+        "  - Do not assume which side caused a FAILED TC. Before WaveInfo or a non-zero BG, derive an independent expected value from the specification, an independent reference model, or a verifiable formula. Record and compare the exact input, specification expected, test expected, DUT actual, and classification. If the two expected values differ, fix the test and rerun; do not record a Bug.",
+        "  - If the expected values agree, validate the test stimulus/driver, API callbacks and Step ordering, valid sampling edge/condition and latency, fixtures, reference model, reset, and environment. Then validate the associated checkpoint coverage/check function, predicate, CovGroup.sample call, and sample timing. Fix each verification error and rerun before using WaveInfo.",
+        "  - An unhit checkpoint does not by itself prove a DUT Bug. Only after the preceding checks are correct and the DUT actual still violates the specification may the FAILED TC proceed to WaveInfo and a non-zero dynamic BG.",
+        f"  - The first non-empty content after every TC must be the exact {WAVEFORM_REFERENCE_MARKER} link generated by ApplyWaveInfoEvidence. Do not place YAML or a viewer inside a BG entry.",
+        f"  - Each failed TC has exactly one central WAVEFORM-TC record whose visible heading reuses the TC title followed by the waveform suffix. Its {WAVEFORM_FENCE_OPEN} mapping must use {WAVEFORM_BLOCK_KEY} as the only top-level key and must be followed by the tool-generated WAVEFORM-VIEWER link. Do not copy, invent, or edit receipt-backed fields.",
+        f"  - Complete shared field {shared_fields} once per TC. Under bug_evidence, complete {bug_fields} once for every associated BG. bug_tags and bug_evidence must exactly match all BG/TC references.",
+        "  - ApplyWaveInfoEvidence owns one exact BG/TC association per call and preserves all non-target associations and central records. For multiple failed TCs with one root cause, reuse the BG and call each TC separately. If one failed TC exposes independent Bugs, keep distinct BGs and call the same TC once for each distinct bug_tag. All calls share one central record. Cross-BG application does not require replace_existing.",
+        "  - For a TC associated with multiple Bugs, the signed signal_groups and viewer must include the union of every bug_evidence.<BG>.required_signals. If a new Bug needs another signal, obtain a new final receipt with the expanded signal set and apply it with replace_existing=true.",
+        "  - A final WaveInfo call must provide complete signal_groups: the DUT clock mode and clock when present, relevant input data/control, relevant output data/status/validity, actual request/response protocol controls, and at least one function-specific selector, state, flag, or internal propagation signal. The same signed paths must be present in the timeline and online viewer; a target data bus alone is insufficient.",
+        "  - Event pattern entries locate the failed transaction; signal_groups load context without creating extra triggers. Classify roles from the specification, DUT ports, test API/driver, and RTL, and use real signed paths. Do not infer protocol semantics from signal names.",
+        "  - WaveInfo event matches are not automatic Bug decisions. The LLM must read the interface specification and test-driver/API Step ordering, identify ready/valid or the DUT's actual equivalent request-accept and response-valid conditions, account for backpressure and latency, and prove the observed output belongs to the failed transaction.",
+        "  - One Step only advances simulation; it does not prove request acceptance or output validity. Check whether the API already steps/waits and sample only at the specified edge, after the required latency, or when response-valid/done/ack/busy conditions permit it.",
+        "  - Do not classify a data mismatch sampled while valid/enable is inactive, ready/accept is false, reset/idle/transition rules make data invalid, or the documented response latency has not elapsed. Such a point is only an investigation clue unless the specification explicitly requires behavior there.",
+        "  - The first non-empty content after the central YAML fence must be the same final WaveInfo result's <WAVEFORM-VIEWER> tagged Markdown link. Its marker, /surfer/?wave= route, and signed token must not be edited or constructed manually.",
+        f"  - Inside every non-zero BG, include each analysis marker exactly once and in this order: {section_markers}.",
+        "  - Put every TC and its WAVEFORM-REF directly after the owning BG heading. Put the three BG fields after the final TC/reference; no TC may appear after the first analysis marker.",
+        f"  - Before each analysis marker, use the exact level-6 display title shown in Guide_Doc/dut_bug_analysis.md section 5.1, then write the field body after the marker. Keep this marker order: {section_markers}. Do not rename, translate, omit, duplicate, or reorder them.",
+        f"  - Fill every marked BG field and every ROOT field with evidence-backed content and remove every {BUG_TODO_MARKER}. ROOT fields must appear in this order: {root_section_markers}; use the complete canonical reference in Guide_Doc/dut_bug_analysis.md section 5.1.",
+        f"  - With source access, <ROOT-SOURCE-EVIDENCE> must contain a real HDL path:start-end and a complete HDL fenced block containing each marker exactly once: {source_markers}.",
+        "  - Source locations must use an inclusive numeric range without an `L` prefix: `Adder/Adder.v:10-14` is valid, while `Adder/Adder.v:10` must be repaired to `Adder/Adder.v:10-10` and `Adder/Adder.v:L10-L14` must be repaired to `Adder/Adder.v:10-14`. This format-only repair does not require new tests, WaveInfo, or Bug classification.",
+        f"  - Without source access, put one standalone {ROOT_SOURCE_UNAVAILABLE_MARKER} in <ROOT-SOURCE-EVIDENCE> and provide a black-box causal analysis from the interface contract, failure log, and waveform. This branch cannot contain an HDL fence or any {source_markers} marker.",
+        "  - After classification confirms a DUT Bug and dynamic-bug-recording is available, prefer record_dynamic_bug.py with -MODE bug for the first exact TC association under each new BG path and -MODE root for each distinct ROOT. For a document-format blocker, attempt the returned next_action or -MODE repair once; edit only the exact reported markers, paths, or lines if the same blocker remains or malformed structure prevents that recovery, then immediately rerun -MODE repair and Check. Follow a returned manual_edit_fallback scope and after_edit call. Preserve unrelated analysis and WAVEFORM-EVIDENCE content. Add later sibling TCs under an existing CK/BG through WaveInfo and ApplyWaveInfoEvidence. When the Skill or script is unavailable, use text-editing tools to produce the same Guide_Doc/dut_bug_analysis.md section 5.1 contract.",
+        "  - Keep only manifestation, severity, scope, and trigger-specific impact in the BG. Keep source evidence, causal chain, fix, risk, and revalidation in the owning ROOT entity; keep receipt/viewer/signal evidence in the central TC record.",
+        "  - Fix test code, expected values, fixtures/APIs, reference models, timing, and environment failures until they pass. Never preserve a non-Bug failure with assert False, weakened assertions, or BG-*-0.",
     ]
 
 
@@ -2109,8 +2351,14 @@ def check_has_assert_in_tc(workspace, report, target_tc_prefix="", ignore_tc_pre
     """Check tc has assert or not"""
 
     def has_assert(text_str):
-        for key in ["assert", "pytest.raises"]:
-            if len([l for l in text_str.splitlines() if key in l.strip()]) > 0:
+        # Match real assertions only: full-line comments, identifier fragments
+        # like ``asserted_count``, and unittest methods such as ``assertEqual``
+        # must not satisfy the gate that the diagnostic text below promises.
+        for line in text_str.splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            if re.search(r"\bassert\b|pytest\.raises\b", line):
                 return True
         return False
 
@@ -2156,7 +2404,7 @@ def replace_bash_var(in_str, data: dict):
     def replace_match(match):
         key = match.group("key").strip()
         default = match.group("default").strip()
-        return str(data.get(key, default)) if default else str(data.get(key))
+        return str(data[key]) if key in data else default
 
     return re.sub(pattern, replace_match, in_str)
 
@@ -2470,11 +2718,19 @@ def get_interaction_messages(key, config_file=None):
 
 
 def is_run_report_pass(report, stdout, stderr):
+    contract_failure = report.get("test_function_contract") if isinstance(report, dict) else None
+    if contract_failure:
+        return False, contract_failure
     run_pass = report.get("run_test_success", False)
     if run_pass:
         return True, ""
     return False, {
-        "error": "[Run Failed] Running test cases / generating report failed! Check STDOUT and STDERR output to identify the cause (common issues: import errors, syntax errors, undefined fixtures, DUT compilation failures, etc.).",
+        "error": (
+            "[Run Failed] Test execution or report generation failed. Read STDERR and "
+            "STDOUT, fix the first concrete error at its reported file and line, then "
+            "rerun the same tests. Do not edit the Bug document until "
+            "run_test_success is true."
+        ),
         "STDOUT": stdout,
         "STDERR": stderr,
     }
@@ -2654,24 +2910,41 @@ def get_xml_tag_list(workspace, xml_file, tag_name: str) -> list:
 
 
 def match_pattern_list(name: str, pattern_list: list) -> bool:
-    """Check if the name matches any pattern in the pattern list."""
+    """Match basename rules or exact source-relative path/subtree rules."""
+
+    normalized_name = name.replace(os.sep, "/").strip("/")
     for pattern in pattern_list:
-        if "*" in pattern:
-            if fnmatch.fnmatch(name, pattern):
+        normalized_pattern = str(pattern).replace(os.sep, "/").strip("/")
+        if "/" in normalized_pattern:
+            if any(character in normalized_pattern for character in "*?["):
+                if fnmatch.fnmatch(normalized_name, normalized_pattern):
+                    return True
+            elif normalized_name == normalized_pattern or normalized_name.startswith(
+                normalized_pattern + "/"
+            ):
+                return True
+        elif any(character in normalized_pattern for character in "*?["):
+            if fnmatch.fnmatch(normalized_name, normalized_pattern):
                 return True
         else:
-            if pattern in name:
+            if normalized_pattern in normalized_name:
                 return True
     return False
 
 
-def sync_dir_to(source_dir, target_dir, ignore_pattern_list=[]):
+def sync_dir_to(
+    source_dir,
+    target_dir,
+    ignore_pattern_list=None,
+    _relative_root="",
+):
     """Sync source directory to target directory with incremental updates and deletion support.
 
     Args:
         source_dir: Source directory path
         target_dir: Target directory path
-        ignore_pattern_list: List of patterns to ignore during sync
+        ignore_pattern_list: Basename or source-relative POSIX path patterns to ignore
+        _relative_root: Internal source-relative recursion prefix
 
     Returns:
         target_dir: The target directory path
@@ -2681,6 +2954,7 @@ def sync_dir_to(source_dir, target_dir, ignore_pattern_list=[]):
         - Removes files/directories in target that don't exist in source
         - Recursively syncs subdirectories
     """
+    ignore_pattern_list = list(ignore_pattern_list or [])
     if not os.path.exists(source_dir):
         raise Exception(f"Source directory '{source_dir}' does not exist.")
     if not os.path.isdir(source_dir):
@@ -2691,14 +2965,17 @@ def sync_dir_to(source_dir, target_dir, ignore_pattern_list=[]):
     source_items = set()
     # Sync items from source to target
     for item in os.listdir(source_dir):
-        if match_pattern_list(item, ignore_pattern_list):
+        relative_item = "/".join(part for part in (_relative_root, item) if part)
+        if match_pattern_list(item, ignore_pattern_list) or match_pattern_list(
+            relative_item, ignore_pattern_list
+        ):
             continue
         source_items.add(item)
         s = os.path.join(source_dir, item)
         d = os.path.join(target_dir, item)
         if os.path.isdir(s):
             # Recursively sync subdirectories
-            sync_dir_to(s, d, ignore_pattern_list)
+            sync_dir_to(s, d, ignore_pattern_list, relative_item)
         else:
             # Check if file needs to be copied
             need_copy = False
@@ -2716,7 +2993,10 @@ def sync_dir_to(source_dir, target_dir, ignore_pattern_list=[]):
                 shutil.copy2(s, d)
     # Remove items in target that don't exist in source
     for item in os.listdir(target_dir):
-        if match_pattern_list(item, ignore_pattern_list):
+        relative_item = "/".join(part for part in (_relative_root, item) if part)
+        if match_pattern_list(item, ignore_pattern_list) or match_pattern_list(
+            relative_item, ignore_pattern_list
+        ):
             continue
         if item not in source_items:
             d = os.path.join(target_dir, item)
@@ -2728,12 +3008,14 @@ def sync_dir_to(source_dir, target_dir, ignore_pattern_list=[]):
                 info(f"Removed file from target: {item}")
     return target_dir
 
-def copy_skill_files(cfg, workspace, root_dir):
-    """Copy skill files to workspace,include default skills and additional skills.
+def copy_skill_files(cfg, workspace, root_dir, plugin_skill_paths=None):
+    """Copy core, configured, and active-plugin Skill collections to a workspace.
+
     Args:
         cfg: Configuration object
         workspace: Workspace directory path
         root_dir: Root directory path
+        plugin_skill_paths: Plugin-name and Skill-root pairs contributed by active plugins.
     """
     dst_path = get_workspace_skill_root(workspace)
     copy_tasks = []
@@ -2744,6 +3026,10 @@ def copy_skill_files(cfg, workspace, root_dir):
     if cfg.skill.extra_skill_path:
         extra_skill_path = os.path.abspath(cfg.skill.extra_skill_path)
         copy_tasks.append((extra_skill_path, os.path.join(dst_path, "ext")))
+    for plugin_name, plugin_skill_path in plugin_skill_paths or []:
+        source = os.path.abspath(plugin_skill_path)
+        target = os.path.join(dst_path, "ext", plugin_name)
+        copy_tasks.append((source, target))
     # Copy skills to workspace
     for src_path, target_path in copy_tasks:
         if os.path.exists(src_path):
@@ -2828,10 +3114,27 @@ def get_func_params_regex(source_code: str) -> list[str]:
     return params
 
 
-def process_bash_cmd(CWD, cmd, echo_func, interrupted_fc=None):
+def process_bash_cmd(
+    CWD,
+    cmd,
+    echo_func,
+    interrupted_fc=None,
+    idle_timeout=None,
+    activity_fc=None,
+):
+    """Run a shell command while streaming output and honoring cancellation.
+
+    ``idle_timeout`` measures seconds since the last stdout/stderr byte or
+    active callback report. A non-positive value or ``None`` disables the
+    timeout. The command and its descendants are terminated as one process
+    group when cancellation or the idle timeout fires. The timeout is reported
+    as a command failure, while explicit cancellation remains an interruption.
+    ``activity_fc`` may return a falsy value while still marking activity by
+    mutating the shared ``activity_marks`` list, so callers can report
+    side-channel work (for example observed file changes) without blocking
+    the tool-call probe.
     """
-    Process a bash command and return the output.
-    """
+    activity_marks: list = []
     def _terminate_process(process):
         if process.poll() is not None:
             info(f"Process {process.pid} already terminated.")
@@ -2867,6 +3170,7 @@ def process_bash_cmd(CWD, cmd, echo_func, interrupted_fc=None):
                                bufsize=0, **popen_kwargs)
     output_lines = []
     interrupted = False
+    last_output_at = time.monotonic()
     line_buffer = ""
     decoder = codecs.getincrementaldecoder(locale.getpreferredencoding(False))(errors="replace")
 
@@ -2937,8 +3241,31 @@ def process_bash_cmd(CWD, cmd, echo_func, interrupted_fc=None):
                     _terminate_process(process)
                     info(f"Bash command '{cmd}' aborted.")
                     break
-                _drain_stdout(timeout=0.1)
+                read_any = _drain_stdout(timeout=0.1)
+                tool_active = False
+                if callable(activity_fc):
+                    try:
+                        tool_active = bool(activity_fc(activity_marks))
+                    except Exception:
+                        # Treat an unavailable probe as active work so a
+                        # backend cannot kill a command during a tool call.
+                        tool_active = True
+                if read_any or tool_active or activity_marks:
+                    activity_marks.clear()
+                    last_output_at = time.monotonic()
                 if process.poll() is not None:
+                    break
+                if (
+                    idle_timeout is not None
+                    and idle_timeout > 0
+                    and time.monotonic() - last_output_at >= idle_timeout
+                ):
+                    warning(
+                        f"Terminating process {process.pid} after "
+                        f"{idle_timeout:g} seconds without output or active tool calls."
+                    )
+                    _terminate_process(process)
+                    info(f"Bash command '{cmd}' timed out while idle.")
                     break
         except KeyboardInterrupt:
             interrupted = True

@@ -85,6 +85,7 @@ def test_cli_writes_exception_to_web_console_capture_arg():
             os.path.abspath(os.path.join(current_dir, "..", "ucagent", "cli.py")),
             "/tmp/no-workspace",
             "NoDut",
+            "--no-use-skill",
             "--extra-skill-path",
             "bad-skill-path",
             "--web-console-capture-path",
@@ -102,6 +103,6 @@ def test_cli_writes_exception_to_web_console_capture_arg():
 
         output = open(capture.name, "rb").read().decode("utf-8", "replace")
         assert "UCAgent encountered an error" in output
-        assert "--extra-skill-path requires --use-skill is True" in output
+        assert "--extra-skill-path cannot be used with --no-use-skill" in output
     finally:
         os.unlink(capture.name)

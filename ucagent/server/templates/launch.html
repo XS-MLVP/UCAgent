@@ -2482,7 +2482,8 @@ function buildCommandPreview() {
   if (dynamicOptions.tui) args.push('--tui');
   if (dynamicOptions.loop) args.push('-l');
   if (dynamicOptions.mcp_server_no_file_tools) args.push('--mcp-server-no-file-tools');
-  if (dynamicOptions.use_skill) args.push('--use-skill');
+  if (dynamicOptions.use_skill === true) args.push('--use-skill');
+  if (dynamicOptions.use_skill === false) args.push('--no-use-skill');
   if (dynamicOptions.extra_skill_path) args.push('--extra-skill-path', dynamicOptions.extra_skill_path);
   const backend = document.getElementById('backend').value.trim();
   if (backend) args.push('--backend', backend);

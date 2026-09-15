@@ -4,7 +4,8 @@
 
 from langchain_core.tools import BaseTool
 from langchain_core.tools.base import ArgsSchema
-from pydantic import Field, BaseModel, ConfigDict, PrivateAttr
+from langchain_core.messages import ToolMessage
+from pydantic import Field, BaseModel, ConfigDict, PrivateAttr, ValidationError
 from typing import Callable, Optional, Any
 from mcp.server.fastmcp import Context
 from langchain_mcp_adapters.tools import _get_injected_args, create_model, ArgModelBase, FuncMetadata
@@ -14,8 +15,16 @@ import ucagent.util.functions as fc
 import threading
 import concurrent.futures
 import asyncio
+import os
+import weakref
 from ucagent.util.cqueque import CircularOverwriteQueue
 import time
+
+
+_keyed_async_locks = weakref.WeakValueDictionary()
+_keyed_async_locks_guard = threading.Lock()
+_keyed_sync_locks = weakref.WeakValueDictionary()
+_keyed_sync_locks_guard = threading.Lock()
 
 
 class EmptyArgs(BaseModel):
@@ -32,6 +41,12 @@ class ExtraArgModelBase(ArgModelBase):
         kwargs = super().model_dump_one_level()
         kwargs.update(getattr(self, "__pydantic_extra__", None) or {})
         return kwargs
+
+
+class ForbidExtraArgModelBase(ArgModelBase):
+    """FastMCP argument model base that rejects undeclared tool arguments."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True, extra="forbid")
 
 
 class UCTool(BaseTool):
@@ -101,13 +116,22 @@ class UCTool(BaseTool):
         default=False,
         description="send block message to client"
     )
+    call_lock_arguments: tuple[str, ...] = Field(
+        default=(),
+        description="Tool input paths used to serialize conflicting calls."
+    )
     _async_lock: asyncio.Lock = PrivateAttr(default=None)
+    _sync_lock: Any = PrivateAttr(default_factory=threading.RLock)
 
     @property
     def async_lock(self) -> asyncio.Lock:
         if self._async_lock is None:
             self._async_lock = asyncio.Lock()
         return self._async_lock
+
+    @property
+    def sync_lock(self):
+        return self._sync_lock
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -168,14 +192,121 @@ class UCTool(BaseTool):
         return {"error": f"Tool ({self.__class__.__name__}) call timed out after {self.call_time_out} seconds.",
                 "logs":  data}
 
+    @staticmethod
+    def _tool_call_details(input) -> Optional[tuple[str, str]]:
+        if not isinstance(input, dict) or input.get("type") != "tool_call":
+            return None
+        tool_call_id = input.get("id")
+        if not isinstance(tool_call_id, str) or not tool_call_id:
+            return None
+        name = input.get("name")
+        return tool_call_id, name if isinstance(name, str) and name else ""
+
+    @classmethod
+    def _tool_arguments(cls, input):
+        if cls._tool_call_details(input) is None:
+            return input
+        arguments = input.get("args")
+        return arguments if isinstance(arguments, dict) else input
+
+    def _error_output(self, input, error_msg: str):
+        details = self._tool_call_details(input)
+        if details is None:
+            return error_msg
+        tool_call_id, name = details
+        return ToolMessage(
+            content=error_msg,
+            tool_call_id=tool_call_id,
+            name=name or self.name,
+            status="error",
+        )
+
+    def _get_call_locks(self, input) -> list[asyncio.Lock]:
+        tool_arguments = self._tool_arguments(input)
+        if not self.call_lock_arguments or not isinstance(tool_arguments, dict):
+            return [self.async_lock]
+        workspace = os.path.realpath(str(getattr(self, "workspace", "")))
+        lock_keys = set()
+        for argument in self.call_lock_arguments:
+            value = tool_arguments.get(argument)
+            if isinstance(value, str) and value.strip():
+                lock_keys.add(os.path.realpath(os.path.join(workspace, value)))
+        if not lock_keys:
+            return [self.async_lock]
+        loop_id = id(asyncio.get_running_loop())
+        locks = []
+        with _keyed_async_locks_guard:
+            for key in sorted(lock_keys):
+                registry_key = (loop_id, key)
+                lock = _keyed_async_locks.get(registry_key)
+                if lock is None:
+                    lock = asyncio.Lock()
+                    _keyed_async_locks[registry_key] = lock
+                locks.append(lock)
+        return locks
+
+    def _get_sync_call_locks(self, input) -> list:
+        tool_arguments = self._tool_arguments(input)
+        if not self.call_lock_arguments or not isinstance(tool_arguments, dict):
+            return [self.sync_lock]
+        workspace = os.path.realpath(str(getattr(self, "workspace", "")))
+        lock_keys = set()
+        for argument in self.call_lock_arguments:
+            value = tool_arguments.get(argument)
+            if isinstance(value, str) and value.strip():
+                lock_keys.add(os.path.realpath(os.path.join(workspace, value)))
+        if not lock_keys:
+            return [self.sync_lock]
+        locks = []
+        with _keyed_sync_locks_guard:
+            for key in sorted(lock_keys):
+                lock = _keyed_sync_locks.get(key)
+                if lock is None:
+                    lock = threading.RLock()
+                    _keyed_sync_locks[key] = lock
+                locks.append(lock)
+        return locks
+
     def invoke(self, input, config = None, **kwargs):
-        self.call_count += 1
-        self.is_in_call = True
+        if self.is_disabled:
+            error_msg = f"[ERROR] Tool ({self.__class__.__name__}) is disabled. Reason: {self.disable_reason}"
+            return self._error_output(input, error_msg)
+        call_locks = self._get_sync_call_locks(input)
+        acquired_locks = []
         try:
-            return super().invoke(input, config, **kwargs)
+            deadline = time.monotonic() + self.lock_time_out
+            for call_lock in call_locks:
+                remaining = max(0.0, deadline - time.monotonic())
+                if not call_lock.acquire(timeout=remaining):
+                    raise TimeoutError
+                acquired_locks.append(call_lock)
+        except TimeoutError:
+            error_msg = f"[ERROR] Tool ({self.__class__.__name__}) is busy, get lock timeout ({self.lock_time_out} seconds). Please try again later."
+            fc.warning(error_msg)
+            for call_lock in reversed(acquired_locks):
+                call_lock.release()
+            return self._error_output(input, error_msg)
+        except Exception as e:
+            error_msg = f"[ERROR] Tool ({self.__class__.__name__}) acquire lock error: {str(e)}"
+            fc.warning(error_msg)
+            for call_lock in reversed(acquired_locks):
+                call_lock.release()
+            return self._error_output(input, error_msg)
+        try:
+            self.call_count += 1
+            self.is_in_call = True
+            try:
+                return super().invoke(input, config, **kwargs)
+            except ValidationError as e:
+                error_msg = f"[ERROR] Tool ({self.__class__.__name__}) invoke error: {str(e)}"
+                fc.warning(error_msg)
+                return self._error_output(input, error_msg)
+            finally:
+                self.is_in_call = False
+                self.last_call_time = time.time()
         finally:
-            self.is_in_call = False
-            self.last_call_time = time.time()
+            for call_lock in reversed(acquired_locks):
+                call_lock.release()
 
     def put_alive_data(self, data):
         self.stream_queue.put(data)
@@ -226,28 +357,43 @@ class UCTool(BaseTool):
 
     async def ainvoke(self, input, config = None, **kwargs):
         if self.is_disabled:
-            return f"[ERROR] Tool ({self.__class__.__name__}) is disabled. Reason: {self.disable_reason}"
+            error_msg = f"[ERROR] Tool ({self.__class__.__name__}) is disabled. Reason: {self.disable_reason}"
+            return self._error_output(input, error_msg)
+        call_locks = self._get_call_locks(input)
+        acquired_locks = []
         try:
-            await asyncio.wait_for(self.async_lock.acquire(), timeout=self.lock_time_out)
+            deadline = asyncio.get_running_loop().time() + self.lock_time_out
+            for call_lock in call_locks:
+                remaining = deadline - asyncio.get_running_loop().time()
+                await asyncio.wait_for(call_lock.acquire(), timeout=max(0, remaining))
+                acquired_locks.append(call_lock)
         except asyncio.TimeoutError:
-            error_msg = f"[ERROR] Tool ({self.__class__.__name__}) is busy, get lock timeout ({self.call_time_out} seconds). Please try again later."
+            error_msg = f"[ERROR] Tool ({self.__class__.__name__}) is busy, get lock timeout ({self.lock_time_out} seconds). Please try again later."
             fc.warning(error_msg)
-            return error_msg
+            for call_lock in reversed(acquired_locks):
+                call_lock.release()
+            return self._error_output(input, error_msg)
         except Exception as e:
             error_msg = f"[ERROR] Tool ({self.__class__.__name__}) acquire lock error: {str(e)}"
             fc.warning(error_msg)
-            return error_msg
+            for call_lock in reversed(acquired_locks):
+                call_lock.release()
+            return self._error_output(input, error_msg)
+        alive_thread = None
         try:
             data, alive_thread = await self._ainvoke(input, config, **kwargs)
             return data
         except Exception as e:
             error_msg = f"[ERROR] Tool ({self.__class__.__name__}) ainvoke error: {str(e)}"
             fc.warning(error_msg)
-            return error_msg
+            return self._error_output(input, error_msg)
         finally:
-            if alive_thread is not None:
-                alive_thread.join()
-            self.async_lock.release()
+            try:
+                if alive_thread is not None:
+                    alive_thread.join()
+            finally:
+                for call_lock in reversed(acquired_locks):
+                    call_lock.release()
 
     async def _ainvoke(self, input, config = None, **kwargs):
         self.call_count += 1
@@ -255,7 +401,9 @@ class UCTool(BaseTool):
         ctx = input.get("ctx", None)
         tool_input = input.copy()
         tool_input.pop("ctx", None)
-        if not isinstance(ctx, Context):
+        # Short file operations use path-scoped locks and do not need the shared
+        # streaming heartbeat state, which would serialize unrelated paths.
+        if not isinstance(ctx, Context) or self.call_lock_arguments:
             try:
                 self.is_in_call = True
                 return await super().ainvoke(tool_input, config, **kwargs), None
@@ -339,20 +487,28 @@ def to_fastmcp(tool: BaseTool) -> FastMCPTool:
         field: (field_info.annotation, field_info)
         for field, field_info in tool.tool_call_schema.model_fields.items()
     }
-    arg_model_base = ArgModelBase
-    if getattr(getattr(tool, "args_schema", None), "model_config", {}).get("extra") == "allow":
-        raw_parameters = tool.args_schema.model_json_schema()
+    raw_parameters = tool.args_schema.model_json_schema()
+    if "additionalProperties" in raw_parameters:
         parameters["additionalProperties"] = raw_parameters.get(
             "additionalProperties",
-            True,
+            parameters.get("additionalProperties"),
         )
-        if raw_parameters.get("description"):
-            parameters["description"] = (
-                f"{parameters.get('description', '')}\n\n{raw_parameters['description']}"
-                if parameters.get("description")
-                else raw_parameters["description"]
-            )
+    extra_mode = getattr(
+        getattr(tool, "args_schema", None), "model_config", {}
+    ).get("extra")
+    if raw_parameters.get("description") and (
+        extra_mode == "allow" or not parameters.get("description")
+    ):
+        parameters["description"] = (
+            f"{parameters.get('description', '')}\n\n{raw_parameters['description']}"
+            if parameters.get("description")
+            else raw_parameters["description"]
+        )
+    arg_model_base = ArgModelBase
+    if extra_mode == "allow":
         arg_model_base = ExtraArgModelBase
+    elif extra_mode == "forbid":
+        arg_model_base = ForbidExtraArgModelBase
     arg_model = create_model(
         f"{tool.name}Arguments",
         **field_definitions,

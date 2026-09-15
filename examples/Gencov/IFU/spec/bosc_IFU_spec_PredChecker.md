@@ -1,8 +1,10 @@
+
 # PredChecker 规格说明文档
 
 > 本文档用于指导编写 `PredChecker` 子模块的规格说明书。PredChecker是IFU中负责预译码检查和预测纠正的关键模块，采用两级流水线结构。请按照每个小节的提示补充内容，保持技术语言准确、条理清晰、便于验证复用。
 
 ## 简介
+
 - **设计背景**：`PredChecker`（预译码检查模块）是IFU中负责检查预测错误并及时纠正的子模块。越早发现预测错误，就能越早将指令流纠正回正确路径，从而提升处理器性能。
 
   PredChecker采用两级流水线结构：
@@ -18,6 +20,7 @@
   - 性能优化：尽量减少对流水线的影响
 
 ## 术语与缩写
+
 | 缩写 | 全称 | 说明 |
 | ---- | ---- | ---- |
 | remask | Remask | 重新掩码，调整预测块有效范围 |
@@ -45,6 +48,7 @@
   - `PredCheckRedirect` - 预译码检查重定向信息
 
 ## 顶层接口概览
+
 - **模块名称**：`PredChecker`
 
 - **端口列表**：
@@ -265,6 +269,7 @@
   - **时序影响**：可能需要打一拍（文档提到待优化）
 
 ### 状态机与时序
+
 - **状态机列表**：无（纯数据通路，两级流水线）
 
 - **关键时序**：
@@ -283,6 +288,7 @@
     - Stage 2输出用于IFU WB阶段FTQ写回（next cycle）
 
 ### 复位与错误处理
+
 - **复位行为**：
   - 使用RegEnable和RegNext，复位时值为初始值
   - wbValid初始值为false.B
@@ -299,6 +305,7 @@
     7. TargetFault：目的地址预测错误
 
 ## 验证需求与覆盖建议
+
 - **功能覆盖点**：
   - **预测方向检查**：
     * jal指令预测不跳转
@@ -336,6 +343,7 @@
 ## 潜在 bug 分析
 
 ### 目的地址检查未实现纠正（置信度 50%）
+
 - **触发条件**：jal指令、br指令的目的地址预测错误
 - **影响范围**：虽然不纠正目的地址，但可能存在性能损失
 - **关联位置**：PredChecker.scala:118-127，targetFaultVec检测
@@ -345,6 +353,7 @@
   3. 验证PC+Offset计算的准确性
 
 ### 2-taken支持的问题（置信度 50%）
+
 - **触发条件**：使用2-taken功能
 - **影响范围**：InstrCompact.scala注释提到"This is wrong when 2-taken is enabled"
 - **关联位置**：InstrCompact.scala:58，instrOffset计算
@@ -354,6 +363,7 @@
   3. 检查是否需要修复InstrCompact的问题
 
 ### 优先编码器选择逻辑（置信度 30%）
+
 - **触发条件**：多个错误同时发生
 - **影响范围**：只处理第一个错误，其他错误可能被忽略
 - **关联位置**：PredChecker.scala:133-134，remaskIdx计算
@@ -363,6 +373,7 @@
   3. 确认是否需要处理所有错误
 
 ### Stage 2 wbValid时序（置信度 30%）
+
 - **触发条件**：wbValid与req.valid的时序不匹配
 - **影响范围**：可能导致checkerRedirect输出错误
 - **关联位置**：PredChecker.scala:217，wbValid = RegNext(io.req.valid)
@@ -372,6 +383,7 @@
   3. 确认Stage 2寄存器更新的时序
 
 ### endOffset标记的可靠性（置信度 20%）
+
 - **触发条件**：代码注释"Not a reliable block-end marker"
 - **影响范围**：可能在特殊情况下（invalidTaken）无法正确标记块结束
 - **关联位置**：PredChecker.scala:232，endOffset赋值

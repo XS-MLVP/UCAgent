@@ -252,6 +252,38 @@ DUT 的端口支持对某位进行读写，例如：
 
 完成API编写后，需要对其进行功能测试，检验其是否满足要求。API测试主要关注单个API函数的功能正确性。
 
+#### API 检查点关联（必需）
+
+每个 API 测试函数都必须通过 `mark_function` 关联到 `{DUT}_functions_and_checks.md` 中该 API 对应的 `FG-API/FC-*/CK-*`。这条关联是 API 测试的必需契约，不能由其他功能分组的 CK 替代。
+
+1. 先在 functions-and-checks 文档的 `<FG-API>` 下找到被测 API 对应的 FC 和 CK，再把完全一致、区分大小写的名称写入测试。
+2. `mark_function` 应位于测试函数开头，并把当前测试函数对象作为第二个参数；不能传字符串形式的函数名，也不能引用其他测试函数。
+3. 一个 API 测试至少关联一个与当前场景对应的 API CK。不要为了通过 Checker 而把所有 API CK 批量标记到每个测试；被标记的 CK 必须有真实激励和断言。
+4. 如果测试还真实验证了算术、协议、状态机等其他分组的 CK，可以额外调用 `mark_function`。这些非 API 分组关联是可选项，应当保留有效关联，但它们不能替代必需的 `FG-API` 关联。
+5. 一个 `mark_function` 调用描述一个 FG/FC 下的一组 CK；跨 FG 或 FC 时分别调用。
+
+```python
+def test_api_adder_add_basic(env):
+    env.dut.fc_cover["FG-API"].mark_function(
+        "FC-API-ADD",
+        test_api_adder_add_basic,
+        ["CK-BASIC"],
+    )
+
+    # 可选：只有本测试确实验证该功能CK时才额外关联。
+    env.dut.fc_cover["FG-ARITHMETIC"].mark_function(
+        "FC-ADD",
+        test_api_adder_add_basic,
+        ["CK-NORMAL"],
+    )
+
+    result, carry = api_adder_add(env, 100, 200)
+    assert result == 300
+    assert carry == 0
+```
+
+上例中的 `FC-API-ADD`、`CK-BASIC` 等名称仅用于说明结构。实际测试必须复制当前 DUT 文档中该 API 对应的准确 FG/FC/CK，不能根据 API 名称自行猜测。
+
 #### 测试文件组织
 
 需要创建`test_{DUT}_api_<category>.py`的测试文件进行测试，其中：
@@ -269,6 +301,10 @@ tests/
 
 测试函数采用`test_<api_name>[_<test_scenario>]`的命名方式：
 
+这是硬性命名契约。由于API函数必须命名为`api_{DUT}_<function_name>`，每个API测试函数必须以完整、大小写敏感的`test_api_{DUT}_`开头。`test_api_basic`、`test_ref_model`、`test_compute_api`等没有包含精确DUT命名空间的名称均不合规；不能依靠测试内容、文件名、`skip`或后续阶段推断它们属于API测试。Checker会在运行pytest前一次列出目标API测试文件中的全部命名错误，必须在API测试阶段修正函数定义以及`mark_function`中引用的函数对象。
+
+下面的合法Python示例假定当前运行时解析出的DUT名称就是小写`adder`；若实际名称为`Adder`或其他值，必须在文件名、API函数名、测试函数名和`mark_function`函数对象引用中使用该实际值及其精确大小写。
+
 ```python
 # 基础功能测试
 def test_api_adder_add():
@@ -284,6 +320,12 @@ def test_api_adder_add_overflow():
 def test_api_adder_add_invalid_input():
     """测试加法API的无效输入处理"""
     pass
+
+# 错误：缺少完整的 api_adder 命名空间
+def test_api_basic(): ...
+
+# 错误：无法从名称判断其所属API和DUT
+def test_ref_model(): ...
 ```
 
 #### 测试用例编写规范
@@ -310,6 +352,10 @@ def test_api_adder_add_basic(env):
         - 进位标志符合预期
         - 无异常抛出
     """
+    env.dut.fc_cover["FG-API"].mark_function(
+        "FC-API-ADD", test_api_adder_add_basic, ["CK-BASIC"]
+    )
+
     # 测试典型情况
     result, carry = api_adder_add(env, 100, 200)
     assert result == 300, f"预期结果300，实际{result}"
@@ -336,6 +382,10 @@ def test_api_adder_add_edge_cases(env):
         - 溢出检测准确
         - 特殊情况处理得当
     """
+    env.dut.fc_cover["FG-API"].mark_function(
+        "FC-API-ADD", test_api_adder_add_edge_cases, ["CK-EDGE"]
+    )
+
     # 零值测试
     result, carry = api_adder_add(env, 0, 0)
     assert result == 0 and carry == 0
@@ -361,6 +411,10 @@ def test_api_adder_add_error_handling(env):
         - 错误信息描述准确
         - 不会导致程序崩溃
     """
+    env.dut.fc_cover["FG-API"].mark_function(
+        "FC-API-ADD", test_api_adder_add_error_handling, ["CK-ARGUMENT-VALIDATION"]
+    )
+
     # 测试参数超出范围
     with pytest.raises(ValueError, match="参数.*超出范围"):
         api_adder_add(env, -1, 100)
@@ -394,6 +448,10 @@ def test_api_adder_add_parametrized(env, a, b, expected_sum, expected_carry):
     测试数据:
         覆盖典型值、边界值、特殊值等多种情况
     """
+    env.dut.fc_cover["FG-API"].mark_function(
+        "FC-API-ADD", test_api_adder_add_parametrized, ["CK-BASIC", "CK-EDGE"]
+    )
+
     result, carry = api_adder_add(env, a, b)
     assert result == expected_sum, f"输入({a}, {b}): 预期和{expected_sum}，实际{result}"
     assert carry == expected_carry, f"输入({a}, {b}): 预期进位{expected_carry}，实际{carry}"
@@ -406,6 +464,10 @@ def test_api_adder_add_parametrized(env, a, b, expected_sum, expected_carry):
 ])
 def test_api_adder_add_invalid_inputs(env, invalid_input):
     """参数化测试无效输入处理"""
+    env.dut.fc_cover["FG-API"].mark_function(
+        "FC-API-ADD", test_api_adder_add_invalid_inputs, ["CK-ARGUMENT-VALIDATION"]
+    )
+
     a, b = invalid_input
     with pytest.raises(ValueError):
         api_adder_add(env, a, b)
@@ -500,6 +562,7 @@ def api_processor_execute(
 - [ ] **参数验证**：对输入参数进行合理的范围和类型检查
 - [ ] **错误处理**：适当的异常处理和有意义的错误信息
 - [ ] **测试覆盖**：所有API都有对应的测试用例
+- [ ] **API CK关联**：每个API测试都mark了对应的`FG-API/FC/CK`；其他分组CK仅作为真实验证后的可选附加关联
 - [ ] **性能考虑**：没有明显的性能瓶颈
 - [ ] **依赖最小**：避免不必要的外部依赖
 

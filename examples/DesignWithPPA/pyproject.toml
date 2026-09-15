@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=80", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ucagent-design-with-ppa"
+version = "0.4.7"
+description = "Pre-layout PPA analysis and TDD RTL design workflow for UCAgent"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+authors = [
+    {name = "XS-MLVP", email = "unitychip@bosc.ac.cn"},
+]
+dependencies = [
+    "UCAgent>=26.9.2.dev6",
+    "vcdvcd>=2.3.5,<3.0.0",
+    "pylibfst>=0.2.1,<0.3.0",
+]
+
+[project.entry-points."ucagent.plugins"]
+design-with-ppa = "design_with_ppa.plugin:get_plugin"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+design_with_ppa = [
+    "assets/*.lib",
+    "assets/*.md",
+    "workflows/*.yaml",
+    "Guide_Doc/*.md",
+    "templates/**/*",
+    "skills/**/*",
+]
+
+[tool.setuptools.exclude-package-data]
+"*" = [
+    "**/__pycache__/*",
+    "**/*.pyc",
+    "**/*.pyo",
+]
+
+[tool.setuptools.data-files]
+"share/ucagent-design-with-ppa/cases/LowPrecisionMatMul2x2" = [
+    "cases/LowPrecisionMatMul2x2/README.md",
+]
+"share/ucagent-design-with-ppa/cases/LowPrecisionMatMul2x2/spec" = [
+    "cases/LowPrecisionMatMul2x2/spec/*.md",
+]

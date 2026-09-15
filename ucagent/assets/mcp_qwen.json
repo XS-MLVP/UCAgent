@@ -11,7 +11,8 @@
         "id": "{{OPENAI_MODEL}}",
         "name": "{{OPENAI_MODEL}}",
         "baseUrl": "{{OPENAI_API_BASE}}",
-        "envKey": "OPENAI_API_KEY"
+        "envKey": "OPENAI_API_KEY"{% if OPENAI_CONTEXT_SIZE %},
+        "generationConfig": {"contextWindowSize": {{OPENAI_CONTEXT_SIZE}}}{% endif %}
       }
     ]
   },

@@ -36,6 +36,10 @@ dependencies = [
     "uvicorn[standard]>=0.42.0",
     "docker>=7.1.0",
     "kubernetes>=33.1.0",
+    "wavekit>=0.7.0,<0.8.0",
+    "packaging>=24,<27",
+    "PyYAML>=6.0,<7.0",
+    "regex>=2024.11.6",
 ]
 dynamic = ["version"]
 
@@ -52,4 +56,30 @@ version_scheme = "guess-next-dev"
 local_scheme = "node-and-date"
 
 [tool.setuptools]
-packages = ["ucagent"]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+include = ["ucagent*"]
+
+[tool.setuptools.package-data]
+ucagent = [
+    "**/*.bak",
+    "**/*.css",
+    "**/*.html",
+    "**/*.ignore",
+    "**/*.ini",
+    "**/*.j2",
+    "**/*.js",
+    "**/*.json",
+    "**/*.lock",
+    "**/*.md",
+    "**/*.rs",
+    "**/*.sucl",
+    "**/*.sv",
+    "**/*.svg",
+    "**/*.tcl",
+    "**/*.tcss",
+    "**/*.toml",
+    "**/*.wasm",
+    "**/*.yaml",
+]

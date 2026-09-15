@@ -1,8 +1,10 @@
+
 # DataWriteReq Specification Document
 
 > This document describes the specification of the `DataWriteReq` chip verification target. Keep the technical language precise, well-organized, and easy to reuse for verification. If an item does not exist, explicitly write "None" or "TBD"; do not delete the section.
 
 ## Introduction
+
 - **Design Background**: `DataWriteReq` is a Chisel Bundle type that carries write command fields from the Sbuffer enqueue pipeline into the `SbufferData` storage module. It is instantiated as `Flipped(ValidIO(new DataWriteReq))` on each of the `EnsbufferWidth` write request ports of `SbufferData`. The fields specify the target store buffer entry (via one-hot wvec), the byte-level write mask, the write data payload, the virtual word offset within the cache line, and a full-cache-line write flag. Source: `engine_overview.txt:9`, `phase_01_types.txt:51-56`.
 - **Design Goals**: (1) Carry a one-hot entry selector (`wvec`) of width `StoreBufferSize` to identify which store buffer entry receives the write. (2) Carry a per-byte write mask (`mask`) of width `VLEN/8` to indicate which bytes within the VLEN-width data word should be written. (3) Carry the write data payload (`data`) of width `VLEN`. (4) Carry a virtual word offset (`vwordOffset`) of width `VWordOffsetWidth` to select which virtual-word segment within the cache line is targeted. (5) Carry a full-cache-line write flag (`wline`) that, when asserted, causes SbufferData to ignore `vwordOffset` and `mask` and write to all virtual word offsets within the entry.
 
@@ -25,6 +27,7 @@ File list:
 - `DataWriteReq.scala:1-9`: Top-level DataWriteReq Bundle definition. Single class with five fields: wvec, mask, data, vwordOffset, wline. Extends SbufferBundle for parameter inheritance.
 
 ## Top-Level Interface Overview
+
 - **Module Name**: `DataWriteReq` (Bundle type, not a Chisel Module)
 - **Port List** (Bundle fields as consumed by SbufferData via `writeReq` ValidIO ports):
 
@@ -149,11 +152,13 @@ The `wline` field is a Boolean that, when true, causes SbufferData to write `dat
 (no submodules) — DataWriteReq is a leaf Bundle type with no child module instantiations. It extends SbufferBundle and contains only combinatorial field declarations.
 
 ### State Machines and Timing
+
 - **State Machine List**: None. DataWriteReq is a Bundle type with no state.
 - **State Transition Conditions**: N/A.
 - **Key Timing**: N/A. DataWriteReq fields are combinatorial signals driven on the same cycle as the `writeReq.valid` assertion. The Bundle itself introduces zero cycles of latency.
 
 ### Configuration Registers and Storage
+
 | Register Name/Address | Access Attribute | Bit Field | Default | Description | Read/Write Side Effects |
 | ------------- | -------- | ---- | ------ | ---- | ---------- |
 | None | N/A | N/A | N/A | DataWriteReq is a combinatorial Bundle with no internal storage registers. | N/A |
@@ -162,11 +167,13 @@ The `wline` field is a Boolean that, when true, causes SbufferData to write `dat
 - **Configuration Flow**: N/A. No runtime configuration. Field widths are fixed at elaboration time by HasSbufferConst parameters.
 
 ### Reset and Error Handling
+
 - **Reset Behavior**: N/A. Bundle types have no reset behavior. All fields are combinatorial.
 - **Error Reporting**: None. DataWriteReq has no error detection or reporting mechanism.
 - **Self-Recovery Strategy**: None. Error handling for protocol violations (e.g., non-one-hot wvec) is the caller Sbuffer's responsibility.
 
 ### Parameterization and Configurable Features
+
 - **Module Parameters**:
 
   | Parameter Name | Type/Range | Default | Functional Effect |
@@ -179,6 +186,7 @@ The `wline` field is a Boolean that, when true, causes SbufferData to write `dat
 - **Compile Macros/Generation Options**: None.
 
 ## Verification Requirements and Coverage Suggestions
+
 - **Functional Coverage Points**: All `CK-*` check points defined in each functional group constitute coverage targets. Additional cross-coverage scenarios:
   - All combinations of wline (true/false) with mask patterns (all-zero, all-ones, sparse) and vwordOffset values.
   - All wvec one-hot positions covering every entry index [0, StoreBufferSize-1].

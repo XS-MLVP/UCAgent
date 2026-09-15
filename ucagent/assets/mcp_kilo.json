@@ -17,7 +17,8 @@
       },
       "models": {
         "{{OPENAI_MODEL}}": {
-          "name": "{{OPENAI_MODEL}}"
+          "name": "{{OPENAI_MODEL}}"{% if OPENAI_CONTEXT_SIZE %},
+          "limit": {"context": {{OPENAI_CONTEXT_SIZE}}{% if OPENAI_OUTPUT_SIZE %}, "output": {{OPENAI_OUTPUT_SIZE}}{% endif %}}{% endif %}
         }
       }
     }

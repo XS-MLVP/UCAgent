@@ -1,6 +1,8 @@
 
 # Current Workspace Dir
 CWD ?= output/workspace_$*
+PYTHON ?= python3
+GUIDE_DOC_CACHE ?= Guide_Doc
 CFG ?= config.yaml
 BBV ?= false
 SRC ?= examples
@@ -36,8 +38,8 @@ endif
 
 SWARM_OVERRIDE := --override launch.default_args.launch_mode=docker_swarm \
                   --override launch.cluster.docker_network=$(SWARM_NETWORK) \
-                  --override launch.cluster.master_ip=$(SWARM_MASTER_SERVICE) \
-                  --override launch.default_args.extra_args[0:0]=@base64:LS1vdmVycmlkZQpzdGFnZVstMV0ubmVlZF9odW1hbl9jaGVjaz1UcnVl
+                  --override launch.cluster.master_ip=$(SWARM_MASTER_SERVICE)
+#                 --override launch.default_args.extra_args[0:0]=@base64:LS1vdmVycmlkZQpzdGFnZVstMV0ubmVlZF9odW1hbl9jaGVjaz1UcnVl
 
 
 UCAGENT_PY := $(wildcard ucagent.py)
@@ -57,6 +59,9 @@ reset_%:
 	rm $(CWD)/.ucagent -rf  || true
 	rm $(CWD)/uc_test_report -rf  || true
 	rm $(CWD)/*.md -rf  || true
+
+refresh_%:
+	$(PYTHON) ucagent/scripts/refresh_workspace_assets.py --workspace "$(CWD)" --guide-doc-cache "$(GUIDE_DOC_CACHE)"
 
 init_%:
 	mkdir -p $(CWD)/$*_RTL
@@ -116,6 +121,7 @@ clean_%:
 
 clean:
 	rm -rf .pytest_cache
+	rm -rf log
 	rm -rf UCAgent.egg-info
 	rm -rf build
 	rm -rf dist

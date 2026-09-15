@@ -3,6 +3,7 @@
 
 import os
 import sys
+import json
 from typing import Tuple
 from ucagent.util.config import Config
 from ucagent.util.functions import render_template, rm_workspace_prefix, fill_template
@@ -11,6 +12,7 @@ from ucagent.util.log import info, error, warning
 import time
 import traceback
 import hashlib
+import tempfile
 
 
 CB_KEY_SET_WORKSPACE = "after_set_workspace"
@@ -19,8 +21,20 @@ CB_KEY_SET_STAGE_MANAGER = "after_set_stage_manager"
 CB_KEY_SET_STAGE = "after_set_stage"
 
 
+def format_stage_args_examples(tool_name, stage_args):
+    """Return canonical object and JSON-string tool-call examples."""
+    stage_args_json = json.dumps(stage_args, ensure_ascii=False)
+    return (
+        f"{tool_name}(stage_args={stage_args_json})",
+        f"{tool_name}(stage_args={json.dumps(stage_args_json, ensure_ascii=False)})",
+    )
+
+
 class Checker:
     """Base class for verification checkers."""
+
+    def __init__(self):
+        self._cb_list = {}
 
     workspace = None
     time_start = None
@@ -32,7 +46,10 @@ class Checker:
     dut_name = None
     _is_init = False
     _need_human_check = False
-    _cb_list = {}
+    # Stage-defined stage_args keys this checker consumes.  The stage manager
+    # warns when a submitted key is declared by no gate in the current stage,
+    # so silently dropped submissions cannot masquerade as recorded work.
+    accepted_stage_args: tuple[str, ...] = ()
 
     def add_cb(self, key, cb):
         assert key in [CB_KEY_SET_WORKSPACE,
@@ -60,7 +77,7 @@ class Checker:
 
     def on_init(self):
         self._is_init = True
-        for cb in self._cb_list.get(CB_KEY_ON_INIT, []):
+        for cb in tuple(self._cb_list.get(CB_KEY_ON_INIT, [])):
             cb(self)
         return self
 
@@ -109,23 +126,27 @@ class Checker:
     def set_stage_manager(self, manager):
         assert manager is not None, "Stage Manager cannot be None."
         self.stage_manager = manager
-        for cb in self._cb_list.get(CB_KEY_SET_STAGE_MANAGER, []):
+        for cb in tuple(self._cb_list.get(CB_KEY_SET_STAGE_MANAGER, [])):
             cb(self)
         return self
 
     def set_stage(self, stage):
         assert stage is not None, "Stage cannot be None."
         self.stage = stage
-        for cb in self._cb_list.get(CB_KEY_SET_STAGE, []):
+        for cb in tuple(self._cb_list.get(CB_KEY_SET_STAGE, [])):
             cb(self)
         return self
 
     def get_stage(self):
         return self.stage
 
-    def smanager_set_value(self, key, value):
+    def smanager_set_value(self, key, value, persist=False):
         if self.stage_manager is not None:
             self.stage_manager.set_data(key, value)
+            if persist:
+                save_stage_info = getattr(self.stage_manager, "save_stage_info", None)
+                if callable(save_stage_info):
+                    save_stage_info()
         else:
             raise RuntimeError("Stage Manager is not set for this stage, cannot set data.")
 
@@ -274,7 +295,7 @@ class Checker:
         self.workspace = os.path.abspath(workspace)
         assert os.path.exists(self.workspace), \
             f"Workspace {self.workspace} does not exist. Please provide a valid workspace path."
-        for cb in self._cb_list.get(CB_KEY_SET_WORKSPACE, []):
+        for cb in tuple(self._cb_list.get(CB_KEY_SET_WORKSPACE, [])):
             cb(self)
         return self
 
@@ -440,6 +461,7 @@ class UnityChipBatchTask:
         self.source_task_list = []  # Source task list (ground truth)
         self.gen_task_list = []  # Generated task list (actual results)
         self.checkpoint_file = None
+        self.checkpoint_error = None
         checker.add_cb(CB_KEY_SET_STAGE, lambda c: self.on_init())
         assert hasattr(checker, "batch_size")
 
@@ -456,31 +478,132 @@ class UnityChipBatchTask:
         fdirname = os.path.dirname(fpath)
         if not os.path.exists(fdirname):
             os.makedirs(fdirname, exist_ok=True)
-        fc.save_json_file(fpath, {
+        stage = self.checker.get_stage()
+        title = getattr(stage, "title", None)
+        stage_title = title() if callable(title) else getattr(stage, "name", "")
+        checkpoint = {
             "source_task_list": self.source_task_list,
             "gen_task_list": self.gen_task_list,
             "tbd_task_list": self.tbd_task_list,
             "cmp_task_list": self.cmp_task_list,
             "checker_name": self.checker.__class__.__name__,
             "task_name": self.name,
-            "stage_title": self.checker.get_stage().title(),
-        })
+            "stage_title": stage_title,
+        }
+        temp_name = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=fdirname,
+                prefix=f".{os.path.basename(fpath)}.",
+                suffix=".tmp",
+                delete=False,
+            ) as handle:
+                temp_name = handle.name
+                json.dump(checkpoint, handle, indent=4, ensure_ascii=False)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temp_name, fpath)
+        finally:
+            if temp_name and os.path.exists(temp_name):
+                os.unlink(temp_name)
 
     def loadpoint_file(self):
         fpath = self.checkpoint_file
+        self.checkpoint_error = None
         if not fpath:
             warning(f"{self.name} No checkpoint file path, skip loading checkpoint.")
             return False
         if not os.path.isfile(fpath):
             return False
+        invalid_observed = {"checkpoint_file": fpath}
         try:
             data = fc.load_json_file(fpath)
-            self.source_task_list = data.get("source_task_list", [])
-            self.gen_task_list = data.get("gen_task_list", [])
-            self.tbd_task_list = data.get("tbd_task_list", [])
-            self.cmp_task_list = data.get("cmp_task_list", [])
+            if not isinstance(data, dict):
+                raise ValueError("checkpoint root must be a JSON object")
+
+            expected_checker = self.checker.__class__.__name__
+            if data.get("checker_name") != expected_checker:
+                raise ValueError(
+                    f"checker_name must be '{expected_checker}'"
+                )
+            if data.get("task_name") != self.name:
+                raise ValueError(f"task_name must be '{self.name}'")
+            if not isinstance(data.get("stage_title"), str):
+                raise ValueError("stage_title must be a string")
+
+            task_lists = {}
+            duplicate_fields = {}
+            for field in (
+                "source_task_list",
+                "gen_task_list",
+                "tbd_task_list",
+                "cmp_task_list",
+            ):
+                values = data.get(field)
+                if not isinstance(values, list):
+                    raise ValueError(f"{field} must be a JSON array")
+                if any(not isinstance(item, str) or not item.strip() for item in values):
+                    raise ValueError(
+                        f"{field} must contain only non-empty strings"
+                    )
+                seen = set()
+                duplicates = []
+                for item in values:
+                    if item in seen and item not in duplicates:
+                        duplicates.append(item)
+                    seen.add(item)
+                if duplicates:
+                    duplicate_fields[field] = duplicates
+                task_lists[field] = values
+
+            if duplicate_fields:
+                invalid_observed["duplicate_fields"] = duplicate_fields
+                raise ValueError(
+                    f"task lists contain duplicate identities: {duplicate_fields}"
+                )
+
+            source_set = set(task_lists["source_task_list"])
+            unknown_tasks = sorted({
+                task
+                for field in ("gen_task_list", "tbd_task_list", "cmp_task_list")
+                for task in task_lists[field]
+                if task not in source_set
+            })
+            if unknown_tasks:
+                invalid_observed["unknown_tasks"] = unknown_tasks
+                raise ValueError(
+                    f"task lists contain identities outside source_task_list: {unknown_tasks}"
+                )
+            if not set(task_lists["cmp_task_list"]).issubset(
+                task_lists["tbd_task_list"]
+            ):
+                raise ValueError("cmp_task_list must be a subset of tbd_task_list")
+            if not set(task_lists["cmp_task_list"]).issubset(
+                task_lists["gen_task_list"]
+            ):
+                raise ValueError("cmp_task_list must be a subset of gen_task_list")
+
+            self.source_task_list = task_lists["source_task_list"]
+            self.gen_task_list = task_lists["gen_task_list"]
+            self.tbd_task_list = task_lists["tbd_task_list"]
+            self.cmp_task_list = task_lists["cmp_task_list"]
         except Exception as e:
             warning(f"{self.name} Load checkpoint file {fpath} fail: {e}")
+            self.checkpoint_error = {
+                "error_code": "BATCH_CHECKPOINT_INVALID",
+                "error": f"The persisted batch checkpoint is invalid: {e}.",
+                "observed": invalid_observed,
+                "expected": (
+                    "The checkpoint metadata and four task lists must match the "
+                    "current checker and contain unique, valid task identities."
+                ),
+                "next_action": (
+                    "Inspect the reported checkpoint, remove or regenerate the invalid "
+                    "file from current source artifacts, then restart UCAgent."
+                ),
+            }
             return False
         return True
 
@@ -579,12 +702,18 @@ class UnityChipBatchTask:
         if added_tasks:
             note_msg.append(f"Added: {', '.join(added_tasks)}")
 
+        source_changed = bool(deleted_tasks or added_tasks)
         if note_msg:
             info(f"{self.checker.__class__.__name__} Sync source task for {self.name}: "
                  f"{', '.join(note_msg)}")
-            self.update_tbd_and_cmp()
 
         self.source_task_list = new_task_list
+        if source_changed:
+            self.update_tbd_and_cmp()
+            source_set = set(new_task_list)
+            self.gen_task_list = [
+                task for task in self.gen_task_list if task in source_set
+            ]
 
     def sync_gen_task(self, new_task_list: list, note_msg: list, init_msg: str) -> None:
         """Synchronize generated task list with new task list.
@@ -624,6 +753,12 @@ class UnityChipBatchTask:
         Returns:
             Tuple of (success_flag, result_message).
         """
+        if self.checkpoint_error is not None:
+            return False, {
+                "error": self.checkpoint_error["error"],
+                "diagnostic": self.checkpoint_error,
+            }
+
         assert len(self.source_task_list) > 0, f"No source task for {self.name}, cannot complete."
 
         if self.update_current_tbd():
@@ -654,6 +789,7 @@ class UnityChipBatchTask:
                 note_msg.append(f"Process status: {self.get_process_str()}")
                 return False, {"error": note_msg}
 
+            self.savepoint_file()
             if is_complete:
                 return True, "Complete success."
             return True, {"success": f"All {self.name} are done, call `Complete` to next stage."}
@@ -677,6 +813,7 @@ class UnityChipBatchTask:
                  f"for {self.name} completed.")
 
         if remaining_tasks:
+            self.savepoint_file()
             msg = {
                 "error": f"Not all '{self.name}' in this batch have been completed ({self.get_process_str()}). "
                          f"If the quantity meets the requirements, but still show this error, it's because the '{self.name}' you have implemented is not all essential. "
@@ -738,6 +875,7 @@ class UpdateTempFromDataChecker(Checker):
     """Update Temporary Files from Data Checker."""
 
     def __init__(self, data_key: str, **kw):
+        super().__init__()
         self.data_key = data_key
 
     def get_template_data(self):
@@ -754,6 +892,7 @@ class OrginFileMustExistChecker(Checker):
     """File Must Exist Checker."""
 
     def __init__(self, files, **kw):
+        super().__init__()
         self.file_path_list = files if isinstance(files, list) else [files]
 
     def set_stage_manager(self, stage_manager):
@@ -778,6 +917,7 @@ class FilesMustNotExist(Checker):
     """Files Must not exist"""
 
     def __init__(self, target_files, **kw):
+        super().__init__()
         self.file_maps = {}
         target_files = target_files if isinstance(target_files, (tuple, list)) else [target_files]
         for f,m in target_files:
@@ -811,6 +951,7 @@ class VibeWorkSpaceInit(Checker):
                  dut_name: str = None,
                  init_msg: str = "",
                  **kw):
+        super().__init__()
         self.branch_name = branch_name
         self.data_key = data_key
         self.init_msg = init_msg or "Init git repo for Vibe Coding Assistant"

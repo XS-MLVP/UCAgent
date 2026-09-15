@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING
 from ucagent.tui.utils import PersistentConsoleMirror
 from ucagent.util.config import Config
 
-DEFAULT_CMD_IDLE_TIMEOUT = 30.0
+DEFAULT_CMD_IDLE_TIMEOUT = 1200.0
 CMD_OUTPUT_POLL_INTERVAL = 1.0
 SHELL_COMMAND_DANGEROUS = {
     "chmod", "chown", "cp", "dd", "fdisk", "format", "halt", "kill",
@@ -1269,6 +1269,7 @@ class VerifyPDB(Pdb):
         try_count = self.max_loop_retry
         while True:
             start_time = time.time()
+            start_round = getattr(self.agent, "invoke_round", None)
             try:
                 self.agent.run_loop(arg.strip())
                 return None
@@ -1283,9 +1284,20 @@ class VerifyPDB(Pdb):
                     if self.agent.is_break():
                         break
                 try_count -= 1
-                if time.time() - start_time > self.loop_alive_time:
-                    try_count = self.max_loop_retry  # reset try count if loop has been alive for a while
-                    echo_g("Loop has been alive for a while, resetting retry count.")
+                current_round = getattr(self.agent, "invoke_round", None)
+                made_progress = (
+                    isinstance(start_round, int)
+                    and isinstance(current_round, int)
+                    and current_round > start_round
+                )
+                if (
+                    made_progress
+                    and time.time() - start_time > self.loop_alive_time
+                ):
+                    try_count = self.max_loop_retry
+                    echo_g(
+                        "Loop completed new work before failing, resetting retry count."
+                    )
             # check max retry
             if try_count <= 0:
                 echo_r("Max loop retry reached. Exiting loop.")
@@ -2090,11 +2102,6 @@ class VerifyPDB(Pdb):
           start_mcp_server --no-file-ops
           start_mcp_server --no-file-ops 127.0.0.1 5001
         """
-        if self._mcp_server is not None and self._mcp_server.is_running:
-            echo_y(f"MCP server is already running at {self._mcp_server.url()}.")
-            echo_y("Use 'stop_mcp_server' first before starting a new instance.")
-            return
-        from ucagent.server import PdbMcpServer
         host = self.agent.cfg.mcp_server.host
         port = self.agent.cfg.mcp_server.port
         port_specified = False
@@ -2135,18 +2142,40 @@ class VerifyPDB(Pdb):
                 from ucagent.util.functions import find_available_port
                 port = find_available_port(port + 1)
                 echo_y(f"Default port was busy; using port {port} instead.")
-        try:
-            self._mcp_server = PdbMcpServer(
-                self, host=host, port=port, no_file_ops=no_file_ops
-            )
-            ok, msg = self._mcp_server.start()
-        except Exception as e:
-            echo_r(f"Failed to start MCP server: {e}")
-            return
+        ok, msg = self.start_mcp_server(
+            host=host,
+            port=port,
+            no_file_ops=no_file_ops,
+        )
         if ok:
             echo_g(msg)
         else:
             echo_r(msg)
+
+    def start_mcp_server(
+        self,
+        host: str,
+        port: int,
+        no_file_ops: bool = False,
+    ):
+        """Start MCP synchronously enough to prove readiness before model work."""
+
+        if self._mcp_server is not None and self._mcp_server.is_running:
+            return False, (
+                f"MCP server is already running at {self._mcp_server.url()}. "
+                "Stop it before starting a new instance."
+            )
+        from ucagent.server import PdbMcpServer
+
+        try:
+            server = PdbMcpServer(
+                self, host=host, port=port, no_file_ops=no_file_ops
+            )
+            ok, msg = server.start()
+        except Exception as exc:
+            return False, f"Failed to start MCP server: {exc}"
+        self._mcp_server = server if ok else None
+        return ok, msg
 
     def do_stop_mcp_server(self, arg):
         """
@@ -3669,6 +3698,10 @@ class VerifyPDB(Pdb):
         cfg_update = {k: "Ignored" for k in cfg.keys()}
         cfg_update.update(self.agent.set_messages_cfg(cfg))
         message(yam_str(cfg_update))
+
+    def do_message_config(self, arg):
+        """Compatibility alias for messages_config."""
+        return self.do_messages_config(arg)
 
     def do_messages_summary(self, arg):
         """Summarize the chat history"""

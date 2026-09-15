@@ -11,6 +11,7 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.abspath(os.path.join(current_dir, "..")))
 
 from ucagent.util import diff_ops
+from ucagent.stage.vstage import VerifyStage
 
 
 def _num_fds() -> int | None:
@@ -44,6 +45,24 @@ def test_get_commit_changed_files_releases_repo_handles(tmp_path):
     after = _num_fds()
     assert after is not None
     assert after - baseline < 5
+
+
+def test_stage_history_commit_lookup_requires_existing_canonical_hash(tmp_path):
+    """Stage history lookup accepts only full lowercase hashes from its repository."""
+
+    repo_dir = tmp_path / "history"
+    repo_dir.mkdir()
+    diff_ops.init_git_repo(str(repo_dir))
+    (repo_dir / "tracked.txt").write_text("base\n", encoding="utf-8")
+    commit_hash = diff_ops.git_add_and_commit(str(repo_dir), "init")
+    stage = VerifyStage.__new__(VerifyStage)
+    stage.hist_sav_dir = str(repo_dir)
+
+    assert stage.hist_has_commit(commit_hash) is True
+    assert stage.hist_has_commit(commit_hash.upper()) is False
+    assert stage.hist_has_commit(commit_hash[:12]) is False
+    assert stage.hist_has_commit("0" * 40) is False
+    assert stage.hist_has_commit(None) is False
 
 
 def test_get_worktree_changed_files_includes_modified_untracked_and_deleted(tmp_path):

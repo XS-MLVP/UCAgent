@@ -1,3 +1,4 @@
+
 # 定制开发
 
 欢迎来到 UCAgent 定制开发指南！本章节将帮助您了解如何定制和扩展 UCAgent 的功能。
@@ -94,6 +95,18 @@ UCAgent 内置工具的完整参考：
 
 适合通过实践学习的用户。
 
+### 🔌 [插件开发与发布](09_plugins.md)
+
+学习如何把 Tool、Checker、Skill、Guide_Doc、工作流中的任意可选能力封装成可独立发布
+的 UCAgent 插件：
+
+- **安装态发现**：通过 Python `ucagent.plugins` entry point 自动发现
+- **源码态发现**：通过分层配置 `plugin.search_paths` 加载本地项目
+- **运行时上下文**：安全获得 workspace、输出目录和读写策略
+- **发布流程**：清单校验、wheel 构建、安装发现和回归测试
+
+适合需要通过 `pip3 install` 交付领域能力并持续增加工作流的开发者。
+
 ## 学习路径建议
 
 ### 快速入门
@@ -107,7 +120,8 @@ UCAgent 内置工具的完整参考：
 1. 理解 [架构与工作原理](02_architecture.md) 掌握核心概念
 2. 学习 [工作流配置](03_workflow.md) 定制验证流程
 3. 学习 [定制工具](05_customize.md) 开发自定义功能
-4. 查看实际案例：[examples/](https://github.com/XS-MLVP/UCAgent/tree/main/examples)
+4. 学习 [插件开发与发布](09_plugins.md) 封装和交付扩展
+5. 查看实际案例：[examples/](https://github.com/XS-MLVP/UCAgent/tree/main/examples)
 
 ## 相关资源
 

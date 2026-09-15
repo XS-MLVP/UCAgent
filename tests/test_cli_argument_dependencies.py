@@ -16,7 +16,7 @@ if loaded_ucagent is not None and not loaded_ucagent_path.startswith(repo_packag
         if module_name == "ucagent" or module_name.startswith("ucagent."):
             del sys.modules[module_name]
 
-from ucagent.cli import get_args
+from ucagent.cli import get_args, run
 
 
 def _parse_args(*arguments):
@@ -24,10 +24,87 @@ def _parse_args(*arguments):
         return get_args()
 
 
+def test_skill_support_uses_config_default_and_accepts_explicit_overrides():
+    default_args = _parse_args("workspace", "dut")
+    enabled_args = _parse_args("workspace", "dut", "--use-skill")
+    disabled_args = _parse_args("workspace", "dut", "--no-use-skill")
+
+    assert default_args.use_skill is True
+    assert default_args._use_skill_explicit is False
+    assert enabled_args.use_skill is True
+    assert enabled_args._use_skill_explicit is True
+    assert disabled_args.use_skill is False
+    assert disabled_args._use_skill_explicit is True
+
+
+@pytest.mark.parametrize(
+    ("arguments", "expected_overrides"),
+    [
+        ([], []),
+        (["--use-skill"], [{"skill.use_skill": True}]),
+        (["--no-use-skill"], [{"skill.use_skill": False}]),
+    ],
+)
+def test_skill_cli_only_overrides_config_when_explicit(
+    tmp_path, arguments, expected_overrides
+):
+    with mock.patch("sys.argv", ["ucagent", str(tmp_path), "dut", *arguments]), \
+            mock.patch("ucagent.verify_agent.VerifyAgent") as verify_agent:
+        run()
+
+    assert verify_agent.call_args.kwargs["cfg_override"] == expected_overrides
+
+
+def test_extra_skill_path_enables_skill_support(tmp_path):
+    skill_path = tmp_path / "extra-skills"
+    skill_path.mkdir()
+
+    with mock.patch(
+        "sys.argv",
+        [
+            "ucagent",
+            str(tmp_path),
+            "dut",
+            "--extra-skill-path",
+            str(skill_path),
+        ],
+    ), mock.patch("ucagent.verify_agent.VerifyAgent") as verify_agent:
+        run()
+
+    assert verify_agent.call_args.kwargs["cfg_override"] == [
+        {"skill.use_skill": True},
+        {"skill.extra_skill_path": str(skill_path)},
+    ]
+
+
+def test_extra_skill_path_rejects_explicitly_disabled_skills(tmp_path):
+    with mock.patch(
+        "sys.argv",
+        [
+            "ucagent",
+            str(tmp_path),
+            "dut",
+            "--no-use-skill",
+            "--extra-skill-path",
+            str(tmp_path / "extra-skills"),
+        ],
+    ), pytest.raises(
+        ValueError, match="--extra-skill-path cannot be used with --no-use-skill"
+    ):
+        run()
+
+
 def test_langchain_backend_does_not_require_mcp_server():
     args = _parse_args("workspace", "dut", "--backend", "langchain")
 
     assert args.backend == "langchain"
+
+
+def test_blank_backend_does_not_require_mcp_server():
+    """BlankBackend is a local no-model backend and has no MCP dependency."""
+    args = _parse_args("workspace", "dut", "--backend", "blank")
+
+    assert args.backend == "blank"
 
 
 def test_non_langchain_backend_requires_mcp_server(capsys):
@@ -70,3 +147,73 @@ def test_non_langchain_backend_allows_embed_tools_when_mcp_is_enabled():
 
     assert args.mcp_server is True
     assert args.no_embed_tools is False
+
+
+def test_cli_starts_mcp_before_headless_backend_run(tmp_path):
+    """Headless command-line backends must receive a ready MCP endpoint."""
+
+    with mock.patch(
+        "sys.argv",
+        [
+            "ucagent",
+            str(tmp_path),
+            "dut",
+            "--backend",
+            "opencode",
+            "--mcp-server-no-file-tools",
+            "--mcp-server-port",
+            "-1",
+        ],
+    ), mock.patch("ucagent.verify_agent.VerifyAgent") as verify_agent:
+        agent = verify_agent.return_value
+        agent.cfg.mcp_server.host = "127.0.0.1"
+        lifecycle = []
+
+        def start_mcp(**kwargs):
+            lifecycle.append(("start_mcp", kwargs))
+            return True, "MCP server started"
+
+        def run_agent():
+            lifecycle.append(("run", {}))
+
+        agent.pdb.start_mcp_server.side_effect = start_mcp
+        agent.run.side_effect = run_agent
+
+        run()
+
+    kwargs = verify_agent.call_args.kwargs
+    assert not any(
+        command.startswith("start_mcp_server")
+        for command in kwargs["init_cmd"]
+    )
+    assert lifecycle[0][0] == "start_mcp"
+    assert lifecycle[0][1]["host"] == "127.0.0.1"
+    assert isinstance(lifecycle[0][1]["port"], int)
+    assert lifecycle[0][1]["no_file_ops"] is True
+    assert lifecycle[1] == ("run", {})
+
+
+def test_cli_aborts_before_backend_run_when_mcp_start_fails(tmp_path):
+    """An unavailable MCP endpoint must stop command-line model execution."""
+
+    with mock.patch(
+        "sys.argv",
+        [
+            "ucagent",
+            str(tmp_path),
+            "dut",
+            "--backend",
+            "opencode",
+            "--mcp-server-no-file-tools",
+        ],
+    ), mock.patch("ucagent.verify_agent.VerifyAgent") as verify_agent:
+        agent = verify_agent.return_value
+        agent.pdb.start_mcp_server.return_value = (
+            False,
+            "MCP server failed to start",
+        )
+
+        with pytest.raises(RuntimeError, match="MCP server failed to start"):
+            run()
+
+    agent.run.assert_not_called()

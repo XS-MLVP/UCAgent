@@ -1,3 +1,4 @@
+
 # Adder缺陷分析文档
 
 ## 未测试通过检测点分析
@@ -5,6 +6,7 @@
 <FG-ARITHMETIC>
 
 #### 加法功能 <FC-ADD>
+
 - <CK-OVERFLOW> 加法溢出处理异常：在最大无符号数 + 1 时未正确拉高溢出标志；Bug 置信度 95% <BG-OVERFLOW-95>
   - 触发 Bug 的测试用例：
     - <TC-test_Adder_api_basic.py::test_api_Adder_add_basic> 基础功能测试中发现溢出标志错误
@@ -21,6 +23,7 @@
 <FG-BIT-WIDTH>
 
 #### 63位输出功能 <FC-SUM-WIDTH>
+
 - <CK-SUM-WIDTH> 输出位宽设计缺陷：sum输出只有63位，导致最高位丢失；Bug 置信度 90% <BG-SUM_WIDTH-90>
   - 触发 Bug 的测试用例：
     - <TC-test_Adder_api_basic.py::test_api_Adder_add_basic> 基础功能测试中发现结果截断

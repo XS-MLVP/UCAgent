@@ -4,7 +4,7 @@
 try:
     from ._version import __version__
 except ImportError:
-    __version__ = "0.9.1.source-code"
+    __version__ = "0.9.1+source.code"
 
 __author__ = "XS-MLVP"
 __email__ = "unitychip@bosc.ac.cn"

@@ -1,0 +1,4 @@
+schema_version = 1
+name = "design-with-ppa"
+entry = "design_with_ppa.plugin:get_plugin"
+python_path = "src"

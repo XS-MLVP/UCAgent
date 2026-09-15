@@ -1,0 +1,3 @@
+# Raw Toffee patterns only. Put reasons in {{DUT}}_line_coverage_analysis.md.
+# Example range: */path/to/source.v:10-20,30-30
+# Complete authored source files cannot be excluded.

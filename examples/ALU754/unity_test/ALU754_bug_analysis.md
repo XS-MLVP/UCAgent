@@ -1,3 +1,4 @@
+
 # ALU754 缺陷分析文档
 
 ## 未测试通过检测点分析
@@ -5,6 +6,7 @@
 <FG-ARITHMETIC>
 
 #### 乘法功能 <FC-MUL>
+
 - <CK-UNDERFLOW> 乘法下溢处理异常：两个很小的数相乘时错误地设置溢出标志而不是下溢标志；Bug置信度 95% <BG-MUL_UNDERFLOW-95>
   - 触发bug的测试用例:
     - <TC-test_ALU754_bug_multiplication.py::test_multiplication_underflow_bug> 乘法下溢处理异常测试
@@ -118,6 +120,7 @@ end
 **验证方法：** 使用已发现的bug测试用例`test_multiplication_underflow_bug`进行验证，并添加更多小数乘法测试，确认修复后下溢判断正确。
 
 #### 除法功能 <FC-DIV>
+
 - <CK-OVERFLOW> 除法模块未能正确检测溢出情况；Bug置信度 85% <BG-DIV_OVERFLOW_DETECT-85>
   - 触发bug的测试用例:
     - <TC-test_ALU754_bug_division.py::test_division_overflow_detection_bug> 除法溢出检测缺陷测试

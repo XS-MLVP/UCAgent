@@ -14,6 +14,7 @@ class GitNotDirtyChecker(Checker):
     """Checker to ensure Git workspace is not dirty."""
 
     def __init__(self, commit_tool="WorkCommit", **kw):
+        super().__init__()
         self.commit_tool = commit_tool
 
     def on_init(self):

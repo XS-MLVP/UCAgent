@@ -14,7 +14,7 @@ from typing import Any, Dict, Optional, Tuple, Type, Union
 from urllib.parse import quote
 
 import ucagent.util.functions as fc
-from ucagent.checkers.base import Checker
+from ucagent.checkers.base import Checker, format_stage_args_examples
 from ucagent.checkers.static_bug import (
     parse_confirmed_static_bug_links,
     parse_source_location,
@@ -22,6 +22,7 @@ from ucagent.checkers.static_bug import (
 from ucagent.checkers.toffee_report import parse_bug_label
 from ucagent.util.functions import import_class_from_str
 from ucagent.util.log import info, warning
+from ucagent.util.markdown import ensure_markdown_heading_spacing
 
 
 class RecordType:
@@ -41,6 +42,10 @@ class RecordType:
     record_type = ""
     persist_on_check = True
     persist_on_stage_complete = False
+    # stage_args keys this type consumes from Check/Complete; Recorder exposes
+    # them as accepted_stage_args so stage management does not report a key the
+    # type actually reads as ignored by every validation gate.
+    accepted_stage_args: tuple[str, ...] = ()
 
     def __init__(self, **kwargs):
         self.options = dict(kwargs)
@@ -75,6 +80,7 @@ class BugRecordType(RecordType):
     """Record every non-zero-confidence Bug declared in an analysis document."""
 
     record_type = "bug"
+    accepted_stage_args = ("bug_list",)
     _SEVERITY_VALUES = ("lowest", "low", "medium", "high", "highest")
     _SEVERITY_VALUES_TEXT = ", ".join(_SEVERITY_VALUES)
 
@@ -193,12 +199,30 @@ class BugRecordType(RecordType):
             self.bug_file,
             "bug_file",
             "bug analysis document",
+            require_file=False,
         )
         static_document, static_document_path = self._resolve_path(
             self.static_bug_file,
             "static_bug_file",
             "static bug analysis document",
         )
+
+        try:
+            static_links = parse_confirmed_static_bug_links(static_document_path)
+        except (AssertionError, ValueError) as exc:
+            raise ValueError(
+                f"Failed to parse static bug analysis document '{static_document}': {exc}"
+            ) from exc
+        if not os.path.isfile(document_path):
+            if static_links:
+                aliases = [link["alias"] for link in static_links]
+                raise ValueError(
+                    f"Bug analysis document '{document}' does not exist, but the static Bug "
+                    "analysis contains confirmed dynamic links for "
+                    f"{fc.list_str_abbr(aliases)}. Restore the dynamic Bug document and its "
+                    "verified waveform evidence before recording Bugs."
+                )
+            return document, {}
 
         try:
             document_marks, document_blocks = fc.get_unity_chip_doc_marks(
@@ -299,12 +323,6 @@ class BugRecordType(RecordType):
             label_offsets[bug_label] = label_index + 1
             expected_by_label[bug_label.upper()] = bug_name
 
-        try:
-            static_links = parse_confirmed_static_bug_links(static_document_path)
-        except (AssertionError, ValueError) as exc:
-            raise ValueError(
-                f"Failed to parse static bug analysis document '{static_document}': {exc}"
-            ) from exc
         for static_link in static_links:
             for dynamic_tag in static_link["dynamic_bug_tags"]:
                 normalized_dynamic_tag = dynamic_tag.upper()
@@ -348,8 +366,15 @@ class BugRecordType(RecordType):
         bug_list: Any,
         expected_bugs: Dict[str, Dict[str, Any]],
         argument_name: str,
+        allow_legacy_string: bool = False,
     ) -> list:
         if isinstance(bug_list, str):
+            if not allow_legacy_string:
+                raise ValueError(
+                    f"'{argument_name}' must be a JSON array, got str. Pass the "
+                    "complete stage_args object as a JSON string when the tool caller "
+                    "cannot serialize nested JSON."
+                )
             bug_list_text = bug_list.strip()
             if bug_list_text.startswith("```") and bug_list_text.endswith("```"):
                 bug_list_lines = bug_list_text.splitlines()
@@ -368,7 +393,7 @@ class BugRecordType(RecordType):
                 ) from exc
         if not isinstance(bug_list, list):
             raise ValueError(
-                f"'{argument_name}' must be a JSON array or a string containing one, "
+                f"'{argument_name}' must be a JSON array, "
                 f"got {type(bug_list).__name__}."
             )
 
@@ -625,6 +650,7 @@ class BugRecordType(RecordType):
                     current_payload,
                     self._expected_bugs,
                     "stored_bug_list",
+                    allow_legacy_string=True,
                 )
                 if current_payload is not None
                 else []
@@ -650,17 +676,28 @@ class BugRecordType(RecordType):
         self,
         current_payload: Any,
         is_complete: bool = False,
-        bug_list: Optional[Union[list, str]] = None,
+        bug_list: Optional[list] = None,
         **kwargs,
     ) -> Tuple[bool, Any, object]:
         if self._initialization_error is not None:
-            return False, current_payload, {"error": self._initialization_error}
+            return False, current_payload, {
+                "error_code": "BUG_RECORD_STATE_INVALID",
+                "error": self._initialization_error,
+                "next_action": (
+                    "Fix the reported Bug document or Recorder configuration error, "
+                    "then call the tool again."
+                ),
+            }
         if self._document is None or self._expected_bugs is None:
             return False, current_payload, {
+                "error_code": "BUG_RECORD_STATE_INVALID",
                 "error": (
                     "BugRecordType has not been initialized. Enter the Recorder stage "
                     "before calling Check or Complete."
-                )
+                ),
+                "next_action": (
+                    "Enter the Recorder stage before calling Check or Complete."
+                ),
             }
         document = self._document
         expected_bugs = self._expected_bugs
@@ -672,9 +709,17 @@ class BugRecordType(RecordType):
                     current_payload,
                     expected_bugs,
                     "stored_bug_list",
+                    allow_legacy_string=True,
                 )
             except ValueError as exc:
-                return False, current_payload, {"error": str(exc)}
+                return False, current_payload, {
+                    "error_code": "BUG_RECORD_STATE_INVALID",
+                    "error": f"Previously stored Bug records are invalid: {exc}",
+                    "next_action": (
+                        "Re-submit the complete corrected stage_args.bug_list covering "
+                        "every Bug, then call the tool again."
+                    ),
+                }
         existing_by_name = {record["bug_name"]: record for record in existing_records}
         expected_names = list(expected_bugs)
         remaining_names = [name for name in expected_names if name not in existing_by_name]
@@ -690,7 +735,7 @@ class BugRecordType(RecordType):
             )
             if not candidates:
                 return (
-                    "No Bug records are pending. Call Complete() without `bug_list` "
+                    "No Bug records are pending. Call Complete() without stage_args "
                     "to finish the stage."
                 )
 
@@ -708,30 +753,43 @@ class BugRecordType(RecordType):
                 "confidence": expected_bug["confidence"],
                 "ref": list(expected_bug["ref"]),
             }
-            bug_list_json = json.dumps([example_record], ensure_ascii=False)
+            object_example, string_example = format_stage_args_examples(
+                tool_name,
+                {"bug_list": [example_record]},
+            )
             return (
-                f"Call the {tool_name} tool with the top-level `bug_list` argument. "
-                "`bug_list` accepts either a JSON array or a string containing that JSON array. "
+                f"Call the {tool_name} tool with the stage_args JSON object. "
+                "For this stage, stage_args.bug_list must be a JSON array. "
                 "The template below already contains the exact bug_name, alias, CK, confidence, "
                 f"and ref values for '{example_name}'. Replace the `desc`, `locations`, and "
                 "`severity` placeholders with the analyzed Bug description, source-level root "
                 "cause, real workspace-relative source lines, and Bug severity before submitting "
                 f"it. Required `severity` accepts {self._SEVERITY_VALUES_TEXT} "
                 "(case-insensitive). "
-                f"Object template: {tool_name}(bug_list={bug_list_json}) "
-                f"String fallback: {tool_name}(bug_list={json.dumps(bug_list_json, ensure_ascii=False)}) "
+                f"Object template: {object_example} "
+                f"JSON-string fallback: {string_example} "
                 f"Allowed current-batch bug_name values: {', '.join(candidates)}. "
-                "Do not submit Bugs outside the current batch. Pass `bug_list` directly as shown; "
-                "do not nest it under `args`, `parameters`, or another field."
+                "Do not submit Bugs outside the current batch. Pass stage_args directly as shown; "
+                "do not use a top-level bug_list field or nest stage_args under args or parameters."
             )
 
         if bug_list is None:
             if remaining_names:
                 return False, existing_records, {
+                    "error_code": "BUG_RECORD_SUBMISSION_REQUIRED",
                     "error": (
-                        f"{len(remaining_names)} bug(s) from '{document}' have not been recorded. "
-                        f"{bug_list_call_guidance()}"
+                        f"{len(remaining_names)} bug(s) from '{document}' have not been recorded."
                     ),
+                    "next_action": bug_list_call_guidance(),
+                    "observed": {
+                        "recorded_bug_count": len(existing_records),
+                        "unrecorded_bug_names": list(remaining_names),
+                    },
+                    "expected": (
+                        f"Every Bug with non-zero confidence in '{document}' recorded "
+                        "through stage_args.bug_list."
+                    ),
+                    "artifact": document,
                     "progress": f"{len(existing_records)}/{len(expected_names)}",
                     "current_batch": self._current_batch_info(current_batch, expected_bugs),
                 }
@@ -749,7 +807,9 @@ class BugRecordType(RecordType):
             )
         except ValueError as exc:
             return False, current_payload, {
-                "error": f"{exc} {bug_list_call_guidance()}",
+                "error_code": "BUG_RECORD_FORMAT_INVALID",
+                "error": str(exc),
+                "next_action": bug_list_call_guidance(),
                 "current_batch": self._current_batch_info(
                     current_batch,
                     expected_bugs,
@@ -763,19 +823,19 @@ class BugRecordType(RecordType):
         ]
         if submitted_records and remaining_names and not new_names:
             return False, current_payload, {
+                "error_code": "BUG_RECORD_BATCH_SCOPE_INVALID",
                 "error": (
-                    "The submitted bug_list only contains bugs that were already recorded. "
-                    f"{bug_list_call_guidance()}"
+                    "The submitted bug_list only contains bugs that were already recorded."
                 ),
+                "next_action": bug_list_call_guidance(),
                 "current_batch": self._current_batch_info(current_batch, expected_bugs),
             }
         out_of_batch = [name for name in new_names if name not in current_batch]
         if out_of_batch:
             return False, current_payload, {
-                "error": (
-                    f"These bug records are not in the current batch: {out_of_batch}. "
-                    f"{bug_list_call_guidance()}"
-                ),
+                "error_code": "BUG_RECORD_BATCH_SCOPE_INVALID",
+                "error": f"These bug records are not in the current batch: {out_of_batch}.",
+                "next_action": bug_list_call_guidance(),
                 "current_batch": self._current_batch_info(current_batch, expected_bugs),
             }
 
@@ -791,16 +851,31 @@ class BugRecordType(RecordType):
         if remaining_names:
             if submitted_records and hasattr(self.recorder.stage_manager, "get_current_stage"):
                 self.recorder.reset_continue_fail_count_with_batch_pass()
-            message_key = "error" if is_complete or not submitted_records else "success"
+            if is_complete or not submitted_records:
+                return False, merged_records, {
+                    "error_code": "BUG_RECORD_SUBMISSION_REQUIRED",
+                    "error": (
+                        f"Recorded {len(submitted_records)} bug(s); {len(remaining_names)} "
+                        f"bug(s) from '{document}' remain."
+                    ),
+                    "next_action": bug_list_call_guidance(next_batch),
+                    "observed": {
+                        "recorded_bug_count": len(merged_records),
+                        "unrecorded_bug_names": list(remaining_names),
+                    },
+                    "expected": (
+                        f"Every Bug with non-zero confidence in '{document}' recorded "
+                        "through stage_args.bug_list."
+                    ),
+                    "artifact": document,
+                    "bug_count": len(merged_records),
+                    "progress": progress,
+                    "current_batch": self._current_batch_info(next_batch, expected_bugs),
+                }
             return False, merged_records, {
-                message_key: (
+                "success": (
                     f"Recorded {len(submitted_records)} bug(s); {len(remaining_names)} bug(s) "
                     f"from '{document}' remain."
-                    + (
-                        f" {bug_list_call_guidance(next_batch)}"
-                        if message_key == "error"
-                        else ""
-                    )
                 ),
                 "bug_count": len(merged_records),
                 "progress": progress,
@@ -828,6 +903,7 @@ class BugRecordType(RecordType):
             current_payload if current_payload is not None else [],
             expected_bugs,
             "stored_bug_list",
+            allow_legacy_string=True,
         )
         recorded_names = {record["bug_name"] for record in records}
         missing_names = [name for name in expected_bugs if name not in recorded_names]
@@ -861,6 +937,7 @@ class BugRecordType(RecordType):
             self.bug_file,
             "bug_file",
             "bug analysis document",
+            require_file=bool(expected_bugs or records),
         )
         _static_name, static_bug_path = self._resolve_path(
             self.static_bug_file,
@@ -918,7 +995,9 @@ class BugRecordType(RecordType):
             )
 
         with open(resolved_output_path, "w", encoding="utf-8") as summary_file:
-            summary_file.write("\n".join(markdown_lines) + "\n")
+            summary_file.write(
+                ensure_markdown_heading_spacing("\n".join(markdown_lines) + "\n")
+            )
         info(
             f"Recorder generated Bug summary with {len(records)} record(s) at "
             f"'{output_name}'."
@@ -974,6 +1053,7 @@ class Recorder(Checker):
         type_args: Optional[Dict[str, Any]] = None,
         **kwargs,
     ):
+        super().__init__()
         cfg = kwargs.pop("cfg", None)
         if cfg is not None:
             self.update_dut_name(cfg)
@@ -1001,6 +1081,9 @@ class Recorder(Checker):
         for key, value in kwargs.items():
             record_type_args.setdefault(key, value)
         self.type_handler = record_type_class(**record_type_args).bind(self)
+        self.accepted_stage_args = tuple(
+            getattr(self.type_handler, "accepted_stage_args", None) or ()
+        )
         self.record_type = (
             str(self.type_handler.record_type or "").strip()
             or f"{record_type_class.__module__}.{record_type_class.__qualname__}"
@@ -1040,11 +1123,11 @@ class Recorder(Checker):
 
         The built-in ``bug`` type reads every BG entry from its configured bug
         analysis document and accepts records for the current batch:
-        ``Check(bug_list=[{'bug_name': 'overflow_bug', 'alias': [],
+        ``Check(stage_args={'bug_list': [{'bug_name': 'overflow_bug', 'alias': [],
         'CK': ['CK-OVERFLOW'],
         'desc': 'Description and root cause', 'locations': ['rtl/dut.sv:128-229'],
         'severity': 'high', 'confidence': 0.76,
-        'ref': ['DUT_bug_analysis.md:30-42']}])``.
+        'ref': ['DUT_bug_analysis.md:30-42']}]})``.
         Configure it with dynamic and static Bug document paths plus ``batch_size``.
         When ``output`` is a non-empty workspace-relative path, the Bug type writes a
         Markdown summary with line-linked source and document references from the
@@ -1082,7 +1165,11 @@ class Recorder(Checker):
         if self.type_handler.persist_on_check and (
             passed or payload is not None or current_payload is not None
         ):
-            self.smanager_set_value(self.data_key, copy.deepcopy(payload))
+            self.smanager_set_value(
+                self.data_key,
+                copy.deepcopy(payload),
+                persist=True,
+            )
             info(
                 f"Recorder cached type '{self.record_type}' data under manager key "
                 f"'{self.data_key}'."

@@ -1,3 +1,4 @@
+
 # FAQ
 
 ## FAQ
@@ -23,9 +24,10 @@
 
 ### 运行中如何调整消息窗口与 token 上限？
 
-- 在 TUI 输入：`message_config` 查看当前配置；
-- 设置：`message_config max_keep_msgs 8` 或 `message_config max_token 4096`；
-- 作用范围：影响会话历史裁剪与送入 LLM 的最大 token 上限（通过 Summarization/Trim 节点生效）。
+- 在 TUI 输入 `messages_config` 查看当前配置；
+- 使用 `messages_config max_tokens 131072` 调整预估 token 触发值；
+- 使用 `messages_config max_keep_msgs 200` 调整独立的消息数触发值；
+- 两项中的任意一项超限都会压缩。只提高 `max_tokens` 不会关闭消息数限制；可将对应限制设为 `0` 来禁用该触发条件。
 
 ### 文档中的 “CK bug” 要改吗？
 
@@ -33,4 +35,4 @@
 
 ### 为什么找不到 WriteTextFile 工具？
 
-- 该工具已移除。请改用 `EditTextFile`（支持 overwrite/append/replace 三种模式）或其他文件工具（Copy/Move/Delete 等）。
+- 该工具已移除。创建或覆盖文本文件请调用 `EditTextFile(path, content)`；只有追加内容时才传 `append=true`。对已有文件做少量局部修改时使用 `ReplaceStringInFile(path, old_string, new_string)`；需要限定搜索范围时可加 `line_blocks=[[start, end], ...]`，默认搜索全文。只有大量修改需要先删除多个完整行块时，才先用 `DeleteTextLines(path, line_blocks, expected_sha256)`批量删除，重新读取文件后再用 `ReplaceStringInFile`完成精确编辑。

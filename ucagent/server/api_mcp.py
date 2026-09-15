@@ -9,10 +9,34 @@ Protocol (MCP).  The class follows the same lifecycle pattern as
 """
 
 import threading
-from typing import TYPE_CHECKING, Optional, Tuple
+import time
+from typing import TYPE_CHECKING, Any, List, Optional, Tuple
 
 if TYPE_CHECKING:
     from ucagent.verify_pdb import VerifyPDB
+
+
+def _collect_mcp_tools(agent: Any, no_file_ops: bool) -> List[Any]:
+    """Return configuration-filtered MCP tools, optionally without file operations."""
+
+    tools = (
+        agent.tool_list_base
+        + agent.tool_list_task
+        + agent.tool_list_ext
+        + getattr(agent, "tool_list_waveform", [])
+        + getattr(agent, "tool_list_plugin", [])
+    )
+    if not no_file_ops:
+        tools += agent.tool_list_file
+    tool_config = getattr(getattr(agent, "cfg", None), "tools", None)
+    if tool_config is not None:
+        if hasattr(tool_config, "as_dict"):
+            tool_config = tool_config.as_dict()
+        if isinstance(tool_config, dict):
+            from ucagent.util.functions import get_tools_from_cfg
+
+            tools = get_tools_from_cfg(tools, tool_config)
+    return tools
 
 
 class PdbMcpServer:
@@ -67,6 +91,7 @@ class PdbMcpServer:
         self._server = None          # uvicorn.Server instance
         self._glogger = None         # saved logging.getLogger (for restore on stop)
         self._thread: Optional[threading.Thread] = None
+        self._startup_error: Optional[BaseException] = None
         self._running = False
         self.started_at: Optional[float] = None
 
@@ -74,7 +99,7 @@ class PdbMcpServer:
     # Lifecycle
     # ------------------------------------------------------------------
 
-    def start(self) -> Tuple[bool, str]:
+    def start(self, timeout: float = 10.0) -> Tuple[bool, str]:
         """Build the tool list and start the MCP server in a background thread.
 
         Returns
@@ -83,13 +108,13 @@ class PdbMcpServer:
         """
         if self._running:
             return False, f"MCP server is already running at {self.url()}"
+        if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or timeout <= 0:
+            return False, "MCP server startup timeout must be a positive number"
+        self._startup_error = None
 
         agent = self.pdb.agent
 
-        # Collect tools from the agent
-        tools = agent.tool_list_base + agent.tool_list_task + agent.tool_list_ext
-        if not self.no_file_ops:
-            tools += agent.tool_list_file
+        tools = _collect_mcp_tools(agent, self.no_file_ops)
 
         agent.cfg.update_template(
             {"TOOLS": ", ".join([t.name for t in tools])}
@@ -114,20 +139,40 @@ class PdbMcpServer:
         info("Init Prompt:\n" + agent.cfg.mcp_server.init_prompt)
 
         def _run():
-            start_verify_mcps(self._server, self._glogger)
+            """Serve MCP requests on the lifecycle-managed background thread."""
+
+            try:
+                start_verify_mcps(self._server, self._glogger)
+            except BaseException as exc:
+                self._startup_error = exc
 
         self._thread = threading.Thread(target=_run, daemon=True, name="pdb-mcp-server")
         self._thread.start()
 
-        # Keep agent attributes in sync for backward-compat
-        # (api_master.py uses agent._mcps and agent._mcp_server_thread to report
-        # mcp_running in heartbeats)
-        agent._mcps = server
-        agent._mcp_server_thread = self._thread
+        deadline = time.monotonic() + float(timeout)
+        while time.monotonic() < deadline:
+            if self._startup_error is not None or not self._thread.is_alive():
+                break
+            if getattr(self._server, "started", False):
+                # Keep agent attributes in sync for api_master heartbeat reporting.
+                agent._mcps = server
+                agent._mcp_server_thread = self._thread
+                self._running = True
+                self.started_at = time.time()
+                return True, f"MCP server started at {self.url()}"
+            time.sleep(0.01)
 
-        self._running = True
-        self.started_at = __import__('time').time()
-        return True, f"MCP server started at {self.url()}"
+        self._server.should_exit = True
+        self._thread.join(timeout=1.0)
+        if self._startup_error is not None:
+            detail = f": {self._startup_error}"
+        elif not self._thread.is_alive():
+            detail = ": server thread exited before becoming ready"
+        else:
+            detail = f" within {float(timeout):g} seconds"
+        self._server = None
+        self._thread = None
+        return False, f"MCP server failed to start at {self.url()}{detail}"
 
     def stop(self) -> Tuple[bool, str]:
         """Stop the MCP server.
@@ -141,7 +186,10 @@ class PdbMcpServer:
 
         from ucagent.util.functions import stop_verify_mcps
 
+        thread = self._thread
         stop_verify_mcps(self._server)
+        if thread is not None and thread is not threading.current_thread():
+            thread.join(timeout=5.0)
         self._server = None
         self._thread = None
         self._running = False
@@ -156,6 +204,8 @@ class PdbMcpServer:
 
     @property
     def is_running(self) -> bool:
+        """Return whether the MCP server thread is currently alive."""
+
         return (
             self._running
             and self._thread is not None

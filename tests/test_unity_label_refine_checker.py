@@ -15,6 +15,7 @@ from ucagent.checkers.unity_test import UnityChipCheckerLabelStructureRefine
 class _FakeStageManager:
     def __init__(self, data=None):
         self.data = dict(data or {})
+        self.save_count = 0
         self.current_stage = SimpleNamespace(reset_continue_fail_count_with_batch_pass=lambda: None)
 
     def get_data(self, key, default=None):
@@ -22,6 +23,9 @@ class _FakeStageManager:
 
     def set_data(self, key, value):
         self.data[key] = value
+
+    def save_stage_info(self):
+        self.save_count += 1
 
     def get_current_stage(self):
         return self.current_stage
@@ -93,7 +97,7 @@ def test_label_structure_refine_rejects_unknown_and_out_of_batch_labels(tmp_path
     assert "FG-API/FC-BASIC/CK-A" in error_text
 
 
-def test_label_structure_refine_accepts_stringified_refined_dict(tmp_path):
+def test_label_structure_refine_rejects_nested_stringified_refined_dict(tmp_path):
     checker, _manager = _make_checker(tmp_path, ["A", "B"], batch_size=2)
 
     passed, msg = checker.do_check(
@@ -101,8 +105,8 @@ def test_label_structure_refine_accepts_stringified_refined_dict(tmp_path):
     )
 
     assert passed is False
-    assert "CK-B" in msg["error"]
-    assert checker.batch_task.gen_task_list == ["FG-API/FC-BASIC/CK-A"]
+    assert "stage_args.refined must be a JSON object" in msg["error"]
+    assert checker.batch_task.gen_task_list == []
 
 
 def test_label_structure_refine_rejects_unparseable_refined_string(tmp_path):
@@ -111,7 +115,7 @@ def test_label_structure_refine_rejects_unparseable_refined_string(tmp_path):
     passed, msg = checker.do_check(refined="FG-API/FC-BASIC/CK-A reviewed")
 
     assert passed is False
-    assert "could not be parsed as a dictionary" in msg["error"]
+    assert "stage_args.refined must be a JSON object" in msg["error"]
 
 
 def test_label_structure_refine_accumulates_completed_tasks_across_checks(tmp_path):
@@ -134,6 +138,24 @@ def test_label_structure_refine_accumulates_completed_tasks_across_checks(tmp_pa
     passed, msg = checker.do_check(refined={"FG-API/FC-BASIC/CK-C": "reviewed C"})
     assert passed is True
     assert "All CK are done" in msg["success"]
+
+
+def test_label_structure_refine_restores_partial_current_batch(tmp_path):
+    checker, manager = _make_checker(tmp_path, ["A", "B"], batch_size=2)
+
+    passed, _msg = checker.do_check(
+        refined={"FG-API/FC-BASIC/CK-A": "reviewed A"}
+    )
+
+    assert passed is False
+    assert manager.save_count == 1
+    restored, _manager = _make_checker(tmp_path, ["A", "B"], batch_size=2)
+    assert restored.batch_task.gen_task_list == ["FG-API/FC-BASIC/CK-A"]
+    assert restored.batch_task.tbd_task_list == [
+        "FG-API/FC-BASIC/CK-A",
+        "FG-API/FC-BASIC/CK-B",
+    ]
+    assert restored.batch_task.cmp_task_list == ["FG-API/FC-BASIC/CK-A"]
 
 
 def test_label_structure_refine_complete_saves_updated_doc_labels_and_results(tmp_path):
@@ -172,7 +194,7 @@ def test_label_structure_refine_uses_original_data_key_as_source_not_latest_doc(
     assert checker.batch_task.source_task_list == ["FG-API/FC-BASIC/CK-A"]
 
 
-def test_label_structure_refine_on_init_does_not_overwrite_checkpoint_lists(tmp_path):
+def test_label_structure_refine_reconciles_checkpoint_with_current_source(tmp_path):
     checker, manager = _make_checker(tmp_path, ["A", "B"], cached_ck_names=["A", "B"], batch_size=2)
     checker.batch_task.source_task_list = ["FG-API/FC-BASIC/CK-A"]
     checker.batch_task.gen_task_list = ["FG-API/FC-BASIC/CK-A"]
@@ -182,9 +204,12 @@ def test_label_structure_refine_on_init_does_not_overwrite_checkpoint_lists(tmp_
 
     checker.on_init()
 
-    assert checker.batch_task.source_task_list == ["FG-API/FC-BASIC/CK-A"]
+    assert checker.batch_task.source_task_list == [
+        "FG-API/FC-BASIC/CK-A",
+        "FG-API/FC-BASIC/CK-B",
+    ]
     assert checker.batch_task.gen_task_list == ["FG-API/FC-BASIC/CK-A"]
-    assert checker.batch_task.tbd_task_list == []
+    assert checker.batch_task.tbd_task_list == ["FG-API/FC-BASIC/CK-B"]
 
 
 def test_label_structure_refine_on_init_falls_back_to_current_doc_when_data_key_empty(tmp_path):

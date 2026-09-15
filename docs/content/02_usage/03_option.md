@@ -1,3 +1,4 @@
+
 # 参数说明
 
 ## 参数与选项
@@ -108,6 +109,10 @@ ucagent ./output Adder --web-terminal '0.0.0.0:8818 mysecret'
 | 选项                    | 简写 | 取值/类型                  | 默认值     | 说明                                                            |
 | :---------------------- | :--- | :------------------------- | :--------- | :-------------------------------------------------------------- |
 | --config                |      | path                       | 无         | 配置文件路径，如 `--config config.yaml`                         |
+| --plugin                |      | name/path（可多次）        | []         | 激活已安装插件 ID 或本地插件项目路径                            |
+| --plugin-workflow       |      | [plugin:]workflow          | 无         | 使用已激活插件声明的工作流配置层；可与 `--config` 同时使用      |
+| --list-plugins          |      | flag                       | 否         | 列出 entry point 和 `plugin.search_paths` 可发现的插件后退出    |
+| --validate-plugin       |      | name/path（可多次）        | []         | 校验插件清单、兼容性、依赖、命令和资源后退出                    |
 | --template-dir          |      | path                       | 无         | 自定义模板目录                                                  |
 | --template-overwrite    |      | flag                       | 否         | 渲染模板到 workspace 时允许覆盖已存在内容                       |
 | --template-cfg-override |      | path（可多次）             | []         | 从 YAML 文件覆盖模板配置，可多次使用                            |
@@ -115,8 +120,8 @@ ucagent ./output Adder --web-terminal '0.0.0.0:8818 mysecret'
 | --override              |      | A.B.C=VALUE[,X.Y=VAL2,...] | 无         | 以"点号路径=值"覆盖配置；字符串需引号，其它按 Python 字面量解析 |
 | --gen-instruct-file     | -gif | file                       | 无         | 在 workspace 下生成外部 Agent 的引导文件（存在则覆盖）          |
 | --guid-doc-path         |      | path（可多次）             | 无         | 使用自定义 Guide_Doc 目录（默认使用内置拷贝）                   |
-| --use-skill             |      | bool                       | 否         | 启用技能 SKILL；不添加参数为关闭 |
-| --extra-skill-path      |      | path                       | 无         | 除默认 SKILL 外，额外使用指定路径下的 SKILL，仅当设置--use-skill参数时才能添加该参数 |
+| --use-skill / --no-use-skill | | flag                       | 开启       | 显式启用/关闭技能 SKILL；未指定时使用配置值，内置配置默认开启 |
+| --extra-skill-path      |      | path                       | 无         | 除默认 SKILL 外，额外使用指定路径下的 SKILL；不能与 `--no-use-skill` 同时使用 |
 | --backend               |      | str                        | 无         | 指定后端（覆盖配置文件设置）                                    |
 | --emulate-config        |      | flag                       | 否         | 仅模拟配置过程，不实际运行各阶段                                |
 
@@ -317,7 +322,7 @@ python3 ucagent.py ./output Adder \
   - --override '...': 覆盖配置键值（点号路径=值，多项用逗号分隔；字符串需内层引号，整体用单引号包裹以保留引号），示例里设置了会话摘要上限、启用裁剪、文档语言为"中文"、模型名为 gpt-4o-mini
   - -gif/--gen-instruct-file GEMINI.md：在 `<workspace>/GEMINI.md` 下生成外部协作引导文件
   - --guid-doc-path ./output/Guide_Doc：自定义 Guide_Doc 目录为`./output/Guide_Doc`
-  - --use-skill：启用技能 SKILL 功能
+  - --use-skill / --no-use-skill：显式启用/关闭技能 SKILL 功能（默认启用）
   - --extra-skill-path：指定加载额外路径下的 SKILL
   - --backend：指定后端
   - --emulate-config：仅模拟配置过程
@@ -364,6 +369,11 @@ UCAgent 支持通过环境变量配置各类参数，环境变量优先级高于
 | `OPENAI_MODEL` | OpenAI 对话模型名称 | 无（需配置） |
 | `OPENAI_API_KEY` | OpenAI API 密钥 | 无（需配置） |
 | `OPENAI_API_BASE` | OpenAI API 基础 URL | 无（需配置） |
+| `OPENAI_CONTEXT_SIZE` | 命令行后端所用模型的上下文窗口大小（token 数），渲染进各后端的上下文窗口配置；未设置时使用后端默认值 | 未设置 |
+| `OPENAI_OUTPUT_SIZE` | 命令行后端所用模型的单次响应输出上限（token 数），仅 opencode/kilo 后端在已声明上下文窗口时生效 | 未设置 |
+| `OPENAI_API_MODE` | LangChain 后端使用的 OpenAI API 模式：`auto`、`responses` 或 `chat_completions` | `auto` |
+| `OPENAI_RESPONSES_PROBE_TIMEOUT` | 启动时 Responses API 能力探测超时秒数，必须为正数 | `10` |
+| `OPENAI_REASONING_EFFORT` | LangChain 后端的思考程度；按当前 OpenAI 或兼容模型服务支持的字符串原样传递 | `xhigh` |
 | `OPENAI_TEMPERATURE` | OpenAI 模型 temperature 参数 | 未设置 |
 | `OPENAI_TOP_P` | OpenAI 模型 top_p 参数 | 未设置 |
 | `ANTHROPIC_MODEL` | Anthropic Claude 模型名称 | `claude-3-7-sonnet-20250219` |
@@ -392,10 +402,12 @@ UCAgent 支持通过环境变量配置各类参数，环境变量优先级高于
 
 | 环境变量名 | 说明 | 默认值 |
 | :-------- | :--- | :----- |
-| `SUMMARY_MAX_CTX_TOKEN` | 会话上下文最大 token 数 | `51200` |
-| `SUMMARY_MAX_SUM_TOKEN` | 生成摘要的最大 token 数 | `1024` |
-| `SUMMARY_MAX_KEEP_MSG` | 内存中保留的最大消息数 | `100` |
+| `SUMMARY_MAX_CTX_TOKEN` | 触发压缩的预估上下文 token 上限；`0` 表示禁用该触发条件 | `102400` |
+| `SUMMARY_MAX_SUM_TOKEN` | 每次生成摘要的输出 token 上限，必须大于 `0` | `8192` |
+| `SUMMARY_MAX_KEEP_MSG` | 独立触发压缩的上下文消息数上限；`0` 表示禁用该触发条件 | `100` |
 | `SUMMARY_TAIL_KEEP_MSG` | 传递给 LLM 的最近消息保留数 | `10` |
+
+`SUMMARY_MAX_CTX_TOKEN` 和 `SUMMARY_MAX_KEEP_MSG` 是两个独立触发条件，任意一个超限都会压缩。上下文 token 在模型调用前属于预估值；运行过程中若模型服务返回 usage，LangChain 后端会使用最近一次实际输入 token 校准后续估算。`status` 中的 `ProviderTokens` 以 `input/output/total` 显示服务端累计 token，`Context` 显示当前预估值与阈值，`Compression` 显示最近一次压缩的原因和前后规模。
 
 ### LLM 限流配置
 
@@ -428,6 +440,8 @@ UCAgent 支持通过环境变量配置各类参数，环境变量优先级高于
 | :-------- | :--- | :----- |
 | `HUMAN_CHECK_CK` | 验证复杂 DUT 时是否开启检测点人工检查 | `false` |
 | `UC_ENV_CMD_BACKEND_EX_ARGS` | 命令行后端执行时的额外参数 | 无 |
+
+`ucagent/setting.yaml`中的`loop_settings.max_stalled_rounds`控制外部 Agent 循环的停滞保护，默认值为`0`（关闭）。只有人为通过配置文件或`--override loop_settings.max_stalled_rounds=VALUE`将它设为正整数时才会启用。启用后，只有一轮内实际调用了 Check/Complete，且阶段、Checker和Checker显式结构化诊断均与上一计数轮相同时才累计；阶段或批次推进、检查通过、诊断变化都会清零，无新检查的轮次不计数。达到阈值后 UCAgent 暂停`--loop`并等待人工处理，不退出任务、不修改产物，也不向`status`增加字段。其他值必须是非负整数。
 
 ### 测试工具配置
 

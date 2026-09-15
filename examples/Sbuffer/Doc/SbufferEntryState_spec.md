@@ -1,8 +1,10 @@
+
 # SbufferEntryState Specification Document
 
 > This document describes the specification of the `SbufferEntryState` chip verification target. Keep the technical language precise, well-organized, and easy to reuse for verification. If an item does not exist, explicitly write "None" or "TBD"; do not delete the section.
 
 ## Introduction
+
 - **Design Background**: SbufferEntryState is a Chisel Bundle type that defines the per-entry state vector for the Sbuffer (Store Buffer) module in the XiangShan high-performance RISC-V processor. It encodes four orthogonal Boolean flags that track the lifecycle of each store buffer entry: allocation status, DCache write-in-flight status, replay-wait status, and same-cache-block inflight dependency. The Sbuffer module instantiates `stateVec` as a `RegInit(Vec(StoreBufferSize, new SbufferEntryState))` register file, using these fields to control enqueue, eviction, forwarding, and timeout logic. By extracting the Bundle from Sbuffer, this type is testable in isolation as a combinatorial logic unit. Source: `SbufferEntryState.scala:1-12`, `Sbuffer.scala:31`, `phase_01_types.txt:43-49`, `engine_overview.txt:7-18`.
 - **Design Goals**: (1) Define four independent Boolean state flags per Sbuffer entry: `state_valid` (allocated), `state_inflight` (being written to DCache), `w_timeout` (waiting for replay resend), `w_sameblock_inflight` (blocked by same-block inflight entry). (2) Provide five combinatorial helper methods (`isInvalid`, `isValid`, `isActive`, `isInflight`, `isDcacheReqCandidate`) that derive entry classification from the field values. (3) Serve as the element type for the `stateVec` register file that the Sbuffer FSM, enqueue pipeline, eviction pipeline, and forward pipeline all reference. (4) Guarantee that the helper methods produce correct classifications for every possible combination of the four Boolean fields — the methods are pure combinational functions of their inputs with no hidden state.
 
@@ -31,6 +33,7 @@ File list:
 - `SbufferEntryState.scala:1-12`: Bundle class definition — four Boolean fields (`state_valid`, `state_inflight`, `w_timeout`, `w_sameblock_inflight`) and five helper methods (`isInvalid`, `isValid`, `isActive`, `isInflight`, `isDcacheReqCandidate`). Extends `SbufferBundle` (which extends `XSBundle` with `HasSbufferConst`), so it inherits parameter-derived constants for bit-width context, though it uses no parameterized widths itself — all fields are single-bit `Bool()`.
 
 ## Top-Level Interface Overview
+
 - **Module Name**: `SbufferEntryState`
 - **Field List**:
 
@@ -231,6 +234,7 @@ The `w_sameblock_inflight` field indicates another entry sharing the same physic
 (no subcomponents) — SbufferEntryState is a Chisel Bundle type containing only four Boolean fields (`state_valid`, `state_inflight`, `w_timeout`, `w_sameblock_inflight`) and five combinational Boolean methods. It does not instantiate any submodules, inherit from any Module class, or depend on any other hardware unit. The parent class `SbufferBundle` provides parameter-derived constants via `HasSbufferConst`, but none of these constants affect the Bundle's fields or methods.
 
 ### State Machines and Timing
+
 - **State Machine List**: None. SbufferEntryState is a combinational wire Bundle with no sequential elements, no registers, and no state machine. Each instance of the Bundle is a collection of four Boolean wires whose values are determined by the instantiating register file. The state machines that interpret these fields (Sbuffer FSM, enqueue pipeline stages, eviction pipeline stages) reside in the instantiating Sbuffer module.
 - **State Transition Conditions**: None. The Bundle itself has no transitions. Field transitions are governed by the Sbuffer module:
   - `state_valid`: set to true on insert (`Sbuffer.scala:246`), cleared to false on DCache hit response (`Sbuffer.scala:524-526`).
@@ -242,12 +246,14 @@ The `w_sameblock_inflight` field indicates another entry sharing the same physic
   - When instantiated inside a register (`Reg(Vec(StoreBufferSize, new SbufferEntryState))`), field writes take effect on the next clock edge (registered behavior), so method outputs reflect the registered values with 1 cycle of write-to-read latency through the register, plus 0 cycles through the Bundle itself.
 
 ### Configuration Registers and Storage
+
 None — SbufferEntryState is a passive wire Bundle with no registers, memory, or configurable storage elements. Each field is a `Bool()` wire; the storage is provided by the instantiating register file (`RegInit(Vec(StoreBufferSize, new SbufferEntryState))` in Sbuffer).
 
 - **Register Map Base Address**: No bus interface — SbufferEntryState is an internal wire Bundle used within Sbuffer's stateVec register file.
 - **Configuration Flow**: N/A.
 
 ### Reset and Error Handling
+
 - **Reset Behavior**: N/A — SbufferEntryState has no reset-able state of its own. The Bundle fields reset to the value determined by the instantiating register file's reset initialization. In Sbuffer, `stateVec` is a `RegInit` that resets to all fields false (all entries invalid). Source: `Sbuffer.scala:31`.
 - **Error Reporting**: None. SbufferEntryState defines no error signals, assertions, or exception-reporting mechanisms. Error detection (e.g., illegal field combinations indicating Sbuffer bugs) is the responsibility of the instantiating Sbuffer module through its assertions:
   - `stateVec(id).state_inflight === true` assertion on DCache hit response (`Sbuffer.scala:530`) — catch inflight mismatch.
@@ -255,11 +261,13 @@ None — SbufferEntryState is a passive wire Bundle with no registers, memory, o
 - **Self-Recovery Strategy**: None. SbufferEntryState has no self-recovery mechanism. Recovery from illegal field combinations (e.g., entry stuck inflight indefinitely) is handled by Sbuffer's flush/drain mechanisms and coherence/replay timeout logic, which operate on the fields externally.
 
 ### Parameterization and Configurable Features
+
 - **Module Parameters**: None. SbufferEntryState has no constructor parameters. All four fields are `Bool()` with no parameterized widths. The `HasSbufferConst` constants inherited through `SbufferBundle` (e.g., StoreBufferSize, EvictCycles) are not referenced by any field or method in this Bundle.
 - **Runtime Configuration**: None. The Bundle has no configurable behavior at runtime. Field values are entirely determined by the instantiating module.
 - **Compile Macros/Generation Options**: None.
 
 ## Verification Requirements and Coverage Suggestions
+
 - **Functional Coverage Points**: All `CK-*` check points defined in each functional group constitute coverage targets. Key cross-coverage scenarios:
   - Exhaustive 16-combination coverage: verify all five methods produce correct outputs for all 2^4 = 16 field combinations.
   - Method orthogonality: verify each method's output depends only on its declared field dependencies (e.g., `isActive` depends only on `state_valid` and `state_inflight`, not on `w_timeout` or `w_sameblock_inflight`).
