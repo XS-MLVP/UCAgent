@@ -24,6 +24,7 @@ import ucagent.checkers as checkers
 from ucagent.checkers.recorder import Recorder, RecordType
 from ucagent.checkers.toffee_report import parse_bug_label
 from ucagent.server.api_master import PdbMasterApiServer, PdbMasterClient
+from ucagent.stage.vmanager import StageManager
 from ucagent.util.config import load_yaml_with_env_vars
 from ucagent.util.functions import import_class_from_str
 from ucagent.util.markdown import markdown_heading_spacing_errors
@@ -339,15 +340,19 @@ def test_bug_recorder_missing_bug_list_shows_check_object_and_string_examples(tm
 
     assert passed is False
     assert message["current_batch"][0]["bug_name"] == "overflow_bug"
-    error_text = message["error"]
-    assert "Call the Check tool with the stage_args JSON object" in error_text
-    assert 'Object template: Check(stage_args={"bug_list": [{"bug_name": "overflow_bug"' in error_text
-    assert 'JSON-string fallback: Check(stage_args="{\\"bug_list\\": [{\\"bug_name\\": \\"overflow_bug\\"' in error_text
-    assert '"CK": ["FG-GROUP/FC-FUNCTION/CK-OVERFLOW"]' in error_text
-    assert '"confidence": 0.76' in error_text
-    assert '"ref": ["Adder_bug_analysis.md:8-9"]' in error_text
-    assert '"severity": "REPLACE_WITH_LOWEST_LOW_MEDIUM_HIGH_HIGHEST"' in error_text
-    assert "Required `severity` accepts lowest, low, medium, high, highest" in error_text
+    assert message["error_code"] == "BUG_RECORD_SUBMISSION_REQUIRED"
+    assert "have not been recorded" in message["error"]
+    action_text = message["next_action"]
+    assert "Call the Check tool with the stage_args JSON object" in action_text
+    assert 'Object template: Check(stage_args={"bug_list": [{"bug_name": "overflow_bug"' in action_text
+    assert 'JSON-string fallback: Check(stage_args="{\\"bug_list\\": [{\\"bug_name\\": \\"overflow_bug\\"' in action_text
+    assert '"CK": ["FG-GROUP/FC-FUNCTION/CK-OVERFLOW"]' in action_text
+    assert '"confidence": 0.76' in action_text
+    assert '"ref": ["Adder_bug_analysis.md:8-9"]' in action_text
+    assert '"severity": "REPLACE_WITH_LOWEST_LOW_MEDIUM_HIGH_HIGHEST"' in action_text
+    assert "Required `severity` accepts lowest, low, medium, high, highest" in action_text
+    assert message["observed"]["unrecorded_bug_names"] == ["overflow_bug"]
+    assert "stage_args.bug_list" in message["expected"]
 
 
 def test_bug_recorder_missing_bug_list_shows_complete_examples(tmp_path):
@@ -357,10 +362,12 @@ def test_bug_recorder_missing_bug_list_shows_complete_examples(tmp_path):
     passed, message = recorder.do_check(is_complete=True)
 
     assert passed is False
-    error_text = message["error"]
-    assert "Call the Complete tool with the stage_args JSON object" in error_text
-    assert 'Object template: Complete(stage_args={"bug_list": [{"bug_name": "overflow_bug"' in error_text
-    assert 'JSON-string fallback: Complete(stage_args="{\\"bug_list\\": [{\\"bug_name\\": \\"overflow_bug\\"' in error_text
+    assert message["error_code"] == "BUG_RECORD_SUBMISSION_REQUIRED"
+    assert "have not been recorded" in message["error"]
+    action_text = message["next_action"]
+    assert "Call the Complete tool with the stage_args JSON object" in action_text
+    assert 'Object template: Complete(stage_args={"bug_list": [{"bug_name": "overflow_bug"' in action_text
+    assert 'JSON-string fallback: Complete(stage_args="{\\"bug_list\\": [{\\"bug_name\\": \\"overflow_bug\\"' in action_text
 
 
 def test_bug_recorder_rejects_invalid_json_string_bug_list(tmp_path):
@@ -370,10 +377,11 @@ def test_bug_recorder_rejects_invalid_json_string_bug_list(tmp_path):
     passed, message = recorder.do_check(bug_list="[{'bug_name': 'not-json'}]")
 
     assert passed is False
+    assert message["error_code"] == "BUG_RECORD_FORMAT_INVALID"
     assert "must be a JSON array, got str" in message["error"]
     assert message["current_batch"][0]["bug_name"] == "overflow_bug"
-    assert 'Object template: Check(stage_args={"bug_list": [{"bug_name": "overflow_bug"' in message["error"]
-    assert "JSON-string fallback: Check(stage_args=" in message["error"]
+    assert 'Object template: Check(stage_args={"bug_list": [{"bug_name": "overflow_bug"' in message["next_action"]
+    assert "JSON-string fallback: Check(stage_args=" in message["next_action"]
     assert "BUG_RECORDS" not in manager.data
 
 
@@ -386,10 +394,11 @@ def test_bug_recorder_rejects_non_array_bug_list_with_call_examples(tmp_path):
     })
 
     assert passed is False
+    assert message["error_code"] == "BUG_RECORD_FORMAT_INVALID"
     assert "must be a JSON array" in message["error"]
     assert message["current_batch"][0]["bug_name"] == "overflow_bug"
-    assert 'Object template: Check(stage_args={"bug_list": [{"bug_name": "overflow_bug"' in message["error"]
-    assert "JSON-string fallback: Check(stage_args=" in message["error"]
+    assert 'Object template: Check(stage_args={"bug_list": [{"bug_name": "overflow_bug"' in message["next_action"]
+    assert "JSON-string fallback: Check(stage_args=" in message["next_action"]
     assert "BUG_RECORDS" not in manager.data
 
 
@@ -444,10 +453,11 @@ def test_bug_recorder_rejects_invalid_source_location(tmp_path):
     }]))
 
     assert passed is False
+    assert message["error_code"] == "BUG_RECORD_FORMAT_INVALID"
     assert "invalid line range" in message["error"]
     assert message["current_batch"][0]["bug_name"] == "overflow_bug"
-    assert 'Object template: Check(stage_args={"bug_list": [{"bug_name": "overflow_bug"' in message["error"]
-    assert "JSON-string fallback: Check(stage_args=" in message["error"]
+    assert 'Object template: Check(stage_args={"bug_list": [{"bug_name": "overflow_bug"' in message["next_action"]
+    assert "JSON-string fallback: Check(stage_args=" in message["next_action"]
     assert "BUG_RECORDS" not in manager.data
 
 
@@ -482,9 +492,10 @@ def test_bug_recorder_records_document_bugs_in_batches(tmp_path):
 
     passed, message = recorder.do_check(bug_list=[records["bug-c"]])
     assert passed is False
+    assert message["error_code"] == "BUG_RECORD_BATCH_SCOPE_INVALID"
     assert "not in the current batch" in message["error"]
-    assert 'Object template: Check(stage_args={"bug_list": [{"bug_name": "bug-a"' in message["error"]
-    assert "JSON-string fallback: Check(stage_args=" in message["error"]
+    assert 'Object template: Check(stage_args={"bug_list": [{"bug_name": "bug-a"' in message["next_action"]
+    assert "JSON-string fallback: Check(stage_args=" in message["next_action"]
     assert "BUG_RECORDS" not in manager.data
 
     passed, message = recorder.do_check(
@@ -501,14 +512,16 @@ def test_bug_recorder_records_document_bugs_in_batches(tmp_path):
 
     passed, message = recorder.do_check(bug_list=[records["bug-a"]])
     assert passed is False
+    assert message["error_code"] == "BUG_RECORD_BATCH_SCOPE_INVALID"
     assert "already recorded" in message["error"]
-    assert 'Object template: Check(stage_args={"bug_list": [{"bug_name": "bug-c"' in message["error"]
+    assert 'Object template: Check(stage_args={"bug_list": [{"bug_name": "bug-c"' in message["next_action"]
 
     passed, message = recorder.do_check(is_complete=True)
     assert passed is False
+    assert message["error_code"] == "BUG_RECORD_SUBMISSION_REQUIRED"
     assert message["progress"] == "2/3"
-    assert 'Object template: Complete(stage_args={"bug_list": [{"bug_name": "bug-c"' in message["error"]
-    assert "JSON-string fallback: Complete(stage_args=" in message["error"]
+    assert 'Object template: Complete(stage_args={"bug_list": [{"bug_name": "bug-c"' in message["next_action"]
+    assert "JSON-string fallback: Complete(stage_args=" in message["next_action"]
 
     passed, message = recorder.do_check(bug_list=[records["bug-c"]])
     assert passed is True
@@ -1547,3 +1560,63 @@ def test_master_client_rejects_non_json_record_report():
 
     assert passed is False
     assert "JSON serializable" in message
+
+
+def test_bug_recorder_failure_projects_into_failure_summary(tmp_path):
+    """Recorder failures carry the explicit diagnostic stage management projects."""
+
+    _write_bug_doc(tmp_path, [("overflow_bug", 76, "CK-OVERFLOW")])
+    recorder, _manager, _stage = _make_recorder(tmp_path)
+
+    passed, message = recorder.do_check(bug_list=_with_expected_bug_metadata(recorder, [{
+        "bug_name": "overflow_bug",
+        "CK": ["CK-OVERFLOW"],
+        "desc": "Root cause",
+        "locations": ["rtl/adder.sv:229-128"],
+        "confidence": 0.76,
+    }]))
+    assert passed is False
+
+    diagnostic = StageManager._extract_checker_diagnostic(message)
+    assert diagnostic is not None
+    assert diagnostic["error_code"] == "BUG_RECORD_FORMAT_INVALID"
+
+    entry = {
+        "checked_in_last_run": True,
+        "last_check_pass": False,
+        "last_msg": message,
+    }
+    stage = SimpleNamespace(name="record_and_report_bugs")
+    summary = StageManager._build_failure_summary(stage, [entry], stage_index=37)
+
+    assert summary["error_code"] == "BUG_RECORD_FORMAT_INVALID"
+    assert summary["error"] == message["error"]
+    assert summary["next_action"] == message["next_action"]
+    assert summary["current_batch"][0]["bug_name"] == "overflow_bug"
+
+
+def test_bug_recorder_declares_bug_list_as_accepted_stage_arg(tmp_path):
+    """stage_args.bug_list must not be reported as ignored by every gate."""
+
+    _write_bug_doc(tmp_path, [("overflow_bug", 76, "CK-OVERFLOW")])
+    recorder, _manager, stage = _make_recorder(tmp_path)
+    stage.checker = [recorder]
+
+    assert recorder.accepted_stage_args == ("bug_list",)
+    assert StageManager._ignored_stage_args_keys(stage, {"bug_list": []}) == []
+    assert StageManager._ignored_stage_args_keys(
+        stage, {"bug_list": [], "other": 1}
+    ) == ["other"]
+
+
+def test_bug_recorder_invalid_stored_records_report_state_diagnostic(tmp_path):
+    _write_bug_doc(tmp_path, [("overflow_bug", 76, "CK-OVERFLOW")])
+    recorder, manager, _stage = _make_recorder(tmp_path)
+    manager.data["BUG_RECORDS"] = [{"bug_name": 123}]
+
+    passed, message = recorder.do_check()
+
+    assert passed is False
+    assert message["error_code"] == "BUG_RECORD_STATE_INVALID"
+    assert "Previously stored Bug records are invalid" in message["error"]
+    assert "stage_args.bug_list" in message["next_action"]

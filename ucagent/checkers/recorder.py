@@ -42,6 +42,10 @@ class RecordType:
     record_type = ""
     persist_on_check = True
     persist_on_stage_complete = False
+    # stage_args keys this type consumes from Check/Complete; Recorder exposes
+    # them as accepted_stage_args so stage management does not report a key the
+    # type actually reads as ignored by every validation gate.
+    accepted_stage_args: tuple[str, ...] = ()
 
     def __init__(self, **kwargs):
         self.options = dict(kwargs)
@@ -76,6 +80,7 @@ class BugRecordType(RecordType):
     """Record every non-zero-confidence Bug declared in an analysis document."""
 
     record_type = "bug"
+    accepted_stage_args = ("bug_list",)
     _SEVERITY_VALUES = ("lowest", "low", "medium", "high", "highest")
     _SEVERITY_VALUES_TEXT = ", ".join(_SEVERITY_VALUES)
 
@@ -675,13 +680,24 @@ class BugRecordType(RecordType):
         **kwargs,
     ) -> Tuple[bool, Any, object]:
         if self._initialization_error is not None:
-            return False, current_payload, {"error": self._initialization_error}
+            return False, current_payload, {
+                "error_code": "BUG_RECORD_STATE_INVALID",
+                "error": self._initialization_error,
+                "next_action": (
+                    "Fix the reported Bug document or Recorder configuration error, "
+                    "then call the tool again."
+                ),
+            }
         if self._document is None or self._expected_bugs is None:
             return False, current_payload, {
+                "error_code": "BUG_RECORD_STATE_INVALID",
                 "error": (
                     "BugRecordType has not been initialized. Enter the Recorder stage "
                     "before calling Check or Complete."
-                )
+                ),
+                "next_action": (
+                    "Enter the Recorder stage before calling Check or Complete."
+                ),
             }
         document = self._document
         expected_bugs = self._expected_bugs
@@ -696,7 +712,14 @@ class BugRecordType(RecordType):
                     allow_legacy_string=True,
                 )
             except ValueError as exc:
-                return False, current_payload, {"error": str(exc)}
+                return False, current_payload, {
+                    "error_code": "BUG_RECORD_STATE_INVALID",
+                    "error": f"Previously stored Bug records are invalid: {exc}",
+                    "next_action": (
+                        "Re-submit the complete corrected stage_args.bug_list covering "
+                        "every Bug, then call the tool again."
+                    ),
+                }
         existing_by_name = {record["bug_name"]: record for record in existing_records}
         expected_names = list(expected_bugs)
         remaining_names = [name for name in expected_names if name not in existing_by_name]
@@ -753,10 +776,20 @@ class BugRecordType(RecordType):
         if bug_list is None:
             if remaining_names:
                 return False, existing_records, {
+                    "error_code": "BUG_RECORD_SUBMISSION_REQUIRED",
                     "error": (
-                        f"{len(remaining_names)} bug(s) from '{document}' have not been recorded. "
-                        f"{bug_list_call_guidance()}"
+                        f"{len(remaining_names)} bug(s) from '{document}' have not been recorded."
                     ),
+                    "next_action": bug_list_call_guidance(),
+                    "observed": {
+                        "recorded_bug_count": len(existing_records),
+                        "unrecorded_bug_names": list(remaining_names),
+                    },
+                    "expected": (
+                        f"Every Bug with non-zero confidence in '{document}' recorded "
+                        "through stage_args.bug_list."
+                    ),
+                    "artifact": document,
                     "progress": f"{len(existing_records)}/{len(expected_names)}",
                     "current_batch": self._current_batch_info(current_batch, expected_bugs),
                 }
@@ -774,7 +807,9 @@ class BugRecordType(RecordType):
             )
         except ValueError as exc:
             return False, current_payload, {
-                "error": f"{exc} {bug_list_call_guidance()}",
+                "error_code": "BUG_RECORD_FORMAT_INVALID",
+                "error": str(exc),
+                "next_action": bug_list_call_guidance(),
                 "current_batch": self._current_batch_info(
                     current_batch,
                     expected_bugs,
@@ -788,19 +823,19 @@ class BugRecordType(RecordType):
         ]
         if submitted_records and remaining_names and not new_names:
             return False, current_payload, {
+                "error_code": "BUG_RECORD_BATCH_SCOPE_INVALID",
                 "error": (
-                    "The submitted bug_list only contains bugs that were already recorded. "
-                    f"{bug_list_call_guidance()}"
+                    "The submitted bug_list only contains bugs that were already recorded."
                 ),
+                "next_action": bug_list_call_guidance(),
                 "current_batch": self._current_batch_info(current_batch, expected_bugs),
             }
         out_of_batch = [name for name in new_names if name not in current_batch]
         if out_of_batch:
             return False, current_payload, {
-                "error": (
-                    f"These bug records are not in the current batch: {out_of_batch}. "
-                    f"{bug_list_call_guidance()}"
-                ),
+                "error_code": "BUG_RECORD_BATCH_SCOPE_INVALID",
+                "error": f"These bug records are not in the current batch: {out_of_batch}.",
+                "next_action": bug_list_call_guidance(),
                 "current_batch": self._current_batch_info(current_batch, expected_bugs),
             }
 
@@ -816,16 +851,31 @@ class BugRecordType(RecordType):
         if remaining_names:
             if submitted_records and hasattr(self.recorder.stage_manager, "get_current_stage"):
                 self.recorder.reset_continue_fail_count_with_batch_pass()
-            message_key = "error" if is_complete or not submitted_records else "success"
+            if is_complete or not submitted_records:
+                return False, merged_records, {
+                    "error_code": "BUG_RECORD_SUBMISSION_REQUIRED",
+                    "error": (
+                        f"Recorded {len(submitted_records)} bug(s); {len(remaining_names)} "
+                        f"bug(s) from '{document}' remain."
+                    ),
+                    "next_action": bug_list_call_guidance(next_batch),
+                    "observed": {
+                        "recorded_bug_count": len(merged_records),
+                        "unrecorded_bug_names": list(remaining_names),
+                    },
+                    "expected": (
+                        f"Every Bug with non-zero confidence in '{document}' recorded "
+                        "through stage_args.bug_list."
+                    ),
+                    "artifact": document,
+                    "bug_count": len(merged_records),
+                    "progress": progress,
+                    "current_batch": self._current_batch_info(next_batch, expected_bugs),
+                }
             return False, merged_records, {
-                message_key: (
+                "success": (
                     f"Recorded {len(submitted_records)} bug(s); {len(remaining_names)} bug(s) "
                     f"from '{document}' remain."
-                    + (
-                        f" {bug_list_call_guidance(next_batch)}"
-                        if message_key == "error"
-                        else ""
-                    )
                 ),
                 "bug_count": len(merged_records),
                 "progress": progress,
@@ -1031,6 +1081,9 @@ class Recorder(Checker):
         for key, value in kwargs.items():
             record_type_args.setdefault(key, value)
         self.type_handler = record_type_class(**record_type_args).bind(self)
+        self.accepted_stage_args = tuple(
+            getattr(self.type_handler, "accepted_stage_args", None) or ()
+        )
         self.record_type = (
             str(self.type_handler.record_type or "").strip()
             or f"{record_type_class.__module__}.{record_type_class.__qualname__}"
