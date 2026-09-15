@@ -49,83 +49,42 @@ cd UCAgent
 pip3 install -r requirements.txt
 ```
 
-### 3. Install and Configure qwen
+### 3. Install OpenCode
 
-Please refer to [https://qwenlm.github.io/qwen-code-docs/en/](https://qwenlm.github.io/qwen-code-docs/en/) to install qwen-code-cli, then configure the MCP Server as shown below.
+Please refer to [https://opencode.ai/](https://opencode.ai/) to install opencode.
+For other Code Agents, please refer to their documentation, e.g., [claude code](https://claude.com/product/claude-code), [copilot-cli](https://docs.github.com/en/copilot/how-tos/use-copilot-agents/use-copilot-cli), [kilo-cli](https://kilo.ai/cli), [iflow](https://platform.iflow.cn/cli/quickstart), [qwen-code](https://qwenlm.github.io/qwen-code-docs/en/), etc.
 
-Example `~/.qwen/settings.json`:
+### 4. Configure LLM API
 
-```json
-{
-    "mcpServers": {
-           "unitytest": {
-            "httpUrl": "http://localhost:5000/mcp",
-            "timeout": 300000
-        }
-    }
-}
+```bash
+export OPENAI_MODEL=<model_name>              # e.g., glm-5.3-flash
+export OPENAI_API_KEY=<your_key>              # API key
+export OPENAI_API_BASE=<base_url>             # e.g., Zhipu's https://open.bigmodel.cn/api/coding/paas/v4
+export OPENAI_CONTEXT_SIZE=<max_context_size> # optional, e.g., 819200 (800k context)
+export OPENAI_OUTPUT_SIZE=<max_output_size>   # optional, e.g., 131072 (128k max output)
 ```
 
-Since running test cases may take a long time, it is recommended to set a larger `timeout` value, for example 300 seconds.
+You can also write the above content into `~/.ucagent_env`, and then load it:
+```bash
+source ~/.ucagent_env
+```
 
-For other Code Agents, please refer to their documentation, e.g., [claude code](https://claude.com/product/claude-code), [opencode](https://opencode.ai/), [copilot-cli](https://docs.github.com/en/copilot/how-tos/use-copilot-agents/use-copilot-cli), [kilo-cli](https://kilo.ai/cli), [iflow](https://platform.iflow.cn/cli/quickstart), etc.
-
-### 4. Start Verification
+### 5. Start Verification
 
 Taking `Adder` in examples as an illustration.
 
-#### 4.1 Method 1: Automatically run qwen with specified backend (Recommended)
-
 ```bash
-# Default backend is langchain,
-#   requires configuration: OPENAI_API_BASE and other environment variables
-# backend can be: langchian, claude, opencode, copilot, kilo, qwen, iflow, etc.
-make mcp_Adder ARGS="--loop --backend=qwen"
+# backend can be: langchain, claude, opencode, copilot, kilo, qwen, iflow, etc.
+make mcp_Adder ARGS="--loop --backend=opencode"
 ```
+
+This command creates the workspace, starts the MCP Server, and automatically invokes opencode to run the verification task; the model used by opencode is the LLM API configured in the previous step.
 
 For supported backends, please refer to the `backend` section in [ucagent/setting.yaml](/ucagent/setting.yaml).
 
-#### 4.2 Method 2: Manually run qwen (For unadapted CodeAgents)
+> 💡 **More Usage Methods:** Besides the MCP collaboration mode used in this quick start, UCAgent also supports direct LLM integration, human-machine collaboration, and other modes. See [Usage Documentation](https://ucagent.open-verify.cc/content/02_usage/01_direct/)
 
-**（1）Start MCP-Server**
-
-```bash
-make mcp_Adder  # workspace is set to output/workspace_Adder directory
-# Calls the following commands:
-#   picker export Adder/Adder.v --rw 1 --sname Adder --tdir output/workspace_Adder/ -c -w output/workspace_Adder/Adder/Adder.fst
-#   ucagent output/workspace_Adder/ Adder -s -hm --tui --mcp-server-no-file-tools --no-embed-tools
-# Browser Web UI mode:
-#   ucagent output/workspace_Adder/ Adder -s -hm --web-console --mcp-server-no-file-tools --no-embed-tools
-# Custom Web UI host/port/password (HTTP Basic Auth):
-#   ucagent output/workspace_Adder/ Adder -s -hm --web-console 0.0.0.0:18000:secret --mcp-server-no-file-tools --no-embed-tools
-```
-
-The default MCP Server address is: http://127.0.0.1:5000/mcp
-
-**（2）Start qwen to execute task**
-
-```bash
-cd output/workspace_Adder
-qwen
-```
-
-After starting qwen as above, input the task prompt:
-
-> Please use the tool `RoleInfo` to get your role information and basic guidance, then complete the task. Use the tool `ReadTextFile` to read files. You need to perform file operations in the current working directory and should not go beyond this directory.
-
-**Note:**
-- Start the Code Agent in the working directory (e.g., output/workspace_Adder in the example above), otherwise file path mismatch issues may occur.
-- If the DUT is complex and has peripheral component dependencies, you need to open the default skipped stages via ucagent interaction commands.
-
-**Tips:**
-
-- Write verification prompts according to task requirements
-- When Code Agent stops midway, you can input: `Continue, please use tool 'Complete' to determine if all tasks are finished`
-
-> 💡 **More Usage Methods:** Besides MCP collaboration mode, UCAgent also supports direct LLM integration, human-machine collaboration, and other modes. See [Usage Documentation](https://ucagent.open-verify.cc/content/02_usage/01_direct/)
-
-
-### 5. How to Improve Verification Quality (Optional)
+### 6. How to Improve Verification Quality (Optional)
 
 By default, UCAgent only enables the internal `Python Checker` for stage checking, which is heuristic. If you need verification quality improvement, you can enable `LLM stage checking`. If you need to reach "delivery level" quality, you further need to enable `Human stage checking`.
 
@@ -134,6 +93,15 @@ By default, UCAgent only enables the internal `Python Checker` for stage checkin
 2. [Enable human stage checking](https://ucagent.open-verify.cc/content/02_usage/02_assit/)
 
 Default stage checking order: Python Checker -> LLM -> Human
+
+### 7. Verification Delivery
+
+If the verification results need to be delivered, it is recommended to:
+- Generate a high-quality README.md based on the Spec and verification requirements via Vibe coding
+- Based on the Spec and RTL source code, analyze whether to enable reference model and Mock component support (NEED_REF_MODEL=true, IGNORE_MOCK_COMPONENT=false)
+- Run the default workflow until no more bugs are found; if a reported bug is a false positive, fix the Spec document
+- Run the formal workflow until no more bugs are found (e.g., `make formal_mcp_Adder ARGS="--loop --backend=opencode"`)
+- Run the coverage workflow to raise RTL coverage above 99%
 
 ---
 
@@ -145,13 +113,9 @@ UCAgent provides Master mode, based on which you can perform centralized Agent m
 
 #### 1. Configure Environment Variables
 
+The environment variables are the same as the [Configure LLM API](#4-configure-llm-api) step in Quick Start (`OPENAI_MODEL`, `OPENAI_API_KEY`, `OPENAI_API_BASE`, etc.). If they are persisted in `~/.ucagent_env`, load it before startup:
+
 ```bash
-# Edit a custom file to export environment variables required by ucagent, for example:
-# export OPENAI_API_BASE=<your_openai_api_base>
-# export OPENAI_API_KEY=<your_openai_api_key>
-# export OPENAI_MODEL=<your_openai_model>
-vim ~/.ucagent_env
-# Then load the environment variables
 source ~/.ucagent_env
 ```
 
@@ -166,6 +130,8 @@ ucagent --as-master-persist --as-master
 Then visit `http://localhost:8800` in your browser.
 
 ### Docker Startup
+
+Pass the same LLM API environment variables via `-e` when starting the container:
 
 ```bash
 docker run -it --rm \

@@ -49,82 +49,42 @@ cd UCAgent
 pip3 install -r requirements.txt
 ```
 
-### 3. 安装配置 qwen
+### 3. 安装 OpenCode
 
-请参考 [https://qwenlm.github.io/qwen-code-docs/en/](https://qwenlm.github.io/qwen-code-docs/en/) 安装qwen-code-cli，然后按以下示例配置MCP Server。
+请参考 [https://opencode.ai/](https://opencode.ai/) 安装opencode。
+其他 Code Agent 请参考对应文档，例如 [claude code](https://claude.com/product/claude-code), [copilot-cli](https://docs.github.com/en/copilot/how-tos/use-copilot-agents/use-copilot-cli), [kilo-cli](https://kilo.ai/cli), [iflow](https://platform.iflow.cn/cli/quickstart), [qwen-code](https://qwenlm.github.io/qwen-code-docs/en/) 等。
 
-`~/.qwen/settings.json` 示例：
+### 4. 配置 LLM API
 
-```json
-{
-    "mcpServers": {
-	    "unitytest": {
-            "httpUrl": "http://localhost:5000/mcp",
-            "timeout": 300000
-        }
-    }
-}
+```bash
+export OPENAI_MODEL=<model_name>              # 例如 glm-5.3-flash
+export OPENAI_API_KEY=<your_key>              # API key
+export OPENAI_API_BASE=<base_url>             # 例如智谱的 https://open.bigmodel.cn/api/coding/paas/v4
+export OPENAI_CONTEXT_SIZE=<max_context_size> # 可选，例如 819200 （800k上下文）
+export OPENAI_OUTPUT_SIZE=<max_output_size>   # 可选，例如 131072 （128k最大输出）
 ```
 
-由于测试用例多了后运行时间较长，建议 `timeout` 值设置大一些，例如 300 秒。
+也可以把上述内容写入 `~/.ucagent_env`，然后：
+```bash
+source ~/.ucagent_env
+```
 
-其他Code Agent 请参考对应文档，例如 [claude code](https://claude.com/product/claude-code), [opencode](https://opencode.ai/), [copilot-cli](https://docs.github.com/en/copilot/how-tos/use-copilot-agents/use-copilot-cli), [kilo-cli](https://kilo.ai/cli), [iflow](https://platform.iflow.cn/cli/quickstart) 等。
-
-### 4. 开始验证
+### 5. 开始验证
 
 以 example 中的 Adder 为例。
 
-#### 4.1 方式一：指定后端自动运行 qwen（推荐）
-
 ```bash
-# 默认后端为 langchain，需要配置：OPENAI_API_BASE 等环境变量
-# backend can be: langchian, claude, opencode, copilot, kilo, qwen, iflow, etc.
-make mcp_Adder ARGS="--loop --backend=qwen"
+# backend can be: langchain, claude, opencode, copilot, kilo, qwen, iflow, etc.
+make mcp_Adder ARGS="--loop --backend=opencode"
 ```
+
+该命令会创建工作目录、启动 MCP Server，并自动调用 opencode 执行验证任务；opencode 使用的模型即上一步配置的 LLM API。
 
 已经支持的后端请参考 [ucagent/setting.yaml](/ucagent/setting.yaml) 中的`backend`部分。
 
-#### 4.2 方式二：手动运行qwen（适用于未适配的 CodeAgent ）
+> 💡 **更多使用方式：** 除了本快速开始的 MCP 协同模式，UCAgent 还支持直接接入 LLM、人机协同等多种模式，详见 [使用文档](https://ucagent.open-verify.cc/content/02_usage/01_direct/)
 
-**（1）启动 MCP-Server**
-
-```bash
-make mcp_Adder  # workspace 设置为当前目录下的 output/workspace_Adder
-# 调用了如下命令：
-#   picker export Adder/Adder.v --rw 1 --sname Adder --tdir output/workspace_Adder/ -c -w output/workspace_Adder/Adder/Adder.fst
-#   ucagent output/workspace_Adder/ Adder -s -hm --tui --mcp-server-no-file-tools --no-embed-tools
-# 浏览器 Web UI 模式：
-#   ucagent output/workspace_Adder/ Adder -s -hm --web-console --mcp-server-no-file-tools --no-embed-tools
-# 自定义 Web UI 地址/端口/密码（HTTP Basic Auth）：
-#   ucagent output/workspace_Adder/ Adder -s -hm --web-console 0.0.0.0:18000:secret --mcp-server-no-file-tools --no-embed-tools
-```
-
-MCP Server的默认地址为：http://127.0.0.1:5000/mcp
-
-**（2）启动 qwen 执行任务**
-
-```bash
-cd output/workspace_Adder
-qwen
-```
-
-按以上方式启动qwen后，输入任务提示词：
-
-> 请通过工具`RoleInfo`获取你的角色信息和基本指导，然后完成任务。请使用工具`ReadTextFile`读取文件。你需要在当前工作目录进行文件操作，不要超出该目录。
-
-**注意：**
-- 需要在工作目录（如上述例子中的 output/workspace_Adder）中启动 Code Agent，否则可能会出现文件路径不匹配问题。
-- 如果DUT比较复杂，有外围组件依赖，需要通过ucagent交互命令打开默认skip的阶段。
-
-**提示：**
-
-- 请根据任务需要编写验证 Prompt
-- 当 Code Agent 中途停止时，可输入 `继续，请通过工具Complete判断是否完成所有任务`
-
-> 💡 **更多使用方式：** 除了 MCP 协同模式，UCAgent 还支持直接接入 LLM、人机协同等多种模式，详见 [使用文档](https://ucagent.open-verify.cc/content/02_usage/01_direct/)
-
-
-### 5. 如何提升验证质量(可选)
+### 6. 如何提升验证质量(可选)
 
 默认情况下，UCAgent只是启用内部的`Python Checker`进行阶段结果检查，属于启发式。如果需要验证质量提升，可以引入 `LLM 阶段结果检查`，如果需要达到“交付级”质量，还需要进一步引入`人工阶段检查`。
 
@@ -133,6 +93,15 @@ qwen
 2. [开启人工阶段结果检查](https://ucagent.open-verify.cc/content/02_usage/02_assit/)
 
 阶段默认检查顺序：Python Checker -> LLM -> 人工
+
+### 7. 验证交付
+
+如果验证结果需要交付，建议：
+- 基于Spec和验证要求，通过Vibe coding生成高质量README.md
+- 基于Spec和RTL源码，分析是否需要开启参考模型和Mock组件支持（NEED_REF_MODEL=true，IGNORE_MOCK_COMPONENT=false）
+- 跑默认工作流直到不能发现bug，如果是误报需要修复Spec文档
+- 跑formal工作流直到不能发现bug（例如 `make formal_mcp_Adder ARGS="--loop --backend=opencode"`）
+- 跑覆盖率工作流把RTL覆盖率提升至99%以上
 
 ---
 
@@ -144,13 +113,9 @@ UCAgent提供了Master模式，基于它可以通过Web界面进行Agent集中�
 
 #### 1. 配置环境变量
 
+环境变量与快速开始的[配置 LLM API](#4-配置-llm-api)一节相同（`OPENAI_MODEL`、`OPENAI_API_KEY`、`OPENAI_API_BASE` 等）。若已持久化到 `~/.ucagent_env`，启动前加载即可：
+
 ```bash
-# 编辑一个自定义文件export ucagent需要的环境变量，例如：
-# export OPENAI_API_BASE=<your_openai_api_base>
-# export OPENAI_API_KEY=<your_openai_api_key>
-# export OPENAI_MODEL=<your_openai_model>
-vim ~/.ucagent_env
-# 然后加载环境变量
 source ~/.ucagent_env
 ```
 
@@ -165,6 +130,8 @@ ucagent --as-master-persist  --as-master
 然后在浏览器中访问 `http://localhost:8800` 即可。
 
 ### 容器启动
+
+容器启动时通过 `-e` 传入相同的 LLM API 环境变量：
 
 ```bash
 docker run -it --rm \
