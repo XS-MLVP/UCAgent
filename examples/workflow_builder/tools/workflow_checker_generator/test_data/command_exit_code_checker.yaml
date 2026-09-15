@@ -1,0 +1,23 @@
+name: command_exit_code_checker
+description: "Validate an allowlisted command exit code."
+
+entry:
+  file: checkers/command_exit_code_checker.py
+  class_name: CommandExitCodeChecker
+  method: do_check
+
+rules:
+  type: command_exit_code
+  allowed_commands:
+    - python3
+  expected_exit_code: 0
+
+auto_tests: true
+
+register:
+  stage: smoke_read_generated_docs
+  args:
+    command:
+      - python3
+      - -c
+      - raise SystemExit(0)

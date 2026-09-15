@@ -1,0 +1,31 @@
+ex_tools:
+  - "examples.workflow_builder.tools.workflow_evaluation_control.uc_tools.StructuredJsonStore"
+  - "examples.workflow_builder.tools.workflow_evaluation_control.uc_tools.EvaluationCommandRunner"
+  - "examples.workflow_builder.tools.workflow_evaluation_control.uc_tools.StaticEvaluationAudit"
+template_overwrite:
+  TEST_WORKFLOW_ROOT: "workflow"
+  REPORT: "eval/env_report.json"
+un_write_dirs: ["eval/", "res/", "config.yaml", "inc.yaml", "Makefile", "wfgen/"]
+write_dirs: ["tmp"]
+mission:
+  name: "Generated Workflow Environment Evaluation"
+  prompt:
+    system: |
+      你评估 Makefile、setup.py、ucagent_setup.sh、依赖和迁移环境，不启动 UCAgent 子工作流。
+      禁止任意 shell；只能调用 EvaluationCommandRunner 的固定命令。JSON 由 StructuredJsonStore 管理。
+      报告中的标题、描述、分析、结论、影响、建议和证据说明等表述性文字必须使用中文；规则 ID、字段名、路径、命令、类名、函数名、库名和真实源码保持原文。
+stage:
+  - name: evaluate_environment_contracts
+    desc: "审查可移植环境、安装说明、Make 目标和清理边界"
+    task:
+      - |
+        完整读取 Guide_Doc/evaluation_execution.md，读取当前报告和资源后先调用 StaticEvaluationAudit；禁止全文读取 evaluation_contract.md 或 eval_env.md。固定按 Makefile、setup.py、ucagent_setup.sh、requirements.txt、install.py 和迁移清单的小队列审查，每次只读取一个入口及其直接引用配置/文档，取得源码证据或白名单命令真实返回码并写入报告后再处理下一项。完成 ENV-MAKE、ENV-SETUP、ENV-SHELL、ENV-DEPENDENCIES、ENV-TOOLCHAIN、ENV-PATHS、ENV-TEMP、ENV-CLEAN、ENV-PORTABILITY、ENV-SECRETS、ENV-CHALLENGE，检查变量传递、幂等性、受控块、依赖、绝对路径、tmp/eval/res 边界、clean 保护、并发污染与敏感信息。只调用 EvaluationCommandRunner 白名单，不得用任意 shell 或启动子工作流。每项产生同名 check，并在提交 finding 前做一次反证；高危问题、阻塞或强制项缺失不得写 passed。
+    reference_files: ["Guide_Doc/evaluation_execution.md", "eval/env_report.json", "res/common.json", "res/env.json"]
+    output_files: ["eval/env_report.json"]
+    checker:
+      - name: env_report_complete
+        clss: "examples.workflow_builder.tools.workflow_evaluation_control.uc_checkers.EvaluationJsonReportChecker"
+        args: {report_path: "eval/env_report.json", expected_report_type: "env"}
+      - name: env_guide_complete
+        clss: "examples.workflow_builder.tools.workflow_evaluation_control.uc_checkers.EvaluationGuideCoverageChecker"
+        args: {guide_path: "Guide_Doc/eval_env.md", required_markers: ["ENV-MAKE", "ENV-CHALLENGE"], min_effective_lines: 300}
