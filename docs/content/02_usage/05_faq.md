@@ -18,7 +18,7 @@
 
 ### 为什么快速启动找不到 config.yaml/定制流程时找不到 config.yaml?
 
-- 使用 pip 安装后并没有`config.yaml`那个文件，所以在快速启动的[启动 MCP Server](../01_start/02_quickstart.md/#启动-mcp-server)没有加`--config config.yaml`这个选项。
+- 使用 pip 安装后并没有`config.yaml`那个文件，所以在快速启动的[启动 MCP 服务](../01_start/03_mcp_mode.md#45-启动-mcp-服务终端-a)没有加`--config config.yaml`这个选项。
 - 可以通过在工作目录添加`config.yaml`文件并且加上`--config config.yaml`参数来启动；也可以使用克隆仓库来使用 UCAgent 的方式来解决。
 
 ### 运行中如何调整消息窗口与 token 上限？
