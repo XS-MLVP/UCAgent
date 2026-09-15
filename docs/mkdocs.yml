@@ -54,6 +54,7 @@ nav:
       - 工具介绍: content/01_start/00_introduce.md
       - 工具安装: content/01_start/01_installation.md
       - 快速入门: content/01_start/02_quickstart.md
+      - Codex CLI 配置指南: content/01_start/03_codex_setup.md
   - 功能介绍:
       - MCP 集成: content/02_usage/00_mcp.md
       - 直接使用: content/02_usage/01_direct.md
