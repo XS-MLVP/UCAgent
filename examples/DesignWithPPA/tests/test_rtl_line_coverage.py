@@ -210,6 +210,102 @@ def test_rtl_line_coverage_refreshes_private_backend_before_core_gate(
 
 
 
+def test_rtl_line_coverage_forwards_call_time_timeout_to_private_build(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The Check call-time timeout must raise the private build's budget."""
+
+    manifest_path = tmp_path / ".ucagent" / "design_with_ppa" / "rtl.json"
+    manifest_path.parent.mkdir(parents=True)
+    rtl_path = tmp_path / "output" / "rtl" / "dut.v"
+    rtl_path.parent.mkdir(parents=True)
+    rtl_path.write_text(
+        "\n".join(["// authored"] * 19)
+        + "\nmodule dut(input wire a, output wire y); assign y = a; endmodule\n",
+        encoding="ascii",
+    )
+    manifest_path.write_text(
+        json.dumps({"rtl_sources": [{"path": "output/rtl/dut.v"}]}),
+        encoding="utf-8",
+    )
+    ignore_path = tmp_path / "output" / "tests" / "dut.ignore"
+    ignore_path.parent.mkdir(parents=True)
+    ignore_path.write_text("# No exclusions.\n", encoding="utf-8")
+    coverage_path = tmp_path / "uc_test_report" / "line_dat" / "code_coverage.json"
+    coverage_path.parent.mkdir(parents=True)
+    coverage_path.write_text(
+        json.dumps(
+            {
+                "sim": "verilator",
+                "overview": {"total": {"line": 20}, "miss": {"line": 1}},
+                "uncovered": {
+                    "schema": {},
+                    "data": {
+                        "/private/build/dut.v": {
+                            "total": {"line": 20},
+                            "miss": {"line": 1},
+                            "modules": {
+                                "dut": {
+                                    "total": {"line": 20},
+                                    "miss": {"line": 1},
+                                    "line": ["20-20"],
+                                }
+                            },
+                        }
+                    },
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    (coverage_path.parent / "merged.info").write_text(
+        "SF:/private/build/dut.v\n"
+        + "\n".join(
+            f"DA:{line},{0 if line == 20 else 1}" for line in range(1, 21)
+        )
+        + "\nend_of_record\n",
+        encoding="utf-8",
+    )
+    observed: dict[str, Any] = {}
+
+    def fake_build(checker, is_complete=False, **kwargs):
+        del checker, is_complete
+        observed["build_timeout"] = kwargs.get("timeout")
+        return True, {"message": "built"}
+
+    monkeypatch.setattr(RTLBackendBuildChecker, "do_check", fake_build)
+    monkeypatch.setattr(
+        "design_with_ppa.checkers.runtime._validate_workspace_python_dut",
+        lambda workspace, manifest: ("dut", "DUTdut"),
+    )
+    monkeypatch.setattr(
+        UnityChipCheckerTestCase,
+        "do_check",
+        lambda checker, timeout=0, **kwargs: (
+            True,
+            {"message": "functional regression passed"},
+        ),
+    )
+    checker = RTLLineCoverageChecker(
+        rtl_architecture_file="output/dut_architecture.md",
+        rtl_manifest_file=".ucagent/design_with_ppa/rtl.json",
+        cfg=_config(),
+        doc_func_check="output/dut_functions_and_checks.md",
+        doc_bug_analysis="output/dut_bug_analysis.md",
+        test_dir="output/tests",
+        coverage_ignore="output/tests/dut.ignore",
+        coverage_analysis="output/dut_line_coverage.md",
+        timeout=37,
+    ).set_workspace(str(tmp_path))
+
+    passed, result = checker.do_check(timeout=5000)
+
+    assert passed is True, result
+    assert observed["build_timeout"] == 5000
+
+
+
+
 @pytest.mark.parametrize(
     ("ignore_line", "expected_reason"),
     [

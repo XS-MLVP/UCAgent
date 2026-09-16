@@ -147,6 +147,73 @@ def test_rtl_regression_refreshes_private_backend_before_child_pytest(
 
 
 
+def test_rtl_regression_forwards_call_time_timeout_to_build_and_pytest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The Check call-time timeout must raise the build and pytest budgets."""
+
+    rtl = tmp_path / "output" / "rtl" / "dut.v"
+    rtl.parent.mkdir(parents=True)
+    rtl.write_text(
+        "module dut(input wire a, output wire y); assign y = a; endmodule\n",
+        encoding="ascii",
+    )
+    tests = tmp_path / "output" / "tests"
+    tests.mkdir(parents=True)
+    (tests / "test_dut_functional.py").write_text(
+        "def test_dut():\n    assert True\n", encoding="ascii"
+    )
+    observed: dict[str, object] = {}
+
+    def fake_build(self, is_complete=False, **kwargs):
+        """Record the forwarded call-time budget."""
+
+        del self, is_complete
+        observed["build_timeout"] = kwargs.get("timeout")
+        return True, {"message": "current"}
+
+    def fake_pytest(*args, **kwargs):
+        """Record the timeout granted to every managed pytest run."""
+
+        del kwargs
+        observed.setdefault("pytest_timeouts", []).append(args[3])
+        if "--collect-only" in args[4]:
+            return subprocess.CompletedProcess(
+                [], 0, "output/tests/test_dut_functional.py::test_dut\n", ""
+            )
+        return subprocess.CompletedProcess([], 0, "1 passed", "")
+
+    monkeypatch.setattr(RTLBackendBuildChecker, "do_check", fake_build)
+    monkeypatch.setattr("design_with_ppa.checkers.runtime._run_pytest", fake_pytest)
+    manifest_path = (
+        tmp_path / ".ucagent" / "design_with_ppa" / "rtl_backend_manifest.json"
+    )
+    manifest_path.parent.mkdir(parents=True)
+    manifest_path.write_text("{}\n", encoding="utf-8")
+    monkeypatch.setattr(
+        "design_with_ppa.checkers.runtime._validate_workspace_python_dut",
+        lambda workspace, manifest: ("dut", "DUTdut"),
+    )
+    checker = RTLAllPassRegressionChecker(
+        test_dir="output/tests",
+        test_glob="output/tests/test_*.py",
+        summary_file="output/reports/rtl.json",
+        markdown_summary_file=None,
+        timeout=30,
+        cfg=_config(),
+        rtl_architecture_file="output/dut_architecture.md",
+        rtl_manifest_file=".ucagent/design_with_ppa/rtl_backend_manifest.json",
+    ).set_workspace(str(tmp_path))
+
+    passed, result = checker.do_check(timeout=5000)
+
+    assert passed is True, result
+    assert observed["build_timeout"] == 5000
+    assert observed["pytest_timeouts"] == [5000, 5000, 5000]
+
+
+
+
 def test_rtl_regression_description_reports_partial_pass_progress(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

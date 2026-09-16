@@ -116,11 +116,17 @@ class _BackendRegressionChecker(Checker):
         self._passed_tests = 0
         self._total_tests = 0
 
-    def do_check(self, is_complete: bool = False, **kwargs: Any):
-        """Run the configured backend pytest suite and reject every functional failure."""
+    def do_check(self, is_complete: bool = False, timeout: int = 0, **kwargs: Any):
+        """Run the configured backend pytest suite and reject every functional failure.
+
+        ``timeout`` is the Check/Complete call-time budget forwarded by the
+        stage manager.  The regression and its managed build run with the
+        larger of it and the configured gate timeout.
+        """
 
         test_target = kwargs.pop("test_target", None)
         del kwargs
+        effective_timeout = self.timeout if timeout <= 0 else max(self.timeout, timeout)
         if test_target is not None and self.backend != "rtl":
             return False, diagnostic(
                 "test_target_unsupported",
@@ -172,7 +178,7 @@ class _BackendRegressionChecker(Checker):
                     input_manifest_file=self.input_manifest_file,
                     contract_files=self.contract_files,
                 ).set_workspace(self.workspace)
-                build_passed, build_result = build_checker.do_check()
+                build_passed, build_result = build_checker.do_check(timeout=timeout)
                 if not build_passed:
                     return False, build_result
                 rtl_manifest = load_json(
@@ -262,7 +268,7 @@ class _BackendRegressionChecker(Checker):
                     workspace,
                     test_dir,
                     self.backend,
-                    self.timeout,
+                    effective_timeout,
                     [*self.pytest_args, "--collect-only"],
                     test_files=test_files,
                     rtl_dut_identity=rtl_dut_identity,
@@ -354,7 +360,7 @@ class _BackendRegressionChecker(Checker):
                     workspace,
                     test_dir,
                     "python",
-                    self.timeout,
+                    effective_timeout,
                     self.pytest_args,
                     test_files=test_files,
                     pytest_targets=pytest_targets,
@@ -442,7 +448,7 @@ class _BackendRegressionChecker(Checker):
                 workspace,
                 test_dir,
                 self.backend,
-                self.timeout,
+                effective_timeout,
                 self.pytest_args,
                 test_files=test_files,
                 rtl_dut_identity=rtl_dut_identity,
@@ -469,7 +475,7 @@ class _BackendRegressionChecker(Checker):
                 )
             return False, diagnostic(
                 f"{self.backend}_regression_timeout",
-                f"The {self.backend} regression exceeded {self.timeout} seconds.",
+                f"The {self.backend} regression exceeded {effective_timeout} seconds.",
                 (
                     "Run the selected tests one node at a time to identify the first "
                     "nonterminating transaction. Bound waits with max_cycles and repair "
@@ -492,7 +498,7 @@ class _BackendRegressionChecker(Checker):
                         else {}
                     ),
                 },
-                expected=f"Every selected {self.backend} test terminates within {self.timeout} seconds.",
+                expected=f"Every selected {self.backend} test terminates within {effective_timeout} seconds.",
             )
         except (OSError, ValueError, FileNotFoundError) as exc:
             return False, _exception_contract_diagnostic(
