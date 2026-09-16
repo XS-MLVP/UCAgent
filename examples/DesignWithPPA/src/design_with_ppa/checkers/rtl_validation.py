@@ -667,7 +667,7 @@ class RTLLineCoverageChecker(UnityChipCheckerTestCaseWithLineCoverage):
                 input_manifest_file=self.input_manifest_file,
                 contract_files=self.contract_files,
             ).set_workspace(self.workspace)
-            build_passed, build_result = build_checker.do_check()
+            build_passed, build_result = build_checker.do_check(timeout=timeout)
             if not build_passed:
                 return False, build_result
             manifest = load_json(
@@ -1612,7 +1612,7 @@ class RTLSourceEvidenceChecker(Checker):
                 or manifest.get("synthesis_smoke") != "pass"
                 or not isinstance(builder, dict)
                 or builder.get("coverage") is not True
-                or builder.get("waveform_format") != "vcd"
+                or builder.get("waveform_format") != "fst"
             ):
                 raise ValueError(
                     "current authored sources do not match the isolated RTL build receipt"
@@ -1734,10 +1734,17 @@ class RTLBackendBuildChecker(Checker):
             "RTL_SOURCE_TEMPLATE": self.rtl_config.source_template,
         }
 
-    def do_check(self, is_complete: bool = False, **kwargs: Any):
-        """Normalize RTL, run synthesis smoke, and synchronize by source hash."""
+    def do_check(self, is_complete: bool = False, timeout: int = 0, **kwargs: Any):
+        """Normalize RTL, run synthesis smoke, and synchronize by source hash.
+
+        ``timeout`` is the Check/Complete call-time budget forwarded by the
+        stage manager.  Every build subprocess runs with the larger of it and
+        the configured gate timeout, so a caller-granted longer budget is
+        never truncated by the configured default.
+        """
 
         del is_complete, kwargs
+        effective_timeout = self.timeout if timeout <= 0 else max(self.timeout, timeout)
         workspace = Path(self.workspace).resolve()
         active_operation = "input_validation"
         build_root: Path | None = None
@@ -1826,7 +1833,7 @@ class RTLBackendBuildChecker(Checker):
                         and current_manifest["python_dut_builder"].get(
                             "waveform_format"
                         )
-                        == "vcd"
+                        == "fst"
                     ):
                         runtime._validate_workspace_python_dut(workspace, current_manifest)
                         return True, {
@@ -1853,7 +1860,7 @@ class RTLBackendBuildChecker(Checker):
                 build_dir=language_build_dir,
                 language_options=self.rtl_config.language_options,
                 python_dut_options=self.rtl_config.python_dut_options,
-                timeout=self.timeout,
+                timeout=effective_timeout,
             )
             prepared = validate_prepared_rtl(
                 workspace,
@@ -1885,7 +1892,7 @@ class RTLBackendBuildChecker(Checker):
                 cwd=workspace,
                 text=True,
                 capture_output=True,
-                timeout=self.timeout,
+                timeout=effective_timeout,
                 check=False,
             )
             if yosys_result.returncode != 0:
@@ -2061,7 +2068,7 @@ class RTLBackendBuildChecker(Checker):
                 top,
                 "--coverage",
                 "--wave_file_name",
-                "ucagent.vcd",
+                "ucagent.fst",
                 "--tdir",
                 str(build_target),
             ]
@@ -2071,7 +2078,7 @@ class RTLBackendBuildChecker(Checker):
                 cwd=workspace,
                 text=True,
                 capture_output=True,
-                timeout=self.timeout,
+                timeout=effective_timeout,
                 check=False,
             )
             if picker_completed.returncode != 0:
@@ -2144,7 +2151,7 @@ class RTLBackendBuildChecker(Checker):
                 build_target.parent,
                 package_name,
                 class_name,
-                self.timeout,
+                effective_timeout,
             )
             backup: Path | None = None
             if target.exists():
@@ -2177,7 +2184,7 @@ class RTLBackendBuildChecker(Checker):
                         picker_version.encode("utf-8")
                     ).hexdigest(),
                     "coverage": True,
-                    "waveform_format": "vcd",
+                    "waveform_format": "fst",
                 },
                 "top_module": top,
                 "backend": "python",
@@ -2195,7 +2202,7 @@ class RTLBackendBuildChecker(Checker):
         except subprocess.TimeoutExpired as exc:
             timeout_observed = {
                 "operation": active_operation,
-                "timeout_seconds": 30 if active_operation == "picker_version" else self.timeout,
+                "timeout_seconds": 30 if active_operation == "picker_version" else effective_timeout,
                 "reason": _redact_backend_output(str(exc), 2000),
                 "partial_stdout_tail": _redact_backend_output(
                     runtime.timeout_stream_fragment(exc.stdout), 2000, (workspace,)
@@ -2207,12 +2214,12 @@ class RTLBackendBuildChecker(Checker):
             if active_operation == "yosys_smoke":
                 return False, diagnostic(
                     "yosys_smoke_timeout",
-                    f"Yosys smoke exceeded {self.timeout} seconds.",
+                    f"Yosys smoke exceeded {effective_timeout} seconds.",
                     "Reduce accidental elaboration complexity or repair a recursive/invalid authored hierarchy, then call Check. Increase the configured timeout only after the same finite source set is known to synthesize normally.",
                     artifact=self.rtl_config.source_glob,
                     location=self.rtl_config.source_glob,
                     observed=timeout_observed,
-                    expected=f"The complete authored hierarchy passes synthesis smoke within {self.timeout} seconds.",
+                    expected=f"The complete authored hierarchy passes synthesis smoke within {effective_timeout} seconds.",
                 )
             if active_operation == "picker_version":
                 return False, diagnostic(
@@ -2227,12 +2234,12 @@ class RTLBackendBuildChecker(Checker):
             if active_operation == "rtl_language_prepare":
                 return False, diagnostic(
                     "rtl_language_prepare_timeout",
-                    f"The {self.rtl_config.language} source preparation exceeded {self.timeout} seconds.",
+                    f"The {self.rtl_config.language} source preparation exceeded {effective_timeout} seconds.",
                     "Inspect the authored hierarchy and selected-language build inputs for recursion, unbounded generation, or stalled dependency resolution. Repair that source/configuration issue, then call Check; increase the timeout only for a known finite build.",
                     artifact=self.rtl_config.source_glob,
                     location=self.rtl_config.source_glob,
                     observed=timeout_observed,
-                    expected=f"Selected-language preparation terminates within {self.timeout} seconds.",
+                    expected=f"Selected-language preparation terminates within {effective_timeout} seconds.",
                 )
             if active_operation == "rtl_runtime_probe":
                 return False, diagnostic(
@@ -2242,16 +2249,16 @@ class RTLBackendBuildChecker(Checker):
                     artifact=self.rtl_config.source_glob,
                     location=self.rtl_config.source_glob,
                     observed=timeout_observed,
-                    expected=f"The isolated RTL test runtime initializes within {self.timeout} seconds.",
+                    expected=f"The isolated RTL test runtime initializes within {effective_timeout} seconds.",
                 )
             return False, diagnostic(
                 "rtl_validation_prepare_timeout",
-                f"RTL validation preparation exceeded {self.timeout} seconds.",
+                f"RTL validation preparation exceeded {effective_timeout} seconds.",
                 "Use observed.operation to identify the stalled validation step. Repair the selected-language source/configuration when it is a design build; otherwise repair the workflow dependency, then call Check again.",
                 artifact=self.rtl_config.source_glob,
                 location=self.rtl_config.source_glob,
                 observed=timeout_observed,
-                expected=f"Every automatic RTL validation step terminates within {self.timeout} seconds.",
+                expected=f"Every automatic RTL validation step terminates within {effective_timeout} seconds.",
             )
         except (OSError, ValueError, FileNotFoundError) as exc:
             observed: dict[str, Any] = {"operation": "rtl_validation_prepare"}

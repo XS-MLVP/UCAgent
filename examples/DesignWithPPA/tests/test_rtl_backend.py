@@ -141,6 +141,106 @@ def test_rtl_backend_checker_reports_synthesis_smoke_failure(
 
 
 
+def test_rtl_backend_call_time_timeout_raises_subprocess_budgets(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A Check/Complete call-time timeout above the gate default must raise build budgets."""
+
+    architecture = tmp_path / "output" / "dut_architecture.md"
+    architecture.parent.mkdir(parents=True)
+    architecture.write_text(
+        "\n# Architecture\n\n```yaml\narchitecture:\n  rtl_language: verilog\n  top_module: dut\n```\n",
+        encoding="utf-8",
+    )
+    rtl = tmp_path / "output" / "rtl" / "dut.v"
+    rtl.parent.mkdir(parents=True)
+    rtl.write_text(
+        "module dut(input a, output y); assign y = a; endmodule\n",
+        encoding="ascii",
+    )
+    monkeypatch.setattr("design_with_ppa.checkers.rtl_validation.shutil.which", lambda name: name)
+    observed_timeouts: dict[str, int] = {}
+
+    def fake_run(command, **kwargs):
+        """Pass early steps, then time out at the managed export step."""
+
+        if command[:2] == ["picker", "--version"]:
+            return subprocess.CompletedProcess(command, 0, "picker 1.0", "")
+        if command[:2] == ["picker", "export"]:
+            observed_timeouts["picker_export"] = kwargs.get("timeout")
+            raise subprocess.TimeoutExpired(command, kwargs.get("timeout") or 0)
+        observed_timeouts["yosys_smoke"] = kwargs.get("timeout")
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr("design_with_ppa.checkers.runtime.subprocess.run", fake_run)
+    checker = RTLBackendBuildChecker(
+        architecture_file="output/dut_architecture.md",
+        manifest_file=".ucagent/design_with_ppa/rtl_backend.json",
+        timeout=10,
+        cfg=_config(),
+    ).set_workspace(str(tmp_path))
+
+    passed, result = checker.do_check(timeout=5000)
+
+    assert passed is False
+    assert result["error_code"] == "rtl_validation_prepare_timeout"
+    assert observed_timeouts["yosys_smoke"] == 5000
+    assert observed_timeouts["picker_export"] == 5000
+    assert result["observed"]["timeout_seconds"] == 5000
+    assert "exceeded 5000 seconds" in result["error"]
+
+
+@pytest.mark.parametrize("call_timeout", [None, 5])
+def test_rtl_backend_call_time_timeout_below_gate_keeps_configured_budget(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, call_timeout: int | None
+) -> None:
+    """A missing or smaller call-time timeout never lowers the configured budget."""
+
+    architecture = tmp_path / "output" / "dut_architecture.md"
+    architecture.parent.mkdir(parents=True)
+    architecture.write_text(
+        "\n# Architecture\n\n```yaml\narchitecture:\n  rtl_language: verilog\n  top_module: dut\n```\n",
+        encoding="utf-8",
+    )
+    rtl = tmp_path / "output" / "rtl" / "dut.v"
+    rtl.parent.mkdir(parents=True)
+    rtl.write_text(
+        "module dut(input a, output y); assign y = a; endmodule\n",
+        encoding="ascii",
+    )
+    monkeypatch.setattr("design_with_ppa.checkers.rtl_validation.shutil.which", lambda name: name)
+    observed_timeouts: dict[str, int] = {}
+
+    def fake_run(command, **kwargs):
+        """Pass early steps, then time out at the managed export step."""
+
+        if command[:2] == ["picker", "--version"]:
+            return subprocess.CompletedProcess(command, 0, "picker 1.0", "")
+        if command[:2] == ["picker", "export"]:
+            observed_timeouts["picker_export"] = kwargs.get("timeout")
+            raise subprocess.TimeoutExpired(command, kwargs.get("timeout") or 0)
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr("design_with_ppa.checkers.runtime.subprocess.run", fake_run)
+    checker = RTLBackendBuildChecker(
+        architecture_file="output/dut_architecture.md",
+        manifest_file=".ucagent/design_with_ppa/rtl_backend.json",
+        timeout=10,
+        cfg=_config(),
+    ).set_workspace(str(tmp_path))
+
+    if call_timeout is None:
+        passed, result = checker.do_check()
+    else:
+        passed, result = checker.do_check(timeout=call_timeout)
+
+    assert passed is False
+    assert result["error_code"] == "rtl_validation_prepare_timeout"
+    assert observed_timeouts["picker_export"] == 10
+    assert result["observed"]["timeout_seconds"] == 10
+    assert "exceeded 10 seconds" in result["error"]
+
+
 def test_rtl_backend_synthesis_diagnostic_locates_simulation_only_verilog(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -917,7 +1017,7 @@ def test_chisel_source_validation_uses_only_authored_and_regression_evidence(
             "python_dut_import": {"module": "dut", "class": "DUTdut"},
             "python_dut_builder": {
                 "coverage": True,
-                "waveform_format": "vcd",
+                "waveform_format": "fst",
             },
             "generated_content": generated_content,
         },
@@ -1004,7 +1104,7 @@ def test_chisel_source_evidence_applies_regression_test_exclusions(
             "rtl_libraries": [],
             "synthesis_smoke": "pass",
             "python_dut_import": {"module": "dut", "class": "DUTdut"},
-            "python_dut_builder": {"coverage": True, "waveform_format": "vcd"},
+            "python_dut_builder": {"coverage": True, "waveform_format": "fst"},
             "generated_content": generated_content,
         },
     )
@@ -1563,7 +1663,7 @@ def test_rtl_backend_build_replaces_old_tree_without_loading_generated_code(
         if command == ["picker", "--version"]:
             return subprocess.CompletedProcess(command, 0, "picker 1.0", "")
         assert command[:2] == ["picker", "export"]
-        assert command[command.index("--wave_file_name") + 1] == "ucagent.vcd"
+        assert command[command.index("--wave_file_name") + 1] == "ucagent.fst"
         generated = Path(command[-1])
         generated.mkdir(parents=True)
         (generated / "__init__.py").write_text(
@@ -1601,7 +1701,7 @@ def test_rtl_backend_build_replaces_old_tree_without_loading_generated_code(
         "class": "DUTdut",
     }
     assert manifest["python_dut_builder"]["coverage"] is True
-    assert manifest["python_dut_builder"]["waveform_format"] == "vcd"
+    assert manifest["python_dut_builder"]["waveform_format"] == "fst"
     assert manifest["generated_content"]["file_count"] == 2
     assert "generated_files" not in manifest
     assert str(target) not in json.dumps(manifest)

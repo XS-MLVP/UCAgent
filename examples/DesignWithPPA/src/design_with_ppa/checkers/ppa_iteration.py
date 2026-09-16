@@ -1210,7 +1210,7 @@ class PPAIterationChecker(Checker):
             if (
                 not isinstance(builder, dict)
                 or builder.get("coverage") is not True
-                or builder.get("waveform_format") != "vcd"
+                or builder.get("waveform_format") != "fst"
             ):
                 raise ValueError("RTL backend evidence capabilities are incomplete")
             if rtl_backend_manifest.get("rtl_language") != self.rtl_config.language:

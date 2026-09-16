@@ -510,7 +510,7 @@ def _prepare_iteration_workspace(
             "python_dut_import": {"module": "dut", "class": "DUTdut"},
             "python_dut_builder": {
                 "coverage": True,
-                "waveform_format": "vcd",
+                "waveform_format": "fst",
             },
             "generated_content": generated_content,
             "design_inputs": None,
