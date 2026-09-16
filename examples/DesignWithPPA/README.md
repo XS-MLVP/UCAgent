@@ -40,6 +40,16 @@ ucagent --validate-plugin design-with-ppa
 PPA 分析需要环境中的 `yosys` 和 OpenSTA（`sta` 或 `opensta`）。运行设计工作流还需要 `picker`。Chisel 模式使用插件锁定的 Chisel 7.15.0（Scala 2.13.18）工具链，另外需要 JDK 17 及 Mill 0.4.2；Verilog 模式不依赖 Chisel 工具链。
 
 ### 安装依赖（Ubuntu）
+
+可以使用脚本在 Ubuntu 或 macOS 上自动下载并安装下列依赖（已满足版本要求的组件会自动跳过，安装位置与可用选项见 `bash scripts/install_env.sh --help`）：
+
+```bash
+bash scripts/install_env.sh                 # yosys v0.68、OpenSTA >= 3.1.0、JDK 17、Mill 0.4.2，并预取 Chisel 7.15.0（Scala 2.13.18）依赖
+bash scripts/install_env.sh --with-picker   # 额外从源码安装 picker 与 Verilator >= 5.020
+```
+
+手动安装如下：
+
 - [yosys](https://github.com/YosysHQ/yosys) >= 0.68
 - [OpenSTA](https://github.com/The-OpenROAD-Project/OpenSTA.git) >= 3.1.0
 
