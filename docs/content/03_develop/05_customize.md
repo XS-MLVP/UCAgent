@@ -139,7 +139,7 @@ IDE/Agent（Claude Code、Copilot、Qwen Code 等）：将 `httpUrl` 指向 `htt
 
 - 计数：UCTool 内置 call_count；非 UCTool 工具由 `import_and_instance_tools` 包装计数。
 - 并发保护：is_in_streaming/is_alive_loop 防止重入；同一实例不允许并发执行。
-- 超时：`call_time_out`（默认 20s）+ 客户端 timeout；阻塞时可用 `put_alive_data` + `sync_block_log_to_client=True` 推送心跳。
+- 超时：`call_time_out`（默认 20s）+ 客户端 timeout；阻塞时可用 `put_alive_data` + `sync_block_log_to_client=True` 推送心跳。阻塞提示按 `tool_block_log_count`（setting.yaml，默认 100）均摊到整个超时周期，日志间隔为 call_time_out/count 秒，并被 `tool_block_log_min_interval`（默认 10s）与 `tool_block_log_max_interval`（默认 0 = 不限）约束。
 
 ### 6) 配置策略与最佳实践
 

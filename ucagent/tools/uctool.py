@@ -116,6 +116,21 @@ class UCTool(BaseTool):
         default=False,
         description="send block message to client"
     )
+    block_log_count: int = Field(
+        default=100,
+        description=(
+            "Maximum blocking-wait log lines spread over one full call "
+            "timeout before interval clamping."
+        )
+    )
+    block_log_min_interval: int = Field(
+        default=10,
+        description="Minimum blocking-wait log interval in seconds."
+    )
+    block_log_max_interval: int = Field(
+        default=0,
+        description="Maximum blocking-wait log interval in seconds; 0 is unlimited."
+    )
     call_lock_arguments: tuple[str, ...] = Field(
         default=(),
         description="Tool input paths used to serialize conflicting calls."
@@ -146,6 +161,9 @@ class UCTool(BaseTool):
         self.task_future = None
         self.last_call_time = 0.0
         self.sync_block_log_to_client = kwargs.get("sync_block_log_to_client", False)
+        self.block_log_count = kwargs.get("block_log_count", 100)
+        self.block_log_min_interval = kwargs.get("block_log_min_interval", 10)
+        self.block_log_max_interval = kwargs.get("block_log_max_interval", 0)
 
     def set_disabled(self, value: bool, reason: str = ""):
         self.is_disabled = value
@@ -180,6 +198,23 @@ class UCTool(BaseTool):
 
     def set_call_time_out(self, timeout: int):
         self.call_time_out = timeout
+        return self
+
+    def set_block_log_count(self, count: int):
+        """Set the maximum blocking-wait log lines spread over one call timeout."""
+
+        self.block_log_count = max(1, int(count))
+        return self
+
+    def set_block_log_intervals(self, min_interval: int, max_interval: int = 0):
+        """Clamp the blocking-wait log interval in seconds.
+
+        ``max_interval`` <= 0 means no upper limit; ``min_interval`` below 1
+        is raised to the built-in one-second tick floor.
+        """
+
+        self.block_log_min_interval = int(min_interval)
+        self.block_log_max_interval = int(max_interval)
         return self
 
     def get_call_time_out(self):
@@ -325,6 +360,15 @@ class UCTool(BaseTool):
     async def __async_alive_loop(self, timeout: int, ctx: Context):
         self.is_alive_loop = True
         count_down = timeout
+        # Spread the blocking notices over at most block_log_count lines
+        # (interval = timeout/count), then clamp the interval into
+        # [min, max] seconds; max <= 0 means no upper limit.
+        log_interval = max(1, timeout // max(1, self.block_log_count))
+        log_interval = max(1, log_interval, self.block_log_min_interval)
+        if self.block_log_max_interval > 0:
+            log_interval = min(log_interval, self.block_log_max_interval)
+        log_interval = max(1, log_interval)
+        next_log_at = count_down - log_interval
         while count_down > 0:
             await asyncio.sleep(1)
             msg = f"tool({self.__class__.__name__}) is blocking, wait {count_down}/{timeout} seconds"
@@ -334,12 +378,15 @@ class UCTool(BaseTool):
             item = self.stream_queue.try_get()
             if item is None:
                 count_down -= 1
-                fc.info(msg)
+                if count_down <= next_log_at:
+                    next_log_at = count_down - log_interval
+                    fc.info(msg)
+                    if self.sync_block_log_to_client:
+                        try:
+                            await ctx.info({"msg": msg})
+                        except Exception as e:
+                            fc.info(f"Failed to send msg({msg}) ctx.info: {e}, may be connection failed")
                 if self.sync_block_log_to_client:
-                    try:
-                        await ctx.info({"msg": msg})
-                    except Exception as e:
-                        fc.info(f"Failed to send msg({msg}) ctx.info: {e}, may be connection failed")
                     continue
             self.stream_queue_buffer.put(item)
             # Send data back to client
@@ -347,6 +394,7 @@ class UCTool(BaseTool):
                 try:
                     await ctx.info({"msg": item})
                     count_down = timeout  # reset countdown when processing an item
+                    next_log_at = count_down - log_interval
                 except Exception as e:
                     fc.info(f"Failed to send ctx.info: {e}, may be connection failed ({msg})")
                     count_down -= 1
