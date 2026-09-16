@@ -1,0 +1,13 @@
+version: original
+top: Unit
+pins:
+  a: {direction: input, width: 8, signed: false, purpose: operand}
+  y: {direction: output, width: 8, signed: false, purpose: result}
+clock: null
+reset: null
+reset_active: 0
+reset_cycles: 2
+request_when: {}
+response_when: {}
+protocol: "Replace with the complete unit timing, handshake, reset, ordering and error contract."
+parameters: {}

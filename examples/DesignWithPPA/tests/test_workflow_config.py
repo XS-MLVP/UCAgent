@@ -375,13 +375,14 @@ def test_workflow_config_precedence_and_runtime_export(
 
 
 
+@pytest.mark.parametrize("workflow_name", ["unit-design-tdd", "repo-module-tdd"])
 def test_all_declared_runtime_config_keys_export_as_scalars(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, workflow_name: str
 ) -> None:
     """Every plugin-declared runtime config key must export as a finite scalar."""
 
     workflow = (
-        PLUGIN_SOURCE / "design_with_ppa" / "workflows" / "unit-design-tdd.yaml"
+        PLUGIN_SOURCE / "design_with_ppa" / "workflows" / f"{workflow_name}.yaml"
     )
     monkeypatch.chdir(tmp_path)
     for name in (
@@ -399,6 +400,7 @@ def test_all_declared_runtime_config_keys_export_as_scalars(
     declared = [
         key
         for workflow_entry in plugin.workflows
+        if workflow_entry.name == workflow_name
         for key in workflow_entry.runtime_config_keys
     ]
     assert declared, "plugin must declare runtime config keys"
@@ -409,10 +411,21 @@ def test_all_declared_runtime_config_keys_export_as_scalars(
         assert value is None or isinstance(
             value, (bool, str, int, float)
         ), f"{key} must export as a finite JSON scalar, got {type(value)}"
-    assert options["design_with_ppa.no_regression_metrics"] == "performance,timing"
-    assert options["design_with_ppa.score_weights.timing"] == 1.0
-    assert options["design_with_ppa.score_weights.area"] == 1.0
-    assert options["design_with_ppa.score_weights.power"] == 1.0
+    if workflow_name == "unit-design-tdd":
+        assert options["design_with_ppa.no_regression_metrics"] == "performance,timing"
+        assert options["design_with_ppa.score_weights.timing"] == 1.0
+        assert options["design_with_ppa.score_weights.area"] == 1.0
+        assert options["design_with_ppa.score_weights.power"] == 1.0
+    else:
+        assert options["design_with_ppa.repo.enabled"] is True
+        assert options["design_with_ppa.repo.interface_policy"] == "evolve"
+        assert options["design_with_ppa.min_optimization_iterations"] == 5
+        assert options["design_with_ppa.max_optimization_iterations"] == 1000
+        assert options["design_with_ppa.no_improvement_patience"] == 3
+        assert options["design_with_ppa.no_regression_metrics"] == "performance,timing"
+        assert options["design_with_ppa.score_weights.timing"] == 1.0
+        assert options["design_with_ppa.ppa.max_timing_paths"] == 10
+        assert options["design_with_ppa.ppa.max_power_instances"] == 10
 
 
 

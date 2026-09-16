@@ -1,0 +1,14 @@
+objective: "Replace with the module task objective"
+target_paths: [rtl/unit.v]
+allowed_changes: [rtl/unit.v]
+dependencies: []
+caller_impact: "Describe interface changes required by callers; the complete system is not built."
+requirements:
+  result: "Replace with the exact required function and edge cases."
+result_fields:
+  result: {width: 8, signed: false}
+clock_period_ns: 10.0
+max_latency_cycles: 10
+min_throughput_per_cycle: 0.1
+max_cycles: 1000
+ordering: in_order

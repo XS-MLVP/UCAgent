@@ -5,7 +5,8 @@
 
 - `AnalyzePPA`：基于 Verilog RTL 和多份 VCD/FST 波形生成面积、时序与功耗报告；
 - `RunDesignConsistency`：一键验证 Python reference、RTL、完整测试集、Toffee 报告和 PPA 报告的一致性；
-- `unit-design-tdd`：从 README 和设计 Spec 开始，生成并验证 Verilog 或 Chisel 单元模块，并执行 PPA 优化。
+- `unit-design-tdd`：从 README 和设计 Spec 开始，生成并验证 Verilog 或 Chisel 单元模块，并执行 PPA 优化；
+- [`repo-module-tdd`](docs/repo-module-tdd.md)：使用已有仓库提供的源码和依赖，在独立副本中优化或新增模块，完成单元测试、PPA 和补丁交付。入口为 `make run-repo SOURCE_PATH=... CASE=...`。
 
 Python 发行包名为 `ucagent-design-with-ppa`，插件 ID 为 `design-with-ppa`，要求 Python 3.11 及以上和 `UCAgent>=26.9.2.dev6`。
 

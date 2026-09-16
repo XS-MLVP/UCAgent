@@ -253,6 +253,8 @@ def test_fp_matrix_example_is_declared_for_wheel_installation() -> None:
     assert installed_files == {
         "cases/LowPrecisionMatMul2x2/README.md",
         "cases/LowPrecisionMatMul2x2/spec/*.md",
+        "cases/repo_byte_increment/README.md",
+        "docs/repo-module-tdd.md",
     }
 
 

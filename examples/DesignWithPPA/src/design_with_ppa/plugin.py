@@ -13,6 +13,8 @@ from . import __version__
 from .ppa import AnalyzePPA
 from .consistency import RunDesignConsistency
 from .rtl import build_rtl_template_context
+from .repo.checkers import RepoModuleChecker
+from .repo.tools import RunRepoValidation
 from .checkers import (
     DesignAllPassBatchTestsChecker,
     DesignArchitectureChecker,
@@ -56,6 +58,12 @@ from .checkers import (
 def create_tools(context: PluginContext) -> list[object]:
     """Create the plugin's analysis and full-consistency tools for one workspace."""
 
+    try:
+        repo_enabled = context.cfg.get_value("design_with_ppa.repo.enabled", False)
+    except AttributeError:
+        repo_enabled = False
+    if repo_enabled is True:
+        return [RunRepoValidation(workspace=str(context.workspace), cfg=context.cfg)]
     return [
         AnalyzePPA(
             workspace=str(context.workspace),
@@ -87,6 +95,7 @@ def get_plugin() -> Plugin:
         root=root,
         tool_factories=(create_tools,),
         checkers=(
+            RepoModuleChecker,
             RTLSourceEvidenceChecker,
             DesignAllPassBatchTestsChecker,
             DesignInputContractChecker,
@@ -158,6 +167,36 @@ def get_plugin() -> Plugin:
                     "design_with_ppa.ppa.sdc_file",
                     "design_with_ppa.ppa.clock_port",
                     "design_with_ppa.ppa.clock_period_ns",
+                    "design_with_ppa.ppa.max_timing_paths",
+                    "design_with_ppa.ppa.max_power_instances",
+                ),
+            ),
+            PluginWorkflow(
+                name="repo-module-tdd",
+                config_file=root / "workflows" / "repo-module-tdd.yaml",
+                guide_doc_paths=(root / "Guide_Doc",),
+                template_dir=root / "templates" / "repo_module",
+                template_target="{OUT}",
+                command_requirements=(
+                    CommandRequirement(name="Git", alternatives=("git",)),
+                    CommandRequirement(name="Picker", alternatives=("picker",),
+                                       version_args=("--version",), required_subcommands=("export",)),
+                ),
+                runtime_config_keys=(
+                    "design_with_ppa.repo.enabled",
+                    "design_with_ppa.repo.source_path",
+                    "design_with_ppa.repo.source_ref",
+                    "design_with_ppa.repo.snapshot_mode",
+                    "design_with_ppa.repo.mode",
+                    "design_with_ppa.repo.interface_policy",
+                    "design_with_ppa.repo.build_recipe",
+                    "design_with_ppa.min_optimization_iterations",
+                    "design_with_ppa.max_optimization_iterations",
+                    "design_with_ppa.no_improvement_patience",
+                    "design_with_ppa.no_regression_metrics",
+                    "design_with_ppa.score_weights.timing",
+                    "design_with_ppa.score_weights.area",
+                    "design_with_ppa.score_weights.power",
                     "design_with_ppa.ppa.max_timing_paths",
                     "design_with_ppa.ppa.max_power_instances",
                 ),

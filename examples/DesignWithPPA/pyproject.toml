@@ -48,3 +48,9 @@ design_with_ppa = [
 "share/ucagent-design-with-ppa/cases/LowPrecisionMatMul2x2/spec" = [
     "cases/LowPrecisionMatMul2x2/spec/*.md",
 ]
+"share/ucagent-design-with-ppa/cases/repo_byte_increment" = [
+    "cases/repo_byte_increment/README.md",
+]
+"share/ucagent-design-with-ppa/docs" = [
+    "docs/repo-module-tdd.md",
+]

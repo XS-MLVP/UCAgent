@@ -1,0 +1,187 @@
+template: repo_module
+
+design_with_ppa:
+  repo:
+    enabled: true
+    source_path: "$(SOURCE_PATH:)"
+    source_ref: "$(SOURCE_REF:HEAD)"
+    snapshot_mode: commit
+    include_untracked: []
+    source_paths: []
+    mode: optimize
+    interface_policy: evolve
+    build_recipe: recipe.yaml
+  min_optimization_iterations: $(DESIGN_WITH_PPA_MIN_OPTIMIZATION_ITERATIONS:5)
+  max_optimization_iterations: $(DESIGN_WITH_PPA_MAX_OPTIMIZATION_ITERATIONS:1000)
+  no_improvement_patience: $(DESIGN_WITH_PPA_NO_IMPROVEMENT_PATIENCE:3)
+  no_regression_metrics: "$(DESIGN_WITH_PPA_NO_REGRESSION_METRICS:performance,timing)"
+  score_weights:
+    timing: 1.0
+    area: 1.0
+    power: 1.0
+  ppa:
+    liberty_file: null
+    sdc_file: null
+    # OpenSTA detail depth for every measured candidate; same keys as unit-design-tdd.
+    max_timing_paths: 10
+    max_power_instances: 10
+
+guide_doc:
+  plugin_copy_policy:
+    default_action: ignore
+    retain: [repo_module.md, design_ut_contract.md]
+    ignore: []
+  core_copy_policy:
+    default_action: ignore
+    retain: []
+    override: []
+    ignore: []
+skill:
+  general_skill_list: []
+tools:
+  RunTestCases:
+    test_dir: "{OUT}/repo/tests"
+  ignore_tools: [WorkDiff, WorkCommit, RunBashCommand]
+un_write_dirs: []
+
+mission:
+  name: "{DUT}仓库模块开发"
+  prompt:
+    system: |
+
+      根据 `{DUT}/README.md` 与可选的 `{DUT}/spec/**/*.md` 的任务要求，优化或新增一个模块。
+      仓库仅提供目标源码和依赖；只构建选定模块并执行单元测试与模块 PPA，不构建整个系统。
+      Check 导入 `source_snapshot` 后，只从该副本读取源码；禁止访问、修改或构建原始仓库。
+      所有人工编写产物放在 `{OUT}/repo`；不要编辑 source_snapshot、run 或 .ucagent。
+
+      首先读取 Guide_Doc/repo_module.md。硬要求限定功能、依赖范围与性能目标；参考架构、
+      流水线和文件划分建议允许自主探索。全部 DUT 驱动和观测仅通过 interface.yaml 的公开引脚。
+      接口允许演进时同步接口、adapter 和协议测试；不能通过 Python 隐藏硬件计算或必要缓存。
+      功能语义、逻辑工作负载及 PPA 条件在基线建立后冻结；修订这些条件需要新工作区重新建立基线。
+
+      每阶段先调用 CurrentTips，用 ReadTextFile/EditTextFile/ReplaceStringInFile 等文件工具
+      编辑产物，再调用 Check/Complete。已存在的文档/代码在重启后基于其完善，不推倒重写。
+      参考模型执行、编译、单元测量、PPA 和交付复验只通过 Check 或 RunRepoValidation 产生；
+      pytest 用例可用 RunTestCases 自行运行调试。不手写通过记录或测量结果。诊断返回后修复
+      指名的产物；需要完整输出时使用 stage_args.full_output。Skill 不可用时直接使用当前任务、
+      Guide_Doc、模板和工具完成同样工作。
+    tips:
+      always:
+        - "只做模块单元测试；repo 只提供源码依赖，不运行完整系统构建。"
+        - "每个接口版本完整声明引脚，测试不得读取内部状态。"
+        - "下一轮更改使用新的 variant_id；已测版本和原始基线不可覆盖。"
+        - "测量与接受结论只来自 Check/RunRepoValidation；被拒绝或无改善的轮次如实报告。"
+        - "功能需求先落成 FG/FC/CK 文档再写参考；测试用例用 COVERS 反标 CK 并保持全部通过。"
+
+stage:
+  - name: repo_snapshot
+    desc: "导入并核对只读源码快照"
+    task:
+      - "目标：把只读仓库的选定版本导入独立工作区，形成后续唯一可读的源码副本；本阶段不编写任何设计产物。"
+      - "第1步：调用 CurrentTips，读取 {DUT}/README.md，确认目标模块路径及其源码依赖属于本次导入范围。"
+      - "第2步：调用 Check 执行导入；核对返回的提交、导入文件数、排除的本地修改和未选中的子模块。"
+      - "第3步：若 README 指定的目标模块或依赖不在 source_snapshot 内，报告缺失路径，按 Guide_Doc/repo_module.md 的指引在扩大 source_paths 的新工作区重启；不要手工补写或修改快照。核对通过后调用 Complete。"
+    reference_files: ["{DUT}/README.md", "Guide_Doc/repo_module.md"]
+    output_files: []
+    checker:
+      - name: repo_snapshot
+        clss: RepoModuleChecker
+        args: {phase: snapshot}
+  - name: module_function_analysis
+    desc: "分析模块全部功能需求，形成 FG/FC/CK 标签化功能合同"
+    task:
+      - "目标：分析被修改/新增模块的全部功能需求，形成唯一的 FG/FC/CK 标签化功能合同，作为覆盖率与测试反标的权威。"
+      - "第1步：阅读 {DUT}/README.md、可选 spec 与 source_snapshot 中目标模块源码，枚举全部可由公开引脚观测的功能、边界、复位、握手、时序和异常行为。"
+      - "第2步：按 Guide_Doc/repo_module.md 的完整示例完成 {OUT}/repo/functions_and_checks.md 的 FG/FC/CK 层级；文档已存在时在其基础上完善，不推倒重写。"
+      - "第3步：调用 Check 校验标签结构（唯一、完整、无非法字符）；每个 CK 是一条可独立验证的检查点。通过后 Complete。"
+    reference_files: ["{DUT}/README.md", "{DUT}/spec/**/*.md", "Guide_Doc/repo_module.md"]
+    output_files: ["{OUT}/repo/functions_and_checks.md"]
+    checker:
+      - name: function_format
+        clss: DesignMarkdownFileFormatChecker
+        args: {markdown_file_list: "{OUT}/repo/functions_and_checks.md", no_line_break: true}
+      - name: function_contract
+        clss: DesignFunctionalContractChecker
+        args: {doc_file: "{OUT}/repo/functions_and_checks.md"}
+      - name: function_labels
+        clss: DesignLabelStructureChecker
+        args: {doc_file: "{OUT}/repo/functions_and_checks.md", leaf_node: CK, min_count: 1, must_have_prefix: ""}
+  - name: module_contract
+    desc: "确定模块语义、依赖和测量边界"
+    task:
+      - "目标：把任务要求固化为可测量的模块合同——功能需求、源码范围、依赖闭包与性能边界；基线建立后这些条件冻结。"
+      - "第1步：从 source_snapshot 阅读目标模块与最小依赖源码，区分硬性要求与参考实现建议。"
+      - "第2步：按 Guide_Doc/repo_module.md 完成 {OUT}/repo/contract.yaml：requirements 的键必须是 functions_and_checks.md 的全部 CK 叶子路径（一一对应）；optimize 模式的 target_paths 必须已存在于快照，add 模式必须位于允许新增的路径；dependencies 逐项列出且必须已导入。"
+      - "第3步：按任务给出可选硬目标（max_area、max_power_w、max_effective_period_ns）和 caller_impact；只规划目标模块的独立编译。调用 Check 校验 CK 绑定，通过后 Complete。"
+    reference_files: ["{DUT}/README.md", "{DUT}/spec/**/*.md", "{OUT}/repo/functions_and_checks.md", "Guide_Doc/repo_module.md"]
+    output_files: ["{OUT}/repo/contract.yaml"]
+    checker:
+      - name: module_contract
+        clss: RepoModuleChecker
+        args: {phase: contract}
+  - name: executable_reference_and_tests
+    desc: "建立独立参考与逻辑工作负载并统计功能覆盖率"
+    task:
+      - "目标：在功能合同之后建立与接口无关的可执行语义和逻辑工作负载，并产出按 CK 的功能覆盖率统计。"
+      - "第1步：基于 {OUT}/repo/functions_and_checks.md 逐个 CK 推导 {OUT}/repo/verification/reference.py 的 evaluate(transactions)——每个 CK 的可观测行为都必须能由参考独立计算；不读取 RTL 或测试实际输出。"
+      - "第2步：完成 {OUT}/repo/verification/workload.yaml：每个场景的 covers 列出其覆盖的 CK 路径，全部 CK 必须被至少一个场景覆盖；包含数值边界、连续请求、复位、背压、异常及任务要求的序列；expected_examples 独立计算；释放调度满足吞吐可达性。"
+      - "第3步：调用 Check 真实执行参考自测并生成 {OUT}/repo/coverage.json（按 CK 的场景/事务覆盖统计）；按诊断修正后 Complete。"
+    reference_files: ["{DUT}/README.md", "{DUT}/spec/**/*.md", "{OUT}/repo/functions_and_checks.md", "{OUT}/repo/contract.yaml", "Guide_Doc/repo_module.md"]
+    output_files: ["{OUT}/repo/verification/*", "{OUT}/repo/coverage.json"]
+    checker:
+      - name: executable_reference
+        clss: RepoModuleChecker
+        args: {phase: reference}
+  - name: module_baseline
+    desc: "基线 PPA 表征：测量原始模块或新增模块首版"
+    task:
+      - "目标：测得不可覆盖的原始基线——optimize 模式测量未修改源码，add 模式交付首个正确实现。"
+      - "第1步：完成 {OUT}/repo/candidate/ 的 interface.yaml、recipe.yaml、adapter.py 和 protocol.py；recipe.scope 必须为 unit，rtl_files 按编译顺序明确列出，构建命令只导出本模块及依赖。"
+      - "第2步：candidate.yaml 中 optimize 模式的 changes 必须为空；add 模式用 action: add 把首个实现写入 candidate/files 的目标相对路径。"
+      - "第3步：调用 Check 或 RunRepoValidation(baseline=true)；必须真实通过参考自测、公开引脚协议测试、全部场景单元测试和 PPA 测量，PPA HTML 报告（design/design_with_ppa_dashboard.html）随之刷新。按诊断修正后 Complete。"
+    reference_files: ["{OUT}/repo/functions_and_checks.md", "{OUT}/repo/contract.yaml", "{OUT}/repo/verification/*", "{OUT}/repo/coverage.json", "Guide_Doc/repo_module.md"]
+    output_files: ["{OUT}/repo/candidate/**/*", "{OUT}/repo/reports/*"]
+    checker:
+      - name: measured_baseline
+        clss: RepoModuleChecker
+        args: {phase: baseline}
+  - name: module_test_cases
+    desc: "编写可自测的 pytest 用例并反标 FG/FC/CK"
+    task:
+      - "目标：基于已测量的构建编写 pytest 测试用例，用 RunTestCases 自主运行迭代，并以 COVERS 反标覆盖全部 CK。"
+      - "第1步：先有冻结参考、再写 TC：期望值一律用 tests/conftest.py 的 reference 夹具从 evaluate(transactions) 计算推导，同时用 env 夹具（自动加载最近一次实测构建的公开引脚 DUT）驱动真实引脚；每个文件声明 COVERS 列表反标其覆盖的 CK 路径。"
+      - "第2步：调用 RunTestCases 运行 {OUT}/repo/tests 自行调试用例，直到全部通过；断言只使用公开引脚，不读取内部状态。"
+      - "第3步：调用 Check 校验反标完备（全部 CK 至少一个 TC）且 pytest 全部通过；通过后 Complete。"
+    reference_files: ["{OUT}/repo/functions_and_checks.md", "{OUT}/repo/candidate/interface.yaml", "{OUT}/repo/candidate/protocol.py", "{OUT}/repo/coverage.json", "Guide_Doc/repo_module.md"]
+    output_files: ["{OUT}/repo/tests/**/*"]
+    checker:
+      - name: annotated_test_cases
+        clss: RepoModuleChecker
+        args: {phase: test_cases}
+  - name: module_candidates
+    desc: "模块 PPA 迭代：探索实现与接口候选"
+    task:
+      - "目标：在冻结的语义与测量条件下进行模块 PPA 迭代，探索实现与接口候选，每轮产出完整、可复现的实测记录。"
+      - "第1步：提出明确假设，用新的 variant_id 更新 candidate.yaml 与 candidate/files；改变引脚或协议时使用新的 interface.version 并同步 adapter.py、protocol.py。"
+      - "第2步：保持 contract.yaml、verification/ 与 tests/ 不变；调用 Check 或 RunRepoValidation 测量当前候选——Check 会自动测量尚未记录的候选，被拒绝的候选同样计入已测轮次。"
+      - "第3步：所有必要硬件适配包含在本模块测量顶层内；调用方影响写入说明，不宣称系统集成通过。"
+      - "第4步：达到配置的最少轮数且连续无改进（耐心条件）或到达轮数上限后结束；以 Check 返回的剩余轮次为准，全部完成后再 Complete。"
+    reference_files: ["{OUT}/repo/functions_and_checks.md", "{OUT}/repo/contract.yaml", "{OUT}/repo/verification/*", "{OUT}/repo/tests/*", "{OUT}/repo/reports/*", "Guide_Doc/repo_module.md"]
+    output_files: ["{OUT}/repo/candidate/**/*", "{OUT}/repo/reports/*"]
+    checker:
+      - name: measured_candidates
+        clss: RepoModuleChecker
+        args: {phase: candidates}
+  - name: module_delivery
+    desc: "恢复最佳版本并交付模块补丁"
+    task:
+      - "目标：交付经复验的最佳版本——恢复、重建、补丁与接口差异全部有实测证据。"
+      - "第1步：调用 RunRepoValidation(action=deliver) 或 Check；系统自动恢复最佳完整版本（被替换草稿保留备查），并在新副本中复验单元测试、PPA、补丁应用与重新构建。"
+      - "第2步：核对 {OUT}/repo/delivery/ 的 manifest、validation、interface_changes 与 history；向用户汇报以自动生成的 summary.md 为准（其中指标与改善结论来自封签测量记录），没有有效改善时如实说明，不伪造优化结论。需要迁移脚本时改调 RunRepoValidation(action=deliver, migration_script=true)。"
+      - "第3步：交付结论只声明单元级验证（verification_scope: unit_only），通过后 Complete。"
+    reference_files: ["{OUT}/repo/reports/*", "{OUT}/repo/delivery/*", "Guide_Doc/repo_module.md"]
+    output_files: ["{OUT}/repo/delivery/**/*"]
+    checker:
+      - name: verified_delivery
+        clss: RepoModuleChecker
+        args: {phase: delivery}

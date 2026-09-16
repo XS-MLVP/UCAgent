@@ -1,0 +1,8 @@
+seed: 1
+scenarios:
+  - name: boundary
+    covers: [result]
+    transactions:
+      - {id: zero, inputs: {a: 0}, release_cycle: 0}
+    expected_examples:
+      zero: {result: 0}
