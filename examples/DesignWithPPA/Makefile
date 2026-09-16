@@ -16,6 +16,7 @@ DASHBOARD_WORKSPACE ?= $(VERILOG_WORKSPACE)
 PLUGIN ?= $(CURDIR)
 BACKEND ?= opencode
 PORT ?= 8000
+DF_ARGS ?= -hm --tui
 ARGS ?=
 CHISEL_JAVA_HOME ?= $(HOME)/.local/share/ucagent-toolchains/jdk-17
 MILL ?= mill
@@ -112,7 +113,7 @@ run: validate check-deps prepare-verilog-case
 		--output "$(OUTPUT)" \
 		--override 'design_with_ppa.rtl.library_paths=$(CASE_LIBRARY_PATHS)' \
 		--stream-output \
-		--loop $(ARGS)
+		--loop $(DF_ARGS) $(ARGS)
 
 chisel-toolchain:
 	@test -x "$(CHISEL_JAVA_HOME)/bin/java" || { echo "Set CHISEL_JAVA_HOME to a JDK 17+ home." >&2; exit 1; }
@@ -133,7 +134,7 @@ run-chisel: validate check-deps chisel-toolchain prepare-chisel-case
 		--override 'design_with_ppa.rtl.source_glob=$(OUTPUT)/rtl/*.scala' \
 		--override design_with_ppa.rtl.source_template=chisel-7 \
 		--stream-output \
-		--loop $(ARGS)
+		--loop $(DF_ARGS) $(ARGS)
 
 package:
 	@if $(PYTHON) -c "import build" >/dev/null 2>&1; then \
