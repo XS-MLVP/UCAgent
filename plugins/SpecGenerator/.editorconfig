@@ -1,0 +1,21 @@
+# Plugin-local formatting; inherit unspecified options from parent directories.
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.md]
+trim_trailing_whitespace = false
+
+[*.{py,sh}]
+indent_style = space
+indent_size = 4
+
+[{Makefile,*.mk}]
+indent_style = tab
+
+[*.{yaml,yml,json}]
+indent_style = space
+indent_size = 2

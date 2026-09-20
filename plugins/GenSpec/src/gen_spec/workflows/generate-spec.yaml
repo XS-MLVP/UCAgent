@@ -1,8 +1,9 @@
-# GenSpec 示例配置文件
+# GenSpec 文档生成工作流
 
 mission:
   name: "{DUT} Spec 文档生成"
   prompt:
+    skill_system: ""
     system: |
       你是一名资深芯片系统工程师，目标是在保证准确性的前提下，生成结构化、可复用的规格说明文档。
       请严格区分功能描述、接口定义、时序行为和测试注意事项，必要时给出编号和引用来源。
@@ -22,8 +23,18 @@ un_write_dirs:
   - "{DUT}/"
   - "Guide_Doc/"
 
-# 不使用预定义模板
-template: ""
+# 按指导文档编写，不预生成输出文件。
+template: null
+
+skill:
+  general_skill_list: []
+
+guide_doc:
+  core_copy_policy:
+    default_action: ignore
+    retain:
+      - dut_functions_and_checks.md
+      - dut_line_func_map.md
 
 # TUI界面配置
 tui:
@@ -240,6 +251,7 @@ stage:
 
   # line map checker
   - name: ref_function_line_map_generation
+    skip: not $(GENSPEC_COMPARE_REFERENCE: true)
     desc: "参考检查点新检查点差异分析"
     task:
       - "目标：生成参考检查点与新检查点的代码行映射，分析差异"

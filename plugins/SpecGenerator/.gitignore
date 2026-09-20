@@ -1,0 +1,28 @@
+# Common Python, build, cache, virtualenv and log rules come from UCAgent's .gitignore.
+# Keep plugin-specific rules here; leading slashes refer to this plugin directory.
+Thumbs.db
+Desktop.ini
+
+# Local workspace assets and runtime state (plugin project root only).
+/third_party/
+/inputs/
+/outputs/
+/evidence/
+/reports/
+/Guide_Doc/
+/.ucagent/
+/opencode.json
+/.tmp/
+/tmp/
+/*.log.*
+/*.tmp
+
+# Editors and local IDE state
+/.idea/
+*.swp
+*.swo
+*~
+
+# Local environment overrides; keep a shareable example trackable.
+/.env.*
+!/.env.example

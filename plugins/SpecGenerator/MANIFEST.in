@@ -1,0 +1,4 @@
+include ucagent-plugin.toml CONTRIBUTING.md SECURITY.md Makefile
+recursive-include ci *.yml
+recursive-include src/spec_generator_plugin *.md *.yaml *.sh
+recursive-include tests *.py *.md

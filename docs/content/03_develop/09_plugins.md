@@ -7,24 +7,73 @@ Guide_Doc 和工作流中的任意一种或多种能力；这些贡献都是一�
 发现；源码开发时也可以通过显式配置的搜索路径发现。插件必须由用户选择后才会导入和
 激活，UCAgent 不会扫描或执行任意 workspace Python 文件。
 
-`examples/GenSpec` 属于配置型工作流示例：它复用核心能力，并不包含插件身份、版本、
-依赖、资产和安装入口。`examples/DesignWithPPA` 是同时提供 Tool 与可选工作流的独立插件
-参考实现。
+插件参考实现统一位于 `plugins/`：`DesignWithPPA` 展示自定义 Tool、Checker、模板、
+Skill 与工作流的组合，文档生成使用 `SpecGenerator`。旧版 `GenSpec` 已弃用（deprecated）。
+`examples/` 保留 DUT、输入资料及其他使用示例；插件自己的案例放在其 `cases/` 中。
+
+## 同仓维护的可选插件
+
+`plugins/` 用于维护随 UCAgent 一同开发、独立打包的插件。安装核心包不会安装或启用
+这些插件。插件的日常开发应限定在自己的目录中：依赖、入口、配置、资源、测试和维护
+命令均由插件管理，不向核心的依赖清单、默认配置或 Tool/Checker 导出表添加插件内容。
+
+| 内容 | 维护位置 |
+| :--- | :--- |
+| 插件 API、加载机制、通用贡献流程和漏洞报告渠道 | UCAgent 核心及仓库根目录 |
+| 清单、打包配置、依赖、实现、工作流、资源和测试 | 各插件目录 |
+| 插件专用忽略规则、编辑规范、文件属性、使用与维护说明 | 各插件目录，可继承仓库通用规则 |
+| GitHub Actions 触发、运行环境和当前核心安装 | 根目录 `.github/workflows/` |
+| 插件安装、验证、打包和安装态测试步骤 | 插件目录中的脚本、Makefile 或本地 Action |
+
+子目录的 `.gitignore`、`.editorconfig` 和 `.gitattributes` 不代表独立仓库，也不是插件
+运行的必需文件；按实际维护需求保留，避免将插件专用规则扩散到整个仓库。CI 入口调用
+插件内的验证步骤，并使用同一提交的 UCAgent 检查兼容性。只有公共插件接口或仓库级
+基础设施发生变化时，才需要同步修改对应核心文件。
+
+当前同仓插件如下。各插件的运行依赖、案例及维护命令见对应 README：
+
+| 项目 | 插件 ID / 工作流 | 主要用途 |
+| :--- | :--- | :--- |
+| [GenSpec（Deprecated）](https://github.com/XS-MLVP/UCAgent/blob/main/plugins/GenSpec/README.md) | `gen-spec:generate-spec` | 旧版文档生成插件；后续使用 SpecGenerator |
+| [DesignWithPPA](https://github.com/XS-MLVP/UCAgent/blob/main/plugins/DesignWithPPA/README.md) | `design-with-ppa:unit-design-tdd` | 测试驱动 RTL 设计与 PPA 优化 |
+| [SpecGenerator](https://github.com/XS-MLVP/UCAgent/blob/main/plugins/SpecGenerator/README.md) | `xiangshan-spec-generator:design-document` | 基于 XiangShan 源码和生成 RTL 的证据，交付版本化中文设计与功能检测点文档 |
+
+先安装核心，再从 UCAgent 仓库根目录按需安装，例如：
+
+```bash
+python -m pip install ./plugins/SpecGenerator
+ucagent --validate-plugin xiangshan-spec-generator
+```
+
+运行时显式选择 `--plugin xiangshan-spec-generator`
+和 `--plugin-workflow xiangshan-spec-generator:design-document`。
+源码开发时可将插件 ID 换成 `--plugin ./plugins/SpecGenerator`，无需先安装插件。
+工作区独立于插件实现；随包指导文档和其他资源由选中的工作流自动定位和复制。
 
 ## 名称约定
 
-一个插件通常有四种符合各生态规则的名称。以 DesignWithPPA 为例：
+一个插件通常有四种名称，分别服务于目录、Python 打包、插件选择和代码导入：
 
-| 层级 | 名称 | 用途 |
-| :--- | :--- | :--- |
-| 项目名 | `DesignWithPPA` | 仓库目录和人类可读产品名 |
-| 发行包名 | `ucagent-design-with-ppa` | `pip3 install` 和包索引 |
-| 插件 ID | `design-with-ppa` | entry point、清单、CLI 选择器 |
-| Python 包名 | `design_with_ppa` | Python `import` 路径 |
+同仓插件的项目目录建议使用 PascalCase（大驼峰），如 `DesignWithPPA`、`SpecGenerator`。
+这是目录风格约定，加载器不依赖目录名的大小写。
 
-插件 ID 必须是小写字母、数字以及内部的 `-`、`_` 或 `.`，并在同一 Python 环境和
-同一次 UCAgent 运行中保持唯一。插件不应保留已废弃名称的兼容入口，否则发现结果和
+| 层级 | DesignWithPPA 示例 | Spec Generator 示例 | 用途 |
+| :--- | :--- | :--- | :--- |
+| 项目目录 | `DesignWithPPA` | `SpecGenerator` | 文件系统路径 |
+| 发行包名 | `ucagent-design-with-ppa` | `ucagent-xiangshan-spec-generator` | pip 安装和发行包 metadata |
+| 插件 ID | `design-with-ppa` | `xiangshan-spec-generator` | entry point、清单、CLI 选择器 |
+| Python 包名 | `design_with_ppa` | `spec_generator_plugin` | Python `import` 路径 |
+
+插件 ID 必须匹配 `^[a-z0-9]+(?:[._-][a-z0-9]+)*$`：使用小写字母、数字，分隔符
+`-`、`_`、`.` 只能出现在非空片段之间。ID 在同一 Python 环境和同一次 UCAgent 运行中
+保持唯一。插件不应保留已废弃名称的兼容入口，否则发现结果和
 配置容易产生歧义。
+
+必须完全一致的是清单 `name`、`ucagent.plugins` entry point 的键和 provider 返回的
+`Plugin.name`；清单 `entry` 与 entry point 的值也应指向同一个 provider。项目目录和
+Python 包名不必与插件 ID 字面一致，文档示例的大小写及 `ucagent-` 前缀不是额外的加载
+规则。`--plugin` 使用插件 ID 或项目路径，不能用发行包名或 Python 包名代替插件 ID。
+工作流名遵守同样的 ID 字符规则，在所属插件内唯一，以 `<插件 ID>:<工作流名>` 选择。
 
 ## 标准项目结构
 
@@ -33,12 +82,15 @@ DesignWithPPA/
 ├── ucagent-plugin.toml
 ├── pyproject.toml
 ├── README.md
+├── Makefile
+├── cases/
 ├── src/
 │   └── design_with_ppa/
 │       ├── __init__.py
 │       ├── plugin.py
 │       ├── ppa.py
 │       ├── assets/
+│       ├── scripts/
 │       ├── workflows/
 │       ├── Guide_Doc/
 │       ├── templates/
@@ -48,6 +100,8 @@ DesignWithPPA/
 
 只创建实际发布的资源目录。纯 Tool、纯 Checker、纯 Skill、纯 Guide_Doc 或纯工作流
 插件都是有效插件。后续可以在同一发行包中增加其他贡献，无需修改 UCAgent 核心包。
+运行时脚本可放在包内的 `scripts/`；测试、CI 和维护配置放在插件项目根目录。
+同仓插件遵守相同结构，项目根位于 `plugins/<项目目录>/`。标准结构不要求保留空目录。
 
 ## 本地引导清单
 
@@ -80,7 +134,7 @@ name = "ucagent-design-with-ppa"
 version = "0.2.0"
 requires-python = ">=3.11"
 dependencies = [
-  "UCAgent>=0.9.1",
+  "UCAgent>=26.9.2.dev14",
   "vcdvcd>=2.3.5,<3.0.0",
 ]
 
@@ -88,10 +142,14 @@ dependencies = [
 design-with-ppa = "design_with_ppa.plugin:get_plugin"
 ```
 
-安装后，Python 的 distribution metadata 会提供发现信息：
+核心和插件必须安装到同一 Python 环境。先按 UCAgent 安装说明安装核心，再安装插件的
+本地目录、wheel 或已经发布的发行包；不能假定示例包已在 PyPI 发布。`requires_ucagent`
+和发行包的 UCAgent 依赖范围应一致，下限使用实际验证过的版本。
+
+安装后，Python 的 distribution metadata 会提供发现信息，例如从 UCAgent 根目录运行：
 
 ```bash
-pip3 install ucagent-design-with-ppa
+python3 -m pip install ./plugins/DesignWithPPA
 ucagent --list-plugins
 ucagent --validate-plugin design-with-ppa
 ucagent <workspace> <dut> --plugin design-with-ppa
@@ -179,7 +237,7 @@ def get_plugin():
         checkers=(TimingBudgetChecker,),
         guide_doc_paths=(root / "Guide_Doc",),
         skill_paths=(root / "skills",),
-        requires_ucagent=">=0.9.1",
+        requires_ucagent=">=26.9.2.dev14",
         python_requirements=("vcdvcd>=2.3.5,<3.0.0",),
         command_requirements=(
             CommandRequirement("Yosys", ("yosys",)),
@@ -428,17 +486,19 @@ sdist 还应通过 `MANIFEST.in` 递归包含同一资源集合以及本地 `uca
 
 ## 校验、构建、安装与发布
 
-源码开发的最小验证顺序：
+先准备插件声明的外部工具。以下命令从 UCAgent 仓库根目录验证同一份核心和插件源码：
 
 ```bash
-python3 -m pip install build
-python3 -m py_compile DesignWithPPA/src/design_with_ppa/*.py
-pytest -q DesignWithPPA/tests
-ucagent --validate-plugin DesignWithPPA
-python3 -m build DesignWithPPA
+python3 -m pip install -e .
+python3 -m pip install build pytest
+python3 -m pip install -e ./plugins/DesignWithPPA
+python3 -m py_compile plugins/DesignWithPPA/src/design_with_ppa/*.py
+python3 -m pytest -q plugins/DesignWithPPA/tests
+ucagent --validate-plugin ./plugins/DesignWithPPA
+python3 -m build ./plugins/DesignWithPPA
 ```
 
-以上命令从插件项目的父目录运行。`python3 -m build` 的默认流程先构建 sdist、再由
+其他插件将上述插件路径替换为自己的项目目录。`python3 -m build` 的默认流程先构建 sdist、再由
 sdist 构建 wheel，可以隔离源码树中既有的 `build/` 缓存，避免陈旧文件进入发布包。
 也可以使用等价的 `uv build` 默认流程。不要只对可能含旧缓存的源码树运行
 `python3 -m build --wheel`。
@@ -447,8 +507,8 @@ sdist 构建 wheel，可以隔离源码树中既有的 `build/` 缓存，避免�
 
 ```bash
 python3 -m venv /tmp/design-with-ppa-verify
-/tmp/design-with-ppa-verify/bin/pip install UCAgent
-/tmp/design-with-ppa-verify/bin/pip install DesignWithPPA/dist/ucagent_design_with_ppa-*.whl
+/tmp/design-with-ppa-verify/bin/python -m pip install .
+/tmp/design-with-ppa-verify/bin/python -m pip install plugins/DesignWithPPA/dist/ucagent_design_with_ppa-*.whl
 /tmp/design-with-ppa-verify/bin/ucagent --list-plugins
 /tmp/design-with-ppa-verify/bin/ucagent --validate-plugin design-with-ppa
 /tmp/design-with-ppa-verify/bin/ucagent <workspace> <dut> \
@@ -470,7 +530,8 @@ python3 -m venv /tmp/design-with-ppa-verify
 10. 独立 Guide_Doc、Skill 和工作流分别在不提供其他能力时经过激活测试；
 11. 每个工作流在 Skill 启用、显式禁用及 Skill 目录不存在时都能完成；
 12. 安装态测试从 wheel 运行，不依赖仓库内的 `src` 路径；
-13. 发布新版本后重新运行 `pip3 install --upgrade` 和 `ucagent --validate-plugin`。
+13. 发布新版本后，用 `python3 -m pip install --upgrade <发行包或 wheel 路径>` 更新，
+    再运行 `ucagent --validate-plugin <插件 ID>`。
 
 ## 常见失败
 

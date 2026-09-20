@@ -1,0 +1,5 @@
+# Keep this plugin's text files portable without changing other UCAgent files.
+* text=auto eol=lf
+
+# Generated Mermaid evidence remains reviewable text.
+*.svg text eol=lf diff

@@ -6,6 +6,6 @@ recursive-include src/design_with_ppa/workflows *.yaml
 recursive-include src/design_with_ppa/Guide_Doc *.md
 recursive-include src/design_with_ppa/templates *
 recursive-include src/design_with_ppa/skills *
-recursive-include cases *.md
+recursive-include cases *.md *.v
 global-exclude *.py[cod]
 global-exclude __pycache__

@@ -13,7 +13,7 @@ UCAgent 支持在验证过程中进行人机协同，允许用户暂停 AI 执�
 
 **典型场景：**
 
-- 功能规格文档编写完成后，需要人工审核是否准确理解了设计意图。可参照[GenSpec 规范文档生成模式](../04_case/00_genspec.md)
+- 功能规格文档编写完成后，需要人工审核是否准确理解了设计意图。文档生成使用 [SpecGenerator 插件](https://github.com/XS-MLVP/UCAgent/blob/main/plugins/SpecGenerator/README.md)。
 - 测试用例设计完成后，需要确认是否覆盖了所有关键功能点
 
 ### AI 执行卡住需要人工解决
