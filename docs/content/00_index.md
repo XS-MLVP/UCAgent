@@ -1,10 +1,3 @@
-<!--
- * @Description: 
- * @Author: Sauron
- * @Date: 2026-09-20 14:20:05
- * @LastEditTime: 2026-09-20 15:13:39
- * @LastEditors: Sauron
--->
 欢迎来到 UCAgent 文档
 
 本文档提供了安装、使用和开发 UCAgent 的全面指南。
