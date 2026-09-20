@@ -7,9 +7,8 @@ Guide_Doc 和工作流中的任意一种或多种能力；这些贡献都是一�
 发现；源码开发时也可以通过显式配置的搜索路径发现。插件必须由用户选择后才会导入和
 激活，UCAgent 不会扫描或执行任意 workspace Python 文件。
 
-`plugins/SpecGenerator/` 提供文档生成插件；`plugins/DesignWithPPA/` 展示自定义
-Tool、Checker、模板、Skill 与工作流的组合。旧版 `plugins/GenSpec/` 保留为
-YAML 工作流示例，已弃用（deprecated），后续文档生成使用 SpecGenerator。
+`plugins/RTL2Spec/` 提供文档生成插件；`plugins/DesignWithPPA/` 展示自定义
+Tool、Checker、模板、Skill 与工作流的组合。
 
 ## 同仓维护的可选插件
 
@@ -22,46 +21,46 @@ YAML 工作流示例，已弃用（deprecated），后续文档生成使用 Spec
 | 插件 API、加载机制、通用贡献流程和漏洞报告渠道 | UCAgent 核心及仓库根目录 |
 | 清单、打包配置、依赖、实现、工作流、资源和测试 | 各插件目录 |
 | 插件专用忽略规则、编辑规范、文件属性、使用与维护说明 | 各插件目录，可继承仓库通用规则 |
-| GitHub Actions 触发、运行环境和当前核心安装 | 根目录 `.github/workflows/` |
-| 插件安装、验证、打包和安装态测试步骤 | 插件目录中的脚本、Makefile 或本地 Action |
+| 核心和仓库公共 CI | 根目录 `.github/workflows/` |
+| 插件安装、验证、打包和安装态测试命令 | 插件目录中的脚本或 Makefile |
 
 子目录的 `.gitignore`、`.editorconfig` 和 `.gitattributes` 不代表独立仓库，也不是插件
-运行的必需文件；按实际维护需求保留，避免将插件专用规则扩散到整个仓库。CI 入口调用
-插件内的验证步骤，并使用同一提交的 UCAgent 检查兼容性。只有公共插件接口或仓库级
-基础设施发生变化时，才需要同步修改对应核心文件。
+运行的必需文件；按实际维护需求保留，避免将插件专用规则扩散到整个仓库。插件维护者
+使用同一提交的 UCAgent 在本地执行插件验证；新增插件无需添加根目录 CI workflow。
+只有公共插件接口或仓库级基础设施发生变化时，才需要同步修改对应核心文件。
 
 当前同仓插件如下。各插件的运行依赖、案例及维护命令见对应 README：
 
 | 项目 | 插件 ID / 工作流 | 主要用途 |
 | :--- | :--- | :--- |
 | [DesignWithPPA](https://github.com/XS-MLVP/UCAgent/blob/main/plugins/DesignWithPPA/README.md) | `design-with-ppa:unit-design-tdd` | 测试驱动 RTL 设计与 PPA 优化 |
-| [SpecGenerator](https://github.com/XS-MLVP/UCAgent/blob/main/plugins/SpecGenerator/README.md) | `xiangshan-spec-generator:design-document` | 基于 XiangShan 源码和生成 RTL 的证据，交付版本化中文设计与功能检测点文档 |
+| [RTL2Spec](https://github.com/XS-MLVP/UCAgent/blob/main/plugins/RTL2Spec/README.md) | `rtl2spec:design-document` | 基于 XiangShan 源码和生成 RTL 的证据，交付版本化中文设计与功能检测点文档 |
 
 先安装核心，再从 UCAgent 仓库根目录按需安装，例如：
 
 ```bash
-python -m pip install ./plugins/SpecGenerator
-ucagent --validate-plugin xiangshan-spec-generator
+python -m pip install ./plugins/RTL2Spec
+ucagent --validate-plugin rtl2spec
 ```
 
-运行时显式选择 `--plugin xiangshan-spec-generator`
-和 `--plugin-workflow xiangshan-spec-generator:design-document`。
-源码开发时可将插件 ID 换成 `--plugin ./plugins/SpecGenerator`，无需先安装插件。
+运行时显式选择 `--plugin rtl2spec`
+和 `--plugin-workflow rtl2spec:design-document`。
+源码开发时可将插件 ID 换成 `--plugin ./plugins/RTL2Spec`，无需先安装插件。
 工作区独立于插件实现；随包指导文档和其他资源由选中的工作流自动定位和复制。
 
 ## 名称约定
 
 一个插件通常有四种名称，分别服务于目录、Python 打包、插件选择和代码导入：
 
-同仓插件的项目目录建议使用 PascalCase（大驼峰），如 `DesignWithPPA`、`SpecGenerator`。
+同仓插件的项目目录建议使用 PascalCase（大驼峰），如 `DesignWithPPA`、`RTL2Spec`。
 这是目录风格约定，加载器不依赖目录名的大小写。
 
-| 层级 | DesignWithPPA 示例 | Spec Generator 示例 | 用途 |
+| 层级 | DesignWithPPA 示例 | RTL2Spec 示例 | 用途 |
 | :--- | :--- | :--- | :--- |
-| 项目目录 | `DesignWithPPA` | `SpecGenerator` | 文件系统路径 |
-| 发行包名 | `ucagent-design-with-ppa` | `ucagent-xiangshan-spec-generator` | pip 安装和发行包 metadata |
-| 插件 ID | `design-with-ppa` | `xiangshan-spec-generator` | entry point、清单、CLI 选择器 |
-| Python 包名 | `design_with_ppa` | `spec_generator_plugin` | Python `import` 路径 |
+| 项目目录 | `DesignWithPPA` | `RTL2Spec` | 文件系统路径 |
+| 发行包名 | `ucagent-design-with-ppa` | `ucagent-rtl2spec` | pip 安装和发行包 metadata |
+| 插件 ID | `design-with-ppa` | `rtl2spec` | entry point、清单、CLI 选择器 |
+| Python 包名 | `design_with_ppa` | `rtl2spec` | Python `import` 路径 |
 
 插件 ID 必须匹配 `^[a-z0-9]+(?:[._-][a-z0-9]+)*$`：使用小写字母、数字，分隔符
 `-`、`_`、`.` 只能出现在非空片段之间。ID 在同一 Python 环境和同一次 UCAgent 运行中
@@ -99,7 +98,7 @@ DesignWithPPA/
 
 只创建实际发布的资源目录。纯 Tool、纯 Checker、纯 Skill、纯 Guide_Doc 或纯工作流
 插件都是有效插件。后续可以在同一发行包中增加其他贡献，无需修改 UCAgent 核心包。
-运行时脚本可放在包内的 `scripts/`；测试、CI 和维护配置放在插件项目根目录。
+运行时脚本可放在包内的 `scripts/`；测试和维护配置放在插件项目根目录。
 同仓插件遵守相同结构，项目根位于 `plugins/<项目目录>/`。加载器按清单定位项目，
 不依赖父目录名称。标准结构不要求保留空目录。
 

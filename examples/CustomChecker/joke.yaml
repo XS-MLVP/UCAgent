@@ -1,4 +1,4 @@
-# GenSpec 示例配置文件
+# CustomChecker 示例配置文件
 
 mission:
   name: "讲关于{DUT}的笑话"

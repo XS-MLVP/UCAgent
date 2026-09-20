@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=80", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ucagent-rtl2spec"
+version = "0.4.0"
+description = "UCAgent plugin for evidence-based XiangShan design document generation"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = ["UCAgent>=26.9.2.dev14", "markdown-it-py>=3,<5"]
+
+[project.urls]
+Homepage = "https://github.com/XS-MLVP/UCAgent/tree/main/plugins/RTL2Spec"
+Issues = "https://github.com/XS-MLVP/UCAgent/issues"
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "build>=1"]
+
+[project.entry-points."ucagent.plugins"]
+rtl2spec = "rtl2spec.plugin:get_plugin"
+
+[tool.setuptools]
+include-package-data = false
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["rtl2spec"]
+namespaces = false
+
+[tool.setuptools.package-data]
+rtl2spec = [
+  "Guide_Doc/*.md",
+  "scripts/*.sh",
+  "workflows/*.yaml",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
