@@ -1775,7 +1775,7 @@ def test_design_with_ppa_local_plugin_creates_mcp_compatible_tool(tmp_path: Path
     """The shipped DesignWithPPA project must load, locate assets, and convert to MCP."""
 
     repository = Path(__file__).resolve().parent.parent
-    project = repository / "plugins" / "DesignWithPPA"
+    project = repository / "examples" / "DesignWithPPA"
     # Resource discovery and MCP schemas do not execute the external PPA tools.
     loaded = load_plugin(str(project), check_dependencies=False)
     tools = create_plugin_tools([loaded], _context(tmp_path))

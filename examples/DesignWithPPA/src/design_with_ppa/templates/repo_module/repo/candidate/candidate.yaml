@@ -1,0 +1,3 @@
+variant_id: baseline
+hypothesis: "Measure the original module under the frozen unit workload."
+changes: []

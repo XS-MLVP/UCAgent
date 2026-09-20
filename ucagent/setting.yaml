@@ -307,6 +307,13 @@ tools:
 # Tool call timeout
 call_time_out: 300  # seconds
 
+# Blocking-wait heartbeat: spread at most this many "is blocking" log lines
+# over one full call_time_out (log interval = call_time_out/count), then clamp
+# the interval into [min, max] seconds; max 0 means unlimited.
+tool_block_log_count: 100
+tool_block_log_min_interval: 10  # seconds
+tool_block_log_max_interval: 0   # seconds; 0 = unlimited
+
 # TUI layout settings
 tui:
   task_width: 84

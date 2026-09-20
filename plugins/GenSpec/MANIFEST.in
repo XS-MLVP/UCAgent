@@ -1,5 +1,0 @@
-include ucagent-plugin.toml Makefile
-recursive-include tests *.py
-recursive-include cases *.md *.csv *.v *.sv *.scala
-global-exclude *.py[cod]
-global-exclude __pycache__

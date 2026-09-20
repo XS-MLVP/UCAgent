@@ -808,6 +808,13 @@ class VerifyAgent:
         self.backend.init()
         self.backend.set_debug(debug)
         self.set_tool_call_time_out(self.cfg.get_value("call_time_out", 300))
+        self.set_tool_block_log_count(
+            self.cfg.get_value("tool_block_log_count", 100)
+        )
+        self.set_tool_block_log_intervals(
+            self.cfg.get_value("tool_block_log_min_interval", 10),
+            self.cfg.get_value("tool_block_log_max_interval", 0),
+        )
         self.stage_manager.init_stage()
         # Telemetry
         self.session_id = uuid4()
@@ -1635,6 +1642,41 @@ class VerifyAgent:
             else:
                 warning(f"Tool {tool.name} does not support setting call timeout")
         info(f"Tool call timeout set to {time_out} seconds")
+
+    def set_tool_block_log_count(self, count: int):
+        """Set the maximum blocking-wait log lines spread over one tool call timeout."""
+        if not isinstance(count, int) or count <= 0:
+            raise ValueError("Tool block log count must be a positive integer")
+        for tool in self.test_tools:
+            if hasattr(tool, "set_block_log_count"):
+                tool.set_block_log_count(count)
+        info(f"Tool block log count set to {count}")
+
+    def set_tool_block_log_intervals(self, min_interval: int, max_interval: int = 0):
+        """Clamp the blocking-wait log interval, in seconds."""
+        if (
+            not isinstance(min_interval, int)
+            or isinstance(min_interval, bool)
+            or min_interval < 1
+        ):
+            raise ValueError("Tool block log min interval must be a positive integer")
+        if (
+            not isinstance(max_interval, int)
+            or isinstance(max_interval, bool)
+            or max_interval < 0
+        ):
+            raise ValueError("Tool block log max interval must be a non-negative integer")
+        if max_interval and max_interval < min_interval:
+            raise ValueError(
+                "Tool block log max interval must not be below the min interval"
+            )
+        for tool in self.test_tools:
+            if hasattr(tool, "set_block_log_intervals"):
+                tool.set_block_log_intervals(min_interval, max_interval)
+        info(
+            f"Tool block log interval clamped to "
+            f"[{min_interval}, {max_interval or 'unlimited'}] seconds"
+        )
 
     def set_one_tool_call_time_out(self, tool_name: str, time_out: int):
         """Set the tool call timeout for a specific tool in seconds."""

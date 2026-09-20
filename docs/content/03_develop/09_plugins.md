@@ -7,9 +7,9 @@ Guide_Doc 和工作流中的任意一种或多种能力；这些贡献都是一�
 发现；源码开发时也可以通过显式配置的搜索路径发现。插件必须由用户选择后才会导入和
 激活，UCAgent 不会扫描或执行任意 workspace Python 文件。
 
-插件参考实现统一位于 `plugins/`：`DesignWithPPA` 展示自定义 Tool、Checker、模板、
-Skill 与工作流的组合，文档生成使用 `SpecGenerator`。旧版 `GenSpec` 已弃用（deprecated）。
-`examples/` 保留 DUT、输入资料及其他使用示例；插件自己的案例放在其 `cases/` 中。
+`plugins/SpecGenerator/` 提供文档生成插件；`examples/DesignWithPPA/` 展示自定义
+Tool、Checker、模板、Skill 与工作流的组合。旧版 `examples/GenSpec/` 保留为
+YAML 工作流示例，已弃用（deprecated），后续文档生成使用 SpecGenerator。
 
 ## 同仓维护的可选插件
 
@@ -34,8 +34,7 @@ Skill 与工作流的组合，文档生成使用 `SpecGenerator`。旧版 `GenSp
 
 | 项目 | 插件 ID / 工作流 | 主要用途 |
 | :--- | :--- | :--- |
-| [GenSpec（Deprecated）](https://github.com/XS-MLVP/UCAgent/blob/main/plugins/GenSpec/README.md) | `gen-spec:generate-spec` | 旧版文档生成插件；后续使用 SpecGenerator |
-| [DesignWithPPA](https://github.com/XS-MLVP/UCAgent/blob/main/plugins/DesignWithPPA/README.md) | `design-with-ppa:unit-design-tdd` | 测试驱动 RTL 设计与 PPA 优化 |
+| [DesignWithPPA](https://github.com/XS-MLVP/UCAgent/blob/main/examples/DesignWithPPA/README.md) | `design-with-ppa:unit-design-tdd` | 测试驱动 RTL 设计与 PPA 优化 |
 | [SpecGenerator](https://github.com/XS-MLVP/UCAgent/blob/main/plugins/SpecGenerator/README.md) | `xiangshan-spec-generator:design-document` | 基于 XiangShan 源码和生成 RTL 的证据，交付版本化中文设计与功能检测点文档 |
 
 先安装核心，再从 UCAgent 仓库根目录按需安装，例如：
@@ -101,7 +100,8 @@ DesignWithPPA/
 只创建实际发布的资源目录。纯 Tool、纯 Checker、纯 Skill、纯 Guide_Doc 或纯工作流
 插件都是有效插件。后续可以在同一发行包中增加其他贡献，无需修改 UCAgent 核心包。
 运行时脚本可放在包内的 `scripts/`；测试、CI 和维护配置放在插件项目根目录。
-同仓插件遵守相同结构，项目根位于 `plugins/<项目目录>/`。标准结构不要求保留空目录。
+同仓插件遵守相同结构，新插件通常放在 `plugins/<项目目录>/`；DesignWithPPA 保留在
+`examples/DesignWithPPA/`。加载器按清单定位项目，不依赖这两种父目录。标准结构不要求保留空目录。
 
 ## 本地引导清单
 
@@ -149,7 +149,7 @@ design-with-ppa = "design_with_ppa.plugin:get_plugin"
 安装后，Python 的 distribution metadata 会提供发现信息，例如从 UCAgent 根目录运行：
 
 ```bash
-python3 -m pip install ./plugins/DesignWithPPA
+python3 -m pip install ./examples/DesignWithPPA
 ucagent --list-plugins
 ucagent --validate-plugin design-with-ppa
 ucagent <workspace> <dut> --plugin design-with-ppa
@@ -491,11 +491,11 @@ sdist 还应通过 `MANIFEST.in` 递归包含同一资源集合以及本地 `uca
 ```bash
 python3 -m pip install -e .
 python3 -m pip install build pytest
-python3 -m pip install -e ./plugins/DesignWithPPA
-python3 -m py_compile plugins/DesignWithPPA/src/design_with_ppa/*.py
-python3 -m pytest -q plugins/DesignWithPPA/tests
-ucagent --validate-plugin ./plugins/DesignWithPPA
-python3 -m build ./plugins/DesignWithPPA
+python3 -m pip install -e ./examples/DesignWithPPA
+python3 -m py_compile examples/DesignWithPPA/src/design_with_ppa/*.py
+python3 -m pytest -q examples/DesignWithPPA/tests
+ucagent --validate-plugin ./examples/DesignWithPPA
+python3 -m build ./examples/DesignWithPPA
 ```
 
 其他插件将上述插件路径替换为自己的项目目录。`python3 -m build` 的默认流程先构建 sdist、再由
@@ -508,7 +508,7 @@ sdist 构建 wheel，可以隔离源码树中既有的 `build/` 缓存，避免�
 ```bash
 python3 -m venv /tmp/design-with-ppa-verify
 /tmp/design-with-ppa-verify/bin/python -m pip install .
-/tmp/design-with-ppa-verify/bin/python -m pip install plugins/DesignWithPPA/dist/ucagent_design_with_ppa-*.whl
+/tmp/design-with-ppa-verify/bin/python -m pip install examples/DesignWithPPA/dist/ucagent_design_with_ppa-*.whl
 /tmp/design-with-ppa-verify/bin/ucagent --list-plugins
 /tmp/design-with-ppa-verify/bin/ucagent --validate-plugin design-with-ppa
 /tmp/design-with-ppa-verify/bin/ucagent <workspace> <dut> \

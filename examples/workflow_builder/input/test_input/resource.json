@@ -1,0 +1,48 @@
+{
+  "document_request": {
+    "topic": "Codex 使用介绍与实践指南",
+    "purpose": "根据参考文字和截图生成一份面向初次使用者的 DOCX 说明文档",
+    "audience": "准备在软件工程任务中使用 Codex 的开发者和工作流维护人员",
+    "language": "zh-CN"
+  },
+  "resources": [
+    {
+      "name": "codex_overview",
+      "type": "text",
+      "path": "textsource/codex_overview.md",
+      "description": "Codex 的定位、核心能力、协作方式和适用场景",
+      "format": "markdown",
+      "language": "zh-CN"
+    },
+    {
+      "name": "codex_usage_notes",
+      "type": "text",
+      "path": "textsource/codex_usage_notes.md",
+      "description": "Codex 的典型使用步骤、运行观察、故障处理和实践建议",
+      "format": "markdown",
+      "language": "zh-CN"
+    },
+    {
+      "name": "codex_usage_screenshot",
+      "type": "image",
+      "path": "pngsource/codex使用截图.png",
+      "description": "Codex 在工程目录中进行交互和执行任务的界面截图",
+      "format": "png",
+      "dimensions": {
+        "width": 1311,
+        "height": 1166
+      }
+    },
+    {
+      "name": "codex_result_screenshot",
+      "type": "image",
+      "path": "pngsource/codex使用效果截图.png",
+      "description": "Codex 完成任务后展示执行效果和结果的截图",
+      "format": "png",
+      "dimensions": {
+        "width": 1800,
+        "height": 1370
+      }
+    }
+  ]
+}

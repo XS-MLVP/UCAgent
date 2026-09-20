@@ -1,0 +1,8 @@
+scope: unit
+build: []
+tool_versions: []
+rtl_files: [rtl/unit.v]
+include_dirs: []
+defines: {}
+systemverilog: false
+timeout: 600
