@@ -3,7 +3,7 @@
 
 > **已弃用（deprecated）**：GenSpec 是旧版文档生成工作流示例，后续文档生成统一使用 [SpecGenerator](https://github.com/XS-MLVP/UCAgent/blob/main/plugins/SpecGenerator/README.md)。本页保留供旧工作流参考。
 
-GenSpec 将零散设计说明、CSV 检查点和 RTL 源码整理为结构化规格文档，适用于规范缺失、资料整合及验证前的功能梳理。它位于 `examples/GenSpec/`，通过 `genspec.yaml` 复用 UCAgent 内置工具与 Checker。
+GenSpec 将零散设计说明、CSV 检查点和 RTL 源码整理为结构化规格文档，适用于规范缺失、资料整合及验证前的功能梳理。它位于 `plugins/GenSpec/`，通过 `genspec.yaml` 复用 UCAgent 内置工具与 Checker。
 
 SpecGenerator 的安装、输入准备和运行方式见其 README；当前工作流面向 XiangShan，使用源码与同版本、同配置的生成 RTL 证据，交付版本化文档。插件机制见[插件开发与发布](../03_develop/09_plugins.md)。
 
@@ -13,10 +13,10 @@ SpecGenerator 的安装、输入准备和运行方式见其 README；当前工�
 
 ```bash
 mkdir -p output/genspec-adder
-cp -R examples/GenSpec/Adder output/genspec-adder/
+cp -R plugins/GenSpec/Adder output/genspec-adder/
 ucagent output/genspec-adder Adder \
-  --config examples/GenSpec/genspec.yaml \
-  --guid-doc-path examples/GenSpec/SpecDoc/dut_spec_template.md \
+  --config plugins/GenSpec/genspec.yaml \
+  --guid-doc-path plugins/GenSpec/SpecDoc/dut_spec_template.md \
   --output spec --backend langchain --tui --loop
 ```
 
@@ -59,10 +59,10 @@ GenSpec 使用配置文件启动，无需单独安装插件。
 
 ```bash
 mkdir -p output/genspec-sbuffer
-cp -R examples/GenSpec/Sbuffer output/genspec-sbuffer/
+cp -R plugins/GenSpec/Sbuffer output/genspec-sbuffer/
 ucagent output/genspec-sbuffer Sbuffer \
-  --config examples/GenSpec/genspec.yaml \
-  --guid-doc-path examples/GenSpec/SpecDoc/dut_spec_template.md \
+  --config plugins/GenSpec/genspec.yaml \
+  --guid-doc-path plugins/GenSpec/SpecDoc/dut_spec_template.md \
   --output spec --skip 9 --backend langchain --tui --loop
 ```
 
@@ -73,5 +73,5 @@ ucagent output/genspec-sbuffer Sbuffer \
 入口；其中 `init_*` 会先清空该示例的 `output/`，已有产物时优先使用上面的独立工作区命令。
 
 配置及完整产物见
-[GenSpec README](https://github.com/XS-MLVP/UCAgent/blob/main/examples/GenSpec/README.md)。
+[GenSpec README](https://github.com/XS-MLVP/UCAgent/blob/main/plugins/GenSpec/README.md)。
 需要改阶段时，遵循[工作流定制](../03_develop/03_workflow.md)中的列表覆盖规则，修改示例的 `genspec.yaml`。

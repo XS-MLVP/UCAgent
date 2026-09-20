@@ -1,5 +1,7 @@
 
-## 基于 UCAgent 生成 Spec
+## 基于 UCAgent 生成 Spec（Deprecated）
+
+> **已弃用（deprecated）**：GenSpec 保留为旧版 YAML 工作流示例，后续文档生成使用 [SpecGenerator](../SpecGenerator/README.md)。
 
 Spec 文档是进行芯片验证与回归管理的基础。很多团队在项目早期只有零散的设计备忘、接口列表或旧版论文，缺乏结构化、可复用的规格说明。GenSpec 示例展示了如何借助 UCAgent 的自定义配置把这些碎片化资料整合成系统化的 `{DUT}_spec.md`，并在持续迭代中保持更新。
 
@@ -57,7 +59,7 @@ Spec 文档是进行芯片验证与回归管理的基础。很多团队在项目
 
 ```bash
 # 准备环境(创建 output目录)
-cp examples/GenSpec/
+cd plugins/GenSpec
 make init_DCache
 
 # 以API方式运行UCAgent生成spec文档，如果不需要自动开始，请去掉 ARGS="--loop"

@@ -23,7 +23,7 @@ ucagent --validate-plugin design-with-ppa
 从源码构建并安装：
 
 ```bash
-cd examples/DesignWithPPA
+cd plugins/DesignWithPPA
 python3 -m pip install build
 python3 -m build .
 python3 -m pip install dist/ucagent_design_with_ppa-0.4.7-py3-none-any.whl
@@ -33,7 +33,7 @@ ucagent --validate-plugin design-with-ppa
 开发时也可以使用可编辑安装：
 
 ```bash
-cd examples/DesignWithPPA
+cd plugins/DesignWithPPA
 python3 -m pip install -e .
 ucagent --validate-plugin design-with-ppa
 ```
@@ -78,7 +78,7 @@ sudo cmake --install build
 
 ## Make 命令
 
-在 `examples/DesignWithPPA` 目录运行：
+在 `plugins/DesignWithPPA` 目录运行：
 
 | 命令 | 用途 |
 | :--- | :--- |

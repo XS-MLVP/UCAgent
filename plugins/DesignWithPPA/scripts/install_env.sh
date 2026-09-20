@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Download and install the external toolchain required by the DesignWithPPA
-# plugin, pinned to the versions documented in examples/DesignWithPPA/README.md
+# plugin, pinned to the versions documented in plugins/DesignWithPPA/README.md
 # and the plugin's Chisel contract in src/design_with_ppa/rtl.py:
 #
 #   yosys     v0.68                    source build (needs CMake >= 3.28)
