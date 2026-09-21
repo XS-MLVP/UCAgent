@@ -1,0 +1,4 @@
+schema_version = 1
+name = "rtl2spec"
+entry = "rtl2spec.plugin:get_plugin"
+python_path = "src"

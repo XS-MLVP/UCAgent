@@ -68,6 +68,6 @@
 
 ### 实践案例
 
-- **[规范生成](./04_case/00_genspec.md)**：从分散设计资料生成功能规范文档
+- **[RTL2Spec 文档生成](./04_case/00_rtl2spec.md)**：基于 XiangShan 源码与 RTL 证据生成设计文档
 - **[多实例并发执行](./04_case/01_multirun.md)**：同时对多个 DUT 进行并发验证
 - **[批处理执行](./04_case/02_batchrun.md)**：自动完成一系列验证任务

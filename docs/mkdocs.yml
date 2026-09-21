@@ -79,7 +79,7 @@ nav:
       - Mini 示例: content/03_develop/08_mini_example.md
       - 插件开发与发布: content/03_develop/09_plugins.md
   - 实践案例:
-      - 规范生成: content/04_case/00_genspec.md
+      - RTL2Spec 文档生成: content/04_case/00_rtl2spec.md
       - 多实例并发执行: content/04_case/01_multirun.md
       - 批处理执行: content/04_case/02_batchrun.md
       - Workflow Builder:

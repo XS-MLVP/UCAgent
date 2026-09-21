@@ -128,7 +128,7 @@ UCAgent 内置工具的完整参考：
 - 📚 UCAgent 核心架构详解
 - 📖 [快速入门](../01_start/03_mcp_mode.md) - 基础使用教程
 - 💻 [功能介绍](../02_usage/00_mcp.md) - MCP 集成和使用方式
-- 🎓 [实践案例](../04_case/00_genspec.md) - 真实项目案例
+- 🎓 [RTL2Spec 文档生成](../04_case/00_rtl2spec.md) - 基于源码与 RTL 证据生成设计文档
 - 🐛 [FAQ](../02_usage/05_faq.md) - 常见问题解答
 - 💡 [GitHub Examples](https://github.com/XS-MLVP/UCAgent/tree/main/examples) - 更多实例代码
 

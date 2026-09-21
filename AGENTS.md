@@ -44,6 +44,8 @@ and fabricated evidence from being accepted.
 - `docs/content/`: developer/user documentation for the MkDocs site. This is not
   the same as runtime `Guide_Doc`.
 - `tests/`: unit and focused regression tests.
+- `plugins/`: independently packaged, opt-in plugins maintained in this repository;
+  each plugin owns its dependencies, resources, tests, and usage documentation.
 - `examples/`: example DUT inputs and, in some cases, generated verification
   artifacts. Do not treat generated example outputs as canonical source.
 
