@@ -1,7 +1,6 @@
 template: null
 
 template_overwrite:
-  VERSION: "$(SPEC_DOCUMENT_VERSION: v1.0.0)"
   XS_CONFIG: "$(XIANGSHAN_CONFIG: DefaultConfig)"
 
 # Long RTL elaboration reports progress through RTL2SpecCommand.
@@ -63,92 +62,84 @@ mission:
   name: "{DUT} XiangShan 设计文档生成"
   prompt:
     system: |
-      你负责为 {DUT} 生成版本 {VERSION}、配置 {XS_CONFIG} 的中文设计与功能检测点文档。
+      你负责为 {DUT} 生成配置 {XS_CONFIG} 的中文设计与功能检测点文档。
       工作区提供 third_party/XiangShan 源码和文档产物。正文、验证计划、审计附录参考 Guide_Doc/chip_design_document_template_zh.md；完整方法见 Guide_Doc/generation-guide.md。
       使用相同 commit 和配置生成的 RTL、端口清单及 Chisel/Scala 建立事实证据。可选 spec 只表达设计意图；不确定项登记为 OPEN-*。
       先通过 CurrentTips 获取当前任务。使用 PathList、SearchText 定位相关源码，用 ReadTextFile 读取文件，用 EditTextFile、ReplaceStringInFile 写入文档。
-      使用 RTL2SpecCommand 完成 preflight、evidence、render、metadata、validate、lint 操作；按工具诊断修复问题。
-      模块名使用 {DUT}，配置使用 {XS_CONFIG}，版本使用 {VERSION}。先生成 RTL evidence，再写正文；写完草稿后 metadata；最终 render，再 Check。
-      不得修改 DUT 源码、检查脚本、历史文档或历史 evidence。目标版本已归档时，停止覆盖并要求选择新版本。
+      使用 RTL2SpecCommand 完成 preflight、evidence、metadata、validate、lint 操作；按工具诊断修复问题。
+      模块名使用 {DUT}，配置使用 {XS_CONFIG}。开始前必须确认 outputs/{DUT}、reports/{DUT} 和 evidence/{DUT} 没有旧的 RTL2Spec 产物；如果存在，先提醒用户自行打包旧产物并清理这些目录，再重新启动。先生成 RTL evidence，再写正文；写完草稿后 metadata，最后 validate/lint 并 Check。Mermaid 图直接保留在 Markdown 源码中，不生成 SVG 或其他图片文件。
+      不得修改 DUT 源码、检查脚本或 Guide_Doc。发现已有产物时终止并警告用户，由用户自行打包和清理，禁止自动打包、删除或覆盖。同一次运行中可继续修订本次草稿、同步 metadata 和验收。
       每个阶段记录 SetCurrentStageJournal 后调用 Complete。每个阶段的 Check 都会核验实际证据和产物完整性；检查失败时按诊断修复后再试。
     skill_system: ""
 
 stage:
   - name: inspect_and_generate_evidence
-    desc: "核验模块、版本和 RTL 证据"
+    desc: "核验模块和 RTL 证据"
     task:
-      - "读取 Guide_Doc/generation-guide.md；核验 {DUT} 顶层 class、{XS_CONFIG} 配置、现有版本历史及可选 inputs/{DUT}/"
-      - "确认 {VERSION} 是本次新版本；若已存在归档版本，不覆盖它，要求选择更高版本重新启动"
+      - "读取 Guide_Doc/generation-guide.md；核验 {DUT} 顶层 class、{XS_CONFIG} 配置及可选 inputs/{DUT}/"
+      - "确认 outputs/{DUT}、reports/{DUT} 和 evidence/{DUT} 没有旧的 RTL2Spec 产物；若发现旧产物，停止并要求用户先打包后清理"
       - "定位并读取 third_party/XiangShan 中当前模块及相关配置源码；记录 commit 和精确 source:line"
       - "执行 RTL2SpecCommand(action='preflight', module='{DUT}', config='{XS_CONFIG}') 并修复环境问题"
-      - "执行 RTL2SpecCommand(action='evidence', module='{DUT}', config='{XS_CONFIG}', version='{VERSION}')；恢复当前未完成任务时先检查已有 manifest 和 ports.csv，禁止覆盖历史 evidence"
-      - "读取 evidence/{DUT}/{VERSION}/manifest.json、ports.csv 和生成的 RTL；确认模块、配置、commit 与当前源码匹配"
+      - "执行 RTL2SpecCommand(action='evidence', module='{DUT}', config='{XS_CONFIG}')"
+      - "读取 evidence/{DUT}/manifest.json、ports.csv 和生成的 RTL；确认模块、配置、commit 与当前源码匹配"
     reference_files:
       - "Guide_Doc/generation-guide.md"
       - "Guide_Doc/chip_design_document_template_zh.md"
     output_files:
-      - "evidence/{DUT}/{VERSION}/manifest.json"
-      - "evidence/{DUT}/{VERSION}/ports.csv"
-      - "evidence/{DUT}/{VERSION}/{DUT}.sv"
+      - "evidence/{DUT}/manifest.json"
+      - "evidence/{DUT}/ports.csv"
+      - "evidence/{DUT}/{DUT}.sv"
     checker:
       - name: evidence_integrity_check
         clss: RTL2SpecArtifactsChecker
         args:
           module: "{DUT}"
-          version: "{VERSION}"
           config: "{XS_CONFIG}"
           phase: evidence
 
   - name: draft_design_document
-    desc: "编写设计文档、质量报告和版本历史"
+    desc: "编写设计文档和质量报告"
     task:
-      - "读取 Guide_Doc/generation-guide.md 和 Guide_Doc/chip_design_document_template_zh.md，按模板固定标题、层级、章节顺序和各节表格数量写入独立版本化文件；P-* 与附加 CASE-* 在模板指定位置按需重复，不适用小节保留并说明理由"
-      - "生成 outputs/{DUT}/{DUT}_design_document_zh_{VERSION}.md，覆盖设计行为、接口、验证计划和证据来源，对不适用项说明理由；删除模板指令与占位符"
+      - "读取 Guide_Doc/generation-guide.md 和 Guide_Doc/chip_design_document_template_zh.md，按模板固定标题、层级、章节顺序和各节表格数量写入当前文档；P-* 与附加 CASE-* 在模板指定位置按需重复，不适用小节保留并说明理由"
+      - "生成 outputs/{DUT}/{DUT}_design_document_zh.md，覆盖设计行为、接口、验证计划和证据来源，对不适用项说明理由；删除模板指令与占位符"
       - "基于已核验的 RTL/Scala 完成 FG/FC/CK、P-*、E-*、逻辑接口与精确端口映射、Coverage、用例和 OPEN-*；不能推断精确 Verilog 名称或伪造验证结果"
-      - "生成 reports/{DUT}/{DUT}_document_quality_review_{VERSION}.md，记录版本差异、证据来源、实际检查结果和未完成的签核项"
-      - "维护 outputs/{DUT}/VERSION_HISTORY.md 的当前版本记录，保留历史行；相对链接必须指向当前文档与报告"
-      - "执行 RTL2SpecCommand(action='metadata', module='{DUT}', config='{XS_CONFIG}', version='{VERSION}') 同步事实元数据；新增历史记录时提供 change_type 和 summary"
+      - "生成 reports/{DUT}/{DUT}_document_quality_review.md，记录证据来源、实际检查结果和未完成的签核项"
+      - "执行 RTL2SpecCommand(action='metadata', module='{DUT}', config='{XS_CONFIG}') 同步事实元数据"
     reference_files:
       - "Guide_Doc/generation-guide.md"
       - "Guide_Doc/chip_design_document_template_zh.md"
-      - "evidence/{DUT}/{VERSION}/manifest.json"
-      - "evidence/{DUT}/{VERSION}/ports.csv"
+      - "evidence/{DUT}/manifest.json"
+      - "evidence/{DUT}/ports.csv"
     output_files:
-      - "outputs/{DUT}/{DUT}_design_document_zh_{VERSION}.md"
-      - "reports/{DUT}/{DUT}_document_quality_review_{VERSION}.md"
-      - "outputs/{DUT}/VERSION_HISTORY.md"
+      - "outputs/{DUT}/{DUT}_design_document_zh.md"
+      - "reports/{DUT}/{DUT}_document_quality_review.md"
 
     checker:
       - name: draft_artifacts_check
         clss: RTL2SpecArtifactsChecker
         args:
           module: "{DUT}"
-          version: "{VERSION}"
           config: "{XS_CONFIG}"
           phase: draft
 
-  - name: render_and_validate
-    desc: "渲染图形并核验最终产物"
+  - name: validate_and_finalize
+    desc: "核验并完成最终产物"
     task:
-      - "执行 RTL2SpecCommand(action='render', module='{DUT}', config='{XS_CONFIG}', version='{VERSION}')；有 Mermaid 时产生真实 SVG 和匹配源 hash 的 diagrams/manifest.json；没有图形时生成空清单"
-      - "执行 RTL2SpecCommand(action='metadata', module='{DUT}', config='{XS_CONFIG}', version='{VERSION}')；新增历史行时同时提供 change_type 和 summary，不得编造语义变更"
-      - "复核文档、报告、历史与 evidence 的版本、commit、配置、端口数及图形信息一致"
-      - "运行 Check 获取模板结构、证据、引用和图形的检查结果并修复诊断指出的文档、端口、链接或图形问题；改图后重新 render；事实字段变化时重新 metadata"
+      - "执行 RTL2SpecCommand(action='metadata', module='{DUT}', config='{XS_CONFIG}')"
+      - "复核文档、报告与 evidence 的 commit、配置和端口数一致；Mermaid 图以文档中的源码块为准"
+      - "运行 RTL2SpecCommand(action='validate', module='{DUT}', config='{XS_CONFIG}') 和 RTL2SpecCommand(action='lint', module='{DUT}', config='{XS_CONFIG}')，再运行 Check，按诊断修复文档、端口、链接或 Mermaid 源码问题；事实字段变化时重新 metadata"
       - "将实际验证结果记录进质量报告；未运行 SVA 编译或 formal 的项目保持未签核，禁止虚构通过；最后调用 Complete"
     reference_files:
       - "Guide_Doc/generation-guide.md"
       - "Guide_Doc/chip_design_document_template_zh.md"
-      - "outputs/{DUT}/{DUT}_design_document_zh_{VERSION}.md"
+      - "outputs/{DUT}/{DUT}_design_document_zh.md"
     output_files:
-      - "evidence/{DUT}/{VERSION}/diagrams/manifest.json"
-      - "outputs/{DUT}/{DUT}_design_document_zh_{VERSION}.md"
-      - "reports/{DUT}/{DUT}_document_quality_review_{VERSION}.md"
-      - "outputs/{DUT}/VERSION_HISTORY.md"
+      - "outputs/{DUT}/{DUT}_design_document_zh.md"
+      - "reports/{DUT}/{DUT}_document_quality_review.md"
     checker:
       - name: final_artifacts_check
         clss: RTL2SpecArtifactsChecker
         args:
           module: "{DUT}"
-          version: "{VERSION}"
           config: "{XS_CONFIG}"
           phase: final

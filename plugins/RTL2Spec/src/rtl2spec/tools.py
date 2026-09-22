@@ -19,14 +19,15 @@ from ucagent.tools.uctool import UCTool
 
 
 class RTL2SpecCommandArgs(BaseModel):
-    """Select a plugin action and its exact module/version inputs."""
+    """Select a plugin action and its exact module/configuration inputs."""
 
     model_config = ConfigDict(extra="forbid")
     action: Literal[
-        "preflight", "evidence", "metadata", "render", "validate", "lint"
+        "preflight", "evidence", "metadata", "validate", "lint"
     ] = Field(
-        description="preflight checks tools; evidence generates RTL/ports; render creates SVGs; "
-        "metadata updates generated fields; validate checks artifacts; lint performs final checks."
+        description="preflight checks tools; evidence generates RTL/ports; metadata updates "
+        "generated fields; validate checks artifacts; lint performs final checks. Mermaid "
+        "diagrams remain in the Markdown document and are not rendered into image files."
     )
     module: str = Field(
         pattern=r"^[A-Za-z_][A-Za-z0-9_]*$",
@@ -37,20 +38,6 @@ class RTL2SpecCommandArgs(BaseModel):
         pattern=r"^[A-Za-z_][A-Za-z0-9_]*$",
         description="XiangShan configuration class.",
     )
-    version: str = Field(
-        default="",
-        pattern=r"^(v[0-9]+\.[0-9]+\.[0-9]+)?$",
-        description="Target document version, e.g. v1.0.0; required except for preflight.",
-    )
-    change_type: Literal["Major", "Minor", "Patch"] | None = Field(
-        default=None,
-        description="For metadata: semantic change category when adding a history row.",
-    )
-    summary: str = Field(
-        default="",
-        max_length=1000,
-        description="For metadata: one-line change summary, required with change_type.",
-    )
 
 
 class RTL2SpecCommand(UCTool):
@@ -58,9 +45,9 @@ class RTL2SpecCommand(UCTool):
 
     name: str = "RTL2SpecCommand"
     description: str = (
-        "Run RTL2Spec preflight, evidence, render, metadata, validate, or lint "
+        "Run RTL2Spec preflight, evidence, metadata, validate, or lint "
         "in the active workspace; source must be under third_party/XiangShan. Read stderr/stdout on failure. "
-        "Generate evidence before drafting, run metadata after writing, then render and lint."
+        "Start with empty module output/report/evidence directories; existing output requires the user to archive and clear it. Generate evidence before drafting, then run metadata and lint. Mermaid diagrams stay as source fences in the Markdown document."
     )
     args_schema: type[BaseModel] = RTL2SpecCommandArgs
     workspace: str
@@ -73,38 +60,20 @@ class RTL2SpecCommand(UCTool):
         action: str,
         module: str,
         config: str = "DefaultConfig",
-        version: str = "",
-        change_type: str | None = None,
-        summary: str = "",
     ) -> dict:
         """Validate paths/policy, execute one fixed action, and return bounded diagnostics."""
         try:
-            args = RTL2SpecCommandArgs(
+            RTL2SpecCommandArgs(
                 action=action,
                 module=module,
                 config=config,
-                version=version,
-                change_type=change_type,
-                summary=summary,
             )
         except ValidationError:
             return {
                 "ok": False,
                 "error_code": "INVALID_ARGUMENTS",
-                "error": "Invalid action, module, config, version, or metadata arguments.",
-                "next_action": "Use an action from the schema, identifier-only module/config, and a vMAJOR.MINOR.PATCH version.",
-            }
-        if (
-            (action != "preflight" and not args.version)
-            or (change_type is not None and not summary.strip())
-            or any(char in summary for char in "\r\n|")
-            or (action != "metadata" and (change_type or summary))
-        ):
-            return {
-                "ok": False,
-                "error_code": "INVALID_ARGUMENTS",
-                "error": "A version is required except for preflight; history metadata requires a category and one-line summary without table separators.",
-                "next_action": "Set version; use change_type and summary only for metadata.",
+                "error": "Invalid action, module, or config arguments.",
+                "next_action": "Use an action from the schema and identifier-only module/config values.",
             }
         workspace = Path(self.workspace).resolve()
         if not workspace.is_dir():
@@ -114,23 +83,19 @@ class RTL2SpecCommand(UCTool):
                 "error": "Workspace does not exist.",
                 "next_action": "Create the workspace and put the XiangShan source under third_party/XiangShan.",
             }
-
         # Each action has a fixed write footprint; resolved paths must stay in the workspace.
-        targets = [".cache"] if action in {"preflight", "evidence", "render"} else []
+        targets = [".cache"] if action in {"preflight", "evidence"} else []
         if action == "evidence":
             targets += [
-                f"evidence/{module}/{version}",
+                f"evidence/{module}",
                 "third_party/XiangShan/out",
                 "third_party/XiangShan/build",
                 "third_party/XiangShan/src/main/resources/espresso",
             ]
-        elif action == "render":
-            targets += [f"evidence/{module}/{version}/diagrams"]
         elif action == "metadata":
             targets += [
-                f"outputs/{module}/{module}_design_document_zh_{version}.md",
-                f"outputs/{module}/VERSION_HISTORY.md",
-                f"reports/{module}/{module}_document_quality_review_{version}.md",
+                f"outputs/{module}/{module}_design_document_zh.md",
+                f"reports/{module}/{module}_document_quality_review.md",
             ]
         for name in [
             *targets,
@@ -186,6 +151,19 @@ class RTL2SpecCommand(UCTool):
                     "next_action": "Select the design-document workflow or configure its required write directories without conflicting protected paths.",
                 }
 
+        if action in {"preflight", "evidence"}:
+            from .documents import require_clean_output
+
+            try:
+                require_clean_output(workspace, module)
+            except (OSError, ValueError) as exc:
+                return {
+                    "ok": False,
+                    "error_code": "OUTPUT_DIRECTORY_NOT_CLEAN",
+                    "error": str(exc),
+                    "next_action": "Stop and ask the user to package/archive the previous documents, report and evidence, clear the listed output directories, then restart.",
+                }
+
         command = [
             sys.executable,
             "-P",
@@ -196,11 +174,7 @@ class RTL2SpecCommand(UCTool):
             module,
             "--config",
             config,
-            "--version",
-            version,
         ]
-        if change_type:
-            command += ["--change-type", change_type, "--summary", summary]
         env = os.environ.copy()
         # Bind imports and runtime locations to this loaded package and workspace.
         import_root = str(Path(__file__).resolve().parent.parent)
@@ -220,7 +194,7 @@ class RTL2SpecCommand(UCTool):
         )
         started = time.monotonic()
         timed_out = False
-        self.put_alive_data(f"Starting {action} for {module} {version}")
+        self.put_alive_data(f"Starting {action} for {module}")
         try:
             with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
                 process = subprocess.Popen(
@@ -268,7 +242,6 @@ class RTL2SpecCommand(UCTool):
             "ok": not timed_out and process.returncode == 0,
             "action": action,
             "module": module,
-            "version": version,
             "returncode": process.returncode,
             **output,
         }

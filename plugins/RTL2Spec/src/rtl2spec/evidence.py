@@ -146,11 +146,9 @@ def source_state(root: Path) -> dict:
     return {"commit": commit, "submodules": submodules}
 
 
-def validate_evidence(
-    root: Path, module: str, version: str, config: str
-) -> tuple[dict, list[dict]]:
+def validate_evidence(root: Path, module: str, config: str) -> tuple[dict, list[dict]]:
     """Recompute source identity, RTL hash, and ports instead of trusting authored text."""
-    folder = local_path(root, f"evidence/{module}/{version}")
+    folder = local_path(root, f"evidence/{module}")
     manifest = read_json(local_path(root, folder / "manifest.json"))
     receipt(root, manifest)
     if (
@@ -167,7 +165,9 @@ def validate_evidence(
         or manifest.get("xiangshan_commit") != state["commit"]
     ):
         raise ValueError(
-            f"{folder}/manifest.json: source identity changed; generate evidence for the current source in a new version"
+            f"{folder}/manifest.json: source identity changed; stop and ask the user to "
+            f"package/archive the current outputs/{module}, reports/{module} and "
+            f"evidence/{module}, clear those directories, then restart generation"
         )
     rtl = local_path(root, folder / f"{module}.sv")
     if not rtl.is_file() or digest(rtl) != manifest.get("rtl_sha256"):

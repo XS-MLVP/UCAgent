@@ -1,4 +1,4 @@
-"""Execute packaged generation/rendering programs and verify their resulting artifacts."""
+"""Execute packaged RTL evidence and document validation programs."""
 
 from __future__ import annotations
 
@@ -20,6 +20,7 @@ from .evidence import (
     source_state,
     validate_evidence,
 )
+from .documents import require_clean_output
 
 SCRIPTS = Path(__file__).resolve().parent / "scripts"
 
@@ -40,15 +41,12 @@ def check_cache(root: Path, rtl: Path, module: str, config: str) -> dict:
     return manifest
 
 
-def generate(root: Path, module: str, version: str, config: str) -> None:
-    """Generate or verify current evidence, retaining the actual RTL independently of caches."""
-    folder = local_path(root, f"evidence/{module}/{version}")
-    if (folder / "manifest.json").exists():
-        validate_evidence(root, module, version, config)
-        print("Verified existing evidence; no files overwritten.")
-        return
+def generate(root: Path, module: str, config: str) -> None:
+    """Generate fresh evidence, retaining the actual RTL independently of caches."""
+    require_clean_output(root, module)
+    folder = local_path(root, f"evidence/{module}")
     before = source_state(root)
-    result_path = local_path(root, f".cache/generation-{module}-{version}.json")
+    result_path = local_path(root, f".cache/generation-{module}.json")
     result_path.parent.mkdir(parents=True, exist_ok=True)
     result_path.unlink(missing_ok=True)
     subprocess.run(
@@ -78,6 +76,8 @@ def generate(root: Path, module: str, version: str, config: str) -> None:
     ports = parse_ports(data.decode("utf-8"), module)
     if not ports:
         raise ValueError(f"{rtl}: generation produced no ports")
+    # Recheck after the compiler returns so newly arrived output is preserved.
+    require_clean_output(root, module)
     manifest = receipt(
         root,
         {
@@ -120,7 +120,7 @@ def generate(root: Path, module: str, version: str, config: str) -> None:
         payload, encoding="utf-8"
     )
     local_path(root, folder / "manifest.json").write_text(payload, encoding="utf-8")
-    validate_evidence(root, module, version, config)
+    validate_evidence(root, module, config)
     print(f"Generated {folder.relative_to(root)}: {len(ports)} ports")
 
 
@@ -133,7 +133,6 @@ def main() -> int:
             "preflight",
             "evidence",
             "metadata",
-            "render",
             "validate",
             "lint",
             "cache-check",
@@ -141,10 +140,7 @@ def main() -> int:
     )
     parser.add_argument("--module", required=True)
     parser.add_argument("--config", default="DefaultConfig")
-    parser.add_argument("--version", default="")
     parser.add_argument("--rtl", type=Path)
-    parser.add_argument("--change-type", choices=("Major", "Minor", "Patch"))
-    parser.add_argument("--summary", default="")
     args = parser.parse_args()
     root = Path.cwd().resolve()
     os.environ.update(
@@ -156,6 +152,7 @@ def main() -> int:
         if args.action == "cache-check":
             check_cache(root, args.rtl, args.module, args.config)
         elif args.action == "preflight":
+            require_clean_output(root, args.module)
             source_state(root)
             subprocess.run(
                 [
@@ -169,39 +166,17 @@ def main() -> int:
                 check=True,
             )
         elif args.action == "evidence":
-            generate(root, args.module, args.version, args.config)
+            generate(root, args.module, args.config)
         elif args.action == "metadata":
             from .documents import update_metadata
 
-            update_metadata(
-                root,
-                args.module,
-                args.version,
-                args.config,
-                args.change_type,
-                args.summary,
-            )
-        elif args.action == "render":
-            from .rendering import render
-
-            document = local_path(
-                root,
-                f"outputs/{args.module}/{args.module}_design_document_zh_{args.version}.md",
-            )
-            output = local_path(root, f"evidence/{args.module}/{args.version}/diagrams")
-            render(document, output)
-            manifest = read_json(output / "manifest.json")
-            (output / "manifest.json").write_text(
-                json.dumps(receipt(root, manifest, sign=True), indent=2) + "\n",
-                encoding="utf-8",
-            )
+            update_metadata(root, args.module, args.config)
         else:
             from .validation import validate
 
             result = validate(
                 root,
                 args.module,
-                args.version,
                 args.config,
                 "final" if args.action == "lint" else "draft",
             )

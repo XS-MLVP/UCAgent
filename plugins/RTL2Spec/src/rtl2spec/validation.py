@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 import subprocess
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
-from .evidence import digest, local_path, read_json, receipt, validate_evidence
+from .evidence import local_path, validate_evidence
 from .documents import (
     FIELDS,
     METADATA_RE,
@@ -23,21 +22,19 @@ from .documents import (
 ID_RE = re.compile(r"\b(?:FG|FC|CK|P|E|COV)-[A-Z0-9]+(?:-[A-Z0-9]+)*\b")
 
 
-def validate(
-    root: Path, module: str, version: str, config: str, phase: str = "final"
-) -> dict:
-    """Return bounded diagnostics for actual evidence, references, and current diagram renders."""
+def validate(root: Path, module: str, config: str, phase: str = "final") -> dict:
+    """Return bounded diagnostics for actual evidence, references, and Mermaid source."""
     errors: list[dict] = []
     warnings: list[str] = []
-    artifact = f"evidence/{module}/{version}/manifest.json"
+    artifact = f"evidence/{module}/manifest.json"
     try:
-        manifest, ports = validate_evidence(root, module, version, config)
+        manifest, ports = validate_evidence(root, module, config)
         if manifest["generation_status"] == "partial":
             warnings.append(
                 "RTL generation was partial; document the downstream failure and limit conclusions to the available module RTL."
             )
         if phase != "evidence":
-            paths = artifact_paths(root, module, version)
+            paths = artifact_paths(root, module)
             current_template = template_version()
             texts = []
             for index, path in enumerate(paths):
@@ -64,75 +61,72 @@ def validate(
                             "error": "file has no substantive content; write the required artifact",
                         }
                     )
-                if index < 2:
-                    markers = METADATA_RE.findall(text)
-                    if len(markers) != 1:
+                markers = METADATA_RE.findall(text)
+                if len(markers) != 1:
+                    errors.append(
+                        {
+                            "artifact": artifact,
+                            "error": 'run RTL2SpecCommand(action="metadata") to add one current metadata record',
+                        }
+                    )
+                else:
+                    metadata = json.loads(markers[0])
+                    expected = {
+                        key: manifest[key]
+                        for key in (
+                            "module",
+                            "config",
+                            "xiangshan_commit",
+                            "rtl_sha256",
+                            "generation_status",
+                        )
+                    }
+                    expected.update(template_version=current_template)
+                    if not isinstance(metadata, dict) or any(
+                        metadata.get(key) != value
+                        for key, value in expected.items()
+                    ):
                         errors.append(
                             {
                                 "artifact": artifact,
-                                "error": 'run RTL2SpecCommand(action="metadata") to add one current metadata record',
+                                "error": "metadata differs from the current template or verified RTL; review inputs and rerun metadata",
                             }
                         )
-                    else:
-                        metadata = json.loads(markers[0])
-                        expected = {
-                            key: manifest[key]
-                            for key in (
-                                "module",
-                                "config",
-                                "xiangshan_commit",
-                                "rtl_sha256",
-                                "generation_status",
-                            )
-                        }
-                        expected.update(
-                            version=version, template_version=current_template
+                # Optional visible metadata must not contradict the verified facts.
+                for key, labels in FIELDS.items():
+                    if key == "date":
+                        continue
+                    expected_value = (
+                        current_template
+                        if key == "template_version"
+                        else str(manifest[key])
+                    )
+                    for label in labels:
+                        cells = re.findall(
+                            rf"^\s*\|\s*{re.escape(label)}\s*\|\s*(.*?)\s*\|\s*$",
+                            visible,
+                            re.M,
                         )
-                        if not isinstance(metadata, dict) or any(
-                            metadata.get(key) != value
-                            for key, value in expected.items()
-                        ):
-                            errors.append(
-                                {
-                                    "artifact": artifact,
-                                    "error": "metadata differs from the current template, version or verified RTL; review inputs and rerun metadata",
-                                }
+                        for cell in cells:
+                            tokens = (
+                                re.findall(r"v\d+\.\d+\.\d+", cell)
+                                if key == "template_version"
+                                else [cell]
                             )
-                    # Optional visible metadata must not contradict the verified facts.
-                    for key, labels in FIELDS.items():
-                        if key == "date":
-                            continue
-                        expected_value = (
-                            current_template
-                            if key == "template_version"
-                            else str(manifest[key])
-                        )
-                        for label in labels:
-                            cells = re.findall(
-                                rf"^\s*\|\s*{re.escape(label)}\s*\|\s*(.*?)\s*\|\s*$",
-                                visible,
-                                re.M,
-                            )
-                            for cell in cells:
-                                tokens = (
-                                    re.findall(r"v\d+\.\d+\.\d+", cell)
-                                    if key == "template_version"
-                                    else [cell]
+                            if not tokens or any(
+                                not re.search(
+                                    rf"(?<![\w.]){re.escape(expected_value)}(?![\w.])",
+                                    token,
+                                    re.I if key == "generation_status" else 0,
                                 )
-                                if not tokens or any(
-                                    not re.search(
-                                        rf"(?<![\w.]){re.escape(expected_value)}(?![\w.])",
-                                        token,
-                                        re.I if key == "generation_status" else 0,
-                                    )
-                                    for token in tokens
-                                ):
-                                    errors.append(
-                                        {
-                                            "artifact": artifact,
-                                            "error": f"{key} contradicts verified metadata; run metadata after reviewing the inputs",
-                                        }
-                                    )
+                                for token in tokens
+                            ):
+                                errors.append(
+                                    {
+                                        "artifact": artifact,
+                                        "error": f"{key} contradicts verified metadata; run metadata after reviewing the inputs",
+                                    }
+                                )
                 prose = prose_text(visible)
                 for raw in re.findall(r"\[[^\]]*\]\((<[^>]+>|[^)]+)\)", prose):
                     raw = raw.strip("<>")
@@ -159,14 +153,6 @@ def validate(
                                     "error": f"line reference out of range: {raw}",
                                 }
                             )
-            if not re.search(rf"(?<![\w.]){re.escape(version)}(?![\w.])", texts[2]):
-                errors.append(
-                    {
-                        "artifact": str(paths[2].relative_to(root)),
-                        "error": f"add a history entry for {version}",
-                    }
-                )
-
             artifact = str(paths[0].relative_to(root))
             prose = prose_text(texts[0])
             definitions: set[str] = set()
@@ -266,33 +252,6 @@ def validate(
                     f"{artifact}: review remaining writing instructions/placeholders; record unresolved facts as OPEN-* with evidence needs."
                 )
 
-            if phase == "final":
-                artifact = f"evidence/{module}/{version}/diagrams/manifest.json"
-                diagram_path = local_path(root, artifact)
-                diagrams = read_json(diagram_path)
-                receipt(root, diagrams)
-                sources = mermaid_sources(texts[0])
-                entries = diagrams.get("diagrams")
-                if (
-                    diagrams.get("document") != paths[0].name
-                    or not isinstance(entries, list)
-                    or diagrams.get("diagram_count") != len(sources)
-                    or len(entries) != len(sources)
-                ):
-                    raise ValueError(
-                        'diagram sources changed; run RTL2SpecCommand(action="render")'
-                    )
-                for source, entry in zip(sources, entries):
-                    svg = local_path(root, diagram_path.parent / entry["output"])
-                    if (
-                        entry.get("source_sha256")
-                        != hashlib.sha256(source.encode()).hexdigest()
-                        or not svg.is_file()
-                        or entry.get("svg_sha256") != digest(svg)
-                    ):
-                        raise ValueError(
-                            f"{svg}: stale/missing diagram; rerun render for the current document"
-                        )
     except (
         OSError,
         ValueError,
@@ -311,7 +270,7 @@ def validate(
             error_count=len(errors),
             next_action=errors[0].get(
                 "next_action",
-                "Repair the listed artifacts. Use RTL2SpecCommand evidence/metadata/render as directed, then rerun Check.",
+                "Repair the listed artifacts. Use RTL2SpecCommand evidence or metadata as directed, then rerun Check.",
             ),
         )
     return result

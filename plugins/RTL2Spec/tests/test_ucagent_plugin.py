@@ -71,7 +71,7 @@ def test_command_has_mcp_convertible_pydantic_schema(tmp_path: Path) -> None:
     """The plugin tool exposes the BaseModel schema required by MCP conversion."""
     mcp_tool = to_fastmcp(RTL2SpecCommand(workspace=str(tmp_path)))
     schema = mcp_tool.parameters
-    assert "action" in schema["properties"]
+    assert set(schema["properties"]) == {"action", "module", "config"}
     assert schema["additionalProperties"] is False
 
 

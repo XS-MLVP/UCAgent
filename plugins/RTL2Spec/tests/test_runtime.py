@@ -9,26 +9,44 @@ import pytest
 from conftest import draft
 from rtl2spec.checkers import RTL2SpecArtifactsChecker
 from rtl2spec.evidence import read_json
-from rtl2spec.documents import artifact_paths
+from rtl2spec.documents import METADATA_RE, artifact_paths
 from rtl2spec.tools import RTL2SpecCommand
 from rtl2spec.validation import validate
 
 
-def test_full_pipeline_and_cache(artifacts, command):
-    """Packaged scripts work without workspace implementations and reuse only signed RTL."""
+def test_new_generation_requires_clean_output_directories(artifacts, command):
+    """A second generation run stops before touching existing documents or evidence."""
     assert not (artifacts / "src").exists()
     assert not (artifacts / "Makefile").exists()
     assert (artifacts / ".cache/compiler-calls").read_text() == "1"
-    for version in ("v1.0.0", "v1.0.1"):
-        result = command._run("evidence", "Sbuffer", version=version)
-        assert result["ok"], result
+    before = (artifacts / "evidence/Sbuffer/manifest.json").read_bytes()
+    result = command._run("evidence", "Sbuffer")
+    assert result["error_code"] == "OUTPUT_DIRECTORY_NOT_CLEAN", result
     assert (artifacts / ".cache/compiler-calls").read_text() == "1"
-    rtl = next((artifacts / ".cache/rtl").glob("*/split/Sbuffer.sv"))
-    rtl.write_text(rtl.read_text().replace("[7:0]", "[6:0]"))
-    result = command._run("evidence", "Sbuffer", version="v1.0.2")
+    assert (artifacts / "evidence/Sbuffer/manifest.json").read_bytes() == before
+
+
+def test_user_archival_allows_regeneration_with_verified_cache(artifacts, command):
+    """After user archival, reuse attested RTL but regenerate any corrupted cache."""
+    archive = artifacts / "archive"
+    archive.mkdir()
+    for directory in ("outputs", "reports", "evidence"):
+        (artifacts / directory / "Sbuffer").rename(archive / directory)
+    result = command._run("evidence", "Sbuffer")
+    assert result["ok"], result
+    assert (artifacts / ".cache/compiler-calls").read_text() == "1"
+    draft(artifacts)
+    for action in ("metadata", "lint"):
+        result = command._run(action, "Sbuffer")
+        assert result["ok"], result
+    for directory in ("outputs", "reports", "evidence"):
+        (artifacts / directory / "Sbuffer").rename(archive / f"second-{directory}")
+    cached_rtl = next((artifacts / ".cache/rtl").glob("*/split/Sbuffer.sv"))
+    cached_rtl.write_text(cached_rtl.read_text() + "\n// Unattested change\n")
+    result = command._run("evidence", "Sbuffer")
     assert result["ok"], result
     assert (artifacts / ".cache/compiler-calls").read_text() == "2"
-    assert "[7:0]" in (artifacts / "evidence/Sbuffer/v1.0.2/Sbuffer.sv").read_text()
+    assert (archive / "outputs/Sbuffer_design_document_zh.md").is_file()
 
 
 @pytest.mark.parametrize(
@@ -45,14 +63,14 @@ def test_full_pipeline_and_cache(artifacts, command):
         "reference",
         "link",
         "width",
-        "diagram",
+        "unclosed_mermaid",
     ],
 )
 def test_invalid_artifacts_fail_with_diagnostics(artifacts, target):
     """Material contradictions and missing evidence cannot be hidden by consistent prose."""
     root = artifacts
-    design = artifact_paths(root, "Sbuffer", "v1.0.0")[0]
-    evidence = root / "evidence/Sbuffer/v1.0.0"
+    design = artifact_paths(root, "Sbuffer")[0]
+    evidence = root / "evidence/Sbuffer"
     config = "DefaultConfig"
     if target == "manifest":
         (evidence / "manifest.json").write_text("{}")
@@ -86,18 +104,18 @@ def test_invalid_artifacts_fail_with_diagnostics(artifacts, target):
         design.write_text(
             design.read_text().replace("| `io_data` | I/8 |", "| `io_data` | I/32 |")
         )
-    else:
+    elif target == "unclosed_mermaid":
         design.write_text(
-            design.read_text() + "\n```mermaid\nflowchart LR\n A --> B\n```\n"
+            design.read_text() + "\n```mermaid\nflowchart LR\n A --> B\n"
         )
-    result = validate(root, "Sbuffer", "v1.0.0", config)
+    result = validate(root, "Sbuffer", config)
     assert not result["ok"], result
     assert result["artifact"] and result["next_action"] and result["observed"]
 
 
 def test_fabricated_documents_without_tool_evidence_fail(tmp_path):
     """Mutually consistent fabricated documents cannot replace actual tool evidence."""
-    folder = tmp_path / "evidence/Sbuffer/v1.0.0"
+    folder = tmp_path / "evidence/Sbuffer"
     folder.mkdir(parents=True)
     (folder / "manifest.json").write_text(
         json.dumps(
@@ -110,12 +128,12 @@ def test_fabricated_documents_without_tool_evidence_fail(tmp_path):
         )
     )
     draft(tmp_path)
-    assert not validate(tmp_path, "Sbuffer", "v1.0.0", "DefaultConfig")["ok"]
+    assert not validate(tmp_path, "Sbuffer", "DefaultConfig")["ok"]
 
 
 def test_content_remains_flexible_within_template(artifacts, command):
-    """Table row counts, cell formatting, prose and diagrams are not fixed by the template."""
-    design = artifact_paths(artifacts, "Sbuffer", "v1.0.0")[0]
+    """Table row counts, cell formatting, prose and Mermaid source are not fixed by the template."""
+    design = artifact_paths(artifacts, "Sbuffer")[0]
     design.write_text(
         design.read_text()
         .replace(
@@ -124,51 +142,44 @@ def test_content_remains_flexible_within_template(artifacts, command):
         )
         .replace("#### `P-FORWARD`：组合转发", "#### P-FORWARD：更新后的行为名称")
     )
-    result = validate(artifacts, "Sbuffer", "v1.0.0", "DefaultConfig")
+    result = validate(artifacts, "Sbuffer", "DefaultConfig")
     assert result["ok"], result
-    assert (
-        read_json(artifacts / "evidence/Sbuffer/v1.0.0/diagrams/manifest.json")[
-            "diagram_count"
-        ]
-        == 0
-    )
 
 
-def test_metadata_summary_is_literal_and_history_preserved(artifacts, command):
-    """Free text never enters a shell; existing semantic history is not rewritten."""
-    _, _, history = artifact_paths(artifacts, "Sbuffer", "v1.0.0")
-    history.write_text("\n# History\n\nAn existing introduction.\n")
-    summary = 'check $(touch injected) `touch injected` "quoted"'
-    result = command._run(
-        "metadata", "Sbuffer", version="v1.0.0", change_type="Patch", summary=summary
-    )
+def test_metadata_updates_only_current_documents(artifacts, command):
+    """Repeat metadata synchronization preserves author content without document versions."""
+    design, report = artifact_paths(artifacts, "Sbuffer")
+    before = [path.read_bytes() for path in (design, report)]
+    result = command._run("metadata", "Sbuffer")
     assert result["ok"], result
-    original = history.read_bytes()
-    assert summary in original.decode()
-    assert not (artifacts / "injected").exists()
-    assert command._run("metadata", "Sbuffer", version="v1.0.0")["ok"]
-    assert history.read_bytes() == original
+    assert not (artifacts / "outputs/Sbuffer/VERSION_HISTORY.md").exists()
+    assert [path.read_bytes() for path in (design, report)] == before
+    for path in (design, report):
+        metadata = json.loads(METADATA_RE.findall(path.read_text())[0])
+        assert set(metadata) == {
+            "module", "config", "xiangshan_commit", "rtl_sha256",
+            "generation_status", "template_version", "date",
+        }
 
 
-def test_metadata_failure_does_not_partially_edit(artifacts, command):
-    """Missing history details fail before factual document fields are changed."""
-    paths = artifact_paths(artifacts, "Sbuffer", "v1.0.0")
-    paths[2].write_text("\n# History\n\nNo current version yet.\n")
-    before = [path.read_bytes() for path in paths]
-    assert not command._run("metadata", "Sbuffer", version="v1.0.0")["ok"]
-    assert [path.read_bytes() for path in paths] == before
+def test_metadata_missing_report_preserves_design(artifacts, command):
+    """A missing report must fail before any design metadata is rewritten."""
+    design, report = artifact_paths(artifacts, "Sbuffer")
+    report.unlink()
+    design.write_text(design.read_text().replace('"module": "Sbuffer"', '"module": "wrong"'))
+    before = design.read_bytes()
+    result = command._run("metadata", "Sbuffer")
+    assert not result["ok"], result
+    assert design.read_bytes() == before
 
 
 @pytest.mark.parametrize(
     "args",
     [
         dict(action="clean", module="Sbuffer"),
+        dict(action="render", module="Sbuffer"),
         dict(action="preflight", module="../x"),
         dict(action="preflight", module="Sbuffer", config="$(touch x)"),
-        dict(action="evidence", module="Sbuffer"),
-        dict(
-            action="metadata", module="Sbuffer", version="v1.0.0", change_type="Patch"
-        ),
     ],
 )
 def test_invalid_arguments_do_not_launch(command, monkeypatch, args):
@@ -215,17 +226,17 @@ def test_preflight_requires_a_clean_source(workspace, dirty):
 
 def test_write_policy_and_external_symlinks(command, workspace, tmp_path):
     """Protect explicit read-only descendants and reject writable symlink escapes."""
-    command.un_write_dirs.append("evidence/Sbuffer/v1.0.0/manifest.json")
+    command.un_write_dirs.append("evidence/Sbuffer/manifest.json")
     assert (
-        command._run("evidence", "Sbuffer", version="v1.0.0")["error_code"]
+        command._run("evidence", "Sbuffer")["error_code"]
         == "WRITE_POLICY_DENIED"
     )
     command.un_write_dirs.pop()
-    folder = workspace / "evidence/Sbuffer/v1.0.0"
+    folder = workspace / "evidence/Sbuffer"
     folder.mkdir(parents=True)
     (folder / "manifest.json").symlink_to(tmp_path / "external.json")
     assert (
-        command._run("evidence", "Sbuffer", version="v1.0.0")["error_code"]
+        command._run("evidence", "Sbuffer")["error_code"]
         == "PATH_OUTSIDE_WORKSPACE"
     )
     assert not (tmp_path / "external.json").exists()
@@ -234,26 +245,26 @@ def test_write_policy_and_external_symlinks(command, workspace, tmp_path):
 def test_timeout_and_no_rtl_failure(command, workspace, monkeypatch):
     """Missing compiler output and process-tree timeouts cannot create valid evidence."""
     monkeypatch.setenv("RTL2SPEC_TEST_NO_RTL", "1")
-    result = command._run("evidence", "Sbuffer", version="v1.0.0")
+    result = command._run("evidence", "Sbuffer")
     assert not result["ok"], result
     assert "did not produce Sbuffer.sv" in result["stderr"]
     monkeypatch.delenv("RTL2SPEC_TEST_NO_RTL")
     monkeypatch.setenv("RTL2SPEC_TEST_DELAY", "15")
     command.command_timeout = 2
     assert (
-        command._run("evidence", "Sbuffer", version="v1.0.0")["error_code"]
+        command._run("evidence", "Sbuffer")["error_code"]
         == "COMMAND_TIMEOUT"
     )
-    assert not (workspace / "evidence/Sbuffer/v1.0.0/manifest.json").exists()
+    assert not (workspace / "evidence/Sbuffer/manifest.json").exists()
 
 
 def test_checker_reads_current_state(artifacts):
     """Check and Complete share current validation and never regenerate missing artifacts."""
-    checker = RTL2SpecArtifactsChecker("Sbuffer", "v1.0.0").set_workspace(
+    checker = RTL2SpecArtifactsChecker("Sbuffer").set_workspace(
         str(artifacts)
     )
     assert checker.do_check()[0]
-    (artifacts / "evidence/Sbuffer/v1.0.0/ports.csv").write_text("")
+    (artifacts / "evidence/Sbuffer/ports.csv").write_text("")
     assert not checker.do_check(is_complete=True)[0]
     assert (artifacts / ".cache/compiler-calls").read_text() == "1"
 
@@ -284,12 +295,11 @@ def test_fresh_agent_stages(workspace, command, monkeypatch, enabled):
         [loaded], "rtl2spec:design-document"
     )
     docs, skills = collect_plugin_resources([loaded], selected)
-    monkeypatch.setenv("SPEC_DOCUMENT_VERSION", "v1.0.0")
     monkeypatch.setenv("XIANGSHAN_CONFIG", "TestConfig")
     agent = VerifyAgent(
         workspace=str(workspace),
         dut_name="Sbuffer",
-        output="rendered",
+        output="outputs/Sbuffer" if enabled else "rendered",
         cfg_override=[
             {"backend.key_name": "blank"},
             {"langfuse.enable": False},
@@ -302,6 +312,7 @@ def test_fresh_agent_stages(workspace, command, monkeypatch, enabled):
         plugin_skill_paths=[],
         workflow_config_file=str(selected[1].config_file),
         plugin_workflow="rtl2spec:design-document",
+        template_context_factory=selected[1].template_context_factory,
     )
     try:
         assert skills == []
@@ -322,26 +333,26 @@ def test_fresh_agent_stages(workspace, command, monkeypatch, enabled):
             if index == 0:
                 assert not stage.do_check(is_complete=True)[0]
                 result = command._run(
-                    "evidence", "Sbuffer", config="TestConfig", version="v1.0.0"
+                    "evidence", "Sbuffer", config="TestConfig"
                 )
                 assert result["ok"], result
             elif index == 1:
                 assert any(name.endswith("ports.csv") for name in stage.reference_files)
-                for path in artifact_paths(workspace, "Sbuffer", "v1.0.0"):
+                for path in artifact_paths(workspace, "Sbuffer"):
                     path.parent.mkdir(parents=True, exist_ok=True)
                     path.touch()
                 assert not stage.do_check(is_complete=True)[0]
                 draft(workspace)
                 assert command._run(
-                    "metadata", "Sbuffer", config="TestConfig", version="v1.0.0"
+                    "metadata", "Sbuffer", config="TestConfig"
                 )["ok"]
             else:
                 assert any(
-                    name.endswith("_v1.0.0.md") for name in stage.reference_files
+                    name.endswith("Sbuffer_design_document_zh.md")
+                    for name in stage.reference_files
                 )
-                assert not stage.do_check(is_complete=True)[0]
                 assert command._run(
-                    "render", "Sbuffer", config="TestConfig", version="v1.0.0"
+                    "lint", "Sbuffer", config="TestConfig"
                 )["ok"]
             passed, result = stage.do_check(is_complete=True)
             assert passed, result
@@ -358,9 +369,9 @@ def test_fresh_agent_stages(workspace, command, monkeypatch, enabled):
 def test_partial_generation_is_explicit(command, workspace, monkeypatch):
     """A target RTL file produced before downstream failure is accepted with a warning."""
     monkeypatch.setenv("RTL2SPEC_TEST_RC", "7")
-    result = command._run("evidence", "Sbuffer", version="v1.0.0")
+    result = command._run("evidence", "Sbuffer")
     assert result["ok"], result
-    result = validate(workspace, "Sbuffer", "v1.0.0", "DefaultConfig", "evidence")
+    result = validate(workspace, "Sbuffer", "DefaultConfig", "evidence")
     assert result["ok"] and any("partial" in message for message in result["warnings"])
 
 
@@ -369,7 +380,7 @@ def test_cached_rtl_is_not_required_for_check(artifacts):
     import shutil
 
     shutil.rmtree(artifacts / ".cache/rtl")
-    assert validate(artifacts, "Sbuffer", "v1.0.0", "DefaultConfig")["ok"]
+    assert validate(artifacts, "Sbuffer", "DefaultConfig")["ok"]
 
 
 @pytest.mark.parametrize(
@@ -402,19 +413,16 @@ def test_markdown_fences_are_checked_without_fixed_layout():
         mermaid_sources("```mermaid\nflowchart LR\n")
 
 
-@pytest.mark.parametrize(
-    "version,config", [("v1.0.0", "DefaultConfig"), ("v3.1.2", "TestConfig")]
-)
-def test_resolved_workflow_parameters(monkeypatch, version, config):
-    """All stage gates consume the selected config/version and disable generic templates."""
+@pytest.mark.parametrize("config", ["DefaultConfig", "TestConfig"])
+def test_resolved_workflow_parameters(monkeypatch, config):
+    """The workflow resolves configuration without a document version field."""
     from rtl2spec.plugin import get_plugin
     from ucagent.util.config import load_yaml_with_env_vars
 
-    monkeypatch.setenv("SPEC_DOCUMENT_VERSION", version)
     monkeypatch.setenv("XIANGSHAN_CONFIG", config)
     cfg = load_yaml_with_env_vars(str(get_plugin().workflows[0].config_file))
     assert cfg["template"] is None
-    assert cfg["template_overwrite"] == {"VERSION": version, "XS_CONFIG": config}
+    assert cfg["template_overwrite"] == {"XS_CONFIG": config}
     for stage in cfg["stage"]:
         assert stage["checker"][0]["args"]["config"] == "{XS_CONFIG}"
 
@@ -424,13 +432,14 @@ def test_cached_status_cannot_be_upgraded_by_editing_logs(
 ):
     """Unsigned ancillary cache files cannot turn partial generation into success."""
     monkeypatch.setenv("RTL2SPEC_TEST_RC", "7")
-    assert command._run("evidence", "Sbuffer", version="v1.0.0")["ok"]
+    assert command._run("evidence", "Sbuffer")["ok"]
     folder = next((workspace / ".cache/rtl").iterdir())
     (folder / "generation.exit-code").write_text("0\n")
     (folder / "tool_versions.json").write_text('{"java": "fabricated"}')
-    result = command._run("evidence", "Sbuffer", version="v1.0.1")
+    (workspace / "evidence/Sbuffer").rename(workspace / "archived-evidence")
+    result = command._run("evidence", "Sbuffer")
     assert result["ok"], result
-    manifest = read_json(workspace / "evidence/Sbuffer/v1.0.1/manifest.json")
+    manifest = read_json(workspace / "evidence/Sbuffer/manifest.json")
     assert manifest["generation_status"] == "partial"
     assert manifest["tool_versions"]["java"] != "fabricated"
     assert (workspace / ".cache/compiler-calls").read_text() == "1"
@@ -440,7 +449,7 @@ def test_cached_status_cannot_be_upgraded_by_editing_logs(
 @pytest.mark.parametrize("defect", ["heading", "table"])
 def test_stage_gates_template_structure(artifacts, phase, defect):
     """Real stage Check/Complete rejects structure errors even when evidence and metadata match."""
-    path = artifact_paths(artifacts, "Sbuffer", "v1.0.0")[0]
+    path = artifact_paths(artifacts, "Sbuffer")[0]
     text = path.read_text(encoding="utf-8")
     if defect == "heading":
         text = text.replace("### 文档摘要", "### 自定义标题")
@@ -450,10 +459,10 @@ def test_stage_gates_template_structure(artifacts, phase, defect):
         )
     path.write_text(text, encoding="utf-8")
     checker = RTL2SpecArtifactsChecker(
-        "Sbuffer", "v1.0.0", phase=phase
+        "Sbuffer", phase=phase
     ).set_workspace(str(artifacts))
     for complete in (False, True):
         passed, result = checker.do_check(is_complete=complete)
         assert not passed, result
-        assert result["artifact"].endswith("_design_document_zh_v1.0.0.md")
+        assert result["artifact"].endswith("_design_document_zh.md")
         assert "Guide_Doc/chip_design_document_template_zh.md" in result["next_action"]

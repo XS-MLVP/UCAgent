@@ -12,75 +12,22 @@ Resolve all paths from the active workspace root:
 | Template | `Guide_Doc/chip_design_document_template_zh.md` |
 | XiangShan source | `third_party/XiangShan/` |
 | Optional module specs | `inputs/<Module>/` |
-| Versioned design document | `outputs/<Module>/<Module>_design_document_zh_v<MAJOR.MINOR.PATCH>.md` |
-| Versioned quality report | `reports/<Module>/<Module>_document_quality_review_v<MAJOR.MINOR.PATCH>.md` |
-| Version history | `outputs/<Module>/VERSION_HISTORY.md` |
-| Versioned RTL evidence | `evidence/<Module>/<version>/manifest.json`, `ports.csv`, and `<Module>.sv` |
+| Design document | `outputs/<Module>/<Module>_design_document_zh.md` |
+| Quality report | `reports/<Module>/<Module>_document_quality_review.md` |
+| RTL evidence | `evidence/<Module>/manifest.json`, `ports.csv`, and `<Module>.sv` |
 | Generation and validation | `RTL2SpecCommand`, `Check`, `Complete` |
 
 Read optional module inputs without modifying them. Create the module-specific output and report directories when needed. Use the artifact paths above. Do not modify XiangShan source merely to make documentation generation easier.
 
 Module inputs and generated artifacts under `inputs/`, `outputs/`, `reports/<Module>/`, and `evidence/` are workspace assets. Generate and validate them normally, but do not stage or commit them to the tool repository.
 
-## Document Versioning
+## Output Lifecycle
 
-Every generated design document and its quality report must have one shared semantic document version. Use the filenames above and the design document's metadata section in Guide_Doc/chip_design_document_template_zh.md. The quality report's layout is flexible.
+RTL2Spec generates one current document, one quality report, and one evidence set in the paths above. Mermaid diagrams remain as source fences inside the design document; no image files are generated. At startup, the selected UCAgent output directory and `outputs/<Module>/`, `reports/<Module>/`, and `evidence/<Module>/` must be absent or empty. Existing content, including unfinished drafts, stops startup. The `preflight` and `evidence` actions also check the three module directories before generation. Once this run has produced evidence, continue drafting, metadata synchronization, and validation; do not restart generation over its output.
 
-The template has its own visible `模板结构版本`. Record that value in the generated document as `使用模板版本`. A backward-incompatible template structure change is evidence for a document MAJOR increment; do not infer this from the template modification date alone.
+When the check reports existing output, stop. Ask the user to package or otherwise archive the old document, quality report, and evidence, clear the directories named in the diagnostic, and restart from the first stage. Do not delete or rewrite those files automatically. A new run records the current template structure version, XiangShan commit, configuration, RTL hash, tool versions, and generation date in its metadata; those facts identify the generated artifact.
 
-New documents must use the exact current template version provided in Guide_Doc/chip_design_document_template_zh.md.
-
-Use `vMAJOR.MINOR.PATCH`, for example `v1.2.3`. This is the documentation version, not the XiangShan RTL version. Record the XiangShan commit and configuration separately.
-
-### Version Selection
-
-Before drafting, inspect:
-
-- `outputs/<Module>/VERSION_HISTORY.md` when present.
-- All versioned design documents under `outputs/<Module>/`.
-- All versioned quality reports under `reports/<Module>/`.
-
-The workflow fixes the version at startup. Use the following guidance to review that choice; if it is unsuitable, restart with a suitable version instead of changing filenames mid-task:
-
-| Increment | Use when |
-| --- | --- |
-| `MAJOR` | The DUT scope or identity changes incompatibly, or a template/schema change makes the document structure incompatible with prior versions. |
-| `MINOR` | Behavior coverage changes: interfaces, parameters, states, FG/FC/CK, scenarios, or supported configurations are added, removed, or semantically changed; a new RTL baseline changes documented behavior. |
-| `PATCH` | Facts, evidence, line references, wording, diagrams, OPEN closure, formatting, or quality findings change without changing the documented behavioral contract. Also use PATCH for an intentional regeneration with no semantic change. |
-
-Rules:
-
-- The first versioned document for a module is `v1.0.0`, unless the user has selected another valid initial version.
-- Use a new version greater than the archived versions and record the reason. Resume an unfinished task with its existing version; never replace archived documents, reports, or evidence.
-- The design document and quality report must use the same version.
-- After evidence and the draft artifacts exist, call `RTL2SpecCommand(action="metadata", module="<Module>", config="<Config>", version="<version>")` to synchronize template version, commit, configuration, RTL hash/status, and date. This command must preserve an existing VERSION_HISTORY row rather than replacing its semantic change summary.
-- Compare against the immediately preceding version and summarize actual differences. Do not infer a change category only from timestamps.
-- A newer XiangShan commit does not automatically require MAJOR. Classify by the resulting document contract, normally MINOR for behavioral change and PATCH for evidence-only change.
-
-### Visible Version Metadata
-
-Include these facts in the design document's appendix A and in the quality report:
-
-| Field | Required value |
-| --- | --- |
-| 文档版本 | `vMAJOR.MINOR.PATCH` |
-| 使用模板版本 | Exact `模板结构版本` read from the template |
-| 前一版本 | Previous version and relative link, or `None（首次版本）` |
-| 版本变更类型 | `Major / Minor / Patch` plus a short reason |
-| XiangShan RTL 基线 | Full XiangShan commit, not an abbreviated hash |
-| 适用配置 | Exact selected configuration and feature switches |
-| 生成日期 | ISO `YYYY-MM-DD` |
-
-For example, show the version below the title: `> 文档版本：vMAJOR.MINOR.PATCH`.
-
-The quality report must state its own version, the reviewed design-document version/path, the previous version/path, and a version-to-version change summary grouped as added, changed, fixed, removed, and remaining OPEN items.
-
-Maintain one entry per version in `outputs/<Module>/VERSION_HISTORY.md`, including these facts:
-
-| 版本 | 日期 | XiangShan commit | 配置 | 变更类型 | 摘要 | 设计文档 | 质量报告 |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-
-Use relative links from `VERSION_HISTORY.md`. Keep one entry per version; a list is also acceptable. Never rewrite an older row except to repair a broken path or an objectively incorrect metadata value, and record such a repair in the new quality report.
+The template has its own visible `模板结构版本`. Record that value in the generated document as `使用模板版本`. Use the current template structure and preserve its identifier in the metadata.
 
 ## Required Inputs
 
@@ -242,14 +189,14 @@ If preflight fails, resolve missing Java 17, Git, Curl, Make, C compiler, Python
 
 ### 1. Establish the Baseline
 
-- Determine the next document version before writing and identify the immediately preceding version used for comparison.
+- Confirm that `outputs/<Module>/`, `reports/<Module>/`, and `evidence/<Module>/` contain no prior RTL2Spec artifacts before writing.
 - Record the full XiangShan commit from preflight and the matching RTL manifest.
 - Use a clean XiangShan checkout with all nested submodules at their recorded commits. If preflight reports source changes, stop and have the source owner prepare the intended clean baseline before retrying.
 - Identify the selected XiangShan configuration and all feature switches affecting the DUT.
 - Read the full template before drafting.
 - Read every Markdown file under `inputs/<Module>/` if the directory exists.
 
-Do not reuse FACT or OPEN conclusions from an older output without rechecking them against the current baseline. Build a concrete change list against the previous version while reviewing evidence.
+Do not use files from an older run as current evidence. If an older run is present, stop and ask the user to archive it and clear the three module directories before continuing.
 
 ### 2. Discover the Complete Source Boundary
 
@@ -300,15 +247,15 @@ Never derive a Verilog name solely from a Chisel path. Firtool naming, flattenin
 - Mark I/O signoff blocked.
 - Do not use examples such as `io_enq_0_valid` as if they were facts.
 
-Prefer versioned evidence or a matching cache. Generate missing RTL only through:
+Prefer the current evidence or a matching signed cache. Generate missing RTL only through:
 
 ```text
-RTL2SpecCommand(action="evidence", module="<Module>", config="<Config>", version="<version>")
+RTL2SpecCommand(action="evidence", module="<Module>", config="<Config>")
 ```
 
-The command writes persistent `manifest.json`, `ports.csv`, and module RTL under `evidence/<Module>/<version>/`. If generation fails, record its diagnostics and resolve the named input or environment issue before retrying. Do not modify the generator or validators to bypass a failure.
+The command writes persistent `manifest.json`, `ports.csv`, and module RTL under `evidence/<Module>/`. If generation fails, record its diagnostics and resolve the named input or environment issue before retrying. Do not modify the generator or validators to bypass a failure.
 
-Do not replace existing version evidence. Inspect existing evidence when resuming the current unfinished task; select a new version for a new generation task.
+The command refuses to start when any content remains under the three module directories. Ask the user to archive those artifacts and clear the directories before retrying; the command never deletes them automatically.
 
 A nonzero full-top exit may still leave a complete split module RTL. Accept it only when the selected module file parses successfully, the manifest marks `generation_status: partial`, the failure occurred after RTL emission, and the quality report explains the downstream failure. Never call the full top generation successful in that case.
 
@@ -352,13 +299,7 @@ Keep the state diagram with its state-semantics explanation. Add a sequence diag
 
 Mermaid source must avoid parser-sensitive text in identifiers and edge labels. In particular, do not put `[i]`, `[x]`, wildcard `*`, semicolons, or subgraph IDs used as edge endpoints inside diagrams. Use logical or human-readable labels such as `enqueue requests 0 and 1`; keep exact Chisel/Verilog patterns in appendix B.
 
-After writing or changing any Mermaid fence, render every diagram through the pinned workflow:
-
-```text
-RTL2SpecCommand(action="render", module="<Module>", config="<Config>", version="<version>")
-```
-
-This creates `evidence/<Module>/<version>/diagrams/manifest.json` and one SVG per Mermaid fence; no diagrams produces an empty manifest. A balanced fence or Mermaid-looking source is not sufficient. Never report diagrams as passed when a real renderer was unavailable.
+After writing or changing a Mermaid fence, keep the complete Mermaid source in the Markdown document. `validate` and `lint` parse Markdown fences and reject unclosed fences; they do not require Node.js, Mermaid CLI, a browser, SVG files, or a diagram manifest. Displaying the Mermaid source is the responsibility of the Markdown viewer used by the reader.
 
 ### 8. Define FG, FC, CK, and Coverage
 
@@ -395,25 +336,21 @@ Each case includes a goal, actors, preconditions, ordered actor actions, related
 
 ### 10. Synchronize Artifact Metadata
 
-After drafting the design document, report, and history with verified RTL evidence, run:
+After drafting the design document and quality report with verified RTL evidence, run:
 
 ```text
-RTL2SpecCommand(action="metadata", module="<Module>", config="<Config>", version="<version>")
+RTL2SpecCommand(action="metadata", module="<Module>", config="<Config>")
 ```
 
-The metadata helper is authoritative for generated values only: template version, XiangShan commit, selected configuration, RTL generation status, RTL SHA-256, and generation date. It adds a `rtl2spec` metadata comment and updates recognized visible metadata cells when present. Review port counts and diagram summaries against their manifests yourself. It must not rewrite behavioral prose, OPEN conclusions, version-change summaries, or an existing history row. Review its diff before validation.
-
-When the version has no history row yet, also provide `change_type="Major"`, `"Minor"`, or `"Patch"` and `summary="..."` in the metadata call. The helper refuses to invent those semantic fields. On reruns it preserves the existing history row unchanged.
+The metadata helper is authoritative for generated values only: template version, XiangShan commit, selected configuration, RTL generation status, RTL SHA-256, and generation date. It adds a `rtl2spec` metadata comment and updates recognized visible metadata cells when present. Review port counts against the evidence manifest yourself. It must not rewrite behavioral prose or OPEN conclusions. Review its diff before validation.
 
 ### 11. Produce the Quality Report
 
-Create `reports/<Module>/<Module>_document_quality_review_v<MAJOR.MINOR.PATCH>.md` in the same run. Report:
+Create `reports/<Module>/<Module>_document_quality_review.md` in the same run. Report:
 
-- Document version, previous version, selected increment, and why that increment is correct.
-- Added, changed, fixed, removed, and still-open differences from the immediately preceding version.
 - Baseline commit, configuration, source files, generated RTL artifact, and optional specs used.
 - Host OS/architecture, preflight result, Java/Mill/firtool/Espresso versions, generation status, RTL hash, evidence manifest, and port counts.
-- Mermaid CLI/browser versions, actual render result, diagram count, rendered SVG evidence, and any parser/render failure fixed during the run.
+- Mermaid source-fence count, Markdown parser result, and any malformed-fence issue fixed during the run.
 - What spec claims were confirmed, corrected, rejected, or left OPEN.
 - I/O mapping completeness, including counts of mapped and open leaf ports.
 - Parameter source completeness.
@@ -444,11 +381,11 @@ Do not award a perfect score when exact Verilog I/O, source locations, Markdown 
 Before completion, run:
 
 ```text
-RTL2SpecCommand(action="validate", module="<Module>", config="<Config>", version="<version>")
+RTL2SpecCommand(action="validate", module="<Module>", config="<Config>")
 Check()
 ```
 
-Automated checks reject missing/empty artifacts, heading-title/level/order or per-section table-count mismatches, a stale template version, evidence that does not match current source/configuration/actual RTL, changed port data, undefined or duplicate machine tags, broken local file/line references, contradictory declared port widths/directions or signoff states, and stale/missing diagram renders. Check does not run generation, render diagrams again, or rewrite artifacts.
+Automated checks reject missing/empty artifacts, heading-title/level/order or per-section table-count mismatches, a stale template version, evidence that does not match current source/configuration/actual RTL, changed port data, undefined or duplicate machine tags, broken local file/line references, contradictory declared port widths/directions or signoff states, and unclosed Markdown fences. Check does not run generation, compile Mermaid, or rewrite artifacts.
 
 Warnings identify potentially incomplete interface mapping, missing traceability categories, and remaining writing placeholders. Review each warning and either improve the document or explain the scope/applicability in the quality report. Warnings do not block Complete by themselves.
 
@@ -456,4 +393,4 @@ Review design meaning yourself: producers and consumers, common mechanisms versu
 
 ## Completion Standard
 
-The task is complete only when the local versioned design document, same-version quality report, updated `VERSION_HISTORY.md`, versioned RTL evidence, current diagram manifest (and SVGs when diagrams exist), and checker/lint results are written. These module artifacts are not committed to the tool repository. Exact Verilog I/O and actual diagram rendering remain hard evidence requirements. When elaboration or rendering is unavailable, the document status must remain Draft and the corresponding signoff must remain blocked.
+The task is complete only when the local design document containing Mermaid source, quality report, RTL evidence, and checker/lint results are written. These module artifacts are not committed to the tool repository. Exact Verilog I/O and valid Markdown source remain hard evidence requirements. The Markdown viewer displays Mermaid source; this is not a generation or signoff prerequisite.

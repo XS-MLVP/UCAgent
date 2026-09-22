@@ -1,12 +1,10 @@
 
 # [DUT] 设计与功能检测点文档
 
-<!-- MAINTAINER: 模板结构版本描述字段和章节协议，不是 DUT 文档版本。注释/措辞增强递增 PATCH；新增兼容字段递增 MINOR；破坏解析器或章节协议递增 MAJOR。 -->
+<!-- MAINTAINER: 模板结构版本描述字段和章节协议。注释/措辞增强递增 PATCH；新增兼容字段递增 MINOR；破坏解析器或章节协议递增 MAJOR。 -->
 > 结构要求：固定标题、标题层级、章节顺序和各节表格数量必须与本模板一致。方括号标题填写实际值；P-* 小节至少一项并可重复，其他 CASE-* 小节可按需增加。不适用小节保留标题并说明理由；表格行数、正文篇幅和图形数量按实际需要填写。metadata 操作只同步事实元数据，不调整结构。
 
 > 模板结构版本：v4.0.0
->
-> 文档版本：[vMAJOR.MINOR.PATCH]
 >
 > 本文分为正文、验证计划和附录。正文用于连续理解设计，验证计划用于安排检查，附录用于审计和签核。FG、FC、CK 标签必须使用反引号包裹，例如 `` `<FG-API>` ``。无法证实的内容登记为 `OPEN-*`。
 
@@ -45,7 +43,7 @@
 
 **验证范围**
 
-[说明本版本验证哪些功能、边界与恢复路径，以及明确不覆盖的内容。]
+[说明本次验证哪些功能、边界与恢复路径，以及明确不覆盖的内容。]
 
 **开放项**
 
@@ -110,7 +108,7 @@ flowchart LR
 
 > 按数据路径顺序组织。每节先定义模块级统一机制，再引用实例能力矩阵说明适用范围。每节只回答：做什么、输入是什么、输出是什么、延迟多少、边界是什么。
 
-<!-- GENERATOR: 为每项独立行为复制以下 P-* 小节，并删除本示例。P-* 标题是该行为唯一权威定义位置；ID 在同一 DUT 的后续版本中保持稳定。规则优先用公式或伪代码表达，正文证据只引用已在附录 D 定义的 [E-*]。 -->
+<!-- GENERATOR: 为每项独立行为复制以下 P-* 小节，并删除本示例。P-* 标题是该行为唯一权威定义位置；ID 在整篇文档中保持一致。规则优先用公式或伪代码表达，正文证据只引用已在附录 D 定义的 [E-*]。 -->
 
 <!-- STRUCTURE: repeat min=1 -->
 
@@ -338,7 +336,7 @@ cover property (@(posedge clock) disable iff (reset) boundary_precondition ##1 b
 
 ### 签核与开放项
 
-<!-- GENERATOR: 本节只给决策所需的当前状态。详细证据和历史放附录；只有 evidence、checker、属性编译和对应回归真实通过后才能关闭相应项。 -->
+<!-- GENERATOR: 本节只给决策所需的当前状态。详细证据放附录；只有 evidence、checker、属性编译和对应回归真实通过后才能关闭相应项。 -->
 **当前状态**：[Draft / Review / Frozen。]
 
 **规格偏差**：[列出 spec 与实现差异的 `OPEN-*`，不在此重述证据。]
@@ -351,13 +349,10 @@ cover property (@(posedge clock) disable iff (reset) boundary_precondition ##1 b
 
 ### 附录 A：文档控制与范围裁定
 
-<!-- GENERATOR: commit、配置、工具版本、RTL evidence 和图形 evidence 必须来自同一生成版本。条件项不可静默删除，必须写“已应用”或“不适用”及理由。 -->
+<!-- GENERATOR: commit、配置、工具版本、RTL evidence 和图形 evidence 必须来自同一轮生成。条件项不可静默删除，必须写“已应用”或“不适用”及理由。 -->
 | 项目 | 内容 |
 | --- | --- |
-| 文档版本 | [vMAJOR.MINOR.PATCH] |
 | 使用模板版本 | v4.0.0 |
-| 前一版本 | [版本及相对链接 / None（首次版本）] |
-| 版本变更类型 | [Major / Minor / Patch：原因] |
 | DUT / Chisel 顶层 | [名称] / [E-TOP-01] |
 | Elaborated Verilog 顶层 | [module 名] / [E-RTL-01] |
 | 文档状态 | Draft / Review / Frozen |
@@ -365,8 +360,8 @@ cover property (@(posedge clock) disable iff (reset) boundary_precondition ##1 b
 | 适用配置 | [参数集、特性开关] |
 | 生成环境 | [OS / architecture / Java / Mill / firtool / Espresso] |
 | RTL 生成状态 | [Success / Partial / Failed；exit code 与原因] |
-| RTL 证据 | [`evidence/<Module>/<version>/manifest.json`；RTL SHA-256；端口数量] |
-| 图形渲染证据 | [`evidence/<Module>/<version>/diagrams/manifest.json`；Mermaid CLI 版本；图数量] |
+| RTL 证据 | [`evidence/<Module>/manifest.json`；RTL SHA-256；端口数量] |
+| Mermaid 图形源码 | [正文 Mermaid 代码块数量；由 Markdown 查看器显示] |
 | 作者 / 评审人 | [团队 / 角色] |
 | 生成日期 | [YYYY-MM-DD] |
 
@@ -384,7 +379,7 @@ cover property (@(posedge clock) disable iff (reset) boundary_precondition ##1 b
 
 ### 附录 B：逻辑接口与 RTL 映射
 
-<!-- GENERATOR: Generated 端口必须存在于同版本 ports.csv；Elided 必须保留 Chisel 定义并说明裁剪依据；无 matching elaboration 时填写 OPEN-IO-*，禁止按命名惯例猜测。规则数组必须注明实际索引范围。 -->
+<!-- GENERATOR: Generated 端口必须存在于本次 evidence 的 ports.csv；Elided 必须保留 Chisel 定义并说明裁剪依据；无 matching elaboration 时填写 OPEN-IO-*，禁止按命名惯例猜测。规则数组必须注明实际索引范围。 -->
 > 本附录是逻辑名、Chisel 字段和精确 elaborated Verilog 端口的唯一映射位置。
 
 | IO-ID | 正文逻辑名 | Bundle class / Chisel 字段 | 定义位置 | 方向 / 位宽 | 配置状态 | 精确 Verilog I/O | 协议 / 对端 | 证据 |
@@ -458,6 +453,6 @@ cover property (@(posedge clock) disable iff (reset) boundary_precondition ##1 b
 - [ ] Test Plan 是验证执行入口；FC/CK 完整登记集中在附录 F。
 - [ ] API 只包含 Assume，Coverage 只包含 Cover。
 - [ ] Chisel 与 elaborated Verilog 端口逐项核对，配置裁剪有依据。
-- [ ] Mermaid 图已实际渲染并保存 SVG 与 source hash。
+- [ ] Mermaid 图源码完整、围栏闭合，并可由目标 Markdown 查看器展示。
 - [ ] 正常、资源边界和恢复场景有可判定验收标准。
 - [ ] UCAgent checker、属性编译与回归通过后才关闭对应项。
