@@ -59,7 +59,7 @@ For other Code Agents, please refer to their documentation, e.g., [claude code](
 ```bash
 export OPENAI_MODEL=<model_name>              # e.g., glm-5.3-flash
 export OPENAI_API_KEY=<your_key>              # API key
-export OPENAI_API_BASE=<base_url>             # e.g., Zhipu's https://open.bigmodel.cn/api/coding/paas/v4
+export OPENAI_API_BASE=<base_url>             # e.g., http://my_base_url/v1
 export OPENAI_CONTEXT_SIZE=<max_context_size> # optional, e.g., 819200 (800k context)
 export OPENAI_OUTPUT_SIZE=<max_output_size>   # optional, e.g., 131072 (128k max output)
 ```

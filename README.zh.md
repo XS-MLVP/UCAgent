@@ -59,7 +59,7 @@ pip3 install -r requirements.txt
 ```bash
 export OPENAI_MODEL=<model_name>              # 例如 glm-5.3-flash
 export OPENAI_API_KEY=<your_key>              # API key
-export OPENAI_API_BASE=<base_url>             # 例如智谱的 https://open.bigmodel.cn/api/coding/paas/v4
+export OPENAI_API_BASE=<base_url>             # 类似 http://my_base_url/v1
 export OPENAI_CONTEXT_SIZE=<max_context_size> # 可选，例如 819200 （800k上下文）
 export OPENAI_OUTPUT_SIZE=<max_output_size>   # 可选，例如 131072 （128k最大输出）
 ```
