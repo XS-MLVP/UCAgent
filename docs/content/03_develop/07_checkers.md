@@ -220,6 +220,7 @@ def do_check(self, timeout=0, **kwargs) -> tuple[bool, object]:
 - 诊断至少包含稳定的 `error_code`、具体 `error` 和可直接执行的 `next_action`
 - 如果 Checker 无法确定修复方法，不要制造宽泛诊断；在普通返回中保留完整 `error`、`details`、`STDOUT` 和 `STDERR`，Check/Complete 会原样显示
 - 调用方可用 `stage_args={"full_output": true}` 在存在结构化诊断时同时取得完整原始返回；该保留字段不会传入 Checker
+- 调用方还可用 `stage_args={"timeout": <秒>}` 授予本次 Check/Complete 调用预算；它与工具顶层 `timeout` 参数等价，二者取较大值生效，同样在分发前消费、不会传入 Checker
 
 #### 3. 路径处理
 

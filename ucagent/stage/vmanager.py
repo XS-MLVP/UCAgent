@@ -26,7 +26,11 @@ from ucagent.stage.llm_suggestion.base_suggestion import get_llm_check_instance
 from ucagent.tools.skill import _list_skills, list_skills_in_format
 
 
-_INTERNAL_STAGE_ARG_NAMES = frozenset({"timeout", "is_complete"})
+# Fields the manager injects itself and stage_args must not override.  The
+# control fields ``timeout`` and ``full_output`` are different: an LLM may
+# grant them inside stage_args, and the manager consumes both before
+# dispatching the remaining stage-defined arguments to Checkers.
+_INTERNAL_STAGE_ARG_NAMES = frozenset({"is_complete"})
 
 
 class ManagerTool(UCTool):
@@ -304,17 +308,35 @@ def _prepare_stage_args(stage_args):
             "stage_args must be a JSON object or a string containing one"
         )
     if _INTERNAL_STAGE_ARG_NAMES.intersection(stage_args):
-        raise ValueError("stage_args contains fields reserved for internal dispatch")
+        raise ValueError(
+            "stage_args contains fields reserved for internal dispatch "
+            f"({', '.join(sorted(_INTERNAL_STAGE_ARG_NAMES.intersection(stage_args)))}); "
+            "is_complete is set automatically by Complete and must be removed"
+        )
     if "full_output" in stage_args and not isinstance(stage_args["full_output"], bool):
         raise TypeError("stage_args.full_output must be a boolean")
+    timeout = stage_args.get("timeout")
+    if timeout is not None and (
+        isinstance(timeout, bool) or not isinstance(timeout, int) or timeout < 0
+    ):
+        raise TypeError(
+            "stage_args.timeout must be a non-negative integer number of seconds"
+        )
     return dict(stage_args)
 
 
 def _split_stage_control_args(stage_args):
-    """Remove manager-owned controls before dispatching stage-defined arguments."""
+    """Remove manager-owned controls before dispatching stage-defined arguments.
+
+    A ``timeout`` field inside stage_args grants the same Check/Complete
+    call-time budget as the tool-level timeout parameter, so it is consumed
+    here instead of reaching Checker dispatch.
+    """
+
     prepared = _prepare_stage_args(stage_args)
     full_output = prepared.pop("full_output", False)
-    return prepared, full_output
+    timeout = prepared.pop("timeout", 0)
+    return prepared, full_output, timeout
 
 
 class ArgsDoCheck(BaseModel):
@@ -334,7 +356,9 @@ class ArgsDoCheck(BaseModel):
     timeout: int = Field(
         default=0,
         description=(
-            "Timeout for Check/Complete tools. Zero means use default cfg.call_time_out."
+            "Timeout in seconds for this Check/Complete call. Zero means use "
+            "default cfg.call_time_out. The same budget may also be granted "
+            "as a timeout field inside stage_args; the larger value wins."
         )
     )
     stage_args: Union[Dict[str, Any], str] = Field(
@@ -343,9 +367,11 @@ class ArgsDoCheck(BaseModel):
             "Current-stage custom arguments as a JSON object. Its keys and value shapes "
             "are defined by the current stage task and checker diagnostics. Prefer the "
             "object itself; if the caller cannot serialize a nested object correctly, pass "
-            "a string containing the complete valid JSON object as a fallback. Set the "
-            "reserved boolean field full_output=true only when complete raw Checker output "
-            "such as pytest STDOUT/STDERR is needed; it is consumed before Checker dispatch."
+            "a string containing the complete valid JSON object as a fallback. Two "
+            "control fields are consumed before Checker dispatch and never reach the "
+            "stage: the boolean full_output=true returns complete raw Checker output "
+            "such as pytest STDOUT/STDERR, and timeout grants this call the same "
+            "call-time budget as the top-level timeout parameter."
         ),
     )
 
@@ -1306,7 +1332,11 @@ class StageManager(object):
                 "check_info": f"Stage index{self.stage_index} out of range. (Mission maybe completed, you can use the `GoToStage` tool to go back to a previous stage if needed)",
             })
         stage = self.stages[self.stage_index]
-        stage_args, full_output = _split_stage_control_args(stage_args)
+        stage_args, full_output, args_timeout = _split_stage_control_args(stage_args)
+        # Never truncate a caller-granted budget: the larger of the
+        # tool-level and stage_args timeouts governs this Check run.
+        if args_timeout > timeout:
+            timeout = args_timeout
         ignored_stage_args = self._ignored_stage_args_keys(stage, stage_args)
         ck_pass, ck_info = stage.do_check(
             timeout=timeout,
@@ -1621,7 +1651,11 @@ class StageManager(object):
                             "Or you can use the `Exit` tool to exit the mission."),
                 "last_check_result": self.last_check_info,
             })
-        stage_args, full_output = _split_stage_control_args(stage_args)
+        stage_args, full_output, args_timeout = _split_stage_control_args(stage_args)
+        # Never truncate a caller-granted budget: the larger of the
+        # tool-level and stage_args timeouts governs this Complete run.
+        if args_timeout > timeout:
+            timeout = args_timeout
         stage = self.stages[self.stage_index]
         ignored_stage_args = self._ignored_stage_args_keys(stage, stage_args)
         ck_pass, ck_info = stage.do_check(
