@@ -48,7 +48,14 @@ design_with_ppa:
     language_options: {}
     python_dut:
       interface: "automatic"
-      options: {}
+      options:
+        # Verilator argument tokens forwarded through the RTL validation
+        # dependency's simulator passthrough (-V) during the managed
+        # Python-DUT build.  The default uses verilator's statement-count
+        # splitter so each generated C++ file stays small and the build
+        # compiles the split files in parallel; an explicitly configured
+        # list replaces it wholesale.
+        verilator_args: ["--output-split", "2000"]
   ppa:
     waveform_scope: "TOP.{DUT}"
     liberty_file: null

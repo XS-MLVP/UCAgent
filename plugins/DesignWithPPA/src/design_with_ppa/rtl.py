@@ -26,6 +26,19 @@ CHISEL_SCALA_VERSION = "2.13.18"
 CHISEL_MILL_VERSION = "0.4.2"
 CHISEL_MINIMUM_JAVA_VERSION = 17
 
+# Arguments forwarded through picker's ``--vflag`` to verilator for every
+# Python-DUT build.  ``--output-split`` is verilator's generated-C++ file
+# splitter (statement-count based; there is no line-count variant), so the
+# default 2000 keeps every translation unit small enough to compile in
+# parallel instead of one oversized module dominating the managed build.
+PICKER_VERILATOR_ARGS_DEFAULT: tuple[str, ...] = ("--output-split", "2000")
+
+# One verilator argument token: flags, values, and paths only.  Whitespace,
+# quotes, and shell/Makefile metacharacters are rejected because the
+# passthrough value is re-split and re-expanded by picker's launcher and
+# generated build files.
+_VERILATOR_ARG_TOKEN_RE = re.compile(r"[A-Za-z0-9_+.=,:/-]+")
+
 
 class RTLLanguageError(ValueError):
     """Report an invalid or unavailable RTL-language integration contract."""
@@ -168,13 +181,34 @@ class RTLLanguageBackend(ABC):
     def normalize_python_dut_options(
         self, options: Mapping[str, Any]
     ) -> Mapping[str, Any]:
-        """Validate public Python-DUT conversion options for this language."""
+        """Validate public Python-DUT conversion options for this language.
 
-        if options:
+        ``verilator_args`` is the complete list of verilator argument tokens
+        the managed picker export forwards through ``--vflag``.  An absent
+        key selects the canonical output-split default; every configured
+        entry must be one metacharacter-free token because the value is
+        re-split by a shell-based launcher and expanded inside the
+        generated build files.
+        """
+
+        unknown = sorted(set(options) - {"verilator_args"})
+        if unknown:
             raise RTLLanguageError(
-                f"RTL language {self.name!r} does not accept python_dut.options"
+                f"RTL language {self.name!r} does not accept python_dut.options: {unknown}"
             )
-        return {}
+        raw_args = options.get("verilator_args")
+        if raw_args is None:
+            return {"verilator_args": list(PICKER_VERILATOR_ARGS_DEFAULT)}
+        if not isinstance(raw_args, list) or any(
+            not isinstance(arg, str) or not _VERILATOR_ARG_TOKEN_RE.fullmatch(arg)
+            for arg in raw_args
+        ):
+            raise RTLLanguageError(
+                "design_with_ppa.rtl.python_dut.options.verilator_args must be "
+                "a list of non-empty verilator argument tokens without "
+                "whitespace, quotes, or shell/Makefile metacharacters"
+            )
+        return {"verilator_args": list(raw_args)}
 
     @abstractmethod
     def prepare(self, request: RTLPreparationRequest) -> PreparedRTL:

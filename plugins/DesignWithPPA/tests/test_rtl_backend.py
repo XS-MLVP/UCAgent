@@ -1192,6 +1192,9 @@ def test_rtl_library_paths_append_environment_and_bind_verilog_sources(
     cfg._temp_cfg = {"DUT": "dut", "OUT": "output", "WORKSPACE": str(tmp_path)}
     cfg.update_template(cfg._temp_cfg)
     resolved, backend = resolve_rtl_config(cfg)
+    assert resolved.python_dut_options == {
+        "verilator_args": ["--output-split", "2000"]
+    }
     library_files, library_rows = discover_rtl_libraries(
         tmp_path, resolved, backend
     )
@@ -1296,6 +1299,9 @@ def test_rtl_library_discovery_rejects_missing_empty_and_overlapping_directories
         ("language_options", {"standard": "systemverilog"}, "verilog-2005"),
         ("python_dut.interface", "manual", "must be 'automatic'"),
         ("python_dut.options", {"unsafe": True}, "does not accept"),
+        ("python_dut.options", {"verilator_args": "--output-split 2000"}, "must be a list"),
+        ("python_dut.options", {"verilator_args": ["--output-split 2000"]}, "without whitespace"),
+        ("python_dut.options", {"verilator_args": [""]}, "must be a list"),
     ],
 )
 def test_rtl_language_config_rejects_invalid_current_contract(
@@ -1308,6 +1314,40 @@ def test_rtl_language_config_rejects_invalid_current_contract(
     cfg.set_value(f"design_with_ppa.rtl.{field}", value)
     with pytest.raises(RTLLanguageError, match=re.escape(message)):
         resolve_rtl_config(cfg)
+
+
+
+
+def test_rtl_verilator_args_default_override_and_build_identity() -> None:
+    """Picker verilator passthrough defaults, overrides, and rebuild identity."""
+
+    resolved, _ = resolve_rtl_config(_config())
+    assert resolved.python_dut_options == {
+        "verilator_args": ["--output-split", "2000"]
+    }
+    assert (
+        resolved.identity()["python_dut"]["options"]
+        == resolved.python_dut_options
+    )
+
+    cfg = _config()
+    cfg.un_freeze()
+    cfg.set_value(
+        "design_with_ppa.rtl.python_dut.options",
+        {"verilator_args": ["-O3", "--output-split", "4000"]},
+    )
+    custom, _ = resolve_rtl_config(cfg)
+    assert custom.python_dut_options == {
+        "verilator_args": ["-O3", "--output-split", "4000"]
+    }
+    assert custom.identity() != resolved.identity()
+
+    cfg = _config()
+    cfg.un_freeze()
+    cfg.set_value("design_with_ppa.rtl.python_dut.options", {"verilator_args": []})
+    opted_out, _ = resolve_rtl_config(cfg)
+    assert opted_out.python_dut_options == {"verilator_args": []}
+    assert opted_out.identity() != resolved.identity()
 
 
 
@@ -1664,6 +1704,9 @@ def test_rtl_backend_build_replaces_old_tree_without_loading_generated_code(
             return subprocess.CompletedProcess(command, 0, "picker 1.0", "")
         assert command[:2] == ["picker", "export"]
         assert command[command.index("--wave_file_name") + 1] == "ucagent.fst"
+        assert (
+            command[command.index("--vflag") + 1] == "--output-split 2000"
+        )
         generated = Path(command[-1])
         generated.mkdir(parents=True)
         (generated / "__init__.py").write_text(
@@ -1709,6 +1752,103 @@ def test_rtl_backend_build_replaces_old_tree_without_loading_generated_code(
     assert passed is True
     assert not import_marker.exists()
 
+
+
+
+def test_rtl_backend_forwards_configured_verilator_args_and_rebuilds(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Configured verilator passthrough reaches picker and invalidates caches."""
+
+    architecture = tmp_path / "output" / "dut_architecture.md"
+    architecture.parent.mkdir(parents=True)
+    architecture.write_text(
+        "\n# Architecture\n\n```yaml\narchitecture:\n"
+        "  rtl_language: verilog\n  top_module: dut\n```\n",
+        encoding="utf-8",
+    )
+    rtl = tmp_path / "output" / "rtl" / "dut.v"
+    rtl.parent.mkdir(parents=True)
+    rtl.write_text(
+        "module dut(input a, output y); assign y = a; endmodule\n",
+        encoding="ascii",
+    )
+    observed_vflags: list[str | None] = []
+    monkeypatch.setattr("design_with_ppa.checkers.rtl_validation.shutil.which", lambda name: name)
+
+    def fake_subprocess_run(command, **kwargs):
+        """Model synthesis, version, and export while recording vflag use."""
+
+        if command[0] == sys.executable:
+            return subprocess.CompletedProcess(command, 0, "", "")
+        if command[0] == "yosys":
+            return subprocess.CompletedProcess(command, 0, "", "")
+        if command[1:] == ["--version"]:
+            return subprocess.CompletedProcess(command, 0, "picker 1.0", "")
+        assert command[1] == "export"
+        assert command[-2] == "--tdir"
+        if "--vflag" in command:
+            observed_vflags.append(command[command.index("--vflag") + 1])
+        else:
+            observed_vflags.append(None)
+        generated = Path(command[-1])
+        generated.mkdir(parents=True)
+        (generated / "__init__.py").write_text(
+            "class DUTdut:\n    pass\n", encoding="utf-8"
+        )
+        (generated / "_UT_dut.so").write_bytes(b"fixture-native-extension")
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(
+        "design_with_ppa.checkers.runtime.subprocess.run", fake_subprocess_run
+    )
+    cfg = _config()
+    cfg.un_freeze()
+    cfg.set_value(
+        "design_with_ppa.rtl.python_dut.options",
+        {"verilator_args": ["-O3", "--output-split", "4000"]},
+    )
+    checker = RTLBackendBuildChecker(
+        architecture_file="output/dut_architecture.md",
+        manifest_file=".ucagent/design_with_ppa/rtl_backend.json",
+        timeout=10,
+        cfg=cfg,
+    ).set_workspace(str(tmp_path))
+    passed, _ = checker.do_check()
+    assert passed is True
+    assert observed_vflags == ["-O3 --output-split 4000"]
+    passed, _ = checker.do_check()
+    assert passed is True
+    assert observed_vflags == ["-O3 --output-split 4000"]
+
+    cfg.set_value("design_with_ppa.rtl.python_dut.options", {"verilator_args": []})
+    rebuilt = RTLBackendBuildChecker(
+        architecture_file="output/dut_architecture.md",
+        manifest_file=".ucagent/design_with_ppa/rtl_backend.json",
+        timeout=10,
+        cfg=cfg,
+    ).set_workspace(str(tmp_path))
+    passed, _ = rebuilt.do_check()
+    assert passed is True
+    assert observed_vflags == ["-O3 --output-split 4000", None]
+
+    # A shell-based picker launcher (pip console entry) re-joins argv through
+    # a shell, so a multi-token passthrough value must carry embedded quotes.
+    script_launcher = tmp_path / "picker-launcher"
+    script_launcher.write_text("#!/bin/sh\nexec picker \"$@\"\n", encoding="ascii")
+    monkeypatch.setattr(
+        "design_with_ppa.checkers.rtl_validation.shutil.which",
+        lambda name: str(script_launcher) if name == "picker" else name,
+    )
+    scripted = RTLBackendBuildChecker(
+        architecture_file="output/dut_architecture.md",
+        manifest_file=".ucagent/design_with_ppa/rtl_backend.json",
+        timeout=10,
+        cfg=_config(),
+    ).set_workspace(str(tmp_path))
+    passed, _ = scripted.do_check()
+    assert passed is True
+    assert observed_vflags[-1] == "'--output-split 2000'"
 
 
 
