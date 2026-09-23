@@ -184,21 +184,32 @@ class RTLLanguageBackend(ABC):
         """Validate public Python-DUT conversion options for this language.
 
         ``verilator_args`` is the complete list of verilator argument tokens
-        the managed picker export forwards through ``--vflag``.  An absent
-        key selects the canonical output-split default; every configured
+        the managed picker export forwards through ``--vflag``; an absent
+        key selects the canonical output-split default, and every configured
         entry must be one metacharacter-free token because the value is
-        re-split by a shell-based launcher and expanded inside the
-        generated build files.
+        re-split by a shell-based launcher and expanded inside the generated
+        build files.  ``ccache_enabled`` defaults to using ccache whenever
+        the command is installed (the build warns and proceeds uncached
+        otherwise) and must be explicitly disabled to opt out.
         """
 
-        unknown = sorted(set(options) - {"verilator_args"})
+        unknown = sorted(set(options) - {"verilator_args", "ccache_enabled"})
         if unknown:
             raise RTLLanguageError(
                 f"RTL language {self.name!r} does not accept python_dut.options: {unknown}"
             )
         raw_args = options.get("verilator_args")
+        raw_ccache = options.get("ccache_enabled", True)
+        if not isinstance(raw_ccache, bool):
+            raise RTLLanguageError(
+                "design_with_ppa.rtl.python_dut.options.ccache_enabled must "
+                "be a boolean"
+            )
         if raw_args is None:
-            return {"verilator_args": list(PICKER_VERILATOR_ARGS_DEFAULT)}
+            return {
+                "verilator_args": list(PICKER_VERILATOR_ARGS_DEFAULT),
+                "ccache_enabled": raw_ccache,
+            }
         if not isinstance(raw_args, list) or any(
             not isinstance(arg, str) or not _VERILATOR_ARG_TOKEN_RE.fullmatch(arg)
             for arg in raw_args
@@ -208,7 +219,10 @@ class RTLLanguageBackend(ABC):
                 "a list of non-empty verilator argument tokens without "
                 "whitespace, quotes, or shell/Makefile metacharacters"
             )
-        return {"verilator_args": list(raw_args)}
+        return {
+            "verilator_args": list(raw_args),
+            "ccache_enabled": raw_ccache,
+        }
 
     @abstractmethod
     def prepare(self, request: RTLPreparationRequest) -> PreparedRTL:

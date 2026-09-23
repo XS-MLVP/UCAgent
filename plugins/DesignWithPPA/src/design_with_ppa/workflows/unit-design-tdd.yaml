@@ -56,6 +56,12 @@ design_with_ppa:
         # compiles the split files in parallel; an explicitly configured
         # list replaces it wholesale.
         verilator_args: ["--output-split", "2000"]
+        # Route the generated C++ compilation through ccache so unchanged
+        # translation units hit the compiler cache across managed rebuilds.
+        # Used automatically whenever the ccache command is installed; a
+        # warning recommends installing it when missing.  Set false to
+        # disable the cache entirely.
+        ccache_enabled: true
   ppa:
     waveform_scope: "TOP.{DUT}"
     liberty_file: null

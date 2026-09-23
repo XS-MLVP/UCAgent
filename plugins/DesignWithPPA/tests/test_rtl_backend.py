@@ -1193,7 +1193,8 @@ def test_rtl_library_paths_append_environment_and_bind_verilog_sources(
     cfg.update_template(cfg._temp_cfg)
     resolved, backend = resolve_rtl_config(cfg)
     assert resolved.python_dut_options == {
-        "verilator_args": ["--output-split", "2000"]
+        "verilator_args": ["--output-split", "2000"],
+        "ccache_enabled": True,
     }
     library_files, library_rows = discover_rtl_libraries(
         tmp_path, resolved, backend
@@ -1302,6 +1303,7 @@ def test_rtl_library_discovery_rejects_missing_empty_and_overlapping_directories
         ("python_dut.options", {"verilator_args": "--output-split 2000"}, "must be a list"),
         ("python_dut.options", {"verilator_args": ["--output-split 2000"]}, "without whitespace"),
         ("python_dut.options", {"verilator_args": [""]}, "must be a list"),
+        ("python_dut.options", {"ccache_enabled": "true"}, "must be a boolean"),
     ],
 )
 def test_rtl_language_config_rejects_invalid_current_contract(
@@ -1318,12 +1320,13 @@ def test_rtl_language_config_rejects_invalid_current_contract(
 
 
 
-def test_rtl_verilator_args_default_override_and_build_identity() -> None:
-    """Picker verilator passthrough defaults, overrides, and rebuild identity."""
+def test_rtl_python_dut_option_defaults_override_and_build_identity() -> None:
+    """Picker verilator passthrough and ccache defaults, overrides, identity."""
 
     resolved, _ = resolve_rtl_config(_config())
     assert resolved.python_dut_options == {
-        "verilator_args": ["--output-split", "2000"]
+        "verilator_args": ["--output-split", "2000"],
+        "ccache_enabled": True,
     }
     assert (
         resolved.identity()["python_dut"]["options"]
@@ -1338,15 +1341,22 @@ def test_rtl_verilator_args_default_override_and_build_identity() -> None:
     )
     custom, _ = resolve_rtl_config(cfg)
     assert custom.python_dut_options == {
-        "verilator_args": ["-O3", "--output-split", "4000"]
+        "verilator_args": ["-O3", "--output-split", "4000"],
+        "ccache_enabled": True,
     }
     assert custom.identity() != resolved.identity()
 
     cfg = _config()
     cfg.un_freeze()
-    cfg.set_value("design_with_ppa.rtl.python_dut.options", {"verilator_args": []})
+    cfg.set_value(
+        "design_with_ppa.rtl.python_dut.options",
+        {"verilator_args": [], "ccache_enabled": False},
+    )
     opted_out, _ = resolve_rtl_config(cfg)
-    assert opted_out.python_dut_options == {"verilator_args": []}
+    assert opted_out.python_dut_options == {
+        "verilator_args": [],
+        "ccache_enabled": False,
+    }
     assert opted_out.identity() != resolved.identity()
 
 
@@ -1852,6 +1862,139 @@ def test_rtl_backend_forwards_configured_verilator_args_and_rebuilds(
 
 
 
+
+def test_rtl_backend_ccache_autouse_warns_and_wraps_build(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+) -> None:
+    """ccache is used automatically, warns when missing, and can be disabled."""
+
+    architecture = tmp_path / "output" / "dut_architecture.md"
+    architecture.parent.mkdir(parents=True)
+    architecture.write_text(
+        "\n# Architecture\n\n```yaml\narchitecture:\n"
+        "  rtl_language: verilog\n  top_module: dut\n```\n",
+        encoding="utf-8",
+    )
+    rtl = tmp_path / "output" / "rtl" / "dut.v"
+    rtl.parent.mkdir(parents=True)
+    rtl.write_text(
+        "module dut(input a, output y); assign y = a; endmodule\n",
+        encoding="ascii",
+    )
+    observed_environments: list[dict[str, str] | None] = []
+    observed_commands: list[list[str]] = []
+    fake_ccache = tmp_path / "bin" / "ccache"
+    fake_ccache.parent.mkdir()
+    fake_ccache.write_text("#!/bin/sh\nexit 0\n", encoding="ascii")
+
+    def fake_subprocess_run(command, **kwargs):
+        """Model the build while capturing the export environment."""
+
+        if command[0] == sys.executable:
+            return subprocess.CompletedProcess(command, 0, "", "")
+        if command[0] == "yosys":
+            return subprocess.CompletedProcess(command, 0, "", "")
+        if command[1:] == ["--version"]:
+            return subprocess.CompletedProcess(command, 0, "picker 1.0", "")
+        assert command[1] == "export"
+        observed_environments.append(kwargs.get("env"))
+        observed_commands.append(command)
+        export_environment = kwargs.get("env")
+        if export_environment is not None:
+            # The masquerade directory is removed with the transient build
+            # root, so its contents must be validated during the export.
+            masquerade = Path(export_environment["PATH"].split(os.pathsep)[0])
+            resolved_ccache = str(fake_ccache.resolve())
+            for compiler_name in (
+                "cc",
+                "c++",
+                "gcc",
+                "g++",
+                "clang",
+                "clang++",
+            ):
+                compiler_link = masquerade / compiler_name
+                assert compiler_link.is_symlink(), compiler_name
+                assert os.readlink(compiler_link) == resolved_ccache
+        generated = Path(command[-1])
+        generated.mkdir(parents=True)
+        (generated / "__init__.py").write_text(
+            "class DUTdut:\n    pass\n", encoding="utf-8"
+        )
+        (generated / "_UT_dut.so").write_bytes(b"fixture-native-extension")
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(
+        "design_with_ppa.checkers.runtime.subprocess.run", fake_subprocess_run
+    )
+
+    # Without ccache installed the default build proceeds uncached and
+    # recommends installation instead of failing.
+    monkeypatch.setattr(
+        "design_with_ppa.checkers.rtl_validation.shutil.which",
+        lambda name: None if name == "ccache" else name,
+    )
+    uncached = RTLBackendBuildChecker(
+        architecture_file="output/dut_architecture.md",
+        manifest_file=".ucagent/design_with_ppa/rtl_backend.json",
+        timeout=10,
+        cfg=_config(),
+    ).set_workspace(str(tmp_path))
+    passed, _ = uncached.do_check()
+    assert passed is True
+    assert observed_environments[-1] is None
+    console = capsys.readouterr().out
+    assert "ccache is not installed" in console
+    assert "apt-get install ccache" in console
+
+    # With ccache installed the default build wraps compilation itself.
+    # A distinct verilator_args identity forces a real rebuild instead of
+    # the manifest short-circuit from the previous phase.
+    monkeypatch.setattr(
+        "design_with_ppa.checkers.rtl_validation.shutil.which",
+        lambda name: str(fake_ccache) if name == "ccache" else name,
+    )
+    cached_cfg = _config()
+    cached_cfg.un_freeze()
+    cached_cfg.set_value(
+        "design_with_ppa.rtl.python_dut.options",
+        {"verilator_args": ["-O3", "--output-split", "2000"]},
+    )
+    cached = RTLBackendBuildChecker(
+        architecture_file="output/dut_architecture.md",
+        manifest_file=".ucagent/design_with_ppa/rtl_backend.json",
+        timeout=10,
+        cfg=cached_cfg,
+    ).set_workspace(str(tmp_path))
+    passed, _ = cached.do_check()
+    assert passed is True
+    environment = observed_environments[-1]
+    assert environment is not None
+    assert environment["CCACHE_BASEDIR"] == observed_commands[-1][-1]
+    assert environment["CCACHE_NOHASHDIR"] == "1"
+    assert environment["CCACHE_IGNOREOPTIONS"] == "-march=native"
+    assert "ccache is not installed" not in capsys.readouterr().out
+
+    # An explicit opt-out never wraps the build and stays silent.
+    cfg = _config()
+    cfg.un_freeze()
+    cfg.set_value(
+        "design_with_ppa.rtl.python_dut.options", {"ccache_enabled": False}
+    )
+    disabled = RTLBackendBuildChecker(
+        architecture_file="output/dut_architecture.md",
+        manifest_file=".ucagent/design_with_ppa/rtl_backend.json",
+        timeout=10,
+        cfg=cfg,
+    ).set_workspace(str(tmp_path))
+    passed, _ = disabled.do_check()
+    assert passed is True
+    assert observed_environments[-1] is None
+    assert "ccache" not in capsys.readouterr().out
+
+
+
+
 @pytest.mark.skipif(
     shutil.which("yosys") is None or shutil.which("picker") is None,
     reason="Yosys and the RTL backend builder are required for the real build test",
@@ -1891,6 +2034,47 @@ def test_real_rtl_backend_build_without_parent_import(tmp_path: Path) -> None:
     passed, result = checker.do_check()
     assert passed is True, result
     assert "already matches" in result["message"]
+
+
+
+@pytest.mark.skipif(
+    any(
+        shutil.which(command) is None
+        for command in ("yosys", "picker", "ccache")
+    ),
+    reason="Yosys, the RTL backend builder, and ccache are required",
+)
+def test_real_rtl_backend_build_with_ccache(tmp_path: Path) -> None:
+    """A ccache-enabled managed build yields the same source-bound runtime."""
+
+    architecture = tmp_path / "output" / "dut_architecture.md"
+    architecture.parent.mkdir(parents=True)
+    architecture.write_text(
+        "\n# Architecture\n\n```yaml\narchitecture:\n"
+        "  rtl_language: verilog\n  top_module: dut\n```\n",
+        encoding="utf-8",
+    )
+    rtl = tmp_path / "output" / "rtl" / "dut.v"
+    rtl.parent.mkdir(parents=True)
+    rtl.write_text(
+        "module dut(input a, input b, output y); assign y = a ^ b; endmodule\n",
+        encoding="ascii",
+    )
+    (tmp_path / "output" / "tests").mkdir(parents=True)
+    manifest_path = ".ucagent/design_with_ppa/rtl_backend.json"
+    checker = RTLBackendBuildChecker(
+        architecture_file="output/dut_architecture.md",
+        manifest_file=manifest_path,
+        timeout=120,
+        cfg=_config(),
+    ).set_workspace(str(tmp_path))
+
+    passed, result = checker.do_check()
+
+    assert passed is True, result
+    manifest = json.loads((tmp_path / manifest_path).read_text(encoding="utf-8"))
+    assert manifest["rtl_config"]["python_dut"]["options"]["ccache_enabled"] is True
+    assert (_workspace_python_dut_root(tmp_path) / "dut" / "__init__.py").is_file()
 
 
 def test_python_dut_probe_failure_carries_child_output(tmp_path: Path) -> None:
