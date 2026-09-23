@@ -11,13 +11,21 @@ from ucagent.util.config import Config
 
 from ..checkers.rtl_validation import RTLBackendBuildChecker
 from ..contracts import atomic_json, atomic_text, load_json, sha256_file
+from ..rtl import _config_value
 from .common import inside, run_command
 from .models import Interface, Recipe
 
 
 def prepare_unit(repository: Path, candidate: Path, build: Path,
-                 recipe: Recipe, interface: Interface) -> dict:
-    """Run a unit export recipe, resolve parameters, validate pins, and build its Python DUT."""
+                 recipe: Recipe, interface: Interface, cfg=None) -> dict:
+    """Run a unit export recipe, resolve parameters, validate pins, and build its Python DUT.
+
+    ``cfg`` is the resolved workflow configuration: its
+    ``design_with_ppa.rtl.python_dut.options`` (verilator passthrough and
+    ccache) are honored exactly as in the unit workflow, while the language,
+    source glob, and template stay pinned to the repo module's normalized
+    unit sources.
+    """
 
     build.mkdir(parents=True, exist_ok=False)
     commands = []
@@ -55,15 +63,24 @@ def prepare_unit(repository: Path, candidate: Path, build: Path,
     declared = {name: spec.model_dump(exclude={"purpose"}) for name, spec in interface.pins.items()}
     if actual != declared:
         raise ValueError(f"interface.yaml pins differ from elaborated top: expected={declared}, observed={actual}")
-    cfg = Config({"design_with_ppa": {"rtl": {"language": "verilog",
+    raw_options = (
+        _config_value(cfg, "design_with_ppa.rtl.python_dut.options", {})
+        if cfg is not None
+        else {}
+    )
+    if hasattr(raw_options, "as_dict"):
+        raw_options = raw_options.as_dict()
+    if not isinstance(raw_options, dict):
+        raise ValueError("design_with_ppa.rtl.python_dut.options must be a mapping")
+    unit_cfg = Config({"design_with_ppa": {"rtl": {"language": "verilog",
                   "source_glob": "design/rtl/*.v", "source_template": "verilog-2005",
                   "library_paths": [], "language_options": {},
-                  "python_dut": {"interface": "automatic", "options": {}}}}})
-    cfg._temp_cfg = {"DUT": "unit_runtime", "OUT": "design"}
+                  "python_dut": {"interface": "automatic", "options": dict(raw_options)}}}})
+    unit_cfg._temp_cfg = {"DUT": "unit_runtime", "OUT": "design"}
     atomic_text(build / "design/architecture.md", "\n# Unit\n\n```yaml\narchitecture:\n  top_module: " + interface.top + "\n```\n")
     checker = RTLBackendBuildChecker(architecture_file="design/architecture.md",
                                     manifest_file=".ucagent/design_with_ppa/rtl_backend_manifest.json",
-                                    timeout=recipe.timeout, cfg=cfg).set_workspace(str(build))
+                                    timeout=recipe.timeout, cfg=unit_cfg).set_workspace(str(build))
     passed, result = checker.do_check()
     if not passed:
         raise ValueError(f"Module RTL build failed: {result}")

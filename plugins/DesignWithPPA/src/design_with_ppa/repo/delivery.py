@@ -119,7 +119,7 @@ def deliver(paths: RepoPaths, *, migration_script: bool = False) -> dict:
         recipe = read_model(paths.edit / "candidate", paths.options["build_recipe"], Recipe)
         interface = read_model(paths.edit / "candidate", "interface.yaml", Interface)
         check_build = temporary / "rebuild"
-        replay_build = prepare_unit(fresh, paths.edit / "candidate", check_build, recipe, interface)
+        replay_build = prepare_unit(fresh, paths.edit / "candidate", check_build, recipe, interface, cfg=paths.cfg)
         if replay_build["normalized_rtl_sha256"] != final["build"]["normalized_rtl_sha256"]:
             raise ValueError("Applying the delivery did not reproduce the validated generated RTL")
         shutil.copy2(paths.edit / "contract.yaml", check_build / "contract.yaml")
