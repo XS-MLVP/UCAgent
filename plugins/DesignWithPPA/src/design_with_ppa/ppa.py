@@ -39,6 +39,7 @@ _SCOPE_RE = re.compile(
 _RANGED_REFERENCE_RE = re.compile(
     r"^(?P<name>.+?)\[(?P<left>-?\d+)(?::(?P<right>-?\d+))?\]$"
 )
+_FST_VECTOR_SUFFIX_RE = re.compile(r"\s*\[[^\]]*\]$")
 _STATE_CELL_RE = re.compile(r"(?:^|[_$])(dff|sdff|adff|dlatch|mem)(?:[_$]|$)", re.I)
 _REPORT_ID_RE = re.compile(r"^ppa-[0-9a-f]{32}$")
 _PPA_CACHE_LOCK = threading.Lock()
@@ -470,8 +471,24 @@ def _discover_waveform_scope(
     return requested_scope
 
 
-def _convert_fst_to_vcd(source: Path, destination: Path) -> None:
-    """Convert an FST waveform to a temporary VCD through pylibfst's streaming API."""
+def _convert_fst_to_vcd(
+    source: Path,
+    destination: Path,
+    wanted_ports: set[str] | None = None,
+) -> None:
+    """Convert an FST waveform to a temporary VCD through pylibfst's streaming API.
+
+    ``wanted_ports`` restricts value-change decoding to the facets whose
+    declared name (ignoring a trailing vector suffix such as ``[5:0]``) is one
+    of those top-level input ports.  The emitted hierarchy section still lists
+    every declared signal, so downstream scope discovery and coverage checks
+    see the same contract while the decoded value stream stays proportional to
+    the input ports instead of the whole DUT.  Facet names in FST hierarchies
+    separate the vector suffix with a space (``cfg_addr [5:0]``), unlike VCD
+    references.  A wanted set that matches no facet falls back to decoding
+    everything so an unexpected naming scheme degrades to the previous
+    behavior instead of silently dropping all activity.
+    """
 
     try:
         import pylibfst  # type: ignore[import-not-found]
@@ -482,6 +499,13 @@ def _convert_fst_to_vcd(source: Path, destination: Path) -> None:
     reader = pylibfst.lib.fstReaderOpen(os.fsencode(source))
     if reader == pylibfst.ffi.NULL:
         raise ValueError(f"pylibfst could not open FST file: {source.name}")
+    selected_handles: set[int] = set()
+    if wanted_ports is not None:
+        _scopes, signals = pylibfst.get_scopes_signals2(reader)
+        for name, signal in signals.by_name.items():
+            local = name.rsplit(".", 1)[-1]
+            if _FST_VECTOR_SUFFIX_RE.sub("", local) in wanted_ports:
+                selected_handles.add(signal.handle)
     libc = ctypes.CDLL(None)
     libc.fopen.argtypes = [ctypes.c_char_p, ctypes.c_char_p]
     libc.fopen.restype = ctypes.c_void_p
@@ -495,7 +519,11 @@ def _convert_fst_to_vcd(source: Path, destination: Path) -> None:
     try:
         if pylibfst.lib.fstReaderProcessHier(reader, cffi_file) == 0:
             raise ValueError(f"pylibfst could not decode FST hierarchy: {source.name}")
-        pylibfst.lib.fstReaderSetFacProcessMaskAll(reader)
+        if selected_handles:
+            for handle in sorted(selected_handles):
+                pylibfst.lib.fstReaderSetFacProcessMask(reader, handle)
+        else:
+            pylibfst.lib.fstReaderSetFacProcessMaskAll(reader)
         if pylibfst.lib.fstReaderIterBlocks(
             reader, pylibfst.ffi.NULL, pylibfst.ffi.NULL, cffi_file
         ) == 0:
@@ -2406,12 +2434,15 @@ class AnalyzePPA(UCTool):
                 tc_activity = []
                 waveform_errors = False
                 resolved_waveform_scope: str | None = None
+                input_port_names = {bit.port for bit in input_bits}
                 for label, waveform in zip(arguments.waveform_files, waveform_files):
                     try:
                         parse_path = waveform
                         if waveform.suffix.lower() == ".fst":
                             parse_path = run_dir / f"waveform-{len(tc_activity)}.vcd"
-                            _convert_fst_to_vcd(waveform, parse_path)
+                            _convert_fst_to_vcd(
+                                waveform, parse_path, wanted_ports=input_port_names
+                            )
                         tc_info, activity = _parse_vcd_activity(
                             parse_path, label, arguments.waveform_scope, input_bits
                         )

@@ -104,13 +104,21 @@ def _write_fst(path: Path) -> None:
         b"b",
         0,
     )
+    handle_cfg = pylibfst.lib.fstWriterCreateVar(
+        writer,
+        pylibfst.lib.FST_VT_VCD_WIRE,
+        pylibfst.lib.FST_VD_INPUT,
+        4,
+        b"cfg",
+        0,
+    )
     pylibfst.lib.fstWriterSetUpscope(writer)
     pylibfst.lib.fstWriterSetUpscope(writer)
-    for tick, value_a, value_b in (
-        (0, b"1", b"0"),
-        (1000, b"0", b"0"),
-        (2000, b"0", b"1"),
-        (4000, b"0", b"1"),
+    for tick, value_a, value_b, value_cfg in (
+        (0, b"1", b"0", b"0101"),
+        (1000, b"0", b"0", b"0101"),
+        (2000, b"0", b"1", b"1101"),
+        (4000, b"0", b"1", b"1101"),
     ):
         pylibfst.lib.fstWriterEmitTimeChange(writer, tick)
         pylibfst.lib.fstWriterEmitValueChange(
@@ -118,6 +126,9 @@ def _write_fst(path: Path) -> None:
         )
         pylibfst.lib.fstWriterEmitValueChange(
             writer, handle_b, pylibfst.ffi.new("char[]", value_b)
+        )
+        pylibfst.lib.fstWriterEmitValueChange(
+            writer, handle_cfg, pylibfst.ffi.new("char[]", value_cfg)
         )
     pylibfst.lib.fstWriterClose(writer)
 
@@ -605,6 +616,48 @@ def test_fst_conversion_preserves_scope_and_activity(tmp_path: Path) -> None:
     assert tc_info["duration_seconds"] == pytest.approx(40e-9)
     assert activity["a"]["transition_count"] == 1.0
     assert activity["b"]["transition_count"] == 1.0
+
+
+def test_fst_port_filtered_conversion_preserves_activity(tmp_path: Path) -> None:
+    """Facet-filtered FST decoding must keep the full-decode activity contract."""
+
+    pytest.importorskip("pylibfst")
+    source = tmp_path / "tc.fst"
+    _write_fst(source)
+    inputs = [_InputBit("a", None, "a"), _InputBit("b", None, "b")]
+    full = tmp_path / "full.vcd"
+    filtered = tmp_path / "filtered.vcd"
+    _convert_fst_to_vcd(source, full)
+    _convert_fst_to_vcd(source, filtered, wanted_ports={"a", "b"})
+    info_full, activity_full = _parse_vcd_activity(full, "tc.fst", "tb.dut", inputs)
+    info_filtered, activity_filtered = _parse_vcd_activity(
+        filtered, "tc.fst", "tb.dut", inputs
+    )
+    assert info_filtered == info_full
+    assert activity_filtered == activity_full
+
+    # The FST hierarchy names vectors with a spaced suffix (cfg [3:0]); the
+    # filter must still match them by bare port name and decode their bits.
+    cfg_bits = [_InputBit("cfg", index, f"cfg[{index}]") for index in range(4)]
+    cfg_only = tmp_path / "cfg_only.vcd"
+    _convert_fst_to_vcd(source, cfg_only, wanted_ports={"cfg"})
+    cfg_info, cfg_activity = _parse_vcd_activity(
+        cfg_only, "tc.fst", "tb.dut", cfg_bits
+    )
+    assert cfg_info["signal_coverage"]["ratio"] == 1.0
+    # Vectors are MSB-first: 0101 -> 1101 toggles only cfg[3].
+    assert cfg_activity["cfg[0]"]["transition_count"] == 0.0
+    assert cfg_activity["cfg[1]"]["transition_count"] == 0.0
+    assert cfg_activity["cfg[3]"]["transition_count"] == 1.0
+
+    # A wanted set matching no declared facet must fall back to full decoding
+    # instead of silently producing an activity-free waveform.
+    fallback = tmp_path / "fallback.vcd"
+    _convert_fst_to_vcd(source, fallback, wanted_ports={"missing_port"})
+    _, activity_fallback = _parse_vcd_activity(
+        fallback, "tc.fst", "tb.dut", inputs
+    )
+    assert activity_fallback == activity_full
 
 
 def test_scope_discovery_resolves_deep_hierarchies_without_header_rescans(
