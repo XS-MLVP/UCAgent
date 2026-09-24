@@ -1,0 +1,513 @@
+{
+  "schema_version": "functional_coverage_plan.v1",
+  "dut": "sd_fifo_tx_filler",
+  "revision_id": "ground-truth-v1",
+  "source_snapshot_hash": "golden_spec",
+  "targets": [
+    {
+      "target_id": "CK-RESET-STEP",
+      "functional_group": "FC-TEST-API",
+      "coverage_definition": "[Assume] CK-RESET-STEP",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: CK-RESET-STEP",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-WB-RESP-DRIVE",
+      "functional_group": "FC-TEST-API",
+      "coverage_definition": "[Assume] CK-WB-RESP-DRIVE",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: CK-WB-RESP-DRIVE",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-FIFO-OBSERVE",
+      "functional_group": "FC-TEST-API",
+      "coverage_definition": "[Assume] CK-FIFO-OBSERVE",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: CK-FIFO-OBSERVE",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-ENABLE-NOTFULL",
+      "functional_group": "FC-REQ-START",
+      "coverage_definition": "[Seq] CK-ENABLE-NOTFULL",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: CK-ENABLE-NOTFULL",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-DISABLE-BLOCK",
+      "functional_group": "FC-REQ-START",
+      "coverage_definition": "[Seq] CK-DISABLE-BLOCK",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: CK-DISABLE-BLOCK",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-FULL-BLOCK",
+      "functional_group": "FC-REQ-START",
+      "coverage_definition": "[Seq] CK-FULL-BLOCK",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: CK-FULL-BLOCK",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-WAIT-ACK-BLOCK",
+      "functional_group": "FC-REQ-START",
+      "coverage_definition": "[Seq] CK-WAIT-ACK-BLOCK",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: CK-WAIT-ACK-BLOCK",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-HOLD-BEFORE-ACK",
+      "functional_group": "FC-REQ-HOLD-END",
+      "coverage_definition": "[Seq] CK-HOLD-BEFORE-ACK",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: CK-HOLD-BEFORE-ACK",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-DROP-ON-ACK",
+      "functional_group": "FC-REQ-HOLD-END",
+      "coverage_definition": "[Seq] CK-DROP-ON-ACK",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: CK-DROP-ON-ACK",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-DROP-ON-DISABLE",
+      "functional_group": "FC-REQ-HOLD-END",
+      "coverage_definition": "[Seq] CK-DROP-ON-DISABLE",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: CK-DROP-ON-DISABLE",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-WE-READONLY",
+      "functional_group": "FC-REQ-SIGNAL-CONST",
+      "coverage_definition": "[Seq] CK-WE-READONLY",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: CK-WE-READONLY",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-CTI-CONST",
+      "functional_group": "FC-REQ-SIGNAL-CONST",
+      "coverage_definition": "[Seq] CK-CTI-CONST",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: CK-CTI-CONST",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-BTE-CONST",
+      "functional_group": "FC-REQ-SIGNAL-CONST",
+      "coverage_definition": "[Seq] CK-BTE-CONST",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: CK-BTE-CONST",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-WR-PULSE-ACK",
+      "functional_group": "FC-WRITE-ON-ACK",
+      "coverage_definition": "[Seq] CK-WR-PULSE-ACK",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: CK-WR-PULSE-ACK",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-DATA-CAPTURE",
+      "functional_group": "FC-WRITE-ON-ACK",
+      "coverage_definition": "[Seq] CK-DATA-CAPTURE",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: CK-DATA-CAPTURE",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-NO-WR-WITHOUT-ACK",
+      "functional_group": "FC-WRITE-ON-ACK",
+      "coverage_definition": "[Seq] CK-NO-WR-WITHOUT-ACK",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: CK-NO-WR-WITHOUT-ACK",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-BACK2BACK-ACK",
+      "functional_group": "FC-WRITE-CADENCE",
+      "coverage_definition": "[Seq] CK-BACK2BACK-ACK",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: CK-BACK2BACK-ACK",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-SINGLE-WR-PER-ACK",
+      "functional_group": "FC-WRITE-CADENCE",
+      "coverage_definition": "[Seq] CK-SINGLE-WR-PER-ACK",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: CK-SINGLE-WR-PER-ACK",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-WR-STOP-AFTER-ACK",
+      "functional_group": "FC-WRITE-CADENCE",
+      "coverage_definition": "[Seq] CK-WR-STOP-AFTER-ACK",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: CK-WR-STOP-AFTER-ACK",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-INORDER",
+      "functional_group": "FC-READ-SEQUENCE",
+      "coverage_definition": "[Seq] CK-INORDER",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: CK-INORDER",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-NO-DUPLICATE",
+      "functional_group": "FC-READ-SEQUENCE",
+      "coverage_definition": "[Seq] CK-NO-DUPLICATE",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: CK-NO-DUPLICATE",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-NO-SKIP",
+      "functional_group": "FC-READ-SEQUENCE",
+      "coverage_definition": "[Seq] CK-NO-SKIP",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: CK-NO-SKIP",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-EMPTY-FLAG",
+      "functional_group": "FC-READ-EMPTY",
+      "coverage_definition": "[Seq] CK-EMPTY-FLAG",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: CK-EMPTY-FLAG",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-RD-ON-EMPTY",
+      "functional_group": "FC-READ-EMPTY",
+      "coverage_definition": "[Seq] CK-RD-ON-EMPTY",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: CK-RD-ON-EMPTY",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-EMPTY-TO-NONEMPTY",
+      "functional_group": "FC-READ-EMPTY",
+      "coverage_definition": "[Seq] CK-EMPTY-TO-NONEMPTY",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: CK-EMPTY-TO-NONEMPTY",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-DAT-UPDATE-ON-READ",
+      "functional_group": "FC-READ-DATA-VISIBILITY",
+      "coverage_definition": "[Seq] CK-DAT-UPDATE-ON-READ",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: CK-DAT-UPDATE-ON-READ",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-DAT-STABLE-IDLE",
+      "functional_group": "FC-READ-DATA-VISIBILITY",
+      "coverage_definition": "[Seq] CK-DAT-STABLE-IDLE",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: CK-DAT-STABLE-IDLE",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-BASE-ADDR-FIRST",
+      "functional_group": "FC-ADDR-INITIAL",
+      "coverage_definition": "[Seq] CK-BASE-ADDR-FIRST",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: CK-BASE-ADDR-FIRST",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-ADDR-AFTER-RESET",
+      "functional_group": "FC-ADDR-INITIAL",
+      "coverage_definition": "[Seq] CK-ADDR-AFTER-RESET",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: CK-ADDR-AFTER-RESET",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-ADDR-AFTER-DISABLE",
+      "functional_group": "FC-ADDR-INITIAL",
+      "coverage_definition": "[Seq] CK-ADDR-AFTER-DISABLE",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: CK-ADDR-AFTER-DISABLE",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-INCR-ON-ACK",
+      "functional_group": "FC-ADDR-INCREMENT",
+      "coverage_definition": "[Seq] CK-INCR-ON-ACK",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: CK-INCR-ON-ACK",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-NO-INCR-WITHOUT-ACK",
+      "functional_group": "FC-ADDR-INCREMENT",
+      "coverage_definition": "[Seq] CK-NO-INCR-WITHOUT-ACK",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: CK-NO-INCR-WITHOUT-ACK",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-MULTI-TRANSFER-PROGRESS",
+      "functional_group": "FC-ADDR-INCREMENT",
+      "coverage_definition": "[Seq] CK-MULTI-TRANSFER-PROGRESS",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: CK-MULTI-TRANSFER-PROGRESS",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-HIGH-BASE",
+      "functional_group": "FC-ADDR-BOUNDARY",
+      "coverage_definition": "[Seq] CK-HIGH-BASE",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: CK-HIGH-BASE",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-WRAP-OBSERVE",
+      "functional_group": "FC-ADDR-BOUNDARY",
+      "coverage_definition": "[Seq] CK-WRAP-OBSERVE",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: CK-WRAP-OBSERVE",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-BUS-RESET",
+      "functional_group": "FC-ASYNC-RESET",
+      "coverage_definition": "[Seq] CK-BUS-RESET",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: CK-BUS-RESET",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-FIFO-RESET",
+      "functional_group": "FC-ASYNC-RESET",
+      "coverage_definition": "[Seq] CK-FIFO-RESET",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: CK-FIFO-RESET",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-PROGRESS-RESET",
+      "functional_group": "FC-ASYNC-RESET",
+      "coverage_definition": "[Seq] CK-PROGRESS-RESET",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: CK-PROGRESS-RESET",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-FIFO-CLEAR-ON-DISABLE",
+      "functional_group": "FC-DISABLE-BEHAVIOR",
+      "coverage_definition": "[Seq] CK-FIFO-CLEAR-ON-DISABLE",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: CK-FIFO-CLEAR-ON-DISABLE",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-BUS-IDLE-ON-DISABLE",
+      "functional_group": "FC-DISABLE-BEHAVIOR",
+      "coverage_definition": "[Seq] CK-BUS-IDLE-ON-DISABLE",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: CK-BUS-IDLE-ON-DISABLE",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-OFFSET-CLEAR-ON-DISABLE",
+      "functional_group": "FC-DISABLE-BEHAVIOR",
+      "coverage_definition": "[Seq] CK-OFFSET-CLEAR-ON-DISABLE",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: CK-OFFSET-CLEAR-ON-DISABLE",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-REQ-RESTART",
+      "functional_group": "FC-RESTART",
+      "coverage_definition": "[Seq] CK-REQ-RESTART",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: CK-REQ-RESTART",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-FIFO-RESTART-EMPTY",
+      "functional_group": "FC-RESTART",
+      "coverage_definition": "[Seq] CK-FIFO-RESTART-EMPTY",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: CK-FIFO-RESTART-EMPTY",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-ADDR-RESTART-FROM-BASE",
+      "functional_group": "FC-RESTART",
+      "coverage_definition": "[Seq] CK-ADDR-RESTART-FROM-BASE",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: CK-ADDR-RESTART-FROM-BASE",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-EMPTY-AFTER-RESET",
+      "functional_group": "FC-EMPTY-STATUS",
+      "coverage_definition": "[Seq] CK-EMPTY-AFTER-RESET",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: CK-EMPTY-AFTER-RESET",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-EMPTY-CLEAR-ON-WRITE",
+      "functional_group": "FC-EMPTY-STATUS",
+      "coverage_definition": "[Seq] CK-EMPTY-CLEAR-ON-WRITE",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: CK-EMPTY-CLEAR-ON-WRITE",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-EMPTY-SET-AFTER-DRAIN",
+      "functional_group": "FC-EMPTY-STATUS",
+      "coverage_definition": "[Seq] CK-EMPTY-SET-AFTER-DRAIN",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: CK-EMPTY-SET-AFTER-DRAIN",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-FULL-ASSERT",
+      "functional_group": "FC-FULL-STATUS",
+      "coverage_definition": "[Seq] CK-FULL-ASSERT",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: CK-FULL-ASSERT",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-FULL-BACKPRESSURE",
+      "functional_group": "FC-FULL-STATUS",
+      "coverage_definition": "[Seq] CK-FULL-BACKPRESSURE",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: CK-FULL-BACKPRESSURE",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-FULL-RELEASE",
+      "functional_group": "FC-FULL-STATUS",
+      "coverage_definition": "[Seq] CK-FULL-RELEASE",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: CK-FULL-RELEASE",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-CLK-FASTER",
+      "functional_group": "FC-CD-RATIO",
+      "coverage_definition": "[Seq] CK-CLK-FASTER",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: CK-CLK-FASTER",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-SDCLK-FASTER",
+      "functional_group": "FC-CD-RATIO",
+      "coverage_definition": "[Seq] CK-SDCLK-FASTER",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: CK-SDCLK-FASTER",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-SIMILAR-RATE",
+      "functional_group": "FC-CD-RATIO",
+      "coverage_definition": "[Seq] CK-SIMILAR-RATE",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: CK-SIMILAR-RATE",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-CONCURRENT-RW",
+      "functional_group": "FC-CD-CONCURRENT",
+      "coverage_definition": "[Seq] CK-CONCURRENT-RW",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: CK-CONCURRENT-RW",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-EMPTY-FULL-TOGGLE",
+      "functional_group": "FC-CD-CONCURRENT",
+      "coverage_definition": "[Seq] CK-EMPTY-FULL-TOGGLE",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: CK-EMPTY-FULL-TOGGLE",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-NO-DATA-CORRUPTION",
+      "functional_group": "FC-CD-CONCURRENT",
+      "coverage_definition": "[Seq] CK-NO-DATA-CORRUPTION",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: CK-NO-DATA-CORRUPTION",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    }
+  ],
+  "observations": []
+}

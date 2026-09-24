@@ -1,0 +1,75 @@
+{
+  "schema_version": "gt_rtl_v3",
+  "dut": "sd_tx_fifo",
+  "status": "bootstrap_from_current_audit",
+  "description": "DUT-level independent RTL defect index. One entry per deduplicated RTL root defect; model names record which models found it.",
+  "source": {
+    "root_file": "rtl_root_bugs.json",
+    "selection": "explicitly selected, semantically classified root IDs; unresolved roots are moved to the manual audit queue",
+    "deduplication": "one GT defect per source_root_id; multiple BUG-* symptoms map to one defect"
+  },
+  "total_rtl_defects": 2,
+  "model_hits": {
+    "general2": 2,
+    "origin": 1
+  },
+  "defects": [
+    {
+      "gt_id": "GT-RTL-0001",
+      "source_root_id": "RTLBUG-0001",
+      "rtl_file": "sd_tx_fifo.v",
+      "rtl_line_start": 112,
+      "rtl_line_end": 119,
+      "failure_mode": "reset_state_mismatch",
+      "symptoms": [
+        "BUG-0001",
+        "BUG-0002",
+        "BUG-0003",
+        "BUG-0004",
+        "BUG-0005",
+        "BUG-0006",
+        "BUG-0012",
+        "BUG-0013",
+        "BUG-0014",
+        "BUG-0015",
+        "BUG-0016",
+        "BUG-0017",
+        "BUG-0024"
+      ],
+      "models": [
+        "general2",
+        "origin"
+      ],
+      "source_anchor_confidence": "medium",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_wyy",
+      "admission_source": "wyy_comparison",
+      "admission_evidence": "registered_adjudication"
+    },
+    {
+      "gt_id": "GT-RTL-0002",
+      "source_root_id": "RTLBUG-0006",
+      "rtl_file": "sd_tx_fifo.v",
+      "rtl_line_start": 128,
+      "rtl_line_end": 136,
+      "failure_mode": "output_mismatch_after_done",
+      "symptoms": [
+        "BUG-0020",
+        "BUG-0021",
+        "BUG-0022",
+        "BUG-0023"
+      ],
+      "models": [
+        "general2"
+      ],
+      "source_anchor_confidence": "high",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_wyy",
+      "admission_source": "wyy_comparison",
+      "admission_evidence": "registered_adjudication"
+    }
+  ],
+  "category": "wyy",
+  "last_registered_at": "2026-09-12T15:23:12+08:00",
+  "last_registered_batch": "baseline_wyy"
+}

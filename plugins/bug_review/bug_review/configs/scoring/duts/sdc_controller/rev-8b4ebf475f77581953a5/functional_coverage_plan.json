@@ -1,0 +1,311 @@
+{
+  "schema_version": "functional_coverage_plan.v1",
+  "dut": "sdc_controller",
+  "revision_id": "rev-8b4ebf475f77581953a5",
+  "source_snapshot_hash": "344ab6352a0bf1af1e0b3ede57bc7b393b96b226b950ae8d71813862f693d607",
+  "status": "machine_mapped_frozen_contract",
+  "targets": [
+    {
+      "target_id": "FC-SDC-REG-ACCESS",
+      "name": "Wishbone slave register read and write",
+      "weight": 1,
+      "coverage_definition": "Access internal configuration and status registers through WB slave port",
+      "sampling_rule": "Drive WB slave read/write cycles to register address map",
+      "oracle_definition": "Written control registers retain data; read-only registers reflect hardware status",
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "FC-SDC-RESET-CLEAR",
+      "name": "controller reset and register clearance",
+      "weight": 1,
+      "coverage_definition": "Perform hardware/software reset to restore all submodules to initial state",
+      "sampling_rule": "Sample control registers, FIFOs, and FSM states after reset pulse",
+      "oracle_definition": "Registers clear to default reset values and internal queues empty",
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "FC-SDC-BD-MANAGEMENT",
+      "name": "Buffer Descriptor (BD) allocation and chaining",
+      "weight": 1,
+      "coverage_definition": "Configure, allocate, and link 16-bit/32-bit Buffer Descriptors for DMA",
+      "sampling_rule": "Sample BD RAM/register entries and ownership bits during setup",
+      "oracle_definition": "BD fields accurately represent transfer length, buffer pointer, and interrupt enable",
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "FC-SDC-DMA-TRANSFER",
+      "name": "internal DMA master bus transfer activity",
+      "weight": 1,
+      "coverage_definition": "Initiate DMA data transfers between external memory and SDC FIFO",
+      "sampling_rule": "Sample DMA master bus requests, address generation, and data transfers",
+      "oracle_definition": "DMA moves specified byte count autonomously without bus error",
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "FC-SDC-INTERRUPT-CONTROL",
+      "name": "interrupt generation and mask control",
+      "weight": 1,
+      "coverage_definition": "Verify interrupt generation on transfer complete/error and test mask register",
+      "sampling_rule": "Sample interrupt request line with interrupt mask enabled and disabled",
+      "oracle_definition": "IRQ line asserts only when unmasked event occurs and clears on status acknowledge",
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "FC-SDC-SD-IO-HANDSHAKE",
+      "name": "card-side SD/MMC physical bus interface",
+      "weight": 1,
+      "coverage_definition": "Drive and sample clock, command, and data lines to the SD/MMC card",
+      "sampling_rule": "Sample sd_cmd and sd_dat bus bidirectional pins during transactions",
+      "oracle_definition": "IO lines adhere to SD bus protocol timing specifications",
+      "collection_status": "scoreable"
+    }
+  ],
+  "observations": [
+    {
+      "model": "agentw",
+      "target_id": "FC-SDC-REG-ACCESS",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "agentw",
+      "target_id": "FC-SDC-RESET-CLEAR",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "agentw",
+      "target_id": "FC-SDC-BD-MANAGEMENT",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "agentw",
+      "target_id": "FC-SDC-DMA-TRANSFER",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "agentw",
+      "target_id": "FC-SDC-INTERRUPT-CONTROL",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "agentw",
+      "target_id": "FC-SDC-SD-IO-HANDSHAKE",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "agentw+SFT",
+      "target_id": "FC-SDC-REG-ACCESS",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_sdc_controller_api_basic.py::test_api_sdc_controller_reset_software_reset_register",
+        "tests/test_sdc_controller_random_registers.py::test_random_clock_divider_values",
+        "tests/test_sdc_controller_random_registers.py::test_random_interrupt_registers",
+        "tests/test_sdc_controller_random_registers.py::test_random_registers_wb_access",
+        "tests/test_sdc_controller_timeout_register.py::test_timeout_register_default",
+        "tests/test_sdc_controller_timeout_register.py::test_timeout_register_set"
+      ],
+      "evidence_source": "passed toffee/pytest execution and semantic target mapping for FC-SDC-REG-ACCESS"
+    },
+    {
+      "model": "agentw+SFT",
+      "target_id": "FC-SDC-RESET-CLEAR",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_sdc_controller_api_basic.py::test_api_sdc_controller_reset_basic",
+        "tests/test_sdc_controller_api_basic.py::test_api_sdc_controller_reset_software_reset_register",
+        "tests/test_sdc_controller_clock_divider.py::test_clock_divider_reset",
+        "tests/test_sdc_controller_env_fixture.py::test_api_sdc_controller_env_reset_operation",
+        "tests/test_sdc_controller_sw_reset.py::test_sw_reset_assert",
+        "tests/test_sdc_controller_sw_reset.py::test_sw_reset_deassert"
+      ],
+      "evidence_source": "passed toffee/pytest execution and semantic target mapping for FC-SDC-RESET-CLEAR"
+    },
+    {
+      "model": "agentw+SFT",
+      "target_id": "FC-SDC-BD-MANAGEMENT",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_sdc_controller_bd_ops.py::test_bd_ops_free_count",
+        "tests/test_sdc_controller_bd_ops.py::test_bd_ops_read_basic",
+        "tests/test_sdc_controller_bd_ops.py::test_bd_ops_write_basic",
+        "tests/test_sdc_controller_bd_status.py::test_bd_status_rx",
+        "tests/test_sdc_controller_bd_status.py::test_bd_status_tx"
+      ],
+      "evidence_source": "passed toffee/pytest execution and semantic target mapping for FC-SDC-BD-MANAGEMENT"
+    },
+    {
+      "model": "agentw+SFT",
+      "target_id": "FC-SDC-DMA-TRANSFER",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "agentw+SFT",
+      "target_id": "FC-SDC-INTERRUPT-CONTROL",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_sdc_controller_interrupt_enable.py::test_interrupt_enable_data",
+        "tests/test_sdc_controller_interrupt_enable.py::test_interrupt_enable_error",
+        "tests/test_sdc_controller_interrupt_enable.py::test_interrupt_enable_normal",
+        "tests/test_sdc_controller_interrupt_status.py::test_interrupt_status_data",
+        "tests/test_sdc_controller_interrupt_status.py::test_interrupt_status_error",
+        "tests/test_sdc_controller_interrupt_status.py::test_interrupt_status_normal",
+        "tests/test_sdc_controller_random_registers.py::test_random_interrupt_registers"
+      ],
+      "evidence_source": "passed toffee/pytest execution and semantic target mapping for FC-SDC-INTERRUPT-CONTROL"
+    },
+    {
+      "model": "agentw+SFT",
+      "target_id": "FC-SDC-SD-IO-HANDSHAKE",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-SDC-REG-ACCESS",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-SDC-RESET-CLEAR",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-SDC-BD-MANAGEMENT",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-SDC-DMA-TRANSFER",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-SDC-INTERRUPT-CONTROL",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-SDC-SD-IO-HANDSHAKE",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-SDC-REG-ACCESS",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_sdc_controller_api_basic.py::TestAPIRegWrite::test_api_sdc_controller_reg_write_basic",
+        "tests/test_sdc_controller_api_basic.py::TestAPIRegWrite::test_api_sdc_controller_reg_write_max_value"
+      ],
+      "evidence_source": "passed toffee/pytest execution and semantic target mapping for FC-SDC-REG-ACCESS"
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-SDC-RESET-CLEAR",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-SDC-BD-MANAGEMENT",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_sdc_controller_api_basic.py::TestAPIEnableInterrupt::test_api_sdc_controller_enable_interrupt_bd",
+        "tests/test_sdc_controller_bd_rx_alloc.py::test_bd_alloc_16bit",
+        "tests/test_sdc_controller_bd_rx_alloc.py::test_bd_free_release",
+        "tests/test_sdc_controller_bd_rx_alloc.py::test_bd_rx_dealloc_inc",
+        "tests/test_sdc_controller_bd_rx_alloc.py::test_bd_rx_reuse"
+      ],
+      "evidence_source": "passed toffee/pytest execution and semantic target mapping for FC-SDC-BD-MANAGEMENT"
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-SDC-DMA-TRANSFER",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-SDC-INTERRUPT-CONTROL",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_sdc_controller_api_basic.py::TestAPIEnableInterrupt::test_api_sdc_controller_enable_interrupt_bd"
+      ],
+      "evidence_source": "passed toffee/pytest execution and semantic target mapping for FC-SDC-INTERRUPT-CONTROL"
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-SDC-SD-IO-HANDSHAKE",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    }
+  ],
+  "contract_hash": "d3d915240cd5b151784aa30fe2ccde42b20f0586b40a56fba303ed76bb2cc944"
+}

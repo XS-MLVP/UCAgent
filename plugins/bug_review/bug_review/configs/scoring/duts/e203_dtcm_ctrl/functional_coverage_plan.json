@@ -1,0 +1,403 @@
+{
+  "schema_version": "functional_coverage_plan.v1",
+  "dut": "e203_dtcm_ctrl",
+  "revision_id": "rev-85638b801fc9982a951a",
+  "source_snapshot_hash": "f44a0d7939ca24f67ffee9638b228964fe38e7ba904c948d773c51cd8bc8b9d0",
+  "status": "machine_mapped_frozen_contract",
+  "targets": [
+    {
+      "target_id": "FC-DTCM-CTRL-RESET-IDLE",
+      "name": "reset initialization and idle state",
+      "weight": 1,
+      "coverage_definition": "Verify DTCM controller initializes to idle with SRAM chip selects inactive",
+      "sampling_rule": "Sample SRAM control lines and ICB ready signals post-reset",
+      "oracle_definition": "Controller is ready for new transactions, SRAM cs is deasserted",
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "FC-DTCM-CTRL-LSU-READ",
+      "name": "LSU ICB read transaction",
+      "weight": 1,
+      "coverage_definition": "Perform read access initiated by processor Load-Store Unit",
+      "sampling_rule": "Sample LSU cmd/rsp handshakes and SRAM read interface signals",
+      "oracle_definition": "Requested address is sent to SRAM and read data returned on rsp channel",
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "FC-DTCM-CTRL-LSU-WRITE",
+      "name": "LSU ICB write transaction",
+      "weight": 1,
+      "coverage_definition": "Perform write access with byte write masks initiated by LSU",
+      "sampling_rule": "Sample LSU write data, write mask, and SRAM write enable signals",
+      "oracle_definition": "Write data and mask correctly propagate to SRAM with single-cycle response",
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "FC-DTCM-CTRL-EXT-ACCESS",
+      "name": "external ICB port access",
+      "weight": 1,
+      "coverage_definition": "Perform read and write transactions through the external slave ICB interface",
+      "sampling_rule": "Sample external interface request and response channels",
+      "oracle_definition": "External access executes cleanly without corrupting internal CPU state",
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "FC-DTCM-CTRL-ACTIVE-POWER",
+      "name": "DTCM active and low-power control",
+      "weight": 1,
+      "coverage_definition": "Monitor dtcm_active signal assertion on access and deassertion on idle",
+      "sampling_rule": "Sample dtcm_active before, during, and after memory transactions",
+      "oracle_definition": "dtcm_active is high when transactions are pending/active and low when idle",
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "FC-DTCM-CTRL-ADDR-DECODE",
+      "name": "DTCM address boundary decoding",
+      "weight": 1,
+      "coverage_definition": "Exercise access at min, max, and boundary offsets of the DTCM address space",
+      "sampling_rule": "Sample generated SRAM address lines across boundary requests",
+      "oracle_definition": "Address offsets correctly map to physical SRAM word addresses",
+      "collection_status": "scoreable"
+    }
+  ],
+  "observations": [
+    {
+      "model": "agentw",
+      "target_id": "FC-DTCM-CTRL-RESET-IDLE",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_e203_dtcm_ctrl_api_basic.py::test_api_e203_dtcm_ctrl_reset_basic",
+        "tests/test_e203_dtcm_ctrl_corner_cases_concurrent_reset.py::test_e203_dtcm_ctrl_corner_cases_concurrent_requests_concurrent_lsu_ext",
+        "tests/test_e203_dtcm_ctrl_corner_cases_concurrent_reset.py::test_e203_dtcm_ctrl_corner_cases_concurrent_requests_concurrent_same_src",
+        "tests/test_e203_dtcm_ctrl_corner_cases_concurrent_reset.py::test_e203_dtcm_ctrl_corner_cases_reset_requests_reset_mask_requests",
+        "tests/test_e203_dtcm_ctrl_corner_cases_concurrent_reset.py::test_e203_dtcm_ctrl_corner_cases_reset_requests_reset_release"
+      ],
+      "evidence_source": "passed toffee/pytest execution and semantic target mapping for FC-DTCM-CTRL-RESET-IDLE"
+    },
+    {
+      "model": "agentw",
+      "target_id": "FC-DTCM-CTRL-LSU-READ",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_e203_dtcm_ctrl_api_basic.py::test_api_e203_dtcm_ctrl_lsu_read_param_error",
+        "tests/test_e203_dtcm_ctrl_api_operations.py::test_e203_dtcm_ctrl_operation_lsu_access",
+        "tests/test_e203_dtcm_ctrl_lsu_access_channels.py::test_e203_dtcm_ctrl_lsu_access_lsu_cmd_channel_lsu_cmd_addr",
+        "tests/test_e203_dtcm_ctrl_lsu_access_channels.py::test_e203_dtcm_ctrl_lsu_access_lsu_cmd_channel_lsu_cmd_handshake",
+        "tests/test_e203_dtcm_ctrl_lsu_access_channels.py::test_e203_dtcm_ctrl_lsu_access_lsu_cmd_channel_lsu_cmd_read",
+        "tests/test_e203_dtcm_ctrl_lsu_access_channels.py::test_e203_dtcm_ctrl_lsu_access_lsu_cmd_channel_lsu_cmd_wdata",
+        "tests/test_e203_dtcm_ctrl_lsu_access_channels.py::test_e203_dtcm_ctrl_lsu_access_lsu_cmd_channel_lsu_cmd_wmask",
+        "tests/test_e203_dtcm_ctrl_lsu_access_channels.py::test_e203_dtcm_ctrl_lsu_access_lsu_cmd_channel_lsu_cmd_write",
+        "tests/test_e203_dtcm_ctrl_lsu_access_channels.py::test_e203_dtcm_ctrl_lsu_access_lsu_rsp_channel_lsu_rsp_err",
+        "tests/test_e203_dtcm_ctrl_lsu_access_channels.py::test_e203_dtcm_ctrl_lsu_access_lsu_rsp_channel_lsu_rsp_handshake",
+        "tests/test_e203_dtcm_ctrl_lsu_access_channels.py::test_e203_dtcm_ctrl_lsu_access_lsu_rsp_channel_lsu_rsp_rdata"
+      ],
+      "evidence_source": "passed toffee/pytest execution and semantic target mapping for FC-DTCM-CTRL-LSU-READ"
+    },
+    {
+      "model": "agentw",
+      "target_id": "FC-DTCM-CTRL-LSU-WRITE",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_e203_dtcm_ctrl_api_basic.py::test_api_e203_dtcm_ctrl_lsu_write_param_error",
+        "tests/test_e203_dtcm_ctrl_api_operations.py::test_e203_dtcm_ctrl_operation_lsu_access",
+        "tests/test_e203_dtcm_ctrl_lsu_access_channels.py::test_e203_dtcm_ctrl_lsu_access_lsu_cmd_channel_lsu_cmd_addr",
+        "tests/test_e203_dtcm_ctrl_lsu_access_channels.py::test_e203_dtcm_ctrl_lsu_access_lsu_cmd_channel_lsu_cmd_handshake",
+        "tests/test_e203_dtcm_ctrl_lsu_access_channels.py::test_e203_dtcm_ctrl_lsu_access_lsu_cmd_channel_lsu_cmd_read",
+        "tests/test_e203_dtcm_ctrl_lsu_access_channels.py::test_e203_dtcm_ctrl_lsu_access_lsu_cmd_channel_lsu_cmd_wdata",
+        "tests/test_e203_dtcm_ctrl_lsu_access_channels.py::test_e203_dtcm_ctrl_lsu_access_lsu_cmd_channel_lsu_cmd_wmask",
+        "tests/test_e203_dtcm_ctrl_lsu_access_channels.py::test_e203_dtcm_ctrl_lsu_access_lsu_cmd_channel_lsu_cmd_write",
+        "tests/test_e203_dtcm_ctrl_lsu_access_channels.py::test_e203_dtcm_ctrl_lsu_access_lsu_rsp_channel_lsu_rsp_err",
+        "tests/test_e203_dtcm_ctrl_lsu_access_channels.py::test_e203_dtcm_ctrl_lsu_access_lsu_rsp_channel_lsu_rsp_handshake",
+        "tests/test_e203_dtcm_ctrl_lsu_access_channels.py::test_e203_dtcm_ctrl_lsu_access_lsu_rsp_channel_lsu_rsp_rdata"
+      ],
+      "evidence_source": "passed toffee/pytest execution and semantic target mapping for FC-DTCM-CTRL-LSU-WRITE"
+    },
+    {
+      "model": "agentw",
+      "target_id": "FC-DTCM-CTRL-EXT-ACCESS",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_e203_dtcm_ctrl_api_operations.py::test_e203_dtcm_ctrl_operation_ext_access",
+        "tests/test_e203_dtcm_ctrl_ext_access_cmd_channel.py::test_e203_dtcm_ctrl_ext_access_ext_cmd_channel_ext_cmd_addr",
+        "tests/test_e203_dtcm_ctrl_ext_access_cmd_channel.py::test_e203_dtcm_ctrl_ext_access_ext_cmd_channel_ext_cmd_handshake",
+        "tests/test_e203_dtcm_ctrl_ext_access_cmd_channel.py::test_e203_dtcm_ctrl_ext_access_ext_cmd_channel_ext_cmd_read",
+        "tests/test_e203_dtcm_ctrl_ext_access_cmd_channel.py::test_e203_dtcm_ctrl_ext_access_ext_cmd_channel_ext_cmd_wdata",
+        "tests/test_e203_dtcm_ctrl_ext_access_cmd_channel.py::test_e203_dtcm_ctrl_ext_access_ext_cmd_channel_ext_cmd_wmask",
+        "tests/test_e203_dtcm_ctrl_ext_access_rsp_channel.py::test_e203_dtcm_ctrl_ext_access_ext_cmd_channel_ext_cmd_write",
+        "tests/test_e203_dtcm_ctrl_ext_access_rsp_channel.py::test_e203_dtcm_ctrl_ext_access_ext_rsp_channel_ext_rsp_err",
+        "tests/test_e203_dtcm_ctrl_ext_access_rsp_channel.py::test_e203_dtcm_ctrl_ext_access_ext_rsp_channel_ext_rsp_handshake",
+        "tests/test_e203_dtcm_ctrl_ext_access_rsp_channel.py::test_e203_dtcm_ctrl_ext_access_ext_rsp_channel_ext_rsp_rdata",
+        "tests/test_e203_dtcm_ctrl_random_operations.py::test_random_ext_write_read_operations"
+      ],
+      "evidence_source": "passed toffee/pytest execution and semantic target mapping for FC-DTCM-CTRL-EXT-ACCESS"
+    },
+    {
+      "model": "agentw",
+      "target_id": "FC-DTCM-CTRL-ACTIVE-POWER",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_e203_dtcm_ctrl_clock_manage.py::test_e203_dtcm_ctrl_clock_active_state_ext",
+        "tests/test_e203_dtcm_ctrl_clock_manage.py::test_e203_dtcm_ctrl_clock_active_state_lsu"
+      ],
+      "evidence_source": "passed toffee/pytest execution and semantic target mapping for FC-DTCM-CTRL-ACTIVE-POWER"
+    },
+    {
+      "model": "agentw",
+      "target_id": "FC-DTCM-CTRL-ADDR-DECODE",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_e203_dtcm_ctrl_api_basic.py::test_api_e203_dtcm_ctrl_lsu_read_param_error",
+        "tests/test_e203_dtcm_ctrl_api_basic.py::test_api_e203_dtcm_ctrl_lsu_write_param_error",
+        "tests/test_e203_dtcm_ctrl_sram_ctrl.py::test_e203_dtcm_ctrl_sram_ctrl_addr_decode_addr_align",
+        "tests/test_e203_dtcm_ctrl_sram_ctrl.py::test_e203_dtcm_ctrl_sram_ctrl_addr_decode_addr_map",
+        "tests/test_e203_dtcm_ctrl_sram_ctrl.py::test_e203_dtcm_ctrl_sram_ctrl_addr_decode_byte_select",
+        "tests/test_e203_dtcm_ctrl_sram_ctrl.py::test_e203_dtcm_ctrl_sram_ctrl_addr_decode_cs_gen",
+        "tests/test_e203_dtcm_ctrl_sram_ctrl.py::test_e203_dtcm_ctrl_sram_ctrl_addr_decode_we_gen"
+      ],
+      "evidence_source": "passed toffee/pytest execution and semantic target mapping for FC-DTCM-CTRL-ADDR-DECODE"
+    },
+    {
+      "model": "agentw+SFT",
+      "target_id": "FC-DTCM-CTRL-RESET-IDLE",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_e203_dtcm_ctrl_corner_cases.py::test_reset_req_mask",
+        "tests/test_e203_dtcm_ctrl_corner_cases.py::test_reset_sync",
+        "tests/test_e203_dtcm_ctrl_env_fixture.py::test_api_e203_dtcm_ctrl_env_reset_operation"
+      ],
+      "evidence_source": "passed toffee/pytest execution and semantic target mapping for FC-DTCM-CTRL-RESET-IDLE"
+    },
+    {
+      "model": "agentw+SFT",
+      "target_id": "FC-DTCM-CTRL-LSU-READ",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_e203_dtcm_ctrl_lsu_access_basic.py::test_lsu_aligned",
+        "tests/test_e203_dtcm_ctrl_lsu_access_basic.py::test_lsu_read",
+        "tests/test_e203_dtcm_ctrl_lsu_access_basic.py::test_lsu_single_trans",
+        "tests/test_e203_dtcm_ctrl_lsu_access_basic.py::test_lsu_write",
+        "tests/test_e203_dtcm_ctrl_lsu_access_priority.py::test_lsu_higher_priority",
+        "tests/test_e203_dtcm_ctrl_lsu_access_priority.py::test_lsu_no_interrupt",
+        "tests/test_e203_dtcm_ctrl_random_lsu_access.py::test_random_lsu_basic_access"
+      ],
+      "evidence_source": "passed toffee/pytest execution and semantic target mapping for FC-DTCM-CTRL-LSU-READ"
+    },
+    {
+      "model": "agentw+SFT",
+      "target_id": "FC-DTCM-CTRL-LSU-WRITE",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_e203_dtcm_ctrl_lsu_access_basic.py::test_lsu_aligned",
+        "tests/test_e203_dtcm_ctrl_lsu_access_basic.py::test_lsu_read",
+        "tests/test_e203_dtcm_ctrl_lsu_access_basic.py::test_lsu_single_trans",
+        "tests/test_e203_dtcm_ctrl_lsu_access_basic.py::test_lsu_write",
+        "tests/test_e203_dtcm_ctrl_lsu_access_priority.py::test_lsu_higher_priority",
+        "tests/test_e203_dtcm_ctrl_lsu_access_priority.py::test_lsu_no_interrupt",
+        "tests/test_e203_dtcm_ctrl_random_lsu_access.py::test_random_lsu_basic_access"
+      ],
+      "evidence_source": "passed toffee/pytest execution and semantic target mapping for FC-DTCM-CTRL-LSU-WRITE"
+    },
+    {
+      "model": "agentw+SFT",
+      "target_id": "FC-DTCM-CTRL-EXT-ACCESS",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_e203_dtcm_ctrl_ext_access_basic.py::test_ext_config",
+        "tests/test_e203_dtcm_ctrl_ext_access_basic.py::test_ext_read",
+        "tests/test_e203_dtcm_ctrl_ext_access_basic.py::test_ext_write",
+        "tests/test_e203_dtcm_ctrl_ext_access_priority.py::test_ext_lower_priority",
+        "tests/test_e203_dtcm_ctrl_ext_access_priority.py::test_ext_wait"
+      ],
+      "evidence_source": "passed toffee/pytest execution and semantic target mapping for FC-DTCM-CTRL-EXT-ACCESS"
+    },
+    {
+      "model": "agentw+SFT",
+      "target_id": "FC-DTCM-CTRL-ACTIVE-POWER",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_e203_dtcm_ctrl_clock_gating.py::test_clock_active_signal"
+      ],
+      "evidence_source": "passed toffee/pytest execution and semantic target mapping for FC-DTCM-CTRL-ACTIVE-POWER"
+    },
+    {
+      "model": "agentw+SFT",
+      "target_id": "FC-DTCM-CTRL-ADDR-DECODE",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_e203_dtcm_ctrl_corner_cases.py::test_address_boundary",
+        "tests/test_e203_dtcm_ctrl_sram_addr_decode.py::test_sram_byte_sel",
+        "tests/test_e203_dtcm_ctrl_sram_addr_decode.py::test_sram_cs_we"
+      ],
+      "evidence_source": "passed toffee/pytest execution and semantic target mapping for FC-DTCM-CTRL-ADDR-DECODE"
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-DTCM-CTRL-RESET-IDLE",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-DTCM-CTRL-LSU-READ",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-DTCM-CTRL-LSU-WRITE",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-DTCM-CTRL-EXT-ACCESS",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-DTCM-CTRL-ACTIVE-POWER",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-DTCM-CTRL-ADDR-DECODE",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-DTCM-CTRL-RESET-IDLE",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_e203_dtcm_ctrl_api_basic.py::test_api_e203_dtcm_ctrl_idle_api",
+        "tests/test_e203_dtcm_ctrl_power_ram.py::test_e203_dtcm_ctrl_active_idle",
+        "tests/test_e203_dtcm_ctrl_random_mixed_ops.py::test_random_reset_lsu",
+        "tests/test_e203_dtcm_ctrl_random_reset_error.py::test_random_error_flag",
+        "tests/test_e203_dtcm_ctrl_random_reset_error.py::test_random_reset_behavior",
+        "tests/test_e203_dtcm_ctrl_random_reset_error.py::test_random_reset_during_access",
+        "tests/test_e203_dtcm_ctrl_random_reset_error.py::test_random_reset_multi_ops",
+        "tests/test_e203_dtcm_ctrl_random_reset_error.py::test_random_reset_sequence"
+      ],
+      "evidence_source": "passed toffee/pytest execution and semantic target mapping for FC-DTCM-CTRL-RESET-IDLE"
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-DTCM-CTRL-LSU-READ",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_e203_dtcm_ctrl_lsu_read.py::test_e203_dtcm_ctrl_lsu_read_basic",
+        "tests/test_e203_dtcm_ctrl_lsu_read.py::test_e203_dtcm_ctrl_lsu_read_rsp_valid"
+      ],
+      "evidence_source": "passed toffee/pytest execution and semantic target mapping for FC-DTCM-CTRL-LSU-READ"
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-DTCM-CTRL-LSU-WRITE",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_e203_dtcm_ctrl_ext_write_ops.py::test_e203_dtcm_ctrl_ext_write_basic",
+        "tests/test_e203_dtcm_ctrl_lsu_write.py::test_e203_dtcm_ctrl_lsu_write_basic",
+        "tests/test_e203_dtcm_ctrl_random_lsu_ops.py::test_random_lsu_write_then_read"
+      ],
+      "evidence_source": "passed toffee/pytest execution and semantic target mapping for FC-DTCM-CTRL-LSU-WRITE"
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-DTCM-CTRL-EXT-ACCESS",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_e203_dtcm_ctrl_ext_write_ops.py::test_e203_dtcm_ctrl_ext_write_basic"
+      ],
+      "evidence_source": "passed toffee/pytest execution and semantic target mapping for FC-DTCM-CTRL-EXT-ACCESS"
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-DTCM-CTRL-ACTIVE-POWER",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_e203_dtcm_ctrl_power_ram.py::test_e203_dtcm_ctrl_active_idle",
+        "tests/test_e203_dtcm_ctrl_random_mixed_ops.py::test_random_power_active"
+      ],
+      "evidence_source": "passed toffee/pytest execution and semantic target mapping for FC-DTCM-CTRL-ACTIVE-POWER"
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-DTCM-CTRL-ADDR-DECODE",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_e203_dtcm_ctrl_addr_decode.py::test_e203_dtcm_ctrl_addr_min",
+        "tests/test_e203_dtcm_ctrl_random_lsu_ops.py::test_random_lsu_boundary_addresses"
+      ],
+      "evidence_source": "passed toffee/pytest execution and semantic target mapping for FC-DTCM-CTRL-ADDR-DECODE"
+    }
+  ],
+  "contract_hash": "83e4c955472d0122433514d5b8557786f0fb8f21464bb3cf80f7f4a1120e0c85"
+}

@@ -1,0 +1,45 @@
+{
+  "schema_version": "gt_rtl_v3",
+  "dut": "bosc_L1Prefetcher",
+  "status": "adjudicated_from_audited_rtl_roots",
+  "description": "DUT-level independent RTL defect ground truth index for bosc_L1Prefetcher.",
+  "total_rtl_defects": 1,
+  "model_hits": {
+    "gpt-5.5": 1
+  },
+  "defects": [
+    {
+      "gt_id": "GT-RTL-0001",
+      "global_gt_id": "GT-XS-0028",
+      "source_root_id": "RTLBUG-0001",
+      "dut": "bosc_L1Prefetcher",
+      "rtl_file": "bosc_MutiLevelPrefetchFilter.sv",
+      "rtl_line_start": 3914,
+      "rtl_line_end": 3954,
+      "failure_mode": "backpressure_failure",
+      "symptoms": [
+        "BUG-0001",
+        "BUG-0002"
+      ],
+      "models": [
+        "gpt-5.5"
+      ],
+      "source_anchor_confidence": "candidate",
+      "root_match_status": "matched_current_root",
+      "severity": "normal",
+      "description": "ready 从多拍低恢复为 1 后，同一 held pending request 只能在第一个 valid&&ready 周期 fire 一次并清除对应 bit；后续周期不得再次输出相同事务，除非参考模型存在新的独立候选。",
+      "test_cases": [
+        "test_l1_no_dup_after_resume",
+        "test_l1_valid_ready_fire"
+      ],
+      "primary_test_case": "test_l1_no_dup_after_resume",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_xiangshan_20260910",
+      "admission_source": "xiangshan_backup_20260910",
+      "admission_evidence": "registered_adjudication"
+    }
+  ],
+  "category": "xiangshan",
+  "last_registered_at": "2026-09-12T15:23:12+08:00",
+  "last_registered_batch": "baseline_xiangshan_20260910"
+}

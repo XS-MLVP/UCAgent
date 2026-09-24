@@ -1,0 +1,358 @@
+{
+  "schema_version": "functional_coverage_plan.v1",
+  "dut": "sd_fifo_tx_filler",
+  "revision_id": "rev-0e1eb639cef52a89f7aa",
+  "source_snapshot_hash": "a145012ce2b199fab90b383d03c7395f14bf98adf489da2a98f0e348a81787cf",
+  "status": "machine_mapped_frozen_contract",
+  "targets": [
+    {
+      "target_id": "FC-FILLER-ENABLE-RESET",
+      "name": "module enable and address offset reset",
+      "weight": 1,
+      "coverage_definition": "Verify enable assertion and reset clear address offset registers",
+      "sampling_rule": "Sample module enable, reset lines, and internal address offset counter",
+      "oracle_definition": "Offset counter resets to zero and filler starts in initial fetch state",
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "FC-FILLER-WB-READ-REQUEST",
+      "name": "Wishbone bus master read request",
+      "weight": 1,
+      "coverage_definition": "Issue Wishbone read cycles to system memory to fetch payload data",
+      "sampling_rule": "Sample WB cyc, stb, we_o (low), and ack_i signals during fetch",
+      "oracle_definition": "Master initiates read transfers with valid addresses until FIFO is replenished",
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "FC-FILLER-ADDR-PROGRESSION",
+      "name": "sequential address increment during burst",
+      "weight": 1,
+      "coverage_definition": "Observe memory address incrementing by word steps after each successful read ACK",
+      "sampling_rule": "Sample WB address output across consecutive acknowledged reads",
+      "oracle_definition": "Address increments strictly by 4 bytes per word transfer without skips",
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "FC-FILLER-FIFO-WRITE-PUSH",
+      "name": "data forwarding to transmit FIFO",
+      "weight": 1,
+      "coverage_definition": "Forward data fetched from Wishbone bus directly into transmit FIFO write port",
+      "sampling_rule": "Sample FIFO write strobe and data lines synchronously with WB ACK",
+      "oracle_definition": "Fetched data is written into FIFO without corruption or duplicate writes",
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "FC-FILLER-DISABLE-CLEARS",
+      "name": "module disable and offset clearance",
+      "weight": 1,
+      "coverage_definition": "Disable module during or between transfers to verify clean shutdown",
+      "sampling_rule": "Deassert enable and sample bus request lines and address offset registers",
+      "oracle_definition": "Bus cycle drops immediately and address offset returns to zero",
+      "collection_status": "scoreable"
+    }
+  ],
+  "observations": [
+    {
+      "model": "agentw",
+      "target_id": "FC-FILLER-ENABLE-RESET",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_sd_fifo_tx_filler_api_basic.py::test_api_sd_fifo_tx_filler_enable_module_basic",
+        "tests/test_sd_fifo_tx_filler_api_basic.py::test_api_sd_fifo_tx_filler_enable_module_invalid_adr",
+        "tests/test_sd_fifo_tx_filler_api_basic.py::test_api_sd_fifo_tx_filler_reset_basic"
+      ],
+      "evidence_source": "passed toffee/pytest execution and semantic target mapping for FC-FILLER-ENABLE-RESET"
+    },
+    {
+      "model": "agentw",
+      "target_id": "FC-FILLER-WB-READ-REQUEST",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_sd_fifo_tx_filler_api_basic.py::test_api_sd_fifo_tx_filler_read_ack",
+        "tests/test_sd_fifo_tx_filler_api_basic.py::test_api_sd_fifo_tx_filler_receive_sd_clk_edge_basic"
+      ],
+      "evidence_source": "passed toffee/pytest execution and semantic target mapping for FC-FILLER-WB-READ-REQUEST"
+    },
+    {
+      "model": "agentw",
+      "target_id": "FC-FILLER-ADDR-PROGRESSION",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "agentw",
+      "target_id": "FC-FILLER-FIFO-WRITE-PUSH",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_sd_fifo_tx_filler_api_basic.py::test_api_sd_fifo_tx_filler_enable_module_basic",
+        "tests/test_sd_fifo_tx_filler_api_basic.py::test_api_sd_fifo_tx_filler_enable_module_invalid_adr",
+        "tests/test_sd_fifo_tx_filler_api_basic.py::test_api_sd_fifo_tx_filler_read_ack",
+        "tests/test_sd_fifo_tx_filler_api_basic.py::test_api_sd_fifo_tx_filler_receive_sd_clk_edge_basic",
+        "tests/test_sd_fifo_tx_filler_api_basic.py::test_api_sd_fifo_tx_filler_reset_basic",
+        "tests/test_sd_fifo_tx_filler_api_basic.py::test_api_sd_fifo_tx_filler_start_fill_operation_basic",
+        "tests/test_sd_fifo_tx_filler_api_basic.py::test_api_sd_fifo_tx_filler_start_fill_operation_invalid_adr",
+        "tests/test_sd_fifo_tx_filler_random_operations.py::test_random_address_operations"
+      ],
+      "evidence_source": "passed toffee/pytest execution and semantic target mapping for FC-FILLER-FIFO-WRITE-PUSH"
+    },
+    {
+      "model": "agentw",
+      "target_id": "FC-FILLER-DISABLE-CLEARS",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "agentw+SFT",
+      "target_id": "FC-FILLER-ENABLE-RESET",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_sd_fifo_tx_filler_api_operation.py::test_api_sd_fifo_tx_filler_reset_basic",
+        "tests/test_sd_fifo_tx_filler_api_operations.py::test_sd_fifo_tx_filler_api_enable",
+        "tests/test_sd_fifo_tx_filler_api_operations.py::test_sd_fifo_tx_filler_api_reset",
+        "tests/test_sd_fifo_tx_filler_control_operations.py::test_sd_fifo_tx_filler_enable_high",
+        "tests/test_sd_fifo_tx_filler_control_operations.py::test_sd_fifo_tx_filler_enable_low",
+        "tests/test_sd_fifo_tx_filler_control_operations.py::test_sd_fifo_tx_filler_enable_toggle",
+        "tests/test_sd_fifo_tx_filler_control_operations.py::test_sd_fifo_tx_filler_reset_async",
+        "tests/test_sd_fifo_tx_filler_control_operations.py::test_sd_fifo_tx_filler_reset_release",
+        "tests/test_sd_fifo_tx_filler_control_operations.py::test_sd_fifo_tx_filler_reset_sync",
+        "tests/test_sd_fifo_tx_filler_env_fixture.py::test_api_sd_fifo_tx_filler_env_reset_operation",
+        "tests/test_sd_fifo_tx_filler_tx_fifo_operations.py::test_sd_fifo_tx_filler_tx_read_enable",
+        "tests/test_sd_fifo_tx_filler_tx_fifo_operations.py::test_sd_fifo_tx_filler_tx_write_enable"
+      ],
+      "evidence_source": "passed toffee/pytest execution and semantic target mapping for FC-FILLER-ENABLE-RESET"
+    },
+    {
+      "model": "agentw+SFT",
+      "target_id": "FC-FILLER-WB-READ-REQUEST",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_sd_fifo_tx_filler_api_operation.py::test_api_sd_fifo_tx_filler_response_wishbone_read_invalid_ack_i",
+        "tests/test_sd_fifo_tx_filler_wishbone_operations.py::test_sd_fifo_tx_filler_wb_adr_calc_base",
+        "tests/test_sd_fifo_tx_filler_wishbone_operations.py::test_sd_fifo_tx_filler_wb_adr_offset_inc",
+        "tests/test_sd_fifo_tx_filler_wishbone_operations.py::test_sd_fifo_tx_filler_wb_burst_init",
+        "tests/test_sd_fifo_tx_filler_wishbone_operations.py::test_sd_fifo_tx_filler_wb_burst_not_cha",
+        "tests/test_sd_fifo_tx_filler_wishbone_operations.py::test_sd_fifo_tx_filler_wb_complete_data_write",
+        "tests/test_sd_fifo_tx_filler_wishbone_operations.py::test_sd_fifo_tx_filler_wb_complete_delay_toggle",
+        "tests/test_sd_fifo_tx_filler_wishbone_operations.py::test_sd_fifo_tx_filler_wb_complete_signals_deassert",
+        "tests/test_sd_fifo_tx_filler_wishbone_operations.py::test_sd_fifo_tx_filler_wb_start_ack_pending",
+        "tests/test_sd_fifo_tx_filler_wishbone_operations.py::test_sd_fifo_tx_filler_wb_start_ackd_low",
+        "tests/test_sd_fifo_tx_filler_wishbone_operations.py::test_sd_fifo_tx_filler_wb_start_full_fifo",
+        "tests/test_sd_fifo_tx_filler_wishbone_operations.py::test_sd_fifo_tx_filler_wb_start_norm"
+      ],
+      "evidence_source": "passed toffee/pytest execution and semantic target mapping for FC-FILLER-WB-READ-REQUEST"
+    },
+    {
+      "model": "agentw+SFT",
+      "target_id": "FC-FILLER-ADDR-PROGRESSION",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "agentw+SFT",
+      "target_id": "FC-FILLER-FIFO-WRITE-PUSH",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_sd_fifo_tx_filler_api_operation.py::test_api_sd_fifo_tx_filler_initialize_tx_fill_basic",
+        "tests/test_sd_fifo_tx_filler_api_operation.py::test_api_sd_fifo_tx_filler_initialize_tx_fill_invalid_address",
+        "tests/test_sd_fifo_tx_filler_api_operation.py::test_api_sd_fifo_tx_filler_read_tx_fifo_data_basic",
+        "tests/test_sd_fifo_tx_filler_api_operation.py::test_api_sd_fifo_tx_filler_read_tx_fifo_data_invalid_rd_cycles",
+        "tests/test_sd_fifo_tx_filler_api_operation.py::test_api_sd_fifo_tx_filler_reset_basic",
+        "tests/test_sd_fifo_tx_filler_api_operation.py::test_api_sd_fifo_tx_filler_response_wishbone_read_basic",
+        "tests/test_sd_fifo_tx_filler_api_operation.py::test_api_sd_fifo_tx_filler_response_wishbone_read_invalid_ack_i",
+        "tests/test_sd_fifo_tx_filler_api_operation.py::test_api_sd_fifo_tx_filler_response_wishbone_read_invalid_dat_i",
+        "tests/test_sd_fifo_tx_filler_api_operations.py::test_sd_fifo_tx_filler_api_enable",
+        "tests/test_sd_fifo_tx_filler_api_operations.py::test_sd_fifo_tx_filler_api_fifo_read",
+        "tests/test_sd_fifo_tx_filler_api_operations.py::test_sd_fifo_tx_filler_api_fifo_write",
+        "tests/test_sd_fifo_tx_filler_api_operations.py::test_sd_fifo_tx_filler_api_reset",
+        "tests/test_sd_fifo_tx_filler_api_operations.py::test_sd_fifo_tx_filler_api_wishbone_read",
+        "tests/test_sd_fifo_tx_filler_control_operations.py::test_sd_fifo_tx_filler_enable_high",
+        "tests/test_sd_fifo_tx_filler_control_operations.py::test_sd_fifo_tx_filler_enable_low",
+        "tests/test_sd_fifo_tx_filler_control_operations.py::test_sd_fifo_tx_filler_enable_toggle",
+        "tests/test_sd_fifo_tx_filler_control_operations.py::test_sd_fifo_tx_filler_reset_async",
+        "tests/test_sd_fifo_tx_filler_control_operations.py::test_sd_fifo_tx_filler_reset_release",
+        "tests/test_sd_fifo_tx_filler_control_operations.py::test_sd_fifo_tx_filler_reset_sync",
+        "tests/test_sd_fifo_tx_filler_env_fixture.py::test_api_sd_fifo_tx_filler_env_bundle_assign",
+        "tests/test_sd_fifo_tx_filler_env_fixture.py::test_api_sd_fifo_tx_filler_env_pins_encapsulation",
+        "tests/test_sd_fifo_tx_filler_env_fixture.py::test_api_sd_fifo_tx_filler_env_reset_operation",
+        "tests/test_sd_fifo_tx_filler_env_fixture.py::test_api_sd_fifo_tx_filler_env_step_operation",
+        "tests/test_sd_fifo_tx_filler_random_fifo_fill.py::test_random_fifo_fill_status",
+        "tests/test_sd_fifo_tx_filler_random_fifo_fill.py::test_random_wishbone_address_calc",
+        "tests/test_sd_fifo_tx_filler_static_bugs.py::test_static_bug_mem_empt_calc",
+        "tests/test_sd_fifo_tx_filler_tx_fifo_operations.py::test_sd_fifo_tx_filler_fifo_empty_high",
+        "tests/test_sd_fifo_tx_filler_tx_fifo_operations.py::test_sd_fifo_tx_filler_fifo_empty_low",
+        "tests/test_sd_fifo_tx_filler_tx_fifo_operations.py::test_sd_fifo_tx_filler_fifo_full_high",
+        "tests/test_sd_fifo_tx_filler_tx_fifo_operations.py::test_sd_fifo_tx_filler_fifo_full_low",
+        "tests/test_sd_fifo_tx_filler_tx_fifo_operations.py::test_sd_fifo_tx_filler_mem_empt_calc",
+        "tests/test_sd_fifo_tx_filler_tx_fifo_operations.py::test_sd_fifo_tx_filler_tx_data_output",
+        "tests/test_sd_fifo_tx_filler_tx_fifo_operations.py::test_sd_fifo_tx_filler_tx_read_enable",
+        "tests/test_sd_fifo_tx_filler_tx_fifo_operations.py::test_sd_fifo_tx_filler_tx_write_data",
+        "tests/test_sd_fifo_tx_filler_tx_fifo_operations.py::test_sd_fifo_tx_filler_tx_write_enable",
+        "tests/test_sd_fifo_tx_filler_wishbone_operations.py::test_sd_fifo_tx_filler_wb_adr_calc_base",
+        "tests/test_sd_fifo_tx_filler_wishbone_operations.py::test_sd_fifo_tx_filler_wb_adr_offset_inc",
+        "tests/test_sd_fifo_tx_filler_wishbone_operations.py::test_sd_fifo_tx_filler_wb_burst_init",
+        "tests/test_sd_fifo_tx_filler_wishbone_operations.py::test_sd_fifo_tx_filler_wb_burst_not_cha",
+        "tests/test_sd_fifo_tx_filler_wishbone_operations.py::test_sd_fifo_tx_filler_wb_complete_data_write",
+        "tests/test_sd_fifo_tx_filler_wishbone_operations.py::test_sd_fifo_tx_filler_wb_complete_delay_toggle",
+        "tests/test_sd_fifo_tx_filler_wishbone_operations.py::test_sd_fifo_tx_filler_wb_complete_signals_deassert",
+        "tests/test_sd_fifo_tx_filler_wishbone_operations.py::test_sd_fifo_tx_filler_wb_start_ack_pending",
+        "tests/test_sd_fifo_tx_filler_wishbone_operations.py::test_sd_fifo_tx_filler_wb_start_ackd_low",
+        "tests/test_sd_fifo_tx_filler_wishbone_operations.py::test_sd_fifo_tx_filler_wb_start_full_fifo",
+        "tests/test_sd_fifo_tx_filler_wishbone_operations.py::test_sd_fifo_tx_filler_wb_start_norm"
+      ],
+      "evidence_source": "passed toffee/pytest execution and semantic target mapping for FC-FILLER-FIFO-WRITE-PUSH"
+    },
+    {
+      "model": "agentw+SFT",
+      "target_id": "FC-FILLER-DISABLE-CLEARS",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-FILLER-ENABLE-RESET",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_sd_fifo_tx_filler_robustness.py::test_sd_fifo_tx_filler_mid_transfer_reset_robustness"
+      ],
+      "evidence_source": "passed toffee/pytest execution and semantic target mapping for FC-FILLER-ENABLE-RESET"
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-FILLER-WB-READ-REQUEST",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_sd_fifo_tx_filler_static_bug_templates.py::test_sd_fifo_tx_filler_ignore_ack_without_active_request"
+      ],
+      "evidence_source": "passed toffee/pytest execution and semantic target mapping for FC-FILLER-WB-READ-REQUEST"
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-FILLER-ADDR-PROGRESSION",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-FILLER-FIFO-WRITE-PUSH",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_sd_fifo_tx_filler_clock_domain.py::test_sd_fifo_tx_filler_concurrent_fill_drain_data_integrity",
+        "tests/test_sd_fifo_tx_filler_fifo_read.py::test_sd_fifo_tx_filler_fifo_order_multi_words",
+        "tests/test_sd_fifo_tx_filler_fifo_read.py::test_sd_fifo_tx_filler_no_reorder_under_concurrent",
+        "tests/test_sd_fifo_tx_filler_random_sequences.py::test_random_address_progression_burst",
+        "tests/test_sd_fifo_tx_filler_random_sequences.py::test_random_clock_ratio_delivery",
+        "tests/test_sd_fifo_tx_filler_robustness.py::test_sd_fifo_tx_filler_mid_transfer_reset_robustness",
+        "tests/test_sd_fifo_tx_filler_static_bug_templates.py::test_sd_fifo_tx_filler_ignore_ack_without_active_request"
+      ],
+      "evidence_source": "passed toffee/pytest execution and semantic target mapping for FC-FILLER-FIFO-WRITE-PUSH"
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-FILLER-DISABLE-CLEARS",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-FILLER-ENABLE-RESET",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_sd_fifo_tx_filler_enable.py::test_enable_re_enable"
+      ],
+      "evidence_source": "passed toffee/pytest execution and semantic target mapping for FC-FILLER-ENABLE-RESET"
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-FILLER-WB-READ-REQUEST",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_sd_fifo_tx_filler_random_wb_seq.py::test_random_wb_transaction_sequence",
+        "tests/test_sd_fifo_tx_filler_wb_trans.py::test_wb_addr_incr",
+        "tests/test_sd_fifo_tx_filler_wb_trans.py::test_wb_delay2_ackd_tog",
+        "tests/test_sd_fifo_tx_filler_wb_trans.py::test_wb_delay2_wr_off"
+      ],
+      "evidence_source": "passed toffee/pytest execution and semantic target mapping for FC-FILLER-WB-READ-REQUEST"
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-FILLER-ADDR-PROGRESSION",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-FILLER-FIFO-WRITE-PUSH",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_sd_fifo_tx_filler_enable.py::test_enable_re_enable",
+        "tests/test_sd_fifo_tx_filler_random_fifo.py::test_random_address_changes",
+        "tests/test_sd_fifo_tx_filler_random_fifo.py::test_random_clock_domain_interaction",
+        "tests/test_sd_fifo_tx_filler_random_fifo.py::test_random_fifo_rw",
+        "tests/test_sd_fifo_tx_filler_random_wb_seq.py::test_random_wb_transaction_sequence",
+        "tests/test_sd_fifo_tx_filler_wb_trans.py::test_wb_addr_incr",
+        "tests/test_sd_fifo_tx_filler_wb_trans.py::test_wb_delay2_ackd_tog",
+        "tests/test_sd_fifo_tx_filler_wb_trans.py::test_wb_delay2_wr_off"
+      ],
+      "evidence_source": "passed toffee/pytest execution and semantic target mapping for FC-FILLER-FIFO-WRITE-PUSH"
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-FILLER-DISABLE-CLEARS",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    }
+  ],
+  "contract_hash": "a9f4cad0551bf889631ca78a5423d0d1cb552b5d10cb89e9513ec639f176a655"
+}

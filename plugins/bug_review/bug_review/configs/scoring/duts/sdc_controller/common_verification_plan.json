@@ -1,0 +1,11 @@
+{
+  "schema_version": "common_verification_plan.v2",
+  "dut": "sdc_controller",
+  "revision_id": "rev-2eb1cbdc1be84e73fdf3",
+  "source_snapshot_hash": "9fe901d90a15e8abdd4e5ca315803dc6a69d4603323c271e526f1f38785b5591",
+  "status": "machine_validated_coverage_unavailable",
+  "taxonomy_basis": "No taxonomy or comparable common coverage is asserted",
+  "scenarios": [],
+  "line_coverage_targets": [],
+  "functional_coverage_targets": []
+}

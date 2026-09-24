@@ -1,0 +1,215 @@
+{
+  "schema_version": "gt_rtl_v3",
+  "dut": "bosc_LoadUnit",
+  "status": "adjudicated_from_audited_rtl_roots",
+  "description": "DUT-level independent RTL defect ground truth index for bosc_LoadUnit.",
+  "total_rtl_defects": 7,
+  "model_hits": {
+    "gpt-5.5": 7
+  },
+  "defects": [
+    {
+      "gt_id": "GT-RTL-0001",
+      "global_gt_id": "GT-XS-0042",
+      "source_root_id": "RTLBUG-0001",
+      "dut": "bosc_LoadUnit",
+      "rtl_file": "bosc_LoadUnit.sv",
+      "rtl_line_start": 4341,
+      "rtl_line_end": 4381,
+      "failure_mode": "ordering_or_concurrency_failure",
+      "symptoms": [
+        "BUG-0006",
+        "BUG-0011",
+        "BUG-0012"
+      ],
+      "models": [
+        "gpt-5.5"
+      ],
+      "source_anchor_confidence": "candidate",
+      "root_match_status": "matched_current_root",
+      "severity": "normal",
+      "description": "RTL root defect in bosc_LoadUnit",
+      "test_cases": [
+        "test_loadunit_misalign_no_cross_16b_boundary_path",
+        "test_stage0_uncache_priority_over_replay_vector_and_scalar",
+        "test_stage0_nc_priority_over_ordinary_replay"
+      ],
+      "primary_test_case": "test_loadunit_misalign_no_cross_16b_boundary_path",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_xiangshan_20260910",
+      "admission_source": "xiangshan_backup_20260910",
+      "admission_evidence": "registered_adjudication"
+    },
+    {
+      "gt_id": "GT-RTL-0002",
+      "global_gt_id": "GT-XS-0043",
+      "source_root_id": "RTLBUG-0002",
+      "dut": "bosc_LoadUnit",
+      "rtl_file": "bosc_LoadUnit.sv",
+      "rtl_line_start": 9714,
+      "rtl_line_end": 9749,
+      "failure_mode": "ordering_or_concurrency_failure",
+      "symptoms": [
+        "BUG-0007"
+      ],
+      "models": [
+        "gpt-5.5"
+      ],
+      "source_anchor_confidence": "candidate",
+      "root_match_status": "matched_current_root",
+      "severity": "normal",
+      "description": "RTL root defect in bosc_LoadUnit",
+      "test_cases": [
+        "test_loadunit_nc_contention_still_does_not_query_tlb"
+      ],
+      "primary_test_case": "test_loadunit_nc_contention_still_does_not_query_tlb",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_xiangshan_20260910",
+      "admission_source": "xiangshan_backup_20260910",
+      "admission_evidence": "registered_adjudication"
+    },
+    {
+      "gt_id": "GT-RTL-0003",
+      "global_gt_id": "GT-XS-0044",
+      "source_root_id": "RTLBUG-0003",
+      "dut": "bosc_LoadUnit",
+      "rtl_file": "bosc_LoadUnit.sv",
+      "rtl_line_start": 2766,
+      "rtl_line_end": 2804,
+      "failure_mode": "ordering_or_concurrency_failure",
+      "symptoms": [
+        "BUG-0008"
+      ],
+      "models": [
+        "gpt-5.5"
+      ],
+      "source_anchor_confidence": "candidate",
+      "root_match_status": "matched_current_root",
+      "severity": "normal",
+      "description": "RTL root defect in bosc_LoadUnit",
+      "test_cases": [
+        "test_loadunit_scalar_no_issue_when_stage1_blocked"
+      ],
+      "primary_test_case": "test_loadunit_scalar_no_issue_when_stage1_blocked",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_xiangshan_20260910",
+      "admission_source": "xiangshan_backup_20260910",
+      "admission_evidence": "registered_adjudication"
+    },
+    {
+      "gt_id": "GT-RTL-0004",
+      "global_gt_id": "GT-XS-0045",
+      "source_root_id": "RTLBUG-0004",
+      "dut": "bosc_LoadUnit",
+      "rtl_file": "bosc_LoadUnit.sv",
+      "rtl_line_start": 6608,
+      "rtl_line_end": 6637,
+      "failure_mode": "ordering_or_concurrency_failure",
+      "symptoms": [
+        "BUG-0010"
+      ],
+      "models": [
+        "gpt-5.5"
+      ],
+      "source_anchor_confidence": "candidate",
+      "root_match_status": "matched_current_root",
+      "severity": "normal",
+      "description": "RTL root defect in bosc_LoadUnit",
+      "test_cases": [
+        "test_loadunit_scalar_writeback_releases_on_ready"
+      ],
+      "primary_test_case": "test_loadunit_scalar_writeback_releases_on_ready",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_xiangshan_20260910",
+      "admission_source": "xiangshan_backup_20260910",
+      "admission_evidence": "registered_adjudication"
+    },
+    {
+      "gt_id": "GT-RTL-0005",
+      "global_gt_id": "GT-XS-0046",
+      "source_root_id": "RTLBUG-0005",
+      "dut": "bosc_LoadUnit",
+      "rtl_file": "bosc_LoadUnit.sv",
+      "rtl_line_start": 11,
+      "rtl_line_end": 17,
+      "failure_mode": "ordering_or_concurrency_failure",
+      "symptoms": [
+        "BUG-0013"
+      ],
+      "models": [
+        "gpt-5.5"
+      ],
+      "source_anchor_confidence": "candidate",
+      "root_match_status": "matched_current_root",
+      "severity": "normal",
+      "description": "RTL root defect in bosc_LoadUnit",
+      "test_cases": [
+        "test_stage0_nc_priority_over_vector_and_scalar"
+      ],
+      "primary_test_case": "test_stage0_nc_priority_over_vector_and_scalar",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_xiangshan_20260910",
+      "admission_source": "xiangshan_backup_20260910",
+      "admission_evidence": "registered_adjudication"
+    },
+    {
+      "gt_id": "GT-RTL-0006",
+      "global_gt_id": "GT-XS-0047",
+      "source_root_id": "RTLBUG-0006",
+      "dut": "bosc_LoadUnit",
+      "rtl_file": "bosc_LoadUnit.sv",
+      "rtl_line_start": 10074,
+      "rtl_line_end": 10117,
+      "failure_mode": "ordering_or_concurrency_failure",
+      "symptoms": [
+        "BUG-0014"
+      ],
+      "models": [
+        "gpt-5.5"
+      ],
+      "source_anchor_confidence": "candidate",
+      "root_match_status": "matched_current_root",
+      "severity": "normal",
+      "description": "RTL root defect in bosc_LoadUnit",
+      "test_cases": [
+        "test_stage0_high_confidence_prefetch_priority_over_vector"
+      ],
+      "primary_test_case": "test_stage0_high_confidence_prefetch_priority_over_vector",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_xiangshan_20260910",
+      "admission_source": "xiangshan_backup_20260910",
+      "admission_evidence": "registered_adjudication"
+    },
+    {
+      "gt_id": "GT-RTL-0007",
+      "global_gt_id": "GT-XS-0048",
+      "source_root_id": "RTLBUG-0007",
+      "dut": "bosc_LoadUnit",
+      "rtl_file": "bosc_LoadUnit_top.v",
+      "rtl_line_start": 264,
+      "rtl_line_end": 284,
+      "failure_mode": "reset_state_mismatch",
+      "symptoms": [
+        "BUG-0015"
+      ],
+      "models": [
+        "gpt-5.5"
+      ],
+      "source_anchor_confidence": "high",
+      "root_match_status": "matched_current_root",
+      "severity": "normal",
+      "description": "RTL root defect in bosc_LoadUnit",
+      "test_cases": [
+        "test_loadunit_vector_writeback_holds_under_backpressure"
+      ],
+      "primary_test_case": "test_loadunit_vector_writeback_holds_under_backpressure",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_xiangshan_20260910",
+      "admission_source": "xiangshan_backup_20260910",
+      "admission_evidence": "registered_adjudication"
+    }
+  ],
+  "category": "xiangshan",
+  "last_registered_at": "2026-09-12T15:23:12+08:00",
+  "last_registered_batch": "baseline_xiangshan_20260910"
+}

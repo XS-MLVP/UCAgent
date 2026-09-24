@@ -1,0 +1,11 @@
+{
+  "schema_version": "root_scenario_evidence.v2",
+  "dut": "aes_sbox",
+  "revision_id": "rev-304df3bdf8f1cd123bcb",
+  "source_snapshot_hash": "7a90b8b1013d0a6eeb71c43478305072c724d1d9f169847c2d276422c9e601d3",
+  "status": "machine_validated_coverage_unavailable",
+  "entries": [],
+  "reported_root_adjudications": [],
+  "line_coverage": [],
+  "functional_coverage": []
+}

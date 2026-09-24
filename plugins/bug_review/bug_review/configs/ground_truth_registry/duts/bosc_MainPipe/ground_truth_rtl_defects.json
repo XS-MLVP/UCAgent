@@ -1,0 +1,79 @@
+{
+  "schema_version": "gt_rtl_v3",
+  "dut": "bosc_MainPipe",
+  "status": "adjudicated_from_audited_rtl_roots",
+  "description": "DUT-level independent RTL defect ground truth index for bosc_MainPipe.",
+  "total_rtl_defects": 2,
+  "model_hits": {
+    "gpt-5.5": 2
+  },
+  "defects": [
+    {
+      "gt_id": "GT-RTL-0001",
+      "global_gt_id": "GT-XS-0053",
+      "source_root_id": "RTLBUG-0001",
+      "dut": "bosc_MainPipe",
+      "rtl_file": "bosc_MainPipe.sv",
+      "rtl_line_start": 1267,
+      "rtl_line_end": 1304,
+      "failure_mode": "ordering_or_concurrency_failure",
+      "symptoms": [
+        "BUG-0001",
+        "BUG-0004"
+      ],
+      "models": [
+        "gpt-5.5"
+      ],
+      "source_anchor_confidence": "candidate",
+      "root_match_status": "matched_current_root",
+      "severity": "normal",
+      "description": "RTL root defect in bosc_MainPipe",
+      "test_cases": [
+        "test_bosc_MainPipe_atomic_resp_fields",
+        "test_bosc_MainPipe_priority_store"
+      ],
+      "primary_test_case": "test_bosc_MainPipe_atomic_resp_fields",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_xiangshan_20260910",
+      "admission_source": "xiangshan_backup_20260910",
+      "admission_evidence": "registered_adjudication"
+    },
+    {
+      "gt_id": "GT-RTL-0002",
+      "global_gt_id": "GT-XS-0054",
+      "source_root_id": "RTLBUG-0002",
+      "dut": "bosc_MainPipe",
+      "rtl_file": "bosc_Arbiter4_MainPipeReq.sv",
+      "rtl_line_start": 121,
+      "rtl_line_end": 157,
+      "failure_mode": "ordering_or_concurrency_failure",
+      "symptoms": [
+        "BUG-0002",
+        "BUG-0003",
+        "BUG-0005",
+        "BUG-0006",
+        "BUG-0007"
+      ],
+      "models": [
+        "gpt-5.5"
+      ],
+      "source_anchor_confidence": "candidate",
+      "root_match_status": "matched_current_root",
+      "severity": "normal",
+      "description": "RTL root defect in bosc_MainPipe",
+      "test_cases": [
+        "test_bosc_MainPipe_replace_way_select",
+        "test_bosc_MainPipe_store_miss_to_mq",
+        "test_bosc_MainPipe_probe_block_by_lrsc"
+      ],
+      "primary_test_case": "test_bosc_MainPipe_replace_way_select",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_xiangshan_20260910",
+      "admission_source": "xiangshan_backup_20260910",
+      "admission_evidence": "registered_adjudication"
+    }
+  ],
+  "category": "xiangshan",
+  "last_registered_at": "2026-09-12T15:23:12+08:00",
+  "last_registered_batch": "baseline_xiangshan_20260910"
+}

@@ -1,0 +1,545 @@
+{
+  "schema_version": "gt_registry_v1",
+  "description": "Centralized Master Ground Truth Registry for all benchmark DUTs",
+  "last_synced_at": "2026-09-20T13:43:19+08:00",
+  "total_registered_duts": 67,
+  "total_registered_defects": 187,
+  "duts": {
+    "adder": {
+      "dut": "adder",
+      "category": "general",
+      "total_rtl_defects": 1,
+      "last_registered_at": "2026-09-14T14:40:05+08:00",
+      "last_registered_batch": "batch_20260914",
+      "relative_path": "duts/adder/ground_truth_rtl_defects.json"
+    },
+    "aes_cipher_top": {
+      "dut": "aes_cipher_top",
+      "category": "14dut",
+      "total_rtl_defects": 2,
+      "last_registered_at": "2026-09-12T15:23:12+08:00",
+      "last_registered_batch": "baseline_bm6",
+      "relative_path": "duts/aes_cipher_top/ground_truth_rtl_defects.json"
+    },
+    "bosc_AtomicsUnit": {
+      "dut": "bosc_AtomicsUnit",
+      "category": "xiangshan",
+      "total_rtl_defects": 4,
+      "last_registered_at": "2026-09-12T15:23:12+08:00",
+      "last_registered_batch": "baseline_xiangshan_20260910",
+      "relative_path": "duts/bosc_AtomicsUnit/ground_truth_rtl_defects.json"
+    },
+    "bosc_CtrlUnit": {
+      "dut": "bosc_CtrlUnit",
+      "category": "xiangshan",
+      "total_rtl_defects": 1,
+      "last_registered_at": "2026-09-12T15:23:12+08:00",
+      "last_registered_batch": "baseline_xiangshan_20260910",
+      "relative_path": "duts/bosc_CtrlUnit/ground_truth_rtl_defects.json"
+    },
+    "bosc_DataPath": {
+      "dut": "bosc_DataPath",
+      "category": "xiangshan",
+      "total_rtl_defects": 2,
+      "last_registered_at": "2026-09-12T15:23:12+08:00",
+      "last_registered_batch": "baseline_xiangshan_20260910",
+      "relative_path": "duts/bosc_DataPath/ground_truth_rtl_defects.json"
+    },
+    "bosc_DecodeUnitComp": {
+      "dut": "bosc_DecodeUnitComp",
+      "category": "xiangshan",
+      "total_rtl_defects": 1,
+      "last_registered_at": "2026-09-12T15:23:12+08:00",
+      "last_registered_batch": "baseline_xiangshan_20260910",
+      "relative_path": "duts/bosc_DecodeUnitComp/ground_truth_rtl_defects.json"
+    },
+    "bosc_ExuBlock": {
+      "dut": "bosc_ExuBlock",
+      "category": "xiangshan",
+      "total_rtl_defects": 3,
+      "last_registered_at": "2026-09-12T15:23:12+08:00",
+      "last_registered_batch": "baseline_xiangshan_20260910",
+      "relative_path": "duts/bosc_ExuBlock/ground_truth_rtl_defects.json"
+    },
+    "bosc_FTB": {
+      "dut": "bosc_FTB",
+      "category": "xiangshan",
+      "total_rtl_defects": 9,
+      "last_registered_at": "2026-09-12T15:23:12+08:00",
+      "last_registered_batch": "baseline_xiangshan_20260910",
+      "relative_path": "duts/bosc_FTB/ground_truth_rtl_defects.json"
+    },
+    "bosc_FauFTB": {
+      "dut": "bosc_FauFTB",
+      "category": "xiangshan",
+      "total_rtl_defects": 2,
+      "last_registered_at": "2026-09-12T15:23:12+08:00",
+      "last_registered_batch": "baseline_xiangshan_20260910",
+      "relative_path": "duts/bosc_FauFTB/ground_truth_rtl_defects.json"
+    },
+    "bosc_Ftq": {
+      "dut": "bosc_Ftq",
+      "category": "xiangshan",
+      "total_rtl_defects": 1,
+      "last_registered_at": "2026-09-12T15:23:12+08:00",
+      "last_registered_batch": "baseline_xiangshan_20260910",
+      "relative_path": "duts/bosc_Ftq/ground_truth_rtl_defects.json"
+    },
+    "bosc_FusionDecoder": {
+      "dut": "bosc_FusionDecoder",
+      "category": "xiangshan",
+      "total_rtl_defects": 1,
+      "last_registered_at": "2026-09-12T15:23:12+08:00",
+      "last_registered_batch": "baseline_xiangshan_20260910",
+      "relative_path": "duts/bosc_FusionDecoder/ground_truth_rtl_defects.json"
+    },
+    "bosc_GrantBuffer": {
+      "dut": "bosc_GrantBuffer",
+      "category": "xiangshan",
+      "total_rtl_defects": 1,
+      "last_registered_at": "2026-09-12T15:23:12+08:00",
+      "last_registered_batch": "baseline_xiangshan_20260910",
+      "relative_path": "duts/bosc_GrantBuffer/ground_truth_rtl_defects.json"
+    },
+    "bosc_ICacheMainPipe": {
+      "dut": "bosc_ICacheMainPipe",
+      "category": "xiangshan",
+      "total_rtl_defects": 1,
+      "last_registered_at": "2026-09-12T15:23:12+08:00",
+      "last_registered_batch": "baseline_xiangshan_20260910",
+      "relative_path": "duts/bosc_ICacheMainPipe/ground_truth_rtl_defects.json"
+    },
+    "bosc_ITTage": {
+      "dut": "bosc_ITTage",
+      "category": "xiangshan",
+      "total_rtl_defects": 1,
+      "last_registered_at": "2026-09-12T15:23:12+08:00",
+      "last_registered_batch": "baseline_xiangshan_20260910",
+      "relative_path": "duts/bosc_ITTage/ground_truth_rtl_defects.json"
+    },
+    "bosc_L1Prefetcher": {
+      "dut": "bosc_L1Prefetcher",
+      "category": "xiangshan",
+      "total_rtl_defects": 1,
+      "last_registered_at": "2026-09-12T15:23:12+08:00",
+      "last_registered_batch": "baseline_xiangshan_20260910",
+      "relative_path": "duts/bosc_L1Prefetcher/ground_truth_rtl_defects.json"
+    },
+    "bosc_L2TlbPrefetch": {
+      "dut": "bosc_L2TlbPrefetch",
+      "category": "xiangshan",
+      "total_rtl_defects": 2,
+      "last_registered_at": "2026-09-12T15:23:12+08:00",
+      "last_registered_batch": "baseline_xiangshan_20260910",
+      "relative_path": "duts/bosc_L2TlbPrefetch/ground_truth_rtl_defects.json"
+    },
+    "bosc_LLPTW": {
+      "dut": "bosc_LLPTW",
+      "category": "xiangshan",
+      "total_rtl_defects": 1,
+      "last_registered_at": "2026-09-17T15:33:04+08:00",
+      "last_registered_batch": "llptw_counterevidence_review_20260917",
+      "relative_path": "duts/bosc_LLPTW/ground_truth_rtl_defects.json"
+    },
+    "bosc_LinkMonitor": {
+      "dut": "bosc_LinkMonitor",
+      "category": "xiangshan",
+      "total_rtl_defects": 1,
+      "last_registered_at": "2026-09-12T15:23:12+08:00",
+      "last_registered_batch": "baseline_xiangshan_20260910",
+      "relative_path": "duts/bosc_LinkMonitor/ground_truth_rtl_defects.json"
+    },
+    "bosc_LoadPipe": {
+      "dut": "bosc_LoadPipe",
+      "category": "xiangshan",
+      "total_rtl_defects": 4,
+      "last_registered_at": "2026-09-12T15:23:12+08:00",
+      "last_registered_batch": "baseline_xiangshan_20260910",
+      "relative_path": "duts/bosc_LoadPipe/ground_truth_rtl_defects.json"
+    },
+    "bosc_LoadQueueRAR": {
+      "dut": "bosc_LoadQueueRAR",
+      "category": "xiangshan",
+      "total_rtl_defects": 2,
+      "last_registered_at": "2026-09-12T15:23:12+08:00",
+      "last_registered_batch": "baseline_xiangshan_20260910",
+      "relative_path": "duts/bosc_LoadQueueRAR/ground_truth_rtl_defects.json"
+    },
+    "bosc_LoadQueueRAW": {
+      "dut": "bosc_LoadQueueRAW",
+      "category": "xiangshan",
+      "total_rtl_defects": 3,
+      "last_registered_at": "2026-09-12T15:23:12+08:00",
+      "last_registered_batch": "baseline_xiangshan_20260910",
+      "relative_path": "duts/bosc_LoadQueueRAW/ground_truth_rtl_defects.json"
+    },
+    "bosc_LoadQueueReplay": {
+      "dut": "bosc_LoadQueueReplay",
+      "category": "xiangshan",
+      "total_rtl_defects": 1,
+      "last_registered_at": "2026-09-12T15:23:12+08:00",
+      "last_registered_batch": "baseline_xiangshan_20260910",
+      "relative_path": "duts/bosc_LoadQueueReplay/ground_truth_rtl_defects.json"
+    },
+    "bosc_LoadUnit": {
+      "dut": "bosc_LoadUnit",
+      "category": "xiangshan",
+      "total_rtl_defects": 7,
+      "last_registered_at": "2026-09-12T15:23:12+08:00",
+      "last_registered_batch": "baseline_xiangshan_20260910",
+      "relative_path": "duts/bosc_LoadUnit/ground_truth_rtl_defects.json"
+    },
+    "bosc_MMIOBridge": {
+      "dut": "bosc_MMIOBridge",
+      "category": "xiangshan",
+      "total_rtl_defects": 1,
+      "last_registered_at": "2026-09-12T15:23:12+08:00",
+      "last_registered_batch": "baseline_xiangshan_20260910",
+      "relative_path": "duts/bosc_MMIOBridge/ground_truth_rtl_defects.json"
+    },
+    "bosc_MSHRCtl": {
+      "dut": "bosc_MSHRCtl",
+      "category": "xiangshan",
+      "total_rtl_defects": 3,
+      "last_registered_at": "2026-09-12T15:23:12+08:00",
+      "last_registered_batch": "baseline_xiangshan_20260910",
+      "relative_path": "duts/bosc_MSHRCtl/ground_truth_rtl_defects.json"
+    },
+    "bosc_MainPipe": {
+      "dut": "bosc_MainPipe",
+      "category": "xiangshan",
+      "total_rtl_defects": 2,
+      "last_registered_at": "2026-09-12T15:23:12+08:00",
+      "last_registered_batch": "baseline_xiangshan_20260910",
+      "relative_path": "duts/bosc_MainPipe/ground_truth_rtl_defects.json"
+    },
+    "bosc_MainPipe_1": {
+      "dut": "bosc_MainPipe_1",
+      "category": "xiangshan",
+      "total_rtl_defects": 1,
+      "last_registered_at": "2026-09-12T15:23:12+08:00",
+      "last_registered_batch": "baseline_xiangshan_20260910",
+      "relative_path": "duts/bosc_MainPipe_1/ground_truth_rtl_defects.json"
+    },
+    "bosc_MissQueue": {
+      "dut": "bosc_MissQueue",
+      "category": "xiangshan",
+      "total_rtl_defects": 2,
+      "last_registered_at": "2026-09-12T15:23:12+08:00",
+      "last_registered_batch": "baseline_xiangshan_20260910",
+      "relative_path": "duts/bosc_MissQueue/ground_truth_rtl_defects.json"
+    },
+    "bosc_NewDispatch": {
+      "dut": "bosc_NewDispatch",
+      "category": "xiangshan",
+      "total_rtl_defects": 5,
+      "last_registered_at": "2026-09-12T15:23:12+08:00",
+      "last_registered_batch": "baseline_xiangshan_20260910",
+      "relative_path": "duts/bosc_NewDispatch/ground_truth_rtl_defects.json"
+    },
+    "bosc_NewIFU": {
+      "dut": "bosc_NewIFU",
+      "category": "xiangshan",
+      "total_rtl_defects": 4,
+      "last_registered_at": "2026-09-12T15:23:12+08:00",
+      "last_registered_batch": "baseline_xiangshan_20260910",
+      "relative_path": "duts/bosc_NewIFU/ground_truth_rtl_defects.json"
+    },
+    "bosc_Og2ForVector": {
+      "dut": "bosc_Og2ForVector",
+      "category": "xiangshan",
+      "total_rtl_defects": 1,
+      "last_registered_at": "2026-09-12T15:23:12+08:00",
+      "last_registered_batch": "baseline_xiangshan_20260910",
+      "relative_path": "duts/bosc_Og2ForVector/ground_truth_rtl_defects.json"
+    },
+    "bosc_PTWNewFilter": {
+      "dut": "bosc_PTWNewFilter",
+      "category": "xiangshan",
+      "total_rtl_defects": 2,
+      "last_registered_at": "2026-09-12T15:23:12+08:00",
+      "last_registered_batch": "baseline_xiangshan_20260910",
+      "relative_path": "duts/bosc_PTWNewFilter/ground_truth_rtl_defects.json"
+    },
+    "bosc_PTWRepeaterNB": {
+      "dut": "bosc_PTWRepeaterNB",
+      "category": "xiangshan",
+      "total_rtl_defects": 1,
+      "last_registered_at": "2026-09-12T15:23:12+08:00",
+      "last_registered_batch": "baseline_xiangshan_20260910",
+      "relative_path": "duts/bosc_PTWRepeaterNB/ground_truth_rtl_defects.json"
+    },
+    "bosc_Prefetcher": {
+      "dut": "bosc_Prefetcher",
+      "category": "xiangshan",
+      "total_rtl_defects": 6,
+      "last_registered_at": "2026-09-12T15:23:12+08:00",
+      "last_registered_batch": "baseline_xiangshan_20260910",
+      "relative_path": "duts/bosc_Prefetcher/ground_truth_rtl_defects.json"
+    },
+    "bosc_ProbeQueue": {
+      "dut": "bosc_ProbeQueue",
+      "category": "xiangshan",
+      "total_rtl_defects": 1,
+      "last_registered_at": "2026-09-12T15:23:12+08:00",
+      "last_registered_batch": "baseline_xiangshan_20260910",
+      "relative_path": "duts/bosc_ProbeQueue/ground_truth_rtl_defects.json"
+    },
+    "bosc_PtwCache": {
+      "dut": "bosc_PtwCache",
+      "category": "xiangshan",
+      "total_rtl_defects": 1,
+      "last_registered_at": "2026-09-12T15:23:12+08:00",
+      "last_registered_batch": "baseline_xiangshan_20260910",
+      "relative_path": "duts/bosc_PtwCache/ground_truth_rtl_defects.json"
+    },
+    "bosc_RAS": {
+      "dut": "bosc_RAS",
+      "category": "xiangshan",
+      "total_rtl_defects": 1,
+      "last_registered_at": "2026-09-12T15:23:12+08:00",
+      "last_registered_batch": "baseline_xiangshan_20260910",
+      "relative_path": "duts/bosc_RAS/ground_truth_rtl_defects.json"
+    },
+    "bosc_RXSNP": {
+      "dut": "bosc_RXSNP",
+      "category": "xiangshan",
+      "total_rtl_defects": 3,
+      "last_registered_at": "2026-09-12T15:23:12+08:00",
+      "last_registered_batch": "baseline_xiangshan_20260910",
+      "relative_path": "duts/bosc_RXSNP/ground_truth_rtl_defects.json"
+    },
+    "bosc_Rename": {
+      "dut": "bosc_Rename",
+      "category": "xiangshan",
+      "total_rtl_defects": 4,
+      "last_registered_at": "2026-09-12T15:23:12+08:00",
+      "last_registered_batch": "baseline_xiangshan_20260910",
+      "relative_path": "duts/bosc_Rename/ground_truth_rtl_defects.json"
+    },
+    "bosc_RenameTableWrapper": {
+      "dut": "bosc_RenameTableWrapper",
+      "category": "xiangshan",
+      "total_rtl_defects": 2,
+      "last_registered_at": "2026-09-12T15:23:12+08:00",
+      "last_registered_batch": "baseline_xiangshan_20260910",
+      "relative_path": "duts/bosc_RenameTableWrapper/ground_truth_rtl_defects.json"
+    },
+    "bosc_RequestArb": {
+      "dut": "bosc_RequestArb",
+      "category": "xiangshan",
+      "total_rtl_defects": 3,
+      "last_registered_at": "2026-09-12T15:23:12+08:00",
+      "last_registered_batch": "baseline_xiangshan_20260910",
+      "relative_path": "duts/bosc_RequestArb/ground_truth_rtl_defects.json"
+    },
+    "bosc_RequestBuffer": {
+      "dut": "bosc_RequestBuffer",
+      "category": "xiangshan",
+      "total_rtl_defects": 2,
+      "last_registered_at": "2026-09-12T15:23:12+08:00",
+      "last_registered_batch": "baseline_xiangshan_20260910",
+      "relative_path": "duts/bosc_RequestBuffer/ground_truth_rtl_defects.json"
+    },
+    "bosc_Sbuffer": {
+      "dut": "bosc_Sbuffer",
+      "category": "general",
+      "total_rtl_defects": 2,
+      "last_registered_at": "2026-09-20T13:43:19+08:00",
+      "last_registered_batch": "batch_20260920",
+      "relative_path": "duts/bosc_Sbuffer/ground_truth_rtl_defects.json"
+    },
+    "bosc_StoreMisalignBuffer": {
+      "dut": "bosc_StoreMisalignBuffer",
+      "category": "xiangshan",
+      "total_rtl_defects": 3,
+      "last_registered_at": "2026-09-12T15:23:12+08:00",
+      "last_registered_batch": "baseline_xiangshan_20260910",
+      "relative_path": "duts/bosc_StoreMisalignBuffer/ground_truth_rtl_defects.json"
+    },
+    "bosc_StoreQueue": {
+      "dut": "bosc_StoreQueue",
+      "category": "xiangshan",
+      "total_rtl_defects": 1,
+      "last_registered_at": "2026-09-12T15:23:12+08:00",
+      "last_registered_batch": "baseline_xiangshan_20260910",
+      "relative_path": "duts/bosc_StoreQueue/ground_truth_rtl_defects.json"
+    },
+    "bosc_StoreUnit": {
+      "dut": "bosc_StoreUnit",
+      "category": "xiangshan",
+      "total_rtl_defects": 1,
+      "last_registered_at": "2026-09-12T15:23:12+08:00",
+      "last_registered_batch": "baseline_xiangshan_20260910",
+      "relative_path": "duts/bosc_StoreUnit/ground_truth_rtl_defects.json"
+    },
+    "bosc_TLBNonBlock": {
+      "dut": "bosc_TLBNonBlock",
+      "category": "xiangshan",
+      "total_rtl_defects": 4,
+      "last_registered_at": "2026-09-12T15:23:12+08:00",
+      "last_registered_batch": "baseline_xiangshan_20260910",
+      "relative_path": "duts/bosc_TLBNonBlock/ground_truth_rtl_defects.json"
+    },
+    "bosc_TXREQ": {
+      "dut": "bosc_TXREQ",
+      "category": "xiangshan",
+      "total_rtl_defects": 1,
+      "last_registered_at": "2026-09-12T15:23:12+08:00",
+      "last_registered_batch": "baseline_xiangshan_20260910",
+      "relative_path": "duts/bosc_TXREQ/ground_truth_rtl_defects.json"
+    },
+    "bosc_Tage_SC": {
+      "dut": "bosc_Tage_SC",
+      "category": "xiangshan",
+      "total_rtl_defects": 1,
+      "last_registered_at": "2026-09-12T15:23:12+08:00",
+      "last_registered_batch": "baseline_xiangshan_20260910",
+      "relative_path": "duts/bosc_Tage_SC/ground_truth_rtl_defects.json"
+    },
+    "bosc_Uncache": {
+      "dut": "bosc_Uncache",
+      "category": "xiangshan",
+      "total_rtl_defects": 1,
+      "last_registered_at": "2026-09-12T15:23:12+08:00",
+      "last_registered_batch": "baseline_xiangshan_20260910",
+      "relative_path": "duts/bosc_Uncache/ground_truth_rtl_defects.json"
+    },
+    "bosc_VLMergeBufferImp": {
+      "dut": "bosc_VLMergeBufferImp",
+      "category": "xiangshan",
+      "total_rtl_defects": 2,
+      "last_registered_at": "2026-09-12T15:23:12+08:00",
+      "last_registered_batch": "baseline_xiangshan_20260910",
+      "relative_path": "duts/bosc_VLMergeBufferImp/ground_truth_rtl_defects.json"
+    },
+    "bosc_VSegmentUnit": {
+      "dut": "bosc_VSegmentUnit",
+      "category": "xiangshan",
+      "total_rtl_defects": 2,
+      "last_registered_at": "2026-09-12T15:23:12+08:00",
+      "last_registered_batch": "baseline_xiangshan_20260910",
+      "relative_path": "duts/bosc_VSegmentUnit/ground_truth_rtl_defects.json"
+    },
+    "bosc_VfofBuffer": {
+      "dut": "bosc_VfofBuffer",
+      "category": "xiangshan",
+      "total_rtl_defects": 2,
+      "last_registered_at": "2026-09-12T15:23:12+08:00",
+      "last_registered_batch": "baseline_xiangshan_20260910",
+      "relative_path": "duts/bosc_VfofBuffer/ground_truth_rtl_defects.json"
+    },
+    "bosc_VirtualLoadQueue": {
+      "dut": "bosc_VirtualLoadQueue",
+      "category": "xiangshan",
+      "total_rtl_defects": 2,
+      "last_registered_at": "2026-09-12T15:23:12+08:00",
+      "last_registered_batch": "baseline_xiangshan_20260910",
+      "relative_path": "duts/bosc_VirtualLoadQueue/ground_truth_rtl_defects.json"
+    },
+    "bosc_WbDataPath": {
+      "dut": "bosc_WbDataPath",
+      "category": "xiangshan",
+      "total_rtl_defects": 4,
+      "last_registered_at": "2026-09-12T15:23:12+08:00",
+      "last_registered_batch": "baseline_xiangshan_20260910",
+      "relative_path": "duts/bosc_WbDataPath/ground_truth_rtl_defects.json"
+    },
+    "bosc_WritebackQueue": {
+      "dut": "bosc_WritebackQueue",
+      "category": "xiangshan",
+      "total_rtl_defects": 4,
+      "last_registered_at": "2026-09-12T15:23:12+08:00",
+      "last_registered_batch": "baseline_xiangshan_20260910",
+      "relative_path": "duts/bosc_WritebackQueue/ground_truth_rtl_defects.json"
+    },
+    "e203_biu": {
+      "dut": "e203_biu",
+      "category": "14dut",
+      "total_rtl_defects": 26,
+      "last_registered_at": "2026-09-12T15:23:12+08:00",
+      "last_registered_batch": "baseline_initial_db",
+      "relative_path": "duts/e203_biu/ground_truth_rtl_defects.json"
+    },
+    "e203_clkgate": {
+      "dut": "e203_clkgate",
+      "category": "14dut",
+      "total_rtl_defects": 1,
+      "last_registered_at": "2026-09-12T15:23:12+08:00",
+      "last_registered_batch": "baseline_bm6",
+      "relative_path": "duts/e203_clkgate/ground_truth_rtl_defects.json"
+    },
+    "e203_dtcm_ctrl": {
+      "dut": "e203_dtcm_ctrl",
+      "category": "14dut",
+      "total_rtl_defects": 5,
+      "last_registered_at": "2026-09-12T15:23:12+08:00",
+      "last_registered_batch": "baseline_bm6",
+      "relative_path": "duts/e203_dtcm_ctrl/ground_truth_rtl_defects.json"
+    },
+    "e203_dtcm_ram": {
+      "dut": "e203_dtcm_ram",
+      "category": "14dut",
+      "total_rtl_defects": 1,
+      "last_registered_at": "2026-09-12T15:23:12+08:00",
+      "last_registered_batch": "baseline_bm6",
+      "relative_path": "duts/e203_dtcm_ram/ground_truth_rtl_defects.json"
+    },
+    "e203_exu_alu_dpath": {
+      "dut": "e203_exu_alu_dpath",
+      "category": "14dut",
+      "total_rtl_defects": 4,
+      "last_registered_at": "2026-09-12T15:23:12+08:00",
+      "last_registered_batch": "baseline_bm6",
+      "relative_path": "duts/e203_exu_alu_dpath/ground_truth_rtl_defects.json"
+    },
+    "e203_exu_alu_muldiv": {
+      "dut": "e203_exu_alu_muldiv",
+      "category": "14dut",
+      "total_rtl_defects": 8,
+      "last_registered_at": "2026-09-12T15:23:12+08:00",
+      "last_registered_batch": "baseline_bm6",
+      "relative_path": "duts/e203_exu_alu_muldiv/ground_truth_rtl_defects.json"
+    },
+    "sd_clock_divider": {
+      "dut": "sd_clock_divider",
+      "category": "14dut",
+      "total_rtl_defects": 2,
+      "last_registered_at": "2026-09-12T15:23:12+08:00",
+      "last_registered_batch": "baseline_bm6",
+      "relative_path": "duts/sd_clock_divider/ground_truth_rtl_defects.json"
+    },
+    "sd_cmd_serial_host": {
+      "dut": "sd_cmd_serial_host",
+      "category": "14dut",
+      "total_rtl_defects": 5,
+      "last_registered_at": "2026-09-12T15:23:12+08:00",
+      "last_registered_batch": "baseline_bm6",
+      "relative_path": "duts/sd_cmd_serial_host/ground_truth_rtl_defects.json"
+    },
+    "sd_fifo_tx_filler": {
+      "dut": "sd_fifo_tx_filler",
+      "category": "14dut",
+      "total_rtl_defects": 3,
+      "last_registered_at": "2026-09-12T15:23:12+08:00",
+      "last_registered_batch": "baseline_bm6",
+      "relative_path": "duts/sd_fifo_tx_filler/ground_truth_rtl_defects.json"
+    },
+    "sd_tx_fifo": {
+      "dut": "sd_tx_fifo",
+      "category": "wyy",
+      "total_rtl_defects": 2,
+      "last_registered_at": "2026-09-12T15:23:12+08:00",
+      "last_registered_batch": "baseline_wyy",
+      "relative_path": "duts/sd_tx_fifo/ground_truth_rtl_defects.json"
+    },
+    "sdc_controller": {
+      "dut": "sdc_controller",
+      "category": "14dut",
+      "total_rtl_defects": 3,
+      "last_registered_at": "2026-09-12T15:23:12+08:00",
+      "last_registered_batch": "baseline_bm6",
+      "relative_path": "duts/sdc_controller/ground_truth_rtl_defects.json"
+    }
+  }
+}

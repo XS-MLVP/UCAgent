@@ -1,0 +1,45 @@
+{
+  "schema_version": "gt_rtl_v3",
+  "dut": "bosc_TXREQ",
+  "status": "adjudicated_from_audited_rtl_roots",
+  "description": "DUT-level independent RTL defect ground truth index for bosc_TXREQ.",
+  "total_rtl_defects": 1,
+  "model_hits": {
+    "gpt-5.5": 1
+  },
+  "defects": [
+    {
+      "gt_id": "GT-RTL-0001",
+      "global_gt_id": "GT-XS-0105",
+      "source_root_id": "RTLBUG-0001",
+      "dut": "bosc_TXREQ",
+      "rtl_file": "bosc_Queue16_CHIREQ.sv",
+      "rtl_line_start": 105,
+      "rtl_line_end": 130,
+      "failure_mode": "protocol_violation",
+      "symptoms": [
+        "BUG-0001"
+      ],
+      "models": [
+        "gpt-5.5"
+      ],
+      "source_anchor_confidence": "candidate",
+      "root_match_status": "matched_current_root",
+      "severity": "normal",
+      "description": "队列满前或容量紧张时，pipeReq.valid仍作为高优先级入口被接受并最终输出。",
+      "test_cases": [
+        "test_static_bosc_TXREQ_pipe_drop_full",
+        "test_random_queue_boundary_empty_full_nearfull",
+        "test_nearfull_pipe_accept"
+      ],
+      "primary_test_case": "test_static_bosc_TXREQ_pipe_drop_full",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_xiangshan_20260910",
+      "admission_source": "xiangshan_backup_20260910",
+      "admission_evidence": "registered_adjudication"
+    }
+  ],
+  "category": "xiangshan",
+  "last_registered_at": "2026-09-12T15:23:12+08:00",
+  "last_registered_batch": "baseline_xiangshan_20260910"
+}

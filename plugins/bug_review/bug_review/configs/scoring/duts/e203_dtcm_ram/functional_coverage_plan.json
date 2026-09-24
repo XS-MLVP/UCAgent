@@ -1,0 +1,311 @@
+{
+  "schema_version": "functional_coverage_plan.v1",
+  "dut": "e203_dtcm_ram",
+  "revision_id": "rev-3d6111ae9a14b3e8ccb4",
+  "source_snapshot_hash": "05fe28c1f7987dc3c8d19eda232f26571c1602e49bafe78c306d736fb4d3e646",
+  "status": "machine_mapped_frozen_contract",
+  "targets": [
+    {
+      "target_id": "FC-DTCM-RAM-INIT",
+      "name": "RAM array initialization and reset",
+      "weight": 1,
+      "coverage_definition": "Verify RAM behavior after reset and initialization",
+      "sampling_rule": "Sample uninitialized read outputs and reset state transitions",
+      "oracle_definition": "Reset does not cause undefined state or bus contention",
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "FC-DTCM-RAM-SINGLE-READ",
+      "name": "synchronous single-cycle read",
+      "weight": 1,
+      "coverage_definition": "Read data from initialized memory addresses across sequential cycles",
+      "sampling_rule": "Assert cs and read address; sample dout on next clock edge",
+      "oracle_definition": "dout matches previously written content at target address",
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "FC-DTCM-RAM-SINGLE-WRITE",
+      "name": "synchronous single-cycle write",
+      "weight": 1,
+      "coverage_definition": "Write 32-bit data into memory addresses with write enable asserted",
+      "sampling_rule": "Assert cs, we, addr, and din; verify commit on clock edge",
+      "oracle_definition": "Target memory location stores din correctly",
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "FC-DTCM-RAM-RAW",
+      "name": "read-after-write hazard verification",
+      "weight": 1,
+      "coverage_definition": "Perform consecutive write and read to the same memory address",
+      "sampling_rule": "Write to address A in cycle N, read address A in cycle N+1",
+      "oracle_definition": "Read returns the newly written value accurately",
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "FC-DTCM-RAM-BOUNDARY-ADDR",
+      "name": "address space boundary access",
+      "weight": 1,
+      "coverage_definition": "Access lowest (0x0) and highest address boundaries of the memory array",
+      "sampling_rule": "Drive min and max valid addresses and sample read/write responses",
+      "oracle_definition": "No aliasing or truncation occurs at address extremities",
+      "collection_status": "scoreable"
+    }
+  ],
+  "observations": [
+    {
+      "model": "agentw",
+      "target_id": "FC-DTCM-RAM-INIT",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "agentw",
+      "target_id": "FC-DTCM-RAM-SINGLE-READ",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_e203_dtcm_ram_read_basic.py::test_read_basic_norm"
+      ],
+      "evidence_source": "passed toffee/pytest execution and semantic target mapping for FC-DTCM-RAM-SINGLE-READ"
+    },
+    {
+      "model": "agentw",
+      "target_id": "FC-DTCM-RAM-SINGLE-WRITE",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_e203_dtcm_ram_api_operation.py::test_api_e203_dtcm_ram_write_addr_out_of_range",
+        "tests/test_e203_dtcm_ram_api_operation.py::test_api_e203_dtcm_ram_write_basic",
+        "tests/test_e203_dtcm_ram_api_operation.py::test_api_e203_dtcm_ram_write_data_out_of_range",
+        "tests/test_e203_dtcm_ram_api_operation.py::test_api_e203_dtcm_ram_write_wem_out_of_range"
+      ],
+      "evidence_source": "passed toffee/pytest execution and semantic target mapping for FC-DTCM-RAM-SINGLE-WRITE"
+    },
+    {
+      "model": "agentw",
+      "target_id": "FC-DTCM-RAM-RAW",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_e203_dtcm_ram_api_operation.py::test_api_e203_dtcm_ram_write_addr_out_of_range",
+        "tests/test_e203_dtcm_ram_api_operation.py::test_api_e203_dtcm_ram_write_basic",
+        "tests/test_e203_dtcm_ram_api_operation.py::test_api_e203_dtcm_ram_write_data_out_of_range",
+        "tests/test_e203_dtcm_ram_api_operation.py::test_api_e203_dtcm_ram_write_wem_out_of_range"
+      ],
+      "evidence_source": "passed toffee/pytest execution and semantic target mapping for FC-DTCM-RAM-RAW"
+    },
+    {
+      "model": "agentw",
+      "target_id": "FC-DTCM-RAM-BOUNDARY-ADDR",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "agentw+SFT",
+      "target_id": "FC-DTCM-RAM-INIT",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_e203_dtcm_ram_api_basic.py::test_api_e203_dtcm_ram_reset_behavior",
+        "tests/test_e203_dtcm_ram_env_fixture.py::test_api_e203_dtcm_ram_env_reset_operation",
+        "tests/test_e203_dtcm_ram_storage_reset.py::test_e203_dtcm_ram_read_address_match",
+        "tests/test_e203_dtcm_ram_storage_reset.py::test_e203_dtcm_ram_read_bank_unaffected",
+        "tests/test_e203_dtcm_ram_storage_reset.py::test_e203_dtcm_ram_read_data_correct",
+        "tests/test_e203_dtcm_ram_storage_reset.py::test_e203_dtcm_ram_reset_high",
+        "tests/test_e203_dtcm_ram_storage_reset.py::test_e203_dtcm_ram_reset_low",
+        "tests/test_e203_dtcm_ram_storage_reset.py::test_e203_dtcm_ram_reset_release",
+        "tests/test_e203_dtcm_ram_storage_reset.py::test_e203_dtcm_ram_storage_basic_store",
+        "tests/test_e203_dtcm_ram_storage_reset.py::test_e203_dtcm_ram_storage_overwrite",
+        "tests/test_e203_dtcm_ram_storage_reset.py::test_e203_dtcm_ram_storage_unchanged"
+      ],
+      "evidence_source": "passed toffee/pytest execution and semantic target mapping for FC-DTCM-RAM-INIT"
+    },
+    {
+      "model": "agentw+SFT",
+      "target_id": "FC-DTCM-RAM-SINGLE-READ",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_e203_dtcm_ram_api_basic.py::test_api_e203_dtcm_ram_read_basic"
+      ],
+      "evidence_source": "passed toffee/pytest execution and semantic target mapping for FC-DTCM-RAM-SINGLE-READ"
+    },
+    {
+      "model": "agentw+SFT",
+      "target_id": "FC-DTCM-RAM-SINGLE-WRITE",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_e203_dtcm_ram_api_basic.py::test_api_e203_dtcm_ram_write_basic",
+        "tests/test_e203_dtcm_ram_api_basic.py::test_api_e203_dtcm_ram_write_invalid_addr",
+        "tests/test_e203_dtcm_ram_api_basic.py::test_api_e203_dtcm_ram_write_invalid_din",
+        "tests/test_e203_dtcm_ram_api_basic.py::test_api_e203_dtcm_ram_write_invalid_wem",
+        "tests/test_e203_dtcm_ram_api_basic.py::test_api_e203_dtcm_ram_write_read_cycle_basic",
+        "tests/test_e203_dtcm_ram_api_basic.py::test_api_e203_dtcm_ram_write_wem_byte0",
+        "tests/test_e203_dtcm_ram_api_basic.py::test_api_e203_dtcm_ram_write_wem_byte1",
+        "tests/test_e203_dtcm_ram_api_basic.py::test_api_e203_dtcm_ram_write_wem_byte2",
+        "tests/test_e203_dtcm_ram_api_basic.py::test_api_e203_dtcm_ram_write_wem_byte3",
+        "tests/test_e203_dtcm_ram_api_basic.py::test_api_e203_dtcm_ram_write_wem_partial",
+        "tests/test_e203_dtcm_ram_basic_operations.py::test_e203_dtcm_ram_operation_read",
+        "tests/test_e203_dtcm_ram_basic_operations.py::test_e203_dtcm_ram_operation_read_write",
+        "tests/test_e203_dtcm_ram_basic_operations.py::test_e203_dtcm_ram_operation_write",
+        "tests/test_e203_dtcm_ram_env_fixture.py::test_api_e203_dtcm_ram_env_reset_operation",
+        "tests/test_e203_dtcm_ram_env_fixture.py::test_api_e203_dtcm_ram_env_step_operation",
+        "tests/test_e203_dtcm_ram_storage_reset.py::test_e203_dtcm_ram_storage_overwrite",
+        "tests/test_e203_dtcm_ram_write_byte_mask.py::test_e203_dtcm_ram_write_byte_wem_byte0",
+        "tests/test_e203_dtcm_ram_write_byte_mask.py::test_e203_dtcm_ram_write_byte_wem_byte1",
+        "tests/test_e203_dtcm_ram_write_byte_mask.py::test_e203_dtcm_ram_write_byte_wem_byte2",
+        "tests/test_e203_dtcm_ram_write_byte_mask.py::test_e203_dtcm_ram_write_byte_wem_byte3",
+        "tests/test_e203_dtcm_ram_write_byte_mask.py::test_e203_dtcm_ram_write_byte_wem_partial",
+        "tests/test_e203_dtcm_ram_write_byte_valid.py::test_e203_dtcm_ram_write_wem_byte0",
+        "tests/test_e203_dtcm_ram_write_byte_valid.py::test_e203_dtcm_ram_write_wem_byte1",
+        "tests/test_e203_dtcm_ram_write_byte_valid.py::test_e203_dtcm_ram_write_wem_byte2",
+        "tests/test_e203_dtcm_ram_write_byte_valid.py::test_e203_dtcm_ram_write_wem_byte3",
+        "tests/test_e203_dtcm_ram_write_byte_valid.py::test_e203_dtcm_ram_write_wem_full",
+        "tests/test_e203_dtcm_ram_write_byte_valid.py::test_e203_dtcm_ram_write_wem_partial",
+        "tests/test_e203_dtcm_ram_write_byte_valid.py::test_e203_dtcm_ram_write_wem_zero",
+        "tests/test_e203_dtcm_ram_write_constraint_valid.py::test_e203_dtcm_ram_write_constraint_cs_we_conflict",
+        "tests/test_e203_dtcm_ram_write_constraint_valid.py::test_e203_dtcm_ram_write_constraint_we_low"
+      ],
+      "evidence_source": "passed toffee/pytest execution and semantic target mapping for FC-DTCM-RAM-SINGLE-WRITE"
+    },
+    {
+      "model": "agentw+SFT",
+      "target_id": "FC-DTCM-RAM-RAW",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_e203_dtcm_ram_basic_operations.py::test_e203_dtcm_ram_operation_read",
+        "tests/test_e203_dtcm_ram_basic_operations.py::test_e203_dtcm_ram_operation_read_write",
+        "tests/test_e203_dtcm_ram_basic_operations.py::test_e203_dtcm_ram_operation_write",
+        "tests/test_e203_dtcm_ram_env_fixture.py::test_api_e203_dtcm_ram_env_reset_operation",
+        "tests/test_e203_dtcm_ram_env_fixture.py::test_api_e203_dtcm_ram_env_step_operation"
+      ],
+      "evidence_source": "passed toffee/pytest execution and semantic target mapping for FC-DTCM-RAM-RAW"
+    },
+    {
+      "model": "agentw+SFT",
+      "target_id": "FC-DTCM-RAM-BOUNDARY-ADDR",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-DTCM-RAM-INIT",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-DTCM-RAM-SINGLE-READ",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-DTCM-RAM-SINGLE-WRITE",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-DTCM-RAM-RAW",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-DTCM-RAM-BOUNDARY-ADDR",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-DTCM-RAM-INIT",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_e203_dtcm_ram_api_basic.py::test_api_e203_dtcm_ram_reset_after_operation",
+        "tests/test_e203_dtcm_ram_api_basic.py::test_api_e203_dtcm_ram_reset_basic",
+        "tests/test_e203_dtcm_ram_env_fixture.py::test_api_e203_dtcm_ram_env_ctrl_init_value",
+        "tests/test_e203_dtcm_ram_env_fixture.py::test_api_e203_dtcm_ram_env_data_init_value",
+        "tests/test_e203_dtcm_ram_env_fixture.py::test_api_e203_dtcm_ram_env_reset_basic",
+        "tests/test_e203_dtcm_ram_env_fixture.py::test_api_e203_dtcm_ram_env_reset_init_signals"
+      ],
+      "evidence_source": "passed toffee/pytest execution and semantic target mapping for FC-DTCM-RAM-INIT"
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-DTCM-RAM-SINGLE-READ",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-DTCM-RAM-SINGLE-WRITE",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_e203_dtcm_ram_api_basic.py::test_api_e203_dtcm_ram_reset_after_operation"
+      ],
+      "evidence_source": "passed toffee/pytest execution and semantic target mapping for FC-DTCM-RAM-SINGLE-WRITE"
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-DTCM-RAM-RAW",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_e203_dtcm_ram_api_basic.py::test_api_e203_dtcm_ram_reset_after_operation"
+      ],
+      "evidence_source": "passed toffee/pytest execution and semantic target mapping for FC-DTCM-RAM-RAW"
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-DTCM-RAM-BOUNDARY-ADDR",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    }
+  ],
+  "contract_hash": "1a75efb5d799dca514121fad87795248398cb2e9e68168b3e67c54c6e2301bfe"
+}

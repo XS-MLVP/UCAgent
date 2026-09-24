@@ -1,0 +1,720 @@
+{
+  "schema_version": "functional_coverage_plan.v1",
+  "dut": "e203_dtcm_ram",
+  "revision_id": "ground-truth-v1",
+  "source_snapshot_hash": "golden_spec",
+  "targets": [
+    {
+      "target_id": "CK-WRITE-CYCLE",
+      "functional_group": "FC-STEP-ACCESS",
+      "coverage_definition": "[Assume] 能够通过 Step 发起一次写访问并推进时钟。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: 能够通过 Step 发起一次写访问并推进时钟。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-READ-CYCLE",
+      "functional_group": "FC-STEP-ACCESS",
+      "coverage_definition": "[Assume] 能够通过 Step 发起一次读访问并在规定周期采样输出。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: 能够通过 Step 发起一次读访问并在规定周期采样输出。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-IDLE-CYCLE",
+      "functional_group": "FC-STEP-ACCESS",
+      "coverage_definition": "[Assume] 能够通过 Step 发起 `cs=0` 的空闲周期并观察输出稳定性。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: 能够通过 Step 发起 `cs=0` 的空闲周期并观察输出稳定性。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-LOW-POWER-CYCLE",
+      "functional_group": "FC-STEP-ACCESS",
+      "coverage_definition": "[Assume] 能够在访问周期中组合驱动 `sd/ds/ls` 输入。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: 能够在访问周期中组合驱动 `sd/ds/ls` 输入。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-ASSERT",
+      "functional_group": "FC-RESET-API",
+      "coverage_definition": "[Assume] 能够可靠拉低 `rst_n` 并推进时钟。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: 能够可靠拉低 `rst_n` 并推进时钟。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-DEASSERT",
+      "functional_group": "FC-RESET-API",
+      "coverage_definition": "[Assume] 能够可靠释放 `rst_n` 并进入可访问状态。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: 能够可靠释放 `rst_n` 并进入可访问状态。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-POST-RESET-IDLE",
+      "functional_group": "FC-RESET-API",
+      "coverage_definition": "[Assume] 复位释放后可插入空闲周期作为访问起点。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: 复位释放后可插入空闲周期作为访问起点。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-FULL-WORD",
+      "functional_group": "FC-BASIC-WRITE",
+      "coverage_definition": "[Seq] `wem` 全有效时，32 位数据整体写入目标地址。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: `wem` 全有效时，32 位数据整体写入目标地址。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-MULTI-PATTERN",
+      "functional_group": "FC-BASIC-WRITE",
+      "coverage_definition": "[Seq] 对全 0、全 1、交替位等不同写入图案均可正确存储。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: 对全 0、全 1、交替位等不同写入图案均可正确存储。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-REWRITE",
+      "functional_group": "FC-BASIC-WRITE",
+      "coverage_definition": "[Seq] 同一地址连续写入不同数据，后一次结果覆盖前一次。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: 同一地址连续写入不同数据，后一次结果覆盖前一次。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-READBACK",
+      "functional_group": "FC-BASIC-READ",
+      "coverage_definition": "[Seq] 先写后读，`dout` 返回最近一次有效写入的数据。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: 先写后读，`dout` 返回最近一次有效写入的数据。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-PRELOAD-ZERO",
+      "functional_group": "FC-BASIC-READ",
+      "coverage_definition": "[Seq] 未显式写入位置的读出值符合 FORCE_X2ZERO 期望或实现可观察行为。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: 未显式写入位置的读出值符合 FORCE_X2ZERO 期望或实现可观察行为。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-DIFFERENT-ADDR",
+      "functional_group": "FC-BASIC-READ",
+      "coverage_definition": "[Seq] 不同地址返回各自独立存储的数据。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: 不同地址返回各自独立存储的数据。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-NO-WRITE",
+      "functional_group": "FC-IDLE-NO-ACCESS",
+      "coverage_definition": "[Seq] `cs=0` 时即使其余写信号变化也不应改写存储内容。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: `cs=0` 时即使其余写信号变化也不应改写存储内容。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-NO-READ-EFFECT",
+      "functional_group": "FC-IDLE-NO-ACCESS",
+      "coverage_definition": "[Seq] `cs=0` 时输出仅表现为保持值或实现定义的空闲值。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: `cs=0` 时输出仅表现为保持值或实现定义的空闲值。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-IDLE-TO-ACTIVE",
+      "functional_group": "FC-IDLE-NO-ACCESS",
+      "coverage_definition": "[Seq] 空闲周期之后的首次有效访问仍然正确。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: 空闲周期之后的首次有效访问仍然正确。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-ALL-BYTES",
+      "functional_group": "FC-WEM-FULL",
+      "coverage_definition": "[Seq] 四个字节全部被新数据覆盖。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: 四个字节全部被新数据覆盖。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-EQUIV-BASIC-WRITE",
+      "functional_group": "FC-WEM-FULL",
+      "coverage_definition": "[Seq] 结果与基本全字写功能一致。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: 结果与基本全字写功能一致。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-BYTE0",
+      "functional_group": "FC-WEM-SINGLE-BYTE",
+      "coverage_definition": "[Seq] 仅最低字节被更新。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: 仅最低字节被更新。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-BYTE1",
+      "functional_group": "FC-WEM-SINGLE-BYTE",
+      "coverage_definition": "[Seq] 仅次低字节被更新。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: 仅次低字节被更新。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-BYTE2",
+      "functional_group": "FC-WEM-SINGLE-BYTE",
+      "coverage_definition": "[Seq] 仅次高字节被更新。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: 仅次高字节被更新。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-BYTE3",
+      "functional_group": "FC-WEM-SINGLE-BYTE",
+      "coverage_definition": "[Seq] 仅最高字节被更新。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: 仅最高字节被更新。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-ADJACENT-BYTES",
+      "functional_group": "FC-WEM-MULTI-BYTE",
+      "coverage_definition": "[Seq] 如 `0011`、`1100` 等组合更新正确。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: 如 `0011`、`1100` 等组合更新正确。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-NONADJACENT-BYTES",
+      "functional_group": "FC-WEM-MULTI-BYTE",
+      "coverage_definition": "[Seq] 如 `0101`、`1010` 等组合更新正确。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: 如 `0101`、`1010` 等组合更新正确。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-MERGE-WITH-OLD",
+      "functional_group": "FC-WEM-MULTI-BYTE",
+      "coverage_definition": "[Seq] 读回值正确反映新字节与旧字节拼接结果。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: 读回值正确反映新字节与旧字节拼接结果。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-NO-BYTE-UPDATED",
+      "functional_group": "FC-WEM-ZERO-MASK",
+      "coverage_definition": "[Seq] 读回值与写前完全一致。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: 读回值与写前完全一致。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-DOUT-NO-CORRUPT",
+      "functional_group": "FC-WEM-ZERO-MASK",
+      "coverage_definition": "[Seq] 后续读访问不会看到伪写入数据。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: 后续读访问不会看到伪写入数据。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-CS0-WRITE-BLOCK",
+      "functional_group": "FC-CS-GATING",
+      "coverage_definition": "[Seq] `cs=0` 时写入请求被阻断。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: `cs=0` 时写入请求被阻断。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-CS0-READ-BLOCK",
+      "functional_group": "FC-CS-GATING",
+      "coverage_definition": "[Seq] `cs=0` 时不产生新的有效读出。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: `cs=0` 时不产生新的有效读出。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-CS1-ACCESS-ALLOW",
+      "functional_group": "FC-CS-GATING",
+      "coverage_definition": "[Seq] `cs=1` 时可发生合法读写。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: `cs=1` 时可发生合法读写。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-WE1-WRITE-OR-READ",
+      "functional_group": "FC-WE-SEMANTICS",
+      "coverage_definition": "[Seq] 判定 `we=1` 时真实行为是写、读还是无操作。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: 判定 `we=1` 时真实行为是写、读还是无操作。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-WE0-WRITE-OR-READ",
+      "functional_group": "FC-WE-SEMANTICS",
+      "coverage_definition": "[Seq] 判定 `we=0` 时真实行为是读、写还是无操作。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: 判定 `we=0` 时真实行为是读、写还是无操作。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-SPEC-MISMATCH",
+      "functional_group": "FC-WE-SEMANTICS",
+      "coverage_definition": "[Seq] 若 README 约束与 RTL 行为冲突，应能通过测试暴露并记录。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: 若 README 约束与 RTL 行为冲突，应能通过测试暴露并记录。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-WRITE-THEN-READ",
+      "functional_group": "FC-READ-WRITE-SWITCH",
+      "coverage_definition": "[Seq] 下一次读访问能返回刚写入的数据或体现实现定义延迟。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: 下一次读访问能返回刚写入的数据或体现实现定义延迟。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-READ-THEN-WRITE",
+      "functional_group": "FC-READ-WRITE-SWITCH",
+      "coverage_definition": "[Seq] 写操作不受前一拍读控制残留影响。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: 写操作不受前一拍读控制残留影响。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-ALT-ACCESS",
+      "functional_group": "FC-READ-WRITE-SWITCH",
+      "coverage_definition": "[Seq] 多拍交替读写时行为一致稳定。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: 多拍交替读写时行为一致稳定。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-TWO-ADDR-INDEP",
+      "functional_group": "FC-ADDRESS-INDEPENDENCE",
+      "coverage_definition": "[Seq] 两个不同地址写入不同数据后读回各自正确。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: 两个不同地址写入不同数据后读回各自正确。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-NEIGHBOR-INDEP",
+      "functional_group": "FC-ADDRESS-INDEPENDENCE",
+      "coverage_definition": "[Seq] 相邻地址之间不存在串写或串读。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: 相邻地址之间不存在串写或串读。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-DISTANT-INDEP",
+      "functional_group": "FC-ADDRESS-INDEPENDENCE",
+      "coverage_definition": "[Seq] 跨较大地址间隔访问仍相互独立。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: 跨较大地址间隔访问仍相互独立。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-LOWEST-ADDR",
+      "functional_group": "FC-ADDRESS-LIMIT",
+      "coverage_definition": "[Seq] 最低合法地址可正常读写。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: 最低合法地址可正常读写。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-HIGHEST-ADDR",
+      "functional_group": "FC-ADDRESS-LIMIT",
+      "coverage_definition": "[Seq] 最高合法地址可正常读写。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: 最高合法地址可正常读写。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-BOUNDARY-NEIGHBOR",
+      "functional_group": "FC-ADDRESS-LIMIT",
+      "coverage_definition": "[Seq] 边界附近连续地址访问正确。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: 边界附近连续地址访问正确。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-HIGH-BIT-ALIAS",
+      "functional_group": "FC-ADDRESS-OUT-OF-RANGE",
+      "coverage_definition": "[Seq] 仅高位不同的地址是否映射到同一物理单元。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: 仅高位不同的地址是否映射到同一物理单元。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-OUT-RANGE-BEHAVIOR",
+      "functional_group": "FC-ADDRESS-OUT-OF-RANGE",
+      "coverage_definition": "[Seq] 超范围地址访问是否被忽略、镜像或产生其他可观察结果。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: 超范围地址访问是否被忽略、镜像或产生其他可观察结果。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-SPEC-LACK",
+      "functional_group": "FC-ADDRESS-OUT-OF-RANGE",
+      "coverage_definition": "[Seq] 文档未定义越界访问结果时，应记录实现风险。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: 文档未定义越界访问结果时，应记录实现风险。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-SAME-CYCLE",
+      "functional_group": "FC-READ-LATENCY",
+      "coverage_definition": "[Seq] 读请求当拍是否立即反映到 `dout`。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: 读请求当拍是否立即反映到 `dout`。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-NEXT-CYCLE",
+      "functional_group": "FC-READ-LATENCY",
+      "coverage_definition": "[Seq] 读数据是否在下一拍稳定输出。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: 读数据是否在下一拍稳定输出。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-LATENCY-CONSISTENT",
+      "functional_group": "FC-READ-LATENCY",
+      "coverage_definition": "[Seq] 不同地址与不同访问序列下读时延保持一致。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: 不同地址与不同访问序列下读时延保持一致。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-WRITE-ON-EDGE",
+      "functional_group": "FC-WRITE-EFFECT-TIME",
+      "coverage_definition": "[Seq] 写入在预期时钟边界完成。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: 写入在预期时钟边界完成。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-READ-AFTER-WRITE-1C",
+      "functional_group": "FC-WRITE-EFFECT-TIME",
+      "coverage_definition": "[Seq] 写后第一个相关读周期可观察到新值。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: 写后第一个相关读周期可观察到新值。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-NO-EARLY-UPDATE",
+      "functional_group": "FC-WRITE-EFFECT-TIME",
+      "coverage_definition": "[Seq] 写请求发起前或不应更新的时刻不出现新数据。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: 写请求发起前或不应更新的时刻不出现新数据。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-MULTI-WRITE-LAST-WINS",
+      "functional_group": "FC-SAME-ADDRESS-SEQUENCE",
+      "coverage_definition": "[Seq] 连续多次写同址后读回最终值正确。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: 连续多次写同址后读回最终值正确。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-READ-BETWEEN-WRITES",
+      "functional_group": "FC-SAME-ADDRESS-SEQUENCE",
+      "coverage_definition": "[Seq] 插入读访问时返回与时序一致的值。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: 插入读访问时返回与时序一致的值。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-REPEATED-READ",
+      "functional_group": "FC-SAME-ADDRESS-SEQUENCE",
+      "coverage_definition": "[Seq] 存储不变时多次读结果一致。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: 存储不变时多次读结果一致。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-ACCESS-UNDER-RESET",
+      "functional_group": "FC-RESET-ACTIVE-BEHAVIOR",
+      "coverage_definition": "[Seq] 复位期间施加访问不会导致不可恢复异常。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: 复位期间施加访问不会导致不可恢复异常。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-DOUT-UNDER-RESET",
+      "functional_group": "FC-RESET-ACTIVE-BEHAVIOR",
+      "coverage_definition": "[Seq] `dout` 在复位期间表现稳定或符合实现定义。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: `dout` 在复位期间表现稳定或符合实现定义。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-RESET-PRIORITY",
+      "functional_group": "FC-RESET-ACTIVE-BEHAVIOR",
+      "coverage_definition": "[Seq] 复位与访问同时变化时，复位效果优先或行为一致可解释。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: 复位与访问同时变化时，复位效果优先或行为一致可解释。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-POST-RESET-WRITE",
+      "functional_group": "FC-RESET-RECOVERY",
+      "coverage_definition": "[Seq] 释放复位后可重新成功写入。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: 释放复位后可重新成功写入。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-POST-RESET-READ",
+      "functional_group": "FC-RESET-RECOVERY",
+      "coverage_definition": "[Seq] 释放复位后可重新成功读取。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: 释放复位后可重新成功读取。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-POST-RESET-STABLE",
+      "functional_group": "FC-RESET-RECOVERY",
+      "coverage_definition": "[Seq] 释放复位后经过空闲周期再访问仍稳定。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: 释放复位后经过空闲周期再访问仍稳定。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-CONTENT-CLEAR",
+      "functional_group": "FC-RESET-MEMORY-CONTENT",
+      "coverage_definition": "[Seq] 若实现支持清零，复位后已写数据被清除。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: 若实现支持清零，复位后已写数据被清除。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-CONTENT-KEEP",
+      "functional_group": "FC-RESET-MEMORY-CONTENT",
+      "coverage_definition": "[Seq] 若实现不清零，复位前已写数据在复位后仍可读出。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: 若实现不清零，复位前已写数据在复位后仍可读出。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-UNSPECIFIED-SEMANTICS",
+      "functional_group": "FC-RESET-MEMORY-CONTENT",
+      "coverage_definition": "[Seq] 若行为与文档描述不足，应记录规格缺口。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: 若行为与文档描述不足，应记录规格缺口。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-SD-TOGGLE",
+      "functional_group": "FC-LOW-POWER-TRANSPARENT",
+      "coverage_definition": "[Seq] 切换 `sd` 不改变正常访问结果。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: 切换 `sd` 不改变正常访问结果。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-DS-TOGGLE",
+      "functional_group": "FC-LOW-POWER-TRANSPARENT",
+      "coverage_definition": "[Seq] 切换 `ds` 不改变正常访问结果。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: 切换 `ds` 不改变正常访问结果。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-LS-TOGGLE",
+      "functional_group": "FC-LOW-POWER-TRANSPARENT",
+      "coverage_definition": "[Seq] 切换 `ls` 不改变正常访问结果。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: 切换 `ls` 不改变正常访问结果。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-COMB-TOGGLE",
+      "functional_group": "FC-LOW-POWER-TRANSPARENT",
+      "coverage_definition": "[Seq] `sd/ds/ls` 组合变化不引入额外副作用。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: `sd/ds/ls` 组合变化不引入额外副作用。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-HOLD-IDLE",
+      "functional_group": "FC-DOUT-HOLD",
+      "coverage_definition": "[Seq] 空闲周期内 `dout` 稳定保持。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: 空闲周期内 `dout` 稳定保持。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-HOLD-CS0",
+      "functional_group": "FC-DOUT-HOLD",
+      "coverage_definition": "[Seq] `cs=0` 时 `dout` 不因地址或输入变化而异常跳变。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: `cs=0` 时 `dout` 不因地址或输入变化而异常跳变。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-HOLD-ZERO-MASK",
+      "functional_group": "FC-DOUT-HOLD",
+      "coverage_definition": "[Seq] 零掩码写周期不会导致输出出现错误新值。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: 零掩码写周期不会导致输出出现错误新值。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-ONLY-ON-VALID-READ",
+      "functional_group": "FC-DOUT-UPDATE",
+      "coverage_definition": "[Seq] 只有合法读操作才触发新的读数据输出。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: 只有合法读操作才触发新的读数据输出。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-NO-SPURIOUS-CHANGE",
+      "functional_group": "FC-DOUT-UPDATE",
+      "coverage_definition": "[Seq] 控制信号无关变化不会造成 `dout` 伪更新。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: 控制信号无关变化不会造成 `dout` 伪更新。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-ADDR-CHANGE-WITHOUT-CS",
+      "functional_group": "FC-DOUT-UPDATE",
+      "coverage_definition": "[Seq] `cs=0` 下地址变化不应产生新读值。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: `cs=0` 下地址变化不应产生新读值。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-CS-WE-CONFLICT",
+      "functional_group": "FC-README-CONSTRAINTS",
+      "coverage_definition": "[Seq] 验证“不可同时为高”是否与写使能语义矛盾。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: 验证“不可同时为高”是否与写使能语义矛盾。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-WEM-WIDTH-ASSUMPTION",
+      "functional_group": "FC-README-CONSTRAINTS",
+      "coverage_definition": "[Seq] 字节掩码语义与 32 位数据宽度保持一致。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: 字节掩码语义与 32 位数据宽度保持一致。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-ADDR-RANGE-ASSUMPTION",
+      "functional_group": "FC-README-CONSTRAINTS",
+      "coverage_definition": "[Seq] 地址越界时设计是否依赖外部约束避免错误。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: 地址越界时设计是否依赖外部约束避免错误。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-RESET-UNSPEC",
+      "functional_group": "FC-UNSPECIFIED-BEHAVIOR",
+      "coverage_definition": "[Seq] 文档未明确复位对存储内容和输出的影响。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: 文档未明确复位对存储内容和输出的影响。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-LOWPOWER-UNSPEC",
+      "functional_group": "FC-UNSPECIFIED-BEHAVIOR",
+      "coverage_definition": "[Seq] 接口存在但功能约束不足。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: 接口存在但功能约束不足。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-OUTRANGE-UNSPEC",
+      "functional_group": "FC-UNSPECIFIED-BEHAVIOR",
+      "coverage_definition": "[Seq] 超范围地址行为缺乏明确规范。",
+      "sampling_rule": "Sample on `signal.sd`",
+      "oracle_definition": "Check property: 超范围地址行为缺乏明确规范。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    }
+  ],
+  "observations": []
+}

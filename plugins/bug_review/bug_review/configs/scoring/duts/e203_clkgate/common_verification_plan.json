@@ -1,0 +1,89 @@
+{
+  "schema_version": "common_verification_plan.v2",
+  "dut": "e203_clkgate",
+  "revision_id": "rev-dd97b7e53469b15c9e3a",
+  "source_snapshot_hash": "815eadee19983c789acbb9f4c9ca137d6144e88de8f3530aa1ab8dd8cf1e8092",
+  "status": "frozen_draft_requires_blind_independent_review",
+  "taxonomy_basis": "Clock-gating interface and glitch-free transition obligations; drafted from the frozen RTL root and saved tests, so independent review remains required",
+  "scenarios": [
+    {
+      "scenario_id": "SCN-ENABLE-TRANSITION",
+      "name": "disabled-to-enabled clock transition",
+      "weight": 1,
+      "spec_citation": "Clock-gating contract: enabling the gate admits the first complete clock pulse without a runt pulse",
+      "applicable_gt_ids": ["GT-RTL-0001"]
+    },
+    {
+      "scenario_id": "SCN-DISABLE-TRANSITION",
+      "name": "enabled-to-disabled clock transition",
+      "weight": 1,
+      "spec_citation": "Clock-gating contract: disabling the gate completes the active pulse and then blocks subsequent pulses",
+      "applicable_gt_ids": ["GT-RTL-0001"]
+    },
+    {
+      "scenario_id": "SCN-MODE-SWITCH",
+      "name": "clock enable and test mode switch",
+      "weight": 1,
+      "spec_citation": "Clock-gating contract: clock_en and test_mode changes preserve deterministic full-pulse output behavior",
+      "applicable_gt_ids": ["GT-RTL-0001"]
+    },
+    {
+      "scenario_id": "SCN-FAST-TOGGLE",
+      "name": "rapid control toggle robustness",
+      "weight": 1,
+      "spec_citation": "Glitch-free clock-gating contract: rapid control changes must not create pulses narrower than the input clock pulse",
+      "applicable_gt_ids": ["GT-RTL-0001"]
+    }
+  ],
+  "line_coverage_targets": [
+    {
+      "target_id": "COV-CLKGATE-COMMON-SCOPE",
+      "name": "shared instrumented clock-gate RTL scope",
+      "weight": 1,
+      "coverage_definition": "At least one LCOV hit on every one of the eight shared instrumented lines in e203_clkgate.v",
+      "scope_signature": "7e762af56e2676a67217a2216244afef189715f97f1c614a68a78200a225b6ef"
+    }
+  ],
+  "functional_coverage_targets": [
+    {
+      "target_id": "FC-CLKGATE-DISABLED",
+      "name": "clock blocked while disabled",
+      "weight": 1,
+      "coverage_definition": "Observe complete input clock cycles while both enables are inactive",
+      "sampling_rule": "Sample clk_in and clk_out at both phases for at least two complete cycles",
+      "oracle_definition": "clk_out remains inactive for the complete observation window",
+      "collection_status": "benchmark_unavailable",
+      "unavailable_reason": "saved records do not provide a common per-model semantic sampling trace"
+    },
+    {
+      "target_id": "FC-CLKGATE-FUNCTIONAL-ENABLE",
+      "name": "functional enable propagation",
+      "weight": 1,
+      "coverage_definition": "Enable clock_en from a disabled state and observe propagated full pulses",
+      "sampling_rule": "Sample the control transition and both phases of the first two admitted pulses",
+      "oracle_definition": "clk_out follows clk_in without an incomplete first pulse",
+      "collection_status": "benchmark_unavailable",
+      "unavailable_reason": "saved records do not provide a common per-model semantic sampling trace"
+    },
+    {
+      "target_id": "FC-CLKGATE-TEST-ENABLE",
+      "name": "test mode enable propagation",
+      "weight": 1,
+      "coverage_definition": "Enable test_mode with clock_en inactive and observe propagated full pulses",
+      "sampling_rule": "Sample the mode transition and both phases of the first two admitted pulses",
+      "oracle_definition": "test_mode admits clk_in without a runt or missing pulse",
+      "collection_status": "benchmark_unavailable",
+      "unavailable_reason": "saved records do not provide a common per-model semantic sampling trace"
+    },
+    {
+      "target_id": "FC-CLKGATE-GLITCH-FREE",
+      "name": "glitch-free control transitions",
+      "weight": 1,
+      "coverage_definition": "Toggle clock_en and test_mode at low- and high-phase boundaries",
+      "sampling_rule": "Measure every clk_out high and low interval across the frozen transition matrix",
+      "oracle_definition": "Every output pulse is either fully blocked or has the complete input-clock pulse width",
+      "collection_status": "benchmark_unavailable",
+      "unavailable_reason": "saved records do not provide a common per-model semantic sampling trace"
+    }
+  ]
+}

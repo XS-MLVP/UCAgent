@@ -1,0 +1,73 @@
+{
+  "schema_version": "gt_rtl_v3",
+  "dut": "bosc_VirtualLoadQueue",
+  "status": "adjudicated_from_audited_rtl_roots",
+  "description": "DUT-level independent RTL defect ground truth index for bosc_VirtualLoadQueue.",
+  "total_rtl_defects": 2,
+  "model_hits": {
+    "gpt-5.5": 2
+  },
+  "defects": [
+    {
+      "gt_id": "GT-RTL-0001",
+      "global_gt_id": "GT-XS-0114",
+      "source_root_id": "RTLBUG-0001",
+      "dut": "bosc_VirtualLoadQueue",
+      "rtl_file": "bosc_VirtualLoadQueue.sv",
+      "rtl_line_start": 13082,
+      "rtl_line_end": 13126,
+      "failure_mode": "output_mismatch",
+      "symptoms": [
+        "BUG-0001"
+      ],
+      "models": [
+        "gpt-5.5"
+      ],
+      "source_anchor_confidence": "candidate",
+      "root_match_status": "matched_current_root",
+      "severity": "normal",
+      "description": "RTL root defect in bosc_VirtualLoadQueue",
+      "test_cases": [
+        "test_large_vector_request_reject_when_space_insufficient"
+      ],
+      "primary_test_case": "test_large_vector_request_reject_when_space_insufficient",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_xiangshan_20260910",
+      "admission_source": "xiangshan_backup_20260910",
+      "admission_evidence": "registered_adjudication"
+    },
+    {
+      "gt_id": "GT-RTL-0002",
+      "global_gt_id": "GT-XS-0115",
+      "source_root_id": "RTLBUG-0002",
+      "dut": "bosc_VirtualLoadQueue",
+      "rtl_file": "bosc_VirtualLoadQueue.sv",
+      "rtl_line_start": 1,
+      "rtl_line_end": 5,
+      "failure_mode": "output_mismatch",
+      "symptoms": [
+        "BUG-0002",
+        "BUG-0003"
+      ],
+      "models": [
+        "gpt-5.5"
+      ],
+      "source_anchor_confidence": "candidate",
+      "root_match_status": "matched_current_root",
+      "severity": "normal",
+      "description": "RTL root defect in bosc_VirtualLoadQueue",
+      "test_cases": [
+        "test_vector_multi_elem_commit_not_premature",
+        "test_vector_multi_elem_dequeue_only_after_all_commits"
+      ],
+      "primary_test_case": "test_vector_multi_elem_commit_not_premature",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_xiangshan_20260910",
+      "admission_source": "xiangshan_backup_20260910",
+      "admission_evidence": "registered_adjudication"
+    }
+  ],
+  "category": "xiangshan",
+  "last_registered_at": "2026-09-12T15:23:12+08:00",
+  "last_registered_batch": "baseline_xiangshan_20260910"
+}

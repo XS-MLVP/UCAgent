@@ -1,0 +1,210 @@
+{
+  "schema_version": "functional_coverage_plan.v1",
+  "dut": "e203_exu_alu_bjp",
+  "revision_id": "rev-64bd0f5c4b09cd25599f",
+  "source_snapshot_hash": "7087e320e39229fa7a2bd00d70a2fbafe008143405b154dfc254ee49b29ff909",
+  "status": "machine_mapped_frozen_contract",
+  "targets": [
+    {
+      "target_id": "FC-BJP-RESET-IDLE",
+      "name": "reset initialization and idle state",
+      "weight": 1,
+      "coverage_definition": "Reset or clear the interface into its idle state",
+      "sampling_rule": "Sample public request and result-valid controls after reset/clear",
+      "oracle_definition": "The interface is idle with no spurious request or result",
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "FC-BJP-ALU-REQUEST",
+      "name": "ALU request generation and operand selection",
+      "weight": 1,
+      "coverage_definition": "Generate the ALU request and select the documented operands",
+      "sampling_rule": "Sample request enables and operands for an accepted operation",
+      "oracle_definition": "Request enables and operand values match the selected operation",
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "FC-BJP-BRANCH-COMPARE",
+      "name": "conditional branch comparison",
+      "weight": 1,
+      "coverage_definition": "Exercise conditional branch comparison behavior",
+      "sampling_rule": "Sample comparison inputs and result for at least one branch condition",
+      "oracle_definition": "The comparison result matches the branch condition",
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "FC-BJP-JUMP-TARGET",
+      "name": "jump target address generation",
+      "weight": 1,
+      "coverage_definition": "Exercise jump address generation",
+      "sampling_rule": "Sample jump operands, add request, and generated target",
+      "oracle_definition": "The generated jump target matches the architectural addition rule",
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "FC-BJP-HANDSHAKE",
+      "name": "valid/ready handshake control",
+      "weight": 1,
+      "coverage_definition": "Exercise valid/ready request-result handshaking",
+      "sampling_rule": "Sample valid and ready on an active and an idle transfer",
+      "oracle_definition": "Transfer and hold behavior follows the public handshake contract",
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "FC-BJP-COMMIT-RESOLVE",
+      "name": "branch/jump resolution to commit unit",
+      "weight": 1,
+      "coverage_definition": "Exercise branch/jump resolution information sent to commit",
+      "sampling_rule": "Sample commit BJP type, resolve result, and related control outputs",
+      "oracle_definition": "Commit and resolve outputs match the executed branch or jump",
+      "collection_status": "scoreable"
+    }
+  ],
+  "observations": [
+    {
+      "model": "agentw",
+      "target_id": "FC-BJP-RESET-IDLE",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "agentw",
+      "target_id": "FC-BJP-ALU-REQUEST",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "agentw",
+      "target_id": "FC-BJP-BRANCH-COMPARE",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "agentw",
+      "target_id": "FC-BJP-JUMP-TARGET",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "agentw",
+      "target_id": "FC-BJP-HANDSHAKE",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "agentw",
+      "target_id": "FC-BJP-COMMIT-RESOLVE",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-BJP-RESET-IDLE",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-BJP-ALU-REQUEST",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-BJP-BRANCH-COMPARE",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-BJP-JUMP-TARGET",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-BJP-HANDSHAKE",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-BJP-COMMIT-RESOLVE",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-BJP-RESET-IDLE",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-BJP-ALU-REQUEST",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-BJP-BRANCH-COMPARE",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-BJP-JUMP-TARGET",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-BJP-HANDSHAKE",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-BJP-COMMIT-RESOLVE",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    }
+  ],
+  "contract_hash": "1c4d6aa09fa9b6db46ac65ed397e5d30ac271b3c66033abec69df0296d0ac65b"
+}

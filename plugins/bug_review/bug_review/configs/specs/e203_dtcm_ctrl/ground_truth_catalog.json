@@ -1,0 +1,1517 @@
+{
+  "schema_version": "ground_truth_coverage_catalog.v1",
+  "dut": "e203_dtcm_ctrl",
+  "version": "v1.0.0",
+  "total_fg": 10,
+  "total_fc": 49,
+  "total_ck": 51,
+  "fgs": [
+    "FG-API",
+    "FG-ARBITRATION",
+    "FG-CLOCK-GATING",
+    "FG-EXT-ACCESS",
+    "FG-LSU-ACCESS",
+    "FG-RESET",
+    "FG-RESPONSE",
+    "FG-ROBUSTNESS",
+    "FG-SRAM-CONTROL",
+    "FG-UNALIGNED-AND-MASK"
+  ],
+  "fcs": [
+    {
+      "fc_id": "FC-RESET-AND-STEP",
+      "fg_id": "FG-API",
+      "objective": "FC-RESET-AND-STEP 验证",
+      "rule": "`P-CORE`",
+      "test_plan_ref": "P0 / `CK-BASIC`"
+    },
+    {
+      "fc_id": "FC-LSU-REQUEST-DRIVE",
+      "fg_id": "FG-API",
+      "objective": "FC-LSU-REQUEST-DRIVE 验证",
+      "rule": "`P-CORE`",
+      "test_plan_ref": "P0 / `CK-BASIC`"
+    },
+    {
+      "fc_id": "FC-EXT-REQUEST-DRIVE",
+      "fg_id": "FG-API",
+      "objective": "FC-EXT-REQUEST-DRIVE 验证",
+      "rule": "`P-CORE`",
+      "test_plan_ref": "P0 / `CK-BASIC`"
+    },
+    {
+      "fc_id": "FC-RAM-MODEL-ACCESS",
+      "fg_id": "FG-API",
+      "objective": "FC-RAM-MODEL-ACCESS 验证",
+      "rule": "`P-CORE`",
+      "test_plan_ref": "P0 / `CK-BASIC`"
+    },
+    {
+      "fc_id": "FC-OUTPUT-MONITOR",
+      "fg_id": "FG-API",
+      "objective": "FC-OUTPUT-MONITOR 验证",
+      "rule": "`P-CORE`",
+      "test_plan_ref": "P0 / `CK-BASIC`"
+    },
+    {
+      "fc_id": "FC-LSU-READ-HANDSHAKE",
+      "fg_id": "FG-LSU-ACCESS",
+      "objective": "FC-LSU-READ-HANDSHAKE 验证",
+      "rule": "`P-CORE`",
+      "test_plan_ref": "P0 / `CK-BASIC`"
+    },
+    {
+      "fc_id": "FC-LSU-WRITE-HANDSHAKE",
+      "fg_id": "FG-LSU-ACCESS",
+      "objective": "FC-LSU-WRITE-HANDSHAKE 验证",
+      "rule": "`P-CORE`",
+      "test_plan_ref": "P0 / `CK-BASIC`"
+    },
+    {
+      "fc_id": "FC-LSU-READ-RESPONSE",
+      "fg_id": "FG-LSU-ACCESS",
+      "objective": "FC-LSU-READ-RESPONSE 验证",
+      "rule": "`P-CORE`",
+      "test_plan_ref": "P0 / `CK-BASIC`"
+    },
+    {
+      "fc_id": "FC-LSU-WRITE-RESPONSE",
+      "fg_id": "FG-LSU-ACCESS",
+      "objective": "FC-LSU-WRITE-RESPONSE 验证",
+      "rule": "`P-CORE`",
+      "test_plan_ref": "P0 / `CK-BASIC`"
+    },
+    {
+      "fc_id": "FC-LSU-BACK-TO-BACK",
+      "fg_id": "FG-LSU-ACCESS",
+      "objective": "FC-LSU-BACK-TO-BACK 验证",
+      "rule": "`P-CORE`",
+      "test_plan_ref": "P0 / `CK-BASIC`"
+    },
+    {
+      "fc_id": "FC-EXT-READ-HANDSHAKE",
+      "fg_id": "FG-EXT-ACCESS",
+      "objective": "FC-EXT-READ-HANDSHAKE 验证",
+      "rule": "`P-CORE`",
+      "test_plan_ref": "P0 / `CK-BASIC`"
+    },
+    {
+      "fc_id": "FC-EXT-WRITE-HANDSHAKE",
+      "fg_id": "FG-EXT-ACCESS",
+      "objective": "FC-EXT-WRITE-HANDSHAKE 验证",
+      "rule": "`P-CORE`",
+      "test_plan_ref": "P0 / `CK-BASIC`"
+    },
+    {
+      "fc_id": "FC-EXT-READ-RESPONSE",
+      "fg_id": "FG-EXT-ACCESS",
+      "objective": "FC-EXT-READ-RESPONSE 验证",
+      "rule": "`P-CORE`",
+      "test_plan_ref": "P0 / `CK-BASIC`"
+    },
+    {
+      "fc_id": "FC-EXT-WRITE-RESPONSE",
+      "fg_id": "FG-EXT-ACCESS",
+      "objective": "FC-EXT-WRITE-RESPONSE 验证",
+      "rule": "`P-CORE`",
+      "test_plan_ref": "P0 / `CK-BASIC`"
+    },
+    {
+      "fc_id": "FC-EXT-STANDALONE-ACCESS",
+      "fg_id": "FG-EXT-ACCESS",
+      "objective": "FC-EXT-STANDALONE-ACCESS 验证",
+      "rule": "`P-CORE`",
+      "test_plan_ref": "P0 / `CK-BASIC`"
+    },
+    {
+      "fc_id": "FC-LSU-PRIORITY",
+      "fg_id": "FG-ARBITRATION",
+      "objective": "FC-LSU-PRIORITY 验证",
+      "rule": "`P-CORE`",
+      "test_plan_ref": "P0 / `CK-BASIC`"
+    },
+    {
+      "fc_id": "FC-EXT-WAIT-UNDER-CONTENTION",
+      "fg_id": "FG-ARBITRATION",
+      "objective": "FC-EXT-WAIT-UNDER-CONTENTION 验证",
+      "rule": "`P-CORE`",
+      "test_plan_ref": "P0 / `CK-BASIC`"
+    },
+    {
+      "fc_id": "FC-RESPONSE-SOURCE-ROUTING",
+      "fg_id": "FG-ARBITRATION",
+      "objective": "FC-RESPONSE-SOURCE-ROUTING 验证",
+      "rule": "`P-CORE`",
+      "test_plan_ref": "P0 / `CK-BASIC`"
+    },
+    {
+      "fc_id": "FC-REQUEST-RESPONSE-ORDER",
+      "fg_id": "FG-ARBITRATION",
+      "objective": "FC-REQUEST-RESPONSE-ORDER 验证",
+      "rule": "`P-CORE`",
+      "test_plan_ref": "P0 / `CK-BASIC`"
+    },
+    {
+      "fc_id": "FC-RAM-CS",
+      "fg_id": "FG-SRAM-CONTROL",
+      "objective": "FC-RAM-CS 验证",
+      "rule": "`P-CORE`",
+      "test_plan_ref": "P0 / `CK-BASIC`"
+    },
+    {
+      "fc_id": "FC-RAM-WE",
+      "fg_id": "FG-SRAM-CONTROL",
+      "objective": "FC-RAM-WE 验证",
+      "rule": "`P-CORE`",
+      "test_plan_ref": "P0 / `CK-BASIC`"
+    },
+    {
+      "fc_id": "FC-RAM-ADDR-MAP",
+      "fg_id": "FG-SRAM-CONTROL",
+      "objective": "FC-RAM-ADDR-MAP 验证",
+      "rule": "`P-CORE`",
+      "test_plan_ref": "P0 / `CK-BASIC`"
+    },
+    {
+      "fc_id": "FC-RAM-WDATA-PASS",
+      "fg_id": "FG-SRAM-CONTROL",
+      "objective": "FC-RAM-WDATA-PASS 验证",
+      "rule": "`P-CORE`",
+      "test_plan_ref": "P0 / `CK-BASIC`"
+    },
+    {
+      "fc_id": "FC-RAM-WMASK-GEN",
+      "fg_id": "FG-SRAM-CONTROL",
+      "objective": "FC-RAM-WMASK-GEN 验证",
+      "rule": "`P-CORE`",
+      "test_plan_ref": "P0 / `CK-BASIC`"
+    },
+    {
+      "fc_id": "FC-RAM-RDATA-RETURN",
+      "fg_id": "FG-SRAM-CONTROL",
+      "objective": "FC-RAM-RDATA-RETURN 验证",
+      "rule": "`P-CORE`",
+      "test_plan_ref": "P0 / `CK-BASIC`"
+    },
+    {
+      "fc_id": "FC-NO-ZERO-CYCLE-RSP",
+      "fg_id": "FG-RESPONSE",
+      "objective": "FC-NO-ZERO-CYCLE-RSP 验证",
+      "rule": "`P-CORE`",
+      "test_plan_ref": "P0 / `CK-BASIC`"
+    },
+    {
+      "fc_id": "FC-RSP-BACKPRESSURE-HOLD",
+      "fg_id": "FG-RESPONSE",
+      "objective": "FC-RSP-BACKPRESSURE-HOLD 验证",
+      "rule": "`P-CORE`",
+      "test_plan_ref": "P0 / `CK-BASIC`"
+    },
+    {
+      "fc_id": "FC-CMD-BACKPRESSURE",
+      "fg_id": "FG-RESPONSE",
+      "objective": "FC-CMD-BACKPRESSURE 验证",
+      "rule": "`P-CORE`",
+      "test_plan_ref": "P0 / `CK-BASIC`"
+    },
+    {
+      "fc_id": "FC-RSP-ERR-BEHAVIOR",
+      "fg_id": "FG-RESPONSE",
+      "objective": "FC-RSP-ERR-BEHAVIOR 验证",
+      "rule": "`P-CORE`",
+      "test_plan_ref": "P0 / `CK-BASIC`"
+    },
+    {
+      "fc_id": "FC-RSP-TYPE-DIFFERENTIATION",
+      "fg_id": "FG-RESPONSE",
+      "objective": "FC-RSP-TYPE-DIFFERENTIATION 验证",
+      "rule": "`P-CORE`",
+      "test_plan_ref": "P0 / `CK-BASIC`"
+    },
+    {
+      "fc_id": "FC-BYTE-OFFSET-SELECTION",
+      "fg_id": "FG-UNALIGNED-AND-MASK",
+      "objective": "FC-BYTE-OFFSET-SELECTION 验证",
+      "rule": "`P-CORE`",
+      "test_plan_ref": "P0 / `CK-BASIC`"
+    },
+    {
+      "fc_id": "FC-UNALIGNED-READ-REALIGN",
+      "fg_id": "FG-UNALIGNED-AND-MASK",
+      "objective": "FC-UNALIGNED-READ-REALIGN 验证",
+      "rule": "`P-CORE`",
+      "test_plan_ref": "P0 / `CK-BASIC`"
+    },
+    {
+      "fc_id": "FC-UNALIGNED-WRITE-MASK",
+      "fg_id": "FG-UNALIGNED-AND-MASK",
+      "objective": "FC-UNALIGNED-WRITE-MASK 验证",
+      "rule": "`P-CORE`",
+      "test_plan_ref": "P0 / `CK-BASIC`"
+    },
+    {
+      "fc_id": "FC-PARTIAL-WRITE-PRESERVE",
+      "fg_id": "FG-UNALIGNED-AND-MASK",
+      "objective": "FC-PARTIAL-WRITE-PRESERVE 验证",
+      "rule": "`P-CORE`",
+      "test_plan_ref": "P0 / `CK-BASIC`"
+    },
+    {
+      "fc_id": "FC-BOUNDARY-BYTE-ACCESS",
+      "fg_id": "FG-UNALIGNED-AND-MASK",
+      "objective": "FC-BOUNDARY-BYTE-ACCESS 验证",
+      "rule": "`P-CORE`",
+      "test_plan_ref": "P0 / `CK-BASIC`"
+    },
+    {
+      "fc_id": "FC-ACTIVE-ON-ACCESS",
+      "fg_id": "FG-CLOCK-GATING",
+      "objective": "FC-ACTIVE-ON-ACCESS 验证",
+      "rule": "`P-CORE`",
+      "test_plan_ref": "P0 / `CK-BASIC`"
+    },
+    {
+      "fc_id": "FC-IDLE-CLOCK-GATE",
+      "fg_id": "FG-CLOCK-GATING",
+      "objective": "FC-IDLE-CLOCK-GATE 验证",
+      "rule": "`P-CORE`",
+      "test_plan_ref": "P0 / `CK-BASIC`"
+    },
+    {
+      "fc_id": "FC-CGSTOP-OVERRIDE",
+      "fg_id": "FG-CLOCK-GATING",
+      "objective": "FC-CGSTOP-OVERRIDE 验证",
+      "rule": "`P-CORE`",
+      "test_plan_ref": "P0 / `CK-BASIC`"
+    },
+    {
+      "fc_id": "FC-TESTMODE-CLOCK-BEHAVIOR",
+      "fg_id": "FG-CLOCK-GATING",
+      "objective": "FC-TESTMODE-CLOCK-BEHAVIOR 验证",
+      "rule": "`P-CORE`",
+      "test_plan_ref": "P0 / `CK-BASIC`"
+    },
+    {
+      "fc_id": "FC-CLOCK-WAKEUP-LATENCY",
+      "fg_id": "FG-CLOCK-GATING",
+      "objective": "FC-CLOCK-WAKEUP-LATENCY 验证",
+      "rule": "`P-CORE`",
+      "test_plan_ref": "P0 / `CK-BASIC`"
+    },
+    {
+      "fc_id": "FC-RESET-DEFAULT-OUTPUT",
+      "fg_id": "FG-RESET",
+      "objective": "FC-RESET-DEFAULT-OUTPUT 验证",
+      "rule": "`P-CORE`",
+      "test_plan_ref": "P0 / `CK-BASIC`"
+    },
+    {
+      "fc_id": "FC-RESET-CLEAR-PENDING",
+      "fg_id": "FG-RESET",
+      "objective": "FC-RESET-CLEAR-PENDING 验证",
+      "rule": "`P-CORE`",
+      "test_plan_ref": "P0 / `CK-BASIC`"
+    },
+    {
+      "fc_id": "FC-POST-RESET-FIRST-ACCESS",
+      "fg_id": "FG-RESET",
+      "objective": "FC-POST-RESET-FIRST-ACCESS 验证",
+      "rule": "`P-CORE`",
+      "test_plan_ref": "P0 / `CK-BASIC`"
+    },
+    {
+      "fc_id": "FC-RESET-RAM-INTERFACE",
+      "fg_id": "FG-RESET",
+      "objective": "FC-RESET-RAM-INTERFACE 验证",
+      "rule": "`P-CORE`",
+      "test_plan_ref": "P0 / `CK-BASIC`"
+    },
+    {
+      "fc_id": "FC-ADDRESS-BOUNDARY",
+      "fg_id": "FG-ROBUSTNESS",
+      "objective": "FC-ADDRESS-BOUNDARY 验证",
+      "rule": "`P-CORE`",
+      "test_plan_ref": "P0 / `CK-BASIC`"
+    },
+    {
+      "fc_id": "FC-ZERO-WMASK",
+      "fg_id": "FG-ROBUSTNESS",
+      "objective": "FC-ZERO-WMASK 验证",
+      "rule": "`P-CORE`",
+      "test_plan_ref": "P0 / `CK-BASIC`"
+    },
+    {
+      "fc_id": "FC-VALID-TOGGLE-ROBUSTNESS",
+      "fg_id": "FG-ROBUSTNESS",
+      "objective": "FC-VALID-TOGGLE-ROBUSTNESS 验证",
+      "rule": "`P-CORE`",
+      "test_plan_ref": "P0 / `CK-BASIC`"
+    },
+    {
+      "fc_id": "FC-LONG-RSP-STALL",
+      "fg_id": "FG-ROBUSTNESS",
+      "objective": "FC-LONG-RSP-STALL 验证",
+      "rule": "`P-CORE`",
+      "test_plan_ref": "P0 / `CK-BASIC`"
+    },
+    {
+      "fc_id": "FC-MIXED-ACCESS-STRESS",
+      "fg_id": "FG-ROBUSTNESS",
+      "objective": "FC-MIXED-ACCESS-STRESS 验证",
+      "rule": "`P-CORE`",
+      "test_plan_ref": "P0 / `CK-BASIC`"
+    }
+  ],
+  "cks": [
+    {
+      "ck_id": "CK-BASIC",
+      "style": "Assume",
+      "fc_id": "FC-RESET-AND-STEP",
+      "property": "CK-BASIC",
+      "observable": "`signal.dtcm_active`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    },
+    {
+      "ck_id": "CK-BOUNDARY",
+      "style": "Assume",
+      "fc_id": "FC-RESET-AND-STEP",
+      "property": "CK-BOUNDARY",
+      "observable": "`signal.dtcm_active`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    },
+    {
+      "ck_id": "CK-ERROR",
+      "style": "Assume",
+      "fc_id": "FC-RESET-AND-STEP",
+      "property": "CK-ERROR",
+      "observable": "`signal.dtcm_active`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    },
+    {
+      "ck_id": "CK-LSU-REQUEST-DRIVE-DEFAULT",
+      "style": "Seq",
+      "fc_id": "FC-LSU-REQUEST-DRIVE",
+      "property": "验证 FC-LSU-REQUEST-DRIVE 默认行为",
+      "observable": "`signal.dtcm_active`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    },
+    {
+      "ck_id": "CK-EXT-REQUEST-DRIVE-DEFAULT",
+      "style": "Seq",
+      "fc_id": "FC-EXT-REQUEST-DRIVE",
+      "property": "验证 FC-EXT-REQUEST-DRIVE 默认行为",
+      "observable": "`signal.dtcm_active`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    },
+    {
+      "ck_id": "CK-RAM-MODEL-ACCESS-DEFAULT",
+      "style": "Seq",
+      "fc_id": "FC-RAM-MODEL-ACCESS",
+      "property": "验证 FC-RAM-MODEL-ACCESS 默认行为",
+      "observable": "`signal.dtcm_active`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    },
+    {
+      "ck_id": "CK-OUTPUT-MONITOR-DEFAULT",
+      "style": "Seq",
+      "fc_id": "FC-OUTPUT-MONITOR",
+      "property": "验证 FC-OUTPUT-MONITOR 默认行为",
+      "observable": "`signal.dtcm_active`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    },
+    {
+      "ck_id": "CK-LSU-READ-HANDSHAKE-DEFAULT",
+      "style": "Seq",
+      "fc_id": "FC-LSU-READ-HANDSHAKE",
+      "property": "验证 FC-LSU-READ-HANDSHAKE 默认行为",
+      "observable": "`signal.dtcm_active`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    },
+    {
+      "ck_id": "CK-LSU-WRITE-HANDSHAKE-DEFAULT",
+      "style": "Seq",
+      "fc_id": "FC-LSU-WRITE-HANDSHAKE",
+      "property": "验证 FC-LSU-WRITE-HANDSHAKE 默认行为",
+      "observable": "`signal.dtcm_active`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    },
+    {
+      "ck_id": "CK-LSU-READ-RESPONSE-DEFAULT",
+      "style": "Seq",
+      "fc_id": "FC-LSU-READ-RESPONSE",
+      "property": "验证 FC-LSU-READ-RESPONSE 默认行为",
+      "observable": "`signal.dtcm_active`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    },
+    {
+      "ck_id": "CK-LSU-WRITE-RESPONSE-DEFAULT",
+      "style": "Seq",
+      "fc_id": "FC-LSU-WRITE-RESPONSE",
+      "property": "验证 FC-LSU-WRITE-RESPONSE 默认行为",
+      "observable": "`signal.dtcm_active`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    },
+    {
+      "ck_id": "CK-LSU-BACK-TO-BACK-DEFAULT",
+      "style": "Seq",
+      "fc_id": "FC-LSU-BACK-TO-BACK",
+      "property": "验证 FC-LSU-BACK-TO-BACK 默认行为",
+      "observable": "`signal.dtcm_active`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    },
+    {
+      "ck_id": "CK-EXT-READ-HANDSHAKE-DEFAULT",
+      "style": "Seq",
+      "fc_id": "FC-EXT-READ-HANDSHAKE",
+      "property": "验证 FC-EXT-READ-HANDSHAKE 默认行为",
+      "observable": "`signal.dtcm_active`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    },
+    {
+      "ck_id": "CK-EXT-WRITE-HANDSHAKE-DEFAULT",
+      "style": "Seq",
+      "fc_id": "FC-EXT-WRITE-HANDSHAKE",
+      "property": "验证 FC-EXT-WRITE-HANDSHAKE 默认行为",
+      "observable": "`signal.dtcm_active`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    },
+    {
+      "ck_id": "CK-EXT-READ-RESPONSE-DEFAULT",
+      "style": "Seq",
+      "fc_id": "FC-EXT-READ-RESPONSE",
+      "property": "验证 FC-EXT-READ-RESPONSE 默认行为",
+      "observable": "`signal.dtcm_active`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    },
+    {
+      "ck_id": "CK-EXT-WRITE-RESPONSE-DEFAULT",
+      "style": "Seq",
+      "fc_id": "FC-EXT-WRITE-RESPONSE",
+      "property": "验证 FC-EXT-WRITE-RESPONSE 默认行为",
+      "observable": "`signal.dtcm_active`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    },
+    {
+      "ck_id": "CK-EXT-STANDALONE-ACCESS-DEFAULT",
+      "style": "Seq",
+      "fc_id": "FC-EXT-STANDALONE-ACCESS",
+      "property": "验证 FC-EXT-STANDALONE-ACCESS 默认行为",
+      "observable": "`signal.dtcm_active`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    },
+    {
+      "ck_id": "CK-LSU-PRIORITY-DEFAULT",
+      "style": "Seq",
+      "fc_id": "FC-LSU-PRIORITY",
+      "property": "验证 FC-LSU-PRIORITY 默认行为",
+      "observable": "`signal.dtcm_active`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    },
+    {
+      "ck_id": "CK-EXT-WAIT-UNDER-CONTENTION-DEFAULT",
+      "style": "Seq",
+      "fc_id": "FC-EXT-WAIT-UNDER-CONTENTION",
+      "property": "验证 FC-EXT-WAIT-UNDER-CONTENTION 默认行为",
+      "observable": "`signal.dtcm_active`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    },
+    {
+      "ck_id": "CK-RESPONSE-SOURCE-ROUTING-DEFAULT",
+      "style": "Seq",
+      "fc_id": "FC-RESPONSE-SOURCE-ROUTING",
+      "property": "验证 FC-RESPONSE-SOURCE-ROUTING 默认行为",
+      "observable": "`signal.dtcm_active`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    },
+    {
+      "ck_id": "CK-REQUEST-RESPONSE-ORDER-DEFAULT",
+      "style": "Seq",
+      "fc_id": "FC-REQUEST-RESPONSE-ORDER",
+      "property": "验证 FC-REQUEST-RESPONSE-ORDER 默认行为",
+      "observable": "`signal.dtcm_active`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    },
+    {
+      "ck_id": "CK-RAM-CS-DEFAULT",
+      "style": "Seq",
+      "fc_id": "FC-RAM-CS",
+      "property": "验证 FC-RAM-CS 默认行为",
+      "observable": "`signal.dtcm_active`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    },
+    {
+      "ck_id": "CK-RAM-WE-DEFAULT",
+      "style": "Seq",
+      "fc_id": "FC-RAM-WE",
+      "property": "验证 FC-RAM-WE 默认行为",
+      "observable": "`signal.dtcm_active`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    },
+    {
+      "ck_id": "CK-RAM-ADDR-MAP-DEFAULT",
+      "style": "Seq",
+      "fc_id": "FC-RAM-ADDR-MAP",
+      "property": "验证 FC-RAM-ADDR-MAP 默认行为",
+      "observable": "`signal.dtcm_active`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    },
+    {
+      "ck_id": "CK-RAM-WDATA-PASS-DEFAULT",
+      "style": "Seq",
+      "fc_id": "FC-RAM-WDATA-PASS",
+      "property": "验证 FC-RAM-WDATA-PASS 默认行为",
+      "observable": "`signal.dtcm_active`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    },
+    {
+      "ck_id": "CK-RAM-WMASK-GEN-DEFAULT",
+      "style": "Seq",
+      "fc_id": "FC-RAM-WMASK-GEN",
+      "property": "验证 FC-RAM-WMASK-GEN 默认行为",
+      "observable": "`signal.dtcm_active`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    },
+    {
+      "ck_id": "CK-RAM-RDATA-RETURN-DEFAULT",
+      "style": "Seq",
+      "fc_id": "FC-RAM-RDATA-RETURN",
+      "property": "验证 FC-RAM-RDATA-RETURN 默认行为",
+      "observable": "`signal.dtcm_active`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    },
+    {
+      "ck_id": "CK-NO-ZERO-CYCLE-RSP-DEFAULT",
+      "style": "Seq",
+      "fc_id": "FC-NO-ZERO-CYCLE-RSP",
+      "property": "验证 FC-NO-ZERO-CYCLE-RSP 默认行为",
+      "observable": "`signal.dtcm_active`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    },
+    {
+      "ck_id": "CK-RSP-BACKPRESSURE-HOLD-DEFAULT",
+      "style": "Seq",
+      "fc_id": "FC-RSP-BACKPRESSURE-HOLD",
+      "property": "验证 FC-RSP-BACKPRESSURE-HOLD 默认行为",
+      "observable": "`signal.dtcm_active`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    },
+    {
+      "ck_id": "CK-CMD-BACKPRESSURE-DEFAULT",
+      "style": "Seq",
+      "fc_id": "FC-CMD-BACKPRESSURE",
+      "property": "验证 FC-CMD-BACKPRESSURE 默认行为",
+      "observable": "`signal.dtcm_active`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    },
+    {
+      "ck_id": "CK-RSP-ERR-BEHAVIOR-DEFAULT",
+      "style": "Seq",
+      "fc_id": "FC-RSP-ERR-BEHAVIOR",
+      "property": "验证 FC-RSP-ERR-BEHAVIOR 默认行为",
+      "observable": "`signal.dtcm_active`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    },
+    {
+      "ck_id": "CK-RSP-TYPE-DIFFERENTIATION-DEFAULT",
+      "style": "Seq",
+      "fc_id": "FC-RSP-TYPE-DIFFERENTIATION",
+      "property": "验证 FC-RSP-TYPE-DIFFERENTIATION 默认行为",
+      "observable": "`signal.dtcm_active`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    },
+    {
+      "ck_id": "CK-BYTE-OFFSET-SELECTION-DEFAULT",
+      "style": "Seq",
+      "fc_id": "FC-BYTE-OFFSET-SELECTION",
+      "property": "验证 FC-BYTE-OFFSET-SELECTION 默认行为",
+      "observable": "`signal.dtcm_active`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    },
+    {
+      "ck_id": "CK-UNALIGNED-READ-REALIGN-DEFAULT",
+      "style": "Seq",
+      "fc_id": "FC-UNALIGNED-READ-REALIGN",
+      "property": "验证 FC-UNALIGNED-READ-REALIGN 默认行为",
+      "observable": "`signal.dtcm_active`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    },
+    {
+      "ck_id": "CK-UNALIGNED-WRITE-MASK-DEFAULT",
+      "style": "Seq",
+      "fc_id": "FC-UNALIGNED-WRITE-MASK",
+      "property": "验证 FC-UNALIGNED-WRITE-MASK 默认行为",
+      "observable": "`signal.dtcm_active`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    },
+    {
+      "ck_id": "CK-PARTIAL-WRITE-PRESERVE-DEFAULT",
+      "style": "Seq",
+      "fc_id": "FC-PARTIAL-WRITE-PRESERVE",
+      "property": "验证 FC-PARTIAL-WRITE-PRESERVE 默认行为",
+      "observable": "`signal.dtcm_active`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    },
+    {
+      "ck_id": "CK-BOUNDARY-BYTE-ACCESS-DEFAULT",
+      "style": "Seq",
+      "fc_id": "FC-BOUNDARY-BYTE-ACCESS",
+      "property": "验证 FC-BOUNDARY-BYTE-ACCESS 默认行为",
+      "observable": "`signal.dtcm_active`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    },
+    {
+      "ck_id": "CK-ACTIVE-ON-ACCESS-DEFAULT",
+      "style": "Seq",
+      "fc_id": "FC-ACTIVE-ON-ACCESS",
+      "property": "验证 FC-ACTIVE-ON-ACCESS 默认行为",
+      "observable": "`signal.dtcm_active`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    },
+    {
+      "ck_id": "CK-IDLE-CLOCK-GATE-DEFAULT",
+      "style": "Seq",
+      "fc_id": "FC-IDLE-CLOCK-GATE",
+      "property": "验证 FC-IDLE-CLOCK-GATE 默认行为",
+      "observable": "`signal.dtcm_active`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    },
+    {
+      "ck_id": "CK-CGSTOP-OVERRIDE-DEFAULT",
+      "style": "Seq",
+      "fc_id": "FC-CGSTOP-OVERRIDE",
+      "property": "验证 FC-CGSTOP-OVERRIDE 默认行为",
+      "observable": "`signal.dtcm_active`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    },
+    {
+      "ck_id": "CK-TESTMODE-CLOCK-BEHAVIOR-DEFAULT",
+      "style": "Seq",
+      "fc_id": "FC-TESTMODE-CLOCK-BEHAVIOR",
+      "property": "验证 FC-TESTMODE-CLOCK-BEHAVIOR 默认行为",
+      "observable": "`signal.dtcm_active`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    },
+    {
+      "ck_id": "CK-CLOCK-WAKEUP-LATENCY-DEFAULT",
+      "style": "Seq",
+      "fc_id": "FC-CLOCK-WAKEUP-LATENCY",
+      "property": "验证 FC-CLOCK-WAKEUP-LATENCY 默认行为",
+      "observable": "`signal.dtcm_active`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    },
+    {
+      "ck_id": "CK-RESET-DEFAULT-OUTPUT-DEFAULT",
+      "style": "Seq",
+      "fc_id": "FC-RESET-DEFAULT-OUTPUT",
+      "property": "验证 FC-RESET-DEFAULT-OUTPUT 默认行为",
+      "observable": "`signal.dtcm_active`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    },
+    {
+      "ck_id": "CK-RESET-CLEAR-PENDING-DEFAULT",
+      "style": "Seq",
+      "fc_id": "FC-RESET-CLEAR-PENDING",
+      "property": "验证 FC-RESET-CLEAR-PENDING 默认行为",
+      "observable": "`signal.dtcm_active`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    },
+    {
+      "ck_id": "CK-POST-RESET-FIRST-ACCESS-DEFAULT",
+      "style": "Seq",
+      "fc_id": "FC-POST-RESET-FIRST-ACCESS",
+      "property": "验证 FC-POST-RESET-FIRST-ACCESS 默认行为",
+      "observable": "`signal.dtcm_active`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    },
+    {
+      "ck_id": "CK-RESET-RAM-INTERFACE-DEFAULT",
+      "style": "Seq",
+      "fc_id": "FC-RESET-RAM-INTERFACE",
+      "property": "验证 FC-RESET-RAM-INTERFACE 默认行为",
+      "observable": "`signal.dtcm_active`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    },
+    {
+      "ck_id": "CK-ADDRESS-BOUNDARY-DEFAULT",
+      "style": "Seq",
+      "fc_id": "FC-ADDRESS-BOUNDARY",
+      "property": "验证 FC-ADDRESS-BOUNDARY 默认行为",
+      "observable": "`signal.dtcm_active`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    },
+    {
+      "ck_id": "CK-ZERO-WMASK-DEFAULT",
+      "style": "Seq",
+      "fc_id": "FC-ZERO-WMASK",
+      "property": "验证 FC-ZERO-WMASK 默认行为",
+      "observable": "`signal.dtcm_active`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    },
+    {
+      "ck_id": "CK-VALID-TOGGLE-ROBUSTNESS-DEFAULT",
+      "style": "Seq",
+      "fc_id": "FC-VALID-TOGGLE-ROBUSTNESS",
+      "property": "验证 FC-VALID-TOGGLE-ROBUSTNESS 默认行为",
+      "observable": "`signal.dtcm_active`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    },
+    {
+      "ck_id": "CK-LONG-RSP-STALL-DEFAULT",
+      "style": "Seq",
+      "fc_id": "FC-LONG-RSP-STALL",
+      "property": "验证 FC-LONG-RSP-STALL 默认行为",
+      "observable": "`signal.dtcm_active`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    },
+    {
+      "ck_id": "CK-MIXED-ACCESS-STRESS-DEFAULT",
+      "style": "Seq",
+      "fc_id": "FC-MIXED-ACCESS-STRESS",
+      "property": "验证 FC-MIXED-ACCESS-STRESS 默认行为",
+      "observable": "`signal.dtcm_active`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    }
+  ],
+  "test_plans": [
+    {
+      "priority": "P1",
+      "fc_id": "FC-RESET-AND-STEP",
+      "ck_id": "CK-BASIC",
+      "style": "Assume",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    },
+    {
+      "priority": "P1",
+      "fc_id": "FC-RESET-AND-STEP",
+      "ck_id": "CK-BOUNDARY",
+      "style": "Assume",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    },
+    {
+      "priority": "P1",
+      "fc_id": "FC-RESET-AND-STEP",
+      "ck_id": "CK-ERROR",
+      "style": "Assume",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    },
+    {
+      "priority": "P1",
+      "fc_id": "FC-LSU-REQUEST-DRIVE",
+      "ck_id": "CK-LSU-REQUEST-DRIVE-DEFAULT",
+      "style": "Seq",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    },
+    {
+      "priority": "P1",
+      "fc_id": "FC-EXT-REQUEST-DRIVE",
+      "ck_id": "CK-EXT-REQUEST-DRIVE-DEFAULT",
+      "style": "Seq",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    },
+    {
+      "priority": "P1",
+      "fc_id": "FC-RAM-MODEL-ACCESS",
+      "ck_id": "CK-RAM-MODEL-ACCESS-DEFAULT",
+      "style": "Seq",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    },
+    {
+      "priority": "P1",
+      "fc_id": "FC-OUTPUT-MONITOR",
+      "ck_id": "CK-OUTPUT-MONITOR-DEFAULT",
+      "style": "Seq",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    },
+    {
+      "priority": "P1",
+      "fc_id": "FC-LSU-READ-HANDSHAKE",
+      "ck_id": "CK-LSU-READ-HANDSHAKE-DEFAULT",
+      "style": "Seq",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    },
+    {
+      "priority": "P1",
+      "fc_id": "FC-LSU-WRITE-HANDSHAKE",
+      "ck_id": "CK-LSU-WRITE-HANDSHAKE-DEFAULT",
+      "style": "Seq",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    },
+    {
+      "priority": "P1",
+      "fc_id": "FC-LSU-READ-RESPONSE",
+      "ck_id": "CK-LSU-READ-RESPONSE-DEFAULT",
+      "style": "Seq",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    },
+    {
+      "priority": "P1",
+      "fc_id": "FC-LSU-WRITE-RESPONSE",
+      "ck_id": "CK-LSU-WRITE-RESPONSE-DEFAULT",
+      "style": "Seq",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    },
+    {
+      "priority": "P1",
+      "fc_id": "FC-LSU-BACK-TO-BACK",
+      "ck_id": "CK-LSU-BACK-TO-BACK-DEFAULT",
+      "style": "Seq",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    },
+    {
+      "priority": "P1",
+      "fc_id": "FC-EXT-READ-HANDSHAKE",
+      "ck_id": "CK-EXT-READ-HANDSHAKE-DEFAULT",
+      "style": "Seq",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    },
+    {
+      "priority": "P1",
+      "fc_id": "FC-EXT-WRITE-HANDSHAKE",
+      "ck_id": "CK-EXT-WRITE-HANDSHAKE-DEFAULT",
+      "style": "Seq",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    },
+    {
+      "priority": "P1",
+      "fc_id": "FC-EXT-READ-RESPONSE",
+      "ck_id": "CK-EXT-READ-RESPONSE-DEFAULT",
+      "style": "Seq",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    },
+    {
+      "priority": "P1",
+      "fc_id": "FC-EXT-WRITE-RESPONSE",
+      "ck_id": "CK-EXT-WRITE-RESPONSE-DEFAULT",
+      "style": "Seq",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    },
+    {
+      "priority": "P1",
+      "fc_id": "FC-EXT-STANDALONE-ACCESS",
+      "ck_id": "CK-EXT-STANDALONE-ACCESS-DEFAULT",
+      "style": "Seq",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    },
+    {
+      "priority": "P1",
+      "fc_id": "FC-LSU-PRIORITY",
+      "ck_id": "CK-LSU-PRIORITY-DEFAULT",
+      "style": "Seq",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    },
+    {
+      "priority": "P1",
+      "fc_id": "FC-EXT-WAIT-UNDER-CONTENTION",
+      "ck_id": "CK-EXT-WAIT-UNDER-CONTENTION-DEFAULT",
+      "style": "Seq",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    },
+    {
+      "priority": "P1",
+      "fc_id": "FC-RESPONSE-SOURCE-ROUTING",
+      "ck_id": "CK-RESPONSE-SOURCE-ROUTING-DEFAULT",
+      "style": "Seq",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    },
+    {
+      "priority": "P1",
+      "fc_id": "FC-REQUEST-RESPONSE-ORDER",
+      "ck_id": "CK-REQUEST-RESPONSE-ORDER-DEFAULT",
+      "style": "Seq",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    },
+    {
+      "priority": "P1",
+      "fc_id": "FC-RAM-CS",
+      "ck_id": "CK-RAM-CS-DEFAULT",
+      "style": "Seq",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    },
+    {
+      "priority": "P1",
+      "fc_id": "FC-RAM-WE",
+      "ck_id": "CK-RAM-WE-DEFAULT",
+      "style": "Seq",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    },
+    {
+      "priority": "P1",
+      "fc_id": "FC-RAM-ADDR-MAP",
+      "ck_id": "CK-RAM-ADDR-MAP-DEFAULT",
+      "style": "Seq",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    },
+    {
+      "priority": "P1",
+      "fc_id": "FC-RAM-WDATA-PASS",
+      "ck_id": "CK-RAM-WDATA-PASS-DEFAULT",
+      "style": "Seq",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    },
+    {
+      "priority": "P1",
+      "fc_id": "FC-RAM-WMASK-GEN",
+      "ck_id": "CK-RAM-WMASK-GEN-DEFAULT",
+      "style": "Seq",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    },
+    {
+      "priority": "P1",
+      "fc_id": "FC-RAM-RDATA-RETURN",
+      "ck_id": "CK-RAM-RDATA-RETURN-DEFAULT",
+      "style": "Seq",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    },
+    {
+      "priority": "P1",
+      "fc_id": "FC-NO-ZERO-CYCLE-RSP",
+      "ck_id": "CK-NO-ZERO-CYCLE-RSP-DEFAULT",
+      "style": "Seq",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    },
+    {
+      "priority": "P1",
+      "fc_id": "FC-RSP-BACKPRESSURE-HOLD",
+      "ck_id": "CK-RSP-BACKPRESSURE-HOLD-DEFAULT",
+      "style": "Seq",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    },
+    {
+      "priority": "P1",
+      "fc_id": "FC-CMD-BACKPRESSURE",
+      "ck_id": "CK-CMD-BACKPRESSURE-DEFAULT",
+      "style": "Seq",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    },
+    {
+      "priority": "P1",
+      "fc_id": "FC-RSP-ERR-BEHAVIOR",
+      "ck_id": "CK-RSP-ERR-BEHAVIOR-DEFAULT",
+      "style": "Seq",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    },
+    {
+      "priority": "P1",
+      "fc_id": "FC-RSP-TYPE-DIFFERENTIATION",
+      "ck_id": "CK-RSP-TYPE-DIFFERENTIATION-DEFAULT",
+      "style": "Seq",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    },
+    {
+      "priority": "P1",
+      "fc_id": "FC-BYTE-OFFSET-SELECTION",
+      "ck_id": "CK-BYTE-OFFSET-SELECTION-DEFAULT",
+      "style": "Seq",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    },
+    {
+      "priority": "P1",
+      "fc_id": "FC-UNALIGNED-READ-REALIGN",
+      "ck_id": "CK-UNALIGNED-READ-REALIGN-DEFAULT",
+      "style": "Seq",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    },
+    {
+      "priority": "P1",
+      "fc_id": "FC-UNALIGNED-WRITE-MASK",
+      "ck_id": "CK-UNALIGNED-WRITE-MASK-DEFAULT",
+      "style": "Seq",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    },
+    {
+      "priority": "P1",
+      "fc_id": "FC-PARTIAL-WRITE-PRESERVE",
+      "ck_id": "CK-PARTIAL-WRITE-PRESERVE-DEFAULT",
+      "style": "Seq",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    },
+    {
+      "priority": "P1",
+      "fc_id": "FC-BOUNDARY-BYTE-ACCESS",
+      "ck_id": "CK-BOUNDARY-BYTE-ACCESS-DEFAULT",
+      "style": "Seq",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    },
+    {
+      "priority": "P1",
+      "fc_id": "FC-ACTIVE-ON-ACCESS",
+      "ck_id": "CK-ACTIVE-ON-ACCESS-DEFAULT",
+      "style": "Seq",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    },
+    {
+      "priority": "P1",
+      "fc_id": "FC-IDLE-CLOCK-GATE",
+      "ck_id": "CK-IDLE-CLOCK-GATE-DEFAULT",
+      "style": "Seq",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    },
+    {
+      "priority": "P1",
+      "fc_id": "FC-CGSTOP-OVERRIDE",
+      "ck_id": "CK-CGSTOP-OVERRIDE-DEFAULT",
+      "style": "Seq",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    },
+    {
+      "priority": "P1",
+      "fc_id": "FC-TESTMODE-CLOCK-BEHAVIOR",
+      "ck_id": "CK-TESTMODE-CLOCK-BEHAVIOR-DEFAULT",
+      "style": "Seq",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    },
+    {
+      "priority": "P1",
+      "fc_id": "FC-CLOCK-WAKEUP-LATENCY",
+      "ck_id": "CK-CLOCK-WAKEUP-LATENCY-DEFAULT",
+      "style": "Seq",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    },
+    {
+      "priority": "P0",
+      "fc_id": "FC-RESET-DEFAULT-OUTPUT",
+      "ck_id": "CK-RESET-DEFAULT-OUTPUT-DEFAULT",
+      "style": "Seq",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    },
+    {
+      "priority": "P0",
+      "fc_id": "FC-RESET-CLEAR-PENDING",
+      "ck_id": "CK-RESET-CLEAR-PENDING-DEFAULT",
+      "style": "Seq",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    },
+    {
+      "priority": "P0",
+      "fc_id": "FC-POST-RESET-FIRST-ACCESS",
+      "ck_id": "CK-POST-RESET-FIRST-ACCESS-DEFAULT",
+      "style": "Seq",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    },
+    {
+      "priority": "P0",
+      "fc_id": "FC-RESET-RAM-INTERFACE",
+      "ck_id": "CK-RESET-RAM-INTERFACE-DEFAULT",
+      "style": "Seq",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    },
+    {
+      "priority": "P1",
+      "fc_id": "FC-ADDRESS-BOUNDARY",
+      "ck_id": "CK-ADDRESS-BOUNDARY-DEFAULT",
+      "style": "Seq",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    },
+    {
+      "priority": "P1",
+      "fc_id": "FC-ZERO-WMASK",
+      "ck_id": "CK-ZERO-WMASK-DEFAULT",
+      "style": "Seq",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    },
+    {
+      "priority": "P1",
+      "fc_id": "FC-VALID-TOGGLE-ROBUSTNESS",
+      "ck_id": "CK-VALID-TOGGLE-ROBUSTNESS-DEFAULT",
+      "style": "Seq",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    },
+    {
+      "priority": "P1",
+      "fc_id": "FC-LONG-RSP-STALL",
+      "ck_id": "CK-LONG-RSP-STALL-DEFAULT",
+      "style": "Seq",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    },
+    {
+      "priority": "P1",
+      "fc_id": "FC-MIXED-ACCESS-STRESS",
+      "ck_id": "CK-MIXED-ACCESS-STRESS-DEFAULT",
+      "style": "Seq",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    }
+  ],
+  "coverages": [
+    {
+      "cov_id": "COV-NORMAL",
+      "risk": "正常功能覆盖",
+      "refs": "`P-CORE`, `FC-RESET-AND-STEP`, `CK-BASIC`",
+      "event": "正常周期事件",
+      "bins": "典型功能取值",
+      "cross": "核心交叉",
+      "illegal": "忽略非法毛刺",
+      "guard": "有效采样",
+      "closure_criteria": "命中要求",
+      "state": "Planned"
+    },
+    {
+      "cov_id": "COV-BOUNDARY",
+      "risk": "边界条件覆盖",
+      "refs": "`P-CORE`, `FC-MIXED-ACCESS-STRESS`, `CK-MIXED-ACCESS-STRESS-DEFAULT`",
+      "event": "边界周期事件",
+      "bins": "最大/最小值",
+      "cross": "极限交叉",
+      "illegal": "忽略非法毛刺",
+      "guard": "有效采样",
+      "closure_criteria": "命中要求",
+      "state": "Planned"
+    }
+  ]
+}

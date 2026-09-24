@@ -1,0 +1,73 @@
+{
+  "schema_version": "gt_rtl_v3",
+  "dut": "bosc_L2TlbPrefetch",
+  "status": "adjudicated_from_audited_rtl_roots",
+  "description": "DUT-level independent RTL defect ground truth index for bosc_L2TlbPrefetch.",
+  "total_rtl_defects": 2,
+  "model_hits": {
+    "gpt-5.5": 2
+  },
+  "defects": [
+    {
+      "gt_id": "GT-RTL-0001",
+      "global_gt_id": "GT-XS-0029",
+      "source_root_id": "RTLBUG-0001",
+      "dut": "bosc_L2TlbPrefetch",
+      "rtl_file": "bosc_L2TlbPrefetch.sv",
+      "rtl_line_start": 94,
+      "rtl_line_end": 133,
+      "failure_mode": "handshake_failure",
+      "symptoms": [
+        "BUG-0001",
+        "BUG-0002",
+        "BUG-0003"
+      ],
+      "models": [
+        "gpt-5.5"
+      ],
+      "source_anchor_confidence": "candidate",
+      "root_match_status": "matched_current_root",
+      "severity": "normal",
+      "description": "输出 VPN 稳定：验证 backpressure 期间输出 VPN 不变化。",
+      "test_cases": [
+        "test_bosc_L2TlbPrefetch_backpressure_stable_template"
+      ],
+      "primary_test_case": "test_bosc_L2TlbPrefetch_backpressure_stable_template",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_xiangshan_20260910",
+      "admission_source": "xiangshan_backup_20260910",
+      "admission_evidence": "registered_adjudication"
+    },
+    {
+      "gt_id": "GT-RTL-0002",
+      "global_gt_id": "GT-XS-0030",
+      "source_root_id": "RTLBUG-0002",
+      "dut": "bosc_L2TlbPrefetch",
+      "rtl_file": "bosc_L2TlbPrefetch.sv",
+      "rtl_line_start": 11,
+      "rtl_line_end": 17,
+      "failure_mode": "handshake_failure",
+      "symptoms": [
+        "BUG-0004"
+      ],
+      "models": [
+        "gpt-5.5"
+      ],
+      "source_anchor_confidence": "candidate",
+      "root_match_status": "matched_current_root",
+      "severity": "normal",
+      "description": "条件性 LLPTW 访问：验证当预取请求仅缺最后一级页表时，输出请求能够进入 LLPTW 路径。",
+      "test_cases": [
+        "test_bosc_L2TlbPrefetch_prefetch_path_attributes_template"
+      ],
+      "primary_test_case": "test_bosc_L2TlbPrefetch_prefetch_path_attributes_template",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_xiangshan_20260910",
+      "admission_source": "xiangshan_backup_20260910",
+      "admission_evidence": "registered_adjudication"
+    }
+  ],
+  "category": "xiangshan",
+  "last_registered_at": "2026-09-12T15:23:12+08:00",
+  "last_registered_batch": "baseline_xiangshan_20260910"
+}

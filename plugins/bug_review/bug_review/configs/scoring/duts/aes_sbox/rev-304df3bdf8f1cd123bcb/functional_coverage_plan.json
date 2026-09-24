@@ -1,0 +1,144 @@
+{
+  "schema_version": "functional_coverage_plan.v1",
+  "dut": "aes_sbox",
+  "revision_id": "rev-304df3bdf8f1cd123bcb",
+  "source_snapshot_hash": "7a90b8b1013d0a6eeb71c43478305072c724d1d9f169847c2d276422c9e601d3",
+  "status": "machine_mapped_frozen_contract",
+  "targets": [
+    {
+      "target_id": "FC-SBOX-FORWARD-SUB",
+      "name": "forward byte substitution mapping",
+      "weight": 1,
+      "coverage_definition": "Observe non-linear byte substitution across distinct byte inputs",
+      "sampling_rule": "Sample input byte and combinational sbox output",
+      "oracle_definition": "Output byte matches GF(2^8) multiplicative inversion followed by affine transformation",
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "FC-SBOX-ZERO-FIXED",
+      "name": "zero byte mapping to 0x63",
+      "weight": 1,
+      "coverage_definition": "Exercise substitution of 8'h00 input to verify affine constant 8'h63",
+      "sampling_rule": "Sample input 8'h00 and observe output",
+      "oracle_definition": "Output equals 8'h63 exactly",
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "FC-SBOX-BOUNDARY",
+      "name": "extreme and boundary byte patterns",
+      "weight": 1,
+      "coverage_definition": "Exercise 8'hFF, 8'h55, 8'hAA, and walking-one byte vectors",
+      "sampling_rule": "Sample boundary input vectors under stable combinational evaluation",
+      "oracle_definition": "Each output matches golden S-box lookup value",
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "FC-SBOX-TABLE-CONSISTENCY",
+      "name": "full-table bijection and non-glitch evaluation",
+      "weight": 1,
+      "coverage_definition": "Verify one-to-one mapping across the byte domain without combinational loop or glitch",
+      "sampling_rule": "Sample across consecutive input transitions",
+      "oracle_definition": "Output transition is glitch-free and perfectly bijective",
+      "collection_status": "scoreable"
+    }
+  ],
+  "observations": [
+    {
+      "model": "agentw",
+      "target_id": "FC-SBOX-FORWARD-SUB",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "agentw",
+      "target_id": "FC-SBOX-ZERO-FIXED",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "agentw",
+      "target_id": "FC-SBOX-BOUNDARY",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "agentw",
+      "target_id": "FC-SBOX-TABLE-CONSISTENCY",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-SBOX-FORWARD-SUB",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-SBOX-ZERO-FIXED",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-SBOX-BOUNDARY",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-SBOX-TABLE-CONSISTENCY",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-SBOX-FORWARD-SUB",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-SBOX-ZERO-FIXED",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-SBOX-BOUNDARY",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-SBOX-TABLE-CONSISTENCY",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    }
+  ],
+  "contract_hash": "9cde37ed05b06334ed4201992b37d883b473d5b8aebd634255b712a368083a06"
+}

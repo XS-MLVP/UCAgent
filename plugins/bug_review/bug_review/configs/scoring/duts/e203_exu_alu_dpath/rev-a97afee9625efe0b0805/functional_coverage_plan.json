@@ -1,0 +1,237 @@
+{
+  "schema_version": "functional_coverage_plan.v1",
+  "dut": "e203_exu_alu_dpath",
+  "revision_id": "rev-a97afee9625efe0b0805",
+  "source_snapshot_hash": "c7ae379489324ac87d653b0f8fb95cee6527bb242f10084b65a2f3a8e2d0d577",
+  "status": "machine_mapped_frozen_contract",
+  "targets": [
+    {
+      "target_id": "FC-DPATH-ARITHMETIC",
+      "name": "arithmetic addition and subtraction",
+      "weight": 1,
+      "coverage_definition": "Execute 32-bit addition and subtraction with carry and overflow",
+      "sampling_rule": "Sample operands, add/sub operation selection, and 32-bit result",
+      "oracle_definition": "Result matches reference 32-bit two's complement sum/difference",
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "FC-DPATH-LOGIC-BITWISE",
+      "name": "bitwise boolean operations",
+      "weight": 1,
+      "coverage_definition": "Execute AND, OR, and XOR bitwise operations across 32-bit vectors",
+      "sampling_rule": "Sample boolean operands and resulting output vector",
+      "oracle_definition": "Result matches exact bitwise boolean truth table",
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "FC-DPATH-SHIFT",
+      "name": "logical and arithmetic shift operations",
+      "weight": 1,
+      "coverage_definition": "Execute SLL, SRL, and SRA shifts with varying shift amounts (0 to 31)",
+      "sampling_rule": "Sample shift input, shift amount, and shifted output",
+      "oracle_definition": "Shift result conforms to RISC-V shift specification",
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "FC-DPATH-COMPARISON",
+      "name": "signed and unsigned comparison",
+      "weight": 1,
+      "coverage_definition": "Execute SLT, SLTU, and equality comparisons",
+      "sampling_rule": "Sample comparison operands and single-bit boolean output",
+      "oracle_definition": "Comparison output accurately reflects signed/unsigned less-than relation",
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "FC-DPATH-AGU-AMO",
+      "name": "AGU and AMO datapath support",
+      "weight": 1,
+      "coverage_definition": "Execute address generation and atomic min/max arithmetic operations",
+      "sampling_rule": "Sample AGU/AMO operands and resulting address/value outputs",
+      "oracle_definition": "AMO outputs conform to atomic memory operation requirements",
+      "collection_status": "scoreable"
+    }
+  ],
+  "observations": [
+    {
+      "model": "agentw",
+      "target_id": "FC-DPATH-ARITHMETIC",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "agentw",
+      "target_id": "FC-DPATH-LOGIC-BITWISE",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "agentw",
+      "target_id": "FC-DPATH-SHIFT",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "agentw",
+      "target_id": "FC-DPATH-COMPARISON",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "agentw",
+      "target_id": "FC-DPATH-AGU-AMO",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-DPATH-ARITHMETIC",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_e203_exu_alu_dpath_agu_amo_templates.py::test_e203_exu_alu_dpath_agu_add_amo_isolation",
+        "tests/test_e203_exu_alu_dpath_bjp_templates.py::test_e203_exu_alu_dpath_bjp_add_independent_cmp"
+      ],
+      "evidence_source": "frozen benchmark execution and semantic target mapping for FC-DPATH-ARITHMETIC"
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-DPATH-LOGIC-BITWISE",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_e203_exu_alu_dpath_agu_amo_templates.py::test_e203_exu_alu_dpath_agu_minu_high_bit_and_equal",
+        "tests/test_e203_exu_alu_dpath_alu_core_templates.py::test_e203_exu_alu_dpath_alu_lui_isolation",
+        "tests/test_e203_exu_alu_dpath_alu_core_templates.py::test_e203_exu_alu_dpath_alu_slt_basic_and_equal",
+        "tests/test_e203_exu_alu_dpath_alu_core_templates.py::test_e203_exu_alu_dpath_alu_sltu_basic_and_equal",
+        "tests/test_e203_exu_alu_dpath_api_operation_templates.py::test_e203_exu_alu_dpath_api_operation_idle_default_and_seq_sample",
+        "tests/test_e203_exu_alu_dpath_bjp_templates.py::test_e203_exu_alu_dpath_bjp_cmp_eq_equal_and_not_equal",
+        "tests/test_e203_exu_alu_dpath_bjp_templates.py::test_e203_exu_alu_dpath_bjp_cmp_gt_basic_and_equal",
+        "tests/test_e203_exu_alu_dpath_bjp_templates.py::test_e203_exu_alu_dpath_bjp_cmp_gtu_basic_and_equal",
+        "tests/test_e203_exu_alu_dpath_bjp_templates.py::test_e203_exu_alu_dpath_bjp_cmp_ne_not_equal_and_equal",
+        "tests/test_e203_exu_alu_dpath_shared_buffer_templates.py::test_e203_exu_alu_dpath_sbf0_agu_write_step_and_value",
+        "tests/test_e203_exu_alu_dpath_shared_buffer_templates.py::test_e203_exu_alu_dpath_sbf0_muldiv_write_step_and_value",
+        "tests/test_e203_exu_alu_dpath_shared_buffer_templates.py::test_e203_exu_alu_dpath_sbf1_agu_write_step_and_value",
+        "tests/test_e203_exu_alu_dpath_shared_buffer_templates.py::test_e203_exu_alu_dpath_sbf1_muldiv_write_step_and_value",
+        "tests/test_e203_exu_alu_dpath_shared_buffer_templates.py::test_e203_exu_alu_dpath_shared_buffer_hold_no_enable_and_multi_cycle",
+        "tests/test_e203_exu_alu_dpath_timing_reset_templates.py::test_e203_exu_alu_dpath_reset_ignored_comb_and_sbf"
+      ],
+      "evidence_source": "frozen benchmark execution and semantic target mapping for FC-DPATH-LOGIC-BITWISE"
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-DPATH-SHIFT",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-DPATH-COMPARISON",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_e203_exu_alu_dpath_alu_core_templates.py::test_e203_exu_alu_dpath_alu_slt_basic_and_equal",
+        "tests/test_e203_exu_alu_dpath_alu_core_templates.py::test_e203_exu_alu_dpath_alu_sltu_basic_and_equal",
+        "tests/test_e203_exu_alu_dpath_arbitration_templates.py::test_e203_exu_alu_dpath_concurrent_alu_bjp_requests",
+        "tests/test_e203_exu_alu_dpath_bjp_templates.py::test_e203_exu_alu_dpath_bjp_add_independent_cmp",
+        "tests/test_e203_exu_alu_dpath_bjp_templates.py::test_e203_exu_alu_dpath_bjp_cmp_eq_equal_and_not_equal",
+        "tests/test_e203_exu_alu_dpath_bjp_templates.py::test_e203_exu_alu_dpath_bjp_cmp_gt_basic_and_equal",
+        "tests/test_e203_exu_alu_dpath_bjp_templates.py::test_e203_exu_alu_dpath_bjp_cmp_gtu_basic_and_equal",
+        "tests/test_e203_exu_alu_dpath_bjp_templates.py::test_e203_exu_alu_dpath_bjp_cmp_ne_not_equal_and_equal"
+      ],
+      "evidence_source": "frozen benchmark execution and semantic target mapping for FC-DPATH-COMPARISON"
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-DPATH-AGU-AMO",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_e203_exu_alu_dpath_agu_amo_templates.py::test_e203_exu_alu_dpath_agu_add_amo_isolation",
+        "tests/test_e203_exu_alu_dpath_agu_amo_templates.py::test_e203_exu_alu_dpath_agu_max_equal_static_bug",
+        "tests/test_e203_exu_alu_dpath_agu_amo_templates.py::test_e203_exu_alu_dpath_agu_maxu_equal_static_bug",
+        "tests/test_e203_exu_alu_dpath_agu_amo_templates.py::test_e203_exu_alu_dpath_agu_min_equal",
+        "tests/test_e203_exu_alu_dpath_agu_amo_templates.py::test_e203_exu_alu_dpath_agu_minu_high_bit_and_equal",
+        "tests/test_e203_exu_alu_dpath_api_basic.py::test_api_e203_exu_alu_dpath_seq_sample_with_agu_sbf0",
+        "tests/test_e203_exu_alu_dpath_arbitration_templates.py::test_e203_exu_alu_dpath_concurrent_agu_muldiv_requests",
+        "tests/test_e203_exu_alu_dpath_arbitration_templates.py::test_e203_exu_alu_dpath_concurrent_alu_agu_requests",
+        "tests/test_e203_exu_alu_dpath_shared_buffer_templates.py::test_e203_exu_alu_dpath_sbf0_agu_write_step_and_value",
+        "tests/test_e203_exu_alu_dpath_shared_buffer_templates.py::test_e203_exu_alu_dpath_sbf0_agu_write_width_mapping",
+        "tests/test_e203_exu_alu_dpath_shared_buffer_templates.py::test_e203_exu_alu_dpath_sbf1_agu_write_step_and_value",
+        "tests/test_e203_exu_alu_dpath_shared_buffer_templates.py::test_e203_exu_alu_dpath_sbf1_agu_write_width_mapping",
+        "tests/test_e203_exu_alu_dpath_timing_reset_templates.py::test_e203_exu_alu_dpath_comb_no_step_dependence",
+        "tests/test_e203_exu_alu_dpath_timing_reset_templates.py::test_e203_exu_alu_dpath_reset_ignored_comb_and_sbf"
+      ],
+      "evidence_source": "frozen benchmark execution and semantic target mapping for FC-DPATH-AGU-AMO"
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-DPATH-ARITHMETIC",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-DPATH-LOGIC-BITWISE",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-DPATH-SHIFT",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-DPATH-COMPARISON",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_e203_exu_alu_dpath_api_bjp.py::test_api_e203_exu_alu_dpath_bjp_compare_signed",
+        "tests/test_e203_exu_alu_dpath_api_bjp.py::test_api_e203_exu_alu_dpath_bjp_compare_unsigned",
+        "tests/test_e203_exu_alu_dpath_bjp.py::test_bjp_cmp_gt",
+        "tests/test_e203_exu_alu_dpath_bjp.py::test_bjp_cmp_gt_op1_eq_op2",
+        "tests/test_e203_exu_alu_dpath_bjp.py::test_bjp_cmp_gtu",
+        "tests/test_e203_exu_alu_dpath_bjp.py::test_bjp_cmp_gtu_op1_eq_op2"
+      ],
+      "evidence_source": "frozen benchmark execution and semantic target mapping for FC-DPATH-COMPARISON"
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-DPATH-AGU-AMO",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    }
+  ],
+  "contract_hash": "81452ebbedd496f92cfae9da1d59bf7091295ea62211a8d309a36a66067b67f5"
+}

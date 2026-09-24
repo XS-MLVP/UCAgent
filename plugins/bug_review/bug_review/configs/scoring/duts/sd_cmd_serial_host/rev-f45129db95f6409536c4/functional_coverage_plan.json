@@ -1,0 +1,261 @@
+{
+  "schema_version": "functional_coverage_plan.v1",
+  "dut": "sd_cmd_serial_host",
+  "revision_id": "rev-f45129db95f6409536c4",
+  "source_snapshot_hash": "869a564566416ed179bff0a640f6f7906e482bb26bdc1bc6a01c653ec7fdd698",
+  "status": "machine_mapped_frozen_contract",
+  "targets": [
+    {
+      "target_id": "FC-CMDHOST-RESET-IDLE",
+      "name": "reset initialization and idle state",
+      "weight": 1,
+      "coverage_definition": "Verify FSM and serial lines initialize to idle state upon reset",
+      "sampling_rule": "Sample CMD output enable, internal FSM state, and registers post-reset",
+      "oracle_definition": "CMD line is released (high-Z/idle high) and FSM is in IDLE",
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "FC-CMDHOST-CMD-TX",
+      "name": "serial command transmission",
+      "weight": 1,
+      "coverage_definition": "Transmit standard 48-bit SD command packet across serial CMD line",
+      "sampling_rule": "Sample serial bit stream, start bit, command index, argument, and end bit",
+      "oracle_definition": "Transmitted packet bit order and bit count match SD protocol definition",
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "FC-CMDHOST-RESP-RX",
+      "name": "card response reception",
+      "weight": 1,
+      "coverage_definition": "Receive and sample serial card response packet into host registers",
+      "sampling_rule": "Sample response bits from CMD input line and verify register latching",
+      "oracle_definition": "Received response arguments match driven serial card data",
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "FC-CMDHOST-CRC7-CHECK",
+      "name": "CRC7 calculation and check",
+      "weight": 1,
+      "coverage_definition": "Generate CRC7 for outgoing command and check CRC7 for incoming response",
+      "sampling_rule": "Sample CRC calculation registers and error flags during transmission/reception",
+      "oracle_definition": "CRC polynomial G(x) = x^7 + x^3 + 1 correctly flags mismatched checksums",
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "FC-CMDHOST-HANDSHAKE",
+      "name": "host request/acknowledgment handshake",
+      "weight": 1,
+      "coverage_definition": "Drive request strobe and observe host completion and acknowledgment handshakes",
+      "sampling_rule": "Sample req, ack, and done status flags across the command lifecycle",
+      "oracle_definition": "Handshake follows 4-phase or 2-phase protocol cleanly without hang",
+      "collection_status": "scoreable"
+    }
+  ],
+  "observations": [
+    {
+      "model": "agentw",
+      "target_id": "FC-CMDHOST-RESET-IDLE",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_sd_cmd_serial_host_api_basic.py::test_api_sd_cmd_serial_host_reset_basic",
+        "tests/test_sd_cmd_serial_host_status_power_tests.py::test_power_reset_reset_init",
+        "tests/test_sd_cmd_serial_host_status_power_tests.py::test_power_reset_reset_regs"
+      ],
+      "evidence_source": "frozen benchmark execution and semantic target mapping for FC-CMDHOST-RESET-IDLE"
+    },
+    {
+      "model": "agentw",
+      "target_id": "FC-CMDHOST-CMD-TX",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "agentw",
+      "target_id": "FC-CMDHOST-RESP-RX",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "agentw",
+      "target_id": "FC-CMDHOST-CRC7-CHECK",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "agentw",
+      "target_id": "FC-CMDHOST-HANDSHAKE",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-CMDHOST-RESET-IDLE",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_sd_cmd_serial_host_delay_and_crc.py::test_sd_cmd_serial_host_tx_crc_resets_between_idle_and_new_command",
+        "tests/test_sd_cmd_serial_host_handshake_and_robustness.py::test_sd_cmd_serial_host_reset_during_tx_returns_to_defaults",
+        "tests/test_sd_cmd_serial_host_init_reset.py::test_sd_cmd_serial_host_init_state_holds_line_drive_until_init_delay_expires"
+      ],
+      "evidence_source": "frozen benchmark execution and semantic target mapping for FC-CMDHOST-RESET-IDLE"
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-CMDHOST-CMD-TX",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_sd_cmd_serial_host_command_tx.py::test_sd_cmd_serial_host_cmd_tx_bit_order_and_crc_phase",
+        "tests/test_sd_cmd_serial_host_command_tx.py::test_sd_cmd_serial_host_crc_check_off_accepts_mismatched_crc"
+      ],
+      "evidence_source": "frozen benchmark execution and semantic target mapping for FC-CMDHOST-CMD-TX"
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-CMDHOST-RESP-RX",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_sd_cmd_serial_host_delay_and_crc.py::test_sd_cmd_serial_host_dly_read_holds_done_status_and_data_until_ack",
+        "tests/test_sd_cmd_serial_host_delay_and_crc.py::test_sd_cmd_serial_host_dly_wr_waits_ncr_and_startbit_before_rx",
+        "tests/test_sd_cmd_serial_host_delay_and_crc.py::test_sd_cmd_serial_host_rx_crc_match_sets_status_valid",
+        "tests/test_sd_cmd_serial_host_delay_and_crc.py::test_sd_cmd_serial_host_rx_crc_mismatch_clears_status_valid",
+        "tests/test_sd_cmd_serial_host_mode_selection.py::test_sd_cmd_serial_host_write_read_mode_waits_ncr_before_startbit_capture",
+        "tests/test_sd_cmd_serial_host_random_decode_boundary.py::test_random_response_size_capture",
+        "tests/test_sd_cmd_serial_host_response_boundaries.py::test_sd_cmd_serial_host_response_size_127_handles_long_response_boundary",
+        "tests/test_sd_cmd_serial_host_response_boundaries.py::test_sd_cmd_serial_host_response_size_40_captures_normal_short_response",
+        "tests/test_sd_cmd_serial_host_response_boundaries.py::test_sd_cmd_serial_host_response_size_one_captures_minimum_response",
+        "tests/test_sd_cmd_serial_host_response_boundaries.py::test_sd_cmd_serial_host_response_size_zero_uses_write_only_flow",
+        "tests/test_sd_cmd_serial_host_response_capture_windows.py::test_sd_cmd_serial_host_dly_read_latches_out_buff_to_cmd_out",
+        "tests/test_sd_cmd_serial_host_response_capture_windows.py::test_sd_cmd_serial_host_response_capture_stops_at_configured_response_length",
+        "tests/test_sd_cmd_serial_host_response_capture_windows.py::test_sd_cmd_serial_host_response_capture_stores_startbit_at_read_entry",
+        "tests/test_sd_cmd_serial_host_response_capture_windows.py::test_sd_cmd_serial_host_word_select_00_returns_first_32bit_window",
+        "tests/test_sd_cmd_serial_host_response_capture_windows.py::test_sd_cmd_serial_host_word_select_01_returns_second_32bit_window",
+        "tests/test_sd_cmd_serial_host_response_capture_windows.py::test_sd_cmd_serial_host_word_select_10_returns_third_32bit_window",
+        "tests/test_sd_cmd_serial_host_response_capture_windows.py::test_sd_cmd_serial_host_word_select_11_returns_fourth_32bit_window"
+      ],
+      "evidence_source": "frozen benchmark execution and semantic target mapping for FC-CMDHOST-RESP-RX"
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-CMDHOST-CRC7-CHECK",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_sd_cmd_serial_host_command_tx.py::test_sd_cmd_serial_host_cmd_tx_bit_order_and_crc_phase",
+        "tests/test_sd_cmd_serial_host_command_tx.py::test_sd_cmd_serial_host_crc_check_off_accepts_mismatched_crc",
+        "tests/test_sd_cmd_serial_host_delay_and_crc.py::test_sd_cmd_serial_host_dly_read_holds_done_status_and_data_until_ack",
+        "tests/test_sd_cmd_serial_host_delay_and_crc.py::test_sd_cmd_serial_host_dly_wo_completion_depends_on_delay_cycler",
+        "tests/test_sd_cmd_serial_host_delay_and_crc.py::test_sd_cmd_serial_host_dly_wr_waits_ncr_and_startbit_before_rx",
+        "tests/test_sd_cmd_serial_host_delay_and_crc.py::test_sd_cmd_serial_host_rx_crc_match_sets_status_valid",
+        "tests/test_sd_cmd_serial_host_delay_and_crc.py::test_sd_cmd_serial_host_rx_crc_mismatch_clears_status_valid",
+        "tests/test_sd_cmd_serial_host_delay_and_crc.py::test_sd_cmd_serial_host_tx_crc_resets_between_idle_and_new_command",
+        "tests/test_sd_cmd_serial_host_delay_and_crc.py::test_sd_cmd_serial_host_tx_crc_stops_accumulating_when_crc_bits_are_sent",
+        "tests/test_sd_cmd_serial_host_delay_and_crc.py::test_sd_cmd_serial_host_tx_crc_updates_during_command_body_only",
+        "tests/test_sd_cmd_serial_host_random_decode_boundary.py::test_random_crc_check_disable_semantics",
+        "tests/test_sd_cmd_serial_host_status_and_transfer_type.py::test_sd_cmd_serial_host_status_encodes_done_read_phase_with_crc_and_data_flags",
+        "tests/test_sd_cmd_serial_host_status_and_transfer_type.py::test_sd_cmd_serial_host_write_only_done_sets_data_available_and_keeps_crcflag_clear"
+      ],
+      "evidence_source": "frozen benchmark execution and semantic target mapping for FC-CMDHOST-CRC7-CHECK"
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-CMDHOST-HANDSHAKE",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_sd_cmd_serial_host_delay_and_crc.py::test_sd_cmd_serial_host_dly_read_holds_done_status_and_data_until_ack",
+        "tests/test_sd_cmd_serial_host_delay_and_crc.py::test_sd_cmd_serial_host_dly_wo_completion_depends_on_delay_cycler",
+        "tests/test_sd_cmd_serial_host_delay_and_crc.py::test_sd_cmd_serial_host_dly_wr_waits_ncr_and_startbit_before_rx",
+        "tests/test_sd_cmd_serial_host_delay_and_crc.py::test_sd_cmd_serial_host_rx_crc_match_sets_status_valid",
+        "tests/test_sd_cmd_serial_host_delay_and_crc.py::test_sd_cmd_serial_host_rx_crc_mismatch_clears_status_valid",
+        "tests/test_sd_cmd_serial_host_delay_and_crc.py::test_sd_cmd_serial_host_tx_crc_resets_between_idle_and_new_command",
+        "tests/test_sd_cmd_serial_host_delay_and_crc.py::test_sd_cmd_serial_host_tx_crc_stops_accumulating_when_crc_bits_are_sent",
+        "tests/test_sd_cmd_serial_host_delay_and_crc.py::test_sd_cmd_serial_host_tx_crc_updates_during_command_body_only",
+        "tests/test_sd_cmd_serial_host_handshake_and_robustness.py::test_sd_cmd_serial_host_back_to_back_commands_do_not_crosstalk",
+        "tests/test_sd_cmd_serial_host_handshake_and_robustness.py::test_sd_cmd_serial_host_handshake_done_state_holds_until_late_ack",
+        "tests/test_sd_cmd_serial_host_handshake_and_robustness.py::test_sd_cmd_serial_host_reset_during_tx_returns_to_defaults",
+        "tests/test_sd_cmd_serial_host_handshake_protocol.py::test_sd_cmd_serial_host_ack_out_returns_high_after_transaction_done",
+        "tests/test_sd_cmd_serial_host_handshake_protocol.py::test_sd_cmd_serial_host_req_out_marks_data_ready_in_done_states",
+        "tests/test_sd_cmd_serial_host_init_reset.py::test_sd_cmd_serial_host_init_state_holds_line_drive_until_init_delay_expires",
+        "tests/test_sd_cmd_serial_host_mode_selection.py::test_sd_cmd_serial_host_write_only_flow_reports_done_after_configured_delay",
+        "tests/test_sd_cmd_serial_host_random_decode_boundary.py::test_random_write_only_delay_monotonic",
+        "tests/test_sd_cmd_serial_host_request_latching.py::test_sd_cmd_serial_host_configuration_must_hold_stable_until_ack_out_allows_change",
+        "tests/test_sd_cmd_serial_host_setting_decode.py::test_sd_cmd_serial_host_delay_field_controls_write_only_done_latency",
+        "tests/test_sd_cmd_serial_host_setting_decode.py::test_sd_cmd_serial_host_req_sync_has_two_cycle_delay_before_accept"
+      ],
+      "evidence_source": "frozen benchmark execution and semantic target mapping for FC-CMDHOST-HANDSHAKE"
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-CMDHOST-RESET-IDLE",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_sd_cmd_serial_host_fsm.py::test_idle_state_entry",
+        "tests/test_sd_cmd_serial_host_random.py::test_random_long_idle_cycles"
+      ],
+      "evidence_source": "frozen benchmark execution and semantic target mapping for FC-CMDHOST-RESET-IDLE"
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-CMDHOST-CMD-TX",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_sd_cmd_serial_host_random.py::test_random_cmd_decode_wr_mode"
+      ],
+      "evidence_source": "frozen benchmark execution and semantic target mapping for FC-CMDHOST-CMD-TX"
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-CMDHOST-RESP-RX",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-CMDHOST-CRC7-CHECK",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-CMDHOST-HANDSHAKE",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    }
+  ],
+  "contract_hash": "a930a2d02db9d15f3606211391cf860272bc6205a06aeb5b66611522698c3c04"
+}

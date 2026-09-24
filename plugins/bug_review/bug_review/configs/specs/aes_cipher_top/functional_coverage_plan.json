@@ -1,0 +1,468 @@
+{
+  "schema_version": "functional_coverage_plan.v1",
+  "dut": "aes_cipher_top",
+  "revision_id": "ground-truth-v1",
+  "source_snapshot_hash": "golden_spec",
+  "targets": [
+    {
+      "target_id": "CK-STEP-DRIVE",
+      "functional_group": "FC-DRIVE-AND-MONITOR",
+      "coverage_definition": "[Assume] 所有测试必须仅通过 Step 接口逐拍推进时钟并采样端口，验证流程不依赖内部信号或组合态直接读取",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: 所有测试必须仅通过 Step 接口逐拍推进时钟并采样端口，验证流程不依赖内部信号或组合态直接读取",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-RESET-API",
+      "functional_group": "FC-DRIVE-AND-MONITOR",
+      "coverage_definition": "[Assume] 提供统一复位序列，在若干拍内将 `rst` 置有效、`ld` 拉低、`key/text_in` 置为已知值，复位结束后端口进入可验证初始状态",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: 提供统一复位序列，在若干拍内将 `rst` 置有效、`ld` 拉低、`key/text_in` 置为已知值，复位结束后端口进入可验证初始状态",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-LOAD-API",
+      "functional_group": "FC-DRIVE-AND-MONITOR",
+      "coverage_definition": "[Assume] 提供统一装载序列，在指定拍对 `ld`、`key`、`text_in` 施加受控驱动，便于稳定复现启动行为",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: 提供统一装载序列，在指定拍对 `ld`、`key`、`text_in` 施加受控驱动，便于稳定复现启动行为",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-DONE-WAIT",
+      "functional_group": "FC-DRIVE-AND-MONITOR",
+      "coverage_definition": "[Assume] 提供等待 `done` 拉高的统一观测流程，并在超出预期拍数仍未完成时报告超时失败",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: 提供等待 `done` 拉高的统一观测流程，并在超出预期拍数仍未完成时报告超时失败",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-OUTPUT-SAMPLE",
+      "functional_group": "FC-DRIVE-AND-MONITOR",
+      "coverage_definition": "[Assume] 仅在 `done` 有效拍及其定义保持窗口内采样 `text_out` 作为最终结果，避免中间轮临时值被误判为正确输出",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: 仅在 `done` 有效拍及其定义保持窗口内采样 `text_out` 作为最终结果，避免中间轮临时值被误判为正确输出",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-RESET-INIT",
+      "functional_group": "FC-RESET",
+      "coverage_definition": "[Seq] 上电或测试起始时施加复位后，`done` 应处于未完成状态，`text_out` 应进入固定已知值或至少在重复复位下保持一致",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: 上电或测试起始时施加复位后，`done` 应处于未完成状态，`text_out` 应进入固定已知值或至少在重复复位下保持一致",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-RESET-DURING-IDLE",
+      "functional_group": "FC-RESET",
+      "coverage_definition": "[Seq] 空闲阶段再次施加复位后，模块仍应保持空闲且可重新接受后续 `ld` 启动",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: 空闲阶段再次施加复位后，模块仍应保持空闲且可重新接受后续 `ld` 启动",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-RESET-DURING-RUN",
+      "functional_group": "FC-RESET",
+      "coverage_definition": "[Seq] 加密进行中施加复位后，当前事务应被中止，随后不应再给出该事务对应的 `done` 与最终密文",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: 加密进行中施加复位后，当前事务应被中止，随后不应再给出该事务对应的 `done` 与最终密文",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-RESET-RELEASE",
+      "functional_group": "FC-RESET",
+      "coverage_definition": "[Seq] 释放复位后的若干拍内若未施加 `ld`，DUT 不应自行启动运算或错误拉高 `done`",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: 释放复位后的若干拍内若未施加 `ld`，DUT 不应自行启动运算或错误拉高 `done`",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-LOAD-IDLE",
+      "functional_group": "FC-LOAD-START",
+      "coverage_definition": "[Seq] 在空闲状态给出一次 `ld` 脉冲后，DUT 应启动一次加密，并在预期时延后产生 `done`",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: 在空闲状态给出一次 `ld` 脉冲后，DUT 应启动一次加密，并在预期时延后产生 `done`",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-LOAD-WIDTH",
+      "functional_group": "FC-LOAD-START",
+      "coverage_definition": "[Seq] 比较 `ld` 持续 1 拍与持续多拍时的行为，确认不会出现重复启动、丢启动或不可预测状态",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: 比较 `ld` 持续 1 拍与持续多拍时的行为，确认不会出现重复启动、丢启动或不可预测状态",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-LOAD-DATA-SAMPLE",
+      "functional_group": "FC-LOAD-START",
+      "coverage_definition": "[Seq] 启动拍采样的 `key` 与 `text_in` 应决定本次结果，`ld` 拉低后再修改输入不应改变该事务输出",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: 启动拍采样的 `key` 与 `text_in` 应决定本次结果，`ld` 拉低后再修改输入不应改变该事务输出",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-LOAD-WHEN-BUSY",
+      "functional_group": "FC-LOAD-START",
+      "coverage_definition": "[Seq] 运行中再次给出 `ld` 时，行为必须稳定且可重复，可观测为被忽略、覆盖或按固定规则处理，不能出现毛刺 `done` 或非参考结果",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: 运行中再次给出 `ld` 时，行为必须稳定且可重复，可观测为被忽略、覆盖或按固定规则处理，不能出现毛刺 `done` 或非参考结果",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-BACK-TO-BACK-LOAD",
+      "functional_group": "FC-LOAD-START",
+      "coverage_definition": "[Seq] 前一事务结束附近紧接下一次装载时，DUT 应明确区分两次任务，各自产生对应结果",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: 前一事务结束附近紧接下一次装载时，DUT 应明确区分两次任务，各自产生对应结果",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-DONE-LATENCY",
+      "functional_group": "FC-DONE",
+      "coverage_definition": "[Seq] 从 `ld` 启动到 `done` 拉高的拍数应固定且合理，对不同输入向量不应随机变化",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: 从 `ld` 启动到 `done` 拉高的拍数应固定且合理，对不同输入向量不应随机变化",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-DONE-ASSERT",
+      "functional_group": "FC-DONE",
+      "coverage_definition": "[Seq] `done` 仅应在完整 AES 加密结束后拉高，不能在中途提前声明完成",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: `done` 仅应在完整 AES 加密结束后拉高，不能在中途提前声明完成",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-DONE-HOLD",
+      "functional_group": "FC-DONE",
+      "coverage_definition": "[Seq] 完成后 `done` 的保持时长应稳定，至少在定义窗口内无毛刺、无瞬时翻转",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: 完成后 `done` 的保持时长应稳定，至少在定义窗口内无毛刺、无瞬时翻转",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-DONE-CLEAR-ON-NEW-LOAD",
+      "functional_group": "FC-DONE",
+      "coverage_definition": "[Seq] 新任务启动后，前一任务残留的 `done` 应被及时清除，避免与新事务混淆",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: 新任务启动后，前一任务残留的 `done` 应被及时清除，避免与新事务混淆",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-OUTPUT-WHEN-DONE",
+      "functional_group": "FC-DONE",
+      "coverage_definition": "[Seq] `done` 拉高时刻对应的 `text_out` 应与软件参考模型密文一致，且二者时序对齐",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: `done` 拉高时刻对应的 `text_out` 应与软件参考模型密文一致，且二者时序对齐",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-KAT-BASIC",
+      "functional_group": "FC-AES-ENC-128",
+      "coverage_definition": "[Seq] 使用 FIPS/README 中的标准已知答案向量，验证最基本 AES-128 加密结果完全匹配",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: 使用 FIPS/README 中的标准已知答案向量，验证最基本 AES-128 加密结果完全匹配",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-KAT-ZERO",
+      "functional_group": "FC-AES-ENC-128",
+      "coverage_definition": "[Seq] 使用全 0 密钥与全 0 明文，验证特殊低熵输入下密文与参考模型一致",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: 使用全 0 密钥与全 0 明文，验证特殊低熵输入下密文与参考模型一致",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-KAT-ALL-ONES",
+      "functional_group": "FC-AES-ENC-128",
+      "coverage_definition": "[Seq] 使用全 1 密钥与/或全 1 明文，验证极值输入下仍输出正确密文",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: 使用全 1 密钥与/或全 1 明文，验证极值输入下仍输出正确密文",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-KAT-PATTERN",
+      "functional_group": "FC-AES-ENC-128",
+      "coverage_definition": "[Seq] 使用递增、递减、AA55 等规则模式输入，验证字节位置与轮变换相关结果正确",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: 使用递增、递减、AA55 等规则模式输入，验证字节位置与轮变换相关结果正确",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-RANDOM-REF",
+      "functional_group": "FC-AES-ENC-128",
+      "coverage_definition": "[Seq] 使用多组随机密钥/明文与软件参考模型逐组比对，确认一般场景功能正确",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: 使用多组随机密钥/明文与软件参考模型逐组比对，确认一般场景功能正确",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-COL-MAJOR-MAP",
+      "functional_group": "FC-INPUT-MAPPING",
+      "coverage_definition": "[Seq] 使用对字节位置敏感的已知向量，验证输入按列优先映射到 AES 状态矩阵",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: 使用对字节位置敏感的已知向量，验证输入按列优先映射到 AES 状态矩阵",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-MSB-LSB-ORDER",
+      "functional_group": "FC-INPUT-MAPPING",
+      "coverage_definition": "[Seq] 使用字节序镜像或高低位敏感向量，检查 `text_in/text_out` 的 MSB/LSB 字节顺序是否符合规格",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: 使用字节序镜像或高低位敏感向量，检查 `text_in/text_out` 的 MSB/LSB 字节顺序是否符合规格",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-BYTE-PERMUTATION",
+      "functional_group": "FC-INPUT-MAPPING",
+      "coverage_definition": "[Seq] 使用单字节扰动和稀疏模式输入，若出现非参考模型结果，可暴露意外字节重排或映射错误",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: 使用单字节扰动和稀疏模式输入，若出现非参考模型结果，可暴露意外字节重排或映射错误",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-INIT-ROUND-INCLUDED",
+      "functional_group": "FC-ROUND-BOUNDARY",
+      "coverage_definition": "[Seq] 使用标准向量验证最终结果中已体现初始 AddRoundKey，若缺失则整体密文将与参考模型系统性不符",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: 使用标准向量验证最终结果中已体现初始 AddRoundKey，若缺失则整体密文将与参考模型系统性不符",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-NINE-MAIN-ROUNDS",
+      "functional_group": "FC-ROUND-BOUNDARY",
+      "coverage_definition": "[Seq] 使用多组标准/随机向量验证结果与完整 9 个标准轮的 AES-128 参考实现一致",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: 使用多组标准/随机向量验证结果与完整 9 个标准轮的 AES-128 参考实现一致",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-FINAL-ROUND-NO-MIXCOLUMN",
+      "functional_group": "FC-ROUND-BOUNDARY",
+      "coverage_definition": "[Seq] 使用对最终轮敏感的标准向量验证最终轮未错误执行 MixColumns",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: 使用对最终轮敏感的标准向量验证最终轮未错误执行 MixColumns",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-ROUND-COUNT-STABLE",
+      "functional_group": "FC-ROUND-BOUNDARY",
+      "coverage_definition": "[Seq] 不同输入下完成时延应保持一致，若轮计数错乱通常会表现为时延波动或 `done` 时机异常",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: 不同输入下完成时延应保持一致，若轮计数错乱通常会表现为时延波动或 `done` 时机异常",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-TEXT-HOLD-AFTER-LOAD",
+      "functional_group": "FC-INPUT-ISOLATION",
+      "coverage_definition": "[Seq] 启动后立即改变 `text_in`，最终密文仍应对应启动拍采样的原始明文",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: 启动后立即改变 `text_in`，最终密文仍应对应启动拍采样的原始明文",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-KEY-HOLD-AFTER-LOAD",
+      "functional_group": "FC-INPUT-ISOLATION",
+      "coverage_definition": "[Seq] 启动后立即改变 `key`，最终密文仍应对应启动拍采样的原始密钥",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: 启动后立即改变 `key`，最终密文仍应对应启动拍采样的原始密钥",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-SIGNAL-TOGGLE-WHILE-BUSY",
+      "functional_group": "FC-INPUT-ISOLATION",
+      "coverage_definition": "[Seq] 运行期间频繁翻转输入引脚，不应导致 `done` 提前、输出漂移或结果偏离参考模型",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: 运行期间频繁翻转输入引脚，不应导致 `done` 提前、输出漂移或结果偏离参考模型",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-NO-EARLY-VALID",
+      "functional_group": "FC-OUTPUT-STABILITY",
+      "coverage_definition": "[Seq] `done` 拉高前即使 `text_out` 发生变化，也不得将其视为最终有效密文，且不应稳定等于预期最终结果过早出现",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: `done` 拉高前即使 `text_out` 发生变化，也不得将其视为最终有效密文，且不应稳定等于预期最终结果过早出现",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-POST-DONE-STABLE",
+      "functional_group": "FC-OUTPUT-STABILITY",
+      "coverage_definition": "[Seq] `done` 拉高后且未启动新任务前，`text_out` 应保持稳定不变",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: `done` 拉高后且未启动新任务前，`text_out` 应保持稳定不变",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-NEW-LOAD-REPLACE-OLD",
+      "functional_group": "FC-OUTPUT-STABILITY",
+      "coverage_definition": "[Seq] 新任务完成后，`text_out` 应更新为新事务结果，不能持续保留旧密文",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: 新任务完成后，`text_out` 应更新为新事务结果，不能持续保留旧密文",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-ALL-ZEROS",
+      "functional_group": "FC-SPECIAL-DATA",
+      "coverage_definition": "[Seq] 全 0 明文配合全 0 或普通密钥时，密文结果应与参考模型一致",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: 全 0 明文配合全 0 或普通密钥时，密文结果应与参考模型一致",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-ALL-ONES",
+      "functional_group": "FC-SPECIAL-DATA",
+      "coverage_definition": "[Seq] 全 1 明文或全 1 密钥时，密文结果应与参考模型一致",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: 全 1 明文或全 1 密钥时，密文结果应与参考模型一致",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-ALT-BIT-PATTERN",
+      "functional_group": "FC-SPECIAL-DATA",
+      "coverage_definition": "[Seq] 交替比特模式（如 AA/55）输入时，结果应正确且时延不异常",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: 交替比特模式（如 AA/55）输入时，结果应正确且时延不异常",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-SPARSE-BYTE",
+      "functional_group": "FC-SPECIAL-DATA",
+      "coverage_definition": "[Seq] 仅单个字节非零时结果正确，可用于暴露字节映射或局部轮变换问题",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: 仅单个字节非零时结果正确，可用于暴露字节映射或局部轮变换问题",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-DENSE-BYTE",
+      "functional_group": "FC-SPECIAL-DATA",
+      "coverage_definition": "[Seq] 仅少数字节为 0、其余非 0 时结果正确，验证高翻转密度场景下的稳定性",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: 仅少数字节为 0、其余非 0 时结果正确，验证高翻转密度场景下的稳定性",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-LOAD-UNDER-RESET",
+      "functional_group": "FC-CONTROL-BOUNDARY",
+      "coverage_definition": "[Seq] 复位有效期间施加 `ld` 不应触发非法启动，也不应在复位后残留伪事务",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: 复位有效期间施加 `ld` 不应触发非法启动，也不应在复位后残留伪事务",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-LOAD-AT-RESET-RELEASE",
+      "functional_group": "FC-CONTROL-BOUNDARY",
+      "coverage_definition": "[Seq] 在复位释放邻近周期施加 `ld` 时，行为应稳定且结果可重复",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: 在复位释放邻近周期施加 `ld` 时，行为应稳定且结果可重复",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-RESTART-AFTER-DONE",
+      "functional_group": "FC-CONTROL-BOUNDARY",
+      "coverage_definition": "[Seq] 完成后立即启动下一次加密，应能得到正确的新结果与完整 `done` 握手",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: 完成后立即启动下一次加密，应能得到正确的新结果与完整 `done` 握手",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-REPEATED-SAME-VECTOR",
+      "functional_group": "FC-CONTROL-BOUNDARY",
+      "coverage_definition": "[Seq] 相同输入重复执行多次，结果和完成时延应保持一致",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: 相同输入重复执行多次，结果和完成时延应保持一致",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-DIFFERENT-VECTOR-SEQUENCE",
+      "functional_group": "FC-CONTROL-BOUNDARY",
+      "coverage_definition": "[Seq] 不同输入序列连续执行时，各事务结果应分别正确且互不污染",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: 不同输入序列连续执行时，各事务结果应分别正确且互不污染",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-INIT-KEY-USE",
+      "functional_group": "FC-ROUND-KEY-ALIGN",
+      "coverage_definition": "[Seq] 使用已知向量验证初始 AddRoundKey 使用输入原始密钥，而非提前偏移后的轮密钥",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: 使用已知向量验证初始 AddRoundKey 使用输入原始密钥，而非提前偏移后的轮密钥",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-MID-ROUND-KEY-ORDER",
+      "functional_group": "FC-ROUND-KEY-ALIGN",
+      "coverage_definition": "[Seq] 使用随机与模式向量验证中间轮轮密钥顺序未发生跳轮、重轮或漏轮，否则结果将持续偏离参考模型",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: 使用随机与模式向量验证中间轮轮密钥顺序未发生跳轮、重轮或漏轮，否则结果将持续偏离参考模型",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-FINAL-ROUND-KEY-USE",
+      "functional_group": "FC-ROUND-KEY-ALIGN",
+      "coverage_definition": "[Seq] 使用标准向量验证最终轮使用最终轮密钥，且不会误用中间轮密钥",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: 使用标准向量验证最终轮使用最终轮密钥，且不会误用中间轮密钥",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-KEY-EXPANSION-CONSISTENCY",
+      "functional_group": "FC-ROUND-KEY-ALIGN",
+      "coverage_definition": "[Seq] 对多组不同密钥进行参考模型比对，间接验证密钥扩展与加密数据通路的一致性",
+      "sampling_rule": "Sample on `signal.clk`",
+      "oracle_definition": "Check property: 对多组不同密钥进行参考模型比对，间接验证密钥扩展与加密数据通路的一致性",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    }
+  ],
+  "observations": []
+}

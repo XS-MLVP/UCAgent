@@ -1,0 +1,69 @@
+{
+  "schema_version": "common_verification_plan.v2",
+  "dut": "e203_exu_alu_dpath",
+  "revision_id": "rev-a97afee9625efe0b0805",
+  "source_snapshot_hash": "c7ae379489324ac87d653b0f8fb95cee6527bb242f10084b65a2f3a8e2d0d577",
+  "status": "frozen_draft_requires_blind_independent_review",
+  "taxonomy_basis": "Seven independent trigger semantics for the five finalized physical roots, derived from the frozen DUT README (sha256 01ae027c487a9e16a64c65cee2c91b306f03534c69a81a7769f8d1bcec3d328d) and same-revision reproduced cases; independent semantic review remains required",
+  "scenarios": [
+    {
+      "scenario_id": "SCN-SHARED-BUFFER-CLOCK-SAMPLE",
+      "name": "shared buffer value sampled on clock advance",
+      "weight": 1,
+      "spec_citation": "Frozen e203_exu_alu_dpath README lines 146-153: shared buffers store intermediate values and flip-flops update synchronously on clk",
+      "applicable_gt_ids": ["GT-RTL-0001"]
+    },
+    {
+      "scenario_id": "SCN-AGU-ADD-OP-ISOLATION",
+      "name": "AGU add isolated from inactive AGU operations",
+      "weight": 1,
+      "spec_citation": "Frozen e203_exu_alu_dpath README lines 43-54 and 130-138: AGU operation selects identify distinct add/logic/min/max/swap operations",
+      "applicable_gt_ids": ["GT-RTL-0002"]
+    },
+    {
+      "scenario_id": "SCN-ALU-LUI-OP-ISOLATION",
+      "name": "ALU LUI isolated from inactive ALU operations",
+      "weight": 1,
+      "spec_citation": "Frozen e203_exu_alu_dpath README lines 19-32 and 118-124: ALU request selects identify distinct arithmetic, logic, shift, compare and LUI operations",
+      "applicable_gt_ids": ["GT-RTL-0003"]
+    },
+    {
+      "scenario_id": "SCN-AGU-MULDIV-CONCURRENT-BUFFER",
+      "name": "concurrent AGU and MULDIV request with shared buffer activity",
+      "weight": 1,
+      "spec_citation": "Frozen e203_exu_alu_dpath README lines 73-88 and 140-147: optional MULDIV and AGU share arithmetic resources and two intermediate-result buffers",
+      "applicable_gt_ids": ["GT-RTL-0004"]
+    },
+    {
+      "scenario_id": "SCN-BJP-ADD-CMP-ISOLATION",
+      "name": "BJP addition isolated from comparison selection",
+      "weight": 1,
+      "spec_citation": "Frozen e203_exu_alu_dpath README lines 33-42 and 125-129: BJP exposes a distinct addition result and comparison result",
+      "applicable_gt_ids": ["GT-RTL-0005"]
+    },
+    {
+      "scenario_id": "SCN-BJP-UNSIGNED-EQUAL-BOUNDARY",
+      "name": "BJP unsigned greater-than with equal operands",
+      "weight": 1,
+      "spec_citation": "Frozen e203_exu_alu_dpath README lines 36-41 and 125-128: BJP supports distinct unsigned greater-than comparison",
+      "applicable_gt_ids": ["GT-RTL-0005"]
+    },
+    {
+      "scenario_id": "SCN-BJP-SIGNED-EQUAL-BOUNDARY",
+      "name": "BJP signed greater-than with equal operands",
+      "weight": 1,
+      "spec_citation": "Frozen e203_exu_alu_dpath README lines 36-41 and 125-128: BJP supports distinct signed greater-than comparison",
+      "applicable_gt_ids": ["GT-RTL-0005"]
+    }
+  ],
+  "line_coverage_targets": [
+    {
+      "target_id": "COV-COMMON-LINE-SCOPE",
+      "name": "complete shared instrumented RTL line scope",
+      "weight": 1,
+      "coverage_definition": "Fraction of the 147 identically instrumented RTL lines hit at least once",
+      "scope_signature": "c594d08871cdadb8cc1ad6628d5c7f867a1d3eeceae3b2533802c224fcba2477"
+    }
+  ],
+  "functional_coverage_targets": []
+}

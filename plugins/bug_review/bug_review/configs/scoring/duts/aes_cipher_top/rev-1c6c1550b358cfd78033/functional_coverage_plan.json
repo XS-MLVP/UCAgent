@@ -1,0 +1,328 @@
+{
+  "schema_version": "functional_coverage_plan.v1",
+  "dut": "aes_cipher_top",
+  "revision_id": "rev-1c6c1550b358cfd78033",
+  "source_snapshot_hash": "b64007e241111180cf0eb923d94979eb34fbefef52ae3d2d7a094dd6cb3b56db",
+  "status": "machine_mapped_frozen_contract",
+  "targets": [
+    {
+      "target_id": "FC-AES-RESET-INIT",
+      "name": "reset initialization and idle state",
+      "weight": 1,
+      "coverage_definition": "Observe reset deassertion leading to idle state machine and done low",
+      "sampling_rule": "Sample rst, state registers, and done signal immediately after reset edge",
+      "oracle_definition": "done is low, state is IDLE, and internal round counters are zeroed",
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "FC-AES-ENCRYPT-BASIC",
+      "name": "basic 128-bit block encryption",
+      "weight": 1,
+      "coverage_definition": "Drive standard 128-bit plaintext and key vectors through complete 10-round encryption",
+      "sampling_rule": "Sample text_in, key, and wait for done assertion to sample text_out",
+      "oracle_definition": "text_out exactly matches FIPS-197 golden ciphertext vector",
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "FC-AES-ROUND-TRANSFORM",
+      "name": "round transformations execution",
+      "weight": 1,
+      "coverage_definition": "Exercise SubBytes, ShiftRows, MixColumns and AddRoundKey transformations across rounds",
+      "sampling_rule": "Sample intermediate state transitions and round counter across cycles",
+      "oracle_definition": "State evolution aligns with algorithmic AES round transformations",
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "FC-AES-KEY-EXPANSION",
+      "name": "on-the-fly key schedule generation",
+      "weight": 1,
+      "coverage_definition": "Observe dynamic 128-bit round key generation for all encryption rounds",
+      "sampling_rule": "Sample round keys at each round boundary step",
+      "oracle_definition": "Generated round keys match the standard Rijndael key expansion schedule",
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "FC-AES-OUTPUT-HOLD",
+      "name": "ciphertext output hold and handshake",
+      "weight": 1,
+      "coverage_definition": "Verify text_out and done remain stable and valid until next start pulse",
+      "sampling_rule": "Sample text_out and done across multiple idle cycles post completion",
+      "oracle_definition": "text_out does not glitch or mutate while start remains low",
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "FC-AES-API-OBSERVE",
+      "name": "top-level public verification API adapter",
+      "weight": 1,
+      "coverage_definition": "Drive and observe transactions using standard benchmark testbench API",
+      "sampling_rule": "Sample all stimulus and response calls through public API wrappers",
+      "oracle_definition": "API transactions achieve cycle-accurate conformance with reference model",
+      "collection_status": "scoreable"
+    }
+  ],
+  "observations": [
+    {
+      "model": "agentw",
+      "target_id": "FC-AES-RESET-INIT",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_aes_cipher_top_control_reset.py::test_reset_state",
+        "tests/test_aes_cipher_top_env_fixture.py::test_api_aes_cipher_top_env_fixture_reset"
+      ],
+      "evidence_source": "frozen benchmark execution and semantic target mapping for FC-AES-RESET-INIT"
+    },
+    {
+      "model": "agentw",
+      "target_id": "FC-AES-ENCRYPT-BASIC",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "agentw",
+      "target_id": "FC-AES-ROUND-TRANSFORM",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "agentw",
+      "target_id": "FC-AES-KEY-EXPANSION",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "agentw",
+      "target_id": "FC-AES-OUTPUT-HOLD",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "agentw",
+      "target_id": "FC-AES-API-OBSERVE",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_aes_cipher_top_env_fixture.py::test_api_aes_cipher_top_env_fixture_reset"
+      ],
+      "evidence_source": "frozen benchmark execution and semantic target mapping for FC-AES-API-OBSERVE"
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-AES-RESET-INIT",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_aes_cipher_top_env_fixture.py::test_api_aes_cipher_top_env_top_ports_exist",
+        "tests/test_aes_cipher_top_functional_kat.py::test_aes_cipher_top_round_key_initial_key_use",
+        "tests/test_aes_cipher_top_interface_and_isolation.py::test_aes_cipher_top_load_at_reset_release_boundary",
+        "tests/test_aes_cipher_top_interface_and_isolation.py::test_aes_cipher_top_reset_during_idle",
+        "tests/test_aes_cipher_top_interface_and_isolation.py::test_aes_cipher_top_reset_initial_idle_state"
+      ],
+      "evidence_source": "frozen benchmark execution and semantic target mapping for FC-AES-RESET-INIT"
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-AES-ENCRYPT-BASIC",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_aes_cipher_top_api_basic.py::test_api_aes_cipher_top_encrypt_basic",
+        "tests/test_aes_cipher_top_api_basic.py::test_api_aes_cipher_top_encrypt_end_to_end_two_vectors",
+        "tests/test_aes_cipher_top_api_basic.py::test_api_aes_cipher_top_encrypt_parameter_validation",
+        "tests/test_aes_cipher_top_api_basic.py::test_api_aes_cipher_top_wait_done_basic",
+        "tests/test_aes_cipher_top_api_basic.py::test_api_aes_cipher_top_wait_done_parameter_validation",
+        "tests/test_aes_cipher_top_api_basic.py::test_api_aes_cipher_top_wait_done_timeout",
+        "tests/test_aes_cipher_top_functional_kat.py::test_aes_cipher_top_kat_basic_fips_vector"
+      ],
+      "evidence_source": "frozen benchmark execution and semantic target mapping for FC-AES-ENCRYPT-BASIC"
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-AES-ROUND-TRANSFORM",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_aes_cipher_top_functional_kat.py::test_aes_cipher_top_final_round_without_mixcolumns",
+        "tests/test_aes_cipher_top_functional_kat.py::test_aes_cipher_top_round_count_latency_stability",
+        "tests/test_aes_cipher_top_functional_kat.py::test_aes_cipher_top_round_key_expansion_consistency",
+        "tests/test_aes_cipher_top_functional_kat.py::test_aes_cipher_top_round_key_initial_key_use",
+        "tests/test_aes_cipher_top_functional_kat.py::test_aes_cipher_top_round_key_mid_round_order",
+        "tests/test_aes_cipher_top_interface_and_isolation.py::test_aes_cipher_top_final_round_key_alignment"
+      ],
+      "evidence_source": "frozen benchmark execution and semantic target mapping for FC-AES-ROUND-TRANSFORM"
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-AES-KEY-EXPANSION",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_aes_cipher_top_functional_kat.py::test_aes_cipher_top_round_key_expansion_consistency",
+        "tests/test_aes_cipher_top_functional_kat.py::test_aes_cipher_top_round_key_initial_key_use",
+        "tests/test_aes_cipher_top_functional_kat.py::test_aes_cipher_top_round_key_mid_round_order",
+        "tests/test_aes_cipher_top_interface_and_isolation.py::test_aes_cipher_top_final_round_key_alignment",
+        "tests/test_aes_cipher_top_interface_and_isolation.py::test_aes_cipher_top_key_input_hold_after_load"
+      ],
+      "evidence_source": "frozen benchmark execution and semantic target mapping for FC-AES-KEY-EXPANSION"
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-AES-OUTPUT-HOLD",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_aes_cipher_top_api_basic.py::test_api_aes_cipher_top_wait_done_basic",
+        "tests/test_aes_cipher_top_api_basic.py::test_api_aes_cipher_top_wait_done_parameter_validation",
+        "tests/test_aes_cipher_top_api_basic.py::test_api_aes_cipher_top_wait_done_timeout",
+        "tests/test_aes_cipher_top_api_bug.py::test_api_aes_cipher_top_wait_done_real_dut_timeout_bug",
+        "tests/test_aes_cipher_top_interface_and_isolation.py::test_aes_cipher_top_key_input_hold_after_load",
+        "tests/test_aes_cipher_top_interface_and_isolation.py::test_aes_cipher_top_text_input_hold_after_load"
+      ],
+      "evidence_source": "frozen benchmark execution and semantic target mapping for FC-AES-OUTPUT-HOLD"
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-AES-API-OBSERVE",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_aes_cipher_top_api_basic.py::test_api_aes_cipher_top_encrypt_basic",
+        "tests/test_aes_cipher_top_api_basic.py::test_api_aes_cipher_top_encrypt_end_to_end_two_vectors",
+        "tests/test_aes_cipher_top_api_basic.py::test_api_aes_cipher_top_encrypt_parameter_validation",
+        "tests/test_aes_cipher_top_api_basic.py::test_api_aes_cipher_top_wait_done_basic",
+        "tests/test_aes_cipher_top_api_basic.py::test_api_aes_cipher_top_wait_done_parameter_validation",
+        "tests/test_aes_cipher_top_api_basic.py::test_api_aes_cipher_top_wait_done_timeout",
+        "tests/test_aes_cipher_top_api_bug.py::test_api_aes_cipher_top_encrypt_real_dut_timeout_bug",
+        "tests/test_aes_cipher_top_api_bug.py::test_api_aes_cipher_top_wait_done_real_dut_timeout_bug",
+        "tests/test_aes_cipher_top_env_fixture.py::test_api_aes_cipher_top_env_top_ports_exist"
+      ],
+      "evidence_source": "frozen benchmark execution and semantic target mapping for FC-AES-API-OBSERVE"
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-AES-RESET-INIT",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_aes_cipher_top_env_fixture.py::test_api_aes_cipher_top_env_bundle_pins",
+        "tests/test_aes_cipher_top_env_fixture.py::test_api_aes_cipher_top_env_complete_flow",
+        "tests/test_aes_cipher_top_env_fixture.py::test_api_aes_cipher_top_env_dut_attr",
+        "tests/test_aes_cipher_top_env_fixture.py::test_api_aes_cipher_top_env_load_key_text",
+        "tests/test_aes_cipher_top_env_fixture.py::test_api_aes_cipher_top_env_load_key_text_all_ones",
+        "tests/test_aes_cipher_top_env_fixture.py::test_api_aes_cipher_top_env_load_key_text_zero",
+        "tests/test_aes_cipher_top_env_fixture.py::test_api_aes_cipher_top_env_multiple_load",
+        "tests/test_aes_cipher_top_env_fixture.py::test_api_aes_cipher_top_env_pin_assignment",
+        "tests/test_aes_cipher_top_env_fixture.py::test_api_aes_cipher_top_env_reset",
+        "tests/test_aes_cipher_top_env_fixture.py::test_api_aes_cipher_top_env_reset_followed_by_load",
+        "tests/test_aes_cipher_top_env_fixture.py::test_api_aes_cipher_top_env_step_forward",
+        "tests/test_aes_cipher_top_env_fixture.py::test_api_aes_cipher_top_env_wait_done",
+        "tests/test_aes_cipher_top_env_fixture.py::test_api_aes_cipher_top_env_wait_done_with_ld",
+        "tests/test_aes_cipher_top_init_reset.py::test_reset_output"
+      ],
+      "evidence_source": "frozen benchmark execution and semantic target mapping for FC-AES-RESET-INIT"
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-AES-ENCRYPT-BASIC",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-AES-ROUND-TRANSFORM",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_aes_cipher_top_addroundkey.py::test_final_output_hold",
+        "tests/test_aes_cipher_top_col_major.py::test_cm_intermediate_output"
+      ],
+      "evidence_source": "frozen benchmark execution and semantic target mapping for FC-AES-ROUND-TRANSFORM"
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-AES-KEY-EXPANSION",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_aes_cipher_top_addroundkey.py::test_final_output_hold",
+        "tests/test_aes_cipher_top_env_fixture.py::test_api_aes_cipher_top_env_load_key_text",
+        "tests/test_aes_cipher_top_env_fixture.py::test_api_aes_cipher_top_env_load_key_text_all_ones",
+        "tests/test_aes_cipher_top_env_fixture.py::test_api_aes_cipher_top_env_load_key_text_zero"
+      ],
+      "evidence_source": "frozen benchmark execution and semantic target mapping for FC-AES-KEY-EXPANSION"
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-AES-OUTPUT-HOLD",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_aes_cipher_top_addroundkey.py::test_final_output_hold",
+        "tests/test_aes_cipher_top_env_fixture.py::test_api_aes_cipher_top_env_bundle_pins",
+        "tests/test_aes_cipher_top_env_fixture.py::test_api_aes_cipher_top_env_complete_flow",
+        "tests/test_aes_cipher_top_env_fixture.py::test_api_aes_cipher_top_env_wait_done",
+        "tests/test_aes_cipher_top_env_fixture.py::test_api_aes_cipher_top_env_wait_done_with_ld"
+      ],
+      "evidence_source": "frozen benchmark execution and semantic target mapping for FC-AES-OUTPUT-HOLD"
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-AES-API-OBSERVE",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_aes_cipher_top_env_fixture.py::test_api_aes_cipher_top_env_bundle_pins",
+        "tests/test_aes_cipher_top_env_fixture.py::test_api_aes_cipher_top_env_complete_flow",
+        "tests/test_aes_cipher_top_env_fixture.py::test_api_aes_cipher_top_env_dut_attr",
+        "tests/test_aes_cipher_top_env_fixture.py::test_api_aes_cipher_top_env_load_key_text",
+        "tests/test_aes_cipher_top_env_fixture.py::test_api_aes_cipher_top_env_load_key_text_all_ones",
+        "tests/test_aes_cipher_top_env_fixture.py::test_api_aes_cipher_top_env_load_key_text_zero",
+        "tests/test_aes_cipher_top_env_fixture.py::test_api_aes_cipher_top_env_multiple_load",
+        "tests/test_aes_cipher_top_env_fixture.py::test_api_aes_cipher_top_env_pin_assignment",
+        "tests/test_aes_cipher_top_env_fixture.py::test_api_aes_cipher_top_env_reset",
+        "tests/test_aes_cipher_top_env_fixture.py::test_api_aes_cipher_top_env_reset_followed_by_load",
+        "tests/test_aes_cipher_top_env_fixture.py::test_api_aes_cipher_top_env_step_forward",
+        "tests/test_aes_cipher_top_env_fixture.py::test_api_aes_cipher_top_env_wait_done",
+        "tests/test_aes_cipher_top_env_fixture.py::test_api_aes_cipher_top_env_wait_done_with_ld"
+      ],
+      "evidence_source": "frozen benchmark execution and semantic target mapping for FC-AES-API-OBSERVE"
+    }
+  ],
+  "contract_hash": "8b4a13a7c046f3864fb1268d9daedda2d582e8afe18434c8a3b8ab24f335529d"
+}

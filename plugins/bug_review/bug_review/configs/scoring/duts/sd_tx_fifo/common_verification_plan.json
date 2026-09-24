@@ -1,0 +1,19 @@
+{
+  "schema_version": "common_verification_plan.v2",
+  "dut": "sd_tx_fifo",
+  "revision_id": "rev-b9ca327ce4976f16b0e3",
+  "source_snapshot_hash": "033a3982fd751b61e5cd61213de5fadfe702d554b78e8d0e4b8955f477125512",
+  "status": "machine_validated_line_only",
+  "taxonomy_basis": "No scenario taxonomy is asserted by this line-only contract",
+  "scenarios": [],
+  "line_coverage_targets": [
+    {
+      "target_id": "COV-COMMON-LINE-SCOPE",
+      "name": "complete shared instrumented RTL line scope",
+      "weight": 1,
+      "coverage_definition": "Fraction of the 33 identically instrumented RTL lines hit at least once",
+      "scope_signature": "5f22d589ce0b8f05383319f239f737967d86cc27f483ee39263b55bd0ede98cc"
+    }
+  ],
+  "functional_coverage_targets": []
+}

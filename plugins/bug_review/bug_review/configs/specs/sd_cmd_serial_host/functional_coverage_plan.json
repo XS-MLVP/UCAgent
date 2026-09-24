@@ -1,0 +1,675 @@
+{
+  "schema_version": "functional_coverage_plan.v1",
+  "dut": "sd_cmd_serial_host",
+  "revision_id": "ground-truth-v1",
+  "source_snapshot_hash": "golden_spec",
+  "targets": [
+    {
+      "target_id": "CK-STEP-CLOCK",
+      "functional_group": "FC-DRIVE-BASICS",
+      "coverage_definition": "[Assume] 所有状态推进、采样和握手等待均可通过逐拍 Step 完成。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: 所有状态推进、采样和握手等待均可通过逐拍 Step 完成。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-RESET-SEQUENCE",
+      "functional_group": "FC-DRIVE-BASICS",
+      "coverage_definition": "[Assume] 提供可复用的复位辅助过程，覆盖复位拉高、释放和初始化等待。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: 提供可复用的复位辅助过程，覆盖复位拉高、释放和初始化等待。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-LOAD-CMD",
+      "functional_group": "FC-DRIVE-BASICS",
+      "coverage_definition": "[Assume] 提供一次性设置 `SETTING_IN/CMD_IN/REQ_IN` 并保持到 `ACK_OUT` 响应的标准接口。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: 提供一次性设置 `SETTING_IN/CMD_IN/REQ_IN` 并保持到 `ACK_OUT` 响应的标准接口。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-HANDSHAKE-WAIT",
+      "functional_group": "FC-DRIVE-BASICS",
+      "coverage_definition": "[Assume] 提供等待 `REQ_OUT`、响应 `ACK_IN` 及采集 `STATUS/CMD_OUT` 的统一接口。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: 提供等待 `REQ_OUT`、响应 `ACK_IN` 及采集 `STATUS/CMD_OUT` 的统一接口。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-ASYNC-RESET",
+      "functional_group": "FC-RESET-DEFAULTS",
+      "coverage_definition": "[Seq] 在任意运行阶段拉高 `RST_IN` 后，输出立即回到 README/RTL定义的复位默认值。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: 在任意运行阶段拉高 `RST_IN` 后，输出立即回到 README/RTL定义的复位默认值。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-INIT-HOLD",
+      "functional_group": "FC-RESET-DEFAULTS",
+      "coverage_definition": "[Seq] INIT 阶段 `cmd_oe_o=1`、`cmd_out_o=1`，并持续至少 `INIT_DELAY` 对应周期。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: INIT 阶段 `cmd_oe_o=1`、`cmd_out_o=1`，并持续至少 `INIT_DELAY` 对应周期。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-INIT-TO-IDLE",
+      "functional_group": "FC-RESET-DEFAULTS",
+      "coverage_definition": "[Seq] 达到初始化延时后进入 IDLE，`cmd_oe_o` 释放为高阻控制，计数器重新清零。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: 达到初始化延时后进入 IDLE，`cmd_oe_o` 释放为高阻控制，计数器重新清零。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-IDLE-DEFAULTS",
+      "functional_group": "FC-RESET-DEFAULTS",
+      "coverage_definition": "[Seq] IDLE 状态下 `REQ_OUT=0`、`CMD_OUT=0`、`st_dat_t=0`、CRC相关控制处于复位状态。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: IDLE 状态下 `REQ_OUT=0`、`CMD_OUT=0`、`st_dat_t=0`、CRC相关控制处于复位状态。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-TWOFF-DELAY",
+      "functional_group": "FC-REQ-SYNC-LATCH",
+      "coverage_definition": "[Seq] `REQ_IN` 拉高后，装载与状态启动至少滞后两个 `SD_CLK_IN` 周期。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: `REQ_IN` 拉高后，装载与状态启动至少滞后两个 `SD_CLK_IN` 周期。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-LEVEL-SAMPLE",
+      "functional_group": "FC-REQ-SYNC-LATCH",
+      "coverage_definition": "[Seq] `REQ_IN` 保持高电平时模块持续看到请求，释放后 `DECODER_ACK/FSM_ACK` 组合恢复 `ACK_OUT`。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: `REQ_IN` 保持高电平时模块持续看到请求，释放后 `DECODER_ACK/FSM_ACK` 组合恢复 `ACK_OUT`。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-CFG-HOLD-REQ",
+      "functional_group": "FC-REQ-SYNC-LATCH",
+      "coverage_definition": "[Seq] `ACK_OUT` 未指示可变更前，改变 `SETTING_IN/CMD_IN` 可能影响装载结果，测试中需按协议保持稳定并验证实际锁存值。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: `ACK_OUT` 未指示可变更前，改变 `SETTING_IN/CMD_IN` 可能影响装载结果，测试中需按协议保持稳定并验证实际锁存值。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-RSP-SIZE-DECODE",
+      "functional_group": "FC-SETTING-DECODE",
+      "coverage_definition": "[Seq] `SETTING_IN[6:0]` 决定读响应接收长度和纯写/写后读分支选择。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: `SETTING_IN[6:0]` 决定读响应接收长度和纯写/写后读分支选择。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-CRC-EN-DECODE",
+      "functional_group": "FC-SETTING-DECODE",
+      "coverage_definition": "[Seq] `SETTING_IN[7]` 影响响应接收后的 CRC 校验结果位语义。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: `SETTING_IN[7]` 影响响应接收后的 CRC 校验结果位语义。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-DELAY-DECODE",
+      "functional_group": "FC-SETTING-DECODE",
+      "coverage_definition": "[Seq] `SETTING_IN[10:8]` 决定纯写路径 `DLY_WO` 到完成通知的等待周期。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: `SETTING_IN[10:8]` 决定纯写路径 `DLY_WO` 到完成通知的等待周期。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-TRANSFER-FLAGS-DECODE",
+      "functional_group": "FC-SETTING-DECODE",
+      "coverage_definition": "[Seq] `SETTING_IN[12:11]` 与 `SETTING_IN[14:13]` 影响 `st_dat_t` 与响应字选择行为。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: `SETTING_IN[12:11]` 与 `SETTING_IN[14:13]` 影响 `st_dat_t` 与响应字选择行为。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-ENTER-WR",
+      "functional_group": "FC-WRITE-READ-MODE",
+      "coverage_definition": "[Seq] 非零 `Response_Size` 请求后，状态输出先表现为发送命令阶段，再进入等待响应阶段。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: 非零 `Response_Size` 请求后，状态输出先表现为发送命令阶段，再进入等待响应阶段。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-NCR-WAIT",
+      "functional_group": "FC-WRITE-READ-MODE",
+      "coverage_definition": "[Seq] 命令发送结束后至少经历 `NCR` 周期等待，并在 `cmd_dat_i` 变为起始位0后进入接收。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: 命令发送结束后至少经历 `NCR` 周期等待，并在 `cmd_dat_i` 变为起始位0后进入接收。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-RX-LAUNCH",
+      "functional_group": "FC-WRITE-READ-MODE",
+      "coverage_definition": "[Seq] 进入 READ_WR 首拍时拉起 `REQ_OUT` 指示读响应阶段开始。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: 进入 READ_WR 首拍时拉起 `REQ_OUT` 指示读响应阶段开始。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-ENTER-WO",
+      "functional_group": "FC-WRITE-ONLY-MODE",
+      "coverage_definition": "[Seq] 零响应长度请求后进入 `WRITE_WO` 而非 `WRITE_WR`。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: 零响应长度请求后进入 `WRITE_WO` 而非 `WRITE_WR`。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-NO-RX",
+      "functional_group": "FC-WRITE-ONLY-MODE",
+      "coverage_definition": "[Seq] 纯写路径不会因 `cmd_dat_i` 变化而进入读响应接收。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: 纯写路径不会因 `cmd_dat_i` 变化而进入读响应接收。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-DELAY-TO-DONE",
+      "functional_group": "FC-WRITE-ONLY-MODE",
+      "coverage_definition": "[Seq] `DLY_WO` 按 `Delay_Cycler` 计数后置位完成状态并通知外部。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: `DLY_WO` 按 `Delay_Cycler` 计数后置位完成状态并通知外部。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-ACK-IDLE-HIGH",
+      "functional_group": "FC-ACK-OUT-PROTOCOL",
+      "coverage_definition": "[Seq] 无请求且命令未忙时 `ACK_OUT=1`。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: 无请求且命令未忙时 `ACK_OUT=1`。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-ACK-ON-REQ-LOW",
+      "functional_group": "FC-ACK-OUT-PROTOCOL",
+      "coverage_definition": "[Seq] 同步到请求后 `ACK_OUT` 拉低，提示外部保持输入稳定。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: 同步到请求后 `ACK_OUT` 拉低，提示外部保持输入稳定。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-ACK-ON-DONE-HIGH",
+      "functional_group": "FC-ACK-OUT-PROTOCOL",
+      "coverage_definition": "[Seq] ACK_WO/ACK_WR 后 `ACK_OUT` 返回高电平，允许下一次命令装载。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: ACK_WO/ACK_WR 后 `ACK_OUT` 返回高电平，允许下一次命令装载。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-REQOUT-TX-START",
+      "functional_group": "FC-REQOUT-ACKIN-HANDSHAKE",
+      "coverage_definition": "[Seq] `WRITE_WR/WRITE_WO` 首拍拉高 `REQ_OUT`。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: `WRITE_WR/WRITE_WO` 首拍拉高 `REQ_OUT`。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-REQOUT-HOLD-UNTIL-ACK",
+      "functional_group": "FC-REQOUT-ACKIN-HANDSHAKE",
+      "coverage_definition": "[Seq] 在 `ACK_IN` 未同步到达前，`REQ_OUT` 保持有效，不应过早撤销。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: 在 `ACK_IN` 未同步到达前，`REQ_OUT` 保持有效，不应过早撤销。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-REQOUT-CLEAR-AFTER-ACK",
+      "functional_group": "FC-REQOUT-ACKIN-HANDSHAKE",
+      "coverage_definition": "[Seq] 同步到 `ACK_IN` 后，`REQ_OUT` 在对应阶段撤销。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: 同步到 `ACK_IN` 后，`REQ_OUT` 在对应阶段撤销。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-REQOUT-DATA-READY",
+      "functional_group": "FC-REQOUT-ACKIN-HANDSHAKE",
+      "coverage_definition": "[Seq] `DLY_WO/DLY_READ` 首拍使用 `REQ_OUT` 提示 `STATUS` 或 `CMD_OUT` 可读。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: `DLY_WO/DLY_READ` 首拍使用 `REQ_OUT` 提示 `STATUS` 或 `CMD_OUT` 可读。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-OE-ACTIVE-DURING-TX",
+      "functional_group": "FC-CMD-SHIFT-ORDER",
+      "coverage_definition": "[Seq] 命令发送阶段 `cmd_oe_o=1`，IDLE/等待/接收阶段释放。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: 命令发送阶段 `cmd_oe_o=1`，IDLE/等待/接收阶段释放。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-CMD40-ORDER",
+      "functional_group": "FC-CMD-SHIFT-ORDER",
+      "coverage_definition": "[Seq] `cmd_out_o` 依照 `CMD_IN[39]` 到 `CMD_IN[0]` 顺序发送。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: `cmd_out_o` 依照 `CMD_IN[39]` 到 `CMD_IN[0]` 顺序发送。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-CRC7-PHASE",
+      "functional_group": "FC-CMD-SHIFT-ORDER",
+      "coverage_definition": "[Seq] 命令体结束后连续发送7bit CRC，再发送停止位1。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: 命令体结束后连续发送7bit CRC，再发送停止位1。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-FIRST-CYCLE-PRIME",
+      "functional_group": "FC-CMD-SHIFT-ORDER",
+      "coverage_definition": "[Seq] 进入发送首拍先预装CRC，真正串行输出从下一拍开始，避免位对齐错误。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: 进入发送首拍先预装CRC，真正串行输出从下一拍开始，避免位对齐错误。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-DLYWR-NCR",
+      "functional_group": "FC-DELAY-CONTROL",
+      "coverage_definition": "[Seq] `DLY_WR` 至少等待 `NCR` 周期且仅在检测到起始位0后进入 READ_WR。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: `DLY_WR` 至少等待 `NCR` 周期且仅在检测到起始位0后进入 READ_WR。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-DLYWO-CFG",
+      "functional_group": "FC-DELAY-CONTROL",
+      "coverage_definition": "[Seq] `DLY_WO` 的完成时机由 `Delay_Cycler` 决定。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: `DLY_WO` 的完成时机由 `Delay_Cycler` 决定。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-DLYREAD-HOLD",
+      "functional_group": "FC-DELAY-CONTROL",
+      "coverage_definition": "[Seq] `DLY_READ` 中保持完成状态和数据，直到外部 `ACK_IN` 同步到达。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: `DLY_READ` 中保持完成状态和数据，直到外部 `ACK_IN` 同步到达。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-RSP-STARTBIT",
+      "functional_group": "FC-RESPONSE-CAPTURE",
+      "coverage_definition": "[Seq] READ_WR 首次采样时将起始位写入 `Out_Buff[39]`。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: READ_WR 首次采样时将起始位写入 `Out_Buff[39]`。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-RSP-LENGTH",
+      "functional_group": "FC-RESPONSE-CAPTURE",
+      "coverage_definition": "[Seq] 当 `Cmd_Cnt >= Response_Size + 8` 后结束接收并进入 `DLY_READ`。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: 当 `Cmd_Cnt >= Response_Size + 8` 后结束接收并进入 `DLY_READ`。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-CMDOUT-LATCH",
+      "functional_group": "FC-RESPONSE-CAPTURE",
+      "coverage_definition": "[Seq] `DLY_READ` 阶段将 `Out_Buff` 复制到 `CMD_OUT`，外部在完成通知后可稳定读取。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: `DLY_READ` 阶段将 `Out_Buff` 复制到 `CMD_OUT`，外部在完成通知后可稳定读取。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-RSP-STABLE-AFTER-DONE",
+      "functional_group": "FC-RESPONSE-CAPTURE",
+      "coverage_definition": "[Seq] 在外部 `ACK_IN` 确认前，`CMD_OUT/STATUS` 保持可读且不被意外清除。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: 在外部 `ACK_IN` 确认前，`CMD_OUT/STATUS` 保持可读且不被意外清除。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-WSEL-00",
+      "functional_group": "FC-WORD-SELECT-WINDOW",
+      "coverage_definition": "[Seq] `word_select=00` 时采集响应的首个32bit数据窗口。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: `word_select=00` 时采集响应的首个32bit数据窗口。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-WSEL-01",
+      "functional_group": "FC-WORD-SELECT-WINDOW",
+      "coverage_definition": "[Seq] `word_select=01` 时采集位区间40~71。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: `word_select=01` 时采集位区间40~71。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-WSEL-10",
+      "functional_group": "FC-WORD-SELECT-WINDOW",
+      "coverage_definition": "[Seq] `word_select=10` 时采集位区间72~103。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: `word_select=10` 时采集位区间72~103。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-WSEL-11",
+      "functional_group": "FC-WORD-SELECT-WINDOW",
+      "coverage_definition": "[Seq] `word_select=11` 时采集位区间104~127。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: `word_select=11` 时采集位区间104~127。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-CRC-RST-IDLE",
+      "functional_group": "FC-TX-CRC-BEHAVIOR",
+      "coverage_definition": "[Seq] IDLE/等待阶段 `CRC_RST=1` 对应的外部行为为下次发送重新开始计算。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: IDLE/等待阶段 `CRC_RST=1` 对应的外部行为为下次发送重新开始计算。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-CRC-EN-CMD-BODY",
+      "functional_group": "FC-TX-CRC-BEHAVIOR",
+      "coverage_definition": "[Seq] 发送命令体期间 CRC 计算处于使能状态。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: 发送命令体期间 CRC 计算处于使能状态。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-CRC-DISABLE-AT-CRC",
+      "functional_group": "FC-TX-CRC-BEHAVIOR",
+      "coverage_definition": "[Seq] 发送 CRC 位期间不再继续将后续位纳入计算。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: 发送 CRC 位期间不再继续将后续位纳入计算。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-CRC-MATCH",
+      "functional_group": "FC-RX-CRC-CHECK",
+      "coverage_definition": "[Seq] 响应CRC与本地计算一致且 CRC 检查开启时，完成状态 `STATUS[5]=1`。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: 响应CRC与本地计算一致且 CRC 检查开启时，完成状态 `STATUS[5]=1`。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-CRC-MISMATCH",
+      "functional_group": "FC-RX-CRC-CHECK",
+      "coverage_definition": "[Seq] 响应CRC错误且 CRC 检查开启时，完成状态 `STATUS[5]=0`。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: 响应CRC错误且 CRC 检查开启时，完成状态 `STATUS[5]=0`。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-CRC-CHECK-OFF",
+      "functional_group": "FC-RX-CRC-CHECK",
+      "coverage_definition": "[Seq] `CRC_Check_On=0` 时即使CRC字段不匹配，也按设计语义报告为有效完成。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: `CRC_Check_On=0` 时即使CRC字段不匹配，也按设计语义报告为有效完成。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-STAT-WRITE-WR",
+      "functional_group": "FC-STATUS-CODING",
+      "coverage_definition": "[Seq] 发送读响应命令阶段状态码为 `0001`。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: 发送读响应命令阶段状态码为 `0001`。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-STAT-WRITE-WO",
+      "functional_group": "FC-STATUS-CODING",
+      "coverage_definition": "[Seq] 纯写命令发送阶段状态码为 `0010`。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: 纯写命令发送阶段状态码为 `0010`。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-STAT-DLY-WR",
+      "functional_group": "FC-STATUS-CODING",
+      "coverage_definition": "[Seq] NCR等待阶段状态码为 `0011`。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: NCR等待阶段状态码为 `0011`。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-STAT-READ-WR",
+      "functional_group": "FC-STATUS-CODING",
+      "coverage_definition": "[Seq] 响应接收阶段状态码为 `0101`。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: 响应接收阶段状态码为 `0101`。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-STAT-DONE-READ",
+      "functional_group": "FC-STATUS-CODING",
+      "coverage_definition": "[Seq] 完成通知阶段状态码为 `0110`，并携带 `CRC_Valid`/Data Available。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: 完成通知阶段状态码为 `0110`，并携带 `CRC_Valid`/Data Available。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-STAT-DONE-WRITE",
+      "functional_group": "FC-STATUS-CODING",
+      "coverage_definition": "[Seq] 完成通知阶段状态码为 `0100`，并携带 Data Available。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: 完成通知阶段状态码为 `0100`，并携带 Data Available。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-DATA-AVAIL-WO",
+      "functional_group": "FC-STATUS-FLAGS",
+      "coverage_definition": "[Seq] `DLY_WO` 首拍置 `STATUS[6]=1`。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: `DLY_WO` 首拍置 `STATUS[6]=1`。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-DATA-AVAIL-WR",
+      "functional_group": "FC-STATUS-FLAGS",
+      "coverage_definition": "[Seq] `DLY_READ` 首拍置 `STATUS[6]=1`。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: `DLY_READ` 首拍置 `STATUS[6]=1`。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-CRCFLAG-WO-CLEAR",
+      "functional_group": "FC-STATUS-FLAGS",
+      "coverage_definition": "[Seq] 纯写完成时 `STATUS[5]` 应保持清零。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: 纯写完成时 `STATUS[5]` 应保持清零。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-FLAG-HOLD-UNTIL-ACK",
+      "functional_group": "FC-STATUS-FLAGS",
+      "coverage_definition": "[Seq] 完成标志在外部确认前保持稳定。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: 完成标志在外部确认前保持稳定。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-STDAT-BLOCK-READ",
+      "functional_group": "FC-ST-DAT-T-ENCODING",
+      "coverage_definition": "[Seq] 写后读或纯写发送CRC阶段中 `block_read=1` 时输出 `10`。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: 写后读或纯写发送CRC阶段中 `block_read=1` 时输出 `10`。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-STDAT-BLOCK-WRITE",
+      "functional_group": "FC-ST-DAT-T-ENCODING",
+      "coverage_definition": "[Seq] 读响应结束后若 `block_write=1` 且非双标志，则输出 `01`。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: 读响应结束后若 `block_write=1` 且非双标志，则输出 `01`。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-STDAT-BOTH",
+      "functional_group": "FC-ST-DAT-T-ENCODING",
+      "coverage_definition": "[Seq] `block_read=1 && block_write=1` 时输出 `11`。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: `block_read=1 && block_write=1` 时输出 `11`。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-STDAT-IDLE-CLEAR",
+      "functional_group": "FC-ST-DAT-T-ENCODING",
+      "coverage_definition": "[Seq] IDLE 时 `st_dat_t` 清零。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: IDLE 时 `st_dat_t` 清零。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-RSP0",
+      "functional_group": "FC-RESPONSE-SIZE-BOUNDARY",
+      "coverage_definition": "[Seq] 进入纯写流程。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: 进入纯写流程。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-RSP1",
+      "functional_group": "FC-RESPONSE-SIZE-BOUNDARY",
+      "coverage_definition": "[Seq] 仅接收最小响应内容并正确结束。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: 仅接收最小响应内容并正确结束。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-RSP40",
+      "functional_group": "FC-RESPONSE-SIZE-BOUNDARY",
+      "coverage_definition": "[Seq] 覆盖常规短响应装载到 `CMD_OUT` 的完整流程。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: 覆盖常规短响应装载到 `CMD_OUT` 的完整流程。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-RSP127",
+      "functional_group": "FC-RESPONSE-SIZE-BOUNDARY",
+      "coverage_definition": "[Seq] 覆盖接近最大长响应情况下的计数终止与字窗口选择。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: 覆盖接近最大长响应情况下的计数终止与字窗口选择。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-NO-ACK-TX",
+      "functional_group": "FC-HANDSHAKE-STRESS",
+      "coverage_definition": "[Seq] `REQ_OUT` 保持有效，流程不应因缺失 `ACK_IN` 丢失通知。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: `REQ_OUT` 保持有效，流程不应因缺失 `ACK_IN` 丢失通知。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-LATE-ACK-DONE",
+      "functional_group": "FC-HANDSHAKE-STRESS",
+      "coverage_definition": "[Seq] 完成状态与输出数据在多拍等待后仍保持稳定，直到 `ACK_IN` 到达。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: 完成状态与输出数据在多拍等待后仍保持稳定，直到 `ACK_IN` 到达。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-SPURIOUS-ACK",
+      "functional_group": "FC-HANDSHAKE-STRESS",
+      "coverage_definition": "[Seq] 空闲阶段出现 `ACK_IN` 不应错误触发新的事务。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: 空闲阶段出现 `ACK_IN` 不应错误触发新的事务。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-RESET-DURING-TX",
+      "functional_group": "FC-ROBUSTNESS-EXCEPTION",
+      "coverage_definition": "[Seq] 发送过程中复位后立即回到初始化默认输出。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: 发送过程中复位后立即回到初始化默认输出。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-RESET-DURING-RX",
+      "functional_group": "FC-ROBUSTNESS-EXCEPTION",
+      "coverage_definition": "[Seq] 接收过程中复位后丢弃当前响应并清空完成标志。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: 接收过程中复位后丢弃当前响应并清空完成标志。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-B2B-CMD",
+      "functional_group": "FC-ROBUSTNESS-EXCEPTION",
+      "coverage_definition": "[Seq] 上一命令 `ACK_OUT` 恢复后可装载下一命令，前后配置不串扰。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: 上一命令 `ACK_OUT` 恢复后可装载下一命令，前后配置不串扰。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-NO-STARTBIT",
+      "functional_group": "FC-ROBUSTNESS-EXCEPTION",
+      "coverage_definition": "[Seq] 写后读等待阶段若 `cmd_dat_i` 长期为1，则持续停留等待，不应伪造响应完成。",
+      "sampling_rule": "Sample on `signal.SD_CLK_IN`",
+      "oracle_definition": "Check property: 写后读等待阶段若 `cmd_dat_i` 长期为1，则持续停留等待，不应伪造响应完成。",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    }
+  ],
+  "observations": []
+}

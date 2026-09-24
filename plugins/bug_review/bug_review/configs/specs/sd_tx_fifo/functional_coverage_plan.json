@@ -1,0 +1,72 @@
+{
+  "schema_version": "functional_coverage_plan.v1",
+  "dut": "sd_tx_fifo",
+  "revision_id": "ground-truth-v1",
+  "source_snapshot_hash": "golden_spec",
+  "targets": [
+    {
+      "target_id": "CK-RESET-POINTERS",
+      "functional_group": "FC-RESET-STATE",
+      "coverage_definition": "[Seq] 复位后指针为 0 且空标志置 1",
+      "sampling_rule": "Sample on `status.empty`",
+      "oracle_definition": "Check property: 复位后指针为 0 且空标志置 1",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-WRITE-ACCEPT",
+      "functional_group": "FC-WRITE-NORMAL",
+      "coverage_definition": "[Seq] 写入后 RAM 更新且空标志撤销",
+      "sampling_rule": "Sample on `producer.data`",
+      "oracle_definition": "Check property: 写入后 RAM 更新且空标志撤销",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-WRITE-FULL-IGNORE",
+      "functional_group": "FC-WRITE-FULL",
+      "coverage_definition": "[Seq] 满时写入不覆盖已有数据",
+      "sampling_rule": "Sample on `status.full`",
+      "oracle_definition": "Check property: 满时写入不覆盖已有数据",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-READ-ACCEPT",
+      "functional_group": "FC-READ-NORMAL",
+      "coverage_definition": "[Seq] 读出数据符合 FIFO 顺序且指针前移",
+      "sampling_rule": "Sample on `consumer.q`",
+      "oracle_definition": "Check property: 读出数据符合 FIFO 顺序且指针前移",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-READ-EMPTY-IGNORE",
+      "functional_group": "FC-READ-EMPTY",
+      "coverage_definition": "[Seq] 空时读取不前移读指针",
+      "sampling_rule": "Sample on `status.empty`",
+      "oracle_definition": "Check property: 空时读取不前移读指针",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-STATUS-FLAGS-ACCURATE",
+      "functional_group": "FC-STATUS-FLAGS",
+      "coverage_definition": "[Comb] 满空标志与指针差值严格吻合",
+      "sampling_rule": "Sample on `status.flags`",
+      "oracle_definition": "Check property: 满空标志与指针差值严格吻合",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-BOUNDARY-WRAPAROUND",
+      "functional_group": "FC-BOUNDARY-TRANSITION",
+      "coverage_definition": "[Seq] 指针在计数值 7 时发生正确回绕",
+      "sampling_rule": "Sample on `adr_i`",
+      "oracle_definition": "Check property: 指针在计数值 7 时发生正确回绕",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    }
+  ],
+  "observations": []
+}

@@ -1,0 +1,52 @@
+{
+  "schema_version": "gt_rtl_v3",
+  "dut": "bosc_LLPTW",
+  "status": "adjudicated_after_counterevidence_review",
+  "description": "DUT-level independent RTL defect ground truth for bosc_LLPTW. Only conclusions that survive interface-contract and RTL counterevidence review are admitted.",
+  "total_rtl_defects": 1,
+  "model_hits": {
+    "ucagent": 1
+  },
+  "defects": [
+    {
+      "gt_id": "GT-RTL-0001",
+      "global_gt_id": "GT-XS-0124",
+      "source_root_id": "LLPTW-BG-MULTI-CACHE-PARALLELMUX",
+      "dut": "bosc_LLPTW",
+      "rtl_file": "bosc_LLPTW.v",
+      "rtl_line_start": 966,
+      "rtl_line_end": 998,
+      "related_rtl_locations": [
+        "bosc_LLPTW.v:3500",
+        "bosc_LLPTW.v:3587",
+        "bosc_LLPTW.v:3674",
+        "bosc_LLPTW.v:3761",
+        "bosc_LLPTW.v:3848",
+        "bosc_LLPTW.v:3935"
+      ],
+      "failure_mode": "context_aliasing",
+      "symptoms": [
+        "LLPTW-BG-MULTI-CACHE-PARALLELMUX"
+      ],
+      "models": [
+        "ucagent"
+      ],
+      "source_anchor_confidence": "high",
+      "root_match_status": "adjudicated_independent_review",
+      "severity": "normal",
+      "description": "多个 cache-state entry 并存时，RTL 通过按位 OR 合成 cache payload 和 cache_ptr，而非选择单一 entry；不同 entry 的索引和请求上下文会混叠，并可能释放错误 entry。",
+      "test_cases": [
+        "test_bosc_LLPTW_dup_under_backpressure",
+        "test_static_bosc_LLPTW_bg_static_002"
+      ],
+      "primary_test_case": "test_bosc_LLPTW_dup_under_backpressure",
+      "admitted_at": "2026-09-17T15:33:04+08:00",
+      "admission_batch": "llptw_counterevidence_review_20260917",
+      "admission_source": "independent_source_waveform_contract_review",
+      "admission_evidence": "rtl_causal_chain_plus_two_demand_request_reproductions"
+    }
+  ],
+  "category": "xiangshan",
+  "last_registered_at": "2026-09-17T15:33:04+08:00",
+  "last_registered_batch": "llptw_counterevidence_review_20260917"
+}

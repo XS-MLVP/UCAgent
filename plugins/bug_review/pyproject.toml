@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=80", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ucagent-bug-review"
+version = "0.1.0"
+description = "UCAgent plugin for evidence-based Bug review and independent scoring"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = ["UCAgent>=26.9.2.dev6"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "build>=1"]
+
+[project.entry-points."ucagent.plugins"]
+bug_review = "bug_review.plugin:get_plugin"
+
+[project.scripts]
+bug-review = "bug_review.workflow:main"
+
+[tool.setuptools]
+include-package-data = false
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["bug_review", "bug_review.*"]
+namespaces = false
+
+[tool.setuptools.package-data]
+bug_review = ["workflows/*.yaml", "Guide_Doc/*.md", "configs/**/*.json", "configs/**/*.md", "resources/*.py", "resources/*.sh"]
+
+[tool.pytest.ini_options]
+pythonpath = [".", "../.."]
+testpaths = ["tests"]

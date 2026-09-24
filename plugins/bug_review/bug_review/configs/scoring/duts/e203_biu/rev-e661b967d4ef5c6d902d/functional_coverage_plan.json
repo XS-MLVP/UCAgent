@@ -1,0 +1,350 @@
+{
+  "schema_version": "functional_coverage_plan.v1",
+  "dut": "e203_biu",
+  "revision_id": "rev-e661b967d4ef5c6d902d",
+  "source_snapshot_hash": "0076c8dfb0c8512b220ea358c39f533a8e0d969ee8d7678f2e19be45793308f2",
+  "status": "machine_mapped_frozen_contract",
+  "targets": [
+    {
+      "target_id": "FC-BIU-RESET-IDLE",
+      "name": "reset initialization and interface idle",
+      "weight": 1,
+      "coverage_definition": "Verify all ICB master and slave ports remain idle upon reset",
+      "sampling_rule": "Sample valid/ready and cmd/rsp channels upon reset release",
+      "oracle_definition": "No spurious requests or acknowledgments on any bus interface",
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "FC-BIU-LSU-ACCESS",
+      "name": "Load-Store Unit ICB request transaction",
+      "weight": 1,
+      "coverage_definition": "Drive LSU memory read/write requests through BIU to memory",
+      "sampling_rule": "Sample LSU ICB cmd and rsp channels during transaction",
+      "oracle_definition": "LSU requests correctly route to target address with proper write mask",
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "FC-BIU-IFU-ACCESS",
+      "name": "Instruction Fetch Unit ICB request transaction",
+      "weight": 1,
+      "coverage_definition": "Drive IFU instruction fetch requests through BIU",
+      "sampling_rule": "Sample IFU ICB cmd and rsp channels during fetch",
+      "oracle_definition": "IFU requests execute without protocol violation and return requested instruction",
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "FC-BIU-ARBITRATION",
+      "name": "LSU and IFU contention arbitration",
+      "weight": 1,
+      "coverage_definition": "Simultaneously assert LSU and IFU requests to observe priority arbitration",
+      "sampling_rule": "Sample grant signals when both LSU and IFU cmd_valid are high",
+      "oracle_definition": "Higher-priority port is serviced first without starving the secondary port",
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "FC-BIU-ADDR-DECODE",
+      "name": "address decoding and peripheral routing",
+      "weight": 1,
+      "coverage_definition": "Exercise address regions mapped to PPI, CLINT, PLIC, FIO and Main Memory",
+      "sampling_rule": "Drive transactions across address boundary boundaries and sample chip-selects",
+      "oracle_definition": "Requests route strictly to the designated target peripheral bus",
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "FC-BIU-ERROR-RESPONSE",
+      "name": "bus error and illegal address handling",
+      "weight": 1,
+      "coverage_definition": "Access unmapped or error-triggering address spaces to observe error response",
+      "sampling_rule": "Sample rsp_err signal on transaction completion",
+      "oracle_definition": "BIU sets rsp_err high and completes the ICB transaction cleanly",
+      "collection_status": "scoreable"
+    }
+  ],
+  "observations": [
+    {
+      "model": "agentw",
+      "target_id": "FC-BIU-RESET-IDLE",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "agentw",
+      "target_id": "FC-BIU-LSU-ACCESS",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "agentw",
+      "target_id": "FC-BIU-IFU-ACCESS",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "agentw",
+      "target_id": "FC-BIU-ARBITRATION",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "agentw",
+      "target_id": "FC-BIU-ADDR-DECODE",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "agentw",
+      "target_id": "FC-BIU-ERROR-RESPONSE",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "agentw+SFT",
+      "target_id": "FC-BIU-RESET-IDLE",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_e203_biu_api_basic.py::test_api_e203_biu_reset_basic",
+        "tests/test_e203_biu_api_basic.py::test_api_e203_biu_wait_idle_basic",
+        "tests/test_e203_biu_api_operations.py::test_api_operation_init",
+        "tests/test_e203_biu_api_operations.py::test_api_operation_reset",
+        "tests/test_e203_biu_arbitration.py::test_arbitration_ifu_when_lsu_idle",
+        "tests/test_e203_biu_env_fixture.py::test_api_e203_biu_env_input_pins_initialization",
+        "tests/test_e203_biu_env_fixture.py::test_api_e203_biu_env_reset_operation"
+      ],
+      "evidence_source": "passed toffee/pytest execution and semantic target mapping for FC-BIU-RESET-IDLE"
+    },
+    {
+      "model": "agentw+SFT",
+      "target_id": "FC-BIU-LSU-ACCESS",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_e203_biu_api_basic.py::test_api_e203_biu_lsu_read_invalid_address",
+        "tests/test_e203_biu_api_basic.py::test_api_e203_biu_lsu_write_invalid_address",
+        "tests/test_e203_biu_arbitration.py::test_arbitration_ifu_when_lsu_idle",
+        "tests/test_e203_biu_arbitration.py::test_arbitration_lsu_only",
+        "tests/test_e203_biu_arbitration.py::test_arbitration_lsu_priority",
+        "tests/test_e203_biu_arbitration.py::test_arbitration_rsp_lsu",
+        "tests/test_e203_biu_concurrency_lsu_ifu.py::test_concurrency_lsu_ifu_concurrent",
+        "tests/test_e203_biu_concurrency_lsu_ifu.py::test_concurrency_multi_outstanding",
+        "tests/test_e203_biu_random_arbitration.py::test_random_arbitration_lsu_priority",
+        "tests/test_e203_biu_random_concurrency.py::test_random_concurrency_lsu_ifu_concurrent"
+      ],
+      "evidence_source": "passed toffee/pytest execution and semantic target mapping for FC-BIU-LSU-ACCESS"
+    },
+    {
+      "model": "agentw+SFT",
+      "target_id": "FC-BIU-IFU-ACCESS",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_e203_biu_arbitration.py::test_arbitration_ifu_only",
+        "tests/test_e203_biu_arbitration.py::test_arbitration_ifu_when_lsu_idle",
+        "tests/test_e203_biu_arbitration.py::test_arbitration_rsp_ifu",
+        "tests/test_e203_biu_concurrency_lsu_ifu.py::test_concurrency_lsu_ifu_concurrent",
+        "tests/test_e203_biu_concurrency_lsu_ifu.py::test_concurrency_multi_outstanding",
+        "tests/test_e203_biu_error_handling.py::test_error_ifu_peripheral_route",
+        "tests/test_e203_biu_error_handling.py::test_error_ifu_rsp_err",
+        "tests/test_e203_biu_error_handling.py::test_error_ifu_zero_cycle_rsp",
+        "tests/test_e203_biu_random_arbitration.py::test_random_arbitration_ifu_only",
+        "tests/test_e203_biu_random_concurrency.py::test_random_concurrency_lsu_ifu_concurrent"
+      ],
+      "evidence_source": "passed toffee/pytest execution and semantic target mapping for FC-BIU-IFU-ACCESS"
+    },
+    {
+      "model": "agentw+SFT",
+      "target_id": "FC-BIU-ARBITRATION",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_e203_biu_arbitration.py::test_arbitration_ifu_only",
+        "tests/test_e203_biu_arbitration.py::test_arbitration_ifu_when_lsu_idle",
+        "tests/test_e203_biu_arbitration.py::test_arbitration_lsu_only",
+        "tests/test_e203_biu_arbitration.py::test_arbitration_lsu_priority",
+        "tests/test_e203_biu_arbitration.py::test_arbitration_rsp_ifu",
+        "tests/test_e203_biu_arbitration.py::test_arbitration_rsp_lsu",
+        "tests/test_e203_biu_arbitration.py::test_arbitration_rsp_usr_flag",
+        "tests/test_e203_biu_random_arbitration.py::test_random_arbitration_ifu_only",
+        "tests/test_e203_biu_random_arbitration.py::test_random_arbitration_lsu_priority"
+      ],
+      "evidence_source": "passed toffee/pytest execution and semantic target mapping for FC-BIU-ARBITRATION"
+    },
+    {
+      "model": "agentw+SFT",
+      "target_id": "FC-BIU-ADDR-DECODE",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_e203_biu_splitter.py::test_splitter_addr_decode",
+        "tests/test_e203_biu_splitter.py::test_splitter_region_indic"
+      ],
+      "evidence_source": "passed toffee/pytest execution and semantic target mapping for FC-BIU-ADDR-DECODE"
+    },
+    {
+      "model": "agentw+SFT",
+      "target_id": "FC-BIU-ERROR-RESPONSE",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_e203_biu_error_handling.py::test_error_disabled_rsp_err",
+        "tests/test_e203_biu_error_handling.py::test_error_excl_fail_rsp",
+        "tests/test_e203_biu_error_handling.py::test_error_excl_no_rsp_err",
+        "tests/test_e203_biu_error_handling.py::test_error_excl_record",
+        "tests/test_e203_biu_error_handling.py::test_error_ifu_peripheral_route",
+        "tests/test_e203_biu_error_handling.py::test_error_ifu_rsp_err",
+        "tests/test_e203_biu_error_handling.py::test_error_ifu_zero_cycle_rsp"
+      ],
+      "evidence_source": "passed toffee/pytest execution and semantic target mapping for FC-BIU-ERROR-RESPONSE"
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-BIU-RESET-IDLE",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-BIU-LSU-ACCESS",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_e203_biu_error_handling_templates.py::test_e203_biu_lsu_disabled_clint_access_template",
+        "tests/test_e203_biu_error_handling_templates.py::test_e203_biu_lsu_disabled_fio_access_template",
+        "tests/test_e203_biu_error_handling_templates.py::test_e203_biu_lsu_disabled_plic_access_template",
+        "tests/test_e203_biu_error_handling_templates.py::test_e203_biu_lsu_disabled_ppi_access_template"
+      ],
+      "evidence_source": "passed toffee/pytest execution and semantic target mapping for FC-BIU-LSU-ACCESS"
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-BIU-IFU-ACCESS",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-BIU-ARBITRATION",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-BIU-ADDR-DECODE",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-BIU-ERROR-RESPONSE",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_e203_biu_error_handling_templates.py::test_e203_biu_lsu_disabled_clint_access_template",
+        "tests/test_e203_biu_error_handling_templates.py::test_e203_biu_lsu_disabled_fio_access_template",
+        "tests/test_e203_biu_error_handling_templates.py::test_e203_biu_lsu_disabled_plic_access_template",
+        "tests/test_e203_biu_error_handling_templates.py::test_e203_biu_lsu_disabled_ppi_access_template",
+        "tests/test_e203_biu_zero_cycle_and_exclusive_templates.py::test_e203_biu_zero_cycle_error_no_double_response_template"
+      ],
+      "evidence_source": "passed toffee/pytest execution and semantic target mapping for FC-BIU-ERROR-RESPONSE"
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-BIU-RESET-IDLE",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_e203_biu_api_control_ops.py::TestAllInterfacesIdle::test_api_e203_biu_set_all_interfaces_idle",
+        "tests/test_e203_biu_env_fixture.py::test_api_e203_biu_env_reset",
+        "tests/test_e203_biu_env_fixture.py::test_api_e203_biu_env_reset_state"
+      ],
+      "evidence_source": "passed toffee/pytest execution and semantic target mapping for FC-BIU-RESET-IDLE"
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-BIU-LSU-ACCESS",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_e203_biu_api_control_ops.py::TestLSUWriteMaskAPI::test_api_e203_biu_lsu_write_mask_all_bytes"
+      ],
+      "evidence_source": "passed toffee/pytest execution and semantic target mapping for FC-BIU-LSU-ACCESS"
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-BIU-IFU-ACCESS",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_e203_biu_response_templ.py::test_rsp_data_ifu"
+      ],
+      "evidence_source": "passed toffee/pytest execution and semantic target mapping for FC-BIU-IFU-ACCESS"
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-BIU-ARBITRATION",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-BIU-ADDR-DECODE",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-BIU-ERROR-RESPONSE",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    }
+  ],
+  "contract_hash": "824b7afc5ef4fc5144e887683547a184f5004ee779560c1d866e101b1109d16b"
+}

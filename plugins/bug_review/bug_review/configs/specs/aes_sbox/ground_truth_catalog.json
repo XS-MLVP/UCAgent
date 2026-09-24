@@ -1,0 +1,549 @@
+{
+  "schema_version": "ground_truth_coverage_catalog.v1",
+  "dut": "aes_sbox",
+  "version": "v1.0.0",
+  "total_fg": 4,
+  "total_fc": 9,
+  "total_ck": 20,
+  "fgs": [
+    "FG-ALGORITHM-BOUNDARY",
+    "FG-API",
+    "FG-FORWARD-SBOX",
+    "FG-INTERFACE"
+  ],
+  "fcs": [
+    {
+      "fc_id": "FC-STEP-IO",
+      "fg_id": "FG-API",
+      "objective": "FC-STEP-IO 验证",
+      "rule": "`P-CORE`",
+      "test_plan_ref": "P0 / `CK-SET-A-READ-B`"
+    },
+    {
+      "fc_id": "FC-IO-WIDTH",
+      "fg_id": "FG-INTERFACE",
+      "objective": "FC-IO-WIDTH 验证",
+      "rule": "`P-CORE`",
+      "test_plan_ref": "P0 / `CK-SET-A-READ-B`"
+    },
+    {
+      "fc_id": "FC-COMB-RESPONSE",
+      "fg_id": "FG-INTERFACE",
+      "objective": "FC-COMB-RESPONSE 验证",
+      "rule": "`P-CORE`",
+      "test_plan_ref": "P0 / `CK-SET-A-READ-B`"
+    },
+    {
+      "fc_id": "FC-KNOWN-VECTORS",
+      "fg_id": "FG-FORWARD-SBOX",
+      "objective": "FC-KNOWN-VECTORS 验证",
+      "rule": "`P-CORE`",
+      "test_plan_ref": "P0 / `CK-SET-A-READ-B`"
+    },
+    {
+      "fc_id": "FC-FULL-LUT-MAPPING",
+      "fg_id": "FG-FORWARD-SBOX",
+      "objective": "FC-FULL-LUT-MAPPING 验证",
+      "rule": "`P-CORE`",
+      "test_plan_ref": "P0 / `CK-SET-A-READ-B`"
+    },
+    {
+      "fc_id": "FC-PERMUTATION-PROPERTY",
+      "fg_id": "FG-FORWARD-SBOX",
+      "objective": "FC-PERMUTATION-PROPERTY 验证",
+      "rule": "`P-CORE`",
+      "test_plan_ref": "P0 / `CK-SET-A-READ-B`"
+    },
+    {
+      "fc_id": "FC-ZERO-INVERSE-SPECIAL",
+      "fg_id": "FG-ALGORITHM-BOUNDARY",
+      "objective": "FC-ZERO-INVERSE-SPECIAL 验证",
+      "rule": "`P-CORE`",
+      "test_plan_ref": "P0 / `CK-SET-A-READ-B`"
+    },
+    {
+      "fc_id": "FC-BOUNDARY-INPUTS",
+      "fg_id": "FG-ALGORITHM-BOUNDARY",
+      "objective": "FC-BOUNDARY-INPUTS 验证",
+      "rule": "`P-CORE`",
+      "test_plan_ref": "P0 / `CK-SET-A-READ-B`"
+    },
+    {
+      "fc_id": "FC-SEQUENTIAL-INPUT-TRANSITIONS",
+      "fg_id": "FG-ALGORITHM-BOUNDARY",
+      "objective": "FC-SEQUENTIAL-INPUT-TRANSITIONS 验证",
+      "rule": "`P-CORE`",
+      "test_plan_ref": "P0 / `CK-SET-A-READ-B`"
+    }
+  ],
+  "cks": [
+    {
+      "ck_id": "CK-SET-A-READ-B",
+      "style": "Assume",
+      "fc_id": "FC-STEP-IO",
+      "property": "CK-SET-A-READ-B",
+      "observable": "`signal.a`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    },
+    {
+      "ck_id": "CK-MULTI-STEP-STABLE",
+      "style": "Assume",
+      "fc_id": "FC-STEP-IO",
+      "property": "CK-MULTI-STEP-STABLE",
+      "observable": "`signal.a`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    },
+    {
+      "ck_id": "CK-INPUT-8BIT",
+      "style": "Seq",
+      "fc_id": "FC-IO-WIDTH",
+      "property": "CK-INPUT-8BIT",
+      "observable": "`signal.a`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    },
+    {
+      "ck_id": "CK-OUTPUT-8BIT",
+      "style": "Seq",
+      "fc_id": "FC-IO-WIDTH",
+      "property": "CK-OUTPUT-8BIT",
+      "observable": "`signal.a`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    },
+    {
+      "ck_id": "CK-INPUT-CHANGE-UPDATES-OUTPUT",
+      "style": "Seq",
+      "fc_id": "FC-COMB-RESPONSE",
+      "property": "CK-INPUT-CHANGE-UPDATES-OUTPUT",
+      "observable": "`signal.a`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    },
+    {
+      "ck_id": "CK-STATELESS-BEHAVIOR",
+      "style": "Seq",
+      "fc_id": "FC-COMB-RESPONSE",
+      "property": "CK-STATELESS-BEHAVIOR",
+      "observable": "`signal.a`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    },
+    {
+      "ck_id": "CK-ZERO-VECTOR",
+      "style": "Seq",
+      "fc_id": "FC-KNOWN-VECTORS",
+      "property": "CK-ZERO-VECTOR",
+      "observable": "`signal.a`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    },
+    {
+      "ck_id": "CK-ONES-VECTOR",
+      "style": "Seq",
+      "fc_id": "FC-KNOWN-VECTORS",
+      "property": "CK-ONES-VECTOR",
+      "observable": "`signal.a`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    },
+    {
+      "ck_id": "CK-TYPICAL-VECTOR",
+      "style": "Seq",
+      "fc_id": "FC-KNOWN-VECTORS",
+      "property": "CK-TYPICAL-VECTOR",
+      "observable": "`signal.a`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    },
+    {
+      "ck_id": "CK-ALL-256-VALUES",
+      "style": "Seq",
+      "fc_id": "FC-FULL-LUT-MAPPING",
+      "property": "CK-ALL-256-VALUES",
+      "observable": "`signal.a`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    },
+    {
+      "ck_id": "CK-NO-MISMATCH-INDEX",
+      "style": "Seq",
+      "fc_id": "FC-FULL-LUT-MAPPING",
+      "property": "CK-NO-MISMATCH-INDEX",
+      "observable": "`signal.a`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    },
+    {
+      "ck_id": "CK-OUTPUT-UNIQUE",
+      "style": "Seq",
+      "fc_id": "FC-PERMUTATION-PROPERTY",
+      "property": "CK-OUTPUT-UNIQUE",
+      "observable": "`signal.a`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    },
+    {
+      "ck_id": "CK-OUTPUT-COVER-256",
+      "style": "Seq",
+      "fc_id": "FC-PERMUTATION-PROPERTY",
+      "property": "CK-OUTPUT-COVER-256",
+      "observable": "`signal.a`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    },
+    {
+      "ck_id": "CK-ZERO-SPECIAL-HANDLING",
+      "style": "Seq",
+      "fc_id": "FC-ZERO-INVERSE-SPECIAL",
+      "property": "CK-ZERO-SPECIAL-HANDLING",
+      "observable": "`signal.a`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    },
+    {
+      "ck_id": "CK-ZERO-FINAL-AFFINE",
+      "style": "Seq",
+      "fc_id": "FC-ZERO-INVERSE-SPECIAL",
+      "property": "CK-ZERO-FINAL-AFFINE",
+      "observable": "`signal.a`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    },
+    {
+      "ck_id": "CK-LOW-BOUNDARY",
+      "style": "Seq",
+      "fc_id": "FC-BOUNDARY-INPUTS",
+      "property": "CK-LOW-BOUNDARY",
+      "observable": "`signal.a`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    },
+    {
+      "ck_id": "CK-HIGH-BOUNDARY",
+      "style": "Seq",
+      "fc_id": "FC-BOUNDARY-INPUTS",
+      "property": "CK-HIGH-BOUNDARY",
+      "observable": "`signal.a`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    },
+    {
+      "ck_id": "CK-PATTERN-INPUTS",
+      "style": "Seq",
+      "fc_id": "FC-BOUNDARY-INPUTS",
+      "property": "CK-PATTERN-INPUTS",
+      "observable": "`signal.a`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    },
+    {
+      "ck_id": "CK-BACK-TO-BACK-TRANSITIONS",
+      "style": "Seq",
+      "fc_id": "FC-SEQUENTIAL-INPUT-TRANSITIONS",
+      "property": "CK-BACK-TO-BACK-TRANSITIONS",
+      "observable": "`signal.a`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    },
+    {
+      "ck_id": "CK-RETURN-TO-PREVIOUS-INPUT",
+      "style": "Seq",
+      "fc_id": "FC-SEQUENTIAL-INPUT-TRANSITIONS",
+      "property": "CK-RETURN-TO-PREVIOUS-INPUT",
+      "observable": "`signal.a`",
+      "rtl_binding": "[附录 B / D]",
+      "property_state": "Planned",
+      "signoff_state": "Planned"
+    }
+  ],
+  "test_plans": [
+    {
+      "priority": "P1",
+      "fc_id": "FC-STEP-IO",
+      "ck_id": "CK-SET-A-READ-B",
+      "style": "Assume",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    },
+    {
+      "priority": "P1",
+      "fc_id": "FC-STEP-IO",
+      "ck_id": "CK-MULTI-STEP-STABLE",
+      "style": "Assume",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    },
+    {
+      "priority": "P1",
+      "fc_id": "FC-IO-WIDTH",
+      "ck_id": "CK-INPUT-8BIT",
+      "style": "Seq",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    },
+    {
+      "priority": "P1",
+      "fc_id": "FC-IO-WIDTH",
+      "ck_id": "CK-OUTPUT-8BIT",
+      "style": "Seq",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    },
+    {
+      "priority": "P1",
+      "fc_id": "FC-COMB-RESPONSE",
+      "ck_id": "CK-INPUT-CHANGE-UPDATES-OUTPUT",
+      "style": "Seq",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    },
+    {
+      "priority": "P1",
+      "fc_id": "FC-COMB-RESPONSE",
+      "ck_id": "CK-STATELESS-BEHAVIOR",
+      "style": "Seq",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    },
+    {
+      "priority": "P1",
+      "fc_id": "FC-KNOWN-VECTORS",
+      "ck_id": "CK-ZERO-VECTOR",
+      "style": "Seq",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    },
+    {
+      "priority": "P1",
+      "fc_id": "FC-KNOWN-VECTORS",
+      "ck_id": "CK-ONES-VECTOR",
+      "style": "Seq",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    },
+    {
+      "priority": "P1",
+      "fc_id": "FC-KNOWN-VECTORS",
+      "ck_id": "CK-TYPICAL-VECTOR",
+      "style": "Seq",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    },
+    {
+      "priority": "P1",
+      "fc_id": "FC-FULL-LUT-MAPPING",
+      "ck_id": "CK-ALL-256-VALUES",
+      "style": "Seq",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    },
+    {
+      "priority": "P1",
+      "fc_id": "FC-FULL-LUT-MAPPING",
+      "ck_id": "CK-NO-MISMATCH-INDEX",
+      "style": "Seq",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    },
+    {
+      "priority": "P1",
+      "fc_id": "FC-PERMUTATION-PROPERTY",
+      "ck_id": "CK-OUTPUT-UNIQUE",
+      "style": "Seq",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    },
+    {
+      "priority": "P1",
+      "fc_id": "FC-PERMUTATION-PROPERTY",
+      "ck_id": "CK-OUTPUT-COVER-256",
+      "style": "Seq",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    },
+    {
+      "priority": "P1",
+      "fc_id": "FC-ZERO-INVERSE-SPECIAL",
+      "ck_id": "CK-ZERO-SPECIAL-HANDLING",
+      "style": "Seq",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    },
+    {
+      "priority": "P1",
+      "fc_id": "FC-ZERO-INVERSE-SPECIAL",
+      "ck_id": "CK-ZERO-FINAL-AFFINE",
+      "style": "Seq",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    },
+    {
+      "priority": "P1",
+      "fc_id": "FC-BOUNDARY-INPUTS",
+      "ck_id": "CK-LOW-BOUNDARY",
+      "style": "Seq",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    },
+    {
+      "priority": "P1",
+      "fc_id": "FC-BOUNDARY-INPUTS",
+      "ck_id": "CK-HIGH-BOUNDARY",
+      "style": "Seq",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    },
+    {
+      "priority": "P1",
+      "fc_id": "FC-BOUNDARY-INPUTS",
+      "ck_id": "CK-PATTERN-INPUTS",
+      "style": "Seq",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    },
+    {
+      "priority": "P1",
+      "fc_id": "FC-SEQUENTIAL-INPUT-TRANSITIONS",
+      "ck_id": "CK-BACK-TO-BACK-TRANSITIONS",
+      "style": "Seq",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    },
+    {
+      "priority": "P1",
+      "fc_id": "FC-SEQUENTIAL-INPUT-TRANSITIONS",
+      "ck_id": "CK-RETURN-TO-PREVIOUS-INPUT",
+      "style": "Seq",
+      "rule": "P-CORE",
+      "mechanism": "Assertion",
+      "stimulus": "激励驱动",
+      "observable": "结果观测与断言",
+      "coverage": "`COV-NORMAL` / `CASE-NORMAL`",
+      "closure_criteria": "regression 通过"
+    }
+  ],
+  "coverages": [
+    {
+      "cov_id": "COV-NORMAL",
+      "risk": "正常功能覆盖",
+      "refs": "`P-CORE`, `FC-STEP-IO`, `CK-SET-A-READ-B`",
+      "event": "正常周期事件",
+      "bins": "典型功能取值",
+      "cross": "核心交叉",
+      "illegal": "忽略非法毛刺",
+      "guard": "有效采样",
+      "closure_criteria": "命中要求",
+      "state": "Planned"
+    },
+    {
+      "cov_id": "COV-BOUNDARY",
+      "risk": "边界条件覆盖",
+      "refs": "`P-CORE`, `FC-SEQUENTIAL-INPUT-TRANSITIONS`, `CK-RETURN-TO-PREVIOUS-INPUT`",
+      "event": "边界周期事件",
+      "bins": "最大/最小值",
+      "cross": "极限交叉",
+      "illegal": "忽略非法毛刺",
+      "guard": "有效采样",
+      "closure_criteria": "命中要求",
+      "state": "Planned"
+    }
+  ]
+}

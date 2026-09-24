@@ -1,0 +1,36 @@
+{
+  "schema_version": "root_scenario_evidence.v2",
+  "dut": "aes_cipher_top",
+  "revision_scope_id": "aes-cipher-top-rev-1c6c1550b358cfd78033",
+  "revision_id": "rev-1c6c1550b358cfd78033",
+  "source_snapshot_hash": "b64007e241111180cf0eb923d94979eb34fbefef52ae3d2d7a094dd6cb3b56db",
+  "status": "frozen_draft_requires_blind_independent_review",
+  "entries": [
+    {"model": "agentw", "gt_id": "GT-RTL-0001", "scenario_id": "SCN-RESET-IDLE", "valid_oracle": true, "true_failure": true, "replay_status": "not_run", "test_nodeids": ["tests/test_aes_cipher_top_control_reset.py::test_reset_state"], "source_refs": ["BUG-0001"]},
+    {"model": "gpt5.4", "gt_id": "GT-RTL-0001", "scenario_id": "SCN-RESET-IDLE", "valid_oracle": true, "true_failure": true, "replay_status": "reproduced", "test_nodeids": ["tests/test_aes_cipher_top_interface_and_isolation.py::test_aes_cipher_top_reset_initial_idle_state"], "source_refs": ["BUG-0001"]},
+    {"model": "qwen36", "gt_id": "GT-RTL-0001", "scenario_id": "SCN-RESET-IDLE", "valid_oracle": true, "true_failure": true, "replay_status": "reproduced", "test_nodeids": ["tests/test_aes_cipher_top_init_reset.py::test_reset_output"], "source_refs": ["BUG-0001"]},
+    {"model": "qwen36", "gt_id": "GT-RTL-0001", "scenario_id": "SCN-OUTPUT-VALIDITY", "valid_oracle": true, "true_failure": true, "replay_status": "reproduced", "test_nodeids": ["tests/test_aes_cipher_top_addroundkey.py::test_final_output_hold"], "source_refs": ["BUG-0037"]},
+
+    {"model": "gpt5.4", "gt_id": "GT-RTL-0002", "scenario_id": "SCN-RESET-IDLE", "valid_oracle": true, "true_failure": true, "replay_status": "reproduced", "test_nodeids": ["tests/test_aes_cipher_top_interface_and_isolation.py::test_aes_cipher_top_reset_during_idle"], "source_refs": ["BUG-0035"]},
+    {"model": "gpt5.4", "gt_id": "GT-RTL-0002", "scenario_id": "SCN-LOAD-START", "valid_oracle": true, "true_failure": true, "replay_status": "reproduced", "test_nodeids": ["tests/test_aes_cipher_top_interface_and_isolation.py::test_aes_cipher_top_load_start_from_idle"], "source_refs": ["BUG-0032"]},
+    {"model": "gpt5.4", "gt_id": "GT-RTL-0002", "scenario_id": "SCN-BUSY-ISOLATION", "valid_oracle": true, "true_failure": true, "replay_status": "reproduced", "test_nodeids": ["tests/test_aes_cipher_top_interface_and_isolation.py::test_aes_cipher_top_signal_toggle_while_busy"], "source_refs": ["BUG-0027", "BUG-0030"]},
+    {"model": "gpt5.4", "gt_id": "GT-RTL-0002", "scenario_id": "SCN-DONE-LATENCY", "valid_oracle": true, "true_failure": true, "replay_status": "reproduced", "test_nodeids": ["tests/test_aes_cipher_top_interface_and_isolation.py::test_aes_cipher_top_done_latency_is_fixed"], "source_refs": ["BUG-0002", "BUG-0036"]},
+    {"model": "gpt5.4", "gt_id": "GT-RTL-0002", "scenario_id": "SCN-OUTPUT-VALIDITY", "valid_oracle": true, "true_failure": true, "replay_status": "reproduced", "test_nodeids": ["tests/test_aes_cipher_top_api_bug.py::test_api_aes_cipher_top_encrypt_real_dut_timeout_bug"], "source_refs": ["BUG-0003"]},
+    {"model": "gpt5.4", "gt_id": "GT-RTL-0002", "scenario_id": "SCN-BACK-TO-BACK", "valid_oracle": true, "true_failure": true, "replay_status": "reproduced", "test_nodeids": ["tests/test_aes_cipher_top_interface_and_isolation.py::test_aes_cipher_top_back_to_back_load_transactions"], "source_refs": ["BUG-0034"]},
+    {"model": "gpt5.4", "gt_id": "GT-RTL-0002", "scenario_id": "SCN-KAT-FUNCTIONAL", "valid_oracle": true, "true_failure": true, "replay_status": "reproduced", "test_nodeids": ["tests/test_aes_cipher_top_functional_kat.py::test_aes_cipher_top_random_reference_vectors"], "source_refs": ["BUG-0011"]},
+    {"model": "gpt5.4", "gt_id": "GT-RTL-0002", "scenario_id": "SCN-INPUT-MAPPING", "valid_oracle": true, "true_failure": true, "replay_status": "reproduced", "test_nodeids": ["tests/test_aes_cipher_top_functional_kat.py::test_aes_cipher_top_input_column_major_mapping"], "source_refs": ["BUG-0004", "BUG-0005"]},
+    {"model": "gpt5.4", "gt_id": "GT-RTL-0002", "scenario_id": "SCN-ROUND-KEY-BOUNDARY", "valid_oracle": true, "true_failure": true, "replay_status": "reproduced", "test_nodeids": ["tests/test_aes_cipher_top_interface_and_isolation.py::test_aes_cipher_top_final_round_key_alignment"], "source_refs": ["BUG-0021", "BUG-0023"]}
+  ],
+  "reported_root_adjudications": [
+    {"model": "agentw", "reported_root_id": "RTLBUG-0001", "status": "true_positive", "gt_id": "GT-RTL-0001", "adjudication_source": "frozen physical GT membership"},
+    {"model": "gpt5.4", "reported_root_id": "RTLBUG-0001", "status": "true_positive", "gt_id": "GT-RTL-0001", "adjudication_source": "frozen physical GT mapping"},
+    {"model": "gpt5.4", "reported_root_id": "RTLBUG-0002", "status": "true_positive", "gt_id": "GT-RTL-0002", "adjudication_source": "frozen physical GT mapping; 35 symptoms deduplicated to one root"},
+    {"model": "qwen36", "reported_root_id": "RTLBUG-0001", "status": "true_positive", "gt_id": "GT-RTL-0001", "adjudication_source": "frozen physical GT membership"}
+  ],
+  "line_coverage": [
+    {"model": "agentw", "target_id": "COV-AES-COMMON-LINE-SCOPE", "status": "partial", "coverage_fraction": 0.973262, "hit_lines": 364, "total_lines": 374, "scope_signature": "9fa25d5739fd2fae0336fdc2d9af2f581e231e9f9023b349c317cf57b0ee0fdc", "evidence_source": "frozen validated LCOV line map; local 7/7, 16/16 and 16/16 regions are diagnostics"},
+    {"model": "gpt5.4", "target_id": "COV-AES-COMMON-LINE-SCOPE", "status": "partial", "coverage_fraction": 0.973262, "hit_lines": 364, "total_lines": 374, "scope_signature": "9fa25d5739fd2fae0336fdc2d9af2f581e231e9f9023b349c317cf57b0ee0fdc", "evidence_source": "frozen validated LCOV line map; local 7/7, 16/16 and 16/16 regions are diagnostics"},
+    {"model": "qwen36", "target_id": "COV-AES-COMMON-LINE-SCOPE", "status": "partial", "coverage_fraction": 0.973262, "hit_lines": 364, "total_lines": 374, "scope_signature": "9fa25d5739fd2fae0336fdc2d9af2f581e231e9f9023b349c317cf57b0ee0fdc", "evidence_source": "frozen validated LCOV line map; local 7/7, 16/16 and 16/16 regions are diagnostics"}
+  ],
+  "functional_coverage": []
+}

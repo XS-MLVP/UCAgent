@@ -1,0 +1,130 @@
+{
+  "schema_version": "gt_rtl_v3",
+  "dut": "e203_dtcm_ctrl",
+  "status": "bootstrap_from_current_audit",
+  "description": "DUT-level independent RTL defect index. One entry per deduplicated RTL root defect; model names record which models found it.",
+  "source": {
+    "root_file": "rtl_root_bugs.json",
+    "selection": "explicitly selected, semantically classified root IDs; unresolved roots are moved to the manual audit queue",
+    "deduplication": "one GT defect per source_root_id; multiple BUG-* symptoms map to one defect"
+  },
+  "total_rtl_defects": 5,
+  "model_hits": {
+    "agentw": 2,
+    "gpt5.4": 2,
+    "qwen36": 2
+  },
+  "defects": [
+    {
+      "gt_id": "GT-RTL-0001",
+      "source_root_id": "RTLBUG-0002",
+      "rtl_file": "e203_dtcm_ctrl.v",
+      "rtl_line_start": 1209,
+      "rtl_line_end": 1222,
+      "failure_mode": "handshake_failure",
+      "symptoms": [
+        "BUG-0002"
+      ],
+      "models": [
+        "agentw"
+      ],
+      "source_anchor_confidence": "high",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_bm6",
+      "admission_source": "benchmark_6_adjudicated",
+      "admission_evidence": "registered_adjudication"
+    },
+    {
+      "gt_id": "GT-RTL-0002",
+      "source_root_id": "RTLBUG-0003",
+      "rtl_file": "e203_dtcm_ctrl.v",
+      "rtl_line_start": 1374,
+      "rtl_line_end": 1399,
+      "failure_mode": "x_z_propagation",
+      "symptoms": [
+        "BUG-0003"
+      ],
+      "models": [
+        "agentw"
+      ],
+      "source_anchor_confidence": "high",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_bm6",
+      "admission_source": "benchmark_6_adjudicated",
+      "admission_evidence": "registered_adjudication"
+    },
+    {
+      "gt_id": "GT-RTL-0003",
+      "source_root_id": "RTLBUG-0005",
+      "rtl_file": "e203_dtcm_ctrl_top.sv",
+      "rtl_line_start": 126,
+      "rtl_line_end": 129,
+      "failure_mode": "reset_state_mismatch",
+      "symptoms": [
+        "BUG-0005",
+        "BUG-0008"
+      ],
+      "models": [
+        "gpt5.4",
+        "qwen36"
+      ],
+      "source_anchor_confidence": "candidate",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_bm6",
+      "admission_source": "benchmark_6_adjudicated",
+      "admission_evidence": "registered_adjudication"
+    },
+    {
+      "gt_id": "GT-RTL-0004",
+      "source_root_id": "RTLBUG-0007",
+      "rtl_file": "e203_dtcm_ctrl.v",
+      "rtl_line_start": 1357,
+      "rtl_line_end": 1363,
+      "failure_mode": "reset_state_mismatch",
+      "symptoms": [
+        "BUG-0009"
+      ],
+      "models": [
+        "gpt5.4"
+      ],
+      "source_anchor_confidence": "high",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_bm6",
+      "admission_source": "benchmark_6_adjudicated",
+      "admission_evidence": "registered_adjudication"
+    },
+    {
+      "gt_id": "GT-RTL-0005",
+      "source_root_id": "RTLBUG-0010",
+      "rtl_file": "e203_dtcm_ctrl.v",
+      "rtl_line_start": 1426,
+      "rtl_line_end": 1431,
+      "failure_mode": "output_mismatch_after_done",
+      "symptoms": [
+        "BUG-0012",
+        "BUG-0013",
+        "BUG-0014",
+        "BUG-0015",
+        "BUG-0020",
+        "BUG-0021",
+        "BUG-0022",
+        "BUG-0025",
+        "BUG-0026",
+        "BUG-0027",
+        "BUG-0028",
+        "BUG-0030"
+      ],
+      "models": [
+        "qwen36"
+      ],
+      "source_anchor_confidence": "candidate",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_bm6",
+      "admission_source": "benchmark_6_adjudicated",
+      "admission_evidence": "registered_adjudication"
+    }
+  ],
+  "category": "14dut",
+  "last_registered_at": "2026-09-12T15:23:12+08:00",
+  "last_registered_batch": "baseline_bm6"
+}

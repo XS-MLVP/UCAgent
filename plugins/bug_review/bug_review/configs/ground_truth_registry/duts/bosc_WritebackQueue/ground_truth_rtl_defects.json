@@ -1,0 +1,129 @@
+{
+  "schema_version": "gt_rtl_v3",
+  "dut": "bosc_WritebackQueue",
+  "status": "adjudicated_from_audited_rtl_roots",
+  "description": "DUT-level independent RTL defect ground truth index for bosc_WritebackQueue.",
+  "total_rtl_defects": 4,
+  "model_hits": {
+    "gpt-5.5": 4
+  },
+  "defects": [
+    {
+      "gt_id": "GT-RTL-0001",
+      "global_gt_id": "GT-XS-0120",
+      "source_root_id": "RTLBUG-0001",
+      "dut": "bosc_WritebackQueue",
+      "rtl_file": "bosc_WritebackEntry.sv",
+      "rtl_line_start": 11,
+      "rtl_line_end": 17,
+      "failure_mode": "handshake_failure",
+      "symptoms": [
+        "BUG-0001",
+        "BUG-0002"
+      ],
+      "models": [
+        "gpt-5.5"
+      ],
+      "source_anchor_confidence": "candidate",
+      "root_match_status": "matched_current_root",
+      "severity": "normal",
+      "description": "第 19 项拒绝：验证第 19 个请求到达时 io_req_ready=0 且请求不会被接收。",
+      "test_cases": [
+        "test_bosc_WritebackQueue_full_queue_rejects_new_requests_template",
+        "test_bosc_WritebackQueue_same_addr_request_is_accepted_when_queue_not_full"
+      ],
+      "primary_test_case": "test_bosc_WritebackQueue_full_queue_rejects_new_requests_template",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_xiangshan_20260910",
+      "admission_source": "xiangshan_backup_20260910",
+      "admission_evidence": "registered_adjudication"
+    },
+    {
+      "gt_id": "GT-RTL-0002",
+      "global_gt_id": "GT-XS-0121",
+      "source_root_id": "RTLBUG-0002",
+      "dut": "bosc_WritebackQueue",
+      "rtl_file": "bosc_WritebackEntry.sv",
+      "rtl_line_start": 1,
+      "rtl_line_end": 5,
+      "failure_mode": "done_timeout",
+      "symptoms": [
+        "BUG-0003"
+      ],
+      "models": [
+        "gpt-5.5"
+      ],
+      "source_anchor_confidence": "candidate",
+      "root_match_status": "matched_current_root",
+      "severity": "normal",
+      "description": "独立表项：验证两个同地址请求不会被合并为一个事务，而是形成两个独立生命周期。",
+      "test_cases": [
+        "test_bosc_WritebackQueue_same_addr_requests_allocate_independent_entries"
+      ],
+      "primary_test_case": "test_bosc_WritebackQueue_same_addr_requests_allocate_independent_entries",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_xiangshan_20260910",
+      "admission_source": "xiangshan_backup_20260910",
+      "admission_evidence": "registered_adjudication"
+    },
+    {
+      "gt_id": "GT-RTL-0003",
+      "global_gt_id": "GT-XS-0122",
+      "source_root_id": "RTLBUG-0003",
+      "dut": "bosc_WritebackQueue",
+      "rtl_file": "bosc_WritebackEntry.sv",
+      "rtl_line_start": 41,
+      "rtl_line_end": 47,
+      "failure_mode": "backpressure_failure",
+      "symptoms": [
+        "BUG-0004"
+      ],
+      "models": [
+        "gpt-5.5"
+      ],
+      "source_anchor_confidence": "candidate",
+      "root_match_status": "matched_current_root",
+      "severity": "normal",
+      "description": "仅 miss 检查阻塞：验证同地址阻塞规则应体现在 io_miss_req_conflict_check/io_block_miss_req 上，而不应直接作用于 io.req 接收。",
+      "test_cases": [
+        "test_bosc_WritebackQueue_same_addr_blocking_only_affects_miss_checks"
+      ],
+      "primary_test_case": "test_bosc_WritebackQueue_same_addr_blocking_only_affects_miss_checks",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_xiangshan_20260910",
+      "admission_source": "xiangshan_backup_20260910",
+      "admission_evidence": "registered_adjudication"
+    },
+    {
+      "gt_id": "GT-RTL-0004",
+      "global_gt_id": "GT-XS-0123",
+      "source_root_id": "RTLBUG-0004",
+      "dut": "bosc_WritebackQueue",
+      "rtl_file": "bosc_WritebackEntry.sv",
+      "rtl_line_start": 119,
+      "rtl_line_end": 161,
+      "failure_mode": "ordering_or_concurrency_failure",
+      "symptoms": [
+        "BUG-0005"
+      ],
+      "models": [
+        "gpt-5.5"
+      ],
+      "source_anchor_confidence": "candidate",
+      "root_match_status": "matched_current_root",
+      "severity": "normal",
+      "description": "正确续传：验证回压解除后事务从原 beat 继续发送，不跳拍、不乱序。",
+      "test_cases": [
+        "test_bosc_WritebackQueue_resumes_from_original_beat_after_backpressure"
+      ],
+      "primary_test_case": "test_bosc_WritebackQueue_resumes_from_original_beat_after_backpressure",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_xiangshan_20260910",
+      "admission_source": "xiangshan_backup_20260910",
+      "admission_evidence": "registered_adjudication"
+    }
+  ],
+  "category": "xiangshan",
+  "last_registered_at": "2026-09-12T15:23:12+08:00",
+  "last_registered_batch": "baseline_xiangshan_20260910"
+}

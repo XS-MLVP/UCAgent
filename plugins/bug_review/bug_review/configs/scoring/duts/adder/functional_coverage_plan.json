@@ -1,0 +1,382 @@
+{
+  "schema_version": "functional_coverage_plan.v1",
+  "dut": "adder",
+  "revision_id": "",
+  "source_snapshot_hash": "",
+  "status": "finalized",
+  "targets": [
+    {
+      "target_id": "FC-ADDER-NORMAL",
+      "name": "ordinary addition result",
+      "weight": 1,
+      "coverage_definition": "Observe at least one non-overflowing a+b+cin transaction and compare sum/cout with a 65-bit reference",
+      "sampling_rule": "Sample inputs before evaluation and sample sum/cout after the combinational settle boundary",
+      "oracle_definition": "{cout,sum} equals the low 65 bits of zero_extend(a)+zero_extend(b)+cin"
+    },
+    {
+      "target_id": "FC-ADDER-CIN",
+      "name": "carry-in control",
+      "weight": 1,
+      "coverage_definition": "Observe matched operand transactions with cin=0 and cin=1",
+      "sampling_rule": "Sample the matched pair under the same settle rule",
+      "oracle_definition": "The cin=1 result is exactly one greater in 65-bit arithmetic"
+    },
+    {
+      "target_id": "FC-ADDER-CARRY-CHAIN",
+      "name": "high-bit carry propagation",
+      "weight": 1,
+      "coverage_definition": "Exercise a transaction whose carry propagates through bit 63",
+      "sampling_rule": "Sample sum and cout after the full combinational settle boundary",
+      "oracle_definition": "sum and cout equal the 65-bit reference result"
+    },
+    {
+      "target_id": "FC-ADDER-OVERFLOW",
+      "name": "unsigned overflow and wrap",
+      "weight": 1,
+      "coverage_definition": "Exercise at least one transaction with a 65-bit result greater than 2^64-1",
+      "sampling_rule": "Sample sum and cout together for the overflowing transaction",
+      "oracle_definition": "cout is one and sum equals the result modulo 2^64"
+    },
+    {
+      "target_id": "FC-ADDER-BOUNDARY",
+      "name": "zero, all-ones, and bit-63 boundaries",
+      "weight": 1,
+      "coverage_definition": "Exercise zero, 2^63, and 2^64-1 operand boundaries",
+      "sampling_rule": "Sample each frozen boundary vector under the common transaction adapter",
+      "oracle_definition": "Each sum/cout pair equals the 65-bit reference result"
+    },
+    {
+      "target_id": "FC-ADDER-API-OBSERVE",
+      "name": "public API observation path",
+      "weight": 1,
+      "coverage_definition": "Drive a/b/cin and observe sum/cout through the benchmark public API",
+      "sampling_rule": "Use the common API adapter and sample after its documented step/settle operation",
+      "oracle_definition": "API-observed sum/cout equals direct 65-bit reference arithmetic"
+    }
+  ],
+  "observations": [
+    {
+      "model": "workspace_adder_914",
+      "target_id": "FC-ADDER-NORMAL",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_Adder_arithmetic.py::test_add_normal"
+      ],
+      "evidence_source": "passed execution and semantic target mapping for FC-ADDER-NORMAL"
+    },
+    {
+      "model": "workspace_adder_914",
+      "target_id": "FC-ADDER-CIN",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_Adder_arithmetic.py::test_add_cin_full_ripple",
+        "tests/test_Adder_arithmetic.py::test_add_cin_one",
+        "tests/test_Adder_arithmetic.py::test_add_cin_propagate",
+        "tests/test_Adder_boundary.py::test_zero_both_cin_zero",
+        "tests/test_Adder_boundary.py::test_zero_cin_one",
+        "tests/test_Adder_random_boundary.py::test_random_zero_both_cin_zero",
+        "tests/test_Adder_random_boundary.py::test_random_zero_cin_one",
+        "tests/test_Adder_random_carry.py::test_random_carry_cin_one"
+      ],
+      "evidence_source": "passed execution and semantic target mapping for FC-ADDER-CIN"
+    },
+    {
+      "model": "workspace_adder_914",
+      "target_id": "FC-ADDER-CARRY-CHAIN",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_Adder_random_carry.py::test_random_carry_chain_low",
+        "tests/test_Adder_random_carry.py::test_random_carry_cin_one",
+        "tests/test_Adder_random_carry.py::test_random_carry_propagate"
+      ],
+      "evidence_source": "passed execution and semantic target mapping for FC-ADDER-CARRY-CHAIN"
+    },
+    {
+      "model": "workspace_adder_914",
+      "target_id": "FC-ADDER-OVERFLOW",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_Adder_overflow.py::test_cout_below_max",
+        "tests/test_Adder_overflow.py::test_cout_boundary",
+        "tests/test_Adder_overflow.py::test_cout_max_sum",
+        "tests/test_Adder_overflow.py::test_cout_single_overflow",
+        "tests/test_Adder_overflow.py::test_sum_trunc_high",
+        "tests/test_Adder_overflow.py::test_sum_trunc_low",
+        "tests/test_Adder_overflow.py::test_sum_trunc_min",
+        "tests/test_Adder_overflow.py::test_sum_trunc_wrap"
+      ],
+      "evidence_source": "passed execution and semantic target mapping for FC-ADDER-OVERFLOW"
+    },
+    {
+      "model": "workspace_adder_914",
+      "target_id": "FC-ADDER-BOUNDARY",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_Adder_boundary.py::test_extreme_all_ones",
+        "tests/test_Adder_boundary.py::test_extreme_alternating",
+        "tests/test_Adder_boundary.py::test_extreme_dual_all_ones",
+        "tests/test_Adder_boundary.py::test_extreme_random_pattern",
+        "tests/test_Adder_boundary.py::test_extreme_walking_ones",
+        "tests/test_Adder_boundary.py::test_extreme_walking_zeros",
+        "tests/test_Adder_boundary.py::test_zero_all",
+        "tests/test_Adder_boundary.py::test_zero_both_cin_zero",
+        "tests/test_Adder_boundary.py::test_zero_cin_one",
+        "tests/test_Adder_boundary.py::test_zero_single_op",
+        "tests/test_Adder_overflow.py::test_cout_boundary",
+        "tests/test_Adder_random_boundary.py::test_random_zero_all",
+        "tests/test_Adder_random_boundary.py::test_random_zero_both_cin_zero",
+        "tests/test_Adder_random_boundary.py::test_random_zero_cin_one",
+        "tests/test_Adder_random_boundary.py::test_random_zero_single_op"
+      ],
+      "evidence_source": "passed execution and semantic target mapping for FC-ADDER-BOUNDARY"
+    },
+    {
+      "model": "workspace_adder_914",
+      "target_id": "FC-ADDER-API-OBSERVE",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_Adder_api_basic.py::test_api_Adder_add",
+        "tests/test_Adder_api_basic.py::test_api_Adder_get_outputs",
+        "tests/test_Adder_api_basic.py::test_api_Adder_refresh",
+        "tests/test_Adder_api_basic.py::test_api_Adder_set_inputs",
+        "tests/test_Adder_api_basic.py::test_api_Adder_step"
+      ],
+      "evidence_source": "passed execution and semantic target mapping for FC-ADDER-API-OBSERVE"
+    },
+    {
+      "model": "workspace_adder_gemi",
+      "target_id": "FC-ADDER-NORMAL",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_Adder_arithmetic.py::test_basic_add"
+      ],
+      "evidence_source": "frozen benchmark execution and shared semantic target mapping"
+    },
+    {
+      "model": "workspace_adder_gemi",
+      "target_id": "FC-ADDER-CIN",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_Adder_arithmetic.py::test_cin_add"
+      ],
+      "evidence_source": "frozen benchmark execution and shared semantic target mapping"
+    },
+    {
+      "model": "workspace_adder_gemi",
+      "target_id": "FC-ADDER-CARRY-CHAIN",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_Adder_overflow.py::test_prop_chain"
+      ],
+      "evidence_source": "frozen benchmark execution and shared semantic target mapping"
+    },
+    {
+      "model": "workspace_adder_gemi",
+      "target_id": "FC-ADDER-OVERFLOW",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_Adder_overflow.py::test_overflow_boundary"
+      ],
+      "evidence_source": "frozen benchmark execution and shared semantic target mapping"
+    },
+    {
+      "model": "workspace_adder_gemi",
+      "target_id": "FC-ADDER-BOUNDARY",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_Adder_boundary.py::test_both_all_ones"
+      ],
+      "evidence_source": "frozen benchmark execution and shared semantic target mapping"
+    },
+    {
+      "model": "workspace_adder_gemi",
+      "target_id": "FC-ADDER-API-OBSERVE",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_Adder_api_basic.py::test_api_Adder_add_basic"
+      ],
+      "evidence_source": "frozen benchmark execution and shared semantic target mapping"
+    },
+    {
+      "model": "workspace_adder_minimax_base",
+      "target_id": "FC-ADDER-NORMAL",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_Adder_basic.py::test_basic_add_no_carry"
+      ],
+      "evidence_source": "frozen benchmark execution and shared semantic target mapping"
+    },
+    {
+      "model": "workspace_adder_minimax_base",
+      "target_id": "FC-ADDER-CIN",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_Adder_basic.py::test_basic_add_with_carry"
+      ],
+      "evidence_source": "frozen benchmark execution and shared semantic target mapping"
+    },
+    {
+      "model": "workspace_adder_minimax_base",
+      "target_id": "FC-ADDER-CARRY-CHAIN",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_Adder_propagation.py::test_carry_chain_propagation"
+      ],
+      "evidence_source": "frozen benchmark execution and shared semantic target mapping"
+    },
+    {
+      "model": "workspace_adder_minimax_base",
+      "target_id": "FC-ADDER-OVERFLOW",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_Adder_overflow.py::test_carry_out_detection"
+      ],
+      "evidence_source": "frozen benchmark execution and shared semantic target mapping"
+    },
+    {
+      "model": "workspace_adder_minimax_base",
+      "target_id": "FC-ADDER-BOUNDARY",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_Adder_boundary.py::test_extreme_value_operations"
+      ],
+      "evidence_source": "frozen benchmark execution and shared semantic target mapping"
+    },
+    {
+      "model": "workspace_adder_minimax_base",
+      "target_id": "FC-ADDER-API-OBSERVE",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_Adder_api_basic.py::test_api_Adder_add_basic"
+      ],
+      "evidence_source": "frozen benchmark execution and shared semantic target mapping"
+    },
+    {
+      "model": "workspace_adder_minimax_ex",
+      "target_id": "FC-ADDER-NORMAL",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_Adder_arithmetic.py::test_add_zero"
+      ],
+      "evidence_source": "frozen benchmark execution and shared semantic target mapping"
+    },
+    {
+      "model": "workspace_adder_minimax_ex",
+      "target_id": "FC-ADDER-CIN",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_Adder_arithmetic.py::test_add_carry_in"
+      ],
+      "evidence_source": "frozen benchmark execution and shared semantic target mapping"
+    },
+    {
+      "model": "workspace_adder_minimax_ex",
+      "target_id": "FC-ADDER-CARRY-CHAIN",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_Adder_overflow.py::test_carry_propagate"
+      ],
+      "evidence_source": "frozen benchmark execution and shared semantic target mapping"
+    },
+    {
+      "model": "workspace_adder_minimax_ex",
+      "target_id": "FC-ADDER-OVERFLOW",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_Adder_overflow.py::test_overflow_boundary"
+      ],
+      "evidence_source": "frozen benchmark execution and shared semantic target mapping"
+    },
+    {
+      "model": "workspace_adder_minimax_ex",
+      "target_id": "FC-ADDER-BOUNDARY",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_Adder_boundary.py::test_extreme_max"
+      ],
+      "evidence_source": "frozen benchmark execution and shared semantic target mapping"
+    },
+    {
+      "model": "workspace_adder_minimax_ex",
+      "target_id": "FC-ADDER-API-OBSERVE",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_Adder_api_basic.py::test_api_Adder_add_basic"
+      ],
+      "evidence_source": "frozen benchmark execution and shared semantic target mapping"
+    }
+  ],
+  "contract_hash": "0c4c94633a8a01c778809a6e9276c5d86681523ed0068378f5196a0384b0258e"
+}

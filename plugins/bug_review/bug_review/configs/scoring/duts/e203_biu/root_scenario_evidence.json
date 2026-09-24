@@ -1,0 +1,42 @@
+{
+  "schema_version": "root_scenario_evidence.v2",
+  "dut": "e203_biu",
+  "revision_id": "rev-aeb22aeed97d99e0f719",
+  "source_snapshot_hash": "46fd4eb817c2b94fcc49fc880cecf6968855bb76a8c05d71385bfe99385be238",
+  "status": "machine_validated_line_only",
+  "entries": [],
+  "reported_root_adjudications": [],
+  "line_coverage": [
+    {
+      "model": "agentw",
+      "target_id": "COV-COMMON-LINE-SCOPE",
+      "status": "hit",
+      "coverage_fraction": 1.0,
+      "hit_lines": 524,
+      "total_lines": 524,
+      "scope_signature": "0192b31866800edf87cbd24a9baaab62c607da1f117f17ebcd25fad07e28f04b",
+      "evidence_source": "frozen validated LCOV line map"
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "COV-COMMON-LINE-SCOPE",
+      "status": "hit",
+      "coverage_fraction": 1.0,
+      "hit_lines": 524,
+      "total_lines": 524,
+      "scope_signature": "0192b31866800edf87cbd24a9baaab62c607da1f117f17ebcd25fad07e28f04b",
+      "evidence_source": "frozen validated LCOV line map"
+    },
+    {
+      "model": "qwen36",
+      "target_id": "COV-COMMON-LINE-SCOPE",
+      "status": "hit",
+      "coverage_fraction": 1.0,
+      "hit_lines": 524,
+      "total_lines": 524,
+      "scope_signature": "0192b31866800edf87cbd24a9baaab62c607da1f117f17ebcd25fad07e28f04b",
+      "evidence_source": "frozen validated LCOV line map"
+    }
+  ],
+  "functional_coverage": []
+}

@@ -1,0 +1,254 @@
+{
+  "schema_version": "functional_coverage_plan.v1",
+  "dut": "sd_tx_fifo",
+  "revision_id": "rev-b9ca327ce4976f16b0e3",
+  "source_snapshot_hash": "033a3982fd751b61e5cd61213de5fadfe702d554b78e8d0e4b8955f477125512",
+  "status": "machine_mapped_frozen_contract",
+  "targets": [
+    {
+      "target_id": "FC-TXFIFO-RESET",
+      "name": "asynchronous reset and empty flag assertion",
+      "weight": 1,
+      "coverage_definition": "Assert reset and verify read/write pointers and status flags initialize",
+      "sampling_rule": "Sample empty (high), full (low), and pointers immediately following reset",
+      "oracle_definition": "FIFO is completely empty with no stale data or active flags",
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "FC-TXFIFO-WRITE-FILL",
+      "name": "write clock domain data push",
+      "weight": 1,
+      "coverage_definition": "Write data into FIFO until reaching programmed depth or full threshold",
+      "sampling_rule": "Assert wr_en on write clock and sample data_in and full flag",
+      "oracle_definition": "Data words are enqueued sequentially; empty flag deasserts",
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "FC-TXFIFO-READ-POP",
+      "name": "read clock domain data pop",
+      "weight": 1,
+      "coverage_definition": "Read data from FIFO across read clock domain and observe FIFO order",
+      "sampling_rule": "Assert rd_en on read clock and sample data_out",
+      "oracle_definition": "Output data matches first-in first-out sequence of written data",
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "FC-TXFIFO-FULL-FLAG",
+      "name": "FIFO full condition and write protection",
+      "weight": 1,
+      "coverage_definition": "Fill FIFO to capacity to assert full flag and block overflow",
+      "sampling_rule": "Sample full flag and attempt additional write when full=1",
+      "oracle_definition": "full asserts at exactly max depth and pointer does not advance on overflow",
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "FC-TXFIFO-EMPTY-FLAG",
+      "name": "FIFO empty condition and read protection",
+      "weight": 1,
+      "coverage_definition": "Drain FIFO completely to assert empty flag and block underflow",
+      "sampling_rule": "Sample empty flag when last element is popped and attempt underflow read",
+      "oracle_definition": "empty asserts immediately and read pointer does not advance on underflow",
+      "collection_status": "scoreable"
+    }
+  ],
+  "observations": [
+    {
+      "model": "agentw",
+      "target_id": "FC-TXFIFO-RESET",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "agentw",
+      "target_id": "FC-TXFIFO-WRITE-FILL",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "agentw",
+      "target_id": "FC-TXFIFO-READ-POP",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "agentw",
+      "target_id": "FC-TXFIFO-FULL-FLAG",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "agentw",
+      "target_id": "FC-TXFIFO-EMPTY-FLAG",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-TXFIFO-RESET",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_sd_tx_fifo_api_basic.py::test_api_sd_tx_fifo_reset_mid_transaction",
+        "tests/test_sd_tx_fifo_api_basic.py::test_api_sd_tx_fifo_reset_mid_transaction_checkpoint_unreachable",
+        "tests/test_sd_tx_fifo_api_basic.py::test_api_sd_tx_fifo_reset_with_active_transaction",
+        "tests/test_sd_tx_fifo_api_templates.py::test_sd_tx_fifo_empty_block_no_phantom_data",
+        "tests/test_sd_tx_fifo_api_templates.py::test_sd_tx_fifo_reset_mid_transaction",
+        "tests/test_sd_tx_fifo_core_function_templates.py::test_sd_tx_fifo_block_data_preserve_after_empty_block",
+        "tests/test_sd_tx_fifo_core_function_templates.py::test_sd_tx_fifo_empty_deassert_readable_after_deassert",
+        "tests/test_sd_tx_fifo_core_function_templates.py::test_sd_tx_fifo_read_to_empty_edge_last_data",
+        "tests/test_sd_tx_fifo_core_function_templates.py::test_sd_tx_fifo_reset_recovery_both_asserted",
+        "tests/test_sd_tx_fifo_core_function_templates.py::test_sd_tx_fifo_reset_recovery_wr_asserted"
+      ],
+      "evidence_source": "frozen benchmark execution and semantic target mapping for FC-TXFIFO-RESET"
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-TXFIFO-WRITE-FILL",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_sd_tx_fifo_api_basic.py::test_api_sd_tx_fifo_write_once_basic",
+        "tests/test_sd_tx_fifo_api_basic.py::test_api_sd_tx_fifo_write_once_blocked",
+        "tests/test_sd_tx_fifo_api_basic.py::test_api_sd_tx_fifo_write_once_invalid_data",
+        "tests/test_sd_tx_fifo_api_templates.py::test_sd_tx_fifo_step_write_clock_only",
+        "tests/test_sd_tx_fifo_api_templates.py::test_sd_tx_fifo_write_api_burst_transaction",
+        "tests/test_sd_tx_fifo_api_templates.py::test_sd_tx_fifo_write_api_result_check",
+        "tests/test_sd_tx_fifo_api_templates.py::test_sd_tx_fifo_write_api_single_transaction",
+        "tests/test_sd_tx_fifo_core_function_templates.py::test_sd_tx_fifo_burst_write_sequential_data",
+        "tests/test_sd_tx_fifo_core_function_templates.py::test_sd_tx_fifo_single_write_visible_by_read",
+        "tests/test_sd_tx_fifo_core_function_templates.py::test_sd_tx_fifo_write_wrap_no_data_corruption",
+        "tests/test_sd_tx_fifo_core_function_templates.py::test_sd_tx_fifo_write_wrap_reach_end_then_wrap"
+      ],
+      "evidence_source": "frozen benchmark execution and semantic target mapping for FC-TXFIFO-WRITE-FILL"
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-TXFIFO-READ-POP",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_sd_tx_fifo_api_basic.py::test_api_sd_tx_fifo_read_once_basic",
+        "tests/test_sd_tx_fifo_api_basic.py::test_api_sd_tx_fifo_read_once_burst_and_blocked",
+        "tests/test_sd_tx_fifo_api_basic.py::test_api_sd_tx_fifo_read_once_invalid_max_cycles"
+      ],
+      "evidence_source": "frozen benchmark execution and semantic target mapping for FC-TXFIFO-READ-POP"
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-TXFIFO-FULL-FLAG",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_sd_tx_fifo_api_basic.py::test_api_sd_tx_fifo_read_once_burst_and_blocked",
+        "tests/test_sd_tx_fifo_core_function_templates.py::test_sd_tx_fifo_block_data_preserve_after_full_block"
+      ],
+      "evidence_source": "frozen benchmark execution and semantic target mapping for FC-TXFIFO-FULL-FLAG"
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-TXFIFO-EMPTY-FLAG",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_sd_tx_fifo_api_basic.py::test_api_sd_tx_fifo_read_once_basic",
+        "tests/test_sd_tx_fifo_api_basic.py::test_api_sd_tx_fifo_read_once_burst_and_blocked",
+        "tests/test_sd_tx_fifo_api_basic.py::test_api_sd_tx_fifo_read_once_invalid_max_cycles",
+        "tests/test_sd_tx_fifo_api_basic.py::test_api_sd_tx_fifo_reset_mid_transaction_checkpoint_unreachable",
+        "tests/test_sd_tx_fifo_api_templates.py::test_sd_tx_fifo_empty_block_no_phantom_data",
+        "tests/test_sd_tx_fifo_core_function_templates.py::test_sd_tx_fifo_block_data_preserve_after_empty_block",
+        "tests/test_sd_tx_fifo_core_function_templates.py::test_sd_tx_fifo_empty_deassert_readable_after_deassert",
+        "tests/test_sd_tx_fifo_core_function_templates.py::test_sd_tx_fifo_read_to_empty_edge_last_data"
+      ],
+      "evidence_source": "frozen benchmark execution and semantic target mapping for FC-TXFIFO-EMPTY-FLAG"
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-TXFIFO-RESET",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_sd_tx_fifo_api_basic.py::test_api_sd_tx_fifo_reset_after_fill",
+        "tests/test_sd_tx_fifo_api_basic.py::test_api_sd_tx_fifo_reset_basic",
+        "tests/test_sd_tx_fifo_api_functions.py::test_template_reset_async",
+        "tests/test_sd_tx_fifo_env_fixture.py::test_api_sd_tx_fifo_env_reset_method",
+        "tests/test_sd_tx_fifo_static_verify_controller.py::test_static_sd_tx_fifo_bg_static_001_ram_write_during_reset"
+      ],
+      "evidence_source": "frozen benchmark execution and semantic target mapping for FC-TXFIFO-RESET"
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-TXFIFO-WRITE-FILL",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_sd_tx_fifo_api_basic.py::test_api_sd_tx_fifo_reset_after_fill",
+        "tests/test_sd_tx_fifo_api_basic.py::test_api_sd_tx_fifo_write_fill_fifo",
+        "tests/test_sd_tx_fifo_static_verify_controller.py::test_static_sd_tx_fifo_bg_static_001_ram_write_during_reset",
+        "tests/test_sd_tx_fifo_status_write_wrap.py::test_mem_empt_count_max"
+      ],
+      "evidence_source": "frozen benchmark execution and semantic target mapping for FC-TXFIFO-WRITE-FILL"
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-TXFIFO-READ-POP",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_sd_tx_fifo_api_basic.py::test_api_sd_tx_fifo_multiple_roundtrip"
+      ],
+      "evidence_source": "frozen benchmark execution and semantic target mapping for FC-TXFIFO-READ-POP"
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-TXFIFO-FULL-FLAG",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_sd_tx_fifo_api_basic.py::test_api_sd_tx_fifo_get_status_full",
+        "tests/test_sd_tx_fifo_static_verify_controller.py::test_static_sd_tx_fifo_bg_static_002_mem_empt_boundary_full"
+      ],
+      "evidence_source": "frozen benchmark execution and semantic target mapping for FC-TXFIFO-FULL-FLAG"
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-TXFIFO-EMPTY-FLAG",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_sd_tx_fifo_api_basic.py::test_api_sd_tx_fifo_multiple_roundtrip"
+      ],
+      "evidence_source": "frozen benchmark execution and semantic target mapping for FC-TXFIFO-EMPTY-FLAG"
+    }
+  ],
+  "contract_hash": "a9e2ebbc0328598371df6c45914ac1371a6e2a96683c1cf90d91ef6dd8b39fb0"
+}

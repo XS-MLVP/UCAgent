@@ -1,0 +1,612 @@
+{
+  "schema_version": "functional_coverage_plan.v1",
+  "dut": "e203_exu_alu_dpath",
+  "revision_id": "ground-truth-v1",
+  "source_snapshot_hash": "golden_spec",
+  "targets": [
+    {
+      "target_id": "CK-STEP-DRIVE",
+      "functional_group": "FC-OPERATION-API",
+      "coverage_definition": "[Assume] CK-STEP-DRIVE",
+      "sampling_rule": "Sample on `signal.alu_req_alu`",
+      "oracle_definition": "Check property: CK-STEP-DRIVE",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-IDLE-DEFAULT",
+      "functional_group": "FC-OPERATION-API",
+      "coverage_definition": "[Assume] CK-IDLE-DEFAULT",
+      "sampling_rule": "Sample on `signal.alu_req_alu`",
+      "oracle_definition": "Check property: CK-IDLE-DEFAULT",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-COMB-SAMPLE",
+      "functional_group": "FC-OPERATION-API",
+      "coverage_definition": "[Assume] CK-COMB-SAMPLE",
+      "sampling_rule": "Sample on `signal.alu_req_alu`",
+      "oracle_definition": "Check property: CK-COMB-SAMPLE",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-SEQ-SAMPLE",
+      "functional_group": "FC-OPERATION-API",
+      "coverage_definition": "[Assume] CK-SEQ-SAMPLE",
+      "sampling_rule": "Sample on `signal.alu_req_alu`",
+      "oracle_definition": "Check property: CK-SEQ-SAMPLE",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-BASIC",
+      "functional_group": "FC-ADD",
+      "coverage_definition": "[Seq] CK-BASIC",
+      "sampling_rule": "Sample on `signal.alu_req_alu`",
+      "oracle_definition": "Check property: CK-BASIC",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-ZERO",
+      "functional_group": "FC-ADD",
+      "coverage_definition": "[Seq] CK-ZERO",
+      "sampling_rule": "Sample on `signal.alu_req_alu`",
+      "oracle_definition": "Check property: CK-ZERO",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-OVERFLOW-WRAP",
+      "functional_group": "FC-ADD",
+      "coverage_definition": "[Seq] CK-OVERFLOW-WRAP",
+      "sampling_rule": "Sample on `signal.alu_req_alu`",
+      "oracle_definition": "Check property: CK-OVERFLOW-WRAP",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-NEGATIVE-PATTERN",
+      "functional_group": "FC-ADD",
+      "coverage_definition": "[Seq] CK-NEGATIVE-PATTERN",
+      "sampling_rule": "Sample on `signal.alu_req_alu`",
+      "oracle_definition": "Check property: CK-NEGATIVE-PATTERN",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-ZERO-RESULT",
+      "functional_group": "FC-SUB",
+      "coverage_definition": "[Seq] CK-ZERO-RESULT",
+      "sampling_rule": "Sample on `signal.alu_req_alu`",
+      "oracle_definition": "Check property: CK-ZERO-RESULT",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-UNDERFLOW-WRAP",
+      "functional_group": "FC-SUB",
+      "coverage_definition": "[Seq] CK-UNDERFLOW-WRAP",
+      "sampling_rule": "Sample on `signal.alu_req_alu`",
+      "oracle_definition": "Check property: CK-UNDERFLOW-WRAP",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-SELF-XOR",
+      "functional_group": "FC-XOR",
+      "coverage_definition": "[Seq] CK-SELF-XOR",
+      "sampling_rule": "Sample on `signal.alu_req_alu`",
+      "oracle_definition": "Check property: CK-SELF-XOR",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-ALL-ZERO-ALL-ONE",
+      "functional_group": "FC-XOR",
+      "coverage_definition": "[Seq] CK-ALL-ZERO-ALL-ONE",
+      "sampling_rule": "Sample on `signal.alu_req_alu`",
+      "oracle_definition": "Check property: CK-ALL-ZERO-ALL-ONE",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-MASK-MERGE",
+      "functional_group": "FC-OR",
+      "coverage_definition": "[Seq] CK-MASK-MERGE",
+      "sampling_rule": "Sample on `signal.alu_req_alu`",
+      "oracle_definition": "Check property: CK-MASK-MERGE",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-MASK-FILTER",
+      "functional_group": "FC-AND",
+      "coverage_definition": "[Seq] CK-MASK-FILTER",
+      "sampling_rule": "Sample on `signal.alu_req_alu`",
+      "oracle_definition": "Check property: CK-MASK-FILTER",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-SHAMT-MASK",
+      "functional_group": "FC-SLL",
+      "coverage_definition": "[Seq] CK-SHAMT-MASK",
+      "sampling_rule": "Sample on `signal.alu_req_alu`",
+      "oracle_definition": "Check property: CK-SHAMT-MASK",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-ZERO-SHIFT",
+      "functional_group": "FC-SLL",
+      "coverage_definition": "[Seq] CK-ZERO-SHIFT",
+      "sampling_rule": "Sample on `signal.alu_req_alu`",
+      "oracle_definition": "Check property: CK-ZERO-SHIFT",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-HIGH-BIT-OUT",
+      "functional_group": "FC-SLL",
+      "coverage_definition": "[Seq] CK-HIGH-BIT-OUT",
+      "sampling_rule": "Sample on `signal.alu_req_alu`",
+      "oracle_definition": "Check property: CK-HIGH-BIT-OUT",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-ZERO-FILL",
+      "functional_group": "FC-SRL",
+      "coverage_definition": "[Seq] CK-ZERO-FILL",
+      "sampling_rule": "Sample on `signal.alu_req_alu`",
+      "oracle_definition": "Check property: CK-ZERO-FILL",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-SIGN-EXTEND",
+      "functional_group": "FC-SRA",
+      "coverage_definition": "[Seq] CK-SIGN-EXTEND",
+      "sampling_rule": "Sample on `signal.alu_req_alu`",
+      "oracle_definition": "Check property: CK-SIGN-EXTEND",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-EQUAL",
+      "functional_group": "FC-SLT",
+      "coverage_definition": "[Seq] CK-EQUAL",
+      "sampling_rule": "Sample on `signal.alu_req_alu`",
+      "oracle_definition": "Check property: CK-EQUAL",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-SIGN-CROSS",
+      "functional_group": "FC-SLT",
+      "coverage_definition": "[Seq] CK-SIGN-CROSS",
+      "sampling_rule": "Sample on `signal.alu_req_alu`",
+      "oracle_definition": "Check property: CK-SIGN-CROSS",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-BOUNDARY",
+      "functional_group": "FC-SLT",
+      "coverage_definition": "[Seq] CK-BOUNDARY",
+      "sampling_rule": "Sample on `signal.alu_req_alu`",
+      "oracle_definition": "Check property: CK-BOUNDARY",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-HIGH-BIT-UNSIGNED",
+      "functional_group": "FC-SLTU",
+      "coverage_definition": "[Seq] CK-HIGH-BIT-UNSIGNED",
+      "sampling_rule": "Sample on `signal.alu_req_alu`",
+      "oracle_definition": "Check property: CK-HIGH-BIT-UNSIGNED",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-HIGH-BITS",
+      "functional_group": "FC-LUI",
+      "coverage_definition": "[Seq] CK-HIGH-BITS",
+      "sampling_rule": "Sample on `signal.alu_req_alu`",
+      "oracle_definition": "Check property: CK-HIGH-BITS",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-ISOLATION",
+      "functional_group": "FC-LUI",
+      "coverage_definition": "[Seq] CK-ISOLATION",
+      "sampling_rule": "Sample on `signal.alu_req_alu`",
+      "oracle_definition": "Check property: CK-ISOLATION",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-INDEPENDENT-CMP",
+      "functional_group": "FC-BJP-ADD",
+      "coverage_definition": "[Seq] CK-INDEPENDENT-CMP",
+      "sampling_rule": "Sample on `signal.alu_req_alu`",
+      "oracle_definition": "Check property: CK-INDEPENDENT-CMP",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-NOT-EQUAL",
+      "functional_group": "FC-BJP-CMP-EQ",
+      "coverage_definition": "[Seq] CK-NOT-EQUAL",
+      "sampling_rule": "Sample on `signal.alu_req_alu`",
+      "oracle_definition": "Check property: CK-NOT-EQUAL",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-ZERO-PATTERN",
+      "functional_group": "FC-BJP-CMP-EQ",
+      "coverage_definition": "[Seq] CK-ZERO-PATTERN",
+      "sampling_rule": "Sample on `signal.alu_req_alu`",
+      "oracle_definition": "Check property: CK-ZERO-PATTERN",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-BIT-DIFF",
+      "functional_group": "FC-BJP-CMP-NE",
+      "coverage_definition": "[Seq] CK-BIT-DIFF",
+      "sampling_rule": "Sample on `signal.alu_req_alu`",
+      "oracle_definition": "Check property: CK-BIT-DIFF",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-AMO-ISOLATION",
+      "functional_group": "FC-AGU-ADD",
+      "coverage_definition": "[Seq] CK-AMO-ISOLATION",
+      "sampling_rule": "Sample on `signal.alu_req_alu`",
+      "oracle_definition": "Check property: CK-AMO-ISOLATION",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-IGNORE-OP1",
+      "functional_group": "FC-AGU-SWAP",
+      "coverage_definition": "[Seq] CK-IGNORE-OP1",
+      "sampling_rule": "Sample on `signal.alu_req_alu`",
+      "oracle_definition": "Check property: CK-IGNORE-OP1",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-ZERO-AND-ONES",
+      "functional_group": "FC-AGU-SWAP",
+      "coverage_definition": "[Seq] CK-ZERO-AND-ONES",
+      "sampling_rule": "Sample on `signal.alu_req_alu`",
+      "oracle_definition": "Check property: CK-ZERO-AND-ONES",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-WIDE-BOUNDARY",
+      "functional_group": "FC-MULDIV-ADD",
+      "coverage_definition": "[Seq] CK-WIDE-BOUNDARY",
+      "sampling_rule": "Sample on `signal.alu_req_alu`",
+      "oracle_definition": "Check property: CK-WIDE-BOUNDARY",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-WRITE-ON-STEP",
+      "functional_group": "FC-SBF0-AGU-WRITE",
+      "coverage_definition": "[Seq] CK-WRITE-ON-STEP",
+      "sampling_rule": "Sample on `signal.alu_req_alu`",
+      "oracle_definition": "Check property: CK-WRITE-ON-STEP",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-VALUE-PROPAGATE",
+      "functional_group": "FC-SBF0-AGU-WRITE",
+      "coverage_definition": "[Seq] CK-VALUE-PROPAGATE",
+      "sampling_rule": "Sample on `signal.alu_req_alu`",
+      "oracle_definition": "Check property: CK-VALUE-PROPAGATE",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-WIDTH-MAPPING",
+      "functional_group": "FC-SBF0-AGU-WRITE",
+      "coverage_definition": "[Seq] CK-WIDTH-MAPPING",
+      "sampling_rule": "Sample on `signal.alu_req_alu`",
+      "oracle_definition": "Check property: CK-WIDTH-MAPPING",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-33BIT-DATA",
+      "functional_group": "FC-SBF0-MULDIV-WRITE",
+      "coverage_definition": "[Seq] CK-33BIT-DATA",
+      "sampling_rule": "Sample on `signal.alu_req_alu`",
+      "oracle_definition": "Check property: CK-33BIT-DATA",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-NO-ENABLE-HOLD",
+      "functional_group": "FC-SBF-HOLD",
+      "coverage_definition": "[Seq] CK-NO-ENABLE-HOLD",
+      "sampling_rule": "Sample on `signal.alu_req_alu`",
+      "oracle_definition": "Check property: CK-NO-ENABLE-HOLD",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-MULTI-CYCLE-HOLD",
+      "functional_group": "FC-SBF-HOLD",
+      "coverage_definition": "[Seq] CK-MULTI-CYCLE-HOLD",
+      "sampling_rule": "Sample on `signal.alu_req_alu`",
+      "oracle_definition": "Check property: CK-MULTI-CYCLE-HOLD",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-INDEPENDENT-BUFFERS",
+      "functional_group": "FC-SBF-HOLD",
+      "coverage_definition": "[Seq] CK-INDEPENDENT-BUFFERS",
+      "sampling_rule": "Sample on `signal.alu_req_alu`",
+      "oracle_definition": "Check property: CK-INDEPENDENT-BUFFERS",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-ALU-INDEPENDENT",
+      "functional_group": "FC-OUTPUT-ISOLATION",
+      "coverage_definition": "[Seq] CK-ALU-INDEPENDENT",
+      "sampling_rule": "Sample on `signal.alu_req_alu`",
+      "oracle_definition": "Check property: CK-ALU-INDEPENDENT",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-BJP-INDEPENDENT",
+      "functional_group": "FC-OUTPUT-ISOLATION",
+      "coverage_definition": "[Seq] CK-BJP-INDEPENDENT",
+      "sampling_rule": "Sample on `signal.alu_req_alu`",
+      "oracle_definition": "Check property: CK-BJP-INDEPENDENT",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-AGU-INDEPENDENT",
+      "functional_group": "FC-OUTPUT-ISOLATION",
+      "coverage_definition": "[Seq] CK-AGU-INDEPENDENT",
+      "sampling_rule": "Sample on `signal.alu_req_alu`",
+      "oracle_definition": "Check property: CK-AGU-INDEPENDENT",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-MULDIV-INDEPENDENT",
+      "functional_group": "FC-OUTPUT-ISOLATION",
+      "coverage_definition": "[Seq] CK-MULDIV-INDEPENDENT",
+      "sampling_rule": "Sample on `signal.alu_req_alu`",
+      "oracle_definition": "Check property: CK-MULDIV-INDEPENDENT",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-ALU-BJP-CONCURRENT",
+      "functional_group": "FC-CONCURRENT-REQUESTS",
+      "coverage_definition": "[Seq] CK-ALU-BJP-CONCURRENT",
+      "sampling_rule": "Sample on `signal.alu_req_alu`",
+      "oracle_definition": "Check property: CK-ALU-BJP-CONCURRENT",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-ALU-AGU-CONCURRENT",
+      "functional_group": "FC-CONCURRENT-REQUESTS",
+      "coverage_definition": "[Seq] CK-ALU-AGU-CONCURRENT",
+      "sampling_rule": "Sample on `signal.alu_req_alu`",
+      "oracle_definition": "Check property: CK-ALU-AGU-CONCURRENT",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-AGU-MULDIV-CONCURRENT",
+      "functional_group": "FC-CONCURRENT-REQUESTS",
+      "coverage_definition": "[Seq] CK-AGU-MULDIV-CONCURRENT",
+      "sampling_rule": "Sample on `signal.alu_req_alu`",
+      "oracle_definition": "Check property: CK-AGU-MULDIV-CONCURRENT",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-MULTI-SOURCE-STRESS",
+      "functional_group": "FC-CONCURRENT-REQUESTS",
+      "coverage_definition": "[Seq] CK-MULTI-SOURCE-STRESS",
+      "sampling_rule": "Sample on `signal.alu_req_alu`",
+      "oracle_definition": "Check property: CK-MULTI-SOURCE-STRESS",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-IMMEDIATE-VISIBLE",
+      "functional_group": "FC-COMB-NO-STEP-DEPENDENCE",
+      "coverage_definition": "[Seq] CK-IMMEDIATE-VISIBLE",
+      "sampling_rule": "Sample on `signal.alu_req_alu`",
+      "oracle_definition": "Check property: CK-IMMEDIATE-VISIBLE",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-STEP-STABLE",
+      "functional_group": "FC-COMB-NO-STEP-DEPENDENCE",
+      "coverage_definition": "[Seq] CK-STEP-STABLE",
+      "sampling_rule": "Sample on `signal.alu_req_alu`",
+      "oracle_definition": "Check property: CK-STEP-STABLE",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-SBF-NOT-RESET",
+      "functional_group": "FC-RESET-IGNORED",
+      "coverage_definition": "[Seq] CK-SBF-NOT-RESET",
+      "sampling_rule": "Sample on `signal.alu_req_alu`",
+      "oracle_definition": "Check property: CK-SBF-NOT-RESET",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-COMB-NOT-RESET",
+      "functional_group": "FC-RESET-IGNORED",
+      "coverage_definition": "[Seq] CK-COMB-NOT-RESET",
+      "sampling_rule": "Sample on `signal.alu_req_alu`",
+      "oracle_definition": "Check property: CK-COMB-NOT-RESET",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-SPEC-CONSISTENCY",
+      "functional_group": "FC-RESET-IGNORED",
+      "coverage_definition": "[Seq] CK-SPEC-CONSISTENCY",
+      "sampling_rule": "Sample on `signal.alu_req_alu`",
+      "oracle_definition": "Check property: CK-SPEC-CONSISTENCY",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-BJP-CMP-LT-DEFAULT",
+      "functional_group": "FC-BJP-CMP-LT",
+      "coverage_definition": "[Seq] 验证 FC-BJP-CMP-LT 默认行为",
+      "sampling_rule": "Sample on `signal.alu_req_alu`",
+      "oracle_definition": "Check property: 验证 FC-BJP-CMP-LT 默认行为",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-BJP-CMP-GT-DEFAULT",
+      "functional_group": "FC-BJP-CMP-GT",
+      "coverage_definition": "[Seq] 验证 FC-BJP-CMP-GT 默认行为",
+      "sampling_rule": "Sample on `signal.alu_req_alu`",
+      "oracle_definition": "Check property: 验证 FC-BJP-CMP-GT 默认行为",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-BJP-CMP-LTU-DEFAULT",
+      "functional_group": "FC-BJP-CMP-LTU",
+      "coverage_definition": "[Seq] 验证 FC-BJP-CMP-LTU 默认行为",
+      "sampling_rule": "Sample on `signal.alu_req_alu`",
+      "oracle_definition": "Check property: 验证 FC-BJP-CMP-LTU 默认行为",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-BJP-CMP-GTU-DEFAULT",
+      "functional_group": "FC-BJP-CMP-GTU",
+      "coverage_definition": "[Seq] 验证 FC-BJP-CMP-GTU 默认行为",
+      "sampling_rule": "Sample on `signal.alu_req_alu`",
+      "oracle_definition": "Check property: 验证 FC-BJP-CMP-GTU 默认行为",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-AGU-AND-DEFAULT",
+      "functional_group": "FC-AGU-AND",
+      "coverage_definition": "[Seq] 验证 FC-AGU-AND 默认行为",
+      "sampling_rule": "Sample on `signal.alu_req_alu`",
+      "oracle_definition": "Check property: 验证 FC-AGU-AND 默认行为",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-AGU-OR-DEFAULT",
+      "functional_group": "FC-AGU-OR",
+      "coverage_definition": "[Seq] 验证 FC-AGU-OR 默认行为",
+      "sampling_rule": "Sample on `signal.alu_req_alu`",
+      "oracle_definition": "Check property: 验证 FC-AGU-OR 默认行为",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-AGU-XOR-DEFAULT",
+      "functional_group": "FC-AGU-XOR",
+      "coverage_definition": "[Seq] 验证 FC-AGU-XOR 默认行为",
+      "sampling_rule": "Sample on `signal.alu_req_alu`",
+      "oracle_definition": "Check property: 验证 FC-AGU-XOR 默认行为",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-AGU-MAX-DEFAULT",
+      "functional_group": "FC-AGU-MAX",
+      "coverage_definition": "[Seq] 验证 FC-AGU-MAX 默认行为",
+      "sampling_rule": "Sample on `signal.alu_req_alu`",
+      "oracle_definition": "Check property: 验证 FC-AGU-MAX 默认行为",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-AGU-MIN-DEFAULT",
+      "functional_group": "FC-AGU-MIN",
+      "coverage_definition": "[Seq] 验证 FC-AGU-MIN 默认行为",
+      "sampling_rule": "Sample on `signal.alu_req_alu`",
+      "oracle_definition": "Check property: 验证 FC-AGU-MIN 默认行为",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-AGU-MAXU-DEFAULT",
+      "functional_group": "FC-AGU-MAXU",
+      "coverage_definition": "[Seq] 验证 FC-AGU-MAXU 默认行为",
+      "sampling_rule": "Sample on `signal.alu_req_alu`",
+      "oracle_definition": "Check property: 验证 FC-AGU-MAXU 默认行为",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-AGU-MINU-DEFAULT",
+      "functional_group": "FC-AGU-MINU",
+      "coverage_definition": "[Seq] 验证 FC-AGU-MINU 默认行为",
+      "sampling_rule": "Sample on `signal.alu_req_alu`",
+      "oracle_definition": "Check property: 验证 FC-AGU-MINU 默认行为",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-MULDIV-SUB-DEFAULT",
+      "functional_group": "FC-MULDIV-SUB",
+      "coverage_definition": "[Seq] 验证 FC-MULDIV-SUB 默认行为",
+      "sampling_rule": "Sample on `signal.alu_req_alu`",
+      "oracle_definition": "Check property: 验证 FC-MULDIV-SUB 默认行为",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-SBF1-AGU-WRITE-DEFAULT",
+      "functional_group": "FC-SBF1-AGU-WRITE",
+      "coverage_definition": "[Seq] 验证 FC-SBF1-AGU-WRITE 默认行为",
+      "sampling_rule": "Sample on `signal.alu_req_alu`",
+      "oracle_definition": "Check property: 验证 FC-SBF1-AGU-WRITE 默认行为",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-SBF1-MULDIV-WRITE-DEFAULT",
+      "functional_group": "FC-SBF1-MULDIV-WRITE",
+      "coverage_definition": "[Seq] 验证 FC-SBF1-MULDIV-WRITE 默认行为",
+      "sampling_rule": "Sample on `signal.alu_req_alu`",
+      "oracle_definition": "Check property: 验证 FC-SBF1-MULDIV-WRITE 默认行为",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    }
+  ],
+  "observations": []
+}

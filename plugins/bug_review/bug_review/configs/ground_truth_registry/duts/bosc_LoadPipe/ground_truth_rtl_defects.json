@@ -1,0 +1,155 @@
+{
+  "schema_version": "gt_rtl_v3",
+  "dut": "bosc_LoadPipe",
+  "status": "adjudicated_from_audited_rtl_roots",
+  "description": "DUT-level independent RTL defect ground truth index for bosc_LoadPipe.",
+  "total_rtl_defects": 4,
+  "model_hits": {
+    "gpt-5.5": 4
+  },
+  "defects": [
+    {
+      "gt_id": "GT-RTL-0001",
+      "global_gt_id": "GT-XS-0032",
+      "source_root_id": "RTLBUG-0001",
+      "dut": "bosc_LoadPipe",
+      "rtl_file": "bosc_LoadPipe.sv",
+      "rtl_line_start": 234,
+      "rtl_line_end": 274,
+      "failure_mode": "done_never_asserts",
+      "symptoms": [
+        "BUG-0001",
+        "BUG-0002"
+      ],
+      "models": [
+        "gpt-5.5"
+      ],
+      "source_anchor_confidence": "candidate",
+      "root_match_status": "matched_current_root",
+      "severity": "normal",
+      "description": "RTL root defect in bosc_LoadPipe",
+      "test_cases": [
+        "test_bosc_LoadPipe_miss_detection",
+        "test_bosc_LoadPipe_miss_req_format"
+      ],
+      "primary_test_case": "test_bosc_LoadPipe_miss_detection",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_xiangshan_20260910",
+      "admission_source": "xiangshan_backup_20260910",
+      "admission_evidence": "registered_adjudication"
+    },
+    {
+      "gt_id": "GT-RTL-0002",
+      "global_gt_id": "GT-XS-0033",
+      "source_root_id": "RTLBUG-0002",
+      "dut": "bosc_LoadPipe",
+      "rtl_file": "bosc_LoadPipe_top.sv",
+      "rtl_line_start": 1,
+      "rtl_line_end": 241,
+      "failure_mode": "ordering_or_concurrency_failure",
+      "symptoms": [
+        "BUG-0003",
+        "BUG-0007",
+        "BUG-0008",
+        "BUG-0009",
+        "BUG-0010",
+        "BUG-0011",
+        "BUG-0012",
+        "BUG-0014",
+        "BUG-0015",
+        "BUG-0016",
+        "BUG-0017",
+        "BUG-0018",
+        "BUG-0019",
+        "BUG-0020"
+      ],
+      "models": [
+        "gpt-5.5"
+      ],
+      "source_anchor_confidence": "high",
+      "root_match_status": "matched_current_root",
+      "severity": "normal",
+      "description": "RTL root defect in bosc_LoadPipe",
+      "test_cases": [
+        "test_bosc_LoadPipe_tag_error_detect",
+        "test_bosc_LoadPipe_tag_match_lsu",
+        "test_bosc_LoadPipe_replacement_need_detect",
+        "test_bosc_LoadPipe_naive_useful_useless",
+        "test_bosc_LoadPipe_fdp_demand_miss",
+        "test_bosc_LoadPipe_replay_on_data_backpressure",
+        "test_bosc_LoadPipe_replay_on_wbq_block",
+        "test_bosc_LoadPipe_replay_on_occupy_fail",
+        "test_bosc_LoadPipe_replay_on_bank_conflict",
+        "test_bosc_LoadPipe_replay_on_wpu_pred_fail",
+        "test_bosc_LoadPipe_replaycarry_way_info"
+      ],
+      "primary_test_case": "test_bosc_LoadPipe_tag_error_detect",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_xiangshan_20260910",
+      "admission_source": "xiangshan_backup_20260910",
+      "admission_evidence": "registered_adjudication"
+    },
+    {
+      "gt_id": "GT-RTL-0003",
+      "global_gt_id": "GT-XS-0034",
+      "source_root_id": "RTLBUG-0003",
+      "dut": "bosc_LoadPipe",
+      "rtl_file": "bosc_LoadPipe_top.sv",
+      "rtl_line_start": 6,
+      "rtl_line_end": 120,
+      "failure_mode": "output_mismatch",
+      "symptoms": [
+        "BUG-0004",
+        "BUG-0005",
+        "BUG-0013"
+      ],
+      "models": [
+        "gpt-5.5"
+      ],
+      "source_anchor_confidence": "high",
+      "root_match_status": "matched_current_root",
+      "severity": "normal",
+      "description": "RTL root defect in bosc_LoadPipe",
+      "test_cases": [
+        "test_bosc_LoadPipe_nack_accept",
+        "test_bosc_LoadPipe_replay_on_stage0_nack"
+      ],
+      "primary_test_case": "test_bosc_LoadPipe_nack_accept",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_xiangshan_20260910",
+      "admission_source": "xiangshan_backup_20260910",
+      "admission_evidence": "registered_adjudication"
+    },
+    {
+      "gt_id": "GT-RTL-0004",
+      "global_gt_id": "GT-XS-0035",
+      "source_root_id": "RTLBUG-0004",
+      "dut": "bosc_LoadPipe",
+      "rtl_file": "bosc_LoadPipe.sv",
+      "rtl_line_start": 557,
+      "rtl_line_end": 609,
+      "failure_mode": "backpressure_failure",
+      "symptoms": [
+        "BUG-0006"
+      ],
+      "models": [
+        "gpt-5.5"
+      ],
+      "source_anchor_confidence": "candidate",
+      "root_match_status": "matched_current_root",
+      "severity": "normal",
+      "description": "RTL root defect in bosc_LoadPipe",
+      "test_cases": [
+        "test_bosc_LoadPipe_ready_gating"
+      ],
+      "primary_test_case": "test_bosc_LoadPipe_ready_gating",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_xiangshan_20260910",
+      "admission_source": "xiangshan_backup_20260910",
+      "admission_evidence": "registered_adjudication"
+    }
+  ],
+  "category": "xiangshan",
+  "last_registered_at": "2026-09-12T15:23:12+08:00",
+  "last_registered_batch": "baseline_xiangshan_20260910"
+}

@@ -1,0 +1,43 @@
+{
+  "schema_version": "gt_rtl_v3",
+  "dut": "bosc_StoreQueue",
+  "status": "adjudicated_from_audited_rtl_roots",
+  "description": "DUT-level independent RTL defect ground truth index for bosc_StoreQueue.",
+  "total_rtl_defects": 1,
+  "model_hits": {
+    "gpt-5.5": 1
+  },
+  "defects": [
+    {
+      "gt_id": "GT-RTL-0001",
+      "global_gt_id": "GT-XS-0099",
+      "source_root_id": "RTLBUG-0001",
+      "dut": "bosc_StoreQueue",
+      "rtl_file": "bosc_StoreQueue.sv",
+      "rtl_line_start": 57716,
+      "rtl_line_end": 57747,
+      "failure_mode": "ordering_or_concurrency_failure",
+      "symptoms": [
+        "BUG-0003"
+      ],
+      "models": [
+        "gpt-5.5"
+      ],
+      "source_anchor_confidence": "candidate",
+      "root_match_status": "matched_current_root",
+      "severity": "normal",
+      "description": "向量 MMIO 写回：若向量 store 落在 MMIO 空间，正常响应后应通过 vecmmioStout 完成写回并退出 MMIO 状态机。",
+      "test_cases": [
+        "test_bosc_storequeue_vector_mmio_writeback_template"
+      ],
+      "primary_test_case": "test_bosc_storequeue_vector_mmio_writeback_template",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_xiangshan_20260910",
+      "admission_source": "xiangshan_backup_20260910",
+      "admission_evidence": "registered_adjudication"
+    }
+  ],
+  "category": "xiangshan",
+  "last_registered_at": "2026-09-12T15:23:12+08:00",
+  "last_registered_batch": "baseline_xiangshan_20260910"
+}

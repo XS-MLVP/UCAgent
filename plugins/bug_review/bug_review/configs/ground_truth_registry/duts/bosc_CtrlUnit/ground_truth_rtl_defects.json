@@ -1,0 +1,50 @@
+{
+  "schema_version": "gt_rtl_v3",
+  "dut": "bosc_CtrlUnit",
+  "status": "adjudicated_from_audited_rtl_roots",
+  "description": "DUT-level independent RTL defect ground truth index for bosc_CtrlUnit.",
+  "total_rtl_defects": 1,
+  "model_hits": {
+    "gpt-5.5": 1
+  },
+  "defects": [
+    {
+      "gt_id": "GT-RTL-0001",
+      "global_gt_id": "GT-XS-0005",
+      "source_root_id": "RTLBUG-0001",
+      "dut": "bosc_CtrlUnit",
+      "rtl_file": "bosc_NewPipelineConnectPipe_27.sv",
+      "rtl_line_start": 119,
+      "rtl_line_end": 140,
+      "failure_mode": "handshake_failure",
+      "symptoms": [
+        "BUG-0002",
+        "BUG-0003",
+        "BUG-0004",
+        "BUG-0005"
+      ],
+      "models": [
+        "gpt-5.5"
+      ],
+      "source_anchor_confidence": "candidate",
+      "root_match_status": "matched_current_root",
+      "severity": "normal",
+      "description": "到零触发：在预期计数终点周期观察到 valid 拉高。",
+      "test_cases": [
+        "test_bosc_CtrlUnit_delay_fires_at_zero",
+        "test_bosc_CtrlUnit_tl_write_mask_low_bytes",
+        "test_bosc_CtrlUnit_tl_write_mask_high_bytes",
+        "test_api_bosc_CtrlUnit_tl_write_invalid_arguments",
+        "test_bosc_CtrlUnit_delay_read_current_count"
+      ],
+      "primary_test_case": "test_bosc_CtrlUnit_delay_fires_at_zero",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_xiangshan_20260910",
+      "admission_source": "xiangshan_backup_20260910",
+      "admission_evidence": "registered_adjudication"
+    }
+  ],
+  "category": "xiangshan",
+  "last_registered_at": "2026-09-12T15:23:12+08:00",
+  "last_registered_batch": "baseline_xiangshan_20260910"
+}

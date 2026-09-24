@@ -1,0 +1,264 @@
+{
+  "schema_version": "functional_coverage_plan.v1",
+  "dut": "e203_clkgate",
+  "revision_id": "rev-eb325f21bf1fd8a37757",
+  "source_snapshot_hash": "d63bd0bac30c7578f5012a7d4a5888acbe633d912928b5c3e02ebba9ef9a7f2e",
+  "status": "machine_mapped_frozen_contract",
+  "targets": [
+    {
+      "target_id": "FC-CLKGATE-ENABLE-PASS",
+      "name": "clock propagation when enabled",
+      "weight": 1,
+      "coverage_definition": "Observe clk_out oscillating in phase with clk_in when clk_en is asserted",
+      "sampling_rule": "Sample clk_out transitions on rising and falling edges of clk_in with clk_en=1",
+      "oracle_definition": "clk_out mirrors clk_in without unexpected phase delay or inversion",
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "FC-CLKGATE-DISABLE-HOLD",
+      "name": "clock gating when disabled",
+      "weight": 1,
+      "coverage_definition": "Observe clk_out remaining steady low when clk_en is low and test_mode is 0",
+      "sampling_rule": "Sample clk_out over multiple clk_in periods while clk_en=0",
+      "oracle_definition": "clk_out stays 0 throughout the disabled interval",
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "FC-CLKGATE-TEST-MODE",
+      "name": "test mode clock bypass",
+      "weight": 1,
+      "coverage_definition": "Assert test_mode=1 to force clock propagation regardless of clk_en",
+      "sampling_rule": "Sample clk_out while test_mode=1 and clk_en=0",
+      "oracle_definition": "clk_out toggles normally following clk_in",
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "FC-CLKGATE-GLITCH-FREE",
+      "name": "glitch-free enable switching",
+      "weight": 1,
+      "coverage_definition": "Toggle clk_en asynchronously and synchronously across clock phases",
+      "sampling_rule": "Monitor clk_out for runt pulses or glitches during enable transitions",
+      "oracle_definition": "clk_out transitions cleanly without pulses shorter than half period",
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "FC-CLKGATE-STEP-CYCLES",
+      "name": "multi-cycle continuous evaluation",
+      "weight": 1,
+      "coverage_definition": "Step simulation through multiple clock cycles under varying control combinations",
+      "sampling_rule": "Sample clock edges continuously across cycle sequences",
+      "oracle_definition": "Gating behavior accurately tracks cycle-by-cycle control inputs",
+      "collection_status": "scoreable"
+    }
+  ],
+  "observations": [
+    {
+      "model": "agentw",
+      "target_id": "FC-CLKGATE-ENABLE-PASS",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "agentw",
+      "target_id": "FC-CLKGATE-DISABLE-HOLD",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "agentw",
+      "target_id": "FC-CLKGATE-TEST-MODE",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "agentw",
+      "target_id": "FC-CLKGATE-GLITCH-FREE",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "agentw",
+      "target_id": "FC-CLKGATE-STEP-CYCLES",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "agentw+SFT",
+      "target_id": "FC-CLKGATE-ENABLE-PASS",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_e203_clkgate_api_basic.py::test_api_e203_clkgate_get_clk_out_basic",
+        "tests/test_e203_clkgate_api_basic.py::test_api_e203_clkgate_set_control_basic",
+        "tests/test_e203_clkgate_api_basic.py::test_api_e203_clkgate_set_control_invalid_input",
+        "tests/test_e203_clkgate_basic_clk_transfer.py::test_basic_clk_transfer_direct_pass",
+        "tests/test_e203_clkgate_basic_clk_transfer.py::test_basic_clk_transfer_zero_output"
+      ],
+      "evidence_source": "passed toffee/pytest execution and semantic target mapping for FC-CLKGATE-ENABLE-PASS"
+    },
+    {
+      "model": "agentw+SFT",
+      "target_id": "FC-CLKGATE-DISABLE-HOLD",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "agentw+SFT",
+      "target_id": "FC-CLKGATE-TEST-MODE",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_e203_clkgate_test_mode.py::test_test_mode_disable",
+        "tests/test_e203_clkgate_test_mode.py::test_test_mode_normal_coexist"
+      ],
+      "evidence_source": "passed toffee/pytest execution and semantic target mapping for FC-CLKGATE-TEST-MODE"
+    },
+    {
+      "model": "agentw+SFT",
+      "target_id": "FC-CLKGATE-GLITCH-FREE",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "agentw+SFT",
+      "target_id": "FC-CLKGATE-STEP-CYCLES",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-CLKGATE-ENABLE-PASS",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_e203_clkgate_api_functional.py::test_api_e203_clkgate_apply_controls_boundary_input_combo_0x",
+        "tests/test_e203_clkgate_api_functional.py::test_api_e203_clkgate_apply_controls_invalid_max_cycles",
+        "tests/test_e203_clkgate_api_functional.py::test_api_e203_clkgate_apply_controls_step_cycles",
+        "tests/test_e203_clkgate_api_functional.py::test_api_e203_clkgate_drive_cycle_basic",
+        "tests/test_e203_clkgate_env_fixture.py::test_api_e203_clkgate_env_mock_dut_basic"
+      ],
+      "evidence_source": "passed toffee/pytest execution and semantic target mapping for FC-CLKGATE-ENABLE-PASS"
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-CLKGATE-DISABLE-HOLD",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_e203_clkgate_api_functional.py::test_api_e203_clkgate_apply_controls_boundary_input_combo_0x",
+        "tests/test_e203_clkgate_api_functional.py::test_api_e203_clkgate_apply_controls_invalid_max_cycles",
+        "tests/test_e203_clkgate_api_functional.py::test_api_e203_clkgate_apply_controls_step_cycles"
+      ],
+      "evidence_source": "passed toffee/pytest execution and semantic target mapping for FC-CLKGATE-DISABLE-HOLD"
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-CLKGATE-TEST-MODE",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_e203_clkgate_api_functional.py::test_api_e203_clkgate_apply_controls_boundary_input_combo_0x",
+        "tests/test_e203_clkgate_api_functional.py::test_api_e203_clkgate_apply_controls_invalid_max_cycles",
+        "tests/test_e203_clkgate_api_functional.py::test_api_e203_clkgate_apply_controls_step_cycles"
+      ],
+      "evidence_source": "passed toffee/pytest execution and semantic target mapping for FC-CLKGATE-TEST-MODE"
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-CLKGATE-GLITCH-FREE",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_e203_clkgate_api_functional.py::test_api_e203_clkgate_apply_controls_boundary_input_combo_0x",
+        "tests/test_e203_clkgate_api_functional.py::test_api_e203_clkgate_apply_controls_invalid_max_cycles",
+        "tests/test_e203_clkgate_api_functional.py::test_api_e203_clkgate_apply_controls_step_cycles",
+        "tests/test_e203_clkgate_boundary_robustness.py::test_e203_clkgate_rise_boundary_enable_change"
+      ],
+      "evidence_source": "passed toffee/pytest execution and semantic target mapping for FC-CLKGATE-GLITCH-FREE"
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-CLKGATE-STEP-CYCLES",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_e203_clkgate_api_functional.py::test_api_e203_clkgate_apply_controls_boundary_input_combo_0x",
+        "tests/test_e203_clkgate_api_functional.py::test_api_e203_clkgate_apply_controls_invalid_max_cycles",
+        "tests/test_e203_clkgate_api_functional.py::test_api_e203_clkgate_apply_controls_step_cycles",
+        "tests/test_e203_clkgate_api_functional.py::test_api_e203_clkgate_drive_cycle_basic"
+      ],
+      "evidence_source": "passed toffee/pytest execution and semantic target mapping for FC-CLKGATE-STEP-CYCLES"
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-CLKGATE-ENABLE-PASS",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-CLKGATE-DISABLE-HOLD",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-CLKGATE-TEST-MODE",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-CLKGATE-GLITCH-FREE",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-CLKGATE-STEP-CYCLES",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    }
+  ],
+  "contract_hash": "7283a881ccad902b10f17bc30f668fc5ddaff996c39548218311fff627dda929"
+}

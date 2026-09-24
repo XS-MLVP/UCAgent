@@ -1,0 +1,62 @@
+{
+  "schema": "benchmark_report_profile.v1",
+  "dut": "bosc_LLPTW",
+  "verification_status": {
+    "code_coverage": {
+      "line": 92.61,
+      "cond": 82.75,
+      "toggle": 99.57,
+      "fsm": 50.74,
+      "branch": 84.9
+    },
+    "functional_coverage": {
+      "rate": 98.55,
+      "hit": 204,
+      "total": 207,
+      "open_checker_count": 3
+    },
+    "replay_case_count": 163,
+    "status_summary": "正式 GT 仍有 1 个未关闭缺陷；FSM 覆盖率 50.74%，需继续补齐或批准 waiver。"
+  },
+  "defect_details": {
+    "LLPTW-BG-MULTI-CACHE-PARALLELMUX": {
+      "title": "cache 通道多 dup 上下文不切换（ParallelMux 混叠）",
+      "summary": "背压解除后两次 cache 输出均返回 source 1，source 0 上下文丢失；两个用例归并为同一根因。",
+      "impact": "返回错误 source，并可能释放错误 entry",
+      "evidence_types": ["test_oracle", "waveform", "rtl", "spec"],
+      "scenario": {
+        "setup": "cache 接收端暂时不 ready；相同翻译键的两笔合法 demand 请求分别携带 source=1 和 source=0，并存于两个内部 entry。随后把 ready 拉高，让它们依次输出。",
+        "goal": "验证背压只延迟事务而不改变事务身份；每个 cache entry 被选中时，输出的 VPN、s2xlate、source 和被释放的 entry 必须来自同一笔请求。",
+        "expected": "解除背压后发生两次 cache fire，输出 source 集合应为 {0,1}，之后不再残留 cache valid。",
+        "actual": "两次 cache fire 均输出 source=1，source 0 从未出现在有效输出中。"
+      },
+      "mechanism_steps": [
+        "背压期间，entry 1 保存 source=1，entry 2 保存 source=0；两者同时等待 cache 输出。",
+        "RTL 对所有有效 entry 的输出字段做按位 OR，source 变成 1|0=1；选择指针也做 OR，1|2=3。",
+        "cache fire 使用混合后的 payload 和指针，导致错误输出，并可能清理并不存在的 entry 3。"
+      ],
+      "case_waveform_summaries": {
+        "case-23feb23b205cf32fd6ec51c8": "source=0 的第三笔请求已完成输入握手，但 cache payload 从首次 offer 到两次 fire 始终为 source=1；采样集合为 {1}，与预期 {0,1} 不符。",
+        "case-8e086f475aba1692b2db7b72": "source=1 的 state_1 与 source=0 的 state_2 同时处于 cache 状态；解除背压后两次 fire 均返回 source=1。"
+      },
+      "fix_recommendation": {
+        "direction": "使用明确 Arbiter/RRArbiter，或 priority encoder 加 selected-entry register；payload、chosen entry 与释放动作必须共享同一个选择结果。",
+        "regression": "重跑两个最小复现、cache/duplicate 功能簇和全量回归，并补充 entry 1+2、1+4、2+4 等组合。"
+      },
+      "evidence_boundary": "保存的 FST 存在截断限制；RTL 因果链、两个合法 demand 测试和已有缺陷分析相互吻合，关闭缺陷前仍应补充修复前后波形对照。"
+    }
+  },
+  "review_dispositions": {
+    "LLPTW-BG-ALLOC-DROP-SRC2": {"status": "needs_review", "short_reason": "prefetch 可合法丢弃", "reason": "source=2 是可被设计主动丢弃的 prefetch；原结论把 demand 的最终响应要求错误套用于 prefetch。"},
+    "LLPTW-BG-ALLSTAGE-HPTW-NEVER": {"status": "needs_review", "short_reason": "response 契约尚未闭环", "reason": "相关现象与 source/状态门控交织，尚未在满足完整 response 契约的激励下闭环。"},
+    "LLPTW-BG-PORT-SINGLE-FIRE": {"status": "needs_review", "short_reason": "测试未提供必需 response", "reason": "测试在首个 HPTW 请求后未提供必需 response；现有停顿不构成死锁证明。"},
+    "LLPTW-BG-ENQ-PTR-SEQ": {"status": "needs_review", "short_reason": "入队状态追踪依据错误", "reason": "原审查使用了错误的入队次态依据；需按 enq_state_normal 与 prefetch 分支重新复核。"},
+    "LLPTW-BG-MEM-DEADLOCK-POST-HPTW": {"status": "needs_review", "short_reason": "response 消费条件未证实", "reason": "state 1→2 不能证明 response 已正确消费；response ID、字段匹配和后续调度尚未核清。"},
+    "LLPTW-BG-BITMAP-PAIRED-EXIT": {"status": "needs_review", "short_reason": "PPN 根因解释不成立", "reason": "原解释假设 entry PPN 直接来自输入 ppn，但 jump-bitmap 路径使用 PTE 内容，根因仍需复核。"}
+  },
+  "presentation": {
+    "detail_section_order": ["summary", "scenario", "waveform", "root_cause", "oracle", "spec", "fix", "boundary", "source"],
+    "failed_cases_position": "last",
+    "show_passed_cases": false
+  }
+}

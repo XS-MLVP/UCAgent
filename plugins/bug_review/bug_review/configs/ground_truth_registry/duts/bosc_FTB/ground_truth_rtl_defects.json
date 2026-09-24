@@ -1,0 +1,343 @@
+{
+  "schema_version": "gt_rtl_v3",
+  "dut": "bosc_FTB",
+  "status": "adjudicated_from_audited_rtl_roots",
+  "description": "DUT-level independent RTL defect ground truth index for bosc_FTB.",
+  "total_rtl_defects": 9,
+  "model_hits": {
+    "gpt-5.5": 9
+  },
+  "defects": [
+    {
+      "gt_id": "GT-RTL-0001",
+      "global_gt_id": "GT-XS-0012",
+      "source_root_id": "RTLBUG-0001",
+      "dut": "bosc_FTB",
+      "rtl_file": "bosc_FTB.sv",
+      "rtl_line_start": 625,
+      "rtl_line_end": 662,
+      "failure_mode": "reset_state_mismatch",
+      "symptoms": [
+        "BUG-0001",
+        "BUG-0002",
+        "BUG-0003",
+        "BUG-0007",
+        "BUG-0008",
+        "BUG-0009",
+        "BUG-0019",
+        "BUG-0020",
+        "BUG-0021"
+      ],
+      "models": [
+        "gpt-5.5"
+      ],
+      "source_anchor_confidence": "candidate",
+      "root_match_status": "matched_current_root",
+      "severity": "normal",
+      "description": "tail 有效位：tail slot 有效时应驱动相应输出字段。",
+      "test_cases": [
+        "test_bosc_FTB_tail_slot_field_semantics",
+        "test_bosc_FTB_br_slot_field_semantics",
+        "test_bosc_FTB_s2_hit_output_behavior"
+      ],
+      "primary_test_case": "test_bosc_FTB_tail_slot_field_semantics",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_xiangshan_20260910",
+      "admission_source": "xiangshan_backup_20260910",
+      "admission_evidence": "registered_adjudication"
+    },
+    {
+      "gt_id": "GT-RTL-0002",
+      "global_gt_id": "GT-XS-0013",
+      "source_root_id": "RTLBUG-0002",
+      "dut": "bosc_FTB",
+      "rtl_file": "bosc_FTB.sv",
+      "rtl_line_start": 1410,
+      "rtl_line_end": 1454,
+      "failure_mode": "handshake_failure",
+      "symptoms": [
+        "BUG-0022",
+        "BUG-0023",
+        "BUG-0024",
+        "BUG-0062",
+        "BUG-0063",
+        "BUG-0064"
+      ],
+      "models": [
+        "gpt-5.5"
+      ],
+      "source_anchor_confidence": "candidate",
+      "root_match_status": "matched_current_root",
+      "severity": "normal",
+      "description": "s3 hit 位：命中场景下 s3.hit 为高，未命中场景下为低。",
+      "test_cases": [
+        "test_bosc_FTB_s3_hit_output_behavior",
+        "test_bosc_FTB_invalid_cycle_hold_behavior"
+      ],
+      "primary_test_case": "test_bosc_FTB_s3_hit_output_behavior",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_xiangshan_20260910",
+      "admission_source": "xiangshan_backup_20260910",
+      "admission_evidence": "registered_adjudication"
+    },
+    {
+      "gt_id": "GT-RTL-0003",
+      "global_gt_id": "GT-XS-0014",
+      "source_root_id": "RTLBUG-0003",
+      "dut": "bosc_FTB",
+      "rtl_file": "bosc_FTBBank.sv",
+      "rtl_line_start": 692,
+      "rtl_line_end": 716,
+      "failure_mode": "handshake_failure",
+      "symptoms": [
+        "BUG-0028",
+        "BUG-0029",
+        "BUG-0030",
+        "BUG-0037",
+        "BUG-0038",
+        "BUG-0039",
+        "BUG-0046",
+        "BUG-0047",
+        "BUG-0048",
+        "BUG-0059",
+        "BUG-0080",
+        "BUG-0081",
+        "BUG-0082",
+        "BUG-0083",
+        "BUG-0084",
+        "BUG-0085"
+      ],
+      "models": [
+        "gpt-5.5"
+      ],
+      "source_anchor_confidence": "candidate",
+      "root_match_status": "matched_current_root",
+      "severity": "normal",
+      "description": "使能打开：在命中场景下，打开 BTB 使能可观察到正常 hit 输出。",
+      "test_cases": [
+        "test_bosc_FTB_btb_enable_gate_behavior",
+        "test_bosc_FTB_empty_way_allocation_policy",
+        "test_bosc_FTB_tag_hit_behavior",
+        "test_bosc_FTB_stage_fire_alignment",
+        "test_bosc_FTB_bias_hit_dependence_behavior",
+        "test_bosc_FTB_close_request_behavior"
+      ],
+      "primary_test_case": "test_bosc_FTB_btb_enable_gate_behavior",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_xiangshan_20260910",
+      "admission_source": "xiangshan_backup_20260910",
+      "admission_evidence": "registered_adjudication"
+    },
+    {
+      "gt_id": "GT-RTL-0004",
+      "global_gt_id": "GT-XS-0015",
+      "source_root_id": "RTLBUG-0004",
+      "dut": "bosc_FTB",
+      "rtl_file": "bosc_DelayNWithValid_1.sv",
+      "rtl_line_start": 141,
+      "rtl_line_end": 177,
+      "failure_mode": "handshake_failure",
+      "symptoms": [
+        "BUG-0031",
+        "BUG-0032",
+        "BUG-0033",
+        "BUG-0040",
+        "BUG-0041",
+        "BUG-0042",
+        "BUG-0043",
+        "BUG-0044",
+        "BUG-0045",
+        "BUG-0049",
+        "BUG-0050",
+        "BUG-0051",
+        "BUG-0056",
+        "BUG-0057",
+        "BUG-0058"
+      ],
+      "models": [
+        "gpt-5.5"
+      ],
+      "source_anchor_confidence": "candidate",
+      "root_match_status": "matched_current_root",
+      "severity": "normal",
+      "description": "表项内容：最后阶段导出的各字段与实际命中表项一致。",
+      "test_cases": [
+        "test_bosc_FTB_last_stage_entry_output_behavior",
+        "test_bosc_FTB_full_set_replacement_policy",
+        "test_bosc_FTB_meta_write_way_selection",
+        "test_bosc_FTB_hit_way_selection_behavior",
+        "test_bosc_FTB_s0_request_acceptance"
+      ],
+      "primary_test_case": "test_bosc_FTB_last_stage_entry_output_behavior",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_xiangshan_20260910",
+      "admission_source": "xiangshan_backup_20260910",
+      "admission_evidence": "registered_adjudication"
+    },
+    {
+      "gt_id": "GT-RTL-0005",
+      "global_gt_id": "GT-XS-0016",
+      "source_root_id": "RTLBUG-0005",
+      "dut": "bosc_FTB",
+      "rtl_file": "bosc_FTB.sv",
+      "rtl_line_start": 1584,
+      "rtl_line_end": 1623,
+      "failure_mode": "handshake_failure",
+      "symptoms": [
+        "BUG-0034",
+        "BUG-0035",
+        "BUG-0036",
+        "BUG-0052",
+        "BUG-0053",
+        "BUG-0054",
+        "BUG-0055",
+        "BUG-0068",
+        "BUG-0069",
+        "BUG-0070"
+      ],
+      "models": [
+        "gpt-5.5"
+      ],
+      "source_anchor_confidence": "candidate",
+      "root_match_status": "matched_current_root",
+      "severity": "normal",
+      "description": "meta hit 位：命中与未命中场景下 meta 中的 hit 语义应正确。",
+      "test_cases": [
+        "test_bosc_FTB_last_stage_meta_output_behavior",
+        "test_bosc_FTB_multi_hit_detection_behavior",
+        "test_bosc_FTB_multi_hit_status_output"
+      ],
+      "primary_test_case": "test_bosc_FTB_last_stage_meta_output_behavior",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_xiangshan_20260910",
+      "admission_source": "xiangshan_backup_20260910",
+      "admission_evidence": "registered_adjudication"
+    },
+    {
+      "gt_id": "GT-RTL-0006",
+      "global_gt_id": "GT-XS-0017",
+      "source_root_id": "RTLBUG-0006",
+      "dut": "bosc_FTB",
+      "rtl_file": "bosc_FTB.sv",
+      "rtl_line_start": 2547,
+      "rtl_line_end": 2583,
+      "failure_mode": "handshake_failure",
+      "symptoms": [
+        "BUG-0060",
+        "BUG-0061"
+      ],
+      "models": [
+        "gpt-5.5"
+      ],
+      "source_anchor_confidence": "candidate",
+      "root_match_status": "matched_current_root",
+      "severity": "normal",
+      "description": "s0 到 s2 时延：命中结果不应在请求当拍出现，而应在预期流水级出现。",
+      "test_cases": [
+        "test_bosc_FTB_stage_pipeline_latency"
+      ],
+      "primary_test_case": "test_bosc_FTB_stage_pipeline_latency",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_xiangshan_20260910",
+      "admission_source": "xiangshan_backup_20260910",
+      "admission_evidence": "registered_adjudication"
+    },
+    {
+      "gt_id": "GT-RTL-0007",
+      "global_gt_id": "GT-XS-0018",
+      "source_root_id": "RTLBUG-0007",
+      "dut": "bosc_FTB",
+      "rtl_file": "bosc_FTB.sv",
+      "rtl_line_start": 1046,
+      "rtl_line_end": 1086,
+      "failure_mode": "handshake_failure",
+      "symptoms": [
+        "BUG-0065",
+        "BUG-0066",
+        "BUG-0067"
+      ],
+      "models": [
+        "gpt-5.5"
+      ],
+      "source_anchor_confidence": "candidate",
+      "root_match_status": "matched_current_root",
+      "severity": "normal",
+      "description": "合法范围：fallThroughAddr 在合法区间时不应错误报错。",
+      "test_cases": [
+        "test_bosc_FTB_fallthrough_error_status"
+      ],
+      "primary_test_case": "test_bosc_FTB_fallthrough_error_status",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_xiangshan_20260910",
+      "admission_source": "xiangshan_backup_20260910",
+      "admission_evidence": "registered_adjudication"
+    },
+    {
+      "gt_id": "GT-RTL-0008",
+      "global_gt_id": "GT-XS-0019",
+      "source_root_id": "RTLBUG-0008",
+      "dut": "bosc_FTB",
+      "rtl_file": "bosc_FTB.sv",
+      "rtl_line_start": 1794,
+      "rtl_line_end": 1843,
+      "failure_mode": "ordering_or_concurrency_failure",
+      "symptoms": [
+        "BUG-0071",
+        "BUG-0072",
+        "BUG-0073"
+      ],
+      "models": [
+        "gpt-5.5"
+      ],
+      "source_anchor_confidence": "candidate",
+      "root_match_status": "matched_current_root",
+      "severity": "normal",
+      "description": "空闲可接收：无更新冲突时 io_s1_ready 应允许继续接收请求。",
+      "test_cases": [
+        "test_bosc_FTB_s1_ready_output_behavior"
+      ],
+      "primary_test_case": "test_bosc_FTB_s1_ready_output_behavior",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_xiangshan_20260910",
+      "admission_source": "xiangshan_backup_20260910",
+      "admission_evidence": "registered_adjudication"
+    },
+    {
+      "gt_id": "GT-RTL-0009",
+      "global_gt_id": "GT-XS-0020",
+      "source_root_id": "RTLBUG-0009",
+      "dut": "bosc_FTB",
+      "rtl_file": "bosc_FTB.sv",
+      "rtl_line_start": 1160,
+      "rtl_line_end": 1215,
+      "failure_mode": "reset_state_mismatch",
+      "symptoms": [
+        "BUG-0086",
+        "BUG-0087",
+        "BUG-0088",
+        "BUG-0089",
+        "BUG-0090",
+        "BUG-0091"
+      ],
+      "models": [
+        "gpt-5.5"
+      ],
+      "source_anchor_confidence": "candidate",
+      "root_match_status": "matched_current_root",
+      "severity": "normal",
+      "description": "清除 close：close 状态下送入 false_hit 后，close 请求应撤销。",
+      "test_cases": [
+        "test_bosc_FTB_reopen_by_false_hit_behavior",
+        "test_bosc_FTB_reopen_by_redirect_behavior"
+      ],
+      "primary_test_case": "test_bosc_FTB_reopen_by_false_hit_behavior",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_xiangshan_20260910",
+      "admission_source": "xiangshan_backup_20260910",
+      "admission_evidence": "registered_adjudication"
+    }
+  ],
+  "category": "xiangshan",
+  "last_registered_at": "2026-09-12T15:23:12+08:00",
+  "last_registered_batch": "baseline_xiangshan_20260910"
+}

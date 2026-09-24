@@ -1,0 +1,413 @@
+{
+  "schema_version": "functional_coverage_plan.v1",
+  "dut": "aes_cipher_top",
+  "revision_id": "rev-ea0b49f6a4351ef5ee2b",
+  "source_snapshot_hash": "57492b52fd75e063346d0f273512a390155423cb3bbe3e9f9609b191607ffab2",
+  "status": "frozen_draft_requires_blind_independent_review",
+  "targets": [
+    {
+      "target_id": "FC-AES-RESET-IDLE",
+      "name": "reset and idle contract",
+      "weight": 1,
+      "coverage_definition": "Exercise reset assertion, release, and an idle observation window",
+      "sampling_rule": "Sample control and output signals at reset, first released cycle, and stable idle",
+      "oracle_definition": "The public interface matches the frozen reset/idle contract"
+    },
+    {
+      "target_id": "FC-AES-LOAD-START",
+      "name": "transaction acceptance",
+      "weight": 1,
+      "coverage_definition": "Exercise an idle load that samples one key/text pair and starts encryption",
+      "sampling_rule": "Sample ld, key, text_in, and the first active-cycle state",
+      "oracle_definition": "Exactly one transaction is accepted under the documented load rule"
+    },
+    {
+      "target_id": "FC-AES-BUSY-ISOLATION",
+      "name": "busy input isolation",
+      "weight": 1,
+      "coverage_definition": "Toggle key/text and attempt load while an operation is active",
+      "sampling_rule": "Sample the active transaction before and after each busy-cycle disturbance",
+      "oracle_definition": "Behavior matches the frozen busy/reload contract without corrupting the active operation"
+    },
+    {
+      "target_id": "FC-AES-DONE-LATENCY",
+      "name": "completion latency",
+      "weight": 1,
+      "coverage_definition": "Observe accepted load through the specified completion cycle",
+      "sampling_rule": "Sample done and cycle count on every active cycle",
+      "oracle_definition": "done assertion and latency match the frozen transaction contract"
+    },
+    {
+      "target_id": "FC-AES-KAT",
+      "name": "AES-128 known-answer encryption",
+      "weight": 1,
+      "coverage_definition": "Exercise the frozen FIPS-197 known-answer vectors",
+      "sampling_rule": "Sample ciphertext only in the contract-defined valid output window",
+      "oracle_definition": "text_out equals the corresponding AES-128 reference ciphertext"
+    },
+    {
+      "target_id": "FC-AES-INPUT-MAPPING",
+      "name": "key and state byte mapping",
+      "weight": 1,
+      "coverage_definition": "Exercise sparse and asymmetric vectors that distinguish byte-order mappings",
+      "sampling_rule": "Sample the accepted input vector and final ciphertext for every mapping pattern",
+      "oracle_definition": "Ciphertext matches the FIPS-197 state and key byte ordering"
+    },
+    {
+      "target_id": "FC-AES-OUTPUT-WINDOW",
+      "name": "output validity and hold window",
+      "weight": 1,
+      "coverage_definition": "Observe text_out before, at, and after done",
+      "sampling_rule": "Sample text_out across the complete frozen output-validity window",
+      "oracle_definition": "Output validity and stability match the interface contract"
+    },
+    {
+      "target_id": "FC-AES-BACK-TO-BACK",
+      "name": "back-to-back transactions",
+      "weight": 1,
+      "coverage_definition": "Exercise two adjacent accepted transactions with distinct key/text pairs",
+      "sampling_rule": "Sample acceptance and ciphertext identity for both transactions",
+      "oracle_definition": "Each output belongs to its corresponding accepted transaction"
+    },
+    {
+      "target_id": "FC-AES-ROUND-BOUNDARY",
+      "name": "initial, middle, and final round boundaries",
+      "weight": 1,
+      "coverage_definition": "Exercise a transaction across the initial AddRoundKey, middle rounds, and final round",
+      "sampling_rule": "Sample common observable boundary indicators or approved reference checkpoints",
+      "oracle_definition": "Boundary ordering and final-round behavior match AES-128"
+    }
+  ],
+  "observations": [
+    {
+      "model": "agentw",
+      "target_id": "FC-AES-RESET-IDLE",
+      "status": "miss",
+      "attempted": true,
+      "sampled": false,
+      "oracle_valid": false,
+      "test_nodeids": [
+        "tests/test_aes_cipher_top_control_reset.py::test_reset_sync"
+      ],
+      "evidence_source": "passed execution does not sample the complete reset/release/idle window; revised after anonymous LLM advisory"
+    },
+    {
+      "model": "agentw",
+      "target_id": "FC-AES-LOAD-START",
+      "status": "miss",
+      "attempted": true,
+      "sampled": false,
+      "oracle_valid": false,
+      "test_nodeids": [
+        "tests/test_aes_cipher_top_control_load.py::test_load_valid"
+      ],
+      "evidence_source": "passed execution checks eventual done but not the target-defined first active-cycle sample"
+    },
+    {
+      "model": "agentw",
+      "target_id": "FC-AES-BUSY-ISOLATION",
+      "status": "miss",
+      "attempted": true,
+      "sampled": false,
+      "oracle_valid": false,
+      "test_nodeids": [
+        "tests/test_aes_cipher_top_control_load.py::test_load_conflict"
+      ],
+      "evidence_source": "passed execution declares conflict coverage but does not drive a second load while busy"
+    },
+    {
+      "model": "agentw",
+      "target_id": "FC-AES-DONE-LATENCY",
+      "status": "miss",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": false,
+      "test_nodeids": [
+        "tests/test_aes_cipher_top_output_done_signal.py::test_done_length",
+        "tests/test_aes_cipher_top_output_done_signal.py::test_done_premature"
+      ],
+      "evidence_source": "executions observe done but do not apply the frozen exact-latency Oracle"
+    },
+    {
+      "model": "agentw",
+      "target_id": "FC-AES-KAT",
+      "status": "miss",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": false,
+      "test_nodeids": [
+        "tests/test_aes_cipher_top_api_basic.py::test_api_aes_cipher_top_encrypt_basic"
+      ],
+      "evidence_source": "execution samples a ciphertext range but never compares with the FIPS-197 expected ciphertext"
+    },
+    {
+      "model": "agentw",
+      "target_id": "FC-AES-INPUT-MAPPING",
+      "status": "miss",
+      "attempted": true,
+      "sampled": false,
+      "oracle_valid": false,
+      "test_nodeids": [
+        "tests/test_aes_cipher_top_init_data_load.py::test_data_load_mapping"
+      ],
+      "evidence_source": "execution claims column-major mapping but only checks eventual completion"
+    },
+    {
+      "model": "agentw",
+      "target_id": "FC-AES-OUTPUT-WINDOW",
+      "status": "miss",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": false,
+      "test_nodeids": [
+        "tests/test_aes_cipher_top_output_data.py::test_output_mapping"
+      ],
+      "evidence_source": "execution samples output but lacks before/at/after-done window assertions"
+    },
+    {
+      "model": "agentw",
+      "target_id": "FC-AES-BACK-TO-BACK",
+      "status": "miss",
+      "attempted": false,
+      "sampled": false,
+      "oracle_valid": false
+    },
+    {
+      "model": "agentw",
+      "target_id": "FC-AES-ROUND-BOUNDARY",
+      "status": "miss",
+      "attempted": true,
+      "sampled": false,
+      "oracle_valid": false,
+      "test_nodeids": [
+        "tests/test_aes_cipher_top_final_round.py::test_final_skip_mix_verification"
+      ],
+      "evidence_source": "execution claims the final-round property but only checks eventual completion"
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-AES-RESET-IDLE",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_aes_cipher_top_interface_and_isolation.py::test_aes_cipher_top_reset_release_no_spurious_start"
+      ],
+      "evidence_source": "passed execution samples reset release and the complete idle observation window; draft mapping"
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-AES-LOAD-START",
+      "status": "pending",
+      "attempted": true,
+      "sampled": false,
+      "oracle_valid": false,
+      "test_nodeids": [
+        "tests/test_aes_cipher_top_interface_and_isolation.py::test_aes_cipher_top_load_samples_data_on_start_cycle"
+      ],
+      "evidence_source": "failed frozen execution",
+      "pending_reason": "upstream completion failure prevents the downstream accepted-transaction sample"
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-AES-BUSY-ISOLATION",
+      "status": "pending",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": false,
+      "test_nodeids": [
+        "tests/test_aes_cipher_top_interface_and_isolation.py::test_aes_cipher_top_signal_toggle_while_busy"
+      ],
+      "evidence_source": "failed frozen execution",
+      "pending_reason": "busy disturbance is sampled but the common Oracle is confounded by the upstream completion defect"
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-AES-DONE-LATENCY",
+      "status": "pending",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": false,
+      "test_nodeids": [
+        "tests/test_aes_cipher_top_interface_and_isolation.py::test_aes_cipher_top_done_latency_is_fixed"
+      ],
+      "evidence_source": "failed execution samples done on every active cycle",
+      "pending_reason": "upstream completion defect prevents validating the target-specific latency Oracle; revised after anonymous LLM advisory"
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-AES-KAT",
+      "status": "pending",
+      "attempted": true,
+      "sampled": false,
+      "oracle_valid": false,
+      "test_nodeids": [
+        "tests/test_aes_cipher_top_functional_kat.py::test_aes_cipher_top_kat_basic_fips_vector"
+      ],
+      "evidence_source": "failed frozen execution",
+      "pending_reason": "the transaction times out before the ciphertext sampling point"
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-AES-INPUT-MAPPING",
+      "status": "pending",
+      "attempted": true,
+      "sampled": false,
+      "oracle_valid": false,
+      "test_nodeids": [
+        "tests/test_aes_cipher_top_functional_kat.py::test_aes_cipher_top_input_column_major_mapping"
+      ],
+      "evidence_source": "failed frozen execution",
+      "pending_reason": "the transaction times out before the reference ciphertext comparison"
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-AES-OUTPUT-WINDOW",
+      "status": "pending",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": false,
+      "test_nodeids": [
+        "tests/test_aes_cipher_top_interface_and_isolation.py::test_aes_cipher_top_output_not_valid_too_early"
+      ],
+      "evidence_source": "passed partial-window execution",
+      "pending_reason": "only the pre-done portion is sampled; at-done and post-done observations are absent"
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-AES-BACK-TO-BACK",
+      "status": "pending",
+      "attempted": true,
+      "sampled": false,
+      "oracle_valid": false,
+      "test_nodeids": [
+        "tests/test_aes_cipher_top_interface_and_isolation.py::test_aes_cipher_top_back_to_back_load_transactions"
+      ],
+      "evidence_source": "failed frozen execution",
+      "pending_reason": "the first transaction does not complete, so the second transaction target is never sampled"
+    },
+    {
+      "model": "gpt5.4",
+      "target_id": "FC-AES-ROUND-BOUNDARY",
+      "status": "pending",
+      "attempted": true,
+      "sampled": false,
+      "oracle_valid": false,
+      "test_nodeids": [
+        "tests/test_aes_cipher_top_functional_kat.py::test_aes_cipher_top_round_count_latency_stability"
+      ],
+      "evidence_source": "failed frozen execution",
+      "pending_reason": "completion fails before the frozen round-boundary result can be evaluated"
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-AES-RESET-IDLE",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_aes_cipher_top_init_reset.py::test_reset_state"
+      ],
+      "evidence_source": "passed execution with explicit reset-state assertions; draft mapping"
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-AES-LOAD-START",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_aes_cipher_top_control_logic.py::test_data_flow_load"
+      ],
+      "evidence_source": "passed execution samples load and state-flow transition; draft mapping"
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-AES-BUSY-ISOLATION",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_aes_cipher_top_control_logic.py::test_data_flow_ld_during"
+      ],
+      "evidence_source": "passed execution drives load during an active operation and checks data-flow behavior; draft mapping"
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-AES-DONE-LATENCY",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_aes_cipher_top_api_signal.py::test_done_signal_normal"
+      ],
+      "evidence_source": "passed execution samples normal done behavior across the transaction; draft mapping"
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-AES-KAT",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_aes_cipher_top_api_basic.py::test_api_aes_cipher_top_encrypt_nist_vector"
+      ],
+      "evidence_source": "passed NIST-vector execution with ciphertext Oracle; draft mapping"
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-AES-INPUT-MAPPING",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_aes_cipher_top_col_major.py::test_cm_byte_map"
+      ],
+      "evidence_source": "passed execution with explicit column-major byte-map assertions; draft mapping"
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-AES-OUTPUT-WINDOW",
+      "status": "pending",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": false,
+      "test_nodeids": [
+        "tests/test_aes_cipher_top_addroundkey.py::test_final_output_hold"
+      ],
+      "evidence_source": "failed execution samples the post-done hold behavior",
+      "pending_reason": "before-done and at-done portions of the frozen output window are not established; revised after anonymous LLM advisory"
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-AES-BACK-TO-BACK",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_aes_cipher_top_api_signal.py::test_continuous_successive"
+      ],
+      "evidence_source": "passed execution distinguishes successive transactions; draft mapping"
+    },
+    {
+      "model": "qwen36",
+      "target_id": "FC-AES-ROUND-BOUNDARY",
+      "status": "hit",
+      "attempted": true,
+      "sampled": true,
+      "oracle_valid": true,
+      "test_nodeids": [
+        "tests/test_aes_cipher_top_addroundkey.py::test_arsk_last_no_mc"
+      ],
+      "evidence_source": "passed execution checks the final-round no-MixColumns boundary; draft mapping"
+    }
+  ]
+}

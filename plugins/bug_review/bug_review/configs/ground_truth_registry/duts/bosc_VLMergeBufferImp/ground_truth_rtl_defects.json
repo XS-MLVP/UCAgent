@@ -1,0 +1,74 @@
+{
+  "schema_version": "gt_rtl_v3",
+  "dut": "bosc_VLMergeBufferImp",
+  "status": "adjudicated_from_audited_rtl_roots",
+  "description": "DUT-level independent RTL defect ground truth index for bosc_VLMergeBufferImp.",
+  "total_rtl_defects": 2,
+  "model_hits": {
+    "gpt-5.5": 2
+  },
+  "defects": [
+    {
+      "gt_id": "GT-RTL-0001",
+      "global_gt_id": "GT-XS-0108",
+      "source_root_id": "RTLBUG-0001",
+      "dut": "bosc_VLMergeBufferImp",
+      "rtl_file": "bosc_NewPipelineConnectPipe_29.sv",
+      "rtl_line_start": 288,
+      "rtl_line_end": 309,
+      "failure_mode": "backpressure_failure",
+      "symptoms": [
+        "BUG-0001",
+        "BUG-0003"
+      ],
+      "models": [
+        "gpt-5.5"
+      ],
+      "source_anchor_confidence": "candidate",
+      "root_match_status": "matched_current_root",
+      "severity": "normal",
+      "description": "同步有效：写回发生时，对应 toLsq 输出在正确周期有效。",
+      "test_cases": [
+        "test_tolsq_update_template",
+        "test_multi_lane_allocation_template"
+      ],
+      "primary_test_case": "test_tolsq_update_template",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_xiangshan_20260910",
+      "admission_source": "xiangshan_backup_20260910",
+      "admission_evidence": "registered_adjudication"
+    },
+    {
+      "gt_id": "GT-RTL-0002",
+      "global_gt_id": "GT-XS-0109",
+      "source_root_id": "RTLBUG-0002",
+      "dut": "bosc_VLMergeBufferImp",
+      "rtl_file": "bosc_VLMergeBufferImp.sv",
+      "rtl_line_start": 13917,
+      "rtl_line_end": 13952,
+      "failure_mode": "handshake_failure",
+      "symptoms": [
+        "BUG-0002"
+      ],
+      "models": [
+        "gpt-5.5"
+      ],
+      "source_anchor_confidence": "candidate",
+      "root_match_status": "matched_current_root",
+      "severity": "normal",
+      "description": "分配伴随响应：成功接收请求后，响应端能够返回对应的 mBIndex。",
+      "test_cases": [
+        "test_static_bosc_VLMergeBufferImp_bg_static_001",
+        "test_split_response_index_template"
+      ],
+      "primary_test_case": "test_static_bosc_VLMergeBufferImp_bg_static_001",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_xiangshan_20260910",
+      "admission_source": "xiangshan_backup_20260910",
+      "admission_evidence": "registered_adjudication"
+    }
+  ],
+  "category": "xiangshan",
+  "last_registered_at": "2026-09-12T15:23:12+08:00",
+  "last_registered_batch": "baseline_xiangshan_20260910"
+}

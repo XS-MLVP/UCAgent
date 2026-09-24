@@ -1,0 +1,657 @@
+{
+  "schema_version": "functional_coverage_plan.v1",
+  "dut": "sd_clock_divider",
+  "revision_id": "ground-truth-v1",
+  "source_snapshot_hash": "golden_spec",
+  "targets": [
+    {
+      "target_id": "CK-API-STEP-BASIC",
+      "functional_group": "FC-API-STEP",
+      "coverage_definition": "[Assume] CK-API-STEP-BASIC",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-API-STEP-BASIC",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-API-STEP-BOUNDARY",
+      "functional_group": "FC-API-STEP",
+      "coverage_definition": "[Assume] CK-API-STEP-BOUNDARY",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-API-STEP-BOUNDARY",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-API-STEP-EXCEPTION",
+      "functional_group": "FC-API-STEP",
+      "coverage_definition": "[Assume] CK-API-STEP-EXCEPTION",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-API-STEP-EXCEPTION",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-API-CONFIG-BASIC",
+      "functional_group": "FC-API-CONFIG",
+      "coverage_definition": "[Assume] CK-API-CONFIG-BASIC",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-API-CONFIG-BASIC",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-API-CONFIG-BOUNDARY",
+      "functional_group": "FC-API-CONFIG",
+      "coverage_definition": "[Assume] CK-API-CONFIG-BOUNDARY",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-API-CONFIG-BOUNDARY",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-API-CONFIG-EXCEPTION",
+      "functional_group": "FC-API-CONFIG",
+      "coverage_definition": "[Assume] CK-API-CONFIG-EXCEPTION",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-API-CONFIG-EXCEPTION",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-API-SAMPLE-BASIC",
+      "functional_group": "FC-API-SAMPLE",
+      "coverage_definition": "[Assume] CK-API-SAMPLE-BASIC",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-API-SAMPLE-BASIC",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-API-SAMPLE-BOUNDARY",
+      "functional_group": "FC-API-SAMPLE",
+      "coverage_definition": "[Assume] CK-API-SAMPLE-BOUNDARY",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-API-SAMPLE-BOUNDARY",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-API-SAMPLE-EXCEPTION",
+      "functional_group": "FC-API-SAMPLE",
+      "coverage_definition": "[Assume] CK-API-SAMPLE-EXCEPTION",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-API-SAMPLE-EXCEPTION",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-RESET-ASSERT-CLEAR-BASIC",
+      "functional_group": "FC-RESET-ASSERT-CLEAR",
+      "coverage_definition": "[Seq] CK-RESET-ASSERT-CLEAR-BASIC",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-RESET-ASSERT-CLEAR-BASIC",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-RESET-ASSERT-CLEAR-BOUNDARY",
+      "functional_group": "FC-RESET-ASSERT-CLEAR",
+      "coverage_definition": "[Seq] CK-RESET-ASSERT-CLEAR-BOUNDARY",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-RESET-ASSERT-CLEAR-BOUNDARY",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-RESET-ASSERT-CLEAR-EXCEPTION",
+      "functional_group": "FC-RESET-ASSERT-CLEAR",
+      "coverage_definition": "[Seq] CK-RESET-ASSERT-CLEAR-EXCEPTION",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-RESET-ASSERT-CLEAR-EXCEPTION",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-RESET-HOLD-LOW-BASIC",
+      "functional_group": "FC-RESET-HOLD-LOW",
+      "coverage_definition": "[Seq] CK-RESET-HOLD-LOW-BASIC",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-RESET-HOLD-LOW-BASIC",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-RESET-HOLD-LOW-BOUNDARY",
+      "functional_group": "FC-RESET-HOLD-LOW",
+      "coverage_definition": "[Seq] CK-RESET-HOLD-LOW-BOUNDARY",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-RESET-HOLD-LOW-BOUNDARY",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-RESET-HOLD-LOW-EXCEPTION",
+      "functional_group": "FC-RESET-HOLD-LOW",
+      "coverage_definition": "[Seq] CK-RESET-HOLD-LOW-EXCEPTION",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-RESET-HOLD-LOW-EXCEPTION",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-RESET-RELEASE-RESTART-BASIC",
+      "functional_group": "FC-RESET-RELEASE-RESTART",
+      "coverage_definition": "[Seq] CK-RESET-RELEASE-RESTART-BASIC",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-RESET-RELEASE-RESTART-BASIC",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-RESET-RELEASE-RESTART-BOUNDARY",
+      "functional_group": "FC-RESET-RELEASE-RESTART",
+      "coverage_definition": "[Seq] CK-RESET-RELEASE-RESTART-BOUNDARY",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-RESET-RELEASE-RESTART-BOUNDARY",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-RESET-RELEASE-RESTART-EXCEPTION",
+      "functional_group": "FC-RESET-RELEASE-RESTART",
+      "coverage_definition": "[Seq] CK-RESET-RELEASE-RESTART-EXCEPTION",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-RESET-RELEASE-RESTART-EXCEPTION",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-RESET-ASYNC-PRIORITY-BASIC",
+      "functional_group": "FC-RESET-ASYNC-PRIORITY",
+      "coverage_definition": "[Seq] CK-RESET-ASYNC-PRIORITY-BASIC",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-RESET-ASYNC-PRIORITY-BASIC",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-RESET-ASYNC-PRIORITY-BOUNDARY",
+      "functional_group": "FC-RESET-ASYNC-PRIORITY",
+      "coverage_definition": "[Seq] CK-RESET-ASYNC-PRIORITY-BOUNDARY",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-RESET-ASYNC-PRIORITY-BOUNDARY",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-RESET-ASYNC-PRIORITY-EXCEPTION",
+      "functional_group": "FC-RESET-ASYNC-PRIORITY",
+      "coverage_definition": "[Seq] CK-RESET-ASYNC-PRIORITY-EXCEPTION",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-RESET-ASYNC-PRIORITY-EXCEPTION",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-DIV-BASIC-GENERATE-BASIC",
+      "functional_group": "FC-DIV-BASIC-GENERATE",
+      "coverage_definition": "[Seq] CK-DIV-BASIC-GENERATE-BASIC",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-DIV-BASIC-GENERATE-BASIC",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-DIV-BASIC-GENERATE-BOUNDARY",
+      "functional_group": "FC-DIV-BASIC-GENERATE",
+      "coverage_definition": "[Seq] CK-DIV-BASIC-GENERATE-BOUNDARY",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-DIV-BASIC-GENERATE-BOUNDARY",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-DIV-BASIC-GENERATE-EXCEPTION",
+      "functional_group": "FC-DIV-BASIC-GENERATE",
+      "coverage_definition": "[Seq] CK-DIV-BASIC-GENERATE-EXCEPTION",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-DIV-BASIC-GENERATE-EXCEPTION",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-DIV-BASIC-PERIOD-BASIC",
+      "functional_group": "FC-DIV-BASIC-PERIOD",
+      "coverage_definition": "[Seq] CK-DIV-BASIC-PERIOD-BASIC",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-DIV-BASIC-PERIOD-BASIC",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-DIV-BASIC-PERIOD-BOUNDARY",
+      "functional_group": "FC-DIV-BASIC-PERIOD",
+      "coverage_definition": "[Seq] CK-DIV-BASIC-PERIOD-BOUNDARY",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-DIV-BASIC-PERIOD-BOUNDARY",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-DIV-BASIC-PERIOD-EXCEPTION",
+      "functional_group": "FC-DIV-BASIC-PERIOD",
+      "coverage_definition": "[Seq] CK-DIV-BASIC-PERIOD-EXCEPTION",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-DIV-BASIC-PERIOD-EXCEPTION",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-DIV-BASIC-HALF-CYCLE-BASIC",
+      "functional_group": "FC-DIV-BASIC-HALF-CYCLE",
+      "coverage_definition": "[Seq] CK-DIV-BASIC-HALF-CYCLE-BASIC",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-DIV-BASIC-HALF-CYCLE-BASIC",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-DIV-BASIC-HALF-CYCLE-BOUNDARY",
+      "functional_group": "FC-DIV-BASIC-HALF-CYCLE",
+      "coverage_definition": "[Seq] CK-DIV-BASIC-HALF-CYCLE-BOUNDARY",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-DIV-BASIC-HALF-CYCLE-BOUNDARY",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-DIV-BASIC-HALF-CYCLE-EXCEPTION",
+      "functional_group": "FC-DIV-BASIC-HALF-CYCLE",
+      "coverage_definition": "[Seq] CK-DIV-BASIC-HALF-CYCLE-EXCEPTION",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-DIV-BASIC-HALF-CYCLE-EXCEPTION",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-DIV-BASIC-MULTI-CONFIG-BASIC",
+      "functional_group": "FC-DIV-BASIC-MULTI-CONFIG",
+      "coverage_definition": "[Seq] CK-DIV-BASIC-MULTI-CONFIG-BASIC",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-DIV-BASIC-MULTI-CONFIG-BASIC",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-DIV-BASIC-MULTI-CONFIG-BOUNDARY",
+      "functional_group": "FC-DIV-BASIC-MULTI-CONFIG",
+      "coverage_definition": "[Seq] CK-DIV-BASIC-MULTI-CONFIG-BOUNDARY",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-DIV-BASIC-MULTI-CONFIG-BOUNDARY",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-DIV-BASIC-MULTI-CONFIG-EXCEPTION",
+      "functional_group": "FC-DIV-BASIC-MULTI-CONFIG",
+      "coverage_definition": "[Seq] CK-DIV-BASIC-MULTI-CONFIG-EXCEPTION",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-DIV-BASIC-MULTI-CONFIG-EXCEPTION",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-DIV-BOUNDARY-ZERO-BASIC",
+      "functional_group": "FC-DIV-BOUNDARY-ZERO",
+      "coverage_definition": "[Seq] CK-DIV-BOUNDARY-ZERO-BASIC",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-DIV-BOUNDARY-ZERO-BASIC",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-DIV-BOUNDARY-ZERO-BOUNDARY",
+      "functional_group": "FC-DIV-BOUNDARY-ZERO",
+      "coverage_definition": "[Seq] CK-DIV-BOUNDARY-ZERO-BOUNDARY",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-DIV-BOUNDARY-ZERO-BOUNDARY",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-DIV-BOUNDARY-ZERO-EXCEPTION",
+      "functional_group": "FC-DIV-BOUNDARY-ZERO",
+      "coverage_definition": "[Seq] CK-DIV-BOUNDARY-ZERO-EXCEPTION",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-DIV-BOUNDARY-ZERO-EXCEPTION",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-DIV-BOUNDARY-ONE-BASIC",
+      "functional_group": "FC-DIV-BOUNDARY-ONE",
+      "coverage_definition": "[Seq] CK-DIV-BOUNDARY-ONE-BASIC",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-DIV-BOUNDARY-ONE-BASIC",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-DIV-BOUNDARY-ONE-BOUNDARY",
+      "functional_group": "FC-DIV-BOUNDARY-ONE",
+      "coverage_definition": "[Seq] CK-DIV-BOUNDARY-ONE-BOUNDARY",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-DIV-BOUNDARY-ONE-BOUNDARY",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-DIV-BOUNDARY-ONE-EXCEPTION",
+      "functional_group": "FC-DIV-BOUNDARY-ONE",
+      "coverage_definition": "[Seq] CK-DIV-BOUNDARY-ONE-EXCEPTION",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-DIV-BOUNDARY-ONE-EXCEPTION",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-DIV-BOUNDARY-TWO-BASIC",
+      "functional_group": "FC-DIV-BOUNDARY-TWO",
+      "coverage_definition": "[Seq] CK-DIV-BOUNDARY-TWO-BASIC",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-DIV-BOUNDARY-TWO-BASIC",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-DIV-BOUNDARY-TWO-BOUNDARY",
+      "functional_group": "FC-DIV-BOUNDARY-TWO",
+      "coverage_definition": "[Seq] CK-DIV-BOUNDARY-TWO-BOUNDARY",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-DIV-BOUNDARY-TWO-BOUNDARY",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-DIV-BOUNDARY-TWO-EXCEPTION",
+      "functional_group": "FC-DIV-BOUNDARY-TWO",
+      "coverage_definition": "[Seq] CK-DIV-BOUNDARY-TWO-EXCEPTION",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-DIV-BOUNDARY-TWO-EXCEPTION",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-DIV-BOUNDARY-MAX-BASIC",
+      "functional_group": "FC-DIV-BOUNDARY-MAX",
+      "coverage_definition": "[Seq] CK-DIV-BOUNDARY-MAX-BASIC",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-DIV-BOUNDARY-MAX-BASIC",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-DIV-BOUNDARY-MAX-BOUNDARY",
+      "functional_group": "FC-DIV-BOUNDARY-MAX",
+      "coverage_definition": "[Seq] CK-DIV-BOUNDARY-MAX-BOUNDARY",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-DIV-BOUNDARY-MAX-BOUNDARY",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-DIV-BOUNDARY-MAX-EXCEPTION",
+      "functional_group": "FC-DIV-BOUNDARY-MAX",
+      "coverage_definition": "[Seq] CK-DIV-BOUNDARY-MAX-EXCEPTION",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-DIV-BOUNDARY-MAX-EXCEPTION",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-DIV-BOUNDARY-ADJACENT-BASIC",
+      "functional_group": "FC-DIV-BOUNDARY-ADJACENT",
+      "coverage_definition": "[Seq] CK-DIV-BOUNDARY-ADJACENT-BASIC",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-DIV-BOUNDARY-ADJACENT-BASIC",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-DIV-BOUNDARY-ADJACENT-BOUNDARY",
+      "functional_group": "FC-DIV-BOUNDARY-ADJACENT",
+      "coverage_definition": "[Seq] CK-DIV-BOUNDARY-ADJACENT-BOUNDARY",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-DIV-BOUNDARY-ADJACENT-BOUNDARY",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-DIV-BOUNDARY-ADJACENT-EXCEPTION",
+      "functional_group": "FC-DIV-BOUNDARY-ADJACENT",
+      "coverage_definition": "[Seq] CK-DIV-BOUNDARY-ADJACENT-EXCEPTION",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-DIV-BOUNDARY-ADJACENT-EXCEPTION",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-DIV-DYN-LOW-TO-HIGH-BASIC",
+      "functional_group": "FC-DIV-DYN-LOW-TO-HIGH",
+      "coverage_definition": "[Seq] CK-DIV-DYN-LOW-TO-HIGH-BASIC",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-DIV-DYN-LOW-TO-HIGH-BASIC",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-DIV-DYN-LOW-TO-HIGH-BOUNDARY",
+      "functional_group": "FC-DIV-DYN-LOW-TO-HIGH",
+      "coverage_definition": "[Seq] CK-DIV-DYN-LOW-TO-HIGH-BOUNDARY",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-DIV-DYN-LOW-TO-HIGH-BOUNDARY",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-DIV-DYN-LOW-TO-HIGH-EXCEPTION",
+      "functional_group": "FC-DIV-DYN-LOW-TO-HIGH",
+      "coverage_definition": "[Seq] CK-DIV-DYN-LOW-TO-HIGH-EXCEPTION",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-DIV-DYN-LOW-TO-HIGH-EXCEPTION",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-DIV-DYN-HIGH-TO-LOW-BASIC",
+      "functional_group": "FC-DIV-DYN-HIGH-TO-LOW",
+      "coverage_definition": "[Seq] CK-DIV-DYN-HIGH-TO-LOW-BASIC",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-DIV-DYN-HIGH-TO-LOW-BASIC",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-DIV-DYN-HIGH-TO-LOW-BOUNDARY",
+      "functional_group": "FC-DIV-DYN-HIGH-TO-LOW",
+      "coverage_definition": "[Seq] CK-DIV-DYN-HIGH-TO-LOW-BOUNDARY",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-DIV-DYN-HIGH-TO-LOW-BOUNDARY",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-DIV-DYN-HIGH-TO-LOW-EXCEPTION",
+      "functional_group": "FC-DIV-DYN-HIGH-TO-LOW",
+      "coverage_definition": "[Seq] CK-DIV-DYN-HIGH-TO-LOW-EXCEPTION",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-DIV-DYN-HIGH-TO-LOW-EXCEPTION",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-DIV-DYN-REPEATED-WRITE-BASIC",
+      "functional_group": "FC-DIV-DYN-REPEATED-WRITE",
+      "coverage_definition": "[Seq] CK-DIV-DYN-REPEATED-WRITE-BASIC",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-DIV-DYN-REPEATED-WRITE-BASIC",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-DIV-DYN-REPEATED-WRITE-BOUNDARY",
+      "functional_group": "FC-DIV-DYN-REPEATED-WRITE",
+      "coverage_definition": "[Seq] CK-DIV-DYN-REPEATED-WRITE-BOUNDARY",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-DIV-DYN-REPEATED-WRITE-BOUNDARY",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-DIV-DYN-REPEATED-WRITE-EXCEPTION",
+      "functional_group": "FC-DIV-DYN-REPEATED-WRITE",
+      "coverage_definition": "[Seq] CK-DIV-DYN-REPEATED-WRITE-EXCEPTION",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-DIV-DYN-REPEATED-WRITE-EXCEPTION",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-DIV-DYN-WITH-RESET-BASIC",
+      "functional_group": "FC-DIV-DYN-WITH-RESET",
+      "coverage_definition": "[Seq] CK-DIV-DYN-WITH-RESET-BASIC",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-DIV-DYN-WITH-RESET-BASIC",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-DIV-DYN-WITH-RESET-BOUNDARY",
+      "functional_group": "FC-DIV-DYN-WITH-RESET",
+      "coverage_definition": "[Seq] CK-DIV-DYN-WITH-RESET-BOUNDARY",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-DIV-DYN-WITH-RESET-BOUNDARY",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-DIV-DYN-WITH-RESET-EXCEPTION",
+      "functional_group": "FC-DIV-DYN-WITH-RESET",
+      "coverage_definition": "[Seq] CK-DIV-DYN-WITH-RESET-EXCEPTION",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-DIV-DYN-WITH-RESET-EXCEPTION",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-TIMING-EDGE-ALIGN-BASIC",
+      "functional_group": "FC-TIMING-EDGE-ALIGN",
+      "coverage_definition": "[Seq] CK-TIMING-EDGE-ALIGN-BASIC",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-TIMING-EDGE-ALIGN-BASIC",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-TIMING-EDGE-ALIGN-BOUNDARY",
+      "functional_group": "FC-TIMING-EDGE-ALIGN",
+      "coverage_definition": "[Seq] CK-TIMING-EDGE-ALIGN-BOUNDARY",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-TIMING-EDGE-ALIGN-BOUNDARY",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-TIMING-EDGE-ALIGN-EXCEPTION",
+      "functional_group": "FC-TIMING-EDGE-ALIGN",
+      "coverage_definition": "[Seq] CK-TIMING-EDGE-ALIGN-EXCEPTION",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-TIMING-EDGE-ALIGN-EXCEPTION",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-TIMING-NO-GLITCH-BASIC",
+      "functional_group": "FC-TIMING-NO-GLITCH",
+      "coverage_definition": "[Seq] CK-TIMING-NO-GLITCH-BASIC",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-TIMING-NO-GLITCH-BASIC",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-TIMING-NO-GLITCH-BOUNDARY",
+      "functional_group": "FC-TIMING-NO-GLITCH",
+      "coverage_definition": "[Seq] CK-TIMING-NO-GLITCH-BOUNDARY",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-TIMING-NO-GLITCH-BOUNDARY",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-TIMING-NO-GLITCH-EXCEPTION",
+      "functional_group": "FC-TIMING-NO-GLITCH",
+      "coverage_definition": "[Seq] CK-TIMING-NO-GLITCH-EXCEPTION",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-TIMING-NO-GLITCH-EXCEPTION",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-TIMING-START-PHASE-BASIC",
+      "functional_group": "FC-TIMING-START-PHASE",
+      "coverage_definition": "[Seq] CK-TIMING-START-PHASE-BASIC",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-TIMING-START-PHASE-BASIC",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-TIMING-START-PHASE-BOUNDARY",
+      "functional_group": "FC-TIMING-START-PHASE",
+      "coverage_definition": "[Seq] CK-TIMING-START-PHASE-BOUNDARY",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-TIMING-START-PHASE-BOUNDARY",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-TIMING-START-PHASE-EXCEPTION",
+      "functional_group": "FC-TIMING-START-PHASE",
+      "coverage_definition": "[Seq] CK-TIMING-START-PHASE-EXCEPTION",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-TIMING-START-PHASE-EXCEPTION",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-TIMING-STEADY-CONSISTENCY-BASIC",
+      "functional_group": "FC-TIMING-STEADY-CONSISTENCY",
+      "coverage_definition": "[Seq] CK-TIMING-STEADY-CONSISTENCY-BASIC",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-TIMING-STEADY-CONSISTENCY-BASIC",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-TIMING-STEADY-CONSISTENCY-BOUNDARY",
+      "functional_group": "FC-TIMING-STEADY-CONSISTENCY",
+      "coverage_definition": "[Seq] CK-TIMING-STEADY-CONSISTENCY-BOUNDARY",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-TIMING-STEADY-CONSISTENCY-BOUNDARY",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    },
+    {
+      "target_id": "CK-TIMING-STEADY-CONSISTENCY-EXCEPTION",
+      "functional_group": "FC-TIMING-STEADY-CONSISTENCY",
+      "coverage_definition": "[Seq] CK-TIMING-STEADY-CONSISTENCY-EXCEPTION",
+      "sampling_rule": "Sample on `signal.CLK`",
+      "oracle_definition": "Check property: CK-TIMING-STEADY-CONSISTENCY-EXCEPTION",
+      "weight": 1.0,
+      "collection_status": "scoreable"
+    }
+  ],
+  "observations": []
+}

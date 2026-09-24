@@ -1,0 +1,133 @@
+{
+  "schema_version": "gt_rtl_v3",
+  "dut": "bosc_AtomicsUnit",
+  "status": "adjudicated_from_audited_rtl_roots",
+  "description": "DUT-level independent RTL defect ground truth index for bosc_AtomicsUnit.",
+  "total_rtl_defects": 4,
+  "model_hits": {
+    "gpt-5.5": 4
+  },
+  "defects": [
+    {
+      "gt_id": "GT-RTL-0001",
+      "global_gt_id": "GT-XS-0001",
+      "source_root_id": "RTLBUG-0001",
+      "dut": "bosc_AtomicsUnit",
+      "rtl_file": "bosc_AtomicsUnit.sv",
+      "rtl_line_start": 478,
+      "rtl_line_end": 525,
+      "failure_mode": "protocol_violation",
+      "symptoms": [
+        "BUG-0004",
+        "BUG-0005",
+        "BUG-0006",
+        "BUG-0007"
+      ],
+      "models": [
+        "gpt-5.5"
+      ],
+      "source_anchor_confidence": "candidate",
+      "root_match_status": "matched_current_root",
+      "severity": "normal",
+      "description": "RTL root defect in bosc_AtomicsUnit",
+      "test_cases": [
+        "test_bosc_AtomicsUnit_pmp_ld_fault_template",
+        "test_bosc_AtomicsUnit_pmp_st_fault_template",
+        "test_bosc_AtomicsUnit_pmp_ld_map_template",
+        "test_bosc_AtomicsUnit_pmp_st_map_template"
+      ],
+      "primary_test_case": "test_bosc_AtomicsUnit_pmp_ld_fault_template",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_xiangshan_20260910",
+      "admission_source": "xiangshan_backup_20260910",
+      "admission_evidence": "registered_adjudication"
+    },
+    {
+      "gt_id": "GT-RTL-0002",
+      "global_gt_id": "GT-XS-0002",
+      "source_root_id": "RTLBUG-0002",
+      "dut": "bosc_AtomicsUnit",
+      "rtl_file": "bosc_AtomicsUnit.sv",
+      "rtl_line_start": 583,
+      "rtl_line_end": 620,
+      "failure_mode": "protocol_violation",
+      "symptoms": [
+        "BUG-0008"
+      ],
+      "models": [
+        "gpt-5.5"
+      ],
+      "source_anchor_confidence": "candidate",
+      "root_match_status": "matched_current_root",
+      "severity": "normal",
+      "description": "RTL root defect in bosc_AtomicsUnit",
+      "test_cases": [
+        "test_bosc_AtomicsUnit_exception_bits_clear_between_ops_template"
+      ],
+      "primary_test_case": "test_bosc_AtomicsUnit_exception_bits_clear_between_ops_template",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_xiangshan_20260910",
+      "admission_source": "xiangshan_backup_20260910",
+      "admission_evidence": "registered_adjudication"
+    },
+    {
+      "gt_id": "GT-RTL-0003",
+      "global_gt_id": "GT-XS-0003",
+      "source_root_id": "RTLBUG-0003",
+      "dut": "bosc_AtomicsUnit",
+      "rtl_file": "bosc_AtomicsUnit.sv",
+      "rtl_line_start": 11,
+      "rtl_line_end": 17,
+      "failure_mode": "handshake_failure",
+      "symptoms": [
+        "BUG-0009"
+      ],
+      "models": [
+        "gpt-5.5"
+      ],
+      "source_anchor_confidence": "candidate",
+      "root_match_status": "matched_current_root",
+      "severity": "normal",
+      "description": "RTL root defect in bosc_AtomicsUnit",
+      "test_cases": [
+        "test_bosc_AtomicsUnit_xtval_clear_after_exception_consumed_template"
+      ],
+      "primary_test_case": "test_bosc_AtomicsUnit_xtval_clear_after_exception_consumed_template",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_xiangshan_20260910",
+      "admission_source": "xiangshan_backup_20260910",
+      "admission_evidence": "registered_adjudication"
+    },
+    {
+      "gt_id": "GT-RTL-0004",
+      "global_gt_id": "GT-XS-0004",
+      "source_root_id": "RTLBUG-0004",
+      "dut": "bosc_AtomicsUnit",
+      "rtl_file": "bosc_AtomicsUnit.sv",
+      "rtl_line_start": 769,
+      "rtl_line_end": 798,
+      "failure_mode": "handshake_failure",
+      "symptoms": [
+        "BUG-0010"
+      ],
+      "models": [
+        "gpt-5.5"
+      ],
+      "source_anchor_confidence": "candidate",
+      "root_match_status": "matched_current_root",
+      "severity": "normal",
+      "description": "RTL root defect in bosc_AtomicsUnit",
+      "test_cases": [
+        "test_bosc_AtomicsUnit_feedback_only_on_fire_template"
+      ],
+      "primary_test_case": "test_bosc_AtomicsUnit_feedback_only_on_fire_template",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_xiangshan_20260910",
+      "admission_source": "xiangshan_backup_20260910",
+      "admission_evidence": "registered_adjudication"
+    }
+  ],
+  "category": "xiangshan",
+  "last_registered_at": "2026-09-12T15:23:12+08:00",
+  "last_registered_batch": "baseline_xiangshan_20260910"
+}

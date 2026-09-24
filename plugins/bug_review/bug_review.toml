@@ -1,0 +1,5 @@
+[benchmark]
+duts = []
+
+[replay]
+enabled = true

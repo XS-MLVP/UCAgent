@@ -1,0 +1,54 @@
+{
+  "schema_version": "gt_rtl_v3",
+  "dut": "bosc_LinkMonitor",
+  "status": "adjudicated_from_audited_rtl_roots",
+  "description": "DUT-level independent RTL defect ground truth index for bosc_LinkMonitor.",
+  "total_rtl_defects": 1,
+  "model_hits": {
+    "gpt-5.5": 1
+  },
+  "defects": [
+    {
+      "gt_id": "GT-RTL-0001",
+      "global_gt_id": "GT-XS-0031",
+      "source_root_id": "RTLBUG-0001",
+      "dut": "bosc_LinkMonitor",
+      "rtl_file": "bosc_LinkMonitor.sv",
+      "rtl_line_start": 216,
+      "rtl_line_end": 250,
+      "failure_mode": "backpressure_failure",
+      "symptoms": [
+        "BUG-0001",
+        "BUG-0002",
+        "BUG-0003",
+        "BUG-0004",
+        "BUG-0005",
+        "BUG-0006"
+      ],
+      "models": [
+        "gpt-5.5"
+      ],
+      "source_anchor_confidence": "candidate",
+      "root_match_status": "matched_current_root",
+      "severity": "normal",
+      "description": "单通道背压不串扰：背压某一 RX 通道不应阻塞其他 RX 通道输出。",
+      "test_cases": [
+        "test_rx_active_ack_next_cycle",
+        "test_rx_single_queue_backpressure",
+        "test_rx_rsp_downstream_backpressure",
+        "test_rx_dat_downstream_backpressure",
+        "test_rx_snp_downstream_backpressure",
+        "test_rx_nonrun_no_lcrdv_deactivate",
+        "test_rx_credit_reclaim_flitpend_flitv"
+      ],
+      "primary_test_case": "test_rx_active_ack_next_cycle",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_xiangshan_20260910",
+      "admission_source": "xiangshan_backup_20260910",
+      "admission_evidence": "registered_adjudication"
+    }
+  ],
+  "category": "xiangshan",
+  "last_registered_at": "2026-09-12T15:23:12+08:00",
+  "last_registered_batch": "baseline_xiangshan_20260910"
+}

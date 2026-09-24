@@ -1,0 +1,75 @@
+{
+  "schema_version": "gt_rtl_v3",
+  "dut": "bosc_VfofBuffer",
+  "status": "adjudicated_from_audited_rtl_roots",
+  "description": "DUT-level independent RTL defect ground truth index for bosc_VfofBuffer.",
+  "total_rtl_defects": 2,
+  "model_hits": {
+    "gpt-5.5": 2
+  },
+  "defects": [
+    {
+      "gt_id": "GT-RTL-0001",
+      "global_gt_id": "GT-XS-0112",
+      "source_root_id": "RTLBUG-0001",
+      "dut": "bosc_VfofBuffer",
+      "rtl_file": "bosc_VfofBuffer.sv",
+      "rtl_line_start": 298,
+      "rtl_line_end": 338,
+      "failure_mode": "handshake_failure",
+      "symptoms": [
+        "BUG-0001"
+      ],
+      "models": [
+        "gpt-5.5"
+      ],
+      "source_anchor_confidence": "candidate",
+      "root_match_status": "matched_current_root",
+      "severity": "normal",
+      "description": "禁止提前写回：验证挂起阶段不会提前拉高 valid。",
+      "test_cases": [
+        "test_final_writeback_not_premature_before_merge_complete"
+      ],
+      "primary_test_case": "test_final_writeback_not_premature_before_merge_complete",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_xiangshan_20260910",
+      "admission_source": "xiangshan_backup_20260910",
+      "admission_evidence": "registered_adjudication"
+    },
+    {
+      "gt_id": "GT-RTL-0002",
+      "global_gt_id": "GT-XS-0113",
+      "source_root_id": "RTLBUG-0002",
+      "dut": "bosc_VfofBuffer",
+      "rtl_file": "bosc_VfofBuffer.sv",
+      "rtl_line_start": 402,
+      "rtl_line_end": 456,
+      "failure_mode": "load_while_busy",
+      "symptoms": [
+        "BUG-0002",
+        "BUG-0003",
+        "BUG-0004"
+      ],
+      "models": [
+        "gpt-5.5"
+      ],
+      "source_anchor_confidence": "candidate",
+      "root_match_status": "matched_current_root",
+      "severity": "normal",
+      "description": "禁止误写 VL：验证无 VL 更新需求时 vlWen 不会误拉高。",
+      "test_cases": [
+        "test_final_writeback_inhibits_vlwen_without_vl_change",
+        "test_busy_state_rejects_new_fof_without_replacement",
+        "test_busy_state_preserves_metadata_until_release"
+      ],
+      "primary_test_case": "test_final_writeback_inhibits_vlwen_without_vl_change",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_xiangshan_20260910",
+      "admission_source": "xiangshan_backup_20260910",
+      "admission_evidence": "registered_adjudication"
+    }
+  ],
+  "category": "xiangshan",
+  "last_registered_at": "2026-09-12T15:23:12+08:00",
+  "last_registered_batch": "baseline_xiangshan_20260910"
+}

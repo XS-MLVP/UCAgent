@@ -1,0 +1,523 @@
+{
+  "schema_version": "gt_rtl_v3",
+  "dut": "e203_biu",
+  "status": "bootstrap_from_current_audit",
+  "description": "DUT-level independent RTL defect index. One entry per deduplicated RTL root defect; model names record which models found it.",
+  "source": {
+    "root_file": "rtl_root_bugs.json",
+    "selection": "explicitly selected root IDs; existing GT selection is preserved",
+    "deduplication": "one GT defect per source_root_id; multiple BUG-* symptoms map to one defect"
+  },
+  "total_rtl_defects": 26,
+  "model_hits": {
+    "gpt5.4": 18,
+    "qwen36": 9,
+    "agentw": 0
+  },
+  "defects": [
+    {
+      "gt_id": "GT-RTL-0001",
+      "source_root_id": "RTLBUG-0006",
+      "rtl_file": "e203_biu.v",
+      "rtl_line_start": 1450,
+      "rtl_line_end": 1468,
+      "failure_mode": "protocol_violation",
+      "symptoms": [
+        "BUG-0006"
+      ],
+      "models": [
+        "gpt5.4"
+      ],
+      "source_anchor_confidence": "high",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_initial_db",
+      "admission_source": "initial_annotated_db",
+      "admission_evidence": "registered_adjudication"
+    },
+    {
+      "gt_id": "GT-RTL-0002",
+      "source_root_id": "RTLBUG-0007",
+      "rtl_file": "e203_biu.v",
+      "rtl_line_start": 1450,
+      "rtl_line_end": 1468,
+      "failure_mode": "arbitration_failure",
+      "symptoms": [
+        "BUG-0007"
+      ],
+      "models": [
+        "gpt5.4"
+      ],
+      "source_anchor_confidence": "high",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_initial_db",
+      "admission_source": "initial_annotated_db",
+      "admission_evidence": "registered_adjudication"
+    },
+    {
+      "gt_id": "GT-RTL-0003",
+      "source_root_id": "RTLBUG-0009",
+      "rtl_file": "e203_biu_top.sv",
+      "rtl_line_start": 443,
+      "rtl_line_end": 446,
+      "failure_mode": "ordering_or_concurrency_failure",
+      "symptoms": [
+        "BUG-0009"
+      ],
+      "models": [
+        "gpt5.4"
+      ],
+      "source_anchor_confidence": "candidate",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_initial_db",
+      "admission_source": "initial_annotated_db",
+      "admission_evidence": "registered_adjudication"
+    },
+    {
+      "gt_id": "GT-RTL-0004",
+      "source_root_id": "RTLBUG-0011",
+      "rtl_file": "e203_biu.v",
+      "rtl_line_start": 1643,
+      "rtl_line_end": 1679,
+      "failure_mode": "protocol_violation",
+      "symptoms": [
+        "BUG-0011",
+        "BUG-0044"
+      ],
+      "models": [
+        "gpt5.4"
+      ],
+      "source_anchor_confidence": "medium",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_initial_db",
+      "admission_source": "initial_annotated_db",
+      "admission_evidence": "registered_adjudication"
+    },
+    {
+      "gt_id": "GT-RTL-0005",
+      "source_root_id": "RTLBUG-0012",
+      "rtl_file": "e203_biu.v",
+      "rtl_line_start": 1499,
+      "rtl_line_end": 1518,
+      "failure_mode": "undetermined",
+      "symptoms": [
+        "BUG-0012"
+      ],
+      "models": [
+        "gpt5.4"
+      ],
+      "source_anchor_confidence": "medium",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_initial_db",
+      "admission_source": "initial_annotated_db",
+      "admission_evidence": "registered_adjudication"
+    },
+    {
+      "gt_id": "GT-RTL-0006",
+      "source_root_id": "RTLBUG-0013",
+      "rtl_file": "e203_biu_top.sv",
+      "rtl_line_start": 443,
+      "rtl_line_end": 446,
+      "failure_mode": "handshake_failure",
+      "symptoms": [
+        "BUG-0013"
+      ],
+      "models": [
+        "gpt5.4"
+      ],
+      "source_anchor_confidence": "candidate",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_initial_db",
+      "admission_source": "initial_annotated_db",
+      "admission_evidence": "registered_adjudication"
+    },
+    {
+      "gt_id": "GT-RTL-0007",
+      "source_root_id": "RTLBUG-0014",
+      "rtl_file": "e203_biu.v",
+      "rtl_line_start": 1526,
+      "rtl_line_end": 1530,
+      "failure_mode": "handshake_failure",
+      "symptoms": [
+        "BUG-0014"
+      ],
+      "models": [
+        "gpt5.4"
+      ],
+      "source_anchor_confidence": "medium",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_initial_db",
+      "admission_source": "initial_annotated_db",
+      "admission_evidence": "registered_adjudication"
+    },
+    {
+      "gt_id": "GT-RTL-0008",
+      "source_root_id": "RTLBUG-0016",
+      "rtl_file": "e203_biu.v",
+      "rtl_line_start": 1914,
+      "rtl_line_end": 1935,
+      "failure_mode": "coverage_only",
+      "symptoms": [
+        "BUG-0016",
+        "BUG-0066"
+      ],
+      "models": [
+        "qwen36"
+      ],
+      "source_anchor_confidence": "medium",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_initial_db",
+      "admission_source": "initial_annotated_db",
+      "admission_evidence": "registered_adjudication"
+    },
+    {
+      "gt_id": "GT-RTL-0009",
+      "source_root_id": "RTLBUG-0021",
+      "rtl_file": "e203_biu.v",
+      "rtl_line_start": 2034,
+      "rtl_line_end": 2040,
+      "failure_mode": "protocol_violation",
+      "symptoms": [
+        "BUG-0021",
+        "BUG-0039"
+      ],
+      "models": [
+        "gpt5.4"
+      ],
+      "source_anchor_confidence": "medium",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_initial_db",
+      "admission_source": "initial_annotated_db",
+      "admission_evidence": "registered_adjudication"
+    },
+    {
+      "gt_id": "GT-RTL-0010",
+      "source_root_id": "RTLBUG-0022",
+      "rtl_file": "e203_biu.v",
+      "rtl_line_start": 2037,
+      "rtl_line_end": 2040,
+      "failure_mode": "undetermined",
+      "symptoms": [
+        "BUG-0022"
+      ],
+      "models": [
+        "gpt5.4"
+      ],
+      "source_anchor_confidence": "medium",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_initial_db",
+      "admission_source": "initial_annotated_db",
+      "admission_evidence": "registered_adjudication"
+    },
+    {
+      "gt_id": "GT-RTL-0011",
+      "source_root_id": "RTLBUG-0023",
+      "rtl_file": "e203_biu.v",
+      "rtl_line_start": 2034,
+      "rtl_line_end": 2040,
+      "failure_mode": "undetermined",
+      "symptoms": [
+        "BUG-0023",
+        "BUG-0040"
+      ],
+      "models": [
+        "gpt5.4",
+        "qwen36"
+      ],
+      "source_anchor_confidence": "medium",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_initial_db",
+      "admission_source": "initial_annotated_db",
+      "admission_evidence": "registered_adjudication"
+    },
+    {
+      "gt_id": "GT-RTL-0012",
+      "source_root_id": "RTLBUG-0027",
+      "rtl_file": "e203_biu_top.sv",
+      "rtl_line_start": 443,
+      "rtl_line_end": 446,
+      "failure_mode": "protocol_violation",
+      "symptoms": [
+        "BUG-0027"
+      ],
+      "models": [
+        "gpt5.4"
+      ],
+      "source_anchor_confidence": "candidate",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_initial_db",
+      "admission_source": "initial_annotated_db",
+      "admission_evidence": "registered_adjudication"
+    },
+    {
+      "gt_id": "GT-RTL-0013",
+      "source_root_id": "RTLBUG-0029",
+      "rtl_file": "e203_biu.v",
+      "rtl_line_start": 1631,
+      "rtl_line_end": 1684,
+      "failure_mode": "handshake_failure",
+      "symptoms": [
+        "BUG-0029"
+      ],
+      "models": [
+        "gpt5.4"
+      ],
+      "source_anchor_confidence": "medium",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_initial_db",
+      "admission_source": "initial_annotated_db",
+      "admission_evidence": "registered_adjudication"
+    },
+    {
+      "gt_id": "GT-RTL-0014",
+      "source_root_id": "RTLBUG-0032",
+      "rtl_file": "e203_biu.v",
+      "rtl_line_start": 1963,
+      "rtl_line_end": 2021,
+      "failure_mode": "handshake_failure",
+      "symptoms": [
+        "BUG-0032"
+      ],
+      "models": [
+        "gpt5.4"
+      ],
+      "source_anchor_confidence": "medium",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_initial_db",
+      "admission_source": "initial_annotated_db",
+      "admission_evidence": "registered_adjudication"
+    },
+    {
+      "gt_id": "GT-RTL-0015",
+      "source_root_id": "RTLBUG-0033",
+      "rtl_file": "e203_biu.v",
+      "rtl_line_start": 1526,
+      "rtl_line_end": 1530,
+      "failure_mode": "response_error_handling_failure",
+      "symptoms": [
+        "BUG-0033"
+      ],
+      "models": [
+        "gpt5.4"
+      ],
+      "source_anchor_confidence": "medium",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_initial_db",
+      "admission_source": "initial_annotated_db",
+      "admission_evidence": "registered_adjudication"
+    },
+    {
+      "gt_id": "GT-RTL-0016",
+      "source_root_id": "RTLBUG-0034",
+      "rtl_file": "e203_biu.v",
+      "rtl_line_start": 1526,
+      "rtl_line_end": 1530,
+      "failure_mode": "undetermined",
+      "symptoms": [
+        "BUG-0034"
+      ],
+      "models": [
+        "gpt5.4"
+      ],
+      "source_anchor_confidence": "medium",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_initial_db",
+      "admission_source": "initial_annotated_db",
+      "admission_evidence": "registered_adjudication"
+    },
+    {
+      "gt_id": "GT-RTL-0017",
+      "source_root_id": "RTLBUG-0035",
+      "rtl_file": "e203_biu.v",
+      "rtl_line_start": 2034,
+      "rtl_line_end": 2040,
+      "failure_mode": "coverage_only",
+      "symptoms": [
+        "BUG-0035"
+      ],
+      "models": [
+        "gpt5.4"
+      ],
+      "source_anchor_confidence": "medium",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_initial_db",
+      "admission_source": "initial_annotated_db",
+      "admission_evidence": "registered_adjudication"
+    },
+    {
+      "gt_id": "GT-RTL-0018",
+      "source_root_id": "RTLBUG-0042",
+      "rtl_file": "e203_biu.v",
+      "rtl_line_start": 1526,
+      "rtl_line_end": 1530,
+      "failure_mode": "undetermined",
+      "symptoms": [
+        "BUG-0045"
+      ],
+      "models": [
+        "gpt5.4"
+      ],
+      "source_anchor_confidence": "medium",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_initial_db",
+      "admission_source": "initial_annotated_db",
+      "admission_evidence": "registered_adjudication"
+    },
+    {
+      "gt_id": "GT-RTL-0019",
+      "source_root_id": "RTLBUG-0043",
+      "rtl_file": "e203_biu.v",
+      "rtl_line_start": 1526,
+      "rtl_line_end": 1530,
+      "failure_mode": "undetermined",
+      "symptoms": [
+        "BUG-0046"
+      ],
+      "models": [
+        "gpt5.4"
+      ],
+      "source_anchor_confidence": "medium",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_initial_db",
+      "admission_source": "initial_annotated_db",
+      "admission_evidence": "registered_adjudication"
+    },
+    {
+      "gt_id": "GT-RTL-0020",
+      "source_root_id": "RTLBUG-0044",
+      "rtl_file": "e203_biu.v",
+      "rtl_line_start": 1392,
+      "rtl_line_end": 1403,
+      "failure_mode": "routing_or_selection_failure",
+      "symptoms": [
+        "BUG-0047"
+      ],
+      "models": [
+        "qwen36"
+      ],
+      "source_anchor_confidence": "candidate",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_initial_db",
+      "admission_source": "initial_annotated_db",
+      "admission_evidence": "registered_adjudication"
+    },
+    {
+      "gt_id": "GT-RTL-0021",
+      "source_root_id": "RTLBUG-0045",
+      "rtl_file": "e203_biu.v",
+      "rtl_line_start": 1949,
+      "rtl_line_end": 1961,
+      "failure_mode": "routing_or_selection_failure",
+      "symptoms": [
+        "BUG-0048",
+        "BUG-0060",
+        "BUG-0064"
+      ],
+      "models": [
+        "qwen36"
+      ],
+      "source_anchor_confidence": "candidate",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_initial_db",
+      "admission_source": "initial_annotated_db",
+      "admission_evidence": "registered_adjudication"
+    },
+    {
+      "gt_id": "GT-RTL-0022",
+      "source_root_id": "RTLBUG-0048",
+      "rtl_file": "e203_biu.v",
+      "rtl_line_start": 1118,
+      "rtl_line_end": 1124,
+      "failure_mode": "protocol_violation",
+      "symptoms": [
+        "BUG-0051"
+      ],
+      "models": [
+        "qwen36"
+      ],
+      "source_anchor_confidence": "candidate",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_initial_db",
+      "admission_source": "initial_annotated_db",
+      "admission_evidence": "registered_adjudication"
+    },
+    {
+      "gt_id": "GT-RTL-0023",
+      "source_root_id": "RTLBUG-0051",
+      "rtl_file": "e203_biu.v",
+      "rtl_line_start": 609,
+      "rtl_line_end": 615,
+      "failure_mode": "handshake_failure",
+      "symptoms": [
+        "BUG-0054"
+      ],
+      "models": [
+        "qwen36"
+      ],
+      "source_anchor_confidence": "candidate",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_initial_db",
+      "admission_source": "initial_annotated_db",
+      "admission_evidence": "registered_adjudication"
+    },
+    {
+      "gt_id": "GT-RTL-0024",
+      "source_root_id": "RTLBUG-0054",
+      "rtl_file": "e203_biu.v",
+      "rtl_line_start": 609,
+      "rtl_line_end": 615,
+      "failure_mode": "undetermined",
+      "symptoms": [
+        "BUG-0057"
+      ],
+      "models": [
+        "qwen36"
+      ],
+      "source_anchor_confidence": "candidate",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_initial_db",
+      "admission_source": "initial_annotated_db",
+      "admission_evidence": "registered_adjudication"
+    },
+    {
+      "gt_id": "GT-RTL-0025",
+      "source_root_id": "RTLBUG-0057",
+      "rtl_file": "sirv_gnrl_icbs.v",
+      "rtl_line_start": 166,
+      "rtl_line_end": 175,
+      "failure_mode": "undetermined",
+      "symptoms": [
+        "BUG-0061"
+      ],
+      "models": [
+        "qwen36"
+      ],
+      "source_anchor_confidence": "candidate",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_initial_db",
+      "admission_source": "initial_annotated_db",
+      "admission_evidence": "registered_adjudication"
+    },
+    {
+      "gt_id": "GT-RTL-0026",
+      "source_root_id": "RTLBUG-0059",
+      "rtl_file": "e203_biu.v",
+      "rtl_line_start": 1083,
+      "rtl_line_end": 1089,
+      "failure_mode": "backpressure_failure",
+      "symptoms": [
+        "BUG-0063"
+      ],
+      "models": [
+        "qwen36"
+      ],
+      "source_anchor_confidence": "candidate",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_initial_db",
+      "admission_source": "initial_annotated_db",
+      "admission_evidence": "registered_adjudication"
+    }
+  ],
+  "category": "14dut",
+  "last_registered_at": "2026-09-12T15:23:12+08:00",
+  "last_registered_batch": "baseline_initial_db"
+}

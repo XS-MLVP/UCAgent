@@ -1,0 +1,42 @@
+{
+  "schema_version": "gt_rtl_v3",
+  "dut": "e203_dtcm_ram",
+  "status": "bootstrap_from_current_audit",
+  "description": "DUT-level independent RTL defect index. One entry per deduplicated RTL root defect; model names record which models found it.",
+  "source": {
+    "root_file": "rtl_root_bugs.json",
+    "selection": "explicitly selected, semantically classified root IDs; unresolved roots are moved to the manual audit queue",
+    "deduplication": "one GT defect per source_root_id; multiple BUG-* symptoms map to one defect"
+  },
+  "total_rtl_defects": 1,
+  "model_hits": {
+    "agentw": 0,
+    "gpt5.4": 1,
+    "qwen36": 0
+  },
+  "defects": [
+    {
+      "gt_id": "GT-RTL-0001",
+      "source_root_id": "RTLBUG-0005",
+      "rtl_file": "e203_dtcm_ram.v",
+      "rtl_line_start": 1024,
+      "rtl_line_end": 1030,
+      "failure_mode": "output_mismatch_after_done",
+      "symptoms": [
+        "BUG-0063",
+        "BUG-0065"
+      ],
+      "models": [
+        "gpt5.4"
+      ],
+      "source_anchor_confidence": "candidate",
+      "admitted_at": "2026-09-12T15:23:12+08:00",
+      "admission_batch": "baseline_bm6",
+      "admission_source": "benchmark_6_adjudicated",
+      "admission_evidence": "registered_adjudication"
+    }
+  ],
+  "category": "14dut",
+  "last_registered_at": "2026-09-12T15:23:12+08:00",
+  "last_registered_batch": "baseline_bm6"
+}
