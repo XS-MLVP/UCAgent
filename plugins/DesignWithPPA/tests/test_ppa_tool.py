@@ -607,6 +607,64 @@ def test_fst_conversion_preserves_scope_and_activity(tmp_path: Path) -> None:
     assert activity["b"]["transition_count"] == 1.0
 
 
+def test_scope_discovery_resolves_deep_hierarchies_without_header_rescans(
+    tmp_path: Path,
+) -> None:
+    """A stale default scope must be resolved from one grouped reference index.
+
+    Generated RTL waveforms declare tens of thousands of references across a
+    deep hierarchy.  Scoring every candidate scope by rescanning the whole
+    header is quadratic and dominated wide-port PPA analysis; discovery must
+    stay linear while still selecting the deepest covering scope.
+    """
+
+    lines = [
+        "$timescale 1ns $end",
+        "$scope module tb $end",
+        "$scope module dut $end",
+    ]
+    identifier = iter(f"s{index}" for index in range(100000))
+    for group in range(600):
+        lines.append(f"$scope module g{group} $end")
+        for index in range(48):
+            lines.append(f"$var wire 1 {next(identifier)} n{index} $end")
+        lines.append("$upscope $end")
+    lines.append("$scope module core $end")
+    port_identifiers = [next(identifier) for _ in range(8)]
+    for index, port_identifier in enumerate(port_identifiers):
+        lines.append(f"$var wire 1 {port_identifier} a{index} $end")
+    data_identifier = next(identifier)
+    lines.append(f"$var wire 8 {data_identifier} data [7:0] $end")
+    lines.append("$upscope $end")
+    lines.extend(
+        [
+            "$upscope $end",
+            "$upscope $end",
+            "$enddefinitions $end",
+            "#0",
+        ]
+    )
+    lines.extend(f"0{port_identifier}" for port_identifier in port_identifiers)
+    lines.append(f"b00000000 {data_identifier}")
+    lines.append("#10")
+    waveform = tmp_path / "deep.vcd"
+    waveform.write_text("\n".join(lines) + "\n", encoding="ascii")
+
+    expected = [_InputBit(f"a{index}", None, f"a{index}") for index in range(8)]
+    expected += [_InputBit("data", index, f"data[{index}]") for index in range(8)]
+    started = time.monotonic()
+    _, activity = _parse_vcd_activity(
+        waveform, "deep.vcd", "tb.dut", expected
+    )
+    elapsed = time.monotonic() - started
+    # The stale tb.dut default must resolve to the deepest covering scope and
+    # every expected bit must bind; a quadratic rescan would exceed this
+    # generous bound by orders of magnitude on this declaration count.
+    assert activity["a0"]["transition_count"] == 0.0
+    assert activity["data[0]"]["transition_count"] == 0.0
+    assert elapsed < 30.0
+
+
 @pytest.mark.parametrize(
     ("blocked_module", "operation", "expected"),
     [
