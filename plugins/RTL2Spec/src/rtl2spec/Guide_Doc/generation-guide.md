@@ -1,459 +1,468 @@
 
 # XiangShan Module Design Document
 
-Generate an evidence-based, human-readable Chinese design and functional-checkpoint document for one XiangShan DUT. Produce both the design document and a quality review. Do not treat an optional spec as authoritative over source code. Optimize the reading order for understanding first and auditability second; preserve complete audit detail in appendices.
+本文是 RTL2Spec 设计文档的写作契约。生成前先完成 evidence，再阅读目标模块和实际支撑结论的相关 Scala 源码。所有实现结论必须来自同一提交、同一配置下的源码、生成 RTL、ports.csv 或已签名的相关源码记录。
+
+## 输出顺序
+
+正式设计文档只能按下列顺序组织，不能增加“生成过程”“阅读建议”或其他说明章节：
+
+1. `文档摘要`
+2. `设计概览`
+3. `功能行为`
+4. `验证策略与 Testplan`
+5. `形式化属性契约`
+6. `Sign-off 与开放项`
+7. `附录 A：I/O 定义与接口约束`
+8. `附录 B：参数、编码、状态与复位`
+9. `附录 C：范围、文档控制、证据与版本变更`
+10. `附录 D：CK 追溯矩阵`
+11. `附录 E：场景视角 Test Case`
+
+模板中的 HTML 注释只给生成器约束，不能复制到正式设计文档或质量报告正文。工具写入的 metadata marker 和 related-source marker 是审计元数据，可以保留。不得把生成过程、模型选择、阅读建议、排版规则或无法证实的“设计意图”写成 DUT 事实。
 
 ## Workspace Contract
 
-Resolve all paths from the active workspace root:
+工作区必须提供干净的 `third_party/XiangShan` Git checkout 和递归子模块。目标模块使用准确的 Chisel class 名；配置使用实际配置 class。开始前检查 `outputs/{DUT}`、`reports/{DUT}` 和 `evidence/{DUT}`，任一目录存在旧内容都必须停止并要求用户自行打包归档、清理后重新开始。禁止自动覆盖、删除或生成版本号。
 
-| Asset | Path |
-| --- | --- |
-| Template | `Guide_Doc/chip_design_document_template_zh.md` |
-| XiangShan source | `third_party/XiangShan/` |
-| Optional module specs | `inputs/<Module>/` |
-| Versioned design document | `outputs/<Module>/<Module>_design_document_zh_v<MAJOR.MINOR.PATCH>.md` |
-| Versioned quality report | `reports/<Module>/<Module>_document_quality_review_v<MAJOR.MINOR.PATCH>.md` |
-| Version history | `outputs/<Module>/VERSION_HISTORY.md` |
-| Versioned RTL evidence | `evidence/<Module>/<version>/manifest.json`, `ports.csv`, and `<Module>.sv` |
-| Generation and validation | `RTL2SpecCommand`, `Check`, `Complete` |
-
-Read optional module inputs without modifying them. Create the module-specific output and report directories when needed. Use the artifact paths above. Do not modify XiangShan source merely to make documentation generation easier.
-
-Module inputs and generated artifacts under `inputs/`, `outputs/`, `reports/<Module>/`, and `evidence/` are workspace assets. Generate and validate them normally, but do not stage or commit them to the tool repository.
-
-## Document Versioning
-
-Every generated design document and its quality report must have one shared semantic document version. Use the filenames above and the design document's metadata section in Guide_Doc/chip_design_document_template_zh.md. The quality report's layout is flexible.
-
-The template has its own visible `模板结构版本`. Record that value in the generated document as `使用模板版本`. A backward-incompatible template structure change is evidence for a document MAJOR increment; do not infer this from the template modification date alone.
-
-New documents must use the exact current template version provided in Guide_Doc/chip_design_document_template_zh.md.
-
-Use `vMAJOR.MINOR.PATCH`, for example `v1.2.3`. This is the documentation version, not the XiangShan RTL version. Record the XiangShan commit and configuration separately.
-
-### Version Selection
-
-Before drafting, inspect:
-
-- `outputs/<Module>/VERSION_HISTORY.md` when present.
-- All versioned design documents under `outputs/<Module>/`.
-- All versioned quality reports under `reports/<Module>/`.
-
-The workflow fixes the version at startup. Use the following guidance to review that choice; if it is unsuitable, restart with a suitable version instead of changing filenames mid-task:
-
-| Increment | Use when |
-| --- | --- |
-| `MAJOR` | The DUT scope or identity changes incompatibly, or a template/schema change makes the document structure incompatible with prior versions. |
-| `MINOR` | Behavior coverage changes: interfaces, parameters, states, FG/FC/CK, scenarios, or supported configurations are added, removed, or semantically changed; a new RTL baseline changes documented behavior. |
-| `PATCH` | Facts, evidence, line references, wording, diagrams, OPEN closure, formatting, or quality findings change without changing the documented behavioral contract. Also use PATCH for an intentional regeneration with no semantic change. |
-
-Rules:
-
-- The first versioned document for a module is `v1.0.0`, unless the user has selected another valid initial version.
-- Use a new version greater than the archived versions and record the reason. Resume an unfinished task with its existing version; never replace archived documents, reports, or evidence.
-- The design document and quality report must use the same version.
-- After evidence and the draft artifacts exist, call `RTL2SpecCommand(action="metadata", module="<Module>", config="<Config>", version="<version>")` to synchronize template version, commit, configuration, RTL hash/status, and date. This command must preserve an existing VERSION_HISTORY row rather than replacing its semantic change summary.
-- Compare against the immediately preceding version and summarize actual differences. Do not infer a change category only from timestamps.
-- A newer XiangShan commit does not automatically require MAJOR. Classify by the resulting document contract, normally MINOR for behavioral change and PATCH for evidence-only change.
-
-### Visible Version Metadata
-
-Include these facts in the design document's appendix A and in the quality report:
-
-| Field | Required value |
-| --- | --- |
-| 文档版本 | `vMAJOR.MINOR.PATCH` |
-| 使用模板版本 | Exact `模板结构版本` read from the template |
-| 前一版本 | Previous version and relative link, or `None（首次版本）` |
-| 版本变更类型 | `Major / Minor / Patch` plus a short reason |
-| XiangShan RTL 基线 | Full XiangShan commit, not an abbreviated hash |
-| 适用配置 | Exact selected configuration and feature switches |
-| 生成日期 | ISO `YYYY-MM-DD` |
-
-For example, show the version below the title: `> 文档版本：vMAJOR.MINOR.PATCH`.
-
-The quality report must state its own version, the reviewed design-document version/path, the previous version/path, and a version-to-version change summary grouped as added, changed, fixed, removed, and remaining OPEN items.
-
-Maintain one entry per version in `outputs/<Module>/VERSION_HISTORY.md`, including these facts:
-
-| 版本 | 日期 | XiangShan commit | 配置 | 变更类型 | 摘要 | 设计文档 | 质量报告 |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-
-Use relative links from `VERSION_HISTORY.md`. Keep one entry per version; a list is also acceptable. Never rewrite an older row except to repair a broken path or an objectively incorrect metadata value, and record such a repair in the new quality report.
-
-## Required Inputs
-
-The user must identify a DUT by Chisel class, desired Verilog module name, or functional module name. If several classes plausibly match, inspect them and ask one focused question only when source evidence cannot disambiguate the intended top.
-
-Always use:
-
-1. The current document template.
-2. The checked-out XiangShan source and its exact Git commit.
-3. Elaborated Verilog/SystemVerilog from that same commit and the selected configuration when exact Verilog I/O is claimed.
-
-Specs under `inputs/<Module>/` are optional. Use them to discover intent, terminology, expected scenarios, and possible missing behavior. Validate every implementation claim against source.
+生成顺序固定为：`preflight` -> `evidence` -> 读取目标源码/RTL/ports -> 读取实际相关源码 -> `related_sources` -> 草稿 -> `metadata` -> `validate` -> `lint`。Mermaid 只作为 Markdown fenced source 保存，不生成 SVG。
 
 ## Evidence Order
 
-Use this order for implementation facts:
+1. 运行 `RTL2SpecCommand(action="preflight")` 和 `action="evidence"`。
+2. 阅读 `evidence/{DUT}/manifest.json`、`ports.csv` 和 `{DUT}.sv`。manifest 的 commit、config、generation_status、RTL hash、端口数和工具版本是事实来源。
+3. 阅读目标模块源码，定位接口、参数、状态、复位、时序和行为分支。
+4. 对本次实际读取过的相关模块执行 `related_sources`，包括用于上下文核对但未支撑最终结论的模块；不得把“被完整芯片编译过”当作“文档参考过”。
+5. 每个正文结论若依赖相关模块，必须引用相应 `E-REL-*`；附录 C 必须列出路径、定义行和 SHA-256。
 
-1. Elaborated Verilog/SystemVerilog from the documented commit and configuration: exact module and flattened port names, directions, widths, generated structures.
-2. Chisel/Scala source: Bundle classes, object paths, parameter definitions, state machines, register updates, priorities, assertions, feature guards.
-3. XiangShan configuration source and build invocation: parameter values and enabled features for the selected target.
-4. Existing module spec: design intent and verification suggestions.
-5. Inference: only as an explicit `OPEN-*`, never as a FACT.
+## Reader Model
 
-When sources conflict, report the conflict. Do not silently choose the spec over RTL. A comment is weaker evidence than executable code. A generated port from a different commit or configuration is not valid evidence.
+正文按读者理解 DUT 的顺序展开：
 
-## Document Information Architecture
+- `文档摘要`给职责、边界、输入输出、容量时延、验证范围和开放项。
+- `设计概览`依次给职责与边界、事务模型、数据/控制通路、关键资源与冲突、时序与状态。资源表只记录影响容量、顺序、仲裁或恢复的真实资源；组合直连模块明确写不适用并给出证据。正文只用逻辑接口名；完整扁平端口和源码位置移到附录。
+- `功能行为`按数据路径定义一个或多个 `P-*`。每段都必须写激励条件、处理过程、输出或状态结果、时延/顺序、边界与恢复、配置裁剪。
+- `验证策略与 Testplan`先说明风险优先级，再说明 stimulus、monitor、checker、reference model、assertion、coverage 和 formal harness 的责任及采样工件；统一 Testplan 行连接一个 FC、一个 CK、一个 P-*、激励、观察结果、Coverage/场景和关闭标准。
+- `形式化属性契约`先记录时钟复位、X 态、公平性/等待界限和 harness 边界，再绑定每个 CK 的 Assume、Assert 或 Cover、历史有效、状态和实现状态。
+- `Sign-off 与开放项`使用结构化开放项表和签核状态表；只报告当前签核状态和可执行关闭条件。
+- 附录保存完整 I/O、参数/编码/状态、范围控制、证据、版本变更、CK 追溯和场景 Test Case。
 
-Follow the fixed heading titles, levels, order, and per-section table counts in Guide_Doc/chip_design_document_template_zh.md. Fill bracketed heading values with actual names. The template marks repeatable P-* sections (one or more) and additional CASE-* sections (zero or more). Keep the normal, boundary, and recovery case headings; explain inapplicability when needed. Table row counts, prose length, and diagram counts depend on the module.
+## Transaction Rules
 
-### Template Directive Semantics
+存在 ready/valid 时，必须明确 `valid && ready` 的接受条件、未接受时 payload 保持、消费者背压时输出保持、接受后资源和计数的变化。不能用“握手完成”代替具体条件。
 
-Use the template comments as writing guidance, not DUT facts or prose to copy into the output:
-
-- `MAINTAINER` is for template maintainers; omit it from generated documents.
-- `GENERATOR` describes recommended generation behavior. Replace or remove every square-bracket placeholder and never leave instructional examples as DUT facts.
-- `CONDITIONAL` states an applicability decision. If applicable, generate the requested content; otherwise keep a concise `不适用` conclusion with evidence instead of silently deleting the topic.
-
-Visible blockquotes explain the document to readers. HTML comments instruct the generator. Do not move audit-only instructions into visible prose, and do not hide reader-critical behavior solely in comments.
-
-The generated document must not contain template directive comments or unreplaced instructional placeholders. For conditional topics, state applicability and its reason/evidence in the form most useful for the module.
+存在 flush、replay、cancel、error 或 reset 时，必须逐项说明：哪些事务已经存活、哪些事务被取消、取消后是否禁止旧输出、恢复如何建立新事务、同周期事件的优先级。配置或特性被关闭时，说明 disabled 状态的无副作用；没有证据时写 `OPEN-*`。
 
 ## Coverage Practice Principles
 
-Apply the following coverage planning principles to the current module:
-
-- Define one short, positive, unambiguous coverage requirement before choosing its implementation.
-- For every `COV-*`, state the observation event, valid and invalid sampling conditions, important values or ranges, dependencies/crosses, illegal or ignored combinations, and closure artifact.
-- Sample observed successful behavior or a checker-confirmed transaction, not stimulus intent alone. Track negative/error coverage separately from positive coverage.
-- Use temporal coverage for event order, handshakes, and state transitions; use data coverage for meaningful values and configurations; combine them only with an explicit sampling event.
-- Avoid default bins and unbounded cross products when they obscure analysis. Select named representative, boundary, and risk-driven bins and explain exclusions.
-- Give coverage objects, instances, bins, and crosses stable names that explain the measured behavior. An auto-generated number is not an adequate description.
-- Organize plans by data flow and refine a small number of behavior families. One family-level sequence is preferable to enumerating equivalent traces.
-- Each Test Plan item has one clear requirement and at least one closure link to an assertion, cover property, covergroup, scoreboard, test, or regression.
-
-These principles improve readability and diagnosis. They do not override the evidence hierarchy or turn a coverage goal into a DUT fact.
-
-Follow the template's three layers and keep their responsibilities distinct:
-
-1. `第一部分：正文` builds the reader's mental model and explains the design. It starts with a one-page summary and contains only evidence IDs needed to understand the current behavior.
-2. `第二部分：验证计划` contains verification strategy, one unified Test Plan, Coverage Summary, formal property contracts, scenarios, and current signoff blockers. It references design rules from the main body instead of redefining them.
-3. `第三部分：附录` contains complete I/O mapping, evidence locations, parameters and configuration pruning, FACT/OPEN records, document control, traceability, and signoff detail.
-
-The beginning of the main body must answer these questions before detailed implementation is introduced:
-
-1. Who produces each important request, data item, or control event?
-2. Who consumes each output or completion, and for what purpose?
-3. What do the key concepts and structures mean, and how do easily confused concepts differ?
-
-Then explain the typical end-to-end flow in producer-to-consumer order. Do not introduce resource internals, state transitions, or priority details until the reader can place them in that flow.
-
-### Presentation Grammar
-
-Choose the representation by information type. Do not turn every section into a table.
-
-- Use short prose for purpose, mechanism, design rationale, and verification strategy.
-- Use a small Mermaid diagram for topology, data movement, lifecycle, or nontrivial temporal interaction.
-- Use formula-like text or pseudocode for selection, priority, next-state, update, and gating rules.
-- Use tables only for mappings, capability matrices, Test Plan rows, coverage summaries, and appendix inventories that require comparison across rows.
-- Use an explicit `边界与限制` paragraph or bullets for backpressure, priority, races, unsupported behavior, and configuration boundaries.
-- Use `[E-<DOMAIN>-<NN>]` references in reader-facing prose. Expand paths and line numbers only in the evidence appendix.
-
-Avoid consecutive tables with substantially overlapping columns such as description, condition, result, and evidence. In particular, do not place an FC table immediately before a CK table in the main reading path. The unified Test Plan is the execution view; complete FC and CK registries are audit-only appendices.
-
-### One-Page Summary
-
-Aim for a concise opening summary, roughly one page when practical, that states:
-
-- Module responsibility and explicit non-goals.
-- Important inputs and their producers.
-- Important outputs and their consumers.
-- Differences between key concepts or structures.
-- Important latency, throughput, and capacity facts.
-- Verification scope.
-- Blocking or interpretation-relevant `OPEN-*` items.
-
-Do not put implementation paths, flattened RTL names, full parameter inventories, or detailed channel exceptions in the summary.
-
-### Logical Names in Reader-Facing Content
-
-Use stable logical names such as `producer.data`, `consumer.dataSources[src]`, `ingress.request`, and `recovery.flush` in the main body, diagrams, property formulas, and Test Plan. Define them once in `上下游与逻辑接口` and map each one to Chisel and exact Verilog names in appendix B.
-
-- Do not make readers parse flattened RTL names to understand behavior.
-- Do not put three or more complete RTL port names in one prose sentence.
-- Exact RTL names are allowed in appendix mapping tables, evidence references, and narrowly scoped implementation notes where the spelling itself matters.
-- Mermaid diagrams use logical or human-readable names. They never carry exhaustive port lists.
-
-### Single Authoritative Definition
-
-Assign each behavior contract a stable `P-*` rule ID in a functional-behavior subsection. That subsection is the only complete definition of the fact. Organize rules in data-flow order and express the executable core as formula-like text or pseudocode when practical.
-
-- FCs state the verification objective and reference one or more `P-*` rules; they do not restate the mechanism.
-- CKs state one independently checkable property and reference its `P-*`/FC source.
-- Coverage items reference `P-*`, FC, and CK IDs.
-- Test Plan cases describe actor actions and stage outcomes. Write expectations in the form `预期行为遵循 P2、CK-SRC-FORWARD` or its named-ID equivalent, without repeating the forwarding, arbitration, flush, or update algorithm.
-- Appendices map IDs to exact ports, source evidence, configuration, and signoff state. They do not create a second behavioral definition.
-- Intentional repetition is allowed only when it changes abstraction level or is necessary to understand the local argument. Prefer a cross-reference when the abstraction level is unchanged.
-
-### Module Rules Versus Instance Capabilities
-
-Separate the common mechanism from channel, bank, pipe, port-group, or entry-class details:
-
-1. Define one module-level function or rule using logical inputs, priority, output, latency, and frame conditions.
-2. Create one `实例能力矩阵` for differences such as source availability, forwarding, bypass, caching, immediate data, recovery support, and selected-configuration presence.
-3. Refer to matrix categories from the rule's `适用实例`; do not enumerate all instances inside the common rule.
-4. Put exact Chisel objects, generated port groups, and per-instance pruning in appendix C.
-
-For example, define operand selection once as `result = select_by_priority(available_sources)`, then use the capability matrix to state which channel categories contribute Forward, Bypass, Cache, Immediate, or other sources. Do not interleave the generic priority rule with a channel-by-channel port inventory.
-
-### Evidence References
-
-Assign stable evidence IDs such as `[E-BEH-01]`, `[E-IO-02]`, and `[E-CONFIG-03]` while analyzing source. Reader-facing sections cite only those IDs. Appendix D expands each ID to exact source/RTL path, line, commit, configuration, and supported `P-*`/`IO-*` items.
-
-- A source location may appear inline only when its exact spelling is itself the subject of the sentence.
-- Evidence IDs support a rule; they do not become alternate descriptions of the behavior.
-- FACT and OPEN records reference evidence IDs and `P-*` rules without duplicating the algorithm.
-
-### Property Implementation States
-
-Use the template states exactly: `Illustrative`, `Planned`, `Generated`, `Compiled`, `Proved`, and `Covered`. Record one property implementation state and one independent signoff state per CK in appendix F.
-
-- `Illustrative` means a representative formula only and cannot support a complete-property or compile claim.
-- `Planned` means the CK exists in the plan but its independent executable formula is not complete.
-- `Generated` requires a separate formula for that CK. `Compiled`, `Proved`, and `Covered` require the corresponding tool result and archived log.
-- Do not describe a representative formula section as a complete CK contract. The quality report must state counts by property state and lower the score when formulas remain Illustrative or Planned.
-
-## Workflow
-
-### 0. Preflight the Environment
-
-Before source analysis or elaboration, run:
-
-```text
-RTL2SpecCommand(action="preflight", module="<Module>", config="<Config>")
-```
-
-This workflow supports Linux and macOS. Do not assume Homebrew, GNU `time`, x86-64, a system-wide Java, or a system-wide Mill installation. The project scripts bootstrap Temurin JDK 17 when needed, bootstrap the XiangShan-pinned Mill, and select/build a native Espresso for the host OS and architecture.
-
-If preflight fails, resolve missing Java 17, Git, Curl, Make, C compiler, Python 3, nested submodules, configuration, disk space, or dirty-source issues before elaboration. Do not discover these failures halfway through a full-chip generation.
-
-### 1. Establish the Baseline
-
-- Determine the next document version before writing and identify the immediately preceding version used for comparison.
-- Record the full XiangShan commit from preflight and the matching RTL manifest.
-- Use a clean XiangShan checkout with all nested submodules at their recorded commits. If preflight reports source changes, stop and have the source owner prepare the intended clean baseline before retrying.
-- Identify the selected XiangShan configuration and all feature switches affecting the DUT.
-- Read the full template before drafting.
-- Read every Markdown file under `inputs/<Module>/` if the directory exists.
-
-Do not reuse FACT or OPEN conclusions from an older output without rechecking them against the current baseline. Build a concrete change list against the previous version while reviewing evidence.
-
-### 2. Discover the Complete Source Boundary
-
-Locate the DUT class and recursively inspect:
-
-- Base classes and mixed-in traits.
-- Top-level `IO(...)`, named or anonymous Bundle definitions, nested Bundle classes, Vec dimensions, Flipped direction changes, and Decoupled/Valid protocols.
-- Instantiated child modules and the source files defining them.
-- Parameter/config keys and derived constants.
-- Top-level state register and transition logic.
-- Arrays, queues, SRAMs, CAMs, counters, arbitration, flush/replay/error handling, assertions, and optional instrumentation.
-
-Search by class name, `Module(new ...)`, Bundle type, parameter name, and interface type across `third_party/XiangShan/src`. Do not assume all relevant definitions are in the DUT file.
-
-For anonymous top-level Bundles, write `anonymous Bundle in <Class>.io` rather than inventing a class such as `<Class>IO`. Record the exact enclosing source location.
-
-### 3. Build the Reader Model and Canonical Vocabulary
-
-Before drafting implementation details:
-
-- Identify all important external producers, consumers, and control peers.
-- Define a small logical-name vocabulary for the interfaces and data objects used in prose.
-- Identify terms or structures a new reader may confuse and state their differences.
-- Trace one normal transaction from producer to consumer, then locate backpressure, replay, flush, cancellation, and recovery branches on that flow.
-- Create the `P-*` behavior-rule list and choose one authoritative definition location for each fact.
-- Assign evidence IDs before drafting so source paths do not leak into the main narrative.
-- Classify facts as module-wide mechanisms or instance capabilities before writing either.
-
-Draft `文档摘要`, the architecture/data-flow explanation, transaction model, and instance-capability matrix before resource details, FSM details, FCs, or CKs. If the design cannot yet be explained without exact port strings, the reader model is incomplete.
-
-### 4. Build the I/O Mapping Appendix
-
-Appendix B must map each main-body logical name and include both implementation levels:
-
-- Logical interface: stable reader-facing name, role, producer, and consumer.
-- Chisel: enclosing Bundle class, object path, field path, direction after `Flipped`, Chisel type, dimensions, and Scala `path:line`.
-- Verilog: exact elaborated port name, direction, and width.
-- Configuration status: whether the Chisel field exists, whether the selected configuration emitted a Verilog leaf, and why it was generated, constant-folded, feature-disabled, or dead-port-eliminated.
-
-Map every externally visible leaf, including each generated Vec element. A summary row may group a regular array only when the exact naming pattern and index range are demonstrated by the generated RTL.
-
-After drafting appendix B, expand every Generated RTL pattern and compare the resulting `(name, direction, width)` set bidirectionally with `ports.csv`. A document is not I/O-complete merely because every cited token matches some port. Reject extra matches, missing matches, direction mismatches, and width mismatches.
-
-Never derive a Verilog name solely from a Chisel path. Firtool naming, flattening, deduplication, prefixes, and configuration can change it. If matching elaborated RTL is unavailable:
-
-- Put `OPEN-IO-<N>` in every unverified Verilog field.
-- State the missing generation command/configuration/artifact.
-- Mark I/O signoff blocked.
-- Do not use examples such as `io_enq_0_valid` as if they were facts.
-
-Prefer versioned evidence or a matching cache. Generate missing RTL only through:
-
-```text
-RTL2SpecCommand(action="evidence", module="<Module>", config="<Config>", version="<version>")
-```
-
-The command writes persistent `manifest.json`, `ports.csv`, and module RTL under `evidence/<Module>/<version>/`. If generation fails, record its diagnostics and resolve the named input or environment issue before retrying. Do not modify the generator or validators to bypass a failure.
-
-Do not replace existing version evidence. Inspect existing evidence when resuming the current unfinished task; select a new version for a new generation task.
-
-A nonzero full-top exit may still leave a complete split module RTL. Accept it only when the selected module file parses successfully, the manifest marks `generation_status: partial`, the failure occurred after RTL emission, and the quality report explains the downstream failure. Never call the full top generation successful in that case.
-
-### 5. Extract Parameters and Configuration Effects
-
-Keep the complete parameter, instance, and configuration inventory in appendix C. The main body states only latency/capacity facts needed for understanding, with an evidence-ID reference. For each appendix parameter include:
-
-- Name and Scala type.
-- Literal/default/configured value or legal range.
-- Declaration/config-key `path:line`.
-- Important use `path:line` when different.
-- Elaboration-time or runtime effect.
-- Observable functional consequence.
-
-Separate derived constants and formal harness parameters. Keep harness parameters in the verification plan because they describe the verification model, not the DUT configuration. Do not list queues, registers, state values, or resources as parameters. If a configured value cannot be resolved, preserve the expression and create `OPEN-PARAM-*`.
-
-### 6. Extract Only the Top-Level FSM
-
-The dedicated state subsection contains only the DUT's top-level FSM:
-
-- A short explanation of why the states exist and how they constrain transactions.
-- Mermaid state diagram plus concise state-semantics bullets in the same subsection. Use a table only when many states require comparison.
-- Reset entry, transition conditions, simultaneous-event priority, and externally visible restrictions.
-
-Do not promote per-entry Boolean combinations, queue occupancy, child-module FSMs, replay flags, or protocol phases into top-level states. Describe those under resource lifecycle or the relevant `P-*` behavior.
-
-### 7. Draw the Architecture Boundary
-
-The Mermaid architecture diagram must contain:
-
-```mermaid
-flowchart LR
-    subgraph DUT["DUT: <Module>"]
-        INTERNAL[Internal resource]
-    end
-```
-
-Every edge crossing the `DUT` subgraph boundary must use a logical interface defined in `上下游与逻辑接口` and mapped to a Chisel object and verified Verilog port group in appendix B. Include all external peers, key internal resources, selection/arbitration points, data paths, and control/recovery paths. Use solid edges for transaction/data flow and dashed edges for control/cancel/error flow.
-
-Keep the state diagram with its state-semantics explanation. Add a sequence diagram when a transaction crosses modules or has response/replay/flush races.
-
-Mermaid source must avoid parser-sensitive text in identifiers and edge labels. In particular, do not put `[i]`, `[x]`, wildcard `*`, semicolons, or subgraph IDs used as edge endpoints inside diagrams. Use logical or human-readable labels such as `enqueue requests 0 and 1`; keep exact Chisel/Verilog patterns in appendix B.
-
-After writing or changing any Mermaid fence, render every diagram through the pinned workflow:
-
-```text
-RTL2SpecCommand(action="render", module="<Module>", config="<Config>", version="<version>")
-```
-
-This creates `evidence/<Module>/<version>/diagrams/manifest.json` and one SVG per Mermaid fence; no diagrams produces an empty manifest. A balanced fence or Mermaid-looking source is not sufficient. Never report diagrams as passed when a real renderer was unavailable.
-
-### 8. Define FG, FC, CK, and Coverage
-
-Follow the fixed structure in Guide_Doc/chip_design_document_template_zh.md and fill its repeatable sections according to the module. Preserve the applicable technical analysis and evidence.
-
-- Render labels visibly with backticks: `` `<FG-NAME>` ``, `` `<FC-NAME>` ``, `` `<CK-NAME>` ``. Bare angle-bracket labels can disappear as HTML.
-- Keep FG boundary descriptions short and risk-oriented.
-- Put all executable verification work in one Test Plan table. Each row links priority, one FC, one independent CK, Style, `P-*`, mechanism, stimulus, observable result, Coverage/scenario, and closure criterion.
-- Include the CK's property implementation state in the audit registry. The Test Plan status/closure text must not imply more than that state supports.
-- Put the complete FC registry and CK registry in appendix F for UCAgent and audit. Do not place paired FC and CK tables in the main reading path.
-- Define each FC as a verification objective, not another design description.
-- Define each CK as one independently implementable property. Put detailed Assume, Assert, and Cover formulas together in `形式化属性契约`.
-- Use only `Comb`, `Seq`, `Seq, Symbolic`, `Assume`, or `Cover` styles accepted by the template.
-- Keep API checks as environment Assume only. Never assume DUT outputs are correct.
-- Keep Coverage checks as Cover only.
-- Split a priority chain into independently checkable adjacent-priority properties.
-- Add frame conditions for every cross-cycle update, including non-target symbolic stability for multi-entry storage.
-- Parameter/feature gating requires both enabled behavior and disabled no-side-effect checks.
-- Use reviewed harness parameters for unknown latency. Never write vague timing such as “later” or “after taking effect.”
-- Maintain a Coverage Summary that maps each coverage goal to `P-*`, FC, and CK IDs and gives a measurable closure criterion.
-- For every Coverage Summary row, define the checker-qualified observation event, important named bins/ranges, functional crosses, illegal/ignored combinations, invalid sampling guard, and closure implementation. Estimate or bound cross-product size.
-
-Before finalizing, ensure the label tree, Test Plan, FC registry, CK registry, property formulas, Coverage Summary, and scenarios agree.
-
-### 9. Add Test Plan Cases
-
-The verification-plan Test Plan must contain user-story cases covering at least:
-
-1. A normal end-to-end transaction.
-2. A resource boundary or backpressure condition.
-3. An error, replay, flush, cancellation, or recovery path when the DUT supports one.
-
-Each case includes a goal, actors, preconditions, ordered actor actions, related `P-*`/CK/Coverage IDs, at least one `COV-*` ID, and measurable acceptance criteria. Point exact stimulus mapping to appendix B. Cases explain collaboration across rules but do not replace formal CKs and must not repeat a rule's full mechanism.
-
-### 10. Synchronize Artifact Metadata
-
-After drafting the design document, report, and history with verified RTL evidence, run:
-
-```text
-RTL2SpecCommand(action="metadata", module="<Module>", config="<Config>", version="<version>")
-```
-
-The metadata helper is authoritative for generated values only: template version, XiangShan commit, selected configuration, RTL generation status, RTL SHA-256, and generation date. It adds a `rtl2spec` metadata comment and updates recognized visible metadata cells when present. Review port counts and diagram summaries against their manifests yourself. It must not rewrite behavioral prose, OPEN conclusions, version-change summaries, or an existing history row. Review its diff before validation.
-
-When the version has no history row yet, also provide `change_type="Major"`, `"Minor"`, or `"Patch"` and `summary="..."` in the metadata call. The helper refuses to invent those semantic fields. On reruns it preserves the existing history row unchanged.
-
-### 11. Produce the Quality Report
-
-Create `reports/<Module>/<Module>_document_quality_review_v<MAJOR.MINOR.PATCH>.md` in the same run. Report:
-
-- Document version, previous version, selected increment, and why that increment is correct.
-- Added, changed, fixed, removed, and still-open differences from the immediately preceding version.
-- Baseline commit, configuration, source files, generated RTL artifact, and optional specs used.
-- Host OS/architecture, preflight result, Java/Mill/firtool/Espresso versions, generation status, RTL hash, evidence manifest, and port counts.
-- Mermaid CLI/browser versions, actual render result, diagram count, rendered SVG evidence, and any parser/render failure fixed during the run.
-- What spec claims were confirmed, corrected, rejected, or left OPEN.
-- I/O mapping completeness, including counts of mapped and open leaf ports.
-- Parameter source completeness.
-- Top-level FSM and diagram consistency.
-- FG/FC/CK counts, duplicate-label result, and Style validity.
-- Whether the summary identifies producers, consumers, and distinctions between key concepts before implementation details.
-- Whether the summary stays concise and contains responsibility, I/O roles, concept distinctions, latency/capacity, verification scope, and OPEN items.
-- Whether prose, diagrams, pseudocode, matrices, Test Plan, boundary notes, and evidence appendix are used for their intended information types.
-- Whether every module-level mechanism is separated from instance/channel capability and pruning details.
-- Main-body logical-name consistency and any prose sentence containing three or more exact RTL port names.
-- Main-body raw `path:line` count and unresolved `[E-*]` references.
-- `P-*` uniqueness and whether FC, CK, Coverage, and Test Plan reference authoritative rules instead of duplicating them.
-- Normal, boundary, and recovery Test Plan coverage.
-- Commands/checkers run and failures or unrun validations.
-- Blocking OPEN items and the exact evidence needed to close each one.
-
-When executable RTL contradicts a spec/comment or appears suspicious:
-
-- Record `规格/注释期望` separately from `RTL 实际行为`.
-- Create `OPEN-BEHAV-*` or `OPEN-BUG-*`; do not normalize the behavior into an intended requirement.
-- Functional CKs describe the observed RTL contract unless the user explicitly requests a proposed/fixed design contract.
-- Add a review-only checkpoint or signoff item for design intent; do not encode the suspected bug as an environment Assume.
-
-Do not award a perfect score when exact Verilog I/O, source locations, Markdown rendering, UCAgent parsing, or SVA compilation has not been verified.
+Coverage 是可观察的完成事件，不是“输入已经驱动”。每个 Coverage 项至少定义目标行为、观察事件、重要分箱、功能交叉、非法/忽略组合、有效性保护和关闭工件。失败测试、未握手输入和无效输出不能计入有效覆盖。宽总线和大数组使用有理由的边界或分组，不展开无法闭合的全组合。
+
+## Presentation Grammar
+
+- 只保留模板规定的标题和必要的 P-/CASE-重复段；不在正式文档中留下 HTML 注释、方括号占位符、TODO 或 TBD。
+- 一个事实只在一个位置完整定义。正文引用 `P-*`、`E-*`、`OPEN-*`、`CK-*` 或章节名，不能复制完整端口表、参数表或源码路径。
+- 正文使用稳定的逻辑接口名，例如 `fetch_block`、`decode_stream`、`recovery.flush`；附录 A 才展开 Chisel 字段和 Verilog 名。
+- Mermaid 图只表达逻辑边界和通路，不放完整端口清单、源码路径或无法验证的内部状态。
+- 证据引用使用 `[E-*]`。相关模块只能使用 manifest 中已签名的 `E-REL-*`。
+- “Proved”“Covered”“Closed”等词只有在对应工具和工件真实存在时才能使用；文档自检不等于验证通过。
+
+## 行为段落最低内容
+
+每个 `P-*` 必须回答以下问题：
+
+1. 什么输入、状态和控制条件会激励它？
+2. DUT 按什么顺序处理，是否有仲裁、存储、旁路或多周期阶段？
+3. 输出、状态、计数和资源如何变化？
+4. 时延是组合、固定周期还是由下游背压决定？顺序如何保持？
+5. 满/空、同周期竞争、错误、flush/replay/cancel 和 reset 如何处理？
+6. 参数或特性关闭后有哪些无副作用保证？
+
+## 附录规则
+
+- 附录 A 是完整扁平 I/O 和协议约束的唯一映射；Generated 端口必须逐项存在于 `ports.csv`，Elided 必须给出源码/配置理由。
+- 附录 B 是参数、编码、状态和复位的唯一完整定义。没有显式状态或编码时写不适用并引用证据。
+- 附录 C 是范围、文档控制、证据和版本变更的唯一完整位置。只有支撑正文结论的相关模块证据需要在这里列出；所有实际读取过的相关模块由质量报告完整记录。
+- 附录 D 是 FC/CK 唯一追溯矩阵；每个 CK 只定义一行，并与 Testplan、形式化属性和场景一致。
+- 附录 E 是参与者视角的 Test Case；只为 DUT 实际存在或本次验证覆盖的场景创建 CASE 段。每个场景先填写参与者、前置条件、输入、预期输出和 FC/CK，再写动作、阶段结果和验收标准，算法引用 `P-*`。正常、边界或恢复场景不适用时删除对应段，并在范围或开放项中说明理由。
 
 ## Static Validation
 
-Before completion, run:
+完成草稿后执行：
 
 ```text
-RTL2SpecCommand(action="validate", module="<Module>", config="<Config>", version="<version>")
-Check()
+RTL2SpecCommand(action="metadata", module="{DUT}", config="{XS_CONFIG}")
+RTL2SpecCommand(action="validate", module="{DUT}", config="{XS_CONFIG}")
+RTL2SpecCommand(action="lint", module="{DUT}", config="{XS_CONFIG}")
 ```
 
-Automated checks reject missing/empty artifacts, heading-title/level/order or per-section table-count mismatches, a stale template version, evidence that does not match current source/configuration/actual RTL, changed port data, undefined or duplicate machine tags, broken local file/line references, contradictory declared port widths/directions or signoff states, and stale/missing diagram renders. Check does not run generation, render diagrams again, or rewrite artifacts.
-
-Warnings identify potentially incomplete interface mapping, missing traceability categories, and remaining writing placeholders. Review each warning and either improve the document or explain the scope/applicability in the quality report. Warnings do not block Complete by themselves.
-
-Review design meaning yourself: producers and consumers, common mechanisms versus instance capabilities, authoritative P-* rules and E-* evidence, feature gating, priorities and frame conditions, effective Coverage sampling, relevant scenarios, unresolved facts, and honest property/signoff states. The sections above explain these methods. Fixed heading titles/levels/order and per-section table counts are required. Use the repeatable behavior/case blocks for expansion. Inapplicable sections retain their headings and an explanation; table row counts, sentence length, and diagram counts are not fixed. A passing Check proves artifact consistency, not design completeness or SVA/formal success.
+修复标题层级、缺失的最低表格、未定义 ID、未记录的 `E-REL-*`、错误端口、断链、未闭合 Mermaid fence 和 HTML 注释后重新执行检查。模板表格可以按实际证据增加；metadata 只同步工具确认的事实，不替作者关闭开放项。
 
 ## Completion Standard
 
-The task is complete only when the local versioned design document, same-version quality report, updated `VERSION_HISTORY.md`, versioned RTL evidence, current diagram manifest (and SVGs when diagrams exist), and checker/lint results are written. These module artifacts are not committed to the tool repository. Exact Verilog I/O and actual diagram rendering remain hard evidence requirements. When elaboration or rendering is unavailable, the document status must remain Draft and the corresponding signoff must remain blocked.
+只有以下条件全部满足，文档阶段才能完成：
+
+- 输出顺序和模板结构通过检查；
+- evidence、manifest、ports.csv 和 RTL 的 commit/config/hash 一致；
+- 相关源码只包含实际读取且已签名的模块；
+- 每个行为段落具备最低内容，ready/valid、背压、取消和配置裁剪已明确或登记 OPEN；
+- 正文只保留逻辑接口名，扁平 I/O、路径、参数和证据集中在规定附录；
+- Testplan、形式化属性、CK 矩阵和 Test Case 互相一致；
+- 真实验证工件支持的项目才关闭，其他项目保持 OPEN；
+- 设计文档和质量报告不含模板生成约束或其他 HTML 注释（工具审计 marker 除外）。
+
+## 完整参考示例
+
+下面的完整文档展示当前模板的标题顺序、表格位置、Mermaid 源码、P/FC/CK/COV/CASE 追溯和 OPEN 状态。示例中的 Sbuffer 事实只用于演示结构，生成实际 DUT 文档时必须全部替换为当前 evidence 支持的内容。
+
+````markdown
+
+# Sbuffer 设计与功能检测点文档
+
+> 模板结构版本：v5.1.0
+>
+> 正式输出顺序固定为：文档摘要、设计概览、功能行为、验证策略与 Testplan、形式化属性契约、Sign-off 与开放项、附录 A 至附录 E。正文只使用逻辑接口名；完整端口、源码路径、参数、证据和版本变更放在附录。无法证实的内容写入 `OPEN-*`。
+
+## 文档摘要
+
+
+**模块职责**
+
+Sbuffer 将输入数据组合转发到结果端口，不包含状态、握手或恢复事务。
+
+**输入与生产者**
+
+- `input.data`：由测试激励提供，用于传递数据。
+- `control.reset`：由测试控制提供，用于传递数据。
+
+**输出与消费者**
+
+- `input.data`：由检查器接收，用于传递数据。
+- `output.done`：由N/A消费，用于传递数据。
+
+**关键概念**
+
+- **组合转发**：输入值直接连接到输出值。
+- **直连路径**：输入值直接连接到输出值。
+
+**关键延迟与容量**
+
+- 典型时延：组合路径，零拍。
+- 吞吐与容量：每周期一项，无在途事务。
+
+**验证范围**
+
+覆盖组合转发、全零/全一边界；未执行形式化和覆盖率工具。
+
+**开放项**
+
+OPEN-FORMAL-01：未运行形式化工具。
+
+## 设计概览
+
+### 职责与边界
+
+DUT 只负责组合转发；输入和输出均为逻辑数据接口，边界外的复位、时钟和验证环境不参与该路径。P-FORWARD、E-RTL-01。
+
+### 事务模型
+
+
+1. **产生**：测试激励稳定 input.data。
+2. **接受**：模块无 ready/valid，输入值改变即进入组合路径。
+3. **处理**：input.data 直接经过组合连接。
+4. **完成**：检查器采样 output.data。
+5. **取消与恢复**：无 flush、replay、cancel、error 或状态资源，故无存活或取消事务。
+
+### 数据与控制通路
+
+
+| 逻辑接口 | 生产者 / 消费者 | 方向 | 事务阶段 | 有效与背压约束 |
+| --- | --- | --- | --- | --- |
+| `input.data` | 测试激励 / DUT | 输入 | 连续观察 | 无握手；组合值稳定 |
+| `output.data` | DUT / 检查器 | 输出 | 组合输出 | 无握手；组合值稳定 |
+| `control.reset` | 测试控制 / DUT | 控制 | 不适用 | 无状态 |
+
+input.data 通过组合路径到达 output.data；没有控制、错误或取消路径。P-FORWARD。
+
+### 关键资源与冲突
+
+| 资源 | 类型 / 容量 | 写入 / 产生 | 读取 / 消费 | 冲突 / 优先级 | 观测点 |
+| --- | --- | --- | --- | --- | --- |
+| 无 | `none` | 不适用 | 不适用 | 不适用 | `input.data` / `output.data` |
+
+### 时序与状态
+
+组合路径无寄存器和显式状态机；复位与时钟未参与数据路径，状态机不适用。E-RTL-01。
+
+```mermaid
+flowchart LR
+    PN/A
+    CN/A
+    RN/A
+    subgraph DUTN/A
+        INN/A
+        COREN/A
+        OUTN/A
+        IN --> CORE --> OUT
+    end
+    P -->|logical ingress| IN
+    OUT -->|logical egress| C
+    R -.->|flush / cancel / error| CORE
+```
+
+## 功能行为
+
+
+### P-FORWARD：组合转发
+
+N/A
+
+**激励条件**：N/A
+
+**处理过程**：N/A
+
+**输出与状态结果**：N/A
+
+**时延与顺序**：N/A
+
+**边界与恢复**：N/A
+
+**配置裁剪**：N/A
+
+**证据**：E-RTL-01。完整位置见附录 C。
+
+## 验证策略与 Testplan
+
+### 验证策略
+
+N/A
+
+**优先级原则**
+
+- `P0`：N/A
+- `P1`：N/A
+- `P2`：N/A
+
+### 验证架构与采样点
+
+| 组件 | 责任 | 输入 / 输出 | 采样点或工件 |
+| --- | --- | --- | --- |
+| `stimulus` | 产生合法和边界值 | `input.data` | 输入值 |
+| `monitor` | 采集组合输出 | `output.data` | 输出值 |
+| `checker` | 比较输入和输出 | 输入 / 输出 | 等值检查 |
+| `formal harness` | 不适用 | N/A | 未执行 |
+
+### 功能分组
+
+`<FG-API>`
+
+- FC-INPUT-CONTRACT：N/A
+
+`<FG-CORE>`
+
+- FC-BEHAVIOR：N/A
+
+`<FG-RECOVERY>`
+
+- FC-RECOVERY：N/A
+
+### Testplan
+
+
+| 优先级 | FC | CK | Style | 关联行为 | 检查机制 | 激励 / 前置条件 | 可观察结果 | Coverage / 场景 | 关闭标准 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| P0 | `FC-INPUT-CONTRACT` | `CK-API-INPUT` | Assume | `P-FORWARD` | Assertion | 输入为已知 8 位值 | output.data | `COV-NORMAL` / `CASE-NORMAL` | 测试通过 |
+| P0 | `FC-BEHAVIOR` | `CK-EVENT-RESULT` | Seq | `P-FORWARD` | Scoreboard | 输入变化 | 输出等于输入 | `COV-NORMAL` / `CASE-NORMAL` | 测试通过 |
+| P1 | `FC-RECOVERY` | `CK-RECOVERY` | Seq | `P-FORWARD` | Assertion + scoreboard | 无恢复事件 | 无取消事务 | `COV-RECOVERY` / `CASE-RECOVERY` | 测试通过 |
+
+### Coverage Summary
+
+| Coverage ID | 目标行为 | 观察事件 | 重要取值 / 分箱 | 依赖 / 交叉 | 非法 / 忽略条件 | 有效性保护 | 关闭标准 | 状态 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `COV-NORMAL` | 正常组合路径 | N/A | 0x00、0xff | 输入取值 | 无效输入不采样 | 等值检查通过 | 覆盖两个边界值 | Planned |
+| `COV-BOUNDARY` | 全零/全一边界 | N/A | 0x00、0xff | 输入 x 输出 | 无效输入不采样 | 等值检查通过 | 覆盖两个边界值 | Planned |
+| `COV-RECOVERY` | 恢复不适用 | 不适用 | 不适用 | 不适用 | 恢复激励忽略 | 不适用 | 覆盖两个边界值 | Planned |
+
+## 形式化属性契约
+
+### 契约边界与执行条件
+
+| 项目 | 约束或定义 | 依据 / 状态 |
+| --- | --- | --- |
+| 时钟与复位 | 无时钟；复位不参与数据路径 | `E-RTL-01` |
+| X 态与未知值 | 仅采样已知输入 | `OPEN-FORMAL-01` |
+| 公平性与等待界限 | 不适用，无仲裁 | `E-RTL-01` |
+| Harness 边界 | 组合输入到输出 | `E-RTL-01` |
+
+### 属性实现状态
+
+| CK | 类型 | 契约 | 当前实现 | 属性状态 | 签核状态 |
+| --- | --- | --- | --- | --- | --- |
+| `CK-API-INPUT` | Assume | 输入为已知值 | 未实现 | Planned | OPEN |
+| `CK-EVENT-RESULT` | Assert | 输出等于输入 | 未实现 | Planned | OPEN |
+| `CK-RECOVERY` | Assert | 无取消事务 | 未实现 | Planned | OPEN |
+| `CK-COVER-BOUNDARY` | Cover | 边界值可达 | 未实现 | Planned | OPEN |
+
+### Assume
+
+N/A
+
+### Assert
+
+N/A
+
+### Cover
+
+N/A
+
+## Sign-off 与开放项
+
+### 开放项
+
+| ID | 缺口或问题 | 影响 | 关闭动作与所需证据 | 状态 |
+| --- | --- | --- | --- | --- |
+| `OPEN-FORMAL-01` | 未运行形式化工具 | Formal / assertion | 编译并运行属性，保存工件 | Open |
+
+### 签核状态
+
+| 项目 | 状态 | 依据 |
+| --- | --- | --- |
+| I/O mapping | Pass | `E-RTL-01` |
+| Testplan | Review | `FC-BEHAVIOR` |
+| Formal / assertion | Unrun | `OPEN-FORMAL-01` |
+| Regression / coverage | Unrun | `OPEN-FORMAL-01` |
+| 当前文档状态 | Draft | `OPEN-FORMAL-01` |
+
+## 附录 A：I/O 定义与接口约束
+
+
+| IO-ID | 正文逻辑接口 | Bundle / Chisel 字段 | 定义位置 | 方向 / 位宽 | 配置状态 | 精确 Verilog I/O | 协议 / 对端 | 证据 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `IO-INPUT-01` | `input.data` | `N/A` | `evidence/Sbuffer/Sbuffer.sv:1` | `I/8` | Generated | `io_data` | `N/A` | `E-RTL-01` |
+| `IO-OUTPUT-01` | `output.data` | `N/A` | `evidence/Sbuffer/Sbuffer.sv:1` | `O/8` | Generated | `io_result` | `N/A` | `E-RTL-01` |
+
+N/A
+
+## 附录 B：参数、编码、状态与复位
+
+### 参数与配置
+
+| 参数 ID | 参数 / 派生常量 | 配置值 | 约束或裁剪 | 证据 |
+| --- | --- | --- | --- | --- |
+| `PARAM-01` | `Sbuffer` | `8` | `无参数` | `E-RTL-01` |
+
+### 编码、状态与复位
+
+| 状态/编码 ID | 名称或编码 | 进入条件 | 退出条件 | reset 值 / 复位行为 | 证据 |
+| --- | --- | --- | --- | --- | --- |
+| `STATE-01` | `无状态` | `输入有效` | `输入有效` | `未使用` | `E-RTL-01` |
+
+N/A
+
+## 附录 C：范围、文档控制、证据与版本变更
+
+### 范围与文档控制
+
+| 项目 | 内容 |
+| --- | --- |
+| 使用模板版本 | v5.1.0 |
+| DUT / Chisel 顶层 | `Sbuffer` |
+| Elaborated Verilog 顶层 | `Sbuffer` |
+| 文档状态 | Draft / Review / Frozen |
+| XiangShan RTL 基线 | `fixture-commit` |
+| 适用配置 | `DefaultConfig` |
+| RTL 生成状态 | `success` |
+| RTL 证据 | `evidence/Sbuffer/manifest.json；4 ports` |
+| Mermaid 图形源码 | `1` |
+| 生成日期 | `2026-09-23` |
+
+| 范围或条件 | 裁定 | 理由 / 证据 |
+| --- | --- | --- |
+| DUT 边界 | `Sbuffer 组合路径` | `无内部状态` |
+| 相关模块源码 | `无` | `无相关源码` |
+| 未覆盖验证 | `形式化和覆盖率` | `N/A` |
+| 特性门控 | `not applicable` | `无内部状态` |
+
+### 证据与版本变更
+
+
+| Evidence ID | 类型 | 来源位置 | Commit / 配置 | 支持内容 |
+| --- | --- | --- | --- | --- |
+| `E-RTL-01` | RTL/ports | `evidence/Sbuffer/Sbuffer.sv:1` | `fixture/DefaultConfig` | `组合转发` |
+
+| 版本变更 ID | 变更类型 | 本次变更 | 影响范围 | 依据 |
+| --- | --- | --- | --- | --- |
+| `CHANGE-01` | Initial / Patch / Review | `初始文档` | `全部章节` | `E-RTL-01 / OPEN-FORMAL-01` |
+
+## 附录 D：CK 追溯矩阵
+
+### 功能组与 FC
+
+| FC | 所属 FG | 验证目标 | 关联行为 | Testplan 行 |
+| --- | --- | --- | --- | --- |
+| `FC-INPUT-CONTRACT` | `FG-API` | 数据一致 | `P-FORWARD` | 1 |
+| `FC-BEHAVIOR` | `FG-CORE` | 数据一致 | `P-FORWARD` | 1 |
+| `FC-RECOVERY` | `FG-RECOVERY` | 数据一致 | `P-FORWARD` | 1 |
+
+### CK 追溯
+
+| CK | FC | 检查目标 | Style | 属性状态 | Test Case | Coverage | 签核状态 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `CK-API-INPUT` | `FC-INPUT-CONTRACT` | 数据一致 | Assume | Planned | `CASE-NORMAL` | `COV-NORMAL` | OPEN |
+| `CK-EVENT-RESULT` | `FC-BEHAVIOR` | 数据一致 | Assert/Seq | Planned | `CASE-NORMAL` | `COV-NORMAL` | OPEN |
+| `CK-RECOVERY` | `FC-RECOVERY` | 数据一致 | Assert/Seq | Planned | `CASE-RECOVERY` | `COV-RECOVERY` | OPEN |
+| `CK-COVER-BOUNDARY` | `FC-RECOVERY` | 数据一致 | Cover | Planned | `CASE-BOUNDARY` | `COV-BOUNDARY` | OPEN |
+
+## 附录 E：场景视角 Test Case
+
+
+### CASE-NORMAL：转发数据
+
+| 参与者 | 前置条件 | 输入 | 预期输出 | 关联 FC / CK |
+| --- | --- | --- | --- | --- |
+| 生产者、DUT、检查器 | 组合路径稳定 | `input.data` | `output.data` 等于输入 | `FC-BEHAVIOR`, `CK-EVENT-RESULT` |
+
+**参与者与前置条件**：N/A
+
+1. 产生合法 input.data。
+2. 组合路径稳定。
+3. 观察 output.data。
+
+**验收标准**：output.data 等于 input.data；引用 P-FORWARD、CK-EVENT-RESULT、COV-NORMAL。
+
+### CASE-BOUNDARY：取值边界
+
+| 参与者 | 前置条件 | 输入 | 预期输出 | 关联 FC / CK |
+| --- | --- | --- | --- | --- |
+| 生产者、DUT、检查器 | 输入可取全零和全一 | `0x00`, `0xff` | 输出保持等值 | `FC-BEHAVIOR`, `CK-COVER-BOUNDARY` |
+
+**参与者与前置条件**：输入取全零和全一。
+
+1. 施加边界值。
+2. 观察输出一致。
+
+**验收标准**：输出与输入一致；引用 P-FORWARD、CK-COVER-BOUNDARY、COV-BOUNDARY。
+
+### CASE-RECOVERY：恢复适用性
+
+| 参与者 | 前置条件 | 输入 | 预期输出 | 关联 FC / CK |
+| --- | --- | --- | --- | --- |
+| 生产者、DUT、检查器 | 无恢复资源 | 无恢复 transaction | 无存活或取消事务 | `FC-RECOVERY`, `CK-RECOVERY` |
+
+**参与者与前置条件**：该组合模块没有恢复资源，恢复场景不适用。
+
+1. 不施加恢复事件。
+2. 不存在存活或取消事务。
+3. 不适用。
+
+**验收标准**：不适用；引用 E-RTL-01。
+
+
+### CASE-EXTRA：其他场景
+
+| 参与者 | 前置条件 | 输入 | 预期输出 | 关联 FC / CK |
+| --- | --- | --- | --- | --- |
+| N/A | 无额外场景 | N/A | N/A | N/A |
+
+无额外场景。
+
+````

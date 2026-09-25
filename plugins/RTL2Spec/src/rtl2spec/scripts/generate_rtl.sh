@@ -38,7 +38,7 @@ commit=$(git -C "$XS_ROOT" rev-parse HEAD)
 mill_version=$(tr -d '[:space:]' < "$XS_ROOT/.mill-version")
 java_home=$(bash "$SCRIPT_DIR/bootstrap_jdk.sh")
 java_version=$("$java_home/bin/java" -version 2>&1 | head -n 1)
-flags='--issue E.b --num-cores 1 --target systemverilog --split-verilog --dump-fir --fpga-platform --reset-gen --ignore-read-enable-mem --default-layer-specialization=disable'
+flags='--issue E.b --num-cores 1 --target systemverilog --split-verilog --dump-fir --fpga-platform --reset-gen --ignore-read-enable-mem'
 wrapper_hash=$("$PYTHON" -c 'import hashlib,sys; print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest())' "$SCRIPT_DIR/generate_rtl.sh")
 fingerprint=$(printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n' "$commit" "$CONFIG" "$mill_version" "$java_version" "$flags" "$(uname -s)" "$(uname -m)" "$ESPRESSO_COMMIT" "$wrapper_hash" | "$PYTHON" -c 'import hashlib,sys; print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest()[:20])')
 cache_dir="$CACHE_ROOT/rtl/$fingerprint"
@@ -84,8 +84,7 @@ else
       --target systemverilog \
       --firtool-opt "-O=release --disable-annotation-unknown --lowering-options=explicitBitcast,disallowLocalVariables,disallowPortDeclSharing,locationInfoStyle=none" \
       --split-verilog --dump-fir --fpga-platform --reset-gen \
-      --firtool-opt --ignore-read-enable-mem \
-      --firtool-opt "--default-layer-specialization=disable"
+      --firtool-opt --ignore-read-enable-mem
   ) 2>&1 | tee "$cache_dir/generation.log"
   generation_rc=${PIPESTATUS[0]}
   set -e

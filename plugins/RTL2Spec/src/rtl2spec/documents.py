@@ -23,6 +23,8 @@ FIELDS = {
 TEMPLATE = Path(__file__).resolve().parent / "Guide_Doc/chip_design_document_template_zh.md"
 MARKDOWN = MarkdownIt("commonmark").enable("table")
 METADATA_RE = re.compile(r"<!-- rtl2spec: (.*?) -->", re.S)
+RELATED_SOURCES_START = "<!-- rtl2spec-related-sources:start -->"
+RELATED_SOURCES_END = "<!-- rtl2spec-related-sources:end -->"
 
 
 def markdown_tokens(text: str) -> list[Token]:
@@ -48,7 +50,7 @@ def markdown_tokens(text: str) -> list[Token]:
 
 
 def mermaid_sources(text: str) -> list[str]:
-    """Extract Mermaid fences for rendering and source-hash verification."""
+    """Extract Mermaid fences for Markdown structure validation."""
     return [
         token.content.rstrip() + "\n"
         for token in markdown_tokens(text)
@@ -85,14 +87,25 @@ def document_sections(text: str, *, template: bool = False) -> list[dict]:
                 for child in tokens[index + 1].children
                 if child.type in {"text", "code_inline"}
             )
+            # Repeated behavior and scenario headings are part of the public
+            # contract; formal artifacts cannot carry template HTML comments.
+            intrinsic_repeat = (
+                title.startswith("P-[NAME]") or title.startswith("CASE-[NAME]")
+            )
             sections.append(
                 dict(
                     level=int(token.tag[1:]),
                     title=title,
                     line=token.map[0] + 1,
                     tables=0,
-                    repeat=repeated is not None,
-                    minimum=1 if repeated is None else repeated,
+                    repeat=intrinsic_repeat or repeated is not None,
+                    minimum=(
+                        0
+                        if title.startswith("CASE-[NAME]")
+                        else 1
+                        if repeated is None
+                        else repeated
+                    ),
                 )
             )
             repeated = None
@@ -113,7 +126,7 @@ def document_sections(text: str, *, template: bool = False) -> list[dict]:
 
 
 def validate_structure(text: str, module: str) -> list[dict]:
-    """Match heading titles/levels/order and per-section table counts to the sole template."""
+    """Match required headings/order and minimum table counts to the template."""
     expected = document_sections(TEMPLATE.read_text(encoding="utf-8"), template=True)
     observed = document_sections(text)
     errors = []
@@ -130,13 +143,13 @@ def validate_structure(text: str, module: str) -> list[dict]:
                 pattern, current["title"]
             ):
                 break
-            if current["tables"] != section["tables"]:
+            if current["tables"] < section["tables"]:
                 errors.append(
                     dict(
-                        error="table count differs from the template in this section",
+                        error="table count is below the template minimum in this section",
                         line=current["line"],
                         section=current["title"],
-                        expected=section["tables"],
+                        expected_minimum=section["tables"],
                         observed=current["tables"],
                     )
                 )
@@ -166,7 +179,7 @@ def validate_structure(text: str, module: str) -> list[dict]:
             )
     for error in errors:
         error["next_action"] = (
-            "Follow Guide_Doc/chip_design_document_template_zh.md: restore the indicated heading/order/table count; retain inapplicable sections with a reason."
+            "Follow Guide_Doc/chip_design_document_template_zh.md: restore the indicated heading/order/minimum table; retain inapplicable sections with a reason. Additional evidence tables are allowed when they do not redefine an existing fact."
         )
     return errors
 
@@ -180,32 +193,55 @@ def template_version() -> str:
     return match.group(1)
 
 
-def artifact_paths(root: Path, module: str, version: str) -> tuple[Path, Path, Path]:
-    """Return the three versioned-workflow document paths within the workspace."""
+def artifact_paths(root: Path, module: str) -> tuple[Path, Path]:
+    """Return the current design document and quality report paths."""
     from .evidence import local_path
 
     return tuple(
         local_path(root, path)
         for path in (
-            f"outputs/{module}/{module}_design_document_zh_{version}.md",
-            f"reports/{module}/{module}_document_quality_review_{version}.md",
-            f"outputs/{module}/VERSION_HISTORY.md",
+            f"outputs/{module}/{module}_design_document_zh.md",
+            f"reports/{module}/{module}_document_quality_review.md",
         )
     )
+
+
+def require_clean_output(root: Path, module: str, output_dir: str | None = None) -> None:
+    """Refuse generation if a module artifact directory or selected output contains data."""
+    from .evidence import local_path
+
+    root = root.resolve()
+    directories = [f"outputs/{module}", f"reports/{module}", f"evidence/{module}"]
+    if output_dir is not None and output_dir not in directories:
+        directories.append(output_dir)
+    occupied = []
+    for name in directories:
+        path = local_path(root, name)
+        # Check directory entries without following child symlinks or reading old content.
+        if path.is_dir():
+            if next(path.iterdir(), None) is not None:
+                occupied.append(name)
+        elif path.exists() or (root / name).is_symlink():
+            occupied.append(name)
+    if occupied:
+        raise FileExistsError(
+            "RTL2Spec generation stopped: existing output in "
+            + ", ".join(occupied)
+            + ". Ask the user to package/archive the previous documents, quality report "
+            "and evidence, then clear these output directories and restart. "
+            "Do not delete, overwrite or archive the files automatically."
+        )
 
 
 def update_metadata(
     root: Path,
     module: str,
-    version: str,
     config: str,
-    change_type: str | None,
-    summary: str,
 ) -> None:
-    """Add factual machine metadata and optionally a history row, preserving prose."""
-    manifest, _ = validate_evidence(root, module, version, config)
-    design, report, history = artifact_paths(root, module, version)
-    texts = [path.read_text(encoding="utf-8") for path in (design, report, history)]
+    """Add current evidence metadata to the design document and quality report."""
+    manifest, _ = validate_evidence(root, module, config)
+    design, report = artifact_paths(root, module)
+    texts = [path.read_text(encoding="utf-8") for path in (design, report)]
     values = {
         key: manifest[key]
         for key in (
@@ -217,7 +253,6 @@ def update_metadata(
         )
     }
     values.update(
-        version=version,
         template_version=template_version(),
         date=date.today().isoformat(),
     )
@@ -226,17 +261,7 @@ def update_metadata(
         + json.dumps(values, ensure_ascii=False, sort_keys=True)
         + " -->"
     )
-    if not re.search(rf"(?<![\w.]){re.escape(version)}(?![\w.])", texts[2]):
-        if not change_type or not summary.strip():
-            raise ValueError(
-                f"{history}: add the current version, or supply change_type and summary to metadata"
-            )
-        # This appended entry does not depend on, or rewrite, a user's history table.
-        texts[2] = (
-            texts[2].rstrip()
-            + f"\n\n- {version} ({values['date']}, {change_type}): {summary}; `{config}`, `{values['xiangshan_commit']}`; [design](./{design.name}); [review](../../reports/{module}/{report.name})\n"
-        )
-    for index in (0, 1):
+    for index in range(2):
         text = texts[index]
         for field, labels in FIELDS.items():
             for label in labels:
@@ -268,10 +293,59 @@ def update_metadata(
             text,
         )
         text = METADATA_RE.sub("", text).strip()
+        if index == 1:
+            text = update_related_sources_report(
+                text, manifest["related_sources"], texts[0]
+            )
         texts[index] = "\n" + text + "\n\n" + marker + "\n"
-    # Validate all inputs before making any edits, including the history category.
-    for path, text in zip((design, report, history), texts):
+    for path, text in zip((design, report), texts):
         path.write_text(text, encoding="utf-8")
     print(
         "Updated document metadata; content and signoff conclusions require author review."
     )
+
+
+def update_related_sources_report(
+    text: str,
+    related_sources: list[dict[str, object]],
+    document_text: str = "",
+) -> str:
+    """Replace the deterministic related-source section in the quality report."""
+    rows = [
+        RELATED_SOURCES_START,
+        "",
+        "### Related module source references",
+        "",
+    ]
+    if related_sources:
+        rows.extend(
+            [
+                "The current document may cite these modules with the listed evidence IDs.",
+                "",
+                "| Evidence ID | Module | Source location | Source SHA-256 | Document references |",
+                "| --- | --- | --- | --- | --- |",
+            ]
+        )
+        for source in related_sources:
+            references = [
+                str(index)
+                for index, line in enumerate(document_text.splitlines(), 1)
+                if source["evidence_id"] in line
+            ]
+            rows.append(
+                "| {evidence_id} | {module} | `{path}:{line}` | `{sha256}` | {references} |".format(
+                    references=("lines " + ", ".join(references)) if references else "not cited yet",
+                    **source,
+                )
+            )
+    else:
+        rows.append("No additional related module source was recorded for this generation.")
+    rows.extend(["", RELATED_SOURCES_END])
+    block = "\n".join(rows)
+    pattern = re.compile(
+        re.escape(RELATED_SOURCES_START) + r".*?" + re.escape(RELATED_SOURCES_END),
+        re.S,
+    )
+    if pattern.search(text):
+        return pattern.sub(block, text, count=1)
+    return text.rstrip() + "\n\n" + block
