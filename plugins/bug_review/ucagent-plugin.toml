@@ -1,4 +1,4 @@
 schema_version = 1
 name = "bug_review"
 entry = "bug_review.plugin:get_plugin"
-python_path = "."
+python_path = "src"

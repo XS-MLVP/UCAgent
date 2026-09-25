@@ -1,6 +1,6 @@
 """Regression tests for report-first replay inventory validation."""
 
-from bug_review.benchmark_workflow.report_inventory import build_report_inventory, validate_report_inventory
+from bug_review.analysis_core.report_inventory import build_report_inventory, validate_report_inventory
 
 
 def _report(tmp_path):
