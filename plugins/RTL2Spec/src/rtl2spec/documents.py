@@ -23,6 +23,8 @@ FIELDS = {
 TEMPLATE = Path(__file__).resolve().parent / "Guide_Doc/chip_design_document_template_zh.md"
 MARKDOWN = MarkdownIt("commonmark").enable("table")
 METADATA_RE = re.compile(r"<!-- rtl2spec: (.*?) -->", re.S)
+RELATED_SOURCES_START = "<!-- rtl2spec-related-sources:start -->"
+RELATED_SOURCES_END = "<!-- rtl2spec-related-sources:end -->"
 
 
 def markdown_tokens(text: str) -> list[Token]:
@@ -85,14 +87,25 @@ def document_sections(text: str, *, template: bool = False) -> list[dict]:
                 for child in tokens[index + 1].children
                 if child.type in {"text", "code_inline"}
             )
+            # Repeated behavior and scenario headings are part of the public
+            # contract; formal artifacts cannot carry template HTML comments.
+            intrinsic_repeat = (
+                title.startswith("P-[NAME]") or title.startswith("CASE-[NAME]")
+            )
             sections.append(
                 dict(
                     level=int(token.tag[1:]),
                     title=title,
                     line=token.map[0] + 1,
                     tables=0,
-                    repeat=repeated is not None,
-                    minimum=1 if repeated is None else repeated,
+                    repeat=intrinsic_repeat or repeated is not None,
+                    minimum=(
+                        0
+                        if title.startswith("CASE-[NAME]")
+                        else 1
+                        if repeated is None
+                        else repeated
+                    ),
                 )
             )
             repeated = None
@@ -113,7 +126,7 @@ def document_sections(text: str, *, template: bool = False) -> list[dict]:
 
 
 def validate_structure(text: str, module: str) -> list[dict]:
-    """Match heading titles/levels/order and per-section table counts to the sole template."""
+    """Match required headings/order and minimum table counts to the template."""
     expected = document_sections(TEMPLATE.read_text(encoding="utf-8"), template=True)
     observed = document_sections(text)
     errors = []
@@ -130,13 +143,13 @@ def validate_structure(text: str, module: str) -> list[dict]:
                 pattern, current["title"]
             ):
                 break
-            if current["tables"] != section["tables"]:
+            if current["tables"] < section["tables"]:
                 errors.append(
                     dict(
-                        error="table count differs from the template in this section",
+                        error="table count is below the template minimum in this section",
                         line=current["line"],
                         section=current["title"],
-                        expected=section["tables"],
+                        expected_minimum=section["tables"],
                         observed=current["tables"],
                     )
                 )
@@ -166,7 +179,7 @@ def validate_structure(text: str, module: str) -> list[dict]:
             )
     for error in errors:
         error["next_action"] = (
-            "Follow Guide_Doc/chip_design_document_template_zh.md: restore the indicated heading/order/table count; retain inapplicable sections with a reason."
+            "Follow Guide_Doc/chip_design_document_template_zh.md: restore the indicated heading/order/minimum table; retain inapplicable sections with a reason. Additional evidence tables are allowed when they do not redefine an existing fact."
         )
     return errors
 
@@ -280,9 +293,59 @@ def update_metadata(
             text,
         )
         text = METADATA_RE.sub("", text).strip()
+        if index == 1:
+            text = update_related_sources_report(
+                text, manifest["related_sources"], texts[0]
+            )
         texts[index] = "\n" + text + "\n\n" + marker + "\n"
     for path, text in zip((design, report), texts):
         path.write_text(text, encoding="utf-8")
     print(
         "Updated document metadata; content and signoff conclusions require author review."
     )
+
+
+def update_related_sources_report(
+    text: str,
+    related_sources: list[dict[str, object]],
+    document_text: str = "",
+) -> str:
+    """Replace the deterministic related-source section in the quality report."""
+    rows = [
+        RELATED_SOURCES_START,
+        "",
+        "### Related module source references",
+        "",
+    ]
+    if related_sources:
+        rows.extend(
+            [
+                "The current document may cite these modules with the listed evidence IDs.",
+                "",
+                "| Evidence ID | Module | Source location | Source SHA-256 | Document references |",
+                "| --- | --- | --- | --- | --- |",
+            ]
+        )
+        for source in related_sources:
+            references = [
+                str(index)
+                for index, line in enumerate(document_text.splitlines(), 1)
+                if source["evidence_id"] in line
+            ]
+            rows.append(
+                "| {evidence_id} | {module} | `{path}:{line}` | `{sha256}` | {references} |".format(
+                    references=("lines " + ", ".join(references)) if references else "not cited yet",
+                    **source,
+                )
+            )
+    else:
+        rows.append("No additional related module source was recorded for this generation.")
+    rows.extend(["", RELATED_SOURCES_END])
+    block = "\n".join(rows)
+    pattern = re.compile(
+        re.escape(RELATED_SOURCES_START) + r".*?" + re.escape(RELATED_SOURCES_END),
+        re.S,
+    )
+    if pattern.search(text):
+        return pattern.sub(block, text, count=1)
+    return text.rstrip() + "\n\n" + block

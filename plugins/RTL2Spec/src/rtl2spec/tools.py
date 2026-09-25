@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -11,7 +12,7 @@ import time
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from ucagent.plugins import PluginContext
 from ucagent.tools.fileops import is_file_writeable
@@ -23,11 +24,12 @@ class RTL2SpecCommandArgs(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
     action: Literal[
-        "preflight", "evidence", "metadata", "validate", "lint"
+        "preflight", "evidence", "related_sources", "metadata", "validate", "lint"
     ] = Field(
         description="preflight checks tools; evidence generates RTL/ports; metadata updates "
-        "generated fields; validate checks artifacts; lint performs final checks. Mermaid "
-        "diagrams remain in the Markdown document and are not rendered into image files."
+        "generated fields; related_sources records signed source evidence for related "
+        "modules; validate checks artifacts; lint performs final checks. Mermaid diagrams "
+        "remain in the Markdown document and are not rendered into image files."
     )
     module: str = Field(
         pattern=r"^[A-Za-z_][A-Za-z0-9_]*$",
@@ -38,6 +40,21 @@ class RTL2SpecCommandArgs(BaseModel):
         pattern=r"^[A-Za-z_][A-Za-z0-9_]*$",
         description="XiangShan configuration class.",
     )
+    related_modules: list[str] = Field(
+        default_factory=list,
+        max_length=64,
+        description="For related_sources: XiangShan Scala class/object/trait names whose source supports the document.",
+    )
+
+    @field_validator("related_modules")
+    @classmethod
+    def validate_related_modules(cls, values: list[str]) -> list[str]:
+        """Reject ambiguous, duplicated, or path-like related module arguments."""
+        if len(set(values)) != len(values) or any(
+            not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", value) for value in values
+        ):
+            raise ValueError("related_modules must contain unique identifier-only names")
+        return values
 
 
 class RTL2SpecCommand(UCTool):
@@ -45,9 +62,9 @@ class RTL2SpecCommand(UCTool):
 
     name: str = "RTL2SpecCommand"
     description: str = (
-        "Run RTL2Spec preflight, evidence, metadata, validate, or lint "
+        "Run RTL2Spec preflight, evidence, related_sources, metadata, validate, or lint "
         "in the active workspace; source must be under third_party/XiangShan. Read stderr/stdout on failure. "
-        "Start with empty module output/report/evidence directories; existing output requires the user to archive and clear it. Generate evidence before drafting, then run metadata and lint. Mermaid diagrams stay as source fences in the Markdown document."
+        "Start with empty module output/report/evidence directories; existing output requires the user to archive and clear it. Generate evidence before drafting, record related_sources after reading relevant Scala modules, then run metadata and lint. Mermaid diagrams stay as source fences in the Markdown document."
     )
     args_schema: type[BaseModel] = RTL2SpecCommandArgs
     workspace: str
@@ -60,13 +77,15 @@ class RTL2SpecCommand(UCTool):
         action: str,
         module: str,
         config: str = "DefaultConfig",
+        related_modules: list[str] | None = None,
     ) -> dict:
         """Validate paths/policy, execute one fixed action, and return bounded diagnostics."""
         try:
-            RTL2SpecCommandArgs(
+            args = RTL2SpecCommandArgs(
                 action=action,
                 module=module,
                 config=config,
+                related_modules=related_modules or [],
             )
         except ValidationError:
             return {
@@ -74,6 +93,13 @@ class RTL2SpecCommand(UCTool):
                 "error_code": "INVALID_ARGUMENTS",
                 "error": "Invalid action, module, or config arguments.",
                 "next_action": "Use an action from the schema and identifier-only module/config values.",
+            }
+        if action != "related_sources" and args.related_modules:
+            return {
+                "ok": False,
+                "error_code": "INVALID_ARGUMENTS",
+                "error": "related_modules is only valid for the related_sources action.",
+                "next_action": "Read the related Scala modules, then call related_sources with their class names.",
             }
         workspace = Path(self.workspace).resolve()
         if not workspace.is_dir():
@@ -92,6 +118,8 @@ class RTL2SpecCommand(UCTool):
                 "third_party/XiangShan/build",
                 "third_party/XiangShan/src/main/resources/espresso",
             ]
+        elif action == "related_sources":
+            targets.append(f"evidence/{module}")
         elif action == "metadata":
             targets += [
                 f"outputs/{module}/{module}_design_document_zh.md",
@@ -175,6 +203,8 @@ class RTL2SpecCommand(UCTool):
             "--config",
             config,
         ]
+        for related in args.related_modules:
+            command.extend(["--related-module", related])
         env = os.environ.copy()
         # Bind imports and runtime locations to this loaded package and workspace.
         import_root = str(Path(__file__).resolve().parent.parent)

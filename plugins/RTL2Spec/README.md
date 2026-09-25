@@ -63,7 +63,7 @@ ucagent "$SPEC_WORKSPACE" Sbuffer \
 | --- | --- |
 | `outputs/<Module>/<Module>_design_document_zh.md` | 设计与功能检测点文档 |
 | `reports/<Module>/<Module>_document_quality_review.md` | 质量报告与未签核项 |
-| `evidence/<Module>/` | RTL、`ports.csv` 和证据清单；Mermaid 源码位于设计文档中 |
+| `evidence/<Module>/` | RTL、`ports.csv`、证据清单和签名的相关模块源码记录；Mermaid 源码位于设计文档中 |
 
 以上路径均相对于工作区。替换模块名后同步修改示例中的 `--output outputs/<Module>`；生成文档始终位于表中的固定路径。
 

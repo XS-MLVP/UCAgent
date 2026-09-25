@@ -37,7 +37,7 @@ UCAgent/plugins/RTL2Spec/
 | `tools.py` | 工具参数、工作区权限、子进程和超时管理 |
 | `checkers.py` | 阶段验收入口，调用 `validation.py` |
 | `runtime.py` | 调度证据生成、元数据同步和检查 |
-| `evidence.py` | 源码状态、RTL、端口及工具凭据 |
+| `evidence.py` | 源码状态、RTL、端口、相关模块源码及工具凭据 |
 | `documents.py` | Markdown 解析、Mermaid 围栏、模板结构和事实元数据 |
 | `validation.py` | 组合产物检查并返回诊断 |
 | `repository.py` | 仓库文档链接、模板资源及打包声明检查 |
@@ -93,3 +93,5 @@ python -I -m pytest -q --import-mode=append -o pythonpath=''
 ## 方法来源
 
 Coverage 方法参考 Verification Academy《Coverage Cookbook》（2013-08-21 快照），适用原则见[生成指南](../src/rtl2spec/Guide_Doc/generation-guide.md#coverage-practice-principles)。引入外部材料时记录来源与用途，并确认许可和再分发条件。
+
+设计文档字段参考了 [XS-MLVP/spec_generator 的 chip-design-document 模板](https://github.com/XS-MLVP/spec_generator/blob/feat/chip-dv-spec-workflow/templates/chip-design-document/chip_design_document_template_zh.md)，仅吸收职责边界、事务模型、验证架构、形式化执行条件和场景字段；RTL2Spec 自有的 evidence、相关模块签名、Mermaid-only 输出和固定附录契约仍以本插件模板为准。

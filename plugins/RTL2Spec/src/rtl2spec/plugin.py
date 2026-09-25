@@ -26,7 +26,7 @@ def get_plugin() -> Plugin:
         version=__version__,
         description=(
             "Evidence-based XiangShan Chisel/Scala and elaborated RTL "
-            "design-document generation."
+            "design-document generation with auditable related-module source evidence."
         ),
         root=root,
         requires_ucagent=">=26.9.2.dev14",

@@ -12,13 +12,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .evidence import (
+    collect_related_sources,
     digest,
     local_path,
     parse_ports,
+    RELATED_SOURCES_KEY,
     read_json,
     receipt,
-    source_state,
     validate_evidence,
+    source_state,
 )
 from .documents import require_clean_output
 
@@ -91,6 +93,7 @@ def generate(root: Path, module: str, config: str) -> None:
             "command": result["command"],
             "generator_flags": result["generator_flags"],
             "tool_versions": result["tool_versions"],
+            RELATED_SOURCES_KEY: [],
             "rtl_source": f"{module}.sv",
             "rtl_sha256": hashlib.sha256(data).hexdigest(),
             "port_count": len(ports),
@@ -124,6 +127,25 @@ def generate(root: Path, module: str, config: str) -> None:
     print(f"Generated {folder.relative_to(root)}: {len(ports)} ports")
 
 
+def record_related_sources(
+    root: Path, module: str, config: str, related_modules: list[str]
+) -> None:
+    """Record signed source evidence for related modules in the current manifest."""
+    manifest, _ = validate_evidence(root, module, config)
+    additions = collect_related_sources(root, module, related_modules)
+    manifest[RELATED_SOURCES_KEY] = additions
+    signed = receipt(root, manifest, sign=True)
+    folder = local_path(root, f"evidence/{module}")
+    local_path(root, folder / "manifest.json").write_text(
+        json.dumps(signed, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    validate_evidence(root, module, config)
+    print(
+        f"Recorded {len(additions)} related module source(s) in "
+        f"{folder.relative_to(root)}/manifest.json"
+    )
+
+
 def main() -> int:
     """Run one action from the installed plugin, never from workspace scripts."""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -132,6 +154,7 @@ def main() -> int:
         choices=(
             "preflight",
             "evidence",
+            "related_sources",
             "metadata",
             "validate",
             "lint",
@@ -141,7 +164,12 @@ def main() -> int:
     parser.add_argument("--module", required=True)
     parser.add_argument("--config", default="DefaultConfig")
     parser.add_argument("--rtl", type=Path)
+    parser.add_argument("--related-module", action="append", default=[])
     args = parser.parse_args()
+    if args.action != "related_sources" and args.related_module:
+        parser.error("--related-module is only valid with related_sources")
+    if args.action == "related_sources" and not args.related_module:
+        parser.error("related_sources requires at least one --related-module")
     root = Path.cwd().resolve()
     os.environ.update(
         RTL2SPEC_WORKSPACE=str(root),
@@ -167,6 +195,10 @@ def main() -> int:
             )
         elif args.action == "evidence":
             generate(root, args.module, args.config)
+        elif args.action == "related_sources":
+            record_related_sources(
+                root, args.module, args.config, args.related_module
+            )
         elif args.action == "metadata":
             from .documents import update_metadata
 

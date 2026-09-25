@@ -14,6 +14,34 @@ from rtl2spec.tools import RTL2SpecCommand
 from rtl2spec.validation import validate
 
 
+def prepare_related_source(artifacts, command):
+    """Commit a fixture helper module and regenerate evidence at that source baseline."""
+    source = artifacts / "third_party/XiangShan/src/main/scala/Helper.scala"
+    source.write_text("class Helper\n")
+    subprocess.run(
+        ["git", "-C", str(artifacts / "third_party/XiangShan"), "add", "src/main/scala/Helper.scala"],
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        [
+            "git", "-C", str(artifacts / "third_party/XiangShan"),
+            "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+            "commit", "-qm", "Add related helper",
+        ],
+        check=True,
+        capture_output=True,
+    )
+    archive = artifacts / "related-archive"
+    archive.mkdir()
+    for directory in ("outputs", "reports", "evidence"):
+        (artifacts / directory / "Sbuffer").rename(archive / directory)
+    assert command._run("evidence", "Sbuffer")["ok"]
+    draft(artifacts)
+    assert command._run("metadata", "Sbuffer")["ok"]
+    return source
+
+
 def test_new_generation_requires_clean_output_directories(artifacts, command):
     """A second generation run stops before touching existing documents or evidence."""
     assert not (artifacts / "src").exists()
@@ -49,6 +77,44 @@ def test_user_archival_allows_regeneration_with_verified_cache(artifacts, comman
     assert (archive / "outputs/Sbuffer_design_document_zh.md").is_file()
 
 
+def test_related_sources_are_signed_and_reported(artifacts, command):
+    """Related Scala source is recorded with a stable location/hash and surfaced in the report."""
+    source = prepare_related_source(artifacts, command)
+    result = command._run(
+        "related_sources", "Sbuffer", related_modules=["Helper"]
+    )
+    assert result["ok"], result
+    manifest = read_json(artifacts / "evidence/Sbuffer/manifest.json")
+    record = manifest["related_sources"][0]
+    assert record["evidence_id"] == "E-REL-HELPER"
+    assert record["path"] == "third_party/XiangShan/src/main/scala/Helper.scala"
+    assert record["line"] == 1
+    assert len(record["sha256"]) == 64
+    assert command._run("metadata", "Sbuffer")["ok"]
+    report = (artifacts / "reports/Sbuffer/Sbuffer_document_quality_review.md").read_text()
+    assert "E-REL-HELPER" in report and "Helper.scala:1" in report
+
+
+def test_related_source_change_invalidates_evidence(artifacts, command):
+    """A recorded related source cannot silently change after evidence capture."""
+    source = prepare_related_source(artifacts, command)
+    assert command._run("related_sources", "Sbuffer", related_modules=["Helper"])["ok"]
+    source.write_text("class Helper\n// changed\n")
+    result = command._run("lint", "Sbuffer")
+    assert not result["ok"], result
+    output = result["stderr"] + result["stdout"]
+    assert "source identity changed" in output or "related source" in output
+
+
+def test_related_source_can_be_context_only(artifacts, command):
+    """A read related source may remain report-only when no final claim depends on it."""
+    prepare_related_source(artifacts, command)
+    assert command._run("related_sources", "Sbuffer", related_modules=["Helper"])["ok"]
+    assert command._run("metadata", "Sbuffer")["ok"]
+    result = command._run("lint", "Sbuffer")
+    assert result["ok"], result
+
+
 @pytest.mark.parametrize(
     "target",
     [
@@ -63,6 +129,7 @@ def test_user_archival_allows_regeneration_with_verified_cache(artifacts, comman
         "reference",
         "link",
         "width",
+        "comments",
         "unclosed_mermaid",
     ],
 )
@@ -91,7 +158,7 @@ def test_invalid_artifacts_fail_with_diagnostics(artifacts, target):
     elif target == "template":
         design.write_text(
             design.read_text().replace(
-                "| 文档范围 | 合成直连夹具 |", "| 使用模板版本 | v2.0.0 |"
+                    "| 使用模板版本 | v5.1.0 |", "| 使用模板版本 | v2.0.0 |"
             )
         )
     elif target == "empty":
@@ -102,8 +169,13 @@ def test_invalid_artifacts_fail_with_diagnostics(artifacts, target):
         design.write_text(design.read_text() + "\n[RTL](missing.sv)\n")
     elif target == "width":
         design.write_text(
-            design.read_text().replace("| `io_data` | I/8 |", "| `io_data` | I/32 |")
+            design.read_text().replace(
+                "| `IO-INPUT-01` | `input.data` | `N/A` | `evidence/Sbuffer/Sbuffer.sv:1` | `I/8` |",
+                "| `IO-INPUT-01` | `input.data` | `N/A` | `evidence/Sbuffer/Sbuffer.sv:1` | `I/32` |",
+            )
         )
+    elif target == "comments":
+        design.write_text(design.read_text() + "\n<!-- generator note -->\n")
     elif target == "unclosed_mermaid":
         design.write_text(
             design.read_text() + "\n```mermaid\nflowchart LR\n A --> B\n"
@@ -452,10 +524,10 @@ def test_stage_gates_template_structure(artifacts, phase, defect):
     path = artifact_paths(artifacts, "Sbuffer")[0]
     text = path.read_text(encoding="utf-8")
     if defect == "heading":
-        text = text.replace("### 文档摘要", "### 自定义标题")
+        text = text.replace("## 文档摘要", "## 自定义标题")
     else:
         text = text.replace(
-            "| 参数 | 取值 |\n| --- | --- |\n| 数据宽度 | 8 位，无可配置参数 |", ""
+            "| 参数 ID | 参数 / 派生常量 | 配置值 | 约束或裁剪 | 证据 |\n| --- | --- | --- | --- | --- |\n| `PARAM-01` | `Sbuffer` | `8` | `无参数` | `E-RTL-01` |", ""
         )
     path.write_text(text, encoding="utf-8")
     checker = RTL2SpecArtifactsChecker(

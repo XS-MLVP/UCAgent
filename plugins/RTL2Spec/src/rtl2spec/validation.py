@@ -12,6 +12,8 @@ from .evidence import local_path, validate_evidence
 from .documents import (
     FIELDS,
     METADATA_RE,
+    RELATED_SOURCES_END,
+    RELATED_SOURCES_START,
     artifact_paths,
     template_version,
     mermaid_sources,
@@ -42,6 +44,20 @@ def validate(root: Path, module: str, config: str, phase: str = "final") -> dict
                 text = path.read_text(encoding="utf-8")
                 texts.append(text)
                 mermaid_sources(text)
+                # Template comments are authoring constraints and must not leak
+                # into a formal artifact. Keep only the tool-owned metadata and
+                # related-source markers that are required for auditability.
+                comments = METADATA_RE.sub("", text)
+                comments = comments.replace(RELATED_SOURCES_START, "")
+                comments = comments.replace(RELATED_SOURCES_END, "")
+                if "<!--" in comments:
+                    errors.append(
+                        {
+                            "artifact": artifact,
+                            "error": "formal artifact contains HTML comments; remove template/generation comments",
+                            "next_action": "Delete HTML comments from the design document and quality report, preserving only the rtl2spec metadata and related-source markers added by the tool.",
+                        }
+                    )
                 if index == 0:
                     errors.extend(
                         {"artifact": artifact, **issue}
@@ -155,6 +171,8 @@ def validate(root: Path, module: str, config: str, phase: str = "final") -> dict
                             )
             artifact = str(paths[0].relative_to(root))
             prose = prose_text(texts[0])
+            related_sources = manifest["related_sources"]
+            related_ids = {source["evidence_id"] for source in related_sources}
             definitions: set[str] = set()
             explicit: list[str] = []
             for line in prose.splitlines():
@@ -169,6 +187,58 @@ def validate(root: Path, module: str, config: str, phase: str = "final") -> dict
                 if match:
                     definitions.add(match.group(1))
             missing = sorted(set(ID_RE.findall(prose)) - definitions)
+            unknown_related = sorted(
+                tag
+                for tag in set(ID_RE.findall(prose))
+                if tag.startswith("E-REL-") and tag not in related_ids
+            )
+            if unknown_related:
+                errors.append(
+                    {
+                        "artifact": artifact,
+                        "error": f"unrecorded related source evidence: {', '.join(unknown_related[:12])}",
+                        "next_action": "Record each cited related module with related_sources, or remove the unsupported E-REL citation.",
+                    }
+                )
+            citation_text = re.sub(
+                r"## 附录 C：范围、文档控制、证据与版本变更.*?(?=## 附录 D：CK 追溯矩阵)",
+                "",
+                prose,
+                flags=re.S,
+            )
+            report_text = texts[1]
+            for source in related_sources:
+                evidence_id = source["evidence_id"]
+                cited_by_body = bool(
+                    re.search(rf"\b{re.escape(evidence_id)}\b", citation_text)
+                )
+                # A related source may have been read for context and retained
+                # in the run report without supporting a final document claim.
+                # Only a source cited by the document body must be defined in
+                # Appendix C; the report remains the complete read-source audit.
+                if cited_by_body and evidence_id not in definitions:
+                    errors.append(
+                        {
+                            "artifact": artifact,
+                            "error": f"cited related source evidence {evidence_id} is missing from Appendix C",
+                            "next_action": "Add an Appendix C evidence row for the cited related source, including its source path and hash.",
+                        }
+                    )
+                if not (
+                    RELATED_SOURCES_START in report_text
+                    and RELATED_SOURCES_END in report_text
+                    and all(
+                        str(source[field]) in report_text
+                        for field in ("evidence_id", "module", "path", "sha256")
+                    )
+                ):
+                    errors.append(
+                        {
+                            "artifact": str(paths[1].relative_to(root)),
+                            "error": f"quality report does not list related source {evidence_id}",
+                            "next_action": 'Run RTL2SpecCommand(action="metadata") after recording related_sources to refresh the report section.',
+                        }
+                    )
             duplicate = sorted({tag for tag in explicit if explicit.count(tag) > 1})
             if missing:
                 errors.append(
@@ -184,11 +254,6 @@ def validate(root: Path, module: str, config: str, phase: str = "final") -> dict
                         "error": f"duplicate definition tags: {', '.join(duplicate[:12])}; use plain IDs for references",
                     }
                 )
-            for prefix in ("FG-", "FC-", "CK-", "P-", "E-", "COV-"):
-                if not any(tag.startswith(prefix) for tag in definitions):
-                    warnings.append(
-                        f"{artifact}: consider adding {prefix} traceability where applicable; explain omissions in the quality review."
-                    )
             port_names = {port["name"] for port in ports}
             documented = set()
             for line in prose.splitlines():
