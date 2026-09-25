@@ -13,6 +13,6 @@ From the DUT workspace, call:
 RunSkillScript(commands=[["ext/bug_review/review-notes", "sync_review_notes.py", ""]])
 ```
 
-Read `notes/bug_review_notes.md` afterward and add your own analysis under `## 人工记录` if useful. The stage Checker validates the authoritative files under `{OUT}`; this note does not substitute for `BugReviewRunStage`, `BugReviewTasks`, `BugReviewSubmitResponse`, Check, or Complete.
+Read `notes/bug_review_notes.md` afterward and add your own analysis under `## 人工记录` if useful. The stage Checker validates the authoritative files under `{OUT}`; this note does not substitute for the stage Skill, the direct UCAgent tools, Check, or Complete.
 
 When Skills are disabled or this directory is absent, read the current stage outputs under `{OUT}` directly. You may edit `notes/bug_review_notes.md` with the ordinary file tools. The required workflow and completion criteria are identical.

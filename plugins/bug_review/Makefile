@@ -15,6 +15,7 @@ help:
 	@echo "make bug-review-analysis     review all $(INPUT_ROOT)/workspace_*"
 	@echo "make bug_review_<name>       review $(INPUT_ROOT)/workspace_<name>"
 	@echo "make plugin-check           validate the bug_review plugin"
+	@echo "Prepared inputs: $(OUTPUT_ROOT)/results/tests/workspace_*"
 	@echo "Report: $(OUTPUT_ROOT)/results/index.html"
 
 plugin-check:

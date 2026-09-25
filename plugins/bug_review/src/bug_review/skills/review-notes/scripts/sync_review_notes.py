@@ -32,7 +32,7 @@ def main() -> None:
     job = read_object(workspace / "review_job.json")
     if output != (workspace / job["output_dir"]).resolve():
         raise ValueError("Resolved OUT differs from the prepared Bug Review output")
-    names = [name for name, _ in job["runs"]]
+    names = [name for name, _ in job["source_runs"]]
     notes = workspace / "notes/bug_review_notes.md"
     notes.parent.mkdir(parents=True, exist_ok=True)
     if notes.is_file():
@@ -46,29 +46,20 @@ def main() -> None:
     for name in names:
         target = output / "workspaces" / name
         lines.extend([f"### {name}", ""])
-        inventory = target / "bug_inventory.json"
-        if inventory.is_file():
-            bugs = read_object(inventory)["bugs"]
-            lines.append(f"- Input: {len(bugs)} reported Bug claims.")
-        replay = target / "replay_results.json"
-        if replay.is_file():
-            data = read_object(replay)
-            lines.append(f"- Replay: {data['suite_test_count']} tests, {data['suite_failed_count']} failures.")
-        waveform = target / "waveform_reviews.json"
-        if waveform.is_file():
-            cases = read_object(waveform)["cases"]
-            signed = sum(row["waveform"].get("verified_evidence", {}).get("success") is True
-                         for row in cases)
-            lines.append(f"- Waveform: {len(cases)} reviewed failures, {signed} with signed evidence.")
-        reviews = target / "bug_reviews.json"
-        if reviews.is_file():
-            bugs = read_object(reviews)["bugs"]
-            counts = {verdict: sum(row["verdict"] == verdict for row in bugs)
+        review = target / "bug_review.json"
+        if review.is_file():
+            data = read_object(review)
+            bugs = data["suspected_bugs"]
+            counts = {verdict: sum(row.get("decision", {}).get("verdict") == verdict for row in bugs)
                       for verdict in ("confirmed", "refuted", "inconclusive")}
-            groups = read_object(target / "root_groups.json")["groups"]
+            cases = list(data.get("cases", {}).values())
+            replayed = sum(case.get("replay", {}).get("status") in
+                           {"reproduced", "passed", "not_collected", "execution_error"} for case in cases)
+            signed = sum(bool(case.get("waveform", {}).get("receipt_id")) for case in cases)
             lines.append(f"- Decisions: {counts['confirmed']} confirmed, "
                          f"{counts['refuted']} refuted, {counts['inconclusive']} inconclusive; "
-                         f"{len(groups)} root groups.")
+                         f"{len(data.get('root_causes', []))} root groups.")
+            lines.append(f"- Cases: {replayed} replayed; {signed} signed WaveInfo receipts.")
         report = target / "index.html"
         if report.is_file():
             relative = report.relative_to(workspace).as_posix()

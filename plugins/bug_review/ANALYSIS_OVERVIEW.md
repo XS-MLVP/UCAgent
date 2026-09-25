@@ -15,9 +15,82 @@ Bug Review 复核已有验证报告中的 Bug 声明：确定输入与待查对�
 | --- | --- | --- | --- |
 | V0 | 历史实现，已替换 | 九阶段 benchmark 分析：输入发现、解析、重跑、波形、语义比较、失效模式、根因审查、GT 对齐和发布。 | [V0 历史实现与迁移关系](#v0-历史实现与迁移关系) |
 | V1 | 五阶段基础契约 | 调整为五阶段；先形成原 Bug 骨架；纳入新失败；同根因合并且保留所有原声明；排除 DUT Bug 时复核置信度归零；逐阶段明确 `output_files`；支持可配置输出根和多工作区报告。 | [V1 输入与裁决](#v1-输入与裁决)、[V1 五阶段工作流程](#v1-五阶段工作流程) |
-| V1.1 | 现行代码契约；真实 DUT 全链路运行待验证 | 增加逐阶段内容校验、复核笔记模板和可选的笔记更新 Skill；权威裁决与证据仍由五阶段工作流产生。 | [V1.1 Checker、模板与 Skill](#v11-checker模板与-skill) |
+| V1.1 | 已实现 | 增加逐阶段内容校验、复核笔记模板和可选的笔记更新 Skill；权威裁决与证据仍由五阶段工作流产生。 | [V1.1 Checker、模板与 Skill](#v11-checker模板与-skill) |
+| V1.2 | 已实现，后被 V1.3 替换 | 曾加入自动推进阶段工具及五个阶段 Skill；本版保留为迭代记录。 | [V1.2 阶段 Skill 与波形取证](#v12-阶段-skill-与波形取证) |
+| V1.3 | 已实现；被 V1.4 取代 | 移除 Bug Review 自定义阶段和任务工具；阶段 Skill 直接指导 UCAgent 原生工具；准备阶段曾完整复制输入工作区；各阶段分别写入多个 JSON。 | [V1.3 原生工具驱动的阶段](#v13-原生工具驱动的阶段) |
+| V1.4 | 现行代码契约；已有一次 `workspace_raid_dec_top` 实跑反馈 | 不复制完整工作区；只准备分析文本、测试目录和 DUT 运行包；RunTestCases 只运行 JSON 选择的用例；五阶段更新同一 JSON；HTML 直接从该 JSON 渲染。 | [V1.4 最小输入副本与单一复核 JSON](#v14-最小输入副本与单一复核-json) |
+| V2.0 | 规划中，尚未实施 | 默认重跑全部模块，`make bug_review_<name>` 只重跑指定模块；`output/` 顶层提供总索引，各模块独立保存状态和报告；收敛参考文件门禁，改进 JSON 更新、诊断与波形证据查询。 | [V2.0 按模块重跑与工具体验](#v20-按模块重跑与工具体验) |
 
 后续变更在此表增加新版本，并在对应版本章节记录相对上一版新增、修改和移除的契约及实施状态。更新旧版本的事实错误可以直接更正；不要把未落地的目标写成已实现功能。
+
+## V1.4 最小输入副本与单一复核 JSON
+
+V1.4 将阶段状态、Bug 主张、证据、执行、裁决、根因关系和报告数据合并到一个工作区级 JSON。它替换 V1.3 的多阶段 JSON 输出和完整输入工作区复制。
+
+### 输入与复制边界
+
+- `inventory` 分析原始 `inputs/workspace_<name>/unity_test/<DUT>_bug_summary.md` 与 `<DUT>_bug_analysis.md`。因为 Agent 文件工具限定在工作区内，准备步骤只把报告、Markdown/HDL/line-map 文本镜像到 `{OUT}/inputs/workspace_<name>/`，LLM 从该镜像读取并把源工作区相对路径写入 JSON。
+- 输出中只准备分析所需的 Markdown/HDL/line-map 文本、UnityTest cases 目录及 helper/fixture，以及 DUT 可导入的仿真 Python 包和运行库；不复制完整工作区、coverage、旧波形、`.ucagent` 或无关二进制产物。
+- `replay` 只对 `bug_review.json` 中明确选择的 TC 调用默认 `RunTestCases`。允许逐例或小批量重跑；不为达到全量覆盖而重跑无关用例。
+- 源工作区中的 summary、analysis、Spec、RTL 和测试均只读。证据 JSON 保留原始源文件路径、行范围和实际测试 node ID；复制后的测试路径另存为执行定位信息。
+
+### 单一 JSON 契约
+
+每个工作区仅维护一个权威文件 `{OUT}/workspaces/<workspace>/bug_review.json`，schema 为 `bug_review.v3`。它是阶段间唯一传递状态，也是 HTML 发布的数据源。inventory Skill 脚本创建 JSON 骨架；报告 Skill 脚本直接从该 JSON 渲染 HTML。Bug 语义、证据选择、测试正确性、裁决和根因关系由 LLM 阅读输入副本后填入或更新 JSON。Checker 逐阶段校验 JSON 当前状态、源 Bug 保留、case 执行、WaveInfo 签名 receipt、根因关系和 HTML 链接。
+
+JSON 顶层包含 workspace/source 元数据、`stage_status`、`suspected_bugs`、`cases` 和 `root_causes`。`suspected_bugs` 每项对应摘要中的一条疑似 Bug；`bug_summary` 保留该条原始摘要行及字段，`evidence` 汇集详细分析中的主张和关联证据，包括 Spec 位置、FG/FC/CK 检查点、TC、测试代码与 RTL 首错/传播路径。仅在详细分析中出现而摘要没有对应项的声明，作为额外原始条目保留并标明其来源。`cases` 以规范化 TC node ID 为键，避免同一 TC 关联多个 Bug 时重复保存执行与波形记录；Bug 项通过 case ID 引用它。裁决字段保存 verdict、复核置信度、依据和 root ID。原始声明和置信度始终保留；`refuted` 的复核置信度必须是 `0`，不能删除该项。相同 RTL 首错及因果链的确认 Bug 共享一个 root cause，成员仍各自保留。
+
+### 五阶段工作流与产物
+
+| 阶段 | 操作 | 必需产物 |
+| --- | --- | --- |
+| `inventory` | 读取输入工作区原始 summary 和 analysis；调用 inventory Skill 创建 JSON 空骨架，LLM 填充每条疑似 Bug、声明和待查证据；保留报告中未能对应的条目。 | `{OUT}/workspaces/*/bug_review.json`（`stage_status.inventory=complete`） |
+| `replay` | 根据 JSON 选择相关 TC；在 `{OUT}/tests/workspace_<name>/` 的 UnityTest 副本中，直接调用 UCAgent `RunTestCases` 逐例或小批运行，并在 JSON 写执行状态和测试正确性分析。 | 同一 `bug_review.json`（包含所选 case 的 replay 与 test review） |
+| `waveform` | 对复现且测试正确的可疑 DUT 失败直接调用默认 `WaveInfo`；在 JSON 记录原始结果、receipt、信号组、窗口、对齐和事务分析。 | 同一 `bug_review.json`（包含 case waveform evidence） |
+| `correlate` | 更新每条原始/新发现 Bug 的裁决和置信度；仅按相同 RTL 首错与因果链合并确认项的 root cause。 | 同一 `bug_review.json`（完整 decisions 与 root causes） |
+| `publish` | 对 JSON 执行结构校验，再由报告 Skill 脚本读取同一 JSON 生成详情页、工作区索引和总索引；HTML 不再依赖另一个 `report_data.json`。 | 同一 `bug_review.json`；`{OUT}/workspaces/*/index.html`、Bug 详情页、`{OUT}/index.html` |
+
+准备清单格式为 `bug_review_job.v4`；不同输入或旧版准备记录必须使用新输出目录，避免旧多文件状态混入当前 JSON。阶段 `output_files` 可重复声明 `bug_review.json`，但每阶段 Checker 校验本阶段字段，不能把文件存在或 LLM 自报状态当成完成证明。HTML 是可再生成的展示物，不作为裁决事实源。
+
+## V2.0 按模块重跑与工具体验
+
+V2.0 依据 `workspace_raid_dec_top` 的一次实跑反馈规划。该次运行的 Agent 报告：26 条原声明、55 个关联 case；选择重跑 33 个 case，形成 33 个 WaveInfo receipt；26 条裁决归入 23 个根因组，并生成总索引和 26 个详情页。这些数字是本次运行的反馈基线，不代表对裁决正确性的独立复核。运行耗时约 2 小时 46 分；V2.0 重点减少重复执行、人工恢复和格式试错，保留真实测试、波形与 Spec/RTL 证据门禁。
+
+### 1. 用 Make 选择重跑范围
+
+现有 Makefile 已有 `make bug_review_<name>`，但它只能在新的输出根下选择单模块。准备代码把 `source_runs` 冻结在输出根的 `review_job.json`：已有 A 的输出后，选择 B 会因任务范围不同被拒绝；同一输出根的 UCAgent 阶段历史也可能使 B 直接进入已完成状态。因此 V2.0 要保留这条简单命令，并打通“同一输出根下独立启动指定模块”，不增加自动扫描完成状态、输入指纹或跳过调度。
+
+- `make bug-review-analysis` 默认选择 `inputs/workspace_*` 下的全部模块，并对每个模块重新执行五阶段；已有结果不改变默认重跑范围。
+- `make bug_review_<name>` 只选择 `inputs/workspace_<name>`，执行该模块的五阶段；重复调用即重新复核该模块。两个入口都使用可配置的 `OUTPUT_ROOT`，默认仍是 `plugins/bug_review/output/`。
+- `output/` 顶层只作为跨模块入口，目标布局为 `output/index.html` 和 `output/workspace_<name>/` 子目录。每个模块的子目录保存自己的 UCAgent 阶段历史、准备清单、测试副本、签名 receipt、`results/bug_review.json`、`results/index.html`、Bug 详情页及页面引用的源文件；其余模块的状态不混在根目录。
+- 同一模块每次重跑在该模块目录下新建独立执行区，例如 `output/workspace_<name>/runs/<run-id>/`。执行成功后把该模块的单一 JSON、HTML 和所需源文件发布到 `output/workspace_<name>/results/`，再重建 `output/index.html`；失败则保留此前发布的有效页面。签名 receipt 仍留在对应执行区，已发布结果记录其真实作用域，后续核验不把 receipt 当成可移动文件。
+- 重新发布只替换本次选中的模块结果，其他模块的 JSON、详情页、测试记录和 receipt 不改写。总索引根据已发布且可打开的模块页面生成，链接到 `workspace_<name>/results/index.html`。V2.0 每次工作流只处理一个模块，运行中权威 JSON 为 `{OUT}/bug_review.json`；阶段 YAML、Checker、Guide、Skill 和报告脚本同步调整此路径。
+- 准备清单改为本次模块执行区私有，不能再让共享 `output/review_job.json` 的冻结 `source_runs` 阻止新模块。Make 在启动前显示本次选中的模块及输出子目录，避免把单模块命令误认为全量运行。
+
+现有 V1.4 `output/results/workspaces/*` 与根目录 `.ucagent` 属于旧布局。签名 receipt 绑定原工作区绝对路径，不能通过移动目录迁入新模块区。过渡期间总索引可继续链接旧版已完成页面，新增 B 无需重跑旧 A；A 下次被明确选中重跑后才在 `output/workspace_A/` 生成新版产物。旧版结果全部替换后，根目录才能收敛为总索引和模块子目录；旧版状态的清理是单独的数据迁移步骤，不作为新增模块的前置条件。
+
+验收场景：先完成 A，再新增 B，执行 `make bug_review_B` 时只对 B 调用 RunTestCases/WaveInfo；A 的 JSON、详情页和 receipt 文件字节不变，总索引列出 A+B。再次执行 `make bug_review_A` 时只重跑 A；执行 `make bug-review-analysis` 时 A 与 B 都重新跑。B 中途失败时，A 的报告仍可查看。
+
+### 2. 工具与阶段契约优化
+
+| 优先级 | 实跑问题 | V2.0 处理位置与契约 |
+| --- | --- | --- |
+| P0 | `reference_files` 展开测试目录，门禁要求逐项 `ReadTextFile`，甚至诱发目录占位操作。 | 插件工作流只声明确实要求阅读的普通文件，如 Guide、当前模块报告和当前 JSON；不把目录或测试树 glob 当成“已读”门禁。具体测试、Spec、RTL 由任务选取和 Checker 的证据引用约束。保留 UCAgent 原有真实读取记录机制，不增设可绕过阅读的 `register_reference`。 |
+| P0 | WaveInfo 输出溢出时 receipt 与 case 对应关系难恢复；无效调用也出现在 store。 | UCAgent 核心提供只读、签名验证的 `ListWaveInfoReceipts(test_case_name, usable_only, limit, offset)` 和按 `receipt_id` 获取详情的入口。列表返回精确 `test_case_name`、`receipt_id`、会话/时间、调用窗口、状态、可用性和信号组摘要；详情按需返回已保存的完整 result。默认过滤不可用记录，允许显式查看失败记录用于诊断。WaveInfo 当次响应也带精确 case 身份、可用性、`timeline_truncated` 和遗漏点数。插件直接使用核心工具，不重新封装波形分析。 |
+| P0 | 大 JSON 靠整文件 `json.dump`、手工备份；当前文件工具写目录仅开放 `notes/`。 | 插件提供仅作用于当前模块 `bug_review.json` 的 JSON Pointer 批量更新工具或等价通用 JSON 文件工具：调用含 `expected_sha256`、操作列表和目标路径；逐项检查指针、类型及当前阶段允许的字段，整批原子写入，冲突不覆盖。阶段开始保留一次可恢复快照；Skill 给出按 Bug/case 定点更新示例。Skill 关闭时仍开放同一工具与格式说明。 |
+| P0 | Checker 对 `spec_ref` 类型和 `路径:行号` 格式只抛底层错误，造成多轮 Check 试错。 | 插件 Checker 返回有界的结构化问题列表，逐项给出工作区、`bug_id`/case、JSON 字段路径、实际类型或值摘要、期待格式、示例和下一步。`spec_ref`/`rtl_ref` 明确要求一条相对 `{OUT}/inputs/<workspace>/` 的现存源文件引用 `路径:起始行[-结束行]`；多个证据放在 `evidence.spec`/`evidence.rtl` 数组。现有 `Check` 已执行只读校验，不新增 `dry_run` 参数。 |
+| P1 | 长窗口截断、信号名带换行和大结果显示溢出导致重复调用或误判。 | WaveInfo 明确报告截断及可缩窄的窗口/分页建议；信号路径报错返回被拒路径及信号目录中的精确候选，不静默改写路径。Skill 指导先取精确信号名、选择覆盖事务的窗口，再调用最终 WaveInfo；缺少必要事件时保持未定。完整结果从签名 receipt 读取。 |
+| P1 | `SetSkillUsage` 顺序与技能名传输不清楚，阶段收尾重复。 | 阶段任务和 Guide 写清 `ListSkill → ReadTextFile(SKILL.md) → 完成产物 → Check → SetSkillUsage → Journal → Complete`，并从 CurrentTips 复制当前阶段的精确 Skill 名。核心错误显示收到的 Skill 名及期望名，便于定位控制字符；不把被污染的名字自动规范化为另一项已记录证据。先不合并 `stage_finish`，保留独立 Check 与使用证据语义。 |
+| P1 | 报告 Skill 静默结束；Bash 当前目录漂移。 | `render_report.py` 输出本次生成的文件路径、数量和 JSON 来源；Skill 脚本仍由 `RunSkillScript` 以固定 DUT 工作区为当前目录执行，所有产物定位使用运行配置的 `OUT`。无需改动通用 `RunSkillScript` 返回协议。 |
+
+### 3. 实施顺序与完成标准
+
+1. 先实现两个 Make 入口的重跑范围、模块专属目录与根目录总索引，确保新增 B 的单模块命令不会重开 A；默认入口仍重跑全部。同步 Make/CLI、发布器、Checker、Guide、阶段 Skill 和产物格式。
+2. 修正 `reference_files`，加入 JSON 定点更新及字段级诊断；用 `spec_ref` 错误、并发修改、目录引用和 26 条裁决的批量更新场景验收。
+3. 在 UCAgent 核心加签名 receipt 查询及 WaveInfo 结果摘要，随后更新波形 Skill；用同名不同会话、失败 receipt、显示截断和精确 TC 映射场景验收。
+4. 更新阶段提示、脚本输出与操作说明；分别检查 Skill 启用和关闭的同一产物契约，并以 A 已完成后新增 B、单独重跑 A、默认重跑 A+B、B 失败保留旧报告的场景完成集成验收。
+
+V2.0 不以“33 个失败全部 confirmed”作为成功判据。裁决仍由正确测试、真实波形、Spec 和 RTL 因果链支持；`refuted` 保留原声明且复核置信度为 `0`，证据不足保持 `inconclusive`。
 
 ## V1 输入与裁决
 
@@ -63,7 +136,7 @@ V1 重跑发现的新失败也进入复核。最终交付每个 Bug 的裁决、
 
 ### 3. 波形分析
 
-复用当前 `BugReviewWaveInfo` 对 UCAgent `WaveInfo` 的封装和默认 UnityTest 工作流中的取证规则。最终证据必须使用真实的测试节点、信号路径、时间窗口和工具生成的证据 ID；信号集合覆盖相关输入、输出、协议控制、实际时钟（若有）及解释功能选择或错误传播的关键路径。测试日志周期与波形 step 通过时钟出现序号和事务上下文对齐，不假设编号相等。
+V1 曾通过 `BugReviewWaveInfo` 封装 UCAgent `WaveInfo`。V1.3 改为直接调用默认 WaveInfo；最终证据使用真实测试节点、信号路径、时间窗口和工具生成的 `receipt_id`。信号集合覆盖相关输入、输出、协议控制、实际时钟（若有）及解释功能选择或错误传播的关键路径。测试日志周期与波形 step 通过时钟出现序号和事务上下文对齐，不假设编号相等。
 
 一次数据不一致只有在事务被接受、输出有效且达到规定延迟后才可能支持 Bug 结论。波形不可得、信号不足或事务归属不明时记录明确原因和缺失证据，不凭历史记录补造本次取证。一个 TC 关联多个 Bug 时共享该 TC 的波形证据，并为每个 Bug 分别说明它支持或反驳的结论。
 
@@ -113,12 +186,12 @@ V0 的 `plugin.py` 只注册 `analysis`，独立评分入口始终没有接通�
 | 当前文件或目录 | 当前职责 / 优化方向 |
 | --- | --- |
 | `ucagent-plugin.toml`、`pyproject.toml` | 源码发现、安装入口、依赖和随包资源；路径调整须同步打包清单。 |
-| `src/bug_review/plugin.py`、`adapter.py` | 注册分析工作流、工具和 Checker；将五阶段与解析后的输出配置接入。 |
+| `src/bug_review/plugin.py` | 注册五阶段工作流和 Checker；不注册 Bug Review 专用执行工具。 |
 | `src/bug_review/workflows/analysis.yaml` | 声明阶段任务、`reference_files`、`output_files` 与 Checker；以目标五阶段为准。 |
 | `src/bug_review/Guide_Doc/analysis.md` | 给执行阶段的 Agent 提供可操作的任务和产物格式；与本文契约一致。 |
-| `src/bug_review/inputs.py`、`workflow.py` | 发现 `inputs/workspace_*`、冻结输入清单并在 `replay` 创建隔离执行副本。 |
-| `src/bug_review/test_execution.py`、`waveform.py`、`case_analysis.py`、`tasks.py` | 重跑、真实波形取证、逐用例复核和任务状态。 |
-| `src/bug_review/analysis_core/` | V1 实际使用的报告解析、测试报告解析及持久化证据模块。 |
+| `src/bug_review/inputs.py`、`workflow.py` | 发现 `inputs/workspace_*`、将输入复制到 `{OUT}/tests/workspace_*`，并在 Checker 中验证直接生成的阶段产物。 |
+| `src/bug_review/skills/` | 各阶段工作目标、UCAgent 工具步骤、产物格式和报告 HTML 渲染脚本。 |
+| `src/bug_review/analysis_core/` | 原 Bug 报告解析与原子 JSON 写入。 |
 | `tests/` | 验证多 workspace、空/缺失输入、重跑失败、波形证据、根因合并、置信度零和 HTML 链接。 |
 
 多个插件可以在同一次 UCAgent 启动中通过重复 `--plugin` 激活，共享已注册的工具与 Checker；一次启动仍只选择一个 `--plugin-workflow`。加载 DesignWithPPA 不会自动让 Bug Review 的 Python 代码调用它的工具。直接复用其他插件的库时，应显式声明包依赖和稳定接口。
@@ -137,4 +210,19 @@ V0 的 `plugin.py` 只注册 `analysis`，独立评分入口始终没有接通�
 - `templates/analysis/bug_review_notes.md` 初始化可持续编辑的 `notes/bug_review_notes.md`。人工记录区不随摘要更新而丢失；笔记不属于权威 Bug 证据，也不作为阶段门禁。
 - 可选的 `skills/review-notes/` 从已完成阶段的结构化产物刷新笔记中的阶段摘要。脚本使用 `.ucagent/runtime_config.json` 的解析后 `OUT`，不执行测试或改写裁决。Skill 未启用时，Agent 直接阅读相同阶段产物并使用普通文件工具记笔记；Checker 标准一致。
 
-完成优化的判据是：单个及多个 `workspace_*` 均可从输入到 HTML 完整执行；原报告每条 Bug 都有保留的裁决，新失败可新增，同根因可合并而不丢成员，非 Bug 的复核置信度为 `0`；输入源码未被改写；每个阶段的声明文件与每个工作区的实际产物一致；报告结论可回溯到本次测试、波形、Spec 和 RTL。当前聚焦测试覆盖这些数据和阶段边界；真实 DUT 的完整回放与波形裁决仍需在可加载插件的 UCAgent 运行环境中执行。插件最低版本要求保持 `UCAgent>=26.9.2.dev6`，与 DesignWithPPA 一致；RTL2Spec 要求 `>=26.9.2.dev14`。本次使用的仓库版本为 `26.6.25.dev3`，因此这里的插件加载校验被版本门禁拒绝，不能据此宣称完成全链路运行验证。
+## V1.2 阶段 Skill 与波形取证
+
+- Agent 调用无阶段参数的 `BugReviewAdvance`。工具从当前工作流状态确定阶段，生成产物或返回待办；每项待办仍由 `BugReviewTasks` 和 `BugReviewSubmitResponse` 处理。调度器内部仍按阶段执行，Checker 继续验证每阶段的 `output_files`。
+- `inventory-review`、`replay-review`、`waveform-review`、`evidence-correlation`、`report-publication` 五个阶段 Skill 分别给出本阶段的操作顺序、证据判断和产物复核。启用 Skill 时，阶段要求读取并使用对应 Skill，Check 后登记使用证据；关闭 Skill 或工作区没有 `.ucagent/skills` 时，阶段 task 与 `Guide_Doc/analysis.md` 仍提供全部工具调用、格式、证据和完成标准，Checker 标准不变。
+- 波形阶段沿用默认工作流的取证原则：先确认测试、驱动与规格预期正确；最终 `signal_groups` 包含真实时钟或明确组合模式、相关输入数据/选择/使能、输出数据/状态/有效位、真实请求接受/响应控制、至少一条功能选择/状态/错误传播路径。一个 TC 关联多个 Bug 时覆盖信号并集，签名 timeline、receipt 和在线 viewer 使用同一组真实路径。`pattern` 只定位事件。日志 cycle 与波形 step 按时钟出现顺序及事务上下文对齐；核对有效窗口、背压、响应延迟和归属后才能作 DUT 结论。
+- `replay` 已在输出根目录的 `tasks/<workspace>/replay/runs/<workspace>/workspace` 创建隔离副本并执行测试。Makefile 无需额外提前复制 `workspace_*`，避免重复占用空间及来源歧义；可直接查看该副本和旁边的 `execution.json`。
+
+## V1.3 原生工具驱动的阶段
+
+- 插件不再注册 `BugReviewAdvance`、`BugReviewTasks`、`BugReviewSubmitResponse`、`BugReviewStatus` 或 `BugReviewWaveInfo`。五阶段按 CurrentTips 调用文件工具、`RunTestCases`、默认 `WaveInfo` 和阶段 Skill；不通过 Bug Review 工具接收待办结构或提交判断。
+- `prepare-analysis` 在 UCAgent 启动前将选定的 `workspace_*` 复制到 `{OUT}/tests/<workspace>/`。`RunTestCases.test_dir` 与默认 WaveInfo 的测试目录均使用 `{OUT}/tests`，不同工作区保留独立子目录。源目录不修改；复制输入作为只读分析资料。
+- 五个阶段 Skill 写明目标、输入、工具调用、产物文件和完成条件。启用 Skill 时按 stage `skill_list` 读取执行；Skill 整体禁用时，stage task 和 Guide 仍包含等价任务路径。
+- 阶段产物直接由 UCAgent 文件工具或 Skill script 写到 `{OUT}`。Checker 按输入身份、测试覆盖、波形收据引用、根因成员关系、置信度和 HTML 链接验证产物，不要求 Python workflow 先运行并密封状态。
+- 波形阶段调用 UCAgent 默认 `WaveInfo`，保留它返回的原始 `receipt_id`、结果、签名信号组与 viewer；分析引用真实工具输出，不从 Bug Review 包装层推导证据。
+
+完成优化的判据是：单个及多个 `workspace_*` 均可从输入到 HTML 完整执行；原报告每条 Bug 都有保留的裁决，新失败可新增，同根因可合并而不丢成员，非 Bug 的复核置信度为 `0`；输入源码未被改写；每个阶段的声明文件与每个工作区的实际产物一致；报告结论可回溯到本次测试、波形、Spec 和 RTL。V1.3 的真实 DUT 重跑、默认 WaveInfo 调用及 HTML 全流程仍需在满足版本要求的 UCAgent 运行环境中验证。插件最低版本要求保持 `UCAgent>=26.9.2.dev6`，与 DesignWithPPA 一致；RTL2Spec 要求 `>=26.9.2.dev14`。本次仓库版本为 `26.6.25.dev3`，低于插件最低版本。
