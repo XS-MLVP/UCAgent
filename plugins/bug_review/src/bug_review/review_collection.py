@@ -17,13 +17,24 @@ from .review_store import (BugEntry, CaseEntry, CaseRecord, CoverageMetric,
 from .workflow import _inventory, _workspace_node
 
 
+class CollectionFailure(ValueError):
+    """Preserve one failed pytest collection's bounded diagnosis and full log path."""
+
+    def __init__(self, exit_code: int, log_path: Path, diagnostic: list[str]):
+        """Describe a failed attempt without creating authoritative review records."""
+        self.exit_code = exit_code
+        self.log_path = log_path
+        self.diagnostic = diagnostic
+        super().__init__(f"pytest collection exited {exit_code}; full output: {log_path}")
+
+
 def collect_nodes(workspace: Path, output: Path, name: str, timeout: int) -> TestManifest:
-    """Run collection only and retain exact node IDs and collection diagnostics."""
+    """Collect exact node IDs with the same writable report scope as RunTestCases."""
     test_root = output / "tests"
     config = test_root / name / "unity_test/.pytest.ini"
     target = f"-c {name}/unity_test/.pytest.ini {name}" if config.is_file() else name
     command = [sys.executable, "-m", "pytest", *target.split()[:-1],
-               "--collect-only", "-q", name]
+               "--collect-only", "-q", f"--report-dir={workspace / 'uc_test_report'}", name]
     env = os.environ.copy()
     env["PYTHONPATH"] = os.pathsep.join((str(workspace), str(test_root),
                                           env.get("PYTHONPATH", "")))
@@ -33,7 +44,9 @@ def collect_nodes(workspace: Path, output: Path, name: str, timeout: int) -> Tes
         combined = completed.stdout + "\n" + completed.stderr
         exit_code = completed.returncode
     except subprocess.TimeoutExpired as error:
-        combined = str(error)
+        stdout = error.stdout.decode(errors="replace") if isinstance(error.stdout, bytes) else error.stdout or ""
+        stderr = error.stderr.decode(errors="replace") if isinstance(error.stderr, bytes) else error.stderr or ""
+        combined = stdout + "\n" + stderr + f"\nCollection timed out after {timeout}s"
         exit_code = 124
     collected = []
     for line in combined.splitlines():
@@ -43,15 +56,26 @@ def collect_nodes(workspace: Path, output: Path, name: str, timeout: int) -> Tes
         case_id = _workspace_node(node)
         if case_id not in collected:
             collected.append(case_id)
-    errors = [] if exit_code == 0 else [line for line in combined.splitlines()
-                                      if line.strip()][-60:]
+    if exit_code != 0 or not collected:
+        log_path = output / "diagnostics/collection.log"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_path.write_text(combined, encoding="utf-8")
+        markers = ("permissionerror", "internalerror", "importerror", "modulenotfounderror",
+                   "library load disallowed", "quarantine", "error collecting")
+        relevant = [line.strip()[:300] for line in combined.splitlines()
+                    if any(marker in line.lower() for marker in markers)]
+        diagnostic = relevant[-12:] or [line.strip()[:300] for line in combined.splitlines()
+                                        if line.strip()][-12:]
+        if not collected and exit_code == 0:
+            diagnostic.append("pytest returned no collected test nodes")
+        raise CollectionFailure(exit_code, log_path, diagnostic)
     try:
         pytest_version = version("pytest")
     except PackageNotFoundError:
         pytest_version = "unavailable"
     return TestManifest(collection_command=command, pytest_target=target,
                         collection_exit_code=exit_code,
-                        collected=collected, collection_errors=errors,
+                        collected=collected, collection_errors=[],
                         pytest_version=pytest_version,
                         random_seed=env.get("PYTEST_RANDOMLY_SEED", "unavailable"),
                         baseline_id=f"baseline-{secrets.token_hex(6)}")
@@ -121,11 +145,11 @@ def create_records(workspace: Path, output: Path, expected_name: str = "") -> di
                           records[case_id].model_dump(mode="json", by_alias=True))
     documents = {"test_manifest.json": manifest, "replay_summary.json": ReplaySummary(
         baseline_id=manifest.baseline_id), "environment_review.json": EnvironmentReview(),
-        "report_reconciliation.json": ReconciliationRecord(), "coverage.json": coverage,
-        "review_index.json": index}
+        "report_reconciliation.json": ReconciliationRecord(), "coverage.json": coverage}
     for filename, document in documents.items():
         atomic_write_json(output / filename, document.model_dump(mode="json", by_alias=True))
     atomic_write_json(output / "wave_signal_presets.json", {"presets": {}})
+    atomic_write_json(output / "review_index.json", index.model_dump(mode="json", by_alias=True))
     return {"collected": len(manifest.collected), "original_bugs": len(bugs),
             "collection_exit_code": manifest.collection_exit_code,
             "collection_errors": manifest.collection_errors[:10],

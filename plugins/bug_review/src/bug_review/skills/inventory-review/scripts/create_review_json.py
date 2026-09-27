@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 
 from ucagent.util.config import load_runtime_config
 
-from bug_review.review_collection import create_records
+from bug_review.review_collection import CollectionFailure, create_records
 from bug_review.workflow import safe_name
 
 
@@ -22,8 +23,14 @@ def main() -> None:
     output = (root / runtime["OUT"]).resolve()
     if not output.is_relative_to(root) or output == root:
         raise ValueError("Resolved OUT must be a child of the current workspace")
-    result = create_records(root, output, expected_name=name)
-    print(result)
+    try:
+        result = create_records(root, output, expected_name=name)
+    except CollectionFailure as error:
+        print(json.dumps({"success": False, "error_code": "PYTEST_COLLECTION_FAILED",
+                          "exit_code": error.exit_code, "log_path": str(error.log_path),
+                          "diagnostic": error.diagnostic}, ensure_ascii=False))
+        raise SystemExit(2) from None
+    print(json.dumps({"success": True, **result}, ensure_ascii=False))
 
 
 if __name__ == "__main__":

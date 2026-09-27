@@ -15,6 +15,8 @@ A `confirmed` decision needs a correct reproduced test, a usable signed WaveInfo
 
 Group confirmed Bugs only when `rtl_ref`, `first_error` and `causal_chain` match. Every root lists all members, every confirmed Bug points to exactly one root, and each Bug keeps its own case IDs. Add newly discovered Bug identities to the index before submission.
 
+For a shared root, each confirmed decision's `rtl_ref`, `first_error`, and `causal_chain` must be byte-for-byte identical to the root fields. Put case-specific explanation in `rationale` or `observed_behavior`. Root membership is explicit; similar text alone must not create a root group.
+
 ## Submit
 
 Create `{OUT}/drafts/decisions.json` with exactly these top-level keys:
@@ -56,4 +58,4 @@ Create `{OUT}/drafts/decisions.json` with exactly these top-level keys:
 }
 ```
 
-Call `CreateDecisionDraft` to prefill **all** indexed Bug IDs and case IDs. If attribution changed, call `CreateDecisionDraft(refresh=true)` to synchronize case IDs while preserving judgments. Fill the reasoning fields and roots, then call `SubmitReviewDecisions(draft_path="results/drafts/decisions.json", dry_run=true)` to validate without activating. Call `SubmitReviewDecisions(draft_path="results/drafts/decisions.json", dry_run=false)` to activate one revision. Fix the listed fields if it rejects the draft. `ReviewRevisionHistory` lists past attribution and decision revisions. After acceptance, run Check, SetSkillUsage, journal and Complete.
+Call `CreateDecisionDraft` to prefill **all** indexed Bug IDs and case IDs. If attribution changed, call `CreateDecisionDraft(refresh=true)` to synchronize case IDs while preserving judgments. After assigning `root_id` and filling `roots[]`, call `CreateDecisionDraft(refresh=true, sync_root_fields=true)` to copy each assigned root's three canonical RTL fields into confirmed decisions. Then call `SubmitReviewDecisions(draft_path="results/drafts/decisions.json", dry_run=true)` to validate without activating. Its root-field diagnostics include the exact expected and actual text. Call `SubmitReviewDecisions(draft_path="results/drafts/decisions.json", dry_run=false)` to activate one revision. `ReviewRevisionHistory` lists past revisions. After acceptance, run Check, SetSkillUsage, journal and Complete.

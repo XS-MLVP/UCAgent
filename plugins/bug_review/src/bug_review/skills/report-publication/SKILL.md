@@ -14,6 +14,6 @@ RunSkillScript(commands=[["ext/bug_review/report-publication", "render_report.py
 RunSkillScript(commands=[["ext/bug_review/report-publication", "render_report.py", "--verify"]])
 ```
 
-Skill 不可用时依次调用 `RenderBugReviewReport(verify_only=false)` 和 `RenderBugReviewReport(verify_only=true)`。产物在 `{OUT}/report/`：模块 `index.html`、`cases/` 失败详情、`bugs/` 疑似 Bug 详情和 `report_manifest.json`。模块页展示全集/缺口、失败归因、环境质量、覆盖率及 Bug 列表；case 页展示场景、预期、实际、归因、波形与 Bug 关联；Bug 页展示原声明、Spec/RTL、裁决和根因。
+Skill 不可用时依次调用 `RenderBugReviewReport(verify_only=false)` 和 `RenderBugReviewReport(verify_only=true)`。产物在 `{OUT}/report/`：模块 `index.html`、`cases/` 失败详情、`bugs/` 缺陷详情、`sources/` 源码全文预览和 `report_manifest.json`。模块页用中文展示全集/缺口、失败归因、环境质量和覆盖率；缺陷主表仅列已确认且复核置信度不低于 0.8 的记录，其他裁决保留详情与数据。case 页展示场景、预期、实际、归因、波形与 Bug 关联；Bug 页的源码表链接到全文预览并高亮引用行段。`--verify` 同时核对源码页面、锚点、收据/viewer 与链接。
 
 核验后 Check、SetSkillUsage、日志、Complete。完成回调把已核验 `report/` 发布到模块公开入口、重建 `output/index.html` 并记录 publish 状态；不用手工修改状态。若阶段已完成但门户缺失，运行 `python -m bug_review.workflow publish --workspace <run>` 恢复发布，不重跑测试或波形。

@@ -13,17 +13,29 @@ from .workflow import Workflow, _inventory, _workspace_node
 
 
 def create_attribution_draft(output: Path) -> dict:
-    """Create a complete editable mapping and reconciliation draft once."""
+    """Prefill one editable draft with BG links and parsed source candidates."""
     index = load_record(output, "review_index.json", "index")
     target = output / "drafts/attribution.json"
     if target.exists():
         raise ValueError("drafts/attribution.json already exists; edit the current draft")
     reconciliation = load_record(output, index.reconciliation_path, "reconciliation")
+    original, _ = _inventory(Path(index.workspace["source_path"]), index.workspace["name"])
+    reported = {item["bug_id"]: item for item in original["bugs"]}
+    candidates = {}
+    for bug_id, entry in index.bugs.items():
+        item = reported.get(bug_id, {})
+        candidates[bug_id] = {
+            "spec_candidates": sorted(set(entry.spec_candidates) | set(item.get("spec_refs", []))),
+            "rtl_candidates": sorted(set(entry.rtl_candidates) | set(item.get("rtl_refs", []))),
+        }
     atomic_write_json(target, {
         "bug_case_ids": {bug_id: entry.case_ids for bug_id, entry in index.bugs.items()},
+        "bug_candidates": candidates,
         "reconciliation": reconciliation.model_dump(mode="json", by_alias=True),
     })
-    return {"draft_path": str(target.relative_to(output.parent)), "bug_count": len(index.bugs)}
+    return {"draft_path": str(target.relative_to(output.parent)), "bug_count": len(index.bugs),
+            "prefilled_spec_refs": sum(len(item["spec_candidates"]) for item in candidates.values()),
+            "prefilled_rtl_refs": sum(len(item["rtl_candidates"]) for item in candidates.values())}
 
 
 def commit_attribution(workspace: Path, output: Path, draft_path: str, dry_run: bool,
@@ -36,19 +48,28 @@ def commit_attribution(workspace: Path, output: Path, draft_path: str, dry_run: 
     if draft.relative_to(output).parts[:1] != ("drafts",):
         raise ValueError("draft_path must be under {OUT}/drafts")
     payload = read_object(draft)
-    if set(payload) != {"bug_case_ids", "reconciliation"} or not isinstance(payload["bug_case_ids"], dict):
-        raise ValueError("draft requires bug_case_ids object and reconciliation object")
+    if (set(payload) != {"bug_case_ids", "bug_candidates", "reconciliation"}
+            or not isinstance(payload["bug_case_ids"], dict)
+            or not isinstance(payload["bug_candidates"], dict)):
+        raise ValueError("draft requires bug_case_ids, bug_candidates and reconciliation objects")
     index = load_record(output, "review_index.json", "index")
     if (index.stage_status.get("dut_evidence") != "complete"
             or index.stage_status.get("root_correlation") == "complete"):
         raise ValueError("CommitAttribution belongs between dut_evidence and root_correlation")
     proposed = payload["bug_case_ids"]
+    candidate_inputs = payload["bug_candidates"]
     issues = []
     if set(proposed) != set(index.bugs):
         issues.append({"field": "bug_case_ids", "expected": sorted(index.bugs),
                        "actual": sorted(proposed), "missing": sorted(set(index.bugs) - set(proposed)),
                        "extra": sorted(set(proposed) - set(index.bugs)),
                        "next_action": "Include every indexed Bug ID exactly once"})
+    if set(candidate_inputs) != set(index.bugs):
+        issues.append({"field": "bug_candidates", "expected": sorted(index.bugs),
+                       "actual": sorted(candidate_inputs),
+                       "missing": sorted(set(index.bugs) - set(candidate_inputs)),
+                       "extra": sorted(set(candidate_inputs) - set(index.bugs)),
+                       "next_action": "Include candidates for every indexed Bug ID"})
     source = Path(index.workspace["source_path"])
     original, _ = _inventory(source, index.workspace["name"])
     original_by_id = {bug["bug_id"]: bug for bug in original["bugs"]}
@@ -62,9 +83,22 @@ def commit_attribution(workspace: Path, output: Path, draft_path: str, dry_run: 
         missing = expected - actual
         unknown = actual - set(index.cases)
         if len(actual) != len(case_ids) or missing or unknown:
+            aggregate = {_workspace_node(node) for node in original_by_id.get(bug_id, {}).get("aggregate_tests", [])}
             issues.append({"bug_id": bug_id, "field": "case_ids", "expected": sorted(expected),
                            "actual": sorted(actual), "missing": sorted(missing),
-                           "extra": sorted(unknown), "next_action": "Keep BG-level original cases and use only indexed case IDs"})
+                           "extra": sorted(unknown), "bg_required": sorted(expected),
+                           "aggregate_only": sorted(aggregate - expected),
+                           "draft_added": sorted(actual - expected),
+                           "next_action": "Keep BG-level original cases and use only indexed case IDs"})
+    for bug_id, fields in candidate_inputs.items():
+        if (not isinstance(fields, dict) or set(fields) != {"spec_candidates", "rtl_candidates"}
+                or any(not isinstance(fields.get(field), list)
+                       or any(not isinstance(value, str) for value in fields[field])
+                       or len(fields[field]) != len(set(fields[field]))
+                       for field in ("spec_candidates", "rtl_candidates"))):
+            issues.append({"bug_id": bug_id, "field": "bug_candidates",
+                           "expected": "unique spec_candidates[] and rtl_candidates[] strings",
+                           "actual": fields, "next_action": "Correct the candidate draft fields"})
     if issues:
         raise ReviewIssues(issues)
     proposed_sets = {bug_id: set(case_ids) for bug_id, case_ids in proposed.items()}
@@ -105,6 +139,8 @@ def commit_attribution(workspace: Path, output: Path, draft_path: str, dry_run: 
     candidate = index.model_copy(deep=True)
     for bug_id, case_ids in proposed.items():
         candidate.bugs[bug_id].case_ids = case_ids
+        for field in ("spec_candidates", "rtl_candidates"):
+            setattr(candidate.bugs[bug_id], field, candidate_inputs[bug_id][field])
     for reported in original["bugs"]:
         bug_id = reported["bug_id"]
         entry = candidate.bugs[bug_id]
@@ -138,9 +174,16 @@ def commit_attribution(workspace: Path, output: Path, draft_path: str, dry_run: 
     changed = {bug_id: {"before": index.bugs[bug_id].case_ids, "after": case_ids}
                for bug_id, case_ids in proposed.items()
                if index.bugs[bug_id].case_ids != case_ids}
+    changed_candidates = {bug_id: {field: {"before": getattr(index.bugs[bug_id], field),
+                                           "after": candidate_inputs[bug_id][field]}
+                                   for field in ("spec_candidates", "rtl_candidates")
+                                   if getattr(index.bugs[bug_id], field) != candidate_inputs[bug_id][field]}
+                          for bug_id in proposed}
+    changed_candidates = {bug_id: fields for bug_id, fields in changed_candidates.items() if fields}
     if dry_run:
         return {"valid": True, "committed": False, "changed_bugs": changed,
-                "affected_cases": len(cases), "unreported_failed_cases": reconciliation.unreported_failed_cases}
+                "changed_candidates": changed_candidates, "affected_cases": len(cases),
+                "unreported_failed_cases": reconciliation.unreported_failed_cases}
     revision = f"attributions/rev-{secrets.token_hex(6)}"
     previous = index.model_dump(mode="json", by_alias=True)
     atomic_write_json(output / revision / "previous_index.json", previous)
@@ -155,7 +198,8 @@ def commit_attribution(workspace: Path, output: Path, draft_path: str, dry_run: 
     candidate.stage_status["report_reconcile"] = "complete"
     atomic_write_json(output / revision / "manifest.json", {
         "revision": revision, "previous_revision": index.attribution_revision,
-        "changed_bugs": changed, "affected_cases": len(cases)})
+        "changed_bugs": changed, "changed_candidates": changed_candidates,
+        "affected_cases": len(cases)})
     atomic_write_json(output / "review_index.json", candidate.model_dump(mode="json", by_alias=True))
     try:
         Workflow(workspace).check("report_reconcile")
@@ -163,5 +207,6 @@ def commit_attribution(workspace: Path, output: Path, draft_path: str, dry_run: 
         atomic_write_json(output / "review_index.json", previous)
         raise
     return {"committed": True, "revision": revision, "changed_bugs": changed,
+            "changed_candidates": changed_candidates,
             "updated_files": ["review_index.json", candidate.reconciliation_path,
                               *(entry.record_path for entry in candidate.cases.values())]}

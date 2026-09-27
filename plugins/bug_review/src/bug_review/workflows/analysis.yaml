@@ -31,7 +31,7 @@ mission:
   prompt:
     tips:
       always:
-        - "按本阶段产物逐项工作；先 Check，通过后 SetSkillUsage（若阶段 Skill 强制启用）、SetCurrentStageJournal、Complete。"
+        - "先用 CurrentTips 确认本阶段参考文件及 Skill。需要正文时用 ReadTextFile(count>0)；已阅读且内容未变的文件可用 ReadTextFile(count=0)登记本阶段已读。先 Check，通过后 SetSkillUsage（若阶段 Skill 强制启用）、SetCurrentStageJournal、Complete。"
       random: []
     system: |
       对当前模块收集并重跑全部 pytest 用例，先独立分析每个失败 case，再核对原 Bug 报告。
@@ -50,7 +50,7 @@ stage:
   - name: full_replay
     desc: "收集并全量重跑当前模块测试"
     task:
-      - "先读 Guide_Doc/analysis.md 和 review_job.json。调用 PrepareReviewInventory（或 inventory-review Skill 脚本）收集当前 pytest 配置下全部精确 node ID，建立 review_index.json、test_manifest.json、replay_summary.json、coverage.json 和逐 case 骨架。原报告只机械建立 Bug ID/来源/关联索引，暂不读取根因说明。"
+      - "先读 Guide_Doc/analysis.md 和 review_job.json。调用 PrepareReviewInventory（或 inventory-review Skill 脚本）收集当前 pytest 配置下全部精确 node ID，建立 review_index.json、test_manifest.json、replay_summary.json、coverage.json 和逐 case 骨架。收集报告写入本次运行的可写目录，不修改只读测试副本；若收集失败，读 {OUT}/diagnostics/collection.log，排查权限或动态库加载后直接重试，不能以不完整 node 集合继续。原报告只机械建立 Bug ID/来源/关联索引，暂不读取根因说明。"
       - "以 test_manifest.json.pytest_target 为 RunTestCases(pytest_args=...) 的参数运行完整模块；分批时对 collected 精确 node 分批，并保留相同 pytest 配置。每次运行后立即 CaptureReplayReport 保存真实报告与结果。不能凭原报告的失败数补写结果。每个 collected 项须有基线状态或明确 not_run 原因；原报告关联但本次未收集的 case 也写明未收集原因。collection 错误单列。记录命令、报告和排除配置。"
       - "检查全集与结果对账后设 stage_status.full_replay=complete，Check、SetSkillUsage（若要求）、日志、Complete。当前进度：{BUG_REVIEW_PROGRESS}"
     reference_files: ["Guide_Doc/analysis.md", "review_job.json"]
@@ -90,8 +90,8 @@ stage:
     desc: "对照原报告并补全漏报的 DUT 候选"
     task:
       - "现在阅读输入镜像中的 bug_summary.md；按 Bug ID 用 ReviewBugContext(sections=['claims', 'summary']) 分页查看 bug_analysis.md 原文，需要更长上下文时用 SearchText 和 ReadTextFile 分段读取。逐条比较独立 case 归因与原声明，补充原报告 Spec/RTL 候选，并保留每条原 Bug、原置信度及来源位置。"
-      - "原 Bug 的 BG 条目级 TC 是权威关联；报告级聚合 tests 只保留在 aggregate_case_ids/aggregate_refs，不直接并入 case_ids。对报告外失败、旧失败现通过和统计口径差异分别说明。previously_failed_now_passed 只列原文确有失败记录且本次通过的 case，并在 original_failure_refs[case_id] 写原文路径:行号。只有独立 DUT 证据支持时才能新增 origin=discovered 的 Bug。"
-      - "调用 CreateAttributionDraft，填写 bug_case_ids 和 reconciliation，先 CommitAttribution(dry_run=true) 核对差异，再正式提交；工具同时更新索引、全部 case 反向关联和对账记录。完成后 Check、SetSkillUsage（若要求）、日志、Complete。当前进度：{BUG_REVIEW_PROGRESS}"
+      - "原 Bug 的 BG 条目级 TC 是权威关联；报告级聚合 tests 只保留在 aggregate_case_ids/aggregate_refs，不直接并入 case_ids。调用 ReviewCaseDiff 批量查看本次失败、原声明关联和报告级清单的差集；原声明关联不等于旧失败证据。previously_failed_now_passed 只列原文确有失败记录且本次通过的 case，并在 original_failure_refs[case_id] 写原文路径:行号。只有独立 DUT 证据支持时才能新增 origin=discovered 的 Bug。"
+      - "调用 CreateAttributionDraft 预填 BG 关联和原报告 Spec/RTL 候选；用 ReviewRefCheck 核实候选，再填写 bug_case_ids、bug_candidates 和 reconciliation。先 CommitAttribution(dry_run=true) 核对差异，再正式提交；工具同时更新索引、全部 case 反向关联和对账记录。完成后 Check、SetSkillUsage（若要求）、日志、Complete。当前进度：{BUG_REVIEW_PROGRESS}"
     reference_files: ["Guide_Doc/analysis.md", "{OUT}/review_index.json", "{OUT}/inputs/workspace_*/unity_test/*_bug_summary.md"]
     output_files: ["{OUT}/review_index.json", "{OUT}/attributions/*/report_reconciliation.json"]
     skill_list: ["ext/bug_review/report-reconcile"]
@@ -103,7 +103,7 @@ stage:
     desc: "逐 Bug 裁决并合并同根因声明"
     task:
       - "按 Bug ID 用 ReviewBugContext(sections=['claims', ...]) 和 ReviewRefCheck 读取原文与 Spec/RTL；确认 DUT Bug 需正确失败测试、有效签名波形、真实规格要求及 RTL 首错因果链。旧 Bug 未复现本身不足以 refuted。"
-      - "调用 CreateDecisionDraft 预填全部 Bug ID 和 case_ids；归因变更后以 refresh=true 同步现有草稿且保留判断。填写裁决与根因后先 SubmitReviewDecisions(dry_run=true) 获取全部字段诊断，再正式提交激活一次修订。ReviewRevisionHistory 可查看修订和归因差异。"
+      - "调用 CreateDecisionDraft 预填全部 Bug ID 和 case_ids；归因变更后以 refresh=true 同步现有草稿且保留判断。明确填写 root_id 与 roots 后，可调用 CreateDecisionDraft(refresh=true, sync_root_fields=true) 将共享 RTL 三字段从指定 root 逐字同步；Bug 独有细节写 rationale/observed_behavior。先 SubmitReviewDecisions(dry_run=true) 获取逐字段诊断，再正式提交激活修订。ReviewRevisionHistory 可查看修订和归因差异。"
       - "同 RTL 首错与因果链的 confirmed Bug 共享 root，保留每个原声明；refuted 置信度为 0，证据不足 inconclusive。Check、SetSkillUsage（若要求）、日志、Complete。当前进度：{BUG_REVIEW_PROGRESS}"
     reference_files: ["Guide_Doc/analysis.md", "{OUT}/review_index.json"]
     output_files: ["{OUT}/review_index.json", "{OUT}/reviews/*/root_causes.json"]
@@ -115,7 +115,7 @@ stage:
   - name: publish
     desc: "渲染并核验三级最终报告"
     task:
-      - "调用 RenderBugReviewReport(verify_only=false) 或 report-publication Skill 脚本，生成 {OUT}/report/index.html、逐失败 case 页、逐 Bug 页和 report_manifest.json。模块页列出全集、未执行、失败归因、环境质量、覆盖率口径和疑似 Bug。"
+      - "调用 RenderBugReviewReport(verify_only=false) 或 report-publication Skill 脚本，生成 {OUT}/report/index.html、逐失败 case 页、逐 Bug 页、源码全文预览和 report_manifest.json。模块页展示全集、未执行、失败归因、环境质量、覆盖率口径；Bug 主表仅列已确认且复核置信度不低于 0.8 的记录，其他裁决仍保留详情及结构化数据。"
       - "再调用 RenderBugReviewReport(verify_only=true) 或脚本 --verify，核对页面、收据/viewer、引用和站内链接。Check、SetSkillUsage（若要求）、日志、Complete；完成回调发布模块 report、重建 output/index.html 并记录 publish 状态。必要时使用 bug_review.workflow publish 恢复门户，无需重跑。当前进度：{BUG_REVIEW_PROGRESS}"
     reference_files: ["Guide_Doc/analysis.md", "{OUT}/review_index.json", "{OUT}/environment_review.json"]
     output_files: ["{OUT}/report/index.html", "{OUT}/report/report_manifest.json"]

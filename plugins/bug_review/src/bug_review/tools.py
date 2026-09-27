@@ -37,11 +37,16 @@ class PrepareReviewInventory(UCTool):
 
     def _run(self) -> dict:
         """Return collection diagnostics alongside the created artifact paths."""
-        from .review_collection import create_records
+        from .review_collection import CollectionFailure, create_records
 
         try:
             root = Path(self.workspace).resolve()
             return {"success": True, **create_records(root, root / self.output_dir)}
+        except CollectionFailure as error:
+            return {"success": False, "error_code": "PYTEST_COLLECTION_FAILED",
+                    "error": str(error), "exit_code": error.exit_code,
+                    "log_path": str(error.log_path), "diagnostic": error.diagnostic,
+                    "next_action": "Correct the reported environment issue, then call PrepareReviewInventory again"}
         except (ValueError, OSError, KeyError) as error:
             return {"success": False, "error_code": "COLLECTION_PREPARATION_FAILED",
                     "error": str(error), "next_action": "Correct collection inputs and call PrepareReviewInventory again"}
@@ -97,6 +102,64 @@ class ResolveReviewCase(UCTool):
         except (ValueError, OSError, KeyError) as error:
             return {"success": False, "error_code": "CASE_ID_UNKNOWN", "error": str(error),
                     "next_action": "Read review_index.json cases and use an exact case_id"}
+
+
+class CaseDiffArgs(BaseModel):
+    """Bound the reported-claim versus current-replay case comparison."""
+
+    limit: int = Field(default=100, ge=1, le=200)
+    offset: int = Field(default=0, ge=0)
+
+
+class ReviewCaseDiff(UCTool):
+    """Compare canonical claim associations with the current replay baseline."""
+
+    name: str = "ReviewCaseDiff"
+    description: str = (
+        "Compare BG-level claim cases, report aggregate cases, collected nodes and current failures "
+        "using exact indexed case IDs; reported associations are not assumed to be historical failures."
+    )
+    args_schema: Optional[ArgsSchema] = CaseDiffArgs
+    workspace: str = Field(default=".", exclude=True)
+    output_dir: str = Field(default="results", exclude=True)
+
+    def _run(self, limit: int = 100, offset: int = 0) -> dict:
+        """Return paged differences and the authoritative three identities."""
+        from .workflow import _inventory, _workspace_node
+
+        output = Path(self.workspace).resolve() / self.output_dir
+        try:
+            index = load_record(output, "review_index.json", "index")
+            if index.stage_status.get("full_replay") != "complete":
+                raise ValueError("full_replay must be complete before comparing case sets")
+            manifest = load_record(output, index.manifest_path, "manifest")
+            replay = load_record(output, index.replay_summary_path, "replay_summary")
+            original, _ = _inventory(Path(index.workspace["source_path"]), index.workspace["name"])
+            claimed = {_workspace_node(node) for bug in original["bugs"] for node in bug["tests"]}
+            aggregate = {_workspace_node(node) for bug in original["bugs"]
+                         for node in bug["aggregate_tests"]}
+            collected = set(manifest.collected)
+            current_failed = {case_id for case_id, status in replay.outcomes.items()
+                              if status in {"failed", "error", "xpassed"}}
+            sets = {
+                "bg_claim_cases": claimed,
+                "report_aggregate_only": aggregate - claimed,
+                "reported_not_collected": claimed - collected,
+                "current_failed_without_bg_claim": current_failed - claimed,
+                "bg_claim_now_passed": claimed & {case_id for case_id, status in replay.outcomes.items()
+                                                  if status == "passed"},
+            }
+            paged = {key: sorted(values)[offset:offset + limit] for key, values in sets.items()}
+            visible = set().union(*paged.values())
+            identities = {case_id: {"replay_target": index.cases[case_id].replay_target,
+                                    "waveform_test_case_name": index.cases[case_id].waveform_test_case_name}
+                          for case_id in visible if case_id in index.cases}
+            return {"success": True, "counts": {key: len(values) for key, values in sets.items()},
+                    "collected_count": len(collected), "current_failed_count": len(current_failed),
+                    "offset": offset, "case_ids": paged, "identities": identities,
+                    "note": "A BG link is not proof of a historical failure; check original_failure_refs before claiming a prior failure."}
+        except (ValueError, OSError, KeyError, TypeError) as error:
+            return {"success": False, "error_code": "CASE_DIFF_UNAVAILABLE", "error": str(error)}
 
 
 class ApplyReceiptArgs(BaseModel):
@@ -300,7 +363,7 @@ class CreateAttributionDraft(UCTool):
     """Start one complete Bug-to-case and report reconciliation draft."""
 
     name: str = "CreateAttributionDraft"
-    description: str = "Create {OUT}/drafts/attribution.json with all Bug IDs, current case links and reconciliation fields."
+    description: str = "Create attribution.json with all Bug links, parsed original Spec/RTL candidates and reconciliation fields."
     args_schema: Optional[ArgsSchema] = EmptyArgs
     workspace: str = Field(default=".", exclude=True)
     output_dir: str = Field(default="results", exclude=True)
@@ -320,7 +383,7 @@ class CommitAttribution(UCTool):
     """Validate and activate one complete attribution revision."""
 
     name: str = "CommitAttribution"
-    description: str = "Validate bug_case_ids and reconciliation once, then atomically activate all case links without per-file SHA calls."
+    description: str = "Validate bug_case_ids, bug_candidates and reconciliation, then activate case links and source candidates as one revision."
     args_schema: Optional[ArgsSchema] = AttributionArgs
     workspace: str = Field(default=".", exclude=True)
     output_dir: str = Field(default="results", exclude=True)
@@ -453,18 +516,20 @@ class DecisionDraftArgs(BaseModel):
 
     refresh: bool = Field(default=False, description="Synchronize case_ids from the active index while preserving decisions.")
     preview_only: bool = Field(default=False, description="Return proposed case_id changes without writing the draft.")
+    sync_root_fields: bool = Field(default=False, description="Copy exact RTL fields from explicitly assigned roots to confirmed decisions.")
 
 
 class CreateDecisionDraft(UCTool):
     """Generate one review draft with exact Bug identities and case lists."""
 
     name: str = "CreateDecisionDraft"
-    description: str = "Create or refresh decisions.json case_ids from the active index while preserving completed judgments."
+    description: str = "Create or refresh decisions.json case_ids; optionally synchronize exact fields from assigned roots."
     args_schema: Optional[ArgsSchema] = DecisionDraftArgs
     workspace: str = Field(default=".", exclude=True)
     output_dir: str = Field(default="results", exclude=True)
 
-    def _run(self, refresh: bool = False, preview_only: bool = False) -> dict:
+    def _run(self, refresh: bool = False, preview_only: bool = False,
+             sync_root_fields: bool = False) -> dict:
         """Prefill new judgments and show exact association changes on refresh."""
         output = Path(self.workspace).resolve() / self.output_dir
         try:
@@ -480,8 +545,14 @@ class CreateDecisionDraft(UCTool):
             prior = {item["bug_id"]: item for item in previous["decisions"]}
             if len(prior) != len(previous["decisions"]) or set(prior) - set(index.bugs):
                 raise ValueError("existing draft has duplicate or unindexed Bug IDs")
+            if sync_root_fields and not target.exists():
+                raise ValueError("sync_root_fields requires an existing draft with assigned roots")
+            roots = {item["root_id"]: item for item in previous["roots"]}
+            if len(roots) != len(previous["roots"]):
+                raise ValueError("existing draft has duplicate root IDs")
             decisions = []
             changed = {}
+            normalized = {}
             for bug_id in index.bug_order:
                 value = dict(prior.get(bug_id) or {
                     "schema": "bug_review.v6", "record_type": "bug", "bug_id": bug_id,
@@ -496,13 +567,27 @@ class CreateDecisionDraft(UCTool):
                     changed[bug_id] = {"before": value.get("case_ids", []),
                                        "after": index.bugs[bug_id].case_ids}
                 value["case_ids"] = index.bugs[bug_id].case_ids
+                if sync_root_fields and value.get("decision", {}).get("verdict") == "confirmed":
+                    decision = value["decision"]
+                    root_id = decision.get("root_id")
+                    if root_id not in roots:
+                        raise ValueError(f"{bug_id} has no assigned root in roots[]: {root_id}")
+                    root = roots[root_id]
+                    for field in ("rtl_ref", "first_error", "causal_chain"):
+                        if field not in root:
+                            raise ValueError(f"{root_id} root lacks {field}")
+                        if decision.get(field) != root[field]:
+                            normalized.setdefault(bug_id, {})[field] = {
+                                "before": decision.get(field), "after": root[field]}
+                            decision[field] = root[field]
                 decisions.append(value)
             if not preview_only:
                 atomic_write_json(target, {"decisions": decisions, "roots": previous["roots"]})
             return {"success": True, "draft_path": str(target.relative_to(Path(self.workspace).resolve())),
                     "bug_count": len(decisions), "changed_case_ids": changed,
+                    "normalized_root_fields": normalized,
                     "written": not preview_only}
-        except (ValueError, OSError, KeyError) as error:
+        except (ValueError, OSError, KeyError, TypeError) as error:
             return {"success": False, "error_code": "DRAFT_CREATE_FAILED", "error": str(error)}
 
 

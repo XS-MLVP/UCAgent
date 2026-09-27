@@ -28,7 +28,7 @@ include = ["bug_review", "bug_review.*"]
 namespaces = false
 
 [tool.setuptools.package-data]
-bug_review = ["workflows/*.yaml", "Guide_Doc/*.md", "templates/**/*", "skills/**/*"]
+bug_review = ["workflows/*.yaml", "Guide_Doc/*.md", "templates/**/*", "skills/**/*", "lang/zh/*.json"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src", "../.."]

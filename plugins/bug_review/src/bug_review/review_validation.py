@@ -195,9 +195,14 @@ def validate_correlation(index: ReviewIndex, cases: dict[str, CaseRecord],
             if decision.root_id not in root_by_id or membership.get(bug_id) != decision.root_id:
                 issue(f"{base}/decision/root_id", "root membership must be bidirectional")
             root = root_by_id.get(decision.root_id)
-            if root and any(getattr(root, field) != getattr(decision, field)
-                            for field in ("rtl_ref", "first_error", "causal_chain")):
-                issue(f"{base}/decision", "shared RTL first error and causal chain differ from root")
+            if root:
+                for field in ("rtl_ref", "first_error", "causal_chain"):
+                    expected, actual = getattr(root, field), getattr(decision, field)
+                    if expected != actual:
+                        issues.append({"bug_id": bug_id, "field": f"{base}/decision/{field}",
+                                       "problem": "decision field must match assigned root exactly",
+                                       "expected": expected, "actual": actual,
+                                       "next_action": "Run CreateDecisionDraft(refresh=true, sync_root_fields=true)"})
             for field in ("spec_ref", "rtl_ref"):
                 reference = getattr(decision, field)
                 try:
