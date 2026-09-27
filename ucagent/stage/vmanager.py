@@ -1037,7 +1037,9 @@ class StageManager(object):
         if unknown_skills:
             return (
                 "skill_usage contains Skills that are not assigned to the current stage: "
-                f"{', '.join(sorted(unknown_skills))}. Remove them and call "
+                f"{', '.join(repr(name) for name in sorted(unknown_skills))}. "
+                f"Expected: {', '.join(repr(name) for name in current_stage.skill_list)}. "
+                "Remove them and call "
                 "`SetSkillUsage` again."
             )
 

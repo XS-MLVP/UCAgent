@@ -1732,8 +1732,18 @@ class BaseUnityChipCheckerTestCase(Checker):
         # hook.  Reporting must remain usable without requiring a workspace
         # object to be imported in the checker process.
         set_context = getattr(self.run_test, "set_report_context", None)
-        if set_context is not None:
-            set_context(self._build_test_report_context())
+        if set_context is None:
+            return
+        context = self._build_test_report_context()
+        # A tool layer (e.g. RunTestCases) may already have published its own
+        # run identity for this exact invocation; keep that identity and attach
+        # the checker details around it instead of discarding it.
+        existing = getattr(self.run_test, "report_context", None)
+        if isinstance(existing, dict) and existing.get("source") not in (None, "checker"):
+            merged = dict(context)
+            merged.update(existing)
+            context = merged
+        set_context(context)
 
     def _check_test_func_args(self, report, str_out, str_err):
         """

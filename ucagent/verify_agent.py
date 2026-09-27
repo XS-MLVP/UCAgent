@@ -583,7 +583,10 @@ class VerifyAgent:
             workspace=self.workspace,
             test_dir=self.cfg.tools.RunTestCases.test_dir,
             dut_name=self.dut_name,
+            allowed_case_index=self.cfg.get_value("tools.WaveInfo.allowed_case_index", ""),
+            signal_group_presets_path=self.cfg.get_value("tools.WaveInfo.signal_group_presets_path", ""),
         )
+        self.tool_waveinfo_receipts = WaveInfoReceipts(waveinfo=self.tool_waveinfo)
         self.tool_apply_waveinfo_evidence = ApplyWaveInfoEvidence(
             waveinfo=self.tool_waveinfo,
             workspace=self.workspace,
@@ -595,6 +598,7 @@ class VerifyAgent:
         )
         self.tool_list_waveform = [
             self.tool_waveinfo,
+            self.tool_waveinfo_receipts,
             self.tool_apply_waveinfo_evidence,
             self.tool_review_waveinfo_evidence_batch,
         ]
