@@ -1,22 +1,19 @@
 ---
 name: report-publication
-description: Validate the canonical Bug Review JSON and render workspace and cross-workspace HTML directly from it.
+description: Render and verify final module, failed-case and Bug pages before public promotion.
 ---
 
 # Report Publication
 
-## Goal
+## 操作
 
-Treat `{OUT}/workspaces/<workspace>/bug_review.json` as the only report data source. Do not create a parallel `report_data.json` or duplicate Bug decisions in another file.
-
-## Actions
-
-Run the renderer from the workspace root:
+`{OUT}/review_index.json` 指向全部 case、Bug、根因、覆盖率、环境质量与对账记录。用以下命令生成并核验：
 
 ```text
 RunSkillScript(commands=[["ext/bug_review/report-publication", "render_report.py", ""]])
+RunSkillScript(commands=[["ext/bug_review/report-publication", "render_report.py", "--verify"]])
 ```
 
-The script reads every selected workspace JSON, validates the current schema, then writes Bug detail pages, each workspace `index.html`, and `{OUT}/index.html`. The pages must preserve original Bug declarations and confidence, decisions, merged root cause membership, related tests, replay results, WaveInfo viewer/receipt, and Spec/RTL source references. HTML escaping and links are produced by the renderer. When Skills are disabled, follow the same JSON-to-HTML contract with available file tools.
+Skill 不可用时依次调用 `RenderBugReviewReport(verify_only=false)` 和 `RenderBugReviewReport(verify_only=true)`。产物在 `{OUT}/report/`：模块 `index.html`、`cases/` 失败详情、`bugs/` 疑似 Bug 详情和 `report_manifest.json`。模块页展示全集/缺口、失败归因、环境质量、覆盖率及 Bug 列表；case 页展示场景、预期、实际、归因、波形与 Bug 关联；Bug 页展示原声明、Spec/RTL、裁决和根因。
 
-Open the generated total index and workspace pages. Check every Bug detail link, waveform viewer and source reference. Set every workspace's `stage_status.publish` to `complete` after rendering and review, then run Check, record the stage journal and Complete.
+核验后 Check、SetSkillUsage、日志、Complete。完成回调把已核验 `report/` 发布到模块公开入口、重建 `output/index.html` 并记录 publish 状态；不用手工修改状态。若阶段已完成但门户缺失，运行 `python -m bug_review.workflow publish --workspace <run>` 恢复发布，不重跑测试或波形。

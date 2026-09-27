@@ -8,6 +8,7 @@ from pathlib import Path
 import tempfile
 
 from ucagent.util.config import load_runtime_config
+from bug_review.review_store import load_record
 
 
 START = "<!-- BUG-REVIEW-SUMMARY-START -->"
@@ -32,7 +33,9 @@ def main() -> None:
     job = read_object(workspace / "review_job.json")
     if output != (workspace / job["output_dir"]).resolve():
         raise ValueError("Resolved OUT differs from the prepared Bug Review output")
-    names = [name for name, _ in job["source_runs"]]
+    if job.get("schema") != "bug_review_job.v7":
+        raise ValueError("review_job.json must use bug_review_job.v7")
+    names = [job["source_run"][0]]
     notes = workspace / "notes/bug_review_notes.md"
     notes.parent.mkdir(parents=True, exist_ok=True)
     if notes.is_file():
@@ -44,23 +47,25 @@ def main() -> None:
                     f"## Stage Summary\n\n{START}\n\n{END}\n")
     lines = []
     for name in names:
-        target = output / "workspaces" / name
+        target = output
         lines.extend([f"### {name}", ""])
-        review = target / "bug_review.json"
+        review = target / "review_index.json"
         if review.is_file():
-            data = read_object(review)
-            bugs = data["suspected_bugs"]
-            counts = {verdict: sum(row.get("decision", {}).get("verdict") == verdict for row in bugs)
+            data = load_record(target, "review_index.json", "index")
+            bug_records = [load_record(target, entry.review_path, "bug")
+                           for entry in data.bugs.values() if entry.review_path]
+            counts = {verdict: sum(row.decision.verdict == verdict for row in bug_records)
                       for verdict in ("confirmed", "refuted", "inconclusive")}
-            cases = list(data.get("cases", {}).values())
-            replayed = sum(case.get("replay", {}).get("status") in
-                           {"reproduced", "passed", "not_collected", "execution_error"} for case in cases)
-            signed = sum(bool(case.get("waveform", {}).get("receipt_id")) for case in cases)
+            cases = [load_record(target, entry.record_path, "case") for entry in data.cases.values()]
+            replayed = sum(case.replay.status != "not_run"
+                           for case in cases)
+            signed = sum(bool(case.waveform.receipt_id) for case in cases)
+            roots = load_record(target, data.root_path, "roots") if data.root_path else None
             lines.append(f"- Decisions: {counts['confirmed']} confirmed, "
                          f"{counts['refuted']} refuted, {counts['inconclusive']} inconclusive; "
-                         f"{len(data.get('root_causes', []))} root groups.")
+                         f"{len(roots.roots) if roots else 0} root groups.")
             lines.append(f"- Cases: {replayed} replayed; {signed} signed WaveInfo receipts.")
-        report = target / "index.html"
+        report = target / "report/index.html"
         if report.is_file():
             relative = report.relative_to(workspace).as_posix()
             lines.append(f"- Report: [workspace page](../{relative}).")

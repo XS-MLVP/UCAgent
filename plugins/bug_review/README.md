@@ -16,7 +16,7 @@ make plugin-check
 make bug-review-analysis
 ```
 
-默认读取 `inputs/workspace_*`，输出到 `output/results/index.html`。准备阶段只复制 Markdown/HDL/line-map 文本、UnityTest cases 目录及 DUT 运行包，不复制完整输入工作区、历史波形或报告产物。工作流按 JSON 选择性重跑 case，不运行无关的全量用例。每个工作区的 `bug_review.json` 是五阶段共用的权威数据，HTML 直接从它渲染。仅分析一个工作区：
+默认读取 `inputs/workspace_*`，逐个重新复核所有模块，并更新 `output/index.html` 总索引。每个模块的最终概况在 `output/workspace_NAME/report/index.html`，可点进失败 case 与疑似 Bug 详情。运行中的 `review_index.json`、逐 case/Bug 记录和签名收据位于该模块的 `runs/<run-id>/results/`。准备阶段复制分析文本、测试源码、UnityTest cases 与 DUT 运行包。工作流收集并重跑本次模块的全部 pytest 用例，先独立分析失败，再对照原 Bug 报告。仅重跑一个模块：
 
 ```bash
 make bug_review_raid_dec_top
@@ -28,21 +28,22 @@ make bug_review_raid_dec_top
 make bug-review-analysis OUTPUT_ROOT=/absolute/path/review-output
 ```
 
-输出根目录必须与输入工作区分离。已有输出根目录若属于不同的输入任务，使用新的输出目录。
+输出根目录必须与输入工作区分离。模块运行状态和签名 receipt 留在 `output/workspace_NAME/runs/`；对外 `report/` 只保存最终页面及页面清单。单模块命令不会改写其他模块的结果。已完成运行若缺少门户，可执行 `PYTHONPATH=src:../.. python -m bug_review.workflow publish --workspace /absolute/path/to/run` 恢复发布。
 
 ## 直接准备与启动
 
 ```bash
-PYTHONPATH=src:../.. python -m bug_review prepare-analysis \
+PYTHONPATH=src:../.. python -m bug_review run-analysis \
   --input-root /absolute/path/inputs \
-  --output-root /absolute/path/review-output
-PYTHONPATH=src:../.. python -m bug_review launch --workspace /absolute/path/review-output -- --tui
+  --output-root /absolute/path/review-output \
+  --run workspace_raid_dec_top=/absolute/path/inputs/workspace_raid_dec_top \
+  -- --tui
 ```
 
-`prepare-analysis` 可重复传入 `--run workspace_NAME=/absolute/path/workspace_NAME`，仅选择指定工作区。启动 UCAgent 前，Makefile 调用准备步骤复制分析文本、UnityTest cases 目录和 DUT 运行包。阶段直接调用 `RunTestCases` 和默认 `WaveInfo`，仅重跑 `bug_review.json` 里选定的 case；五个阶段更新 `output/results/workspaces/workspace_NAME/bug_review.json`，报告 Skill 从这些 JSON 渲染 HTML。
+`--run workspace_NAME=/absolute/path/workspace_NAME` 只选择指定模块；不传时全部重跑。启动 UCAgent 前，命令复制分析文本、UnityTest cases 目录和 DUT 运行包到本次模块执行区。六阶段依次收集并全量重跑、独立分析失败、取得 DUT 波形证据、对照原报告、合并根因和发布。模块完成后，工作流发布模块 HTML 并更新总索引。
 
 更新插件 Skill 后重新启动工作流，以便把新 Skill 复制到运行工作区。
 
 ## 包内结构
 
-`ucagent-plugin.toml` 是源码态发现清单，`pyproject.toml` 定义安装入口。包代码位于 `src/bug_review/`：`workflows/analysis.yaml` 声明五阶段，`checkers/` 校验各阶段直接生成的产物，`Guide_Doc/` 提供执行指导，`templates/` 初始化复核笔记，`skills/` 提供五个阶段 Skill 和可选笔记更新 Skill，`analysis_core/` 保存报告解析模块。插件不注册 Bug Review 阶段推进、任务队列或 WaveInfo 包装工具；阶段使用 UCAgent 原生工具与 Skill。
+`ucagent-plugin.toml` 是源码态发现清单，`pyproject.toml` 定义安装入口。包代码位于 `src/bug_review/`：`workflows/analysis.yaml` 声明六阶段，`checkers/` 校验阶段产物，`Guide_Doc/` 提供执行指导，`templates/` 初始化复核笔记，`skills/` 提供阶段 Skill、按 Bug ID 查询及报告脚本。插件提供全量收集、回归报告导入、索引查询、Schema、引用核实、收据附着、case lint、一次性归因提交、裁决草稿/提交、修订查询和渲染工具；波形分析与 receipt 查询仍使用 UCAgent 原生工具。

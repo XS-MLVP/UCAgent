@@ -2,7 +2,7 @@ template: analysis
 template_overwrite:
   OUT: "results"
 skill:
-  general_skill_list: ["ext/bug_review/review-notes"]
+  general_skill_list: ["ext/bug_review/review-notes", "ext/bug_review/bug-context"]
 guide_doc:
   core_copy_policy:
     default_action: ignore
@@ -12,114 +12,113 @@ guide_doc:
 un_write_dirs:
   - "Guide_Doc/"
   - "review_job.json"
+  - "{OUT}/inputs/"
+  - "{OUT}/tests/"
 write_dirs:
   - "notes/"
+  - "{OUT}/"
 tools:
   ignore_tools: ["WorkDiff", "WorkCommit", "RunBashCommand"]
   RunTestCases:
     test_dir: "{OUT}/tests"
+  WaveInfo:
+    allowed_case_index: "{OUT}/review_index.json"
+    signal_group_presets_path: "{OUT}/wave_signal_presets.json"
 mcp_server:
   init_prompt: "先调用 CurrentTips，阅读 Guide_Doc/analysis.md，再推进当前复核阶段。"
 mission:
-  name: "Bug Review 证据复核"
+  name: "Bug Review 全量失败归因"
   prompt:
     tips:
       always:
-        - "按当前阶段 Skill 的目标使用 UCAgent 工具直接完成阶段产物；Check 通过后按当前阶段 Skill 要求登记使用，再记录日志并 Complete。"
+        - "按本阶段产物逐项工作；先 Check，通过后 SetSkillUsage（若阶段 Skill 强制启用）、SetCurrentStageJournal、Complete。"
       random: []
     system: |
-      复核现有 Bug 声明，并分析本次重跑发现的新失败。
-      输入工作区中的测试、fixture、规格和 RTL 只能阅读，不能修改。
-      阅读 Guide_Doc/analysis.md 和当前阶段输入。阶段目标与产物格式写在对应 Skill 中；
-      直接使用 UCAgent 文件、测试、波形工具及 Skill 完成本阶段，不调用 Bug Review
-      阶段执行器或结构化任务队列。
-      测试再次失败与 DUT Bug 裁决是不同结论。排除 DUT Bug 时保留原声明，
-      将复核置信度设为 0；证据不足时保持未定。相同 RTL 首错和因果链的
-      Bug 归入一个根因组，但保留每个原声明、CK、TC 与证据。
-      波形证据仅接受默认 WaveInfo 工具返回的真实 receipt_id。不得编造收据、
-      viewer、信号路径或测试结果。
-      若 CurrentTips 列出本阶段专用 Skill，先 ListSkill 并读取对应 SKILL.md，
-      按其中方法完成任务；Check 通过后调用 SetSkillUsage，在 skill_usage 中
-      提交当前 Skill 的真实 list/read/use 状态；有适用任务且已执行方法时
-      use=true，无适用对象时 use=false 并填写非空 reason。然后调用
-      SetCurrentStageJournal 和 Complete。未列出时直接按阶段任务和
-      Guide_Doc/analysis.md 完成相同产物与证据，不调用 SetSkillUsage。
-      阶段产物完成后，如 CurrentTips 列出 ext/bug_review/review-notes，可读取其
-      SKILL.md 并刷新 notes/bug_review_notes.md；未列出时直接阅读阶段产物，
-      可用普通文件工具记录笔记。笔记不是 Bug 证据或阶段完成条件。
+      对当前模块收集并重跑全部 pytest 用例，先独立分析每个失败 case，再核对原 Bug 报告。
+      原始及准备好的测试、fixture、规格、RTL 与模型只能阅读，不得修改。
+      {OUT}/review_index.json 只保存身份、阶段状态和记录路径；逐 case JSON 保存执行、失败归因和签名波形，
+      逐 Bug JSON 保存裁决。不能用原报告根因文字代替 case 初判。
+      只对疑似 DUT 缺陷或时序争议调用默认 WaveInfo；使用 ResolveReviewCase 取得精确身份，
+      ApplyReceiptToCase 复制签名收据机器字段。不要手工编码 viewer URL。
+      dut_evidence 完成后 ReviewBugContext 可按 Bug ID 分页读取原声明上下文；此前只可查询 case/波形记录。
+      ReviewRefCheck 可批量核实 Spec/RTL 行段。
+      原声明必须保留；排除 DUT Bug 时置信度为 0，证据不足时保持未定；只合并相同 RTL 首错及因果链。
+      CurrentTips 列出阶段 Skill 时，先 ListSkill，再用 ReadTextFile 阅读对应 SKILL.md；
+      MCP ReadTextFile 的已读登记不等同于原生 Read。完成产物后先 Check 再 SetSkillUsage，随后记录日志并 Complete。
+      Skill 未启用时使用同一任务、Guide 和普通工具完成完全相同的产物与证据门禁。
 stage:
-  - name: inventory
-    desc: "确定输入并建立逐 Bug 复核骨架"
+  - name: full_replay
+    desc: "收集并全量重跑当前模块测试"
     task:
-      - "阅读 Guide_Doc/analysis.md。若 CurrentTips 列出 ext/bug_review/inventory-review，先读取 Skill 并按其中目标工作；否则直接按本任务使用 ReadTextFile 和 EditTextFile。"
-      - "逐个读取 {OUT}/inputs/workspace_*/unity_test/<DUT>_bug_summary.md 和 <DUT>_bug_analysis.md。若 inventory Skill 可用，运行其脚本创建 bug_review.json 骨架；否则使用 EditTextFile 创建 Guide_Doc/analysis.md 中相同结构。随后由你分析两份报告并填入 Bug 声明、Spec/RTL 候选、FG/FC/CK、TC 和待查证据。"
-      - "当前进度：{BUG_REVIEW_PROGRESS}"
-      - "Check 通过后记录日志并 Complete。"
-    reference_files: ["Guide_Doc/analysis.md", "review_job.json", "{OUT}/inputs/workspace_*/unity_test/*_bug_summary.md", "{OUT}/inputs/workspace_*/unity_test/*_bug_analysis.md"]
-    output_files:
-      - "{OUT}/workspaces/*/bug_review.json"
+      - "先读 Guide_Doc/analysis.md 和 review_job.json。调用 PrepareReviewInventory（或 inventory-review Skill 脚本）收集当前 pytest 配置下全部精确 node ID，建立 review_index.json、test_manifest.json、replay_summary.json、coverage.json 和逐 case 骨架。原报告只机械建立 Bug ID/来源/关联索引，暂不读取根因说明。"
+      - "以 test_manifest.json.pytest_target 为 RunTestCases(pytest_args=...) 的参数运行完整模块；分批时对 collected 精确 node 分批，并保留相同 pytest 配置。每次运行后立即 CaptureReplayReport 保存真实报告与结果。不能凭原报告的失败数补写结果。每个 collected 项须有基线状态或明确 not_run 原因；原报告关联但本次未收集的 case 也写明未收集原因。collection 错误单列。记录命令、报告和排除配置。"
+      - "检查全集与结果对账后设 stage_status.full_replay=complete，Check、SetSkillUsage（若要求）、日志、Complete。当前进度：{BUG_REVIEW_PROGRESS}"
+    reference_files: ["Guide_Doc/analysis.md", "review_job.json"]
+    output_files: ["{OUT}/review_index.json", "{OUT}/test_manifest.json", "{OUT}/replay_summary.json", "{OUT}/coverage.json"]
     skill_list: ["ext/bug_review/inventory-review"]
     checker:
-      - name: review_inventory
+      - name: review_full_replay
         clss: BugReviewStageChecker
-        args: {stage: inventory}
-  - name: replay
-    desc: "重跑原有测试并审查失败"
+        args: {stage: full_replay}
+  - name: case_triage
+    desc: "独立分析失败 case 和验证环境质量"
     task:
-      - "若 CurrentTips 列出 ext/bug_review/replay-review，先读取 Skill 并按其中目标工作；否则直接按本任务使用 ReadTextFile、RunTestCases 和 EditTextFile。"
-      - "根据 bug_review.json 选择与疑似 Bug 直接相关的 case；inventory Skill 已将测试目录和共享依赖复制到 {OUT}/tests。每个 workspace 将选中的精确 target 合并到一次 RunTestCases 调用，保留同一波形 session，只重跑所选 case，不运行无关全量套件。更新同一个 bug_review.json 的 replay 与 test_review 字段。"
-      - "逐例核对规格预期、测试断言、实际输入输出、driver/fixture、复位和采样时序；失败、通过、未收集和执行错误分别记录，新失败也进入复核。"
-      - "当前进度：{BUG_REVIEW_PROGRESS}"
-    reference_files: ["Guide_Doc/analysis.md", "{OUT}/workspaces/*/bug_review.json", "{OUT}/tests/workspace_*/unity_test/tests/*"]
-    output_files:
-      - "{OUT}/workspaces/*/bug_review.json"
+      - "按 test_manifest.json 与 replay_summary.json 枚举所有 Fail/Error/XPass。先读测试、fixture、Spec 和真实报告，分析 collection/setup/driver/assertion/teardown 位置，记录规格预期、测试预期、实际行为与证据引用。此阶段不要先读原 Bug analysis 的根因文字。"
+      - "失败或不稳定项可定向复跑，并在 case.replay.reruns 记录与基线的关系；不得覆盖权威基线。每个失败 case 的 failure_analysis 必须给出 environment/spec_misread/test_implementation/suspected_dut/spec_ambiguous/insufficient_evidence 等分类或证据缺口。"
+      - "填写 environment_review.json 的收集、执行、fixture/reset、驱动采样、参考模型和随机种子质量发现。设 stage_status.case_triage=complete 后 Check、SetSkillUsage（若要求）、日志、Complete。当前进度：{BUG_REVIEW_PROGRESS}"
+    reference_files: ["Guide_Doc/analysis.md", "{OUT}/review_index.json", "{OUT}/test_manifest.json", "{OUT}/replay_summary.json"]
+    output_files: ["{OUT}/review_index.json", "{OUT}/environment_review.json"]
     skill_list: ["ext/bug_review/replay-review"]
     checker:
-      - name: review_replay
+      - name: review_case_triage
         clss: BugReviewStageChecker
-        args: {stage: replay}
-  - name: waveform
-    desc: "核对失败事务和真实波形"
+        args: {stage: case_triage}
+  - name: dut_evidence
+    desc: "对 DUT 候选取得有效事务波形证据"
     task:
-      - "若 CurrentTips 列出 ext/bug_review/waveform-review，先读取 Skill 并按其中目标工作；否则直接按本任务使用 ReadTextFile、默认 WaveInfo 和 EditTextFile。"
-      - "先核对测试正确性，再直接调用默认 WaveInfo 查看真实波形。最终 signal_groups 包含时钟（组合逻辑声明 combinational）、相关输入数据/选择/使能、输出数据/状态/有效位、真实接受/响应控制和至少一条功能选择/状态/错误传播关键路径；在线 viewer 显示同一组真实信号。"
-      - "提供定位 pattern 与时钟或 step 窗口；按时钟出现顺序及事务上下文对齐日志和波形，核对接受、响应有效、背压、延迟和归属；单点数据不一致不能直接判 Bug。"
-      - "把 WaveInfo 返回的真实 receipt_id、完整 result、review 与信号窗口写入对应 case 的 waveform 字段；更新同一个 bug_review.json。"
-      - "当前进度：{BUG_REVIEW_PROGRESS}"
-    reference_files: ["Guide_Doc/analysis.md", "{OUT}/workspaces/*/bug_review.json", "{OUT}/tests/workspace_*/unity_test/tests/*"]
-    output_files:
-      - "{OUT}/workspaces/*/bug_review.json"
+      - "对失败且初判 suspected_dut，或需要时序证据的争议 case，先 ResolveReviewCase(case_id)，再用默认 WaveInfo 探测精确信号和事件，最后以完整 signal_groups 与有效事务窗口取得签名收据。"
+      - "用 ApplyReceiptToCase(case_id, receipt_id) 精确复制收据机器字段，再在 case 文件补充观察、时钟/事务对齐和源码关联。运行 ValidateCaseRecords 随时检查；无可用波形则记录具体诊断并保持未定。"
+      - "根据证据修正 case 的最终归因，环境或测试错误不得制造 DUT receipt。设 stage_status.dut_evidence=complete 后 Check、SetSkillUsage（若要求）、日志、Complete。当前进度：{BUG_REVIEW_PROGRESS}"
+    reference_files: ["Guide_Doc/analysis.md", "{OUT}/review_index.json", "{OUT}/environment_review.json"]
+    output_files: ["{OUT}/review_index.json"]
     skill_list: ["ext/bug_review/waveform-review"]
     checker:
-      - name: review_waveform
+      - name: review_dut_evidence
         clss: BugReviewStageChecker
-        args: {stage: waveform}
-  - name: correlate
-    desc: "逐 Bug 裁决并合并相同根因"
+        args: {stage: dut_evidence}
+  - name: report_reconcile
+    desc: "对照原报告并补全漏报的 DUT 候选"
     task:
-      - "若 CurrentTips 列出 ext/bug_review/evidence-correlation，先读取 Skill 并按其中目标工作；否则直接按本任务使用 ReadTextFile 和 EditTextFile。"
-      - "逐个阅读原声明、新失败、回放、波形、Spec 和 RTL 证据，更新同一个 bug_review.json。提交 confirmed、refuted 或 inconclusive 裁决，分别使用正数、0 或 null 复核置信度；保留原报告置信度。"
-      - "同一 RTL 首错与失效机制使用一致的 rtl_ref、first_error 和 causal_chain，以便合并根因；各 Bug 的测试与证据仍独立保留。"
-      - "当前进度：{BUG_REVIEW_PROGRESS}"
-    reference_files: ["Guide_Doc/analysis.md", "{OUT}/workspaces/*/bug_review.json"]
-    output_files:
-      - "{OUT}/workspaces/*/bug_review.json"
+      - "现在阅读输入镜像中的 bug_summary.md；按 Bug ID 用 ReviewBugContext(sections=['claims', 'summary']) 分页查看 bug_analysis.md 原文，需要更长上下文时用 SearchText 和 ReadTextFile 分段读取。逐条比较独立 case 归因与原声明，补充原报告 Spec/RTL 候选，并保留每条原 Bug、原置信度及来源位置。"
+      - "原 Bug 的 BG 条目级 TC 是权威关联；报告级聚合 tests 只保留在 aggregate_case_ids/aggregate_refs，不直接并入 case_ids。对报告外失败、旧失败现通过和统计口径差异分别说明。previously_failed_now_passed 只列原文确有失败记录且本次通过的 case，并在 original_failure_refs[case_id] 写原文路径:行号。只有独立 DUT 证据支持时才能新增 origin=discovered 的 Bug。"
+      - "调用 CreateAttributionDraft，填写 bug_case_ids 和 reconciliation，先 CommitAttribution(dry_run=true) 核对差异，再正式提交；工具同时更新索引、全部 case 反向关联和对账记录。完成后 Check、SetSkillUsage（若要求）、日志、Complete。当前进度：{BUG_REVIEW_PROGRESS}"
+    reference_files: ["Guide_Doc/analysis.md", "{OUT}/review_index.json", "{OUT}/inputs/workspace_*/unity_test/*_bug_summary.md"]
+    output_files: ["{OUT}/review_index.json", "{OUT}/attributions/*/report_reconciliation.json"]
+    skill_list: ["ext/bug_review/report-reconcile"]
+    checker:
+      - name: review_report_reconcile
+        clss: BugReviewStageChecker
+        args: {stage: report_reconcile}
+  - name: root_correlation
+    desc: "逐 Bug 裁决并合并同根因声明"
+    task:
+      - "按 Bug ID 用 ReviewBugContext(sections=['claims', ...]) 和 ReviewRefCheck 读取原文与 Spec/RTL；确认 DUT Bug 需正确失败测试、有效签名波形、真实规格要求及 RTL 首错因果链。旧 Bug 未复现本身不足以 refuted。"
+      - "调用 CreateDecisionDraft 预填全部 Bug ID 和 case_ids；归因变更后以 refresh=true 同步现有草稿且保留判断。填写裁决与根因后先 SubmitReviewDecisions(dry_run=true) 获取全部字段诊断，再正式提交激活一次修订。ReviewRevisionHistory 可查看修订和归因差异。"
+      - "同 RTL 首错与因果链的 confirmed Bug 共享 root，保留每个原声明；refuted 置信度为 0，证据不足 inconclusive。Check、SetSkillUsage（若要求）、日志、Complete。当前进度：{BUG_REVIEW_PROGRESS}"
+    reference_files: ["Guide_Doc/analysis.md", "{OUT}/review_index.json"]
+    output_files: ["{OUT}/review_index.json", "{OUT}/reviews/*/root_causes.json"]
     skill_list: ["ext/bug_review/evidence-correlation"]
     checker:
-      - name: review_correlate
+      - name: review_root_correlation
         clss: BugReviewStageChecker
-        args: {stage: correlate}
+        args: {stage: root_correlation}
   - name: publish
-    desc: "发布结构化报告与 HTML"
+    desc: "渲染并核验三级最终报告"
     task:
-      - "若 CurrentTips 列出 ext/bug_review/report-publication，先读取 Skill 并按其中目标工作；否则按本任务与 Guide 直接完成。"
-      - "直接从每个 workspace 的 bug_review.json 渲染 HTML；不要生成独立 report_data.json。检查 Bug 详情可追溯到测试、波形、Spec 和 RTL，总索引列出全部工作区。"
-      - "Check 通过后记录日志并 Complete。"
-      - "当前进度：{BUG_REVIEW_PROGRESS}"
-    reference_files: ["Guide_Doc/analysis.md", "{OUT}/workspaces/*/bug_review.json"]
-    output_files:
-      - "{OUT}/workspaces/*/index.html"
-      - "{OUT}/index.html"
+      - "调用 RenderBugReviewReport(verify_only=false) 或 report-publication Skill 脚本，生成 {OUT}/report/index.html、逐失败 case 页、逐 Bug 页和 report_manifest.json。模块页列出全集、未执行、失败归因、环境质量、覆盖率口径和疑似 Bug。"
+      - "再调用 RenderBugReviewReport(verify_only=true) 或脚本 --verify，核对页面、收据/viewer、引用和站内链接。Check、SetSkillUsage（若要求）、日志、Complete；完成回调发布模块 report、重建 output/index.html 并记录 publish 状态。必要时使用 bug_review.workflow publish 恢复门户，无需重跑。当前进度：{BUG_REVIEW_PROGRESS}"
+    reference_files: ["Guide_Doc/analysis.md", "{OUT}/review_index.json", "{OUT}/environment_review.json"]
+    output_files: ["{OUT}/report/index.html", "{OUT}/report/report_manifest.json"]
     skill_list: ["ext/bug_review/report-publication"]
     checker:
       - name: review_publish

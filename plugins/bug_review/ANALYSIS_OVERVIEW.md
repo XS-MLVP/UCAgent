@@ -18,8 +18,11 @@ Bug Review 复核已有验证报告中的 Bug 声明：确定输入与待查对�
 | V1.1 | 已实现 | 增加逐阶段内容校验、复核笔记模板和可选的笔记更新 Skill；权威裁决与证据仍由五阶段工作流产生。 | [V1.1 Checker、模板与 Skill](#v11-checker模板与-skill) |
 | V1.2 | 已实现，后被 V1.3 替换 | 曾加入自动推进阶段工具及五个阶段 Skill；本版保留为迭代记录。 | [V1.2 阶段 Skill 与波形取证](#v12-阶段-skill-与波形取证) |
 | V1.3 | 已实现；被 V1.4 取代 | 移除 Bug Review 自定义阶段和任务工具；阶段 Skill 直接指导 UCAgent 原生工具；准备阶段曾完整复制输入工作区；各阶段分别写入多个 JSON。 | [V1.3 原生工具驱动的阶段](#v13-原生工具驱动的阶段) |
-| V1.4 | 现行代码契约；已有一次 `workspace_raid_dec_top` 实跑反馈 | 不复制完整工作区；只准备分析文本、测试目录和 DUT 运行包；RunTestCases 只运行 JSON 选择的用例；五阶段更新同一 JSON；HTML 直接从该 JSON 渲染。 | [V1.4 最小输入副本与单一复核 JSON](#v14-最小输入副本与单一复核-json) |
-| V2.0 | 规划中，尚未实施 | 默认重跑全部模块，`make bug_review_<name>` 只重跑指定模块；`output/` 顶层提供总索引，各模块独立保存状态和报告；收敛参考文件门禁，改进 JSON 更新、诊断与波形证据查询。 | [V2.0 按模块重跑与工具体验](#v20-按模块重跑与工具体验) |
+| V1.4 | 已实现；已有一次 `workspace_raid_dec_top` 实跑反馈 | 不复制完整工作区；只准备分析文本、测试目录和 DUT 运行包；RunTestCases 只运行 JSON 选择的用例；五阶段更新同一 JSON；HTML 直接从该 JSON 渲染。 | [V1.4 最小输入副本与单一复核 JSON](#v14-最小输入副本与单一复核-json) |
+| V2.0 | 代码已实现；已有使用者试跑反馈，问题尚未逐项独立复现 | 默认重跑全部模块，`make bug_review_<name>` 只重跑指定模块；`output/` 顶层提供总索引，各模块独立保存状态和报告；收敛参考文件门禁，改进 JSON 更新、诊断与波形证据查询。 | [V2.0 按模块重跑与工具体验](#v20-按模块重跑与工具体验) |
+| V2.1 | 已有 `workspace_raid_enc_top` 试跑反馈，后被 V3.0 取代 | 将单一大 JSON 拆为轻量索引与按 Bug/case 存放的复核记录，按 Bug ID 按需汇集原文和证据；改进波形诊断、引用核实、裁决提交与三级报告。 | [V2.1 试跑反馈与优化规划](#v21-试跑反馈与优化规划) |
+| V3.0 | 代码已实现，待真实模块试跑验收 | 对选中模块全量重跑并先分析失败 case；对照原报告、合并 DUT 根因；修复收据转写、身份映射、草稿校验和发布入口，明确验证环境质量及最终报告目录。 | [V3.0 全量失败归因与环境质量](#v30-全量失败归因与环境质量) |
+| V3.1 | 实施中 | 修正原报告 case 关联权威来源；将归因关联作为一次校验与提交；减少逐文件 SHA 操作；自动完成发布状态；完善模块与详情页的层次、配色和输出目录写入。 | [V3.1 归因事务与报告呈现](#v31-归因事务与报告呈现) |
 
 后续变更在此表增加新版本，并在对应版本章节记录相对上一版新增、修改和移除的契约及实施状态。更新旧版本的事实错误可以直接更正；不要把未落地的目标写成已实现功能。
 
@@ -54,7 +57,7 @@ JSON 顶层包含 workspace/source 元数据、`stage_status`、`suspected_bugs`
 
 ## V2.0 按模块重跑与工具体验
 
-V2.0 依据 `workspace_raid_dec_top` 的一次实跑反馈规划。该次运行的 Agent 报告：26 条原声明、55 个关联 case；选择重跑 33 个 case，形成 33 个 WaveInfo receipt；26 条裁决归入 23 个根因组，并生成总索引和 26 个详情页。这些数字是本次运行的反馈基线，不代表对裁决正确性的独立复核。运行耗时约 2 小时 46 分；V2.0 重点减少重复执行、人工恢复和格式试错，保留真实测试、波形与 Spec/RTL 证据门禁。
+V2.0 依据 `workspace_raid_dec_top` 的一次实跑反馈实现；新布局已有使用者试跑反馈，问题记录于 V2.1，尚未逐项独立复现。此前运行的 Agent 报告：26 条原声明、55 个关联 case；选择重跑 33 个 case，形成 33 个 WaveInfo receipt；26 条裁决归入 23 个根因组，并生成总索引和 26 个详情页。这些数字是 V1.4 运行的反馈基线，不代表对裁决正确性的独立复核。运行耗时约 2 小时 46 分；V2.0 重点减少重复执行、人工恢复和格式试错，保留真实测试、波形与 Spec/RTL 证据门禁。
 
 ### 1. 用 Make 选择重跑范围
 
@@ -63,7 +66,7 @@ V2.0 依据 `workspace_raid_dec_top` 的一次实跑反馈规划。该次运行�
 - `make bug-review-analysis` 默认选择 `inputs/workspace_*` 下的全部模块，并对每个模块重新执行五阶段；已有结果不改变默认重跑范围。
 - `make bug_review_<name>` 只选择 `inputs/workspace_<name>`，执行该模块的五阶段；重复调用即重新复核该模块。两个入口都使用可配置的 `OUTPUT_ROOT`，默认仍是 `plugins/bug_review/output/`。
 - `output/` 顶层只作为跨模块入口，目标布局为 `output/index.html` 和 `output/workspace_<name>/` 子目录。每个模块的子目录保存自己的 UCAgent 阶段历史、准备清单、测试副本、签名 receipt、`results/bug_review.json`、`results/index.html`、Bug 详情页及页面引用的源文件；其余模块的状态不混在根目录。
-- 同一模块每次重跑在该模块目录下新建独立执行区，例如 `output/workspace_<name>/runs/<run-id>/`。执行成功后把该模块的单一 JSON、HTML 和所需源文件发布到 `output/workspace_<name>/results/`，再重建 `output/index.html`；失败则保留此前发布的有效页面。签名 receipt 仍留在对应执行区，已发布结果记录其真实作用域，后续核验不把 receipt 当成可移动文件。
+- 同一模块每次重跑在该模块目录下新建独立执行区，例如 `output/workspace_<name>/runs/<run-id>/`。执行成功后用 `output/workspace_<name>/results` 链接到本次执行区的 `results/`，再重建 `output/index.html`；失败则保留此前发布的有效页面。签名 receipt 仍留在对应执行区，已发布结果保留其真实作用域，后续核验不把 receipt 当成可移动文件。
 - 重新发布只替换本次选中的模块结果，其他模块的 JSON、详情页、测试记录和 receipt 不改写。总索引根据已发布且可打开的模块页面生成，链接到 `workspace_<name>/results/index.html`。V2.0 每次工作流只处理一个模块，运行中权威 JSON 为 `{OUT}/bug_review.json`；阶段 YAML、Checker、Guide、Skill 和报告脚本同步调整此路径。
 - 准备清单改为本次模块执行区私有，不能再让共享 `output/review_job.json` 的冻结 `source_runs` 阻止新模块。Make 在启动前显示本次选中的模块及输出子目录，避免把单模块命令误认为全量运行。
 
@@ -76,10 +79,10 @@ V2.0 依据 `workspace_raid_dec_top` 的一次实跑反馈规划。该次运行�
 | 优先级 | 实跑问题 | V2.0 处理位置与契约 |
 | --- | --- | --- |
 | P0 | `reference_files` 展开测试目录，门禁要求逐项 `ReadTextFile`，甚至诱发目录占位操作。 | 插件工作流只声明确实要求阅读的普通文件，如 Guide、当前模块报告和当前 JSON；不把目录或测试树 glob 当成“已读”门禁。具体测试、Spec、RTL 由任务选取和 Checker 的证据引用约束。保留 UCAgent 原有真实读取记录机制，不增设可绕过阅读的 `register_reference`。 |
-| P0 | WaveInfo 输出溢出时 receipt 与 case 对应关系难恢复；无效调用也出现在 store。 | UCAgent 核心提供只读、签名验证的 `ListWaveInfoReceipts(test_case_name, usable_only, limit, offset)` 和按 `receipt_id` 获取详情的入口。列表返回精确 `test_case_name`、`receipt_id`、会话/时间、调用窗口、状态、可用性和信号组摘要；详情按需返回已保存的完整 result。默认过滤不可用记录，允许显式查看失败记录用于诊断。WaveInfo 当次响应也带精确 case 身份、可用性、`timeline_truncated` 和遗漏点数。插件直接使用核心工具，不重新封装波形分析。 |
-| P0 | 大 JSON 靠整文件 `json.dump`、手工备份；当前文件工具写目录仅开放 `notes/`。 | 插件提供仅作用于当前模块 `bug_review.json` 的 JSON Pointer 批量更新工具或等价通用 JSON 文件工具：调用含 `expected_sha256`、操作列表和目标路径；逐项检查指针、类型及当前阶段允许的字段，整批原子写入，冲突不覆盖。阶段开始保留一次可恢复快照；Skill 给出按 Bug/case 定点更新示例。Skill 关闭时仍开放同一工具与格式说明。 |
+| P0 | WaveInfo 输出溢出时 receipt 与 case 对应关系难恢复；无效调用也出现在 store。 | UCAgent 核心提供只读、签名验证的 `WaveInfoReceipts(test_case_name, usable_only, limit, offset)`；同一工具以 `receipt_id` 获取详情，`include_result=true` 时按 `timeline_offset/timeline_limit` 分页返回保存结果。列表返回精确 `test_case_name`、`receipt_id`、记录时间、调用窗口、状态、可用性和信号组。默认过滤不可用记录，允许显式查看失败记录用于诊断。WaveInfo 当次响应也带精确 case 身份、可用性、`timeline_truncated` 和遗漏点数。插件直接使用核心工具。 |
+| P0 | 大 JSON 靠整文件 `json.dump`、手工备份；当前文件工具写目录仅开放 `notes/`。 | 插件提供只修改本次执行区 `{OUT}/bug_review.json` 的 `UpdateBugReviewJSON(expected_sha256, operations)`：支持 `suspected_bugs`、`cases`、`root_causes`、`stage_status` 内的 JSON Pointer `add/replace`，复用 `EditTextFile` 的版本冲突检查与原子写入；成功更新后将更新前内容保存为 `bug_review.json.bak`。Skill 给出按 Bug/case 定点更新示例；Skill 关闭时仍开放同一工具与格式说明。 |
 | P0 | Checker 对 `spec_ref` 类型和 `路径:行号` 格式只抛底层错误，造成多轮 Check 试错。 | 插件 Checker 返回有界的结构化问题列表，逐项给出工作区、`bug_id`/case、JSON 字段路径、实际类型或值摘要、期待格式、示例和下一步。`spec_ref`/`rtl_ref` 明确要求一条相对 `{OUT}/inputs/<workspace>/` 的现存源文件引用 `路径:起始行[-结束行]`；多个证据放在 `evidence.spec`/`evidence.rtl` 数组。现有 `Check` 已执行只读校验，不新增 `dry_run` 参数。 |
-| P1 | 长窗口截断、信号名带换行和大结果显示溢出导致重复调用或误判。 | WaveInfo 明确报告截断及可缩窄的窗口/分页建议；信号路径报错返回被拒路径及信号目录中的精确候选，不静默改写路径。Skill 指导先取精确信号名、选择覆盖事务的窗口，再调用最终 WaveInfo；缺少必要事件时保持未定。完整结果从签名 receipt 读取。 |
+| P1 | 长窗口截断、信号名带换行和大结果显示溢出导致重复调用或误判。 | WaveInfo 响应及收据查询显式报告截断和遗漏点数；`WaveInfoReceipts` 支持保存结果的时间线分页。Skill 指导先取精确信号名、选择覆盖事务的窗口，再调用最终 WaveInfo；缺少必要事件时保持未定。原有信号路径错误仍需依据工具诊断修正。 |
 | P1 | `SetSkillUsage` 顺序与技能名传输不清楚，阶段收尾重复。 | 阶段任务和 Guide 写清 `ListSkill → ReadTextFile(SKILL.md) → 完成产物 → Check → SetSkillUsage → Journal → Complete`，并从 CurrentTips 复制当前阶段的精确 Skill 名。核心错误显示收到的 Skill 名及期望名，便于定位控制字符；不把被污染的名字自动规范化为另一项已记录证据。先不合并 `stage_finish`，保留独立 Check 与使用证据语义。 |
 | P1 | 报告 Skill 静默结束；Bash 当前目录漂移。 | `render_report.py` 输出本次生成的文件路径、数量和 JSON 来源；Skill 脚本仍由 `RunSkillScript` 以固定 DUT 工作区为当前目录执行，所有产物定位使用运行配置的 `OUT`。无需改动通用 `RunSkillScript` 返回协议。 |
 
@@ -91,6 +94,175 @@ V2.0 依据 `workspace_raid_dec_top` 的一次实跑反馈规划。该次运行�
 4. 更新阶段提示、脚本输出与操作说明；分别检查 Skill 启用和关闭的同一产物契约，并以 A 已完成后新增 B、单独重跑 A、默认重跑 A+B、B 失败保留旧报告的场景完成集成验收。
 
 V2.0 不以“33 个失败全部 confirmed”作为成功判据。裁决仍由正确测试、真实波形、Spec 和 RTL 因果链支持；`refuted` 保留原声明且复核置信度为 `0`，证据不足保持 `inconclusive`。
+
+## V2.1 试跑反馈与优化规划
+
+本节记录 V2.0 工作流的使用者反馈及下一版目标；具体故障表现来自试跑复盘，尚未逐项独立复现。V2.1 保持五阶段、模块独立运行区和按模块发布，把“一个大 JSON 承载所有内容”调整为轻量模块索引及按对象存放的复核记录。新增的工具负责定位、校验和原子写入，Bug 语义、测试正确性与 Spec/RTL 因果判断仍由复核者根据真实证据完成。V2.1 不修改输入测试、规格或 RTL。
+
+### 1. 试跑问题记录
+
+| 区域 | 观察到的问题 | 对复核的影响 |
+| --- | --- | --- |
+| WaveInfo 查询 | `/…/` regex pattern 得到零匹配且调用端未见明确诊断；`event="unknown"` 得到空结果；信号路径需先探测再复制精确名。 | 容易把查询语法或事件选择错误误判为波形没有信号。现有代码有 `signal_not_found` 与 `no_candidate` 分支，需核对本次调用的实际返回和显示链路，区分“工具未诊断”和“诊断未呈现”。 |
+| WaveInfo 窗口与输出 | 越界 `end_step` 被截到波尾；`analysis_window.clamped_to_waveform` 存在于保存结果中，但调用端未看到醒目提示。大结果落为临时 `.txt`，内容并非 JSON，文件路径和格式不清楚。 | 请求窗口与有效证据窗口容易混淆；溢出后的读取方式靠猜。 |
+| WaveInfo 参数与身份 | `signal_groups` 与 pattern 命中的信号共同占用 `max_signals`；同一 case 在报告、RunTestCases、WaveInfo/receipt 中使用不同路径形态。 | 首次取证反复调限额和 case 名，receipt 查询可能返回 `CASE_RECEIPT_NOT_FOUND`。 |
+| JSON 更新 | 单一 JSON 混合原始声明、完整波形结果与所有阶段裁决；一次 16 op、约 17 KB 的请求中部分文本出现 `\r`，报错只定位末尾一个 op；`/root_causes` 整组替换被拒且合法路径未列明；每次修改后 SHA 失效。 | correlate 被拆成 30 多次串行调用，结构与传输错误难区分；读取一个 Bug 也须先穿过整份文档。`\r` 的注入层尚未定位，不能只凭现象认定为工具实现错误。 |
+| 阅读与门禁 | 546 KB 的 `bug_analysis.md` 超过 ReadTextFile 单次 131072 字符限制；阶段参考文件只有通过 ReadTextFile 才登记已读，`count=0` 的用途不直观，失败到 Check 才暴露。 | 需要 SearchText 加分段读取；为完成登记而重复调用，增加上下文和试错。 |
+| 数据与校验 | decision/root 字段、置信度和合并规则主要写在 Skill 散文中；需临时脚本摸索 `analysis_claims/evidence/cases` 并手工 join；写入时未统一校验 root 双向关系、共享字段、置信度。 | Check 才发现结构错误；原文、case 和波形的按 Bug 汇集也靠临时脚本。 |
+| 引用与发布 | 14 个 Bug 的 Spec/RTL 候选需读约 20 个文件切片核实；渲染后页面与 JSON 的 receipt、viewer、引用和链接还需另写脚本核对。 | 可机械核验的部分占用大量人工时间，发布正确性依赖临时脚本。 |
+
+### 2. 轻量索引与按 Bug 读取
+
+V2.1 的模块索引 `{OUT}/review_index.json` 保存工作区身份、原始报告位置、阶段状态、按原报告顺序排列的 Bug ID，以及 Bug、case、root、覆盖率记录的相对路径。Bug 索引项保存 `origin`、原始 `bug_summary`/`bug_analysis` 的精确文件与行段、原报告置信度、Spec/RTL 候选位置及关联 case ID；case 索引项保存报告 node ID、RunTestCases target、WaveInfo `test_case_name` 和记录路径。索引不存原报告全文、完整 Spec/RTL 片段、波形 timeline 或整段 LLM 分析；当前裁决也只在逐 Bug 记录中保存一份。各路径须解析到本次执行区，Bug ID 和 case node ID 不直接拼成文件名。
+
+| 对象 | 本次运行的持久化内容 | 读取方式 |
+| --- | --- | --- |
+| `{OUT}/reviews/<revision>/bugs/<key>.json` | 该 Bug 的验证场景、预期/实际行为、证据定位、裁决、置信度、root ID 与简明因果说明；保留 `reported`/`discovered` 身份。 | 按索引中的文件路径读取；原声明长文和 Spec/RTL 仍通过 `path:start[-end]` 回到准备好的只读输入镜像。`<key>` 由索引映射，不从 Bug ID 猜测。 |
+| `{OUT}/cases/<case-key>.json` | 一次复测的状态、测试正确性审查、与 Bug 的关联、波形观察摘要、有效窗口和签名 `receipt_id`。`case-key` 由精确 node ID 稳定映射，路径由索引提供。 | 一个 case 关联多个 Bug 时共享此记录；完整已签名 WaveInfo 结果通过 `WaveInfoReceipts(receipt_id, include_result=true)` 按需读取。 |
+| `{OUT}/reviews/<revision>/root_causes.json` | root ID、共享的 `rtl_ref/first_error/causal_chain` 及成员 Bug ID。 | correlate 校验每个已确认 Bug 的 root ID 与三字段；报告只在 Bug 详情引用共享根因。 |
+| `{OUT}/coverage.json` | 能核实的行/功能覆盖率数值、来源路径、统计口径与所属运行；无法核实时保存明确的缺失状态。 | 模块概况按需加载，不从选择性复测推导原始全量覆盖率。 |
+
+增加一个按 `bug_id` 查询的 `bug-context` Skill 脚本：从索引解析原 summary/analysis 的相关行段、关联 case 的复测与波形摘要、Spec/RTL 候选及已核实引用，按 `summary/cases/waveform/spec/rtl/decision` 分节返回有界内容；可选择节和行数以免再次读入 546 KB 原文。它只汇集和展示已有资料，不改写裁决、不制造 receipt，也不以近似 case 名拼接证据。签名收据详情仍通过 WaveInfoReceipts 读取。Skill 关闭时，阶段任务和 Guide 给出按索引路径使用 ReadTextFile、SearchText 和 WaveInfoReceipts 的等价路径，Checker 标准不变。
+
+### 3. V2.1 目标接口与实施顺序
+
+| 优先级 | 改动位置 | 目标契约及验收 |
+| --- | --- | --- |
+| P0 | `review_ref_check(refs[])`，供 correlate 使用 | 批量接受 `path:start[-end]`，限定在本次模块准备好的只读输入镜像内，检查文件存在、行段顺序与边界，返回规范化引用、行文本及逐条错误。它只证明引用定位有效；文字是否支持结论仍须人工/LLM 判读。相同解析规则供 Checker 与写入前校验复用，错误指出 `bug_id`、字段及引用。 |
+| P0 | 批量提交 decision/root | 以工作区内的结构化暂存文件承载 `decisions[]` 与 `roots[]`，避免大段文本作为工具参数传输。先校验 verdict/`review_confidence`、confirmed 证据与引用、root↔bug 双向成员、`rtl_ref/first_error/causal_chain` 三字段一致及同签名合并；全部通过后生成一组不可变的 Bug/root 记录，再以索引的一次 SHA 保护更新切换当前裁决版本。失败逐项返回文件与字段路径，不切换版本；暂存文件不是权威报告。 |
+| P0 | 机器可读 V2.1 契约 | 使用 `bug_review.v4` 标识新布局，分别定义索引、Bug、case、root 和覆盖率的机器可读 schema，以及各阶段必填条件；初始化脚本、Guide、Skill、工具入参、Checker、渲染器以同一契约为准。字段说明包含类型、枚举、必填条件和示例。新运行直接生成新结构；V2.0 已发布的 v3 页面留在原运行区，迁移不是新模块运行的前置条件。 |
+| P1 | WaveInfo 与 WaveInfoReceipts | `/…/` 信号查询按完整路径执行正则匹配；零信号匹配和 `unknown` 零事件给出可操作诊断。直接响应标出窗口 clamp；响应统一为 JSON 文本，大结果若由宿主溢出到 `.txt`，文件内容仍可按 JSON 读取，也可按 receipt 查询；`signal_budget` 展示 pattern/context 去重计数。索引显式映射报告 case ID、RunTestCases target 与 WaveInfo `test_case_name`，receipt 查询返回精确名称，不按相似 basename 猜测。 |
+| P1 | 小对象更新 | 用各 Bug/case 的独立记录和索引定位替代对单一大 JSON 的 JSON Pointer 链式更新；写入工具给出允许文件/字段和逐项错误，使用单文件 SHA 冲突检测。先定位 `\r` 出现于调用传输、参数解析还是写入，再修责任层；工具不得静默清洗文本。V2.0 的 `UpdateBugReviewJSON` 不作为 V2.1 的写入入口。 |
+| P1 | 报告渲染与核验 | `render_report.py --verify` 从索引及其引用的 Bug/case/root/coverage 记录生成并核对模块页、每条 Bug 页、适用的 receipt/viewer/Spec/RTL 引用及站内链接；原始证据从输入镜像读取，不从 HTML 反推。发布 Checker 使用同一核验逻辑。验收包含缺页、坏链接、缺 receipt/viewer、引用越界和正常多 Bug 模块。 |
+| P2 | 阅读门禁说明 | 在 CurrentTips/阶段任务中预告待读文件与 `ReadTextFile(count=0)` 的“登记存在但不读取正文”语义；大文件使用 SearchText 和分段 ReadTextFile 阅读相关内容，不能把登记当作已分析正文。优先改进现有门禁诊断，不增加可绕过真实阅读的任意注册工具。 |
+
+批量提交优先复用现有原子写入和 SHA 冲突保护；文件式输入解决请求体大小，**不**把文件内容当成已验证结论。不可变裁决记录先写入本次执行区，索引只在全部校验通过后指向该组文件，避免多文件写到一半就发布混合版本。若调用端仍发生控制字符损坏，以输入文件与写入结果逐字核对定位责任层。Skill 开启或关闭时都要有相同的记录格式、写入路径和 Checker 标准。
+
+### 4. 三级报告与阶段数据
+
+| 层级 | 页面和内容 | 数据来源与限制 |
+| --- | --- | --- |
+| 门户 | `output/index.html`，列出所有已发布模块、DUT、发布状态和进入模块页的链接。 | 从每个模块当前发布的 `results/review_index.json` 与页面生成；单模块重跑仅更新该模块，其他模块页面与 receipt 保持原样。 |
+| 模块概况 | `output/workspace_<name>/results/index.html`，展示复核范围与时间、选中/重跑 case 数、确认/排除/未定 Bug 数、根因组数、行覆盖率、功能覆盖率及疑似 Bug 表格。表格至少有 Bug ID、原声明摘要、复核结论、置信度、关联 case 数和详情链接。 | 从索引找到逐 Bug/case 记录，再计算本次复核数字；原声明摘要从原报告行段提取。覆盖率来自带来源的 `coverage.json`，展示统计口径、分子/分母或原始值、所属运行及“原始报告/本次重跑”范围。 |
+| Bug 详情 | `output/workspace_<name>/results/bug_NNNN.html`，按验证场景、规格预期、实际行为、复测结果、关联 case、波形分析、Spec、RTL、裁决依据和共享根因组织内容；可从 case 进入真实 viewer 与 receipt。 | `inventory` 索引原报告场景和预期候选；`replay` 写逐 case 的本次观察与测试正确性；`waveform` 写逐 case 的有效窗口、关键信号、事件与收据引用；`correlate` 核实 Spec/RTL，写逐 Bug 的最终场景/预期/实际及因果结论。多个 Bug 共享 case/根因时链接同一证据，不复制或重造 receipt。 |
+
+V2.1 的逐 Bug 记录保存可展示的 `validation_scenario`、`expected_behavior`、`observed_behavior`；`coverage.json` 保存模块指标，各字段明确来源和状态。行覆盖率只接受实际统计产物，不把 `*_line_coverage_analysis.md` 的 `{TBD}` 当数值。功能覆盖率须区分 FG/FC/CK“已实现”与 CK“运行采样命中”，不能把示例总结中的 `20/20`、`80/80`、`173/173` 实现率标成采样覆盖率。由于 Bug Review 只选择性重跑相关 case，原始全量验证与本次复跑的覆盖率必须分开展示；没有可信统计时显示“暂无可核实数据”和来源缺口，不推算成 `0%` 或 `100%`。覆盖率缺失不改变 Bug 裁决。
+
+各阶段明确 `output_files`：inventory 生成 `{OUT}/review_index.json` 与 `{OUT}/coverage.json`（可标缺失）；replay 更新索引及其中选定的 case 文件；waveform 更新索引及同一批 case 文件的波形摘要和 receipt 引用；correlate 生成 `{OUT}/reviews/<revision>/bugs/*.json`、`root_causes.json` 并在校验通过后切换索引；publish 生成 `{OUT}/index.html`、逐 Bug `bug_NNNN.html` 及页面清单。YAML 对可能为空的 case/Bug 集合只声明必有的索引或 root 文件；Checker 按索引列出的精确文件逐项核验。门户 `output/index.html` 由模块发布步骤重建，不能由本模块索引冒充跨模块索引。HTML 只从已校验的记录和有明确来源的原始资料投影。
+
+### 5. V2.1 实现位置与状态
+
+`review_store.py` 的 Pydantic 模型提供 `bug_review.v4` 机器可读结构；`create_review_json.py` 建立索引、coverage 和共享 case 骨架；`ReviewBugContext` 与 `bug-context` Skill 按 ID 读取有界原文。`ReviewRefCheck` 核实源行段，`UpdateReviewRecord` 写小记录，`SubmitReviewDecisions` 校验整批裁决并一次切换活动版本。`WaveInfo` 返回 JSON 文本与明确的查询、信号预算及窗口提示，`WaveInfoReceipts` 读取真实签名结果。`render_report.py --verify`、`RenderBugReviewReport` 与发布 Checker 使用同一页面核验逻辑。
+
+本轮完成代码与文档的静态检查；仍需按以下完成判据试跑真实模块，包括 Skill 开启/关闭、无 Bug 模块及新增模块发布。试跑反馈继续记录在本文档的 V2.1 小节，下一版本在版本表另增一行。
+
+### 6. V2.1 完成判据
+
+1. 用至少一个真实模块逐阶段验证 schema、按 Bug ID 查询、工具调用、Check/Complete 与三级页面；包含 Skill 开启和关闭路径。错误字段、无效引用、根因不一致、大批量决策和并发 SHA 冲突都给出可定位诊断，失败时索引仍指向上一份完整裁决。
+2. 用同一批裁决比较版本切换前后的 Bug 数量、原声明定位、case 关联、root 成员和原始置信度；大 payload 不再需要 15 次以上逐项写入。按 Bug ID 查询能在有界输出里列出原文位置、关联 case、receipt 和 Spec/RTL 引用，引用核实器返回真实行文本，但不替复核者作语义判断。
+3. 对 WaveInfo 的 regex、`unknown`、超界窗口、信号预算、结果溢出和 case ID 映射分别检查直接响应与签名 receipt；调用者可辨别“零匹配”“零事件”“窗口被截断”和“证据可用”。
+4. 发布前自动核对 JSON、模块页和每条 Bug 页；覆盖率有明确口径或明确缺失。新增模块只重跑指定模块时，门户可进入新旧模块，旧模块的 JSON、HTML 与 receipt 不变。
+
+## V3.0 全量失败归因与环境质量
+
+V3.0 将复核对象从“原报告关联的 Bug case”扩展为“选中模块当前 pytest 配置实际收集的全部 case”。定向、随机和 Mock 用例，以及参数化实例、skip、xfail、xpass 与收集错误都进入运行清单；显式排除项及其配置来源单独记录。测试全集以本次收集结果为准，不使用历史报告的 case 列表定义分母。模块入口保持不变：`make bug-review-analysis` 逐模块运行，`make bug_review_<name>` 只运行指定模块。原始及准备好的测试、fixture、参考模型、Spec 和 RTL 保持只读。
+
+### 1. 调整依据与判断顺序
+
+V2.1 的 inventory 从原 Bug 声明建立 case 索引，replay 仅选择与声明直接相关的 case，无法保证发现报告漏记的失败。样例 `workspace_raid_dec_top` 的测试总结统计表写 178 例、123 通过、55 失败，结论段写 118 通过、55 失败；差出的 5 例可能是随机用例的统计范围，需按精确 node ID 和原始运行口径核实，不能仅凭两个总数认定报告错误。
+
+先冻结全量执行事实，再独立分析失败 case。原 `bug_summary.md`、`bug_analysis.md` 在第一阶段仅机械提取声明 ID 和来源位置；其 Bug 根因描述在第四阶段才作为待核查主张参与语义对账，避免 case 初判被旧结论带偏。全量回归只做一次权威基线；后续仅针对失败、执行不完整或不稳定 case 定向复跑，并保存它与基线的关系。
+
+### 2. 六阶段目标流程与产物
+
+下表定义 V3.0 契约。`{OUT}` 是本次模块执行区的结果目录；`review_index.json` 继续只保存身份、阶段状态与文件路径。每阶段 YAML 声明 `reference_files` 和必有的 `output_files`；可能为空的 case/Bug 集合由 Checker 按索引逐项核验。Schema、Guide、Skill、Checker 和渲染器已切换到六阶段代码；实际运行验收仍待完成。
+
+| 阶段 | 工作及完成条件 | 目标 `output_files` |
+| --- | --- | --- |
+| `full_replay` | 机械索引原报告；按当前 pytest 配置收集精确 node ID，记录测试配置、执行命令、版本、随机种子和排除项；在隔离副本中分批执行全集。每个收集项有 Pass/Fail/Error/Skip/XFail/XPass 或明确未执行原因，收集错误单列。 | `{OUT}/review_index.json`、`{OUT}/test_manifest.json`、`{OUT}/replay_summary.json`；索引列出的逐 case 执行记录 |
+| `case_triage` | 逐个失败 case 独立核对 Spec、测试断言、驱动、fixture、参考模型、复位及采样；记录失败阶段、规格预期、测试预期、实际结果、证据引用和初步归因。对失败或不稳定项定向复跑，必要时比较单独与全套运行。收集、setup、teardown 或环境故障同样有结论或明确缺口。 | `{OUT}/review_index.json`、`{OUT}/environment_review.json`；索引列出的逐 case 失败分析 |
+| `dut_evidence` | 对疑似 DUT 缺陷及需要时序证据的争议 case 使用默认 WaveInfo，核对有效事务、Spec 要求、RTL 首错和传播路径；据证据修正 case 归因。测试和环境故障无需制造 receipt。 | `{OUT}/review_index.json`；索引列出的逐 case 波形摘要与真实 receipt 引用 |
+| `report_reconcile` | 对照 `bug_summary.md`、`bug_analysis.md` 和原测试总结；保留全部原声明、原置信度及来源，核实旧声明的当前支持情况。将报告漏记且有证据的 DUT 候选加入 Bug 清单；逐项说明报告外失败、旧失败现通过、case 关联与统计口径差异。旧失败现通过须给出原失败行段引用。 | `{OUT}/review_index.json`、`{OUT}/report_reconciliation.json`；索引列出的逐 Bug 草案与 case↔Bug 关联 |
+| `root_correlation` | 裁决每条原始和新增 Bug；仅按相同 RTL 首错与因果链合并确认项，保存成员双向关联。原声明不得删除；排除 DUT Bug 时复核置信度为 0，未复现本身不足以排除。 | `{OUT}/review_index.json`、活动版本的 `root_causes.json` 与逐 Bug 裁决记录 |
+| `publish` | 在本次运行区生成并核验模块概况、逐失败 case 页和逐 Bug 页；展示全量执行缺口、环境质量、失败归因、报告对账、覆盖率和疑似 Bug。完成阶段后发布模块报告，并重建跨模块门户。 | `{OUT}/report/index.html`、`{OUT}/report/report_manifest.json`；索引列出的 case/Bug 详情页；模块发布后更新 `output/index.html` |
+
+### 3. case 归因与 Bug 裁决的边界
+
+逐 case 记录分开保存执行事实、测试正确性审查、初步归因与取证后的最终归因。执行状态是 Pass/Fail/Error 等运行事实；原因类别至少区分环境故障、测试误读 Spec、测试实现或时序问题、疑似/已证实 DUT 缺陷、Spec 歧义和证据不足。失败分析应指出 collection、setup、驱动、断言或 teardown 的发生位置，并引用精确日志、测试源码、Spec 行段及适用的波形 receipt。判定“测试误读 Spec”须指出实际条款与测试预期的冲突；规格歧义保持待澄清，不能直接判为测试错误。
+
+一个 case 可关联多个 Bug，也可不关联 Bug；每个失败 case 都要有独立归因，不能为非 DUT 失败新建虚假 Bug。原报告 Bug 即使关联 case 本次通过也继续保留，标注未复现与剩余证据；只有充分反证才能裁为 `refuted`。确认 DUT Bug 仍需正确测试、可定位的 Spec 要求、有效事务中的签名波形和能解释首次偏差的 RTL 因果链。同一根因的多个 Bug 共享根因记录，各 Bug 与 case 的独立证据仍可查询。
+
+### 4. 验证环境质量与发布状态
+
+`environment_review.json` 保存具体质量发现及受影响 case，不生成无来源的总分。至少核对收集完整性、导入/编译/仿真环境、fixture 与 reset 隔离、驱动和采样时序、断言及参考模型独立性、随机种子与失败可复现性。覆盖率区分原报告全量统计和本次回归采样；无法核实的数值显示缺口，不把 FG/FC/CK 已实现数当作采样覆盖率。
+
+模块状态区分“复核完整”和“复核未完成”。若收集、执行或环境故障阻断部分 case，仍可发布已核实内容，但须列出未执行或未归因项、原因及影响范围，不得宣称覆盖全部失败。Checker 按收集全集核对每个 node ID 的执行或排除原因、每个失败项的归因、每条原 Bug 声明的保留、case↔Bug 关系和发布页面；显式缺口可以形成不完整报告，静默遗漏不能通过。单模块未完成不得抹除其他模块的已发布结果。
+
+### 5. 实施顺序与验收
+
+1. 建立 pytest 收集全集、分批执行和逐项对账的产物契约；覆盖遗漏失败、参数化实例、随机/Mock、skip/xfail、收集错误、超时及未执行项。全量回归只在选中模块执行，定向复跑须关联权威基线。
+2. 增加逐 case 归因、环境质量记录及对应 Skill/Checker；覆盖测试误读 Spec、断言错误、fixture/时序、环境故障、顺序依赖、规格歧义和证据不足。原 Bug 根因文字不能单独构成 case 初判证据。
+3. 复用 V2.1 的 WaveInfo receipt、来源核实和小对象更新机制；完成原报告语义对账后再提交 Bug 裁决与根因分组。覆盖漏报 DUT Bug、非 DUT 失败无 Bug 归属、旧 Bug 未复现、旧 Bug 被反证及多个 case 共享根因。
+4. 同步 YAML、Guide_Doc、Skill、Schema、Checker 和三级报告；核对 Skill 开关、单模块与全部模块运行、完整与不完整状态、case/Bug 页和总索引。按下述实跑反馈完成工具与发布修复。V3.0 实际完成状态待真实工作流验收后再更新版本表。
+
+### 实施记录
+
+本次代码实现使用 `bug_review.v5` 索引及记录、`bug_review_job.v7` 准备清单和六阶段 YAML。`PrepareReviewInventory` 收集 pytest node 并建立原声明身份/来源索引，原报告 Spec/RTL 候选留待对账阶段填入；`CaptureReplayReport` 保存 RunTestCases 当前报告快照并导入匹配结果，Checker 回读快照核对基线。`failure_analysis`、`environment_review.json` 和 `report_reconciliation.json` 分别承载失败归因、环境质量与旧报告对账。`ApplyReceiptToCase`、`ResolveReviewCase`、`ValidateCaseRecords`、`CreateDecisionDraft` 以及提交 dry-run 覆盖本节工具修复；默认 WaveInfo 在最终签名调用前核对索引身份并可展开命名信号组。报告生成在私有 `report/`，最终阶段完成回调发布到模块公开入口；`bug_review.workflow publish` 可重建门户，也支持把已完成 V2.1 HTML 作为标记旧版的报告恢复公开。静态语法、YAML 解析和差异空白检查已通过；真实模块全流程、Skill 开关与页面实际浏览待验收。
+
+### 6. V2.1 实跑反馈与 V3.0 工具修复
+
+以下故障数量与操作经过来自 `workspace_raid_enc_top` 的使用者复盘，尚未逐项独立复现；本节将其作为 V3.0 的验收输入。该运行区已有 `results/index.html`、Bug 详情页和 `review_index.json` 的 `stage_status.publish=complete`，但模块公开入口及 `output/index.html` 均未生成。当前发布函数仅在启动包装命令收尾时调用，发布不能只依赖该路径。
+
+| 优先级 | 实跑问题 | V3.0 目标与验收 |
+| --- | --- | --- |
+| P0 | 手工转写 viewer URL 损坏 6 个 case：三处信号路径漏 `_top`、两处重复 `_top`、一处 base64 损坏。 | 增加 `ApplyReceiptToCase(case_id, receipt_id, expected_sha256)`：从已签名收据取得窗口、信号组和 `waveform_viewer.url`，先核对索引中的精确 `waveform_test_case_name`，再原子写入对应 case 的机器证据字段；保留分析者填写的观察和结论。URL 不经 LLM 重新编码。收据无效、身份不符或 SHA 冲突均不写入。 |
+| P0 | WaveInfo 用非索引全名也会产生签名收据，身份不符到阶段 Check 才暴露；三套 case 名靠复制粘贴传播。 | 提供按精确 `case_id` 查询的身份解析入口，返回 `case_id`、`replay_target`、从本次测试报告确认的 `waveform_test_case_name` 和可复制的 WaveInfo 调用身份。插件工作流向默认 WaveInfo 提供当前模块的合法全名集合，最终取证调用若不匹配，在签名之前指出可用全名；附加收据时再次拒绝不匹配。此约束只在 Bug Review 运行中启用，不让默认 WaveInfo 从相似路径猜测名称。已签名收据不提供“改名重挂”：先用仍在的波形以正确身份重新调用 WaveInfo，波形缺失时才重跑测试。 |
+| P0 | case 字段错误在 `UpdateReviewRecord` 写入时未被发现，拖到阶段 Check；没有随时可调用的轻量 lint。 | 增加只读 `ValidateCaseRecords(case_ids?, max_issues?)`，与写入工具和阶段 Checker 共用校验规则：收据身份、URL 与已签名值逐字相同、可解码 viewer payload、窗口/信号组一致、replay/test_review/waveform 条件字段完整。返回有界的 case ID、字段和修复动作；写入前拒绝确定性错误。 |
+| P1 | 30.6 KB 的 `decisions.json` 手工复制大量 case ID；只能提交时得知 Schema、引用和 root 错误。 | 从索引生成符合当前提交格式的草稿骨架，预填 Bug ID 与 case 关联；原报告定位和 `reported_confidence` 留在索引，生成器只在说明输出中提示来源，不向逐 Bug 裁决添加无效字段。判断、根因和复核置信度留待复核者填写。`SubmitReviewDecisions(dry_run=true)` 使用与正式提交相同的校验，返回全部有界错误，不写修订文件、不切换索引；正式提交仍保持单次原子激活和 SHA 冲突保护。 |
+| P1 | `ReviewBugContext` 按单条引用限行，较多引用仍产生 65.8 KB、92.7 KB 输出；原声明场景/预期/实际需再解析长 Markdown。 | 增加整次调用的字符预算、引用和 case 分页及截断位置；`claims` 模式只返回按 Bug ID 解析出的场景、预期、实际三项及每项原文行段。无法可靠解析时返回缺失和候选行段，不凭摘要补造声明。普通模式也保证总输出有界。 |
+| P1 | 多个 case 重复填写同一组约 20 个信号，人工数组发生漂移。 | 在模块运行区保存有名称的信号组 preset；默认 WaveInfo 可按工作区 preset 名称展开完整 `signal_groups`，取证前检查每条路径在当前波形中精确存在。收据仍签署展开后的真实路径列表，报告和 Checker 以签名结果为准，不以 preset 名称代替证据。 |
+| P1 | `ReadTextFile` 登记、`Check` 后 `SetSkillUsage` 的顺序隐蔽；使用者反馈会话压缩后登记丢失。 | Guide 与阶段任务写明当前阶段的 `ListSkill → ReadTextFile(SKILL.md) → Check → SetSkillUsage`，并列出须由 MCP `ReadTextFile` 登记的参考文件；检查跨会话证据持久化，真实已读证据若丢失则修复恢复路径，不能凭压缩摘要伪造阅读。诊断在阶段开始或工具调用处提示，避免直到 Check 才发现。 |
+| P2 | `render_report.py` 输出包含 Pydantic `schema` 字段遮蔽警告。 | 定位产生警告的模型字段，以内部安全字段名和对外 JSON 别名保留当前磁盘契约；报告脚本输出只保留产物与诊断。 |
+
+`ApplyReceiptToCase` 和 lint 处理机器字段与可确定的结构错误，不代替分析者判断 Spec、测试正确性或 DUT 根因。信号组 preset 复用输入，签名收据证明实际使用的信号。正式提交前读取当前 SHA 仍是必要的并发保护；脚手架和 dry-run 只减少重复转录与提交试错，不绕过版本冲突检查。
+
+### 7. V3.0 发布布局与恢复入口
+
+目标布局为 `output/index.html` 作为所有**已发布**模块的门户；`output/workspace_<name>/report/index.html` 是模块最终报告入口，`report/cases/` 与 `report/bugs/` 是第三层详情。`output/workspace_<name>/runs/<run-id>/` 只保存该次执行的 `review_index.json`、case/Bug/root JSON、测试副本、签名 receipt、草稿及历史；对外 `report/` 只暴露已核验的 HTML、页面清单与其必要的源引用资源。页面链接不能依赖 `runs/` 的临时相对路径，签名 receipt 仍留在原执行工作区，不移动或改写。
+
+发布分两步：阶段 `publish` 先在本次运行区渲染并核验 `{OUT}/report/`；阶段成功完成后，将该模块的 `report/` 作为一个整体切换为公开入口，再从所有已发布模块重建 `output/index.html`。发布条件取完整的工作流状态和页面核验结果，不能仅以外层子进程退出码决定。Make、插件直接启动与恢复发布应调用同一幂等发布入口；对已经完成但门户缺失的运行可只重建模块入口和总索引，不重跑测试、WaveInfo 或裁决。重建后检查门户及每个模块/详情链接可打开；发布失败保留此前有效入口，不把中间运行文件当成最终报告。
+
+验收至少覆盖：已完成模块缺总索引时补发、直接启动而非 Make 包装、两个模块仅重跑其一、发布中断后恢复、旧报告保留、case/Bug 页面与源引用链接、不可用 viewer 的明确诊断，以及公开目录不混入 `drafts/`、`tests/`、`.ucagent/` 和原始 receipt store。
+
+## V3.1 归因事务与报告呈现
+
+V3.1 依据 `workspace_raid_enc_top` 第二次实跑反馈实施。反馈称报告级 tests 聚合清单有 23 处与 BG 条目级 `<TC-…>` 错位，使用者为通过门禁合并两份清单，形成 106 条关联和 23 个双归属。这些数字是运行反馈，不代表关联正确性。最终报告的模块、Bug 和失败 case 页面也需要清晰区分结论、证据和长篇原文。本次不调整 `output/index.html` 门户视觉。
+
+### 1. 原报告 case 来源与归因事务
+
+每条原 Bug 的 BG 条目级 TC 引用是该声明的权威 case 关联；报告级 tests 聚合清单作为带来源的历史事实另存，不能自动加入 `BugEntry.case_ids`。条目级身份无法解析时保留明确缺口，由复核者核对原文，不能根据名称猜测。Checker 保留全部原 Bug ID、原置信度、检查点和原文来源，按条目级关联检查复核结果；两种来源的差异进入对账记录和报告，不通过 UNION 消除差异。
+
+`CommitAttribution(draft_path, dry_run)` 从一份 `bug_id → case_ids` 草稿出发，自动推导全部 case 的反向 `bug_ids` 及报告对账集合。`dry_run` 给出逐 Bug/case 的 `expected`、`actual`、`missing`、`extra`；正式提交先校验完整关系，再写入新修订并一次切换活动索引。失败时索引仍指向旧修订。工具返回实际变更路径和修订标识。本次执行区由一个工作流顺序写入，输入及准备好的测试、Spec、RTL 只读；归因事务不要求逐文件 SHA。现有小对象编辑可继续使用，但不是关联主路径。
+
+`CreateDecisionDraft` 支持从活动索引刷新已有草稿的 `case_ids`，保留人工裁决字段并预览差异；`SubmitReviewDecisions` 关联不一致时直接返回差集。原报告门禁、case 门禁和归因提交共享结构化诊断，至少包含对象 ID、字段、期望、实际、缺失、额外值和下一步。旧 revision 提供有界 list/diff；恢复旧裁决须按当前活动关联重新校验。当前 `UpdateReviewRecord` 代码只写指定目标，使用者观察到的 case 写入后 index SHA 变化须先定位实际写入来源；工具只能报告实际变更。
+
+### 2. 阅读证据与发布状态
+
+大 `bug_analysis.md` 使用按 Bug ID 的有界上下文和原文行段阅读，不要求一次传输整份文件。阶段提示清楚列出本阶段的文件与 Skill 已读证据、缺失项和下一动作；内容未变的已读证据可复用，不能凭对话摘要制造阅读记录。
+
+`RenderBugReviewReport(verify_only=true)` 保持只读；publish Check 校验页面、清单、签名证据和链接，不要求预先手工设置 `stage_status.publish=complete`。Complete 成功后，插件回调记录发布状态、切换模块公开报告并重建门户。报告渲染只写本次执行区 `{OUT}/report/`；发布只写配置的 output 根目录及对应模块目录。准备和发布前检查目标目录能否创建、写入，并返回具体不可写路径及下一动作；不递归调整输入或既有报告权限，不把私有 `runs/` 暴露为公开页面。
+
+### 3. 模块与详情页
+
+模块页首屏显示复核状态、收集/执行/失败/确认 Bug/缺口数量、覆盖率及口径；随后是按裁决与归因可扫读的 Bug 和失败 case 表，环境质量、原报告差异及数据来源放在表后。Bug 详情先显示裁决、复核置信度、根因组及结论，再按场景、预期/实际、正确失败测试、签名波形、Spec、RTL 因果链呈现证据。失败 case 详情先显示执行状态、失败阶段和归因，再并列展示 Spec 预期、测试预期和实际行为。长 node ID、信号组和源码摘录可展开；缺失证据显示原因，不渲染为 0 或空白结论。
+
+页面用浅灰背景 `#F7F9FC`、白色卡片、深色正文 `#101828`。确认 DUT Bug 用深红 `#B42318`，疑似/证据不足用琥珀 `#B54708`，测试/环境原因用紫色 `#6941C6`，通过用绿色 `#027A48`，排除用灰色 `#667085`。颜色同时配文字标签；窄屏下并列证据区域纵向排列。渲染器、页面清单与 `verify_pages` 同步更新，页面结论只来自活动记录。
+
+### 4. 实施与验收
+
+先同步 schema、inventory、Checker 和归因事务，再更新草稿与诊断；随后修正 publish 收尾和 output 写入路径，最后更新页面及核验。验收覆盖：报告级错位清单不会制造双归属；关联一次提交且失败时旧修订完整；不要求逐 case 读取 SHA；草稿刷新保留判断；publish 无须手动改索引；不可写 output 报告明确路径；完整/未完成报告在桌面与窄屏能直接看到结论、缺口和证据入口。
+
+本次实现以 `bug_review.v6` 索引保存 BG 级关联、聚合清单来源及活动归因修订。归因草稿一次预检和提交，自动更新全部 case 反向关系及对账记录；单记录编辑、收据附着和裁决提交已去除逐文件 SHA 入参。决策草稿支持同步关联，修订查询返回活动指针及变更摘要。publish Check 只核验报告，完成回调发布后记录状态；报告工具与发布入口返回不可写路径。模块页与两类详情页已按本节布局和色彩渲染，门户视觉维持现状。静态编译、YAML 解析和差异空白检查已通过；真实模块全流程和页面浏览仍需在下一次运行中观察。
 
 ## V1 输入与裁决
 

@@ -15,8 +15,9 @@ help:
 	@echo "make bug-review-analysis     review all $(INPUT_ROOT)/workspace_*"
 	@echo "make bug_review_<name>       review $(INPUT_ROOT)/workspace_<name>"
 	@echo "make plugin-check           validate the bug_review plugin"
-	@echo "Prepared inputs: $(OUTPUT_ROOT)/results/tests/workspace_*"
-	@echo "Report: $(OUTPUT_ROOT)/results/index.html"
+	@echo "Module reports: $(OUTPUT_ROOT)/workspace_*/report/"
+	@echo "Private runs: $(OUTPUT_ROOT)/workspace_*/runs/"
+	@echo "Report: $(OUTPUT_ROOT)/index.html"
 
 plugin-check:
 	PYTHONPATH="$(UCAgent_PYTHONPATH)" $(UCAGENT) --validate-plugin "$(PLUGIN_ROOT)"
@@ -25,7 +26,7 @@ bug_review_%:
 	@$(MAKE) --no-print-directory bug-review-analysis INPUT_NAME="$*"
 
 bug-review-analysis:
-	PYTHONPATH="$(UCAgent_PYTHONPATH)" $(PYTHON) -m bug_review.workflow prepare-analysis \
-		--input-root "$(INPUT_ROOT)" --output-root "$(OUTPUT_ROOT)" $(if $(INPUT_NAME),--run "workspace_$(INPUT_NAME)=$(INPUT_ROOT)/workspace_$(INPUT_NAME)")
-	PYTHONPATH="$(UCAgent_PYTHONPATH)" $(UCAGENT) "$(OUTPUT_ROOT)" BugReview \
-		--plugin "$(PLUGIN_ROOT)" --plugin-workflow bug_review:analysis --output results $(AGENT_ARGS) $(ARGS)
+	PYTHONPATH="$(UCAgent_PYTHONPATH)" $(PYTHON) -m bug_review.workflow run-analysis \
+		--input-root "$(INPUT_ROOT)" --output-root "$(OUTPUT_ROOT)" \
+		--python "$(PYTHON)" --ucagent-root "$(UCAgent_ROOT)" $(if $(INPUT_NAME),--run "workspace_$(INPUT_NAME)=$(INPUT_ROOT)/workspace_$(INPUT_NAME)") \
+		-- $(AGENT_ARGS) $(ARGS)

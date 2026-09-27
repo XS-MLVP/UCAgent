@@ -1,18 +1,14 @@
 ---
 name: waveform-review
-description: Analyze selected reproduced DUT failures with UCAgent's default WaveInfo and save signed transaction evidence in the canonical Bug Review JSON.
+description: Obtain signed default WaveInfo evidence for independently suspected DUT cases.
 ---
 
-# Waveform Review
+# DUT Evidence
 
-## Goal
+## 操作
 
-For every case whose replay reproduced a failure and whose test review confirms a correct DUT-facing test, call the built-in `WaveInfo` tool directly. Do not use a Bug Review waveform wrapper.
+对 `failure_analysis.category=suspected_dut` 或时序争议 case，先调用 `ResolveReviewCase(case_id=...)`，逐字使用返回的 `waveform_test_case_name`。默认 `WaveInfo` 最终取证会预检该身份；非索引名称不会产生最终签名收据。先探测信号目录和事件，再以有效事务窗口、非空事件 pattern 和完整信号组取得最终 receipt。长窗口关注 `clamped_to_waveform` 与 `timeline_truncated`；超限时提高 `max_signals` 或缩小窗口。
 
-## Actions
+信号组要包含时序 DUT 的真实时钟、相关输入/选择/使能、输出/状态/有效位、真实接受/响应控制和至少一条功能选择/状态/错误传播路径；组合 DUT 声明 `combinational` 且不虚构时钟。viewer 显示同一签名集合，不能只看结果信号。可在 `{OUT}/wave_signal_presets.json` 的 `presets` 下存命名组，最终 WaveInfo 用 `signal_group_preset` 展开；收据签名的是展开后的精确路径。
 
-Use the exact `waveform_test_case_name` from the current RunTestCases report. First inspect the waveform inventory and signal catalog. Then make the final call with an explicit event `pattern` and `start_step`/`end_step` window or `logged_cycle`/`clock_signal` alignment.
-
-The final `signal_groups` must describe the complete relevant context: actual clock and clocked mode for a sequential DUT, or `combinational` with no invented clocks; relevant input data, selectors and enables; output data, status and valid signals; actual request acceptance and response controls when present; and at least one functional selection, state or error propagation path. A case linked to multiple Bugs must cover the union of their required signals. The signed timeline and online viewer must show the same signal set. Align logs and waveforms by clock occurrence and transaction context; a numeric cycle/step match is not sufficient.
-
-Update the same `{OUT}/workspaces/<workspace>/bug_review.json` case record. Preserve the exact `receipt_id` and complete returned WaveInfo result, including viewer and signed signal groups. Set `conclusion` to `dut_bug`, `not_dut_bug` or `inconclusive`; either decisive conclusion requires a real signed receipt. Record the event window, transaction alignment and source correlation. If no usable receipt is produced, retain the returned error/result and set the conclusion to `inconclusive`; never invent a receipt or viewer. Set `stage_status.waveform` to `complete` after every eligible case has an evidence result. Run Check, record the stage journal and Complete.
+调用 `ApplyReceiptToCase(case_id, receipt_id)`，让工具直接复制签名窗口、信号组与 viewer URL。之后只补写观察、对齐和源码分析。`ValidateCaseRecords` 可随时检查；无可用收据写具体诊断并保持未定。设 `stage_status.dut_evidence=complete`，Check、SetSkillUsage、日志、Complete。

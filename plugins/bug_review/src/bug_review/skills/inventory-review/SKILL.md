@@ -1,33 +1,22 @@
 ---
 name: inventory-review
-description: Analyze the original Bug summary and detailed analysis, then create and fill the canonical Bug Review JSON with each reported Bug and its candidate evidence.
+description: Collect every pytest node, preserve original Bug pointers and import the full replay baseline.
 ---
 
-# Inventory Review
+# Full Replay
 
-## Goal
+## 目标
 
-Read the selected input reports and prepare one canonical JSON record per workspace. The script creates the file structure and preserves parsed report identities; your analysis supplies and corrects its evidence content.
+从 `review_job.json` 选中的模块收集全部 pytest node ID。原报告仅机械索引 Bug ID、来源行段、原置信度与关联 case；本阶段不依据旧根因解释失败。
 
-## Actions
+## 操作
 
-For each selected workspace, read these files with `ReadTextFile`:
-
-- `{OUT}/inputs/<workspace>/unity_test/<DUT>_bug_summary.md`
-- `{OUT}/inputs/<workspace>/unity_test/<DUT>_bug_analysis.md`
-
-Create its JSON skeleton by running:
+用 `ReadTextFile` 阅读 `Guide_Doc/analysis.md` 和 `review_job.json`。执行：
 
 ```text
 RunSkillScript(commands=[["ext/bug_review/inventory-review", "create_review_json.py", "<workspace>"]])
 ```
 
-Edit `{OUT}/workspaces/<workspace>/bug_review.json` using `EditTextFile`. Keep one `suspected_bugs` entry for every summary item, preserving the exact raw summary row, ID, wording, confidence and source location under `bug_summary`. Preserve detailed-analysis claims even when no summary row matches; mark their origin and source. For each Bug, fill nested `evidence` with source-backed Spec references, test points, FG/FC/CK checks, case IDs, RTL references, root candidates and unresolved questions. Evidence paths must point to the original input workspace and include line ranges when known. Do not invent source locations.
+脚本创建 `{OUT}/review_index.json`、`test_manifest.json`、`replay_summary.json`、`coverage.json`、`environment_review.json`、`report_reconciliation.json`、每个 case 骨架和空的 `wave_signal_presets.json`。Skill 不可用时调用 `PrepareReviewInventory`，产物相同。`test_manifest.json.collected` 是全集；收集失败保留 `collection_errors`。
 
-Read Spec and RTL candidates from their mirrored paths under `{OUT}/inputs/<workspace>/`; preserve original source-relative paths in JSON evidence. The preparation step stages Markdown, HDL source and line-map text only, omitting generated reports, binaries, history and agent state. Test case files and shared helper/fixture files are available under `{OUT}/tests/<workspace>/unity_test/tests`. This is a partial runtime copy, not a full workspace copy. The replay stage must still select exact JSON nodes and must not run all tests just because they are present.
-
-Keep each unique test node once in the top-level `cases` object, keyed by its normalized source node ID. Link each Bug to relevant cases through `evidence.case_ids`; cases may reference multiple Bug IDs. Do not decide whether a claim is a real DUT Bug in this stage. Mark `stage_status.inventory` as `complete` after every input claim and candidate relationship is represented, then run Check, record the stage journal and Complete.
-
-## Required JSON structure
-
-The canonical file is `{OUT}/workspaces/<workspace>/bug_review.json`, schema `bug_review.v3`. Preserve its `workspace`, `source_files`, `stage_status`, `suspected_bugs`, `cases` and `root_causes` top-level keys. Each Bug contains `bug_id`, `origin`, `bug_summary`, `reported_confidence`, `analysis_claims`, `evidence` and `decision`. Each case contains `nodeid`, `bug_ids`, `source_nodeid`, `replay_target`, `waveform_test_case_name`, `replay`, `test_review` and `waveform`. Extend these objects with source-backed evidence without renaming canonical keys.
+用 `RunTestCases(pytest_args="<test_manifest.json.pytest_target>")` 运行全集；分批时按收集项传精确 node，并保留相同 pytest 配置。每批结束立即调用 `CaptureReplayReport`，将真实报告快照及精确 node 结果写入 case 与 `replay_summary.json`。缺失结果保留 `not_run`，填写具体阻断原因；原报告关联但本次未收集的 case 也写明原因，不能按原报告推断 Pass/Fail。核对全集、排除项、报告快照和覆盖率口径，设 `stage_status.full_replay=complete`，然后 Check、SetSkillUsage、日志、Complete。

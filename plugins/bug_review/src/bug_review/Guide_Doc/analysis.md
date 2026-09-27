@@ -1,165 +1,136 @@
 
-# Bug Review 分析指导
+# Bug Review V3.1 分析指导
 
-## 工作区与输入
+## 工作区、输入与执行顺序
 
-每个输入工作区的原始路径记录在 `review_job.json` 的 `source_runs`。准备阶段不会整体复制输入工作区，只把 Markdown/HDL/line-map 文本、UnityTest cases 目录及共享 helper/fixture、按工作区约定可导入的 DUT 仿真 Python 包和运行库放入 Agent 工作区。报告目录、coverage、历史波形、二进制构建产物和 `.ucagent` 不复制。Spec 和 RTL 通过镜像路径直接阅读；JSON 始终记录其原始工作区相对路径。
+`review_job.json.source_run` 指定本次唯一模块。`{OUT}/inputs/<workspace>/` 是原文只读镜像，含 Bug 报告、Spec、RTL 和测试源码；`{OUT}/tests/<workspace>/` 是可运行的测试副本。两处的测试、fixture、Spec、RTL 和模型均不得修改。`make bug-review-analysis` 默认对所有输入模块重新运行；`make bug_review_<name>` 只运行一个模块。
 
-输入报告在 `{OUT}/inputs/<workspace>/unity_test/<DUT>_bug_summary.md` 和 `{OUT}/inputs/<workspace>/unity_test/<DUT>_bug_analysis.md`。测试运行根为 `{OUT}/tests/<workspace>/unity_test/tests`。测试 target 相对于 `{OUT}/tests`，例如 `<workspace>/unity_test/tests/test_x.py::test_case`。只运行 JSON 中选定的确切 TC，不要运行与 Bug 声明无关的全量测试套件，也不要修改原始或复制的测试、fixture、Spec、RTL 或模型。
+六阶段顺序为 `full_replay → case_triage → dut_evidence → report_reconcile → root_correlation → publish`。在 `case_triage` 完成前只机械索引原 Bug ID、行段和关联 case，不把原 `bug_analysis.md` 的根因文字作为失败初判依据。先取得本次全量运行事实，再独立分析失败，之后对照旧报告。
 
-## 阶段与唯一产物
+`ReadTextFile(count=0)` 只登记当前文件，不返回正文；只有要登记阶段参考文件时才需要此调用。要求读参考文件时用 MCP `ReadTextFile` 真正阅读；原生 Read 或 shell 读取不会形成阶段的已读证据。大篇原文可按 Bug ID 用 `ReviewBugContext` 分页读取。Skill 启用且 CurrentTips 列出阶段 Skill 时，依次 `ListSkill → ReadTextFile(SKILL.md) → 完成产物 → Check → SetSkillUsage → SetCurrentStageJournal → Complete`。上下文压缩后若登记不存在，重新读文件。Skill 禁用时直接使用本 Guide、同样的工具和字段，不调用 `SetSkillUsage`。
 
-每个工作区只有一个权威文件 `{OUT}/workspaces/<workspace>/bug_review.json`，采用 `bug_review.v3`。五个阶段都更新这个 JSON；HTML 直接从它渲染，不创建另一个 report data JSON。每阶段更新完本阶段字段后，将 `stage_status.<stage>` 设为 `complete`，运行 Check，通过后记录阶段日志并 Complete。
+## V3.1 记录与工具
 
-Skill 可用时按 CurrentTips 读取当前阶段 Skill；Skill 不可用时按本指导和阶段任务完成同一 JSON 契约。专用 Skill 的路径分别为 `ext/bug_review/inventory-review`、`ext/bug_review/replay-review`、`ext/bug_review/waveform-review`、`ext/bug_review/evidence-correlation` 和 `ext/bug_review/report-publication`。只有启用 Skill 时才按 UCAgent 要求登记 Skill 使用证据。
+`{OUT}/review_index.json` 只保存身份、来源和记录路径。`DescribeReviewSchema(record_type=...)` 返回 `index`、`manifest`、`replay_summary`、`case`、`environment`、`reconciliation`、`coverage`、`bug`、`roots` 的机器可读 JSON Schema。原文仍位于输入镜像。case 文件起始于 `{OUT}/cases/`，归因提交后位于 `{OUT}/attributions/<revision>/cases/`；活动 Bug 裁决与根因在 `{OUT}/reviews/<revision>/`；报告只在 `{OUT}/report/`。
 
-## JSON 结构完整示例
+`dut_evidence` 完成后，用 `ReviewBugContext(bug_id=..., sections=["claims"], max_chars=16000, ref_offset=0)` 读某条原声明的有界字段与行段，用 `case_offset`/`ref_offset` 分页；此前该工具只开放 case/波形记录，避免旧结论进入独立初判。工具返回 `output_truncated` 和下一偏移。`ReviewRefCheck(refs=["path:start[-end]"])` 批量核实 Spec/RTL/测试源码行，返回真实原文但不替代语义判断。多个引用分别放入数组，一个裁决的 `spec_ref`、`rtl_ref` 各为单一 `路径:行号[-行号]` 字符串。
 
-以下示例展示单一工作区完整的 Bug、case、执行、测试正确性、WaveInfo 结果和根因结构。示例波形为未定结果，没有伪造收据。实际报告用源文件中的准确路径、行号、node ID 和工具返回值替换示例值。
+报告 case ID 是不带 `results/tests/` 前缀的精确 node；`replay_target` 相对 RunTestCases 的 `{OUT}/tests`；`waveform_test_case_name` 必须取本次 RunTestCases 报告中的完整 node。调用 `ResolveReviewCase(case_id)` 获取三者，不能按相似路径猜测。最终 WaveInfo 使用该精确身份、事件 pattern、有效事务窗口和完整信号组。可在 `{OUT}/wave_signal_presets.json` 的 `presets` 下命名信号组，并用 WaveInfo `signal_group_preset` 展开；receipt 签名展开后的真实路径。信号组计入 `max_signals`。检查零匹配、窗口 clamp 和 timeline 截断。用 `ApplyReceiptToCase(case_id, receipt_id)` 复制签名机器字段，绝不手工编码 viewer URL；`ValidateCaseRecords` 可随时只读 lint。
+
+改单个索引、case、coverage、replay summary 或环境记录：先写 `{OUT}/drafts/` 下完整替换 JSON，再调用 `UpdateReviewRecord(target_path="results/<记录>", draft_path="results/drafts/<草稿>.json")`。工具拒绝非法 schema、case 关联和已签名字段损坏。Bug↔case 归因变动统一用 `CreateAttributionDraft` 生成草稿，补完后先 `CommitAttribution(draft_path="results/drafts/attribution.json", dry_run=true)`，再正式提交；工具一次更新索引、case 反向关联和对账记录。批量 Bug 决策用 `CreateDecisionDraft` 生成 `{OUT}/drafts/decisions.json`，归因变化时可 `refresh=true` 保留已写裁决并同步 case IDs；先 `SubmitReviewDecisions(dry_run=true, draft_path=...)` 校验，再正式提交。`ReviewRevisionHistory` 可列出当前归因及裁决修订，并查看单次变更。
+
+## 完整索引示例
+
+以下展示已建立骨架的完整 `review_index.json`。路径与 ID 是示意，实际内容须来自当前工作区。
 
 ```json
 {
-  "schema": "bug_review.v3",
+  "schema": "bug_review.v6",
+  "record_type": "index",
   "workspace": {
     "name": "workspace_example_dut",
     "dut": "example_dut",
-    "source_path": "/project/inputs/workspace_example_dut"
+    "source_path": "/project/inputs/workspace_example_dut",
+    "execution_workspace": "/project/output/workspace_example_dut/runs/run-example",
+    "started_at": "2026-09-25T01:00:00+00:00"
   },
   "source_files": {
     "bug_summary": "/project/inputs/workspace_example_dut/unity_test/example_dut_bug_summary.md",
     "bug_analysis": "/project/inputs/workspace_example_dut/unity_test/example_dut_bug_analysis.md"
   },
   "stage_status": {
-    "inventory": "complete",
-    "replay": "complete",
-    "waveform": "complete",
-    "correlate": "complete",
+    "full_replay": "pending",
+    "case_triage": "pending",
+    "dut_evidence": "pending",
+    "report_reconcile": "pending",
+    "root_correlation": "pending",
     "publish": "pending"
   },
-  "suspected_bugs": [
-    {
-      "bug_id": "BUG-OUTPUT-HOLD",
+  "bug_order": ["BUG-OUTPUT-HOLD"],
+  "bugs": {
+    "BUG-OUTPUT-HOLD": {
       "origin": "reported",
-      "bug_summary": {
-        "summary_item_present": true,
-        "raw": "| BUG-OUTPUT-HOLD | major | ... |",
-        "text": "输出背压期间数据必须保持稳定。",
-        "severity": "major",
-        "check_points": ["FG-OUTPUT/FC-DATA/CK-HOLD"],
-        "rtl_candidates": ["example_dut_RTL/output_ctrl.v:80-88"],
-        "source": {
-          "path": "unity_test/example_dut_bug_summary.md",
-          "line": 12
-        }
-      },
+      "summary_ref": "unity_test/example_dut_bug_summary.md:12",
+      "analysis_refs": ["unity_test/example_dut_bug_analysis.md:44-49"],
       "reported_confidence": 0.8,
-      "analysis_claims": [
-        {
-          "summary": "ready 拉低期间输出 data 发生变化。",
-          "source": {
-            "path": "unity_test/example_dut_bug_analysis.md",
-            "line_start": 44,
-            "line_end": 49
-          }
-        }
-      ],
-      "evidence": {
-        "test_points": [
-          {
-            "ref": "unity_test/tests/test_example_dut_output.py::test_data_hold",
-            "purpose": "检查输出背压时数据保持"
-          }
-        ],
-        "check_points": ["FG-OUTPUT/FC-DATA/CK-HOLD"],
-        "case_ids": ["unity_test/tests/test_example_dut_output.py::test_data_hold"],
-        "spec": [
-          {
-            "ref": "example_dut/SPEC.md:42-48",
-            "status": "candidate"
-          }
-        ],
-        "rtl": [
-          {
-            "ref": "example_dut_RTL/output_ctrl.v:80-88",
-            "status": "candidate"
-          }
-        ],
-        "root_candidates": [],
-        "open_questions": ["确认 ready/valid 窗口与数据变化的事务归属"]
-      },
-      "decision": {
-        "verdict": "inconclusive",
-        "review_confidence": null,
-        "rationale": "尚未取得有效事务窗口中的可用波形证据。",
-        "root_id": null
-      }
-    }
-  ],
-  "cases": {
-    "unity_test/tests/test_example_dut_output.py::test_data_hold": {
-      "nodeid": "unity_test/tests/test_example_dut_output.py::test_data_hold",
-      "bug_ids": ["BUG-OUTPUT-HOLD"],
-      "source_nodeid": "unity_test/tests/test_example_dut_output.py::test_data_hold",
-      "replay_target": "workspace_example_dut/unity_test/tests/test_example_dut_output.py::test_data_hold",
-      "waveform_test_case_name": "results/tests/workspace_example_dut/unity_test/tests/test_example_dut_output.py::test_data_hold",
-      "replay": {
-        "status": "reproduced",
-        "invocation_success": true,
-        "test_count": 1,
-        "failed_count": 1,
-        "result": "Assertion failed: output data changed while stalled"
-      },
-      "test_review": {
-        "classification": "suspected_dut_bug",
-        "correctness_confirmed": true,
-        "exact_input": "valid=1, ready=0, data=0x31",
-        "specification_expected": "data remains stable until transfer",
-        "test_expected": "data remains 0x31 while ready is low",
-        "dut_actual": "data changed to 0x32 before transfer",
-        "driver_timing_review": "valid remained asserted; no request transfer occurred",
-        "rationale": "Test and protocol window are consistent with the specification."
-      },
-      "waveform": {
-        "conclusion": "inconclusive",
-        "receipt_id": "",
-        "result": {
-          "error": "Waveform file unavailable for this run"
-        },
-        "signal_groups": {},
-        "alignment_evidence": "No waveform window was available.",
-        "observed_behavior": "Not observed",
-        "source_correlation": "Pending RTL review"
-      }
+      "check_points": ["FG-OUTPUT/FC-DATA/CK-HOLD"],
+      "case_ids": ["unity_test/tests/test_output.py::test_hold"],
+      "aggregate_case_ids": [],
+      "aggregate_refs": [],
+      "spec_candidates": [],
+      "rtl_candidates": [],
+      "review_path": null
     }
   },
-  "root_causes": []
+  "cases": {
+    "unity_test/tests/test_output.py::test_hold": {
+      "replay_target": "workspace_example_dut/unity_test/tests/test_output.py::test_hold",
+      "waveform_test_case_name": "",
+      "record_path": "cases/case_0001.json"
+    }
+  },
+  "attribution_revision": null,
+  "root_path": null,
+  "coverage_path": "coverage.json",
+  "manifest_path": "test_manifest.json",
+  "replay_summary_path": "replay_summary.json",
+  "environment_path": "environment_review.json",
+  "reconciliation_path": "report_reconciliation.json"
 }
 ```
 
-## inventory：原始声明与证据骨架
+## 完整 case 示例
 
-读取两份输入报告，调用 `inventory-review` Skill 的 `create_review_json.py` 创建 JSON 骨架。脚本保留摘要行、详细分析主张、原始 Bug ID 和已引用的 TC/CK 候选；Bug 的语义解释、候选关联确认和证据内容由你阅读源报告后填充。摘要中的每一项必须对应一个 `origin: reported` 的 `suspected_bugs` 项。仅在详细分析出现的声明也要保留，并在 `analysis_claims` 中注明其原文位置。
+以下是 triage 阶段一个失败 case 的完整 `cases/case_0001.json`，展示执行事实、测试正确性、独立归因和待取证波形四类信息。后续 receipt、窗口、信号组和 URL 必须由 `ApplyReceiptToCase` 从真实收据写入。
 
-每个 Bug 的 `evidence` 包含 Spec 引用、测试点、检查点、用例 ID、RTL 引用、根因候选及未决问题。一个 Bug 可关联多个 TC/CK，一个 TC 也可服务多个 Bug。路径和行范围必须能回到输入源文件；阅读 `{OUT}/inputs/<workspace>/` 下的镜像副本时，JSON 中仍保存源工作区相对路径。不要复制整个 DUT 工作区。
+```json
+{
+  "schema": "bug_review.v6",
+  "record_type": "case",
+  "case_id": "unity_test/tests/test_output.py::test_hold",
+  "bug_ids": ["BUG-OUTPUT-HOLD"],
+  "replay": {
+    "status": "failed", "invocation_success": true,
+    "baseline_id": "baseline-example", "report_node_id": "results/tests/workspace_example_dut/unity_test/tests/test_output.py::test_hold",
+    "failure_phase": "assertion", "reruns": [], "not_run_reason": "", "result": "replay/batch-example.json: failed"
+  },
+  "test_review": {
+    "classification": "suspected_dut_bug", "correctness_confirmed": true,
+    "exact_input": "valid=1, ready=0", "specification_expected": "data stable until accepted",
+    "test_expected": "data remains unchanged", "dut_actual": "data changed",
+    "driver_timing_review": "sampled on the next active edge", "rationale": "test waits for the defined sampling edge"
+  },
+  "failure_analysis": {
+    "category": "suspected_dut", "phase": "assertion",
+    "scenario": "output backpressure", "spec_expected": "data remains stable before acceptance",
+    "test_expected": "assert stable data", "actual": "data changed while ready=0",
+    "rationale": "driver and assertion agree with the specification",
+    "evidence_refs": ["example_dut/spec.md:42-48", "unity_test/tests/test_output.py:20-30"],
+    "unresolved": ""
+  },
+  "waveform": {
+    "conclusion": "inconclusive", "receipt_id": "",
+    "analysis_window": {}, "signal_groups": {}, "viewer_url": "",
+    "alignment_evidence": "", "observed_behavior": "",
+    "source_correlation": "", "diagnostic": "DUT evidence pending"
+  }
+}
+```
 
-## replay：选择性重跑与测试审查
+## 全量运行与环境产物
 
-从 `cases` 中选择能直接验证声明的最小用例集合，只调用 `RunTestCases` 重跑这些节点。原始测试节点用 `replay_target` 选择；WaveInfo 使用本次 RunTestCases 报告中的完整 `waveform_test_case_name`。每次执行都在同一 case 记录中保存真实返回的成功状态、用例数量、Pass/Fail 结果和状态。可以逐例或小批执行；没有被选择的 case 保持 `not_selected`。
+`test_manifest.json` 保存收集命令、供 `RunTestCases(pytest_args=...)` 使用的 `pytest_target`、退出码、精确 `collected` node 列表、排除原因、收集错误、pytest 版本及 `baseline_id`。`replay_summary.json` 的 `outcomes` 必须逐项覆盖 `collected`；每项为 passed、failed、error、skipped、xfailed、xpassed 或有具体原因的 not_run。`commands` 与 `batch_refs` 一一对应本次真实运行和保留的报告快照。参数化子项、随机/Mock、收集错误和 skip/xfail/xpass 都计入对账，不能只看原报告的 55 个失败。全量基线只建立一次；定向复跑记在对应 `case.replay.reruns`，不能覆盖基线。
 
-逐个失败用例独立推导 Spec 预期，检查精确输入、测试期望、DUT 实际值、API/driver、fixture、参考模型、复位、协议接受条件、采样边沿与响应延迟。只有正确测试的可复现 DUT 失败才能标为 `suspected_dut_bug`。测试、环境、收集或运行错误不能算作 DUT Bug；一次失败不等于结论。
+`environment_review.json` 记录具体质量发现及受影响 case。收集完整性、执行环境、fixture/reset、驱动/采样、参考模型、随机种子/复现性六项审查都要填写结论或缺口，不生成无来源总分。`coverage.json` 的 line 和 functional 指标要分开标明 `source_ref`、`run_scope`、`basis`、分子/分母或数值；无法核实时设 unavailable 并写原因，FG/FC/CK 实现数不是本次采样覆盖率。
 
-## waveform：默认 WaveInfo 取证
+## 六阶段裁决与发布
 
-只对复现且测试正确、可能由 DUT 造成的失败调用默认 `WaveInfo`。先确认测试和规格，再用准确 node ID、真实信号路径、事件 pattern 和显式 step 窗口或日志时钟对齐调用最终 WaveInfo。时序 DUT 列出真实时钟；组合逻辑声明 `combinational` 且不虚构时钟。完整 signal groups 还覆盖相关输入、输出、请求接受、响应有效及至少一条功能选择/状态/错误传播路径。同一 TC 关联多个 Bug 时覆盖其信号并集。
+`case_triage` 对每个 failed/error/xpassed 写独立 `failure_analysis`。类别至少区分 environment、spec_misread、test_implementation、suspected_dut、spec_ambiguous、insufficient_evidence；后续有证据可改为 confirmed_dut。Spec 误读必须引用冲突的真实条款；规格歧义保持待澄清。无 Bug 归属的失败仍保留 case 页，不能制造 DUT Bug。测试/环境故障不要求 WaveInfo receipt。
 
-在 case 的 `waveform` 中保存原始 receipt、完整工具 result、viewer、信号组、事务窗口、日志与波形对齐、观测和 RTL/Spec 关联。没有 receipt 时保留真实错误并标为 `inconclusive`。receipt 必须来自本工作区默认 WaveInfo 工具；Checker 会验证签名 receipt 和最终信号组/viewer。
+`dut_evidence` 只对 DUT 候选或时序争议取证。确认 DUT Bug 需要正确的失败测试、有效事务窗口内的签名 receipt、Spec 条款和解释首次偏差的 RTL 因果链。缺失证据写 `diagnostic`，保持未定。已签收据的 case 文件窗口、信号组和 viewer 必须与 receipt 逐字一致；手工转写 URL 会被拒绝。
 
-## correlate：裁决与根因合并
+`report_reconcile` 才读取原 summary、analysis 的语义。原 Bug 的 BG 条目级 TC 是权威 case 关联；报告级 tests 聚合清单只保存在 `aggregate_case_ids`、`aggregate_refs`，不自动加入 `case_ids`。先补原报告 Spec/RTL 候选，再用 `CommitAttribution` 提交完整关联。活动对账记录由索引的 `reconciliation_path` 指向，必须列出全部 `original_bug_ids`、新增的 `discovered_bug_ids`、无 Bug 归属失败 `unreported_failed_cases`。`previously_failed_now_passed` 只列原报告有失败记录且本次通过的 case；每项须在 `original_failure_refs[case_id]` 给出证明旧失败的原文 `路径:行号[-行号]`。另在 `statistics_review` 解释原/今统计口径。旧 Bug 未复现本身不足以裁为 refuted。
 
-为每个报告 Bug 与新发现 Bug 更新 `decision`。`confirmed` 使用 `0 < review_confidence <= 1`；`refuted` 必须使用 `0`；`inconclusive` 必须使用 `null`。不得删除原始 Bug、原摘要、原置信度或关联证据。
+`root_correlation` 用 `CreateDecisionDraft` 预填身份，按 `DescribeReviewSchema(record_type="bug"|"roots")` 填完整裁决。confirmed 的置信度为 `0 < value <= 1`，需要正确失败测试、可用签名波形、真实 Spec 和 RTL 因果链；refuted 保留原声明且置信度为 0；inconclusive 的置信度为 null。同一 `rtl_ref`、`first_error`、`causal_chain` 的确认 Bug 共享 root，成员双向一致。先 dry-run，再正式提交。
 
-同一个 TC 或相似标题不代表同一个根因。只有 RTL 首错与失效因果链相同才合并到 `root_causes`；确认的每个 Bug 只属于一个 root，排除和未定 Bug 的 `root_id` 为 null。每个 root 保存稳定 ID、RTL 首错引用、首错描述、传播链和 `bug_ids` 成员。
-
-## publish：从 JSON 渲染 HTML
-
-报告 Skill 的 `render_report.py` 直接读取每个 `bug_review.json`，生成 `bug_0001.html` 等详情页、工作区 `index.html` 和 `{OUT}/index.html` 总索引。页面来源、case、replay、WaveInfo、Spec/RTL、裁决和根因均从 JSON 读取。不要再生成独立 `report_data.json`。渲染后检查总索引中的所有工作区链接、每个 Bug 详情页、波形 viewer 和源文件引用，再将 `stage_status.publish` 设为 `complete` 并运行 Check。
+`publish` 渲染并核验 `{OUT}/report/index.html`、`cases/`、`bugs/` 和 `report_manifest.json`。模块页先显示结论、数量与覆盖率，再列 Bug 和失败 case；详情页先显示裁决或归因，再展开波形与 Spec/RTL 原文。复核状态分 complete/incomplete；显式收集、执行或归因缺口可发布 incomplete，静默遗漏不能通过 Check。此阶段不手工设置 `stage_status.publish`；Check 验证页面，Complete 回调发布并记录完成状态。公开入口为 `output/index.html → output/workspace_<name>/report/index.html → case/Bug 页`；运行中 JSON、draft、测试和收据留在 `runs/`。若门户缺失，使用 `python -m bug_review.workflow publish --workspace <run>` 恢复，不重跑分析。若公开目录不可写，发布错误给出具体路径。

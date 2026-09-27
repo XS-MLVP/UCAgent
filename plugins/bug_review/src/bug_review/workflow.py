@@ -1,13 +1,18 @@
-"""Run the five-stage Bug Review analysis against immutable DUT inputs."""
+"""Run the six-stage Bug Review analysis against immutable DUT inputs."""
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
+import html
 import json
+import os
 from pathlib import Path
 import re
+import secrets
 import shutil
 import subprocess
 import sys
+from urllib.parse import unquote
 
 from ucagent.tools.waveform import WaveInfo
 
@@ -17,7 +22,8 @@ from .inputs import discover_input_workspaces, resolve_run_specs
 from .json_io import read_object
 
 
-ANALYSIS = ("inventory", "replay", "waveform", "correlate", "publish")
+ANALYSIS = ("full_replay", "case_triage", "dut_evidence", "report_reconcile",
+            "root_correlation", "publish")
 PLUGIN_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -36,6 +42,7 @@ def _canonical_node(node):
 def _workspace_node(node):
     """Normalize a RunTestCases node ID to the copied DUT workspace layout."""
     value = _canonical_node(node)
+    value = re.sub(r"^results/tests/", "", value)
     value = re.sub(r"^workspace_[A-Za-z0-9_.-]+/", "", value)
     if value.startswith("tests/"):
         return "unity_test/" + value
@@ -82,14 +89,21 @@ def _inventory(source, name):
     analysis = source / "unity_test" / f"{dut}_bug_analysis.md"
     table = _parse_summary(summary)
     claims = build_report_inventory(analysis, run_key=name, model="reported", dut=dut)["bugs"] if analysis.is_file() else []
+    claims_by_bug = {}
+    for claim in claims:
+        claims_by_bug.setdefault(claim["bug_id"], []).append(claim)
     assigned = set()
     bugs = []
     for row in table:
-        related = [claim for claim in claims if any(
+        aggregate = [claim for claim in claims if any(
             start <= int(claim["source"]["line_start"]) <= end for start, end in row["analysis_ranges"])]
+        related = claims_by_bug.get(row["bug_id"], [])
         assigned.update(claim["claim_id"] for claim in related)
         bugs.append({**row, "origin": "reported", "claims": related,
                      "tests": sorted({test for claim in related for test in claim["referenced_tests"]}),
+                     "aggregate_tests": sorted({test for claim in aggregate for test in claim["referenced_tests"]}),
+                     "aggregate_refs": [f"unity_test/{analysis.name}:{start}-{end}"
+                                        for start, end in row["analysis_ranges"]],
                      "root_refs": sorted({ref for claim in related for ref in claim["root_refs"]})})
     for claim in claims:
         if claim["claim_id"] in assigned:
@@ -103,7 +117,8 @@ def _inventory(source, name):
                        claim["confidence_percent"] / 100 if claim["confidence_percent"] is not None else None),
                    "ck": ["/".join(part for part in (claim["fg"], claim["fc"], claim["ck"]) if part)],
                    "rtl_refs": [], "source": claim["source"],
-                   "analysis_ranges": [], "claims": [], "tests": [], "root_refs": []}
+                   "analysis_ranges": [], "claims": [], "tests": [],
+                   "aggregate_tests": [], "aggregate_refs": [], "root_refs": []}
             bugs.append(row)
         row["claims"].append(claim)
         row["tests"] = sorted(set(row["tests"] + claim["referenced_tests"]))
@@ -145,13 +160,13 @@ def _inventory(source, name):
 
 
 def prepare(workspace, kind="analysis", **options):
-    """Prepare report sources and test runtime files without copying whole inputs."""
+    """Prepare one module in a fresh, private UCAgent execution workspace."""
     if kind != "analysis":
         raise ValueError("Bug Review supports analysis only")
     root = Path(workspace).resolve()
     source_runs = [(safe_name(label), Path(path).resolve()) for label, path in options.get("runs", [])]
-    if not source_runs or len({label for label, _ in source_runs}) != len(source_runs):
-        raise ValueError("provide at least one uniquely labeled workspace")
+    if len(source_runs) != 1:
+        raise ValueError("prepare exactly one workspace per execution")
     for label, source in source_runs:
         if (source.name != label or not label.startswith("workspace_") or not source.is_dir()
                 or not (source / "unity_test/tests").is_dir()):
@@ -160,11 +175,11 @@ def prepare(workspace, kind="analysis", **options):
             raise ValueError("output root and input workspaces must be separate")
 
     config_path = root / "review_job.json"
-    frozen_sources = [[label, str(path)] for label, path in source_runs]
+    frozen_source = [source_runs[0][0], str(source_runs[0][1])]
     if config_path.exists():
         existing = read_object(config_path)
-        if (existing.get("schema") != "bug_review_job.v4"
-                or existing.get("source_runs") != frozen_sources):
+        if (existing.get("schema") != "bug_review_job.v7"
+                or existing.get("source_run") != frozen_source):
             raise ValueError("output root has an older or different Bug Review preparation; select a new output root")
         for label, _ in source_runs:
             if not (root / "results" / "tests" / label / "unity_test/tests").is_dir():
@@ -190,7 +205,7 @@ def prepare(workspace, kind="analysis", **options):
                             ignore=shutil.ignore_patterns(
                 "__pycache__", ".pytest_cache", "toffee_tmp_*"))
         inputs = root / "results" / "inputs" / label
-        text_suffixes = {".md", ".v", ".vh", ".sv", ".svh", ".vhd", ".vhdl"}
+        text_suffixes = {".md", ".py", ".v", ".vh", ".sv", ".svh", ".vhd", ".vhdl"}
         ignored_parts = {".git", ".ucagent", "__pycache__", ".pytest_cache", ".venv", "venv",
                          "node_modules", "build", "dist", "output", "results", "coverage",
                          "Guide_Doc", "uc_test_report"}
@@ -207,8 +222,9 @@ def prepare(workspace, kind="analysis", **options):
             shutil.copy2(path, target)
         test_runs.append([label, str(destination.resolve())])
 
-    config = {"schema": "bug_review_job.v4", "kind": kind, "stages": list(ANALYSIS),
-              "source_runs": frozen_sources, "test_runs": test_runs,
+    config = {"schema": "bug_review_job.v7", "kind": kind, "stages": list(ANALYSIS),
+              "source_run": frozen_source, "test_run": test_runs[0],
+              "prepared_at": datetime.now(timezone.utc).isoformat(),
               "output_dir": "results", "batch_size": int(options.get("batch_size", 1)),
               "timeout": int(options.get("timeout", 300))}
     if config["batch_size"] < 1 or config["timeout"] < 1:
@@ -218,27 +234,19 @@ def prepare(workspace, kind="analysis", **options):
 
 
 class Workflow:
-    """Load prepared test inputs and validate updates to the canonical JSON."""
+    """Validate one module's V3 indexed stage artifacts."""
 
     def __init__(self, workspace):
-        """Load the V4 job configuration from the agent workspace."""
+        """Load the private run configuration and signed waveform scope."""
         self.root = Path(workspace).resolve()
         self.config = read_object(self.root / "review_job.json")
-        if self.config.get("schema") != "bug_review_job.v4" or self.config.get("stages") != list(ANALYSIS):
-            raise ValueError("workspace requires a fresh V4 analysis preparation; select a new output root")
+        if self.config.get("schema") != "bug_review_job.v7" or self.config.get("stages") != list(ANALYSIS):
+            raise ValueError("workspace requires a fresh V7 analysis preparation")
         self.out = self.root / self.config["output_dir"]
         self.waveinfo = WaveInfo(workspace=str(self.root), test_dir=str(self.out / "tests"), dut_name="BugReview")
 
-    def _workspaces(self):
-        """Return frozen workspace names and original read-only source paths."""
-        return [(name, Path(path)) for name, path in self.config["source_runs"]]
-
-    def _review_path(self, name):
-        """Return the sole canonical review artifact for one input workspace."""
-        return self.out / "workspaces" / name / "bug_review.json"
-
     def status(self):
-        """Return progress only for stages whose artifacts pass their current checks."""
+        """Return the first stage whose indexed artifacts do not pass Check."""
         completed = []
         for stage in ANALYSIS:
             try:
@@ -247,199 +255,460 @@ class Workflow:
                 valid = False
             if not valid:
                 break
+            if stage == "publish":
+                from .review_store import load_record
+
+                index = load_record(self.out, "review_index.json", "index")
+                if index.stage_status.get("publish") != "complete":
+                    break
             completed.append(stage)
         current = next((stage for stage in ANALYSIS if stage not in completed), "")
         return {"kind": "analysis", "current_stage": current,
                 "completed": completed, "complete": not current}
 
     def check(self, stage):
-        """Validate current-stage fields and links in each canonical review JSON."""
-        names = [name for name, _ in self._workspaces()]
-        required = [self._review_path(name) for name in names]
+        """Validate every artifact required through the requested V3 stage."""
+        from .review_store import load_record, source_lines, within_output
+        from .review_validation import ReviewIssues, case_issues, review_incomplete, validate_correlation
+
+        if stage not in ANALYSIS:
+            raise ValueError(f"unknown Bug Review stage: {stage}")
+        name, source_text = self.config["source_run"]
+        source = Path(source_text)
+        index_path = self.out / "review_index.json"
+        if not index_path.is_file():
+            raise ValueError("results/review_index.json is missing; create full replay records")
+        index = load_record(self.out, "review_index.json", "index")
+        if (index.workspace.get("name") != name
+                or index.workspace.get("source_path") != str(source)
+                or index.workspace.get("execution_workspace") != str(self.root)
+                or index.workspace.get("started_at") != self.config.get("prepared_at")):
+            raise ValueError("review_index.json workspace identity differs from review_job.json")
+        required_stages = ANALYSIS[:ANALYSIS.index(stage) + (stage != "publish")]
+        for required in required_stages:
+            if index.stage_status.get(required) != "complete":
+                raise ValueError(f"stage_status.{required} must be complete")
+        if len(index.bug_order) != len(set(index.bug_order)) or set(index.bug_order) != set(index.bugs):
+            raise ValueError("review_index.json bug_order and bugs identities differ")
+        original, _ = _inventory(source, name)
+        expected_ids = {bug["bug_id"] for bug in original["bugs"]}
+        if not expected_ids.issubset(index.bugs):
+            raise ValueError(f"original Bug identities missing: {sorted(expected_ids - set(index.bugs))[:10]}")
+        source_root = self.out / "inputs" / name
+        original_issues = []
+        for reported in original["bugs"]:
+            bug_id = reported["bug_id"]
+            entry = index.bugs[bug_id]
+            location = reported["source"]
+            path = Path(location["path"])
+            if path.is_absolute():
+                path = path.resolve().relative_to(source)
+            start = location.get("line", location.get("line_start"))
+            end = location.get("line_end", start)
+            summary_ref = f"{path.as_posix()}:{start}" + (f"-{end}" if end != start else "")
+            expected_fields = {
+                "origin": "reported", "summary_ref": summary_ref,
+                "reported_confidence": reported["reported_confidence"],
+                "check_points": set(reported["ck"]),
+                "case_ids": {_workspace_node(node) for node in reported["tests"]},
+                "aggregate_case_ids": {_workspace_node(node) for node in reported["aggregate_tests"]},
+                "aggregate_refs": set(reported["aggregate_refs"]),
+            }
+            for field, expected in expected_fields.items():
+                actual = getattr(entry, field)
+                actual_set = set(actual) if isinstance(expected, set) else actual
+                invalid = (not expected.issubset(actual_set) if field in {"check_points", "case_ids"}
+                           else actual_set != expected)
+                if invalid:
+                    original_issues.append({"bug_id": bug_id, "field": field,
+                                            "expected": sorted(expected) if isinstance(expected, set) else expected,
+                                            "actual": sorted(actual_set) if isinstance(expected, set) else actual,
+                                            "missing": sorted(expected - actual_set) if isinstance(expected, set) else [],
+                                            "extra": sorted(actual_set - expected) if isinstance(expected, set) else [],
+                                            "next_action": "Restore the original claim fact or its exact BG-level TC associations"})
+            if ANALYSIS.index(stage) >= 3:
+                for field, expected in (("spec_candidates", set(reported["spec_refs"])),
+                                        ("rtl_candidates", set(reported["rtl_refs"]))):
+                    actual = set(getattr(entry, field))
+                    if not expected.issubset(actual):
+                        original_issues.append({
+                            "bug_id": bug_id, "field": field,
+                            "expected": sorted(expected), "actual": sorted(actual),
+                            "missing": sorted(expected - actual), "extra": sorted(actual - expected),
+                            "next_action": "Add the original source candidate to the indexed Bug"})
+            for claim in reported["claims"]:
+                position = claim["source"]
+                claim_path = Path(position["path"])
+                if claim_path.is_absolute():
+                    claim_path = claim_path.resolve().relative_to(source)
+                ref = f"{claim_path.as_posix()}:{position['line_start']}-{position['line_end']}"
+                if ref not in entry.analysis_refs:
+                    original_issues.append({"bug_id": bug_id, "field": "analysis_refs",
+                                            "expected": ref, "actual": entry.analysis_refs,
+                                            "missing": [ref], "extra": [],
+                                            "next_action": "Restore the original BG source reference"})
+        if original_issues:
+            raise ReviewIssues(original_issues)
+        for bug_id, entry in index.bugs.items():
+            if any(case_id not in index.cases for case_id in entry.case_ids):
+                raise ValueError(f"{bug_id} refers to an unindexed case")
+            for ref in [entry.summary_ref, *entry.analysis_refs]:
+                if ref:
+                    source_lines(source_root, ref, 1)
+        coverage = load_record(self.out, index.coverage_path, "coverage")
+        if not {"line", "functional"}.issubset(coverage.metrics):
+            raise ValueError("coverage.json needs line and functional metrics")
+        for metric in coverage.metrics.values():
+            if metric.status == "unavailable" and not metric.reason.strip():
+                raise ValueError("unavailable coverage needs a reason")
+            if metric.status == "available":
+                if not metric.source_ref or not metric.basis or metric.run_scope == "unknown":
+                    raise ValueError("available coverage needs source_ref, basis and run_scope")
+                source_lines(source_root, metric.source_ref, 1)
+        manifest = load_record(self.out, index.manifest_path, "manifest")
+        if not manifest.collected and not manifest.collection_errors:
+            raise ValueError("test_manifest.json has no collected tests or collection error")
+        if len(set(manifest.collected)) != len(manifest.collected):
+            raise ValueError("test_manifest.json contains duplicate node IDs")
+        if manifest.collection_exit_code != 0 and not manifest.collection_errors:
+            raise ValueError("collection failure needs recorded diagnostics")
+        if not set(manifest.collected).issubset(index.cases):
+            raise ValueError("review_index.json omits collected test nodes")
+        if len({entry.record_path for entry in index.cases.values()}) != len(index.cases):
+            raise ValueError("multiple cases share one record path")
+        summary = load_record(self.out, index.replay_summary_path, "replay_summary")
+        if summary.baseline_id != manifest.baseline_id:
+            raise ValueError("replay_summary.json baseline differs from test_manifest.json")
+        if set(summary.outcomes) != set(manifest.collected):
+            missing = sorted(set(manifest.collected) - set(summary.outcomes))[:10]
+            extra = sorted(set(summary.outcomes) - set(manifest.collected))[:10]
+            raise ValueError(f"replay_summary.json does not account for collected nodes: missing={missing}, extra={extra}")
+        if manifest.collected and (not summary.commands or not summary.report_ref):
+            raise ValueError("replay_summary.json needs baseline commands and saved report references")
+        if summary.report_ref and not within_output(self.out, summary.report_ref).is_file():
+            raise ValueError("replay_summary.json report_ref does not locate a saved report")
+        from .review_replay import report_outcomes
+        observed = {}
+        for position, reference in enumerate(summary.batch_refs):
+            batch = read_object(within_output(self.out, reference))
+            context = batch.get("context", {})
+            if context.get("source") != "RunTestCases" or context.get("stage_name") != "full_replay":
+                raise ValueError(f"{reference} is not a full_replay RunTestCases report")
+            if position >= len(summary.commands) or summary.commands[position] != [
+                    "RunTestCases", str(context.get("pytest_ex_args", ""))]:
+                raise ValueError(f"{reference} command differs from the saved RunTestCases context")
+            for case_id, finding in report_outcomes(batch["report"], set(manifest.collected)).items():
+                if case_id in observed:
+                    raise ValueError(f"{case_id} appears in more than one baseline batch")
+                observed[case_id] = finding
+        if manifest.collected and (not summary.batch_refs or summary.report_ref not in summary.batch_refs
+                                   or len(summary.commands) != len(summary.batch_refs)):
+            raise ValueError("replay_summary.json needs saved baseline batch references")
+        cases = {}
+        issues = []
+        for case_id, entry in index.cases.items():
+            case = load_record(self.out, entry.record_path, "case")
+            if case.case_id != case_id or set(case.bug_ids) != {
+                    bug_id for bug_id, bug in index.bugs.items() if case_id in bug.case_ids}:
+                raise ValueError(f"{case_id} case identity or Bug links differ from index")
+            cases[case_id] = case
+            target = (self.out / "tests" / entry.replay_target.split("::", 1)[0]).resolve()
+            if not target.is_relative_to((self.out / "tests").resolve()):
+                raise ValueError(f"{case_id} replay_target escapes the prepared test root")
+            if case_id in manifest.collected and not target.is_file():
+                raise ValueError(f"{case_id} collected replay_target file is missing")
+            if case_id not in manifest.collected and not case.replay.not_run_reason.strip():
+                raise ValueError(f"{case_id} is report-only and needs a not_run reason")
+            if case_id in manifest.collected:
+                if case.replay.status != summary.outcomes[case_id]:
+                    raise ValueError(f"{case_id} replay status differs from baseline summary")
+                finding = observed.get(case_id)
+                if case.replay.status != "not_run" and (finding is None or finding[0] != case.replay.status):
+                    raise ValueError(f"{case_id} replay status has no matching RunTestCases report outcome")
+                if case.replay.status == "not_run" and finding is not None:
+                    raise ValueError(f"{case_id} was reported by RunTestCases but marked not_run")
+                if case.replay.status != "not_run" and case.replay.baseline_id != manifest.baseline_id:
+                    raise ValueError(f"{case_id} replay baseline_id differs from manifest")
+                if finding and finding[1] and entry.waveform_test_case_name != finding[1]:
+                    raise ValueError(f"{case_id} waveform identity differs from saved report")
+            elif case.replay.status != "not_run":
+                raise ValueError(f"{case_id} was absent from collection but marked executed")
+            issues.extend(case_issues(index, case, self.waveinfo,
+                                      require_replay=case_id in manifest.collected,
+                                      require_triage=ANALYSIS.index(stage) >= 1,
+                                      require_wave=ANALYSIS.index(stage) >= 2,
+                                      source_root=source_root))
+        if issues:
+            raise ReviewIssues(issues)
+        if ANALYSIS.index(stage) >= 1:
+            environment = load_record(self.out, index.environment_path, "environment")
+            if any(not getattr(environment, field).strip() for field in (
+                    "collection_review", "execution_review", "fixture_reset_review",
+                    "driver_sampling_review", "reference_model_review",
+                    "seed_reproducibility_review")):
+                raise ValueError("environment_review.json needs all six quality reviews or explicit gaps")
+            for position, finding in enumerate(environment.findings):
+                if not finding.observation.strip() or not finding.impact.strip():
+                    raise ValueError(f"environment finding {position} needs observation and impact")
+                if any(case_id not in index.cases for case_id in finding.case_ids):
+                    raise ValueError(f"environment finding {position} refers to an unindexed case")
+                if finding.source_ref:
+                    source_lines(source_root, finding.source_ref, 1)
+            for case_id, case in cases.items():
+                if case.replay.status in {"failed", "error", "xpassed"}:
+                    if case.failure_analysis.category == "unreviewed":
+                        raise ValueError(f"{case_id} failed without independent failure_analysis")
+        if ANALYSIS.index(stage) >= 3:
+            reconcile = load_record(self.out, index.reconciliation_path, "reconciliation")
+            if set(reconcile.original_bug_ids) != expected_ids:
+                raise ValueError("report_reconciliation.json does not list all original Bugs")
+            discovered = {bug_id for bug_id, entry in index.bugs.items() if entry.origin == "discovered"}
+            if set(reconcile.discovered_bug_ids) != discovered:
+                raise ValueError("report_reconciliation.json discovered Bugs differ from index")
+            uncovered = {case_id for case_id in manifest.collected
+                         if cases[case_id].replay.status in {"failed", "error", "xpassed"}
+                         and not cases[case_id].bug_ids}
+            if set(reconcile.unreported_failed_cases) != uncovered:
+                raise ValueError("report_reconciliation.json must list all failures without a Bug association")
+            reported_now_passed = {case_id for bug_id in expected_ids
+                                   for case_id in index.bugs[bug_id].case_ids
+                                   if case_id in cases and cases[case_id].replay.status == "passed"}
+            previous_failures = set(reconcile.previously_failed_now_passed)
+            if (not previous_failures.issubset(reported_now_passed)
+                    or set(reconcile.original_failure_refs) != previous_failures):
+                raise ValueError("previously_failed_now_passed needs a prior failure ref for each currently passing case")
+            for reference in reconcile.original_failure_refs.values():
+                source_lines(source_root, reference, 1)
+            if not reconcile.statistics_review.strip():
+                raise ValueError("report_reconciliation.json needs the source/current statistics comparison")
+            for bug_id in discovered:
+                if not any(cases[case_id].failure_analysis.category in {"suspected_dut", "confirmed_dut"}
+                           for case_id in index.bugs[bug_id].case_ids):
+                    raise ValueError(f"{bug_id} discovered Bug has no independently suspected DUT case")
+            for case_id in manifest.collected:
+                case = cases[case_id]
+                if (case.replay.status in {"failed", "error", "xpassed"}
+                        and case.failure_analysis.category in {"suspected_dut", "confirmed_dut"}
+                        and case.waveform.receipt_id and not case.bug_ids):
+                    raise ValueError(f"{case_id} has DUT evidence but no reported or discovered Bug")
+        if ANALYSIS.index(stage) >= 4:
+            if not index.root_path:
+                raise ValueError("review_index.json has no active root record")
+            revision = Path(index.root_path).parent
+            if revision.parts[:1] != ("reviews",) or len(revision.parts) != 2:
+                raise ValueError("root record must be under one reviews/<revision> directory")
+            roots = load_record(self.out, index.root_path, "roots")
+            bugs = {}
+            for bug_id, entry in index.bugs.items():
+                if not entry.review_path or Path(entry.review_path).parent != revision / "bugs":
+                    raise ValueError(f"{bug_id} has no active Bug review in the root revision")
+                bugs[bug_id] = load_record(self.out, entry.review_path, "bug")
+            validate_correlation(index, cases, bugs, roots, source_root, self.waveinfo)
         if stage == "publish":
-            required.append(self.out / "index.html")
-        missing = [str(path.relative_to(self.root)) for path in required if not path.is_file()]
-        if missing:
-            return False, {"error_code": "STAGE_OUTPUT_MISSING", "error": f"missing outputs: {missing}",
-                           "next_action": "Create or update bug_review.json with the current Skill, then run Check again."}
-        for name, source in self._workspaces():
-            target = self.out / "workspaces" / name
-            document = read_object(self._review_path(name))
-            bugs = document["suspected_bugs"]
-            bug_ids = [bug["bug_id"] for bug in bugs]
-            if (document.get("schema") != "bug_review.v3"
-                    or document.get("workspace", {}).get("name") != name
-                    or document.get("workspace", {}).get("source_path") != str(source)
-                    or len(bug_ids) != len(set(bug_ids))):
-                raise ValueError(f"{name}/bug_review.json has an invalid schema or workspace identity")
-            if document.get("stage_status", {}).get(stage) != "complete":
-                raise ValueError(f"{name}/bug_review.json does not mark {stage} complete after its work")
-            if stage == "inventory":
-                original, _ = _inventory(source, name)
-                expected_ids = {bug["bug_id"] for bug in original["bugs"]}
-                reported_ids = {bug["bug_id"] for bug in bugs if bug.get("origin") == "reported"}
-                if not expected_ids.issubset(reported_ids):
-                    raise ValueError(f"{name}/bug_review.json dropped an original Bug declaration")
-                for bug in bugs:
-                    if not isinstance(bug.get("bug_summary"), dict) or not isinstance(bug.get("evidence"), dict):
-                        raise ValueError(f"{name}/{bug['bug_id']} lacks its summary or nested evidence structure")
-            elif stage == "replay":
-                cases = document["cases"]
-                selected = [case for case in cases.values() if case.get("replay", {}).get("status") in
-                            {"reproduced", "passed", "not_collected", "execution_error"}]
-                if cases and not selected:
-                    raise ValueError(f"{name}/bug_review.json has no selected case replay results")
-                for case in selected:
-                    replay = case["replay"]
-                    if replay.get("invocation_success") is not True or replay.get("test_count", 0) < 1:
-                        raise ValueError(f"{name}/{case.get('nodeid')} has no successful RunTestCases report")
-                    relative_target = str(case["replay_target"]).split("::", 1)[0]
-                    test_root = (self.out / "tests").resolve()
-                    test_file = (test_root / relative_target).resolve()
-                    if not test_file.is_relative_to(test_root) or not test_file.is_file():
-                        raise ValueError(f"{name}/{case.get('nodeid')} has no prepared test file at replay_target")
-            elif stage == "waveform":
-                for case in document["cases"].values():
-                    if (case.get("replay", {}).get("status") != "reproduced"
-                            or case.get("test_review", {}).get("classification") != "suspected_dut_bug"):
-                        continue
-                    wave = case.get("waveform", {})
-                    conclusion = wave.get("conclusion")
-                    if conclusion not in {"dut_bug", "not_dut_bug", "inconclusive"}:
-                        raise ValueError(f"{name}/{case.get('nodeid')} has an invalid WaveInfo conclusion")
-                    if conclusion == "inconclusive" and not wave.get("result"):
-                        raise ValueError(f"{name}/{case.get('nodeid')} lacks the inconclusive WaveInfo result")
-                    if conclusion != "inconclusive" and not wave.get("receipt_id"):
-                        raise ValueError(f"{name}/{case.get('nodeid')} lacks a signed WaveInfo receipt for its conclusion")
-                for case in document["cases"].values():
-                    wave = case.get("waveform", {})
-                    receipt_id = wave.get("receipt_id")
-                    if not receipt_id:
-                        continue
-                    receipt = self.waveinfo.get_analysis_receipt(receipt_id)
-                    if receipt is None:
-                        raise ValueError(f"{name}/{case.get('nodeid')} references no signed WaveInfo receipt")
-                    if receipt.get("arguments", {}).get("test_case_name") != case.get("waveform_test_case_name"):
-                        raise ValueError(f"{name}/{case.get('nodeid')} WaveInfo receipt is for another test case")
-                    if wave.get("conclusion") == "dut_bug":
-                        verified = self.waveinfo.get_bug_document_evidence(receipt_id)
-                        if verified.get("success") is not True:
-                            raise ValueError(f"{name}/{case.get('nodeid')} WaveInfo receipt lacks complete signal groups/viewer")
-            elif stage == "correlate":
-                roots = {root["root_id"]: root for root in document["root_causes"]}
-                if len(roots) != len(document["root_causes"]):
-                    raise ValueError(f"{name}/bug_review.json has duplicate root cause IDs")
-                root_signatures = [tuple(root.get(field) for field in
-                                         ("rtl_ref", "first_error", "causal_chain"))
-                                   for root in roots.values()]
-                if len(root_signatures) != len(set(root_signatures)):
-                    raise ValueError(f"{name}/bug_review.json splits one root cause across multiple groups")
-                members = [bug_id for root in roots.values() for bug_id in root["bug_ids"]]
-                if len(members) != len(set(members)):
-                    raise ValueError(f"{name}/bug_review.json assigns a Bug to multiple root causes")
-                by_id = {bug["bug_id"]: bug for bug in bugs}
-                root_members = {bug_id: root_id for root_id, root in roots.items() for bug_id in root["bug_ids"]}
-                original, _ = _inventory(source, name)
-                reported_nodes = {_workspace_node(node) for bug in original["bugs"] for node in bug["tests"]}
-                for case in document["cases"].values():
-                    case_id = _workspace_node(case["nodeid"])
-                    if any(bug_id not in by_id for bug_id in case.get("bug_ids", [])):
-                        raise ValueError(f"{name}/{case_id} references an unknown Bug")
-                    if (case.get("replay", {}).get("status") == "reproduced"
-                            and case_id not in reported_nodes
-                            and not any(by_id[bug_id].get("origin") == "discovered"
-                                        for bug_id in case.get("bug_ids", []))):
-                        raise ValueError(f"{name}/bug_review.json omits a discovered Bug for {case_id}")
-                for bug in bugs:
-                    decision = bug["decision"]
-                    verdict, confidence = decision["verdict"], decision["review_confidence"]
-                    if verdict not in {"confirmed", "refuted", "inconclusive"}:
-                        raise ValueError(f"{name}/{bug['bug_id']} has an invalid verdict")
-                    if verdict == "refuted" and (type(confidence) not in {int, float} or confidence != 0) or verdict == "inconclusive" and confidence is not None:
-                        raise ValueError(f"{name}/{bug['bug_id']} has an invalid review confidence")
-                    if verdict == "confirmed" and (type(confidence) not in {int, float} or not 0 < confidence <= 1):
-                        raise ValueError(f"{name}/{bug['bug_id']} has an invalid confirmed confidence")
-                    if verdict == "confirmed" and decision.get("root_id") not in roots:
-                        raise ValueError(f"{name}/{bug['bug_id']} has no root cause group")
-                    if verdict == "confirmed" and root_members.get(bug["bug_id"]) != decision.get("root_id"):
-                        raise ValueError(f"{name}/{bug['bug_id']} root membership is not bidirectional")
-                    if verdict == "confirmed":
-                        if not all(decision.get(field) for field in ("spec_ref", "rtl_ref", "first_error", "causal_chain")):
-                            raise ValueError(f"{name}/{bug['bug_id']} lacks confirmed Spec/RTL causal evidence")
-                        for field in ("spec_ref", "rtl_ref"):
-                            match = re.fullmatch(r"(.+):(\d+)(?:-(\d+))?", decision[field])
-                            source_relative = Path(match.group(1)) if match else Path("..")
-                            source_root = (self.out / "inputs" / name).resolve()
-                            source_file = (source_root / source_relative).resolve()
-                            if (not match or source_relative.is_absolute() or ".." in source_relative.parts
-                                    or not source_file.is_relative_to(source_root) or not source_file.is_file()):
-                                raise ValueError(f"{name}/{bug['bug_id']} has a missing or non-local {field}")
-                            with source_file.open(encoding="utf-8", errors="replace") as handle:
-                                line_total = sum(1 for _ in handle)
-                            start_line = int(match.group(2))
-                            end_line = int(match.group(3) or match.group(2))
-                            if start_line < 1 or end_line < start_line or end_line > line_total:
-                                raise ValueError(f"{name}/{bug['bug_id']} has an invalid {field} line range")
-                        root = roots[decision["root_id"]]
-                        if any(root.get(field) != decision.get(field)
-                               for field in ("rtl_ref", "first_error", "causal_chain")):
-                            raise ValueError(f"{name}/{bug['bug_id']} differs from its shared root-cause evidence")
-                        associated = [document["cases"].get(case_id)
-                                      for case_id in bug.get("evidence", {}).get("case_ids", [])]
-                        if not any(case and bug["bug_id"] in case.get("bug_ids", [])
-                                   and case.get("replay", {}).get("status") == "reproduced"
-                                   and case.get("test_review", {}).get("correctness_confirmed") is True
-                                   and case.get("waveform", {}).get("conclusion") == "dut_bug"
-                                   and case.get("waveform", {}).get("receipt_id")
-                                   for case in associated):
-                            raise ValueError(f"{name}/{bug['bug_id']} lacks a linked correct replay and signed DUT Bug waveform")
-                    if verdict != "confirmed" and decision.get("root_id") is not None:
-                        raise ValueError(f"{name}/{bug['bug_id']} has a root cause despite not being confirmed")
-                if any(bug_id not in by_id for bug_id in members):
-                    raise ValueError(f"{name}/bug_review.json root cause names an unknown Bug")
-                if any(by_id[bug_id]["decision"]["verdict"] != "confirmed" for bug_id in members):
-                    raise ValueError(f"{name}/bug_review.json root cause includes a non-confirmed Bug")
-                if any(not all(root.get(field) for field in ("rtl_ref", "first_error", "causal_chain"))
-                       for root in roots.values()):
-                    raise ValueError(f"{name}/bug_review.json has an incomplete root-cause group")
-            elif stage == "publish":
-                workspace_index = (target / "index.html").read_text(encoding="utf-8")
-                for index, bug in enumerate(bugs, 1):
-                    filename = f"bug_{index:04d}.html"
-                    if not (target / filename).is_file() or filename not in workspace_index:
-                        raise ValueError(f"{name}/index.html is missing detail page for {bug['bug_id']}")
-        if stage == "publish":
-            index_text = (self.out / "index.html").read_text(encoding="utf-8")
-            if any(f"workspaces/{name}/index.html" not in index_text for name in names):
-                raise ValueError("index.html omits a selected workspace")
-        return True, {"stage": stage, "validated_workspaces": names}
+            from .reporting import verify_pages
+            verify_pages(self.out, index, cases, bugs, roots)
+        environment = load_record(self.out, index.environment_path, "environment")
+        incomplete = review_incomplete(manifest, cases, environment)
+        return True, {"stage": stage, "validated_workspaces": [name],
+                      "review_status": "incomplete" if incomplete else "complete"}
+
+
+def publish_run(workspace, output_root):
+    """Promote one checked private report and rebuild the module portal."""
+    run = Path(workspace).resolve()
+    root = Path(output_root).resolve()
+    job = read_object(run / "review_job.json")
+    name, _ = job["source_run"]
+    module = root / name
+    if run.parent != module / "runs":
+        raise ValueError(f"execution workspace is outside its module area: {run}")
+    if job.get("schema") == "bug_review_job.v7":
+        workflow = Workflow(run)
+        workflow.check("publish")
+        report = workflow.out / "report"
+    elif job.get("schema") == "bug_review_job.v6":
+        report = recover_legacy_report(run, name)
+    else:
+        raise ValueError("unsupported completed Bug Review job schema")
+    manifest_path = report / "report_manifest.json"
+    manifest = read_object(manifest_path)
+    if manifest.get("workspace") != name or not (report / "index.html").is_file():
+        raise ValueError("verified module report or manifest is missing")
+    for filename in manifest.get("pages", []):
+        target = (report / filename).resolve()
+        if not target.is_relative_to(report.resolve()) or not target.is_file():
+            raise ValueError(f"report manifest page is missing: {filename}")
+    published = module / "report"
+    if published.exists() and not published.is_symlink():
+        raise ValueError(f"module report must be a managed link: {published}")
+    previous = os.readlink(published) if published.is_symlink() else None
+    link = module / f".report-{secrets.token_hex(4)}"
+    try:
+        link.symlink_to(report.relative_to(module), target_is_directory=True)
+        os.replace(link, published)
+        portal = rebuild_portal(root)
+        if job.get("schema") == "bug_review_job.v7":
+            from .review_store import load_record
+
+            index = load_record(workflow.out, "review_index.json", "index")
+            if index.stage_status.get("publish") != "complete":
+                index.stage_status["publish"] = "complete"
+                atomic_write_json(workflow.out / "review_index.json",
+                                  index.model_dump(mode="json", by_alias=True))
+        return portal
+    except Exception as error:
+        if previous is not None:
+            rollback = module / f".report-{secrets.token_hex(4)}"
+            rollback.symlink_to(previous, target_is_directory=True)
+            os.replace(rollback, published)
+        if isinstance(error, PermissionError):
+            raise PermissionError(
+                f"Bug Review cannot write output path {error.filename or module}; "
+                "choose a writable OUTPUT_ROOT or fix its owner/permissions"
+            ) from error
+        raise
+    finally:
+        link.unlink(missing_ok=True)
+
+
+def recover_legacy_report(run: Path, name: str) -> Path:
+    """Republish completed V2.1 HTML without exposing private review records."""
+    source = run / "results"
+    index = read_object(source / "review_index.json")
+    if index.get("workspace", {}).get("name") != name or any(
+            index.get("stage_status", {}).get(stage) != "complete"
+            for stage in ("inventory", "replay", "waveform", "correlate", "publish")):
+        raise ValueError("legacy module review is not complete")
+    old_manifest = read_object(source / "report_manifest.json")
+    if old_manifest.get("workspace") != name:
+        raise ValueError("legacy report manifest identity differs from module")
+    report = source / "report"
+    report.mkdir(parents=True, exist_ok=True)
+    for filename in old_manifest.get("pages", []):
+        original = (source / filename).resolve()
+        if not original.is_relative_to(source.resolve()) or not original.is_file():
+            raise ValueError(f"legacy report page is missing: {filename}")
+        content = original.read_text(encoding="utf-8")
+        (report / filename).write_text(content, encoding="utf-8")
+        for href in re.findall(r"href='([^']+)'", content):
+            path = unquote(html.unescape(href))
+            if not path.startswith("inputs/"):
+                continue
+            asset = (source / path).resolve()
+            if not asset.is_relative_to(source.resolve()) or not asset.is_file():
+                raise ValueError(f"legacy source link is missing: {path}")
+            target = report / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(asset, target)
+    manifest = {"schema": "bug_review_report.v2", "workspace": name,
+                "review_status": "legacy V2.1", "pages": old_manifest["pages"],
+                "bugs": old_manifest.get("bugs", []), "cases": [], "collected": "unavailable"}
+    atomic_write_json(report / "report_manifest.json", manifest)
+    return report
+
+
+def rebuild_portal(output_root):
+    """Build the top-level index only from published module reports."""
+    root = Path(output_root).resolve()
+    pages = {}
+    for module in sorted(root.glob("workspace_*")):
+        report = module / "report"
+        manifest_path = report / "report_manifest.json"
+        if not (report / "index.html").is_file() or not manifest_path.is_file():
+            continue
+        manifest = read_object(manifest_path)
+        if manifest.get("workspace") != module.name:
+            raise ValueError(f"published report identity mismatch: {module.name}")
+        for filename in manifest.get("pages", []):
+            target = (report / filename).resolve()
+            if not target.is_relative_to(report.resolve()) or not target.is_file():
+                raise ValueError(f"published report has a broken page: {module.name}/{filename}")
+        pages[module.name] = manifest
+    rows = "".join(
+        f"<tr><td><a href='{html.escape(name, quote=True)}/report/index.html'>{html.escape(name)}</a></td>"
+        f"<td>{manifest.get('collected', '')}</td><td>{len(manifest.get('cases', []))}</td>"
+        f"<td>{len(manifest.get('bugs', []))}</td><td>{html.escape(str(manifest.get('review_status', '')))}</td></tr>"
+        for name, manifest in pages.items())
+    content = ("<!doctype html><html lang='zh-CN'><meta charset='utf-8'>"
+               "<title>Bug Review</title><h1>Bug Review</h1>"
+               "<table><tr><th>Module</th><th>Collected</th><th>Failed</th>"
+               "<th>Suspected Bugs</th><th>Review</th></tr>" + rows + "</table></html>")
+    root.mkdir(parents=True, exist_ok=True)
+    temporary = root / f".index-{secrets.token_hex(4)}.html"
+    try:
+        temporary.write_text(content, encoding="utf-8")
+        os.replace(temporary, root / "index.html")
+    finally:
+        temporary.unlink(missing_ok=True)
+    return root / "index.html"
+
 
 def main(argv=None):
-    """Prepare, inspect or launch one five-stage analysis workspace."""
+    """Prepare, run, inspect, or publish selected module workspaces."""
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
-    analysis = sub.add_parser("prepare-analysis")
-    analysis.add_argument("--input-root", default=str(PLUGIN_ROOT / "inputs"))
-    analysis.add_argument("--output-root", default=str(PLUGIN_ROOT / "output"))
-    analysis.add_argument("--run", action="append", default=[])
-    analysis.add_argument("--batch-size", type=int, default=1)
-    analysis.add_argument("--timeout", type=int, default=300)
+    for command in ("prepare-analysis", "run-analysis"):
+        analysis = sub.add_parser(command)
+        analysis.add_argument("--input-root", default=str(PLUGIN_ROOT / "inputs"))
+        analysis.add_argument("--output-root", default=str(PLUGIN_ROOT / "output"))
+        analysis.add_argument("--run", action="append", default=[])
+        analysis.add_argument("--batch-size", type=int, default=1)
+        analysis.add_argument("--timeout", type=int, default=300)
+        if command == "run-analysis":
+            analysis.add_argument("--python", default=sys.executable)
+            analysis.add_argument("--ucagent-root")
     launch = sub.add_parser("launch")
-    launch.add_argument("--workspace", default=str(PLUGIN_ROOT / "output"))
+    launch.add_argument("--workspace", required=True)
     launch.add_argument("--python", default=sys.executable)
     launch.add_argument("--ucagent-root")
     status = sub.add_parser("status")
-    status.add_argument("--workspace", default=str(PLUGIN_ROOT / "output"))
+    status.add_argument("--workspace", required=True)
+    publish = sub.add_parser("publish")
+    publish.add_argument("--workspace", required=True)
+    publish.add_argument("--output-root")
     args, extra = parser.parse_known_args(argv)
-    if args.command != "launch" and extra:
+    if args.command not in {"launch", "run-analysis"} and extra:
         parser.error("unexpected arguments: " + " ".join(extra))
-    if args.command == "prepare-analysis":
+    if args.command in {"prepare-analysis", "run-analysis"}:
         values = args.run or [f"{Path(path).name}={path}" for _, path in discover_input_workspaces(args.input_root)]
         runs = resolve_run_specs(values)
-        root = prepare(args.output_root, runs=runs, batch_size=args.batch_size, timeout=args.timeout)
-        print(json.dumps({"workspace": str(root), "next": "launch --workspace " + str(root)}))
+        output_root = Path(args.output_root).resolve()
+        for name, source in runs:
+            safe_name(name)
+            module = output_root / name
+            try:
+                module.mkdir(parents=True, exist_ok=True)
+            except PermissionError as error:
+                raise PermissionError(
+                    f"Bug Review cannot create output path {error.filename or module}; "
+                    "choose a writable OUTPUT_ROOT or fix its owner/permissions"
+                ) from error
+            run = module / "runs" / f"run-{secrets.token_hex(8)}"
+            print(json.dumps({"module": name, "output_root": str(output_root),
+                              "workspace": str(run)}, ensure_ascii=False), flush=True)
+            prepare(run, runs=[(name, source)], batch_size=args.batch_size, timeout=args.timeout)
+            if args.command == "prepare-analysis":
+                continue
+            if args.ucagent_root:
+                entry = Path(args.ucagent_root).resolve() / "ucagent.py"
+                if not entry.is_file():
+                    raise ValueError(f"UCAgent entry missing: {entry}")
+                command = [args.python, str(entry)]
+            else:
+                command = [args.python, "-m", "ucagent.cli"]
+            command.extend([str(run), "BugReview", "--plugin", str(PLUGIN_ROOT),
+                            "--plugin-workflow", "bug_review:analysis", "--output", "results"])
+            command.extend(extra[1:] if extra[:1] == ["--"] else extra)
+            result = subprocess.call(command)
+            if result:
+                raise SystemExit(result)
+            print(json.dumps({"published_index": str(publish_run(run, output_root))}), flush=True)
     elif args.command == "status":
         print(json.dumps(Workflow(args.workspace).status(), ensure_ascii=False, indent=2))
+    elif args.command == "publish":
+        run = Path(args.workspace).resolve()
+        output_root = Path(args.output_root).resolve() if args.output_root else run.parents[2]
+        print(json.dumps({"published_index": str(publish_run(run, output_root))}))
     else:
         wf = Workflow(args.workspace)
         if args.ucagent_root:
@@ -452,7 +721,10 @@ def main(argv=None):
         command.extend([str(wf.root), "BugReview", "--plugin", str(PLUGIN_ROOT),
                         "--plugin-workflow", "bug_review:analysis", "--output", "results"])
         command.extend(extra[1:] if extra[:1] == ["--"] else extra)
-        raise SystemExit(subprocess.call(command))
+        result = subprocess.call(command)
+        if result == 0 and wf.root.parent.name == "runs":
+            publish_run(wf.root, wf.root.parents[2])
+        raise SystemExit(result)
 
 
 if __name__ == "__main__":
