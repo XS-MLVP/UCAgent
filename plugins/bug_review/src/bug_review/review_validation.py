@@ -202,7 +202,7 @@ def validate_correlation(index: ReviewIndex, cases: dict[str, CaseRecord],
                         issues.append({"bug_id": bug_id, "field": f"{base}/decision/{field}",
                                        "problem": "decision field must match assigned root exactly",
                                        "expected": expected, "actual": actual,
-                                       "next_action": "Run CreateDecisionDraft(refresh=true, sync_root_fields=true)"})
+                                       "next_action": "Copy the exact root field into the LLM-authored decision draft"})
             for field in ("spec_ref", "rtl_ref"):
                 reference = getattr(decision, field)
                 try:

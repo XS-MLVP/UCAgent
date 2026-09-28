@@ -25,7 +25,7 @@ Create `{OUT}/drafts/decisions.json` with exactly these top-level keys:
 {
   "decisions": [
     {
-      "schema": "bug_review.v6",
+      "schema": "bug_review.v7",
       "record_type": "bug",
       "bug_id": "BUG-EXAMPLE",
       "validation_scenario": "Accepted request under output backpressure",
@@ -58,4 +58,4 @@ Create `{OUT}/drafts/decisions.json` with exactly these top-level keys:
 }
 ```
 
-Call `CreateDecisionDraft` to prefill **all** indexed Bug IDs and case IDs. If attribution changed, call `CreateDecisionDraft(refresh=true)` to synchronize case IDs while preserving judgments. After assigning `root_id` and filling `roots[]`, call `CreateDecisionDraft(refresh=true, sync_root_fields=true)` to copy each assigned root's three canonical RTL fields into confirmed decisions. Then call `SubmitReviewDecisions(draft_path="results/drafts/decisions.json", dry_run=true)` to validate without activating. Its root-field diagnostics include the exact expected and actual text. Call `SubmitReviewDecisions(draft_path="results/drafts/decisions.json", dry_run=false)` to activate one revision. `ReviewRevisionHistory` lists past revisions. After acceptance, run Check, SetSkillUsage, journal and Complete.
+Call `CreateDecisionDraft` to create empty `decisions[]` and `roots[]`, or run `RunSkillScript(commands=[["ext/bug_review/evidence-correlation", "create_decision_draft.py"]])`. Fill every Bug ID, exact active case list, source reference, judgment and root field yourself from evidence. The script does not infer or copy any concrete content. Call `SubmitReviewDecisions(draft_path="results/drafts/decisions.json", dry_run=true)` to validate without activating. Its root-field diagnostics include the exact expected and actual text. Call `SubmitReviewDecisions(draft_path="results/drafts/decisions.json", dry_run=false)` to activate one revision. `ReviewRevisionHistory` lists past revisions. After acceptance, run Check, SetSkillUsage, journal and Complete.

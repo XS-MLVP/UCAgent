@@ -7,7 +7,7 @@ description: Collect every pytest node, preserve original Bug pointers and impor
 
 ## 目标
 
-从 `review_job.json` 选中的模块收集全部 pytest node ID。原报告仅机械索引 Bug ID、来源行段、原置信度与关联 case；本阶段不依据旧根因解释失败。
+从 `review_job.json` 选中的模块收集全部 pytest node ID。原报告仅索引 Bug ID、来源行段、原置信度和未归属的原始 case 标签；BG／FC／CK 及 Bug→case 归属由 LLM 在独立 case 初判后填写。
 
 ## 操作
 

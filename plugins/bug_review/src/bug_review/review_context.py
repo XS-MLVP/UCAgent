@@ -5,6 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 import json
 
+from .json_io import read_object
+from .review_claims import source_role
 from .review_store import REF_PATTERN, ReviewIndex, load_record, source_lines
 
 
@@ -27,21 +29,44 @@ def bug_context(output: Path, bug_id: str, sections: list[str] | None = None,
         raise ValueError("original claim context is available after independent case triage and DUT evidence")
     entry = index.bugs[bug_id]
     source_root = output / "inputs" / index.workspace["name"]
+    assignment = None
+    draft = output / "drafts/attribution.json"
+    if not index.claim_mapping_path and draft.is_file():
+        assignment = next((item for item in read_object(draft).get("bugs", [])
+                           if isinstance(item, dict) and item.get("bug_id") == bug_id), None)
+    analysis_refs = entry.analysis_refs or (assignment.get("claim_refs", []) if assignment else [])
+    case_ids = entry.case_ids or (assignment.get("case_ids", []) if assignment else [])
+    attribution_rationale = str(entry.attribution_rationale or (
+        assignment.get("rationale", "") if assignment else ""))
 
     def excerpt(reference: str) -> dict:
         """Preserve an invalid candidate as a diagnostic in the bounded view."""
         try:
-            return source_lines(source_root, reference, max_lines)
+            return {**source_lines(source_root, reference, max_lines),
+                    "source_role": source_role(reference)}
         except (ValueError, OSError) as error:
             return {"ref": reference, "error": str(error)}
 
     result: dict = {"bug_id": bug_id, "origin": entry.origin,
-                    "reported_confidence": entry.reported_confidence}
+                    "reported_confidence": entry.reported_confidence,
+                    "attribution": {
+                        "status": "committed" if index.claim_mapping_path else "draft" if assignment else "unfilled",
+                        "source_labels": entry.source_labels or (assignment.get("source_labels", []) if assignment else []),
+                        "bg_ids": entry.bg_ids or (assignment.get("bg_ids", []) if assignment else []),
+                        "fg_ids": entry.fg_ids or (assignment.get("fg_ids", []) if assignment else []),
+                        "fc_ids": entry.fc_ids or (assignment.get("fc_ids", []) if assignment else []),
+                        "ck_ids": entry.ck_ids or (assignment.get("ck_ids", []) if assignment else []),
+                        "rationale": attribution_rationale[:min(600, max_chars // 4)],
+                        "rationale_truncated": len(attribution_rationale) > min(600, max_chars // 4)}}
     if "claims" in chosen:
+        if not analysis_refs and not index.claim_mapping_path:
+            result["claim_mapping_required"] = (
+                "Read original blocks with ReportClaimBlocks and fill drafts/attribution.json; "
+                "claim ownership is not inferred from CK paths or keywords")
         claims = []
         markers = {"<BUG-OVERVIEW>": "overview", "<BUG-SYMPTOMS>": "symptoms",
                    "<BUG-TRIGGER>": "trigger"}
-        for reference in entry.analysis_refs[ref_offset:ref_offset + 8]:
+        for reference in analysis_refs[ref_offset:ref_offset + 8]:
             match = REF_PATTERN.fullmatch(reference)
             if match is None:
                 continue
@@ -49,6 +74,7 @@ def bug_context(output: Path, bug_id: str, sections: list[str] | None = None,
             lines = (source_root / match.group(1)).read_text(encoding="utf-8", errors="replace").splitlines()
             start, end = int(match.group(2)), int(match.group(3) or match.group(2))
             item = {"ref": reference, "fields": {}}
+            item["source_role"] = "original_report_claim"
             for position in range(start - 1, min(end, len(lines))):
                 field = markers.get(lines[position].strip())
                 if not field:
@@ -66,14 +92,16 @@ def bug_context(output: Path, bug_id: str, sections: list[str] | None = None,
             item["expected_behavior"] = {"status": "needs_review", "candidate_ref": overview["ref"]} if overview else None
             claims.append(item)
         result["claims"] = claims
-        result["next_ref_offset"] = ref_offset + len(claims) if len(entry.analysis_refs) > ref_offset + len(claims) else None
+        result["next_ref_offset"] = ref_offset + len(claims) if len(analysis_refs) > ref_offset + len(claims) else None
     if "summary" in chosen:
         result["summary"] = [excerpt(ref)
-                             for ref in [entry.summary_ref, *entry.analysis_refs[ref_offset:ref_offset + 8]] if ref]
+                             for ref in [entry.summary_ref, *analysis_refs[ref_offset:ref_offset + 8]] if ref]
         result["check_points"] = entry.check_points
     if "cases" in chosen or "waveform" in chosen:
         records = []
-        for case_id in entry.case_ids[case_offset:case_offset + 20]:
+        for case_id in case_ids[case_offset:case_offset + 20]:
+            if case_id not in index.cases:
+                continue
             case_entry = index.cases[case_id]
             case = load_record(output, case_entry.record_path, "case")
             item = {"case_id": case_id, "replay_target": case_entry.replay_target,
@@ -86,7 +114,7 @@ def bug_context(output: Path, bug_id: str, sections: list[str] | None = None,
                 item["waveform"] = case.waveform.model_dump(mode="json")
             records.append(item)
         result["cases"] = records
-        result["next_case_offset"] = case_offset + len(records) if len(entry.case_ids) > case_offset + len(records) else None
+        result["next_case_offset"] = case_offset + len(records) if len(case_ids) > case_offset + len(records) else None
     bug = load_record(output, entry.review_path, "bug") if entry.review_path else None
     if "spec" in chosen:
         refs = list(dict.fromkeys([*entry.spec_candidates, *(bug.spec_refs if bug else [])]))

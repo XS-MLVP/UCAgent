@@ -1,4 +1,4 @@
-"""Typed records and bounded source lookups for Bug Review V3."""
+"""Typed records and bounded source lookups for Bug Review."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from .json_io import read_object
 
 
-SCHEMA = "bug_review.v6"
+SCHEMA = "bug_review.v7"
 STAGES = ("full_replay", "case_triage", "dut_evidence", "report_reconcile",
           "root_correlation", "publish")
 REF_PATTERN = re.compile(r"(.+):(\d+)(?:-(\d+))?")
@@ -31,6 +31,12 @@ class BugEntry(ReviewModel):
     analysis_refs: list[str] = Field(default_factory=list)
     reported_confidence: float | None = None
     check_points: list[str] = Field(default_factory=list)
+    fg_ids: list[str] = Field(default_factory=list)
+    fc_ids: list[str] = Field(default_factory=list)
+    ck_ids: list[str] = Field(default_factory=list)
+    bg_ids: list[str] = Field(default_factory=list)
+    source_labels: list[str] = Field(default_factory=list)
+    attribution_rationale: str = ""
     case_ids: list[str] = Field(default_factory=list)
     aggregate_case_ids: list[str] = Field(default_factory=list)
     aggregate_refs: list[str] = Field(default_factory=list)
@@ -50,7 +56,7 @@ class CaseEntry(ReviewModel):
 class ReviewIndex(ReviewModel):
     """Index one module's source and current review records."""
 
-    schema_id: Literal["bug_review.v6"] = Field(default=SCHEMA, alias="schema")
+    schema_id: Literal["bug_review.v7"] = Field(default=SCHEMA, alias="schema")
     record_type: Literal["index"] = "index"
     workspace: dict[str, str]
     source_files: dict[str, str]
@@ -59,6 +65,7 @@ class ReviewIndex(ReviewModel):
     bugs: dict[str, BugEntry]
     cases: dict[str, CaseEntry]
     attribution_revision: str | None = None
+    claim_mapping_path: str | None = None
     root_path: str | None = None
     coverage_path: str = "coverage.json"
     manifest_path: str = "test_manifest.json"
@@ -125,7 +132,7 @@ class FailureAnalysis(ReviewModel):
 class CaseRecord(ReviewModel):
     """Persist one exact test replay and its signed waveform reference."""
 
-    schema_id: Literal["bug_review.v6"] = Field(default=SCHEMA, alias="schema")
+    schema_id: Literal["bug_review.v7"] = Field(default=SCHEMA, alias="schema")
     record_type: Literal["case"] = "case"
     case_id: str
     bug_ids: list[str]
@@ -151,7 +158,7 @@ class Decision(ReviewModel):
 class BugRecord(ReviewModel):
     """Persist the derived review for one Bug without the original report body."""
 
-    schema_id: Literal["bug_review.v6"] = Field(default=SCHEMA, alias="schema")
+    schema_id: Literal["bug_review.v7"] = Field(default=SCHEMA, alias="schema")
     record_type: Literal["bug"] = "bug"
     bug_id: str
     validation_scenario: str
@@ -176,7 +183,7 @@ class RootCause(ReviewModel):
 class RootsRecord(ReviewModel):
     """Persist the complete active root partition."""
 
-    schema_id: Literal["bug_review.v6"] = Field(default=SCHEMA, alias="schema")
+    schema_id: Literal["bug_review.v7"] = Field(default=SCHEMA, alias="schema")
     record_type: Literal["roots"] = "roots"
     roots: list[RootCause]
 
@@ -197,7 +204,7 @@ class CoverageMetric(ReviewModel):
 class CoverageRecord(ReviewModel):
     """Represent coverage provenance without inventing percentages."""
 
-    schema_id: Literal["bug_review.v6"] = Field(default=SCHEMA, alias="schema")
+    schema_id: Literal["bug_review.v7"] = Field(default=SCHEMA, alias="schema")
     record_type: Literal["coverage"] = "coverage"
     metrics: dict[str, CoverageMetric]
 
@@ -205,7 +212,7 @@ class CoverageRecord(ReviewModel):
 class TestManifest(ReviewModel):
     """Freeze exact pytest collection and explicit exclusions for one module."""
 
-    schema_id: Literal["bug_review.v6"] = Field(default=SCHEMA, alias="schema")
+    schema_id: Literal["bug_review.v7"] = Field(default=SCHEMA, alias="schema")
     record_type: Literal["manifest"] = "manifest"
     collection_command: list[str]
     pytest_target: str
@@ -221,7 +228,7 @@ class TestManifest(ReviewModel):
 class ReplaySummary(ReviewModel):
     """Reconcile every collected node with its authoritative baseline outcome."""
 
-    schema_id: Literal["bug_review.v6"] = Field(default=SCHEMA, alias="schema")
+    schema_id: Literal["bug_review.v7"] = Field(default=SCHEMA, alias="schema")
     record_type: Literal["replay_summary"] = "replay_summary"
     baseline_id: str
     commands: list[list[str]] = Field(default_factory=list)
@@ -246,7 +253,7 @@ class EnvironmentFinding(ReviewModel):
 class EnvironmentReview(ReviewModel):
     """Track concrete environment and testbench quality findings."""
 
-    schema_id: Literal["bug_review.v6"] = Field(default=SCHEMA, alias="schema")
+    schema_id: Literal["bug_review.v7"] = Field(default=SCHEMA, alias="schema")
     record_type: Literal["environment"] = "environment"
     findings: list[EnvironmentFinding] = Field(default_factory=list)
     collection_review: str = ""
@@ -261,7 +268,7 @@ class EnvironmentReview(ReviewModel):
 class ReconciliationRecord(ReviewModel):
     """Account for original claims, new failures and changed report totals."""
 
-    schema_id: Literal["bug_review.v6"] = Field(default=SCHEMA, alias="schema")
+    schema_id: Literal["bug_review.v7"] = Field(default=SCHEMA, alias="schema")
     record_type: Literal["reconciliation"] = "reconciliation"
     original_bug_ids: list[str] = Field(default_factory=list)
     discovered_bug_ids: list[str] = Field(default_factory=list)
@@ -272,10 +279,35 @@ class ReconciliationRecord(ReviewModel):
     notes: list[str] = Field(default_factory=list)
 
 
+class ClaimAssignment(ReviewModel):
+    """Record one LLM-reviewed Bug relationship to original blocks and cases."""
+
+    bug_id: str
+    claim_refs: list[str]
+    bg_ids: list[str]
+    fg_ids: list[str]
+    fc_ids: list[str]
+    ck_ids: list[str]
+    case_ids: list[str]
+    source_labels: list[str]
+    spec_candidates: list[str]
+    rtl_candidates: list[str]
+    rationale: str
+
+
+class AttributionDraft(ReviewModel):
+    """Keep human-filled claim ownership and candidate evidence in one draft."""
+
+    schema_id: Literal["bug_review_attribution.v2"] = Field(default="bug_review_attribution.v2", alias="schema")
+    bugs: list[ClaimAssignment]
+    reconciliation: ReconciliationRecord
+
+
 RECORD_MODELS = {"index": ReviewIndex, "bug": BugRecord, "case": CaseRecord,
                  "roots": RootsRecord, "coverage": CoverageRecord,
                  "manifest": TestManifest, "replay_summary": ReplaySummary,
-                 "environment": EnvironmentReview, "reconciliation": ReconciliationRecord}
+                 "environment": EnvironmentReview, "reconciliation": ReconciliationRecord,
+                 "attribution_draft": AttributionDraft}
 
 
 def within_output(output: Path, relative: str) -> Path:
@@ -290,7 +322,7 @@ def within_output(output: Path, relative: str) -> Path:
 
 
 def load_record(output: Path, relative: str, kind: str):
-    """Load and validate one indexed V3 record."""
+    """Load and validate one indexed review record."""
     target = within_output(output, relative)
     value = RECORD_MODELS[kind].model_validate(read_object(target))
     if value.record_type != kind:

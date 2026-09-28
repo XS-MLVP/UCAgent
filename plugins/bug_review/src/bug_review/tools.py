@@ -16,7 +16,7 @@ from ucagent.tools.waveform import WaveInfo
 from .analysis_core.task_manifest import atomic_write_json
 from .json_io import read_object
 from .review_context import bug_context
-from .reporting import render_pages, verify_pages
+from .reporting import prepare_waveform_bundle, render_pages, verify_pages
 from .review_store import (BugRecord, RECORD_MODELS, ReviewIndex, RootsRecord,
                            load_record, source_lines, within_output)
 from .review_validation import ReviewIssues, case_issues, validate_correlation
@@ -30,7 +30,7 @@ class PrepareReviewInventory(UCTool):
     """Collect all selected pytest cases and create the original claim index."""
 
     name: str = "PrepareReviewInventory"
-    description: str = "Collect all pytest nodes and create V3 manifest, original Bug pointers and per-case records."
+    description: str = "Collect all pytest nodes and create manifest, original Bug pointers and per-case records."
     args_schema: Optional[ArgsSchema] = EmptyArgs
     workspace: str = Field(default=".", exclude=True)
     output_dir: str = Field(default="results", exclude=True)
@@ -74,34 +74,53 @@ class CaptureReplayReport(UCTool):
 
 
 class CaseIdentityArgs(BaseModel):
-    """Select one exact collected case."""
+    """Select one exact indexed case identity or a canonical TC tag."""
 
-    case_id: str = Field(description="Exact case_id key in review_index.json.")
+    case_id: str = Field(description="Exact case_id, replay_target, waveform_test_case_name, report_node_id or TC-<case_id>.")
 
 
 class ResolveReviewCase(UCTool):
-    """Show the three different identities for one indexed case."""
+    """Resolve an unambiguous case alias and show all exact identities."""
 
     name: str = "ResolveReviewCase"
-    description: str = "Return exact case_id, RunTestCases replay_target and WaveInfo test_case_name."
+    description: str = "Resolve an exact indexed case alias, return all identities and recorded receipt status; ambiguous names list candidates."
     args_schema: Optional[ArgsSchema] = CaseIdentityArgs
     workspace: str = Field(default=".", exclude=True)
     output_dir: str = Field(default="results", exclude=True)
 
     def _run(self, case_id: str) -> dict:
-        """Avoid guessed substitutions between report, replay and waveform IDs."""
+        """Match complete aliases only, never guessing a basename."""
         output = Path(self.workspace).resolve() / self.output_dir
         try:
             index = load_record(output, "review_index.json", "index")
-            entry = index.cases[case_id]
-            case = load_record(output, entry.record_path, "case")
-            return {"success": True, "case_id": case_id, "replay_target": entry.replay_target,
+            query = case_id.removeprefix("TC-")
+            matches = []
+            basename_candidates = []
+            for indexed_id, entry in index.cases.items():
+                case = load_record(output, entry.record_path, "case")
+                aliases = {indexed_id, entry.replay_target, entry.waveform_test_case_name,
+                           case.replay.report_node_id}
+                aliases.discard("")
+                if query in aliases:
+                    matches.append((indexed_id, entry, case))
+                elif query and any(alias.rsplit("/", 1)[-1] == query for alias in aliases):
+                    basename_candidates.append(indexed_id)
+            if len(matches) != 1:
+                return {"success": False,
+                        "error_code": "CASE_ID_AMBIGUOUS" if matches else "CASE_ID_UNKNOWN",
+                        "candidates": [item[0] for item in matches] if matches else basename_candidates[:20],
+                        "next_action": "Use one complete case_id, replay_target, waveform name or TC tag"}
+            indexed_id, entry, case = matches[0]
+            return {"success": True, "case_id": indexed_id, "tc_tag": f"TC-{indexed_id}",
+                    "replay_target": entry.replay_target,
                     "waveform_test_case_name": entry.waveform_test_case_name,
                     "report_node_id": case.replay.report_node_id,
+                    "receipt_id": case.waveform.receipt_id,
+                    "waveform_conclusion": case.waveform.conclusion,
                     "record_path": entry.record_path}
-        except (ValueError, OSError, KeyError) as error:
+        except (ValueError, OSError, KeyError, TypeError) as error:
             return {"success": False, "error_code": "CASE_ID_UNKNOWN", "error": str(error),
-                    "next_action": "Read review_index.json cases and use an exact case_id"}
+                    "next_action": "Read review_index.json cases and use an exact identity"}
 
 
 class CaseDiffArgs(BaseModel):
@@ -111,12 +130,153 @@ class CaseDiffArgs(BaseModel):
     offset: int = Field(default=0, ge=0)
 
 
+class ClaimBlocksArgs(BaseModel):
+    """Page original source anchors without returning the entire report."""
+
+    limit: int = Field(default=20, ge=1, le=50)
+    offset: int = Field(default=0, ge=0)
+
+
+class ReportClaimBlocks(UCTool):
+    """Page original BG-labelled blocks without deciding their Bug ownership."""
+
+    name: str = "ReportClaimBlocks"
+    description: str = "List exact original BG block references, headings and raw TC labels for review."
+    args_schema: Optional[ArgsSchema] = ClaimBlocksArgs
+    workspace: str = Field(default=".", exclude=True)
+    output_dir: str = Field(default="results", exclude=True)
+
+    def _run(self, limit: int = 20, offset: int = 0) -> dict:
+        """Return bounded source anchors rather than inferred associations."""
+        from .review_claims import report_claim_blocks
+
+        try:
+            output = Path(self.workspace).resolve() / self.output_dir
+            index = load_record(output, "review_index.json", "index")
+            blocks = report_claim_blocks(Path(index.workspace["source_path"]), index.workspace["name"])
+            return {"success": True, "total": len(blocks), "offset": offset,
+                    "next_offset": offset + limit if offset + limit < len(blocks) else None,
+                    "blocks": blocks[offset:offset + limit]}
+        except (ValueError, OSError, KeyError) as error:
+            return {"success": False, "error_code": "CLAIM_BLOCKS_UNAVAILABLE", "error": str(error)}
+
+
+class ReceiptSummaryArgs(BaseModel):
+    """Select bounded receipt summaries by reviewed Bug or exact case."""
+
+    bug_id: str = Field(default="", description="Optional exact Bug ID from the active index or attribution draft.")
+    case_id: str = Field(default="", description="Optional exact indexed case ID.")
+    limit: int = Field(default=50, ge=1, le=100)
+    offset: int = Field(default=0, ge=0)
+
+
+class ReviewReceiptSummary(UCTool):
+    """Read compact signed receipt identities for relevant cases only."""
+
+    name: str = "ReviewReceiptSummary"
+    description: str = "Page compact WaveInfo receipt IDs, cases, windows and usability, filtered by Bug or case."
+    args_schema: Optional[ArgsSchema] = ReceiptSummaryArgs
+    workspace: str = Field(default=".", exclude=True)
+    output_dir: str = Field(default="results", exclude=True)
+    waveinfo: Any = Field(default=None, exclude=True)
+
+    def __init__(self, workspace: str, output_dir: str, **kwargs):
+        """Read receipts from this private run's signed WaveInfo store."""
+        super().__init__(workspace=workspace, output_dir=output_dir, **kwargs)
+        self.waveinfo = WaveInfo(workspace=workspace,
+                                 test_dir=str(Path(workspace) / output_dir / "tests"), dut_name="BugReview")
+
+    def _run(self, bug_id: str = "", case_id: str = "", limit: int = 50, offset: int = 0) -> dict:
+        """Return no signal arrays or timeline until one receipt is queried explicitly."""
+        try:
+            output = Path(self.workspace).resolve() / self.output_dir
+            index = load_record(output, "review_index.json", "index")
+            selected = set(index.cases)
+            if bug_id:
+                if bug_id not in index.bugs:
+                    raise ValueError(f"unknown Bug ID: {bug_id}")
+                selected = set(index.bugs[bug_id].case_ids)
+                if not index.claim_mapping_path and (output / "drafts/attribution.json").is_file():
+                    draft = read_object(output / "drafts/attribution.json")
+                    match = next((item for item in draft.get("bugs", [])
+                                  if isinstance(item, dict) and item.get("bug_id") == bug_id), None)
+                    selected = set(match.get("case_ids", [])) if match else set()
+            if case_id:
+                if case_id not in index.cases:
+                    raise ValueError(f"unknown case ID: {case_id}")
+                selected &= {case_id}
+            by_wave_name = {index.cases[item].waveform_test_case_name: item
+                            for item in selected if item in index.cases
+                            and index.cases[item].waveform_test_case_name}
+            rows = []
+            for receipt in reversed(self.waveinfo.list_analysis_receipts()):
+                name = receipt.get("arguments", {}).get("test_case_name")
+                linked_case = by_wave_name.get(name)
+                if not linked_case:
+                    continue
+                result = receipt.get("result", {})
+                rows.append({"case_id": linked_case, "receipt_id": receipt.get("receipt_id"),
+                             "test_case_name": name, "status": result.get("status"),
+                             "evidence_usable": result.get("evidence_usable"),
+                             "analysis_window": result.get("analysis_window")})
+            visible = rows[offset:offset + limit]
+            for item in visible:
+                item["final_evidence_usable"] = (
+                    item["evidence_usable"] is True
+                    and self.waveinfo.get_bug_document_evidence(item["receipt_id"]).get("success") is True)
+            return {"success": True, "total": len(rows), "offset": offset,
+                    "next_offset": offset + limit if offset + limit < len(rows) else None,
+                    "receipts": visible}
+        except (ValueError, OSError, KeyError, TypeError) as error:
+            return {"success": False, "error_code": "RECEIPT_SUMMARY_UNAVAILABLE", "error": str(error)}
+
+
+class ReviewStageProgress(UCTool):
+    """Summarize resumable work from existing case and receipt records."""
+
+    name: str = "ReviewStageProgress"
+    description: str = "Show failed-case triage and signed-waveform progress with exact remaining case IDs."
+    args_schema: Optional[ArgsSchema] = EmptyArgs
+    workspace: str = Field(default=".", exclude=True)
+    output_dir: str = Field(default="results", exclude=True)
+
+    def _run(self) -> dict:
+        """Derive bounded progress without creating a second checkpoint store."""
+        try:
+            output = Path(self.workspace).resolve() / self.output_dir
+            index = load_record(output, "review_index.json", "index")
+            manifest = load_record(output, index.manifest_path, "manifest")
+            cases = {case_id: load_record(output, entry.record_path, "case")
+                     for case_id, entry in index.cases.items()}
+            failed = [case_id for case_id in manifest.collected
+                      if cases[case_id].replay.status in {"failed", "error", "xpassed"}]
+            untriaged = [case_id for case_id in failed
+                         if cases[case_id].failure_analysis.category == "unreviewed"]
+            need_wave = [case_id for case_id in failed
+                         if cases[case_id].failure_analysis.category in {"suspected_dut", "confirmed_dut"}
+                         and not cases[case_id].waveform.receipt_id]
+            draft = output / "drafts/attribution.json"
+            mapped = (len(index.bugs) if index.claim_mapping_path
+                      else len(read_object(draft).get("bugs", [])) if draft.is_file() else 0)
+            return {"success": True, "stage_status": index.stage_status,
+                    "collected": len(manifest.collected), "failed": len(failed),
+                    "triaged": len(failed) - len(untriaged),
+                    "wave_receipts_attached": sum(bool(cases[item].waveform.receipt_id) for item in failed),
+                    "draft_bug_assignments": mapped, "indexed_bugs": len(index.bugs),
+                    "remaining_triage_cases": untriaged[:30],
+                    "remaining_wave_cases": need_wave[:30],
+                    "remaining_triage_count": len(untriaged),
+                    "remaining_wave_count": len(need_wave)}
+        except (ValueError, OSError, KeyError, TypeError) as error:
+            return {"success": False, "error_code": "STAGE_PROGRESS_UNAVAILABLE", "error": str(error)}
+
+
 class ReviewCaseDiff(UCTool):
-    """Compare canonical claim associations with the current replay baseline."""
+    """Compare reviewed draft associations with the current replay baseline."""
 
     name: str = "ReviewCaseDiff"
     description: str = (
-        "Compare BG-level claim cases, report aggregate cases, collected nodes and current failures "
+        "Compare LLM-reviewed draft cases, report aggregate cases, collected nodes and current failures "
         "using exact indexed case IDs; reported associations are not assumed to be historical failures."
     )
     args_schema: Optional[ArgsSchema] = CaseDiffArgs
@@ -135,18 +295,26 @@ class ReviewCaseDiff(UCTool):
             manifest = load_record(output, index.manifest_path, "manifest")
             replay = load_record(output, index.replay_summary_path, "replay_summary")
             original, _ = _inventory(Path(index.workspace["source_path"]), index.workspace["name"])
-            claimed = {_workspace_node(node) for bug in original["bugs"] for node in bug["tests"]}
+            if index.claim_mapping_path:
+                claimed = {case_id for entry in index.bugs.values() for case_id in entry.case_ids}
+                attribution_status = "committed"
+            else:
+                draft = output / "drafts/attribution.json"
+                assignments = read_object(draft).get("bugs", []) if draft.is_file() else []
+                claimed = {case_id for item in assignments if isinstance(item, dict)
+                           for case_id in item.get("case_ids", []) if isinstance(case_id, str)}
+                attribution_status = "draft" if assignments else "unfilled"
             aggregate = {_workspace_node(node) for bug in original["bugs"]
                          for node in bug["aggregate_tests"]}
             collected = set(manifest.collected)
             current_failed = {case_id for case_id, status in replay.outcomes.items()
                               if status in {"failed", "error", "xpassed"}}
             sets = {
-                "bg_claim_cases": claimed,
+                "reviewed_claim_cases": claimed,
                 "report_aggregate_only": aggregate - claimed,
-                "reported_not_collected": claimed - collected,
-                "current_failed_without_bg_claim": current_failed - claimed,
-                "bg_claim_now_passed": claimed & {case_id for case_id, status in replay.outcomes.items()
+                "reviewed_not_collected": claimed - collected,
+                "current_failed_without_reviewed_claim": current_failed - claimed,
+                "reviewed_claim_now_passed": claimed & {case_id for case_id, status in replay.outcomes.items()
                                                   if status == "passed"},
             }
             paged = {key: sorted(values)[offset:offset + limit] for key, values in sets.items()}
@@ -156,8 +324,11 @@ class ReviewCaseDiff(UCTool):
                           for case_id in visible if case_id in index.cases}
             return {"success": True, "counts": {key: len(values) for key, values in sets.items()},
                     "collected_count": len(collected), "current_failed_count": len(current_failed),
+                    "attribution_status": attribution_status,
                     "offset": offset, "case_ids": paged, "identities": identities,
-                    "note": "A BG link is not proof of a historical failure; check original_failure_refs before claiming a prior failure."}
+                    "note": ("The attribution is unfilled; differences are provisional. "
+                             if attribution_status == "unfilled" else "")
+                            + "A reviewed link is not proof of a historical failure; check original_failure_refs first."}
         except (ValueError, OSError, KeyError, TypeError) as error:
             return {"success": False, "error_code": "CASE_DIFF_UNAVAILABLE", "error": str(error)}
 
@@ -291,9 +462,14 @@ class ReviewRefCheck(UCTool):
                     "error": str(error), "next_action": "Create or correct review_index.json first"}
         source_root = output / "inputs" / index.workspace["name"]
         results = []
+        from .review_claims import source_role
         for reference in refs:
             try:
-                results.append({"ok": True, **source_lines(source_root, reference, max_lines)})
+                role = source_role(reference)
+                results.append({"ok": True, **source_lines(source_root, reference, max_lines),
+                                "source_role": role,
+                                "warning": ("Original report claim; not independent Spec/RTL proof"
+                                            if role == "original_report_claim" else "")})
             except (ValueError, OSError) as error:
                 results.append({"ok": False, "ref": reference, "error": str(error)})
         return {"success": all(item["ok"] for item in results), "refs": results}
@@ -326,21 +502,21 @@ class ReviewBugContext(UCTool):
             return {"success": True, **bug_context(Path(self.workspace).resolve() / self.output_dir,
                                                      bug_id, sections, max_lines, max_chars,
                                                      case_offset, ref_offset)}
-        except (ValueError, OSError, KeyError) as error:
+        except (ValueError, OSError, KeyError, TypeError) as error:
             return {"success": False, "error_code": "BUG_CONTEXT_UNAVAILABLE", "error": str(error)}
 
 
 class SchemaArgs(BaseModel):
-    """Select one V3 machine-readable record schema."""
+    """Select one machine-readable review record schema."""
 
-    record_type: str = Field(description="One of index, bug, case, roots, coverage, manifest, replay_summary, environment, reconciliation.")
+    record_type: str = Field(description="One of index, bug, case, roots, coverage, manifest, replay_summary, environment, reconciliation, attribution_draft.")
 
 
 class DescribeReviewSchema(UCTool):
     """Expose the same typed contract used by scripts and Checkers."""
 
     name: str = "DescribeReviewSchema"
-    description: str = "Return the current Bug Review JSON Schema for any V3 record type."
+    description: str = "Return the current Bug Review JSON Schema for one record type."
     args_schema: Optional[ArgsSchema] = SchemaArgs
 
     def _run(self, record_type: str) -> dict:
@@ -363,7 +539,7 @@ class CreateAttributionDraft(UCTool):
     """Start one complete Bug-to-case and report reconciliation draft."""
 
     name: str = "CreateAttributionDraft"
-    description: str = "Create attribution.json with all Bug links, parsed original Spec/RTL candidates and reconciliation fields."
+    description: str = "Create an empty attribution.json format; the reviewer fills all Bug, claim, case and source fields."
     args_schema: Optional[ArgsSchema] = EmptyArgs
     workspace: str = Field(default=".", exclude=True)
     output_dir: str = Field(default="results", exclude=True)
@@ -383,7 +559,7 @@ class CommitAttribution(UCTool):
     """Validate and activate one complete attribution revision."""
 
     name: str = "CommitAttribution"
-    description: str = "Validate bug_case_ids, bug_candidates and reconciliation, then activate case links and source candidates as one revision."
+    description: str = "Validate human-filled claim ownership, Bug-case links and source candidates, then activate one revision."
     args_schema: Optional[ArgsSchema] = AttributionArgs
     workspace: str = Field(default=".", exclude=True)
     output_dir: str = Field(default="results", exclude=True)
@@ -511,82 +687,26 @@ class SubmitReviewDecisions(UCTool):
                     "next_action": "Correct the draft or index revision, then submit again"}
 
 
-class DecisionDraftArgs(BaseModel):
-    """Control whether an existing decision draft is refreshed or previewed."""
-
-    refresh: bool = Field(default=False, description="Synchronize case_ids from the active index while preserving decisions.")
-    preview_only: bool = Field(default=False, description="Return proposed case_id changes without writing the draft.")
-    sync_root_fields: bool = Field(default=False, description="Copy exact RTL fields from explicitly assigned roots to confirmed decisions.")
-
-
 class CreateDecisionDraft(UCTool):
-    """Generate one review draft with exact Bug identities and case lists."""
+    """Generate only the empty format for a human-authored decision draft."""
 
     name: str = "CreateDecisionDraft"
-    description: str = "Create or refresh decisions.json case_ids; optionally synchronize exact fields from assigned roots."
-    args_schema: Optional[ArgsSchema] = DecisionDraftArgs
+    description: str = "Create empty decisions.json lists; the reviewer fills every Bug and root field from evidence."
+    args_schema: Optional[ArgsSchema] = EmptyArgs
     workspace: str = Field(default=".", exclude=True)
     output_dir: str = Field(default="results", exclude=True)
 
-    def _run(self, refresh: bool = False, preview_only: bool = False,
-             sync_root_fields: bool = False) -> dict:
-        """Prefill new judgments and show exact association changes on refresh."""
+    def _run(self) -> dict:
+        """Write decisions[] and roots[] without copying any case or conclusion."""
         output = Path(self.workspace).resolve() / self.output_dir
         try:
-            index = load_record(output, "review_index.json", "index")
+            load_record(output, "review_index.json", "index")
             target = output / "drafts/decisions.json"
-            if target.exists() and not refresh:
-                raise ValueError("drafts/decisions.json exists; call with refresh=true")
-            previous = read_object(target) if target.exists() else {"decisions": [], "roots": []}
-            if (set(previous) != {"decisions", "roots"}
-                    or not isinstance(previous["decisions"], list)
-                    or not isinstance(previous["roots"], list)):
-                raise ValueError("existing draft needs decisions[] and roots[]")
-            prior = {item["bug_id"]: item for item in previous["decisions"]}
-            if len(prior) != len(previous["decisions"]) or set(prior) - set(index.bugs):
-                raise ValueError("existing draft has duplicate or unindexed Bug IDs")
-            if sync_root_fields and not target.exists():
-                raise ValueError("sync_root_fields requires an existing draft with assigned roots")
-            roots = {item["root_id"]: item for item in previous["roots"]}
-            if len(roots) != len(previous["roots"]):
-                raise ValueError("existing draft has duplicate root IDs")
-            decisions = []
-            changed = {}
-            normalized = {}
-            for bug_id in index.bug_order:
-                value = dict(prior.get(bug_id) or {
-                    "schema": "bug_review.v6", "record_type": "bug", "bug_id": bug_id,
-                    "validation_scenario": "", "expected_behavior": "", "observed_behavior": "",
-                    "case_ids": [], "spec_refs": [], "rtl_refs": [],
-                    "decision": {"verdict": "inconclusive", "review_confidence": None,
-                                 "rationale": "", "root_id": None, "spec_ref": "", "rtl_ref": "",
-                                 "first_error": "", "causal_chain": ""}})
-                if value.get("schema") != "bug_review.v6":
-                    raise ValueError(f"{bug_id} draft must use bug_review.v6")
-                if value.get("case_ids") != index.bugs[bug_id].case_ids:
-                    changed[bug_id] = {"before": value.get("case_ids", []),
-                                       "after": index.bugs[bug_id].case_ids}
-                value["case_ids"] = index.bugs[bug_id].case_ids
-                if sync_root_fields and value.get("decision", {}).get("verdict") == "confirmed":
-                    decision = value["decision"]
-                    root_id = decision.get("root_id")
-                    if root_id not in roots:
-                        raise ValueError(f"{bug_id} has no assigned root in roots[]: {root_id}")
-                    root = roots[root_id]
-                    for field in ("rtl_ref", "first_error", "causal_chain"):
-                        if field not in root:
-                            raise ValueError(f"{root_id} root lacks {field}")
-                        if decision.get(field) != root[field]:
-                            normalized.setdefault(bug_id, {})[field] = {
-                                "before": decision.get(field), "after": root[field]}
-                            decision[field] = root[field]
-                decisions.append(value)
-            if not preview_only:
-                atomic_write_json(target, {"decisions": decisions, "roots": previous["roots"]})
+            if target.exists():
+                raise ValueError("drafts/decisions.json already exists; edit the current draft")
+            atomic_write_json(target, {"decisions": [], "roots": []})
             return {"success": True, "draft_path": str(target.relative_to(Path(self.workspace).resolve())),
-                    "bug_count": len(decisions), "changed_case_ids": changed,
-                    "normalized_root_fields": normalized,
-                    "written": not preview_only}
+                    "next_action": "Fill decisions and roots using current index and evidence, then dry-run SubmitReviewDecisions"}
         except (ValueError, OSError, KeyError, TypeError) as error:
             return {"success": False, "error_code": "DRAFT_CREATE_FAILED", "error": str(error)}
 
@@ -621,7 +741,7 @@ class ReviewRevisionHistory(UCTool):
                     manifest = read_object(path / "manifest.json")
                     return {"success": True, "revision": revision,
                             "active": revision == index.attribution_revision,
-                            "changes": manifest.get("changed_bugs", {}),
+                            "case_changes": manifest.get("case_changes", {}),
                             "affected_cases": manifest.get("affected_cases", 0)}
                 roots = load_record(output, f"{revision}/root_causes.json", "roots")
                 manifest = read_object(path / "manifest.json")
@@ -716,11 +836,17 @@ class UpdateReviewRecord(UCTool):
                     updated_entry = replacement.bugs.get(bug_id)
                     if entry.origin == "reported" and updated_entry and any(
                             getattr(entry, field) != getattr(updated_entry, field)
-                            for field in ("summary_ref", "analysis_refs", "reported_confidence",
+                            for field in ("summary_ref", "reported_confidence",
                                           "aggregate_case_ids", "aggregate_refs", "check_points")):
                         raise ValueError(f"index update changes original source or confidence for {bug_id}")
                     if updated_entry and updated_entry.case_ids != entry.case_ids:
                         raise ValueError(f"{bug_id} case_ids must be updated through CommitAttribution")
+                    if updated_entry and any(
+                            getattr(updated_entry, field) != getattr(entry, field)
+                            for field in ("analysis_refs", "bg_ids", "fg_ids", "fc_ids", "ck_ids",
+                                          "source_labels", "attribution_rationale", "spec_candidates",
+                                          "rtl_candidates")):
+                        raise ValueError(f"{bug_id} claim mapping must be updated through CommitAttribution")
                     if updated_entry and updated_entry.review_path != entry.review_path:
                         raise ValueError("active Bug review paths can only change through SubmitReviewDecisions")
                 if any(entry.case_ids for bug_id, entry in replacement.bugs.items()
@@ -728,8 +854,9 @@ class UpdateReviewRecord(UCTool):
                     raise ValueError("new Bug case_ids must be assigned through CommitAttribution")
                 if replacement.root_path != current.root_path:
                     raise ValueError("active root path can only change through SubmitReviewDecisions")
-                if replacement.attribution_revision != current.attribution_revision:
-                    raise ValueError("active attribution revision can only change through CommitAttribution")
+                if (replacement.attribution_revision != current.attribution_revision
+                        or replacement.claim_mapping_path != current.claim_mapping_path):
+                    raise ValueError("active attribution and claim mapping can only change through CommitAttribution")
                 if any(value == "complete" and replacement.stage_status.get(stage) != "complete"
                        for stage, value in current.stage_status.items()):
                     raise ValueError("completed stage status cannot be reverted")
@@ -796,6 +923,7 @@ class RenderBugReviewReport(UCTool):
             roots = load_record(output, index.root_path, "roots")
             coverage = load_record(output, index.coverage_path, "coverage")
             if not verify_only:
+                prepare_waveform_bundle(output, cases)
                 pages, manifest = render_pages(output, index, cases, bugs, roots, coverage)
                 for filename, content in pages.items():
                     (output / filename).parent.mkdir(parents=True, exist_ok=True)

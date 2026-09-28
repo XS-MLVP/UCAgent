@@ -30,6 +30,15 @@ make bug-review-analysis OUTPUT_ROOT=/absolute/path/review-output
 
 输出根目录必须与输入工作区分离。模块运行状态和签名 receipt 留在 `output/workspace_NAME/runs/`；对外 `report/` 只保存最终页面及页面清单。单模块命令不会改写其他模块的结果。已完成运行若缺少门户，可执行 `PYTHONPATH=src:../.. python -m bug_review.workflow publish --workspace /absolute/path/to/run` 恢复发布。
 
+完整波形预览使用报告内的静态 Surfer 和发布时保存的波形快照，无需启动 UCAgent 波形接口。发布会在 `output/` 根目录生成独立的 `serve.py`。只分享整个 `output/` 文件夹时，接收方可直接运行：
+
+```bash
+cd output
+python3 serve.py
+```
+
+然后在浏览器打开 `http://127.0.0.1:8765/index.html`。`serve.py` 只用 Python 标准库，仅提供门户和已发布的模块报告；不需要插件源码或 UCAgent。复制或压缩整个 `output/` 时，要保留 `workspace_*/report` 与同目录 `runs/` 的相对链接关系。直接用 `file://` 打开 HTML 时，Surfer 的模块与 WebAssembly 无法正常加载。若签名收据对应的原波形在发布前已轮换，详情页仍显示波形分析与收据，但不提供完整预览按钮。插件开发环境中仍可用 `make bug-review-serve` 启动同一个服务。
+
 ## 直接准备与启动
 
 ```bash

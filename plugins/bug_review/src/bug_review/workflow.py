@@ -16,8 +16,8 @@ from urllib.parse import unquote
 
 from ucagent.tools.waveform import WaveInfo
 
-from bug_review.analysis_core.report_inventory import build_report_inventory
 from bug_review.analysis_core.task_manifest import atomic_write_json
+from .review_claims import report_claim_blocks
 from .inputs import discover_input_workspaces, resolve_run_specs
 from .json_io import read_object
 
@@ -88,41 +88,32 @@ def _inventory(source, name):
     summary = source / "unity_test" / f"{dut}_bug_summary.md"
     analysis = source / "unity_test" / f"{dut}_bug_analysis.md"
     table = _parse_summary(summary)
-    claims = build_report_inventory(analysis, run_key=name, model="reported", dut=dut)["bugs"] if analysis.is_file() else []
-    claims_by_bug = {}
-    for claim in claims:
-        claims_by_bug.setdefault(claim["bug_id"], []).append(claim)
-    assigned = set()
+    blocks = report_claim_blocks(source, name)
+    analysis_lines = analysis.read_text(encoding="utf-8", errors="replace").splitlines() if analysis.is_file() else []
     bugs = []
     for row in table:
-        aggregate = [claim for claim in claims if any(
-            start <= int(claim["source"]["line_start"]) <= end for start, end in row["analysis_ranges"])]
-        related = claims_by_bug.get(row["bug_id"], [])
-        assigned.update(claim["claim_id"] for claim in related)
-        bugs.append({**row, "origin": "reported", "claims": related,
-                     "tests": sorted({test for claim in related for test in claim["referenced_tests"]}),
-                     "aggregate_tests": sorted({test for claim in aggregate for test in claim["referenced_tests"]}),
+        aggregate = []
+        for start, end in row["analysis_ranges"]:
+            for line in analysis_lines[max(0, start - 1):end]:
+                aggregate.extend(re.findall(r"<TC-([^>]+)>", line))
+        bugs.append({**row, "origin": "reported", "claims": [], "tests": [],
+                     "aggregate_tests": sorted(set(aggregate)),
                      "aggregate_refs": [f"unity_test/{analysis.name}:{start}-{end}"
                                         for start, end in row["analysis_ranges"]],
-                     "root_refs": sorted({ref for claim in related for ref in claim["root_refs"]})})
-    for claim in claims:
-        if claim["claim_id"] in assigned:
+                     "root_refs": []})
+    for block in blocks:
+        identity = re.sub(r"-\d+$", "", block["source_label"].removeprefix("BG-"))
+        if any(item["bug_id"] == identity for item in bugs):
             continue
-        identity = claim["bug_id"]
-        row = next((item for item in bugs if item["bug_id"] == identity), None)
-        if row is None:
-            row = {"bug_id": identity, "origin": "reported", "summary": claim["summary"],
-                   "summary_item_present": False,
-                   "severity": "", "reported_confidence": (
-                       claim["confidence_percent"] / 100 if claim["confidence_percent"] is not None else None),
-                   "ck": ["/".join(part for part in (claim["fg"], claim["fc"], claim["ck"]) if part)],
-                   "rtl_refs": [], "source": claim["source"],
-                   "analysis_ranges": [], "claims": [], "tests": [],
-                   "aggregate_tests": [], "aggregate_refs": [], "root_refs": []}
-            bugs.append(row)
-        row["claims"].append(claim)
-        row["tests"] = sorted(set(row["tests"] + claim["referenced_tests"]))
-        row["root_refs"] = sorted(set(row["root_refs"] + claim["root_refs"]))
+        confidence = re.search(r"-(\d+)$", block["source_label"])
+        reported_confidence = (int(confidence.group(1)) / 100 if confidence
+                               and int(confidence.group(1)) <= 100 else None)
+        bugs.append({"bug_id": identity, "origin": "reported", "summary": "",
+                     "summary_item_present": False, "severity": "",
+                     "reported_confidence": reported_confidence, "ck": [], "rtl_refs": [],
+                     "source": {"path": str(analysis), "line": int(block["ref"].split(":")[-1].split("-")[0])},
+                     "analysis_ranges": [], "claims": [], "tests": [],
+                     "aggregate_tests": [], "aggregate_refs": [], "root_refs": []})
     line_maps = source / "unity_test/line_map"
     spec_files = {path.relative_to(source).as_posix().replace("/", "_").replace(".", "_"): path
                   for path in source.rglob("*.md") if "Guide_Doc" not in path.parts}
@@ -234,7 +225,7 @@ def prepare(workspace, kind="analysis", **options):
 
 
 class Workflow:
-    """Validate one module's V3 indexed stage artifacts."""
+    """Validate one module's current indexed stage artifacts."""
 
     def __init__(self, workspace):
         """Load the private run configuration and signed waveform scope."""
@@ -310,14 +301,13 @@ class Workflow:
                 "origin": "reported", "summary_ref": summary_ref,
                 "reported_confidence": reported["reported_confidence"],
                 "check_points": set(reported["ck"]),
-                "case_ids": {_workspace_node(node) for node in reported["tests"]},
                 "aggregate_case_ids": {_workspace_node(node) for node in reported["aggregate_tests"]},
                 "aggregate_refs": set(reported["aggregate_refs"]),
             }
             for field, expected in expected_fields.items():
                 actual = getattr(entry, field)
                 actual_set = set(actual) if isinstance(expected, set) else actual
-                invalid = (not expected.issubset(actual_set) if field in {"check_points", "case_ids"}
+                invalid = (not expected.issubset(actual_set) if field == "check_points"
                            else actual_set != expected)
                 if invalid:
                     original_issues.append({"bug_id": bug_id, "field": field,
@@ -325,30 +315,34 @@ class Workflow:
                                             "actual": sorted(actual_set) if isinstance(expected, set) else actual,
                                             "missing": sorted(expected - actual_set) if isinstance(expected, set) else [],
                                             "extra": sorted(actual_set - expected) if isinstance(expected, set) else [],
-                                            "next_action": "Restore the original claim fact or its exact BG-level TC associations"})
-            if ANALYSIS.index(stage) >= 3:
-                for field, expected in (("spec_candidates", set(reported["spec_refs"])),
-                                        ("rtl_candidates", set(reported["rtl_refs"]))):
-                    actual = set(getattr(entry, field))
-                    if not expected.issubset(actual):
-                        original_issues.append({
-                            "bug_id": bug_id, "field": field,
-                            "expected": sorted(expected), "actual": sorted(actual),
-                            "missing": sorted(expected - actual), "extra": sorted(actual - expected),
-                            "next_action": "Add the original source candidate to the indexed Bug"})
-            for claim in reported["claims"]:
-                position = claim["source"]
-                claim_path = Path(position["path"])
-                if claim_path.is_absolute():
-                    claim_path = claim_path.resolve().relative_to(source)
-                ref = f"{claim_path.as_posix()}:{position['line_start']}-{position['line_end']}"
-                if ref not in entry.analysis_refs:
-                    original_issues.append({"bug_id": bug_id, "field": "analysis_refs",
-                                            "expected": ref, "actual": entry.analysis_refs,
-                                            "missing": [ref], "extra": [],
-                                            "next_action": "Restore the original BG source reference"})
+                                            "next_action": "Restore the original summary fact; reviewed associations belong in the attribution draft"})
         if original_issues:
             raise ReviewIssues(original_issues)
+        if ANALYSIS.index(stage) >= ANALYSIS.index("report_reconcile"):
+            from .review_attribution import claim_mapping_issues
+            from .review_store import AttributionDraft
+
+            if not index.claim_mapping_path:
+                raise ValueError("claim_mapping_path is missing; commit the reviewed attribution draft")
+            mapping = AttributionDraft.model_validate(read_object(within_output(self.out, index.claim_mapping_path)))
+            mapping_issues = claim_mapping_issues(source, name, index, mapping.bugs)
+            for item in mapping.bugs:
+                if item.bug_id not in index.bugs:
+                    continue
+                entry = index.bugs[item.bug_id]
+                for field, expected in (("analysis_refs", item.claim_refs), ("case_ids", item.case_ids),
+                                        ("bg_ids", item.bg_ids), ("fg_ids", item.fg_ids),
+                                        ("fc_ids", item.fc_ids), ("ck_ids", item.ck_ids),
+                                        ("source_labels", item.source_labels),
+                                        ("attribution_rationale", item.rationale),
+                                        ("spec_candidates", item.spec_candidates),
+                                        ("rtl_candidates", item.rtl_candidates)):
+                    if getattr(entry, field) != expected:
+                        mapping_issues.append({"bug_id": item.bug_id, "field": field,
+                                               "expected": expected, "actual": getattr(entry, field),
+                                               "next_action": "Restore the committed claim mapping"})
+            if mapping_issues:
+                raise ReviewIssues(mapping_issues)
         for bug_id, entry in index.bugs.items():
             if any(case_id not in index.cases for case_id in entry.case_ids):
                 raise ValueError(f"{bug_id} refers to an unindexed case")
@@ -609,6 +603,8 @@ def recover_legacy_report(run: Path, name: str) -> Path:
 
 def rebuild_portal(output_root):
     """Build the top-level index only from published module reports."""
+    from .reporting import LABELS
+
     root = Path(output_root).resolve()
     pages = {}
     for module in sorted(root.glob("workspace_*")):
@@ -619,6 +615,9 @@ def rebuild_portal(output_root):
         manifest = read_object(manifest_path)
         if manifest.get("workspace") != module.name:
             raise ValueError(f"published report identity mismatch: {module.name}")
+        if (manifest.get("schema") == "bug_review_report.v3"
+                and not isinstance(manifest.get("high_confidence_root_count"), int)):
+            raise ValueError(f"published report has no high-confidence root count: {module.name}")
         for filename in manifest.get("pages", []):
             target = (report / filename).resolve()
             if not target.is_relative_to(report.resolve()) or not target.is_file():
@@ -627,18 +626,23 @@ def rebuild_portal(output_root):
     rows = "".join(
         f"<tr><td><a href='{html.escape(name, quote=True)}/report/index.html'>{html.escape(name)}</a></td>"
         f"<td>{manifest.get('collected', '')}</td><td>{len(manifest.get('cases', []))}</td>"
-        f"<td>{len(manifest.get('bugs', []))}</td><td>{html.escape(str(manifest.get('review_status', '')))}</td></tr>"
+        f"<td>{html.escape(str(manifest.get('high_confidence_root_count', '—')))}</td><td>complete</td></tr>"
         for name, manifest in pages.items())
     content = ("<!doctype html><html lang='zh-CN'><meta charset='utf-8'>"
                "<title>Bug Review</title><h1>Bug Review</h1>"
                "<table><tr><th>Module</th><th>Collected</th><th>Failed</th>"
-               "<th>Suspected Bugs</th><th>Review</th></tr>" + rows + "</table></html>")
+               f"<th>{html.escape(LABELS['high_confidence'])}</th><th>Review</th></tr>"
+               + rows + "</table></html>")
     root.mkdir(parents=True, exist_ok=True)
     temporary = root / f".index-{secrets.token_hex(4)}.html"
+    server_copy = root / f".serve-{secrets.token_hex(4)}.py"
     try:
+        shutil.copy2(Path(__file__).with_name("report_server.py"), server_copy)
+        os.replace(server_copy, root / "serve.py")
         temporary.write_text(content, encoding="utf-8")
         os.replace(temporary, root / "index.html")
     finally:
+        server_copy.unlink(missing_ok=True)
         temporary.unlink(missing_ok=True)
     return root / "index.html"
 

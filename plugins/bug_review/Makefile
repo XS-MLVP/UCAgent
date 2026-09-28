@@ -9,18 +9,22 @@ AGENT_ARGS ?= --backend blank --mcp-server --human --tui
 ARGS ?=
 
 .DEFAULT_GOAL := help
-.PHONY: help plugin-check bug-review-analysis
+.PHONY: help plugin-check bug-review-analysis bug-review-serve
 
 help:
 	@echo "make bug-review-analysis     review all $(INPUT_ROOT)/workspace_*"
 	@echo "make bug_review_<name>       review $(INPUT_ROOT)/workspace_<name>"
 	@echo "make plugin-check           validate the bug_review plugin"
+	@echo "make bug-review-serve      serve published reports and waveforms on localhost"
 	@echo "Module reports: $(OUTPUT_ROOT)/workspace_*/report/"
 	@echo "Private runs: $(OUTPUT_ROOT)/workspace_*/runs/"
 	@echo "Report: $(OUTPUT_ROOT)/index.html"
 
 plugin-check:
 	PYTHONPATH="$(UCAgent_PYTHONPATH)" $(UCAGENT) --validate-plugin "$(PLUGIN_ROOT)"
+
+bug-review-serve:
+	PYTHONPATH="$(UCAgent_PYTHONPATH)" $(PYTHON) -m bug_review.report_server --output-root "$(OUTPUT_ROOT)"
 
 bug_review_%:
 	@$(MAKE) --no-print-directory bug-review-analysis INPUT_NAME="$*"

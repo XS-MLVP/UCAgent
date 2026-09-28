@@ -1,7 +1,7 @@
 
 # Bug Review 工作流与版本记录
 
-本文前半部分描述**当前实现**，后半部分按功能版本记录主要变化。版本对应关系为：`ANALYSIS_OVERVIEW.md` 的 V1 → `v1.0.0`、V2 → `v1.1.0`、V3 → `v1.2.0`。V1.1、V1.4、V2.1、V3.2 等是各组需求内部的迭代，不单独占用此处的次版本号。具体设计依据、试跑反馈和待验收事项仍以 [ANALYSIS_OVERVIEW.md](ANALYSIS_OVERVIEW.md) 为准。
+本文前半部分描述**当前实现**，后半部分按功能版本记录主要变化。版本对应关系为：`ANALYSIS_OVERVIEW.md` 的 V1 → `v1.0.0`、V2 → `v1.1.0`、V3 → `v1.2.0`、V4 → `v1.3.0`。V1.1、V1.4、V2.1、V3.2 等是各组需求内部的迭代，不单独占用此处的次版本号。具体设计依据、试跑反馈和待验收事项仍以 [ANALYSIS_OVERVIEW.md](ANALYSIS_OVERVIEW.md) 为准。
 
 本页的功能版本号用于整理工作流演进，不表示插件包已经按这些版本发布；`pyproject.toml` 当前仍声明包版本 `0.1.0`。历史迭代没有可靠的统一发布日期，因此版本标题不补写推测日期。本稿整理于 2026-09-27。
 
@@ -9,7 +9,7 @@
 
 Bug Review 一次处理一个 `inputs/workspace_<name>/` 模块。输入中的 Bug 摘要、详细分析、测试、Spec 和 RTL 是待核查资料；插件把分析文本和可运行测试准备到该模块独立的运行区，在不改动原始内容的前提下收集并重跑全部 pytest 用例。每个阶段由工作流指定目标、参考文件和输出文件，Checker 核对实际产物及证据；Skill 提供操作指导和脚本，波形取证使用 UCAgent 的 WaveInfo 与签名收据。
 
-`review_index.json` 是本次运行的轻量索引：保存模块身份、原 Bug 身份、阶段状态和逐 case／Bug 记录路径。执行、归因、裁决、根因和覆盖率分别保存在独立记录中；原报告长文、Spec／RTL 原文及完整波形不复制进索引。报告从当前活动记录生成，HTML 是可重建的展示结果。
+`review_index.json` 是本次运行的轻量索引：保存模块身份、原 Bug 身份、阶段状态和逐 case／Bug 记录路径。初始 Bug 骨架不推断 BG／FC／CK 或 case 归属；复核后的关系由 LLM 填入归因草稿，再经过来源与一致性校验提交。执行、归因、裁决、根因和覆盖率分别保存在独立记录中；原报告长文、Spec／RTL 原文及完整波形不复制进索引。报告从当前活动记录生成，HTML 是可重建的展示结果。
 
 ### 六阶段流程
 
@@ -17,10 +17,10 @@ Bug Review 一次处理一个 `inputs/workspace_<name>/` 模块。输入中的 B
 | --- | --- | --- |
 | `full_replay` | 按当前 pytest 配置收集全部精确 node，建立原 Bug 身份骨架，重跑全集并逐项记录基线结果。 | `test_manifest.json`、`replay_summary.json`、`review_index.json`、逐 case 骨架。 |
 | `case_triage` | 在阅读原 Bug 根因结论之前，逐个分析失败 case 的测试预期、规格预期、实际行为和环境质量。 | 逐 case 的 `failure_analysis`、`environment_review.json`；必要时记录定向复跑。 |
-| `dut_evidence` | 对疑似 DUT 缺陷或时序争议分析有效事务窗口、关键信号和波形；按精确 case 身份附着签名收据。 | 逐 case 的波形结论、窗口、信号组、receipt ID 和 viewer URL。 |
-| `report_reconcile` | 再对照原 `bug_summary.md`、`bug_analysis.md`，核实 Spec／RTL 候选、原声明关联、报告遗漏的失败和统计差异。 | 活动归因修订、case↔Bug 关联、`report_reconciliation.json`。 |
+| `dut_evidence` | 对疑似 DUT 缺陷或时序争议分析有效事务窗口、关键信号和波形；原文 BG 块只作初步 case 线索，签名收据仍绑定精确 case。 | 空白归因草稿；逐 case 的波形结论、窗口、信号组、receipt ID 和 viewer URL。 |
+| `report_reconcile` | 由 LLM 阅读原 `bug_summary.md`、`bug_analysis.md`、测试、Spec 与 RTL，填写 BG／FC／CK、主张行段和 case 归属，再核实统计差异。 | 活动归因修订、`claim_mapping.json`、case↔Bug 关联、`report_reconciliation.json`。 |
 | `root_correlation` | 结合正确测试、波形、Spec 与 RTL 作逐 Bug 裁决；把相同首错和因果链的确认项归入同一根因。 | 活动 Bug 裁决修订、`root_causes.json`；原声明始终保留。 |
-| `publish` | 从活动记录渲染并核验模块、失败 case、Bug 和源码预览页面，再发布模块入口并更新总门户。 | `report/index.html`、`report/cases/`、`report/bugs/`、`report/sources/`、`report_manifest.json`。 |
+| `publish` | 从活动记录渲染并核验模块、失败 case、Bug、源码与可用的完整波形预览，再发布模块入口并更新总门户。 | `report/index.html`、`report/cases/`、`report/bugs/`、`report/sources/`、可用时的 `report/surfer/` 与 `report/waveforms/`、`report_manifest.json`。 |
 
 失败 case 可归因为环境、测试实现、Spec 理解、规格歧义、证据不足或 DUT 缺陷；一次失败本身不等于 Bug。原报告的 Bug 即使未复现也保留；充分排除 DUT 缺陷时复核置信度为 `0`，证据不足时保持未定。已确认的 DUT Bug 需要可复现的正确测试、有效签名波形、真实 Spec 要求和 RTL 因果链。
 
@@ -44,12 +44,15 @@ Bug Review 一次处理一个 `inputs/workspace_<name>/` 模块。输入中的 B
 ```text
 output/
 ├── index.html                         # 所有已发布模块的入口
+├── serve.py                           # 仅依赖 Python 标准库的本地报告服务
 └── workspace_<name>/
     ├── report/                         # 当前公开报告，指向一次已完成运行
-    │   ├── index.html                  # 模块概况、覆盖率、失败 case 和高置信 Bug
+    │   ├── index.html                  # 模块概况、覆盖率、失败 case 和按根因聚合的高置信 Bug
     │   ├── cases/                      # 失败 case 详情
     │   ├── bugs/                       # 每条 Bug 的裁决与证据详情
     │   ├── sources/                    # 被引用源码的全文预览与行段高亮
+    │   ├── surfer/                     # 有可用波形时随报告发布的静态预览前端
+    │   ├── waveforms/                  # 有可用波形时归档的签名收据对应原波形
     │   └── report_manifest.json        # 页面和证据链接清单
     └── runs/
         └── run-<id>/                   # 本次运行的私有工作区
@@ -64,7 +67,7 @@ output/
                 ├── coverage.json
                 ├── wave_signal_presets.json
                 ├── cases/              # 初始逐 case 记录
-                ├── attributions/       # 归因修订及其 case／对账记录
+                ├── attributions/       # 归因修订、主张映射及 case／对账记录
                 ├── reviews/            # 逐 Bug 裁决与根因修订
                 ├── report/             # 发布前的报告原件
                 ├── inputs/             # 分析所需原文镜像
@@ -73,13 +76,23 @@ output/
                 └── diagnostics/        # 收集失败时的完整日志
 ```
 
-**阅读顺序**：看结论先打开 `output/index.html`，进入对应模块的 `report/index.html`，再点失败 case 或 Bug 详情。核查运行全集和缺口时看该次运行的 `test_manifest.json`、`replay_summary.json` 与 `environment_review.json`；追溯某条裁决时从 `review_index.json` 中的活动路径找到逐 Bug／case 记录和根因修订，不按 ID 猜测文件名。签名收据存于该次运行的 `.ucagent/waveinfo_receipts.json`，case 记录只保存收据引用与波形摘要。`report/` 只公开报告页面；`runs/` 保存运行记录、草稿和输入镜像。覆盖率数字只在 `coverage.json` 有可核实来源时展示，否则明确标示不可用。
+**阅读顺序**：在 `output/` 目录运行 `python3 serve.py`，从打印的本地 HTTP 地址进入总门户、模块和 Bug 详情。总门户的“高置信度根因”与模块主表采用同一口径：只计已确认且复核置信度不低于 0.8 的去重根因组。整个 `output/` 文件夹可独立分享；接收方只需 Python 3.9+，无须安装插件或 UCAgent。复制时保留 `workspace_*/report` 与同目录 `runs/` 的相对链接关系。预览读取 `report/waveforms/` 中与原签名收据对应的波形快照，不调用 UCAgent 动态波形接口。原波形在发布前已轮换时只保留签名收据和分析摘要。核查运行全集和缺口时看该次运行的 `test_manifest.json`、`replay_summary.json` 与 `environment_review.json`；追溯某条裁决时从 `review_index.json` 中的活动路径找到逐 Bug／case 记录和根因修订，不按 ID 猜测文件名。签名收据存于该次运行的 `.ucagent/waveinfo_receipts.json`，case 记录只保存收据引用与波形摘要。`report/` 只公开报告及预览资源；`runs/` 保存运行记录、草稿和输入镜像。覆盖率数字只在 `coverage.json` 有可核实来源时展示，否则明确标示不可用。
 
 ## 版本变化
 
+### v1.3.0 — V4：原始主张归属由 LLM 复核
+
+**代码已实现，真实模块全流程待试跑验收。**
+
+- 初始索引只保留原 Bug 身份和未经归属的 BG 原文块。`ReportClaimBlocks` 按行段列出原标签和 TC 字样；归因草稿与裁决草稿的工具和 Skill 脚本只创建空白格式，具体关系、引用和结论由 LLM 阅读证据后填写。
+- `CommitAttribution` 核对每个原 BG 块都有去向、原标签和复核关系分别保留、引用存在、case 双向关联一致，然后一次提交映射与对账记录。`ReviewBugContext` 可按尚未提交的草稿查看主张，不再按 CK 路径或关键词推断归属。
+- 增加按 Bug／case 过滤的有界收据摘要、可续做 case 进度、精确 case 别名解析及原报告材料的来源提示。复核记录保留原标签、复核后层级及归属理由。JSON 契约更新为 `bug_review.v7`；新运行区按当前格式建立。
+- 模块报告将高置信度确认 Bug 按最终根因聚合，一组一行并保留成员详情链接；Bug 详情使用统一布局，归因与根因以中文段落概述，相关文档与 RTL 源码分别呈现。
+- Bug 与失败 case 详情的签名波形提供关键观察和完整预览按钮。发布时复制 Surfer 静态前端、仍可从签名收据定位的原波形及可独立运行的 `output/serve.py`；本地报告服务直接提供静态资源，保留原令牌中的信号和时间窗口，不请求 UCAgent 动态波形接口。收据对应的原文件已轮换时显示不可预览原因，不用其他运行的波形代替。
+
 ### v1.2.0 — V3：全量失败归因与证据报告
 
-**当前功能基线；V3.0～V3.2 的代码已实现，真实模块的完整重跑与页面效果仍待本版验收。**
+**V3.0～V3.2 的代码已实现，随后由 v1.3.0 的归属流程承接。**
 
 - 从“按原报告选择关联 case”改为按当前 pytest 配置收集并重跑**整个模块**；先分析每个失败 case，再阅读原 Bug 根因并对账。新增环境质量审查，明确测试错误、Spec 误读、环境故障和疑似 DUT 缺陷等不同归因。
 - 工作流扩为六阶段。签名波形按索引中的精确 case 身份附着；`ApplyReceiptToCase` 复制收据和 viewer URL，`ValidateCaseRecords` 可随时核查逐 case 证据；裁决草稿可 dry-run 后整批提交。

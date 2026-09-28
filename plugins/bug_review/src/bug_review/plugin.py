@@ -8,7 +8,9 @@ from .checkers import BugReviewStageChecker
 from .tools import (ApplyReceiptToCase, CaptureReplayReport, CommitAttribution,
                     CreateAttributionDraft, CreateDecisionDraft, DescribeReviewSchema,
                     PrepareReviewInventory, RenderBugReviewReport,
-                    ResolveReviewCase, ReviewBugContext, ReviewCaseDiff, ReviewRefCheck, ReviewRevisionHistory,
+                    ResolveReviewCase, ReviewBugContext, ReviewCaseDiff, ReportClaimBlocks,
+                    ReviewReceiptSummary, ReviewStageProgress,
+                    ReviewRefCheck, ReviewRevisionHistory,
                     SubmitReviewDecisions, UpdateReviewRecord, ValidateCaseRecords)
 
 
@@ -16,7 +18,8 @@ def create_tools(context: PluginContext) -> list[object]:
     """Expose indexed review lookup, schema, source and decision tools."""
     shared = {"workspace": str(context.workspace), "output_dir": context.output_dir}
     return [PrepareReviewInventory(**shared), CaptureReplayReport(**shared),
-            ResolveReviewCase(**shared), ReviewCaseDiff(**shared),
+            ResolveReviewCase(**shared), ReviewCaseDiff(**shared), ReportClaimBlocks(**shared),
+            ReviewReceiptSummary(**shared), ReviewStageProgress(**shared),
             ValidateCaseRecords(**shared),
             ReviewBugContext(**shared), ReviewRefCheck(**shared), DescribeReviewSchema(),
             RenderBugReviewReport(**shared), CreateAttributionDraft(**shared),

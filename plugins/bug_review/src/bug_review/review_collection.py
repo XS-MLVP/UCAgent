@@ -1,4 +1,4 @@
-"""Collect the selected module's exact pytest nodes and create V3 review records."""
+"""Collect the selected module's exact pytest nodes and create review records."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ import sys
 from importlib.metadata import PackageNotFoundError, version
 
 from .analysis_core.task_manifest import atomic_write_json
+from .review_claims import report_claim_blocks
 from .review_store import (BugEntry, CaseEntry, CaseRecord, CoverageMetric,
                            CoverageRecord, EnvironmentReview, ReconciliationRecord,
                            ReplaySummary, ReviewIndex, STAGES, TestManifest)
@@ -106,23 +107,16 @@ def create_records(workspace: Path, output: Path, expected_name: str = "") -> di
         start = location.get("line", location.get("line_start"))
         end = location.get("line_end", start)
         summary_ref = f"{relative.as_posix()}:{start}" + (f"-{end}" if end != start else "")
-        refs = []
-        for claim in item["claims"]:
-            position = claim["source"]
-            path = Path(position["path"])
-            if path.is_absolute():
-                path = path.resolve().relative_to(source)
-            refs.append(f"{path.as_posix()}:{position['line_start']}-{position['line_end']}")
-        ids = list(dict.fromkeys(_workspace_node(node) for node in item["tests"]))
         aggregate_ids = list(dict.fromkeys(_workspace_node(node) for node in item["aggregate_tests"]))
         bugs[bug_id] = BugEntry(origin="reported", summary_ref=summary_ref,
-                                analysis_refs=refs, reported_confidence=item["reported_confidence"],
-                                check_points=item["ck"], case_ids=ids,
+                                analysis_refs=[], reported_confidence=item["reported_confidence"],
+                                check_points=item["ck"], case_ids=[],
                                 aggregate_case_ids=aggregate_ids,
                                 aggregate_refs=item["aggregate_refs"],
                                 spec_candidates=[], rtl_candidates=[])
-    all_ids = list(dict.fromkeys([*manifest.collected,
-                                  *(case_id for entry in bugs.values() for case_id in entry.case_ids)]))
+    raw_case_ids = (_workspace_node(node) for block in report_claim_blocks(source, name)
+                    for node in block["tc_labels"])
+    all_ids = list(dict.fromkeys([*manifest.collected, *raw_case_ids]))
     for position, case_id in enumerate(all_ids, 1):
         cases[case_id] = CaseEntry(replay_target=f"{name}/{case_id}",
                                    record_path=f"cases/case_{position:04d}.json")

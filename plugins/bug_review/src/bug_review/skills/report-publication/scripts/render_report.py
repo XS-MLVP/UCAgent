@@ -9,7 +9,7 @@ from pathlib import Path
 from ucagent.util.config import load_runtime_config
 
 from bug_review.json_io import read_object
-from bug_review.reporting import render_pages, verify_pages
+from bug_review.reporting import prepare_waveform_bundle, render_pages, verify_pages
 from bug_review.review_store import load_record
 
 
@@ -39,6 +39,7 @@ def main() -> None:
     roots = load_record(output, index.root_path, "roots")
     coverage = load_record(output, index.coverage_path, "coverage")
     if not args.verify:
+        prepare_waveform_bundle(output, cases)
         pages, manifest = render_pages(output, index, cases, bugs, roots, coverage)
         try:
             for filename, content in pages.items():
