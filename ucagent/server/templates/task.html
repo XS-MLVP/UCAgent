@@ -67,6 +67,16 @@
   .created-cell{max-width:152px}
   .dut-cell{max-width:110px}
   .registered-cell{max-width:128px}
+  .queue-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+  .queue-item{display:flex;align-items:center;gap:10px;padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface2)}
+  .queue-item.dragging{opacity:.55;border-style:dashed}
+  .queue-item.drag-over{border-color:var(--accent)}
+  .queue-pos{min-width:30px;font-weight:600;color:var(--text-dim)}
+  .queue-handle{color:var(--text-dim);cursor:grab;user-select:none}
+  .queue-main{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1}
+  .queue-title{display:flex;align-items:center;gap:8px;min-width:0}
+  .queue-meta{font-size:11px;color:var(--text-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .queue-actions{margin-left:auto;display:flex;gap:4px;align-items:center}
   @media (max-width: 1280px){main{grid-template-columns:1fr}.detail-card{position:static;max-height:none}.grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
   @media (max-width: 1080px){.grid{grid-template-columns:1fr}}
 </style>
@@ -90,7 +100,7 @@
       <div class="grid">
         <div>
           <label>Status</label>
-          <select id="filter-status">
+          <select id="filter-status" title="Waiting tasks are listed separately in the Launch Queue above">
             <option value="">All</option>
             <option value="pending">pending</option>
             <option value="starting">starting</option>
@@ -123,11 +133,18 @@
       </div>
     </div>
 
+    <div id="queue-card" style="display:none">
+      <h2>Launch Queue</h2>
+      <div id="queue-summary" class="muted" style="margin-bottom:10px">Loading…</div>
+      <ol id="queue-list" class="queue-list"></ol>
+    </div>
+
     <div>
       <h2>Task List</h2>
       <div id="task-summary-banner" class="summary-banner">
         <strong id="task-summary">Loading…</strong>
         <span id="task-filter-summary" class="summary-chip muted">Filters: none</span>
+        <span id="task-max-parallel" class="summary-chip muted" title="Maximum managed tasks executing in parallel (master_api.max_task_count); extra launches wait in the launch queue">Max parallel: —</span>
       </div>
       <div class="toolbar">
         <div class="toolbar-left">
@@ -183,6 +200,9 @@
 let currentTaskId = '';
 let allTasks = [];
 let totalTaskCount = 0;
+let maxTaskCount = 0;
+let waitingQueue = [];
+let draggingTaskId = '';
 let showDeleteControls = false;
 let logAutoScroll = true;
 const pendingAutoDeleteTimers = new Map();
@@ -390,6 +410,10 @@ function isTaskActive(task) {
   return ['starting', 'running'].includes(String(task?.process_status || '').toLowerCase());
 }
 
+function isWaitingTask(task) {
+  return String(task?.process_status || '').toLowerCase() === 'waiting';
+}
+
 function taskCleanupActions(task) {
   if (!showDeleteControls) return '';
   const taskId = String(task?.task_id || '');
@@ -497,6 +521,11 @@ function directTerminalTarget(task) {
 }
 
 function terminalTarget(task) {
+  if (isWaitingTask(task)) {
+    // A waiting task has no child services yet; the launch request may still
+    // carry a web_console spec, which must not produce a clickable link.
+    return null;
+  }
   if (isMasterTaskPage() && task?.terminal_api?.enabled) {
     return { href: `/task/${encodeURIComponent(task.task_id)}/terminal/`, label: 'Terminal', title: 'Open Web Terminal' };
   }
@@ -558,7 +587,7 @@ function activeFilterSummary() {
 }
 
 function updateTaskSummary() {
-  const matched = (allTasks || []).length;
+  const matched = (allTasks || []).filter((task) => !isWaitingTask(task)).length;
   const filters = activeFilterSummary();
   const headline = matched === totalTaskCount
     ? `Showing ${matched} / ${totalTaskCount} task(s)`
@@ -570,14 +599,20 @@ function updateTaskSummary() {
   document.getElementById('task-filter-summary').textContent = filters.length
     ? `Filters: ${filters.join(', ')}`
     : 'Filters: none';
+  const maxParallel = document.getElementById('task-max-parallel');
+  if (maxParallel) maxParallel.textContent = maxTaskCount > 0 ? `Max parallel: ${maxTaskCount}` : 'Max parallel: —';
 }
 
 function renderTaskRows() {
   const tbody = document.getElementById('task-rows');
-  const rows = allTasks || [];
+  // Waiting tasks are listed only in the Launch Queue panel, never in the table.
+  const rows = (allTasks || []).filter((task) => !isWaitingTask(task));
   updateTaskSummary();
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="9" class="muted">No managed tasks.</td></tr>';
+    const waitingNote = waitingQueue.length
+      ? ` ${waitingQueue.length} waiting task(s) are listed in the Launch Queue above.`
+      : '';
+    tbody.innerHTML = `<tr><td colspan="9" class="muted">No managed tasks.${esc(waitingNote)}</td></tr>`;
     document.getElementById('page-info').dataset.page = '1';
     document.getElementById('page-info').textContent = 'Page 1 / 1';
     document.getElementById('page-prev').disabled = true;
@@ -623,13 +658,19 @@ async function loadTasks() {
   const q = document.getElementById('filter-q').value.trim();
   const url = `/api/tasks?status=${encodeURIComponent(status)}&dut=${encodeURIComponent(dut)}&q=${encodeURIComponent(q)}`;
   try {
-    const [data, totalData] = await Promise.all([
+    const [data, totalData, waitingData] = await Promise.all([
       api(url),
       api('/api/tasks'),
+      api('/api/tasks?status=waiting'),
     ]);
     allTasks = data.tasks || [];
-    totalTaskCount = Number(totalData.count || (totalData.tasks || []).length || 0);
+    totalTaskCount = (totalData.tasks || []).filter((task) => !isWaitingTask(task)).length;
+    maxTaskCount = Number(data.max_task_count || totalData.max_task_count || 0);
+    waitingQueue = (waitingData.tasks || [])
+      .slice()
+      .sort((a, b) => (a.queue_position || 0) - (b.queue_position || 0));
     renderTaskRows();
+    refreshQueuePanel();
   } catch (err) {
     document.getElementById('task-summary').textContent = 'Failed to load tasks.';
     document.getElementById('task-summary-detail').textContent = 'Task summary unavailable.';
@@ -652,14 +693,17 @@ async function showTask(taskId) {
         <div class="detail-meta">
           <strong>Task ID</strong><div><code>${esc(task.task_id)}</code></div>
           <strong>Status</strong><div>${badge(task.process_status)}</div>
+          ${isWaitingTask(task) ? `<strong>Queue</strong><div>#${esc(task.queue_position || '—')} of the launch queue — starts automatically in submission order when a task slot frees up${maxTaskCount ? ` (max parallel: ${maxTaskCount})` : ''}</div>` : ''}
           <strong>Created</strong><div>${esc(formatTimestamp(task.created_at))}</div>
           <strong>Started</strong><div>${esc(formatTimestamp(task.started_at))}</div>
           <strong>Workspace</strong><div><code>${esc(task.workspace_dir)}</code></div>
           <strong>PID</strong><div>${task.pid || '—'}</div>
           <strong>Registered Agent</strong><div>${esc(task.registered_agent_id || '—')}</div>
           <strong>Picker</strong><div>${badge(task.picker_status || 'not_started')}</div>
-          <strong>CMD Proxy</strong><div><a href="/task/${encodeURIComponent(task.task_id)}/cmd/" target="_blank">/task/${esc(task.task_id)}/cmd/</a></div>
-          <strong>Terminal</strong><div>${terminal ? `<a href="${terminal.href}" target="_blank">${esc(terminal.title)}</a>` : '—'}</div>
+          <strong>CMD Proxy</strong><div>${isWaitingTask(task)
+            ? `<code>/task/${esc(task.task_id)}/cmd/</code> <span class="muted">(available after the task starts)</span>`
+            : `<a href="/task/${encodeURIComponent(task.task_id)}/cmd/" target="_blank">/task/${esc(task.task_id)}/cmd/</a>`}</div>
+          <strong>Terminal</strong><div>${terminal ? `<a href="${terminal.href}" target="_blank">${esc(terminal.title)}</a>` : (isWaitingTask(task) ? '<span class="muted">available after the task starts</span>' : '—')}</div>
         </div>
         <div>
           <strong>Command</strong>
@@ -681,6 +725,133 @@ async function showTask(taskId) {
     }
     document.getElementById('task-detail').innerHTML = `<div class="err">${esc(err.message)}</div>`;
     setTaskLogs('', true);
+  }
+}
+
+function queueItemHtml(task, index) {
+  const taskId = String(task.task_id || '');
+  const dut = taskDutCell(task);
+  const createdTs = formatTimestamp(task.created_at);
+  const queuedTs = formatTimestamp(task.queued_at || task.created_at);
+  const metaParts = [];
+  if (dut.title && dut.title !== '—') metaParts.push(`DUT: ${dut.title}`);
+  metaParts.push(`Created: ${createdTs}`);
+  metaParts.push(`Queued: ${queuedTs}`);
+  const meta = metaParts.join(' · ');
+  const first = index === 0;
+  const last = index === waitingQueue.length - 1;
+  return `
+    <li class="queue-item" draggable="true" data-task-id="${esc(taskId)}"
+        ondragstart="queueDragStart('${esc(taskId)}', event)"
+        ondragover="queueDragOver('${esc(taskId)}', event)"
+        ondragleave="this.classList.remove('drag-over')"
+        ondrop="queueDrop('${esc(taskId)}', event)"
+        ondragend="queueDragEnd()">
+      <span class="queue-pos" title="Position in the launch queue">#${index + 1}</span>
+      <span class="queue-handle" title="Drag to change the start order">⠿</span>
+      <div class="queue-main">
+        <div class="queue-title">
+          <button class="btn truncate task-cell" onclick="showTask('${esc(taskId)}')" title="${esc(taskId)}">${esc(taskId)}</button>
+        </div>
+        <div class="queue-meta truncate" title="${esc(meta)}">${esc(meta)}</div>
+      </div>
+      <span class="queue-actions">
+        <button class="btn" onclick="moveWaitingTask('${esc(taskId)}', -1)" ${first ? 'disabled' : ''} title="Start earlier">▲</button>
+        <button class="btn" onclick="moveWaitingTask('${esc(taskId)}', 1)" ${last ? 'disabled' : ''} title="Start later">▼</button>
+        <button class="btn btn-danger" onclick="cancelWaitingTask('${esc(taskId)}')" title="Cancel this waiting task and delete its workspace directory">Cancel</button>
+      </span>
+    </li>`;
+}
+
+function refreshQueuePanel() {
+  const card = document.getElementById('queue-card');
+  if (!card) return;
+  card.style.display = waitingQueue.length ? '' : 'none';
+  if (!waitingQueue.length) return;
+  document.getElementById('queue-summary').textContent =
+    `${waitingQueue.length} task(s) waiting · max parallel ${maxTaskCount || '—'} · drag rows or use ▲▼ to change the start order`;
+  document.getElementById('queue-list').innerHTML = waitingQueue.map(queueItemHtml).join('');
+}
+
+async function applyWaitingOrder() {
+  const taskIds = waitingQueue.map((task) => String(task.task_id || ''));
+  if (taskIds.length < 2) return;
+  try {
+    await api('/api/tasks/waiting/order', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ task_ids: taskIds }),
+    });
+  } catch (err) {
+    alert(err.message);
+  }
+  await loadTasks();
+}
+
+function moveWaitingTask(taskId, offset) {
+  const index = waitingQueue.findIndex((task) => String(task.task_id || '') === taskId);
+  const target = index + offset;
+  if (index < 0 || target < 0 || target >= waitingQueue.length) return;
+  const [moved] = waitingQueue.splice(index, 1);
+  waitingQueue.splice(target, 0, moved);
+  refreshQueuePanel();
+  applyWaitingOrder();
+}
+
+function moveWaitingTaskTo(taskId, targetId) {
+  const from = waitingQueue.findIndex((task) => String(task.task_id || '') === taskId);
+  const to = waitingQueue.findIndex((task) => String(task.task_id || '') === targetId);
+  if (from < 0 || to < 0 || from === to) return;
+  const [moved] = waitingQueue.splice(from, 1);
+  waitingQueue.splice(to, 0, moved);
+  refreshQueuePanel();
+  applyWaitingOrder();
+}
+
+function queueDragStart(taskId, event) {
+  draggingTaskId = taskId;
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', taskId);
+  }
+  const item = event.currentTarget;
+  if (item) item.classList.add('dragging');
+}
+
+function queueDragOver(taskId, event) {
+  event.preventDefault();
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+  const item = event.currentTarget;
+  if (item && taskId !== draggingTaskId) item.classList.add('drag-over');
+}
+
+function queueDrop(taskId, event) {
+  event.preventDefault();
+  const item = event.currentTarget;
+  if (item) item.classList.remove('drag-over');
+  const dragged = draggingTaskId;
+  queueDragEnd();
+  if (!dragged || dragged === taskId) return;
+  moveWaitingTaskTo(dragged, taskId);
+}
+
+function queueDragEnd() {
+  draggingTaskId = '';
+  document.querySelectorAll('.queue-item.dragging, .queue-item.drag-over')
+    .forEach((item) => item.classList.remove('dragging', 'drag-over'));
+}
+
+async function cancelWaitingTask(taskId) {
+  if (!requireDeleteControls()) return;
+  if (!confirm(`Cancel waiting task ${taskId}? The task record and its workspace directory will be deleted.`)) return;
+  try {
+    await api(`/api/task/${encodeURIComponent(taskId)}`, { method: 'DELETE' });
+    if (currentTaskId === taskId) {
+      clearCurrentTaskSelection('Waiting task cancelled.');
+    }
+    await loadTasks();
+  } catch (err) {
+    alert(err.message);
   }
 }
 
