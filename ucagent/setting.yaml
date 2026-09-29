@@ -135,7 +135,7 @@ launch:
     stream_output: true               # -s flag
     human: true                       # -hm flag
     tui: true                         # --tui flag
-    backend: "langchain"              # --backend flag, options: langchain, claude, opencode, copilot, qwen, iflow, kilo, codex
+    backend: "opencode"               # --backend flag, options: langchain, claude, opencode, copilot, qwen, iflow, kilo, codex
     mcp_server_no_file_tools: false
     force_stage_index: 0              # stage index to start
     exit_on_completion: true          # --exit-on-completion flag
@@ -185,11 +185,9 @@ launch:
     - "OPENAI_MODEL"
     - "OPENAI_API_KEY"
     - "OPENAI_API_BASE"
-    - "OPENAI_CONTEXT_SIZE"
-    - "OPENAI_OUTPUT_SIZE"
     - "ENABLE_LLM_SUGGESTION": false
-    - "NEED_REF_MODEL": false
-    - "IGNORE_MOCK_COMPONENT": true
+    - "NEED_REF_MODEL": true
+    - "IGNORE_MOCK_COMPONENT": false
     - "ENABLE_LLM_FAIL_SUGGESTION": "$ENABLE_LLM_SUGGESTION"
     - "FAIL_SUGGESTION_MODEL": "$OPENAI_MODEL"
     - "FAIL_SUGGESTION_API_BASE": "$OPENAI_API_BASE"
@@ -211,7 +209,6 @@ launch:
     - "ANTHROPIC_DEFAULT_HAIKU_MODEL": "$ANTHROPIC_SML_MODEL"
     - "CLAUDE_CODE_SUBAGENT_MODEL": "$ANTHROPIC_SML_MODEL"
     - "CLAUDE_CODE_EFFORT_LEVEL": "max"
-    - "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "$OPENAI_CONTEXT_SIZE"
 
 # Model support: openai, anthropic, google_genai
 model_type: $(UC_MODEL_TYPE: openai)
