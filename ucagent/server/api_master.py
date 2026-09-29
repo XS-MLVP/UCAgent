@@ -126,6 +126,27 @@ _LAUNCH_MODE_LABELS = {
     "k8s": "Kubernetes",
 }
 _CONTAINER_LAUNCH_MODES = {"docker", "docker_swarm", "k8s"}
+# A task occupies one execution slot from these statuses until it reaches a
+# terminal status; waiting tasks are queued and do not consume a slot.
+_ACTIVE_TASK_STATUSES = {"pending", "starting", "running", "stopping"}
+_WAITING_TASK_STATUS = "waiting"
+
+
+def _task_queue_seq(task: Dict[str, Any]) -> float:
+    """Effective launch-queue sequence of a waiting task record.
+
+    Records enqueued after queue reordering support always carry ``queue_seq``;
+    falling back to ``created_at`` keeps legacy hand-made records ordered by
+    submission time instead of jumping the queue.
+    """
+    for key in ("queue_seq", "created_at"):
+        try:
+            value = float(task.get(key) or 0)
+        except (TypeError, ValueError):
+            continue
+        if value > 0:
+            return value
+    return 0.0
 _MASTER_SOURCE_CONTAINER_PATH = "/UCAgent"
 _K8S_JOB_STATUS_JSONPATH = "{.status.active} {.status.succeeded} {.status.failed}"
 _SWARM_SERVICE_PREFIX = "ucagent-"
@@ -916,6 +937,14 @@ class PdbMasterApiServer:
         self._compile_runtime: Dict[str, Dict[str, Any]] = {}
         self._compile_runtime_lock = threading.Lock()
         self._workspace_cleanup_lock = threading.Lock()
+        # Serializes saturation checks with task starts so concurrent launches
+        # cannot each grab the last free execution slot. Reentrant because
+        # waiting-task dispatch re-enters the launch path while holding it.
+        self._launch_lock = threading.RLock()
+        # Monotonic sequence for the waiting launch queue. Anchored at process
+        # start time so persisted waiting records from an earlier run keep their
+        # relative order ahead of everything enqueued by this run.
+        self._waiting_seq = _now()
 
         self._running = False
         self.started_at: Optional[float] = None
@@ -4831,6 +4860,10 @@ class PdbMasterApiServer:
         remembered_launch_agents: List[Tuple[str, str]] = []
         with self._tasks_lock:
             for task_id, task in list(self._tasks.items()):
+                if str(task.get("process_status") or "") == _WAITING_TASK_STATUS:
+                    # Waiting tasks have no process, agent, or services to probe;
+                    # the dispatch loop starts them when a slot frees up.
+                    continue
                 launch_mode = task.get("launch_mode", "process")
                 pid = task.get("pid")
                 runtime = self._task_runtime.get(task_id)
@@ -4945,6 +4978,25 @@ class PdbMasterApiServer:
             self._remember_agent_launch_task_id(agent_id, task_id)
 
     def _run_task_launch(self, req: Dict[str, Any]) -> Dict[str, Any]:
+        """Validate a launch request and start it, or queue it when the master is saturated.
+
+        A task occupies one execution slot from creation until it finishes. When
+        active tasks already fill ``master_api.max_task_count`` slots, or earlier
+        submissions are still waiting, the validated request is stored as a
+        ``waiting`` task and started automatically in submission order once a
+        slot frees up.
+        """
+        with self._launch_lock:
+            req = self._normalized_launch_request(req)
+            ws, prepared, compile_info, picker_status = self._validated_launch_context(req)
+            if picker_status == "success" and (
+                self._waiting_tasks() or self._active_task_count() >= self._max_task_count()
+            ):
+                return self._enqueue_waiting_task(req, ws, prepared)
+            return self._launch_validated_task(req, ws, prepared, compile_info, picker_status)
+
+    def _normalized_launch_request(self, req: Dict[str, Any]) -> Dict[str, Any]:
+        """Merge launch default args, resolve the launch mode, and ensure a client id."""
         req = dict(req)
         default_args = self.cfg.get_value("launch.default_args", {}) or {}
         if hasattr(default_args, "as_dict"):
@@ -4968,6 +5020,16 @@ class PdbMasterApiServer:
         self._ensure_launch_mode_supported(launch_mode)
         if not str(req.get("client_id") or "").strip():
             req["client_id"] = uuid.uuid4().hex
+        return req
+
+    def _validated_launch_context(
+        self, req: Dict[str, Any]
+    ) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any], str]:
+        """Validate a launch request against the current workspace state.
+
+        Returns ``(workspace, prepared, compile_info, picker_status)``. Raises
+        ``ValueError`` when the request has no usable compiled workspace.
+        """
         workspace_id = req.get("workspace_id", "")
         if not workspace_id:
             raise ValueError("'workspace_id' is required for launch")
@@ -5075,6 +5137,211 @@ class PdbMasterApiServer:
         if compiled_config and (not current_config or current_config == os.path.basename(compiled_config)):
             req["config"] = compiled_config
 
+        return ws, prepared, compile_info, picker_status
+
+    def _max_task_count(self) -> int:
+        """Maximum number of tasks the master executes in parallel."""
+        raw = self.cfg.get_value("master_api.max_task_count", 100)
+        try:
+            value = int(raw)
+        except (TypeError, ValueError):
+            return 100
+        return value if value > 0 else 100
+
+    def _active_task_count(self) -> int:
+        """Number of tasks currently occupying an execution slot."""
+        with self._tasks_lock:
+            return sum(
+                1
+                for task in self._tasks.values()
+                if str(task.get("process_status") or "") in _ACTIVE_TASK_STATUSES
+            )
+
+    def _waiting_tasks(self) -> List[Dict[str, Any]]:
+        """Waiting tasks ordered by their launch-queue sequence."""
+        with self._tasks_lock:
+            waiting = [
+                task
+                for task in self._tasks.values()
+                if str(task.get("process_status") or "") == _WAITING_TASK_STATUS
+            ]
+        waiting.sort(key=lambda task: (_task_queue_seq(task), str(task.get("task_id") or "")))
+        return waiting
+
+    def _reorder_waiting_tasks(self, task_ids: List[Any]) -> List[str]:
+        """Reassign the waiting launch-queue order to match ``task_ids``.
+
+        ``task_ids`` must list every currently waiting task exactly once, in
+        the desired start order. Returns the ordered task ids. New submissions
+        always land after the reordered block.
+        """
+        normalized = [str(item or "").strip() for item in (task_ids or [])]
+        if not normalized:
+            raise ValueError("'task_ids' must list every waiting task in the desired start order")
+        if len(set(normalized)) != len(normalized):
+            raise ValueError("'task_ids' contains duplicate task ids")
+        # Held together with the launch lock so a reorder can never interleave
+        # with a dispatch decision or a concurrent enqueue.
+        with self._launch_lock:
+            with self._tasks_lock:
+                waiting_by_id = {
+                    str(task.get("task_id") or ""): task
+                    for task in self._tasks.values()
+                    if str(task.get("process_status") or "") == _WAITING_TASK_STATUS
+                }
+                unknown = [task_id for task_id in normalized if task_id not in waiting_by_id]
+                if unknown:
+                    raise ValueError(f"Task(s) not in the waiting queue: {', '.join(unknown)}")
+                missing = [task_id for task_id in waiting_by_id if task_id not in set(normalized)]
+                if missing:
+                    raise ValueError(f"'task_ids' is missing waiting task(s): {', '.join(missing)}")
+                base = self._waiting_seq
+                for index, task_id in enumerate(normalized):
+                    waiting_by_id[task_id]["queue_seq"] = base + index
+                self._waiting_seq = base + len(normalized)
+            self._mark_dirty()
+        return normalized
+
+    def _waiting_queue_positions(self) -> Dict[str, int]:
+        """Map each waiting task id to its 1-based position in the launch queue."""
+        return {
+            str(task.get("task_id") or ""): position
+            for position, task in enumerate(self._waiting_tasks(), start=1)
+        }
+
+    def _enqueue_waiting_task(
+        self, req: Dict[str, Any], ws: Dict[str, Any], prepared: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Store a validated launch request as a waiting task record."""
+        workspace_id = str(ws.get("workspace_id") or "")
+        task = self._create_task_record({
+            "task_id": str(ws.get("task_id") or workspace_id).strip(),
+            "task_name": req.get("task_name") or (req.get("selected_module") or "").strip(),
+            "client_id": req.get("client_id", ""),
+            "workspace_id": workspace_id,
+            "launch_mode": _normalize_launch_mode(req.get("launch_mode", "process")),
+            "workspace_dir": prepared["workspace_dir"],
+            "dut_name": prepared["dut_name"],
+            "selected_module": (req.get("selected_module") or "").strip(),
+            "main_verilog_path": prepared.get("main_verilog_path", ""),
+            "env": req.get("env") or {},
+            "cli_args_structured": req,
+            "cli_args_extra": req.get("extra_args", []),
+            "cmd_api": {"enabled": False, "status": _WAITING_TASK_STATUS},
+            "terminal_api": {"enabled": False, "status": _WAITING_TASK_STATUS},
+            "web_console": {"enabled": False, "status": _WAITING_TASK_STATUS},
+        })
+        task["process_status"] = _WAITING_TASK_STATUS
+        task["queued_at"] = _now()
+        task["queue_seq"] = self._waiting_seq
+        self._waiting_seq += 1
+        task["waiting_request"] = dict(req)
+        self._append_task_log(
+            task["stderr_log_path"],
+            f"Task queued at position {len(self._waiting_tasks())}: "
+            f"{self._active_task_count()}/{self._max_task_count()} task slot(s) in use. "
+            "It starts automatically in submission order when a slot frees up.",
+        )
+        self._mark_dirty()
+        return task
+
+    def _dispatch_waiting_tasks(self) -> None:
+        """Start waiting tasks in submission order while execution slots are free."""
+        while True:
+            with self._launch_lock:
+                waiting = self._waiting_tasks()
+                if not waiting or self._active_task_count() >= self._max_task_count():
+                    return
+                first = waiting[0]
+                task_id = str(first.get("task_id") or "")
+                req = dict(first.get("waiting_request") or {})
+                with self._tasks_lock:
+                    current = self._tasks.get(task_id)
+                    if current is None or current.get("process_status") != _WAITING_TASK_STATUS:
+                        continue
+                    del self._tasks[task_id]
+                self._mark_dirty()
+                if not req:
+                    self._record_dispatch_failure(
+                        task_id, {}, ValueError("Waiting task record has no launch request")
+                    )
+                    continue
+                try:
+                    # Bypass the saturation check: this slot was reserved by the
+                    # check above while holding the launch lock.
+                    dispatched = self._normalized_launch_request(req)
+                    ws, prepared, compile_info, picker_status = self._validated_launch_context(dispatched)
+                    self._launch_validated_task(dispatched, ws, prepared, compile_info, picker_status)
+                except Exception as exc:
+                    self._record_dispatch_failure(task_id, req, exc)
+
+    def _record_dispatch_failure(self, task_id: str, req: Dict[str, Any], exc: Exception) -> None:
+        """Keep a failed task record when a dequeued waiting task cannot start."""
+        with self._tasks_lock:
+            already_recorded = task_id in self._tasks
+        if already_recorded:
+            return
+        task = self._create_task_record({
+            "task_id": task_id,
+            "task_name": req.get("task_name") or (req.get("selected_module") or "").strip() or task_id,
+            "client_id": req.get("client_id", ""),
+            "workspace_id": req.get("workspace_id", ""),
+            "launch_mode": _normalize_launch_mode(req.get("launch_mode", "process")),
+            "cli_args_structured": req,
+            "cli_args_extra": req.get("extra_args", []),
+            "cmd_api": {"enabled": False, "status": "stopped"},
+            "terminal_api": {"enabled": False, "status": "stopped"},
+            "web_console": {"enabled": False, "status": "stopped"},
+        })
+        task["process_status"] = "failed"
+        task["finished_at"] = _now()
+        self._append_task_log(task["stderr_log_path"], f"Waiting task launch failed: {exc}")
+        self._mark_dirty()
+        _master_log(f"Waiting task '{task_id}' failed to start: {exc}")
+
+    def _purge_waiting_task_workspace(self, task: Dict[str, Any]) -> str:
+        """Remove a cancelled waiting task's workspace record and directory.
+
+        Returns the removed directory path, or an empty string when the
+        directory was kept because it failed the launch-workspace safety
+        checks (for example a manually registered relaunch workspace).
+        """
+        workspace_id = str(task.get("workspace_id") or "").strip()
+        ws_snapshot: Dict[str, Any] = {}
+        if workspace_id:
+            with self._workspaces_lock:
+                ws_snapshot = dict(self._workspaces.get(workspace_id) or {})
+                self._workspaces.pop(workspace_id, None)
+            with self._compile_runtime_lock:
+                self._compile_runtime.pop(workspace_id, None)
+        ws_dir = str(ws_snapshot.get("workspace_dir") or task.get("workspace_dir") or "")
+        if not ws_dir or not self._launch_tmp_marker_matches(workspace_id, ws_dir):
+            if ws_dir:
+                _master_log(
+                    f"Kept cancelled waiting task directory '{ws_dir}' (launch workspace safety check failed)"
+                )
+            self._mark_dirty()
+            return ""
+        self._remove_path(ws_dir)
+        self._mark_dirty()
+        return ws_dir
+
+    def _launch_validated_task(
+        self,
+        req: Dict[str, Any],
+        ws: Dict[str, Any],
+        prepared: Dict[str, Any],
+        compile_info: Dict[str, Any],
+        picker_status: str,
+    ) -> Dict[str, Any]:
+        """Start an already validated launch request as a managed task.
+
+        Allocates the child service ports, creates the task record, starts the
+        process/container, and marks the workspace as launched.
+        """
+        launch_mode = _normalize_launch_mode(req.get("launch_mode", "process"))
+        workspace_id = str(req.get("workspace_id") or "")
+        selected_module = (req.get("selected_module") or "").strip()
         cmd_api_host, cmd_api_port, cmd_api_password = _parse_service_spec(
             req.get("export_cmd_api", ""),
             "127.0.0.1",
@@ -5290,6 +5557,9 @@ class PdbMasterApiServer:
             data["terminal_api"].pop("password", None)
         if isinstance(data.get("web_console"), dict):
             data["web_console"].pop("password", None)
+        # The stored launch request is internal dispatch state and may carry
+        # environment values; never expose it through the API.
+        data.pop("waiting_request", None)
         if include_logs:
             logs = _task_logs_for_display(task)
             data["stdout_tail"] = logs["stdout"]
@@ -6678,6 +6948,7 @@ class PdbMasterApiServer:
             valid_sort = {"id", "host", "status", "last_seen", "first_seen", "current_stage_index"}
             if sort_by not in valid_sort:
                 sort_by = "last_seen"
+            waiting_task_count = len(self._waiting_tasks())
             with self._agents_lock:
                 data = []
                 for agent in self._agents.values():
@@ -6746,6 +7017,7 @@ class PdbMasterApiServer:
                 "count": total_count,
                 "online_count": online_count,
                 "offline_count": offline_count,
+                "waiting_task_count": waiting_task_count,
                 "page": page,
                 "page_size": page_size,
                 "total_pages": total_pages,
@@ -7466,6 +7738,7 @@ class PdbMasterApiServer:
             q = q.strip().lower()
             with self._tasks_lock:
                 tasks = [self._task_public(task) for task in self._tasks.values()]
+            queue_positions = self._waiting_queue_positions()
             data = []
             for task in tasks:
                 if status and task.get("process_status", "").lower() != status:
@@ -7476,9 +7749,25 @@ class PdbMasterApiServer:
                 hay = f"{task.get('task_id', '')} {task.get('pid', '')} {task.get('workspace_dir', '')}".lower()
                 if q and q not in hay:
                     continue
+                if str(task.get("process_status") or "") == _WAITING_TASK_STATUS:
+                    task["queue_position"] = queue_positions.get(str(task.get("task_id") or ""))
                 data.append(task)
             data.sort(key=lambda item: item.get("created_at", 0), reverse=True)
-            return {"status": "ok", "tasks": data, "count": len(data)}
+            return {"status": "ok", "tasks": data, "count": len(data), "max_task_count": self._max_task_count()}
+
+        @app.post("/api/tasks/waiting/order", summary="Reorder the waiting launch queue", dependencies=[Depends(_check_password)])
+        def reorder_waiting_tasks(body: Dict[str, Any] = Body(default_factory=dict)):
+            task_ids = body.get("task_ids")
+            if not isinstance(task_ids, list):
+                raise HTTPException(
+                    status_code=400,
+                    detail="'task_ids' must be a list of every waiting task id in the desired start order",
+                )
+            try:
+                order = self._reorder_waiting_tasks(task_ids)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            return {"status": "ok", "task_ids": order, "count": len(order)}
 
         _STATIC_DIR = pathlib.Path(__file__).resolve().parent / "static"
 
@@ -7501,7 +7790,10 @@ class PdbMasterApiServer:
                 task = self._get_task(task_id)
             except KeyError as exc:
                 raise HTTPException(status_code=404, detail=str(exc)) from exc
-            return {"status": "ok", "task": self._task_public(task, include_logs=True)}
+            data = self._task_public(task, include_logs=True)
+            if str(data.get("process_status") or "") == _WAITING_TASK_STATUS:
+                data["queue_position"] = self._waiting_queue_positions().get(task_id)
+            return {"status": "ok", "task": data}
 
         @app.get("/api/task/{task_id}/command", summary="Managed task command", dependencies=[Depends(_check_password)])
         def get_task_command(task_id: str):
@@ -7535,6 +7827,16 @@ class PdbMasterApiServer:
                 raise HTTPException(status_code=404, detail=str(exc)) from exc
             if task["process_status"] in {"stopped", "failed"}:
                 return {"status": "ok", "task": self._task_public(task), "message": "Task already stopped"}
+            if task["process_status"] == _WAITING_TASK_STATUS:
+                # Nothing is executing yet; leaving the queue keeps the record
+                # and its workspace so the task can be relaunched later.
+                task["process_status"] = "stopped"
+                task["finished_at"] = _now()
+                task["cmd_api"]["status"] = "stopped"
+                task["terminal_api"]["status"] = "stopped"
+                self._append_task_log(task["stderr_log_path"], "Task removed from the waiting queue before it started.")
+                self._mark_dirty()
+                return {"status": "ok", "task": self._task_public(task), "message": "Task removed from waiting queue"}
             task["process_status"] = "stopping"
             force = bool((body or {}).get("force"))
             self._terminate_task(task, force=force)
@@ -7558,6 +7860,13 @@ class PdbMasterApiServer:
                     raise HTTPException(status_code=400, detail="Running task cannot be deleted")
                 task_snapshot = dict(task)
                 del self._tasks[task_id]
+            if task_snapshot.get("process_status") == _WAITING_TASK_STATUS:
+                # Cancelling a waiting task also drops its workspace so the
+                # queued submission leaves nothing behind.
+                removed_dir = self._purge_waiting_task_workspace(task_snapshot)
+                self._close_task_runtime(task_id)
+                self._mark_dirty()
+                return {"status": "ok", "removed_workspace_dir": removed_dir}
             self._remember_task_launch_agent(task_snapshot)
             self._close_task_runtime(task_id)
             self._mark_dirty()
@@ -8296,6 +8605,7 @@ class PdbMasterApiServer:
                     del self._online_cache[aid]
 
             self._refresh_task_states()
+            self._dispatch_waiting_tasks()
 
             if (now - self._last_launch_cleanup) >= _LAUNCH_CLEANUP_INTERVAL_SECONDS:
                 self._last_launch_cleanup = now

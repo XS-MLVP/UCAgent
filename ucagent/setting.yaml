@@ -108,6 +108,7 @@ cmd_api:
 master_api:
   host: 0.0.0.0
   port: 8800
+  max_task_count: 100        # max tasks executing in parallel; extra launches wait in queue and start in submission order
   sync_workspace:
     on_stage_complete: true  # client uploads workspace back to master after each completed stage when supported
     on_exit: true            # client uploads zipped workspace back to master on exit when supported
