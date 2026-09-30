@@ -7,6 +7,8 @@ name = "ucagent-rtl2spec"
 version = "0.4.0"
 description = "UCAgent plugin for evidence-based XiangShan design document generation"
 readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE.md"]
 requires-python = ">=3.11"
 dependencies = ["UCAgent>=26.9.2.dev14", "markdown-it-py>=3,<5"]
 

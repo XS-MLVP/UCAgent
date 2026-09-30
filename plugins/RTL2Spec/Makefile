@@ -10,7 +10,7 @@ repo-lint:
 	python3 -m rtl2spec.repository
 
 template-check:
-	python3 -m rtl2spec.rendering --document "$(TEMPLATE)" --output-dir .cache/mermaid-check/template
+	python3 -c 'from pathlib import Path; from rtl2spec.documents import markdown_tokens; markdown_tokens(Path("$(TEMPLATE)").read_text(encoding="utf-8"))'
 
 plugin-check:
 	ucagent --validate-plugin .

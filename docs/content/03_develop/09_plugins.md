@@ -18,7 +18,7 @@ Tool、Checker、模板、Skill 与工作流的组合。
 
 | 内容 | 维护位置 |
 | :--- | :--- |
-| 插件 API、加载机制、通用贡献流程和漏洞报告渠道 | UCAgent 核心及仓库根目录 |
+| 插件 API、加载机制、许可证、版权声明、通用贡献流程和漏洞报告渠道 | UCAgent 核心及仓库根目录 |
 | 清单、打包配置、依赖、实现、工作流、资源和测试 | 各插件目录 |
 | 插件专用忽略规则、编辑规范、文件属性、使用与维护说明 | 各插件目录，可继承仓库通用规则 |
 | 核心和仓库公共 CI | 根目录 `.github/workflows/` |
@@ -34,7 +34,7 @@ Tool、Checker、模板、Skill 与工作流的组合。
 | 项目 | 插件 ID / 工作流 | 主要用途 |
 | :--- | :--- | :--- |
 | [DesignWithPPA](https://github.com/XS-MLVP/UCAgent/blob/main/plugins/DesignWithPPA/README.md) | `design-with-ppa:unit-design-tdd` | 测试驱动 RTL 设计与 PPA 优化 |
-| [RTL2Spec](https://github.com/XS-MLVP/UCAgent/blob/main/plugins/RTL2Spec/README.md) | `rtl2spec:design-document` | 基于 XiangShan 源码和生成 RTL 的证据，交付版本化中文设计与功能检测点文档 |
+| [RTL2Spec](https://github.com/XS-MLVP/UCAgent/blob/main/plugins/RTL2Spec/README.md) | `rtl2spec:design-document` | 基于 XiangShan 源码和生成 RTL 的证据，交付中文设计与功能检测点文档 |
 
 先安装核心，再从 UCAgent 仓库根目录按需安装，例如：
 
@@ -47,6 +47,37 @@ ucagent --validate-plugin rtl2spec
 和 `--plugin-workflow rtl2spec:design-document`。
 源码开发时可将插件 ID 换成 `--plugin ./plugins/RTL2Spec`，无需先安装插件。
 工作区独立于插件实现；随包指导文档和其他资源由选中的工作流自动定位和复制。
+
+### 仓库政策与插件专属说明
+
+同仓插件使用根目录的 `LICENSE`、`NOTICE.md`、`CONTRIBUTING.md`、`SECURITY.md` 和
+`CODE_OF_CONDUCT.md`。通用贡献流程、行为准则及漏洞报告渠道只在根目录维护，插件用链接
+引用，不要求每个插件各放一套同名文件；CLA、CCLA 同样沿用仓库约定。第三方代码或资产
+随附的许可证与归属声明仍需保留。
+
+插件专属内容留在插件目录：`README.md` 只介绍安装和使用；实现结构、测试与打包命令
+写入 `docs/development.md`，工作流细节、工具接口和问题排查等内容按需放在 `docs/`。
+插件专属技术说明不写入根目录的通用政策文件。
+
+### 发行包中的许可证
+
+同仓插件采用根目录 `LICENSE` 的 Apache-2.0 许可，发行包 metadata 必须与之保持一致。
+源码仓库只维护根目录的许可证和版权声明；插件的 `setup.py` 在 setuptools 构建期间复制
+根目录 `LICENSE`、`NOTICE.md`，构建结束后清理临时副本。sdist 包含这两个文件及构建脚本；
+从解压的 sdist 构建 wheel 时使用随包副本，无需访问 UCAgent 仓库。wheel 将副本存放在
+`.dist-info/licenses/` 中。RTL2Spec 和 DesignWithPPA 的 `setup.py` 提供了实际示例。
+
+在插件的 `pyproject.toml` 中声明：
+
+```toml
+[project]
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE.md"]
+```
+
+`license-files` 的路径以插件项目目录为基准，不能写成 `../../LICENSE`。构建入口必须在
+setuptools 读取项目配置前准备文件，同时支持普通安装、可编辑安装和源码包重建。发布前
+核对 sdist 与 wheel 中的文本和根目录文件逐字一致；不要通过手工复制维护第二份许可证。
 
 ## 名称约定
 
@@ -521,8 +552,8 @@ python3 -m venv /tmp/design-with-ppa-verify
 2. `Plugin.version` 与发行包版本一致，`requires_ucagent` 覆盖实际测试版本；
 3. Python 依赖同时出现在发行包 metadata 和 `Plugin.python_requirements` 校验声明中；
 4. 外部命令提供准确名称和可接受的可执行文件替代项；
-5. wheel 中包含所有配置、文档、模板、Skill、脚本和资产；
-6. sdist 中包含 `ucagent-plugin.toml`、测试和构建 wheel 所需的全部文件；
+5. wheel 中包含所有配置、文档、模板、Skill、脚本、资产及根目录许可证和版权声明的副本；
+6. sdist 中包含 `ucagent-plugin.toml`、测试、许可证与版权声明副本及独立构建 wheel 所需的全部文件；
 7. 本地路径、配置搜索路径和安装 entry point 三种发现方式经过测试；
 8. 每个 Tool 通过直接调用、失败边界、MCP schema 转换和工具过滤测试；
 9. 每个 Checker 通过类型校验、短名解析、生命周期及名称冲突测试；
