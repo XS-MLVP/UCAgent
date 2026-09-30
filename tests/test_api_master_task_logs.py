@@ -196,6 +196,46 @@ def test_task_launch_command_preserves_skill_mode(use_skill, expected_option):
         assert expected_option in argv
 
 
+def test_task_launch_command_auto_selects_mcp_port_from_default_args():
+    """Parallel tasks each need their own MCP port instead of the shared config default."""
+    with tempfile.TemporaryDirectory() as master_ws:
+        cfg = Config({
+            "launch": {
+                "file_browser_roots": [],
+                "default_args": {"launch_mode": ["process"], "mcp_server_port": -1},
+            },
+        }).freeze()
+        server = PdbMasterApiServer(workspace=master_ws, cfg=cfg)
+
+        argv, _env = server._build_ucagent_command(
+            server._normalized_launch_request({}),
+            {"workspace_dir": master_ws, "picker_workspace": master_ws, "dut_name": "Adder"},
+            {"host": "0.0.0.0", "port": 8765, "password": "pw"},
+        )
+
+        assert argv[argv.index("--mcp-server-port") + 1] == "-1"
+
+
+def test_task_launch_command_prefers_requested_mcp_port_over_default():
+    """An explicit launch request port overrides the auto-select default."""
+    with tempfile.TemporaryDirectory() as master_ws:
+        cfg = Config({
+            "launch": {
+                "file_browser_roots": [],
+                "default_args": {"launch_mode": ["process"], "mcp_server_port": -1},
+            },
+        }).freeze()
+        server = PdbMasterApiServer(workspace=master_ws, cfg=cfg)
+
+        argv, _env = server._build_ucagent_command(
+            server._normalized_launch_request({"mcp_server_port": 5001}),
+            {"workspace_dir": master_ws, "picker_workspace": master_ws, "dut_name": "Adder"},
+            {"host": "0.0.0.0", "port": 8765, "password": "pw"},
+        )
+
+        assert argv[argv.index("--mcp-server-port") + 1] == "5001"
+
+
 def test_launch_request_env_overrides_default_env():
     with tempfile.TemporaryDirectory() as master_ws:
         cfg = Config({
