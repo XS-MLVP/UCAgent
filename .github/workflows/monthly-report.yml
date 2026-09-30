@@ -1,0 +1,164 @@
+name: AI Monthly Report
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: ai-monthly-report
+  cancel-in-progress: false
+
+jobs:
+  generate:
+    if: github.repository == 'XS-MLVP/UCAgent' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    environment: release-notes-ai
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Read earlier report state
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/${{ github.repository }}/issues?state=all&labels=monthly-report&per_page=100" \
+            --jq '.[]' | jq -s '.' > monthly_issues.json
+
+      - name: Select report window
+        id: window
+        run: |
+          set -euo pipefail
+          python .github/scripts/monthly_report.py prepare \
+            --issues monthly_issues.json \
+            --existing-body existing_issue_body.md \
+            --output "$GITHUB_OUTPUT"
+
+      - name: Collect new commits
+        id: commits
+        env:
+          BASE_SHA: ${{ steps.window.outputs.base_sha }}
+          START_AT: ${{ steps.window.outputs.start_at }}
+          PROJECT_START_AT: ${{ steps.window.outputs.project_start_at }}
+          HEAD_SHA: ${{ steps.window.outputs.head_sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          : > commits_raw.txt
+          projects=("XS-MLVP/UCAgent" "XS-MLVP/toffee" "XS-MLVP/picker" "XS-MLVP/toffee-test")
+          for project in "${projects[@]}"; do
+            name="${project#*/}"
+            if [ "$project" = "XS-MLVP/UCAgent" ]; then
+              repo_dir="."
+              if [ -n "$BASE_SHA" ]; then
+                range="$BASE_SHA..$HEAD_SHA"
+                git -C "$repo_dir" log --no-merges "$range" --pretty=format:"[$name] %h%x09%s%n%b%n<<<END>>>" >> commits_raw.txt
+              else
+                git -C "$repo_dir" log --no-merges "$HEAD_SHA" --since="$START_AT" --pretty=format:"[$name] %h%x09%s%n%b%n<<<END>>>" >> commits_raw.txt
+              fi
+            else
+              clone_root="$(mktemp -d)"
+              repo_dir="$clone_root/$name"
+              git clone --quiet --no-tags --depth 1 "https://x-access-token:${GH_TOKEN}@github.com/$project.git" "$repo_dir"
+              git -C "$repo_dir" fetch --quiet --unshallow || true
+              git -C "$repo_dir" log --no-merges HEAD --since="$PROJECT_START_AT" --pretty=format:"[$name] %h%x09%s%n%b%n<<<END>>>" >> commits_raw.txt
+            fi
+            printf '\n' >> commits_raw.txt
+          done
+          if [ -s commits_raw.txt ] && [ "$(tr -d '[:space:]' < commits_raw.txt)" ]; then
+            echo 'has_commits=true' >> "$GITHUB_OUTPUT"
+            echo "commit_count=$(rg -c '<<<END>>>' commits_raw.txt)" >> "$GITHUB_OUTPUT"
+          else
+            echo 'has_commits=false' >> "$GITHUB_OUTPUT"
+            echo 'commit_count=0' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Generate reader-friendly report
+        if: steps.commits.outputs.has_commits == 'true'
+        id: report
+        env:
+          AI_API_BASE: ${{ vars.AI_API_BASE }}
+          AI_MODEL: ${{ vars.AI_MODEL }}
+          AI_API_KEY: ${{ secrets.AI_API_KEY }}
+          AI_API_BASE_SECRET: ${{ secrets.AI_API_BASE }}
+          AI_MODEL_SECRET: ${{ secrets.AI_MODEL }}
+          AI_CHAT_PATH: ${{ vars.AI_CHAT_PATH }}
+          UPDATE_HEADING: ${{ steps.window.outputs.update_heading }}
+        run: |
+          set -euo pipefail
+          python .github/scripts/monthly_report.py generate \
+            --commits commits_raw.txt \
+            --prompt .github/monthly-report-prompt.md \
+            --heading "$UPDATE_HEADING" \
+            --range-label "${{ steps.window.outputs.range_label }}" \
+            --report MONTHLY_REPORT.md \
+            --metadata monthly_report_meta.json \
+            --output "$GITHUB_OUTPUT"
+
+      - name: Publish or update monthly report issue
+        if: steps.commits.outputs.has_commits == 'true' && steps.report.outputs.publish_ready == 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ steps.window.outputs.issue_number }}
+          ISSUE_TITLE: ${{ steps.window.outputs.issue_title }}
+        run: |
+          set -euo pipefail
+          args=(
+            publish
+            --existing-body existing_issue_body.md
+            --report MONTHLY_REPORT.md
+            --period "${{ steps.window.outputs.period }}"
+            --head-sha "${{ steps.window.outputs.head_sha }}"
+            --generated-at "${{ steps.window.outputs.generated_at }}"
+            --title "$ISSUE_TITLE"
+          )
+          if [ -n "$ISSUE_NUMBER" ]; then
+            args+=(--issue-number "$ISSUE_NUMBER")
+          fi
+          python .github/scripts/monthly_report.py "${args[@]}"
+
+      - name: Write run summary
+        if: always()
+        run: |
+          {
+            echo "## UCAgent 月报"
+            echo
+            echo "- 汇总范围：${{ steps.window.outputs.range_label || '未能确定' }}"
+            echo "- 新增提交：${{ steps.commits.outputs.commit_count || '0' }}"
+            if [ "${{ steps.commits.outputs.has_commits }}" != "true" ]; then
+              echo "- 结果：没有新增内容，本次未更新 Issue。"
+            elif [ "${{ steps.report.outputs.publish_ready }}" = "true" ]; then
+              echo "- 结果：月报已发布或更新。"
+            else
+              echo "- 结果：AI 生成失败，仅保留待审核草稿，未发布 Issue。"
+              echo
+              cat monthly_report_meta.json 2>/dev/null || true
+            fi
+            if [ -f MONTHLY_REPORT.md ]; then
+              echo
+              cat MONTHLY_REPORT.md
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload report inputs and draft
+        if: steps.commits.outputs.has_commits == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: monthly-report-${{ steps.window.outputs.period }}-${{ github.run_number }}
+          path: |
+            MONTHLY_REPORT.md
+            monthly_report_meta.json
+            commits_raw.txt
+          if-no-files-found: error
+
+      - name: Fail when promotional copy needs review
+        if: steps.commits.outputs.has_commits == 'true' && steps.report.outputs.publish_ready != 'true'
+        run: |
+          echo "AI did not produce a publishable report; inspect the uploaded draft and rerun."
+          exit 1
