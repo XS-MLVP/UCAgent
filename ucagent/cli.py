@@ -1292,11 +1292,21 @@ def run() -> None:
     from ucagent.util.log import init_log_logger, init_msg_logger
     from ucagent.util.functions import append_python_path, find_available_port
 
-    # Workflow-owned keys do not exist until its config layer is selected. The
-    # discovery pass needs only plugin search-path overrides; the final agent
-    # config applies and validates the complete override list afterwards.
+    # Workflow-owned keys do not exist until its config layer is selected. A
+    # Master preset may use a symbolic config name (for example, bug_review)
+    # that is supplied entirely by the selected plugin workflow, so it cannot
+    # be required to exist as a standalone YAML file during discovery.
+    discovery_config = args.config
+    if args.plugin_workflow and discovery_config:
+        config_candidates = [
+            os.path.join(os.getcwd(), discovery_config),
+            os.path.join(os.path.expanduser("~"), ".ucagent", discovery_config),
+            os.path.join(os.path.dirname(__file__), "../lang/zh/config", discovery_config),
+        ]
+        if not any(os.path.isfile(os.path.abspath(path)) for path in config_candidates):
+            discovery_config = None
     discovery_cfg = get_config(
-        args.config,
+        discovery_config,
         _plugin_discovery_overrides(args.override),
         args.workspace,
     )
@@ -1329,6 +1339,8 @@ def run() -> None:
         if workflow.template_dir is not None and args.template_dir is not None:
             raise ValueError("plugin workflow template_dir and --template-dir are mutually exclusive")
         workflow_config_file = str(workflow.config_file)
+        if args.config and discovery_config is None:
+            args.config = None
         selected_plugin_workflow = (
             f"{workflow_plugin.plugin.name}:{workflow.name}"
         )

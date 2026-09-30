@@ -39,7 +39,19 @@ python3 serve.py
 
 然后在浏览器打开 `http://127.0.0.1:8765/index.html`。`serve.py` 只用 Python 标准库，仅提供门户和已发布的模块报告；不需要插件源码或 UCAgent。复制或压缩整个 `output/` 时，要保留 `workspace_*/report` 与同目录 `runs/` 的相对链接关系。直接用 `file://` 打开 HTML 时，Surfer 的模块与 WebAssembly 无法正常加载。若签名收据对应的原波形在发布前已轮换，详情页仍显示波形分析与收据，但不提供完整预览按钮。插件开发环境中仍可用 `make bug-review-serve` 启动同一个服务。
 
-## 直接准备与启动
+## 启动前准备输入
+
+输入目录沿用默认 UCAgent 的模块布局，而不是另建 Bug Review 专用 RTL 目录。模块根目录应包含 `launch.yaml`、`unity_test/` 和 RTL；可用的 `filelist.txt` 可以独立作为 Picker 输入，不需要同名顶层 `.v/.sv`。
+
+`prepare-input` 是启动前由 LLM 或操作者执行的独立 Skill。先运行它并根据 `prepare_manifest.json` 完成旧报告的重分析，确认 `bug_reports.reanalysis_required` 为空，再通过 UCAgent Master 的 Launch 页面选择生成目录中的 `workspace_<dut>/launch.yaml`。Master 不调用 `prepare_inputs.py`，也不替缺失报告生成 canonical 文件；它只对已经准备好的输入建立本次运行的隔离快照。
+
+```bash
+python3 ../../skills/bug-review-orchestrator/scripts/prepare_inputs.py \
+  --source ../../examples/bosc_LoadUnit \
+  --input-root inputs
+```
+
+随后从 Master 启动任务；默认工作流和 Bug Review 都使用生成的 `inputs/workspace_bosc_LoadUnit`，只在运行区增加不可变快照和复核结果。下面的 `bug_review.workflow` 命令仅用于不经过 Master 的直接插件运行。
 
 ```bash
 PYTHONPATH=src:../.. python -m bug_review run-analysis \

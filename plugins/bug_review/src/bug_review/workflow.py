@@ -196,7 +196,7 @@ def prepare(workspace, kind="analysis", **options):
                             ignore=shutil.ignore_patterns(
                 "__pycache__", ".pytest_cache", "toffee_tmp_*"))
         inputs = root / "results" / "inputs" / label
-        text_suffixes = {".md", ".py", ".v", ".vh", ".sv", ".svh", ".vhd", ".vhdl"}
+        text_suffixes = {".md", ".py", ".v", ".vh", ".sv", ".svh", ".vhd", ".vhdl", ".f"}
         ignored_parts = {".git", ".ucagent", "__pycache__", ".pytest_cache", ".venv", "venv",
                          "node_modules", "build", "dist", "output", "results", "coverage",
                          "Guide_Doc", "uc_test_report"}
@@ -205,7 +205,7 @@ def prepare(workspace, kind="analysis", **options):
                     or any(part in ignored_parts or part.startswith("toffee_tmp_") for part in path.relative_to(source).parts)):
                 continue
             relative = path.relative_to(source)
-            if path.suffix.lower() not in text_suffixes and not (
+            if path.suffix.lower() not in text_suffixes and path.name.lower() != "filelist.txt" and not (
                     relative.parts[:2] == ("unity_test", "line_map") and path.suffix.lower() == ".txt"):
                 continue
             target = inputs / relative

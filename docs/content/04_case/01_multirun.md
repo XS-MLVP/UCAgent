@@ -24,7 +24,7 @@ UCAgent 支持两种并发执行方式：
 
 在运行 UCAgent 之前，需要先准备好 DUT 文件和工作目录。如果你克隆了 UCAgent 仓库，Makefile 会自动完成这些初始化工作（`init_Adder` 目标）：
 
-1. 创建 RTL 目录并复制设计文件（.v/.sv/.scala 等）
+1. 在模块目录组织 `launch.yaml`、RTL 和可选的 `filelist.txt`
 2. 使用 picker 工具生成波形配置文件
 3. 复制相关文档和环境文件
 
@@ -34,14 +34,16 @@ UCAgent 支持两种并发执行方式：
 # 创建工作目录
 mkdir -p output/Adder output/Adder_RTL
 
-# 复制你的 RTL 设计文件到 RTL 目录
-cp /path/to/your/Adder.v output/Adder_RTL/
+# 复制你的 RTL 设计文件到 RTL 目录；有 filelist.txt 时可不复制同名顶层 .v/.sv
+cp /path/to/your/Adder.v output/Adder_RTL/ 2>/dev/null || true
+cp /path/to/your/filelist.txt output/Adder_RTL/ 2>/dev/null || true
 
-# （可选）如果有 filelist.txt
-cp /path/to/your/filelist.txt output/Adder_RTL/
-
-# 使用 picker 生成 DUT 配置（如果安装了 picker）
-picker export output/Adder_RTL/Adder.v --rw 1 --sname Adder --tdir output/ -c -w output/Adder/Adder.fst
+# 有 filelist.txt 时直接以 filelist 作为 Picker 输入
+if [ -f output/Adder_RTL/filelist.txt ]; then
+  (cd output/Adder_RTL && picker export --fs filelist.txt --rw 1 --sname Adder --tdir ../ -c -w ../Adder/Adder.fst)
+else
+  picker export output/Adder_RTL/Adder.v --rw 1 --sname Adder --tdir output/ -c -w output/Adder/Adder.fst
+fi
 
 # 复制其他必要文件（README、环境脚本等）
 cp /path/to/your/*.py output/Adder/ 2>/dev/null || true

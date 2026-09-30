@@ -579,12 +579,17 @@ class VerifyAgent:
         self.cwd_read_only_files = fc.chmode_ro_by_pattern(
             self.workspace, self.cfg.get_value("un_write_dirs", [])
         )
+        waveinfo_cfg = self.cfg.get_value("tools.WaveInfo", {}) or {}
+        if not isinstance(waveinfo_cfg, dict) and hasattr(waveinfo_cfg, "as_dict"):
+            waveinfo_cfg = waveinfo_cfg.as_dict()
+        if not isinstance(waveinfo_cfg, dict):
+            waveinfo_cfg = {}
         self.tool_waveinfo = WaveInfo(
             workspace=self.workspace,
             test_dir=self.cfg.tools.RunTestCases.test_dir,
             dut_name=self.dut_name,
-            allowed_case_index=self.cfg.get_value("tools.WaveInfo.allowed_case_index", ""),
-            signal_group_presets_path=self.cfg.get_value("tools.WaveInfo.signal_group_presets_path", ""),
+            allowed_case_index=waveinfo_cfg.get("allowed_case_index", ""),
+            signal_group_presets_path=waveinfo_cfg.get("signal_group_presets_path", ""),
         )
         self.tool_waveinfo_receipts = WaveInfoReceipts(waveinfo=self.tool_waveinfo)
         self.tool_apply_waveinfo_evidence = ApplyWaveInfoEvidence(

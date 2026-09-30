@@ -162,6 +162,24 @@ def test_runtime_file_error_is_not_mislabeled_as_a_missing_pytest_target():
     assert execution["invocation_success"] is True
 
 
+def test_missing_pytest_module_has_explicit_diagnostic():
+    execution = _classify_pytest_execution(
+        1, "", "/usr/bin/python: No module named pytest"
+    )
+
+    assert execution["diagnostic_code"] == "PYTEST_UNAVAILABLE"
+    assert execution["invocation_success"] is False
+
+
+def test_native_pytest_crash_has_explicit_diagnostic():
+    execution = _classify_pytest_execution(
+        -4, "Fatal Python error: Illegal instruction", ""
+    )
+
+    assert execution["diagnostic_code"] == "PYTEST_PROCESS_CRASH"
+    assert execution["invocation_success"] is False
+
+
 @pytest.mark.parametrize(
     ("report_content", "expected_code"),
     [

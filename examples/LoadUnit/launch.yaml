@@ -1,0 +1,45 @@
+# Launch manifest for the bosc_LoadUnit UnityTest example.
+# The RTL is kept in the shared XSV xscore_ap checkout.
+
+task_name: LoadUnit
+dut: bosc_LoadUnit
+module: bosc_LoadUnit
+output: unity_test
+
+files:
+  main_rtl: /nfs/home/songfangyuan/work/XSV/skills/third-party/xscore_ap/rtl/bosc_LoadUnit.sv
+  filelist:
+    - /nfs/home/songfangyuan/work/XSV/skills/third-party/xscore_ap/rtl/filelist.f
+  requirement: unity_test/bosc_LoadUnit_basic_info.md
+  doc:
+    - unity_test/bosc_LoadUnit_functions_and_checks.md
+    - unity_test/bosc_LoadUnit_verification_needs_and_plan.md
+
+# Bug Review imports these files with the unity_test/tests directory preserved.
+bug_review_tests:
+  - unity_test/tests/bosc_LoadUnit.ignore
+  - unity_test/tests/bosc_LoadUnit_api.py
+  - unity_test/tests/bosc_LoadUnit_function_coverage_def.py
+  - unity_test/tests/test_bosc_LoadUnit_api_basic.py
+  - unity_test/tests/test_bosc_LoadUnit_arbitration_and_control.py
+  - unity_test/tests/test_bosc_LoadUnit_env_fixture.py
+  - unity_test/tests/test_bosc_LoadUnit_exception_control.py
+  - unity_test/tests/test_bosc_LoadUnit_forward_violation.py
+  - unity_test/tests/test_bosc_LoadUnit_memory_trigger_paths.py
+  - unity_test/tests/test_bosc_LoadUnit_misalign_load.py
+  - unity_test/tests/test_bosc_LoadUnit_misalign_paths.py
+  - unity_test/tests/test_bosc_LoadUnit_mmio_load.py
+  - unity_test/tests/test_bosc_LoadUnit_noncacheable_load.py
+  - unity_test/tests/test_bosc_LoadUnit_prefetch.py
+  - unity_test/tests/test_bosc_LoadUnit_prefetch_and_vector_paths.py
+  - unity_test/tests/test_bosc_LoadUnit_protocol_metadata_matrix.py
+  - unity_test/tests/test_bosc_LoadUnit_random_example.py
+  - unity_test/tests/test_bosc_LoadUnit_random_writeback.py
+  - unity_test/tests/test_bosc_LoadUnit_replay_kill.py
+  - unity_test/tests/test_bosc_LoadUnit_request_interfaces.py
+  - unity_test/tests/test_bosc_LoadUnit_scalar_pipeline.py
+  - unity_test/tests/test_bosc_LoadUnit_stage0_arbitration.py
+  - unity_test/tests/test_bosc_LoadUnit_vector_load.py
+  - unity_test/tests/test_bosc_LoadUnit_writeback_and_data_paths.py
+  - unity_test/tests/test_bosc_LoadUnit_writeback_data.py
+  - unity_test/tests/test_example.py

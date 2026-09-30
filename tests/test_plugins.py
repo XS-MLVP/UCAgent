@@ -1129,6 +1129,55 @@ def test_plugin_workflow_keeps_declared_skills_optional_when_disabled(
     ]
 
 
+def test_plugin_workflow_accepts_symbolic_config_name(
+    tmp_path: Path,
+) -> None:
+    """A plugin workflow may provide the complete config for a symbolic preset."""
+
+    project = tmp_path / "WorkflowPlugin"
+    _write_local_plugin(project)
+    plugin_root = project / "src" / "sample_plugin"
+    workflow_config = plugin_root / "workflow.yaml"
+    workflow_config.write_text("template: \"\"\n", encoding="utf-8")
+    provider = plugin_root / "provider.py"
+    provider.write_text(
+        provider.read_text(encoding="utf-8").replace(
+            "from ucagent.plugins import Plugin, PluginContext",
+            "from ucagent.plugins import Plugin, PluginContext, PluginWorkflow",
+        ).replace(
+            "        tool_factories=(create_tools,),",
+            "        tool_factories=(create_tools,),\n"
+            "        workflows=(PluginWorkflow(\n"
+            '            name="analyze",\n'
+            '            config_file=root / "workflow.yaml",\n'
+            "        ),),",
+        ),
+        encoding="utf-8",
+    )
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    with mock.patch(
+        "sys.argv",
+        [
+            "ucagent",
+            str(workspace),
+            "dut",
+            "--config",
+            "symbolic_preset",
+            "--plugin",
+            str(project),
+            "--plugin-workflow",
+            "sample-plugin:analyze",
+        ],
+    ), mock.patch("ucagent.verify_agent.VerifyAgent") as verify_agent:
+        run()
+
+    kwargs = verify_agent.call_args.kwargs
+    assert kwargs["config_file"] is None
+    assert kwargs["workflow_config_file"] == str(workflow_config)
+
+
 def test_cli_activates_plugin_level_docs_and_skills_without_a_workflow(
     tmp_path: Path,
 ) -> None:

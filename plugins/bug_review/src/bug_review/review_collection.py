@@ -62,7 +62,9 @@ def collect_nodes(workspace: Path, output: Path, name: str, timeout: int) -> Tes
         log_path.parent.mkdir(parents=True, exist_ok=True)
         log_path.write_text(combined, encoding="utf-8")
         markers = ("permissionerror", "internalerror", "importerror", "modulenotfounderror",
-                   "library load disallowed", "quarantine", "error collecting")
+                   "library load disallowed", "quarantine", "error collecting",
+                   "illegal instruction", "fatal python error", "segmentation fault",
+                   "bus error")
         relevant = [line.strip()[:300] for line in combined.splitlines()
                     if any(marker in line.lower() for marker in markers)]
         diagnostic = relevant[-12:] or [line.strip()[:300] for line in combined.splitlines()

@@ -76,13 +76,20 @@ init_%:
 	fi
 	@if [ ! -d $(CWD)/$* ]; then \
 		option_fs=""; \
+		rtl_workdir="$(CWD)/$*_RTL"; \
 		if [ -f $(CWD)/$*_RTL/filelist.txt ]; then \
-			option_fs="--fs $(CWD)/$*_RTL/filelist.txt"; \
+			option_fs="--fs filelist.txt"; \
 		fi; \
-		if [ -f $(CWD)/$*_RTL/$*.v ]; then \
-			picker export $(CWD)/$*_RTL/$*.v --rw 1 --sname $* --tdir $(CWD)/ -c -w $(CWD)/$*/$*.fst $$option_fs; \
+		if [ -f $(CWD)/$*_RTL/filelist.txt ] && [ -f $(CWD)/$*_RTL/$*.v ]; then \
+			(cd "$$rtl_workdir" && picker export $(CWD)/$*_RTL/$*.v --rw 1 --sname $* --tdir $(CWD)/ -c -w $(CWD)/$*/$*.fst $$option_fs); \
+		elif [ -f $(CWD)/$*_RTL/filelist.txt ] && [ -f $(CWD)/$*_RTL/$*.sv ]; then \
+			(cd "$$rtl_workdir" && picker export $(CWD)/$*_RTL/$*.sv --rw 1 --sname $* --tdir $(CWD)/ -c -w $(CWD)/$*/$*.fst $$option_fs); \
+		elif [ -f $(CWD)/$*_RTL/filelist.txt ]; then \
+			(cd "$$rtl_workdir" && picker export --rw 1 --sname $* --tdir $(CWD)/ -c -w $(CWD)/$*/$*.fst $$option_fs); \
+		elif [ -f $(CWD)/$*_RTL/$*.v ]; then \
+			picker export $(CWD)/$*_RTL/$*.v --rw 1 --sname $* --tdir $(CWD)/ -c -w $(CWD)/$*/$*.fst; \
 		elif [ -f $(CWD)/$*_RTL/$*.sv ]; then \
-			picker export $(CWD)/$*_RTL/$*.sv --rw 1 --sname $* --tdir $(CWD)/ -c -w $(CWD)/$*/$*.fst $$option_fs; \
+			picker export $(CWD)/$*_RTL/$*.sv --rw 1 --sname $* --tdir $(CWD)/ -c -w $(CWD)/$*/$*.fst; \
 		fi; \
 	fi
 	cp $(SRC)/$*/*.md $(CWD)/$*/  || true

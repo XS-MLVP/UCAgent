@@ -100,6 +100,91 @@ ucagent ./output Adder --master 127.0.0.1:8800
 2. 保留 Requirement 与 Config 的版本标签，便于回溯
 3. 启动前先看 Command Preview，确认 backend/master/export-cmd-api 参数
 
+### 4.3 以 Bug Review 注册一个任务
+
+Bug Review 任务使用普通 Master Launch 流程创建，但输入准备发生在启动 Master 之前。先让 LLM 执行 `bug-review-orchestrator` 的 `prepare-input` Skill，完成输入复制、旧报告重分析和 `prepare_manifest.json` 校验；确认 `bug_reports.reanalysis_required` 为空后，再在 Master 中选择生成的 `workspace_<DUT>/launch.yaml`。Master 不调用 `skills/bug-review-orchestrator/scripts/prepare_inputs.py`，也不在启动时修补缺失报告。
+
+用户需要提供一个例子目录，至少包含 `launch.yaml`、UnityTest 文档和测试文件；RTL 可以由 `launch.yaml` 引用服务器上的绝对路径或 filelist。
+
+推荐目录布局如下：
+
+```text
+examples/LoadUnit/
+├── launch.yaml
+└── unity_test/
+    ├── bosc_LoadUnit_basic_info.md
+    ├── bosc_LoadUnit_bug_analysis.md
+    ├── bosc_LoadUnit_functions_and_checks.md
+    ├── bosc_LoadUnit_verification_needs_and_plan.md
+    └── tests/
+        ├── bosc_LoadUnit.ignore
+        ├── bosc_LoadUnit_api.py
+        └── test_*.py
+```
+
+`launch.yaml` 需要声明 DUT、顶层模块、主 RTL、RTL 依赖和验证资料。例如：
+
+```yaml
+task_name: LoadUnit
+dut: bosc_LoadUnit
+module: bosc_LoadUnit
+output: unity_test
+
+files:
+  main_rtl: /nfs/home/songfangyuan/work/XSV/skills/third-party/xscore_ap/rtl/bosc_LoadUnit.sv
+  filelist:
+    - /nfs/home/songfangyuan/work/XSV/skills/third-party/xscore_ap/rtl/filelist.f
+  requirement: unity_test/bosc_LoadUnit_basic_info.md
+  doc:
+    - unity_test/bosc_LoadUnit_functions_and_checks.md
+    - unity_test/bosc_LoadUnit_verification_needs_and_plan.md
+
+bug_review_tests:
+  - unity_test/tests/bosc_LoadUnit.ignore
+  - unity_test/tests/bosc_LoadUnit_api.py
+  - unity_test/tests/bosc_LoadUnit_function_coverage_def.py
+  - unity_test/tests/test_bosc_LoadUnit_api_basic.py
+  - unity_test/tests/test_bosc_LoadUnit_scalar_pipeline.py
+```
+
+`files` 中的普通文件按 Master 的常规类别导入。`bug_review_tests` 是 Bug Review 的目录保留入口，文件会继续使用相对于 `launch.yaml` 的路径，例如 `unity_test/tests/test_bosc_LoadUnit_scalar_pipeline.py` 不会被压平到上传目录。需要纳入本次复核的每个测试、fixture、覆盖率定义和 `.ignore` 文件都应列出。
+
+注册和启动步骤：
+
+1. 重启 Master，使当前配置和插件可用。
+2. 打开 **Launch** 页面，在 **Select On Server** 中选择 prepare-input 生成目录里的 `launch.yaml`，例如 `plugins/bug_review/inputs/workspace_bosc_LoadUnit/launch.yaml`，不要重新选择未准备的原始 examples 文件。
+3. 确认 YAML 解析出的主 RTL、filelist、需求文档和测试文件；如果测试文件没有出现在 `unity_test/tests` 层级，先检查 `bug_review_tests` 路径是否相对于 YAML 文件正确。
+4. 确认 DUT 为 `bosc_LoadUnit`，Module 为 `bosc_LoadUnit`，然后点击 **Compile bosc_LoadUnit**。
+5. 编译必须成功后才能启动任务。使用 prepare-input 生成的当前 DUT 编译 workspace；不要依赖以前生成的 Picker 包。
+6. 在 **Launch Settings** 中选择 preset `bug_review`。该 preset 会使用当前 Master 的 backend 和子 Agent 启动配置，并选择 `bug_review:analysis` workflow。
+7. 检查 **Config Path** 为 `bug_review`，确认 backend、Launch Mode、Master 地址和环境变量后点击 **Launch Task**。
+8. 在 Task 页面确认子 Agent 已注册并开始运行；在任务详情中查看 command、stdout/stderr 和阶段状态。
+
+启动 Bug Review 时，Master 从已经准备好的输入建立本次复核的隔离执行快照。运行目录中应出现：
+
+```text
+<bug-review-run>/
+├── review_job.json
+└── results/
+    ├── tests/
+    │   └── workspace_bosc_LoadUnit/
+    │       └── unity_test/tests/
+    └── inputs/
+        └── workspace_bosc_LoadUnit/
+```
+
+`results/tests` 是实际执行测试的副本，`results/inputs` 是只读输入和报告关联副本，`review_job.json` 保存本次复核元数据。它们由运行时从已准备好的 workspace 生成，不需要用户手动创建，也不应把它们预先放进例子的 `inputs` 目录。若 canonical 报告缺失或 manifest 仍有待重分析项，应停止启动，回到 prepare-input Skill 修复后重新准备。
+
+### 4.4 Bug Review 注册失败时的检查顺序
+
+1. **YAML 找不到文件**：所有相对路径都相对于 `launch.yaml` 所在目录；绝对 RTL/filelist 路径必须在 Master 主机上存在。
+2. **编译报告缺少模块**：检查 `filelist` 是否包含实例化模块，例如 `bosc_MemTrigger.sv`；只声明主 RTL 文件通常不够。
+3. **测试目录缺失**：确认 `bug_review_tests` 至少包含测试 API、fixture、测试文件和 `.ignore`，并且路径以 `unity_test/tests/` 开头。
+4. **任务无法启动**：确认编译已经成功、DUT/module 与编译时一致、Config Path 为 `bug_review`，并检查 Task 详情中的完整 command 和 stderr。
+5. **输入未准备完成**：检查 prepare-input 生成的 `workspace_<DUT>/prepare_manifest.json`，确认 canonical 报告存在且 `bug_reports.reanalysis_required` 为空；修复后重新运行该 Skill，再重新选择准备好的 `workspace_<DUT>/launch.yaml`。Master 不会调用准备脚本或替旧报告补文件。
+
+普通 UT、Formal 等 preset 不使用 `bug_review_tests`，继续沿用 Master 现有文件导入和启动流程。
+
 ---
 
 ## 5. Task（托管任务页）

@@ -162,11 +162,16 @@ launch:
         loop: false
       Increment:
         cfg: "inc.yaml"
+      bug_review:
+        cfg: "bug_review"
+        output: "results"
+        backend: "codex"
+        plugin: "plugins/bug_review"
+        plugin_workflow: "bug_review:analysis"
   cluster:
     image: "ghcr.nju.edu.cn/xs-mlvp/ucagent:latest" # container image used by docker, docker_swarm, and k8s launch modes
     container_command: "ucagent"                    # command inside the image; local python/cli prefix is replaced with this command
     master_ip:                                      # master address used by launched tasks for each launch mode
-      - process: "127.0.0.1"
       - docker: "host.docker.internal"
       - docker_swarm: "ucagent_master"
       - k8s: "ucagent_master"
@@ -301,6 +306,9 @@ plugin:
 tools:
   RunTestCases:
     test_dir: "{OUT}/tests"
+  WaveInfo:
+    allowed_case_index: ""
+    signal_group_presets_path: ""
   ignore_tools: ["WorkDiff", "WorkCommit", "RunBashCommand"] # List of tool names to ignore
   selected_tools: []     # List of tool names to enable, if empty, all tools are enabled except those in ignore_tools
 

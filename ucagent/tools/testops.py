@@ -21,6 +21,7 @@ import subprocess
 import json
 import re
 import shlex
+import sys
 
 
 def _pytest_target_path(target: str) -> tuple[str, str]:
@@ -101,7 +102,19 @@ def _classify_pytest_execution(
     # (returncode 0) may legitimately print phrases like "timed out" inside
     # assertion messages or logs, and those must not flip the classification.
     failed_run = returncode != 0
-    if failed_run and "timed out" in lowered:
+    if failed_run and re.search(r"(?:no module named|modulenotfounderror).*pytest", lowered):
+        code = "PYTEST_UNAVAILABLE"
+        success = False
+    elif failed_run and (
+        "fatal python error: illegal instruction" in lowered
+        or "illegal instruction" in lowered
+        or "segmentation fault" in lowered
+        or "bus error" in lowered
+        or (isinstance(returncode, int) and returncode < 0)
+    ):
+        code = "PYTEST_PROCESS_CRASH"
+        success = False
+    elif failed_run and "timed out" in lowered:
         code = "PYTEST_TIMEOUT"
         success = False
     elif failed_run and "file or directory not found" in lowered:
@@ -313,7 +326,10 @@ class RunPyTest(UCTool):
                 self._last_process_stderr if return_stderr else "",
             )
         ENV_ARGS = shlex.split(env.get("UCA_PYTEST_ARGS", "").replace(";", " ").strip())
-        cmd = ["pytest", *ENV_ARGS, "-s", *self.get_pytest_args(), *test_target]
+        # Use the interpreter running UCAgent so a virtualenv can provide the
+        # pytest module even when its console-script directory is absent from
+        # the child process PATH.
+        cmd = [sys.executable, "-m", "pytest", *ENV_ARGS, "-s", *self.get_pytest_args(), *test_target]
         info(f"Run command: PYTHONPATH={env['PYTHONPATH']} {' '.join(cmd)} (in {work_dir})\n")
         try:
             worker = subprocess.Popen(

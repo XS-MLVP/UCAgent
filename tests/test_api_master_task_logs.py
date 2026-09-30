@@ -34,6 +34,62 @@ def test_master_launch_workspace_defaults_to_master_workspace():
         assert ws["task_id"] == ws["workspace_id"]
 
 
+def test_process_tasks_use_master_bind_address_when_process_master_ip_is_unset():
+    with tempfile.TemporaryDirectory() as master_ws:
+        server = PdbMasterApiServer(host="172.19.20.20", workspace=master_ws)
+
+        assert server._cluster_master_ip("process") == "172.19.20.20"
+
+
+def test_explicit_process_master_ip_is_preserved():
+    with tempfile.TemporaryDirectory() as master_ws:
+        cfg = Config({"launch": {"cluster": {"master_ip": {"process": "10.0.0.8"}}}}).freeze()
+        server = PdbMasterApiServer(host="172.19.20.20", workspace=master_ws, cfg=cfg)
+
+        assert server._cluster_master_ip("process") == "10.0.0.8"
+
+
+def test_master_passes_the_assigned_mcp_port_to_launched_agent():
+    with tempfile.TemporaryDirectory() as master_ws:
+        server = PdbMasterApiServer(workspace=master_ws)
+        argv, _env = server._build_ucagent_command(
+            {"launch_mode": "process", "mcp_server_port": 51234},
+            {"workspace_dir": master_ws, "picker_workspace": master_ws, "dut_name": "Adder"},
+            {"host": "127.0.0.1", "port": 8765, "password": "pw"},
+        )
+
+        index = argv.index("--mcp-server-port")
+        assert argv[index + 1] == "51234"
+
+
+def test_process_child_cmd_api_keeps_loopback_address_for_master_proxy():
+    with tempfile.TemporaryDirectory() as master_ws:
+        server = PdbMasterApiServer(workspace=master_ws)
+        task = {"task_id": "task1", "launch_mode": "process", "cmd_api": {
+            "base_url_internal": "http://127.0.0.1:8767",
+        }}
+        agent = {"cmd_api_tcp": "http://127.0.0.1:8767"}
+
+        assert server._merge_task_agent_runtime_info(task, agent) is True
+        assert task["cmd_api"]["base_url_internal"] == "http://127.0.0.1:8767"
+
+
+def test_process_child_cmd_api_is_published_on_master_address():
+    with tempfile.TemporaryDirectory() as master_ws:
+        server = PdbMasterApiServer(host="172.19.20.20", workspace=master_ws)
+        argv, _env = server._build_ucagent_command(
+            {
+                "launch_mode": "process",
+                "export_cmd_api": "127.0.0.1:8768 pw",
+            },
+            {"workspace_dir": master_ws, "picker_workspace": master_ws, "dut_name": "Adder"},
+            {"host": "127.0.0.1", "port": 8765, "password": "pw"},
+        )
+
+        index = argv.index("--export-cmd-api")
+        assert argv[index + 1] == "172.19.20.20:8768 pw"
+
+
 def test_task_record_reuses_launch_workspace_task_id():
     with tempfile.TemporaryDirectory() as master_ws:
         server = PdbMasterApiServer(workspace=master_ws)
@@ -112,6 +168,60 @@ def test_compiled_workspace_archive_uses_sync_workspace_ignore_patterns():
         assert "workspace/pkg/__pycache__/module.pyc" not in names
         assert "workspace/uc_test_report" not in names
         assert "workspace/uc_test_report/index.html" not in names
+
+
+def test_bug_review_runtime_files_are_inside_compiled_workspace_archive():
+    with tempfile.TemporaryDirectory() as master_ws:
+        server = PdbMasterApiServer(workspace=master_ws)
+        ws = server._create_workspace()
+        picker_workspace = ws["picker_workspace"]
+        os.makedirs(os.path.join(picker_workspace, "results", "tests"), exist_ok=True)
+        with open(os.path.join(picker_workspace, "review_job.json"), "w", encoding="utf-8") as fh:
+            fh.write("{}")
+        with open(os.path.join(picker_workspace, "results", "tests", "marker"), "w", encoding="utf-8") as fh:
+            fh.write("ok")
+        ws["compile"] = {"status": "success", "picker_workspace": picker_workspace}
+
+        archive_path, _filename, temp_dir = server._create_compiled_workspace_archive(ws, "bug-review")
+        try:
+            with tarfile.open(archive_path, "r:gz") as tf:
+                names = set(tf.getnames())
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+        assert "workspace/review_job.json" in names
+        assert "workspace/results/tests/marker" in names
+
+
+def test_bug_review_input_source_rebuilds_tests_without_following_stale_output_link():
+    with tempfile.TemporaryDirectory() as master_ws:
+        server = PdbMasterApiServer(workspace=master_ws)
+        ws = server._create_workspace()
+        picker_workspace = ws["picker_workspace"]
+        os.makedirs(os.path.join(picker_workspace, "results", "tests", "workspace_Adder", "unity_test"), exist_ok=True)
+        os.symlink(
+            os.path.join("results", "tests", "workspace_Adder", "unity_test"),
+            os.path.join(picker_workspace, "unity_test"),
+        )
+        rtl_dir = os.path.join(picker_workspace, "Adder_RTL")
+        doc_dir = os.path.join(picker_workspace, "Adder_Doc")
+        os.makedirs(rtl_dir, exist_ok=True)
+        os.makedirs(doc_dir, exist_ok=True)
+        with open(os.path.join(rtl_dir, "test_Adder_api.py"), "w", encoding="utf-8") as fh:
+            fh.write("def test_api():\n    assert True\n")
+        with open(os.path.join(doc_dir, "Adder_bug_analysis.md"), "w", encoding="utf-8") as fh:
+            fh.write("# Bug analysis\n")
+
+        source = server._prepare_bug_review_input_source(
+            ws,
+            {"picker_workspace": picker_workspace, "dut_name": "Adder"},
+        )
+
+        source_root = os.path.abspath(source)
+        assert os.path.isfile(os.path.join(source_root, "unity_test", "tests", "test_Adder_api.py"))
+        assert os.path.isfile(os.path.join(source_root, "unity_test", "Adder_bug_analysis.md"))
+        assert not os.path.islink(os.path.join(source_root, "unity_test"))
+        assert "results" not in os.path.realpath(os.path.join(source_root, "unity_test"))
 
 
 def test_relaunch_ucagent_info_workspace_can_be_archived_without_compile():

@@ -262,11 +262,11 @@
 
     <div class="stage-card single-task-field">
       <div class="stage-title"><span class="stage-no">2</span><h2>Select Main RTL Module</h2></div>
-      <div id="module-gate-note" class="summary-box muted">The module input unlocks only after the file list contains <code>Main RTL</code> or a <code>.f</code> file, plus <code>Verification Needs</code>.</div>
+      <div id="module-gate-note" class="summary-box muted">The module input unlocks only after the file list contains <code>Main RTL</code>, <code>filelist.txt</code>, or a <code>.f</code> file, plus <code>Verification Needs</code>.</div>
       <div class="grid3">
         <div>
           <label>Main RTL / Filelist</label>
-          <div id="main-file-display" class="status">No Main RTL or .f filelist is available.</div>
+          <div id="main-file-display" class="status">No Main RTL, filelist.txt, or .f filelist is available.</div>
         </div>
         <div>
           <label>Main RTL Module</label>
@@ -1853,6 +1853,11 @@ function getPickerFFilelists() {
   return getFiles().filter((item) => isFFile(item.name || item.stored_path || item.source_path));
 }
 
+function getTextFilelist() {
+  return getFiles().find((item) => String(item.name || item.stored_path || item.source_path || '')
+    .split('/').pop().toLowerCase() === 'filelist.txt') || null;
+}
+
 function hasPickerFFilelist() {
   return getPickerFFilelists().length > 0;
 }
@@ -1866,7 +1871,8 @@ function currentFFilelistPaths() {
 
 function isNextStepUnlocked() {
   if (state.relaunch) return true;
-  return (Boolean(getMainFile()) || hasPickerFFilelist()) && hasRequirementFile();
+  return (Boolean(getMainFile()) || hasPickerFFilelist() || Boolean(getTextFilelist()))
+    && hasRequirementFile();
 }
 
 function isVerilogFile(filename) {
@@ -2141,14 +2147,15 @@ function renderGateState() {
   }
   const mainFile = getMainFile();
   const fFilelists = getPickerFFilelists();
-  const hasRtlInput = Boolean(mainFile) || fFilelists.length > 0;
+  const textFilelist = getTextFilelist();
+  const hasRtlInput = Boolean(mainFile) || fFilelists.length > 0 || Boolean(textFilelist);
   const hasRequirement = hasRequirementFile();
   const unlocked = hasRtlInput && hasRequirement;
   if (unlocked) {
     setStatus('file-gate-status', 'ok', 'Required tags are present. You can continue to module selection and DUT compilation.');
   } else {
     const missing = [];
-    if (!hasRtlInput) missing.push('<code>Main RTL</code> or <code>.f</code> file');
+    if (!hasRtlInput) missing.push('<code>Main RTL</code>, <code>filelist.txt</code>, or <code>.f</code> file');
     if (!hasRequirement) missing.push('<code>Verification Needs</code>');
     setStatus('file-gate-status', 'warn', `The next step is locked. Missing required tag(s): ${missing.join(', ')}.`);
   }
@@ -2162,9 +2169,12 @@ function renderGateState() {
   } else if (fFilelists.length) {
     mainDisplay.className = 'status ok';
     mainDisplay.innerHTML = `Using .f filelist(s): ${fFilelists.map((item) => `<code>${esc(item.name)}</code>`).join(', ')}`;
+  } else if (textFilelist) {
+    mainDisplay.className = 'status ok';
+    mainDisplay.innerHTML = `Using text filelist: <code>${esc(textFilelist.name || 'filelist.txt')}</code>`;
   } else {
     mainDisplay.className = 'status';
-    mainDisplay.textContent = 'No Main RTL or .f filelist is available.';
+    mainDisplay.textContent = 'No Main RTL, filelist.txt, or .f filelist is available.';
   }
   document.getElementById('selected-module').disabled = !unlocked;
   document.getElementById('parse-modules-btn').disabled = !unlocked || !mainFile;
@@ -2173,8 +2183,8 @@ function renderGateState() {
   document.getElementById('module-gate-note').innerHTML = unlocked
     ? (mainFile
       ? 'The required file tags are present. Refresh modules whenever the <code>Main RTL</code> row changes, or type a module name manually.'
-      : 'The required file tags are present. Type the target module name manually for the <code>.f</code> filelist flow.')
-    : 'The module input unlocks only after the file list contains <code>Main RTL</code> or a <code>.f</code> file, plus <code>Verification Needs</code>.';
+      : 'The required file tags are present. Type the target module name manually for the <code>filelist.txt</code> or <code>.f</code> filelist flow.')
+    : 'The module input unlocks only after the file list contains <code>Main RTL</code>, <code>filelist.txt</code>, or a <code>.f</code> file, plus <code>Verification Needs</code>.';
 }
 
 function renderCompileState() {
@@ -2371,6 +2381,9 @@ function getEmptyEnvRows() {
   return state.envRows.filter((row) => {
     const key = row.key.trim();
     if (!key) return false;
+    // Bare entries from launch.default_env are optional inheritance hints. They
+    // should only block after the user explicitly edits that row.
+    if (row.mode === 'required' && !row.userEdited) return false;
     const resolved = resolveEnvRow(row);
     return !resolved.filled || !String(resolved.displayValue || row.placeholder || '').trim();
   });
@@ -2441,7 +2454,7 @@ function buildPickerPreview() {
     const useZipWorkspace = getUseZipWorkspaceForLaunch();
     return shellJoin(['ucagent', getLaunchWorkspacePath(useZipWorkspace), getRelaunchDutName()]);
   }
-  if (!isNextStepUnlocked()) return 'Waiting for Main RTL or .f filelist plus Verification Needs...';
+  if (!isNextStepUnlocked()) return 'Waiting for Main RTL, filelist.txt, or .f filelist plus Verification Needs...';
   if (!getSelectedModule()) return 'Waiting for Main RTL Module...';
   return shellJoin(buildPickerArgs());
 }
@@ -2542,7 +2555,7 @@ function updateLaunchState() {
     if (state.relaunch && state.relaunchStatus && !state.relaunchStatus.can_relaunch) {
       reasons.push(state.relaunchStatus.message || 'clear the existing task/client records first');
     }
-    if (!state.relaunch && !getMainFile() && !hasPickerFFilelist()) reasons.push('tag one file as Main RTL or add a .f file');
+    if (!state.relaunch && !getMainFile() && !hasPickerFFilelist() && !getTextFilelist()) reasons.push('tag one file as Main RTL, add filelist.txt, or add a .f file');
     if (!state.relaunch && !hasRequirementFile()) reasons.push('tag one file as Verification Needs');
     if (!getSelectedModule()) reasons.push('select or type a module');
     if (getSelectedModule() && !isCompileCurrent()) reasons.push(state.relaunch ? 'provide a recorded DUT in .ucagent/ucagent_info.json or a successful previous DUT compile' : 'compile the current DUT selection');
@@ -2956,16 +2969,17 @@ function parseExtraArgs(text) {
 
 async function parseModules(auto = false) {
   const mainFile = getMainFile();
+  const textFilelist = getTextFilelist();
   if (!mainFile) {
     state.modules = [];
     document.getElementById('module-options').innerHTML = '';
     if (!auto) {
       setStatus(
         'module-status',
-        hasPickerFFilelist() ? 'warn' : 'err',
-        hasPickerFFilelist()
-          ? 'No Main RTL file is tagged. Type the module name manually for the .f filelist flow.'
-          : 'Tag exactly one Verilog/SystemVerilog file as Main RTL first, or add a .f file and type the module name manually.'
+        hasPickerFFilelist() || textFilelist ? 'warn' : 'err',
+        hasPickerFFilelist() || textFilelist
+          ? 'No Main RTL file is tagged. Type the module name manually for the filelist flow.'
+          : 'Tag exactly one Verilog/SystemVerilog file as Main RTL first, or add filelist.txt or a .f file and type the module name manually.'
       );
     }
     updateLaunchState();
@@ -3014,7 +3028,7 @@ function clearModuleState(message) {
 async function compileDut() {
   const mainFile = getMainFile();
   const selectedModule = getSelectedModule();
-  if ((!mainFile && !hasPickerFFilelist()) || !selectedModule || !hasRequirementFile()) {
+  if ((!mainFile && !hasPickerFFilelist() && !getTextFilelist()) || !selectedModule || !hasRequirementFile()) {
     updateLaunchState();
     return;
   }
@@ -3090,8 +3104,8 @@ async function deleteSelectedWorkspaceFiles() {
   } else {
     await refreshWorkspace();
   }
-  if (!getMainFile() && !hasPickerFFilelist()) {
-    clearModuleState('The current RTL input is missing. Tag a Main RTL file or add a .f file.');
+  if (!getMainFile() && !hasPickerFFilelist() && !getTextFilelist()) {
+    clearModuleState('The current RTL input is missing. Tag a Main RTL file, add filelist.txt, or add a .f file.');
   }
 }
 
@@ -3198,7 +3212,7 @@ async function launchTask() {
   }
   const mainFile = getMainFile();
   const selectedModule = getSelectedModule();
-  const normalBlocked = !state.relaunch && ((!mainFile && !hasPickerFFilelist()) || !selectedModule || !hasRequirementFile() || !isCompileCurrent());
+  const normalBlocked = !state.relaunch && ((!mainFile && !hasPickerFFilelist() && !getTextFilelist()) || !selectedModule || !hasRequirementFile() || !isCompileCurrent());
   const relaunchBlocked = state.relaunch && (!state.relaunchStatus?.can_relaunch || !selectedModule || !isCompileCurrent());
   if (normalBlocked || relaunchBlocked) {
     updateLaunchState();
@@ -3779,7 +3793,7 @@ async function initPage() {
 
     const envData = await api('/api/launch/env-preview');
     applyEnvDefaults(envData.items || []);
-    clearModuleState('Tag one file as Main RTL, or add a .f file and type the module name manually. Verification Needs is also required.');
+    clearModuleState('Tag one file as Main RTL, add filelist.txt, or add a .f file and type the module name manually. Verification Needs is also required.');
     updateLaunchState();
   } catch (error) {
     setStatus('workspace-status', 'err', error.message);
@@ -3917,8 +3931,8 @@ document.addEventListener('click', async (event) => {
       if (!confirm(`Delete workspace file: ${path}?`)) return;
       await api(`/api/workspace/${encodeURIComponent(state.workspaceId)}/file?path=${encodeURIComponent(path)}`, { method: 'DELETE' });
       await refreshWorkspace();
-      if (!getMainFile() && !hasPickerFFilelist()) {
-        clearModuleState('The current RTL input is missing. Tag a Main RTL file or add a .f file.');
+      if (!getMainFile() && !hasPickerFFilelist() && !getTextFilelist()) {
+        clearModuleState('The current RTL input is missing. Tag a Main RTL file, add filelist.txt, or add a .f file.');
       }
       return;
     }
@@ -4054,8 +4068,8 @@ document.addEventListener('change', async (event) => {
         body: JSON.stringify({ item_id: target.dataset.itemId, category: target.value }),
       });
       syncWorkspace(data.workspace);
-      if (!getMainFile() && !hasPickerFFilelist()) {
-        clearModuleState('Tag one file as Main RTL, or add a .f file and type the module name manually. Verification Needs is also required.');
+      if (!getMainFile() && !hasPickerFFilelist() && !getTextFilelist()) {
+        clearModuleState('Tag one file as Main RTL, add filelist.txt, or add a .f file and type the module name manually. Verification Needs is also required.');
       } else if (isNextStepUnlocked() && (target.value === 'main_verilog' || !state.modules.length)) {
         await parseModules(true);
       } else {

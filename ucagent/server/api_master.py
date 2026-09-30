@@ -699,6 +699,16 @@ def _sync_reported_service_tcp_url(service: Dict[str, Any], client_ip: str) -> D
     return service
 
 
+def _process_cmd_api_proxy_url(task: Dict[str, Any], service: Dict[str, Any]) -> str:
+    """Return a reachable CMD API URL for a local process child."""
+    if task.get("launch_mode") != "process":
+        return ""
+    raw = str(service.get("tcp_url") or service.get("base_url_internal") or "").strip()
+    if not re.match(r"^(?:https?://)?(?:127\.0\.0\.1|localhost)(?::|/|$)", raw, re.IGNORECASE):
+        return ""
+    return raw if raw.startswith("http") else f"http://{raw}"
+
+
 def _is_text_file(path: str) -> bool:
     ext = pathlib.Path(path).suffix.lower()
     return ext in _TEXT_EXTS
@@ -1306,6 +1316,141 @@ class PdbMasterApiServer:
     def _workspace_item_target(self, category: str, filename: str) -> str:
         subdir = _CATEGORY_DIRS.get(category, _CATEGORY_DIRS["misc"])
         return os.path.join(subdir, filename)
+
+    def _prepare_bug_review_workspace(
+        self,
+        workspace_id: str,
+        source_path: str,
+        output_root: str = "",
+        label: str = "",
+        batch_size: int = 1,
+        timeout: int = 300,
+    ) -> Dict[str, Any]:
+        """Create a runtime snapshot from a preprepared source workspace."""
+        ws = self._get_workspace(workspace_id)
+        source = pathlib.Path(source_path).expanduser().resolve()
+        if not source.is_dir() or not source.name.startswith("workspace_"):
+            raise ValueError("source_path must be a workspace_<DUT> directory")
+        if not (source / "unity_test" / "tests").is_dir():
+            raise ValueError(f"source workspace is missing unity_test/tests: {source}")
+        label = str(label or source.name).strip()
+        if label != source.name or not re.fullmatch(r"workspace_[A-Za-z0-9_.-]+", label):
+            raise ValueError("label must exactly match the workspace_<DUT> source directory name")
+        try:
+            batch_size = int(batch_size)
+            timeout = int(timeout)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("batch_size and timeout must be positive integers") from exc
+        if batch_size < 1 or timeout < 1:
+            raise ValueError("batch_size and timeout must be positive integers")
+
+        root = pathlib.Path(output_root or ws["workspace_dir"]).expanduser().resolve()
+        workspace_root = pathlib.Path(ws["workspace_dir"]).resolve()
+        if root != workspace_root and not root.is_relative_to(workspace_root):
+            raise ValueError("output_root must be inside the Master workspace")
+        if root == source or root.is_relative_to(source) or source.is_relative_to(root):
+            raise ValueError("output_root and source_path must be separate")
+        root.mkdir(parents=True, exist_ok=True)
+        plugin_root = pathlib.Path(__file__).resolve().parents[2] / "plugins" / "bug_review"
+        src_root = plugin_root / "src"
+        if not src_root.is_dir():
+            raise ValueError(f"Bug Review plugin source is unavailable: {src_root}")
+        import sys
+        sys.path.insert(0, str(src_root))
+        try:
+            # This runtime snapshot is separate from the standalone pre-launch
+            # prepare_inputs.py skill; Master never invokes that input-preparation script.
+            from bug_review.workflow import prepare
+            prepare(root, kind="analysis", runs=[(label, source)],
+                    batch_size=batch_size, timeout=timeout)
+        except Exception as exc:
+            raise ValueError(f"Bug Review preparation failed: {exc}") from exc
+        finally:
+            try:
+                sys.path.remove(str(src_root))
+            except ValueError:
+                pass
+        job_path = root / "review_job.json"
+        tests_destination = root / "results" / "tests" / label
+        inputs_destination = root / "results" / "inputs" / label
+        return {
+            "status": "ok", "workspace": str(root), "review_job": str(job_path),
+            "test_run": str(tests_destination), "input_run": str(inputs_destination),
+        }
+
+    def _prepare_bug_review_input_source(self, ws: Dict[str, Any], prepared: Dict[str, Any]) -> str:
+        """Build the plugin input source while retaining the UnityTest directory tree."""
+        dut = _safe_name(prepared.get("dut_name") or ws.get("workspace_id"), "DUT")
+        source = pathlib.Path(ws["workspace_dir"]) / "bug_review_inputs" / f"workspace_{dut}"
+        if source.exists():
+            shutil.rmtree(source)
+        source.mkdir(parents=True)
+        compiled = pathlib.Path(prepared["picker_workspace"])
+        workspace_root = pathlib.Path(ws["workspace_dir"])
+        unity_test_source = None
+        for candidate in (workspace_root / "unity_test", compiled / "unity_test"):
+            # A previous Bug Review run may leave unity_test pointing into
+            # results/tests. Following that link would copy the output tree
+            # into itself and create an unbounded collection path.
+            if candidate.is_dir() and not candidate.is_symlink():
+                unity_test_source = candidate
+                break
+        if unity_test_source is None:
+            # Imported files are authoritative when the compiled workspace has
+            # no standalone UnityTest directory. Reconstruct only the source
+            # files needed by the review input contract from their recorded
+            # workspace-relative paths.
+            imported = []
+            for item in ws.get("files", []):
+                stored = pathlib.Path(str(item.get("stored_path") or ""))
+                if not stored.is_file() or stored.is_symlink():
+                    continue
+                try:
+                    relative = stored.relative_to(workspace_root)
+                except ValueError:
+                    continue
+                if relative.parts and relative.parts[0] == "unity_test":
+                    imported.append((stored, relative))
+            if imported:
+                for stored, relative in imported:
+                    target = source / relative
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(stored, target)
+            else:
+                # Picker output commonly stores tests under <DUT>_RTL and
+                # reports/specification files under <DUT>_Doc.
+                test_root = compiled / f"{dut}_RTL"
+                doc_root = compiled / f"{dut}_Doc"
+                if test_root.is_dir() and not test_root.is_symlink():
+                    target_root = source / "unity_test" / "tests"
+                    for path in test_root.rglob("*"):
+                        if (path.is_file() and not path.is_symlink()
+                                and path.suffix.lower() in {".py", ".ini", ".txt"}):
+                            relative = path.relative_to(test_root)
+                            target = target_root / relative
+                            target.parent.mkdir(parents=True, exist_ok=True)
+                            shutil.copy2(path, target)
+                if doc_root.is_dir() and not doc_root.is_symlink():
+                    target_root = source / "unity_test"
+                    for path in doc_root.rglob("*"):
+                        if path.is_file() and not path.is_symlink():
+                            relative = path.relative_to(doc_root)
+                            target = target_root / relative
+                            target.parent.mkdir(parents=True, exist_ok=True)
+                            shutil.copy2(path, target)
+        elif unity_test_source != source / "unity_test":
+            shutil.copytree(unity_test_source, source / "unity_test")
+        tests = source / "unity_test" / "tests"
+        if not tests.is_dir():
+            raise ValueError(
+                "Bug Review requires compiled workspace/unity_test/tests; "
+                "import the UnityTest directory before compiling."
+            )
+        for dirname in (f"{dut}_Doc", f"{dut}_RTL", dut):
+            candidate = compiled / dirname
+            if candidate.is_dir():
+                shutil.copytree(candidate, source / dirname)
+        return str(source)
 
     def _normalize_workspace_locked(self, ws: Dict[str, Any]) -> bool:
         changed = False
@@ -1915,6 +2060,22 @@ class PdbMasterApiServer:
             src_path=source_path,
         )
 
+    def _store_existing_file_preserving_path(
+        self, workspace_id: str, category: str, source_path: str, relative_path: str
+    ) -> Dict[str, Any]:
+        """Import one server file while retaining its workspace-relative path."""
+        ws = self._ensure_workspace_materialized(workspace_id, status="active")
+        relative = pathlib.PurePosixPath(str(relative_path).replace("\\", "/"))
+        if relative.is_absolute() or ".." in relative.parts or not relative.parts:
+            raise ValueError("relative_path must stay inside the launch workspace")
+        target = self._safe_under_root(ws["workspace_dir"], str(relative))
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        shutil.copy2(source_path, target)
+        return self._record_workspace_file(
+            workspace_id, category=category, source="server", src_path=source_path,
+            stored_path=target, original_name=relative.name,
+        )
+
     def _find_workspace_item_by_source_path(self, ws: Dict[str, Any], source_path: str) -> Optional[Dict[str, Any]]:
         wanted = os.path.abspath(source_path)
         for item in ws.get("files", []):
@@ -2173,6 +2334,7 @@ class PdbMasterApiServer:
             "yaml_path": os.path.abspath(yaml_path),
             "fields": fields,
             "imports": imports,
+            "bug_review_tests": _yaml_path_values(top.get("bug_review_tests")),
         }
 
     def _import_or_update_launch_yaml_file(self, workspace_id: str, category: str, abs_path: str) -> Dict[str, Any]:
@@ -2191,6 +2353,22 @@ class PdbMasterApiServer:
             item = self._find_workspace_item_by_id(ws, item.get("item_id", "")) or item
         return item
 
+    def _store_existing_file_preserving_path(
+        self, workspace_id: str, category: str, source_path: str, relative_path: str
+    ) -> Dict[str, Any]:
+        """Import a server file using its path relative to the launch manifest."""
+        ws = self._ensure_workspace_materialized(workspace_id, status="active")
+        relative = pathlib.PurePosixPath(str(relative_path).replace("\\", "/"))
+        if relative.is_absolute() or ".." in relative.parts or not relative.parts:
+            raise ValueError("relative_path must stay inside the launch workspace")
+        target = self._safe_under_root(ws["workspace_dir"], str(relative))
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        shutil.copy2(source_path, target)
+        return self._record_workspace_file(
+            workspace_id, category=category, source="server", src_path=source_path,
+            stored_path=target, original_name=relative.name,
+        )
+
     def _apply_launch_yaml_spec(self, workspace_id: str, yaml_path: str) -> Dict[str, Any]:
         self._get_workspace(workspace_id)
         data = self._load_launch_yaml_spec(yaml_path)
@@ -2204,11 +2382,19 @@ class PdbMasterApiServer:
                     str(item.get("path") or ""),
                 )
             )
+        for raw_path in spec.get("bug_review_tests") or []:
+            resolved = self._resolve_launch_yaml_ref(yaml_path, raw_path)
+            manifest_root = pathlib.Path(yaml_path).resolve().parent
+            relative = pathlib.Path(resolved).resolve().relative_to(manifest_root).as_posix()
+            imported.append(self._store_existing_file_preserving_path(
+                workspace_id, "source_extra", resolved, relative
+            ))
         stored_spec = {
             "path": spec["yaml_path"],
             "applied_at": _now(),
             "fields": _copy_jsonable(spec.get("fields") or {}),
             "imports": _copy_jsonable(spec.get("imports") or []),
+            "bug_review_tests": list(spec.get("bug_review_tests") or []),
         }
         with self._workspaces_lock:
             ws = self._workspaces.get(workspace_id)
@@ -2301,8 +2487,13 @@ class PdbMasterApiServer:
             item for item in ws.get("files", [])
             if _is_picker_f_file(item.get("stored_path") or item.get("original_name") or "")
         ]
-        if main_item is None and not f_items:
-            raise ValueError("No main Verilog file or .f file found in workspace")
+        text_filelist_items = [
+            item for item in ws.get("files", [])
+            if os.path.basename(item.get("stored_path") or item.get("original_name") or "").lower()
+            == "filelist.txt"
+        ]
+        if main_item is None and not f_items and not text_filelist_items:
+            raise ValueError("No main Verilog file, filelist.txt, or .f file found in workspace")
         if not str(selected_module or "").strip():
             raise ValueError("'selected_module' is required")
         copied: List[str] = []
@@ -2499,11 +2690,14 @@ class PdbMasterApiServer:
             f_filelist_paths=f_filelist_paths or [],
             picker_extra_args=picker_extra_args or [],
         )
-        result = subprocess.run(cmd, capture_output=True, text=True, cwd=workspace_dir)
+        picker_cwd = workspace_dir
+        if filelist_path and os.path.isfile(filelist_path):
+            picker_cwd = os.path.dirname(os.path.abspath(filelist_path)) or workspace_dir
+        result = subprocess.run(cmd, capture_output=True, text=True, cwd=picker_cwd)
         already_exists = self._picker_create_conflict(picker_workspace, dut_name, result.stdout + result.stderr)
         if already_exists:
             shutil.rmtree(os.path.join(picker_workspace, dut_name), ignore_errors=True)
-            result = subprocess.run(cmd, capture_output=True, text=True, cwd=workspace_dir)
+            result = subprocess.run(cmd, capture_output=True, text=True, cwd=picker_cwd)
         return {
             "command": cmd,
             "exit_code": result.returncode,
@@ -2529,8 +2723,6 @@ class PdbMasterApiServer:
         if main_verilog_path:
             cmd.append(main_verilog_path)
         cmd.extend([
-            "--rw",
-            "1",
             "--sname",
             selected_module,
             "--tdir",
@@ -2926,10 +3118,14 @@ class PdbMasterApiServer:
             argv.extend([flag, str(value)])
 
         def add_list(flag: str, values: List[Any]) -> None:
+            if isinstance(values, str):
+                values = [values]
             for value in values or []:
                 add_value(flag, value)
 
         add_value("--config", req.get("config"))
+        add_list("--plugin", req.get("plugin", []))
+        add_value("--plugin-workflow", req.get("plugin_workflow"))
         add_value("--workspace-base", req.get("workspace_base"))
         add_value("--template-dir", req.get("template_dir"))
         add_flag("--template-overwrite", req.get("template_overwrite"))
@@ -3042,6 +3238,13 @@ class PdbMasterApiServer:
         export_cmd_spec = req.get("export_cmd_api")
         if not export_cmd_spec:
             export_cmd_spec = f"{cmd_api['host']}:{cmd_api['port']} {cmd_api['password']}"
+        if launch_mode == "process":
+            export_host, export_port, export_password = _parse_service_spec(
+                str(export_cmd_spec), "127.0.0.1", int(cmd_api["port"])
+            )
+            if export_host.lower() in {"127.0.0.1", "localhost"}:
+                export_host = self._cluster_master_ip("process")
+            export_cmd_spec = f"{export_host}:{export_port} {export_password}".strip()
         add_value("--export-cmd-api", export_cmd_spec)
         add_value("--web-console-capture-path", req.get("web_console_capture_path"))
 
@@ -3526,13 +3729,45 @@ class PdbMasterApiServer:
         raise ValueError(f"Launch mode '{launch_mode}' is not configured")
 
     def _cluster_master_ip(self, launch_mode: str) -> str:
-        master_ip = self._launch_cluster_config().get("master_ip") or "127.0.0.1"
+        cluster_config = self._launch_cluster_config()
+        master_ip = cluster_config.get("master_ip")
+        mode = _normalize_launch_mode(launch_mode)
+        if mode == "process" and self._process_master_ip_is_default(master_ip):
+            # A process task runs outside the browser host's loopback namespace.
+            # Use the address on which this Master is listening unless the user
+            # explicitly configured a process master_ip.
+            bound_host = str(self.host or "").strip()
+            if bound_host and bound_host.lower() not in {"0.0.0.0", "::", "[::]"}:
+                return bound_host
+            try:
+                return socket.gethostbyname(socket.gethostname())
+            except OSError:
+                return "127.0.0.1"
+        master_ip = master_ip or "127.0.0.1"
         if isinstance(master_ip, dict):
-            mode = _normalize_launch_mode(launch_mode)
             master_ip = master_ip.get(mode) or master_ip.get("process") or "127.0.0.1"
         if str(master_ip).strip().lower() in {"0.0.0.0", "::", "[::]"}:
             return "127.0.0.1"
         return str(master_ip).strip() or "127.0.0.1"
+
+    def _process_master_ip_is_default(self, master_ip: Any) -> bool:
+        """Return whether process tasks still use the built-in loopback default."""
+        if not isinstance(master_ip, dict):
+            return not str(master_ip or "").strip()
+        configured = str(master_ip.get("process") or "").strip()
+        if configured != "127.0.0.1":
+            return not configured
+        loaded_files = getattr(self.cfg, "_loaded_config_files", []) or []
+        if not isinstance(loaded_files, (list, tuple)):
+            loaded_files = []
+        for path in loaded_files:
+            try:
+                text = pathlib.Path(str(path)).read_text(encoding="utf-8")
+            except (OSError, UnicodeError):
+                continue
+            if re.search(r"(?m)^\s*-\s*process\s*:\s*['\"]?127\.0\.0\.1", text):
+                return False
+        return True
 
     def _launch_bind_host(self, launch_mode: str, host: str) -> str:
         raw = str(host or "").strip() or "127.0.0.1"
@@ -4743,6 +4978,9 @@ class PdbMasterApiServer:
         return f"http://{name}:{port}"
 
     def _task_service_base_url(self, task: Dict[str, Any], svc: Dict[str, Any]) -> str:
+        process_url = _process_cmd_api_proxy_url(task, svc)
+        if process_url:
+            return process_url.rstrip("/")
         base = self._task_swarm_service_base_url(task, svc)
         if not base:
             base = str(svc.get("base_url_internal") or svc.get("tcp_url") or "").strip()
@@ -4801,7 +5039,10 @@ class PdbMasterApiServer:
         cmd_api_tcp = str(agent.get("cmd_api_tcp") or "").strip()
         if cmd_api_tcp:
             reported_cmd_api = {"tcp_url": cmd_api_tcp}
-            if task.get("launch_mode") != "docker_swarm":
+            process_loopback = task.get("launch_mode") == "process" and re.match(
+                r"^(?:https?://)?(?:127\.0\.0\.1|localhost)(?::|/|$)", cmd_api_tcp, re.IGNORECASE
+            )
+            if not process_loopback and task.get("launch_mode") != "docker_swarm":
                 reported_cmd_api["base_url_internal"] = cmd_api_tcp
             merged_cmd_api = _merge_runtime_service_info(task.get("cmd_api"), reported_cmd_api)
             if merged_cmd_api != (task.get("cmd_api") or {}):
@@ -4966,6 +5207,11 @@ class PdbMasterApiServer:
         )
         req["launch_mode"] = launch_mode
         self._ensure_launch_mode_supported(launch_mode)
+        # Each launched Agent owns its MCP listener. Avoid inheriting the
+        # global default port (5000), which collides when multiple tasks run
+        # under one Master. An explicit request remains authoritative.
+        if req.get("mcp_server_port") in (None, ""):
+            req["mcp_server_port"] = find_available_port(start_port=5000, end_port=65535)
         if not str(req.get("client_id") or "").strip():
             req["client_id"] = uuid.uuid4().hex
         workspace_id = req.get("workspace_id", "")
@@ -5075,11 +5321,35 @@ class PdbMasterApiServer:
         if compiled_config and (not current_config or current_config == os.path.basename(compiled_config)):
             req["config"] = compiled_config
 
+        config_ref = str(req.get("config") or "").strip().lower()
+        plugin_workflow = str(req.get("plugin_workflow") or "").strip()
+        if config_ref in {"bug_review", "bug_review.yaml"} or plugin_workflow == "bug_review:analysis":
+            source = self._prepare_bug_review_input_source(ws, prepared)
+            # The child Agent receives only the compiled picker workspace
+            # archive. Keep the plugin's runtime layout at that archive root so
+            # review_job.json and results/ are available after extraction.
+            review_root = pathlib.Path(prepared["picker_workspace"])
+            self._prepare_bug_review_workspace(
+                workspace_id,
+                source,
+                output_root=str(review_root),
+                label=pathlib.Path(source).name,
+            )
+            # The selected workflow defines its artifacts below {OUT}/results.
+            # Leaving the generic CLI default (unity_test) makes RunTestCases
+            # point at a non-existent or stale top-level directory.
+            req["output"] = "results"
+            req["plugin"] = str(pathlib.Path(__file__).resolve().parents[2] / "plugins" / "bug_review")
+            req["plugin_workflow"] = "bug_review:analysis"
+            req["config"] = "bug_review"
+
         cmd_api_host, cmd_api_port, cmd_api_password = _parse_service_spec(
             req.get("export_cmd_api", ""),
             "127.0.0.1",
             find_available_port(start_port=int(self.cfg.get_value("cmd_api.port", 8765))),
         )
+        if launch_mode == "process" and cmd_api_host.lower() in {"127.0.0.1", "localhost"}:
+            cmd_api_host = self._cluster_master_ip("process")
         cmd_api = {
             "enabled": True,
             "host": self._launch_bind_host(launch_mode, cmd_api_host),
@@ -6561,7 +6831,16 @@ class PdbMasterApiServer:
                     if is_client_exit
                     else ("" if not client_exit else existing.get("exit_reason", ""))
                 )
-                tcp_url = _fix_tcp_url(str(body.get("cmd_api_tcp") or ""), client_ip)
+                # Process children share the Master host, so their loopback CMD
+                # API remains reachable from this process. Container and remote
+                # agents still need their reported loopback address rewritten.
+                raw_cmd_api_tcp = str(body.get("cmd_api_tcp") or "")
+                agent_launch_task = self._tasks.get(str(body.get("task_id") or ""))
+                preserve_loopback = bool(
+                    agent_launch_task
+                    and agent_launch_task.get("launch_mode") == "process"
+                )
+                tcp_url = raw_cmd_api_tcp if preserve_loopback else _fix_tcp_url(raw_cmd_api_tcp, client_ip)
                 current_stage_index = int(body.get("current_stage_index", -1) or -1)
                 total_stage_count = int(body.get("total_stage_count", 0) or 0)
                 raw_meta = body.get("meta")
