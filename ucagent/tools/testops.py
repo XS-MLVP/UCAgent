@@ -275,6 +275,13 @@ class RunPyTest(UCTool):
                 if path and path not in import_roots
             )
         env["PYTHONPATH"] = os.pathsep.join(import_roots)
+        tunables = [
+            item
+            for item in env.get("GLIBC_TUNABLES", "").split(":")
+            if item and not item.startswith("glibc.rtld.optional_static_tls=")
+        ]
+        tunables.append("glibc.rtld.optional_static_tls=262144")
+        env["GLIBC_TUNABLES"] = ":".join(tunables)
         if "XSPCOMM_LOG_LEVEL" not in env:
             env["XSPCOMM_LOG_LEVEL"] = "4"  # 1-DEBUG, 2-INFO, 3-WARNING, 4-ERROR, 5-FATAL
         env.update(pytest_ex_env)

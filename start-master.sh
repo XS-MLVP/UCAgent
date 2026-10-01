@@ -16,7 +16,8 @@ fi
 # Keep the endpoint and model used by the Master in one local, reviewable place.
 OPENAI_API_BASE="http://172.28.11.121:18084/v1"
 OPENAI_MODEL="gpt-6-sol"
+GLIBC_TUNABLES="${GLIBC_TUNABLES:+${GLIBC_TUNABLES}:}glibc.rtld.optional_static_tls=262144"
 
-export OPENAI_API_KEY OPENAI_API_BASE OPENAI_MODEL
+export OPENAI_API_KEY OPENAI_API_BASE OPENAI_MODEL GLIBC_TUNABLES
 
 exec make as_master_persist ARGS="--as-master 172.19.20.20:8800"

@@ -86,8 +86,8 @@ backend:
   codex:
     clss: ucagent.abackend.UCAgentCmdLineBackend
     args:
-      cli_cmd_new: "codex exec {UC_ENV_CMD_BACKEND_EX_ARGS} {UC_ENV_CMD_BACKEND_EX_ARGS_N} --yolo < {MSG_FILE}"
-      cli_cmd_ctx: "codex exec {UC_ENV_CMD_BACKEND_EX_ARGS} {UC_ENV_CMD_BACKEND_EX_ARGS_C} resume --last --yolo < {MSG_FILE}"
+      cli_cmd_new: "CODEX_HOME=\"{CWD}/.codex\" codex exec {UC_ENV_CMD_BACKEND_EX_ARGS} {UC_ENV_CMD_BACKEND_EX_ARGS_N} --yolo < {MSG_FILE}"
+      cli_cmd_ctx: "CODEX_HOME=\"{CWD}/.codex\" codex exec {UC_ENV_CMD_BACKEND_EX_ARGS} {UC_ENV_CMD_BACKEND_EX_ARGS_C} resume --last --yolo < {MSG_FILE}"
       pre_bash_cmd:
         - "mkdir -p {CWD}/.codex/"
       render_files:

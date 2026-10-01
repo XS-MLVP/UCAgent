@@ -5,6 +5,29 @@
 
 本页的功能版本号用于整理工作流演进，不表示插件包已经按这些版本发布；`pyproject.toml` 当前仍声明包版本 `0.1.0`。历史迭代没有可靠的统一发布日期，因此版本标题不补写推测日期。本稿整理于 2026-09-27。
 
+## 2026-10-01 工作区运行支持
+
+当前工作区为 Bug Review 运行补充了以下支持配置和记录：
+
+- `start-master.sh` 为 Master 进程导出 `glibc.rtld.optional_static_tls=262144`，降低加载测试运行依赖时的静态 TLS 不足风险。
+- `ucagent/tools/testops.py` 在 `RunPyTest` 的子进程环境中保留已有 `GLIBC_TUNABLES`，去重后强制加入同一 TLS 参数，使 Master 启动的测试和直接运行的测试使用一致的运行环境。
+- Codex 后端命令把 `CODEX_HOME` 指向当前工作区的 `.codex` 目录，避免多个 Bug Review 运行共享会话状态；`mcp_codex.toml` 保留响应存储，支持工作流继续和复盘。
+
+本条只记录代码和配置改动；模块输入、测试工作区、波形、checkpoint 及 `output-*` 运行产物均不属于提交内容。
+
+## 相对远程分支的 Bug Review 新增内容
+
+当前分支相对 `origin/bug-review/workflow-report-sync` 包含两个尚未同步到远程的功能提交：`2f8a505`（Master 工作流与输入准备）和 `69dd132`（canonical LoadUnit Bug 摘要）。纳入版本记录的内容如下：
+
+- **Master 注册与启动**：增加 `bug_review` Launch preset，固定 `results` 输出目录、Codex backend、插件路径和 `bug_review:analysis` workflow；Master 在启动前准备隔离的 Bug Review 输入快照，并为每个子 Agent 分配可用 MCP 端口，处理 process、Docker 和远程 Agent 的 CMD API 地址。
+- **输入准备与目录契约**：新增 `bug-review-orchestrator` Skill 及 `prepare_inputs.py`、`launch_tmux.py`、`monitor.py`。准备步骤复用默认模块目录，支持以 `filelist.txt` 作为完整 RTL 输入，保留旧 Bug 报告并通过 manifest 要求重新分析，确认 canonical 报告齐全后才启动复核。
+- **Launch 与编译支持**：Launch 页面、CLI、Makefile 和 Picker 命令支持 filelist-only 模块；文件列表相对路径按 filelist 所在目录解析，缺少同名顶层 `.v/.sv` 时仍可编译。新增相关 Master、插件、TestOps 和任务日志回归测试。
+- **运行时配置与工具**：VerifyAgent 从结构化 `WaveInfo` 配置读取允许的 case 范围和信号预设；Bug Review 的测试目录统一指向 `{OUT}/tests`；插件工作流和报告收集逻辑对当前 `bug_review` schema 与独立运行区保持一致。
+- **LoadUnit 示例与报告**：加入 `examples/LoadUnit` 和 `examples/bosc_LoadUnit` 两套可复用示例，包含 RTL、filelist、launch 配置、规格/验证文档、UnityTest API、覆盖率定义和完整测试集合；补齐两套 canonical `bosc_LoadUnit_bug_summary.md`，供输入准备和 Bug Review 复核使用。
+- **文档同步**：更新 Master Web 使用说明、多运行案例、Bug Review README 和输入准备说明，明确准备、启动、输出目录以及 filelist-only 约束。
+
+上述内容已存在于当前分支的两个功能提交中；本次记录提交只补充变更说明和当前工作区运行支持，不重复添加 `inputs/`、`output-*` 或其他运行生成物。
+
 ## 当前框架
 
 Bug Review 一次处理一个 `inputs/workspace_<name>/` 模块。输入中的 Bug 摘要、详细分析、测试、Spec 和 RTL 是待核查资料；插件把分析文本和可运行测试准备到该模块独立的运行区，在不改动原始内容的前提下收集并重跑全部 pytest 用例。每个阶段由工作流指定目标、参考文件和输出文件，Checker 核对实际产物及证据；Skill 提供操作指导和脚本，波形取证使用 UCAgent 的 WaveInfo 与签名收据。
