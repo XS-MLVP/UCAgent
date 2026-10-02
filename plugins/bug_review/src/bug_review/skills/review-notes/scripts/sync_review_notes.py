@@ -33,8 +33,8 @@ def main() -> None:
     job = read_object(workspace / "review_job.json")
     if output != (workspace / job["output_dir"]).resolve():
         raise ValueError("Resolved OUT differs from the prepared Bug Review output")
-    if job.get("schema") != "bug_review_job.v7":
-        raise ValueError("review_job.json must use bug_review_job.v7")
+    if job.get("schema") != "bug_review_job.v8":
+        raise ValueError("review_job.json must use bug_review_job.v8")
     names = [job["source_run"][0]]
     notes = workspace / "notes/bug_review_notes.md"
     notes.parent.mkdir(parents=True, exist_ok=True)

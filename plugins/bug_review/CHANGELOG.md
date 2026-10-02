@@ -1,13 +1,13 @@
 
 # Bug Review 工作流与版本记录
 
-本文前半部分描述**当前实现**，后半部分按功能版本记录主要变化。版本对应关系为：`ANALYSIS_OVERVIEW.md` 的 V1 → `v1.0.0`、V2 → `v1.1.0`、V3 → `v1.2.0`、V4 → `v1.3.0`。V1.1、V1.4、V2.1、V3.2 等是各组需求内部的迭代，不单独占用此处的次版本号。具体设计依据、试跑反馈和待验收事项仍以 [ANALYSIS_OVERVIEW.md](ANALYSIS_OVERVIEW.md) 为准。
+本文前半部分描述**当前实现**，后半部分按功能版本记录主要变化。版本对应关系为：`ANALYSIS_OVERVIEW.md` 的 V1 → `v1.0.0`、V2 → `v1.1.0`、V3 → `v1.2.0`、V4 → `v1.3.0`、V4.1 → `v1.4.0`。具体设计依据、试跑反馈和待验收事项仍以 [ANALYSIS_OVERVIEW.md](ANALYSIS_OVERVIEW.md) 为准。
 
-本页的功能版本号用于整理工作流演进，不表示插件包已经按这些版本发布；`pyproject.toml` 当前仍声明包版本 `0.1.0`。历史迭代没有可靠的统一发布日期，因此版本标题不补写推测日期。本稿整理于 2026-09-27。
+本页的功能版本号用于整理工作流演进，不表示插件包已经按这些版本发布；`pyproject.toml` 当前仍声明包版本 `0.1.0`。历史迭代没有可靠的统一发布日期，因此版本标题不补写推测日期。本稿更新于 2026-10-02。
 
 ## 当前框架
 
-Bug Review 一次处理一个 `inputs/workspace_<name>/` 模块。输入中的 Bug 摘要、详细分析、测试、Spec 和 RTL 是待核查资料；插件把分析文本和可运行测试准备到该模块独立的运行区，在不改动原始内容的前提下收集并重跑全部 pytest 用例。每个阶段由工作流指定目标、参考文件和输出文件，Checker 核对实际产物及证据；Skill 提供操作指导和脚本，波形取证使用 UCAgent 的 WaveInfo 与签名收据。
+Bug Review 一次处理一个 `inputs/workspace_<name>/` 模块。标准输入与补齐方式见 [INPUTS.md](INPUTS.md)。输入中的 Bug 摘要、详细分析、测试、Spec 和 RTL 是待核查资料；插件在独立运行区准备只读原文快照、测试执行副本和 DUT 包，在不改动原始内容的前提下收集并重跑全部 pytest 用例。每个阶段由工作流指定目标、参考文件和输出文件，Checker 核对实际产物及证据；Skill 提供操作指导和脚本，波形取证使用 UCAgent 的 WaveInfo 与签名收据。
 
 `review_index.json` 是本次运行的轻量索引：保存模块身份、原 Bug 身份、阶段状态和逐 case／Bug 记录路径。初始 Bug 骨架不推断 BG／FC／CK 或 case 归属；复核后的关系由 LLM 填入归因草稿，再经过来源与一致性校验提交。执行、归因、裁决、根因和覆盖率分别保存在独立记录中；原报告长文、Spec／RTL 原文及完整波形不复制进索引。报告从当前活动记录生成，HTML 是可重建的展示结果。
 
@@ -30,7 +30,7 @@ Bug Review 一次处理一个 `inputs/workspace_<name>/` 模块。输入中的 B
 | --- | --- |
 | `Makefile`、`README.md` | 默认全模块和指定模块的运行入口、基本使用说明。 |
 | `src/bug_review/workflows/analysis.yaml` | 六阶段任务、参考文件、输出文件、Skill 与 Checker 配置。 |
-| `src/bug_review/workflow.py`、`inputs.py` | 输入发现、独立运行区准备、阶段核验与报告发布。 |
+| `src/bug_review/workflow.py`、`inputs.py`、`picker_build.py` | 输入发现、独立运行区准备、DUT 构建、阶段核验与报告发布。 |
 | `src/bug_review/review_*.py`、`tools.py` | 索引及逐项记录、重跑导入、归因事务、证据查询、裁决提交和工具接口。 |
 | `src/bug_review/checkers/` | 阶段完成前的确定性校验。 |
 | `src/bug_review/Guide_Doc/`、`skills/`、`templates/` | 运行时指导、阶段操作脚本和初始模板。 |
@@ -39,14 +39,14 @@ Bug Review 一次处理一个 `inputs/workspace_<name>/` 模块。输入中的 B
 
 ### 输出目录：先看哪里
 
-默认根目录为 `plugins/bug_review/output/`，可通过 `OUTPUT_ROOT` 配置。`make bug-review-analysis` 对 `inputs/workspace_*` 逐模块重新运行；`make bug_review_<name>` 只运行指定模块。每次运行都新建 `run-<id>`，公开的 `report/` 指向该模块已核验的运行结果；单模块重跑不改写其他模块的报告。
+默认根目录为 `plugins/bug_review/output/`，可通过 `OUTPUT_ROOT` 配置。`make bug-review-analysis` 对 `inputs/workspace_*` 逐模块重新运行；`make bug_review_<name>` 只运行指定模块。每次运行都新建 `run-<id>`，公开的 `report/` 是独立的实体目录；单模块重跑不改写其他模块的报告。
 
 ```text
 output/
 ├── index.html                         # 所有已发布模块的入口
 ├── serve.py                           # 仅依赖 Python 标准库的本地报告服务
 └── workspace_<name>/
-    ├── report/                         # 当前公开报告，指向一次已完成运行
+    ├── report/                         # 当前公开实体报告
     │   ├── index.html                  # 模块概况、覆盖率、失败 case 和按根因聚合的高置信 Bug
     │   ├── cases/                      # 失败 case 详情
     │   ├── bugs/                       # 每条 Bug 的裁决与证据详情
@@ -57,6 +57,8 @@ output/
     └── runs/
         └── run-<id>/                   # 本次运行的私有工作区
             ├── review_job.json         # 输入模块及运行配置快照
+            ├── source/                 # Bug 原文、Spec 与 RTL 快照
+            ├── <dut>/                  # 本次 DUT 运行包
             ├── uc_test_report/         # 本次 pytest/toffee 的可写报告目录
             ├── .ucagent/               # 阶段状态和签名 WaveInfo 收据存储
             └── results/
@@ -70,15 +72,22 @@ output/
                 ├── attributions/       # 归因修订、主张映射及 case／对账记录
                 ├── reviews/            # 逐 Bug 裁决与根因修订
                 ├── report/             # 发布前的报告原件
-                ├── inputs/             # 分析所需原文镜像
-                ├── tests/              # 可运行测试副本
+                ├── tests/              # 唯一的可运行测试副本
                 ├── drafts/             # 尚未激活的草稿
                 └── diagnostics/        # 收集失败时的完整日志
 ```
 
-**阅读顺序**：在 `output/` 目录运行 `python3 serve.py`，从打印的本地 HTTP 地址进入总门户、模块和 Bug 详情。总门户的“高置信度根因”与模块主表采用同一口径：只计已确认且复核置信度不低于 0.8 的去重根因组。整个 `output/` 文件夹可独立分享；接收方只需 Python 3.9+，无须安装插件或 UCAgent。复制时保留 `workspace_*/report` 与同目录 `runs/` 的相对链接关系。预览读取 `report/waveforms/` 中与原签名收据对应的波形快照，不调用 UCAgent 动态波形接口。原波形在发布前已轮换时只保留签名收据和分析摘要。核查运行全集和缺口时看该次运行的 `test_manifest.json`、`replay_summary.json` 与 `environment_review.json`；追溯某条裁决时从 `review_index.json` 中的活动路径找到逐 Bug／case 记录和根因修订，不按 ID 猜测文件名。签名收据存于该次运行的 `.ucagent/waveinfo_receipts.json`，case 记录只保存收据引用与波形摘要。`report/` 只公开报告及预览资源；`runs/` 保存运行记录、草稿和输入镜像。覆盖率数字只在 `coverage.json` 有可核实来源时展示，否则明确标示不可用。
+**阅读顺序**：在 `output/` 目录运行 `python3 serve.py`，从打印的本地 HTTP 地址进入总门户、模块和 Bug 详情。总门户的“高置信度根因”与模块主表采用同一口径：只计已确认且复核置信度不低于 0.8 的去重根因组。整个 `output/` 文件夹可独立分享；接收方只需 Python 3.9+，无须安装插件或 UCAgent；公开报告无需私有 `runs/`。预览读取 `report/waveforms/` 中与原签名收据对应的波形快照，不调用 UCAgent 动态波形接口。原波形在发布前已轮换时只保留签名收据和分析摘要。核查运行全集和缺口时看该次运行的 `test_manifest.json`、`replay_summary.json` 与 `environment_review.json`；追溯某条裁决时从 `review_index.json` 中的活动路径找到逐 Bug／case 记录和根因修订，不按 ID 猜测文件名。签名收据存于该次运行的 `.ucagent/waveinfo_receipts.json`，case 记录只保存收据引用与波形摘要。`report/` 只公开报告及预览资源；`runs/` 保存运行记录、草稿和原文快照。覆盖率数字只在 `coverage.json` 有可核实来源时展示，否则明确标示不可用。
 
 ## 版本变化
+
+### v1.4.0 — V4.1：输入与运行区精简
+
+**代码已实现；真实 LoadUnit 与远程 Master 全流程待目标环境验收。**
+
+- 根目录 `launch.yaml`、`filelist.txt`、测试与原 Bug 报告构成标准输入；`input-preparation` 仅在缺少材料时补齐。无可用 DUT 包时，运行准备按 filelist 构建并验证当前 Python 的 Picker 包。
+- CLI/Make 和 Master 使用同一运行准备；`source/` 保存原文快照及外部 RTL 映射，`results/tests/` 保存唯一测试执行副本，DUT 包位于运行区根目录。阶段历史忽略 `toffee_tmp_*` 与波形数据。
+- 模块报告发布为实体目录，旧公开报告保存在本次 run；归档运行在 Master 同步回规范 run 后发布。总门户与报告页面无需私有运行区即可分享。
 
 ### v1.3.0 — V4：原始主张归属由 LLM 复核
 

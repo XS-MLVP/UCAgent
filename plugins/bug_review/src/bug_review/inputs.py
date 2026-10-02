@@ -23,5 +23,5 @@ def discover_input_workspaces(input_root):
     root = Path(input_root).expanduser().resolve()
     if not root.is_dir():
         raise ValueError(f"input root does not exist: {root}")
-    return [(path.name.removeprefix("workspace_"), str(path))
+    return [(path.name, str(path))
             for path in sorted(root.glob("workspace_*")) if path.is_dir()]

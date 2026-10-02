@@ -3,7 +3,9 @@
 
 复核已有 UnityTest 工作区中的 Bug 声明。插件在隔离副本中重跑现有测试，分析真实波形、规格和 RTL，保留每条原始声明的裁决，并把同根因的 Bug 关联起来。工作流为 `bug_review:analysis`。
 
-当前框架、输出目录与功能版本变化见 [工作流与版本记录](CHANGELOG.md)；需求和设计记录见 [分析工作流与优化需求](ANALYSIS_OVERVIEW.md)；运行中的阶段操作见 [分析指导](src/bug_review/Guide_Doc/analysis.md)。
+输入目录、必需材料与原报告格式见 [输入准备](INPUTS.md)；当前框架、输出目录与功能版本变化见 [工作流与版本记录](CHANGELOG.md)；需求和设计记录见 [分析工作流与优化需求](ANALYSIS_OVERVIEW.md)；运行中的阶段操作见 [分析指导](src/bug_review/Guide_Doc/analysis.md)。
+
+需要同时复核多个模块时，可由监管 Agent 使用 [多模块复核监管 Skill](src/bug_review/skills/multi-review-supervisor/SKILL.md) 分配独立子 Agent、监控各模块运行，并在全部结束后更新总门户。
 
 ## 运行
 
@@ -16,7 +18,7 @@ make plugin-check
 make bug-review-analysis
 ```
 
-默认读取 `inputs/workspace_*`，逐个重新复核所有模块，并更新 `output/index.html` 总索引。每个模块的最终概况在 `output/workspace_NAME/report/index.html`，可点进失败 case 与疑似 Bug 详情。运行中的 `review_index.json`、逐 case/Bug 记录和签名收据位于该模块的 `runs/<run-id>/results/`。准备阶段复制分析文本、测试源码、UnityTest cases 与 DUT 运行包。工作流收集并重跑本次模块的全部 pytest 用例，先独立分析失败，再对照原 Bug 报告。仅重跑一个模块：
+默认读取 `inputs/workspace_*`，逐个重新复核所有模块，并更新 `output/index.html` 总索引。每个模块的最终概况在 `output/workspace_NAME/report/index.html`，可点进失败 case 与疑似 Bug 详情。运行中的 `review_index.json`、逐 case/Bug 记录和签名收据位于该模块的 `runs/<run-id>/results/`。工作流收集并重跑本次模块的全部 pytest 用例，先独立分析失败，再对照原 Bug 报告。仅重跑一个模块：
 
 ```bash
 make bug_review_raid_dec_top
@@ -28,7 +30,7 @@ make bug_review_raid_dec_top
 make bug-review-analysis OUTPUT_ROOT=/absolute/path/review-output
 ```
 
-输出根目录必须与输入工作区分离。模块运行状态和签名 receipt 留在 `output/workspace_NAME/runs/`；对外 `report/` 只保存最终页面及页面清单。单模块命令不会改写其他模块的结果。已完成运行若缺少门户，可执行 `PYTHONPATH=src:../.. python -m bug_review.workflow publish --workspace /absolute/path/to/run` 恢复发布。
+输出根目录必须与输入工作区分离。模块运行状态和签名 receipt 留在 `output/workspace_NAME/runs/`；对外 `report/` 是实体目录，只保存最终页面、引用资源及页面清单。单模块命令不会改写其他模块的结果。已完成运行若缺少门户，可执行 `PYTHONPATH=src:../.. python -m bug_review.workflow publish --workspace /absolute/path/to/run` 恢复发布。
 
 完整波形预览使用报告内的静态 Surfer 和发布时保存的波形快照，无需启动 UCAgent 波形接口。发布会在 `output/` 根目录生成独立的 `serve.py`。只分享整个 `output/` 文件夹时，接收方可直接运行：
 
@@ -37,7 +39,7 @@ cd output
 python3 serve.py
 ```
 
-然后在浏览器打开 `http://127.0.0.1:8765/index.html`。`serve.py` 只用 Python 标准库，仅提供门户和已发布的模块报告；不需要插件源码或 UCAgent。复制或压缩整个 `output/` 时，要保留 `workspace_*/report` 与同目录 `runs/` 的相对链接关系。直接用 `file://` 打开 HTML 时，Surfer 的模块与 WebAssembly 无法正常加载。若签名收据对应的原波形在发布前已轮换，详情页仍显示波形分析与收据，但不提供完整预览按钮。插件开发环境中仍可用 `make bug-review-serve` 启动同一个服务。
+然后在浏览器打开 `http://127.0.0.1:8765/index.html`。`serve.py` 只用 Python 标准库，仅提供门户和已发布的模块报告；不需要插件源码、UCAgent 或私有 `runs/`。直接用 `file://` 打开 HTML 时，Surfer 的模块与 WebAssembly 无法正常加载。若签名收据对应的原波形在发布前已轮换，详情页仍显示波形分析与收据，但不提供完整预览按钮。插件开发环境中仍可用 `make bug-review-serve` 启动同一个服务。
 
 ## 直接准备与启动
 
@@ -49,7 +51,7 @@ PYTHONPATH=src:../.. python -m bug_review run-analysis \
   -- --tui
 ```
 
-`--run workspace_NAME=/absolute/path/workspace_NAME` 只选择指定模块；不传时全部重跑。启动 UCAgent 前，命令复制分析文本、UnityTest cases 目录和 DUT 运行包到本次模块执行区。六阶段依次收集并全量重跑、独立分析失败、取得 DUT 波形证据、对照原报告、合并根因和发布。模块完成后，工作流发布模块 HTML 并更新总索引。
+`--run workspace_NAME=/absolute/path/workspace_NAME` 只选择指定模块；不传时全部重跑。启动前按 [输入准备](INPUTS.md) 确认标准输入。六阶段依次收集并全量重跑、独立分析失败、取得 DUT 波形证据、对照原报告、合并根因和发布。模块完成后，工作流发布模块 HTML 并更新总索引。
 
 更新插件 Skill 后重新启动工作流，以便把新 Skill 复制到运行工作区。
 

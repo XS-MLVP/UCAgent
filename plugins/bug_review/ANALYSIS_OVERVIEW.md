@@ -25,6 +25,7 @@ Bug Review 复核已有验证报告中的 Bug 声明：确定输入与待查对�
 | V3.1 | 代码已实现，待真实模块验收 | 修正原报告 case 关联权威来源；将归因关联作为一次校验与提交；减少逐文件 SHA 操作；自动完成发布状态；完善模块与详情页的层次、配色和输出目录写入。 | [V3.1 归因事务与报告呈现](#v31-归因事务与报告呈现) |
 | V3.2 | 代码已实现，待真实模块验收 | 统一收集与执行的可写报告路径、失败诊断和重试；批量准备原报告候选及 case 差集；明确共享根因和阶段已读证据；最终报告改为中文、高置信 Bug 列表与可高亮的源码全文预览。 | [V3.2 收集环境、对账与报告阅读](#v32-收集环境对账与报告阅读) |
 | V4.0 | 代码已实现，待真实模块试跑验收；功能版本 `v1.3.0` | 脚本仅创建格式，LLM 根据原文填写 BG／FC／CK 层级和 case 归属；允许有来源的关联纠错；缩短波形、裁决和阶段取证的重复操作。 | [V4.0 主张归属与长流程体验规划](#v40-主张归属与长流程体验规划) |
+| V4.1 | 代码已实现，待真实模块验收 | 按需补齐标准输入，统一 Master 与普通模式的启动准备；精简每模块运行区与公开报告。 | [V4.1 输入结构与产物精简规划](#v41-输入结构与产物精简规划) |
 
 后续变更在此表增加新版本，并在对应版本章节记录相对上一版新增、修改和移除的契约及实施状态。更新旧版本的事实错误可以直接更正；不要把未落地的目标写成已实现功能。
 
@@ -341,6 +342,72 @@ Bug 详情页在验证场景、预期行为、实际行为下方用一段中文�
 Surfer 的前端资源是静态 HTML／JavaScript／WebAssembly，原签名链接中的 v2 `wave` 令牌则默认把波形下载指向 UCAgent 的动态 `/api/waveform/latest`。报告发布时只复制收据明确选中的、大小与修改时间仍匹配的 FST／VCD 原文件到 `report/waveforms/`，并把 Surfer 静态资源放到 `report/surfer/`。预览链接保留原令牌的信号集合和分析窗口，仅把数据地址改到同一报告中的静态快照。总门户同时发布 `output/serve.py`；接收方只拿到整个 `output/` 文件夹时，在其根目录运行 `python3 serve.py`，用浏览器访问打印的本地 HTTP 地址即可，不需要 UCAgent 或插件源码。插件开发环境也可运行 `make bug-review-serve`。本地服务提供静态页面、波形与 WebAssembly 所需响应头；用 `file://` 直接打开报告无法可靠启动 Surfer。分享时要保留模块 `report` 到其 `runs/` 中已发布结果的相对链接关系。
 
 签名收据和预览文件承担不同作用：收据仍是工作流的证据，静态快照只是浏览器展示材料。发布前已轮换的原波形不能从其他运行、同名文件或原报告推测补齐；这类 case 显示关键观察和收据，但不提供完整预览。现有公开报告重新渲染后，`workspace_raid_dec_top` 的 26 条签名波形均有可用快照，`workspace_raid_enc_top` 的 83 条中有 4 条可用，其余 79 条原文件已不在该次运行区。HTML／清单核验覆盖快照链接、原令牌、Surfer 资源及页面与活动记录的一致性。
+
+## V4.1 输入结构与产物精简规划
+
+V4.1 按“一个模块完成一次评估”组织输出：`run-<id>` 保存执行、逐 case 裁决和签名收据；模块只发布一份实体报告及所需波形。当前三个模块的 `output/` 合计约 5.4 GB，主要增长来自测试生成的 `toffee_tmp_*` 被 `.ucagent/history/results` 再保存一次。现有 `report/` 是指向 run 内的链接，分享报告还依赖私有运行区；V4.1 改为模块级实体目录。
+
+### 标准输入与按需补齐
+
+| 现有来源 | 已有结构 | 需要统一的地方 |
+| --- | --- | --- |
+| `plugins/bug_review/inputs/workspace_*` | `unity_test/`、`<dut>_RTL/`，部分模块有 `<dut>/` 已编译运行包；通常没有根目录的 `filelist.txt` 与 `launch.yaml`。部分目录还留有 `.ucagent/`、旧测试报告和波形。 | 对照标准输入补齐启动材料；旧运行产物不作为输入。 |
+| `examples/bosc_LoadUnit` | 根目录有 `launch.yaml`、顶层 SV、`filelist.txt` 和 `unity_test/`；没有已编译 DUT 包。filelist 当前使用外部绝对 RTL 路径，测试目录也有旧 `data/toffee_tmp_*`。 | 作为新输入的结构样例；核对 RTL 依赖在目标机器可访问、编译产物与测试解释器兼容，旧测试数据不进入新 run。 |
+
+标准输入采用 `examples/bosc_LoadUnit` 的轻量布局：模块根目录放 `filelist.txt`、`launch.yaml` 和 `unity_test/`，按需要保留顶层 RTL 或可导入的 DUT 运行包。filelist 的每个 RTL 路径必须在运行节点可解析；可位于模块目录内，也可指向已挂载的外部 RTL 根。默认工作流与 Bug Review 若启动参数不同，可使用各自的启动清单，不强制共用同一份 YAML。
+
+```text
+inputs/workspace_<dut>/
+├── launch.yaml                         必需：DUT、顶层模块与 filelist 等启动选择
+├── filelist.txt                        必需：可编译的顶层 RTL 及其依赖清单
+├── unity_test/                         必需：原测试与相关文档
+│   ├── tests/                          必需：可收集的用例及所需 fixture、模型、数据
+│   ├── <dut>_bug_summary.md            Bug Review 至少提供此项或下项之一
+│   ├── <dut>_bug_analysis.md           Bug Review 至少提供此项或上项之一
+│   ├── .pytest.ini                     可选：原测试使用的 pytest 配置
+│   └── 其他规格/覆盖率/line_map 文档     按需：复核所需材料
+├── <dut>.sv、rtl/ 或其他 RTL 路径        按需：filelist 可引用目录外的源码
+├── <dut>/                             可选：已有且与当前解释器兼容的 DUT 运行包
+└── 其他 Spec/接口文档                  按需：供预期与根因核实
+```
+
+上述“必需”是 V4.1 新输入的目标格式。默认工作流无需原 Bug 文档；Bug Review 即使没有既有 Bug，也要提供一份无 Bug 条目的原报告供来源判定。测试依赖的 fixture、模型和数据必须随用例可用；旧波形、覆盖率、`uc_test_report/`、`.ucagent/` 与 `toffee_tmp_*` 不是输入。已有 DUT 包只用于免编译或加快启动，不能代替可追溯的 RTL 清单。
+
+只保留一个按需使用的 `input-preparation` Skill：沿用现有测试、规格、原报告和 DUT 运行包准备逻辑，并增加缺少 RTL/filelist/`launch.yaml` 时的标准输入创建能力。需要补 RTL 时从指定源码目录核实顶层和实际依赖，不猜测缺失文件；已有材料满足所选工作流时直接启动，不运行 Skill。Skill 负责形成输入，不负责每次运行的复制、编译或复核。
+
+### 统一启动与 Bug Review 运行
+
+```text
+output/
+├── index.html
+└── workspace_<dut>/
+    ├── report/                     唯一公开实体报告，含所需波形与静态资源
+    └── runs/run-<id>/
+        ├── review_job.json
+        ├── source/                 原报告、Spec、RTL 的只读快照
+        ├── <dut>/                  本次唯一 DUT 可导入包
+        ├── .ucagent/               阶段状态与签名收据
+        ├── uc_test_report/          本次测试报告
+        └── results/                {OUT}
+            ├── tests/workspace_<dut>/unity_test/         本次测试执行副本
+            └── cases/  replay/  diagnostics/  ...         复核记录
+```
+
+命令行（含 Makefile）与 Master 都调用同一启动准备入口；选择 Bug Review 时，两种入口都将工作区放在 `workspace_<dut>/runs/run-<id>/`。启动准备读取标准输入，按 `launch.yaml` 选择 RTL/filelist，缺少可用 DUT 包时编译 RTL；把测试源码、fixture 和参考模型复制到本次 `{OUT}/tests/`，DUT 包只放在 run 根目录供两种入口与 pytest 共用。原报告、Spec 和 RTL 复制一次到 run 的只读 `source/`，其测试路径指向执行副本；排除旧 `toffee_tmp_*`、缓存和测试报告。该入口只准备一次，用例内容保持不变。
+
+进入 Bug Review 工作流后，从本次 `{OUT}/tests/` 收集和运行用例，把执行报告、逐 case 裁决、诊断及签名收据保存在同一个 `run-<id>` 中，再据此分析并生成报告。Spec 与 RTL 通过 run 内只读 `source/` 取证，不再复制一份 `{OUT}/inputs/`；公开 `report/` 只保留最终页面、实际引用的源码和波形，不依赖私有 `runs/`。测试临时波形和覆盖率不进入阶段历史；发布核验后切换模块级实体报告，总索引只指向已发布模块。
+
+接入远程 Master 的 Bug Review Launch preset 和 filelist-only 编译时，修正其 Picker 根目录与规范 run 路径不一致、`bug_review_inputs` 与插件重复复制的问题。Launch 页面以 `unity_test/` 目录为输入，不要求逐文件选择用例；命令预览显示最终启动清单与输出路径。默认工作流和 Bug Review 可使用不同启动清单；同一工作流经命令行或 Master 启动时，编译产物和测试副本的相对位置一致。
+
+### 实施与验收
+
+1. 以 `examples/bosc_LoadUnit` 统一输入约定，扩展现有 `input-preparation` Skill 以按需创建缺失的 filelist/启动清单；完整输入直接启动。
+2. 将 Makefile/CLI 和 Master 接到同一 `workflow.prepare()` 启动准备入口，统一编译、DUT 包与 `unity_test/` 执行副本的落点；去除第二次复制，并取消 `{OUT}/inputs/` 文本镜像。
+3. 同步 RunTestCases、WaveInfo、Checker、Guide 和报告发布：用 `{OUT}` 用例产生本次 run 的证据，阶段历史不复制 `toffee_tmp_*`，模块只发布一份实体报告。验收 Skill 启用/关闭、完整输入免准备、缺失 RTL 的具体诊断、LoadUnit 的 filelist-only 编译、两种入口的目录一致、原用例不变，以及公开报告脱离私有 `runs/` 可浏览。
+
+现有 `output/` 和输入目录中的生成状态不原地搬移或清理；新布局从新运行开始验证。
+
+实施记录：普通入口与 Master 均调用同一准备函数；最小 RTL 已通过 filelist-only 构建、导入和运行区准备，插件与 Master 聚焦测试覆盖快照、归档、历史忽略及实体报告发布。`examples/bosc_LoadUnit/filelist.txt` 所指向的 `/nfs/...` RTL 在当前机器不可访问，因此真实 LoadUnit 编译和远程 Master 全流程仍待目标环境验收。
 
 ## V1 输入与裁决
 

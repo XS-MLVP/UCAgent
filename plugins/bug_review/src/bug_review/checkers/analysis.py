@@ -1,5 +1,9 @@
 """Validate completed Bug Review stages against their source inventories."""
 
+import os
+from pathlib import Path
+import stat
+
 from ucagent.checkers.base import Checker
 
 from ..review_validation import ReviewIssues
@@ -18,13 +22,21 @@ class BugReviewStageChecker(Checker):
     def on_init(self):
         """Bind canonical artifact validation to the active workspace."""
         self.workflow = Workflow(self.workspace)
+        # Pytest creates session data; writable directories also allow archive
+        # replacement. Files remain read-only and file tools deny source edits.
+        for root in (self.workflow.root / "source", self.workflow.out / "tests"):
+            for directory, _, _ in os.walk(root):
+                path = Path(directory)
+                path.chmod(path.stat().st_mode | stat.S_IWUSR)
         if self.stage_id == "publish" and not self._publish_registered:
             from ..workflow import publish_run
 
             def publish_completed(_stage):
                 """Promote the report after the final stage is committed."""
                 run = self.workflow.root
-                publish_run(run, run.parents[2])
+                name = self.workflow.config["source_run"][0]
+                if run.parent.name == "runs" and run.parent.parent.name == name:
+                    publish_run(run, run.parents[2])
 
             self.stage.append_on_complete_callback(publish_completed)
             self._publish_registered = True

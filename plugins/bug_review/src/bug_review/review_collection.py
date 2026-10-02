@@ -62,7 +62,9 @@ def collect_nodes(workspace: Path, output: Path, name: str, timeout: int) -> Tes
         log_path.parent.mkdir(parents=True, exist_ok=True)
         log_path.write_text(combined, encoding="utf-8")
         markers = ("permissionerror", "internalerror", "importerror", "modulenotfounderror",
-                   "library load disallowed", "quarantine", "error collecting")
+                   "library load disallowed", "quarantine", "error collecting",
+                   "illegal instruction", "fatal python error", "segmentation fault",
+                   "bus error")
         relevant = [line.strip()[:300] for line in combined.splitlines()
                     if any(marker in line.lower() for marker in markers)]
         diagnostic = relevant[-12:] or [line.strip()[:300] for line in combined.splitlines()
@@ -87,12 +89,12 @@ def create_records(workspace: Path, output: Path, expected_name: str = "") -> di
     from .json_io import read_object
 
     job = read_object(workspace / "review_job.json")
-    if job.get("schema") != "bug_review_job.v7":
-        raise ValueError("review_job.json must use bug_review_job.v7")
+    if job.get("schema") != "bug_review_job.v8":
+        raise ValueError("review_job.json must use bug_review_job.v8")
     name, source_text = job["source_run"]
     if expected_name and name != expected_name:
         raise ValueError(f"selected workspace is {name}, not {expected_name}")
-    source = Path(source_text)
+    source = (workspace / source_text).resolve()
     if (output / "review_index.json").exists():
         raise FileExistsError("review_index.json already exists")
     manifest = collect_nodes(workspace, output, name, job["timeout"])

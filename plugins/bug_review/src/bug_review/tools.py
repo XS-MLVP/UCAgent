@@ -18,7 +18,7 @@ from .json_io import read_object
 from .review_context import bug_context
 from .reporting import prepare_waveform_bundle, render_pages, verify_pages
 from .review_store import (BugRecord, RECORD_MODELS, ReviewIndex, RootsRecord,
-                           load_record, source_lines, within_output)
+                           load_record, source_lines, source_root as prepared_source_root, within_output)
 from .review_validation import ReviewIssues, case_issues, validate_correlation
 
 
@@ -153,7 +153,7 @@ class ReportClaimBlocks(UCTool):
         try:
             output = Path(self.workspace).resolve() / self.output_dir
             index = load_record(output, "review_index.json", "index")
-            blocks = report_claim_blocks(Path(index.workspace["source_path"]), index.workspace["name"])
+            blocks = report_claim_blocks(prepared_source_root(output), index.workspace["name"])
             return {"success": True, "total": len(blocks), "offset": offset,
                     "next_offset": offset + limit if offset + limit < len(blocks) else None,
                     "blocks": blocks[offset:offset + limit]}
@@ -294,7 +294,7 @@ class ReviewCaseDiff(UCTool):
                 raise ValueError("full_replay must be complete before comparing case sets")
             manifest = load_record(output, index.manifest_path, "manifest")
             replay = load_record(output, index.replay_summary_path, "replay_summary")
-            original, _ = _inventory(Path(index.workspace["source_path"]), index.workspace["name"])
+            original, _ = _inventory(prepared_source_root(output), index.workspace["name"])
             if index.claim_mapping_path:
                 claimed = {case_id for entry in index.bugs.values() for case_id in entry.case_ids}
                 attribution_status = "committed"
@@ -378,7 +378,7 @@ class ApplyReceiptToCase(UCTool):
             case.waveform.signal_groups = signed["signal_groups"]
             case.waveform.viewer_url = viewer["url"]
             issues = case_issues(index, case, self.waveinfo,
-                                 source_root=output / "inputs" / index.workspace["name"])
+                                 source_root=prepared_source_root(output))
             if issues:
                 raise ReviewIssues(issues)
             target = within_output(output, entry.record_path)
@@ -429,7 +429,7 @@ class ValidateCaseRecords(UCTool):
                                           require_replay=index.stage_status.get("full_replay") == "complete",
                                           require_triage=index.stage_status.get("case_triage") == "complete",
                                           require_wave=index.stage_status.get("dut_evidence") == "complete",
-                                          source_root=output / "inputs" / index.workspace["name"]))
+                                          source_root=prepared_source_root(output)))
             return {"success": not issues, "checked": len(selected), "total_issues": len(issues),
                     "issues": issues[:max_issues], "truncated_count": max(0, len(issues) - max_issues)}
         except (ValueError, OSError, KeyError, TypeError) as error:
@@ -460,7 +460,7 @@ class ReviewRefCheck(UCTool):
         except (ValueError, OSError) as error:
             return {"success": False, "error_code": "REVIEW_INDEX_UNAVAILABLE",
                     "error": str(error), "next_action": "Create or correct review_index.json first"}
-        source_root = output / "inputs" / index.workspace["name"]
+        source_root = prepared_source_root(output)
         results = []
         from .review_claims import source_role
         for reference in refs:
@@ -653,7 +653,7 @@ class SubmitReviewDecisions(UCTool):
                 raise ReviewIssues(issues)
             cases = {case_id: load_record(output, entry.record_path, "case")
                      for case_id, entry in index.cases.items()}
-            source_root = output / "inputs" / index.workspace["name"]
+            source_root = prepared_source_root(output)
             validate_correlation(index, cases, bugs, roots, source_root, self.waveinfo)
             if dry_run:
                 return {"success": True, "valid": True, "activated": False,
@@ -878,7 +878,7 @@ class UpdateReviewRecord(UCTool):
                         "extra": sorted(set(replacement.bug_ids) - linked),
                         "next_action": "Use CommitAttribution for Bug-to-case changes"}])
                 issues = case_issues(index, replacement, self.waveinfo,
-                                     source_root=output / "inputs" / index.workspace["name"])
+                                     source_root=prepared_source_root(output))
                 if issues:
                     raise ReviewIssues(issues)
             atomic_write_json(target, replacement.model_dump(mode="json", by_alias=True))

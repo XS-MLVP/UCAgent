@@ -3,7 +3,7 @@
 
 ## 工作区、输入与执行顺序
 
-`review_job.json.source_run` 指定本次唯一模块。`{OUT}/inputs/<workspace>/` 是原文只读镜像，含 Bug 报告、Spec、RTL 和测试源码；`{OUT}/tests/<workspace>/` 是可运行的测试副本。两处的测试、fixture、Spec、RTL 和模型均不得修改。`make bug-review-analysis` 默认对所有输入模块重新运行；`make bug_review_<name>` 只运行一个模块。
+`review_job.json.source_run` 指定本次唯一模块。`source/` 是本次只读原文快照，含 Bug 报告、Spec 和 RTL；其中 `unity_test/tests/` 指向 `{OUT}/tests/<workspace>/unity_test/tests/` 的执行副本。若 filelist 引用输入目录外的 RTL，`source/rtl_sources.json` 给出原路径到本次快照路径的映射；取证时引用映射后的 `source/` 相对路径。DUT 包在工作区根目录 `<dut>/`，测试、fixture、Spec、RTL 和模型均不得修改。`make bug-review-analysis` 默认对所有输入模块重新运行；`make bug_review_<name>` 只运行一个模块。
 
 六阶段顺序为 `full_replay → case_triage → dut_evidence → report_reconcile → root_correlation → publish`。初始索引只保存原 Bug ID、摘要来源和原始标签，不自动判定 BG／FC／CK 或 Bug→case 关系。先取得本次全量运行事实并独立分析失败；随后由你阅读原报告、测试、Spec、RTL 和波形，填写具体归属。
 
@@ -11,7 +11,7 @@
 
 ## 记录与工具
 
-`{OUT}/review_index.json` 保存身份、来源、复核后的关系和记录路径。`DescribeReviewSchema(record_type=...)` 返回 `index`、`manifest`、`replay_summary`、`case`、`environment`、`reconciliation`、`coverage`、`bug`、`roots`、`attribution_draft` 的机器可读 JSON Schema。原文仍位于输入镜像。case 文件起始于 `{OUT}/cases/`，归因提交后位于 `{OUT}/attributions/<revision>/cases/`；活动 Bug 裁决与根因在 `{OUT}/reviews/<revision>/`；报告只在 `{OUT}/report/`。
+`{OUT}/review_index.json` 保存身份、来源、复核后的关系和记录路径。`DescribeReviewSchema(record_type=...)` 返回 `index`、`manifest`、`replay_summary`、`case`、`environment`、`reconciliation`、`coverage`、`bug`、`roots`、`attribution_draft` 的机器可读 JSON Schema。原文位于 `source/`。case 文件起始于 `{OUT}/cases/`，归因提交后位于 `{OUT}/attributions/<revision>/cases/`；活动 Bug 裁决与根因在 `{OUT}/reviews/<revision>/`；报告只在 `{OUT}/report/`。
 
 独立 case 初判结束后，`ReportClaimBlocks` 分页列出原报告 BG 标题、精确行段与原始 TC 标签，不决定 Bug 归属。先填写归因草稿的关系，再用 `ReviewBugContext(bug_id=..., sections=["claims"], max_chars=16000, ref_offset=0)` 读某条原声明的有界字段与行段，用 `case_offset`/`ref_offset` 分页；缺失归属时工具提示填写草稿，不按 CK 或关键词猜测。`ReviewRefCheck(refs=["path:start[-end]"])` 批量核实 Spec/RTL/测试源码行，返回真实原文但不替代语义判断。多个引用分别放入数组，一个裁决的 `spec_ref`、`rtl_ref` 各为单一 `路径:行号[-行号]` 字符串。
 
@@ -30,13 +30,13 @@
   "workspace": {
     "name": "workspace_example_dut",
     "dut": "example_dut",
-    "source_path": "/project/inputs/workspace_example_dut",
+    "source_path": "/project/output/workspace_example_dut/runs/run-example/source",
     "execution_workspace": "/project/output/workspace_example_dut/runs/run-example",
     "started_at": "2026-09-25T01:00:00+00:00"
   },
   "source_files": {
-    "bug_summary": "/project/inputs/workspace_example_dut/unity_test/example_dut_bug_summary.md",
-    "bug_analysis": "/project/inputs/workspace_example_dut/unity_test/example_dut_bug_analysis.md"
+    "bug_summary": "/project/output/workspace_example_dut/runs/run-example/source/unity_test/example_dut_bug_summary.md",
+    "bug_analysis": "/project/output/workspace_example_dut/runs/run-example/source/unity_test/example_dut_bug_analysis.md"
   },
   "stage_status": {
     "full_replay": "pending",

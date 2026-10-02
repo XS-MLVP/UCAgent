@@ -11,7 +11,7 @@ from .analysis_core.task_manifest import atomic_write_json
 from .json_io import read_object
 from .review_claims import report_claim_blocks
 from .review_store import (AttributionDraft, ReconciliationRecord, load_record,
-                           source_lines, within_output)
+                           source_lines, source_root as prepared_source_root, within_output)
 from .review_validation import ReviewIssues, case_issues
 from .workflow import Workflow
 
@@ -102,7 +102,7 @@ def commit_attribution(workspace: Path, output: Path, draft_path: str, dry_run: 
     if (index.stage_status.get("dut_evidence") != "complete"
             or index.stage_status.get("root_correlation") == "complete"):
         raise ValueError("CommitAttribution belongs between dut_evidence and root_correlation")
-    source = Path(index.workspace["source_path"])
+    source = prepared_source_root(output)
     issues = claim_mapping_issues(source, index.workspace["name"], index, payload.bugs)
     if issues:
         raise ReviewIssues(issues)
@@ -130,7 +130,7 @@ def commit_attribution(workspace: Path, output: Path, draft_path: str, dry_run: 
                        "next_action": "List only proven earlier failures now passing with source refs"})
     if not reconciliation.statistics_review.strip():
         issues.append({"field": "statistics_review", "next_action": "Explain report and replay counting scopes"})
-    source_root = output / "inputs" / index.workspace["name"]
+    source_root = prepared_source_root(output)
     for case_id, ref in reconciliation.original_failure_refs.items():
         try:
             source_lines(source_root, ref, 1)

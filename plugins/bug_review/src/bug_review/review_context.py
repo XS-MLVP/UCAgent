@@ -7,7 +7,7 @@ import json
 
 from .json_io import read_object
 from .review_claims import source_role
-from .review_store import REF_PATTERN, ReviewIndex, load_record, source_lines
+from .review_store import REF_PATTERN, ReviewIndex, load_record, source_lines, source_root as prepared_source_root
 
 
 SECTIONS = ("summary", "cases", "waveform", "spec", "rtl", "decision", "claims")
@@ -28,7 +28,7 @@ def bug_context(output: Path, bug_id: str, sections: list[str] | None = None,
     if index.stage_status.get("dut_evidence") != "complete" and set(chosen) - {"cases", "waveform"}:
         raise ValueError("original claim context is available after independent case triage and DUT evidence")
     entry = index.bugs[bug_id]
-    source_root = output / "inputs" / index.workspace["name"]
+    source_root = prepared_source_root(output)
     assignment = None
     draft = output / "drafts/attribution.json"
     if not index.claim_mapping_path and draft.is_file():

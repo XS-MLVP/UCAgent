@@ -14,7 +14,7 @@ import ucagent
 from ucagent.util.waveform_viewer import decode_waveform_viewer_token
 
 from .json_io import read_object
-from .review_store import REF_PATTERN, load_record, source_lines
+from .review_store import REF_PATTERN, load_record, source_lines, source_root as prepared_source_root
 from .review_validation import review_incomplete
 
 LABELS = json.loads((Path(__file__).parent / "lang/zh/report.json").read_text(encoding="utf-8"))
@@ -148,7 +148,7 @@ def prepare_waveform_bundle(output: Path, cases: dict) -> dict[str, int]:
 def render_pages(output: Path, index, cases: dict, bugs: dict, roots, coverage) -> tuple[dict[str, str], dict]:
     """Build public pages and their exact cross-check manifest from active records."""
     name = index.workspace["name"]
-    source_root = output / "inputs" / name
+    source_root = prepared_source_root(output)
     manifest = load_record(output, index.manifest_path, "manifest")
     summary = load_record(output, index.replay_summary_path, "replay_summary")
     environment = load_record(output, index.environment_path, "environment")

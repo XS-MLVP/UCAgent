@@ -337,9 +337,13 @@ def source_lines(source_root: Path, reference: str, max_lines: int = 40) -> dict
         raise ValueError(f"expected source-relative path:start[-end]: {reference!r}")
     relative = Path(match.group(1))
     target = (source_root / relative).resolve()
+    test_root = source_root.parent / "results" / "tests"
+    linked_test = (relative.parts[:2] == ("unity_test", "tests")
+                   and target.is_relative_to(test_root.resolve()))
     if (relative.is_absolute() or ".." in relative.parts
-            or not target.is_relative_to(source_root.resolve()) or not target.is_file()):
-        raise ValueError(f"source reference is missing or outside input mirror: {reference}")
+            or not (target.is_relative_to(source_root.resolve()) or linked_test)
+            or not target.is_file()):
+        raise ValueError(f"source reference is missing or outside the prepared input: {reference}")
     start, end = int(match.group(2)), int(match.group(3) or match.group(2))
     if start < 1 or end < start:
         raise ValueError(f"invalid source line range: {reference}")
@@ -350,3 +354,11 @@ def source_lines(source_root: Path, reference: str, max_lines: int = 40) -> dict
     return {"ref": reference, "line_count": end - start + 1,
             "shown_lines": len(selected), "truncated": len(selected) < end - start + 1,
             "text": "\n".join(f"{start + offset}: {line}" for offset, line in enumerate(selected))}
+
+
+def source_root(output: Path) -> Path:
+    """Return the single read-only source snapshot beside this run's results."""
+    root = output.resolve().parent / "source"
+    if not root.is_dir():
+        raise ValueError(f"prepared source snapshot is missing: {root}")
+    return root

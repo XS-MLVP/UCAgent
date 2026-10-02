@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime, timezone
+import hashlib
 import html
 import json
 import os
@@ -12,7 +13,8 @@ import secrets
 import shutil
 import subprocess
 import sys
-from urllib.parse import unquote
+
+import yaml
 
 from ucagent.tools.waveform import WaveInfo
 
@@ -84,7 +86,7 @@ def _parse_summary(path):
 
 def _inventory(source, name):
     """Build one reported-Bug inventory and a readable outline."""
-    dut = source.name.removeprefix("workspace_")
+    dut = name.removeprefix("workspace_")
     summary = source / "unity_test" / f"{dut}_bug_summary.md"
     analysis = source / "unity_test" / f"{dut}_bug_analysis.md"
     table = _parse_summary(summary)
@@ -165,11 +167,45 @@ def prepare(workspace, kind="analysis", **options):
         if root == source or root.is_relative_to(source) or source.is_relative_to(root):
             raise ValueError("output root and input workspaces must be separate")
 
+    label, source = source_runs[0]
+    dut = label.removeprefix("workspace_")
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", dut):
+        raise ValueError(f"DUT must be a Python package identifier: {dut}")
+    launch_path = source / "launch.yaml"
+    filelist = source / "filelist.txt"
+    if not launch_path.is_file() or not filelist.is_file():
+        missing = [str(path) for path in (launch_path, filelist) if not path.is_file()]
+        raise ValueError(f"standard input is missing {missing}; complete it with input-preparation")
+    launch = yaml.safe_load(launch_path.read_text(encoding="utf-8"))
+    if (not isinstance(launch, dict) or launch.get("dut") != dut
+            or not isinstance(launch.get("module"), str)
+            or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", launch["module"])
+            or not isinstance(launch.get("files"), dict)
+            or launch["files"].get("filelist") != "filelist.txt"):
+        raise ValueError(f"{launch_path} must select dut={dut}, a module name, and files.filelist=filelist.txt")
+    missing_rtl = []
+    rtl_files = []
+    for line in filelist.read_text(encoding="utf-8").splitlines():
+        value = line.strip()
+        if value and not value.startswith("#"):
+            rtl_path = (filelist.parent / value).resolve()
+            if not rtl_path.is_file():
+                missing_rtl.append(value)
+            else:
+                rtl_files.append((value, rtl_path))
+    if missing_rtl:
+        raise ValueError(f"{filelist} has inaccessible RTL paths: {missing_rtl[:10]}")
+    if not rtl_files:
+        raise ValueError(f"{filelist} must list at least one accessible RTL source")
+    if not any((source / "unity_test" / f"{dut}_{suffix}.md").is_file()
+               for suffix in ("bug_summary", "bug_analysis")):
+        raise ValueError(f"{source}/unity_test needs a Bug summary or analysis report")
+
     config_path = root / "review_job.json"
-    frozen_source = [source_runs[0][0], str(source_runs[0][1])]
+    frozen_source = [label, "source"]
     if config_path.exists():
         existing = read_object(config_path)
-        if (existing.get("schema") != "bug_review_job.v7"
+        if (existing.get("schema") != "bug_review_job.v8"
                 or existing.get("source_run") != frozen_source):
             raise ValueError("output root has an older or different Bug Review preparation; select a new output root")
         for label, _ in source_runs:
@@ -177,44 +213,97 @@ def prepare(workspace, kind="analysis", **options):
                 raise ValueError(f"prepared test cases are missing: results/tests/{label}")
         return root
 
-    test_runs = []
-    for label, source in source_runs:
-        destination = root / "results" / "tests" / label
-        if destination.exists():
-            raise ValueError(f"test runtime copy already exists without review_job.json: {destination}")
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        (destination / "unity_test").mkdir(parents=True)
-        shutil.copytree(source / "unity_test" / "tests", destination / "unity_test" / "tests",
+    destination = root / "results" / "tests" / label
+    if destination.exists() or (root / "source").exists():
+        raise ValueError(f"run already contains prepared input: {root}")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    (destination / "unity_test").mkdir(parents=True)
+    shutil.copytree(source / "unity_test" / "tests", destination / "unity_test" / "tests",
+                    ignore=shutil.ignore_patterns("__pycache__", ".pytest_cache", "toffee_tmp_*"))
+    pytest_config = source / "unity_test" / ".pytest.ini"
+    if pytest_config.is_file():
+        shutil.copy2(pytest_config, destination / "unity_test" / ".pytest.ini")
+    snapshot = root / "source"
+    text_suffixes = {".md", ".py", ".v", ".vh", ".sv", ".svh", ".vhd", ".vhdl", ".f"}
+    ignored_parts = {".git", ".ucagent", "__pycache__", ".pytest_cache", ".venv", "venv",
+                     "node_modules", "build", "dist", "output", "results", "coverage",
+                     "Guide_Doc", "uc_test_report"}
+    for path in source.rglob("*"):
+        relative = path.relative_to(source)
+        if (not path.is_file() or path.is_symlink()
+                or relative.parts[:2] == ("unity_test", "tests")
+                or (relative.parts[0] == dut and path.suffix.lower() != ".md")
+                or any(part in ignored_parts or part.startswith("toffee_tmp_") for part in relative.parts)):
+            continue
+        if (path.suffix.lower() not in text_suffixes and path.name not in {"filelist.txt", "launch.yaml"}
+                and not (relative.parts[:2] == ("unity_test", "line_map") and path.suffix == ".txt")):
+            continue
+        target = snapshot / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(path, target)
+    tests_link = snapshot / "unity_test" / "tests"
+    tests_link.parent.mkdir(parents=True, exist_ok=True)
+    tests_link.symlink_to(os.path.relpath(destination / "unity_test" / "tests", tests_link.parent),
+                          target_is_directory=True)
+    external_rtl = {}
+    for original, rtl_path in rtl_files:
+        if rtl_path.is_relative_to(source):
+            continue
+        digest = hashlib.sha256(str(rtl_path).encode("utf-8")).hexdigest()[:16]
+        relative = Path("rtl_external") / digest / rtl_path.name
+        target = snapshot / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(rtl_path, target)
+        external_rtl[original] = relative.as_posix()
+    if external_rtl:
+        atomic_write_json(snapshot / "rtl_sources.json", external_rtl)
+    frozen_rtl = []
+    for original, rtl_path in rtl_files:
+        relative = (rtl_path.relative_to(source) if rtl_path.is_relative_to(source)
+                    else Path(external_rtl[original]))
+        frozen = snapshot / relative
+        if not frozen.is_file():
+            raise ValueError(f"RTL source is missing from the run snapshot: {original}")
+        frozen_rtl.append(frozen)
+    for path in snapshot.rglob("*"):
+        if path.is_file() and not path.is_symlink():
+            path.chmod(path.stat().st_mode & ~0o222)
+    runtime_package = Path(options.get("compiled_package") or source / dut).resolve()
+    run_package = root / dut
+    package_usable = False
+    if (runtime_package / "__init__.py").is_file():
+        package_env = os.environ.copy()
+        package_env["PYTHONPATH"] = os.pathsep.join(
+            (str(runtime_package.parent), package_env.get("PYTHONPATH", "")))
+        probe = subprocess.run([sys.executable, "-c", f"import {dut}"],
+                               cwd=runtime_package.parent, env=package_env,
+                               capture_output=True, text=True)
+        package_usable = probe.returncode == 0
+    if package_usable:
+        shutil.copytree(runtime_package, run_package,
                         ignore=shutil.ignore_patterns("__pycache__", ".pytest_cache", "toffee_tmp_*"))
-        pytest_config = source / "unity_test" / ".pytest.ini"
-        if pytest_config.is_file():
-            shutil.copy2(pytest_config, destination / "unity_test" / ".pytest.ini")
-        dut = source.name.removeprefix("workspace_")
-        runtime_package = source / dut
-        if runtime_package.is_dir():
-            shutil.copytree(runtime_package, destination / "unity_test" / "tests" / dut,
-                            ignore=shutil.ignore_patterns(
-                "__pycache__", ".pytest_cache", "toffee_tmp_*"))
-        inputs = root / "results" / "inputs" / label
-        text_suffixes = {".md", ".py", ".v", ".vh", ".sv", ".svh", ".vhd", ".vhdl"}
-        ignored_parts = {".git", ".ucagent", "__pycache__", ".pytest_cache", ".venv", "venv",
-                         "node_modules", "build", "dist", "output", "results", "coverage",
-                         "Guide_Doc", "uc_test_report"}
-        for path in source.rglob("*"):
-            if (not path.is_file() or path.is_symlink()
-                    or any(part in ignored_parts or part.startswith("toffee_tmp_") for part in path.relative_to(source).parts)):
-                continue
-            relative = path.relative_to(source)
-            if path.suffix.lower() not in text_suffixes and not (
-                    relative.parts[:2] == ("unity_test", "line_map") and path.suffix.lower() == ".txt"):
-                continue
-            target = inputs / relative
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(path, target)
-        test_runs.append([label, str(destination.resolve())])
+    else:
+        picker = options.get("picker") or shutil.which("picker")
+        if not picker:
+            raise ValueError(f"DUT package missing or incompatible at {runtime_package}; Picker is required to compile {filelist}")
+        from .picker_build import build_picker_package
 
-    config = {"schema": "bug_review_job.v7", "kind": kind, "stages": list(ANALYSIS),
-              "source_run": frozen_source, "test_run": test_runs[0],
+        build_picker_package(source, run_package, Path(picker),
+                             jobs=options.get("picker_jobs"),
+                             cxx_opt="O1" if sys.platform == "darwin" else None,
+                             module=launch["module"], source_files=frozen_rtl)
+    if not (run_package / "__init__.py").is_file():
+        raise ValueError(f"DUT package is not importable: {run_package}; build it for {sys.executable}")
+    probe_env = os.environ.copy()
+    probe_env["PYTHONPATH"] = os.pathsep.join((str(root), probe_env.get("PYTHONPATH", "")))
+    probe = subprocess.run([sys.executable, "-c", f"import {dut}"], cwd=root,
+                           env=probe_env, capture_output=True, text=True)
+    if probe.returncode:
+        raise ValueError(f"DUT package cannot load in {sys.executable}: {probe.stderr[-1200:]}")
+
+    config = {"schema": "bug_review_job.v8", "kind": kind, "stages": list(ANALYSIS),
+              "source_run": frozen_source, "source_origin": str(source),
+              "test_run": [label, f"results/tests/{label}"],
               "prepared_at": datetime.now(timezone.utc).isoformat(),
               "output_dir": "results", "batch_size": int(options.get("batch_size", 1)),
               "timeout": int(options.get("timeout", 300))}
@@ -231,8 +320,8 @@ class Workflow:
         """Load the private run configuration and signed waveform scope."""
         self.root = Path(workspace).resolve()
         self.config = read_object(self.root / "review_job.json")
-        if self.config.get("schema") != "bug_review_job.v7" or self.config.get("stages") != list(ANALYSIS):
-            raise ValueError("workspace requires a fresh V7 analysis preparation")
+        if self.config.get("schema") != "bug_review_job.v8" or self.config.get("stages") != list(ANALYSIS):
+            raise ValueError("workspace requires a fresh V8 analysis preparation")
         self.out = self.root / self.config["output_dir"]
         self.waveinfo = WaveInfo(workspace=str(self.root), test_dir=str(self.out / "tests"), dut_name="BugReview")
 
@@ -259,13 +348,13 @@ class Workflow:
 
     def check(self, stage):
         """Validate every artifact required through the requested V3 stage."""
-        from .review_store import load_record, source_lines, within_output
+        from .review_store import load_record, source_lines, source_root as prepared_source_root, within_output
         from .review_validation import ReviewIssues, case_issues, review_incomplete, validate_correlation
 
         if stage not in ANALYSIS:
             raise ValueError(f"unknown Bug Review stage: {stage}")
         name, source_text = self.config["source_run"]
-        source = Path(source_text)
+        source = (self.root / source_text).resolve()
         index_path = self.out / "review_index.json"
         if not index_path.is_file():
             raise ValueError("results/review_index.json is missing; create full replay records")
@@ -285,7 +374,7 @@ class Workflow:
         expected_ids = {bug["bug_id"] for bug in original["bugs"]}
         if not expected_ids.issubset(index.bugs):
             raise ValueError(f"original Bug identities missing: {sorted(expected_ids - set(index.bugs))[:10]}")
-        source_root = self.out / "inputs" / name
+        source_root = prepared_source_root(self.out)
         original_issues = []
         for reported in original["bugs"]:
             bug_id = reported["bug_id"]
@@ -516,14 +605,11 @@ def publish_run(workspace, output_root):
     module = root / name
     if run.parent != module / "runs":
         raise ValueError(f"execution workspace is outside its module area: {run}")
-    if job.get("schema") == "bug_review_job.v7":
-        workflow = Workflow(run)
-        workflow.check("publish")
-        report = workflow.out / "report"
-    elif job.get("schema") == "bug_review_job.v6":
-        report = recover_legacy_report(run, name)
-    else:
-        raise ValueError("unsupported completed Bug Review job schema")
+    if job.get("schema") != "bug_review_job.v8":
+        raise ValueError("publish requires a completed V8 Bug Review run")
+    workflow = Workflow(run)
+    workflow.check("publish")
+    report = workflow.out / "report"
     manifest_path = report / "report_manifest.json"
     manifest = read_object(manifest_path)
     if manifest.get("workspace") != name or not (report / "index.html").is_file():
@@ -533,28 +619,47 @@ def publish_run(workspace, output_root):
         if not target.is_relative_to(report.resolve()) or not target.is_file():
             raise ValueError(f"report manifest page is missing: {filename}")
     published = module / "report"
-    if published.exists() and not published.is_symlink():
-        raise ValueError(f"module report must be a managed link: {published}")
-    previous = os.readlink(published) if published.is_symlink() else None
-    link = module / f".report-{secrets.token_hex(4)}"
-    try:
-        link.symlink_to(report.relative_to(module), target_is_directory=True)
-        os.replace(link, published)
+    candidate = module / f".report-{secrets.token_hex(4)}"
+    backup = run / "previous_public_report"
+    if (published / "report_manifest.json").is_file() and (
+            published / "report_manifest.json").read_bytes() == manifest_path.read_bytes():
         portal = rebuild_portal(root)
-        if job.get("schema") == "bug_review_job.v7":
-            from .review_store import load_record
+        from .review_store import load_record
 
-            index = load_record(workflow.out, "review_index.json", "index")
-            if index.stage_status.get("publish") != "complete":
-                index.stage_status["publish"] = "complete"
-                atomic_write_json(workflow.out / "review_index.json",
-                                  index.model_dump(mode="json", by_alias=True))
+        index = load_record(workflow.out, "review_index.json", "index")
+        if index.stage_status.get("publish") != "complete":
+            index.stage_status["publish"] = "complete"
+            atomic_write_json(workflow.out / "review_index.json",
+                              index.model_dump(mode="json", by_alias=True))
+        return portal
+    if backup.exists() or backup.is_symlink():
+        raise ValueError(f"run already has a publication backup: {backup}")
+    previous_exists = published.exists() or published.is_symlink()
+    promoted = False
+    try:
+        shutil.copytree(report, candidate)
+        for filename in manifest.get("pages", []):
+            target = (candidate / filename).resolve()
+            if not target.is_relative_to(candidate.resolve()) or not target.is_file():
+                raise ValueError(f"copied report page is missing: {filename}")
+        if previous_exists:
+            published.rename(backup)
+        candidate.rename(published)
+        promoted = True
+        portal = rebuild_portal(root)
+        from .review_store import load_record
+
+        index = load_record(workflow.out, "review_index.json", "index")
+        if index.stage_status.get("publish") != "complete":
+            index.stage_status["publish"] = "complete"
+            atomic_write_json(workflow.out / "review_index.json",
+                              index.model_dump(mode="json", by_alias=True))
         return portal
     except Exception as error:
-        if previous is not None:
-            rollback = module / f".report-{secrets.token_hex(4)}"
-            rollback.symlink_to(previous, target_is_directory=True)
-            os.replace(rollback, published)
+        if promoted and published.exists():
+            published.rename(run / f"failed_publication_{candidate.name.removeprefix('.report-')}")
+        if backup.exists() or backup.is_symlink():
+            backup.rename(published)
         if isinstance(error, PermissionError):
             raise PermissionError(
                 f"Bug Review cannot write output path {error.filename or module}; "
@@ -562,43 +667,8 @@ def publish_run(workspace, output_root):
             ) from error
         raise
     finally:
-        link.unlink(missing_ok=True)
-
-
-def recover_legacy_report(run: Path, name: str) -> Path:
-    """Republish completed V2.1 HTML without exposing private review records."""
-    source = run / "results"
-    index = read_object(source / "review_index.json")
-    if index.get("workspace", {}).get("name") != name or any(
-            index.get("stage_status", {}).get(stage) != "complete"
-            for stage in ("inventory", "replay", "waveform", "correlate", "publish")):
-        raise ValueError("legacy module review is not complete")
-    old_manifest = read_object(source / "report_manifest.json")
-    if old_manifest.get("workspace") != name:
-        raise ValueError("legacy report manifest identity differs from module")
-    report = source / "report"
-    report.mkdir(parents=True, exist_ok=True)
-    for filename in old_manifest.get("pages", []):
-        original = (source / filename).resolve()
-        if not original.is_relative_to(source.resolve()) or not original.is_file():
-            raise ValueError(f"legacy report page is missing: {filename}")
-        content = original.read_text(encoding="utf-8")
-        (report / filename).write_text(content, encoding="utf-8")
-        for href in re.findall(r"href='([^']+)'", content):
-            path = unquote(html.unescape(href))
-            if not path.startswith("inputs/"):
-                continue
-            asset = (source / path).resolve()
-            if not asset.is_relative_to(source.resolve()) or not asset.is_file():
-                raise ValueError(f"legacy source link is missing: {path}")
-            target = report / path
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(asset, target)
-    manifest = {"schema": "bug_review_report.v2", "workspace": name,
-                "review_status": "legacy V2.1", "pages": old_manifest["pages"],
-                "bugs": old_manifest.get("bugs", []), "cases": [], "collected": "unavailable"}
-    atomic_write_json(report / "report_manifest.json", manifest)
-    return report
+        if candidate.exists():
+            candidate.rename(run / f"unpublished_candidate_{candidate.name.removeprefix('.report-')}")
 
 
 def rebuild_portal(output_root):

@@ -22,7 +22,7 @@ def main() -> None:
     runtime = load_runtime_config(workspace)
     output = (workspace / runtime["OUT"]).resolve()
     job = read_object(workspace / "review_job.json")
-    if (job.get("schema") != "bug_review_job.v7"
+    if (job.get("schema") != "bug_review_job.v8"
             or output != (workspace / job["output_dir"]).resolve()
             or not output.is_relative_to(workspace)):
         raise ValueError("Resolved OUT differs from the prepared Bug Review job")
