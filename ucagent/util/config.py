@@ -957,8 +957,10 @@ def get_config(
                                                              os.path.join(user_home, '.ucagent/'),
                                                              os.path.join(os.path.dirname(__file__), f"../lang/{lang}/config/")
                                                       ])
-    if config_file is not None:
-        assert user_config_file_path is not None, f"Config file '{config_file}' not found in current directory or default config path."
+    if config_file is not None and user_config_file_path is None:
+        raise FileNotFoundError(
+            f"Config file '{config_file}' not found in current directory or default config path."
+        )
     if user_config_file_path is None:
         info(f"Default user config file '{config_file}' not found, ignore.")
     else:

@@ -1295,11 +1295,20 @@ def run() -> None:
     # Workflow-owned keys do not exist until its config layer is selected. The
     # discovery pass needs only plugin search-path overrides; the final agent
     # config applies and validates the complete override list afterwards.
-    discovery_cfg = get_config(
-        args.config,
-        _plugin_discovery_overrides(args.override),
-        args.workspace,
-    )
+    discovery_args = (args.config, _plugin_discovery_overrides(args.override), args.workspace)
+    try:
+        discovery_cfg = get_config(*discovery_args)
+    except FileNotFoundError:
+        if not args.plugin_workflow:
+            raise
+        # A Master preset may name a config that the selected plugin workflow
+        # owns (for example "bug_review"); that name only resolves once the
+        # workflow layer is selected, so discovery runs without it and the
+        # final config uses the workflow baseline alone.
+        discovery_config = args.config
+        args.config = None
+        discovery_cfg = get_config(None, *discovery_args[1:])
+        info(f"Preset config '{discovery_config}' is owned by workflow '{args.plugin_workflow}'; using the workflow baseline config.")
     discovery_cfg.update_template(
         {
             "WORKSPACE": os.path.abspath(args.workspace),

@@ -2926,10 +2926,31 @@ class PdbMasterApiServer:
             argv.extend([flag, str(value)])
 
         def add_list(flag: str, values: List[Any]) -> None:
+            if isinstance(values, str):
+                values = [values]
             for value in values or []:
                 add_value(flag, value)
 
         add_value("--config", req.get("config"))
+        plugins = req.get("plugin") or []
+        if isinstance(plugins, str):
+            plugins = [plugins]
+        for plugin in plugins:
+            plugin = str(plugin).strip()
+            if plugin and not os.path.isabs(plugin) and launch_mode == "process":
+                # Agent processes run inside their own workspace directory, so a
+                # repo-relative plugin selector must be anchored at the Master's
+                # source tree before the child resolves it. Container launch
+                # modes keep the configured value because the layout inside the
+                # container image differs.
+                repo_root = os.path.dirname(os.path.dirname(cli_path))
+                for base in (os.getcwd(), repo_root):
+                    candidate = os.path.join(base, plugin)
+                    if os.path.isdir(candidate):
+                        plugin = candidate
+                        break
+            add_value("--plugin", plugin)
+        add_value("--plugin-workflow", req.get("plugin_workflow"))
         add_value("--workspace-base", req.get("workspace_base"))
         add_value("--template-dir", req.get("template_dir"))
         add_flag("--template-overwrite", req.get("template_overwrite"))

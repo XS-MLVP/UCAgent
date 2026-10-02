@@ -81,4 +81,4 @@ make bug-review-analysis INPUT_ROOT=/absolute/path/inputs
 
 ### 从 Web Master 启动
 
-在 Master 页选择 Bug Review preset 时，导入标准输入目录的 `launch.yaml`；根目录的 `filelist.txt` 必须可访问其列出的 RTL，`unity_test/tests/` 和原 Bug 报告须位于同一输入目录。先编译，再从 Launch 启动。Master 会在自身工作区的 `output/workspace_<dut>/runs/run-<id>/` 准备本次执行，测试从 `results/tests/` 收集；完成后模块报告发布到 `output/workspace_<dut>/report/`。
+在 Master 页选择 Bug Review preset 后按默认工作流操作：导入输入目录的 `launch.yaml`，先编译 DUT（编译清单用 `.f` 或标注 Main RTL），再从 Launch 启动。preset 固定 `--config bug_review --plugin plugins/bug_review --plugin-workflow bug_review:analysis --output results`，插件配置由工作流基线提供，无需单独的 config 文件。Agent 启动后由 input-preparation 按上文标准检查并补齐输入；模块报告由插件工作流在运行目录内发布。
