@@ -100,23 +100,37 @@ ucagent ./output Adder --master 127.0.0.1:8800
 2. 保留 Requirement 与 Config 的版本标签，便于回溯
 3. 启动前先看 Command Preview，确认 backend/master/export-cmd-api 参数
 
+### 4.3 并行任务上限与等待队列
+
+`master_api.max_task_count` 控制 Master 同时执行的最大任务数，默认 100：
+
+1. 达到上限后再启动的任务进入 waiting 状态，不占用执行额度
+2. 有任务结束释放额度后，等待任务按启动顺序自动启动
+3. 等待任务只在 Task 页的 Launch Queue 面板中列出（含任务 ID、DUT、创建与入队时间等信息），主任务列表不显示等待任务
+4. Launch Queue 面板支持拖拽或 ▲▼ 按钮调整等待任务的启动顺序，重新提交的任务排在队尾
+5. Master 页的 Waiting 统计与 TOTAL/ONLINE/OFFLINE 同级展示当前等待任务数
+6. Task 页摘要栏常驻显示当前最大并发数（`master_api.max_task_count`）
+7. 等待任务可在 Launch Queue 面板撤销（Cancel），撤销会删除任务记录及其工作区目录
+
 ---
 
 ## 5. Task（托管任务页）
 
 ### 5.1 页面能力
 
-1. 按状态、关键字、DUT 过滤
+1. 按状态、关键字、DUT 过滤（waiting 任务仅在 Launch Queue 面板显示，见 4.3）
 2. 分页查看任务
 3. 查看任务详情（命令、注册状态、PID）
 4. 查看 stdout/stderr 日志
 5. 停止任务与删除记录
+6. 在 Launch Queue 面板调整等待任务的启动顺序并撤销等待任务（见 4.3）
 
 ### 5.2 典型排障路径
 
 1. 任务卡在 starting：先看 command 与环境变量展开结果
 2. 任务 failed：优先看 stderr，再看 workspace 与 DUT 参数
 3. Agent 未注册：检查 --master 地址、key、网络连通性
+4. 任务一直 waiting：并行任务已达到 `master_api.max_task_count` 上限，详情页可见队列位置，等待自动启动或撤销任务
 
 ---
 

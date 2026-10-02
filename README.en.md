@@ -142,6 +142,30 @@ docker run -it --rm \
   ghcr.io/xs-mlvp/ucagent:latest ucagent --as-master-persist --as-master
 ```
 
+Alternatively, use Docker's `--env-file` to provide the environment variables from a single file instead of multiple `-e` flags:
+
+```bash
+docker run -it --rm \
+  --env-file ~/.ucagent_docker_env \
+  -p 8800:8800 \
+  ghcr.io/xs-mlvp/ucagent:latest ucagent --as-master-persist --as-master
+```
+
+An example `~/.ucagent_docker_env` is shown below. Unlike `~/.ucagent_env`, do not use `export` here, and `#` comments must be on their own line (an inline `#` becomes part of the value):
+
+```bash
+# Model name, e.g., glm-5.3-flash
+OPENAI_MODEL=<model_name>
+# API key
+OPENAI_API_KEY=<your_key>
+# API base URL, e.g., http://my_base_url/v1
+OPENAI_API_BASE=<base_url>
+# Optional: context window size (tokens), e.g., 819200 (800k context)
+OPENAI_CONTEXT_SIZE=<max_context_size>
+# Optional: max output size per response (tokens), e.g., 131072 (128k max output)
+OPENAI_OUTPUT_SIZE=<max_output_size>
+```
+
 If ghcr.io is not accessible, you can directly replace it with mirror addresses such as `ghcr.nju.edu.cn`.
 
 After successful startup, visit `http://localhost:8800` in your browser.

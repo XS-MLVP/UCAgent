@@ -1718,7 +1718,12 @@ async function launchBatchTasks() {
       if (!state.batchLaunchedTaskIds.includes(lastTaskId)) {
         state.batchLaunchedTaskIds.push(lastTaskId);
       }
-      setStatus('launch-status', 'ok', `Batch item ${index + 1}/${state.batchItems.length} launched as task <code>${esc(lastTaskId)}</code>.`);
+      const queuedItem = String(data.task?.process_status || '').toLowerCase() === 'waiting';
+      setStatus(
+        'launch-status',
+        queuedItem ? 'warn' : 'ok',
+        `Batch item ${index + 1}/${state.batchItems.length} ${queuedItem ? 'queued as waiting task' : 'launched as task'} <code>${esc(lastTaskId)}</code>.`
+      );
       renderBatchModeState();
     }
 
@@ -3223,7 +3228,14 @@ async function launchTask() {
     if (data.status === 'ok') {
       launchedTaskId = data.task.task_id;
       state.launchSucceeded = true;
-      setStatus('launch-status', 'ok', `Task ${esc(data.task.task_id)} ${state.relaunch ? 'relaunched' : 'launched'} successfully. Redirecting to /task/ ...`);
+      const queued = String(data.task?.process_status || '').toLowerCase() === 'waiting';
+      setStatus(
+        'launch-status',
+        queued ? 'warn' : 'ok',
+        queued
+          ? `All task slots are in use. Task <code>${esc(data.task.task_id)}</code> is waiting in the launch queue and will start automatically. Redirecting to /task/ ...`
+          : `Task ${esc(data.task.task_id)} ${state.relaunch ? 'relaunched' : 'launched'} successfully. Redirecting to /task/ ...`
+      );
       redirectToTaskPage(data.task.task_id);
       return;
     }

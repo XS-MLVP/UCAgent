@@ -39,6 +39,7 @@ _SCOPE_RE = re.compile(
 _RANGED_REFERENCE_RE = re.compile(
     r"^(?P<name>.+?)\[(?P<left>-?\d+)(?::(?P<right>-?\d+))?\]$"
 )
+_FST_VECTOR_SUFFIX_RE = re.compile(r"\s*\[[^\]]*\]$")
 _STATE_CELL_RE = re.compile(r"(?:^|[_$])(dff|sdff|adff|dlatch|mem)(?:[_$]|$)", re.I)
 _REPORT_ID_RE = re.compile(r"^ppa-[0-9a-f]{32}$")
 _PPA_CACHE_LOCK = threading.Lock()
@@ -375,13 +376,16 @@ def _port_bits(mapped_json: dict[str, Any], top_module: str) -> list[_InputBit]:
 def _reference_bit_positions(
     local_reference: str,
     signal_width: int,
-    expected: list[_InputBit],
+    by_port: dict[str, list[_InputBit]],
 ) -> list[tuple[str, int]]:
-    """Resolve one VCD reference into value-string positions for expected input bits."""
+    """Resolve one VCD reference into value-string positions for expected input bits.
 
-    by_port: dict[str, list[_InputBit]] = defaultdict(list)
-    for bit in expected:
-        by_port[bit.port].append(bit)
+    ``by_port`` is the expected-bit index keyed by port name.  Callers build it
+    once because reference resolution runs per declared reference, per scope
+    candidate, and per waveform, so rebuilding it per call dominates runtime
+    on wide input ports.
+    """
+
     range_match = _RANGED_REFERENCE_RE.fullmatch(local_reference)
     if range_match:
         port = range_match.group("name")
@@ -428,44 +432,63 @@ def _discover_waveform_scope(
     """
 
     expected_keys = {bit.key for bit in expected_bits}
+    by_port: dict[str, list[_InputBit]] = defaultdict(list)
+    for bit in expected_bits:
+        by_port[bit.port].append(bit)
+    # Group every declared reference under its direct parent scope once so
+    # scoring a candidate costs only that scope's own children.  Rescanning
+    # the whole header per candidate prefix is quadratic in references and
+    # dominated wide-port discovery on generated RTL waveforms.
+    children: dict[str, list[tuple[str, int]]] = defaultdict(list)
+    scopes: set[str] = set()
+    for signal_info in header.data.values():
+        width = int(signal_info.size)
+        for reference in signal_info.references:
+            parts = reference.split(".")
+            for cut in range(1, len(parts)):
+                scopes.add(".".join(parts[:cut]))
+            children[".".join(parts[:-1])].append((parts[-1], width))
 
     def covered(scope: str) -> set[str]:
         """Return expected input bits declared directly below one scope."""
 
-        prefix = f"{scope}."
         result: set[str] = set()
-        for signal_info in header.data.values():
-            width = int(signal_info.size)
-            for reference in signal_info.references:
-                if reference.startswith(prefix):
-                    result.update(
-                        bit_key
-                        for bit_key, _ in _reference_bit_positions(
-                            reference[len(prefix) :], width, expected_bits
-                        )
-                    )
+        for local_reference, width in children.get(scope, ()):
+            result.update(
+                bit_key
+                for bit_key, _ in _reference_bit_positions(
+                    local_reference, width, by_port
+                )
+            )
         return result
 
     if covered(requested_scope) == expected_keys:
         return requested_scope
 
-    candidates: set[str] = set()
-    for signal_info in header.data.values():
-        for reference in signal_info.references:
-            parts = reference.split(".")
-            for cut in range(1, len(parts)):
-                scope = ".".join(parts[:cut])
-                if scope in candidates:
-                    continue
-                if covered(scope) == expected_keys:
-                    candidates.add(scope)
-    if candidates:
-        return sorted(candidates, key=lambda value: (-value.count("."), value))[0]
+    for scope in sorted(scopes, key=lambda value: (-value.count("."), value)):
+        if scope != requested_scope and covered(scope) == expected_keys:
+            return scope
     return requested_scope
 
 
-def _convert_fst_to_vcd(source: Path, destination: Path) -> None:
-    """Convert an FST waveform to a temporary VCD through pylibfst's streaming API."""
+def _convert_fst_to_vcd(
+    source: Path,
+    destination: Path,
+    wanted_ports: set[str] | None = None,
+) -> None:
+    """Convert an FST waveform to a temporary VCD through pylibfst's streaming API.
+
+    ``wanted_ports`` restricts value-change decoding to the facets whose
+    declared name (ignoring a trailing vector suffix such as ``[5:0]``) is one
+    of those top-level input ports.  The emitted hierarchy section still lists
+    every declared signal, so downstream scope discovery and coverage checks
+    see the same contract while the decoded value stream stays proportional to
+    the input ports instead of the whole DUT.  Facet names in FST hierarchies
+    separate the vector suffix with a space (``cfg_addr [5:0]``), unlike VCD
+    references.  A wanted set that matches no facet falls back to decoding
+    everything so an unexpected naming scheme degrades to the previous
+    behavior instead of silently dropping all activity.
+    """
 
     try:
         import pylibfst  # type: ignore[import-not-found]
@@ -476,6 +499,13 @@ def _convert_fst_to_vcd(source: Path, destination: Path) -> None:
     reader = pylibfst.lib.fstReaderOpen(os.fsencode(source))
     if reader == pylibfst.ffi.NULL:
         raise ValueError(f"pylibfst could not open FST file: {source.name}")
+    selected_handles: set[int] = set()
+    if wanted_ports is not None:
+        _scopes, signals = pylibfst.get_scopes_signals2(reader)
+        for name, signal in signals.by_name.items():
+            local = name.rsplit(".", 1)[-1]
+            if _FST_VECTOR_SUFFIX_RE.sub("", local) in wanted_ports:
+                selected_handles.add(signal.handle)
     libc = ctypes.CDLL(None)
     libc.fopen.argtypes = [ctypes.c_char_p, ctypes.c_char_p]
     libc.fopen.restype = ctypes.c_void_p
@@ -489,7 +519,11 @@ def _convert_fst_to_vcd(source: Path, destination: Path) -> None:
     try:
         if pylibfst.lib.fstReaderProcessHier(reader, cffi_file) == 0:
             raise ValueError(f"pylibfst could not decode FST hierarchy: {source.name}")
-        pylibfst.lib.fstReaderSetFacProcessMaskAll(reader)
+        if selected_handles:
+            for handle in sorted(selected_handles):
+                pylibfst.lib.fstReaderSetFacProcessMask(reader, handle)
+        else:
+            pylibfst.lib.fstReaderSetFacProcessMaskAll(reader)
         if pylibfst.lib.fstReaderIterBlocks(
             reader, pylibfst.ffi.NULL, pylibfst.ffi.NULL, cffi_file
         ) == 0:
@@ -518,6 +552,9 @@ def _parse_vcd_activity(
         raise ValueError("waveform contains no declared signals")
     waveform_scope = _discover_waveform_scope(header, waveform_scope, expected_bits)
     prefix = f"{waveform_scope}."
+    by_port: dict[str, list[_InputBit]] = defaultdict(list)
+    for bit in expected_bits:
+        by_port[bit.port].append(bit)
     candidates: dict[str, list[tuple[str, str, int]]] = defaultdict(list)
     for identifier, signal_info in header.data.items():
         width = int(signal_info.size)
@@ -525,7 +562,7 @@ def _parse_vcd_activity(
             if not reference.startswith(prefix):
                 continue
             positions = _reference_bit_positions(
-                reference[len(prefix) :], width, expected_bits
+                reference[len(prefix) :], width, by_port
             )
             for bit_key, position in positions:
                 candidates[bit_key].append((identifier, reference, position))
@@ -2397,12 +2434,15 @@ class AnalyzePPA(UCTool):
                 tc_activity = []
                 waveform_errors = False
                 resolved_waveform_scope: str | None = None
+                input_port_names = {bit.port for bit in input_bits}
                 for label, waveform in zip(arguments.waveform_files, waveform_files):
                     try:
                         parse_path = waveform
                         if waveform.suffix.lower() == ".fst":
                             parse_path = run_dir / f"waveform-{len(tc_activity)}.vcd"
-                            _convert_fst_to_vcd(waveform, parse_path)
+                            _convert_fst_to_vcd(
+                                waveform, parse_path, wanted_ports=input_port_names
+                            )
                         tc_info, activity = _parse_vcd_activity(
                             parse_path, label, arguments.waveform_scope, input_bits
                         )
