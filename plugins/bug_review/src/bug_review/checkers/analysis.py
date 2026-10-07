@@ -5,9 +5,11 @@ from pathlib import Path
 import stat
 
 from ucagent.checkers.base import Checker
+from ucagent.tools.waveform import WaveInfo
 
-from ..review_validation import ReviewIssues
-from ..workflow import Workflow
+from ..core.layout import (ANALYSIS, module_label, prepare_workspace_layout,
+                           resolve_out_dir, unity_test_root)
+from ..core.validation import ReviewIssues
 
 
 class BugReviewStageChecker(Checker):
@@ -21,22 +23,23 @@ class BugReviewStageChecker(Checker):
 
     def on_init(self):
         """Bind canonical artifact validation to the active workspace."""
+        prepare_workspace_layout(self.workspace)
         self.workflow = Workflow(self.workspace)
         # Pytest creates session data; writable directories also allow archive
         # replacement. Files remain read-only and file tools deny source edits.
-        for root in (self.workflow.root / "source", self.workflow.out / "tests"):
-            for directory, _, _ in os.walk(root):
-                path = Path(directory)
-                path.chmod(path.stat().st_mode | stat.S_IWUSR)
+        root = unity_test_root(self.workflow.root)
+        for directory, _, _ in os.walk(root):
+            path = Path(directory)
+            path.chmod(path.stat().st_mode | stat.S_IWUSR)
         if self.stage_id == "publish" and not self._publish_registered:
-            from ..workflow import publish_run
+            from ..publishing import publish_run
 
             def publish_completed(_stage):
                 """Promote the report after the final stage is committed."""
                 run = self.workflow.root
-                name = self.workflow.config["source_run"][0]
-                if run.parent.name == "runs" and run.parent.parent.name == name:
-                    publish_run(run, run.parents[2])
+                name = self.workflow.label
+                if run.name == name:
+                    publish_run(run, run.parent)
 
             self.stage.append_on_complete_callback(publish_completed)
             self._publish_registered = True
@@ -55,3 +58,64 @@ class BugReviewStageChecker(Checker):
         except (ValueError, OSError, KeyError, TypeError, IndexError, AttributeError) as exc:
             return False, {"error_code": "BUG_REVIEW_INTEGRITY_FAILED", "error": str(exc),
                            "next_action": "Correct the named artifact or evidence field, then run Check again."}
+
+
+class Workflow:
+    """Validate one module's current indexed stage artifacts."""
+
+    def __init__(self, workspace):
+        """Resolve the run layout and the workflow-managed output directory."""
+        self.root = Path(workspace).resolve()
+        self.label = module_label(self.root)
+        self.out = resolve_out_dir(self.root)
+        self.waveinfo = WaveInfo(workspace=str(self.root), test_dir=str(unity_test_root(self.root)), dut_name="BugReview")
+
+    def status(self):
+        """Return the first stage whose indexed artifacts do not pass Check."""
+        completed = []
+        for stage in ANALYSIS:
+            try:
+                valid, _ = self.check(stage)
+            except (ValueError, OSError, KeyError, TypeError, IndexError, AttributeError):
+                valid = False
+            if not valid:
+                break
+            if stage == "publish":
+                from ..core.records import load_record
+
+                index = load_record(self.out, "review_index.json", "index")
+                if index.stage_status.get("publish") != "complete":
+                    break
+            completed.append(stage)
+        current = next((stage for stage in ANALYSIS if stage not in completed), "")
+        return {"kind": "analysis", "current_stage": current,
+                "completed": completed, "complete": not current}
+
+    def check(self, stage):
+        """Validate the requested stage and every preceding stage."""
+        from ..core.records import load_record, source_root as prepared_source_root
+        from ..core.validation import review_incomplete
+        from .stages import CHECKS
+
+        if stage not in ANALYSIS:
+            raise ValueError(f"unknown Bug Review stage: {stage}")
+        source = self.root.resolve()
+        if not (self.out / "review_index.json").is_file():
+            raise ValueError("analysis/review_index.json is missing; create full replay records")
+        index = load_record(self.out, "review_index.json", "index")
+        if (index.workspace.get("name") != self.label
+                or index.workspace.get("source_path") != str(source)
+                or index.workspace.get("execution_workspace") != str(self.root)):
+            raise ValueError("review_index.json workspace identity differs from the run layout")
+        required_stages = ANALYSIS[:ANALYSIS.index(stage) + (stage != "publish")]
+        for required in required_stages:
+            if index.stage_status.get(required) != "complete":
+                raise ValueError(f"stage_status.{required} must be complete")
+        ctx = {"source": source, "index": index,
+               "source_root": prepared_source_root(self.out)}
+        for check in CHECKS[:ANALYSIS.index(stage) + 1]:
+            check(self, ctx)
+        environment = load_record(self.out, index.environment_path, "environment")
+        incomplete = review_incomplete(ctx["manifest"], ctx["cases"], environment)
+        return True, {"stage": stage, "validated_workspaces": [self.label],
+                      "review_status": "incomplete" if incomplete else "complete"}

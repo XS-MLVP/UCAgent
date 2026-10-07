@@ -42,7 +42,7 @@ def get_plugin() -> Plugin:
             name="analysis", config_file=root / "workflows" / "analysis.yaml",
             guide_doc_paths=(root / "Guide_Doc" / "analysis.md",),
             template_dir=root / "templates" / "analysis",
-            template_target="notes",
+            template_target="verification_review/notes",
             skill_paths=(root / "skills",),
         ),),
     )

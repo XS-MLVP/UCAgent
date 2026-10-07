@@ -27,7 +27,7 @@ class ReportHandler(SimpleHTTPRequestHandler):
         parts = Path(value.lstrip("/")).parts
         if value in {"/", "/index.html", "/guide.md"}:
             return str(root / ("guide.md" if value == "/guide.md" else "index.html"))
-        if (len(parts) < 2 or not parts[0].startswith("workspace_")
+        if (len(parts) < 2 or not parts[0] or parts[0].startswith(".")
                 or parts[1] != "report" or any(part in {".", ".."} for part in parts)):
             return str(root / "__report_path_not_found__")
         report = (root / parts[0] / "report").resolve()

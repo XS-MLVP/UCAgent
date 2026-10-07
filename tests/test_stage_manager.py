@@ -156,6 +156,9 @@ class _FakeCurrentStageManager:
     def get_current_stage(self):
         return self._current_stage
 
+    def save_stage_info(self):
+        """Accept persistence requested when a reference file is marked read."""
+
 
 class _RecordingCheckStage:
     name = "recording-stage"
@@ -190,6 +193,7 @@ class _RecordingCheckStage:
 
 def _cfg():
     return SimpleNamespace(
+        get_value=lambda _key, default=None: default,
         tools=SimpleNamespace(RunTestCases=SimpleNamespace(test_dir="tests")),
         mission=SimpleNamespace(name="mission"),
         vmanager=SimpleNamespace(

@@ -1,6 +1,8 @@
 
 # Bug Review 分析工作流与优化需求
 
+> **当前基线（v1.0 / `bug_review.v8`）**：新运行只使用 `verification_review/` 工作区布局。唯一执行测试副本是 `verification_review/run/unity_test/`，pytest/toffee 产物写入 `verification_review/run/test_report/`，波形数据使用该测试目录下的 `tests/data/`。分析记录位于 `verification_review/analysis/`，HTML 位于 `verification_review/report/`。Bug 页面固定为“现象分析 + 证据溯源”两部分；Bug JSON 的 `phenomenon` 使用 `scenario`、`spec_expected`、`actual`、`bug_root_cause` 四个结构化字段。Master UI 和 `make bug_review_<module>` 各自准备完整布局，运行时不再复制 Master 已提供的 DUT、RTL、文档或 Guide_Doc。以下历史章节用于解释演进，不覆盖当前契约。
+
 本文是 `bug_review` 分析工作流的维护入口。修改阶段、输入输出、Bug 裁决或报告契约时，先更新本文，再同步工作流 YAML、Guide_Doc、实现与测试。工作流概述说明长期目标；版本章节分别记录现行契约和历史变更。
 
 ## 工作流概述
@@ -339,7 +341,7 @@ Bug 详情页在验证场景、预期行为、实际行为下方用一段中文�
 
 ### 5. 签名波形的静态报告预览
 
-Surfer 的前端资源是静态 HTML／JavaScript／WebAssembly，原签名链接中的 v2 `wave` 令牌则默认把波形下载指向 UCAgent 的动态 `/api/waveform/latest`。报告发布时只复制收据明确选中的、大小与修改时间仍匹配的 FST／VCD 原文件到 `report/waveforms/`，并把 Surfer 静态资源放到 `report/surfer/`。预览链接保留原令牌的信号集合和分析窗口，仅把数据地址改到同一报告中的静态快照。总门户同时发布 `output/serve.py`；接收方只拿到整个 `output/` 文件夹时，在其根目录运行 `python3 serve.py`，用浏览器访问打印的本地 HTTP 地址即可，不需要 UCAgent 或插件源码。插件开发环境也可运行 `make bug-review-serve`。本地服务提供静态页面、波形与 WebAssembly 所需响应头；用 `file://` 直接打开报告无法可靠启动 Surfer。分享时要保留模块 `report` 到其 `runs/` 中已发布结果的相对链接关系。
+Surfer 的前端资源是静态 HTML／JavaScript／WebAssembly，原签名链接中的 v2 `wave` 令牌则默认把波形下载指向 UCAgent 的动态 `/api/waveform/latest`。报告发布时只复制收据明确选中的、大小与修改时间仍匹配的 FST／VCD 原文件到 `report/waveforms/`，并把 Surfer 静态资源放到 `report/surfer/`。预览链接保留原令牌的信号集合和分析窗口，仅把数据地址改到同一报告中的静态快照。总门户同时发布 `output/serve.py`；接收方只拿到整个 `output/` 文件夹时，在其根目录运行 `python3 serve.py`，用浏览器访问打印的本地 HTTP 地址即可，不需要 UCAgent 或插件源码。插件开发环境也可运行 `make serve`。本地服务提供静态页面、波形与 WebAssembly 所需响应头；用 `file://` 直接打开报告无法可靠启动 Surfer。分享时要保留模块 `report` 到其 `runs/` 中已发布结果的相对链接关系。
 
 签名收据和预览文件承担不同作用：收据仍是工作流的证据，静态快照只是浏览器展示材料。发布前已轮换的原波形不能从其他运行、同名文件或原报告推测补齐；这类 case 显示关键观察和收据，但不提供完整预览。现有公开报告重新渲染后，`workspace_raid_dec_top` 的 26 条签名波形均有可用快照，`workspace_raid_enc_top` 的 83 条中有 4 条可用，其余 79 条原文件已不在该次运行区。HTML／清单核验覆盖快照链接、原令牌、Surfer 资源及页面与活动记录的一致性。
 
@@ -351,15 +353,15 @@ V4.1 按“一个模块完成一次评估”组织输出：`run-<id>` 保存执�
 
 | 现有来源 | 已有结构 | 需要统一的地方 |
 | --- | --- | --- |
-| `plugins/bug_review/inputs/workspace_*` | `unity_test/`、`<dut>_RTL/`，部分模块有 `<dut>/` 已编译运行包；通常没有根目录的 `filelist.txt` 与 `launch.yaml`。部分目录还留有 `.ucagent/`、旧测试报告和波形。 | 对照标准输入补齐启动材料；旧运行产物不作为输入。 |
+| `plugins/bug_review/inputs/<module>` | 目录名即模块名（不加 `workspace_` 前缀）；`unity_test/`、`<dut>_RTL/`，部分模块有 `<dut>/` 已编译运行包、根目录 `filelist.f` 与 `launch.yaml`。部分目录还留有 `.ucagent/`、旧测试报告和波形。 | 对照标准输入补齐启动材料；旧运行产物不作为输入。 |
 | `examples/bosc_LoadUnit` | 根目录有 `launch.yaml`、顶层 SV、`filelist.txt` 和 `unity_test/`；没有已编译 DUT 包。filelist 当前使用外部绝对 RTL 路径，测试目录也有旧 `data/toffee_tmp_*`。 | 作为新输入的结构样例；核对 RTL 依赖在目标机器可访问、编译产物与测试解释器兼容，旧测试数据不进入新 run。 |
 
 标准输入采用 `examples/bosc_LoadUnit` 的轻量布局：模块根目录放 `filelist.txt`、`launch.yaml` 和 `unity_test/`，按需要保留顶层 RTL 或可导入的 DUT 运行包。filelist 的每个 RTL 路径必须在运行节点可解析；可位于模块目录内，也可指向已挂载的外部 RTL 根。默认工作流与 Bug Review 若启动参数不同，可使用各自的启动清单，不强制共用同一份 YAML。
 
 ```text
-inputs/workspace_<dut>/
+inputs/<dut>/
 ├── launch.yaml                         必需：DUT、顶层模块与 filelist 等启动选择
-├── filelist.txt                        必需：可编译的顶层 RTL 及其依赖清单
+├── filelist.f                          必需：可编译的顶层 RTL 及其依赖清单
 ├── unity_test/                         必需：原测试与相关文档
 │   ├── tests/                          必需：可收集的用例及所需 fixture、模型、数据
 │   ├── <dut>_bug_summary.md            Bug Review 至少提供此项或下项之一
@@ -380,20 +382,19 @@ inputs/workspace_<dut>/
 ```text
 output/
 ├── index.html
-└── workspace_<dut>/
+└── <dut>/
     ├── report/                     唯一公开实体报告，含所需波形与静态资源
     └── runs/run-<id>/
-        ├── review_job.json
         ├── source/                 原报告、Spec、RTL 的只读快照
         ├── <dut>/                  本次唯一 DUT 可导入包
         ├── .ucagent/               阶段状态与签名收据
         ├── uc_test_report/          本次测试报告
         └── results/                {OUT}
-            ├── tests/workspace_<dut>/unity_test/         本次测试执行副本
+            ├── tests/<dut>/unity_test/                   本次测试执行副本
             └── cases/  replay/  diagnostics/  ...         复核记录
 ```
 
-命令行（含 Makefile）与 Master 都调用同一启动准备入口；选择 Bug Review 时，两种入口都将工作区放在 `workspace_<dut>/runs/run-<id>/`。启动准备读取标准输入，按 `launch.yaml` 选择 RTL/filelist，缺少可用 DUT 包时编译 RTL；把测试源码、fixture 和参考模型复制到本次 `{OUT}/tests/`，DUT 包只放在 run 根目录供两种入口与 pytest 共用。原报告、Spec 和 RTL 复制一次到 run 的只读 `source/`，其测试路径指向执行副本；排除旧 `toffee_tmp_*`、缓存和测试报告。该入口只准备一次，用例内容保持不变。
+命令行（含 Makefile）与 Master 都调用同一启动准备入口；选择 Bug Review 时，两种入口都将工作区放在 `<dut>/runs/run-<id>/`（目录名即模块名）。启动准备读取标准输入，按 `launch.yaml` 选择 RTL/filelist，要求 DUT 包已按清单编译（`make init_<module>`，仅包目录缺失时编译）；把测试源码、fixture 和参考模型复制到本次 `{OUT}/tests/`，DUT 包只放在 run 根目录供两种入口与 pytest 共用。原报告、Spec 和 RTL 复制一次到 run 的只读 `source/`，其测试路径指向执行副本；排除旧 `toffee_tmp_*`、缓存和测试报告。该入口只准备一次，用例内容保持不变。
 
 进入 Bug Review 工作流后，从本次 `{OUT}/tests/` 收集和运行用例，把执行报告、逐 case 裁决、诊断及签名收据保存在同一个 `run-<id>` 中，再据此分析并生成报告。Spec 与 RTL 通过 run 内只读 `source/` 取证，不再复制一份 `{OUT}/inputs/`；公开 `report/` 只保留最终页面、实际引用的源码和波形，不依赖私有 `runs/`。测试临时波形和覆盖率不进入阶段历史；发布核验后切换模块级实体报告，总索引只指向已发布模块。
 
@@ -402,7 +403,7 @@ output/
 ### 实施与验收
 
 1. 以 `examples/bosc_LoadUnit` 统一输入约定，扩展现有 `input-preparation` Skill 以按需创建缺失的 filelist/启动清单；完整输入直接启动。
-2. 将 Makefile/CLI 和 Master 接到同一 `workflow.prepare()` 启动准备入口，统一编译、DUT 包与 `unity_test/` 执行副本的落点；去除第二次复制，并取消 `{OUT}/inputs/` 文本镜像。
+2. 将 Makefile/CLI 和 Master 接到同一 `prepare()` 启动准备入口，统一编译、DUT 包与 `unity_test/` 执行副本的落点；去除第二次复制，并取消 `{OUT}/inputs/` 文本镜像。
 3. 同步 RunTestCases、WaveInfo、Checker、Guide 和报告发布：用 `{OUT}` 用例产生本次 run 的证据，阶段历史不复制 `toffee_tmp_*`，模块只发布一份实体报告。验收 Skill 启用/关闭、完整输入免准备、缺失 RTL 的具体诊断、LoadUnit 的 filelist-only 编译、两种入口的目录一致、原用例不变，以及公开报告脱离私有 `runs/` 可浏览。
 
 现有 `output/` 和输入目录中的生成状态不原地搬移或清理；新布局从新运行开始验证。
@@ -543,3 +544,7 @@ V0 的 `plugin.py` 只注册 `analysis`，独立评分入口始终没有接通�
 - 波形阶段调用 UCAgent 默认 `WaveInfo`，保留它返回的原始 `receipt_id`、结果、签名信号组与 viewer；分析引用真实工具输出，不从 Bug Review 包装层推导证据。
 
 完成优化的判据是：单个及多个 `workspace_*` 均可从输入到 HTML 完整执行；原报告每条 Bug 都有保留的裁决，新失败可新增，同根因可合并而不丢成员，非 Bug 的复核置信度为 `0`；输入源码未被改写；每个阶段的声明文件与每个工作区的实际产物一致；报告结论可回溯到本次测试、波形、Spec 和 RTL。V1.3 的真实 DUT 重跑、默认 WaveInfo 调用及 HTML 全流程仍需在满足版本要求的 UCAgent 运行环境中验证。插件最低版本要求保持 `UCAgent>=26.9.2.dev6`，与 DesignWithPPA 一致；RTL2Spec 要求 `>=26.9.2.dev14`。本次仓库版本为 `26.6.25.dev3`，低于插件最低版本。
+
+## V4.2 模块工作区精简
+
+当前规范见 [重构方案](REFACTOR_PLAN.md)。每个模块直接使用 `output/<module>/` 工作区，Makefile 创建唯一测试副本和原文快照，UCAgent 以 `{OUT}=analysis` 保存复核记录，最终报告直接写入并校验 `report/`。不保留历史 run、报告提升或独立准备 CLI；上文各版本的旧目录示例仅记录当时设计。

@@ -1,13 +1,176 @@
 
 # Bug Review 工作流与版本记录
 
-本文前半部分描述**当前实现**，后半部分按功能版本记录主要变化。版本对应关系为：`ANALYSIS_OVERVIEW.md` 的 V1 → `v1.0.0`、V2 → `v1.1.0`、V3 → `v1.2.0`、V4 → `v1.3.0`、V4.1 → `v1.4.0`。具体设计依据、试跑反馈和待验收事项仍以 [ANALYSIS_OVERVIEW.md](ANALYSIS_OVERVIEW.md) 为准。
+## 当前基线：v1.0（2026-10-05）
 
-本页的功能版本号用于整理工作流演进，不表示插件包已经按这些版本发布；`pyproject.toml` 当前仍声明包版本 `0.1.0`。历史迭代没有可靠的统一发布日期，因此版本标题不补写推测日期。本稿更新于 2026-10-02。
+本节定义当前 Bug Review 工作流的基线契约。后续功能在此基线上迭代；如果实现与历史版本记录冲突，以本节和当前代码为准。v1.0 不承诺兼容旧版工作区、旧版 `source/`／`tests/` 布局、旧版 case 路径或旧版 JSON 记录。已有运行产物应按 v1.0 重新准备。
 
-## 当前框架
+### 工作流目标
 
-Bug Review 一次处理一个 `inputs/workspace_<name>/` 模块。标准输入与补齐方式见 [INPUTS.md](INPUTS.md)。输入中的 Bug 摘要、详细分析、测试、Spec 和 RTL 是待核查资料；插件在独立运行区准备只读原文快照、测试执行副本和 DUT 包，在不改动原始内容的前提下收集并重跑全部 pytest 用例。每个阶段由工作流指定目标、参考文件和输出文件，Checker 核对实际产物及证据；Skill 提供操作指导和脚本，波形取证使用 UCAgent 的 WaveInfo 与签名收据。
+Bug Review 复核一个已经完成 DUT 准备的 UnityTest 模块。它重新收集并执行当前测试，分别分析测试失败、验证环境、规格、DUT 波形和 RTL 证据，最后把原报告中的 Bug 声明与本次复核结果对账，形成可追溯的 HTML 报告。
+
+一次失败不自动等于 DUT Bug。v1.0 将失败区分为环境问题、测试实现问题、规格理解问题、规格歧义、证据不足和疑似／确认的 DUT 缺陷。确认 DUT Bug 至少需要正确的失败测试、可核实的 Spec 要求、有效的波形或明确诊断，以及能够解释首个偏差的 RTL 证据。
+
+### 两种独立启动入口
+
+两种入口都必须能够独立准备同一份 v1.0 工作区：
+
+```text
+Master UI
+  编译／启动阶段使用 launch.yaml 和 filelist.f
+  Bug Review 工作区使用 Master 已准备好的 DUT、RTL、Spec、Guide_Doc
+
+插件 Make
+  make bug_review_<module>
+  由插件完成同等的工作区准备并启动 bug_review:analysis
+```
+
+`launch.yaml`、`filelist.f`（或 `filelist.txt`）只属于编译和启动输入，编译或启动完成后不复制到 Bug Review 工作区。Master 提供的 `<dut>`、`<dut>_RTL`、`<dut>_Doc` 和 `Guide_Doc` 是唯一来源；Bug Review 只准备并复制 UnityTest 到 `verification_review/run/unity_test/`。
+
+### v1.0 工作区布局
+
+```text
+<workspace>/
+├── Guide_Doc/                 # 运行时指导
+├── <dut>/                     # Master／Make 准备好的 DUT Python 包和运行文件
+├── <dut>_RTL/                 # RTL 原文快照
+├── <dut>_Doc/                 # Spec／接口／验证文档
+├── verification_review/
+│   ├── report/                    # 生成的模块报告
+│   ├── analysis/                  # 结构化复核记录和阶段诊断
+│   ├── notes/                     # 运行笔记
+│   └── run/
+│       ├── unity_test/
+│       │   ├── tests/             # 唯一可执行测试副本
+│       │   │   └── data/          # Toffee／波形 session 的 canonical data root
+│       │   └── ...                 # 测试 fixture、模型和辅助文件
+│       └── test_report/            # pytest/toffee 命令、stdout、stderr、报告快照
+└── .ucagent/                  # 阶段历史和签名 WaveInfo 收据
+```
+
+v1.0 不创建或依赖顶层 `source/`、顶层 `tests/`、`run/<dut>/` 或工作区根部的 `unity_test` 符号链接。测试文件系统路径只有 `verification_review/run/unity_test/...`；pytest target 使用相对于 `verification_review/run/unity_test` 的 `tests/...`。`verification_review/run/unity_test/tests/data/` 是 WaveInfo 和 fixture 共同使用的唯一数据目录。
+
+### 六个阶段
+
+| 阶段 | 目的 | 主要结果 |
+| --- | --- | --- |
+| `full_replay` | 收集当前 pytest 全部 node，建立执行基线并导入每个结果。 | `test_manifest.json`、`replay_summary.json`、case 骨架 |
+| `case_triage` | 独立于原 Bug 结论分析每个失败／错误／xpassed case，审查环境质量。 | `failure_analysis`、`environment_review.json` |
+| `dut_evidence` | 为疑似 DUT 失败选择代表 case，获取签名波形和可核实的事务证据。 | `waveform`、receipt、viewer、attribution draft |
+| `report_reconcile` | 对照原 Bug 摘要、分析、Spec、RTL 和本次 case 结果，提交 Bug↔case 归属。 | attribution revision、`report_reconciliation.json` |
+| `root_correlation` | 对每个 Bug 作 confirmed/refuted/inconclusive 裁决并合并共享根因。 | Bug decision、`root_causes.json` |
+| `publish` | 渲染并核验模块首页、case、Bug、源码和波形资源。 | `report/index.html`、`report_manifest.json` |
+
+### 输入契约
+
+一次复核处理一个 `inputs/<module>/`。输入目录需要：
+
+| 输入 | v1.0 要求 |
+| --- | --- |
+| `unity_test/tests/` | 必需；包含可由 pytest 收集的测试、fixture、驱动、参考模型和辅助代码。 |
+| 原 Bug 文档 | `unity_test/<dut>_bug_summary.md`、`unity_test/<dut>_bug_analysis.md` 至少一份，建议两份都提供。 |
+| `<dut>/` | 与当前 Python 环境兼容的 DUT 包和运行文件。Master 模式下由 Master 准备，Make 模式下由 `init_<module>` 准备。 |
+| `<dut>_RTL/`、`<dut>_Doc/` | 与 DUT 版本匹配的 RTL 和规格文档，供证据引用。 |
+| `.pytest.ini` | 可选；存在时用于保持原测试收集和运行参数。 |
+| `launch.yaml`、`filelist.f` | 仅供编译／启动，不进入 v1.0 Bug Review 工作区。 |
+
+输入中的旧波形、覆盖率、`.ucagent/` checkpoint 和旧 `uc_test_report/` 不作为本次执行结果。本次测试结果以 `verification_review/run/test_report/` 和 `verification_review/analysis/replay_summary.json` 为准。
+
+### 核心代码文件
+
+| 文件 | 职责 |
+| --- | --- |
+| `src/bug_review/workflows/analysis.yaml` | 声明六阶段、阶段任务、参考文件、Skill 和 Checker。 |
+| `src/bug_review/core/layout.py` | 定义 v1.0 工作区布局、canonical 路径和逻辑路径解析。 |
+| `src/bug_review/core/records.py` | Pydantic 记录模型；当前记录 schema 为 `bug_review.v8`。 |
+| `src/bug_review/core/inventory.py`、`tools/collection.py` | 收集测试、建立 `review_index.json` 和 case 初始记录。 |
+| `src/bug_review/core/replay.py` | 保存全量重放结果、批次快照和执行证据。 |
+| `src/bug_review/core/claims.py`、`core/attribution.py` | 原报告主张提取、归因草稿校验和 revision 提交。 |
+| `src/bug_review/core/validation.py` | case、Bug、根因、引用、波形和阶段完成条件的确定性校验。 |
+| `src/bug_review/checkers/stages/*.py` | 六个阶段的 Checker 实现。 |
+| `src/bug_review/core/reporting.py` | 生成模块首页、case／Bug 页面、源码预览和报告 manifest。 |
+| `src/bug_review/publishing.py` | 发布报告、复制可用波形资源并重建顶层入口。 |
+| `src/bug_review/Guide_Doc/analysis.md` | 给工作流 Agent 的阶段操作和产物契约。 |
+| `src/bug_review/skills/` | 可选的阶段指导和加速脚本；禁用时不能削弱阶段目标或 Checker。 |
+
+### 核心数据结构
+
+`verification_review/analysis/review_index.json` 是活动记录的入口，不保存完整原文。它包含：
+
+```text
+ReviewIndex
+├── workspace              # 模块和工作区身份
+├── source_files           # DUT、Spec、RTL 和原报告位置
+├── stage_status           # 六阶段状态
+├── bugs                   # BugEntry：原声明、原标签和归因候选
+├── cases                  # CaseEntry：规范 case ID、pytest target、record_path
+├── attribution_revision   # 当前归因 revision
+├── claim_mapping_path     # 当前主张映射
+└── root_path              # 当前根因裁决
+```
+
+每个 case 的活动记录是 `CaseRecord`：
+
+```text
+CaseRecord
+├── replay            # status、baseline、report node、执行阶段和重跑记录
+├── test_review       # 测试正确性、输入、测试预期和驱动时序
+├── failure_analysis  # 失败类别、场景、Spec 预期、测试预期、实际行为、理由和引用
+└── waveform          # conclusion、窗口、信号组、receipt、viewer 和诊断
+```
+
+Bug 级记录由 `BugRecord` 表示，包含 `phenomenon.scenario`、`phenomenon.spec_expected`、`phenomenon.actual`、`phenomenon.bug_root_cause`、case 关联和 `Decision`。四个现象字段分别回答“验证什么、规格要求什么、当前 case 发生什么、RTL 为什么这样做”，并携带可跳转的源码或证据引用。根因记录由 `RootsRecord` 表示，保存共享 RTL 引用、首个错误、因果链和成员 Bug。
+
+v1.0 的页面展示将“现象分析”和“证据溯源”分开：现象分析说明验证场景、规格预期、实际行为和 BUG 根因；证据溯源分别提供 Spec、Case、RTL 三张可点击行号表。后续字段结构化改造应在此展示契约上迭代，不再让每个 case 自由生成不可比较的长段落。
+
+### 输出结构
+
+```text
+output/
+├── index.html                 # 所有已发布模块的入口
+├── serve.py                   # 可独立启动的静态报告服务
+└── <module>/
+    ├── verification_review/
+    │   ├── analysis/
+    │   │   ├── review_index.json
+    │   │   ├── cases/ 或 attributions/<revision>/cases/
+    │   │   ├── replay_summary.json
+    │   │   ├── test_manifest.json
+    │   │   ├── environment_review.json
+    │   │   ├── report_reconciliation.json
+    │   │   ├── coverage.json
+    │   │   └── diagnostics/
+    │   ├── report/
+    │   │   ├── index.html
+    │   │   ├── cases/
+    │   │   ├── bugs/
+    │   │   ├── sources/
+    │   │   ├── waveforms/ 或 surfer/
+    │   │   └── report_manifest.json
+    │   ├── notes/
+    │   └── run/
+    │       ├── unity_test/
+    │       └── test_report/
+    └── .ucagent/
+```
+
+读取 case 或 Bug 时必须先读取 `verification_review/analysis/review_index.json`，再使用其中的 `record_path`；不能根据 case 编号或 Bug 编号自行拼接路径。报告是 `verification_review/analysis/` 活动记录的可重建视图，不应被当作分析数据源。
+
+### v1.0 已知边界与后续迭代方向
+
+- v1.0 使用当前 `bug_review.v8` 记录模型；场景、规格预期、测试预期、实际行为和归因理由已经拆成结构化事实字段。
+- v1.0 允许 Skill 提供 stdout 摘要、失败签名和填写模板，但 Skill 是可选的；禁用 Skill 时，Agent 仍可使用普通文件工具和更新工具完成同一契约。
+- v1.0 已固定 `verification_review/run/unity_test/tests/` 和 `verification_review/run/unity_test/tests/data/` 为 canonical 测试及波形目录；不继续扩展旧路径兼容分支。
+- 报告已把现象分析改为口语化叙述，把证据溯源改为 Spec、Case、RTL 三张可点击证据表，并明确代表 case 与同机理 case 的影响范围。
+- 后续迭代可增加失败签名族记录，让同一机理只分析一次，每个 case 只保留当前输入、窗口和首个偏差等差异事实。
+
+本文的“当前基线：v1.0”描述现行实现和新工作区契约。文档末尾的 `v1.0.0`～`v1.4.0` 条目是历史演进记录，用于解释设计来源，不是当前运行布局；历史条目中出现的 `source/`、`results/tests/`、`runs/run-<id>/` 等路径不应复制到新的 v1.0 工作区。后续版本在当前基线上递增，并同步更新本节、输入契约和运行时指导。具体设计依据、试跑反馈和待验收事项仍以 [ANALYSIS_OVERVIEW.md](ANALYSIS_OVERVIEW.md) 为准。
+
+本页的功能版本号用于整理工作流演进，不表示插件包已经按这些版本发布；`pyproject.toml` 当前仍声明包版本 `0.1.0`。历史迭代没有可靠的统一发布日期，因此版本标题不补写推测日期。本稿更新于 2026-10-05。
+
+## 当前框架（v1.0 摘要）
+
+Bug Review 一次处理一个 `inputs/<name>/` 模块（目录名即模块名）。标准输入与补齐方式见 [INPUTS.md](INPUTS.md)。输入中的 Bug 摘要、详细分析、测试、Spec 和 RTL 是待核查资料；Makefile 在独立工作区准备只读原文快照、测试执行副本和 DUT 包，随后收集并重跑全部 pytest 用例。每个阶段由工作流指定目标、参考文件和输出文件，Checker 核对实际产物及证据；Skill 提供操作指导，波形取证使用 UCAgent 的 WaveInfo 与签名收据。阶段核验与发布分别由 `checkers/` 与 `publishing.py` 完成；启动复核由 UCAgent 以 `--plugin` 加载插件。
 
 `review_index.json` 是本次运行的轻量索引：保存模块身份、原 Bug 身份、阶段状态和逐 case／Bug 记录路径。初始 Bug 骨架不推断 BG／FC／CK 或 case 归属；复核后的关系由 LLM 填入归因草稿，再经过来源与一致性校验提交。执行、归因、裁决、根因和覆盖率分别保存在独立记录中；原报告长文、Spec／RTL 原文及完整波形不复制进索引。报告从当前活动记录生成，HTML 是可重建的展示结果。
 
@@ -30,63 +193,45 @@ Bug Review 一次处理一个 `inputs/workspace_<name>/` 模块。标准输入�
 | --- | --- |
 | `Makefile`、`README.md` | 默认全模块和指定模块的运行入口、基本使用说明。 |
 | `src/bug_review/workflows/analysis.yaml` | 六阶段任务、参考文件、输出文件、Skill 与 Checker 配置。 |
-| `src/bug_review/workflow.py`、`inputs.py`、`picker_build.py` | 输入发现、独立运行区准备、DUT 构建、阶段核验与报告发布。 |
-| `src/bug_review/review_*.py`、`tools.py` | 索引及逐项记录、重跑导入、归因事务、证据查询、裁决提交和工具接口。 |
+| `Makefile`、`src/bug_review/publishing.py` | 模块工作区准备与报告发布。 |
+| `src/bug_review/core/`、`tools/` | 共享记录、校验和报告实现，以及复核工具接口。 |
 | `src/bug_review/checkers/` | 阶段完成前的确定性校验。 |
 | `src/bug_review/Guide_Doc/`、`skills/`、`templates/` | 运行时指导、阶段操作脚本和初始模板。 |
-| `src/bug_review/reporting.py`、`lang/zh/report.json` | 报告页面、源码预览、中文文案及页面核验。 |
+| `src/bug_review/core/reporting.py`、`lang/zh/report.json` | 报告页面、源码预览、中文文案及页面核验。 |
 | `ANALYSIS_OVERVIEW.md` | 需求迭代、设计取舍、实跑反馈与后续规划。 |
 
 ### 输出目录：先看哪里
 
-默认根目录为 `plugins/bug_review/output/`，可通过 `OUTPUT_ROOT` 配置。`make bug-review-analysis` 对 `inputs/workspace_*` 逐模块重新运行；`make bug_review_<name>` 只运行指定模块。每次运行都新建 `run-<id>`，公开的 `report/` 是独立的实体目录；单模块重跑不改写其他模块的报告。
+默认根目录为 `plugins/bug_review/output/`，可通过 `OUTPUT_ROOT` 配置。`make bug_review_all` 依次复核 `inputs/` 下全部模块；`make bug_review_<module>` 只运行指定模块。每个模块使用独立工作区，已有模块目录时 `init_<module>` 拒绝覆盖。
 
 ```text
 output/
-├── index.html                         # 所有已发布模块的入口
-├── serve.py                           # 仅依赖 Python 标准库的本地报告服务
-└── workspace_<name>/
-    ├── report/                         # 当前公开实体报告
-    │   ├── index.html                  # 模块概况、覆盖率、失败 case 和按根因聚合的高置信 Bug
-    │   ├── cases/                      # 失败 case 详情
-    │   ├── bugs/                       # 每条 Bug 的裁决与证据详情
-    │   ├── sources/                    # 被引用源码的全文预览与行段高亮
-    │   ├── surfer/                     # 有可用波形时随报告发布的静态预览前端
-    │   ├── waveforms/                  # 有可用波形时归档的签名收据对应原波形
-    │   └── report_manifest.json        # 页面和证据链接清单
-    └── runs/
-        └── run-<id>/                   # 本次运行的私有工作区
-            ├── review_job.json         # 输入模块及运行配置快照
-            ├── source/                 # Bug 原文、Spec 与 RTL 快照
-            ├── <dut>/                  # 本次 DUT 运行包
-            ├── uc_test_report/         # 本次 pytest/toffee 的可写报告目录
-            ├── .ucagent/               # 阶段状态和签名 WaveInfo 收据存储
-            └── results/
-                ├── review_index.json   # 当前活动记录与阶段状态的入口
-                ├── test_manifest.json  # 本次收集的完整 case 集合
-                ├── replay_summary.json # 全量重跑的逐项结果
-                ├── environment_review.json
-                ├── coverage.json
-                ├── wave_signal_presets.json
-                ├── cases/              # 初始逐 case 记录
-                ├── attributions/       # 归因修订、主张映射及 case／对账记录
-                ├── reviews/            # 逐 Bug 裁决与根因修订
-                ├── report/             # 发布前的报告原件
-                ├── tests/              # 唯一的可运行测试副本
-                ├── drafts/             # 尚未激活的草稿
-                └── diagnostics/        # 收集失败时的完整日志
+├── index.html                 # 所有已发布模块的入口
+├── serve.py                   # 独立报告服务
+└── <module>/
+    ├── analysis/               # 索引、case、归因、裁决、草稿及诊断
+    ├── report/                 # 直接渲染并校验的模块报告与资源
+    ├── <module>/               # DUT 可导入包和运行文件
+    ├── <module>_RTL/           # RTL 快照
+    ├── <module>_Doc/           # Spec 和接口文档
+    ├── Guide_Doc/              # 运行时指导
+    ├── run/
+    │   ├── unity_test/         # 唯一测试执行副本
+    │   └── test_report/        # pytest/toffee 报告和执行日志
+    └── .ucagent/               # 阶段状态和签名 WaveInfo 收据
 ```
 
-**阅读顺序**：在 `output/` 目录运行 `python3 serve.py`，从打印的本地 HTTP 地址进入总门户、模块和 Bug 详情。总门户的“高置信度根因”与模块主表采用同一口径：只计已确认且复核置信度不低于 0.8 的去重根因组。整个 `output/` 文件夹可独立分享；接收方只需 Python 3.9+，无须安装插件或 UCAgent；公开报告无需私有 `runs/`。预览读取 `report/waveforms/` 中与原签名收据对应的波形快照，不调用 UCAgent 动态波形接口。原波形在发布前已轮换时只保留签名收据和分析摘要。核查运行全集和缺口时看该次运行的 `test_manifest.json`、`replay_summary.json` 与 `environment_review.json`；追溯某条裁决时从 `review_index.json` 中的活动路径找到逐 Bug／case 记录和根因修订，不按 ID 猜测文件名。签名收据存于该次运行的 `.ucagent/waveinfo_receipts.json`，case 记录只保存收据引用与波形摘要。`report/` 只公开报告及预览资源；`runs/` 保存运行记录、草稿和原文快照。覆盖率数字只在 `coverage.json` 有可核实来源时展示，否则明确标示不可用。
+从 `analysis/review_index.json` 的活动路径找到逐 Bug／case 记录和根因修订，不按 ID 猜测文件名。签名收据存于模块工作区的 `.ucagent/`；`report/` 只公开报告及预览资源。覆盖率数字只在 `analysis/coverage.json` 有可核实来源时展示，否则明确标示不可用。
 
 ## 版本变化
 
-### v1.4.0 — V4.1：输入与运行区精简
+### 历史 v1.4.0 — V4.1：输入与运行区精简
 
 **代码已实现；真实 LoadUnit 与远程 Master 全流程待目标环境验收。**
 
-- 根目录 `launch.yaml`、`filelist.txt`、测试与原 Bug 报告构成标准输入；`input-preparation` 仅在缺少材料时补齐。无可用 DUT 包时，运行准备按 filelist 构建并验证当前 Python 的 Picker 包。
-- CLI/Make 和 Master 使用同一运行准备；`source/` 保存原文快照及外部 RTL 映射，`results/tests/` 保存唯一测试执行副本，DUT 包位于运行区根目录。阶段历史忽略 `toffee_tmp_*` 与波形数据。
+- 根目录 `launch.yaml`、`filelist.f`（兼容 `filelist.txt`）、测试与原 Bug 报告构成标准输入；`input-preparation` 仅在缺少材料时补齐。运行准备不再自动编译：要求先按 filelist 编译好 DUT 包（插件根目录 `make init_<dut>`，仅包目录缺失时由 picker 编译），并验证其能被当前 Python 导入；filelist 解析跳过 `+incdir+` 等编译器指令。
+- 输入目录名即模块名（`inputs/<module>/`，不再使用 `workspace_` 前缀），运行区为 `output/<module>/runs/run-<id>/`。启动仅由 UCAgent 以 `--plugin` 直接加载插件完成：插件移除了 `run-analysis`／`launch` 包装入口、`picker_build` 重编译机制与 `picker-package`／`picker-check` 子命令。插件 Makefile 参照主 Makefile 的 `init_% → test_%／mcp_%` 结构：`init_<module>`（picker 编译与运行区准备）派生 `bug_review_<module>`（无人值守）与 `mcp_bug_review_<module>`（`--tui`），另有 `bug_review_all`、`status_<module>`、`publish_<module>`、`serve`、`plugin-check`。原 `workflow.py` 拆为可直接导入的 `prepare.py`、`checkers/analysis.py`（阶段核验）、`publishing.py`（发布与总门户）和 `layout.py`／`inventory.py`，命令行收敛为 `python -m bug_review prepare-analysis|status|publish`；仅被历史实现引用的 `analysis_core/` 移除，原子 JSON 写入并入 `json_io.py`。
+- 历史运行准备曾建立 `source/` 原文快照、`results/tests/` 测试副本和 `<module>/runs/run-<id>/` 运行区。v1.0 已将这些布局收敛为工作区根部的 `<dut>`／`<dut>_RTL`／`<dut>_Doc` 与 `verification_review/run/unity_test/`，不再沿用历史路径。
 - 模块报告发布为实体目录，旧公开报告保存在本次 run；归档运行在 Master 同步回规范 run 后发布。总门户与报告页面无需私有运行区即可分享。
 
 ### v1.3.0 — V4：原始主张归属由 LLM 复核

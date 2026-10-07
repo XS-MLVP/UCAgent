@@ -2,25 +2,17 @@
 
 from __future__ import annotations
 
-import json
 import os
 from pathlib import Path
 import tempfile
 
 from ucagent.util.config import load_runtime_config
-from bug_review.review_store import load_record
+from bug_review.core.records import load_record
+from bug_review.core.layout import module_label, NOTES_ROOT, REPORT_ROOT
 
 
 START = "<!-- BUG-REVIEW-SUMMARY-START -->"
 END = "<!-- BUG-REVIEW-SUMMARY-END -->"
-
-
-def read_object(path: Path) -> dict:
-    """Read one completed JSON artifact as an object."""
-    value = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(value, dict):
-        raise ValueError(f"JSON object required: {path}")
-    return value
 
 
 def main() -> None:
@@ -30,13 +22,8 @@ def main() -> None:
     output = (workspace / runtime["OUT"]).resolve()
     if not output.is_relative_to(workspace) or output == workspace:
         raise ValueError("Resolved OUT must be inside the current workspace")
-    job = read_object(workspace / "review_job.json")
-    if output != (workspace / job["output_dir"]).resolve():
-        raise ValueError("Resolved OUT differs from the prepared Bug Review output")
-    if job.get("schema") != "bug_review_job.v8":
-        raise ValueError("review_job.json must use bug_review_job.v8")
-    names = [job["source_run"][0]]
-    notes = workspace / "notes/bug_review_notes.md"
+    names = [module_label(workspace)]
+    notes = workspace / NOTES_ROOT / "bug_review_notes.md"
     notes.parent.mkdir(parents=True, exist_ok=True)
     if notes.is_file():
         original = notes.read_text(encoding="utf-8")
@@ -65,7 +52,7 @@ def main() -> None:
                          f"{counts['refuted']} refuted, {counts['inconclusive']} inconclusive; "
                          f"{len(roots.roots) if roots else 0} root groups.")
             lines.append(f"- Cases: {replayed} replayed; {signed} signed WaveInfo receipts.")
-        report = target / "report/index.html"
+        report = workspace / REPORT_ROOT / "index.html"
         if report.is_file():
             relative = report.relative_to(workspace).as_posix()
             lines.append(f"- Report: [workspace page](../{relative}).")

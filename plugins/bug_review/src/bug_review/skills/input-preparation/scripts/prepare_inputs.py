@@ -1,4 +1,4 @@
-"""Create Bug Review input directories from explicit manifests and check Picker bindings."""
+"""Create Bug Review input directories from explicit manifests."""
 
 from __future__ import annotations
 
@@ -6,10 +6,7 @@ import argparse
 import json
 from pathlib import Path
 import re
-import secrets
 import shutil
-import subprocess
-import sys
 
 import yaml
 
@@ -85,7 +82,7 @@ def _apply(args: argparse.Namespace) -> None:
     runtime = source / dut
     if data["copy_runtime_package"] and not runtime.is_dir():
         raise ValueError(f"DUT runtime package missing: {runtime}")
-    target = Path(args.inputs_root).expanduser().resolve() / f"workspace_{dut}"
+    target = Path(args.inputs_root).expanduser().resolve() / dut
     if target.exists() or target.is_relative_to(source) or source.is_relative_to(target):
         raise ValueError(f"target exists or overlaps source workspace: {target}")
     target.mkdir(parents=True)
@@ -103,9 +100,9 @@ def _apply(args: argparse.Namespace) -> None:
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(path, destination)
     ordered = [top, *(item for item in files if item != top)]
-    (target / "filelist.txt").write_text(
+    (target / "filelist.f").write_text(
         "\n".join(f"rtl/{item}" for item in ordered) + "\n", encoding="utf-8")
-    launch = {"dut": dut, "module": module, "files": {"filelist": "filelist.txt"}}
+    launch = {"dut": dut, "module": module, "files": {"filelist": "filelist.f"}}
     (target / "launch.yaml").write_text(yaml.safe_dump(launch, sort_keys=False), encoding="utf-8")
     if data["copy_runtime_package"]:
         shutil.copytree(runtime, target / dut,
@@ -127,29 +124,31 @@ def _complete(args: argparse.Namespace) -> None:
         raise ValueError("manifest module is invalid")
     target = Path(args.workspace).expanduser().resolve()
     rtl_root = Path(data["rtl_root"]).expanduser().resolve()
-    if target.name != f"workspace_{dut}" or not (target / "unity_test/tests").is_dir():
-        raise ValueError(f"expected an existing workspace_{dut} with unity_test/tests: {target}")
+    if target.name != dut or not (target / "unity_test/tests").is_dir():
+        raise ValueError(f"expected an existing inputs/{dut} with unity_test/tests: {target}")
     files = data["rtl_files"]
     top = data["rtl_top"]
     if (not isinstance(files, list) or not files or top not in files
             or len(files) != len(set(files))):
         raise ValueError("rtl_top must occur in unique, nonempty rtl_files")
     paths = [_source_file(rtl_root, item) for item in files]
-    filelist = target / "filelist.txt"
     launch_path = target / "launch.yaml"
     ordered = [top, *(item for item in files if item != top)]
     expected_filelist = "\n".join(f"rtl/{item}" for item in ordered) + "\n"
-    launch = {"dut": dut, "module": module, "files": {"filelist": "filelist.txt"}}
-    if filelist.exists() and filelist.read_text(encoding="utf-8") != expected_filelist:
-        raise ValueError(f"existing filelist differs from selected RTL; review {filelist}")
+    declared = None
     if launch_path.exists():
         existing_launch = yaml.safe_load(launch_path.read_text(encoding="utf-8"))
         if (not isinstance(existing_launch, dict)
                 or existing_launch.get("dut") != dut
                 or existing_launch.get("module") != module
                 or not isinstance(existing_launch.get("files"), dict)
-                or existing_launch["files"].get("filelist") != "filelist.txt"):
+                or existing_launch["files"].get("filelist") not in ("filelist.f", "filelist.txt")):
             raise ValueError(f"existing launch settings differ from selected module; review {launch_path}")
+        declared = existing_launch["files"]["filelist"]
+    filelist = target / (declared or "filelist.f")
+    if filelist.exists() and filelist.read_text(encoding="utf-8") != expected_filelist:
+        raise ValueError(f"existing filelist differs from selected RTL; review {filelist}")
+    launch = {"dut": dut, "module": module, "files": {"filelist": filelist.name}}
     for item, source in zip(files, paths):
         destination = target / "rtl" / item
         if destination.exists() and destination.read_bytes() != source.read_bytes():
@@ -167,44 +166,8 @@ def _complete(args: argparse.Namespace) -> None:
                       "launch": str(launch_path)}, ensure_ascii=False))
 
 
-def _picker_package(args: argparse.Namespace) -> None:
-    """Build a DUT package with the shared runtime builder."""
-    sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
-    from bug_review.picker_build import build_picker_package
-
-    workspace = Path(args.workspace).expanduser().resolve()
-    dut = workspace.name.removeprefix("workspace_")
-    current = workspace / dut
-    rebuilt = workspace / f".{dut}_rebuilt_{secrets.token_hex(4)}"
-    launch = yaml.safe_load((workspace / "launch.yaml").read_text(encoding="utf-8"))
-    result = build_picker_package(
-        workspace, rebuilt, Path(args.picker),
-        jobs=args.jobs, cxx_opt=args.cxx_opt, module=launch["module"],
-    )
-    backup = None
-    if current.exists():
-        backup = workspace.parent / f".package_backup_{workspace.name}_{dut}_{secrets.token_hex(4)}"
-        current.rename(backup)
-    rebuilt.rename(current)
-    result["package"] = str(current)
-    result["backup"] = str(backup) if backup else None
-    print(json.dumps({"status": "ok", **result}, ensure_ascii=False))
-
-
-def _picker_check(args: argparse.Namespace) -> None:
-    """Import Picker's bundled xspcomm with the current interpreter."""
-    picker = Path(args.picker).expanduser().resolve()
-    if not picker.is_file():
-        raise FileNotFoundError(picker)
-    package = _picker_xspcomm(picker)
-    version = _probe_xspcomm(package)
-    print(json.dumps({"python": sys.executable, "picker": str(picker),
-                      "xspcomm": str(package / "xspcomm"), "version": version},
-                     ensure_ascii=False))
-
-
 def main() -> None:
-    """Dispatch input manifest creation, copying, or Picker compatibility checks."""
+    """Dispatch input manifest creation, copying, or completion."""
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
     init = commands.add_parser("init", help="create an editable input manifest")
@@ -218,21 +181,8 @@ def main() -> None:
     complete = commands.add_parser("complete", help="add missing launch materials to an existing input")
     complete.add_argument("--manifest", required=True)
     complete.add_argument("--workspace", required=True)
-    picker = commands.add_parser("picker-check", help="check Picker xspcomm against this Python")
-    picker.add_argument("--picker", required=True)
-    package = commands.add_parser("picker-package",
-                                  help="rebuild workspace_<dut>/<dut> with this Python via Picker")
-    package.add_argument("--picker", required=True)
-    package.add_argument("--workspace", required=True,
-                         help="existing workspace_<dut> directory with root filelist.txt")
-    package.add_argument("--jobs", type=int, default=None,
-                         help="parallel compile jobs (default: Makefile/CMake choice)")
-    package.add_argument("--cxx-opt", choices=["O0", "O1", "O2"], default=None,
-                         help="downgrade the generated -O3 (Apple clang compiles huge "
-                              "verilator sources pathologically at -O3; O1 is safe)")
     args = parser.parse_args()
-    {"init": _init, "apply": _apply, "complete": _complete, "picker-check": _picker_check,
-     "picker-package": _picker_package}[args.command](args)
+    {"init": _init, "apply": _apply, "complete": _complete}[args.command](args)
 
 
 if __name__ == "__main__":

@@ -16,9 +16,6 @@ dev = ["pytest>=8", "build>=1"]
 [project.entry-points."ucagent.plugins"]
 bug_review = "bug_review.plugin:get_plugin"
 
-[project.scripts]
-bug-review = "bug_review.workflow:main"
-
 [tool.setuptools]
 include-package-data = false
 
