@@ -5,6 +5,8 @@
 
 输入已完整时直接启动。缺少 RTL、根目录 filelist 或启动清单时，可使用 [input-preparation Skill](src/bug_review/skills/input-preparation/SKILL.md) 明确选择来源并补齐；它不推断缺失依赖或原 Bug 结论。
 
+旧版 unitytest 产物（bullet 式 Bug 声明、独立标签行、短 TC 标签、缺失摘要或报告）先用 [case-normalization Skill](src/bug_review/skills/case-normalization/SKILL.md) 规范化成上述形状，再走 `make init_<module>`。
+
 ## 推荐目录结构
 
 ```text
