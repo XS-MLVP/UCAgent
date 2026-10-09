@@ -388,7 +388,9 @@ def source_lines(source_root: Path, reference: str, max_lines: int = 40) -> dict
     """Validate a source-relative line range and return bounded original text."""
     match = REF_PATTERN.fullmatch(reference) if isinstance(reference, str) else None
     if match is None:
-        raise ValueError(f"expected source-relative path:start[-end]: {reference!r}")
+        raise ValueError(
+            f"invalid source reference {reference!r}: use '<workspace-relative path>:<start>[-<end>]' "
+            "with explicit line numbers, then commit it with UpdateReviewRecord")
     relative = Path(match.group(1))
     target = resolve_logical_path(source_root, relative.as_posix()).resolve()
     if (relative.is_absolute() or ".." in relative.parts

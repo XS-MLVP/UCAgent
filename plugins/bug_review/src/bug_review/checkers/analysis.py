@@ -57,7 +57,9 @@ class BugReviewStageChecker(Checker):
             return False, exc.result()
         except (ValueError, OSError, KeyError, TypeError, IndexError, AttributeError) as exc:
             return False, {"error_code": "BUG_REVIEW_INTEGRITY_FAILED", "error": str(exc),
-                           "next_action": "Correct the named artifact or evidence field, then run Check again."}
+                           "next_action": "Fix the named record field with UpdateReviewRecord, then run "
+                                          "Check again; a completed test run never needs repeating for a "
+                                          "record field"}
 
 
 class Workflow:
@@ -68,7 +70,8 @@ class Workflow:
         self.root = Path(workspace).resolve()
         self.label = module_label(self.root)
         self.out = resolve_out_dir(self.root)
-        self.waveinfo = WaveInfo(workspace=str(self.root), test_dir=str(unity_test_root(self.root)), dut_name="BugReview")
+        self.waveinfo = WaveInfo(workspace=str(self.root),
+                                 test_dir=str(unity_test_root(self.root) / "tests"), dut_name="BugReview")
 
     def status(self):
         """Return the first stage whose indexed artifacts do not pass Check."""

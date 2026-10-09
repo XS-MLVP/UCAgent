@@ -185,7 +185,7 @@ class ReviewReceiptSummary(UCTool):
         """Read receipts from this private run's signed WaveInfo store."""
         super().__init__(workspace=workspace, output_dir=output_dir, **kwargs)
         self.waveinfo = WaveInfo(workspace=workspace,
-                                 test_dir=str(unity_test_root(workspace)), dut_name="BugReview")
+                                 test_dir=str(unity_test_root(workspace) / "tests"), dut_name="BugReview")
 
     def _run(self, bug_id: str = "", case_id: str = "", limit: int = 50, offset: int = 0) -> dict:
         """Return no signal arrays or timeline until one receipt is queried explicitly."""
@@ -356,7 +356,7 @@ class ApplyReceiptToCase(UCTool):
         """Bind this run's signed receipt store."""
         super().__init__(workspace=workspace, output_dir=output_dir, **kwargs)
         self.waveinfo = WaveInfo(workspace=workspace,
-                                 test_dir=str(unity_test_root(workspace)), dut_name="BugReview")
+                                 test_dir=str(unity_test_root(workspace) / "tests"), dut_name="BugReview")
 
     def _run(self, case_id: str, receipt_id: str) -> dict:
         """Reject orphan or unusable receipts before the case write."""
@@ -415,7 +415,7 @@ class ValidateCaseRecords(UCTool):
         """Read receipts from the same private execution workspace."""
         super().__init__(workspace=workspace, output_dir=output_dir, **kwargs)
         self.waveinfo = WaveInfo(workspace=workspace,
-                                 test_dir=str(unity_test_root(workspace)), dut_name="BugReview")
+                                 test_dir=str(unity_test_root(workspace) / "tests"), dut_name="BugReview")
 
     def _run(self, case_ids: list[str] | None = None, max_issues: int = 30) -> dict:
         """Return exact failing case fields and a bounded total."""
@@ -571,7 +571,7 @@ class CommitAttribution(UCTool):
         """Bind receipt validation to this private run."""
         super().__init__(workspace=workspace, output_dir=output_dir, **kwargs)
         self.waveinfo = WaveInfo(workspace=workspace,
-                                 test_dir=str(unity_test_root(workspace)), dut_name="BugReview")
+                                 test_dir=str(unity_test_root(workspace) / "tests"), dut_name="BugReview")
 
     def _run(self, draft_path: str, dry_run: bool = False) -> dict:
         """Return detailed attribution changes or the committed revision."""
@@ -614,7 +614,7 @@ class SubmitReviewDecisions(UCTool):
         """Bind receipt verification to the active module workspace."""
         super().__init__(workspace=workspace, output_dir=output_dir, **kwargs)
         self.waveinfo = WaveInfo(workspace=workspace,
-                                 test_dir=str(unity_test_root(workspace)), dut_name="BugReview")
+                                 test_dir=str(unity_test_root(workspace) / "tests"), dut_name="BugReview")
 
     def _run(self, draft_path: str, dry_run: bool = False) -> dict:
         """Activate all validated Bug/root files with one index update."""
@@ -772,6 +772,25 @@ class UpdateRecordArgs(BaseModel):
     draft_path: str = Field(description="Workspace-relative replacement JSON under {OUT}/drafts.")
 
 
+def validate_case_replacement(index, current, replacement, waveinfo, source_root) -> None:
+    """Validate one full replacement case record against the index; raise ReviewIssues."""
+    if replacement.case_id != current.case_id:
+        raise ValueError("case ID cannot change in one record update")
+    linked = {bug_id for bug_id, entry in index.bugs.items()
+              if replacement.case_id in entry.case_ids}
+    issues = []
+    if set(replacement.bug_ids) != linked:
+        issues.append({
+            "case_id": replacement.case_id, "field": "bug_ids",
+            "expected": sorted(linked), "actual": sorted(replacement.bug_ids),
+            "missing": sorted(linked - set(replacement.bug_ids)),
+            "extra": sorted(set(replacement.bug_ids) - linked),
+            "next_action": "Use CommitAttribution for Bug-to-case changes"})
+    issues.extend(case_issues(index, replacement, waveinfo, source_root=source_root))
+    if issues:
+        raise ReviewIssues(issues)
+
+
 class UpdateReviewRecord(UCTool):
     """Replace one typed current record in the private run."""
 
@@ -789,7 +808,7 @@ class UpdateReviewRecord(UCTool):
         """Scope edits to indexed private review records."""
         super().__init__(workspace=workspace, output_dir=output_dir, **kwargs)
         self.waveinfo = WaveInfo(workspace=workspace,
-                                 test_dir=str(unity_test_root(workspace)), dut_name="BugReview")
+                                 test_dir=str(unity_test_root(workspace) / "tests"), dut_name="BugReview")
 
     def _run(self, target_path: str, draft_path: str) -> dict:
         """Check identity and schema before one private record replacement."""
@@ -868,21 +887,8 @@ class UpdateReviewRecord(UCTool):
                         "collection_errors", "pytest_version", "baseline_id")):
                     raise ValueError("collection facts and baseline identity cannot be changed")
             elif kind == "case":
-                if replacement.case_id != current.case_id:
-                    raise ValueError("case ID cannot change in one record update")
-                linked = {bug_id for bug_id, entry in index.bugs.items()
-                          if replacement.case_id in entry.case_ids}
-                if set(replacement.bug_ids) != linked:
-                    raise ReviewIssues([{
-                        "case_id": replacement.case_id, "field": "bug_ids",
-                        "expected": sorted(linked), "actual": sorted(replacement.bug_ids),
-                        "missing": sorted(linked - set(replacement.bug_ids)),
-                        "extra": sorted(set(replacement.bug_ids) - linked),
-                        "next_action": "Use CommitAttribution for Bug-to-case changes"}])
-                issues = case_issues(index, replacement, self.waveinfo,
-                                     source_root=prepared_source_root(output))
-                if issues:
-                    raise ReviewIssues(issues)
+                validate_case_replacement(index, current, replacement, self.waveinfo,
+                                          prepared_source_root(output))
             atomic_write_json(target, replacement.model_dump(mode="json", by_alias=True))
             return {"success": True, "record_type": kind, "updated_files": [target_path]}
         except ReviewIssues as error:
@@ -892,6 +898,67 @@ class UpdateReviewRecord(UCTool):
                     "allowed_targets": ["review_index.json", "test_manifest.json", "coverage.json", "replay_summary.json",
                                         "environment_review.json", "report_reconciliation.json", "<indexed case record>"],
                     "next_action": "Correct the draft schema or target path and retry"}
+
+
+class UpdateCaseBatchArgs(BaseModel):
+    """Select one batch draft of full case records."""
+
+    draft_path: str = Field(
+        description='Draft JSON under {OUT}/drafts shaped {"cases": {case_id: full case record}}; '
+        "every value must pass the same checks as UpdateReviewRecord.")
+
+
+class UpdateCaseRecords(UCTool):
+    """Validate then write many full case records from one batch draft."""
+
+    name: str = "UpdateCaseRecords"
+    description: str = (
+        "Validate a drafts JSON containing many full case records keyed by case_id against the index, "
+        "then write every record in one call; any invalid case aborts the whole batch."
+    )
+    args_schema: Optional[ArgsSchema] = UpdateCaseBatchArgs
+    workspace: str = Field(default=".", exclude=True)
+    output_dir: str = Field(default="verification_review/analysis", exclude=True)
+    waveinfo: Any = Field(default=None, exclude=True)
+
+    def __init__(self, workspace: str, output_dir: str, **kwargs):
+        """Scope batch edits to indexed private review records."""
+        super().__init__(workspace=workspace, output_dir=output_dir, **kwargs)
+        self.waveinfo = WaveInfo(workspace=workspace,
+                                 test_dir=str(unity_test_root(workspace) / "tests"), dut_name="BugReview")
+
+    def _run(self, draft_path: str) -> dict:
+        """Validate every batch case before writing any of them."""
+        root = Path(self.workspace).resolve()
+        output = (root / self.output_dir).resolve()
+        try:
+            draft = within_output(output, str(Path(draft_path).relative_to(self.output_dir)))
+            if draft.relative_to(output).parts[:1] != ("drafts",):
+                raise ValueError("draft_path must be under {OUT}/drafts")
+            cases = read_object(draft).get("cases")
+            if not isinstance(cases, dict) or not cases:
+                raise ValueError('batch draft must be an object shaped {"cases": {case_id: record}}')
+            index = load_record(output, "review_index.json", "index")
+            source_root = prepared_source_root(output)
+            writes: list[tuple[Path, Any]] = []
+            for case_id, item in cases.items():
+                entry = index.cases.get(case_id)
+                if entry is None:
+                    raise ValueError(f"unknown indexed case: {case_id}")
+                current = load_record(output, entry.record_path, "case")
+                replacement = RECORD_MODELS["case"].model_validate(item)
+                if replacement.case_id != case_id:
+                    raise ValueError(f"draft key {case_id} does not match record case_id {replacement.case_id}")
+                validate_case_replacement(index, current, replacement, self.waveinfo, source_root)
+                writes.append((within_output(output, entry.record_path), replacement))
+            for target, replacement in writes:
+                atomic_write_json(target, replacement.model_dump(mode="json", by_alias=True))
+            return {"success": True, "updated": len(writes), "case_ids": sorted(cases)}
+        except ReviewIssues as error:
+            return {"success": False, **error.result()}
+        except (ValueError, OSError, KeyError, TypeError) as error:
+            return {"success": False, "error_code": "RECORD_BATCH_INVALID", "error": str(error)[:2000],
+                    "next_action": "Correct the batch draft and retry; no record was written"}
 
 
 class RenderArgs(BaseModel):

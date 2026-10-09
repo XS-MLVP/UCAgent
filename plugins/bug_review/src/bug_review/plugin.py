@@ -11,7 +11,7 @@ from .tools import (ApplyReceiptToCase, CaptureReplayReport, CommitAttribution,
                     ResolveReviewCase, ReviewBugContext, ReviewCaseDiff, ReportClaimBlocks,
                     ReviewReceiptSummary, ReviewStageProgress,
                     ReviewRefCheck, ReviewRevisionHistory,
-                    SubmitReviewDecisions, UpdateReviewRecord, ValidateCaseRecords)
+                    SubmitReviewDecisions, UpdateCaseRecords, UpdateReviewRecord, ValidateCaseRecords)
 
 
 def create_tools(context: PluginContext) -> list[object]:
@@ -26,6 +26,7 @@ def create_tools(context: PluginContext) -> list[object]:
             CommitAttribution(**shared), ReviewRevisionHistory(**shared),
             CreateDecisionDraft(**shared),
             ApplyReceiptToCase(**shared), UpdateReviewRecord(**shared),
+            UpdateCaseRecords(**shared),
             SubmitReviewDecisions(**shared)]
 
 

@@ -553,6 +553,7 @@ class RunUnityChipTest(RunPyTest):
                     "pytest_ex_args": pytest_ex_args,
                     "result_path": result_json_path,
                 },
+                pytest_stdout=self._last_process_stdout,
             )
         except (OSError, TypeError, ValueError, RuntimeError) as error:
             # A report publication failure must remain visible but must not turn

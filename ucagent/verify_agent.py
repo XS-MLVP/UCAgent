@@ -586,7 +586,7 @@ class VerifyAgent:
             waveinfo_cfg = {}
         self.tool_waveinfo = WaveInfo(
             workspace=self.workspace,
-            test_dir=self.cfg.tools.RunTestCases.test_dir,
+            test_dir=waveinfo_cfg.get("test_dir") or self.cfg.tools.RunTestCases.test_dir,
             dut_name=self.dut_name,
             allowed_case_index=waveinfo_cfg.get("allowed_case_index", ""),
             signal_group_presets_path=waveinfo_cfg.get("signal_group_presets_path", ""),

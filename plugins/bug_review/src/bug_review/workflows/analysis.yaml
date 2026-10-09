@@ -48,6 +48,7 @@ tools:
     report_dir: "verification_review/run/test_report"
     extra_python_paths: ["."]
   WaveInfo:
+    test_dir: "verification_review/run/unity_test"
     allowed_case_index: "{OUT}/review_index.json"
     signal_group_presets_path: "{OUT}/wave_signal_presets.json"
 mcp_server:
@@ -77,8 +78,8 @@ stage:
     desc: "收集并全量重跑当前模块测试"
     task:
       - "先读 Guide_Doc/analysis.md。调用 PrepareReviewInventory收集当前 pytest 配置下全部精确 node ID，建立 review_index.json、test_manifest.json、replay_summary.json、coverage.json 和逐 case 骨架。收集报告写入本次运行的可写目录，不修改只读测试副本；若收集失败，读 {OUT}/diagnostics/collection.log，排查权限或动态库加载后直接重试，不能以不完整 node 集合继续。原报告只建立 Bug ID 与来源骨架，BG／FC／CK 和 case 归属留待独立分析后填写。"
-      - "以 test_manifest.json.pytest_target 为 RunTestCases(pytest_args=...) 的参数运行完整模块；分批时对 collected 精确 node 分批，并保留相同 pytest 配置。每次运行后立即 CaptureReplayReport 保存真实报告与结果。不能凭原报告的失败数补写结果。每个 collected 项须有基线状态或明确 not_run 原因；原报告关联但本次未收集的 case 也写明未收集原因。collection 错误单列。记录命令、报告和排除配置。"
-      - "检查全集与结果对账后设 stage_status.full_replay=complete，Check、SetSkillUsage（若要求）、日志、Complete。当前进度：{BUG_REVIEW_PROGRESS}"
+      - "以 test_manifest.json.pytest_target 为 RunTestCases(pytest_args=...) 的参数运行完整模块；分批时对 collected 精确 node 分批，并保留相同 pytest 配置。每次运行后立即 CaptureReplayReport 保存真实报告与结果；导入同时自动把保存的 coverage_data/code_coverage.json 与 toffee_report.json 证据引用、行覆盖分子/分母写入 coverage.json，你只核对并按需在 basis 补充口径说明，不要手写 source_ref；每批 pytest stdout 也自动归档到 {OUT}/diagnostics/run_logs，失败 case 的机械事实（断言摘要、失败位置、观测异常行）自动预填进对应记录，只填空字段。全集导入完成时还会自动清理并统一波形位置：全部波形收敛到 unity_test/data 下最新 toffee_tmp 会话（WaveInfo 读取的唯一位置），更早会话及历史遗留 unity_test/tests/data 会话中失败等异常 case 的波形先并入该会话再删除原目录，其中通过/跳过 case 的 fst/dat 波形删除，失败、错误、xfailed、xpassed 及无法归属 case 的波形保留供 dut_evidence 直接取证；不要手工增删波形文件，确需通过 case 的波形时按 case_triage 的定向复跑生成。不能凭原报告的失败数补写结果。每个 collected 项须有基线状态或明确 not_run 原因；原报告关联但本次未收集的 case 也写明未收集原因。collection 错误单列。记录命令、报告和排除配置。"
+      - "检查全集与结果对账后设 stage_status.full_replay=complete，Check、SetSkillUsage（若要求）、日志、Complete。Check 失败若指向记录字段，用 UpdateReviewRecord 修正该字段后重新 Check；已完成的测试运行绝不因记录字段重复执行，且已导入的基线不可重复导入。当前进度：{BUG_REVIEW_PROGRESS}"
     reference_files: ["Guide_Doc/analysis.md"]
     output_files: ["{OUT}/review_index.json", "{OUT}/test_manifest.json", "{OUT}/replay_summary.json", "{OUT}/coverage.json"]
     skill_list: ["ext/bug_review/inventory-review"]
@@ -89,8 +90,8 @@ stage:
   - name: case_triage
     desc: "独立分析失败 case 和验证环境质量"
     task:
-      - "按 test_manifest.json 与 replay_summary.json 枚举所有 Fail/Error/XPass。先读测试、fixture、Spec 和真实报告，分析 collection/setup/driver/assertion/teardown 位置，记录规格预期、测试预期、实际行为与证据引用。此阶段不要先读原 Bug analysis 的根因文字。"
-      - "失败或不稳定项可定向复跑，并在 case.replay.reruns 记录与基线的关系；不得覆盖权威基线。每个失败 case 的 failure_analysis 必须给出 environment/spec_misread/test_implementation/suspected_dut/spec_ambiguous/insufficient_evidence 等分类或证据缺口。"
+      - "按 test_manifest.json 与 replay_summary.json 枚举所有 Fail/Error/XPass。基线导入已按 traceback 自动预填各失败 case 的机械事实（断言摘要、失败位置、观测异常行、assertion 阶段，只填空字段，计数见导入返回 failure_evidence）；先核对预填内容，再读测试、fixture、Spec 和真实报告，补充场景、规格预期、归因与不确定性。取证用 Skill 脚本直接读取自动归档的 pytest stdout，不要重跑或手写解析。此阶段不要先读原 Bug analysis 的根因文字。"
+      - "失败或不稳定项可定向复跑，并在 case.replay.reruns 记录与基线的关系；不得覆盖权威基线。每个失败 case 的 failure_analysis 必须给出 environment/spec_misread/test_implementation/suspected_dut/spec_ambiguous/insufficient_evidence 等分类或证据缺口。多 case 复核完成后优先用 UpdateCaseRecords 以一个草稿（形如 {\"cases\": {case_id: 完整记录}}）批量校验写入，任一非法则整批不落盘；单 case 修正仍用 UpdateReviewRecord。"
       - "填写 environment_review.json 的收集、执行、fixture/reset、驱动采样、参考模型和随机种子质量发现。设 stage_status.case_triage=complete 后 Check、SetSkillUsage（若要求）、日志、Complete。当前进度：{BUG_REVIEW_PROGRESS}"
     reference_files: ["Guide_Doc/analysis.md", "{OUT}/review_index.json", "{OUT}/test_manifest.json", "{OUT}/replay_summary.json"]
     output_files: ["{OUT}/review_index.json", "{OUT}/environment_review.json"]
@@ -103,8 +104,8 @@ stage:
     desc: "对 DUT 候选取得有效事务波形证据"
     task:
       - "独立 case 初判已完成。调用 CreateAttributionDraft 建立空草稿；用 ReportClaimBlocks 分页查看原 BG 标题、行段与 TC 标签，仅将 LLM 已核对的初步 case→Bug 线索填入草稿，辅助选择波形代表 case 和信号。原报告根因文字不构成独立证据。"
-      - "对失败且初判 suspected_dut，或需要时序证据的争议 case，先 ResolveReviewCase(case_id)，再用默认 WaveInfo 探测精确信号和事件，最后以完整 signal_groups 与有效事务窗口取得签名收据。用 ReviewReceiptSummary 按 case/Bug 查看有界回执清单，单个完整回执再用 WaveInfoReceipts 查询。"
-      - "用 ApplyReceiptToCase(case_id, receipt_id) 精确复制收据机器字段，再在 case 文件补充观察、时钟/事务对齐和源码关联。运行 ValidateCaseRecords 随时检查；无可用波形则记录具体诊断并保持未定。"
+      - "波形只用 full_replay 保留的失败用例 dump（已统一收敛到 unity_test/data 最新会话），不整批重跑：先盘点各目标 case 的 dump 可用性（waveform-review skill 的 check_wave_availability.py，无 skill 时直接列出该会话文件对照），仅对缺失或仅有 dat 的 case 用其 replay_target 定向复跑。对失败且初判 suspected_dut，或需要时序证据的争议 case，先 ResolveReviewCase(case_id) 并逐字复制返回的 waveform_test_case_name，不要自行拼接路径或补 .py 后缀。取证默认一次完成：直接以完整 signal_groups 与有效事务窗口调用 WaveInfo 取得签名收据，不要先做只探测不取证的预跑；仅当返回 metadata_only 或 signal_not_found 时才降级探测，精确信号名以收据返回的 signal_groups 或 {OUT}/wave_signal_presets.json 为准，未知信号用 regex pattern 探索，不从 RTL 源码猜完整层级路径。不要把 max_points/max_signals 设得低于默认，timeline 截断会让 evidence_usable=false 整次作废。用 ReviewReceiptSummary 按 case/Bug 查看有界回执清单，单个完整回执再用 WaveInfoReceipts 查询。"
+      - "用 ApplyReceiptToCase(case_id, receipt_id) 精确复制收据机器字段，再在 case 文件补充观察、时钟/事务对齐和源码关联；每个可用收据取得后立即应用，多个 case 的观察与关联文字完成后优先用 UpdateCaseRecords 以一个草稿批量写入，不要让签名收据长时间停留在未消费状态。运行 ValidateCaseRecords 随时检查；无可用波形则记录具体诊断并保持未定。"
       - "根据证据修正 case 的最终归因，环境或测试错误不得制造 DUT receipt。设 stage_status.dut_evidence=complete 后 Check、SetSkillUsage（若要求）、日志、Complete。当前进度：{BUG_REVIEW_PROGRESS}"
     reference_files: ["Guide_Doc/analysis.md", "{OUT}/review_index.json", "{OUT}/environment_review.json", "verification_review/run/unity_test/*_bug_analysis.md"]
     output_files: ["{OUT}/review_index.json", "{OUT}/drafts/attribution.json"]

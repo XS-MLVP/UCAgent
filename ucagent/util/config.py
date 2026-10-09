@@ -751,13 +751,16 @@ def save_current_test_report(
     workspace: str,
     report: Dict[str, Any],
     context: Optional[Dict[str, Any]] = None,
+    pytest_stdout: str = "",
 ) -> Path:
     """Publish the latest structured Unity test report for runtime consumers.
 
     The report is deliberately kept outside the DUT output directory so a Skill
     cannot accidentally bind itself to a stage-private or historical report.
     ``context`` is diagnostic metadata only; the actual test report remains under
-    the stable ``report`` key.
+    the stable ``report`` key. ``pytest_stdout`` carries the raw pytest output so
+    evidence consumers can parse per-case tracebacks without re-running tests;
+    an empty value keeps the payload unchanged.
     """
     if not isinstance(report, dict):
         raise TypeError("Current test report must be a mapping.")
@@ -770,6 +773,8 @@ def save_current_test_report(
         "report": report,
         "context": context or {},
     }
+    if pytest_stdout.strip():
+        payload["pytest_stdout"] = pytest_stdout
     temporary = target.with_suffix(target.suffix + ".tmp")
     save_json_file(str(temporary), payload)
     os.replace(temporary, target)

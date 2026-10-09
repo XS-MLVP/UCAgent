@@ -307,6 +307,7 @@ tools:
   RunTestCases:
     test_dir: "{OUT}/tests"
   WaveInfo:
+    test_dir: "" # Optional test-dir override; empty falls back to tools.RunTestCases.test_dir
     allowed_case_index: ""
     signal_group_presets_path: ""
   ignore_tools: ["WorkDiff", "WorkCommit", "RunBashCommand"] # List of tool names to ignore

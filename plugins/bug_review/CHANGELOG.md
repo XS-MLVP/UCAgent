@@ -48,7 +48,7 @@ Master UI
 └── .ucagent/                  # 阶段历史和签名 WaveInfo 收据
 ```
 
-v1.0 不创建或依赖顶层 `source/`、顶层 `tests/`、`run/<dut>/` 或工作区根部的 `unity_test` 符号链接。测试文件系统路径只有 `verification_review/run/unity_test/...`；pytest target 使用相对于 `verification_review/run/unity_test` 的 `tests/...`。`verification_review/run/unity_test/tests/data/` 是 WaveInfo 和 fixture 共同使用的唯一数据目录。
+v1.0 不创建或依赖顶层 `source/`、顶层 `tests/`、`run/<dut>/` 或工作区根部的 `unity_test` 符号链接。测试文件系统路径只有 `verification_review/run/unity_test/...`；pytest target 使用相对于 `verification_review/run/unity_test` 的 `tests/...`。`verification_review/run/unity_test/data/` 是波形 dump 的唯一目录：`RunTestCases`（pytest cwd）、WaveInfo 与基线清理共同使用该数据根；历史遗留的 `tests/data` 会话在基线导入时自动并入。
 
 ### 六个阶段
 
@@ -160,7 +160,7 @@ output/
 
 - v1.0 使用当前 `bug_review.v8` 记录模型；场景、规格预期、测试预期、实际行为和归因理由已经拆成结构化事实字段。
 - v1.0 允许 Skill 提供 stdout 摘要、失败签名和填写模板，但 Skill 是可选的；禁用 Skill 时，Agent 仍可使用普通文件工具和更新工具完成同一契约。
-- v1.0 已固定 `verification_review/run/unity_test/tests/` 和 `verification_review/run/unity_test/tests/data/` 为 canonical 测试及波形目录；不继续扩展旧路径兼容分支。
+- v1.0 已固定 `verification_review/run/unity_test/tests/` 为 canonical 测试目录、`verification_review/run/unity_test/data/` 为唯一波形 dump 数据根；不继续扩展旧路径兼容分支。
 - 报告已把现象分析改为口语化叙述，把证据溯源改为 Spec、Case、RTL 三张可点击证据表，并明确代表 case 与同机理 case 的影响范围。
 - 后续迭代可增加失败签名族记录，让同一机理只分析一次，每个 case 只保留当前输入、窗口和首个偏差等差异事实。
 
@@ -224,6 +224,19 @@ output/
 从 `analysis/review_index.json` 的活动路径找到逐 Bug／case 记录和根因修订，不按 ID 猜测文件名。签名收据存于模块工作区的 `.ucagent/`；`report/` 只公开报告及预览资源。覆盖率数字只在 `analysis/coverage.json` 有可核实来源时展示，否则明确标示不可用。
 
 ## 版本变化
+
+### v1.3.1 — 工具自动记录覆盖率证据并清理无用波形
+
+- `CaptureReplayReport` 在基线补齐全集后，自动把本次保存的 `coverage_data/code_coverage.json` 与 `toffee_report.json` 证据引用（含精确行数范围）、`run_scope` 和行覆盖分子/分母写入 `coverage.json`；评审者只核对机械字段并按需在 `basis` 补充口径说明，不再手写 `source_ref`。未补齐全集的部分批次不写覆盖率，证据缺失的指标保持原状由评审者显式记录。
+- 覆盖率证据引用格式错误的 Checker 诊断改为给出确切的修复动作（`UpdateReviewRecord` 补行号后重新 Check），并明确已完成的测试运行绝不因记录字段重复执行、已导入的基线不可重复导入。
+- 全量重跑基线补齐全集后，`CaptureReplayReport` 同时清理并统一波形位置：全部 dump 收敛到 `verification_review/run/unity_test/data` 下最新 `toffee_tmp_*` 会话（与 `RunTestCases` cwd、WaveInfo 数据根同址）；更早会话及历史遗留 `unity_test/tests/data` 会话中失败、错误、xfailed、xpassed case 的 dump 先并入该会话（同名以最新会话为准），再删除原目录；最新会话内仅删除通过/跳过/未运行 case 的 fst/dat 文件，失败等异常及无法归属的文件保留供 dut_evidence 直接取证。参数化用例共享的函数名按“任一归属需要证据即保留”处理；导入结果回报删除的会话数、文件数与字节数。
+- dut_evidence 波形只消费第一阶段保留的失败用例 dump，不整批重跑：waveform-review skill 新增 `scripts/check_wave_availability.py` 一次盘点目标 case 的 dump 可用性（fst/vcd 可用、仅 dat、缺失三类），仅对缺失或仅 dat 的 case 按精确 replay_target 定向复跑。
+- dut_evidence 取证改为单次完成：逐字使用 `ResolveReviewCase` 返回的 `waveform_test_case_name`（不自行拼接路径或补 `.py` 后缀），直接以完整 signal_groups 与有效事务窗口取得签名收据，取消“先探测后取证”的固定预跑；仅在 `metadata_only`/`signal_not_found` 时降级探测，信号名以收据 `signal_groups` 或 preset 为准、未知信号用 regex pattern 探索；`max_points`/`max_signals` 低于默认会截断 timeline 使 `evidence_usable=false` 整次作废。可用收据立即 `ApplyReceiptToCase`，观察与关联文字用 `UpdateCaseRecords` 批量落盘。
+- 插件 WaveInfo 绑定统一到 `verification_review/run/unity_test`，与 `RunTestCases.test_dir`（pytest cwd，决定 dump 会话落点）同址；此前 `unity_test/tests` 层级会让 WaveInfo 找不到重跑产生的 dump 会话。agent 级默认 WaveInfo 支持 `tools.WaveInfo.test_dir` 覆盖（空值回退 `tools.RunTestCases.test_dir`），插件两处配置保持一致。
+- 基线导入自动归档并预填失败证据：`RunTestCases` 每次运行把 pytest 原始 stdout 随 current test report 发布（`pytest_stdout`），导入时归档到 `{OUT}/diagnostics/run_logs/<批次>.txt`，并按 traceback 把机械事实（断言摘要、断言行、失败位置、观测异常行、证据引用、assertion 阶段）预填进对应 failed case 的 `failure_analysis`——只填空字段、绝不覆盖评审者内容；参数化同名失败永不猜测，无法对齐的段落计入 `failure_evidence.ambiguous`。
+- 新增 `UpdateCaseRecords` 批量写入：草稿形如 `{"cases": {case_id: 完整记录}}` 放在 `{OUT}/drafts/`，一次校验全部（case_id 一致、索引存在、bug_ids 与索引对齐、case_issues）再统一落盘，任一非法则整批不写；52 个失败 case 的逐条两调用（草稿+写入）收敛为每批一次调用。单 case 校验逻辑与 `UpdateReviewRecord` 共用同一实现。
+- replay-review Skill 脚本改为复用 `bug_review.core.failures` 的解析/提炼，并自动合并 current report 的 `pytest_stdout` 与历史 run_logs 两个证据源（新到旧、同名取最新）；取消“先把 RunTestCases 返回手工保存到 run_logs”的前置步骤。
+- agent 级默认 WaveInfo 支持 `tools.WaveInfo.test_dir` 覆盖（空值回退 `tools.RunTestCases.test_dir`）。
 
 ### 历史 v1.4.0 — V4.1：输入与运行区精简
 

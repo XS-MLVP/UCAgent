@@ -24,24 +24,30 @@ description: Independently triage every failed case and review verification-envi
 引用行段一律写 workspace 相对 `path:start[-end]`（如 `unity_test/tests/test_x.py:10-64`、
 `raid_enc_top_RTL/raid_regif.v:100-120`），Check 会逐条核实。
 
-## 快速证据读取（先落盘，再取证）
+## 快速证据读取（自动归档，直接取证）
 
-pytest stdout 只出现在 `RunTestCases` 的文本返回里，批次报告不含失败文本。约定：
-**每批 RunTestCases 的返回文本立即保存到 `{OUT}/diagnostics/run_logs/<批次标签>.txt`**，
-之后用本 Skill 的脚本快速取证（不重跑、不手写解析）：
+pytest stdout 由 `RunTestCases` 自动归档：最新一次运行写入
+`.ucagent/current_test_report.json` 的 `pytest_stdout`，full_replay 每批导入时归档到
+`{OUT}/diagnostics/run_logs/<批次>.txt`。不要手写、不要重复保存。用本 Skill 的脚本
+快速取证（不重跑、不手写解析）：
 
 ```text
 RunSkillScript(commands=[["ext/bug_review/replay-review", "summarize_case_failures.py", "--save"]])
 # 全量分诊入口：按 (异常, 失败位置) 签名分组全部失败 case，列出无证据 case；
-# --save 落盘 {OUT}/diagnostics/failure_signatures.json（含每 case 的异常行/位置/调用帧/尾部）
+# --save 落盘 {OUT}/diagnostics/failure_signatures.json（含每 case 的异常行/断言行/位置/调用帧/尾部）
 
 RunSkillScript(commands=[["ext/bug_review/replay-review", "read_case_stdout.py",
                           "<case_id> [case_id ...] [--tail N] | --full"]])
-# 逐 case 打印保存的 pytest traceback 原文（可多个 case 一次读取）
+# 逐 case 打印 pytest traceback 原文（可多个 case 一次读取，同名失败取最新证据）
 ```
 
-Skill 未启用或脚本缺失时：手工从保存的 run_logs 文本中切 `=+ FAILURES =+` 段落，
-完成相同的取证与落盘；阶段产物与门禁要求不变。
+基线导入时工具已按 traceback 把机械事实（断言摘要、失败位置、观测异常行、assertion
+阶段）预填进各 failed case 的 `failure_analysis`（只填空字段，不覆盖已有内容）；预填
+结果在导入返回的 `failure_evidence` 中计数。复核预填内容后补充场景、规格预期、归因
+与不确定性即可。
+
+Skill 未启用或脚本缺失时：从 `.ucagent/current_test_report.json` 的 `pytest_stdout`
+或 run_logs 文本中切 `=+ FAILURES =+` 段落，完成相同的取证；阶段产物与门禁要求不变。
 
 ## 操作
 
@@ -49,4 +55,4 @@ Skill 未启用或脚本缺失时：手工从保存的 run_logs 文本中切 `=+
 
 调用 `DescribeReviewSchema(record_type="case")` 与 `DescribeReviewSchema(record_type="environment")` 取得字段。用 `summarize_case_failures.py` 得到签名分组，逐组读测试源码与 Spec 对应段落，再用 `read_case_stdout.py` 取个别代表 case 的完整 traceback；逐 case 填写 `failure_analysis` 的阶段、场景、规格预期、测试预期、实际行为、来源行段、归因和不确定性。分类区分环境、Spec 误读、测试实现/时序、疑似 DUT、规格歧义及证据不足；测试失败本身不构成 DUT Bug，同一签名的 case 若机理一致可共用归因逻辑但须逐条落字段。
 
-必要时用 `RunTestCases` 定向复跑，并在 `replay.reruns` 记录与基线的关系；不得覆盖基线状态。填写 `environment_review.json` 的收集/执行、fixture/reset、驱动/采样、参考模型和种子/复现性六项审查；无法核实处写具体缺口。通过 `UpdateReviewRecord` 按文件更新。设 `stage_status.case_triage=complete` 后 Check、SetSkillUsage、日志、Complete。
+必要时用 `RunTestCases` 定向复跑，并在 `replay.reruns` 记录与基线的关系；不得覆盖基线状态。填写 `environment_review.json` 的收集/执行、fixture/reset、驱动/采样、参考模型和种子/复现性六项审查；无法核实处写具体缺口。单 case 用 `UpdateReviewRecord` 按文件更新；多个 case 就绪时优先 `UpdateCaseRecords`：草稿写在 `{OUT}/drafts` 下、形如 `{"cases": {case_id: 完整记录}}`，一次校验全部并落盘，任一非法则整批不写。设 `stage_status.case_triage=complete` 后 Check、SetSkillUsage、日志、Complete。

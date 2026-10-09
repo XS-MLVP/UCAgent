@@ -1,10 +1,14 @@
 # coding=utf8
 """按失败签名汇总全部失败 case 的 pytest 证据（case_triage 阶段快速分诊入口）。
 
-从 {OUT}/diagnostics/run_logs/*.txt 中保存的 RunTestCases 文本返回里解析
-FAILURES 段，为每个 failed case 提炼：异常行、失败位置、调用帧、traceback 尾部，
-并按 (异常, 位置) 签名分组。与 {OUT}/replay_summary.json 的 failed 清单对账，
-列出没有任何 traceback 证据的 case。
+证据来源自动合并（无需手工保存）：
+  1. .ucagent/current_test_report.json 的 pytest_stdout —— RunTestCases 每次运行
+     都自动写入最新一次 pytest 原始输出；
+  2. {OUT}/diagnostics/run_logs/*.txt —— full_replay 导入时自动归档的历史批次。
+
+本脚本从这些证据解析 FAILURES 段，为每个 failed case 提炼：异常行、失败位置、
+断言行、调用帧、traceback 尾部，并按 (异常, 位置) 签名分组；与
+{OUT}/replay_summary.json 的 failed 清单对账，列出没有任何 traceback 证据的 case。
 
 用法（workspace 根目录）：
     RunSkillScript(commands=[["ext/bug_review/replay-review",
@@ -12,18 +16,19 @@ FAILURES 段，为每个 failed case 提炼：异常行、失败位置、调用�
     # --save 额外落盘 {OUT}/diagnostics/failure_signatures.json 供逐 case 引用
     # --case <case_id> 只汇总指定 case；--limit N 每组只打印 N 个成员
 
-本脚本只读取既有日志，不运行测试、不修改任何权威记录。
+本脚本只读取既有证据，不运行测试、不修改任何权威记录。
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-import os
 import re
 import sys
 from collections import defaultdict
 from pathlib import Path
+
+from bug_review.core.failures import failure_digest, parse_failures
 
 
 def resolve_out(workspace: Path) -> Path:
@@ -35,12 +40,8 @@ def resolve_out(workspace: Path) -> Path:
     return out
 
 
-def canonical(node: str) -> str:
-    return re.sub(r"(?<=\.py):\d+(?:-\d+)?(?=::|$)", "", str(node))
-
-
 def decode_stdout(text: str) -> str:
-    """取 RunTestCases 返回文本中的 STDOUT: "<json>" 并解码。"""
+    """取归档运行日志中的 STDOUT: "<json>" 行并解码。"""
     for line in text.splitlines():
         if line.startswith('STDOUT: "') or line.startswith("STDOUT: '"):
             raw = line[len("STDOUT: "):].strip()
@@ -51,60 +52,35 @@ def decode_stdout(text: str) -> str:
     return ""
 
 
-SECTION_RE = re.compile(r"^_{5,}\s+(\S+)\s+_{5,}$", re.M)
+def load_sources(workspace: Path, logs_dir: Path) -> list:
+    """合并当前报告与归档日志，返回 [(来源名, pytest stdout)]，新到旧排序。"""
+    sources = []
+    report = workspace / ".ucagent/current_test_report.json"
+    try:
+        stdout = str(json.loads(report.read_text(encoding="utf-8")).get("pytest_stdout") or "")
+    except (OSError, ValueError):
+        stdout = ""
+    if stdout.strip():
+        sources.append((report.stat().st_mtime, ".ucagent/current_test_report.json", stdout))
+    if logs_dir.is_dir():
+        for path in logs_dir.glob("*.txt"):
+            stdout = decode_stdout(path.read_text(encoding="utf-8", errors="replace"))
+            if stdout.strip():
+                sources.append((path.stat().st_mtime, f"diagnostics/run_logs/{path.name}", stdout))
+    return [(name, stdout) for _, name, stdout in
+            sorted(sources, key=lambda item: item[0], reverse=True)]
 
 
-def parse_failures(stdout: str) -> dict:
-    """从 pytest 输出切出 {test_name: traceback_text}。"""
-    out = {}
-    match = re.search(r"=+ FAILURES =+", stdout)
-    if not match:
-        return out
-    body = stdout[match.end():]
-    stop = re.search(r"=+ (?:short test summary|warnings summary|no tests ran)", body)
-    if stop:
-        body = body[:stop.start()]
-    marks = list(SECTION_RE.finditer(body))
-    for index, mark in enumerate(marks):
-        end = marks[index + 1].start() if index + 1 < len(marks) else len(body)
-        out[mark.group(1)] = body[mark.end():end]
-    return out
-
-
-def condense(trace: str) -> dict:
-    """把一个 traceback 压成 {exc, loc, frames, tail}。"""
-    lines = [line for line in trace.splitlines() if line.strip()]
-    exc, loc, frames = "", "", []
-    for line in lines:
-        stripped = line.strip()
-        if stripped.startswith("E ") and not exc:
-            exc = stripped[2:].strip()
-        if not loc:
-            hit = re.match(r"^(\S+\.py):(\d+): ", stripped)
-            if hit:
-                loc = f"{hit.group(1)}:{hit.group(2)}"
-        frame = re.match(r"^(\S+\.py):(\d+): in (\S+)", stripped)
-        if frame:
-            frames.append(f"{frame.group(1)}:{frame.group(2)}:{frame.group(3)}")
-    return {"exc": exc, "loc": loc, "frames": frames[:8],
-            "tail": "\n".join(lines[-10:])}
-
-
-def collect(logs_dir: Path) -> dict:
-    """按 mtime 从新到旧解析日志，同 case 保留最新一次失败。"""
+def collect(sources: list) -> dict:
+    """按新到旧解析各来源，同名 test 只保留最新一次失败。"""
     details = {}
-    if not logs_dir.is_dir():
-        return details
-    for path in sorted(logs_dir.glob("*.txt"), key=lambda p: p.stat().st_mtime,
-                       reverse=True):
-        stdout = decode_stdout(path.read_text(encoding="utf-8", errors="replace"))
+    for source_name, stdout in sources:
         for name, trace in parse_failures(stdout).items():
-            summary = condense(trace)
-            entry = {**summary, "log": path.name}
-            for case_id, seen in list(details.items()):
+            entry = {**failure_digest(trace), "source": source_name}
+            for case_id in list(details):
                 if case_id.split("::")[-1] == name:
-                    del details[case_id]  # 旧日志的同名失败被更新的一次覆盖
-            details.setdefault(f"<file内同名待归位>::{name}", entry)
+                    del details[case_id]  # 旧来源的同名失败被更新的一次覆盖
+            details.setdefault(f"<同名待归位>::{name}", entry)
     return details
 
 
@@ -129,7 +105,7 @@ def match_cases(details: dict, replay: dict) -> tuple:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--logs", default="", help="运行日志目录（默认 OUT/diagnostics/run_logs）")
+    parser.add_argument("--logs", default="", help="历史归档目录（默认 OUT/diagnostics/run_logs）")
     parser.add_argument("--limit", type=int, default=5, help="每组打印成员数上限")
     parser.add_argument("--case", action="append", default=[], help="只汇总指定 case_id")
     parser.add_argument("--save", action="store_true", help="落盘 failure_signatures.json")
@@ -141,7 +117,7 @@ def main() -> None:
     replay_path = out / "replay_summary.json"
     replay = json.loads(replay_path.read_text(encoding="utf-8")) if replay_path.is_file() else {}
 
-    aligned, merged, missing = match_cases(collect(logs_dir), replay)
+    aligned, merged, missing = match_cases(collect(load_sources(workspace, logs_dir)), replay)
     if args.case:
         wanted = set(args.case)
         aligned = {k: v for k, v in aligned.items() if k in wanted}
