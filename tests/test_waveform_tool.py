@@ -784,6 +784,65 @@ def test_latest_session_does_not_fall_back_to_stale_waveform(tmp_path):
     assert result["details"]["available_latest_session_test_names"] == ["test_other"]
 
 
+def test_all_scope_selects_older_session_waveform(tmp_path):
+    test_dir = tmp_path / "tests"
+    old = _session(test_dir, "toffee_tmp_20260814140000_000")
+    latest = _session(test_dir, "toffee_tmp_20260814150000_000")
+    _write_vcd(old, "test_target")
+    _write_vcd(latest, "test_other")
+
+    tool = WaveInfo(workspace=str(tmp_path), test_dir=str(test_dir),
+                    dut_name="Demo", session_scope="all")
+    selection, error = tool._discover_waveform("test_target")
+
+    assert error is None
+    info = tool._selection_info(selection)
+    assert info["waveform_file"].endswith("test_target.vcd")
+    assert info["evidence_session"].endswith("toffee_tmp_20260814140000_000")
+    assert info["latest_session"].endswith("toffee_tmp_20260814150000_000")
+    assert info["is_latest_session"] is False
+    assert "every toffee_tmp_* session" in tool.description
+
+
+def test_all_scope_prefers_newest_session_when_both_match(tmp_path):
+    test_dir = tmp_path / "tests"
+    old = _session(test_dir, "toffee_tmp_20260814140000_000")
+    latest = _session(test_dir, "toffee_tmp_20260814150000_000")
+    _write_vcd(old, "test_target")
+    _write_vcd(latest, "test_target")
+
+    tool = WaveInfo(workspace=str(tmp_path), test_dir=str(test_dir),
+                    dut_name="Demo", session_scope="all")
+    selection, error = tool._discover_waveform("test_target")
+
+    assert error is None
+    info = tool._selection_info(selection)
+    assert info["evidence_session"].endswith("toffee_tmp_20260814150000_000")
+    assert info["is_latest_session"] is True
+
+
+def test_all_scope_reports_missing_across_every_session(tmp_path):
+    test_dir = tmp_path / "tests"
+    old = _session(test_dir, "toffee_tmp_20260814140000_000")
+    latest = _session(test_dir, "toffee_tmp_20260814150000_000")
+    _write_vcd(old, "test_other")
+    _write_vcd(latest, "test_other")
+
+    tool = WaveInfo(workspace=str(tmp_path), test_dir=str(test_dir),
+                    dut_name="Demo", session_scope="all")
+    result = _call(tool, test_case_name="test_missing")
+
+    assert result["success"] is False
+    assert result["status"] == "waveform_not_found_in_latest_session"
+    assert result["details"]["searched_session_count"] == 2
+
+
+def test_invalid_session_scope_is_rejected(tmp_path):
+    with pytest.raises(ValueError):
+        WaveInfo(workspace=str(tmp_path), test_dir=str(tmp_path / "tests"),
+                 dut_name="Demo", session_scope="newest-first")
+
+
 def test_function_level_lookup_reports_parameterized_waveforms_as_hints_only(tmp_path):
     test_dir = tmp_path / "tests"
     session = _session(test_dir, "toffee_tmp_20260814150000_000")

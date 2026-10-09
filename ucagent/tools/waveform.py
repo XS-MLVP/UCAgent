@@ -809,6 +809,8 @@ class _WaveSelection:
     waveform: Path
     suffix: int
     worker: str
+    latest_session: Path
+    is_latest: bool
 
 
 @dataclass(frozen=True)
@@ -853,8 +855,8 @@ class WaveInfo(UCTool):
         "For Bug evidence, test_case_name must be the complete target TC pytest node ID "
         "with only the leading TC- removed. Inventory basenames locate waveform files but "
         "do not define or shorten the source-test identity. "
-        "The tool searches only the newest toffee_tmp_* session, prefers FST, "
-        "and never substitutes another test or a stale session. Signal queries use "
+        "The tool searches toffee_tmp_* sessions (by default only the newest one), "
+        "prefers FST, and never substitutes another test. Signal queries use "
         "wavekit syntax and must be supplied as structured pattern entries. "
         "A pattern-only call is exploratory: final Bug evidence must use either a "
         "complete start_step/end_step window or logged_cycle with an exact clock_signal. "
@@ -882,6 +884,15 @@ class WaveInfo(UCTool):
     dut_name: str = Field(default="", description="DUT name used in rerun suggestions.")
     allowed_case_index: str = Field(default="", description="Optional workspace-relative index containing exact legal case identities.")
     signal_group_presets_path: str = Field(default="", description="Optional workspace-relative named signal group presets.")
+    session_scope: str = Field(
+        default="latest",
+        description=(
+            "Waveform session search scope: 'latest' uses only the newest toffee_tmp_* "
+            "session; 'all' searches every session newest-first so evidence written by "
+            "an earlier per-run session stays usable when the newest session did not "
+            "run that test."
+        ),
+    )
     analysis_receipts: list[dict[str, Any]] = Field(
         default_factory=list,
         exclude=True,
@@ -932,6 +943,16 @@ class WaveInfo(UCTool):
             f"'{configured_test_dir}'. Exact source node IDs must start with "
             f"'{configured_test_dir}/'."
         )
+        if self.session_scope not in ("latest", "all"):
+            raise ValueError(
+                f"WaveInfo session_scope must be 'latest' or 'all', got {self.session_scope!r}"
+            )
+        if self.session_scope == "all":
+            self.description = (
+                f"{self.description} This run searches every toffee_tmp_* session "
+                "newest-first, so a waveform written by an earlier per-run session is "
+                "returned with is_latest_session=false instead of being rejected as stale."
+            )
         self.dut_name = dut_name
         self.analysis_receipts = []
         self._load_analysis_receipts()
@@ -1487,6 +1508,7 @@ class WaveInfo(UCTool):
             )
 
         latest = sessions[0]
+        search_sessions = sessions if self.session_scope == "all" else sessions[:1]
 
         def collect_matches(session: Path) -> list[tuple[Path, int]]:
             matches: list[tuple[Path, int]] = []
@@ -1498,7 +1520,13 @@ class WaveInfo(UCTool):
                     matches.append((path, suffix))
             return matches
 
-        latest_matches = collect_matches(latest)
+        selected_session: Path | None = None
+        selected_matches: list[tuple[Path, int]] = []
+        for session in search_sessions:
+            matches = collect_matches(session)
+            if matches:
+                selected_session, selected_matches = session, matches
+                break
         available_names = sorted(
             {
                 path.stem
@@ -1506,21 +1534,28 @@ class WaveInfo(UCTool):
                 if path.is_file() and path.suffix.lower() in {".fst", ".vcd"}
             }
         )
-        dat_matches = sorted(
-            self._display_path(path)
-            for path in latest.rglob("*.dat")
-            if self._data_name_match(path, normalized)
-        )
-        old_matches: list[str] = []
-        for session in sessions[1:]:
-            old_matches.extend(
-                self._display_path(path) for path, _suffix in collect_matches(session)
+        dat_search_sessions = sessions if self.session_scope == "all" else sessions[:1]
+        dat_matches = []
+        for session in dat_search_sessions:
+            dat_matches.extend(
+                self._display_path(path)
+                for path in session.rglob("*.dat")
+                if self._data_name_match(path, normalized)
             )
-            if len(old_matches) >= 10:
+            if len(dat_matches) >= 10:
                 break
-        old_matches = old_matches[:10]
+        dat_matches = dat_matches[:10]
+        old_matches: list[str] = []
+        if selected_session is None and self.session_scope == "latest":
+            for session in sessions[1:]:
+                old_matches.extend(
+                    self._display_path(path) for path, _suffix in collect_matches(session)
+                )
+                if len(old_matches) >= 10:
+                    break
+            old_matches = old_matches[:10]
 
-        if not latest_matches:
+        if selected_session is None:
             close_names = get_close_matches(normalized, available_names, n=8, cutoff=0.45)
             parameterized_names = []
             for available_name in available_names:
@@ -1530,12 +1565,13 @@ class WaveInfo(UCTool):
                     and available_name[: available_name.find("[")] == normalized
                 ):
                     parameterized_names.append(available_name)
+            all_scope = self.session_scope == "all"
             if dat_matches:
                 code = "waveform_missing_but_test_data_exists"
                 message = (
-                    "Matching .dat test data exists in the latest session, but no waveform "
-                    "was generated. SetWaveform may not have been called, waveform creation "
-                    "may have failed, or the test may have exited before dut.Finish() flushed it."
+                    "Matching .dat test data exists, but no waveform was generated. "
+                    "SetWaveform may not have been called, waveform creation may have "
+                    "failed, or the test may have exited before dut.Finish() flushed it."
                 )
             elif old_matches:
                 code = "stale_waveform_only"
@@ -1546,15 +1582,22 @@ class WaveInfo(UCTool):
             else:
                 code = "waveform_not_found_in_latest_session"
                 message = (
-                    "The latest test session has no waveform for the exact requested test. "
+                    "No test session has a waveform for the exact requested test. "
                     "The name may be wrong, the parameterized case may differ, or the target "
-                    "test did not run in the latest session."
+                    "test did not run."
+                    if all_scope
+                    else (
+                        "The latest test session has no waveform for the exact requested test. "
+                        "The name may be wrong, the parameterized case may differ, or the target "
+                        "test did not run in the latest session."
+                    )
                 )
             return None, self._error(
                 code,
                 message,
                 details={
                     "searched_latest_session": self._display_path(latest),
+                    "searched_session_count": len(search_sessions),
                     "expected_basename": normalized,
                     "available_latest_session_test_names": available_names[:50],
                     "available_names_truncated": len(available_names) > 50,
@@ -1577,7 +1620,7 @@ class WaveInfo(UCTool):
                 ),
             )
 
-        latest_matches.sort(
+        selected_matches.sort(
             key=lambda item: (
                 1 if item[0].suffix.lower() == ".fst" else 0,
                 item[1],
@@ -1586,9 +1629,9 @@ class WaveInfo(UCTool):
             ),
             reverse=True,
         )
-        waveform, suffix = latest_matches[0]
+        waveform, suffix = selected_matches[0]
         try:
-            worker = str(waveform.parent.relative_to(latest)) or "."
+            worker = str(waveform.parent.relative_to(selected_session)) or "."
         except ValueError:
             worker = waveform.parent.name
         return (
@@ -1596,10 +1639,12 @@ class WaveInfo(UCTool):
                 test_case_name=test_case_name,
                 expected_basename=normalized,
                 data_dir=data_dir,
-                session=latest,
+                session=selected_session,
                 waveform=waveform,
                 suffix=suffix,
                 worker=worker,
+                latest_session=latest,
+                is_latest=selected_session == latest,
             ),
             None,
         )
@@ -1607,14 +1652,17 @@ class WaveInfo(UCTool):
     def _selection_info(self, selection: _WaveSelection) -> OrderedDict:
         waveform_stat = selection.waveform.stat()
         session_stat = selection.session.stat()
+        latest_stat = selection.latest_session.stat()
         observed_at = time.time()
         return OrderedDict(
             [
                 ("requested_test_case", selection.test_case_name),
                 ("normalized_test_case", selection.expected_basename),
-                ("latest_session", self._display_path(selection.session)),
+                ("latest_session", self._display_path(selection.latest_session)),
+                ("latest_session_modified_at", self._format_time(latest_stat.st_mtime)),
+                ("evidence_session", self._display_path(selection.session)),
                 ("session_started_at", self._session_started_at(selection.session)),
-                ("latest_session_modified_at", self._format_time(session_stat.st_mtime)),
+                ("session_modified_at", self._format_time(session_stat.st_mtime)),
                 ("worker", selection.worker),
                 ("waveform_file", self._display_path(selection.waveform)),
                 ("format", selection.waveform.suffix.lower().lstrip(".")),
@@ -1628,10 +1676,13 @@ class WaveInfo(UCTool):
                     "freshness_identity",
                     f"{self._display_path(selection.waveform)}:{waveform_stat.st_size}:{waveform_stat.st_mtime_ns}",
                 ),
-                ("is_latest_session", True),
+                ("is_latest_session", selection.is_latest),
                 (
                     "selection_rule",
-                    "latest session, FST preference, highest numeric suffix, newest mtime",
+                    "newest session containing the waveform, FST preference, highest "
+                    "numeric suffix, newest mtime"
+                    if self.session_scope == "all"
+                    else "latest session, FST preference, highest numeric suffix, newest mtime",
                 ),
             ]
         )

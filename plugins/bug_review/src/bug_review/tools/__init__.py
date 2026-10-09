@@ -185,7 +185,8 @@ class ReviewReceiptSummary(UCTool):
         """Read receipts from this private run's signed WaveInfo store."""
         super().__init__(workspace=workspace, output_dir=output_dir, **kwargs)
         self.waveinfo = WaveInfo(workspace=workspace,
-                                 test_dir=str(unity_test_root(workspace) / "tests"), dut_name="BugReview")
+                                 test_dir=str(unity_test_root(workspace) / "tests"), dut_name="BugReview",
+                                 session_scope="all")
 
     def _run(self, bug_id: str = "", case_id: str = "", limit: int = 50, offset: int = 0) -> dict:
         """Return no signal arrays or timeline until one receipt is queried explicitly."""
@@ -356,7 +357,8 @@ class ApplyReceiptToCase(UCTool):
         """Bind this run's signed receipt store."""
         super().__init__(workspace=workspace, output_dir=output_dir, **kwargs)
         self.waveinfo = WaveInfo(workspace=workspace,
-                                 test_dir=str(unity_test_root(workspace) / "tests"), dut_name="BugReview")
+                                 test_dir=str(unity_test_root(workspace) / "tests"), dut_name="BugReview",
+                                 session_scope="all")
 
     def _run(self, case_id: str, receipt_id: str) -> dict:
         """Reject orphan or unusable receipts before the case write."""
@@ -415,7 +417,8 @@ class ValidateCaseRecords(UCTool):
         """Read receipts from the same private execution workspace."""
         super().__init__(workspace=workspace, output_dir=output_dir, **kwargs)
         self.waveinfo = WaveInfo(workspace=workspace,
-                                 test_dir=str(unity_test_root(workspace) / "tests"), dut_name="BugReview")
+                                 test_dir=str(unity_test_root(workspace) / "tests"), dut_name="BugReview",
+                                 session_scope="all")
 
     def _run(self, case_ids: list[str] | None = None, max_issues: int = 30) -> dict:
         """Return exact failing case fields and a bounded total."""
@@ -571,7 +574,8 @@ class CommitAttribution(UCTool):
         """Bind receipt validation to this private run."""
         super().__init__(workspace=workspace, output_dir=output_dir, **kwargs)
         self.waveinfo = WaveInfo(workspace=workspace,
-                                 test_dir=str(unity_test_root(workspace) / "tests"), dut_name="BugReview")
+                                 test_dir=str(unity_test_root(workspace) / "tests"), dut_name="BugReview",
+                                 session_scope="all")
 
     def _run(self, draft_path: str, dry_run: bool = False) -> dict:
         """Return detailed attribution changes or the committed revision."""
@@ -614,7 +618,8 @@ class SubmitReviewDecisions(UCTool):
         """Bind receipt verification to the active module workspace."""
         super().__init__(workspace=workspace, output_dir=output_dir, **kwargs)
         self.waveinfo = WaveInfo(workspace=workspace,
-                                 test_dir=str(unity_test_root(workspace) / "tests"), dut_name="BugReview")
+                                 test_dir=str(unity_test_root(workspace) / "tests"), dut_name="BugReview",
+                                 session_scope="all")
 
     def _run(self, draft_path: str, dry_run: bool = False) -> dict:
         """Activate all validated Bug/root files with one index update."""
@@ -808,7 +813,8 @@ class UpdateReviewRecord(UCTool):
         """Scope edits to indexed private review records."""
         super().__init__(workspace=workspace, output_dir=output_dir, **kwargs)
         self.waveinfo = WaveInfo(workspace=workspace,
-                                 test_dir=str(unity_test_root(workspace) / "tests"), dut_name="BugReview")
+                                 test_dir=str(unity_test_root(workspace) / "tests"), dut_name="BugReview",
+                                 session_scope="all")
 
     def _run(self, target_path: str, draft_path: str) -> dict:
         """Check identity and schema before one private record replacement."""
@@ -925,7 +931,8 @@ class UpdateCaseRecords(UCTool):
         """Scope batch edits to indexed private review records."""
         super().__init__(workspace=workspace, output_dir=output_dir, **kwargs)
         self.waveinfo = WaveInfo(workspace=workspace,
-                                 test_dir=str(unity_test_root(workspace) / "tests"), dut_name="BugReview")
+                                 test_dir=str(unity_test_root(workspace) / "tests"), dut_name="BugReview",
+                                 session_scope="all")
 
     def _run(self, draft_path: str) -> dict:
         """Validate every batch case before writing any of them."""

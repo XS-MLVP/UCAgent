@@ -1,9 +1,9 @@
-"""Focused checks for baseline waveform pruning after a full replay import."""
+"""Focused checks for per-run waveform harvesting and baseline pruning."""
 
 import json
 
 from bug_review.core.records import CaseEntry, ReplaySummary, ReviewIndex
-from bug_review.core.replay import _wave_function_stem, prune_baseline_waveforms
+from bug_review.core.replay import _wave_function_stem, harvest_run_sessions, prune_baseline_waveforms
 
 
 def _prepare_output(tmp_path, outcomes, identities):
@@ -28,7 +28,7 @@ def _prepare_output(tmp_path, outcomes, identities):
 
 
 def _unity_root(tmp_path):
-    """Return the canonical dump root and the pre-unification legacy root."""
+    """Return the canonical dump root and the helper-anchored legacy root."""
     unity = tmp_path / "verification_review" / "run" / "unity_test"
     return unity / "data", unity / "tests" / "data"
 
@@ -43,72 +43,81 @@ def _make_session(root, stamp, files):
     return session
 
 
-def test_prune_merges_kept_stems_and_removes_superseded_sessions(tmp_path):
-    """Superseded sessions hand kept dumps to the newest, then are removed whole."""
+def test_prune_cleans_passed_stems_inside_every_run_session(tmp_path):
+    """Each run's session keeps its failed dumps and loses only passed ones."""
     output = _prepare_output(
         tmp_path,
         {"tests/test_a.py::test_ok": "passed", "tests/test_a.py::test_bad": "failed"},
         {"tests/test_a.py::test_ok": "", "tests/test_a.py::test_bad": ""})
     data_root, _legacy = _unity_root(tmp_path)
-    old = _make_session(data_root, "20261008181912_728", {
-        "master/test_bad.fst": b"old-fst", "master/test_ok.fst": b"old-fst",
-        "master/test_unattributed.fst": b"fst"})
-    new = _make_session(data_root, "20261008183427_005", {
-        "master/test_bad.fst": b"new-fst", "master/test_bad.dat": b"dat",
+    early = _make_session(data_root, "20261008181912_728", {
+        "master/test_bad.fst": b"early-fst", "master/test_ok.fst": b"fst"})
+    late = _make_session(data_root, "20261008183427_005", {
+        "master/test_bad.fst": b"late-fst", "master/test_bad.dat": b"dat",
         "master/test_ok.fst": b"fst", "master/test_ok.dat": b"dat"})
     result = prune_baseline_waveforms(tmp_path, output)
-    assert result["sessions_removed"] == 1
-    assert not old.exists()
-    assert not (new / "master" / "test_ok.fst").exists()
-    assert not (new / "master" / "test_ok.dat").exists()
-    # The newest session already had test_bad: its file wins over the merged one.
-    assert (new / "master" / "test_bad.fst").read_bytes() == b"new-fst"
-    assert (new / "master" / "test_bad.dat").is_file()
-    # test_bad.fst stayed in the old session (target collision), so the session
-    # removal counts 3 files and the target cleanup removes test_ok's pair.
-    assert result["files_removed"] == 5
-    assert result["bytes_removed"] == len(b"old-fst") * 2 + len(b"fst") * 2 + len(b"dat")
+    assert early.exists() and late.exists()
+    assert (early / "master" / "test_bad.fst").read_bytes() == b"early-fst"
+    assert not (early / "master" / "test_ok.fst").exists()
+    assert (late / "master" / "test_bad.fst").is_file()
+    assert (late / "master" / "test_bad.dat").is_file()
+    assert not (late / "master" / "test_ok.fst").exists()
+    assert not (late / "master" / "test_ok.dat").exists()
+    assert result == {"sessions_harvested": 0, "files_removed": 3,
+                      "bytes_removed": len(b"fst") * 2 + len(b"dat")}
 
 
-def test_prune_consolidates_legacy_root_into_canonical_target(tmp_path):
-    """Legacy tests/data sessions merge kept stems into the canonical newest session."""
-    output = _prepare_output(
-        tmp_path,
-        {"tests/test_a.py::test_bad": "failed", "tests/test_a.py::test_bad2": "failed"},
-        {"tests/test_a.py::test_bad": "", "tests/test_a.py::test_bad2": ""})
+def test_harvest_moves_legacy_session_into_its_own_canonical_dir(tmp_path):
+    """A fresh helper-anchored session is renamed whole, never merged."""
+    workspace = tmp_path
+    _prepare_output(workspace, {}, {})
     data_root, legacy_root = _unity_root(tmp_path)
-    target = _make_session(data_root, "20261008190000_001", {
-        "master/test_bad.fst": b"fst", "master/test_bad.dat": b"dat"})
-    legacy_old = _make_session(legacy_root, "20261008181912_728", {
-        "master/test_bad2.fst": b"legacy-fst"})
-    legacy_new = _make_session(legacy_root, "20261008183427_005", {
-        "master/test_bad2.fst": b"legacy-new-fst", "master/test_ok.fst": b"fst"})
-    result = prune_baseline_waveforms(tmp_path, output)
-    assert not legacy_old.exists() and not legacy_new.exists()
-    assert (target / "master" / "test_bad.fst").is_file()
-    assert (target / "master" / "test_bad2.fst").read_bytes() == b"legacy-new-fst"
-    assert not (target / "master" / "test_ok.fst").exists()
-    assert result["sessions_removed"] == 2
+    fresh = _make_session(legacy_root, "20261009001046_618", {
+        "master/test_bad.fst": b"fst", "master/test_ok.fst": b"fst"})
+    result = harvest_run_sessions(workspace)
+    assert result == {"sessions_harvested": 1}
+    assert not fresh.exists()
+    moved = data_root / fresh.name
+    assert (moved / "master" / "test_bad.fst").read_bytes() == b"fst"
+    assert (moved / "master" / "test_ok.fst").is_file()
+    # Harvesting again is a no-op: the canonical copy stays untouched.
+    assert harvest_run_sessions(workspace) == {"sessions_harvested": 0}
+    assert (moved / "master" / "test_bad.fst").is_file()
 
 
-def test_prune_relocates_legacy_session_when_canonical_root_is_empty(tmp_path):
-    """With no canonical session, the newest legacy session moves there whole."""
+def test_harvest_collision_takes_next_fraction_suffix(tmp_path):
+    """Two runs sharing one timestamp stay separate directories."""
+    workspace = tmp_path
+    _prepare_output(workspace, {}, {})
+    data_root, legacy_root = _unity_root(tmp_path)
+    existing = _make_session(data_root, "20261009042231_014", {
+        "master/test_first.fst": b"first"})
+    colliding = _make_session(legacy_root, "20261009042231_014", {
+        "master/test_second.fst": b"second"})
+    result = harvest_run_sessions(workspace)
+    assert result == {"sessions_harvested": 1}
+    assert existing.exists()
+    assert (existing / "master" / "test_first.fst").is_file()
+    moved = data_root / "toffee_tmp_20261009042231_015"
+    assert (moved / "master" / "test_second.fst").read_bytes() == b"second"
+
+
+def test_prune_after_harvest_keeps_failed_dumps_of_migrated_session(tmp_path):
+    """The combined import flow: harvest then prune inside the new directory."""
     output = _prepare_output(
         tmp_path,
         {"tests/test_a.py::test_ok": "passed", "tests/test_a.py::test_bad": "failed"},
         {"tests/test_a.py::test_ok": "", "tests/test_a.py::test_bad": ""})
     data_root, legacy_root = _unity_root(tmp_path)
-    old = _make_session(legacy_root, "20261008181912_728", {
-        "master/test_old.fst": b"fst"})
-    new = _make_session(legacy_root, "20261008183427_005", {
+    _make_session(legacy_root, "20261008183427_005", {
         "master/test_bad.fst": b"fst", "master/test_bad.dat": b"dat",
         "master/test_ok.fst": b"fst", "master/test_ok.dat": b"dat"})
     result = prune_baseline_waveforms(tmp_path, output)
-    relocated = data_root / new.name
-    assert not old.exists() and not new.exists()
+    relocated = data_root / "toffee_tmp_20261008183427_005"
+    assert not legacy_root.exists() or not any(legacy_root.iterdir())
     assert (relocated / "master" / "test_bad.fst").is_file()
     assert not (relocated / "master" / "test_ok.fst").exists()
-    assert result["sessions_removed"] == 1
+    assert result["sessions_harvested"] == 1
 
 
 def test_prune_keeps_shared_stem_when_any_outcome_needs_evidence(tmp_path):
@@ -121,7 +130,7 @@ def test_prune_keeps_shared_stem_when_any_outcome_needs_evidence(tmp_path):
     new = _make_session(data_root, "20261008183427_005", {
         "master/test_p.fst": b"fst", "master/test_p.dat": b"dat"})
     result = prune_baseline_waveforms(tmp_path, output)
-    assert result == {"sessions_removed": 0, "files_removed": 0, "bytes_removed": 0}
+    assert result == {"sessions_harvested": 0, "files_removed": 0, "bytes_removed": 0}
     assert (new / "master" / "test_p.fst").is_file()
 
 
@@ -135,6 +144,6 @@ def test_prune_delete_stem_matching_keep_prefix_stays(tmp_path):
     new = _make_session(data_root, "20261008183427_005", {
         "master/test_x2.fst": b"fst"})
     result = prune_baseline_waveforms(tmp_path, output)
-    assert result == {"sessions_removed": 0, "files_removed": 0, "bytes_removed": 0}
+    assert result == {"sessions_harvested": 0, "files_removed": 0, "bytes_removed": 0}
     assert (new / "master" / "test_x2.fst").is_file()
     assert _wave_function_stem("tests/test_a.py::TestA::test_x2[param]") == "test_x2"

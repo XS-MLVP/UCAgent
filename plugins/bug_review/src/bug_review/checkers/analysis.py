@@ -31,6 +31,11 @@ class BugReviewStageChecker(Checker):
         for directory, _, _ in os.walk(root):
             path = Path(directory)
             path.chmod(path.stat().st_mode | stat.S_IWUSR)
+        manager = self.stage_manager
+        if manager is not None:
+            from ..core.replay import install_run_session_harvest
+
+            install_run_session_harvest(manager, self.workflow.root)
         if self.stage_id == "publish" and not self._publish_registered:
             from ..publishing import publish_run
 
@@ -71,7 +76,8 @@ class Workflow:
         self.label = module_label(self.root)
         self.out = resolve_out_dir(self.root)
         self.waveinfo = WaveInfo(workspace=str(self.root),
-                                 test_dir=str(unity_test_root(self.root) / "tests"), dut_name="BugReview")
+                                 test_dir=str(unity_test_root(self.root) / "tests"), dut_name="BugReview",
+                                 session_scope="all")
 
     def status(self):
         """Return the first stage whose indexed artifacts do not pass Check."""

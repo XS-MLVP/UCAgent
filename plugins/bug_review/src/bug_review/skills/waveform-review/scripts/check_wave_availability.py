@@ -1,8 +1,9 @@
 # coding=utf8
 """盘点 dut_evidence 目标 case 的波形可用性（一次调用，替代逐 case 探测）。
 
-波形统一存放在 unity_test/data 下最新 toffee_tmp 会话（full_replay 导入时
-自动收敛）。本脚本把目标 case 对照该会话里的 dump 文件分为三类：
+每次运行的波形保存在 unity_test/data 下各自的时间戳 toffee_tmp 会话目录，
+永不覆盖（full_replay 导入时已自动搬入并清理通过 case 的波形）。本脚本把
+目标 case 对照全部会话（新会话优先）里的 dump 文件分为三类：
   - fst/vcd 可用 —— 直接 WaveInfo 取证，无需重跑；
   - 仅 dat       —— 测试写了数据但波形未生成，需要定向复跑；
   - 缺失         —— 无任何 dump，需要定向复跑。
@@ -22,24 +23,16 @@ import re
 from pathlib import Path
 
 from bug_review.core.layout import unity_test_root
-from bug_review.core.replay import _WAVE_SESSION_RE, _wave_function_stem, _wave_session_key
+from bug_review.core.replay import _sessions, _wave_function_stem
 
 
-def _newest_session(data_dir: Path):
-    """返回数据根下最新 toffee_tmp 会话；无会话返回 None。"""
-    sessions = sorted(
-        (p for p in data_dir.rglob("toffee_tmp_*")
-         if p.is_dir() and _WAVE_SESSION_RE.fullmatch(p.name)),
-        key=_wave_session_key, reverse=True)
-    return sessions[0] if sessions else None
-
-
-def _find_dump(session: Path, stem: str, suffix: str):
-    """按 WaveInfo 同款规则（stem[数字].后缀，忽略大小写）找一个 dump 文件。"""
-    for path in sorted(session.rglob("*")):
-        if path.is_file() and re.fullmatch(
-                re.escape(stem) + r"\d*\." + suffix, path.name, re.IGNORECASE):
-            return path
+def _find_dump(sessions, stem: str, suffix: str):
+    """按 WaveInfo 同款规则（新会话优先，stem[数字].后缀，忽略大小写）找一个 dump 文件。"""
+    for session in sessions:
+        for path in sorted(session.rglob("*")):
+            if path.is_file() and re.fullmatch(
+                    re.escape(stem) + r"\d*\." + suffix, path.name, re.IGNORECASE):
+                return path
     return None
 
 
@@ -65,15 +58,18 @@ def main() -> None:
             targets.append((case_id, entry.get("replay_target", case_id),
                             entry.get("waveform_test_case_name") or case_id))
 
-    session = _newest_session(unity_test_root(workspace) / "data")
-    location = session.relative_to(workspace) if session else "无（需先定向复跑生成波形）"
+    sessions = _sessions(unity_test_root(workspace) / "data")
+    location = "、".join(s.relative_to(workspace).as_posix() for s in sessions[:5]) \
+        or "无（需先定向复跑生成波形）"
+    if len(sessions) > 5:
+        location += f"（共 {len(sessions)} 个会话）"
     print(f"波形会话: {location}")
 
     usable, dat_only, missing = [], [], []
     for case_id, replay_target, wtn in targets:
         stem = _wave_function_stem(wtn)
-        fst = _find_dump(session, stem, r"(?:fst|vcd)") if session else None
-        dat = _find_dump(session, stem, r"dat") if session else None
+        fst = _find_dump(sessions, stem, r"(?:fst|vcd)") if sessions else None
+        dat = _find_dump(sessions, stem, r"dat") if sessions else None
         if fst is not None:
             usable.append((case_id, replay_target, fst))
         elif dat is not None:

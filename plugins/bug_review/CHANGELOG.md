@@ -48,7 +48,7 @@ Master UI
 └── .ucagent/                  # 阶段历史和签名 WaveInfo 收据
 ```
 
-v1.0 不创建或依赖顶层 `source/`、顶层 `tests/`、`run/<dut>/` 或工作区根部的 `unity_test` 符号链接。测试文件系统路径只有 `verification_review/run/unity_test/...`；pytest target 使用相对于 `verification_review/run/unity_test` 的 `tests/...`。`verification_review/run/unity_test/data/` 是波形 dump 的唯一目录：`RunTestCases`（pytest cwd）、WaveInfo 与基线清理共同使用该数据根；历史遗留的 `tests/data` 会话在基线导入时自动并入。
+v1.0 不创建或依赖顶层 `source/`、顶层 `tests/`、`run/<dut>/` 或工作区根部的 `unity_test` 符号链接。测试文件系统路径只有 `verification_review/run/unity_test/...`；pytest target 使用相对于 `verification_review/run/unity_test` 的 `tests/...`。`verification_review/run/unity_test/data/` 是波形 dump 的唯一目录：每次运行的 toffee 会话由工具自动整体搬入该目录下以其时间戳命名的独立新目录（一次运行一个目录，永不覆盖），`RunTestCases`（pytest cwd）、WaveInfo 与基线清理共同使用该数据根；历史遗留的 `tests/data` 会话在基线导入时原样搬入为独立目录。
 
 ### 六个阶段
 
@@ -166,7 +166,7 @@ output/
 
 本文的“当前基线：v1.0”描述现行实现和新工作区契约。文档末尾的 `v1.0.0`～`v1.4.0` 条目是历史演进记录，用于解释设计来源，不是当前运行布局；历史条目中出现的 `source/`、`results/tests/`、`runs/run-<id>/` 等路径不应复制到新的 v1.0 工作区。后续版本在当前基线上递增，并同步更新本节、输入契约和运行时指导。具体设计依据、试跑反馈和待验收事项仍以 [ANALYSIS_OVERVIEW.md](ANALYSIS_OVERVIEW.md) 为准。
 
-本页的功能版本号用于整理工作流演进，不表示插件包已经按这些版本发布；`pyproject.toml` 当前仍声明包版本 `0.1.0`。历史迭代没有可靠的统一发布日期，因此版本标题不补写推测日期。本稿更新于 2026-10-05。
+本页的功能版本号用于整理工作流演进，不表示插件包已经按这些版本发布；`pyproject.toml` 当前声明包版本 `0.1.2`。历史迭代没有可靠的统一发布日期，因此版本标题不补写推测日期。本稿更新于 2026-10-09。
 
 ## 当前框架（v1.0 摘要）
 
@@ -224,6 +224,15 @@ output/
 从 `analysis/review_index.json` 的活动路径找到逐 Bug／case 记录和根因修订，不按 ID 猜测文件名。签名收据存于模块工作区的 `.ucagent/`；`report/` 只公开报告及预览资源。覆盖率数字只在 `analysis/coverage.json` 有可核实来源时展示，否则明确标示不可用。
 
 ## 版本变化
+
+### v1.3.2 — 波形按运行分目录保留并固化定向取证流程
+
+- 波形 dump 改为按运行保留：每次 `RunTestCases` 结束时，工具自动把本次 toffee 会话整体搬入 `unity_test/data` 下以其时间戳命名的独立新目录（一次运行一个目录，永不覆盖；时间戳撞名时自动追加序号），历史遗留 `tests/data` 会话在基线导入时原样搬入为独立目录。此前 toffee helper 每次新建会话会删除旧会话（`max_tmp_history=1`），批次之间的失败用例波形因此丢失，只能整批重跑；现在跨批次保留。
+- 基线导入清理改为按会话执行：导入只在各会话内删除通过/跳过 case 的 fst/dat 波形，失败、错误、xfailed、xpassed 及无法归属 case 的波形在各自会话中原位保留；参数化用例共享函数名按"任一归属需要证据即保留"处理，不再跨会话合并或整目录删除。导入结果回报搬入的会话数、删除的文件数与字节数。
+- WaveInfo 默认仍只搜最新会话；bug_review 工作流经 `tools.WaveInfo.session_scope: all` 显式切换为按新到旧搜索全部会话，优先 fst，被命中波形来自较早会话时在返回中标注 `is_latest_session=false` 及其所属会话时间，不再因新会话为空而拒绝旧会话中保留的失败用例证据。
+- dut_evidence 阶段固化两条纪律：除可用性盘点指出的定向复跑外禁止再次运行任何测试，已保留波形被覆盖或删除后也不得通过重跑补做；返回 `evidence_window_required` 时逐字按返回的 `recommended_evidence_call` 重试同一 case，不自行发明新窗口。
+- 基线索引中的 `waveform_test_case_name` 在写入时即规范化为工作区相对形式（`tests/...::name`），full_replay 对账与证据校验共享同一身份函数，消除报告前缀导致的身份不一致。
+- 波形盘点脚本 `check_wave_availability.py` 改为对照全部会话（新到旧）分类 fst/vcd 可用、仅 dat、缺失三类，并打印当前全部会话目录。
 
 ### v1.3.1 — 工具自动记录覆盖率证据并清理无用波形
 

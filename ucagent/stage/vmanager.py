@@ -554,6 +554,21 @@ class StageManager(object):
         self.reference_files = reference_files
         self.checker_registry = dict(checker_registry or {})
         self.validation_revision = 0
+        self.post_test_case_run_callbacks = {}
+
+    def add_post_test_case_run_callback(self, name, callback):
+        """Register one named callable invoked after every RunTestCases completes."""
+        if not callable(callback):
+            raise ValueError("post-test callback must be callable")
+        self.post_test_case_run_callbacks[str(name)] = callback
+
+    def _run_post_test_case_callbacks(self):
+        """Run every registered post-test callback; one failure never fails the run."""
+        for name, callback in list(self.post_test_case_run_callbacks.items()):
+            try:
+                callback()
+            except Exception as e:
+                warning(f"post-test callback {name!r} failed: {e}")
 
     @staticmethod
     def _safe_int(value, default=0):
@@ -1911,6 +1926,7 @@ class StageManager(object):
             "stage_name": stage.name if stage is not None else None,
         })
         ret = self.free_pytest_run.do_check(pytest_args, timeout=timeout, return_line_coverage=return_line_coverage, detail=detail)
+        self._run_post_test_case_callbacks()
         if raw_return:
             return ret
         ret = make_llm_tool_ret(ret[1])

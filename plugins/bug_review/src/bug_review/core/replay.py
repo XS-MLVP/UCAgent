@@ -12,7 +12,7 @@ import shutil
 from ucagent.util.config import load_current_test_report
 
 from .json_io import atomic_write_json
-from .layout import TEST_REPORT_ROOT, canonical_node, test_report_root, unity_test_root, workspace_node
+from .layout import TEST_REPORT_ROOT, test_report_root, unity_test_root, workspace_node
 from .records import load_record
 from .failures import match_failure_digests, prefill_failure_analysis
 
@@ -52,17 +52,17 @@ def report_outcomes(report: dict, collected: set[str]) -> dict[str, tuple[str, s
         if not children:
             continue
         if len(children) == 1:
-            observed[children[0]] = (status, canonical_node(raw_node))
+            observed[children[0]] = (status, parent)
             continue
-        failed_nodes = {workspace_node(item["node_id"]): canonical_node(item["node_id"])
-                        for item in instances.get(raw_node, [])
-                        if isinstance(item, dict) and item.get("status") == "FAILED"}
+        failed_children = {workspace_node(item["node_id"])
+                           for item in instances.get(raw_node, [])
+                           if isinstance(item, dict) and item.get("status") == "FAILED"}
         for child in children:
             if status == "passed":
                 observed[child] = ("passed", "")
-            elif child in failed_nodes:
-                observed[child] = ("failed", failed_nodes[child])
-            elif failed_nodes and status == "failed":
+            elif child in failed_children and status == "failed":
+                observed[child] = ("failed", child)
+            elif failed_children and status == "failed":
                 observed[child] = ("passed", "")
     return observed
 
@@ -95,29 +95,80 @@ def _wave_session_key(path: Path) -> tuple[float, float, str]:
     return (parsed + int(fraction) / (10 ** len(fraction)), path.stat().st_mtime, str(path))
 
 
-def _tree_stats(root: Path) -> tuple[int, int]:
-    """Count regular files and their total bytes below one directory."""
-    count = total = 0
-    for path in root.rglob("*"):
-        if path.is_file() and not path.is_symlink():
-            count += 1
-            total += path.stat().st_size
-    return count, total
+def _sessions(data_dir: Path) -> list[Path]:
+    """List the toffee_tmp sessions below one data root, newest first."""
+    return sorted(
+        (path for path in data_dir.rglob("toffee_tmp_*")
+         if path.is_dir() and _WAVE_SESSION_RE.fullmatch(path.name)),
+        key=_wave_session_key, reverse=True)
+
+
+def _free_session_target(data_root: Path, name: str) -> Path:
+    """Return the next free session name when two runs share one timestamp."""
+    match = _WAVE_SESSION_RE.fullmatch(name)
+    stamp, fraction = match.groups() if match else (name, "")
+    width = len(fraction) or 3
+    base = int(fraction) if fraction else 0
+    for candidate in range(base + 1, 10 ** width):
+        target = data_root / f"toffee_tmp_{stamp}_{candidate:0{width}d}"
+        if not target.exists():
+            return target
+    raise OSError(f"no free toffee session name below {data_root}")
+
+
+def harvest_run_sessions(workspace: Path) -> dict:
+    """Move every fresh toffee session into its own canonical per-run directory.
+
+    A pytest run writes waveform dumps into a new ``toffee_tmp_*`` session
+    below the helper-anchored ``unity_test/tests/data`` directory, and toffee
+    deletes all older sessions there before the next run starts. Moving each
+    finished session whole into ``unity_test/data`` (the root WaveInfo
+    searches) right after its run keeps one directory per run, so a later
+    run can never overwrite or delete earlier evidence and no case ever needs
+    rerunning just because its dumps were lost. Same-filesystem moves are
+    renames; a same-second name collision takes the next free fractional
+    suffix instead of touching the existing directory.
+    """
+    unity_root = unity_test_root(workspace)
+    data_root = unity_root / "data"
+    legacy_root = unity_root / "tests" / "data"
+    harvested = 0
+    if legacy_root.is_dir():
+        data_root.mkdir(parents=True, exist_ok=True)
+        for session in _sessions(legacy_root):
+            target = data_root / session.name
+            if target.exists():
+                target = _free_session_target(data_root, session.name)
+            try:
+                shutil.move(str(session), str(target))
+            except (OSError, shutil.Error):
+                continue
+            harvested += 1
+    return {"sessions_harvested": harvested}
+
+
+def install_run_session_harvest(manager, workspace: Path) -> None:
+    """Harvest each run's session immediately after every RunTestCases call.
+
+    Registering on the stage manager (keyed, so repeated stage
+    initializations stay idempotent) protects targeted dut_evidence reruns
+    too, which never pass through the full_replay report import.
+    """
+    manager.add_post_test_case_run_callback(
+        "bug_review_harvest_wave_sessions",
+        lambda: harvest_run_sessions(Path(workspace)))
 
 
 def prune_baseline_waveforms(workspace: Path, output: Path) -> dict:
     """Delete baseline waveform dumps that no evidence path can consume.
 
-    All dumps live in one canonical location: the newest toffee_tmp session
-    under ``unity_test/data`` — the same root pytest writes (RunTestCases
-    cwd) and WaveInfo reads. Superseded sessions, and any legacy sessions
-    still under the pre-unification ``unity_test/tests/data`` location, first
-    hand their failed, error, xfailed and xpassed dumps to that target
-    session (existing files win on a name collision) and are then removed
-    whole. Inside the target session, files whose function stem belongs only
-    to passed, skipped or not_run cases are removed; kept stems and any
-    unattributable file stay.
+    Every run's harvested session stays as its own directory below
+    ``unity_test/data``. Inside each session, files whose function stem
+    belongs only to passed, skipped or not_run cases are removed; failed,
+    error, xfailed and xpassed dumps plus any unattributable file stay for
+    dut_evidence evidence collection.
     """
+    harvest = harvest_run_sessions(workspace)
     index = load_record(output, "review_index.json", "index")
     summary = load_record(output, index.replay_summary_path, "replay_summary")
     keep, delete = set(), set()
@@ -131,55 +182,9 @@ def prune_baseline_waveforms(workspace: Path, output: Path) -> dict:
             delete.add(stem.casefold())
     delete -= keep
 
-    def _sessions(data_dir: Path) -> list[Path]:
-        """List the toffee_tmp sessions below one data root, newest first."""
-        return sorted(
-            (path for path in data_dir.rglob("toffee_tmp_*")
-             if path.is_dir() and _WAVE_SESSION_RE.fullmatch(path.name)),
-            key=_wave_session_key, reverse=True)
-
-    unity_root = unity_test_root(workspace)
-    data_root = unity_root / "data"
-    sessions_removed = files_removed = bytes_removed = 0
-
-    primary = _sessions(data_root)
-    legacy = _sessions(unity_root / "tests" / "data")
-    target = primary[0] if primary else None
-    if target is None and legacy:
-        target = data_root / legacy[0].name
-        try:
-            shutil.move(str(legacy[0]), str(target))
-        except (OSError, shutil.Error):
-            target = None
-        else:
-            legacy = legacy[1:]
-
-    for session in primary[1:] + legacy:
-        # Superseded and legacy sessions may still hold dumps WaveInfo could
-        # consume; relocate kept-stem files into the target session first.
+    files_removed = bytes_removed = 0
+    for session in _sessions(unity_test_root(workspace) / "data"):
         for path in sorted(session.rglob("*")):
-            stem = path.name.rsplit(".", 1)[0].casefold() \
-                if path.is_file() and not path.is_symlink() and "." in path.name else ""
-            if not stem or target is None or not any(
-                    re.fullmatch(re.escape(kept) + r"\d*", stem) for kept in keep):
-                continue
-            destination = target / path.relative_to(session)
-            if destination.exists():
-                continue
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            try:
-                shutil.move(str(path), str(destination))
-            except (OSError, shutil.Error):
-                continue
-        count, total = _tree_stats(session)
-        shutil.rmtree(session, ignore_errors=True)
-        if not session.exists():
-            sessions_removed += 1
-            files_removed += count
-            bytes_removed += total
-
-    if target is not None:
-        for path in sorted(target.rglob("*")):
             if not path.is_file() or path.is_symlink() or "." not in path.name:
                 continue
             stem = path.name.rsplit(".", 1)[0].casefold()
@@ -192,8 +197,8 @@ def prune_baseline_waveforms(workspace: Path, output: Path) -> dict:
                     continue
                 files_removed += 1
                 bytes_removed += size
-    return {"sessions_removed": sessions_removed, "files_removed": files_removed,
-            "bytes_removed": bytes_removed}
+    return {"sessions_harvested": harvest["sessions_harvested"],
+            "files_removed": files_removed, "bytes_removed": bytes_removed}
 
 
 def capture_baseline_coverage(workspace: Path, output: Path) -> dict:
@@ -289,10 +294,18 @@ def import_current_report(workspace: Path, output: Path) -> dict:
     summary.commands.append(["RunTestCases", str(context.get("pytest_ex_args", ""))])
     summary.report_ref = relative
     summary.batch_refs.append(relative)
-    # Coverage evidence only describes a baseline that accounts for every
-    # collected node; partial batches leave the metrics for the final batch.
+    # Waveform hygiene runs after every batch: the run's session is already
+    # harvested into its own canonical directory, and dumps of finished
+    # passed cases are pruned immediately instead of waiting for the final
+    # batch. Coverage evidence still describes only a baseline that accounts
+    # for every collected node.
     coverage: dict = {"recorded": [], "missing_evidence": [], "deferred": True}
     waveforms: dict = {}
+    try:
+        waveforms = prune_baseline_waveforms(workspace, output)
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        summary.diagnostics.append(f"waveform pruning failed: {error}")
+        waveforms = {"error": str(error)}
     if not set(manifest.collected) - set(summary.outcomes):
         coverage["deferred"] = False
         try:
@@ -300,11 +313,6 @@ def import_current_report(workspace: Path, output: Path) -> dict:
         except (OSError, ValueError, KeyError, TypeError) as error:
             summary.diagnostics.append(f"coverage capture failed: {error}")
             coverage["error"] = str(error)
-        try:
-            waveforms = prune_baseline_waveforms(workspace, output)
-        except (OSError, ValueError, KeyError, TypeError) as error:
-            summary.diagnostics.append(f"waveform pruning failed: {error}")
-            waveforms = {"error": str(error)}
     atomic_write_json(output / index.replay_summary_path, summary.model_dump(mode="json", by_alias=True))
     atomic_write_json(output / "review_index.json", index.model_dump(mode="json", by_alias=True))
     return {"imported": len(observed), "remaining": len(collected - set(summary.outcomes)),

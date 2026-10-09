@@ -2473,3 +2473,40 @@ def test_new_tools_expose_journal_tool(monkeypatch, tmp_path):
     names = [tool.name for tool in manager.new_tools()]
     assert "SetCurrentStageJournal" in names
     assert "AppendCurrentStageJournal" not in names
+
+
+def test_post_test_case_run_callbacks_run_guarded_by_name(monkeypatch, tmp_path):
+    stages = [_FakeStage(index) for index in range(2)]
+    cfg = _cfg()
+    workspace = str(tmp_path)
+
+    monkeypatch.setattr(vmanager, "get_root_stage", lambda *_args: _FakeRootStage(stages))
+    monkeypatch.setattr(vmanager, "get_llm_check_instance", lambda *_args: None)
+
+    manager = StageManager(
+        workspace,
+        cfg,
+        _FakeAgent(cfg),
+        tool_read_text=None,
+        ucagent_info=_saved_info(),
+        tool_inspect_file=[],
+    )
+
+    calls = []
+
+    def first():
+        calls.append("first")
+
+    def broken():
+        raise RuntimeError("harvest failed")
+
+    manager.add_post_test_case_run_callback("first", first)
+    manager.add_post_test_case_run_callback("first", lambda: calls.append("replaced"))
+    manager.add_post_test_case_run_callback("broken", broken)
+    with pytest.raises(ValueError):
+        manager.add_post_test_case_run_callback("bad", "not-callable")
+
+    manager._run_post_test_case_callbacks()
+
+    assert calls == ["replaced"]
+    assert list(manager.post_test_case_run_callbacks) == ["first", "broken"]

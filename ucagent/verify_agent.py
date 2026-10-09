@@ -590,6 +590,7 @@ class VerifyAgent:
             dut_name=self.dut_name,
             allowed_case_index=waveinfo_cfg.get("allowed_case_index", ""),
             signal_group_presets_path=waveinfo_cfg.get("signal_group_presets_path", ""),
+            session_scope=waveinfo_cfg.get("session_scope", "latest"),
         )
         self.tool_waveinfo_receipts = WaveInfoReceipts(waveinfo=self.tool_waveinfo)
         self.tool_apply_waveinfo_evidence = ApplyWaveInfoEvidence(

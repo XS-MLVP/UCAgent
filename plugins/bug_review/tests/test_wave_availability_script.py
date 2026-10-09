@@ -81,3 +81,26 @@ def test_inventory_all_failed_flag_expands_scope(tmp_path, monkeypatch, capsys):
     text = capsys.readouterr().out
     assert "test_triaged" in text
     assert "汇总: 可用 1 / 仅dat 1 / 缺失 2" in text
+
+
+def test_inventory_finds_dump_in_older_run_session(tmp_path, monkeypatch, capsys):
+    """A dump surviving only in an older per-run session still counts as usable."""
+    module = _load_script()
+    workspace = _prepare_workspace(tmp_path)
+    data_root = workspace / "verification_review" / "run" / "unity_test" / "data"
+    # Remove the newest-session dump so only an older session holds it.
+    (data_root / "toffee_tmp_20261008190000_001" / "master" / "test_good.fst").unlink()
+    older = data_root / "toffee_tmp_20261008100000_100" / "master"
+    older.mkdir(parents=True)
+    (older / "test_good.fst").write_bytes(b"older-fst")
+    monkeypatch.chdir(workspace)
+    monkeypatch.setattr(sys, "argv", ["check_wave_availability.py"])
+    module.main()
+    text = capsys.readouterr().out
+    assert "toffee_tmp_20261008190000_001" in text
+    assert "toffee_tmp_20261008100000_100" in text
+    assert "test_good" in text and "fst/vcd 可用" in text
+    assert "older-fst" not in text
+    assert "test_good.fst" in text
+    assert "test_good" not in text.split("需要定向复跑")[1]
+    assert "汇总: 可用 1 / 仅dat 1 / 缺失 1" in text
