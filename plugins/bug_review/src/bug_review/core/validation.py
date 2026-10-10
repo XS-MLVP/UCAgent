@@ -69,8 +69,8 @@ def case_issues(index: ReviewIndex, case: CaseRecord, waveinfo,
     elif require_replay:
         if not case.replay.baseline_id or not case.replay.report_node_id:
             add("replay", "baseline_id and exact report_node_id are required")
-        if not case.replay.invocation_success and case.replay.status not in {"error"}:
-            add("replay.invocation_success", "successful invocation or error status required")
+        # Whole-process exit and an already reported case outcome are separate
+        # facts. The full-replay checker verifies both against the snapshot.
     failed = case.replay.status in {"failed", "error", "xpassed"}
     analysis = case.failure_analysis
     if require_triage and failed:

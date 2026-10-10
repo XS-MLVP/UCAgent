@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 import re
 import secrets
+import hashlib
 import shutil
 
 from ucagent.util.config import load_current_test_report
@@ -201,59 +202,152 @@ def prune_baseline_waveforms(workspace: Path, output: Path) -> dict:
             "files_removed": files_removed, "bytes_removed": bytes_removed}
 
 
-def capture_baseline_coverage(workspace: Path, output: Path) -> dict:
-    """Record deterministic coverage evidence from this run's saved reports.
-
-    Evidence references, run scope and measured line totals are tool-computed
-    facts, so the reviewer never hand-writes them. Only an empty basis text is
-    prefilled; a metric whose saved artifact is absent stays untouched for
-    explicit reviewer recording.
-    """
+def capture_baseline_coverage(workspace: Path, output: Path, report_roots=None) -> dict:
+    """Freeze verified full-set coverage, combining only identical source scopes."""
     index = load_record(output, "review_index.json", "index")
     coverage = load_record(output, index.coverage_path, "coverage")
-    report_root = test_report_root(workspace)
-    evidence = {"line": "coverage_data/code_coverage.json", "functional": "toffee_report.json"}
+    roots = list(report_roots or [test_report_root(workspace)])
+    snapshot = test_report_root(workspace) / "baseline-coverage" / secrets.token_hex(6)
+    snapshot.mkdir(parents=True, exist_ok=False)
     recorded, missing = [], []
-    for metric_key, relative in evidence.items():
-        metric = coverage.metrics.get(metric_key)
-        artifact = report_root / relative
-        if metric is None or not artifact.is_file():
-            missing.append(metric_key)
-            continue
-        text = artifact.read_text(encoding="utf-8", errors="replace")
-        line_count = len(text.splitlines())
-        if not line_count:
-            missing.append(metric_key)
-            continue
-        metric.status = "available"
-        metric.source_ref = f"{TEST_REPORT_ROOT.as_posix()}/{relative}:1-{line_count}"
-        metric.run_scope = "review_full_run"
-        if not metric.basis.strip():
-            metric.basis = ("Evidence reference recorded by CaptureReplayReport from the saved full "
-                            "replay report; refine the metric definition in this basis")
-        if metric_key == "line":
+    observations = {"line": [], "functional": []}
+    identities = []
+    for number, root in enumerate(roots):
+        manifest = root / "invocation.json"
+        identities.append(json.loads(manifest.read_text())["context"].get("source_sha256")
+                          if manifest.is_file() else None)
+        for key, relative in [("line", "coverage_data/code_coverage.json"),
+                              ("functional", "toffee_report.json")]:
+            artifact = root / relative
+            if not artifact.is_file() or artifact.is_symlink():
+                continue
             try:
-                overview = json.loads(text)["overview"]
-                total = int(overview["total"]["line"])
-                missed = int(overview["miss"]["line"])
-            except (json.JSONDecodeError, KeyError, TypeError, ValueError):
-                total, missed = None, None
-            if total is not None and 0 <= missed <= total:
-                metric.numerator = total - missed
-                metric.denominator = total
-                metric.value = f"{(total - missed) / total:.1%}"
-        recorded.append(metric_key)
-    if recorded:
-        atomic_write_json(output / index.coverage_path, coverage.model_dump(mode="json", by_alias=True))
+                value = json.loads(artifact.read_text())
+            except (ValueError, OSError):
+                continue
+            frozen = snapshot / f"batch-{number}" / relative
+            frozen.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(artifact, frozen)
+            observations[key].append(value)
+    same_source = len(roots) == 1 or (all(identities) and len(set(identities)) == 1)
+    for key in ("line", "functional"):
+        metric = coverage.metrics[key]
+        values = observations[key]
+        try:
+            if len(values) != len(roots) or not same_source:
+                raise ValueError("All baseline invocations need matching input identities and coverage artifacts")
+            if key == "line":
+                totals = [int(item["overview"]["total"]["line"]) for item in values]
+                if len(set(totals)) != 1 or totals[0] <= 0:
+                    raise ValueError("Line coverage denominators differ or are empty")
+                denominator = totals[0]
+                if len(values) == 1:
+                    missed = int(values[0]["overview"]["miss"]["line"])
+                else:
+                    missing_sets, universes = [], []
+                    for item in values:
+                        lines, universe = set(), {}
+                        for path, file in item["uncovered"]["data"].items():
+                            for module, data in file["modules"].items():
+                                universe[(path, module)] = int(data["total"]["line"])
+                                for interval in data["line"]:
+                                    limits = [int(v) for v in str(interval).split("-")]
+                                    if len(limits) not in (1, 2) or limits[-1] - limits[0] > denominator:
+                                        raise ValueError("Invalid uncovered line interval")
+                                    lines.update((path, module, line) for line in range(limits[0], limits[-1] + 1))
+                        if len(lines) != int(item["overview"]["miss"]["line"]):
+                            raise ValueError("Uncovered line identities do not match the summary")
+                        missing_sets.append(lines)
+                        universes.append(universe)
+                    if any(universe != universes[0] for universe in universes):
+                        raise ValueError("Instrumented source scopes differ")
+                    missed = len(set.intersection(*missing_sets))
+                if not 0 <= missed <= denominator:
+                    raise ValueError("Invalid line coverage counts")
+                numerator = denominator - missed
+            else:
+                sets, hits = [], set()
+                for item in values:
+                    bins = set()
+                    groups = item["coverages"]["functional"]["groups"]
+                    for group in groups:
+                        for point in group["points"]:
+                            if point.get("dynamic_bin"):
+                                raise ValueError("Dynamic bins need an explicit aggregate universe")
+                            for bin in point["bins"]:
+                                identity = (group["name"], point["name"], bin["name"])
+                                if identity in bins:
+                                    raise ValueError("Duplicate functional checkpoint identity")
+                                bins.add(identity)
+                                if int(bin["hints"]) > 0:
+                                    hits.add(identity)
+                    if not bins:
+                        raise ValueError("Functional checkpoint universe is empty")
+                    sets.append(bins)
+                if any(bins != sets[0] for bins in sets):
+                    raise ValueError("Functional checkpoint definitions differ")
+                denominator, numerator = len(sets[0]), len(hits)
+            result = {"metric": key, "numerator": numerator, "denominator": denominator,
+                      "source_sha256": identities, "invocation_count": len(roots)}
+            target = snapshot / f"{key}.json"
+            atomic_write_json(target, result)
+            metric.status = "available"
+            metric.source_ref = f"{target.relative_to(workspace)}:1-{len(target.read_text().splitlines())}"
+            metric.run_scope = "review_full_run"
+            metric.numerator, metric.denominator = numerator, denominator
+            metric.value = f"{numerator / denominator:.1%}"
+            metric.reason = ""
+            if not metric.basis.strip():
+                metric.basis = "Union of sampled checkpoints or covered lines across frozen full-replay invocations"
+            recorded.append(key)
+        except (ValueError, KeyError, TypeError) as error:
+            metric.status = "unavailable"
+            metric.value = ""
+            metric.numerator = metric.denominator = None
+            metric.source_ref = ""
+            metric.reason = str(error)
+            missing.append(key)
+    for artifact in sorted(snapshot.rglob("*"), reverse=True):
+        artifact.chmod(0o555 if artifact.is_dir() else 0o444)
+    snapshot.chmod(0o555)
+    atomic_write_json(output / index.coverage_path, coverage.model_dump(mode="json", by_alias=True))
     return {"recorded": recorded, "missing_evidence": missing}
 
 
-def import_current_report(workspace: Path, output: Path) -> dict:
+def verify_invocation_snapshot(workspace: Path, payload: dict) -> None:
+    """Compare imported baseline facts with the protected tool-generated snapshot."""
+    archived = payload.get("context", {}).get("report_snapshot_path")
+    if not archived:
+        raise ValueError("RunTestCases invocation snapshot is required for baseline evidence")
+    root = (workspace / archived).resolve()
+    root.relative_to(test_report_root(workspace) / "invocations")
+    manifest_file = root / "invocation.json"
+    saved = json.loads(manifest_file.read_text())
+    report_entry = next((entry for entry in saved["files"] if entry["path"] == "report.json"), None)
+    if saved["invocation_id"] != payload["context"].get("invocation_id") or not report_entry:
+        raise ValueError("Invocation manifest identity does not match the report")
+    frozen = root / "report.json"
+    if hashlib.sha256(frozen.read_bytes()).hexdigest() != report_entry["sha256"]:
+        raise ValueError("Invocation report differs from its archived hash")
+    if json.loads(frozen.read_text()) != payload:
+        raise ValueError("Current report differs from its immutable invocation snapshot")
+
+
+def import_current_report(workspace: Path, output: Path, invocation_id: str = "") -> dict:
     """Snapshot one genuine report and update matching collected case records."""
     index = load_record(output, "review_index.json", "index")
     manifest = load_record(output, index.manifest_path, "manifest")
     summary = load_record(output, index.replay_summary_path, "replay_summary")
-    payload = load_current_test_report(str(workspace))
+    if invocation_id:
+        if not re.fullmatch(r"[a-f0-9]{32}", invocation_id):
+            raise ValueError("invocation_id must be the exact ID returned by RunTestCases")
+        snapshot = test_report_root(workspace) / "invocations" / invocation_id / "report.json"
+        if snapshot.is_symlink() or snapshot.resolve().is_relative_to(workspace) is False:
+            raise ValueError("Invocation snapshot must remain in the workspace")
+        payload = json.loads(snapshot.read_text())
+    else:
+        payload = load_current_test_report(str(workspace))
+    verify_invocation_snapshot(workspace, payload)
     report = payload["report"]
     context = payload.get("context", {})
     if context.get("source") != "RunTestCases" or context.get("stage_name") != "full_replay":
@@ -265,6 +359,15 @@ def import_current_report(workspace: Path, output: Path) -> dict:
             raise ValueError(f"baseline outcome already recorded for {case_id}")
     relative = f"replay/batch-{secrets.token_hex(6)}.json"
     atomic_write_json(output / relative, payload)
+    if not report.get("run_test_success"):
+        from .records import EnvironmentFinding
+        environment = load_record(output, index.environment_path, "environment")
+        environment.findings.append(EnvironmentFinding(category="other", case_ids=list(observed),
+            source_ref=f"verification_review/analysis/{relative}:1-{len((output / relative).read_text().splitlines())}",
+            observation="Test invocation ended abnormally; reported completed case outcomes are retained",
+            impact="Review the exit diagnostic and recover remaining nodes before accepting full execution",
+            status="unresolved"))
+        atomic_write_json(output / index.environment_path, environment.model_dump(mode="json", by_alias=True))
     if not observed:
         summary.diagnostics.append(f"{relative}: no exact collected outcome matched")
     stdout = str(payload.get("pytest_stdout", "") or "")
@@ -309,7 +412,16 @@ def import_current_report(workspace: Path, output: Path) -> dict:
     if not set(manifest.collected) - set(summary.outcomes):
         coverage["deferred"] = False
         try:
-            coverage = capture_baseline_coverage(workspace, output)
+            roots = []
+            for batch in summary.batch_refs:
+                saved = json.loads((output / batch).read_text())
+                archived = saved.get("context", {}).get("report_snapshot_path")
+                if not archived:
+                    raise ValueError("Baseline report needs the invocation snapshot returned by RunTestCases")
+                candidate = (workspace / archived).resolve()
+                candidate.relative_to(test_report_root(workspace) / "invocations")
+                roots.append(candidate)
+            coverage = capture_baseline_coverage(workspace, output, roots)
         except (OSError, ValueError, KeyError, TypeError) as error:
             summary.diagnostics.append(f"coverage capture failed: {error}")
             coverage["error"] = str(error)

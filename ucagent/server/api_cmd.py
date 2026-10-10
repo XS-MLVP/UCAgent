@@ -1372,7 +1372,10 @@ class PdbCmdApiServer:
                 if is_sub_workspace:
                     info = _load_ucagent_info_for_workspace(workspace_root)
                     return {"status": "ok", "data": _format_sub_status(workspace_root, info)}
-                return {"status": "ok", "data": pdb.api_status()}
+                return {"status": "ok", "data": pdb.api_status(),
+                        "identity": {"workspace": str(getattr(getattr(pdb, "agent", None), "workspace", "")),
+                                     "agent_ids": [client.agent_id for client in
+                                         (getattr(pdb, "_master_clients", {}) or {}).values()]}}
             except HTTPException:
                 raise
             except Exception as exc:

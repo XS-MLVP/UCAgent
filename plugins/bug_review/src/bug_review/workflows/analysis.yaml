@@ -38,7 +38,6 @@ master_api:
       - "__pycache__"
       - ".pytest_cache"
       - "toffee_tmp_*"
-      - "verification_review/run/test_report/"
       - ".gitignore"
       - ".git/"
 tools:
@@ -79,7 +78,7 @@ stage:
     desc: "收集并全量重跑当前模块测试"
     task:
       - "先读 Guide_Doc/analysis.md。调用 PrepareReviewInventory收集当前 pytest 配置下全部精确 node ID，建立 review_index.json、test_manifest.json、replay_summary.json、coverage.json 和逐 case 骨架。收集报告写入本次运行的可写目录，不修改只读测试副本；若收集失败，读 {OUT}/diagnostics/collection.log，排查权限或动态库加载后直接重试，不能以不完整 node 集合继续。原报告只建立 Bug ID 与来源骨架，BG／FC／CK 和 case 归属留待独立分析后填写。"
-      - "以 test_manifest.json.pytest_target 为 RunTestCases(pytest_args=...) 的参数运行完整模块；分批时对 collected 精确 node 分批，并保留相同 pytest 配置。每次运行后立即 CaptureReplayReport 保存真实报告与结果；导入同时自动把保存的 coverage_data/code_coverage.json 与 toffee_report.json 证据引用、行覆盖分子/分母写入 coverage.json，你只核对并按需在 basis 补充口径说明，不要手写 source_ref；每批 pytest stdout 也自动归档到 {OUT}/diagnostics/run_logs，失败 case 的机械事实（断言摘要、失败位置、观测异常行）自动预填进对应记录，只填空字段。每次 RunTestCases 结束时波形会话都会自动整体搬入 unity_test/data 下以其时间戳命名的新目录（一次运行一个目录，永不覆盖），导入还会自动删除全部会话中通过/跳过 case 的 fst/dat 波形，失败、错误、xfailed、xpassed 及无法归属 case 的波形在各自会话中保留供 dut_evidence 直接取证；不要手工搬动、增删或复制任何波形文件。不能凭原报告的失败数补写结果。每个 collected 项须有基线状态或明确 not_run 原因；原报告关联但本次未收集的 case 也写明未收集原因。collection 错误单列。记录命令、报告和排除配置。"
+      - "以 test_manifest.json.pytest_target 为 RunTestCases(pytest_args=...) 的参数运行完整模块；分批时对 collected 精确 node 分批，并保留相同 pytest 配置。每次运行后立即使用返回的精确 invocation_id 调用 CaptureReplayReport(invocation_id=...) 保存真实报告与结果；全集导入完成后从所有不可覆盖的快照核对相同来源、聚合覆盖证据并将稳定引用与可核实统计写入 coverage.json，不能把最后一批的覆盖率当作全集，你只核对并按需在 basis 补充口径说明，不要手写 source_ref；每批 pytest stdout 也自动归档到 {OUT}/diagnostics/run_logs，失败 case 的机械事实（断言摘要、失败位置、观测异常行）自动预填进对应记录，只填空字段。每次 RunTestCases 结束时波形会话都会自动整体搬入 unity_test/data 下以其时间戳命名的新目录（一次运行一个目录，永不覆盖），导入还会自动删除全部会话中通过/跳过 case 的 fst/dat 波形，失败、错误、xfailed、xpassed 及无法归属 case 的波形在各自会话中保留供 dut_evidence 直接取证；不要手工搬动、增删或复制任何波形文件。不能凭原报告的失败数补写结果。每个 collected 项须有基线状态或明确 not_run 原因；原报告关联但本次未收集的 case 也写明未收集原因。collection 错误单列。记录命令、报告和排除配置。"
       - "检查全集与结果对账后设 stage_status.full_replay=complete，Check、SetSkillUsage（若要求）、日志、Complete。Check 失败若指向记录字段，用 UpdateReviewRecord 修正该字段后重新 Check；已完成的测试运行绝不因记录字段重复执行，且已导入的基线不可重复导入。当前进度：{BUG_REVIEW_PROGRESS}"
     reference_files: ["Guide_Doc/analysis.md"]
     output_files: ["{OUT}/review_index.json", "{OUT}/test_manifest.json", "{OUT}/replay_summary.json", "{OUT}/coverage.json"]

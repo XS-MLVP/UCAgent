@@ -225,3 +225,8 @@ Master 支持统一代理转发到 task/agent 的 cmd、terminal、web-console �
 1. Launch/Task/Agent 页面能力变化
 2. 阶段批量控制与复盘能力变化
 3. 代理与 WebSocket 兼容性变化
+
+
+## Managed command-service identity
+
+The authenticated CMD `/api/status` response keeps its status data and adds `identity.workspace` and `identity.agent_ids` for registered Master clients. A managed task's CMD liveness check requires its exact launch client ID; a different process responding on a reused port cannot keep the task alive. An explicit client ID also prevents matching another attempt solely by workspace or PID.

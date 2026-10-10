@@ -89,10 +89,11 @@ def check(workflow, ctx):
         raise ValueError("replay_summary.json needs baseline commands and saved report references")
     if summary.report_ref and not within_output(self.out, summary.report_ref).is_file():
         raise ValueError("replay_summary.json report_ref does not locate a saved report")
-    from ...core.replay import report_outcomes
+    from ...core.replay import report_outcomes, verify_invocation_snapshot
     observed = {}
     for position, reference in enumerate(summary.batch_refs):
         batch = read_object(within_output(self.out, reference))
+        verify_invocation_snapshot(self.root, batch)
         context = batch.get("context", {})
         if context.get("source") != "RunTestCases" or context.get("stage_name") != "full_replay":
             raise ValueError(f"{reference} is not a full_replay RunTestCases report")

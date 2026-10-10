@@ -305,3 +305,12 @@ rationale: [测试有效性] 驱动与单次复位对照用例一致。\n[归因
 ```
 
 `publish` 渲染并核验 `report/index.html`、`cases/`、`bugs/`、`sources/`、可用时的 `surfer/` 与 `waveforms/`，以及 `report_manifest.json`。模块页以中文显示结论、数量、覆盖率与失败 case；缺陷主表仅汇总 `verdict=confirmed` 且 `review_confidence >= 0.8` 的 Bug，按最终根因聚合，一组一行并链接每个成员详情，按组内最低置信度降序。总门户的高置信度根因数沿用模块主表的去重根因口径，不插入指南链接。未展示的原声明仍保留数据及 Bug 详情，排除 DUT 缺陷的声明不计入根因数。Bug 详情在场景、预期和实际行为下方用一段中文概述复核归因、根因位置和造成的现象；“证据链”的签名波形给出关键观察，并在原波形仍可由收据定位时提供完整预览按钮。该按钮读取报告内的静态波形快照，须通过本地报告服务打开；原文件已轮换时保留收据与分析而不补造快照。“相关文档”默认展开，链接原报告和关联规格文档，其中报告级用例清单以表格区分复核关联与仅原报告提及的用例；末段“相关源码”默认折叠，只列 RTL 文件与简析。点击引用打开报告内全文预览，并高亮所引行段。复核状态分 complete/incomplete；显式收集、执行或归因缺口可发布 incomplete，静默遗漏不能通过 Check。此阶段不手工设置 `stage_status.publish`；Check 验证页面、快照与源码行段链接，Complete 回调重建 `output/index.html` 和 `output/serve.py`，并记录完成状态。接收方只拿到整个 `output/` 文件夹时，在其根目录运行 `python3 serve.py`，用打印的本地 HTTP 地址浏览报告。公开入口为 `output/index.html → output/<name>/verification_review/report/index.html → case/Bug 页`；分析 JSON 和草稿位于 `analysis/`，测试位于 `tests/`，收据位于 `.ucagent/`。若门户缺失，使用 `make publish_<module>` 恢复，不重跑分析。若公开目录不可写，发布错误给出具体路径。
+
+
+## 执行快照与稳定覆盖引用
+
+RunTestCases每次返回独立的invocation_id，并自动保存本次原始报告、stdout/stderr与退出事实到 `verification_review/run/test_report/invocations/<invocation_id>/`。full_replay每批结束使用 `CaptureReplayReport(invocation_id="返回的精确ID")` 导入；当前报告只是临时入口，不代表其他调用的结果。定向复跑继续记录在case.replay.reruns，不重新导入已完成的全量基线。
+
+全量基线覆盖证据在 `verification_review/run/test_report/baseline-coverage/<id>/` 保存稳定引用。只有全部基线调用有可信产物和相同来源，才合并行覆盖的未命中行集合、功能覆盖的采样CK集合；不能把最后一批的百分比当全量指标。无法合并时明确记录unavailable及原因，不通过补跑伪造覆盖率。使用工具写入的source_ref与统计数值，人工只核对口径与结论。
+
+收据查询、ApplyReceiptToCase与Checker均使用本次已解析配置中的真实DUT和同一unity_test根。缺少运行配置或作用域不匹配时停止证据升级并报告缺口，不能修改签名或手写viewer URL。

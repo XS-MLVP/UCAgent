@@ -519,7 +519,7 @@ def _workspace_sync_ignore_patterns_from_cfg(cfg: Any) -> List[str]:
 # "*.fst" cannot strip data the review still needs.
 BUG_REVIEW_RUN_SYNC_IGNORES = [
     "*.pyc", "*.pyd", "*.vdb", "*.fdb", "__pycache__", ".pytest_cache",
-    "toffee_tmp_*", "verification_review/run/test_report/", ".gitignore", ".git/",
+    "toffee_tmp_*", ".gitignore", ".git/",
 ]
 
 
@@ -4816,7 +4816,13 @@ class PdbMasterApiServer:
                 return False
             url = base.rstrip("/") + "/api/status"
             resp = requests.get(url, **kwargs)
-            return resp.ok
+            if not resp.ok:
+                return False
+            if task and svc is task.get("cmd_api"):
+                expected = task.get("client_id")
+                identity = resp.json().get("identity", {})
+                return bool(expected and expected in identity.get("agent_ids", []))
+            return True
         except Exception:
             return False
 
@@ -4845,6 +4851,8 @@ class PdbMasterApiServer:
 
     def _agent_for_task_unlocked(self, task: Dict[str, Any], agents: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
         task_client_id = str(task.get("client_id") or "").strip()
+        if task_client_id:
+            return next((agent for agent in agents if agent.get("id") == task_client_id), None)
         pid = task.get("pid")
         pid_str = str(pid) if pid not in (None, "") else ""
         task_workspace = os.path.abspath(task.get("workspace_dir", "")) if task.get("workspace_dir") else ""

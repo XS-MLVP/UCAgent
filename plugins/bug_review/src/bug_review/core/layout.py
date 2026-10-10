@@ -95,3 +95,18 @@ def prepare_workspace_layout(root):
     (workspace / REPORT_ROOT).mkdir(parents=True, exist_ok=True)
     (workspace / NOTES_ROOT).mkdir(parents=True, exist_ok=True)
     return target
+
+
+def review_waveinfo(workspace):
+    """Use the resolved Agent identity for every signed evidence consumer."""
+    from ucagent.util.config import load_runtime_config
+    from ucagent.tools.waveform import WaveInfo
+
+    root = Path(workspace).resolve()
+    runtime = load_runtime_config(str(root))
+    test_dir = (root / runtime["test_output_dir"]).resolve()
+    expected = unity_test_root(root)
+    if test_dir != expected:
+        raise ValueError(f"Bug Review test_output_dir must be {expected}; got {test_dir}")
+    return WaveInfo(workspace=str(root), test_dir=str(test_dir),
+                    dut_name=runtime["DUT"], session_scope="all")

@@ -263,7 +263,7 @@ def test_unity_test_publishes_current_report_with_invocation_context(
     assert published["schema_version"] == 1
     assert published["report"] == report
     assert published["report"]["tests"]["fails"] == 1
-    assert published["context"] == {
+    expected = {
         "source": "checker",
         "stage_index": 22,
         "stage_name": "basic_api_functional_test",
@@ -271,6 +271,11 @@ def test_unity_test_publishes_current_report_with_invocation_context(
         "pytest_ex_args": "test_demo.py",
         "result_path": str(tmp_path / "report/toffee_report.json"),
     }
+    assert {key: published["context"][key] for key in expected} == expected
+    assert len(published["context"]["invocation_id"]) == 32
+    snapshot = tmp_path / published["context"]["report_snapshot_path"]
+    assert (snapshot / "report.json").is_file()
+
 
 
 def test_unity_test_publishes_pytest_stdout_in_current_report(tmp_path, monkeypatch):

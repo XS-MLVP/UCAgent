@@ -1927,6 +1927,12 @@ class StageManager(object):
         })
         ret = self.free_pytest_run.do_check(pytest_args, timeout=timeout, return_line_coverage=return_line_coverage, detail=detail)
         self._run_post_test_case_callbacks()
+        invocation = getattr(self.free_pytest_run.run_test, "last_execution", {})
+        if isinstance(invocation, dict) and invocation.get("invocation_id"):
+            payload = dict(ret[1]) if isinstance(ret[1], dict) else {"result": ret[1]}
+            payload["invocation_id"] = invocation["invocation_id"]
+            payload["report_snapshot_path"] = invocation["report_snapshot_path"]
+            ret = (ret[0], payload)
         if raw_return:
             return ret
         ret = make_llm_tool_ret(ret[1])

@@ -4,6 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import json
+import shutil
 import os
 import subprocess
 import sys
@@ -73,7 +74,7 @@ def test_launch_target_reuses_existing_workspace(tmp_path: Path, target: str) ->
     makefile = Path(__file__).resolve().parents[1] / "Makefile"
     command = ["make", "-f", str(makefile), target,
                f"INPUT_ROOT={source.parent}", f"OUTPUT_ROOT={run.parent}",
-               f"PYTHON={sys.executable}", "UCAGENT=/usr/bin/true"]
+               f"PYTHON={sys.executable}", f"UCAGENT={shutil.which('true')}"]
     first = subprocess.run(command, capture_output=True, text=True)
     assert first.returncode == 0, first.stdout + first.stderr
     marker = run / "verification_review/analysis/review_index.json"
@@ -191,6 +192,14 @@ def test_stage_keeps_test_runtime_directories_writable(tmp_path: Path) -> None:
     source = _input(tmp_path)
     run = tmp_path / "output/demo"
     assert _prepare(run, source).returncode == 0
+    from ucagent.util.config import REQUIRED_RUNTIME_BOOL_OPTIONS
+    import ucagent
+    runtime = run / ".ucagent/runtime_config.json"
+    runtime.parent.mkdir(exist_ok=True)
+    runtime.write_text(json.dumps({"schema_version": 1, "DUT": "demo", "OUT": "verification_review/analysis",
+        "test_output_dir": "verification_review/run/unity_test", "current_test_report": ".ucagent/current_test_report.json",
+        "ucagent_python_path": str(Path(ucagent.__file__).resolve().parent.parent),
+        "runtime_options": {key: False for key in REQUIRED_RUNTIME_BOOL_OPTIONS}}))
     locked = chmode_ro_by_pattern(str(run), ["verification_review/run/unity_test/"])
     try:
         checker = BugReviewStageChecker("full_replay")

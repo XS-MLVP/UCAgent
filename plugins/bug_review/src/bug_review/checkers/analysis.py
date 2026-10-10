@@ -5,9 +5,8 @@ from pathlib import Path
 import stat
 
 from ucagent.checkers.base import Checker
-from ucagent.tools.waveform import WaveInfo
 
-from ..core.layout import (ANALYSIS, module_label, prepare_workspace_layout,
+from ..core.layout import (review_waveinfo, ANALYSIS, module_label, prepare_workspace_layout,
                            resolve_out_dir, unity_test_root)
 from ..core.validation import ReviewIssues
 
@@ -75,9 +74,7 @@ class Workflow:
         self.root = Path(workspace).resolve()
         self.label = module_label(self.root)
         self.out = resolve_out_dir(self.root)
-        self.waveinfo = WaveInfo(workspace=str(self.root),
-                                 test_dir=str(unity_test_root(self.root) / "tests"), dut_name="BugReview",
-                                 session_scope="all")
+        self.waveinfo = review_waveinfo(self.root)
 
     def status(self):
         """Return the first stage whose indexed artifacts do not pass Check."""

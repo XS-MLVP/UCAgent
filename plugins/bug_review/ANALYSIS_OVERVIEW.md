@@ -410,6 +410,12 @@ output/
 
 实施记录：普通入口与 Master 均调用同一准备函数；最小 RTL 已通过 filelist-only 构建、导入和运行区准备，插件与 Master 聚焦测试覆盖快照、归档、历史忽略及实体报告发布。`examples/bosc_LoadUnit/filelist.txt` 所指向的 `/nfs/...` RTL 在当前机器不可访问，因此真实 LoadUnit 编译和远程 Master 全流程仍待目标环境验收。
 
+## 当前增量：执行恢复与稳定证据（2026-10-10）
+
+以CHANGELOG当前v1.0布局和v1.3.3增量为准。真实DUT和unity_test根统一收据作用域；每次RunTestCases的原始报告及退出事实按invocation ID留存；全量基线通过CaptureReplayReport导入精确快照后合并可信覆盖来源，结果引用不受定向复跑影响。runtime_config缺失、来源不一致或动态覆盖bin无法形成可信全集时明确缺口。
+
+平台每个execution独立准备工作区，Relaunch使用登记的相同绝对路径和checkpoint，不迁移或重签旧收据；工作区丢失/工作流变化拒绝自动重建为续做。人工待Review与机器complete/incomplete、归档及进程状态分别表达。六阶段顺序、LLM语义裁决、原声明保留、精确case身份及dut_evidence定向复跑限制不变。平台两种卡片的操作与数据投影由Project负责。
+
 ## V1 输入与裁决
 
 V1 重跑发现的新失败也进入复核。最终交付每个 Bug 的裁决、同根因合并关系、可追溯证据和 HTML 报告。

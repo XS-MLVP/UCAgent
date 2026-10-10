@@ -199,3 +199,8 @@
 - [工作流配置](03_workflow.md) - 了解如何在工作流中注册和使用工具
 - [架构与工作原理](02_architecture.md) - 理解工具在 UCAgent 中的角色
 - [Quick Start](01_quick_start.md) - 快速创建包含自定义工具的工作流
+
+
+## Test invocation snapshots
+
+RunUnityChipTest preserves each invocation's raw report, stdout/stderr and exit facts in `<report_dir>/invocations/<invocation_id>/`; the shared current report includes that ID and a workspace-relative snapshot path. Subsequent runs clear only the current projection, retaining invocation and baseline-coverage directories. Report paths must stay in the workspace and must not contain input targets. Missing source identities cannot support cross-invocation full-set coverage aggregation.

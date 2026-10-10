@@ -48,3 +48,10 @@ python3 serve.py
 ## 包内结构
 
 `ucagent-plugin.toml` 是源码态发现清单，`pyproject.toml` 定义安装入口。包代码位于 `src/bug_review/`：`workflows/analysis.yaml` 声明六阶段，`checkers/` 校验阶段产物，`Guide_Doc/` 提供执行指导，`templates/` 初始化复核笔记，`skills/` 提供阶段 Skill、按阶段使用说明。插件提供全量收集、回归报告导入、索引查询、Schema、引用核实、收据附着、case lint、一次性归因提交、裁决草稿/提交、修订查询和渲染工具；波形分析与 receipt 查询仍使用 UCAgent 原生工具。
+
+
+## 运行身份与证据留存
+
+签发与消费WaveInfo收据统一使用已解析运行配置中的真实DUT及 `verification_review/run/unity_test`，错误scope不会自动兼容或重签。RunTestCases每次生成invocation ID，在 `verification_review/run/test_report/invocations/<id>/` 保留原始报告、日志及来源身份；全量导入可用 `CaptureReplayReport(invocation_id="...")` 精确选择。基线覆盖从相同来源的全集快照聚合，稳定引用位于 `test_report/baseline-coverage/<id>/`；定向复跑不替换该数据。指标不能可靠合并时显示unavailable而非最后一批的数值。
+
+平台新execution获得独立工作区；Relaunch复用已登记的原路径、阶段checkpoint和证据，工作区丢失或工作流改变时给出具体错误。平台人工Review只是确认运行结果，不能改变插件裁决、验证通过或baseline发布。独立Make入口的工作区仍按上文创建和恢复。

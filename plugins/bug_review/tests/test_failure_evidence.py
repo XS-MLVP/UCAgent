@@ -1,6 +1,7 @@
 """Focused checks for pytest stdout evidence parsing, matching and prefill."""
 
 import json
+from pathlib import Path
 
 from bug_review.core.failures import (failure_digest, match_failure_digests,
                                       parse_failures, prefill_failure_analysis)
@@ -148,13 +149,22 @@ def test_import_prefills_failure_evidence(tmp_path, monkeypatch):
         tmp_path, {"tests/test_demo.py::test_bad": "failed",
                    "tests/test_demo.py::test_ok": "passed"})
     payload = {"schema_version": 1, "report": {
-        "run_test_success": False,
+        "run_test_success": True,
         "tests": {"total": 2,
                   "test_cases": {"tests/test_demo.py::test_bad": "FAILED",
                                  "tests/test_demo.py::test_ok": "PASSED"}}},
         "context": {"source": "RunTestCases", "stage_name": "full_replay",
                     "pytest_ex_args": "tests"},
         "pytest_stdout": STDOUT}
+    import hashlib
+    archive = tmp_path / "verification_review/run/test_report/invocations" / ("a" * 32)
+    archive.mkdir(parents=True)
+    payload["context"].update(invocation_id="a" * 32, report_snapshot_path=str(archive.relative_to(tmp_path)))
+    frozen = json.dumps(payload)
+    (archive / "report.json").write_text(frozen)
+    (archive / "invocation.json").write_text(json.dumps({"invocation_id": "a" * 32,
+        "context": payload["context"],
+        "files": [{"path": "report.json", "sha256": hashlib.sha256(frozen.encode()).hexdigest()}]}))
     monkeypatch.setattr("bug_review.core.replay.load_current_test_report",
                         lambda workspace: payload)
     result = import_current_report(tmp_path, output)
@@ -179,6 +189,15 @@ def test_import_prefills_failure_evidence(tmp_path, monkeypatch):
 
 def _prepare_batch_output(tmp_path, case_ids):
     """One indexed output with unity_test source, two case records and a draft dir."""
+    from ucagent.util.config import REQUIRED_RUNTIME_BOOL_OPTIONS
+    import ucagent
+    runtime = tmp_path / ".ucagent" / "runtime_config.json"
+    runtime.parent.mkdir(exist_ok=True)
+    runtime.write_text(json.dumps({"schema_version": 1, "DUT": "demo",
+        "OUT": "verification_review/analysis", "test_output_dir": "verification_review/run/unity_test",
+        "current_test_report": ".ucagent/current_test_report.json",
+        "ucagent_python_path": str(Path(ucagent.__file__).resolve().parent.parent),
+        "runtime_options": {key: False for key in REQUIRED_RUNTIME_BOOL_OPTIONS}}))
     output = tmp_path / "verification_review" / "analysis"
     (output / "drafts").mkdir(parents=True)
     (output / "cases").mkdir()
@@ -286,3 +305,22 @@ def test_batch_rejects_wrong_key_and_unknown_case(tmp_path):
     result = tool._run(draft_path="verification_review/analysis/drafts/batch.json")
     assert result["success"] is False
     assert "unknown indexed case" in result["error"]
+
+
+def test_checker_rejects_edited_imported_report(tmp_path):
+    """An editable analysis copy cannot override immutable pytest facts."""
+    import hashlib
+    import pytest
+    from bug_review.core.replay import verify_invocation_snapshot
+    archive = tmp_path / "verification_review/run/test_report/invocations" / ("a" * 32)
+    archive.mkdir(parents=True)
+    payload = {"report": {"run_test_success": True}, "context": {
+        "invocation_id": "a" * 32, "report_snapshot_path": str(archive.relative_to(tmp_path))}}
+    frozen = json.dumps(payload)
+    (archive / "report.json").write_text(frozen)
+    (archive / "invocation.json").write_text(json.dumps({"invocation_id": "a" * 32,
+        "files": [{"path": "report.json", "sha256": hashlib.sha256(frozen.encode()).hexdigest()}]}))
+    verify_invocation_snapshot(tmp_path, payload)
+    payload["report"]["run_test_success"] = False
+    with pytest.raises(ValueError, match="differs"):
+        verify_invocation_snapshot(tmp_path, payload)

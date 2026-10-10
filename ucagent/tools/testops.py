@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 from ucagent.util.test_tools import ucagent_lib_path
 from ucagent.util.functions import get_toffee_json_test_case, load_toffee_report
-from ucagent.util.config import save_current_test_report
+from ucagent.util.config import save_current_test_report, load_runtime_config
 from ucagent.util.log import debug, info, warning
 import os
 import shutil
@@ -21,6 +21,9 @@ import subprocess
 import json
 import re
 import shlex
+from pathlib import Path
+import uuid
+import hashlib
 
 
 def _pytest_target_path(target: str) -> tuple[str, str]:
@@ -470,7 +473,27 @@ class RunUnityChipTest(RunPyTest):
              **kw) -> dict:
         """Run the Unity chip tests."""
         return_test_details = kw.get("return_test_details", False)
-        shutil.rmtree(self.result_dir, ignore_errors=True)
+        report_root = Path(self.result_dir).resolve()
+        workspace_root = Path(self.workspace).resolve()
+        report_root.relative_to(workspace_root)
+        target_text, _ = _pytest_target_path(test_dir_or_file)
+        test_target = (workspace_root / target_text).resolve()
+        if report_root == workspace_root or test_target.is_relative_to(report_root):
+            raise ValueError("Test report directory must not contain the workspace or test inputs")
+        if Path(self.result_dir).is_symlink():
+            raise ValueError("Test report directory must not be a symlink")
+        report_root.mkdir(parents=True, exist_ok=True)
+        # The latest report is a projection; invocation evidence is immutable.
+        for previous in report_root.iterdir():
+            if previous.name in {"invocations", "baseline-coverage"}:
+                if previous.is_symlink():
+                    raise ValueError("Invocation archive must not be a symlink")
+                continue
+            if previous.is_dir() and not previous.is_symlink():
+                shutil.rmtree(previous)
+            else:
+                previous.unlink()
+        invocation_id = uuid.uuid4().hex
         all_pass, pyt_out, pyt_err = RunPyTest.do(self,
                                           os.path.join(self.workspace, test_dir_or_file),
                                           pytest_ex_args,
@@ -543,16 +566,86 @@ class RunUnityChipTest(RunPyTest):
             execution["diagnostic_code"] = "TOFFEE_REPORT_MISSING"
         ret_data["run_test_success"] = execution["invocation_success"]
         ret_data["execution"] = execution
+        invocation = report_root / "invocations" / invocation_id
+        invocation.mkdir(parents=True, exist_ok=False)
+        files = []
+        for artifact in sorted(report_root.iterdir()):
+            if artifact.name in {"invocations", "baseline-coverage"}:
+                continue
+            if artifact.is_symlink() or any(item.is_symlink() for item in artifact.rglob("*")):
+                raise ValueError("Test report artifact must not contain symlinks")
+            target = invocation / artifact.name
+            if artifact.is_dir():
+                shutil.copytree(artifact, target)
+            else:
+                shutil.copy2(artifact, target)
+        execution["invocation_id"] = invocation_id
+        source_sha256 = None
+        try:
+            runtime = load_runtime_config(self.workspace)
+            sources = [workspace_root / runtime["DUT"],
+                workspace_root / (runtime["DUT"] + "_RTL"),
+                workspace_root / (runtime["DUT"] + "_Doc"),
+                workspace_root / runtime["test_output_dir"]]
+            if not sources[0].is_dir() or not sources[1].is_dir():
+                raise ValueError("Compiled DUT and RTL sources are required for coverage identity")
+            digest = hashlib.sha256()
+            for source in sources:
+                for item in sorted(source.rglob("*")):
+                    if any(part in {"data", "__pycache__", ".pytest_cache"}
+                           for part in item.relative_to(source).parts):
+                        continue
+                    if item.is_file() and item.suffix in {".py", ".sv", ".v", ".md", ".so", ".ini", ".ignore", ".json"}:
+                        digest.update(item.relative_to(workspace_root).as_posix().encode())
+                        with item.open("rb") as stream:
+                            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                                digest.update(chunk)
+            source_sha256 = digest.hexdigest()
+        except (OSError, ValueError, RuntimeError):
+            # Missing source identity must prevent cross-invocation aggregation.
+            pass
+        attempt = {}
+        attempt_file = workspace_root / ".ucagent/platform_attempt.json"
+        if attempt_file.is_file():
+            attempt = json.loads(attempt_file.read_text())
+        wave_session = None
+        if report_exists:
+            try:
+                raw = json.loads(Path(result_json_path).read_text())
+                wave_session = raw.get("session")
+            except (ValueError, OSError):
+                pass
+        snapshot_context = {
+            **self.report_context, "invocation_id": invocation_id, "source_sha256": source_sha256,
+            "platform_workspace_id": attempt.get("workspace_id"), "client_id": attempt.get("client_id"),
+            "waveform_session": wave_session,
+            "test_dir_or_file": test_dir_or_file, "pytest_ex_args": pytest_ex_args,
+            "result_path": result_json_path,
+            "report_snapshot_path": invocation.relative_to(workspace_root).as_posix(),
+        }
+        (invocation / "stdout.log").write_text(self._last_process_stdout, encoding="utf-8")
+        (invocation / "stderr.log").write_text(self._last_process_stderr, encoding="utf-8")
+        payload = {"schema_version": 1, "report": ret_data, "context": snapshot_context,
+                   "pytest_stdout": self._last_process_stdout}
+        (invocation / "report.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        for artifact in sorted(invocation.rglob("*")):
+            if artifact.is_file():
+                files.append({"path": artifact.relative_to(invocation).as_posix(),
+                    "sha256": hashlib.sha256(artifact.read_bytes()).hexdigest(),
+                    "size": artifact.stat().st_size})
+        (invocation / "invocation.json").write_text(json.dumps({
+            "invocation_id": invocation_id, "context": snapshot_context,
+            "execution": execution, "files": files}, indent=2), encoding="utf-8")
+        self.last_execution["invocation_id"] = invocation_id
+        self.last_execution["report_snapshot_path"] = snapshot_context["report_snapshot_path"]
+        for artifact in sorted(invocation.rglob("*"), reverse=True):
+            artifact.chmod(0o555 if artifact.is_dir() else 0o444)
+        invocation.chmod(0o555)
         try:
             save_current_test_report(
                 self.workspace,
                 ret_data,
-                context={
-                    **self.report_context,
-                    "test_dir_or_file": test_dir_or_file,
-                    "pytest_ex_args": pytest_ex_args,
-                    "result_path": result_json_path,
-                },
+                context=snapshot_context,
                 pytest_stdout=self._last_process_stdout,
             )
         except (OSError, TypeError, ValueError, RuntimeError) as error:
