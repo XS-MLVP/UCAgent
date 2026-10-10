@@ -15,39 +15,30 @@ class RTL2SpecArtifactsChecker(Checker):
     def __init__(
         self,
         module: str,
-        version: str,
         config: str = "DefaultConfig",
         phase: str = "final",
-        **kwargs,
+        *,
+        cfg=None,
     ):
         """Store static inputs; inspect no workspace state during construction."""
         super().__init__()
-        RTL2SpecCommandArgs(
-            action="validate", module=module, version=version, config=config
-        )
-        if not version or phase not in {"evidence", "draft", "final"}:
-            raise ValueError(
-                "version and a valid evidence/draft/final phase are required"
-            )
-        self.module, self.version, self.config, self.phase = (
-            module,
-            version,
-            config,
-            phase,
-        )
+        RTL2SpecCommandArgs(action="validate", module=module, config=config)
+        if phase not in {"evidence", "draft", "final"}:
+            raise ValueError("a valid evidence/draft/final phase is required")
+        self.module, self.config, self.phase = module, config, phase
 
     def on_init(self):
         """Register newly generated references when their consuming stage becomes active."""
         root = Path(self.workspace)
         if self.phase == "draft":
             files = [
-                f"evidence/{self.module}/{self.version}/{name}"
+                f"evidence/{self.module}/{name}"
                 for name in ("manifest.json", "ports.csv", f"{self.module}.sv")
             ]
         elif self.phase == "final":
             files = [
                 str(path.relative_to(root))
-                for path in artifact_paths(root, self.module, self.version)[:2]
+                for path in artifact_paths(root, self.module)
             ]
         else:
             files = []
@@ -62,7 +53,6 @@ class RTL2SpecArtifactsChecker(Checker):
         result = validate(
             Path(self.workspace).resolve(),
             self.module,
-            self.version,
             self.config,
             self.phase,
         )

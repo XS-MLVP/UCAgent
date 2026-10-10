@@ -101,10 +101,10 @@ def command(workspace):
     )
 
 
-def draft(root: Path, version: str = "v1.0.0") -> None:
+def draft(root: Path) -> None:
     """Write the maintained complete fixture following the template structure."""
-    design, report, history = artifact_paths(root, "Sbuffer", version)
-    for path in (design, report, history):
+    design, report = artifact_paths(root, "Sbuffer")
+    for path in (design, report):
         path.parent.mkdir(parents=True, exist_ok=True)
     design.write_text(
         (Path(__file__).parent / "fixtures/design_document.md").read_text(
@@ -115,16 +115,15 @@ def draft(root: Path, version: str = "v1.0.0") -> None:
     report.write_text(
         "\n# Review\n\nSynthetic test fixture only. RTL evidence exists; no formal proof was run.\n"
     )
-    history.write_text(f"\n# History\n\n- {version}: fixture documentation.\n")
 
 
 @pytest.fixture
 def artifacts(command, workspace):
     """Generate real signed fixture evidence and synchronize document metadata."""
-    result = command._run("evidence", "Sbuffer", version="v1.0.0")
+    result = command._run("evidence", "Sbuffer")
     assert result["ok"], result
     draft(workspace)
-    for action in ("metadata", "render", "lint"):
-        result = command._run(action, "Sbuffer", version="v1.0.0")
+    for action in ("metadata", "lint"):
+        result = command._run(action, "Sbuffer")
         assert result["ok"], result
     return workspace
