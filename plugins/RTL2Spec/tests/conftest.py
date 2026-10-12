@@ -1,6 +1,7 @@
 """Use a real Git checkout and RTL artifacts with only the expensive compiler replaced."""
 
 import platform
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -9,6 +10,7 @@ import pytest
 
 from rtl2spec.documents import artifact_paths
 from rtl2spec.tools import RTL2SpecCommand
+from rtl2spec.review import prepare_review
 
 RTL = """// Test fixture, not XiangShan design evidence.
 module Sbuffer (
@@ -92,8 +94,6 @@ def command(workspace):
         workspace=str(workspace),
         write_dirs=[
             "outputs",
-            "reports",
-            "evidence",
             ".cache",
             "third_party/XiangShan",
         ],
@@ -101,20 +101,36 @@ def command(workspace):
     )
 
 
-def draft(root: Path) -> None:
+def draft(root: Path, output_dir: str = "outputs") -> None:
     """Write the maintained complete fixture following the template structure."""
-    design, report = artifact_paths(root, "Sbuffer")
+    design, report = artifact_paths(root, "Sbuffer", output_dir)
     for path in (design, report):
         path.parent.mkdir(parents=True, exist_ok=True)
     design.write_text(
         (Path(__file__).parent / "fixtures/design_document.md").read_text(
             encoding="utf-8"
-        ),
+        ).replace("outputs/evidence/", f"{output_dir}/evidence/"),
         encoding="utf-8",
     )
     report.write_text(
         "\n# Review\n\nSynthetic test fixture only. RTL evidence exists; no formal proof was run.\n"
     )
+
+
+def complete_review(root: Path, module: str = "Sbuffer", config: str = "DefaultConfig", *,
+                    generic: bool = False, output_dir: str = "outputs") -> None:
+    """Fill explicit synthetic review records for the fixture's combinational assignment."""
+    prepare_review(root, module, config, generic=generic, output_dir=output_dir)
+    path = root / output_dir / "semantic_review.json"
+    value = json.loads(path.read_text())
+    for behavior in value["behaviors"]:
+        for aspect, check in behavior["checks"].items():
+            check.update(status="not_applicable", conclusion="Synthetic fixture: continuous assignment has no storage, bypass, configuration control or recovery state.",
+                         evidence=[{"path": f"{output_dir}/evidence/{module}.sv", "start_line": 2, "end_line": 8}])
+            if aspect == "verification_plan":
+                check.update(status="reviewed", conclusion="Synthetic forwarding check compares the current input and output; coverage samples known equal data.",
+                             ck_ids=["CK-EVENT-RESULT"], coverage_ids=["COV-NORMAL"])
+    path.write_text(json.dumps(value, indent=2) + "\n")
 
 
 @pytest.fixture
@@ -123,7 +139,8 @@ def artifacts(command, workspace):
     result = command._run("evidence", "Sbuffer")
     assert result["ok"], result
     draft(workspace)
-    for action in ("metadata", "lint"):
-        result = command._run(action, "Sbuffer")
-        assert result["ok"], result
+    assert command._run("metadata", "Sbuffer")["ok"]
+    complete_review(workspace)
+    result = command._run("finalize", "Sbuffer")
+    assert result["ok"], result
     return workspace

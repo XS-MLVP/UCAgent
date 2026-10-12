@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ucagent-rtl2spec"
-version = "0.4.0"
-description = "UCAgent plugin for evidence-based XiangShan design document generation"
+version = "0.7.0"
+description = "UCAgent plugin for evidence-backed XiangShan and generic RTL design document generation"
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE.md"]
@@ -33,6 +33,7 @@ namespaces = false
 [tool.setuptools.package-data]
 rtl2spec = [
   "Guide_Doc/*.md",
+  "Guide_Doc/*.json",
   "scripts/*.sh",
   "workflows/*.yaml",
 ]

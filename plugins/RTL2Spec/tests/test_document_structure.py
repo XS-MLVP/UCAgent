@@ -11,7 +11,7 @@ FIXTURE = Path(__file__).parent / "fixtures/design_document.md"
 
 
 def test_complete_fixture_and_template_agree():
-    """The complete fixture follows the formal v5.1 section order without comments."""
+    """The complete fixture follows the formal section order without comments."""
     text = FIXTURE.read_text(encoding="utf-8")
     assert validate_structure(text, "Sbuffer") == []
     assert sum(section["tables"] for section in document_sections(text)) == 22
@@ -52,7 +52,7 @@ def test_heading_order_is_checked():
 def test_tables_are_checked_per_section(mutation):
     """Required tables remain part of the structure contract; extra evidence tables are allowed."""
     text = FIXTURE.read_text(encoding="utf-8")
-    table = "| 参数 ID | 参数 / 派生常量 | 配置值 | 约束或裁剪 | 证据 |\n| --- | --- | --- | --- | --- |\n| `PARAM-01` | `Sbuffer` | `8` | `无参数` | `E-RTL-01` |"
+    table = "| 参数 ID | 参数 / 派生常量 | 配置值 | 约束或裁剪 | 证据 |\n| --- | --- | --- | --- | --- |\n| `PARAM-01` | 数据宽度 | `8` | 声明常量，不是可覆盖参数 | `E-RTL-01` |"
     if mutation == "missing":
         text = text.replace(table, "")
     elif mutation == "extra":

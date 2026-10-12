@@ -11,7 +11,7 @@
 | Python 发行包 | `ucagent-rtl2spec` |
 | 插件 ID | `rtl2spec` |
 | Python 导入包 | `rtl2spec` |
-| 工作流 ID | `design-document` |
+| 工作流 ID | `xiangshan-design-document`, `generic-design-document` |
 
 ```text
 UCAgent/plugins/RTL2Spec/
@@ -38,7 +38,11 @@ UCAgent/plugins/RTL2Spec/
 | `checkers.py` | 阶段验收入口，调用 `validation.py` |
 | `runtime.py` | 调度证据生成、元数据同步和检查 |
 | `evidence.py` | 源码状态、RTL、端口、相关模块源码及工具凭据 |
+| `generic_evidence.py` | 捕获通用 Verilog/SystemVerilog 输入、端口和源文件哈希 |
+| `verilog.py` | 显式输入配置、有限预处理及原始行号映射；不声称完成 HDL 编译 |
+| `review.py` | 逐行为复核契约、当前工件验收记录和失效检查 |
 | `documents.py` | Markdown 解析、Mermaid 围栏、模板结构和事实元数据 |
+| `contracts.py` | 规范字段、跨表追溯、源位置与签核声明的确定性检查 |
 | `validation.py` | 组合产物检查并返回诊断 |
 | `repository.py` | 仓库文档链接、模板资源及打包声明检查 |
 
@@ -47,7 +51,7 @@ UCAgent/plugins/RTL2Spec/
 - UCAgent 兼容下限使用已验证的 `26.9.2.dev14`，在发行包依赖与 `requires_ucagent` 中同步维护；降低下限前验证对应版本，不能照抄开发文档的示例值。
 - 格式或行为变化时，同步工作流、Guide_Doc、模板、Checker 和相关测试；阶段所需规范文件列入 `reference_files`。修改资源后用新工作区验证。
 - 写作规则统一维护在[生成指南](../src/rtl2spec/Guide_Doc/generation-guide.md)和[文档模板](../src/rtl2spec/Guide_Doc/chip_design_document_template_zh.md)。模板版本独立于插件版本，使用 SemVer。
-- `tests/fixtures/design_document.md` 是合成 RTL 的独立完整样例。模板结构变化时同步审阅样例；样例随 sdist 发布，不进入 wheel 或用户工作区。
+- `tests/fixtures/design_document.md` 是合成 RTL 的独立完整样例。模板结构变化时同步审阅样例；测试样例随 sdist 发布；运行指南中的完整教学例与其保持结构一致。
 - 提交维护源码、文档和测试；输入、产物和工具缓存放在独立工作区，不修改 XiangShan 源码来迁就工具。
 
 ## 开发与验证
@@ -65,7 +69,7 @@ make template-check
 git diff --check
 ```
 
-`make` 显式从插件目录的 `src` 加载代码。测试使用临时源码夹具，无需下载 XiangShan；`template-check` 只解析模板的 Markdown 和 Mermaid 围栏，不需要 Node.js、浏览器或网络。影响生成行为时，还需选一个真实模块在干净工作区验证。
+`make` 显式从插件目录的 `src` 加载代码。测试使用临时源码夹具，无需下载 XiangShan；`template-check` 只解析模板的 Markdown 和 Mermaid 围栏，不需要 Node.js、浏览器或网络。影响生成行为时，还需选一个真实模块在干净工作区验证。测试覆盖两种工作流、Skill 开启/关闭、独立输出目录、元数据幂等、精确端口、复核/验收失效及编译配置错误边界。
 
 修改后端权限或升级 UCAgent/OpenCode 时，安装 OpenCode 并执行以下测试（已验证 OpenCode 1.18.26）：
 
@@ -92,6 +96,6 @@ python -I -m pytest -q --import-mode=append -o pythonpath=''
 
 ## 方法来源
 
-Coverage 方法参考 Verification Academy《Coverage Cookbook》（2013-08-21 快照），适用原则见[生成指南](../src/rtl2spec/Guide_Doc/generation-guide.md#coverage-practice-principles)。引入外部材料时记录来源与用途，并确认许可和再分发条件。
+Coverage 方法参考 Verification Academy《Coverage Cookbook》（2013-08-21 快照），适用原则见[生成指南](../src/rtl2spec/Guide_Doc/generation-guide.md#写作与验收约束)。引入外部材料时记录来源与用途，并确认许可和再分发条件。
 
 设计文档字段参考了 [XS-MLVP/spec_generator 的 chip-design-document 模板](https://github.com/XS-MLVP/spec_generator/blob/feat/chip-dv-spec-workflow/templates/chip-design-document/chip_design_document_template_zh.md)，仅吸收职责边界、事务模型、验证架构、形式化执行条件和场景字段；RTL2Spec 自有的 evidence、相关模块签名、Mermaid-only 输出和固定附录契约仍以本插件模板为准。

@@ -2,7 +2,7 @@
 # [DUT] 设计与功能检测点文档
 
 <!-- MAINTAINER: 这是正式输出的唯一结构契约。HTML 注释只属于模板和生成约束，生成的设计文档必须删除这些注释；工具审计 marker（metadata 和 related-source）可由工具保留。 -->
-> 模板结构版本：v5.1.0
+> 模板结构版本：v6.0.0
 >
 > 正式输出顺序固定为：文档摘要、设计概览、功能行为、验证策略与 Testplan、形式化属性契约、Sign-off 与开放项、附录 A 至附录 E。正文只使用逻辑接口名；完整端口、源码路径、参数、证据和版本变更放在附录。无法证实的内容写入 `OPEN-*`。
 
@@ -46,7 +46,7 @@
 
 ### 职责与边界
 
-[先说明 DUT 的职责、输入输出边界和不负责的工作。正文使用逻辑接口名，并引用行为或证据 ID；不要写完整 RTL 端口、Scala 路径或无法证实的设计意图。]
+[先说明 DUT 的职责、输入输出边界和不负责的工作。正文使用逻辑接口名，并引用行为或证据 ID；不要写完整 RTL 端口、源文件路径或无法证实的设计意图。]
 
 ### 事务模型
 
@@ -167,13 +167,14 @@ flowchart LR
 | P0 | `FC-INPUT-CONTRACT` | `CK-API-INPUT` | Assume | `P-[NAME]` | Assertion | [合法协议条件] | [逻辑接口观察] | `COV-NORMAL` / `CASE-NORMAL` | [可判定条件] |
 | P0 | `FC-BEHAVIOR` | `CK-EVENT-RESULT` | Seq | `P-[NAME]` | Scoreboard | [事务激励] | [结果和顺序] | `COV-NORMAL` / `CASE-NORMAL` | [可判定条件] |
 | P1 | `FC-RECOVERY` | `CK-RECOVERY` | Seq | `P-[NAME]` | Assertion + scoreboard | [flush/replay/cancel/error] | [存活/取消事务结果] | `COV-RECOVERY` / `CASE-RECOVERY` | [可判定条件] |
+| P1 | `FC-BEHAVIOR` | `CK-COVER-BOUNDARY` | Cover | `P-[NAME]` | Coverage | [边界输入] | [可观察结果] | `COV-BOUNDARY` / `CASE-BOUNDARY` | [覆盖关闭条件] |
 
 ### Coverage Summary
 
 | Coverage ID | 目标行为 | 观察事件 | 重要取值 / 分箱 | 依赖 / 交叉 | 非法 / 忽略条件 | 有效性保护 | 关闭标准 | 状态 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `COV-NORMAL` | [正常事务] | [完成且通过检查的事件] | [代表值] | [功能交叉] | [忽略条件] | [checker/scoreboard 通过] | [命中要求] | Planned |
-| `COV-BOUNDARY` | [边界和背压] | [边界完成事件] | [满/空/最大并发] | [边界交叉] | [忽略条件] | [结果有效] | [命中要求] | Planned |
+| `COV-BOUNDARY` | [边界和背压] | [边界握手或等待事件] | [满/空/最大并发] | [边界交叉] | [忽略条件] | [结果有效] | [命中要求] | Planned |
 | `COV-RECOVERY` | [恢复和错误] | [恢复完成事件] | [flush/replay/error] | [恢复类型 x 起始状态] | [非法激励] | [恢复检查通过] | [命中要求] | Planned |
 
 ## 形式化属性契约
@@ -230,12 +231,14 @@ flowchart LR
 
 ## 附录 A：I/O 定义与接口约束
 
-<!-- GENERATOR: 这是完整扁平 RTL 端口和协议的唯一位置。Generated 必须存在于 ports.csv；Elided 必须有源码和配置依据。 -->
+<!-- GENERATOR: 从 evidence/ports.md 填入完整端口表，每个 ports.csv 端口恰好一行，名称、方向和位宽完全一致。不存在于当前 RTL 的裁剪接口在附录 B 说明，不加入本表。 -->
 
-| IO-ID | 正文逻辑接口 | Bundle / Chisel 字段 | 定义位置 | 方向 / 位宽 | 配置状态 | 精确 Verilog I/O | 协议 / 对端 | 证据 |
+| IO-ID | 正文逻辑接口 | 源字段 / 端口分组 | 定义位置 | 方向 / 位宽 | 配置状态 | 精确 RTL I/O | 协议 / 对端 | 证据 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `IO-INPUT-01` | `[ingress]` | `[Bundle.field]` | `[path:line]` | `[I/O,width]` | Generated / Elided | `[exact port or Elided]` | `[ready/valid or N/A]` | `[E-*]` |
-| `IO-OUTPUT-01` | `[egress]` | `[Bundle.field]` | `[path:line]` | `[I/O,width]` | Generated / Elided | `[exact port or Elided]` | `[ready/valid or N/A]` | `[E-*]` |
+| `IO-CLOCK` | `clock` | `clock` | `[evidence path:line]` | `I/1` | Generated | `clock` | 时钟 | `E-RTL-02` |
+| `IO-RESET` | `reset` | `reset` | `[evidence path:line]` | `I/1` | Generated | `reset` | 复位 | `E-RTL-02` |
+| `IO-INPUT-01` | `[ingress]` | `[source field]` | `[path:line]` | `[I/width]` | Generated | `[exact port]` | `[protocol or reason for no protocol]` | `[E-*]` |
+| `IO-OUTPUT-01` | `[egress]` | `[source field]` | `[path:line]` | `[O/width]` | Generated | `[exact port]` | `[protocol or reason for no protocol]` | `[E-*]` |
 
 [补充完整扁平端口清单、索引范围、ready/valid 接受条件、backpressure 和 payload 保持约束。]
 
@@ -261,11 +264,11 @@ flowchart LR
 
 | 项目 | 内容 |
 | --- | --- |
-| 使用模板版本 | v5.1.0 |
-| DUT / Chisel 顶层 | `[name]` |
-| Elaborated Verilog 顶层 | `[module]` |
+| 使用模板版本 | v6.0.0 |
+| DUT / 顶层模块 | `[name]` |
+| Elaborated RTL 顶层 | `[module]` |
 | 文档状态 | Draft / Review / Frozen |
-| XiangShan RTL 基线 | `[full commit]` |
+| RTL/source 基线 | `[full commit or source digest]` |
 | 适用配置 | `[config]` |
 | RTL 生成状态 | `[success / partial / failed]` |
 | RTL 证据 | `[manifest path, hash, port count]` |
@@ -286,7 +289,7 @@ flowchart LR
 | Evidence ID | 类型 | 来源位置 | Commit / 配置 | 支持内容 |
 | --- | --- | --- | --- | --- |
 | `E-RTL-01` | RTL/ports | `[evidence path:line]` | `[commit/config]` | `[fact]` |
-| `E-REL-MODULE` | Related Scala | `[source path:line]` | `[commit/config]` | `[fact]` |
+| `E-REL-MODULE` | Related source | `[source path:line]` | `[source/config]` | `[fact]` |
 
 | 版本变更 ID | 变更类型 | 本次变更 | 影响范围 | 依据 |
 | --- | --- | --- | --- | --- |
@@ -309,7 +312,7 @@ flowchart LR
 | `CK-API-INPUT` | `FC-INPUT-CONTRACT` | [目标] | Assume | Planned | `CASE-NORMAL` | `COV-NORMAL` | OPEN |
 | `CK-EVENT-RESULT` | `FC-BEHAVIOR` | [目标] | Assert/Seq | Planned | `CASE-NORMAL` | `COV-NORMAL` | OPEN |
 | `CK-RECOVERY` | `FC-RECOVERY` | [目标] | Assert/Seq | Planned | `CASE-RECOVERY` | `COV-RECOVERY` | OPEN |
-| `CK-COVER-BOUNDARY` | `FC-RECOVERY` | [目标] | Cover | Planned | `CASE-BOUNDARY` | `COV-BOUNDARY` | OPEN |
+| `CK-COVER-BOUNDARY` | `FC-BEHAVIOR` | [目标] | Cover | Planned | `CASE-BOUNDARY` | `COV-BOUNDARY` | OPEN |
 
 ## 附录 E：场景视角 Test Case
 

@@ -34,7 +34,7 @@ Tool、Checker、模板、Skill 与工作流的组合。
 | 项目 | 插件 ID / 工作流 | 主要用途 |
 | :--- | :--- | :--- |
 | [DesignWithPPA](https://github.com/XS-MLVP/UCAgent/blob/main/plugins/DesignWithPPA/README.md) | `design-with-ppa:unit-design-tdd` | 测试驱动 RTL 设计与 PPA 优化 |
-| [RTL2Spec](https://github.com/XS-MLVP/UCAgent/blob/main/plugins/RTL2Spec/README.md) | `rtl2spec:design-document` | 基于 XiangShan 源码和生成 RTL 的证据，交付中文设计与功能检测点文档 |
+| [RTL2Spec](https://github.com/XS-MLVP/UCAgent/blob/main/plugins/RTL2Spec/README.md) | `rtl2spec:xiangshan-design-document` | 基于 XiangShan 源码和生成 RTL 的证据，交付中文设计与功能检测点文档 |
 
 先安装核心，再从 UCAgent 仓库根目录按需安装，例如：
 
@@ -44,7 +44,7 @@ ucagent --validate-plugin rtl2spec
 ```
 
 运行时显式选择 `--plugin rtl2spec`
-和 `--plugin-workflow rtl2spec:design-document`。
+和 `--plugin-workflow rtl2spec:xiangshan-design-document`。
 源码开发时可将插件 ID 换成 `--plugin ./plugins/RTL2Spec`，无需先安装插件。
 工作区独立于插件实现；随包指导文档和其他资源由选中的工作流自动定位和复制。
 

@@ -64,6 +64,16 @@ def local_path(root: Path, path: str | Path) -> Path:
     return resolved
 
 
+def output_root(root: Path, output_dir: str) -> Path:
+    """Resolve the selected run directory inside the workspace, never the workspace itself."""
+    if not output_dir or Path(output_dir).is_absolute() or ".." in Path(output_dir).parts:
+        raise ValueError("output_dir must name a workspace-relative run directory")
+    path = local_path(root, output_dir)
+    if path == root.resolve():
+        raise ValueError("output_dir must be a subdirectory of the workspace")
+    return path
+
+
 def read_json(path: Path) -> dict:
     """Read one JSON object, reporting its artifact on malformed input."""
     try:
@@ -209,9 +219,11 @@ def source_state(root: Path) -> dict:
     return {"commit": commit, "submodules": submodules}
 
 
-def validate_evidence(root: Path, module: str, config: str) -> tuple[dict, list[dict]]:
+def validate_evidence(
+    root: Path, module: str, config: str, output_dir: str = "outputs"
+) -> tuple[dict, list[dict]]:
     """Recompute source identity, RTL hash, and ports instead of trusting authored text."""
-    folder = local_path(root, f"evidence/{module}")
+    folder = local_path(root, output_root(root, output_dir) / "evidence")
     manifest = read_json(local_path(root, folder / "manifest.json"))
     receipt(root, manifest)
     if (
@@ -250,8 +262,8 @@ def validate_evidence(root: Path, module: str, config: str) -> tuple[dict, list[
     ):
         raise ValueError(
             f"{folder}/manifest.json: source identity changed; stop and ask the user to "
-            f"package/archive the current outputs/{module}, reports/{module} and "
-            f"evidence/{module}, clear those directories, then restart generation"
+            f"package/archive the current {output_dir}, clear that directory, "
+            "then restart generation"
         )
     rtl = local_path(root, folder / f"{module}.sv")
     if not rtl.is_file() or digest(rtl) != manifest.get("rtl_sha256"):
