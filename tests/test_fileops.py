@@ -149,6 +149,87 @@ class TestFileOpsTools(unittest.TestCase):
         self.assertFalse(wildcard_entry_overlaps("DUT/*.v", "DUT-other/x"))
         self.assertFalse(wildcard_entry_overlaps("OUT/*.md", "DUT"))
 
+    def test_is_file_writeable_write_entry_carves_out_no_write_area(self):
+        # A write entry deeper than the no-write entry makes that area writable.
+        ok, msg = is_file_writeable(
+            "DUT/spec.md", un_write_dirs=["DUT"], write_dirs=["OUT", "DUT/*.md"]
+        )
+        self.assertTrue(ok)
+        self.assertIn("DUT/*.md", msg)
+        ok, _ = is_file_writeable(
+            "DUT/DUT.db/state.log",
+            un_write_dirs=["DUT"],
+            write_dirs=["OUT", "DUT/DUT.db"],
+        )
+        self.assertTrue(ok)
+        # Siblings outside the carve-out stay protected.
+        blocked, _ = is_file_writeable(
+            "DUT/top.v", un_write_dirs=["DUT"], write_dirs=["OUT", "DUT/*.md"]
+        )
+        self.assertFalse(blocked)
+        # A single-segment wildcard only carves its own depth.
+        blocked, _ = is_file_writeable(
+            "DUT/sub/spec.md", un_write_dirs=["DUT"], write_dirs=["OUT", "DUT/*.md"]
+        )
+        self.assertFalse(blocked)
+        # Equal depth keeps the no-write entry in charge (file self-protection).
+        blocked, _ = is_file_writeable(
+            "OUT/locked.py", un_write_dirs=["OUT/locked.py"], write_dirs=["OUT"]
+        )
+        self.assertFalse(blocked)
+        # A deeper no-write entry still beats a shallower write entry.
+        blocked, _ = is_file_writeable(
+            "OUT/inner/locked.py",
+            un_write_dirs=["OUT/inner/locked.py"],
+            write_dirs=["OUT"],
+        )
+        self.assertFalse(blocked)
+
+    def test_dynamic_directory_creation_in_carved_out_area(self):
+        """A write_dirs carve-out must allow creating its directory at runtime.
+
+        The no-write parent stays OS-writable when a write entry is declared
+        beneath it, so directories that only appear during the run can be
+        created and filled without errors.
+        """
+        from ucagent.util.functions import chmode_ro_by_pattern
+
+        os.makedirs(os.path.join(self.test_dir, "X"))
+        with open(os.path.join(self.test_dir, "X", "top.v"), "w", encoding="utf-8") as f:
+            f.write("module top();\n")
+        # Startup-time read-only pass happens before the carved directory exists.
+        chmode_ro_by_pattern(self.test_dir, ["X"], write_dirs=["out", "X/A"])
+        try:
+            self.assertTrue(
+                os.stat(os.path.join(self.test_dir, "X")).st_mode & 0o200,
+                "parent holding the carve-out must stay writable",
+            )
+            self.assertFalse(
+                os.stat(os.path.join(self.test_dir, "X", "top.v")).st_mode & 0o200,
+                "protected sibling must be read-only",
+            )
+
+            create = CreateDirectory(
+                self.test_dir, write_dirs=["out", "X/A"], un_write_dirs=["X"]
+            )
+            self.assertIn(
+                "created successfully", create._run(path="X/A")
+            )
+            edit = EditTextFile(
+                self.test_dir, write_dirs=["out", "X/A"], un_write_dirs=["X"]
+            )
+            self.assertIn(
+                "Created 'X/A/state.md'",
+                edit._run(path="X/A/state.md", content="hello\n"),
+            )
+            self.assertTrue(
+                os.path.isfile(os.path.join(self.test_dir, "X", "A", "state.md"))
+            )
+            rejected = edit._run(path="X/top.v", content="hack\n")
+            self.assertIn("not allowed to write", rejected)
+        finally:
+            os.chmod(os.path.join(self.test_dir, "X", "top.v"), 0o644)
+
     def test_edit_text_file_rejects_wildcard_protected_path(self):
         restricted_dir = os.path.join(self.test_dir, "restricted")
         os.makedirs(restricted_dir, exist_ok=True)

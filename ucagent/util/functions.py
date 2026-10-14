@@ -41,7 +41,7 @@ import fnmatch
 import ast
 import codecs
 import locale
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import yaml
 from collections import OrderedDict
 import traceback
@@ -2799,10 +2799,37 @@ def is_port_free(host: str, port: int) -> bool:
             return False
 
 
+def _dir_contains_write_entry(directory: str, write_dirs) -> bool:
+    """Whether a write entry may declare something strictly inside the directory.
+
+    The check is lexical: the entry must have more segments than the directory
+    and agree with it on every shared segment, allowing wildcards.
+    """
+    directory_parts = PurePosixPath(directory).parts
+    for entry in write_dirs:
+        entry_parts = PurePosixPath(str(entry)).parts
+        if len(entry_parts) <= len(directory_parts):
+            continue
+        if all(
+            fnmatch.fnmatchcase(part, entry_part)
+            for part, entry_part in zip(directory_parts, entry_parts)
+        ):
+            return True
+    return False
+
+
 def chmode_ro_by_pattern(
-    workspace, pattern_list: str, ignore_list: list = ["__pycache__"]
+    workspace,
+    pattern_list: str,
+    ignore_list: list = ["__pycache__"],
+    write_dirs=None,
 ) -> list:
-    """Change file mode to read-only."""
+    """Change file mode to read-only.
+
+    When write_dirs is provided, candidates the write policy allows stay
+    writable, as do directories holding declared write entries, so creating
+    files inside a carved-out area keeps working.
+    """
     file_list = []
     path_list = []
     for file_path_pattern in pattern_list:
@@ -2823,6 +2850,26 @@ def chmode_ro_by_pattern(
             else:
                 warning(f"File not found for: {file_path}")
     all_list = file_list + path_list
+    if write_dirs is not None:
+        # Imported lazily: fileops imports this module at load time.
+        from ucagent.tools.fileops import is_file_writeable
+
+        kept = []
+        for candidate in all_list:
+            relative = os.path.relpath(candidate, workspace).replace(os.sep, "/")
+            allowed, _reason = is_file_writeable(
+                relative,
+                un_write_dirs=list(pattern_list),
+                write_dirs=list(write_dirs),
+            )
+            if allowed or (
+                os.path.isdir(candidate)
+                and _dir_contains_write_entry(relative, write_dirs)
+            ):
+                info(f"Path kept writable by write_dirs policy: {candidate}")
+                continue
+            kept.append(candidate)
+        all_list = kept
     return chmode_ro(all_list, ignore_list)
 
 

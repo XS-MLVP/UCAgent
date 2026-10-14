@@ -596,7 +596,9 @@ class VerifyAgent:
                     rm_workspace_prefix(self.workspace, abs_f)
                 )
         self.cwd_read_only_files = fc.chmode_ro_by_pattern(
-            self.workspace, self.cfg.get_value("un_write_dirs", [])
+            self.workspace,
+            self.cfg.get_value("un_write_dirs", []),
+            write_dirs=self.cfg.get_value("write_dirs", None),
         )
         self.tool_waveinfo = WaveInfo(
             workspace=self.workspace,

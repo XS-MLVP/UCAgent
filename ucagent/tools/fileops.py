@@ -276,7 +276,32 @@ def _bounded_diff(old_content: str, new_content: str, path: str) -> Tuple[str, b
     )
 
 
+def deepest_matching_write_entry(path: str, entries) -> Tuple[int, Optional[str]]:
+    """Return the segment depth and configured value of the deepest matching entry.
+
+    Depth is the number of path segments in the entry (a ``**`` segment counts
+    as one); ``(-1, None)`` means no entry matches the path.
+    """
+    best_depth, best_entry = -1, None
+    for entry in entries:
+        try:
+            normalized = _normalize_relative_path(entry)
+        except ValueError:
+            continue
+        if path_is_at_or_below(path, normalized):
+            depth = len(PurePosixPath(normalized).parts)
+            if depth > best_depth:
+                best_depth, best_entry = depth, entry
+    return best_depth, best_entry
+
+
 def is_file_writeable(path: str, un_write_dirs: list=None, write_dirs: list=None) -> Tuple[bool, str]:
+    """Decide whether a workspace-relative path may be written.
+
+    A path matching entries from both lists is decided by the deepest entry:
+    a write entry strictly below a no-write entry carves that subtree back out
+    as writable, while an equal-depth conflict keeps the path protected.
+    """
     try:
         path = _normalize_relative_path(path)
     except ValueError as exc:
@@ -285,29 +310,27 @@ def is_file_writeable(path: str, un_write_dirs: list=None, write_dirs: list=None
         return True, "No write restrictions defined."
     if un_write_dirs is not None:
         assert isinstance(un_write_dirs, list), "un_write_dirs must be a list."
-        for d in un_write_dirs:
-            try:
-                directory = _normalize_relative_path(d)
-            except ValueError:
-                continue
-            if path_is_at_or_below(path, directory):
-                return False, (
-                    f"Path '{path}' is not allowed to write: it matches the "
-                    f"no-write entry '{d}'."
-                )
-        if write_dirs is None:
-            return True, f"Path '{path}' is allowed to write as it does not match any no-write directories: {un_write_dirs}."
     if write_dirs is not None:
         assert isinstance(write_dirs, list), "write_dirs must be a list."
-        for d in write_dirs:
-            try:
-                directory = _normalize_relative_path(d)
-            except ValueError:
-                continue
-            if path_is_at_or_below(path, directory):
-                return True, f"Path '{path}' is allowed to write."
-        return False, f"Path '{path}' is not allowed to write, except in: {write_dirs}."
-    return True, "Not implemented yet."
+    write_depth, write_entry = deepest_matching_write_entry(path, write_dirs or [])
+    un_write_depth, un_write_entry = deepest_matching_write_entry(
+        path, un_write_dirs or []
+    )
+    if write_entry is not None and write_depth > un_write_depth:
+        if un_write_depth >= 0:
+            return True, (
+                f"Path '{path}' is allowed to write: it matches the write entry "
+                f"'{write_entry}' inside a no-write area."
+            )
+        return True, f"Path '{path}' is allowed to write: it matches the write entry '{write_entry}'."
+    if un_write_entry is not None:
+        return False, (
+            f"Path '{path}' is not allowed to write: it matches the "
+            f"no-write entry '{un_write_entry}'."
+        )
+    if write_dirs is None:
+        return True, f"Path '{path}' is allowed to write as it does not match any no-write directories: {un_write_dirs}."
+    return False, f"Path '{path}' is not allowed to write, except in: {write_dirs}."
 
 
 class BaseReadWrite:

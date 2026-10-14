@@ -22,6 +22,7 @@ _EXPORT_GROUPS = {
         "write_entry_has_wildcards",
         "wildcard_entry_overlaps",
         "write_entry_matches_anything",
+        "deepest_matching_write_entry",
         "BaseReadWrite",
         "StrictToolArgs",
         "ArgSearchText",

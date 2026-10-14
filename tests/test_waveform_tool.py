@@ -3037,6 +3037,33 @@ def test_apply_waveinfo_evidence_resolve_target_supports_wildcard_entries(tmp_pa
     assert "outside the configured write directories" in outside_reason
 
 
+def test_apply_waveinfo_evidence_resolve_target_write_entry_carves_no_write(
+    tmp_path,
+):
+    """A write entry deeper than the no-write entry re-allows its targets."""
+    test_dir = tmp_path / "unity_test" / "tests"
+    carved = tmp_path / "Guide_Doc" / "dut_bug_analysis.md"
+    deeper = tmp_path / "Guide_Doc" / "sub" / "other.md"
+    carved.parent.mkdir(exist_ok=True)
+    deeper.parent.mkdir(parents=True, exist_ok=True)
+    carved.write_text("# Doc\n", encoding="utf-8")
+    deeper.write_text("# Doc\n", encoding="utf-8")
+    tool = ApplyWaveInfoEvidence(
+        waveinfo=_tool(tmp_path, test_dir),
+        workspace=str(tmp_path),
+        write_dirs=["out/*.md", "Guide_Doc/*.md"],
+        un_write_dirs=["Guide_Doc"],
+    )
+
+    target, reason = tool._resolve_target("Guide_Doc/dut_bug_analysis.md")
+    assert target is not None
+    assert reason is None
+
+    blocked, blocked_reason = tool._resolve_target("Guide_Doc/sub/other.md")
+    assert blocked is None
+    assert "no-write entry" in blocked_reason
+
+
 def test_parameterized_name_is_exact_and_invalid_name_is_rejected(tmp_path):
     test_dir = tmp_path / "tests"
     session = _session(test_dir, "toffee_tmp_20260814150000_000")

@@ -32,7 +32,7 @@ import yaml
 
 from ucagent.util.functions import make_llm_tool_ret
 from ucagent.tools.fileops import (
-    path_is_at_or_below,
+    deepest_matching_write_entry,
     write_entry_has_wildcards,
 )
 from ucagent.util.bug_analysis_contract import (
@@ -3451,6 +3451,29 @@ class ApplyWaveInfoEvidence(UCTool):
                 return None
         return candidate.as_posix()
 
+    def _relative_entries(self, values, root: Path) -> list[str] | None:
+        """Convert configured entries to workspace-relative match strings.
+
+        Literal entries are resolved first so symlinked directories keep their
+        resolved-containment semantics; wildcard entries stay lexical.
+        """
+        if values is None:
+            return None
+        entries = []
+        for value in values:
+            if write_entry_has_wildcards(value):
+                entry = self._pattern_entry(value, root)
+            else:
+                try:
+                    entry = self._configured_directory(value).relative_to(
+                        root
+                    ).as_posix()
+                except ValueError:
+                    entry = None
+            if entry is not None:
+                entries.append(entry)
+        return entries
+
     def _resolve_target(self, target_file: str) -> tuple[Path | None, str | None]:
         root = Path(self.workspace).resolve()
         requested = Path(target_file)
@@ -3473,33 +3496,28 @@ class ApplyWaveInfoEvidence(UCTool):
             return None, "target_file must be a Markdown (.md) document"
 
         target_relative = target.relative_to(root).as_posix()
-        for value in self.un_write_dirs or []:
-            if write_entry_has_wildcards(value):
-                entry = self._pattern_entry(value, root)
-                if entry is not None and path_is_at_or_below(target_relative, entry):
-                    return None, (
-                        f"target_file '{target_file}' matches the configured "
-                        f"no-write entry '{value}'"
-                    )
-                continue
-            if self._is_within(target, self._configured_directory(value)):
-                return None, f"target_file '{target_file}' is in a configured no-write directory"
-        if self.write_dirs is not None:
-            allowed = False
-            for value in self.write_dirs:
-                if write_entry_has_wildcards(value):
-                    entry = self._pattern_entry(value, root)
-                    if entry is not None and path_is_at_or_below(target_relative, entry):
-                        allowed = True
-                        break
-                elif self._is_within(target, self._configured_directory(value)):
-                    allowed = True
-                    break
-            if not allowed:
-                return None, (
-                    f"target_file '{target_file}' is outside the configured write directories: "
-                    f"{self.write_dirs}"
-                )
+        un_write_entries = self._relative_entries(self.un_write_dirs, root) or []
+        write_entries = self._relative_entries(self.write_dirs, root)
+        write_depth, write_entry = deepest_matching_write_entry(
+            target_relative, write_entries or []
+        )
+        un_write_depth, un_write_entry = deepest_matching_write_entry(
+            target_relative, un_write_entries
+        )
+        # Same precedence as the file tools: the deepest matching entry wins,
+        # and a no-write entry wins an equal-depth conflict.
+        if un_write_entry is not None and write_depth <= un_write_depth:
+            return None, (
+                f"target_file '{target_file}' matches the no-write entry "
+                f"'{un_write_entry}'"
+            )
+        if write_entry is None:
+            if self.write_dirs is None:
+                return target, None
+            return None, (
+                f"target_file '{target_file}' is outside the configured write directories: "
+                f"{self.write_dirs}"
+            )
         return target, None
 
     @staticmethod
