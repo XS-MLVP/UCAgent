@@ -1,7 +1,7 @@
 
 # RTL2Spec 开发与验证
 
-安装和使用见 [README](../README.md)。通用贡献流程遵循 [UCAgent 贡献指南](https://github.com/XS-MLVP/UCAgent/blob/main/CONTRIBUTING.md)，插件接口与发布约定见 [UCAgent 插件开发文档](https://github.com/XS-MLVP/UCAgent/blob/main/docs/content/03_develop/09_plugins.md)。
+安装和使用见 [README](../README.md)，实现原理、工作流与 checker 设计见[插件原理与设计](architecture.md)。本文介绍代码组织、开发验证和打包方法。通用贡献流程遵循 [UCAgent 贡献指南](https://github.com/XS-MLVP/UCAgent/blob/main/CONTRIBUTING.md)，插件接口与发布约定见 [UCAgent 插件开发文档](https://github.com/XS-MLVP/UCAgent/blob/main/docs/content/03_develop/09_plugins.md)。
 
 ## 项目结构
 
@@ -20,7 +20,7 @@ UCAgent/plugins/RTL2Spec/
 ├── setup.py                     # 构建时复制根目录 LICENSE、NOTICE.md
 ├── MANIFEST.in                  # sdist 范围
 ├── Makefile                     # 维护命令
-├── docs/                        # 开发步骤、工具参考与问题排查
+├── docs/                        # 原理与设计、开发验证、工具参考
 ├── src/rtl2spec/
 │   ├── *.py                     # 插件实现，职责见下表
 │   ├── scripts/                 # 环境准备与 RTL 编译脚本

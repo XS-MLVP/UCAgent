@@ -11,13 +11,13 @@
 
 同一次运行中可继续修订草稿、同步 metadata 和验收。Mermaid 图直接保留在 Markdown 源码中，不生成 SVG、图形清单或其他图片文件。启动新一轮生成前选择空的输出目录，或由用户自行归档并清理旧产物，插件不会自动打包、删除或覆盖旧文件。
 
-两条工作流都使用 UCAgent 的 `--output` 目录（工作流中为 `{OUT}`）：设计文档和质量报告位于目录根部，RTL、端口清单/骨架和 `manifest.json` 位于其 `evidence/` 子目录；复核记录与最终验收记录位于目录根部，调用耗时位于 `logs/actions.jsonl`，阶段起止时间与总耗时位于 `logs/stages.jsonl`。工具、阶段参考文件和验收均使用同一目录；完整布局与启动命令见 [README](../README.md#输出目录与验收)。
+两条工作流都使用 UCAgent 的 `--output` 目录（工作流中为 `{OUT}`）：设计文档和质量报告位于目录根部，RTL、端口清单/骨架和 `manifest.json` 位于其 `evidence/` 子目录；复核记录与最终验收记录位于目录根部，调用耗时位于 `logs/actions.jsonl`，阶段起止时间与总耗时位于 `logs/stages.jsonl`。工具、阶段参考文件和验收均使用同一目录；完整布局见 [README](../README.md#查看生成结果)。
 
 确定性检查从草稿阶段启用。完整字段、状态与引用规则见[生成指南](../src/rtl2spec/Guide_Doc/generation-guide.md#确定性验收规则)。规则允许多对多追溯、共享接口、有理由的不适用项及额外说明表；检查通过不代表实现语义或硬件功能正确。
 
 ## 后端配置
 
-默认 Codex 的启动参数见 [README](../README.md#共同运行方式)。使用其他后端时，先配置并验证同等权限限制；后端权限验证方法见[开发与验证](development.md#开发与验证)。
+默认 Codex 的启动参数见 [README](../README.md#启动文档生成)。使用其他后端时，先配置并验证同等权限限制；后端权限验证方法见[开发与验证](development.md#开发与验证)。
 
 ## 插件工具
 
