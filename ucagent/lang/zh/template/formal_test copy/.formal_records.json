@@ -1,6 +1,0 @@
-{
-  "dut": "{{DUT}}",
-  "spec": {
-    "function_groups": []
-  }
-}
