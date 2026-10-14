@@ -27,7 +27,7 @@ def is_repository_owned(path: Path) -> bool:
     parts = path.relative_to(ROOT).parts
     if not parts or EXCLUDED_PARTS.intersection(parts):
         return False
-    if parts[0] in {"inputs", "outputs", "reports", "evidence", "Guide_Doc"}:
+    if parts[0] in {"inputs", "outputs", "Guide_Doc"}:
         return False
     return True
 
@@ -69,7 +69,16 @@ def main() -> int:
         errors.append(
             "plugin resources must contain exactly one canonical document template"
         )
-    for relative in ("Guide_Doc/generation-guide.md", "workflows/design-document.yaml"):
+    for relative in (
+        "Guide_Doc/generation-guide.md",
+        "Guide_Doc/generic-generation-guide.md",
+        "Guide_Doc/xiangshan-input-guide.md",
+        "Guide_Doc/source-review-guide.md",
+        "Guide_Doc/finalization-guide.md",
+        "Guide_Doc/artifact-templates.json",
+        "workflows/xiangshan-design-document.yaml",
+        "workflows/generic-design-document.yaml",
+    ):
         if not (resources / relative).is_file():
             errors.append(f"missing plugin resource: {relative}")
     manifest = tomllib.loads((ROOT / "ucagent-plugin.toml").read_text(encoding="utf-8"))

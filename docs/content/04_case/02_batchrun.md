@@ -160,7 +160,7 @@ ucagent --hook-message config.yaml::continue_key|complete_key
 - 检查 UCAgent 状态（通过 `.ucagent/ucagent_info.json`）
 - 如果任务未完成，返回 `continue_key` 对应的提示词
 - 如果任务已完成，返回 `stop_key` 对应的提示词（如果提供）
-- 通过退出码 0 表示成功，非 0 表示失败
+- 如果任务已退出但没有配置 `stop_key`，返回空输出和退出码 0，表示 Hook 正常结束；其他配置或运行错误返回非 0
 
 #### iFlow CLI 配置
 
@@ -180,7 +180,7 @@ ucagent --hook-message config.yaml::continue_key|complete_key
 				"hooks": [
 					{
 						"type": "command",
-						"command": "M=`ucagent --hook-message 'continue|quit'` && (tmux send-keys $M; sleep 1; tmux send-keys Enter)",
+					"command": "M=`ucagent --hook-message 'continue|quit'` && if [ -n \"$M\" ]; then tmux send-keys \"$M\"; sleep 1; tmux send-keys Enter; fi",
 						"timeout": 3
 					}
 				]

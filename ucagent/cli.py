@@ -363,6 +363,25 @@ class HookMessageAction(argparse.Action):
         if msg:
             info(msg.strip())
             sys.exit(0)
+        # A missing stop message is a normal terminal outcome for external
+        # hooks.  Returning exit code 1 here makes the hook runner report a
+        # false failure after UCAgent has already exited.  Keep a non-zero
+        # result for an active run whose continue message is misconfigured.
+        status_data = fc.load_ucagent_info(".")
+        terminal = bool(
+            status_data.get("is_agent_exit", False)
+            or status_data.get("is_wait_human_check", False)
+            or (
+                status_data.get("all_completed", False)
+                and not self.need_agent_exit
+            )
+        )
+        if terminal:
+            parser.exit(0)
+        print(
+            "Hook message is not configured for the current active state.",
+            file=sys.stderr,
+        )
         parser.exit(1)
 
 

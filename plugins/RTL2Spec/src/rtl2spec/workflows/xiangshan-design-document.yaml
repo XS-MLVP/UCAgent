@@ -1,0 +1,162 @@
+template: null
+template_overwrite:
+  XS_CONFIG: '$(XIANGSHAN_CONFIG: DefaultConfig)'
+call_time_out: 3660
+tools:
+  selected_tools:
+  - RoleInfo
+  - CurrentTips
+  - Status
+  - Detail
+  - StageJournal
+  - AllStageJournal
+  - SetCurrentStageJournal
+  - Check
+  - Complete
+  - KillCheck
+  - Exit
+  - PathList
+  - GetFileInfo
+  - FindFiles
+  - SearchText
+  - ReadTextFile
+  - CreateDirectory
+  - EditTextFile
+  - ReplaceStringInFile
+  - DeleteTextLines
+  - RTL2SpecCommand
+write_dirs:
+- '{OUT}'
+- .cache
+- third_party/XiangShan/out
+- third_party/XiangShan/build
+- third_party/XiangShan/src/main/resources/espresso
+un_write_dirs:
+- '{GUIDE_DOC}'
+- inputs
+- .ucagent/.rtl2spec_receipt_key
+- third_party/XiangShan/src/main/scala
+guide_doc:
+  enable: true
+  core_copy_policy:
+    default_action: ignore
+    retain: []
+    override: []
+    ignore: []
+  plugin_copy_policy:
+    default_action: retain
+    retain: []
+    ignore: []
+skill:
+  general_skill_list: []
+mission:
+  name: '{DUT} XiangShan 设计文档生成'
+  prompt:
+    system: '你负责为 {DUT} 生成配置 {XS_CONFIG} 的中文设计与功能检测点文档。输入位于 third_party/XiangShan/；所有交付物写入 {OUT}。
+
+      先调用 CurrentTips。每个阶段先用 ReadTextFile 读取该阶段 reference_files 中的文件，再按任务读取相关源码区间；按 Guide_Doc/chip_design_document_template_zh.md
+      写作。
+
+      使用 RTL2SpecCommand 的 preflight、evidence、related_sources、ports、metadata、review、finalize 操作。validate 用于草稿诊断，lint
+      用于复核记录诊断；正常收尾只需 finalize 后 Complete，失败时再按诊断修订。
+
+      正文区分入口接受、目标接受和响应消费；逐项确认存储、旁路、实时配置、复位和环境假设。正文逻辑接口名可以独立于 RTL 名称，附录 A 必须精确映射 ports.csv 每个端口及其方向/位宽。
+
+      开始前确认 {OUT} 无旧产物；已有产物需按用户授权清理或另选输出目录。同一次运行允许修订本次文档。不得修改 DUT 输入源码、Guide_Doc 或检查脚本；无法确认的内容登记 OPEN-*。
+
+      复核记录和文档验收不等于仿真、综合或形式化证明，未运行项目保持 Unrun/Open。每个阶段记录 SetCurrentStageJournal 后 Complete。'
+    skill_system: ''
+stage:
+- name: inspect_and_generate_evidence
+  desc: 核验输入并生成证据
+  task:
+  - 先读取 Guide_Doc/xiangshan-input-guide.md，检查输入、配置和输出目录。
+  - 执行 RTL2SpecCommand(action='preflight', module='{DUT}', config='{XS_CONFIG}')；按诊断修复输入或工具环境。
+  - 执行 RTL2SpecCommand(action='evidence', module='{DUT}', config='{XS_CONFIG}')；读取 {OUT}/evidence/manifest.json、ports.csv
+    和 {DUT}.sv。
+  - 读取实际支撑行为结论的相关源码，记录路径与行号；用 related_sources 登记实际使用的相关文件或模块。
+  - 执行 RTL2SpecCommand(action='ports', module='{DUT}', config='{XS_CONFIG}')，生成 {OUT}/evidence/ports.md 端口骨架。
+  reference_files:
+  - Guide_Doc/xiangshan-input-guide.md
+  output_files:
+  - '{OUT}/evidence/manifest.json'
+  - '{OUT}/evidence/ports.csv'
+  - '{OUT}/evidence/{DUT}.sv'
+  - '{OUT}/evidence/ports.md'
+  checker:
+  - name: evidence_artifacts_check
+    clss: RTL2SpecArtifactsChecker
+    args:
+      module: '{DUT}'
+      output_dir: '{OUT}'
+      config: '{XS_CONFIG}'
+      phase: evidence
+- name: draft_design_document
+  desc: 编写设计文档和质量报告
+  task:
+  - 先读取本阶段参考文件；写作方法和完整例子见 Guide_Doc/generation-guide.md，固定结构见 Guide_Doc/chip_design_document_template_zh.md。
+  - 按模板生成 {OUT}/{DUT}_design_document_zh.md，删除模板说明和占位符；正文按 P-* 定义职责、激励、结果、时序、边界及配置行为。将 ports.md 表格填入附录 A，只补充逻辑分组和协议说明，不改变精确端口事实。
+  - 按 Guide_Doc/generation-guide.md 的确定性验收规则填写七类行为字段、规范表和追溯关系；未知事实登记 OPEN-*，源位置使用有效行范围，签核状态与实际执行一致。
+  - 逐个接口区分握手边界、资源占用和释放；明确旁路触发、配置锁存/实时属性、复位恢复及环境假设；Testplan、Coverage 和场景与 P-* 一致。等待/空选择覆盖按有效等待条件采样，不要求不存在的完成握手。
+  - 生成 {OUT}/{DUT}_document_quality_review.md，记录源码依据、复核发现和开放项；只记录实际工具结果，未执行的验证保持 Unrun/Open。
+  - 执行 RTL2SpecCommand(action='metadata', module='{DUT}', config='{XS_CONFIG}')；需要草稿诊断时调用 validate。
+  reference_files:
+  - Guide_Doc/generation-guide.md
+  - Guide_Doc/chip_design_document_template_zh.md
+  - '{OUT}/evidence/manifest.json'
+  - '{OUT}/evidence/ports.md'
+  output_files:
+  - '{OUT}/{DUT}_design_document_zh.md'
+  - '{OUT}/{DUT}_document_quality_review.md'
+  checker:
+  - name: draft_artifacts_check
+    clss: RTL2SpecArtifactsChecker
+    args:
+      module: '{DUT}'
+      output_dir: '{OUT}'
+      config: '{XS_CONFIG}'
+      phase: draft
+- name: review_source_semantics
+  desc: 逐项复核源码语义
+  task:
+  - 先读取 Guide_Doc/source-review-guide.md、当前设计文档以及本阶段列出的源文件；逐个 P-* 对照真实源码，不能只重复草稿中的结论。
+  - 修正正文、Testplan 和 Coverage 中的矛盾；将无法确认的内容写为 OPEN-*，在质量报告中记录实际复核发现。
+  - 文档修订完后执行 metadata，再执行 RTL2SpecCommand(action='review', module='{DUT}', config='{XS_CONFIG}')。
+  - 填写 {OUT}/semantic_review.json 每个行为的七类复核项；每项写结论、适用性和有效源码行范围；verification_plan 引用 Testplan 中属于当前行为的 CK 及其 COV。若再次修改设计文档或相关证据，重新 review
+    并复核，不可手改 baseline。
+  - 需要定位复核问题时调用 lint；随后记录阶段日志并 Complete。
+  reference_files:
+  - Guide_Doc/source-review-guide.md
+  - '{OUT}/evidence/manifest.json'
+  - '{OUT}/{DUT}_design_document_zh.md'
+  output_files:
+  - '{OUT}/semantic_review.json'
+  checker:
+  - name: review_artifacts_check
+    clss: RTL2SpecArtifactsChecker
+    args:
+      module: '{DUT}'
+      output_dir: '{OUT}'
+      config: '{XS_CONFIG}'
+      phase: review
+- name: validate_and_finalize
+  desc: 发布最终验收记录
+  task:
+  - 读取 Guide_Doc/finalization-guide.md。
+  - 执行 RTL2SpecCommand(action='finalize', module='{DUT}', config='{XS_CONFIG}')；工具检查当前文档和复核记录，更新质量报告并输出 {OUT}/validation.json。
+  - 若失败，按诊断修订并重新复核受影响的内容。成功后不再手工回填检查结果或改动交付物；记录阶段日志后直接 Complete。
+  reference_files:
+  - Guide_Doc/finalization-guide.md
+  output_files:
+  - '{OUT}/{DUT}_design_document_zh.md'
+  - '{OUT}/{DUT}_document_quality_review.md'
+  - '{OUT}/semantic_review.json'
+  - '{OUT}/validation.json'
+  checker:
+  - name: final_artifacts_check
+    clss: RTL2SpecArtifactsChecker
+    args:
+      module: '{DUT}'
+      output_dir: '{OUT}'
+      config: '{XS_CONFIG}'
+      phase: final
