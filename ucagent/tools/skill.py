@@ -5,6 +5,7 @@ This module provides tools to list and manage available skills in the workspace.
 
 import re
 import os
+import sys
 import json
 import shlex
 import shutil
@@ -72,6 +73,10 @@ def _get_script_runner(workspace: str, script_path: str) -> str:
     """Get a script runner by extension or script_runner.json."""
     script_file = Path(script_path)
     script_abs_path = script_file if script_file.is_absolute() else Path(workspace) / script_file
+    if script_file.suffix == ".py" and sys.executable:
+        # Use the interpreter running UCAgent so skill scripts import the same
+        # installed dependencies even when its environment is not on PATH.
+        return sys.executable
     runner = DEFAULT_SCRIPT_RUNNERS.get(script_file.suffix)
 
     if runner is None:

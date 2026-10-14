@@ -25,6 +25,7 @@ from ucagent.tools.skill import (
     ArgsRunSkillScript,
     ListSkill,
     RunSkillScript,
+    _get_script_runner,
     _get_skill_script_env,
     _scan_skills,
 )
@@ -493,6 +494,26 @@ def test_run_skill_script_imports_source_ucagent_without_external_pythonpath(
 
     assert result == "Inserted 1 FG item(s).\n"
     assert "<FG-API>" in target_doc.read_text(encoding="utf-8")
+
+
+def test_python_skill_script_runner_does_not_depend_on_path(tmp_path, monkeypatch):
+    empty_bin = tmp_path / "empty-bin"
+    empty_bin.mkdir()
+    monkeypatch.setenv("PATH", str(empty_bin))
+
+    assert _get_script_runner(str(tmp_path), "scripts/update.py") == sys.executable
+
+
+def test_python_skill_script_runner_allows_interpreter_path_with_spaces(
+    tmp_path, monkeypatch
+):
+    spaced_dir = tmp_path / "python env"
+    spaced_dir.mkdir()
+    spaced_python = spaced_dir / "python"
+    spaced_python.symlink_to(sys.executable)
+    monkeypatch.setattr(sys, "executable", str(spaced_python))
+
+    assert _get_script_runner(str(tmp_path), "scripts/update.py") == str(spaced_python)
 
 
 def test_template_script_main_uses_workspace_runtime_config(tmp_path, monkeypatch):
