@@ -282,6 +282,11 @@ un_write_dirs:
   - "{GUIDE_DOC}"
 write_dirs:
   - "{OUT}"
+  # VCS runtime artifacts inside the protected DUT tree: *.vdb data
+  # directories plus *.fsdb/*.vpd waveform files dumped by the simulator.
+  - "{DUT}/**/*.vdb"
+  - "{DUT}/**/*.fsdb"
+  - "{DUT}/**/*.vpd"
 
 guide_doc:
   path: "{GUIDE_DOC}"
