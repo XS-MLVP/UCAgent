@@ -18,6 +18,10 @@ _EXPORT_GROUPS = {
     ),
     "fileops": (
         "is_file_writeable",
+        "path_is_at_or_below",
+        "write_entry_has_wildcards",
+        "wildcard_entry_overlaps",
+        "write_entry_matches_anything",
         "BaseReadWrite",
         "StrictToolArgs",
         "ArgSearchText",

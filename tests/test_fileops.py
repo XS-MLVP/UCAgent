@@ -87,6 +87,77 @@ class TestFileOpsTools(unittest.TestCase):
         self.assertFalse(is_file_writeable("/tmp/out/file.txt", write_dirs=["out"])[0])
         self.assertFalse(is_file_writeable("out/file.txt", write_dirs=[])[0])
 
+    def test_is_file_writeable_supports_wildcard_entries(self):
+        # A single-segment wildcard stays inside one path component.
+        blocked, msg = is_file_writeable(
+            "DUT/top.v", un_write_dirs=["DUT/*.v"]
+        )
+        self.assertFalse(blocked)
+        self.assertIn("DUT/*.v", msg)
+        self.assertTrue(is_file_writeable("DUT/top.sv", un_write_dirs=["DUT/*.v"])[0])
+        self.assertTrue(is_file_writeable("DUT/sub/top.v", un_write_dirs=["DUT/*.v"])[0])
+        # Matched paths protect everything below them.
+        self.assertFalse(
+            is_file_writeable("DUT/build.v/state", un_write_dirs=["DUT/*.v"])[0]
+        )
+        # ?, [...], and ** keep their glob meanings.
+        self.assertFalse(is_file_writeable("DUT/top.v", un_write_dirs=["DUT/t?p.v"])[0])
+        self.assertFalse(
+            is_file_writeable("DUT/tap.v", un_write_dirs=["DUT/t[oa]p.v"])[0]
+        )
+        self.assertTrue(is_file_writeable("DUT/tbp.v", un_write_dirs=["DUT/t[oa]p.v"])[0])
+        self.assertFalse(
+            is_file_writeable("a/b/__pycache__/x.pyc", un_write_dirs=["**/__pycache__"])[0]
+        )
+        self.assertFalse(
+            is_file_writeable("__pycache__/x.pyc", un_write_dirs=["**/__pycache__"])[0]
+        )
+        # Wildcards also gate the write_dirs allowlist.
+        self.assertTrue(
+            is_file_writeable("out/report.md", write_dirs=["out/*.md"])[0]
+        )
+        self.assertFalse(
+            is_file_writeable("out/report.txt", write_dirs=["out/*.md"])[0]
+        )
+        # Literal entries never reinterpret glob metacharacters.
+        self.assertTrue(
+            is_file_writeable("data[1]/file", un_write_dirs=["other"])[0]
+        )
+        # Entries are glob patterns: brackets form a character class.
+        self.assertFalse(
+            is_file_writeable("data1/file", un_write_dirs=["data[12]"])[0]
+        )
+        self.assertTrue(
+            is_file_writeable("data[1]/file", un_write_dirs=["data[12]"])[0]
+        )
+
+    def test_write_entry_matches_anything_globs_wildcards(self):
+        dut_dir = os.path.join(self.test_dir, "DUT")
+        os.makedirs(dut_dir, exist_ok=True)
+        with open(os.path.join(dut_dir, "top.v"), "w", encoding="utf-8") as f:
+            f.write("module top();\n")
+        self.assertTrue(write_entry_matches_anything(self.test_dir, "DUT/*.v"))
+        self.assertFalse(write_entry_matches_anything(self.test_dir, "DUT/*.sv"))
+        self.assertTrue(write_entry_matches_anything(self.test_dir, "subdir"))
+        self.assertFalse(write_entry_matches_anything(self.test_dir, "missing_dir"))
+
+    def test_wildcard_entry_overlaps(self):
+        self.assertTrue(wildcard_entry_overlaps("DUT/*.v", "DUT"))
+        self.assertTrue(wildcard_entry_overlaps("DUT/**", "DUT/sub"))
+        self.assertTrue(wildcard_entry_overlaps("**/tmp", "a/b/tmp"))
+        self.assertFalse(wildcard_entry_overlaps("DUT/*.v", "OUT"))
+        self.assertFalse(wildcard_entry_overlaps("DUT/*.v", "DUT-other/x"))
+        self.assertFalse(wildcard_entry_overlaps("OUT/*.md", "DUT"))
+
+    def test_edit_text_file_rejects_wildcard_protected_path(self):
+        restricted_dir = os.path.join(self.test_dir, "restricted")
+        os.makedirs(restricted_dir, exist_ok=True)
+        with open(os.path.join(restricted_dir, "top.v"), "w", encoding="utf-8") as f:
+            f.write("line\n")
+        tool = EditTextFile(self.workspace, un_write_dirs=["restricted/*.v"])
+        result = tool._run(path="restricted/top.v", content="changed\n")
+        self.assertIn("not allowed to write", result)
+
     def test_search_text_basic(self):
         """Test basic text search functionality"""
         tool = SearchText(workspace=self.workspace)

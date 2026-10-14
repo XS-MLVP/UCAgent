@@ -1682,6 +1682,75 @@ def test_verify_agent_rejects_template_target_overlapping_read_only_input(
     assert not (dut / "generated.txt").exists()
 
 
+def test_verify_agent_rejects_wildcard_read_only_pattern_overlapping_render_target(
+    tmp_path: Path,
+) -> None:
+    """Wildcard no-write entries that can cover the render target stay invalid."""
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    template_root = tmp_path / "templates"
+    template = template_root / "blocked"
+    template.mkdir(parents=True)
+    (template / "generated.txt").write_text("generated\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="read-only path"):
+        VerifyAgent(
+            workspace=str(workspace),
+            dut_name="dut",
+            output="out",
+            config_file="master.yaml",
+            cfg_override=[
+                {"backend.key_name": "blank"},
+                {"template": "blocked"},
+                {"un_write_dirs": ["out/*.py"]},
+            ],
+            template_dir=str(template_root),
+            template_target="{OUT}",
+            no_embed_tools=True,
+            no_history=True,
+        )
+
+
+def test_verify_agent_accepts_wildcard_read_only_pattern_away_from_render_target(
+    tmp_path: Path,
+) -> None:
+    """Wildcard no-write entries outside the render target keep the render working."""
+
+    workspace = tmp_path / "workspace"
+    dut = workspace / "dut"
+    dut.mkdir(parents=True)
+    (dut / "top.v").write_text("module top();\n", encoding="utf-8")
+    template_root = tmp_path / "templates"
+    template = template_root / "managed"
+    template.mkdir(parents=True)
+    (template / "generated.txt").write_text("generated\n", encoding="utf-8")
+
+    agent = VerifyAgent(
+        workspace=str(workspace),
+        dut_name="dut",
+        output="out",
+        config_file="master.yaml",
+        cfg_override=[
+            {"backend.key_name": "blank"},
+            {"template": "managed"},
+            {"un_write_dirs": ["dut/*.v"]},
+        ],
+        template_dir=str(template_root),
+        template_target="{OUT}",
+        no_embed_tools=True,
+        no_history=True,
+    )
+    assert (workspace / "out" / "generated.txt").read_text(
+        encoding="utf-8"
+    ) == "generated\n"
+    top = dut / "top.v"
+    assert not (top.stat().st_mode & 0o200), "matched source file must be read-only"
+    ok, reason = _is_file_writeable("dut/top.v", un_write_dirs=["dut/*.v"])
+    assert ok is False, reason
+    del agent
+
+
 def test_verify_agent_renders_resolved_template_override_values(
     tmp_path: Path,
 ) -> None:

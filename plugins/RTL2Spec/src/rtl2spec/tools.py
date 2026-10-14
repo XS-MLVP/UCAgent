@@ -14,7 +14,11 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from ucagent.plugins import PluginContext
-from ucagent.tools.fileops import is_file_writeable
+from ucagent.tools.fileops import (
+    is_file_writeable,
+    wildcard_entry_overlaps,
+    write_entry_has_wildcards,
+)
 from ucagent.tools.uctool import UCTool
 
 
@@ -168,13 +172,17 @@ class RTL2SpecCommand(UCTool):
             permitted, reason = is_file_writeable(
                 name, self.un_write_dirs, self.write_dirs
             )
-            protected_children = [
-                path
-                for path in self.un_write_dirs
-                if (workspace / path)
-                .resolve()
-                .is_relative_to((workspace / name).resolve())
-            ]
+            protected_children = []
+            for path in self.un_write_dirs:
+                if write_entry_has_wildcards(path):
+                    if wildcard_entry_overlaps(path, name):
+                        protected_children.append(path)
+                elif (
+                    (workspace / path)
+                    .resolve()
+                    .is_relative_to((workspace / name).resolve())
+                ):
+                    protected_children.append(path)
             if not permitted or protected_children:
                 return {
                     "ok": False,

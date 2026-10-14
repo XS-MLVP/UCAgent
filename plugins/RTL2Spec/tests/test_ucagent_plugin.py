@@ -126,6 +126,37 @@ def test_factory_preserves_resolved_workspace_policy(tmp_path):
     assert tool._run("preflight", "Sbuffer")["error_code"] == "WRITE_POLICY_DENIED"
 
 
+def test_factory_enforces_wildcard_no_write_policy(tmp_path):
+    """Wildcard no-write entries deny the plugin write footprint like literals."""
+    context = PluginContext(
+        workspace=tmp_path,
+        output_dir="outputs/Sbuffer",
+        write_dirs=("outputs/Sbuffer",),
+        un_write_dirs=(".cach*",),
+        cfg=None,
+        plugin_root=get_plugin().root,
+    )
+    (tool,) = create_tools(context)
+    assert tool._run("preflight", "Sbuffer")["error_code"] == "WRITE_POLICY_DENIED"
+
+
+def test_factory_enforces_wildcard_protected_children(tmp_path):
+    """A wildcard entry below a write target still blocks that target."""
+    context = PluginContext(
+        workspace=tmp_path,
+        output_dir="outputs/Sbuffer",
+        write_dirs=(".cache", "outputs/Sbuffer"),
+        un_write_dirs=(".cache/tmp_*",),
+        cfg=None,
+        plugin_root=get_plugin().root,
+    )
+    (tool,) = create_tools(context)
+    result = tool._run("preflight", "Sbuffer")
+    assert result["error_code"] == "WRITE_POLICY_DENIED"
+    assert result["artifact"] == ".cache"
+    assert "protected path" in result["error"]
+
+
 @pytest.mark.parametrize("failure", ["exit", "empty", "timeout"])
 def test_broken_command_version_fails_at_activation(monkeypatch, failure):
     """An executable without a working version probe is rejected before use."""

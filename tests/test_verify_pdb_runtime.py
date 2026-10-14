@@ -8,6 +8,7 @@ import shlex
 import sys
 import threading
 import time
+import types
 from types import SimpleNamespace
 
 import pytest
@@ -462,6 +463,36 @@ def test_chcwd_rejects_paths_outside_workspace(tmp_path, capsys):
 
         assert "outside the workspace" in output
         assert pdb._command_cwd == str(workspace)
+    finally:
+        signal.signal(signal.SIGINT, previous_signal)
+        sys.stdout = previous_stdout
+        sys.stderr = previous_stderr
+
+
+def test_add_un_write_path_accepts_wildcard_pattern(tmp_path, capsys):
+    """Wildcard no-write patterns register at runtime without existing on disk."""
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    agent = _FakeAgent(workspace=str(workspace))
+    agent.cfg = types.SimpleNamespace(un_write_dirs=[], write_dirs=[])
+
+    previous_signal = signal.getsignal(signal.SIGINT)
+    previous_stdout = sys.stdout
+    previous_stderr = sys.stderr
+    pdb = _ProbePDB(agent)
+    try:
+        ok, normalized = pdb.api_is_valid_workspace_path("DUT/*.v")
+        assert ok is True
+        assert normalized == "DUT/*.v"
+
+        pdb.do_add_un_write_path("DUT/*.v")
+        assert "DUT/*.v" in agent.cfg.un_write_dirs
+        output = capsys.readouterr().out
+        assert "already in the non-writable" not in output
+
+        ok, reason = pdb.api_is_valid_workspace_path("missing_dir")
+        assert ok is False
+        assert "does not exist" in reason
     finally:
         signal.signal(signal.SIGINT, previous_signal)
         sys.stdout = previous_stdout

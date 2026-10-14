@@ -31,6 +31,10 @@ from pydantic import BaseModel, Field, model_validator
 import yaml
 
 from ucagent.util.functions import make_llm_tool_ret
+from ucagent.tools.fileops import (
+    path_is_at_or_below,
+    write_entry_has_wildcards,
+)
 from ucagent.util.bug_analysis_contract import (
     BUG_ANALYSIS_SECTION_MARKERS,
     BUG_ANALYSIS_SECTION_TITLES,
@@ -3437,6 +3441,16 @@ class ApplyWaveInfoEvidence(UCTool):
             path = Path(self.workspace) / path
         return path.resolve(strict=False)
 
+    def _pattern_entry(self, value: str, root: Path) -> str | None:
+        """Return a workspace-relative entry string for lexical wildcard matching."""
+        candidate = Path(value)
+        if candidate.is_absolute():
+            try:
+                candidate = candidate.resolve(strict=False).relative_to(root)
+            except ValueError:
+                return None
+        return candidate.as_posix()
+
     def _resolve_target(self, target_file: str) -> tuple[Path | None, str | None]:
         root = Path(self.workspace).resolve()
         requested = Path(target_file)
@@ -3458,16 +3472,30 @@ class ApplyWaveInfoEvidence(UCTool):
         if target.suffix.lower() != ".md":
             return None, "target_file must be a Markdown (.md) document"
 
-        blocked_roots = [
-            self._configured_directory(value) for value in self.un_write_dirs or []
-        ]
-        if any(self._is_within(target, directory) for directory in blocked_roots):
-            return None, f"target_file '{target_file}' is in a configured no-write directory"
+        target_relative = target.relative_to(root).as_posix()
+        for value in self.un_write_dirs or []:
+            if write_entry_has_wildcards(value):
+                entry = self._pattern_entry(value, root)
+                if entry is not None and path_is_at_or_below(target_relative, entry):
+                    return None, (
+                        f"target_file '{target_file}' matches the configured "
+                        f"no-write entry '{value}'"
+                    )
+                continue
+            if self._is_within(target, self._configured_directory(value)):
+                return None, f"target_file '{target_file}' is in a configured no-write directory"
         if self.write_dirs is not None:
-            allowed_roots = [
-                self._configured_directory(value) for value in self.write_dirs
-            ]
-            if not any(self._is_within(target, directory) for directory in allowed_roots):
+            allowed = False
+            for value in self.write_dirs:
+                if write_entry_has_wildcards(value):
+                    entry = self._pattern_entry(value, root)
+                    if entry is not None and path_is_at_or_below(target_relative, entry):
+                        allowed = True
+                        break
+                elif self._is_within(target, self._configured_directory(value)):
+                    allowed = True
+                    break
+            if not allowed:
                 return None, (
                     f"target_file '{target_file}' is outside the configured write directories: "
                     f"{self.write_dirs}"

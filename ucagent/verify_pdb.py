@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING
 
 from ucagent.tui.utils import PersistentConsoleMirror
 from ucagent.util.config import Config
+from ucagent.tools.fileops import write_entry_has_wildcards
 
 DEFAULT_CMD_IDLE_TIMEOUT = 1200.0
 CMD_OUTPUT_POLL_INTERVAL = 1.0
@@ -3177,7 +3178,7 @@ class VerifyPDB(Pdb):
         abspath = os.path.abspath(os.path.join(self._workspace_cwd, dir_path))
         if not self._is_under_workspace(abspath):
             return False, f"Path '{dir_path}' is outside the workspace."
-        if not os.path.exists(abspath):
+        if not write_entry_has_wildcards(dir_path) and not os.path.exists(abspath):
             return False, f"Path '{dir_path}' does not exist."
         return True, os.path.relpath(abspath, self._workspace_cwd)
 

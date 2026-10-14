@@ -3004,6 +3004,39 @@ def test_apply_waveinfo_evidence_enforces_path_tag_and_receipt_test_boundaries(t
     )
 
 
+def test_apply_waveinfo_evidence_resolve_target_supports_wildcard_entries(tmp_path):
+    """Wildcard un_write_dirs/write_dirs entries gate target resolution like literals."""
+    test_dir = tmp_path / "unity_test" / "tests"
+    blocked_doc = tmp_path / "Guide_Doc" / "dut_bug_analysis.md"
+    allowed_doc = tmp_path / "out" / "Demo_bug_analysis.md"
+    other_doc = tmp_path / "notes" / "other.md"
+    allowed_doc.parent.mkdir(exist_ok=True)
+    blocked_doc.parent.mkdir(exist_ok=True)
+    other_doc.parent.mkdir(exist_ok=True)
+    blocked_doc.write_text("# Doc\n", encoding="utf-8")
+    allowed_doc.write_text("# Doc\n", encoding="utf-8")
+    other_doc.write_text("# Doc\n", encoding="utf-8")
+    waveinfo = _tool(tmp_path, test_dir)
+    tool = ApplyWaveInfoEvidence(
+        waveinfo=waveinfo,
+        workspace=str(tmp_path),
+        write_dirs=["out/*.md"],
+        un_write_dirs=["Guide_Doc/*.md"],
+    )
+
+    blocked, reason = tool._resolve_target("Guide_Doc/dut_bug_analysis.md")
+    assert blocked is None
+    assert "no-write entry" in reason
+
+    allowed_target, allowed_reason = tool._resolve_target("out/Demo_bug_analysis.md")
+    assert allowed_target is not None
+    assert allowed_reason is None
+
+    outside, outside_reason = tool._resolve_target("notes/other.md")
+    assert outside is None
+    assert "outside the configured write directories" in outside_reason
+
+
 def test_parameterized_name_is_exact_and_invalid_name_is_rejected(tmp_path):
     test_dir = tmp_path / "tests"
     session = _session(test_dir, "toffee_tmp_20260814150000_000")
