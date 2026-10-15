@@ -262,7 +262,10 @@ def _serve_web_console(argv: Optional[List[str]] = None) -> None:
         )
         server.start_blocking()
         exit_code = _get_web_console_exit_code(server)
-        replayed_abnormal = _print_web_console_abnormal_exit_output(exit_code, capture_path)
+        # A completed subprocess owns its status. Captured test output can
+        # legitimately contain assertion failures and exception tracebacks.
+        if exit_code != 0:
+            replayed_abnormal = _print_web_console_abnormal_exit_output(exit_code, capture_path)
     finally:
         if cleanup_capture:
             try:
@@ -318,6 +321,7 @@ class _ManagedProcess:
         self._pid: Optional[int] = None
         self._alive = False
         self._exit_code: Optional[int] = None
+        self._wait_lock = threading.Lock()
 
     @property
     def alive(self) -> bool:
@@ -390,25 +394,28 @@ class _ManagedProcess:
                 pass
 
     def poll(self) -> Optional[int]:
-        """Non-blocking wait; returns exit code or None if still running."""
-        if self._pid is None:
-            return self._exit_code
-        try:
-            pid, status = os.waitpid(self._pid, os.WNOHANG)
-        except ChildProcessError:
+        """Reap once and retain the real exit status for every observer."""
+        with self._wait_lock:
+            if self._exit_code is not None:
+                return self._exit_code
+            if self._pid is None:
+                return self._exit_code
+            try:
+                pid, status = os.waitpid(self._pid, os.WNOHANG)
+            except ChildProcessError:
+                self._alive = False
+                self._exit_code = -1
+                return self._exit_code
+            if pid == 0:
+                return None
             self._alive = False
-            self._exit_code = -1
+            if os.WIFEXITED(status):
+                self._exit_code = os.WEXITSTATUS(status)
+            elif os.WIFSIGNALED(status):
+                self._exit_code = -os.WTERMSIG(status)
+            else:
+                self._exit_code = -1
             return self._exit_code
-        if pid == 0:
-            return None
-        self._alive = False
-        if os.WIFEXITED(status):
-            self._exit_code = os.WEXITSTATUS(status)
-        elif os.WIFSIGNALED(status):
-            self._exit_code = -os.WTERMSIG(status)
-        else:
-            self._exit_code = -1
-        return self._exit_code
 
     def terminate(self) -> None:
         if self._pid is not None and self._alive:

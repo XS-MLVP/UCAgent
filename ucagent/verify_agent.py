@@ -1215,10 +1215,15 @@ class VerifyAgent:
             self._queue_exit_on_completion()
 
     def _queue_exit_on_completion(self):
+        """Quit an active console, avoiding SIGINT after a headless mission exits."""
         if self._exit_on_completion_queued:
             return
         self._exit_on_completion_pending = False
         self._exit_on_completion_queued = True
+        if (getattr(self, "_is_exit", False)
+                and not getattr(self.pdb, "allow_kbdint", False)
+                and not getattr(self.pdb, "_in_tui", False)):
+            return
         self.pdb.add_cmds(["sleep 5"] + ["quit"] * 3)
 
     def get_work_config(self):

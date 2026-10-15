@@ -65,6 +65,8 @@ ucagent <workspace> <dut_name> {参数与选项}
 | 密码格式            | `base_url:port:password`（冒号分隔）       | `host[:port] passwd`（空格分隔）                  |
 | 适用场景            | 纯 Web 远程访问，无需本地终端               | 需要同时使用本地终端和 Web 访问                   |
 
+`--web-console` 保留子进程的真实退出码；重复读取退出状态不会改变已记录的结果。验证日志中的预期断言失败或异常示例不会把正常退出改判为启动失败。
+
 **使用建议：**
 - 如果只需要通过浏览器远程访问 Agent，使用 `--web-console`
 - 如果需要在本地终端操作的同时提供 Web 访问入口，使用 `--web-terminal`

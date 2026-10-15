@@ -175,6 +175,20 @@ def test_info_output_outside_command_is_recorded(probe_pdb):
     assert "shared info output" in rendered
 
 
+def test_large_streamed_console_output_retains_order_in_bounded_chunks(probe_pdb):
+    """Large tool diffs must retain every byte without one growing string."""
+    probe_pdb.clear_console_state()
+    parts = [f"line {i}: " + "x" * 100 + "\n" for i in range(4000)]
+    for part in parts:
+        probe_pdb.record_console_output(part)
+    probe_pdb.record_console_command("next")
+    tail = "large-fragment:" + "z" * 140000
+    probe_pdb.record_console_output(tail)
+    entries = probe_pdb._ensure_console_state().entries
+    assert all(len(entry.payload) <= 64 * 1024 for entry in entries)
+    assert probe_pdb.render_console_entries_since(0) == "".join(parts) + "> next\n" + tail
+
+
 def test_chcwd_controls_pdb_and_shell_command_cwd(tmp_path, capsys):
     workspace = tmp_path / "workspace"
     subdir = workspace / "subdir"
@@ -564,6 +578,47 @@ def test_exit_on_completion_defers_until_work_finishes():
 
     assert agent._need_break is False
     assert agent.pdb.cmds == [["sleep 5", "quit", "quit", "quit"]]
+
+
+def test_headless_completion_does_not_signal_an_already_exited_agent():
+    """Completion during work must not turn a clean headless exit into SIGINT."""
+    agent = VerifyAgent.__new__(VerifyAgent)
+    agent._exit_on_completion = True
+    agent._exit_on_completion_pending = False
+    agent._exit_on_completion_queued = False
+    agent._is_work_busy = False
+    agent._is_exit = False
+    agent._need_break = False
+    agent.stream_output = False
+
+    def unexpected_console_wakeup(_commands):
+        """Reproduce the signal sent by add_cmds outside a console loop."""
+        raise KeyboardInterrupt
+
+    agent.pdb = SimpleNamespace(allow_kbdint=False, _in_tui=False,
+                               add_cmds=unexpected_console_wakeup)
+
+    def complete_during_work(_instructions, _config):
+        """Model StageManager exiting before the backend's work returns."""
+        agent._is_exit = True
+        agent.try_exit_on_completion()
+
+    agent.do_work_values = complete_during_work
+    agent.do_work({}, {})
+    assert agent._exit_on_completion_queued
+    assert not agent._exit_on_completion_pending
+
+
+def test_completed_interactive_console_still_receives_quit_commands():
+    """Interactive PDB must keep its normal completion shutdown path."""
+    commands = []
+    agent = VerifyAgent.__new__(VerifyAgent)
+    agent._is_exit = True
+    agent._exit_on_completion_queued = False
+    agent.pdb = SimpleNamespace(allow_kbdint=True, _in_tui=False,
+                               add_cmds=commands.append)
+    agent._queue_exit_on_completion()
+    assert commands == [["sleep 5", "quit", "quit", "quit"]]
 
 
 def test_do_work_recovers_pending_tool_calls_before_reraising():
