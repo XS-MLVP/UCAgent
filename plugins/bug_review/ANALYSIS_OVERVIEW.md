@@ -1,7 +1,7 @@
 
 # Bug Review 分析工作流与优化需求
 
-> **当前基线（v1.0 / `bug_review.v8`）**：新运行只使用 `verification_review/` 工作区布局。唯一执行测试副本是 `verification_review/run/unity_test/`，pytest/toffee 产物写入 `verification_review/run/test_report/`，波形数据使用该测试目录下的 `tests/data/`。分析记录位于 `verification_review/analysis/`，HTML 位于 `verification_review/report/`。Bug 页面固定为“现象分析 + 证据溯源”两部分；Bug JSON 的 `phenomenon` 使用 `scenario`、`spec_expected`、`actual`、`bug_root_cause` 四个结构化字段。Master UI 和 `make bug_review_<module>` 各自准备完整布局，运行时不再复制 Master 已提供的 DUT、RTL、文档或 Guide_Doc。以下历史章节用于解释演进，不覆盖当前契约。
+> **当前基线（v1.2 / 插件 0.3.0 / `bug_review.v9`）**：使用 `verification_review/` 工作区布局、精确执行身份和 `bug_review_report.v4` 清单。一个 ROOT 对应一个 Bug 详情页，成员现象关联各自的 case／事件／签名证据；正文为 DUT 功能概述、关联功能与验证目标、缺陷场景分析、异常与 RTL 根因分析，普通准备和完整 case 操作按需展开；右侧一个主要预览、简短波形入口和关键依据。LLM 在分析阶段生成带来源的简介、接口说明、真实信号释义及 RTL 因果步骤，缺资料时明确记录缺口。步骤到达点、来源与支持角色经过主记录及提交门禁校验。Master UI 与 Make 入口保持相同契约，Guide_Doc 示例在运行时注册。以下历史章节不覆盖当前契约。
 
 本文是 `bug_review` 分析工作流的维护入口。修改阶段、输入输出、Bug 裁决或报告契约时，先更新本文，再同步工作流 YAML、Guide_Doc、实现与测试。工作流概述说明长期目标；版本章节分别记录现行契约和历史变更。
 

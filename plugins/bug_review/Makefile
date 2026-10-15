@@ -24,7 +24,7 @@ ARGS ?=
 
 # Run one prepared module workspace with the selected UCAgent arguments.
 define launch_review
-PYTHONPATH="$(UCAgent_PYTHONPATH)" $(UCAGENT) "$(OUTPUT_ROOT)/$*" BugReview \
+PATH="$(dir $(PYTHON_BIN)):$$PATH" PYTHONPATH="$(UCAgent_PYTHONPATH)" $(UCAGENT) "$(OUTPUT_ROOT)/$*" BugReview \
 	--plugin "$(PLUGIN_ROOT)" --plugin-workflow bug_review:analysis --output verification_review/analysis $(1) $(ARGS)
 endef
 
@@ -73,6 +73,7 @@ init_%:
 			--filelist "$$filelist" $(PICKER_ARGS) || exit 1; \
 	fi
 	@test -f "$(INPUT_ROOT)/$*/$*/__init__.py" || { echo "missing compiled DUT package: $(INPUT_ROOT)/$*/$*"; exit 1; }
+	@PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$(INPUT_ROOT)/$*:$(UCAgent_PYTHONPATH)" $(PYTHON) -c 'import $*' || { echo "DUT package cannot import; supply a complete package for this Python/ABI or rebuild in a separate staging directory. Input files were preserved."; exit 1; }
 	@mkdir -p "$(OUTPUT_ROOT)/$*/verification_review/run/unity_test" "$(OUTPUT_ROOT)/$*/verification_review/run/test_report" "$(OUTPUT_ROOT)/$*/verification_review/analysis" "$(OUTPUT_ROOT)/$*/verification_review/report" "$(OUTPUT_ROOT)/$*/verification_review/notes"
 	@rsync -a --exclude '__pycache__/' --exclude '.pytest_cache/' --exclude 'toffee_tmp_*/' \
 		"$(INPUT_ROOT)/$*/unity_test/" "$(OUTPUT_ROOT)/$*/verification_review/run/unity_test/"

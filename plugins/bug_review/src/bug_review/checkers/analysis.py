@@ -123,5 +123,14 @@ class Workflow:
             check(self, ctx)
         environment = load_record(self.out, index.environment_path, "environment")
         incomplete = review_incomplete(ctx["manifest"], ctx["cases"], environment)
+        if stage != "full_replay":
+            incomplete = incomplete or not index.dut_context.text
+        if "roots" in ctx:
+            incomplete = (incomplete or any(not root.affected_behavior.text for root in ctx["roots"].roots)
+                          or any(bug.decision.verdict == "inconclusive" for bug in ctx["bugs"].values()))
+        if stage == "publish":
+            from ..core.json_io import read_object
+
+            incomplete = read_object(self.out.parent / "report/report_manifest.json")["review_status"] != "complete"
         return True, {"stage": stage, "validated_workspaces": [self.label],
                       "review_status": "incomplete" if incomplete else "complete"}

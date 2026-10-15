@@ -59,7 +59,7 @@ def rebuild_portal(output_root):
         manifest = read_object(manifest_path)
         if manifest.get("workspace") != module.name:
             raise ValueError(f"published report identity mismatch: {module.name}")
-        if (manifest.get("schema") == "bug_review_report.v3"
+        if (manifest.get("schema") == "bug_review_report.v4"
                 and not isinstance(manifest.get("high_confidence_root_count"), int)):
             raise ValueError(f"published report has no high-confidence root count: {module.name}")
         for filename in manifest.get("pages", []):
@@ -70,7 +70,8 @@ def rebuild_portal(output_root):
     rows = "".join(
         f"<tr><td><a href='{html.escape(name, quote=True)}/verification_review/report/index.html'>{html.escape(name)}</a></td>"
         f"<td>{manifest.get('collected', '')}</td><td>{len(manifest.get('cases', []))}</td>"
-        f"<td>{html.escape(str(manifest.get('high_confidence_root_count', '—')))}</td><td>complete</td></tr>"
+        f"<td>{html.escape(str(manifest.get('high_confidence_root_count', '—')))}</td>"
+        f"<td>{html.escape(str(manifest.get('review_status', 'incomplete')))}</td></tr>"
         for name, manifest in pages.items())
     content = ("<!doctype html><html lang='zh-CN'><meta charset='utf-8'>"
                "<title>Bug Review</title><h1>Bug Review</h1>"

@@ -5,9 +5,12 @@ from __future__ import annotations
 import hashlib
 import html
 import json
+import os
 from pathlib import Path
 import re
 import shutil
+import subprocess
+import tempfile
 from urllib.parse import parse_qs, unquote, urlsplit
 
 import ucagent
@@ -16,7 +19,10 @@ from ucagent.util.waveform_viewer import decode_waveform_viewer_token
 from .json_io import read_object
 from .layout import resolve_logical_path
 from .records import REF_PATTERN, load_record, source_lines, source_root as prepared_source_root
-from .validation import review_incomplete
+from .validation import ReviewIssues, review_incomplete
+from .narrative import narrative_issues, RTL_SUFFIXES
+from .evidence import (case_waveforms, decode_fields, read_event_value, root_page,
+                       signal_identity, snapshot_preview, waveform_timescale)
 
 LABELS = json.loads((Path(__file__).parent.parent / "lang/zh/report.json").read_text(encoding="utf-8"))
 CONFIDENCE_FLOOR = 0.8
@@ -39,15 +45,15 @@ def page(title: str, body: str) -> str:
     return ("<!doctype html><html lang='zh-CN'><meta charset='utf-8'>"
             "<meta name='viewport' content='width=device-width'>"
             f"<title>{escape(title)}</title>"
-            "<style>:root{color-scheme:light;--bg:#F5F7FB;--ink:#142235;--muted:#52647A;"
-            "--brand:#175CD3;--line:#D8E2EE}*{box-sizing:border-box}"
-            "body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 system-ui,-apple-system,sans-serif}"
-            "main{max-width:1180px;margin:auto;padding:28px 20px 72px}h1{font-size:clamp(1.7rem,3vw,2.5rem);"
+            "<style>:root{color-scheme:dark;--bg:#0c121b;--ink:#e8eff8;--muted:#92a5bc;"
+            "--brand:#70c8ff;--line:#2a3a4d}*{box-sizing:border-box}"
+            "body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 system-ui,-apple-system,sans-serif;overflow-wrap:anywhere}"
+            "main{max-width:1400px;margin:auto;padding:28px 20px 72px}h1{font-size:clamp(1.7rem,3vw,2.5rem);"
             "line-height:1.2;margin:8px 0 12px;overflow-wrap:anywhere}h2{font-size:1.25rem;margin:0 0 14px}"
-            "p{margin:8px 0 14px}a{color:var(--brand);text-underline-offset:3px}"
+            "p{margin:8px 0 14px}a{color:var(--brand);text-underline-offset:3px;overflow-wrap:anywhere}"
             "a:focus-visible,summary:focus-visible{outline:3px solid #84CAFF;outline-offset:3px}"
             ".crumb{font-size:.9rem;color:var(--muted);margin-bottom:18px}"
-            ".hero,.card{background:#fff;border:1px solid #DCE5F0;border-radius:16px;box-shadow:0 3px 16px #14223509}"
+            ".hero,.card{background:#131e2b;border:1px solid #2a3a4d;border-radius:16px;box-shadow:0 3px 16px #14223509}"
             ".hero{padding:28px;margin-bottom:18px;border-top:5px solid var(--brand)}.card{padding:22px;margin:18px 0}"
             ".eyebrow{color:var(--muted);font-weight:700;letter-spacing:.035em;font-size:.82rem}"
             ".lead{font-size:1.1rem;max-width:85ch}.muted{color:var(--muted)}"
@@ -61,27 +67,28 @@ def page(title: str, body: str) -> str:
             ".error,.xpassed{color:#B42318;background:#FEECEB}"
             ".kpis,.three{display:grid;gap:14px}.kpis{grid-template-columns:repeat(6,minmax(0,1fr))}"
             ".three{grid-template-columns:repeat(3,minmax(0,1fr))}"
-            ".tile{background:#fff;border:1px solid #DCE5F0;border-radius:12px;padding:16px;min-width:0}"
+            ".tile{background:#131e2b;border:1px solid #2a3a4d;border-radius:12px;padding:16px;min-width:0}"
             ".tile strong{display:block;font-size:1.65rem;line-height:1.2}.tile small{color:var(--muted)}"
             ".table-wrap{overflow-x:auto}table{border-collapse:collapse;width:100%}th,td{padding:11px 12px;"
-            "text-align:left;border-bottom:1px solid #E8EDF3;vertical-align:top;overflow-wrap:anywhere}"
-            "th{color:var(--muted);font-size:.84rem}tr:hover td{background:#F6F9FD}"
-            "details{border-top:1px solid #E8EDF3;padding:11px 0}summary{cursor:pointer;font-weight:650}"
+            "text-align:left;border-bottom:1px solid #2a3a4d;vertical-align:top;overflow-wrap:anywhere}"
+            "th{color:var(--muted);font-size:.84rem}tr:hover td{background:#192636}"
+            "details{border-top:1px solid #2a3a4d;padding:11px 0}summary{cursor:pointer;font-weight:650}"
             ".section-disclosure{border:0;padding:0}.section-disclosure>summary{font-size:1.25rem}"
             ".section-disclosure[open]>summary{margin-bottom:14px}"
-            "pre{white-space:pre-wrap;background:#F2F5F9;border-radius:10px;padding:14px;font-size:.84rem}"
+            "pre{white-space:pre-wrap;background:#192636;border-radius:10px;padding:14px;font-size:.84rem}"
             "ol,ul{padding-left:22px}li{margin:7px 0}.chain li{padding:4px 0}"
             ".source-table td:first-child{width:44%;font-family:ui-monospace,SFMono-Regular,monospace}"
             ".root-note{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}"
-            ".action{display:inline-block;background:var(--brand);color:#fff;text-decoration:none;border-radius:9px;"
+            ".action{display:inline-block;background:var(--brand);color:#0c2335;text-decoration:none;border-radius:9px;"
             "padding:8px 13px;font-weight:700;margin:5px 0}.action:hover{background:#1249ab}"
-            ".source-code{background:#F7F9FC;border:1px solid var(--line);border-radius:10px;overflow:auto}"
+            ".source-code{background:#0e1927;border:1px solid var(--line);border-radius:10px;overflow:auto}"
             ".src-line{display:flex;white-space:pre;width:max-content;min-width:100%;font:13px/1.6 ui-monospace,SFMono-Regular,monospace}"
             ".src-line .line-no{position:sticky;left:0;display:inline-block;width:5.5em;padding:0 .8em;text-align:right;"
-            "color:#667085;background:#E9EEF5;user-select:none;margin-right:1em}"
-            ".src-line.marked{background:#FFF0B5}.src-line.marked .line-no{background:#F9DB75;color:#593E00}"
+            "color:#92a5bc;background:#192636;user-select:none;margin-right:1em}"
+            ".src-line.marked{background:#3f351e}.src-line.marked .line-no{background:#574424;color:#f2cd84}"
             "@media(max-width:760px){main{padding:18px 12px 48px}.hero{padding:20px}.card{padding:17px}"
             ".kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.three{grid-template-columns:1fr}}"
+            ".detail-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,.95fr);gap:28px;align-items:start}.report-text{min-width:0;font-size:14px}.root-mechanism{margin-top:20px;border-left:2px solid #f2cd84;padding-left:14px}.root-mechanism .chain{font-size:14px}.chain p{margin:5px 0}.member-scenario>h3{color:var(--muted)}.report-text header{padding-bottom:20px;border-bottom:1px solid var(--line)}.report-text section{padding:22px 0;border-bottom:1px solid var(--line)}.report-text h2{font-size:18px}.report-text h3{font-size:14px;margin:18px 0 9px}.report-context{position:sticky;top:18px;min-width:0}.report-context section{padding-bottom:20px;margin-bottom:18px;border-bottom:1px solid var(--line)}.report-context h2{font-size:15px}.report-context p,.report-context li{font-size:12px}.wave-preview{display:block;background:#0a1520;border:1px solid var(--line);border-radius:6px;overflow:hidden}.wave-thumb{display:block;width:100%;height:auto;min-height:200px}.wave-thumb text{font-family:ui-monospace,SFMono-Regular,monospace}.wave-links{list-style:none;padding:0}.wave-links li{padding:8px 0;border-bottom:1px solid var(--line)}@media(max-width:860px){.detail-layout{grid-template-columns:1fr}.report-context{position:static;display:grid;grid-template-columns:1fr 1fr;gap:20px}}@media(max-width:560px){.report-context{grid-template-columns:1fr}.report-text h3{overflow-wrap:anywhere}}"
             "</style><main>" + body + "</main></html>")
 
 
@@ -95,15 +102,15 @@ def prepare_waveform_bundle(output: Path, cases: dict) -> dict[str, int]:
     """Snapshot receipt-selected waveforms and the static Surfer frontend into a report."""
     run = output.parent.parent.resolve()
     store = run / ".ucagent/waveinfo_receipts.json"
-    signed = [case for case in cases.values() if case.waveform.receipt_id and case.waveform.viewer_url]
+    signed = [(case, wave) for case in cases.values() for wave in case_waveforms(case) if wave.viewer_url]
     if not signed:
         return {"available": 0, "unavailable": 0}
     receipts = {item["receipt_id"]: item for item in read_object(store)["receipts"]}
     wave_dir = output.parent / "report/waveforms"
     wave_dir.mkdir(parents=True, exist_ok=True)
     available = unavailable = 0
-    for case in signed:
-        wave = case.waveform
+    exports = {}
+    for case, wave in signed:
         if re.fullmatch(r"[0-9a-f]{32}", wave.receipt_id) is None:
             raise ValueError(f"invalid waveform receipt ID: {case.case_id}")
         receipt = receipts.get(wave.receipt_id)
@@ -120,10 +127,56 @@ def prepare_waveform_bundle(output: Path, cases: dict) -> dict[str, int]:
         if original.is_relative_to(run) and original.is_file():
             stat = original.stat()
             if (stat.st_size == selection.get("size_bytes")
-                    and stat.st_mtime_ns == selection.get("modified_time_ns")):
+                    and stat.st_mtime_ns == selection.get("modified_time_ns")
+                    and not snapshot.exists()):
                 shutil.copy2(original, snapshot)
         if snapshot.is_file():
+            stat = snapshot.stat()
+            if stat.st_size != selection.get("size_bytes") or stat.st_mtime_ns != selection.get("modified_time_ns"):
+                raise ValueError(f"archived snapshot differs from receipt identity: {wave.receipt_id}")
             available += 1
+            export = {"status": "unavailable", "reason": "fst2vcd is unavailable"}
+            if snapshot.suffix == ".vcd":
+                export = {"status": "available", "file": f"waveforms/{snapshot.name}", "converter": "original"}
+            elif shutil.which("fst2vcd"):
+                import wavekit
+                directory = output.parent / "report/downloads"
+                directory.mkdir(parents=True, exist_ok=True)
+                destination = directory / f"{wave.receipt_id}.vcd"
+                fd, temporary = tempfile.mkstemp(suffix=".vcd", dir=directory)
+                os.close(fd)
+                staged = Path(temporary)
+                try:
+                    converter = shutil.which("fst2vcd")
+                    converted = subprocess.run([converter, "-f", str(snapshot), "-o", str(staged)],
+                                               capture_output=True, timeout=60)
+                    if converted.returncode != 0:
+                        raise ValueError("fst2vcd failed: " + converted.stderr.decode(errors="replace")[:300])
+                    with wavekit.FstReader(str(snapshot)) as original_reader, wavekit.VcdReader(str(staged)) as converted_reader:
+                        original_catalog = {signal_identity(signal.full_name): signal.width
+                            for signal in original_reader.get_matched_signals("**").values()}
+                        converted_catalog = {signal_identity(signal.full_name): signal.width
+                            for signal in converted_reader.get_matched_signals("**").values()}
+                        scale = waveform_timescale(snapshot, original_reader)
+                        if (original_catalog != converted_catalog or scale != waveform_timescale(staged, converted_reader)
+                                or original_reader.begin_time != converted_reader.begin_time
+                                or original_reader.end_time != converted_reader.end_time):
+                            raise ValueError("VCD conversion changed hierarchy, widths, range or timescale")
+                    for event in case.events:
+                        if event.receipt_id == wave.receipt_id and read_event_value(snapshot, event) != read_event_value(staged, event):
+                            raise ValueError("VCD conversion changed a recorded event")
+                    os.replace(staged, destination)
+                    export = {"status": "available", "file": "downloads/" + destination.name,
+                              "converter": "fst2vcd", "timescale": scale,
+                              "converter_sha256": hashlib.sha256(Path(converter).read_bytes()).hexdigest()}
+                except (ValueError, OSError, RuntimeError, subprocess.TimeoutExpired) as error:
+                    export = {"status": "unavailable", "reason": str(error)[:300]}
+                finally:
+                    staged.unlink(missing_ok=True)
+            export["source_sha256"] = hashlib.sha256(snapshot.read_bytes()).hexdigest()
+            if export["status"] == "available":
+                export["sha256"] = hashlib.sha256((output.parent / "report" / export["file"]).read_bytes()).hexdigest()
+            exports[wave.receipt_id] = export
         else:
             unavailable += 1
     if available:
@@ -143,6 +196,8 @@ def prepare_waveform_bundle(output: Path, cases: dict) -> dict[str, int]:
             else:
                 shutil.copy2(asset, destination)
         shutil.copy2(SURFER_BRIDGE, target / "report-surfer.js")
+        (output.parent / "report/waveform_exports.json").write_text(
+            json.dumps({"schema": "bug_review_exports.v1", "exports": exports}, sort_keys=True, indent=2) + "\n", encoding="utf-8")
     return {"available": available, "unavailable": unavailable}
 
 
@@ -150,6 +205,9 @@ def render_pages(output: Path, index, cases: dict, bugs: dict, roots, coverage) 
     """Build public pages and their exact cross-check manifest from active records."""
     name = index.workspace["name"]
     source_root = prepared_source_root(output)
+    explanation_errors = narrative_issues(index, cases, bugs, roots, source_root)
+    if explanation_errors:
+        raise ReviewIssues(explanation_errors)
     manifest = load_record(output, index.manifest_path, "manifest")
     summary = load_record(output, index.replay_summary_path, "replay_summary")
     environment = load_record(output, index.environment_path, "environment")
@@ -160,31 +218,38 @@ def render_pages(output: Path, index, cases: dict, bugs: dict, roots, coverage) 
     manifest_bugs, manifest_cases = [], []
     none_li = f"<li>{escape(LABELS['none'])}</li>"
     preview_links: dict[str, str] = {}
+    receipt_links, snapshot_paths = {}, {}
     preview_manifest = []
     for case_id, case in cases.items():
-        wave = case.waveform
-        if not wave.receipt_id or not wave.viewer_url:
-            continue
-        token = parse_qs(urlsplit(wave.viewer_url).query).get("wave", [""])[0]
-        payload = decode_waveform_viewer_token(token)
-        if payload["v"] != 2:
-            continue
-        snapshots = [output.parent / "report/waveforms" / f"{wave.receipt_id}{extension}"
-                     for extension in (".fst", ".vcd")]
-        existing = [path for path in snapshots if path.is_file()]
-        if len(existing) > 1:
-            raise ValueError(f"multiple waveform snapshots for receipt: {wave.receipt_id}")
-        if not existing:
-            continue
-        snapshot = existing[0]
-        relative = snapshot.relative_to(output.parent / "report").as_posix()
-        preview_links[case_id] = f"../surfer/index.html?wave={token}&snapshot={snapshot.name}"
-        stat = snapshot.stat()
-        preview_manifest.append({"case_id": case_id, "receipt_id": wave.receipt_id,
-                                 "file": relative, "size_bytes": stat.st_size,
-                                 "modified_time_ns": stat.st_mtime_ns})
+        for wave in case_waveforms(case):
+            if not wave.viewer_url:
+                continue
+            token = parse_qs(urlsplit(wave.viewer_url).query).get("wave", [""])[0]
+            payload = decode_waveform_viewer_token(token)
+            if payload["v"] != 2:
+                raise ValueError("report requires a signed v2 viewer")
+            snapshots = [output.parent / "report/waveforms" / f"{wave.receipt_id}{extension}"
+                         for extension in (".fst", ".vcd")]
+            existing = [path for path in snapshots if path.is_file()]
+            if len(existing) > 1:
+                raise ValueError(f"multiple waveform snapshots for receipt: {wave.receipt_id}")
+            if not existing:
+                continue
+            snapshot = existing[0]
+            receipt_links[wave.receipt_id] = f"../surfer/index.html?wave={token}&snapshot={snapshot.name}"
+            snapshot_paths[wave.receipt_id] = snapshot
+            if wave.receipt_id == case.waveform.receipt_id:
+                preview_links[case_id] = receipt_links[wave.receipt_id]
+            stat = snapshot.stat()
+            preview_manifest.append({"case_id": case_id, "receipt_id": wave.receipt_id,
+                                     "file": snapshot.relative_to(output.parent / "report").as_posix(),
+                                     "size_bytes": stat.st_size, "modified_time_ns": stat.st_mtime_ns,
+                                     "sha256": hashlib.sha256(snapshot.read_bytes()).hexdigest()})
+    navigation = {}
+    export_index = output.parent / "report/waveform_exports.json"
+    exports = read_object(export_index).get("exports", {}) if export_index.is_file() else {}
 
-    def source_link(reference: str, prefix: str = "../sources/") -> str:
+    def source_link(reference: str, prefix: str = "../sources/", compact: bool = False) -> str:
         """Create one full source page and link to its exact highlighted line range."""
         match = REF_PATTERN.fullmatch(reference) if isinstance(reference, str) else None
         if match is None:
@@ -214,7 +279,8 @@ def render_pages(output: Path, index, cases: dict, bugs: dict, roots, coverage) 
                                         "line_count": len(text_lines)}
         filename = source_catalog[relative]["page"].removeprefix("sources/")
         href = f"{prefix}{filename}#L{start}-L{end}"
-        return f"<a href='{escape(href)}'>{escape(reference)}</a>"
+        text = f"{Path(relative).name}:{start}" + (f"–{end}" if end != start else "") if compact else reference
+        return f"<a href='{escape(href)}' title='{escape(reference)}'>{escape(text)}</a>"
 
     def source_list(references: list[str]) -> str:
         """Render a bounded source-reference list with full-file links."""
@@ -272,164 +338,233 @@ def render_pages(output: Path, index, cases: dict, bugs: dict, roots, coverage) 
                                "viewer": wave.viewer_url, "bug_ids": case.bug_ids})
 
     visible_bugs: dict[str, list[tuple[str, str, object]]] = {}
+    bug_anchors = {bug_id: "phenomenon_" + hashlib.sha256(bug_id.encode()).hexdigest()
+                   for bug_id in index.bug_order}
+    bug_pages = {bug_id: ("roots/" + root_page(bugs[bug_id].decision.root_id)
+                         if bugs[bug_id].decision.root_id in root_by_id
+                         else "phenomena/" + hashlib.sha256(bug_id.encode()).hexdigest() + ".html")
+                 for bug_id in index.bug_order}
+    root_manifest = []
+
+    def detail_page(root, members):
+        """Render sourced DUT context, defect scenarios and root-local RTL propagation."""
+        goals, scenarios, comparisons, technical = [], [], [], []
+        wave_links, references, bindings, observations, downloads = [], [], {}, {}, {}
+        case_number = {case_id: number for number, case_id in enumerate(dict.fromkeys(
+            case_id for bug_id in members for case_id in bugs[bug_id].case_ids), 1)}
+        member_number = {bug_id: number for number, bug_id in enumerate(members, 1)}
+        available_direct = set()
+        for bug_id in members:
+            bug, number = bugs[bug_id], member_number[bug_id]
+            phenomenon = bug.phenomenon
+            caption = f"{LABELS['phenomenon']} {number}"
+            member_heading = (f"<h3 id='{bug_anchors[bug_id]}'>{escape(caption)} {badge(bug.decision.verdict)}</h3>")
+            goals.append(member_heading + f"<p>{escape(phenomenon.spec_expected.summary or phenomenon.spec_expected.requirement or LABELS['not_recorded'])}</p>")
+            points = list(dict.fromkeys([*index.bugs[bug_id].fc_ids, *index.bugs[bug_id].ck_ids]))
+            if points:
+                goals[-1] += f"<p class='muted mono'>{escape(' · '.join(points))}</p>"
+            scenario = (f"<div class='member-scenario'><h3>{escape(caption)}</h3>"
+                        f"<p>{escape(phenomenon.scenario.summary or LABELS['not_recorded'])}</p>")
+            if phenomenon.scenario.conditions:
+                scenario += "<ul>" + "".join(f"<li>{escape(item)}</li>" for item in phenomenon.scenario.conditions) + "</ul>"
+            if phenomenon.signal_explanations:
+                scenario += f"<details><summary>{escape(LABELS['signal_explanations'])}</summary><ul>"
+                for explanation in phenomenon.signal_explanations:
+                    alias = f"<code>{escape(explanation.test_name)}</code> → " if explanation.test_name else ""
+                    scenario += (f"<li>{alias}<code>{escape(explanation.rtl_name)}</code>: {escape(explanation.meaning)}"
+                                 + (f"<p class='muted mono'>{escape(explanation.signal_path)}</p>" if explanation.signal_path else "")
+                                 + "<p>" + " · ".join(source_link(ref, compact=True) for ref in explanation.source_refs) + "</p></li>")
+                scenario += "</ul></details>"
+            scenarios.append(scenario + "</div>")
+            comparisons.append(f"<tr><td>{escape(caption)}</td><td>{escape(phenomenon.spec_expected.summary or LABELS['not_recorded'])}</td>"
+                               f"<td>{escape(phenomenon.actual.summary or LABELS['not_recorded'])}</td></tr>")
+            details = f"<h3><code>{escape(bug_id)}</code> {badge(bug.decision.verdict)}</h3>"
+            details += "<p>" + "<br>".join(escape(item) for item in [*phenomenon.scenario.setup, *phenomenon.scenario.stimulus]) + "</p>"
+            for case_id in bug.case_ids:
+                case = cases[case_id]
+                link = (f"<a href='../cases/{case_names[case_id]}'>{escape(case_id)}</a>" if case_id in case_names else escape(case_id))
+                details += f"<p class='mono'>{LABELS['case']} {case_number[case_id]} · {link}</p>"
+                executions = {event.execution_id for binding in bug.evidence_bindings if binding.case_id == case_id
+                              for event in case.events if event.event_id == binding.event_id}
+                if case.scenario_steps:
+                    rows = "".join(f"<tr><td>{escape(step.action)}</td><td>{escape(step.receiver_setting)}</td><td>{escape(step.expected)}</td>"
+                                   f"<td>{escape(label(step.status))}<br><code>{escape(step.execution_id)}</code></td></tr>"
+                                   for step in case.scenario_steps if not executions or step.execution_id in executions)
+                    details += (f"<div class='table-wrap'><table><tr><th>{escape(LABELS['operation'])}</th><th>{escape(LABELS['receiver_setting'])}</th>"
+                                f"<th>{escape(LABELS['expected'])}</th><th>{escape(LABELS['execution_reach'])}</th></tr>{rows}</table></div>")
+                else:
+                    facts = case.failure_analysis.scenario
+                    details += "<p>" + "<br>".join(escape(item) for item in [*facts.setup, *facts.stimulus, *facts.conditions]) + "</p>"
+                details += (f"<p>{escape(LABELS['test_assertion'])}: <code>{escape(case.failure_analysis.test_expected.assertion)}</code></p>"
+                            + "<p>" + " · ".join(source_link(ref, compact=True) for ref in case.failure_analysis.test_expected.source_refs) + "</p>")
+                gap = case.failure_analysis.rationale.remaining_gap or case.failure_analysis.unresolved
+                if gap:
+                    details += f"<p class='muted'>{escape(LABELS['remaining_gap'])}: {escape(gap)}</p>"
+            for binding in bug.evidence_bindings:
+                case = cases[binding.case_id]
+                event = next((item for item in case.events if item.event_id == binding.event_id), None)
+                bindings[binding.evidence_id] = (bug_id, binding, event, case)
+                details += f"<p>{badge(binding.role)} {escape(binding.reason)}"
+                if event:
+                    details += f" · {escape(label(event.source_kind))}: {escape(event.description)}"
+                    if event.source_ref:
+                        details += " · " + source_link(event.source_ref, compact=True)
+                    if event.source_kind == "waveform":
+                        details += (f"<br><code>{escape(event.signal_path)}</code> · {escape(LABELS['raw_time'])}: {event.time}"
+                                    f"<br><code>{escape(event.raw_value)}</code> · {escape(event.condition)}")
+                        for field in decode_fields(event.raw_value, event.fields):
+                            meaning = LABELS['unknown_enum'] if field['enum_status'] == 'unknown' else field['meaning']
+                            details += f"<br><code>{escape(field['name'])}={escape(field['value'])}</code> {escape(meaning)}"
+                        if event.receipt_id in receipt_links:
+                            nav_id = hashlib.sha256((binding.evidence_id + event.receipt_id).encode()).hexdigest()
+                            wave = next(item for item in case_waveforms(case) if item.receipt_id == event.receipt_id)
+                            token = parse_qs(urlsplit(wave.viewer_url).query)["wave"][0]
+                            payload = decode_waveform_viewer_token(token)
+                            navigation[nav_id] = {"snapshot": snapshot_paths[event.receipt_id].name,
+                                "wave": token, "start": payload["start"], "end": payload["end"],
+                                "cursor": str(event.time), "signals": payload["signals"],
+                                "description": event.description, "signal_path": event.signal_path,
+                                "fields": decode_fields(event.raw_value, event.fields), "sources": []}
+                            for reference in [*event.rtl_refs, *(field.source_ref for field in event.fields)]:
+                                rendered = source_link(reference)
+                                match = re.search(r"href='([^']+)'", rendered)
+                                if match:
+                                    navigation[nav_id]["sources"].append({"title": reference, "url": html.unescape(match.group(1))})
+                            url = receipt_links[event.receipt_id] + "&event=" + nav_id
+                            caption_event = f"{caption} · {LABELS['case']} {case_number[case.case_id]} · {label(event.kind)} · {event.time}"
+                            event_link = f"<a href='{escape(url)}' target='_blank' rel='noopener'>{escape(caption_event)}</a>"
+                            wave_links.append(f"<li>{event_link}</li>")
+                            observations[binding.evidence_id] = event_link
+                            downloads[event.receipt_id] = (case, snapshot_paths[event.receipt_id])
+                            if binding.role == "direct":
+                                available_direct.add(bug_id)
+                        else:
+                            details += f"<br>{escape(LABELS['wave_preview_unavailable'])}"
+                    else:
+                        observations[binding.evidence_id] = (f"{escape(caption)} · {escape(LABELS['case'])} {case_number[case.case_id]} · "
+                            f"{escape(label(event.source_kind))}: " + (source_link(event.source_ref, compact=True) if event.source_ref else escape(event.description)))
+                if binding.remaining_gap:
+                    details += f"<br>{escape(LABELS['remaining_gap'])}: {escape(binding.remaining_gap)}"
+                details += "</p>"
+            technical.append(details)
+            references.extend([bug.decision.spec_ref, *phenomenon.spec_expected.source_refs, *bug.spec_refs])
+            references.extend([bug.decision.rtl_ref, *bug.rtl_refs])
+            references.extend(ref for binding in bug.evidence_bindings for event in cases[binding.case_id].events
+                              if event.event_id == binding.event_id for ref in event.rtl_refs)
+        selected = bindings.get(root.primary_evidence_id) if root else None
+        thumbnail = f"<p class='muted'>{escape(LABELS['no_primary_preview'])}</p>"
+        preview_status, preview_gap = "unavailable", ""
+        if selected:
+            bug_id, binding, event, case = selected
+            if event and event.receipt_id in snapshot_paths:
+                wave = next(item for item in case_waveforms(case) if item.receipt_id == event.receipt_id)
+                try:
+                    measured = snapshot_preview(snapshot_paths[event.receipt_id], wave, event)
+                    nav_id = hashlib.sha256((binding.evidence_id + event.receipt_id).encode()).hexdigest()
+                    url = receipt_links[event.receipt_id] + "&event=" + nav_id
+                    thumbnail = (f"<p class='muted'>{escape(LABELS['phenomenon'])} {member_number[bug_id]} · "
+                                 f"{escape(LABELS['case'])} {case_number[case.case_id]} · {measured['start']}–{measured['end']}</p>"
+                                 f"<a class='wave-preview' href='{escape(url)}' target='_blank' rel='noopener'>{measured['svg']}</a>"
+                                 f"<p class='muted'>{escape(LABELS['raw_time'])}: {event.time} · {escape(LABELS['timescale'])}: "
+                                 f"{escape(measured['timescale'] or LABELS['not_recorded'])}</p>")
+                    preview_status = "available"
+                except (ValueError, RuntimeError, OSError, ImportError) as error:
+                    preview_gap = str(error)[:300]
+                    thumbnail += f"<p class='muted'>{escape(preview_gap)}</p>"
+        download_items = []
+        for receipt_id, (case, snapshot) in downloads.items():
+            item = (f"<li>{escape(LABELS['case'])} {case_number[case.case_id]} · <code>{escape(receipt_id)}</code>"
+                    f" · <a href='../waveforms/{snapshot.name}' download>{escape(LABELS['download_original'])}</a>")
+            exported = exports.get(receipt_id, {})
+            if exported.get("status") == "available":
+                fragment = Path(exported.get("file", ""))
+                target = (output.parent / "report" / fragment).resolve()
+                if (fragment.is_absolute() or ".." in fragment.parts or not target.is_relative_to((output.parent / "report").resolve())
+                        or not target.is_file() or hashlib.sha256(target.read_bytes()).hexdigest() != exported.get("sha256")
+                        or hashlib.sha256(snapshot.read_bytes()).hexdigest() != exported.get("source_sha256")):
+                    raise ValueError("VCD export identity or path is invalid")
+                item += f" · <a href='../{escape(fragment.as_posix())}' download>{escape(LABELS['download_vcd'])}</a>"
+            download_items.append(item + "</li>")
+        root_status = "complete" if set(members) <= available_direct else "incomplete"
+        context_gap = not index.dut_context.text or bool(root and not root.affected_behavior.text)
+        if root:
+            root_manifest.append({"root_id": root.root_id, "page": "roots/" + root_page(root.root_id),
+                                  "phenomenon_ids": list(members), "primary_evidence_id": root.primary_evidence_id,
+                                  "preview_status": preview_status, "preview_gap": preview_gap,
+                                  "evidence_status": root_status, "context_status": "incomplete" if context_gap else "complete"})
+        identity = root.root_id if root else members[0]
+        heading = root.title if root else bugs[members[0]].phenomenon.actual.summary
+        mechanism = ""
+        if root:
+            rows = []
+            for step in root.causal_steps:
+                refs = " · ".join(source_link(ref, compact=True) for ref in step.rtl_refs)
+                observed = "<br>".join(observations[eid] for eid in step.evidence_ids if eid in observations)
+                rows.append(f"<li><p>{escape(step.summary)}</p><p class='muted'>{escape(LABELS['rtl_reasoning'])} · {refs}</p>"
+                            + (f"<p>{observed}</p>" if observed else "") + "</li>")
+                references.extend(step.rtl_refs)
+            mechanism = (f"<div class='root-mechanism'><h3>{escape(LABELS['shared_mechanism'])}</h3><ol class='chain'>{''.join(rows)}</ol>"
+                         f"<details><summary>{escape(LABELS['cause_details'])}</summary><p>{escape(root.first_error)}</p>"
+                         f"<p>{escape(root.causal_chain)}</p></details></div>")
+        provenance = "".join(f"<li><code>{escape(bug_id)}</code> {source_link(ref, compact=True)}</li>" for bug_id in members
+                             for ref in [index.bugs[bug_id].summary_ref, *index.bugs[bug_id].analysis_refs] if ref)
+        key_sources = []
+        for reference in dict.fromkeys(ref for ref in references if ref):
+            match = REF_PATTERN.fullmatch(reference)
+            suffix = Path(match.group(1)).suffix.lower() if match else ""
+            kind = "RTL" if suffix in RTL_SUFFIXES else "CASE" if suffix == ".py" else LABELS['document_basis']
+            key_sources.append(f"<li>{escape(kind)} · {source_link(reference, compact=True)}</li>")
+        reference_html = "".join(key_sources[:6])
+        if len(key_sources) > 6:
+            reference_html += f"<li><details><summary>{escape(LABELS['more_sources'])}</summary><ul>{''.join(key_sources[6:])}</ul></details></li>"
+        context = index.dut_context
+        context_html = (f"<p>{escape(context.text or context.unavailable_reason)}</p>"
+                        + "<p class='muted'>" + " · ".join(source_link(ref, compact=True) for ref in context.source_refs) + "</p>")
+        if root:
+            affected = root.affected_behavior
+            context_html += (f"<p><strong>{escape(LABELS['affected_behavior'])}:</strong> {escape(affected.text or affected.unavailable_reason)}</p>"
+                             + "<p class='muted'>" + " · ".join(source_link(ref, compact=True) for ref in affected.source_refs) + "</p>")
+        comparison_table = (f"<div class='table-wrap'><table><thead><tr><th>{escape(LABELS['phenomenon'])}</th>"
+                            f"<th>{escape(LABELS['expected'])}</th><th>{escape(LABELS['observed'])}</th></tr></thead><tbody>{''.join(comparisons)}</tbody></table></div>")
+        body = (f"<nav class='crumb'><a href='../index.html'>{escape(LABELS['module'])}</a> / <code>{escape(identity)}</code></nav>"
+                "<div class='detail-layout'><article class='report-text'>"
+                f"<header><small class='mono'>{escape(identity)}</small><h1>{escape(heading or identity)}</h1>{badge(root_status if root else bugs[members[0]].decision.verdict)}</header>"
+                f"<section data-section='dut'><h2>01 {escape(LABELS['dut_overview'])}</h2>{context_html}</section>"
+                f"<section data-section='goal'><h2>02 {escape(LABELS['verification_goal'])}</h2>{''.join(goals)}</section>"
+                f"<section data-section='scenario'><h2>03 {escape(LABELS['scenario_analysis'])}</h2>{''.join(scenarios)}"
+                f"<details class='case-details'><summary>{escape(LABELS['case_details'])}</summary>{''.join(technical)}</details></section>"
+                f"<section data-section='rtl'><h2>04 {escape(LABELS['rtl_analysis'])}</h2>{comparison_table}{mechanism}</section></article>"
+                f"<aside class='report-context'><section><h2>{escape(LABELS['key_wave'])}</h2>{thumbnail}"
+                f"<ul class='wave-links'>{''.join(wave_links)}</ul>"
+                f"<details><summary>{escape(LABELS['snapshot_downloads'])}</summary><ul>{''.join(download_items)}</ul></details>"
+                f"<p class='muted'>{escape(LABELS['wave_preview_server_hint'])}</p></section>"
+                f"<section><h2>{escape(LABELS['key_sources'])}</h2><ul>{reference_html}</ul>"
+                f"<details class='original-report'><summary>{escape(LABELS['original_report'])}</summary><ul>{provenance or none_li}</ul></details>"
+                "</section></aside></div>")
+        return page(f"{name}: {identity}", body)
+
+    for root in roots.roots:
+        pages["report/roots/" + root_page(root.root_id)] = detail_page(root, root.bug_ids)
     for position, bug_id in enumerate(index.bug_order, 1):
-        entry, bug = index.bugs[bug_id], bugs[bug_id]
-        decision = bug.decision
-        filename = f"bug_{position:04d}.html"
-        spec_refs = list(dict.fromkeys(filter(None, [decision.spec_ref, *bug.spec_refs,
-                                                     *entry.spec_candidates,
-                                                     *bug.phenomenon.spec_expected.source_refs])))
-        rtl_refs = list(dict.fromkeys(filter(None, [decision.rtl_ref, *bug.rtl_refs,
-                                                    *entry.rtl_candidates,
-                                                    *bug.phenomenon.actual.evidence_refs])))
-        case_links, receipts, viewers = [], [], []
-        for case_id in bug.case_ids:
-            case = cases[case_id]
-            case_link = (f"<a href='../cases/{case_names[case_id]}'>{escape(case_id)}</a>"
-                         if case_id in case_names else escape(case_id))
-            case_links.append(f"<li>{case_link}: {escape(label(case.replay.status))}; "
-                              f"{escape(LABELS['attribution'])} {escape(label(case.failure_analysis.category))}; "
-                              f"{escape(LABELS['receipt'])} {escape(case.waveform.receipt_id)}</li>")
-            if case.waveform.receipt_id:
-                receipts.append(case.waveform.receipt_id)
-                viewers.append(case.waveform.viewer_url)
-        wave_cases = [(case_id, cases[case_id]) for case_id in bug.case_ids
-                      if cases[case_id].waveform.receipt_id]
-        if wave_cases:
-            representative_id, representative = next(
-                ((case_id, case) for case_id, case in wave_cases if case_id in preview_links),
-                wave_cases[0])
-            wave = representative.waveform
-            window = wave.analysis_window
-            start = window.get("effective_start_step", LABELS["unavailable"])
-            end = window.get("effective_end_step", LABELS["unavailable"])
-            observation = wave.observed_behavior or wave.diagnostic or LABELS["unresolved"]
-            sentences = re.split(r"(?<=[。！？.!?])\s+", observation, maxsplit=2)
-            if len(sentences) > 2:
-                observation = " ".join(sentences[:2]) + "…"
-            if len(observation) > 500:
-                observation = observation[:500].rsplit(" ", 1)[0].rstrip() + "…"
-            preview = (f"<a class='action' href='{escape(preview_links[representative_id])}' "
-                       f"target='_blank' rel='noopener'>{escape(LABELS['open_wave'])}</a>"
-                       f"<p class='muted'>{escape(LABELS['wave_preview_server_hint'])}</p>"
-                       if representative_id in preview_links else escape(LABELS["wave_preview_unavailable"]))
-            other_waves = "".join(
-                f"<li>{escape(case_id)} · {escape(case.waveform.receipt_id)} "
-                + (f"<a href='{escape(preview_links[case_id])}' target='_blank' rel='noopener'>"
-                   f"{escape(LABELS['open_wave'])}</a>" if case_id in preview_links
-                   else escape(LABELS["wave_preview_unavailable"])) + "</li>"
-                for case_id, case in wave_cases if case_id != representative_id)
-            wave_evidence = (f"<p>{escape(LABELS['signed_wave_count'])}: {len(wave_cases)}; "
-                             f"{escape(LABELS['representative_case'])}: {escape(representative_id)}; "
-                             f"{escape(LABELS['wave_window'])}: {escape(start)}–{escape(end)}</p>"
-                             f"<p>{escape(observation)}</p>{preview}"
-                             + (f"<details><summary>{escape(LABELS['other_wave_evidence'])} "
-                                f"({len(wave_cases) - 1})</summary><ul>{other_waves}</ul></details>"
-                                if other_waves else ""))
+        bug = bugs[bug_id]
+        target = bug_pages[bug_id]
+        if bug.decision.root_id in root_by_id:
+            target += "#" + bug_anchors[bug_id]
         else:
-            wave_evidence = escape(LABELS["unavailable"])
-        root = root_by_id.get(decision.root_id)
-        aggregate_rows = []
-        for case_id in dict.fromkeys([*bug.case_ids, *entry.aggregate_case_ids]):
-            case_link = (f"<a href='../cases/{case_names[case_id]}'>{escape(case_id)}</a>"
-                         if case_id in case_names else escape(case_id))
-            if case_id in bug.case_ids:
-                relation = (LABELS["reviewed_aggregate_case"] if case_id in entry.aggregate_case_ids
-                            else LABELS["reviewed_case"])
-            else:
-                relation = LABELS["aggregate_only"]
-            replay = label(cases[case_id].replay.status) if case_id in cases else LABELS["not_collected"]
-            aggregate_rows.append(f"<tr><td>{case_link}</td><td>{escape(relation)}</td><td>{escape(replay)}</td></tr>")
-        empty_aggregate = f"<tr><td colspan='3'>{escape(LABELS['none'])}</td></tr>"
-        aggregate_table = (f"<div class='table-wrap'><table><thead><tr><th>{escape(LABELS['case'])}</th>"
-                           f"<th>{escape(LABELS['case_relation'])}</th><th>{escape(LABELS['replay_result'])}</th>"
-                           f"</tr></thead><tbody>{''.join(aggregate_rows) or empty_aggregate}"
-                           "</tbody></table></div>")
-        source_rows = []
-        for reference in rtl_refs:
-            note = (f"{LABELS['decision_rtl']}: {decision.first_error}; {decision.causal_chain}"
-                    if reference == decision.rtl_ref else LABELS["candidate_rtl"])
-            source_rows.append(f"<tr><td>{source_link(reference)}</td><td>{escape(note)}</td></tr>")
-        empty_source = f"<tr><td colspan='2'>{escape(LABELS['no_refs'])}</td></tr>"
-        source_table = (f"<div class='table-wrap'><table class='source-table'><thead><tr><th>{escape(LABELS['source_file'])}</th>"
-                        f"<th>{escape(LABELS['source_analysis'])}</th></tr></thead><tbody>{''.join(source_rows) or empty_source}</tbody></table></div>")
-        spec_documents = [reference for reference in spec_refs
-                          if (match := REF_PATTERN.fullmatch(reference)) and Path(match.group(1)).suffix.lower() == ".md"]
-        summary_key = "attribution_root_summary" if root else "attribution_root_unresolved"
-        attribution_root_summary = LABELS[summary_key].format(
-            verdict=label(decision.verdict), count=len(bug.case_ids),
-            root_id=root.root_id if root else "",
-            rtl_ref=root.rtl_ref if root else "",
-            observed=bug.phenomenon.actual.summary or LABELS["unresolved"])
-        spec_evidence = []
-        for reference in spec_refs:
-            note = LABELS["decision_spec"] if reference == decision.spec_ref else LABELS["candidate_spec"]
-            spec_evidence.append(f"<tr><td>{source_link(reference)}</td><td>{escape(note)}</td></tr>")
-        case_evidence = []
-        for case_id in bug.case_ids:
-            case = cases.get(case_id)
-            if case is None:
-                continue
-            case_page = case_names.get(case_id)
-            location = (f"<a href='../cases/{case_page}'>{escape(case_id)}</a>"
-                        if case_page else escape(case_id))
-            refs = [*case.failure_analysis.scenario.source_refs,
-                    *case.failure_analysis.spec_expected.source_refs,
-                    *case.failure_analysis.test_expected.source_refs,
-                    *case.failure_analysis.actual.evidence_refs]
-            evidence = "<br>".join(source_link(ref) if REF_PATTERN.fullmatch(ref) else escape(ref)
-                                  for ref in refs) or escape(LABELS["no_refs"])
-            case_evidence.append(f"<tr><td>{location}</td><td>{evidence}</td></tr>")
-        rtl_evidence = []
-        for reference in rtl_refs:
-            note = (f"{LABELS['decision_rtl']}: {decision.first_error}; {decision.causal_chain}"
-                    if reference == decision.rtl_ref else LABELS["candidate_rtl"])
-            rtl_evidence.append(f"<tr><td>{source_link(reference)}</td><td>{escape(note)}</td></tr>")
-
-        def evidence_table(rows):
-            """Render one bounded two-column evidence provenance table."""
-            empty = f"<tr><td colspan='2'>{escape(LABELS['no_refs'])}</td></tr>"
-            return ("<div class='table-wrap'><table class='source-table'><thead><tr>"
-                    f"<th>{escape(LABELS['evidence_location'])}</th>"
-                    f"<th>{escape(LABELS['evidence_explanation'])}</th></tr></thead><tbody>"
-                    f"{''.join(rows) or empty}</tbody></table></div>")
-
-        body = (f"<nav class='crumb'><a href='../index.html'>{escape(LABELS['module'])}</a> / {escape(LABELS['bug_review'])}</nav>"
-                f"<header class='hero'><div class='eyebrow'>{escape(LABELS['bug_review'])}</div>"
-                f"<h1 class='mono'>{escape(bug_id)}</h1>{badge(decision.verdict)}"
-                f"<span class='muted'>{escape(LABELS['confidence'])}: {escape(decision.review_confidence if decision.review_confidence is not None else LABELS['unresolved'])}"
-                f" · {escape(LABELS['reported_confidence'])}: {escape(entry.reported_confidence if entry.reported_confidence is not None else LABELS['unavailable'])}"
-                f" · {escape(LABELS['origin'])}: {escape(label(entry.origin))}</span>"
-                f"<p class='lead'>{escape(decision.rationale or LABELS['unresolved'])}</p>"
-                f"<p class='muted'>{escape(LABELS['root_group'])}: {escape(decision.root_id or LABELS['none'])}</p></header>"
-                f"<section class='card'><h2>{escape(LABELS['phenomenon_analysis'])}</h2>"
-                f"<h3>{escape(LABELS['scenario'])}</h3><p>{escape(bug.phenomenon.scenario.summary or LABELS['unresolved'])}</p>"
-                f"<h3>{escape(LABELS['spec_expected'])}</h3><p>{escape(bug.phenomenon.spec_expected.summary or LABELS['unresolved'])}</p>"
-                f"<h3>{escape(LABELS['observed'])}</h3><p>{escape(bug.phenomenon.actual.summary or LABELS['unresolved'])}</p>"
-                f"<h3>{escape(LABELS['bug_root_cause'])}</h3><p>{escape(bug.phenomenon.bug_root_cause or attribution_root_summary)}</p>"
-                f"<p>{escape(LABELS['causal_chain'])}: {escape(decision.causal_chain or LABELS['unresolved'])}</p></section>"
-                f"<section class='card'><h2>{escape(LABELS['evidence_provenance'])}</h2>"
-                f"<h3>{escape(LABELS['spec_evidence'])}</h3>{evidence_table(spec_evidence)}"
-                f"<h3>{escape(LABELS['case_evidence'])}</h3>{evidence_table(case_evidence)}"
-                f"<h3>{escape(LABELS['rtl_evidence'])}</h3>{evidence_table(rtl_evidence)}"
-                f"<details><summary>{escape(LABELS['signed_waves'])}</summary>{wave_evidence}</details></section>"
-                f"<section class='card'><details class='section-disclosure' open>"
-                f"<summary>{escape(LABELS['related_documents'])}</summary>"
-                f"<p class='muted'>{escape(LABELS['original_report'])}</p>"
-                f"<ul>{source_list([entry.summary_ref, *entry.analysis_refs])}</ul>"
-                f"<p class='muted'>{escape(LABELS['related_specs'])}</p>"
-                f"<ul>{source_list(spec_documents)}</ul>"
-                f"<details><summary>{escape(LABELS['aggregate_cases'])} ({len(entry.aggregate_case_ids)})</summary>"
-                f"{aggregate_table}<p class='muted'>{escape(LABELS['report_source'])}</p>"
-                f"<ul>{source_list(entry.aggregate_refs)}</ul></details></details></section>")
-        pages[f"report/bugs/{filename}"] = page(f"{name}: {bug_id}", body)
-        if decision.verdict == "confirmed" and decision.review_confidence is not None and decision.review_confidence >= CONFIDENCE_FLOOR:
-            if decision.root_id not in root_by_id:
-                raise ValueError(f"confirmed Bug has no root group: {bug_id}")
-            visible_bugs.setdefault(decision.root_id, []).append((bug_id, filename, bug))
-        manifest_bugs.append({"bug_id": bug_id, "page": f"bugs/{filename}",
-                              "root_id": decision.root_id, "receipts": receipts,
-                              "viewers": viewers, "spec_refs": spec_refs, "rtl_refs": rtl_refs})
+            pages["report/" + target] = detail_page(None, [bug_id])
+        filename = f"bug_{position:04d}.html"
+        pages[f"report/bugs/{filename}"] = page(bug_id,
+            f"<nav class='crumb'><a href='../index.html'>{escape(LABELS['module'])}</a></nav>"
+            f"<p><a href='../{escape(target)}'>{escape(LABELS['open_root_detail'])} · <code>{escape(bug_id)}</code></a></p>"
+            f"<script>location.replace({json.dumps('../' + target)});</script>")
+        if bug.decision.verdict == "confirmed" and bug.decision.review_confidence is not None and bug.decision.review_confidence >= CONFIDENCE_FLOOR:
+            if bug.decision.root_id not in root_by_id:
+                raise ValueError(f"confirmed phenomenon has no root: {bug_id}")
+            visible_bugs.setdefault(bug.decision.root_id, []).append((bug_id, filename, bug))
+        manifest_bugs.append({"bug_id": bug_id, "page": target, "root_id": bug.decision.root_id,
+                              "receipts": [wave.receipt_id for case_id in bug.case_ids for wave in case_waveforms(cases[case_id])],
+                              "viewers": [wave.viewer_url for case_id in bug.case_ids for wave in case_waveforms(cases[case_id])],
+                              "spec_refs": bug.spec_refs, "rtl_refs": bug.rtl_refs})
     root_rows = []
     for root_id, members in visible_bugs.items():
         root = root_by_id[root_id]
@@ -442,8 +577,8 @@ def render_pages(output: Path, index, cases: dict, bugs: dict, roots, coverage) 
             for bug_id, filename, _ in members)
         group_cases = set().union(*(bug.case_ids for _, _, bug in members))
         root_rows.append((confidence_min,
-                          f"<tr><td><strong class='mono'>{escape(root_id)}</strong>"
-                          f"<div class='muted root-note'>{escape(root.first_error)}</div>"
+                          f"<tr><td><a class='mono' href='roots/{root_page(root_id)}'>{escape(root_id)}</a>"
+                          f"<div class='muted root-note'>{escape(root.title)}</div>"
                           f"<div>{source_link(root.rtl_ref, prefix='sources/')}</div></td>"
                           f"<td><ul>{member_links}</ul></td><td>{confidence}</td>"
                           f"<td>{len(group_cases)}</td></tr>"))
@@ -464,7 +599,11 @@ def render_pages(output: Path, index, cases: dict, bugs: dict, roots, coverage) 
             metric_items.append(f"<li>{escape(label(key))}: {escape(LABELS['unavailable'])}; "
                                 f"{escape(metric.reason if metric else '')}</li>")
     missing = [case_id for case_id in manifest.collected if summary.outcomes.get(case_id) == "not_run"]
-    incomplete = review_incomplete(manifest, cases, environment)
+    incomplete = (review_incomplete(manifest, cases, environment)
+                  or not index.dut_context.text
+                  or any(item["context_status"] != "complete" for item in root_manifest)
+                  or any(item["evidence_status"] != "complete" for item in root_manifest)
+                  or any(bug.decision.verdict == "inconclusive" for bug in bugs.values()))
     status = "incomplete" if incomplete else "complete"
     findings = "".join(f"<li>{escape(label(item.category))} ({escape(label(item.status))}): "
                        f"{escape(item.observation)}; {escape(LABELS['impact'])}: {escape(item.impact)}; "
@@ -515,11 +654,21 @@ def render_pages(output: Path, index, cases: dict, bugs: dict, roots, coverage) 
                 f"<details><summary>{escape(LABELS['run_source'])}</summary>"
                 f"<p class='mono'>{escape(index.workspace.get('source_path', ''))}</p>"
                 f"<pre>{escape(chr(10).join(manifest.collection_errors) or LABELS['none'])}</pre></details></section>")
+    all_rows = "".join(f"<tr><td><a href='{escape(item['page'])}'><code>{escape(item['bug_id'])}</code></a></td>"
+                       f"<td>{badge(bugs[item['bug_id']].decision.verdict)}</td><td>{escape(item['root_id'] or LABELS['none'])}</td></tr>"
+                       for item in manifest_bugs)
+    overview += (f"<section class='card'><h2>{escape(LABELS['all_decisions'])}</h2>"
+                 f"<p>{escape(LABELS['root_count'])}: {len(roots.roots)} · {escape(LABELS['phenomenon_count'])}: {len(bugs)} · {escape(LABELS['cases'])}: {len(cases)}</p>"
+                 f"<div class='table-wrap'><table><tr><th>{escape(LABELS['phenomenon'])}</th><th>{escape(LABELS['verdict'])}</th><th>{escape(LABELS['root'])}</th></tr>{all_rows}</table></div></section>")
+    pages["report/surfer/report-events.json"] = json.dumps({"schema": "bug_review_navigation.v1", "events": navigation}, ensure_ascii=False, sort_keys=True, indent=2) + "\n"
     pages["report/index.html"] = page(f"{name} {LABELS['bug_review']}", overview)
-    report_manifest = {"schema": "bug_review_report.v3", "workspace": name,
+    report_manifest = {"schema": "bug_review_report.v4", "workspace": name,
+                       "detail_layout": "scenario_rtl.v1",
                        "review_status": status, "pages": sorted(p.removeprefix("report/") for p in pages),
                        "high_confidence_root_count": len(root_rows),
-                       "bugs": manifest_bugs, "cases": manifest_cases,
+                       "bugs": manifest_bugs, "cases": manifest_cases, "roots": root_manifest,
+                       "root_count": len(roots.roots), "phenomenon_count": len(bugs),
+                       "waveform_exports": {key: value for key, value in exports.items() if key in snapshot_paths},
                        "waveform_previews": sorted(preview_manifest, key=lambda item: item["case_id"]),
                        "sources": sorted(source_catalog.values(), key=lambda item: item["path"]),
                        "collected": len(manifest.collected), "unexecuted": missing}
@@ -552,6 +701,8 @@ def verify_pages(output: Path, index, cases: dict, bugs: dict, roots) -> None:
         path = output.parent / filename
         if not path.is_file() or path.read_text(encoding="utf-8") != expected:
             raise ValueError(f"report page missing or differs from review records: {filename}")
+        if not filename.endswith(".html"):
+            continue
         for href in re.findall(r"href='([^']+)'", expected):
             if href.startswith(("http://", "https://", "/surfer/", "#")):
                 continue
@@ -568,11 +719,22 @@ def verify_pages(output: Path, index, cases: dict, bugs: dict, roots) -> None:
                 if (payload["v"] != 2 or re.fullmatch(r"[0-9a-f]{32}\.(?:fst|vcd)", snapshot) is None
                         or not (output.parent / "report/waveforms" / snapshot).is_file()):
                     raise ValueError(f"invalid report waveform preview link: {href}")
+                if set(query) - {"wave", "snapshot", "event"}:
+                    raise ValueError(f"unexpected waveform navigation fields: {href}")
+                if "event" in query:
+                    events = json.loads(pages["report/surfer/report-events.json"])["events"]
+                    event = events.get(query["event"][0])
+                    if not event or event["wave"] != query["wave"][0] or event["snapshot"] != snapshot:
+                        raise ValueError(f"waveform event identity mismatch: {href}")
             elif parsed.query:
                 raise ValueError(f"unexpected report query link in {filename}: {href}")
             if parsed.fragment:
                 match = re.fullmatch(r"L(\d+)-L(\d+)", parsed.fragment)
                 content = pages.get(str(target.relative_to(output.parent)))
+                if match is None:
+                    if content is None or parsed.fragment not in re.findall(r"id=['\"]([^'\"]+)['\"]", content):
+                        raise ValueError(f"broken report anchor in {filename}: {href}")
+                    continue
                 if (match is None or content is None or int(match.group(1)) > int(match.group(2))
                         or f"id='L{match.group(1)}'" not in content
                         or f"id='L{match.group(2)}'" not in content):

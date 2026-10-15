@@ -8,6 +8,8 @@ from urllib.parse import parse_qs, urlparse
 from ucagent.util.waveform_viewer import decode_waveform_viewer_token
 
 from .records import REF_PATTERN, BugRecord, CaseRecord, ReviewIndex, RootsRecord, source_lines
+from .evidence import binding_issues, case_waveforms, event_issues
+from .narrative import narrative_issues
 
 
 class ReviewIssues(ValueError):
@@ -33,7 +35,9 @@ def review_incomplete(manifest, cases: dict[str, CaseRecord], environment) -> bo
     if (manifest.collection_errors or environment.unresolved
             or any(finding.status == "unresolved" for finding in environment.findings)):
         return True
-    return any(case.replay.status == "not_run" or (
+    return any(case.failure_analysis.unresolved.strip()
+        or case.failure_analysis.rationale.remaining_gap.strip()
+        or case.replay.status == "not_run" or (
         case.replay.status in {"failed", "error", "xpassed"} and (
             case.failure_analysis.category in {"insufficient_evidence", "spec_ambiguous", "suspected_dut"}
             or (case.failure_analysis.category == "confirmed_dut" and not case.waveform.receipt_id)))
@@ -92,6 +96,7 @@ def case_issues(index: ReviewIndex, case: CaseRecord, waveinfo,
                 or analysis.rationale.remaining_gap.strip()):
             add("failure_analysis.rationale.remaining_gap", "name the missing evidence")
     if source_root is not None:
+        issues.extend(event_issues(case, source_root, waveinfo))
         references = [*analysis.scenario.source_refs, *analysis.spec_expected.source_refs,
                       *analysis.test_expected.source_refs, *analysis.actual.evidence_refs]
         for reference in references:
@@ -101,6 +106,11 @@ def case_issues(index: ReviewIndex, case: CaseRecord, waveinfo,
                 source_lines(source_root, reference, 1)
             except (ValueError, OSError) as error:
                 add("failure_analysis.actual.evidence_refs", str(error))
+    if analysis.category == "confirmed_dut" and case.waveform.conclusion == "not_dut_bug":
+        add("failure_analysis.category", "confirmed_dut contradicts waveform not_dut_bug")
+    if require_triage and failed and analysis.category in {"suspected_dut", "confirmed_dut"}:
+        if not case.scenario_steps and not (analysis.unresolved.strip() or analysis.rationale.remaining_gap.strip()):
+            add("scenario_steps", "DUT candidate needs ordered operations and execution reach or a concrete gap")
     wave = case.waveform
     if require_wave and wave.conclusion != "inconclusive" and not wave.receipt_id:
         add("waveform.receipt_id", "decisive waveform conclusion needs a signed receipt")
@@ -135,6 +145,13 @@ def case_issues(index: ReviewIndex, case: CaseRecord, waveinfo,
                 add("waveform", "DUT conclusion needs observed, alignment and source analysis")
             if waveinfo.get_bug_document_evidence(wave.receipt_id).get("success") is not True:
                 add("waveform.receipt_id", "receipt is not usable final evidence")
+    for extra in case.additional_waveforms:
+        copy = case.model_copy(deep=True)
+        copy.waveform = extra
+        copy.additional_waveforms = []
+        copy.events = []
+        copy.scenario_steps = []
+        issues.extend(case_issues(index, copy, waveinfo, require_wave=True))
     return issues
 
 
@@ -142,7 +159,7 @@ def validate_correlation(index: ReviewIndex, cases: dict[str, CaseRecord],
                          bugs: dict[str, BugRecord], roots: RootsRecord,
                          source_root: Path, waveinfo) -> None:
     """Validate complete decisions, source references and root membership."""
-    issues: list[dict] = []
+    issues = narrative_issues(index, cases, bugs, roots, source_root)
 
     def issue(location: str, problem: str) -> None:
         """Append one exact failing location."""
@@ -158,6 +175,15 @@ def validate_correlation(index: ReviewIndex, cases: dict[str, CaseRecord],
     if len(set(signatures)) != len(signatures):
         issue("root_causes", "one cause signature is split across root groups")
     membership: dict[str, str] = {}
+    evidence_ids = {}
+    for bug in bugs.values():
+        issues.extend(binding_issues(bug, cases))
+        for binding in bug.evidence_bindings:
+            if binding.evidence_id in evidence_ids:
+                issue("evidence_bindings", f"duplicate module evidence_id {binding.evidence_id}")
+            evidence_ids[binding.evidence_id] = (bug.bug_id, binding)
+    for case in cases.values():
+        issues.extend(case_issues(index, case, waveinfo, require_wave=True, source_root=source_root))
     for root in roots.roots:
         if not root.bug_ids or any(not getattr(root, field).strip()
                                    for field in ("rtl_ref", "first_error", "causal_chain")):
@@ -166,6 +192,15 @@ def validate_correlation(index: ReviewIndex, cases: dict[str, CaseRecord],
             if bug_id in membership:
                 issue(f"roots/{root.root_id}/bug_ids", f"duplicate member {bug_id}")
             membership[bug_id] = root.root_id
+        selected = evidence_ids.get(root.primary_evidence_id)
+        if not root.title.strip():
+            issue(f"roots/{root.root_id}/title", "root detail needs a readable shared-mechanism title")
+        if not selected or selected[0] not in root.bug_ids or selected[1].role not in {"direct", "corroborating", "normal_reference"}:
+            issue(f"roots/{root.root_id}/primary_evidence_id", "select one member's explicit waveform evidence")
+        elif not cases.get(selected[1].case_id) or not any(
+                event.event_id == selected[1].event_id and event.source_kind == "waveform"
+                for event in cases[selected[1].case_id].events):
+            issue(f"roots/{root.root_id}/primary_evidence_id", "primary preview needs a waveform event")
     for bug_id, bug in bugs.items():
         base = f"bugs/{bug_id}"
         if bug.bug_id != bug_id:
@@ -234,22 +269,28 @@ def validate_correlation(index: ReviewIndex, cases: dict[str, CaseRecord],
                     except (ValueError, OSError) as error:
                         issue(f"{base}/phenomenon/{field}", str(error))
             valid_case = False
-            for case_id in bug.case_ids:
+            for binding in bug.evidence_bindings:
+                if binding.role != "direct":
+                    continue
+                case_id = binding.case_id
                 case = cases.get(case_id)
                 if not case or case_id not in index.cases or bug_id not in case.bug_ids:
                     continue
+                event = next((event for event in case.events if event.event_id == binding.event_id), None)
+                wave = next((wave for wave in case_waveforms(case)
+                             if event and wave.receipt_id == event.receipt_id), None)
                 if (case.replay.status == "failed"
                         and case.test_review.correctness_confirmed
-                        and case.failure_analysis.category in {"suspected_dut", "confirmed_dut"}
-                        and case.waveform.conclusion == "dut_bug"
-                        and case.waveform.receipt_id):
-                    receipt = waveinfo.get_analysis_receipt(case.waveform.receipt_id)
+                        and case.failure_analysis.category == "confirmed_dut"
+                        and event and event.kind == "first_deviation" and event.source_kind == "waveform"
+                        and event.step_id and wave and wave.conclusion == "dut_bug" and not binding.remaining_gap):
+                    receipt = waveinfo.get_analysis_receipt(wave.receipt_id)
                     if (receipt and receipt.get("arguments", {}).get("test_case_name")
                             == index.cases[case_id].waveform_test_case_name
-                            and waveinfo.get_bug_document_evidence(case.waveform.receipt_id).get("success") is True):
+                            and waveinfo.get_bug_document_evidence(wave.receipt_id).get("success") is True):
                         valid_case = True
             if not valid_case:
-                issue(f"{base}/case_ids", "no correct reproduced case with usable signed DUT waveform")
+                issue(f"{base}/evidence_bindings", "no own direct deviation from a correct reproduced case with usable signed DUT waveform")
     for bug_id, root_id in membership.items():
         if bug_id not in bugs or bugs[bug_id].decision.verdict != "confirmed":
             issue(f"roots/{root_id}/bug_ids", f"unknown or nonconfirmed member {bug_id}")

@@ -121,7 +121,9 @@ class ResolveReviewCase(UCTool):
                     "replay_target": entry.replay_target,
                     "waveform_test_case_name": entry.waveform_test_case_name,
                     "report_node_id": case.replay.report_node_id,
+                    "invocation_id": case.replay.invocation_id,
                     "receipt_id": case.waveform.receipt_id,
+                    "additional_receipt_ids": [wave.receipt_id for wave in case.additional_waveforms],
                     "waveform_conclusion": case.waveform.conclusion,
                     "record_path": entry.record_path}
         except (ValueError, OSError, KeyError, TypeError) as error:
@@ -378,6 +380,12 @@ class ApplyReceiptToCase(UCTool):
             viewer = signed.get("waveform_viewer") or {}
             if not isinstance(viewer, dict) or not viewer.get("url"):
                 raise ValueError("receipt has no signed viewer URL")
+            if case.waveform.receipt_id and case.waveform.receipt_id != receipt_id:
+                selected = next((wave for wave in case.additional_waveforms if wave.receipt_id == receipt_id), None)
+                if not any(wave.receipt_id == case.waveform.receipt_id for wave in case.additional_waveforms):
+                    case.additional_waveforms.append(case.waveform.model_copy(deep=True))
+                case.waveform = selected.model_copy(deep=True) if selected else type(case.waveform)()
+            case.additional_waveforms = [wave for wave in case.additional_waveforms if wave.receipt_id != receipt_id]
             case.waveform.receipt_id = receipt_id
             case.waveform.analysis_window = signed["analysis_window"]
             case.waveform.signal_groups = signed["signal_groups"]
@@ -603,7 +611,7 @@ class SubmitReviewDecisions(UCTool):
     name: str = "SubmitReviewDecisions"
     description: str = (
         "Read a draft JSON with decisions[] and roots[], validate all Bugs, cases, references and "
-        "root membership, then switch review_index.json once. "
+        "root membership and sourced reader context, then switch review_index.json once. "
         "No decision is activated on failure."
     )
     args_schema: Optional[ArgsSchema] = SubmitDecisionsArgs
@@ -786,7 +794,9 @@ def validate_case_replacement(index, current, replacement, waveinfo, source_root
             "missing": sorted(linked - set(replacement.bug_ids)),
             "extra": sorted(set(replacement.bug_ids) - linked),
             "next_action": "Use CommitAttribution for Bug-to-case changes"})
-    issues.extend(case_issues(index, replacement, waveinfo, source_root=source_root))
+    issues.extend(case_issues(index, replacement, waveinfo,
+                             require_wave=bool(replacement.waveform.receipt_id or replacement.additional_waveforms),
+                             source_root=source_root))
     if issues:
         raise ReviewIssues(issues)
 
@@ -839,6 +849,12 @@ class UpdateReviewRecord(UCTool):
             current = load_record(output, relative, kind)
             replacement = RECORD_MODELS[kind].model_validate(read_object(draft))
             if kind == "index":
+                from ..core.narrative import summary_issues
+
+                context_errors = summary_issues(replacement.dut_context, "dut_context",
+                                               prepared_source_root(output), required=False)
+                if context_errors:
+                    raise ReviewIssues(context_errors)
                 if (replacement.workspace != current.workspace or replacement.source_files != current.source_files
                         or any(bug_id not in replacement.bugs or replacement.bugs[bug_id].origin != "reported"
                                for bug_id, entry in current.bugs.items() if entry.origin == "reported")):

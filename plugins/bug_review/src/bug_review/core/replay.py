@@ -70,9 +70,9 @@ def report_outcomes(report: dict, collected: set[str]) -> dict[str, tuple[str, s
 
 _WAVE_SESSION_RE = re.compile(r"^toffee_tmp_(\d{14})_(\d{3,6})$")
 _WAVE_SESSION_SUFFIXES = (".fst", ".vcd", ".dat")
-# Only anomalous outcomes can ever need waveform evidence; passed, skipped and
-# not_run cases have no consumer for their dumps.
-_KEEP_WAVE_OUTCOMES = frozenset({"failed", "error", "xfailed", "xpassed"})
+# Only an imported normal terminal outcome permits pruning. Missing or pending
+# outcomes may belong to a failed/interrupted batch whose evidence is not sealed.
+_PRUNABLE_WAVE_OUTCOMES = frozenset({"passed", "skipped"})
 
 
 def _wave_function_stem(identity: str) -> str:
@@ -165,8 +165,8 @@ def prune_baseline_waveforms(workspace: Path, output: Path) -> dict:
 
     Every run's harvested session stays as its own directory below
     ``unity_test/data``. Inside each session, files whose function stem
-    belongs only to passed, skipped or not_run cases are removed; failed,
-    error, xfailed and xpassed dumps plus any unattributable file stay for
+    belongs only to imported passed or skipped cases are removed; failed,
+    pending and unattributable files stay for
     dut_evidence evidence collection.
     """
     harvest = harvest_run_sessions(workspace)
@@ -177,10 +177,10 @@ def prune_baseline_waveforms(workspace: Path, output: Path) -> dict:
         stem = _wave_function_stem(entry.waveform_test_case_name or case_id)
         if not stem or "/" in stem or "\\" in stem:
             continue
-        if summary.outcomes.get(case_id, "not_run") in _KEEP_WAVE_OUTCOMES:
-            keep.add(stem.casefold())
-        else:
+        if summary.outcomes.get(case_id) in _PRUNABLE_WAVE_OUTCOMES:
             delete.add(stem.casefold())
+        else:
+            keep.add(stem.casefold())
     delete -= keep
 
     files_removed = bytes_removed = 0
@@ -381,6 +381,7 @@ def import_current_report(workspace: Path, output: Path, invocation_id: str = ""
         case = load_record(output, entry.record_path, "case")
         case.replay.status = status
         case.replay.baseline_id = manifest.baseline_id
+        case.replay.invocation_id = context.get("invocation_id", "")
         case.replay.report_node_id = report_node or case_id
         case.replay.invocation_success = bool(report.get("run_test_success"))
         case.replay.result = f"{relative}: {status}"
@@ -397,6 +398,10 @@ def import_current_report(workspace: Path, output: Path, invocation_id: str = ""
     summary.commands.append(["RunTestCases", str(context.get("pytest_ex_args", ""))])
     summary.report_ref = relative
     summary.batch_refs.append(relative)
+    # Seal the observed outcomes before cleanup reopens the durable summary.
+    # A cleanup failure must preserve these facts and never prune using stale data.
+    atomic_write_json(output / index.replay_summary_path, summary.model_dump(mode="json", by_alias=True))
+    atomic_write_json(output / "review_index.json", index.model_dump(mode="json", by_alias=True))
     # Waveform hygiene runs after every batch: the run's session is already
     # harvested into its own canonical directory, and dumps of finished
     # passed cases are pruned immediately instead of waiting for the final

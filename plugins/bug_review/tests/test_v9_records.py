@@ -1,4 +1,4 @@
-"""Focused checks for the structured Bug Review v8 decision contract."""
+"""Focused checks for the structured Bug Review v9 decision contract."""
 
 import pytest
 from pydantic import ValidationError
@@ -9,7 +9,7 @@ from bug_review.core.records import BugRecord
 def _bug_payload():
     """Return a complete confirmed Bug using the current phenomenon schema."""
     return {
-        "schema": "bug_review.v8",
+        "schema": "bug_review.v9",
         "record_type": "bug",
         "bug_id": "BUG-1",
         "phenomenon": {

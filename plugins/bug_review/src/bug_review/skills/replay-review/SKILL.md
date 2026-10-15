@@ -7,7 +7,7 @@ description: Independently triage every failed case and review verification-envi
 
 ## 目标
 
-逐个分析 `replay_summary.json` 中的 failed、error、xpassed case。先读真实运行报告、测试、fixture 与 Spec；此阶段不读取原 Bug analysis 的根因文字（`raid_enc_top_bug_analysis.md`、`raid_enc_top_bug_summary.md` 的根因与结论部分）。
+逐个分析 `replay_summary.json` 中的 failed、error、xpassed case。先读真实运行报告、测试、fixture 与 Spec；此阶段不读取原 Bug analysis 的根因文字（当前 DUT 的 `*_bug_analysis.md`、`*_bug_summary.md` 根因与结论部分）。
 
 ## 可读 Spec 与参考文档
 
@@ -15,14 +15,14 @@ description: Independently triage every failed case and review verification-envi
 
 | 文档（workspace 根） | 用途 |
 | --- | --- |
-| `verification_review/run/unity_test/raid_enc_top_basic_info.md` | 模块规格：端口、寄存器窗口、接口协议（REG/MEM GIF、消息/数据通道） |
-| `verification_review/run/unity_test/raid_enc_top_functions_and_checks.md` | 功能点与检查点定义（FG/FC/CK），对齐测试的 mark_function 标注 |
-| `verification_review/run/unity_test/raid_enc_top_verification_needs_and_plan.md` | 验证需求与计划 |
-| `verification_review/run/unity_test/raid_enc_top_test_summary.md` | 原始测试清单 |
-| `raid_enc_top_RTL/*.v` | RTL（本阶段仅用于解释失败现象，不必逐行深挖，dut_evidence 阶段再深入） |
+| `verification_review/run/unity_test/{DUT}_basic_info.md` | 模块规格：端口、寄存器窗口、接口协议（REG/MEM GIF、消息/数据通道） |
+| `verification_review/run/unity_test/{DUT}_functions_and_checks.md` | 功能点与检查点定义（FG/FC/CK），对齐测试的 mark_function 标注 |
+| `verification_review/run/unity_test/{DUT}_verification_needs_and_plan.md` | 验证需求与计划 |
+| `verification_review/run/unity_test/{DUT}_test_summary.md` | 原始测试清单 |
+| `{DUT}_RTL/*.{v,sv}` | RTL（本阶段仅用于解释失败现象，不必逐行深挖，dut_evidence 阶段再深入） |
 
 引用行段一律写 workspace 相对 `path:start[-end]`（如 `unity_test/tests/test_x.py:10-64`、
-`raid_enc_top_RTL/raid_regif.v:100-120`），Check 会逐条核实。
+`{DUT}_RTL/raid_regif.v:100-120`），Check 会逐条核实。
 
 ## 快速证据读取（自动归档，直接取证）
 
@@ -56,3 +56,7 @@ Skill 未启用或脚本缺失时：从 `.ucagent/current_test_report.json` 的 
 调用 `DescribeReviewSchema(record_type="case")` 与 `DescribeReviewSchema(record_type="environment")` 取得字段。用 `summarize_case_failures.py` 得到签名分组，逐组读测试源码与 Spec 对应段落，再用 `read_case_stdout.py` 取个别代表 case 的完整 traceback；逐 case 填写 `failure_analysis` 的阶段、场景、规格预期、测试预期、实际行为、来源行段、归因和不确定性。分类区分环境、Spec 误读、测试实现/时序、疑似 DUT、规格歧义及证据不足；测试失败本身不构成 DUT Bug，同一签名的 case 若机理一致可共用归因逻辑但须逐条落字段。
 
 必要时用 `RunTestCases` 定向复跑，并在 `replay.reruns` 记录与基线的关系；不得覆盖基线状态。填写 `environment_review.json` 的收集/执行、fixture/reset、驱动/采样、参考模型和种子/复现性六项审查；无法核实处写具体缺口。单 case 用 `UpdateReviewRecord` 按文件更新；多个 case 就绪时优先 `UpdateCaseRecords`：草稿写在 `{OUT}/drafts` 下、形如 `{"cases": {case_id: 完整记录}}`，一次校验全部并落盘，任一非法则整批不写。设 `stage_status.case_triage=complete` 后 Check、SetSkillUsage、日志、Complete。
+
+## Sourced reader context
+
+Read the current DUT and interface documentation and author review_index.json.dut_context with source_refs, or a specific unavailable_reason. Submit the complete index through UpdateReviewRecord. Do not infer its purpose from a module name. See Guide_Doc/bug_review_example_ptw.md; root-level prose is authored in root_correlation after independent triage.

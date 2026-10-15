@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ucagent-bug-review"
-version = "0.1.3"
+version = "0.3.0"
 description = "UCAgent plugin for evidence-based Bug review"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -26,6 +26,9 @@ namespaces = false
 
 [tool.setuptools.package-data]
 bug_review = ["workflows/*.yaml", "Guide_Doc/*.md", "templates/**/*", "skills/**/*", "lang/zh/*.json", "lang/zh/*.js"]
+
+[tool.setuptools.exclude-package-data]
+bug_review = ["**/__pycache__/*", "**/*.pyc"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src", "../.."]

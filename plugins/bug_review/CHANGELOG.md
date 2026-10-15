@@ -1,7 +1,7 @@
 
 # Bug Review 工作流与版本记录
 
-## 当前基线：v1.0（2026-10-05）
+## 当前基线：v1.2（2026-10-15）
 
 本节定义当前 Bug Review 工作流的基线契约。后续功能在此基线上迭代；如果实现与历史版本记录冲突，以本节和当前代码为准。v1.0 不承诺兼容旧版工作区、旧版 `source/`／`tests/` 布局、旧版 case 路径或旧版 JSON 记录。已有运行产物应按 v1.0 重新准备。
 
@@ -82,7 +82,7 @@ v1.0 不创建或依赖顶层 `source/`、顶层 `tests/`、`run/<dut>/` 或工�
 | --- | --- |
 | `src/bug_review/workflows/analysis.yaml` | 声明六阶段、阶段任务、参考文件、Skill 和 Checker。 |
 | `src/bug_review/core/layout.py` | 定义 v1.0 工作区布局、canonical 路径和逻辑路径解析。 |
-| `src/bug_review/core/records.py` | Pydantic 记录模型；当前记录 schema 为 `bug_review.v8`。 |
+| `src/bug_review/core/records.py` | Pydantic 记录模型；当前记录 schema 为 `bug_review.v9`。 |
 | `src/bug_review/core/inventory.py`、`tools/collection.py` | 收集测试、建立 `review_index.json` 和 case 初始记录。 |
 | `src/bug_review/core/replay.py` | 保存全量重放结果、批次快照和执行证据。 |
 | `src/bug_review/core/claims.py`、`core/attribution.py` | 原报告主张提取、归因草稿校验和 revision 提交。 |
@@ -101,6 +101,7 @@ v1.0 不创建或依赖顶层 `source/`、顶层 `tests/`、`run/<dut>/` 或工�
 ReviewIndex
 ├── workspace              # 模块和工作区身份
 ├── source_files           # DUT、Spec、RTL 和原报告位置
+├── dut_context            # LLM 生成的模块简介与来源，或明确资料缺口
 ├── stage_status           # 六阶段状态
 ├── bugs                   # BugEntry：原声明、原标签和归因候选
 ├── cases                  # CaseEntry：规范 case ID、pytest target、record_path
@@ -121,7 +122,15 @@ CaseRecord
 
 Bug 级记录由 `BugRecord` 表示，包含 `phenomenon.scenario`、`phenomenon.spec_expected`、`phenomenon.actual`、`phenomenon.bug_root_cause`、case 关联和 `Decision`。四个现象字段分别回答“验证什么、规格要求什么、当前 case 发生什么、RTL 为什么这样做”，并携带可跳转的源码或证据引用。根因记录由 `RootsRecord` 表示，保存共享 RTL 引用、首个错误、因果链和成员 Bug。
 
-v1.0 的页面展示将“现象分析”和“证据溯源”分开：现象分析说明验证场景、规格预期、实际行为和 BUG 根因；证据溯源分别提供 Spec、Case、RTL 三张可点击行号表。后续字段结构化改造应在此展示契约上迭代，不再让每个 case 自由生成不可比较的长段落。
+v1.2（插件 0.3.0）的页面以 ROOT 为唯一 Bug 详情身份，成员 BugRecord 是现象记录。正文为 DUT 功能概述、关联功能与验证目标、缺陷场景分析、异常与 RTL 根因分析；普通准备与完整 case 操作按需展开，右侧较大主要预览与简短波形入口、关键依据。case 的 scenario_steps／events 记录精确 invocation、到达点和来源，各现象的 evidence_bindings 绑定自身观察；ROOT 的 title／primary_evidence_id 显式选择主要预览。direct 需要自身 first_deviation 的有效签名 DUT 波形，正常对照不能确认异常。报告清单为 bug_review_report.v4，分别统计 ROOT／现象／case，门户消费实际 review_status。
+
+### 带来源的页面内容（插件 0.3.0）
+
+LLM 在 case_triage 阅读当前 DUT／接口资料并生成 `ReviewIndex.dut_context`；在 root_correlation 生成 `RootCause.affected_behavior`、`causal_steps` 和各 confirmed 现象的 `signal_explanations`。索引更新及裁决提交使用现有工具，不添加独立内容生成服务。渲染器不从模块名推断功能。
+
+说明引用当前材料的 `path:start[-end]`。无法说明 DUT 或接口用途时填具体 `unavailable_reason`，报告内容状态 incomplete，原签名证据和裁决不变。确认现象至少解释一个实际 RTL 名称；可选完整波形路径需属于该现象自己的签名信号。RTL 因果步骤必须引用 RTL，动态支持事件必须来自本 ROOT 的成员；无事件的步骤仅作 RTL 推导。代码校验来源和关联，文字是否准确概括来源仍由分析阶段复核。
+
+这些字段扩展 `bug_review.v9`，门禁在对应阶段要求填写；报告仍为 `bug_review_report.v4`，新增 `detail_layout=scenario_rtl.v1` 和 ROOT 的 `context_status`。旧运行不自动改写或补造简介，需在分析副本补齐后重新渲染；无需为页面调整重跑已有测试。完整示例见 [PTW 场景写作示例](src/bug_review/Guide_Doc/bug_review_example_ptw.md)。
 
 ### 输出结构
 
@@ -158,15 +167,15 @@ output/
 
 ### v1.0 已知边界与后续迭代方向
 
-- v1.0 使用当前 `bug_review.v8` 记录模型；场景、规格预期、测试预期、实际行为和归因理由已经拆成结构化事实字段。
+- v1.0 使用当前 `bug_review.v9` 记录模型；场景、规格预期、测试预期、实际行为和归因理由已经拆成结构化事实字段。
 - v1.0 允许 Skill 提供 stdout 摘要、失败签名和填写模板，但 Skill 是可选的；禁用 Skill 时，Agent 仍可使用普通文件工具和更新工具完成同一契约。
 - v1.0 已固定 `verification_review/run/unity_test/tests/` 为 canonical 测试目录、`verification_review/run/unity_test/data/` 为唯一波形 dump 数据根；不继续扩展旧路径兼容分支。
-- 报告已把现象分析改为口语化叙述，把证据溯源改为 Spec、Case、RTL 三张可点击证据表，并明确代表 case 与同机理 case 的影响范围。
+- 当前报告以 ROOT 唯一详情页及成员现象证据关系定位问题；运行时写作示例与阶段要求、模型、工具和 checker 一致。原波形与派生 VCD 可下载，目标复跑平台、构建来源和 FSDB 环境留待后续。
 - 后续迭代可增加失败签名族记录，让同一机理只分析一次，每个 case 只保留当前输入、窗口和首个偏差等差异事实。
 
 本文的“当前基线：v1.0”描述现行实现和新工作区契约。文档末尾的 `v1.0.0`～`v1.4.0` 条目是历史演进记录，用于解释设计来源，不是当前运行布局；历史条目中出现的 `source/`、`results/tests/`、`runs/run-<id>/` 等路径不应复制到新的 v1.0 工作区。后续版本在当前基线上递增，并同步更新本节、输入契约和运行时指导。具体设计依据、试跑反馈和待验收事项仍以 [ANALYSIS_OVERVIEW.md](ANALYSIS_OVERVIEW.md) 为准。
 
-本页的功能版本号用于整理工作流演进，不表示插件包已经按这些版本发布；`pyproject.toml` 当前声明包版本 `0.1.3`。历史迭代没有可靠的统一发布日期，因此版本标题不补写推测日期。本稿更新于 2026-10-09。
+本页的功能版本号用于整理工作流演进，不表示插件包已经按这些版本发布；`pyproject.toml` 当前声明包版本 `0.3.0`。历史迭代没有可靠的统一发布日期，因此版本标题不补写推测日期。本稿更新于 2026-10-09。
 
 ## 当前框架（v1.0 摘要）
 

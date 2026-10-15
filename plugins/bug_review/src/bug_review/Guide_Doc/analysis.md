@@ -5,6 +5,8 @@
 
 当前工作区只处理一个模块，工作区目录名就是模块名。Master 工作区根目录保存唯一的 DUT、RTL、Spec 和 Guide_Doc；Bug Review 只把 UnityTest 放到 `verification_review/run/unity_test/`，pytest 报告放到 `verification_review/run/test_report/`。测试、fixture、Spec、RTL 和模型均不得修改。`make init_<module>` 准备工作区，`make bug_review_all` 依次复核模块。
 
+需要为历史输入重新构建 native 包时，先检查 RTL 的仿真 cell／memory 模型、条件宏及 filelist，记录实际构建命令、宏、工具版本和包摘要。导入与 `Step(1)` 只证明包可加载，不能证明内部时钟和复位有效；启动全集前在独立诊断执行中核对源码要求的时钟传播、复位和初始化，不以“进程成功退出”替代它们。比如 cell 仅在 `RTL_SIM` 分支驱动输出时，应依据该模型启用此宏；不能给所有设计统一加宏或用绕过门控的另一分支替代目标模型。模型未激活造成的前置失败按构建／环境问题分析，不算尚未到达的功能场景复现。修复构建后保留旧执行，用独立工作区及新的 invocation 建立结果，不能覆盖已封存 baseline。
+
 ## 失败分析填写格式
 
 `case_triage` 的 `failure_analysis` 不要写成没有结构的长句。五个字段各自只回答一个问题，并使用下面的固定顺序：
@@ -49,7 +51,7 @@ actual: [观测] 请求已发出但 saccept 始终为 0。\n[窗口] step 51-447
 rationale: [测试有效性] 驱动与单次复位对照用例一致。\n[归因理由] 差异只出现在第二次复位后，当前支持疑似 DUT 缺陷。\n[待补证据] 具体复位状态寄存器仍需结合 RTL 确认。
 ```
 
-字段内容必须使用当前 case 的输入、信号、窗口和来源，不能直接复制同一失败族的代表 case。报告发布时会把这些字段组织为“现象分析”；Bug 页面中的“证据溯源”分别列出 Spec、Case 和 RTL 引用表。
+字段内容必须使用当前 case 的输入、信号、窗口和来源，不能直接复制同一失败族的代表 case。报告发布时一个 ROOT 对应一个 Bug 详情页，成员 BugRecord 为现象记录；正文采用 DUT 功能概述、关联功能与验证目标、缺陷场景分析、异常与 RTL 根因分析，右侧一个主要波形和多个完整波形入口。写作与完整新字段示例见 `Guide_Doc/bug_review_writing.md`；同根因多现象关系见 `Guide_Doc/bug_review_example_root.md`。
 
 六阶段顺序为 `full_replay → case_triage → dut_evidence → report_reconcile → root_correlation → publish`。初始索引只保存原 Bug ID、摘要来源和原始标签，不自动判定 BG／FC／CK 或 Bug→case 关系。先取得本次全量运行事实并独立分析失败；随后由你阅读原报告、测试、Spec、RTL 和波形，填写具体归属。
 
@@ -61,9 +63,9 @@ rationale: [测试有效性] 驱动与单次复位对照用例一致。\n[归因
 
 独立 case 初判结束后，`ReportClaimBlocks` 分页列出原报告 BG 标题、精确行段与原始 TC 标签，不决定 Bug 归属。先填写归因草稿的关系，再用 `ReviewBugContext(bug_id=..., sections=["claims"], max_chars=16000, ref_offset=0)` 读某条原声明的有界字段与行段，用 `case_offset`/`ref_offset` 分页；缺失归属时工具提示填写草稿，不按 CK 或关键词猜测。`ReviewRefCheck(refs=["path:start[-end]"])` 批量核实 Spec/RTL/测试源码行，返回真实原文但不替代语义判断。多个引用分别放入数组，一个裁决的 `spec_ref`、`rtl_ref` 各为单一 `路径:行号[-行号]` 字符串。
 
-报告 case ID 是从 `verification_review/run/unity_test/` 收集的精确 node；`replay_target` 相对 RunTestCases 的 `verification_review/run/unity_test/`；`waveform_test_case_name` 必须取本次 RunTestCases 报告中的完整 node。`ResolveReviewCase` 接受完整 case ID、`TC-<case_id>`、完整 replay target 或 WaveInfo 名，返回全部身份和已附着收据；短 basename 有歧义时只列候选，不猜测。每次运行的波形自动存放在 `verification_review/run/unity_test/data` 下各自的时间戳 toffee_tmp 会话目录，永不覆盖；dut_evidence 只消费 full_replay 保留的失败用例 dump，除盘点指出的定向复跑外本阶段不得再运行任何测试：先用 waveform-review skill 的 `check_wave_availability.py`（无 skill 时列出各会话文件对照）盘点可用性，已有 fst/vcd 直接取证，仅对缺失或仅有 dat 的 case 定向复跑，不整批重跑。最终 WaveInfo 使用该精确身份、事件 pattern、有效事务窗口和完整信号组，一次调用完成取证，不要先做只探测不取证的预跑；返回 `evidence_window_required` 时逐字按返回的 `recommended_evidence_call` 重试同一 case，返回 `metadata_only` 或 `signal_not_found` 时才降级探测，精确信号名以收据返回的 `signal_groups` 或 preset 为准，未知信号用 regex pattern 探索。`max_points`/`max_signals` 低于默认会截断 timeline 并使 `evidence_usable=false` 整次作废。可在 `{OUT}/wave_signal_presets.json` 的 `presets` 下命名信号组，并用 WaveInfo `signal_group_preset` 展开；receipt 签名展开后的真实路径。信号组计入 `max_signals`。检查零匹配、窗口 clamp 和 timeline 截断。`ReviewReceiptSummary(bug_id=...|case_id=..., limit=50)` 只返回有界收据身份、窗口及可用状态，完整单条结果用 `WaveInfoReceipts`。可用收据取得后立即 `ApplyReceiptToCase`，观察与关联文字用 `UpdateCaseRecords` 批量落盘，不要让签名收据长期未消费。用 `ApplyReceiptToCase(case_id, receipt_id)` 复制签名机器字段，绝不手工编码 viewer URL；`ValidateCaseRecords` 可随时只读 lint。长阶段调用 `ReviewStageProgress` 查看尚未初判或缺波形的精确 case 清单。
+报告 case ID 是从 `verification_review/run/unity_test/` 收集的精确 node；`replay_target` 相对 RunTestCases 的 `verification_review/run/unity_test/`；`waveform_test_case_name` 必须取本次 RunTestCases 报告中的完整 node。`ResolveReviewCase` 接受完整 case ID、`TC-<case_id>`、完整 replay target 或 WaveInfo 名，返回全部身份和已附着收据；短 basename 有歧义时只列候选，不猜测。每次运行的波形自动存放在 `verification_review/run/unity_test/data` 下各自的时间戳 toffee_tmp 会话目录，永不覆盖；dut_evidence 只消费 full_replay 保留的失败用例 dump，除盘点指出的定向复跑外本阶段不得再运行任何测试：先用 waveform-review skill 的 `check_wave_availability.py`（无 skill 时列出各会话文件对照）盘点可用性，已有 fst/vcd 直接取证，仅对缺失或仅有 dat 的 case 定向复跑，不整批重跑。若已确认基础设施错误误删波形，先保留诊断并修复错误，按盘点的精确 node 进行独立定向补取证，记录新 invocation_id、参数、状态和 case.replay.reruns；不覆盖权威 baseline，也不把新波形解释为旧执行。普通 Check 不能自动触发补取证。最终 WaveInfo 使用该精确身份、事件 pattern、有效事务窗口和完整信号组，一次调用完成取证，不要先做只探测不取证的预跑；返回 `evidence_window_required` 时逐字按返回的 `recommended_evidence_call` 重试同一 case，返回 `metadata_only` 或 `signal_not_found` 时才降级探测，精确信号名以收据返回的 `signal_groups` 或 preset 为准，未知信号用 regex pattern 探索。`max_points`/`max_signals` 低于默认会截断 timeline 并使 `evidence_usable=false` 整次作废。可在 `{OUT}/wave_signal_presets.json` 的 `presets` 下命名信号组，并用 WaveInfo `signal_group_preset` 展开；receipt 签名展开后的真实路径。信号组计入 `max_signals`。检查零匹配、窗口 clamp 和 timeline 截断。`ReviewReceiptSummary(bug_id=...|case_id=..., limit=50)` 只返回有界收据身份、窗口及可用状态，完整单条结果用 `WaveInfoReceipts`。可用收据取得后立即 `ApplyReceiptToCase`，观察与关联文字用 `UpdateCaseRecords` 批量落盘，不要让签名收据长期未消费。用 `ApplyReceiptToCase(case_id, receipt_id)` 复制签名机器字段，绝不手工编码 viewer URL；`ValidateCaseRecords` 可随时只读 lint。长阶段调用 `ReviewStageProgress` 查看尚未初判或缺波形的精确 case 清单。
 
-改单个索引、case、coverage、replay summary 或环境记录：先写 `{OUT}/drafts/` 下完整替换 JSON，再调用 `UpdateReviewRecord(target_path="analysis/<记录>", draft_path="analysis/drafts/<草稿>.json")`。工具拒绝非法 schema、case 关联和已签名字段损坏。多 case 批量写入：把形如 `{"cases": {case_id: 完整记录}}` 的草稿放在 `{OUT}/drafts/`，调用 `UpdateCaseRecords(draft_path="analysis/drafts/<草稿>.json")`，一次校验全部并落盘，任一非法则整批不写。`CreateAttributionDraft` 只建立空的 `{OUT}/drafts/attribution.json` 格式；你填写 `bugs[]` 的主张行段、BG／FG／FC／CK、case、原标签、候选引用及判断理由，和 `reconciliation` 的对账内容。先 `CommitAttribution(draft_path="analysis/drafts/attribution.json", dry_run=true)` 检查原文块覆盖及关联差异，再正式提交，一次更新索引、case 反向关联和对账记录。`CreateDecisionDraft` 只生成空的 `decisions[]` 与 `roots[]`；你填写全部具体裁决。先 `SubmitReviewDecisions(dry_run=true, draft_path=...)` 校验，再正式提交。`ReviewRevisionHistory` 可列出修订及变更。
+改单个索引、case、coverage、replay summary 或环境记录：先写 `{OUT}/drafts/` 下完整替换 JSON，再调用 `UpdateReviewRecord(target_path="verification_review/analysis/<记录>", draft_path="verification_review/analysis/drafts/<草稿>.json")`。工具拒绝非法 schema、case 关联和已签名字段损坏。多 case 批量写入：把形如 `{"cases": {case_id: 完整记录}}` 的草稿放在 `{OUT}/drafts/`，调用 `UpdateCaseRecords(draft_path="verification_review/analysis/drafts/<草稿>.json")`，一次校验全部并落盘，任一非法则整批不写。`CreateAttributionDraft` 只建立空的 `{OUT}/drafts/attribution.json` 格式；你填写 `bugs[]` 的主张行段、BG／FG／FC／CK、case、原标签、候选引用及判断理由，和 `reconciliation` 的对账内容。先 `CommitAttribution(draft_path="verification_review/analysis/drafts/attribution.json", dry_run=true)` 检查原文块覆盖及关联差异，再正式提交，一次更新索引、case 反向关联和对账记录。`CreateDecisionDraft` 只生成空的 `decisions[]` 与 `roots[]`；你填写全部具体裁决。先 `SubmitReviewDecisions(dry_run=true, draft_path=...)` 校验，再正式提交。`ReviewRevisionHistory` 可列出修订及变更。
 
 ## 完整索引示例
 
@@ -71,12 +73,12 @@ rationale: [测试有效性] 驱动与单次复位对照用例一致。\n[归因
 
 ```json
 {
-  "schema": "bug_review.v8",
+  "schema": "bug_review.v9",
   "record_type": "index",
   "workspace": {
     "name": "example_dut",
     "dut": "example_dut",
-    "source_path": "/project/output/example_dut/source",
+    "source_path": "/project/output/example_dut",
     "execution_workspace": "/project/output/example_dut",
     "started_at": "2026-09-25T01:00:00+00:00"
   },
@@ -84,6 +86,7 @@ rationale: [测试有效性] 驱动与单次复位对照用例一致。\n[归因
     "bug_summary": "/project/output/example_dut/verification_review/run/unity_test/example_dut_bug_summary.md",
     "bug_analysis": "/project/output/example_dut/verification_review/run/unity_test/example_dut_bug_analysis.md"
   },
+  "dut_context": {"text": "请求处理模块，依据输入命令产生响应。", "source_refs": ["example_dut/README.md:1-5"], "unavailable_reason": ""},
   "stage_status": {
     "full_replay": "pending",
     "case_triage": "pending",
@@ -112,7 +115,7 @@ rationale: [测试有效性] 驱动与单次复位对照用例一致。\n[归因
   },
   "cases": {
     "tests/test_output.py::test_hold": {
-      "replay_target": "test_output.py::test_hold",
+      "replay_target": "tests/test_output.py::test_hold",
       "waveform_test_case_name": "",
       "record_path": "cases/case_0001.json"
     }
@@ -151,7 +154,7 @@ rationale: [测试有效性] 驱动与单次复位对照用例一致。\n[归因
     }
   ],
   "reconciliation": {
-    "schema": "bug_review.v8", "record_type": "reconciliation",
+    "schema": "bug_review.v9", "record_type": "reconciliation",
     "original_bug_ids": [], "discovered_bug_ids": [],
     "unreported_failed_cases": [], "previously_failed_now_passed": [],
     "original_failure_refs": {},
@@ -167,69 +170,131 @@ rationale: [测试有效性] 驱动与单次复位对照用例一致。\n[归因
 
 ```json
 {
-  "schema": "bug_review.v8",
+  "schema": "bug_review.v9",
   "record_type": "case",
-  "case_id": "tests/test_output.py::test_hold",
+  "case_id": "tests/test_message.py::test_message",
   "bug_ids": [],
   "replay": {
-    "status": "failed", "invocation_success": true,
-    "baseline_id": "baseline-example", "report_node_id": "analysis/tests/test_output.py::test_hold",
-    "failure_phase": "assertion", "reruns": [], "not_run_reason": "", "result": "replay/batch-example.json: failed"
+    "status": "failed",
+    "invocation_success": false,
+    "baseline_id": "example-baseline",
+    "invocation_id": "example-execution",
+    "report_node_id": "tests/test_message.py::test_message",
+    "failure_phase": "",
+    "reruns": [],
+    "not_run_reason": "",
+    "result": ""
   },
   "test_review": {
-    "classification": "suspected_dut_bug", "correctness_confirmed": true,
-    "exact_input": "valid=1, ready=0", "specification_expected": "data stable until accepted",
-    "test_expected": "data remains unchanged", "dut_actual": "data changed",
-    "driver_timing_review": "sampled on the next active edge", "rationale": "test waits for the defined sampling edge"
+    "classification": "inconclusive",
+    "correctness_confirmed": false,
+    "exact_input": "",
+    "specification_expected": "",
+    "test_expected": "",
+    "dut_actual": "",
+    "driver_timing_review": "",
+    "rationale": ""
   },
   "failure_analysis": {
-    "category": "suspected_dut", "phase": "assertion",
+    "category": "insufficient_evidence",
+    "phase": "assertion",
     "scenario": {
-      "summary": "验证 ready=0 时输出数据保持稳定。",
-      "setup": ["valid=1, ready=0"],
-      "stimulus": ["保持一笔输出事务等待接收"],
-      "conditions": ["观察窗口为下一个有效时钟沿"],
-      "source_refs": ["tests/test_output.py:20-30"]
+      "summary": "不复位 DUT 连续提交两条读结果命令，分别暂停接收消息和数据。",
+      "setup": [],
+      "stimulus": [],
+      "conditions": [],
+      "source_refs": []
     },
     "spec_expected": {
-      "summary": "ready=0 时数据应保持稳定。",
-      "requirement": "数据在被接受前不得改变。",
-      "rtl_expectation": ["valid 保持有效", "data 保持不变"],
-      "source_refs": ["example_dut/spec.md:42-48"]
+      "summary": "输出消息应保留当前读命令的完整内容。",
+      "requirement": "",
+      "rtl_expectation": [],
+      "source_refs": []
     },
     "test_expected": {
-      "summary": "测试断言 ready=0 期间数据不变。",
-      "assertion": "data remains unchanged",
-      "completion_condition": ["在下一个有效采样沿检查 data"],
-      "timeout": "无",
-      "source_refs": ["tests/test_output.py:20-30"]
+      "summary": "第二轮完整输出消息应等于第二条输入读命令。",
+      "assertion": "assert omsg_b == msg_b",
+      "completion_condition": [],
+      "timeout": "",
+      "source_refs": []
     },
     "actual": {
-      "summary": "ready=0 时 data 发生变化。",
-      "observations": ["data changed while ready=0"],
-      "window": "下一个有效采样沿",
-      "first_deviation": "ready 仍为 0 时 data 首次改变",
-      "evidence_refs": ["tests/test_output.py:20-30"]
+      "summary": "测试记录称第二轮仍收到第一条命令的标签。",
+      "observations": [],
+      "window": "",
+      "first_deviation": "",
+      "evidence_refs": []
     },
     "rationale": {
-      "test_validity": "驱动和断言符合规格中的采样条件。",
-      "attribution_reason": "当前现象与 DUT 输出保持逻辑不符。",
-      "remaining_gap": ""
+      "test_validity": "",
+      "attribution_reason": "",
+      "remaining_gap": "没有覆盖第二轮输出握手的波形；还需检查接收器行为和测试长度适用性。"
     },
     "unresolved": ""
   },
   "waveform": {
-    "conclusion": "inconclusive", "receipt_id": "",
-    "analysis_window": {}, "signal_groups": {}, "viewer_url": "",
-    "alignment_evidence": "", "observed_behavior": "",
-    "source_correlation": "", "diagnostic": "DUT evidence pending"
-  }
+    "conclusion": "inconclusive",
+    "receipt_id": "",
+    "analysis_window": {},
+    "signal_groups": {},
+    "viewer_url": "",
+    "alignment_evidence": "",
+    "observed_behavior": "",
+    "source_correlation": "",
+    "diagnostic": ""
+  },
+  "additional_waveforms": [],
+  "scenario_steps": [
+    {
+      "step_id": "read-1",
+      "action": "RAID_CMD=2, R_TAG=0x31",
+      "receiver_setting": "feh_raidd_cready=0，之后恢复为 1",
+      "expected": "返回第一条命令的完整消息",
+      "status": "reached",
+      "source_refs": [
+        "unity_test/tests/test_message.py:10-20"
+      ],
+      "execution_id": "example-execution"
+    },
+    {
+      "step_id": "read-2",
+      "action": "不复位 DUT，发送 RAID_CMD=2, R_TAG=0x33",
+      "receiver_setting": "feh_raidd_cready=1, feh_raidd_wready=0",
+      "expected": "返回第二条命令的完整消息",
+      "status": "failed",
+      "source_refs": [
+        "unity_test/tests/test_message.py:21-30"
+      ],
+      "execution_id": "example-execution"
+    }
+  ],
+  "events": [
+    {
+      "event_id": "assert-message",
+      "execution_id": "example-execution",
+      "step_id": "read-2",
+      "kind": "assertion",
+      "source_kind": "test_record",
+      "source_ref": "verification_review/run/test_report/failure.txt:1-3",
+      "description": "接收器记录称收到 R_TAG=0x31，完整消息一致性断言失败",
+      "expected": "R_TAG=0x33",
+      "condition": "",
+      "receipt_id": "",
+      "time": null,
+      "signal_path": "",
+      "raw_value": "",
+      "fields": [],
+      "rtl_refs": []
+    }
+  ]
 }
 ```
 
 ## 全量运行与环境产物
 
-`test_manifest.json` 保存收集命令、供 `RunTestCases(pytest_args=...)` 使用的 `pytest_target`、退出码、精确 `collected` node 列表、排除原因、收集错误、pytest 版本及 `baseline_id`。`replay_summary.json` 的 `outcomes` 必须逐项覆盖 `collected`；每项为 passed、failed、error、skipped、xfailed、xpassed 或有具体原因的 not_run。`commands` 与 `batch_refs` 一一对应本次真实运行和保留的报告快照。参数化子项、随机/Mock、收集错误和 skip/xfail/xpass 都计入对账，不能只看原报告的 55 个失败。全量基线只建立一次；定向复跑记在对应 `case.replay.reruns`，不能覆盖基线。
+执行入口须使当前 Python 的 `bin/` 出现在 PATH，`RunTestCases` 调用真实 `pytest`，仅能收集不代表 DUT 包可运行。原生 abort 不能作为已完成全集的结果导入；若已安装 pytest-forked，可用 `RunTestCases(target="--forked .")` 隔离每个用例，仍保留崩溃与失败，明确记录参数和运行身份。不得改写断言、隐藏崩溃或沿用不完整执行的覆盖率。工具公开参数为 `target`，不是内部函数的 `pytest_args`。
+
+`test_manifest.json` 保存收集命令、供 `RunTestCases(target=...)` 使用的 `pytest_target`、退出码、精确 `collected` node 列表、排除原因、收集错误、pytest 版本及 `baseline_id`。`replay_summary.json` 的 `outcomes` 必须逐项覆盖 `collected`；每项为 passed、failed、error、skipped、xfailed、xpassed 或有具体原因的 not_run。`commands` 与 `batch_refs` 一一对应本次真实运行和保留的报告快照。参数化子项、随机/Mock、收集错误和 skip/xfail/xpass 都计入对账，不能只看原报告的 55 个失败。全量基线只建立一次；定向复跑记在对应 `case.replay.reruns`，不能覆盖基线。
 
 收集阶段显式把 pytest/toffee 报告写到本次运行工作区的可写 `verification_review/run/test_report/`，因此 `verification_review/run/unity_test/` 可保持只读。`PrepareReviewInventory` 返回 `PYTEST_COLLECTION_FAILED` 时先读 `{OUT}/diagnostics/collection.log` 的完整异常，再修复环境并重试；失败不会建立权威索引。若 macOS 拒绝加载 dylib，按日志中的具体库路径检查系统隔离属性，只处理可运行副本；不得改输入镜像或 `.pytest.ini`。
 
@@ -243,7 +308,7 @@ rationale: [测试有效性] 驱动与单次复位对照用例一致。\n[归因
 
 `report_reconcile` 完整阅读原 summary、analysis，逐块确认原文 BG 标签、FG／FC／CK、TC 与逻辑 Bug 的实际关系。工具只列源块与创建格式，具体内容由你填写。每个原 BG 块至少要在一个 `claim_refs` 中有去向；原标签和复核归属不一致时保留两者并在 `rationale` 解释。报告级 tests 聚合清单只保存在 `aggregate_case_ids`、`aggregate_refs`，不自动加入 `case_ids`。`ReviewCaseDiff(limit=100, offset=0)` 按规范 `case_id` 返回草稿中已复核关联、聚合独有、本次收集、本次失败及其差集；原关联本身不证明旧失败。`review_index.json.bugs` 是按 Bug ID 索引的对象，逐项查看可遍历 `.bugs.items()`，在 jq 中用 `.bugs | to_entries[]`。候选引用须用 `ReviewRefCheck` 逐项核实，再用 `CommitAttribution` 提交完整关联。活动对账记录由索引的 `reconciliation_path` 指向，必须列出全部 `original_bug_ids`、新增的 `discovered_bug_ids`、无 Bug 归属失败 `unreported_failed_cases`。`previously_failed_now_passed` 只列原报告有失败记录且本次通过的 case；每项须在 `original_failure_refs[case_id]` 给出证明旧失败的原文 `路径:行号[-行号]`。另在 `statistics_review` 解释原/今统计口径。旧 Bug 未复现本身不足以裁为 refuted。
 
-`root_correlation` 用 `CreateDecisionDraft` 创建空 `decisions[]`／`roots[]`，按 `DescribeReviewSchema(record_type="bug"|"roots")` 由你填写完整裁决。confirmed 的置信度为 `0 < value <= 1`，需要正确失败测试、可用签名波形、真实 Spec 和 RTL 因果链；refuted 保留原声明且置信度为 0；inconclusive 的置信度为 null。Bug 的 `phenomenon` 必须分别填写 `scenario`、`spec_expected`、`actual` 和 `bug_root_cause`：用口语说明验证功能、激励和条件，给出 Spec 要求及 RTL 应有行为，描述当前 case 的实际偏差，并说明 RTL 根因；每个引用都写成可跳转的 `path:start-end`。同一 root 的 confirmed Bug 中 `rtl_ref`、`first_error`、`causal_chain` 与 root 对应字段必须逐字一致；先明确成员与 `root_id`，再 dry-run 和正式提交。
+`root_correlation` 用 `CreateDecisionDraft` 创建空 `decisions[]`／`roots[]`，按 `DescribeReviewSchema(record_type="bug"|"roots")` 由你填写完整裁决。confirmed 的置信度为 `0 < value <= 1`，需要正确失败测试、可用签名波形、真实 Spec 和 RTL 因果链；refuted 保留原声明且置信度为 0；inconclusive 的置信度为 null。Bug 的 `phenomenon` 必须分别填写 `scenario`、`spec_expected`、`actual` 和 `bug_root_cause`：用简明且正式的表述说明验证功能、激励和条件，给出 Spec 要求及 RTL 应有行为，描述当前 case 的实际偏差，并说明 RTL 根因；每个引用都写成可跳转的 `path:start-end`。同一 root 的 confirmed Bug 中 `rtl_ref`、`first_error`、`causal_chain` 与 root 对应字段必须逐字一致；先明确成员与 `root_id`，再 dry-run 和正式提交。
 
 完整的 Bug 裁决草稿必须保持以下结构；示例中的内容只是填写方式示意，不能直接当作当前模块的证据：
 
@@ -251,60 +316,64 @@ rationale: [测试有效性] 驱动与单次复位对照用例一致。\n[归因
 {
   "decisions": [
     {
-      "schema": "bug_review.v8",
+      "schema": "bug_review.v9",
       "record_type": "bug",
-      "bug_id": "BUG-EXAMPLE",
+      "bug_id": "MSG-OWNERSHIP",
       "phenomenon": {
         "scenario": {
-          "summary": "验证输出阻塞期间结果保持稳定：先发送一个有效请求，再保持 ready=0",
-          "setup": ["复位完成", "输出端施加背压"],
-          "stimulus": ["valid=1, data=0x55"],
-          "conditions": ["等待 ready 重新拉高"],
-          "source_refs": ["tests/test_example.py:20-28"]
+          "summary": "不复位 DUT 连续提交两条读结果命令，分别暂停接收消息和数据。",
+          "setup": [],
+          "stimulus": [],
+          "conditions": [],
+          "source_refs": []
         },
         "spec_expected": {
-          "summary": "请求未被接受前，输出数据必须保持不变",
-          "requirement": "valid && !ready 时保持当前结果",
-          "rtl_expectation": ["输出寄存器不应更新"],
-          "source_refs": ["DUT/spec.md:20-24"]
+          "summary": "输出消息应保留当前读命令的完整内容。",
+          "requirement": "",
+          "rtl_expectation": [],
+          "source_refs": []
         },
         "actual": {
-          "summary": "ready 仍为 0 时输出从 0x55 变为 0xAA",
-          "observations": ["第 12 个时钟沿发生变化"],
-          "window": "cycle 10-14",
-          "first_deviation": "cycle 12",
-          "evidence_refs": ["DUT/control.v:80-84"]
+          "summary": "测试记录称第二轮仍收到第一条命令的标签。",
+          "observations": [],
+          "window": "",
+          "first_deviation": "",
+          "evidence_refs": []
         },
-        "bug_root_cause": "输出寄存器更新条件缺少 ready 门控"
+        "bug_root_cause": ""
       },
-      "case_ids": ["tests/test_example.py::test_hold"],
-      "spec_refs": ["DUT/spec.md:20-24"],
-      "rtl_refs": ["DUT/control.v:80-84"],
+      "case_ids": [
+        "tests/test_message.py::test_message"
+      ],
+      "spec_refs": [],
+      "rtl_refs": [],
       "decision": {
-        "verdict": "confirmed",
-        "review_confidence": 0.95,
-        "rationale": "正确失败的测试、签名波形和首个偏差共同支持该结论",
-        "root_id": "ROOT-HOLD",
-        "spec_ref": "DUT/spec.md:20-24",
-        "rtl_ref": "DUT/control.v:80-84",
-        "first_error": "阻塞期间输出寄存器提前更新",
-        "causal_chain": "缺少 ready 门控导致未接受请求改变输出"
-      }
+        "verdict": "inconclusive",
+        "review_confidence": null,
+        "rationale": "异常只有测试记录，缺少直接波形支持。",
+        "root_id": null,
+        "spec_ref": "",
+        "rtl_ref": "",
+        "first_error": "",
+        "causal_chain": ""
+      },
+      "evidence_bindings": [
+        {
+          "evidence_id": "record-message",
+          "case_id": "tests/test_message.py::test_message",
+          "event_id": "assert-message",
+          "role": "reported_only",
+          "reason": "仅引用该次执行的断言记录。",
+          "remaining_gap": "没有覆盖第二轮输出握手的波形；还需检查接收器行为和测试长度适用性。"
+        }
+      ]
     }
   ],
-  "roots": [
-    {
-      "root_id": "ROOT-HOLD",
-      "rtl_ref": "DUT/control.v:80-84",
-      "first_error": "阻塞期间输出寄存器提前更新",
-      "causal_chain": "缺少 ready 门控导致未接受请求改变输出",
-      "bug_ids": ["BUG-EXAMPLE"]
-    }
-  ]
+  "roots": []
 }
 ```
 
-`publish` 渲染并核验 `report/index.html`、`cases/`、`bugs/`、`sources/`、可用时的 `surfer/` 与 `waveforms/`，以及 `report_manifest.json`。模块页以中文显示结论、数量、覆盖率与失败 case；缺陷主表仅汇总 `verdict=confirmed` 且 `review_confidence >= 0.8` 的 Bug，按最终根因聚合，一组一行并链接每个成员详情，按组内最低置信度降序。总门户的高置信度根因数沿用模块主表的去重根因口径，不插入指南链接。未展示的原声明仍保留数据及 Bug 详情，排除 DUT 缺陷的声明不计入根因数。Bug 详情在场景、预期和实际行为下方用一段中文概述复核归因、根因位置和造成的现象；“证据链”的签名波形给出关键观察，并在原波形仍可由收据定位时提供完整预览按钮。该按钮读取报告内的静态波形快照，须通过本地报告服务打开；原文件已轮换时保留收据与分析而不补造快照。“相关文档”默认展开，链接原报告和关联规格文档，其中报告级用例清单以表格区分复核关联与仅原报告提及的用例；末段“相关源码”默认折叠，只列 RTL 文件与简析。点击引用打开报告内全文预览，并高亮所引行段。复核状态分 complete/incomplete；显式收集、执行或归因缺口可发布 incomplete，静默遗漏不能通过 Check。此阶段不手工设置 `stage_status.publish`；Check 验证页面、快照与源码行段链接，Complete 回调重建 `output/index.html` 和 `output/serve.py`，并记录完成状态。接收方只拿到整个 `output/` 文件夹时，在其根目录运行 `python3 serve.py`，用打印的本地 HTTP 地址浏览报告。公开入口为 `output/index.html → output/<name>/verification_review/report/index.html → case/Bug 页`；分析 JSON 和草稿位于 `analysis/`，测试位于 `tests/`，收据位于 `.ucagent/`。若门户缺失，使用 `make publish_<module>` 恢复，不重跑分析。若公开目录不可写，发布错误给出具体路径。
+`publish` 从活动记录生成模块首页、case 页、每个 ROOT 的唯一详情页、未定／已排除现象入口、包内源码和波形资源。正文为 DUT 功能概述、关联功能与验证目标、缺陷场景分析、异常与 RTL 根因分析，右侧一个较大主要预览、多个完整波形入口与关键 Spec／RTL。现象入口定位到 ROOT 页内相应锚点，主要预览有显式 evidence_id，其他成员不继承其观察。模块与门户展示实际复核状态，发布完成不代表证据或复跑材料完整。先 RenderBugReviewReport，再 verify_only 校验，最后 Check 与 Complete；全过程不重新执行 DUT。接收者在 output 根目录运行 python3 serve.py，使用服务打印的实际 HTTP 地址；报告无需 UCAgent 在线服务。
 
 
 ## 执行快照与稳定覆盖引用
@@ -314,3 +383,18 @@ RunTestCases每次返回独立的invocation_id，并自动保存本次原始报�
 全量基线覆盖证据在 `verification_review/run/test_report/baseline-coverage/<id>/` 保存稳定引用。只有全部基线调用有可信产物和相同来源，才合并行覆盖的未命中行集合、功能覆盖的采样CK集合；不能把最后一批的百分比当全量指标。无法合并时明确记录unavailable及原因，不通过补跑伪造覆盖率。使用工具写入的source_ref与统计数值，人工只核对口径与结论。
 
 收据查询、ApplyReceiptToCase与Checker均使用本次已解析配置中的真实DUT和同一unity_test根。缺少运行配置或作用域不匹配时停止证据升级并报告缺口，不能修改签名或手写viewer URL。
+
+## 场景、事件与根因详情契约
+
+case 的 `scenario_steps` 保存真实 execution_id、实际操作、接收条件、预期、source_refs 和 reached／failed／not_reached；同一步骤在不同执行中的到达状态各自保存；`events` 保存自身执行 ID、step_id、来源及观察，完整示例见 `Guide_Doc/bug_review_writing.md`。波形事件的 execution_id 必须对应 replay.invocation_id 或已登记 rerun.invocation_id；source_kind=waveform 需 receipt、原始时间、完整信号、有效条件和 raw_value。测试记录／日志事件引用自己的保存文件，不填写波形坐标。
+
+每个现象 `evidence_bindings` 说明自己的支持关系。confirmed 需要自身 direct 的 first_deviation，正确失败测试、confirmed_dut 终态和有效签名 DUT 证据；正常对照不能代替异常。提交前整理 case 的真实终态和未解决问题，没有缺口时使用空字符串，不能让渲染器删除尚未解决问题。ROOT 填写正式简洁的 title 与 primary_evidence_id，选择成员的一条明确证据；多个完整波形入口分别说明支持的成员，不按列表顺序自动选择。
+
+ApplyReceiptToCase 会保留被替换的主要收据到 additional_waveforms，多个 case 更新仍用 UpdateCaseRecords。每份波形结论及附着字段分别核验，签名字段不能手改。发布验证不会重新执行 DUT，不因缺失原文件作废已验证的历史 receipt；交付可用性明确显示缺口。
+
+完整三种写作示例分别见 `Guide_Doc/bug_review_example_rcmd.md`、`Guide_Doc/bug_review_example_monitor.md`、`Guide_Doc/bug_review_example_root.md`。这些规则在 Skill 禁用时同样适用。
+
+
+## 面向读者的内容生成
+
+`case_triage` 阅读当前 DUT／接口资料，由你填写索引 `dut_context.text/source_refs`，通过索引草稿和 `UpdateReviewRecord` 提交；材料不足时明确填写 unavailable_reason，不从 DUT 名称推断功能。`root_correlation` 为 ROOT 填写 affected_behavior 与 causal_steps，为 confirmed 现象填写 signal_explanations。触发条件与 RTL 首错的解释必须来自当前 case 和源码；静态推导可不绑定动态证据，但不能声称已观测。阶段所需完整格式与字段示例见 `Guide_Doc/bug_review_example_ptw.md`。通用 API 操作保留在可展开的 case 细节中，默认页面聚焦 bug 场景和 RTL 传播。

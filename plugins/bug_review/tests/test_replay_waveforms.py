@@ -85,6 +85,19 @@ def test_harvest_moves_legacy_session_into_its_own_canonical_dir(tmp_path):
     assert (moved / "master" / "test_bad.fst").is_file()
 
 
+def test_prune_preserves_unimported_and_pending_case_evidence(tmp_path):
+    """A partial replay never authorizes deleting dumps for unknown or pending outcomes."""
+    output = _prepare_output(tmp_path, {"tests/test_a.py::test_pending": "not_run"},
+        {"tests/test_a.py::test_pending": "", "tests/test_a.py::test_unimported": ""})
+    root, _ = _unity_root(tmp_path)
+    session = _make_session(root, "20261014221145_488", {
+        "test_pending.fst": b"pending", "test_unimported.vcd": b"unknown"})
+    result = prune_baseline_waveforms(tmp_path, output)
+    assert result["files_removed"] == 0
+    assert (session / "test_pending.fst").read_bytes() == b"pending"
+    assert (session / "test_unimported.vcd").read_bytes() == b"unknown"
+
+
 def test_harvest_collision_takes_next_fraction_suffix(tmp_path):
     """Two runs sharing one timestamp stay separate directories."""
     workspace = tmp_path

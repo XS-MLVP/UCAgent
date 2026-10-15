@@ -3,7 +3,7 @@
 
 复核已有 UnityTest 工作区中的 Bug 声明。插件在隔离副本中重跑现有测试，分析真实波形、规格和 RTL，保留每条原始声明的裁决，并把同根因的 Bug 关联起来。工作流为 `bug_review:analysis`。
 
-当前运行契约是 [CHANGELOG.md 的 v1.0 基线](CHANGELOG.md#当前基线v10)，其中说明两种启动入口、核心代码、输入、工作区、输出和记录模型。输入目录、必需材料与原报告格式见 [输入准备](INPUTS.md)；需求和设计记录见 [分析工作流与优化需求](ANALYSIS_OVERVIEW.md)；运行中的阶段操作见 [分析指导](src/bug_review/Guide_Doc/analysis.md)。
+当前运行契约是 [CHANGELOG.md 的 v1.2 基线](CHANGELOG.md#当前基线v122026-10-15)，其中说明两种启动入口、核心代码、输入、工作区、输出和记录模型。输入目录、必需材料与原报告格式见 [输入准备](INPUTS.md)；需求和设计记录见 [分析工作流与优化需求](ANALYSIS_OVERVIEW.md)；运行中的阶段操作见 [分析指导](src/bug_review/Guide_Doc/analysis.md)。
 
 需要同时复核多个模块时，可由监管 Agent 使用 [多模块复核监管 Skill](src/bug_review/skills/multi-review-supervisor/SKILL.md) 分配独立子 Agent、监控各模块运行，并在全部结束后更新总门户。
 
@@ -55,3 +55,12 @@ python3 serve.py
 签发与消费WaveInfo收据统一使用已解析运行配置中的真实DUT及 `verification_review/run/unity_test`，错误scope不会自动兼容或重签。RunTestCases每次生成invocation ID，在 `verification_review/run/test_report/invocations/<id>/` 保留原始报告、日志及来源身份；全量导入可用 `CaptureReplayReport(invocation_id="...")` 精确选择。基线覆盖从相同来源的全集快照聚合，稳定引用位于 `test_report/baseline-coverage/<id>/`；定向复跑不替换该数据。指标不能可靠合并时显示unavailable而非最后一批的数值。
 
 平台新execution获得独立工作区；Relaunch复用已登记的原路径、阶段checkpoint和证据，工作区丢失或工作流改变时给出具体错误。平台人工Review只是确认运行结果，不能改变插件裁决、验证通过或baseline发布。独立Make入口的工作区仍按上文创建和恢复。
+
+
+## 根因详情与执行证据
+
+当前记录采用 `bug_review.v9`，报告清单采用 `bug_review_report.v4`。一个 ROOT 一个 Bug 详情页，正文聚焦 DUT 功能、验证目标、缺陷场景和 RTL 传播，普通准备与完整 case 操作收起；右侧一个较大主要预览及简短的现象／case 波形入口。DUT 概述等说明由分析阶段的 LLM 阅读当前资料后生成，并校验来源、实际信号名和事件归属；缺资料时明确显示内容缺口。波形、配置和字段原名保留，事件导航不改签名 token。全部现象裁决可查，门户显示实际复核状态。
+
+写作及完整记录示例见 [运行时写作指南](src/bug_review/Guide_Doc/bug_review_writing.md)；配套示例涵盖连续事务、监视器记录、多个现象，以及 [PTW 场景与 RTL 分析](src/bug_review/Guide_Doc/bug_review_example_ptw.md)。发布会保留原波形下载；可用时用 `fst2vcd` 生成派生 VCD，并验证层级、位宽、时间刻度和已记录事件。转换身份与缺口记录在报告清单。
+
+独立复跑目标平台、构建材料采集与 FSDB／Verdi 环境按后续规划处理，本版不声称报告包已经可独立复跑或已通过 FSDB 验收。

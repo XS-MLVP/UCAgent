@@ -112,8 +112,11 @@ def bug_context(output: Path, bug_id: str, sections: list[str] | None = None,
                 item["replay"] = case.replay.model_dump(mode="json")
                 item["test_review"] = case.test_review.model_dump(mode="json")
                 item["failure_analysis"] = case.failure_analysis.model_dump(mode="json")
+                item["scenario_steps"] = [step.model_dump(mode="json") for step in case.scenario_steps]
+                item["events"] = [event.model_dump(mode="json") for event in case.events]
             if "waveform" in chosen:
                 item["waveform"] = case.waveform.model_dump(mode="json")
+                item["additional_waveforms"] = [wave.model_dump(mode="json") for wave in case.additional_waveforms]
             records.append(item)
         result["cases"] = records
         result["next_case_offset"] = case_offset + len(records) if len(case_ids) > case_offset + len(records) else None

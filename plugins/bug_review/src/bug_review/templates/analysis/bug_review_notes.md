@@ -14,3 +14,12 @@
 尚无已完成的阶段。
 
 <!-- BUG-REVIEW-SUMMARY-END -->
+
+
+## 场景与证据关系
+
+记录 ROOT、现象、精确 case／执行、step_id、event_id、receipt 与支持角色。完整填写要求和示例见 `Guide_Doc/bug_review_writing.md`；本文是工作笔记，不能替代已提交主记录或签名证据。
+
+## Sourced reader context
+
+记录 dut_context、affected_behavior、signal_explanations 和 causal_steps 的资料来源及尚缺内容；说明正文在对应分析阶段由 LLM 生成，通过主记录提交。完整示例见 Guide_Doc/bug_review_example_ptw.md。

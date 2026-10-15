@@ -66,6 +66,22 @@ def test_prepare_uses_one_source_and_one_test_copy(tmp_path: Path) -> None:
     assert _prepare(run, source).returncode != 0
 
 
+def test_incomplete_runtime_stops_before_output_creation(tmp_path: Path) -> None:
+    """A missing native dependency preserves inputs and leaves preparation retryable."""
+    source = _input(tmp_path)
+    wrapper = source / "demo/__init__.py"
+    wrapper.write_text("from ._missing_native import DUT\n")
+    before = {path.relative_to(source): path.read_bytes()
+              for path in source.rglob("*") if path.is_file()}
+    run = tmp_path / "output/demo"
+    result = _prepare(run, source)
+    assert result.returncode != 0
+    assert "DUT package cannot import" in result.stdout
+    assert not run.exists()
+    assert before == {path.relative_to(source): path.read_bytes()
+                      for path in source.rglob("*") if path.is_file()}
+
+
 @pytest.mark.parametrize("target", ["bug_review_demo", "mcp_bug_review_demo"])
 def test_launch_target_reuses_existing_workspace(tmp_path: Path, target: str) -> None:
     """Launching again retains stage records instead of calling init twice."""
@@ -249,6 +265,8 @@ def test_report_renders_and_verifies_directly_in_module(tmp_path: Path) -> None:
     output = run / "verification_review/analysis"
     create_records(run, output)
     index = load_record(output, "review_index.json", "index")
+    index.dut_context.text = "The demo output is specified as zero."
+    index.dut_context.source_refs = ["demo/README.md:1-3"]
     cases = {case_id: load_record(output, entry.record_path, "case")
              for case_id, entry in index.cases.items()}
     coverage = load_record(output, index.coverage_path, "coverage")

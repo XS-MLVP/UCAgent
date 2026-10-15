@@ -21,44 +21,14 @@ For a shared root, each confirmed decision's `rtl_ref`, `first_error`, and `caus
 
 Create `{OUT}/drafts/decisions.json` with exactly these top-level keys:
 
-```json
-{
-  "decisions": [
-    {
-      "schema": "bug_review.v8",
-      "record_type": "bug",
-      "bug_id": "BUG-EXAMPLE",
-      "phenomenon": {
-        "scenario": {"summary": "在输出阻塞时发送一个请求，检查结果保持稳定", "setup": ["ready=0"], "stimulus": ["valid=1, data=0x55"], "conditions": ["等待ready重新拉高"], "source_refs": ["tests/test_example.py:20-28"]},
-        "spec_expected": {"summary": "未被接受前输出必须保持不变", "requirement": "valid && !ready 时保持当前结果", "rtl_expectation": ["输出寄存器不应更新"], "source_refs": ["DUT/spec.md:20-24"]},
-        "actual": {"summary": "ready仍为0时输出从0x55变为0xAA", "observations": ["第12个时钟沿发生变化"], "window": "cycle 10-14", "first_deviation": "cycle 12", "evidence_refs": ["DUT/control.v:80-84"]},
-        "bug_root_cause": "输出寄存器更新条件缺少ready门控"
-      },
-      "case_ids": ["unity_test/tests/test_example.py::test_hold"],
-      "spec_refs": ["DUT/spec.md:20-24"],
-      "rtl_refs": ["DUT/control.v:80-84"],
-      "decision": {
-        "verdict": "confirmed",
-        "review_confidence": 0.95,
-        "rationale": "The correct failed case and signed receipt show the first divergence",
-        "root_id": "ROOT-HOLD",
-        "spec_ref": "DUT/spec.md:20-24",
-        "rtl_ref": "DUT/control.v:80-84",
-        "first_error": "Output register advances while stalled",
-        "causal_chain": "Missing ready gate updates data before response acceptance"
-      }
-    }
-  ],
-  "roots": [
-    {
-      "root_id": "ROOT-HOLD",
-      "rtl_ref": "DUT/control.v:80-84",
-      "first_error": "Output register advances while stalled",
-      "causal_chain": "Missing ready gate updates data before response acceptance",
-      "bug_ids": ["BUG-EXAMPLE"]
-    }
-  ]
-}
-```
+Use the complete canonical records in `Guide_Doc/bug_review_writing.md` and the root contract in `Guide_Doc/bug_review_example_root.md`; fill decisions[] and roots[] only from current verified facts.
 
-Call `CreateDecisionDraft` to create empty `decisions[]` and `roots[]`. Fill every Bug ID, exact active case list, source reference, judgment and root field yourself from evidence. The tool does not infer or copy any concrete content. Call `SubmitReviewDecisions(draft_path="analysis/drafts/decisions.json", dry_run=true)` to validate without activating. Its root-field diagnostics include the exact expected and actual text. Call `SubmitReviewDecisions(draft_path="analysis/drafts/decisions.json", dry_run=false)` to activate one revision. `ReviewRevisionHistory` lists past revisions. After acceptance, run Check, SetSkillUsage, journal and Complete.
+Call `CreateDecisionDraft` to create empty `decisions[]` and `roots[]`. Fill every Bug ID, exact active case list, source reference, judgment and root field yourself from evidence. The tool does not infer or copy any concrete content. Call `SubmitReviewDecisions(draft_path="verification_review/analysis/drafts/decisions.json", dry_run=true)` to validate without activating. Its root-field diagnostics include the exact expected and actual text. Call `SubmitReviewDecisions(draft_path="verification_review/analysis/drafts/decisions.json", dry_run=false)` to activate one revision. `ReviewRevisionHistory` lists past revisions. After acceptance, run Check, SetSkillUsage, journal and Complete.
+
+## Current ROOT and evidence contract
+
+Follow `Guide_Doc/bug_review_writing.md` and `Guide_Doc/bug_review_example_root.md`. One ROOT owns one Bug detail page; members are phenomena, each linked to its own exact case/execution events. Fill scenario_steps and events with actual execution reach, original identifiers and sourced values. Each confirmed phenomenon needs its own direct first_deviation binding; a normal reference never proves another member's anomaly. Roots require a readable title and explicit primary_evidence_id. Publication uses one main preview and potentially multiple labelled full-wave links. Skill-disabled operation must meet the same model, tool and checker contract.
+
+## Sourced reader context
+
+Author affected_behavior and causal_steps from the current interface and RTL, and signal_explanations from exact names. Static propagation steps have no evidence_ids; measured steps reference this root’s own member events. Keep ordinary preparation separate from the output deviation. See Guide_Doc/bug_review_example_ptw.md for complete records.

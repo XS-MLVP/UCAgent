@@ -1,6 +1,7 @@
 """Validate independent case analysis and environment findings."""
 from ...core.records import load_record, source_lines
 from ...core.validation import ReviewIssues, case_issues
+from ...core.narrative import summary_issues
 
 def check(workflow, ctx):
     """Validate the case triage stage contract."""
@@ -21,7 +22,7 @@ def check(workflow, ctx):
             raise ValueError(f"environment finding {position} refers to an unindexed case")
         if finding.source_ref:
             source_lines(source_root, finding.source_ref, 1)
-    issues = []
+    issues = summary_issues(index.dut_context, "dut_context", source_root)
     for case in cases.values():
         issues.extend(case_issues(index, case, self.waveinfo,
                                   require_triage=True, source_root=source_root))

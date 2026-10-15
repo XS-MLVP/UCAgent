@@ -148,6 +148,10 @@ def test_import_prefills_failure_evidence(tmp_path, monkeypatch):
     output, cases = _prepare_import_output(
         tmp_path, {"tests/test_demo.py::test_bad": "failed",
                    "tests/test_demo.py::test_ok": "passed"})
+    session = tmp_path / "verification_review/run/unity_test/tests/data/toffee_tmp_20261014221145_488"
+    session.mkdir(parents=True)
+    (session / "test_bad.fst").write_bytes(b"failed waveform must survive capture")
+    (session / "test_ok.fst").write_bytes(b"completed pass may be pruned")
     payload = {"schema_version": 1, "report": {
         "run_test_success": True,
         "tests": {"total": 2,
@@ -168,6 +172,9 @@ def test_import_prefills_failure_evidence(tmp_path, monkeypatch):
     monkeypatch.setattr("bug_review.core.replay.load_current_test_report",
                         lambda workspace: payload)
     result = import_current_report(tmp_path, output)
+    archived = tmp_path / "verification_review/run/unity_test/data" / session.name
+    assert (archived / "test_bad.fst").read_bytes() == b"failed waveform must survive capture"
+    assert not (archived / "test_ok.fst").exists()
     evidence = result["failure_evidence"]
     assert evidence["aligned"] == 1
     assert evidence["ambiguous"] == 0

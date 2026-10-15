@@ -6,13 +6,13 @@ from pathlib import Path
 import re
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .json_io import read_object
 from .layout import resolve_logical_path, unity_test_root
 
 
-SCHEMA = "bug_review.v8"
+SCHEMA = "bug_review.v9"
 STAGES = ("full_replay", "case_triage", "dut_evidence", "report_reconcile",
           "root_correlation", "publish")
 REF_PATTERN = re.compile(r"(.+):(\d+)(?:-(\d+))?")
@@ -54,13 +54,40 @@ class CaseEntry(ReviewModel):
     record_path: str
 
 
+class SourceSummary(ReviewModel):
+    """Keep a short reader-facing explanation tied to source or an explicit gap."""
+
+    text: str = Field(default="", max_length=400)
+    source_refs: list[str] = Field(default_factory=list, max_length=8)
+    unavailable_reason: str = Field(default="", max_length=400)
+
+
+class SignalExplanation(ReviewModel):
+    """Explain a relevant RTL name without promoting a test alias to a signal."""
+
+    rtl_name: str = Field(min_length=1, max_length=256)
+    meaning: str = Field(min_length=1, max_length=240)
+    test_name: str = Field(default="", max_length=256)
+    signal_path: str = Field(default="", max_length=512)
+    source_refs: list[str] = Field(min_length=1, max_length=8)
+
+
+class CausalStep(ReviewModel):
+    """Explain one RTL transition; optional evidence IDs name its own observations."""
+
+    summary: str = Field(min_length=1, max_length=300)
+    rtl_refs: list[str] = Field(min_length=1, max_length=8)
+    evidence_ids: list[str] = Field(default_factory=list, max_length=8)
+
+
 class ReviewIndex(ReviewModel):
     """Index one module's source and current review records."""
 
-    schema_id: Literal["bug_review.v8"] = Field(default=SCHEMA, alias="schema")
+    schema_id: Literal["bug_review.v9"] = Field(default=SCHEMA, alias="schema")
     record_type: Literal["index"] = "index"
     workspace: dict[str, str]
     source_files: dict[str, str]
+    dut_context: SourceSummary = Field(default_factory=SourceSummary)
     stage_status: dict[str, Literal["pending", "complete"]]
     bug_order: list[str]
     bugs: dict[str, BugEntry]
@@ -81,6 +108,7 @@ class ReplayResult(ReviewModel):
     status: Literal["not_run", "passed", "failed", "error", "skipped", "xfailed", "xpassed"] = "not_run"
     invocation_success: bool = False
     baseline_id: str = ""
+    invocation_id: str = ""
     report_node_id: str = ""
     failure_phase: str = ""
     reruns: list[dict] = Field(default_factory=list)
@@ -163,12 +191,13 @@ class RationaleFacts(ReviewModel):
 
 
 class BugPhenomenon(ReviewModel):
-    """Describe the user-facing Bug in the four report sections."""
+    """Keep a phenomenon's scenario and deviation distinct from its owning ROOT."""
 
     scenario: ScenarioFacts = Field(default_factory=ScenarioFacts)
     spec_expected: SpecExpectation = Field(default_factory=SpecExpectation)
     actual: ActualFacts = Field(default_factory=ActualFacts)
     bug_root_cause: str = ""
+    signal_explanations: list[SignalExplanation] = Field(default_factory=list, max_length=6)
 
 
 class FailureAnalysis(ReviewModel):
@@ -185,10 +214,87 @@ class FailureAnalysis(ReviewModel):
     unresolved: str = ""
 
 
+class ScenarioStep(ReviewModel):
+    """Describe one ordered transaction step and its actual execution reach."""
+
+    step_id: str = Field(min_length=1)
+    execution_id: str = Field(min_length=1)
+    action: str = Field(min_length=1)
+    receiver_setting: str = ""
+    expected: str = ""
+    status: Literal["reached", "failed", "not_reached"]
+    source_refs: list[str] = Field(min_length=1)
+
+
+class BusField(ReviewModel):
+    """Define a sourced field concatenation, ordered from most to least significant."""
+
+    name: str = Field(min_length=1)
+    parts: list[tuple[int, int]] = Field(min_length=1, max_length=64)
+    source_ref: str = Field(min_length=1)
+    enum_values: dict[str, str] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_parts(self):
+        """Reject negative, reversed, or overlapping bit ranges."""
+        used = set()
+        for msb, lsb in self.parts:
+            if lsb < 0 or msb < lsb or msb > 4095 or used.intersection(range(lsb, msb + 1)):
+                raise ValueError("field parts must be disjoint descending ranges within bits 0..4095")
+            used.update(range(lsb, msb + 1))
+        if any(re.fullmatch(r"0|[1-9][0-9]*", key) is None for key in self.enum_values):
+            raise ValueError("enum_values keys must be canonical unsigned decimal strings")
+        return self
+
+
+class ReviewEvent(ReviewModel):
+    """Bind one observation to an exact execution and its own source."""
+
+    event_id: str = Field(min_length=1)
+    execution_id: str = Field(min_length=1)
+    step_id: str = ""
+    kind: Literal["trigger", "first_deviation", "assertion", "normal_reference"]
+    source_kind: Literal["waveform", "test_record", "log"]
+    source_ref: str = ""
+    description: str = Field(min_length=1)
+    expected: str = ""
+    condition: str = ""
+    receipt_id: str = ""
+    time: int | None = Field(default=None, ge=0)
+    signal_path: str = ""
+    raw_value: str = Field(default="", pattern=r"^[01xXzZ]*$")
+    fields: list[BusField] = Field(default_factory=list)
+    rtl_refs: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_source(self):
+        """Keep waveform observations distinct from software records and assertions."""
+        if self.source_kind == "waveform":
+            if not (self.receipt_id and self.time is not None and self.signal_path
+                    and self.raw_value and self.condition):
+                raise ValueError("waveform event requires receipt, time, full signal, raw value and condition")
+            if self.kind == "first_deviation" and not self.expected.strip():
+                raise ValueError("first_deviation requires a sourced observable expectation")
+        elif not self.source_ref or self.receipt_id or self.time is not None or self.signal_path or self.fields:
+            raise ValueError("software event requires source_ref and must not claim waveform coordinates")
+        return self
+
+
+class EvidenceBinding(ReviewModel):
+    """State which execution event supports this phenomenon without copying a case."""
+
+    evidence_id: str = Field(min_length=1)
+    case_id: str = Field(min_length=1)
+    event_id: str = ""
+    role: Literal["direct", "corroborating", "normal_reference", "reported_only"]
+    reason: str = Field(min_length=1)
+    remaining_gap: str = ""
+
+
 class CaseRecord(ReviewModel):
     """Persist one exact test replay and its signed waveform reference."""
 
-    schema_id: Literal["bug_review.v8"] = Field(default=SCHEMA, alias="schema")
+    schema_id: Literal["bug_review.v9"] = Field(default=SCHEMA, alias="schema")
     record_type: Literal["case"] = "case"
     case_id: str
     bug_ids: list[str]
@@ -196,6 +302,9 @@ class CaseRecord(ReviewModel):
     test_review: TestReview = Field(default_factory=TestReview)
     failure_analysis: FailureAnalysis = Field(default_factory=FailureAnalysis)
     waveform: WaveReview = Field(default_factory=WaveReview)
+    additional_waveforms: list[WaveReview] = Field(default_factory=list)
+    scenario_steps: list[ScenarioStep] = Field(default_factory=list)
+    events: list[ReviewEvent] = Field(default_factory=list)
 
 
 class Decision(ReviewModel):
@@ -214,7 +323,7 @@ class Decision(ReviewModel):
 class BugRecord(ReviewModel):
     """Persist the derived review for one Bug without the original report body."""
 
-    schema_id: Literal["bug_review.v8"] = Field(default=SCHEMA, alias="schema")
+    schema_id: Literal["bug_review.v9"] = Field(default=SCHEMA, alias="schema")
     record_type: Literal["bug"] = "bug"
     bug_id: str
     phenomenon: BugPhenomenon = Field(default_factory=BugPhenomenon)
@@ -222,6 +331,7 @@ class BugRecord(ReviewModel):
     spec_refs: list[str] = Field(default_factory=list)
     rtl_refs: list[str] = Field(default_factory=list)
     decision: Decision
+    evidence_bindings: list[EvidenceBinding] = Field(default_factory=list)
 
 
 class RootCause(ReviewModel):
@@ -232,12 +342,16 @@ class RootCause(ReviewModel):
     first_error: str
     causal_chain: str
     bug_ids: list[str]
+    title: str = ""
+    primary_evidence_id: str = ""
+    affected_behavior: SourceSummary = Field(default_factory=SourceSummary)
+    causal_steps: list[CausalStep] = Field(default_factory=list, max_length=6)
 
 
 class RootsRecord(ReviewModel):
     """Persist the complete active root partition."""
 
-    schema_id: Literal["bug_review.v8"] = Field(default=SCHEMA, alias="schema")
+    schema_id: Literal["bug_review.v9"] = Field(default=SCHEMA, alias="schema")
     record_type: Literal["roots"] = "roots"
     roots: list[RootCause]
 
@@ -258,7 +372,7 @@ class CoverageMetric(ReviewModel):
 class CoverageRecord(ReviewModel):
     """Represent coverage provenance without inventing percentages."""
 
-    schema_id: Literal["bug_review.v8"] = Field(default=SCHEMA, alias="schema")
+    schema_id: Literal["bug_review.v9"] = Field(default=SCHEMA, alias="schema")
     record_type: Literal["coverage"] = "coverage"
     metrics: dict[str, CoverageMetric]
 
@@ -266,7 +380,7 @@ class CoverageRecord(ReviewModel):
 class TestManifest(ReviewModel):
     """Freeze exact pytest collection and explicit exclusions for one module."""
 
-    schema_id: Literal["bug_review.v8"] = Field(default=SCHEMA, alias="schema")
+    schema_id: Literal["bug_review.v9"] = Field(default=SCHEMA, alias="schema")
     record_type: Literal["manifest"] = "manifest"
     collection_command: list[str]
     pytest_target: str
@@ -282,7 +396,7 @@ class TestManifest(ReviewModel):
 class ReplaySummary(ReviewModel):
     """Reconcile every collected node with its authoritative baseline outcome."""
 
-    schema_id: Literal["bug_review.v8"] = Field(default=SCHEMA, alias="schema")
+    schema_id: Literal["bug_review.v9"] = Field(default=SCHEMA, alias="schema")
     record_type: Literal["replay_summary"] = "replay_summary"
     baseline_id: str
     commands: list[list[str]] = Field(default_factory=list)
@@ -307,7 +421,7 @@ class EnvironmentFinding(ReviewModel):
 class EnvironmentReview(ReviewModel):
     """Track concrete environment and testbench quality findings."""
 
-    schema_id: Literal["bug_review.v8"] = Field(default=SCHEMA, alias="schema")
+    schema_id: Literal["bug_review.v9"] = Field(default=SCHEMA, alias="schema")
     record_type: Literal["environment"] = "environment"
     findings: list[EnvironmentFinding] = Field(default_factory=list)
     collection_review: str = ""
@@ -322,7 +436,7 @@ class EnvironmentReview(ReviewModel):
 class ReconciliationRecord(ReviewModel):
     """Account for original claims, new failures and changed report totals."""
 
-    schema_id: Literal["bug_review.v8"] = Field(default=SCHEMA, alias="schema")
+    schema_id: Literal["bug_review.v9"] = Field(default=SCHEMA, alias="schema")
     record_type: Literal["reconciliation"] = "reconciliation"
     original_bug_ids: list[str] = Field(default_factory=list)
     discovered_bug_ids: list[str] = Field(default_factory=list)

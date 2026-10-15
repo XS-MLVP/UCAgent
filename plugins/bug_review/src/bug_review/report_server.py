@@ -27,12 +27,13 @@ class ReportHandler(SimpleHTTPRequestHandler):
         parts = Path(value.lstrip("/")).parts
         if value in {"/", "/index.html", "/guide.md"}:
             return str(root / ("guide.md" if value == "/guide.md" else "index.html"))
-        if (len(parts) < 2 or not parts[0] or parts[0].startswith(".")
-                or parts[1] != "report" or any(part in {".", ".."} for part in parts)):
+        if (len(parts) < 4 or not parts[0] or parts[0].startswith(".")
+                or parts[1:3] != ("verification_review", "report")
+                or any(part in {".", ".."} for part in parts)):
             return str(root / "__report_path_not_found__")
-        report = (root / parts[0] / "report").resolve()
+        report = (root / parts[0] / "verification_review/report").resolve()
         target = (root.joinpath(*parts)).resolve()
-        if not report.is_dir() or not target.is_relative_to(report):
+        if not report.is_dir() or not report.is_relative_to(root) or not target.is_relative_to(report):
             return str(root / "__report_path_not_found__")
         return str(target)
 

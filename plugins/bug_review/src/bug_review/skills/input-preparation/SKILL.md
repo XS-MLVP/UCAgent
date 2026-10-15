@@ -36,10 +36,10 @@ description: 按需补齐 Bug Review 标准输入的测试、原报告、Spec、
 
 ## 可选 DUT 包
 
-若已有 `<dut>/`，用本次工作流的 Python 确认能导入。启动准备只拷贝已编译的 DUT 包，不会自动编译；缺少或与本机 Python 不兼容时，在插件根目录执行 `make init_<dut>` 编译（仅包目录缺失时编译，重编译需先删除 `inputs/<dut>/<dut>/`；该命令还会顺带建立模块工作区）：
+若已有 `<dut>/`，用本次工作流的 Python 确认能导入。启动准备只拷贝已编译的 DUT 包，不会自动编译；包目录缺少时，在插件根目录执行 `make init_<dut>` 编译并建立模块工作区。已有目录但缺少 native binary 或 Python／ABI 不匹配时，导入预检会在创建输出前停止。保留原包，在独立 staging 输入中使用已核实的 filelist 重新构建，不删除历史输入包：
 
 ```bash
 make init_<dut>
 ```
 
-编译报错时核对 `filelist.f` 路径与 picker 的 Python 环境（picker 内部构建使用 PATH 里的 `python3`，须与运行复核的解释器一致）。包和 xspcomm 必须匹配运行 Python；先通过导入与单步冒烟，再启动 Bug Review。本 Skill 仅补齐输入，不执行测试、波形或裁决。
+编译报错时核对 `filelist.f` 路径与 picker 的 Python 环境（picker 内部构建使用 PATH 里的 `python3`，须与运行复核的解释器一致）。检查 RTL 的仿真 cell／memory 模型及条件宏，依据实际模型选择宏并保留构建命令、工具版本和包摘要，不对所有设计统一追加 `RTL_SIM`。包和 xspcomm 必须匹配运行 Python。导入与单步冒烟只证明可加载；启动复核前还须独立核对源码要求的时钟传播、复位和初始化，详见 `Guide_Doc/analysis.md`。构建修复使用独立工作区和新执行，不覆盖封存 baseline。本 Skill 仅补齐输入，不执行测试、波形或裁决。
