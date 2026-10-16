@@ -24,3 +24,12 @@ This interface does not bypass CMD authentication, execute caller-supplied shell
 commands, or migrate workspaces. Existing general HM commands retain their
 interactive semantics. Test the stage guard with
 `python3 tests/test_swarm_review.py`.
+
+
+## Creation-time review gates
+
+`runtime_options.human_review_stage_names` defaults to an empty string. Swarm supplies semicolon-delimited stable stage names through a controlled CLI override, for example `functional_specification_refine;create_test_case_templates;verification_review_and_summary`. It is persisted in the nonsecret resolved runtime config snapshot. It adds HM requirements and never disables a workflow's existing human checkers.
+
+After actual stages and saved progress resolve, before stage initialization commands, all selected names must resolve exactly once, remain unskipped (including CLI skip/unskip selections), and be at or after the starting stage. Otherwise initialization fails with the affected name. Ordinary recovery retains already completed stages. A forced-stage rerun must choose only gates it will execute. This selection does not imply approval: real Complete/check evidence still gates the pause, and existing stage-bound review commands continue or return feedback to that same stage. Empty selection preserves existing workflow behavior.
+
+Focused regression: `pytest tests/test_stage_manager.py tests/test_swarm_review.py`.

@@ -537,6 +537,8 @@ def build_runtime_config(
     else:
         raise TypeError("Configuration value 'runtime_options' must be a mapping.")
 
+    from ucagent.swarm_review_plan import review_stage_names
+    review_stage_names(runtime_options.get("human_review_stage_names", ""))
     for key in REQUIRED_RUNTIME_BOOL_OPTIONS:
         if type(runtime_options.get(key)) is not bool:
             raise ValueError(
@@ -647,6 +649,8 @@ def validate_runtime_config(data: Any) -> Dict[str, Any]:
     runtime_options = data.get("runtime_options")
     if not isinstance(runtime_options, dict):
         raise ValueError("Resolved runtime config has no runtime_options mapping.")
+    from ucagent.swarm_review_plan import review_stage_names
+    review_stage_names(runtime_options.get("human_review_stage_names", ""))
     for key in REQUIRED_RUNTIME_BOOL_OPTIONS:
         if type(runtime_options.get(key)) is not bool:
             raise ValueError(

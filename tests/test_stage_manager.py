@@ -2510,3 +2510,128 @@ def test_post_test_case_run_callbacks_run_guarded_by_name(monkeypatch, tmp_path)
 
     assert calls == ["replaced"]
     assert list(manager.post_test_case_run_callbacks) == ["first", "broken"]
+
+
+def test_creation_review_plan_pauses_complete_until_human_approval():
+    """A frozen named gate blocks real Complete and resumes the same stage."""
+    from ucagent.swarm_review_plan import apply_review_plan
+    from ucagent.util.config import Config
+    stage = _RecordingCheckStage()
+    stage.name = "create_test_case_templates"
+    stage.need_human_check = False
+    stage._hum_check_passed = None
+    stage._hum_check_msg = ""
+    stage.checker = []
+    stage.is_skipped = lambda: False
+    for method in ("do_set_hmcheck_needed", "is_hmcheck_needed", "get_hmcheck_state", "do_hmcheck_pass"):
+        setattr(stage, method, getattr(VerifyStage, method).__get__(stage))
+    manager = StageManager.__new__(StageManager)
+    manager.cfg = Config({"runtime_options":{"human_review_stage_names":stage.name}})
+    manager.stage_index = 0
+    manager.stage_skip_list = []
+    manager.stage_unskip_list = []
+    manager.stages = [stage, _RecordingCheckStage()]
+    manager.agent = SimpleNamespace(_need_human=False)
+    manager.last_check_info = None
+    manager.llm_fail_suggestion = None
+    manager.llm_pass_suggestion = None
+    manager.all_completed = False
+    manager.gen_pass_suggestion = lambda _: ""
+    manager._stage_complete = lambda _: None
+    manager.save_stage_info = lambda: None
+    def advance():
+        manager.stage_index += 1
+        return manager.stages[manager.stage_index]
+    manager.next_stage = advance
+    apply_review_plan(manager)
+    assert manager.complete(1)["complete"] is False
+    assert manager.agent._need_human is True
+    assert manager.stage_index == 0
+    stage.do_hmcheck_pass("Reviewed the templates")
+    assert manager.complete(1)["complete"] is True
+    assert manager.stage_index == 1
+
+
+def test_review_plan_defaults_preserve_workflow_hm_and_reject_unresolved_gates():
+    """Validate atomically, including explicit skips and forced-stage reruns."""
+    from ucagent.swarm_review_plan import apply_review_plan, review_stage_names
+    from ucagent.util.config import Config
+    stage = SimpleNamespace(name="one", need_human_check=True, is_skipped=lambda:False, is_completed=lambda:False)
+    stage.do_set_hmcheck_needed = lambda value: setattr(stage, "need_human_check", value)
+    manager = SimpleNamespace(cfg=Config({"runtime_options":{}}), stages=[stage], stage_index=0,
+                              stage_skip_list=[], stage_unskip_list=[])
+    apply_review_plan(manager)
+    assert stage.need_human_check is True
+    stage.need_human_check = False
+    manager.cfg = Config({"runtime_options":{"human_review_stage_names":"one;missing"}})
+    with pytest.raises(ValueError, match="missing"):
+        apply_review_plan(manager)
+    assert stage.need_human_check is False
+    manager.cfg = Config({"runtime_options":{"human_review_stage_names":"one"}})
+    manager.stage_skip_list = [0]
+    with pytest.raises(ValueError, match="skipped"):
+        apply_review_plan(manager)
+    manager.stage_skip_list = []
+    manager.stage_index = 1
+    with pytest.raises(ValueError, match="starting stage"):
+        apply_review_plan(manager)
+    stage.is_completed = lambda: True
+    apply_review_plan(manager)
+    manager.force_stage_index_explicit = True
+    with pytest.raises(ValueError, match="starting stage"):
+        apply_review_plan(manager)
+    for value in (None, [], "one;one", "one;", "bad-name"):
+        with pytest.raises(ValueError):
+            review_stage_names(value)
+
+
+def test_swarm_recommended_gates_exist_once_in_default_workflow():
+    """Keep the product catalog aligned with the shipped workflow source."""
+    from pathlib import Path
+    import re
+    source = (Path(repo_root) / "ucagent/lang/zh/config/default.yaml").read_text()
+    catalog = Path(repo_root).parents[1] / "comm-libs/src/robots.rs"
+    if not catalog.exists():
+        pytest.skip("Swarm catalog is available in the platform checkout")
+    names = re.search(r"HUMAN_REVIEW_STAGES:.*?= \[(.*?)\];", catalog.read_text(), re.S).group(1)
+    for name in re.findall(r'"([a-z_]+)"', names):
+        assert len(re.findall(r"name:\s*[\"']?" + name + r"[\"']?\s*$", source, re.M)) == 1
+
+
+def test_review_plan_is_applied_before_stage_initialization(monkeypatch, tmp_path):
+    """The startup path installs gates before any stage initialization command."""
+    stage = _FakeStage(0)
+    stage.name = "create_test_case_templates"
+    stage.need_human_check = False
+    stage.do_set_hmcheck_needed = lambda value: setattr(stage, "need_human_check", value)
+    cfg = _cfg()
+    cfg.get_value = lambda key, default=None: stage.name if key == "runtime_options.human_review_stage_names" else default
+    monkeypatch.setattr(vmanager, "get_root_stage", lambda *_: _FakeRootStage([stage]))
+    monkeypatch.setattr(vmanager, "get_llm_check_instance", lambda *_: None)
+    original = stage.on_init
+    def initialized():
+        assert stage.need_human_check is True
+        original()
+    stage.on_init = initialized
+    manager = StageManager(str(tmp_path), cfg, _FakeAgent(cfg), None, {}, tool_inspect_file=[])
+    manager.init_stage()
+    assert stage.init_count == 1
+    stage.init_count = 0
+    manager.stage_skip_list = [0]
+    with pytest.raises(ValueError, match="skipped"):
+        manager.init_stage()
+    assert stage.init_count == 0
+
+
+def test_review_plan_resolved_snapshot_round_trip(tmp_path):
+    """Persist the actual selection and reject malformed runtime option types."""
+    from ucagent.util.config import Config, save_runtime_config, load_runtime_config
+    cfg = Config({"runtime_options":{"need_ref_model":False, "mock_components_enabled":False,
+                                      "human_review_stage_names":"create_test_case_templates"},
+                  "tools":{"RunTestCases":{"test_dir":"unity_test/tests"}}})
+    cfg._temp_cfg = {"DUT":"Adder", "OUT":"unity_test"}
+    save_runtime_config(str(tmp_path), cfg)
+    assert load_runtime_config(str(tmp_path))["runtime_options"]["human_review_stage_names"] == "create_test_case_templates"
+    cfg.runtime_options.human_review_stage_names = ["create_test_case_templates"]
+    with pytest.raises(ValueError, match="must be a string"):
+        save_runtime_config(str(tmp_path), cfg)

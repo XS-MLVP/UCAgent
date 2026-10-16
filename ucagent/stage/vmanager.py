@@ -651,6 +651,8 @@ class StageManager(object):
                         f"Stage '{stage.name}' has invalid persisted Skill evidence; "
                         "list/read/use evidence will be collected again."
                     )
+        from ucagent.swarm_review_plan import apply_review_plan
+        apply_review_plan(self)
         self._go_skip_stage()
         for s in self.stages:
             s.set_stage_manager(self)
