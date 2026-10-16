@@ -31,7 +31,7 @@ UCAgent 在工作流中调用 `RTL2SpecCommand`，并通过 `Check`、`Complete`
 | `ports` | `generic_ports` | 根据当前证据生成 `evidence/ports.md`，只需补充逻辑分组和协议 |
 | `metadata` | `generic_metadata` | 按字段/证据条目更新事实，保留无关文字和各源文件自己的摘要 |
 | `validate` | `generic_validate` | 草稿诊断：字段/表格完整性、精确端口、ID 与跨表追溯、源码位置、签核声明及 Mermaid 围栏 |
-| `review` | `generic_review` | 为当前文档生成 `semantic_review.json` 问题；相同基线保留答案，基线变化时创建新问题 |
+| `review` | `generic_review` | 为当前文档生成 `semantic_review.json` 问题；按 P-* 依赖指纹保留未变化行为的答案，只为变化行为创建新问题 |
 | `lint` | `generic_lint` | 复核诊断：包含草稿检查，并验证每个行为的复核项、源码位置和当前摘要 |
 | `finalize` | `generic_finalize` | 执行复核验收，自动更新报告，生成绑定最终工件的 `validation.json` |
 

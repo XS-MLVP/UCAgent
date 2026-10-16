@@ -11,7 +11,7 @@
 4. 读取 DUT Scala 和支撑结论的相关模块。使用 `action="related_sources", related_modules=["RelatedClass"]` 登记确实参考的模块；没有参考的模块不登记。
 5. 运行 `action="ports"` 生成 `{OUT}/evidence/ports.md`；记录本阶段结果并 Complete。
 
-构建得到目标 RTL 但后续编译失败时，证据状态为 partial；文档必须记录失败范围，不能声称整个设计成功编译。生成和源文件检查都不证明仿真、形式化或覆盖率已完成。
+构建得到目标 RTL 但后续编译失败时，证据状态为 partial；草稿可以继续用于记录已有模块证据，但 final 必须在开放项表中加入 `OPEN-GENERATION-PARTIAL` 并保持 `Open` 或 `Deferred`，同时在质量报告说明失败范围和受限结论，不能声称整个设计成功编译。生成和源文件检查都不证明仿真、形式化或覆盖率已完成。
 
 ## 本阶段完成产物
 

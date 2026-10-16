@@ -53,7 +53,7 @@
     [
       "源码复核记录",
       "Pass",
-      "每个 P-* 的复核项、引用与当前文档/源码摘要一致"
+      "每个 P-* 的结构化事实或不适用理由、复核项、引用与当前文档/源码摘要一致"
     ],
     [
       "动态验证与形式化",
@@ -133,6 +133,69 @@
     ],
     "table_indexes": {
       "changes": 1
-    }
+    },
+    "required_prose_sections": [
+      {
+        "title": "文档摘要",
+        "description": "摘要必须给出模块职责、输入输出、关键概念、延迟容量、验证范围或开放项的结论。"
+      },
+      {
+        "title": "职责与边界",
+        "description": "说明 DUT 的职责、接口边界和明确不负责的工作。"
+      },
+      {
+        "title": "事务模型",
+        "description": "说明事务产生、接受、处理、完成以及取消/恢复；不适用时给出原因。"
+      },
+      {
+        "title": "时序与状态",
+        "description": "说明组合/时序路径、状态或明确的不适用原因、复位起点和同周期优先级。"
+      },
+      {
+        "title": "验证策略",
+        "description": "说明验证目标、采样事件、边界和当前未覆盖范围。"
+      },
+      {
+        "title": "Assume",
+        "description": "说明输入环境假设或明确没有额外 Assume 的原因。"
+      },
+      {
+        "title": "Assert",
+        "description": "说明断言检查的触发、结果和顺序，或明确当前未实现及原因。"
+      },
+      {
+        "title": "Cover",
+        "description": "说明覆盖目标和有效采样事件，或明确当前未实现及原因。"
+      }
+    ]
+  },
+  "quality_report": {
+    "title": "RTL2Spec 质量复核报告",
+    "sections": [
+      {
+        "title": "输入基线",
+        "description": "列出当前模块、配置、RTL/source 基线、生成状态和实际复核输入。"
+      },
+      {
+        "title": "源码复核发现",
+        "description": "记录逐个 P-* 对照当前源码得到的事实、矛盾和修正。"
+      },
+      {
+        "title": "结构化事实统计",
+        "description": "统计 P-* 总数、asserted、no_deterministic_fact 和关联 OPEN 数量。"
+      },
+      {
+        "title": "OPEN 与限制",
+        "description": "列出未关闭 OPEN-*、partial 生成影响以及结论边界。"
+      },
+      {
+        "title": "未执行验证",
+        "description": "逐项说明未运行的仿真、综合、回归、formal 和 coverage。"
+      },
+      {
+        "title": "验收范围",
+        "description": "说明本次 Pass 仅覆盖的文档、证据和复核契约。"
+      }
+    ]
   }
 }

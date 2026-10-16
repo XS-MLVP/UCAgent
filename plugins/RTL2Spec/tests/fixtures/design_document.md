@@ -269,7 +269,7 @@ CK-COVER-BOUNDARY：在组合等值关系成立时分别到达全零和全一输
 
 | Evidence ID | 类型 | 来源位置 | Commit / 配置 | 支持内容 |
 | --- | --- | --- | --- | --- |
-| `E-RTL-01` | RTL/ports | `outputs/evidence/Sbuffer.sv:1` | `fixture/DefaultConfig` | `组合转发` |
+| `E-RTL-01` | RTL/ports | `outputs/evidence/Sbuffer.sv:1-8` | `fixture/DefaultConfig` | `组合转发` |
 
 | 版本变更 ID | 变更类型 | 本次变更 | 影响范围 | 依据 |
 | --- | --- | --- | --- | --- |

@@ -12,7 +12,9 @@ from .evidence import local_path, validate_evidence
 from .generic_evidence import validate_generic_evidence
 from .contracts import contract_rows, validate_contract, ID_RE
 from .review import ACCEPTANCE_START, ACCEPTANCE_END, validate_review, validate_acceptance
+from .sv_frontend import port_shape
 from .documents import (
+    ARTIFACT_TEXT,
     FIELDS,
     METADATA_RE,
     RELATED_SOURCES_END,
@@ -24,7 +26,52 @@ from .documents import (
     validate_structure,
     appendix_rows,
     markdown_rows,
+    document_sections,
+    markdown_tokens,
+    port_scaffold_text,
 )
+
+
+def validate_quality_report(text: str) -> list[dict]:
+    """Require the review report's independent audit sections before review/final."""
+    errors = []
+    headings = document_sections(text)
+    title = ARTIFACT_TEXT.get("quality_report", {}).get("title", "RTL2Spec 质量复核报告")
+    top_level = [section for section in headings if section["level"] == 1]
+    if not top_level or top_level[0]["title"] != title:
+        errors.append({"rule": "QUALITY_REPORT_TITLE", "error": f"quality report must contain '# {title}'"})
+    required = ARTIFACT_TEXT.get("quality_report", {}).get("sections", [])
+    lines = text.splitlines()
+    previous_line = -1
+    for expected in required:
+        matches = [
+            item for item in headings
+            if item["title"] == expected["title"] and item["level"] == 2
+        ]
+        if len(matches) > 1:
+            errors.append({"rule": "QUALITY_REPORT_DUPLICATE", "error": f"quality report repeats section '{expected['title']}'"})
+            continue
+        section = matches[0] if matches else None
+        if section is None:
+            errors.append({"rule": "QUALITY_REPORT_SECTION", "error": f"quality report is missing section '{expected['title']}'"})
+            continue
+        if section["line"] <= previous_line:
+            errors.append({"rule": "QUALITY_REPORT_ORDER", "error": f"quality report sections are out of order at '{expected['title']}'"})
+        previous_line = section["line"]
+        index = headings.index(section)
+        end = next((candidate["line"] - 1 for candidate in headings[index + 1:] if candidate["level"] <= section["level"]), len(lines))
+        body = "\n".join(lines[section["line"]:end])
+        visible = prose_text(body)
+        meaningful = [
+            line.strip() for line in visible.splitlines()
+            if line.strip() and not line.lstrip().startswith("|")
+            and not re.match(r"^#{1,6}\s", line.lstrip())
+            and not re.fullmatch(r"[-:| ]+", line.strip())
+        ]
+        has_table = any(token.type == "table_open" for token in markdown_tokens(body))
+        if not meaningful and not has_table:
+            errors.append({"rule": "QUALITY_REPORT_CONTENT", "error": f"quality report section '{expected['title']}' needs findings or an explicit limitation"})
+    return errors
 
 
 def validate_ports(text: str, ports: list[dict]) -> list[dict]:
@@ -46,7 +93,7 @@ def validate_ports(text: str, ports: list[dict]) -> list[dict]:
             issue = f"duplicate RTL port mapping: {cells[6]}"
         else:
             port = expected[cells[6]]
-            shape = {"input": "I", "output": "O", "inout": "IO"}[port["direction"]] + f"/{port['width']}"
+            shape = port_shape(port)
             if cells[4] != shape:
                 issue = f"RTL direction/width contradicts ports.csv for {cells[6]}; expected {shape}"
             seen.add(cells[6])
@@ -111,6 +158,15 @@ def validate(
                     errors.extend(
                         {"artifact": artifact, **issue}
                         for issue in validate_structure(text, module)
+                    )
+                elif phase in {"review", "final"}:
+                    errors.extend(
+                        {
+                            "artifact": artifact,
+                            **issue,
+                            "next_action": "Complete the canonical quality report sections using Guide_Doc/document-quality-review-template.md, then rerun Check.",
+                        }
+                        for issue in validate_quality_report(text)
                     )
                 visible = re.sub(r"<!--.*?-->", "", text, flags=re.S)
                 content = "\n".join(
@@ -196,6 +252,24 @@ def validate(
                                         "error": f"{key} contradicts verified metadata; run metadata after reviewing the inputs",
                                     }
                                 )
+                if phase in {"review", "final"} and index == 0:
+                    scaffold = path.parent / "evidence" / "ports.md"
+                    if not scaffold.is_file():
+                        errors.append({
+                            "artifact": str(scaffold.relative_to(root)),
+                            "rule": "PORT_SCAFFOLD_MISSING",
+                            "error": "protected evidence/ports.md is missing; regenerate the exact port scaffold before review",
+                            "next_action": f"Run RTL2SpecCommand(action=\"{'generic_' if generic else ''}ports\", module=\"{module}\") before Check.",
+                        })
+                    elif scaffold.read_text(encoding="utf-8") != port_scaffold_text(
+                        root, module, ports, generic=generic, output_dir=output_dir
+                    ):
+                        errors.append({
+                            "artifact": str(scaffold.relative_to(root)),
+                            "rule": "PORT_SCAFFOLD_CHANGED",
+                            "error": "protected evidence/ports.md differs from the current parsed port facts",
+                            "next_action": f"Run RTL2SpecCommand(action=\"{'generic_' if generic else ''}ports\", module=\"{module}\") to regenerate the scaffold, then copy its exact rows into Appendix A.",
+                        })
                 prose = prose_text(visible)
                 for raw in re.findall(r"\[[^\]]*\]\((<[^>]+>|[^)]+)\)", prose):
                     raw = raw.strip("<>")
@@ -287,6 +361,26 @@ def validate(
                         }
                     )
             errors.extend({"artifact": artifact, **issue} for issue in validate_ports(texts[0], ports))
+            if phase == "final" and manifest.get("generation_status") == "partial":
+                open_rows = contract_rows(texts[0])["open"]
+                partial_open = next(
+                    (row for row in open_rows if row["cells"][0] == "OPEN-GENERATION-PARTIAL"),
+                    None,
+                )
+                if partial_open is None or partial_open["cells"][4] not in {"Open", "Deferred"}:
+                    errors.append({
+                        "artifact": artifact,
+                        "rule": "PARTIAL_SIGNOFF",
+                        "error": "partial RTL generation cannot reach final without OPEN-GENERATION-PARTIAL in Open or Deferred state",
+                        "next_action": "Add OPEN-GENERATION-PARTIAL with the failed generation scope and constrained conclusion, then rerun Check.",
+                    })
+                if not re.search(r"\bpartial\b", texts[1], re.I):
+                    errors.append({
+                        "artifact": str(paths[1].relative_to(root)),
+                        "rule": "PARTIAL_REPORT",
+                        "error": "quality report must state the partial generation limitation",
+                        "next_action": "Record the partial generation scope and its effect on conclusions in the quality report, then rerun Check.",
+                    })
             if phase in {"review", "final"}:
                 artifact = f"{output_dir}/semantic_review.json"
                 validate_review(root, module, manifest, output_dir)

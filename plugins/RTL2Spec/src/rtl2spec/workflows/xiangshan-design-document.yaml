@@ -98,11 +98,12 @@ stage:
   - 按模板生成 {OUT}/{DUT}_design_document_zh.md，删除模板说明和占位符；正文按 P-* 定义职责、激励、结果、时序、边界及配置行为。将 ports.md 表格填入附录 A，只补充逻辑分组和协议说明，不改变精确端口事实。
   - 按 Guide_Doc/generation-guide.md 的确定性验收规则填写七类行为字段、规范表和追溯关系；未知事实登记 OPEN-*，源位置使用有效行范围，签核状态与实际执行一致。
   - 逐个接口区分握手边界、资源占用和释放；明确旁路触发、配置锁存/实时属性、复位恢复及环境假设；Testplan、Coverage 和场景与 P-* 一致。等待/空选择覆盖按有效等待条件采样，不要求不存在的完成握手。
-  - 生成 {OUT}/{DUT}_document_quality_review.md，记录源码依据、复核发现和开放项；只记录实际工具结果，未执行的验证保持 Unrun/Open。
+  - 按 Guide_Doc/document-quality-review-template.md 生成 {OUT}/{DUT}_document_quality_review.md，完整填写输入基线、源码复核发现、结构化事实统计、OPEN 与限制、未执行验证、验收范围；只记录实际工具结果，未执行的验证保持 Unrun/Open。
   - 执行 RTL2SpecCommand(action='metadata', module='{DUT}', config='{XS_CONFIG}')；需要草稿诊断时调用 validate。
   reference_files:
   - Guide_Doc/generation-guide.md
   - Guide_Doc/chip_design_document_template_zh.md
+  - Guide_Doc/document-quality-review-template.md
   - '{OUT}/evidence/manifest.json'
   - '{OUT}/evidence/ports.md'
   output_files:
@@ -122,13 +123,16 @@ stage:
   - 先读取 Guide_Doc/source-review-guide.md、当前设计文档以及本阶段列出的源文件；逐个 P-* 对照真实源码，不能只重复草稿中的结论。
   - 修正正文、Testplan 和 Coverage 中的矛盾；将无法确认的内容写为 OPEN-*，在质量报告中记录实际复核发现。
   - 文档修订完后执行 metadata，再执行 RTL2SpecCommand(action='review', module='{DUT}', config='{XS_CONFIG}')。
-  - 填写 {OUT}/semantic_review.json 每个行为的七类复核项；每项写结论、适用性和有效源码行范围；verification_plan 引用 Testplan 中属于当前行为的 CK 及其 COV。若再次修改设计文档或相关证据，重新 review
-    并复核，不可手改 baseline。
+  - 填写 {OUT}/semantic_review.json：先为每个 P-* 填写可由 RTL 直接支持的 assignment facts（lhs/rhs、operator、process、event、guards）及完整赋值的源码范围，范围必须与该 P-* 正文引用的 E-* 范围相交；无法确定的复杂关系使用
+    fact_status=no_deterministic_fact 并在 fact_reason 中引用状态为 Open/Deferred 的 OPEN-*。再填写七类复核项、结论、适用性和有效源码行范围，范围同样必须落在该 P-* 的 E-* 证据内；verification_plan 引用 Testplan 中属于当前行为的 CK 及其 COV。
+    重新 review 时只需复核发生变化的 P-*，不可手改 baseline。
   - 需要定位复核问题时调用 lint；随后记录阶段日志并 Complete。
   reference_files:
   - Guide_Doc/source-review-guide.md
+  - Guide_Doc/document-quality-review-template.md
   - '{OUT}/evidence/manifest.json'
   - '{OUT}/{DUT}_design_document_zh.md'
+  - '{OUT}/{DUT}_document_quality_review.md'
   output_files:
   - '{OUT}/semantic_review.json'
   checker:

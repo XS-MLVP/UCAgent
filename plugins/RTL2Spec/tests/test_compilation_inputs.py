@@ -96,7 +96,7 @@ def test_invalid_compilation_config_is_rejected_before_capture(configured_input,
     ('`define F(x) x\nmodule Block; endmodule\n', "function macros"),
     ('module Block(input [`MISSING-1:0] data); endmodule\n', "unresolved macro"),
     ('`define R `R\nmodule Block(input [`R:0] data); endmodule\n', "recursive"),
-    ('module Block(bus.modport p); endmodule\n', "unsupported"),
+    ('module Block(bus.modport p); endmodule\n', "SystemVerilog"),
 ])
 def test_unsupported_hdl_fails_with_a_concrete_diagnostic(configured_input, text, error):
     """Unsupported preprocessing and interfaces must fail rather than sign guessed facts."""
@@ -132,11 +132,34 @@ def test_width_expressions_preserve_hdl_integer_rules(expression, width):
     assert ports[0]["width"] == width
 
 
+@pytest.mark.parametrize(
+    "source,expected",
+    [
+        (
+            "module Block(input logic [1:0][7:0] data); endmodule",
+            ("data", "[1:0][7:0]", "", 16),
+        ),
+        (
+            "module Block(input logic [7:0] data [0:3]); endmodule",
+            ("data", "[7:0]", "[0:3]", 8),
+        ),
+        (
+            "package p; typedef logic [7:0] data_t; endpackage\n"
+            "module Block(input p::data_t data); endmodule",
+            ("data", "[7:0]", "", 8),
+        ),
+    ],
+)
+def test_systemverilog_port_shapes_are_preserved(source, expected):
+    """Accept common packed, unpacked and package-scoped SystemVerilog port forms."""
+    port = parse_generic_ports(source, "Block")[0]
+    assert (port["name"], port["range"], port["unpacked_range"], port["width"]) == expected
+
+
 @pytest.mark.parametrize("source,error", [
-    ("module Block(input [True:0] data); endmodule", "unsupported port width"),
-    ("module Block(input [3:0] a, [7:0] b); endmodule", "direction is missing"),
-    ("module Block(a); input a; output [3:0] a; endmodule", "ambiguous direction"),
-    ("module Block(a); input a; function f; input [3:0] a; endfunction endmodule", "ambiguous direction"),
+    ("module Block(input [True:0] data); endmodule", "undeclared identifier"),
+    ("module Block(input missing_pkg::data_t data); endmodule", "unknown class or package"),
+    ("module Block(a); input a; output [3:0] a; endmodule", "redefinition"),
 ])
 def test_ambiguous_or_non_hdl_declarations_fail(source, error):
     """Do not silently accept Python constants or overwrite ambiguous declarations."""

@@ -139,6 +139,10 @@ class VerilogPreprocessor:
                         self.macros.pop(argument, None)
                     elif kind == "undefineall" and active:
                         self.macros.clear()
+                    elif kind in {"timescale", "default_nettype", "celldefine", "endcelldefine"} and active:
+                        # These directives affect HDL diagnostics and semantics;
+                        # the frontend must see the selected compilation context.
+                        emitted = line.rstrip('\r\n') + '\n'
                     elif kind == "include" and active:
                         name = re.fullmatch(r'"([^"\n]+)"', argument)
                         if name is None or self.root is None or path is None:

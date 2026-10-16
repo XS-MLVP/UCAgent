@@ -20,7 +20,11 @@
 
 所有路径相对于 `inputs/{DUT}`，files 顺序就是同一编译单元的宏可见顺序；只解析选定的 files 及其 include。files 必须非空且不得重复；路径须位于输入目录内，不接受绝对路径、`..` 或符号链接。工具先从当前源文件目录、再从 include_dirs 顺序寻找 include。defines 的值为单行对象宏字符串；parameters 的值为顶层整数参数覆盖，未声明的参数或 localparam 不可覆盖。
 
-支持条件编译、对象宏、字面量 include、常见 ANSI/非 ANSI 端口、整数参数与简单整数宽度表达式。函数宏、多行宏、接口/modport、结构化端口、不能解析的类型/宽度或未知指令会在预检失败；提供可解析的展开输入及其配置依据后重试。预处理视图不表示 HDL 编译或 elaboration 已成功。
+支持条件编译、对象宏、字面量 include；pyslang 解析并展开选定顶层，支持 ANSI/非 ANSI 端口、package/typedef、packed struct/enum、多维 packed/unpacked 数组及 HDL 常量表达式。函数宏、多行宏、接口/modport、动态数组、非整数端口类型和未知指令会在预检失败；提供可解析的输入及其配置依据后重试。解析与展开检查不代表综合、仿真或形式化通过。
+
+预处理保留当前分支中生效的 `timescale`、`default_nettype`、`celldefine` 和 `endcelldefine`；例如 `default_nettype none` 下未声明的信号会阻止证据生成，不能用自动推断的 wire 掩盖输入错误。
+
+ports.csv 的 range/packed_dimensions 为解析后的 packed 维度，width 为每个数组元素的 packed 位宽，unpacked_range/unpacked_dimensions 为固定数组维度；signedness 和 canonical_type 保留元素的 signed/unsigned 与 pyslang 展开的 canonical 类型，type 保留源码类型写法，完整 unpacked 维度以对应的 unpacked_dimensions 为准。附录 A 的方向/位宽使用 `I/8`、`O/16` 等形式；unpacked 数组追加真实维度，如 `I/8[0:3]`，不得遗漏数组维度；需要区分 signed、packed 布局或逻辑类型时，以 ports.csv 的完整字段为准。端口表骨架自动填写这些事实。manifest 的 tool_versions 记录 pyslang 版本；升级前端后需使用新的空输出目录重新获取证据。
 
 ## 本阶段操作
 

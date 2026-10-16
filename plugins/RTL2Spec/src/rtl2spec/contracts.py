@@ -103,11 +103,47 @@ def validate_contract(root: Path, module: str, manifest: dict, ports: list[dict]
     tables = tables_by_section(design)
     template_tables = tables_by_section(template_text)
     rows = contract_rows(design)
+    open_states = {row['cells'][0]: row['cells'][4] for row in rows['open']}
 
     def fail(code: str, detail: str, line: int = 1, *, target: str = artifact) -> None:
         """Bound diagnostics to one artifact, machine rule and concrete repair action."""
         errors.append({'artifact': target, 'line': line, 'rule': code, 'error': detail,
                        'next_action': f'Repair {code} at the indicated artifact/line using Guide_Doc/generation-guide.md and Guide_Doc/chip_design_document_template_zh.md; rerun Check.'})
+
+    def section_body(section: dict) -> tuple[str, int]:
+        """Return one heading's body and its first body line, excluding child sections."""
+        index = sections.index(section)
+        end = next(
+            (candidate['line'] - 1 for candidate in sections[index + 1:]
+             if candidate['level'] <= section['level']),
+            len(lines),
+        )
+        return '\n'.join(lines[section['line']:end]), section['line'] + 1
+
+    def has_substantive_prose(body: str) -> bool:
+        """Accept prose or reasoned list items while excluding tables and syntax-only lines."""
+        visible = prose_text(body)
+        candidates = []
+        for line in visible.splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith('|') or re.match(r'^(?:#{1,6}|```|~~~)', stripped):
+                continue
+            stripped = re.sub(r'^\s*(?:[-*+] |\d+[.)] )', '', stripped)
+            stripped = re.sub(r'^[*_`]+|[*_`]+$', '', stripped).strip()
+            if stripped and not re.fullmatch(r'[-:| ]+', stripped):
+                candidates.append(stripped)
+        return bool(candidates)
+
+    # The document can contain every canonical table while leaving the actual
+    # explanations blank.  Check the prose-bearing sections independently so a
+    # table-only artifact cannot masquerade as a complete specification.
+    for required in CONTRACT.get('required_prose_sections', []):
+        section = next((item for item in sections if item['title'] == required['title']), None)
+        if section is None:
+            continue  # validate_structure owns missing/out-of-order headings.
+        body, line = section_body(section)
+        if not has_substantive_prose(body):
+            fail('REQUIRED_PROSE', f"{required['title']}: {required['description']}", line)
 
     # Headers come from the same template used by the writer, not a second schema.
     for section in sections:
@@ -168,6 +204,10 @@ def validate_contract(root: Path, module: str, manifest: dict, ports: list[dict]
                     fail('BEHAVIOR_FIELD', f'{identifier}: field {field_index + 1} needs content or an inapplicability reason', section['line'])
                 if field_index == len(CONTRACT['behavior_fields']) - 1 and not (ids(value, 'E') or ids(value, 'OPEN')):
                     fail('BEHAVIOR_EVIDENCE', f'{identifier}: cite E-* or a defined OPEN-* evidence gap', section['line'])
+                if field_index == len(CONTRACT['behavior_fields']) - 1:
+                    closed = sorted(open_id for open_id in ids(value, 'OPEN') if open_states.get(open_id) not in {'Open', 'Deferred'})
+                    if closed:
+                        fail('OPEN_STATE', f'{identifier}: evidence cannot rely on closed or undefined OPEN-* items: {", ".join(closed)}', section['line'])
 
     groups = next((s for s in sections if s['title'] == SECTIONS['groups']), None)
     fc_groups = {}
@@ -209,7 +249,8 @@ def validate_contract(root: Path, module: str, manifest: dict, ports: list[dict]
         if cells[0] not in {'P0','P1','P2'} or not plans[ck]['fc'] or not plans[ck]['p']:
             fail('PLAN_FIELDS', f'{ck}: use P0/P1/P2 and explicit FC-* and P-* references', row['line'])
     for behavior, body in behavior_bodies.items():
-        if not any(behavior in plan['p'] for plan in plans.values()) and not ids(body, 'OPEN'):
+        active_open = {open_id for open_id in ids(body, 'OPEN') if open_states.get(open_id) in {'Open', 'Deferred'}}
+        if not any(behavior in plan['p'] for plan in plans.values()) and not active_open:
             fail('BEHAVIOR_PLAN', f'{behavior}: provide a Testplan check or document an OPEN-* planning gap', definitions['P'][behavior])
     traces = {}
     for row in rows['ck_trace']:

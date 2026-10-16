@@ -41,6 +41,22 @@ def prepare_related_source(artifacts, command):
     return source
 
 
+def test_checker_reports_non_utf8_manifest_without_crashing(tmp_path):
+    """A damaged manifest must become a structured checker failure during init."""
+    evidence = tmp_path / "outputs/evidence"
+    evidence.mkdir(parents=True)
+    (evidence / "manifest.json").write_bytes(b"{\xff")
+    checker = RTL2SpecArtifactsChecker(
+        module="Block", config="Generic", phase="review", output_dir="outputs"
+    )
+    checker.stage = None
+    checker.set_workspace(str(tmp_path)).on_init()
+    ok, result = checker.do_check()
+    assert not ok
+    assert result["error_code"] == "SPEC_ARTIFACT_INVALID"
+    assert "manifest.json" in result["artifact"]
+
+
 def test_new_generation_requires_clean_output_directories(artifacts, command):
     """A second generation run stops before touching existing documents or evidence."""
     assert not (artifacts / "src").exists()

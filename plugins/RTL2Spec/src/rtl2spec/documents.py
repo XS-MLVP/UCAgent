@@ -13,6 +13,7 @@ from markdown_it.rules_block.table import escapedSplit
 
 from .evidence import local_path, output_root, validate_evidence
 from .generic_evidence import validate_generic_evidence
+from .sv_frontend import port_shape
 
 # Localized artifact labels live with the runtime writing resources.
 TEMPLATE = Path(__file__).resolve().parent / "Guide_Doc/chip_design_document_template_zh.md"
@@ -269,12 +270,9 @@ def require_clean_output(root: Path, output_dir: str = "outputs") -> None:
         )
 
 
-def generate_port_scaffold(root: Path, module: str, config: str, *, generic: bool = False,
-                           output_dir: str = "outputs") -> Path:
-    """Generate factual Appendix A cells from verified ports, leaving only prose to fill."""
-    validator = validate_generic_evidence if generic else validate_evidence
-    manifest, ports = validator(root, module, config, output_dir)
-    folder = local_path(root, output_root(root, output_dir) / "evidence")
+def port_scaffold_text(root: Path, module: str, ports: list[dict], *, generic: bool = False,
+                       output_dir: str = "outputs") -> str:
+    """Render the protected port scaffold from current parsed facts without writing it."""
     locations = port_locations(root, module, ports, generic=generic, output_dir=output_dir)
     lines = ["", "# " + ARTIFACT_TEXT["ports_title"], "", ARTIFACT_TEXT["ports_instruction"], "",
              "| " + " | ".join(ARTIFACT_TEXT["port_header"]) + " |",
@@ -282,12 +280,20 @@ def generate_port_scaffold(root: Path, module: str, config: str, *, generic: boo
     for port in ports:
         path, line = locations[port['name']][0]
         location = f"{path}:{line}"
-        direction = {"input": "I", "output": "O", "inout": "IO"}[port["direction"]]
         cells = [f"`IO-{port['index']:03d}`", "TODO", "TODO", f"`{location}`",
-                 f"`{direction}/{port['width']}`", "Generated", f"`{port['name']}`", "TODO", "`E-RTL-PORTS`"]
+                 f"`{port_shape(port)}`", "Generated", f"`{port['name']}`", "TODO", "`E-RTL-PORTS`"]
         lines.append("| " + " | ".join(cells) + " |")
+    return "\n".join(lines) + "\n"
+
+
+def generate_port_scaffold(root: Path, module: str, config: str, *, generic: bool = False,
+                           output_dir: str = "outputs") -> Path:
+    """Generate factual Appendix A cells from verified ports, leaving only prose to fill."""
+    validator = validate_generic_evidence if generic else validate_evidence
+    _, ports = validator(root, module, config, output_dir)
+    folder = local_path(root, output_root(root, output_dir) / "evidence")
     target = local_path(root, folder / "ports.md")
-    target.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    target.write_text(port_scaffold_text(root, module, ports, generic=generic, output_dir=output_dir), encoding="utf-8")
     return target
 
 
@@ -312,7 +318,24 @@ def port_locations(root: Path, module: str, ports: list[dict], *, generic: bool 
             continue
         end = re.search(r"\bendmodule\b", text[declaration.end():])
         body = text[declaration.end():declaration.end() + end.start()] if end else text[declaration.end():]
-        for name in result:
+        for port in ports:
+            name = port['name']
+            if generic and isinstance(port.get('source_line'), int):
+                ranges = [
+                    (port.get('header_line', port['source_line']), port.get('header_end_line', port['source_line'])),
+                    (port['source_line'], port.get('source_end_line', port['source_line'])),
+                ]
+                for line, end_line in ranges:
+                    if not isinstance(line, int) or not isinstance(end_line, int) or not 1 <= line <= len(text.splitlines()) or end_line < line:
+                        raise ValueError(f"Invalid AST source range for port {name}: {line}-{end_line}")
+                    if source_map is not None and path == paths[0]:
+                        for mapped_line in range(line, min(end_line, len(source_map)) + 1):
+                            origin = source_map[mapped_line - 1]
+                            result[name].append((origin['path'], origin['line']))
+                            if origin['path'] == original_top:
+                                result[name].append((f"{folder}/{module}.sv", origin['line']))
+                    result[name].append((path, line))
+                continue
             pattern = rf"(?<![\w$]){re.escape(name)}(?![\w$])"
             match = re.search(pattern, body)
             positions = {match.start()} if match else set()

@@ -1,9 +1,9 @@
 
 # 最终验收与交付
 
-在设计文档、质量报告和 semantic_review.json 已完成后调用 finalize/generic_finalize。工具执行字段、精确端口、追溯关系、源码位置、签核状态和复核记录检查，自动更新质量报告中的验收区块，并生成 validation.json。
+在设计文档、质量报告和 semantic_review.json 已完成后调用 finalize/generic_finalize。工具执行字段、精确端口、追溯关系、源码位置、质量报告六个固定区块、签核状态和复核记录检查，自动更新质量报告中的验收区块，并生成 validation.json。若 manifest 的 generation_status 为 partial，final 还要求开放项表保留 `OPEN-GENERATION-PARTIAL`（Open 或 Deferred）并在质量报告明确受限结论。
 
-成功后记录阶段日志并 Complete。无需依次重复 validate、lint、Check，也无需把工具结果手工抄回报告。若之后改动交付物，原验收记录会失效；按诊断处理，设计文档变化还需要重新 review，最后重新 finalize。
+成功后记录阶段日志并 Complete。无需依次重复 validate、lint、Check，也无需把工具结果手工抄回报告。若之后改动交付物，原验收记录会失效；按诊断处理，设计文档变化时重新 review，填写工具指出的受影响行为，最后重新 finalize。
 
 ## 完整交付目录示例
 

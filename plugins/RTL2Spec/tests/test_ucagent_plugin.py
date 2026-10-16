@@ -46,6 +46,7 @@ def test_plugin_descriptor_validates() -> None:
     assert project["entry-points"]["ucagent.plugins"][plugin.name] == manifest["entry"]
     assert f"UCAgent{plugin.requires_ucagent}" in project["dependencies"]
     assert set(plugin.python_requirements) <= set(project["dependencies"])
+    assert set((root / "requirements.txt").read_text().splitlines()) == set(project["dependencies"])
 
 
 def test_command_rejects_shell_like_arguments(tmp_path: Path) -> None:
@@ -81,7 +82,8 @@ def test_command_has_mcp_convertible_pydantic_schema(tmp_path: Path) -> None:
     assert schema["additionalProperties"] is False
 
 
-def test_parser_dependency_is_declared_and_diagnosed(monkeypatch):
+@pytest.mark.parametrize("dependency", ["markdown-it-py", "pyslang"])
+def test_parser_dependency_is_declared_and_diagnosed(monkeypatch, dependency):
     """Missing parser metadata yields the same actionable dependency gate as installed plugins."""
     import importlib.metadata
 
@@ -89,12 +91,12 @@ def test_parser_dependency_is_declared_and_diagnosed(monkeypatch):
 
     def installed_version(name):
         """Simulate only the parser distribution being unavailable."""
-        if name == "markdown-it-py":
+        if name == dependency:
             raise importlib.metadata.PackageNotFoundError(name)
         return real_version(name)
 
     monkeypatch.setattr(importlib.metadata, "version", installed_version)
-    with pytest.raises(PluginError, match="requires Python package markdown-it-py"):
+    with pytest.raises(PluginError, match=f"requires Python package {dependency}"):
         validate_plugin(get_plugin(), check_dependencies=True)
 
 

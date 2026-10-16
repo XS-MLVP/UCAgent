@@ -39,7 +39,7 @@ def get_plugin() -> Plugin:
         ),
         root=root,
         requires_ucagent=">=26.9.2.dev14",
-        python_requirements=("markdown-it-py>=3,<5",),
+        python_requirements=("markdown-it-py>=3,<5", "pyslang>=9.1,<10"),
         tool_factories=(create_tools,),
         checkers=(RTL2SpecArtifactsChecker, RTL2SpecGenericArtifactsChecker),
         assets=(root / "scripts",),

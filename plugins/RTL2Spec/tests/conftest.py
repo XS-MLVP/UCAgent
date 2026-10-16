@@ -2,13 +2,14 @@
 
 import platform
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
-from rtl2spec.documents import artifact_paths
+from rtl2spec.documents import artifact_paths, generate_port_scaffold
 from rtl2spec.tools import RTL2SpecCommand
 from rtl2spec.review import prepare_review
 
@@ -113,8 +114,53 @@ def draft(root: Path, output_dir: str = "outputs") -> None:
         encoding="utf-8",
     )
     report.write_text(
-        "\n# Review\n\nSynthetic test fixture only. RTL evidence exists; no formal proof was run.\n"
+        """\n# RTL2Spec 质量复核报告
+
+## 输入基线
+
+Synthetic fixture for Sbuffer/DefaultConfig; captured RTL is the only input.
+
+## 源码复核发现
+
+P-FORWARD was compared with the captured assignment and its E-RTL-01 range.
+
+## 结构化事实统计
+
+| 统计项 | 数量 | 说明 |
+| --- | ---: | --- |
+| P-* 总数 | 1 | 当前行为数 |
+| asserted | 1 | assignment fact |
+| no_deterministic_fact | 0 | 无 |
+| 关联 OPEN-* | 0 | 无 |
+
+## OPEN 与限制
+
+OPEN-FORMAL-01 保持 Open；本 fixture 不声称已经完成 formal。
+
+## 未执行验证
+
+仿真、综合、回归、断言编译、formal 和 coverage 均为 Unrun。
+
+## 验收范围
+
+仅覆盖文档、源码证据、端口映射和复核记录的一致性。
+"""
     )
+    manifest = root / output_dir / "evidence/manifest.json"
+    if manifest.is_file():
+        try:
+            manifest_value = json.loads(manifest.read_text(encoding="utf-8"))
+            schema = manifest_value.get("schema_version")
+            generate_port_scaffold(
+                root,
+                "Sbuffer",
+                manifest_value.get("config", "DefaultConfig"),
+                generic=schema == 3,
+                output_dir=output_dir,
+            )
+        except (OSError, ValueError, KeyError, TypeError):
+            # Some negative tests intentionally create an incomplete manifest.
+            pass
 
 
 def complete_review(root: Path, module: str = "Sbuffer", config: str = "DefaultConfig", *,
@@ -123,7 +169,33 @@ def complete_review(root: Path, module: str = "Sbuffer", config: str = "DefaultC
     prepare_review(root, module, config, generic=generic, output_dir=output_dir)
     path = root / output_dir / "semantic_review.json"
     value = json.loads(path.read_text())
+    rtl = (root / output_dir / "evidence" / f"{module}.sv").read_text()
+    assignment = re.search(r"\bassign\s+([A-Za-z_][A-Za-z0-9_$]*)\s*=\s*([A-Za-z_][A-Za-z0-9_$]*)\s*;", rtl)
+    assert assignment is not None
+    lhs, rhs = assignment.groups()
+    assignment_line = rtl.count("\n", 0, assignment.start()) + 1
     for behavior in value["behaviors"]:
+        behavior.update(
+            fact_status="asserted",
+            facts=[
+                {
+                    "kind": "assignment",
+                    "lhs": lhs,
+                    "rhs": rhs,
+                    "operator": "=",
+                    "process": "continuous",
+                    "event": None,
+                    "guards": [],
+                    "evidence": [
+                        {
+                            "path": f"{output_dir}/evidence/{module}.sv",
+                            "start_line": assignment_line,
+                            "end_line": assignment_line,
+                        }
+                    ],
+                }
+            ],
+        )
         for aspect, check in behavior["checks"].items():
             check.update(status="not_applicable", conclusion="Synthetic fixture: continuous assignment has no storage, bypass, configuration control or recovery state.",
                          evidence=[{"path": f"{output_dir}/evidence/{module}.sv", "start_line": 2, "end_line": 8}])

@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from conftest import complete_review
 
-from rtl2spec.documents import METADATA_RE, artifact_paths
+from rtl2spec.documents import METADATA_RE, artifact_paths, generate_port_scaffold
 from rtl2spec.generic_evidence import parse_generic_ports
 from rtl2spec.plugin import get_plugin
 from rtl2spec.tools import RTL2SpecCommand
@@ -61,9 +61,40 @@ def write_generic_documents(root: Path, output_dir: str = "outputs") -> None:
     text = text.replace("Sbuffer", "GenericBlock").replace("outputs/evidence/", f"{output_dir}/evidence/")
     design.write_text(text, encoding="utf-8")
     report.write_text(
-        "# Review\n\nThe supplied RTL was captured; no external verification tool was run.\n",
+        """# RTL2Spec 质量复核报告
+
+## 输入基线
+
+GenericBlock/Generic uses the captured top RTL and its registered related sources.
+
+## 源码复核发现
+
+P-FORWARD was checked against the generated assignment and E-RTL-01.
+
+## 结构化事实统计
+
+| 统计项 | 数量 | 说明 |
+| --- | ---: | --- |
+| P-* 总数 | 1 | 当前行为数 |
+| asserted | 1 | assignment fact |
+| no_deterministic_fact | 0 | 无 |
+| 关联 OPEN-* | 0 | 无 |
+
+## OPEN 与限制
+
+未关闭项和输入假设记录在设计文档；本次没有执行外部验证工具。
+
+## 未执行验证
+
+仿真、综合、回归、断言编译、formal 和 coverage 均为 Unrun。
+
+## 验收范围
+
+仅覆盖文档、源码证据、端口映射和复核记录的一致性。
+""",
         encoding="utf-8",
     )
+    generate_port_scaffold(root, "GenericBlock", "Generic", generic=True, output_dir=output_dir)
 
 
 def capture_generic(generic_command: RTL2SpecCommand, root: Path) -> None:
@@ -170,7 +201,7 @@ def test_generic_capture_signs_input_and_ports(
     manifest = json.loads(
         (generic_workspace / "outputs/evidence/manifest.json").read_text()
     )
-    assert manifest["schema_version"] == 2
+    assert manifest["schema_version"] == 3
     assert manifest["generation_status"] == "provided"
     assert manifest["rtl_source"] == "inputs/GenericBlock/GenericBlock.sv"
     assert manifest["source_baseline"] == manifest["source_state"]["digest"]

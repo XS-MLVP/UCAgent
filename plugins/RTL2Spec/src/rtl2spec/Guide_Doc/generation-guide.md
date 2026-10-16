@@ -13,7 +13,7 @@
 ## 写作与验收约束
 
 1. 正文从职责、边界、事务与资源解释 DUT；用逻辑接口名和 P-/E-/CK-/OPEN-* 引用。逻辑 `clock`、`reset` 不自动代表同名 RTL 端口。
-2. 将工具生成的 `{OUT}/evidence/ports.md` 表格复制到附录 A，补全 TODO 逻辑分组与协议；每个精确端口必须唯一出现，方向/位宽须与 ports.csv 完全一致。不得用通配符、逻辑别名或端口组代替精确映射。无端口模块保留表头并说明没有端口。
+2. 将工具生成且受保护的 `{OUT}/evidence/ports.md` 表格复制到附录 A，补全 TODO 逻辑分组与协议；每个精确端口必须唯一出现，方向/位宽须与当前流程的 `ports.csv` 完全一致。通用 RTL 的 `ports.csv` 还提供 `signedness`、`canonical_type`、packed/unpacked 维度等 pyslang 展开字段；需要区分这些属性时以通用证据为准，XiangShan 的端口证据只使用其实际提供的字段，不自行补造类型信息。不要手改 ports.md；如果它被修改或缺失，重新运行 ports/generic_ports。不得用通配符、逻辑别名或端口组代替精确映射。无端口模块保留表头并说明没有端口。
 3. 每个 P-* 写明激励、处理、输出/状态、时延/顺序、边界/恢复和配置裁剪。没有某项能力时说明不适用的源码依据。
 4. 对有缓冲的路径分别描述入口接受、缓冲出队、目标接受、响应进入缓冲和响应被原请求方消费。未命中目标不必然阻止入口接受；以实际 ready/valid 和容量条件为准。
 5. 核查空/满状态、同周期入出队和旁路；核查路由控制是随请求锁存还是实时输入。明确哪些性质由 RTL 保证，哪些依赖输入稳定、区域互斥、公平性或合法响应等环境假设。
@@ -22,12 +22,14 @@
 8. 未运行的综合、仿真、回归、断言编译、formal 和 coverage 保持 Unrun/Open。不能把结构检查或复核记录称为功能签核。
 9. 保留每个 Markdown 标题前后空行；删除模板 HTML 说明、方括号占位符和 TODO/TBD。仅保留工具生成的 metadata、related-source 和 acceptance 标记。Mermaid 保存为闭合源码块，不生成图片。
 10. 写完执行 metadata 或 generic_metadata。需要草稿诊断时用 validate 或 generic_validate；下一阶段按 Guide_Doc/source-review-guide.md 对照源码复核。
+11. 语义复核会为每个 P-* 保存结构化赋值 `facts`。填写 `lhs`/`rhs`、赋值运算符、过程类型、时钟事件、全部条件分支和源码范围，格式见 Guide_Doc/source-review-guide.md；fact 与七类 check 的范围必须落在该 P-* 正文引用的 E-* 范围内。无法由工具确定的复杂关系写 `fact_status: no_deterministic_fact`、`facts: []`，并在 `fact_reason` 中引用状态为 Open/Deferred 的 OPEN-*。
 
 ## 确定性验收规则
 
 以下规则从草稿阶段开始适用于两种工作流。可判定的缺失或矛盾必须修复；工具不判断自然语言结论是否真实，也不要求为不存在的功能制造行为或测试。
 
 - 每个 P-* 保留模板规定的七个加粗字段，各出现一次且有内容。无适用工作时写原因，例如“不适用：组合路径没有存储”；单独的 N/A、无、TODO/TBD 不能代替行为说明。证据字段引用 E-* 或明确的 OPEN-* 缺口。
+- 文档摘要、职责与边界、事务模型、时序与状态、验证策略以及 Assume/Assert/Cover 必须各有实质说明；只有表头、空段落或单独的 N/A 不能满足正文契约。
 - 使用模板中的表头、列顺序和完整单元格。普通文字可以自由组织，也可增加说明表；没有条目的开放项、参数、状态等表可保留表头并在附近解释。不能把说明表当成规范表的替代品。
 - FG/FC 在“功能分组”定义；CK 在 Testplan 定义（每行一个，包括 Cover 检查）；P/CASE 在对应标题定义；COV、OPEN、E、IO、PARAM、STATE、CHANGE 在各自规范表定义。定义唯一，其他位置可以重复引用。OPEN 的状态为 Open、Closed 或 Deferred；复核的 open 项只能引用 Open/Deferred 条目。
 - 一个 CK 可关联多个 FC/P/CASE/COV，多个端口可共享一个逻辑接口。附录 D 的 CK 行与 Testplan 中的 FC、CASE、COV 集合一致；FC 行的 FG 与功能分组一致，P 与关联检查的行为集合一致。Testplan 行号从 1 开始，可写 `1,3-5`。场景表列出的 FC/CK 不能与计划矛盾。每个 P 至少进入一个检查，或引用说明规划缺口的 OPEN-*；不强制每个行为都具有恢复场景、formal 属性或独立覆盖项。
@@ -325,7 +327,7 @@ CK-COVER-BOUNDARY：在组合等值关系成立时分别到达全零和全一输
 
 | Evidence ID | 类型 | 来源位置 | Commit / 配置 | 支持内容 |
 | --- | --- | --- | --- | --- |
-| `E-RTL-01` | RTL/ports | `outputs/evidence/ExampleBlock.sv:1` | `fixture/DefaultConfig` | `组合转发` |
+| `E-RTL-01` | RTL/ports | `outputs/evidence/ExampleBlock.sv:1-8` | `fixture/DefaultConfig` | `组合转发` |
 
 | 版本变更 ID | 变更类型 | 本次变更 | 影响范围 | 依据 |
 | --- | --- | --- | --- | --- |

@@ -10,7 +10,7 @@ readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE.md"]
 requires-python = ">=3.11"
-dependencies = ["UCAgent>=26.9.2.dev14", "markdown-it-py>=3,<5"]
+dependencies = ["UCAgent>=26.9.2.dev14", "markdown-it-py>=3,<5", "pyslang>=9.1,<10"]
 
 [project.urls]
 Homepage = "https://github.com/XS-MLVP/UCAgent/tree/main/plugins/RTL2Spec"

@@ -8,7 +8,7 @@ from conftest import RTL, draft
 from rtl2spec.documents import TEMPLATE, artifact_paths, generate_port_scaffold, update_metadata
 from rtl2spec.generic_evidence import generate_generic, record_generic_related_sources, validate_generic_evidence
 from rtl2spec.review import prepare_review
-from rtl2spec.validation import validate, validate_ports
+from rtl2spec.validation import validate, validate_ports, validate_quality_report
 
 
 @pytest.fixture
@@ -93,9 +93,18 @@ def test_runtime_guide_example_satisfies_the_draft_contract(tmp_path):
     source.mkdir(parents=True)
     (source / "ExampleBlock.sv").write_text(rtl + "\n", encoding="utf-8")
     generate_generic(tmp_path, "ExampleBlock", "DefaultConfig")
+    generate_port_scaffold(tmp_path, "ExampleBlock", "DefaultConfig", generic=True)
     design, report = artifact_paths(tmp_path, "ExampleBlock")
     design.write_text(document + "\n", encoding="utf-8")
-    report.write_text("\n# Review\n\nTeaching example only. Simulation and formal verification are Unrun.\n")
+    report.write_text(
+        (TEMPLATE.parent / "document-quality-review-template.md").read_text(encoding="utf-8")
+        .replace("[DUT]", "ExampleBlock")
+        .replace("[config]", "DefaultConfig")
+        .replace("[manifest 中的基线]", "fixture")
+        .replace("[success / partial]", "provided")
+        .replace("`[count]`", "1"),
+        encoding="utf-8",
+    )
     update_metadata(tmp_path, "ExampleBlock", "DefaultConfig", generic=True)
     result = validate(tmp_path, "ExampleBlock", "DefaultConfig", "draft", generic=True)
     assert result["ok"], result
@@ -105,6 +114,29 @@ def test_runtime_guide_example_satisfies_the_draft_contract(tmp_path):
     guide = (TEMPLATE.parent / "source-review-guide.md").read_text(encoding="utf-8")
     example = json.loads(guide.split("```json\n", 1)[1].split("\n```", 1)[0])
     example["baseline"] = current["baseline"]
+    example["behaviors"][0]["fingerprint"] = current["baseline"]["behavior_fingerprints"]["P-FORWARD"]
     path.write_text(json.dumps(example), encoding="utf-8")
     result = validate(tmp_path, "ExampleBlock", "DefaultConfig", "review", generic=True)
     assert result["ok"], result
+
+
+def test_quality_report_blocks_keep_canonical_order_and_level(documents):
+    """The six audit blocks cannot be hidden by reordering or demoting headings."""
+    _, report = artifact_paths(documents, "Sbuffer")
+    text = report.read_text(encoding="utf-8")
+    swapped = text.replace("## 输入基线", "## SWAP", 1).replace(
+        "## 源码复核发现", "## 输入基线", 1
+    ).replace("## SWAP", "## 源码复核发现", 1)
+    assert any(issue["rule"] == "QUALITY_REPORT_ORDER" for issue in validate_quality_report(swapped))
+    demoted = text.replace("## 输入基线", "### 输入基线", 1)
+    assert any(issue["rule"] == "QUALITY_REPORT_SECTION" for issue in validate_quality_report(demoted))
+    heading_only = text.replace(
+        "P-FORWARD was compared with the captured assignment and its E-RTL-01 range.",
+        "### 复核条目",
+        1,
+    )
+    assert any(
+        issue["rule"] == "QUALITY_REPORT_CONTENT"
+        and "源码复核发现" in issue["error"]
+        for issue in validate_quality_report(heading_only)
+    )
