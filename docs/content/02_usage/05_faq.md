@@ -36,3 +36,10 @@
 ### 为什么找不到 WriteTextFile 工具？
 
 - 该工具已移除。创建或覆盖文本文件请调用 `EditTextFile(path, content)`；只有追加内容时才传 `append=true`。对已有文件做少量局部修改时使用 `ReplaceStringInFile(path, old_string, new_string)`；需要限定搜索范围时可加 `line_blocks=[[start, end], ...]`，默认搜索全文。只有大量修改需要先删除多个完整行块时，才先用 `DeleteTextLines(path, line_blocks, expected_sha256)`批量删除，重新读取文件后再用 `ReplaceStringInFile`完成精确编辑。
+
+
+## LangChain 模型流中断后如何恢复？
+
+LangChain 主模型调用和上下文摘要对读取超时、网络错误、远端协议断流最多额外重试两次，退避为 1 秒、2 秒；鉴权和配置错误不重试，耗尽次数后保留原异常。主模型重试位于 model middleware 内，不重新执行整个 Agent 图或已完成工具。未完成的流式回复只可能出现在控制台预览，不提交为可执行工具调用；重试日志会注明丢弃了不完整回复。停止主模型时会取消重试退避，异步任务取消正常传播。摘要调用采用同样的次数上限，原有上下文仅在完整摘要返回后更新。
+
+这是 UCAgent 层的额外重试上限，模型 SDK 自身的重试配置仍独立存在。持续超时应检查上游／网关的连接、首响应、空闲和总时长限制，不能靠无限重试解决。

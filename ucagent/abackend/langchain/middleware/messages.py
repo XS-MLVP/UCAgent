@@ -25,6 +25,7 @@ from typing_extensions import override
 
 from ucagent.util.functions import fill_dlist_none
 from ucagent.util.log import info, warning
+from .transport import call_with_transport_retry
 
 
 class MessageStatistic:
@@ -562,10 +563,10 @@ def summarize_messages(messages, summarization_size, model, msg_stat=None):
         "Summarizing message prefix "
         f"({estimated_input_tokens} estimated tokens, {len(messages)} messages) ..."
     )
-    summary_response = model.invoke(
+    summary_response = call_with_transport_retry(lambda: model.invoke(
         summary_messages,
         **_summary_invoke_kwargs(model, summarization_size),
-    )
+    ))
     if msg_stat is not None:
         msg_stat.update_message(summary_response, usage_source="summary")
     # The summarization response may itself contain thinking blocks; extract

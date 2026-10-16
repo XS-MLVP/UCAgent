@@ -8,6 +8,7 @@ from .middleware import (
     TokenSpeedCallbackHandler,
     TrimAndSummaryMiddleware,
 )
+from .middleware.transport import TransportRetryMiddleware
 from langchain.agents import create_agent
 from langgraph.checkpoint.memory import MemorySaver
 from ucagent.util.models import get_chat_model, negotiate_openai_api_mode
@@ -71,7 +72,7 @@ class UCAgentLangChainBackend(AgentBackendBase):
             model=self.model,
             tools=self.vagent.test_tools,
             checkpointer=MemorySaver(),
-            middleware=[self.message_manage_node]
+            middleware=[self.message_manage_node, TransportRetryMiddleware(cancelled=self.vagent.is_break)]
         )
 
     def reset_chat(self, force=False):

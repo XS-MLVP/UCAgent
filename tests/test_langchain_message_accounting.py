@@ -650,6 +650,7 @@ def test_backend_binds_tools_after_verify_agent_finishes_tool_setup(monkeypatch)
     model_calls = []
     vagent = SimpleNamespace(
         stream_output=False,
+        is_break=lambda: False,
         context_management_strategy="TrimAndSummaryMiddleware",
         max_summary_tokens=32,
         max_keep_msgs=10,
