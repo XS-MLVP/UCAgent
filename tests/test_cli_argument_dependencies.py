@@ -217,3 +217,48 @@ def test_cli_aborts_before_backend_run_when_mcp_start_fails(tmp_path):
             run()
 
     agent.run.assert_not_called()
+
+
+@pytest.mark.parametrize("interactive", [False, True])
+def test_headless_worker_starts_transports_before_model_without_recording_secrets(tmp_path, interactive):
+    """Start headless worker services once while keeping interactive startup deferred."""
+    lifecycle = []
+    arguments = ["ucagent", str(tmp_path), "dut", "--export-cmd-api", "127.0.0.1:19901 fixture-password",
+                 "--master", "127.0.0.1:19902", "fixture-key", "--client-id", "fixture-agent"]
+    if interactive:
+        arguments.append("--human")
+    with mock.patch("sys.argv", arguments), mock.patch("ucagent.verify_agent.VerifyAgent") as factory:
+        agent = factory.return_value
+
+        def make_agent(**kwargs):
+            """Model the real PDB startup queue without starting any sockets."""
+            agent.pdb.init_cmd = list(kwargs["init_cmd"])
+            return agent
+
+        def start_cmd(argument):
+            """Record order and arguments without echoing credentials."""
+            lifecycle.append("cmd")
+            assert "fixture-password" in argument
+
+        def connect_master(argument):
+            """Require the CMD transport before advertising the worker."""
+            lifecycle.append("master")
+            assert "fixture-key" in argument and "fixture-agent" in argument
+
+        def run_agent():
+            """Observe the transport state at the first model invocation."""
+            lifecycle.append("model")
+
+        factory.side_effect = make_agent
+        agent.pdb.do_cmd_api_start.side_effect = start_cmd
+        agent.pdb.do_connect_master_to.side_effect = connect_master
+        agent.run.side_effect = run_agent
+        run()
+    if interactive:
+        assert lifecycle == ["model"]
+        assert any(command.startswith("connect_master_to ") for command in agent.pdb.init_cmd)
+    else:
+        assert lifecycle == ["cmd", "master", "model"]
+        assert not any(command.startswith(("cmd_api_start ", "connect_master_to "))
+                       for command in agent.pdb.init_cmd)
+    agent.pdb.execute_command.assert_not_called()

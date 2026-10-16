@@ -28,3 +28,14 @@
 - 启动应用：此处使用的 Qwen Code，在`UCAgent/output`启动 qwen,然后输入提示词。
 - 输入提示词：
   > 请通过工具`RoleInfo`获取你的角色信息和基本指导，然后完成任务。工具`ReadTextFile`读取文件。你需要在当前工作目录进行文件操作，不要超出该目录。
+
+## UCAgent 自动启动 Codex 后端
+
+使用 `--backend codex` 且配置 `OPENAI_API_BASE` 时，默认启动命令将
+`CODEX_HOME` 指向任务工作目录的 `.codex`，首次运行与续跑均加载该目录的
+`config.toml`。配置选择 `ucagent` Provider，并通过 `OPENAI_API_KEY` 环境变量
+认证；密钥不会写入模板。新版 Codex 忽略项目级 Provider 配置，因此不能仅将
+文件写入项目 `.codex` 而继续使用个人 Codex home。
+
+未配置 `OPENAI_API_BASE` 时，启动命令不覆盖原 `CODEX_HOME`，保留个人登录方式。
+默认 `cfg_bash_enable=false`，不会将任务配置复制到 `~/.codex/config.toml`。

@@ -506,6 +506,31 @@ def render_pages(output: Path, index, cases: dict, bugs: dict, roots, coverage) 
             mechanism = (f"<div class='root-mechanism'><h3>{escape(LABELS['shared_mechanism'])}</h3><ol class='chain'>{''.join(rows)}</ol>"
                          f"<details><summary>{escape(LABELS['cause_details'])}</summary><p>{escape(root.first_error)}</p>"
                          f"<p>{escape(root.causal_chain)}</p></details></div>")
+        if root and root.investigation:
+            investigation = root.investigation
+            constraint_refs = " · ".join(source_link(ref, compact=True) for ref in investigation.invariant.source_refs)
+            objects = []
+            for obj in investigation.objects:
+                refs = " · ".join(source_link(ref, compact=True) for ref in obj.identity.source_refs)
+                objects.append(f"<li><code>{escape(obj.object_id)}</code>: {escape(obj.identity.text or obj.identity.unavailable_reason)}"
+                               f"<p class='muted'><code>{escape(obj.case_id)}</code> · <code>{escape(obj.invocation_id)}</code> · {refs}</p></li>")
+            alternatives = []
+            for alternative in investigation.alternatives:
+                refs = " · ".join(source_link(ref, compact=True) for ref in alternative.source_refs)
+                facts = "<br>".join(observations[eid] for eid in alternative.evidence_ids if eid in observations)
+                alternatives.append(f"<li><strong>{escape(LABELS['investigation_' + alternative.status])} · "
+                                    f"{escape(LABELS['investigation_' + alternative.basis])}</strong> · {escape(alternative.explanation)}"
+                                    f"<p>{escape(alternative.reasoning)}</p>{facts}<p class='muted'>{refs}</p>"
+                                    + (f"<p>{escape(alternative.remaining_gap)}</p>" if alternative.remaining_gap else "") + "</li>")
+            first = observations.get(investigation.first_evidence_id, escape(investigation.first_evidence_id))
+            detected = observations.get(investigation.detection_evidence_id, escape(investigation.detection_evidence_id))
+            mechanism += (f"<details class='investigation' data-contract='first_violation.v1'><summary>{escape(LABELS['investigation_details'])}</summary>"
+                          f"<p><strong>{escape(LABELS['investigation_invariant'])}:</strong> {escape(investigation.invariant.text)}</p><p>{constraint_refs}</p>"
+                          f"<ul>{''.join(objects)}</ul><p><strong>{escape(LABELS['investigation_' + investigation.earliest_status])}</strong></p>"
+                          f"<p>{first}</p>" + (f"<p>{detected}</p>" if detected else "")
+                          + (f"<p class='muted'>{escape(investigation.earlier_boundary_gap)}</p>" if investigation.earlier_boundary_gap else "")
+                          + f"<h3>{escape(LABELS['investigation_alternatives'])}</h3><ul>{''.join(alternatives)}</ul>"
+                          + f"<p class='muted'>{escape(LABELS['investigation_fix_not_performed'])}</p></details>")
         provenance = "".join(f"<li><code>{escape(bug_id)}</code> {source_link(ref, compact=True)}</li>" for bug_id in members
                              for ref in [index.bugs[bug_id].summary_ref, *index.bugs[bug_id].analysis_refs] if ref)
         key_sources = []

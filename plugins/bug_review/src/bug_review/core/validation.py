@@ -10,6 +10,7 @@ from ucagent.util.waveform_viewer import decode_waveform_viewer_token
 from .records import REF_PATTERN, BugRecord, CaseRecord, ReviewIndex, RootsRecord, source_lines
 from .evidence import binding_issues, case_waveforms, event_issues
 from .narrative import narrative_issues
+from .investigation import investigation_issues
 
 
 class ReviewIssues(ValueError):
@@ -160,6 +161,7 @@ def validate_correlation(index: ReviewIndex, cases: dict[str, CaseRecord],
                          source_root: Path, waveinfo) -> None:
     """Validate complete decisions, source references and root membership."""
     issues = narrative_issues(index, cases, bugs, roots, source_root)
+    issues.extend(investigation_issues(index, cases, bugs, roots, source_root))
 
     def issue(location: str, problem: str) -> None:
         """Append one exact failing location."""

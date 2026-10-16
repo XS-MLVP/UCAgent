@@ -15,7 +15,7 @@ from ucagent.util.config import load_current_test_report
 from .json_io import atomic_write_json
 from .layout import TEST_REPORT_ROOT, test_report_root, unity_test_root, workspace_node
 from .records import load_record
-from .failures import match_failure_digests, prefill_failure_analysis
+from .failures import match_failure_digests, prefill_failure_analysis, triage_log
 
 
 def save_run_log(output: Path, batch_relative: str, stdout: str) -> str:
@@ -372,6 +372,14 @@ def import_current_report(workspace: Path, output: Path, invocation_id: str = ""
         summary.diagnostics.append(f"{relative}: no exact collected outcome matched")
     stdout = str(payload.get("pytest_stdout", "") or "")
     run_log = save_run_log(output, relative, stdout)
+    raw_log = f"diagnostics/run_logs/{Path(relative).stem}.stdout.log"
+    (output / raw_log).parent.mkdir(parents=True, exist_ok=True)
+    (output / raw_log).write_bytes(stdout.encode())
+    clue_ref = f"diagnostics/log_triage/{Path(relative).stem}.json"
+    atomic_write_json(output / clue_ref, triage_log(
+        stdout, "verification_review/analysis/" + raw_log, context.get("invocation_id", "")))
+    summary.log_triage_refs.append(clue_ref)
+
     digests, ambiguous = match_failure_digests(
         stdout, {case_id: status for case_id, (status, _) in observed.items()})
     prefilled_cases: list[str] = []
@@ -434,6 +442,6 @@ def import_current_report(workspace: Path, output: Path, invocation_id: str = ""
     atomic_write_json(output / "review_index.json", index.model_dump(mode="json", by_alias=True))
     return {"imported": len(observed), "remaining": len(collected - set(summary.outcomes)),
             "report_ref": relative, "baseline_id": manifest.baseline_id, **coverage, "waveforms": waveforms,
-            "failure_evidence": {"run_log": run_log, "aligned": len(digests), "ambiguous": len(ambiguous),
+            "failure_evidence": {"run_log": run_log, "log_triage_ref": clue_ref, "aligned": len(digests), "ambiguous": len(ambiguous),
                                  "prefilled_cases": len(prefilled_cases),
                                  "prefilled_fields": prefilled_fields}}

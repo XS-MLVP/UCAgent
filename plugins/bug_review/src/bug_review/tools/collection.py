@@ -122,6 +122,7 @@ def create_records(workspace: Path, output: Path, expected_name: str = "") -> di
                                       bug_ids=[bug_id for bug_id, entry in bugs.items()
                                                if case_id in entry.case_ids])
     index = ReviewIndex(
+        investigation_contract="first_violation.v1",
         workspace={"name": name, "dut": inventory["dut"], "source_path": str(source),
                    "execution_workspace": str(workspace),
                    "started_at": datetime.now(timezone.utc).isoformat()},

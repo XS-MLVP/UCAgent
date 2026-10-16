@@ -12,6 +12,8 @@ def check(workflow, ctx):
     self = workflow
     source = ctx["source"]
     index = ctx["index"]
+    if index.investigation_contract != "first_violation.v1":
+        raise ValueError("live workflow requires the inventory first_violation.v1 contract; use a new review for legacy records")
     if len(index.bug_order) != len(set(index.bug_order)) or set(index.bug_order) != set(index.bugs):
         raise ValueError("review_index.json bug_order and bugs identities differ")
     original, _ = build_inventory(source, self.label)
@@ -91,10 +93,24 @@ def check(workflow, ctx):
         raise ValueError("replay_summary.json report_ref does not locate a saved report")
     from ...core.replay import report_outcomes, verify_invocation_snapshot
     observed = {}
+    expected_clue_refs = []
     for position, reference in enumerate(summary.batch_refs):
         batch = read_object(within_output(self.out, reference))
         verify_invocation_snapshot(self.root, batch)
         context = batch.get("context", {})
+        if index.investigation_contract == "first_violation.v1":
+            from ...core.failures import triage_log
+            stdout = str(batch.get("pytest_stdout", "") or "")
+            raw_log = f"diagnostics/run_logs/{Path(reference).stem}.stdout.log"
+            clue_ref = f"diagnostics/log_triage/{Path(reference).stem}.json"
+            expected_clue_refs.append(clue_ref)
+            if within_output(self.out, raw_log).read_bytes() != stdout.encode():
+                raise ValueError(f"{raw_log} differs from its saved invocation stdout")
+            expected_clues = triage_log(stdout, "verification_review/analysis/" + raw_log,
+                                        context.get("invocation_id", ""))
+            if read_object(within_output(self.out, clue_ref)) != expected_clues:
+                raise ValueError(f"{clue_ref} differs from source-ordered investigation hints")
+
         if context.get("source") != "RunTestCases" or context.get("stage_name") != "full_replay":
             raise ValueError(f"{reference} is not a full_replay RunTestCases report")
         if position >= len(summary.commands) or summary.commands[position] != [
@@ -104,6 +120,8 @@ def check(workflow, ctx):
             if case_id in observed:
                 raise ValueError(f"{case_id} appears in more than one baseline batch")
             observed[case_id] = finding
+    if index.investigation_contract == "first_violation.v1" and summary.log_triage_refs != expected_clue_refs:
+        raise ValueError("replay_summary.log_triage_refs must account for every baseline batch")
     if manifest.collected and (not summary.batch_refs or summary.report_ref not in summary.batch_refs
                                or len(summary.commands) != len(summary.batch_refs)):
         raise ValueError("replay_summary.json needs saved baseline batch references")

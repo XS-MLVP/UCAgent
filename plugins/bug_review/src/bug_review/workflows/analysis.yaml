@@ -92,9 +92,10 @@ stage:
     task:
       - "阅读 DUT 说明、接口文档及相关 RTL，由你生成 review_index.json.dut_context：用简短的 text 说明模块用途，source_refs 指向当前材料的行段；资料不足则 text/source_refs 留空并填写具体 unavailable_reason。不要套用其他 DUT 的背景，不从模块名猜功能。通过 UpdateReviewRecord 提交完整索引草稿，示例见 Guide_Doc/bug_review_example_ptw.md。"
       - "按 test_manifest.json 与 replay_summary.json 枚举所有 Fail/Error/XPass。基线导入已按 traceback 自动预填各失败 case 的机械事实（断言摘要、失败位置、观测异常行、assertion 阶段，只填空字段，计数见导入返回 failure_evidence）；先核对预填内容，再读测试、fixture、Spec 和真实报告，补充场景、规格预期、归因与不确定性。取证用 Skill 脚本直接读取自动归档的 pytest stdout，不要重跑或手写解析。此阶段不要先读原 Bug analysis 的根因文字。"
-      - "失败或不稳定项可定向复跑，并在 case.replay.reruns 记录与基线的关系；不得覆盖权威基线。每个失败 case 的 failure_analysis 必须给出 environment/spec_misread/test_implementation/suspected_dut/spec_ambiguous/insufficient_evidence 等分类或证据缺口。多 case 复核完成后优先用 UpdateCaseRecords 以一个草稿（形如 {\"cases\": {case_id: 完整记录}}）批量校验写入，任一非法则整批不落盘；单 case 修正仍用 UpdateReviewRecord。"
+      - "失败或不稳定项可定向复跑，并在 case.replay.reruns 记录与基线的关系；不得覆盖权威基线。每个失败 case 的 failure_analysis 必须给出 environment/spec_misread/test_implementation/suspected_dut/spec_ambiguous/insufficient_evidence 等分类或证据缺口。按 5–10 个失败 case 的小批次完成核对并立即提交，不等待全集草稿一次生成；续跑先检查已提交记录及现有草稿，仅补剩余项。多 case 复核完成后优先用 UpdateCaseRecords 以一个草稿（形如 {\"cases\": {case_id: 完整记录}}）批量校验写入，任一非法则整批不落盘；单 case 修正仍用 UpdateReviewRecord。"
+      - "阅读 Guide_Doc/bug_review_investigation.md；CaptureReplayReport 的 failure_evidence.log_triage_ref 和 replay_summary.log_triage_refs 是按原始文件行号排列的候选线索。核对真实对象和事件时序，保留较早 assertion 与后续 stuck/ABORT；stdout 的文件顺序不保证跨 case 或 stderr 的事件时序。关键词、摘要工具退出码和达到预算不能替代 case 或 DUT 裁决。"
       - "填写 environment_review.json 的收集、执行、fixture/reset、驱动采样、参考模型和随机种子质量发现。设 stage_status.case_triage=complete 后 Check、SetSkillUsage（若要求）、日志、Complete。当前进度：{BUG_REVIEW_PROGRESS}"
-    reference_files: ["Guide_Doc/analysis.md", "Guide_Doc/bug_review_writing.md", "Guide_Doc/bug_review_example_root.md", "Guide_Doc/bug_review_example_ptw.md", "{OUT}/review_index.json", "{OUT}/test_manifest.json", "{OUT}/replay_summary.json"]
+    reference_files: ["Guide_Doc/analysis.md", "Guide_Doc/bug_review_writing.md", "Guide_Doc/bug_review_investigation.md", "Guide_Doc/bug_review_example_root.md", "Guide_Doc/bug_review_example_ptw.md", "{OUT}/review_index.json", "{OUT}/test_manifest.json", "{OUT}/replay_summary.json"]
     output_files: ["{OUT}/review_index.json", "{OUT}/environment_review.json"]
     skill_list: ["ext/bug_review/replay-review"]
     checker:
@@ -109,7 +110,7 @@ stage:
       - "用 ApplyReceiptToCase(case_id, receipt_id) 精确复制收据机器字段，再在 case 文件补充观察、时钟/事务对齐和源码关联；每个可用收据取得后立即应用，多个 case 的观察与关联文字完成后优先用 UpdateCaseRecords 以一个草稿批量写入，不要让签名收据长时间停留在未消费状态。运行 ValidateCaseRecords 随时检查；无可用波形则记录具体诊断并保持未定。"
       - "case 的 scenario_steps 保存完整操作顺序、接收条件、预期、source_refs 和 reached/failed/not_reached；events 绑定自身 replay.invocation_id 或 rerun.invocation_id。波形观察必须保留 receipt、原始时间、完整信号、raw_value、有效条件与来源；软件变量和字段不冒充信号，日志周期不等同于波形刻度。取证不足保持未定，参照 Guide_Doc/bug_review_example_rcmd.md 与 Guide_Doc/bug_review_example_monitor.md。"
       - "根据证据修正 case 的最终归因，环境或测试错误不得制造 DUT receipt。设 stage_status.dut_evidence=complete 后 Check、SetSkillUsage（若要求）、日志、Complete。当前进度：{BUG_REVIEW_PROGRESS}"
-    reference_files: ["Guide_Doc/analysis.md", "Guide_Doc/bug_review_writing.md", "Guide_Doc/bug_review_example_root.md", "Guide_Doc/bug_review_example_ptw.md", "{OUT}/review_index.json", "{OUT}/environment_review.json", "verification_review/run/unity_test/*_bug_analysis.md"]
+    reference_files: ["Guide_Doc/analysis.md", "Guide_Doc/bug_review_writing.md", "Guide_Doc/bug_review_investigation.md", "Guide_Doc/bug_review_example_root.md", "Guide_Doc/bug_review_example_ptw.md", "{OUT}/review_index.json", "{OUT}/environment_review.json", "verification_review/run/unity_test/*_bug_analysis.md"]
     output_files: ["{OUT}/review_index.json", "{OUT}/drafts/attribution.json"]
     skill_list: ["ext/bug_review/waveform-review"]
     checker:
@@ -122,7 +123,7 @@ stage:
       - "现在阅读 verification_review/run/unity_test/ 下的 bug_summary.md 和 bug_analysis.md。用 ReportClaimBlocks 查看原 BG 块，依据原文、独立 case 归因、Spec 与 RTL 填写草稿 bugs[] 的 claim_refs、BG／FG／FC／CK、case_ids、候选引用、原标签及理由；ReviewBugContext(sections=['claims', 'summary']) 可按已填草稿分页复查。原标签和最终判断不一致时在 rationale 说明，不删除原声明。"
       - "报告级聚合 tests 只保留在 aggregate_case_ids/aggregate_refs，不自动并入 case_ids。填写草稿后调用 ReviewCaseDiff 批量查看本次失败、已复核关联和报告级清单的差集；关联不等于旧失败证据。previously_failed_now_passed 只列原文确有失败记录且本次通过的 case，并在 original_failure_refs[case_id] 写原文路径:行号。只有独立 DUT 证据支持时才能新增 origin=discovered 的 Bug。"
       - "用 ReviewRefCheck 核实草稿候选行段，填写 reconciliation。必须先 CommitAttribution(draft_path='verification_review/analysis/drafts/attribution.json', dry_run=true)，修复全部诊断，再调用同一工具 dry_run=false。确认 review_index.json.claim_mapping_path 非空后才能 Check；提交前不要重复 Check。随后 SetSkillUsage（若要求）、日志、Complete。当前进度：{BUG_REVIEW_PROGRESS}"
-    reference_files: ["Guide_Doc/analysis.md", "Guide_Doc/bug_review_writing.md", "Guide_Doc/bug_review_example_root.md", "Guide_Doc/bug_review_example_ptw.md", "{OUT}/review_index.json", "verification_review/run/unity_test/*_bug_summary.md"]
+    reference_files: ["Guide_Doc/analysis.md", "Guide_Doc/bug_review_writing.md", "Guide_Doc/bug_review_investigation.md", "Guide_Doc/bug_review_example_root.md", "Guide_Doc/bug_review_example_ptw.md", "{OUT}/review_index.json", "verification_review/run/unity_test/*_bug_summary.md"]
     output_files: ["{OUT}/review_index.json", "{OUT}/attributions/*/report_reconciliation.json", "{OUT}/attributions/*/claim_mapping.json"]
     skill_list: ["ext/bug_review/report-reconcile"]
     checker:
@@ -134,8 +135,9 @@ stage:
     task:
       - "按 Bug ID 用 ReviewBugContext(sections=['claims', ...]) 和 ReviewRefCheck 读取原文与 Spec/RTL；确认 DUT Bug 需正确失败测试、有效签名波形、真实规格要求及 RTL 首错因果链。旧 Bug 未复现本身不足以 refuted。"
       - "调用 CreateDecisionDraft 创建空 decisions[]／roots[]；LLM 根据活动索引和证据填写全部 Bug ID、case_ids、phenomenon（scenario/spec_expected/actual/bug_root_cause/signal_explanations）、裁决与根因。同一 root 的 rtl_ref／first_error／causal_chain 必须逐字一致，现象独有细节写自己的记录。为每个现象填写 evidence_bindings；confirmed 需要自身 direct 的 first_deviation，不能继承正常对照或其他成员证据。ROOT 填写正式简洁的 title 和显式 primary_evidence_id。由你基于来源生成 affected_behavior（text/source_refs，或具体 unavailable_reason），解释受影响接口的用途；causal_steps 以少量步骤说明触发、内部首错及输出传播，每步写 summary、rtl_refs，只有实际事件支持时才填本 ROOT 成员的 evidence_ids，静态推导不伪装成动态观测。为 confirmed 现象填写 signal_explanations（rtl_name、meaning、source_refs，可选 test_name/signal_path）：解释缺陷相关的配置、端口或内部信号，完整波形路径必须来自自身签名信号。提交前整理 case 的 confirmed_dut 终态、步骤到达点与未解决事项，历史初判通过修订保留。先 SubmitReviewDecisions(dry_run=true) 获取逐字段诊断，再正式提交激活修订。ReviewRevisionHistory 可查看修订和归因差异。"
+      - "每个 ROOT 还必须填写 investigation，结构见 Guide_Doc/bug_review_investigation.md：invariant（带来源的约束）、objects（object_id/case_id/invocation_id/identity/evidence_ids）、first_evidence_id、detection_evidence_id、earliest_status、earlier_boundary_gap、alternatives。first_evidence_id 必须是本 ROOT 自身 direct first_deviation，属于一个具体对象；对象的所有事件来自同一 case 和同一 invocation。最早可见输出不能冒充已证明的内部首错，未观察更早边界时选 earliest_observed 并说明缺口。至少检查一种替代解释，明确 observed/static_inference/unresolved、ruled_out/unresolved 与具体反证或缺口，不为补字段制造 receipt。现有 causal_steps 继续记录 RTL 推导。"
       - "同 RTL 首错与因果链的 confirmed Bug 共享 root，保留每个原声明；refuted 置信度为 0，证据不足 inconclusive。Check、SetSkillUsage（若要求）、日志、Complete。当前进度：{BUG_REVIEW_PROGRESS}"
-    reference_files: ["Guide_Doc/analysis.md", "Guide_Doc/bug_review_writing.md", "Guide_Doc/bug_review_example_root.md", "Guide_Doc/bug_review_example_ptw.md", "{OUT}/review_index.json"]
+    reference_files: ["Guide_Doc/analysis.md", "Guide_Doc/bug_review_writing.md", "Guide_Doc/bug_review_investigation.md", "Guide_Doc/bug_review_example_root.md", "Guide_Doc/bug_review_example_ptw.md", "{OUT}/review_index.json"]
     output_files: ["{OUT}/review_index.json", "{OUT}/reviews/*/root_causes.json"]
     skill_list: ["ext/bug_review/evidence-correlation"]
     checker:
@@ -146,8 +148,8 @@ stage:
     desc: "渲染并核验三级最终报告"
     task:
       - "调用 RenderBugReviewReport(verify_only=false)，生成模块首页、逐失败 case 页、每个 ROOT 唯一详情页、现象锚点入口、源码全文和 v4 report_manifest.json。ROOT 页正文为 DUT 功能概述、关联功能与验证目标、缺陷场景分析、异常与 RTL 根因分析；只默认展示缺陷相关条件和传播，复位、API 全流程、收据及完整 case 路径按需展开。准备条件与输出判定分开，预期/实际表不混入配置步骤。右侧一个较大真实波形、简短的现象/case/事件/时刻入口，下载按快照去重，关键依据按实际文件类型分组，原分析原文只在右侧保留一次。模块页展示全集、未执行、失败归因、环境质量、覆盖率口径；Bug 主表仅列已确认且复核置信度不低于 0.8 的记录，其他裁决仍保留详情及结构化数据。"
-      - "再调用 RenderBugReviewReport(verify_only=true)，核对页面、收据/viewer、引用和站内链接。Check、SetSkillUsage（若要求）、日志、Complete；完成回调重建 output/index.html 并记录 publish 状态。总门户的高置信度根因数与模块主表采用相同的根因聚合口径；不在门户插入使用指南链接。必要时使用 `make publish_<module>` 重建门户，无需重跑。当前进度：{BUG_REVIEW_PROGRESS}"
-    reference_files: ["Guide_Doc/analysis.md", "Guide_Doc/bug_review_writing.md", "Guide_Doc/bug_review_example_root.md", "Guide_Doc/bug_review_example_ptw.md", "{OUT}/review_index.json", "{OUT}/environment_review.json"]
+      - "再调用 RenderBugReviewReport(verify_only=true)，核对页面、收据/viewer、引用和站内链接。Check、SetSkillUsage（若要求）、日志、Complete；完成回调重建 output/index.html 并记录 publish 状态。总门户的高置信度根因数与模块主表采用相同的根因聚合口径；不在门户插入使用指南链接。第 04 节调查细节保持默认折叠，并明确本轮未执行修复验证。必要时使用 `make publish_<module>` 重建门户，无需重跑。当前进度：{BUG_REVIEW_PROGRESS}"
+    reference_files: ["Guide_Doc/analysis.md", "Guide_Doc/bug_review_writing.md", "Guide_Doc/bug_review_investigation.md", "Guide_Doc/bug_review_example_root.md", "Guide_Doc/bug_review_example_ptw.md", "{OUT}/review_index.json", "{OUT}/environment_review.json"]
     output_files: ["verification_review/report/index.html", "verification_review/report/report_manifest.json"]
     skill_list: ["ext/bug_review/report-publication"]
     checker:

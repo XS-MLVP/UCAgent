@@ -15,6 +15,7 @@ model_auto_compact_token_limit = {{OPENAI_CONTEXT_SIZE}}
 name = "ucagent"
 base_url = "{{OPENAI_API_BASE}}"
 wire_api = "responses"
+requires_openai_auth = false
 {% if OPENAI_API_KEY %}
 env_key = "OPENAI_API_KEY"
 {% endif %}

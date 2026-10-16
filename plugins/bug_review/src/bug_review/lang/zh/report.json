@@ -190,5 +190,15 @@
   "document_basis": "文档依据",
   "first_deviation": "首次偏差",
   "trigger": "触发事件",
-  "assertion": "断言记录"
+  "assertion": "断言记录",
+  "investigation_details": "调查依据与未解决假设",
+  "investigation_invariant": "应满足的约束",
+  "investigation_located": "首个约束违例",
+  "investigation_earliest_observed": "当前证据内最早偏差",
+  "investigation_alternatives": "替代解释与反证",
+  "investigation_ruled_out": "已排除",
+  "investigation_unresolved": "未排除",
+  "investigation_observed": "动态观测",
+  "investigation_static_inference": "静态推导",
+  "investigation_fix_not_performed": "修复验证：本轮未执行。缺陷确认不等于已修复。"
 }

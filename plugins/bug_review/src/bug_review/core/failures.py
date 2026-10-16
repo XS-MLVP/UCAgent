@@ -111,3 +111,44 @@ def prefill_failure_analysis(case, digest: dict, evidence_ref: str = "") -> list
         analysis.phase = "assertion"
         filled.append("failure_analysis.phase")
     return filled
+
+
+_LOG_CLUES = (
+    ("assertion", re.compile(r"AssertionError|assertion\s+(?:failed|failure)|^\s*E\s+assert\b", re.I)),
+    ("stuck", re.compile(r"\bstuck\b|\bno[- ](?:commit|progress)\b|\btimed?\s*out\b|\bTimeoutError\b", re.I)),
+    ("fatal", re.compile(r"\bABORT(?:ED)?\b|\bSIG(?:ABRT|SEGV)\b|\bfatal\b|segmentation fault", re.I)),
+    ("mismatch", re.compile(r"\bmismatch\b|\bexpected\b.*\b(?:got|actual)\b", re.I)),
+)
+
+
+def triage_log(stdout: str, source_file: str, invocation_id: str, max_clues: int = 32) -> dict:
+    """Return bounded, source-ordered hints without inferring any DUT verdict.
+
+    Pytest may group traceback and captured-output sections rather than emit
+    event-time order. A saved stdout does not establish stderr chronology.
+    Every excerpt therefore names its original line and preserves that limit.
+    """
+    import hashlib
+
+    if not 1 <= max_clues <= 256:
+        raise ValueError("max_clues must be within 1..256")
+    clues = []
+    matched = 0
+    lines = stdout.splitlines()
+    for number, line in enumerate(lines, 1):
+        kinds = [kind for kind, pattern in _LOG_CLUES if pattern.search(line)]
+        if not kinds:
+            continue
+        matched += 1
+        if len(clues) < max_clues:
+            clues.append({"clue_id": f"line-{number}", "candidate_types": kinds,
+                          "source_ref": f"{source_file}:{number}", "source_line": number,
+                          "text": line[:1600], "excerpt_truncated": len(line) > 1600})
+    return {"schema": "bug_review.log_clues.v1", "invocation_id": invocation_id,
+            "source_file": source_file, "source_sha256": hashlib.sha256(stdout.encode()).hexdigest(),
+            "streams_included": ["pytest_stdout"], "order_scope": "source_line_order",
+            "temporal_order_verified": False,
+            "ordering_gap": "Pytest output sections may be regrouped; separate stderr and cross-stream event order are unavailable",
+            "purpose": "investigation_hints_only", "case_association": "not_inferred",
+            "scanned_lines": len(lines), "matched_lines": matched,
+            "truncated_count": matched - len(clues), "clues": clues}

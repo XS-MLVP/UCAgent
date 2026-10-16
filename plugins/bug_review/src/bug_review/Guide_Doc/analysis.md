@@ -59,6 +59,8 @@ rationale: [测试有效性] 驱动与单次复位对照用例一致。\n[归因
 
 ## 记录与工具
 
+填写单个字段时优先 `DescribeReviewSchema(record_type="case", field_path="failure_analysis")` 或 `DescribeReviewSchema(record_type="roots", field_path="roots[].investigation")`，返回该字段和必需的引用定义；只有初次了解完整记录时省略 field_path。续跑先用 ReviewStageProgress 查看剩余项，不反复读取完整索引或 Schema。 失败归因按 5–10 个 case 分批核对、调用 UpdateCaseRecords 提交，保留每个 case 的完整证据与校验；不要等全集草稿生成完才保存。 直接用 WriteTextFile／EditTextFile 编写 JSON 草稿；本流程不提供任意 Python／Shell 执行工具，RunSkillScript 仅执行已登记脚本，不运行 drafts 下自建生成器。续跑复用已提交记录和有效草稿，仅补剩余项。
+
 `{OUT}/review_index.json` 保存身份、来源、复核后的关系和记录路径。`DescribeReviewSchema(record_type=...)` 返回 `index`、`manifest`、`replay_summary`、`case`、`environment`、`reconciliation`、`coverage`、`bug`、`roots`、`attribution_draft` 的机器可读 JSON Schema。原文位于 Master 工作区根目录；UnityTest 原文位于 `verification_review/run/unity_test/`。case 文件起始于 `{OUT}/cases/`，归因提交后位于 `{OUT}/attributions/<revision>/cases/`；活动 Bug 裁决与根因在 `{OUT}/reviews/<revision>/`；报告位于 `verification_review/report/`。
 
 独立 case 初判结束后，`ReportClaimBlocks` 分页列出原报告 BG 标题、精确行段与原始 TC 标签，不决定 Bug 归属。先填写归因草稿的关系，再用 `ReviewBugContext(bug_id=..., sections=["claims"], max_chars=16000, ref_offset=0)` 读某条原声明的有界字段与行段，用 `case_offset`/`ref_offset` 分页；缺失归属时工具提示填写草稿，不按 CK 或关键词猜测。`ReviewRefCheck(refs=["path:start[-end]"])` 批量核实 Spec/RTL/测试源码行，返回真实原文但不替代语义判断。多个引用分别放入数组，一个裁决的 `spec_ref`、`rtl_ref` 各为单一 `路径:行号[-行号]` 字符串。
@@ -398,3 +400,8 @@ ApplyReceiptToCase 会保留被替换的主要收据到 additional_waveforms，�
 ## 面向读者的内容生成
 
 `case_triage` 阅读当前 DUT／接口资料，由你填写索引 `dut_context.text/source_refs`，通过索引草稿和 `UpdateReviewRecord` 提交；材料不足时明确填写 unavailable_reason，不从 DUT 名称推断功能。`root_correlation` 为 ROOT 填写 affected_behavior 与 causal_steps，为 confirmed 现象填写 signal_explanations。触发条件与 RTL 首错的解释必须来自当前 case 和源码；静态推导可不绑定动态证据，但不能声称已观测。阶段所需完整格式与字段示例见 `Guide_Doc/bug_review_example_ptw.md`。通用 API 操作保留在可展开的 case 细节中，默认页面聚焦 bug 场景和 RTL 传播。
+
+
+## 首错调查契约
+
+新盘点固定 `investigation_contract=first_violation.v1`。阶段任务、普通工具和 Checker 均使用 `Guide_Doc/bug_review_investigation.md` 的动态对象、约束、首次偏差及替代解释规则；Skill 关闭时同样执行。`CaptureReplayReport` 自动归档按原始行号排列的日志候选及完整 stdout，不据此自动改写任何裁决。复核时不要覆盖或伪造这些机械产物。

@@ -23,3 +23,8 @@
 ## Sourced reader context
 
 记录 dut_context、affected_behavior、signal_explanations 和 causal_steps 的资料来源及尚缺内容；说明正文在对应分析阶段由 LLM 生成，通过主记录提交。完整示例见 Guide_Doc/bug_review_example_ptw.md。
+
+
+## 调查记录
+
+`investigation_contract=first_violation.v1`：每个 ROOT 的 investigation 记录约束、同一 case/invocation 内的对象身份、direct first_deviation、检测位置以及替代解释的反证或缺口，见 Guide_Doc/bug_review_investigation.md。日志线索入口为 replay_summary.log_triage_refs，仅提供原始行序候选，不决定 DUT 裁决。修复验证本轮未执行。

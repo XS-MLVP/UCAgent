@@ -226,3 +226,8 @@
 以 `DescribeReviewSchema` 获取当前模型，用 `UpdateCaseRecords` 提交自己的步骤／事件，`CommitAttribution` 维护现象↔case，`SubmitReviewDecisions` 校验全部现象、证据和 ROOT 的一致修订。根因不明时保持 null ROOT，不能为了页面制造占位根因。缺口没有时使用空字符串。
 
 进一步参见 `Guide_Doc/bug_review_example_rcmd.md`、`Guide_Doc/bug_review_example_monitor.md` 与 `Guide_Doc/bug_review_example_root.md`。
+
+
+## 调查细节的展示边界
+
+按 `Guide_Doc/bug_review_investigation.md` 填写 ROOT.investigation，复用本 ROOT 的事件及来源。正文保持既定四段；动态对象身份、约束、检测位置、替代解释及反证默认折叠到第 04 段。没有内部波形时明确哪些是静态推导，保留未排除解释和更早边界缺口。confirmed 不表示修复已通过，本次 Bug Review 不生成修复验收结论。

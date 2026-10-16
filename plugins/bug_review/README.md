@@ -64,3 +64,12 @@ python3 serve.py
 写作及完整记录示例见 [运行时写作指南](src/bug_review/Guide_Doc/bug_review_writing.md)；配套示例涵盖连续事务、监视器记录、多个现象，以及 [PTW 场景与 RTL 分析](src/bug_review/Guide_Doc/bug_review_example_ptw.md)。发布会保留原波形下载；可用时用 `fst2vcd` 生成派生 VCD，并验证层级、位宽、时间刻度和已记录事件。转换身份与缺口记录在报告清单。
 
 独立复跑目标平台、构建材料采集与 FSDB／Verdi 环境按后续规划处理，本版不声称报告包已经可独立复跑或已通过 FSDB 验收。
+
+
+## 0.4.0：首错调查与日志线索
+
+新盘点记录 `investigation_contract=first_violation.v1`。每个 ROOT 需要带来源的约束、按 case／invocation 区分的动态对象、直接首次偏差、检测位置和至少一种替代解释的反证或缺口；静态推导和动态观测分别标注。旧 v9 记录可继续读取，不自动伪造新的调查内容。此增量沿用 v9 记录和 v4 报告，新契约由 inventory 固定，UpdateReviewRecord 不允许改写。
+
+CaptureReplayReport 自动保留原始 stdout 和有界、按源文件行序排列的候选，记录来源摘要、invocation、扫描／匹配／截断统计；Checker 对照真实快照核验，不以关键词或摘要工具退出码决定 DUT 状态。pytest 输出可能按 case 分组，单独 stderr 没有统一时序。ROOT 页只在第 04 段增加默认折叠的调查区，并说明未执行修复验证。强制规则在普通 Guide、工具和 Checker 中；可选 Skill 关闭时保持相同要求。详见运行时 Guide_Doc/bug_review_investigation.md。
+
+For focused record edits, `DescribeReviewSchema` accepts `field_path` (for example `failure_analysis` or `roots[].investigation`). It returns the selected field and all referenced definitions. Omitting the argument retains the full schema; invalid paths return the available top-level fields.

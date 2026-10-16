@@ -53,10 +53,15 @@ Skill 未启用或脚本缺失时：从 `.ucagent/current_test_report.json` 的 
 
 填写 `failure_analysis` 时严格区分五个字段：`scenario` 只写验证功能、激励和条件；`spec_expected` 只写 Spec 要求及 RTL 应有的可观测行为；`test_expected` 只写测试断言、完成条件和超时；`actual` 只写当前 case 的观测值、窗口、首个偏差和证据；`rationale` 只写测试有效性、归因理由和待补证据。每个字段至少包含当前 case 的差异事实，禁止把代表 case 的长段落原样复制到其他 case。推荐使用标签：`[功能]`、`[激励]`、`[条件]`、`[规格要求]`、`[RTL应有行为]`、`[测试断言]`、`[观测]`、`[窗口]`、`[首个偏差]`、`[证据]`、`[测试有效性]`、`[归因理由]`、`[待补证据]`。
 
-调用 `DescribeReviewSchema(record_type="case")` 与 `DescribeReviewSchema(record_type="environment")` 取得字段。用 `summarize_case_failures.py` 得到签名分组，逐组读测试源码与 Spec 对应段落，再用 `read_case_stdout.py` 取个别代表 case 的完整 traceback；逐 case 填写 `failure_analysis` 的阶段、场景、规格预期、测试预期、实际行为、来源行段、归因和不确定性。分类区分环境、Spec 误读、测试实现/时序、疑似 DUT、规格歧义及证据不足；测试失败本身不构成 DUT Bug，同一签名的 case 若机理一致可共用归因逻辑但须逐条落字段。
+填写归因时优先调用 `DescribeReviewSchema(record_type="case", field_path="failure_analysis")`，环境记录使用 `DescribeReviewSchema(record_type="environment")`；只有首次了解完整 case 结构才省略 field_path。用 `summarize_case_failures.py` 得到签名分组，逐组读测试源码与 Spec 对应段落，再用 `read_case_stdout.py` 取个别代表 case 的完整 traceback；逐 case 填写 `failure_analysis` 的阶段、场景、规格预期、测试预期、实际行为、来源行段、归因和不确定性。分类区分环境、Spec 误读、测试实现/时序、疑似 DUT、规格歧义及证据不足；测试失败本身不构成 DUT Bug，同一签名的 case 若机理一致可共用归因逻辑但须逐条落字段。
 
-必要时用 `RunTestCases` 定向复跑，并在 `replay.reruns` 记录与基线的关系；不得覆盖基线状态。填写 `environment_review.json` 的收集/执行、fixture/reset、驱动/采样、参考模型和种子/复现性六项审查；无法核实处写具体缺口。单 case 用 `UpdateReviewRecord` 按文件更新；多个 case 就绪时优先 `UpdateCaseRecords`：草稿写在 `{OUT}/drafts` 下、形如 `{"cases": {case_id: 完整记录}}`，一次校验全部并落盘，任一非法则整批不写。设 `stage_status.case_triage=complete` 后 Check、SetSkillUsage、日志、Complete。
+必要时用 `RunTestCases` 定向复跑，并在 `replay.reruns` 记录与基线的关系；不得覆盖基线状态。填写 `environment_review.json` 的收集/执行、fixture/reset、驱动/采样、参考模型和种子/复现性六项审查；无法核实处写具体缺口。单 case 用 `UpdateReviewRecord` 按文件更新；每 5–10 个失败 case 核对后立即用 `UpdateCaseRecords` 校验提交，续跑先用 ReviewStageProgress 查剩余项并复用有效草稿。多个 case 就绪时优先 `UpdateCaseRecords`：草稿写在 `{OUT}/drafts` 下、形如 `{"cases": {case_id: 完整记录}}`，一次校验全部并落盘，任一非法则整批不写。设 `stage_status.case_triage=complete` 后 Check、SetSkillUsage、日志、Complete。
 
 ## Sourced reader context
 
 Read the current DUT and interface documentation and author review_index.json.dut_context with source_refs, or a specific unavailable_reason. Submit the complete index through UpdateReviewRecord. Do not infer its purpose from a module name. See Guide_Doc/bug_review_example_ptw.md; root-level prose is authored in root_correlation after independent triage.
+
+
+CaptureReplayReport 自动保存 replay_summary.log_triage_refs 和完整原始 stdout。按行号核对全部 assertion/stuck/ABORT 候选；候选不是 DUT 裁决，单文件顺序不证明跨 case 或 stderr 时序。
+
+本工作流不提供任意 Python／Shell 执行工具。直接用 WriteTextFile／EditTextFile 编写上述 JSON 草稿；RunSkillScript 仅执行 Skill 已登记的脚本，不执行 drafts 下自建的生成脚本。

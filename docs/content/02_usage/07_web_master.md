@@ -230,3 +230,5 @@ Master 支持统一代理转发到 task/agent 的 cmd、terminal、web-console �
 ## Managed command-service identity
 
 The authenticated CMD `/api/status` response keeps its status data and adds `identity.workspace` and `identity.agent_ids` for registered Master clients. A managed task's CMD liveness check requires its exact launch client ID; a different process responding on a reused port cannot keep the task alive. An explicit client ID also prevents matching another attempt solely by workspace or PID.
+
+无交互 worker（未开启 `--human` / `--tui`，也未选择 `--as-master`）在第一次模型调用前启动显式配置的 CMD API / Terminal API 并连接 `--master`，不依赖进入 PDB 才消费初始化队列。已执行的服务命令不会在后续 PDB 交互中重复执行，普通交互命令仍留在队列；服务凭据不经命令历史或公开 last-command 状态转发。

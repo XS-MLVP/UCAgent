@@ -23,7 +23,7 @@ def test_all_registered_guide_examples_match_current_models():
     plugin = get_plugin()
     validated = validate_plugin(plugin)
     guides = validated.workflows[0].guide_doc_paths
-    assert len(guides) == 6
+    assert len(guides) == 7
     for path in guides:
         text = path.read_text()
         for match in re.finditer(r'^#{1,6} ', text, re.M):
@@ -60,6 +60,7 @@ def test_workflow_references_and_checkers_do_not_depend_on_skill_files(tmp_path,
     for stage in stages:
         if stage.name != 'full_replay':
             assert 'Guide_Doc/bug_review_writing.md' in stage.reference_files
+            assert 'Guide_Doc/bug_review_investigation.md' in stage.reference_files
             assert 'Guide_Doc/bug_review_example_ptw.md' in stage.reference_files
         assert stage.checker[0].stage_id == stage.name
         assert stage._check_forced_skill_usage(is_complete=False) is None
@@ -73,7 +74,7 @@ def test_workflow_references_and_checkers_do_not_depend_on_skill_files(tmp_path,
     prompts = {stage.name: '\n'.join(stage.task()) for stage in stages}
     assert 'dut_context' in prompts['case_triage']
     assert all(field in prompts['root_correlation'] for field in
-               ['affected_behavior', 'causal_steps', 'signal_explanations'])
+               ['affected_behavior', 'causal_steps', 'signal_explanations', 'investigation', 'first_evidence_id', 'alternatives'])
     assert 'primary_evidence_id' in prompts['root_correlation']
 
 

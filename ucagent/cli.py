@@ -1575,6 +1575,26 @@ def run() -> None:
             raise RuntimeError(msg)
         info(msg)
 
+    if not (args.human or args.tui) and args.as_master is None:
+        # Headless workers never enter PDB.interaction(), which normally
+        # drains these commands. Bring their transports up before model work.
+        # Dispatch directly so credentials do not enter command history or
+        # the public last-command state; leave interactive commands queued.
+        services = {"cmd_api_start", "terminal_api_start", "connect_master_to"}
+        pending = agent.pdb.init_cmd
+        if isinstance(pending, list):
+            startup = []
+            deferred = []
+            for command in pending:
+                name, _, argument = command.partition(" ") if isinstance(command, str) else ("", "", "")
+                if name in services:
+                    startup.append((name, argument))
+                else:
+                    deferred.append(command)
+            agent.pdb.init_cmd = deferred
+            for name, argument in startup:
+                getattr(agent.pdb, "do_" + name)(argument)
+
     # Set break mode if human interaction or TUI is requested
     if args.human or args.tui:
         agent.set_break(True)

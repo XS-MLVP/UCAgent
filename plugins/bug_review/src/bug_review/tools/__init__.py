@@ -522,22 +522,71 @@ class SchemaArgs(BaseModel):
     """Select one machine-readable review record schema."""
 
     record_type: str = Field(description="One of index, bug, case, roots, coverage, manifest, replay_summary, environment, reconciliation, attribution_draft.")
+    field_path: str = Field(default="", max_length=256, description="Optional field path, e.g. failure_analysis or roots[].investigation; omit for the complete record schema.")
 
 
 class DescribeReviewSchema(UCTool):
     """Expose the same typed contract used by scripts and Checkers."""
 
     name: str = "DescribeReviewSchema"
-    description: str = "Return the current Bug Review JSON Schema for one record type."
+    description: str = "Read a Bug Review schema. Prefer field_path for the field being edited to avoid repeating the complete schema."
     args_schema: Optional[ArgsSchema] = SchemaArgs
 
-    def _run(self, record_type: str) -> dict:
-        """Return one record type's JSON Schema."""
+    def _run(self, record_type: str, field_path: str = "") -> dict:
+        """Return a complete schema or a field with its transitive definitions."""
         model = RECORD_MODELS.get(record_type)
         if model is None:
             return {"success": False, "error_code": "RECORD_TYPE_UNKNOWN",
                     "available": sorted(RECORD_MODELS)}
-        return {"success": True, "record_type": record_type, "schema": model.model_json_schema()}
+        schema = model.model_json_schema()
+        if not field_path:
+            return {"success": True, "record_type": record_type, "schema": schema}
+        definitions = schema.get("$defs", {})
+
+        def object_schema(node):
+            """Resolve local references and nullable object wrappers for traversal."""
+            while "$ref" in node:
+                node = definitions[node["$ref"].removeprefix("#/$defs/")]
+            if "anyOf" in node:
+                variants = [item for item in node["anyOf"] if item.get("type") != "null"]
+                if len(variants) != 1:
+                    raise ValueError("field path crosses an ambiguous union")
+                return object_schema(variants[0])
+            return node
+
+        try:
+            selected = schema
+            for part in field_path.split("."):
+                array_item = part.endswith("[]")
+                name = part[:-2] if array_item else part
+                selected = object_schema(selected)["properties"][name]
+                if array_item:
+                    selected = object_schema(selected)["items"]
+            # Keep every referenced definition, including recursive references,
+            # while excluding unrelated fields from the complete record.
+            needed = {}
+            pending = [selected]
+            while pending:
+                node = pending.pop()
+                if isinstance(node, dict):
+                    reference = node.get("$ref")
+                    if reference:
+                        name = reference.removeprefix("#/$defs/")
+                        if name not in needed:
+                            needed[name] = definitions[name]
+                            pending.append(needed[name])
+                    pending.extend(node.values())
+                elif isinstance(node, list):
+                    pending.extend(node)
+            fragment = dict(selected)
+            if needed:
+                fragment["$defs"] = needed
+            return {"success": True, "record_type": record_type, "field_path": field_path,
+                    "schema": fragment}
+        except (KeyError, TypeError, ValueError) as error:
+            return {"success": False, "error_code": "SCHEMA_FIELD_UNKNOWN",
+                    "field_path": field_path, "error": str(error),
+                    "available_fields": sorted(schema.get("properties", {}))}
 
 
 class AttributionArgs(BaseModel):
@@ -849,6 +898,8 @@ class UpdateReviewRecord(UCTool):
             current = load_record(output, relative, kind)
             replacement = RECORD_MODELS[kind].model_validate(read_object(draft))
             if kind == "index":
+                if replacement.investigation_contract != current.investigation_contract:
+                    raise ValueError("inventory investigation_contract cannot change")
                 from ..core.narrative import summary_issues
 
                 context_errors = summary_issues(replacement.dut_context, "dut_context",

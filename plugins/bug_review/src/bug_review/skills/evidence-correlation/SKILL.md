@@ -32,3 +32,6 @@ Follow `Guide_Doc/bug_review_writing.md` and `Guide_Doc/bug_review_example_root.
 ## Sourced reader context
 
 Author affected_behavior and causal_steps from the current interface and RTL, and signal_explanations from exact names. Static propagation steps have no evidence_ids; measured steps reference this root’s own member events. Keep ordinary preparation separate from the output deviation. See Guide_Doc/bug_review_example_ptw.md for complete records.
+
+
+按 Guide_Doc/bug_review_investigation.md 补齐 ROOT.investigation：对象证据不跨 case/invocation 拼接；首次观察与内部定位分开，至少一种替代解释保留实际反证或缺口。普通 Checker 执行相同门禁。

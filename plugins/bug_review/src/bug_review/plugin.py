@@ -42,7 +42,7 @@ def get_plugin() -> Plugin:
         workflows=(PluginWorkflow(
             name="analysis", config_file=root / "workflows" / "analysis.yaml",
             guide_doc_paths=tuple(root / "Guide_Doc" / name for name in (
-                "analysis.md", "bug_review_writing.md", "bug_review_example_rcmd.md",
+                "analysis.md", "bug_review_writing.md", "bug_review_investigation.md", "bug_review_example_rcmd.md",
                 "bug_review_example_monitor.md", "bug_review_example_root.md", "bug_review_example_ptw.md")),
             template_dir=root / "templates" / "analysis",
             template_target="verification_review/notes",

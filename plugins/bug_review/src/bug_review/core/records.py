@@ -88,6 +88,7 @@ class ReviewIndex(ReviewModel):
     workspace: dict[str, str]
     source_files: dict[str, str]
     dut_context: SourceSummary = Field(default_factory=SourceSummary)
+    investigation_contract: Literal["", "first_violation.v1"] = ""
     stage_status: dict[str, Literal["pending", "complete"]]
     bug_order: list[str]
     bugs: dict[str, BugEntry]
@@ -334,6 +335,40 @@ class BugRecord(ReviewModel):
     evidence_bindings: list[EvidenceBinding] = Field(default_factory=list)
 
 
+class ObjectTrace(ReviewModel):
+    """Keep one dynamic object and all its evidence in one test invocation."""
+
+    object_id: str = Field(min_length=1, max_length=100)
+    case_id: str = Field(min_length=1)
+    invocation_id: str = Field(min_length=1)
+    identity: SourceSummary = Field(default_factory=SourceSummary)
+    evidence_ids: list[str] = Field(min_length=1, max_length=16)
+
+
+class AlternativeExplanation(ReviewModel):
+    """Separate observations, static reasoning and unresolved alternatives."""
+
+    explanation: str = Field(min_length=1, max_length=500)
+    status: Literal["ruled_out", "unresolved"]
+    basis: Literal["observed", "static_inference", "unresolved"]
+    evidence_ids: list[str] = Field(default_factory=list, max_length=16)
+    source_refs: list[str] = Field(default_factory=list, max_length=8)
+    reasoning: str = Field(min_length=1, max_length=800)
+    remaining_gap: str = Field(default="", max_length=800)
+
+
+class RootInvestigation(ReviewModel):
+    """Explain the first violated constraint without claiming unobserved boundaries."""
+
+    invariant: SourceSummary
+    objects: list[ObjectTrace] = Field(min_length=1, max_length=6)
+    first_evidence_id: str = Field(min_length=1)
+    detection_evidence_id: str = ""
+    earliest_status: Literal["located", "earliest_observed"]
+    earlier_boundary_gap: str = Field(default="", max_length=800)
+    alternatives: list[AlternativeExplanation] = Field(min_length=1, max_length=6)
+
+
 class RootCause(ReviewModel):
     """Keep shared first error and causal chain in one group."""
 
@@ -346,6 +381,7 @@ class RootCause(ReviewModel):
     primary_evidence_id: str = ""
     affected_behavior: SourceSummary = Field(default_factory=SourceSummary)
     causal_steps: list[CausalStep] = Field(default_factory=list, max_length=6)
+    investigation: RootInvestigation | None = None
 
 
 class RootsRecord(ReviewModel):
@@ -402,6 +438,7 @@ class ReplaySummary(ReviewModel):
     commands: list[list[str]] = Field(default_factory=list)
     report_ref: str = ""
     batch_refs: list[str] = Field(default_factory=list)
+    log_triage_refs: list[str] = Field(default_factory=list)
     outcomes: dict[str, Literal["passed", "failed", "error", "skipped", "xfailed", "xpassed", "not_run"]] = Field(default_factory=dict)
     diagnostics: list[str] = Field(default_factory=list)
 
