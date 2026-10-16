@@ -24,7 +24,8 @@ def snapshot(pdb):
     with state['lock']:
         mission = pdb.api_mission_info(return_dict=True)
         stage = pdb.agent.stage_manager.get_current_stage()
-        waiting = bool(stage and not stage.is_completed() and stage.is_wait_human_check() and stage.check_pass)
+        waiting = bool(stage and not stage.is_completed() and stage.is_wait_human_check()
+                       and stage.check_pass and getattr(pdb.agent, '_need_human', False))
         evidence = json.dumps({'index': mission['current_index'],
                                'checks': stage.check_info if stage else None,
                                'human': stage.get_hmcheck_state() if stage else None},

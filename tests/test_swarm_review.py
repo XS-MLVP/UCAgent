@@ -21,7 +21,7 @@ class ReviewTests(unittest.TestCase):
         self.stage.do_hmcheck_fail = lambda text: setattr(self.stage, 'human', False)
         self.manager = SimpleNamespace(stage_index=2, get_current_stage=lambda: self.stage)
         self.loops = []
-        self.pdb = SimpleNamespace(agent=SimpleNamespace(stage_manager=self.manager), do_loop=self.loops.append)
+        self.pdb = SimpleNamespace(agent=SimpleNamespace(stage_manager=self.manager, _need_human=True), do_loop=self.loops.append)
         self.pdb.api_mission_info = lambda return_dict: {'current_index': self.manager.stage_index, 'stages': []}
         self.pdb.api_update_stage_flags = lambda indices, hmcheck_needed: setattr(self.stage, 'needed', hmcheck_needed)
 
@@ -62,6 +62,12 @@ class ReviewTests(unittest.TestCase):
         self.stage.check_pass = False
         with self.assertRaises(ValueError): review.apply(self.pdb, self.command())
         self.assertFalse(self.loops)
+
+    def test_running_agent_is_not_a_review_boundary(self):
+        """A passing intermediate Check cannot authorize an unfinished stage."""
+        self.pdb.agent._need_human = False
+        self.assertFalse(review.snapshot(self.pdb)['waiting_for_review'])
+        with self.assertRaises(ValueError): review.apply(self.pdb, self.command())
 
     def test_restart_epoch_and_operation_conflict(self):
         """Restarted runtimes and changed operation payloads invalidate approvals."""
