@@ -3727,6 +3727,18 @@ class VerifyPDB(Pdb):
         else:
             echo_y("HMCheck is not needed for the current stage.")
 
+    def do_swarm_review(self, arg):
+        """Apply a stage-bound JSON review command from the Swarm platform."""
+        from ucagent.swarm_review import apply, reject
+        import json
+        request = None
+        try:
+            request = json.loads(arg)
+            message(apply(self, request))
+        except (ValueError, TypeError, KeyError) as exc:
+            reject(self, request, str(exc))
+            echo_r(str(exc))
+
     def do_hmcheck_pass(self, arg):
         """
         Call the hmcheck_pass method of the agent in current stage.

@@ -1484,6 +1484,28 @@ class PdbCmdApiServer:
             except Exception as exc:
                 raise HTTPException(status_code=500, detail=str(exc))
 
+        @app.get("/api/swarm/review", summary="Stage-bound Swarm review status")
+        def get_swarm_review():
+            """Expose current evidence and command receipts under CMD authentication."""
+            from ucagent.swarm_review import snapshot
+            return snapshot(pdb)
+
+        @app.post("/api/swarm/review", summary="Apply HM or queue a stage-bound review")
+        def post_swarm_review(body: dict):
+            """Enable HM immediately; serialize model work through the PDB queue."""
+            import json
+            from ucagent.swarm_review import apply
+            action = body.get("action")
+            if action not in ("enable_hm", "continue", "feedback") or len(json.dumps(body)) > 20000:
+                raise HTTPException(status_code=400, detail="invalid review command")
+            if action == "enable_hm":
+                try:
+                    return apply(pdb, body)
+                except (ValueError, TypeError, KeyError) as exc:
+                    raise HTTPException(status_code=409, detail=str(exc))
+            pdb.add_cmds(["swarm_review " + json.dumps(body)])
+            return {"status": "queued", "operation_id": body.get("operation_id")}
+
         # ── GET /api/mission ───────────────────────────────────────────
         @app.get("/api/mission", summary="Mission overview")
         def get_mission(
