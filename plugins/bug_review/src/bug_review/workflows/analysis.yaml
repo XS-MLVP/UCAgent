@@ -14,9 +14,8 @@ un_write_dirs:
   - "verification_review/run/unity_test/"
 write_dirs:
   - "verification_review/notes/"
-  - "verification_review/analysis/"
-  - "verification_review/report/"
-  - "verification_review/run/test_report/"
+  - "verification_review/analysis/drafts/"
+  - "verification_review/analysis/wave_signal_presets.json"
 hist_ignore_pattern:
   - ".pytest_cache"
   - "__pycache__"
@@ -58,7 +57,7 @@ mission:
   prompt:
     tips:
       always:
-        - "先用 CurrentTips 确认本阶段参考文件及 Skill。需要正文时用 ReadTextFile(count>0)；已阅读且内容未变的文件可用 ReadTextFile(count=0)登记本阶段已读。长阶段可用 ReviewStageProgress 查看剩余 case。先 Check，通过后 SetSkillUsage（若阶段 Skill 强制启用）、SetCurrentStageJournal、Complete。"
+        - "先用 CurrentTips 确认本阶段参考文件及 Skill。需要正文时用 ReadTextFile(count>0)；已阅读且内容未变的文件可用 ReadTextFile(count=0)登记本阶段已读。长阶段先用 ReviewWorkQueue 查看精确待办与校验缺口，ReviewCaseContext 按 Case 读取必要内容；同一诊断连续三次无变化会暂停，不能反复原样 Check。先 Check，通过后 SetSkillUsage（若阶段 Skill 强制启用）、SetCurrentStageJournal、Complete。"
       random: []
     system: |
       对当前模块收集并重跑全部 pytest 用例，先独立分析每个失败 case，再核对原 Bug 报告。
@@ -66,7 +65,9 @@ mission:
       {OUT}/review_index.json 保存身份、阶段状态、记录路径及带来源的 DUT 简介；逐 case JSON 保存执行、失败归因和签名波形，
       逐 Bug JSON 保存裁决。不能用原报告根因文字代替 case 初判。
       只对疑似 DUT 缺陷或时序争议调用默认 WaveInfo；使用 ResolveReviewCase 取得精确身份，
-      ApplyReceiptToCase 复制签名收据机器字段。不要手工编码 viewer URL。
+      未知信号先 ReviewSignalCatalog 分页过滤真实路径，再用 WaveInfo 查询事务窗口；按 ReviewWorkQueue 的 scenario_key 仅复用 Spec/RTL 阅读，每个 Case 独立取证。
+      ApplyReceiptToCase 复制签名收据机器字段，ApplyWaveformEvent 从真实快照写入事件 raw_value。不要手工编码 viewer URL 或抄写总线数值。
+      通用文件工具仅可编辑 notes、analysis/drafts 和信号预设；正式记录必须经专用工具提交。每批先 CreateCaseDraft，最多 5 个精确 Case ID，校验提交后再继续。
       dut_evidence 完成后 ReviewBugContext 可按 Bug ID 分页读取原声明上下文；此前只可查询 case/波形记录。
       ReviewRefCheck 可批量核实 Spec/RTL 行段。
       原声明必须保留；排除 DUT Bug 时置信度为 0，证据不足时保持未定；只合并相同 RTL 首错及因果链。
@@ -92,7 +93,7 @@ stage:
     task:
       - "阅读 DUT 说明、接口文档及相关 RTL，由你生成 review_index.json.dut_context：用简短的 text 说明模块用途，source_refs 指向当前材料的行段；资料不足则 text/source_refs 留空并填写具体 unavailable_reason。不要套用其他 DUT 的背景，不从模块名猜功能。通过 UpdateReviewRecord 提交完整索引草稿，示例见 Guide_Doc/bug_review_example_ptw.md。"
       - "按 test_manifest.json 与 replay_summary.json 枚举所有 Fail/Error/XPass。基线导入已按 traceback 自动预填各失败 case 的机械事实（断言摘要、失败位置、观测异常行、assertion 阶段，只填空字段，计数见导入返回 failure_evidence）；先核对预填内容，再读测试、fixture、Spec 和真实报告，补充场景、规格预期、归因与不确定性。取证用 Skill 脚本直接读取自动归档的 pytest stdout，不要重跑或手写解析。此阶段不要先读原 Bug analysis 的根因文字。"
-      - "失败或不稳定项可定向复跑，并在 case.replay.reruns 记录与基线的关系；不得覆盖权威基线。每个失败 case 的 failure_analysis 必须给出 environment/spec_misread/test_implementation/suspected_dut/spec_ambiguous/insufficient_evidence 等分类或证据缺口。按 5–10 个失败 case 的小批次完成核对并立即提交，不等待全集草稿一次生成；续跑先检查已提交记录及现有草稿，仅补剩余项。多 case 复核完成后优先用 UpdateCaseRecords 以一个草稿（形如 {\"cases\": {case_id: 完整记录}}）批量校验写入，任一非法则整批不落盘；单 case 修正仍用 UpdateReviewRecord。"
+      - "失败或不稳定项可定向复跑，并在 case.replay.reruns 记录与基线的关系；不得覆盖权威基线。每个失败 case 的 failure_analysis 必须给出 environment/spec_misread/test_implementation/suspected_dut/spec_ambiguous/insufficient_evidence 等分类或证据缺口。按 最多 5 个失败 case 的小批次完成核对并立即提交，不等待全集草稿一次生成；续跑先检查已提交记录及现有草稿，仅补剩余项。多 case 复核完成后优先用 UpdateCaseRecords 以一个草稿（形如 {\"cases\": {case_id: 完整记录}}）批量校验写入，任一非法则整批不落盘；单 case 修正仍用 UpdateReviewRecord。"
       - "阅读 Guide_Doc/bug_review_investigation.md；CaptureReplayReport 的 failure_evidence.log_triage_ref 和 replay_summary.log_triage_refs 是按原始文件行号排列的候选线索。核对真实对象和事件时序，保留较早 assertion 与后续 stuck/ABORT；stdout 的文件顺序不保证跨 case 或 stderr 的事件时序。关键词、摘要工具退出码和达到预算不能替代 case 或 DUT 裁决。"
       - "填写 environment_review.json 的收集、执行、fixture/reset、驱动采样、参考模型和随机种子质量发现。设 stage_status.case_triage=complete 后 Check、SetSkillUsage（若要求）、日志、Complete。当前进度：{BUG_REVIEW_PROGRESS}"
     reference_files: ["Guide_Doc/analysis.md", "Guide_Doc/bug_review_writing.md", "Guide_Doc/bug_review_investigation.md", "Guide_Doc/bug_review_example_root.md", "Guide_Doc/bug_review_example_ptw.md", "{OUT}/review_index.json", "{OUT}/test_manifest.json", "{OUT}/replay_summary.json"]

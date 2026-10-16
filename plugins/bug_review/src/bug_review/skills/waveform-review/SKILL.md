@@ -18,3 +18,9 @@ description: Obtain signed default WaveInfo evidence for independently suspected
 ## Current ROOT and evidence contract
 
 Record each case's ordered scenario_steps and actual execution reach, then bind its own events to exact invocation, signed receipt, original timestamp, full signal and raw value. Software records and decoded fields are not independent waveform signals. Preserve earlier attached receipts in additional_waveforms; never replace another case's observations or write a root decision during this stage. See `Guide_Doc/bug_review_writing.md` and `Guide_Doc/bug_review_example_rcmd.md`.
+
+
+Use `ApplyWaveformEvent` after attaching the receipt and submitting any referenced scenario step. Supply the exact case/execution, signed signal path and raw waveform timestamp plus sourced interpretation. The tool reads `raw_value` from the unchanged source snapshot; do not transcribe hex strings into the binary field. Missing or changed snapshots are evidence gaps, not permission to invent values. Use `CreateCaseDraft` for other case edits and submit at most five cases with `UpdateCaseRecords`.
+
+
+Begin an unknown-signal investigation with `ReviewSignalCatalog(case_id, contains, offset, limit)` and use its real full paths and raw time bounds. Reuse that catalog within the same snapshot. `ReviewWorkQueue` groups only shared reading context; each Case retains its own measurements. Use `ReviewCaseContext` rather than repeatedly reading the full index/schema. If Check reports `no_progress`, inspect its exact gap and pause identical retries.

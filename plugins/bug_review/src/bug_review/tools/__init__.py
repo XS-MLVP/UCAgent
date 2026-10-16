@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from pathlib import Path
 import secrets
 from typing import Any, Optional
@@ -103,20 +104,30 @@ class ResolveReviewCase(UCTool):
             matches = []
             basename_candidates = []
             for indexed_id, entry in index.cases.items():
-                case = load_record(output, entry.record_path, "case")
-                aliases = {indexed_id, entry.replay_target, entry.waveform_test_case_name,
-                           case.replay.report_node_id}
+                aliases = {indexed_id, entry.replay_target, entry.waveform_test_case_name}
                 aliases.discard("")
                 if query in aliases:
-                    matches.append((indexed_id, entry, case))
+                    matches.append((indexed_id, entry))
                 elif query and any(alias.rsplit("/", 1)[-1] == query for alias in aliases):
                     basename_candidates.append(indexed_id)
+            # Legacy report aliases are a fallback, never a dependency for exact IDs.
+            if not matches:
+                for indexed_id, entry in index.cases.items():
+                    try:
+                        case = load_record(output, entry.record_path, "case")
+                    except (ValueError, OSError, KeyError, TypeError):
+                        continue
+                    if query and case.replay.report_node_id == query:
+                        matches.append((indexed_id, entry))
             if len(matches) != 1:
                 return {"success": False,
                         "error_code": "CASE_ID_AMBIGUOUS" if matches else "CASE_ID_UNKNOWN",
                         "candidates": [item[0] for item in matches] if matches else basename_candidates[:20],
                         "next_action": "Use one complete case_id, replay_target, waveform name or TC tag"}
-            indexed_id, entry, case = matches[0]
+            indexed_id, entry = matches[0]
+            case = load_record(output, entry.record_path, "case")
+            if case.case_id != indexed_id:
+                raise ValueError("indexed record identity differs from requested case_id")
             return {"success": True, "case_id": indexed_id, "tc_tag": f"TC-{indexed_id}",
                     "replay_target": entry.replay_target,
                     "waveform_test_case_name": entry.waveform_test_case_name,
@@ -129,6 +140,47 @@ class ResolveReviewCase(UCTool):
         except (ValueError, OSError, KeyError, TypeError) as error:
             return {"success": False, "error_code": "CASE_ID_UNKNOWN", "error": str(error),
                     "next_action": "Read review_index.json cases and use an exact identity"}
+
+
+class CaseDraftArgs(BaseModel):
+    """Select a small batch by exact indexed IDs, not numeric file names."""
+
+    case_ids: list[str] = Field(min_length=1, max_length=5)
+
+
+class CreateCaseDraft(UCTool):
+    """Copy authoritative case records into a bounded editable batch draft."""
+
+    name: str = "CreateCaseDraft"
+    description: str = "Create a draft for 1-5 exact case IDs, preserving replay and signed fields; edit only analysis then UpdateCaseRecords."
+    args_schema: Optional[ArgsSchema] = CaseDraftArgs
+    workspace: str = Field(default=".", exclude=True)
+    output_dir: str = Field(default="verification_review/analysis", exclude=True)
+
+    def _run(self, case_ids: list[str]) -> dict:
+        """Reject duplicate, unknown or inconsistent identities before creating a draft."""
+        output = Path(self.workspace).resolve() / self.output_dir
+        try:
+            selected = CaseDraftArgs(case_ids=case_ids).case_ids
+            if len(set(selected)) != len(selected):
+                raise ValueError("duplicate case IDs are not allowed")
+            index = load_record(output, "review_index.json", "index")
+            cases = {}
+            base_sha256 = {}
+            for case_id in selected:
+                original = within_output(output, index.cases[case_id].record_path).read_bytes()
+                case = RECORD_MODELS["case"].model_validate(json.loads(original))
+                if case.case_id != case_id:
+                    raise ValueError("indexed record identity differs from requested case_id")
+                cases[case_id] = case.model_dump(mode="json", by_alias=True)
+                base_sha256[case_id] = hashlib.sha256(original).hexdigest()
+            relative = "drafts/cases-" + secrets.token_hex(8) + ".json"
+            atomic_write_json(within_output(output, relative), {"cases": cases, "base_sha256": base_sha256})
+            return {"success": True, "case_ids": selected,
+                    "draft_path": str(Path(self.output_dir) / relative),
+                    "next_action": "Read and edit this draft, then UpdateCaseRecords; never edit cases/ directly"}
+        except (ValueError, OSError, KeyError, TypeError) as error:
+            return {"success": False, "error_code": "CASE_DRAFT_INVALID", "error": str(error)[:1200]}
 
 
 class CaseDiffArgs(BaseModel):
@@ -265,7 +317,10 @@ class ReviewStageProgress(UCTool):
             draft = output / "drafts/attribution.json"
             mapped = (len(index.bugs) if index.claim_mapping_path
                       else len(read_object(draft).get("bugs", [])) if draft.is_file() else 0)
+            from ..core.progress import validation_status
             return {"success": True, "stage_status": index.stage_status,
+                    "declared_stage_status": index.stage_status,
+                    "validated_stage_status": validation_status(output),
                     "collected": len(manifest.collected), "failed": len(failed),
                     "triaged": len(failed) - len(untriaged),
                     "wave_receipts_attached": sum(bool(cases[item].waveform.receipt_id) for item in failed),
@@ -1000,9 +1055,15 @@ class UpdateCaseRecords(UCTool):
             draft = within_output(output, str(Path(draft_path).relative_to(self.output_dir)))
             if draft.relative_to(output).parts[:1] != ("drafts",):
                 raise ValueError("draft_path must be under {OUT}/drafts")
-            cases = read_object(draft).get("cases")
+            payload = read_object(draft)
+            cases = payload.get("cases")
+            base_sha256 = payload.get("base_sha256")
             if not isinstance(cases, dict) or not cases:
                 raise ValueError('batch draft must be an object shaped {"cases": {case_id: record}}')
+            if base_sha256 is not None and (not isinstance(base_sha256, dict) or set(base_sha256) != set(cases)):
+                raise ValueError("base_sha256 must identify every draft case")
+            if len(cases) > 5:
+                raise ValueError("batch limit is 5 cases; validate and commit each batch before continuing")
             index = load_record(output, "review_index.json", "index")
             source_root = prepared_source_root(output)
             writes: list[tuple[Path, Any]] = []
@@ -1010,6 +1071,8 @@ class UpdateCaseRecords(UCTool):
                 entry = index.cases.get(case_id)
                 if entry is None:
                     raise ValueError(f"unknown indexed case: {case_id}")
+                if base_sha256 is not None and hashlib.sha256(within_output(output, entry.record_path).read_bytes()).hexdigest() != base_sha256[case_id]:
+                    raise ValueError(f"case changed since draft creation: {case_id}; create a fresh draft")
                 current = load_record(output, entry.record_path, "case")
                 replacement = RECORD_MODELS["case"].model_validate(item)
                 if replacement.case_id != case_id:

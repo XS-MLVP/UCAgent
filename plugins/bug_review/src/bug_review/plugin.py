@@ -3,10 +3,12 @@ from pathlib import Path
 
 from ucagent.plugins import Plugin, PluginContext, PluginWorkflow
 from . import __version__
+from .tools.events import ApplyWaveformEvent
+from .tools.investigation import ReviewWorkQueue, ReviewCaseContext, ReviewSignalCatalog
 
 from .checkers import BugReviewStageChecker
 from .tools import (ApplyReceiptToCase, CaptureReplayReport, CommitAttribution,
-                    CreateAttributionDraft, CreateDecisionDraft, DescribeReviewSchema,
+                    CreateAttributionDraft, CreateCaseDraft, CreateDecisionDraft, DescribeReviewSchema,
                     PrepareReviewInventory, RenderBugReviewReport,
                     ResolveReviewCase, ReviewBugContext, ReviewCaseDiff, ReportClaimBlocks,
                     ReviewReceiptSummary, ReviewStageProgress,
@@ -18,14 +20,15 @@ def create_tools(context: PluginContext) -> list[object]:
     """Expose indexed review lookup, schema, source and decision tools."""
     shared = {"workspace": str(context.workspace), "output_dir": context.output_dir}
     return [PrepareReviewInventory(**shared), CaptureReplayReport(**shared),
-            ResolveReviewCase(**shared), ReviewCaseDiff(**shared), ReportClaimBlocks(**shared),
+            ResolveReviewCase(**shared), CreateCaseDraft(**shared),
+            ReviewWorkQueue(**shared), ReviewCaseContext(**shared), ReviewSignalCatalog(**shared), ReviewCaseDiff(**shared), ReportClaimBlocks(**shared),
             ReviewReceiptSummary(**shared), ReviewStageProgress(**shared),
             ValidateCaseRecords(**shared),
             ReviewBugContext(**shared), ReviewRefCheck(**shared), DescribeReviewSchema(),
             RenderBugReviewReport(**shared), CreateAttributionDraft(**shared),
             CommitAttribution(**shared), ReviewRevisionHistory(**shared),
             CreateDecisionDraft(**shared),
-            ApplyReceiptToCase(**shared), UpdateReviewRecord(**shared),
+            ApplyReceiptToCase(**shared), ApplyWaveformEvent(**shared), UpdateReviewRecord(**shared),
             UpdateCaseRecords(**shared),
             SubmitReviewDecisions(**shared)]
 

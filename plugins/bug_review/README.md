@@ -73,3 +73,19 @@ python3 serve.py
 CaptureReplayReport 自动保留原始 stdout 和有界、按源文件行序排列的候选，记录来源摘要、invocation、扫描／匹配／截断统计；Checker 对照真实快照核验，不以关键词或摘要工具退出码决定 DUT 状态。pytest 输出可能按 case 分组，单独 stderr 没有统一时序。ROOT 页只在第 04 段增加默认折叠的调查区，并说明未执行修复验证。强制规则在普通 Guide、工具和 Checker 中；可选 Skill 关闭时保持相同要求。详见运行时 Guide_Doc/bug_review_investigation.md。
 
 For focused record edits, `DescribeReviewSchema` accepts `field_path` (for example `failure_analysis` or `roots[].investigation`). It returns the selected field and all referenced definitions. Omitting the argument retains the full schema; invalid paths return the available top-level fields.
+
+
+## 记录写入与事件测量
+
+工作流通用文件工具仅开放 notes、analysis/drafts 和 wave_signal_presets.json；正式 case、索引、修订、报告和测试回执由专用工具生成。`CreateCaseDraft` 按 1–5 个精确 Case ID 复制当前记录，避免模型按数字文件名猜测身份或重建签名字段；`UpdateCaseRecords` 在提交前强制检查批量上限。生成草稿附带 base_sha256，提交时若正式记录已经改变则拒绝旧草稿，避免覆盖新证据；旧式手写草稿仍兼容，但没有该并发检查。`ResolveReviewCase` 的精确索引查询不依赖其他 Case 文件能否解析。
+
+`ApplyWaveformEvent` 在已有附着收据上读取真实 VCD/FST 的指定信号和时间戳，将完整二进制值（含 x/z）原子保存为事件，拒绝由调用者提供 raw_value、错误 Case、越界时间和改变或缺失的源快照。模型仍负责说明触发条件、预期和 RTL 含义；工具不推断 Bug 结论。通用文件权限是 UCAgent 工具约束，不是外部 CLI 后端任意 shell 的操作系统沙箱。网关流式超时与 LangChain 网络重试由各自运行组件提供，升级插件本身不会更换运行中的网关或 UCAgent 核心。
+
+
+## 调查效率与阶段状态
+
+`ReviewSignalCatalog` 从当前 Case 的真实 VCD/FST 返回可过滤、分页的精确信号名、位宽和原始时间范围，不创建 Bug 证据。`ReviewCaseContext` 返回单 Case 的有界上下文与可选来源摘录；`ReviewWorkQueue` 返回实际缺口，并按测试断言、来源引用和阶段建议共用阅读上下文，每个 Case 的证据与结论仍独立。
+
+阶段声明与已通过 Check 的记录分开返回为 declared_stage_status / validated_stage_status；正式记录、收据和源文件身份变化会令校验记录 stale。相同输入上连续三次相同 Check 失败会触发 set_break 暂停模型循环，不创建成功结果；在无人值守适配器中，不完整退出仍可能显示 failed，应读取 no_progress 诊断后恢复。该门禁针对重复 Check，不是所有工具调用的通用次数限制。
+
+事件测量只缓存相同源文件身份、大小、mtime/ctime、信号与时间戳；发布前清空缓存。语义校验及最终全阶段检查继续执行，不把声明或缓存命中当作完整复核。

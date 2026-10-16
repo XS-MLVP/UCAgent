@@ -54,16 +54,26 @@ class BugReviewStageChecker(Checker):
         return {"BUG_REVIEW_PROGRESS": "Create every declared output using available tools, then run Check."}
 
     def do_check(self, timeout=0, **kwargs):
-        """Verify direct stage artifacts, real WaveInfo receipts and report links."""
+        """Persist actual gate outcomes and pause repeated unchanged validation failures."""
+        from ..core.progress import save_validation
+
         try:
-            return self.workflow.check(self.stage_id)
+            passed, result = self.workflow.check(self.stage_id)
         except ReviewIssues as exc:
-            return False, exc.result()
+            passed, result = False, exc.result()
         except (ValueError, OSError, KeyError, TypeError, IndexError, AttributeError) as exc:
-            return False, {"error_code": "BUG_REVIEW_INTEGRITY_FAILED", "error": str(exc),
-                           "next_action": "Fix the named record field with UpdateReviewRecord, then run "
-                                          "Check again; a completed test run never needs repeating for a "
-                                          "record field"}
+            passed, result = False, {"error_code": "BUG_REVIEW_INTEGRITY_FAILED", "error": str(exc),
+                "next_action": "Use ReviewWorkQueue and the named record tool; do not repeat a completed replay"}
+        try:
+            count = save_validation(self.workflow.out, self.stage_id, passed, result)
+        except (OSError, ValueError):
+            count = 0
+        if not passed and count >= 3:
+            result = {**result, "no_progress": True, "unchanged_failures": count,
+                      "next_action": "Pause identical retries. Inspect ReviewWorkQueue and the exact missing evidence before resuming."}
+            if self.stage_manager is not None:
+                self.stage_manager.agent.set_break(True)
+        return passed, result
 
 
 class Workflow:
@@ -105,6 +115,9 @@ class Workflow:
 
         if stage not in ANALYSIS:
             raise ValueError(f"unknown Bug Review stage: {stage}")
+        if stage == "publish":
+            from ..core.evidence import _cached_event_value
+            _cached_event_value.cache_clear()
         source = self.root.resolve()
         if not (self.out / "review_index.json").is_file():
             raise ValueError("analysis/review_index.json is missing; create full replay records")

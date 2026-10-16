@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import hashlib
+from functools import lru_cache
+from types import SimpleNamespace
 import html
 from pathlib import Path
 import re
@@ -88,12 +90,26 @@ def event_issues(case, source_root, waveinfo):
                     if read_event_value(original, event) != event.raw_value.lower():
                         raise ValueError("event raw_value differs from signed source snapshot")
         except (ValueError, KeyError, TypeError) as error:
-            issues.append({"field": base, "problem": str(error)})
+            issue = {"field": base, "problem": str(error)}
+            if str(error) == "event raw_value differs from signed source snapshot":
+                issue["next_action"] = "Use ApplyWaveformEvent with this case/event identity to read the measured value; do not transcribe raw_value"
+            issues.append(issue)
     return [{"case_id": case.case_id, **issue} for issue in issues]
 
 
 def read_event_value(path, event):
     """Read one exact event value, retaining unknown masks and the full signal width."""
+    path = Path(path).resolve()
+    stat = path.stat()
+    identity = (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
+    return _cached_event_value(str(path), identity, event.time, event.signal_path)
+
+
+@lru_cache(maxsize=2048)
+def _cached_event_value(filename, identity, time, signal_path):
+    """Reuse measurements only while the same immutable snapshot identity is present."""
+    path = Path(filename)
+    event = SimpleNamespace(time=time, signal_path=signal_path)
     import wavekit
     from ucagent.tools.waveform import WaveInfo
 
