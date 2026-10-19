@@ -1,0 +1,4 @@
+schema_version = 1
+name = "act4-privileged-suite"
+entry = "act4_privileged_suite.plugin:get_plugin"
+python_path = "src"
