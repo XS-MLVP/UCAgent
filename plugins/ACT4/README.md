@@ -1,14 +1,5 @@
 # ACT4 Privileged Suite
 
-将 ITGen 的 ACT4 privileged suite 资产生成流程封装为独立 UCAgent 插件。
-输入是 CTP 中大小写精确匹配的 suite 名称、ACT4 工作副本及 RISC-V ISA manual；
-输出包括 coverage、normative mapping、Python generator、生成汇编、ELF 和可追溯的验证报告。
-插件随包提供完整七阶段工作流、8 类确定性 checker 和运行指南，运行时无需安装 ITGen。
-
-插件 ID 为 `act4-privileged-suite`，工作流为
-`act4-privileged-suite:privileged-suite-generation`，Python 发行包名为
-`ucagent-act4-privileged-suite`。
-
 ## 1. 安装
 
 需要 Python 3.11+、UCAgent `>=26.9.2.dev25`，以及 Bash、Git、Curl、GNU Make。
