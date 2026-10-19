@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=80", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ucagent-act4-privileged-suite"
+version = "0.1.0"
+description = "UCAgent plugin for RISC-V ACT4 privileged-suite test asset generation"
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE.md"]
+requires-python = ">=3.11"
+dependencies = ["UCAgent>=26.9.2.dev25", "PyYAML>=6,<7"]
+
+[project.urls]
+Homepage = "https://github.com/XS-MLVP/UCAgent/tree/main/plugins/ACT4"
+Issues = "https://github.com/XS-MLVP/UCAgent/issues"
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "build>=1"]
+
+[project.entry-points."ucagent.plugins"]
+act4-privileged-suite = "act4_privileged_suite.plugin:get_plugin"
+
+[tool.setuptools]
+include-package-data = false
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["act4_privileged_suite*"]
+namespaces = false
+
+[tool.setuptools.package-data]
+act4_privileged_suite = [
+  "Guide_Doc/*.md",
+  "Guide_Doc/ACT4_Checker_Guide/*.md",
+  "Guide_Doc/act4_template/*.md",
+  "workflows/*.yaml",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
