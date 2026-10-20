@@ -1,147 +1,109 @@
-# 模式一：MCP 集成协同模式
 
-## 4.1 准备 DUT（待测模块）
+# MCP 接入
 
-1. 在 `{工作区}` 创建模块目录（`{工作区}` 是指当前运行 `ucagent` 命令的地方，其他的目录都以 `{工作区}` 为根目录）：
+MCP 接入有两种用法：
 
-```bash
-mkdir -p Adder
-```
+1. **命令行后端（推荐）**：用 `--backend=opencode`、`--backend=codex` 等启动 UCAgent。UCAgent 启动 MCP Server、渲染客户端配置并调用外部 Code Agent，通常只需一个终端。
+2. **手动双终端**：只启动 UCAgent MCP Server，再在另一个终端手动启动 MCP 客户端，适合调试连接和交互流程。
 
-2. 编写带缺陷 64 位加法器 `Adder/Adder.v`，人为截断 sum 输出位宽用于验证缺陷检测：
+普通模式的 LangChain 后端不需要 MCP。MCP Server 默认端点为 `http://127.0.0.1:5000/mcp`；需要共享文件操作时使用 `--mcp-server`，外部 Code Agent 自带编辑能力时，通常使用 `--mcp-server-no-file-tools`，省略 MCP 文件操作工具组。基础 `ReadTextFile` 仍会保留，用于登记阶段参考文件的阅读。
 
-```verilog
-// A verilog 64-bit full adder with carry in and carry out
-module Adder #(
-    parameter WIDTH = 64
-) (
-    input [WIDTH-1:0] a,
-    input [WIDTH-1:0] b,
-    input cin,
-    output [WIDTH-2:0] sum,
-    output cout
-);
-    assign {cout, sum} = a + b + cin;
-endmodule
-```
+## 3.1 前置准备
 
-当前的目录结构如下：
+先完成[前置依赖安装](00_installation.md)，再从下面两种接入方式中选择一种；同一工作区只启动一个 UCAgent 进程。
+
+源码仓库中可先准备 DUT，以下命令只初始化工作区：
 
 ```bash
-{工作区}
-└── Adder
-    └── Adder.v
+make init_Adder
 ```
 
-## 4.2 将 RTL 导出为 Python 可调用模块
+它复制 `examples/Adder`、运行 picker，并把 DUT 放入 `output/workspace_Adder/`。后面的 `make mcp_Adder` 也会自动执行这一步。
 
-> picker 可以将 RTL 设计验证模块打包成动态库，并提供 Python 的编程接口来驱动电路。参照 [基础工具-工具介绍](https://open-verify.cc/mlvp/docs/env_usage/picker_usage/) 和 [picker 文档](https://open-verify.cc/mlvp/docs/env_usage/picker_usage/)
+直接使用 `ucagent` 时，需要先准备好 `workspace/<DUT>`，步骤见[普通模式](02_normal_mode.md)。
 
-在工作区执行 picker 编译命令，生成 DUT 动态库：
+## 3.2 使用命令行后端
+
+以 opencode 为例安装客户端（版本可按项目验证结果调整）：
 
 ```bash
-picker export Adder/Adder.v --rw 1 --sname Adder --tdir output/ -c -w output/Adder/Adder.fst
+curl -fsSL https://opencode.ai/install | bash -s -- --version 1.19.3
 ```
 
-当前的目录结构如下：
+配置客户端使用的 OpenAI 兼容 API：
 
 ```bash
-{工作区}
-├── Adder
-│   └── Adder.v
-└── output
-    └── Adder # picker导出验证包
-        └── xspcomm
+export OPENAI_MODEL="<model_name>"
+export OPENAI_API_KEY="<api_key>"
+export OPENAI_API_BASE="https://<provider>/v1"
 ```
 
-## 4.3 编写验证需求 README
-
-新建 `Adder/README.md`，写入模块功能、验证目标、缺陷说明，并复制至输出目录：
+在源码仓库中启动：
 
 ```bash
-vim Adder/README.md
-cp Adder/README.md output/Adder/README.md
+make mcp_Adder ARGS="--loop --backend=opencode"
 ```
 
-参考文档内容：
+等价的展开命令是：
 
-```markdown
-### Adder 64 位加法器
-
-输入 a, b, cin 输出 sum，cout
-实现 sum = a + b + cin
-cin 是进位输入，cout 是进位输出
-
-### 验证目标
-
-仅验证加法功能逻辑，波形、接口类验证无需覆盖
-
-### bug 分析
-
-sum信号位宽人为截断，存在数值溢出缺陷
-
-### 其他
-
-所有文档与注释统一使用中文编写
+```bash
+python3 ucagent.py output/workspace_Adder/ Adder \
+  --config config.yaml -s -hm --tui \
+  --mcp-server-no-file-tools --loop --backend=opencode
 ```
 
-## 4.4 配置 Codex 运行环境
+使用 pip 安装时：
 
-修改 `~/.codex/config.yaml` 配置文件，`vim ~/.codex/config.yaml`，示例 Codex 配置文件如下：
+```bash
+ucagent output/ Adder -s -hm --tui \
+  --mcp-server-no-file-tools --loop --backend=opencode
+```
+
+命令行后端必须同时启用 `--mcp-server` 或 `--mcp-server-no-file-tools`，否则 CLI 会拒绝启动。其他后端名称和客户端命令见 `ucagent/setting.yaml` 的 `backend` 配置。
+
+## 3.3 手动双终端接入（以 Codex 为例）
+
+终端 A 选择 `codex` 后端并启动 MCP Server，不使用 `--loop`：
+
+```bash
+make mcp_Adder ARGS="--backend=codex"
+# 或使用已手动准备的 output/Adder/：
+ucagent output/ Adder -s -hm --tui \
+  --mcp-server-no-file-tools --backend=codex
+```
+
+不进入 `loop` 时，UCAgent 等待终端 B 的客户端调用工具。Codex 的登录和模型配置需在终端 B 完成，见其客户端文档。
+
+终端 A 默认监听 `127.0.0.1:5000`。如果端口已占用，传入 `--mcp-server-port <port>`，并在客户端配置中使用同一个端口。
+
+终端 B 配置 Codex。手动接入时，编辑 `~/.codex/config.toml`：
 
 ```toml
-[mcp_servers.unitytest]
-transport = "http"
-url = "http://localhost:5000/mcp"
+[mcp_servers.ucagent]
+url = "http://127.0.0.1:5000/mcp"
+tool_timeout_sec = 600
 ```
 
-配置文件解释：
+Codex 使用 `url` 配置 streamable HTTP MCP；不需要另写 `transport = "http"`。UCAgent 的测试和编译工具可能运行较久，客户端超时应设置得足够大。
 
-- `[mcp_servers.unitytest]`：MCP 服务器配置分组，unitytest 为服务器标识，用于区分不同的 MCP 服务器，此处为 UCAgent 提供的 MCP 服务器。
-- `transport`：通信传输方式，指定使用 http 协议完成客户端与 MCP 服务端的数据交互。
-- `url`：MCP 服务器通信地址，Codex CLI 将通过该 HTTP 地址与 UCAgent MCP 服务建立连接。
-- `5000` 为 MCP 服务默认端口，可在 MCP 服务启动时通过参数修改，参考 [参数说明 MCP Server](https://ucagent.open-verify.cc/content/02_usage/03_option/#mcp-server)。
-
-> 说明：`~/.codex/config.yaml` 用于 Codex 客户端连接 UCAgent 的 MCP 服务，UCAgent 自身运行规则由 `config.yaml` 控制，二者互不干扰。客户端通过文件内配置的本地端口建立通信，实现多终端分工操作。
-
-## 4.5 启动 MCP 服务（终端 A）
-
-在工作区执行命令，拉起 MCP 服务并开启 TUI 日志面板：
-
-**方式一（推荐）**
+在终端 B 先切换到本次任务的工作区，再启动客户端。例如，终端 A 使用 `make mcp_Adder` 时，终端 B 执行：
 
 ```bash
-make mcp_Adder
-```
-
-> 项目根目录 Makefile 里写好了 `mcp_Adder` 脚本，执行 `make mcp_Adder` 是一键封装整套 MCP 启动流程，不用手动敲一长串 `ucagent` 原始命令。
-
-**方式二（若通过 pip 安装且本地无源码仓库，可使用 UCAgent 原生 CLI 命令启动，无需 Makefile）**
-
-```bash
-ucagent output/ Adder -s -hm --tui --mcp-server-no-file-tools
-```
-
-启动后终端展示 TUI 分栏界面，监听 `127.0.0.1:5000` 等待 Codex 客户端连接。
-
-![MCP TUI 界面](image2.png)
-
-## 4.6 启动 Codex 客户端（终端 B，新开独立终端）
-
-进入 `UCAgent/output` 目录，执行 `codex` 命令启动 Codex 交互终端：
-
-```bash
+cd output/workspace_Adder
 codex
 ```
 
-出现 `>` 输入提示符即启动成功：
+直接 CLI 示例的工作区则是 `output/`。客户端启动后，先让它读取角色和任务信息，再执行当前阶段。例如：
 
-![Codex 启动](image3.png)
-
-输入提示词驱动验证流程：
-
-```
-请通过工具 RoleInfo 获取你的角色信息和基本指导，然后完成任务。请使用工具 ReadTextFile 读取文件。你需要在当前工作目录进行文件操作，不要超出该目录。
+```text
+请通过工具 RoleInfo 获取角色信息，然后读取当前任务所需文件并完成验证。使用 UCAgent 的 ReadTextFile 读取阶段 reference_files，以登记阅读记录；所有文件操作必须留在当前工作区内。
 ```
 
-弹窗允许 unitytest 服务全部工具权限，AI 将自动执行全流程验证；中途任务停滞时，输入 `继续` 恢复执行。
+如果 Code Agent 暂停，先在终端 A 查看 `status`、`current_tips`，修复问题后在客户端输入继续提示。MCP 客户端的配置格式各不相同，请以客户端文档为准，只需把地址指向 `/mcp` 端点。
+
+## 3.4 端口、权限与安全
+
+- `--mcp-server-no-file-tools` 省略文件操作工具组，仍保留基础 `ReadTextFile`、阶段和已注册的扩展工具。客户端可以用自身工具编辑工作区。
+- `--mcp-server` 额外暴露文件操作工具组。`--no-write` 限制 UCAgent 工具的写入；客户端自身的文件工具需单独配置权限。
+- 远程访问时显式设置 `--mcp-server-host`，同时在网络层限制来源；默认 `127.0.0.1` 只允许本机连接。
+- 端点地址、端口和客户端超时必须一致；连接失败时先检查 UCAgent 日志和端口占用，再检查客户端配置。

@@ -1,38 +1,82 @@
 
 # FAQ
 
-## FAQ
+## 模型和配置
 
-- 模型切换：在 `config.yaml` 改 `openai.model_name`
-- 验证过程中出现错误怎么办：使用 `Ctrl+C` 进入交互模式，通过 `status` 查看当前状态，使用 `help` 获取调试命令。
-- Check 失败：先 `ReadTextFile` 阅读 reference_files；再按返回信息修复，循环 RunTestCases → Check
-- 自定义阶段：修改 `ucagent/lang/zh/config/default.yaml` 的 `stage`；或用 `--override` 临时覆盖
-- 添加工具：`ucagent/tools/` 下新建类，继承 `UCTool`，运行时 `--ex-tools YourTool`
-- MCP 连接失败：检查端口/防火墙，改 `--mcp-server-port`；无嵌入可加 `--no-embed-tools`
-- 只读保护：通过 `--no-write/--nw` 指定路径限制写入（必须位于 workspace 内）
+### 如何切换模型？
 
-### UCAgent 闪退，如何恢复验证流程？
+可用环境变量临时切换：
 
-- 确保 UCAgent 和目前正在使用的 Code Agent(如 Qwen Code Cli)都已经退出，若没有则手动退出
-- 重新启动 UCAgent，它会自动继续之前的工作流
-- 重新启动 Code Agent 并输入“继续”即可恢复之前的验证流程
+```bash
+export OPENAI_MODEL="<model_name>"
+export OPENAI_API_KEY="<api_key>"
+export OPENAI_API_BASE="https://<provider>/v1"
+```
 
-### 为什么快速启动找不到 config.yaml/定制流程时找不到 config.yaml?
+也可以在项目 `config.yaml` 中修改 `openai.model_name` 等字段，或用 `--config <path>` 指定另一份配置。配置优先级见[工作流配置](../03_develop/03_workflow.md#3-配置加载和模板变量)；模型环境变量见[参数说明](./03_option.md)。
 
-- 使用 pip 安装后并没有`config.yaml`那个文件，所以在快速启动的[启动 MCP 服务](../01_start/03_mcp_mode.md#45-启动-mcp-服务终端-a)没有加`--config config.yaml`这个选项。
-- 可以通过在工作目录添加`config.yaml`文件并且加上`--config config.yaml`参数来启动；也可以使用克隆仓库来使用 UCAgent 的方式来解决。
+### `--no-embed-tools` 应该怎么用？
 
-### 运行中如何调整消息窗口与 token 上限？
+当前 CLI 默认已经禁用嵌入/检索工具。裸写 `--no-embed-tools` 或传 `true` 都是禁用；需要开启时使用：
 
-- 在 TUI 输入 `messages_config` 查看当前配置；
-- 使用 `messages_config max_tokens 131072` 调整预估 token 触发值；
-- 使用 `messages_config max_keep_msgs 200` 调整独立的消息数触发值；
-- 两项中的任意一项超限都会压缩。只提高 `max_tokens` 不会关闭消息数限制；可将对应限制设为 `0` 来禁用该触发条件。
+```bash
+--no-embed-tools false
+```
 
-### 文档中的 “CK bug” 要改吗？
+嵌入工具不是普通文件工具或测试工具的前置条件。
 
-- 是。术语统一为 “TC bug”。同时确保 bug 文档里的 `<TC-*>` 能匹配失败用例（文件/类/用例名）。
+## 运行和恢复
 
-### 为什么找不到 WriteTextFile 工具？
+### UCAgent 中途退出，如何恢复？
 
-- 该工具已移除。创建或覆盖文本文件请调用 `EditTextFile(path, content)`；只有追加内容时才传 `append=true`。对已有文件做少量局部修改时使用 `ReplaceStringInFile(path, old_string, new_string)`；需要限定搜索范围时可加 `line_blocks=[[start, end], ...]`，默认搜索全文。只有大量修改需要先删除多个完整行块时，才先用 `DeleteTextLines(path, line_blocks, expected_sha256)`批量删除，重新读取文件后再用 `ReplaceStringInFile`完成精确编辑。
+先确认旧的 UCAgent 和外部 Code Agent 都已退出，再用相同 workspace、DUT 和配置重新启动。输入 `status` 确认阶段后，再输入 `loop` 或让外部 Agent 继续。除非明确要重新开始，不要删除 `.ucagent/` 或输出产物。
+
+### Check 失败怎么办？
+
+先读取 Checker 返回的 `artifact`、`location`、`observed`、`expected` 和 `next_action`。必要时使用：
+
+```text
+tool_invoke StdCheck lines=-1
+tool_invoke KillCheck
+```
+
+修复后重新运行测试、`Check` 和 `Complete`。测试基础设施失败应先修复到 Pass；可复现且断言正确的 DUT 失败才记录为 Bug。
+
+### 为什么启动时找不到 `config.yaml`？
+
+`config.yaml` 是项目配置文件，不是 pip 安装必然提供的文件。可以：
+
+- 在工作区创建自己的 `config.yaml`，再传 `--config config.yaml`；
+- 使用源码仓库中的配置和 Makefile；
+- 不传 `--config`，使用分层默认配置。
+
+### `--no-write` 为什么不生效？
+
+目标必须位于 workspace 内。普通文件或目录需要已经存在；通配符路径可以匹配尚未创建的目标。该选项限制 UCAgent 工具写入，不会阻止你在外部 shell 中手动修改文件。
+
+## 工具和术语
+
+### 如何选择文本文件工具？
+
+当前文本文件工具使用：
+
+- `EditTextFile`：创建、覆盖或追加完整文本文件；
+- `ReplaceStringInFile`：替换已有文件中唯一的一段文本；
+- `DeleteTextLines`：一次删除多个完整行块。
+
+先用 `ReadTextFile` 获取当前内容；需要并发保护时传 `expected_sha256`。
+
+### 如何区分 CK、TC 和 Bug？
+
+CK 表示功能检测点，TC 表示测试用例。动态 Bug 条目应同时关联准确的 FG/FC/CK 和失败 TC；测试基础设施失败不应记录为 DUT Bug。
+
+### MCP 连接失败怎么排查？
+
+确认：
+
+1. UCAgent 使用了 `--mcp-server` 或 `--mcp-server-no-file-tools`；
+2. 客户端地址是 `http://<host>:<port>/mcp`；
+3. 客户端端口和 `--mcp-server-port` 一致；
+4. 远程场景的 `--mcp-server-host`、防火墙和权限允许连接。
+
+命令行后端还必须启用 MCP 参数，否则 CLI 会拒绝启动。

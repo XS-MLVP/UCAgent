@@ -52,14 +52,13 @@ nav:
   - 首页: content/00_index.md
   - 开始使用:
       - 前置依赖安装: content/01_start/00_installation.md
-      - 底层运行架构: content/01_start/01_architecture.md
-      - 三大交互模式总览: content/01_start/02_modes_overview.md
-      - 模式一：MCP 集成协同: content/01_start/03_mcp_mode.md
-      - 模式二：纯 TUI 本地直连: content/01_start/04_tui_mode.md
-      - 模式三：Master Web 交互: content/01_start/05_master_mode.md
+      - 运行模式总览: content/01_start/01_modes_overview.md
+      - 普通模式: content/01_start/02_normal_mode.md
+      - MCP接入: content/01_start/03_mcp_mode.md
+      - Master 模式: content/01_start/04_master_mode.md
+      - 任务、工作区和工作流: content/01_start/05_architecture.md
       - 结果分析与流程总结: content/01_start/06_summary.md
   - 功能介绍:
-      - MCP 集成: content/02_usage/00_mcp.md
       - 直接使用: content/02_usage/01_direct.md
       - 人机协同验证: content/02_usage/02_assit.md
       - 参数说明: content/02_usage/03_option.md
@@ -67,6 +66,7 @@ nav:
       - FAQ: content/02_usage/05_faq.md
       - LLM Check & Refinement: content/02_usage/06_llm_check.md
       - Web Master 使用指南: content/02_usage/07_web_master.md
+      - 技能 SKILL: content/02_usage/08_skill.md
   - 定制开发:
       - 概览: content/03_develop/00_index.md
       - 定制开发入门: content/03_develop/01_quick_start.md
@@ -137,6 +137,11 @@ plugins:
   - redirects:
       redirect_maps:
         "index.md": "content/00_index.md"
+        "content/02_usage/00_mcp.md": "content/01_start/03_mcp_mode.md"
+        "content/01_start/01_architecture.md": "content/01_start/05_architecture.md"
+        "content/01_start/02_modes_overview.md": "content/01_start/01_modes_overview.md"
+        "content/01_start/04_tui_mode.md": "content/01_start/02_normal_mode.md"
+        "content/01_start/05_master_mode.md": "content/01_start/04_master_mode.md"
 
 # Markdown 扩展（pymdown 系列增强）
 markdown_extensions:

@@ -1,32 +1,24 @@
-欢迎来到 UCAgent 文档
 
-本文档提供了安装、使用和开发 UCAgent 的全面指南。
+# UCAgent 文档
 
-## 概述
+UCAgent 是面向数字电路单元测试的 AI 验证代理。它读取 DUT 和验证需求，按阶段生成文档、测试代码和覆盖率模型，运行测试并保留可复核的报告。每个阶段都由确定性 Checker 验收，必要时可以人工介入或让外部 Code Agent 通过 MCP 调用工具。
 
-随着芯片设计的愈发复杂，其验证难度和耗时也成倍增长，而近年来大语言模型的能力突飞猛进。于是我们推出了 UCAgent——一个基于大语言模型的自动化硬件验证 AI 代理，专注于芯片设计的单元测试 (Unit Test) 验证工作。该工作流通过 AI，自动分析硬件设计/验证文档、生成测试用例、执行验证任务并生成测试报告，从而提高验证效率。
+## 先跑通一次
 
-### 背景
+第一次使用建议按下面顺序阅读：
 
-- 芯片验证时间已经占据了芯片开发时间的 50-60%，并且设计工程师也将 49% 的时间投入了硬件验证工作，但是首次流片成功率仅有 14%。
-- 随着 LLM 与编程类 Agent 兴起，将 "硬件验证" 抽象为 "软件测试问题" 可实现高比例自动化。
+1. [前置依赖安装](./01_start/00_installation.md)：安装 UCAgent、picker 和可选的 Code Agent。
+2. [运行模式总览](./01_start/01_modes_overview.md)：选择普通模式、MCP 接入或 Master 模式。
+3. 选择一条上手路径：[普通模式](./01_start/02_normal_mode.md)使用 LangChain 直连模型；[MCP 接入](./01_start/03_mcp_mode.md)使用 opencode 等外部 Code Agent。
+4. [结果分析与流程总结](./01_start/06_summary.md)：了解工作区和验证产物。
 
-### UCAgent 是什么
+需要集中管理多个任务时，再阅读 [Master 模式](./01_start/04_master_mode.md)。
 
-- 面向芯片设计单元测试 (Unit Test) 的 AI Agent，基于 LLM 驱动，围绕 "阶段化工作流 + 工具编排" 自动/半自动完成需求理解、测试生成、执行与报告产出。
-- 以用户为主导，LLM 为助理的协作式交互 Agent。
-- 以 Picker & Toffee 为基础，DUT 以 Python 包形式被测试；可与 OpenHands/Copilot/Claude Code/Gemini-CLI 等通过 MCP 协议深度协作。
+## UCAgent 的边界
 
-### 能力与目标
-
-- 自动/半自动：生成/完善测试代码与文档、运行用例、汇总报告
-- 完整：功能覆盖率、代码行覆盖率与文档一致性可集成
-- 兼容主流大模型接口；提供 MCP server 接口便于外部 Code Agent 接入
-- 目标：有效减少用户在验证过程中的重复工作
-
-快速开始使用自动化硬件验证，请直接阅读**[开始使用](./01_start/00_installation.md)**：即刻开始使用 UCAgent。
-
-自定义其他的工作流，请直接阅读**[定制开发入门](./03_develop/01_quick_start.md)**：快速创建自定义工作流。
+- picker 负责把 RTL 导出为可由 Python 驱动的 DUT 包；UCAgent 负责验证流程和产物管理。
+- UCAgent 不替用户决定 DUT 规格。README、RTL 和其他参考文件应先准备好，测试失败也需要结合规格判断是测试问题还是 DUT 缺陷。
+- 不同模式共用工作流和 Checker，但模型连接方式、进程数量和交互入口不同。
 
 ## 文档导航
 
@@ -35,24 +27,26 @@
 ### 开始使用
 
 1. **[前置依赖安装](./01_start/00_installation.md)**：UCAgent 环境部署、模型配置基础准备
-2. **[底层运行架构](./01_start/01_architecture.md)**：UCAgent 底层验证引擎与文件调度原理
-3. **[UCAgent 三大交互模式总览](./01_start/02_modes_overview.md)**：三种交互形态场景对比，帮助选型
-4. **[模式一：MCP 集成协同模式](./01_start/03_mcp_mode.md)**：面向自动化流水线、工具链集成
-5. **[模式二：纯 TUI 本地直连模式](./01_start/04_tui_mode.md)**：面向终端交互式调试
-6. **[模式三：Master Web 可视化交互模式](./01_start/05_master_mode.md)**：面向人机协同可视化操作
+2. **[UCAgent 运行模式总览](./01_start/01_modes_overview.md)**：普通模式与 Master 模式对比，后端选择与交互界面入口
+3. **[普通模式](./01_start/02_normal_mode.md)**：DUT 准备、模型配置与终端（TUI）直连验证
+4. **[MCP 接入](./01_start/03_mcp_mode.md)**：以 opencode 为例接入外部 Code Agent
+5. **[Master 模式](./01_start/04_master_mode.md)**：面向人机协同可视化操作与多任务管理
+6. **[任务、工作区和工作流](./01_start/05_architecture.md)**：跑通流程后理解输入、产物和验收
 7. **[结果分析 & 通用流程总结](./01_start/06_summary.md)**：统一结果解读、通用操作规范
 
 
-> 使用导读：所有交互模式共用同一套基础环境配置，前置依赖仅需部署一次；三种模式底层验证逻辑一致，仅交互入口、操作方式存在差异，文档将复用通用配置内容，仅区分差异化启动参数。
+> 使用导读：先用普通模式或 MCP 模式完成一个任务，再根据需要启用 Master、多实例或批处理。命令中的 `<workspace>`、`<DUT>` 等是需要替换的示意值，不要原样输入尖括号。配置文件中的 `{WORKSPACE}`、`{DUT}`、`{OUT}` 则是 UCAgent 模板变量，`{OUT}` 默认是 `unity_test`。
 
 ### 功能介绍
 
-- **[MCP 集成](./02_usage/00_mcp.md)**：使用 Code Agent 与 UCAgent 共同工作
-- **[直接使用](./02_usage/01_direct.md)**：使用 API 直接使用 UCAgent
+- **[直接使用](./02_usage/01_direct.md)**：使用 LangChain 后端在本地直接运行
 - **[人机协同](./02_usage/02_assit.md)**：在 UCAgent 验证过程中进行人机协同
 - **[参数说明](./02_usage/03_option.md)**：命令行的各个参数说明
 - **[TUI 界面](./02_usage/04_tui.md)**：TUI 界面的组成与操作
 - **[FAQ](./02_usage/05_faq.md)**：常见问题
+- **[LLM Check & Refinement](./02_usage/06_llm_check.md)**：LLM 阶段结果检查与建议
+- **[Web Master 使用指南](./02_usage/07_web_master.md)**：Master 模式 Web 界面详解
+- **[技能 SKILL](./02_usage/08_skill.md)**：技能机制与使用
 
 ### 定制开发
 
@@ -65,9 +59,11 @@
 - **[工具列表](./03_develop/06_tool_list.md)**：内置工具完整参考
 - **[检查器](./03_develop/07_checkers.md)**：自定义检查器开发指南
 - **[Mini 示例](./03_develop/08_mini_example.md)**：完整可运行的示例工作流
+- **[插件开发与发布](./03_develop/09_plugins.md)**：插件机制与开发指南
 
 ### 实践案例
 
 - **[RTL2Spec 文档生成](./04_case/00_rtl2spec.md)**：基于 XiangShan 源码与 RTL 证据生成设计文档
 - **[多实例并发执行](./04_case/01_multirun.md)**：同时对多个 DUT 进行并发验证
 - **[批处理执行](./04_case/02_batchrun.md)**：自动完成一系列验证任务
+- **[Workflow Builder](./04_case/03_workflow_builder/00_index.md)**：构建、评估和迭代自定义工作流

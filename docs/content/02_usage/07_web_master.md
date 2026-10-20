@@ -29,7 +29,13 @@ Web Master 不只是状态展示，而是完整的任务管理入口，核心能
 Master 保留本地 PDB 控制台，用于执行 Master API、任务、终端、状态和文件管理命令，但不会初始化、探测或调用 API/命令行模型后端。执行 `loop`、`chat`、`next_round` 等模型工作命令时，`BlankBackend` 会直接返回不支持，不会调用模型。
 
 ```bash
-# 推荐：持久化模式
+# 源码仓库：临时工作区
+make as_master
+
+# 推荐：持久化工作区
+make as_master_persist
+
+# 安装后的命令
 ucagent --as-master-persist --as-master
 ```
 
@@ -215,13 +221,3 @@ Master 支持统一代理转发到 task/agent 的 cmd、terminal、web-console �
 
 1. TUI：本地快速调试、命令细粒度操作
 2. Web：集中管理、多任务运维、远程协作
-
----
-
-## 11. 版本变更记录（建议维护）
-
-建议在本节按版本持续记录：
-
-1. Launch/Task/Agent 页面能力变化
-2. 阶段批量控制与复盘能力变化
-3. 代理与 WebSocket 兼容性变化
