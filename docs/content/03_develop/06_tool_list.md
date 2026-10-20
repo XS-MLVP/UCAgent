@@ -1,201 +1,87 @@
 
 # 工具列表
 
-> 💡 **自定义工具**：关于如何开发自定义工具，请参考 [定制工具](05_customize.md)
+本页按用途列出主要工具。实际可用工具由工作流、插件、技能开关和工具过滤配置决定，名称与参数以本次运行的 schema 为准。控制台用 `tool_list` 查看当前工具；自定义实现见[定制工具](05_customize.md)。
 
-以下为当前仓库内内置工具（UCTool 家族）的概览，按功能类别归纳：名称（调用名）、用途与参数说明（字段: 类型 — 含义）。
+## 阶段与验收
 
-提示：
+| 工具 | 用途 |
+| --- | --- |
+| `RoleInfo` | 获取角色、系统任务和约束 |
+| `Status` / `CurrentTips` / `Detail` | 查看阶段状态、当前任务提示和详细信息 |
+| `Check` | 检查当前阶段；批量阶段可在通过后切换到下一批 |
+| `Complete` | 执行最终检查和适用门禁，成功后推进阶段 |
+| `GoToStage` | 回到已经到达的阶段 |
+| `KillCheck` | 中止正在执行的检查 |
+| `StageJournal` / `AllStageJournal` / `SetCurrentStageJournal` | 读取或记录阶段日志 |
+| `StageDiff` / `StageCommit` | 查看或记录阶段产物变化 |
+| `HumanHelp` | 请求人工帮助 |
+| `Exit` | 按当前任务规则请求退出 |
 
-- 带有“文件写”能力的工具仅在本地/允许写模式下可用；MCP 无文件工具模式不会暴露写类工具。
-- 各工具均基于 args_schema 校验参数，MCP 客户端将根据 schema 生成参数表单。
+`Check` 和 `Complete` 不是成功声明：它们会读取当前产物并执行 Checker。参数中的 `stage_args` 用于当前 Checker 支持的附加输入；`full_output: true` 可请求原始检查结果。验收规则见[工作流配置](03_workflow.md)。
 
-## 基础/信息类
+## 文件与文本
 
-- RoleInfo（RoleInfo）
-  - 用途：返回当前代理的角色信息（可在启动时自定义 role_info）。
-  - 参数：无
+所有路径都应相对于当前 workspace。写入受 UCAgent 的可写目录和禁止写入配置约束。
 
-- HumanHelp（HumanHelp）
-  - 用途：向人类请求帮助（仅在确实卡住时使用）。
-  - 参数：
-    - message: str — 求助信息
+| 工具 | 用途与关键参数 |
+| --- | --- |
+| `ReadTextFile` | 读取文本；`path`、`start`（从 1 开始）、`count`。也是阶段参考文件和技能阅读记录的来源 |
+| `ReadBinFile` | 读取二进制文件的字节范围 |
+| `PathList` | 按深度列出目录结构 |
+| `FindFiles` | 按文件名模式查找文件 |
+| `SearchText` | 搜索文本或正则，可限制文件、命中数和上下文范围 |
+| `EditTextFile` | 创建或覆盖完整文本；可用 `append` 追加，`expected_sha256` 检查并发修改 |
+| `ReplaceStringInFile` | 精确替换唯一的非空文本；可限制 `line_blocks`，支持 SHA-256 和 `dry_run` |
+| `DeleteTextLines` | 按删除前快照的物理行号删除单行或闭区间，支持 SHA-256 |
+| `CopyFile` / `MoveFile` | 复制或移动文件，可指定是否覆盖 |
+| `DeleteFile` | 删除文件，按 schema 提供路径及确认参数 |
+| `CreateDirectory` | 创建目录 |
+| `GetFileInfo` | 查看文件大小、修改时间等信息 |
 
-## 规划/ToDo 类
+`DeleteTextLines.line_blocks` 示例：`[1, [10, 20]]` 删除第 1 行及第 10–20 行；`[10, 20]` 只删除两个单行。全部范围都引用原文件，任意越界会拒绝整次操作。`ReplaceStringInFile` 的搜索块使用嵌套闭区间，如 `[[10, 20]]`，匹配在全部指定块中必须唯一。
 
-- CreateToDo
-  - 用途：创建 ToDo（覆盖旧 ToDo）。
-  - 参数：
-    - task_description: str — 任务描述
-    - steps: List[str] — 步骤（1–20 步）
-- CompleteToDoSteps
-  - 用途：将指定步骤标记为完成，可附加备注。
-  - 参数：
-    - completed_steps: List[int] — 完成的步骤序号（1-based）
-    - notes: str — 备注
-- UndoToDoSteps
-  - 用途：撤销步骤完成状态，可附加备注。
-  - 参数：
-    - steps: List[int] — 撤销的步骤序号（1-based）
-    - notes: str — 备注
-- ResetToDo
-  - 用途：重置/清空当前 ToDo。
-  - 参数：无
-- GetToDoSummary / ToDoState
-  - 用途：获取 ToDo 摘要 / 看板状态短语。
-  - 参数：无
+推荐先读文件并记录 SHA-256，再提交修改；并发冲突时重新读取后重做编辑。
 
-## 记忆/检索类
+## 测试、命令和工作区
 
-- SemanticSearchInGuidDoc（SemanticSearchInGuidDoc）
-  - 用途：在 Guide_Doc/项目文档中做语义检索，返回最相关片段。
-  - 参数：
-    - query: str — 查询语句
-    - limit: int — 返回条数（1–100，默认 3）
+| 工具 | 用途 |
+| --- | --- |
+| `RunPyTest` | 运行 Python 测试，可提供 pytest 参数和超时，并选择返回 stdout/stderr |
+| `RunUnityChipTest` | 运行 UnityChip/toffee 测试并生成相应报告 |
+| `RunTestCases` | 运行阶段支持的测试用例集合 |
+| `RunBashCommand` | 在工作区执行 Bash 命令；默认被工具过滤配置忽略 |
+| `WorkDiff` / `WorkCommit` | 查看 Git 工作区差异或提交允许的文件；默认被忽略 |
 
-- MemoryPut
-  - 用途：按 scope 写入长时记忆。
-  - 参数：
-    - scope: str — 命名空间/范围（如 general/task-specific）
-    - data: str — 内容（可为 JSON 文本）
-- MemoryGet
-  - 用途：按 scope 检索记忆。
-  - 参数：
-    - scope: str — 命名空间/范围
-    - query: str — 查询语句
-    - limit: int — 返回条数（1–100，默认 3）
+不要把测试基础设施错误登记为 DUT Bug。真实暴露 DUT 缺陷的失败用例应保留断言，并按当前工作流记录证据。
 
-## 测试/执行类
+`RunPyTest` 的输入 `timeout` 默认 15 秒；UCAgent 还会设置工具级 `call_time_out`，默认 300 秒。长任务需同时考虑工具和客户端超时，具体以实际调用配置为准。
 
-- RunPyTest（RunPyTest）
-  - 用途：在指定目录/文件下运行 pytest，支持返回 stdout/stderr。
-  - 参数：
-    - test_dir_or_file: str — 测试目录或文件
-    - pytest_ex_args: str — 额外 pytest 参数（如 "-v -\-capture=no"）
-    - return_stdout: bool — 是否返回标准输出
-    - return_stderr: bool — 是否返回标准错误
-    - timeout: int — 超时秒数（默认 15）
+## 波形证据
 
-- RunUnityChipTest（RunUnityChipTest）
-  - 用途：面向 UnityChip 项目封装的测试执行，产生 toffee_report.json 等结果。
-  - 参数：同 RunPyTest；另含内部字段（workspace/result_dir/result_json_path）。
+| 工具 | 用途 |
+| --- | --- |
+| `WaveInfo` | 查找测试波形、分析信号和时钟对齐，产生可校验的证据 receipt |
+| `ApplyWaveInfoEvidence` | 使用经过验证的 receipt 更新 Bug 文档中的中心波形记录 |
+| `ReviewWaveInfoEvidenceBatch` | 准备一组需要复核的波形上下文，并在全部审核完成后原子应用结果 |
 
-## 文件/路径/文本类
+波形工具依赖可选的 `wavekit`。需要波形证据的阶段必须具备依赖和真实测试数据。探索性查询不能替代完整证据；参数、TC 节点和 Bug 文档格式按当前工具 schema 与运行时 `Guide_Doc/dut_bug_analysis.md` 执行。
 
-- SearchText（SearchText）
-  - 用途：在工作区内按文本搜索，支持通配与正则。
-  - 参数：
-    - pattern: str — 搜索模式（明文/通配/正则）
-    - directory: str — 相对目录（为空则全仓；填文件则仅搜该文件）
-    - max_match_lines: int — 每个文件返回的最大匹配行数（默认 20）
-    - max_match_files: int — 返回的最大文件数（默认 10）
-    - use_regex: bool — 是否使用正则
-    - case_sensitive: bool — 区分大小写
-    - include_line_numbers: bool — 返回是否带行号
-    - context_before: int — 每个命中前返回的上下文行数（0–20，默认 1）
-    - context_after: int — 每个命中后返回的上下文行数（0–20，默认 1）
-  - 返回：每个命中文件仅显示一次文件名，其后为带原始行号的代码块；重叠的上下文会自动合并，不连续的片段以 `...` 分隔。
+## 技能、规划与检索
 
-- FindFiles（FindFiles）
-  - 用途：按通配符查找文件。
-  - 参数：
-    - pattern: str — 文件名模式（fnmatch 通配）
-    - directory: str — 相对目录（为空则全仓）
-    - max_match_files: int — 返回最大文件数（默认 10）
+| 工具 | 用途 |
+| --- | --- |
+| `ListSkill` / `RunSkillScript` / `SetSkillUsage` | 列举技能、执行脚本、登记当前阶段技能证据，见[技能](../02_usage/08_skill.md) |
+| `CreateToDo` | 新建或覆盖计划，需要 2–20 步 |
+| `CompleteToDoSteps` / `UndoToDoSteps` | 按从 1 开始的索引完成或撤销步骤 |
+| `ResetToDo` / `GetToDoSummary` / `ToDoState` | 清空计划、读取摘要或状态 |
+| `SemanticSearchInGuidDoc` | 对运行指导和项目参考资料进行语义检索 |
+| `MemoryPut` / `MemoryGet` | 按 scope 写入或检索记忆 |
 
-- PathList（PathList）
-  - 用途：列出目录结构（可限制深度）。
-  - 参数：
-    - path: str — 目录（相对 workspace）
-    - depth: int — 深度（-1 全部，0 当前）
+ToDo 工具需由对应选项启用。检索和记忆工具依赖嵌入模型，当前 CLI 默认禁用，可用 `--no-embed-tools false` 启用。规划、记忆和技能使用都不能替代 Checker 验收。
 
-- ReadBinFile（ReadBinFile）
-  - 用途：读取二进制文件（返回 [BIN_DATA]）。
-  - 参数：
-    - path: str — 文件路径（相对 workspace）
-    - start: int — 起始字节（默认 0）
-    - end: int — 结束字节（默认 -1 表示 EOF）
+## 装配与 MCP 范围
 
-- ReadTextFile（ReadTextFile）
-  - 用途：读取文本文件（带行号，返回 [TXT_DATA]）。
-  - 参数：
-    - path: str — 文件路径（相对 workspace）
-    - start: int — 起始行（1-based，默认 1）
-    - count: int — 行数（-1 到文件末尾）
+`--mcp-server-no-file-tools` 省略文件操作工具组，仍保留基础 `ReadTextFile`、阶段工具和已注册的扩展工具。因此，这个选项并非禁止所有文件写入：外部客户端和自定义工具都需要各自遵守工作区权限。
 
-- EditTextFile（EditTextFile）
-  - 用途：创建或覆盖完整文本文件；也可显式选择追加。
-  - 参数：
-    - path: str — 文件路径（相对 workspace，必填）
-    - content: str — 完整文件内容（必填；空字符串表示创建或清空空文件）
-    - append: bool — 是否追加；默认 false，即创建或覆盖完整文件
-    - expected_sha256: str — 可选的读取时 SHA-256，用于避免覆盖并发修改
-
-- DeleteTextLines（DeleteTextLines）
-  - 用途：仅在大量文本修改时，从已有 UTF-8 文件中一次删除多个完整物理行或闭区间行块。少量局部修改直接使用 `ReplaceStringInFile`。推荐流程是先用 `ReadTextFile`确认行号和 SHA-256，调用本工具删除全部旧行块，重新读取缩短后的文件，再用 `ReplaceStringInFile`完成精确编辑或插入。
-  - 参数：
-    - path: str — 已有文本文件路径（相对 workspace，必填）
-    - line_blocks: list[int | [int, int]] — 1-based 单行或闭区间，例如 `[1, 4, 5, [10, 20], [40, 55]]`；区间必须嵌套在外层列表中，单独删除第 10 至 20 行应传 `[[10, 20]]`，而 `[10, 20]` 表示删除两个单行；所有项都引用删除前同一文件快照中的原始行号，不会逐项重新编号；重叠和相邻区间会合并
-    - expected_sha256: str — 可选但建议提供的读取时 SHA-256；文件已变化时整次拒绝
-  - 约束：全部行块会在写入前校验；任何反向或越界区间都会取消整个操作，不会部分删除，也不会删除文件本身。
-
-- ReplaceStringInFile（ReplaceStringInFile）
-  - 用途：在已有文本文件的指定行块中精确替换唯一的一处非空文本；未指定行块时搜索全文。
-  - 参数：
-    - path: str — 已有文件路径（相对 workspace，必填）
-    - old_string: str — 唯一匹配的非空原文本（必填）
-    - new_string: str — 替换后的文本（必填；空字符串表示删除匹配内容）
-    - line_blocks: list[[int, int]] — 可选的 1-based 闭区间搜索块，例如 `[[10, 20], [40, 50]]`；默认全文
-    - expected_sha256: str — 可选的读取时 SHA-256
-    - dry_run: bool — 仅校验并返回差异，不写入文件
-  - 约束：重叠或相邻块会先合并；匹配必须完整位于一个合并后的块中，并且在全部指定块中合计只出现一次。
-
-- CopyFile（CopyFile）
-  - 用途：复制文件；可选覆盖。
-  - 参数：
-    - source_path: str — 源文件
-    - dest_path: str — 目标文件
-    - overwrite: bool — 目标存在时是否覆盖
-
-- MoveFile（MoveFile）
-  - 用途：移动/重命名文件；可选覆盖。
-  - 参数：
-    - source_path: str — 源文件
-    - dest_path: str — 目标文件
-    - overwrite: bool — 目标存在时是否覆盖
-
-- DeleteFile（DeleteFile）
-  - 用途：删除文件。
-  - 参数：
-    - path: str — 文件路径
-
-- CreateDirectory（CreateDirectory）
-  - 用途：创建目录（递归）。
-  - 参数：
-    - path: str — 目录路径
-    - parents: bool — 递归创建父目录
-    - exist_ok: bool — 已存在是否忽略
-
-- GetFileInfo（GetFileInfo）
-  - 用途：获取文件信息（大小、修改时间、人类可读尺寸等）。
-  - 参数：
-    - path: str — 文件路径
-
-## 扩展示例
-
-- SimpleReflectionTool（SimpleReflectionTool）
-  - 用途：示例型“自我反思”工具（来自 extool.py），可作为扩展参考。
-  - 参数：
-    - message: str — 自我反思文本
-
-备注：
-
-- 工具调用超时默认 20s（具体工具可重写）；长任务请周期性输出进度避免超时。
-- MCP 无文件工具模式下默认不暴露写类工具；如需写入，建议在本地 Agent 模式或按需限制可写目录。
-
-## 相关文档
-
-- [定制工具](05_customize.md) - 学习如何开发自定义工具
-- [工作流配置](03_workflow.md) - 了解如何在工作流中注册和使用工具
-- [架构与工作原理](02_architecture.md) - 理解工具在 UCAgent 中的角色
-- [Quick Start](01_quick_start.md) - 快速创建包含自定义工具的工作流
+默认配置的 `tools.ignore_tools` 包含 `RunBashCommand`、`WorkDiff`、`WorkCommit`。过滤规则由 `tools.ignore_tools` 和 `tools.selected_tools` 共同决定，调整后应以 `tool_list` 及 MCP 工具发现结果确认。CLI 选项见[参数说明](../02_usage/03_option.md)。
