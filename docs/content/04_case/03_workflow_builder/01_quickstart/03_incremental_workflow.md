@@ -1,16 +1,24 @@
+
 # 启动增量工作流
 
-增量流程只处理用户明确批准的 finding 和用户主动提出的 suggestion。它不是第二次自由生成，也不应重新阅读整个仓库后凭直觉修改未批准内容。
+增量流程只处理用户明确批准的 finding 和 suggestion。新增建议后仍需批准，才会进入本轮修复范围。
 
 ## 1. 审批或新增建议
 
 ```bash
-make WS=~/FDocB/UCAgent_t/workspace_docx/workspace eval-list
-make WS=~/FDocB/UCAgent_t/workspace_docx/workspace eval-approve \
-  ID=FLOW-001 REASON='修复会阻止 make check 的错误引用'
-make WS=~/FDocB/UCAgent_t/workspace_docx/workspace eval-suggest \
+make WS=~/work/ucagent_tasks/docx/workspace eval-list
+make WS=~/work/ucagent_tasks/docx/workspace eval-suggest \
   TITLE='补充 DOCX 字体回退说明' \
   DESCRIPTION='用户文档应解释 Linux 环境缺少指定字体时的替代策略'
+make WS=~/work/ucagent_tasks/docx/workspace eval-list
+```
+
+从 `eval-list` 输出中复制要处理条目的完整 `review_id`，替换下面的示例值后批准。Finding 使用 `flow/...`、`tools/...` 等前缀；建议使用 `user/...`：
+
+```bash
+make WS=~/work/ucagent_tasks/docx/workspace eval-approve \
+  ID='user/<suggestion-id>' \
+  REASON='允许补充生成工作流用户文档中的字体回退说明，并运行文档检查'
 ```
 
 审批理由应说明允许修改的目标和验收条件。批准不是要求用户逐个输入大段修复代码，而是授权增量流程在受控范围内制定候选方案。
@@ -18,12 +26,12 @@ make WS=~/FDocB/UCAgent_t/workspace_docx/workspace eval-suggest \
 ## 2. 启动增量流程
 
 ```bash
-make WS=~/FDocB/UCAgent_t/workspace_docx/workspace run_inc
+make WS=~/work/ucagent_tasks/docx/workspace run_inc
 ```
 
 入口会分配新的增量 run id，在 `tmp/inc_runs/<run-id>/` 下保存本轮清单、候选文件、证据和状态。不同运行不能共用一个没有身份的候选目录，否则旧报告、旧补丁和当前审批范围会混淆。
 
-![增量工作流运行界面](../resource/增量工作流实际运行图.png)
+![增量工作流运行界面](../resource/incremental_workflow_running.png)
 
 ## 3. 修复和部署语义
 
@@ -32,7 +40,7 @@ make WS=~/FDocB/UCAgent_t/workspace_docx/workspace run_inc
 正式验收至少包括：
 
 ```bash
-cd ~/FDocB/UCAgent_t/workspace_docx/workspace/workflow
+cd ~/work/ucagent_tasks/docx/workspace/workflow
 make check
 make check_example
 ```

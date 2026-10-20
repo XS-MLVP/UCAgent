@@ -1,3 +1,4 @@
+
 # 工作流构建与评估控制台
 
 控制台用于在浏览器中统一阅读评估报告、审批问题、添加建议、查看构建设计文件、观察 UCAgent 进度以及管理增量部署历史。它是本机管理界面，不替代评估 Agent 或增量 Agent。
@@ -5,20 +6,23 @@
 ## 启动
 
 ```bash
-cd ~/FDocB/UCAgent/examples/workflow_builder
-make WS=~/FDocB/UCAgent_t/workspace_docx/workspace eval-ui
+cd ~/work/UCAgent/examples/workflow_builder
+make WS=~/work/ucagent_tasks/docx/workspace eval-ui
 ```
 
 默认地址为 `http://127.0.0.1:8765`。如果端口已被其他程序占用，先确认是不是已有控制台：
 
 ```bash
+# Linux
 ss -ltnp | grep ':8765'
+# macOS
+lsof -nP -iTCP:8765 -sTCP:LISTEN
 ```
 
 需要并行查看另一个工作区时使用不同端口：
 
 ```bash
-make WS=~/FDocB/UCAgent_t/workspace_docx/workspace EVAL_UI_PORT=8766 eval-ui
+make WS=~/work/ucagent_tasks/docx/workspace EVAL_UI_PORT=8766 eval-ui
 ```
 
 不要盲目重复启动同一个端口。完成审批后，在启动控制台的终端按 `Ctrl+C`，服务进程退出后端口会释放。
@@ -27,7 +31,7 @@ make WS=~/FDocB/UCAgent_t/workspace_docx/workspace EVAL_UI_PORT=8766 eval-ui
 
 该页面展示 findings、用户 suggestions、证据和审批状态。筛选器可按未审批、已审批、批准、暂缓和拒绝查看。单项审批提供默认理由，用户可以直接采用或补充；批量审批只适合修复边界相同的条目。
 
-![控制台评估与审批页面](../resource/eval-ui的前台-评估部分.png)
+![控制台评估与审批页面](../resource/console_evaluation.png)
 
 删除条目是显式管理动作。删除评估条目与删除版本记录语义不同：版本记录默认用于恢复和审计，只有用户明确删除时才移除索引及对应历史文件。
 
@@ -44,13 +48,13 @@ make WS=~/FDocB/UCAgent_t/workspace_docx/workspace EVAL_UI_PORT=8766 eval-ui
 
 固定格式文件使用结构视图，允许编辑的字段必须经过长度、类型、引用和计算字段校验，点击保存后才写回。没有稳定格式的文件显示完整文本，不应使用错误的字段猜测强行解析。
 
-![控制台构建设计页面](../resource/eval-ui的前台-构建设计部分.png)
+![控制台构建设计页面](../resource/console_build_design.png)
 
 页面左侧显示工作流文件树，中间显示较宽的核心内容，文档基本信息固定在顶部，当前文档导航位于基本信息下方，正文区域独立滚动。右侧展示 UCAgent 当前阶段和运行状态。
 
 ## 后台和安全边界
 
-![控制台后台终端](../resource/eval-ui的后台.png)
+![控制台后台终端](../resource/console_terminal.png)
 
 控制台后台通过受控 API 调用结构化存储，不允许浏览器直接拼接任意文件路径。工作区必须是启动命令明确传入的目录；所有写操作校验路径、版本和格式。控制台默认只监听 `127.0.0.1`，需要远程访问时应通过可信隧道，而不是直接暴露到公网。
 

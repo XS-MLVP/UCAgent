@@ -1,9 +1,10 @@
+
 # 工作流构建完整使用
 
 ## 启动前
 
 ```bash
-cd ~/FDocB/UCAgent/examples/workflow_builder
+cd ~/work/UCAgent/examples/workflow_builder
 make configure-check
 make help
 test -f <business-root>/input/guide.md
@@ -64,7 +65,7 @@ make check_example
 
 ## 环境启动方式
 
-持久化方式适合重复使用：运行根 `python setup.py`，Make 自动加载本地值。临时方式适合一次实验：当前 shell 执行 `ucagent_env`、`proxy_on` 并在命令行传 `WS`。tmux 新 session 不一定继承 shell function，因此应检查实际 Python、代理和 Token。
+持久化方式适合重复使用：运行根 `python setup.py`，Make 自动加载本地值。临时方式适合一次实验：在 Make 命令行同时传入 `UCAGENT_HOME`、`UCAGENT_VENV`、`PYTHON` 和 `WS`。tmux 新 session 不一定继承 shell function，因此应检查实际 Python、代理和 Token。
 
 ## 监督频率和干预阈值
 

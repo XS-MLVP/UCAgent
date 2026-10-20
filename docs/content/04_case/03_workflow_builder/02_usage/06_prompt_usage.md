@@ -1,23 +1,24 @@
+
 # 提示词使用方法
 
-[提示词.md](提示词.md) 是用户与协作 Agent 的长期操作协议。它不负责生成业务提示词，而是预先约定环境变量、UCAgent 认识、tmux 监督和干预策略、短指令、诊断方法和不可违反的修改边界。
+[07_agent_prompts.md](07_agent_prompts.md) 是用户与协作 Agent 的长期操作协议。它不负责生成业务提示词，而是预先约定环境变量、UCAgent 认识、tmux 监督和干预策略、短指令、诊断方法和不可违反的修改边界。
 
 ## 首次使用
 
 新会话开始时，先告诉 Agent 本次环境变量，例如：
 
 ```text
-UCAGENT_HOME=~/FDocB/UCAgent
-WORKFLOW_BUILDER_HOME=~/FDocB/UCAgent/examples/workflow_builder
-BUSINESS_ROOT=~/FDocB/UCAgent_t/workspace_docx
-WFB_WORKSPACE=~/FDocB/UCAgent_t/workspace_docx/workspace
+UCAGENT_HOME=~/work/UCAgent
+WORKFLOW_BUILDER_HOME=~/work/UCAgent/examples/workflow_builder
+BUSINESS_ROOT=~/work/ucagent_tasks/docx
+WFB_WORKSPACE=~/work/ucagent_tasks/docx/workspace
 TMUX_SESSION=ucagent_workflow_builder
 ```
 
 然后给出：
 
 ```text
-请完整阅读同目录的 [提示词.md](提示词.md)，牢记其中的环境变量、短指令、监督策略、干预策略和修改边界。完成后建立认识。
+请完整阅读同目录的 [07_agent_prompts.md](07_agent_prompts.md)，牢记其中的环境变量、短指令、监督策略、干预策略和修改边界。完成后建立认识。
 ```
 
 Agent 应先确认路径、阅读 UCAgent 的关键入口和子工作流中心设计，再接受后续简短指令。

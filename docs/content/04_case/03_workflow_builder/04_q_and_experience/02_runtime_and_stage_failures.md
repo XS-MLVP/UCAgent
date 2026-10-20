@@ -1,3 +1,4 @@
+
 # 运行与阶段失败
 
 ## 启动后没有自动执行
@@ -45,7 +46,7 @@ UCAgent 默认读取 `.ucagent` 历史。需要续跑时这是正确行为；需
 ## 长阶段确认命令
 
 ```bash
-find <workspace>/wfgen <workspace>/workflow -type f -mmin -5 -printf '%TY-%Tm-%Td %TH:%TM %p\n'
+find <workspace>/wfgen <workspace>/workflow -type f -mmin -5 -exec ls -l {} +
 tmux capture-pane -pt <session> -S -200
 ```
 

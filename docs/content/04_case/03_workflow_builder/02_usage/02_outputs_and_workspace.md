@@ -1,8 +1,9 @@
+
 # 输出与工作区结构
 
 业务根目录下的 `workspace/` 同时保存设计、最终工作流、评估、增量历史和 UCAgent 状态。各目录用途不同，清理和版本管理策略也不同。
 
-![工作区结构](../resource/工作区的常见结构-workspace.png)
+![工作区结构](../resource/build_workspace_structure.png)
 
 ## 主要目录
 
@@ -30,7 +31,7 @@
 
 典型产物包含 `config.yaml`、`config/inc.yaml`、`tools/`、`checkers/`、`Guide_Doc/`、`docs/`、`input/example/`、`setup.py`、`requirements.txt`、`ucagent_setup.sh` 和 `Makefile`。
 
-![产物常见结构](../resource/产物的常见结构.png)
+![产物常见结构](../resource/generated_workflow_structure.png)
 
 生成工作流中的 `output/` 是将来运行业务目标才产生的数据，不能在构建阶段用预制结果冒充实际运行。
 

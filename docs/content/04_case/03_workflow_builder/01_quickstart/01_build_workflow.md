@@ -1,12 +1,20 @@
+
 # 启动 run 构建工作流
 
-本节从零准备 DOCX 案例输入，并用监督模式运行 Workflow Builder。以下命令假设 UCAgent 仓库位于 `~/FDocB/UCAgent`，业务根目录为 `~/FDocB/UCAgent_t/workspace_docx`。
+本节从零准备 DOCX 案例输入，并用监督模式运行 Workflow Builder。以下命令假设 UCAgent 仓库位于 `~/work/UCAgent`，业务根目录为 `~/work/ucagent_tasks/docx`。
 
 ## 1. 准备业务需求
 
-创建 `workspace_docx/input/guide.md`，至少写清目标、输入、输出、工具、Checker、文档和验收。可采用以下最小示例并继续补充业务细节：
+先创建业务输入目录：
+
+```bash
+mkdir -p ~/work/ucagent_tasks/docx/input/test_input/assets
+```
+
+创建 `~/work/ucagent_tasks/docx/input/guide.md`，至少写清目标、输入、输出、工具、Checker、文档和验收。可采用以下最小示例并继续补充业务细节：
 
 ```markdown
+
 # DOCX 说明文档工作流需求
 
 ## 目标
@@ -33,7 +41,7 @@
 
 ## 2. 准备样例输入
 
-在 `input/test_input/` 放入较小但完整的案例：
+在 `~/work/ucagent_tasks/docx/input/test_input/` 放入较小但完整的案例：
 
 ```text
 test_input/
@@ -45,28 +53,35 @@ test_input/
 
 正文应至少包含二级标题、段落、列表、表格和一个图片引用。要求文档应明确中文字体回退、页面大小、图片缺失时的行为和输出文件名。这样生成器才能规划有意义的工具测试与 Checker fixture。
 
+使用本页后面的样例正文时，可以复制文档截图作为 `assets/architecture.png`：
+
+```bash
+cp ~/work/UCAgent/docs/content/04_case/03_workflow_builder/resource/workflow_builder_running.png \
+  ~/work/ucagent_tasks/docx/input/test_input/assets/architecture.png
+```
+
 ## 3. 检查环境
 
 ```bash
-cd ~/FDocB/UCAgent/examples/workflow_builder
+cd ~/work/UCAgent/examples/workflow_builder
 python setup.py --check
-test -f ~/FDocB/UCAgent_t/workspace_docx/input/guide.md
-test -d ~/FDocB/UCAgent_t/workspace_docx/input/test_input
+test -f ~/work/ucagent_tasks/docx/input/guide.md
+test -d ~/work/ucagent_tasks/docx/input/test_input
 ```
 
-如果不使用本地配置，先在当前 shell 执行本机约定的 `ucagent_env` 和 `proxy_on`。代理是否必需取决于模型服务；不要把 Token 写进 `guide.md` 或 `.workflow_builder/local.mk`。
+不使用本地配置时，需显式向 Make 传入源码、Python 和工作区路径，不能只传 `WS`。环境检查未通过前不要启动。代理是否必需取决于模型服务；不要把 Token 写进 `guide.md` 或 `.workflow_builder/local.mk`。
 
 ## 4. 启动监督模式
 
 直接启动 TUI：
 
 ```bash
-make WS=~/FDocB/UCAgent_t/workspace_docx/workspace run
+make WS=~/work/ucagent_tasks/docx/workspace run
 ```
 
 `run` 默认附带 `--loop`，Agent 会自动获取并继续任务。希望在共享 tmux 中观察时，可以使用 Makefile 的 `session` 目标，或者自行创建 tmux 后在其中执行同一条命令。监督模式下不要替 Agent 生成业务文件；连续失败后应定位母工作流契约、指导文档或 Checker 是否存在问题。
 
-![Workflow Builder 运行界面](../resource/workflow_builder实际运行图.png)
+![Workflow Builder 运行界面](../resource/workflow_builder_running.png)
 
 ## 5. 观察进度
 
@@ -75,8 +90,8 @@ make WS=~/FDocB/UCAgent_t/workspace_docx/workspace run
 每隔一段时间检查：
 
 ```bash
-find ~/FDocB/UCAgent_t/workspace_docx/workspace/wfgen -maxdepth 1 -type f -printf '%f\n'
-find ~/FDocB/UCAgent_t/workspace_docx/workspace/workflow -maxdepth 2 -type f | head
+find ~/work/ucagent_tasks/docx/workspace/wfgen -maxdepth 1 -type f -print
+find ~/work/ucagent_tasks/docx/workspace/workflow -maxdepth 2 -type f | head
 ```
 
 不要因为单次长模型调用就立即终止。连续多次失败、同一检查反复执行且产物时间戳不变、上下文连续压缩或明确异常堆栈，才属于需要诊断的信号。
@@ -84,7 +99,7 @@ find ~/FDocB/UCAgent_t/workspace_docx/workspace/workflow -maxdepth 2 -type f | h
 ## 6. 构建结束后的检查
 
 ```bash
-cd ~/FDocB/UCAgent_t/workspace_docx/workspace/workflow
+cd ~/work/ucagent_tasks/docx/workspace/workflow
 python setup.py --check
 make check
 make check_example
@@ -105,6 +120,7 @@ make check_example
 `input/test_input/content.md` 可以包含：
 
 ```markdown
+
 # Workflow Builder 使用说明
 
 ## 目标
@@ -121,7 +137,7 @@ make check_example
 | 构建 | workflow/ |
 | 评估 | eval/*.json |
 
-![系统结构](assets/architecture.png)
+![工作流架构](assets/architecture.png)
 ```
 
 `document_requirements.md` 应写明 A4、页边距、标题层级、中文字体回退、页码、目录、表格样式、图片最大宽度、缺图行为和输出文件名。图片可以使用本文档 `resource/` 中一张较小截图复制为样例，但不得只提供图片而没有替代文字。
@@ -131,7 +147,7 @@ make check_example
 希望另一个终端只读观察时：
 
 ```bash
-make WS=~/FDocB/UCAgent_t/workspace_docx/workspace session
+make WS=~/work/ucagent_tasks/docx/workspace session
 tmux attach -t ucagent_workflow_builder -r
 ```
 

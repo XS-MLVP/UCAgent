@@ -1,3 +1,4 @@
+
 # 母工作流二次开发测试与回归
 
 本篇用于指导二次开发者为当前 Workflow Builder 母工作流编写、选择和运行测试。Workflow Builder 的模型流程耗时较高，因此母代码修改应优先由确定性回归发现协议错误，再用少量真实业务运行验证母 Agent行为和生成产物。不能把每次完整生成当成最基本的单元测试。
@@ -13,7 +14,7 @@
 ## 回归入口
 
 ```bash
-cd ~/FDocB/UCAgent/examples/workflow_builder
+cd ~/work/UCAgent/examples/workflow_builder
 make regression
 ```
 
@@ -221,4 +222,4 @@ with tempfile.TemporaryDirectory() as temporary:
 
 ## 继续阅读
 
-完成母工作流修改后，开发者还需要知道“生成的子工作流中哪些组件应怎样继续开发”。请继续阅读[工作流产物二次开发指南](07_工作流产物二次开发指南.md)。
+完成母工作流修改后，开发者还需要知道“生成的子工作流中哪些组件应怎样继续开发”。请继续阅读[工作流产物二次开发指南](07_generated_workflow_development.md)。

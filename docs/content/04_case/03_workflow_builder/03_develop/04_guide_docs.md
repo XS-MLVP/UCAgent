@@ -1,3 +1,4 @@
+
 # 母工作流 GuideDoc 与文档生成二次开发
 
 本篇面向维护母工作流 `Guide_Doc/` 和 `tools/workflow_guidedoc_generator/` 的开发者，说明如何修改阶段指导契约、公共 FAQ、用户文档生成和注册逻辑。GuideDoc 的实际读者是执行阶段的 Agent，但本篇的目的不是教 Agent做任务，而是教开发者如何设计和实现这套指导系统。
@@ -96,7 +97,9 @@ def section_id(section):
 
 源码位置：`tools/workflow_guidedoc_generator/core.py`，符号 `generate_guidedocs()`。
 
-```python
+以下为省略实现细节的伪代码，完整实现见上述源码。
+
+```text
 specs = validate_guidedoc_specs(workflow_root, spec_paths)
 for spec in specs:
     target = _safe(root, spec["path"])
@@ -220,4 +223,4 @@ GuideDoc 的目标是减少 Agent决策成本，不是增加阅读仪式。一�
 
 ## 继续阅读
 
-评估和增量 GuideDoc 背后还有 JSON 状态、审批新鲜度、候选部署与回滚契约。请继续阅读[评估与增量控制](05_评估与增量控制.md)，不要只改自然语言指导而留下不一致状态机。
+评估和增量 GuideDoc 背后还有 JSON 状态、审批新鲜度、候选部署与回滚契约。请继续阅读[评估与增量控制](05_evaluation_and_incremental_control.md)，不要只改自然语言指导而留下不一致状态机。

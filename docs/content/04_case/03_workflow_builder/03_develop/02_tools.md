@@ -1,3 +1,4 @@
+
 # 母工作流 Tool 生成子系统二次开发
 
 本篇说明如何二次开发母工作流的 Tool 生成子系统，即修改 `tools/workflow_tool_generator/`、其 UCTool 包装、母配置注册和相关回归，使未来生成的任意业务工作流获得新的工具模板、spec 字段、写入策略或注册能力。它不是教业务 Agent如何调用某个具体工具。
@@ -109,7 +110,9 @@ def _safe_resolve(root: Path, rel_path: str) -> Path:
 
 生成器保存文件内容哈希和测试基线，用于区分三种情况：文件仍是上一轮生成内容、文件已经被用户或增量流程修改、文件第一次出现。已有文件策略不能只用一个布尔 `overwrite` 表达，因为自动覆盖手工维护代码可能造成数据丢失，而一律 skip 又会让 spec 更新永远不生效。
 
-```python
+以下为省略实现细节的伪代码，完整实现见上述源码。
+
+```text
 policy = _normalize_existing_policy(existing_policy, overwrite)
 if target.exists() and policy == "preserve":
     report.skipped_files.append(relative)
@@ -280,4 +283,4 @@ def render_tool_from_spec(spec):
 
 ## 继续阅读
 
-工具的输出如何被阶段判定，请继续阅读 [Checker 简介](03_checker简介.md)。若要修改生成出来的子工作流工具，还需结合[工作流产物二次开发指南](07_工作流产物二次开发指南.md)判断修改应回流母生成器还是保留为单个业务扩展。
+工具的输出如何被阶段判定，请继续阅读 [Checker 简介](03_checkers.md)。若要修改生成出来的子工作流工具，还需结合[工作流产物二次开发指南](07_generated_workflow_development.md)判断修改应回流母生成器还是保留为单个业务扩展。

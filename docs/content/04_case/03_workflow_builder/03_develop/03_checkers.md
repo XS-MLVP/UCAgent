@@ -1,3 +1,4 @@
+
 # 母工作流 Checker 生成子系统二次开发
 
 本篇说明如何修改母工作流的 Checker 规划、生成、模板、fixture 和注册系统，使后续生成的业务工作流拥有正确 Checker。读者是维护 `tools/workflow_checker_generator/`、Builder 中心 spec 和母阶段验收的开发者，不是被 Checker检查的子 Agent。
@@ -90,7 +91,9 @@ Checker 描述要说明“什么证据证明什么业务条件”。例如“检
 
 源码位置：`tools/workflow_checker_generator/core.py`，符号 `_validate_inline_source()`。
 
-```python
+以下为省略实现细节的伪代码，完整实现见上述源码。
+
+```text
 tree = ast.parse(source)
 class_node = next(
     node for node in tree.body
@@ -111,7 +114,9 @@ AST 校验比文本搜索可靠：注释中的类名不会被误认为实现，�
 
 源码位置：`tools/workflow_checker_generator/core.py`，符号 `_materialize_auto_tests()`。
 
-```python
+以下为省略实现细节的伪代码，完整实现见上述源码。
+
+```text
 if rule_type == "json_required_keys":
     fixtures[valid_path] = json.dumps({key: 0 for key in keys})
     fixtures[invalid_path] = json.dumps({key: 0 for key in keys[:-1]})
@@ -285,4 +290,4 @@ Checker 回归必须同时证明该通过的通过、该失败的失败。只跑
 
 ## 继续阅读
 
-Checker 告诉 Agent “什么算完成”，GuideDoc 则告诉 Agent “怎样可重复地做到”。请继续阅读[指导文档简介](04_指导文档简介.md)，了解阶段指导、FAQ、最小样例与 Checker 语义如何保持一致。
+Checker 告诉 Agent “什么算完成”，GuideDoc 则告诉 Agent “怎样可重复地做到”。请继续阅读[指导文档简介](04_guide_docs.md)，了解阶段指导、FAQ、最小样例与 Checker 语义如何保持一致。

@@ -1,3 +1,4 @@
+
 # 启动评估工作流
 
 评估流程用于独立审查已经生成的业务工作流。静态评估不修改 `workflow/`，也不应为了证明问题而启动完整子工作流。运行评估成本较高，必须由用户显式选择。
@@ -5,8 +6,8 @@
 ## 评估前提
 
 ```bash
-test -d ~/FDocB/UCAgent_t/workspace_docx/workspace/workflow
-cd ~/FDocB/UCAgent/examples/workflow_builder
+test -d ~/work/ucagent_tasks/docx/workspace/workflow
+cd ~/work/UCAgent/examples/workflow_builder
 python setup.py --check
 ```
 
@@ -15,10 +16,10 @@ python setup.py --check
 ## 分项运行
 
 ```bash
-make WS=~/FDocB/UCAgent_t/workspace_docx/workspace run_eval_tools
-make WS=~/FDocB/UCAgent_t/workspace_docx/workspace run_eval_checkers
-make WS=~/FDocB/UCAgent_t/workspace_docx/workspace run_eval_flow
-make WS=~/FDocB/UCAgent_t/workspace_docx/workspace run_eval_env
+make WS=~/work/ucagent_tasks/docx/workspace run_eval_tools
+make WS=~/work/ucagent_tasks/docx/workspace run_eval_checkers
+make WS=~/work/ucagent_tasks/docx/workspace run_eval_flow
+make WS=~/work/ucagent_tasks/docx/workspace run_eval_env
 ```
 
 四项职责分别是：
@@ -31,7 +32,7 @@ make WS=~/FDocB/UCAgent_t/workspace_docx/workspace run_eval_env
 也可以顺序运行并聚合：
 
 ```bash
-make WS=~/FDocB/UCAgent_t/workspace_docx/workspace run_eval
+make WS=~/work/ucagent_tasks/docx/workspace run_eval
 ```
 
 ## 运行评估
@@ -39,7 +40,7 @@ make WS=~/FDocB/UCAgent_t/workspace_docx/workspace run_eval
 只有静态检查无法回答“实际流程是否卡住或产物是否可用”时，才选择：
 
 ```bash
-make WS=~/FDocB/UCAgent_t/workspace_docx/workspace run_eval_runtime_default
+make WS=~/work/ucagent_tasks/docx/workspace run_eval_runtime_default
 ```
 
 增量运行模式使用 `run_eval_runtime_inc`。一次只评估一种运行模式，避免成本、日志和结论混在一起。
@@ -49,13 +50,13 @@ make WS=~/FDocB/UCAgent_t/workspace_docx/workspace run_eval_runtime_default
 报告位于构建工作区的 `eval/`，聚合命令为：
 
 ```bash
-make WS=~/FDocB/UCAgent_t/workspace_docx/workspace aggregate_eval
-make WS=~/FDocB/UCAgent_t/workspace_docx/workspace eval-list
+make WS=~/work/ucagent_tasks/docx/workspace aggregate_eval
+make WS=~/work/ucagent_tasks/docx/workspace eval-list
 ```
 
 一个有效 finding 应包含稳定 id、严重程度、对象、证据、影响、建议和来源 run。导致 UCAgent 无法启动、流程卡死、错误部署或破坏正式文件的问题优先级最高；需求未满足却被报告为成功同样属于高风险。
 
-![评估工作流运行界面](../resource/评估工作流实际运行图.png)
+![评估工作流运行界面](../resource/evaluation_workflow_running.png)
 
 ## 失败判断
 
