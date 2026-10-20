@@ -30,6 +30,8 @@ class WordCountChecker(Checker):
             word_max: 最大字数限制
             **kwargs: 其他参数（包含 need_human_check 等）
         """
+        super().__init__()
+
         # 保存参数
         self.file_path = file_path
         self.word_min = word_min

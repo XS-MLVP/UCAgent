@@ -1,171 +1,113 @@
 
-# 完整 Mini 示例
+# Mini 示例
 
-> 💡 **前置学习**：本示例综合了前面章节的所有知识。建议先阅读 [快速开始](01_quick_start.md)、[架构与工作原理](02_architecture.md)、[工作流配置](03_workflow.md)、[定制工具](05_customize.md) 和 [检查器](07_checkers.md)
+`examples/MiniWorkflow/` 是一个可运行的两阶段工作流：第一阶段分析 Calculator 的 README，第二阶段生成项目文档。它展示了配置、外部工具、Guide_Doc 和自定义 Checker 的最小组合。
 
-恭喜！您已经学习了 UCAgent 的四大核心组件。现在让我们将它们整合起来，运行一个完整的工作流示例。
+## 1. 目录和输入
 
-## 项目文件结构
-
-完整的 MiniWorkflow 项目结构如下：
-
-```
+```text
 examples/MiniWorkflow/
-├── Calculator/                          # 示例项目
-│   └── README.md                        # 项目说明文档
-├── Guide_Doc/                           # 指导文档目录
-│   ├── project_analysis_guide.md       # 项目分析指南
-│   ├── documentation_template.md       # 文档结构指导
-│   ├── Calculator_bug_analysis.md      # Bug 分析示例
-│   ├── Calculator_functions_and_checks.md  # 功能检查点示例
-│   └── Calculator_line_coverage_analysis.md  # 覆盖率分析示例
-├── mini.yaml                            # 工作流配置文件（约90行）
-├── my_tools.py                      # 自定义工具（约100行）
-├── my_checkers.py                   # 自定义检查器（约120行）
-├── Makefile                         # 构建脚本
-├── __init__.py                      # Python 包标记
-└── output/                          # 输出目录（运行后生成）
-    ├── Calculator_analysis.md       # 阶段1输出
-    └── Calculator_documentation.md  # 阶段2输出
+├── Calculator/README.md
+├── Guide_Doc/
+│   ├── project_analysis_guide.md
+│   └── documentation_template.md
+├── mini.yaml
+├── my_tools.py
+├── my_checkers.py
+└── Makefile
 ```
 
-## 快速开始
+`mini.yaml` 使用当前工作流字段：`ex_tools`、`template_overwrite`、`mission`、`stage`、`reference_files`、`output_files` 和 `checker`。启动命令使用 `output/` 作为 workspace，未传 `--output`，阶段产物实际位于 `examples/MiniWorkflow/output/unity_test/`。更改输出目录时应传 `--output <name>`，并用当前阶段信息确认路径。
 
-### 1. 前置条件
+## 2. 运行
 
-确保已安装 UCAgent：
+先完成[源码安装](../01_start/00_installation.md#12-安装-ucagent-主体)，激活虚拟环境，再按[直接使用](../02_usage/01_direct.md#1-配置模型)配置模型。在仓库根目录执行：
 
 ```bash
-# 检查安装
-ucagent --version
-
-# 或使用项目中的 ucagent.py
-python3 ucagent.py --version
+cd examples/MiniWorkflow
+make test
+make run ARGS="--loop"
 ```
 
-### 2. 进入项目目录
+`make test` 只检查自定义工具和 Checker 是否可以导入。`make run` 会清理并创建 `output/`，复制 Calculator，再启动 UCAgent：
 
 ```bash
-cd examples/MiniWorkflow/
-```
-
-### 3. 运行工作流
-
-使用 Makefile 一键运行：
-
-```bash
-make run
-```
-
-或使用完整命令：
-
-```bash
-# 先准备工作目录
-mkdir -p output
-cp -r Calculator output/
-
-# 运行 UCAgent
-ucagent ./output/ Calculator \
-  --mcp-server-no-file-tools \
+PYTHONPATH=. ucagent ./output/ Calculator \
   --config ./mini.yaml \
   --guid-doc-path ./Guide_Doc/ \
-  -s -hm --tui --no-embed-tools
+  -s -hm --tui --loop
 ```
 
-**参数说明**：
+`--loop` 使普通模式立即执行；只运行 `make run` 时会停在 TUI，输入 `loop` 才开始。`PYTHONPATH=.` 用于导入当前目录的 `my_tools` 和 `my_checkers`，Makefile 会自动设置。
 
-- `./output/`：工作目录（将 Calculator 复制到此目录）
-- `Calculator`：项目名称（对应 `{PROJECT}` 变量）
-- `--mcp-server-no-file-tools`：使用 MCP Server 模式（不含文件工具）
-- `--config ./mini.yaml`：指定工作流配置文件
-- `--guid-doc-path ./Guide_Doc/`：指定指导文档目录
-- `-s`：单步模式，每个阶段执行后暂停
-- `-hm`：启用人工检查模式
-- `--tui`：使用文本用户界面
-- `--no-embed-tools`：不嵌入工具到提示词
-
-### 4. 启动Code Agent
-
-另开一个终端启动Code Agent
+需要使用外部 Code Agent 时，改用：
 
 ```bash
-# 切换到目录
-cd examples/MiniWorkflow/outpute
-# 启动Code Agent（以gemini为例）
-gemini -y
+make run ARGS="--mcp-server --backend=codex"
 ```
 
-启动后在输入框输入提示词
+该命令不自动进入模型循环。另一个终端先进入 `examples/MiniWorkflow/output/`，再按 [MCP 接入](../01_start/03_mcp_mode.md#33-手动双终端接入以-codex-为例)配置并启动 Codex。Mini 的任务要求使用 `EditTextFile`，因此这里启用完整 MCP 文件工具。
 
-> 请通过工具`RoleInfo`获取你的角色信息和基本指导，然后完成任务。请使用工具`ReadTextFile`读取文件。你需要在当前工作目录进行文件操作，不要超出该目录。
+也可以把整个 `MiniWorkflow/` 复制到其他目录后运行；已安装的 UCAgent 会通过 `ucagent` 命令启动，自定义工具和 Checker 从当前示例目录导入。
 
-### 5. 查看输出
+示例工作流默认不需要嵌入工具；当前 CLI 的 `--no-embed-tools` 默认已经是 `true`，无需重复添加该参数。
 
-运行完成后，查看生成的文档：
+## 3. 工作流做了什么
+
+阶段 `analyze_project`：
+
+1. 读取 `Calculator/README.md` 和 `Guide_Doc/project_analysis_guide.md`；
+2. 生成 `unity_test/Calculator_analysis.md`（相对于 workspace）；
+3. 使用 `CountWords` 提供统计信息；
+4. 用字数和 Markdown 格式 Checker 验收。
+
+阶段 `generate_documentation`：
+
+1. 读取分析文档和 `Guide_Doc/documentation_template.md`；
+2. 生成 `unity_test/Calculator_documentation.md`（相对于 workspace）；
+3. 使用 `ExtractSections` 检查章节；
+4. 用字数、必需章节和 Markdown 格式 Checker 验收。
+
+阶段完成都必须经过 `Check`/`Complete`。Checker 失败时，先按返回的文件和字段修复，再重试。
+
+## 4. 查看结果
 
 ```bash
-# 查看分析文档
-cat output/Calculator_analysis.md
-
-# 查看完整文档
-cat output/Calculator_documentation.md
+cat output/unity_test/Calculator_analysis.md
+cat output/unity_test/Calculator_documentation.md
 ```
 
-## 扩展方向
+实际字数和内容由模型输出决定，不能把示例中的字数范围当作所有工作流的通用要求。
 
-掌握 mini-example 后，您可以尝试以下扩展：
+## 5. 修改示例
 
-### 1. 添加第3个阶段
+### 增加阶段
+
+在 `mini.yaml` 的 `stage` 列表中追加完整阶段：
 
 ```yaml
-stage:
-  - name: generate_api_docs
-    desc: "生成 API 文档"
-    task:
-      - "基于项目分析，生成 API 接口文档"
-    # ...
+- name: generate_api_docs
+  desc: "生成 API 文档"
+  task:
+    - "读取已有分析和模板，生成 {OUT}/{PROJECT}_api.md"
+  output_files:
+    - "{OUT}/{PROJECT}_api.md"
 ```
 
-### 2. 添加更多工具
+需要可靠验收时，再为该阶段添加 Checker。
 
-```python
-# 例如：检查链接有效性
-class CheckLinks(UCTool):
-    name = "CheckLinks"
-    description = "检查文档中的所有链接是否有效"
-    # ...
-```
+### 增加工具
 
-### 3. 添加更多检查器
+在 `my_tools.py` 中定义继承 `UCTool` 的类，用 Pydantic `args_schema` 描述参数，然后在 `mini.yaml` 的 `ex_tools` 中注册完整导入路径。工具必须只访问工作区允许的路径。
 
-```python
-# 例如：检查图片引用
-class ImageChecker(Checker):
-    def do_check(self, ...):
-        # 检查所有引用的图片是否存在
-        # ...
-```
+### 增加 Checker
 
-## 性能说明
+在 `my_checkers.py` 中继承 `Checker`，构造函数先调用 `super().__init__()`，在 `do_check` 中返回 `(bool, result)`。失败结果应包含稳定的 `error_code`、具体 `error` 和 `next_action`。
 
-- **首次运行**：约 1-20 分钟（包含 LLM 推理时间）
-- **后续运行**：1-10 分钟（如果有缓存）
-- **文件大小**：
-  - 分析文档：约 1-2 KB
-  - 完整文档：约 2-4 KB
+## 6. 进一步学习
 
-## 小结
-
-通过本章，您已经：
-
-✅ 了解完整项目的文件结构  
-✅ 学会使用 Makefile 快速运行  
-✅ 掌握了一个完整的工作流示例
-
-## 进一步学习
-
-- [工作流配置](03_workflow.md) - 深入了解工作流的详细配置
-- [模板文件](04_template.md) - 学习如何编写模板文件
-- [定制工具](05_customize.md) - 开发更复杂的自定义工具
-- [检查器](07_checkers.md) - 编写自定义检查器
-- [快速开始](01_quick_start.md) - 创建自己的工作流
+- [定制开发入门](01_quick_start.md)：从零搭建配置、工具和 Checker。
+- [工作流配置](03_workflow.md)：阶段、模板变量、批处理和阶段索引。
+- [定制工具](05_customize.md)：本地工具和 MCP schema。
+- [检查器](07_checkers.md)：生命周期、诊断和批任务约定。
+- [插件开发与发布](09_plugins.md)：把工作流资源封装为可安装插件。
