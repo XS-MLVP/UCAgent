@@ -65,3 +65,33 @@ print(json.dumps({
         "skill_tool": "ucagent.tools.skill",
         "loaded": [],
     }
+
+
+def test_backend_and_memory_import_without_langmem_or_trustcall() -> None:
+    """Active summaries and memory tools must work when old dependencies are absent."""
+    repository = Path(__file__).resolve().parents[1]
+    code = """
+import importlib.abc
+import sys
+
+class BlockRemovedDependencies(importlib.abc.MetaPathFinder):
+    '''Simulate an installation without the removed packages.'''
+    def find_spec(self, fullname, path=None, target=None):
+        '''Reject removed dependencies while allowing all other imports.'''
+        if fullname.split('.')[0] in {'langmem', 'trustcall'}:
+            raise ModuleNotFoundError(fullname)
+
+sys.meta_path.insert(0, BlockRemovedDependencies())
+from ucagent.tools.memory import MemoryGet, MemoryPut, SemanticSearchInGuidDoc
+from ucagent.abackend.langchain.middleware.messages import TrimAndSummaryMiddleware
+assert not {'langmem', 'trustcall'}.intersection(sys.modules)
+"""
+    completed = subprocess.run(
+        [sys.executable, "-W", "error::DeprecationWarning", "-c", code],
+        cwd=repository,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=30,
+    )
+    assert completed.returncode == 0, completed.stderr

@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 """Memory management tools for UCAgent."""
 
-from mem0 import Memory
+import json
 import time
 from .uctool import UCTool
 from langchain_core.tools.base import ArgsSchema
 
-from typing import Optional, List, Union
+from typing import Optional, List
 from pydantic import BaseModel, Field
 
 import os
@@ -14,8 +14,26 @@ from ucagent.util.log import info
 
 
 from langgraph.store.memory import InMemoryStore
+from langgraph.config import get_config
 from langchain_openai import OpenAIEmbeddings
-from langmem import utils
+
+
+def _memory_namespace(scope: str) -> tuple[str, ...]:
+    """Resolve a fixed scope or a configurable scope such as ``{user_id}``."""
+    if not scope.startswith("{"):
+        return (scope,)
+    key = scope.strip("{}")
+    try:
+        configurable = get_config().get("configurable", {})
+    except RuntimeError:
+        configurable = {}
+    if key not in configurable:
+        raise ValueError(
+            f"Missing memory scope key '{key}' in 'configurable'. "
+            f"Available keys: {list(configurable)}. "
+            "Set this key in the runnable configuration or use a fixed scope."
+        )
+    return (configurable[key],)
 
 
 class ArgsMemSearch(BaseModel):
@@ -25,6 +43,7 @@ class ArgsMemSearch(BaseModel):
 
 
 def new_embed(config) -> dict:
+    """Create the embedding index configuration used by memory stores."""
     info(f"Creating new embedding with model: {config['model_name']}, base_url: {config['openai_api_base']}")
     return {"embed":OpenAIEmbeddings(model   = config["model_name"],
                             base_url= config["openai_api_base"],
@@ -44,13 +63,13 @@ class SemanticSearchInGuidDoc(UCTool):
     workspace: str = Field(str, description="The workspace directory to search in")
     doc_path: str = Field(str, description="The path to the documentation directory relative to the workspace")
     store: InMemoryStore = Field(InMemoryStore, description="In-memory store for document references")
-    namespace: utils.NamespaceTemplate = Field(utils.NamespaceTemplate,
-        description="Namespace template for document references"
+    namespace: tuple[str, ...] = Field(("doc_reference",),
+        description="Namespace for document references"
     )
 
     def __init__(self, config, workspace, doc_path, file_extension: List[str] = [".md", ".py", ".v"]):
+        """Index matching documentation files within the configured workspace."""
         super().__init__()
-        self.namespace = utils.NamespaceTemplate("doc_reference")
         self.store = InMemoryStore(
             index=new_embed(config)
         )
@@ -62,20 +81,23 @@ class SemanticSearchInGuidDoc(UCTool):
             for file in files:
                 if any(file.endswith(ext) for ext in file_extension):
                     file_path = os.path.abspath(os.path.join(root, file)).removeprefix(self.workspace + os.sep)
-                    self.store.put(self.namespace(),
+                    with open(os.path.join(root, file), 'r', encoding='utf-8') as source:
+                        content = source.read()
+                    self.store.put(self.namespace,
                                    key=str(file_path),
-                                   value={"content": open(os.path.join(root, file), 'r', encoding='utf-8').read()}),
+                                   value={"content": content})
                     info(f"Added file {file_path} to memory.")
 
     def _run(self, query: str, limit: int = 3, run_manager = None) -> str:
+        """Return matching documentation records as JSON, including timestamps."""
         memories = self.store.search(
-            self.namespace(),
+            self.namespace,
             query=query,
             filter=None,
             limit=limit,
             offset=0,
         )
-        return utils.dumps([m.dict() for m in memories])
+        return json.dumps([m.dict() for m in memories], ensure_ascii=False)
 
 
 class ArgsMemoryPut(BaseModel):
@@ -92,8 +114,10 @@ class ArgsMemoryGet(BaseModel):
 
 
 class MemoryTool(UCTool):
+    """Base tool for sharing a configured in-memory store."""
     store: InMemoryStore = Field(None, description="In-memory store for document references")
     def set_store(self, config=None, store: Optional[InMemoryStore] = None):
+        """Use an existing store or create one from the embedding configuration."""
         super().__init__()
         if store is not None:
             self.store = store
@@ -124,7 +148,7 @@ class MemoryPut(MemoryTool):
         """Save the content to the memory store."""
         key = str(time.time_ns())
         self.store.put(
-            utils.NamespaceTemplate(scope)(),
+            _memory_namespace(scope),
             key=key,  # Use a unique key based on the current time
             value={"content": data}
         )
@@ -145,10 +169,10 @@ class MemoryGet(MemoryTool):
     def _run(self, scope: str, query: str, limit: int = 3, run_manager = None) -> str:
         """Search for content in the memory store."""
         memories = self.store.search(
-            utils.NamespaceTemplate(scope)(),
+            _memory_namespace(scope),
             query=query,
             filter=None,
             limit=limit,
             offset=0,
         )
-        return utils.dumps([m.dict() for m in memories])
+        return json.dumps([m.dict() for m in memories], ensure_ascii=False)

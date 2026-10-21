@@ -3,7 +3,6 @@ langchain_community>=0.3.31
 openai>=1.109.1
 langgraph>=1.0.5
 langchain_openai>=1.1.6
-langmem>=0.0.30
 mem0ai>=0.1.118
 mcp>=2.3.0,<3.0
 psutil>=7.1.0
