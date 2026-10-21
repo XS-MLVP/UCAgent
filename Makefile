@@ -2,6 +2,7 @@
 # Current Workspace Dir
 CWD ?= output/workspace_$*
 PYTHON ?= python3
+NODE ?= node
 GUIDE_DOC_CACHE ?= Guide_Doc
 CFG ?= config.yaml
 BBV ?= false
@@ -50,6 +51,11 @@ CMD ?= ucagent
 endif
 
 all: clean test
+
+.PHONY: unitytest
+unitytest:
+	$(PYTHON) -m pytest -q tests
+	$(NODE) --test tests/test_*.js
 
 init:
 	pip3 install -r requirements.txt
