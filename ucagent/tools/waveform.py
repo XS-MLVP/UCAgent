@@ -98,7 +98,7 @@ class WaveSignalPattern(BaseModel):
         ...,
         min_length=1,
         description=(
-            "wavekit signal query: exact dotted path, *, **, /{regex}/, or brace "
+            "Signal query: exact dotted path, *, **, /{regex}/, or brace "
             "alternatives/ranges"
         ),
     )
@@ -241,7 +241,7 @@ class WaveInfoAnalysisArgs(BaseModel):
     logged_cycle: int | None = Field(
         default=None,
         ge=0,
-        description="Cycle number printed by the failing test; it is not a wavekit timestamp.",
+        description="Cycle number printed by the failing test; it is not a waveform timestamp.",
     )
     cycle_tolerance: int = Field(
         default=5,
@@ -251,7 +251,7 @@ class WaveInfoAnalysisArgs(BaseModel):
     )
     clock_signal: str | None = Field(
         default=None,
-        description="Exact or wavekit query for the one-bit clock used to align logged_cycle.",
+        description="Signal query for the one-bit clock used to align logged_cycle.",
     )
     clock_edge: ClockEdge = Field(
         default="rising",
@@ -268,12 +268,12 @@ class WaveInfoAnalysisArgs(BaseModel):
     start_step: int | None = Field(
         default=None,
         ge=0,
-        description="Inclusive wavekit simulation timestamp for an explicit read window.",
+        description="Inclusive waveform simulation timestamp for an explicit read window.",
     )
     end_step: int | None = Field(
         default=None,
         ge=0,
-        description="Inclusive wavekit simulation timestamp for an explicit read window.",
+        description="Inclusive waveform simulation timestamp for an explicit read window.",
     )
     context_steps: int = Field(
         default=1,
@@ -374,7 +374,7 @@ class WaveInfoToolPattern(BaseModel):
         ...,
         min_length=1,
         description=(
-            "wavekit signal query: exact dotted path, *, **, /{regex}/, or brace "
+            "Signal query: exact dotted path, *, **, /{regex}/, or brace "
             "alternatives/ranges"
         ),
     )
@@ -434,7 +434,7 @@ class ArgWaveInfo(BaseModel):
         ge=-1,
         description=(
             "Cycle number printed by the failing test, or -1 when unavailable; it is "
-            "not a wavekit timestamp."
+            "not a waveform timestamp."
         ),
     )
     cycle_tolerance: int = Field(
@@ -446,7 +446,7 @@ class ArgWaveInfo(BaseModel):
     clock_signal: str = Field(
         default="",
         description=(
-            "Exact or wavekit query for the one-bit clock used to align logged_cycle; "
+            "Signal query for the one-bit clock used to align logged_cycle; "
             "leave empty when cycle alignment is not requested."
         ),
     )
@@ -466,14 +466,14 @@ class ArgWaveInfo(BaseModel):
         default=-1,
         ge=-1,
         description=(
-            "Inclusive wavekit simulation timestamp for an explicit read window, or -1."
+            "Inclusive waveform simulation timestamp for an explicit read window, or -1."
         ),
     )
     end_step: int = Field(
         default=-1,
         ge=-1,
         description=(
-            "Inclusive wavekit simulation timestamp for an explicit read window, or -1."
+            "Inclusive waveform simulation timestamp for an explicit read window, or -1."
         ),
     )
     context_steps: int = Field(
@@ -857,7 +857,7 @@ class WaveInfo(UCTool):
         "signals. These context signals are shown in the timeline and online viewer without "
         "becoming event triggers. A target result signal alone is not complete evidence. "
         "logged_cycle is only a test-log hint: provide clock_signal so the tool can "
-        "map clock occurrence indices to wavekit simulation timestamps. Always "
+        "map clock occurrence indices to waveform simulation timestamps. Always "
         "confirm a candidate with the interface specification, test-driver/API Step "
         "ordering, logged inputs, ready/valid or the DUT's equivalent acceptance and "
         "response conditions, backpressure/latency, state, transaction IDs, and relevant "
@@ -2522,7 +2522,7 @@ class WaveInfo(UCTool):
         if last_step < first_step:
             return self._error(
                 "invalid_waveform_time_range",
-                "wavekit reported an invalid waveform time range.",
+                "The waveform has an invalid simulation time range.",
                 details={"first_wave_step": first_step, "last_wave_step": last_step},
             )
 
@@ -2571,7 +2571,7 @@ class WaveInfo(UCTool):
                                 ("candidate_clock_signals", self._clock_candidates(all_signals)),
                                 (
                                     "reason",
-                                    "logged_cycle cannot be compared directly with a wavekit timestamp",
+                                    "logged_cycle cannot be compared directly with a waveform timestamp",
                                 ),
                             ]
                         ),
@@ -2594,13 +2594,15 @@ class WaveInfo(UCTool):
             try:
                 clock_matches = list(reader.get_matched_signals(clock_signal).values())
             except Exception as error:
+                log_msg(f"WaveInfo clock query failed for {clock_signal!r}: {error}")
                 return self._error(
                     "invalid_clock_query",
-                    f"wavekit rejected clock_signal: {error}",
+                    "clock_signal is not a valid signal query.",
                     details={
                         "clock_signal": clock_signal,
                         "candidate_clock_signals": self._clock_candidates(all_signals),
                     },
+                    suggestions=["Use an exact one-bit signal path from candidate_clock_signals."],
                 )
             if len(clock_matches) != 1:
                 return self._error(
@@ -2729,10 +2731,15 @@ class WaveInfo(UCTool):
                     key=lambda signal: signal.full_name,
                 )
             except Exception as error:
+                log_msg(f"WaveInfo signal query failed for {item.signal!r}: {error}")
                 return self._error(
                     "invalid_signal_query",
-                    f"wavekit rejected signal pattern '{item.signal}': {error}",
+                    f"Signal pattern '{item.signal}' is not a valid signal query.",
                     details={"pattern": item.model_dump()},
+                    suggestions=[
+                        "Call WaveInfo with pattern omitted to inspect the signal catalog, "
+                        "then use an exact signal path or the documented query syntax."
+                    ],
                 )
             if not matches:
                 close_names = get_close_matches(
@@ -2750,7 +2757,7 @@ class WaveInfo(UCTool):
                         "top_scopes": top_scopes,
                     },
                     suggestions=[
-                        "Call WaveInfo with pattern omitted to inspect the signal catalog, then use a more precise wavekit query."
+                        "Call WaveInfo with pattern omitted to inspect the signal catalog, then use a more precise signal query."
                     ],
                 )
             pattern_matches.append((item, matches))
@@ -2772,11 +2779,12 @@ class WaveInfo(UCTool):
                             key=lambda signal: signal.full_name,
                         )
                     except Exception as error:
+                        log_msg(f"WaveInfo signal_groups.{field_name} query failed for {requested_name!r}: {error}")
                         return self._error(
                             "invalid_signal_group_path",
-                            f"wavekit rejected signal_groups.{field_name} path "
-                            f"'{requested_name}': {error}",
+                            f"signal_groups.{field_name} contains an invalid signal path.",
                             details={"signal_group": field_name, "signal": requested_name},
+                            suggestions=["Use exact signal paths from the WaveInfo signal catalog."],
                         )
                     if len(matches) != 1 or matches[0].full_name != requested_name:
                         return self._error(

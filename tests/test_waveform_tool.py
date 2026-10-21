@@ -210,8 +210,18 @@ def test_no_argument_call_lists_latest_session_waveform_inventory(tmp_path):
 
 
 def test_mcp_schema_uses_non_nullable_sentinel_arguments():
-    schema = WaveInfo().tool_call_schema.model_json_schema()
+    """Local and MCP help must expose callable arguments without backend prerequisites."""
+    tool = WaveInfo()
+    schema = tool.tool_call_schema.model_json_schema()
     serialized = json.dumps(schema, sort_keys=True)
+
+    mcp_tool = to_mcp_tool(tool)
+    assert mcp_tool.parameters == schema
+    help_text = tool.description + serialized + json.dumps(
+        waveform_module.WaveInfoAnalysisArgs.model_json_schema()
+    )
+    for internal_name in ("wavekit", "verdi", "npi", "fst", "vcd", "fsdb", "format_priority"):
+        assert internal_name not in help_text.lower()
 
     assert '"null"' not in serialized
     assert schema["properties"]["test_case_name"]["type"] == "string"
@@ -1027,6 +1037,45 @@ def test_empty_corrupt_dependency_and_signal_limit_errors(tmp_path, monkeypatch)
     )
     assert limited["status"] == "signal_limit_exceeded"
     assert limited["details"]["matched_signal_count"] == 5
+
+
+@pytest.mark.parametrize("query_field,status", [
+    ("clock_signal", "invalid_clock_query"),
+    ("pattern", "invalid_signal_query"),
+    ("signal_groups", "invalid_signal_group_path"),
+])
+def test_invalid_query_diagnostics_keep_backend_errors_in_operator_logs(tmp_path, monkeypatch, query_field, status):
+    """A rejected query must identify its task input without leaking backend exceptions."""
+    import wavekit
+
+    test_dir = tmp_path / "tests"
+    session = _session(test_dir, "toffee_tmp_20260814150000_000")
+    _write_vcd(session, "test_query")
+    tool = _tool(tmp_path, test_dir)
+    original_query = wavekit.VcdReader.get_matched_signals
+
+    def reject_query(reader, query):
+        """Reject only the requested test query while preserving signal discovery."""
+        if query == "rejected_query":
+            raise RuntimeError("backend parser implementation detail")
+        return original_query(reader, query)
+
+    monkeypatch.setattr(wavekit.VcdReader, "get_matched_signals", reject_query)
+    operator_log = []
+    monkeypatch.setattr(waveform_module, "log_msg", operator_log.append)
+    arguments = {"pattern": [{"signal": "TOP.dut.result[3:0]"}]}
+    if query_field == "clock_signal":
+        arguments["clock_signal"] = "rejected_query"
+    elif query_field == "pattern":
+        arguments["pattern"] = [{"signal": "rejected_query"}]
+    else:
+        arguments["signal_groups"] = {**FINAL_SIGNAL_GROUPS, "inputs": ["rejected_query"]}
+    result = tool.analyze(test_case_name="test_query", **arguments)
+    assert result["status"] == status
+    assert "rejected_query" in json.dumps(result["details"])
+    assert result["suggestions"]
+    assert "backend parser implementation detail" not in json.dumps(result)
+    assert any("backend parser implementation detail" in message for message in operator_log)
 
 
 def test_window_clamping_truncation_and_no_candidate_are_not_final_evidence(tmp_path):

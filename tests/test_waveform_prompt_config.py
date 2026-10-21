@@ -16,6 +16,22 @@ from ucagent.util.bug_analysis_contract import (
 from ucagent.util.config import Config, load_yaml_with_env_vars
 
 
+def test_runtime_waveform_guidance_does_not_require_backend_or_format_knowledge():
+    """Guides and optional skills must teach public actions rather than waveform setup."""
+    language_root = Path(__file__).parents[1] / "ucagent/lang/zh"
+    sources = [language_root / "config/default.yaml"]
+    for directory in ("doc/Guide_Doc", "template", "skills"):
+        sources.extend((language_root / directory).rglob("*.md"))
+    internal_terms = re.compile(
+        r"\b(?:wavekit|verdi|libnpi|waveform_analysis_format_priority)\b"
+        r"|(?<!\.)\b(?:fst|vcd|fsdb)\b",
+        flags=re.IGNORECASE,
+    )
+    for source in sources:
+        # Literal artifact extensions remain valid tool data and fixture inputs.
+        assert internal_terms.search(source.read_text(encoding="utf-8")) is None, source
+
+
 def test_api_test_prompt_and_guide_require_api_checkpoint_association():
     repo_root = Path(__file__).parents[1]
     config = load_yaml_with_env_vars(
