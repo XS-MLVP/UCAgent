@@ -30,7 +30,7 @@ from design_with_ppa.ppa import (  # noqa: E402
     _parse_vcd_activity,
     _parse_sta_metric,
 )
-from ucagent.tools.uctool import to_fastmcp  # noqa: E402
+from ucagent.tools.uctool import to_mcp_tool  # noqa: E402
 from ucagent.util.functions import get_tools_from_cfg  # noqa: E402
 
 
@@ -293,9 +293,9 @@ def test_args_forbid_manual_classification_and_ambiguous_constraints() -> None:
 
 
 def test_mcp_schema_requires_lists_and_forbids_extra_fields(tmp_path: Path) -> None:
-    """FastMCP conversion must preserve the strict current tool contract."""
+    """MCPServer conversion must preserve the strict current tool contract."""
 
-    parameters = to_fastmcp(_tool(tmp_path)).parameters
+    parameters = to_mcp_tool(_tool(tmp_path)).parameters
     assert parameters["additionalProperties"] is False
     assert parameters.get("required") is None  # all fields optional; derived from workspace
     waveform_schema = parameters["properties"]["waveform_files"]

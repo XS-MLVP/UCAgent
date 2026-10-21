@@ -39,7 +39,7 @@ import ucagent.plugins as plugin_module
 from ucagent.checkers.base import Checker
 from ucagent.cli import _plugin_discovery_overrides, run
 from ucagent.stage.vstage import parse_vstage
-from ucagent.tools.uctool import UCTool, to_fastmcp
+from ucagent.tools.uctool import UCTool, to_mcp_tool
 from ucagent.tools.fileops import is_file_writeable as _is_file_writeable
 from ucagent.util.config import Config
 from ucagent.verify_agent import VerifyAgent
@@ -1905,11 +1905,11 @@ def test_design_with_ppa_local_plugin_creates_mcp_compatible_tool(tmp_path: Path
     assert plugin_summary(loaded)["tool_factories"] == 1
     assert [tool.name for tool in tools] == ["AnalyzePPA", "RunDesignConsistency"]
     assert tools[0]._DEFAULT_LIBERTY.is_file()
-    parameters = to_fastmcp(tools[0]).parameters
+    parameters = to_mcp_tool(tools[0]).parameters
     rtl_schema = parameters["properties"]["rtl_files"]
     assert rtl_schema["anyOf"][0] == {"items": {"type": "string"}, "type": "array"}
     waveform_schema = parameters["properties"]["waveform_files"]
     assert waveform_schema["anyOf"][0] == {"items": {"type": "string"}, "type": "array"}
-    consistency_parameters = to_fastmcp(tools[1]).parameters
+    consistency_parameters = to_mcp_tool(tools[1]).parameters
     assert consistency_parameters["properties"]["test_dir"]["default"] == "{OUT}/tests"
     assert consistency_parameters["properties"]["test_glob"]["default"] == "{OUT}/tests/test_{DUT}_*.py"

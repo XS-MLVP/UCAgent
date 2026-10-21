@@ -664,10 +664,10 @@ def test_repo_workflow_configuration_and_stage_lifecycle(repo_case, monkeypatch,
 def test_repo_tool_mcp_and_local_failures(repo_case):
     """The workflow-local tool converts to MCP and diagnoses real local invocation failures."""
 
-    from ucagent.tools.uctool import to_fastmcp
+    from ucagent.tools.uctool import to_mcp_tool
 
     tool = RunRepoValidation(workspace=str(repo_case.workspace), cfg=repo_case.cfg)
-    schema = to_fastmcp(tool).parameters
+    schema = to_mcp_tool(tool).parameters
     assert schema["properties"]["action"]["default"] == "validate"
     result = tool._run()
     assert result["error_code"] == "repo_validation_failed"

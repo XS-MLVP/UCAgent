@@ -21,7 +21,7 @@ from ucagent.plugins import (
     resolve_plugin_workflow,
     validate_plugin,
 )
-from ucagent.tools.uctool import to_fastmcp
+from ucagent.tools.uctool import to_mcp_tool
 from ucagent.util.functions import get_tools_from_cfg
 
 
@@ -69,7 +69,7 @@ def test_ucagent_compatibility_matches_verified_baseline(monkeypatch, version, c
 
 def test_command_has_mcp_convertible_pydantic_schema(tmp_path: Path) -> None:
     """The plugin tool exposes the BaseModel schema required by MCP conversion."""
-    mcp_tool = to_fastmcp(RTL2SpecCommand(workspace=str(tmp_path)))
+    mcp_tool = to_mcp_tool(RTL2SpecCommand(workspace=str(tmp_path)))
     schema = mcp_tool.parameters
     assert "action" in schema["properties"]
     assert schema["additionalProperties"] is False
@@ -191,7 +191,7 @@ def test_registered_tool_obeys_agent_and_mcp_filters(tmp_path, policy, expected)
     context = PluginContext(tmp_path, "outputs", ("outputs",), (), None, plugin.root)
     tools = get_tools_from_cfg(create_plugin_tools([loaded], context), policy)
     assert [tool.name for tool in tools] == expected
-    assert [to_fastmcp(tool).name for tool in tools] == expected
+    assert [to_mcp_tool(tool).name for tool in tools] == expected
 
 
 def test_checker_registration_rejects_conflicts_without_global_mutation(monkeypatch):

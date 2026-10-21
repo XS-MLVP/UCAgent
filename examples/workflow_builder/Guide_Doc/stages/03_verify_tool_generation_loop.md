@@ -21,7 +21,7 @@
 
 1. 第1步：调用 `WorkflowToolGenerator(mode='base', tools=['run_command_tool'], existing_policy='create_only')` 生成并注册固定的受限批处理工具。该工具是运行基础设施，不计入业务 required_tools；其 cwd 必须解析到工作流根目录内，命令必须来自白名单，必须使用 `shell=False`。Python 或 Shell batch 只能通过工作流根级 `tmp/` 内相对 `.py`/`.sh` 文件运行，且解释器命令只接受一个脚本参数；禁止 `python -c`、`bash -c`、绝对路径、`..`、命令拼接、未批准 make 目标和任意危险参数。read_text_file_tool、write_text_file_tool 仍不得无需求生成。
 2. 第2步：使用 ReadTextFile 读取 {TEST_WORKFLOW_ROOT}/.workflow/checkers/tool_spec_checker.py、tool_static_checker.py、tool_direct_runner.py、.workflow/tool_tests/run_mcp_tests.py 和 tools/mcp_adapters.py。
-3. 第2.1步：确认 tools/mcp_adapters.py 的动态 adapter 只实现 _run，不得定义 def run(self, tool_input...)，也不得在动态类字典中注册 run 函数覆盖项；必须让 BaseTool.run 负责把 _run 返回内容包装成 ToolMessage。否则生成工作流直接 make run 时会报工具返回裸字符串类型错误。 adapter 的 args_schema 字段类型必须使用 Any，避免 MCP/FastMCP 将 JSON 字符串预解析成 list/dict 后被 Pydantic 提前拒绝。
+3. 第2.1步：确认 tools/mcp_adapters.py 的动态 adapter 只实现 _run，不得定义 def run(self, tool_input...)，也不得在动态类字典中注册 run 函数覆盖项；必须让 BaseTool.run 负责把 _run 返回内容包装成 ToolMessage。否则生成工作流直接 make run 时会报工具返回裸字符串类型错误。 adapter 的 args_schema 字段类型必须使用 Any，避免 MCP 将 JSON 字符串预解析成 list/dict 后被 Pydantic 提前拒绝。
 4. 第3步：确认 Makefile 包含 check_tool_specs、check_tools、test_tools、test_mcp，且 make check 会包含这些目标。
 5. 第4步：确认 config.yaml 中 tools 是 mapping，包含 tools.RunTestCases.test_dir；GeneratedTools 可以为空，后续 smoke 和全量业务工具阶段会按 requirements_manifest.required_tools 注册真实工具。
 6. 第5步：使用 Check 验证 run_command_tool 已有 spec、源码、GeneratedTools 注册、正常 `pwd` 用例和拒绝 inline Python 的失败用例；缺少该基础设施工具必须失败，但不得因为缺少 read_text_file_tool/write_text_file_tool 失败。

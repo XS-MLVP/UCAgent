@@ -23,7 +23,7 @@ sys.path.append(os.path.abspath(os.path.join(current_dir, "..")))
 
 from ucagent.tools.fileops import *
 from ucagent.tools import DeleteTextLines as ExportedDeleteTextLines
-from ucagent.tools.uctool import to_fastmcp
+from ucagent.tools.uctool import to_mcp_tool
 
 
 class TestFileOpsTools(unittest.TestCase):
@@ -1312,7 +1312,7 @@ class TestFileOpsTools(unittest.TestCase):
 
     def test_edit_text_file_converts_to_unambiguous_mcp_schema(self):
         tool = EditTextFile(workspace=self.workspace)
-        mcp_tool = to_fastmcp(tool)
+        mcp_tool = to_mcp_tool(tool)
 
         self.assertEqual(set(mcp_tool.parameters["required"]), {"path", "content"})
         self.assertFalse(mcp_tool.parameters.get("additionalProperties", True))
@@ -1324,7 +1324,7 @@ class TestFileOpsTools(unittest.TestCase):
 
     def test_delete_text_lines_converts_to_unambiguous_mcp_schema(self):
         tool = DeleteTextLines(workspace=self.workspace)
-        mcp_tool = to_fastmcp(tool)
+        mcp_tool = to_mcp_tool(tool)
 
         self.assertEqual(
             set(mcp_tool.parameters["required"]),
@@ -1348,7 +1348,7 @@ class TestFileOpsTools(unittest.TestCase):
 
     def test_replace_string_converts_line_blocks_to_mcp_schema(self):
         tool = ReplaceStringInFile(workspace=self.workspace)
-        mcp_tool = to_fastmcp(tool)
+        mcp_tool = to_mcp_tool(tool)
 
         self.assertEqual(
             set(mcp_tool.parameters["required"]),

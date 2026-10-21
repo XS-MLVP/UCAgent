@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+"""Shared runtime helpers for verification artifacts, configuration, and services."""
 
 import copy
 import shutil
@@ -1718,31 +1719,29 @@ def _install_uvicorn_log_bridge(logger):
 
 
 def create_verify_mcps(mcp_tools: list, host: str, port: int, logger=None):
+    """Build an MCP SDK HTTP application and its uvicorn server."""
     import logging
     __old_getLogger = logging.getLogger
     def __getLogger(name):
+        """Route server construction logs to the agent's configured logger."""
         return logger
     if logger:
         logging.getLogger = __getLogger
     try:
-        from mcp.server.fastmcp import FastMCP
-        from ucagent.tools.uctool import to_fastmcp
+        from mcp.server.mcpserver import MCPServer
+        from ucagent.tools.uctool import to_mcp_tool
         from ucagent.util.log import info
-        fastmcp_tools = []
-        for tool in mcp_tools:
-            fastmcp_tools.append(to_fastmcp(tool))
-        # Start the FastMCP server
-        info(f"create FastMCP server with tools: {[tool.name for tool in fastmcp_tools]}")
-        mcp = FastMCP("UnityTest", tools=fastmcp_tools, host=host, port=port)
-        s = mcp.settings
-        info(f"FastMCP server started at {s.host}:{s.port}")
-        starlette_app = mcp.streamable_http_app()
+        converted_tools = [to_mcp_tool(tool) for tool in mcp_tools]
+        info(f"create MCP server with tools: {[tool.name for tool in converted_tools]}")
+        mcp = MCPServer("UnityTest", tools=converted_tools)
+        starlette_app = mcp.streamable_http_app(host=host)
         import uvicorn
         config = uvicorn.Config(
             starlette_app,
-            host=mcp.settings.host,
-            port=mcp.settings.port,
+            host=host,
+            port=port,
             log_level=mcp.settings.log_level.lower(),
+            ws="none",
             timeout_keep_alive=300,
             timeout_graceful_shutdown=60,
         )
@@ -1767,10 +1766,10 @@ def start_verify_mcps(server, old_getLogger):
     try:
         anyio.run(_run)
     except Exception as e:
-        info(f"FastMCP server exit with: {e}")
+        info(f"MCP server exit with: {e}")
         raise
     finally:
-        info("FastMCP server stopped.")
+        info("MCP server stopped.")
         # logging.getLogger was already restored in create_verify_mcps; this is
         # kept for safety when old_getLogger is still the real function.
         if old_getLogger is not None:
@@ -1778,12 +1777,13 @@ def start_verify_mcps(server, old_getLogger):
 
 
 def stop_verify_mcps(server):
+    """Request graceful shutdown of a running MCP HTTP server."""
     from ucagent.util.log import info
     if server is not None:
-        info("Stopping FastMCP server...")
+        info("Stopping MCP server...")
         server.should_exit = True
     else:
-        info("FastMCP server is not running.")
+        info("MCP server is not running.")
 
 
 def get_diff(old_lines, new_lines, file_name):

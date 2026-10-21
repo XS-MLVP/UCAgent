@@ -14,7 +14,7 @@
 
 1. 运行 make check_tool_specs、make check_tools、make test_tools 和 make test_mcp。
 2. 【硬性约束】本阶段严禁在 {TEST_WORKFLOW_ROOT} 下启动任何 TUI 会话（禁止 make run_tui、make run、make tmux 或任何 --tui 参数）。子 UCAgent 必须由 make test_mcp 以 headless 模式启动。TUI 会造成 Ctrl+C 冲突和文件权限残留。
-3. 禁止重写、替换或手写 {TEST_WORKFLOW_ROOT}/.workflow/tool_tests/run_mcp_tests.py；该文件必须保持由 WFB mcp_tool_test_runner 模板生成的 streamable HTTP 客户端实现，必须使用 mcp.client.streamable_http.streamablehttp_client 和 mcp.ClientSession。若 make test_mcp 失败，只能修工具 spec、工具实现、adapter 注册或环境端口问题；不得改成 urllib、JSON-RPC POST /mcp、SSE 或自建 mcp_sse_server.py。
+3. 禁止重写、替换或手写 {TEST_WORKFLOW_ROOT}/.workflow/tool_tests/run_mcp_tests.py；该文件必须保持由 WFB mcp_tool_test_runner 模板生成的 streamable HTTP 客户端实现，必须使用 mcp.client.streamable_http.streamable_http_client 和 mcp.ClientSession。若 make test_mcp 失败，只能修工具 spec、工具实现、adapter 注册或环境端口问题；不得改成 urllib、JSON-RPC POST /mcp、SSE 或自建 mcp_sse_server.py。
 4. 测试命令完成后再读取本阶段新产生的 direct 和 MCP 日志汇总、每个工具的 PASS/FAIL 行和必要失败片段，逐个确认 requirements_manifest.required_tools 被发现并真实调用成功；日志不是阶段开始前保证存在的 reference，不能预先写入 reference_files，也不能只看命令退出码。不得为了复核通过项再全文读取 fixture、工具源码、runner、Makefile 或旧日志。
 5. 确认没有残留子 UCAgent、端口占用和只读权限，然后 Complete。
 

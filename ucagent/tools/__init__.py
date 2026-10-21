@@ -67,7 +67,7 @@ _EXPORT_GROUPS = {
         "ForbidExtraArgModelBase",
         "UCTool",
         "RoleInfo",
-        "to_fastmcp",
+        "to_mcp_tool",
     ),
     "memory": (
         "ArgsMemSearch",

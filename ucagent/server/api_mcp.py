@@ -3,7 +3,7 @@
 MCP server lifecycle wrapper for VerifyPDB.
 
 Provides :class:`PdbMcpServer` which manages starting and stopping the
-FastMCP/uvicorn server that exposes UCAgent tools via the Model Context
+MCPServer/uvicorn server that exposes UCAgent tools via the Model Context
 Protocol (MCP).  The class follows the same lifecycle pattern as
 :class:`PdbCmdApiServer`.
 """
@@ -41,9 +41,9 @@ def _collect_mcp_tools(agent: Any, no_file_ops: bool) -> List[Any]:
 
 class PdbMcpServer:
     """
-    Lifecycle wrapper for the FastMCP/uvicorn MCP server.
+    Lifecycle wrapper for the MCPServer/uvicorn MCP server.
 
-    Creates and manages a FastMCP server in a background daemon thread,
+    Creates and manages an MCP server in a background daemon thread,
     exposing the agent's tools via the Model Context Protocol.
 
     Usage
@@ -77,11 +77,11 @@ class PdbMcpServer:
         """
         try:
             import uvicorn  # noqa: F401
-            from mcp.server.fastmcp import FastMCP  # noqa: F401
+            from mcp.server.mcpserver import MCPServer  # noqa: F401
         except ImportError as exc:
             raise ImportError(
-                "FastMCP and uvicorn are required for the MCP server. "
-                "Install them with:  pip install mcp uvicorn"
+                "MCPServer and uvicorn are required for the MCP server. "
+                "Install them with: pip install 'mcp>=2.3.0,<3.0' uvicorn"
             ) from exc
 
         self.pdb = pdb_instance

@@ -2430,7 +2430,7 @@ import time
 from pathlib import Path
 
 from mcp import ClientSession
-from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.streamable_http import streamable_http_client
 
 
 ROOT = Path.cwd().resolve()
@@ -2506,8 +2506,8 @@ async def _call_and_check(port: int) -> None:
     last_error = None
     while time.monotonic() < deadline:
         try:
-            async with streamablehttp_client(url, timeout=3) as (read_stream, write_stream, _):
-                async with ClientSession(read_stream, write_stream) as session:
+            async with streamable_http_client(url) as (read_stream, write_stream):
+                async with ClientSession(read_stream, write_stream, read_timeout_seconds=3) as session:
                     await session.initialize()
                     listed = await session.list_tools()
                     names = {tool.name for tool in listed.tools}

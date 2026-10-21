@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from ucagent.tools import ApplyWaveInfoEvidence, ReviewWaveInfoEvidenceBatch, WaveInfo
 from ucagent.tools import waveform as waveform_module
-from ucagent.tools.uctool import to_fastmcp
+from ucagent.tools.uctool import to_mcp_tool
 from ucagent.util.bug_analysis_contract import (
     BUG_TODO_MARKER,
     test_case_identity_relation as _test_case_identity_relation,
@@ -242,7 +242,7 @@ def test_apply_waveinfo_evidence_schema_is_mcp_compatible(tmp_path):
         un_write_dirs=["Guide_Doc"],
     )
     schema = tool.tool_call_schema.model_json_schema()
-    mcp_tool = to_fastmcp(tool)
+    mcp_tool = to_mcp_tool(tool)
 
     assert set(schema["properties"]) == {
         "target_file",
@@ -297,7 +297,7 @@ def test_review_waveinfo_evidence_batch_schema_is_mcp_compatible(tmp_path):
     writer = ApplyWaveInfoEvidence(waveinfo=waveinfo, workspace=str(tmp_path))
     tool = ReviewWaveInfoEvidenceBatch(evidence_writer=writer)
     schema = tool.tool_call_schema.model_json_schema()
-    mcp_tool = to_fastmcp(tool)
+    mcp_tool = to_mcp_tool(tool)
 
     assert set(schema["properties"]) == {"target_file", "items"}
     assert set(schema["required"]) == {"target_file", "items"}

@@ -219,7 +219,7 @@ stage:
   - 第2.1步：确认 tools/mcp_adapters.py 的动态 adapter 只实现 _run，不得定义 def run(self,
     tool_input...)，也不得在动态类字典中注册 run 函数覆盖项；必须让 BaseTool.run 负责把 _run 返回内容包装成
     ToolMessage。否则生成工作流直接 make run 时会报工具返回裸字符串类型错误。
-    adapter 的 args_schema 字段类型必须使用 Any，避免 MCP/FastMCP 将 JSON 字符串预解析成 list/dict 后被
+    adapter 的 args_schema 字段类型必须使用 Any，避免 MCP 将 JSON 字符串预解析成 list/dict 后被
     Pydantic 提前拒绝。
   - 第3步：确认 Makefile 包含 check_tool_specs、check_tools、test_tools、test_mcp，且 make check
     会包含这些目标。
@@ -702,7 +702,7 @@ stage:
   - 【硬性约束】本阶段严禁在 {TEST_WORKFLOW_ROOT} 下启动任何 TUI 会话（禁止 make run_tui、make run、make tmux
     或任何 --tui 参数）。子 UCAgent 必须由 make test_mcp 以 headless 模式启动。TUI 会造成 Ctrl+C 冲突和文件权限残留。
   - 禁止重写、替换或手写 {TEST_WORKFLOW_ROOT}/.workflow/tool_tests/run_mcp_tests.py；该文件必须保持由 WFB
-    mcp_tool_test_runner 模板生成的 streamable HTTP 客户端实现，必须使用 mcp.client.streamable_http.streamablehttp_client
+    mcp_tool_test_runner 模板生成的 streamable HTTP 客户端实现，必须使用 mcp.client.streamable_http.streamable_http_client
     和 mcp.ClientSession。若 make test_mcp 失败，只能修工具 spec、工具实现、adapter 注册或环境端口问题；不得改成
     urllib、JSON-RPC POST /mcp、SSE 或自建 mcp_sse_server.py。
   - 读取 direct 和 MCP 日志的汇总、每个工具的 PASS/FAIL 行及必要失败片段，逐个确认 requirements_manifest.required_tools 被发现并真实调用成功；不能只看命令退出码，也不得为了复核通过项全文读取 fixture、工具源码、runner 或旧日志。

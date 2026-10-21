@@ -2088,7 +2088,7 @@ class VerifyPDB(Pdb):
 
     def do_start_mcp_server(self, arg):
         """
-        Start the MCP server (FastMCP/uvicorn).
+        Start the MCP server (MCPServer/uvicorn).
 
         Usage: start_mcp_server [options] [host [port]]
 

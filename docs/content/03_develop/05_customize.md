@@ -51,11 +51,11 @@ ex_tools:
 
 ```python
 from my_tools import HelloTool
-from ucagent.tools.uctool import to_fastmcp
+from ucagent.tools.uctool import to_mcp_tool
 
 tool = HelloTool()
 assert tool.invoke({"who": "UCAgent"}) == {"greeting": "Hello, UCAgent!"}
-mcp_tool = to_fastmcp(tool)
+mcp_tool = to_mcp_tool(tool)
 assert mcp_tool.name == "Hello"
 ```
 
@@ -105,7 +105,7 @@ class TextLength(UCTool, BaseReadWrite):
 
 ## 通过 MCP 暴露
 
-`to_fastmcp` 要求 `args_schema` 是 Pydantic `BaseModel`，不支持 LangChain injected arguments。加入外部工具列表后，工具会随 UCAgent 的 MCP Server 暴露：
+`to_mcp_tool` 要求 `args_schema` 是 Pydantic `BaseModel`，不支持 LangChain injected arguments。加入外部工具列表后，工具会随 UCAgent 的 MCP Server 暴露：
 
 - `--mcp-server`：包含文件操作工具组。
 - `--mcp-server-no-file-tools`：省略该组；基础 `ReadTextFile` 和外部工具仍会暴露，因此自定义工具必须自行遵守权限。
@@ -120,12 +120,12 @@ class TextLength(UCTool, BaseReadWrite):
 
 import asyncio
 from mcp import ClientSession
-from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.streamable_http import streamable_http_client
 
 
 async def main():
     """Discover tools and invoke Hello within the client session."""
-    async with streamablehttp_client("http://127.0.0.1:5000/mcp") as (read, write, _):
+    async with streamable_http_client("http://127.0.0.1:5000/mcp") as (read, write):
         async with ClientSession(read, write) as session:
             await session.initialize()
             print(await session.list_tools())
