@@ -285,7 +285,9 @@ class PdbCmdApiServer:
             list_files_by_mtime,
         )
         from ucagent.util.log import L_GREEN, L_RED, L_YELLOW, RESET
+        from ucagent.util.waveform_formats import DEFAULT_WAVEFORM_ANALYSIS_FORMAT_PRIORITY
         from ucagent.util.waveform_viewer import (
+            WAVEFORM_VIEWER_EXTENSIONS,
             WaveformViewerProtocolError,
             decode_waveform_viewer_token,
             resolve_latest_waveform_file,
@@ -2223,10 +2225,12 @@ class PdbCmdApiServer:
                 )
             try:
                 workspace_root, _, _ = _request_workspace(request)
+                waveinfo = getattr(pdb.agent, "tool_waveinfo", None)
                 waveform_path = resolve_latest_waveform_file(
                     workspace_root,
                     payload["test_dir"],
                     payload["test_case"],
+                    format_priority=getattr(waveinfo, "format_priority", DEFAULT_WAVEFORM_ANALYSIS_FORMAT_PRIORITY),
                 )
             except HTTPException:
                 raise
@@ -2245,6 +2249,15 @@ class PdbCmdApiServer:
                         f"test_dir='{payload['test_dir']}', test_case='{payload['test_case']}'. "
                         "Run that test, or run the full test suite before final Bug validation, "
                         "then open the link again."
+                    ),
+                )
+            if waveform_path.suffix.lower() not in WAVEFORM_VIEWER_EXTENSIONS:
+                raise HTTPException(
+                    status_code=415,
+                    detail=(
+                        f"The selected {waveform_path.suffix} waveform can be analyzed by WaveInfo, "
+                        "but the browser viewer supports only FST and VCD. "
+                        "Export FST/VCD and configure waveform_analysis_format_priority before generating viewer evidence."
                     ),
                 )
             relative_path = waveform_path.relative_to(

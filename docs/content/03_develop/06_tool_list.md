@@ -67,6 +67,8 @@
 
 波形工具依赖可选的 `wavekit`。需要波形证据的阶段必须具备依赖和真实测试数据。探索性查询不能替代完整证据；参数、TC 节点和 Bug 文档格式按当前工具 schema 与运行时 `Guide_Doc/dut_bug_analysis.md` 执行。
 
+默认按 FST、VCD、FSDB 顺序选择分析文件，可配置 `runtime_options.waveform_analysis_format_priority`。FSDB 运行依赖、浏览器限制及其他格式的读取器接口见[波形分析格式与扩展](10_waveform_analysis.md)。
+
 ## 技能、规划与检索
 
 | 工具 | 用途 |

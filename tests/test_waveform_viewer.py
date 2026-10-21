@@ -24,6 +24,19 @@ from ucagent.util.waveform_viewer import (
 )
 
 
+def test_viewer_resolution_uses_analysis_priority_including_fsdb(tmp_path):
+    """Logical lookup must select the same format as analysis rather than prefer FST."""
+    session = tmp_path / "tests/data/toffee_tmp_20260817130000_001/master"
+    session.mkdir(parents=True)
+    for extension in ("fst", "vcd", "fsdb"):
+        (session / f"test_priority.{extension}").write_bytes(b"discovery only")
+    assert resolve_latest_waveform_file(tmp_path, "tests", "test_priority").suffix == ".fst"
+    for priority in (["vcd", "fst", "fsdb"], ["fsdb", "vcd", "fst"]):
+        assert resolve_latest_waveform_file(
+            tmp_path, "tests", "test_priority", format_priority=priority,
+        ).suffix == f".{priority[0]}"
+
+
 def _payload():
     return {
         "v": 1,

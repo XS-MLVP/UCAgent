@@ -62,9 +62,17 @@ from ucagent.util.bug_analysis_contract import (
     waveform_record_tag,
     waveform_reference,
 )
-from ucagent.util.log import warning
+from ucagent.util.log import log_msg, warning
 from ucagent.util.markdown import ensure_markdown_file_heading_spacing
+from ucagent.util.waveform_formats import (
+    DEFAULT_WAVEFORM_ANALYSIS_FORMAT_PRIORITY,
+    open_waveform_reader,
+    register_waveform_reader,
+    registered_waveform_formats,
+    validate_waveform_analysis_format_priority,
+)
 from ucagent.util.waveform_viewer import (
+    WAVEFORM_VIEWER_EXTENSIONS,
     WaveformViewerProtocolError,
     build_waveform_viewer_markdown_link,
     build_waveform_viewer_url,
@@ -828,14 +836,6 @@ class _SignalTrace:
         return self.states[index] if index >= 0 else None
 
 
-def _import_wavekit():
-    """Import lazily so a missing optional runtime does not break UCAgent startup."""
-
-    import wavekit  # type: ignore[import-not-found]
-
-    return wavekit
-
-
 class WaveInfo(UCTool):
     """Locate the newest test waveform and return structured event evidence."""
 
@@ -847,9 +847,9 @@ class WaveInfo(UCTool):
         "For Bug evidence, test_case_name must be the complete target TC pytest node ID "
         "with only the leading TC- removed. Inventory basenames locate waveform files but "
         "do not define or shorten the source-test identity. "
-        "The tool searches only the newest toffee_tmp_* session, prefers FST, "
-        "and never substitutes another test or a stale session. Signal queries use "
-        "wavekit syntax and must be supplied as structured pattern entries. "
+        "The tool searches only the newest test session and automatically selects the "
+        "waveform for that exact test. It never substitutes another test or a stale "
+        "session. Signal queries must be supplied as structured pattern entries. "
         "A pattern-only call is exploratory: final Bug evidence must use either a "
         "complete start_step/end_step window or logged_cycle with an exact clock_signal. "
         "Final Bug evidence also requires signal_groups with the DUT clock mode, relevant "
@@ -874,6 +874,10 @@ class WaveInfo(UCTool):
     workspace: str = Field(default=".", description="UCAgent workspace root.")
     test_dir: str = Field(default=".", description="Rendered UnityChip pytest directory.")
     dut_name: str = Field(default="", description="DUT name used in rerun suggestions.")
+    format_priority: list[str] = Field(
+        default_factory=lambda: list(DEFAULT_WAVEFORM_ANALYSIS_FORMAT_PRIORITY),
+        description="Waveform extensions in selection order; omitted formats are disabled.",
+    )
     analysis_receipts: list[dict[str, Any]] = Field(
         default_factory=list,
         exclude=True,
@@ -909,6 +913,17 @@ class WaveInfo(UCTool):
         dut_name: str = "",
         **kwargs,
     ):
+        """Configure discovery, validate registered formats, and restore signed receipts."""
+        priority = validate_waveform_analysis_format_priority(
+            kwargs.get("format_priority", DEFAULT_WAVEFORM_ANALYSIS_FORMAT_PRIORITY)
+        )
+        unknown = set(priority) - set(registered_waveform_formats())
+        if unknown:
+            raise ValueError(
+                f"No waveform reader registered for: {', '.join(sorted(unknown))}. "
+                "Register readers before constructing WaveInfo or correct waveform_analysis_format_priority."
+            )
+        kwargs["format_priority"] = priority
         super().__init__(**kwargs)
         self.workspace = os.path.abspath(workspace)
         self.test_dir = (
@@ -920,7 +935,8 @@ class WaveInfo(UCTool):
             self.test_dir, self.workspace
         ).replace(os.sep, "/")
         self.description = (
-            f"{self.description} Configured TC output directory for this run: "
+            f"{self.description} "
+            f"Configured TC output directory for this run: "
             f"'{configured_test_dir}'. Exact source node IDs must start with "
             f"'{configured_test_dir}/'."
         )
@@ -1149,8 +1165,9 @@ class WaveInfo(UCTool):
 
     @staticmethod
     def _normalize_test_case_name(test_case_name: str) -> str:
+        """Extract the exact test basename, accepting a registered waveform extension."""
         normalized = test_case_name.strip().split("::")[-1]
-        for suffix in (".fst", ".vcd", ".dat"):
+        for suffix in [f".{name}" for name in registered_waveform_formats()] + [".dat"]:
             if normalized.lower().endswith(suffix):
                 normalized = normalized[: -len(suffix)]
                 break
@@ -1177,11 +1194,13 @@ class WaveInfo(UCTool):
         parsed += int(fraction) / (10 ** len(fraction))
         return (parsed, path.stat().st_mtime, str(path))
 
-    @staticmethod
-    def _wave_name_match(path: Path, basename: str) -> tuple[bool, int]:
+    def _wave_name_match(self, path: Path, basename: str) -> tuple[bool, int]:
+        """Match an enabled extension and an optional numeric dump suffix."""
+        if path.suffix.lower().lstrip(".") not in self.format_priority:
+            return False, 0
         match = re.fullmatch(
-            rf"{re.escape(basename)}(?P<suffix>\d*)\.(?:fst|vcd)",
-            path.name,
+            rf"{re.escape(basename)}(?P<suffix>\d*)",
+            path.stem,
             flags=re.IGNORECASE,
         )
         if match is None:
@@ -1304,7 +1323,7 @@ class WaveInfo(UCTool):
             (
                 path
                 for path in latest.rglob("*")
-                if path.is_file() and path.suffix.lower() in {".fst", ".vcd"}
+                if path.is_file() and path.suffix.lower().lstrip(".") in self.format_priority
             ),
             key=lambda path: (path.stat().st_mtime_ns, str(path)),
             reverse=True,
@@ -1384,6 +1403,7 @@ class WaveInfo(UCTool):
                     "waveform_inventory" if waveform_paths else "waveform_inventory_empty",
                 ),
                 ("inventory_scope", "newest_session_only"),
+                ("format_priority", list(self.format_priority)),
                 ("test_directory", self._display_path(test_dir)),
                 ("data_directory", self._display_path(data_dir)),
                 ("latest_session", self._display_path(latest)),
@@ -1495,7 +1515,7 @@ class WaveInfo(UCTool):
             {
                 path.stem
                 for path in latest.rglob("*")
-                if path.is_file() and path.suffix.lower() in {".fst", ".vcd"}
+                if path.is_file() and path.suffix.lower().lstrip(".") in self.format_priority
             }
         )
         dat_matches = sorted(
@@ -1548,6 +1568,7 @@ class WaveInfo(UCTool):
                 details={
                     "searched_latest_session": self._display_path(latest),
                     "expected_basename": normalized,
+                    "format_priority": list(self.format_priority),
                     "available_latest_session_test_names": available_names[:50],
                     "available_names_truncated": len(available_names) > 50,
                     "close_name_matches": close_names,
@@ -1571,9 +1592,9 @@ class WaveInfo(UCTool):
 
         latest_matches.sort(
             key=lambda item: (
-                1 if item[0].suffix.lower() == ".fst" else 0,
+                -self.format_priority.index(item[0].suffix.lower().lstrip(".")),
                 item[1],
-                item[0].stat().st_mtime,
+                item[0].stat().st_mtime_ns,
                 str(item[0]),
             ),
             reverse=True,
@@ -1604,6 +1625,7 @@ class WaveInfo(UCTool):
             [
                 ("requested_test_case", selection.test_case_name),
                 ("normalized_test_case", selection.expected_basename),
+                ("format_priority", list(self.format_priority)),
                 ("latest_session", self._display_path(selection.session)),
                 ("session_started_at", self._session_started_at(selection.session)),
                 ("latest_session_modified_at", self._format_time(session_stat.st_mtime)),
@@ -1623,7 +1645,7 @@ class WaveInfo(UCTool):
                 ("is_latest_session", True),
                 (
                     "selection_rule",
-                    "latest session, FST preference, highest numeric suffix, newest mtime",
+                    "newest test session, exact test name, automatic waveform selection",
                 ),
             ]
         )
@@ -2108,6 +2130,9 @@ class WaveInfo(UCTool):
         signal_groups = result.get("signal_groups")
         viewer = result.get("waveform_viewer")
         if not isinstance(signal_groups, dict) or not isinstance(viewer, dict):
+            if isinstance(signal_groups, dict) and result.get("waveform_viewer_error"):
+                result["bug_document_viewer_required"] = result["waveform_viewer_suggestion"]
+                return
             result["bug_document_signal_groups_required"] = (
                 "Call final WaveInfo again with signal_groups containing the DUT clock mode, "
                 "relevant inputs, relevant outputs, protocol controls, and function-specific "
@@ -2204,6 +2229,17 @@ class WaveInfo(UCTool):
         """Attach a canonical viewer payload only to reproducible final evidence."""
 
         if result.get("evidence_usable") is not True:
+            return
+        selected_format = (result.get("waveform_selection") or {}).get("format")
+        if selected_format and f".{selected_format}" not in WAVEFORM_VIEWER_EXTENSIONS:
+            result["waveform_viewer_error"] = (
+                "The selected waveform cannot be displayed in the online viewer."
+            )
+            result["waveform_viewer_suggestion"] = (
+                "Report this test and waveform path to the operator to restore online viewing. "
+                "After the repair, rerun WaveInfo before applying final Bug evidence; "
+                "do not fabricate a viewer link."
+            )
             return
         signal_groups = result.get("signal_groups")
         if not isinstance(signal_groups, dict):
@@ -2305,7 +2341,8 @@ class WaveInfo(UCTool):
         loader = getattr(reader, "_load_value_changes", None)
         if loader is None:
             raise RuntimeError(
-                "wavekit reader does not provide raw value-change loading; install wavekit 0.7.x"
+                "The waveform reader must implement _load_value_changes; "
+                "built-in formats require wavekit>=0.7.0,<0.8.0."
             )
         # Include a state before the requested window so transitions at its first
         # timestamp can be evaluated. wavekit retains the latest earlier state.
@@ -3247,24 +3284,7 @@ class WaveInfo(UCTool):
             )
 
         try:
-            wavekit = _import_wavekit()
-        except (ImportError, ModuleNotFoundError) as error:
-            return self._error(
-                "wavekit_unavailable",
-                f"The wavekit dependency is unavailable: {error}",
-                details={"waveform_selection": self._selection_info(selection)},
-                suggestions=[
-                    "Install UCAgent project dependencies, including wavekit>=0.7.0,<0.8.0."
-                ],
-            )
-
-        reader_class = (
-            wavekit.FstReader
-            if selection.waveform.suffix.lower() == ".fst"
-            else wavekit.VcdReader
-        )
-        try:
-            with reader_class(str(selection.waveform)) as reader:
+            with open_waveform_reader(selection.waveform) as reader:
                 result = self._analyze(
                     reader,
                     selection,
@@ -3281,16 +3301,30 @@ class WaveInfo(UCTool):
                     args.max_signals,
                     args.max_points,
                 )
-        except Exception as error:
-            result = self._error(
-                "waveform_parse_error",
-                f"wavekit could not analyze the selected waveform: {type(error).__name__}: {error}",
+        except ImportError as error:
+            log_msg(f"WaveInfo dependency failure for {selection.waveform}: {type(error).__name__}: {error}")
+            return self._error(
+                "waveform_reader_unavailable",
+                "Waveform analysis is unavailable in the current environment.",
                 details={"waveform_selection": self._selection_info(selection)},
                 suggestions=[
-                    self._run_test_suggestion(selection.expected_basename),
-                    "Check whether the simulator terminated early, the waveform is corrupt, or dut.Finish() failed to flush it.",
-                    "If the failure persists after rerunning, inspect simulator/waveform-generation logs.",
+                    "Report this test and waveform path to the operator to repair the "
+                    "analysis environment, then retry WaveInfo. Do not fabricate evidence."
                 ],
+            )
+        except Exception as error:
+            log_msg(f"WaveInfo analysis failure for {selection.waveform}: {type(error).__name__}: {error}")
+            suggestions = [
+                self._run_test_suggestion(selection.expected_basename),
+                "Check whether the test terminated before dut.Finish() completed.",
+                "If WaveInfo still fails after rerunning the test, report this test and "
+                "waveform path to the operator. Do not use another test's waveform or fabricate evidence.",
+            ]
+            result = self._error(
+                "waveform_parse_error",
+                "The selected waveform could not be analyzed.",
+                details={"waveform_selection": self._selection_info(selection)},
+                suggestions=suggestions,
             )
         self._attach_waveform_viewer(result)
         return result

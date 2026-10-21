@@ -604,6 +604,7 @@ class VerifyAgent:
             workspace=self.workspace,
             test_dir=self.cfg.tools.RunTestCases.test_dir,
             dut_name=self.dut_name,
+            format_priority=self.cfg.runtime_options.waveform_analysis_format_priority,
         )
         self.tool_apply_waveinfo_evidence = ApplyWaveInfoEvidence(
             waveinfo=self.tool_waveinfo,

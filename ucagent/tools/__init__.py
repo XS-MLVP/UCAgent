@@ -118,6 +118,7 @@ _EXPORT_GROUPS = {
         "WaveInfoEvidenceReviewItem",
         "ArgReviewWaveInfoEvidenceBatch",
         "WaveInfo",
+        "register_waveform_reader",
         "ApplyWaveInfoEvidence",
         "ReviewWaveInfoEvidenceBatch",
     ),

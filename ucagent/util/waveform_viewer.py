@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+"""Canonical viewer links and safe waveform resolution within a workspace."""
 
 from __future__ import annotations
 
@@ -10,6 +11,11 @@ from collections import OrderedDict
 from pathlib import Path, PurePosixPath, PureWindowsPath
 import re
 from typing import Any, Mapping
+from .waveform_formats import (
+    DEFAULT_WAVEFORM_ANALYSIS_FORMAT_PRIORITY,
+    registered_waveform_formats,
+    validate_waveform_analysis_format_priority,
+)
 
 
 WAVEFORM_VIEWER_VERSION = 2
@@ -99,7 +105,7 @@ def normalize_waveform_test_case(value: Any) -> str:
         raise WaveformViewerProtocolError(
             "test_case must be an exact function basename, not a path or node ID"
         )
-    if value.lower().endswith((".vcd", ".fst", ".dat")):
+    if value.lower().endswith(tuple(f".{name}" for name in registered_waveform_formats()) + (".dat",)):
         raise WaveformViewerProtocolError(
             "test_case must not include a waveform file extension"
         )
@@ -192,9 +198,11 @@ def resolve_latest_waveform_file(
     workspace: str | Path,
     test_dir: str,
     test_case: str,
+    format_priority: list[str] | tuple[str, ...] = DEFAULT_WAVEFORM_ANALYSIS_FORMAT_PRIORITY,
 ) -> Path | None:
-    """Resolve the newest matching FST/VCD by timestamp encoded in session names."""
+    """Resolve a logical viewer target using the configured extension priority."""
 
+    priority = validate_waveform_analysis_format_priority(format_priority)
     normalized_dir = normalize_waveform_test_dir(test_dir)
     normalized_case = normalize_waveform_test_case(test_case)
     workspace_path = Path(workspace).resolve()
@@ -220,7 +228,7 @@ def resolve_latest_waveform_file(
     sessions.sort(key=lambda item: (item[0], item[1], item[2], str(item[3])), reverse=True)
 
     name_pattern = re.compile(
-        rf"{re.escape(normalized_case)}(?P<suffix>\d*)\.(?P<format>fst|vcd)",
+        rf"{re.escape(normalized_case)}(?P<suffix>\d*)",
         flags=re.IGNORECASE,
     )
     for _stamp, _fraction, _mtime, session in sessions:
@@ -228,11 +236,14 @@ def resolve_latest_waveform_file(
         for path in session.rglob("*"):
             if not path.is_file():
                 continue
-            match = name_pattern.fullmatch(path.name)
+            file_format = path.suffix.lower().lstrip(".")
+            if file_format not in priority:
+                continue
+            match = name_pattern.fullmatch(path.stem)
             if match is None:
                 continue
             suffix = int(match.group("suffix") or 0)
-            format_rank = 1 if match.group("format").lower() == "fst" else 0
+            format_rank = -priority.index(file_format)
             matches.append((format_rank, suffix, path.stat().st_mtime_ns, str(path), path))
         if matches:
             matches.sort(reverse=True)

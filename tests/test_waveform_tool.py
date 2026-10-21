@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+"""Waveform discovery, multi-format analysis, and signed evidence regressions."""
 
 from __future__ import annotations
 
@@ -16,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from ucagent.tools import ApplyWaveInfoEvidence, ReviewWaveInfoEvidenceBatch, WaveInfo
 from ucagent.tools import waveform as waveform_module
+from ucagent.util import waveform_formats
 from ucagent.tools.uctool import to_mcp_tool
 from ucagent.util.bug_analysis_contract import (
     BUG_TODO_MARKER,
@@ -703,6 +705,7 @@ def test_runtime_generated_fst_is_parsed_and_preferred(tmp_path):
     _write_vcd(session, "test_fst")
     _write_fst(session, "test_fst", suffix="002")
     _write_fst(session, "test_fst", suffix="010")
+    (session / "master" / "test_fst999.fsdb").write_bytes(b"unused FSDB")
 
     result = _call(
         _tool(tmp_path, test_dir),
@@ -714,6 +717,173 @@ def test_runtime_generated_fst_is_parsed_and_preferred(tmp_path):
     assert result["waveform_selection"]["numeric_suffix"] == 10
     assert result["waveform_selection"]["waveform_file"].endswith("test_fst010.fst")
     assert result["timeline"][30]["values"]["TOP.data[3:0]"] == "4'b0x1z"
+
+
+@pytest.mark.parametrize("priority,available,expected", [
+    (["fst", "vcd", "fsdb"], ["fst", "vcd", "fsdb"], "fst"),
+    (["fst", "vcd", "fsdb"], ["vcd", "fsdb"], "vcd"),
+    (["fst", "vcd", "fsdb"], ["fsdb"], "fsdb"),
+    (["fsdb", "vcd", "fst"], ["fst", "vcd", "fsdb"], "fsdb"),
+    (["vcd", "fsdb", "fst"], ["fst", "vcd", "fsdb"], "vcd"),
+])
+def test_format_priority_precedes_dump_suffix_and_modification_time(tmp_path, priority, available, expected):
+    """Discovery must use configured formats before comparing numeric dump suffixes."""
+    test_dir = tmp_path / "tests"
+    session = _session(test_dir, "toffee_tmp_20260814150000_123")
+    for index, file_format in enumerate(available):
+        target = session / "master" / f"test_priority{index:03}.{file_format.upper()}"
+        target.write_bytes(b"discovery only")
+        os.utime(target, ns=(index + 1, index + 1))
+    tool = WaveInfo(workspace=str(tmp_path), test_dir=str(test_dir), format_priority=priority)
+    selection, error = tool._discover_waveform("test_priority")
+    assert error is None
+    assert selection.waveform.suffix.lower() == f".{expected}"
+    inventory = tool.analyze()
+    assert inventory["format_priority"] == priority
+    assert inventory["format_counts"] == {name: 1 for name in available}
+
+
+def test_disabled_formats_are_excluded_from_analysis_and_inventory(tmp_path):
+    """A configured subset enables only those formats and never selects disabled files."""
+    test_dir = tmp_path / "tests"
+    session = _session(test_dir, "toffee_tmp_20260814150000_123")
+    _write_vcd(session, "test_enabled")
+    (session / "master" / "test_enabled999.fst").write_bytes(b"disabled")
+    (session / "master" / "test_disabled.fsdb").write_bytes(b"disabled")
+    tool = WaveInfo(workspace=str(tmp_path), test_dir=str(test_dir), format_priority=["vcd"])
+    result = tool.analyze(test_case_name="test_enabled")
+    assert result["success"] is True
+    assert result["waveform_selection"]["format"] == "vcd"
+    assert tool.analyze()["format_counts"] == {"vcd": 1}
+    missing = tool.analyze(test_case_name="test_disabled")
+    assert missing["status"] == "waveform_not_found_in_latest_session"
+    assert missing["details"]["format_priority"] == ["vcd"]
+
+
+def test_fsdb_dispatch_runs_analysis_and_receipts_with_an_injected_reader(tmp_path, monkeypatch):
+    """Exercise FSDB dispatch using an injected reader without requiring licensed NPI."""
+    import wavekit
+
+    test_dir = tmp_path / "tests"
+    session = _session(test_dir, "toffee_tmp_20260814150000_123")
+    target = _write_vcd(session, "test_fsdb").with_suffix(".fsdb")
+    target.with_suffix(".vcd").rename(target)
+    opened = []
+
+    def fsdb_reader(path):
+        """Use known VCD fixture content to exercise the FSDB reader dispatch boundary."""
+        opened.append(path)
+        return wavekit.VcdReader(path)
+
+    monkeypatch.setattr(wavekit, "FsdbReader", fsdb_reader)
+    tool = _tool(tmp_path, test_dir)
+    result = _call(
+        tool, test_case_name="tests/test_sample.py::test_fsdb",
+        pattern=[{"signal": "TOP.dut.result[3:0]", "event": "unknown"}],
+        start_step=0, end_step=50,
+        signal_groups=FINAL_SIGNAL_GROUPS,
+    )
+    assert opened == [str(target)]
+    assert result["success"] is True
+    assert result["evidence_usable"] is True
+    assert result["waveform_selection"]["format"] == "fsdb"
+    assert result["timeline"]
+    assert result["waveform_analysis_receipt"]["receipt_id"]
+    assert "waveform_viewer" not in result
+    assert "cannot be displayed" in result["waveform_viewer_error"]
+    assert "operator" in result["waveform_viewer_suggestion"]
+    assert "format_priority" not in result["waveform_viewer_suggestion"]
+    assert "FST" not in result["waveform_viewer_error"]
+    assert "bug_document_fields" not in result
+    selection, error = tool._discover_waveform("test_fsdb.fsdb")
+    assert error is None
+    assert selection.waveform == target
+
+
+def test_fsdb_runtime_failure_is_actionable_and_does_not_fall_back(tmp_path, monkeypatch):
+    """An unavailable preferred FSDB runtime must not silently analyze another file."""
+    import wavekit
+
+    test_dir = tmp_path / "tests"
+    session = _session(test_dir, "toffee_tmp_20260814150000_123")
+    _write_vcd(session, "test_runtime")
+    (session / "master" / "test_runtime.fsdb").write_bytes(b"FSDB fixture placeholder")
+
+    def unavailable(path):
+        """Model the exception raised when Verdi NPI cannot load."""
+        raise RuntimeError("libNPI.so is unavailable")
+
+    monkeypatch.setattr(wavekit, "FsdbReader", unavailable)
+    tool = WaveInfo(
+        workspace=str(tmp_path), test_dir=str(test_dir),
+        format_priority=["fsdb", "vcd", "fst"],
+    )
+    operator_log = []
+    monkeypatch.setattr(waveform_module, "log_msg", operator_log.append)
+    result = tool.analyze(test_case_name="test_runtime")
+    assert result["success"] is False
+    assert result["status"] == "waveform_parse_error"
+    assert result["details"]["waveform_selection"]["format"] == "fsdb"
+    assert "operator" in str(result["suggestions"])
+    task_diagnostic = result["error"] + str(result["suggestions"])
+    for internal_name in ("libNPI", "WAVEKIT_NPI_LIB", "Verdi", "FSDB", "FST", "VCD"):
+        assert internal_name not in task_diagnostic
+    assert any("libNPI.so" in message and "test_runtime.fsdb" in message for message in operator_log)
+
+
+def test_registered_reader_participates_in_discovery_analysis_and_cleanup(tmp_path, monkeypatch):
+    """A new extension must work through the public registration API without core edits."""
+    from contextlib import contextmanager
+    import wavekit
+    from ucagent.tools import register_waveform_reader
+
+    monkeypatch.setattr(waveform_formats, "_READERS", dict(waveform_formats._READERS))
+    calls = []
+
+    @contextmanager
+    def custom_reader(path):
+        """Adapt a custom extension to a reader with deterministic resource cleanup."""
+        calls.append("opened")
+        try:
+            with wavekit.VcdReader(path) as reader:
+                yield reader
+        finally:
+            calls.append("closed")
+
+    register_waveform_reader("customwave", custom_reader)
+    test_dir = tmp_path / "tests"
+    session = _session(test_dir, "toffee_tmp_20260814150000_123")
+    target = _write_vcd(session, "test_custom")
+    target.rename(target.with_suffix(".customwave"))
+    tool = WaveInfo(workspace=str(tmp_path), test_dir=str(test_dir), format_priority=["customwave", "vcd"])
+    assert tool.analyze()["format_counts"] == {"customwave": 1}
+    result = tool.analyze(
+        test_case_name="test_custom.customwave",
+        pattern=[{"signal": "TOP.dut.result[3:0]", "event": "unknown"}],
+    )
+    assert result["success"] is True
+    assert result["waveform_selection"]["format"] == "customwave"
+    assert sum(item["event_count"] for item in result["patterns"]) > 0
+    assert calls == ["opened", "closed"]
+
+
+@pytest.mark.parametrize("priority", [None, [], "fst,vcd", ["FST"], [".fst"], ["fst", "fst"], [1], ["not_registered"]])
+def test_invalid_analysis_format_priority_is_rejected(priority):
+    """Invalid configuration must fail during tool construction, before discovery."""
+    with pytest.raises(ValueError, match="waveform_analysis_format_priority|No waveform reader"):
+        WaveInfo(format_priority=priority)
+
+
+def test_reader_registration_rejects_duplicates_and_invalid_factories():
+    """Reader registration must not replace existing formats or accept invalid factories."""
+    from ucagent.tools import register_waveform_reader
+
+    with pytest.raises(ValueError, match="already registered"):
+        register_waveform_reader("fst", lambda path: None)
+    with pytest.raises(ValueError, match="lowercase extensions"):
+        register_waveform_reader("../wave", lambda path: None)
+    with pytest.raises(TypeError, match="callable"):
+        register_waveform_reader("noncallable", None)
 
 
 def test_same_suffix_across_workers_uses_newest_file(tmp_path):
@@ -835,13 +1005,18 @@ def test_empty_corrupt_dependency_and_signal_limit_errors(tmp_path, monkeypatch)
 
     _write_vcd(session, "test_dependency")
 
-    def unavailable():
+    def unavailable(path):
+        """Simulate a missing backend dependency without requiring package removal."""
         raise ModuleNotFoundError("wavekit missing for test")
 
-    monkeypatch.setattr(waveform_module, "_import_wavekit", unavailable)
+    monkeypatch.setitem(waveform_formats._READERS, "vcd", unavailable)
+    operator_log = []
+    monkeypatch.setattr(waveform_module, "log_msg", operator_log.append)
     missing = _call(tool, test_case_name="test_dependency")
-    assert missing["status"] == "wavekit_unavailable"
-    assert "wavekit>=0.7.0,<0.8.0" in missing["suggestions"][0]
+    assert missing["status"] == "waveform_reader_unavailable"
+    assert "operator" in missing["suggestions"][0]
+    assert "wavekit" not in missing["error"] + str(missing["suggestions"])
+    assert any("wavekit missing for test" in message for message in operator_log)
     monkeypatch.undo()
 
     limited = _call(

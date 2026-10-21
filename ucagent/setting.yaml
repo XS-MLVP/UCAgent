@@ -5,6 +5,10 @@ template_overwrite:
 # default basic settings for UCAgent
 lang: "zh"
 
+runtime_options:
+  # Ordered enabled formats. Register a reader before adding another extension.
+  waveform_analysis_format_priority: [fst, vcd, fsdb]
+
 # init commands to run at the start of the agent
 init_cmds: []
 

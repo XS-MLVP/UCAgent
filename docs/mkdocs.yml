@@ -75,6 +75,7 @@ nav:
       - 模板文件: content/03_develop/04_template.md
       - 定制工具: content/03_develop/05_customize.md
       - 工具列表: content/03_develop/06_tool_list.md
+      - 波形分析格式与扩展: content/03_develop/10_waveform_analysis.md
       - 检查器: content/03_develop/07_checkers.md
       - Mini 示例: content/03_develop/08_mini_example.md
       - 插件开发与发布: content/03_develop/09_plugins.md
