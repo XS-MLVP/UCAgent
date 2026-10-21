@@ -131,6 +131,7 @@ clean:
 	rm -rf UCAgent.egg-info
 	rm -rf build
 	rm -rf dist
+	rm -rf site
 	find ./ -name '*.dat'|xargs rm -f
 	find ./ -name '*.vcd'|xargs rm -f
 	find ./ -name '*.fst'|xargs rm -f
