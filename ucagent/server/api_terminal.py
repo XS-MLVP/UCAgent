@@ -35,6 +35,7 @@ import pathlib
 import signal
 import select
 import struct
+import subprocess
 import sys
 import tempfile
 import threading
@@ -312,28 +313,33 @@ class _ManagedProcess:
     readline / Textual apps work correctly."""
 
     def __init__(self, command: str, env: Optional[Dict[str, str]] = None) -> None:
+        """Retain the command and environment until the terminal is started."""
         self.command = command
         self._env = env
         self._master_fd: Optional[int] = None
         self._pid: Optional[int] = None
+        self._process: Optional[subprocess.Popen] = None
         self._alive = False
         self._exit_code: Optional[int] = None
 
     @property
     def alive(self) -> bool:
+        """Return the running state recorded by the last lifecycle operation."""
         return self._alive
 
     @property
     def pid(self) -> Optional[int]:
+        """Return the subprocess ID after a successful start."""
         return self._pid
 
     @property
     def master_fd(self) -> int:
+        """Return the open parent PTY descriptor."""
         assert self._master_fd is not None
         return self._master_fd
 
     def start(self, cols: int = 120, rows: int = 40) -> None:
-        """Fork/exec via pty."""
+        """Start a session with a controlling PTY without Python after fork."""
         import fcntl
         import pty
         import termios
@@ -347,30 +353,34 @@ class _ManagedProcess:
 
         master_fd, slave_fd = pty.openpty()
 
-        winsize = struct.pack("HHHH", rows, cols, 0, 0)
-        fcntl.ioctl(slave_fd, termios.TIOCSWINSZ, winsize)
-
-        child_pid = os.fork()
-        if child_pid == 0:
-            # ── child ──
+        try:
+            winsize = struct.pack("HHHH", rows, cols, 0, 0)
+            fcntl.ioctl(slave_fd, termios.TIOCSWINSZ, winsize)
+            # Claim the controlling terminal in a fresh interpreter: preexec_fn
+            # and Python code after os.fork() are unsafe in the server thread.
+            process = subprocess.Popen(
+                [sys.executable, "-I", "-S", str(_SERVER_DIR / "_pty_exec.py"), self.command],
+                stdin=slave_fd,
+                stdout=slave_fd,
+                stderr=slave_fd,
+                env=env,
+                start_new_session=True,
+                close_fds=True,
+            )
+        except BaseException:
             os.close(master_fd)
-            os.setsid()
+            raise
+        finally:
+            os.close(slave_fd)
 
-            fcntl.ioctl(slave_fd, termios.TIOCSCTTY, 0)
-            os.dup2(slave_fd, 0)
-            os.dup2(slave_fd, 1)
-            os.dup2(slave_fd, 2)
-            if slave_fd > 2:
-                os.close(slave_fd)
-            os.execvpe("/bin/sh", ["/bin/sh", "-c", self.command], env)
-
-        # ── parent ──
-        os.close(slave_fd)
+        self._process = process
         self._master_fd = master_fd
-        self._pid = child_pid
+        self._pid = process.pid
+        self._exit_code = None
         self._alive = True
 
     def resize(self, cols: int, rows: int) -> None:
+        """Set the PTY window size and let the terminal notify its foreground job."""
         if self._master_fd is None:
             return
         import fcntl
@@ -383,6 +393,7 @@ class _ManagedProcess:
             pass
 
     def write(self, data: bytes) -> None:
+        """Forward terminal input while the parent PTY descriptor is available."""
         if self._master_fd is not None:
             try:
                 os.write(self._master_fd, data)
@@ -391,40 +402,37 @@ class _ManagedProcess:
 
     def poll(self) -> Optional[int]:
         """Non-blocking wait; returns exit code or None if still running."""
-        if self._pid is None:
+        if self._process is None:
             return self._exit_code
-        try:
-            pid, status = os.waitpid(self._pid, os.WNOHANG)
-        except ChildProcessError:
-            self._alive = False
-            self._exit_code = -1
-            return self._exit_code
-        if pid == 0:
-            return None
+        self._exit_code = self._process.poll()
+        self._alive = self._exit_code is None
+        return self._exit_code
+
+    def wait(self, timeout: Optional[float] = None) -> int:
+        """Reap the subprocess and retain its normal or signal exit status."""
+        assert self._process is not None
+        self._exit_code = self._process.wait(timeout=timeout)
         self._alive = False
-        if os.WIFEXITED(status):
-            self._exit_code = os.WEXITSTATUS(status)
-        elif os.WIFSIGNALED(status):
-            self._exit_code = -os.WTERMSIG(status)
-        else:
-            self._exit_code = -1
         return self._exit_code
 
     def terminate(self) -> None:
-        if self._pid is not None and self._alive:
+        """Request termination of a running subprocess."""
+        if self._process is not None and self.poll() is None:
             try:
-                os.kill(self._pid, signal.SIGTERM)
+                self._process.terminate()
             except OSError:
                 pass
 
     def kill(self) -> None:
-        if self._pid is not None and self._alive:
+        """Force a running subprocess to exit."""
+        if self._process is not None and self.poll() is None:
             try:
-                os.kill(self._pid, signal.SIGKILL)
+                self._process.kill()
             except OSError:
                 pass
 
     def close_fd(self) -> None:
+        """Release the parent side of the PTY."""
         if self._master_fd is not None:
             try:
                 os.close(self._master_fd)
@@ -1090,6 +1098,7 @@ class PdbWebTermServer:
             await asyncio.sleep(0.2)
             if self._process.alive:
                 self._process.kill()
+            await asyncio.to_thread(self._process.wait)
             self._process.close_fd()
 
         # Uninstall console mirror
