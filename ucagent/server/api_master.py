@@ -8630,7 +8630,8 @@ class PdbMasterApiServer:
         errors: List[str] = []
         if self.tcp:
             try:
-                cfg = uvicorn.Config(self._app, host=self.host, port=self.port, log_level="error")
+                cfg = uvicorn.Config(self._app, host=self.host, port=self.port,
+                                     log_level="error", ws="websockets-sansio")
                 self._tcp_server = uvicorn.Server(cfg)
                 self._tcp_thread = threading.Thread(target=self._tcp_server.run, daemon=True, name="master-api-tcp")
                 self._tcp_thread.start()
@@ -8647,7 +8648,8 @@ class PdbMasterApiServer:
                     errors.append(f"Cannot remove socket '{self.sock}': {exc}")
             if not any("Cannot remove" in item for item in errors):
                 try:
-                    cfg = uvicorn.Config(self._app, uds=self.sock, log_level="error")
+                    cfg = uvicorn.Config(self._app, uds=self.sock, log_level="error",
+                                         ws="websockets-sansio")
                     self._sock_server = uvicorn.Server(cfg)
                     self._sock_thread = threading.Thread(target=self._sock_server.run, daemon=True, name="master-api-sock")
                     self._sock_thread.start()
