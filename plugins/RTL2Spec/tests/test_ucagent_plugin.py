@@ -19,6 +19,7 @@ from ucagent.plugins import (
     create_plugin_checker_registry,
     create_plugin_tools,
     resolve_plugin_workflow,
+    validate_workflow_dependencies,
     validate_plugin,
 )
 from ucagent.tools.uctool import to_mcp_tool
@@ -29,10 +30,13 @@ def test_plugin_descriptor_validates() -> None:
     """The plugin exposes an in-repository workflow and all declared resources."""
     plugin = validate_plugin(get_plugin(), check_dependencies=False)
     assert plugin.name == "rtl2spec"
-    assert plugin.workflows[0].name == "design-document"
+    assert plugin.workflows[0].name == "xiangshan-design-document"
     assert plugin.workflows[0].config_file.is_file()
     assert all(path.exists() for path in plugin.workflows[0].guide_doc_paths)
     assert plugin.workflows[0].template_dir is None
+    assert plugin.workflows[1].name == "generic-design-document"
+    assert plugin.workflows[1].config_file.is_file()
+    assert all(path.exists() for path in plugin.workflows[1].guide_doc_paths)
     root = Path(__file__).resolve().parents[1]
     project = tomllib.loads((root / "pyproject.toml").read_text())["project"]
     manifest = tomllib.loads((root / "ucagent-plugin.toml").read_text())
@@ -42,6 +46,7 @@ def test_plugin_descriptor_validates() -> None:
     assert project["entry-points"]["ucagent.plugins"][plugin.name] == manifest["entry"]
     assert f"UCAgent{plugin.requires_ucagent}" in project["dependencies"]
     assert set(plugin.python_requirements) <= set(project["dependencies"])
+    assert set((root / "requirements.txt").read_text().splitlines()) == set(project["dependencies"])
 
 
 def test_command_rejects_shell_like_arguments(tmp_path: Path) -> None:
@@ -71,11 +76,14 @@ def test_command_has_mcp_convertible_pydantic_schema(tmp_path: Path) -> None:
     """The plugin tool exposes the BaseModel schema required by MCP conversion."""
     mcp_tool = to_mcp_tool(RTL2SpecCommand(workspace=str(tmp_path)))
     schema = mcp_tool.parameters
-    assert "action" in schema["properties"]
+    assert set(schema["properties"]) == {
+        "action", "module", "config", "related_modules", "related_files"
+    }
     assert schema["additionalProperties"] is False
 
 
-def test_parser_dependency_is_declared_and_diagnosed(monkeypatch):
+@pytest.mark.parametrize("dependency", ["markdown-it-py", "pyslang"])
+def test_parser_dependency_is_declared_and_diagnosed(monkeypatch, dependency):
     """Missing parser metadata yields the same actionable dependency gate as installed plugins."""
     import importlib.metadata
 
@@ -83,12 +91,12 @@ def test_parser_dependency_is_declared_and_diagnosed(monkeypatch):
 
     def installed_version(name):
         """Simulate only the parser distribution being unavailable."""
-        if name == "markdown-it-py":
+        if name == dependency:
             raise importlib.metadata.PackageNotFoundError(name)
         return real_version(name)
 
     monkeypatch.setattr(importlib.metadata, "version", installed_version)
-    with pytest.raises(PluginError, match="requires Python package markdown-it-py"):
+    with pytest.raises(PluginError, match=f"requires Python package {dependency}"):
         validate_plugin(get_plugin(), check_dependencies=True)
 
 
@@ -106,21 +114,24 @@ def test_missing_host_command_fails_at_activation(monkeypatch, command, label):
 
     monkeypatch.setattr("ucagent.plugins.shutil.which", available)
     with pytest.raises(PluginError, match=f"requires command {label}: {command}"):
-        validate_plugin(get_plugin(), check_dependencies=True)
+        validate_workflow_dependencies(
+            "rtl2spec", get_plugin().workflows[0]
+        )
 
 
 def test_factory_preserves_resolved_workspace_policy(tmp_path):
     """The registered tool factory must enforce the policy supplied by UCAgent."""
     context = PluginContext(
         workspace=tmp_path,
-        output_dir="outputs/Sbuffer",
-        write_dirs=("outputs/Sbuffer",),
+        output_dir="outputs",
+        write_dirs=("outputs",),
         un_write_dirs=(".cache",),
         cfg=None,
         plugin_root=get_plugin().root,
     )
     (tool,) = create_tools(context)
     assert tool.workspace == str(tmp_path)
+    assert tool.output_dir == context.output_dir
     assert tool.write_dirs == list(context.write_dirs)
     assert tool.un_write_dirs == list(context.un_write_dirs)
     assert tool._run("preflight", "Sbuffer")["error_code"] == "WRITE_POLICY_DENIED"
@@ -172,7 +183,7 @@ def test_broken_command_version_fails_at_activation(monkeypatch, failure):
 
     monkeypatch.setattr("ucagent.plugins.subprocess.run", probe)
     with pytest.raises(PluginError, match="(query Git version|working Git version command)"):
-        validate_plugin(get_plugin(), check_dependencies=True)
+        validate_workflow_dependencies("rtl2spec", get_plugin().workflows[0])
 
 
 @pytest.mark.parametrize(
@@ -202,7 +213,10 @@ def test_checker_registration_rejects_conflicts_without_global_mutation(monkeypa
     loaded = LoadedPlugin(plugin, plugin.name, "test")
     name = "RTL2SpecArtifactsChecker"
     assert not hasattr(core_checkers, name)
-    assert create_plugin_checker_registry([loaded]) == {name: RTL2SpecArtifactsChecker}
+    assert create_plugin_checker_registry([loaded]) == {
+        name: RTL2SpecArtifactsChecker,
+        "RTL2SpecGenericArtifactsChecker": plugin.checkers[1],
+    }
     assert not hasattr(core_checkers, name)
     other = LoadedPlugin(replace(plugin, name="another-plugin"), "another-plugin", "test")
     with pytest.raises(PluginError, match="Duplicate plugin Checker name"):
@@ -217,7 +231,7 @@ def test_workflow_resources_are_opt_in():
     plugin = validate_plugin(get_plugin(), check_dependencies=False)
     loaded = LoadedPlugin(plugin, plugin.name, "test")
     assert collect_plugin_resources([loaded], None) == ([], [])
-    selected = resolve_plugin_workflow([loaded], f"{plugin.name}:design-document")
+    selected = resolve_plugin_workflow([loaded], f"{plugin.name}:xiangshan-design-document")
     docs, skills = collect_plugin_resources([loaded], selected)
     assert docs == list(plugin.workflows[0].guide_doc_paths)
     assert skills == []

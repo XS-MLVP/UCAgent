@@ -16,6 +16,8 @@ PORT_RE = re.compile(
     r"^\s*(input|output|inout)\s+(?:wire\s+|logic\s+|reg\s+)?"
     r"(?:\[\s*([^\]]+)\s*\]\s+)?([A-Za-z_][A-Za-z0-9_$]*)\s*,?\s*$"
 )
+MODULE_DECL_RE_TEMPLATE = r"^\s*(?:(?:abstract|case|final|sealed|private|protected)\s+)*(?:class|object|trait)\s+{name}\b"
+RELATED_SOURCES_KEY = "related_sources"
 
 
 def parse_ports(text: str, module: str) -> list[dict[str, object]]:
@@ -62,6 +64,16 @@ def local_path(root: Path, path: str | Path) -> Path:
     return resolved
 
 
+def output_root(root: Path, output_dir: str) -> Path:
+    """Resolve the selected run directory inside the workspace, never the workspace itself."""
+    if not output_dir or Path(output_dir).is_absolute() or ".." in Path(output_dir).parts:
+        raise ValueError("output_dir must name a workspace-relative run directory")
+    path = local_path(root, output_dir)
+    if path == root.resolve():
+        raise ValueError("output_dir must be a subdirectory of the workspace")
+    return path
+
+
 def read_json(path: Path) -> dict:
     """Read one JSON object, reporting its artifact on malformed input."""
     try:
@@ -77,6 +89,67 @@ def digest(path: Path) -> str:
     """Hash an artifact using SHA-256."""
     with path.open("rb") as stream:
         return hashlib.file_digest(stream, "sha256").hexdigest()
+
+
+def related_source_id(module: str) -> str:
+    """Return the stable document evidence ID for one related Scala module."""
+    return "E-REL-" + module.upper().replace("_", "-")
+
+
+def collect_related_sources(
+    root: Path, module: str, related_modules: list[str]
+) -> list[dict[str, object]]:
+    """Locate and hash the declared related Scala module definitions."""
+    if module in related_modules:
+        raise ValueError(f"related module list must not contain the DUT: {module}")
+    if len(set(related_modules)) != len(related_modules):
+        raise ValueError("related module list contains duplicates")
+    source_root = local_path(root, "third_party/XiangShan/src/main/scala")
+    if not source_root.is_dir():
+        raise ValueError(f"{source_root}: XiangShan Scala source directory is missing")
+    records = []
+    used_ids: set[str] = set()
+    for related in related_modules:
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", related):
+            raise ValueError(f"invalid related module name: {related}")
+        evidence_id = related_source_id(related)
+        if evidence_id in used_ids:
+            raise ValueError(
+                f"related module names collide on evidence ID: {evidence_id}"
+            )
+        used_ids.add(evidence_id)
+        pattern = re.compile(
+            MODULE_DECL_RE_TEMPLATE.format(name=re.escape(related)), re.M
+        )
+        matches: list[tuple[Path, int]] = []
+        for path in sorted(source_root.rglob("*.scala")):
+            if path.is_symlink():
+                continue
+            text = path.read_text(encoding="utf-8")
+            matches.extend(
+                (path, text.count("\n", 0, match.start()) + 1)
+                for match in pattern.finditer(text)
+            )
+        if not matches:
+            raise ValueError(
+                f"related module not found under third_party/XiangShan/src/main/scala: {related}"
+            )
+        if len(matches) > 1:
+            locations = ", ".join(
+                f"{path.relative_to(root)}:{line}" for path, line in matches[:8]
+            )
+            raise ValueError(f"related module definition is ambiguous: {related} ({locations})")
+        path, line = matches[0]
+        records.append(
+            {
+                "evidence_id": evidence_id,
+                "module": related,
+                "path": path.relative_to(root).as_posix(),
+                "line": line,
+                "sha256": digest(path),
+            }
+        )
+    return records
 
 
 def receipt(root: Path, value: dict, *, sign: bool = False) -> dict:
@@ -147,10 +220,10 @@ def source_state(root: Path) -> dict:
 
 
 def validate_evidence(
-    root: Path, module: str, version: str, config: str
+    root: Path, module: str, config: str, output_dir: str = "outputs"
 ) -> tuple[dict, list[dict]]:
     """Recompute source identity, RTL hash, and ports instead of trusting authored text."""
-    folder = local_path(root, f"evidence/{module}/{version}")
+    folder = local_path(root, output_root(root, output_dir) / "evidence")
     manifest = read_json(local_path(root, folder / "manifest.json"))
     receipt(root, manifest)
     if (
@@ -161,13 +234,36 @@ def validate_evidence(
         raise ValueError(
             f"{folder}/manifest.json: expected schema 2, module {module}, config {config}"
         )
+    related_sources = manifest.get(RELATED_SOURCES_KEY)
+    if not isinstance(related_sources, list):
+        raise ValueError(
+            f"{folder}/manifest.json: related_sources must be a list; regenerate evidence"
+        )
+    declared_modules = [
+        item.get("module")
+        for item in related_sources
+        if isinstance(item, dict)
+    ]
+    if len(declared_modules) != len(related_sources) or any(
+        not isinstance(module_name, str) for module_name in declared_modules
+    ):
+        raise ValueError(
+            f"{folder}/manifest.json: related_sources contains an invalid record"
+        )
+    checked_related = collect_related_sources(root, module, declared_modules)
+    if checked_related != related_sources:
+        raise ValueError(
+            f"{folder}/manifest.json: related source paths, declarations, or hashes changed; rerun related_sources"
+        )
     state = source_state(root)
     if (
         manifest.get("source_state") != state
         or manifest.get("xiangshan_commit") != state["commit"]
     ):
         raise ValueError(
-            f"{folder}/manifest.json: source identity changed; generate evidence for the current source in a new version"
+            f"{folder}/manifest.json: source identity changed; stop and ask the user to "
+            f"package/archive the current {output_dir}, clear that directory, "
+            "then restart generation"
         )
     rtl = local_path(root, folder / f"{module}.sv")
     if not rtl.is_file() or digest(rtl) != manifest.get("rtl_sha256"):

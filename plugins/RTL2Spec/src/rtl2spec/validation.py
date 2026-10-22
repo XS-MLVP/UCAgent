@@ -2,42 +2,137 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 import subprocess
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
-from .evidence import digest, local_path, read_json, receipt, validate_evidence
+from .evidence import local_path, validate_evidence
+from .generic_evidence import validate_generic_evidence
+from .contracts import contract_rows, validate_contract, ID_RE
+from .review import ACCEPTANCE_START, ACCEPTANCE_END, validate_review, validate_acceptance
+from .sv_frontend import port_shape
 from .documents import (
+    ARTIFACT_TEXT,
     FIELDS,
     METADATA_RE,
+    RELATED_SOURCES_END,
+    RELATED_SOURCES_START,
     artifact_paths,
     template_version,
     mermaid_sources,
     prose_text,
     validate_structure,
+    appendix_rows,
+    markdown_rows,
+    document_sections,
+    markdown_tokens,
+    port_scaffold_text,
 )
 
-ID_RE = re.compile(r"\b(?:FG|FC|CK|P|E|COV)-[A-Z0-9]+(?:-[A-Z0-9]+)*\b")
+
+def validate_quality_report(text: str) -> list[dict]:
+    """Require the review report's independent audit sections before review/final."""
+    errors = []
+    headings = document_sections(text)
+    title = ARTIFACT_TEXT["quality_report"]["title"]
+    top_level = [section for section in headings if section["level"] == 1]
+    if len(top_level) != 1 or top_level[0]["title"] != title or headings[0] != top_level[0]:
+        errors.append({"rule": "QUALITY_REPORT_TITLE", "error": "quality report must start with its single canonical level-one title; follow Guide_Doc/document-quality-review-template.md"})
+    required = ARTIFACT_TEXT["quality_report"]["sections"]
+    lines = text.splitlines()
+    previous_line = -1
+    for expected in required:
+        matches = [
+            item for item in headings
+            if item["title"] == expected["title"] and item["level"] == 2
+        ]
+        if len(matches) > 1:
+            errors.append({"rule": "QUALITY_REPORT_DUPLICATE", "error": f"quality report repeats section '{expected['title']}'"})
+            continue
+        section = matches[0] if matches else None
+        if section is None:
+            errors.append({"rule": "QUALITY_REPORT_SECTION", "error": f"quality report is missing section '{expected['title']}'"})
+            continue
+        if section["line"] <= previous_line:
+            errors.append({"rule": "QUALITY_REPORT_ORDER", "error": f"quality report sections are out of order at '{expected['title']}'"})
+        previous_line = section["line"]
+        index = headings.index(section)
+        end = next((candidate["line"] - 1 for candidate in headings[index + 1:] if candidate["level"] <= section["level"]), len(lines))
+        body = "\n".join(lines[section["line"]:end])
+        visible = prose_text(body)
+        meaningful = [
+            line.strip() for line in visible.splitlines()
+            if line.strip() and not line.lstrip().startswith("|")
+            and not re.match(r"^#{1,6}\s", line.lstrip())
+            and not re.fullmatch(r"[-:| ]+", line.strip())
+        ]
+        has_data = any(not row["header"] and any(cell.strip() for cell in row["cells"])
+                       for row in markdown_rows(visible))
+        if not meaningful and not has_data:
+            errors.append({"rule": "QUALITY_REPORT_CONTENT", "error": f"quality report section '{expected['title']}' needs findings or an explicit limitation"})
+    return errors
+
+
+def validate_ports(text: str, ports: list[dict]) -> list[dict]:
+    """Require exactly one correctly sized/directed Appendix A row per actual port."""
+    expected = {p["name"]: p for p in ports}
+    seen = set()
+    ids = set()
+    errors = []
+    for row in appendix_rows(text):
+        cells = [c.strip("` ") for c in row["cells"]]
+        issue = None
+        if len(cells) != 9:
+            issue = "interface row must have all 9 Appendix A columns"
+        elif cells[0] in ids:
+            issue = f"duplicate interface ID: {cells[0]}"
+        elif cells[6] not in expected:
+            issue = f"RTL port not present: {cells[6]}"
+        elif cells[6] in seen:
+            issue = f"duplicate RTL port mapping: {cells[6]}"
+        else:
+            port = expected[cells[6]]
+            shape = port_shape(port)
+            if cells[4] != shape:
+                issue = f"RTL direction/width contradicts ports.csv for {cells[6]}; expected {shape}"
+            seen.add(cells[6])
+        ids.add(cells[0])
+        if issue:
+            errors.append({"error": issue, "line": row["line"] + 1})
+    missing = sorted(expected.keys() - seen)
+    if missing:
+        errors.append({"error": "unmapped RTL ports", "count": len(missing), "ports": missing[:12]})
+    for error in errors:
+        error["next_action"] = "Reconcile Appendix A with evidence/ports.csv; use the ports action to regenerate its scaffold."
+    return errors
 
 
 def validate(
-    root: Path, module: str, version: str, config: str, phase: str = "final"
+    root: Path,
+    module: str,
+    config: str,
+    phase: str = "final",
+    *,
+    generic: bool = False,
+    output_dir: str = "outputs",
 ) -> dict:
-    """Return bounded diagnostics for actual evidence, references, and current diagram renders."""
+    """Return bounded diagnostics for actual evidence, references, and Mermaid source."""
     errors: list[dict] = []
     warnings: list[str] = []
-    artifact = f"evidence/{module}/{version}/manifest.json"
+    artifact = f"{output_dir}/evidence/manifest.json"
+    metadata_action = "generic_metadata" if generic else "metadata"
     try:
-        manifest, ports = validate_evidence(root, module, version, config)
+        evidence_validator = validate_generic_evidence if generic else validate_evidence
+        source_field = "source_baseline" if generic else "xiangshan_commit"
+        manifest, ports = evidence_validator(root, module, config, output_dir)
         if manifest["generation_status"] == "partial":
             warnings.append(
                 "RTL generation was partial; document the downstream failure and limit conclusions to the available module RTL."
             )
         if phase != "evidence":
-            paths = artifact_paths(root, module, version)
+            paths = artifact_paths(root, module, output_dir)
             current_template = template_version()
             texts = []
             for index, path in enumerate(paths):
@@ -45,10 +140,34 @@ def validate(
                 text = path.read_text(encoding="utf-8")
                 texts.append(text)
                 mermaid_sources(text)
+                # Template comments are authoring constraints and must not leak
+                # into a formal artifact. Keep only the tool-owned metadata and
+                # related-source markers that are required for auditability.
+                comments = METADATA_RE.sub("", text)
+                comments = comments.replace(RELATED_SOURCES_START, "")
+                comments = comments.replace(RELATED_SOURCES_END, "")
+                comments = comments.replace(ACCEPTANCE_START, "").replace(ACCEPTANCE_END, "")
+                if "<!--" in comments:
+                    errors.append(
+                        {
+                            "artifact": artifact,
+                            "error": "formal artifact contains HTML comments; remove template/generation comments",
+                            "next_action": "Delete HTML comments from the design document and quality report, preserving only the rtl2spec metadata, related-source and acceptance markers added by the tool.",
+                        }
+                    )
                 if index == 0:
                     errors.extend(
                         {"artifact": artifact, **issue}
                         for issue in validate_structure(text, module)
+                    )
+                elif phase in {"review", "final"}:
+                    errors.extend(
+                        {
+                            "artifact": artifact,
+                            **issue,
+                            "next_action": "Complete the canonical quality report sections using Guide_Doc/document-quality-review-template.md, then rerun Check.",
+                        }
+                        for issue in validate_quality_report(text)
                     )
                 visible = re.sub(r"<!--.*?-->", "", text, flags=re.S)
                 content = "\n".join(
@@ -64,75 +183,94 @@ def validate(
                             "error": "file has no substantive content; write the required artifact",
                         }
                     )
-                if index < 2:
-                    markers = METADATA_RE.findall(text)
-                    if len(markers) != 1:
+                markers = METADATA_RE.findall(text)
+                if len(markers) != 1:
+                    errors.append(
+                        {
+                            "artifact": artifact,
+                            "error": f'run RTL2SpecCommand(action="{metadata_action}") to add one current metadata record',
+                        }
+                    )
+                else:
+                    metadata = json.loads(markers[0])
+                    expected = {
+                        key: manifest[key]
+                        for key in (
+                            "module",
+                            "config",
+                            source_field,
+                            "rtl_sha256",
+                            "generation_status",
+                        )
+                    }
+                    expected.update(template_version=current_template)
+                    if not isinstance(metadata, dict) or any(
+                        metadata.get(key) != value
+                        for key, value in expected.items()
+                    ):
                         errors.append(
                             {
                                 "artifact": artifact,
-                                "error": 'run RTL2SpecCommand(action="metadata") to add one current metadata record',
+                                "error": "metadata differs from the current template or verified RTL; review inputs and rerun metadata",
                             }
                         )
-                    else:
-                        metadata = json.loads(markers[0])
-                        expected = {
-                            key: manifest[key]
-                            for key in (
-                                "module",
-                                "config",
-                                "xiangshan_commit",
-                                "rtl_sha256",
-                                "generation_status",
-                            )
-                        }
-                        expected.update(
-                            version=version, template_version=current_template
+                # Optional visible metadata must not contradict the verified facts.
+                for key, labels in FIELDS.items():
+                    if key == "date":
+                        continue
+                    expected_value = (
+                        current_template
+                        if key == "template_version"
+                        else str(
+                            manifest[source_field]
+                            if key == "source_baseline"
+                            else manifest[key]
                         )
-                        if not isinstance(metadata, dict) or any(
-                            metadata.get(key) != value
-                            for key, value in expected.items()
-                        ):
-                            errors.append(
-                                {
-                                    "artifact": artifact,
-                                    "error": "metadata differs from the current template, version or verified RTL; review inputs and rerun metadata",
-                                }
-                            )
-                    # Optional visible metadata must not contradict the verified facts.
-                    for key, labels in FIELDS.items():
-                        if key == "date":
-                            continue
-                        expected_value = (
-                            current_template
-                            if key == "template_version"
-                            else str(manifest[key])
+                    )
+                    for label in labels:
+                        cells = re.findall(
+                            rf"^\s*\|\s*{re.escape(label)}\s*\|\s*(.*?)\s*\|\s*$",
+                            visible,
+                            re.M,
                         )
-                        for label in labels:
-                            cells = re.findall(
-                                rf"^\s*\|\s*{re.escape(label)}\s*\|\s*(.*?)\s*\|\s*$",
-                                visible,
-                                re.M,
+                        for cell in cells:
+                            tokens = (
+                                re.findall(r"v\d+\.\d+\.\d+", cell)
+                                if key == "template_version"
+                                else [cell]
                             )
-                            for cell in cells:
-                                tokens = (
-                                    re.findall(r"v\d+\.\d+\.\d+", cell)
-                                    if key == "template_version"
-                                    else [cell]
+                            if not tokens or any(
+                                not re.search(
+                                    rf"(?<![\w.]){re.escape(expected_value)}(?![\w.])",
+                                    token,
+                                    re.I if key == "generation_status" else 0,
                                 )
-                                if not tokens or any(
-                                    not re.search(
-                                        rf"(?<![\w.]){re.escape(expected_value)}(?![\w.])",
-                                        token,
-                                        re.I if key == "generation_status" else 0,
-                                    )
-                                    for token in tokens
-                                ):
-                                    errors.append(
-                                        {
-                                            "artifact": artifact,
-                                            "error": f"{key} contradicts verified metadata; run metadata after reviewing the inputs",
-                                        }
-                                    )
+                                for token in tokens
+                            ):
+                                errors.append(
+                                    {
+                                        "artifact": artifact,
+                                        "error": f"{key} contradicts verified metadata; run metadata after reviewing the inputs",
+                                    }
+                                )
+                if phase in {"review", "final"} and index == 0:
+                    scaffold = path.parent / "evidence" / "ports.md"
+                    if not scaffold.is_file():
+                        errors.append({
+                            "artifact": str(scaffold.relative_to(root)),
+                            "rule": "PORT_SCAFFOLD_MISSING",
+                            "error": "protected evidence/ports.md is missing; regenerate the exact port scaffold before review",
+                            "next_action": f"Run RTL2SpecCommand(action=\"{'generic_' if generic else ''}ports\", module=\"{module}\") before Check.",
+                        })
+                    elif scaffold.read_text(encoding="utf-8") != port_scaffold_text(
+                        root, module, ports, generic=generic, output_dir=output_dir
+                    ):
+                        errors.append({
+                            "artifact": str(scaffold.relative_to(root)),
+                            "rule": "PORT_SCAFFOLD_CHANGED",
+                            "error": "protected evidence/ports.md differs from the current parsed port facts",
+                            "next_action": f"Run RTL2SpecCommand(action=\"{'generic_' if generic else ''}ports\", module=\"{module}\") to regenerate the scaffold, then copy its exact rows into Appendix A.",
+                        })
                 prose = prose_text(visible)
                 for raw in re.findall(r"\[[^\]]*\]\((<[^>]+>|[^)]+)\)", prose):
                     raw = raw.strip("<>")
@@ -159,140 +297,98 @@ def validate(
                                     "error": f"line reference out of range: {raw}",
                                 }
                             )
-            if not re.search(rf"(?<![\w.]){re.escape(version)}(?![\w.])", texts[2]):
-                errors.append(
-                    {
-                        "artifact": str(paths[2].relative_to(root)),
-                        "error": f"add a history entry for {version}",
-                    }
-                )
-
             artifact = str(paths[0].relative_to(root))
             prose = prose_text(texts[0])
-            definitions: set[str] = set()
-            explicit: list[str] = []
-            for line in prose.splitlines():
-                tags = re.findall(r"<((?:FG|FC|CK)-[A-Z0-9-]+)>", line)
-                explicit.extend(tags)
-                definitions.update(tags)
-                plain = line.replace("`", "").replace("**", "")
-                match = re.match(
-                    r"^\s*(?:#{1,6}\s+|\|\s*|[-*]\s+)((?:FG|FC|CK|P|E|COV)-[A-Z0-9-]+)\b",
-                    plain,
-                )
-                if match:
-                    definitions.add(match.group(1))
-            missing = sorted(set(ID_RE.findall(prose)) - definitions)
-            duplicate = sorted({tag for tag in explicit if explicit.count(tag) > 1})
-            if missing:
+            related_sources = manifest["related_sources"]
+            related_ids = {source["evidence_id"] for source in related_sources}
+            errors.extend(validate_contract(root, module, manifest, ports, texts[0], texts[1], output_dir))
+            definitions = {row["cells"][0] for row in contract_rows(texts[0])["evidence"]}
+            unknown_related = sorted(
+                tag
+                for tag in set(ID_RE.findall(prose))
+                if tag.startswith("E-REL-") and tag not in related_ids
+            )
+            if unknown_related:
                 errors.append(
                     {
                         "artifact": artifact,
-                        "error": f"undefined references: {', '.join(missing[:12])}; define IDs in headings/table first cells, or correct the reference",
+                        "error": f"unrecorded related source evidence: {', '.join(unknown_related[:12])}",
+                        "next_action": "Record each cited related module with related_sources, or remove the unsupported E-REL citation.",
                     }
                 )
-            if duplicate:
-                errors.append(
-                    {
-                        "artifact": artifact,
-                        "error": f"duplicate definition tags: {', '.join(duplicate[:12])}; use plain IDs for references",
-                    }
+            cited_rows = contract_rows(texts[0])["evidence"]
+            citation_lines = prose.splitlines()
+            for row in cited_rows:
+                citation_lines[row["line"] - 1] = ""
+            citation_text = "\n".join(citation_lines)
+            report_text = texts[1]
+            for source in related_sources:
+                evidence_id = source["evidence_id"]
+                cited_by_body = bool(
+                    re.search(rf"\b{re.escape(evidence_id)}\b", citation_text)
                 )
-            for prefix in ("FG-", "FC-", "CK-", "P-", "E-", "COV-"):
-                if not any(tag.startswith(prefix) for tag in definitions):
-                    warnings.append(
-                        f"{artifact}: consider adding {prefix} traceability where applicable; explain omissions in the quality review."
+                # A related source may have been read for context and retained
+                # in the run report without supporting a final document claim.
+                # Only a source cited by the document body must be defined in
+                # Appendix C; the report remains the complete read-source audit.
+                if cited_by_body and evidence_id not in definitions:
+                    errors.append(
+                        {
+                            "artifact": artifact,
+                            "error": f"cited related source evidence {evidence_id} is missing from Appendix C",
+                            "next_action": "Add an Appendix C evidence row for the cited related source, including its source path and hash.",
+                        }
                     )
-            port_names = {port["name"] for port in ports}
-            documented = set()
-            for line in prose.splitlines():
-                if re.search(r"\bElided\b", line, re.I):
-                    continue
-                for token in re.findall(
-                    r"`((?:io_[A-Za-z0-9_\[\]*]+|clock|reset))`", line
+                if cited_by_body:
+                    rows = [row["cells"] for row in markdown_rows(texts[0])
+                            if row["cells"][0].strip("` ") == evidence_id]
+                    if not any(source["path"] in " ".join(row) and source["sha256"] in " ".join(row) for row in rows):
+                        errors.append({"artifact": artifact,
+                                       "error": f"{evidence_id}: evidence row must identify its own registered path and source hash",
+                                       "next_action": f"Correct its Appendix C row, then run {metadata_action}."})
+                if not (
+                    RELATED_SOURCES_START in report_text
+                    and RELATED_SOURCES_END in report_text
+                    and all(
+                        str(source[field]) in report_text
+                        for field in ("evidence_id", "module", "path", "sha256")
+                    )
                 ):
-                    pattern = re.escape(token).replace(r"\*", ".*")
-                    pattern = re.sub(r"\\\[[A-Za-z][A-Za-z0-9_]*\\\]", r"\\d+", pattern)
-                    matches = {
-                        name for name in port_names if re.fullmatch(pattern, name)
-                    }
-                    if not matches:
-                        errors.append(
-                            {
-                                "artifact": artifact,
-                                "error": f"RTL port/pattern not present: {token}; correct it or explicitly mark an Elided interface",
-                            }
-                        )
-                    documented.update(matches)
-                    shape = re.search(r"\b([IO])/\s*([0-9]+)\b", line)
-                    if shape and len(re.findall(r"`io_[^`]+`", line)) == 1:
-                        direction = {"I": "input", "O": "output"}[shape.group(1)]
-                        if any(
-                            p["name"] in matches
-                            and (
-                                p["direction"] != direction
-                                or p["width"] != int(shape.group(2))
-                            )
-                            for p in ports
-                        ):
-                            errors.append(
-                                {
-                                    "artifact": artifact,
-                                    "error": f"RTL direction/width contradicts ports.csv for {token}",
-                                }
-                            )
-                cells = [
-                    cell.strip(" `<>") for cell in line.strip().strip("|").split("|")
-                ]
-                if (
-                    len(cells) >= 4
-                    and cells[0].startswith("CK-")
-                    and cells[-1] == "Closed"
-                ):
-                    required = "Covered" if cells[1] == "Cover" else "Proved"
-                    if cells[-2] != required:
-                        errors.append(
-                            {
-                                "artifact": artifact,
-                                "error": f"{cells[0]}: Closed contradicts property state; record the actual execution/signoff state",
-                            }
-                        )
-            if port_names - documented:
-                warnings.append(
-                    f"{artifact}: {len(port_names - documented)} ports are not explicitly mapped; review interface coverage against ports.csv."
+                    errors.append(
+                        {
+                            "artifact": str(paths[1].relative_to(root)),
+                            "error": f"quality report does not list related source {evidence_id}",
+                            "next_action": f'Run RTL2SpecCommand(action="{metadata_action}") after recording related sources to refresh the report section.',
+                        }
+                    )
+            errors.extend({"artifact": artifact, **issue} for issue in validate_ports(texts[0], ports))
+            if phase == "final" and manifest.get("generation_status") == "partial":
+                open_rows = contract_rows(texts[0])["open"]
+                partial_open = next(
+                    (row for row in open_rows if row["cells"][0] == "OPEN-GENERATION-PARTIAL"),
+                    None,
                 )
-            if "<!-- GENERATOR:" in texts[0] or re.search(r"\b(?:TODO|TBD)\b", prose):
-                warnings.append(
-                    f"{artifact}: review remaining writing instructions/placeholders; record unresolved facts as OPEN-* with evidence needs."
-                )
-
+                if partial_open is None or partial_open["cells"][4] not in {"Open", "Deferred"}:
+                    errors.append({
+                        "artifact": artifact,
+                        "rule": "PARTIAL_SIGNOFF",
+                        "error": "partial RTL generation cannot reach final without OPEN-GENERATION-PARTIAL in Open or Deferred state",
+                        "next_action": "Add OPEN-GENERATION-PARTIAL with the failed generation scope and constrained conclusion, then rerun Check.",
+                    })
+                if not re.search(r"\bpartial\b", texts[1], re.I):
+                    errors.append({
+                        "artifact": str(paths[1].relative_to(root)),
+                        "rule": "PARTIAL_REPORT",
+                        "error": "quality report must state the partial generation limitation",
+                        "next_action": "Record the partial generation scope and its effect on conclusions in the quality report, then rerun Check.",
+                    })
+            if phase in {"review", "final"}:
+                artifact = f"{output_dir}/semantic_review.json"
+                validate_review(root, module, manifest, output_dir)
             if phase == "final":
-                artifact = f"evidence/{module}/{version}/diagrams/manifest.json"
-                diagram_path = local_path(root, artifact)
-                diagrams = read_json(diagram_path)
-                receipt(root, diagrams)
-                sources = mermaid_sources(texts[0])
-                entries = diagrams.get("diagrams")
-                if (
-                    diagrams.get("document") != paths[0].name
-                    or not isinstance(entries, list)
-                    or diagrams.get("diagram_count") != len(sources)
-                    or len(entries) != len(sources)
-                ):
-                    raise ValueError(
-                        'diagram sources changed; run RTL2SpecCommand(action="render")'
-                    )
-                for source, entry in zip(sources, entries):
-                    svg = local_path(root, diagram_path.parent / entry["output"])
-                    if (
-                        entry.get("source_sha256")
-                        != hashlib.sha256(source.encode()).hexdigest()
-                        or not svg.is_file()
-                        or entry.get("svg_sha256") != digest(svg)
-                    ):
-                        raise ValueError(
-                            f"{svg}: stale/missing diagram; rerun render for the current document"
-                        )
+                artifact = f"{output_dir}/validation.json"
+                validate_acceptance(root, module, config, output_dir)
+
     except (
         OSError,
         ValueError,
@@ -300,7 +396,19 @@ def validate(
         TypeError,
         subprocess.SubprocessError,
     ) as exc:
-        errors.append({"artifact": artifact, "error": str(exc)})
+        issue = {"artifact": artifact, "error": str(exc)}
+        action_prefix = "generic_" if generic else ""
+        if artifact == f"{output_dir}/semantic_review.json":
+            issue["next_action"] = (
+                f"Run RTL2SpecCommand(action='{action_prefix}review', module='{module}', config='{config}') "
+                "to prepare the current baseline; repair the listed P-*/check using Guide_Doc/source-review-guide.md and the actual source, then rerun Check."
+            )
+        elif artifact == f"{output_dir}/validation.json":
+            issue["next_action"] = (
+                f"Run RTL2SpecCommand(action='{action_prefix}finalize', module='{module}', config='{config}') "
+                "to validate and publish current acceptance; resolve any reported review failures, then rerun Complete."
+            )
+        errors.append(issue)
     result = {"ok": not errors, "phase": phase, "warnings": warnings[:10]}
     if errors:
         result.update(
@@ -311,7 +419,7 @@ def validate(
             error_count=len(errors),
             next_action=errors[0].get(
                 "next_action",
-                "Repair the listed artifacts. Use RTL2SpecCommand evidence/metadata/render as directed, then rerun Check.",
+                "Repair the listed artifacts. Use RTL2SpecCommand evidence or metadata as directed, then rerun Check.",
             ),
         )
     return result

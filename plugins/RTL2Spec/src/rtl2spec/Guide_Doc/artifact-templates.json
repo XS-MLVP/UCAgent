@@ -1,0 +1,201 @@
+{
+  "metadata_title": "事实元数据",
+  "metadata_fields": {
+    "template_version": [
+      "使用模板版本",
+      "使用模板"
+    ],
+    "source_baseline": [
+      "RTL/source 基线"
+    ],
+    "config": [
+      "适用配置"
+    ],
+    "generation_status": [
+      "RTL 生成状态"
+    ],
+    "date": [
+      "生成日期",
+      "日期"
+    ]
+  },
+  "rtl_hash_labels": [
+    "RTL SHA-256"
+  ],
+  "rtl_evidence_label": "RTL 证据",
+  "appendix_title": "附录 A：I/O 定义与接口约束",
+  "port_header": [
+    "IO-ID",
+    "正文逻辑接口",
+    "源字段 / 端口分组",
+    "定义位置",
+    "方向 / 位宽",
+    "配置状态",
+    "精确 RTL I/O",
+    "协议 / 对端",
+    "证据"
+  ],
+  "ports_title": "端口表骨架",
+  "ports_instruction": "将下表放入设计文档附录 A，补充 TODO 单元格；保留工具生成的精确端口、方向/位宽和证据位置。",
+  "acceptance_title": "自动验收结果",
+  "acceptance_header": [
+    "检查项",
+    "结果",
+    "说明"
+  ],
+  "acceptance_scope": "以下结果仅证明文档结构、证据和复核记录完整性；不代表行为已通过仿真或形式化证明。",
+  "acceptance_rows": [
+    [
+      "结构与精确端口",
+      "Pass",
+      "附录端口与当前 RTL 证据逐项一致"
+    ],
+    [
+      "源码复核记录",
+      "Pass",
+      "每个 P-* 的结构化事实或不适用理由、复核项、引用与当前文档/源码摘要一致"
+    ],
+    [
+      "动态验证与形式化",
+      "Unrun",
+      "本工作流未运行综合、仿真、回归、SVA 或 formal"
+    ]
+  ],
+  "contract": {
+    "sections": {
+      "interfaces": "数据与控制通路",
+      "groups": "功能分组",
+      "plan": "Testplan",
+      "coverage": "Coverage Summary",
+      "properties": "属性实现状态",
+      "open": "开放项",
+      "signoff": "签核状态",
+      "ports": "附录 A：I/O 定义与接口约束",
+      "parameters": "参数与配置",
+      "states": "编码、状态与复位",
+      "control": "范围与文档控制",
+      "evidence": "证据与版本变更",
+      "fc_trace": "功能组与 FC",
+      "ck_trace": "CK 追溯",
+      "changes": "证据与版本变更"
+    },
+    "behavior_fields": [
+      "激励条件",
+      "处理过程",
+      "输出与状态结果",
+      "时延与顺序",
+      "边界与恢复",
+      "配置裁剪",
+      "证据"
+    ],
+    "bare_empty": [
+      "N/A",
+      "NA",
+      "none",
+      "not applicable",
+      "无",
+      "不适用",
+      "暂无",
+      "待定",
+      "-",
+      "—"
+    ],
+    "state_labels": {
+      "document": "当前文档状态",
+      "control_document": "文档状态"
+    },
+    "execution_labels": [
+      "Formal / assertion",
+      "Regression / coverage",
+      "动态验证与形式化",
+      "仿真",
+      "综合",
+      "回归",
+      "形式化",
+      "覆盖率",
+      "SVA",
+      "formal",
+      "simulation",
+      "synthesis",
+      "regression",
+      "coverage"
+    ],
+    "status_headers": [
+      "状态",
+      "结果",
+      "属性状态",
+      "签核状态",
+      "Status",
+      "Result"
+    ],
+    "template_placeholders": [
+      "[protocol or reason for no protocol]"
+    ],
+    "table_indexes": {
+      "changes": 1
+    },
+    "required_prose_sections": [
+      {
+        "title": "文档摘要",
+        "description": "摘要必须给出模块职责、输入输出、关键概念、延迟容量、验证范围或开放项的结论。"
+      },
+      {
+        "title": "职责与边界",
+        "description": "说明 DUT 的职责、接口边界和明确不负责的工作。"
+      },
+      {
+        "title": "事务模型",
+        "description": "说明事务产生、接受、处理、完成以及取消/恢复；不适用时给出原因。"
+      },
+      {
+        "title": "时序与状态",
+        "description": "说明组合/时序路径、状态或明确的不适用原因、复位起点和同周期优先级。"
+      },
+      {
+        "title": "验证策略",
+        "description": "说明验证目标、采样事件、边界和当前未覆盖范围。"
+      },
+      {
+        "title": "Assume",
+        "description": "说明输入环境假设或明确没有额外 Assume 的原因。"
+      },
+      {
+        "title": "Assert",
+        "description": "说明断言检查的触发、结果和顺序，或明确当前未实现及原因。"
+      },
+      {
+        "title": "Cover",
+        "description": "说明覆盖目标和有效采样事件，或明确当前未实现及原因。"
+      }
+    ]
+  },
+  "quality_report": {
+    "title": "RTL2Spec 质量复核报告",
+    "sections": [
+      {
+        "title": "输入基线",
+        "description": "列出当前模块、配置、RTL/source 基线、生成状态和实际复核输入。"
+      },
+      {
+        "title": "源码复核发现",
+        "description": "记录逐个 P-* 对照当前源码得到的事实、矛盾和修正。"
+      },
+      {
+        "title": "结构化事实统计",
+        "description": "统计 P-* 总数、asserted、no_deterministic_fact 和关联 OPEN 数量。"
+      },
+      {
+        "title": "OPEN 与限制",
+        "description": "列出未关闭 OPEN-*、partial 生成影响以及结论边界。"
+      },
+      {
+        "title": "未执行验证",
+        "description": "逐项说明未运行的仿真、综合、回归、formal 和 coverage。"
+      },
+      {
+        "title": "验收范围",
+        "description": "说明本次 Pass 仅覆盖的文档、证据和复核契约。"
+      }
+    ]
+  }
+}
