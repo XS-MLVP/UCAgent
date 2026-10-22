@@ -567,6 +567,28 @@ def test_add_cmds_with_exit_handles_stopped_tui_app(probe_pdb):
     assert probe_pdb.init_cmd == ["sleep 5", "quit"]
 
 
+def test_exit_cleans_owned_xpra_sessions_when_workspace_sync_fails(monkeypatch):
+    """Exit must reap GUI applications and restore modes even after sync errors."""
+    events = []
+    agent = VerifyAgent.__new__(VerifyAgent)
+    agent._is_exit = False
+    agent.cwd_read_only_files = ["tracked-file"]
+    agent.pdb = SimpleNamespace(_cmd_api_server=SimpleNamespace(
+        close_sessions=lambda: events.append("closed")))
+
+    def fail_sync():
+        """Represent an unavailable destination during the normal exit path."""
+        raise OSError("workspace sync failed")
+
+    agent._sync_workspace_back_on_exit = fail_sync
+    monkeypatch.setattr("ucagent.verify_agent.fc.chmode_rw", lambda files: events.append(files))
+    with pytest.raises(OSError, match="workspace sync failed"):
+        agent.exit()
+    assert events == ["closed", ["tracked-file"]]
+    agent.exit()
+    assert len(events) == 2
+
+
 def test_exit_on_completion_defers_until_work_finishes():
     class _PdbRecorder:
         def __init__(self):

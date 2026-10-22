@@ -108,6 +108,51 @@ mcp_server:
 cmd_api:
   host: 127.0.0.1
   port: 8765
+  xpra:
+    executable: xpra
+    max_sessions: 5
+    terminal_command: [xterm, -e]
+    html_dir: null
+    startup_timeout: 20
+    shutdown_timeout: 5
+    # Form shortcuts only; the commands must be installed on the CMD host.
+    # Lists are replaced by user config. Set presets: [] to hide all shortcuts.
+    presets:
+      - label: Terminal
+        name: Terminal
+        mode: console
+        command: bash -l
+        cwd: .
+        env: {}
+        idle_timeout: -1
+      - label: Browser
+        name: Browser
+        mode: gui
+        command: chromium --no-first-run --no-default-browser-check about:blank
+        cwd: .
+        env: {}
+        idle_timeout: -1
+      - label: Codex
+        name: Codex
+        mode: console
+        command: codex
+        cwd: .
+        env: {}
+        idle_timeout: -1
+      - label: OpenCode
+        name: OpenCode
+        mode: console
+        command: opencode
+        cwd: .
+        env: {}
+        idle_timeout: -1
+      - label: Qwen Code
+        name: Qwen Code
+        mode: console
+        command: qwen
+        cwd: .
+        env: {}
+        idle_timeout: -1
 
 master_api:
   host: 0.0.0.0

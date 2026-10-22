@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Xpra sessions · UCAgent</title>
+<link rel="icon" href="/static/share/ucagent-favicon.svg">
+<style>
+:root{color-scheme:dark;font:14px system-ui;background:#10151e;color:#dce4f1}body{max-width:1100px;margin:32px auto;padding:0 20px}header{display:flex;align-items:center;gap:16px}header h1{flex:1;font-size:24px}a{color:#82b8ff}button,input,select,textarea{font:inherit;border:1px solid #3b485c;border-radius:6px;padding:8px;background:#172131;color:inherit}button{cursor:pointer}button:hover{border-color:#82b8ff}#presets{margin:0 0 20px;padding:14px;background:#141f2e;border:1px solid #303d50;border-radius:8px}#preset-buttons{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}#preset-buttons button{padding:9px 18px}#preset-buttons button[aria-pressed=true]{background:#263f60;border-color:#82b8ff}button:disabled{opacity:.5;cursor:wait}section{border:1px solid #303d50;border-radius:10px;margin:20px 0;padding:20px}h2{margin-top:0;font-size:18px}form{display:grid;grid-template-columns:1fr 1fr;gap:14px}label{display:flex;flex-direction:column;gap:6px}.wide{grid-column:1/-1}.hint{color:#9aadc5;font-size:12px;margin:0}.error{white-space:pre-wrap;background:#3b2329;border:1px solid #bc6877;border-radius:6px;padding:12px;margin:12px 0}.error:empty{display:none}table{border-collapse:collapse;width:100%}td,th{padding:12px 8px;text-align:left;border-bottom:1px solid #303d50}td button,td a{margin:3px}.state{font-family:monospace;color:#99c8ff}.command{overflow-wrap:anywhere;max-width:280px}dialog{background:#172131;color:inherit;border:1px solid #536681;border-radius:10px;width:min(850px,85vw)}pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:60vh;overflow:auto}footer{color:#9aadc5}@media(max-width:650px){form{grid-template-columns:1fr}.table-wrap{overflow:auto}header{flex-wrap:wrap}}
+dialog::backdrop{background:#050b15b8}#create-dialog{max-height:90dvh;overflow:auto;padding:24px}#create-dialog h2{margin-bottom:20px}.form-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}#new-session,#submit{background:#263f60;border-color:#82b8ff}#idle-hint{grid-column:1/-1}
+</style>
+</head>
+<body>
+<header><h1>Xpra sessions</h1><a id="dashboard">Agent dashboard</a><button id="refresh" type="button">Refresh</button><button id="new-session" type="button">Create session</button></header>
+<p>Run graphical applications or interactive console commands in your browser.</p>
+<div id="runtime-error" class="error" role="alert"></div>
+<div id="error" class="error" role="alert"></div>
+<dialog id="create-dialog" aria-labelledby="create-title"><h2 id="create-title">Create a session</h2>
+<div id="create-error" class="error" role="alert"></div>
+<div id="preset-error" class="error" role="alert"></div>
+<div id="presets" hidden><p class="hint">Quick fill</p><div id="preset-buttons" role="group" aria-label="Session presets"></div><p id="preset-hint" class="hint" aria-live="polite">Choose a shortcut to fill the form, then review and create the session.</p></div>
+<form id="create">
+<label>Name<input name="name" maxlength="200" placeholder="Optional session name"></label>
+<label>Mode<select name="mode"><option value="gui">GUI application</option><option value="console">Console in graphical terminal</option></select></label>
+<label class="wide">Command<input name="command" required placeholder="xclock  or  bash -l"></label>
+<p class="hint wide">Arguments support quotes. For shell expressions, explicitly use bash -lc 'your command'.</p>
+<label>Working directory<input name="cwd" value="." required></label>
+<label>Environment (JSON object)<textarea name="env" rows="2" spellcheck="false">{}</textarea></label>
+<p class="hint wide">The directory must be inside this workspace. Console mode uses the configured graphical terminal.</p>
+<label>Idle timeout (seconds)<input name="idle_timeout" type="number" min="-1" max="4294967" step="1" value="-1" required></label>
+<p id="idle-hint" class="hint">Use -1 for no timeout, or a positive number of seconds without a connected client. A connected client keeps the application running, even without keyboard or mouse input.</p>
+<div class="wide form-actions"><button id="submit" type="submit">Create session</button><button id="cancel-create" type="button">Cancel</button><span id="creating" aria-live="polite"></span></div>
+</form></dialog>
+<section><h2>Sessions <span id="capacity"></span></h2><div class="table-wrap"><table><thead><tr><th>Name / command</th><th>Mode</th><th>Status</th><th>Idle timeout</th><th>Actions</th></tr></thead><tbody id="sessions"></tbody></table></div><p id="empty">Loading sessions…</p></section>
+<footer>One client controls each session; opening another takes over. Disconnected applications stay running until their idle timeout, deletion, or CMD service shutdown.</footer>
+<dialog id="logs"><h2 id="logs-title">Session details</h2><pre id="logs-body"></pre><button id="close-logs">Close</button></dialog>
+<script>
+"use strict";
+const base=new URL(location.pathname.replace(/\/?$/,"/"),location.origin);
+document.querySelector("#dashboard").href=base.pathname.replace(/api\/xpra\/$/,"");
+function message(error){const d=error.detail||error;return typeof d==="string"?d:[d.message,d.fields?.length?"Fields: "+d.fields.join(", "):null,d.next_action].filter(Boolean).join("\n")||"Request failed.";}
+async function request(path,options={}){const r=await fetch(new URL(path,base),{credentials:"same-origin",...options});const j=await r.json().catch(()=>({message:"The server returned an unreadable response."}));if(!r.ok)throw j;return j;}
+function showError(e){document.querySelector("#error").textContent=message(e);}
+const createDialog=document.querySelector("#create-dialog"),createForm=document.querySelector("#create");
+let creating=false;
+document.querySelector("#new-session").onclick=()=>{document.querySelector("#create-error").textContent="";createDialog.showModal();};
+document.querySelector("#cancel-create").onclick=()=>createDialog.close();
+createDialog.addEventListener("cancel",event=>{if(creating)event.preventDefault();});
+async function refreshPresets(){
+const group=document.querySelector("#presets"),buttons=document.querySelector("#preset-buttons"),form=document.querySelector("#create");
+try{const data=await request("presets");buttons.replaceChildren();group.hidden=!data.presets.length;document.querySelector("#preset-error").textContent="";
+for(const preset of data.presets){const button=document.createElement("button");button.type="button";button.textContent=preset.label;button.title=preset.command;button.setAttribute("aria-pressed","false");button.onclick=()=>{for(const field of ["name","mode","command","cwd","idle_timeout"])form.elements.namedItem(field).value=preset[field];form.elements.namedItem("idle_timeout").setCustomValidity("");form.elements.namedItem("env").value=JSON.stringify(preset.env,null,2);for(const other of buttons.children)other.setAttribute("aria-pressed",String(other===button));document.querySelector("#preset-hint").textContent=`Filled from ${preset.label}. Review the parameters, then select Create session. The command runs on the CMD server.`;document.querySelector("#create-error").textContent="";form.elements.namedItem("command").focus();};buttons.append(button);}
+}catch(e){group.hidden=true;document.querySelector("#preset-error").textContent=message(e);}}
+async function refreshStatus(){try{const info=await request("status");document.querySelector("#runtime-error").textContent=info.diagnostic?message(info.diagnostic):(!info.console_available?"Console mode needs the configured graphical terminal. Install xterm or update cmd_api.xpra.terminal_command.":"");}catch(e){showError(e);}}
+async function refresh(){try{const data=await request("sessions"),body=document.querySelector("#sessions");body.replaceChildren();document.querySelector("#capacity").textContent=`(${data.active_count} / ${data.max_sessions} active)`;document.querySelector("#empty").textContent=data.sessions.length?"":"No sessions. Select Create session to get started.";
+for(const s of data.sessions){const row=document.createElement("tr"),name=document.createElement("td"),title=document.createElement("strong"),command=document.createElement("div");title.textContent=s.name;command.textContent=s.command;command.className="command";name.append(title,command);row.append(name);for(const value of [s.mode,s.status,s.idle_timeout===-1?"Never":s.idle_timeout+"s"]){const cell=document.createElement("td");cell.textContent=value;cell.className="state";row.append(cell);}const actions=document.createElement("td"),open=document.createElement("a");open.textContent="Open";open.href=new URL(s.viewer_path,base);open.target="_blank";open.rel="noopener";actions.append(open);
+const logs=document.createElement("button");logs.textContent="Details / logs";logs.onclick=async()=>{try{const d=await request("sessions/"+encodeURIComponent(s.id));document.querySelector("#logs-title").textContent=d.name+" · "+d.status;document.querySelector("#logs-body").textContent=(d.last_error?message(d.last_error)+"\n\n":"")+(d.log_tail.join("\n")||"No output captured.");document.querySelector("#logs").showModal();}catch(e){showError(e);}};actions.append(logs);
+const remove=document.createElement("button");remove.textContent="Delete";remove.onclick=async()=>{if(!confirm(`Stop and delete session “${s.name}”?`))return;remove.disabled=true;try{await request("sessions/"+encodeURIComponent(s.id),{method:"DELETE"});await refresh();}catch(e){showError(e);remove.disabled=false;}};actions.append(remove);row.append(actions);body.append(row);}
+}catch(e){showError(e);}}
+createForm.onsubmit=async event=>{event.preventDefault();if(creating)return;const form=event.currentTarget,button=document.querySelector("#submit"),cancel=document.querySelector("#cancel-create");document.querySelector("#create-error").textContent="";creating=true;button.disabled=true;cancel.disabled=true;document.querySelector("#creating").textContent="Starting application…";try{const values=Object.fromEntries(new FormData(form));values.env=JSON.parse(values.env);values.idle_timeout=Number(values.idle_timeout);await request("sessions",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(values)});createDialog.close();await refresh();}catch(e){document.querySelector("#create-error").textContent=message(e);}finally{creating=false;button.disabled=false;cancel.disabled=false;document.querySelector("#creating").textContent="";}};
+createForm.elements.namedItem("idle_timeout").addEventListener("input",event=>{event.target.setCustomValidity(event.target.valueAsNumber===0?"Use -1 or a positive number of seconds.":"");});
+document.querySelector("#create").addEventListener("input",()=>{for(const button of document.querySelector("#preset-buttons").children)button.setAttribute("aria-pressed","false");});
+document.querySelector("#refresh").onclick=()=>{document.querySelector("#error").textContent="";refreshStatus();refreshPresets();refresh();};document.querySelector("#close-logs").onclick=()=>document.querySelector("#logs").close();refreshStatus();refreshPresets();refresh();setInterval(()=>{if(!document.hidden)refresh();},3000);
+</script>
+</body></html>

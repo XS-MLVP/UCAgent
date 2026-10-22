@@ -8,6 +8,7 @@ external tools can inspect/control the agent without touching the console.
 """
 
 import collections
+import atexit
 import copy
 import difflib
 import io
@@ -235,6 +236,8 @@ class PdbCmdApiServer:
         self.sock = sock
         self.tcp = tcp
         self.password = password
+        self._xpra = self._new_xpra_manager()
+        atexit.register(self.close_sessions)
         self._running = False
         self.started_at: Optional[float] = None
         # TCP listener state
@@ -262,6 +265,16 @@ class PdbCmdApiServer:
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    def _new_xpra_manager(self):
+        """Create an isolated manager from the agent's resolved server settings."""
+        from .xpra import XpraSessionManager
+        return XpraSessionManager(self.pdb.agent.workspace, getattr(self.pdb.agent, "cfg", None),
+                                  secrets=(self.password,))
+
+    def close_sessions(self):
+        """Clean up owned GUI applications without closing terminal services."""
+        self._xpra.close()
 
     def _build_app(self):  # noqa: C901 – intentionally long; each section is self-contained
         import mimetypes
@@ -304,8 +317,7 @@ class PdbCmdApiServer:
         )
 
         # ── auth middleware (HTTP Basic, skips /docs and /redoc) ──────────
-        import base64 as _base64
-        import secrets as _secrets
+        from .transport import basic_authorized
         from starlette.middleware.base import BaseHTTPMiddleware
         from starlette.requests import Request as _Request
         from fastapi.responses import JSONResponse as _JSONResponse
@@ -315,19 +327,11 @@ class PdbCmdApiServer:
 
         class _AuthMiddleware(BaseHTTPMiddleware):
             async def dispatch(self, request: _Request, call_next):
-                if not _password or request.url.path in _EXCLUDED_PATHS:
+                if request.url.path in _EXCLUDED_PATHS:
                     return await call_next(request)
                 auth = request.headers.get("Authorization", "")
-                if auth.startswith("Basic "):
-                    try:
-                        decoded = _base64.b64decode(auth[6:]).decode("utf-8")
-                        _, _, pwd = decoded.partition(":")
-                        if _secrets.compare_digest(
-                            pwd.encode("utf-8"), _password.encode("utf-8")
-                        ):
-                            return await call_next(request)
-                    except Exception:
-                        pass
+                if basic_authorized(_password, auth):
+                    return await call_next(request)
                 return _JSONResponse(
                     status_code=401,
                     content={"detail": "Authentication required."},
@@ -335,6 +339,9 @@ class PdbCmdApiServer:
                 )
 
         app.add_middleware(_AuthMiddleware)
+
+        from .xpra_routes import register_xpra_routes
+        register_xpra_routes(app, self)
 
         pdb = self.pdb  # capture for closures
 
@@ -1335,7 +1342,7 @@ class PdbCmdApiServer:
             return bool(mime and mime.startswith("text/"))
 
         # ── HTML dashboard templates ─────────────────────────────────────
-        _TEMPLATE_DIR = pathlib.Path(__file__).resolve().parent / "templates"
+        _TEMPLATE_DIR = pathlib.Path(__file__).resolve().parents[1] / "templates"
         _HTML = (_TEMPLATE_DIR / "agent.html").read_text(encoding="utf-8")
         _COMPLETE_HTML = (_TEMPLATE_DIR / "complete.html").read_text(encoding="utf-8")
         # ── index: HTML dashboard ───────────────────────────────────────
@@ -2305,7 +2312,7 @@ class PdbCmdApiServer:
                 raise HTTPException(status_code=500, detail=str(exc))
 
         # ── GET /static/{path} — bundled static assets ─────────────────
-        _STATIC_DIR = pathlib.Path(__file__).resolve().parent / "static"
+        _STATIC_DIR = pathlib.Path(__file__).resolve().parents[1] / "static"
 
         @app.get("/static/{path:path}", summary="Serve bundled static assets", include_in_schema=False)
         def serve_static(path: str):
@@ -2402,6 +2409,11 @@ class PdbCmdApiServer:
         if self._running:
             return False, f"CMD API server is already running at {self.url()}"
 
+        if self._xpra._closed:
+            self._xpra = self._new_xpra_manager()
+        atexit.unregister(self.close_sessions)
+        atexit.register(self.close_sessions)
+
         import os
         import uvicorn
 
@@ -2417,7 +2429,7 @@ class PdbCmdApiServer:
                     port=self.port,
                     log_level="error",
                     lifespan="off",
-                    ws="none",
+                    ws="websockets-sansio",
                 )
                 self._tcp_server = uvicorn.Server(tcp_cfg)
                 self._tcp_thread = threading.Thread(
@@ -2449,7 +2461,7 @@ class PdbCmdApiServer:
                         uds=self.sock,
                         log_level="error",
                         lifespan="off",
-                        ws="none",
+                        ws="websockets-sansio",
                     )
                     self._sock_server = uvicorn.Server(sock_cfg)
                     self._sock_thread = threading.Thread(
@@ -2492,6 +2504,8 @@ class PdbCmdApiServer:
 
     def stop(self) -> Tuple[bool, str]:
         """Cleanly shut down all active listeners."""
+        self.close_sessions()
+        atexit.unregister(self.close_sessions)
         if not self._running:
             return False, "CMD API server is not running"
 

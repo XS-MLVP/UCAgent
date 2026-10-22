@@ -1025,7 +1025,11 @@ class PdbMasterApiServer:
     def _save_db(self) -> None:
         try:
             with self._agents_lock:
-                agents_snapshot = {k: dict(v) for k, v in self._agents.items()}
+                # Heartbeats refresh proxy credentials; keep them out of snapshots.
+                agents_snapshot = {
+                    k: {field: value for field, value in v.items() if field != "cmd_api_password"}
+                    for k, v in self._agents.items()
+                }
             with self._tasks_lock:
                 tasks_snapshot = {k: dict(v) for k, v in self._tasks.items()}
             with self._workspaces_lock:
@@ -6524,6 +6528,8 @@ class PdbMasterApiServer:
         password = self.password
         security = HTTPBasic(auto_error=False)
         proxy_timeout = aiohttp.ClientTimeout(total=120, connect=3, sock_connect=3, sock_read=120)
+        from ucagent.server.api_cmd.transport import XpraBrowserAccess
+        xpra_browser_access = XpraBrowserAccess(password)
 
         async def _proxy_http_request(
             request: Request,
@@ -6533,6 +6539,11 @@ class PdbMasterApiServer:
             failure_label: str,
         ) -> Response:
             body = await request.body()
+            # Advertise aiohttp's own decoders rather than inheriting browser
+            # codecs such as Brotli/Zstandard that may not be installed here.
+            headers = {key: value for key, value in headers.items() if key.lower() != "accept-encoding"}
+            if request.method == "HEAD":
+                headers["Accept-Encoding"] = "identity"
             session = self._proxy_session
             if session is None or session.closed:
                 connector = aiohttp.TCPConnector(limit=256, limit_per_host=64, ttl_dns_cache=30, keepalive_timeout=30)
@@ -6559,7 +6570,10 @@ class PdbMasterApiServer:
                             if key.lower() in {"content-length", "transfer-encoding", "content-encoding", "connection", "www-authenticate"}:
                                 continue
                             response_headers[key] = value
-                        return Response(content=raw, status_code=resp.status, headers=response_headers, media_type=None)
+                        if request.method == "HEAD" and "Content-Length" in resp.headers:
+                            response_headers["Content-Length"] = resp.headers["Content-Length"]
+                        response = Response(content=raw, status_code=resp.status, headers=response_headers, media_type=None)
+                        return xpra_browser_access.grant(request, response)
                 except (aiohttp.ClientConnectorError, aiohttp.ServerDisconnectedError, aiohttp.ClientOSError, asyncio.TimeoutError) as exc:
                     last_exc = exc
                     if attempt >= 2:
@@ -6891,6 +6905,7 @@ class PdbMasterApiServer:
                     "version": str(body.get("version") or "") or existing.get("version", ""),
                     "cmd_api_tcp": tcp_url or existing.get("cmd_api_tcp", ""),
                     "cmd_api_sock": str(body.get("cmd_api_sock") or "") or existing.get("cmd_api_sock", ""),
+                    "cmd_api_password": str(body.get("cmd_api_password") or ""),
                     "web_console": web_console,
                     "terminal_api": terminal_api,
                     "task_list": body.get("task_list") if body.get("task_list") is not None else existing.get("task_list"),
@@ -8571,6 +8586,8 @@ class PdbMasterApiServer:
                     except Exception:
                         pass
 
+        from ucagent.server.api_cmd.master_proxy import register_master_xpra_routes
+        register_master_xpra_routes(app, self, xpra_browser_access)
         return app
 
     # ------------------------------------------------------------------
@@ -8881,6 +8898,7 @@ class PdbMasterClient:
             "version": __version__,
             "cmd_api_tcp": tcp_url,
             "cmd_api_sock": sock_path,
+            "cmd_api_password": srv.password if srv and srv.is_running else "",
             "web_console": server_info.get("web_console") or {},
             "terminal_api": server_info.get("terminal_api") or {},
             "task_list": task_list,

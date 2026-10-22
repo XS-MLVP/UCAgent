@@ -67,6 +67,7 @@ nav:
       - LLM Check & Refinement: content/02_usage/06_llm_check.md
       - Web Master 使用指南: content/02_usage/07_web_master.md
       - 技能 SKILL: content/02_usage/08_skill.md
+      - Xpra 图形应用: content/02_usage/09_web_xpra.md
   - 定制开发:
       - 概览: content/03_develop/00_index.md
       - 定制开发入门: content/03_develop/01_quick_start.md

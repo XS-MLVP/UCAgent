@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Application surface · UCAgent</title>
+<link rel="stylesheet" href="css/client.css"><link rel="stylesheet" href="css/slick.css">
+<style>
+html,body{margin:0!important;padding:0!important;width:100%;height:100%;overflow:hidden;background:#101722!important}#screen{position:absolute;inset:0;width:100%;height:100%}#dpi{width:1in;height:1in;position:absolute;left:-100%;top:-100%}#pasteboard{position:absolute;left:-1000px;top:-1000px}#window_preview{display:none}#float_menu{position:fixed;right:12px;top:8px;z-index:10000;border:0;background:#1d2b3e;border-radius:6px}#float_tray:empty{display:none}#shadow_pointer{display:none}
+</style>
+<style>
+#clipboard-menu{position:fixed;z-index:100000;min-width:220px;padding:6px;background:#1d2b3e;color:#e6edf7;border:1px solid #52657e;border-radius:8px;box-shadow:0 8px 30px #0008;font:14px system-ui}#clipboard-menu[hidden]{display:none}#clipboard-menu button{display:block;width:100%;padding:9px 12px;border:0;border-radius:4px;text-align:left;color:inherit;background:transparent;font:inherit;cursor:pointer}#clipboard-menu button:hover,#clipboard-menu button:focus{background:#344b69}#clipboard-menu button:disabled{opacity:.5;cursor:default}#clipboard-menu small{display:block;max-width:240px;padding:6px 12px;color:#afc0d6;font-size:11px;line-height:1.5}#clipboard-notice{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);z-index:100001;max-width:80%;padding:10px 16px;border-radius:6px;background:#1d2b3e;color:#e6edf7;border:1px solid #52657e;font:13px system-ui}#clipboard-dialog{z-index:100002;width:min(520px,85vw);padding:24px;border:1px solid #52657e;border-radius:10px;background:#151e2b;color:#e6edf7;font:14px system-ui}#clipboard-dialog::backdrop{background:#0008}#clipboard-dialog h2{margin:0 0 12px;font-size:18px}#clipboard-dialog p{line-height:1.6;color:#afc0d6}#clipboard-text{box-sizing:border-box;width:100%;height:180px;margin:8px 0;padding:10px;background:#0d1520;color:#e6edf7;border:1px solid #52657e;border-radius:5px;font:13px monospace}#clipboard-dialog .actions{display:flex;justify-content:flex-end;gap:8px}#clipboard-dialog button{padding:8px 14px;border:1px solid #52657e;border-radius:5px;background:#263f60;color:#e6edf7;font:inherit;cursor:pointer}
+</style>
+</head>
+<body>
+<div id="dpi"></div><div id="screen" tabindex="-1"><img id="shadow_pointer" alt="Remote pointer"></div>
+<div id="float_menu"><div id="float_tray"></div></div><div id="window_preview"></div><div class="notifications"></div>
+<textarea id="pasteboard" aria-hidden="true" tabindex="-1"></textarea>
+<div id="clipboard-menu" role="menu" aria-label="Terminal clipboard" hidden><button id="clipboard-copy" role="menuitem" type="button">Copy selection</button><button id="clipboard-paste" role="menuitem" type="button">Paste</button><button id="clipboard-manual" role="menuitem" type="button">Paste text…</button><small>Drag over text to select. Copy / paste: ⌘C / ⌘V or Ctrl+Shift+C / V. With a modifier key, right click goes to the application.</small></div>
+<div id="clipboard-notice" role="status" hidden></div>
+<dialog id="clipboard-dialog" aria-labelledby="clipboard-title"><h2 id="clipboard-title"></h2><p id="clipboard-help"></p><textarea id="clipboard-text" aria-label="Clipboard text" spellcheck="false"></textarea><div class="actions"><button id="clipboard-cancel" type="button">Close</button><button id="clipboard-submit" type="button">Paste into terminal</button></div></dialog>
+<script src="ucagent.js"></script>
+</body>
+</html>

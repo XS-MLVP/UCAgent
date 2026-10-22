@@ -1145,7 +1145,12 @@ class VerifyAgent:
                 if not ok:
                     warning(msg)
         finally:
-            fc.chmode_rw(self.cwd_read_only_files)
+            try:
+                cmd_server = getattr(getattr(self, "pdb", None), "_cmd_api_server", None)
+                if cmd_server is not None:
+                    cmd_server.close_sessions()
+            finally:
+                fc.chmode_rw(self.cwd_read_only_files)
 
     def exit_unset(self):
         if not self.is_exit():
