@@ -40,6 +40,7 @@ UCAgent/plugins/RTL2Spec/
 | `evidence.py` | 源码状态、RTL、端口、相关模块源码及工具凭据 |
 | `generic_evidence.py` | 捕获通用 Verilog/SystemVerilog 输入、端口和源文件哈希 |
 | `verilog.py` | 显式输入配置、有限预处理及原始行号映射；不声称完成 HDL 编译 |
+| `sv_frontend.py` | 通过 pyslang 解析/展开端口类型，从语法树提取受限赋值、条件与事件并比较 HDL token |
 | `review.py` | 逐行为复核契约、当前工件验收记录和失效检查 |
 | `documents.py` | Markdown 解析、Mermaid 围栏、模板结构和事实元数据 |
 | `contracts.py` | 规范字段、跨表追溯、源位置与签核声明的确定性检查 |
@@ -69,7 +70,16 @@ make template-check
 git diff --check
 ```
 
-`make` 显式从插件目录的 `src` 加载代码。测试使用临时源码夹具，无需下载 XiangShan；`template-check` 只解析模板的 Markdown 和 Mermaid 围栏，不需要 Node.js、浏览器或网络。影响生成行为时，还需选一个真实模块在干净工作区验证。测试覆盖两种工作流、Skill 开启/关闭、独立输出目录、元数据幂等、精确端口、复核/验收失效及编译配置错误边界。
+`make` 显式从插件目录的 `src` 加载代码。测试使用临时源码夹具，无需下载 XiangShan；`template-check` 只解析模板的 Markdown 和 Mermaid 围栏，不需要 Node.js、浏览器或网络。影响生成行为时，还需选一个真实模块在干净工作区验证。端口展开与赋值事实测试调用真实 pyslang，不用正则或模拟解析器代替。
+
+按改动风险选择测试，提交前运行完整插件测试：
+
+| 关注点 | 测试文件与主要边界 |
+| --- | --- |
+| 端口、编译输入与事实提取 | `test_sv_frontend.py`、`test_compilation_inputs.py`：类型、参数、宏/include、非 ANSI 声明位置、条件/事件匹配及不支持的语法范围 |
+| 文档和质量报告 | `test_document_contracts.py`、`test_document_structure.py`、`test_deterministic_contract.py`：完整样例、端口映射、表格追溯、唯一报告标题、空区块拒绝 |
+| 复核与验收 | `test_review_acceptance.py`、`test_incremental_review.py`：两种事实状态的引用关联、七类 checks、依赖失效、答案保留、并发修改及签名 |
+| 阶段和工作区 | `test_runtime.py`、`test_generic_workflow.py`、`test_output_lifecycle.py`、`test_ucagent_plugin.py`：两套工作流、Skill 开关、独立输出、损坏 manifest/越界软链接的诊断及修复后重试 |
 
 修改后端权限或升级 UCAgent/OpenCode 时，安装 OpenCode 并执行以下测试（已验证 OpenCode 1.18.26）：
 
@@ -91,6 +101,8 @@ python -I -m pytest -q --import-mode=append -o pythonpath=''
 ```
 
 默认构建先生成 sdist，再从 sdist 构建 wheel。wheel 包含代码、脚本、工作流及 Guide_Doc；sdist 还包含清单、`docs/` 和测试。恢复源码开发时重新执行可编辑安装。
+
+检查 wheel 中的 `sv_frontend.py`、`Guide_Doc/artifact-templates.json`、全部运行指南和两套工作流均存在，安装后可以加载。通过 `python -I` 运行测试可避免源码目录和 `PYTHONPATH` 遮蔽已安装的包；测试仍须使用 sdist 携带的完整 fixtures。构建和安装测试应在临时环境执行，不覆盖正在使用的 UCAgent 环境。
 
 插件沿用 UCAgent 根目录的 [Apache-2.0 许可证](https://github.com/XS-MLVP/UCAgent/blob/main/LICENSE)；发行包包含构建时复制的许可证和版权声明。打包规则见 [UCAgent 插件开发文档](https://github.com/XS-MLVP/UCAgent/blob/main/docs/content/03_develop/09_plugins.md#发行包中的许可证)。
 

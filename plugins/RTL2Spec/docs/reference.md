@@ -39,6 +39,10 @@ UCAgent 在工作流中调用 `RTL2SpecCommand`，并通过 `Check`、`Complete`
 
 复核记录格式与完整例子见 [源码复核指南](../src/rtl2spec/Guide_Doc/source-review-guide.md)。记录证明引用和复核项完整，不证明行为已通过动态或形式化验证。finalize 后不再手工回填验收结果；若修改设计或证据，先重新 metadata/review，再 finalize。
 
+每个 P-* 的七类复核证据都须与正文引用的 E-* 源码范围相交，`no_deterministic_fact` 也遵守此规则，并额外引用仍为 Open/Deferred 的 OPEN-* 解释缺口。赋值事实只对比支持范围内的赋值、条件与事件；端口和行为事实的检查边界见[插件原理与设计](architecture.md#源码复核与最终验收)。
+
+质量报告使用[质量复核模板](../src/rtl2spec/Guide_Doc/document-quality-review-template.md)的唯一一级标题和六个有序二级区块，每块填写具体发现或限制，不能只留下表头、全空行或子标题。报告里的统计数字和自然语言结论仍需对照当前复核记录审阅。
+
 调用时传入 `module` 和 `config`。需要把相关源码纳入证据时，先读取相关模块，再传入 `related_modules`：
 
 ```python
@@ -59,6 +63,6 @@ RTL2SpecCommand(action="generic_related_sources", module="GenericBlock", config=
 - **找不到插件或同名冲突**：确认 pip 与 ucagent 使用同一 Python 环境；源码调试使用 `--plugin /绝对路径/UCAgent/plugins/RTL2Spec`。
 - **环境检查失败**：XiangShan 工作流按诊断补齐工具或子模块，确认模块及配置 class 名正确；通用工作流检查 `inputs/{DUT}/rtl2spec.json` 指定的文件顺序、include、宏和参数；未提供配置时需要唯一顶层源文件。完整输入例见[通用输入指南](../src/rtl2spec/Guide_Doc/generic-generation-guide.md)。选择 XiangShan 工作流时要求 Bash、Git、Curl、Make 的 `--version` 能正常执行，通用工作流不依赖这组 XiangShan 工具链。
 - **工具不可见**：检查 `tools.selected_tools` 与 `tools.ignore_tools`，勿屏蔽工作流所需工具。
-- **验收失败**：按 `Check` 指出的文件和位置修复；按诊断选择草稿修订、metadata、review 或 finalize。`stale review` 表示文档/源码已变化，须重新复核；`stale acceptance` 表示交付物已变化，须重新验收。输入配置变化后应选择空输出目录重新捕获证据。
+- **验收失败**：按 `Check` 指出的文件和位置修复；按诊断选择草稿修订、metadata、review 或 finalize。损坏的 manifest 或越界软链接修复为有效签名证据后，可以直接重新 Check，不需要靠重启清除失败状态。`stale review` 表示文档/源码已变化，须重新复核；`stale acceptance` 表示交付物已变化，须重新验收。输入配置变化后应选择空输出目录重新捕获证据。
 - **相关模块证据缺失**：XiangShan 工作流先读取实际支撑结论的 Scala 模块，再执行 `related_sources`；通用工作流先读取 `inputs/{DUT}/` 下的源码，再执行 `generic_related_sources`。在正文引用生成的 `E-REL-*`，并把它加入附录 C。不要仅因为文件存在就把它列为参考文件。
 - **修改插件资源后仍使用旧内容**：重新启动工作流并重新生成工作区的运行资源。

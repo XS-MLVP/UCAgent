@@ -5,7 +5,7 @@ import json
 import pytest
 
 from conftest import RTL, draft
-from rtl2spec.documents import TEMPLATE, artifact_paths, generate_port_scaffold, update_metadata
+from rtl2spec.documents import ARTIFACT_TEXT, TEMPLATE, artifact_paths, generate_port_scaffold, update_metadata
 from rtl2spec.generic_evidence import generate_generic, record_generic_related_sources, validate_generic_evidence
 from rtl2spec.review import prepare_review
 from rtl2spec.validation import validate, validate_ports, validate_quality_report
@@ -140,3 +140,35 @@ def test_quality_report_blocks_keep_canonical_order_and_level(documents):
         and "源码复核发现" in issue["error"]
         for issue in validate_quality_report(heading_only)
     )
+
+
+@pytest.mark.parametrize("body,valid", [
+    ("| Item | Finding |\n| --- | --- |", False),
+    ("| Item | Finding |\n| --- | --- |\n| | |", False),
+    ("<!-- findings still pending -->", False),
+    ("### Findings", False),
+    ("```text\nExample only\n```", False),
+    ("No simulation was run; this report only checks captured evidence.", True),
+    ("| Item | Finding |\n| --- | --- |\n| Simulation | Unrun |", True),
+])
+def test_quality_report_requires_visible_findings(body, valid):
+    """Each audit section needs prose or populated data, rather than an empty table."""
+    contract = ARTIFACT_TEXT["quality_report"]
+    text = "\n# " + contract["title"] + "\n"
+    text += "".join("\n## " + section["title"] + "\n\n" + body + "\n"
+                    for section in contract["sections"])
+    errors = validate_quality_report(text)
+    assert (not errors) == valid, errors
+    if not valid:
+        assert len([issue for issue in errors if issue["rule"] == "QUALITY_REPORT_CONTENT"]) == 6
+
+
+@pytest.mark.parametrize("extra,before", [("# Another report", False), ("## Preamble", True)])
+def test_quality_report_has_one_leading_title(extra, before):
+    """All six report sections must belong to a single canonical report title."""
+    contract = ARTIFACT_TEXT["quality_report"]
+    text = "\n# " + contract["title"] + "\n"
+    text += "".join("\n## " + section["title"] + "\n\nObserved finding.\n"
+                    for section in contract["sections"])
+    text = "\n" + extra + "\n" + text if before else text + "\n" + extra + "\n"
+    assert any(issue["rule"] == "QUALITY_REPORT_TITLE" for issue in validate_quality_report(text))

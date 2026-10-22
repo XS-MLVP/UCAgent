@@ -22,7 +22,7 @@
 8. 未运行的综合、仿真、回归、断言编译、formal 和 coverage 保持 Unrun/Open。不能把结构检查或复核记录称为功能签核。
 9. 保留每个 Markdown 标题前后空行；删除模板 HTML 说明、方括号占位符和 TODO/TBD。仅保留工具生成的 metadata、related-source 和 acceptance 标记。Mermaid 保存为闭合源码块，不生成图片。
 10. 写完执行 metadata 或 generic_metadata。需要草稿诊断时用 validate 或 generic_validate；下一阶段按 Guide_Doc/source-review-guide.md 对照源码复核。
-11. 语义复核会为每个 P-* 保存结构化赋值 `facts`。填写 `lhs`/`rhs`、赋值运算符、过程类型、时钟事件、全部条件分支和源码范围，格式见 Guide_Doc/source-review-guide.md；fact 与七类 check 的范围必须落在该 P-* 正文引用的 E-* 范围内。无法由工具确定的复杂关系写 `fact_status: no_deterministic_fact`、`facts: []`，并在 `fact_reason` 中引用状态为 Open/Deferred 的 OPEN-*。
+11. 语义复核会为每个 P-* 保存结构化赋值 `facts`。填写 `lhs`/`rhs`、赋值运算符、过程类型、时钟事件、全部条件分支和源码范围，格式见 Guide_Doc/source-review-guide.md；每个 fact 与七类 check 的范围都须与该 P-* 正文引用的至少一个 E-* 范围在同一文件内相交。无法由工具确定的复杂关系写 `fact_status: no_deterministic_fact`、`facts: []`，并在 `fact_reason` 中引用状态为 Open/Deferred 的 OPEN-*；此时七类 check 仍须引用与正文 E-* 相交的源码，OPEN-* 不能替代实际源码引用。
 
 ## 确定性验收规则
 

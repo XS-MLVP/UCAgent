@@ -36,11 +36,11 @@ def validate_quality_report(text: str) -> list[dict]:
     """Require the review report's independent audit sections before review/final."""
     errors = []
     headings = document_sections(text)
-    title = ARTIFACT_TEXT.get("quality_report", {}).get("title", "RTL2Spec 质量复核报告")
+    title = ARTIFACT_TEXT["quality_report"]["title"]
     top_level = [section for section in headings if section["level"] == 1]
-    if not top_level or top_level[0]["title"] != title:
-        errors.append({"rule": "QUALITY_REPORT_TITLE", "error": f"quality report must contain '# {title}'"})
-    required = ARTIFACT_TEXT.get("quality_report", {}).get("sections", [])
+    if len(top_level) != 1 or top_level[0]["title"] != title or headings[0] != top_level[0]:
+        errors.append({"rule": "QUALITY_REPORT_TITLE", "error": "quality report must start with its single canonical level-one title; follow Guide_Doc/document-quality-review-template.md"})
+    required = ARTIFACT_TEXT["quality_report"]["sections"]
     lines = text.splitlines()
     previous_line = -1
     for expected in required:
@@ -68,8 +68,9 @@ def validate_quality_report(text: str) -> list[dict]:
             and not re.match(r"^#{1,6}\s", line.lstrip())
             and not re.fullmatch(r"[-:| ]+", line.strip())
         ]
-        has_table = any(token.type == "table_open" for token in markdown_tokens(body))
-        if not meaningful and not has_table:
+        has_data = any(not row["header"] and any(cell.strip() for cell in row["cells"])
+                       for row in markdown_rows(visible))
+        if not meaningful and not has_data:
             errors.append({"rule": "QUALITY_REPORT_CONTENT", "error": f"quality report section '{expected['title']}' needs findings or an explicit limitation"})
     return errors
 

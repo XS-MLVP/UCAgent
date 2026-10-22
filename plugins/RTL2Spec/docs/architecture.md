@@ -74,11 +74,15 @@ flowchart TD
 
 [generic_evidence.py](../src/rtl2spec/generic_evidence.py) 对输入目录内全部普通文件记录路径、大小和 SHA-256，计算 `source_baseline`；输入树中的软链接会被拒绝。未提供显式配置时寻找唯一顶层源文件，提供配置时按 `files` 顺序处理输入。
 
-[verilog.py](../src/rtl2spec/verilog.py) 处理受支持的条件编译、include 和对象宏，并保留每行对应的原始文件位置。端口提取通过 pyslang 解析与展开选定顶层，支持 ANSI/非 ANSI 声明、package/typedef、packed struct/enum、多维 packed/unpacked 数组及 HDL 常量表达式；无法确定端口事实时返回错误，不猜测位宽。
+[verilog.py](../src/rtl2spec/verilog.py) 处理受支持的条件编译、include 和对象宏，并保留每行对应的原始文件位置。[sv_frontend.py](../src/rtl2spec/sv_frontend.py) 调用 pyslang 解析与展开选定顶层，支持 ANSI/非 ANSI 声明、package/typedef、packed struct/enum、多维 packed/unpacked 数组及 HDL 常量表达式；无法确定端口事实时返回错误，不猜测位宽。
 
 证据同时保存原始目标源文件、预处理结果和 `source_map.json`。整数参数覆盖用于端口事实求值，并记录在 manifest 的 `compilation` 中；预处理结果不是完成参数展开后的网表。预处理仍限定支持的指令与对象宏；pyslang 对选定编译单元进行语法和展开检查，但不会综合、仿真或证明模块行为。
 
 两条路径最终都产生 `manifest.json`、模块 RTL 和 `ports.csv`。每次检查重新核验源状态、哈希和端口事实；登记的相关源码另有独立路径、摘要和 `E-REL-*` 标识，不能用顶层 RTL 的哈希代替。
+
+两条路径的端口提取范围不同。香山针对 firtool 已生成的扁平 ANSI 端口读取名称、方向和数值位宽；通用路径通过 pyslang 解析类型、绑定参数并求值宽度，还记录符号性、规范类型、packed/unpacked 维度和声明位置。这里的“展开”用于解析模块实例、参数和类型，不产生可执行仿真程序或综合结果。通用路径拒绝 interface/ref、动态尺寸和非 integral 端口。
+
+附录 A 必须逐一映射所有实际端口，名称、方向和形状与当前 `ports.csv` 一致，源码位置包含真实声明。形状中的宽度是单个元素的 integral 位宽（包含所有 packed 维度），unpacked 维度另列，例如 `I/9[0:3]` 表示 4 个 9 位输入元素。通用证据保留类型详情，但端口映射检查不会证明协议说明、逻辑分组或采样语义正确。
 
 ## Checker 设计
 
@@ -87,6 +91,8 @@ flowchart TD
 [checkers.py](../src/rtl2spec/checkers.py) 提供 `RTL2SpecArtifactsChecker` 与 `RTL2SpecGenericArtifactsChecker`。通用类复用前者的初始化和阶段计时逻辑，在 `do_check()` 中选择通用证据验证。它们都调用 [validation.py](../src/rtl2spec/validation.py) 的 `validate()`，由 `phase` 决定检查深度。
 
 构造函数先调用 `super().__init__()`，只验证和保存静态参数。`on_init()` 在工作区、阶段可用后添加参考文件并注册一次完成回调；回调将 UCAgent 的实际阶段时间写入 `logs/stages.jsonl`。`do_check()` 每次读取当前文件，不生成 RTL、不改写文档、不自动更新复核或验收记录。
+
+初始化时发现损坏的 manifest 或越界路径，只跳过无法读取的参考文件，由当前 Check 返回结构化诊断。修复或恢复有效证据后，可以在同一 Checker 实例上重新 Check/Complete；初始化时的读取失败不会成为永久失败状态。路径和签名仍由实时校验检查，不能通过修复 JSON 外观来绕过证据完整性要求。
 
 这些 checker 没有批次进度。`Check` 和 `Complete` 使用相同的当前阶段产物检查；阶段推进和完成回调由 UCAgent 管理，工具调用成功本身不会替代阶段验收。
 
@@ -109,15 +115,21 @@ flowchart TD
 
 完整字段和状态约束以 [Guide_Doc/generation-guide.md 的确定性验收规则](../src/rtl2spec/Guide_Doc/generation-guide.md#确定性验收规则)为准。源码引用的存在性与范围检查不能证明引用确实支撑结论；Mermaid 检查也只覆盖 Markdown 围栏结构，不执行渲染或完整 Mermaid 语法验证。
 
+质量报告须以唯一的一级标题开始，六个固定二级区块依次出现且各有内容。文字说明或有非空数据单元格的表格均可；空表头、全空数据行、注释、子标题和围栏示例不能独立满足内容要求。这项检查保证报告结构与内容存在，不自动确认人工填写的事实统计数量或复核结论正确。
+
 `validate()` 返回 `ok`、`phase` 和有界警告。失败时提供 `SPEC_ARTIFACT_INVALID`、首个错误及文件、`observed` 中最多 12 项诊断、错误总数和 `next_action`；具体规则可带 `rule` 与行号。新增检查应指出可执行的修复动作，避免仅返回“检查失败”或整份文档。
 
-语义复核记录还保存每个 P-* 的结构化 `facts`。通过 HDL 语法树提取的赋值、时钟事件和条件分支会与引用的完整 RTL 范围逐项比对；复杂语义可显式标记为 `no_deterministic_fact`，由源码复核保留人工判断。复核基线同时保存每个 P-* 的依赖指纹，因此设计文档变化后只重置受影响行为，未变化行为的复核答案继续有效。
+语义复核记录还保存每个 P-* 的结构化 `facts`。复核基线同时保存每个 P-* 的依赖指纹，因此设计文档变化后只重置受影响行为，未变化行为的复核答案继续有效。
 
 ## 源码复核与最终验收
 
 [review.py](../src/rtl2spec/review.py) 将语义复核组织成逐行为记录。`prepare_review()` 提取当前 `P-*`，为每项建立结构化事实及接受边界、存储与背压、旁路、配置、复位恢复、环境假设及验证计划七类问题。AI 填写事实、结论和证据，checker 检查事实是否出现在引用 RTL 范围中，并检查七项是否完整、状态是否有效、源码范围是否真实，以及 CK/COV 是否属于该行为的测试计划。
 
-每个复核项至少引用一个允许的源文件范围，每段为 1 至 100 行且不能全空。`open` 状态须引用文档中仍为 `Open` 或 `Deferred` 的开放项。完整 JSON 格式与填写方式见 [Guide_Doc/source-review-guide.md](../src/rtl2spec/Guide_Doc/source-review-guide.md)。
+每个复核项至少引用一个允许的源文件范围，每段为 1 至 100 行且不能全空，并须与对应 P-* 正文引用的至少一个 E-* 范围在同一文件内相交。`asserted` 和 `no_deterministic_fact` 都遵守此要求；OPEN-* 说明判定缺口，不能替代实际源码引用。`open` 状态须引用文档中仍为 `Open` 或 `Deferred` 的开放项。完整 JSON 格式与填写方式见 [Guide_Doc/source-review-guide.md](../src/rtl2spec/Guide_Doc/source-review-guide.md)。
+
+结构化事实检查由 pyslang 语法树提取目标模块内的赋值，再按 HDL token 比较 `lhs/rhs`、赋值运算符、过程类型、事件以及从外到内的全部 if/else 条件。引用范围必须覆盖完整赋值，并与正文 E-* 范围相交。它支持连续赋值和受限的 always/always_ff/always_comb/always_latch；普通 always 必须有事件，always_ff 要求单一边沿事件。case、循环、generate、函数体内赋值、额外延迟和多重事件控制不产生确定性事实。函数调用 RHS 只核对调用表达式，不展开函数体。
+
+该检查能发现事实字段与赋值语法的直接矛盾，不进行表达式等价证明、完整数据流分析或跨周期性质证明，也不保证枚举了所有赋值。对于复杂行为，`no_deterministic_fact` 要求空 facts、具体原因和一个仍为 Open/Deferred 的 OPEN-*，并继续完成全部七类复核。因此“已有匹配事实”不能推出整个 P-* 的自然语言叙述已被机器证明。
 
 SHA-256 标识文件内容，HMAC-SHA256 签名标识本工作区工具生成的记录。签名密钥位于 `.ucagent/.rtl2spec_receipt_key`，由工具创建，普通工作流文件写入禁止修改该路径。这是工作区内的完整性机制，不是第三方认证，也不能阻止拥有宿主文件和密钥访问权的人重签记录。
 
@@ -149,9 +161,9 @@ SHA-256 标识文件内容，HMAC-SHA256 签名标识本工作区工具生成的
 
 | 修改内容 | 实现入口 | 主要回归测试 |
 | --- | --- | --- |
-| 通用输入或端口解析 | `verilog.py`、`generic_evidence.py` | `test_compilation_inputs.py`、`test_generic_workflow.py` |
+| 通用输入或端口解析 | `verilog.py`、`sv_frontend.py`、`generic_evidence.py` | `test_compilation_inputs.py`、`test_sv_frontend.py`、`test_generic_workflow.py` |
 | 模板、字段和追溯规则 | 模板与本地化资源、`documents.py`、`contracts.py`、`validation.py` | `test_document_structure.py`、`test_document_contracts.py`、`test_deterministic_contract.py` |
-| 复核和验收失效条件 | `review.py` | `test_review_acceptance.py`，以及行为关联相关的确定性检查测试 |
+| 赋值事实、复核和验收失效条件 | `sv_frontend.py`、`review.py` | `test_sv_frontend.py`、`test_review_acceptance.py`、`test_incremental_review.py` |
 | 工作流、工具和输出路径 | 工作流 YAML、`plugin.py`、`tools.py`、`checkers.py` | `test_runtime.py`、`test_output_lifecycle.py`、`test_ucagent_plugin.py` |
 
 涉及文档契约时，同步阶段任务、运行指南、模板、本地化资源、解析器和完整样例；不要让正文教学与 checker 接受的格式不同。涉及工作流时，验证香山与通用两条路径，以及 Skill 开启、关闭和独立输出目录。测试、真实模块复核与打包的具体操作见[开发与验证](development.md#开发与验证)。

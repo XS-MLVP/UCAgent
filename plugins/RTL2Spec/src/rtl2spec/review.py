@@ -148,6 +148,17 @@ def validate_behavior_facts(root: Path, behaviors: list[dict], baseline: dict, t
     inventories = {}
     for behavior in behaviors:
         label = f"{behavior.get('id', '<unknown>')}/facts"
+        # Every review needs source linkage, including behaviors for which no
+        # supported assignment fact can be extracted.
+        if check_ranges is not None and evidence_ranges is not None:
+            for aspect, ranges in check_ranges.get(behavior.get("id"), {}).items():
+                for path, start, end in ranges:
+                    if not any(
+                        evidence_path == path
+                        and _ranges_overlap(start, end, evidence_start, evidence_end)
+                        for evidence_path, evidence_start, evidence_end in evidence_ranges.get(behavior.get("id"), [])
+                    ):
+                        raise ValueError(f"{target}: {behavior.get('id', '<unknown>')}/{aspect}: review evidence must overlap an E-* range cited by the P-* body")
         facts = behavior.get("facts")
         status = behavior.get("fact_status")
         if status == "no_deterministic_fact":
@@ -221,16 +232,6 @@ def validate_behavior_facts(root: Path, behaviors: list[dict], baseline: dict, t
                     for evidence_path, evidence_start, evidence_end in evidence_ranges[behavior.get("id")]
                 ):
                     raise ValueError(f"{location}: fact evidence must overlap the source range of an E-* cited by the matching P-* body")
-
-        if check_ranges is not None and evidence_ranges is not None:
-            for aspect, ranges in check_ranges.get(behavior.get("id"), {}).items():
-                for path, start, end in ranges:
-                    if not any(
-                        evidence_path == path
-                        and _ranges_overlap(start, end, evidence_start, evidence_end)
-                        for evidence_path, evidence_start, evidence_end in evidence_ranges[behavior.get("id")]
-                    ):
-                        raise ValueError(f"{target}: {behavior.get('id', '<unknown>')}/{aspect}: review evidence must overlap an E-* range cited by the P-* body")
 
 
 def review_sources(root: Path, manifest: dict, output_dir: str) -> dict[str, str]:
@@ -365,6 +366,9 @@ def validate_review(root: Path, module: str, manifest: dict, output_dir: str) ->
     for behavior in behaviors:
         if behavior.get("fingerprint") != fingerprints.get(behavior.get("id")):
             raise ValueError(f"{target}: {behavior.get('id', '<unknown>')} is missing its current dependency fingerprint; run review")
+        checks = behavior.get("checks")
+        if not isinstance(checks, dict) or set(checks) != set(ASPECTS):
+            raise ValueError(f"{target}: {behavior['id']} must contain exactly these checks: {', '.join(ASPECTS)}")
     visible = prose_text(text)
     tables = contract_rows(text)
     open_states = {row['cells'][0]: row['cells'][4] for row in tables['open']}
@@ -399,10 +403,7 @@ def validate_review(root: Path, module: str, manifest: dict, output_dir: str) ->
     validate_behavior_facts(root, behaviors, baseline, target, open_states, behavior_evidence, behavior_check_ranges)
     plans = {row['cells'][2]: row['cells'] for row in tables['plan']}
     for behavior in behaviors:
-        checks = behavior.get("checks")
-        if not isinstance(checks, dict) or set(checks) != set(ASPECTS):
-            raise ValueError(f"{target}: {behavior['id']} must contain exactly these checks: {', '.join(ASPECTS)}")
-        for aspect, check in checks.items():
+        for aspect, check in behavior["checks"].items():
             location = f"{target}: {behavior['id']}/{aspect}"
             if not isinstance(check, dict) or check.get("status") not in {"reviewed", "not_applicable", "open"}:
                 raise ValueError(f"{location}: review the source and use reviewed, not_applicable or open")

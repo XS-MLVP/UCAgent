@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from conftest import RTL, draft, complete_review
-from rtl2spec.checkers import RTL2SpecArtifactsChecker
+from rtl2spec.checkers import RTL2SpecArtifactsChecker, RTL2SpecGenericArtifactsChecker
 from rtl2spec.evidence import read_json
 from rtl2spec.documents import METADATA_RE, artifact_paths
 from rtl2spec.tools import RTL2SpecCommand
@@ -55,6 +55,60 @@ def test_checker_reports_non_utf8_manifest_without_crashing(tmp_path):
     assert not ok
     assert result["error_code"] == "SPEC_ARTIFACT_INVALID"
     assert "manifest.json" in result["artifact"]
+
+
+@pytest.mark.parametrize("generic", [False, True])
+@pytest.mark.parametrize("damage", ["encoding", "json", "related_path", "manifest_link", "output_link"])
+def test_checker_recovers_after_input_repair(artifacts, tmp_path, generic, damage):
+    """The same checker must reject current damage and accept restored signed artifacts."""
+    root = artifacts
+    checker_type = RTL2SpecArtifactsChecker
+    if generic:
+        from rtl2spec.generic_evidence import generate_generic
+        from rtl2spec.documents import update_metadata
+
+        root = tmp_path / "generic"
+        source = root / "inputs/Sbuffer"
+        source.mkdir(parents=True)
+        (source / "Sbuffer.sv").write_text(RTL)
+        generate_generic(root, "Sbuffer", "DefaultConfig")
+        draft(root)
+        update_metadata(root, "Sbuffer", "DefaultConfig", generic=True)
+        complete_review(root, generic=True)
+        checker_type = RTL2SpecGenericArtifactsChecker
+    manifest = root / "outputs/evidence/manifest.json"
+    original = manifest.read_bytes()
+    if damage == "encoding":
+        manifest.write_bytes(b"{\xff")
+    elif damage == "json":
+        manifest.write_text("{")
+    elif damage == "related_path":
+        value = json.loads(original)
+        value["related_sources"] = [{"path": "../../outside.sv"}]
+        manifest.write_text(json.dumps(value))
+    elif damage == "manifest_link":
+        external = tmp_path / "external.json"
+        external.write_bytes(original)
+        manifest.unlink()
+        manifest.symlink_to(external)
+    else:
+        (root / "outputs").rename(tmp_path / "saved-outputs")
+        (root / "outputs").symlink_to(tmp_path / "saved-outputs", target_is_directory=True)
+    checker = checker_type(module="Sbuffer", phase="review")
+    checker.set_workspace(str(root)).on_init()
+    ok, result = checker.do_check()
+    assert not ok and result["error_code"] == "SPEC_ARTIFACT_INVALID", result
+    if damage == "manifest_link":
+        manifest.unlink()
+    elif damage == "output_link":
+        (root / "outputs").unlink()
+        (tmp_path / "saved-outputs").rename(root / "outputs")
+    manifest.write_bytes(original)
+    before = {p: p.read_bytes() for p in (root / "outputs").rglob("*") if p.is_file()}
+    for complete in (False, True):
+        ok, result = checker.do_check(is_complete=complete)
+        assert ok, result
+    assert {p: p.read_bytes() for p in before} == before
 
 
 def test_new_generation_requires_clean_output_directories(artifacts, command):

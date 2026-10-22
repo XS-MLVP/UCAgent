@@ -5,14 +5,14 @@ import json
 import pytest
 
 from rtl2spec.documents import artifact_paths, document_sections
-from rtl2spec.review import prepare_review, finalize
+from rtl2spec.review import ASPECTS, prepare_review, finalize, validate_behavior_facts
 from rtl2spec.sv_frontend import assignment_facts
 from rtl2spec.validation import validate
 
 
 @pytest.mark.parametrize("defect", ["pending", "missing_behavior", "duplicate_behavior", "missing_check",
                                     "empty_conclusion", "unknown_source", "line_range", "missing_open", "unknown_ck",
-                                    "wrong_fact", "missing_fact"])
+                                    "wrong_fact", "missing_fact", "checks_list", "checks_null", "checks_string"])
 def test_review_gate_checks_actual_records(artifacts, defect):
     """A marker alone cannot satisfy current behavior coverage and real source references."""
     path = artifacts / "outputs/semantic_review.json"
@@ -39,6 +39,8 @@ def test_review_gate_checks_actual_records(artifacts, defect):
         behavior["checks"]["verification_plan"]["ck_ids"] = ["CK-UNKNOWN"]
     elif defect == "wrong_fact":
         behavior["facts"][0]["rhs"] = "io_missing"
+    elif defect.startswith("checks_"):
+        behavior["checks"] = {"checks_list": [], "checks_null": None, "checks_string": "reviewed"}[defect]
     else:
         behavior["fact_status"] = "asserted"
         behavior["facts"] = []
@@ -111,6 +113,41 @@ def test_complex_behavior_can_explicitly_defer_machine_fact(artifacts):
     behavior["fact_reason"] = "The behavior depends on a multi-cycle arbitration invariant; see OPEN-FORMAL-01."
     path.write_text(json.dumps(value))
     assert validate(artifacts, "Sbuffer", "DefaultConfig", "review")["ok"]
+
+
+@pytest.mark.parametrize("status", ["asserted", "no_deterministic_fact"])
+@pytest.mark.parametrize("aspect", ASPECTS)
+def test_each_review_aspect_requires_matching_behavior_evidence(tmp_path, status, aspect):
+    """Deferring machine facts must preserve every aspect's source-citation boundary."""
+    source = "block.sv"
+    (tmp_path / source).write_text("module Block(input a, output b);\nassign b = a;\nendmodule\n")
+    behavior = {"id": "P-FORWARD", "fact_status": status, "facts": [],
+                "fact_reason": "Multi-cycle invariant remains open under OPEN-FORMAL-01."}
+    if status == "asserted":
+        behavior["facts"] = [{"kind": "assignment", "lhs": "b", "rhs": "a", "operator": "=",
+                              "process": "continuous", "event": None, "guards": [],
+                              "evidence": [{"path": source, "start_line": 2, "end_line": 2}]}]
+    arguments = (tmp_path, [behavior], {"module": "Block", "sources": {source: "captured"}}, tmp_path / "semantic_review.json",
+                 {"OPEN-FORMAL-01": "Open"}, {"P-FORWARD": [(source, 2, 2)]})
+    # A single shared line is enough; review context may extend beyond an E-*.
+    validate_behavior_facts(*arguments, {"P-FORWARD": {aspect: [(source, 1, 2)]}})
+    with pytest.raises(ValueError, match=rf"P-FORWARD/{aspect}: review evidence must overlap"):
+        validate_behavior_facts(*arguments, {"P-FORWARD": {aspect: [(source, 3, 3)]}})
+
+
+def test_deferred_fact_cannot_bypass_review_citation_gate(artifacts):
+    """The full review gate rejects an unrelated range even for a justified OPEN item."""
+    path = artifacts / "outputs/semantic_review.json"
+    value = json.loads(path.read_text())
+    behavior = value["behaviors"][0]
+    behavior.update(fact_status="no_deterministic_fact", facts=[],
+                    fact_reason="Multi-cycle invariant requires OPEN-FORMAL-01.")
+    behavior["checks"]["acceptance"]["evidence"] = [
+        {"path": "outputs/evidence/Sbuffer.sv", "start_line": 9, "end_line": 9}
+    ]
+    path.write_text(json.dumps(value))
+    result = validate(artifacts, "Sbuffer", "DefaultConfig", "review")
+    assert not result["ok"] and "review evidence must overlap" in result["error"], result
 
 
 def test_structured_fact_matching_handles_expression_spacing_and_reset():

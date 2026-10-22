@@ -120,7 +120,7 @@ stage:
   - 修正正文、Testplan 和 Coverage 中的矛盾；将无法确认的内容写为 OPEN-*，在质量报告中记录实际复核发现。
   - 文档修订完后执行 generic_metadata，再执行 RTL2SpecCommand(action='generic_review', module='{DUT}', config='{GENERIC_CONFIG}')。
   - 填写 {OUT}/semantic_review.json：先为每个 P-* 填写可由 RTL 直接支持的 assignment facts（lhs/rhs、operator、process、event、guards）及完整赋值的源码范围，范围必须与该 P-* 正文引用的 E-* 范围相交；无法确定的复杂关系使用
-    fact_status=no_deterministic_fact 并在 fact_reason 中引用状态为 Open/Deferred 的 OPEN-*。再填写七类复核项、结论、适用性和有效源码行范围，范围同样必须落在该 P-* 的 E-* 证据内；verification_plan 引用 Testplan 中属于当前行为的 CK 及其 COV。
+    fact_status=no_deterministic_fact 并在 fact_reason 中引用状态为 Open/Deferred 的 OPEN-*。再填写七类复核项、结论、适用性和有效源码行范围，每段范围均须与该 P-* 正文引用的 E-* 源码范围在同一文件内相交，no_deterministic_fact 同样遵守此要求；verification_plan 引用 Testplan 中属于当前行为的 CK 及其 COV。
     重新 generic_review 时只需复核发生变化的 P-*，不可手改 baseline。
   - 需要定位复核问题时调用 generic_lint；随后记录阶段日志并 Complete。
   reference_files:
