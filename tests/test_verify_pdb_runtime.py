@@ -8,6 +8,7 @@ import shlex
 import sys
 import threading
 import time
+import types
 from types import SimpleNamespace
 
 import pytest
@@ -468,6 +469,36 @@ def test_chcwd_rejects_paths_outside_workspace(tmp_path, capsys):
         sys.stderr = previous_stderr
 
 
+def test_add_un_write_path_accepts_wildcard_pattern(tmp_path, capsys):
+    """Wildcard no-write patterns register at runtime without existing on disk."""
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    agent = _FakeAgent(workspace=str(workspace))
+    agent.cfg = types.SimpleNamespace(un_write_dirs=[], write_dirs=[])
+
+    previous_signal = signal.getsignal(signal.SIGINT)
+    previous_stdout = sys.stdout
+    previous_stderr = sys.stderr
+    pdb = _ProbePDB(agent)
+    try:
+        ok, normalized = pdb.api_is_valid_workspace_path("DUT/*.v")
+        assert ok is True
+        assert normalized == "DUT/*.v"
+
+        pdb.do_add_un_write_path("DUT/*.v")
+        assert "DUT/*.v" in agent.cfg.un_write_dirs
+        output = capsys.readouterr().out
+        assert "already in the non-writable" not in output
+
+        ok, reason = pdb.api_is_valid_workspace_path("missing_dir")
+        assert ok is False
+        assert "does not exist" in reason
+    finally:
+        signal.signal(signal.SIGINT, previous_signal)
+        sys.stdout = previous_stdout
+        sys.stderr = previous_stderr
+
+
 def test_add_cmds_falls_back_when_tui_app_stopped(probe_pdb):
     class _DeadKeyHandler:
         def process_command(self, _cmd):
@@ -534,6 +565,28 @@ def test_add_cmds_with_exit_handles_stopped_tui_app(probe_pdb):
     probe_pdb.add_cmds(["sleep 5", "quit"])
 
     assert probe_pdb.init_cmd == ["sleep 5", "quit"]
+
+
+def test_exit_cleans_owned_xpra_sessions_when_workspace_sync_fails(monkeypatch):
+    """Exit must reap GUI applications and restore modes even after sync errors."""
+    events = []
+    agent = VerifyAgent.__new__(VerifyAgent)
+    agent._is_exit = False
+    agent.cwd_read_only_files = ["tracked-file"]
+    agent.pdb = SimpleNamespace(_cmd_api_server=SimpleNamespace(
+        close_sessions=lambda: events.append("closed")))
+
+    def fail_sync():
+        """Represent an unavailable destination during the normal exit path."""
+        raise OSError("workspace sync failed")
+
+    agent._sync_workspace_back_on_exit = fail_sync
+    monkeypatch.setattr("ucagent.verify_agent.fc.chmode_rw", lambda files: events.append(files))
+    with pytest.raises(OSError, match="workspace sync failed"):
+        agent.exit()
+    assert events == ["closed", ["tracked-file"]]
+    agent.exit()
+    assert len(events) == 2
 
 
 def test_exit_on_completion_defers_until_work_finishes():

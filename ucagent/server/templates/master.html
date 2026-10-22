@@ -70,6 +70,7 @@
   .stat-label{font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.8px;margin-bottom:6px}
   .stat-value{font-size:28px;font-weight:700}
   .stat-online{color:var(--online)} .stat-offline{color:var(--offline)} .stat-total{color:var(--accent)}
+  .stat-waiting{color:var(--warn)}
   /* ── Toolbar ─────────────────────────────────────────────────────────── */
   .toolbar{display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap}
   .search-box{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
@@ -212,6 +213,7 @@
     <div class="stat-card"><div class="stat-label">Total</div><div class="stat-value stat-total" id="stat-total">—</div></div>
     <div class="stat-card"><div class="stat-label">Online</div><div class="stat-value stat-online" id="stat-online">—</div></div>
     <div class="stat-card"><div class="stat-label">Offline</div><div class="stat-value stat-offline" id="stat-offline">—</div></div>
+    <div class="stat-card" title="Tasks queued because the parallel task limit (master_api.max_task_count) is reached"><div class="stat-label">Waiting</div><div class="stat-value stat-waiting" id="stat-waiting">—</div></div>
   </div>
   <div class="toolbar">
     <input type="search" class="search-box" id="search-box" placeholder="Filter by task / client / host / mission…" oninput="onSearchChange()"/>
@@ -366,6 +368,7 @@ let _totalPages = 1;          // total pages (from server)
 let _totalCount = 0;          // total count (from server)
 let _onlineCount = 0;         // online count (from server)
 let _offlineCount = 0;        // offline count (from server)
+let _waitingTaskCount = 0;    // queued managed tasks waiting for a free task slot
 let _sortBy = 'last_seen';    // current sort field: id, host, status, last_seen, first_seen, current_stage_index
 let _sortDesc = true;         // sort descending by default
 let _isSearching = false;     // whether user is searching (if true, use client-side filtering)
@@ -412,6 +415,7 @@ async function loadAgentPage() {
   _totalCount = d.count || 0;
   _onlineCount = d.online_count || 0;
   _offlineCount = d.offline_count || 0;
+  _waitingTaskCount = d.waiting_task_count || 0;
 }
 function currentSearchQuery() {
   const searchBox = document.getElementById('search-box');
@@ -440,6 +444,7 @@ function updateStats() {
   document.getElementById('stat-total').textContent   = _totalCount;
   document.getElementById('stat-online').textContent  = _onlineCount;
   document.getElementById('stat-offline').textContent = _offlineCount;
+  document.getElementById('stat-waiting').textContent = _waitingTaskCount;
 }
 async function fetchSelfAgentInfo() {
   try {

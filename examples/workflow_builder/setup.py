@@ -88,7 +88,8 @@ def normalize(values: dict[str, str]) -> dict[str, str]:
         result[key] = str(Path(os.path.expandvars(result[key])).expanduser().resolve())
     python_value = os.path.expandvars(result["PYTHON"])
     if "/" in python_value:
-        python_value = str(Path(python_value).expanduser().resolve())
+        # A venv's Python may be a symlink; resolving it discards the venv.
+        python_value = os.path.abspath(Path(python_value).expanduser())
     result["PYTHON"] = python_value
     result["WORKFLOW_BUILDER_PROXY_ENABLED"] = parse_bool(
         result["WORKFLOW_BUILDER_PROXY_ENABLED"]

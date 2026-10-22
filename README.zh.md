@@ -59,7 +59,7 @@ pip3 install -r requirements.txt
 ```bash
 export OPENAI_MODEL=<model_name>              # 例如 glm-5.3-flash
 export OPENAI_API_KEY=<your_key>              # API key
-export OPENAI_API_BASE=<base_url>             # 例如智谱的 https://open.bigmodel.cn/api/coding/paas/v4
+export OPENAI_API_BASE=<base_url>             # 类似 http://my_base_url/v1
 export OPENAI_CONTEXT_SIZE=<max_context_size> # 可选，例如 819200 （800k上下文）
 export OPENAI_OUTPUT_SIZE=<max_output_size>   # 可选，例如 131072 （128k最大输出）
 ```
@@ -140,6 +140,30 @@ docker run -it --rm \
   -e OPENAI_MODEL=<your_openai_model> \
   -p 8800:8800 \
   ghcr.io/xs-mlvp/ucagent:latest ucagent --as-master-persist  --as-master
+```
+
+也可以通过 docker 的 `--env-file` 指定环境变量文件，用一份文件替代多个 `-e` 参数：
+
+```bash
+docker run -it --rm \
+  --env-file ~/.ucagent_docker_env \
+  -p 8800:8800 \
+  ghcr.io/xs-mlvp/ucagent:latest ucagent --as-master-persist --as-master
+```
+
+`~/.ucagent_docker_env` 内容示例如下。注意与 `~/.ucagent_env` 不同：这里不写 `export`，且 `#` 注释必须独占一行（写在行内会被当作变量值的一部分）：
+
+```bash
+# 模型名称，例如 glm-5.3-flash
+OPENAI_MODEL=<model_name>
+# API key
+OPENAI_API_KEY=<your_key>
+# API 基础 URL，例如 http://my_base_url/v1
+OPENAI_API_BASE=<base_url>
+# 可选：上下文窗口大小（token 数），例如 819200（800k 上下文）
+OPENAI_CONTEXT_SIZE=<max_context_size>
+# 可选：单次最大输出（token 数），例如 131072（128k 最大输出）
+OPENAI_OUTPUT_SIZE=<max_output_size>
 ```
 
 如果 ghcr.io 无法访问，可以直接替换其为 `ghcr.nju.edu.cn` 等镜像地址。

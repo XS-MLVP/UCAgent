@@ -189,7 +189,7 @@ def validate_unit(paths: RepoPaths, *, baseline: bool = False, persist: bool = T
     run_root = Path(tempfile.mkdtemp(prefix=candidate.variant_id + "-", dir=paths.run))
     repository, build = run_root / "repository", run_root / "validation"
     source_files = materialize(paths.snapshot, candidate_root, candidate.changes, repository)
-    build_evidence = prepare_unit(repository, candidate_root, build, recipe, interface)
+    build_evidence = prepare_unit(repository, candidate_root, build, recipe, interface, cfg=paths.cfg)
     if not persist:
         measured = next((r for r in records if r["input_identity"] == before), None)
         if measured is None or measured["build"]["normalized_rtl_sha256"] != build_evidence["normalized_rtl_sha256"]:

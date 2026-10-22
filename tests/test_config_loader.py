@@ -29,6 +29,48 @@ class TestConfigLoader(unittest.TestCase):
 
         self.assertIs(default_env["ENABLE_LLM_SUGGESTION"], False)
 
+    def test_default_write_dirs_carve_out_vcs_vdb_directories(self):
+        """VCS *.vdb data directories stay writable inside the protected DUT tree."""
+
+        config_path = os.path.join(current_dir, "..", "ucagent", "setting.yaml")
+        config = load_yaml_with_env_vars(config_path)
+        self.assertEqual(config["un_write_dirs"], ["{DUT}", "{GUIDE_DOC}"])
+        self.assertEqual(
+            config["write_dirs"],
+            ["{OUT}", "{DUT}/**/*.vdb", "{DUT}/**/*.fsdb", "{DUT}/**/*.vpd"],
+        )
+
+        values = {"DUT": "Adder", "OUT": "out", "GUIDE_DOC": "Guide_Doc"}
+        un_write_dirs = [entry.format(**values) for entry in config["un_write_dirs"]]
+        write_dirs = [entry.format(**values) for entry in config["write_dirs"]]
+        from ucagent.tools.fileops import is_file_writeable
+
+        allowed = [
+            "Adder/simv.vdb",
+            "Adder/simv.vdb/snapshot/data",
+            "Adder/tests/cov.vdb/history",
+            "Adder/tests/wave.fsdb",
+            "Adder/wave.vpd",
+            "out/Adder_report.md",
+        ]
+        for path in allowed:
+            ok, reason = is_file_writeable(
+                path, un_write_dirs=un_write_dirs, write_dirs=write_dirs
+            )
+            self.assertTrue(ok, f"{path} must be writable: {reason}")
+        protected = [
+            "Adder/top.v",
+            "Adder/tests/test_api.py",
+            "Adder/simv.vdb.bak",
+            "Adder/tests/wave.fsdb.old",
+            "Guide_Doc/dut_test_case.md",
+        ]
+        for path in protected:
+            ok, _ = is_file_writeable(
+                path, un_write_dirs=un_write_dirs, write_dirs=write_dirs
+            )
+            self.assertFalse(ok, f"{path} must stay protected")
+
     def test_default_document_path_uses_template_overwrite(self):
         config_path = os.path.join(
             current_dir, "..", "ucagent", "lang", "zh", "config", "default.yaml"

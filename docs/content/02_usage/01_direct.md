@@ -1,167 +1,118 @@
 
-# 直接使用模式
+# 直接使用
 
-## 直接使用
+直接使用适合希望由 UCAgent 自己连接模型、在一个终端内完成验证的场景。它使用默认的 `langchain` backend，不需要外部 Code Agent 或 MCP。
 
-基于本地 CLI 和大模型的使用方式。需要准备好 OpenAI 兼容的 API 和嵌入模型 API。
+## 1. 配置模型
 
-### 使用环境变量配置（推荐）
-
-配置文件内容：
-
-```yaml
-# OpenAI兼容的API配置
-openai:
-  model_name: "$(OPENAI_MODEL: Qwen/Qwen3-Coder-30B-A3B-Instruct)" # 模型名称
-  openai_api_key: "$(OPENAI_API_KEY: YOUR_API_KEY)" # API密钥
-  openai_api_base: "$(OPENAI_API_BASE: http://10.156.154.242:8000/v1)" # API基础URL
-  api_mode: "$(OPENAI_API_MODE: auto)" # 优先探测Responses，不支持时回退Chat Completions
-  reasoning_effort: "$(OPENAI_REASONING_EFFORT: xhigh)" # 思考程度，按服务端支持的值原样传递
-# 向量嵌入模型配置
-# 用于文档搜索和记忆功能，不需要可通过 --no-embed-tools 关闭
-embed:
-  model_name: "$(EMBED_MODEL: Qwen/Qwen3-Embedding-0.6B)" # 嵌入模型名称
-  openai_api_key: "$(EMBED_OPENAI_API_KEY: YOUR_API_KEY)" # 嵌入模型API密钥
-  openai_api_base: "$(EMBED_OPENAI_API_BASE: http://10.156.154.242:8001/v1)" # 嵌入模型API URL
-  dims: 4096 # 嵌入维度
-```
-
-UCAgent 的配置文件支持 Bash 风格的环境变量占位：`$(VAR: default)`。加载时会用当前环境变量 `VAR` 的值替换；若未设置，则使用 `default`。
-
-- 例如在内置配置 `ucagent/setting.yaml` 中：
-  - `openai.model_name: "$(OPENAI_MODEL: <your_chat_model_name>)"`
-  - `openai.openai_api_key: "$(OPENAI_API_KEY: [your_api_key])"`
-  - `openai.openai_api_base: "$(OPENAI_API_BASE: http://<your_chat_model_url>/v1)"`
-  - `openai.reasoning_effort: "$(OPENAI_REASONING_EFFORT: xhigh)"`
-  - `embed.model_name: "$(EMBED_MODEL: <your_embedding_model_name>)"`
-  - 也支持其他提供商：`model_type` 可选 `openai`、`anthropic`、`google_genai`（详见 `ucagent/setting.yaml`）。
-
-你可以仅通过导出环境变量完成模型与端点切换，而无需改动配置文件。
-
-LangChain 后端默认在启动时用当前模型执行一次极小的 Responses API
-能力探测。探测成功后，主模型和摘要模型均使用 Responses API；服务端明确不支持
-该协议时，再探测 Chat Completions，成功后才完成回退。认证失败、模型不存在、限流、
-网络故障和探测超时不会触发回退，以免掩盖真实配置或服务故障。可设置
-`OPENAI_API_MODE=responses` 强制使用 Responses，或设置
-`OPENAI_API_MODE=chat_completions` 跳过探测并固定使用 Chat Completions。协议差异参见
-[OpenAI Responses 迁移文档](https://developers.openai.com/api/docs/guides/migrate-to-responses)。
-
-LangChain 后端默认将思考程度设为 `xhigh`。在 Responses 模式下发送为
-`reasoning.effort`，在 Chat Completions 模式下发送为 `reasoning_effort`。
-`OPENAI_REASONING_EFFORT` 的值不会由 UCAgent 限定或改写，应设置为当前模型服务支持的
-字符串；因此同一配置也适用于通过 OpenAI 兼容接口接入的 DeepSeek、GLM 等模型。
-OpenAI 模型的可用值取决于具体模型，参见
-[OpenAI reasoning guide](https://developers.openai.com/api/docs/guides/reasoning)。
-
-示例：设置聊天模型与端点
+推荐使用环境变量：
 
 ```bash
-# 指定聊天模型（OpenAI 兼容）
-export OPENAI_MODEL='Qwen/Qwen3-Coder-30B-A3B-Instruct'
+export OPENAI_MODEL="<model_name>"
+export OPENAI_API_KEY="<api_key>"
+export OPENAI_API_BASE="https://<provider>/v1"
+```
 
-# 指定 API Key 与 Base（按你的服务商填写）
-export OPENAI_API_KEY='你的API密钥'
-export OPENAI_API_BASE='https://你的-openai-兼容端点/v1'
+UCAgent 使用 OpenAI 兼容接口。LangChain 后端的 `OPENAI_API_MODE` 默认为 `auto`：启动时探测 Responses API，服务端明确不支持时才回退到 Chat Completions。需要固定协议时设置为 `responses` 或 `chat_completions`。`OPENAI_REASONING_EFFORT` 默认是 `xhigh`，值会原样传给服务端，请按模型支持的值填写。
 
-# 可选：auto（默认）、responses 或 chat_completions
-export OPENAI_API_MODE='auto'
+需要语义检索或记忆工具时，再配置嵌入模型：
 
-# 可选：思考程度，默认 xhigh；按当前模型服务支持的值设置
-export OPENAI_REASONING_EFFORT='xhigh'
-
-# 可选：嵌入模型（若使用检索/记忆等功能）
-export EMBED_MODEL='text-embedding-3-large'
+```bash
+export EMBED_MODEL="<embedding_model>"
 export EMBED_OPENAI_API_KEY="$OPENAI_API_KEY"
 export EMBED_OPENAI_API_BASE="$OPENAI_API_BASE"
 ```
 
-然后按前述命令启动 UCAgent 即可。若要长期生效，可将上述 export 追加到你的默认 shell 启动文件（例如 bash: `~/.bashrc`，zsh: `~/.zshrc`，fish: `~/.config/fish/config.fish`），保存后重新打开终端或手动加载。
+当前 CLI 的 `--no-embed-tools` 默认值就是 `true`，即默认关闭嵌入工具。需要开启时显式传入：
 
-### 使用 config.yaml 来配置
-
-- 在项目根目录创建并编辑 `config.yaml` 文件，配置 AI 模型和嵌入模型：
-
-```yaml
-# OpenAI兼容的API配置
-openai:
-  openai_api_base: <your_openai_api_base_url> # API基础URL
-  model_name: <your_model_name> # 模型名称，如 gpt-4o-mini
-  openai_api_key: <your_openai_api_key> # API密钥
-  api_mode: auto # 优先Responses，服务端明确不支持时回退Chat Completions
-  reasoning_effort: xhigh # 思考程度，按服务端支持的值原样传递
-
-# 向量嵌入模型配置
-# 用于文档搜索和记忆功能，不需要可通过 --no-embed-tools 关闭
-embed:
-  model_name: <your_embed_model_name> # 嵌入模型名称
-  openai_api_base: <your_openai_api_base_url> # 嵌入模型API URL
-  openai_api_key: <your_api_key> # 嵌入模型API密钥
-  dims: <your_embed_model_dims> # 嵌入维度，如 1536
+```bash
+--no-embed-tools false
 ```
 
-### 开始使用
+也可以把同样的键写入项目 `config.yaml`：
 
-**注：以下输出目录以`output`为例，可自行修改为其他目录**。
+```yaml
+openai:
+  model_name: "<model_name>"
+  openai_api_key: "<api_key>"
+  openai_api_base: "https://<provider>/v1"
+  api_mode: auto
+  reasoning_effort: xhigh
+embed:
+  model_name: "<embedding_model>"
+  openai_api_key: "<api_key>"
+  openai_api_base: "https://<provider>/v1"
+  dims: 4096
+```
 
-- 第一步和 MCP 模式相同，准备 RTL 和对应的 SPEC 文档放入`examples/{dut}`文件夹。`{dut}`是模块的名称，如果是`Adder`，目录则为`examples/Adder`。
-- 第二步开始就不同了，打包 RTL，将文档放入工作目录并启动 UCAgent TUI：`make test_{dut}`，`{dut}`为对应的模块。若使用 `Adder`，命令为 `make test_Adder`（可在 `Makefile` 查看全部目标）。该命令会：
-  - 将 `examples/{dut}` 下文件拷贝到 `output/{dut}`（含 .v/.sv/.md/.py 等）
-  - 执行 `python3 ucagent.py output/ {dut} --config config.yaml -s -hm --tui -l`
-  - 启动带 TUI 的 UCAgent，并自动进入任务循环（loop）
+配置文件支持 `$(NAME: default)` 形式的环境变量占位。分层加载顺序、CLI 覆盖方式和其他模型提供商见[参数说明](./03_option.md)。
 
-提示：验证产物默认写入 `output/unity_test/`，若需更改可通过 CLI 的 `--output` 参数指定目录名。
+## 2. 使用源码仓库的快速命令
 
-### 直接用 CLI 启动（不经 Makefile）
+仓库中的 `make test_<DUT>` 会完成示例初始化、picker 导出和 UCAgent 启动。以 Adder 为例：
 
-- 未安装命令时（项目内运行）：
-  - `python3 ucagent.py output/ Adder --config config.yaml -s -hm --tui -l`
-- 安装为命令后：
-  - `ucagent output/ Adder --config config.yaml -s -hm --tui -l`
+```bash
+make test_Adder
+```
 
-参数对齐 `ucagent/cli.py`：
+它等价于：
 
-- `workspace`：工作区目录（此处为 `output/`）
-- `dut`：DUT 名称（工作区子目录名，如 `Adder`）
-- 常用可选项：
-  - `--tui` 启动终端界面
-  - `-l/--loop --loop-msg "..."` 启动后立即进入循环并注入提示
-  - `-s/--stream-output` 实时输出
-  - `-hm/--human` 进入人工可干预模式（在阶段间可暂停）
-  - `--no-embed-tools` 如不需要检索/记忆工具
-  - `--skip/--unskip` 跳过/取消跳过阶段（可多次传入）
+```bash
+python3 ucagent.py output/workspace_Adder/ Adder \
+  --config config.yaml -s -hm --tui -l
+```
 
-### 常用 TUI 命令速查（直接使用模式）
+`-l/--loop` 会立即进入自动循环；删除 `-l` 后，启动时在 TUI 输入 `loop` 才开始执行。Makefile 只存在于源码仓库；通过 pip 安装时请使用原生 CLI。
 
-- 列出工具：`tool_list`
-- 阶段检查：`tool_invoke Check timeout=0`
-- 查看日志：`tool_invoke StdCheck lines=-1`（-1 表示所有行）
-- 终止检查：`tool_invoke KillCheck`
-- 阶段完成：`tool_invoke Complete timeout=0`
-- 运行用例：
-  - 全量：`tool_invoke RunTestCases target='' timeout=0`
-  - 单测函数：`tool_invoke RunTestCases target='tests/test_checker.py::test_run' timeout=120 return_line_coverage=True`
-  - 过滤：`tool_invoke RunTestCases target='-k add or mul'`
-- 阶段跳转：`tool_invoke GoToStage index=2`（索引从 0 开始）
-- 继续执行：`loop 继续修复 ALU754 的未命中分支并重试用例`
+## 3. 直接使用 CLI
 
-建议的最小可写权限（只允许生成验证产物处可写）：
+先准备好 `workspace/<DUT>`，其中必须包含 picker 导出的 Python DUT 包和 README，再运行：
 
-- 仅允许 `unity_test/` 与 `unity_test/tests/` 可写：
-  - `add_un_write_path *`
-  - `del_un_write_path unity_test`
-  - `del_un_write_path unity_test/tests`
+```bash
+# 源码树运行
+python3 ucagent.py output/ Adder -s -hm --tui -l
 
-### 常见问题与提示
+# 安装后的命令
+ucagent output/ Adder -s -hm --tui -l
+```
 
-- 检查卡住/无输出：
-  - 先 `tool_invoke StdCheck lines=-1` 查看全部日志；必要时 `tool_invoke KillCheck`；修复后重试 `tool_invoke Check`。
-- 没找到工具名：
-  - 先执行 `tool_list` 确认可用工具；若缺失，检查是否在 TUI 模式、是否禁用了嵌入工具（通常无关）。
-- 产物位置：
-  - 默认在 `workspace/output_dir`，即本页示例为 `output/unity_test/`。
+常用参数：
 
-### 相关文档
+- `--config <path>`：指定项目配置；不指定时使用分层默认配置。
+- `--output <name>`：修改工作区下的输出目录，默认 `unity_test`。
+- `--human` / `-hm`：启动人工可干预模式。
+- `--tui`：打开 TUI；不使用 TUI 时可用 `--web-console` 或 `--web-terminal`。
+- `--skip <index>`、`--unskip <index>`：按运行时阶段索引控制阶段；索引以 `status`/`hmcheck_list` 显示为准。
+- `--no-write <path ...>`：禁止写入工作区内已存在的文件或目录；通配符路径可用于不存在的目标。安全限制详见[参数说明](./03_option.md)。
 
-- 人机协同的完整流程与示例，见[人机协同验证](./02_assit.md)
-- MCP 集成（如 gemini-cli / qwen code），见[MCP 集成模式](./00_mcp.md)
-- TUI 界面与操作详解，见[TUI](./04_tui.md)
+## 4. TUI 中的常用动作
+
+```text
+status
+current_tips
+loop
+```
+
+阶段失败时先查看 Checker 返回的具体文件和下一步，再修复后调用：
+
+```text
+tool_invoke Check
+tool_invoke Complete
+```
+
+检查进程无输出时：
+
+```text
+tool_invoke StdCheck lines=-1
+tool_invoke KillCheck
+```
+
+完整命令参考见[人机协同验证](./02_assit.md)和[TUI](./04_tui.md)。
+
+## 5. 产物和下一步
+
+默认产物位于 `<workspace>/unity_test/`，toffee-test 报告（若已运行测试）位于 `<workspace>/uc_test_report/`。工作流决定具体文档和测试文件名；不要预设一定会生成 Bug、波形或覆盖率文件。
+
+- 想让外部 Code Agent 参与：阅读 [MCP 接入](../01_start/03_mcp_mode.md)。
+- 想集中管理多个任务：阅读 [Master 模式](../01_start/04_master_mode.md)。
+- 想修改阶段、工具或 Checker：从[定制开发入门](../03_develop/01_quick_start.md)开始。

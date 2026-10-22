@@ -195,7 +195,7 @@
 | 维度 | 说明 |
 |------|------|
 | **检查对象** | `output/mcp_test_result.log` + `.workflow/logs/tool_mcp_run.log` |
-| **通过条件** | `make test_mcp` exit 0；日志包含 4 条 `[PASS]`（list_tools + 3 个工具调用）；MCP server 日志包含工具注册和调用记录（`create FastMCP server`、`CallToolRequest` 等）；`tools/mcp_adapters.py` 只实现 `_run`，不覆盖 `BaseTool.run`，不注册 `"run": run`；MCP 测试后 `make check` 仍通过 |
+| **通过条件** | `make test_mcp` exit 0；日志包含 4 条 `[PASS]`（list_tools + 3 个工具调用）；MCP server 日志包含工具注册和调用记录（`create MCP server`、`CallToolRequest` 等）；`tools/mcp_adapters.py` 只实现 `_run`，不覆盖 `BaseTool.run`，不注册 `"run": run`；MCP 测试后 `make check` 仍通过 |
 | **失败条件** | mcp_test_result 缺少 PASS 行；server 日志缺少调用记录；测试后 make check 失败（权限/端口残留）；adapter 返回裸 `str` 导致直接运行报 `Tool <name> returned unexpected type: <class 'str'>` |
 | **修复** | 检查 `tools/mcp_adapters.py` 和 `.workflow/tool_tests/run_mcp_tests.py`；确认子 UCAgent 使用动态端口；adapter 保持 WFB 模板：`_run` 返回 JSON 字符串，`BaseTool.run` 负责包装 `ToolMessage` |
 | **产物顺序** | 本阶段 `output_files` 必须为空。`WorkflowMCPToolIntegrationChecker` 会先执行 `make test_mcp`，再读取并验证 `output/mcp_test_result.log` 与 `.workflow/logs/tool_mcp_run.log`；如果把这些派生日志声明为阶段前置输出，UCAgent 会在调用 checker 前因日志不存在而失败。 |

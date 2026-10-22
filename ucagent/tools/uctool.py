@@ -5,11 +5,11 @@
 from langchain_core.tools import BaseTool
 from langchain_core.tools.base import ArgsSchema
 from langchain_core.messages import ToolMessage
-from pydantic import Field, BaseModel, ConfigDict, PrivateAttr, ValidationError
+from pydantic import Field, BaseModel, ConfigDict, PrivateAttr, ValidationError, create_model
 from typing import Callable, Optional, Any
-from mcp.server.fastmcp import Context
-from langchain_mcp_adapters.tools import _get_injected_args, create_model, ArgModelBase, FuncMetadata
-from mcp.server.fastmcp.tools import Tool as FastMCPTool
+from mcp.server.mcpserver import Context
+from mcp.server.mcpserver.utilities.func_metadata import ArgModelBase, FuncMetadata
+from mcp.server.mcpserver.tools import Tool as MCPTool
 import ucagent.util.functions as fc
 
 import threading
@@ -33,18 +33,19 @@ class EmptyArgs(BaseModel):
 
 
 class ExtraArgModelBase(ArgModelBase):
-    """FastMCP argument model base that preserves undeclared tool arguments."""
+    """MCP argument model base that preserves undeclared tool arguments."""
 
     model_config = ConfigDict(arbitrary_types_allowed=True, extra="allow")
 
     def model_dump_one_level(self) -> dict[str, Any]:
+        """Preserve declared fields and additional arguments during MCP dispatch."""
         kwargs = super().model_dump_one_level()
         kwargs.update(getattr(self, "__pydantic_extra__", None) or {})
         return kwargs
 
 
 class ForbidExtraArgModelBase(ArgModelBase):
-    """FastMCP argument model base that rejects undeclared tool arguments."""
+    """MCP argument model base that rejects undeclared tool arguments."""
 
     model_config = ConfigDict(arbitrary_types_allowed=True, extra="forbid")
 
@@ -523,17 +524,20 @@ class RoleInfo(UCTool):
             self.role_info = role_info
 
 
-def to_fastmcp(tool: BaseTool) -> FastMCPTool:
-    """Convert a LangChain tool to a FastMCP tool."""
-    if not issubclass(tool.args_schema, BaseModel):
+def to_mcp_tool(tool: BaseTool) -> MCPTool:
+    """Convert a Pydantic-schema LangChain tool to an MCP SDK tool."""
+    if not isinstance(tool.args_schema, type) or not issubclass(tool.args_schema, BaseModel):
         raise ValueError(
             "Tool args_schema must be a subclass of pydantic.BaseModel. "
             "Tools with dict args schema are not supported."
         )
-    parameters = tool.tool_call_schema.model_json_schema()
+    call_schema = tool.tool_call_schema
+    if tool.args_schema.model_fields.keys() - call_schema.model_fields.keys():
+        raise NotImplementedError("LangChain tools with injected arguments are not supported")
+    parameters = call_schema.model_json_schema()
     field_definitions = {
         field: (field_info.annotation, field_info)
-        for field, field_info in tool.tool_call_schema.model_fields.items()
+        for field, field_info in call_schema.model_fields.items()
     }
     raw_parameters = tool.args_schema.model_json_schema()
     if "additionalProperties" in raw_parameters:
@@ -565,14 +569,11 @@ def to_fastmcp(tool: BaseTool) -> FastMCPTool:
     fn_metadata = FuncMetadata(arg_model=arg_model)
 
     async def fn(**arguments: dict[str, Any]) -> Any:
+        """Dispatch validated MCP arguments through the LangChain tool interface."""
         return await tool.ainvoke(arguments)
 
-    injected_args = _get_injected_args(tool)
-    if len(injected_args) > 0:
-        raise NotImplementedError("LangChain tools with injected arguments are not supported")
-
     context_kwarg = "ctx" if issubclass(tool.__class__, UCTool) else None
-    fastmcp_tool = FastMCPTool(
+    return MCPTool(
         fn=fn,
         name=tool.name,
         description=tool.description,
@@ -581,4 +582,3 @@ def to_fastmcp(tool: BaseTool) -> FastMCPTool:
         is_async=True,
         context_kwarg=context_kwarg,
     )
-    return fastmcp_tool

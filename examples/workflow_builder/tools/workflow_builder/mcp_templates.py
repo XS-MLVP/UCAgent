@@ -57,7 +57,7 @@ def _load_specs() -> list[dict[str, Any]]:
 
 
 def _field_definition(item: dict[str, Any]):
-    # MCP/FastMCP may deserialize JSON-looking string arguments into lists or
+    # MCP may deserialize JSON-looking string arguments into lists or
     # dicts before Pydantic validation. Keep the transport schema permissive and
     # let the generated tool implementation enforce the business contract.
     python_type = Any
@@ -158,7 +158,7 @@ from typing import Any
 
 import yaml
 from mcp import ClientSession
-from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.streamable_http import streamable_http_client
 
 
 ROOT = Path.cwd().resolve()
@@ -303,8 +303,8 @@ async def _wait_for_server(port: int) -> None:
     last_error = None
     while time.monotonic() < deadline:
         try:
-            async with streamablehttp_client(url, timeout=5) as (read_stream, write_stream, _):
-                async with ClientSession(read_stream, write_stream) as session:
+            async with streamable_http_client(url) as (read_stream, write_stream):
+                async with ClientSession(read_stream, write_stream, read_timeout_seconds=5) as session:
                     await session.initialize()
                     await session.list_tools()
                     return
@@ -317,8 +317,8 @@ async def _wait_for_server(port: int) -> None:
 async def _call_and_check(port: int) -> None:
     await _wait_for_server(port)
     url = f"http://127.0.0.1:{port}/mcp"
-    async with streamablehttp_client(url, timeout=10) as (read_stream, write_stream, _):
-        async with ClientSession(read_stream, write_stream) as session:
+    async with streamable_http_client(url) as (read_stream, write_stream):
+        async with ClientSession(read_stream, write_stream, read_timeout_seconds=10) as session:
             await session.initialize()
             listed = await session.list_tools()
             names = {tool.name for tool in listed.tools}
@@ -328,8 +328,8 @@ async def _call_and_check(port: int) -> None:
             _record("[PASS] MCP list_tools registered generated tools: " + ",".join(sorted(REQUIRED_TOOLS)))
     for spec in SPECS:
         case = _positive_case(spec)
-        async with streamablehttp_client(url, timeout=10) as (read_stream, write_stream, _):
-            async with ClientSession(read_stream, write_stream) as session:
+        async with streamable_http_client(url) as (read_stream, write_stream):
+            async with ClientSession(read_stream, write_stream, read_timeout_seconds=10) as session:
                 await session.initialize()
                 result = _decode_result(await session.call_tool(str(spec["name"]), case["input"]))
                 _validate_result(spec, case, result)

@@ -291,11 +291,25 @@ results, runtime `Guide_Doc`, templates, and skill instructions.
   names and arguments, workspace paths, tags and schemas, stage commands,
   constraints, and validation results. Present them as task contracts, not as
   explanations of how UCAgent implements or enforces them.
+- Treat public tools as the boundary for verification-task guidance. For waveform
+  analysis, teach the LLM to call `WaveInfo` with the exact TC, signals, and time
+  window, then use its results and recovery actions. Do not teach storage formats
+  (FST/VCD/FSDB), reader libraries, Verdi/NPI setup, format selection priorities,
+  or conversion/export procedures in runtime guides, prompts, skill instructions,
+  tool descriptions, argument help, or task-facing diagnostics. Put those details
+  in the dedicated developer/operator documentation. Literal file paths and
+  machine fields returned by tools, and values required by a public fixture/API
+  contract, remain valid task data; they do not justify explaining the internals.
 - Translate internal failures into task-oriented diagnostics: identify the
   affected artifact/input and location, the expected condition, the observed
   problem, and the exact corrective action or next tool call. Do not expose
   stack traces, internal booleans, or call chains unless the text is explicitly
   for developer debugging rather than the stage-running LLM.
+- When a public tool is blocked by UCAgent's own runtime environment, give the
+  verification LLM the affected task/artifact and an actionable retry or operator
+  escalation. Keep dependency names, versions, native-library errors, and setup
+  commands in developer logs/documentation; do not turn the verification task
+  into maintenance of the tool's implementation environment.
 - Keep LLM-facing text concise and stage-local. Remove background information
   that cannot influence the current stage's decisions, output, or completion.
 - Describe only the current canonical contract. Do not mention superseded

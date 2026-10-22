@@ -11,6 +11,7 @@ endif
 
 # 默认项目名称
 PROJECT ?= Calculator
+ARGS ?=
 
 .PHONY: help clean init run test
 
@@ -41,11 +42,10 @@ run: clean init
 	@echo "项目: $(PROJECT)"
 	@echo ""
 	@cp -r $(PROJECT) output/
-	$(CMD) ./output/ $(PROJECT) \
-		--mcp-server-no-file-tools \
+	PYTHONPATH="$(CURDIR):$${PYTHONPATH:-}" $(CMD) ./output/ $(PROJECT) \
 		--config ./mini.yaml \
 		--guid-doc-path ./Guide_Doc/ \
-		-s -hm --tui --no-embed-tools
+		-s -hm --tui $(ARGS)
 
 test:
 	@echo "测试自定义工具..."

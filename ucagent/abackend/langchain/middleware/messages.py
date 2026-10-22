@@ -19,7 +19,6 @@ from langchain_core.messages import (
 )
 from langchain_core.messages.utils import count_tokens_approximately
 from langgraph.graph.message import REMOVE_ALL_MESSAGES
-from langmem.short_term import SummarizationNode
 from pydantic import BaseModel
 from typing_extensions import override
 
@@ -653,40 +652,6 @@ def retain_skill_read_messages_as_human(messages, use_skill=False, skill_list=No
                     rebuilt_contents.add(content)
                 pending_tool_call_ids.remove(tool_call_id)
     return rebuilt_messages
-
-
-class SummarizationAndFixToolCall(SummarizationNode):
-    """Custom summarization node that fixes tool call arguments."""
-
-    def set_max_keep_msgs(self, msg_stat: MessageStatistic, max_keep_msgs: int):
-        self.max_keep_msgs = max_keep_msgs
-        self.msg_stat = msg_stat
-        return self
-
-    def _func(self, input: Union[Dict[str, Any], BaseModel]) -> Dict[str, Any]:
-        fix_tool_call_args(input)
-        deleted_msg = []
-        if hasattr(self, "max_keep_msgs"):
-            messages, deleted_msg = remove_messages(input["messages"], self.max_keep_msgs)
-            input["messages"] = messages
-        ret = super()._func(input)
-        if deleted_msg:
-            ret["messages"] = deleted_msg
-        if "llm_input_messages" in ret:
-            self.msg_stat.update_message(ret["llm_input_messages"])
-        else:
-            self.msg_stat.update_message(ret["messages"])
-        return ret
-
-    def set_max_token(self, max_token: int):
-        self.max_token = max_token
-        return self
-
-    def get_max_token(self) -> int:
-        return self.max_token
-
-    def get_max_keep_msgs(self) -> int:
-        return self.max_keep_msgs
 
 
 class TrimAndSummaryMiddleware(AgentMiddleware):

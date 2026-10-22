@@ -1,305 +1,113 @@
 
+
 # 模板文件与生成产物
 
-!!! tip "完整定制工作流教程"
-如果你想了解如何**从零开始创建自定义工作流**（包括添加工作流、工具、检查器、模板文件），请参考 [自定义工作流完整指南](./00_index.md)，该教程提供了完整的示例代码和实战案例。
+模板和 Guide_Doc 是阶段任务的输入。它们告诉 Agent 要生成什么、使用什么格式，以及
+Checker 会检查哪些条件；它们本身不是测试结果，也不能替代 Checker 或测试证据。
 
-## 模板文件
+## 工作区中的相关目录
 
-在完整的完成一个验证任务之后，最终的结果都在`output`文件夹中，其中的内容如下：
+以 `output/` 为工作区、默认输出目录 `unity_test/` 为例：
 
-```bash
-.
-├── Adder  # 打包好的python DUT
-├── Guide_Doc # 各种模板文件
-├── uc_test_report # 跑完的测试报告，包含可以直接网页运行的index.html
-└── unity_test # 各种生成的文档和测试用例文件
-    └── tests # 测试用例及其依赖
+```text
+output/
+├── <DUT>/                  # DUT 源码、README 和输入资料
+├── Guide_Doc/              # 运行时复制的指导文档
+├── unity_test/             # 工作流生成的文档、测试和覆盖率定义
+│   └── tests/              # pytest/toffee 测试文件
+├── uc_test_report/         # 测试工具生成的报告（如果运行了测试）
+└── .ucagent/               # 运行配置快照、历史和状态
 ```
+
+`--output` 可以改变 `unity_test/` 的目录名。具体文件由当前配置的阶段、模板和 Checker
+决定，因此不要把某个示例中的完整文件树当作所有工作流的固定输出。
+
+## Guide_Doc 和模板的区别
 
 ### Guide_Doc
 
-`Guide_Doc`文件夹下是事先写好的模板文件，大模型会读取它来生成最后的代码和文档，可按照实际需要自行修改。
+`Guide_Doc/` 中的文件是运行时参考资料，通常来自
+`ucagent/lang/<lang>/doc/Guide_Doc/` 或自定义的 `--guid-doc-path`。阶段可以通过
+`reference_files` 声明需要阅读的文件；在 `Complete` 前，必须满足该阶段的引用文件和
+输出文件门禁。自定义目录会替换内置 Guide_Doc 的来源（多次指定目录时最后一个生效）；文件参数则按文件名追加到复制集合。
 
-- Guide_Doc：这些文件是“规范/示例/模板型”的参考文档，启动时会从`ucagent/lang/zh/doc/Guide_Doc`复制到工作区的 `Guide_Doc/`（当前以 output 作为 workspace 时即 `output/Guide_Doc/`）。它们不会被直接执行，供人和 AI 作为编写 unity_test 文档与测试的范式与规范，并被语义检索工具读取，在 UCAgent 初始化时复制过来。
-  - dut_functions_and_checks.md  
-    用途：定义功能分组 FG-、功能点 FC-、检测点 CK-\* 的组织方式与写法规范，要求覆盖所有功能点，每个功能点至少一个检测点。  
-    最终要产出的对应物：unity_test/{DUT}\_functions_and_checks.md（如 `Adder_functions_and_checks.md`）。
-  - dut_fixture.md  
-    用途：说明如何编写 DUT Fixture/Env（包含接口、时序、复位、激励、监视、检查、钩子等），给出标准写法和必备项。  
-    对应物：unity_test/DutFixture 与 EnvFixture 相关实现/文档。
-  - dut_api_instruction.md  
-    用途：DUT API 设计与文档规范（接口命名、参数、返回、约束、边界条件、错误处理、示例）。  
-    对应物：unity_test/{DUT}\_api.md 或 API 实现+测试（如 `Adder_api.py`）。
-  - dut_function_coverage_def.md  
-    用途：功能覆盖（Functional Coverage）定义方法，如何从 FG/FC/CK 推导覆盖项、covergroup/coverpoint/bin 的组织与命名。  
-    对应物：coverage 定义文件与生成的覆盖数据、以及相关说明文档，如`Adder_function_coverage_def.py`。
+Guide_Doc 应写清以下内容：
 
-  - dut_line_coverage.md  
-    用途：行覆盖采集与分析方法，如何启用、统计、解读未命中行、定位冗余或缺失测试。  
-    对应物：行覆盖数据文件与分析笔记（unity_test/{DUT}\_line_coverage_analysis.md，如 `Adder_line_coverage_analysis.md`）。
+- 当前阶段要完成的目标、可使用的输入和允许写入的路径；
+- 产物的完整格式、字段顺序、标签和证据要求；
+- 一个从标题到结尾的完整参考示例；
+- 失败时如何检查输入、修复产物并重新调用 `Check`。
 
-  - dut_test_template.md  
-    用途：测试用例的骨架/模板，给出最小可行的结构与编写范式（Arrange-Act-Assert、前后置、标记/选择器等）。  
-    对应物：tests/ 下各具体测试文件的基本结构参考。
-  - dut_test_case.md  
-    用途：单个测试用例的撰写规范（命名、输入空间、边界/异常、可重复性、断言质量、日志、标记）。  
-    对应物：tests/ 中具体 test_xxx.py::test_yyy 的质量基准与填写要求。
+运行时路径始终以工作区为根。例如在提示词中引用文件时写
+`Guide_Doc/dut_test_case.md section 3`，不要写本仓库的绝对路径。
 
-  - dut_test_program.md  
-    用途：测试计划/测试编排（回归集合、分层/分阶段执行、标记与选择、超时控制、先后顺序、依赖关系）。  
-    对应物：回归集配置、命令/脚本、阶段化执行策略文档。
+### 生成模板
 
-  - dut_test_summary.md  
-    用途：测试阶段性/最终总结的结构（通过率、覆盖率、主要问题、修复状态、风险/残留问题、下一步计划）。  
-    对应物：unity_test/{DUT}\_test_summary.md（如`Adder_test_summary.md`） 或报告页面（`output/uc_test_report`）。
+模板是复制或渲染到工作区的初始文件。启动时可以用 `--template-dir` 指定模板目录，
+用 `--template-overwrite` 覆盖已存在的目标。模板覆盖配置通过
+`--template-cfg-override <yaml>` 传入；它只负责模板变量，不会改变阶段 Checker 的
+判定规则。
 
-  - dut_bug_analysis.md  
-    用途：Bug 记录与分析规范（复现步骤、根因分析、影响范围、修复建议、验证状态、标签与追踪）。  
-    对应物：unity_test/{DUT}\_bug_analysis.md（如`Adder_bug_analysis.md`）。
+## 常见产物
 
-## 生成产物
+默认 UnityTest 工作流通常会在 `unity_test/` 生成以下几类内容，是否出现取决于当前
+阶段是否启用：
 
-### uc_test_report
+- `*_basic_info.md`、`*_verification_needs_and_plan.md`：DUT 信息、验证需求和计划；
+- `*_functions_and_checks.md`：FG/FC/CK 功能模型，供测试和覆盖率定义引用；
+- `tests/*_api.py`、`tests/test_*.py`：测试接口、夹具和测试用例；
+- `*_function_coverage_def.py`：功能覆盖组、覆盖点和采样定义；
+- `*_line_coverage_analysis.md`：行覆盖结果和补测分析（需要配置对应阶段）；
+- `*_bug_analysis.md`、`*_test_summary.md`：Bug 证据和测试总结（需要配置对应阶段）。
 
-- uc_test_report：由 toffee-test 生成的 index.html 报告，可直接使用浏览器打开。
-  - 这个报告包含了 Line Coverage 行覆盖率，Functional Coverage 功能覆盖率，测试用例的通过情况，功能点标记具体情况等内容。
+`uc_test_report/` 通常由 `RunUnityChipTest` 或项目自己的 Make 目标生成，可能包含
+HTML 和 JSON 报告。只有实际运行测试后，才能把报告中的通过率和覆盖率当作结果。
 
-### unity_test/tests
+## 如何添加一个自定义 Guide_Doc
 
-由大模型根据`Guide_Doc`文件夹下的模板文件生成。生成的文件名前缀依据模块不同而不同，以下以`Adder`举例。
+在工作流目录中创建文件，例如：
 
-- unity_test/tests：验证代码文件夹
-  - `Adder.ignore`  
-    作用：行覆盖率忽略清单。支持忽略整个文件，或以“起止行段”形式忽略代码段。  
-    被谁使用：`Adder_api.py` 的 `set_line_coverage(request, get_coverage_data_path(request, new_path=False), ignore=current_path_file("Adder.ignore"))`。
+```text
+MyWorkflow/
+├── Guide_Doc/
+│   └── project_analysis_guide.md
+└── config.yaml
+```
 
-    与 Guide_Doc 的关系：
-    对应参考：`dut_line_coverage.md`（说明如何启用/统计/分析行覆盖，以及忽略规则的意义和使用场景）。
-
-  - `Adder_api.py`  
-    作用：测试公共基座，集中放 DUT 构造、覆盖率接线与采样、pytest 基础夹具（fixtures）和示例 API。
-    - create_dut(request): 实例化 DUT、设置覆盖率文件、可选波形、绑定 StepRis 采样。
-    - AdderEnv: 封装引脚与常用操作（Step）。
-    - api_Adder_add: 对外暴露的测试 API，完成参数校验、信号赋值、推进、读取结果。
-    - pytest fixtures：dut（模块级，负责覆盖率采样/收集交给 toffee_test）、env（函数级，给每个 test 一个全新环境）。
-
-    与 Guide_Doc 的关系：
-    - dut_fixture.md：夹具/环境（Fixture/Env）的组织、Step/StepRis 的用法与职责边界。
-    - dut_api_instruction.md：API 设计（命名、参数约束、返回、示例、异常）和文档规范。
-    - dut_function_coverage_def.md：如何将功能覆盖组接线到 DUT 并在 StepRis 内采样。
-    - dut_line_coverage.md：如何设置行覆盖文件、忽略清单，并将数据上报给 toffee_test。
-
-  - `Adder_function_coverage_def.py`  
-    作用：功能覆盖定义（Functional Coverage），声明 FG/FC/CK 并给出 watch_point 条件。
-    - 定义覆盖组：FG-API、FG-ARITHMETIC、FG-BIT-WIDTH。
-
-  - 每组下定义 FC-_ 和 CK-_ 条件（如 CK-BASIC/CK-CARRY-IN/CK-OVERFLOW 等）。
-    - get_coverage_groups(dut): 初始化并返回覆盖组列表，供 Adder_api.py 绑定与采样。
-
-    与 Guide_Doc 的关系：
-    - dut_function_coverage_def.md：覆盖组/覆盖点的组织方式与命名规范、watch_point 的表达方式。
-    - dut_functions_and_checks.md：FG/FC/CK 的命名体系与映射关系来源，测试中用 mark_function 标记覆盖时需与此保持一致。
-
-  - `test_Adder_api_basic.py`  
-    作用：API 层面的基础功能测试，覆盖典型输入、进位、零值、溢出、边界等。
-    - 使用 from Adder_api import \* 来获取 fixtures（dut/env）与 API。
-    - 在每个测试中通过 env.dut.fc_cover["FG-..."].mark_function("FC-...", <test_fn>, ["CK-..."]) 标注功能覆盖命中关系。
-      与 Guide_Doc 的关系：
-    - dut_test_case.md：单测结构（目标/流程/预期）、命名与断言规范、可重复性、标记与日志。
-    - dut_functions_and_checks.md：FG/FC/CK 的正确引用与标注。
-    - dut_test_template.md：docstring 和结构写法的范式来源。
-
-  - `test_Adder_functional.py`  
-    作用：功能行为测试（接近“场景/功能项”的角度），比 API 基测覆盖更全面的功能点验证。
-    - 同样通过 mark_function 与 FG/FC/CK 标签体系对齐。
-      与 Guide_Doc 的关系：
-      - dut_test_case.md：功能类测试的编写规范与断言要求。
-      - dut_functions_and_checks.md：功能覆盖标注的规范与完整性。
-      - dut_test_template.md：测试函数组织的范式。
-
-  - `test_example.py`  
-    作用：空白样例（脚手架），用于新增测试文件的最小模板参考。
-    与 Guide_Doc 的关系：
-    - dut_test_template.md：新建测试文件/函数时的结构、引入方式与标注方法的模板。
-
-### unity_test/\*.md
-
-该目录下的各种.md文件也是大模型根据模板文件生成的。
-
-- unity_test/\*.md：验证相关文档
-  - Adder_basic_info.md
-    - 用途：DUT 概览与接口说明（功能、端口、类型、粗粒度功能分类）。
-    - 参考：`Guide_Doc/dut_functions_and_checks.md`（接口/功能分类用语）、`Guide_Doc/dut_fixture.md`（从验证视角描述 I/O 与 Step 时可参考）。
-
-  - Adder_verification_needs_and_plan.md
-    - 用途：验证需求与计划（目标、风险点、测试项规划、方法论）。
-    - 参考：`Guide_Doc/dut_test_program.md`（编排与选择策略）、`Guide_Doc/dut_test_case.md`（单测质量要求）、`Guide_Doc/dut_functions_and_checks.md`（从需求到 FG/FC/CK 的映射）。
-
-  - Adder_functions_and_checks.md
-    - 用途：FG/FC/CK 真源清单，测试标注与功能覆盖定义需与此保持一致。
-    - 参考：`Guide_Doc/dut_functions_and_checks.md`（结构/命名）、`Guide_Doc/dut_function_coverage_def.md`（如何落地为覆盖实现）。
-
-  - Adder_line_coverage_analysis.md
-    - 用途：行覆盖率结论与分析，解释忽略清单、未命中行、补测建议。
-    - 参考：`Guide_Doc/dut_line_coverage.md`；配合同目录 tests 下的 `Adder.ignore`。
-
-  - Adder_bug_analysis.md
-    - 用途：缺陷分析报告，按 CK/TC 对应、置信度、根因、修复建议与回归方法撰写。
-    - 参考：`Guide_Doc/dut_bug_analysis.md`（结构/要素）、`Guide_Doc/dut_functions_and_checks.md`（命名一致）。
-
-  - Adder_test_summary.md
-    - 用途：阶段性/最终测试总结（执行统计、覆盖情况、缺陷分布、建议、结论）。
-    - 参考：`Guide_Doc/dut_test_summary.md`，与 `Guide_Doc/dut_test_program.md` 呼应。
-
----
-
-## MiniWorkflow 示例：创建自定义模板
-
-> 本节介绍如何为自定义工作流创建模板文件。
->
-> 完整示例和详细说明请参考 `examples/MiniWorkflow/Guide_Doc/`
-
-### 模板文件的作用
-
-模板文件是 UCAgent 工作流中的"规范指南"，它告诉 Agent 应该生成什么样的输出、遵循什么样的格式和标准。
-
-**核心作用**：
-
-1. **统一规范**：确保所有生成的文档格式一致
-2. **提供指导**：告诉 Agent 应该关注哪些信息
-3. **提高质量**：通过示例和说明提升输出质量
-4. **减少迭代**：明确要求减少 Agent 的试错次数
-
-### 模板在工作流中的使用
-
-在工作流配置的每个阶段中通过 `reference_files` 指定模板：
+在阶段中声明它：
 
 ```yaml
 stage:
   - name: analyze_project
+    desc: "分析项目"
     reference_files:
-      - "Guide_Doc/project_analysis_guide.md" # ← 指导文档
+      - "Guide_Doc/project_analysis_guide.md"
+    output_files:
+      - "{OUT}/{DUT}_analysis.md"
     task:
-      - "参考 Guide_Doc/project_analysis_guide.md 的指导，提取关键信息"
+      - "读取 Guide_Doc/project_analysis_guide.md"
+      - "将分析结果写入 {OUT}/{DUT}_analysis.md"
 ```
 
-**执行流程**：
+阶段配置中的路径相对于工作区；`{DUT}`、`{OUT}` 等模板变量在配置解析后替换。引用文件
+不存在、没有被读取或输出文件没有生成时，阶段检查会失败，并返回需要修复的路径。
 
-1. Agent 进入阶段后，首先读取 `reference_files` 中的所有文件
-2. 理解模板中的要求和规范
-3. 按照模板的指导执行任务
-4. 生成符合模板要求的输出
+## 编写模板的建议
 
-### 模板文件编写建议
+1. 先定义机器需要检查的结构，再写解释性文字。字段名、标题级别和标签必须唯一且稳定。
+2. 在完整示例中展示真实的结束状态；不要只给片段，让 Agent 自行猜测缺少的章节。
+3. 对可选分支明确写出何时使用，避免把“没有 Bug”“没有覆盖数据”等正常结果误写成失败。
+4. 模板只描述当前契约。格式变更时同步修改 Guide_Doc、任务提示、Checker、技能资产和测试。
+5. 不要在模板中放 API Key、访问令牌或其他秘密；运行时快照也只保存非敏感配置。
 
-#### 1. 明确分析目标
+## MiniWorkflow 示例
 
-定义要从输入中提取的信息类型和分析方法：
+可运行的最小示例位于仓库的 [`examples/MiniWorkflow`](https://github.com/XS-MLVP/UCAgent/tree/main/examples/MiniWorkflow)。其中：
 
-```markdown
+- `Guide_Doc/` 展示阶段参考文档；
+- `mini.yaml` 定义两个阶段、工具和 Checker；
+- `my_tools.py` 和 `my_checkers.py` 是扩展实现；
+- `Makefile` 准备 `output/` 后启动 UCAgent。
 
-## 分析目标
-
-从项目的 README 文件中提取以下信息：
-
-### 1. 项目基本信息
-
-- **项目名称**：{PROJECT} 的全称和简称
-- **项目简介**：一句话概括项目的核心价值
-
-### 2. 功能概述
-
-- **核心功能**：列出项目的 3-5 个主要功能
-- **扩展功能**：列出可选的高级功能
-```
-
-#### 2. 规定输出格式
-
-明确指定生成文档的章节结构和格式要求：
-
-````markdown
-
-## 输出格式
-
-生成的分析文档应使用 **{DOC_GEN_LANG}** 编写，采用 Markdown 格式，包含以下章节：
-
-\```
-
-# {PROJECT} 项目分析
-
-## 项目基本信息
-
-（项目名称、简介、版本等）
-
-## 功能概述
-
-（核心功能、扩展功能）
-\```
-````
-
-#### 3. 提供示例和说明
-
-通过好例子和坏例子帮助 Agent 理解要求：
-
-```markdown
-
-## 示例片段
-
-**好的功能描述示例**：
-
-- **四则运算**：支持加法、减法、乘法、除法运算，支持括号嵌套
-- **科学计算**：提供三角函数、对数函数、幂运算等高级数学功能
-
-**不好的功能描述示例**：
-
-- 计算功能
-- 其他功能
-  （太笼统，缺少细节）
-```
-
-#### 4. 强调注意事项
-
-列出常见错误和质量要求：
-
-```markdown
-
-## 注意事项
-
-1. **信息提取准确**：严格基于 README 内容，不要臆造信息
-2. **结构清晰**：使用标题和列表组织内容
-3. **语言规范**：使用 {DOC_GEN_LANG}，保持专业术语准确
-4. **内容完整**：每个章节都应该有实质性内容，避免空章节
-5. **字数控制**：分析文档应在 500-2000 字之间
-```
-
-### 变量支持
-
-模板文件中可以使用工作流配置中定义的变量（`template_overwrite`）：
-
-```markdown
-
-# {PROJECT} 项目分析
-
-本文档使用 **{DOC_GEN_LANG}** 编写。
-输出目录：{OUT}
-```
-
-这些变量会在 Agent 读取模板时自动替换为实际值。
-
-### 完整示例
-
-MiniWorkflow 示例包含两个完整的模板文件：
-
-- `Guide_Doc/project_analysis_guide.md` - 项目分析指南
-- `Guide_Doc/documentation_template.md` - 文档结构模板
-
-完整内容请参考 `examples/MiniWorkflow/Guide_Doc/` 目录。
-
-## 相关文档
-
-- [工作流配置](03_workflow.md) - 了解如何在工作流中引用模板文件
-- [快速开始](01_quick_start.md) - 快速创建自己的工作流
-- [Mini 示例](08_mini_example.md) - 查看完整的可运行示例
-
-完整内容请参考 `examples/MiniWorkflow/Guide_Doc/` 目录。
+先阅读 [定制开发入门](01_quick_start.md)，再运行 [Mini 示例](08_mini_example.md)。
+如果需要修改工具或 Checker，分别参考[定制工具](05_customize.md)和[检查器](07_checkers.md)。

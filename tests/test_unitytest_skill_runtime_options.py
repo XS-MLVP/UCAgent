@@ -25,6 +25,7 @@ from ucagent.tools.skill import (
     ArgsRunSkillScript,
     ListSkill,
     RunSkillScript,
+    _get_script_runner,
     _get_skill_script_env,
     _scan_skills,
 )
@@ -231,6 +232,7 @@ def test_agent_runtime_config_persists_resolved_values_from_cfg(tmp_path):
         "runtime_options": {
             "need_ref_model": True,
             "mock_components_enabled": False,
+            "waveform_analysis_format_priority": ["fst", "vcd", "fsdb"],
         },
     }
 
@@ -250,6 +252,43 @@ def test_agent_runtime_config_rejects_non_boolean_options(tmp_path, invalid_key)
     cfg._temp_cfg = {"DUT": "Adder", "OUT": "unity_test"}
 
     with pytest.raises(ValueError, match=rf"{invalid_key}.*boolean"):
+        save_runtime_config(str(tmp_path), cfg)
+
+
+@pytest.mark.parametrize("priority", [["fst", "vcd", "fsdb"], ["vcd"], ["fsdb", "vcd", "fst"]])
+def test_runtime_config_persists_analysis_format_priority(tmp_path, priority):
+    """Snapshots must carry resolved analysis formats, including disabled alternatives."""
+    cfg = Config({
+        "runtime_options": {
+            "need_ref_model": False, "mock_components_enabled": False,
+            "waveform_analysis_format_priority": priority,
+        },
+        "tools": {"RunTestCases": {"test_dir": "tests"}},
+    })
+    cfg._temp_cfg = {"DUT": "Demo", "OUT": "out"}
+    path = save_runtime_config(str(tmp_path), cfg)
+    assert json.loads(path.read_text())["runtime_options"]["waveform_analysis_format_priority"] == priority
+    assert load_runtime_config(str(tmp_path))["runtime_options"]["waveform_analysis_format_priority"] == priority
+
+
+@pytest.mark.parametrize("priority", [[], "fst,vcd", [False], [".fst"], ["vcd", "vcd"]])
+def test_runtime_config_rejects_invalid_analysis_format_priorities(tmp_path, priority):
+    """Both writing and loading reject malformed waveform analysis configuration."""
+    cfg = Config({
+        "runtime_options": {
+            "need_ref_model": False, "mock_components_enabled": False,
+        },
+        "tools": {"RunTestCases": {"test_dir": "tests"}},
+    })
+    cfg._temp_cfg = {"DUT": "Demo", "OUT": "out"}
+    path = save_runtime_config(str(tmp_path), cfg)
+    snapshot = json.loads(path.read_text())
+    snapshot["runtime_options"]["waveform_analysis_format_priority"] = priority
+    path.write_text(json.dumps(snapshot))
+    with pytest.raises(ValueError, match="waveform_analysis_format_priority"):
+        load_runtime_config(str(tmp_path))
+    cfg.runtime_options.waveform_analysis_format_priority = priority
+    with pytest.raises(ValueError, match="waveform_analysis_format_priority"):
         save_runtime_config(str(tmp_path), cfg)
 
 
@@ -493,6 +532,26 @@ def test_run_skill_script_imports_source_ucagent_without_external_pythonpath(
 
     assert result == "Inserted 1 FG item(s).\n"
     assert "<FG-API>" in target_doc.read_text(encoding="utf-8")
+
+
+def test_python_skill_script_runner_does_not_depend_on_path(tmp_path, monkeypatch):
+    empty_bin = tmp_path / "empty-bin"
+    empty_bin.mkdir()
+    monkeypatch.setenv("PATH", str(empty_bin))
+
+    assert _get_script_runner(str(tmp_path), "scripts/update.py") == sys.executable
+
+
+def test_python_skill_script_runner_allows_interpreter_path_with_spaces(
+    tmp_path, monkeypatch
+):
+    spaced_dir = tmp_path / "python env"
+    spaced_dir.mkdir()
+    spaced_python = spaced_dir / "python"
+    spaced_python.symlink_to(sys.executable)
+    monkeypatch.setattr(sys, "executable", str(spaced_python))
+
+    assert _get_script_runner(str(tmp_path), "scripts/update.py") == str(spaced_python)
 
 
 def test_template_script_main_uses_workspace_runtime_config(tmp_path, monkeypatch):

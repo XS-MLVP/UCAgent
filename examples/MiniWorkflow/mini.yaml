@@ -2,13 +2,12 @@
 
 # ===== 自定义工具注册（External Tools） =====
 ex_tools:
-  - "examples.MiniWorkflow.my_tools.CountWords"
-  - "examples.MiniWorkflow.my_tools.ExtractSections"
+  - "my_tools.CountWords"
+  - "my_tools.ExtractSections"
 
 # ===== 模板变量定义（Template Variables） =====
 template_overwrite:
   PROJECT: "Calculator"
-  OUT: "output"
   DOC_GEN_LANG: "中文"
 
 # ===== 保护目录配置 =====
@@ -51,7 +50,7 @@ stage:
       - "{OUT}/{PROJECT}_analysis.md"
     checker:
       - name: word_count_check
-        clss: "examples.MiniWorkflow.my_checkers.WordCountChecker"
+        clss: "my_checkers.WordCountChecker"
         args:
           file_path: "{OUT}/{PROJECT}_analysis.md"
           word_min: 500
@@ -79,13 +78,13 @@ stage:
       - "{OUT}/{PROJECT}_documentation.md"
     checker:
       - name: word_count_check
-        clss: "examples.MiniWorkflow.my_checkers.WordCountChecker"
+        clss: "my_checkers.WordCountChecker"
         args:
           file_path: "{OUT}/{PROJECT}_documentation.md"
           word_min: 800
           word_max: 3000
       - name: required_sections_check
-        clss: "examples.MiniWorkflow.my_checkers.RequiredSectionsChecker"
+        clss: "my_checkers.RequiredSectionsChecker"
         args:
           file_path: "{OUT}/{PROJECT}_documentation.md"
           required_sections:

@@ -39,7 +39,7 @@ import ucagent.plugins as plugin_module
 from ucagent.checkers.base import Checker
 from ucagent.cli import _plugin_discovery_overrides, run
 from ucagent.stage.vstage import parse_vstage
-from ucagent.tools.uctool import UCTool, to_fastmcp
+from ucagent.tools.uctool import UCTool, to_mcp_tool
 from ucagent.tools.fileops import is_file_writeable as _is_file_writeable
 from ucagent.util.config import Config
 from ucagent.verify_agent import VerifyAgent
@@ -1682,6 +1682,127 @@ def test_verify_agent_rejects_template_target_overlapping_read_only_input(
     assert not (dut / "generated.txt").exists()
 
 
+def test_verify_agent_rejects_wildcard_read_only_pattern_overlapping_render_target(
+    tmp_path: Path,
+) -> None:
+    """Wildcard no-write entries that can cover the render target stay invalid."""
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    template_root = tmp_path / "templates"
+    template = template_root / "blocked"
+    template.mkdir(parents=True)
+    (template / "generated.txt").write_text("generated\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="read-only path"):
+        VerifyAgent(
+            workspace=str(workspace),
+            dut_name="dut",
+            output="out",
+            config_file="master.yaml",
+            cfg_override=[
+                {"backend.key_name": "blank"},
+                {"template": "blocked"},
+                {"un_write_dirs": ["out/*.py"]},
+            ],
+            template_dir=str(template_root),
+            template_target="{OUT}",
+            no_embed_tools=True,
+            no_history=True,
+        )
+
+
+def test_verify_agent_accepts_wildcard_read_only_pattern_away_from_render_target(
+    tmp_path: Path,
+) -> None:
+    """Wildcard no-write entries outside the render target keep the render working."""
+
+    workspace = tmp_path / "workspace"
+    dut = workspace / "dut"
+    dut.mkdir(parents=True)
+    (dut / "top.v").write_text("module top();\n", encoding="utf-8")
+    template_root = tmp_path / "templates"
+    template = template_root / "managed"
+    template.mkdir(parents=True)
+    (template / "generated.txt").write_text("generated\n", encoding="utf-8")
+
+    agent = VerifyAgent(
+        workspace=str(workspace),
+        dut_name="dut",
+        output="out",
+        config_file="master.yaml",
+        cfg_override=[
+            {"backend.key_name": "blank"},
+            {"template": "managed"},
+            {"un_write_dirs": ["dut/*.v"]},
+        ],
+        template_dir=str(template_root),
+        template_target="{OUT}",
+        no_embed_tools=True,
+        no_history=True,
+    )
+    assert (workspace / "out" / "generated.txt").read_text(
+        encoding="utf-8"
+    ) == "generated\n"
+    top = dut / "top.v"
+    assert not (top.stat().st_mode & 0o200), "matched source file must be read-only"
+    ok, reason = _is_file_writeable("dut/top.v", un_write_dirs=["dut/*.v"])
+    assert ok is False, reason
+    del agent
+
+
+def test_verify_agent_write_dirs_carve_out_protected_tree(tmp_path: Path) -> None:
+    """Deeper write_dirs entries keep carved paths writable inside a no-write tree."""
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    dut = workspace / "dut"
+    dut.mkdir()
+    (dut / "spec.md").write_text("spec\n", encoding="utf-8")
+    (dut / "top.v").write_text("module top();\n", encoding="utf-8")
+    db = dut / "dut.db"
+    db.mkdir()
+    (db / "state.log").write_text("log\n", encoding="utf-8")
+    template_root = tmp_path / "templates"
+    template = template_root / "managed"
+    template.mkdir(parents=True)
+    (template / "generated.txt").write_text("generated\n", encoding="utf-8")
+
+    agent = VerifyAgent(
+        workspace=str(workspace),
+        dut_name="dut",
+        output="out",
+        config_file="master.yaml",
+        cfg_override=[
+            {"backend.key_name": "blank"},
+            {"template": "managed"},
+            {"un_write_dirs": ["dut"]},
+            {"write_dirs": ["out", "dut/*.md", "dut/dut.db"]},
+        ],
+        template_dir=str(template_root),
+        template_target="{OUT}",
+        no_embed_tools=True,
+        no_history=True,
+    )
+
+    assert (dut / "spec.md").stat().st_mode & 0o200, "carved md file must stay writable"
+    assert (db / "state.log").stat().st_mode & 0o200, "carved subtree must stay writable"
+    assert not (dut / "top.v").stat().st_mode & 0o200, "sibling must be read-only"
+    ok, reason = _is_file_writeable(
+        "dut/spec.md",
+        un_write_dirs=["dut"],
+        write_dirs=["out", "dut/*.md", "dut/dut.db"],
+    )
+    assert ok is True, reason
+    ok, reason = _is_file_writeable(
+        "dut/top.v",
+        un_write_dirs=["dut"],
+        write_dirs=["out", "dut/*.md", "dut/dut.db"],
+    )
+    assert ok is False, reason
+    del agent
+
+
 def test_verify_agent_renders_resolved_template_override_values(
     tmp_path: Path,
 ) -> None:
@@ -1784,11 +1905,11 @@ def test_design_with_ppa_local_plugin_creates_mcp_compatible_tool(tmp_path: Path
     assert plugin_summary(loaded)["tool_factories"] == 1
     assert [tool.name for tool in tools] == ["AnalyzePPA", "RunDesignConsistency"]
     assert tools[0]._DEFAULT_LIBERTY.is_file()
-    parameters = to_fastmcp(tools[0]).parameters
+    parameters = to_mcp_tool(tools[0]).parameters
     rtl_schema = parameters["properties"]["rtl_files"]
     assert rtl_schema["anyOf"][0] == {"items": {"type": "string"}, "type": "array"}
     waveform_schema = parameters["properties"]["waveform_files"]
     assert waveform_schema["anyOf"][0] == {"items": {"type": "string"}, "type": "array"}
-    consistency_parameters = to_fastmcp(tools[1]).parameters
+    consistency_parameters = to_mcp_tool(tools[1]).parameters
     assert consistency_parameters["properties"]["test_dir"]["default"] == "{OUT}/tests"
     assert consistency_parameters["properties"]["test_glob"]["default"] == "{OUT}/tests/test_{DUT}_*.py"

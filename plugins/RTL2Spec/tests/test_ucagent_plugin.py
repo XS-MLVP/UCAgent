@@ -22,7 +22,7 @@ from ucagent.plugins import (
     validate_workflow_dependencies,
     validate_plugin,
 )
-from ucagent.tools.uctool import to_fastmcp
+from ucagent.tools.uctool import to_mcp_tool
 from ucagent.util.functions import get_tools_from_cfg
 
 
@@ -74,7 +74,7 @@ def test_ucagent_compatibility_matches_verified_baseline(monkeypatch, version, c
 
 def test_command_has_mcp_convertible_pydantic_schema(tmp_path: Path) -> None:
     """The plugin tool exposes the BaseModel schema required by MCP conversion."""
-    mcp_tool = to_fastmcp(RTL2SpecCommand(workspace=str(tmp_path)))
+    mcp_tool = to_mcp_tool(RTL2SpecCommand(workspace=str(tmp_path)))
     schema = mcp_tool.parameters
     assert set(schema["properties"]) == {
         "action", "module", "config", "related_modules", "related_files"
@@ -137,6 +137,37 @@ def test_factory_preserves_resolved_workspace_policy(tmp_path):
     assert tool._run("preflight", "Sbuffer")["error_code"] == "WRITE_POLICY_DENIED"
 
 
+def test_factory_enforces_wildcard_no_write_policy(tmp_path):
+    """Wildcard no-write entries deny the plugin write footprint like literals."""
+    context = PluginContext(
+        workspace=tmp_path,
+        output_dir="outputs/Sbuffer",
+        write_dirs=("outputs/Sbuffer",),
+        un_write_dirs=(".cach*",),
+        cfg=None,
+        plugin_root=get_plugin().root,
+    )
+    (tool,) = create_tools(context)
+    assert tool._run("preflight", "Sbuffer")["error_code"] == "WRITE_POLICY_DENIED"
+
+
+def test_factory_enforces_wildcard_protected_children(tmp_path):
+    """A wildcard entry below a write target still blocks that target."""
+    context = PluginContext(
+        workspace=tmp_path,
+        output_dir="outputs/Sbuffer",
+        write_dirs=(".cache", "outputs/Sbuffer"),
+        un_write_dirs=(".cache/tmp_*",),
+        cfg=None,
+        plugin_root=get_plugin().root,
+    )
+    (tool,) = create_tools(context)
+    result = tool._run("preflight", "Sbuffer")
+    assert result["error_code"] == "WRITE_POLICY_DENIED"
+    assert result["artifact"] == ".cache"
+    assert "protected path" in result["error"]
+
+
 @pytest.mark.parametrize("failure", ["exit", "empty", "timeout"])
 def test_broken_command_version_fails_at_activation(monkeypatch, failure):
     """An executable without a working version probe is rejected before use."""
@@ -171,7 +202,7 @@ def test_registered_tool_obeys_agent_and_mcp_filters(tmp_path, policy, expected)
     context = PluginContext(tmp_path, "outputs", ("outputs",), (), None, plugin.root)
     tools = get_tools_from_cfg(create_plugin_tools([loaded], context), policy)
     assert [tool.name for tool in tools] == expected
-    assert [to_fastmcp(tool).name for tool in tools] == expected
+    assert [to_mcp_tool(tool).name for tool in tools] == expected
 
 
 def test_checker_registration_rejects_conflicts_without_global_mutation(monkeypatch):

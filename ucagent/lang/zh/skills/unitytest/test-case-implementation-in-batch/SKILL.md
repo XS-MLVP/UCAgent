@@ -116,7 +116,7 @@ TC与CK状态按以下规则解释：
 - `valid/enable=0`、`ready/accept=0`、复位/空闲/过渡周期、尚未达到响应latency或协议声明data无效时看到的单点data mismatch只能作为调查线索，不能直接生成BG。若规格明确要求busy期间忽略请求或保持某值，则应引用该约束判断，而不是机械套用握手规则
 - 波形审查还要核对测试到底推进了多少Step、API内部是否已推进/等待以及实际输出有效信号何时成立；如果断言过早采样，属于测试时序问题，必须修复到正确采样后再分类
 - `<BG-STATIC-*>`只允许写在`{DUT}_static_bug_analysis.md`；一旦测试动态证实，必须在`{DUT}_bug_analysis.md`新建独立`<BG-NAME-xx>`并提供confirmed波形证据，再从静态文档用`<LINK-BUG-*>`关联
-- 日志中的cycle与wavekit的wave step不是同一概念，二者可能相差0到数个周期且时间戳尺度也可能不同；必须指定clock_signal，通过clock occurrence index对齐，并在候选有歧义时增强日志后重跑
+- 日志中的cycle与WaveInfo的wave step不是同一概念，二者可能相差0到数个周期且时间戳尺度也可能不同；必须指定clock_signal，通过clock occurrence index对齐，并在候选有歧义时增强日志后重跑
 - 找不到波形时，按`WaveInfo`返回的测试名称、最新session、`.dat`、SetWaveform、dut.Finish和文件损坏诊断逐项处理；不能改用旧session或其他测试的波形
 - 中断或重启后可以复用通过验证的`WaveInfo` receipt；当前批次只运行部分用例时，不得删除历史TC/BG、手工改写有效receipt或重造viewer链接。最终记录阶段必须运行完整测试集合并严格重放全部动态Bug TC；Checker会一次原子刷新语义指纹不变的当前机器证据，语义变化时一次返回完整`review_batch_call`，由`ReviewWaveInfoEvidenceBatch`准备并原子提交全部复核项，不得逐TC调用Apply或重复运行pytest/WaveInfo/Check；TC身份变化或当前波形缺失才按精确恢复动作处理
 - `bug_document_viewer_link`必须由`ApplyWaveInfoEvidence`直接写入；不得让LLM复制或修改标记、URL和token

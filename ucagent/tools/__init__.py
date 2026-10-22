@@ -18,6 +18,11 @@ _EXPORT_GROUPS = {
     ),
     "fileops": (
         "is_file_writeable",
+        "path_is_at_or_below",
+        "write_entry_has_wildcards",
+        "wildcard_entry_overlaps",
+        "write_entry_matches_anything",
+        "deepest_matching_write_entry",
         "BaseReadWrite",
         "StrictToolArgs",
         "ArgSearchText",
@@ -62,7 +67,7 @@ _EXPORT_GROUPS = {
         "ForbidExtraArgModelBase",
         "UCTool",
         "RoleInfo",
-        "to_fastmcp",
+        "to_mcp_tool",
     ),
     "memory": (
         "ArgsMemSearch",
@@ -113,6 +118,7 @@ _EXPORT_GROUPS = {
         "WaveInfoEvidenceReviewItem",
         "ArgReviewWaveInfoEvidenceBatch",
         "WaveInfo",
+        "register_waveform_reader",
         "ApplyWaveInfoEvidence",
         "ReviewWaveInfoEvidenceBatch",
     ),

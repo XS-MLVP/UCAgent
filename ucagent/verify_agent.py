@@ -24,6 +24,7 @@ from .util.markdown import ensure_markdown_heading_spacing
 
 import ucagent.tools
 from .tools import *
+from .tools.fileops import write_entry_has_wildcards, wildcard_entry_overlaps
 from .tools.skill import ListSkill, _list_skills, list_skills_in_format
 from .tools.planning import *
 from .stage import StageManager
@@ -87,15 +88,32 @@ def template_target_read_only_conflict(
     denies every later write. Any directory-level overlap in either
     direction stays a configuration error because the render would need to
     create or update many files inside a path declared read-only.
+
+    Values with glob wildcard characters are matched lexically: any pattern
+    that can cover the render target, its subtree, or an ancestor is a
+    conflict, because the set of files it protects cannot be bounded to the
+    single self-protecting file the literal case allows.
     """
 
     workspace_resolved = workspace.resolve()
+    target_relative = tmp_dir_path.relative_to(workspace_resolved).as_posix()
     for protected_value in protected_values:
-        if (
-            not isinstance(protected_value, str)
-            or not protected_value.strip()
-            or any(character in protected_value for character in "*?[]")
-        ):
+        if not isinstance(protected_value, str) or not protected_value.strip():
+            continue
+        if any(character in protected_value for character in "*?["):
+            protected_path = Path(protected_value)
+            if not protected_path.is_absolute():
+                protected_path = workspace / protected_path
+            try:
+                entry = (
+                    protected_path.resolve(strict=False)
+                    .relative_to(workspace_resolved)
+                    .as_posix()
+                )
+            except ValueError:
+                continue
+            if wildcard_entry_overlaps(entry, target_relative):
+                return protected_value
             continue
         protected_path = Path(protected_value)
         if not protected_path.is_absolute():
@@ -567,9 +585,10 @@ class VerifyAgent:
             )
             for f in no_write_targets:
                 abs_f = os.path.abspath(f)
-                assert os.path.exists(abs_f), (
-                    f"Specified no-write target {abs_f} does not exist"
-                )
+                if not write_entry_has_wildcards(f):
+                    assert os.path.exists(abs_f), (
+                        f"Specified no-write target {abs_f} does not exist"
+                    )
                 assert abs_f.startswith(os.path.abspath(self.workspace)), (
                     f"Specified no-write target {abs_f} must be under the workspace {self.workspace}"
                 )
@@ -577,12 +596,15 @@ class VerifyAgent:
                     rm_workspace_prefix(self.workspace, abs_f)
                 )
         self.cwd_read_only_files = fc.chmode_ro_by_pattern(
-            self.workspace, self.cfg.get_value("un_write_dirs", [])
+            self.workspace,
+            self.cfg.get_value("un_write_dirs", []),
+            write_dirs=self.cfg.get_value("write_dirs", None),
         )
         self.tool_waveinfo = WaveInfo(
             workspace=self.workspace,
             test_dir=self.cfg.tools.RunTestCases.test_dir,
             dut_name=self.dut_name,
+            format_priority=self.cfg.runtime_options.waveform_analysis_format_priority,
         )
         self.tool_apply_waveinfo_evidence = ApplyWaveInfoEvidence(
             waveinfo=self.tool_waveinfo,
@@ -1123,7 +1145,12 @@ class VerifyAgent:
                 if not ok:
                     warning(msg)
         finally:
-            fc.chmode_rw(self.cwd_read_only_files)
+            try:
+                cmd_server = getattr(getattr(self, "pdb", None), "_cmd_api_server", None)
+                if cmd_server is not None:
+                    cmd_server.close_sessions()
+            finally:
+                fc.chmode_rw(self.cwd_read_only_files)
 
     def exit_unset(self):
         if not self.is_exit():

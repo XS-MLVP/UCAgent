@@ -1,438 +1,184 @@
 
-# 自定义检查器
+# 自定义 Checker
 
-> 💡 **前置学习**：检查器在工作流中用于验证阶段输出。建议先阅读 [工作流配置](03_workflow.md) 了解检查器的使用场景
+Checker 是阶段的确定性验收门。Agent 生成或修改产物后可调用 `Check` 获取反馈；所有 Checker、引用文件
+和输出文件门禁通过后，`Complete` 才能推进阶段。Checker 只负责验证事实，不能把“看起来
+完成”当作通过。
 
-自定义检查器是工作流质量保证的关键组件。它们在每个阶段（Stage）完成后自动运行，验证输出是否符合预期。可以说，**检查器是工作流的"质检员"**，确保 Agent 的工作符合标准。
+## 什么时候需要自定义 Checker
 
-## 为什么需要自定义检查器？
+内置 Checker 适合常见的 Markdown、文件、测试、覆盖率和批任务检查。需要验证业务规则时，
+可以编写自定义 Checker，例如：
 
-UCAgent 提供了一些内置检查器（如 Markdown 格式检查），但对于特定的业务规则，我们需要自定义检查器。
+- 文档必须包含指定标题和字段；
+- 生成的配置必须引用现有文件；
+- 一个批次中的每个测试项都必须有对应产物；
+- 外部命令必须返回成功，并且输出满足明确条件。
 
-❌ **内置检查器的局限**：
+Checker 应检查可观察的文件、配置或命令结果。不要只相信 Agent 在文档中写出的进度标记，
+也不要为了让阶段通过而放宽测试断言。
 
-- 只能检查通用的格式问题
-- 无法验证业务逻辑
-- 不能检查领域专用的规则
+## 生命周期
 
-✅ **自定义检查器的优势**：
+`VerifyStage` 创建 Checker 时会把配置中的 `args` 和当前 `cfg` 传入构造函数，然后设置
+workspace 和 stage。Stage Manager 之后才会注入；因此：
 
-- 验证特定的业务规则（如字数范围、必需章节）
-- 提供详细的错误信息指导 Agent 修正
-- 支持复杂的验证逻辑
-- 可以访问共享数据进行上下文相关的检查
+1. `__init__` 必须先调用 `super().__init__()`，只保存参数并创建轻量对象；
+2. 依赖 workspace、stage、Stage Manager 或文件扫描的初始化放到 `on_init()`；
+3. `do_check` 执行实时验证，返回 `(bool, result)`；
+4. `get_template_data()` 只能返回缓存状态，不能扫描文件、推进批次或写 checkpoint；
+5. 每个重写的 `do_check` 都必须有有意义的 docstring，因为它会显示在阶段信息中。
 
-## Mini-Example 的检查器需求
+最小结构：
 
-在计算器文档生成器中，我们需要两个自定义检查器：
+~~~python
+from pathlib import Path
 
-### 检查器1：WordCountChecker（字数检查）
-
-- **功能**：检查文档字数是否在 500-2000 范围内
-- **用途**：确保文档内容充实但不冗长
-- **失败时**：返回当前字数和缺少/超出的字数
-
-### 检查器2：RequiredSectionsChecker（章节检查）
-
-- **功能**：检查文档是否包含必需的章节（如"项目概述"、"功能说明"）
-- **用途**：确保文档结构完整
-- **失败时**：返回缺失的章节列表
-
-## 检查器开发基础
-
-### 核心概念
-
-UCAgent 的检查器系统基于以下概念：
-
-1. **继承 Checker 基类**：所有检查器都继承自 `ucagent.checkers.base.Checker`
-2. **实现 **init** 方法**：接收并保存检查器参数
-3. **实现 do_check 方法**：执行检查逻辑，返回 `(bool, dict)`
-4. **处理路径**：使用 `self.get_path()` 处理文件路径
-5. **返回结果**：成功返回 `(True, result)`，失败返回 `(False, error_info)`
-
-### 检查器类结构
-
-```python
 from ucagent.checkers.base import Checker
 
 
-class MyChecker(Checker):
-    """检查器类（继承 Checker）"""
+class FileExistsChecker(Checker):
+    """检查工作区内的目标文件是否存在。"""
 
-    def __init__(self, param1: str, param2: int = 10, **kwargs):
-        """
-        初始化检查器
-
-        参数:
-            param1: 第一个参数
-            param2: 第二个参数（可选）
-            **kwargs: 其他参数（如 need_human_check）
-        """
-        # 保存参数
-        self.param1 = param1
-        self.param2 = param2
-
-        # 设置是否需要人工检查
+    def __init__(self, path: str, **kwargs):
+        """Store the artifact path and optional human-review setting."""
+        super().__init__()
+        self.path = path
         self.set_human_check_needed(kwargs.get("need_human_check", False))
 
-    def do_check(self, timeout=0, **kwargs) -> tuple[bool, object]:
-        """
-        执行检查逻辑（必须实现）
+    def on_init(self):
+        """准备阶段相关的缓存状态。"""
+        return super().on_init()
 
-        参数:
-            timeout: 超时时间（秒）
-            **kwargs: 其他参数
-
-        返回:
-            (is_pass, result):
-                - is_pass (bool): True 表示通过，False 表示失败
-                - result (dict|str): 检查结果详情
-        """
-        # 1. 获取要检查的数据
-        # 2. 执行检查逻辑
-        # 3. 返回结果
-
-        if check_passed:
-            return True, {"message": "检查通过", "details": "..."}
-        else:
-            return False, {"error": "检查失败", "suggestion": "..."}
-```
-
-## 检查器1实现：WordCountChecker
-
-### 完整代码
-
-```python
-class WordCountChecker(Checker):
-    """
-    文档字数检查器
-
-    功能：检查文档的字数是否在指定范围内
-    用途：确保文档内容充实，不会太短或太长
-    """
-
-    def __init__(self, file_path: str, word_min: int = 0, word_max: int = 10000, **kwargs):
-        """
-        初始化检查器
-
-        参数:
-            file_path: 要检查的文件路径
-            word_min: 最小字数要求
-            word_max: 最大字数限制
-            **kwargs: 其他参数（包含 need_human_check 等）
-        """
-        self.file_path = file_path
-        self.word_min = word_min
-        self.word_max = word_max
-        self.set_human_check_needed(kwargs.get("need_human_check", False))
-
-    def do_check(self, timeout=0, **kwargs) -> tuple[bool, object]:
-        # 处理路径
-        abs_path = self.get_path(self.file_path)
-
-        # 检查文件存在
-        if not os.path.exists(abs_path):
+    def do_check(self, is_complete=False, **kwargs) -> tuple[bool, object]:
+        """检查目标文件，并返回通过结果或结构化诊断。"""
+        root = Path(self.workspace).resolve()
+        target = (root / self.path).resolve()
+        if Path(self.path).is_absolute() or not target.is_relative_to(root):
             return False, {
-                "error": f"文件不存在：{self.file_path}",
-                "suggestion": "请确认文件已生成"
+                "error_code": "INVALID_ARTIFACT_PATH",
+                "error": "artifact path must be relative and remain inside workspace",
+                "artifact": self.path,
+                "next_action": "configure a workspace-relative artifact path",
             }
-
-        try:
-            # 读取文件
-            with open(abs_path, 'r', encoding='utf-8') as f:
-                content = f.read()
-
-            # 统计字数
-            chinese_chars = len(re.findall(r'[\u4e00-\u9fa5]', content))
-            english_words = len(re.findall(r'\b[a-zA-Z]+\b', content))
-            total_words = chinese_chars + english_words
-
-            # 检查字数范围
-            if total_words < self.word_min:
-                return False, {
-                    "error": f"文档字数不足",
-                    "current_words": total_words,
-                    "required_min": self.word_min,
-                    "shortage": self.word_min - total_words,
-                    "suggestion": f"还差 {self.word_min - total_words} 字"
-                }
-
-            if total_words > self.word_max:
-                return False, {
-                    "error": f"文档字数超出限制",
-                    "current_words": total_words,
-                    "required_max": self.word_max,
-                    "excess": total_words - self.word_max
-                }
-
-            # 检查通过
-            return True, {
-                "message": "字数检查通过",
-                "current_words": total_words,
-                "required_range": f"{self.word_min}-{self.word_max}"
+        if not target.is_file():
+            return False, {
+                "error_code": "FILE_MISSING",
+                "error": f"required artifact is missing: {self.path}",
+                "artifact": self.path,
+                "expected": "a regular file",
+                "next_action": "create the file, then call Check again",
             }
+        return True, {"artifact": self.path}
+~~~
 
-        except Exception as e:
-            return False, {"error": f"检查失败：{str(e)}"}
-```
+`get_path` 用于把相对路径拼接到 workspace，但不能替代完整的边界校验。接收可变路径时，应像上例一样解析真实路径并确认它仍位于工作区内，包括符号链接指向的目标。
 
-### 代码详解
+## 配置 Checker
 
-#### 1. 初始化方法（**init**）
+阶段配置通过 `clss` 指定类，`args` 传给构造函数，`extra_args` 在实例化后通过
+`set_extra` 设置。短名从 `ucagent.checkers` 导出；自定义类使用完整导入路径：
 
-```python
-def __init__(self, file_path: str, word_min: int = 0, word_max: int = 10000, **kwargs):
-    self.file_path = file_path
-    self.word_min = word_min
-    self.word_max = word_max
-    self.set_human_check_needed(kwargs.get("need_human_check", False))
-```
-
-**要点**：
-
-- 接收所有需要的参数
-- 使用 `**kwargs` 接收额外参数（如 `need_human_check`）
-- 调用 `set_human_check_needed()` 设置是否需要人工检查
-
-#### 2. 检查方法（do_check）
-
-```python
-def do_check(self, timeout=0, **kwargs) -> tuple[bool, object]:
-    # 返回 (bool, dict) 元组
-    return True, {"message": "通过"}  # 或
-    return False, {
-        "error": "失败原因及完整原始信息",
-        "diagnostic": {
-            "error_code": "DOCUMENT_TOO_SHORT",
-            "error": "文档只有 450 字，少于最低要求 500 字。",
-            "observed": {"word_count": 450},
-            "expected": {"minimum_word_count": 500},
-            "next_action": "在目标文档中补充至少 50 字有效内容，然后重新调用 Check。",
-        },
-    }
-```
-
-**返回值格式**：
-
-- 第一个值：`bool`，表示是否通过
-- 第二个值：`dict` 或 `str`，提供详细信息
-- 只有 Checker 明确返回完整诊断时，StageManager 才会生成紧凑的 `failure_summary`；仅包含有界诊断字段时可直接返回该映射，同时包含完整日志等原始信息时则把有界映射放在 `diagnostic` 字段中
-- 诊断至少包含稳定的 `error_code`、具体 `error` 和可直接执行的 `next_action`
-- 如果 Checker 无法确定修复方法，不要制造宽泛诊断；在普通返回中保留完整 `error`、`details`、`STDOUT` 和 `STDERR`，Check/Complete 会原样显示
-- 调用方可用 `stage_args={"full_output": true}` 在存在结构化诊断时同时取得完整原始返回；该保留字段不会传入 Checker
-
-#### 3. 路径处理
-
-```python
-abs_path = self.get_path(self.file_path)
-```
-
-**作用**：与工具相同，自动处理变量和路径转换。
-
-#### 4. 错误信息设计
-
-✅ **好的错误信息**：
-
-```python
-return False, {
-    "error": "文档字数不足",
-    "diagnostic": {
-        "error_code": "DOCUMENT_TOO_SHORT",
-        "error": "文档只有 450 字，少于最低要求 500 字。",
-        "observed": {"word_count": 450, "shortage": 50},
-        "expected": {"minimum_word_count": 500},
-        "next_action": "补充至少 50 字与当前章节相关的有效内容，然后重新调用 Check。"
-    }
-}
-```
-
-- 明确指出问题
-- 提供具体数据
-- 给出修正建议
-
-## 检查器2实现：RequiredSectionsChecker
-
-### 完整代码
-
-完整代码请参考 `examples/MiniWorkflow/my_checkers.py`。
-
-### 关键逻辑：章节提取和匹配
-
-```python
-# 提取所有二级标题
-found_sections = []
-for match in re.finditer(r'^##\s+(.+)$', content, re.MULTILINE):
-    section_title = match.group(1).strip()
-    found_sections.append(section_title)
-
-# 检查每个必需章节
-missing_sections = []
-for required in self.required_sections:
-    found = False
-    for found_section in found_sections:
-        if required in found_section or found_section in required:
-            found = True
-            break
-
-    if not found:
-        missing_sections.append(required)
-
-# 判断结果
-if missing_sections:
-    return False, {
-        "error": "文档缺少必需章节",
-        "missing_sections": missing_sections,
-        "suggestion": f"请添加：{', '.join(missing_sections)}"
-    }
-```
-
-## 检查器配置
-
-检查器在工作流配置中使用，位于每个 `stage` 的 `checker` 列表中。
-
-### 在 mini.yaml 中配置
-
-```yaml
+~~~yaml
 stage:
   - name: generate_documentation
+    desc: "生成项目文档"
+    task:
+      - "读取项目资料并写入文档"
+    output_files:
+      - "{OUT}/{DUT}_documentation.md"
     checker:
-      # 检查器1：字数检查
-      - name: word_count_check
-        clss: "examples.MiniWorkflow.my_checkers.WordCountChecker"
-        args:
-          file_path: "{OUT}/{PROJECT}_documentation.md"
-          word_min: 800
-          word_max: 3000
-
-      # 检查器2：章节检查
-      - name: required_sections_check
+      - name: required_sections
         clss: "examples.MiniWorkflow.my_checkers.RequiredSectionsChecker"
         args:
-          file_path: "{OUT}/{PROJECT}_documentation.md"
+          file_path: "{OUT}/{DUT}_documentation.md"
           required_sections:
             - "项目概述"
             - "功能说明"
-            - "技术架构"
-            - "使用方法"
-```
+          need_human_check: false
+~~~
 
-**配置说明**：
+配置中的 `args` 会自动附带当前 `cfg`；自定义构造函数用 `**kwargs` 接收它或其他可选参数。
+列表字段按层整体替换，复制配置时要写出完整的 Checker 列表。
 
-- `name`：检查器名称（用于日志）
-- `clss`：检查器类的完整模块路径
-- `args`：传递给 `__init__` 的参数
+## 诊断结果
 
-## 检查器执行机制
+通过时返回简洁的结果。失败时，如果能确定修复方法，返回一个有界的结构化诊断，至少包含：
 
-### 执行时机
+- `error_code`：稳定的机器可读代码；
+- `error`：具体问题；
+- `next_action`：下一步应执行的修复或工具调用；
+- `artifact`、`location`、`observed`、`expected`：在有帮助时提供，内容要有界。
 
-```
-Agent 执行任务
-    │
-    ▼
-Agent 调用 Complete 工具
-    │
-    ▼
-运行所有配置的检查器
-    │
-    ├─> 检查器1: WordCountChecker
-    │     └─> 返回 (True, {...})  ✓
-    │
-    ├─> 检查器2: RequiredSectionsChecker
-    │     └─> 返回 (False, {"missing": [...]})  ✗
-    │
-    ▼
-有检查器失败
-    │
-    └─> 向 Agent 返回错误信息
-        Agent 根据错误信息修正输出
-        重新调用 Complete
-```
-
-### 失败重试机制
-
-- Agent 会读取检查器的错误信息
-- 根据 `suggestion` 字段修正输出
-- 重新调用 `Complete` 工具
-- 最多重试 3-5 次（可配置）
-
-## 检查器开发技巧
-
-### 1. 错误信息设计
-
-提供详细的错误信息帮助 Agent 快速定位问题：
-
-```python
+~~~python
 return False, {
-    "error": "具体错误描述",
-    "current_value": "当前值",
-    "expected_value": "期望值",
-    "suggestion": "如何修正"
+    "error_code": "DOCUMENT_TOO_SHORT",
+    "error": "the document contains 450 words; at least 500 are required",
+    "artifact": "unity_test/Adder_analysis.md",
+    "observed": {"word_count": 450},
+    "expected": {"minimum_word_count": 500},
+    "next_action": "add at least 50 words of relevant content, then call Check",
 }
-```
+~~~
 
-### 2. 处理边界情况
+如果结果还需要保留命令的原始输出，把有界诊断放在 `diagnostic` 字段中，并把原始输出限制
+在合理大小。不要从普通的 `error`、`details`、`STDOUT` 或 `STDERR` 字段猜测失败摘要；
+阶段管理会保留没有完整诊断的原始结果。调用方可以在 `stage_args` 中传
+`{"full_output": true}`，要求同时返回原始结果。
 
-```python
-# 检查文件存在
-if not os.path.exists(abs_path):
-    return False, {"error": "文件不存在"}
+`do_check` 的 `is_complete` 参数用于区分中间 `Check` 和最终 `Complete`。不要在 `Check`
+中提前声明所有批次完成，也不要把中间进度当作最终验证。
 
-# 检查内容为空
-if not content.strip():
-    return False, {"error": "文件内容为空"}
-```
+## 批量 Checker
 
-### 3. 使用异常处理
+需要分批处理测试用例、功能点或行映射时，使用 `UnityChipBatchTask`，不要另写 checkpoint
+和批次状态机：
 
-```python
-try:
-    # 核心逻辑
-    ...
-except FileNotFoundError:
-    return False, {"error": "文件未找到"}
-except Exception as e:
-    return False, {"error": f"检查失败：{str(e)}"}
-```
+`UnityChipBatchTask` 从 `ucagent.checkers.base` 导入。完成输入与产物校验、同步任务列表后，调用：
 
-### 4. 提供建设性建议
+~~~python
+return self.batch_task.do_complete(
+    note_msg=[],
+    is_complete=is_complete,
+    fail_source_msg="generate artifacts for the missing source items",
+    fail_gen_msg="remove generated items that are absent from the source",
+    exmsg="read the current batch details before continuing",
+)
+~~~
 
-❌ **不好的错误信息**：
+这段调用用于已有批量 Checker 的 `do_check`，不能代替源数据扫描和产物校验。实际实现还需要：
 
-```python
-return False, {"error": "检查失败"}
-```
+- 在构造 `UnityChipBatchTask` 前设置 `batch_size`；
+- 保留并同步 `source_task_list`、`gen_task_list`、`tbd_task_list` 和 `cmp_task_list`；
+- 把源文件当作事实来源，checkpoint 只用于恢复；
+- 源数据改变时移除或标记过期任务；未知、重复或伪造的进度必须失败；
+- 用 `do_complete()` 完成批次转换，它会保存进度并在批次通过时重置连续失败计数；
+- 空源列表、无效路径和不完整产物都要返回明确诊断。
 
-✅ **好的错误信息**：
+功能行映射还要求 `file_list` 是唯一文件集合，不把 `Guide_Doc` 当作映射目标；每个非空物理
+行都要有 FG/FC/CK 或有理由的 `IGNORE`，一个映射块最多 100 行。
 
-```python
-return False, {
-    "error": "文档缺少必需章节",
-    "missing_sections": ["项目概述", "功能说明"],
-    "suggestion": "请在文档中添加 ## 项目概述 和 ## 功能说明 章节"
-}
-```
+## 人工检查和阶段门禁
 
-## 完整文件：my_checkers.py
+Checker 可以通过 `set_human_check_needed(True)` 请求人工检查；这会让阶段在 Checker
+通过后等待人工操作。阶段的 `reference_files`、`output_files` 和技能门禁由 Stage Manager
+统一处理，Checker 不应重复实现这些门禁。
 
-完整代码已保存在：`examples/MiniWorkflow/my_checkers.py`
+技能门禁只在技能支持启用且当前阶段的 `skill_list` 非空时生效。`force_use_skill: false`
+会让该阶段技能可选；`general_skill_list` 不会进入阶段强制门禁。技能关闭时，Checker 必须
+仍能用普通工具和现有产物完成相同验证。
 
-## 小结
+## 测试自定义 Checker
 
-通过本章，您学会了：
+至少覆盖：
 
-✅ 自定义检查器的作用和执行机制  
-✅ 检查器类的基本结构（继承、**init**、do_check）  
-✅ 如何设计清晰的错误信息  
-✅ 如何在配置文件中使用检查器
+- 文件不存在、空文件和格式错误；
+- 正常输入、边界值和错误输入；
+- workspace 路径边界；
+- 诊断字段是否完整且内容有界；
+- 批任务在新增、删除和修改源数据后的同步行为。
 
-**下一步**：现在您已经掌握了工作流配置、模板、工具和检查器四大核心组件。接下来让我们整合所有内容，运行完整的 mini-example！
-
-👉 继续阅读：[完整 Mini 示例](08_mini_example.md)
-
-## 相关文档
-
-- [工作流配置](03_workflow.md) - 了解如何在工作流中配置检查器
-- [快速开始](01_quick_start.md) - 快速创建自己的工作流
-- [定制工具](05_customize.md) - 学习如何开发自定义工具
-- [Mini 示例](08_mini_example.md) - 查看完整的可运行示例
+可运行的最小实现见仓库的
+[examples/MiniWorkflow/my_checkers.py](https://github.com/XS-MLVP/UCAgent/blob/main/examples/MiniWorkflow/my_checkers.py)。
+完整的工具和工作流示例见 [定制开发入门](01_quick_start.md)、[工作流配置](03_workflow.md) 和
+[Mini 示例](08_mini_example.md)。

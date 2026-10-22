@@ -16,6 +16,22 @@ from ucagent.util.bug_analysis_contract import (
 from ucagent.util.config import Config, load_yaml_with_env_vars
 
 
+def test_runtime_waveform_guidance_does_not_require_backend_or_format_knowledge():
+    """Guides and optional skills must teach public actions rather than waveform setup."""
+    language_root = Path(__file__).parents[1] / "ucagent/lang/zh"
+    sources = [language_root / "config/default.yaml"]
+    for directory in ("doc/Guide_Doc", "template", "skills"):
+        sources.extend((language_root / directory).rglob("*.md"))
+    internal_terms = re.compile(
+        r"\b(?:wavekit|verdi|libnpi|waveform_analysis_format_priority)\b"
+        r"|(?<!\.)\b(?:fst|vcd|fsdb)\b",
+        flags=re.IGNORECASE,
+    )
+    for source in sources:
+        # Literal artifact extensions remain valid tool data and fixture inputs.
+        assert internal_terms.search(source.read_text(encoding="utf-8")) is None, source
+
+
 def test_api_test_prompt_and_guide_require_api_checkpoint_association():
     repo_root = Path(__file__).parents[1]
     config = load_yaml_with_env_vars(
@@ -98,7 +114,7 @@ def test_default_prompt_requires_waveinfo_for_dynamic_bugs():
     assert "不要急于修改测试" not in parent_task
     assert "每个Fail TC都不预设责任方" in system_prompt
     assert "progress_summary.status: batch_advanced" in system_prompt
-    assert "不是Checker失败" in system_prompt
+    assert "不是验证失败" in system_prompt
     assert "不得把`check_pass: false`单独解释为验证失败" in system_prompt
     assert "specification_expected" in system_prompt
     assert "精确input、specification_expected、测试代码中的test_expected、DUT actual和classification" in system_prompt
@@ -680,13 +696,13 @@ def test_bug_document_error_help_uses_current_machine_contract():
     assert "every visible title must describe the actual item" in help_text
     assert "visible heading reuses the TC title" in help_text
     assert "Every remaining FAILED DUT test" in help_text
-    assert "Every remaining failed checkpoint" in help_text
+    assert "Every remaining unhit checkpoint" in help_text
     assert "prefer record_dynamic_bug.py with -MODE bug" in help_text
     assert "-MODE root for each distinct ROOT" in help_text
     assert "if the same blocker remains" in help_text
     assert "manual_edit_fallback scope and after_edit call" in help_text
     assert "immediately rerun -MODE repair and Check" in help_text
-    assert "A failed checkpoint does not by itself prove a DUT Bug" in help_text
+    assert "An unhit checkpoint does not by itself prove a DUT Bug" in help_text
     assert "test stimulus/driver" in help_text
     assert "checkpoint that is itself PASSED" in help_text
     assert "derive an independent expected value" in help_text

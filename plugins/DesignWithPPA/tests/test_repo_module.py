@@ -664,10 +664,10 @@ def test_repo_workflow_configuration_and_stage_lifecycle(repo_case, monkeypatch,
 def test_repo_tool_mcp_and_local_failures(repo_case):
     """The workflow-local tool converts to MCP and diagnoses real local invocation failures."""
 
-    from ucagent.tools.uctool import to_fastmcp
+    from ucagent.tools.uctool import to_mcp_tool
 
     tool = RunRepoValidation(workspace=str(repo_case.workspace), cfg=repo_case.cfg)
-    schema = to_fastmcp(tool).parameters
+    schema = to_mcp_tool(tool).parameters
     assert schema["properties"]["action"]["default"] == "validate"
     result = tool._run()
     assert result["error_code"] == "repo_validation_failed"
@@ -695,6 +695,65 @@ def test_missing_rtl_output_and_pin_mismatch(repo_case):
     recipe = read_model(paths.edit / "candidate", "recipe.yaml", Recipe)
     with pytest.raises(ValueError, match="pins differ"):
         prepare_unit(repository, paths.edit / "candidate", paths.workspace / "mismatch-build", recipe, interface)
+
+
+
+def test_prepare_unit_honors_workflow_python_dut_options(repo_case, monkeypatch):
+    """The resolved workflow's conversion options reach the managed unit builder."""
+
+    from design_with_ppa.repo import build as repo_build
+    from design_with_ppa.repo.models import read_model
+    from design_with_ppa.repo.snapshot import materialize
+    from design_with_ppa.rtl import resolve_rtl_config
+
+    paths = repo_case
+    if not shutil.which("yosys"):
+        pytest.skip("Yosys is unavailable")
+    snapshot_repository(paths)
+    repository = paths.workspace / "isolated"
+    materialize(paths.snapshot, paths.edit / "candidate", [], repository)
+    interface = read_model(paths.edit / "candidate", "interface.yaml", Interface)
+    recipe = read_model(paths.edit / "candidate", "recipe.yaml", Recipe)
+    paths.cfg.un_freeze()
+    paths.cfg.set_value(
+        "design_with_ppa.rtl",
+        {"python_dut": {"interface": "automatic",
+                        "options": {"verilator_args": ["-O3", "--output-split", "3000"],
+                                    "ccache_enabled": False}}},
+    )
+    captured: dict = {}
+
+    class StubChecker:
+        """Record the resolved conversion options and stand in for the build."""
+
+        def __init__(self, *, cfg, **kwargs):
+            del kwargs
+            captured["options"] = resolve_rtl_config(cfg)[0].python_dut_options
+
+        def set_workspace(self, workspace):
+            self.workspace = workspace
+            return self
+
+        def do_check(self, **kwargs):
+            del kwargs
+            atomic_json(
+                Path(self.workspace) / ".ucagent" / "design_with_ppa" / "rtl_backend_manifest.json",
+                {"stub": True},
+            )
+            return True, {"stubbed": True}
+
+    monkeypatch.setattr(repo_build, "RTLBackendBuildChecker", StubChecker)
+    evidence = repo_build.prepare_unit(
+        repository, paths.edit / "candidate", paths.workspace / "options-build",
+        recipe, interface, cfg=paths.cfg,
+    )
+
+    assert captured["options"] == {
+        "verilator_args": ["-O3", "--output-split", "3000"],
+        "ccache_enabled": False,
+    }
+    assert evidence["builder"] == {"stub": True}
+    assert (paths.workspace / "options-build" / "design/rtl/unit.v").is_file()
 
 
 def test_delete_binary_and_mode_delivery_preflight(tmp_path):

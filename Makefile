@@ -2,6 +2,7 @@
 # Current Workspace Dir
 CWD ?= output/workspace_$*
 PYTHON ?= python3
+NODE ?= node
 GUIDE_DOC_CACHE ?= Guide_Doc
 CFG ?= config.yaml
 BBV ?= false
@@ -50,6 +51,11 @@ CMD ?= ucagent
 endif
 
 all: clean test
+
+.PHONY: unitytest
+unitytest:
+	$(PYTHON) -m pytest -q tests
+	$(NODE) --test tests/test_*.js
 
 init:
 	pip3 install -r requirements.txt
@@ -125,6 +131,7 @@ clean:
 	rm -rf UCAgent.egg-info
 	rm -rf build
 	rm -rf dist
+	rm -rf site
 	find ./ -name '*.dat'|xargs rm -f
 	find ./ -name '*.vcd'|xargs rm -f
 	find ./ -name '*.fst'|xargs rm -f

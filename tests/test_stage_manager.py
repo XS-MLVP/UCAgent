@@ -32,7 +32,7 @@ from ucagent.stage.vmanager import (
     ToolSetCurrentStageJournal,
     ToolSetSkillUsage,
 )
-from ucagent.tools.uctool import to_fastmcp
+from ucagent.tools.uctool import to_mcp_tool
 from ucagent.util import functions as fc
 
 
@@ -364,7 +364,7 @@ def test_tool_do_check_passes_stage_args_to_function():
     )]
 
 
-def test_fastmcp_check_preserves_stage_args():
+def test_mcp_check_preserves_stage_args():
     calls = []
 
     def check_func(timeout, **kwargs):
@@ -372,7 +372,7 @@ def test_fastmcp_check_preserves_stage_args():
         return "ok"
 
     tool = ToolDoCheck().set_function(check_func)
-    mcp_tool = to_fastmcp(tool)
+    mcp_tool = to_mcp_tool(tool)
 
     result = asyncio.run(mcp_tool.run({
         "timeout": 13,
@@ -380,7 +380,7 @@ def test_fastmcp_check_preserves_stage_args():
             "refined": {"CK-2": "done"},
             "detail": False,
         },
-    }))
+    }, context=None))
 
     assert result == "ok"
     assert calls == [(
@@ -398,8 +398,8 @@ def test_check_and_complete_schemas_expose_one_stage_args_object():
     expected_properties = {"timeout", "stage_args"}
     schemas = [
         ArgsDoCheck.model_json_schema(),
-        to_fastmcp(ToolDoCheck()).parameters,
-        to_fastmcp(ToolDoComplete()).parameters,
+        to_mcp_tool(ToolDoCheck()).parameters,
+        to_mcp_tool(ToolDoComplete()).parameters,
     ]
 
     for schema in schemas:
@@ -451,18 +451,18 @@ def test_check_accepts_json_string_stage_args_fallback():
     )]
 
 
-def test_fastmcp_check_accepts_json_string_stage_args_fallback():
+def test_mcp_check_accepts_json_string_stage_args_fallback():
     calls = []
 
     def check_func(timeout, **kwargs):
         calls.append((timeout, kwargs))
         return "ok"
 
-    mcp_tool = to_fastmcp(ToolDoCheck().set_function(check_func))
+    mcp_tool = to_mcp_tool(ToolDoCheck().set_function(check_func))
     result = asyncio.run(mcp_tool.run({
         "timeout": 16,
         "stage_args": '{"generated":{"FG-A/FC-A/CK-A":"generated"}}',
-    }))
+    }, context=None))
 
     assert result == "ok"
     assert calls == [(
@@ -477,13 +477,42 @@ def test_check_rejects_invalid_or_non_object_stage_args_string():
     invalid_json = tool.invoke({"stage_args": "not-json"})
     json_array = tool.invoke({"stage_args": '[{"refined":{}}]'})
     invalid_full_output = tool.invoke({"stage_args": {"full_output": "yes"}})
+    invalid_timeout_string = tool.invoke({"stage_args": {"timeout": "long"}})
+    invalid_timeout_negative = tool.invoke({"stage_args": {"timeout": -5}})
+    invalid_timeout_boolean = tool.invoke({"stage_args": {"timeout": True}})
+    reserved_is_complete = tool.invoke({"stage_args": {"is_complete": True}})
 
     assert "must contain a valid JSON object" in invalid_json
     assert "must be a JSON object or a string containing one" in json_array
     assert "stage_args.full_output must be a boolean" in invalid_full_output
+    assert "stage_args.timeout must be a non-negative integer" in invalid_timeout_string
+    assert "stage_args.timeout must be a non-negative integer" in invalid_timeout_negative
+    assert "stage_args.timeout must be a non-negative integer" in invalid_timeout_boolean
+    assert "reserved for internal dispatch" in reserved_is_complete
+    assert "is_complete" in reserved_is_complete
 
 
-def test_fastmcp_complete_preserves_stage_args():
+
+def test_check_passes_stage_args_timeout_through_to_manager_function():
+    calls = []
+
+    def check_func(timeout, **kwargs):
+        calls.append((timeout, kwargs))
+        return "ok"
+
+    result = ToolDoCheck().set_function(check_func).invoke({
+        "timeout": 15,
+        "stage_args": {"timeout": 5000, "refined": {"CK": "reviewed"}},
+    })
+
+    assert result == "ok"
+    assert calls == [(
+        15,
+        {"stage_args": {"timeout": 5000, "refined": {"CK": "reviewed"}}},
+    )]
+
+
+def test_mcp_complete_preserves_stage_args():
     calls = []
 
     def complete_func(timeout, **kwargs):
@@ -491,7 +520,7 @@ def test_fastmcp_complete_preserves_stage_args():
         return "ok"
 
     tool = ToolDoComplete().set_function(complete_func)
-    mcp_tool = to_fastmcp(tool)
+    mcp_tool = to_mcp_tool(tool)
     result = asyncio.run(mcp_tool.run({
         "timeout": 14,
         "stage_args": {
@@ -499,7 +528,7 @@ def test_fastmcp_complete_preserves_stage_args():
             "bug_list": [{"bug_name": "overflow"}],
             "detail": True,
         },
-    }))
+    }, context=None))
 
     assert result == "ok"
     assert calls == [(
@@ -560,6 +589,48 @@ def test_stage_manager_check_and_complete_forward_stage_args():
             "is_complete": True,
         },
     ]
+
+
+
+def test_stage_manager_merges_stage_args_timeout_budget():
+    stage = _RecordingCheckStage()
+    next_stage = _RecordingCheckStage()
+    manager = StageManager.__new__(StageManager)
+    manager.stage_index = 0
+    manager.stages = [stage, next_stage]
+    manager.last_check_info = None
+    manager.llm_fail_suggestion = None
+    manager.llm_pass_suggestion = None
+    manager.all_completed = False
+    manager.gen_fail_suggestion = lambda data: data
+    manager.gen_pass_suggestion = lambda ck_info: ""
+    manager._stage_complete = lambda _stage: None
+    manager.save_stage_info = lambda: None
+
+    def next_stage_func():
+        manager.stage_index += 1
+        manager.all_completed = manager.stage_index >= len(manager.stages)
+        return None if manager.all_completed else manager.stages[manager.stage_index]
+
+    manager.next_stage = next_stage_func
+
+    # A stage_args timeout grants the same budget as the tool parameter and
+    # the larger value wins, so a longer caller-granted budget is never
+    # truncated and a smaller one never shrinks the effective budget.
+    manager.check(9, stage_args={
+        "timeout": 5000,
+        "refined": {"CK": "check"},
+    })
+    manager.check(600, stage_args={"timeout": 30})
+    complete_ret = manager.complete(10, stage_args={"timeout": 77})
+
+    assert complete_ret["complete"] is True
+    assert stage.calls == [
+        {"stage_args": {"refined": {"CK": "check"}}, "timeout": 5000},
+        {"stage_args": {}, "timeout": 600},
+        {"stage_args": {}, "timeout": 77, "is_complete": True},
+    ]
+    assert next_stage.calls == []
 
 
 def test_verify_stage_expands_stage_args_at_checker_boundary(tmp_path):
@@ -2363,16 +2434,16 @@ def test_set_current_stage_journal_tool_contract():
         return journal
 
     tool = ToolSetCurrentStageJournal().set_function(record)
-    mcp_tool = to_fastmcp(tool)
+    mcp_tool = to_mcp_tool(tool)
 
-    assert asyncio.run(mcp_tool.run({"journal": "progress"})) == "progress"
+    assert asyncio.run(mcp_tool.run({"journal": "progress"}, context=None)) == "progress"
     assert calls == [("progress", "replace")]
 
-    assert asyncio.run(mcp_tool.run({"journal": "more", "mode": "append"})) == "more"
+    assert asyncio.run(mcp_tool.run({"journal": "more", "mode": "append"}, context=None)) == "more"
     assert calls[-1] == ("more", "append")
 
     assert (
-        asyncio.run(mcp_tool.run({"journal": ""}))
+        asyncio.run(mcp_tool.run({"journal": ""}, context=None))
         == "Journal content cannot be empty."
     )
     assert len(calls) == 2

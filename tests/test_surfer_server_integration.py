@@ -7,6 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 import os
 import sys
+import pytest
 
 from fastapi.testclient import TestClient
 
@@ -24,6 +25,7 @@ if loaded_ucagent is not None and not loaded_ucagent_path.startswith(
 
 from ucagent.server.api_cmd import PdbCmdApiServer
 from ucagent.util.waveform_viewer import encode_waveform_viewer_payload
+from ucagent.tools.waveform import WaveInfo
 
 
 def _server(tmp_path: Path) -> PdbCmdApiServer:
@@ -191,6 +193,33 @@ def test_latest_waveform_api_reports_missing_target(tmp_path):
         assert response.status_code == 404
         assert "test_missing" in response.json()["detail"]
         assert "Run that test" in response.json()["detail"]
+    finally:
+        server._running = True
+        server.stop()
+
+
+@pytest.mark.parametrize("priority,status", [
+    (["vcd", "fst", "fsdb"], 200),
+    (["fsdb", "fst", "vcd"], 415),
+])
+def test_latest_waveform_api_honors_analysis_priority_and_reports_viewer_limits(tmp_path, priority, status):
+    """The browser must not display a different format from the analyzed waveform."""
+    for extension in ("fst", "vcd", "fsdb"):
+        _waveform(tmp_path, "toffee_tmp_20260817140000_001", f"test_bug.{extension}", extension.encode())
+    server = _server(tmp_path)
+    server.pdb.agent.tool_waveinfo = WaveInfo(
+        workspace=str(tmp_path), test_dir="unity_test/tests", format_priority=priority,
+    )
+    try:
+        response = TestClient(server._app).get(
+            "/api/waveform/latest", params={"wave": _logical_token()},
+        )
+        assert response.status_code == status
+        if status == 200:
+            assert response.content == b"vcd"
+        else:
+            assert ".fsdb" in response.json()["detail"]
+            assert "supports only FST and VCD" in response.json()["detail"]
     finally:
         server._running = True
         server.stop()

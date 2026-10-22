@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+"""Shared runtime helpers for verification artifacts, configuration, and services."""
 
 import copy
 import shutil
@@ -41,7 +42,7 @@ import fnmatch
 import ast
 import codecs
 import locale
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import yaml
 from collections import OrderedDict
 import traceback
@@ -1718,31 +1719,29 @@ def _install_uvicorn_log_bridge(logger):
 
 
 def create_verify_mcps(mcp_tools: list, host: str, port: int, logger=None):
+    """Build an MCP SDK HTTP application and its uvicorn server."""
     import logging
     __old_getLogger = logging.getLogger
     def __getLogger(name):
+        """Route server construction logs to the agent's configured logger."""
         return logger
     if logger:
         logging.getLogger = __getLogger
     try:
-        from mcp.server.fastmcp import FastMCP
-        from ucagent.tools.uctool import to_fastmcp
+        from mcp.server.mcpserver import MCPServer
+        from ucagent.tools.uctool import to_mcp_tool
         from ucagent.util.log import info
-        fastmcp_tools = []
-        for tool in mcp_tools:
-            fastmcp_tools.append(to_fastmcp(tool))
-        # Start the FastMCP server
-        info(f"create FastMCP server with tools: {[tool.name for tool in fastmcp_tools]}")
-        mcp = FastMCP("UnityTest", tools=fastmcp_tools, host=host, port=port)
-        s = mcp.settings
-        info(f"FastMCP server started at {s.host}:{s.port}")
-        starlette_app = mcp.streamable_http_app()
+        converted_tools = [to_mcp_tool(tool) for tool in mcp_tools]
+        info(f"create MCP server with tools: {[tool.name for tool in converted_tools]}")
+        mcp = MCPServer("UnityTest", tools=converted_tools)
+        starlette_app = mcp.streamable_http_app(host=host)
         import uvicorn
         config = uvicorn.Config(
             starlette_app,
-            host=mcp.settings.host,
-            port=mcp.settings.port,
+            host=host,
+            port=port,
             log_level=mcp.settings.log_level.lower(),
+            ws="none",
             timeout_keep_alive=300,
             timeout_graceful_shutdown=60,
         )
@@ -1767,10 +1766,10 @@ def start_verify_mcps(server, old_getLogger):
     try:
         anyio.run(_run)
     except Exception as e:
-        info(f"FastMCP server exit with: {e}")
+        info(f"MCP server exit with: {e}")
         raise
     finally:
-        info("FastMCP server stopped.")
+        info("MCP server stopped.")
         # logging.getLogger was already restored in create_verify_mcps; this is
         # kept for safety when old_getLogger is still the real function.
         if old_getLogger is not None:
@@ -1778,12 +1777,13 @@ def start_verify_mcps(server, old_getLogger):
 
 
 def stop_verify_mcps(server):
+    """Request graceful shutdown of a running MCP HTTP server."""
     from ucagent.util.log import info
     if server is not None:
-        info("Stopping FastMCP server...")
+        info("Stopping MCP server...")
         server.should_exit = True
     else:
-        info("FastMCP server is not running.")
+        info("MCP server is not running.")
 
 
 def get_diff(old_lines, new_lines, file_name):
@@ -2799,10 +2799,37 @@ def is_port_free(host: str, port: int) -> bool:
             return False
 
 
+def _dir_contains_write_entry(directory: str, write_dirs) -> bool:
+    """Whether a write entry may declare something strictly inside the directory.
+
+    The check is lexical: the entry must have more segments than the directory
+    and agree with it on every shared segment, allowing wildcards.
+    """
+    directory_parts = PurePosixPath(directory).parts
+    for entry in write_dirs:
+        entry_parts = PurePosixPath(str(entry)).parts
+        if len(entry_parts) <= len(directory_parts):
+            continue
+        if all(
+            fnmatch.fnmatchcase(part, entry_part)
+            for part, entry_part in zip(directory_parts, entry_parts)
+        ):
+            return True
+    return False
+
+
 def chmode_ro_by_pattern(
-    workspace, pattern_list: str, ignore_list: list = ["__pycache__"]
+    workspace,
+    pattern_list: str,
+    ignore_list: list = ["__pycache__"],
+    write_dirs=None,
 ) -> list:
-    """Change file mode to read-only."""
+    """Change file mode to read-only.
+
+    When write_dirs is provided, candidates the write policy allows stay
+    writable, as do directories holding declared write entries, so creating
+    files inside a carved-out area keeps working.
+    """
     file_list = []
     path_list = []
     for file_path_pattern in pattern_list:
@@ -2823,6 +2850,26 @@ def chmode_ro_by_pattern(
             else:
                 warning(f"File not found for: {file_path}")
     all_list = file_list + path_list
+    if write_dirs is not None:
+        # Imported lazily: fileops imports this module at load time.
+        from ucagent.tools.fileops import is_file_writeable
+
+        kept = []
+        for candidate in all_list:
+            relative = os.path.relpath(candidate, workspace).replace(os.sep, "/")
+            allowed, _reason = is_file_writeable(
+                relative,
+                un_write_dirs=list(pattern_list),
+                write_dirs=list(write_dirs),
+            )
+            if allowed or (
+                os.path.isdir(candidate)
+                and _dir_contains_write_entry(relative, write_dirs)
+            ):
+                info(f"Path kept writable by write_dirs policy: {candidate}")
+                continue
+            kept.append(candidate)
+        all_list = kept
     return chmode_ro(all_list, ignore_list)
 
 

@@ -14,6 +14,7 @@ from langchain_core.callbacks import (
 from langchain_core.tools.base import ArgsSchema
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+import glob as glob_module
 import hashlib
 import os
 import fnmatch
@@ -60,10 +61,76 @@ def _normalize_relative_path(path: str, *, allow_workspace: bool = False) -> str
     return normalized
 
 
-def _path_is_at_or_below(path: str, directory: str) -> bool:
+_WILDCARD_CHARACTERS = ("*", "?", "[")
+
+
+def write_entry_has_wildcards(entry: str) -> bool:
+    """Whether a write-policy entry contains glob wildcard characters."""
+    return isinstance(entry, str) and any(
+        character in entry for character in _WILDCARD_CHARACTERS
+    )
+
+
+def _entry_parts_match_prefix(path_parts: tuple, entry_parts: tuple) -> bool:
+    """Whether path parts sit at or below entry parts, matching per segment.
+
+    ``*``, ``?``, and ``[...]`` stay inside a single path segment; a dedicated
+    ``**`` segment matches zero or more whole segments.
+    """
+    if not entry_parts:
+        return True
+    if entry_parts[0] == "**":
+        return any(
+            _entry_parts_match_prefix(path_parts[index:], entry_parts[1:])
+            for index in range(len(path_parts) + 1)
+        )
+    if not path_parts:
+        return False
+    if not fnmatch.fnmatchcase(path_parts[0], entry_parts[0]):
+        return False
+    return _entry_parts_match_prefix(path_parts[1:], entry_parts[1:])
+
+
+def path_is_at_or_below(path: str, entry: str) -> bool:
+    """Whether a workspace-relative path is at or below a configured entry.
+
+    Entries without wildcard characters keep exact component comparison; a
+    wildcard entry covers every path it matches and everything below it.
+    """
     path_parts = PurePosixPath(path).parts
+    entry_parts = PurePosixPath(entry).parts
+    if not write_entry_has_wildcards(entry):
+        return path_parts[: len(entry_parts)] == entry_parts
+    return _entry_parts_match_prefix(path_parts, entry_parts)
+
+
+def wildcard_entry_overlaps(entry: str, directory: str) -> bool:
+    """Whether a wildcard entry may match a directory, its subtree, or an ancestor.
+
+    The check is lexical and conservative: overlap exists whenever the entry's
+    segments agree with the directory's segments until one side is exhausted or
+    a ``**`` segment appears, because the entry can then match a path that
+    covers the directory in either direction.
+    """
     directory_parts = PurePosixPath(directory).parts
-    return path_parts[:len(directory_parts)] == directory_parts
+    entry_parts = PurePosixPath(entry).parts
+    for directory_part, entry_part in zip(directory_parts, entry_parts):
+        if entry_part == "**":
+            return True
+        if not fnmatch.fnmatchcase(directory_part, entry_part):
+            return False
+    return True
+
+
+def write_entry_matches_anything(workspace: str, entry: str) -> bool:
+    """Whether a write-policy entry matches any existing path in the workspace.
+
+    Literal entries require the exact path to exist; wildcard entries use glob
+    expansion with recursive ``**`` support.
+    """
+    if not write_entry_has_wildcards(entry):
+        return os.path.exists(os.path.join(workspace, entry))
+    return bool(glob_module.glob(os.path.join(workspace, entry), recursive=True))
 
 
 def _sha256_bytes(data: bytes) -> str:
@@ -209,7 +276,32 @@ def _bounded_diff(old_content: str, new_content: str, path: str) -> Tuple[str, b
     )
 
 
+def deepest_matching_write_entry(path: str, entries) -> Tuple[int, Optional[str]]:
+    """Return the segment depth and configured value of the deepest matching entry.
+
+    Depth is the number of path segments in the entry (a ``**`` segment counts
+    as one); ``(-1, None)`` means no entry matches the path.
+    """
+    best_depth, best_entry = -1, None
+    for entry in entries:
+        try:
+            normalized = _normalize_relative_path(entry)
+        except ValueError:
+            continue
+        if path_is_at_or_below(path, normalized):
+            depth = len(PurePosixPath(normalized).parts)
+            if depth > best_depth:
+                best_depth, best_entry = depth, entry
+    return best_depth, best_entry
+
+
 def is_file_writeable(path: str, un_write_dirs: list=None, write_dirs: list=None) -> Tuple[bool, str]:
+    """Decide whether a workspace-relative path may be written.
+
+    A path matching entries from both lists is decided by the deepest entry:
+    a write entry strictly below a no-write entry carves that subtree back out
+    as writable, while an equal-depth conflict keeps the path protected.
+    """
     try:
         path = _normalize_relative_path(path)
     except ValueError as exc:
@@ -218,26 +310,27 @@ def is_file_writeable(path: str, un_write_dirs: list=None, write_dirs: list=None
         return True, "No write restrictions defined."
     if un_write_dirs is not None:
         assert isinstance(un_write_dirs, list), "un_write_dirs must be a list."
-        for d in un_write_dirs:
-            try:
-                directory = _normalize_relative_path(d)
-            except ValueError:
-                continue
-            if _path_is_at_or_below(path, directory):
-                return False, f"Path '{path}' is not allowed to write."
-        if write_dirs is None:
-            return True, f"Path '{path}' is allowed to write as it does not match any no-write directories: {un_write_dirs}."
     if write_dirs is not None:
         assert isinstance(write_dirs, list), "write_dirs must be a list."
-        for d in write_dirs:
-            try:
-                directory = _normalize_relative_path(d)
-            except ValueError:
-                continue
-            if _path_is_at_or_below(path, directory):
-                return True, f"Path '{path}' is allowed to write."
-        return False, f"Path '{path}' is not allowed to write, except in: {write_dirs}."
-    return True, "Not implemented yet."
+    write_depth, write_entry = deepest_matching_write_entry(path, write_dirs or [])
+    un_write_depth, un_write_entry = deepest_matching_write_entry(
+        path, un_write_dirs or []
+    )
+    if write_entry is not None and write_depth > un_write_depth:
+        if un_write_depth >= 0:
+            return True, (
+                f"Path '{path}' is allowed to write: it matches the write entry "
+                f"'{write_entry}' inside a no-write area."
+            )
+        return True, f"Path '{path}' is allowed to write: it matches the write entry '{write_entry}'."
+    if un_write_entry is not None:
+        return False, (
+            f"Path '{path}' is not allowed to write: it matches the "
+            f"no-write entry '{un_write_entry}'."
+        )
+    if write_dirs is None:
+        return True, f"Path '{path}' is allowed to write as it does not match any no-write directories: {un_write_dirs}."
+    return False, f"Path '{path}' is not allowed to write, except in: {write_dirs}."
 
 
 class BaseReadWrite:
@@ -323,18 +416,18 @@ class BaseReadWrite:
             else:
                 self.description += f"\n\nNote: Only directories in {write_dirs} are writable."
             for d in write_dirs:
-                if not os.path.exists(os.path.join(self.workspace, d)):
-                    warning(f"Writable directory {d} does not exist in workspace {workspace}.")
                 assert isinstance(d, str)
+                if not write_entry_matches_anything(self.workspace, d):
+                    warning(f"Writable path entry {d} matches nothing in workspace {workspace}.")
         if un_write_dirs is not None:
             if len(un_write_dirs) == 0:
                 self.description += "\n\nNote: No directories are restricted."
             else:
                 self.description += f"\n\nNote: Directories in {un_write_dirs} are not writable."
             for d in un_write_dirs:
-                if not os.path.exists(os.path.join(self.workspace, d)):
-                    warning(f"Unwritable directory {d} does not exist in workspace {workspace}.")
                 assert isinstance(d, str)
+                if not write_entry_matches_anything(self.workspace, d):
+                    warning(f"Unwritable path entry {d} matches nothing in workspace {workspace}.")
         info(f"{self.__class__.__name__} tool initialized with workspace: {self.workspace}")
 
     def get_real_path(self, rpath, *, allow_workspace: bool = False):

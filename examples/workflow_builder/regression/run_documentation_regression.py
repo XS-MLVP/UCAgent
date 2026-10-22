@@ -17,34 +17,34 @@ DOCS = REPO_ROOT / "docs" / "content" / "04_case" / "03_workflow_builder"
 
 REQUIRED = [
     "00_index.md",
-    "01_quickstart/00_快速启动总述.md",
-    "01_quickstart/01_run工作流启动.md",
-    "01_quickstart/02_评估工作流启动.md",
-    "01_quickstart/03_增量工作流启动.md",
-    "01_quickstart/04_工作流构建与评估控制台.md",
-    "03_develop/00_开发者文档总述.md",
-    "03_develop/01_工作流程简介.md",
-    "03_develop/02_tool简介.md",
-    "03_develop/03_checker简介.md",
-    "03_develop/04_指导文档简介.md",
-    "03_develop/05_评估与增量控制.md",
-    "03_develop/06_测试与回归.md",
-    "03_develop/07_工作流产物二次开发指南.md",
-    "02_usage/00_完整使用总述.md",
-    "02_usage/01_输入契约.md",
-    "02_usage/02_输出与工作区结构.md",
-    "02_usage/03_工作流构建完整使用.md",
-    "02_usage/04_评估与审批完整使用.md",
-    "02_usage/05_增量修复与版本管理.md",
-    "02_usage/06_提示词使用方法.md",
-    "02_usage/提示词.md",
-    "04_q_and_experience/00_QA与经验总述.md",
-    "04_q_and_experience/01_安装与环境问题.md",
-    "04_q_and_experience/02_运行与阶段失败.md",
-    "04_q_and_experience/03_评估审批与增量修复.md",
-    "04_q_and_experience/04_控制台与端口问题.md",
-    "04_q_and_experience/05_性能上下文与稳定性经验.md",
-    "04_q_and_experience/06_工作流设计质量经验.md",
+    "01_quickstart/00_overview.md",
+    "01_quickstart/01_build_workflow.md",
+    "01_quickstart/02_evaluate_workflow.md",
+    "01_quickstart/03_incremental_workflow.md",
+    "01_quickstart/04_console.md",
+    "03_develop/00_overview.md",
+    "03_develop/01_workflow.md",
+    "03_develop/02_tools.md",
+    "03_develop/03_checkers.md",
+    "03_develop/04_guide_docs.md",
+    "03_develop/05_evaluation_and_incremental_control.md",
+    "03_develop/06_testing.md",
+    "03_develop/07_generated_workflow_development.md",
+    "02_usage/00_overview.md",
+    "02_usage/01_input_contract.md",
+    "02_usage/02_outputs_and_workspace.md",
+    "02_usage/03_build_workflow.md",
+    "02_usage/04_evaluation_and_approval.md",
+    "02_usage/05_incremental_updates.md",
+    "02_usage/06_prompt_usage.md",
+    "02_usage/07_agent_prompts.md",
+    "04_q_and_experience/00_overview.md",
+    "04_q_and_experience/01_installation_and_environment.md",
+    "04_q_and_experience/02_runtime_and_stage_failures.md",
+    "04_q_and_experience/03_evaluation_and_incremental_updates.md",
+    "04_q_and_experience/04_console_and_ports.md",
+    "04_q_and_experience/05_performance_and_stability.md",
+    "04_q_and_experience/06_workflow_design_quality.md",
 ]
 
 LINK = re.compile(r"!?\[[^\]]*\]\(([^)]+)\)")
@@ -52,11 +52,11 @@ FENCED_CODE = re.compile(r"```[^\n]*\n.*?```", re.DOTALL)
 YAML_FRONT_MATTER = re.compile(r"\A---\s*\n.*?\n---\s*\n", re.DOTALL)
 
 DEVELOPER_REQUIREMENTS = {
-    "00_开发者文档总述.md": {
+    "00_overview.md": {
         "minimum_prose": 4482,
         "sources": ("tools/workflow_builder/core.py", "Makefile", "setup.py"),
     },
-    "01_工作流程简介.md": {
+    "01_workflow.md": {
         "minimum_prose": 5004,
         "sources": (
             "tools/workflow_builder/core.py",
@@ -65,7 +65,7 @@ DEVELOPER_REQUIREMENTS = {
             "tools/workflow_evaluation_control/incremental.py",
         ),
     },
-    "02_tool简介.md": {
+    "02_tools.md": {
         "minimum_prose": 5025,
         "sources": (
             "tools/workflow_tool_generator/core.py",
@@ -73,21 +73,21 @@ DEVELOPER_REQUIREMENTS = {
             "tools/workflow_tool_generator/uc_tools.py",
         ),
     },
-    "03_checker简介.md": {
+    "03_checkers.md": {
         "minimum_prose": 5166,
         "sources": (
             "tools/workflow_checker_generator/core.py",
             "tools/workflow_checker_generator/templates.py",
         ),
     },
-    "04_指导文档简介.md": {
+    "04_guide_docs.md": {
         "minimum_prose": 3732,
         "sources": (
             "tools/workflow_guidedoc_generator/contract.py",
             "tools/workflow_guidedoc_generator/core.py",
         ),
     },
-    "05_评估与增量控制.md": {
+    "05_evaluation_and_incremental_control.md": {
         "minimum_prose": 3717,
         "sources": (
             "tools/workflow_evaluation_control/json_store.py",
@@ -95,11 +95,11 @@ DEVELOPER_REQUIREMENTS = {
             "tools/workflow_evaluation_control/incremental.py",
         ),
     },
-    "06_测试与回归.md": {
+    "06_testing.md": {
         "minimum_prose": 3780,
         "sources": ("regression/Makefile", "run_delivery_contract_regression.py"),
     },
-    "07_工作流产物二次开发指南.md": {
+    "07_generated_workflow_development.md": {
         "minimum_prose": 6000,
         "sources": (
             "tools/workflow_builder/core.py",
@@ -236,7 +236,7 @@ def main() -> int:
     documents = sorted(DOCS.rglob("*.md"))
     for document in documents:
         content = document.read_text(encoding="utf-8")
-        if not markdown_body(content).startswith("# "):
+        if not markdown_body(content).lstrip().startswith("# "):
             failures.append(f"{document.relative_to(REPO_ROOT)}: missing H1")
         linkable_content = FENCED_CODE.sub("", content)
         for raw_target in LINK.findall(linkable_content):
@@ -291,7 +291,7 @@ def main() -> int:
 
     require_inventory(
         failures,
-        "03_develop/01_工作流程简介.md",
+        "03_develop/01_workflow.md",
         configured_stage_names("config.yaml"),
         "main-stage",
     )
@@ -308,7 +308,7 @@ def main() -> int:
     ]
     require_inventory(
         failures,
-        "03_develop/02_tool简介.md",
+        "03_develop/02_tools.md",
         ast_classes(tool_sources, base="UCTool"),
         "UCTool-class",
     )
@@ -332,7 +332,7 @@ def main() -> int:
     )
     require_inventory(
         failures,
-        "03_develop/03_checker简介.md",
+        "03_develop/03_checkers.md",
         checker_inventory | checker_aliases,
         "Checker-class-or-alias",
     )
@@ -343,7 +343,7 @@ def main() -> int:
     }
     require_inventory(
         failures,
-        "03_develop/04_指导文档简介.md",
+        "03_develop/04_guide_docs.md",
         guide_inventory,
         "Guide_Doc-file",
     )
@@ -357,7 +357,7 @@ def main() -> int:
     )
     require_inventory(
         failures,
-        "03_develop/05_评估与增量控制.md",
+        "03_develop/05_evaluation_and_incremental_control.md",
         evaluation_inventory,
         "evaluation-or-incremental-stage",
     )
@@ -367,14 +367,14 @@ def main() -> int:
     }
     require_inventory(
         failures,
-        "03_develop/06_测试与回归.md",
+        "03_develop/06_testing.md",
         regression_inventory,
         "regression-script",
     )
 
     require_inventory(
         failures,
-        "03_develop/07_工作流产物二次开发指南.md",
+        "03_develop/07_generated_workflow_development.md",
         {
             "config.yaml",
             "config/inc.yaml",

@@ -19,6 +19,25 @@ design_with_ppa:
     timing: 1.0
     area: 1.0
     power: 1.0
+  rtl:
+    # Only the Python-DUT conversion options below reach the repo module
+    # build; the language, source glob, and template stay pinned to the
+    # module's normalized unit sources.
+    python_dut:
+      options:
+        # Verilator argument tokens forwarded through the RTL validation
+        # dependency's simulator passthrough (-V) during the managed
+        # Python-DUT build.  The default uses verilator's statement-count
+        # splitter so each generated C++ file stays small and the build
+        # compiles the split files in parallel; an explicitly configured
+        # list replaces it wholesale.
+        verilator_args: ["--output-split", "2000"]
+        # Route the generated C++ compilation through ccache so unchanged
+        # translation units hit the compiler cache across managed rebuilds.
+        # Used automatically whenever the ccache command is installed; a
+        # warning recommends installing it when missing.  Set false to
+        # disable the cache entirely.
+        ccache_enabled: true
   ppa:
     liberty_file: null
     sdc_file: null

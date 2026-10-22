@@ -29,7 +29,13 @@ Web Master 不只是状态展示，而是完整的任务管理入口，核心能
 Master 保留本地 PDB 控制台，用于执行 Master API、任务、终端、状态和文件管理命令，但不会初始化、探测或调用 API/命令行模型后端。执行 `loop`、`chat`、`next_round` 等模型工作命令时，`BlankBackend` 会直接返回不支持，不会调用模型。
 
 ```bash
-# 推荐：持久化模式
+# 源码仓库：临时工作区
+make as_master
+
+# 推荐：持久化工作区
+make as_master_persist
+
+# 安装后的命令
 ucagent --as-master-persist --as-master
 ```
 
@@ -100,23 +106,37 @@ ucagent ./output Adder --master 127.0.0.1:8800
 2. 保留 Requirement 与 Config 的版本标签，便于回溯
 3. 启动前先看 Command Preview，确认 backend/master/export-cmd-api 参数
 
+### 4.3 并行任务上限与等待队列
+
+`master_api.max_task_count` 控制 Master 同时执行的最大任务数，默认 100：
+
+1. 达到上限后再启动的任务进入 waiting 状态，不占用执行额度
+2. 有任务结束释放额度后，等待任务按启动顺序自动启动
+3. 等待任务只在 Task 页的 Launch Queue 面板中列出（含任务 ID、DUT、创建与入队时间等信息），主任务列表不显示等待任务
+4. Launch Queue 面板支持拖拽或 ▲▼ 按钮调整等待任务的启动顺序，重新提交的任务排在队尾
+5. Master 页的 Waiting 统计与 TOTAL/ONLINE/OFFLINE 同级展示当前等待任务数
+6. Task 页摘要栏常驻显示当前最大并发数（`master_api.max_task_count`）
+7. 等待任务可在 Launch Queue 面板撤销（Cancel），撤销会删除任务记录及其工作区目录
+
 ---
 
 ## 5. Task（托管任务页）
 
 ### 5.1 页面能力
 
-1. 按状态、关键字、DUT 过滤
+1. 按状态、关键字、DUT 过滤（waiting 任务仅在 Launch Queue 面板显示，见 4.3）
 2. 分页查看任务
 3. 查看任务详情（命令、注册状态、PID）
 4. 查看 stdout/stderr 日志
 5. 停止任务与删除记录
+6. 在 Launch Queue 面板调整等待任务的启动顺序并撤销等待任务（见 4.3）
 
 ### 5.2 典型排障路径
 
 1. 任务卡在 starting：先看 command 与环境变量展开结果
 2. 任务 failed：优先看 stderr，再看 workspace 与 DUT 参数
 3. Agent 未注册：检查 --master 地址、key、网络连通性
+4. 任务一直 waiting：并行任务已达到 `master_api.max_task_count` 上限，详情页可见队列位置，等待自动启动或撤销任务
 
 ---
 
@@ -201,13 +221,3 @@ Master 支持统一代理转发到 task/agent 的 cmd、terminal、web-console �
 
 1. TUI：本地快速调试、命令细粒度操作
 2. Web：集中管理、多任务运维、远程协作
-
----
-
-## 11. 版本变更记录（建议维护）
-
-建议在本节按版本持续记录：
-
-1. Launch/Task/Agent 页面能力变化
-2. 阶段批量控制与复盘能力变化
-3. 代理与 WebSocket 兼容性变化

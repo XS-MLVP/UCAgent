@@ -23,7 +23,7 @@ sys.path.append(os.path.abspath(os.path.join(current_dir, "..")))
 
 from ucagent.tools.fileops import *
 from ucagent.tools import DeleteTextLines as ExportedDeleteTextLines
-from ucagent.tools.uctool import to_fastmcp
+from ucagent.tools.uctool import to_mcp_tool
 
 
 class TestFileOpsTools(unittest.TestCase):
@@ -86,6 +86,158 @@ class TestFileOpsTools(unittest.TestCase):
         self.assertFalse(is_file_writeable("out/../../outside.txt", write_dirs=["out"])[0])
         self.assertFalse(is_file_writeable("/tmp/out/file.txt", write_dirs=["out"])[0])
         self.assertFalse(is_file_writeable("out/file.txt", write_dirs=[])[0])
+
+    def test_is_file_writeable_supports_wildcard_entries(self):
+        # A single-segment wildcard stays inside one path component.
+        blocked, msg = is_file_writeable(
+            "DUT/top.v", un_write_dirs=["DUT/*.v"]
+        )
+        self.assertFalse(blocked)
+        self.assertIn("DUT/*.v", msg)
+        self.assertTrue(is_file_writeable("DUT/top.sv", un_write_dirs=["DUT/*.v"])[0])
+        self.assertTrue(is_file_writeable("DUT/sub/top.v", un_write_dirs=["DUT/*.v"])[0])
+        # Matched paths protect everything below them.
+        self.assertFalse(
+            is_file_writeable("DUT/build.v/state", un_write_dirs=["DUT/*.v"])[0]
+        )
+        # ?, [...], and ** keep their glob meanings.
+        self.assertFalse(is_file_writeable("DUT/top.v", un_write_dirs=["DUT/t?p.v"])[0])
+        self.assertFalse(
+            is_file_writeable("DUT/tap.v", un_write_dirs=["DUT/t[oa]p.v"])[0]
+        )
+        self.assertTrue(is_file_writeable("DUT/tbp.v", un_write_dirs=["DUT/t[oa]p.v"])[0])
+        self.assertFalse(
+            is_file_writeable("a/b/__pycache__/x.pyc", un_write_dirs=["**/__pycache__"])[0]
+        )
+        self.assertFalse(
+            is_file_writeable("__pycache__/x.pyc", un_write_dirs=["**/__pycache__"])[0]
+        )
+        # Wildcards also gate the write_dirs allowlist.
+        self.assertTrue(
+            is_file_writeable("out/report.md", write_dirs=["out/*.md"])[0]
+        )
+        self.assertFalse(
+            is_file_writeable("out/report.txt", write_dirs=["out/*.md"])[0]
+        )
+        # Literal entries never reinterpret glob metacharacters.
+        self.assertTrue(
+            is_file_writeable("data[1]/file", un_write_dirs=["other"])[0]
+        )
+        # Entries are glob patterns: brackets form a character class.
+        self.assertFalse(
+            is_file_writeable("data1/file", un_write_dirs=["data[12]"])[0]
+        )
+        self.assertTrue(
+            is_file_writeable("data[1]/file", un_write_dirs=["data[12]"])[0]
+        )
+
+    def test_write_entry_matches_anything_globs_wildcards(self):
+        dut_dir = os.path.join(self.test_dir, "DUT")
+        os.makedirs(dut_dir, exist_ok=True)
+        with open(os.path.join(dut_dir, "top.v"), "w", encoding="utf-8") as f:
+            f.write("module top();\n")
+        self.assertTrue(write_entry_matches_anything(self.test_dir, "DUT/*.v"))
+        self.assertFalse(write_entry_matches_anything(self.test_dir, "DUT/*.sv"))
+        self.assertTrue(write_entry_matches_anything(self.test_dir, "subdir"))
+        self.assertFalse(write_entry_matches_anything(self.test_dir, "missing_dir"))
+
+    def test_wildcard_entry_overlaps(self):
+        self.assertTrue(wildcard_entry_overlaps("DUT/*.v", "DUT"))
+        self.assertTrue(wildcard_entry_overlaps("DUT/**", "DUT/sub"))
+        self.assertTrue(wildcard_entry_overlaps("**/tmp", "a/b/tmp"))
+        self.assertFalse(wildcard_entry_overlaps("DUT/*.v", "OUT"))
+        self.assertFalse(wildcard_entry_overlaps("DUT/*.v", "DUT-other/x"))
+        self.assertFalse(wildcard_entry_overlaps("OUT/*.md", "DUT"))
+
+    def test_is_file_writeable_write_entry_carves_out_no_write_area(self):
+        # A write entry deeper than the no-write entry makes that area writable.
+        ok, msg = is_file_writeable(
+            "DUT/spec.md", un_write_dirs=["DUT"], write_dirs=["OUT", "DUT/*.md"]
+        )
+        self.assertTrue(ok)
+        self.assertIn("DUT/*.md", msg)
+        ok, _ = is_file_writeable(
+            "DUT/DUT.db/state.log",
+            un_write_dirs=["DUT"],
+            write_dirs=["OUT", "DUT/DUT.db"],
+        )
+        self.assertTrue(ok)
+        # Siblings outside the carve-out stay protected.
+        blocked, _ = is_file_writeable(
+            "DUT/top.v", un_write_dirs=["DUT"], write_dirs=["OUT", "DUT/*.md"]
+        )
+        self.assertFalse(blocked)
+        # A single-segment wildcard only carves its own depth.
+        blocked, _ = is_file_writeable(
+            "DUT/sub/spec.md", un_write_dirs=["DUT"], write_dirs=["OUT", "DUT/*.md"]
+        )
+        self.assertFalse(blocked)
+        # Equal depth keeps the no-write entry in charge (file self-protection).
+        blocked, _ = is_file_writeable(
+            "OUT/locked.py", un_write_dirs=["OUT/locked.py"], write_dirs=["OUT"]
+        )
+        self.assertFalse(blocked)
+        # A deeper no-write entry still beats a shallower write entry.
+        blocked, _ = is_file_writeable(
+            "OUT/inner/locked.py",
+            un_write_dirs=["OUT/inner/locked.py"],
+            write_dirs=["OUT"],
+        )
+        self.assertFalse(blocked)
+
+    def test_dynamic_directory_creation_in_carved_out_area(self):
+        """A write_dirs carve-out must allow creating its directory at runtime.
+
+        The no-write parent stays OS-writable when a write entry is declared
+        beneath it, so directories that only appear during the run can be
+        created and filled without errors.
+        """
+        from ucagent.util.functions import chmode_ro_by_pattern
+
+        os.makedirs(os.path.join(self.test_dir, "X"))
+        with open(os.path.join(self.test_dir, "X", "top.v"), "w", encoding="utf-8") as f:
+            f.write("module top();\n")
+        # Startup-time read-only pass happens before the carved directory exists.
+        chmode_ro_by_pattern(self.test_dir, ["X"], write_dirs=["out", "X/A"])
+        try:
+            self.assertTrue(
+                os.stat(os.path.join(self.test_dir, "X")).st_mode & 0o200,
+                "parent holding the carve-out must stay writable",
+            )
+            self.assertFalse(
+                os.stat(os.path.join(self.test_dir, "X", "top.v")).st_mode & 0o200,
+                "protected sibling must be read-only",
+            )
+
+            create = CreateDirectory(
+                self.test_dir, write_dirs=["out", "X/A"], un_write_dirs=["X"]
+            )
+            self.assertIn(
+                "created successfully", create._run(path="X/A")
+            )
+            edit = EditTextFile(
+                self.test_dir, write_dirs=["out", "X/A"], un_write_dirs=["X"]
+            )
+            self.assertIn(
+                "Created 'X/A/state.md'",
+                edit._run(path="X/A/state.md", content="hello\n"),
+            )
+            self.assertTrue(
+                os.path.isfile(os.path.join(self.test_dir, "X", "A", "state.md"))
+            )
+            rejected = edit._run(path="X/top.v", content="hack\n")
+            self.assertIn("not allowed to write", rejected)
+        finally:
+            os.chmod(os.path.join(self.test_dir, "X", "top.v"), 0o644)
+
+    def test_edit_text_file_rejects_wildcard_protected_path(self):
+        restricted_dir = os.path.join(self.test_dir, "restricted")
+        os.makedirs(restricted_dir, exist_ok=True)
+        with open(os.path.join(restricted_dir, "top.v"), "w", encoding="utf-8") as f:
+            f.write("line\n")
+        tool = EditTextFile(self.workspace, un_write_dirs=["restricted/*.v"])
+        result = tool._run(path="restricted/top.v", content="changed\n")
+        self.assertIn("not allowed to write", result)
 
     def test_search_text_basic(self):
         """Test basic text search functionality"""
@@ -1160,7 +1312,7 @@ class TestFileOpsTools(unittest.TestCase):
 
     def test_edit_text_file_converts_to_unambiguous_mcp_schema(self):
         tool = EditTextFile(workspace=self.workspace)
-        mcp_tool = to_fastmcp(tool)
+        mcp_tool = to_mcp_tool(tool)
 
         self.assertEqual(set(mcp_tool.parameters["required"]), {"path", "content"})
         self.assertFalse(mcp_tool.parameters.get("additionalProperties", True))
@@ -1172,7 +1324,7 @@ class TestFileOpsTools(unittest.TestCase):
 
     def test_delete_text_lines_converts_to_unambiguous_mcp_schema(self):
         tool = DeleteTextLines(workspace=self.workspace)
-        mcp_tool = to_fastmcp(tool)
+        mcp_tool = to_mcp_tool(tool)
 
         self.assertEqual(
             set(mcp_tool.parameters["required"]),
@@ -1196,7 +1348,7 @@ class TestFileOpsTools(unittest.TestCase):
 
     def test_replace_string_converts_line_blocks_to_mcp_schema(self):
         tool = ReplaceStringInFile(workspace=self.workspace)
-        mcp_tool = to_fastmcp(tool)
+        mcp_tool = to_mcp_tool(tool)
 
         self.assertEqual(
             set(mcp_tool.parameters["required"]),

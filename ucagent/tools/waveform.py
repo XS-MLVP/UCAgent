@@ -31,6 +31,10 @@ from pydantic import BaseModel, Field, model_validator
 import yaml
 
 from ucagent.util.functions import make_llm_tool_ret
+from ucagent.tools.fileops import (
+    deepest_matching_write_entry,
+    write_entry_has_wildcards,
+)
 from ucagent.util.bug_analysis_contract import (
     BUG_ANALYSIS_SECTION_MARKERS,
     BUG_ANALYSIS_SECTION_TITLES,
@@ -58,9 +62,17 @@ from ucagent.util.bug_analysis_contract import (
     waveform_record_tag,
     waveform_reference,
 )
-from ucagent.util.log import warning
+from ucagent.util.log import log_msg, warning
 from ucagent.util.markdown import ensure_markdown_file_heading_spacing
+from ucagent.util.waveform_formats import (
+    DEFAULT_WAVEFORM_ANALYSIS_FORMAT_PRIORITY,
+    open_waveform_reader,
+    register_waveform_reader,
+    registered_waveform_formats,
+    validate_waveform_analysis_format_priority,
+)
 from ucagent.util.waveform_viewer import (
+    WAVEFORM_VIEWER_EXTENSIONS,
     WaveformViewerProtocolError,
     build_waveform_viewer_markdown_link,
     build_waveform_viewer_url,
@@ -86,7 +98,7 @@ class WaveSignalPattern(BaseModel):
         ...,
         min_length=1,
         description=(
-            "wavekit signal query: exact dotted path, *, **, /{regex}/, or brace "
+            "Signal query: exact dotted path, *, **, /{regex}/, or brace "
             "alternatives/ranges"
         ),
     )
@@ -229,7 +241,7 @@ class WaveInfoAnalysisArgs(BaseModel):
     logged_cycle: int | None = Field(
         default=None,
         ge=0,
-        description="Cycle number printed by the failing test; it is not a wavekit timestamp.",
+        description="Cycle number printed by the failing test; it is not a waveform timestamp.",
     )
     cycle_tolerance: int = Field(
         default=5,
@@ -239,7 +251,7 @@ class WaveInfoAnalysisArgs(BaseModel):
     )
     clock_signal: str | None = Field(
         default=None,
-        description="Exact or wavekit query for the one-bit clock used to align logged_cycle.",
+        description="Signal query for the one-bit clock used to align logged_cycle.",
     )
     clock_edge: ClockEdge = Field(
         default="rising",
@@ -256,12 +268,12 @@ class WaveInfoAnalysisArgs(BaseModel):
     start_step: int | None = Field(
         default=None,
         ge=0,
-        description="Inclusive wavekit simulation timestamp for an explicit read window.",
+        description="Inclusive waveform simulation timestamp for an explicit read window.",
     )
     end_step: int | None = Field(
         default=None,
         ge=0,
-        description="Inclusive wavekit simulation timestamp for an explicit read window.",
+        description="Inclusive waveform simulation timestamp for an explicit read window.",
     )
     context_steps: int = Field(
         default=1,
@@ -362,7 +374,7 @@ class WaveInfoToolPattern(BaseModel):
         ...,
         min_length=1,
         description=(
-            "wavekit signal query: exact dotted path, *, **, /{regex}/, or brace "
+            "Signal query: exact dotted path, *, **, /{regex}/, or brace "
             "alternatives/ranges"
         ),
     )
@@ -422,7 +434,7 @@ class ArgWaveInfo(BaseModel):
         ge=-1,
         description=(
             "Cycle number printed by the failing test, or -1 when unavailable; it is "
-            "not a wavekit timestamp."
+            "not a waveform timestamp."
         ),
     )
     cycle_tolerance: int = Field(
@@ -434,7 +446,7 @@ class ArgWaveInfo(BaseModel):
     clock_signal: str = Field(
         default="",
         description=(
-            "Exact or wavekit query for the one-bit clock used to align logged_cycle; "
+            "Signal query for the one-bit clock used to align logged_cycle; "
             "leave empty when cycle alignment is not requested."
         ),
     )
@@ -454,14 +466,14 @@ class ArgWaveInfo(BaseModel):
         default=-1,
         ge=-1,
         description=(
-            "Inclusive wavekit simulation timestamp for an explicit read window, or -1."
+            "Inclusive waveform simulation timestamp for an explicit read window, or -1."
         ),
     )
     end_step: int = Field(
         default=-1,
         ge=-1,
         description=(
-            "Inclusive wavekit simulation timestamp for an explicit read window, or -1."
+            "Inclusive waveform simulation timestamp for an explicit read window, or -1."
         ),
     )
     context_steps: int = Field(
@@ -824,14 +836,6 @@ class _SignalTrace:
         return self.states[index] if index >= 0 else None
 
 
-def _import_wavekit():
-    """Import lazily so a missing optional runtime does not break UCAgent startup."""
-
-    import wavekit  # type: ignore[import-not-found]
-
-    return wavekit
-
-
 class WaveInfo(UCTool):
     """Locate the newest test waveform and return structured event evidence."""
 
@@ -843,9 +847,9 @@ class WaveInfo(UCTool):
         "For Bug evidence, test_case_name must be the complete target TC pytest node ID "
         "with only the leading TC- removed. Inventory basenames locate waveform files but "
         "do not define or shorten the source-test identity. "
-        "The tool searches only the newest toffee_tmp_* session, prefers FST, "
-        "and never substitutes another test or a stale session. Signal queries use "
-        "wavekit syntax and must be supplied as structured pattern entries. "
+        "The tool searches only the newest test session and automatically selects the "
+        "waveform for that exact test. It never substitutes another test or a stale "
+        "session. Signal queries must be supplied as structured pattern entries. "
         "A pattern-only call is exploratory: final Bug evidence must use either a "
         "complete start_step/end_step window or logged_cycle with an exact clock_signal. "
         "Final Bug evidence also requires signal_groups with the DUT clock mode, relevant "
@@ -853,7 +857,7 @@ class WaveInfo(UCTool):
         "signals. These context signals are shown in the timeline and online viewer without "
         "becoming event triggers. A target result signal alone is not complete evidence. "
         "logged_cycle is only a test-log hint: provide clock_signal so the tool can "
-        "map clock occurrence indices to wavekit simulation timestamps. Always "
+        "map clock occurrence indices to waveform simulation timestamps. Always "
         "confirm a candidate with the interface specification, test-driver/API Step "
         "ordering, logged inputs, ready/valid or the DUT's equivalent acceptance and "
         "response conditions, backpressure/latency, state, transaction IDs, and relevant "
@@ -870,6 +874,10 @@ class WaveInfo(UCTool):
     workspace: str = Field(default=".", description="UCAgent workspace root.")
     test_dir: str = Field(default=".", description="Rendered UnityChip pytest directory.")
     dut_name: str = Field(default="", description="DUT name used in rerun suggestions.")
+    format_priority: list[str] = Field(
+        default_factory=lambda: list(DEFAULT_WAVEFORM_ANALYSIS_FORMAT_PRIORITY),
+        description="Waveform extensions in selection order; omitted formats are disabled.",
+    )
     analysis_receipts: list[dict[str, Any]] = Field(
         default_factory=list,
         exclude=True,
@@ -905,6 +913,17 @@ class WaveInfo(UCTool):
         dut_name: str = "",
         **kwargs,
     ):
+        """Configure discovery, validate registered formats, and restore signed receipts."""
+        priority = validate_waveform_analysis_format_priority(
+            kwargs.get("format_priority", DEFAULT_WAVEFORM_ANALYSIS_FORMAT_PRIORITY)
+        )
+        unknown = set(priority) - set(registered_waveform_formats())
+        if unknown:
+            raise ValueError(
+                f"No waveform reader registered for: {', '.join(sorted(unknown))}. "
+                "Register readers before constructing WaveInfo or correct waveform_analysis_format_priority."
+            )
+        kwargs["format_priority"] = priority
         super().__init__(**kwargs)
         self.workspace = os.path.abspath(workspace)
         self.test_dir = (
@@ -916,7 +935,8 @@ class WaveInfo(UCTool):
             self.test_dir, self.workspace
         ).replace(os.sep, "/")
         self.description = (
-            f"{self.description} Configured TC output directory for this run: "
+            f"{self.description} "
+            f"Configured TC output directory for this run: "
             f"'{configured_test_dir}'. Exact source node IDs must start with "
             f"'{configured_test_dir}/'."
         )
@@ -1145,8 +1165,9 @@ class WaveInfo(UCTool):
 
     @staticmethod
     def _normalize_test_case_name(test_case_name: str) -> str:
+        """Extract the exact test basename, accepting a registered waveform extension."""
         normalized = test_case_name.strip().split("::")[-1]
-        for suffix in (".fst", ".vcd", ".dat"):
+        for suffix in [f".{name}" for name in registered_waveform_formats()] + [".dat"]:
             if normalized.lower().endswith(suffix):
                 normalized = normalized[: -len(suffix)]
                 break
@@ -1173,11 +1194,13 @@ class WaveInfo(UCTool):
         parsed += int(fraction) / (10 ** len(fraction))
         return (parsed, path.stat().st_mtime, str(path))
 
-    @staticmethod
-    def _wave_name_match(path: Path, basename: str) -> tuple[bool, int]:
+    def _wave_name_match(self, path: Path, basename: str) -> tuple[bool, int]:
+        """Match an enabled extension and an optional numeric dump suffix."""
+        if path.suffix.lower().lstrip(".") not in self.format_priority:
+            return False, 0
         match = re.fullmatch(
-            rf"{re.escape(basename)}(?P<suffix>\d*)\.(?:fst|vcd)",
-            path.name,
+            rf"{re.escape(basename)}(?P<suffix>\d*)",
+            path.stem,
             flags=re.IGNORECASE,
         )
         if match is None:
@@ -1300,7 +1323,7 @@ class WaveInfo(UCTool):
             (
                 path
                 for path in latest.rglob("*")
-                if path.is_file() and path.suffix.lower() in {".fst", ".vcd"}
+                if path.is_file() and path.suffix.lower().lstrip(".") in self.format_priority
             ),
             key=lambda path: (path.stat().st_mtime_ns, str(path)),
             reverse=True,
@@ -1380,6 +1403,7 @@ class WaveInfo(UCTool):
                     "waveform_inventory" if waveform_paths else "waveform_inventory_empty",
                 ),
                 ("inventory_scope", "newest_session_only"),
+                ("format_priority", list(self.format_priority)),
                 ("test_directory", self._display_path(test_dir)),
                 ("data_directory", self._display_path(data_dir)),
                 ("latest_session", self._display_path(latest)),
@@ -1491,7 +1515,7 @@ class WaveInfo(UCTool):
             {
                 path.stem
                 for path in latest.rglob("*")
-                if path.is_file() and path.suffix.lower() in {".fst", ".vcd"}
+                if path.is_file() and path.suffix.lower().lstrip(".") in self.format_priority
             }
         )
         dat_matches = sorted(
@@ -1544,6 +1568,7 @@ class WaveInfo(UCTool):
                 details={
                     "searched_latest_session": self._display_path(latest),
                     "expected_basename": normalized,
+                    "format_priority": list(self.format_priority),
                     "available_latest_session_test_names": available_names[:50],
                     "available_names_truncated": len(available_names) > 50,
                     "close_name_matches": close_names,
@@ -1567,9 +1592,9 @@ class WaveInfo(UCTool):
 
         latest_matches.sort(
             key=lambda item: (
-                1 if item[0].suffix.lower() == ".fst" else 0,
+                -self.format_priority.index(item[0].suffix.lower().lstrip(".")),
                 item[1],
-                item[0].stat().st_mtime,
+                item[0].stat().st_mtime_ns,
                 str(item[0]),
             ),
             reverse=True,
@@ -1600,6 +1625,7 @@ class WaveInfo(UCTool):
             [
                 ("requested_test_case", selection.test_case_name),
                 ("normalized_test_case", selection.expected_basename),
+                ("format_priority", list(self.format_priority)),
                 ("latest_session", self._display_path(selection.session)),
                 ("session_started_at", self._session_started_at(selection.session)),
                 ("latest_session_modified_at", self._format_time(session_stat.st_mtime)),
@@ -1619,7 +1645,7 @@ class WaveInfo(UCTool):
                 ("is_latest_session", True),
                 (
                     "selection_rule",
-                    "latest session, FST preference, highest numeric suffix, newest mtime",
+                    "newest test session, exact test name, automatic waveform selection",
                 ),
             ]
         )
@@ -2104,6 +2130,9 @@ class WaveInfo(UCTool):
         signal_groups = result.get("signal_groups")
         viewer = result.get("waveform_viewer")
         if not isinstance(signal_groups, dict) or not isinstance(viewer, dict):
+            if isinstance(signal_groups, dict) and result.get("waveform_viewer_error"):
+                result["bug_document_viewer_required"] = result["waveform_viewer_suggestion"]
+                return
             result["bug_document_signal_groups_required"] = (
                 "Call final WaveInfo again with signal_groups containing the DUT clock mode, "
                 "relevant inputs, relevant outputs, protocol controls, and function-specific "
@@ -2200,6 +2229,17 @@ class WaveInfo(UCTool):
         """Attach a canonical viewer payload only to reproducible final evidence."""
 
         if result.get("evidence_usable") is not True:
+            return
+        selected_format = (result.get("waveform_selection") or {}).get("format")
+        if selected_format and f".{selected_format}" not in WAVEFORM_VIEWER_EXTENSIONS:
+            result["waveform_viewer_error"] = (
+                "The selected waveform cannot be displayed in the online viewer."
+            )
+            result["waveform_viewer_suggestion"] = (
+                "Report this test and waveform path to the operator to restore online viewing. "
+                "After the repair, rerun WaveInfo before applying final Bug evidence; "
+                "do not fabricate a viewer link."
+            )
             return
         signal_groups = result.get("signal_groups")
         if not isinstance(signal_groups, dict):
@@ -2301,7 +2341,8 @@ class WaveInfo(UCTool):
         loader = getattr(reader, "_load_value_changes", None)
         if loader is None:
             raise RuntimeError(
-                "wavekit reader does not provide raw value-change loading; install wavekit 0.7.x"
+                "The waveform reader must implement _load_value_changes; "
+                "built-in formats require wavekit>=0.7.0,<0.8.0."
             )
         # Include a state before the requested window so transitions at its first
         # timestamp can be evaluated. wavekit retains the latest earlier state.
@@ -2481,7 +2522,7 @@ class WaveInfo(UCTool):
         if last_step < first_step:
             return self._error(
                 "invalid_waveform_time_range",
-                "wavekit reported an invalid waveform time range.",
+                "The waveform has an invalid simulation time range.",
                 details={"first_wave_step": first_step, "last_wave_step": last_step},
             )
 
@@ -2530,7 +2571,7 @@ class WaveInfo(UCTool):
                                 ("candidate_clock_signals", self._clock_candidates(all_signals)),
                                 (
                                     "reason",
-                                    "logged_cycle cannot be compared directly with a wavekit timestamp",
+                                    "logged_cycle cannot be compared directly with a waveform timestamp",
                                 ),
                             ]
                         ),
@@ -2553,13 +2594,15 @@ class WaveInfo(UCTool):
             try:
                 clock_matches = list(reader.get_matched_signals(clock_signal).values())
             except Exception as error:
+                log_msg(f"WaveInfo clock query failed for {clock_signal!r}: {error}")
                 return self._error(
                     "invalid_clock_query",
-                    f"wavekit rejected clock_signal: {error}",
+                    "clock_signal is not a valid signal query.",
                     details={
                         "clock_signal": clock_signal,
                         "candidate_clock_signals": self._clock_candidates(all_signals),
                     },
+                    suggestions=["Use an exact one-bit signal path from candidate_clock_signals."],
                 )
             if len(clock_matches) != 1:
                 return self._error(
@@ -2688,10 +2731,15 @@ class WaveInfo(UCTool):
                     key=lambda signal: signal.full_name,
                 )
             except Exception as error:
+                log_msg(f"WaveInfo signal query failed for {item.signal!r}: {error}")
                 return self._error(
                     "invalid_signal_query",
-                    f"wavekit rejected signal pattern '{item.signal}': {error}",
+                    f"Signal pattern '{item.signal}' is not a valid signal query.",
                     details={"pattern": item.model_dump()},
+                    suggestions=[
+                        "Call WaveInfo with pattern omitted to inspect the signal catalog, "
+                        "then use an exact signal path or the documented query syntax."
+                    ],
                 )
             if not matches:
                 close_names = get_close_matches(
@@ -2709,7 +2757,7 @@ class WaveInfo(UCTool):
                         "top_scopes": top_scopes,
                     },
                     suggestions=[
-                        "Call WaveInfo with pattern omitted to inspect the signal catalog, then use a more precise wavekit query."
+                        "Call WaveInfo with pattern omitted to inspect the signal catalog, then use a more precise signal query."
                     ],
                 )
             pattern_matches.append((item, matches))
@@ -2731,11 +2779,12 @@ class WaveInfo(UCTool):
                             key=lambda signal: signal.full_name,
                         )
                     except Exception as error:
+                        log_msg(f"WaveInfo signal_groups.{field_name} query failed for {requested_name!r}: {error}")
                         return self._error(
                             "invalid_signal_group_path",
-                            f"wavekit rejected signal_groups.{field_name} path "
-                            f"'{requested_name}': {error}",
+                            f"signal_groups.{field_name} contains an invalid signal path.",
                             details={"signal_group": field_name, "signal": requested_name},
+                            suggestions=["Use exact signal paths from the WaveInfo signal catalog."],
                         )
                     if len(matches) != 1 or matches[0].full_name != requested_name:
                         return self._error(
@@ -3243,24 +3292,7 @@ class WaveInfo(UCTool):
             )
 
         try:
-            wavekit = _import_wavekit()
-        except (ImportError, ModuleNotFoundError) as error:
-            return self._error(
-                "wavekit_unavailable",
-                f"The wavekit dependency is unavailable: {error}",
-                details={"waveform_selection": self._selection_info(selection)},
-                suggestions=[
-                    "Install UCAgent project dependencies, including wavekit>=0.7.0,<0.8.0."
-                ],
-            )
-
-        reader_class = (
-            wavekit.FstReader
-            if selection.waveform.suffix.lower() == ".fst"
-            else wavekit.VcdReader
-        )
-        try:
-            with reader_class(str(selection.waveform)) as reader:
+            with open_waveform_reader(selection.waveform) as reader:
                 result = self._analyze(
                     reader,
                     selection,
@@ -3277,16 +3309,30 @@ class WaveInfo(UCTool):
                     args.max_signals,
                     args.max_points,
                 )
-        except Exception as error:
-            result = self._error(
-                "waveform_parse_error",
-                f"wavekit could not analyze the selected waveform: {type(error).__name__}: {error}",
+        except ImportError as error:
+            log_msg(f"WaveInfo dependency failure for {selection.waveform}: {type(error).__name__}: {error}")
+            return self._error(
+                "waveform_reader_unavailable",
+                "Waveform analysis is unavailable in the current environment.",
                 details={"waveform_selection": self._selection_info(selection)},
                 suggestions=[
-                    self._run_test_suggestion(selection.expected_basename),
-                    "Check whether the simulator terminated early, the waveform is corrupt, or dut.Finish() failed to flush it.",
-                    "If the failure persists after rerunning, inspect simulator/waveform-generation logs.",
+                    "Report this test and waveform path to the operator to repair the "
+                    "analysis environment, then retry WaveInfo. Do not fabricate evidence."
                 ],
+            )
+        except Exception as error:
+            log_msg(f"WaveInfo analysis failure for {selection.waveform}: {type(error).__name__}: {error}")
+            suggestions = [
+                self._run_test_suggestion(selection.expected_basename),
+                "Check whether the test terminated before dut.Finish() completed.",
+                "If WaveInfo still fails after rerunning the test, report this test and "
+                "waveform path to the operator. Do not use another test's waveform or fabricate evidence.",
+            ]
+            result = self._error(
+                "waveform_parse_error",
+                "The selected waveform could not be analyzed.",
+                details={"waveform_selection": self._selection_info(selection)},
+                suggestions=suggestions,
             )
         self._attach_waveform_viewer(result)
         return result
@@ -3437,6 +3483,39 @@ class ApplyWaveInfoEvidence(UCTool):
             path = Path(self.workspace) / path
         return path.resolve(strict=False)
 
+    def _pattern_entry(self, value: str, root: Path) -> str | None:
+        """Return a workspace-relative entry string for lexical wildcard matching."""
+        candidate = Path(value)
+        if candidate.is_absolute():
+            try:
+                candidate = candidate.resolve(strict=False).relative_to(root)
+            except ValueError:
+                return None
+        return candidate.as_posix()
+
+    def _relative_entries(self, values, root: Path) -> list[str] | None:
+        """Convert configured entries to workspace-relative match strings.
+
+        Literal entries are resolved first so symlinked directories keep their
+        resolved-containment semantics; wildcard entries stay lexical.
+        """
+        if values is None:
+            return None
+        entries = []
+        for value in values:
+            if write_entry_has_wildcards(value):
+                entry = self._pattern_entry(value, root)
+            else:
+                try:
+                    entry = self._configured_directory(value).relative_to(
+                        root
+                    ).as_posix()
+                except ValueError:
+                    entry = None
+            if entry is not None:
+                entries.append(entry)
+        return entries
+
     def _resolve_target(self, target_file: str) -> tuple[Path | None, str | None]:
         root = Path(self.workspace).resolve()
         requested = Path(target_file)
@@ -3458,20 +3537,29 @@ class ApplyWaveInfoEvidence(UCTool):
         if target.suffix.lower() != ".md":
             return None, "target_file must be a Markdown (.md) document"
 
-        blocked_roots = [
-            self._configured_directory(value) for value in self.un_write_dirs or []
-        ]
-        if any(self._is_within(target, directory) for directory in blocked_roots):
-            return None, f"target_file '{target_file}' is in a configured no-write directory"
-        if self.write_dirs is not None:
-            allowed_roots = [
-                self._configured_directory(value) for value in self.write_dirs
-            ]
-            if not any(self._is_within(target, directory) for directory in allowed_roots):
-                return None, (
-                    f"target_file '{target_file}' is outside the configured write directories: "
-                    f"{self.write_dirs}"
-                )
+        target_relative = target.relative_to(root).as_posix()
+        un_write_entries = self._relative_entries(self.un_write_dirs, root) or []
+        write_entries = self._relative_entries(self.write_dirs, root)
+        write_depth, write_entry = deepest_matching_write_entry(
+            target_relative, write_entries or []
+        )
+        un_write_depth, un_write_entry = deepest_matching_write_entry(
+            target_relative, un_write_entries
+        )
+        # Same precedence as the file tools: the deepest matching entry wins,
+        # and a no-write entry wins an equal-depth conflict.
+        if un_write_entry is not None and write_depth <= un_write_depth:
+            return None, (
+                f"target_file '{target_file}' matches the no-write entry "
+                f"'{un_write_entry}'"
+            )
+        if write_entry is None:
+            if self.write_dirs is None:
+                return target, None
+            return None, (
+                f"target_file '{target_file}' is outside the configured write directories: "
+                f"{self.write_dirs}"
+            )
         return target, None
 
     @staticmethod

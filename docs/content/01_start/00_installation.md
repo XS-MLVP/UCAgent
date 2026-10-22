@@ -1,3 +1,4 @@
+
 # 前置依赖安装
 
 > 注：本文所有示例输出目录统一以 `output` 为例，用户可自行修改自定义工作目录。
@@ -6,11 +7,11 @@
 
 - 开源仓库代码 Python 版本：3.11+
 - 操作系统：Linux / macOS
-- API 需求：可访问 OpenAI 兼容 API
+- API 需求：选择 LangChain 或命令行后端时，都需要一个可访问的模型服务；具体环境变量见[直接使用](../02_usage/01_direct.md)
 - 内存：建议 4GB+
 - 依赖：
-  - [picker](https://github.com/XS-MLVP/picker)（将 Verilog DUT 导出为 Python 包）
-  - Code Agent：[Codex CLI](https://github.com/openai/codex)（使用 UCAgent 提供的工作流和工具）
+  - [picker](https://github.com/XS-MLVP/picker)（RTL 验证需要，用于导出 Python DUT 包；安装和仿真器依赖见其项目文档）
+  - 外部 Code Agent（仅 MCP/命令行后端需要），例如 [opencode](https://opencode.ai/)
 
 ## 1.2 安装 UCAgent 主体
 
@@ -19,7 +20,10 @@
 ```bash
 git clone https://github.com/XS-MLVP/UCAgent.git
 cd UCAgent
-pip3 install .
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install .
 ```
 
 完整克隆源码仓库，本地保留 Makefile，后续可使用 `make` 系列快捷指令。
@@ -27,54 +31,45 @@ pip3 install .
 **方式二：pip 直接安装**
 
 ```bash
-pip3 install git+https://git@github.com/XS-MLVP/UCAgent@main
+python3 -m venv ~/.venvs/ucagent
+source ~/.venvs/ucagent/bin/activate
+python -m pip install --upgrade pip
+python -m pip install git+https://github.com/XS-MLVP/UCAgent@main
 ```
 
 仅安装 UCAgent 程序包，本地不保留源码，无 Makefile，无法使用 `make` 指令，需直接使用 `ucagent` 原生命令行参数启动。
 
 ## 安装测试
 
-安装完成后可通过 `ucagent --help` 查看全部命令行参数：
+安装后先检查当前环境：
+
+```bash
+python --version
+ucagent --help
+```
+
+每次打开新终端，都需要重新激活安装时使用的虚拟环境。`ucagent --help` 成功只说明 CLI 可用；进行 RTL 验证前，还需按 picker 文档安装仿真器、CMake 和编译工具，并检查：
+
+```bash
+picker --check
+verilator --version
+cmake --version
+```
+
+这里使用 picker 默认的 Verilator 后端。纯文档类的 [Mini 示例](../03_develop/08_mini_example.md) 不需要 picker。
+
+`ucagent --help` 的界面示例：
 
 ![ucagent --help](image1.png)
 
-## 参数解释
+各参数的分组说明、默认值与完整示例见[参数说明](../02_usage/03_option.md)。
 
-- `workspace TEXT ... REQUIRED`：必须。位置参数，验证工作目录，picker 导出产物目录。
-- `dut TEXT ... REQUIRED`：必须。位置参数，待验证 RTL 顶层模块名称。
-- `-h, --help`：可选。打印此帮助信息并退出。
-- `--config TEXT`：可选。指定配置文件路径。
-- `--output TEXT`：可选。验证结果输出目录。
-- `-s, --stream-output`：可选。控制台实时流式输出模型返回内容。
-- `-hm, --human`：可选。开启人工介入模式，运行过程支持手动干预。
-- `--tui`：可选。启用文本交互式可视化终端面板。
-- `-im, --interaction-mode TEXT:{standard,enhanced,advanced}`：可选。设置交互策略，standard 为默认，enhanced 开启规划记忆，advanced 使用自适应策略。
-- `--mcp-server`：可选。启动 MCP 服务端，对外暴露验证工具集。
-- `--mcp-server-no-file-tools`：可选。MCP 服务禁用文件读写工具，做权限隔离。
-- `--no-embed-tools`：可选。关闭 Agent 内置本地工具，MCP 协同架构使用。
-- `--as-master [[host[:port]]]`：可选。启动 Master 总控服务，用于多 Agent 管理。
-- `--master host[:port]`：可选。将当前 Agent 作为子节点连接远端 Master 服务。
-- `--force-stage-index INT`：可选。强制从指定阶段序号开始运行，重置后续保存进度。
-- `--skip INT`：可选。跳过指定序号验证阶段，可多次使用。
-- `-eoc, --exit-on-completion`：可选。全部验证任务完成后自动退出进程。
-- `--version`：可选。打印程序版本信息并退出。
+## 1.3 安装 Code Agent（可选）
 
-## 示例完整启动命令
+普通模式的默认 `langchain` 后端不需要外部 Code Agent。选择 `opencode`、`codex`、`claude` 等命令行后端，或手动接入 MCP 时，才需要安装对应客户端。本章后续示例以 opencode 为例；建议固定已验证版本：
 
 ```bash
-ucagent output/ Adder -s -hm --tui --mcp-server-no-file-tools --no-embed-tools
+curl -fsSL https://opencode.ai/install | bash -s -- --version 1.19.3
 ```
 
-> 说明：以上所有命令行参数运行时会覆盖 `config.yaml` 配置文件中的同名字段，命令行参数优先级高于配置文件。
-
-## 1.3 安装 Codex 命令行工具
-
-本文以 Codex CLI 为例，UCAgent 同时支持 qwen、claude code、opencode 等多种 Code Agent，配置方式类似。
-
-执行 npm 全局安装命令（需要本地有 [nodejs](https://nodejs.org/zh-cn/download/) 环境）：
-
-```bash
-sudo npm install -g @openai/codex
-```
-
-> 其他安装方式请参考：[Codex 安装](https://developers.openai.com/codex/cli)
+UCAgent 当前内置的命令行后端包括 `claude`、`opencode`、`copilot`、`qwen`、`iflow`、`kilo` 和 `codex`。安装客户端后，通过 `--backend=<name>` 选择；客户端的登录、模型和版本要求以其官方文档为准。

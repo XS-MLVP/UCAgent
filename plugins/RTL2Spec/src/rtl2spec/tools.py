@@ -17,7 +17,11 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from ucagent.plugins import PluginContext
-from ucagent.tools.fileops import is_file_writeable
+from ucagent.tools.fileops import (
+    is_file_writeable,
+    wildcard_entry_overlaps,
+    write_entry_has_wildcards,
+)
 from ucagent.tools.uctool import UCTool
 
 from .documents import artifact_paths

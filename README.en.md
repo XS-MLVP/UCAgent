@@ -59,7 +59,7 @@ For other Code Agents, please refer to their documentation, e.g., [claude code](
 ```bash
 export OPENAI_MODEL=<model_name>              # e.g., glm-5.3-flash
 export OPENAI_API_KEY=<your_key>              # API key
-export OPENAI_API_BASE=<base_url>             # e.g., Zhipu's https://open.bigmodel.cn/api/coding/paas/v4
+export OPENAI_API_BASE=<base_url>             # e.g., http://my_base_url/v1
 export OPENAI_CONTEXT_SIZE=<max_context_size> # optional, e.g., 819200 (800k context)
 export OPENAI_OUTPUT_SIZE=<max_output_size>   # optional, e.g., 131072 (128k max output)
 ```
@@ -140,6 +140,30 @@ docker run -it --rm \
   -e OPENAI_MODEL=<your_openai_model> \
   -p 8800:8800 \
   ghcr.io/xs-mlvp/ucagent:latest ucagent --as-master-persist --as-master
+```
+
+Alternatively, use Docker's `--env-file` to provide the environment variables from a single file instead of multiple `-e` flags:
+
+```bash
+docker run -it --rm \
+  --env-file ~/.ucagent_docker_env \
+  -p 8800:8800 \
+  ghcr.io/xs-mlvp/ucagent:latest ucagent --as-master-persist --as-master
+```
+
+An example `~/.ucagent_docker_env` is shown below. Unlike `~/.ucagent_env`, do not use `export` here, and `#` comments must be on their own line (an inline `#` becomes part of the value):
+
+```bash
+# Model name, e.g., glm-5.3-flash
+OPENAI_MODEL=<model_name>
+# API key
+OPENAI_API_KEY=<your_key>
+# API base URL, e.g., http://my_base_url/v1
+OPENAI_API_BASE=<base_url>
+# Optional: context window size (tokens), e.g., 819200 (800k context)
+OPENAI_CONTEXT_SIZE=<max_context_size>
+# Optional: max output size per response (tokens), e.g., 131072 (128k max output)
+OPENAI_OUTPUT_SIZE=<max_output_size>
 ```
 
 If ghcr.io is not accessible, you can directly replace it with mirror addresses such as `ghcr.nju.edu.cn`.

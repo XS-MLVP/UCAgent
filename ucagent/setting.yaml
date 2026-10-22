@@ -5,6 +5,10 @@ template_overwrite:
 # default basic settings for UCAgent
 lang: "zh"
 
+runtime_options:
+  # Ordered enabled formats. Register a reader before adding another extension.
+  waveform_analysis_format_priority: [fst, vcd, fsdb]
+
 # init commands to run at the start of the agent
 init_cmds: []
 
@@ -104,10 +108,56 @@ mcp_server:
 cmd_api:
   host: 127.0.0.1
   port: 8765
+  xpra:
+    executable: xpra
+    max_sessions: 5
+    terminal_command: [xterm, -e]
+    html_dir: null
+    startup_timeout: 20
+    shutdown_timeout: 5
+    # Form shortcuts only; the commands must be installed on the CMD host.
+    # Lists are replaced by user config. Set presets: [] to hide all shortcuts.
+    presets:
+      - label: Terminal
+        name: Terminal
+        mode: console
+        command: bash -l
+        cwd: .
+        env: {}
+        idle_timeout: -1
+      - label: Browser
+        name: Browser
+        mode: gui
+        command: chromium --no-first-run --no-default-browser-check about:blank
+        cwd: .
+        env: {}
+        idle_timeout: -1
+      - label: Codex
+        name: Codex
+        mode: console
+        command: codex
+        cwd: .
+        env: {}
+        idle_timeout: -1
+      - label: OpenCode
+        name: OpenCode
+        mode: console
+        command: opencode
+        cwd: .
+        env: {}
+        idle_timeout: -1
+      - label: Qwen Code
+        name: Qwen Code
+        mode: console
+        command: qwen
+        cwd: .
+        env: {}
+        idle_timeout: -1
 
 master_api:
   host: 0.0.0.0
   port: 8800
+  max_task_count: 100        # max tasks executing in parallel; extra launches wait in queue and start in submission order
   sync_workspace:
     on_stage_complete: true  # client uploads workspace back to master after each completed stage when supported
     on_exit: true            # client uploads zipped workspace back to master on exit when supported
@@ -134,13 +184,14 @@ launch:
     stream_output: true               # -s flag
     human: true                       # -hm flag
     tui: true                         # --tui flag
-    backend: "langchain"              # --backend flag, options: langchain, claude, opencode, copilot, qwen, iflow, kilo, codex
+    backend: "opencode"               # --backend flag, options: langchain, claude, opencode, copilot, qwen, iflow, kilo, codex
     mcp_server_no_file_tools: false
     force_stage_index: 0              # stage index to start
     exit_on_completion: true          # --exit-on-completion flag
     web_console: "0.0.0.0:-1"         # --web-console flag
     loop: true                        # -l flag
     use_skill: true
+    mcp_server_port: -1               # --mcp-server-port flag; -1 auto-selects a free port per task
     extra_skill_path: ""
     use_zip_workspace: true           # if true, launch task with a master-hosted workspace .tar.gz URL
     picker_args: []                   # additional picker export arguments used by Compile DUT
@@ -184,11 +235,9 @@ launch:
     - "OPENAI_MODEL"
     - "OPENAI_API_KEY"
     - "OPENAI_API_BASE"
-    - "OPENAI_CONTEXT_SIZE"
-    - "OPENAI_OUTPUT_SIZE"
     - "ENABLE_LLM_SUGGESTION": false
-    - "NEED_REF_MODEL": false
-    - "IGNORE_MOCK_COMPONENT": true
+    - "NEED_REF_MODEL": true
+    - "IGNORE_MOCK_COMPONENT": false
     - "ENABLE_LLM_FAIL_SUGGESTION": "$ENABLE_LLM_SUGGESTION"
     - "FAIL_SUGGESTION_MODEL": "$OPENAI_MODEL"
     - "FAIL_SUGGESTION_API_BASE": "$OPENAI_API_BASE"
@@ -210,7 +259,6 @@ launch:
     - "ANTHROPIC_DEFAULT_HAIKU_MODEL": "$ANTHROPIC_SML_MODEL"
     - "CLAUDE_CODE_SUBAGENT_MODEL": "$ANTHROPIC_SML_MODEL"
     - "CLAUDE_CODE_EFFORT_LEVEL": "max"
-    - "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "$OPENAI_CONTEXT_SIZE"
 
 # Model support: openai, anthropic, google_genai
 model_type: $(UC_MODEL_TYPE: openai)
@@ -261,7 +309,6 @@ skill:
 
 # This is the setting for conversation summary
 # Automatic compression starts when either enabled limit is exceeded.
-# Reference doc: https://langchain-ai.lang.chat/langmem/reference/short_term/#langmem.short_term.SummarizationNode
 conversation_summary:
   context_management_strategy: TrimAndSummaryMiddleware    # default use TrimAndSummaryMiddleware strategy to manage conversation history
   max_tokens: $(SUMMARY_MAX_CTX_TOKEN: 204800)    # estimated input-token trigger; 0 disables this trigger
@@ -283,6 +330,11 @@ un_write_dirs:
   - "{GUIDE_DOC}"
 write_dirs:
   - "{OUT}"
+  # VCS runtime artifacts inside the protected DUT tree: *.vdb data
+  # directories plus *.fsdb/*.vpd waveform files dumped by the simulator.
+  - "{DUT}/**/*.vdb"
+  - "{DUT}/**/*.fsdb"
+  - "{DUT}/**/*.vpd"
 
 guide_doc:
   path: "{GUIDE_DOC}"

@@ -8,7 +8,7 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 import sys
 sys.path.append(os.path.abspath(os.path.join(current_dir, "..")))
 
-from ucagent.util.functions import find_files_by_glob, find_files_by_regex, find_files_by_pattern, render_template_dir
+from ucagent.util.functions import find_files_by_glob, find_files_by_regex, find_files_by_pattern, render_template_dir, chmode_ro_by_pattern, chmode_rw
 import ucagent.util.functions as fc
 
 
@@ -108,6 +108,33 @@ def test_render_template_dir(tmp_path):
     assert "unity_test/alu_functions_and_checks.md" in rendered_files
     assert "unity_test/tests/alu_api.py" in rendered_files
     assert (tmp_path / "unity_test" / "alu_bug_analysis.md").is_file()
+
+
+def test_chmode_ro_by_pattern_keeps_write_dirs_carve_outs(tmp_path):
+    """Read-only chmod must skip paths a deeper write entry re-allows."""
+    dut = tmp_path / "dut"
+    dut.mkdir()
+    (dut / "spec.md").write_text("spec\n", encoding="utf-8")
+    (dut / "top.v").write_text("module top();\n", encoding="utf-8")
+    db = dut / "dut.db"
+    db.mkdir()
+    (db / "state.log").write_text("log\n", encoding="utf-8")
+
+    chmode_ro_by_pattern(
+        str(tmp_path), ["dut"], write_dirs=["dut/*.md", "dut/dut.db"]
+    )
+
+    assert (dut / "spec.md").stat().st_mode & 0o200, "carved file must stay writable"
+    assert (db / "state.log").stat().st_mode & 0o200, "carved subtree must stay writable"
+    assert db.stat().st_mode & 0o200, "carved directory must stay writable"
+    assert dut.stat().st_mode & 0o200, "parent holding carve-outs must stay writable"
+    assert not (dut / "top.v").stat().st_mode & 0o200, "sibling must be read-only"
+
+    chmode_rw([str(dut / "top.v")])
+    # Without write_dirs the whole protected tree becomes read-only.
+    chmode_ro_by_pattern(str(tmp_path), ["dut"])
+    assert not (dut / "spec.md").stat().st_mode & 0o200
+    chmode_rw([str(dut / "spec.md")])
 
 
 def test_render_template_target_preserves_non_template_files(tmp_path):

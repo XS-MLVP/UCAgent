@@ -1027,7 +1027,7 @@ class WorkflowMCPToolIntegrationChecker(WorkflowBuildConfigChecker):
 
     RESULT_LIST_MARKER = "[PASS] MCP list_tools registered generated"
     REQUIRED_SERVER_LOG_TEXT = [
-        "create FastMCP server with tools:",
+        "create MCP server with tools:",
         "Set file mode to read-write completed",
     ]
 
@@ -1066,7 +1066,7 @@ class WorkflowMCPToolIntegrationChecker(WorkflowBuildConfigChecker):
             for text in [
                 "test_mcp:",
                 "run_mcp_tests.py",
-                "streamablehttp_client",
+                "streamable_http_client",
                 "ClientSession",
                 "list_tools",
                 "call_tool",

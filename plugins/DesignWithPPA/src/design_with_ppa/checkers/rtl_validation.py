@@ -31,6 +31,7 @@ from ucagent.checkers.unity_test import (
 )
 from ucagent.checkers.toffee_report import check_line_coverage
 import ucagent.util.functions as uc_functions
+from ucagent.util.log import warning as log_warning
 from ..contracts import (
     atomic_json,
     atomic_text,
@@ -2057,6 +2058,13 @@ class RTLBackendBuildChecker(Checker):
                 "\n".join(str(path) for path in python_dut_files) + "\n",
                 encoding="utf-8",
             )
+            # ``--vflag`` is picker's simulator passthrough: the tokens are
+            # forwarded verbatim to verilator by the generated build.  The
+            # pip console launcher re-joins argv through a shell, which
+            # would split a multi-token value back into picker arguments,
+            # while a cmake-installed raw binary receives argv untouched;
+            # only the script launcher therefore needs embedded quoting.
+            verilator_args = self.rtl_config.python_dut_options["verilator_args"]
             command = [
                 picker,
                 "export",
@@ -2069,9 +2077,68 @@ class RTLBackendBuildChecker(Checker):
                 "--coverage",
                 "--wave_file_name",
                 "ucagent.fst",
-                "--tdir",
-                str(build_target),
             ]
+            if verilator_args:
+                vflag = " ".join(verilator_args)
+                if len(verilator_args) > 1:
+                    try:
+                        launcher_is_script = (
+                            Path(picker).read_bytes()[:2] == b"#!"
+                        )
+                    except OSError:
+                        launcher_is_script = False
+                    if launcher_is_script:
+                        vflag = f"'{vflag}'"
+                command += ["--vflag", vflag]
+            command += ["--tdir", str(build_target)]
+            export_environment: dict[str, str] | None = None
+            if self.rtl_config.python_dut_options["ccache_enabled"]:
+                ccache = shutil.which("ccache")
+                if ccache is None:
+                    # ccache is a pure accelerator: its absence must never
+                    # block the build, but every uncached rebuild repeats
+                    # the full C++ compilation, so recommend installing it.
+                    log_warning(
+                        "ccache is not installed; the managed RTL build "
+                        "proceeds uncached. Install ccache (for example "
+                        "'brew install ccache' or 'sudo apt-get install "
+                        "ccache') to cache repeated Python-DUT compilation "
+                        "across checks."
+                    )
+                else:
+                    # Route the generated C++ compilation through ccache
+                    # with a PATH masquerade: the generated build resolves
+                    # its default compiler by name, so compiler-name
+                    # symlinks to ccache intercept every translation unit
+                    # without touching the fixed generated cmake invocation.
+                    ccache_bin = build_root / "ccache-bin"
+                    ccache_bin.mkdir()
+                    ccache_executable = str(Path(ccache).resolve())
+                    for compiler_name in (
+                        "cc",
+                        "c++",
+                        "gcc",
+                        "g++",
+                        "clang",
+                        "clang++",
+                    ):
+                        os.symlink(ccache_executable, ccache_bin / compiler_name)
+                    environment = os.environ.copy()
+                    environment["PATH"] = os.pathsep.join(
+                        (str(ccache_bin), environment.get("PATH", ""))
+                    )
+                    # Rebuilds run in fresh temporary directories, so the
+                    # cache must ignore the working directory and rebase
+                    # paths onto the export tree.  The generated build
+                    # hardcodes -march=native, whose option probe fails on
+                    # some compilers and disables caching for every
+                    # affected translation unit; ignoring it is safe
+                    # because it expands identically per machine and cache
+                    # entries stay machine-local.
+                    environment["CCACHE_BASEDIR"] = str(build_target)
+                    environment["CCACHE_NOHASHDIR"] = "1"
+                    environment["CCACHE_IGNOREOPTIONS"] = "-march=native"
+                    export_environment = environment
             active_operation = "picker_export"
             picker_completed = subprocess.run(
                 command,
@@ -2080,6 +2147,7 @@ class RTLBackendBuildChecker(Checker):
                 capture_output=True,
                 timeout=effective_timeout,
                 check=False,
+                env=export_environment,
             )
             if picker_completed.returncode != 0:
                 return False, diagnostic(

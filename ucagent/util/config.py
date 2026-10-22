@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+"""Layered configuration loading and validated shared runtime snapshots."""
 
 import os
 import re
@@ -15,6 +16,10 @@ from .functions import (
     save_json_file,
 )
 from .log import info
+from .waveform_formats import (
+    DEFAULT_WAVEFORM_ANALYSIS_FORMAT_PRIORITY,
+    validate_waveform_analysis_format_priority,
+)
 import base64
 
 
@@ -542,6 +547,9 @@ def build_runtime_config(
             raise ValueError(
                 f"Configuration value 'runtime_options.{key}' must be a boolean."
             )
+    runtime_options["waveform_analysis_format_priority"] = validate_waveform_analysis_format_priority(
+        runtime_options.get("waveform_analysis_format_priority", DEFAULT_WAVEFORM_ANALYSIS_FORMAT_PRIORITY)
+    )
 
     template_values = cfg.__dict__.get("_temp_cfg")
     if not isinstance(template_values, dict):
@@ -652,6 +660,9 @@ def validate_runtime_config(data: Any) -> Dict[str, Any]:
             raise ValueError(
                 f"Resolved config value runtime_options.{key} must be a boolean."
             )
+    validate_waveform_analysis_format_priority(
+        runtime_options.get("waveform_analysis_format_priority", DEFAULT_WAVEFORM_ANALYSIS_FORMAT_PRIORITY)
+    )
     plugin_options = data.get("plugin_options")
     if plugin_options is not None:
         if not isinstance(plugin_options, dict):
