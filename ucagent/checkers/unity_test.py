@@ -581,7 +581,7 @@ class UnityChipCheckerDutCreation(Checker):
         ucagent_msg = f"You need use:\n`if ucagent.is_imp_test_template():\n" + \
                       f"    return ucagent.get_fake_dut(DUT{self.dut_name})`\n in 'create_dut' function."
         self.source_code_need = {
-            "get_coverage_data_path": (f"The 'create_dut' function in '{self.target_file}' must call 'get_coverage_data_path(request, new_path=True)' to get a new coverage file path.", fc.tips_of_get_coverage_data_path),
+            "get_coverage_data_path": (f"The 'create_dut' function in '{self.target_file}' must call 'get_coverage_data_path(request, dut, new_path=True)' to get a new coverage file path.", fc.tips_of_get_coverage_data_path),
             "ucagent.is_imp_test_template": (ucagent_msg, None),
             "ucagent.get_fake_dut":(ucagent_msg, None)
         }
@@ -774,7 +774,7 @@ class UnityChipCheckerDutFixture(UnityChipCheckerBaseFixture):
     def __init__(self, target_file, min_count=1, **kw):
         super().__init__(target_file, "dut", first_arg="request", min_count=min_count, **kw)
         self.update_dut_name(kw["cfg"])
-        msg = f"The 'dut' fixture in '{self.target_file}' must call 'get_coverage_data_path(request, new_path=False)' to get existed coverage file path. {fc.tips_of_get_coverage_data_path(self.dut_name)}"
+        msg = f"The 'dut' fixture in '{self.target_file}' must call 'get_coverage_data_path(request, dut, new_path=False)' to get existed coverage file path. {fc.tips_of_get_coverage_data_path(self.dut_name)}"
         self.source_code_need = {
             "get_coverage_data_path": (msg, None)
         }

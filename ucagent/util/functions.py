@@ -2410,10 +2410,13 @@ def replace_bash_var(in_str, data: dict):
 
 
 def tips_of_get_coverage_data_path(dut_name: str):
+    """Show the canonical per-test coverage path helper for fixture repairs."""
     return f"""
 If 'get_coverage_data_path' not find in the template, you should define it like this:
-def get_coverage_data_path(request, new_path:bool):
-    return get_file_in_tmp_dir(request, current_path_file("data/"), "{dut_name}.dat",  new_path=new_path)
+def get_coverage_data_path(request, dut, new_path:bool):
+    tc_name = request.node.name if request is not None else "{dut_name}"
+    suffix = ucagent.get_default_subfix(dut, "coverage")
+    return get_file_in_tmp_dir(request, current_path_file("data/"), f"{{tc_name}}.{{suffix}}", new_path=new_path)
 """
 
 

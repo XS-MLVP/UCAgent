@@ -3,6 +3,22 @@
 
 `WaveInfo` 根据文件扩展名自动选择读取器，内置支持 FST、VCD、FSDB。文件清单、信号查询、事件分析和证据重放使用同一套格式配置。此配置只影响分析时搜索和选择已有波形，不改变模拟器、`SetWaveform` 或测试 fixture 生成的格式。
 
+## 测试产物的默认后缀
+
+测试 API 模板通过 `ucagent.get_default_subfix(dut, sub_type)` 选择产物后缀，`sub_type` 取 `"waveform"` 或 `"coverage"`，返回值不含前导点：
+
+| `dut.SIMULATOR` | 波形后缀 | 覆盖率后缀 |
+| --- | --- | --- |
+| `verilator` | `.fst` | `.dat` |
+| `vcs` | `.fsdb` | `.vdb` |
+| `uvs` | `.usdb` | `.cdb` |
+
+该函数接受 DUT 实例或类，从属性读取仿真器名称并忽略大小写与两端空白。仅缺少 `SIMULATOR` 属性时默认使用 Verilator。属性为 `None`、空字符串、非字符串或未知名称时会报错；无效 `sub_type` 同样报错。
+
+`get_coverage_data_path(request, dut, new_path)` 和 `get_waveform_path(request, dut, new_path)` 将返回的后缀用于每个测试的唯一产物路径。创建时使用 `new_path=True`，覆盖率上报时使用同一个 DUT 和 `new_path=False`，以取得原路径。VCS 的 `.vdb` 可以是目录，按完整路径传递即可。模板阶段的 fake DUT 与独立 Mock DUT 保留原 DUT 类声明的 `SIMULATOR`，无需启动真实仿真器。
+
+新增仿真器时，在 `ucagent/util/test_tools.py` 的 `_SIMULATOR_DEFAULT_SUFFIXES` 中补充 `waveform` 和 `coverage` 两项，并增加对应测试；路径模板无需增加分支。此映射只定义命名规则，实际产物依赖 DUT 构建及仿真器支持；新波形格式仍需按本页注册读取器。覆盖率解析由 `toffee-test` 提供，使用 VCS 时还需确认所用版本支持 `.vdb`；后缀选择本身不会增加覆盖率解析能力。
+
 ## 格式优先级
 
 默认配置位于 `ucagent/setting.yaml`：

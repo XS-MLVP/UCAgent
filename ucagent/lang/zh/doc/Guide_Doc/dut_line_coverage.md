@@ -131,7 +131,7 @@ performance_counters.v:*
 
 ```python
 ...
-    dut.SetCoverage("path/to/coverage.dat")
+    dut.SetCoverage(get_coverage_data_path(request, dut, new_path=True))
 ...
 ```
 
@@ -143,13 +143,14 @@ def dut(request):
     ...
     yield dut
     ...
-    set_line_coverage(request, "path/to/coverage.dat", ignore=[])
+    set_line_coverage(request, get_coverage_data_path(request, dut, new_path=False), ignore=[])
     ...
 ```
 
 **重要：**
-- 需要通过get_coverage_data_path(request, new_path=True)获取代码行覆盖率文件路径，并传递给 dut.SetCoverage
-- 需要通过get_coverage_data_path(request, new_path=False)获取已有路径的代码行覆盖率文件，并传递给 set_line_coverage
+- 需要通过 `get_coverage_data_path(request, dut, new_path=True)` 获取代码行覆盖率路径，并传递给 `dut.SetCoverage`
+- 需要通过 `get_coverage_data_path(request, dut, new_path=False)` 获取已有覆盖率路径，并传递给 `set_line_coverage`；两处使用同一个 DUT 实例，路径可能指向文件或目录
+- 路径辅助函数使用 `ucagent.get_default_subfix(dut, "coverage")` 选择后缀，完整写法见 `Guide_Doc/dut_fixture.md`
 
 
 在ignore参数中指定ignore文件(或者ignore表达式，或者ignore文件所在的文件夹)，支持以list格式传递多个值。

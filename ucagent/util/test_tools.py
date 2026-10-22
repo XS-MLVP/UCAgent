@@ -1,4 +1,5 @@
 #coding=utf-8
+"""Helpers for DUT construction, test execution, and simulator artifact paths."""
 
 import os
 from ucagent.util.log import warning
@@ -6,6 +7,39 @@ import inspect
 import ast
 from collections import OrderedDict
 import json
+
+
+# Add simulator defaults here so fixture path helpers need no simulator branches.
+_SIMULATOR_DEFAULT_SUFFIXES = {
+    "verilator": {"waveform": "fst", "coverage": "dat"},
+    "vcs": {"waveform": "fsdb", "coverage": "vdb"},
+    "uvs": {"waveform": "usdb", "coverage": "cdb"},
+}
+
+
+def get_default_subfix(dut, sub_type: str) -> str:
+    """Return the simulator's default artifact suffix without a leading dot.
+
+    ``sub_type`` must be ``"waveform"`` or ``"coverage"``. Read ``SIMULATOR``
+    from the DUT instance (or class), ignoring case and surrounding whitespace.
+    Only an absent attribute defaults to Verilator; invalid or unsupported
+    values raise an explicit error rather than selecting the wrong format.
+    """
+    if not isinstance(sub_type, str):
+        raise TypeError("sub_type must be 'waveform' or 'coverage'.")
+    if sub_type not in ("waveform", "coverage"):
+        raise ValueError(f"Unsupported sub_type {sub_type!r}; use 'waveform' or 'coverage'.")
+    simulator = getattr(dut, "SIMULATOR", "verilator")
+    if not isinstance(simulator, str):
+        raise TypeError("DUT.SIMULATOR must be a nonempty simulator name string.")
+    simulator = simulator.strip().lower()
+    if simulator not in _SIMULATOR_DEFAULT_SUFFIXES:
+        supported = ", ".join(sorted(_SIMULATOR_DEFAULT_SUFFIXES))
+        raise ValueError(
+            f"Unsupported DUT.SIMULATOR {simulator!r}; supported simulators: {supported}. "
+            "Use a supported DUT build or add its artifact defaults before running tests."
+        )
+    return _SIMULATOR_DEFAULT_SUFFIXES[simulator][sub_type]
 
 
 def ucagent_lib_path():
@@ -71,7 +105,7 @@ def get_xpin_info(cls):
 
 
 def get_mock_dut_from(cls):
-    """Create a mock DUT instance with no arguments"""
+    """Create a mock DUT, preserving simulator metadata declared by its class."""
     xpin_info = get_xpin_info(cls)
     cls_Xdata = cls.__init__.__globals__['xsp'].XData
     cls_XPin = cls.__init__.__globals__['xsp'].XPin
@@ -149,4 +183,7 @@ def get_mock_dut_from(cls):
             pass
         def RefreshComb(self):
             pass
-    return MockDUT()
+    dut = MockDUT()
+    if hasattr(cls, "SIMULATOR"):
+        dut.SIMULATOR = cls.SIMULATOR
+    return dut

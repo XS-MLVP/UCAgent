@@ -520,8 +520,9 @@ stage:
          - "在文件{OUT}/tests/{DUT}_api.py实现create_dut(request)函数，仅完成DUT实例的创建"
          - "不要对DUT的任何引脚/接口进行赋值操作"
          - "如果芯片有时钟引脚，必须通过 `InitClock` 方法配置时钟，进行绑定"
-         - "通过get_coverage_data_path(request, new_path=True)获取代码行覆盖率文件路径"
+         - "通过get_coverage_data_path(request, dut, new_path=True)获取代码行覆盖率路径，通过get_waveform_path(request, dut, new_path=True)获取波形路径；两者分别使用ucagent.get_default_subfix(dut, 'coverage')和ucagent.get_default_subfix(dut, 'waveform')选择后缀，不要写死后缀"
          - "将覆盖率文件路径传递给dut.SetCoverage方法"
+         - "将波形路径传递给dut.SetWaveform方法"
          - "确保create_dut函数能够正常创建DUT实例并返回"
        checker:
          - name: dut_creation_check
@@ -536,7 +537,7 @@ stage:
        task:
          - "实现dut fixture，包含完整的生命周期管理"
          - "请按已有模板确保:"
-         - "- 确保在dut fixture的清理阶段，调用通过get_coverage_data_path(request, new_path=False)获取已有路径的代码行覆盖率文件，并传递给 set_line_coverage"
+         - "- 确保在dut fixture的清理阶段，调用get_coverage_data_path(request, dut, new_path=False)，传入创建时的同一个dut实例获取已有覆盖率路径，并传递给 set_line_coverage"
          - "- 确保在dut fixture的清理阶段（yield之后）调用set_func_coverage(request, func_coverage_group)，将功能覆盖率和mark_function映射传递给toffee-test"
          - "- 确保dut fixture能正确初始化和清理芯片"
          - "- 确保dut fixture的scope设置为function"
