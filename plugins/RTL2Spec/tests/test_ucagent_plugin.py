@@ -23,6 +23,7 @@ from ucagent.plugins import (
     validate_plugin,
 )
 from ucagent.tools.uctool import to_mcp_tool
+from ucagent.tools.fileops import is_file_writeable
 from ucagent.util.functions import get_tools_from_cfg
 
 
@@ -166,6 +167,47 @@ def test_factory_enforces_wildcard_protected_children(tmp_path):
     assert result["error_code"] == "WRITE_POLICY_DENIED"
     assert result["artifact"] == ".cache"
     assert "protected path" in result["error"]
+
+
+@pytest.mark.parametrize(
+    "protected",
+    [
+        "out*/evidence/manifest.json",
+        "out?uts/evidence/manifest.json",
+        "out[ps]uts/evidence/manifest.json",
+        "**/evidence/manifest.json",
+    ],
+)
+def test_generic_evidence_respects_wildcards_in_parent_directories(tmp_path, protected):
+    """A directory action must not create a protected descendant matched by a glob."""
+    source = tmp_path / "inputs/Block/top.sv"
+    source.parent.mkdir(parents=True)
+    source.write_text("module Block(input wire a, output wire y); assign y = a; endmodule\n")
+    tool = RTL2SpecCommand(
+        workspace=str(tmp_path), write_dirs=["outputs"], un_write_dirs=[protected]
+    )
+    assert not is_file_writeable(
+        "outputs/evidence/manifest.json", tool.un_write_dirs, tool.write_dirs
+    )[0]
+    result = tool._run("generic_evidence", "Block", config="Generic")
+    assert result.get("error_code") == "WRITE_POLICY_DENIED", result
+    assert not (tmp_path / "outputs").exists()
+
+
+def test_wildcard_protection_covers_resolved_write_targets(tmp_path):
+    """A writable symlink cannot hide a glob-protected child of its resolved target."""
+    cache = tmp_path / "outputs/cache"
+    cache.mkdir(parents=True)
+    (tmp_path / ".cache").symlink_to(cache, target_is_directory=True)
+    tool = RTL2SpecCommand(
+        workspace=str(tmp_path),
+        write_dirs=[".cache", "outputs"],
+        un_write_dirs=["out*/cache/protected.json"],
+    )
+    result = tool._run("preflight", "Sbuffer")
+    assert result.get("error_code") == "WRITE_POLICY_DENIED", result
+    assert result["artifact"] == ".cache"
+    assert not list(cache.iterdir())
 
 
 @pytest.mark.parametrize("failure", ["exit", "empty", "timeout"])

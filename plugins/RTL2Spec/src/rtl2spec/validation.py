@@ -28,7 +28,6 @@ from .documents import (
     markdown_rows,
     document_sections,
     markdown_tokens,
-    port_scaffold_text,
 )
 
 
@@ -117,8 +116,9 @@ def validate(
     *,
     generic: bool = False,
     output_dir: str = "outputs",
+    check_acceptance_record: bool = True,
 ) -> dict:
-    """Return bounded diagnostics for actual evidence, references, and Mermaid source."""
+    """Validate current phase artifacts; the publisher may check final content before issuing a receipt."""
     errors: list[dict] = []
     warnings: list[str] = []
     artifact = f"{output_dir}/evidence/manifest.json"
@@ -253,24 +253,6 @@ def validate(
                                         "error": f"{key} contradicts verified metadata; run metadata after reviewing the inputs",
                                     }
                                 )
-                if phase in {"review", "final"} and index == 0:
-                    scaffold = path.parent / "evidence" / "ports.md"
-                    if not scaffold.is_file():
-                        errors.append({
-                            "artifact": str(scaffold.relative_to(root)),
-                            "rule": "PORT_SCAFFOLD_MISSING",
-                            "error": "protected evidence/ports.md is missing; regenerate the exact port scaffold before review",
-                            "next_action": f"Run RTL2SpecCommand(action=\"{'generic_' if generic else ''}ports\", module=\"{module}\") before Check.",
-                        })
-                    elif scaffold.read_text(encoding="utf-8") != port_scaffold_text(
-                        root, module, ports, generic=generic, output_dir=output_dir
-                    ):
-                        errors.append({
-                            "artifact": str(scaffold.relative_to(root)),
-                            "rule": "PORT_SCAFFOLD_CHANGED",
-                            "error": "protected evidence/ports.md differs from the current parsed port facts",
-                            "next_action": f"Run RTL2SpecCommand(action=\"{'generic_' if generic else ''}ports\", module=\"{module}\") to regenerate the scaffold, then copy its exact rows into Appendix A.",
-                        })
                 prose = prose_text(visible)
                 for raw in re.findall(r"\[[^\]]*\]\((<[^>]+>|[^)]+)\)", prose):
                     raw = raw.strip("<>")
@@ -375,17 +357,10 @@ def validate(
                         "error": "partial RTL generation cannot reach final without OPEN-GENERATION-PARTIAL in Open or Deferred state",
                         "next_action": "Add OPEN-GENERATION-PARTIAL with the failed generation scope and constrained conclusion, then rerun Check.",
                     })
-                if not re.search(r"\bpartial\b", texts[1], re.I):
-                    errors.append({
-                        "artifact": str(paths[1].relative_to(root)),
-                        "rule": "PARTIAL_REPORT",
-                        "error": "quality report must state the partial generation limitation",
-                        "next_action": "Record the partial generation scope and its effect on conclusions in the quality report, then rerun Check.",
-                    })
             if phase in {"review", "final"}:
                 artifact = f"{output_dir}/semantic_review.json"
                 validate_review(root, module, manifest, output_dir)
-            if phase == "final":
+            if phase == "final" and check_acceptance_record:
                 artifact = f"{output_dir}/validation.json"
                 validate_acceptance(root, module, config, output_dir)
 

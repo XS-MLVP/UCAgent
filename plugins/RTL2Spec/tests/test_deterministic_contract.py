@@ -37,6 +37,45 @@ def set_cell(text, table, column, value, index=0):
     return '\n'.join(lines) + '\n'
 
 
+@pytest.mark.parametrize('workflow', ['xiangshan', 'generic'])
+@pytest.mark.parametrize('scaffold_state', ['missing', 'reformatted', 'different_facts'])
+def test_port_scaffold_is_only_a_drafting_aid(request, workflow, scaffold_state):
+    """A correct Appendix A can be reviewed and accepted without an exact helper file."""
+    root = request.getfixturevalue('artifacts' if workflow == 'xiangshan' else 'current')
+    generic = workflow == 'generic'
+    config = 'Generic' if generic else 'DefaultConfig'
+    scaffold = root / 'outputs/evidence/ports.md'
+    if scaffold_state == 'missing':
+        scaffold.unlink()
+    elif scaffold_state == 'reformatted':
+        scaffold.write_text(scaffold.read_text() + '\nExtra drafting notes.\n')
+    else:
+        scaffold.write_text('\n# Drafting notes\n\nExample port: fake_input, I/999.\n')
+    complete_review(root, 'Sbuffer', config, generic=generic)
+    result = validate(root, 'Sbuffer', config, 'review', generic=generic)
+    assert result['ok'], result
+    result = finalize(root, 'Sbuffer', config, generic=generic)
+    assert result['ok'], result
+    assert validate(root, 'Sbuffer', config, 'final', generic=generic)['ok']
+    assert scaffold.exists() is (scaffold_state != 'missing')
+
+
+@pytest.mark.parametrize('workflow', ['xiangshan', 'generic'])
+def test_editing_scaffold_cannot_authorize_wrong_appendix_facts(request, workflow):
+    """Appendix facts are checked against actual RTL regardless of helper-file content."""
+    root = request.getfixturevalue('artifacts' if workflow == 'xiangshan' else 'current')
+    generic = workflow == 'generic'
+    config = 'Generic' if generic else 'DefaultConfig'
+    design, _ = artifact_paths(root, 'Sbuffer')
+    text = set_cell(design.read_text(), 'ports', 4, 'I/999')
+    design.write_text(text)
+    (root / 'outputs/evidence/ports.md').write_text(text)
+    complete_review(root, 'Sbuffer', config, generic=generic)
+    result = finalize(root, 'Sbuffer', config, generic=generic)
+    assert not result['ok'], result
+    assert 'direction/width' in result['error'], result
+
+
 @pytest.mark.parametrize('table,column,value,rule', [
     ('plan',6,'','TABLE_FIELDS'),
     ('plan',0,'P9','PLAN_FIELDS'),

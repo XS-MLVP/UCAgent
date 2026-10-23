@@ -563,6 +563,37 @@ def test_partial_generation_is_explicit(command, workspace, monkeypatch):
     assert result["ok"] and any("partial" in message for message in result["warnings"])
 
 
+@pytest.mark.parametrize("open_state", [None, "Closed", "Open", "Deferred"])
+def test_partial_finalization_enforces_the_final_stage_contract(command, workspace, monkeypatch, open_state):
+    """Finalize must enforce generation limitations before publishing a successful receipt."""
+    from rtl2spec.contracts import contract_rows
+    from rtl2spec.review import finalize
+
+    monkeypatch.setenv("RTL2SPEC_TEST_RC", "7")
+    assert command._run("evidence", "Sbuffer")["ok"]
+    draft(workspace)
+    design, report = artifact_paths(workspace, "Sbuffer")
+    if open_state is not None:
+        text = design.read_text()
+        row = contract_rows(text)["open"][0]
+        lines = text.splitlines()
+        lines.insert(row["line"], f"| `OPEN-GENERATION-PARTIAL` | Downstream generation failed | Only captured target RTL is covered | Repair the downstream build and regenerate | {open_state} |")
+        design.write_text("\n".join(lines) + "\n")
+    report.write_text(report.read_text() + "\nDownstream generation failed; conclusions cover only the captured target RTL.\n")
+    assert command._run("metadata", "Sbuffer")["ok"]
+    complete_review(workspace)
+    before = report.read_bytes()
+    result = finalize(workspace, "Sbuffer", "DefaultConfig")
+    if open_state in {"Open", "Deferred"}:
+        assert result["ok"], result
+        assert validate(workspace, "Sbuffer", "DefaultConfig", "final")["ok"]
+    else:
+        assert not result["ok"], result
+        assert any(issue.get("rule") == "PARTIAL_SIGNOFF" for issue in result["observed"])
+        assert not (workspace / "outputs/validation.json").exists()
+        assert report.read_bytes() == before
+
+
 def test_cached_rtl_is_not_required_for_check(artifacts):
     """Deleting disposable RTL cache does not invalidate the persistent evidence copy."""
     import shutil

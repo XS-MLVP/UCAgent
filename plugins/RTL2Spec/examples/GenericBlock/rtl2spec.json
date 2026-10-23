@@ -1,0 +1,6 @@
+{
+  "files": ["GenericBlock.sv"],
+  "include_dirs": [],
+  "defines": {},
+  "parameters": {"WIDTH": 32}
+}

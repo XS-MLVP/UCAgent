@@ -1,138 +1,199 @@
 
 # RTL2Spec
 
-RTL2Spec 根据模块源码和 RTL 证据，生成中文设计说明、功能检测点及验证计划。插件分别提供香山模块和通用 RTL 模块的工作流，两者使用相同的文档模板、质量报告和验收规则。
+从香山源码或 Verilog/SystemVerilog RTL 生成中文设计文档、功能检测点和验证计划。流程为获取证据、编写草稿、源码复核、最终验收。
 
 ## 安装
 
-支持 Linux/macOS，需要 Python 3.11+ 和 UCAgent `>=26.9.2.dev14`。在同一 Python 环境中安装 UCAgent 和插件。以下命令从 UCAgent 仓库根目录执行；已有兼容 UCAgent 时可跳过第一条命令：
+需要 Python 3.11+、Linux/macOS 和 UCAgent `>=26.9.2.dev14`。从 UCAgent 仓库根目录执行：
 
 ```bash
+cd "[你的UCAgent仓库绝对路径]"
 python -m pip install .
 python -m pip install ./plugins/RTL2Spec
 ucagent --validate-plugin rtl2spec
 ```
 
-macOS 安装前先执行 `export ARCHFLAGS="-arch $(uname -m)"`，按当前机器架构编译依赖。教程默认使用 Codex 后端；运行前安装并登录 Codex CLI（`codex login`），再按 [UCAgent 使用说明](https://github.com/XS-MLVP/UCAgent/blob/main/README.zh.md)完成配置。
+核心和插件须安装在同一 Python 环境。macOS 安装前设置 `export ARCHFLAGS="-arch $(uname -m)"`。下文使用 Codex 后端，先按 [UCAgent 使用说明](https://github.com/XS-MLVP/UCAgent/blob/main/README.zh.md)配置后端。
 
-## 生成流程
+## 目录约定
 
-两种工作流都经过四个阶段：核验输入并获取 RTL 证据、编写文档和质量报告、对照源码复核、最终验收。插件自动提取端口并生成表格骨架，AI 负责分析模块行为、编写说明和验证计划；checker 检查文档结构、端口、引用和证据的一致性。
+安装完成后，在独立的任务目录准备输入并启动，不必留在 UCAgent 仓库中。下面两个示例分别使用 `~/rtl2spec-runs/generic/` 和 `~/rtl2spec-runs/xiangshan/`：
 
-先按下面对应的教程准备输入，再执行[启动命令](#启动文档生成)，最后在[输出目录](#查看生成结果)查看文档和验收结果。
+| 位置 | 用途 |
+| --- | --- |
+| UCAgent 仓库根目录 | 执行安装命令，提供插件源码和示例 RTL |
+| 任务目录 | 存放 `rtl2spec.yaml`，执行模板导出和启动命令 |
+| YAML 的 `rtl2spec.workspace` | 存放输入与生成结果；相对路径以 YAML 所在目录为基准 |
+| YAML 的 `rtl2spec.output` | 工作区内的输出目录，必须为空或尚不存在 |
 
-## 准备模块输入
+任务目录可以自行更换，后续 `cd` 路径保持一致。`rtl2spec --init` 在当前目录导出配置，不覆盖已有文件；`Guide_Doc/`、`.ucagent/` 和输出由运行时生成，无需手工创建。
 
-| 工作流 | 适用模块 | 输入与 RTL 获取方式 | 配置 |
-| --- | --- | --- | --- |
-| `rtl2spec:xiangshan-design-document` | 香山 Chisel/Scala 模块 | 从 `third_party/XiangShan/` 按指定提交和配置生成 RTL | `XIANGSHAN_CONFIG` 选择配置类，默认 `DefaultConfig` |
-| `rtl2spec:generic-design-document` | 非香山 Verilog/SystemVerilog 模块 | 读取并保存 `inputs/<Module>/` 中用户提供的 RTL | `RTL2SPEC_CONFIG` 标记文档配置，默认 `Generic`；实际输入选项通过 `rtl2spec.json` 指定 |
+## 示例一：通用 RTL（Example: GenericBlock）
 
-### 香山模块
+### 准备配置和输入
 
-需要 Bash、Git、Curl、Make 和 C 编译器；JDK 17 和 Mill 由插件按需准备或复用。以下示例从 UCAgent 根目录创建工作区，并固定源码基线；也可改为目标设计要求的提交：
-
-```bash
-SPEC_WORKSPACE="$PWD/output/xiangshan-spec-workspace"
-SPEC_MODULE=Sbuffer
-SPEC_WORKFLOW=xiangshan-design-document
-export XIANGSHAN_CONFIG=DefaultConfig
-mkdir -p "$SPEC_WORKSPACE/third_party"
-git clone https://github.com/OpenXiangShan/XiangShan.git "$SPEC_WORKSPACE/third_party/XiangShan"
-git -C "$SPEC_WORKSPACE/third_party/XiangShan" checkout --detach aee742c92250058644c3166fae54c489161347cc
-git -C "$SPEC_WORKSPACE/third_party/XiangShan" submodule update --init --recursive
-```
-
-已有源码时，在 `third_party/XiangShan/` 放置没有未提交修改的 Git 工作树，并初始化递归子模块。`SPEC_MODULE` 使用实际 Chisel 类名，`XIANGSHAN_CONFIG` 使用该源码版本中的配置类名；它决定生成 RTL 时采用的硬件参数，未设置时使用 `DefaultConfig`。可选需求说明放入 `inputs/<Module>/`，实现结论以源码及相同提交、配置下的 RTL 为准。生成工作区应独立于插件源码目录。
-
-准备完成后，在同一终端执行[启动命令](#启动文档生成)。详细输入要求见[香山输入指南](src/rtl2spec/Guide_Doc/xiangshan-input-guide.md)。
-
-### 通用 RTL 模块（非香山）
-
-将顶层 RTL 和相关源码放入 `inputs/<Module>/`；通用工作流无需香山工具链：
+创建任务目录并进入其中，导出[通用 RTL 配置](src/rtl2spec/launch_configs/generic.yaml)，再复制自带示例：
 
 ```bash
-SPEC_WORKSPACE="$PWD/output/generic-spec-workspace"
-SPEC_MODULE=GenericBlock
-SPEC_WORKFLOW=generic-design-document
-export RTL2SPEC_CONFIG=Generic
-mkdir -p "$SPEC_WORKSPACE/inputs/$SPEC_MODULE"
-cp path/to/GenericBlock.sv "$SPEC_WORKSPACE/inputs/$SPEC_MODULE/"
+mkdir -p ~/rtl2spec-runs/generic
+cd ~/rtl2spec-runs/generic
+rtl2spec --init generic
+mkdir -p generic-spec-workspace/inputs/GenericBlock
+cp -R "[UCAgent仓库绝对路径]/plugins/RTL2Spec/examples/GenericBlock/." generic-spec-workspace/inputs/GenericBlock/
 ```
 
-目录示例：
+编辑当前目录的 `rtl2spec.yaml`。模板内容如下，注释仅用于标出替换位置：
+
+```yaml
+rtl2spec:
+  workspace: ./generic-spec-workspace  # [工作区路径]
+  module: GenericBlock                # [RTL 顶层模块名]
+  workflow: generic-design-document
+  output: outputs                     # [本次输出目录]
+
+backend:
+  key_name: codex                      # [已配置的后端]
+
+template_overwrite:
+  GENERIC_CONFIG: Generic              # [文档配置标签]
+```
+
+准备后的目录为：
 
 ```text
-inputs/GenericBlock/
-├── GenericBlock.sv       # 唯一声明 module GenericBlock 的顶层文件
-└── related_source.sv     # 可选；实际参考的相关源码
+~/rtl2spec-runs/generic/
+├── rtl2spec.yaml
+└── generic-spec-workspace/
+    └── inputs/
+        └── GenericBlock/
+            ├── GenericBlock.sv
+            └── rtl2spec.json
 ```
 
-输入 HDL 文件使用 UTF-8，后缀为 `.v`、`.sv`、`.vh` 或 `.svh`，简单输入中须有唯一顶层声明；有多个候选版本时，通过下述配置显式选择。相关文件位于同一输入树下，不能把顶层 RTL 重复登记为相关文件。
+`GenericBlock.sv` 是带同步复位和使能的寄存器示例。输入目录中的 `rtl2spec.json` 将 `WIDTH` 设为 32；它配置 HDL 文件顺序、include、宏和参数，与任务目录中的启动 YAML 用途不同。简单输入可以省略 JSON，支持范围见[通用输入指南](src/rtl2spec/Guide_Doc/generic-generation-guide.md)。
 
-需要指定文件顺序、include 搜索目录、外部宏或覆盖顶层整数参数时，在 `inputs/<Module>/rtl2spec.json` 写入配置：
+### 替换成自己的模块
 
-```json
-{
-  "files": ["GenericBlock.sv"],
-  "include_dirs": [],
-  "defines": {"HAS_BUS": "1"},
-  "parameters": {"WIDTH": 32}
-}
+例如改为 `Uart` 时，修改以下位置；不要只改 RTL 文件名：
+
+| 位置 | 如何修改 |
+| --- | --- |
+| `rtl2spec.yaml` 的 `rtl2spec.module` | 将 `GenericBlock` 改为 `Uart`，与源码中的 `module Uart` 完全一致 |
+| 工作区的 `inputs/GenericBlock/` | 换为 `inputs/Uart/`，放入自己的顶层 RTL、依赖文件及 include 文件 |
+| `inputs/Uart/rtl2spec.json` | `files` 改为实际源文件列表，按需设置 `include_dirs`、`defines` 和 `parameters`；路径相对 `inputs/Uart/`。删除或替换示例的 `WIDTH` 参数，不能覆盖目标模块未声明的参数 |
+| `rtl2spec.yaml` 的 `template_overwrite.GENERIC_CONFIG` | 按需修改文档标签，例如 `Uart32`；这个标签不会设置 HDL 参数 |
+| `rtl2spec.yaml` 的 `workspace` / `output` | 按需换工作区；已有生成结果时，为新任务选择新的空输出目录 |
+
+RTL 文件名可以与模块名不同，只需 `files` 指向实际文件。`workflow` 保持 `generic-design-document`。
+
+### 运行
+
+输入准备好后，在该任务目录执行：
+
+```bash
+cd ~/rtl2spec-runs/generic
+rtl2spec --config rtl2spec.yaml
 ```
 
-按实际模块填写这四个字段；文件路径相对于模块输入目录，只能覆盖模块已经声明的参数。简单输入可省略此文件。配置、预处理结果和源码行号映射都会纳入证据；超出当前预处理和端口解析能力的输入会在预检时报错。`RTL2SPEC_CONFIG` 用于标记本次文档的配置名称，不替代上述输入选项。
+示例配置下结果位于 `~/rtl2spec-runs/generic/generic-spec-workspace/outputs/`。
 
-准备完成后，在同一终端执行[启动命令](#启动文档生成)。详细输入要求见[通用输入指南](src/rtl2spec/Guide_Doc/generic-generation-guide.md)。
+## 示例二：香山（Example: Sbuffer）
+
+### 准备配置和源码
+
+需要 Bash、Git、Curl、Make 和 C 编译器；插件按需准备 JDK 17 和 Mill。创建另一个任务目录，导出[香山配置](src/rtl2spec/launch_configs/xiangshan.yaml)，再准备固定版本的源码：
+
+```bash
+mkdir -p ~/rtl2spec-runs/xiangshan
+cd ~/rtl2spec-runs/xiangshan
+rtl2spec --init xiangshan
+mkdir -p xiangshan-spec-workspace/third_party
+git clone https://github.com/OpenXiangShan/XiangShan.git xiangshan-spec-workspace/third_party/XiangShan
+git -C xiangshan-spec-workspace/third_party/XiangShan checkout --detach aee742c92250058644c3166fae54c489161347cc # [可改：目标源码提交]
+git -C xiangshan-spec-workspace/third_party/XiangShan submodule update --init --recursive
+```
+
+当前目录的 `rtl2spec.yaml` 内容为：
+
+```yaml
+rtl2spec:
+  workspace: ./xiangshan-spec-workspace  # [工作区路径]
+  module: Sbuffer                       # [目标模块名]
+  workflow: xiangshan-design-document
+  output: outputs                       # [本次输出目录]
+
+backend:
+  key_name: codex                        # [已配置的后端]
+
+template_overwrite:
+  XS_CONFIG: DefaultConfig              # [香山配置类名]
+```
+
+准备后的目录为：
+
+```text
+~/rtl2spec-runs/xiangshan/
+├── rtl2spec.yaml
+└── xiangshan-spec-workspace/
+    └── third_party/
+        └── XiangShan/
+            ├── .git/
+            ├── src/main/scala/
+            └── ...（其余仓库文件及递归子模块）
+```
+
+已有干净的源码仓库时，可将完整 Git checkout 放在工作区的 `third_party/XiangShan/`，并初始化递归子模块。不需要把 `Sbuffer.scala` 单独复制到 `inputs/Sbuffer/`，也不需要事先提供 RTL；插件从该源码版本和配置生成证据。
+
+### 替换成其他香山模块或配置
+
+| 位置 | 如何修改 |
+| --- | --- |
+| `rtl2spec.yaml` 的 `rtl2spec.module` | 将 `Sbuffer` 改为目标模块名，使用该源码版本中实际存在的 Chisel 类及对应生成模块名 |
+| `rtl2spec.yaml` 的 `template_overwrite.XS_CONFIG` | 将 `DefaultConfig` 改为该源码版本中实际存在的配置类名；它会影响生成 RTL 使用的硬件参数 |
+| 上述 `git checkout` 的提交号 | 按设计需求选择源码版本，然后重新执行递归子模块初始化，保持工作树干净 |
+| `rtl2spec.yaml` 的 `workspace` / `output` | 按需换工作区；更改模块、源码或配置后，用新的空输出目录生成 |
+
+`workflow` 保持 `xiangshan-design-document`，源码目录仍为所选工作区下的 `third_party/XiangShan/`。目标模块还须能在所选配置的生成结果中找到，详细要求见[香山输入指南](src/rtl2spec/Guide_Doc/xiangshan-input-guide.md)。
+
+### 运行
+
+在香山任务目录执行：
+
+```bash
+cd ~/rtl2spec-runs/xiangshan
+rtl2spec --config rtl2spec.yaml
+```
+
+示例配置下结果位于 `~/rtl2spec-runs/xiangshan/xiangshan-spec-workspace/outputs/`。
 
 ## 启动文档生成
 
-完成任一输入教程后，使用已设置的 `SPEC_WORKSPACE`、`SPEC_MODULE` 和 `SPEC_WORKFLOW` 启动任务。两种工作流使用相同的命令：
+上述两个示例均在各自 YAML 所在目录启动。也可以从其他目录传入配置的绝对路径：
 
 ```bash
-ucagent "$SPEC_WORKSPACE" "$SPEC_MODULE" \
-  --backend codex \
-  --plugin rtl2spec \
-  --plugin-workflow "rtl2spec:$SPEC_WORKFLOW" \
-  --output outputs \
-  --no-history \
-  --mcp-server-no-file-tools
+rtl2spec --config "[你的配置文件绝对路径]"
 ```
 
-`--mcp-server-no-file-tools` 适用于 Codex 等非 LangChain 后端，让文件读写经过 UCAgent 工具。两条工作流都无需启用 Skill。文档中的 Mermaid 图保留为 Markdown 源码，生成过程不需要 Node.js 或浏览器。
-
-`--output` 指定工作区内的输出目录，启动时该目录必须为空或不存在。可以使用 `--output outputs/run-001` 区分不同任务；若已有文件，请归档并清理，或选择新的输出目录。同一次运行中可以继续修订草稿并重新验收。
+可先加 `--dry-run` 查看解析后的工作区和启动命令。新任务将 YAML 中的 `output` 改为新的空目录，如 `outputs/run-002`；同一次运行中可以修订文档并重新验收。其他字段与后端配置见[启动配置参考](docs/reference.md#启动配置)。流程不依赖 Skill，Mermaid 图直接保留在 Markdown 中。
 
 ## 查看生成结果
 
-上述命令将文档、报告、证据和运行日志集中保存到 `<workspace>/outputs/`：
+结果保存在配置指定的工作区和输出目录中，下表的 `[模块名]` 由 YAML 的 `rtl2spec.module` 自动替换，无需手工创建这些文件：
 
-```text
-<workspace>/outputs/
-├── <Module>_design_document_zh.md         # 设计说明、功能检测点和验证计划
-├── <Module>_document_quality_review.md   # 质量报告与待确认项
-├── semantic_review.json                # 逐项行为复核结论和源码位置
-├── validation.json                     # 最终验收结果与文件摘要
-├── evidence/
-│   ├── <Module>.sv                      # 生成或保存的目标模块 RTL
-│   ├── <Module>.preprocessed.sv         # 通用工作流的预处理结果
-│   ├── source_map.json                  # 通用工作流的原始源码行号映射
-│   ├── ports.csv                        # 精确端口清单
-│   ├── ports.md                         # 自动生成的附录 A 骨架
-│   └── manifest.json                    # 签名的证据与相关源码记录
-└── logs/
-    ├── actions.jsonl                    # 工具调用结果与耗时
-    └── stages.jsonl                     # 各阶段实际起止时间与耗时
-```
+| 文件或目录 | 内容 |
+| --- | --- |
+| `[模块名]_design_document_zh.md` | 设计说明、功能检测点、Testplan 与开放项 |
+| `[模块名]_document_quality_review.md` | 复核发现、限制与自动验收区块 |
+| `semantic_review.json` | 各行为的源码复核记录 |
+| `validation.json` | 最终验收结果和文件摘要 |
+| `evidence/` | RTL、精确端口清单、输入基线；`ports.md` 提供附录 A 骨架 |
+| `logs/` | 工具调用和阶段耗时 |
 
-省略 `--output` 时遵循 UCAgent 默认值 `unity_test`。输入、`Guide_Doc/`、`.ucagent/` 运行状态和 `.cache/` 工具缓存仍保留在工作区对应位置。
-
-阅读结果时，先查看设计文档，再结合质量报告中的开放项和 `validation.json` 确认验收情况。文档附录 A 必须完整、准确地映射实际 RTL 端口；端口遗漏、重复或方向、位宽错误都会阻止阶段完成。最终验收由工具更新报告并记录结果；设计文档或证据变化后需要重新复核，验收所绑定的文件变化后需要重新验收。
-
-验收通过表示文档满足结构、引用和证据一致性要求。模块行为仍需对照源码审阅；本工作流不执行综合、仿真或形式化验证，未执行的验证项目保留 `Unrun`/`Open`。
+先读设计文档，再查看质量报告与验收记录。验收覆盖文档结构、引用和证据一致性；本流程不执行仿真或形式化验证，未执行项目保留 `Unrun`/`Open`。常见报错与修复入口见[工具参考](docs/reference.md#常见问题)。
 
 ## 相关文档
 
-- [工作流与工具参考](docs/reference.md)：工具操作、验收要求和常见问题。
-- [插件原理与设计](docs/architecture.md)：开发者使用的架构、工作流、证据和 checker 设计说明。
-- [开发与验证](docs/development.md)：项目结构、修改约定、测试和打包方法。
+- [工作流与工具参考](docs/reference.md)：操作、验收和排障。
+- [插件原理与设计](docs/architecture.md)：背景、数据流、检查依据及能力边界。
+- [开发与验证](docs/development.md)：代码结构、测试和打包。

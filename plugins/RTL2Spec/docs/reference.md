@@ -15,9 +15,27 @@
 
 确定性检查从草稿阶段启用。完整字段、状态与引用规则见[生成指南](../src/rtl2spec/Guide_Doc/generation-guide.md#确定性验收规则)。规则允许多对多追溯、共享接口、有理由的不适用项及额外说明表；检查通过不代表实现语义或硬件功能正确。
 
+## 启动配置
+
+`rtl2spec --config rtl2spec.yaml` 读取 YAML 中的 `rtl2spec` 区块选择工作区、模块和工作流，其余区块按 UCAgent 的配置层级加载。模板随插件安装，可用 `rtl2spec --init generic` 或 `rtl2spec --init xiangshan` 导出；`--config` 同时指定导出目标，已有文件不会被覆盖。`--dry-run` 只打印解析后的命令，不启动后端或创建工作区。
+
+| 字段 | 用途 |
+| --- | --- |
+| `rtl2spec.workspace` | 必填。工作区路径；相对路径以 YAML 所在目录为基准，支持绝对路径和 `~` |
+| `rtl2spec.module` | 必填。精确顶层模块名 |
+| `rtl2spec.workflow` | 必填。`generic-design-document` 或 `xiangshan-design-document` |
+| `rtl2spec.output` | 默认 `outputs`。工作区内的空目录或尚不存在的目录 |
+| `backend.key_name` | UCAgent 后端；两个模板均使用 `codex` |
+| `template_overwrite.GENERIC_CONFIG` | 通用 RTL 的文档配置标签；实际编译选项仍来自输入目录中的 `rtl2spec.json` |
+| `template_overwrite.XS_CONFIG` | 香山生成时使用的配置类名 |
+
+启动配置中直接写明的配置标签覆盖工作流的环境变量默认值，不需要额外 export。可在同一 YAML 中增加 UCAgent 支持的配置区块；`rtl2spec` 区块只接受上表四个启动字段。选择不同模块或不同参数时分别保存配置，并使用独立的工作区或输出目录。
+
+启动器使用当前 Python 环境执行原有 `ucagent` CLI，固定启用 `--no-history` 和 `--mcp-server-no-file-tools`，使新任务从第一阶段开始并通过 UCAgent 工具读写文件。配置文件放在输入目录之外，避免被作为 DUT 源码捕获；它与工作区可以分别存放。
+
 ## 后端配置
 
-默认 Codex 的启动参数见 [README](../README.md#启动文档生成)。使用其他后端时，先配置并验证同等权限限制；后端权限验证方法见[开发与验证](development.md#开发与验证)。
+在启动 YAML 中修改 `backend.key_name` 并添加该后端所需的 UCAgent 配置。使用其他后端时，先配置并验证同等权限限制；后端权限验证方法见[开发与验证](development.md#开发与验证)。
 
 ## 插件工具
 
@@ -25,17 +43,19 @@ UCAgent 在工作流中调用 `RTL2SpecCommand`，并通过 `Check`、`Complete`
 
 | 香山 action | 通用 action | 用途 |
 | --- | --- | --- |
-| `preflight` | `generic_preflight` | 检查输入、配置和所需环境；不产生交付物 |
+| `preflight` | `generic_preflight` | 单独诊断输入、配置和所需环境；证据操作已包含预检，无需重复执行 |
 | `evidence` | `generic_evidence` | 生成或捕获 RTL、端口和签名证据；通用输入同时记录预处理配置与源码映射 |
 | `related_sources` | `generic_related_sources` | 登记确实参考的相关 Scala 模块或输入文件 |
-| `ports` | `generic_ports` | 根据当前证据生成 `evidence/ports.md`，只需补充逻辑分组和协议 |
+| `ports` | `generic_ports` | 根据当前证据生成附录 A 辅助骨架 `evidence/ports.md`，补充逻辑分组和协议后用于写作 |
 | `metadata` | `generic_metadata` | 按字段/证据条目更新事实，保留无关文字和各源文件自己的摘要 |
 | `validate` | `generic_validate` | 草稿诊断：字段/表格完整性、精确端口、ID 与跨表追溯、源码位置、签核声明及 Mermaid 围栏 |
 | `review` | `generic_review` | 为当前文档生成 `semantic_review.json` 问题；按 P-* 依赖指纹保留未变化行为的答案，只为变化行为创建新问题 |
 | `lint` | `generic_lint` | 复核诊断：包含草稿检查，并验证每个行为的复核项、源码位置和当前摘要 |
-| `finalize` | `generic_finalize` | 执行复核验收，自动更新报告，生成绑定最终工件的 `validation.json` |
+| `finalize` | `generic_finalize` | 检查全部最终内容与生成限制，自动更新报告，生成绑定最终工件的 `validation.json` |
 
 正常路径为 evidence → related_sources（需要时）→ ports → 编写草稿 → metadata → 源码复核/review → finalize；各阶段记录日志后 Complete。validate/lint 用于需要诊断时，正常收尾不要求连续重复 validate、lint 和 Check。Check/Complete 始终核验当前内容；final 阶段还要求当前有效的验收记录。
+
+端口验收直接核对实际 RTL、ports.csv 和附录 A，不要求辅助骨架逐字保持原样。partial 生成在 finalize 时就必须保留 Open/Deferred 的 `OPEN-GENERATION-PARTIAL`，并在质量报告说明受限范围；不要求说明使用固定的英文关键词。检查依据与取舍见[Checker 设计](architecture.md#checker-设计)。
 
 复核记录格式与完整例子见 [源码复核指南](../src/rtl2spec/Guide_Doc/source-review-guide.md)。记录证明引用和复核项完整，不证明行为已通过动态或形式化验证。finalize 后不再手工回填验收结果；若修改设计或证据，先重新 metadata/review，再 finalize。
 

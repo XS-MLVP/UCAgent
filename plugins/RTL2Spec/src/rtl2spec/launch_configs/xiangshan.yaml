@@ -1,0 +1,11 @@
+rtl2spec:
+  workspace: ./xiangshan-spec-workspace
+  module: Sbuffer
+  workflow: xiangshan-design-document
+  output: outputs
+
+backend:
+  key_name: codex
+
+template_overwrite:
+  XS_CONFIG: DefaultConfig
