@@ -29,8 +29,8 @@ ports.csv 的 range/packed_dimensions 为解析后的 packed 维度，width 为�
 ## 本阶段操作
 
 1. 先用 ReadTextFile 读取本阶段 reference_files；确认 `{OUT}` 无旧产物。
-2. 读取输入和配置，运行 `RTL2SpecCommand(action="generic_preflight", module="ExampleBlock", config="Generic")`。按实际 DUT 名替换；预检失败时按具体文件与行号修复输入配置。
-3. 运行 `action="generic_evidence"`，读取 manifest、ports.csv、原始 RTL 和预处理视图；检查实际配置、端口和源码映射。
+2. 读取输入和配置，运行 `RTL2SpecCommand(action="generic_evidence", module="ExampleBlock", config="Generic")`，按实际 DUT 名替换。该操作包含输入预检；失败时按具体文件与行号修复，需要单独排查时使用 `action="generic_preflight"`。
+3. 读取 manifest、ports.csv、原始 RTL 和预处理视图；检查实际配置、端口和源码映射。
 4. 读取真正支撑行为结论的依赖文件，用 `action="generic_related_sources", related_files=["helper.sv"]` 登记。路径相对 inputs/{DUT}，不重复登记顶层源文件。
 5. 运行 `action="generic_ports"` 生成端口表骨架。记录结果后 Complete。
 

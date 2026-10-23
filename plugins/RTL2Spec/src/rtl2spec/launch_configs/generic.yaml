@@ -1,0 +1,11 @@
+rtl2spec:
+  workspace: ./generic-spec-workspace
+  module: GenericBlock
+  workflow: generic-design-document
+  output: outputs
+
+backend:
+  key_name: codex
+
+template_overwrite:
+  GENERIC_CONFIG: Generic

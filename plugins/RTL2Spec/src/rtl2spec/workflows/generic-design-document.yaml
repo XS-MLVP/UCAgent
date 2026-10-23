@@ -52,8 +52,8 @@ mission:
       先调用 CurrentTips。每个阶段先用 ReadTextFile 读取该阶段 reference_files 中的文件，再按任务读取相关源码区间；按 Guide_Doc/chip_design_document_template_zh.md
       写作。
 
-      使用 RTL2SpecCommand 的 generic_preflight、generic_evidence、generic_related_sources、generic_ports、generic_metadata、generic_review、generic_finalize
-      操作。generic_validate 用于草稿诊断，generic_lint 用于复核记录诊断；正常收尾只需 generic_finalize 后 Complete，失败时再按诊断修订。
+      使用 RTL2SpecCommand 的 generic_evidence、generic_related_sources、generic_ports、generic_metadata、generic_review、generic_finalize
+      操作。generic_preflight 用于独立排查输入；generic_validate 用于草稿诊断，generic_lint 用于复核记录诊断；正常收尾只需 generic_finalize 后 Complete，失败时再按诊断修订。
 
       正文区分入口接受、目标接受和响应消费；逐项确认存储、旁路、实时配置、复位和环境假设。正文逻辑接口名可以独立于 RTL 名称，附录 A 必须精确映射 ports.csv 每个端口及其方向/位宽。
 
@@ -66,9 +66,7 @@ stage:
   desc: 核验输入并生成证据
   task:
   - 先读取 Guide_Doc/generic-generation-guide.md，检查输入、配置和输出目录。
-  - 执行 RTL2SpecCommand(action='generic_preflight', module='{DUT}', config='{GENERIC_CONFIG}')；按诊断修复输入或工具环境。
-  - 执行 RTL2SpecCommand(action='generic_evidence', module='{DUT}', config='{GENERIC_CONFIG}')；读取 {OUT}/evidence/manifest.json、ports.csv
-    和 {DUT}.sv。
+  - 执行 RTL2SpecCommand(action='generic_evidence', module='{DUT}', config='{GENERIC_CONFIG}')，该操作包含输入预检；失败时按诊断修复，需要单独排查时使用 generic_preflight。成功后读取 {OUT}/evidence/manifest.json、ports.csv 和 {DUT}.sv。
   - 读取实际支撑行为结论的相关源码，记录路径与行号；用 generic_related_sources 登记实际使用的相关文件或模块。
   - 执行 RTL2SpecCommand(action='generic_ports', module='{DUT}', config='{GENERIC_CONFIG}')，生成 {OUT}/evidence/ports.md
     端口骨架。

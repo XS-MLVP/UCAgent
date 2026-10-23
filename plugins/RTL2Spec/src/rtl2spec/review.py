@@ -7,6 +7,7 @@ import re
 import os
 import tempfile
 import hashlib
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -25,16 +26,22 @@ ACCEPTANCE_END = "<!-- rtl2spec-acceptance:end -->"
 REVIEW_SCHEMA_VERSION = 2
 
 
-def write_record(path: Path, value: dict, *, expected_bytes: bytes | None) -> None:
-    """Publish a complete JSON record atomically only while its prior content is unchanged."""
+def write_record(path: Path, value: dict | str, *, expected_bytes: bytes | None,
+                 before_publish: Callable[[], None] | None = None) -> None:
+    """Publish staged JSON or text after checking its prior content and optional input guard."""
     temporary = None
     try:
         with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent, delete=False) as stream:
             temporary = Path(stream.name)
-            json.dump(value, stream, indent=2, ensure_ascii=False)
-            stream.write("\n")
+            if isinstance(value, str):
+                stream.write(value)
+            else:
+                json.dump(value, stream, indent=2, ensure_ascii=False)
+                stream.write("\n")
         # Compare after serialization to preserve answers edited while a large
         # review was being encoded, including files created by another writer.
+        if before_publish is not None:
+            before_publish()
         if (path.read_bytes() if path.exists() else None) != expected_bytes:
             raise ValueError(f"{path}: record changed while publishing; preserve edits and retry")
         os.replace(temporary, path)
@@ -456,28 +463,38 @@ def finalize(root: Path, module: str, config: str, *, generic: bool = False,
     from .validation import validate
     from . import __version__
 
+    folder = output_root(root, output_dir)
+    _, report = artifact_paths(root, module, output_dir)
+    target = local_path(root, folder / "validation.json")
+    previous_receipt = target.read_bytes() if target.exists() else None
     before = acceptance_hashes(root, module, output_dir)
-    result = validate(root, module, config, "review", generic=generic, output_dir=output_dir)
+    original = report.read_bytes()
+    report_name = str(report.relative_to(folder))
+    if hashlib.sha256(original).hexdigest() != before[report_name]:
+        raise ValueError("Artifacts changed during final validation; preserve edits and rerun finalize")
+    result = validate(root, module, config, "final", generic=generic, output_dir=output_dir,
+                      check_acceptance_record=False)
     if not result["ok"]:
         return result
     if acceptance_hashes(root, module, output_dir) != before:
         raise ValueError("Artifacts changed during final validation; preserve edits and rerun finalize")
-    _, report = artifact_paths(root, module, output_dir)
-    original = report.read_text(encoding="utf-8")
     block = [ACCEPTANCE_START, "", "## " + ARTIFACT_TEXT["acceptance_title"], "",
              ARTIFACT_TEXT["acceptance_scope"], "",
              "| " + " | ".join(ARTIFACT_TEXT["acceptance_header"]) + " |", "| --- | --- | --- |"]
     block.extend("| " + " | ".join(row) + " |" for row in ARTIFACT_TEXT["acceptance_rows"])
     block.extend(["", ACCEPTANCE_END])
-    updated = re.sub(re.escape(ACCEPTANCE_START) + r".*?" + re.escape(ACCEPTANCE_END), "", original, flags=re.S).rstrip()
+    updated = re.sub(re.escape(ACCEPTANCE_START) + r".*?" + re.escape(ACCEPTANCE_END), "", original.decode("utf-8"), flags=re.S).rstrip()
     published_report = updated + "\n\n" + "\n".join(block) + "\n"
-    report.write_text(published_report, encoding="utf-8")
-    folder = output_root(root, output_dir)
-    import hashlib
+    expected = before
 
-    expected = {**before, str(report.relative_to(folder)): hashlib.sha256(published_report.encode()).hexdigest()}
-    if acceptance_hashes(root, module, output_dir) != expected:
-        raise ValueError("Artifacts changed while publishing acceptance; preserve edits and rerun finalize")
+    def check_artifacts() -> None:
+        """Reject input changes after checks, including edits made while staging a publication."""
+        if acceptance_hashes(root, module, output_dir) != expected:
+            raise ValueError("Artifacts changed while publishing acceptance; preserve edits and rerun finalize")
+
+    write_record(report, published_report, expected_bytes=original, before_publish=check_artifacts)
+    expected = {**before, report_name: hashlib.sha256(published_report.encode("utf-8")).hexdigest()}
+    check_artifacts()
     record = receipt(root, {
         "schema_version": 1, "module": module, "config": config,
         "workflow": "generic-design-document" if generic else "xiangshan-design-document",
@@ -486,8 +503,8 @@ def finalize(root: Path, module: str, config: str, *, generic: bool = False,
         "checks": result, "semantic_proof": "Unrun", "simulation": "Unrun", "formal": "Unrun",
         "artifact_sha256": expected,
     }, sign=True)
-    target = local_path(root, folder / "validation.json")
-    write_record(target, record, expected_bytes=target.read_bytes() if target.exists() else None)
+    write_record(target, record, expected_bytes=previous_receipt, before_publish=check_artifacts)
+    check_artifacts()
     return {"ok": True, "phase": "final", "warnings": result["warnings"], "artifact": str(target.relative_to(root))}
 
 
