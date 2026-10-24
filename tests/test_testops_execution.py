@@ -412,3 +412,20 @@ def test_classifier_ignores_failure_phrases_in_passing_runs():
         2, "ERROR: error collecting tests", "", report_exists=False
     )
     assert collection["diagnostic_code"] == "PYTEST_COLLECTION_ERROR"
+
+
+def test_pytest_uses_agent_interpreter_despite_shadowed_path(tmp_path, monkeypatch):
+    """A foreign pytest executable on PATH must never control replay dependencies."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    fake = bin_dir / "pytest"
+    fake.write_text("#!/bin/sh\necho WRONG_PYTEST >&2\nexit 99\n")
+    fake.chmod(0o755)
+    monkeypatch.setenv("PATH", str(bin_dir))
+    monkeypatch.setenv("PYTEST_ADDOPTS", "--forked")
+    (tmp_path / "test_ok.py").write_text("def test_ok():\n    assert True\n")
+    tool = RunPyTest()
+    passed, stdout, stderr = tool.do(str(tmp_path), return_stdout=True, return_stderr=True)
+    assert passed, stderr
+    assert "1 passed" in stdout
+    assert "WRONG_PYTEST" not in stderr

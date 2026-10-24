@@ -43,3 +43,25 @@
 LangChain 主模型调用和上下文摘要对读取超时、网络错误、远端协议断流最多额外重试两次，退避为 1 秒、2 秒；鉴权和配置错误不重试，耗尽次数后保留原异常。主模型重试位于 model middleware 内，不重新执行整个 Agent 图或已完成工具。未完成的流式回复只可能出现在控制台预览，不提交为可执行工具调用；重试日志会注明丢弃了不完整回复。停止主模型时会取消重试退避，异步任务取消正常传播。摘要调用采用同样的次数上限，原有上下文仅在完整摘要返回后更新。
 
 这是 UCAgent 层的额外重试上限，模型 SDK 自身的重试配置仍独立存在。持续超时应检查上游／网关的连接、首响应、空闲和总时长限制，不能靠无限重试解决。
+
+### Pytest environment and idle autonomous rounds
+
+Test tools run `sys.executable -m pytest`, using the Agent's Python interpreter,
+so a different `pytest` on `PATH` cannot silently select another virtual environment.
+Install test plugins such as `pytest-forked` in that interpreter. Keep required
+isolation options enabled when repairing an environment failure.
+
+`loop_settings.max_no_tool_rounds` defaults to `3`: autonomous execution pauses
+when that many consecutive completed model rounds invoke no tools. A tool call
+resets the counter; `0` disables this guard. This is independent of repeated
+Checker diagnostics. A model saying that it is waiting does not itself pause
+execution. An incomplete paused workflow remains incomplete in managed runs.
+
+`loop_settings.max_tool_error_rounds` also defaults to `3`. It bounds consecutive
+model turns spent repairing invalid tool invocations inside one conversation
+round, including consecutive wholly failed tool batches inside the LangChain
+graph; `0` disables this guard.
+
+内部上下文摘要使用非流式请求：摘要只在完整响应后参与后续分析，避免额外 SSE 连接中断导致任务退出。主分析输出方式不受影响；摘要请求仍保留传输重试和超时，服务不可用时仍会明确失败。
+
+`RunSkillScript` 执行 Python 脚本时使用 Agent 自身的 `sys.executable`，与运行中的二进制扩展依赖保持同一 Python ABI，不再从 PATH 选择另一个 `python3`。

@@ -330,6 +330,8 @@ tui:
   status_height: 7
 
 loop_settings:
+  max_tool_error_rounds: 3 # 0 disables; bound consecutive tool argument repair rounds
+  max_no_tool_rounds: 3   # 0 disables; pause repeated prose-only autonomous rounds
   max_loop_retry: 10       # maximum number of retries for a loop
   max_stalled_rounds: 0    # disabled by default; positive values pause after unchanged Checker diagnostics
   retry_delay_start: 5     # initial delay time in seconds before retrying

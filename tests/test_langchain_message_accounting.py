@@ -649,7 +649,7 @@ def test_backend_binds_tools_after_verify_agent_finishes_tool_setup(monkeypatch)
     negotiations = []
     model_calls = []
     vagent = SimpleNamespace(
-        stream_output=False,
+        stream_output=True,
         is_break=lambda: False,
         context_management_strategy="TrimAndSummaryMiddleware",
         max_summary_tokens=32,
@@ -700,7 +700,7 @@ def test_backend_binds_tools_after_verify_agent_finishes_tool_setup(monkeypatch)
         "responses",
         "responses",
     ]
-    assert [call["streaming"] for call in model_calls] == [False, False]
+    assert [call["streaming"] for call in model_calls] == [True, False]
     assert model_calls[0]["callbacks"] == [
         backend.cb_stream_output,
         backend.cb_runtime_output,

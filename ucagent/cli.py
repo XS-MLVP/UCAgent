@@ -432,7 +432,10 @@ def get_override_dict(override_str: Optional[str]) -> OverrideValues:
             try:
                 value = ast.literal_eval(value)  # Convert Python literals while leaving raw strings alone.
             except (ValueError, SyntaxError):
-                value = value.strip()
+                try:
+                    value = json.loads(value)  # Platform overrides use JSON booleans/null.
+                except (ValueError, TypeError):
+                    value = value.strip()
         overrides.append({key: value})
         seen.add(key)
     if len(overrides) == len(seen):

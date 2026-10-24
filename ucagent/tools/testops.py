@@ -14,6 +14,7 @@ from ucagent.util.functions import get_toffee_json_test_case, load_toffee_report
 from ucagent.util.config import save_current_test_report, load_runtime_config
 from ucagent.util.log import debug, info, warning
 import os
+import sys
 import shutil
 import psutil
 from typing import Tuple
@@ -316,7 +317,7 @@ class RunPyTest(UCTool):
                 self._last_process_stderr if return_stderr else "",
             )
         ENV_ARGS = shlex.split(env.get("UCA_PYTEST_ARGS", "").replace(";", " ").strip())
-        cmd = ["pytest", *ENV_ARGS, "-s", *self.get_pytest_args(), *test_target]
+        cmd = [sys.executable, "-m", "pytest", *ENV_ARGS, "-s", *self.get_pytest_args(), *test_target]
         info(f"Run command: PYTHONPATH={env['PYTHONPATH']} {' '.join(cmd)} (in {work_dir})\n")
         try:
             worker = subprocess.Popen(

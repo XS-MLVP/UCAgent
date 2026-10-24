@@ -837,3 +837,70 @@ def test_max_stalled_rounds_rejects_ambiguous_values(value):
 @pytest.mark.parametrize("value", [0, 1, 3])
 def test_max_stalled_rounds_accepts_non_negative_integers(value):
     assert VerifyAgent._validated_max_stalled_rounds(value) == value
+
+
+@pytest.mark.parametrize("tool_rounds, expected_rounds", [([], 3), ([2], 5)])
+def test_autonomous_loop_pauses_prose_only_rounds(tool_rounds, expected_rounds):
+    """Prose cannot sustain the loop; a real tool call resets the idle counter."""
+    agent = VerifyAgent.__new__(VerifyAgent)
+    agent.cfg = SimpleNamespace(get_value=lambda key, default: default)
+    agent.test_tools = [SimpleNamespace(call_count=0)]
+    agent.stage_manager = SimpleNamespace(validation_revision=0, stage_index=0)
+    agent.invoke_round = 0
+    agent.is_exit = lambda: False
+    agent.is_break = lambda: False
+    agent.check_pdb_trace = lambda: None
+    agent._update_stalled_rounds = lambda *args: None
+
+    def one_loop():
+        """Simulate completed model turns with optional tool execution."""
+        agent.invoke_round += 1
+        assert agent.invoke_round <= 6
+        if agent.invoke_round in tool_rounds:
+            agent.test_tools[0].call_count += 1
+
+    agent.one_loop = one_loop
+    agent.run_loop()
+    assert agent.invoke_round == expected_rounds
+    assert agent._need_human
+
+
+def test_no_tool_round_guard_can_be_disabled():
+    """Zero preserves autonomous rounds when the caller explicitly disables the guard."""
+    agent = VerifyAgent.__new__(VerifyAgent)
+    agent.cfg = SimpleNamespace(get_value=lambda key, default: 0)
+    agent.test_tools = []
+    agent.stage_manager = SimpleNamespace(validation_revision=0, stage_index=0)
+    agent.invoke_round = 0
+    agent._time_start = time.time()
+    agent.is_exit = lambda: agent.invoke_round >= 5
+    agent.is_break = lambda: False
+    agent.check_pdb_trace = lambda: None
+    agent._update_stalled_rounds = lambda *args: None
+    agent.one_loop = lambda: setattr(agent, 'invoke_round', agent.invoke_round + 1)
+    agent.run_loop()
+    assert agent.invoke_round == 5
+    assert not agent._need_human
+
+
+def test_invalid_tool_arguments_cannot_loop_forever_inside_one_round():
+    """Repeated schema errors must reach the outer pause boundary."""
+    agent = VerifyAgent.__new__(VerifyAgent)
+    agent.cfg = SimpleNamespace(get_value=lambda key, default: default)
+    agent.interaction_mode = 'standard'
+    agent.invoke_round = 0
+    agent._need_human = False
+    agent.is_exit = lambda: False
+    agent.is_break = lambda: False
+    agent.get_current_tips = lambda: {}
+    agent.get_work_config = lambda: {}
+    calls = []
+    def invalid_call(*args):
+        """Simulate a rejected tool schema rather than tool execution."""
+        calls.append(True)
+        assert len(calls) <= 3
+        agent._tool__call_error = ['path is required']
+    agent.do_work = invalid_call
+    agent.one_loop()
+    assert len(calls) == 3
+    assert agent._need_human

@@ -1247,13 +1247,23 @@ class VerifyAgent:
         if msg:
             self.set_continue_msg(msg)
         self._need_human = False
+        no_tool_rounds = 0
+        max_no_tool_rounds = self.cfg.get_value("loop_settings.max_no_tool_rounds", 3)
+        if isinstance(max_no_tool_rounds, bool) or not isinstance(max_no_tool_rounds, int) or max_no_tool_rounds < 0:
+            raise ValueError("loop_settings.max_no_tool_rounds must be a non-negative integer")
         # conversation loop
         while not self.is_exit():
             validation_revision = getattr(
                 self.stage_manager, "validation_revision", 0
             )
             stage_index = getattr(self.stage_manager, "stage_index", None)
+            tool_calls = sum(getattr(tool, "call_count", 0) for tool in self.test_tools)
             self.one_loop()
+            current_calls = sum(getattr(tool, "call_count", 0) for tool in self.test_tools)
+            no_tool_rounds = no_tool_rounds + 1 if current_calls == tool_calls else 0
+            if max_no_tool_rounds and no_tool_rounds >= max_no_tool_rounds and not self.is_exit():
+                warning(f"Pausing after {no_tool_rounds} consecutive rounds without tool execution; external input is required.")
+                self._need_human = True
             self._update_stalled_rounds(validation_revision, stage_index)
             if self.is_exit():
                 break
@@ -1381,13 +1391,22 @@ class VerifyAgent:
         # Standard logic (fallback)
         if msg:
             self.set_continue_msg(msg)
-        # one conversation round with retry on tool call error
+        # Bound malformed tool-call repair independently of prose-only rounds.
+        tool_error_rounds = 0
+        max_tool_error_rounds = self.cfg.get_value("loop_settings.max_tool_error_rounds", 3)
+        if isinstance(max_tool_error_rounds, bool) or not isinstance(max_tool_error_rounds, int) or max_tool_error_rounds < 0:
+            raise ValueError("loop_settings.max_tool_error_rounds must be a non-negative integer")
         while True:
             tips = self.get_current_tips()
             if self.is_exit():
                 return
             self.do_work(tips, self.get_work_config())
             if not self._tool__call_error:
+                break
+            tool_error_rounds += 1
+            if max_tool_error_rounds and tool_error_rounds >= max_tool_error_rounds:
+                warning(f"Pausing after {tool_error_rounds} consecutive rounds with tool invocation errors.")
+                self._need_human = True
                 break
             if self.is_break():
                 return

@@ -361,6 +361,12 @@ plain_text: not enabled
             "@base64:K2VjaG8ge3siT1BFTkFJX0FQSV9LRVkiOntPUEVOQUlfQVBJX0tFWX19fSA+IH4vLmNvZGV4L2F1dGguanNvbg==",
         )
 
+    def test_override_parses_platform_json_boolean_in_model_kwargs(self):
+        override = get_override_dict('openai.model_kwargs={"parallel_tool_calls":false},enabled=true,optional=null')
+        self.assertEqual(override["openai.model_kwargs"], {"parallel_tool_calls": False})
+        self.assertIs(override["enabled"], True)
+        self.assertIsNone(override["optional"])
+
     def test_override_still_parses_literal_values(self):
         override = get_override_dict("a.b=123,c.d=True,e.f=['x']")
 

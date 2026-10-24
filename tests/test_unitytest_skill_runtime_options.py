@@ -571,6 +571,7 @@ def test_runtime_options_stay_internal_and_update_checker_contracts(monkeypatch)
     stages = _stage_map(config)
 
     assert config["runtime_options"] == {
+        "human_review_stage_names": "",
         "need_ref_model": True,
         "mock_components_enabled": True,
     }
@@ -1209,3 +1210,15 @@ def test_batch_test_implementation_requires_ck_driven_tests(monkeypatch):
         "禁止API调用后机械地只Step一次",
     ):
         assert required_text in implementation_skill
+
+
+def test_skill_python_runner_ignores_foreign_path_interpreter(tmp_path, monkeypatch):
+    """Skill subprocesses retain the Agent ABI even when PATH points at another Python."""
+    import sys
+    _save_runtime_config_for_test(tmp_path)
+    skill_name = _write_test_skill(tmp_path, {"probe.py": "import sys, pydantic_core\nprint(sys.executable)\n"})
+    foreign = tmp_path / 'bin';foreign.mkdir()
+    fake = foreign / 'python3';fake.write_text('#!/bin/sh\necho wrong-interpreter\nexit 99\n');fake.chmod(0o755)
+    monkeypatch.setenv('PATH', str(foreign) + os.pathsep + os.environ.get('PATH', ''))
+    result = RunSkillScript(workspace=str(tmp_path))._run([[skill_name, 'probe.py', '']])
+    assert result.strip() == sys.executable

@@ -5,6 +5,7 @@ This module provides tools to list and manage available skills in the workspace.
 
 import re
 import os
+import sys
 import json
 import shlex
 import shutil
@@ -30,7 +31,7 @@ MAX_SKILL_DESCRIPTION_LENGTH = 1024
 SCRIPT_RUNNER_CONFIG = "script_runner.json"
 SCRIPT_NON_EXECUTABLE_FILES = {"__init__.py", SCRIPT_RUNNER_CONFIG}
 DEFAULT_SCRIPT_RUNNERS = {
-    ".py": "python3",
+    ".py": sys.executable,
     ".sh": "bash",
     ".bash": "bash",
 }
