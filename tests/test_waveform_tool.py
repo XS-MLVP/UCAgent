@@ -439,8 +439,8 @@ def test_vcd_reports_freshness_events_and_clock_based_cycle_alignment(tmp_path):
     assert result["cycle_alignment"]["cycle_delta_unit"] == "clock_edges"
     assert result["cycle_alignment"]["wave_step_unit"] == "wavekit_simulation_timestamp"
     assert result["cycle_alignment"]["confirmed"] is False
-    assert result["timeline"][15]["values"]["TOP.dut.data[3:0]"] == "4'h3"
-    assert result["timeline"][15]["values"]["TOP.dut.result[3:0]"] == "4'h0"
+    assert result["timeline"]["15"]["values"]["TOP.dut.data[3:0]"] == "4'h3"
+    assert result["timeline"]["15"]["values"]["TOP.dut.result[3:0]"] == "4'h0"
     assert result["signal_groups"] == FINAL_SIGNAL_GROUPS
     viewer = result["waveform_viewer"]
     assert viewer["payload"] == {
@@ -590,6 +590,7 @@ def test_all_event_types_and_xz_values_are_preserved(tmp_path):
             },
             {"signal": "TOP.dut.result[3:0]", "event": "unknown", "value": ""},
         ],
+        "signal_group_preset": "",
         "logged_cycle": -1,
         "clock_signal": "",
         "start_step": 0,
@@ -601,8 +602,8 @@ def test_all_event_types_and_xz_values_are_preserved(tmp_path):
     assert "bug_document_fields" not in result
     assert "waveform_viewer" not in result
     assert "bug_document_viewer_link" not in result
-    assert result["timeline"][25]["values"]["TOP.dut.result[3:0]"] == "4'b0x1z"
-    assert result["timeline"][35]["triggers"]["TOP.dut.valid"] == [
+    assert result["timeline"]["25"]["values"]["TOP.dut.result[3:0]"] == "4'b0x1z"
+    assert result["timeline"]["35"]["triggers"]["TOP.dut.valid"] == [
         {"event": "falling"}
     ]
     event_counts = {item["event"]: item["event_count"] for item in result["patterns"]}
@@ -713,7 +714,7 @@ def test_runtime_generated_fst_is_parsed_and_preferred(tmp_path):
     assert result["waveform_selection"]["format"] == "fst"
     assert result["waveform_selection"]["numeric_suffix"] == 10
     assert result["waveform_selection"]["waveform_file"].endswith("test_fst010.fst")
-    assert result["timeline"][30]["values"]["TOP.data[3:0]"] == "4'b0x1z"
+    assert result["timeline"]["30"]["values"]["TOP.data[3:0]"] == "4'b0x1z"
 
 
 def test_same_suffix_across_workers_uses_newest_file(tmp_path):
@@ -1019,7 +1020,7 @@ def test_duplicate_patterns_keep_per_pattern_counts_without_duplicate_triggers(t
     )
 
     assert [item["event_count"] for item in result["patterns"]] == [1, 1]
-    assert result["timeline"][15]["triggers"]["TOP.dut.valid"] == [
+    assert result["timeline"]["15"]["triggers"]["TOP.dut.valid"] == [
         {"event": "rising"}
     ]
 
@@ -3144,3 +3145,56 @@ def test_parameterized_tc_title_resolves_from_parent_function_docstring(tmp_path
     )
 
     assert title == "Parameterized value remains within range."
+
+
+@pytest.mark.parametrize("preset", ["boundary", "missing", " invalid "])
+def test_explicit_signal_groups_override_stale_preset_through_invoke(tmp_path, preset):
+    test_dir = tmp_path / "tests"
+    _write_vcd(_session(test_dir, "toffee_tmp_20260814150000_123"), "test_preset")
+    different = dict(FINAL_SIGNAL_GROUPS, key_signals=["TOP.dut.ready"])
+    (tmp_path / "presets.json").write_text(json.dumps({"presets": {"boundary": different}}))
+    tool = _tool(tmp_path, test_dir)
+    tool.signal_group_presets_path = "presets.json"
+    result = json.loads(tool.invoke(dict(
+        test_case_name="test_preset", signal_group_preset=preset,
+        signal_groups=FINAL_SIGNAL_GROUPS,
+        pattern=[{"signal": "TOP.dut.valid", "event": "rising"}],
+        start_step=10, end_step=25,
+    )))
+    assert result["evidence_usable"] is True
+    receipt = tool.get_analysis_receipt(result["waveform_analysis_receipt"]["receipt_id"])
+    assert receipt["arguments"]["signal_groups"] == FINAL_SIGNAL_GROUPS
+    assert receipt["result"]["signal_groups"] == FINAL_SIGNAL_GROUPS
+
+
+@pytest.mark.parametrize("groups", [None, {}])
+def test_preset_recommendation_round_trip_through_invoke(tmp_path, groups):
+    test_dir = tmp_path / "tests"
+    _write_vcd(_session(test_dir, "toffee_tmp_20260814150000_123"), "test_preset")
+    preset_file = tmp_path / "presets.json"
+    preset_file.write_text(json.dumps({"presets": {"boundary": FINAL_SIGNAL_GROUPS}}))
+    tool = _tool(tmp_path, test_dir)
+    tool.signal_group_presets_path = "presets.json"
+    args = dict(test_case_name="test_preset", signal_group_preset="boundary",
+                pattern=[{"signal": "TOP.dut.valid", "event": "rising"}])
+    if groups is not None:
+        args["signal_groups"] = groups
+    result = json.loads(tool.invoke(args))
+    assert result["status"] == "evidence_window_required"
+    recommended = result["recommended_evidence_call"]
+    assert recommended["signal_group_preset"] == ""
+    assert recommended["signal_groups"] == FINAL_SIGNAL_GROUPS
+    preset_file.unlink()  # Follow-up must depend only on the returned explicit paths.
+    final = json.loads(tool.invoke(args | recommended))
+    assert final["evidence_usable"] is True
+    receipt = tool.get_analysis_receipt(final["waveform_analysis_receipt"]["receipt_id"])
+    assert receipt["arguments"]["signal_groups"] == FINAL_SIGNAL_GROUPS
+
+
+def test_invalid_explicit_groups_do_not_fall_back_to_preset(tmp_path):
+    tool = _tool(tmp_path, tmp_path / "tests")
+    result = tool.invoke(dict(test_case_name="test_preset", signal_group_preset="boundary",
+                             signal_groups=dict(FINAL_SIGNAL_GROUPS, key_signals=[]),
+                             pattern=[{"signal": "TOP.dut.valid", "event": "rising"}]))
+    assert "key_signals" in result
+    assert "validation error" in result

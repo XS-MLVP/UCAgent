@@ -414,12 +414,13 @@ class ArgWaveInfo(BaseModel):
         default_factory=WaveSignalGroups,
         description=(
             "Required for final Bug-document evidence. Use exact full paths and classify "
-            "the DUT clock mode, relevant inputs, outputs, protocol controls, and key signals."
+            "the DUT clock mode, relevant inputs, outputs, protocol controls, and key signals. "
+            "Non-empty explicit groups take precedence over signal_group_preset."
         ),
     )
     signal_group_preset: str = Field(
         default="",
-        description="Named signal_groups preset from the configured workspace preset file; expands before signing.",
+        description="Named signal_groups preset from the configured workspace preset file; expands before signing only when explicit signal_groups are empty.",
     )
     logged_cycle: int = Field(
         default=-1,
@@ -510,7 +511,9 @@ class ArgWaveInfo(BaseModel):
         self.clock_signal = self.clock_signal.strip()
         self.signal_group_preset = self.signal_group_preset.strip()
         if self.signal_group_preset and not self.signal_groups.is_empty():
-            raise ValueError("provide either signal_group_preset or signal_groups")
+            # Explicit groups may come from a recommended follow-up call merged
+            # into an earlier preset request. Sign exactly those explicit paths.
+            self.signal_group_preset = ""
         if self.signal_group_preset and not self.pattern:
             raise ValueError("signal_group_preset requires a non-empty event pattern")
         if not self.test_case_name and any(
@@ -3095,6 +3098,7 @@ class WaveInfo(UCTool):
                 [
                     ("test_case_name", selection.test_case_name),
                     ("pattern", self._mcp_pattern_entries(patterns)),
+                    ("signal_group_preset", ""),
                     ("logged_cycle", -1),
                     ("clock_signal", ""),
                     ("start_step", effective_start),
