@@ -3,7 +3,7 @@
 import hashlib
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 from ucagent.tools.uctool import UCTool
@@ -29,6 +29,7 @@ class QueueArgs(BaseModel):
     offset: int = Field(default=0, ge=0)
     limit: int = Field(default=5, ge=1, le=20)
     scenario: str = ""
+    stage: Literal["case_triage", "dut_evidence"] = Field(default="case_triage", description="Current stage; triage excludes future waveform work.")
 
 
 class ReviewWorkQueue(UCTool):
@@ -46,11 +47,11 @@ class ReviewWorkQueue(UCTool):
         super().__init__(workspace=workspace, output_dir=output_dir, **kwargs)
         self.waveinfo = review_waveinfo(workspace)
 
-    def _run(self, offset=0, limit=5, scenario=''):
+    def _run(self, offset=0, limit=5, scenario='', stage='case_triage'):
         """Keep valid cases out of the repair queue; malformed records remain visible."""
         output = Path(self.workspace).resolve() / self.output_dir
         try:
-            args = QueueArgs(offset=offset, limit=limit, scenario=scenario)
+            args = QueueArgs(offset=offset, limit=limit, scenario=scenario, stage=stage)
             index = load_record(output, 'review_index.json', 'index')
             rows, groups = [], {}
             for case_id, entry in index.cases.items():
@@ -62,7 +63,7 @@ class ReviewWorkQueue(UCTool):
                     groups.setdefault(key, []).append(case_id)
                     if args.scenario and args.scenario != key: continue
                     gaps = case_issues(index, case, self.waveinfo, require_replay=True,
-                                      require_triage=True, require_wave=True, source_root=source_root(output))
+                                      require_triage=True, require_wave=args.stage == "dut_evidence", source_root=source_root(output))
                     if not gaps: continue
                     rows.append({'case_id': case_id, 'record_path': entry.record_path,
                                  'scenario_key': key, 'gaps': gaps[:5], 'gap_count': len(gaps)})
@@ -70,7 +71,7 @@ class ReviewWorkQueue(UCTool):
                     rows.append({'case_id': case_id, 'record_path': entry.record_path,
                                  'gaps': [{'problem': str(error)[:300]}], 'gap_count': 1})
             visible = rows[args.offset:args.offset + args.limit]
-            return {'success': True, 'remaining_count': len(rows), 'items': visible,
+            return {'success': True, 'stage': args.stage, 'remaining_count': len(rows), 'items': visible,
                     'next_offset': args.offset + args.limit if args.offset + args.limit < len(rows) else None,
                     'declared_stage_status': index.stage_status,
                     'validated_stage_status': validation_status(output),

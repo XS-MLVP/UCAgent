@@ -35,3 +35,7 @@ Author affected_behavior and causal_steps from the current interface and RTL, an
 
 
 按 Guide_Doc/bug_review_investigation.md 补齐 ROOT.investigation：对象证据不跨 case/invocation 拼接；首次观察与内部定位分开，至少一种替代解释保留实际反证或缺口。普通 Checker 执行相同门禁。
+
+## Unresolved claims
+
+Follow Guide_Doc/analysis.md section 未定声明调查. An inconclusive decision needs decision.investigation with the question, inspected sources, actual local evidence IDs, findings, blocker, remaining gap and next action. Query available signals before closing a missing-boundary question. Causal uncertainty requires a measured local event, which may be a trigger or normal observation. Do not confuse inability to merge Cases under one ROOT with absence of each Case's defect. Earliest observed output and statically inferred internal cause must be distinguished, not automatically discarded.

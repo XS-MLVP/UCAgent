@@ -8,6 +8,8 @@ import sys
 SCRIPT = Path(__file__).resolve().parents[1] / "src" / "bug_review" / "skills" / \
     "waveform-review" / "scripts" / "check_wave_availability.py"
 
+VCD = "$timescale 1ns $end\n$scope module TOP $end\n$var wire 1 ! clk $end\n$upscope $end\n$enddefinitions $end\n#0\n0!\n#1\n1!\n#2\n0!\n"
+
 CASES = (("test_good", "suspected_dut"),
          ("test_datonly", "suspected_dut"),
          ("test_missing", "suspected_dut"),
@@ -45,7 +47,7 @@ def _prepare_workspace(tmp_path):
     session = workspace / "verification_review" / "run" / "unity_test" / "data" / \
         "toffee_tmp_20261008190000_001" / "master"
     session.mkdir(parents=True)
-    (session / "test_good.fst").write_bytes(b"fst")
+    (session / "test_good.vcd").write_text(VCD)
     (session / "test_datonly.dat").write_bytes(b"dat" * 100)
     return workspace
 
@@ -59,7 +61,7 @@ def test_inventory_classifies_and_lists_rerun_targets(tmp_path, monkeypatch, cap
     module.main()
     text = capsys.readouterr().out
     assert "toffee_tmp_20261008190000_001" in text
-    assert "test_good" in text and "fst/vcd 可用" in text
+    assert "test_good" in text and "fst/vcd 可解析" in text
     assert "test_datonly" in text and "仅 dat" in text
     assert "test_missing" in text and "缺失" in text
     rerun_section = text.split("需要定向复跑")[1]
@@ -89,18 +91,36 @@ def test_inventory_finds_dump_in_older_run_session(tmp_path, monkeypatch, capsys
     workspace = _prepare_workspace(tmp_path)
     data_root = workspace / "verification_review" / "run" / "unity_test" / "data"
     # Remove the newest-session dump so only an older session holds it.
-    (data_root / "toffee_tmp_20261008190000_001" / "master" / "test_good.fst").unlink()
+    (data_root / "toffee_tmp_20261008190000_001" / "master" / "test_good.vcd").unlink()
     older = data_root / "toffee_tmp_20261008100000_100" / "master"
     older.mkdir(parents=True)
-    (older / "test_good.fst").write_bytes(b"older-fst")
+    (older / "test_good.vcd").write_text(VCD)
     monkeypatch.chdir(workspace)
     monkeypatch.setattr(sys, "argv", ["check_wave_availability.py"])
     module.main()
     text = capsys.readouterr().out
     assert "toffee_tmp_20261008190000_001" in text
     assert "toffee_tmp_20261008100000_100" in text
-    assert "test_good" in text and "fst/vcd 可用" in text
+    assert "test_good" in text and "fst/vcd 可解析" in text
     assert "older-fst" not in text
-    assert "test_good.fst" in text
+    assert "test_good.vcd" in text
     assert "test_good" not in text.split("需要定向复跑")[1]
     assert "汇总: 可用 1 / 仅dat 1 / 缺失 1" in text
+
+
+def test_unresolved_assert_failure_is_inventoried_and_empty_dump_is_not_usable(tmp_path, monkeypatch, capsys):
+    module = _load_script()
+    workspace = _prepare_workspace(tmp_path)
+    path = workspace / "verification_review/analysis/cases/test_good.json"
+    record = json.loads(path.read_text())
+    record["failure_analysis"]["category"] = "insufficient_evidence"
+    path.write_text(json.dumps(record))
+    wave = next(workspace.rglob("test_good.vcd"))
+    wave.write_bytes(b"")
+    monkeypatch.chdir(workspace)
+    monkeypatch.setattr(sys, "argv", ["check_wave_availability.py"])
+    module.main()
+    text = capsys.readouterr().out
+    assert "empty_waveform" in text
+    assert "不可解析 1" in text
+    assert "test_good" in text.split("需要定向复跑")[1]

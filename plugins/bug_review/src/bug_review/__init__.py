@@ -1,3 +1,3 @@
 """UCAgent plugin for evidence-based Bug review."""
 
-__version__ = "0.4.2"
+__version__ = "0.4.5"

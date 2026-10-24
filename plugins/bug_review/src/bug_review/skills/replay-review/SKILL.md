@@ -64,7 +64,9 @@ Read the current DUT and interface documentation and author review_index.json.du
 
 CaptureReplayReport 自动保存 replay_summary.log_triage_refs 和完整原始 stdout。按行号核对全部 assertion/stuck/ABORT 候选；候选不是 DUT 裁决，单文件顺序不证明跨 case 或 stderr 时序。
 
-本工作流不提供任意 Python／Shell 执行工具。直接用 WriteTextFile／EditTextFile 编写上述 JSON 草稿；RunSkillScript 仅执行 Skill 已登记的脚本，不执行 drafts 下自建的生成脚本。
+本工作流不提供任意 Python／Shell 执行工具。Case 草稿使用 PatchCaseDraft 按字段修改；其他记录用 WriteTextFile／EditTextFile 编写 JSON 草稿；RunSkillScript 仅执行 Skill 已登记的脚本，不执行 drafts 下自建的生成脚本。
 
 
-每批先用 `CreateCaseDraft(case_ids=[...])` 从正式记录建立完整草稿，保留执行和签名字段；只编辑返回的 drafts 路径。通用文件工具不能直接编辑正式记录，`UpdateCaseRecords` 硬性限制每批最多 5 个 Case。
+每批先用 `CreateCaseDraft(case_ids=[...])` 从正式记录建立完整草稿，保留执行和签名字段；使用 PatchCaseDraft 按精确 case_id 和字段路径一次填写本批分析，expected_sha256 取 CreateCaseDraft 返回的 draft_sha256 或最新修改结果；不要逐段 ReplaceStringInFile 或维护行号。通用文件工具不能直接编辑正式记录，`UpdateCaseRecords` 硬性限制每批最多 5 个 Case。
+
+本阶段始终使用 `ReviewWorkQueue(stage="case_triage", limit=5)`，只修正初判缺口；波形缺口由下一阶段 `ReviewWorkQueue(stage="dut_evidence", limit=5)` 处理。每批 UpdateCaseRecords 都验证初判必填项，通过后再处理下一批。

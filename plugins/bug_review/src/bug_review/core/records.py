@@ -142,6 +142,7 @@ class WaveReview(ReviewModel):
     observed_behavior: str = ""
     source_correlation: str = ""
     diagnostic: str = ""
+    diagnostic_receipt_id: str = ""  # Signed failed WaveInfo attempt, never positive evidence.
 
 
 class ScenarioFacts(ReviewModel):
@@ -308,6 +309,18 @@ class CaseRecord(ReviewModel):
     events: list[ReviewEvent] = Field(default_factory=list)
 
 
+class DecisionInvestigation(ReviewModel):
+    """Record the attempted inquiry and explicit boundary of an unresolved claim."""
+
+    question: str = Field(min_length=1, max_length=600)
+    source_refs: list[str] = Field(min_length=1, max_length=12)
+    evidence_ids: list[str] = Field(default_factory=list, max_length=12)
+    findings: str = Field(min_length=1, max_length=1600)
+    blocker: Literal["specification_missing", "evidence_unavailable", "causality_unresolved", "claim_not_reproduced"]
+    remaining_gap: str = Field(min_length=1, max_length=800)
+    next_action: str = Field(min_length=1, max_length=800)
+
+
 class Decision(ReviewModel):
     """Represent one evidence based Bug verdict."""
 
@@ -319,6 +332,7 @@ class Decision(ReviewModel):
     rtl_ref: str = ""
     first_error: str = ""
     causal_chain: str = ""
+    investigation: DecisionInvestigation | None = None
 
 
 class BugRecord(ReviewModel):

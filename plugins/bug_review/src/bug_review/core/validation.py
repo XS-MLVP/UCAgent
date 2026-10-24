@@ -115,10 +115,44 @@ def case_issues(index: ReviewIndex, case: CaseRecord, waveinfo,
     wave = case.waveform
     if require_wave and wave.conclusion != "inconclusive" and not wave.receipt_id:
         add("waveform.receipt_id", "decisive waveform conclusion needs a signed receipt")
-    if require_wave and failed and analysis.category in {"suspected_dut", "confirmed_dut"}:
-        if not wave.receipt_id and not wave.diagnostic.strip():
-            add("waveform", "DUT candidate needs a receipt or concrete diagnostic")
-    if require_wave and wave.receipt_id:
+    needs_investigation = failed and analysis.category in {
+        "unreviewed", "insufficient_evidence", "spec_ambiguous", "suspected_dut", "confirmed_dut"}
+    if require_wave and needs_investigation:
+        if not wave.receipt_id:
+            diagnostic = (waveinfo.get_analysis_receipt(wave.diagnostic_receipt_id)
+                          if wave.diagnostic_receipt_id else None)
+            status = (diagnostic or {}).get("result", {}).get("status")
+            if (not wave.diagnostic.strip() or not diagnostic
+                    or diagnostic.get("arguments", {}).get("test_case_name") != entry.waveform_test_case_name
+                    or status not in {"empty_waveform", "waveform_parse_error", "waveform_not_found_in_latest_session",
+                                      "waveform_data_directory_missing", "waveform_session_missing",
+                                      "waveform_missing_but_test_data_exists", "wavekit_unavailable"}):
+                add("waveform", "Unresolved failure needs final waveform evidence or a signed failed "
+                    "WaveInfo attempt for this exact case plus a concrete blocker; a missing-evidence "
+                    "statement or metadata-only call does not complete investigation")
+            elif waveinfo.analyze(test_case_name=entry.waveform_test_case_name).get("status") != status:
+                add("waveform.diagnostic_receipt_id", "The failed attempt is stale; inspect the current "
+                    "dump and obtain evidence instead of reusing an earlier missing/corrupt-file diagnosis")
+            elif status != "wavekit_unavailable" and not case.replay.reruns:
+                add("replay.reruns", "Missing/unreadable dump needs a recorded targeted recovery replay; "
+                    "preserve the baseline and inspect fixture Finish/flush/teardown first")
+        elif waveinfo.get_bug_document_evidence(wave.receipt_id).get("success") is not True:
+            add("waveform.receipt_id", "Investigation needs usable final evidence, not metadata or an exploratory receipt")
+        elif not all((wave.observed_behavior.strip(), wave.alignment_evidence.strip(),
+                      wave.source_correlation.strip())):
+            add("waveform", "Explain observed behavior, transaction/sample alignment and source correlation "
+                "even when the conclusion remains inconclusive; use PatchCaseDraft waveform analysis leaves")
+        if wave.receipt_id and not any(event.source_kind == "waveform"
+                and event.receipt_id in {item.receipt_id for item in case_waveforms(case)}
+                for event in case.events):
+            add("events", "Locate an actual reached transaction or observation with ApplyWaveformEvent "
+                "using a signed window and exact signal/time. A receipt plus prose alone does not "
+                "finish investigation. Use trigger or normal_reference when no deviation is proven; "
+                "never invent first_deviation to satisfy this check")
+        if not case.scenario_steps:
+            add("scenario_steps", "Record actual execution reach, the failed assertion/timeout and any "
+                "not_reached operations; do not demand waveform evidence for operations after an abort")
+    if wave.receipt_id:
         receipt = waveinfo.get_analysis_receipt(wave.receipt_id)
         if receipt is None:
             add("waveform.receipt_id", "signed receipt is unavailable")
@@ -146,13 +180,59 @@ def case_issues(index: ReviewIndex, case: CaseRecord, waveinfo,
                 add("waveform", "DUT conclusion needs observed, alignment and source analysis")
             if waveinfo.get_bug_document_evidence(wave.receipt_id).get("success") is not True:
                 add("waveform.receipt_id", "receipt is not usable final evidence")
-    for extra in case.additional_waveforms:
+    for position, extra in enumerate(case.additional_waveforms):
         copy = case.model_copy(deep=True)
         copy.waveform = extra
         copy.additional_waveforms = []
         copy.events = []
-        copy.scenario_steps = []
-        issues.extend(case_issues(index, copy, waveinfo, require_wave=True))
+        # Archived windows remain signed evidence, not independent cases that
+        # must repeat the primary investigation before a receipt can be attached.
+        for issue in case_issues(index, copy, waveinfo):
+            issue["field"] = issue["field"].replace("waveform", f"additional_waveforms.{position}", 1)
+            issues.append(issue)
+    return issues
+
+
+def decision_investigation_issues(bug, cases, source_root):
+    """Reject an uninvestigated unknown without requiring a fabricated DUT verdict."""
+    if bug.decision.verdict != "inconclusive":
+        return []
+    base = f"bugs/{bug.bug_id}/decision/investigation"
+    investigation = bug.decision.investigation
+    if investigation is None:
+        return [{"field": base, "problem": "Investigate the unresolved claim before closing it: "
+                 "record the question, inspected source_refs, actual evidence_ids, findings, blocker, "
+                 "remaining_gap and next_action. Missing first_deviation alone is not an investigation"}]
+    issues = []
+    for ref in investigation.source_refs:
+        try:
+            source_lines(source_root, ref, 1)
+        except (ValueError, OSError) as error:
+            issues.append({"field": base + "/source_refs", "problem": str(error)})
+    measured = False
+    for evidence_id in investigation.evidence_ids:
+        binding = next((item for item in bug.evidence_bindings if item.evidence_id == evidence_id), None)
+        case = cases.get(binding.case_id) if binding else None
+        event = next((item for item in case.events if item.event_id == binding.event_id), None) if case else None
+        if (not binding or binding.role == "reported_only" or not case or not event
+                or binding.case_id not in bug.case_ids):
+            issues.append({"field": base + "/evidence_ids", "problem": f"{evidence_id} must be this claim's actual event"})
+        elif event.source_kind == "waveform":
+            measured = True
+    linked = [cases[key] for key in bug.case_ids if key in cases]
+    if investigation.blocker == "causality_unresolved" and not measured:
+        issues.append({"field": base + "/evidence_ids", "problem": "Before declaring causal uncertainty, "
+            "inspect a claim-specific boundary and bind a measured waveform event. A trigger or normal "
+            "observation is valid; first_deviation is not required for an unresolved claim"})
+    if investigation.blocker == "evidence_unavailable" and (not linked or not any(
+            case.waveform.diagnostic_receipt_id and not case.waveform.receipt_id for case in linked)):
+        issues.append({"field": base + "/blocker", "problem": "Evidence unavailable needs a linked case's "
+            "validated failed-wave diagnostic; readable evidence with unresolved interpretation is causal uncertainty"})
+    if investigation.blocker == "claim_not_reproduced" and (not linked or any(
+            case.replay.status in {"failed", "error", "xpassed"} and case.failure_analysis.category
+            in {"unreviewed", "insufficient_evidence", "suspected_dut", "confirmed_dut"} for case in linked)):
+        issues.append({"field": base + "/blocker", "problem": "Linked unresolved failures still need "
+            "investigation; explain their observations rather than declaring the claim not reproduced"})
     return issues
 
 
@@ -205,6 +285,7 @@ def validate_correlation(index: ReviewIndex, cases: dict[str, CaseRecord],
             issue(f"roots/{root.root_id}/primary_evidence_id", "primary preview needs a waveform event")
     for bug_id, bug in bugs.items():
         base = f"bugs/{bug_id}"
+        issues.extend(decision_investigation_issues(bug, cases, source_root))
         if bug.bug_id != bug_id:
             issue(f"{base}/bug_id", "does not match index identity")
         if bug_id not in index.bugs:

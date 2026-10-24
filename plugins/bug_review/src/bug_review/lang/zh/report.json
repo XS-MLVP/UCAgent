@@ -200,5 +200,7 @@
   "investigation_unresolved": "未排除",
   "investigation_observed": "动态观测",
   "investigation_static_inference": "静态推导",
-  "investigation_fix_not_performed": "修复验证：本轮未执行。缺陷确认不等于已修复。"
+  "investigation_fix_not_performed": "修复验证：本轮未执行。缺陷确认不等于已修复。",
+  "unresolved_investigation": "未定问题的调查记录",
+  "next_investigation": "后续取证"
 }

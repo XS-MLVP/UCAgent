@@ -24,3 +24,21 @@ Use `ApplyWaveformEvent` after attaching the receipt and submitting any referenc
 
 
 Begin an unknown-signal investigation with `ReviewSignalCatalog(case_id, contains, offset, limit)` and use its real full paths and raw time bounds. Reuse that catalog within the same snapshot. `ReviewWorkQueue` groups only shared reading context; each Case retains its own measurements. Use `ReviewCaseContext` rather than repeatedly reading the full index/schema. If Check reports `no_progress`, inspect its exact gap and pause identical retries.
+
+本阶段查询 `ReviewWorkQueue(stage="dut_evidence", limit=5)`，包含尚缺的签名波形证据；Case 的分析文字通过 CreateCaseDraft → PatchCaseDraft → UpdateCaseRecords 修订，收据与事件继续使用专用工具。
+
+WaveInfo 参数优先级：非空 `signal_groups` 覆盖 `signal_group_preset`；只有未提供显式分组时才展开预设。显式分组仍必须通过完整性与精确路径校验，失败时不回退到预设。`recommended_evidence_call` 会清空预设名，直接使用其中的完整参数取得后续收据。
+
+### 断言终止与波形完整性
+
+`insufficient_evidence` / `spec_ambiguous` 是调查待办，不能通过写一句缺口说明跳过 `dut_evidence`。默认盘点所有尚未排除 DUT 的失败项，检查 FST/VCD 是否可解析及实际起止时间；文件存在不等于可解析，可解析也不代表整个测试流程执行完。
+
+先核对 traceback、API 与 fixture：assert/TimeoutError 会终止当前测试调用，但 pytest 正常 teardown 仍应执行 `Finish()`。区分空/损坏文件、teardown/进程崩溃、以及断言后操作未执行；不可直接把短波形称为损坏。`scenario_steps` 必须记录已执行步骤、失败位置和 `not_reached` 操作。用现有窗口分析失败之前的请求、接受、响应、采样与内部传播；例如 P 区读回断言失败后，Q 区访问尚未执行，仍应分析 P 区写读链路。禁止移除断言、强制继续原 Case 或把补充运行伪装为原始证据。
+
+有可用收据时，即使仍未定，也要通过 `CreateCaseDraft → PatchCaseDraft → UpdateCaseRecords` 填写 `waveform.observed_behavior`、`waveform.alignment_evidence`、`waveform.source_correlation`。这些是分析字段；receipt、window、signal_groups、viewer 仍只能由证据工具写入。
+
+真实无法取证时，执行精确 Case 的 WaveInfo，把失败收据 ID 写入 `waveform.diagnostic_receipt_id`，诊断写入 `waveform.diagnostic`。空/缺失/不可解析 dump 必须先检查 Finish/flush/teardown 并记录定向恢复复跑；元数据探测、参数错误、找错信号或仅写“待补波形”不能完成调查。确认依赖缺失可用同一 Case 的 `wavekit_unavailable` 失败收据记录阻塞，不循环复跑测试。
+
+## Measured observations and incremental edits
+
+For each unresolved failed Case with readable evidence, use ApplyWaveformEvent to record an actually reached boundary from the signed window. A trigger or normal_reference is valid when no deviation is proven. Save scenario_steps and narrative incrementally; stage Check requires complete investigation. Archived additional_waveforms are not independent Cases. Patch their narrative with additional_waveforms.0.observed_behavior and related analysis leaves when needed; receipt identity remains protected. See Guide_Doc/analysis.md section 未定声明调查.

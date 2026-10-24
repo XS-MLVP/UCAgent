@@ -411,15 +411,82 @@ ApplyReceiptToCase 会保留被替换的主要收据到 additional_waveforms，�
 
 通用文件工具只允许编辑 notes、analysis/drafts 和 wave_signal_presets.json；正式 case、索引、修订、报告与测试回执由专用工具写入。用 ResolveReviewCase(case_id=完整节点 ID) 获取精确身份，禁止根据 case_XXXX.json 编号或压缩摘要猜测映射。其他 Case 文件损坏不应阻塞精确身份查询。
 
-每批先 CreateCaseDraft(case_ids=[完整 ID，最多 5 个])，读取返回的 draft_path 并仅修改本轮分析字段，再 UpdateCaseRecords(draft_path=...)。草稿从现有记录复制，保留 replay、签名字段和 base_sha256，不要从记忆重建整条记录。提交若提示记录已变化，重新 CreateCaseDraft 并合并本轮分析，不能删除 base_sha256 绕过冲突。工具硬性拒绝超过 5 个 Case 的批次；每批校验提交后再处理下一批。
+每批先 CreateCaseDraft(case_ids=[完整 ID，最多 5 个])，用 PatchCaseDraft(draft_path, expected_sha256, patches=[{case_id, fields}]) 按精确 Case ID 与字段路径修改本轮分析，再 UpdateCaseRecords(draft_path=...)；无需读取或重写完整 JSON、猜测行号或反复 ReplaceStringInFile。expected_sha256 使用 CreateCaseDraft 返回的 draft_sha256，后续修改使用最新返回值。草稿从现有记录复制，保留 replay、签名字段和 base_sha256，不要从记忆重建整条记录。提交若提示记录已变化，重新 CreateCaseDraft 并合并本轮分析，不能删除 base_sha256 绕过冲突。工具硬性拒绝超过 5 个 Case 的批次；每批校验提交后再处理下一批。
 
 先 ApplyReceiptToCase 附着真实收据；再 ApplyWaveformEvent(case_id, event_id, execution_id, receipt_id, time, signal_path, kind, description, condition, expected, step_id) 保存事件。time 使用波形原始时间戳，signal_path 从签名信号列表选择；工具自动读取完整位宽的二进制 raw_value（保留 x/z），不得手填十六进制或猜测总线宽度。所选 scenario step 必须已经提交；expected、condition 与 RTL 语义仍需人工／模型依据 Spec 分析，工具读取数值不等于确认 Bug。缺失或改变的快照拒绝新增测量，保留历史证据并说明缺口。
 
 
 ## 有界调查与实际校验进度
 
-使用 ReviewWorkQueue(limit=5) 获取缺少分析／波形／事件或记录损坏的精确 Case 列表。队列不把“附着了 receipt”视为完成。scenario_key 只表示可以共用一份 Spec/RTL 阅读上下文，不能代表同一根因，也不能把某 Case 的波形结论复制到其他成员。用 ReviewCaseContext(case_id, include_sources=false) 获取单 Case 的精简上下文；确需原文时打开 include_sources，最多附带四段来源。完整 Schema、收据和报告只在具体问题需要时读取。
+使用 ReviewWorkQueue(stage="case_triage", limit=5) 或 ReviewWorkQueue(stage="dut_evidence", limit=5) 获取缺少分析／波形／事件或记录损坏的精确 Case 列表。队列不把“附着了 receipt”视为完成。scenario_key 只表示可以共用一份 Spec/RTL 阅读上下文，不能代表同一根因，也不能把某 Case 的波形结论复制到其他成员。用 ReviewCaseContext(case_id, include_sources=false) 获取单 Case 的精简上下文；确需原文时打开 include_sources，最多附带四段来源。完整 Schema、收据和报告只在具体问题需要时读取。
 
 ReviewStageProgress 与 ReviewWorkQueue 分别返回 declared_stage_status 和 validated_stage_status。前者是已提交的阶段声明；后者来自真实 Check，正式记录、收据或来源变更后变为 stale，不代表仍然通过。相同输入与相同失败诊断连续三次时，Checker 暂停模型循环并保留 no_progress 诊断；先修改对应记录或补充缺失证据，再恢复，不以重新跑完整测试来处理格式错误。原始阶段门禁仍然执行。
 
 重复事件测量按源文件身份／大小／mtime／ctime、信号和时间戳复用缓存；任何源身份变化重新读取。发布阶段清空测量缓存并重新检查。不会缓存整个阶段通过结果来跳过根因、引用或最终发布验证。
+
+
+## 结构化草稿修订
+
+`PatchCaseDraft` 的 `patches` 每项包含 `case_id` 和 `fields`；例如 `fields={"failure_analysis.rationale.attribution_reason":"依据当前 Case 的断言与源码说明归因", "failure_analysis.rationale.remaining_gap":"列出尚缺的具体证据"}`。一次提交本批全部已核实字段；不同 Case 独立填写。只允许修改 `test_review`、`failure_analysis`、`scenario_steps`，数组整项替换；回放、身份、Bug 关联、波形收据及事件由对应专用工具维护。草稿修改成功不等于分析完成；`UpdateCaseRecords` 对本批执行初判完整性检查，失败只修正返回的字段，不等全集完成后才检查。队列必须指定当前阶段：初判队列不包含下一阶段的波形待办。
+
+WaveInfo 参数优先级：非空 `signal_groups` 覆盖 `signal_group_preset`；只有未提供显式分组时才展开预设。显式分组仍必须通过完整性与精确路径校验，失败时不回退到预设。`recommended_evidence_call` 会清空预设名，直接使用其中的完整参数取得后续收据。
+
+### 断言终止与波形完整性
+
+`insufficient_evidence` / `spec_ambiguous` 是调查待办，不能通过写一句缺口说明跳过 `dut_evidence`。默认盘点所有尚未排除 DUT 的失败项，检查 FST/VCD 是否可解析及实际起止时间；文件存在不等于可解析，可解析也不代表整个测试流程执行完。
+
+先核对 traceback、API 与 fixture：assert/TimeoutError 会终止当前测试调用，但 pytest 正常 teardown 仍应执行 `Finish()`。区分空/损坏文件、teardown/进程崩溃、以及断言后操作未执行；不可直接把短波形称为损坏。`scenario_steps` 必须记录已执行步骤、失败位置和 `not_reached` 操作。用现有窗口分析失败之前的请求、接受、响应、采样与内部传播；例如 P 区读回断言失败后，Q 区访问尚未执行，仍应分析 P 区写读链路。禁止移除断言、强制继续原 Case 或把补充运行伪装为原始证据。
+
+有可用收据时，即使仍未定，也要通过 `CreateCaseDraft → PatchCaseDraft → UpdateCaseRecords` 填写 `waveform.observed_behavior`、`waveform.alignment_evidence`、`waveform.source_correlation`。这些是分析字段；receipt、window、signal_groups、viewer 仍只能由证据工具写入。
+
+真实无法取证时，执行精确 Case 的 WaveInfo，把失败收据 ID 写入 `waveform.diagnostic_receipt_id`，诊断写入 `waveform.diagnostic`。空/缺失/不可解析 dump 必须先检查 Finish/flush/teardown 并记录定向恢复复跑；元数据探测、参数错误、找错信号或仅写“待补波形”不能完成调查。确认依赖缺失可用同一 Case 的 `wavekit_unavailable` 失败收据记录阻塞，不循环复跑测试。
+
+## 未定声明调查
+
+可读波形的失败候选必须包含 `ApplyWaveformEvent` 测量的实际事件。先保存场景步骤，再附收据、测量事件；允许增量保存，阶段 Check 才要求调查完整。确认不了偏差时记录真实 `trigger` 或 `normal_reference`，不能伪造首错。历史 `additional_waveforms` 只验证证据身份；其说明可用 `PatchCaseDraft` 的 `additional_waveforms.0.observed_behavior` 等分析叶更新。
+
+不能把“没有共同首错”直接当作所有成员未定的理由：先判断各自的外部违例，再解释 RTL；只有证据支持共同原因才合并 ROOT。`earliest_observed` 允许明确表示更早内部边界未定位。已证实的外部异常与未定位的内部首错要分别说明。
+
+未定也需要调查。下面是一个完整的 Bug 记录形状（引用和事件 ID 必须替换为本次实际来源）：
+
+```json
+{
+  "schema": "bug_review.v9",
+  "record_type": "bug",
+  "bug_id": "MSG-LATCH",
+  "case_ids": ["tests/test_demo.py::test_message"],
+  "spec_refs": ["spec.md:1"],
+  "rtl_refs": ["rtl.v:1"],
+  "phenomenon": {
+    "scenario": {"summary": "请求已接受后检查返回消息"},
+    "spec_expected": {"summary": "返回当前请求的消息字段"},
+    "actual": {"summary": "响应窗口出现旧消息字段，尚未确定输入采样边界"},
+    "bug_root_cause": "待核实消息寄存器写使能与输入接受关系"
+  },
+  "decision": {
+    "verdict": "inconclusive",
+    "review_confidence": null,
+    "root_id": null,
+    "rationale": "已检查响应窗口，但输入归属仍有歧义",
+    "investigation": {
+      "question": "响应消息是否属于当前被接受的请求？",
+      "source_refs": ["spec.md:1", "rtl.v:1"],
+      "evidence_ids": ["response-observed"],
+      "findings": "有效响应时消息保持旧值；当前窗口未覆盖输入握手，无法排除驱动保持旧请求。",
+      "blocker": "causality_unresolved",
+      "remaining_gap": "缺少同一次执行的输入接受边界及消息寄存器更新证据。",
+      "next_action": "检查同一波形的请求 valid/ready 和消息寄存器写使能，区分旧请求重复接受与消息未更新。"
+    }
+  },
+  "evidence_bindings": [{
+    "evidence_id": "response-observed",
+    "case_id": "tests/test_demo.py::test_message",
+    "event_id": "response-1",
+    "role": "corroborating",
+    "reason": "该 Case 已测量的有效响应观察",
+    "remaining_gap": "输入归属未定位"
+  }]
+}
+```
+
+`blocker` 的选择：`specification_missing` 需列出实际检索过的来源及缺失要求；`evidence_unavailable` 需关联有效失败波形诊断；`causality_unresolved` 需本现象的真实波形事件、已经尝试的区分方法及剩余缺口；`claim_not_reproduced` 不能掩盖仍未解释的失败候选。对仍可通过现有信号查询解决的问题，先执行查询再结案。工具和 Checker 不替你判断 DUT，也不要求确认数量。

@@ -178,7 +178,8 @@ class CreateCaseDraft(UCTool):
             atomic_write_json(within_output(output, relative), {"cases": cases, "base_sha256": base_sha256})
             return {"success": True, "case_ids": selected,
                     "draft_path": str(Path(self.output_dir) / relative),
-                    "next_action": "Read and edit this draft, then UpdateCaseRecords; never edit cases/ directly"}
+                    "draft_sha256": hashlib.sha256(within_output(output, relative).read_bytes()).hexdigest(),
+                    "next_action": "Use PatchCaseDraft with exact case IDs and field paths, then UpdateCaseRecords"}
         except (ValueError, OSError, KeyError, TypeError) as error:
             return {"success": False, "error_code": "CASE_DRAFT_INVALID", "error": str(error)[:1200]}
 
@@ -899,7 +900,6 @@ def validate_case_replacement(index, current, replacement, waveinfo, source_root
             "extra": sorted(set(replacement.bug_ids) - linked),
             "next_action": "Use CommitAttribution for Bug-to-case changes"})
     issues.extend(case_issues(index, replacement, waveinfo,
-                             require_wave=bool(replacement.waveform.receipt_id or replacement.additional_waveforms),
                              source_root=source_root))
     if issues:
         raise ReviewIssues(issues)
@@ -1067,6 +1067,7 @@ class UpdateCaseRecords(UCTool):
             index = load_record(output, "review_index.json", "index")
             source_root = prepared_source_root(output)
             writes: list[tuple[Path, Any]] = []
+            triage_issues = []
             for case_id, item in cases.items():
                 entry = index.cases.get(case_id)
                 if entry is None:
@@ -1078,7 +1079,10 @@ class UpdateCaseRecords(UCTool):
                 if replacement.case_id != case_id:
                     raise ValueError(f"draft key {case_id} does not match record case_id {replacement.case_id}")
                 validate_case_replacement(index, current, replacement, self.waveinfo, source_root)
+                triage_issues.extend(case_issues(index, replacement, self.waveinfo, require_triage=True, source_root=source_root))
                 writes.append((within_output(output, entry.record_path), replacement))
+            if triage_issues:
+                raise ReviewIssues(triage_issues)
             for target, replacement in writes:
                 atomic_write_json(target, replacement.model_dump(mode="json", by_alias=True))
             return {"success": True, "updated": len(writes), "case_ids": sorted(cases)}

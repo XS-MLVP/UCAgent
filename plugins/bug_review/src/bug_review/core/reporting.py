@@ -447,6 +447,14 @@ def render_pages(output: Path, index, cases: dict, bugs: dict, roots, coverage) 
                     details += f"<br>{escape(LABELS['remaining_gap'])}: {escape(binding.remaining_gap)}"
                 details += "</p>"
             technical.append(details)
+            inquiry = bug.decision.investigation
+            if inquiry:
+                technical.append(f"<details class='unresolved-investigation'><summary>{escape(LABELS['unresolved_investigation'])}</summary>"
+                    f"<p>{escape(inquiry.question)}</p><p>{escape(inquiry.findings)}</p>"
+                    f"<p>{escape(LABELS['remaining_gap'])}: {escape(inquiry.remaining_gap)}</p>"
+                    f"<p>{escape(LABELS['next_investigation'])}: {escape(inquiry.next_action)}</p>"
+                    + " · ".join(source_link(ref, compact=True) for ref in inquiry.source_refs) + "</details>")
+                references.extend(inquiry.source_refs)
             references.extend([bug.decision.spec_ref, *phenomenon.spec_expected.source_refs, *bug.spec_refs])
             references.extend([bug.decision.rtl_ref, *bug.rtl_refs])
             references.extend(ref for binding in bug.evidence_bindings for event in cases[binding.case_id].events

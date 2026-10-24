@@ -89,3 +89,16 @@ For focused record edits, `DescribeReviewSchema` accepts `field_path` (for examp
 阶段声明与已通过 Check 的记录分开返回为 declared_stage_status / validated_stage_status；正式记录、收据和源文件身份变化会令校验记录 stale。相同输入上连续三次相同 Check 失败会触发 set_break 暂停模型循环，不创建成功结果；在无人值守适配器中，不完整退出仍可能显示 failed，应读取 no_progress 诊断后恢复。该门禁针对重复 Check，不是所有工具调用的通用次数限制。
 
 事件测量只缓存相同源文件身份、大小、mtime/ctime、信号与时间戳；发布前清空缓存。语义校验及最终全阶段检查继续执行，不把声明或缓存命中当作完整复核。
+
+
+### Bounded case editing
+
+Use `CreateCaseDraft` for up to five exact Case IDs, `PatchCaseDraft` to replace analysis fields by dotted path, and `UpdateCaseRecords` to validate and submit the batch. Draft hashes detect stale edits; replay and signed evidence are not patchable. Each submitted batch must pass the existing triage completeness rules, so missing reasoning is reported before the next batch. `ReviewWorkQueue(stage="case_triage")` excludes future waveform requirements; use `stage="dut_evidence"` for waveform work. This reduces JSON transcription without relaxing source or evidence gates.
+
+0.4.4：未定失败项进入强制取证队列；波形盘点验证解析与时间范围，区分 assert 后未执行的场景与损坏 dump。最终证据必须附观察、对齐、源码分析；缺失证据必须提供同 Case 的签名失败收据与具体恢复记录。PatchCaseDraft 开放波形分析文字，继续保护签名机器字段。
+
+## 0.4.5：调查完成与历史波形校验
+
+历史窗口不再重复执行主 Case 的调查完整性检查；机器字段和已声明的确定性结论仍校验，错误指向 additional_waveforms 的具体索引。增量记录更新与阶段完成分开，避免先补说明还是先附证据的互相阻塞。
+
+可读波形需记录真实可定位事件；未定裁决需结构化 decision.investigation，保留实际查证、剩余缺口和后续区分方法。可见输出异常不等于已经定位内部首错，也不应仅因无法合并共同根因而丢弃独立证据。门禁约束调查过程，不规定确认数量。报告在折叠详情中保留未定调查。
