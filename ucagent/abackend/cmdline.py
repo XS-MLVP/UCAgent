@@ -1,4 +1,4 @@
-#coding: utf-8 -*-
+"""Command execution with bounded failure handling and activity monitoring."""
 
 
 from .base import AgentBackendBase
@@ -7,6 +7,9 @@ from ucagent.util.log import warning, info
 import ucagent.util.functions as fc
 from ucagent.util.functions import get_abs_path_cwd_ucagent, process_bash_cmd
 import os
+import re
+import time
+from pathlib import Path
 
 
 class UCAgentCmdLineBackend(AgentBackendBase):
@@ -30,8 +33,11 @@ class UCAgentCmdLineBackend(AgentBackendBase):
         self.pre_bash_cmd = pre_bash_cmd or []
         self.post_bash_cmd = post_bash_cmd or []
         self.abort_pattern = abort_pattern or []
+        if isinstance(max_continue_fails, bool) or not isinstance(max_continue_fails, int) or max_continue_fails < 1:
+            raise ValueError("max_continue_fails must be a positive integer")
         self.max_continue_fails = max_continue_fails
         self._fail_count = 0
+        self.last_failure = None
         self.render_files = render_files or {}
         self.cfg_bash_cmd = cfg_bash_cmd or []
         self.cfg_bash_enable = cfg_bash_enable
@@ -92,14 +98,49 @@ class UCAgentCmdLineBackend(AgentBackendBase):
         )
         if interrupted:
             self._fail_count = 0
+            self.last_failure = None
             return return_code, output_lines
         if return_code != 0:
             self._fail_count += 1
-            if self._fail_count >= self.max_continue_fails:
-                warning(f"Maximum continuous failures reached ({self.max_continue_fails}). Aborting further operations.")
+            diagnostic = "\n".join(output_lines[-80:]).lower()
+            status = re.search(
+                r"(?:http(?:/\d(?:\.\d)?)?\s+|(?:status|error)(?:\s+code)?[\s:=]+|unexpected status\s+)([45]\d\d)\b",
+                diagnostic,
+            )
+            status_code = int(status.group(1)) if status else None
+            permanent = return_code in (126, 127) or status_code in (400, 401, 403, 404, 405, 422) or any(
+                marker in diagnostic for marker in (
+                    "error loading config", "error parsing configuration", "invalid configuration", "invalid api key",
+                    "model_not_found", "command not found", "already has an active writer",
+                )
+            )
+            exhausted = self._fail_count >= self.max_continue_fails
+            transient = status_code == 429 or (status_code is not None and status_code >= 500) or any(
+                marker in diagnostic for marker in ("connection reset", "connection timed out", "connection refused", "temporary failure", "stream disconnected")
+            )
+            self.last_failure = {
+                "category": "configuration" if permanent else "transient" if transient else "command_failed",
+                "http_status": status_code,
+                "attempt": self._fail_count,
+                "retryable": not permanent and not exhausted,
+            }
+            message = (
+                f"Backend failure: {self.last_failure['category']}; "
+                f"HTTP={status_code}; attempt={self._fail_count}/{self.max_continue_fails}. "
+                + ("Stopped; correct the configuration before resuming." if permanent
+                   else "Retry limit reached." if exhausted else "Retrying with bounded backoff.")
+            )
+            warning(message)
+            self._echo_message(message)
+            if permanent or exhausted:
                 self.vagent.set_break(True)
+            else:
+                deadline = time.monotonic() + min(30, 2 ** min(self._fail_count - 1, 5))
+                while not self.vagent.is_break() and time.monotonic() < deadline:
+                    time.sleep(min(0.1, max(0, deadline - time.monotonic())))
         else:
             self._fail_count = 0
+            self.last_failure = None
         return return_code, output_lines
 
     def _has_active_tool_call(self, activity_marks=None):
@@ -210,11 +251,19 @@ class UCAgentCmdLineBackend(AgentBackendBase):
         info("All config files rendered.")
 
     def init(self):
+        """Initialize task-local configuration without discarding saved sessions."""
         self.CWD = self.vagent.workspace
+        if getattr(getattr(self.config, "backend", None), "key_name", None) == "codex":
+            os.environ["CODEX_HOME"] = os.path.join(self.CWD, ".codex")
+            if os.environ.get("UCSWARM_MANAGED_CODEX") == "1":
+                if not os.environ.get("OPENAI_API_BASE") or not os.environ.get("OPENAI_MODEL"):
+                    raise ValueError("Managed Codex requires explicit OPENAI_API_BASE and OPENAI_MODEL")
         self.MSG_FILE = get_abs_path_cwd_ucagent(self.CWD, "cmdline.txt")
         self.cmdline_dir = os.path.dirname(self.MSG_FILE)
         os.makedirs(self.cmdline_dir, exist_ok=True)
         self._call_count = 0
+        if getattr(getattr(self.config, "backend", None), "key_name", None) == "codex":
+            self._call_count = int(any((Path(self.CWD) / ".codex" / "sessions").rglob("*.jsonl")))
         for cmd in self.pre_bash_cmd:
             self.process_bash_cmd(cmd.format(**self._get_dft_ctx()))
         self.render_config_files()
@@ -239,9 +288,16 @@ class UCAgentCmdLineBackend(AgentBackendBase):
         return self.do_work_values(instructions, config)
 
     def do_work_values(self, instructions, config):
+        """Run one command round with the current endpoint and resumable context."""
         assert "messages" in instructions, "Messages not found in instructions."
+        if getattr(getattr(self.config, "backend", None), "key_name", None) == "codex":
+            server = getattr(getattr(self.vagent, "pdb", None), "_mcp_server", None)
+            if server is None or not isinstance(server.port, int) or server.port <= 0:
+                self.vagent.set_break(True)
+                raise ValueError("Codex requires an active MCP server before executing model work; enable --mcp-server")
+        self.render_config_files()
         msg_size = len(instructions["messages"])
-        with open(self.MSG_FILE, "w+") as f:
+        with open(self.MSG_FILE, "w+", encoding="utf-8") as f:
             for i, m in enumerate(instructions["messages"]):
                 f.write(m)
                 if i != msg_size - 1:
@@ -249,11 +305,15 @@ class UCAgentCmdLineBackend(AgentBackendBase):
         cli_cmd = self.cli_cmd_ctx
         if self._call_count == 0 and self.cli_cmd_new:
             cli_cmd = self.cli_cmd_new
-        self._call_count += 1
-        self.process_bash_cmd(cli_cmd.format(MSG_FILE=self.MSG_FILE,
+        return_code, _ = self.process_bash_cmd(cli_cmd.format(MSG_FILE=self.MSG_FILE,
                                              ASSETS=self._get_assets_path(),
                                              UC_ENV_CMD_BACKEND_EX_ARGS  =os.environ.get("UC_ENV_CMD_BACKEND_EX_ARGS",   ""),
                                              UC_ENV_CMD_BACKEND_EX_ARGS_N=os.environ.get("UC_ENV_CMD_BACKEND_EX_ARGS_N", ""),
                                              UC_ENV_CMD_BACKEND_EX_ARGS_C=os.environ.get("UC_ENV_CMD_BACKEND_EX_ARGS_C", ""),
                                              CWD=self.CWD,
                                              PORT=self._get_mcp_port()))
+        if return_code == 0 or (
+            getattr(getattr(self.config, "backend", None), "key_name", None) == "codex"
+            and any((Path(self.CWD) / ".codex" / "sessions").rglob("*.jsonl"))
+        ):
+            self._call_count += 1

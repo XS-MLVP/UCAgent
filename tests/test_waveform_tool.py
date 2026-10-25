@@ -810,6 +810,31 @@ def test_fsdb_dispatch_runs_analysis_and_receipts_with_an_injected_reader(tmp_pa
     assert selection.waveform == target
 
 
+@pytest.mark.skipif(not os.environ.get("UCAGENT_VCS_FSDB"), reason="requires a real VCS FSDB and Verdi NPI")
+def test_real_vcs_fsdb_analysis(tmp_path, monkeypatch):
+    """Read a real VCS artifact through WaveInfo without replacing the FSDB reader."""
+    import locale
+    import shutil
+
+    source = Path(os.environ["UCAGENT_VCS_FSDB"]).resolve()
+    monkeypatch.chdir(tmp_path)
+    signal = os.environ["UCAGENT_VCS_SIGNAL"]
+    assert source.is_file() and source.suffix.lower() == ".fsdb"
+    test_dir = tmp_path / "tests"
+    session = _session(test_dir, "toffee_tmp_20261024000000_123")
+    shutil.copyfile(source, session / "master/test_real_vcs.fsdb")
+    tool = WaveInfo(workspace=str(tmp_path), test_dir=str(test_dir), format_priority=["fsdb"])
+    previous_locale = locale.setlocale(locale.LC_ALL)
+    result = tool.analyze(
+        test_case_name="test_real_vcs", pattern=[{"signal": signal, "event": "change"}],
+        start_step=0, end_step=int(os.environ.get("UCAGENT_VCS_END_STEP", "100")),
+    )
+    assert locale.setlocale(locale.LC_ALL) == previous_locale
+    assert result["success"] is True, result
+    assert result["waveform_selection"]["format"] == "fsdb"
+    assert result["timeline"], result
+
+
 def test_fsdb_runtime_failure_is_actionable_and_does_not_fall_back(tmp_path, monkeypatch):
     """An unavailable preferred FSDB runtime must not silently analyze another file."""
     import wavekit

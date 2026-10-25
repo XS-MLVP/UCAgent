@@ -2557,27 +2557,49 @@ class PdbMasterApiServer:
         f_filelist_paths: Optional[List[str]] = None,
         picker_extra_args: Optional[List[str]] = None,
     ) -> List[str]:
-        fst_path = os.path.join(picker_workspace, dut_name, f"{dut_name}.fst")
+        """Build simulator-aware defaults without duplicating explicit picker options."""
+        extra_args = [arg for arg in (picker_extra_args or []) if str(arg).strip()]
+        options = {}
+        aliases = {"--sim": "sim", "--rw": "access", "--access-mode": "access",
+                   "-w": "waveform", "--wave_file_name": "waveform"}
+        position = 0
+        while position < len(extra_args):
+            option, separator, value = extra_args[position].partition("=")
+            if option in aliases:
+                key = aliases[option]
+                if not separator:
+                    position += 1
+                    value = extra_args[position] if position < len(extra_args) else ""
+                if not value or value.startswith("-") or key in options:
+                    raise ValueError(f"Picker option {option} requires one unambiguous value")
+                options[key] = value
+            position += 1
+        simulator = options.get("sim", "verilator")
+        access = options.get("access", "mem_direct" if simulator == "verilator" else "dpi").lower()
+        if access not in ("dpi", "mem_direct", "0", "1") or (simulator == "vcs" and access not in ("dpi", "0")):
+            raise ValueError("Picker access mode must be dpi or mem_direct; VCS requires dpi")
+        suffix = "fsdb" if simulator == "vcs" else "fst"
+        waveform_path = os.path.join(picker_workspace, dut_name, f"{dut_name}.{suffix}")
         cmd = ["picker", "export"]
         if main_verilog_path:
             cmd.append(main_verilog_path)
         cmd.extend([
-            "--rw",
-            "1",
             "--sname",
             selected_module,
             "--tdir",
             os.path.join(picker_workspace, ""),
             "-c",
-            "-w",
-            fst_path,
         ])
+        if "access" not in options:
+            cmd.extend(["--rw", access])
+        if "waveform" not in options:
+            cmd.extend(["-w", waveform_path])
         if filelist_path and os.path.isfile(filelist_path):
             cmd.extend(["--fs", filelist_path])
         for f_path in f_filelist_paths or []:
             if f_path and os.path.isfile(f_path):
                 cmd.extend(["--filelist", os.path.abspath(f_path)])
-        cmd.extend([arg for arg in (picker_extra_args or []) if str(arg).strip()])
+        cmd.extend(extra_args)
         return cmd
 
     def _picker_create_conflict(self, picker_workspace: str, dut_name: str, output: str) -> bool:

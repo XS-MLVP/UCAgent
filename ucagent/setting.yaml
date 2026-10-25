@@ -96,9 +96,6 @@ backend:
         - "mkdir -p {CWD}/.codex/"
       render_files:
         "{ASSETS}/mcp_codex.toml": "{CWD}/.codex/config.toml"
-      cfg_bash_cmd:
-        - "mkdir -p ~/.codex"
-        - "cp {CWD}/.codex/config.toml ~/.codex/config.toml"
       cfg_bash_enable: false
 
 mcp_server:

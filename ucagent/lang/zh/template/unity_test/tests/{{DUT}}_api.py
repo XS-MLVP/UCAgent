@@ -88,7 +88,10 @@ def dut(request):
 
     # 设置需要收集的代码行覆盖率文件(获取已有路径new_path=False) 向toffee_test传代码行递覆盖率数据
     # 代码行覆盖率 ignore 文件的固定路径为当前文件所在目录下的：{{DUT}}.ignore，请不要改变
-    set_line_coverage(request, get_coverage_data_path(request, dut, new_path=False), ignore=current_path_file("{{DUT}}.ignore"))
+    try:
+        set_line_coverage(request, get_coverage_data_path(request, dut, new_path=False), ignore=current_path_file("{{DUT}}.ignore"), dut=dut if not ucagent.is_imp_test_template() and ucagent.get_default_subfix(dut, "coverage") == "vdb" else None)
+    finally:
+        dut.Finish()
 
     # 设置用户信息到报告
     set_user_info("UCAgent-{{Version}}", "{{Email}}")
@@ -96,7 +99,6 @@ def dut(request):
 
     for g in func_coverage_group:                        # 采样覆盖组
         g.clear()                                        # 清空统计
-    dut.Finish()                                         # 清理DUT，每个DUT class 都有 Finish 方法
 
 @pytest.fixture(scope="function") # 用scope="function"确保每个测试用例都创建了一个全新的 Mock DUT
 def mock_dut():

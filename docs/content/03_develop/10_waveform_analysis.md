@@ -5,6 +5,11 @@
 
 ## 测试产物的默认后缀
 
+真实 VCS fixture 使用新版 toffee-test 的 `set_line_coverage(..., dut=dut)`，从
+`GetCoveragePath()` 取得实际 VDB，并定位生成包的 `coverage/coverage` 查询程序。
+`SetCoverage` 的参数用于选择 testdata，不能当作 VDB 路径。旧 picker 生成包缺少接口时应重建，
+不能把 `.vdb` 当 Verilator 数据；模板 fake 阶段不查询原生覆盖率。UCAgent 与 toffee-test 必须配套升级。
+
 测试 API 模板通过 `ucagent.get_default_subfix(dut, sub_type)` 选择产物后缀，`sub_type` 取 `"waveform"` 或 `"coverage"`，返回值不含前导点：
 
 | `dut.SIMULATOR` | 波形后缀 | 覆盖率后缀 |
@@ -14,6 +19,10 @@
 | `uvs` | `.usdb` | `.cdb` |
 
 该函数接受 DUT 实例或类，从属性读取仿真器名称并忽略大小写与两端空白。仅缺少 `SIMULATOR` 属性时默认使用 Verilator。属性为 `None`、空字符串、非字符串或未知名称时会报错；无效 `sub_type` 同样报错。
+
+picker 生成的 DUT 类必须提供 `SIMULATOR` 类属性（例如 `DUTAdder.SIMULATOR == "vcs"`），仅在包模块中设置同名变量无效。更新 picker 模板后需重新生成 DUT；fake DUT 会保留类上的该属性。
+
+Master 编译通过 `picker_args: ["--sim", "vcs"]` 选择 VCS，默认传 `--rw dpi` 并生成 `.fsdb`；Verilator 默认使用 `--rw mem_direct` 和 `.fst`。显式 `--rw` / `--access-mode`、`-w` / `--wave_file_name` 覆盖默认值；重复选项或 VCS 配置 `mem_direct` 会在执行前报错。picker 同时接受枚举数字 `0`（DPI）和 `1`（mem_direct），VCS 不接受 `1`。
 
 `get_coverage_data_path(request, dut, new_path)` 和 `get_waveform_path(request, dut, new_path)` 将返回的后缀用于每个测试的唯一产物路径。创建时使用 `new_path=True`，覆盖率上报时使用同一个 DUT 和 `new_path=False`，以取得原路径。VCS 的 `.vdb` 可以是目录，按完整路径传递即可。模板阶段的 fake DUT 与独立 Mock DUT 保留原 DUT 类声明的 `SIMULATOR`，无需启动真实仿真器。
 
@@ -52,6 +61,37 @@ FST、VCD、FSDB 分别使用 `wavekit` 的 `FstReader`、`VcdReader`、`FsdbRea
 这些变量由 FSDB 运行库使用，与分析格式优先级配置分别生效。缺少 NPI 时，`WaveInfo` 向验证任务报告波形无法分析及恢复动作，底层异常写入 UCAgent 运行日志；环境维护者按本节检查运行库配置。格式、读取器和依赖配置由环境维护者管理，运行时指南和工具说明只要求验证任务 LLM 调用 `WaveInfo` 并处理结果。
 
 当前浏览器查看器支持 FST/VCD。FSDB 可以通过 `WaveInfo` 查询和分析，但不会生成无法打开的在线查看链接。需要带在线查看链接的最终 Bug 证据时，先导出 FST/VCD，将其配置为参与分析的首选格式，再重新执行最终 `WaveInfo`。直接访问逻辑查看接口并选中 FSDB 时，接口返回 HTTP 415，避免打开另一份格式的波形。最终证据仍需遵循 `Guide_Doc/dut_bug_analysis.md` 的信号组、分析窗口和 receipt 要求。
+
+## 真实 VCS 验证入口
+
+完整的最小 DUT 验收使用生产编译命令构造器、已安装 picker 及其默认模板，实际编译并运行四组 128 位加法，再用 WaveInfo 核对 FSDB 中进位的位宽、时间戳和值，同时检查 VDB 测试数据：
+
+```bash
+UCAGENT_VCS_PICKER=/absolute/path/picker \
+python -m pytest -q tests/test_vcs_integration.py
+```
+
+该测试需要 VCS/Verdi 许可证、构建工具、Python 开发依赖和 NPI，使用 `--verdi-mode modern`（Verdi >= 2024.09）。未设置变量则跳过；显式启用后失败不会跳过。构建、仿真日志及 `analysis.json` 保存在 pytest 临时目录中；仿真使用子进程隔离 VCS 的退出行为。它验证编译到波形解析的链路，不启动模型任务或 Swarm 服务。
+
+在具备 VCS/Verdi 的环境生成真实 FSDB 后，可运行不替换 reader 的验收测试：
+
+```bash
+UCAGENT_VCS_FSDB=/absolute/path/test.fsdb \
+UCAGENT_VCS_SIGNAL=Adder_top.Adder.clk \
+UCAGENT_VCS_END_STEP=100 \
+python -m pytest -q tests/test_waveform_tool.py -k real_vcs_fsdb
+```
+
+信号路径和时间窗口应按真实 DUT 设置，窗口内应有跳变。未设置 `UCAGENT_VCS_FSDB` 时测试跳过；显式设置后，文件缺失、NPI 不可用或解析失败均算失败。该检查证明正式 WaveInfo 解析链路可用，仍需用已知测试激励核对信号值、时序和 DUT 正确性。
+
+环境排查注意：
+
+- Verdi NPI 初始化可能将进程 locale 改为 `C`，导致后续中文文档读取和模型指令写入出现 ASCII 编解码错误。内置读取器在初始化成功或失败后均恢复原 locale；这不会隔离原生初始化期间对其他线程的短暂影响。
+- picker 二进制、模板与 xspcomm 必须匹配；生成代码应包含 `SIMULATOR = "vcs"`。仅更新模板不能解决旧生成器仍输出已移除的 `XPin` 接口的问题。
+- Verdi W-2024.09-SP1 的 NPI 可能还需将 `$VERDI_HOME/platform/linux64/lib/Qt5/lib` 和 `$VERDI_HOME/platform/linux64/lib` 加入启动进程的 `LD_LIBRARY_PATH`，否则即使存在 `libNPI.so`，也可能因缺少 `libQt5Script.so.5` 而不可用。
+- Python 与扩展模块 ABI 应一致；若导入 VCS DUT 报 `cannot allocate memory in static TLS block`，可仅对该测试进程设置 `LD_PRELOAD=/absolute/path/libUTAdder.so`，不要全局预加载 DUT 库。
+- VCS 的 `Finish()` 可能直接结束宿主进程；已知向量断言应在调用前执行，FSDB 解析放在独立进程中验证，不能只根据构建命令退出码认定测试通过。
+- 当前 picker 的 VCS `SetCoverage("test_real_vcs.vdb")` 选择的是编译 VDB 内的测试名，不是在该路径创建独立 VDB；数据位于 DUT 包的 `Adder.vdb/snps/coverage/db/testdata/test_real_vcs`。后缀接口正确不等于 toffee-test 已完成此目录的收集与报告集成。
 
 ## 注册其他格式
 

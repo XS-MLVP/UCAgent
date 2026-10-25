@@ -95,6 +95,10 @@ class _DUT:
         self.waveform_path = path
         Path(path).touch()
 
+    def GetCoveragePath(self):
+        """Provide the actual database independently of the selected test name."""
+        return self.coverage_path
+
     def StepRis(self, callback):
         """Accept the fixture's functional coverage sampling callback."""
         self.callback = callback
@@ -118,6 +122,9 @@ def rendered_api(request, tmp_path, monkeypatch):
         "{{Email}}", "test@example.com"
     )
     dut_module = ModuleType("Demo")
+    dut_module.__file__ = str(tmp_path / "__init__.py")
+    (tmp_path / "coverage").mkdir()
+    (tmp_path / "coverage" / "coverage").touch()
     dut_module.DUTDemo = _DUT
     coverage_module = ModuleType("Demo_function_coverage_def")
     coverage_module.get_coverage_groups = lambda dut: []
@@ -141,6 +148,7 @@ def test_fixture_paths_round_trip_and_report(
     rendered_api, monkeypatch, simulator, waveform, coverage, with_request,
 ):
     """Creation and teardown reuse the same path, including VCS directories."""
+    monkeypatch.setattr(_DUT, "__module__", "Demo")
     if simulator is not None:
         monkeypatch.setattr(_DUT, "SIMULATOR", simulator, raising=False)
     request = SimpleNamespace(
@@ -169,7 +177,9 @@ def test_fixture_paths_round_trip_and_report(
     with pytest.raises(StopIteration):
         next(fixture)
     if with_request:
-        assert json.loads(request.node.__line_coverage__)["datfile"] == dut.coverage_path
+        record = json.loads(request.node.__line_coverage__)
+        assert record["database"] == dut.coverage_path
+        assert record["simulator"] == ("vcs" if coverage == "vdb" else "verilator")
     else:
         assert reports == [dut.coverage_path]
     assert dut.finished is True

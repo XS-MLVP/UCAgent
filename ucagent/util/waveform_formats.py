@@ -2,14 +2,17 @@
 
 from contextlib import AbstractContextManager
 from functools import partial
+import locale
 from pathlib import Path
 import re
+from threading import RLock
 from typing import Any, Callable
 
 
 DEFAULT_WAVEFORM_ANALYSIS_FORMAT_PRIORITY = ("fst", "vcd", "fsdb")
 WaveformReaderFactory = Callable[[str], AbstractContextManager[Any]]
 _FORMAT_NAME = re.compile(r"[a-z][a-z0-9_]*")
+_READER_INIT_LOCK = RLock()
 
 
 def validate_waveform_analysis_format_priority(value: Any) -> list[str]:
@@ -24,10 +27,15 @@ def validate_waveform_analysis_format_priority(value: Any) -> list[str]:
 
 
 def _open_wavekit_reader(path: str, reader_name: str) -> AbstractContextManager[Any]:
-    """Load wavekit only when opening a built-in waveform format."""
-    import wavekit
+    """Load native readers without retaining their process-wide locale changes."""
+    with _READER_INIT_LOCK:
+        previous_locale = locale.setlocale(locale.LC_ALL)
+        try:
+            import wavekit
 
-    return getattr(wavekit, reader_name)(path)
+            return getattr(wavekit, reader_name)(path)
+        finally:
+            locale.setlocale(locale.LC_ALL, previous_locale)
 
 
 _READERS: dict[str, WaveformReaderFactory] = {}
