@@ -799,12 +799,9 @@ def test_fsdb_dispatch_runs_analysis_and_receipts_with_an_injected_reader(tmp_pa
     assert result["waveform_selection"]["format"] == "fsdb"
     assert result["timeline"]
     assert result["waveform_analysis_receipt"]["receipt_id"]
-    assert "waveform_viewer" not in result
-    assert "cannot be displayed" in result["waveform_viewer_error"]
-    assert "operator" in result["waveform_viewer_suggestion"]
-    assert "format_priority" not in result["waveform_viewer_suggestion"]
-    assert "FST" not in result["waveform_viewer_error"]
-    assert "bug_document_fields" not in result
+    assert result["waveform_viewer"]["payload"]["viewer"] == "verdi"
+    assert result["waveform_viewer"]["url"].startswith("/api/waveform/verdi?wave=")
+    assert "bug_document_fields" in result
     selection, error = tool._discover_waveform("test_fsdb.fsdb")
     assert error is None
     assert selection.waveform == target

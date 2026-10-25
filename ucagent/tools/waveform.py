@@ -2231,7 +2231,7 @@ class WaveInfo(UCTool):
         if result.get("evidence_usable") is not True:
             return
         selected_format = (result.get("waveform_selection") or {}).get("format")
-        if selected_format and f".{selected_format}" not in WAVEFORM_VIEWER_EXTENSIONS:
+        if selected_format and f".{selected_format}" not in WAVEFORM_VIEWER_EXTENSIONS | {".fsdb"}:
             result["waveform_viewer_error"] = (
                 "The selected waveform cannot be displayed in the online viewer."
             )
@@ -2324,6 +2324,8 @@ class WaveInfo(UCTool):
                     "WaveInfo again."
                 )
             return
+        if selected_format == "fsdb":
+            payload["viewer"] = "verdi"
         result["waveform_viewer"] = OrderedDict(
             [
                 ("payload", payload),

@@ -60,7 +60,13 @@ FST、VCD、FSDB 分别使用 `wavekit` 的 `FstReader`、`VcdReader`、`FsdbRea
 
 这些变量由 FSDB 运行库使用，与分析格式优先级配置分别生效。缺少 NPI 时，`WaveInfo` 向验证任务报告波形无法分析及恢复动作，底层异常写入 UCAgent 运行日志；环境维护者按本节检查运行库配置。格式、读取器和依赖配置由环境维护者管理，运行时指南和工具说明只要求验证任务 LLM 调用 `WaveInfo` 并处理结果。
 
-当前浏览器查看器支持 FST/VCD。FSDB 可以通过 `WaveInfo` 查询和分析，但不会生成无法打开的在线查看链接。需要带在线查看链接的最终 Bug 证据时，先导出 FST/VCD，将其配置为参与分析的首选格式，再重新执行最终 `WaveInfo`。直接访问逻辑查看接口并选中 FSDB 时，接口返回 HTTP 415，避免打开另一份格式的波形。最终证据仍需遵循 `Guide_Doc/dut_bug_analysis.md` 的信号组、分析窗口和 receipt 要求。
+查看器跟随实际分析产物：VCS 默认生成 FSDB，`WaveInfo` 为它生成 Verdi 链接；Verilator 默认生成 FST，继续使用 Surfer。无需转换波形。FSDB 的信号组、窗口及 receipt 与原文件绑定，最终证据仍遵循 `Guide_Doc/dut_bug_analysis.md`。仿真器显式改用其他产物格式时，查看器跟随该格式，不猜测启动参数。
+
+Verdi 通过 CMD 服务已有的 [Xpra 浏览器会话](../02_usage/09_web_xpra.md) 打开，沿用鉴权和任务代理，无需本地 DISPLAY。CMD 主机需要可用的 Xpra/HTML5、Verdi、许可证及运行库；`cmd_api.verdi.executable` 默认从 PATH 查找 `verdi`，也可通过 `VERDI_HOME/bin/verdi` 或显式绝对路径定位。
+
+Master 新建 VCS 编译命令会自动补充 `-kdb`，保留已有 `--vflag` 参数。外部构建或既有工作区须保留由相同 DUT 使用 VCS `-kdb` 构建的 `.daidir`（其中 `simv.kdb` 的 `KDB=TRUE`）。默认自动定位唯一数据库；多个数据库时设置 `cmd_api.verdi.dbdir` 为工作区相对路径。查看时不会重编译 DUT，也不会加载工作区之外的数据库。缺失或歧义会明确报错。
+
+`GET /api/waveform/verdi?wave=...` 显示启动页，页面通过同址 POST 启动或复用会话。自动生成的 Tcl 加载原 FSDB，选中 WaveInfo 的信号集合，按文件时间单位换算显示窗口和光标；完成加载后才跳转至 Xpra 页面。文件列表中的 FSDB 也可直接打开。相同文件版本及分析参数复用会话，失败会清理进程；启动超时采用 `cmd_api.xpra.startup_timeout`。关闭浏览器不停止会话，可在 Xpra 管理页结束，CMD 停止时统一清理。分析服务不要求 GUI 正在运行，缺少查看环境不会把分析切换成另一种格式。
 
 ## 真实 VCS 验证入口
 

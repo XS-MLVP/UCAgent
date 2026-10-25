@@ -105,6 +105,9 @@ mcp_server:
 cmd_api:
   host: 127.0.0.1
   port: 8765
+  verdi:
+    executable: verdi
+    dbdir: ""
   xpra:
     executable: xpra
     max_sessions: 5

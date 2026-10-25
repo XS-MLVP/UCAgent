@@ -21,6 +21,7 @@ from .waveform_formats import (
 WAVEFORM_VIEWER_VERSION = 2
 WAVEFORM_VIEWER_SUPPORTED_VERSIONS = frozenset({1, WAVEFORM_VIEWER_VERSION})
 WAVEFORM_VIEWER_ROUTE = "/surfer/"
+VERDI_VIEWER_ROUTE = "/api/waveform/verdi"
 WAVEFORM_VIEWER_MARKER = "<WAVEFORM-VIEWER>"
 WAVEFORM_VIEWER_MAX_SIGNALS = 64
 WAVEFORM_VIEWER_EXTENSIONS = frozenset({".vcd", ".fst"})
@@ -29,9 +30,9 @@ _TOKEN_RE = re.compile(r"[A-Za-z0-9_-]+")
 _DECIMAL_RE = re.compile(r"0|[1-9][0-9]*")
 _LINK_RE = re.compile(
     rf"{re.escape(WAVEFORM_VIEWER_MARKER)}[ \t]+\[[^\]\r\n]+\]"
-    rf"\({re.escape(WAVEFORM_VIEWER_ROUTE)}\?wave=([A-Za-z0-9_-]+)\)"
+    rf"\((?:{re.escape(WAVEFORM_VIEWER_ROUTE)}|{re.escape(VERDI_VIEWER_ROUTE)})\?wave=([A-Za-z0-9_-]+)\)"
 )
-_COMMON_KEYS = frozenset({"v", "start", "end", "cursor", "signals"})
+_COMMON_KEYS = frozenset({"v", "start", "end", "cursor", "signals", "viewer"})
 _V1_KEYS = _COMMON_KEYS | {"file"}
 _V2_KEYS = _COMMON_KEYS | {"test_dir", "test_case"}
 _SESSION_RE = re.compile(r"toffee_tmp_(\d{14})_(\d{3,6})")
@@ -62,8 +63,8 @@ def normalize_waveform_file(value: Any) -> str:
         raise WaveformViewerProtocolError(
             "file must not contain empty, '.' or '..' path segments"
         )
-    if posix_path.suffix.lower() not in WAVEFORM_VIEWER_EXTENSIONS:
-        raise WaveformViewerProtocolError("file must end in .vcd or .fst")
+    if posix_path.suffix.lower() not in WAVEFORM_VIEWER_EXTENSIONS | {".fsdb"}:
+        raise WaveformViewerProtocolError("file must end in .vcd, .fst or .fsdb")
     return value
 
 
@@ -191,6 +192,10 @@ def normalize_waveform_viewer_payload(payload: Mapping[str, Any]) -> OrderedDict
         raise WaveformViewerProtocolError(
             "an analysis window requires at least one signal"
         )
+    if "viewer" in payload:
+        if payload["viewer"] != "verdi":
+            raise WaveformViewerProtocolError("viewer must be verdi when specified")
+        normalized["viewer"] = "verdi"
     return normalized
 
 
@@ -297,9 +302,11 @@ def decode_waveform_viewer_token(token: str) -> OrderedDict:
 
 
 def build_waveform_viewer_url(payload: Mapping[str, Any]) -> str:
-    """Build the same-origin relative Surfer URL for a payload."""
+    """Build the same-origin viewer URL selected by canonical evidence."""
 
-    return f"{WAVEFORM_VIEWER_ROUTE}?wave={encode_waveform_viewer_payload(payload)}"
+    use_verdi = payload.get("viewer") == "verdi" or str(payload.get("file", "")).lower().endswith(".fsdb")
+    route = VERDI_VIEWER_ROUTE if use_verdi else WAVEFORM_VIEWER_ROUTE
+    return f"{route}?wave={encode_waveform_viewer_payload(payload)}"
 
 
 def build_waveform_viewer_markdown_link(
@@ -333,7 +340,10 @@ def parse_waveform_viewer_markdown_link(line: str) -> tuple[str, OrderedDict]:
     if match is None:
         raise WaveformViewerProtocolError(
             "viewer link must use the <WAVEFORM-VIEWER> marker and "
-            "/surfer/?wave=<token> route"
+            "a tool-generated waveform viewer route"
         )
     token = match.group(1)
-    return token, decode_waveform_viewer_token(token)
+    payload = decode_waveform_viewer_token(token)
+    if f"({build_waveform_viewer_url(payload)})" not in line:
+        raise WaveformViewerProtocolError("viewer route does not match its payload")
+    return token, payload

@@ -275,6 +275,9 @@ class PdbCmdApiServer:
     def close_sessions(self):
         """Clean up owned GUI applications without closing terminal services."""
         self._xpra.close()
+        for directory in getattr(self, "_verdi_files", []):
+            directory.close()
+        self._verdi_files = []
 
     def _build_app(self):  # noqa: C901 – intentionally long; each section is self-contained
         import mimetypes
@@ -435,6 +438,9 @@ class PdbCmdApiServer:
 
         def _request_workspace(request: Optional[Request]) -> Tuple[str, str, bool]:
             return _resolve_sub_workspace(_query_sub_workspace(request))
+
+        from .verdi_routes import register_verdi_routes
+        register_verdi_routes(app, self, _request_workspace)
 
         def _safe_abs(rel_path: str, workspace_root: Optional[str] = None) -> str:
             """Resolve rel_path within workspace, raise 403 on traversal."""

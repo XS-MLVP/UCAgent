@@ -41,6 +41,8 @@ def test_vcs_compile_simulate_analyze(tmp_path, monkeypatch):
         (tmp_path / f"{name}.log").write_text(result.stdout + result.stderr)
         assert result.returncode == 0, result.stdout + result.stderr
     test_dir = tmp_path / "tests"
+    databases = list((build / "Adder").glob("*.daidir/simv.kdb"))
+    assert databases and any("KDB=TRUE" in database.read_text() for database in databases)
     session = test_dir / "data/toffee_tmp_20261024000000_123/master"
     session.mkdir(parents=True)
     waveform = session / "test_real_vcs.fsdb"

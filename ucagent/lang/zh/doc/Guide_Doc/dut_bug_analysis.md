@@ -242,6 +242,8 @@ waveform_analysis:
 </WAVEFORM-EVIDENCE>
 ````
 
+查看链接以本次 `WaveInfo` 返回值为准，完整保留其路径和 token，不按示例手工拼接。
+
 YAML 的唯一顶层键是`waveform_analysis`。关闭围栏后的第一条非空内容必须是同一 receipt 生成的`<WAVEFORM-VIEWER>`链接。
 
 结构约束：

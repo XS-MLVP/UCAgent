@@ -370,7 +370,7 @@ def collect_confirmed_waveform_records(lines: List[str]) -> dict[str, dict]:
             index += 1
         has_viewer = index < end and re.fullmatch(
             r"\s*<WAVEFORM-VIEWER>\s+\[[^\]\r\n]+\]"
-            r"\(/surfer/\?wave=[A-Za-z0-9_-]+\)\s*",
+            r"\(/(?:surfer/|api/waveform/verdi)\?wave=[A-Za-z0-9_-]+\)\s*",
             lines[index],
         )
         analysis = payload.get("waveform_analysis") if isinstance(payload, dict) else None

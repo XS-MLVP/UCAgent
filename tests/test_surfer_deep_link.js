@@ -23,6 +23,13 @@ const marked = require(path.join(
   "marked.min.js",
 ));
 
+for (const payload of [
+  {v: 1, file: "waves/test.fsdb"},
+  {v: 2, test_dir: "tests", test_case: "test_bug", viewer: "verdi"},
+]) {
+  assert.deepEqual(api.decodeToken(api.encodePayload(payload)), payload);
+}
+
 const payload = {
   v: 1,
   file: "unity_test/tests/data/波形/test_bug.fst",

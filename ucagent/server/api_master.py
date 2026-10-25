@@ -2575,6 +2575,26 @@ class PdbMasterApiServer:
                 options[key] = value
             position += 1
         simulator = options.get("sim", "verilator")
+        if simulator == "vcs":
+            flag_options = [index for index, arg in enumerate(extra_args)
+                            if arg.partition("=")[0] in ("-V", "--vflag")]
+            if len(flag_options) > 1:
+                raise ValueError("Picker simulator flags must be supplied once")
+            if flag_options:
+                index = flag_options[0]
+                option, separator, value = extra_args[index].partition("=")
+                if not separator:
+                    if index + 1 >= len(extra_args):
+                        raise ValueError("Picker simulator flags require a value")
+                    value = extra_args[index + 1]
+                if "-kdb" not in shlex.split(value):
+                    value = (value + " -kdb").strip()
+                if separator:
+                    extra_args[index] = option + "=" + value
+                else:
+                    extra_args[index + 1] = value
+            else:
+                extra_args.extend(["--vflag=-kdb"])
         access = options.get("access", "mem_direct" if simulator == "verilator" else "dpi").lower()
         if access not in ("dpi", "mem_direct", "0", "1") or (simulator == "vcs" and access not in ("dpi", "0")):
             raise ValueError("Picker access mode must be dpi or mem_direct; VCS requires dpi")

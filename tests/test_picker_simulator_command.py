@@ -57,3 +57,18 @@ def test_picker_numeric_access_values_remain_valid():
     assert "--rw=1" in command(["--sim=verilator", "--rw=1"])
     with pytest.raises(ValueError):
         command(["--sim=vcs", "--rw=1"])
+
+
+@pytest.mark.parametrize("flags", [[], ["-V", "-debug_access+all"], ["--vflag=-debug_access+all -kdb"]])
+def test_vcs_builds_a_verdi_database_preserving_custom_flags(flags):
+    """New VCS workspaces have a design database without duplicating user flags."""
+    import shlex
+
+    result = command(["--sim=vcs", *flags])
+    index = next(index for index, arg in enumerate(result) if arg.partition("=")[0] in ("-V", "--vflag"))
+    option, separator, value = result[index].partition("=")
+    tokens = shlex.split(value if separator else result[index + 1])
+    assert tokens.count("-kdb") == 1
+    if flags:
+        assert "-debug_access+all" in tokens
+    assert "--vflag=-kdb" not in command(["--sim=verilator"])

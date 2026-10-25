@@ -121,7 +121,7 @@ def test_markdown_link_round_trip_uses_exact_canonical_line():
         "C:\\waves\\test.vcd",
         "https://example.test/test.vcd",
         "waves/test.vcd?download=1",
-        "waves/test.fsdb",
+        "waves/test.exe",
     ],
 )
 def test_unsafe_or_unsupported_waveform_paths_are_rejected(file_name):

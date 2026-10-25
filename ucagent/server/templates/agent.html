@@ -810,7 +810,7 @@ function _decorateWaveformViewerLinks(root){
   root.querySelectorAll('a[href]').forEach(anchor=>{
     try{
       const url=new URL(anchor.getAttribute("href"),window.location.origin);
-      if(url.origin!==window.location.origin||url.pathname!=="/"+"surfer/"||!url.searchParams.has("wave"))return;
+      if(url.origin!==window.location.origin||!["/"+"surfer/","/api/waveform/verdi"].includes(url.pathname)||!url.searchParams.has("wave"))return;
       const prefix=_cmdApiPathPrefix();
       if(prefix)url.pathname=prefix+url.pathname;
       if(_subWorkspace)url.searchParams.set("sub_worspace",_subWorkspace);
@@ -2093,7 +2093,7 @@ function _extBadge(e){
 const _IMG_EXTS=new Set(["png","jpg","jpeg","gif","svg","webp","ico","bmp"]);
 const _HTML_EXTS=new Set(["html","htm"]);
 const _TEXT_EXTS=new Set(["txt","md","py","js","ts","css","json","yaml","yml","sh","v","sv","c","h","cpp","hpp","java","rs","go","log","toml","ini","conf","xml","lua","rst","scala","r","tex"]);
-const _WAVE_EXTS=new Set(["vcd","fst"]);
+const _WAVE_EXTS=new Set(["vcd","fst","fsdb"]);
 
 function _renderFiles(entries){
   if(!entries.length){
@@ -2388,7 +2388,10 @@ function toggleViewRaw(){
 function openWaveform(path){
   try{
     const token=window.UCAgentSurferDeepLink.encodePayload({v:1,file:path});
-    window.open(_surferUrlForToken(token),"_blank","noopener,noreferrer");
+    const url=path.toLowerCase().endsWith(".fsdb")
+      ? _withSubWorkspaceParam(_cmdApiPathPrefix()+"/api/waveform/verdi?wave="+encodeURIComponent(token))
+      : _surferUrlForToken(token);
+    window.open(url,"_blank","noopener,noreferrer");
   }catch(error){
     alert("Cannot open waveform: "+error.message);
   }
