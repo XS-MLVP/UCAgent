@@ -146,6 +146,33 @@ def test_random_test_checker_rejects_mark_function_in_comment(tmp_path):
     assert ".mark_function" in message["error"]
 
 
+def test_random_test_checker_requires_get_seed_snippet(tmp_path):
+    """Random tests must obtain their seed through ucagent.get_seed."""
+    checker, _manager = _make_checker(
+        tmp_path,
+        [("FG-A", "FC-A", "CK-A")],
+    )
+    test_file = tmp_path / "tests" / "test_random_no_seed.py"
+    test_file.write_text(
+        "\n".join([
+            "import ucagent",
+            "",
+            "def test_random_no_seed(env):",
+            "    ucagent.repeat_count()",
+            "    env.cover.mark_function('FC-A', test_random_no_seed, ['CK-A'])",
+            "    import random",
+            "    random.seed(1234)",
+            "    assert True",
+        ]),
+        encoding="utf-8",
+    )
+
+    passed, message = checker.test_check()
+
+    assert passed is False
+    assert "ucagent.get_seed" in message["error"]
+
+
 def test_random_test_cases_requires_generated_argument_with_check_example(tmp_path):
     checker, _manager = _make_checker(
         tmp_path,
