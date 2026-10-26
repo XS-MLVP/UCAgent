@@ -69,6 +69,14 @@ You can also write the above content into `~/.ucagent_env`, and then load it:
 source ~/.ucagent_env
 ```
 
+If no LLM API is configured, opencode automatically selects a free model. You can also pin a specific model through an environment variable (the variable is appended to the opencode command line as extra arguments):
+
+```bash
+export UC_ENV_CMD_BACKEND_EX_ARGS="-m opencode/deepseek-v4.1-flash-free"
+```
+
+List available free models with `opencode models | grep free`.
+
 ### 5. Start Verification
 
 Taking `Adder` in examples as an illustration.

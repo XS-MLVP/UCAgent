@@ -69,6 +69,14 @@ export OPENAI_OUTPUT_SIZE=<max_output_size>   # 可选，例如 131072 （128k�
 source ~/.ucagent_env
 ```
 
+如果未配置 LLM API，opencode 会自动选择一个免费模型。也可以通过环境变量显式指定模型（该变量会作为额外参数追加到 opencode 的启动命令中）：
+
+```bash
+export UC_ENV_CMD_BACKEND_EX_ARGS="-m opencode/deepseek-v4.1-flash-free"
+```
+
+可用免费模型可通过 `opencode models | grep free` 查看。
+
 ### 5. 开始验证
 
 以 example 中的 Adder 为例。
