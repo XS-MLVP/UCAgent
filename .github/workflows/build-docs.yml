@@ -53,7 +53,7 @@ jobs:
 
       - name: Build MkDocs site
         run: |
-          mkdocs build -f docs/mkdocs.yml --strict
+          mkdocs build -f mkdocs.yml --strict
 
   deploy:
     name: Build and Deploy to gh-pages
@@ -85,7 +85,7 @@ jobs:
 
       - name: Build MkDocs site
         run: |
-          mkdocs build -f docs/mkdocs.yml --strict
+          mkdocs build -f mkdocs.yml --strict
 
       - name: Deploy to gh-pages
         run: |

@@ -14,10 +14,10 @@ docs-install:
 	pip3 install -r docs/requirements-docs.txt
 
 docs-serve:
-	mkdocs serve -f docs/mkdocs.yml -a 127.0.0.1:8030
+	mkdocs serve -f mkdocs.yml -a 127.0.0.1:8030
 
 docs-build:
-	mkdocs build -f docs/mkdocs.yml
+	mkdocs build -f mkdocs.yml
 
 docs-clean:
 	rm -rf site
