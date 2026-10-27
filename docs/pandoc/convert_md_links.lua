@@ -39,7 +39,6 @@ end
 
 -- Process the entire document
 function Pandoc(doc)
-  local blocks = doc.blocks
   local input_files = PANDOC_STATE.input_files or {}
   local file_index = 1
   
@@ -47,7 +46,9 @@ function Pandoc(doc)
   -- Also extract HTML anchors
   local current_section_id = nil  -- Track current section for list items
   
-  for i, block in ipairs(blocks) do
+  -- Visit nested layout containers in document order so each input file still
+  -- maps to its own H1 when web-only styling wraps headings in a Div.
+  doc = doc:walk({traverse = "topdown", Block = function(block)
     if block.t == "Header" then
       local header_text = pandoc.utils.stringify(block.content)
       local id = normalize_text_to_id(header_text)
@@ -140,7 +141,8 @@ function Pandoc(doc)
       end
       process_list_content(block.content)
     end
-  end
+    return block
+  end})
   
   -- Second pass: convert .md links to section references
   return doc:walk({

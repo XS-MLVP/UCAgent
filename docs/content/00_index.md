@@ -1,16 +1,32 @@
 
+<div class="uc-home-hero" markdown="1">
+
+<div class="uc-home-eyebrow">UCAGENT / DOCUMENTATION</div>
+
 # UCAgent 文档
 
 UCAgent 是面向数字电路单元测试的 AI 验证代理。它读取 DUT 和验证需求，按阶段生成文档、测试代码和覆盖率模型，运行测试并保留可复核的报告。每个阶段都由确定性 Checker 验收，必要时可以人工介入或让外部 Code Agent 通过 MCP 调用工具。
+
+<div class="uc-home-actions" markdown="1">
+
+[快速开始](./01_start/00_installation.md){ .md-button .md-button--primary }
+[选择运行模式](./01_start/01_modes_overview.md){ .md-button }
+
+</div>
+</div>
 
 ## 先跑通一次
 
 第一次使用建议按下面顺序阅读：
 
+<div class="uc-start-steps" markdown="1">
+
 1. [前置依赖安装](./01_start/00_installation.md)：安装 UCAgent、picker 和可选的 Code Agent。
 2. [运行模式总览](./01_start/01_modes_overview.md)：选择普通模式、MCP 接入或 Master 模式。
 3. 选择一条上手路径：[普通模式](./01_start/02_normal_mode.md)使用 LangChain 直连模型；[MCP 接入](./01_start/03_mcp_mode.md)使用 opencode 等外部 Code Agent。
 4. [结果分析与流程总结](./01_start/06_summary.md)：了解工作区和验证产物。
+
+</div>
 
 需要集中管理多个任务时，再阅读 [Master 模式](./01_start/04_master_mode.md)。
 

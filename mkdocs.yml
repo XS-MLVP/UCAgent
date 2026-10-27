@@ -25,10 +25,13 @@ site_dir: site # 输出目录（在主项目根目录）
 # 主题与外观设置（Material）
 theme:
   name: material
-  # 注：语言由 i18n 插件动态注入，此处保持默认（不强制写 zh）
-  language: en
+  custom_dir: docs/overrides
+  font: false
+  icon:
+    logo: material/chip
+  # i18n 插件按当前文档语言设置主题；中文为默认语言。
+  language: zh
   features:
-    - navigation.instant
     - navigation.expand
     - navigation.tracking
     - search.highlight
@@ -37,20 +40,21 @@ theme:
     - content.code.copy
   palette:
     - scheme: default
-      primary: indigo
-      accent: indigo
+      primary: custom
+      accent: custom
       toggle:
         icon: material/brightness-7
         name: Switch to dark mode
     - scheme: slate
-      primary: indigo
-      accent: indigo
+      primary: custom
+      accent: custom
       toggle:
         icon: material/brightness-4
         name: Switch to light mode
 
 # 顶部导航（默认语言：中文）。英文会通过 i18n 的 nav_translations 自动映射
 nav:
+  - 文档入口: index.md
   - 首页: content/00_index.md
   - 开始使用:
       - 前置依赖安装: content/01_start/00_installation.md
@@ -129,18 +133,99 @@ nav:
 # - minify: HTML 压缩（pip: mkdocs-minify-plugin）
 # - redirects: 页面重定向（pip: mkdocs-redirects）
 plugins:
-  - search
+  - search:
+      # Material 在构建时用 jieba 切分中文；浏览器共用英文词干处理。
+      lang: en
+  - i18n:
+      docs_structure: suffix
+      fallback_to_default: true
+      reconfigure_material: true
+      # 避免 i18n 注入不适用于 Material 搜索器的 lunr.zh。
+      reconfigure_search: false
+      languages:
+        - locale: zh
+          default: true
+          name: 简体中文
+          build: true
+        - locale: en
+          name: English
+          build: true
+          site_name: UCAgent Developer Manual
+          site_description: UCAgent documentation and extension guide for developers
+          nav_translations:
+            文档入口: Documentation
+            首页: Home
+            开始使用: Getting Started
+            前置依赖安装: Prerequisites and Installation
+            运行模式总览: Run Modes
+            普通模式: Normal Mode
+            MCP接入: MCP Integration
+            Master 模式: Master Mode
+            任务、工作区和工作流: Tasks, Workspaces, and Workflows
+            结果分析与流程总结: Results and Workflow Summary
+            功能介绍: User Guide
+            直接使用: Direct Use
+            人机协同验证: Human–Agent Collaboration
+            参数说明: CLI Options
+            Web Master 使用指南: Web Master Guide
+            技能 SKILL: Skills
+            Xpra 图形应用: Graphical Applications with Xpra
+            定制开发: Development
+            概览: Overview
+            定制开发入门: Development Quick Start
+            架构与工作原理: Architecture
+            工作流: Workflows
+            模板文件: Templates
+            定制工具: Custom Tools
+            工具列表: Tool Reference
+            波形分析格式与扩展: Waveform Formats and Extensions
+            检查器: Checkers
+            Mini 示例: Mini Example
+            插件开发与发布: Plugin Development and Distribution
+            实践案例: Examples
+            RTL2Spec 文档生成: RTL2Spec Documentation Generation
+            多实例并发执行: Concurrent Instances
+            批处理执行: Batch Execution
+            快速启动: Quick Start
+            总述: Overview
+            构建工作流: Build a Workflow
+            评估工作流: Evaluate a Workflow
+            增量工作流: Incremental Updates
+            构建与评估控制台: Build and Evaluation Console
+            使用说明: Usage
+            输入契约: Input Contract
+            输出与工作区: Outputs and Workspaces
+            构建完整使用: Build Guide
+            评估与审批: Evaluation and Approval
+            增量修复与版本: Incremental Fixes and Versions
+            提示词使用: Using Prompts
+            协作 Agent 提示词: Agent Prompts
+            二次开发: Extension Development
+            工作流程: Workflow
+            指导文档: Guide Documents
+            评估与增量: Evaluation and Incremental Control
+            测试与回归: Tests and Regressions
+            子工作流二次开发: Extending Generated Workflows
+            问答与经验: Troubleshooting and Lessons Learned
+            安装与环境: Installation and Environment
+            运行与阶段失败: Runtime and Stage Failures
+            评估审批与修复: Evaluation, Approval, and Fixes
+            控制台与端口: Console and Ports
+            性能与稳定性: Performance and Stability
+            工作流设计质量: Workflow Design Quality
   - mermaid2
   - git-revision-date-localized:
-      enable_creation_date: true
+      # 只展示最后更新时间，避免新译文的两次构建日期回退跨秒。
+      enable_creation_date: false
       fallback_to_build_date: true
+      # 新译文尚无 Git 历史时使用构建日期，不阻断严格构建。
+      strict: false
       enable_parallel_processing: false
   - glightbox
   - minify:
       minify_html: true
   - redirects:
       redirect_maps:
-        "index.md": "content/00_index.md"
         "content/02_usage/00_mcp.md": "content/01_start/03_mcp_mode.md"
         "content/01_start/01_architecture.md": "content/01_start/05_architecture.md"
         "content/01_start/02_modes_overview.md": "content/01_start/01_modes_overview.md"

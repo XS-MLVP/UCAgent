@@ -5,11 +5,15 @@ on:
     branches: [main]
     paths:
       - "docs/**"
+      - "mkdocs.yml"
+      - "tests/test_docs_i18n.py"
       - ".github/workflows/build-docs.yml"
   pull_request:
     branches: [main]
     paths:
       - "docs/**"
+      - "mkdocs.yml"
+      - "tests/test_docs_i18n.py"
       - ".github/workflows/build-docs.yml"
   workflow_call: # workflow_call 不使用 paths 过滤，确保 release 时能正常调用
 
@@ -54,6 +58,7 @@ jobs:
       - name: Build MkDocs site
         run: |
           mkdocs build -f mkdocs.yml --strict
+          UCAGENT_DOCS_SITE_DIR=site python -m unittest discover -s tests -p test_docs_i18n.py
 
   deploy:
     name: Build and Deploy to gh-pages
@@ -86,6 +91,7 @@ jobs:
       - name: Build MkDocs site
         run: |
           mkdocs build -f mkdocs.yml --strict
+          UCAGENT_DOCS_SITE_DIR=site python -m unittest discover -s tests -p test_docs_i18n.py
 
       - name: Deploy to gh-pages
         run: |

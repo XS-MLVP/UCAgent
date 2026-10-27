@@ -6,7 +6,7 @@ DOC := ucagent-doc
 VERSION := $(shell git describe --always --dirty --tags 2>/dev/null || git rev-parse --short HEAD)
 
 # Auto-generate SRCS by sorting filenames (by basename) with numeric prefixes
-SRCS := $(shell find docs/content -type f -name "*.md" -print | sort)
+SRCS := $(shell find docs/content -type f -name "*.md" ! -name "*.en.md" -print | sort)
 
 # Auto-generate resource paths from directories containing images
 RESOURCE_DIRS := $(shell find docs/content -type f \( -name "*.png" -o -name "*.jpg" -o -name "*.jpeg" -o -name "*.svg" \) -exec dirname {} \; | sort -u | tr '\n' ':' | sed 's/:$$//')
