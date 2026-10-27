@@ -176,8 +176,15 @@
     const dividerId = await waitForName(api, READY_DIVIDER, settings.attempts, settings.interval);
     if (dividerId === undefined) throw new Error("波形加载失败或 readiness 标记不可用");
     const references = payload.signals.map(variableRef);
+    // The Variables browser follows the active scope, independently of waveform rows.
+    const scope = references[0].path;
     inject(api, {Batch: [
       {RemoveItems: [dividerId]},
+      {SetActiveScope: {WaveScope: scope}},
+      // Surfer expects a signal path here and expands its enclosing scopes.
+      {ExpandScope: {ExpandSpecific: {...scope, strs: [...scope.strs, references[0].name]}}},
+      // Global names distinguish equal leaf names without Surfer's ellipsis prefixes.
+      {ForceVariableNameTypes: "Global"},
       {AddVariables: references},
     ]});
     const missing = await waitForNames(

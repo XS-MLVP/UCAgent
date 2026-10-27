@@ -120,6 +120,28 @@ cmd_api:
 
 Xpra运行环境需要Xpra/X11、Verdi及有效许可证，运行库分析环境参见本页FSDB依赖说明。替身测试覆盖参数、路径、Tcl字面量、多个时间尺度和错误处理；真实信号与时间定位仍需在实际许可环境执行集成验收。子工作区参数和Master的task/agent CMD代理前缀沿用全部接口。
 
+### Surfer 总线展开与重建
+
+多 bit 数字信号默认折叠显示总线值；点击信号左侧三角按钮可展开或收起逐位波形。位标签沿用波形声明的索引（含升序、非零起点和负索引），总线保留所选数值格式，子位保留 X/Z 状态。元数据加载和手动添加的数字总线使用相同交互，单 bit、时钟、实数、字符串及已有结构化解码不受影响。
+
+内置 Surfer 固定于上游提交 `3ab79e7220f937cb3fadf1117f15d344e5f7e990`，本地原生修改及 EUPL-1.2 许可证位于 `ucagent/scripts/surfer/`。`bit_expansion.patch` 将 `bit_expansion.rs` 接入原生翻译器和默认关闭的结构行，实际位值直接来自波形数据。
+
+重建需要 Rust 1.90+、`wasm32-unknown-unknown` 目标、`patch` 和 `wasm-bindgen-cli 0.2.113`。从上游克隆上述提交并初始化子模块；该提交的 `instruction-decoder` 为 `02bdcbfd5663a72e4a0b1b9d54519412d417fab1`，`f128` 为 `e60de395f0d6454c1dc546b87f06a6358425b6b6`。保持上游 `Cargo.lock` 不变，然后运行：
+
+```bash
+python ucagent/scripts/surfer/rebuild.py --source /absolute/path/to/surfer
+```
+
+脚本校验锁文件、目标源文件和绑定工具版本，以锁定依赖构建，更新配套 JS/WASM 及 `index.html` 的完整性摘要。`--wasm-bindgen` 可指定 CLI 路径；`--output` 可指定已有的预览资源目录。先停止使用该资源目录的服务再发布构建结果。
+
+浏览器回归使用真实 CMD 服务和内置 WASM，覆盖 VCD/FST、Variables、全名、窗口/游标以及总线默认折叠和独立展开：
+
+```bash
+UCAGENT_RUN_SURFER_BROWSER_TESTS=1 python -m pytest -q tests/test_surfer_metadata_browser.py
+```
+
+需安装 Playwright Chromium/WebKit；`UCAGENT_SURFER_CHROMIUM_EXECUTABLE` 可指定本机 Chrome。原生位映射单元测试位于 `bit_expansion.rs`，复制到已应用补丁的上游目录后，可运行 `cargo test -p libsurfer --no-default-features translation::bit_expansion`。
+
 ### 无 Verdi 时的图形集成测试
 
 `tests/fixtures/fake_verdi.py` 是有 Tk 窗口的测试应用，执行默认启动器生成的真实 Tcl，绘制选定信号、时间窗和游标，并通过按钮或 `R` 键记录远程交互。它只读取带有显式测试标记的 JSON 波形夹具；夹具使用 `.fsdb` 文件名以测试格式分发，不包含或解码真实 FSDB。Xpra、Xvfb、CMD REST、HTML5 客户端和 WebSocket 均使用真实实现。

@@ -120,6 +120,28 @@ The default `verdi/launch_verdi.py` imports supported Verilog/SystemVerilog sour
 
 The runtime needs Xpra/X11, Verdi and a valid license. Substitute tests cover argv, paths, Tcl literals, multiple native scales and errors. Actual signal display/time positioning requires integration acceptance in a licensed environment. All interfaces preserve subworkspace selection and both Master task/agent CMD proxy prefixes.
 
+### Surfer bus expansion and rebuilds
+
+Multibit digital signals initially show a collapsed aggregate value. Click the triangle beside a signal to expand or collapse its individual bit traces. Labels follow the declared indices, including ascending, nonzero and negative ranges. The aggregate retains its selected number format and individual bits preserve X/Z states. Metadata-loaded and manually added buses share this behavior; scalar, clock, real, string and existing structured decoders keep their normal presentation.
+
+The bundled Surfer is pinned to upstream commit `3ab79e7220f937cb3fadf1117f15d344e5f7e990`. Its local native changes and EUPL-1.2 license are in `ucagent/scripts/surfer/`. `bit_expansion.patch` integrates `bit_expansion.rs` with native translators and initially closed compound rows; bit values come directly from waveform data.
+
+Rebuilding requires Rust 1.90+, the `wasm32-unknown-unknown` target, `patch` and `wasm-bindgen-cli 0.2.113`. Clone the pinned upstream revision and initialize its submodules: `instruction-decoder` at `02bdcbfd5663a72e4a0b1b9d54519412d417fab1` and `f128` at `e60de395f0d6454c1dc546b87f06a6358425b6b6`. Keep the upstream `Cargo.lock` unchanged, then run:
+
+```bash
+python ucagent/scripts/surfer/rebuild.py --source /absolute/path/to/surfer
+```
+
+The script validates the lockfile, patched source and binding CLI version, builds with locked dependencies, and updates matching JS/WASM assets and their `index.html` integrity digests. Use `--wasm-bindgen` for a specific CLI path or `--output` for an existing preview bundle directory. Stop the service using that directory before publishing rebuilt assets.
+
+Browser regression uses the real CMD service and bundled WASM to cover VCD/FST, Variables, full names, window/cursor restoration and initially collapsed, independently expandable buses:
+
+```bash
+UCAGENT_RUN_SURFER_BROWSER_TESTS=1 python -m pytest -q tests/test_surfer_metadata_browser.py
+```
+
+Install Playwright Chromium/WebKit; `UCAGENT_SURFER_CHROMIUM_EXECUTABLE` can select a local Chrome. Native bit mapping tests are included in `bit_expansion.rs`. After copying it into patched upstream sources, run `cargo test -p libsurfer --no-default-features translation::bit_expansion`.
+
 ### Graphical integration without Verdi
 
 `tests/fixtures/fake_verdi.py` is a Tk application that executes the actual default launcher's Tcl, draws selected signals/window/cursor, and records remote button or `R` key input. It accepts only explicitly marked JSON waveform fixtures. The fixture has an `.fsdb` filename to exercise dispatch; it neither contains nor decodes proprietary FSDB. Xpra, Xvfb, CMD REST, the HTML5 client and WebSocket transport use their real implementations.
