@@ -5,7 +5,7 @@
 
 ## 安装
 
-需要 Python 3.11+、Linux/macOS 和 UCAgent `>=26.9.2.dev14`。从 UCAgent 仓库根目录执行：
+需要 Python 3.11+、Linux/macOS 和 UCAgent `>=26.9.2.dev14`。先用 `cd` 进入仓库根目录，使下面的 `.` 和 `./plugins/RTL2Spec` 指向正确的安装源。两条 `pip install` 分别安装 UCAgent 核心和 RTL2Spec 插件；最后用 `--validate-plugin` 检查当前 Python 环境能否加载插件及其依赖：
 
 ```bash
 cd "[你的UCAgent仓库绝对路径]"
@@ -33,12 +33,17 @@ ucagent --validate-plugin rtl2spec
 
 ### 准备配置和输入
 
-创建任务目录并进入其中，导出[通用 RTL 配置](src/rtl2spec/launch_configs/generic.yaml)，再复制自带示例：
+先用 `mkdir -p` 创建保存本次配置的任务目录，再用 `cd` 进入它。`--init generic` 将[通用 RTL 配置模板](src/rtl2spec/launch_configs/generic.yaml)导出为当前目录的 `rtl2spec.yaml`，供下一步编辑：
 
 ```bash
 mkdir -p ~/rtl2spec-runs/generic
 cd ~/rtl2spec-runs/generic
 rtl2spec --init generic
+```
+
+接着创建工作区的 `inputs/GenericBlock/`。插件按 `inputs/模块名/` 查找通用 RTL，因此把示例源码和参数配置复制到这里，作为本次生成的输入：
+
+```bash
 mkdir -p generic-spec-workspace/inputs/GenericBlock
 cp -R "[UCAgent仓库绝对路径]/plugins/RTL2Spec/examples/GenericBlock/." generic-spec-workspace/inputs/GenericBlock/
 ```
@@ -87,27 +92,23 @@ template_overwrite:
 
 RTL 文件名可以与模块名不同，只需 `files` 指向实际文件。`workflow` 保持 `generic-design-document`。
 
-### 运行
-
-输入准备好后，在该任务目录执行：
-
-```bash
-cd ~/rtl2spec-runs/generic
-rtl2spec --config rtl2spec.yaml
-```
-
-示例配置下结果位于 `~/rtl2spec-runs/generic/generic-spec-workspace/outputs/`。
+完成配置和输入准备后，继续[启动文档生成](#启动文档生成)，选择通用 RTL 的任务目录。
 
 ## 示例二：香山（Example: Sbuffer）
 
 ### 准备配置和源码
 
-需要 Bash、Git、Curl、Make 和 C 编译器；插件按需准备 JDK 17 和 Mill。创建另一个任务目录，导出[香山配置](src/rtl2spec/launch_configs/xiangshan.yaml)，再准备固定版本的源码：
+需要 Bash、Git、Curl、Make 和 C 编译器；插件按需准备 JDK 17 和 Mill。先创建并进入独立的香山任务目录，再用 `--init xiangshan` 将[香山配置模板](src/rtl2spec/launch_configs/xiangshan.yaml)导出为该目录的 `rtl2spec.yaml`：
 
 ```bash
 mkdir -p ~/rtl2spec-runs/xiangshan
 cd ~/rtl2spec-runs/xiangshan
 rtl2spec --init xiangshan
+```
+
+接着为生成 RTL 准备完整源码：`mkdir -p` 创建源码父目录，`git clone` 下载香山仓库，`checkout` 固定本次使用的源码版本，`submodule update` 获取与该版本配套的依赖仓库。`git -C` 指定要操作的仓库，因此这些命令都可以在香山任务目录执行：
+
+```bash
 mkdir -p xiangshan-spec-workspace/third_party
 git clone https://github.com/OpenXiangShan/XiangShan.git xiangshan-spec-workspace/third_party/XiangShan
 git -C xiangshan-spec-workspace/third_party/XiangShan checkout --detach aee742c92250058644c3166fae54c489161347cc # [可改：目标源码提交]
@@ -156,26 +157,52 @@ template_overwrite:
 
 `workflow` 保持 `xiangshan-design-document`，源码目录仍为所选工作区下的 `third_party/XiangShan/`。目标模块还须能在所选配置的生成结果中找到，详细要求见[香山输入指南](src/rtl2spec/Guide_Doc/xiangshan-input-guide.md)。
 
-### 运行
-
-在香山任务目录执行：
-
-```bash
-cd ~/rtl2spec-runs/xiangshan
-rtl2spec --config rtl2spec.yaml
-```
-
-示例配置下结果位于 `~/rtl2spec-runs/xiangshan/xiangshan-spec-workspace/outputs/`。
+完成配置和源码准备后，继续[启动文档生成](#启动文档生成)，选择香山的任务目录。
 
 ## 启动文档生成
 
-上述两个示例均在各自 YAML 所在目录启动。也可以从其他目录传入配置的绝对路径：
+前面两个示例完成的是配置和输入准备。`--init` 用于首次创建 YAML；现在使用已有的 YAML 启动生成，无需再次导出模板。
+
+### 1. 进入要运行的任务目录
+
+如果准备的是 GenericBlock，执行：
 
 ```bash
-rtl2spec --config "[你的配置文件绝对路径]"
+cd ~/rtl2spec-runs/generic
 ```
 
-可先加 `--dry-run` 查看解析后的工作区和启动命令。新任务将 YAML 中的 `output` 改为新的空目录，如 `outputs/run-002`；同一次运行中可以修订文档并重新验收。其他字段与后端配置见[启动配置参考](docs/reference.md#启动配置)。流程不依赖 Skill，Mermaid 图直接保留在 Markdown 中。
+如果准备的是 Sbuffer，执行：
+
+```bash
+cd ~/rtl2spec-runs/xiangshan
+```
+
+两者选择一个。切换目录是为了让后续命令中的 `rtl2spec.yaml` 指向你刚准备的配置文件；输入源码仍位于该配置指定的工作区内。
+
+### 2. 开始生成文档
+
+确认配置和输入准备好后，在同一目录执行：
+
+```bash
+rtl2spec --config rtl2spec.yaml
+```
+
+`--config rtl2spec.yaml` 指定要读取的配置文件。这条命令读取 YAML，启动选定的后端，并按 `workflow` 执行获取证据、编写草稿、源码复核和最终验收。通用工作流读取 `inputs/模块名/` 中的 RTL；香山工作流先根据源码和 `XS_CONFIG` 生成目标 RTL，再编写文档。配置有误时按报错提示修正，再执行同一条命令。
+
+结果写入 `workspace` 下的 `output` 目录。使用本页配置时，两个任务分别输出到：
+
+| 任务 | 输出目录 |
+| --- | --- |
+| GenericBlock | `~/rtl2spec-runs/generic/generic-spec-workspace/outputs/` |
+| Sbuffer | `~/rtl2spec-runs/xiangshan/xiangshan-spec-workspace/outputs/` |
+
+如果想从其他目录启动，可以直接指定配置文件的完整路径。例如下面的命令仍运行同一个 GenericBlock 任务：
+
+```bash
+rtl2spec --config ~/rtl2spec-runs/generic/rtl2spec.yaml
+```
+
+更换模块、输入或配置后开始新任务时，将 YAML 中的 `output` 改为新的空目录，如 `outputs/run-002`，用于保留上一轮结果并避免新旧证据混用。同一次运行中可以修订当前文档并重新验收。其他字段与后端配置见[启动配置参考](docs/reference.md#启动配置)。
 
 ## 查看生成结果
 
@@ -191,6 +218,8 @@ rtl2spec --config "[你的配置文件绝对路径]"
 | `logs/` | 工具调用和阶段耗时 |
 
 先读设计文档，再查看质量报告与验收记录。验收覆盖文档结构、引用和证据一致性；本流程不执行仿真或形式化验证，未执行项目保留 `Unrun`/`Open`。常见报错与修复入口见[工具参考](docs/reference.md#常见问题)。
+
+流程不依赖 Skill。Mermaid 图保留在 Markdown 源码中，阅读时使用支持 Mermaid 的查看器即可。
 
 ## 相关文档
 

@@ -1,6 +1,5 @@
 """Exercise file-based startup without a model session or hardware toolchain."""
 
-import shlex
 import shutil
 import subprocess
 import sys
@@ -11,6 +10,21 @@ import pytest
 import yaml
 
 from rtl2spec.launch import build_command, main
+
+
+@pytest.mark.parametrize("profile", ["generic", "xiangshan"])
+def test_readme_configuration_matches_bundled_template(profile):
+    """The copyable README configurations use the actual bundled startup settings."""
+    from rtl2spec.documents import markdown_tokens
+
+    root = Path(__file__).resolve().parents[1]
+    examples = [
+        yaml.safe_load(token.content)
+        for token in markdown_tokens((root / "README.md").read_text(encoding="utf-8"))
+        if token.type == "fence" and token.info == "yaml"
+    ]
+    template = root / "src/rtl2spec/launch_configs" / f"{profile}.yaml"
+    assert yaml.safe_load(template.read_text(encoding="utf-8")) in examples
 
 
 @pytest.mark.parametrize("profile", ["generic", "xiangshan"])
@@ -130,15 +144,19 @@ def test_init_never_overwrites_user_config(tmp_path):
     assert target.read_text() == "Preserve my configuration\n"
 
 
-def test_dry_run_is_read_only(tmp_path, monkeypatch, capsys):
-    """Preview quotes arguments for display without executing a shell or creating workspaces."""
+def test_default_config_starts_ucagent(tmp_path, monkeypatch):
+    """Running without arguments starts the task configured in the current directory."""
     monkeypatch.chdir(tmp_path)
     main(["--init", "generic"])
-    capsys.readouterr()
-    assert main(["--dry-run"]) == 0
-    command = shlex.split(capsys.readouterr().out)
-    assert command == build_command(tmp_path / "rtl2spec.yaml")
-    assert sorted(path.name for path in tmp_path.iterdir()) == ["rtl2spec.yaml"]
+    launched = []
+
+    def record_exec(executable, command):
+        """Capture the actual launch request without starting a model backend."""
+        launched.append((executable, command))
+
+    monkeypatch.setattr("rtl2spec.launch.os.execv", record_exec)
+    assert main([]) == 0
+    assert launched == [(sys.executable, build_command(tmp_path / "rtl2spec.yaml"))]
 
 
 def test_launch_uses_the_current_python_and_exact_argument_list(tmp_path, monkeypatch):

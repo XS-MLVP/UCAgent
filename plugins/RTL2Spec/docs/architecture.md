@@ -59,11 +59,11 @@ flowchart TD
 | 配置 | 来源与用途 |
 | --- | --- |
 | `{DUT}`、`{OUT}` | UCAgent 解析的模块名、输出目录；工具工厂从 `PluginContext` 获取工作区和输出位置，阶段与 checker 使用渲染后的参数 |
-| `{XS_CONFIG}` | YAML 加载时从 `XIANGSHAN_CONFIG` 读取，默认 `DefaultConfig`；传给工具和 checker 的 `config`，并最终用于香山生成器的 `--config` |
-| `{GENERIC_CONFIG}` | YAML 加载时从 `RTL2SPEC_CONFIG` 读取，默认 `Generic`；标识通用工作流的文档配置，并参与证据身份校验 |
+| `{XS_CONFIG}` | 启动 YAML 的 `template_overwrite.XS_CONFIG`；未显式设置时，工作流从 `XIANGSHAN_CONFIG` 读取默认值，未设置环境变量则用 `DefaultConfig`。传给工具和 checker 的 `config`，并最终用于香山生成器的 `--config` |
+| `{GENERIC_CONFIG}` | 启动 YAML 的 `template_overwrite.GENERIC_CONFIG`；未显式设置时，工作流从 `RTL2SPEC_CONFIG` 读取默认值，未设置环境变量则用 `Generic`。标识通用工作流的文档配置，并参与证据身份校验 |
 | `inputs/{DUT}/rtl2spec.json` | 通用工作流的实际输入选项：文件顺序、include 搜索目录、对象宏及整数参数覆盖 |
 
-`XS_CONFIG` 是内部模板变量，用户设置的是 `XIANGSHAN_CONFIG`。环境变量在 YAML 加载时解析，`{XS_CONFIG}` 在模板渲染时替换；后续操作使用已经传入的 `config`，不能重新读取环境变量改变本次配置。通用工作流中的配置名称也不能代替 `rtl2spec.json` 中的输入选项。
+两套启动模板都已在 `template_overwrite` 中显式设置配置标签，用户直接编辑该字段即可，无需设置环境变量。环境变量只提供工作流默认值，在 YAML 加载时解析；显式启动配置覆盖该默认值，最终的 `{XS_CONFIG}`、`{GENERIC_CONFIG}` 在模板渲染时替换。后续操作使用已经传入的 `config`，不能重新读取环境变量改变本次配置。通用工作流中的配置名称也不能代替 `rtl2spec.json` 中的输入选项。
 
 两条工作流都不依赖 Skill。必需的任务和格式要求由阶段提示、`Guide_Doc`、工具参数和模板提供，关闭 Skill 时仍应能完成相同验收。
 
