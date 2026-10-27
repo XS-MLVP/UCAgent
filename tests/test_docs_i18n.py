@@ -32,6 +32,8 @@ class Page(HTMLParser):
         self.noscript_depth = 0
         self.redirect_script = ""
         self.in_redirect_script = False
+        self.directory_script = ""
+        self.in_directory_script = False
         self.ids = set()
         self.article_links = []
         self.article_depth = 0
@@ -46,6 +48,8 @@ class Page(HTMLParser):
             self.noscript_depth += 1
         if tag == "script" and attrs.get("id") == "uc-language-redirect":
             self.in_redirect_script = True
+        if tag == "script" and attrs.get("id") == "uc-directory-url":
+            self.in_directory_script = True
         if tag == "meta" and attrs.get("http-equiv", "").lower() == "refresh":
             if self.noscript_depth:
                 self.noscript_refresh = attrs.get("content")
@@ -73,11 +77,14 @@ class Page(HTMLParser):
             self.noscript_depth -= 1
         if tag == "script":
             self.in_redirect_script = False
+            self.in_directory_script = False
 
     def handle_data(self, data):
-        """Retain the built redirect script for execution against browser locales."""
+        """Retain rendered routing scripts for browser-independent execution."""
         if self.in_redirect_script:
             self.redirect_script += data
+        if self.in_directory_script:
+            self.directory_script += data
 
 
 @unittest.skipUnless(importlib.util.find_spec("mkdocs"), "Install docs/requirements-docs.txt")
@@ -238,6 +245,60 @@ class DocumentationLanguagesTest(unittest.TestCase):
                     self.assertTrue((self.site / target).is_file(), target)
                     if fragment and link in page.article_links and target in self.pages:
                         self.assertIn(fragment, self.pages[target].ids)
+
+    @unittest.skipUnless(shutil.which("node"), "Node.js is required to execute URL normalization")
+    def test_directory_urls_normalize_before_resolving_navigation(self):
+        """Slashless directory pages must keep relative links in the same section."""
+        page_path = "en/content/01_start/01_modes_overview/index.html"
+        script = self.pages[page_path].directory_script
+        self.assertTrue(script.strip())
+        self.assertFalse(Page(self.site / "404.html").directory_script)
+        for path, page in self.pages.items():
+            with self.subTest(page=path):
+                self.assertEqual(page.directory_script, script)
+                html = (self.site / path).read_text(encoding="utf-8")
+                self.assertLess(html.index("uc-directory-url"),
+                                html.index('<link '))
+        paths = [
+            prefix + locale + "/content/01_start/01_modes_overview" + suffix
+            for prefix in ("", "/UCAgent")
+            for locale in ("", "/en")
+            for suffix in ("", "/", "/index.html")
+        ]
+        result = subprocess.run(
+            [shutil.which("node"), "-e", """
+                const vm = require('node:vm');
+                const input = JSON.parse(require('node:fs').readFileSync(0, 'utf8'));
+                const results = input.paths.map(pathname => {
+                    const state = {preserved: true};
+                    let replacements = 0;
+                    let destination = pathname + '?from=nav#normal-mode';
+                    const history = {state, replaceState: (value, title, url) => {
+                        if (value !== state) throw new Error('History state changed');
+                        replacements++;
+                        destination = url;
+                    }};
+                    vm.runInNewContext(input.script, {window: {history, location: {
+                        pathname, search: '?from=nav', hash: '#normal-mode'
+                    }}});
+                    return {destination, replacements, next: new URL('../02_normal_mode/',
+                        'https://docs.example.test' + destination).pathname};
+                });
+                process.stdout.write(JSON.stringify(results));
+            """],
+            input=json.dumps({"script": script, "paths": paths}),
+            capture_output=True, text=True, timeout=20, check=True,
+        )
+        results = json.loads(result.stdout)
+        self.assertEqual(len(results), len(paths))
+        for path, actual in zip(paths, results):
+            with self.subTest(path=path):
+                directory = path.removesuffix("index.html").rstrip("/") + "/"
+                expected = path if path.endswith("index.html") else directory
+                self.assertEqual(actual["destination"], expected + "?from=nav#normal-mode")
+                self.assertEqual(actual["replacements"], int(path != expected))
+                self.assertEqual(actual["next"],
+                                 directory.rsplit("/", 2)[0] + "/02_normal_mode/")
 
     def test_english_article_links_remain_in_english(self):
         """Translated Markdown links must stay within the English document tree."""
