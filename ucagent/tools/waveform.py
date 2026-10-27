@@ -72,16 +72,21 @@ from ucagent.util.waveform_formats import (
     validate_waveform_analysis_format_priority,
 )
 from ucagent.util.waveform_viewer import (
-    WAVEFORM_VIEWER_EXTENSIONS,
     WaveformViewerProtocolError,
     build_waveform_viewer_markdown_link,
     build_waveform_viewer_url,
     normalize_waveform_viewer_payload,
+    waveform_viewer_semantics,
+    WAVEFORM_METADATA_LOCK,
+    build_waveform_metadata,
+    resolve_workspace_path,
+    validate_waveform_metadata,
+    write_waveform_metadata,
 )
 from .uctool import UCTool
 
 
-_DOCUMENT_WRITE_LOCK = threading.Lock()
+_DOCUMENT_WRITE_LOCK = threading.RLock()
 _RECEIPT_STORE_LOCKS = weakref.WeakValueDictionary()
 _RECEIPT_STORE_LOCKS_GUARD = threading.Lock()
 
@@ -222,6 +227,8 @@ class WaveInfoAnalysisArgs(BaseModel):
             "removed; inventory basename hints are not source-test identities."
         ),
     )
+    source_files: list[str] = Field(default_factory=list, description="Workspace-relative related design source files selected after inspecting the source; do not list unrelated files.")
+    dut_python_path: str = Field(default="", description="Workspace-relative DUT Python entry file; leave empty for automatic discovery.")
     pattern: list[WaveSignalPattern] | None = Field(
         default=None,
         description=(
@@ -323,6 +330,8 @@ class WaveInfoAnalysisArgs(BaseModel):
             value is not None
             for value in (
                 self.pattern,
+                self.source_files or None,
+                self.dut_python_path or None,
                 self.signal_groups,
                 self.logged_cycle,
                 self.clock_signal,
@@ -415,6 +424,8 @@ class ArgWaveInfo(BaseModel):
             "components. Inventory basename hints are discovery-only."
         ),
     )
+    source_files: list[str] = Field(default_factory=list, description="Workspace-relative related design source files selected after inspecting the source; do not list unrelated files.")
+    dut_python_path: str = Field(default="", description="Workspace-relative DUT Python entry file; leave empty for automatic discovery.")
     pattern: list[WaveInfoToolPattern] = Field(
         default=[],
         description=(
@@ -519,6 +530,8 @@ class ArgWaveInfo(BaseModel):
         if not self.test_case_name and any(
             (
                 self.pattern,
+                self.source_files,
+                self.dut_python_path,
                 not self.signal_groups.is_empty(),
                 self.logged_cycle >= 0,
                 bool(self.clock_signal),
@@ -558,6 +571,8 @@ class ArgWaveInfo(BaseModel):
                 entry["value"] = None
         return {
             "test_case_name": self.test_case_name or None,
+            "source_files": self.source_files,
+            "dut_python_path": self.dut_python_path,
             "pattern": patterns or None,
             "signal_groups": (
                 None
@@ -850,6 +865,9 @@ class WaveInfo(UCTool):
         "The tool searches only the newest test session and automatically selects the "
         "waveform for that exact test. It never substitutes another test or a stale "
         "session. Signal queries must be supplied as structured pattern entries. "
+        "Use source_files for relevant design sources selected after inspection and "
+        "dut_python_path when the DUT Python entry cannot be determined automatically; "
+        "both accept existing workspace-relative files. Use the returned viewer link. "
         "A pattern-only call is exploratory: final Bug evidence must use either a "
         "complete start_step/end_step window or logged_cycle with an exact clock_signal. "
         "Final Bug evidence also requires signal_groups with the DUT clock mode, relevant "
@@ -878,6 +896,8 @@ class WaveInfo(UCTool):
         default_factory=lambda: list(DEFAULT_WAVEFORM_ANALYSIS_FORMAT_PRIORITY),
         description="Waveform extensions in selection order; omitted formats are disabled.",
     )
+    write_dirs: list[str] | None = Field(default=None, exclude=True, repr=False)
+    un_write_dirs: list[str] | None = Field(default=None, exclude=True, repr=False)
     analysis_receipts: list[dict[str, Any]] = Field(
         default_factory=list,
         exclude=True,
@@ -1767,6 +1787,12 @@ class WaveInfo(UCTool):
                 if resolved.is_file():
                     selected.add(resolved)
 
+        for value in [*invocation.get("source_files", []), invocation.get("dut_python_path")]:
+            if value:
+                path = resolve_workspace_path(workspace, value, must_exist=False)
+                if path.is_file():
+                    selected.add(path)
+
         for root, include_python in ((workspace, False), (test_parent, True)):
             if not root.is_dir():
                 continue
@@ -1822,18 +1848,6 @@ class WaveInfo(UCTool):
         )
         return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
-    @staticmethod
-    def _semantic_viewer_payload(viewer: object) -> dict[str, Any] | None:
-        """Return stable viewer fields that participate in evidence meaning."""
-
-        if not isinstance(viewer, dict):
-            return None
-        payload = viewer.get("payload")
-        if not isinstance(payload, dict):
-            return None
-        keys = ("v", "test_dir", "test_case", "start", "end", "cursor", "signals")
-        return {key: copy.deepcopy(payload.get(key)) for key in keys}
-
     def analysis_semantic_fingerprint(
         self,
         invocation: dict[str, Any],
@@ -1859,7 +1873,7 @@ class WaveInfo(UCTool):
                 ("cycle_alignment", copy.deepcopy(result.get("cycle_alignment"))),
                 (
                     "waveform_viewer",
-                    self._semantic_viewer_payload(result.get("waveform_viewer")),
+                    waveform_viewer_semantics(result.get("waveform_viewer")),
                 ),
                 (
                     "analysis_context_fingerprint",
@@ -2034,6 +2048,7 @@ class WaveInfo(UCTool):
                 ("test_case_name", receipt_arguments.get("test_case_name")),
                 ("bug_document_fields", fields),
                 ("bug_document_viewer_link", viewer_link),
+                ("waveform_viewer", receipt_result["waveform_viewer"]),
                 (
                     "bug_document_completion_required",
                     list(WAVEFORM_LLM_ANALYSIS_FIELDS),
@@ -2198,12 +2213,12 @@ class WaveInfo(UCTool):
         )
         if isinstance(viewer, dict) and isinstance(viewer.get("url"), str):
             result["bug_document_viewer_link"] = build_waveform_viewer_markdown_link(
-                viewer["payload"]
+                viewer["meta"]
             )
         result["bug_document_note"] = (
             "Call ApplyWaveInfoEvidence with this receipt_id. It creates the BG-side "
             "WAVEFORM-REF and the TC's single central WAVEFORM-TC record; do not copy or edit "
-            "receipt-backed fields or the WAVEFORM-VIEWER token. Complete alignment_evidence "
+            "receipt-backed fields or the WAVEFORM-VIEWER link. Complete alignment_evidence "
             "once for the TC, then complete required_signals, observed_behavior, and "
             "source_correlation under bug_evidence for every associated BG. Before completing "
             "those fields, inspect the specification and test-driver/API Step ordering, "
@@ -2225,21 +2240,11 @@ class WaveInfo(UCTool):
     def _attach_waveform_viewer(
         self,
         result: OrderedDict,
+        invocation: dict[str, Any],
     ) -> None:
         """Attach a canonical viewer payload only to reproducible final evidence."""
 
         if result.get("evidence_usable") is not True:
-            return
-        selected_format = (result.get("waveform_selection") or {}).get("format")
-        if selected_format and f".{selected_format}" not in WAVEFORM_VIEWER_EXTENSIONS:
-            result["waveform_viewer_error"] = (
-                "The selected waveform cannot be displayed in the online viewer."
-            )
-            result["waveform_viewer_suggestion"] = (
-                "Report this test and waveform path to the operator to restore online viewing. "
-                "After the repair, rerun WaveInfo before applying final Bug evidence; "
-                "do not fabricate a viewer link."
-            )
             return
         signal_groups = result.get("signal_groups")
         if not isinstance(signal_groups, dict):
@@ -2275,61 +2280,34 @@ class WaveInfo(UCTool):
                 signals.append(signal)
 
         try:
-            workspace = Path(self.workspace).resolve()
-            test_dir = Path(self.test_dir).resolve()
-            try:
-                relative_test_dir = test_dir.relative_to(workspace)
-            except ValueError as error:
-                raise WaveformViewerProtocolError(
-                    "test directory must be workspace-relative"
-                ) from error
-            waveform_file = selection.get("waveform_file")
-            if not isinstance(waveform_file, str) or not waveform_file:
-                raise WaveformViewerProtocolError(
-                    "waveform evidence source must be workspace-relative"
-                )
-            waveform_path = Path(waveform_file)
-            if not waveform_path.is_absolute():
-                waveform_path = workspace / waveform_path
-            try:
-                waveform_path.resolve().relative_to(workspace)
-            except ValueError as error:
-                raise WaveformViewerProtocolError(
-                    "waveform evidence source must be workspace-relative"
-                ) from error
-            payload = normalize_waveform_viewer_payload(
-                OrderedDict(
-                    [
-                        ("v", 2),
-                        ("test_dir", relative_test_dir.as_posix() or "."),
-                        ("test_case", selection.get("normalized_test_case")),
-                        ("start", str(window.get("effective_start_step"))),
-                        ("end", str(window.get("effective_end_step"))),
-                        ("cursor", str(cursor)),
-                        ("signals", signals),
-                    ]
-                )
+            meta, payload, warnings = build_waveform_metadata(
+                self.workspace, selection["waveform_file"], dut_name=self.dut_name,
+                test_case=invocation.get("test_case_name") or "", test_dir=self.test_dir,
+                source_files=invocation.get("source_files") or [],
+                dut_python_path=invocation.get("dut_python_path") or None,
             )
-        except WaveformViewerProtocolError as error:
+            payload.update(start=str(window.get("effective_start_step")),
+                           end=str(window.get("effective_end_step")), cursor=str(cursor), signals=signals)
+            payload = normalize_waveform_viewer_payload(payload)
+        except (ValueError, OSError) as error:
             result["waveform_viewer_error"] = str(error)
-            if "workspace-relative" in str(error):
-                result["waveform_viewer_suggestion"] = (
-                    "Generate the failing test waveform inside the current UCAgent workspace, "
-                    "rerun the test, and call WaveInfo again."
-                )
-            else:
-                result["waveform_viewer_suggestion"] = (
-                    "Narrow the WaveInfo signal patterns to at most 64 actual signals and "
-                    "ensure the final window contains a real triggered event, then call "
-                    "WaveInfo again."
-                )
+            result["waveform_viewer_suggestion"] = "Correct the named source path or final signal/window arguments and retry WaveInfo."
             return
-        result["waveform_viewer"] = OrderedDict(
-            [
-                ("payload", payload),
-                ("url", build_waveform_viewer_url(payload)),
-            ]
-        )
+        result["waveform_viewer"] = OrderedDict(meta=meta, payload=payload, url=build_waveform_viewer_url(meta))
+        if warnings:
+            result["waveform_viewer_warnings"] = warnings
+
+    def publish_viewer_metadata(self, viewer: dict[str, Any], *, allow_missing: bool = False) -> None:
+        """Publish a signed viewing snapshot without making historical evidence depend on live files."""
+        validate_waveform_metadata(self.workspace, viewer["meta"], viewer["payload"], must_exist=False)
+        # Cleanup must not invalidate an immutable receipt or recreate its waveform directory.
+        if allow_missing:
+            try:
+                validate_waveform_metadata(self.workspace, viewer["meta"], viewer["payload"])
+            except FileNotFoundError:
+                return
+        write_waveform_metadata(self.workspace, viewer["meta"], viewer["payload"],
+                                write_dirs=self.write_dirs, un_write_dirs=self.un_write_dirs)
 
     @staticmethod
     def _load_trace(
@@ -3246,6 +3224,8 @@ class WaveInfo(UCTool):
         max_points: int = 200,
         max_files: int = 20,
         file_offset: int = 0,
+        source_files: list[str] = (),
+        dut_python_path: str = "",
     ) -> OrderedDict:
         """Return the newest-session inventory or one structured waveform analysis."""
 
@@ -3266,6 +3246,8 @@ class WaveInfo(UCTool):
                 max_points=max_points,
                 max_files=max_files,
                 file_offset=file_offset,
+                source_files=list(source_files),
+                dut_python_path=dut_python_path,
             )
         except Exception as error:
             return self._error(
@@ -3275,6 +3257,11 @@ class WaveInfo(UCTool):
         if args.test_case_name is None:
             return self._inventory(args.max_files, args.file_offset)
 
+        try:
+            for value in [*args.source_files, *([args.dut_python_path] if args.dut_python_path else [])]:
+                resolve_workspace_path(self.workspace, value)
+        except (ValueError, OSError) as error:
+            return self._error("invalid_source_path", str(error), suggestions=["Supply existing workspace-relative source files."])
         selection, discovery_error = self._discover_waveform(args.test_case_name)
         if discovery_error is not None:
             return discovery_error
@@ -3334,7 +3321,11 @@ class WaveInfo(UCTool):
                 details={"waveform_selection": self._selection_info(selection)},
                 suggestions=suggestions,
             )
-        self._attach_waveform_viewer(result)
+        if "recommended_evidence_call" in result:
+            result["recommended_evidence_call"].update(
+                source_files=args.source_files, dut_python_path=args.dut_python_path,
+            )
+        self._attach_waveform_viewer(result, args.model_dump(mode="json"))
         return result
 
     def replay_analysis(self, **arguments: Any) -> OrderedDict:
@@ -3359,6 +3350,8 @@ class WaveInfo(UCTool):
         max_points: int = 200,
         max_files: int = 20,
         file_offset: int = 0,
+        source_files: list[str] = (),
+        dut_python_path: str = "",
         run_manager: Optional[CallbackManagerForToolRun] = None,
     ) -> str:
         del run_manager
@@ -3379,6 +3372,8 @@ class WaveInfo(UCTool):
                 max_points=max_points,
                 max_files=max_files,
                 file_offset=file_offset,
+                source_files=list(source_files),
+                dut_python_path=dut_python_path,
             )
         except Exception as error:
             result = self._error(
@@ -3387,6 +3382,12 @@ class WaveInfo(UCTool):
             return make_llm_tool_ret(result, check_pass=False)
         invocation = tool_args.analysis_arguments()
         result = self.analyze(**invocation)
+        if isinstance(result.get("waveform_viewer"), dict):
+            try:
+                self.publish_viewer_metadata(result["waveform_viewer"])
+            except (OSError, ValueError) as error:
+                return make_llm_tool_ret(self._error("waveform_metadata_write_failed", str(error),
+                    suggestions=["Correct metadata write permissions or source paths, then retry WaveInfo."]), check_pass=False)
         if invocation["test_case_name"] is not None:
             receipt_info = self._record_analysis_receipt(invocation, result)
             result["waveform_analysis_receipt"] = receipt_info
@@ -3685,6 +3686,8 @@ class ApplyWaveInfoEvidence(UCTool):
         return OrderedDict(
             [
                 ("test_case_name", required_test_case_name),
+                ("source_files", arguments.source_files),
+                ("dut_python_path", arguments.dut_python_path),
                 ("pattern", self.waveinfo._mcp_pattern_entries(arguments.pattern)),
                 (
                     "signal_groups",
@@ -3760,7 +3763,7 @@ class ApplyWaveInfoEvidence(UCTool):
                 "exactly, then retry Apply with that new receipt_id."
             )
         suggestions.append(
-            "Do not manually write receipt-backed YAML, waveform anchors, viewer URLs, or tokens."
+            "Do not manually write receipt-backed YAML, waveform anchors, viewer URLs, or metadata paths."
         )
         return self.waveinfo._error(
             "receipt_test_mismatch",
@@ -3913,7 +3916,7 @@ class ApplyWaveInfoEvidence(UCTool):
             )
         suggestions.append(
             "Do not retry path variants or manually write receipt-backed YAML, anchors, viewer "
-            "URLs, or tokens."
+            "URLs, or metadata paths."
         )
         return None, self.waveinfo._error(
             "matching_final_receipt_not_found",
@@ -4017,7 +4020,7 @@ class ApplyWaveInfoEvidence(UCTool):
                 continue
             if in_fence:
                 continue
-            if "<WAVEFORM-VIEWER>" in stripped or "/surfer/?wave=" in stripped:
+            if "<WAVEFORM-VIEWER>" in stripped or "/wave/?meta=" in stripped:
                 raise ValueError(
                     f"waveform viewer at line {index + 1} must follow the YAML in one "
                     "central WAVEFORM-TC record"
@@ -4488,6 +4491,38 @@ class ApplyWaveInfoEvidence(UCTool):
             if temp_name and os.path.exists(temp_name):
                 os.unlink(temp_name)
 
+    def _commit_evidence_files(self, target: Path, original: str, updated: str,
+                               viewers: list[dict[str, Any]]) -> None:
+        """Publish final views with the document and roll back views on commit failure."""
+        snapshots = []
+        with _DOCUMENT_WRITE_LOCK, WAVEFORM_METADATA_LOCK:
+            with target.open("r", encoding="utf-8", newline="") as handle:
+                if handle.read() != original:
+                    raise RuntimeError("target document changed while evidence was being prepared")
+            try:
+                for viewer in viewers:
+                    path, _ = validate_waveform_metadata(self.workspace, viewer["meta"],
+                                                         viewer["payload"], must_exist=False)
+                    before = path.read_bytes() if path.is_file() else None
+                    self.waveinfo.publish_viewer_metadata(viewer, allow_missing=True)
+                    after = path.read_bytes() if path.is_file() else None
+                    if before != after:
+                        snapshots.append((path, before, after))
+                if updated != original:
+                    self._atomic_replace(target, original, updated)
+            except (OSError, UnicodeError, ValueError, RuntimeError):
+                for path, before, after in reversed(snapshots):
+                    if path.is_file() and path.read_bytes() == after:
+                        if before is None:
+                            path.unlink()
+                        else:
+                            with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as handle:
+                                handle.write(before)
+                                rollback = handle.name
+                            os.chmod(rollback, stat.S_IMODE(path.stat().st_mode))
+                            os.replace(rollback, path)
+                raise
+
     def refresh_existing_evidence(
         self,
         *,
@@ -4700,8 +4735,8 @@ class ApplyWaveInfoEvidence(UCTool):
                             ]
                         )
                     )
-                if updated != original:
-                    self._atomic_replace(target, original, updated)
+                self._commit_evidence_files(target, original, updated,
+                    [item["evidence"]["waveform_viewer"] for item in prepared])
         except (OSError, UnicodeError, ValueError, RuntimeError) as error:
             return self.waveinfo._error(
                 "current_evidence_refresh_failed",
@@ -4731,6 +4766,7 @@ class ApplyWaveInfoEvidence(UCTool):
         checkpoint_path: str = "",
         receipt_id: str = "",
         replace_existing: bool = False,
+        _publish_metadata: bool = True,
     ) -> OrderedDict:
         """Validate and atomically apply one receipt-backed document block."""
 
@@ -4992,6 +5028,8 @@ class ApplyWaveInfoEvidence(UCTool):
                     "".join(updated_lines),
                 )
                 relative_target = target.relative_to(Path(self.workspace)).as_posix()
+                if _publish_metadata:
+                    self._commit_evidence_files(target, original, updated, [evidence["waveform_viewer"]])
                 if updated == original:
                     return OrderedDict(
                         [
@@ -5010,7 +5048,8 @@ class ApplyWaveInfoEvidence(UCTool):
                             ("completion_required", reset_fields),
                         ]
                     )
-                self._atomic_replace(target, original, updated)
+                if not _publish_metadata:
+                    self._atomic_replace(target, original, updated)
         except (OSError, UnicodeError, ValueError, RuntimeError) as error:
             return self.waveinfo._error(
                 "document_update_failed",
@@ -5438,6 +5477,7 @@ class ReviewWaveInfoEvidenceBatch(UCTool):
                     checkpoint_path=context["checkpoint_path"],
                     receipt_id=item.receipt_id,
                     replace_existing=True,
+                    _publish_metadata=False,
                 )
                 if applied.get("success") is not True:
                     applied.setdefault("details", {})["item_index"] = index
@@ -5535,7 +5575,9 @@ class ReviewWaveInfoEvidenceBatch(UCTool):
             active_test_case_tag = None
             with temp_target.open("r", encoding="utf-8", newline="") as handle:
                 updated = handle.read()
-            self.evidence_writer._atomic_replace(target, original, updated)
+            self.evidence_writer._commit_evidence_files(target, original, updated,
+                [self.evidence_writer.waveinfo.get_bug_document_evidence(item.receipt_id)["waveform_viewer"]
+                 for item in args.items])
         except (OSError, UnicodeError, ValueError, RuntimeError) as error:
             details = {
                 "scope": "document",

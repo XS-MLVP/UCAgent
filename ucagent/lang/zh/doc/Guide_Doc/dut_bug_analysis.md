@@ -1,7 +1,7 @@
 
 # DUT Bug 分析指南
 
-本文定义动态与静态 Bug 文档的唯一机器格式。尖括号标签在 Markdown 渲染后可能不可见，因此 FG/FC/CK/BG/TC 和根因实体必须同时写出能独立表达含义的中文可见标题；不能用类型名代替具体描述。动态 Bug 文档必须使用本文定义的 Markdown 层级、BG 三字段、ROOT 五字段、根因双向链接和中央波形结构；YAML 字段、签名 receipt 与 viewer token 必须由工具生成并保持原样。
+本文定义动态与静态 Bug 文档的唯一机器格式。尖括号标签在 Markdown 渲染后可能不可见，因此 FG/FC/CK/BG/TC 和根因实体必须同时写出能独立表达含义的中文可见标题；不能用类型名代替具体描述。动态 Bug 文档必须使用本文定义的 Markdown 层级、BG 三字段、ROOT 五字段、根因双向链接和中央波形结构；YAML 字段、签名 receipt 与 viewer链接必须由工具生成并保持原样。
 
 动态 Bug 的唯一目标文件是`{OUT}/{DUT}_bug_analysis.md`。“动态 Bug 分析”只是文档可见标题，不是文件名生成规则；禁止根据标题派生或创建另一个文件。静态候选只写入`{OUT}/{DUT}_static_bug_analysis.md`。
 
@@ -26,7 +26,9 @@ TC目录只取当前Checker返回的`Configured TC output directory`实际值，
 - 仅由源码审查发现、尚未动态复现：只写入`{DUT}_static_bug_analysis.md`，使用`BG-STATIC-*`。
 - 静态候选经测试确认：动态文档新建独立`BG-NAME-XX`，静态文档用`LINK-BUG`关联。
 
-动态 Bug 的 Fail 测试必须有真实 WaveInfo 证据。不能弱化断言、伪造 receipt、复制 viewer token，或删除仍能稳定复现 Bug 的 TC/BG 来绕过验收。
+动态 Bug 的 Fail 测试必须有真实 WaveInfo 证据。不能弱化断言、伪造 receipt、复制 viewer链接，或删除仍能稳定复现 Bug 的 TC/BG 来绕过验收。
+
+最终取证调用中，用`source_files=["rtl/Adder.sv", "src/Adder.scala"]`传入已分析且相关的工作区相对设计源码；不要将无关源码全部列入。DUT Python入口能自动确定时省略`dut_python_path`，否则传入真实工作区相对路径。显式路径不存在时先修正参数；可选文件未确定时不要编造。使用结果返回的`bug_document_viewer_link`，由`ApplyWaveInfoEvidence`写入中央记录。
 
 进入 WaveInfo、创建或更新非零 BG、引用静态候选之前，对每个 Fail TC 必须完成以下门禁：
 
@@ -237,7 +239,7 @@ waveform_analysis:
       observed_behavior: ...
       source_correlation: ...
 ```
-<WAVEFORM-VIEWER> [viewer](/surfer/?wave=...)
+<WAVEFORM-VIEWER> [viewer](/wave/?meta=unity_test/tests/waveform/test_case.fst.json)
 
 </WAVEFORM-EVIDENCE>
 ````
@@ -284,7 +286,7 @@ ApplyWaveInfoEvidence(
 1. 保持`test_case_tag`逐字不变，不尝试增加或删除路径前缀。
 2. 若`details.parameterized_receipts`非空，将其中的完整`test_case_name`与当前报告`tests.test_case_instances`逐字核对，选择实际 FAILED child 并用该 node 重新完成最终 WaveInfo；不得按波形 basename、文件名相似或参数字面猜测。若返回`details.recovery_call`，则原样调用一次 WaveInfo。
 3. 使用新调用返回的`receipt_id`和原`test_case_tag`再次调用 Apply。
-4. 不得手工写 receipt-backed YAML、waveform anchor、viewer URL 或 token。
+4. 不得手工写 receipt-backed YAML、waveform anchor、viewer链接。
 
 同一 tool、status 和 target 连续返回相同错误后，不得继续尝试相似参数。没有`recovery_call`，或原样执行后仍返回同一错误时，将其报告为工具契约阻塞并停止修改当前 Bug/波形记录；不要用文本编辑替代签名工具。
 
@@ -302,7 +304,7 @@ ApplyWaveInfoEvidence(
 
 以下完整案例中的`tests/...`仅用于展示结构，不提供实际TC目录。实际操作必须使用Checker明确返回的`Configured TC output directory`及完整FAILED report node ID，禁止从案例复制任何TC路径。
 
-以下案例是动态 Bug 文档的完整标准结构。它同时展示两个独立 ROOT、三个 BG、两个 TC 和两份中央波形记录：第一个 ROOT 关联两个 BG，这两个 BG 由同一个 TC 揭示并共用唯一一份中央波形；第二个 ROOT 关联另一个 BG 和 TC，该 TC 拥有自己的中央波形。实际文档保留文档标题、Markdown 层级、标签位置、BG/ROOT 字段顺序和 fenced block 位置；FG/FC/CK/BG/TC 标题必须按实际语义填写。案例中的 receipt、fingerprint、时间和 viewer token 只说明字段形态；实际值必须来自当前工具结果。
+以下案例是动态 Bug 文档的完整标准结构。它同时展示两个独立 ROOT、三个 BG、两个 TC 和两份中央波形记录：第一个 ROOT 关联两个 BG，这两个 BG 由同一个 TC 揭示并共用唯一一份中央波形；第二个 ROOT 关联另一个 BG 和 TC，该 TC 拥有自己的中央波形。实际文档保留文档标题、Markdown 层级、标签位置、BG/ROOT 字段顺序和 fenced block 位置；FG/FC/CK/BG/TC 标题必须按实际语义填写。案例中的 receipt、fingerprint、时间和 viewer链接只说明字段形态；实际值必须来自当前工具结果。
 
 `````markdown
 
@@ -541,7 +543,7 @@ waveform_analysis:
       observed_behavior: 完整输入和应为 9'h100，但中间量与输出均为 0，最高进位没有到达 cout。
       source_correlation: rtl/Adder.sv:24-26 的 sum_full 宽度截断与波形中丢失的最高位一致。
 ```
-<WAVEFORM-VIEWER> [Open waveform](/surfer/?wave=TOOL_GENERATED_TOKEN_FOR_CARRY)
+<WAVEFORM-VIEWER> [Open waveform](/wave/?meta=unity_test/tests/waveform/test_cin_carry.fst.json)
 
 <a id="waveform-547f03228d4694a0"></a>
 
@@ -606,7 +608,7 @@ waveform_analysis:
       observed_behavior: saturate_en 为 1 且完整和溢出时，saturation_overflow 仍为 0，sat_sum 输出回绕值 00 而不是 ff。
       source_correlation: rtl/Adder.sv:40-43 的常量溢出检测与波形中始终为 0 的 saturation_overflow 一致。
 ```
-<WAVEFORM-VIEWER> [Open waveform](/surfer/?wave=TOOL_GENERATED_TOKEN_FOR_SATURATION)
+<WAVEFORM-VIEWER> [Open waveform](/wave/?meta=unity_test/tests/waveform/test_saturation_limit.fst.json)
 
 </WAVEFORM-EVIDENCE>
 `````
@@ -617,7 +619,7 @@ waveform_analysis:
 
 当公共Skill `unitytest/dynamic-bug-recording`已启用且已复制时，优先通过该Skill的`record_dynamic_bug.py`、`WaveInfo`和`ApplyWaveInfoEvidence`维护动态Bug文档，尽可能不让LLM主动编辑目标Markdown。该公共Skill全阶段可发现、始终可选，不进入stage专用`skill_list`，也不调用`SetSkillUsage`。脚本从`.ucagent/runtime_config.json`读取实际TC目录和统一`current_test_report`路径；`Check`或`RunTestCases`真实运行Unity测试后发布当前阶段报告，进入新阶段时旧报告失效。脚本只从该报告的`failed_test_case_with_check_point_list`精确解析TC到FG/FC/CK的关系，不读取阶段私有报告；若当前报告不存在，先运行当前阶段真实测试，禁止手工创建、复制或猜测报告。脚本从功能检查文档读取 FG/FC/CK 名称，从测试 docstring 读取 TC 名称。
 
-已有动态Bug文档出现格式问题时，先调用`-MODE repair`并执行一次返回的`next_action`。该模式按完整FG/FC/CK/BG路径一次重建全部生成式`bug-*`锚点和ROOT反向关系，同时从规范TC身份重建中央`waveform-*`锚点与BG侧`<WAVEFORM-REF>`并规范ROOT关闭标记；错误、重复或缺失的机器锚点不应由LLM逐条编辑。16位波形锚点由TC身份的SHA-256稳定派生，不是32位`receipt_id`，receipt更新后锚点仍不变。repair保留中央YAML、receipt、viewer/token、TC身份及所有分析正文；重复中央TC或结构歧义会失败而不会猜测。若相同文档阻塞仍存在，或格式损坏使该动作无法执行，LLM可用普通文本工具只修复`error/details`指出的精确标记、路径或行；返回`manual_edit_fallback`时按其`scope`编辑，并执行`after_edit`。修复必须保留其他BG、TC、ROOT分析和全部`WAVEFORM-EVIDENCE`内容，完成后立即重跑`-MODE repair`和`Check`。不得用shell或临时Python修改文档；receipt、中央YAML、viewer链接和token始终只能由`WaveInfo`与`ApplyWaveInfoEvidence`维护。
+已有动态Bug文档出现格式问题时，先调用`-MODE repair`并执行一次返回的`next_action`。该模式按完整FG/FC/CK/BG路径一次重建全部生成式`bug-*`锚点和ROOT反向关系，同时从规范TC身份重建中央`waveform-*`锚点与BG侧`<WAVEFORM-REF>`并规范ROOT关闭标记；错误、重复或缺失的机器锚点不应由LLM逐条编辑。16位波形锚点由TC身份的SHA-256稳定派生，不是32位`receipt_id`，receipt更新后锚点仍不变。repair保留中央YAML、receipt、viewer链接、TC身份及所有分析正文；重复中央TC或结构歧义会失败而不会猜测。若相同文档阻塞仍存在，或格式损坏使该动作无法执行，LLM可用普通文本工具只修复`error/details`指出的精确标记、路径或行；返回`manual_edit_fallback`时按其`scope`编辑，并执行`after_edit`。修复必须保留其他BG、TC、ROOT分析和全部`WAVEFORM-EVIDENCE`内容，完成后立即重跑`-MODE repair`和`Check`。不得用shell或临时Python修改文档；receipt、中央YAML、viewer链接始终只能由`WaveInfo`与`ApplyWaveInfoEvidence`维护。
 
 对每个新BG路径的第一份精确FG/FC/CK/BG/TC关联调用`record_dynamic_bug.py -MODE bug`，一次写入BG三个字段、唯一`<CAUSE-REF-ROOT-XXX>`和ROOT反向链接；对每个不同根因调用`record_dynamic_bug.py -MODE root`，一次写入ROOT五个分析字段。有源码时脚本根据真实`path:start-end`和三组行号读取当前源码并生成完整围栏与源码标记；无源码时使用互斥的`-SOURCE-UNAVAILABLE`。已有CK/BG仅新增兄弟TC时直接调用WaveInfo/Apply；新增BG路径或修订BG/ROOT字段时重调对应MODE，脚本幂等更新并保留历史路径。脚本不创建波形YAML或viewer证据。
 
@@ -820,7 +822,7 @@ FG、FC、CK、BG、TC 都是一对多层次，不是一条固定单链。以下
 
 签名 receipt、中央 YAML 和 viewer 是持续保留的证据。普通增量 stage 使用`require_current_replay=false`：只验证文档、签名 receipt 与关联，不因后来测试、session、波形文件轮换或原文件丢失而要求更新。批次文档预检也固定使用该模式，只能拒绝格式或关联问题，不能执行测试、刷新证据或推进批次。
 
-只有对应验证项配置`require_current_replay=true`时，才对所有唯一 TC 重放当前波形。Checker 会为每个成功重放计算包含精确 TC、事件 timeline、信号值、取证窗口、测试/driver/HDL 源码上下文的签名语义指纹。语义指纹不变而只有 session、波形路径、时间、receipt 或 viewer token 等机器字段变化时，Checker 自动为所有此类 TC 生成当前 receipt，并在一次原子写入中刷新中央 YAML 和 viewer；已有`alignment_evidence`与逐 Bug 结论保持不变。重复调用 Check 不会反复创建 receipt 或改写文档。
+只有对应验证项配置`require_current_replay=true`时，才对所有唯一 TC 重放当前波形。Checker 会为每个成功重放计算包含精确 TC、事件 timeline、信号值、取证窗口、测试/driver/HDL 源码上下文的签名语义指纹。语义指纹不变而只有 session、波形路径、时间、receipt 或 viewer链接等机器字段变化时，Checker 自动为所有此类 TC 生成当前 receipt，并在一次原子写入中刷新中央 YAML 和 viewer；已有`alignment_evidence`与逐 Bug 结论保持不变。重复调用 Check 不会反复创建 receipt 或改写文档。
 
 当前事件、信号值、窗口、候选周期、信号集合或测试/driver/HDL 源码上下文变化时，Checker 不自动替换文档，而是一次返回全部变化 TC 的有界`review_batch_call`。先原样调用`ReviewWaveInfoEvidenceBatch`且不填写`review`，工具只读取并返回每项当前签名参数、窗口、事件、候选、信号、timeline 摘要、已有结论和`changed_source_files`并集，不改文档。统一阅读变化源码后，在相同 items 的每项补齐`review.alignment_evidence`，并为该 TC 的每个精确 BG 补齐`review.bug_evidence.<BG>.observed_behavior/source_correlation`；第二次调用会先验证整批，再用当前 receipt 的机器字段和这些结论一次原子替换全部中央记录，保留`required_signals`。任一项不完整或receipt/TC/BG不匹配时整批不写入并返回精确`item_index`；最终替换前文档被并发修改时保留外部内容并返回`scope: document`，不把整批冲突归因于某个TC。整个过程不需要再次运行 pytest、WaveInfo、逐项`ApplyWaveInfoEvidence`或在 TC 之间反复 Check；批量提交后只调用一次 Check。若当前重放本身失败、TC 消失或精确 pytest node ID 变化，则没有可自动采用的当前 receipt；按诊断中的实际`test_dir`、精确 FAILED node ID、可用波形和下一步处理，禁止把相似路径或参数化实例自动视为同一 TC。
 

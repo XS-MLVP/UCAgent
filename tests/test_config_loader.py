@@ -29,15 +29,16 @@ class TestConfigLoader(unittest.TestCase):
 
         self.assertIs(default_env["ENABLE_LLM_SUGGESTION"], False)
 
-    def test_default_write_dirs_carve_out_vcs_vdb_directories(self):
-        """VCS *.vdb data directories stay writable inside the protected DUT tree."""
+    def test_default_write_dirs_carve_out_simulator_artifacts(self):
+        """Simulator artifacts and waveform metadata stay writable inside protected DUTs."""
 
         config_path = os.path.join(current_dir, "..", "ucagent", "setting.yaml")
         config = load_yaml_with_env_vars(config_path)
         self.assertEqual(config["un_write_dirs"], ["{DUT}", "{GUIDE_DOC}"])
         self.assertEqual(
             config["write_dirs"],
-            ["{OUT}", "{DUT}/**/*.vdb", "{DUT}/**/*.fsdb", "{DUT}/**/*.vpd"],
+            ["{OUT}", "{DUT}/**/*.vdb", "{DUT}/**/*.fsdb", "{DUT}/**/*.fsdb.json",
+             "{DUT}/**/*.vpd", "{DUT}/**/*.usdb", "{DUT}/**/*.usdb.json"],
         )
 
         values = {"DUT": "Adder", "OUT": "out", "GUIDE_DOC": "Guide_Doc"}
@@ -50,7 +51,12 @@ class TestConfigLoader(unittest.TestCase):
             "Adder/simv.vdb/snapshot/data",
             "Adder/tests/cov.vdb/history",
             "Adder/tests/wave.fsdb",
+            "Adder/tests/wave.fsdb.json",
             "Adder/wave.vpd",
+            "Adder/wave.usdb",
+            "Adder/wave.usdb.json",
+            "Adder/tests/wave.usdb",
+            "Adder/tests/wave.usdb.json",
             "out/Adder_report.md",
         ]
         for path in allowed:
@@ -63,6 +69,9 @@ class TestConfigLoader(unittest.TestCase):
             "Adder/tests/test_api.py",
             "Adder/simv.vdb.bak",
             "Adder/tests/wave.fsdb.old",
+            "Adder/wave.vpd.json",
+            "Adder/tests/wave.usdb.bak",
+            "Adder/tests/wave.usdb.json.bak",
             "Guide_Doc/dut_test_case.md",
         ]
         for path in protected:

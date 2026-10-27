@@ -1,80 +1,15 @@
-#!/usr/bin/env node
-
 "use strict";
-
 const assert = require("node:assert/strict");
-const fs = require("node:fs");
-const path = require("node:path");
-const api = require(path.join(
-  __dirname,
-  "..",
-  "ucagent",
-  "server",
-  "static",
-  "surfer",
-  "deep-link.js",
-));
-const marked = require(path.join(
-  __dirname,
-  "..",
-  "ucagent",
-  "server",
-  "static",
-  "marked.min.js",
-));
-
-const payload = {
-  v: 1,
-  file: "unity_test/tests/data/波形/test_bug.fst",
-  start: "10",
-  end: "184467440737095516170",
-  cursor: "9007199254740993",
-  signals: ["TOP.dut.clk", "TOP.dut.valid", "TOP.dut.clk"],
-};
-const token = api.encodePayload(payload);
-assert(!token.includes("="));
-assert.deepEqual(api.decodeToken(token), {
-  v: 1,
-  file: payload.file,
-  start: payload.start,
-  end: payload.end,
-  cursor: payload.cursor,
-  signals: ["TOP.dut.clk", "TOP.dut.valid"],
-});
-assert.equal(api.encodePayload(api.decodeToken(token)), token);
-
-assert.equal(api.servicePrefix("/surfer/"), "");
-assert.equal(api.servicePrefix("/task/task-1/cmd/surfer/"), "/task/task-1/cmd");
-assert.equal(
-  api.workspaceUrl(
-    {v: 1, file: "waves/波形.vcd"},
-    {origin: "https://example.test", pathname: "/task/task-1/cmd/surfer/"},
-    "child-a",
-  ),
-  "https://example.test/task/task-1/cmd/workspace/waves/%E6%B3%A2%E5%BD%A2.vcd?sub_worspace=child-a",
-);
-
-const logicalPayload = {
-  v: 2,
-  test_dir: "unity_test/tests",
-  test_case: "test_bug[param-a]",
-  start: "10",
-  end: "184467440737095516170",
-  cursor: "9007199254740993",
-  signals: ["TOP.dut.clk", "TOP.dut.valid"],
-};
-const logicalToken = api.encodePayload(logicalPayload);
-assert.deepEqual(api.decodeToken(logicalToken), logicalPayload);
-assert.equal(
-  api.latestWaveformUrl(
-    logicalPayload,
-    logicalToken,
-    {origin: "https://example.test", pathname: "/task/task-1/cmd/surfer/"},
-    "child-a",
-  ),
-  `https://example.test/task/task-1/cmd/api/waveform/latest?wave=${logicalToken}&sub_worspace=child-a`,
-);
-
+const api = require("../ucagent/server/static/surfer/deep-link.js");
+const marked = require("../ucagent/server/static/marked.min.js");
+const payload = {schema_version:1, waveform_file:"波形 a.fst", signals:["TOP.dut.clk"],
+  source_files:["../rtl/Demo.sv"], dut_python_path:null, test_case:"tests/test_demo.py::test_x[a]",
+  start:"10", end:"184467440737095516170", cursor:"9007199254740993"};
+assert.deepEqual(api.normalizePayload(payload),payload);
+for (const changes of [{schema_version:2},{waveform_file:"../a.fst"},{start:10},{cursor:"00"},
+  {source_files:["/rtl/a.sv"]},{signals:[]},{command:"sh"}]) {
+  assert.throws(()=>api.normalizePayload({...payload,...changes}));
+}
 assert.deepEqual(api.decimalToBigIntJson("0"), [0, []]);
 assert.deepEqual(api.decimalToBigIntJson("4294967297"), [1, [1, 1]]);
 assert.deepEqual(api.decimalToBigIntJson("18446744073709551616"), [1, [0, 0, 1]]);
@@ -114,57 +49,34 @@ assert.equal(
   "TOP.dut.mem[3]",
 );
 
-const location = {
-  href: `https://example.test/agent/a-1/cmd/surfer/?wave=${token}&sub_worspace=child-a`,
-};
-let replacement;
-const prepared = api.prepareLocation(location, {
-  replaceState(_state, _title, url) { replacement = url; },
-});
-assert.equal(prepared.active, true);
-const replaced = new URL(replacement, "https://example.test");
-assert.equal(
-  replaced.searchParams.get("load_url"),
-  "https://example.test/agent/a-1/cmd/workspace/unity_test/tests/data/%E6%B3%A2%E5%BD%A2/test_bug.fst?sub_worspace=child-a",
-);
-
-let logicalReplacement;
-const preparedLogical = api.prepareLocation(
-  {href: `https://example.test/agent/a-1/cmd/surfer/?wave=${logicalToken}&sub_worspace=child-a`},
-  {replaceState(_state, _title, url) { logicalReplacement = url; }},
-);
-assert.equal(preparedLogical.active, true);
-const replacedLogical = new URL(logicalReplacement, "https://example.test");
-assert.equal(
-  replacedLogical.searchParams.get("load_url"),
-  `https://example.test/agent/a-1/cmd/api/waveform/latest?wave=${logicalToken}&sub_worspace=child-a`,
-);
-
-const rendered = marked.parse(
-  `<WAVEFORM-VIEWER> [localized viewer](/surfer/?wave=${token})`,
-);
-assert.match(rendered, /<a href="\/surfer\/\?wave=[A-Za-z0-9_-]+">localized viewer<\/a>/);
-assert(!rendered.includes("<code>"));
-assert.equal(
-  fs.readFileSync(path.join(__dirname, "..", "ucagent", "server", "static", "surfer", "ucagent-wave-ready.sucl"), "utf8").trim(),
-  "divider_add __UCAGENT_WAVE_READY_V1__",
-);
-assert.equal(
-  replaced.searchParams.get("startup_commands"),
-  "run_command_file_from_url https://example.test/agent/a-1/cmd/surfer/ucagent-wave-ready.sucl",
-);
-
-for (const invalid of [
-  "%%%",
-  Buffer.from("not-json").toString("base64url"),
-  Buffer.from(JSON.stringify({v: 2, file: "waves/test.vcd"})).toString("base64url"),
-  Buffer.from(JSON.stringify({v: 2, test_dir: "../tests", test_case: "test_bug"})).toString("base64url"),
-  Buffer.from(JSON.stringify({v: 1, file: "../test.vcd"})).toString("base64url"),
-]) {
-  assert.throws(() => api.decodeToken(invalid), /wave|protocol|file|JSON|version/i);
-}
-
 void (async () => {
+  for (const prefix of ["", "/task/t-1/cmd", "/agent/a-1/cmd"]) {
+    let replacement;
+    const meta="waves/波形 a.fst.json";
+    const prepared=await api.prepareLocation(
+      {href:"https://example.test"+prefix+"/surfer/?meta="+encodeURIComponent(meta)+"&sub_worspace=child"},
+      {replaceState(_state,_title,url){replacement=url;}},
+      async (url,options)=>{
+        const request=new URL(url);
+        assert.equal(request.pathname,prefix+"/api/waveform/metadata");
+        assert.equal(request.searchParams.get("meta"),meta);
+        assert.equal(request.searchParams.get("sub_worspace"),"child");
+        assert.equal(options.credentials,"same-origin");
+        return {ok:true,json:async()=>payload};
+      });
+    assert(prepared.active);
+    const updated=new URL(replacement,"https://example.test");
+    const wave=new URL(updated.searchParams.get("load_url"));
+    assert.equal(decodeURIComponent(wave.pathname),prefix+"/workspace/waves/波形 a.fst");
+    assert.equal(wave.searchParams.get("sub_worspace"),"child");
+    assert.equal(updated.searchParams.get("startup_commands"),
+      "run_command_file_from_url https://example.test"+prefix+"/surfer/ucagent-wave-ready.sucl");
+  }
+  await assert.rejects(api.prepareLocation({href:"https://example.test/surfer/?meta=../x.json"},null));
+  await assert.rejects(api.prepareLocation({href:"https://example.test/surfer/?meta=x.fst.json"},null,
+    async()=>({ok:false,json:async()=>({detail:"missing waveform"})})),/missing waveform/);
+  assert.equal((await api.prepareLocation({href:"https://example.test/surfer/"},null)).active,false);
+  assert.match(marked.parse("<WAVEFORM-VIEWER> [view](/wave/?meta=waves/test.fst.json)"), /href="\/wave\/\?meta=/);
   const injected = [];
   const identifiers = new Map([
     [api.READY_DIVIDER, 7],

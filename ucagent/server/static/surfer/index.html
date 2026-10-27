@@ -14,7 +14,7 @@
         <script type="module">
         let deepLink;
         try {
-            deepLink = window.UCAgentSurferDeepLink.prepareLocation(window.location, window.history);
+            deepLink = await window.UCAgentSurferDeepLink.prepareLocation(window.location, window.history);
             await window.UCAgentSurferFstFallback.prepareWaveform(
                 window.location,
                 window.history,

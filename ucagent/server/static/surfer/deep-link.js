@@ -5,15 +5,9 @@
 })(typeof globalThis !== "undefined" ? globalThis : this, function () {
   "use strict";
 
-  const VERSION = 2;
-  const SUPPORTED_VERSIONS = new Set([1, VERSION]);
   const MAX_SIGNALS = 64;
   const READY_DIVIDER = "__UCAGENT_WAVE_READY_V1__";
-  const TOKEN_RE = /^[A-Za-z0-9_-]+$/;
   const DECIMAL_RE = /^(0|[1-9][0-9]*)$/;
-  const COMMON_KEYS = ["v", "start", "end", "cursor", "signals"];
-  const V1_KEYS = new Set([...COMMON_KEYS, "file"]);
-  const V2_KEYS = new Set([...COMMON_KEYS, "test_dir", "test_case"]);
 
   function protocolError(message) {
     const error = new Error(message);
@@ -21,195 +15,90 @@
     return error;
   }
 
-  function utf8ToBase64Url(value) {
-    const bytes = new TextEncoder().encode(value);
-    let binary = "";
-    for (const byte of bytes) binary += String.fromCharCode(byte);
-    return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
-  }
-
-  function base64UrlToUtf8(token) {
-    if (typeof token !== "string" || !TOKEN_RE.test(token)) {
-      throw protocolError("wave token must be non-empty unpadded Base64URL");
-    }
-    const padded = token.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((-token.length) & 3);
-    let binary;
-    try {
-      binary = atob(padded);
-    } catch (error) {
-      throw protocolError("wave token is not valid Base64URL");
-    }
-    const bytes = Uint8Array.from(binary, character => character.charCodeAt(0));
-    try {
-      return new TextDecoder("utf-8", {fatal: true}).decode(bytes);
-    } catch (error) {
-      throw protocolError("wave token is not valid UTF-8");
-    }
-  }
-
-  function normalizeFile(value) {
-    if (typeof value !== "string" || !value) throw protocolError("file must be a non-empty string");
-    if (value.includes("\\")) throw protocolError("file must use '/' separators");
-    if (/[:][/][/]/.test(value) || value.includes("?") || value.includes("#")) {
-      throw protocolError("file must not be a URL");
-    }
-    if (value.startsWith("/") || /^[A-Za-z]:/.test(value)) {
-      throw protocolError("file must be workspace-relative");
-    }
-    if (/[\u0000-\u001f]/.test(value)) throw protocolError("file must not contain control characters");
-    const parts = value.split("/");
-    if (parts.some(part => part === "" || part === "." || part === "..")) {
-      throw protocolError("file must not contain empty, '.' or '..' path segments");
-    }
-    if (!/\.(vcd|fst)$/i.test(value)) throw protocolError("file must end in .vcd or .fst");
-    return value;
-  }
-
-  function normalizeTestDir(value) {
-    if (typeof value !== "string" || !value) throw protocolError("test_dir must be a non-empty string");
-    if (value.includes("\\")) throw protocolError("test_dir must use '/' separators");
-    if (/[:][/][/]/.test(value) || value.includes("?") || value.includes("#")) {
-      throw protocolError("test_dir must not be a URL");
-    }
-    if (value.startsWith("/") || /^[A-Za-z]:/.test(value)) {
-      throw protocolError("test_dir must be workspace-relative");
-    }
-    if (/[\u0000-\u001f]/.test(value)) throw protocolError("test_dir must not contain control characters");
-    if (value === ".") return value;
-    const parts = value.split("/");
-    if (parts.some(part => part === "" || part === "." || part === "..")) {
-      throw protocolError("test_dir must not contain empty, '.' or '..' path segments");
-    }
-    return value;
-  }
-
-  function normalizeTestCase(value) {
-    if (typeof value !== "string" || !value || value !== value.trim()) {
-      throw protocolError("test_case must be a non-empty canonical string");
-    }
-    if (/[\u0000-\u001f]/.test(value)) throw protocolError("test_case must not contain control characters");
-    if (value.includes("/") || value.includes("\\") || value.includes("::")) {
-      throw protocolError("test_case must be an exact function basename, not a path or node ID");
-    }
-    if (/\.(vcd|fst|dat)$/i.test(value)) {
-      throw protocolError("test_case must not include a waveform file extension");
+  function relativePath(value, parents = false) {
+    if (typeof value !== "string" || !value || value !== value.trim() ||
+        /[\\\u0000-\u001f]/.test(value) || value.startsWith("/") || /^[A-Za-z]:/.test(value) ||
+        value.split("/").some(part => !part || part === "." || (!parents && part === ".."))) {
+      throw protocolError("file paths must use relative '/' segments within the workspace");
     }
     return value;
   }
 
   function normalizeDecimal(name, value) {
     if (typeof value !== "string" || !DECIMAL_RE.test(value)) {
-      throw protocolError(`${name} must be a canonical non-negative decimal string`);
+      throw protocolError(name + " must be a nonnegative decimal string");
     }
     return value;
   }
 
   function normalizePayload(payload) {
-    if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-      throw protocolError("payload must be a JSON object");
+    const keys = new Set(["schema_version", "waveform_file", "signals", "source_files",
+      "dut_python_path", "test_file", "test_case", "start", "end", "cursor"]);
+    if (!payload || Array.isArray(payload) || payload.schema_version !== 1 ||
+        Object.keys(payload).some(key => !keys.has(key))) throw protocolError("invalid waveform metadata schema");
+    const file = relativePath(payload.waveform_file);
+    if (file.includes("/") || !/\.(fst|vcd)$/i.test(file)) throw protocolError("Surfer requires an FST/VCD waveform beside its JSON");
+    const result = {...payload, waveform_file: file};
+    for (const key of ["signals", "source_files"]) {
+      if (!Array.isArray(payload[key]) || payload[key].some(item =>
+          typeof item !== "string" || !item.trim() || /[\u0000-\u001f]/.test(item))) {
+        throw protocolError(key + " must contain nonempty strings");
+      }
+      result[key] = [...new Set(payload[key])];
     }
-    if (!Number.isInteger(payload.v) || !SUPPORTED_VERSIONS.has(payload.v)) {
-      throw protocolError(`unsupported waveform viewer protocol version: ${String(payload.v)}`);
+    result.source_files.forEach(path => relativePath(path, true));
+    if (result.signals.length > MAX_SIGNALS) throw protocolError("signals must contain at most 64 entries");
+    if (!("dut_python_path" in payload)) throw protocolError("dut_python_path is required");
+    for (const key of ["dut_python_path", "test_file"]) {
+      if (key in payload && payload[key] !== null) relativePath(payload[key], true);
     }
-    const allowedKeys = payload.v === 1 ? V1_KEYS : V2_KEYS;
-    const unknown = Object.keys(payload).filter(key => !allowedKeys.has(key));
-    if (unknown.length) throw protocolError(`payload contains unknown field(s): ${unknown.sort().join(", ")}`);
-    const normalized = payload.v === 1
-      ? {v: 1, file: normalizeFile(payload.file)}
-      : {v: VERSION, test_dir: normalizeTestDir(payload.test_dir), test_case: normalizeTestCase(payload.test_case)};
-    const timeKeys = ["start", "end", "cursor"];
-    const present = timeKeys.filter(key => Object.prototype.hasOwnProperty.call(payload, key));
-    if (present.length && present.length !== timeKeys.length) {
-      throw protocolError("start, end and cursor must either all be present or all be omitted");
+    if ("test_case" in payload && (typeof payload.test_case !== "string" || !payload.test_case.trim() || /[\u0000-\u001f]/.test(payload.test_case))) {
+      throw protocolError("test_case must be the exact node ID");
     }
-    if (present.length) {
-      for (const key of timeKeys) normalized[key] = normalizeDecimal(key, payload[key]);
-      if (!(BigInt(normalized.start) <= BigInt(normalized.cursor) && BigInt(normalized.cursor) <= BigInt(normalized.end))) {
+    const times = ["start", "end", "cursor"].filter(key => key in payload);
+    if (times.length) {
+      if (times.length !== 3 || !result.signals.length) throw protocolError("an analysis window requires start, end, cursor and signals");
+      for (const key of times) result[key] = normalizeDecimal(key, payload[key]);
+      if (!(BigInt(result.start) <= BigInt(result.cursor) && BigInt(result.cursor) <= BigInt(result.end))) {
         throw protocolError("time range must satisfy start <= cursor <= end");
       }
     }
-    if (Object.prototype.hasOwnProperty.call(payload, "signals")) {
-      if (!Array.isArray(payload.signals) || !payload.signals.length) {
-        throw protocolError("signals must be a non-empty JSON array");
-      }
-      const signals = [];
-      const seen = new Set();
-      for (const signal of payload.signals) {
-        if (typeof signal !== "string" || !signal.trim()) {
-          throw protocolError("each signal must be a non-empty string");
-        }
-        if (!seen.has(signal)) {
-          seen.add(signal);
-          signals.push(signal);
-        }
-      }
-      if (signals.length > MAX_SIGNALS) throw protocolError(`signals must contain at most ${MAX_SIGNALS} entries`);
-      if (!present.length) throw protocolError("signals require start, end and cursor");
-      normalized.signals = signals;
-    } else if (present.length) {
-      throw protocolError("an analysis window requires at least one signal");
-    }
-    return normalized;
-  }
-
-  function encodePayload(payload) {
-    return utf8ToBase64Url(JSON.stringify(normalizePayload(payload)));
-  }
-
-  function decodeToken(token) {
-    let payload;
-    try {
-      payload = JSON.parse(base64UrlToUtf8(token));
-    } catch (error) {
-      if (error && error.name === "WaveformViewerProtocolError") throw error;
-      throw protocolError("wave token does not contain valid JSON");
-    }
-    const normalized = normalizePayload(payload);
-    if (encodePayload(normalized) !== token) throw protocolError("wave token is not in canonical Base64URL form");
-    return normalized;
+    return result;
   }
 
   function servicePrefix(pathname) {
-    const marker = "/surfer/";
-    const position = pathname.lastIndexOf(marker);
+    const position = pathname.lastIndexOf("/surfer/");
     return position < 0 ? "" : pathname.slice(0, position);
   }
 
-  function workspaceUrl(payload, locationLike, subWorkspace) {
-    if (!payload || payload.v !== 1) throw protocolError("workspaceUrl requires a v1 file payload");
-    const prefix = servicePrefix(locationLike.pathname || "");
-    const path = payload.file.split("/").map(encodeURIComponent).join("/");
-    const url = new URL(`${prefix}/workspace/${path}`, locationLike.origin);
+  function workspaceUrl(meta, payload, locationLike, subWorkspace) {
+    relativePath(meta);
+    if (meta.split("/").pop() !== payload.waveform_file + ".json") throw protocolError("metadata filename must match its waveform");
+    const file = meta.slice(0, meta.lastIndexOf("/") + 1) + payload.waveform_file;
+    const path = file.split("/").map(encodeURIComponent).join("/");
+    const url = new URL(servicePrefix(locationLike.pathname) + "/workspace/" + path, locationLike.origin);
     if (subWorkspace) url.searchParams.set("sub_worspace", subWorkspace);
     return url.toString();
   }
 
-  function latestWaveformUrl(payload, token, locationLike, subWorkspace) {
-    if (!payload || payload.v !== VERSION) throw protocolError("latestWaveformUrl requires a v2 logical payload");
-    const prefix = servicePrefix(locationLike.pathname || "");
-    const url = new URL(`${prefix}/api/waveform/latest`, locationLike.origin);
-    url.searchParams.set("wave", token);
-    if (subWorkspace) url.searchParams.set("sub_worspace", subWorkspace);
-    return url.toString();
-  }
-
-  function waveformUrl(payload, token, locationLike, subWorkspace) {
-    return payload.v === 1
-      ? workspaceUrl(payload, locationLike, subWorkspace)
-      : latestWaveformUrl(payload, token, locationLike, subWorkspace);
-  }
-
-  function prepareLocation(locationLike, historyLike) {
+  async function prepareLocation(locationLike, historyLike, fetcher = globalThis.fetch) {
     const current = new URL(locationLike.href);
-    const token = current.searchParams.get("wave");
-    if (!token) return {active: false, payload: null};
-    const payload = decodeToken(token);
-    const subWorkspace = current.searchParams.get("sub_worspace") || "";
-    current.searchParams.set("load_url", waveformUrl(payload, token, current, subWorkspace));
-    if (payload.signals) {
-      const prefix = servicePrefix(current.pathname);
-      const readyUrl = new URL(`${prefix}/surfer/ucagent-wave-ready.sucl`, current.origin).toString();
-      current.searchParams.set("startup_commands", `run_command_file_from_url ${readyUrl}`);
+    const meta = current.searchParams.get("meta");
+    if (!meta) return {active: false, payload: null};
+    relativePath(meta);
+    const subWorkspace = current.searchParams.get("sub_worspace") || current.searchParams.get("sub_workspace") || "";
+    const prefix = servicePrefix(current.pathname);
+    const metadataUrl = new URL(prefix + "/api/waveform/metadata", current.origin);
+    metadataUrl.searchParams.set("meta", meta);
+    if (subWorkspace) metadataUrl.searchParams.set("sub_worspace", subWorkspace);
+    const response = await fetcher(metadataUrl.toString(), {credentials: "same-origin", cache: "no-store"});
+    const body = await response.json();
+    if (!response.ok) throw protocolError([body.detail?.message || body.message || body.error || body.detail || "Cannot read waveform metadata", body.detail?.next_action].filter(Boolean).join(" "));
+    const payload = normalizePayload(body);
+    current.searchParams.set("load_url", workspaceUrl(meta, payload, current, subWorkspace));
+    if (payload.signals.length) {
+      const readyUrl = new URL(prefix + "/surfer/ucagent-wave-ready.sucl", current.origin).toString();
+      current.searchParams.set("startup_commands", "run_command_file_from_url " + readyUrl);
     } else {
       current.searchParams.delete("startup_commands");
     }
@@ -282,7 +171,7 @@
   }
 
   async function applyWhenReady(payload, api, options) {
-    if (!payload || !payload.signals) return;
+    if (!payload || !payload.signals.length) return;
     const settings = Object.assign({attempts: 200, interval: 100}, options || {});
     const dividerId = await waitForName(api, READY_DIVIDER, settings.attempts, settings.interval);
     if (dividerId === undefined) throw new Error("波形加载失败或 readiness 标记不可用");
@@ -300,6 +189,7 @@
     if (missing.length) {
       throw new Error(`波形加载失败或目标信号不可用：${missing.join(", ")}`);
     }
+    if (!("start" in payload)) return;
     inject(api, {Batch: [
       {ZoomToRange: {
         start: decimalToBigIntJson(payload.start),
@@ -313,12 +203,8 @@
   return {
     READY_DIVIDER,
     normalizePayload,
-    encodePayload,
-    decodeToken,
     servicePrefix,
     workspaceUrl,
-    latestWaveformUrl,
-    waveformUrl,
     prepareLocation,
     decimalToBigIntJson,
     variableRef,

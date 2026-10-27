@@ -595,6 +595,31 @@ def test_master_http_and_ws_proxy_auth_prefix_and_credentials(cmd_server, tmp_pa
                     pass
             assert error.value.code == 4401
         client.auth = ("user", master.password)
+        from ucagent.util.waveform_viewer import build_waveform_metadata, write_waveform_metadata
+        wave = Path(cmd_server.pdb.agent.workspace) / "proxy wave.vcd"
+        wave.write_bytes(b"proxy waveform")
+        meta, payload, _ = build_waveform_metadata(wave.parent, wave.name)
+        write_waveform_metadata(wave.parent, meta, payload)
+        cmd_prefix = f"/{kind}/test/cmd"
+        dispatch = client.get(cmd_prefix + "/wave/", params={"meta":meta}, follow_redirects=False)
+        assert dispatch.status_code == 303
+        assert dispatch.headers["location"].startswith("../surfer/?meta=")
+        assert client.get(cmd_prefix + "/api/waveform/metadata", params={"meta":meta}).json() == payload
+        dashboard = client.get(cmd_prefix + "/")
+        assert dashboard.status_code == 200
+        assert '_cmdApiPathPrefix()+"/"+"wave/?meta="' in dashboard.text
+        fsdb = wave.with_suffix(".fsdb")
+        fsdb.write_bytes(b"FSDB")
+        fsdb_meta, fsdb_payload, _ = build_waveform_metadata(wave.parent, fsdb.name)
+        write_waveform_metadata(wave.parent, fsdb_meta, fsdb_payload)
+        before = len(cmd_server._xpra.list()["sessions"])
+        launch_page = client.get(cmd_prefix + "/wave/", params={"meta":fsdb_meta})
+        assert "../api/xpra/sessions" in launch_page.text
+        assert len(cmd_server._xpra.list()["sessions"]) == before
+        launched = client.post(cmd_prefix + "/api/xpra/sessions", json={"wave_meta":fsdb_meta})
+        assert launched.status_code == 201, launched.text
+        reused = client.post(cmd_prefix + "/api/xpra/sessions", json={"wave_meta":fsdb_meta})
+        assert reused.json()["id"] == launched.json()["id"]
         with pytest.raises(WebSocketDisconnect) as error:
             with client.websocket_connect(prefix+f"/sessions/{session['id']}/client/", headers={"origin":"https://other.example"}):
                 pass

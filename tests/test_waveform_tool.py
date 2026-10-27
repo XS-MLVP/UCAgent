@@ -28,7 +28,7 @@ from ucagent.util.bug_analysis_contract import (
 )
 from ucagent.util.functions import get_tools_from_cfg
 from ucagent.util.markdown import ensure_markdown_file_heading_spacing
-from ucagent.util.waveform_viewer import decode_waveform_viewer_token
+from ucagent.util.waveform_viewer import load_waveform_metadata, parse_waveform_viewer_markdown_link
 
 
 VCD_CONTENT = """$date
@@ -456,9 +456,12 @@ def test_vcd_reports_freshness_events_and_clock_based_cycle_alignment(tmp_path):
     assert result["signal_groups"] == FINAL_SIGNAL_GROUPS
     viewer = result["waveform_viewer"]
     assert viewer["payload"] == {
-        "v": 2,
-        "test_dir": "unity_test/tests",
-        "test_case": "test_bug[param-a]",
+        "schema_version": 1,
+        "waveform_file": "test_bug[param-a].vcd",
+        "source_files": [],
+        "dut_python_path": None,
+        "test_file": None,
+        "test_case": "tests/test_bug.py::TestDemo::test_bug[param-a]",
         "start": "5",
         "end": "35",
         "cursor": "15",
@@ -470,10 +473,10 @@ def test_vcd_reports_freshness_events_and_clock_based_cycle_alignment(tmp_path):
             "TOP.dut.ready",
         ],
     }
-    token = viewer["url"].split("wave=", 1)[1]
-    assert decode_waveform_viewer_token(token) == viewer["payload"]
+    meta = parse_waveform_viewer_markdown_link(result["bug_document_viewer_link"])
+    assert load_waveform_metadata(tmp_path, meta)[1] == viewer["payload"]
     assert result["bug_document_viewer_link"] == (
-        f"<WAVEFORM-VIEWER> [test_bug(param-a)]({viewer['url']})"
+        f"<WAVEFORM-VIEWER> [test_bug(param-a).vcd]({viewer['url']})"
     )
     receipt = tool.get_analysis_receipt(
         result["waveform_analysis_receipt"]["receipt_id"]
@@ -591,6 +594,8 @@ def test_all_event_types_and_xz_values_are_preserved(tmp_path):
     assert result["evidence_usable"] is False
     assert result["recommended_evidence_call"] == {
         "test_case_name": "test_events",
+        "source_files": [],
+        "dut_python_path": "",
         "pattern": [
             {"signal": "TOP.dut.data[3:0]", "event": "change", "value": ""},
             {"signal": "TOP.dut.valid", "event": "rising", "value": ""},
@@ -641,8 +646,11 @@ def test_explicit_window_viewer_uses_effective_window_and_real_event_cursor(tmp_
     )
 
     assert result["waveform_viewer"]["payload"] == {
-        "v": 2,
-        "test_dir": "tests",
+        "schema_version": 1,
+        "waveform_file": "test_explicit_viewer.vcd",
+        "source_files": [],
+        "dut_python_path": None,
+        "test_file": None,
         "test_case": "test_explicit_viewer",
         "start": "10",
         "end": "25",
@@ -656,7 +664,7 @@ def test_explicit_window_viewer_uses_effective_window_and_real_event_cursor(tmp_
         ],
     }
     assert result["bug_document_viewer_link"].startswith(
-        "<WAVEFORM-VIEWER> [test_explicit_viewer](/surfer/?wave="
+        "<WAVEFORM-VIEWER> [test_explicit_viewer.vcd](/wave/?meta="
     )
 
 
@@ -705,8 +713,8 @@ def test_workspace_external_waveform_cannot_create_bug_viewer_link(tmp_path):
     assert result["evidence_usable"] is True
     assert "waveform_viewer" not in result
     assert "bug_document_viewer_link" not in result
-    assert "current UCAgent workspace" in result["waveform_viewer_suggestion"]
-    assert "workspace-relative" in result["waveform_viewer_error"]
+    assert "source path" in result["waveform_viewer_suggestion"]
+    assert "relative" in result["waveform_viewer_error"]
 
 
 def test_runtime_generated_fst_is_parsed_and_preferred(tmp_path):
@@ -799,12 +807,9 @@ def test_fsdb_dispatch_runs_analysis_and_receipts_with_an_injected_reader(tmp_pa
     assert result["waveform_selection"]["format"] == "fsdb"
     assert result["timeline"]
     assert result["waveform_analysis_receipt"]["receipt_id"]
-    assert "waveform_viewer" not in result
-    assert "cannot be displayed" in result["waveform_viewer_error"]
-    assert "operator" in result["waveform_viewer_suggestion"]
-    assert "format_priority" not in result["waveform_viewer_suggestion"]
-    assert "FST" not in result["waveform_viewer_error"]
-    assert "bug_document_fields" not in result
+    assert result["waveform_viewer"]["payload"]["waveform_file"] == target.name
+    assert (tmp_path / result["waveform_viewer"]["meta"]).is_file()
+    assert "bug_document_fields" in result
     selection, error = tool._discover_waveform("test_fsdb.fsdb")
     assert error is None
     assert selection.waveform == target
@@ -1279,8 +1284,11 @@ def test_receipt_is_restored_after_tool_recreation(tmp_path):
     }
     assert restored["result"]["waveform_viewer"] == result["waveform_viewer"]
     assert restored["result"]["waveform_viewer"]["payload"] == {
-        "v": 2,
-        "test_dir": "tests",
+        "schema_version": 1,
+        "waveform_file": "test_receipt_resume.vcd",
+        "source_files": [],
+        "dut_python_path": None,
+        "test_file": None,
         "test_case": "test_receipt_resume",
         "start": "10",
         "end": "25",
@@ -2537,7 +2545,7 @@ def test_apply_waveinfo_evidence_updates_unique_pair_when_bug_spans_two_cks(tmp_
     "viewer_scaffold",
     (
         "    <WAVEFORM-VIEWER> placeholder",
-        "    <WAVEFORM-VIEWER> [viewer](/surfer/?wave=placeholder)",
+        "    <WAVEFORM-VIEWER> [viewer](/wave/?meta=placeholder.json)",
         None,
     ),
 )
@@ -2667,7 +2675,7 @@ def test_apply_waveinfo_evidence_auto_selects_latest_matching_final_receipt(tmp_
     target.parent.mkdir(exist_ok=True)
     _write_dynamic_bug_scaffold(target)
     content = target.read_text(encoding="utf-8").replace(
-        f"    <WAVEFORM-VIEWER> [{BUG_TODO_MARKER}](/surfer/?wave={BUG_TODO_MARKER})",
+        f"    <WAVEFORM-VIEWER> [{BUG_TODO_MARKER}](/wave/?meta={BUG_TODO_MARKER}.json)",
         "    <WAVEFORM-VIEWER> placeholder",
     )
     target.write_text(content, encoding="utf-8")
@@ -3369,3 +3377,91 @@ def test_parameterized_tc_title_resolves_from_parent_function_docstring(tmp_path
     )
 
     assert title == "Parameterized value remains within range."
+
+
+def test_source_arguments_metadata_publication_and_read_only_replay(tmp_path):
+    """Related files survive local/MCP arguments and analysis alone never publishes."""
+    tests = tmp_path/'out/tests'
+    session = _session(tests, 'toffee_tmp_20260814150000_000')
+    _write_vcd(session, 'test_sources')
+    for value in ('Demo/Demo.sv','Demo/__init__.py','rtl/related.sv','src/Design.scala','rtl/unrelated.sv','out/tests/test_sources.py'):
+        path = tmp_path/value
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text('fixture')
+    tool = _tool(tmp_path, tests)
+    arguments = dict(test_case_name='tests/test_sources.py::test_sources',
+        pattern=[{'signal':'TOP.dut.valid','event':'rising'}], signal_groups=FINAL_SIGNAL_GROUPS,
+        start_step=10,end_step=25,source_files=['rtl/related.sv','src/Design.scala'])
+    result = tool.analyze(**arguments)
+    meta = tmp_path/result['waveform_viewer']['meta']
+    assert not meta.exists()
+    source_args = dict(source_files=arguments['source_files'], dut_python_path='Demo/__init__.py')
+    exploratory = tool.analyze(**{**arguments, **source_args, 'start_step':None, 'end_step':None})
+    assert {key:exploratory['recommended_evidence_call'][key] for key in source_args} == source_args
+    final = _call(tool,**arguments)
+    writer = ApplyWaveInfoEvidence(waveinfo=tool, workspace=str(tmp_path))
+    explicit = _call(tool, **{**arguments, **source_args})
+    recovery = writer._waveinfo_recovery_call(explicit['waveform_analysis_receipt']['receipt_id'],
+                                             arguments['test_case_name'])
+    assert {key:recovery[key] for key in source_args} == source_args
+    payload = load_waveform_metadata(tmp_path,final['waveform_viewer']['meta'])[1]
+    assert payload['test_case'] == arguments['test_case_name']
+    assert (meta.parent/payload['test_file']).resolve() == tests/'test_sources.py'
+    assert (meta.parent/payload['dut_python_path']).resolve() == tmp_path/'Demo/__init__.py'
+    assert {(meta.parent/value).resolve() for value in payload['source_files']} == {
+        tmp_path/'Demo/Demo.sv',tmp_path/'rtl/related.sv',tmp_path/'src/Design.scala'}
+    before = meta.read_bytes()
+    tool.replay_analysis(**{**arguments,'start_step':0,'end_step':30})
+    assert meta.read_bytes() == before
+    _call(tool,**{**arguments,'start_step':0,'end_step':30})
+    assert json.loads(meta.read_text())['start'] == '0'
+    receipt = tool.get_analysis_receipt(final['waveform_analysis_receipt']['receipt_id'])
+    assert receipt['arguments']['source_files'] == arguments['source_files']
+    receipt_id = receipt['receipt_id']
+    store_path = tool._receipt_store_path()
+    store = json.loads(store_path.read_text())
+    stored = next(item for item in store['receipts'] if item['receipt_id'] == receipt_id)
+    stored['result']['waveform_viewer']['payload']['signals'] = ['FORGED']
+    store_path.write_text(json.dumps(store))
+    assert _tool(tmp_path, tests).get_analysis_receipt(receipt_id) is None
+    invalid = tool.analyze(**{**arguments,'source_files':['../escape.sv']})
+    assert invalid['status'] == 'invalid_source_path'
+    mcp = to_mcp_tool(tool)
+    assert {'source_files','dut_python_path'} <= set(mcp.parameters['properties'])
+
+
+def test_apply_synchronizes_final_view_and_rolls_back_on_document_failure(tmp_path, monkeypatch):
+    """Apply restores its chosen receipt; a failed document commit preserves both files."""
+    tests = tmp_path/'out/tests'
+    session = _session(tests,'toffee_tmp_20260814150000_000')
+    _write_vcd(session,'test_apply')
+    target = tmp_path/'out/Demo_bug_analysis.md'
+    _write_dynamic_bug_scaffold(target)
+    tool = _tool(tmp_path,tests)
+    first = _final_apply_receipt(tool)
+    meta = tmp_path/first['waveform_viewer']['meta']
+    second = _call(tool,test_case_name='tests/test_apply.py::test_apply',
+        pattern=[{'signal':'TOP.dut.valid','event':'rising'}],signal_groups=FINAL_SIGNAL_GROUPS,
+        start_step=0,end_step=30)
+    writer = ApplyWaveInfoEvidence(waveinfo=tool,workspace=str(tmp_path))
+    args = dict(target_file='out/Demo_bug_analysis.md',bug_tag='BG-DYNAMIC-80',
+        test_case_tag='TC-tests/test_apply.py::test_apply',
+        receipt_id=first['waveform_analysis_receipt']['receipt_id'])
+    assert writer.apply_evidence(**args)['success']
+    assert load_waveform_metadata(tmp_path, first['waveform_viewer']['meta'])[1] == first['waveform_viewer']['payload']
+    tool.publish_viewer_metadata(second['waveform_viewer'])
+    assert writer.apply_evidence(**args)['status'] == 'already_applied'
+    assert load_waveform_metadata(tmp_path, first['waveform_viewer']['meta'])[1] == first['waveform_viewer']['payload']
+    before_meta, before_document = meta.read_bytes(),target.read_bytes()
+    def fail(*args):
+        """Simulate a document filesystem failure after metadata publication."""
+        raise OSError('document write denied')
+    monkeypatch.setattr(writer,'_atomic_replace',fail)
+    result = writer.apply_evidence(**{**args,'receipt_id':second['waveform_analysis_receipt']['receipt_id'],
+        'replace_existing':True})
+    assert not result['success']
+    assert meta.read_bytes() == before_meta and target.read_bytes() == before_document
+    meta.unlink()
+    Path(tool.workspace,first['waveform_selection']['waveform_file']).unlink()
+    assert writer.apply_evidence(**args)['status'] == 'already_applied'
+    assert not meta.exists()

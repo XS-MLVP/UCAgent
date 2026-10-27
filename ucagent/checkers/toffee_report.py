@@ -7,7 +7,9 @@ from ucagent.util.waveform_viewer import (
     WaveformViewerProtocolError,
     WAVEFORM_VIEWER_MARKER,
     build_waveform_viewer_url,
+    waveform_viewer_semantics,
     parse_waveform_viewer_markdown_link,
+    validate_waveform_metadata,
 )
 from ucagent.util.bug_analysis_contract import (
     BUG_ANALYSIS_SECTION_MARKERS as _BUG_ANALYSIS_SECTION_MARKERS,
@@ -1511,7 +1513,7 @@ def _parse_waveform_analysis_blocks(
             )
             or stripped == f"{_WAVEFORM_BLOCK_KEY}:"
             or WAVEFORM_VIEWER_MARKER in stripped
-            or "/surfer/?wave=" in stripped
+            or "/wave/?meta=" in stripped
         ):
             return False, {}, {
                 "error": (
@@ -1670,7 +1672,7 @@ def _parse_waveform_analysis_blocks(
                 "apply_evidence": True,
             }
         try:
-            viewer_token, viewer_payload = parse_waveform_viewer_markdown_link(
+            viewer_meta = parse_waveform_viewer_markdown_link(
                 stripped_lines[index]
             )
         except WaveformViewerProtocolError as viewer_error:
@@ -1735,9 +1737,8 @@ def _parse_waveform_analysis_blocks(
                 if associated_test == test_label
             },
             "viewer_line": index + 1,
-            "viewer_token": viewer_token,
-            "viewer_payload": viewer_payload,
-            "viewer_url": build_waveform_viewer_url(viewer_payload),
+            "viewer_meta": viewer_meta,
+            "viewer_url": build_waveform_viewer_url(viewer_meta),
         }
         index += 1
 
@@ -2396,24 +2397,6 @@ _DEFERRED_WAVEFORM_REPLAY_STATUSES = frozenset(
 )
 
 
-def _viewer_replay_contract(viewer: object) -> dict[str, object] | None:
-    """Return viewer fields that describe behavior rather than a volatile file path."""
-
-    if not isinstance(viewer, dict):
-        return None
-    payload = viewer.get("payload")
-    if not isinstance(payload, dict):
-        return None
-    contract = {
-        key: copy.deepcopy(payload.get(key))
-        for key in ("v", "start", "end", "cursor", "signals")
-    }
-    if payload.get("v") == 2:
-        contract["test_dir"] = copy.deepcopy(payload.get("test_dir"))
-        contract["test_case"] = copy.deepcopy(payload.get("test_case"))
-    return contract
-
-
 def _waveform_semantic_change_details(
     documented_result: dict,
     current_result: dict,
@@ -2448,10 +2431,10 @@ def _waveform_semantic_change_details(
         if canonical(documented_result.get(field))
         != canonical(current_result.get(field))
     ]
-    documented_viewer = _viewer_replay_contract(
+    documented_viewer = waveform_viewer_semantics(
         documented_result.get("waveform_viewer")
     )
-    current_viewer = _viewer_replay_contract(current_result.get("waveform_viewer"))
+    current_viewer = waveform_viewer_semantics(current_result.get("waveform_viewer"))
     if documented_viewer != current_viewer:
         changed_fields.append("waveform_viewer")
 
@@ -2774,7 +2757,7 @@ def check_waveform_bug_analysis(
         semantic_field_repairs = {}
         receipt_viewer = receipt_result.get("waveform_viewer")
         documented_viewer = {
-            "payload": block.get("viewer_payload"),
+            "meta": block.get("viewer_meta"),
             "url": block.get("viewer_url"),
         }
         if (
@@ -2783,8 +2766,8 @@ def check_waveform_bug_analysis(
             or not _is_nonempty_string(receipt_viewer.get("url"))
         ):
             errors.append(
-                "the WaveInfo receipt has no complete signed waveform_viewer; it may "
-                "come from an older or interrupted WaveInfo call. Session cleanup or a "
+                "the WaveInfo receipt has no complete signed waveform_viewer; the final WaveInfo call "
+                "must provide complete viewing metadata. Session cleanup or a "
                 "changed current waveform path cannot alter an immutable signed receipt. "
                 "Rerun final WaveInfo and replace both the YAML block and viewer link"
             )
@@ -2792,7 +2775,7 @@ def check_waveform_bug_analysis(
                 "documented": documented_viewer,
                 "receipt": receipt_viewer,
             }
-        elif documented_viewer != receipt_viewer:
+        elif any(documented_viewer[key] != receipt_viewer.get(key) for key in documented_viewer):
             errors.append(
                 "the online viewer link payload does not match the signed WaveInfo receipt"
             )
@@ -2800,6 +2783,32 @@ def check_waveform_bug_analysis(
                 "documented": documented_viewer,
                 "receipt": receipt_viewer,
             }
+
+        if isinstance(receipt_viewer, dict):
+            try:
+                validate_waveform_metadata(waveform_tool.workspace, receipt_viewer["meta"],
+                                           receipt_viewer["payload"], must_exist=False)
+                payload = receipt_viewer["payload"]
+                selection = receipt_result.get("waveform_selection") or {}
+                window = receipt_result.get("analysis_window") or {}
+                alignment = receipt_result.get("cycle_alignment") or {}
+                cursor = (alignment.get("selected_candidate") or {}).get("wave_step")
+                if cursor is None:
+                    steps = receipt_result.get("event_steps") or []
+                    cursor = steps[0] if steps else None
+                expected = {
+                    "test_case": receipt_args.get("test_case_name"),
+                    "start": str(window.get("effective_start_step")),
+                    "end": str(window.get("effective_end_step")),
+                    "cursor": str(cursor),
+                }
+                if any(payload.get(key) != value for key, value in expected.items()):
+                    raise ValueError("view test identity or native time window differs from signed analysis")
+                if (receipt_viewer["meta"] != str(selection.get("waveform_file")) + ".json"
+                        or receipt_viewer["url"] != build_waveform_viewer_url(receipt_viewer["meta"])):
+                    raise ValueError("view target differs from the exact signed waveform")
+            except (KeyError, ValueError, OSError) as error:
+                errors.append(f"the signed viewing metadata is invalid: {error}")
 
         result_signal_groups = receipt_result.get("signal_groups")
         if isinstance(receipt_viewer, dict) and isinstance(

@@ -5,7 +5,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-import base64
 import copy
 import json
 import sys
@@ -100,7 +99,7 @@ REPORT_TEST = "tests/test_a.py:1-20::test_a"
 DOCUMENT_TEST = "tests/test_a.py::test_a"
 WORKSPACE_RELATIVE_DOCUMENT_TEST = "unity_test/tests/test_a.py::test_a"
 VIEWER_LINK = build_waveform_viewer_markdown_link(
-    {"v": 1, "file": "tests/data/placeholder.vcd"}
+    "tests/data/placeholder.vcd.json"
 )
 TEST_DISPLAY_TITLE = "Reproduced result mismatch"
 ROOT_TAG = "ROOT-DYNAMIC-RESULT-WIDTH"
@@ -260,7 +259,7 @@ def _waveform_block_lines(
     viewer_link = block.pop(
         "_viewer_link",
         build_waveform_viewer_markdown_link(
-            {"v": 1, "file": "tests/data/placeholder.vcd"}
+            "tests/data/placeholder.vcd.json"
         ),
     )
     observed_behavior = block.pop(
@@ -475,7 +474,7 @@ def _explicit_block(result: dict, pattern: list[dict], wave_step: int) -> dict:
         "_viewer_link": result.get(
             "bug_document_viewer_link",
             build_waveform_viewer_markdown_link(
-                {"v": 1, "file": "tests/data/placeholder.vcd"}
+                "tests/data/placeholder.vcd.json"
             ),
         ),
         "status": "confirmed",
@@ -634,7 +633,7 @@ def test_missing_or_tampered_viewer_link_is_rejected(tmp_path):
 
     tampered = copy.deepcopy(result["waveform_viewer"]["payload"])
     tampered["cursor"] = str(int(tampered["cursor"]) + 1)
-    block["_viewer_link"] = build_waveform_viewer_markdown_link(tampered)
+    block["_viewer_link"] = build_waveform_viewer_markdown_link("waves/other.vcd.json")
     _write_bug_doc(tmp_path, block)
     passed, message, _ = _check(tmp_path, tool)
     assert passed is False
@@ -656,7 +655,7 @@ def test_invalid_viewer_link_returns_structured_apply_recovery_call(tmp_path):
     )
     block = _explicit_block(result, pattern, wave_step=15)
     block["_viewer_link"] = (
-        "<WAVEFORM-VIEWER> [viewer](/surfer/?wave=placeholder)"
+        "<WAVEFORM-VIEWER> [viewer](/wave/?meta=../placeholder.json)"
     )
     _write_bug_doc(tmp_path, block)
 
@@ -710,14 +709,14 @@ def test_signal_groups_and_viewer_must_cover_required_context(tmp_path):
     block = _confirmed_block(result, pattern)
     tampered_payload = copy.deepcopy(result["waveform_viewer"]["payload"])
     tampered_payload["signals"] = tampered_payload["signals"][:1]
-    block["_viewer_link"] = build_waveform_viewer_markdown_link(tampered_payload)
+    block["_viewer_link"] = build_waveform_viewer_markdown_link("waves/other.vcd.json")
     _write_bug_doc(tmp_path, block)
     passed, message, _ = _check(tmp_path, tool)
     assert passed is False
     assert "online viewer link payload does not match" in str(message)
 
 
-def test_noncanonical_viewer_token_and_old_receipt_are_rejected(tmp_path):
+def test_noncanonical_viewer_path_and_incomplete_receipt_are_rejected(tmp_path):
     _write_functions(tmp_path)
     test_dir = tmp_path / "tests"
     _write_waveform(test_dir)
@@ -731,18 +730,12 @@ def test_noncanonical_viewer_token_and_old_receipt_are_rejected(tmp_path):
         end_step=25,
     )
     block = _explicit_block(result, pattern, wave_step=15)
-    payload = result["waveform_viewer"]["payload"]
-    noncanonical = base64.urlsafe_b64encode(
-        json.dumps(payload, ensure_ascii=False).encode("utf-8")
-    ).decode("ascii").rstrip("=")
-    block["_viewer_link"] = (
-        f"<WAVEFORM-VIEWER> [viewer](/surfer/?wave={noncanonical})"
-    )
+    block["_viewer_link"] = "<WAVEFORM-VIEWER> [viewer](/wave/?meta=tests/%61.vcd.json)"
     _write_bug_doc(tmp_path, block)
 
     passed, message, _ = _check(tmp_path, tool)
     assert passed is False
-    assert "not in canonical Base64URL form" in str(message)
+    assert "not canonically encoded" in str(message)
 
     block["_viewer_link"] = result["bug_document_viewer_link"]
     tool.analysis_receipts[-1]["result"].pop("waveform_viewer")
@@ -2891,7 +2884,12 @@ def test_partial_run_defers_replay_but_final_gate_requires_current_waveform(tmp_
     assert "stale_waveform_only" in str(message)
 
 
-def test_signed_historical_receipt_survives_original_waveform_file_loss(tmp_path):
+@pytest.mark.parametrize('cleanup', ['waveform', 'metadata_and_key', 'modified_metadata'])
+def test_signed_historical_receipt_survives_original_waveform_file_loss(tmp_path, monkeypatch, cleanup):
+    """History verifies its receipt without reading, repairing or re-signing live metadata."""
+    import ucagent.util.waveform_viewer as viewer
+    keys = tmp_path.parent / (tmp_path.name + '-keys')
+    monkeypatch.setattr(viewer, '_METADATA_KEY_DIRECTORY', keys)
     test_dir = tmp_path / "tests"
     waveform_file = _write_waveform(test_dir)
     first_tool = WaveInfo(workspace=str(tmp_path), test_dir="tests", dut_name="Demo")
@@ -2907,6 +2905,13 @@ def test_signed_historical_receipt_survives_original_waveform_file_loss(tmp_path
     receipt_id = result["waveform_analysis_receipt"]["receipt_id"]
 
     waveform_file.unlink()
+    meta = tmp_path / result["waveform_viewer"]["meta"]
+    if cleanup == 'metadata_and_key':
+        meta.unlink()
+        next(keys.glob('*.key')).unlink()
+    elif cleanup == 'modified_metadata':
+        meta.write_text('{"signals": ["FORGED"]}')
+    before = meta.read_bytes() if meta.exists() else None
     resumed_tool = WaveInfo(
         workspace=str(tmp_path),
         test_dir="tests",
@@ -2924,6 +2929,9 @@ def test_signed_historical_receipt_survives_original_waveform_file_loss(tmp_path
     assert passed is True, message
     assert "Current waveform replay is disabled for this stage" in message
     assert resumed_tool.get_analysis_receipt(receipt_id) is not None
+    assert (meta.read_bytes() if meta.exists() else None) == before
+    if cleanup == 'metadata_and_key':
+        assert not list(keys.iterdir())
 
     passed, message = check_all_documented_waveform_bug_analysis(
         str(tmp_path),
@@ -3002,7 +3010,8 @@ def test_new_session_path_does_not_change_logical_viewer_contract(tmp_path):
     assert replay["waveform_selection"]["waveform_file"] != result[
         "waveform_selection"
     ]["waveform_file"]
-    assert replay["waveform_viewer"] == original_viewer
+    assert replay["waveform_viewer"]["payload"] == original_viewer["payload"]
+    assert replay["waveform_viewer"]["meta"] != original_viewer["meta"]
 
 
 def test_current_replay_requires_review_when_timeline_values_change(

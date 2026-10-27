@@ -118,7 +118,7 @@ const fstMetadata = {
   lastModified: "Tue, 18 Aug 2026 10:23:06 GMT",
   size: 8,
 };
-const source = "https://example.test/task/t-1/cmd/api/waveform/latest?wave=token&sub_worspace=child";
+const source = "https://example.test/task/t-1/cmd/workspace/waves/test.fst?sub_worspace=child";
 
 void (async () => {
   assert.equal(api.servicePrefix("/task/t-1/cmd/surfer/"), "/task/t-1/cmd");

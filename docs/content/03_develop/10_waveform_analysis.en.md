@@ -51,7 +51,103 @@ FST, VCD, and FSDB use `wavekit`'s `FstReader`, `VcdReader`, and `FsdbReader`, r
 
 These variables are used by the FSDB runtime library and operate independently of the waveform analysis format priority configuration. If NPI is missing, `WaveInfo` reports to the verification task that waveform analysis cannot be performed and recovery actions are taken; the underlying exception is written to the UCAgent runtime log. Environment maintainers should check runtime library configuration according to this section. Format, reader, and dependency configurations are managed by environment maintainers. Runtime guides and tool descriptions only require the verification task LLM to call `WaveInfo` and handle the results.
 
-The current browser viewer supports FST and VCD. FSDB can be queried and analyzed via `WaveInfo`, but it will not generate online viewing links that cannot be opened. When final bug evidence requires an online viewing link, first export to FST or VCD, configure it as the preferred format for analysis, and then re-execute the final `WaveInfo`. Directly accessing the logic viewing interface and selecting FSDB returns an HTTP 415 error, preventing the opening of a waveform in another format. Final evidence must still follow the signal group, analysis window, and receipt requirements in `Guide_Doc/dut_bug_analysis.md`.
+## Metadata-based viewing
+
+Viewing uses `/wave/?meta=<workspace-relative JSON path>` and pins the actual waveform selected for that analysis. Metadata for `a.fsdb` is stored beside it as `a.fsdb.json`. The file browser reads extensions from `GET /api/waveform/viewers` and posts `{"waveform_file":"waves/a.fsdb"}` to `POST /api/waveform/metadata`. This creates missing metadata and preserves existing final evidence settings.
+
+A final `WaveInfo` tool call publishes metadata. Direct `analyze()` and replay only compute results. `ApplyWaveInfoEvidence` synchronizes the selected receipt's view, including repeated Apply calls. Batch refresh/review publishes after all preparation succeeds and rolls metadata back if the document commit fails. Ordinary Check does not write metadata. One current view is stored per waveform; independent signed receipts retain historical snapshots. Removing waveform/JSON files does not invalidate verified historical evidence, while online viewing reports the missing files. Links never search a newer session or substitute another format.
+
+Example `waves/a.fsdb.json`:
+
+```json
+{
+  "schema_version": 1,
+  "waveform_file": "a.fsdb",
+  "signals": ["TOP.dut.clk", "TOP.dut.result"],
+  "source_files": ["../rtl/Demo.sv", "../src/Demo.scala"],
+  "dut_python_path": "../Demo/__init__.py",
+  "test_file": "../unity_test/tests/test_demo.py",
+  "test_case": "unity_test/tests/test_demo.py::test_saturation",
+  "start": "100",
+  "end": "200",
+  "cursor": "150",
+  "integrity_hmac": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+}
+```
+
+All file paths inside JSON are relative to its directory and use `/`. Parent references are allowed, but resolved files and symlinks must stay inside the selected workspace. `waveform_file` is a basename beside the JSON. The first five fields are required; an unresolved Python entry is `null` and unknown source associations use an empty list. Test association preserves the exact node ID. Final windows contain all three nonnegative decimal-string timestamps in native waveform ticks, avoiding JavaScript integer precision loss. Ordinary viewing can omit the window. Metadata is limited to 1 MiB and 64 unique signals.
+
+Existing main DUT design files, Python entries and exact test sources are associated automatically. `WaveInfo(source_files=[...], dut_python_path="...")` accepts workspace-relative paths for associations determined by the LLM. Scanned source files are not all added as related material. Invalid explicit paths fail; unresolved optional automatic associations produce warnings rather than invented paths.
+
+## Metadata integrity
+
+Stored JSON requires a tool-generated `integrity_hmac`. The 64 hexadecimal digits above illustrate the format and cannot be copied as a working signature. HMAC-SHA256 authenticates the complete unsigned JSON content together with its workspace-relative destination, using a workspace-specific secret. Changes to signals, timestamps, associated files, test IDs or link targets, and copies to another workspace, fail verification. Whitespace and object-key order do not affect canonical signing; duplicate JSON keys are rejected. Online links must use the resolved workspace-relative JSON path, rather than a symlink alias, so browser and server resolve the same waveform directory.
+
+Keys stay outside the workspace at the service user's `~/.ucagent/waveform_keys/`, with directory mode `0700` and key mode `0600`. Key filenames derive from SHA-256 of the resolved workspace path. Keys never enter metadata, tool output or runtime configuration. Verification does not recreate missing keys. Republish viewing metadata through the tools after moving a workspace or losing its key.
+
+CMD verifies integrity before dispatch, returning Surfer metadata and creating Xpra sessions. Surfer receives authenticated semantic fields with the signature removed. The default Verdi launcher verifies again immediately before starting the application, catching modifications after opening the page. Missing signatures, mismatches or unavailable keys prevent viewing. Ordinary viewing never re-signs modified JSON. Republish final evidence with `WaveInfo`/`ApplyWaveInfoEvidence`; for ordinary viewing, remove the damaged JSON and select the actual waveform again.
+
+Historical receipts independently sign semantic snapshots. Ordinary Check does not need live JSON or its signing key, so deleting waveform/JSON files or losing the viewing key does not invalidate verified history. This mechanism detects metadata changes by parties without the key; it does not authenticate waveform/source contents or protect against someone who can read the same operating-system user's private keys or invoke signing tools.
+
+## Viewers and Xpra configuration
+
+The resolved `cmd_api.waveform_viewers` mapping defaults to:
+
+```yaml
+cmd_api:
+  waveform_viewers:
+    fst:
+      kind: web
+      url: /surfer/
+    vcd:
+      kind: web
+      url: /surfer/
+    fsdb:
+      kind: xpra
+      script: verdi/launch_verdi.py
+      args: ["--meta", "{wave_meta}", "--verdi", "verdi"]
+      env: {}
+      idle_timeout: -1
+```
+
+A web URL is a same-origin page path starting and ending with `/`, without a query. Redirection passes the same `meta`. Surfer asynchronously reads `GET /api/waveform/metadata?meta=...`, loads the exact waveform and restores signals, window and cursor, retaining FST fallback conversion and progress reporting. Configure another extension with its own page or launcher. Unconfigured formats return 415 with a corrective action; invalid configuration returns 503.
+
+An Xpra GET only serves a launch page. The page posts `{"wave_meta":"waves/a.fsdb.json"}` to the existing `POST /api/xpra/sessions`. The server validates metadata, builds argv from operator configuration and reuses existing authentication, quotas, ownership and diagnostics. JSON cannot supply commands, scripts or environment variables. Identical metadata contents and viewer configuration reuse a live session; concurrent creation is coalesced and exited sessions can be recreated.
+
+Relative `script` paths resolve only under the actual running package's `ucagent/scripts`, including subdirectories. Traversal and symlink escapes are rejected. Working-directory/PATH lookup is not used. Absolute scripts are checked explicitly. Python scripts use UCAgent's `sys.executable`. `args` is an argv list; `{wave_meta}` becomes the validated absolute JSON path at launch and arguments are safely quoted. `env` is operator configuration. `idle_timeout` is `-1` or positive integer seconds. Pass additional Verdi arguments after `"--"` in the default launcher's argument list.
+
+The default `verdi/launch_verdi.py` imports supported Verilog/SystemVerilog sources, opens FSDB, adds signals and restores native-tick positions. Scala remains associated reference material. Tcl queries `wvGetFileTimeUnit` and sets `wvSetWindowTimeUnit` to one native tick before applying timestamps. Unknown time scales fail rather than assuming ns or using log cycles. Temporary Tcl lives until Verdi exits; failures and exit codes reach Xpra diagnostics.
+
+The runtime needs Xpra/X11, Verdi and a valid license. Substitute tests cover argv, paths, Tcl literals, multiple native scales and errors. Actual signal display/time positioning requires integration acceptance in a licensed environment. All interfaces preserve subworkspace selection and both Master task/agent CMD proxy prefixes.
+
+### Graphical integration without Verdi
+
+`tests/fixtures/fake_verdi.py` is a Tk application that executes the actual default launcher's Tcl, draws selected signals/window/cursor, and records remote button or `R` key input. It accepts only explicitly marked JSON waveform fixtures. The fixture has an `.fsdb` filename to exercise dispatch; it neither contains nor decodes proprietary FSDB. Xpra, Xvfb, CMD REST, the HTML5 client and WebSocket transport use their real implementations.
+
+On Linux with project test dependencies, Xpra, Xpra HTML5 assets, Xvfb and Python Tk installed, run the following. Containers should use an init process, such as `docker run --init`, to reap exited application descendants:
+
+```bash
+UCAGENT_RUN_WAVE_XPRA_INTEGRATION=1 python -m pytest -q tests/test_waveform_xpra_runtime.py
+```
+
+The tests create temporary workspaces and private signing directories. They cover authentication, GET without launch, concurrent session reuse, quota, exit/reopen, process cleanup, metadata tampering and Tcl startup errors. Fixtures include Chinese/space/Tcl-special paths, RTL/Scala associations, a `10fs` native scale and timestamps exceeding JavaScript's safe integer range.
+
+For browser acceptance, start a fixture service in the same Linux runtime. Adjust the browser URL to the published port when using a container:
+
+```bash
+python tests/test_waveform_xpra_runtime.py --serve --host 0.0.0.0 --port 8765 --info /tmp/wave-xpra-info.json
+```
+
+Install Playwright and Chromium/WebKit where browser tests run, then set these variables. Transfer the service info file's `password` value securely; do not commit the file or credentials.
+
+```bash
+export UCAGENT_WAVE_XPRA_URL=http://127.0.0.1:8765
+export UCAGENT_WAVE_XPRA_PASSWORD='<password from the private info file>'
+export UCAGENT_WAVE_XPRA_ARTIFACTS=/tmp/wave-xpra-screenshots
+python -m pytest -q tests/test_waveform_xpra_browser.py
+```
+
+`UCAGENT_XPRA_CHROMIUM_EXECUTABLE` can select an installed Chrome executable. Browser tests follow `/wave/?meta=...` into the application, check rendered pixels and exact restored state, send keyboard input, verify reload/reconnect and repeated-open session reuse, and save screenshots. Interrupting or terminating the fixture service cleans sessions and temporary files. These tests validate transport and launch protocol; actual Verdi FSDB decoding, command compatibility and time positioning still need acceptance in a licensed runtime.
 
 ## Registering Other Formats
 

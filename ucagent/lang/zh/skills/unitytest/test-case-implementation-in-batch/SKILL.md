@@ -103,7 +103,7 @@ TC与CK状态按以下规则解释：
 - 已实现测试禁止用`assert False`制造Fail，禁止修改正确预期或弱化断言来制造Pass，也禁止用`BG-*-0`保留测试/基础设施失败
 - `RunTestCases`可能执行很多测试用例，但当前步骤只针对当前批次TC及报告为这些TC关联的CK进行分析；未来批次的未关联失败CK不得扩张本批次范围
 - Skill启用且公共`dynamic-bug-recording`可用时，`record_dynamic_bug.py`通过`-MODE bug`确定性写入一个完整`FG/FC/CK/BG/TC`路径、三个BG字段、唯一`<CAUSE-REF-ROOT-XXX>`和ROOT反向链接，再通过`-MODE root`写入ROOT五字段；它不创建波形YAML，脚本成功后仍需真实WaveInfo和Apply证据。公共Skill不调用`SetSkillUsage`；Skill禁用、未复制或脚本不可用时使用文本工具完成相同结构
-- 对可复现的动态Bug，必须真实调用`WaveInfo`取得最终receipt，再调用`ApplyWaveInfoEvidence`原子维护BG侧`<WAVEFORM-REF>`和中央`<WAVEFORM-EVIDENCE>`分区中的唯一`<WAVEFORM-TC-...>`记录。不要复制receipt字段或viewer token；BG内的波形关联只保留TC与引用，三个BG字段仍需填写，YAML和viewer只放在中央记录中
+- 对可复现的动态Bug，必须真实调用`WaveInfo`取得最终receipt，再调用`ApplyWaveInfoEvidence`原子维护BG侧`<WAVEFORM-REF>`和中央`<WAVEFORM-EVIDENCE>`分区中的唯一`<WAVEFORM-TC-...>`记录。最终WaveInfo用`source_files`传入已分析且相关的工作区相对设计源码，可用`dut_python_path`指定真实DUT Python入口；不要复制receipt字段或viewer链接；BG内的波形关联只保留TC与引用，三个BG字段仍需填写，YAML和viewer只放在中央记录中
 - 从Checker的`Configured TC output directory`读取实际TC目录；文档TC使用以该值开头的函数级报告node。非参数化WaveInfo只去掉`TC-`；参数化聚合时从`tests.test_case_instances`选择实际FAILED child，不能猜参数ID。child删除`[...]`后必须与文档TC的完整路径/类/函数逐字相同，不同路径绝不等价。`RunTestCases` target相对于配置TC目录，不得再次带该前缀；`PYTEST_TARGET_DIRECTORY_PREFIX.correct_target`是唯一重试值。inventory和相似节点只供定位/核对
 - 只带pattern但没有`logged_cycle+clock_signal`或完整`start_step+end_step`的调用属于探索调用；返回`evidence_window_required`时必须逐字使用`recommended_evidence_call`重调，不能把`analysis_window.effective_*`手工写入文档冒充原调用参数
 - 最终显式窗口调用必须同时提供`start_step`和`end_step`。成功后使用真实`receipt_id`调用`ApplyWaveInfoEvidence(target_file=..., bug_tag=..., test_case_tag=..., receipt_id=...)`。随后完成TC共享的`alignment_evidence`，并在`bug_evidence.<BG>`下完成该Bug的`required_signals`、`observed_behavior`、`source_correlation`
@@ -119,8 +119,8 @@ TC与CK状态按以下规则解释：
 - 日志中的cycle与WaveInfo的wave step不是同一概念，二者可能相差0到数个周期且时间戳尺度也可能不同；必须指定clock_signal，通过clock occurrence index对齐，并在候选有歧义时增强日志后重跑
 - 找不到波形时，按`WaveInfo`返回的测试名称、最新session、`.dat`、SetWaveform、dut.Finish和文件损坏诊断逐项处理；不能改用旧session或其他测试的波形
 - 中断或重启后可以复用通过验证的`WaveInfo` receipt；当前批次只运行部分用例时，不得删除历史TC/BG、手工改写有效receipt或重造viewer链接。最终记录阶段必须运行完整测试集合并严格重放全部动态Bug TC；Checker会一次原子刷新语义指纹不变的当前机器证据，语义变化时一次返回完整`review_batch_call`，由`ReviewWaveInfoEvidenceBatch`准备并原子提交全部复核项，不得逐TC调用Apply或重复运行pytest/WaveInfo/Check；TC身份变化或当前波形缺失才按精确恢复动作处理
-- `bug_document_viewer_link`必须由`ApplyWaveInfoEvidence`直接写入；不得让LLM复制或修改标记、URL和token
-- Apply返回`receipt_test_mismatch`或`matching_final_receipt_not_found`时，保持test_case_tag不变并原样执行`details.recovery_call`一次，再用新receipt_id和原标签重调Apply；不得猜测路径变体或手工写receipt YAML、anchor、viewer URL/token。同一tool+status+target连续同错后停止尝试相似参数；没有recovery_call或执行后仍同错时，停止修改当前Bug/波形记录并报告工具契约阻塞
+- `bug_document_viewer_link`必须由`ApplyWaveInfoEvidence`直接写入；不得让LLM复制或修改标记、viewer链接
+- Apply返回`receipt_test_mismatch`或`matching_final_receipt_not_found`时，保持test_case_tag不变并原样执行`details.recovery_call`一次，再用新receipt_id和原标签重调Apply；不得猜测路径变体或手工写receipt YAML、anchor、viewer链接。同一tool+status+target连续同错后停止尝试相似参数；没有recovery_call或执行后仍同错时，停止修改当前Bug/波形记录并报告工具契约阻塞
 
 ### 步骤5: Bug记录
 

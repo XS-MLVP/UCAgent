@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><title>Open waveform</title>
+<body><p id="status">Starting waveform viewer…</p><button id="retry" hidden>Retry</button>
+<script>
+async function openWaveform() {
+  const status = document.getElementById('status');
+  const retry = document.getElementById('retry');
+  retry.hidden = true;
+  try {
+    const current = new URL(location.href);
+    const endpoint = new URL('../api/xpra/sessions', current);
+    const sub = current.searchParams.get('sub_worspace') || current.searchParams.get('sub_workspace');
+    if (sub) endpoint.searchParams.set('sub_worspace', sub);
+    const response = await fetch(endpoint, {method:'POST', credentials:'same-origin',
+      headers:{'Content-Type':'application/json'}, body:JSON.stringify({wave_meta:current.searchParams.get('meta')})});
+    const data = await response.json();
+    if (!response.ok) throw new Error([data.detail?.message || 'Cannot start waveform viewer.', data.detail?.next_action].filter(Boolean).join(' '));
+    location.replace(new URL('../api/xpra/' + data.viewer_path, current).href);
+  } catch (error) {status.textContent = error.message; retry.hidden = false;}
+}
+document.getElementById('retry').onclick = openWaveform;
+openWaveform();
+</script></body></html>

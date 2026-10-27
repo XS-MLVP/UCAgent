@@ -24,7 +24,7 @@ if loaded_ucagent is not None and not loaded_ucagent_path.startswith(
             del sys.modules[module_name]
 
 from ucagent.server.api_cmd import PdbCmdApiServer
-from ucagent.util.waveform_viewer import encode_waveform_viewer_payload
+from ucagent.util.waveform_viewer import build_waveform_metadata, load_waveform_metadata, write_waveform_metadata
 from ucagent.tools.waveform import WaveInfo
 
 
@@ -34,27 +34,6 @@ def _server(tmp_path: Path) -> PdbCmdApiServer:
         stdout=None,
     )
     return PdbCmdApiServer(pdb, sock="", tcp=True)
-
-
-def _logical_token(test_dir: str = "unity_test/tests", test_case: str = "test_bug") -> str:
-    return encode_waveform_viewer_payload(
-        {
-            "v": 2,
-            "test_dir": test_dir,
-            "test_case": test_case,
-            "start": "0",
-            "end": "10",
-            "cursor": "5",
-            "signals": ["TOP.dut.valid"],
-        }
-    )
-
-
-def _waveform(workspace: Path, session: str, name: str, content: bytes) -> Path:
-    path = workspace / "unity_test" / "tests" / "data" / session / "master" / name
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(content)
-    return path
 
 
 def test_surfer_adapter_and_readiness_command_are_served_before_wasm(tmp_path):
@@ -107,160 +86,73 @@ def test_surfer_adapter_and_readiness_command_are_served_before_wasm(tmp_path):
         server.stop()
 
 
-def test_dashboard_wave_and_markdown_links_use_versioned_protocol(tmp_path):
+
+def test_dashboard_uses_metadata_and_configured_formats(tmp_path):
+    """Browser actions and Markdown links share the canonical dispatch entry."""
     server = _server(tmp_path)
     try:
         page = TestClient(server._app).get("/")
-
         assert page.status_code == 200
-        assert '<script src="/surfer/deep-link.js"></script>' in page.text
-        assert "UCAgentSurferDeepLink.encodePayload({v:1,file:path})" in page.text
+        assert "/api/waveform/metadata" in page.text
+        assert "/api/waveform/viewers" in page.text
         assert "_decorateWaveformViewerLinks(el);" in page.text
         assert 'anchor.target="_blank"' in page.text
-        assert 'anchor.rel="noopener noreferrer"' in page.text
-        assert "load_url=" not in page.text
+        assert "encodePayload" not in page.text
     finally:
         server._running = True
         server.stop()
 
 
-def test_latest_waveform_api_resolves_newest_session_containing_target(tmp_path):
-    old = _waveform(
-        tmp_path,
-        "toffee_tmp_20260817120000_001",
-        "test_bug.fst",
-        b"old target",
-    )
-    expected = _waveform(
-        tmp_path,
-        "toffee_tmp_20260817130000_001",
-        "test_bug010.fst",
-        b"new target",
-    )
-    _waveform(
-        tmp_path,
-        "toffee_tmp_20260817140000_001",
-        "test_other.fst",
-        b"newest unrelated",
-    )
+@pytest.mark.parametrize("extension", ["fst", "vcd", "fsdb"])
+def test_metadata_dispatch_pins_the_selected_file(tmp_path, extension):
+    """Ordinary opening preserves final configuration and selects the actual suffix."""
+    wave = tmp_path / ("wave 空格." + extension)
+    wave.write_bytes(b"exact waveform")
     server = _server(tmp_path)
     try:
         client = TestClient(server._app)
-        response = client.get(
-            "/api/waveform/latest",
-            params={"wave": _logical_token()},
-        )
-
-        assert response.status_code == 200
-        assert response.content == expected.read_bytes()
-        assert response.content != old.read_bytes()
-        assert response.headers["cache-control"] == "no-store"
-        assert response.headers["x-ucagent-waveform-path"].endswith(
-            "/toffee_tmp_20260817130000_001/master/test_bug010.fst"
-        )
-
-        head = client.head(
-            "/api/waveform/latest",
-            params={"wave": _logical_token()},
-        )
-        assert head.status_code == 200
-        assert head.content == b""
-        assert head.headers["content-length"] == str(expected.stat().st_size)
-        assert head.headers["etag"] == response.headers["etag"]
-        assert head.headers["last-modified"] == response.headers["last-modified"]
-        assert head.headers["x-ucagent-waveform-path"] == response.headers[
-            "x-ucagent-waveform-path"
-        ]
-    finally:
-        server._running = True
-        server.stop()
-
-
-def test_latest_waveform_api_reports_missing_target(tmp_path):
-    _waveform(
-        tmp_path,
-        "toffee_tmp_20260817140000_001",
-        "test_other.fst",
-        b"other",
-    )
-    server = _server(tmp_path)
-    try:
-        response = TestClient(server._app).get(
-            "/api/waveform/latest",
-            params={"wave": _logical_token(test_case="test_missing")},
-        )
-
-        assert response.status_code == 404
-        assert "test_missing" in response.json()["detail"]
-        assert "Run that test" in response.json()["detail"]
-    finally:
-        server._running = True
-        server.stop()
-
-
-@pytest.mark.parametrize("priority,status", [
-    (["vcd", "fst", "fsdb"], 200),
-    (["fsdb", "fst", "vcd"], 415),
-])
-def test_latest_waveform_api_honors_analysis_priority_and_reports_viewer_limits(tmp_path, priority, status):
-    """The browser must not display a different format from the analyzed waveform."""
-    for extension in ("fst", "vcd", "fsdb"):
-        _waveform(tmp_path, "toffee_tmp_20260817140000_001", f"test_bug.{extension}", extension.encode())
-    server = _server(tmp_path)
-    server.pdb.agent.tool_waveinfo = WaveInfo(
-        workspace=str(tmp_path), test_dir="unity_test/tests", format_priority=priority,
-    )
-    try:
-        response = TestClient(server._app).get(
-            "/api/waveform/latest", params={"wave": _logical_token()},
-        )
-        assert response.status_code == status
-        if status == 200:
-            assert response.content == b"vcd"
+        response = client.post("/api/waveform/metadata", json={"waveform_file": wave.name})
+        assert response.status_code == 200, response.text
+        meta = response.json()["meta"]
+        path = tmp_path / meta
+        payload = load_waveform_metadata(tmp_path, meta)[1]
+        payload.update(signals=["TOP.clk"], start="0", end="20", cursor="10")
+        write_waveform_metadata(tmp_path, meta, payload)
+        assert client.post("/api/waveform/metadata", json={"waveform_file": wave.name}).status_code == 200
+        assert client.get("/api/waveform/metadata", params={"meta":meta}).json() == payload
+        dispatch = client.get("/wave/", params={"meta":meta}, follow_redirects=False)
+        if extension == "fsdb":
+            assert dispatch.status_code == 200
+            assert "../api/xpra/sessions" in dispatch.text
+            assert server._waveform_launch.sessions == {}
         else:
-            assert ".fsdb" in response.json()["detail"]
-            assert "supports only FST and VCD" in response.json()["detail"]
+            assert dispatch.status_code == 303
+            assert dispatch.headers["location"].startswith("../surfer/?meta=")
+        wave.unlink()
+        missing = client.get("/wave/", params={"meta":meta})
+        assert missing.status_code == 404
+        assert missing.json()["detail"]["next_action"]
+        assert client.get("/api/waveform/latest").status_code == 404
     finally:
         server._running = True
         server.stop()
 
 
-def test_latest_waveform_api_uses_selected_sub_workspace(tmp_path):
+def test_metadata_uses_selected_subworkspace(tmp_path):
+    """Subworkspace files resolve against their own root and propagate to the viewer."""
     child = tmp_path / "child"
-    info = child / ".ucagent" / "ucagent_info.json"
-    info.parent.mkdir(parents=True)
-    info.write_text("{}", encoding="utf-8")
-    expected = _waveform(
-        child,
-        "toffee_tmp_20260817140000_001",
-        "test_bug.fst",
-        b"child wave",
-    )
-    _waveform(
-        tmp_path,
-        "toffee_tmp_20260817150000_001",
-        "test_bug.fst",
-        b"root wave",
-    )
+    (child / ".ucagent").mkdir(parents=True)
+    (child / ".ucagent/ucagent_info.json").write_text("{}")
+    (child / "a.fst").write_bytes(b"child")
+    meta, payload, _ = build_waveform_metadata(child, "a.fst")
+    write_waveform_metadata(child, meta, payload)
     server = _server(tmp_path)
     try:
-        response = TestClient(server._app).get(
-            "/api/waveform/latest",
-            params={"wave": _logical_token(), "sub_worspace": "child"},
-        )
-
-        assert response.status_code == 200
-        assert response.content == expected.read_bytes()
-
-        workspace_head = TestClient(server._app).head(
-            "/workspace/unity_test/tests/data/"
-            "toffee_tmp_20260817140000_001/master/test_bug.fst",
-            params={"sub_worspace": "child"},
-        )
-        assert workspace_head.status_code == 200
-        assert workspace_head.content == b""
-        assert workspace_head.headers["content-length"] == str(expected.stat().st_size)
-        assert "etag" in workspace_head.headers
+        client = TestClient(server._app)
+        response = client.get("/wave/", params={"meta":meta,"sub_worspace":"child"}, follow_redirects=False)
+        assert response.status_code == 303
+        assert "sub_worspace=child" in response.headers["location"]
+        assert client.get("/api/waveform/metadata", params={"meta":meta}).status_code == 404
     finally:
         server._running = True
         server.stop()

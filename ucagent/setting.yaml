@@ -108,6 +108,19 @@ mcp_server:
 cmd_api:
   host: 127.0.0.1
   port: 8765
+  waveform_viewers:
+    fst:
+      kind: web
+      url: /surfer/
+    vcd:
+      kind: web
+      url: /surfer/
+    fsdb:
+      kind: xpra
+      script: verdi/launch_verdi.py
+      args: ["--meta", "{wave_meta}", "--verdi", "verdi"]
+      env: {}
+      idle_timeout: -1
   xpra:
     executable: xpra
     max_sessions: 5
@@ -330,11 +343,14 @@ un_write_dirs:
   - "{GUIDE_DOC}"
 write_dirs:
   - "{OUT}"
-  # VCS runtime artifacts inside the protected DUT tree: *.vdb data
-  # directories plus *.fsdb/*.vpd waveform files dumped by the simulator.
+  # Simulator artifact write permissions, independent of reader/viewer support:
+  # VCS *.vdb coverage and *.fsdb/*.vpd waveforms; UVS *.usdb waveforms.
   - "{DUT}/**/*.vdb"
   - "{DUT}/**/*.fsdb"
+  - "{DUT}/**/*.fsdb.json"
   - "{DUT}/**/*.vpd"
+  - "{DUT}/**/*.usdb"
+  - "{DUT}/**/*.usdb.json"
 
 guide_doc:
   path: "{GUIDE_DOC}"

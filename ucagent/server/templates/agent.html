@@ -376,7 +376,6 @@ pre code.hljs,code.hljs{background:transparent!important;padding:0!important}
 <link rel="stylesheet" href="/static/highlight-atom-one-dark.min.css">
 <script src="/static/highlight.min.js"></script>
 <script src="/static/marked.min.js"></script>
-<script src="/surfer/deep-link.js"></script>
 </head>
 <body>
 <!-- header -->
@@ -786,7 +785,7 @@ function _withSubWorkspaceParam(path){
   if(!_subWorkspace)return path;
   try{
     const u=new URL(path,window.location.origin);
-    if(u.origin===window.location.origin&&(u.pathname.startsWith("/api/")||u.pathname.startsWith("/workspace/")||u.pathname.startsWith("/surfer/"))){
+    if(u.origin===window.location.origin&&(u.pathname.startsWith("/api/")||u.pathname.startsWith("/workspace/")||u.pathname.startsWith("/wave/"))){
       u.searchParams.set("sub_worspace",_subWorkspace);
       return u.pathname+u.search+u.hash;
     }
@@ -800,9 +799,8 @@ function _cmdApiPathPrefix(){
   return match?match[0].replace(/\/cmd(?:\/.*)?$/,"/cmd"):"";
 }
 
-function _surferUrlForToken(token){
-  const base=_cmdApiPathPrefix()+"/"+"surfer/?wave="+encodeURIComponent(token);
-  return _withSubWorkspaceParam(base);
+function _waveUrlForMeta(meta){
+  return _withSubWorkspaceParam(_cmdApiPathPrefix()+"/"+"wave/?meta="+encodeURIComponent(meta));
 }
 
 function _decorateWaveformViewerLinks(root){
@@ -810,7 +808,7 @@ function _decorateWaveformViewerLinks(root){
   root.querySelectorAll('a[href]').forEach(anchor=>{
     try{
       const url=new URL(anchor.getAttribute("href"),window.location.origin);
-      if(url.origin!==window.location.origin||url.pathname!=="/"+"surfer/"||!url.searchParams.has("wave"))return;
+      if(url.origin!==window.location.origin||url.pathname!=="/"+"wave/"||!url.searchParams.has("meta"))return;
       const prefix=_cmdApiPathPrefix();
       if(prefix)url.pathname=prefix+url.pathname;
       if(_subWorkspace)url.searchParams.set("sub_worspace",_subWorkspace);
@@ -835,7 +833,7 @@ function _workspaceBaseFileUrl(path){
 async function apiFetch(path,opts){
   const r=await fetch(_withSubWorkspaceParam(path),opts);
   const j=await r.json().catch(()=>({status:"error",detail:"Non-JSON response"}));
-  if(!r.ok||j.status==="error") throw new Error(j.detail||j.message||"Request failed");
+  if(!r.ok||j.status==="error") throw new Error([j.detail?.message||j.message||(typeof j.detail==="string"?j.detail:"Request failed"),j.detail?.next_action].filter(Boolean).join(" "));
   return j;
 }
 
@@ -2018,6 +2016,7 @@ window.addEventListener("message",function(event){
 
 /* ── file manager ── */
 async function fetchFiles(path){
+  await _waveViewersReady;
   _curPath=path||"";
   qs("#fm-loading").style.display="block";
   qs("#fm-empty").style.display="none";
@@ -2093,7 +2092,10 @@ function _extBadge(e){
 const _IMG_EXTS=new Set(["png","jpg","jpeg","gif","svg","webp","ico","bmp"]);
 const _HTML_EXTS=new Set(["html","htm"]);
 const _TEXT_EXTS=new Set(["txt","md","py","js","ts","css","json","yaml","yml","sh","v","sv","c","h","cpp","hpp","java","rs","go","log","toml","ini","conf","xml","lua","rst","scala","r","tex"]);
-const _WAVE_EXTS=new Set(["vcd","fst"]);
+const _WAVE_EXTS=new Set();
+const _waveViewersReady=apiFetch("/api/waveform/viewers").then(result=>{
+  result.formats.forEach(ext=>_WAVE_EXTS.add(ext));
+}).catch(error=>{console.warn("Waveform viewer configuration: "+error.message);});
 
 function _renderFiles(entries){
   if(!entries.length){
@@ -2385,11 +2387,18 @@ function toggleViewRaw(){
 }
 
 /* ── waveform viewer ── */
-function openWaveform(path){
+async function openWaveform(path){
+  const tab=window.open("about:blank","_blank");
+  if(tab)tab.opener=null;
   try{
-    const token=window.UCAgentSurferDeepLink.encodePayload({v:1,file:path});
-    window.open(_surferUrlForToken(token),"_blank","noopener,noreferrer");
+    const result=await apiFetch("/api/waveform/metadata",{
+      method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({waveform_file:path})
+    });
+    const url=_waveUrlForMeta(result.meta);
+    if(tab)tab.location.replace(url);else window.open(url,"_blank","noopener,noreferrer");
   }catch(error){
+    if(tab)tab.close();
     alert("Cannot open waveform: "+error.message);
   }
 }

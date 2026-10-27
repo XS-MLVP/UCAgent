@@ -692,7 +692,7 @@ def test_dynamic_bug_skill_repair_rebuilds_relations_without_touching_analysis(
         "  status: confirmed\n"
         f"  receipt_id: {receipt_id}\n"
         "```\n"
-        "<WAVEFORM-VIEWER> [Open waveform](http://viewer.invalid/token)\n"
+        "<WAVEFORM-VIEWER> [Open waveform](/wave/?meta=waves/test_carry.fst.json)\n"
     )
     document = "".join(lines).replace(
         "<WAVEFORM-EVIDENCE>\n",
@@ -1631,7 +1631,7 @@ def test_static_bug_link_script_accepts_filled_dynamic_analysis(tmp_path):
         "      observed_behavior: completed\n"
         "      source_correlation: completed\n"
         "```\n"
-        "<WAVEFORM-VIEWER> [viewer](/surfer/?wave=eyJ2IjoxfQ)\n"
+        "<WAVEFORM-VIEWER> [viewer](/wave/?meta=waves/test.vcd.json)\n"
         "</WAVEFORM-EVIDENCE>\n",
         encoding="utf-8",
     )
