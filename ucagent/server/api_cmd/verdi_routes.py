@@ -106,7 +106,7 @@ location.replace(new URL(data.viewer_path,location.href));
                     playback = directory / "view.tcl"
                     playback.write_text(render_verdi_playback(waveform, payload, directory), encoding="utf-8")
                     session = server._xpra.create(
-                        command=shlex.join([executable, "-undockWin", "-dbdir", str(databases[0]), "-logdir", str(directory / "logs"), "-play", str(playback)]),
+                        command=shlex.join([executable, "-dbdir", str(databases[0]), "-logdir", str(directory / "logs"), "-play", str(playback)]),
                         name=f"Verdi: {waveform.stem}", cwd=str(workspace), idle_timeout=-1)
                     timeout = cfg.get_value("cmd_api.xpra.startup_timeout", 20) if cfg else 20
                     deadline = time.monotonic() + timeout

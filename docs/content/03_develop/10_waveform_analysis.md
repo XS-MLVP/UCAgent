@@ -64,6 +64,8 @@ FST、VCD、FSDB 分别使用 `wavekit` 的 `FstReader`、`VcdReader`、`FsdbRea
 
 Verdi 通过 CMD 服务已有的 [Xpra 浏览器会话](../02_usage/09_web_xpra.md) 打开，沿用鉴权和任务代理，无需本地 DISPLAY。CMD 主机需要可用的 Xpra/HTML5、Verdi、许可证及运行库；`cmd_api.verdi.executable` 默认从 PATH 查找 `verdi`，也可通过 `VERDI_HOME/bin/verdi` 或显式绝对路径定位。
 
+浏览器预览不传入 `-undockWin`，并在 Tcl 创建波形前显式关闭新窗口浮动偏好，使波形与设计浏览器在同一主界面显示。
+
 Master 新建 VCS 编译命令会自动补充 `-kdb`，保留已有 `--vflag` 参数。外部构建或既有工作区须保留由相同 DUT 使用 VCS `-kdb` 构建的 `.daidir`（其中 `simv.kdb` 的 `KDB=TRUE`）。默认自动定位唯一数据库；多个数据库时设置 `cmd_api.verdi.dbdir` 为工作区相对路径。查看时不会重编译 DUT，也不会加载工作区之外的数据库。缺失或歧义会明确报错。
 
 `GET /api/waveform/verdi?wave=...` 显示启动页，页面通过同址 POST 启动或复用会话。自动生成的 Tcl 加载原 FSDB，选中 WaveInfo 的信号集合，按文件时间单位换算显示窗口和光标；完成加载后才跳转至 Xpra 页面。文件列表中的 FSDB 也可直接打开。相同文件版本及分析参数复用会话，失败会清理进程；启动超时采用 `cmd_api.xpra.startup_timeout`。关闭浏览器不停止会话，可在 Xpra 管理页结束，CMD 停止时统一清理。分析服务不要求 GUI 正在运行，缺少查看环境不会把分析切换成另一种格式。

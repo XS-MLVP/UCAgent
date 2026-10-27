@@ -39,6 +39,9 @@ def test_playback_encodes_untrusted_strings_and_uses_file_time_unit(tmp_path):
     assert tcl_string("/" + dangerous.replace(".", "/")) in script
     assert "wvGetFileTimeUnit" in script and "wvGetWindowTimeUnit" in script
     assert "wvSetCursor" in script
+    assert script.index("verdiSetPrefEnv -bUndockNewCreatedWindow off") < script.index("wvCreateWindow")
+    assert "wvResizeWindow" not in script
+    assert "srcResizeWindow 0 0 1200 850" in script
 
 
 @pytest.mark.parametrize("version", [1, 2])
@@ -57,6 +60,7 @@ def test_verdi_api_launch_auth_reuse_and_shutdown(cmd_server, tmp_path, monkeypa
         """A fake application confirms loading independently of Xpra readiness."""
         calls.append(kwargs)
         command = shlex.split(kwargs["command"])
+        assert "-undockWin" not in command
         playback = Path(command[command.index("-play") + 1])
         (playback.parent / "ready.txt").write_text("ready")
         return {"id": "owned"}

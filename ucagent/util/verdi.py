@@ -28,6 +28,7 @@ proc unit_seconds {unit} {
     return [expr {$factor * [dict get $scales $suffix]}]
 }
 if {[catch {
+    verdiSetPrefEnv -bUndockNewCreatedWindow off
     set window [wvCreateWindow]
     set opened [wvOpenFile -win $window $waveform]
     if {$opened eq "0" || $opened eq ""} {error "Cannot open waveform"}
@@ -39,8 +40,9 @@ if {[catch {
         wvZoom -win $window [expr {$start * $ratio}] [expr {$end * $ratio}]
         wvSetCursor -win $window [expr {$cursor * $ratio}]
     }
-    wvResizeWindow -win $window 0 0 1200 700
     wvRaiseWindow -win $window
+    srcResizeWindow 0 0 1200 850
+    srcRaiseWindow
 } problem]} {
     set status [open [file join $status_dir error.txt] w]
     puts $status $problem
