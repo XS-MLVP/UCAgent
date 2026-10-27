@@ -2877,6 +2877,7 @@ def chmode_ro_by_pattern(
 
 
 def chmode_ro(path_list: list, ignore_list: list = ["__pycache__"]):
+    """Make inputs read-only without disabling existing executable tools."""
     mfile = stat.S_IREAD | stat.S_IRGRP | stat.S_IROTH
     mpath = mfile | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
     for file_path in path_list:
@@ -2895,7 +2896,7 @@ def chmode_ro(path_list: list, ignore_list: list = ["__pycache__"]):
         if os.path.isdir(file_path):
             os.chmod(file_path, mpath)
         else:
-            os.chmod(file_path, mfile)
+            os.chmod(file_path, mfile | (os.stat(file_path).st_mode & 0o111))
     info(f"Set file mode to read-only completed ({len(path_list)} files).")
     return path_list
 
@@ -2928,7 +2929,7 @@ def chmode_rw(path_list: list, ignore_list: list = ["__pycache__"]):
             if os.path.isdir(file_path):
                 os.chmod(file_path, mpath)
             else:
-                os.chmod(file_path, mfile)
+                os.chmod(file_path, mfile | (os.stat(file_path).st_mode & 0o111))
         else:
             warning(f"File not found for setting mode to read-write: {file_path}")
     info(f"Set file mode to read-write completed ({len(path_list)} files).")

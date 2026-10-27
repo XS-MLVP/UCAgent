@@ -4,11 +4,26 @@
 
 import json
 import os
+import pytest
 current_dir = os.path.dirname(os.path.abspath(__file__))
 import sys
 sys.path.append(os.path.abspath(os.path.join(current_dir, "..")))
 
-from ucagent.util.functions import find_files_by_glob, find_files_by_regex, find_files_by_pattern, render_template_dir, chmode_ro_by_pattern, chmode_rw
+from ucagent.util.functions import find_files_by_glob, find_files_by_regex, find_files_by_pattern, render_template_dir, chmode_ro_by_pattern, chmode_ro, chmode_rw
+
+
+@pytest.mark.parametrize("mode", [0o644, 0o755, 0o750, 0o700])
+def test_permission_transitions_preserve_existing_execute_bits(tmp_path, mode):
+    """Read-only inputs remain executable, while ordinary data never gains execute bits."""
+    target = tmp_path / "tool"
+    target.write_text("native tool")
+    target.chmod(mode)
+    chmode_ro([str(target)])
+    assert target.stat().st_mode & 0o777 == 0o444 | (mode & 0o111)
+    chmode_ro([str(target)])
+    assert target.stat().st_mode & 0o777 == 0o444 | (mode & 0o111)
+    chmode_rw([str(target)])
+    assert target.stat().st_mode & 0o777 == 0o666 | (mode & 0o111)
 import ucagent.util.functions as fc
 
 

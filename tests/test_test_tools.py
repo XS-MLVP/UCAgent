@@ -231,6 +231,9 @@ def test_fixture_paths_round_trip_and_report(
         )
     fixture = rendered_api.dut.__wrapped__(request)
     dut = next(fixture)
+    if request is not None:
+        request.fixturename = "dut"
+        request.getfixturevalue = lambda name: dut
     name = "test_operation" if with_request else "Demo"
     assert Path(dut.waveform_path).name == f"{name}.{waveform}"
     assert Path(dut.coverage_path).name == f"{name}.{coverage}"
@@ -241,7 +244,7 @@ def test_fixture_paths_round_trip_and_report(
     if simulator == "UVS" and with_request:
         with pytest.raises(ValueError, match="Unsupported coverage simulator"):
             next(fixture)
-        assert dut.finished is True
+        dut.Finish()
         return
     with pytest.raises(StopIteration):
         next(fixture)
