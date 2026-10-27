@@ -17,7 +17,7 @@
 
 ## 启动配置
 
-`rtl2spec --config rtl2spec.yaml` 读取 YAML 中的 `rtl2spec` 区块选择工作区、模块和工作流，其余区块按 UCAgent 的配置层级加载。模板随插件安装，可用 `rtl2spec --init generic` 或 `rtl2spec --init xiangshan` 导出；`--config` 同时指定导出目标，已有文件不会被覆盖。`--dry-run` 只打印解析后的命令，不启动后端或创建工作区。
+`rtl2spec --config rtl2spec.yaml` 读取 YAML 中的 `rtl2spec` 区块选择工作区、模块和工作流，其余区块按 UCAgent 的配置层级加载。模板随插件安装，可用 `rtl2spec --init generic` 或 `rtl2spec --init xiangshan` 导出；`--config` 同时指定导出目标，已有文件不会被覆盖。配置文件缺失、YAML 格式错误或启动字段无效时，命令会报错并以非零状态退出。
 
 | 字段 | 用途 |
 | --- | --- |
@@ -76,7 +76,7 @@ RTL2SpecCommand(action="generic_related_sources", module="GenericBlock", config=
 
 通用工作流的 `related_files` 必须是 `inputs/GenericBlock/` 下的相对 POSIX 路径；工具会拒绝绝对路径、路径穿越、重复路径和顶层 RTL。输入目录发生变化后，旧 evidence 会失效，必须选择空的输出目录并重新开始一轮生成。
 
-单次工具调用默认上限为 3660 秒。只加载 `--plugin` 可复用工具和 Checker；选择 `--plugin-workflow` 才会启用文档工作流并复制 Guide_Doc。修改插件资源后必须重新启动工作流，让新的 Guide_Doc 和工作流 YAML 被复制到工作区。
+单次工具调用默认上限为 3660 秒。只加载 `--plugin` 可复用工具和 Checker；选择 `--plugin-workflow` 才会启用文档工作流并复制 Guide_Doc。修改插件资源后必须重新启动工作流，重新加载工作流 YAML 并更新工作区中的 Guide_Doc。
 
 ## 常见问题
 

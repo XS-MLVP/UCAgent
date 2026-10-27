@@ -83,7 +83,7 @@ git diff --check
 | 文档和质量报告 | `test_document_contracts.py`、`test_document_structure.py`、`test_deterministic_contract.py`：完整样例、端口映射、表格追溯、唯一报告标题、空区块拒绝 |
 | 复核与验收 | `test_review_acceptance.py`、`test_incremental_review.py`：两种事实状态的引用关联、七类 checks、依赖失效、答案保留、并发修改及签名 |
 | 阶段和工作区 | `test_runtime.py`、`test_generic_workflow.py`、`test_output_lifecycle.py`、`test_ucagent_plugin.py`：两套工作流、Skill 开关、独立输出、损坏 manifest/越界软链接的诊断及修复后重试 |
-| 文件配置启动 | `test_launch.py`：两套模板、真实 CLI 和配置加载、相对路径、无覆盖导出、无副作用预览及非法输入拒绝 |
+| 文件配置启动 | `test_launch.py`：两套模板、真实 CLI 和配置加载、相对路径、无覆盖导出、默认配置启动及非法输入拒绝 |
 
 修改后端权限或升级 UCAgent/OpenCode 时，安装 OpenCode 并执行以下测试（已验证 OpenCode 1.18.26）：
 

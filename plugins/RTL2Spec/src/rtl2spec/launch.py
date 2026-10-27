@@ -47,12 +47,10 @@ def build_command(config_file: Path) -> list[str]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Create a template, preview a launch, or replace this process with UCAgent."""
+    """Create a template or start UCAgent from a configuration file."""
     parser = argparse.ArgumentParser(description=__doc__, prog="rtl2spec")
     parser.add_argument("--config", type=Path, default=Path("rtl2spec.yaml"), help="Run configuration (default: rtl2spec.yaml)")
-    mode = parser.add_mutually_exclusive_group()
-    mode.add_argument("--init", choices=("generic", "xiangshan"), help="Write a bundled configuration template without overwriting files")
-    mode.add_argument("--dry-run", action="store_true", help="Print the resolved command without creating a workspace or starting UCAgent")
+    parser.add_argument("--init", choices=("generic", "xiangshan"), help="Write a bundled configuration template without overwriting files")
     args = parser.parse_args(argv)
     try:
         if args.init:
@@ -64,9 +62,6 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Created {target}. Edit its workspace/module, prepare the input, then run rtl2spec --config {shlex.quote(str(target))}.")
             return 0
         command = build_command(args.config)
-        if args.dry_run:
-            print(shlex.join(command))
-            return 0
         os.execv(sys.executable, command)
     except (OSError, ValueError, yaml.YAMLError) as exc:
         parser.exit(2, f"rtl2spec: {exc}\n")
