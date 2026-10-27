@@ -1511,7 +1511,7 @@ def _parse_waveform_analysis_blocks(
             )
             or stripped == f"{_WAVEFORM_BLOCK_KEY}:"
             or WAVEFORM_VIEWER_MARKER in stripped
-            or "/surfer/?wave=" in stripped
+            or "/wave/?wave=" in stripped
         ):
             return False, {}, {
                 "error": (

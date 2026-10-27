@@ -2575,7 +2575,11 @@ class PdbMasterApiServer:
                 options[key] = value
             position += 1
         simulator = options.get("sim", "verilator")
-        if simulator == "vcs":
+        policies = json.loads((pathlib.Path(__file__).resolve().parents[1] / "scripts/sim/picker.json").read_text(encoding="utf-8"))
+        if simulator not in policies:
+            raise ValueError(f"Configure picker defaults for simulator {simulator!r} in scripts/sim/picker.json")
+        policy = policies[simulator]
+        if policy["flags"]:
             flag_options = [index for index, arg in enumerate(extra_args)
                             if arg.partition("=")[0] in ("-V", "--vflag")]
             if len(flag_options) > 1:
@@ -2587,18 +2591,18 @@ class PdbMasterApiServer:
                     if index + 1 >= len(extra_args):
                         raise ValueError("Picker simulator flags require a value")
                     value = extra_args[index + 1]
-                if "-kdb" not in shlex.split(value):
-                    value = (value + " -kdb").strip()
+                missing = [flag for flag in policy["flags"] if flag not in shlex.split(value)]
+                value = " ".join([value, *missing]).strip()
                 if separator:
                     extra_args[index] = option + "=" + value
                 else:
                     extra_args[index + 1] = value
             else:
-                extra_args.extend(["--vflag=-kdb"])
-        access = options.get("access", "mem_direct" if simulator == "verilator" else "dpi").lower()
-        if access not in ("dpi", "mem_direct", "0", "1") or (simulator == "vcs" and access not in ("dpi", "0")):
-            raise ValueError("Picker access mode must be dpi or mem_direct; VCS requires dpi")
-        suffix = "fsdb" if simulator == "vcs" else "fst"
+                extra_args.append("--vflag=" + " ".join(policy["flags"]))
+        access = options.get("access", policy["access"]).lower()
+        if access not in policy["access_modes"]:
+            raise ValueError(f"Picker access mode must be one of {policy['access_modes']} for {simulator}")
+        suffix = policy["waveform"]
         waveform_path = os.path.join(picker_workspace, dut_name, f"{dut_name}.{suffix}")
         cmd = ["picker", "export"]
         if main_verilog_path:

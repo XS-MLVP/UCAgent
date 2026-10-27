@@ -238,6 +238,11 @@ def test_fixture_paths_round_trip_and_report(
     assert rendered_api.get_coverage_data_path(request, dut, new_path=False) == dut.coverage_path
     assert rendered_api.get_waveform_path(request, dut, new_path=False) == dut.waveform_path
     assert rendered_api.get_coverage_data_path(request, dut, new_path=True) != dut.coverage_path
+    if simulator == "UVS" and with_request:
+        with pytest.raises(ValueError, match="Unsupported coverage simulator"):
+            next(fixture)
+        assert dut.finished is True
+        return
     with pytest.raises(StopIteration):
         next(fixture)
     if with_request:

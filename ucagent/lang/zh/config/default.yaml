@@ -537,7 +537,7 @@ stage:
        task:
          - "实现dut fixture，包含完整的生命周期管理"
          - "请按已有模板确保:"
-         - "- 确保在dut fixture的清理阶段，调用get_coverage_data_path(request, dut, new_path=False)，传入创建时的同一个dut实例获取已有覆盖率路径，并传递给 set_line_coverage；真实DUT还须传dut=dut以解析仿真器和实际数据库，模板fake DUT传dut=None。VCS路径用于选择testdata，数据库由GetCoveragePath获取，旧生成包缺少接口或coverage/coverage时需重建，不得当作Verilator数据或伪造覆盖率。"
+         - "- 确保在dut fixture的清理阶段，调用get_coverage_data_path(request, dut, new_path=False)，传入创建时的同一个dut实例获取已有覆盖率路径，并传递给 set_line_coverage"
          - "- 确保在dut fixture的清理阶段（yield之后）调用set_func_coverage(request, func_coverage_group)，将功能覆盖率和mark_function映射传递给toffee-test"
          - "- 确保dut fixture能正确初始化和清理芯片"
          - "- 确保dut fixture的scope设置为function"

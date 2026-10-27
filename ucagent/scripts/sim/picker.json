@@ -1,0 +1,5 @@
+{
+  "verilator": {"access": "mem_direct", "access_modes": ["dpi", "mem_direct", "0", "1"], "waveform": "fst", "flags": []},
+  "vcs": {"access": "dpi", "access_modes": ["dpi", "0"], "waveform": "fsdb", "flags": ["-kdb"]},
+  "uvs": {"access": "dpi", "access_modes": ["dpi", "0"], "waveform": "usdb", "flags": []}
+}

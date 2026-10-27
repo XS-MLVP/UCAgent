@@ -2231,7 +2231,7 @@ class WaveInfo(UCTool):
         if result.get("evidence_usable") is not True:
             return
         selected_format = (result.get("waveform_selection") or {}).get("format")
-        if selected_format and f".{selected_format}" not in WAVEFORM_VIEWER_EXTENSIONS | {".fsdb"}:
+        if selected_format and f".{selected_format}" not in WAVEFORM_VIEWER_EXTENSIONS:
             result["waveform_viewer_error"] = (
                 "The selected waveform cannot be displayed in the online viewer."
             )
@@ -2324,8 +2324,6 @@ class WaveInfo(UCTool):
                     "WaveInfo again."
                 )
             return
-        if selected_format == "fsdb":
-            payload["viewer"] = "verdi"
         result["waveform_viewer"] = OrderedDict(
             [
                 ("payload", payload),
@@ -4019,7 +4017,7 @@ class ApplyWaveInfoEvidence(UCTool):
                 continue
             if in_fence:
                 continue
-            if "<WAVEFORM-VIEWER>" in stripped or "/surfer/?wave=" in stripped:
+            if "<WAVEFORM-VIEWER>" in stripped or "/wave/?wave=" in stripped:
                 raise ValueError(
                     f"waveform viewer at line {index + 1} must follow the YAML in one "
                     "central WAVEFORM-TC record"

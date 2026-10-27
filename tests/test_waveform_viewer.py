@@ -72,7 +72,7 @@ def test_canonical_base64url_round_trip_is_deterministic_and_unpadded():
 def test_file_only_dashboard_payload_is_supported():
     payload = {"v": 1, "file": "waves/test.vcd"}
 
-    assert build_waveform_viewer_url(payload).startswith("/surfer/?wave=")
+    assert build_waveform_viewer_url(payload).startswith("/wave/?wave=")
     assert decode_waveform_viewer_token(encode_waveform_viewer_payload(payload)) == payload
 
 
@@ -100,7 +100,7 @@ def test_markdown_link_round_trip_uses_exact_canonical_line():
     token, decoded = parse_waveform_viewer_markdown_link(link)
 
     assert link == (
-        f"<WAVEFORM-VIEWER> [test_bug.fst](/surfer/?wave={token})"
+        f"<WAVEFORM-VIEWER> [test_bug.fst](/wave/?wave={token})"
     )
     localized = link.replace("[test_bug.fst]", "[在线确认波形]")
     localized_token, localized_payload = parse_waveform_viewer_markdown_link(localized)

@@ -376,7 +376,6 @@ pre code.hljs,code.hljs{background:transparent!important;padding:0!important}
 <link rel="stylesheet" href="/static/highlight-atom-one-dark.min.css">
 <script src="/static/highlight.min.js"></script>
 <script src="/static/marked.min.js"></script>
-<script src="/surfer/deep-link.js"></script>
 </head>
 <body>
 <!-- header -->
@@ -800,8 +799,8 @@ function _cmdApiPathPrefix(){
   return match?match[0].replace(/\/cmd(?:\/.*)?$/,"/cmd"):"";
 }
 
-function _surferUrlForToken(token){
-  const base=_cmdApiPathPrefix()+"/"+"surfer/?wave="+encodeURIComponent(token);
+function _waveUrlForToken(token){
+  const base=_cmdApiPathPrefix()+"/wave/?wave="+encodeURIComponent(token);
   return _withSubWorkspaceParam(base);
 }
 
@@ -810,7 +809,7 @@ function _decorateWaveformViewerLinks(root){
   root.querySelectorAll('a[href]').forEach(anchor=>{
     try{
       const url=new URL(anchor.getAttribute("href"),window.location.origin);
-      if(url.origin!==window.location.origin||!["/"+"surfer/","/api/waveform/verdi"].includes(url.pathname)||!url.searchParams.has("wave"))return;
+      if(url.origin!==window.location.origin||url.pathname!=="/wave/"||!(url.searchParams.has("wave")||url.searchParams.has("config")))return;
       const prefix=_cmdApiPathPrefix();
       if(prefix)url.pathname=prefix+url.pathname;
       if(_subWorkspace)url.searchParams.set("sub_worspace",_subWorkspace);
@@ -2387,11 +2386,9 @@ function toggleViewRaw(){
 /* ── waveform viewer ── */
 function openWaveform(path){
   try{
-    const token=window.UCAgentSurferDeepLink.encodePayload({v:1,file:path});
-    const url=path.toLowerCase().endsWith(".fsdb")
-      ? _withSubWorkspaceParam(_cmdApiPathPrefix()+"/api/waveform/verdi?wave="+encodeURIComponent(token))
-      : _surferUrlForToken(token);
-    window.open(url,"_blank","noopener,noreferrer");
+    const token=btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify({v:1,file:path}))))
+      .replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+    window.open(_waveUrlForToken(token),"_blank","noopener,noreferrer");
   }catch(error){
     alert("Cannot open waveform: "+error.message);
   }

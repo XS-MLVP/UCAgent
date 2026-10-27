@@ -656,7 +656,7 @@ def test_explicit_window_viewer_uses_effective_window_and_real_event_cursor(tmp_
         ],
     }
     assert result["bug_document_viewer_link"].startswith(
-        "<WAVEFORM-VIEWER> [test_explicit_viewer](/surfer/?wave="
+        "<WAVEFORM-VIEWER> [test_explicit_viewer](/wave/?wave="
     )
 
 
@@ -799,8 +799,8 @@ def test_fsdb_dispatch_runs_analysis_and_receipts_with_an_injected_reader(tmp_pa
     assert result["waveform_selection"]["format"] == "fsdb"
     assert result["timeline"]
     assert result["waveform_analysis_receipt"]["receipt_id"]
-    assert result["waveform_viewer"]["payload"]["viewer"] == "verdi"
-    assert result["waveform_viewer"]["url"].startswith("/api/waveform/verdi?wave=")
+    assert "viewer" not in result["waveform_viewer"]["payload"]
+    assert result["waveform_viewer"]["url"].startswith("/wave/?wave=")
     assert "bug_document_fields" in result
     selection, error = tool._discover_waveform("test_fsdb.fsdb")
     assert error is None
@@ -2559,7 +2559,7 @@ def test_apply_waveinfo_evidence_updates_unique_pair_when_bug_spans_two_cks(tmp_
     "viewer_scaffold",
     (
         "    <WAVEFORM-VIEWER> placeholder",
-        "    <WAVEFORM-VIEWER> [viewer](/surfer/?wave=placeholder)",
+        "    <WAVEFORM-VIEWER> [viewer](/wave/?wave=placeholder)",
         None,
     ),
 )
@@ -2689,7 +2689,7 @@ def test_apply_waveinfo_evidence_auto_selects_latest_matching_final_receipt(tmp_
     target.parent.mkdir(exist_ok=True)
     _write_dynamic_bug_scaffold(target)
     content = target.read_text(encoding="utf-8").replace(
-        f"    <WAVEFORM-VIEWER> [{BUG_TODO_MARKER}](/surfer/?wave={BUG_TODO_MARKER})",
+        f"    <WAVEFORM-VIEWER> [{BUG_TODO_MARKER}](/wave/?wave={BUG_TODO_MARKER})",
         "    <WAVEFORM-VIEWER> placeholder",
     )
     target.write_text(content, encoding="utf-8")

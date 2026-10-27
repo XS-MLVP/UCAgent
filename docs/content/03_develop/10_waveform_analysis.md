@@ -62,13 +62,19 @@ FST、VCD、FSDB 分别使用 `wavekit` 的 `FstReader`、`VcdReader`、`FsdbRea
 
 查看器跟随实际分析产物：VCS 默认生成 FSDB，`WaveInfo` 为它生成 Verdi 链接；Verilator 默认生成 FST，继续使用 Surfer。无需转换波形。FSDB 的信号组、窗口及 receipt 与原文件绑定，最终证据仍遵循 `Guide_Doc/dut_bug_analysis.md`。仿真器显式改用其他产物格式时，查看器跟随该格式，不猜测启动参数。
 
-Verdi 通过 CMD 服务已有的 [Xpra 浏览器会话](../02_usage/09_web_xpra.md) 打开，沿用鉴权和任务代理，无需本地 DISPLAY。CMD 主机需要可用的 Xpra/HTML5、Verdi、许可证及运行库；`cmd_api.verdi.executable` 默认从 PATH 查找 `verdi`，也可通过 `VERDI_HOME/bin/verdi` 或显式绝对路径定位。
+所有工具生成链接统一指向 `/wave/?wave=<JSON的Base64URL编码>`；也可用 `/wave/?config=view.json` 读取工作区内的 JSON 文件。两种输入互斥，均沿用 CMD 鉴权与子工作区隔离，GET 只显示启动页，页面 POST 后跳转。Surfer 接收原有 v1 JSON 参数，Xpra 接收通用启动命令，两者无需修改。
 
-浏览器预览不传入 `-undockWin`，并在 Tcl 创建波形前显式关闭新窗口浮动偏好，使波形与设计浏览器在同一主界面显示。
+```json
+{"v":1,"file":"waves/test_add.fsdb","daidir":"Adder/simv.daidir","start":"0","end":"30000","cursor":"25000","signals":["Adder_top.Adder.a[63:0]","Adder_top.Adder.sum[62:0]"]}
+```
 
-Master 新建 VCS 编译命令会自动补充 `-kdb`，保留已有 `--vflag` 参数。外部构建或既有工作区须保留由相同 DUT 使用 VCS `-kdb` 构建的 `.daidir`（其中 `simv.kdb` 的 `KDB=TRUE`）。默认自动定位唯一数据库；多个数据库时设置 `cmd_api.verdi.dbdir` 为工作区相对路径。查看时不会重编译 DUT，也不会加载工作区之外的数据库。缺失或歧义会明确报错。
+路径均相对工作区；`daidir` 可省略，由查看器配置定位唯一数据库。`start/end/cursor` 使用原始波形时间单位，须与非空 `signals` 一起提供。WaveInfo 的 v2 参数仍按用例定位最新波形，不写入仿真器或查看器名称；签名证据链接不能手改。
 
-`GET /api/waveform/verdi?wave=...` 显示启动页，页面通过同址 POST 启动或复用会话。自动生成的 Tcl 加载原 FSDB，选中 WaveInfo 的信号集合，按文件时间单位换算显示窗口和光标；完成加载后才跳转至 Xpra 页面。文件列表中的 FSDB 也可直接打开。相同文件版本及分析参数复用会话，失败会清理进程；启动超时采用 `cmd_api.xpra.startup_timeout`。关闭浏览器不停止会话，可在 Xpra 管理页结束，CMD 停止时统一清理。分析服务不要求 GUI 正在运行，缺少查看环境不会把分析切换成另一种格式。
+扩展配置集中在 `ucagent/scripts/sim/viewers.json`，可通过 `cmd_api.wave.viewers` 覆盖：按文件扩展名选择 `surfer` 或 `xpra`；后者提供可信 `command` 参数列表和可选 `database_glob`，支持 `{file}`、`{daidir}`、`{scripts}`、`{output}`。请求 JSON 不接受命令或脚本，不能指定工作区外路径。
+
+GUI 使用通用 `scripts/sim/launch.py` 读取服务生成的 JSON，将数据安全编码为 Tcl 变量，再执行配置命令。`scripts/sim/verdi.tcl` 独立负责校验 KDB、打开原始 FSDB、选择信号、换算时间及停靠布局。新工具只需配置与对应脚本；脚本成功写 `{output}/ready.txt`，失败写 `error.txt`。CMD 主机须有 Xpra/HTML5、EDA 工具、许可证和运行库；命令从 PATH 查找或在配置中使用绝对路径。
+
+Master 的编译默认值集中在 `scripts/sim/picker.json`，VCS 条目补充 `-kdb`，外部构建需保留同一 DUT 的 `.daidir`。查看不会重编译；相同文件版本及参数复用会话，失败会清理进程。启动超时使用 `cmd_api.xpra.startup_timeout`；关闭浏览器不停止会话，在 Xpra 管理页结束或停止 CMD 可清理。分析不依赖 GUI，不因查看器不可用而转换波形。
 
 ## 真实 VCS 验证入口
 

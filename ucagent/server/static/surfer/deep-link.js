@@ -11,7 +11,7 @@
   const READY_DIVIDER = "__UCAGENT_WAVE_READY_V1__";
   const TOKEN_RE = /^[A-Za-z0-9_-]+$/;
   const DECIMAL_RE = /^(0|[1-9][0-9]*)$/;
-  const COMMON_KEYS = ["v", "start", "end", "cursor", "signals", "viewer"];
+  const COMMON_KEYS = ["v", "start", "end", "cursor", "signals"];
   const V1_KEYS = new Set([...COMMON_KEYS, "file"]);
   const V2_KEYS = new Set([...COMMON_KEYS, "test_dir", "test_case"]);
 
@@ -61,7 +61,7 @@
     if (parts.some(part => part === "" || part === "." || part === "..")) {
       throw protocolError("file must not contain empty, '.' or '..' path segments");
     }
-    if (!/\.(vcd|fst|fsdb)$/i.test(value)) throw protocolError("file must end in .vcd, .fst or .fsdb");
+    if (!/\.(vcd|fst)$/i.test(value)) throw protocolError("file must end in .vcd or .fst");
     return value;
   }
 
@@ -148,10 +148,6 @@
       normalized.signals = signals;
     } else if (present.length) {
       throw protocolError("an analysis window requires at least one signal");
-    }
-    if (Object.prototype.hasOwnProperty.call(payload, "viewer")) {
-      if (payload.viewer !== "verdi") throw protocolError("viewer must be verdi when specified");
-      normalized.viewer = "verdi";
     }
     return normalized;
   }

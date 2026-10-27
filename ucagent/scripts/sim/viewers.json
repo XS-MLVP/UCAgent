@@ -1,0 +1,9 @@
+{
+  "fst": {"viewer": "surfer"},
+  "vcd": {"viewer": "surfer"},
+  "fsdb": {
+    "viewer": "xpra",
+    "database_glob": "*.daidir/simv.kdb",
+    "command": ["verdi", "-dbdir", "{daidir}", "-logdir", "{output}/logs", "-play", "{scripts}/verdi.tcl"]
+  }
+}

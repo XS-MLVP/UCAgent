@@ -89,7 +89,7 @@ def dut(request):
     # 设置需要收集的代码行覆盖率文件(获取已有路径new_path=False) 向toffee_test传代码行递覆盖率数据
     # 代码行覆盖率 ignore 文件的固定路径为当前文件所在目录下的：{{DUT}}.ignore，请不要改变
     try:
-        set_line_coverage(request, get_coverage_data_path(request, dut, new_path=False), ignore=current_path_file("{{DUT}}.ignore"), dut=dut if not ucagent.is_imp_test_template() and ucagent.get_default_subfix(dut, "coverage") == "vdb" else None)
+        set_line_coverage(request, get_coverage_data_path(request, dut, new_path=False), ignore=current_path_file("{{DUT}}.ignore"), dut=dut if not ucagent.is_imp_test_template() else None)
     finally:
         dut.Finish()
 

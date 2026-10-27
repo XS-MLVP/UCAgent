@@ -23,6 +23,7 @@ def command(args):
     (["--sim", "vcs"], "dpi", "fsdb"),
     (["--sim=vcs"], "dpi", "fsdb"),
     (["--sim", "verilator"], "mem_direct", "fst"),
+    (["--sim", "uvs"], "dpi", "usdb"),
 ])
 def test_simulator_defaults(args, access, suffix):
     """Both simulator option forms select matching access and waveform defaults."""
@@ -43,6 +44,7 @@ def test_explicit_options_are_not_duplicated():
     ["--sim"], ["--sim="], ["--sim", "vcs", "--sim=verilator"],
     ["--sim=vcs", "--rw=mem_direct"], ["--rw", "2"],
     ["--rw=dpi", "--access-mode=dpi"], ["--sim", "--rw=dpi"],
+    ["--sim=unconfigured"],
 ])
 def test_invalid_options_fail_before_execution(args):
     """Ambiguous or incompatible options cannot produce a launch command."""

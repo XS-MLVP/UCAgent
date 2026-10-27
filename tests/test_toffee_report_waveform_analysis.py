@@ -656,7 +656,7 @@ def test_invalid_viewer_link_returns_structured_apply_recovery_call(tmp_path):
     )
     block = _explicit_block(result, pattern, wave_step=15)
     block["_viewer_link"] = (
-        "<WAVEFORM-VIEWER> [viewer](/surfer/?wave=placeholder)"
+        "<WAVEFORM-VIEWER> [viewer](/wave/?wave=placeholder)"
     )
     _write_bug_doc(tmp_path, block)
 
@@ -736,7 +736,7 @@ def test_noncanonical_viewer_token_and_old_receipt_are_rejected(tmp_path):
         json.dumps(payload, ensure_ascii=False).encode("utf-8")
     ).decode("ascii").rstrip("=")
     block["_viewer_link"] = (
-        f"<WAVEFORM-VIEWER> [viewer](/surfer/?wave={noncanonical})"
+        f"<WAVEFORM-VIEWER> [viewer](/wave/?wave={noncanonical})"
     )
     _write_bug_doc(tmp_path, block)
 

@@ -1590,7 +1590,7 @@ def test_static_bug_link_script_rejects_incomplete_dynamic_scaffold(tmp_path):
         )
 
 
-@pytest.mark.parametrize("viewer_route", ["/surfer/", "/api/waveform/verdi"])
+@pytest.mark.parametrize("viewer_route", ["/wave/"])
 def test_static_bug_link_script_accepts_filled_dynamic_analysis(tmp_path, viewer_route):
     module = _load_script(LINK_SCRIPT)
     test_tag = "TC-tests/test_a.py::test_a"

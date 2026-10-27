@@ -237,7 +237,7 @@ waveform_analysis:
       observed_behavior: ...
       source_correlation: ...
 ```
-<WAVEFORM-VIEWER> [viewer](/surfer/?wave=...)
+<WAVEFORM-VIEWER> [viewer](/wave/?wave=...)
 
 </WAVEFORM-EVIDENCE>
 ````
@@ -543,7 +543,7 @@ waveform_analysis:
       observed_behavior: 完整输入和应为 9'h100，但中间量与输出均为 0，最高进位没有到达 cout。
       source_correlation: rtl/Adder.sv:24-26 的 sum_full 宽度截断与波形中丢失的最高位一致。
 ```
-<WAVEFORM-VIEWER> [Open waveform](/surfer/?wave=TOOL_GENERATED_TOKEN_FOR_CARRY)
+<WAVEFORM-VIEWER> [Open waveform](/wave/?wave=TOOL_GENERATED_TOKEN_FOR_CARRY)
 
 <a id="waveform-547f03228d4694a0"></a>
 
@@ -608,7 +608,7 @@ waveform_analysis:
       observed_behavior: saturate_en 为 1 且完整和溢出时，saturation_overflow 仍为 0，sat_sum 输出回绕值 00 而不是 ff。
       source_correlation: rtl/Adder.sv:40-43 的常量溢出检测与波形中始终为 0 的 saturation_overflow 一致。
 ```
-<WAVEFORM-VIEWER> [Open waveform](/surfer/?wave=TOOL_GENERATED_TOKEN_FOR_SATURATION)
+<WAVEFORM-VIEWER> [Open waveform](/wave/?wave=TOOL_GENERATED_TOKEN_FOR_SATURATION)
 
 </WAVEFORM-EVIDENCE>
 `````
