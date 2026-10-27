@@ -4,8 +4,10 @@
 # - 支持中英文多语言切换（基于 mkdocs-static-i18n）
 # - 集成常用功能：搜索、Mermaid、KaTeX 数学公式、图片灯箱、最后更新时间等
 #
-# 注意：此文件位于 docs/ 目录，所有路径都相对于 docs/ 目录
-# 输出目录设置为 ../site（在主项目根目录）
+# 注意：此文件位于仓库根目录（不能放进 docs/ 内，否则 mkdocs serve
+# 增量重建会因 docs_dir 校验失败而卡死）；除 docs_dir/site_dir 外，
+# 所有文档相对路径都相对于 docs/ 目录
+# 输出目录设置为 site（在主项目根目录）
 ###############################################################
 
 # 站点基础信息
@@ -17,8 +19,8 @@ repo_url: https://github.com/XS-MLVP/UCAgent # 仓库地址
 edit_uri: "" # 编辑按钮地址（留空则隐藏）
 
 # 文档和输出路径配置
-docs_dir: . # 文档源文件目录（当前目录 docs/）
-site_dir: ../site # 输出目录（在上级目录）
+docs_dir: docs # 文档源文件目录
+site_dir: site # 输出目录（在主项目根目录）
 
 # 主题与外观设置（Material）
 theme:

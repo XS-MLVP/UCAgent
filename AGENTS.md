@@ -591,7 +591,7 @@ Testing caveats:
   than hiding or "fixing" them outside scope.
 - Use `tmp_path`/temporary workspaces for tests. Do not rely on or mutate the
   repository's `output/` directory.
-- For documentation changes, run `mkdocs build -f docs/mkdocs.yml --strict` when
+- For documentation changes, run `mkdocs build -f mkdocs.yml --strict` when
   documentation dependencies are installed.
 - For YAML workflow changes, load the file under every affected boolean/config
   combination and verify that checker classes instantiate with the supplied

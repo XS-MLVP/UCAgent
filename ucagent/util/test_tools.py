@@ -2,6 +2,8 @@
 """Helpers for DUT construction, test execution, and simulator artifact paths."""
 
 import os
+import random
+import time
 from ucagent.util.log import warning
 import inspect
 import ast
@@ -15,6 +17,10 @@ _SIMULATOR_DEFAULT_SUFFIXES = {
     "vcs": {"waveform": "fsdb", "coverage": "vdb"},
     "uvs": {"waveform": "usdb", "coverage": "cdb"},
 }
+
+# Seeds stay within [0, 2**31 - 1] so every mode returns values accepted by
+# random.seed() and any simulator-side seed APIs that assume 31-bit integers.
+_SEED_RANGE_LIMIT = 2 ** 31
 
 
 def get_default_subfix(dut, sub_type: str) -> str:
@@ -56,6 +62,84 @@ def repeat_count():
     except Exception as e:
         warning(f"convert os.env['UC_TEST_RCOUNT']({n}) to Int value fail: {e}, use default 3")
         return default_v
+
+
+def get_seed(seed: int) -> int:
+    """Resolve the seed of one random test case as configured by UC_SEED_MODEL.
+
+    The environment variable ``UC_SEED_MODEL`` selects the seed mode; an unset,
+    empty, or ``manual`` value returns ``seed`` unchanged so the literal seed
+    written in the test case is used. Other modes ignore ``seed`` and return:
+
+    - ``random``: a fresh nondeterministic integer in ``[0, 2**31 - 1]``;
+    - ``time``: an integer derived from the current wall-clock time;
+    - ``uniform:<min>:<max>``: a uniformly random integer in ``[min, max]``;
+    - ``normal:<mu>:<sigma>``: a Gaussian-distributed integer clamped to
+      ``[0, 2**31 - 1]``.
+
+    Any other ``UC_SEED_MODEL`` value, malformed expression, or non-int
+    ``seed`` raises with the accepted form so a misconfigured seed mode never
+    silently selects a different one.
+    """
+    if isinstance(seed, bool) or not isinstance(seed, int):
+        raise TypeError(
+            f"get_seed(seed) expects an int manual-mode seed, got {type(seed).__name__}."
+        )
+    mode = os.environ.get("UC_SEED_MODEL", "manual").strip().lower()
+    if not mode or mode == "manual":
+        return seed
+    rng = random.SystemRandom()
+    if mode == "random":
+        return rng.randrange(_SEED_RANGE_LIMIT)
+    if mode == "time":
+        return time.time_ns() % _SEED_RANGE_LIMIT
+    kind, _, params = mode.partition(":")
+    if kind == "uniform":
+        parts = params.split(":")
+        if len(parts) != 2:
+            raise ValueError(
+                f"Invalid UC_SEED_MODEL {mode!r}: 'uniform' needs exactly two "
+                "integer bounds, e.g. UC_SEED_MODEL='uniform:0:100000'."
+            )
+        try:
+            low, high = int(parts[0]), int(parts[1])
+        except ValueError:
+            raise ValueError(
+                f"Invalid UC_SEED_MODEL {mode!r}: 'uniform' bounds must be "
+                "integers, e.g. UC_SEED_MODEL='uniform:0:100000'."
+            ) from None
+        if low > high:
+            raise ValueError(
+                f"Invalid UC_SEED_MODEL {mode!r}: 'uniform' needs min <= max, "
+                "e.g. UC_SEED_MODEL='uniform:0:100000'."
+            )
+        return rng.randrange(low, high + 1)
+    if kind == "normal":
+        parts = params.split(":")
+        if len(parts) != 2:
+            raise ValueError(
+                f"Invalid UC_SEED_MODEL {mode!r}: 'normal' needs exactly two "
+                "numbers, e.g. UC_SEED_MODEL='normal:1000000:100'."
+            )
+        try:
+            mu, sigma = float(parts[0]), float(parts[1])
+        except ValueError:
+            raise ValueError(
+                f"Invalid UC_SEED_MODEL {mode!r}: 'normal' parameters must be "
+                "numbers, e.g. UC_SEED_MODEL='normal:1000000:100'."
+            ) from None
+        if sigma < 0:
+            raise ValueError(
+                f"Invalid UC_SEED_MODEL {mode!r}: 'normal' needs sigma >= 0, "
+                "e.g. UC_SEED_MODEL='normal:1000000:100'."
+            )
+        value = int(round(rng.gauss(mu, sigma)))
+        return max(0, min(value, _SEED_RANGE_LIMIT - 1))
+    raise ValueError(
+        f"Invalid UC_SEED_MODEL {mode!r}. Use 'manual', 'random', 'time', "
+        "'uniform:<min>:<max>', or 'normal:<mu>:<sigma>'."
+    )
+
 
 def get_fake_dut(cls):
     """Create a mock DUT instance with no functionality"""

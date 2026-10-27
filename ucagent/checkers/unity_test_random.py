@@ -31,7 +31,8 @@ class RandomTestCasesChecker(BaseUnityChipCheckerTestCase):
     def __init__(self, target_test_file, mini_file_count=1, min_test_count=1,
                  test_case_name_pattern="test_random_*",
                  must_func_code_snippet={"ucagent.repeat_count": "you must use this function to set the repeat count for random test cases.",
-                                         ".mark_function": "you must use this function to mark the function coverage and check points."
+                                         ".mark_function": "you must use this function to mark the function coverage and check points.",
+                                         "ucagent.get_seed": "you must use this function to obtain the seed of the random generator for random test cases."
                                          },
                  batch_size=10,
                  ignore_ck_prefix="",

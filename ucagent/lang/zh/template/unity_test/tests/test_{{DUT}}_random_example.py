@@ -8,6 +8,7 @@ import ucagent
 #    env.dut.fc_cover["FG-A"].mark_function("FC-ADD", test_add_normal, ["CK-NORM1", "CK-NORM2"])  # 通过属性fc_cover获取覆盖分组，然后标记该函数覆盖了哪个功能和哪些检测点
 #    env.dut.fc_cover["FG-B"].mark_function("FC-SUB", test_add_normal, ["CK-NORM3"])  # 如果该用例和多个功能点相关，则需要多次调用 mark_function 分别进行功能点-检查点标记
 #    import random
+#    random.seed(ucagent.get_seed(1234))  # 必须通过 ucagent.get_seed 获取随机种子，禁止直接硬编码 random.seed(<数字>)
 #    for c in range(ucagent.repeat_count()):
 #        a = random.randint(0, 100)
 #        b = random.randint(0, 100)

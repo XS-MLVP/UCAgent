@@ -72,6 +72,70 @@ def test_default_subfix_extends_with_one_mapping_entry(monkeypatch):
     assert ucagent.get_default_subfix(dut, "coverage") == "example_cov"
 
 
+@pytest.mark.parametrize("mode", [None, "", "   ", "manual", " MANUAL "])
+def test_get_seed_manual_mode_returns_literal_seed(monkeypatch, mode):
+    """Unset, empty, or manual UC_SEED_MODEL keeps the literal test seed."""
+    if mode is None:
+        monkeypatch.delenv("UC_SEED_MODEL", raising=False)
+    else:
+        monkeypatch.setenv("UC_SEED_MODEL", mode)
+    assert ucagent.get_seed(4242) == 4242
+
+
+@pytest.mark.parametrize("mode", ["random", "time"])
+def test_get_seed_generated_modes_return_int_in_31bit_range(monkeypatch, mode):
+    """random/time modes ignore the literal seed and return a 31-bit int."""
+    monkeypatch.setenv("UC_SEED_MODEL", mode)
+    for _ in range(5):
+        value = ucagent.get_seed(7)
+        assert isinstance(value, int)
+        assert 0 <= value <= 2 ** 31 - 1
+
+
+def test_get_seed_uniform_expression_bounds(monkeypatch):
+    """uniform:<min>:<max> draws integers inside the inclusive bounds."""
+    monkeypatch.setenv("UC_SEED_MODEL", "uniform:5:7")
+    assert all(ucagent.get_seed(1) in (5, 6, 7) for _ in range(20))
+    monkeypatch.setenv("UC_SEED_MODEL", "uniform:9:9")
+    assert ucagent.get_seed(1) == 9
+
+
+def test_get_seed_normal_expression_clamps_to_31bit(monkeypatch):
+    """normal:<mu>:<sigma> returns a clamped integer seed."""
+    monkeypatch.setenv("UC_SEED_MODEL", "normal:1000000:100")
+    for _ in range(10):
+        value = ucagent.get_seed(1)
+        assert isinstance(value, int)
+        assert 0 <= value <= 2 ** 31 - 1
+    monkeypatch.setenv("UC_SEED_MODEL", "normal:999999999999:0.1")
+    assert ucagent.get_seed(1) == 2 ** 31 - 1
+
+
+@pytest.mark.parametrize("mode, match", [
+    ("bogus", "Use 'manual', 'random', 'time'"),
+    ("uniform:1", "exactly two"),
+    ("uniform:1:2:3", "exactly two"),
+    ("uniform:a:9", "must be integers"),
+    ("uniform:9:5", "min <= max"),
+    ("normal:1", "exactly two"),
+    ("normal:x:1", "must be numbers"),
+    ("normal:1:-2", "sigma >= 0"),
+])
+def test_get_seed_rejects_invalid_mode_with_corrective_hint(monkeypatch, mode, match):
+    """Invalid seed modes must fail with the accepted form, never fall back."""
+    monkeypatch.setenv("UC_SEED_MODEL", mode)
+    with pytest.raises(ValueError, match=match):
+        ucagent.get_seed(1)
+
+
+@pytest.mark.parametrize("bad_seed", ["1234", 12.5, True, None])
+def test_get_seed_rejects_non_int_manual_seed(monkeypatch, bad_seed):
+    """The manual-mode seed argument must be a plain int in every mode."""
+    monkeypatch.delenv("UC_SEED_MODEL", raising=False)
+    with pytest.raises(TypeError, match="int manual-mode seed"):
+        ucagent.get_seed(bad_seed)
+
+
 class _DUT:
     """Record simulator configuration and create representative artifact paths."""
 
