@@ -4,6 +4,7 @@
 
 import json
 import os
+import pytest
 current_dir = os.path.dirname(os.path.abspath(__file__))
 import sys
 sys.path.append(os.path.abspath(os.path.join(current_dir, "..")))
@@ -557,3 +558,21 @@ def test_newest_file_mtime_reuses_recent_scan(tmp_path):
         assert calls["count"] == 1, "a stale cache triggers exactly one proactive rescan"
     finally:
         functions_module.list_files_by_mtime = original
+
+
+@pytest.mark.parametrize('mode', [0o644, 0o700, 0o755])
+def test_read_only_protection_preserves_executable_bits(tmp_path, mode):
+    """Compiled coverage tools remain runnable across protection and restoration."""
+    import stat
+    from ucagent.util.functions import chmode_ro
+    path = tmp_path / 'coverage-helper'
+    path.write_text('helper')
+    path.chmod(mode)
+    chmode_ro([str(path)])
+    protected = stat.S_IMODE(path.stat().st_mode)
+    assert protected & 0o222 == 0
+    assert protected & 0o111 == mode & 0o111
+    chmode_rw([str(path)])
+    restored = stat.S_IMODE(path.stat().st_mode)
+    assert restored & 0o200
+    assert restored & 0o111 == mode & 0o111
