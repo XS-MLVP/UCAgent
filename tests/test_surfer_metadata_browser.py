@@ -29,7 +29,7 @@ pytestmark = pytest.mark.skipif(
 def test_metadata_populates_variables_and_uses_full_names(
     browser_kind, extension, analysis_window, tmp_path, monkeypatch,
 ):
-    """Render real bus bits, default collapse, independent expansion and Variables rows."""
+    """Render bus bits, preserve waveform navigation and verify Variables rows."""
     playwright_api = pytest.importorskip("playwright.sync_api")
     image_api = pytest.importorskip("PIL.Image")
     workspace = tmp_path / "workspace"
@@ -227,6 +227,33 @@ def test_metadata_populates_variables_and_uses_full_names(
                 page.mouse.move(650, 250, steps=10)
                 page.mouse.up()
                 page.screenshot(path=str(tmp_path / f"{browser_kind}-{extension}-signals.png"))
+                if analysis_window:
+                    page.mouse.click(350, 75)
+                    page.keyboard.press("F")
+                    before = page.evaluate("async () => await (await import('./surfer.js')).get_state()")
+                    cursor_before = re.search(r"cursor: Some\(\(1, \[\s*(\d+)", before)
+                    assert cursor_before is not None
+                    assert "focused_item: Some" in before
+                    page.mouse.click(438, 34)
+                    deadline = time.monotonic() + 10
+                    while True:
+                        after = page.evaluate("async () => await (await import('./surfer.js')).get_state()")
+                        cursor_after = re.search(r"cursor: Some\(\(1, \[\s*(\d+)", after)
+                        if cursor_after and cursor_before and cursor_after.group(1) != cursor_before.group(1):
+                            break
+                        assert time.monotonic() < deadline, after
+                        page.wait_for_timeout(50)
+                    cursor_previous = cursor_after.group(1)
+                    page.mouse.click(464, 34)
+                    deadline = time.monotonic() + 10
+                    while True:
+                        after = page.evaluate("async () => await (await import('./surfer.js')).get_state()")
+                        cursor_after = re.search(r"cursor: Some\(\(1, \[\s*(\d+)", after)
+                        if cursor_after and cursor_after.group(1) != cursor_previous:
+                            break
+                        assert time.monotonic() < deadline, after
+                        page.wait_for_timeout(50)
+                    assert cursor_after.group(1) == cursor_before.group(1)
                 assert page.locator("#error_message").inner_text() == ""
                 assert errors == []
             finally:
