@@ -3,6 +3,31 @@
 
 `WaveInfo` 根据文件扩展名自动选择读取器，内置支持 FST、VCD、FSDB。文件清单、信号查询、事件分析和证据重放使用同一套格式配置。此配置只影响分析时搜索和选择已有波形，不改变模拟器、`SetWaveform` 或测试 fixture 生成的格式。
 
+## PDB 手动重放全部 Bug 波形
+
+在 UCAgent 的 PDB 控制台执行：
+
+```text
+(UnityChip) waveform_replay
+(UnityChip) waveform_replay 600
+(UnityChip) waveform_replay --reanalyze 600
+(UnityChip) waveform_replay --reanalyze --max-rounds 5 600
+```
+
+`waveform_replay [timeout_seconds]` 不调用 LLM，自动使用已加载配置中唯一的 `require_current_replay: true` 波形门禁及其动态 Bug 文档、测试目录。该阶段必须在波形门禁前配置一个匹配文档和目录的 DUT 测试分类检查；默认工作流的最后阶段已满足此要求。可选参数为本次全量测试的正整数秒数，省略时使用已解析的 `cfg.call_time_out`。无需切换到最后阶段；命令不提交 Bug 记录，也不推进或完成阶段。已有模型任务运行时，命令会在启动测试或修改证据前拒绝执行。
+
+命令先执行该分类检查，重跑完整 DUT 测试集合并核对失败测试与 BG/TC/CK；正确复现 DUT Bug 的测试仍保持 Fail，分类检查失败则停止，不进入 replay。分类通过后，对所有非零置信度动态 Bug 关联的唯一 TC 逐一重放，每个 TC 只处理一次。签名语义未变的记录复用原有分析结论，自动原子刷新当前 receipt、波形路径和查看配置；已是当前证据时不重复写入。没有有效动态 Bug 时，校验规范空文档并报告无需重放。
+
+控制台和 UCAgent 运行日志使用 `[waveform_replay]` 前缀，记录目标文档、测试目录、测试超时、分类结果、每个 TC 的进度与状态、刷新数量，以及最终耗时和 `SUCCESS`、`FAILED` 或 `CANCELLED`。按 Ctrl+C 可取消执行。配置缺失或歧义、测试分类失败、波形缺失、receipt 无效或写入失败都会明确报告当前操作及完整诊断；按诊断修复后重试。
+
+TC 的断言、激励或对应测试源码变化时，即使重放出的波形完全一致，该 TC 仍必须报错，保留原分析记录并要求重新分析关联 Bug；测试路径、函数名或参数化 node ID 变化也不能自动建立等价关系。源码、timeline、信号值等签名语义变化返回 `WAVEFORM_SEMANTIC_BATCH_REVIEW_REQUIRED`，并包含 `requires_bug_reanalysis: true`、精确 TC、变化文件和完整 `review_batch_call`，供后续分析使用。先按返回调用使用 `ReviewWaveInfoEvidenceBatch` 准备全部上下文，结合当前 TC、规格、源码和波形重新分析全部关联 Bug，再一次原子提交全部 review；随后按诊断执行一次 `Check`。整次命令可能已刷新其他语义未变的记录，已完成的刷新会有独立日志；每次文档写入仍遵循原子提交约束。
+
+增加 `--reanalyze` 后，命令会调用当前配置的 LLM 处理分类或 replay 失败：`waveform_replay [timeout_seconds] --reanalyze [--max-rounds N]`。只有检查失败才调用 LLM，默认最多重新分析 3 轮；`--max-rounds` 必须与 `--reanalyze` 一起使用，且为正整数。测试超时作用于每次全量测试，不是整个 LLM 任务的总时限。每轮输入包含完整诊断、当前目标和规范要求，LLM 读取 `Guide_Doc/dut_bug_analysis.md`、`Guide_Doc/dut_test_case.md`、当前 TC、规格及相关源码后修改实际产物。Skill 是可选加速路径，禁用或目录缺失时使用普通文件工具完成同一规范。
+
+确认为 DUT Bug 时，保留正确失败的复现测试，更新 BG/ROOT 分析和签名波形证据。修正错误 TC 后证明某项关联不再是 DUT Bug 时，移除该关联的 TC/引用；保留其他失败 TC 支持的 BG，只删除失去支持的 BG、空动态分支、无人引用的 ROOT 和无人使用的中央波形记录，同时更新静态文档中的失效动态确认链接及已有汇总/报告。局部报告中没有某个 TC 不能作为删除历史记录的依据；不得弱化断言、减少覆盖或删除无关 Bug/共享根因。若仅一项关联被反证而 TC 仍复现其他 Bug，只删除被反证的关联，保留 TC 的真实 Fail 及其余结论。全部动态 Bug 被排除后，保留规范的三个空分区文档。
+
+每轮 LLM 返回后，命令重新运行完整分类和当前 replay，并运行配置中匹配的静态 Bug 关联检查，全部通过才输出 `SUCCESS`，不会采信 LLM 自述“已完成”。日志包含 `LLM REANALYSIS round i/N`、剩余错误及最终调用轮数。处理期间临时阻止阶段校验、完成、跳转和退出工具，`CurrentTips` 返回本次重新分析要求；结束后恢复工具回调与原暂停状态。命令不执行 Bug Recorder 或发布记录。自动刷新或 LLM 修改动态/静态分析后，会刷新所有匹配 Recorder 的文档视图并清除已接受的旧记录；部分编辑后失败或取消也执行此处理，发布前需在正常记录阶段重新提交当前 Bug。普通 replay 仍无需模型；重新分析遇到模型禁用/忙碌、调用异常、轮数耗尽或取消时会明确报错。验证失败或取消时保留 LLM 已做的修改，便于检查和重试。
+
 ## 测试产物的默认后缀
 
 测试 API 模板通过 `ucagent.get_default_subfix(dut, sub_type)` 选择产物后缀，`sub_type` 取 `"waveform"` 或 `"coverage"`，返回值不含前导点：

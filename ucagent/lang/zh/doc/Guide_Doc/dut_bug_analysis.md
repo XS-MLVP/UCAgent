@@ -828,7 +828,9 @@ FG、FC、CK、BG、TC 都是一对多层次，不是一条固定单链。以下
 
 新增一个关联 Bug 属于证据范围扩展：即使普通 stage 不重放，也必须确认当前 receipt 的信号并集足以分析新 Bug；不足时按上一节替换 receipt。
 
-移除或重新分类 Bug 时，同步删除该 BG/TC 引用及中央记录中的`bug_tags`/`bug_evidence`项。如果 TC 的最后一个 Bug 关联被移除，必须删除整份中央`<WAVEFORM-TC-...>`记录，不能留下孤儿波形。
+TC 的断言、激励或测试源码改变时，即使波形相同，也必须先重新分析，不能直接沿用旧结论。逐 TC 独立推导规格期望并填写`input | specification_expected | test_expected | actual | classification`对照：正确测试仍稳定 Fail 时，更新该 TC 关联 BG 的三个分析字段、ROOT 五个字段及当前签名波形结论；验证问题修正后必须通过真实测试证明 Pass，才能按此依据移除旧关联。若仅某个 BG 关联被规格和当前证据反证，而该 TC 仍复现其他已确认 Bug，只移除被反证的关联，保留 TC 的真实 Fail 和仍成立的其他 BG。不能通过弱化断言、skip/xfail 或修改 DUT 来消除 Fail，也不能编辑真实测试报告、波形或收据记录。
+
+移除已被反证的关联时，可用普通文本工具只编辑受影响范围：删除该 BG 下对应的 TC 和紧邻`<WAVEFORM-REF>`；保留其他 Fail TC 仍支持的 BG，删除没有有效 TC 支持的 BG 和空动态 FG/FC/CK 分支。同步更新 ROOT 的`<RELATED-BUGS>`，仅删除不再被任何 BG 引用的 ROOT。中央记录的`bug_tags`/`bug_evidence`必须精确对应剩余关联；TC 的最后一个 Bug 关联被移除时，删除整份中央`<WAVEFORM-TC-...>`记录。仍有其他关联时保留唯一中央记录，并通过 WaveInfo/Apply 或返回的批量 review 调用更新真实签名证据，不手工编造机器字段。同步移除静态文档中失效的`<LINK-BUG-*>`动态确认链接，并更新已有 Bug 汇总和验证总结；静态候选只有在当前规格、源码也将其排除时才删除。没有动态 Bug 时，保留规范标题和三个有序、空且闭合的分区。局部报告未出现某个历史 TC 不构成删除依据；最终以完整测试分类和文档验证通过为准。
 
 ## 7. BG 与 ROOT 字段
 

@@ -62,6 +62,7 @@ import os
 import re
 import textwrap
 import traceback
+from typing import Callable
 import yaml
 
 
@@ -2315,17 +2316,21 @@ def _waveform_issue_result(issues: list[dict]) -> tuple[bool, object]:
             "changed. Review them as one batch; do not repair one TC and rerun Check "
             "between items. First execute review_batch_call exactly as returned to load "
             "bounded current contexts, then submit one completed atomic review batch. "
+            "A changed TC requires new Bug analysis even if its waveform is unchanged. "
             "Do not rerun pytest, WaveInfo, or individual ApplyWaveInfoEvidence calls."
         )
         next_action = (
             "Call ReviewWaveInfoEvidenceBatch once with review omitted for all returned "
-            "items. Read the union of changed_source_files once, complete every returned "
-            "review, call the same tool once more with all reviews, then call Check once."
+            "items. Read the union of changed_source_files once and re-analyze each "
+            "affected Bug against the current TC, specification, source, and waveform "
+            "evidence. Complete every returned review, call the same tool once more "
+            "with all reviews, then call Check once."
         )
         return False, {
             "error_code": "WAVEFORM_SEMANTIC_BATCH_REVIEW_REQUIRED",
             "error": error,
             "next_action": next_action,
+            "requires_bug_reanalysis": True,
             "review_count": len(review_issues),
             "batched_review_count": len(batch_items),
             "remaining_review_count": len(review_issues) - len(batch_items),
@@ -2500,6 +2505,7 @@ def check_waveform_bug_analysis(
     waveform_test_dir: str | None = None,
     require_all_documented: bool = False,
     require_current_replay: bool = False,
+    progress_callback: Callable[[str], None] | None = None,
 ) -> tuple[bool, object]:
     """Require verified WaveInfo receipts for every non-zero dynamic Bug/TC pair."""
 
@@ -2616,7 +2622,11 @@ def check_waveform_bug_analysis(
 
     issues = []
     current_refreshes = []
-    for item in validation_items:
+    if progress_callback is not None:
+        progress_callback(
+            f"Validating {len(validation_items)} unique TC record(s) in '{bug_file}'."
+        )
+    for item_index, item in enumerate(validation_items, 1):
         block = blocks[item["test_label"]]
         data = block["data"]
         line = block["line"]
@@ -3104,10 +3114,21 @@ def check_waveform_bug_analysis(
         if not require_current_replay:
             continue
 
+        if progress_callback is not None:
+            progress_callback(
+                f"[{item_index}/{len(validation_items)}] Replaying "
+                f"'{item['test_case']}' (BG: {', '.join(item['bugs'])})."
+            )
         replay_method = getattr(waveform_tool, "replay_analysis", None)
         if not callable(replay_method):
             replay_method = waveform_tool.analyze
         replay = replay_method(**receipt_args)
+        if progress_callback is not None:
+            progress_callback(
+                f"[{item_index}/{len(validation_items)}] '{item['test_case']}': "
+                f"status={replay.get('status')}, "
+                f"evidence_usable={replay.get('evidence_usable')}."
+            )
         current_receipt_id = ""
         current_semantic_fingerprint = None
         current_receipt_result = {}
@@ -3212,6 +3233,10 @@ def check_waveform_bug_analysis(
 
         documented_semantic_fingerprint = receipt_result.get("semantic_fingerprint")
         if documented_semantic_fingerprint != current_semantic_fingerprint:
+            if progress_callback is not None:
+                progress_callback(
+                    f"'{item['test_case']}': semantic inputs changed; batch review required."
+                )
             issues.append(
                 {
                     "repair_kind": "semantic_review",
@@ -3253,6 +3278,11 @@ def check_waveform_bug_analysis(
                     "new_receipt_id": current_receipt_id,
                 }
             )
+        if progress_callback is not None:
+            progress_callback(
+                f"'{item['test_case']}': signed semantic inputs match; "
+                + ("refresh queued." if current_receipt_id != receipt_id else "already current.")
+            )
 
     if current_refreshes:
         refresh_method = getattr(
@@ -3279,6 +3309,10 @@ def check_waveform_bug_analysis(
                 }
             )
         else:
+            if progress_callback is not None:
+                progress_callback(
+                    f"Atomically refreshing {len(current_refreshes)} central record(s)."
+                )
             refresh_result = refresh_method(
                 target_file=bug_file,
                 refreshes=current_refreshes,
@@ -3300,6 +3334,10 @@ def check_waveform_bug_analysis(
                     }
                 )
             elif issues:
+                if progress_callback is not None:
+                    progress_callback(
+                        f"Refreshed {len(current_refreshes)} record(s); other blockers remain."
+                    )
                 refreshed_validation = check_waveform_bug_analysis(
                     workspace,
                     bug_file,
@@ -3399,6 +3437,7 @@ def check_all_documented_waveform_bug_analysis(
     waveform_evidence_tool=None,
     waveform_test_dir: str | None = None,
     require_current_replay: bool = False,
+    progress_callback: Callable[[str], None] | None = None,
 ) -> tuple[bool, object]:
     """Validate analysis content and waveform evidence at a workflow boundary."""
 
@@ -3435,6 +3474,7 @@ def check_all_documented_waveform_bug_analysis(
         waveform_test_dir=waveform_test_dir,
         require_all_documented=True,
         require_current_replay=require_current_replay,
+        progress_callback=progress_callback,
     )
 
 
@@ -3456,7 +3496,9 @@ class UnityChipCheckerWaveformBugAnalysis(Checker):
         self.test_dir = test_dir
         self.require_current_replay = require_current_replay
 
-    def do_check(self, **kwargs) -> tuple[bool, object]:
+    def do_check(
+        self, progress_callback: Callable[[str], None] | None = None, **kwargs
+    ) -> tuple[bool, object]:
         """Validate dynamic Bug analysis and safely refresh current WaveInfo evidence."""
         del kwargs
         waveform_tool = None
@@ -3471,6 +3513,7 @@ class UnityChipCheckerWaveformBugAnalysis(Checker):
             waveform_evidence_tool=waveform_evidence_tool,
             waveform_test_dir=self.test_dir,
             require_current_replay=self.require_current_replay,
+            progress_callback=progress_callback,
         )
         if passed:
             return True, {"success": message}

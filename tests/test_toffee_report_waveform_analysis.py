@@ -8,6 +8,7 @@ from pathlib import Path
 import copy
 import json
 import sys
+import threading
 from types import SimpleNamespace
 
 import pytest
@@ -30,7 +31,7 @@ from ucagent.checkers.unity_test import (
     UnityChipCheckerTestCase,
 )
 from ucagent.checkers.unity_test_random import RandomTestCasesChecker
-from ucagent.tools.waveform import ApplyWaveInfoEvidence, WaveInfo
+from ucagent.tools.waveform import ApplyWaveInfoEvidence, ReviewWaveInfoEvidenceBatch, WaveInfo
 from ucagent.util.config import load_yaml_with_env_vars
 from ucagent.util.bug_analysis_contract import (
     BUG_ANALYSIS_SECTION_TITLES,
@@ -3058,6 +3059,7 @@ def test_current_replay_requires_review_when_timeline_values_change(
 
 
 def test_current_replay_requires_review_when_exact_test_source_changes(tmp_path):
+    """Changing a TC assertion must fail replay even when its waveform is identical."""
     test_dir = tmp_path / "tests"
     test_dir.mkdir()
     test_source = test_dir / "test_a.py"
@@ -3097,6 +3099,9 @@ def test_current_replay_requires_review_when_exact_test_source_changes(tmp_path)
 
     assert passed is False
     assert "[Waveform Semantic Batch Review Required]" in message["error"]
+    assert "A changed TC requires new Bug analysis" in message["error"]
+    assert message["requires_bug_reanalysis"] is True
+    assert "re-analyze each affected Bug" in message["next_action"]
     assert message["review_count"] == 1
     semantic_changes = message["semantic_changes"][0][
         "semantic_changes"
@@ -3453,6 +3458,392 @@ def test_current_replay_does_not_apply_memory_only_receipt(tmp_path, monkeypatch
     assert message["details"]["rerun_waveinfo"] is False
     assert message["details"]["apply_evidence"] is False
     assert (tmp_path / "bugs.md").read_text(encoding="utf-8") == original_document
+
+
+@pytest.mark.parametrize(
+    "outcome",
+    [
+        "refresh", "current", "semantic_change", "tc_assertion_change",
+        "tc_stimulus_change", "tc_renamed", "missing", "write_failure", "no_bug",
+        "reanalyze_confirmed_bug", "reanalyze_not_bug", "reanalyze_false_removal",
+    ],
+)
+def test_pdb_waveform_replay_uses_real_classification_and_signed_evidence(
+    tmp_path, monkeypatch, capsys, outcome
+):
+    """Manual replay preserves real classifier, receipt, replay, and writer contracts."""
+    from ucagent.verify_pdb import VerifyPDB
+    from ucagent.util.bug_analysis_contract import NO_BUG_DOCUMENT_TITLE, NO_BUG_DOCUMENT_SECTIONS
+
+    _write_functions(tmp_path)
+    test_dir = tmp_path / "tests"
+    _write_waveform(test_dir)
+    test_source = test_dir / "test_a.py"
+    test_source.write_text(
+        '"""Reproduce the documented result-width defect."""\n'
+        'def test_a(env):\n'
+        '    """Check the complete output value."""\n'
+        '    assert env.result == 3\n',
+        encoding="utf-8",
+    )
+    tool = WaveInfo(workspace=str(tmp_path), test_dir="tests", dut_name="Demo")
+    writer = ApplyWaveInfoEvidence(waveinfo=tool, workspace=str(tmp_path))
+    pattern = [{"signal": "TOP.dut.valid", "event": "rising"}]
+    evidence = _call_waveinfo(
+        tool, test_case_name=DOCUMENT_TEST, pattern=pattern, start_step=10, end_step=25
+    )
+    _write_bug_doc(tmp_path, _explicit_block(evidence, pattern, wave_step=15))
+    if outcome == "no_bug":
+        empty_lines = ["", NO_BUG_DOCUMENT_TITLE.format(DUT="Demo"), ""]
+        for section in NO_BUG_DOCUMENT_SECTIONS:
+            empty_lines.extend([
+                section["heading"], "", section["start_marker"], section["end_marker"], "",
+            ])
+        (tmp_path / "bugs.md").write_text("\n".join(empty_lines), encoding="utf-8")
+    original_document = (tmp_path / "bugs.md").read_bytes()
+    original_receipt = evidence["waveform_analysis_receipt"]["receipt_id"]
+    classifier = UnityChipCheckerTestCase(
+        doc_func_check="functions.md", test_dir="tests", doc_bug_analysis="bugs.md"
+    ).set_workspace(str(tmp_path))
+    gate = UnityChipCheckerWaveformBugAnalysis(
+        bug_file="bugs.md", test_dir="tests", require_current_replay=True
+    ).set_workspace(str(tmp_path))
+    stage = SimpleNamespace(name="record_and_report_bugs", checker=[classifier, gate])
+    tools = {"WaveInfo": tool, "ApplyWaveInfoEvidence": writer}
+    break_state = [True]
+    agent = SimpleNamespace(
+        cfg=SimpleNamespace(call_time_out=60), get_tool_by_name=tools.get,
+        backend=object(), test_tools=[], is_work_busy=lambda: False,
+        is_break=lambda: break_state[0], set_break=lambda value: break_state.__setitem__(0, value),
+    )
+    manager = SimpleNamespace(
+        workspace=str(tmp_path), stages=[stage], stage_index=0, agent=agent
+    )
+    agent.stage_manager = manager
+    classifier.set_stage_manager(manager).set_stage(stage)
+    gate.set_stage_manager(manager).set_stage(stage)
+    runner_calls = []
+    model_calls = []
+
+    def run_full_tests(_runner, *args, **kwargs):
+        """Emit a controlled full-test result and a new session at the runner boundary."""
+        runner_calls.append((args, kwargs))
+        if outcome != "current":
+            newer = test_dir / "data/toffee_tmp_20260814160000_123/master"
+            newer.mkdir(parents=True, exist_ok=True)
+            name = "test_other.vcd" if outcome == "missing" else "test_a.vcd"
+            (newer / name).write_text(VCD_CONTENT, encoding="ascii")
+        if outcome == "semantic_change":
+            test_source.write_text(
+                test_source.read_text(encoding="utf-8") + "# The source context changed.\n",
+                encoding="utf-8",
+            )
+        elif outcome == "tc_assertion_change" or (outcome.startswith("reanalyze_") and not model_calls):
+            test_source.write_text(
+                test_source.read_text(encoding="utf-8").replace("== 3", "== 4"),
+                encoding="utf-8",
+            )
+        elif outcome == "tc_stimulus_change":
+            test_source.write_text(
+                test_source.read_text(encoding="utf-8").replace(
+                    "    assert", "    env.drive(2)\n    assert"
+                ),
+                encoding="utf-8",
+            )
+        elif outcome == "tc_renamed":
+            test_source.write_text(
+                test_source.read_text(encoding="utf-8").replace("def test_a(", "def test_renamed("),
+                encoding="utf-8",
+            )
+        report = _report()
+        source_line_count = len(test_source.read_text(encoding="utf-8").splitlines())
+        report_test = DOCUMENT_TEST.replace(".py::", f".py:1-{source_line_count}::")
+        if outcome == "tc_renamed":
+            report_test = report_test.replace("::test_a", "::test_renamed")
+        report["tests"]["test_cases"] = {report_test: "FAILED"}
+        report["failed_test_case_with_check_point_list"] = {report_test: [CHECKPOINT]}
+        if outcome == "no_bug" or (outcome == "reanalyze_not_bug" and model_calls):
+            report["tests"]["fails"] = 0
+            report["tests"]["test_cases"] = {report_test: "PASSED"}
+            report["failed_test_case_with_check_point_list"] = {}
+            report["unhit_check_point_list"] = []
+        report["run_test_success"] = True
+        return report, "1 confirmed DUT Bug reproducer failed", ""
+
+    def reanalyze(prompt):
+        """Replace the model boundary while using real batch review and artifact validation."""
+        model_calls.append(prompt)
+        assert "WAVEFORM_SEMANTIC_BATCH_REVIEW_REQUIRED" in prompt
+        assert "input | specification_expected | test_expected | actual | classification" in prompt
+        if outcome == "reanalyze_confirmed_bug":
+            diagnostic = json.loads(prompt.split("):\n", 1)[1])
+            diagnostic = diagnostic["diagnostic"]
+            batch = ReviewWaveInfoEvidenceBatch(evidence_writer=writer)
+            arguments = diagnostic["review_batch_call"]["arguments"]
+            prepared = batch.review_batch(**arguments)
+            assert prepared["status"] == "review_context_ready", prepared
+            assert prepared["changed_source_files"] == ["tests/test_a.py"]
+            items = copy.deepcopy(prepared["items"])
+            for item in items:
+                item["review"] = {
+                    "alignment_evidence": "The current TC's valid request aligns with the rising event at step 15.",
+                    "bug_evidence": {"BG-DYNAMIC-80": {
+                        "observed_behavior": "Reanalysis confirms the current TC still exposes result truncation.",
+                        "source_correlation": "The current source still drops the result bit before output.",
+                    }},
+                }
+            applied = batch.review_batch(target_file="bugs.md", items=items)
+            assert applied["status"] == "review_batch_applied", applied
+            updated = (tmp_path / "bugs.md").read_text(encoding="utf-8").replace(
+                "The result path truncates the expected value for the reproduced request.",
+                "Reanalysis confirms result truncation under the current TC's specified request.",
+            ).replace(ROOT_ANALYSIS, ROOT_ANALYSIS + " Rechecked against the current TC and specification.")
+            (tmp_path / "bugs.md").write_text(updated, encoding="utf-8")
+        else:
+            if outcome == "reanalyze_not_bug":
+                test_source.write_text(
+                    test_source.read_text(encoding="utf-8").replace("== 4", "== 5"),
+                    encoding="utf-8",
+                )
+            empty_lines = ["", NO_BUG_DOCUMENT_TITLE.format(DUT="Demo"), ""]
+            for section in NO_BUG_DOCUMENT_SECTIONS:
+                empty_lines.extend([
+                    section["heading"], "", section["start_marker"], section["end_marker"], "",
+                ])
+            (tmp_path / "bugs.md").write_text("\n".join(empty_lines), encoding="utf-8")
+        return "The Bug analysis is updated."
+
+    def fail_replace(*args, **kwargs):
+        """Reject a document write to test command-level atomicity diagnostics."""
+        raise OSError("manual replay document is read-only")
+
+    monkeypatch.setattr(type(classifier.run_test), "do", run_full_tests)
+    if outcome == "write_failure":
+        monkeypatch.setattr(ApplyWaveInfoEvidence, "_atomic_replace", fail_replace)
+    pdb = VerifyPDB.__new__(VerifyPDB)
+    pdb.agent = agent
+    pdb._waveform_replay_lock = threading.Lock()
+    agent.custom_chat = reanalyze
+
+    pdb.do_waveform_replay("--reanalyze --max-rounds 1" if outcome.startswith("reanalyze_") else "")
+
+    log = capsys.readouterr().out
+    assert len(runner_calls) == (2 if outcome.startswith("reanalyze_") else 1), log
+    assert runner_calls[0][0] == ("tests",)
+    assert runner_calls[0][1]["timeout"] == 60
+    if outcome == "tc_renamed":
+        assert "[waveform_replay] FAILED" in log
+        assert "[waveform_replay] SUCCESS" not in log
+        assert "test_renamed" in log
+        assert "tests/test_a.py:1-4::test_renamed" in log
+        assert "DUT test classification failed" in log
+        assert "[1/1] Replaying" not in log
+        assert (tmp_path / "bugs.md").read_bytes() == original_document
+        return
+    assert "DUT test classification PASSED" in log, log
+    assert manager.stage_index == 0
+    assert classifier.is_in_check is False
+    updated_document = (tmp_path / "bugs.md").read_bytes()
+    if outcome.startswith("reanalyze_"):
+        assert len(model_calls) == 1
+        assert "LLM REANALYSIS round 1/1" in log
+        assert agent.is_break() is True
+        assert pdb._waveform_replay_lock.locked() is False
+        if outcome == "reanalyze_false_removal":
+            assert "[waveform_replay] SUCCESS" not in log
+            assert "DUT test classification failed" in log
+            assert "LLM reanalysis limit (1) reached" in log
+        else:
+            assert "[waveform_replay] SUCCESS" in log, log
+            assert "LLM reanalysis rounds=1" in log
+            if outcome == "reanalyze_not_bug":
+                assert b"<BG-" not in updated_document
+                assert b"<ROOT-" not in updated_document.replace(b"<ROOT-CAUSES>", b"")
+                assert b"<TC-" not in updated_document
+                assert b"receipt_id:" not in updated_document
+                assert "== 5" in test_source.read_text(encoding="utf-8")
+            else:
+                assert b"Reanalysis confirms result truncation" in updated_document
+                assert b"Reanalysis confirms the current TC" in updated_document
+                assert b"Rechecked against the current TC" in updated_document
+                assert original_receipt.encode() not in updated_document
+        return
+    if outcome == "no_bug":
+        assert "No documented non-zero-confidence dynamic Bugs" in log
+        assert "[waveform_replay] SUCCESS" in log
+        assert "[1/1] Replaying" not in log
+        assert updated_document == original_document
+        return
+    assert f"[1/1] Replaying '{DOCUMENT_TEST}'" in log
+    if outcome in {"refresh", "current"}:
+        assert "[waveform_replay] SUCCESS" in log, log
+        assert "signed semantic inputs match" in log
+        if outcome == "refresh":
+            assert "Atomically refreshing 1" in log
+            assert original_receipt.encode() not in updated_document
+            assert updated_document != original_document
+            assert b"toffee_tmp_20260814160000_123" in updated_document
+        else:
+            assert "already current" in log
+            assert updated_document == original_document
+    else:
+        assert "[waveform_replay] FAILED" in log, log
+        assert "[waveform_replay] SUCCESS" not in log
+        assert updated_document == original_document
+        if outcome in {"semantic_change", "tc_assertion_change", "tc_stimulus_change"}:
+            assert "WAVEFORM_SEMANTIC_BATCH_REVIEW_REQUIRED" in log
+            assert "ReviewWaveInfoEvidenceBatch" in log
+            assert '"requires_bug_reanalysis": true' in log
+            assert "re-analyze each affected Bug" in log
+            assert "tests/test_a.py" in log
+        elif outcome == "missing":
+            assert "Waveform Current Replay Required" in log
+        else:
+            assert "Waveform Current Evidence Refresh Failed" in log
+            assert "manual replay document is read-only" in log
+
+
+@pytest.mark.parametrize("relationship", ["shared_bg", "shared_tc", "shared_root"])
+def test_pdb_waveform_reanalysis_preserves_supported_shared_findings(
+    tmp_path, monkeypatch, capsys, relationship
+):
+    """Scoped removal preserves shared BGs, failing TCs, roots, and signed central evidence."""
+    from ucagent.verify_pdb import VerifyPDB
+
+    _write_functions(tmp_path)
+    test_dir = tmp_path / "tests"
+    first_waveform = _write_waveform(test_dir)
+    first_waveform.with_name("test_b.vcd").write_text(VCD_CONTENT, encoding="ascii")
+    second_test = "tests/test_b.py::test_b"
+    for name in ("a", "b"):
+        (test_dir / f"test_{name}.py").write_text(
+            f'def test_{name}(env):\n    """Check the specified result."""\n    assert env.result == 3\n',
+            encoding="utf-8",
+        )
+    tool = WaveInfo(workspace=str(tmp_path), test_dir="tests", dut_name="Demo")
+    writer = ApplyWaveInfoEvidence(waveinfo=tool, workspace=str(tmp_path))
+    pattern = [{"signal": "TOP.dut.valid", "event": "rising"}]
+    blocks = {
+        tc: _explicit_block(_call_waveinfo(
+            tool, test_case_name=tc, pattern=pattern, start_step=10, end_step=25
+        ), pattern, wave_step=15)
+        for tc in (DOCUMENT_TEST, second_test)
+    }
+    first_bug, second_bug = "BG-FIRST-80", "BG-SECOND-90"
+    associations = [(first_bug, DOCUMENT_TEST)]
+    associations.append((
+        first_bug if relationship == "shared_bg" else second_bug,
+        DOCUMENT_TEST if relationship == "shared_tc" else second_test,
+    ))
+
+    def render(links, evidence_blocks):
+        """Render the test document while retaining an explicitly shared root identity."""
+        _write_central_waveform_document(tmp_path, links, evidence_blocks, include_analysis=True)
+        if relationship == "shared_root":
+            document = (tmp_path / "bugs.md").read_text(encoding="utf-8")
+            for bug in {bug for bug, _tc in links}:
+                document = document.replace(
+                    root_cause_reference(f"ROOT-{bug[3:].rsplit('-', 1)[0]}", f"Root cause for {bug}"),
+                    root_cause_reference("ROOT-SHARED", "Shared result path defect"),
+                )
+            before, rest = document.split("<ROOT-CAUSES>", 1)
+            _old_roots, after = rest.split("</ROOT-CAUSES>", 1)
+            roots = _root_cause_lines(
+                [(CHECKPOINT, bug) for bug, _tc in links],
+                root_tag="ROOT-SHARED", root_title="Shared result path defect",
+            )
+            (tmp_path / "bugs.md").write_text(before + "\n".join(roots) + after, encoding="utf-8")
+
+    render(associations, {tc: blocks[tc] for _bug, tc in associations})
+    if relationship == "shared_tc":
+        with (test_dir / "test_a.py").open("a", encoding="utf-8") as source:
+            source.write("# Recheck this TC's individual Bug associations.\n")
+    classifier = UnityChipCheckerTestCase(
+        doc_func_check="functions.md", test_dir="tests", doc_bug_analysis="bugs.md"
+    ).set_workspace(str(tmp_path))
+    gate = UnityChipCheckerWaveformBugAnalysis(
+        bug_file="bugs.md", test_dir="tests", require_current_replay=True
+    ).set_workspace(str(tmp_path))
+    stage = SimpleNamespace(name="final", checker=[classifier, gate])
+    tools = {"WaveInfo": tool, "ApplyWaveInfoEvidence": writer}
+    agent = SimpleNamespace(
+        cfg=SimpleNamespace(call_time_out=60), backend=object(), test_tools=[],
+        get_tool_by_name=tools.get, is_work_busy=lambda: False,
+        is_break=lambda: False, set_break=lambda value: None,
+    )
+    manager = SimpleNamespace(workspace=str(tmp_path), stages=[stage], stage_index=0, agent=agent)
+    agent.stage_manager = manager
+    for checker in stage.checker:
+        checker.set_stage_manager(manager).set_stage(stage)
+    model_calls = []
+    run_calls = []
+
+    def run_tests(_runner, *args, **kwargs):
+        """Keep current failing classifications independent of which associations are deleted."""
+        run_calls.append(True)
+        report = _report()
+        failing = DOCUMENT_TEST if relationship == "shared_tc" else second_test
+        executed = [DOCUMENT_TEST] if relationship == "shared_tc" else [DOCUMENT_TEST, second_test]
+        report_nodes = {
+            tc: tc.replace(".py::", f".py:1-{len((tmp_path / tc.split('::')[0]).read_text(encoding='utf-8').splitlines())}::")
+            for tc in executed
+        }
+        report["tests"]["total"] = len(executed)
+        report["tests"]["test_cases"] = {report_nodes[tc]: "FAILED" if tc == failing else "PASSED" for tc in executed}
+        report["failed_test_case_with_check_point_list"] = {report_nodes[failing]: [CHECKPOINT]}
+        report["run_test_success"] = True
+        return report, "Current DUT test results", ""
+
+    def reanalyze(prompt):
+        """Remove one disproved association while retaining all supported document entities."""
+        model_calls.append(prompt)
+        remaining = associations[1:]
+        render(remaining, {tc: blocks[tc] for _bug, tc in remaining})
+        if relationship == "shared_tc":
+            diagnostic = json.loads(prompt.split("):\n", 1)[1])["diagnostic"]
+            current_receipt = diagnostic["review_batch_call"]["arguments"]["items"][0]["receipt_id"]
+            batch = ReviewWaveInfoEvidenceBatch(evidence_writer=writer)
+            prepared = batch.review_batch(target_file="bugs.md", items=[{
+                "bug_tag": second_bug, "test_case_tag": f"TC-{DOCUMENT_TEST}",
+                "checkpoint_path": CHECKPOINT, "receipt_id": current_receipt,
+            }])
+            assert prepared["status"] == "review_context_ready", prepared
+            items = copy.deepcopy(prepared["items"])
+            items[0]["review"] = {
+                "alignment_evidence": "The current failing request matches the step-15 transaction.",
+                "bug_evidence": {second_bug: {
+                    "observed_behavior": "The remaining Bug still violates the specified result.",
+                    "source_correlation": "Only the remaining result-path defect explains this observation.",
+                }},
+            }
+            applied = batch.review_batch(target_file="bugs.md", items=items)
+            assert applied["status"] == "review_batch_applied", applied
+
+    monkeypatch.setattr(type(classifier.run_test), "do", run_tests)
+    agent.custom_chat = reanalyze
+    pdb = VerifyPDB.__new__(VerifyPDB)
+    pdb.agent = agent
+    pdb._waveform_replay_lock = threading.Lock()
+    pdb.do_waveform_replay("--reanalyze --max-rounds 1")
+
+    log = capsys.readouterr().out
+    assert "[waveform_replay] SUCCESS" in log, log
+    assert len(model_calls) == 1
+    assert len(run_calls) == 2
+    passed, records, error = _parse_waveform_analysis_blocks(str(tmp_path), "bugs.md")
+    assert passed, error
+    expected_tc = DOCUMENT_TEST if relationship == "shared_tc" else second_test
+    expected_bug = first_bug if relationship == "shared_bg" else second_bug
+    assert list(records) == [f"TC-{expected_tc}"]
+    assert records[f"TC-{expected_tc}"]["data"]["bug_tags"] == [expected_bug]
+    document = (tmp_path / "bugs.md").read_text(encoding="utf-8")
+    if relationship == "shared_root":
+        assert "<ROOT-SHARED>" in document
+        assert related_bug_reference(CHECKPOINT, second_bug) in document
+        assert related_bug_reference(CHECKPOINT, first_bug) not in document
+    if relationship != "shared_bg":
+        assert f"<{first_bug}>" not in document
+    assert manager.stage_index == 0
 
 
 def test_configured_final_waveform_checker_has_startup_description(tmp_path):
