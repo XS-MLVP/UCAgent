@@ -104,15 +104,21 @@ assert.deepEqual(api.variableRef("TOP.dut.A[31:1]"), {
   index: null,
 });
 assert.deepEqual(api.variableRef("TOP.dut.mem[3][7:0]"), {
-  path: {strs: ["TOP", "dut"], id: "None"},
-  name: "mem",
+  path: {strs: ["TOP", "dut", "mem"], id: "None"},
+  name: "[3]",
   id: "None",
-  index: 3,
+  index: null,
 });
 assert.equal(
   api.variableDisplayName(api.variableRef("TOP.dut.mem[3][7:0]")),
-  "TOP.dut.mem[3]",
+  "TOP.dut.mem.[3]",
 );
+assert.deepEqual(api.variableRef("TOP.dut.mem[-1][2][7:0]"), {
+  path: {strs: ["TOP", "dut", "mem", "[-1]"], id: "None"},
+  name: "[2]",
+  id: "None",
+  index: null,
+});
 
 const location = {
   href: `https://example.test/agent/a-1/cmd/surfer/?wave=${token}&sub_worspace=child-a`,
@@ -170,13 +176,14 @@ void (async () => {
     [api.READY_DIVIDER, 7],
     ["TOP.dut.clk", 8],
     ["TOP.dut.data", 9],
+    ["TOP.dut.mem.[3]", 10],
   ]);
   await api.applyWhenReady(
     {
       start: "4294967296",
       end: "4294967298",
       cursor: "4294967297",
-      signals: ["TOP.dut.clk", "TOP.dut.data[3:0]"],
+      signals: ["TOP.dut.clk", "TOP.dut.data[3:0]", "TOP.dut.mem[3][7:0]"],
     },
     {
       inject_message(message) { injected.push(JSON.parse(message)); },
@@ -190,6 +197,7 @@ void (async () => {
       {AddVariables: [
         {path: {strs: ["TOP", "dut"], id: "None"}, name: "clk", id: "None", index: null},
         {path: {strs: ["TOP", "dut"], id: "None"}, name: "data", id: "None", index: null},
+        {path: {strs: ["TOP", "dut", "mem"], id: "None"}, name: "[3]", id: "None", index: null},
       ]},
     ]},
     {Batch: [

@@ -262,3 +262,34 @@ def test_headless_worker_starts_transports_before_model_without_recording_secret
         assert not any(command.startswith(("cmd_api_start ", "connect_master_to "))
                        for command in agent.pdb.init_cmd)
     agent.pdb.execute_command.assert_not_called()
+
+
+
+@pytest.mark.parametrize("interactive", [False, True])
+def test_loop_message_reaches_headless_first_turn(tmp_path, interactive):
+    """Explicit loop instructions reach the model instead of an undrained PDB queue."""
+    message = "Resume existing evidence; do not rerun tests."
+    arguments = ["ucagent", str(tmp_path), "dut", "--loop", "--loop-msg", message]
+    if interactive:
+        arguments.append("--human")
+    with mock.patch("sys.argv", arguments), mock.patch("ucagent.verify_agent.VerifyAgent") as factory:
+        agent = factory.return_value
+
+        def make_agent(**kwargs):
+            """Retain the real startup command list for headless queue assertions."""
+            agent.pdb.init_cmd = list(kwargs["init_cmd"])
+            return agent
+
+        def run_agent():
+            """The first model turn must already have the requested instructions."""
+            if not interactive:
+                agent.set_continue_msg.assert_called_once_with(message)
+
+        factory.side_effect = make_agent
+        agent.run.side_effect = run_agent
+        run()
+    if interactive:
+        agent.set_continue_msg.assert_not_called()
+        assert "loop " + message in agent.pdb.init_cmd
+    else:
+        assert "loop " + message not in agent.pdb.init_cmd

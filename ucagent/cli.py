@@ -1590,6 +1590,10 @@ def run() -> None:
             deferred = []
             for command in pending:
                 name, _, argument = command.partition(" ") if isinstance(command, str) else ("", "", "")
+                if args.loop and command == "loop " + args.loop_msg:
+                    # Headless run() starts the loop directly; do not leave a
+                    # second loop queued for a later interactive breakpoint.
+                    continue
                 if name in services:
                     startup.append((name, argument))
                 else:
@@ -1597,6 +1601,9 @@ def run() -> None:
             agent.pdb.init_cmd = deferred
             for name, argument in startup:
                 getattr(agent.pdb, "do_" + name)(argument)
+
+        if args.loop and args.loop_msg:
+            agent.set_continue_msg(args.loop_msg)
 
     # Set break mode if human interaction or TUI is requested
     if args.human or args.tui:

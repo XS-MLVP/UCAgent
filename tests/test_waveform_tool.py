@@ -3198,3 +3198,45 @@ def test_invalid_explicit_groups_do_not_fall_back_to_preset(tmp_path):
                              pattern=[{"signal": "TOP.dut.valid", "event": "rising"}]))
     assert "key_signals" in result
     assert "validation error" in result
+
+
+def test_indexed_numeric_test_name_is_not_another_tests_dump_sequence(tmp_path):
+    """An independently collected numeric suffix owns its exact waveform filename."""
+    test_dir = tmp_path / 'tests'
+    session = _session(test_dir, 'toffee_tmp_20260814150000_123')
+    _write_vcd(session, 'test_wframe_n')
+    _write_vcd(session, 'test_wframe_n129')
+    names = ['tests/test_frame.py::test_wframe_n', 'tests/test_frame.py::test_wframe_n129']
+    (tmp_path / 'index.json').write_text(json.dumps({'cases': {
+        name: {'waveform_test_case_name': name} for name in names}}))
+    tool = _tool(tmp_path, test_dir)
+    tool.allowed_case_index = 'index.json'
+    for name in names:
+        result = tool.analyze(test_case_name=name)
+        assert result['status'] == 'metadata_only'
+        assert Path(result['waveform_selection']['waveform_file']).stem == name.split('::')[-1]
+    (session / 'master/test_wframe_n.vcd').unlink()
+    assert tool.analyze(test_case_name=names[0])['status'] != 'metadata_only'
+
+
+def test_indexed_same_function_in_distinct_files_fails_closed(tmp_path):
+    """A basename alone cannot prove which collected module produced the dump."""
+    test_dir = tmp_path / 'tests'
+    _write_vcd(_session(test_dir, 'toffee_tmp_20260814150000_123'), 'test_same')
+    names = ['tests/test_a.py::test_same', 'tests/test_b.py::test_same']
+    (tmp_path / 'index.json').write_text(json.dumps({'cases': {
+        name: {'waveform_test_case_name': name} for name in names}}))
+    tool = _tool(tmp_path, test_dir)
+    tool.allowed_case_index = 'index.json'
+    assert tool.analyze(test_case_name=names[0])['status'] == 'waveform_case_ambiguous'
+
+
+def test_indexed_numeric_dump_sequence_still_works_without_competing_case(tmp_path):
+    """A real numbered dump remains selectable when no collected case claims it."""
+    test_dir = tmp_path / 'tests'
+    _write_vcd(_session(test_dir, 'toffee_tmp_20260814150000_123'), 'test_stream12')
+    name = 'tests/test_stream.py::test_stream'
+    (tmp_path / 'index.json').write_text(json.dumps({'cases': {name: {'waveform_test_case_name': name}}}))
+    tool = _tool(tmp_path, test_dir)
+    tool.allowed_case_index = 'index.json'
+    assert tool.analyze(test_case_name=name)['waveform_selection']['numeric_suffix'] == 12

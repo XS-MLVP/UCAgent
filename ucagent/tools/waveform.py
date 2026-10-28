@@ -1221,6 +1221,16 @@ class WaveInfo(UCTool):
         suffix = match.group("suffix")
         return True, int(suffix) if suffix else 0
 
+    @classmethod
+    def waveform_case_owners(cls, path: Path, case_names: list[str]) -> list[str]:
+        """Resolve numbered dump names without stealing another indexed test's exact name."""
+        names = [(name, cls._normalize_test_case_name(name)) for name in case_names]
+        exact = [name for name, stem in names if path.stem == stem]
+        if exact:
+            return exact
+        return [name for name, stem in names if (cls._data_name_match(path, stem)
+                if path.suffix.lower() == ".dat" else cls._wave_name_match(path, stem)[0])]
+
     @staticmethod
     def _data_name_match(path: Path, basename: str) -> bool:
         return (
@@ -1510,8 +1520,27 @@ class WaveInfo(UCTool):
                 suggestions=common_suggestions,
             )
 
+        indexed_names = []
+        if self.allowed_case_index:
+            try:
+                index_path = (Path(self.workspace) / self.allowed_case_index).resolve()
+                if not index_path.is_relative_to(Path(self.workspace).resolve()):
+                    raise ValueError("allowed case index is outside the workspace")
+                index = json.loads(index_path.read_text(encoding="utf-8"))
+                indexed_names = sorted({entry["waveform_test_case_name"] for entry in index["cases"].values()
+                                        if entry.get("waveform_test_case_name")})
+                if test_case_name not in indexed_names:
+                    raise ValueError("use the exact indexed waveform_test_case_name")
+                aliases = [name for name in indexed_names if self._normalize_test_case_name(name) == normalized]
+                if len(aliases) > 1:
+                    return None, self._error("waveform_case_ambiguous",
+                        "Different collected cases share this dump basename; obtain an isolated replay with explicit ownership.",
+                        details={"requested": test_case_name, "candidates": aliases[:20]})
+            except (OSError, ValueError, KeyError, TypeError) as error:
+                return None, self._error("allowed_case_index_invalid", str(error))
         latest = sessions[0]
         search_sessions = sessions if self.session_scope == "all" else sessions[:1]
+        ambiguous = []
 
         def collect_matches(session: Path) -> list[tuple[Path, int]]:
             matches: list[tuple[Path, int]] = []
@@ -1520,6 +1549,12 @@ class WaveInfo(UCTool):
                     continue
                 matched, suffix = self._wave_name_match(path, normalized)
                 if matched:
+                    if indexed_names:
+                        owners = self.waveform_case_owners(path, indexed_names)
+                        if owners != [test_case_name]:
+                            if test_case_name in owners:
+                                ambiguous.append({"file": self._display_path(path), "candidates": owners[:20]})
+                            continue
                     matches.append((path, suffix))
             return matches
 
@@ -1530,6 +1565,10 @@ class WaveInfo(UCTool):
             if matches:
                 selected_session, selected_matches = session, matches
                 break
+        if ambiguous:
+            return None, self._error("waveform_case_ambiguous",
+                "Numbered dump ownership is ambiguous; do not attach a receipt until the case is resolved.",
+                details={"requested": test_case_name, "files": ambiguous[:20]})
         available_names = sorted(
             {
                 path.stem
@@ -1544,6 +1583,7 @@ class WaveInfo(UCTool):
                 self._display_path(path)
                 for path in session.rglob("*.dat")
                 if self._data_name_match(path, normalized)
+                and (not indexed_names or self.waveform_case_owners(path, indexed_names) == [test_case_name])
             )
             if len(dat_matches) >= 10:
                 break

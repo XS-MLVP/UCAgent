@@ -235,8 +235,17 @@
     const parts = fullName.split(".");
     if (parts.some(part => !part)) throw protocolError(`signal '${fullName}' contains an empty hierarchy component`);
     let name = parts.pop();
+    const hasPackedRange = /\[-?[0-9]+:-?[0-9]+\]$/.test(name);
     while (/\[-?[0-9]+:-?[0-9]+\]$/.test(name)) {
       name = name.replace(/\[-?[0-9]+:-?[0-9]+\]$/, "");
+    }
+    // Wellen represents an unpacked array of vectors as nested scopes, with
+    // the final [index] as the variable name. A lone bit index stays an index.
+    const vectorElement = hasPackedRange && name.match(/^([^\[\]]+)((?:\[-?[0-9]+\])+)$/);
+    if (vectorElement) {
+      const dimensions = vectorElement[2].match(/\[-?[0-9]+\]/g);
+      parts.push(vectorElement[1], ...dimensions.slice(0, -1));
+      return {path: {strs: parts, id: "None"}, name: dimensions.at(-1), id: "None", index: null};
     }
     let index = null;
     const arrayMatch = name.match(/^(.*)\[([0-9]+)\]$/);
