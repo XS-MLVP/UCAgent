@@ -284,6 +284,7 @@ def test_unexpected_exit_updates_state_and_releases_quota(manager, monkeypatch, 
     """A crashed Xpra parent must reap children even in separate process groups."""
     session = manager.create(sys.executable, env={"FAKE_BEHAVIOR": "crash"})
     process = manager._sessions[session["id"]].process
+    _wait_for(lambda: any(line.startswith("CHILD:") for line in manager.get(session["id"])["log_tail"]))
     denied = []
     if deny_group_cleanup:
         original_killpg = os.killpg
