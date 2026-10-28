@@ -3,6 +3,7 @@
 """Tests for UnityChipCheckerTestTemplate assertion-failure validation."""
 
 import json
+import pytest
 import os
 import sys
 from types import SimpleNamespace
@@ -792,3 +793,30 @@ def test_load_toffee_report_normalizes_symlinked_workspace_coverage_paths(tmp_pa
     assert report["test_case_with_check_point_list"] == {
         canonical_id: ["FG-DEMO/FC-DEMO/CK-DEMO"]
     }
+
+
+@pytest.mark.parametrize("phase,exception_type,message", [
+    ("call", "AssertionError", "Not implemented\nassert False"),
+    ("setup", "ValueError", "fixture failed"),
+    ("teardown", "RuntimeError", "cleanup failed"),
+    ("call", "AssertionError", ""),
+])
+def test_load_toffee_report_reads_transported_exception_fields(tmp_path, phase, exception_type, message):
+    """Worker exceptions retain their lifecycle identity without a parent CallInfo."""
+    source = tmp_path / "test_worker.py"
+    source.write_text("def test_worker():\n    assert False, 'Not implemented'\n", encoding="utf-8")
+    key = f"{source}:1-2::test_worker"
+    path = tmp_path / "toffee_report.json"
+    status = "FAILED" if phase == "call" else "ERROR"
+    path.write_text(json.dumps({
+        "test_abstract_info": {key: status},
+        "tests": [{"phases": [{"status": {"word": status},
+            "exception": {"phase": phase, "type": exception_type, "message": message}}]}],
+        "coverages": {"functional": {}},
+    }), encoding="utf-8")
+    report = load_toffee_report(str(path), str(tmp_path), run_test_success=True,
+                               return_all_checks=True, return_test_details=True)
+    detail = next(iter(report["tests"]["test_case_details"].values()))
+    assert detail["phase"] == phase
+    assert detail["exception_type"] == exception_type
+    assert message in detail["exception"]

@@ -687,6 +687,16 @@ def _get_toffee_test_case_details(data: dict, tests: list) -> dict:
                 type_match = re.match(r"([A-Za-z_][A-Za-z0-9_.]*)", exception)
                 if type_match:
                     phase_detail["exception_type"] = type_match.group(1)
+            failure = phase.get("exception")
+            if isinstance(failure, dict) and all(
+                isinstance(failure.get(key), str) and failure[key]
+                for key in ("phase", "type")
+            ) and isinstance(failure.get("message"), str):
+                # Plain exception fields survive pytest worker serialization;
+                # CallInfo does not exist in the parent with --forked/xdist.
+                phase_detail["phase"] = failure["phase"]
+                phase_detail["exception_type"] = failure["type"]
+                phase_detail["exception"] = f"{failure['type']}: {failure['message']}"[:1000]
             failure_phases.append(phase_detail)
 
         if failure_phases:
