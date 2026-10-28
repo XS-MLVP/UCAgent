@@ -4,11 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ucagent-bug-review"
-version = "0.4.5"
+version = "0.6.0"
 description = "UCAgent plugin for evidence-based Bug review"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = ["UCAgent>=26.9.2.dev6"]
+dependencies = ["UCAgent>=26.9.2.dev6", "Jinja2>=3.1.6,<4", "markdown-it-py>=3,<5"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "build>=1"]
@@ -25,7 +25,7 @@ include = ["bug_review", "bug_review.*"]
 namespaces = false
 
 [tool.setuptools.package-data]
-bug_review = ["workflows/*.yaml", "Guide_Doc/*.md", "templates/**/*", "skills/**/*", "lang/zh/*.json", "lang/zh/*.js"]
+bug_review = ["workflows/*.yaml", "Guide_Doc/*.md", "skills/**/*", "lang/zh/*.json", "lang/zh/*.js", "report_templates/*.j2", "report_assets/*", "references/**/*", "references/**/.*", "references/**/.*/**/*"]
 
 [tool.setuptools.exclude-package-data]
 bug_review = ["**/__pycache__/*", "**/*.pyc"]

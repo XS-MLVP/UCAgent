@@ -1,381 +1,158 @@
-"""Validate indexed Bug Review evidence and source backed decisions."""
-
-from __future__ import annotations
+"""Validate claim coverage and evidence without requiring optional waveforms."""
 
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
 
-from ucagent.util.waveform_viewer import decode_waveform_viewer_token
-
-from .records import REF_PATTERN, BugRecord, CaseRecord, ReviewIndex, RootsRecord, source_lines
-from .evidence import binding_issues, case_waveforms, event_issues
-from .narrative import narrative_issues
-from .investigation import investigation_issues
+from .records import STAGES
 
 
 class ReviewIssues(ValueError):
-    """Carry bounded field level problems to tools and Checkers."""
+    """Carry bounded task-oriented diagnostics for tools and stage gates."""
 
-    def __init__(self, issues: list[dict]):
-        """Preserve the complete count and a bounded actionable sample."""
+    def __init__(self, issues):
+        """Keep exact failures and show only a bounded repair queue."""
         self.issues = issues
-        super().__init__(f"{len(issues)} review field errors")
+        super().__init__(f'{len(issues)} review issues')
 
-    def result(self) -> dict:
-        """Return concise diagnostics for the current repair step."""
-        error_code = next((item.get("error_code") for item in self.issues
-                           if isinstance(item, dict) and item.get("error_code")),
-                          "BUG_REVIEW_FIELD_INVALID")
-        return {"error_code": error_code, "error": str(self),
-                "issues": self.issues[:20], "truncated_count": max(0, len(self.issues) - 20),
-                "next_action": "Correct the listed record fields and submit or Check again"}
+    def result(self):
+        """Describe the artifacts to fix without dumping complete records."""
+        return {'error_code': 'REVIEW_INCOMPLETE', 'error': str(self), 'issues': self.issues[:20],
+                'remaining': max(0, len(self.issues) - 20),
+                'next_action': 'Read ReviewContext for the named item and submit the missing analysis or evidence'}
 
 
-def review_incomplete(manifest, cases: dict[str, CaseRecord], environment) -> bool:
-    """Identify explicit collection, execution or evidence gaps in one module."""
-    if (manifest.collection_errors or environment.unresolved
-            or any(finding.status == "unresolved" for finding in environment.findings)):
-        return True
-    return any(case.failure_analysis.unresolved.strip()
-        or case.failure_analysis.rationale.remaining_gap.strip()
-        or case.replay.status == "not_run" or (
-        case.replay.status in {"failed", "error", "xpassed"} and (
-            case.failure_analysis.category in {"insufficient_evidence", "spec_ambiguous", "suspected_dut"}
-            or (case.failure_analysis.category == "confirmed_dut" and not case.waveform.receipt_id)))
-        for case in cases.values())
-
-
-def case_issues(index: ReviewIndex, case: CaseRecord, waveinfo,
-                require_replay: bool = False, require_triage: bool = False,
-                require_wave: bool = False, source_root: Path | None = None) -> list[dict]:
-    """Check one case's execution, attribution and signed machine evidence."""
-    issues: list[dict] = []
-    case_id = case.case_id
-
-    def add(field: str, problem: str) -> None:
-        """Record one repairable case field error."""
-        issues.append({"case_id": case_id, "field": field, "problem": problem})
-
-    entry = index.cases.get(case_id)
-    if entry is None:
-        add("case_id", "case is not indexed")
-        return issues
-    linked = {bug_id for bug_id, bug in index.bugs.items() if case_id in bug.case_ids}
-    actual_links = set(case.bug_ids)
-    if actual_links != linked or len(case.bug_ids) != len(actual_links):
-        issues.append({"case_id": case_id, "field": "bug_ids",
-                       "expected": sorted(linked), "actual": case.bug_ids,
-                       "missing": sorted(linked - actual_links),
-                       "extra": sorted(actual_links - linked),
-                       "next_action": "Update all Bug-to-case links with CommitAttribution"})
-    if case.replay.status == "not_run":
-        if require_replay and not case.replay.not_run_reason.strip():
-            add("replay.not_run_reason", "record an explicit exclusion or blocking reason")
-    elif require_replay:
-        if not case.replay.baseline_id or not case.replay.report_node_id:
-            add("replay", "baseline_id and exact report_node_id are required")
-        # Whole-process exit and an already reported case outcome are separate
-        # facts. The full-replay checker verifies both against the snapshot.
-    failed = case.replay.status in {"failed", "error", "xpassed"}
-    analysis = case.failure_analysis
-    if require_triage and failed:
-        if analysis.category == "unreviewed" or not analysis.rationale.attribution_reason.strip():
-            add("failure_analysis", "failed case needs a reasoned category or an explicit evidence gap")
-        if (not analysis.scenario.summary.strip() or not analysis.actual.summary.strip()) and not analysis.unresolved.strip():
-            add("failure_analysis", "failed case needs scenario and actual behavior or an explicit gap")
-        if analysis.phase == "unknown" and not analysis.unresolved.strip():
-            add("failure_analysis.phase", "name the failure phase or explain why it is unknown")
-        if analysis.category == "spec_misread" and not analysis.spec_expected.source_refs:
-            add("failure_analysis.spec_expected.source_refs", "spec_misread requires the conflicting Spec line")
-        if analysis.category in {"suspected_dut", "confirmed_dut"} and not all((
-                analysis.spec_expected.summary.strip(), analysis.test_expected.summary.strip(),
-                analysis.actual.summary.strip())):
-            add("failure_analysis", "DUT candidate needs Spec, test and actual behavior")
-        if analysis.category in {"suspected_dut", "confirmed_dut"} and not case.test_review.correctness_confirmed:
-            add("test_review.correctness_confirmed", "DUT attribution requires a correct test")
-        if analysis.category == "insufficient_evidence" and not (analysis.unresolved.strip()
-                or analysis.rationale.remaining_gap.strip()):
-            add("failure_analysis.rationale.remaining_gap", "name the missing evidence")
-    if source_root is not None:
-        issues.extend(event_issues(case, source_root, waveinfo))
-        references = [*analysis.scenario.source_refs, *analysis.spec_expected.source_refs,
-                      *analysis.test_expected.source_refs, *analysis.actual.evidence_refs]
-        for reference in references:
-            if not isinstance(reference, str) or not REF_PATTERN.fullmatch(reference):
-                continue
-            try:
-                source_lines(source_root, reference, 1)
-            except (ValueError, OSError) as error:
-                add("failure_analysis.actual.evidence_refs", str(error))
-    if analysis.category == "confirmed_dut" and case.waveform.conclusion == "not_dut_bug":
-        add("failure_analysis.category", "confirmed_dut contradicts waveform not_dut_bug")
-    if require_triage and failed and analysis.category in {"suspected_dut", "confirmed_dut"}:
-        if not case.scenario_steps and not (analysis.unresolved.strip() or analysis.rationale.remaining_gap.strip()):
-            add("scenario_steps", "DUT candidate needs ordered operations and execution reach or a concrete gap")
-    wave = case.waveform
-    if require_wave and wave.conclusion != "inconclusive" and not wave.receipt_id:
-        add("waveform.receipt_id", "decisive waveform conclusion needs a signed receipt")
-    needs_investigation = failed and analysis.category in {
-        "unreviewed", "insufficient_evidence", "spec_ambiguous", "suspected_dut", "confirmed_dut"}
-    if require_wave and needs_investigation:
-        if not wave.receipt_id:
-            diagnostic = (waveinfo.get_analysis_receipt(wave.diagnostic_receipt_id)
-                          if wave.diagnostic_receipt_id else None)
-            status = (diagnostic or {}).get("result", {}).get("status")
-            if (not wave.diagnostic.strip() or not diagnostic
-                    or diagnostic.get("arguments", {}).get("test_case_name") != entry.waveform_test_case_name
-                    or status not in {"empty_waveform", "waveform_parse_error", "waveform_not_found_in_latest_session",
-                                      "waveform_data_directory_missing", "waveform_session_missing",
-                                      "waveform_missing_but_test_data_exists", "wavekit_unavailable"}):
-                add("waveform", "Unresolved failure needs final waveform evidence or a signed failed "
-                    "WaveInfo attempt for this exact case plus a concrete blocker; a missing-evidence "
-                    "statement or metadata-only call does not complete investigation")
-            elif waveinfo.analyze(test_case_name=entry.waveform_test_case_name).get("status") != status:
-                add("waveform.diagnostic_receipt_id", "The failed attempt is stale; inspect the current "
-                    "dump and obtain evidence instead of reusing an earlier missing/corrupt-file diagnosis")
-            elif status != "wavekit_unavailable" and not case.replay.reruns:
-                add("replay.reruns", "Missing/unreadable dump needs a recorded targeted recovery replay; "
-                    "preserve the baseline and inspect fixture Finish/flush/teardown first")
-        elif waveinfo.get_bug_document_evidence(wave.receipt_id).get("success") is not True:
-            add("waveform.receipt_id", "Investigation needs usable final evidence, not metadata or an exploratory receipt")
-        elif not all((wave.observed_behavior.strip(), wave.alignment_evidence.strip(),
-                      wave.source_correlation.strip())):
-            add("waveform", "Explain observed behavior, transaction/sample alignment and source correlation "
-                "even when the conclusion remains inconclusive; use PatchCaseDraft waveform analysis leaves")
-        if wave.receipt_id and not any(event.source_kind == "waveform"
-                and event.receipt_id in {item.receipt_id for item in case_waveforms(case)}
-                for event in case.events):
-            add("events", "Locate an actual reached transaction or observation with ApplyWaveformEvent "
-                "using a signed window and exact signal/time. A receipt plus prose alone does not "
-                "finish investigation. Use trigger or normal_reference when no deviation is proven; "
-                "never invent first_deviation to satisfy this check")
-        if not case.scenario_steps:
-            add("scenario_steps", "Record actual execution reach, the failed assertion/timeout and any "
-                "not_reached operations; do not demand waveform evidence for operations after an abort")
-    if wave.receipt_id:
-        receipt = waveinfo.get_analysis_receipt(wave.receipt_id)
-        if receipt is None:
-            add("waveform.receipt_id", "signed receipt is unavailable")
-            return issues
-        if receipt.get("arguments", {}).get("test_case_name") != entry.waveform_test_case_name:
-            add("waveform.receipt_id", "receipt identity differs from indexed waveform_test_case_name")
-        signed = receipt.get("result", {})
-        viewer = signed.get("waveform_viewer") or {}
-        signed_url = viewer.get("url", "") if isinstance(viewer, dict) else ""
-        if wave.analysis_window != signed.get("analysis_window"):
-            add("waveform.analysis_window", "window differs from signed receipt")
-        if wave.signal_groups != signed.get("signal_groups"):
-            add("waveform.signal_groups", "signal groups differ from signed receipt")
-        if wave.viewer_url != signed_url:
-            add("waveform.viewer_url", "URL differs from signed receipt")
-        if wave.viewer_url:
-            try:
-                encoded = parse_qs(urlparse(wave.viewer_url).query)["wave"][0]
-                decode_waveform_viewer_token(encoded)
-            except (KeyError, ValueError):
-                add("waveform.viewer_url", "viewer wave payload is not decodable JSON")
-        if wave.conclusion == "dut_bug":
-            if not all((wave.observed_behavior.strip(), wave.alignment_evidence.strip(),
-                        wave.source_correlation.strip())):
-                add("waveform", "DUT conclusion needs observed, alignment and source analysis")
-            if waveinfo.get_bug_document_evidence(wave.receipt_id).get("success") is not True:
-                add("waveform.receipt_id", "receipt is not usable final evidence")
-    for position, extra in enumerate(case.additional_waveforms):
-        copy = case.model_copy(deep=True)
-        copy.waveform = extra
-        copy.additional_waveforms = []
-        copy.events = []
-        # Archived windows remain signed evidence, not independent cases that
-        # must repeat the primary investigation before a receipt can be attached.
-        for issue in case_issues(index, copy, waveinfo):
-            issue["field"] = issue["field"].replace("waveform", f"additional_waveforms.{position}", 1)
-            issues.append(issue)
-    return issues
-
-
-def decision_investigation_issues(bug, cases, source_root):
-    """Reject an uninvestigated unknown without requiring a fabricated DUT verdict."""
-    if bug.decision.verdict != "inconclusive":
-        return []
-    base = f"bugs/{bug.bug_id}/decision/investigation"
-    investigation = bug.decision.investigation
-    if investigation is None:
-        return [{"field": base, "problem": "Investigate the unresolved claim before closing it: "
-                 "record the question, inspected source_refs, actual evidence_ids, findings, blocker, "
-                 "remaining_gap and next_action. Missing first_deviation alone is not an investigation"}]
+def references(layout, refs, field):
+    """Check actual cited sources without rehashing immutable inputs."""
     issues = []
-    for ref in investigation.source_refs:
+    for ref in refs:
         try:
-            source_lines(source_root, ref, 1)
+            layout.source(ref, 1)
         except (ValueError, OSError) as error:
-            issues.append({"field": base + "/source_refs", "problem": str(error)})
-    measured = False
-    for evidence_id in investigation.evidence_ids:
-        binding = next((item for item in bug.evidence_bindings if item.evidence_id == evidence_id), None)
-        case = cases.get(binding.case_id) if binding else None
-        event = next((item for item in case.events if item.event_id == binding.event_id), None) if case else None
-        if (not binding or binding.role == "reported_only" or not case or not event
-                or binding.case_id not in bug.case_ids):
-            issues.append({"field": base + "/evidence_ids", "problem": f"{evidence_id} must be this claim's actual event"})
-        elif event.source_kind == "waveform":
-            measured = True
-    linked = [cases[key] for key in bug.case_ids if key in cases]
-    if investigation.blocker == "causality_unresolved" and not measured:
-        issues.append({"field": base + "/evidence_ids", "problem": "Before declaring causal uncertainty, "
-            "inspect a claim-specific boundary and bind a measured waveform event. A trigger or normal "
-            "observation is valid; first_deviation is not required for an unresolved claim"})
-    if investigation.blocker == "evidence_unavailable" and (not linked or not any(
-            case.waveform.diagnostic_receipt_id and not case.waveform.receipt_id for case in linked)):
-        issues.append({"field": base + "/blocker", "problem": "Evidence unavailable needs a linked case's "
-            "validated failed-wave diagnostic; readable evidence with unresolved interpretation is causal uncertainty"})
-    if investigation.blocker == "claim_not_reproduced" and (not linked or any(
-            case.replay.status in {"failed", "error", "xpassed"} and case.failure_analysis.category
-            in {"unreviewed", "insufficient_evidence", "suspected_dut", "confirmed_dut"} for case in linked)):
-        issues.append({"field": base + "/blocker", "problem": "Linked unresolved failures still need "
-            "investigation; explain their observations rather than declaring the claim not reproduced"})
+            issues.append({'field': field, 'reference': ref, 'error': str(error)})
     return issues
 
 
-def validate_correlation(index: ReviewIndex, cases: dict[str, CaseRecord],
-                         bugs: dict[str, BugRecord], roots: RootsRecord,
-                         source_root: Path, waveinfo) -> None:
-    """Validate complete decisions, source references and root membership."""
-    issues = narrative_issues(index, cases, bugs, roots, source_root)
-    issues.extend(investigation_issues(index, cases, bugs, roots, source_root))
+def case_issues(layout, case):
+    """Require analysis of the selected execution or an explicit replay blocker."""
+    a = case.analysis
+    issues = []
+    for field in ('scenario', 'actual', 'reasoning', 'test_validity', 'timing_review'):
+        if not getattr(a, field).strip():
+            issues.append({'case_id': case.case_id, 'field': field, 'error': 'explain this part of the test review'})
+    if a.category == 'unreviewed':
+        issues.append({'case_id': case.case_id, 'field': 'category', 'error': 'classify the reviewed evidence'})
+    execution = next((item for item in case.executions if item.invocation_id == a.selected_execution), None)
+    if execution is None and not a.replay_blocker:
+        issues.append({'case_id': case.case_id, 'field': 'selected_execution', 'error': 'import a real execution or record replay_blocker'})
+    if execution is not None and execution.provenance == 'historical' and not a.replay_blocker:
+        issues.append({'case_id': case.case_id, 'field': 'replay_blocker', 'error': 'historical evidence is not a rerun; explain why rerun is blocked'})
+    if a.category in {'dut', 'specification'} and (not a.spec_refs or not a.specification_expected):
+        issues.append({'case_id': case.case_id, 'field': 'spec_refs', 'error': 'state and cite an independent applicable requirement'})
+    if a.category == 'dut' and (not a.test_expected or not execution or execution.status != 'failed'):
+        issues.append({'case_id': case.case_id, 'field': 'category', 'error': 'DUT attribution needs a real failed test and reviewed expectation'})
+    if a.category == 'unresolved' and not (a.remaining_gap and a.next_action):
+        issues.append({'case_id': case.case_id, 'field': 'remaining_gap', 'error': 'name the missing evidence and next action'})
+    if not a.source_refs:
+        issues.append({'case_id': case.case_id, 'field': 'source_refs', 'error': 'cite inspected test or execution lines'})
+    issues.extend(references(layout, [*a.source_refs, *a.spec_refs, *a.rtl_refs, *a.failure_refs], case.case_id))
+    if execution is not None and execution.status in {'failed', 'error'}:
+        if not a.failure_refs:
+            issues.append({'case_id': case.case_id, 'field': 'failure_refs',
+                           'error': 'cite exact failure lines in the selected execution report or log',
+                           'expected': [execution.report_ref, execution.log_ref]})
+        if any(ref.rsplit(':', 1)[0] not in {execution.report_ref, execution.log_ref} for ref in a.failure_refs):
+            issues.append({'case_id': case.case_id, 'field': 'failure_refs',
+                           'error': 'failure excerpts must belong to selected_execution report/log'})
+    if any(ref.rsplit(':', 1)[0] == 'inputs/review_standards/catalog.json' for ref in a.spec_refs):
+        issues.append({'case_id': case.case_id, 'field': 'spec_refs',
+                       'error': 'cite the applicable original standard clause; catalog.json only records provenance'})
+    # A reported claim cannot serve as its own independent specification.
+    original = {ref.rsplit(':', 1)[0] for claim in layout.review().claims for ref in claim.source_refs}
+    if any(ref.rsplit(':', 1)[0] in original for ref in a.spec_refs):
+        issues.append({'case_id': case.case_id, 'field': 'spec_refs', 'error': 'original Bug claims are not independent specifications'})
+    return issues
 
-    def issue(location: str, problem: str) -> None:
-        """Append one exact failing location."""
-        issues.append({"field": location, "problem": problem})
 
-    expected = set(index.bug_order)
-    if set(bugs) != expected:
-        issue("bugs", f"missing={sorted(expected - set(bugs))[:10]}, extra={sorted(set(bugs) - expected)[:10]}")
-    root_by_id = {root.root_id: root for root in roots.roots}
-    if len(root_by_id) != len(roots.roots):
-        issue("root_causes", "duplicate root_id")
-    signatures = [(root.rtl_ref, root.first_error, root.causal_chain) for root in roots.roots]
-    if len(set(signatures)) != len(signatures):
-        issue("root_causes", "one cause signature is split across root groups")
-    membership: dict[str, str] = {}
-    evidence_ids = {}
-    for bug in bugs.values():
-        issues.extend(binding_issues(bug, cases))
-        for binding in bug.evidence_bindings:
-            if binding.evidence_id in evidence_ids:
-                issue("evidence_bindings", f"duplicate module evidence_id {binding.evidence_id}")
-            evidence_ids[binding.evidence_id] = (bug.bug_id, binding)
-    for case in cases.values():
-        issues.extend(case_issues(index, case, waveinfo, require_wave=True, source_root=source_root))
-    for root in roots.roots:
-        if not root.bug_ids or any(not getattr(root, field).strip()
-                                   for field in ("rtl_ref", "first_error", "causal_chain")):
-            issue(f"roots/{root.root_id}", "root needs members and nonempty shared cause fields")
-        for bug_id in root.bug_ids:
-            if bug_id in membership:
-                issue(f"roots/{root.root_id}/bug_ids", f"duplicate member {bug_id}")
-            membership[bug_id] = root.root_id
-        selected = evidence_ids.get(root.primary_evidence_id)
-        if not root.title.strip():
-            issue(f"roots/{root.root_id}/title", "root detail needs a readable shared-mechanism title")
-        if not selected or selected[0] not in root.bug_ids or selected[1].role not in {"direct", "corroborating", "normal_reference"}:
-            issue(f"roots/{root.root_id}/primary_evidence_id", "select one member's explicit waveform evidence")
-        elif not cases.get(selected[1].case_id) or not any(
-                event.event_id == selected[1].event_id and event.source_kind == "waveform"
-                for event in cases[selected[1].case_id].events):
-            issue(f"roots/{root.root_id}/primary_evidence_id", "primary preview needs a waveform event")
-    for bug_id, bug in bugs.items():
-        base = f"bugs/{bug_id}"
-        issues.extend(decision_investigation_issues(bug, cases, source_root))
-        if bug.bug_id != bug_id:
-            issue(f"{base}/bug_id", "does not match index identity")
-        if bug_id not in index.bugs:
-            continue
-        if set(bug.case_ids) != set(index.bugs[bug_id].case_ids):
-            expected_cases = set(index.bugs[bug_id].case_ids)
-            actual_cases = set(bug.case_ids)
-            issues.append({"bug_id": bug_id, "field": f"{base}/case_ids",
-                           "problem": "does not match index associations",
-                           "expected": sorted(expected_cases), "actual": sorted(actual_cases),
-                           "missing": sorted(expected_cases - actual_cases),
-                           "extra": sorted(actual_cases - expected_cases),
-                           "next_action": "Refresh decisions.json case_ids from the active index"})
-        for field in ("spec_refs", "rtl_refs"):
-            for reference in getattr(bug, field):
-                try:
-                    source_lines(source_root, reference, max_lines=1)
-                except (ValueError, OSError) as error:
-                    issue(f"{base}/{field}", str(error))
-        decision = bug.decision
-        if not decision.rationale.strip():
-            issue(f"{base}/decision/rationale", "nonempty reasoning required")
-        if decision.verdict == "refuted":
-            if (type(decision.review_confidence) not in {int, float}
-                    or decision.review_confidence != 0 or decision.root_id is not None):
-                issue(f"{base}/decision", "refuted requires confidence 0 and no root")
-        elif decision.verdict == "inconclusive":
-            if decision.review_confidence is not None or decision.root_id is not None:
-                issue(f"{base}/decision", "inconclusive requires null confidence and no root")
+def validate(layout, stage, waveinfo=None):
+    """Check current and preceding artifacts, deriving progress from content only."""
+    if stage not in STAGES:
+        raise ValueError(f'unknown review stage: {stage}')
+    review = layout.review()
+    level = STAGES.index(stage)
+    issues = []
+    if not layout.inputs.is_dir() or not review.source_documents:
+        issues.append({'field': 'inputs', 'error': 'original report input is missing'})
+    keys = [case.case_key for case in review.cases.values()]
+    if len(set(keys)) != len(keys) or any(node != case.case_id for node, case in review.cases.items()):
+        issues.append({'field': 'cases', 'error': 'Case keys must be unique and dictionary keys must equal exact case_id'})
+    if level >= 1:
+        if review.context is None:
+            issues.append({'field': 'context', 'error': 'submit module purpose and scope with SubmitReviewClaims'})
         else:
-            if (type(decision.review_confidence) not in {int, float}
-                    or not 0 < decision.review_confidence <= 1):
-                issue(f"{base}/decision/review_confidence", "confirmed requires 0 < confidence <= 1")
-            if decision.root_id not in root_by_id or membership.get(bug_id) != decision.root_id:
-                issue(f"{base}/decision/root_id", "root membership must be bidirectional")
-            root = root_by_id.get(decision.root_id)
-            if root:
-                for field in ("rtl_ref", "first_error", "causal_chain"):
-                    expected, actual = getattr(root, field), getattr(decision, field)
-                    if expected != actual:
-                        issues.append({"bug_id": bug_id, "field": f"{base}/decision/{field}",
-                                       "problem": "decision field must match assigned root exactly",
-                                       "expected": expected, "actual": actual,
-                                       "next_action": "Copy the exact root field into the LLM-authored decision draft"})
-            for field in ("spec_ref", "rtl_ref"):
-                reference = getattr(decision, field)
-                try:
-                    source_lines(source_root, reference, max_lines=1)
-                except (ValueError, OSError) as error:
-                    issue(f"{base}/decision/{field}", str(error))
-            phenomenon = bug.phenomenon
-            if not all((phenomenon.scenario.summary.strip(),
-                        phenomenon.spec_expected.summary.strip(),
-                        phenomenon.actual.summary.strip(),
-                        phenomenon.bug_root_cause.strip(),
-                        decision.first_error.strip(), decision.causal_chain.strip())):
-                issue(base, "confirmed Bug needs phenomenon scenario, Spec expectation, actual behavior, Bug root cause, first_error and causal_chain")
-            for field, refs in (("scenario", phenomenon.scenario.source_refs),
-                                ("spec_expected", phenomenon.spec_expected.source_refs),
-                                ("actual", phenomenon.actual.evidence_refs)):
-                for reference in refs:
-                    try:
-                        source_lines(source_root, reference, max_lines=1)
-                    except (ValueError, OSError) as error:
-                        issue(f"{base}/phenomenon/{field}", str(error))
-            valid_case = False
-            for binding in bug.evidence_bindings:
-                if binding.role != "direct":
-                    continue
-                case_id = binding.case_id
-                case = cases.get(case_id)
-                if not case or case_id not in index.cases or bug_id not in case.bug_ids:
-                    continue
-                event = next((event for event in case.events if event.event_id == binding.event_id), None)
-                wave = next((wave for wave in case_waveforms(case)
-                             if event and wave.receipt_id == event.receipt_id), None)
-                if (case.replay.status == "failed"
-                        and case.test_review.correctness_confirmed
-                        and case.failure_analysis.category == "confirmed_dut"
-                        and event and event.kind == "first_deviation" and event.source_kind == "waveform"
-                        and event.step_id and wave and wave.conclusion == "dut_bug" and not binding.remaining_gap):
-                    receipt = waveinfo.get_analysis_receipt(wave.receipt_id)
-                    if (receipt and receipt.get("arguments", {}).get("test_case_name")
-                            == index.cases[case_id].waveform_test_case_name
-                            and waveinfo.get_bug_document_evidence(wave.receipt_id).get("success") is True):
-                        valid_case = True
-            if not valid_case:
-                issue(f"{base}/evidence_bindings", "no own direct deviation from a correct reproduced case with usable signed DUT waveform")
-    for bug_id, root_id in membership.items():
-        if bug_id not in bugs or bugs[bug_id].decision.verdict != "confirmed":
-            issue(f"roots/{root_id}/bug_ids", f"unknown or nonconfirmed member {bug_id}")
+            issues.extend(references(layout, review.context.source_refs, 'context'))
+        if not review.claims_submitted:
+            issues.append({'field': 'claims', 'error': 'use SubmitReviewClaims, including an explicitly empty claim set'})
+        expected = set(review.source_documents)
+        seen = {item.path for item in review.source_reviews}
+        if expected != seen:
+            issues.append({'field': 'source_reviews', 'missing': sorted(expected - seen), 'extra': sorted(seen - expected)})
+        for claim in review.claims:
+            issues.extend(references(layout, claim.source_refs, claim.claim_id))
+            if not claim.case_ids and not claim.missing_information:
+                issues.append({'field': claim.claim_id, 'error': 'link exact Case IDs or explain missing association'})
+    cases = review.cases
+    if level >= 2:
+        for case in cases.values():
+            issues.extend(case_issues(layout, case))
+    if level >= 3 and review.options.waveform_enabled:
+        for case in cases.values():
+            if not case.waveforms and not case.waveform_note:
+                issues.append({'case_id': case.case_id, 'field': 'waveform_note',
+                               'error': 'attach useful evidence or explain why this Case needs no waveform or is blocked'})
+            if case.waveforms:
+                from .evidence import waveform_issues
+                issues.extend(waveform_issues(layout, case, waveinfo))
+    if level >= 4:
+        ids = {claim.claim_id for claim in review.claims}
+        decisions = {item.claim_id: item for item in review.decisions}
+        roots = {item.root_id: item for item in review.roots}
+        if not review.decisions_submitted or set(decisions) != ids or len(decisions) != len(review.decisions):
+            issues.append({'field': 'decisions', 'error': 'submit exactly one decision for every claim'})
+        if len(roots) != len(review.roots):
+            issues.append({'field': 'roots', 'error': 'duplicate root_id'})
+        used_roots = set()
+        for claim in review.claims:
+            decision = decisions.get(claim.claim_id)
+            if decision is None:
+                continue
+            narrative_refs = [ref for row in decision.narrative.comparisons for ref in row.source_refs]
+            issues.extend(references(layout, [*decision.source_refs, *narrative_refs], claim.claim_id))
+            if not set(decision.case_ids).issubset(claim.case_ids):
+                issues.append({'field': claim.claim_id, 'error': 'decision uses cases outside this claim'})
+            selected = [cases[node] for node in decision.case_ids if node in cases]
+            if decision.verdict == 'confirmed':
+                if not any(case.analysis.category == 'dut' and not case.analysis.remaining_gap for case in selected):
+                    issues.append({'field': claim.claim_id, 'error': 'confirmation needs its own reviewed DUT failure without an unresolved validity gap'})
+            elif decision.verdict == 'refuted':
+                if not decision.source_refs or not any(case.analysis.category in {'test', 'environment', 'specification'} for case in selected):
+                    issues.append({'field': claim.claim_id, 'error': 'refutation needs concrete sourced counterevidence, not just a passing rerun'})
+            elif not (decision.remaining_gap and decision.next_action):
+                issues.append({'field': claim.claim_id, 'error': 'inconclusive requires a concrete gap and next action'})
+            if decision.root_id:
+                if decision.verdict != 'confirmed' or decision.root_id not in roots:
+                    issues.append({'field': claim.claim_id, 'error': 'only confirmed claims can refer to an existing root'})
+                used_roots.add(decision.root_id)
+        if used_roots != set(roots):
+            issues.append({'field': 'roots', 'error': 'each root must be referenced by a confirmed claim'})
+        for root in review.roots:
+            issues.extend(references(layout, root.rtl_refs, root.root_id))
+            if any(Path(ref.rsplit(':', 1)[0]).suffix.lower() not in {'.sv', '.v', '.vhd', '.vhdl', '.svh', '.vh'} for ref in root.rtl_refs):
+                issues.append({'field': root.root_id, 'error': 'cite actual RTL source, not the original Bug analysis'})
+            linked = {case_id for d in review.decisions if d.root_id == root.root_id for case_id in d.case_ids}
+            receipts = {w.receipt_id for node in linked if node in cases for w in cases[node].waveforms}
+            if root.basis == 'waveform_observation' and (not review.options.waveform_enabled or not root.receipt_ids or not set(root.receipt_ids).issubset(receipts)):
+                issues.append({'field': root.root_id, 'error': 'observed cause needs its own linked waveform receipts'})
     if issues:
         raise ReviewIssues(issues)
+    return {'stage': stage, 'claims': len(review.claims), 'cases': len(cases),
+            'unresolved': sum(d.verdict == 'inconclusive' for d in review.decisions),
+            'historical_only': sum(not any(e.provenance == 'rerun' for e in c.executions) for c in cases.values())}

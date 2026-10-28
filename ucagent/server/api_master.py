@@ -3022,7 +3022,7 @@ class PdbMasterApiServer:
         add_value("--template-dir", req.get("template_dir"))
         add_flag("--template-overwrite", req.get("template_overwrite"))
         add_list("--template-cfg-override", req.get("template_cfg_override", []))
-        default_output = ("verification_review/analysis"
+        default_output = ("results"
                           if str(req.get("plugin_workflow") or "").startswith("bug_review:")
                           else "unity_test")
         add_value("--output", req.get("output") or default_output)

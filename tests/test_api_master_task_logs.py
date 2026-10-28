@@ -1,3 +1,5 @@
+"""Test Master task launch configuration and bounded runtime log handling."""
+
 import os
 import json
 import shutil
@@ -1067,3 +1069,19 @@ def test_agent_delete_block_rejoin_controls_removed_set():
         unregister = client.delete("/api/agent/online-agent?block_rejoin=true")
         assert unregister.status_code == 200
         assert "online-agent" in server._removed
+
+
+@pytest.mark.parametrize(("workflow", "output", "expected"), [
+    ("bug_review:analysis", None, "results"),
+    ("bug_review:analysis", "custom-review", "custom-review"),
+    ("other:analysis", None, "unity_test"),
+])
+def test_task_launch_output_matches_selected_workflow(tmp_path, workflow, output, expected):
+    """Review tasks use the compact output tree while explicit output takes precedence."""
+    server = PdbMasterApiServer(workspace=str(tmp_path))
+    argv, _env = server._build_ucagent_command(
+        {"plugin_workflow": workflow, "output": output},
+        {"workspace_dir": str(tmp_path), "picker_workspace": str(tmp_path), "dut_name": "demo"},
+        {"host": "127.0.0.1", "port": 8765, "password": "test-only"},
+    )
+    assert argv[argv.index("--output") + 1] == expected
