@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import sys
 from types import ModuleType, SimpleNamespace
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -285,3 +286,152 @@ def test_coverage_repair_tip_uses_dut_simulator(rendered_api, monkeypatch):
     namespace = dict(rendered_api.__dict__)
     exec(tip[tip.index("def get_coverage_data_path"):], namespace)
     assert namespace["get_coverage_data_path"](None, _DUT(), new_path=True).endswith("Demo.vdb")
+
+
+@pytest.fixture(params=["wrapped", "direct", "mixed"])
+def picker_dut(request, tmp_path, monkeypatch):
+    """Load representative picker wrappers without constructing a simulator."""
+    declarations = []
+    for index, (name, width, direction) in enumerate([
+        ("clk", 0, "In"), ("request", 8, "In"), ("response", 129, "Out"),
+    ]):
+        value = f"xsp.XData({width}, xsp.XData.{direction})"
+        if request.param == "wrapped" or (request.param == "mixed" and index == 1):
+            value = f"xsp.XPin({value}, self.event)"
+        declarations.append(f"        self.{name} = {value}\n")
+    source = (
+        '"""Generated picker DUT interface for pin compatibility tests."""\n'
+        'class DUT:\n'
+        '    """Expose pins without permitting real DUT initialization."""\n'
+        '    SIMULATOR = "vcs"\n'
+        '    def __init__(self):\n'
+        '        """Reject any attempt to start real simulation."""\n'
+        '        raise AssertionError("real DUT must not be initialized")\n'
+        '        self.metadata = dict()\n'
+        '        self.enabled = True\n'
+        + "".join(declarations)
+    )
+    module = ModuleType("picker_mock_dut")
+    module.__file__ = str(tmp_path / "picker_mock_dut.py")
+    Path(module.__file__).write_text(source, encoding="utf-8")
+    monkeypatch.setitem(sys.modules, module.__name__, module)
+    exec(compile(source, module.__file__, "exec"), module.__dict__)
+    return module.DUT
+
+
+def test_get_pin_info_supports_picker_pin_layouts(picker_dut):
+    """Both layouts preserve declaration order, scalar pins, and wide buses."""
+    assert list(test_tools.get_pin_info(picker_dut).items()) == [
+        ("clk", 0), ("request", 8), ("response", 129),
+    ]
+
+
+@pytest.mark.parametrize("has_xpin", [True, False])
+def test_mock_dut_supports_picker_pin_apis(picker_dut, monkeypatch, has_xpin):
+    """Mock pins share port data and retain clock behavior across both APIs."""
+    class XPin:
+        """Model the legacy wrapper's shared value and clock event."""
+
+        def __init__(self, xdata, event):
+            """Keep the supplied data and event without copying them."""
+            self.xdata = xdata
+            self.event = event
+
+        @property
+        def value(self):
+            """Read the underlying port data."""
+            return self.xdata.value
+
+        @value.setter
+        def value(self, value):
+            """Update the underlying port data."""
+            self.xdata.value = value
+
+    xdata_cls = MagicMock(side_effect=lambda width, direction: SimpleNamespace(
+        W=lambda: width, direction=direction, value=0,
+    ))
+    clock = MagicMock()
+    port = MagicMock()
+    pins = {}
+    port.Add.side_effect = pins.__setitem__
+    port.__getitem__.side_effect = pins.__getitem__
+    xsp = SimpleNamespace(
+        XData=xdata_cls, XClock=MagicMock(return_value=clock),
+        XPort=MagicMock(return_value=port), TEST_get_u64_step_func=lambda: 123,
+    )
+    if has_xpin:
+        xsp.XPin = XPin
+    monkeypatch.setitem(picker_dut.__init__.__globals__, "xsp", xsp)
+    dut = ucagent.get_mock_dut_from(picker_dut)
+    assert dut.SIMULATOR == "vcs"
+    assert dut._is_initialized is True
+    assert list(dut._pins) == ["clk", "request", "response"]
+    for name, width, value in [("clk", 0, 1), ("request", 8, 255), ("response", 129, 2 ** 128)]:
+        pin = getattr(dut, name)
+        assert dut._pins[name] is pin
+        if has_xpin:
+            assert isinstance(pin, XPin)
+            assert pin.xdata is pins[name]
+            assert pin.event is dut.event
+        else:
+            assert pin is pins[name]
+        assert pins[name].W() == width
+        assert pins[name].direction is xdata_cls.InOut
+        pin.value = value
+        assert pins[name].value == value
+        pins[name].value = value - 1
+        assert pin.value == value - 1
+    assert json.loads(str(dut)) == {
+        "clk[0]": 0, "request[8]": 254, "response[129]": 2 ** 128 - 1,
+    }
+    dut.InitClock("clk")
+    assert clock.Add.call_args_list[0].args == (port,)
+    assert clock.Add.call_args_list[1].args == (pins["clk"],)
+    dut.Step(2)
+    clock.Step.assert_called_once_with(2)
+    dut.StepRis(print, ("rise",), {"end": ""})
+    clock.StepRis.assert_called_once_with(print, ("rise",), {"end": ""})
+    dut.StepFal(print, ("fall",), {"end": ""})
+    clock.StepFal.assert_called_once_with(print, ("fall",), {"end": ""})
+
+
+def test_mock_dut_with_installed_xspcomm(picker_dut, monkeypatch):
+    """Exercise real pin writes, port registration, and clock callbacks."""
+    xsp = pytest.importorskip("xspcomm")
+    monkeypatch.setitem(picker_dut.__init__.__globals__, "xsp", xsp)
+    dut = ucagent.get_mock_dut_from(picker_dut)
+    dut.InitClock("clk")
+    dut.request.value = 0xA5
+    dut.response.value = 2 ** 128
+    assert dut.xport["request"].value == 0xA5
+    assert dut.xport["response"].W() == 129
+    assert json.loads(str(dut))["response[129]"] == 2 ** 128
+    edges = []
+
+    def on_edge(cycle, edge):
+        """Record callbacks and drive a wide pin through its public value."""
+        edges.append((cycle, edge))
+        dut.response.value += 1
+
+    dut.StepRis(on_edge, ("rise",))
+    dut.StepFal(on_edge, kwargs={"edge": "fall"})
+    dut.Step(2)
+    assert sorted(edge for _, edge in edges) == ["fall", "fall", "rise", "rise"]
+    assert dut.response.value == 2 ** 128 + 4
+    assert json.loads(str(dut))["response[129]"] == 2 ** 128 + 4
+
+
+@pytest.mark.parametrize("assignment", [
+    "self.pin = xsp.XPin()",
+    "self.pin = xsp.XData()",
+    "self.pin = xsp.XPin(object(), None)",
+    "self.pin = xsp.XData(width, None)",
+    "self.pin = xsp.XData('8', None)",
+    "self.pin = xsp.XData(True, None)",
+    "self.pin = object()",
+])
+def test_get_pin_info_skips_assignments_without_literal_width(monkeypatch, assignment):
+    """Non-pin or incomplete declarations cannot become mock pin widths."""
+    source = f"class DUT:\n    def __init__(self):\n        {assignment}\n"
+    monkeypatch.setattr(test_tools.inspect, "getsource", lambda cls: source)
+    assert test_tools.get_pin_info(_DUT) == {}

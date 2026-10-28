@@ -72,7 +72,7 @@ def test_api_{DUT}_mock_memory_response(mock_dut):
 测试要求：
 
 - 函数式编写，名称以`test_api_{DUT}_mock_`开头，第一个且通常唯一的fixture参数为`mock_dut`。
-- 通过`.value`读写XPin；禁止直接覆盖pin对象。
+- 通过`.value`读写引脚；禁止直接覆盖pin对象。
 - 先实例化并`bind(mock_dut)`，再用`mock_dut.Step()`触发回调。
 - 覆盖基本交互、配置延迟、背压、复位、队列/状态清理和可选错误注入。
 - 不调用`mark_function`，不访问`fc_cover`，不生成DUT功能覆盖率。

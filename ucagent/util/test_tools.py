@@ -152,15 +152,15 @@ def is_imp_test_template():
     return n.lower() in ["1", "true"]
 
 
-def get_xpin_info(cls):
-    """Get pins from DUT class"""
+def get_pin_info(cls):
+    """Read pin widths from XPin-wrapped or direct XData DUT assignments."""
     tree = ast.parse(inspect.getsource(cls))
-    xpin_info = OrderedDict()
+    pin_info = OrderedDict()
     # Find __init__ method
     init_node = next((node for node in ast.walk(tree)
                       if isinstance(node, ast.FunctionDef) and node.name == '__init__'), None)
     if not init_node:
-        return xpin_info
+        return pin_info
     for stmt in init_node.body:
         # Check for assignment: self.attr = ...
         if not isinstance(stmt, ast.Assign):
@@ -170,42 +170,39 @@ def get_xpin_info(cls):
                     isinstance(target.value, ast.Name) and
                     target.value.id == 'self'):
                 continue
-            # Check structure: xsp.XPin(xsp.XData(WIDTH, ...), ...)
-            try:
-                call = stmt.value
-                if not (isinstance(call, ast.Call) and call.func.attr == 'XPin'):
-                    continue
-                xdata_arg = call.args[0]
-                if not (isinstance(xdata_arg, ast.Call) and xdata_arg.func.attr == 'XData'):
-                    continue
-                width_node = xdata_arg.args[0]
-                # Support both Python 3.8+ (Constant) and older (Num)
-                width = getattr(width_node, 'value', getattr(width_node, 'n', None))
-                if width is not None:
-                    xpin_info[target.attr] = width
-            except AttributeError:
+            call = stmt.value
+            if (isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute)
+                    and call.func.attr == 'XPin' and call.args):
+                call = call.args[0]
+            if not (isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute)
+                    and call.func.attr == 'XData' and call.args):
                 continue
-    return xpin_info
+            width_node = call.args[0]
+            if isinstance(width_node, ast.Constant) and type(width_node.value) is int:
+                pin_info[target.attr] = width_node.value
+    return pin_info
 
 
 def get_mock_dut_from(cls):
-    """Create a mock DUT, preserving simulator metadata declared by its class."""
-    xpin_info = get_xpin_info(cls)
+    """Create a mock DUT using the available XPin or direct XData pin API."""
+    pin_info = get_pin_info(cls)
     cls_Xdata = cls.__init__.__globals__['xsp'].XData
-    cls_XPin = cls.__init__.__globals__['xsp'].XPin
+    cls_XPin = getattr(cls.__init__.__globals__['xsp'], 'XPin', None)
     cls_XClock = cls.__init__.__globals__['xsp'].XClock
     cls_XPort = cls.__init__.__globals__['xsp'].XPort
     get_test_step = cls.__init__.__globals__['xsp'].TEST_get_u64_step_func
     def initialize_mock_dut(self):
+        """Build writable pins and a virtual clock without starting the DUT."""
         self.xclock = cls_XClock(get_test_step(), 0)
         self.xport  = cls_XPort()
         self.xclock.Add(self.xport)
         self.event = self.xclock.getEvent()
         self._pins = {}
-        for pin_name, width in xpin_info.items():
-            value = cls_XPin(cls_Xdata(width, cls_Xdata.InOut), self.event)
+        for pin_name, width in pin_info.items():
+            xdata = cls_Xdata(width, cls_Xdata.InOut)
+            value = cls_XPin(xdata, self.event) if cls_XPin is not None else xdata
             setattr(self, pin_name, value)
-            self.xport.Add(pin_name, value.xdata)
+            self.xport.Add(pin_name, xdata)
             self._pins[pin_name] = value
         self._is_initialized = True
     class MockDUT(object):
@@ -221,9 +218,11 @@ def get_mock_dut_from(cls):
         def StepFal(self, callback, args=(), kwargs={}):
             self.xclock.StepFal(callback, args, kwargs)
         def __str__(self):
+            """Serialize pin widths and values through the shared XData port."""
             ret = OrderedDict()
-            for pin_name, pin in self._pins.items():
-                ret[f"{pin_name}[{pin.xdata.W()}]"] = pin.xdata.value
+            for pin_name in self._pins:
+                xdata = self.xport[pin_name]
+                ret[f"{pin_name}[{xdata.W()}]"] = xdata.value
             return json.dumps(ret, indent=4)
         def Finish(self):
             pass
