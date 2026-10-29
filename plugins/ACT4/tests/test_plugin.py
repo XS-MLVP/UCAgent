@@ -285,6 +285,45 @@ def test_manual_cannot_overlap_generated_assets(tmp_path, manual) -> None:
         )
 
 
+@pytest.mark.parametrize("output", ["../outside", ".", "", "/tmp/act4-output", "riscv-arch-test", "riscv-arch-test/out"])
+def test_output_must_stay_inside_workspace(tmp_path, output) -> None:
+    """Reject output roots that escape or replace the task workspace."""
+    config = Config({"template_overwrite": {"ACT4_MANUAL_ROOT": "riscv-isa-manual"}})
+    with pytest.raises(PluginError, match="output"):
+        get_plugin().workflows[0].template_context_factory(
+            config, {"WORKSPACE": str(tmp_path), "OUT": output}
+        )
+
+
+@pytest.mark.parametrize("target", ["output", "act4"])
+def test_writable_directory_symlinks_cannot_escape_workspace(tmp_path, target) -> None:
+    """Validate resolved write targets before copying guides or generating files."""
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    name = "act4_assets" if target == "output" else "riscv-arch-test"
+    (workspace / name).symlink_to(outside, target_is_directory=True)
+    config = Config({"template_overwrite": {"ACT4_MANUAL_ROOT": "riscv-isa-manual"}})
+    with pytest.raises(PluginError, match="workspace"):
+        get_plugin().workflows[0].template_context_factory(
+            config, {"WORKSPACE": str(workspace), "OUT": "act4_assets"}
+        )
+
+
+@pytest.mark.parametrize("manual", ["riscv-isa-manual", "external manual"])
+def test_separate_output_and_readonly_manual_are_allowed(tmp_path, manual) -> None:
+    """Keep nested output and external read-only specification inputs supported."""
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    setting = str(tmp_path / manual) if manual == "external manual" else manual
+    config = Config({"template_overwrite": {"ACT4_MANUAL_ROOT": setting}})
+
+    assert get_plugin().workflows[0].template_context_factory(
+        config, {"WORKSPACE": str(workspace), "OUT": "generated/act4_assets"}
+    ) == {}
+
+
 @pytest.mark.parametrize("command", ["bash", "git", "curl", "make"])
 def test_workflow_reports_missing_commands(monkeypatch, command) -> None:
     """Report each unavailable workflow prerequisite before stage execution."""

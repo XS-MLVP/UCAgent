@@ -7,6 +7,22 @@ import yaml
 from act4_privileged_suite.checkers.act4_test_asset_checker import ACT4TestAssetChecker
 
 
+@pytest.mark.parametrize("absolute", [False, True])
+def test_configured_artifact_root_is_not_shadowed(tmp_path: Path, absolute: bool) -> None:
+    """Resolve reference artifacts from the configured checkout, not a namesake."""
+    (tmp_path / "riscv-arch-test").mkdir()
+    selected = tmp_path / "selected-act4"
+    selected.mkdir()
+    signature = selected / "H-00.sig"
+    signature.write_text("0000000000000000\n", encoding="utf-8")
+    checker = ACT4TestAssetChecker(
+        act4_root=str(selected) if absolute else "selected-act4",
+    ).set_workspace(str(tmp_path))
+
+    assert checker._artifact_root() == selected
+    assert checker._discover(None, ["*.sig"], checker._artifact_root()) == [signature]
+
+
 def _write_state(path: Path, **overrides) -> None:
     state = {
         "source_generated": True,

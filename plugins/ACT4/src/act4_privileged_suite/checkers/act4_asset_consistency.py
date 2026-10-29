@@ -2177,6 +2177,7 @@ def _check_generated_ctp_norm_table(
 def _format_report_markdown(report: dict[str, Any]) -> str:
     summary = report.get("summary", {})
     lines = [
+        "",
         "# ACT4 Asset Consistency Report",
         "",
         f"- Suite: `{report.get('suite') or '(manifest-only)'}`",
@@ -2226,6 +2227,7 @@ def run_asset_checks(
     normative_metadata: str | Path | None = None,
     coverage_files: Any = None,
     coverage_patterns: Any = None,
+    discover_coverage: bool = True,
     generator_files: Any = None,
     generator_patterns: Any = None,
     ctp_files: Any = None,
@@ -2519,7 +2521,7 @@ def run_asset_checks(
             root,
             coverage_files,
             coverage_patterns,
-            ["coverpoints/unpriv/*_coverage*.svh", "coverpoints/priv/*_coverage*.svh"],
+            ["coverpoints/unpriv/*_coverage*.svh", "coverpoints/priv/*_coverage*.svh"] if discover_coverage else [],
         )
         if profile["coverage"]
         else []

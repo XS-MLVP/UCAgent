@@ -38,6 +38,7 @@ class ACT4AssetChecker(Checker):
         normative_metadata: str | None = None,
         coverage_files: Any = None,
         coverage_patterns: Any = None,
+        discover_coverage: bool = True,
         generator_files: Any = None,
         generator_patterns: Any = None,
         ctp_files: Any = None,
@@ -86,6 +87,9 @@ class ACT4AssetChecker(Checker):
         self.normative_metadata = normative_metadata
         self.coverage_files = coverage_files or []
         self.coverage_patterns = coverage_patterns or []
+        if type(discover_coverage) is not bool:
+            raise TypeError("discover_coverage must be a boolean")
+        self.discover_coverage = discover_coverage
         self.generator_files = generator_files or []
         self.generator_patterns = generator_patterns or []
         self.ctp_files = ctp_files or []
@@ -186,6 +190,7 @@ class ACT4AssetChecker(Checker):
                 ),
                 coverage_files=self._resolve_config_path(self.coverage_files, root),
                 coverage_patterns=self.coverage_patterns,
+                discover_coverage=self.discover_coverage,
                 generator_files=self._resolve_config_path(self.generator_files, root),
                 generator_patterns=self.generator_patterns,
                 ctp_files=self._resolve_config_path(self.ctp_files, root),

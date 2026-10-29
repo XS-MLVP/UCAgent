@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "ucagent-act4-privileged-suite"
 version = "0.1.0"
-description = "UCAgent plugin for RISC-V ACT4 privileged-suite test asset generation"
+description = "UCAgent plugin for RISC-V ACT4 test asset generation and extension review"
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE.md"]

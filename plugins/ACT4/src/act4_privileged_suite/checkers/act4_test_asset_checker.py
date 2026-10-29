@@ -166,17 +166,8 @@ class ACT4TestAssetChecker(Checker):
         return Path(os.getcwd() if not getattr(self, "workspace", None) else self.workspace).resolve()
 
     def _artifact_root(self) -> Path:
-        """Resolve ACT4 artifacts inside the active workspace when available.
-
-        Generation runs from ``workspace_{DUT}``, so a relative ``act4_root``
-        must not escape that workspace merely because an older config used
-        ``../../riscv-arch-test``. An explicitly configured path remains a
-        fallback for standalone invocations without a workspace-local checkout.
-        """
+        """Resolve reference artifacts from the configured ACT4 checkout."""
         workspace = self._workspace_root()
-        local_root = workspace / "riscv-arch-test"
-        if local_root.is_dir():
-            return local_root.resolve()
         configured = Path(str(self.act4_root)).expanduser() if self.act4_root else Path("riscv-arch-test")
         if configured.is_absolute():
             return configured.resolve()

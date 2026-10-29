@@ -1,6 +1,10 @@
 
 # ACT4AssetChecker
 
+显式限定某 extension 的 coverage 集合时，可设置 `discover_coverage: false`，使空
+`coverage_files` 保持为空；默认自动发现 ACT4 原生 coverage 路径。显式配置的文件或
+patterns 仍会检查，不把其他 extension 的默认 coverage 集合当成本轮目标。
+
 适配器：`act4_privileged_suite/checkers/act4_asset_checker.py`
 
 核心：`act4_privileged_suite/checkers/act4_asset_consistency.py`
