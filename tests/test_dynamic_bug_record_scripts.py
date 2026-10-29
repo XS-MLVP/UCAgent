@@ -22,19 +22,19 @@ from ucagent.util.config import Config, save_current_test_report, save_runtime_c
 REPO_ROOT = Path(__file__).resolve().parents[1]
 RECORD_SCRIPTS = (
     REPO_ROOT
-    / "ucagent/lang/zh/skills/unitytest/dynamic-bug-recording/scripts/record_dynamic_bug.py",
+    / "plugins/unitytest/src/unitytest_plugin/skills/dynamic-bug-recording/scripts/record_dynamic_bug.py",
 )
 LINK_SCRIPT = (
     REPO_ROOT
-    / "ucagent/lang/zh/skills/unitytest/static-bug-validation/scripts/linkbug.py"
+    / "plugins/unitytest/src/unitytest_plugin/skills/static-bug-validation/scripts/linkbug.py"
 )
 STATIC_RECORD_SCRIPT = (
     REPO_ROOT
-    / "ucagent/lang/zh/skills/unitytest/static-bug-analysis/scripts/record_static_bug.py"
+    / "plugins/unitytest/src/unitytest_plugin/skills/static-bug-analysis/scripts/record_static_bug.py"
 )
 FUNCTIONS_UPDATE_SCRIPT = (
     REPO_ROOT
-    / "ucagent/lang/zh/skills/unitytest/functions-and-checks/scripts/update.py"
+    / "plugins/unitytest/src/unitytest_plugin/skills/functions-and-checks/scripts/update.py"
 )
 
 
@@ -62,7 +62,7 @@ def test_bug_record_scripts_have_distinct_owners_and_names():
     assert "DYNAMIC_BUG_DOCUMENT_PATH.format" in link_script
     assert "STATIC_BUG_DOCUMENT_PATH.format" in link_script
     assert not list(
-        (REPO_ROOT / "ucagent/lang/zh/skills/unitytest").glob(
+        (REPO_ROOT / "plugins/unitytest/src/unitytest_plugin/skills").glob(
             "*/scripts/recordbug.py"
         )
     )
@@ -956,7 +956,7 @@ def test_dynamic_bug_skill_repair_rejects_ambiguous_bg_root_reference():
     assert fallback["after_edit"] == {
         "tool": "RunSkillScript",
         "commands": [[
-            "unitytest/dynamic-bug-recording",
+            "ext/unitytest/dynamic-bug-recording",
             "record_dynamic_bug.py",
             "-MODE repair",
         ]],
@@ -1213,7 +1213,7 @@ def test_dynamic_bug_record_script_generates_incomplete_analysis_scaffold(script
     initial_document = module.make_bug_analysis_document("Adder")
     rendered_template = (
         REPO_ROOT
-        / "ucagent/lang/zh/template/unity_test/{{DUT}}_bug_analysis.md"
+        / "plugins/unitytest/src/unitytest_plugin/templates/unity_test/{{DUT}}_bug_analysis.md"
     ).read_text(encoding="utf-8").replace("{{DUT}}", "Adder")
     assert initial_document == rendered_template
     lines = initial_document.splitlines(keepends=True)

@@ -17,12 +17,12 @@ def _agent(ignore_tools: list[str] | None = None):
         tool_list_base=[named("ReadTextFile")],
         tool_list_task=[named("Check")],
         tool_list_ext=[named("RunTestCases")],
-        tool_list_waveform=[
+        tool_list_plugin=[
             named("WaveInfo"),
             named("ApplyWaveInfoEvidence"),
             named("ReviewWaveInfoEvidenceBatch"),
+            named("AnalyzePPA"),
         ],
-        tool_list_plugin=[named("AnalyzePPA")],
         tool_list_file=[named("PathList"), named("EditTextFile")],
     )
     if ignore_tools is not None:

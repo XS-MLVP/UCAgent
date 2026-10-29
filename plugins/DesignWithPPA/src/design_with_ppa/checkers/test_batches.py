@@ -5,24 +5,30 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 from typing import Any
-from ucagent.checkers.unity_test import (
+from unitytest_plugin.checkers.unity_test import (
     BaseUnityChipCheckerTestCase,
     UnityChipCheckerCoverageGroup,
     UnityChipCheckerCoverageGroupBatchImplementation,
-    UnityChipCheckerBatchTestsImplementation,
     UnityChipCheckerDutApi,
-    UnityChipCheckerLabelStructureRefine,
     UnityChipCheckerLabelStructure,
+    UnityChipCheckerTestCase,
+)
+from unitytest_plugin.checkers import (
+    UnityChipCheckerBatchTestsImplementation,
+    UnityChipCheckerLabelStructureRefine,
     UnityChipCheckerMarkdownFileFormat,
     UnityChipCheckerRefineTestCases,
-    UnityChipCheckerTestCase,
     UnityChipCheckerTestCaseWithLineCoverage,
-    UnityChipCheckerTestTemplate,
     UnityChipCheckerTestMustPass,
+    UnityChipCheckerTestTemplate,
 )
-from ucagent.checkers.unity_test_random import (
+from unitytest_plugin.checkers.unity_test_random import (
     RandomTestCasesChecker,
     _iter_test_function_defs,
+)
+from unitytest_plugin.checkers.descriptions import has_executable_mark_function_call
+from unitytest_plugin.checkers.toffee_report import (
+    get_missing_functional_coverage_message,
 )
 import ucagent.util.functions as uc_functions
 from ..contracts import (
@@ -49,8 +55,8 @@ from .test_quality import (
     _api_assertion_quality_violations,
     _environment_contract_violations,
 )
-
-
+from ucagent_common.doc_marks import get_doc_marks
+from ucagent_common.test_report import check_has_assert_in_tc, is_run_report_pass
 
 
 class DesignTestTemplateChecker(DesignTestTemplateBatchChecker):
@@ -59,7 +65,7 @@ class DesignTestTemplateChecker(DesignTestTemplateBatchChecker):
     def _load_checkpoint_scope(self):
         """Return one consistent functional subset for template report validation."""
 
-        all_checkpoints, blocks = uc_functions.get_unity_chip_doc_marks(
+        all_checkpoints, blocks = get_doc_marks(
             self.get_path(self.doc_func_check),
             leaf_node="CK",
             return_line_block=True,
@@ -81,8 +87,6 @@ class DesignTestTemplateChecker(DesignTestTemplateBatchChecker):
         # The inherited checker compares report bins with its first returned
         # list before batch filtering, so both views must use the same scope.
         return target, target, target_blocks
-
-
 
 
 class DesignAllPassBatchTestsChecker(UnityChipCheckerBatchTestsImplementation):
@@ -381,7 +385,7 @@ class DesignAllPassBatchTestsChecker(UnityChipCheckerBatchTestsImplementation):
                 expected="Every current batch test has status PASSED.",
             ), "tests_failed"
 
-        coverage_error = uc_functions.get_missing_functional_coverage_message(report)
+        coverage_error = get_missing_functional_coverage_message(report)
         if coverage_error:
             return False, diagnostic(
                 "design_batch_coverage_missing",
@@ -397,7 +401,7 @@ class DesignAllPassBatchTestsChecker(UnityChipCheckerBatchTestsImplementation):
             ), "coverage_failed"
 
         try:
-            documented_checkpoints = uc_functions.get_unity_chip_doc_marks(
+            documented_checkpoints = get_doc_marks(
                 self.get_path(self.doc_func_check),
                 leaf_node="CK",
             )
@@ -525,7 +529,7 @@ class DesignAllPassBatchTestsChecker(UnityChipCheckerBatchTestsImplementation):
                 expected="Every CK associated with the current batch has at least one coverage hit.",
             ), "coverage_failed"
 
-        assertions_passed, assertion_result = uc_functions.check_has_assert_in_tc(
+        assertions_passed, assertion_result = check_has_assert_in_tc(
             self.workspace,
             report,
         )
@@ -545,8 +549,6 @@ class DesignAllPassBatchTestsChecker(UnityChipCheckerBatchTestsImplementation):
                 expected="Every current test contains assert or pytest.raises evidence.",
             ), "assertion_failed"
         return True, "", "passed"
-
-
 
 
 class DesignRandomTestCasesChecker(RandomTestCasesChecker):
@@ -693,7 +695,7 @@ class DesignRandomTestCasesChecker(RandomTestCasesChecker):
                 function_source = ast.get_source_segment(source_text, function_node) or ""
                 for snippet, requirement in self.must_func_code_snippet.items():
                     present = (
-                        uc_functions.has_executable_mark_function_call(function_source)
+                        has_executable_mark_function_call(function_source)
                         if snippet == ".mark_function"
                         else snippet in function_source
                     )
@@ -725,7 +727,7 @@ class DesignRandomTestCasesChecker(RandomTestCasesChecker):
             timeout=timeout,
             **kw,
         )
-        passed, message = uc_functions.is_run_report_pass(report, stdout, stderr)
+        passed, message = is_run_report_pass(report, stdout, stderr)
         if not passed:
             return False, diagnostic(
                 "design_random_test_run_failed",
@@ -767,7 +769,7 @@ class DesignRandomTestCasesChecker(RandomTestCasesChecker):
                 observed={"failed_test_cases": failed[:20], "truncated": len(failed) > 20},
                 expected="Every random test case has status PASSED.",
             )
-        assertion_pass, assertion_message = uc_functions.check_has_assert_in_tc(
+        assertion_pass, assertion_message = check_has_assert_in_tc(
             self.workspace, report
         )
         if not assertion_pass:

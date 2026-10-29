@@ -2967,7 +2967,7 @@ class PdbMasterApiServer:
         add_value("--template-dir", req.get("template_dir"))
         add_flag("--template-overwrite", req.get("template_overwrite"))
         add_list("--template-cfg-override", req.get("template_cfg_override", []))
-        add_value("--output", req.get("output") or "unity_test")
+        add_value("--output", req.get("output"))
 
         override = req.get("override") or {}
         if override:

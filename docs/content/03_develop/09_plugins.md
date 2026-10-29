@@ -33,6 +33,8 @@ Tool、Checker、模板、Skill 与工作流的组合。
 
 | 项目 | 插件 ID / 工作流 | 主要用途 |
 | :--- | :--- | :--- |
+| [unitytest](https://github.com/XS-MLVP/UCAgent/blob/main/plugins/unitytest/README.md) | `unitytest:unitytest` / `unitytest:incremental` / `unitytest:vibe` | 默认单元验证工作流及增量验证、Vibe 协作两条同插件兄弟工作流 |
+| [formal](https://github.com/XS-MLVP/UCAgent/blob/main/plugins/formal/README.md) | `formal:formal` | SystemVerilog Assertions 形式化验证（规划/SVA/环境/覆盖率/反例/报告） |
 | [DesignWithPPA](https://github.com/XS-MLVP/UCAgent/blob/main/plugins/DesignWithPPA/README.md) | `design-with-ppa:unit-design-tdd` | 测试驱动 RTL 设计与 PPA 优化 |
 | [RTL2Spec](https://github.com/XS-MLVP/UCAgent/blob/main/plugins/RTL2Spec/README.md) | `rtl2spec:xiangshan-design-document` | 基于 XiangShan 源码和生成 RTL 的证据，交付中文设计与功能检测点文档 |
 
@@ -425,7 +427,10 @@ guide_doc:
 
 ## 工作流及其专属资源
 
-插件可以声明 `PluginWorkflow`，把未来工作流和发行包绑定：
+插件可以声明一个或多个 `PluginWorkflow`，把工作流和发行包绑定。同一插件内的多条工作流
+共享插件的检查器与资产（如 `plugins/unitytest` 提供 `unitytest`、`incremental`、`vibe`
+三条工作流）；兄弟工作流之间同样是整体替换关系，因此每条工作流都要自带完整的工具、
+运行时和 Skill 声明（自足基线）：
 
 ```python
 from ucagent.plugins import CommandRequirement, PluginWorkflow
@@ -453,9 +458,17 @@ ucagent <workspace> <dut> \
 ```
 
 `--plugin-workflow` 和 `--config` 可以同时使用。工作流配置是独立基线层，不会冒充用户
-配置文件；最终优先级为：核心全局、用户全局、核心语言默认、插件工作流、workspace
-设置、显式 `--config`、CLI `--override`。未限定插件 ID 的短工作流名只有在已激活插件
-中唯一时才允许。运行元数据会分别保留显式配置、插件与工作流选择器和工作流配置来源。
+配置文件；最终优先级为：核心全局、用户全局、核心语言默认、任务工作流基线（显式选择的
+插件工作流，或启动时由 `workflow` 指针解析出的默认任务工作流）、workspace 设置、显式
+`--config`、CLI `--override`。`workflow` 指针是启动期选择数据，由命令行在启动时解析，
+任何后层（工作区配置、`--config`、`--override`）都可以重定义或置空它（置空即纯框架运
+行）。仓库自带的默认 UT 工作流本身就是一个本地插件（`plugins/unitytest`），由
+`default.yaml` 的 `workflow` 指针自动解析并激活；pip 安装场景下指针可写成
+`<可导入模块>:<包内相对路径>`（如 `unitytest_plugin:workflows/unitytest.yaml`）以定
+位已安装插件包内的配置。显式选择某个插件工作流时，默认工作流被整体替换而非叠加，因此
+每个插件工作流应自带其工具、运行时和 Skill 配置。未限定插件 ID 的短工作流名只有在已激
+活插件中唯一时才允许。运行元数据会分别保留显式配置、插件与工作流选择器和工作流配置来
+源。
 同一信息也写入 `.ucagent/runtime_config.json` 的 `launch_context`；插件显式声明的非秘密
 最终配置标量单独写入 `plugin_options`，不会把完整配置或凭据复制到运行时快照。
 

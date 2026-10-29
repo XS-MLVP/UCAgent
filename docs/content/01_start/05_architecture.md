@@ -28,7 +28,7 @@ output/                     # 启动时传入的 workspace
 
 工作流是一组有顺序的阶段。每个阶段规定任务、参考文件、预期输出和 Checker。Agent 使用工具完成任务，再调用 `Check` 查看验收结果；调用 `Complete` 通过最终检查和适用门禁后，才能推进到下一阶段。
 
-默认中文 UT 工作流定义在 `ucagent/lang/zh/config/default.yaml`，另有 Formal、Vibe、Increment 等配置。自定义流程通过 `--config <file>` 加载，无需修改框架或额外注册。具体配置方法见[工作流配置](../03_develop/03_workflow.md)。
+框架提示与默认配置在 `ucagent/lang/zh/config/default.yaml`，其 `workflow` 指针指向默认中文 UT 工作流（已插件化，位于 `plugins/unitytest`）；Formal、Vibe、Increment 等也已插件化（`plugins/formal` 与 `plugins/unitytest` 内的兄弟工作流），经 `--plugin-workflow` 选用。自定义流程通过 `--config <file>` 加载，无需修改框架或额外注册。具体配置方法见[工作流配置](../03_develop/03_workflow.md)。
 
 ## 配置与启动入口
 

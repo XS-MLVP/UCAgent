@@ -9,11 +9,12 @@ mission:
       random: []
 
 tools:
-  RunTestCases:
-    test_dir: "{OUT}/tests"
   ignore_tools: ["WorkDiff", "WorkCommit"] # 去掉  "RunBashCommand"
 
 template: Null
+
+# Master 控制进程不是任务：置空默认工作流指针，禁止默认插件激活
+workflow: Null
 
 stage: []
 

@@ -5,7 +5,7 @@
 
 ## 1. 默认工作流
 
-中文默认配置位于 `ucagent/lang/zh/config/default.yaml`，当前有 20 个顶层阶段；带缩进的条目是子阶段。运行时 Stage Manager 会把父阶段和子阶段展平，因此 `--skip`、`hmcheck_set` 和 `GoToStage` 使用的索引必须以当前运行中的 `status` 或 `hmcheck_list` 为准。
+中文默认工作流由 `default.yaml` 的 `workflow` 指针指向 `plugins/unitytest/src/unitytest_plugin/workflows/unitytest.yaml`，当前有 20 个顶层阶段；带缩进的条目是子阶段。运行时 Stage Manager 会把父阶段和子阶段展平，因此 `--skip`、`hmcheck_set` 和 `GoToStage` 使用的索引必须以当前运行中的 `status` 或 `hmcheck_list` 为准。
 
 | 顶层索引 | 阶段 | 默认状态 |
 | ---: | --- | --- |
@@ -30,7 +30,7 @@
 | 18 | `verification_review_and_summary` | 执行 |
 | 19 | `record_and_report_bugs` | 执行 |
 
-默认配置中 `human_check_env_specification`、`human_check_env_implementation` 和 `line_coverage_analysis_and_improvement` 使用 `skip: true`；具体是否执行还会受环境变量和项目覆盖配置影响。Formal、Vibe、Increment 是独立配置，阶段数量和名称不同，不能套用上表。
+默认配置中 `human_check_env_specification`、`human_check_env_implementation` 和 `line_coverage_analysis_and_improvement` 使用 `skip: true`；具体是否执行还会受环境变量和项目覆盖配置影响。Formal、Vibe、Increment 是插件工作流（分别经 `--plugin-workflow formal:formal`、`unitytest:vibe`、`unitytest:incremental` 选用），阶段数量和名称不同，不能套用上表。
 
 ## 2. 阶段字段
 
@@ -76,11 +76,12 @@ stage:
 1. `ucagent/setting.yaml`
 2. `~/.ucagent/setting.yaml`
 3. `ucagent/lang/<lang>/config/default.yaml`
-4. 工作区 `./.ucagent/setting.yaml`
-5. `--config` 指定的文件（未指定时会查找 `config.yaml`）
-6. CLI 参数和 `--override`
+4. 任务工作流基线：显式选择的插件工作流，或启动时由 `workflow` 指针解析出的默认任务工作流（mission 提示追加而非替换；不传则纯框架运行）
+5. 工作区 `./.ucagent/setting.yaml`
+6. `--config` 指定的文件（未指定时会查找 `config.yaml`）
+7. CLI 参数和 `--override`
 
-选择插件工作流时，其配置基线插在语言默认配置之后、工作区配置之前，详见[插件开发与发布](09_plugins.md)。项目配置的查找范围包括当前启动目录、`~/.ucagent/` 和语言配置目录；相对 `--config` 路径并非默认相对于 workspace。
+`workflow` 指针是启动期选择数据，由 `ucagent` 命令在启动时解析：任何后层（工作区配置、`--config`、`--override`）都可以重定义或置空它，置空即纯框架运行（master 模式即此形态）；配置装配本身不解释该键，直接调用 `get_config` 的库代码需自行解析（用 `resolve_default_task_workflow`）并把结果作为任务工作流传入。显式选择插件工作流时，其基线替换默认工作流（不是叠加在其下）、插在语言默认配置之后、工作区配置之前，详见[插件开发与发布](09_plugins.md)。项目配置的查找范围包括当前启动目录、`~/.ucagent/` 和语言配置目录；相对 `--config` 路径并非默认相对于 workspace。
 
 列表字段（尤其是 `stage`、`checker`、`reference_files`）整体替换，不会按项目名逐项合并。修改默认阶段时，应复制完整列表再编辑。
 
@@ -94,7 +95,7 @@ stage:
 | `{GUIDE_DOC}` | 工作区运行时 `Guide_Doc` 路径 |
 | `{DOC_GEN_LANG}` | 文档语言，来自模板配置 |
 
-`{OUT}` 在首轮配置渲染时由 `--output`（默认 `unity_test`）决定。更改输出路径请使用该选项，不要仅修改 `template_overwrite.OUT`。
+`{OUT}` 在首轮配置渲染时由 `--output` 决定；未指定时取工作流 yaml 声明的 `output`（默认工作流为 `unity_test`），框架兜底值为 `output`。更改输出路径请使用该选项，不要仅修改 `template_overwrite.OUT`。
 
 环境变量替换发生在 YAML 加载时，例如 `$(NEED_REF_MODEL: false)`；`{DUT}` 和 `{OUT}` 等模板变量在配置解析后渲染。不要在运行时重新读取原始环境变量来推断已解析配置。
 
@@ -138,9 +139,9 @@ checker:
 
 ## 6. 批量阶段
 
-功能覆盖、测试模板、测试用例和行映射等阶段使用 `UnityChipBatchTask` 管理进度。配置批任务时：
+功能覆盖、测试模板、测试用例和行映射等阶段使用 `BatchTask` 管理进度。配置批任务时：
 
-- 在构造 `UnityChipBatchTask` 前设置 `batch_size`；
+- 在构造 `BatchTask` 前设置 `batch_size`；
 - 以当前源文档和测试文件为事实来源，checkpoint 只用于恢复；
 - 源文件变化后重新同步 source/generated task，删除或标记过期任务；
 - 用 `Check` 完成当前批次并暴露下一批，所有批次通过后才用 `Complete`；
@@ -162,6 +163,6 @@ ucagent <workspace> <DUT> \
 
 ## 8. 运行时快照
 
-配置解析后，UCAgent 在工作区写入 `.ucagent/runtime_config.json`。它只包含已解析的非敏感字段，例如 `DUT`、`OUT`、`runtime_options`、`current_test_report` 和 `ucagent_python_path`。Skill 脚本应读取该快照，不要从脚本位置猜测源码路径或重新解释环境变量；快照中的 `ucagent_python_path` 必须是包含当前 `ucagent/__init__.py` 的绝对路径。
+配置解析后，UCAgent 在工作区写入 `.ucagent/runtime_config.json`。它只包含已解析的非敏感字段，例如 `DUT`、`OUT`、`runtime_options` 和 `ucagent_python_path`。声明了 `tools.RunTestCases.test_dir` 的工作流额外携带 `test_output_dir` 与 `current_test_report`（最新测试报告的共享指针）；无测试目录的工作流两者皆不携带。Skill 脚本应读取该快照，不要从脚本位置猜测源码路径或重新解释环境变量；快照中的 `ucagent_python_path` 必须是包含当前 `ucagent/__init__.py` 的绝对路径。
 
 下一步：先运行 [Mini 示例](08_mini_example.md)，再根据需要学习[定制工具](05_customize.md)、[模板文件](04_template.md)和[插件](09_plugins.md)。

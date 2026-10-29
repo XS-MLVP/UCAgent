@@ -9,7 +9,6 @@ import shutil
 import sys
 import tempfile
 
-import ucagent.util.functions as uc_functions
 
 from ..checkers.ppa_iteration import (
     _metric_category, _ppa_primary_metrics, _ppa_selection_score,
@@ -22,13 +21,14 @@ from .common import RepoPaths, inside, run_command, selected_path, tree_identity
 from .evidence import seal, unseal
 from .models import Candidate, Interface, Recipe, TaskContract, Workload, read_model, validate_python
 from .snapshot import materialize, snapshot_repository
+from ucagent_common.doc_marks import get_doc_marks
 
 
 def module_checkpoints(paths: RepoPaths) -> list[str]:
     """Read the canonical FG/FC/CK leaf set from the authored function document."""
 
     document = inside(paths.edit, "functions_and_checks.md", exists=True)
-    return sorted(uc_functions.get_unity_chip_doc_marks(str(document), "CK", 1))
+    return sorted(get_doc_marks(str(document), "CK", 1))
 
 
 def checkpoint_coverage(contract: TaskContract, workload: Workload) -> dict:

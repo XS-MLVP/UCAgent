@@ -9,8 +9,9 @@ from types import SimpleNamespace
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.abspath(os.path.join(current_dir, "..")))
+sys.path.insert(0, os.path.abspath(os.path.join(current_dir, "..", "plugins/unitytest/src")))
 
-from ucagent.checkers.file_markdown import BatchFileProcess, WalkFilesOneByOne
+from unitytest_plugin.checkers.file_markdown import BatchFileProcess, WalkFilesOneByOne
 
 
 class _PassingBatchFileProcess(BatchFileProcess):

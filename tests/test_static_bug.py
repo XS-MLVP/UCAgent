@@ -41,12 +41,16 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.abspath(os.path.join(current_dir, "..")))
 
 import pytest
-from ucagent.checkers.static_bug import (
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "plugins/unitytest/src"))
+from unitytest_plugin.checkers import (
     UnityChipCheckerStaticBugFormat,
     UnityChipCheckerStaticBugValidation,
     UnityChipBatchCheckerStaticBug,
 )
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

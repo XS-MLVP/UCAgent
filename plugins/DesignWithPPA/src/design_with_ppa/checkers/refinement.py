@@ -5,20 +5,22 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 from typing import Any
-from ucagent.checkers.unity_test import (
+from unitytest_plugin.checkers.unity_test import (
     BaseUnityChipCheckerTestCase,
     UnityChipCheckerCoverageGroup,
     UnityChipCheckerCoverageGroupBatchImplementation,
-    UnityChipCheckerBatchTestsImplementation,
     UnityChipCheckerDutApi,
-    UnityChipCheckerLabelStructureRefine,
     UnityChipCheckerLabelStructure,
+    UnityChipCheckerTestCase,
+)
+from unitytest_plugin.checkers import (
+    UnityChipCheckerBatchTestsImplementation,
+    UnityChipCheckerLabelStructureRefine,
     UnityChipCheckerMarkdownFileFormat,
     UnityChipCheckerRefineTestCases,
-    UnityChipCheckerTestCase,
     UnityChipCheckerTestCaseWithLineCoverage,
-    UnityChipCheckerTestTemplate,
     UnityChipCheckerTestMustPass,
+    UnityChipCheckerTestTemplate,
 )
 
 from .common import (

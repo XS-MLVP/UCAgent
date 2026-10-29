@@ -10,10 +10,11 @@ import pytest
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.abspath(os.path.join(current_dir, "..")))
+sys.path.insert(0, os.path.abspath(os.path.join(current_dir, "..", "plugins/unitytest/src")))
 
-import ucagent.checkers.toffee_report as toffee_report
-from ucagent.checkers.unity_test import BaseUnityChipCheckerTestCase
-from ucagent.checkers.toffee_report import (
+import unitytest_plugin.checkers.toffee_report as toffee_report
+from unitytest_plugin.checkers.unity_test import BaseUnityChipCheckerTestCase
+from unitytest_plugin.checkers.toffee_report import (
     check_bug_ck_analysis,
     check_bug_tc_analysis,
     check_unhit_checkpoint_reproducers,

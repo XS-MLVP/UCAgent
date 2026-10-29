@@ -20,7 +20,7 @@ ucagent <workspace> <dut_name> [options]
 
 ### 输出
 
-- 工作流会在工作区准备 `Guide_Doc/`，并按阶段生成 `<output>/tests/`、文档和测试报告；`uc_test_report/` 需要实际运行相应测试后才会出现。默认 `<output>` 是 `unity_test`。
+- 工作流会在工作区准备 `Guide_Doc/`，并按阶段生成 `<output>/tests/`、文档和测试报告；`uc_test_report/` 需要实际运行相应测试后才会出现。`<output>` 由 `--output` 指定，未指定时取工作流声明的 `output`（默认工作流为 `unity_test`）。
 
 > 对输出的详细解释可以参考[结果分析与流程总结](../01_start/06_summary.md#工作区结构)
 
@@ -71,7 +71,7 @@ Master 的 Dashboard、Launch、Task 和 Agent 页面见 [Web Master 使用指�
 | --template-dir          |      | path                       | 无         | 自定义模板目录                                                  |
 | --template-overwrite    |      | flag                       | 否         | 渲染模板到 workspace 时允许覆盖已存在内容                       |
 | --template-cfg-override |      | path（可多次）             | []         | 从 YAML 文件覆盖模板配置，可多次使用                            |
-| --output                |      | dir                        | unity_test | 输出目录名                                                      |
+| --output                |      | dir                        | 工作流 `output` 声明 | 输出目录名                                                      |
 | --override              |      | A.B.C=VALUE[,X.Y=VAL2,...] | 无         | 以点号路径覆盖配置，可重复使用；值按 Python 字面量解析，布尔值写 `True/False`，未解析的值作为字符串 |
 | --gen-instruct-file     | -gif | file                       | AGENTS.md | 在 workspace 下生成外部 Agent 的引导文件（存在则覆盖）          |
 | --guid-doc-path         |      | path（可多次）             | 无         | 选择自定义 Guide_Doc 目录或追加文件                   |
@@ -267,4 +267,4 @@ UCAgent 支持通过环境变量配置各类参数。环境变量用于覆盖内
 | :-------- | :--- | :----- |
 | `UC_TEST_RCOUNT` | 测试用例重复执行次数 | `3` |
 | `UC_IS_IMP_TEMPLATE` | 是否为实现层测试模板 | `false` |
-| `UC_SEED_MODEL` | 随机测试种子的获取模式：`manual`原样返回`ucagent.get_seed(seed)`传入的字面值；`random`返回全新随机种子；`time`按当前时间生成；`uniform:<min>:<max>`在闭区间内均匀取值；`normal:<mu>:<sigma>`按高斯分布取值并钳位到`[0, 2^31-1]`。非法取值会直接报错 | `manual` |
+| `UC_SEED_MODEL` | 随机测试种子的获取模式：`manual`原样返回`test_utils.get_seed(seed)`传入的字面值；`random`返回全新随机种子；`time`按当前时间生成；`uniform:<min>:<max>`在闭区间内均匀取值；`normal:<mu>:<sigma>`按高斯分布取值并钳位到`[0, 2^31-1]`。非法取值会直接报错 | `manual` |

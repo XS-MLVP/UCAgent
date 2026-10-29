@@ -1,0 +1,7 @@
+include ucagent-plugin.toml
+recursive-include src/unitytest_plugin/workflows *.yaml
+recursive-include src/unitytest_plugin/Guide_Doc *.md
+recursive-include src/unitytest_plugin/templates *
+recursive-include src/unitytest_plugin/skills *
+global-exclude *.py[cod]
+global-exclude __pycache__

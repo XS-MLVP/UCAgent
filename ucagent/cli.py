@@ -422,7 +422,14 @@ def _plugin_discovery_overrides(
         {key: value}
         for item in values
         for key, value in item.items()
-        if key == "plugin.search_paths" or key.startswith("plugin.search_paths[")
+        if (
+            key == "plugin.search_paths"
+            or key.startswith("plugin.search_paths[")
+            # the default-workflow pointer is selection data too: without it
+            # here, --override workflow=... could not redirect or null the
+            # default task workflow
+            or key == "workflow"
+        )
     ]
 
 
@@ -681,8 +688,8 @@ def get_args() -> argparse.Namespace:
     parser.add_argument(
         "--output", 
         type=str, 
-        default="unity_test", 
-        help="Output directory name for verification results"
+        default=None, 
+        help="Output directory name for verification results; defaults to the workflow 'output' declaration, or 'output'"
     )
     parser.add_argument(
         "--override", 
@@ -1175,7 +1182,11 @@ def do_check() -> None:
             lang_dir = os.path.join(default_lang_dir, lang)
             if os.path.isdir(lang_dir):
                 check_exist(f"'{lang}' config", os.path.join(lang_dir, "config/*.yaml"))
-                check_exist(f"'{lang}' Guide_Doc", os.path.join(lang_dir, "doc/Guide_Doc"))
+                # an empty lang Guide_Doc dir does not survive wheel installs;
+                # check it only when the directory is present
+                guide_doc_dir = os.path.join(lang_dir, "doc/Guide_Doc")
+                if os.path.isdir(guide_doc_dir):
+                    check_exist(f"'{lang}' Guide_Doc", guide_doc_dir)
                 templates_dir = os.path.join(lang_dir, "template")
                 if os.path.isdir(templates_dir):
                     for template_file in os.listdir(templates_dir):
@@ -1211,7 +1222,7 @@ def run() -> None:
             {
                 "WORKSPACE": os.path.abspath(args.workspace) if args.workspace else "",
                 "DUT": args.dut or "",
-                "OUT": args.output,
+                "OUT": args.output or "",
             }
         )
         search_paths = configured_plugin_search_paths(discovery_cfg)
@@ -1236,7 +1247,7 @@ def run() -> None:
             {
                 "WORKSPACE": os.path.abspath(args.workspace) if args.workspace else "",
                 "DUT": args.dut or "",
-                "OUT": args.output,
+                "OUT": args.output or "",
             }
         )
         search_paths = configured_plugin_search_paths(discovery_cfg)
@@ -1304,10 +1315,11 @@ def run() -> None:
         collect_plugin_resources,
         configured_plugin_search_paths,
         load_plugins,
+        load_pointer_workflow_plugin,
         resolve_plugin_workflow,
         validate_workflow_dependencies,
     )
-    from ucagent.util.config import get_config
+    from ucagent.util.config import get_config, resolve_workflow_pointer_path
     from ucagent.util.log import init_log_logger, init_msg_logger
     from ucagent.util.functions import append_python_path, find_available_port
 
@@ -1323,16 +1335,44 @@ def run() -> None:
         {
             "WORKSPACE": os.path.abspath(args.workspace),
             "DUT": args.dut,
-            "OUT": args.output,
+            "OUT": args.output or "",
         }
     )
     plugin_search_paths = configured_plugin_search_paths(discovery_cfg)
     loaded_plugins = load_plugins(
         args.plugin, search_paths=plugin_search_paths
     )
+    default_workflow_file = None
     workflow_resources = resolve_plugin_workflow(
         loaded_plugins, args.plugin_workflow
     )
+    if workflow_resources is None:
+        # with no explicit plugin workflow, the framework 'workflow' pointer
+        # supplies the task workflow. The pointer is selection data read from
+        # the fully merged config — any later layer (workspace config,
+        # --config, overrides) may null it (framework-only run, e.g. master)
+        # or redirect it. Load the plugin owning the pointed-to config so the
+        # Checkers, tools, and workflow assets it names become available; a
+        # file with no owning plugin is still the workflow baseline itself.
+        # (An explicit plugin workflow replaces the pointer entirely and
+        # activates nothing extra.)
+        pointer_selector = discovery_cfg.get_value("workflow", None)
+        if isinstance(pointer_selector, str) and pointer_selector.strip():
+            workflow_file = resolve_workflow_pointer_path(
+                pointer_selector.strip(),
+                discovery_cfg.get_value("lang", "zh"),
+            )
+            if not os.path.isfile(workflow_file):
+                raise FileNotFoundError(
+                    f"Default workflow config file '{workflow_file}' was not found."
+                )
+            pointer_resources = load_pointer_workflow_plugin(
+                workflow_file, loaded_plugins
+            )
+            if pointer_resources is not None:
+                workflow_resources = pointer_resources
+            else:
+                default_workflow_file = workflow_file
     workflow_config_file = None
     template_target = None
     template_context_factory = None
@@ -1356,6 +1396,10 @@ def run() -> None:
             args.template_dir = str(workflow.template_dir.parent)
             template_target = workflow.template_target
         template_context_factory = workflow.template_context_factory
+    elif default_workflow_file is not None:
+        # unowned pointer target: a bare workflow config with no plugin
+        # project — load the file itself as the task workflow baseline
+        workflow_config_file = default_workflow_file
     plugin_docs, plugin_skills = collect_plugin_resources(
         loaded_plugins, workflow_resources
     )

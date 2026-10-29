@@ -11,6 +11,9 @@ from unittest import mock
 
 import pytest
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "plugins/unitytest/src"))
+
+from unitytest_plugin.checkers import UnityChipCheckerTestMustPass
 from ucagent.plugins import (
     CommandRequirement,
     GuideDocCopyPolicy,
@@ -201,6 +204,15 @@ def test_local_plugin_import_root_is_available_to_test_subprocesses(
             {"backend.key_name": "blank"},
             {"guide_doc.enable": False},
             {"langfuse.enable": False},
+            # master.yaml disables the default task workflow; declare the
+            # free runner explicitly (dotted path resolves without a
+            # registry, like DesignWithPPA workflows do)
+            {"tools.RunTestCases.test_dir": "{OUT}/tests"},
+            {
+                "tools.RunTestCases.free_runner_clss": (
+                    "unitytest_plugin.checkers.UnityChipCheckerTestFree"
+                )
+            },
         ],
         no_embed_tools=True,
         no_history=True,
@@ -244,7 +256,13 @@ def test_plugin_import_root_is_available_to_stage_checker_pytest(
         }
     )
     cfg._temp_cfg = {"OUT": "output", "DUT": "dut"}
-    stage = parse_vstage(cfg, cfg.stage, str(tmp_path), None)[0]
+    stage = parse_vstage(
+        cfg,
+        cfg.stage,
+        str(tmp_path),
+        None,
+        checker_registry={"UnityChipCheckerTestMustPass": UnityChipCheckerTestMustPass},
+    )[0]
     private_root = str(tmp_path / "private-python-dut")
     plugin_root = str(tmp_path / "plugin" / "src")
     stage.checker[0].run_test.set_extra_python_paths([private_root])

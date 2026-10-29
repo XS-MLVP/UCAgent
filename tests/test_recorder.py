@@ -12,6 +12,7 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 repo_root = os.path.abspath(os.path.join(current_dir, ".."))
 repo_package_root = os.path.join(repo_root, "ucagent")
 sys.path.insert(0, repo_root)
+sys.path.insert(0, os.path.join(repo_root, "plugins", "unitytest", "src"))
 
 loaded_ucagent = sys.modules.get("ucagent")
 loaded_ucagent_path = os.path.abspath(getattr(loaded_ucagent, "__file__", "") or "")
@@ -21,8 +22,8 @@ if loaded_ucagent is not None and not loaded_ucagent_path.startswith(repo_packag
             del sys.modules[module_name]
 
 import ucagent.checkers as checkers
-from ucagent.checkers.recorder import Recorder, RecordType
-from ucagent.checkers.toffee_report import parse_bug_label
+from unitytest_plugin.checkers.recorder import Recorder, RecordType
+from unitytest_plugin.checkers.toffee_report import parse_bug_label
 from ucagent.server.api_master import PdbMasterApiServer, PdbMasterClient
 from ucagent.stage.vmanager import StageManager
 from ucagent.util.config import load_yaml_with_env_vars
@@ -1073,8 +1074,8 @@ def test_recorder_continues_reporting_after_one_master_client_fails(tmp_path):
     passed, _message = recorder.do_check(bug_list=[])
 
     assert passed is True
-    with patch("ucagent.checkers.recorder.info") as info_log, patch(
-        "ucagent.checkers.recorder.warning"
+    with patch("unitytest_plugin.checkers.recorder.info") as info_log, patch(
+        "unitytest_plugin.checkers.recorder.warning"
     ) as warning_log:
         stage.complete()
     assert len(working_client.reports) == 1
@@ -1098,8 +1099,8 @@ def test_recorder_logs_skipped_master_clients(tmp_path):
     passed, _message = recorder.do_check(bug_list=[])
 
     assert passed is True
-    with patch("ucagent.checkers.recorder.info") as info_log, patch(
-        "ucagent.checkers.recorder.warning"
+    with patch("unitytest_plugin.checkers.recorder.info") as info_log, patch(
+        "unitytest_plugin.checkers.recorder.warning"
     ) as warning_log:
         stage.complete()
 
@@ -1116,7 +1117,7 @@ def test_recorder_logs_when_no_master_is_configured(tmp_path):
     passed, _message = recorder.do_check(bug_list=[])
 
     assert passed is True
-    with patch("ucagent.checkers.recorder.info") as info_log:
+    with patch("unitytest_plugin.checkers.recorder.info") as info_log:
         stage.complete()
 
     info_messages = "\n".join(str(call.args[0]) for call in info_log.call_args_list)
@@ -1140,7 +1141,7 @@ def test_recorder_logs_when_stage_completion_aborts_master_sync(tmp_path):
         recorder.type_handler,
         "on_stage_complete",
         side_effect=RuntimeError("cannot build payload"),
-    ), patch("ucagent.checkers.recorder.warning") as warning_log:
+    ), patch("unitytest_plugin.checkers.recorder.warning") as warning_log:
         stage.complete()
 
     warning_messages = "\n".join(str(call.args[0]) for call in warning_log.call_args_list)
@@ -1356,7 +1357,7 @@ def test_bug_recorder_template_data_is_unknown_until_stage_on_init(tmp_path):
 
 def test_default_workflow_ends_with_record_and_report_bugs_stage():
     config = load_yaml_with_env_vars(
-        os.path.join(repo_root, "ucagent/lang/zh/config/default.yaml")
+        os.path.join(repo_root, "plugins/unitytest/src/unitytest_plugin/workflows/unitytest.yaml")
     )
 
     stage = config["stage"][-1]

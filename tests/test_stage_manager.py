@@ -12,6 +12,7 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 repo_root = os.path.abspath(os.path.join(current_dir, ".."))
 repo_package_root = os.path.join(repo_root, "ucagent")
 sys.path.insert(0, repo_root)
+sys.path.insert(0, os.path.join(repo_root, "plugins/unitytest/src"))
 
 loaded_ucagent = sys.modules.get("ucagent")
 loaded_ucagent_path = os.path.abspath(getattr(loaded_ucagent, "__file__", "") or "")
@@ -21,7 +22,7 @@ if loaded_ucagent is not None and not loaded_ucagent_path.startswith(repo_packag
             del sys.modules[module_name]
 
 import ucagent.stage.vmanager as vmanager
-from ucagent.checkers.unity_test import _report_failure_message
+from unitytest_plugin.checkers.unity_test import _report_failure_message
 from ucagent.stage.vstage import VerifyStage
 from ucagent.stage.vmanager import (
     ArgsDoCheck,
@@ -34,6 +35,7 @@ from ucagent.stage.vmanager import (
 )
 from ucagent.tools.uctool import to_mcp_tool
 from ucagent.util import functions as fc
+from ucagent.util.config import Config
 
 
 def test_run_test_cases_contract_rejects_non_test_scripts():
@@ -1881,6 +1883,21 @@ def test_current_tips_distinguish_optional_and_forced_skills(tmp_path):
     manager.stage_index = 0
     manager.stages = [stage]
     manager.workspace = str(tmp_path)
+    manager.cfg = Config(
+        {
+            "skill": {
+                "no_applicable_examples": {
+                    "ext/unitytest/dynamic-bug-recording": (
+                        "For example, when no confirmed dynamic DUT Bug exists: "
+                        "{\"ext/unitytest/dynamic-bug-recording\": {\"list\": true, "
+                        "\"read\": true, \"use\": false, \"reason\": \"No confirmed "
+                        "dynamic DUT Bug exists in this checked stage; no recording "
+                        "action was needed.\"}}."
+                    ),
+                },
+            },
+        }
+    )
     manager.mission = SimpleNamespace(
         name="mission",
         get_value=lambda _key: None,
@@ -1904,7 +1921,7 @@ def test_current_tips_distinguish_optional_and_forced_skills(tmp_path):
     assert "No confirmed dynamic DUT Bug exists" not in forced_tips
 
     stage.skill_list = {
-        "unitytest/dynamic-bug-recording": [False, False, False]
+        "ext/unitytest/dynamic-bug-recording": [False, False, False]
     }
     dynamic_bug_tips = manager.get_current_tips()
 

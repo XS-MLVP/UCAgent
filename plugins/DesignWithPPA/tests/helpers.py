@@ -7,7 +7,13 @@ from pathlib import Path
 
 PLUGIN_SOURCE = Path(__file__).resolve().parent.parent / "src"
 REPOSITORY_ROOT = PLUGIN_SOURCE.parents[2]
+COMMON_PLUGIN_SOURCE = REPOSITORY_ROOT / "plugins" / "common" / "src"
+UNITYTEST_PLUGIN_SOURCE = REPOSITORY_ROOT / "plugins" / "unitytest" / "src"
 sys.path.insert(0, str(PLUGIN_SOURCE))
+if UNITYTEST_PLUGIN_SOURCE.is_dir():
+    sys.path.insert(0, str(UNITYTEST_PLUGIN_SOURCE))
+if COMMON_PLUGIN_SOURCE.is_dir():
+    sys.path.insert(0, str(COMMON_PLUGIN_SOURCE))
 
 import hashlib
 import json
@@ -203,7 +209,7 @@ def _design_batch_checker(
     }
 
     class Stage:
-        """Provide the batch lifecycle callbacks used by UnityChipBatchTask."""
+        """Provide the batch lifecycle callbacks used by BatchTask."""
 
         name = "shared_test_implementation"
 

@@ -5,7 +5,7 @@
 
 ## Default Suffixes for Test Artifacts
 
-The test API template selects the artifact suffix via `ucagent.get_default_subfix(dut, sub_type)`, where `sub_type` is either `"waveform"` or `"coverage"`. The returned value does not include a leading dot:
+The test API template selects the artifact suffix via `test_utils.get_default_subfix(dut, sub_type)`, where `sub_type` is either `"waveform"` or `"coverage"`. The returned value does not include a leading dot:
 
 | `dut.SIMULATOR` | Waveform Suffix | Coverage Suffix |
 | --- | --- | --- |
@@ -17,7 +17,7 @@ This function accepts a DUT instance or class, reads the simulator name from its
 
 `get_coverage_data_path(request, dut, new_path)` and `get_waveform_path(request, dut, new_path)` return the suffixes used for unique artifact paths for each test. When creating artifacts, use `new_path=True`; when reporting coverage, use the same DUT with `new_path=False` to obtain the original path. For VCS, `.vdb` may be a directory; pass the full path. The fake DUT in the template phase and independent Mock DUTs retain the `SIMULATOR` declared in the original DUT class without needing to start a real simulator.
 
-When adding a new simulator, add `waveform` and `coverage` to `_SIMULATOR_DEFAULT_SUFFIXES` in `ucagent/util/test_tools.py` and add the corresponding tests; no branches need to be added to the path templates. This mapping only defines naming rules; actual artifacts depend on DUT build and simulator support. New waveform formats still require registration of a reader as described in this page. Coverage parsing is provided by `toffee-test`, and when using VCS, ensure the used version supports `.vdb`. Selecting suffixes itself does not add coverage parsing capabilities.
+When adding a new simulator, add `waveform` and `coverage` to `_SIMULATOR_DEFAULT_SUFFIXES` in `plugins/common/src/ucagent_common/test_utils.py` and add the corresponding tests; no branches need to be added to the path templates. This mapping only defines naming rules; actual artifacts depend on DUT build and simulator support. New waveform formats still require registration of a reader as described in this page. Coverage parsing is provided by `toffee-test`, and when using VCS, ensure the used version supports `.vdb`. Selecting suffixes itself does not add coverage parsing capabilities.
 
 ## Format Priority
 

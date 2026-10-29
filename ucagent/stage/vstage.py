@@ -656,7 +656,7 @@ class VerifyStage(object):
 
     def on_init(self):
         # A test-report Skill must consume evidence produced in this stage, not
-        # whichever Unity test happened to run in the preceding stage.
+        # whichever test happened to run in the preceding stage.
         from ucagent.util.config import clear_current_test_report
         clear_current_test_report(self.workspace)
         self._process_cmds(self.pre_cmds, "Pre-Bash")

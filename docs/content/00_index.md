@@ -51,7 +51,7 @@ UCAgent 是面向数字电路单元测试的 AI 验证代理。它读取 DUT 和
 7. **[结果分析 & 通用流程总结](./01_start/06_summary.md)**：统一结果解读、通用操作规范
 
 
-> 使用导读：先用普通模式或 MCP 模式完成一个任务，再根据需要启用 Master、多实例或批处理。命令中的 `<workspace>`、`<DUT>` 等是需要替换的示意值，不要原样输入尖括号。配置文件中的 `{WORKSPACE}`、`{DUT}`、`{OUT}` 则是 UCAgent 模板变量，`{OUT}` 默认是 `unity_test`。
+> 使用导读：先用普通模式或 MCP 模式完成一个任务，再根据需要启用 Master、多实例或批处理。命令中的 `<workspace>`、`<DUT>` 等是需要替换的示意值，不要原样输入尖括号。配置文件中的 `{WORKSPACE}`、`{DUT}`、`{OUT}` 则是 UCAgent 模板变量，`{OUT}` 未指定时取工作流声明的 `output`（默认工作流为 `unity_test`）。
 
 ### 功能介绍
 

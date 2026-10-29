@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=80", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ucagent-unitytest"
+version = "0.1.0"
+description = "UnityTest chip verification workflow for UCAgent"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+authors = [
+    {name = "XS-MLVP", email = "unitychip@bosc.ac.cn"},
+]
+dependencies = [
+    "UCAgent",
+    "ucagent-common",
+]
+
+[project.entry-points."ucagent.plugins"]
+unitytest = "unitytest_plugin.plugin:get_plugin"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+unitytest_plugin = [
+    "workflows/*.yaml",
+    "Guide_Doc/*.md",
+    "templates/**/*",
+    "skills/**/*",
+]
+
+[tool.setuptools.exclude-package-data]
+"*" = [
+    "**/__pycache__/*",
+    "**/*.pyc",
+    "**/*.pyo",
+]

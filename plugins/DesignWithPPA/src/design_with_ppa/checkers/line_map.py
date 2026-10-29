@@ -5,12 +5,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 from ucagent.checkers.base import Checker
-from ucagent.checkers.file_linemap import (
-    UnityChipBatchCheckerFileLineMap,
+from unitytest_plugin.checkers.file_linemap import (
     _line_block_base,
     line_map_check_one_file,
 )
-import ucagent.util.functions as uc_functions
+from unitytest_plugin.checkers import UnityChipBatchCheckerFileLineMap
+
 from ..contracts import (
     resolve_workspace_path,
 )
@@ -20,8 +20,7 @@ from .common import (
     _exception_contract_diagnostic,
     _is_batch_progress,
 )
-
-
+from ucagent_common.doc_marks import get_doc_marks
 
 
 class DesignLineMapReferenceChecker(Checker):
@@ -58,7 +57,7 @@ class DesignLineMapReferenceChecker(Checker):
         del is_complete, kwargs
         workspace = Path(self.workspace).resolve()
         try:
-            ck_list = uc_functions.get_unity_chip_doc_marks(
+            ck_list = get_doc_marks(
                 str(
                     resolve_workspace_path(
                         workspace, self.func_check_file, must_exist=True
@@ -142,8 +141,6 @@ class DesignLineMapReferenceChecker(Checker):
             "source_file_count": len(source_files),
             "checkpoint_count": len(ck_list),
         }
-
-
 
 
 class DesignSpecLineMapBatchChecker(UnityChipBatchCheckerFileLineMap):

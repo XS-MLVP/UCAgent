@@ -2,7 +2,7 @@
   "$schema": "https://app.kilo.ai/config.json",
   "permission": "allow",
   "mcp": {
-    "unitytest": {
+    "ucagent": {
       "type": "remote",
       "url": "http://127.0.0.1:{{PORT}}/mcp",
       "enabled": true,

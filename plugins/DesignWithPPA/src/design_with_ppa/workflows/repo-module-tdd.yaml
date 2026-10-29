@@ -60,6 +60,7 @@ skill:
 tools:
   RunTestCases:
     test_dir: "{OUT}/repo/tests"
+    free_runner_clss: "unitytest_plugin.checkers.UnityChipCheckerTestFree"
   ignore_tools: [WorkDiff, WorkCommit, RunBashCommand]
 un_write_dirs: []
 

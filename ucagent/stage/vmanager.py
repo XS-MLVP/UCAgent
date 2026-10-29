@@ -17,10 +17,11 @@ from langchain_core.tools.base import ArgsSchema
 from pydantic import BaseModel, ConfigDict, Field
 
 import ucagent.util.functions as fc
-from ucagent.checkers import UnityChipCheckerTestFree
+import ucagent.checkers
 from ucagent.stage.vstage import get_root_stage
 from ucagent.tools.uctool import UCTool, EmptyArgs
-from ucagent.util.functions import make_llm_tool_ret
+from ucagent.util.functions import import_class_from_str, make_llm_tool_ret
+from ucagent.util.config import Config
 from ucagent.util.log import info, warning
 from ucagent.stage.llm_suggestion.base_suggestion import get_llm_check_instance
 from ucagent.tools.skill import _list_skills, list_skills_in_format
@@ -182,11 +183,11 @@ class ToolSetSkillUsage(ManagerTool):
         "confirmed Bug, so no recording script was needed). Stage-specific Skills are "
         "required by "
         "default unless force_use_skill=false; general Skills remain optional. Pass a "
-        "JSON object. Applied method example: {\"unitytest/functions-and-checks\": "
-        "{\"list\": true, \"read\": true, \"use\": true}}. No-applicable-work "
-        "example: {\"unitytest/dynamic-bug-recording\": {\"list\": true, "
-        "\"read\": true, \"use\": false, \"reason\": \"No confirmed dynamic DUT "
-        "Bug exists in this stage; no recording action was needed.\"}}. A reason cannot "
+        "JSON object. Applied method example: {\"<skill_id>\": {\"list\": true, "
+        "\"read\": true, \"use\": true}}. No-applicable-work "
+        "example: {\"<skill_id>\": {\"list\": true, "
+        "\"read\": true, \"use\": false, \"reason\": \"<nonempty reason no Skill "
+        "work applied in this stage>\"}}. A reason cannot "
         "replace list/read or the current Check and must not be used to manufacture work."
     )
     args_schema: Optional[ArgsSchema] = ArgSkillUsage
@@ -389,7 +390,7 @@ class ToolRunTestCases(ManagerTool):
         "The current pytest directory is '{TEST_DIR}'; every target path is relative to "
         "that directory. Do not repeat '{TEST_DIR}' in target. For example, a test below "
         "that directory is addressed as 'test_file.py::test_name'. This target syntax is "
-        "different from workspace-relative TC tags and WaveInfo/Apply node IDs. If the tool "
+        "different from workspace-relative TC tags and waveform node IDs. If the tool "
         "returns PYTEST_TARGET_DIRECTORY_PREFIX, retry with correct_target exactly."
     )
     args_schema: Optional[ArgsSchema] = ArgCheck
@@ -503,6 +504,25 @@ class ToolDoExit(ManagerTool):
     )
 
 
+def resolve_free_runner_clss(clss, checker_registry=None):
+    """Resolve the free pytest runner checker declared by the workflow.
+
+    Uses the same resolution as stage ``clss`` entries: a short name found in
+    the (plugin) checker registry wins; anything else is imported through
+    ``ucagent.checkers`` (fully-qualified class paths included).
+    """
+    registry = dict(checker_registry or {})
+    if "." not in clss and clss in registry:
+        return registry[clss]
+    try:
+        return import_class_from_str(clss, ucagent.checkers)
+    except (AttributeError, ImportError) as e:
+        raise ValueError(
+            "Cannot resolve tools.RunTestCases.free_runner_clss "
+            f"'{clss}' via the checker registry or ucagent.checkers: {e}"
+        )
+
+
 class StageManager(object):
     def __init__(
             self, workspace, cfg, agent, tool_read_text, ucagent_info: dict,
@@ -524,13 +544,33 @@ class StageManager(object):
         self.workspace = workspace
         self.force_todo = force_todo
         self.todo_panel = todo_panel
-        self.free_pytest_run = UnityChipCheckerTestFree(
-            "", cfg.tools.RunTestCases.test_dir, ""
-        ).set_workspace(workspace)
         self.test_python_import_roots = list(test_python_import_roots or [])
-        self.free_pytest_run.run_test.set_extra_python_paths(
-            self.test_python_import_roots
-        )
+        self.free_pytest_run = None
+        try:
+            test_dir = cfg.get_value("tools.RunTestCases.test_dir", None)
+        except AttributeError:
+            test_dir = None
+        try:
+            free_runner_clss = cfg.get_value(
+                "tools.RunTestCases.free_runner_clss", None
+            )
+        except AttributeError:
+            free_runner_clss = None
+        if (
+            isinstance(test_dir, str)
+            and test_dir.strip()
+            and isinstance(free_runner_clss, str)
+            and free_runner_clss.strip()
+        ):
+            runner_clss = resolve_free_runner_clss(
+                free_runner_clss, checker_registry
+            )
+            self.free_pytest_run = runner_clss(
+                "", test_dir, ""
+            ).set_workspace(workspace)
+            self.free_pytest_run.run_test.set_extra_python_paths(
+                self.test_python_import_roots
+            )
         self.agent = agent
         self.tool_read_text = tool_read_text
         self.ucagent_info = ucagent_info
@@ -814,11 +854,18 @@ class StageManager(object):
         """
         Create and return a list of tools for the current stage.
         """
+        run_test_cases_tools = (
+            [
+                ToolRunTestCases().set_function(self.tool_run_test_cases).render_desc({"TEST_DIR": self.free_pytest_run.test_dir}),
+            ]
+            if self.free_pytest_run is not None
+            else []
+        )
         tools = [
             ToolCurrentTips().set_function(self.tool_current_tips),
             ToolDetail().set_function(self.tool_detail),
             ToolStatus().set_function(self.tool_status),
-            ToolRunTestCases().set_function(self.tool_run_test_cases).render_desc({"TEST_DIR": self.free_pytest_run.test_dir}),
+            *run_test_cases_tools,
             ToolDoCheck().set_function(self.tool_check),
             ToolKillCheck().set_function(self.tool_kill_check),
             ToolStdCheck().set_function(self.tool_std_check),
@@ -887,15 +934,22 @@ class StageManager(object):
         if skills_to_use:
             formatted_skill_list = list_skills_in_format(_list_skills(self.workspace), self.workspace, skills_to_use)
             if cstage.force_use_skill:
-                no_applicable_example = ""
-                if "unitytest/dynamic-bug-recording" in skills_to_use:
-                    no_applicable_example = (
-                        " For example, when no confirmed dynamic DUT Bug exists: "
-                        "{\"unitytest/dynamic-bug-recording\": {\"list\": true, "
-                        "\"read\": true, \"use\": false, \"reason\": \"No "
-                        "confirmed dynamic DUT Bug exists in this checked stage; no "
-                        "recording action was needed.\"}}."
+                try:
+                    usage_examples = self.cfg.get_value(
+                        "skill.no_applicable_examples", {}
                     )
+                except AttributeError:
+                    usage_examples = {}
+                # Layered configs wrap nested mappings in Config; normalize
+                # before dict access (the mission tips below do the same).
+                if isinstance(usage_examples, Config):
+                    usage_examples = usage_examples.as_dict()
+                no_applicable_example = ""
+                if isinstance(usage_examples, dict):
+                    for skill_name in skills_to_use:
+                        example = usage_examples.get(skill_name)
+                        if isinstance(example, str) and example.strip():
+                            no_applicable_example += f" {example.strip()}"
                 skill_note = (
                     "This stage requires the following Skills. Use this sequence: "
                     "ListSkill -> ReadTextFile(SKILL.md) -> perform the Skill method "
@@ -1884,6 +1938,14 @@ class StageManager(object):
         This tool is used to execute the test cases in the workspace.
         """
         stage = self.get_current_stage()
+        if self.free_pytest_run is None:
+            return make_llm_tool_ret({
+                "run_test_success": False,
+                "error": (
+                    "RunTestCases is unavailable: this workflow declares no "
+                    "tools.RunTestCases.free_runner_clss."
+                ),
+            })
         self.free_pytest_run.run_test.set_report_context({
             "source": "RunTestCases",
             "stage_index": self.stage_index,

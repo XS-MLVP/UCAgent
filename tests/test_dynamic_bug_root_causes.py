@@ -1,11 +1,16 @@
 """Canonical root-cause relations in dynamic Bug documents."""
 
 from pathlib import Path
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "plugins/unitytest/src"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "plugins/common/src"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pytest
 
-from ucagent.checkers.toffee_report import check_dynamic_bug_analysis_content
-from ucagent.util.bug_analysis_contract import (
+from unitytest_plugin.checkers.toffee_report import check_dynamic_bug_analysis_content
+from ucagent_common.bug_analysis_contract import (
     dynamic_bug_anchor_id,
     related_bug_reference,
     root_cause_anchor_id,

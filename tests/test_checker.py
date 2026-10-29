@@ -8,23 +8,26 @@ from pathlib import Path
 from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "plugins/unitytest/src"))
 
-from ucagent.checkers import (
+from unitytest_plugin.checkers import (
     UnityChipCheckerCoverageGroup,
     UnityChipCheckerDutApi,
     UnityChipCheckerDutApiTest,
-    UnityChipCheckerDutCreation,
     UnityChipCheckerDutFixture,
     UnityChipCheckerLabelStructure,
-    UnityChipCheckerMarkdownFileFormat,
     UnityChipCheckerTestCase,
+)
+from ucagent.checkers.base import Checker, BatchTask
+from unitytest_plugin.checkers.unity_test import BaseUnityChipCheckerTestCase
+from ucagent.util.config import Config
+from unitytest_plugin.checkers import (
+    UnityChipCheckerDutCreation,
+    UnityChipCheckerMarkdownFileFormat,
     UnityChipCheckerTestCaseWithLineCoverage,
     UnityChipCheckerTestFree,
     UnityChipCheckerTestTemplate,
 )
-from ucagent.checkers.base import Checker, UnityChipBatchTask
-from ucagent.checkers.unity_test import BaseUnityChipCheckerTestCase
-from ucagent.util.config import Config
 
 
 CHECKPOINT = "FG-API/FC-OPERATE/CK-BASIC"
@@ -38,7 +41,7 @@ def test_checker_lifecycle_callbacks_are_isolated_per_instance():
             super().__init__()
             assert self._cb_list == {}
             self.batch_size = 1
-            self.batch_task = UnityChipBatchTask(batch_name, self)
+            self.batch_task = BatchTask(batch_name, self)
 
     first = _BatchChecker("first")
     second = _BatchChecker("second")
@@ -156,22 +159,22 @@ def test_checker_dut_api_and_fixtures_use_temporary_workspace(tmp_path):
         "        pass\n\n"
         "class DUTDemo:\n"
         "    pass\n\n"
-        "class UCAgentStub:\n"
+        "class TestUtilsStub:\n"
         "    @staticmethod\n"
         "    def is_imp_test_template():\n"
         "        return False\n\n"
         "    @staticmethod\n"
         "    def get_fake_dut(_dut_class):\n"
         "        return FakeDUT()\n\n"
-        "ucagent = UCAgentStub()\n\n"
+        "test_utils = TestUtilsStub()\n\n"
         "def get_coverage_data_path(request, dut, new_path):\n"
         "    return 'coverage.dat'\n\n"
         "def set_func_coverage(request, groups):\n"
         "    pass\n\n"
         "def create_dut(request):\n"
         "    get_coverage_data_path(request, dut, new_path=True)\n"
-        "    if ucagent.is_imp_test_template():\n"
-        "        return ucagent.get_fake_dut(DUTDemo)\n"
+        "    if test_utils.is_imp_test_template():\n"
+        "        return test_utils.get_fake_dut(DUTDemo)\n"
         "    return FakeDUT()\n\n"
         "@pytest.fixture(scope='function')\n"
         "def dut(request):\n"

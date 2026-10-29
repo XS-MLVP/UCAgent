@@ -9,13 +9,13 @@ from types import SimpleNamespace
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.abspath(os.path.join(current_dir, "..")))
+sys.path.insert(0, os.path.abspath(os.path.join(current_dir, "..", "plugins", "unitytest", "src")))
 
-from ucagent.checkers.unity_test import (
-    BaseUnityChipCheckerTestCase,
-    UnityChipCheckerTestTemplate,
-)
+from unitytest_plugin.checkers.unity_test import BaseUnityChipCheckerTestCase
+from unitytest_plugin.checkers import UnityChipCheckerTestTemplate
 from ucagent.util.config import load_yaml_with_env_vars
-from ucagent.util.functions import list_str_abbr, load_toffee_report
+from ucagent_common.str_utils import list_str_abbr
+from unitytest_plugin.checkers.toffee_report import load_toffee_report
 
 
 ASSERT_EXAMPLE = 'Correct example: assert False, "Not implemented"'
@@ -658,7 +658,7 @@ def test_workflows_keep_api_tests_and_ignore_only_infrastructure():
     repo_root = os.path.abspath(os.path.join(current_dir, ".."))
     config_dir = os.path.join(repo_root, "ucagent/lang/zh/config")
     default_config = load_yaml_with_env_vars(
-        os.path.join(config_dir, "default.yaml")
+        os.path.join(repo_root, "plugins/unitytest/src/unitytest_plugin/workflows/unitytest.yaml")
     )
     stages = {stage["name"]: stage for stage in default_config["stage"]}
     template_checker = next(
@@ -675,8 +675,15 @@ def test_workflows_keep_api_tests_and_ignore_only_infrastructure():
         "test_api_{DUT}_mock_",
     ]
     checked_later_stages = []
-    for config_name in ("default.yaml", "inc.yaml", "vibe.yaml"):
-        config = load_yaml_with_env_vars(os.path.join(config_dir, config_name))
+    config_files = {
+        "unitytest.yaml": os.path.join(
+            repo_root, "plugins/unitytest/src/unitytest_plugin/workflows/unitytest.yaml"
+        ),
+        "inc.yaml": os.path.join(config_dir, "inc.yaml"),
+        "vibe.yaml": os.path.join(config_dir, "vibe.yaml"),
+    }
+    for config_name in ("unitytest.yaml", "inc.yaml", "vibe.yaml"):
+        config = load_yaml_with_env_vars(config_files[config_name])
         for stage_path, checker in _iter_stage_checkers(config["stage"]):
             ignored_prefixes = checker.get("args", {}).get("ignore_tc_prefix")
             if ignored_prefixes is None or checker["clss"] == "UnityChipCheckerTestTemplate":
@@ -690,7 +697,7 @@ def test_workflows_keep_api_tests_and_ignore_only_infrastructure():
             checked_later_stages.append((config_name, stage_path, checker["name"]))
 
     assert {item[0] for item in checked_later_stages} == {
-        "default.yaml",
+        "unitytest.yaml",
         "inc.yaml",
         "vibe.yaml",
     }

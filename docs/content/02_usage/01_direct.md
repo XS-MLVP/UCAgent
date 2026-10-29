@@ -79,7 +79,7 @@ ucagent output/ Adder -s -hm --tui -l
 常用参数：
 
 - `--config <path>`：指定项目配置；不指定时使用分层默认配置。
-- `--output <name>`：修改工作区下的输出目录，默认 `unity_test`。
+- `--output <name>`：修改工作区下的输出目录；未指定时取工作流声明的 `output`（默认工作流为 `unity_test`）。
 - `--human` / `-hm`：启动人工可干预模式。
 - `--tui`：打开 TUI；不使用 TUI 时可用 `--web-console` 或 `--web-terminal`。
 - `--skip <index>`、`--unskip <index>`：按运行时阶段索引控制阶段；索引以 `status`/`hmcheck_list` 显示为准。

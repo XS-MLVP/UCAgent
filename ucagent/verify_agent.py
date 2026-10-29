@@ -253,9 +253,13 @@ class VerifyAgent:
         self.plugins = list(plugins or [])
         self.plugin_checker_registry = create_plugin_checker_registry(self.plugins)
         plugin_python_import_roots = [
-            str(loaded.python_import_root)
+            str(import_root)
             for loaded in self.plugins
-            if getattr(loaded, "python_import_root", None) is not None
+            for import_root in (
+                (loaded.python_import_root, *loaded.extra_python_import_roots)
+                if getattr(loaded, "python_import_root", None) is not None
+                else getattr(loaded, "extra_python_import_roots", ())
+            )
         ]
         plugin_docs, plugin_skills = collect_plugin_resources(self.plugins)
         resolved_plugin_docs = []
@@ -272,6 +276,10 @@ class VerifyAgent:
             if item not in seen_plugin_skills:
                 seen_plugin_skills.add(item)
                 resolved_plugin_skills.append(item)
+        if output is None:
+            # The workflow yaml declares its own output directory; the framework
+            # fallback stays workflow-neutral.
+            output = self.cfg.get_value("output") or "output"
         temp_args = {
             "OUT": output,
             "DUT": dut_name,
@@ -306,6 +314,7 @@ class VerifyAgent:
             self.workspace,
             self.cfg,
             runtime_config_keys=list(plugin_runtime_config_keys or []),
+            plugin_python_paths=plugin_python_import_roots,
             launch_context={
                 "config_file": (
                     os.path.abspath(self.config_file) if self.config_file else None
@@ -600,28 +609,6 @@ class VerifyAgent:
             self.cfg.get_value("un_write_dirs", []),
             write_dirs=self.cfg.get_value("write_dirs", None),
         )
-        self.tool_waveinfo = WaveInfo(
-            workspace=self.workspace,
-            test_dir=self.cfg.tools.RunTestCases.test_dir,
-            dut_name=self.dut_name,
-            format_priority=self.cfg.runtime_options.waveform_analysis_format_priority,
-            write_dirs=self.cfg.write_dirs,
-            un_write_dirs=self.cfg.un_write_dirs,
-        )
-        self.tool_apply_waveinfo_evidence = ApplyWaveInfoEvidence(
-            waveinfo=self.tool_waveinfo,
-            workspace=self.workspace,
-            write_dirs=self.cfg.write_dirs,
-            un_write_dirs=self.cfg.un_write_dirs,
-        )
-        self.tool_review_waveinfo_evidence_batch = ReviewWaveInfoEvidenceBatch(
-            evidence_writer=self.tool_apply_waveinfo_evidence,
-        )
-        self.tool_list_waveform = [
-            self.tool_waveinfo,
-            self.tool_apply_waveinfo_evidence,
-            self.tool_review_waveinfo_evidence_batch,
-        ]
         self.tool_list_plugin = create_plugin_tools(
             self.plugins,
             PluginContext(
@@ -631,7 +618,16 @@ class VerifyAgent:
                 un_write_dirs=tuple(self.cfg.un_write_dirs),
                 cfg=self.cfg,
                 plugin_root=Path(self.workspace),
+                dut_name=self.dut_name,
             ),
+        )
+        self.tool_waveinfo = next(
+            (
+                tool
+                for tool in self.tool_list_plugin
+                if getattr(tool, "name", "") == "WaveInfo"
+            ),
+            None,
         )
         self.tool_list_file = [
             # Directory and file listing tools
@@ -692,7 +688,6 @@ class VerifyAgent:
 
         non_plugin_tools = (
             self.tool_list_base
-            + self.tool_list_waveform
             + self.tool_list_file
             + self.tool_list_task
             + self.tool_list_ext
@@ -810,7 +805,6 @@ class VerifyAgent:
                 )
         self.test_tools = fc.get_tools_from_cfg(
             self.tool_list_base
-            + self.tool_list_waveform
             + self.tool_list_plugin
             + self.tool_list_file
             + self.tool_list_task
@@ -1089,7 +1083,7 @@ class VerifyAgent:
         """Get the default system prompt for the agent. And if skill is enabled, include skill prompt and skill list."""
         system = self.cfg.mission.prompt.get_value("system", "").strip()
         if self.cfg.skill.use_skill:
-            formatted_skill_list = list_skills_in_format(_list_skills(self.workspace),self.workspace,self.cfg.skill.general_skill_list)
+            formatted_skill_list = list_skills_in_format(_list_skills(self.workspace),self.workspace,self.cfg.skill.get_value("general_skill_list", []))
             skill_prompt = self.cfg.mission.prompt.get_value("skill_system", "").replace("{general_skill_list}", formatted_skill_list)
             system = system.replace("{skill_system}", skill_prompt)
         else:

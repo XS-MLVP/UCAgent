@@ -63,12 +63,15 @@ from design_with_ppa.checkers import (  # noqa: E402
     _run_workflow_ppa,
     select_best_accepted_record,
 )
-from ucagent.checkers.unity_test import (  # noqa: E402
+import design_with_ppa.checkers.test_batches as test_batches_module
+from unitytest_plugin.checkers.unity_test import (  # noqa: E402
     BaseUnityChipCheckerTestCase,
     UnityChipCheckerTestCase,
+)
+from unitytest_plugin.checkers import (  # noqa: E402
     UnityChipCheckerTestCaseWithLineCoverage,
 )
-import ucagent.util.functions as uc_functions
+
 
 
 
@@ -137,12 +140,12 @@ def test_design_batch_checker_rejects_nonpassing_current_evidence(
 
     checker, _manager = _design_batch_checker(tmp_path, ["test_result"])
     monkeypatch.setattr(
-        uc_functions,
-        "get_unity_chip_doc_marks",
+        test_batches_module,
+        "get_doc_marks",
         lambda *_args, **_kwargs: ["FG-DESIGN/FC-CORE/CK-RESULT"],
     )
     monkeypatch.setattr(
-        uc_functions,
+        test_batches_module,
         "check_has_assert_in_tc",
         lambda *_args, **_kwargs: (True, "ok"),
     )
@@ -199,7 +202,7 @@ def test_random_checker_rejects_only_unhit_marked_coverage_claims(
     test_dir.mkdir()
     (test_dir / "test_dut_random.py").write_text(
         "def test_random_current(env):\n"
-        "    ucagent.repeat_count()\n"
+        "    test_utils.repeat_count()\n"
         "    env.mark_function('FC-RANDOM', test_random_current, ['CK-CURRENT'])\n"
         "    assert True\n",
         encoding="utf-8",
@@ -223,12 +226,12 @@ def test_random_checker_rejects_only_unhit_marked_coverage_claims(
         lambda self, **kwargs: (report, "1 passed", ""),
     )
     monkeypatch.setattr(
-        uc_functions,
+        test_batches_module,
         "is_run_report_pass",
         lambda current_report, stdout, stderr: (True, "pass"),
     )
     monkeypatch.setattr(
-        uc_functions,
+        test_batches_module,
         "check_has_assert_in_tc",
         lambda workspace, current_report: (True, "pass"),
     )
@@ -276,17 +279,17 @@ def test_design_batch_checker_advances_only_an_all_pass_batch(
         encoding="utf-8",
     )
     monkeypatch.setattr(
-        uc_functions,
-        "get_unity_chip_doc_marks",
+        test_batches_module,
+        "get_doc_marks",
         lambda *_args, **_kwargs: ["FG-DESIGN/FC-CORE/CK-RESULT"],
     )
     monkeypatch.setattr(
-        uc_functions,
+        test_batches_module,
         "check_has_assert_in_tc",
         lambda *_args, **_kwargs: (True, "ok"),
     )
     monkeypatch.setattr(
-        uc_functions,
+        test_batches_module,
         "is_run_report_pass",
         lambda *_args, **_kwargs: (True, ""),
     )
@@ -321,17 +324,17 @@ def test_design_batch_checker_counts_passing_future_implementations(
         batch_size=1,
     )
     monkeypatch.setattr(
-        uc_functions,
-        "get_unity_chip_doc_marks",
+        test_batches_module,
+        "get_doc_marks",
         lambda *_args, **_kwargs: ["FG-DESIGN/FC-CORE/CK-RESULT"],
     )
     monkeypatch.setattr(
-        uc_functions,
+        test_batches_module,
         "check_has_assert_in_tc",
         lambda *_args, **_kwargs: (True, "ok"),
     )
     monkeypatch.setattr(
-        uc_functions,
+        test_batches_module,
         "is_run_report_pass",
         lambda *_args, **_kwargs: (True, ""),
     )
@@ -369,7 +372,7 @@ def test_design_batch_checker_rejects_failing_future_implementation(
         batch_size=1,
     )
     monkeypatch.setattr(
-        uc_functions,
+        test_batches_module,
         "is_run_report_pass",
         lambda *_args, **_kwargs: (True, ""),
     )
@@ -410,17 +413,17 @@ def test_design_batch_checker_keeps_tips_guidance_scoped_to_current_batch(
         batch_size=1,
     )
     monkeypatch.setattr(
-        uc_functions,
-        "get_unity_chip_doc_marks",
+        test_batches_module,
+        "get_doc_marks",
         lambda *_args, **_kwargs: ["FG-DESIGN/FC-CORE/CK-RESULT"],
     )
     monkeypatch.setattr(
-        uc_functions,
+        test_batches_module,
         "check_has_assert_in_tc",
         lambda *_args, **_kwargs: (True, "ok"),
     )
     monkeypatch.setattr(
-        uc_functions,
+        test_batches_module,
         "is_run_report_pass",
         lambda *_args, **_kwargs: (True, ""),
     )
@@ -467,17 +470,17 @@ def test_design_batch_checker_allows_public_adapter_actions(
     )
 
     monkeypatch.setattr(
-        uc_functions,
-        "get_unity_chip_doc_marks",
+        test_batches_module,
+        "get_doc_marks",
         lambda *_args, **_kwargs: ["FG-DESIGN/FC-CORE/CK-RESULT"],
     )
     monkeypatch.setattr(
-        uc_functions,
+        test_batches_module,
         "check_has_assert_in_tc",
         lambda *_args, **_kwargs: (True, "ok"),
     )
     monkeypatch.setattr(
-        uc_functions,
+        test_batches_module,
         "is_run_report_pass",
         lambda *_args, **_kwargs: (True, ""),
     )

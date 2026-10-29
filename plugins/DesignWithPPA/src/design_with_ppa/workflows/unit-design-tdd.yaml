@@ -113,6 +113,7 @@ skill:
 tools:
   RunTestCases:
     test_dir: "{OUT}/tests"
+    free_runner_clss: "unitytest_plugin.checkers.UnityChipCheckerTestFree"
   ignore_tools: ["WorkDiff", "WorkCommit", "RunBashCommand"]
 
 # The rendered shared conftest is template-managed: every pytest gate depends
@@ -800,7 +801,7 @@ stage:
           - "目标：用固定 seed 的受约束随机输入扩大状态/数据覆盖；不适合随机化的 CK 以具体理由登记且不做随机 mark 关联，随机测试只声明其实际命中的 CK。"
           - "当前优先判断和处理的 CK": "{LIST_CURRENT_CKS}"
           - "第1步：每批开始调用 CurrentTips，逐项判断当前 CK 是否能通过受约束的确定性随机输入扩大状态/数据覆盖。"
-          - "第2步：适合时在 `test_{DUT}_random*.py` 使用固定 seed、`ucagent.repeat_count()`、字面量 mark_function、独立 expected 和真实断言；mark_function 只关联该随机测试采样能实际命中的 CK。"
+          - "第2步：适合时在 `test_{DUT}_random*.py` 使用固定 seed、`test_utils.repeat_count()`、字面量 mark_function、独立 expected 和真实断言；mark_function 只关联该随机测试采样能实际命中的 CK。"
           - "第3步：用 RunTestCases 运行新增随机节点并修复全部失败；不适合随机化的 CK 写出与其行为相关的具体理由，且不要在随机测试中 mark_function 这些 CK。"
           - "随机向量暴露 reference 与权威功能合同不一致时可以修正 reference，并重跑受影响的 directed 与 random 节点；若 reference 符合合同，则修复测试或输入约束，不能用当前输出反推 expected。"
           - "第4步：调用 `Check(stage_args={\"generated\": {\"<完整CK路径>\": \"用例路径或不适用理由\"}})`，至少提交当前批次；可同时提交已正确分析的其他 canonical CK，Check 会运行完整随机测试集合后统一记账。"

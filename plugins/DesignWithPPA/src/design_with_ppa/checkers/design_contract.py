@@ -8,20 +8,22 @@ from pathlib import Path
 import re
 from typing import Any
 from ucagent.checkers.base import Checker
-from ucagent.checkers.unity_test import (
+from unitytest_plugin.checkers.unity_test import (
     BaseUnityChipCheckerTestCase,
     UnityChipCheckerCoverageGroup,
     UnityChipCheckerCoverageGroupBatchImplementation,
-    UnityChipCheckerBatchTestsImplementation,
     UnityChipCheckerDutApi,
-    UnityChipCheckerLabelStructureRefine,
     UnityChipCheckerLabelStructure,
+    UnityChipCheckerTestCase,
+)
+from unitytest_plugin.checkers import (
+    UnityChipCheckerBatchTestsImplementation,
+    UnityChipCheckerLabelStructureRefine,
     UnityChipCheckerMarkdownFileFormat,
     UnityChipCheckerRefineTestCases,
-    UnityChipCheckerTestCase,
     UnityChipCheckerTestCaseWithLineCoverage,
-    UnityChipCheckerTestTemplate,
     UnityChipCheckerTestMustPass,
+    UnityChipCheckerTestTemplate,
 )
 from ..contracts import (
     atomic_json,

@@ -35,7 +35,6 @@ def _fake_pdb(*, file_tools=None, plugin_tools=None):
         tool_list_base=[],
         tool_list_task=[],
         tool_list_ext=[],
-        tool_list_waveform=[],
         tool_list_plugin=list(plugin_tools or []),
         tool_list_file=list(file_tools or []),
         cfg=Config(

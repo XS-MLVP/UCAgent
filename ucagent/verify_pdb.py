@@ -37,7 +37,7 @@ SHELL_COMMAND_COMPLETION_WHITELIST = {
     "find", "gcc", "g++", "git", "grep", "gzip", "head", "history", "htop",
     "iverilog", "ls", "make", "mkdir", "node", "npm", "pip", "ps", "pwd",
     "pytest", "python", "python3", "rg", "rsync", "scp", "sed", "service",
-    "sh", "sort", "ssh", "systemctl", "tail", "tar", "tee", "toffee",
+    "sh", "sort", "ssh", "systemctl", "tail", "tar", "tee",
     "touch", "uniq", "uv", "vvp", "wc", "wget", "which", "whereis",
     "yosys", "zsh",
 }
@@ -3498,38 +3498,6 @@ class VerifyPDB(Pdb):
 
         self._execute_shell_command(line)
 
-    def api_load_toffee_report(self, path, workspace):
-        """
-        Load a Toffee report from the specified path.
-        Args:
-            path (str): Path to the Toffee report file.
-            workspace (str): Workspace directory for resolving relative paths.
-        Returns:
-            dict: Parsed Toffee report data.
-        """
-        from ucagent.util.functions import load_toffee_report
-        assert os.path.exists(path), f"File '{path}' does not exist."
-        return load_toffee_report(path, workspace, True, True)
-
-    def do_load_toffee_report(self, arg):
-        """
-        Load a Toffee report from the specified path.
-        Usage: load_toffee_report [path]
-        """
-        report_path = os.path.join(self.agent.workspace, "uc_test_report/toffee_report.json")
-        args = arg.strip()
-        if args:
-           report_path = args
-        if not os.path.exists(report_path):
-            echo_r(f"File '{report_path}' does not exist.")
-            return
-        echo_g(f"Loading Toffee report from: {report_path}")
-        try:
-            report = self.api_load_toffee_report(report_path, self.agent.workspace)
-            message(yam_str(report))
-        except Exception as e:
-            echo_r(traceback.format_exc())
-            echo_r(f"Error loading Toffee report: {e}")
 
     def api_list_checker_instance(self):
         """

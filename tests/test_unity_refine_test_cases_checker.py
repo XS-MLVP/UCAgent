@@ -9,9 +9,10 @@ from types import SimpleNamespace
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.abspath(os.path.join(current_dir, "..")))
+sys.path.insert(0, os.path.abspath(os.path.join(current_dir, "..", "plugins", "unitytest", "src")))
 
-from ucagent.checkers.unity_test import UnityChipCheckerRefineTestCases
-from ucagent.tools.testops import RunUnityChipTest
+from unitytest_plugin.checkers import UnityChipCheckerRefineTestCases
+from unitytest_plugin.testops import RunUnityChipTest
 from ucagent.util.config import load_yaml_with_env_vars
 
 
@@ -427,7 +428,7 @@ def test_refine_test_cases_complete_rejects_nested_json_string(tmp_path):
 def test_refine_test_stage_documents_unified_stage_args_fallback():
     repo_root = os.path.abspath(os.path.join(current_dir, ".."))
     config = load_yaml_with_env_vars(
-        os.path.join(repo_root, "ucagent/lang/zh/config/default.yaml")
+        os.path.join(repo_root, "plugins/unitytest/src/unitytest_plugin/workflows/unitytest.yaml")
     )
     stage = next(
         stage for stage in config["stage"]

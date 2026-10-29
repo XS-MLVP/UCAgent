@@ -9,15 +9,13 @@ import sys
 
 import pytest
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "plugins/unitytest/src"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from ucagent.tools.testops import (
-    RunPyTest,
-    RunUnityChipTest,
-    _classify_pytest_execution,
-)
+from ucagent.tools.testops import RunPyTest, classify_pytest_execution
 from ucagent.util.config import Config, load_current_test_report, save_runtime_config
-from ucagent.util.functions import load_toffee_report
+from unitytest_plugin.checkers.toffee_report import load_toffee_report
+from unitytest_plugin.testops import RunUnityChipTest
 
 
 def test_run_pytest_rejects_repeated_test_directory_prefix(tmp_path):
@@ -136,10 +134,10 @@ def test_run_pytest_collection_error_is_not_reported_as_a_test_run(tmp_path):
 
 
 def test_assertion_failure_requires_a_nonempty_report_to_be_usable():
-    without_report = _classify_pytest_execution(
+    without_report = classify_pytest_execution(
         1, "1 failed", "", report_exists=False, report_has_tests=False
     )
-    with_report = _classify_pytest_execution(
+    with_report = classify_pytest_execution(
         1, "1 failed", "", report_exists=True, report_has_tests=True
     )
 
@@ -150,7 +148,7 @@ def test_assertion_failure_requires_a_nonempty_report_to_be_usable():
 
 
 def test_runtime_file_error_is_not_mislabeled_as_a_missing_pytest_target():
-    execution = _classify_pytest_execution(
+    execution = classify_pytest_execution(
         1,
         "FileNotFoundError: [Errno 2] No such file or directory: 'vectors.json'",
         "",
@@ -328,7 +326,7 @@ def test_toffee_report_lists_only_failed_parameterized_instances(tmp_path):
 def test_classifier_ignores_failure_phrases_in_passing_runs():
     """A returncode-0 run stays OK even when its output mentions failures."""
 
-    passing = _classify_pytest_execution(
+    passing = classify_pytest_execution(
         0,
         "test_transaction ... assert raised TimeoutError('transaction timed out')\n"
         "1 passed in 0.02s",
@@ -339,13 +337,13 @@ def test_classifier_ignores_failure_phrases_in_passing_runs():
     assert passing["diagnostic_code"] == "OK"
     assert passing["invocation_success"] is True
 
-    timed_out = _classify_pytest_execution(
+    timed_out = classify_pytest_execution(
         1, "!!! KeyboardInterrupt !!!", "test timed out", report_exists=False
     )
     assert timed_out["diagnostic_code"] == "PYTEST_TIMEOUT"
     assert timed_out["invocation_success"] is False
 
-    collection = _classify_pytest_execution(
+    collection = classify_pytest_execution(
         2, "ERROR: error collecting tests", "", report_exists=False
     )
     assert collection["diagnostic_code"] == "PYTEST_COLLECTION_ERROR"

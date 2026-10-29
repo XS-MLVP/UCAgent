@@ -23,7 +23,6 @@ def _collect_mcp_tools(agent: Any, no_file_ops: bool) -> List[Any]:
         agent.tool_list_base
         + agent.tool_list_task
         + agent.tool_list_ext
-        + getattr(agent, "tool_list_waveform", [])
         + getattr(agent, "tool_list_plugin", [])
     )
     if not no_file_ops:

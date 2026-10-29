@@ -137,6 +137,7 @@ class PluginContext:
     un_write_dirs: tuple[str, ...]
     cfg: Any
     plugin_root: Path
+    dut_name: str = ""
 
 
 @dataclass(frozen=True)
@@ -147,6 +148,7 @@ class LoadedPlugin:
     selector: str
     source: str
     python_import_root: Path | None = None
+    extra_python_import_roots: tuple[Path, ...] = ()
 
 
 def resolve_guide_doc_copy_policy(cfg: Any) -> GuideDocCopyPolicy:
@@ -375,8 +377,18 @@ def _read_local_manifest(manifest_path: Path) -> dict[str, Any]:
     if not isinstance(entry, str) or not _ENTRY_RE.fullmatch(entry):
         raise PluginError(f"{LOCAL_PLUGIN_MANIFEST} entry must use module.path:provider")
     python_path = manifest["python_path"]
-    if not isinstance(python_path, str) or not python_path.strip():
-        raise PluginError(f"{LOCAL_PLUGIN_MANIFEST} python_path must be non-empty")
+    if not (
+        (isinstance(python_path, str) and python_path.strip())
+        or (
+            isinstance(python_path, list)
+            and python_path
+            and all(isinstance(item, str) and item.strip() for item in python_path)
+        )
+    ):
+        raise PluginError(
+            f"{LOCAL_PLUGIN_MANIFEST} python_path must be a non-empty string "
+            "or a list of non-empty strings"
+        )
     return manifest
 
 
@@ -816,12 +828,30 @@ def _load_local_plugin(path: Path, *, check_dependencies: bool) -> LoadedPlugin:
     manifest = _read_local_manifest(manifest_path)
     entry = manifest["entry"]
     python_path_value = manifest["python_path"]
-    python_path = _resolve_member(
-        root, Path(python_path_value), "python_path", directory=True
+    python_path_values = (
+        [python_path_value] if isinstance(python_path_value, str) else python_path_value
     )
-    python_path_text = str(python_path)
-    if python_path_text not in sys.path:
-        sys.path.insert(0, python_path_text)
+    python_path = _resolve_member(
+        root, Path(python_path_values[0]), "python_path", directory=True
+    )
+    # Later python_path entries name sibling import roots, e.g. a shared plugin
+    # library like plugins/common; unlike the first entry they may escape the
+    # plugin project directory.
+    extra_paths = []
+    for value in python_path_values[1:]:
+        candidate = Path(value)
+        if not candidate.is_absolute():
+            candidate = root / candidate
+        candidate = candidate.resolve()
+        if not candidate.is_dir():
+            raise PluginError(
+                f"Local plugin python_path directory was not found: {candidate}"
+            )
+        extra_paths.append(candidate)
+    for import_root in (python_path, *extra_paths):
+        import_root_text = str(import_root)
+        if import_root_text not in sys.path:
+            sys.path.insert(0, import_root_text)
     module_name, provider_name = entry.split(":", 1)
     try:
         provider_module = import_module(module_name)
@@ -861,6 +891,7 @@ def _load_local_plugin(path: Path, *, check_dependencies: bool) -> LoadedPlugin:
         selector=str(path),
         source=str(manifest_path),
         python_import_root=python_path,
+        extra_python_import_roots=tuple(extra_paths),
     )
 
 
@@ -993,6 +1024,90 @@ def resolve_plugin_workflow(
             f"Plugin workflow {selector!r} is {reason}; available={available}"
         )
     return matches[0]
+
+
+def find_owning_plugin_project(workflow_file: str | Path) -> Path | None:
+    """Find the local plugin project whose root contains a workflow file."""
+
+    project_root = Path(__file__).resolve().parents[1]
+    for parent in Path(workflow_file).resolve().parents:
+        if (parent / LOCAL_PLUGIN_MANIFEST).is_file():
+            return parent
+        if parent == project_root:
+            break
+    return None
+
+
+def _find_installed_owner(
+    target: Path, loaded_plugins: list[LoadedPlugin]
+) -> LoadedPlugin | None:
+    """Activate an installed entry-point plugin whose package owns a file.
+
+    Pip-installed plugins ship no local ucagent-plugin.toml; ownership of a
+    pointer workflow file is decided by package-root containment against the
+    installed ucagent.plugins entry points.
+    """
+
+    for loaded in loaded_plugins:
+        if target.is_relative_to(loaded.plugin.root.resolve()):
+            return loaded
+    for entry in _entry_points():
+        try:
+            provider = entry.load()
+        except Exception as exc:
+            raise PluginError(
+                f"Cannot import installed plugin {entry.name!r}: {exc}"
+            ) from exc
+        plugin = _materialize_plugin(provider, entry.name)
+        if not target.is_relative_to(plugin.root.resolve()):
+            continue
+        loaded = LoadedPlugin(
+            plugin=validate_plugin(plugin),
+            selector=entry.name,
+            source=str(
+                getattr(getattr(entry, "dist", None), "name", None) or entry.value
+            ),
+        )
+        loaded_plugins.append(loaded)
+        return loaded
+    return None
+
+
+def load_pointer_workflow_plugin(
+    workflow_file: str | Path,
+    loaded_plugins: list[LoadedPlugin],
+) -> tuple[LoadedPlugin, PluginWorkflow] | None:
+    """Activate the local plugin that owns the framework pointer workflow.
+
+    The default launch loads no explicit plugins, but the pointer workflow
+    config may live inside a local plugin project (plugins/<name>/...); load
+    that project so the workflow's template, skill, and guide-doc resources
+    become available exactly as on the explicit --plugin-workflow path. A
+    pointer file inside a pip-installed plugin package (no local manifest)
+    activates the installed entry-point plugin that owns it. Returns the
+    (plugin, workflow) pair matching the pointer file.
+    """
+
+    project = find_owning_plugin_project(workflow_file)
+    target = Path(workflow_file).resolve()
+    if project is None:
+        loaded = _find_installed_owner(target, loaded_plugins)
+        if loaded is None:
+            return None
+    else:
+        for loaded in loaded_plugins:
+            if loaded.plugin.root.resolve() == project.resolve():
+                break
+        else:
+            loaded = load_plugin(str(project))
+            loaded_plugins.append(loaded)
+    for workflow in loaded.plugin.workflows:
+        if workflow.config_file == target:
+            return (loaded, workflow)
+    raise PluginError(
+        f"Plugin {loaded.plugin.name!r} owns workflow file {target} but "
+        "does not declare it as a workflow"
+    )
 
 
 def collect_plugin_resources(

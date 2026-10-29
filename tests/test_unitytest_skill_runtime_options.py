@@ -34,12 +34,16 @@ from ucagent.util.functions import copytree_incremental
 
 CREATE_SCRIPT = (
     REPO_ROOT
-    / "ucagent/lang/zh/skills/unitytest/create-test-case-templates/scripts/createtemplate.py"
+    / "plugins/unitytest/src/unitytest_plugin/skills/create-test-case-templates/scripts/createtemplate.py"
 )
-CONFIG_PATH = REPO_ROOT / "ucagent/lang/zh/config/default.yaml"
-INC_CONFIG_PATH = REPO_ROOT / "ucagent/lang/zh/config/inc.yaml"
-VIBE_CONFIG_PATH = REPO_ROOT / "ucagent/lang/zh/config/vibe.yaml"
-SKILL_ROOT = REPO_ROOT / "ucagent/lang/zh/skills/unitytest"
+CONFIG_PATH = REPO_ROOT / "plugins/unitytest/src/unitytest_plugin/workflows/unitytest.yaml"
+INC_CONFIG_PATH = (
+    REPO_ROOT / "plugins/unitytest/src/unitytest_plugin/workflows/incremental.yaml"
+)
+VIBE_CONFIG_PATH = (
+    REPO_ROOT / "plugins/unitytest/src/unitytest_plugin/workflows/vibe.yaml"
+)
+SKILL_ROOT = REPO_ROOT / "plugins/unitytest/src/unitytest_plugin/skills"
 
 
 def _save_runtime_config_for_test(workspace):
@@ -232,27 +236,8 @@ def test_agent_runtime_config_persists_resolved_values_from_cfg(tmp_path):
         "runtime_options": {
             "need_ref_model": True,
             "mock_components_enabled": False,
-            "waveform_analysis_format_priority": ["fst", "vcd", "fsdb"],
         },
     }
-
-
-@pytest.mark.parametrize("invalid_key", ("need_ref_model", "mock_components_enabled"))
-def test_agent_runtime_config_rejects_non_boolean_options(tmp_path, invalid_key):
-    cfg = Config(
-        {
-            "runtime_options": {
-                "need_ref_model": True,
-                "mock_components_enabled": False,
-            },
-            "tools": {"RunTestCases": {"test_dir": "unity_test/tests"}},
-        }
-    )
-    setattr(cfg.runtime_options, invalid_key, "true")
-    cfg._temp_cfg = {"DUT": "Adder", "OUT": "unity_test"}
-
-    with pytest.raises(ValueError, match=rf"{invalid_key}.*boolean"):
-        save_runtime_config(str(tmp_path), cfg)
 
 
 @pytest.mark.parametrize("priority", [["fst", "vcd", "fsdb"], ["vcd"], ["fsdb", "vcd", "fst"]])
@@ -272,24 +257,54 @@ def test_runtime_config_persists_analysis_format_priority(tmp_path, priority):
 
 
 @pytest.mark.parametrize("priority", [[], "fst,vcd", [False], [".fst"], ["vcd", "vcd"]])
-def test_runtime_config_rejects_invalid_analysis_format_priorities(tmp_path, priority):
-    """Both writing and loading reject malformed waveform analysis configuration."""
+def test_runtime_config_keeps_malformed_analysis_format_priority_verbatim(
+    tmp_path, priority,
+):
+    """The framework snapshot no longer knows waveform formats verbatim; WaveInfo validates them at tool assembly."""
     cfg = Config({
         "runtime_options": {
             "need_ref_model": False, "mock_components_enabled": False,
+            "waveform_analysis_format_priority": priority,
         },
         "tools": {"RunTestCases": {"test_dir": "tests"}},
     })
     cfg._temp_cfg = {"DUT": "Demo", "OUT": "out"}
     path = save_runtime_config(str(tmp_path), cfg)
     snapshot = json.loads(path.read_text())
-    snapshot["runtime_options"]["waveform_analysis_format_priority"] = priority
-    path.write_text(json.dumps(snapshot))
-    with pytest.raises(ValueError, match="waveform_analysis_format_priority"):
-        load_runtime_config(str(tmp_path))
-    cfg.runtime_options.waveform_analysis_format_priority = priority
-    with pytest.raises(ValueError, match="waveform_analysis_format_priority"):
-        save_runtime_config(str(tmp_path), cfg)
+
+    assert snapshot["runtime_options"]["waveform_analysis_format_priority"] == priority
+    assert load_runtime_config(str(tmp_path)) == snapshot
+
+
+def test_runtime_config_allows_framework_only_config(tmp_path):
+    """A config with no test workflow and no runtime options still snapshots."""
+    cfg = Config({})
+    cfg._temp_cfg = {"DUT": "Adder", "OUT": "unity_test"}
+
+    path = save_runtime_config(str(tmp_path), cfg)
+    snapshot = json.loads(path.read_text(encoding="utf-8"))
+
+    assert snapshot == {
+        "schema_version": 1,
+        "DUT": "Adder",
+        "OUT": "unity_test",
+        "ucagent_python_path": str(REPO_ROOT),
+        "runtime_options": {},
+    }
+    assert load_runtime_config(str(tmp_path)) == snapshot
+
+
+def test_runtime_config_omits_test_output_dir_for_blank_test_dir(tmp_path):
+    """A blank declared test dir must not produce a blank snapshot entry."""
+    cfg = Config({"tools": {"RunTestCases": {"test_dir": "   "}}})
+    cfg._temp_cfg = {"DUT": "Adder", "OUT": "unity_test"}
+
+    path = save_runtime_config(str(tmp_path), cfg)
+    snapshot = json.loads(path.read_text(encoding="utf-8"))
+
+    assert "test_output_dir" not in snapshot
+    assert "current_test_report" not in snapshot
+    assert load_runtime_config(str(tmp_path)) == snapshot
 
 
 def test_template_script_reads_cfg_snapshot_instead_of_environment(
@@ -325,6 +340,32 @@ def test_template_script_reads_cfg_snapshot_instead_of_environment(
     }
 
 
+def test_runtime_config_rejects_test_report_without_test_dir(tmp_path):
+    runtime_path = tmp_path / ".ucagent" / "runtime_config.json"
+    runtime_path.parent.mkdir()
+    runtime_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "DUT": "Adder",
+                "OUT": "unity_test",
+                "ucagent_python_path": str(REPO_ROOT),
+                "current_test_report": ".ucagent/current_test_report.json",
+                "runtime_options": {
+                    "need_ref_model": False,
+                    "mock_components_enabled": True,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ValueError, match="'current_test_report' requires 'test_output_dir'"
+    ):
+        load_runtime_config(str(tmp_path))
+
+
 def test_runtime_config_requires_resolved_test_output_dir(tmp_path):
     runtime_path = tmp_path / ".ucagent" / "runtime_config.json"
     runtime_path.parent.mkdir()
@@ -334,6 +375,7 @@ def test_runtime_config_requires_resolved_test_output_dir(tmp_path):
                 "schema_version": 1,
                 "DUT": "Adder",
                 "OUT": "unity_test",
+                "test_output_dir": "   ",
                 "ucagent_python_path": str(REPO_ROOT),
                 "current_test_report": ".ucagent/current_test_report.json",
                 "runtime_options": {
@@ -430,7 +472,7 @@ def test_runtime_config_rejects_different_ucagent_installation(tmp_path):
         load_runtime_config(str(tmp_path))
 
 
-def test_runtime_config_build_requires_resolved_test_output_dir(tmp_path):
+def test_runtime_config_build_omits_test_report_without_test_dir(tmp_path):
     cfg = Config(
         {
             "runtime_options": {
@@ -441,8 +483,12 @@ def test_runtime_config_build_requires_resolved_test_output_dir(tmp_path):
     )
     cfg._temp_cfg = {"DUT": "Adder", "OUT": "unity_test"}
 
-    with pytest.raises(ValueError, match="RunTestCases.test_dir.*non-empty string"):
-        save_runtime_config(str(tmp_path), cfg)
+    path = save_runtime_config(str(tmp_path), cfg)
+    snapshot = json.loads(path.read_text(encoding="utf-8"))
+
+    assert "test_output_dir" not in snapshot
+    assert "current_test_report" not in snapshot
+    assert load_runtime_config(str(tmp_path)) == snapshot
 
 
 def test_runtime_config_excludes_unrelated_cfg_and_secrets(tmp_path):
@@ -511,9 +557,11 @@ def test_run_skill_script_imports_source_ucagent_without_external_pythonpath(
     cfg._temp_cfg = {"DUT": "Adder", "OUT": "unity_test"}
     save_runtime_config(str(tmp_path), cfg)
     copytree_incremental(
-        str(REPO_ROOT / "ucagent/lang/zh/skills"),
-        str(tmp_path / ".ucagent/skills"),
-        enable_skill_list=["unitytest/functions-and-checks"],
+        str(REPO_ROOT / "plugins/unitytest/src/unitytest_plugin/skills"),
+        str(tmp_path / ".ucagent/skills/ext/unitytest"),
+        # enable_skill_list matches source-relative skill dir names, not the
+        # ext/-prefixed workspace skill ids.
+        enable_skill_list=["functions-and-checks"],
     )
     output_dir = tmp_path / "unity_test"
     output_dir.mkdir()
@@ -525,7 +573,7 @@ def test_run_skill_script_imports_source_ucagent_without_external_pythonpath(
     monkeypatch.delenv("PYTHONPATH", raising=False)
 
     result = RunSkillScript(workspace=str(tmp_path))._run([[
-        "unitytest/functions-and-checks",
+        "ext/unitytest/functions-and-checks",
         "update.py",
         "-MODE FG -ITEMS '[{\"fg\":\"FG-API\",\"desc\":\"API behavior.\"}]'",
     ]])
@@ -632,6 +680,7 @@ def test_runtime_options_stay_internal_and_update_checker_contracts(monkeypatch)
     assert config["runtime_options"] == {
         "need_ref_model": True,
         "mock_components_enabled": True,
+        "waveform_analysis_format_priority": ["fst", "vcd", "fsdb"],
     }
 
     for stage in _iter_stages(config["stage"]):
@@ -788,7 +837,7 @@ def test_mock_stages_use_dedicated_skill_when_enabled(monkeypatch):
 
     for name in ("mock_design_and_implementation", "mock_fixture_implementation"):
         assert nested[name]["ignore"] is False
-        assert nested[name]["skill_list"] == ["unitytest/mock-components"]
+        assert nested[name]["skill_list"] == ["ext/unitytest/mock-components"]
 
     mock_parent = nested["mock_functional_test"]
     batch = next(
@@ -797,7 +846,7 @@ def test_mock_stages_use_dedicated_skill_when_enabled(monkeypatch):
         if stage["name"] == "test_mock_components_in_batch"
     )
     assert batch["ignore"] is False
-    assert batch["skill_list"] == ["unitytest/mock-components"]
+    assert batch["skill_list"] == ["ext/unitytest/mock-components"]
     checker_args = batch["checker"][0]["args"]
     assert checker_args["first_arg"] == "mock_dut"
 
@@ -863,31 +912,70 @@ def test_unitytest_skills_document_fixture_boundaries():
     assert "CMD API" not in static_skill
 
 
+def test_plugin_workflow_appends_mission_prompts_over_framework(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    plugin_config = tmp_path / "plugin-workflow.yaml"
+    plugin_config.write_text(
+        "mission:\n"
+        '  name: "{DUT}插件任务"\n'
+        "  prompt:\n"
+        "    system: |\n"
+        "      plugin domain part\n"
+        "    tips:\n"
+        '      always: ["plugin always"]\n'
+        '      random: ["plugin random"]\n',
+        encoding="utf-8",
+    )
+
+    # Layer-6 config_file replaces mission keys normally (append_keys applies
+    # to the workflow layer only), so use a mission-less file to keep the
+    # workflow layer's appended mission intact.
+    cfg = get_config(
+        config_file=str(REPO_ROOT / "ucagent/setting.yaml"),
+        workflow_config_file=str(plugin_config),
+    )
+
+    framework_system = load_yaml_with_env_vars(
+        str(REPO_ROOT / "ucagent/lang/zh/config/default.yaml")
+    )["mission"]["prompt"]["system"].rstrip("\n")
+
+    assert cfg.mission.name == "{DUT}插件任务"
+    assert cfg.mission.prompt.system.startswith(framework_system)
+    assert cfg.mission.prompt.system.endswith("plugin domain part\n")
+    assert "specification_expected" not in cfg.mission.prompt.system
+    assert "plugin always" in cfg.mission.prompt.tips.always
+    assert "plugin random" in cfg.mission.prompt.tips.random
+    assert "ref_model fixture" not in cfg.mission.prompt.tips.always
+
+
 def test_default_workflow_requires_stage_skills_by_default(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("NEED_REF_MODEL", "false")
     monkeypatch.setenv("IGNORE_MOCK_COMPONENT", "true")
     cfg = get_config(config_file=str(CONFIG_PATH))
     config = load_yaml_with_env_vars(str(CONFIG_PATH))
+    framework_system = load_yaml_with_env_vars(
+        str(REPO_ROOT / "ucagent/lang/zh/config/default.yaml")
+    )["mission"]["prompt"]["system"]
     stages = _stage_map(config)
 
     assert cfg.skill.use_skill is True
     assert cfg.launch.default_args.use_skill is True
     assert cfg.skill.general_skill_list == [
-        "unitytest/dynamic-bug-recording"
+        "ext/unitytest/dynamic-bug-recording"
     ]
-    assert "只有Skill启用且当前stage实际配置了非空`skill_list`时" in config["mission"]["prompt"]["system"]
-    assert "未配置`skill_list`或其为空时，不调用`SetSkillUsage`" in config["mission"]["prompt"]["system"]
-    assert "`general_skill_list`中的通用Skill始终可选" in config["mission"]["prompt"]["system"]
-    assert "不能把“脚本可选”误解为整个Skill可跳过" in config["mission"]["prompt"]["system"]
-    assert "只有需要删除大量完整文本行时" in config["mission"]["prompt"]["system"]
+    assert "只有Skill启用且当前stage实际配置了非空`skill_list`时" in framework_system
+    assert "未配置`skill_list`或其为空时，不调用`SetSkillUsage`" in framework_system
+    assert "`general_skill_list`中的通用Skill始终可选" in framework_system
+    assert "不能把“脚本可选”误解为整个Skill可跳过" in framework_system
+    assert "只有需要删除大量完整文本行时" in framework_system
     assert (
         "DeleteTextLines(path, line_blocks, expected_sha256)"
-        in config["mission"]["prompt"]["system"]
+        in framework_system
     )
     assert (
         "重新读取缩短后的文件后用`ReplaceStringInFile`"
-        in config["mission"]["prompt"]["system"]
+        in framework_system
     )
     assert all(
         "force_use_skill" not in stage
@@ -921,10 +1009,10 @@ def test_default_workflow_requires_stage_skills_by_default(tmp_path, monkeypatch
     assert "对已有静态报告使用ReplaceStringInFile" in validation_task
     assert "ReplaceStringInFile或EditTextFile" not in validation_task
     assert batch_stage["skill_list"] == [
-        "unitytest/test-case-implementation-in-batch"
+        "ext/unitytest/test-case-implementation-in-batch"
     ]
     assert stages["static_bug_validation"]["skill_list"] == [
-        "unitytest/static-bug-validation"
+        "ext/unitytest/static-bug-validation"
     ]
     for stage_name in (
         "basic_api_functional_test",
@@ -1060,13 +1148,13 @@ def test_dynamic_bug_general_skill_hook_targets_only_bug_document_stages(tmp_pat
     source = SKILL_ROOT / "dynamic-bug-recording"
     destination = (
         tmp_path
-        / ".ucagent/skills/unitytest/dynamic-bug-recording"
+        / ".ucagent/skills/ext/unitytest/dynamic-bug-recording"
     )
     copytree_incremental(str(source), str(destination))
     cfg = SimpleNamespace(
         skill=SimpleNamespace(
             use_skill=True,
-            general_skill_list=["unitytest/dynamic-bug-recording"],
+            general_skill_list=["ext/unitytest/dynamic-bug-recording"],
         ),
         _temp_cfg={"OUT": "unity_test", "DUT": "Adder"},
         hist_ignore_pattern=[],
@@ -1192,28 +1280,28 @@ def test_all_default_workflow_skills_keep_scripts_optional():
     assert '<file sha256="CURRENT_SHA256">' in skill_docs["static-bug-analysis"]
     assert "ucagent_python_path" in skill_docs["functions-and-checks"]
     assert "python3 script" not in skill_docs["functions-and-checks"]
-    assert '["unitytest/functions-and-checks", "update.py"' in skill_docs[
+    assert '["ext/unitytest/functions-and-checks", "update.py"' in skill_docs[
         "functions-and-checks"
     ]
-    assert "unitytest/dynamic-bug-recording" in skill_docs[
+    assert "ext/unitytest/dynamic-bug-recording" in skill_docs[
         "test-case-implementation-in-batch"
     ]
-    assert "unitytest/dynamic-bug-recording" in skill_docs[
+    assert "ext/unitytest/dynamic-bug-recording" in skill_docs[
         "static-bug-validation"
     ]
 
 
 def test_shared_dynamic_bug_skill_is_copied_and_discoverable(tmp_path):
-    source_root = REPO_ROOT / "ucagent/lang/zh/skills"
-    workspace_skill_root = tmp_path / ".ucagent/skills"
+    source_root = REPO_ROOT / "plugins/unitytest/src/unitytest_plugin/skills"
+    workspace_skill_root = tmp_path / ".ucagent/skills/ext/unitytest"
 
     copytree_incremental(str(source_root), str(workspace_skill_root))
     skills = {skill["name"]: skill for skill in _scan_skills(str(tmp_path))}
 
-    assert "unitytest/dynamic-bug-recording" in skills
-    assert skills["unitytest/dynamic-bug-recording"]["script"] == {
+    assert "ext/unitytest/dynamic-bug-recording" in skills
+    assert skills["ext/unitytest/dynamic-bug-recording"]["script"] == {
         "record_dynamic_bug.py": (
-            ".ucagent/skills/unitytest/dynamic-bug-recording/"
+            ".ucagent/skills/ext/unitytest/dynamic-bug-recording/"
             "scripts/record_dynamic_bug.py"
         )
     }

@@ -14,12 +14,20 @@ import pytest
 import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(
+    0, str(Path(__file__).resolve().parents[1] / "plugins/unitytest/src")
+)
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "plugins/common/src"))
 
-from ucagent.tools import ApplyWaveInfoEvidence, ReviewWaveInfoEvidenceBatch, WaveInfo
-from ucagent.tools import waveform as waveform_module
+from unitytest_plugin.waveform import (
+    ApplyWaveInfoEvidence,
+    ReviewWaveInfoEvidenceBatch,
+    WaveInfo,
+)
+from unitytest_plugin import waveform as waveform_module
 from ucagent.util import waveform_formats
 from ucagent.tools.uctool import to_mcp_tool
-from ucagent.util.bug_analysis_contract import (
+from ucagent_common.bug_analysis_contract import (
     BUG_TODO_MARKER,
     test_case_identity_relation as _test_case_identity_relation,
     test_case_parent as _test_case_parent,
@@ -850,7 +858,7 @@ def test_registered_reader_participates_in_discovery_analysis_and_cleanup(tmp_pa
     """A new extension must work through the public registration API without core edits."""
     from contextlib import contextmanager
     import wavekit
-    from ucagent.tools import register_waveform_reader
+    from ucagent.util.waveform_formats import register_waveform_reader
 
     monkeypatch.setattr(waveform_formats, "_READERS", dict(waveform_formats._READERS))
     calls = []
@@ -891,7 +899,7 @@ def test_invalid_analysis_format_priority_is_rejected(priority):
 
 def test_reader_registration_rejects_duplicates_and_invalid_factories():
     """Reader registration must not replace existing formats or accept invalid factories."""
-    from ucagent.tools import register_waveform_reader
+    from ucagent.util.waveform_formats import register_waveform_reader
 
     with pytest.raises(ValueError, match="already registered"):
         register_waveform_reader("fst", lambda path: None)

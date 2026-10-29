@@ -6,7 +6,7 @@ import ast
 import sys
 import traceback
 
-from ucagent.checkers.base import Checker, UnityChipBatchTask
+from ucagent.checkers.base import Checker, BatchTask
 from ucagent.util.log import error
 
 from ..contracts import atomic_json, diagnostic, no_improvement_patience, optimization_limits
@@ -40,7 +40,7 @@ class RepoModuleChecker(Checker):
             raise ValueError("Invalid repository-module phase")
         self.phase = phase
         self.batch_size = 1
-        self.batch = UnityChipBatchTask("repo_variants", self) if phase == "candidates" else None
+        self.batch = BatchTask("repo_variants", self) if phase == "candidates" else None
 
     def do_check(self, is_complete=False, **kwargs):
         """Validate the current phase; never count authored claims as measured completion."""
