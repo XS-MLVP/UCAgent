@@ -208,7 +208,7 @@ backpressure 或 pipeline CK 使用真实 post-`RefreshComb`/post-`Step` 观察�
 latency CK 使用同一 response 中的 `accepted_at`、`response_at` 与 `latency_cycles`。不能把
 transaction ID 大小、奇偶、时间戳存在性或无关 precision 分区当成功能差异。
 空模板保留占位断言；进入实现阶段后必须删除占位并添加独立
-expected 与真实断言。随机测试必须固定 seed、调用 `ucagent.repeat_count()`，只
+expected 与真实断言。随机测试必须固定 seed、调用 `test_utils.repeat_count()`，只
 `mark_function` 其采样能实际命中的 CK；不适合随机化的 CK 在 `stage_args.generated`
 中给出具体原因，且不要在随机测试中 `mark_function` 这些 CK。
 

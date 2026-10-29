@@ -6,10 +6,12 @@ import sys
 
 import yaml
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "plugins/unitytest/src"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "plugins/common/src"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from ucagent.checkers.toffee_report import check_dynamic_bug_analysis_content
-from ucagent.util.bug_analysis_contract import (
+from unitytest_plugin.checkers.toffee_report import check_dynamic_bug_analysis_content
+from ucagent_common.bug_analysis_contract import (
     DYNAMIC_BUG_DOCUMENT_PATH,
     TEST_CASE_SERIALIZATION,
 )
@@ -19,9 +21,14 @@ from ucagent.util.config import Config, load_yaml_with_env_vars
 def test_runtime_waveform_guidance_does_not_require_backend_or_format_knowledge():
     """Guides and optional skills must teach public actions rather than waveform setup."""
     language_root = Path(__file__).parents[1] / "ucagent/lang/zh"
-    sources = [language_root / "config/default.yaml"]
-    for directory in ("doc/Guide_Doc", "template", "skills"):
-        sources.extend((language_root / directory).rglob("*.md"))
+    plugin_root = Path(__file__).parents[1] / "plugins/unitytest"
+    sources = [
+        language_root / "config/default.yaml",
+        plugin_root / "config/unitytest.yaml",
+    ]
+    for root in (language_root, plugin_root):
+        for directory in ("doc/Guide_Doc", "template", "skills"):
+            sources.extend((root / directory).rglob("*.md"))
     internal_terms = re.compile(
         r"\b(?:wavekit|verdi|libnpi|waveform_analysis_format_priority)\b"
         r"|(?<!\.)\b(?:fst|vcd|fsdb)\b",
@@ -35,7 +42,7 @@ def test_runtime_waveform_guidance_does_not_require_backend_or_format_knowledge(
 def test_api_test_prompt_and_guide_require_api_checkpoint_association():
     repo_root = Path(__file__).parents[1]
     config = load_yaml_with_env_vars(
-        str(repo_root / "ucagent/lang/zh/config/default.yaml")
+        str(repo_root / "plugins/unitytest/src/unitytest_plugin/workflows/unitytest.yaml")
     )
     stage = next(
         item for item in config["stage"]
@@ -47,7 +54,7 @@ def test_api_test_prompt_and_guide_require_api_checkpoint_association():
         if item["clss"] == "UnityChipCheckerDutApiTest"
     )
     guide = (
-        repo_root / "ucagent/lang/zh/doc/Guide_Doc/dut_api_instruction.md"
+        repo_root / "plugins/unitytest/src/unitytest_plugin/Guide_Doc/dut_api_instruction.md"
     ).read_text(encoding="utf-8")
 
     assert "每个API测试函数都必须在函数开头添加对应API分组CK" in task
@@ -71,10 +78,13 @@ def test_api_test_prompt_and_guide_require_api_checkpoint_association():
 
 def test_default_prompt_requires_waveinfo_for_dynamic_bugs():
     config_path = (
-        Path(__file__).parents[1] / "ucagent/lang/zh/config/default.yaml"
+        Path(__file__).parents[1] / "plugins/unitytest/src/unitytest_plugin/workflows/unitytest.yaml"
     )
     config = load_yaml_with_env_vars(str(config_path))
     system_prompt = config["mission"]["prompt"]["system"]
+    framework_prompt = load_yaml_with_env_vars(
+        str(Path(__file__).parents[1] / "ucagent/lang/zh/config/default.yaml")
+    )["mission"]["prompt"]["system"]
     parent_stage = next(
         stage
         for stage in config["stage"]
@@ -113,9 +123,9 @@ def test_default_prompt_requires_waveinfo_for_dynamic_bugs():
     assert "优先怀疑是芯片设计问题" not in system_prompt
     assert "不要急于修改测试" not in parent_task
     assert "每个Fail TC都不预设责任方" in system_prompt
-    assert "progress_summary.status: batch_advanced" in system_prompt
-    assert "不是验证失败" in system_prompt
-    assert "不得把`check_pass: false`单独解释为验证失败" in system_prompt
+    assert "progress_summary.status: batch_advanced" in framework_prompt
+    assert "不是验证失败" in framework_prompt
+    assert "不得把`check_pass: false`单独解释为验证失败" in framework_prompt
     assert "specification_expected" in system_prompt
     assert "精确input、specification_expected、测试代码中的test_expected、DUT actual和classification" in system_prompt
     assert "禁止调用WaveInfo或记录Bug" in system_prompt
@@ -298,7 +308,7 @@ def test_default_prompt_requires_waveinfo_for_dynamic_bugs():
 def test_dynamic_bug_target_tc_forms_and_no_bug_result_are_consistent():
     repo_root = Path(__file__).parents[1]
     config = load_yaml_with_env_vars(
-        str(repo_root / "ucagent/lang/zh/config/default.yaml")
+        str(repo_root / "plugins/unitytest/src/unitytest_plugin/workflows/unitytest.yaml")
     )
     system_prompt = config["mission"]["prompt"]["system"]
     parent_stage = next(
@@ -313,7 +323,7 @@ def test_dynamic_bug_target_tc_forms_and_no_bug_result_are_consistent():
     )
     batch_task = "\n".join(str(item) for item in batch_stage["task"])
     guide = (
-        repo_root / "ucagent/lang/zh/doc/Guide_Doc/dut_bug_analysis.md"
+        repo_root / "plugins/unitytest/src/unitytest_plugin/Guide_Doc/dut_bug_analysis.md"
     ).read_text(encoding="utf-8")
     skill_paths = (
         "dynamic-bug-recording/SKILL.md",
@@ -323,12 +333,12 @@ def test_dynamic_bug_target_tc_forms_and_no_bug_result_are_consistent():
     skills = [
         (
             repo_root
-            / "ucagent/lang/zh/skills/unitytest"
+            / "plugins/unitytest/src/unitytest_plugin/skills"
             / relative_path
         ).read_text(encoding="utf-8")
         for relative_path in skill_paths
     ]
-    from ucagent.util.functions import description_bug_doc
+    from unitytest_plugin.checkers.descriptions import description_bug_doc
 
     checker_help = "\n".join(description_bug_doc())
 
@@ -370,7 +380,7 @@ def test_dynamic_bug_target_tc_forms_and_no_bug_result_are_consistent():
 def test_partial_test_report_contract_is_consistent_across_runtime_guidance():
     repo_root = Path(__file__).parents[1]
     config = load_yaml_with_env_vars(
-        str(repo_root / "ucagent/lang/zh/config/default.yaml")
+        str(repo_root / "plugins/unitytest/src/unitytest_plugin/workflows/unitytest.yaml")
     )
     random_stage = next(
         stage for stage in config["stage"]
@@ -378,11 +388,11 @@ def test_partial_test_report_contract_is_consistent_across_runtime_guidance():
     )
     random_task = "\n".join(str(item) for item in random_stage["task"])
     guide = (
-        repo_root / "ucagent/lang/zh/doc/Guide_Doc/dut_bug_analysis.md"
+        repo_root / "plugins/unitytest/src/unitytest_plugin/Guide_Doc/dut_bug_analysis.md"
     ).read_text(encoding="utf-8")
     skill = (
         repo_root
-        / "ucagent/lang/zh/skills/unitytest/dynamic-bug-recording/SKILL.md"
+        / "plugins/unitytest/src/unitytest_plugin/skills/dynamic-bug-recording/SKILL.md"
     ).read_text(encoding="utf-8")
 
     for text in (random_task, guide, skill):
@@ -400,7 +410,7 @@ def test_partial_test_report_contract_is_consistent_across_runtime_guidance():
 
 def test_system_prompt_distinguishes_infrastructure_and_dut_bug_failures():
     config_path = (
-        Path(__file__).parents[1] / "ucagent/lang/zh/config/default.yaml"
+        Path(__file__).parents[1] / "plugins/unitytest/src/unitytest_plugin/workflows/unitytest.yaml"
     )
     config = load_yaml_with_env_vars(str(config_path))
     system_prompt = config["mission"]["prompt"]["system"]
@@ -420,28 +430,28 @@ def test_system_prompt_distinguishes_infrastructure_and_dut_bug_failures():
 def test_fixture_guidance_is_consistent_across_runtime_docs_and_skills():
     root = Path(__file__).parents[1]
     template_guide = (
-        root / "ucagent/lang/zh/doc/Guide_Doc/dut_test_template.md"
+        root / "plugins/unitytest/src/unitytest_plugin/Guide_Doc/dut_test_template.md"
     ).read_text(encoding="utf-8")
     fixture_guide = (
-        root / "ucagent/lang/zh/doc/Guide_Doc/dut_fixture.md"
+        root / "plugins/unitytest/src/unitytest_plugin/Guide_Doc/dut_fixture.md"
     ).read_text(encoding="utf-8")
     test_case_guide = (
-        root / "ucagent/lang/zh/doc/Guide_Doc/dut_test_case.md"
+        root / "plugins/unitytest/src/unitytest_plugin/Guide_Doc/dut_test_case.md"
     ).read_text(encoding="utf-8")
     create_skill = (
         root
-        / "ucagent/lang/zh/skills/unitytest/create-test-case-templates/SKILL.md"
+        / "plugins/unitytest/src/unitytest_plugin/skills/create-test-case-templates/SKILL.md"
     ).read_text(encoding="utf-8")
     implementation_skill = (
         root
-        / "ucagent/lang/zh/skills/unitytest/test-case-implementation-in-batch/SKILL.md"
+        / "plugins/unitytest/src/unitytest_plugin/skills/test-case-implementation-in-batch/SKILL.md"
     ).read_text(encoding="utf-8")
     static_skill = (
         root
-        / "ucagent/lang/zh/skills/unitytest/static-bug-validation/SKILL.md"
+        / "plugins/unitytest/src/unitytest_plugin/skills/static-bug-validation/SKILL.md"
     ).read_text(encoding="utf-8")
     api_template = (
-        root / "ucagent/lang/zh/template/unity_test/tests/{{DUT}}_api.py"
+        root / "plugins/unitytest/src/unitytest_plugin/templates/unity_test/tests/{{DUT}}_api.py"
     ).read_text(encoding="utf-8")
 
     for document in (
@@ -467,7 +477,10 @@ def test_fixture_guidance_is_consistent_across_runtime_docs_and_skills():
     assert "删除覆盖组/fc_cover绑定" in api_template
 
     inc_config = load_yaml_with_env_vars(
-        str(root / "ucagent/lang/zh/config/inc.yaml")
+        str(
+            root
+            / "plugins/unitytest/src/unitytest_plugin/workflows/incremental.yaml"
+        )
     )
     inc_stages = {stage["name"]: stage for stage in inc_config["stage"]}
     update_api_task = "\n".join(
@@ -477,14 +490,14 @@ def test_fixture_guidance_is_consistent_across_runtime_docs_and_skills():
         str(item) for item in inc_stages["update_env_and_api_test"]["task"]
     )
     assert "没有需求变更时不要重写已提供模板" in update_api_task
-    assert "必须保留ucagent.is_imp_test_template()下的fake DUT路径" in update_api_task
+    assert "必须保留test_utils.is_imp_test_template()下的fake DUT路径" in update_api_task
     assert "最早traceback明确证明API/fixture实现本身有缺陷" in update_api_test_task
 
 
 def test_current_replay_contract_is_synchronized_across_runtime_guidance():
     repo_root = Path(__file__).parents[1]
     config = load_yaml_with_env_vars(
-        str(repo_root / "ucagent/lang/zh/config/default.yaml")
+        str(repo_root / "plugins/unitytest/src/unitytest_plugin/workflows/unitytest.yaml")
     )
     final_stage = next(
         stage for stage in config["stage"]
@@ -492,11 +505,11 @@ def test_current_replay_contract_is_synchronized_across_runtime_guidance():
     )
     final_task = "\n".join(str(item) for item in final_stage["task"])
     guide = (
-        repo_root / "ucagent/lang/zh/doc/Guide_Doc/dut_bug_analysis.md"
+        repo_root / "plugins/unitytest/src/unitytest_plugin/Guide_Doc/dut_bug_analysis.md"
     ).read_text(encoding="utf-8")
     implementation_skill = (
         repo_root
-        / "ucagent/lang/zh/skills/unitytest/test-case-implementation-in-batch/SKILL.md"
+        / "plugins/unitytest/src/unitytest_plugin/skills/test-case-implementation-in-batch/SKILL.md"
     ).read_text(encoding="utf-8")
 
     assert "语义指纹不变的全部当前机器字段由Checker一次原子刷新" in final_task
@@ -511,7 +524,7 @@ def test_current_replay_contract_is_synchronized_across_runtime_guidance():
 def test_bug_analysis_guide_distinguishes_mcp_sentinels_and_evidence_windows():
     guide_path = (
         Path(__file__).parents[1]
-        / "ucagent/lang/zh/doc/Guide_Doc/dut_bug_analysis.md"
+        / "plugins/unitytest/src/unitytest_plugin/Guide_Doc/dut_bug_analysis.md"
     )
     guide = guide_path.read_text(encoding="utf-8")
 
@@ -581,15 +594,15 @@ def test_bug_analysis_guide_distinguishes_mcp_sentinels_and_evidence_windows():
 
     implementation_skill = (
         Path(__file__).parents[1]
-        / "ucagent/lang/zh/skills/unitytest/test-case-implementation-in-batch/SKILL.md"
+        / "plugins/unitytest/src/unitytest_plugin/skills/test-case-implementation-in-batch/SKILL.md"
     ).read_text(encoding="utf-8")
     static_skill = (
         Path(__file__).parents[1]
-        / "ucagent/lang/zh/skills/unitytest/static-bug-validation/SKILL.md"
+        / "plugins/unitytest/src/unitytest_plugin/skills/static-bug-validation/SKILL.md"
     ).read_text(encoding="utf-8")
     dynamic_bug_skill = (
         Path(__file__).parents[1]
-        / "ucagent/lang/zh/skills/unitytest/dynamic-bug-recording/SKILL.md"
+        / "plugins/unitytest/src/unitytest_plugin/skills/dynamic-bug-recording/SKILL.md"
     ).read_text(encoding="utf-8")
     for skill in (implementation_skill, static_skill):
         assert "完整`signal_groups`" in skill
@@ -636,7 +649,7 @@ def test_bug_analysis_guide_distinguishes_mcp_sentinels_and_evidence_windows():
 
 
 def test_bug_document_error_help_uses_current_machine_contract():
-    from ucagent.util.functions import description_bug_doc
+    from unitytest_plugin.checkers.descriptions import description_bug_doc
 
     help_text = "\n".join(description_bug_doc())
 
@@ -724,7 +737,7 @@ def test_bug_document_error_help_uses_current_machine_contract():
 def test_bug_analysis_guide_examples_link_tests_to_central_waveform_records():
     guide_path = (
         Path(__file__).parents[1]
-        / "ucagent/lang/zh/doc/Guide_Doc/dut_bug_analysis.md"
+        / "plugins/unitytest/src/unitytest_plugin/Guide_Doc/dut_bug_analysis.md"
     )
     guide = guide_path.read_text(encoding="utf-8")
     assert "每个 BG/TC 紧随精确`<WAVEFORM-REF>`" in guide
@@ -742,7 +755,7 @@ def test_bug_analysis_guide_examples_link_tests_to_central_waveform_records():
 def test_bug_analysis_guide_documents_all_checker_markers_and_colocates_analysis():
     guide_path = (
         Path(__file__).parents[1]
-        / "ucagent/lang/zh/doc/Guide_Doc/dut_bug_analysis.md"
+        / "plugins/unitytest/src/unitytest_plugin/Guide_Doc/dut_bug_analysis.md"
     )
     guide = guide_path.read_text(encoding="utf-8")
 
@@ -799,7 +812,7 @@ def test_bug_analysis_guide_documents_all_checker_markers_and_colocates_analysis
 def test_bug_analysis_guide_examples_embed_annotated_source_after_overview():
     guide_path = (
         Path(__file__).parents[1]
-        / "ucagent/lang/zh/doc/Guide_Doc/dut_bug_analysis.md"
+        / "plugins/unitytest/src/unitytest_plugin/Guide_Doc/dut_bug_analysis.md"
     )
     guide = guide_path.read_text(encoding="utf-8")
     assert guide.index("<BUG-OVERVIEW>") < guide.index("<ROOT-SOURCE-EVIDENCE>")
@@ -812,7 +825,7 @@ def test_bug_analysis_guide_examples_embed_annotated_source_after_overview():
 def test_dynamic_bug_template_has_canonical_root_cause_section():
     template_path = (
         Path(__file__).parents[1]
-        / "ucagent/lang/zh/template/unity_test/{{DUT}}_bug_analysis.md"
+        / "plugins/unitytest/src/unitytest_plugin/templates/unity_test/{{DUT}}_bug_analysis.md"
     )
     template = template_path.read_text(encoding="utf-8")
 
@@ -829,7 +842,7 @@ def test_dynamic_bug_template_has_canonical_root_cause_section():
 def test_bug_analysis_guide_requires_scaffold_completion_with_or_without_skill():
     guide_path = (
         Path(__file__).parents[1]
-        / "ucagent/lang/zh/doc/Guide_Doc/dut_bug_analysis.md"
+        / "plugins/unitytest/src/unitytest_plugin/Guide_Doc/dut_bug_analysis.md"
     )
     guide = guide_path.read_text(encoding="utf-8")
 
@@ -864,7 +877,7 @@ def test_bug_analysis_guide_requires_scaffold_completion_with_or_without_skill()
     assert "任何非零 BG 或 ROOT 残留`<BUG-TODO>`都不能完成阶段" in guide
 
     config = load_yaml_with_env_vars(
-        str(Path(__file__).parents[1] / "ucagent/lang/zh/config/default.yaml")
+        str(Path(__file__).parents[1] / "plugins/unitytest/src/unitytest_plugin/workflows/unitytest.yaml")
     )
     rendered_config = str(config)
     assert "Guide第5.1节" not in rendered_config
@@ -875,7 +888,7 @@ def test_bug_analysis_guide_requires_scaffold_completion_with_or_without_skill()
         "static-bug-validation/SKILL.md",
         "test-case-implementation-in-batch/SKILL.md",
     )
-    skill_root = Path(__file__).parents[1] / "ucagent/lang/zh/skills/unitytest"
+    skill_root = Path(__file__).parents[1] / "plugins/unitytest/src/unitytest_plugin/skills"
     for relative_path in skill_paths:
         skill_text = (skill_root / relative_path).read_text(encoding="utf-8")
         assert "Guide_Doc/dut_bug_analysis.md中的第" in skill_text
@@ -886,7 +899,7 @@ def test_bug_analysis_guide_requires_scaffold_completion_with_or_without_skill()
 def test_bug_analysis_guide_scaffold_shows_multi_child_hierarchy():
     guide = (
         Path(__file__).parents[1]
-        / "ucagent/lang/zh/doc/Guide_Doc/dut_bug_analysis.md"
+        / "plugins/unitytest/src/unitytest_plugin/Guide_Doc/dut_bug_analysis.md"
     ).read_text(encoding="utf-8")
     hierarchy = guide.split("#### 5.2.1 多分支层次骨架", 1)[1].split(
         "#### 5.2.2 单个 BG 的完整字段骨架", 1
@@ -926,7 +939,7 @@ def test_bug_analysis_guide_places_fields_after_all_tests():
     repo_root = Path(__file__).parents[1]
     guide = (
         repo_root
-        / "ucagent/lang/zh/doc/Guide_Doc/dut_bug_analysis.md"
+        / "plugins/unitytest/src/unitytest_plugin/Guide_Doc/dut_bug_analysis.md"
     ).read_text(encoding="utf-8")
     agent_rules = (repo_root / "AGENTS.md").read_text(encoding="utf-8")
     scaffold = guide.split("#### 5.2.2 单个 BG 的完整字段骨架", 1)[1].split(
@@ -946,7 +959,7 @@ def test_bug_analysis_guide_places_fields_after_all_tests():
 def test_bug_analysis_guide_canonical_example_is_checker_valid(tmp_path):
     guide = (
         Path(__file__).parents[1]
-        / "ucagent/lang/zh/doc/Guide_Doc/dut_bug_analysis.md"
+        / "plugins/unitytest/src/unitytest_plugin/Guide_Doc/dut_bug_analysis.md"
     ).read_text(encoding="utf-8")
     section_start = guide.index("### 5.1 完整标准案例")
     fence_start = guide.index("`````markdown\n", section_start) + len(
@@ -1037,7 +1050,7 @@ def test_bug_analysis_guide_canonical_example_is_checker_valid(tmp_path):
 
 def test_dynamic_test_classification_precedes_global_waveform_sweep():
     config_path = (
-        Path(__file__).parents[1] / "ucagent/lang/zh/config/default.yaml"
+        Path(__file__).parents[1] / "plugins/unitytest/src/unitytest_plugin/workflows/unitytest.yaml"
     )
     config = load_yaml_with_env_vars(str(config_path))
 

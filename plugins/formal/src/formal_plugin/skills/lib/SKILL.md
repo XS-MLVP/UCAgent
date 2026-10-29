@@ -1,0 +1,14 @@
+---
+name: lib
+description: Internal support skill for the formal verification plugin. This folder carries shared Python helpers and templates used by other formal skills and is not intended for direct user invocation.
+---
+
+# Formal Shared Library
+
+Markdown formatting contract: every generated ATX heading (`#` through `######`) is surrounded by a blank line. Every heading must have a preceding blank line, including the first line of a document or Markdown example and a heading after a machine anchor `<a id="..."></a>`. A paragraph, list, table, nested heading, opening/closing fence, or anchor must not directly precede a heading. Machine field markers may remain immediately after their field headings.
+
+This is an internal packaging skill.
+
+It exists so the workspace skill copy step includes this directory and makes the shared helpers under `ext/formal/lib/` available to the other formal skills.
+
+Do not select this skill for standalone task execution unless you are specifically maintaining the shared formal helper library.

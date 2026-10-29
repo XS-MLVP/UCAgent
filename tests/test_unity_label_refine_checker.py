@@ -8,8 +8,9 @@ from types import SimpleNamespace
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.abspath(os.path.join(current_dir, "..")))
+sys.path.insert(0, os.path.abspath(os.path.join(current_dir, "..", "plugins", "unitytest", "src")))
 
-from ucagent.checkers.unity_test import UnityChipCheckerLabelStructureRefine
+from unitytest_plugin.checkers import UnityChipCheckerLabelStructureRefine
 
 
 class _FakeStageManager:

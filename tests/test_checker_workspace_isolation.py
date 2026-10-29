@@ -2,15 +2,20 @@
 
 import os
 import sys
+from pathlib import Path
 from types import SimpleNamespace
 
-from ucagent.checkers.unity_test import (
-    UnityChipCheckerBundleWrapper,
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "plugins/unitytest/src"))
+
+from unitytest_plugin.checkers.unity_test import (
     UnityChipCheckerCoverageGroup,
     UnityChipCheckerDutApi,
     UnityChipCheckerDutApiTest,
-    UnityChipCheckerDutCreation,
     UnityChipCheckerDutFixture,
+)
+from unitytest_plugin.checkers import (
+    UnityChipCheckerBundleWrapper,
+    UnityChipCheckerDutCreation,
     UnityChipCheckerMockComponent,
 )
 
@@ -34,8 +39,8 @@ def test_static_checkers_do_not_execute_workspace_modules(tmp_path, monkeypatch)
         "        return cycles\n\n"
         "def create_dut(request):\n"
         "    get_coverage_data_path(request, dut, new_path=True)\n"
-        "    if ucagent.is_imp_test_template():\n"
-        "        return ucagent.get_fake_dut(DUTDemo)\n"
+        "    if test_utils.is_imp_test_template():\n"
+        "        return test_utils.get_fake_dut(DUTDemo)\n"
         "    return DUTDemo()\n\n"
         "@pytest.fixture(scope='function')\n"
         "def dut(request):\n"

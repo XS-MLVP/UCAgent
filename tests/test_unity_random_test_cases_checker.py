@@ -9,8 +9,9 @@ from types import SimpleNamespace
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.abspath(os.path.join(current_dir, "..")))
+sys.path.insert(0, os.path.abspath(os.path.join(current_dir, "..", "plugins/unitytest/src")))
 
-from ucagent.checkers.unity_test_random import RandomTestCasesChecker
+from unitytest_plugin.checkers.unity_test_random import RandomTestCasesChecker
 from ucagent.util.config import load_yaml_with_env_vars
 
 
@@ -130,10 +131,10 @@ def test_random_test_checker_rejects_mark_function_in_comment(tmp_path):
     test_file = tmp_path / "tests" / "test_random_comment.py"
     test_file.write_text(
         "\n".join([
-            "import ucagent",
+            "from ucagent_common import test_utils",
             "",
             "def test_random_comment(env):",
-            "    ucagent.repeat_count(1)",
+            "    test_utils.repeat_count(1)",
             "    # env.cover.mark_function('FC-A', test_random_comment, ['CK-A'])",
             "    assert True",
         ]),
@@ -147,7 +148,7 @@ def test_random_test_checker_rejects_mark_function_in_comment(tmp_path):
 
 
 def test_random_test_checker_requires_get_seed_snippet(tmp_path):
-    """Random tests must obtain their seed through ucagent.get_seed."""
+    """Random tests must obtain their seed through test_utils.get_seed."""
     checker, _manager = _make_checker(
         tmp_path,
         [("FG-A", "FC-A", "CK-A")],
@@ -155,10 +156,10 @@ def test_random_test_checker_requires_get_seed_snippet(tmp_path):
     test_file = tmp_path / "tests" / "test_random_no_seed.py"
     test_file.write_text(
         "\n".join([
-            "import ucagent",
+            "from ucagent_common import test_utils",
             "",
             "def test_random_no_seed(env):",
-            "    ucagent.repeat_count()",
+            "    test_utils.repeat_count()",
             "    env.cover.mark_function('FC-A', test_random_no_seed, ['CK-A'])",
             "    import random",
             "    random.seed(1234)",
@@ -170,7 +171,7 @@ def test_random_test_checker_requires_get_seed_snippet(tmp_path):
     passed, message = checker.test_check()
 
     assert passed is False
-    assert "ucagent.get_seed" in message["error"]
+    assert "test_utils.get_seed" in message["error"]
 
 
 def test_random_test_cases_requires_generated_argument_with_check_example(tmp_path):
@@ -331,7 +332,7 @@ def test_random_test_cases_complete_rejects_nested_json_string(tmp_path):
 def test_random_test_stage_documents_unified_stage_args_fallback():
     repo_root = os.path.abspath(os.path.join(current_dir, ".."))
     config = load_yaml_with_env_vars(
-        os.path.join(repo_root, "ucagent/lang/zh/config/default.yaml")
+        os.path.join(repo_root, "plugins/unitytest/src/unitytest_plugin/workflows/unitytest.yaml")
     )
     stage = next(
         stage for stage in config["stage"]

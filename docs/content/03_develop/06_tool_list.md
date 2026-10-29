@@ -48,7 +48,6 @@
 | 工具 | 用途 |
 | --- | --- |
 | `RunPyTest` | 运行 Python 测试，可提供 pytest 参数和超时，并选择返回 stdout/stderr |
-| `RunUnityChipTest` | 运行 UnityChip/toffee 测试并生成相应报告 |
 | `RunTestCases` | 运行阶段支持的测试用例集合 |
 | `RunBashCommand` | 在工作区执行 Bash 命令；默认被工具过滤配置忽略 |
 | `WorkDiff` / `WorkCommit` | 查看 Git 工作区差异或提交允许的文件；默认被忽略 |

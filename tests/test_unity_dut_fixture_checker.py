@@ -6,15 +6,20 @@ import json
 import os
 import sys
 from types import SimpleNamespace
+from unitytest_plugin.report_utils import clean_report_with_keys
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.abspath(os.path.join(current_dir, "..")))
+sys.path.insert(0, os.path.abspath(os.path.join(current_dir, "..", "plugins/unitytest/src")))
+sys.path.insert(0, os.path.abspath(os.path.join(current_dir, "..", "plugins/common/src")))
 
-import ucagent.util.functions as fc
-from ucagent.checkers.unity_test import (
+
+from unitytest_plugin.checkers.unity_test import (
     UnityChipCheckerDutApiTest,
     UnityChipCheckerDutFixture,
 )
+from unitytest_plugin.checkers.toffee_report import load_toffee_report
+from unitytest_plugin.checkers.descriptions import description_mark_function_doc
 
 
 def _check_fixture(tmp_path, fixture_body):
@@ -295,7 +300,7 @@ def test_toffee_report_preserves_all_checkpoint_associations_per_test(tmp_path):
         encoding="utf-8",
     )
 
-    report = fc.load_toffee_report(
+    report = load_toffee_report(
         str(report_file),
         str(tmp_path),
         run_test_success=True,
@@ -308,7 +313,7 @@ def test_toffee_report_preserves_all_checkpoint_associations_per_test(tmp_path):
             "FG-ARITHMETIC/FC-ADD/CK-NORMAL",
         ],
     }
-    assert "test_case_with_check_point_list" not in fc.clean_report_with_keys(report)
+    assert "test_case_with_check_point_list" not in clean_report_with_keys(report)
 
 
 def test_mark_function_diagnostic_treats_comment_as_missing_call(tmp_path):
@@ -319,7 +324,7 @@ def test_mark_function_diagnostic_treats_comment_as_missing_call(tmp_path):
         encoding="utf-8",
     )
 
-    message = fc.description_mark_function_doc(
+    message = description_mark_function_doc(
         ["test_Demo_api.py:1-3::test_api_Demo_operate"],
         str(tmp_path),
     )
@@ -346,7 +351,7 @@ def test_mark_function_diagnostic_explains_unrecorded_call(tmp_path):
         callback_called = True
         raise AssertionError(f"diagnostic unexpectedly reran tests: {kwargs}")
 
-    message = fc.description_mark_function_doc(
+    message = description_mark_function_doc(
         ["test_Demo_api.py:1-5::test_api_Demo_operate"],
         str(tmp_path),
         func_RunTestCases=unexpected_rerun,
@@ -376,7 +381,7 @@ def test_mark_function_diagnostic_preserves_hash_inside_string(tmp_path):
         encoding="utf-8",
     )
 
-    message = fc.description_mark_function_doc(
+    message = description_mark_function_doc(
         ["test_Demo_api.py:1-6::test_api_Demo_operate"],
         str(tmp_path),
     )

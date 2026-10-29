@@ -7,8 +7,9 @@ import sys
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.abspath(os.path.join(current_dir, "..")))
+sys.path.append(os.path.abspath(os.path.join(current_dir, "..", "plugins", "unitytest", "src")))
 
-from ucagent.checkers.unity_test import UnityChipCheckerMockComponent
+from unitytest_plugin.checkers import UnityChipCheckerMockComponent
 
 
 def wpath(rel):

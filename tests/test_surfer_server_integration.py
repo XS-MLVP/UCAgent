@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 repo_root = str(Path(__file__).resolve().parents[1])
 repo_package_root = os.path.join(repo_root, "ucagent")
 sys.path.insert(0, repo_root)
+sys.path.insert(0, os.path.join(repo_root, "plugins", "unitytest", "src"))
 loaded_ucagent = sys.modules.get("ucagent")
 loaded_ucagent_path = os.path.abspath(getattr(loaded_ucagent, "__file__", "") or "")
 if loaded_ucagent is not None and not loaded_ucagent_path.startswith(
@@ -25,12 +26,17 @@ if loaded_ucagent is not None and not loaded_ucagent_path.startswith(
 
 from ucagent.server.api_cmd import PdbCmdApiServer
 from ucagent.util.waveform_viewer import build_waveform_metadata, load_waveform_metadata, write_waveform_metadata
-from ucagent.tools.waveform import WaveInfo
+from unitytest_plugin.waveform import WaveInfo
 
 
 def _server(tmp_path: Path) -> PdbCmdApiServer:
     pdb = SimpleNamespace(
-        agent=SimpleNamespace(workspace=str(tmp_path)),
+        agent=SimpleNamespace(
+            workspace=str(tmp_path),
+            tool_waveinfo=WaveInfo(
+                workspace=str(tmp_path), test_dir="unity_test/tests"
+            ),
+        ),
         stdout=None,
     )
     return PdbCmdApiServer(pdb, sock="", tcp=True)

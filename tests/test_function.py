@@ -5,12 +5,31 @@
 import json
 import os
 import pytest
+from ucagent_common.doc_marks import parse_marks_from_file
+from ucagent_common.test_report import (
+    check_file_block,
+    check_has_assert_in_tc,
+    is_run_report_pass,
+    workspace_relative_path,
+)
+from unitytest_plugin.report_utils import (
+    get_un_mapped_lines,
+    markdown_get_miss_headers,
+    markdown_headers,
+    parse_line_CK_map_file,
+    parse_line_ignore_file,
+    parse_un_coverage_json,
+)
 current_dir = os.path.dirname(os.path.abspath(__file__))
 import sys
 sys.path.append(os.path.abspath(os.path.join(current_dir, "..")))
+sys.path.insert(0, os.path.abspath(os.path.join(current_dir, "..", "plugins/unitytest/src")))
+sys.path.insert(0, os.path.abspath(os.path.join(current_dir, "..", "plugins/common/src")))
 
 from ucagent.util.functions import find_files_by_glob, find_files_by_regex, find_files_by_pattern, render_template_dir, chmode_ro_by_pattern, chmode_rw
 import ucagent.util.functions as fc
+from unitytest_plugin.checkers.descriptions import description_mark_function_doc
+from unitytest_plugin.checkers.toffee_report import get_toffee_json_test_case
 
 
 def test_run_report_preserves_test_function_contract_diagnostic():
@@ -22,7 +41,7 @@ def test_run_report_preserves_test_function_contract_diagnostic():
         },
     }
 
-    passed, message = fc.is_run_report_pass(
+    passed, message = is_run_report_pass(
         {
             "run_test_success": False,
             "test_function_contract": diagnostic,
@@ -99,7 +118,7 @@ def test_render_template_dir(tmp_path):
     """Test the render_template_dir function."""
     workspace = str(tmp_path)
     template = os.path.abspath(
-        os.path.join(current_dir, "../ucagent/lang/zh/template/unity_test")
+        os.path.join(current_dir, "../plugins/unitytest/src/unitytest_plugin/templates/unity_test")
     )
     context = {"DUT": "alu"}
 
@@ -241,14 +260,13 @@ def test_sync_dir_to_matches_relative_ignore_paths_without_broad_name_matches(
     assert (target / "tests" / "database" / "kept.json").is_file()
 
 
-
 def test_parse_marks_from_file():
     """Test the parse_marks_from_file function."""
     test_file = os.path.join(
         current_dir,
-        "../ucagent/lang/zh/template/unity_test/{{DUT}}_line_coverage_analysis.md",
+        "../plugins/unitytest/src/unitytest_plugin/templates/unity_test/{{DUT}}_line_coverage_analysis.md",
     )
-    marks = fc.parse_marks_from_file(test_file, "LINE_IGNORE")
+    marks = parse_marks_from_file(test_file, "LINE_IGNORE")
 
     assert marks["count"] == 2
     assert marks["marks"] == [
@@ -261,9 +279,9 @@ def test_parse_line_ignore_file():
     """Test the parse_line_ignore_file function."""
     test_file = os.path.join(
         current_dir,
-        "../ucagent/lang/zh/template/unity_test/tests/{{DUT}}.ignore",
+        "../plugins/unitytest/src/unitytest_plugin/templates/unity_test/tests/{{DUT}}.ignore",
     )
-    marks = fc.parse_line_ignore_file(test_file)
+    marks = parse_line_ignore_file(test_file)
 
     assert marks["count"] == 2
     assert marks["marks"] == [
@@ -300,7 +318,7 @@ def test_parse_un_coverage_json(tmp_path):
         encoding="utf-8",
     )
 
-    coverage = fc.parse_un_coverage_json(
+    coverage = parse_un_coverage_json(
         "uc_test_report/line_dat/code_coverage.json",
         str(tmp_path),
     )
@@ -337,14 +355,14 @@ def test_replace_bash_var():
 def test_check_file_block():
     """Test the check_file_block function."""
     # Example usage
-    print(fc.check_file_block(
+    print(check_file_block(
         {"test_function.py": {
             "A": [129, 133], "B": [136, 142] # Example line ranges
         }}, current_dir, lambda x: "usage" in x))
     x = ".mark_function('FC-FUNCTION', 'test_function.py:129-133::test_find_files_by_glob', ['CK-CHECK1', 'CK-CHECK2'])"
 
 def test_description_mark_function_doc():
-    print(fc.description_mark_function_doc(
+    print(description_mark_function_doc(
         ["test_function.py:129-133::test_find_files_by_glob", "test_function.py:136-143::test_find_files_by_regex"],
         current_dir,
     ))
@@ -352,7 +370,7 @@ def test_description_mark_function_doc():
 
 def test_check_has_assert_in_tc():
     """Test the check_has_assert_in_tc function."""
-    has_assert = fc.check_has_assert_in_tc(current_dir,
+    has_assert = check_has_assert_in_tc(current_dir,
         {"tests":{"test_cases": {
             "test_function.py:152-162::test_X":False,
             "test_function.py:162-172::test_sample_function":True
@@ -376,7 +394,7 @@ def test_toffee_test_case_path_suffix_fallback(tmp_path):
     )
 
     report_key = "/host/tmp/workspace/unity_test/tests/test_Adder_env_fixture.py:1-2::test_api_Adder_env_initialization"
-    tests = fc.get_toffee_json_test_case(str(workspace), {report_key: "PASSED"})
+    tests = get_toffee_json_test_case(str(workspace), {report_key: "PASSED"})
 
     assert tests == [
         (
@@ -385,7 +403,7 @@ def test_toffee_test_case_path_suffix_fallback(tmp_path):
         )
     ]
 
-    ret, msg = fc.check_has_assert_in_tc(
+    ret, msg = check_has_assert_in_tc(
         str(workspace),
         {"tests": {"test_cases": dict(tests)}},
     )
@@ -401,7 +419,7 @@ def test_workspace_relative_path_suffix_fallback_unique_filename(tmp_path):
     test_file.parent.mkdir(parents=True)
     test_file.write_text("def test_unique_name():\n    assert True\n", encoding="utf-8")
 
-    path = fc.workspace_relative_path(
+    path = workspace_relative_path(
         str(workspace),
         "/container/other_mount/test_unique_name.py",
     )
@@ -420,7 +438,7 @@ def test_workspace_relative_path_suffix_fallback_requires_unique_match(tmp_path)
         test_file.parent.mkdir(parents=True, exist_ok=True)
         test_file.write_text("def test_duplicate():\n    assert True\n", encoding="utf-8")
 
-    path = fc.workspace_relative_path(
+    path = workspace_relative_path(
         str(workspace),
         "/container/workdir/tests/test_duplicate.py",
     )
@@ -436,7 +454,7 @@ def test_markdown_headers(tmp_path):
         encoding="utf-8",
     )
 
-    headers = fc.markdown_headers(str(tmp_path), "document.md", levels=2)
+    headers = markdown_headers(str(tmp_path), "document.md", levels=2)
 
     assert headers == [(2, "Overview"), (2, "Results")]
 
@@ -452,7 +470,7 @@ def test_markdown_get_miss_headers(tmp_path):
         encoding="utf-8",
     )
 
-    miss_headers, message = fc.markdown_get_miss_headers(
+    miss_headers, message = markdown_get_miss_headers(
         str(tmp_path),
         "target.md",
         "reference.md",
@@ -467,12 +485,12 @@ def test_markdown_get_miss_headers(tmp_path):
 def test_parse_line_CK_map_file():
     """Test the parse_line_CK_map_file function."""
     test_file = os.path.join("test_data/line_ck_maps.md")
-    marks = fc.parse_line_CK_map_file(current_dir, test_file)
+    marks = parse_line_CK_map_file(current_dir, test_file)
     print("Parsed CK marks from file '{}':".format(test_file))
     print("Marks:", marks)
     print("------------------------")
 
-    a, b = fc.get_un_mapped_lines(current_dir, test_file, marks, 3)
+    a, b = get_un_mapped_lines(current_dir, test_file, marks, 3)
     print("Unmapped lines:", a)
     print(b)
     print("------------------------")
@@ -523,7 +541,7 @@ def test_check_has_assert_ignores_comments_and_fragments(tmp_path):
             }
         }
     }
-    ret, msg = fc.check_has_assert_in_tc(str(workspace), report)
+    ret, msg = check_has_assert_in_tc(str(workspace), report)
     assert ret is False
     assert "test_weak" in msg["error"]
     assert "test_strong" not in msg["error"]

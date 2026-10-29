@@ -168,14 +168,6 @@ UCAgent内置了以下通用Checker，可直接在配置中使用：
 | `OrginFileMustExistChecker` | 检查原始文件是否存在 | file_path | [./checkers/base.py#L753](./checkers/base.py#L753) |
 | `FilesMustNotExist` | 检查指定文件不存在 | file_patterns | [./checkers/base.py#L777](./checkers/base.py#L777) |
 
-#### 文件检查器
-
-| Checker名称 | 功能说明 | 常用参数 | 源文件 |
-|------------|----------|----------|--------|
-| `MarkDownHeadChecker` | Markdown文件标题检查，验证是否包含必需的标题结构 | file_path, template_file, header_levels | [./checkers/file_markdown.py#L188](./checkers/file_markdown.py#L188) |
-| `BatchFileProcess` | 批量文件处理基类，支持批量检查多个文件 | name, file_pattern, batch_size | [./checkers/file_markdown.py#L47](./checkers/file_markdown.py#L47) |
-| `FileLineMapChecker` | 文件行映射检查，验证文件内容与预期行映射是否匹配 | file_path, line_map | [./checkers/file_linemap.py#L102](./checkers/file_linemap.py#L102) |
-
 #### 脚本和命令检查器
 
 | Checker名称 | 功能说明 | 常用参数 | 源文件 |
@@ -193,14 +185,6 @@ checker:
     args:
       file_path: "dut_spec.md"
 
-  # Markdown标题检查
-  - name: "markdown_headers_check"
-    clss: "MarkDownHeadChecker"
-    args:
-      file_path: "testplan.md"
-      template_file: "templates/testplan_template.md"
-      header_levels: [1, 2, 3]
-
   # Bash脚本执行检查
   - name: "run_test_check"
     clss: "BashScriptChecker"
@@ -210,24 +194,6 @@ checker:
       pass_pattern: {"passed": "All tests passed"}
       fail_pattern: {"FAILED": "Some tests failed"}
       timeout: 300
-
-  # 单元测试必须通过
-  - name: "test_must_pass"
-    clss: "UnityChipCheckerTestMustPass"
-    args:
-      target_file: "test_*.py"
-      test_dir: "tests"
-      test_prefix: "test_"
-      min_file_tests: 3
-      timeout: 600
-
-  # DUT API检查
-  - name: "dut_api_check"
-    clss: "UnityChipCheckerDutApi"
-    args:
-      api_prefix: "dut_"
-      target_file: "dut_api.py"
-      min_apis: 5
 
   # 人工确认检查
   - name: "human_review"

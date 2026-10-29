@@ -6,8 +6,14 @@ import sys
 
 REPOSITORY_ROOT = Path(__file__).parents[1]
 sys.path.insert(0, str(REPOSITORY_ROOT))
+sys.path.insert(
+    0, str(REPOSITORY_ROOT / "plugins" / "formal" / "src")
+)
+sys.path.insert(
+    0, str(REPOSITORY_ROOT / "plugins" / "common" / "src")
+)
 
-from ucagent.util.bug_analysis_contract import (
+from ucagent_common.bug_analysis_contract import (
     BUG_ANALYSIS_SECTION_TITLES,
     BUG_ANALYSIS_SECTION_MARKERS,
     DYNAMIC_BUG_DOCUMENT_PATH,
@@ -24,14 +30,27 @@ from ucagent.util.markdown import (
     ensure_markdown_heading_spacing,
     markdown_heading_spacing_errors,
 )
-from ucagent.lang.zh.skills.formal.lib import formal_tools
+from formal_plugin.skills.lib import formal_tools
 
 
 IMPLEMENTATION_ROOT = REPOSITORY_ROOT / "ucagent"
 LANGUAGE_ROOT = IMPLEMENTATION_ROOT / "lang"
 CHINESE_LANGUAGE_ROOT = LANGUAGE_ROOT / "zh"
+UNITYTEST_PLUGIN_ROOT = REPOSITORY_ROOT / "plugins" / "unitytest"
+UNITYTEST_PLUGIN_ASSETS = UNITYTEST_PLUGIN_ROOT / "src" / "unitytest_plugin"
+FORMAL_PLUGIN_ASSETS = (
+    REPOSITORY_ROOT / "plugins" / "formal" / "src" / "formal_plugin"
+)
 LOCALE_CONTRACT = (
-    CHINESE_LANGUAGE_ROOT / "config" / "bug_analysis_contract.json"
+    REPOSITORY_ROOT
+    / "plugins"
+    / "common"
+    / "src"
+    / "ucagent_common"
+    / "lang"
+    / "zh"
+    / "config"
+    / "bug_analysis_contract.json"
 )
 BUG_HEADING_COMPANIONS = frozenset(
     [marker for _field, marker in BUG_ANALYSIS_SECTION_MARKERS]
@@ -88,15 +107,14 @@ def test_bug_analysis_titles_come_from_zh_locale_contract():
     assert dict(BUG_ANALYSIS_SECTION_TITLES) == payload["analysis_section_titles"]
 
     asset = (
-        CHINESE_LANGUAGE_ROOT
+        UNITYTEST_PLUGIN_ASSETS
         / "skills"
-        / "unitytest"
         / "dynamic-bug-recording"
         / "assets"
         / "dynamic_bug_entry.md"
     ).read_text(encoding="utf-8")
     guide = (
-        CHINESE_LANGUAGE_ROOT / "doc" / "Guide_Doc" / "dut_bug_analysis.md"
+        UNITYTEST_PLUGIN_ASSETS / "Guide_Doc" / "dut_bug_analysis.md"
     ).read_text(encoding="utf-8")
     for title in payload["analysis_section_titles"].values():
         assert asset.count(title) == 1
@@ -131,11 +149,17 @@ def test_bug_analysis_paths_tc_forms_and_no_bug_shape_come_from_locale_contract(
         ("<ROOT-CAUSES>", "</ROOT-CAUSES>"),
         ("<WAVEFORM-EVIDENCE>", "</WAVEFORM-EVIDENCE>"),
     ]
-    for relative_path in (
-        "template/unity_test/{{DUT}}_bug_analysis.md",
-        "skills/unitytest/dynamic-bug-recording/assets/bug_analysis_document.md",
+    for root, relative_path in (
+        (
+            UNITYTEST_PLUGIN_ASSETS,
+            "templates/unity_test/{{DUT}}_bug_analysis.md",
+        ),
+        (
+            UNITYTEST_PLUGIN_ASSETS,
+            "skills/dynamic-bug-recording/assets/bug_analysis_document.md",
+        ),
     ):
-        document = (CHINESE_LANGUAGE_ROOT / relative_path).read_text(encoding="utf-8")
+        document = (root / relative_path).read_text(encoding="utf-8")
         for start_marker, end_marker in expected_markers:
             assert f"{start_marker}\n{end_marker}" in document
 
@@ -258,6 +282,12 @@ def test_runtime_markdown_headings_are_surrounded_by_blank_lines():
         CHINESE_LANGUAGE_ROOT / "doc",
         CHINESE_LANGUAGE_ROOT / "template",
         CHINESE_LANGUAGE_ROOT / "skills",
+        UNITYTEST_PLUGIN_ASSETS / "Guide_Doc",
+        UNITYTEST_PLUGIN_ASSETS / "templates",
+        UNITYTEST_PLUGIN_ASSETS / "skills",
+        FORMAL_PLUGIN_ASSETS / "Guide_Doc",
+        FORMAL_PLUGIN_ASSETS / "templates",
+        FORMAL_PLUGIN_ASSETS / "skills",
     )
     paths = {
         path
@@ -273,11 +303,10 @@ def test_runtime_markdown_headings_are_surrounded_by_blank_lines():
         companions = (
             BUG_HEADING_COMPANIONS
             if (
-                path == CHINESE_LANGUAGE_ROOT / "doc" / "Guide_Doc" / "dut_bug_analysis.md"
+                path == UNITYTEST_PLUGIN_ASSETS / "Guide_Doc" / "dut_bug_analysis.md"
                 or path.is_relative_to(
-                    CHINESE_LANGUAGE_ROOT
+                    UNITYTEST_PLUGIN_ASSETS
                     / "skills"
-                    / "unitytest"
                     / "dynamic-bug-recording"
                     / "assets"
                 )

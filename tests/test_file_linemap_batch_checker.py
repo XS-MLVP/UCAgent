@@ -2,13 +2,14 @@ import os
 import sys
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "plugins/unitytest/src")))
 
-from ucagent.checkers.file_linemap import (
-    UnityChipBatchCheckerFileLineMap,
+from unitytest_plugin.checkers.file_linemap import (
     _line_block_base,
     _mapping_file_for_source,
     line_map_check_one_file,
 )
+from unitytest_plugin.checkers import UnityChipBatchCheckerFileLineMap
 from ucagent.util.config import load_yaml_with_env_vars
 
 
@@ -559,7 +560,7 @@ def test_batch_checker_does_not_scan_or_check_before_on_init(tmp_path, monkeypat
         raise AssertionError("file_list must not be scanned before checker.on_init()")
 
     monkeypatch.setattr(
-        "ucagent.checkers.file_linemap.fc.find_files_by_pattern", fail_if_scanned
+        "unitytest_plugin.checkers.file_linemap.fc.find_files_by_pattern", fail_if_scanned
     )
     assert checker.get_template_data() == {
         "TOTAL_LINE_BLOCKS": "-",
@@ -584,7 +585,7 @@ def test_batch_checker_does_not_scan_or_check_before_on_init(tmp_path, monkeypat
     )
 
     monkeypatch.setattr(
-        "ucagent.checkers.file_linemap.fc.find_files_by_pattern", fail_if_scanned
+        "unitytest_plugin.checkers.file_linemap.fc.find_files_by_pattern", fail_if_scanned
     )
     assert checker.get_template_data()["LINE_MAP_PROGRESS"] == "0/1"
     assert checker.get_template_data()["COUNT_CK"] == 1
@@ -768,7 +769,7 @@ def test_batch_checker_treats_all_blank_files_as_complete(tmp_path):
 def test_default_config_defines_line_map_targets_only_in_checker_file_list():
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     config = load_yaml_with_env_vars(
-        os.path.join(project_root, "ucagent/lang/zh/config/default.yaml")
+        os.path.join(project_root, "plugins/unitytest/src/unitytest_plugin/workflows/unitytest.yaml")
     )
     parent = next(
         stage
@@ -836,7 +837,7 @@ def test_default_config_defines_line_map_targets_only_in_checker_file_list():
 def test_runtime_line_map_guide_uses_configured_limits_and_user_facing_terms():
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     guide_path = os.path.join(
-        project_root, "ucagent/lang/zh/doc/Guide_Doc/dut_line_func_map.md"
+        project_root, "plugins/unitytest/src/unitytest_plugin/Guide_Doc/dut_line_func_map.md"
     )
     with open(guide_path, encoding="utf-8") as guide_file:
         guide_text = guide_file.read()
@@ -863,7 +864,7 @@ def test_optional_functions_skill_covers_line_mapping_without_weakening_contract
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     skill_path = os.path.join(
         project_root,
-        "ucagent/lang/zh/skills/unitytest/functions-and-checks/SKILL.md",
+        "plugins/unitytest/src/unitytest_plugin/skills/functions-and-checks/SKILL.md",
     )
     with open(skill_path, encoding="utf-8") as skill_file:
         skill_text = skill_file.read()

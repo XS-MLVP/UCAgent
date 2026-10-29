@@ -6,7 +6,7 @@ import ast
 from pathlib import Path
 from typing import Any
 from ucagent.checkers.base import Checker
-import ucagent.util.functions as uc_functions
+
 from ..contracts import (
     load_fenced_yaml,
     load_yaml,
@@ -23,6 +23,7 @@ from .common import (
 from .coverage_model import (
     _coverage_public_attributes,
 )
+from ucagent_common.doc_marks import get_doc_marks
 
 
 _OBSERVATION_SOURCES = {
@@ -45,8 +46,6 @@ _OBSERVATION_CAPTURES = {
 
 
 _OBSERVATION_CYCLE_ATTRIBUTE = "cycle"
-
-
 
 
 def _load_observation_contract(
@@ -132,7 +131,7 @@ def _load_observation_contract(
         event_map[name] = {**event, "field_names": field_names}
 
     documented = _functional_checkpoints(
-        uc_functions.get_unity_chip_doc_marks(
+        get_doc_marks(
             str(resolve_workspace_path(workspace, doc_file, must_exist=True)), "CK", 1
         ),
         ignored_prefixes,
@@ -204,8 +203,6 @@ def _load_observation_contract(
     return contract, event_map, checkpoints
 
 
-
-
 def _validate_observation_source_refs(
     workspace: Path,
     architecture_file: str,
@@ -263,8 +260,6 @@ def _validate_observation_source_refs(
                     f"observation event {event_name}.{field_name}.source_refs do not "
                     f"match {source}: {invalid[:10]}"
                 )
-
-
 
 
 class DesignObservationContractChecker(Checker):
@@ -325,8 +320,6 @@ class DesignObservationContractChecker(Checker):
             "checkpoint_count": len(checkpoints),
             "schema_version": contract["schema_version"],
         }
-
-
 
 
 class DesignObservationInstrumentationChecker(Checker):

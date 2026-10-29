@@ -13,12 +13,13 @@ from types import SimpleNamespace
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "plugins/unitytest/src"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "plugins/common/src"))
 
-from ucagent.checkers.unity_test import (
-    BaseUnityChipCheckerTestCase,
-    UnityChipCheckerBatchTestsImplementation,
-)
-import ucagent.checkers.unity_test as unity_test_module
+from unitytest_plugin.checkers.unity_test import BaseUnityChipCheckerTestCase
+from unitytest_plugin.checkers import UnityChipCheckerBatchTestsImplementation
+import unitytest_plugin.checkers.unity_test as unity_test_module
+import unitytest_plugin.checkers.test_cases as batch_tests_module
 
 
 class _Stage:
@@ -111,17 +112,17 @@ def _patch_successful_batch(monkeypatch):
         run_current_batch,
     )
     monkeypatch.setattr(
-        unity_test_module.fc,
+        unity_test_module,
         "is_run_report_pass",
         lambda *_args, **_kwargs: (True, ""),
     )
     monkeypatch.setattr(
-        unity_test_module.fc,
+        unity_test_module,
         "check_has_assert_in_tc",
         lambda *_args, **_kwargs: (True, {"success": "ok"}),
     )
     monkeypatch.setattr(
-        unity_test_module,
+        batch_tests_module,
         "check_report",
         lambda *_args, **_kwargs: (True, "ok", {}),
     )
@@ -200,12 +201,12 @@ def test_failed_batch_validation_does_not_persist_completion(tmp_path, monkeypat
         run_current_batch,
     )
     monkeypatch.setattr(
-        unity_test_module.fc,
+        unity_test_module,
         "is_run_report_pass",
         lambda *_args, **_kwargs: (True, ""),
     )
     monkeypatch.setattr(
-        unity_test_module,
+        batch_tests_module,
         "check_report",
         lambda *_args, **_kwargs: (False, "evidence incomplete", {}),
     )
@@ -262,7 +263,7 @@ def test_cached_document_preflight_rejects_without_rerunning_tests(
     checker, _stage = _checker(tmp_path, _initial_report(["test_a", "test_b"]))
     payload = _cached_batch_payload(checker)
     monkeypatch.setattr(
-        unity_test_module,
+        batch_tests_module,
         "load_current_test_report",
         lambda _workspace: copy.deepcopy(payload),
     )
@@ -272,7 +273,7 @@ def test_cached_document_preflight_rejects_without_rerunning_tests(
 
     monkeypatch.setattr(BaseUnityChipCheckerTestCase, "do_check", unexpected_test_run)
     monkeypatch.setattr(
-        unity_test_module,
+        batch_tests_module,
         "check_report",
         lambda *_args, **_kwargs: (
             False,
@@ -308,7 +309,7 @@ def test_passing_cached_document_preflight_still_runs_fresh_batch(
     checker, _stage = _checker(tmp_path, _initial_report(["test_a", "test_b"]))
     payload = _cached_batch_payload(checker)
     monkeypatch.setattr(
-        unity_test_module,
+        batch_tests_module,
         "load_current_test_report",
         lambda _workspace: copy.deepcopy(payload),
     )
@@ -327,17 +328,17 @@ def test_passing_cached_document_preflight_still_runs_fresh_batch(
 
     monkeypatch.setattr(BaseUnityChipCheckerTestCase, "do_check", run_current_batch)
     monkeypatch.setattr(
-        unity_test_module.fc,
+        unity_test_module,
         "is_run_report_pass",
         lambda *_args, **_kwargs: (True, ""),
     )
     monkeypatch.setattr(
-        unity_test_module.fc,
+        unity_test_module,
         "check_has_assert_in_tc",
         lambda *_args, **_kwargs: (True, {"success": "ok"}),
     )
     monkeypatch.setattr(
-        unity_test_module,
+        batch_tests_module,
         "check_report",
         lambda *_args, **_kwargs: (True, "ok", {}),
     )
@@ -359,7 +360,7 @@ def test_cached_document_preflight_is_invalidated_by_test_source_change(
         encoding="utf-8",
     )
     monkeypatch.setattr(
-        unity_test_module,
+        batch_tests_module,
         "load_current_test_report",
         lambda _workspace: copy.deepcopy(payload),
     )
@@ -372,7 +373,7 @@ def test_cached_document_preflight_is_invalidated_by_test_source_change(
 
     monkeypatch.setattr(BaseUnityChipCheckerTestCase, "do_check", run_current_batch)
     monkeypatch.setattr(
-        unity_test_module.fc,
+        unity_test_module,
         "is_run_report_pass",
         lambda *_args, **_kwargs: (False, {"error": "stop after fresh run"}),
     )

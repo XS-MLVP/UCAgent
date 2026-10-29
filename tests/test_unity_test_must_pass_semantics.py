@@ -3,9 +3,15 @@
 """Scope of the infrastructure-only all-Pass checker."""
 
 from types import SimpleNamespace
+import sys
+from pathlib import Path
 
-from ucagent.checkers.unity_test import UnityChipCheckerTestMustPass
-from ucagent.checkers.unity_test_mock import UnityChipCheckerTestMockTestBatch
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "plugins/unitytest/src"))
+
+from unitytest_plugin.checkers import (
+    UnityChipCheckerTestMockTestBatch,
+    UnityChipCheckerTestMustPass,
+)
 
 
 class _FailedInfrastructureRunner:

@@ -1,6 +1,6 @@
 {
   "mcpServers": {
-    "unitytest": {
+    "ucagent": {
       "type": "http",
       "url": "http://127.0.0.1:{{PORT}}/mcp",
       "tools": ["*"]

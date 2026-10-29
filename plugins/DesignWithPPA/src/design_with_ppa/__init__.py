@@ -1,5 +1,14 @@
 """DesignWithPPA public package with dependency-isolated lazy exports."""
 
+import sys
+from pathlib import Path
+
+# DesignWithPPA checkers build on the UnityTest plugin's Checkers; make the
+# sibling plugin's import root available even when it was not loaded itself.
+_UNITYTEST_PLUGIN_SOURCE = Path(__file__).resolve().parents[2].parent / "unitytest" / "src"
+if str(_UNITYTEST_PLUGIN_SOURCE) not in sys.path:
+    sys.path.insert(0, str(_UNITYTEST_PLUGIN_SOURCE))
+
 from importlib import import_module
 from typing import Any
 

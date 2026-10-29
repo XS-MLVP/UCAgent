@@ -59,7 +59,6 @@ _EXPORT_GROUPS = {
     "testops": (
         "ArgRunPyTest",
         "RunPyTest",
-        "RunUnityChipTest",
     ),
     "uctool": (
         "EmptyArgs",
@@ -105,22 +104,6 @@ _EXPORT_GROUPS = {
     "skill": (
         "ListSkill",
         "RunSkillScript",
-    ),
-    "waveform": (
-        "WaveSignalPattern",
-        "WaveSignalGroups",
-        "WaveInfoAnalysisArgs",
-        "WaveInfoToolPattern",
-        "ArgWaveInfo",
-        "ArgApplyWaveInfoEvidence",
-        "WaveInfoBugReview",
-        "WaveInfoEvidenceReview",
-        "WaveInfoEvidenceReviewItem",
-        "ArgReviewWaveInfoEvidenceBatch",
-        "WaveInfo",
-        "register_waveform_reader",
-        "ApplyWaveInfoEvidence",
-        "ReviewWaveInfoEvidenceBatch",
     ),
 }
 _EXPORTS = {

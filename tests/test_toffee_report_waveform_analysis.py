@@ -15,25 +15,29 @@ import pytest
 import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "plugins/unitytest/src"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "plugins/common/src"))
 
-import ucagent.checkers.toffee_report as toffee_report_module
-from ucagent.checkers.toffee_report import (
-    UnityChipCheckerWaveformBugAnalysis,
+import unitytest_plugin.checkers.toffee_report as toffee_report_module
+from unitytest_plugin.checkers.toffee_report import (
     _parse_waveform_analysis_blocks,
     check_all_documented_waveform_bug_analysis,
     check_dynamic_bug_analysis_content,
     check_report,
     check_waveform_bug_analysis,
 )
-from ucagent.checkers.unity_test import (
+from unitytest_plugin.checkers import (
     UnityChipCheckerBatchTestsImplementation,
+    UnityChipCheckerWaveformBugAnalysis,
+)
+from unitytest_plugin.checkers.unity_test import (
     UnityChipCheckerDutApiTest,
     UnityChipCheckerTestCase,
 )
-from ucagent.checkers.unity_test_random import RandomTestCasesChecker
-from ucagent.tools.waveform import ApplyWaveInfoEvidence, ReviewWaveInfoEvidenceBatch, WaveInfo
+from unitytest_plugin.checkers.unity_test_random import RandomTestCasesChecker
+from unitytest_plugin.waveform import ApplyWaveInfoEvidence, ReviewWaveInfoEvidenceBatch, WaveInfo
 from ucagent.util.config import load_yaml_with_env_vars
-from ucagent.util.bug_analysis_contract import (
+from ucagent_common.bug_analysis_contract import (
     BUG_ANALYSIS_SECTION_TITLES,
     dynamic_bug_anchor_id,
     related_bug_reference,
@@ -3849,7 +3853,7 @@ def test_pdb_waveform_reanalysis_preserves_supported_shared_findings(
 def test_configured_final_waveform_checker_has_startup_description(tmp_path):
     config = load_yaml_with_env_vars(
         Path(__file__).resolve().parents[1]
-        / "ucagent/lang/zh/config/default.yaml"
+        / "plugins/unitytest/src/unitytest_plugin/workflows/unitytest.yaml"
     )
     final_stage = config["stage"][-1]
     checker_config = next(

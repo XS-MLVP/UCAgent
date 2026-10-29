@@ -13,7 +13,7 @@ NEED_REF_MODEL=true make mcp_ALU754
 
 #### 2 通过修改配置文件
 
-修改默认配置文件`ucagent/lang/zh/config/default.yaml`，把其中的所有`$(NEED_REF_MODEL: false)`替换为`true`:
+修改默认配置文件`ucagent/lang/zh/config/unitytest.yaml`，把其中的所有`$(NEED_REF_MODEL: false)`替换为`true`:
 
 ```yaml
 #...

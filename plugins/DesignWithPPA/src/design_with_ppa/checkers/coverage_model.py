@@ -10,22 +10,24 @@ import re
 import shutil
 from typing import Any
 from ucagent.checkers.base import Checker
-from ucagent.checkers.unity_test import (
+from unitytest_plugin.checkers.unity_test import (
     BaseUnityChipCheckerTestCase,
     UnityChipCheckerCoverageGroup,
     UnityChipCheckerCoverageGroupBatchImplementation,
-    UnityChipCheckerBatchTestsImplementation,
     UnityChipCheckerDutApi,
-    UnityChipCheckerLabelStructureRefine,
     UnityChipCheckerLabelStructure,
+    UnityChipCheckerTestCase,
+)
+from unitytest_plugin.checkers import (
+    UnityChipCheckerBatchTestsImplementation,
+    UnityChipCheckerLabelStructureRefine,
     UnityChipCheckerMarkdownFileFormat,
     UnityChipCheckerRefineTestCases,
-    UnityChipCheckerTestCase,
     UnityChipCheckerTestCaseWithLineCoverage,
-    UnityChipCheckerTestTemplate,
     UnityChipCheckerTestMustPass,
+    UnityChipCheckerTestTemplate,
 )
-import ucagent.util.functions as uc_functions
+
 from ..contracts import (
     diagnostic,
     load_fenced_yaml,
@@ -41,8 +43,7 @@ from .common import (
 from .test_quality import (
     _environment_contract_violations,
 )
-
-
+from ucagent_common.doc_marks import get_doc_marks
 
 
 def _coverage_predicate_inventory(
@@ -341,8 +342,6 @@ def _coverage_predicate_inventory(
     return inventory
 
 
-
-
 def _coverage_public_attributes(
     workspace: Path,
     architecture_file: str,
@@ -399,8 +398,6 @@ def _coverage_public_attributes(
     return attributes
 
 
-
-
 def _cleanup_transient_coverage_data(test_dir: Path) -> None:
     """Remove only Toffee's generated per-run coverage directories."""
 
@@ -417,8 +414,6 @@ def _cleanup_transient_coverage_data(test_dir: Path) -> None:
         ):
             continue
         shutil.rmtree(candidate)
-
-
 
 
 def _coverage_artifact_state(
@@ -448,8 +443,6 @@ def _coverage_artifact_state(
                 entry["non_empty"] = None
         state[name] = entry
     return state
-
-
 
 
 def _coverage_pipeline_status(blocked_at: str) -> list[dict[str, str]]:
@@ -501,8 +494,6 @@ def _coverage_pipeline_status(blocked_at: str) -> list[dict[str, str]]:
         }
         for index, (name, requirement) in enumerate(steps)
     ]
-
-
 
 
 def _coverage_fixture_lifecycle_violations(path: Path) -> list[str]:
@@ -588,8 +579,6 @@ def _coverage_fixture_lifecycle_violations(path: Path) -> list[str]:
     return violations
 
 
-
-
 class _DesignCoverageEnvironmentMixin:
     """Validate coverage factories statically against the public ``env`` API."""
 
@@ -642,8 +631,6 @@ class _DesignCoverageEnvironmentMixin:
         return True, list(groups.values())
 
 
-
-
 class DesignCoverageStructureChecker(
     _DesignCoverageEnvironmentMixin, UnityChipCheckerCoverageGroup
 ):
@@ -686,7 +673,7 @@ class DesignCoverageStructureChecker(
                 else None
             )
             inventory = _coverage_predicate_inventory(source, public_attributes)
-            all_documented = uc_functions.get_unity_chip_doc_marks(
+            all_documented = get_doc_marks(
                 self.get_path(self.doc_file), "CK", 1
             )
             documented = _functional_checkpoints(
@@ -740,8 +727,6 @@ class DesignCoverageStructureChecker(
         }
 
 
-
-
 class DesignCoverageGroupBatchChecker(
     _DesignCoverageEnvironmentMixin, UnityChipCheckerCoverageGroupBatchImplementation
 ):
@@ -785,7 +770,7 @@ class DesignCoverageGroupBatchChecker(
         )
         self.batch_task.update_current_tbd()
         try:
-            _, blocks = uc_functions.get_unity_chip_doc_marks(
+            _, blocks = get_doc_marks(
                 self.get_path(self.doc_file),
                 "CK",
                 0,
@@ -819,7 +804,7 @@ class DesignCoverageGroupBatchChecker(
             )
             inventory = _coverage_predicate_inventory(source, public_attributes)
             all_documented, all_blocks = (
-                uc_functions.get_unity_chip_doc_marks(
+                get_doc_marks(
                     self.get_path(self.doc_file),
                     "CK",
                     1,

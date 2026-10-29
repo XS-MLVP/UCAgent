@@ -9,13 +9,14 @@ from unittest.mock import MagicMock
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "plugins" / "unitytest" / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "plugins" / "common" / "src"))
 
-import ucagent
-from ucagent.util import test_tools
-from ucagent.util.functions import tips_of_get_coverage_data_path
+from ucagent_common import test_utils
+from unitytest_plugin.report_utils import tips_of_get_coverage_data_path
 
 
-LANGUAGE_ROOT = Path(__file__).resolve().parents[1] / "ucagent/lang/zh"
+PLUGIN_ASSETS = Path(__file__).resolve().parents[1] / "plugins/unitytest/src/unitytest_plugin"
 
 
 @pytest.mark.parametrize("attributes, expected", [
@@ -30,8 +31,8 @@ LANGUAGE_ROOT = Path(__file__).resolve().parents[1] / "ucagent/lang/zh"
 def test_default_subfix_accepts_instances_and_classes(attributes, expected):
     """Read instance or inherited class metadata, with a missing-only default."""
     for dut in (SimpleNamespace(**attributes), type("DUT", (), attributes)):
-        assert ucagent.get_default_subfix(dut, "waveform") == expected[0]
-        assert ucagent.get_default_subfix(dut, "coverage") == expected[1]
+        assert test_utils.get_default_subfix(dut, "waveform") == expected[0]
+        assert test_utils.get_default_subfix(dut, "coverage") == expected[1]
 
 
 @pytest.mark.parametrize("simulator, error", [
@@ -46,7 +47,7 @@ def test_default_subfix_accepts_instances_and_classes(attributes, expected):
 def test_default_subfix_rejects_invalid_simulator(simulator, error):
     """Invalid metadata must not silently generate Verilator artifact names."""
     with pytest.raises(error, match="SIMULATOR"):
-        ucagent.get_default_subfix(SimpleNamespace(SIMULATOR=simulator), "coverage")
+        test_utils.get_default_subfix(SimpleNamespace(SIMULATOR=simulator), "coverage")
 
 
 @pytest.mark.parametrize("sub_type, error", [
@@ -60,17 +61,17 @@ def test_default_subfix_rejects_invalid_simulator(simulator, error):
 def test_default_subfix_rejects_invalid_artifact_type(sub_type, error):
     """Artifact types have the two documented, unambiguous spellings."""
     with pytest.raises(error, match="sub_type.*'waveform'.*'coverage'"):
-        ucagent.get_default_subfix(SimpleNamespace(), sub_type)
+        test_utils.get_default_subfix(SimpleNamespace(), sub_type)
 
 
 def test_default_subfix_extends_with_one_mapping_entry(monkeypatch):
     """A new simulator needs no additional lookup or fixture branches."""
-    monkeypatch.setitem(test_tools._SIMULATOR_DEFAULT_SUFFIXES, "example_sim", {
+    monkeypatch.setitem(test_utils._SIMULATOR_DEFAULT_SUFFIXES, "example_sim", {
         "waveform": "example_wave", "coverage": "example_cov",
     })
     dut = SimpleNamespace(SIMULATOR="EXAMPLE_SIM")
-    assert ucagent.get_default_subfix(dut, "waveform") == "example_wave"
-    assert ucagent.get_default_subfix(dut, "coverage") == "example_cov"
+    assert test_utils.get_default_subfix(dut, "waveform") == "example_wave"
+    assert test_utils.get_default_subfix(dut, "coverage") == "example_cov"
 
 
 @pytest.mark.parametrize("mode", [None, "", "   ", "manual", " MANUAL "])
@@ -80,7 +81,7 @@ def test_get_seed_manual_mode_returns_literal_seed(monkeypatch, mode):
         monkeypatch.delenv("UC_SEED_MODEL", raising=False)
     else:
         monkeypatch.setenv("UC_SEED_MODEL", mode)
-    assert ucagent.get_seed(4242) == 4242
+    assert test_utils.get_seed(4242) == 4242
 
 
 @pytest.mark.parametrize("mode", ["random", "time"])
@@ -88,7 +89,7 @@ def test_get_seed_generated_modes_return_int_in_31bit_range(monkeypatch, mode):
     """random/time modes ignore the literal seed and return a 31-bit int."""
     monkeypatch.setenv("UC_SEED_MODEL", mode)
     for _ in range(5):
-        value = ucagent.get_seed(7)
+        value = test_utils.get_seed(7)
         assert isinstance(value, int)
         assert 0 <= value <= 2 ** 31 - 1
 
@@ -96,20 +97,20 @@ def test_get_seed_generated_modes_return_int_in_31bit_range(monkeypatch, mode):
 def test_get_seed_uniform_expression_bounds(monkeypatch):
     """uniform:<min>:<max> draws integers inside the inclusive bounds."""
     monkeypatch.setenv("UC_SEED_MODEL", "uniform:5:7")
-    assert all(ucagent.get_seed(1) in (5, 6, 7) for _ in range(20))
+    assert all(test_utils.get_seed(1) in (5, 6, 7) for _ in range(20))
     monkeypatch.setenv("UC_SEED_MODEL", "uniform:9:9")
-    assert ucagent.get_seed(1) == 9
+    assert test_utils.get_seed(1) == 9
 
 
 def test_get_seed_normal_expression_clamps_to_31bit(monkeypatch):
     """normal:<mu>:<sigma> returns a clamped integer seed."""
     monkeypatch.setenv("UC_SEED_MODEL", "normal:1000000:100")
     for _ in range(10):
-        value = ucagent.get_seed(1)
+        value = test_utils.get_seed(1)
         assert isinstance(value, int)
         assert 0 <= value <= 2 ** 31 - 1
     monkeypatch.setenv("UC_SEED_MODEL", "normal:999999999999:0.1")
-    assert ucagent.get_seed(1) == 2 ** 31 - 1
+    assert test_utils.get_seed(1) == 2 ** 31 - 1
 
 
 @pytest.mark.parametrize("mode, match", [
@@ -126,7 +127,7 @@ def test_get_seed_rejects_invalid_mode_with_corrective_hint(monkeypatch, mode, m
     """Invalid seed modes must fail with the accepted form, never fall back."""
     monkeypatch.setenv("UC_SEED_MODEL", mode)
     with pytest.raises(ValueError, match=match):
-        ucagent.get_seed(1)
+        test_utils.get_seed(1)
 
 
 @pytest.mark.parametrize("bad_seed", ["1234", 12.5, True, None])
@@ -134,7 +135,7 @@ def test_get_seed_rejects_non_int_manual_seed(monkeypatch, bad_seed):
     """The manual-mode seed argument must be a plain int in every mode."""
     monkeypatch.delenv("UC_SEED_MODEL", raising=False)
     with pytest.raises(TypeError, match="int manual-mode seed"):
-        ucagent.get_seed(bad_seed)
+        test_utils.get_seed(bad_seed)
 
 
 class _DUT:
@@ -173,11 +174,11 @@ class _DUT:
 def rendered_api(request, tmp_path, monkeypatch):
     """Execute the API template and the guide's complete fixture example."""
     if request.param == "template":
-        source = (LANGUAGE_ROOT / "template/unity_test/tests/{{DUT}}_api.py").read_text(
+        source = (PLUGIN_ASSETS / "templates/unity_test/tests/{{DUT}}_api.py").read_text(
             encoding="utf-8"
         )
     else:
-        guide = (LANGUAGE_ROOT / "doc/Guide_Doc/dut_fixture.md").read_text(encoding="utf-8")
+        guide = (PLUGIN_ASSETS / "Guide_Doc/dut_fixture.md").read_text(encoding="utf-8")
         source = guide.split("```python\n", 1)[1].split("```", 1)[0]
     source = source.replace("{{DUT}}", "Demo").replace("{{Version}}", "test").replace(
         "{{Email}}", "test@example.com"
@@ -271,7 +272,7 @@ def test_fake_dut_preserves_simulator_without_real_initialization(
     monkeypatch.setitem(_DUT.__init__.__globals__, "xsp", xsp)
     monkeypatch.setenv("UC_IS_IMP_TEMPLATE", "true")
     initializations = _DUT.initializations
-    for dut in (rendered_api.create_dut(None), ucagent.get_mock_dut_from(_DUT)):
+    for dut in (rendered_api.create_dut(None), test_utils.get_mock_dut_from(_DUT)):
         assert getattr(dut, "SIMULATOR", None) == simulator
         assert rendered_api.get_coverage_data_path(None, dut, new_path=False).endswith(
             f"Demo.{coverage}"
@@ -321,7 +322,7 @@ def picker_dut(request, tmp_path, monkeypatch):
 
 def test_get_pin_info_supports_picker_pin_layouts(picker_dut):
     """Both layouts preserve declaration order, scalar pins, and wide buses."""
-    assert list(test_tools.get_pin_info(picker_dut).items()) == [
+    assert list(test_utils.get_pin_info(picker_dut).items()) == [
         ("clk", 0), ("request", 8), ("response", 129),
     ]
 
@@ -362,7 +363,7 @@ def test_mock_dut_supports_picker_pin_apis(picker_dut, monkeypatch, has_xpin):
     if has_xpin:
         xsp.XPin = XPin
     monkeypatch.setitem(picker_dut.__init__.__globals__, "xsp", xsp)
-    dut = ucagent.get_mock_dut_from(picker_dut)
+    dut = test_utils.get_mock_dut_from(picker_dut)
     assert dut.SIMULATOR == "vcs"
     assert dut._is_initialized is True
     assert list(dut._pins) == ["clk", "request", "response"]
@@ -399,7 +400,7 @@ def test_mock_dut_with_installed_xspcomm(picker_dut, monkeypatch):
     """Exercise real pin writes, port registration, and clock callbacks."""
     xsp = pytest.importorskip("xspcomm")
     monkeypatch.setitem(picker_dut.__init__.__globals__, "xsp", xsp)
-    dut = ucagent.get_mock_dut_from(picker_dut)
+    dut = test_utils.get_mock_dut_from(picker_dut)
     dut.InitClock("clk")
     dut.request.value = 0xA5
     dut.response.value = 2 ** 128
@@ -433,5 +434,5 @@ def test_mock_dut_with_installed_xspcomm(picker_dut, monkeypatch):
 def test_get_pin_info_skips_assignments_without_literal_width(monkeypatch, assignment):
     """Non-pin or incomplete declarations cannot become mock pin widths."""
     source = f"class DUT:\n    def __init__(self):\n        {assignment}\n"
-    monkeypatch.setattr(test_tools.inspect, "getsource", lambda cls: source)
-    assert test_tools.get_pin_info(_DUT) == {}
+    monkeypatch.setattr(test_utils.inspect, "getsource", lambda cls: source)
+    assert test_utils.get_pin_info(_DUT) == {}

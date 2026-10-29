@@ -108,11 +108,16 @@ def _get_skill_script_env(workspace: str) -> dict[str, str]:
     """Build a subprocess environment from the resolved workspace snapshot."""
     runtime_config = load_runtime_config(workspace)
     import_root = runtime_config["ucagent_python_path"]
+    plugin_roots = [
+        path
+        for path in runtime_config.get("plugin_python_paths", [])
+        if path and path != import_root
+    ]
     env = os.environ.copy()
     existing_paths = env.get("PYTHONPATH", "").split(os.pathsep)
-    python_paths = [import_root]
+    python_paths = [import_root, *plugin_roots]
     python_paths.extend(
-        path for path in existing_paths if path and path != import_root
+        path for path in existing_paths if path and path not in python_paths
     )
     env["PYTHONPATH"] = os.pathsep.join(python_paths)
     env["DUT"] = runtime_config["DUT"]
@@ -447,8 +452,7 @@ class ArgsRunSkillScript(BaseModel):
             "A nonempty JSON array of commands. Each command is exactly "
             "[skill_name, skill_script, args], with all three values as strings. "
             "Canonical object example: {\"commands\": "
-            "[[\"unitytest/functions-and-checks\", \"update.py\", "
-            "\"-MODE FG -ITEMS '[{\\\"fg\\\":\\\"FG-API\\\"}]'\"]]}. "
+            "[[\"<skill_name>\", \"<skill_script.py>\", \"<args>\"]]}. "
             "If a backend serializes nested arrays as text, commands may be the JSON "
             "string encoding of that same outer array. skill_script is a filename, not "
             "a path; args is one shell-style argument string."

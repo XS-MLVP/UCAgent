@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=80", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ucagent-common"
+version = "0.1.0"
+description = "Shared verification-domain library for UCAgent workflow plugins"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+authors = [
+    {name = "XS-MLVP", email = "unitychip@bosc.ac.cn"},
+]
+dependencies = [
+    "UCAgent",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+ucagent_common = [
+    "lang/**/*.json",
+]
+
+[tool.setuptools.exclude-package-data]
+"*" = [
+    "**/__pycache__/*",
+    "**/*.pyc",
+    "**/*.pyo",
+]

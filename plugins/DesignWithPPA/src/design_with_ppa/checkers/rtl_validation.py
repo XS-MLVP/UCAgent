@@ -14,23 +14,25 @@ import subprocess
 import tempfile
 from typing import Any
 from ucagent.checkers.base import Checker
-from ucagent.checkers.unity_test import (
+from unitytest_plugin.checkers.unity_test import (
     BaseUnityChipCheckerTestCase,
     UnityChipCheckerCoverageGroup,
     UnityChipCheckerCoverageGroupBatchImplementation,
-    UnityChipCheckerBatchTestsImplementation,
     UnityChipCheckerDutApi,
-    UnityChipCheckerLabelStructureRefine,
     UnityChipCheckerLabelStructure,
+    UnityChipCheckerTestCase,
+)
+from unitytest_plugin.checkers import (
+    UnityChipCheckerBatchTestsImplementation,
+    UnityChipCheckerLabelStructureRefine,
     UnityChipCheckerMarkdownFileFormat,
     UnityChipCheckerRefineTestCases,
-    UnityChipCheckerTestCase,
     UnityChipCheckerTestCaseWithLineCoverage,
-    UnityChipCheckerTestTemplate,
     UnityChipCheckerTestMustPass,
+    UnityChipCheckerTestTemplate,
 )
-from ucagent.checkers.toffee_report import check_line_coverage
-import ucagent.util.functions as uc_functions
+from unitytest_plugin.checkers.toffee_report import check_line_coverage
+
 from ucagent.util.log import warning as log_warning
 from ..contracts import (
     atomic_json,
@@ -88,6 +90,7 @@ from .test_quality import (
     _api_assertion_quality_violations,
 )
 from . import runtime  # qualified so tests patch one runtime module
+from ucagent_common.test_report import check_has_assert_in_tc, is_run_report_pass
 
 
 class RTLLineCoverageChecker(UnityChipCheckerTestCaseWithLineCoverage):
@@ -1328,7 +1331,7 @@ class RTLLineCoverageChecker(UnityChipCheckerTestCaseWithLineCoverage):
             timeout=timeout,
             **kwargs,
         )
-        passed, message = uc_functions.is_run_report_pass(report, stdout, stderr)
+        passed, message = is_run_report_pass(report, stdout, stderr)
         if not passed:
             workspace = Path(self.workspace).resolve()
             execution = getattr(self.run_test, "last_execution", {}) or {}
@@ -1479,7 +1482,7 @@ class RTLLineCoverageChecker(UnityChipCheckerTestCaseWithLineCoverage):
                 observed=evidence,
                 expected="All collected test cases have status PASSED.",
             )
-        assertion_pass, assertion_message = uc_functions.check_has_assert_in_tc(
+        assertion_pass, assertion_message = check_has_assert_in_tc(
             self.workspace, report
         )
         if not assertion_pass:

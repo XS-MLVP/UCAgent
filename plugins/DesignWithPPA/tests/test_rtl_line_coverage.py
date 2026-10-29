@@ -84,9 +84,11 @@ from design_with_ppa.rtl import (  # noqa: E402
     resolve_rtl_config,
     unregister_rtl_language,
 )
-from ucagent.checkers.unity_test import (  # noqa: E402
+from unitytest_plugin.checkers.unity_test import (  # noqa: E402
     BaseUnityChipCheckerTestCase,
     UnityChipCheckerTestCase,
+)
+from unitytest_plugin.checkers import (  # noqa: E402
     UnityChipCheckerTestCaseWithLineCoverage,
 )
 

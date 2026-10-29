@@ -147,7 +147,7 @@ def test_design_checker_wrappers_make_core_failures_actionable(
     """Workflow wrappers must convert broad core failures into repairable tasks."""
 
     monkeypatch.setattr(
-        f"ucagent.checkers.unity_test.{base_checker}.do_check",
+        f"unitytest_plugin.checkers.unity_test.{base_checker}.do_check",
         lambda self, **kwargs: (False, {"error": "specific inherited failure"}),
     )
 
