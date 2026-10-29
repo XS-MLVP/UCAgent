@@ -225,14 +225,15 @@ class ACT4FinalReportChecker(Checker):
             "generation_scope_status": scope_status,
         }
         for key, value in expected.items():
-            if value is not None and declared.get(key) != value:
+            actual = declared.get(key)
+            if value is not None and (type(actual) is not type(value) or actual != value):
                 self._add(
                     findings,
                     "error",
                     "final_report_state_summary",
                     f"final validation state {key} does not match validation state",
                     expected=value,
-                    actual=declared.get(key),
+                    actual=actual,
                 )
         return state_checks
 

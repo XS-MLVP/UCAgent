@@ -337,6 +337,10 @@ Next: <下一个依赖已满足的工作项和具体动作>
 - `git status --porcelain`；
 - 每个受保护文件或符号链接的 path、type、mode 和 SHA-256。
 
+对象路径不可重复；type 必须是 `file` 或 `symlink`，mode 使用引号包住的八进制字符串，
+SHA-256 使用 64 位小写十六进制值。完整填写示例见
+`Guide_Doc/ACT4_Checker_Guide/ACT4FileManifestChecker.md`。
+
 Git status 记录的是起点背景，不要求仓库绝对干净。已有非关键改动不会自动失败；
 受保护对象在本轮发生内容、路径、类型或权限变化才是硬阻塞。
 
@@ -762,6 +766,7 @@ CI 配置和固定工具版本，用原生测试选择结果确认本 suite 被�
 CI 固定版本一致、目标确实选择本 suite 的情况下，可从干净 ACT4 根目录运行：
 
 ```bash
+
 # 分别生成测试、构建参考签名和最终 ELF；保留本地证据
 EXTENSIONS=H WORKDIR=work_itgen_H make tests
 FAST=True CLEAN_INTERMEDIATES= EXTENSIONS=H WORKDIR=work_itgen_H \

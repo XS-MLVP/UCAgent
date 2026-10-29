@@ -500,6 +500,69 @@ def test_modifying_protected_baseline_object_blocks(tmp_path: Path) -> None:
     )
 
 
+def test_existing_suite_generator_is_not_a_new_file_exception(tmp_path: Path) -> None:
+    """Block a new-suite workflow when its generator was already in the baseline."""
+    generator = tmp_path / "riscv-arch-test/generators/testgen/src/testgen/priv/extensions/H.py"
+    generator.parent.mkdir(parents=True)
+    generator.write_text("def generate():\n    return []\n", encoding="utf-8")
+    _manifest(tmp_path, [_inventory_entry(generator, tmp_path)])
+
+    passed, report = _checker(tmp_path, integrity_only=True).do_check()
+
+    assert not passed
+    assert any(item["check"] == "manifest_suite_generator_exists" for item in report["findings"])
+
+
+@pytest.mark.parametrize("missing", ["type", "mode", "sha256"])
+def test_baseline_inventory_requires_complete_identity(tmp_path: Path, missing: str) -> None:
+    """Do not silently disable type, permission or content checks in a snapshot."""
+    core = tmp_path / "riscv-arch-test/framework/core.py"
+    core.parent.mkdir(parents=True)
+    core.write_text("original\n", encoding="utf-8")
+    entry = _inventory_entry(core, tmp_path)
+    del entry[missing]
+    _manifest(tmp_path, [entry])
+
+    passed, report = _checker(tmp_path, integrity_only=True).do_check()
+
+    assert not passed
+    assert any(item["check"] == "manifest_snapshot_inventory" for item in report["findings"])
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("type", "directory"), ("type", []), ("mode", 644), ("mode", "888"),
+     ("sha256", 123), ("sha256", "not-a-hash")],
+)
+def test_baseline_inventory_rejects_invalid_identity(tmp_path: Path, field: str, value) -> None:
+    """Return a snapshot diagnostic instead of accepting or crashing on bad fields."""
+    core = tmp_path / "riscv-arch-test/framework/core.py"
+    core.parent.mkdir(parents=True)
+    core.write_text("original\n", encoding="utf-8")
+    entry = _inventory_entry(core, tmp_path)
+    entry[field] = value
+    _manifest(tmp_path, [entry])
+
+    passed, report = _checker(tmp_path, integrity_only=True).do_check()
+
+    assert not passed
+    assert any(item["check"] == "manifest_snapshot_inventory" for item in report["findings"])
+
+
+def test_baseline_inventory_rejects_duplicate_paths(tmp_path: Path) -> None:
+    """Require one unambiguous baseline identity for each ACT4 object."""
+    core = tmp_path / "riscv-arch-test/framework/core.py"
+    core.parent.mkdir(parents=True)
+    core.write_text("original\n", encoding="utf-8")
+    entry = _inventory_entry(core, tmp_path)
+    _manifest(tmp_path, [entry, entry])
+
+    passed, report = _checker(tmp_path, integrity_only=True).do_check()
+
+    assert not passed
+    assert any(item["check"] == "manifest_snapshot_inventory" for item in report["findings"])
+
+
 def test_replacing_protected_symlink_with_file_blocks(tmp_path: Path) -> None:
     framework = tmp_path / "riscv-arch-test" / "framework"
     framework.mkdir(parents=True)

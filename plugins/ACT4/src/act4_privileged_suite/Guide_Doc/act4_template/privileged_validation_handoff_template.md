@@ -149,6 +149,7 @@ Complete。检查通过的版本与最终交付文件须一致；不预写 Compl
 ## Final validation state
 
 从最终 validation state 复制真实值，替换下面的待填字符串与布尔值。
+`source_contribution_ready` 必须为 YAML 布尔值 `true` 或 `false`，不能写成数值或字符串。
 ```yaml
 source_contribution_ready: false
 generation_scope_status: complete

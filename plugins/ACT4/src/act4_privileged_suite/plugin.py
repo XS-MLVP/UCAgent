@@ -1,4 +1,4 @@
-"""UCAgent plugin provider for ACT4 privileged-suite asset generation."""
+"""UCAgent plugin provider for ACT4 asset generation and extension review."""
 
 from pathlib import Path
 
@@ -13,6 +13,7 @@ from .checkers.act4_final_report_checker import ACT4FinalReportChecker
 from .checkers.act4_manual_reference_checker import ACT4ManualReferenceChecker
 from .checkers.act4_switch_capability_checker import ACT4SwitchCapabilityChecker
 from .checkers.act4_test_asset_checker import ACT4TestAssetChecker
+from .checkers.act4_review_checker import ACT4ReviewChecker
 from .workspace import validate_input_paths
 
 
@@ -24,8 +25,7 @@ def get_plugin() -> Plugin:
         name="act4-privileged-suite",
         version=__version__,
         description=(
-            "Evidence-driven generation and validation of RISC-V ACT4 "
-            "privileged-suite test assets."
+            "Evidence-driven generation, review, and validation of RISC-V ACT4 test assets."
         ),
         root=root,
         checkers=(
@@ -37,6 +37,7 @@ def get_plugin() -> Plugin:
             ACT4ManualReferenceChecker,
             ACT4SwitchCapabilityChecker,
             ACT4TestAssetChecker,
+            ACT4ReviewChecker,
         ),
         workflows=(
             PluginWorkflow(
@@ -49,6 +50,15 @@ def get_plugin() -> Plugin:
                     CommandRequirement(name="Git", alternatives=("git",), version_args=("--version",)),
                     CommandRequirement(name="Curl", alternatives=("curl",), version_args=("--version",)),
                     CommandRequirement(name="GNU Make", alternatives=("make",), version_args=("--version",)),
+                ),
+            ),
+            PluginWorkflow(
+                name="extension-review",
+                config_file=root / "workflows" / "extension-review.yaml",
+                guide_doc_paths=(root / "Guide_Doc",),
+                template_context_factory=validate_input_paths,
+                command_requirements=(
+                    CommandRequirement(name="Git", alternatives=("git",), version_args=("--version",)),
                 ),
             ),
         ),

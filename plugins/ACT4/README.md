@@ -1,8 +1,32 @@
+
 # ACT4 Privileged Suite
+
+为 RISC-V ACT4 生成可追溯的 privileged-suite 测试资产，依次完成 testplan、coverage、
+规范映射、generator、构建验证和贡献交接。静态检查、参考模型通过与 coverage 命中
+分别取证；插件通过不代表真实 DUT 验证或架构认证。
+
+已有 extension 使用独立的 `extension-review` 工作流：全面检查资产、输出审查与优化方案、
+等待人类批准、修复候选副本并复验，最后交付完整报告和补丁。该流程支持按现有仓库布局
+审查 privileged/unprivileged 资产，原始 ACT4 checkout 始终保持不变。
+
+```bash
+ucagent "$ACT4_WORKSPACE" H \
+  --plugin act4-privileged-suite \
+  --plugin-workflow act4-privileged-suite:extension-review \
+  --output act4_review --backend langchain --tui
+```
+
+先按下文准备独立 checkout（保留要审查的已有资产）和只读规范库。进入人工审批阶段后，
+在 UCAgent 控制台执行 `hmcheck_pass <authorization.json 中的 digest>`，再继续 agent；
+未批准、拒绝或方案变化时均不能开始修复。输出位于 `act4_review/H/review/`，包括
+`review.md`、`final.md`、前后验证证据及 `changes.patch`。完整字段和审批操作见
+[已有资产审查指南](src/act4_privileged_suite/Guide_Doc/ACT4_Extension_Review_Guide.md)。
+本地原生命令验证不等同于远端 CI 已通过；工具缺失和未覆盖项会保留在报告中。
 
 ## 1. 安装
 
-需要 Python 3.11+、UCAgent `>=26.9.2.dev25`，以及 Bash、Git、Curl、GNU Make。
+需要 Python 3.11+、UCAgent `>=26.9.2.dev25`。生成工作流需要 Bash、Git、Curl、GNU Make；
+审查工作流启动只要求 Git，实际验证工具按目标提交的原生 CI 准备。
 在同一 Python 环境中从 UCAgent 仓库根目录安装：
 
 ```bash
@@ -16,10 +40,15 @@ ucagent --validate-plugin act4-privileged-suite
 `python3 -m pip install -e ./plugins/ACT4`，也可直接以
 `--plugin /absolute/path/to/UCAgent/plugins/ACT4` 加载本地源码。
 模型连接按仓库根目录的 [UCAgent 使用说明](../../README.zh.md)配置。
+源码根目录运行若显示 `0.9.1+source.code`，先执行 `python3 -m pip install .`
+生成版本元数据，再重新校验；不要降低插件版本要求。源码开发与安装态验证的区别见
+[开发说明](docs/development.md#源码与安装态)。
 
 生成和验证所需的 ACT4 Python 环境、交叉编译器、参考模型及可选 Sail/RVVI coverage
 依赖，必须按所选 ACT4 提交的 `README.md`、`docs/DeveloperGuide.md` 和配置准备。
-插件校验不安装这些工具，也不表示已经完成 ACT4 构建。
+插件注册校验不安装这些工具。已有资产审查会先探测、安装缺少的工具并复验，再按依赖顺序
+生成测试、构建非空 ELF、实际执行并核对测试结果。公开工具按目标提交 CI 安装至隔离目录；
+Questa/VCS 需要可用的合法安装介质和许可证，缺少时报告具体阻塞及恢复动作。
 运行中需要联网获取本轮 CTP 及其 Google Sheet CSV。
 
 ## 2. 准备独立工作区
@@ -79,7 +108,9 @@ ucagent "$ACT4_WORKSPACE" H \
   --tui
 ```
 
-`--output` 是工作区内输出根，最终报告在 `act4_assets/H/reports/`。
+`--output` 必须是工作区内非空相对目录，与 `riscv-arch-test/` 分离；不能使用工作区
+根目录、绝对路径或解析后越出工作区的路径（包括符号链接）。最终报告在
+`act4_assets/H/reports/`。
 默认输出文档为英文，任务提示和配套指南为中文。无需额外传入 ITGen 的
 `--config`、`--append-py-path`、`--guid-doc-path` 或模板路径。
 
