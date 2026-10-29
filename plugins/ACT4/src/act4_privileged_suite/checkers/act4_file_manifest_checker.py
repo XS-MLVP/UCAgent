@@ -664,7 +664,29 @@ class ACT4FileManifestChecker(Checker):
             if act4_relative is None:
                 self._add(findings, "manifest_snapshot_inventory", f"snapshot path is outside act4_root: {raw_path}")
                 continue
+            if act4_relative in baseline_paths:
+                self._add(findings, "manifest_snapshot_inventory", f"duplicate snapshot path: {raw_path}")
             baseline_paths.add(act4_relative)
+            if (
+                entry.get("type") not in ("file", "symlink")
+                or not isinstance(entry.get("mode"), str)
+                or not re.fullmatch(r"[0-7]{1,4}", entry["mode"])
+                or not isinstance(entry.get("sha256"), str)
+                or not re.fullmatch(r"[0-9a-f]{64}", entry["sha256"])
+            ):
+                self._add(
+                    findings, "manifest_snapshot_inventory",
+                    f"snapshot entry {index} requires type=file|symlink, octal mode and SHA-256: {raw_path}",
+                )
+                continue
+            if self.expected_suite and act4_relative == (
+                f"generators/testgen/src/testgen/priv/extensions/{self.expected_suite}.py"
+            ):
+                self._add(
+                    findings, "manifest_suite_generator_exists",
+                    f"suite generator already exists in the frozen baseline: {raw_path}; "
+                    "select a new suite without overwriting the existing generator",
+                )
             if not self._is_protected_act4_path(act4_relative):
                 continue
             path = self._resolve(raw_path)

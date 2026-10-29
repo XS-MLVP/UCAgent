@@ -1,8 +1,6 @@
 
 # ACT4TestAssetChecker
 
-实现：`act4_privileged_suite/checkers/act4_test_asset_checker.py`
-
 ## 作用
 
 该 checker 在阶段 05 验证生成/构建结果，在阶段 06 验证 contribution readiness。它检查
@@ -21,7 +19,7 @@ fallback 记录对齐。
   signature progress、XLEN evidence、generation scope、contribution state 和
   `testcase_reachability`。
 
-## 代码实现原理
+## 验收要点
 
 1. 枚举配置的文件，读取 `.S` header/marker/testcase descriptor，拒绝空文件和占位符。
    超过派生 ACT4 分文件阈值时记 warning，审查是否存在不可拆分 chunk；显式配置的
@@ -32,6 +30,8 @@ fallback 记录对齐。
    test_config 的 `name` 将 ELF/signature/results/log 限定在同一构建目录，再按 stem 与
    source 匹配。配置了 validation state 且要求日志、区间完整性或 progress 检查时，
    选择信息缺失或无法解析会报错，不回退到其他配置的历史产物；独立显式路径模式仍可用。
+   参考产物的相对路径以配置的 `act4_root` 为根；即使工作区另有 `riscv-arch-test/`，
+   也不能把其他副本的日志或签名用于本次验证。
 4. 在日志中要求对应 `RVCP-SUMMARY: TEST SIGRUN`、恰好一个终态 `SUCCESS`、无常见异常
    终止标记，并读取 begin/end 地址。signature granularity 优先来自日志；当前 ACT4
    原生签名命令按 XLEN/8 传参，新版模型未回显粒度时，可使用同一构建下匹配最终 ELF
@@ -72,20 +72,12 @@ backend 证据分开描述。
 - Sail self-checking 通过不等于 RVVI/UCDB/VDB coverage 通过，checker 通过单独字段保持
   这两个结论分离。
 
-## 测试
-
-回归测试位于 `plugins/ACT4/tests/test_act4_test_asset_checker.py`。
-
-## 当前配置与实现定位
+## 当前阶段与结果解释
 
 05/06 启用 signature/results/log、区间完整性、XLEN、模型评价、scoped VM、
 generation_scope 和实验清单检查，signature_progress_mode=warning。
 06 追加 require_contribution_ready=true；05 配置 output_dir，06 没有配置新报告路径。
 因此 05 落盘 JSON 不应自动称为 06 最新复查结果，后者使用实际 Check/Complete 返回值。
-
-核心分别在 `_check_reference_model_outputs()`、`_check_signature_progress()`、
-`_check_reference_model_identity()`、`_check_reference_model_evaluation()`、
-`_check_vm_contract()` 和 `_check_experimental_manifest()`。
 
 还需注意：
 - 选定构建目录隔离了其他配置的历史产物，但 stem 匹配不证明同一目录内重复 stem 的
@@ -101,8 +93,43 @@ generation_scope 和实验清单检查，signature_progress_mode=warning。
 - VM checker 检查 contract 字段/集合，不模拟页表或证明生成代码绑定了每个 profile。
 - testcase reachability 是保守的静态条件和符号检查，不是完整 C 预处理器；无法证明时保留
   `unverified`，不以猜测替代编译器结果。没有 `nm` 或 ELF 被剥离时，编译数量为未知而不是 0。
-- sail_coverage.passed 的一致性检查不读取 UCDB/VDB 来证明命中；当前通过条件还要求
-  self_checking.model 含 sail，不能直接表达任意混合后端组合。
+- sail_coverage.passed 的一致性检查不读取 UCDB/VDB 来证明命中；coverage 与 signature
+  可以选择不同模型，仍须分别保留真实命令与证据，不能把 signature 通过写成 coverage 命中。
 
 使用[验证模板](../act4_template/privileged_validation_handoff_template.md)保留原始执行证据，
 区分 signature ELF 运行、最终 ELF 生成和 DUT 执行。
+
+## 完整参考运行记录示例
+
+以下仅演示一个 RV64 测试的完整签名记录链，不能直接复制为本轮运行证据。
+假定 `.S` 为本轮 generator 生成，最终 ELF 与其同 stem，且区间中有两个 8 字节记录。
+每个文件使用自己的实际构建路径，不能用其他 ACT4 副本或配置的同名文件替代。
+
+`H-00.sig.log`：
+
+```text
+RVCP-SUMMARY: TEST SIGRUN - Test File "H-00.S"
+setting signature-granularity to 8 bytes
+begin_signature: 0x1000
+end_signature: 0x1010
+SUCCESS
+```
+
+`H-00.sig`：
+
+```text
+0000000000000001
+0000000000000002
+```
+
+`H-00.results`：
+
+```asm
+.quad 0x1
+.quad 0x2
+```
+
+该链证明格式与区间记录数一致，不证明最终 ELF 已在 DUT 上执行，也不证明动态 coverage。
+validation state 的完整字段按
+`Guide_Doc/act4_template/privileged_validation_handoff_template.md` 填写，最终报告按
+`Guide_Doc/ACT4_Checker_Guide/ACT4FinalReportChecker.md` 的完整示例组织。

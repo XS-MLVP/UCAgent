@@ -1,0 +1,232 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1760" height="1820" viewBox="0 0 1760 1820" role="img" aria-labelledby="diagram-title diagram-description" xml:lang="zh-CN">
+  <title id="diagram-title">ACT4 已有扩展测试资产 Review 工作流原理图</title>
+  <desc id="diagram-description">五阶段流程：冻结已有测试资产、规范与 CI 范围；通过静态规则、真实原生 CI 和有原文依据的 AI 语义审查汇聚证据并生成初审报告；等待人类批准精确摘要；仅在候选副本的批准路径内修复并重新验证；交付完整报告、补丁与剩余风险。无 ELF 时先生成、构建再测试。无法执行或证据不足不得标为通过；原始仓库与规范始终只读。</desc>
+  <defs>
+    <linearGradient id="canvas" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f0f4fc"/>
+      <stop offset="1" stop-color="#f8fafc"/>
+    </linearGradient>
+    <linearGradient id="approval-fill" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#fff9ec"/>
+      <stop offset="1" stop-color="#fffdf7"/>
+    </linearGradient>
+    <filter id="card-shadow" x="-5%" y="-8%" width="110%" height="120%">
+      <feDropShadow dx="0" dy="5" stdDeviation="9" flood-color="#283f6b" flood-opacity="0.045"/>
+    </filter>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 1 1 L 9 5 L 1 9 Z" fill="#8594ae"/>
+    </marker>
+    <marker id="teal-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M 1 1 L 9 5 L 1 9 Z" fill="#249b91"/>
+    </marker>
+    <marker id="amber-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M 1 1 L 9 5 L 1 9 Z" fill="#c38a25"/>
+    </marker>
+    <style>
+      text { font-family: "Noto Sans CJK SC", "Microsoft YaHei", "PingFang SC", sans-serif; fill: #182941; }
+      .kicker { font-size: 15px; font-weight: 700; letter-spacing: 2.2px; fill: #567194; }
+      .title { font-size: 43px; font-weight: 700; letter-spacing: -0.6px; }
+      .subtitle { font-size: 20px; fill: #62718a; }
+      .stage-title { font-size: 26px; font-weight: 700; }
+      .stage-id { font-size: 14px; fill: #7b89a0; }
+      .number { font-size: 18px; font-weight: 700; text-anchor: middle; }
+      .label { font-size: 19px; font-weight: 700; }
+      .body { font-size: 17px; fill: #506079; }
+      .small { font-size: 15px; fill: #687890; }
+      .mono { font-family: "DejaVu Sans Mono", "Liberation Mono", monospace; font-size: 14px; fill: #5d6d85; }
+      .connector { fill: none; stroke: #8594ae; stroke-width: 2; marker-end: url(#arrow); }
+      .card { fill: #fff; stroke: #dfe6f1; stroke-width: 1.2; filter: url(#card-shadow); }
+      .tag { font-size: 15px; font-weight: 600; text-anchor: middle; }
+    </style>
+  </defs>
+
+  <rect width="1760" height="1820" fill="url(#canvas)"/>
+  <rect x="64" y="52" width="5" height="89" rx="2.5" fill="#4271d5"/>
+  <text x="88" y="67" class="kicker">ACT4 / WORKFLOW ARCHITECTURE</text>
+  <text x="85" y="119" class="title">已有扩展测试资产 Review 工作流</text>
+  <text x="88" y="154" class="subtitle">静态规则优先 · 真实运行取证 · AI 语义审查 · 人类授权后修复</text>
+  <rect x="1398" y="65" width="298" height="43" rx="21.5" fill="#e7edf9"/>
+  <text x="1547" y="92" class="tag" style="fill:#47648d">extension-review / 5 STAGES</text>
+
+  <g id="stage-inventory" aria-label="第一阶段：冻结基线与审查范围">
+    <rect x="64" y="188" width="1632" height="202" rx="22" class="card"/>
+    <rect x="88" y="210" width="43" height="38" rx="11" fill="#eaf0fc"/>
+    <text x="109.5" y="236" class="number" style="fill:#466cd0">01</text>
+    <text x="151" y="238" class="stage-title">冻结基线与审查范围</text>
+    <text x="1668" y="234" class="stage-id" text-anchor="end">review_inventory</text>
+    <text x="96" y="283" class="label">已有扩展资产</text>
+    <text x="96" y="314" class="body">test plan · generator · test cases</text>
+    <text x="96" y="340" class="body">coverage / covergroupgen · mappings</text>
+    <path d="M 570 307 H 622" class="connector"/>
+    <text x="650" y="283" class="label">规范与当前版本</text>
+    <text x="650" y="314" class="body">HEAD / dirty 状态 · 规范与 CTP 原文</text>
+    <text x="650" y="340" class="body">XLEN · 目标配置 · 当前提交的 CI 矩阵</text>
+    <path d="M 1110 307 H 1162" class="connector"/>
+    <text x="1190" y="283" class="label">冻结可追溯输入</text>
+    <text x="1190" y="314" class="mono">scope.yaml · baseline.json</text>
+    <text x="1190" y="340" class="mono">baseline/ · references/</text>
+    <text x="96" y="372" class="small">适用于 privileged / unprivileged；缺失资产作为遗漏记录，不默认任何生成方式或测试命令。</text>
+  </g>
+
+  <path d="M 880 390 V 426" class="connector"/>
+
+  <g id="stage-audit" aria-label="第二阶段：静态分析、真实 CI 与 AI 语义审查">
+    <rect x="64" y="428" width="1632" height="662" rx="22" class="card"/>
+    <rect x="88" y="450" width="43" height="38" rx="11" fill="#eaf0fc"/>
+    <text x="109.5" y="476" class="number" style="fill:#466cd0">02</text>
+    <text x="151" y="478" class="stage-title">全面审查：机器事实 + 有据可查的语义判断</text>
+    <text x="1668" y="474" class="stage-id" text-anchor="end">review_audit</text>
+
+    <g id="static-lane" aria-label="静态规则优先，复用已有 checker 和分析能力">
+      <rect x="88" y="510" width="512" height="382" rx="17" fill="#f5f7ff" stroke="#dce3fb"/>
+      <rect x="88" y="531" width="4" height="31" rx="2" fill="#5775db"/>
+      <circle cx="124" cy="545" r="12" fill="#e5ebff"/>
+      <path d="M 119 545 L 123 549 L 130 541" fill="none" stroke="#5775db" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      <text x="147" y="553" class="label" style="fill:#405cb4">静态规则 · 优先确定事实</text>
+      <text x="112" y="585" class="small">复用 ACT4AssetChecker + SV / assembly 分析</text>
+      <circle cx="116" cy="623" r="3" fill="#7e92dc"/>
+      <text x="131" y="629" class="body">资产格式、命名、引用与生成器独立性</text>
+      <circle cx="116" cy="661" r="3" fill="#7e92dc"/>
+      <text x="131" y="667" class="body">coverpoint / cross 定义与结构规则</text>
+      <circle cx="116" cy="699" r="3" fill="#7e92dc"/>
+      <text x="131" y="705" class="body">descriptor → label 链接与条件可达性</text>
+      <circle cx="116" cy="737" r="3" fill="#7e92dc"/>
+      <text x="131" y="743" class="body">字节重复、缺失成员与证据一致性</text>
+      <rect x="112" y="777" width="464" height="88" rx="12" fill="#eaf0ff"/>
+      <text x="130" y="803" class="small" style="fill:#4c65aa">输出静态诊断、逐点清单与重复候选</text>
+      <text x="130" y="827" class="small" style="fill:#4c65aa">扫描限制与未知条件交由 AI 解释，</text>
+      <text x="130" y="850" class="small" style="fill:#4c65aa">不将「源码可达」当作「实际命中」。</text>
+    </g>
+
+    <g id="execution-lane" aria-label="在隔离副本中执行当前版本原生 CI，无 ELF 则先生成构建">
+      <rect x="624" y="510" width="512" height="382" rx="17" fill="#f0faf8" stroke="#d3ebe6"/>
+      <rect x="624" y="531" width="4" height="31" rx="2" fill="#249b91"/>
+      <circle cx="660" cy="545" r="12" fill="#dcf1ed"/>
+      <path d="M 657 540 L 665 545 L 657 550 Z" fill="#249b91"/>
+      <text x="683" y="553" class="label" style="fill:#16776f">原生 CI · 真实执行取证</text>
+      <text x="648" y="585" class="small">在独立命令副本运行；needs 控制依赖与阻塞</text>
+      <rect x="648" y="601" width="464" height="37" rx="9" fill="#fff" stroke="#cbe5e0"/>
+      <text x="880" y="626" class="tag" style="fill:#246e68">环境探测 → 按需安装 → 实际复验</text>
+      <path d="M 880 638 V 655" fill="none" stroke="#249b91" stroke-width="1.7" marker-end="url(#teal-arrow)"/>
+      <rect x="648" y="657" width="464" height="37" rx="9" fill="#fff" stroke="#cbe5e0"/>
+      <text x="880" y="682" class="tag" style="fill:#246e68">原生 generation · 生成测试</text>
+      <path d="M 880 694 V 711" fill="none" stroke="#249b91" stroke-width="1.7" marker-end="url(#teal-arrow)"/>
+      <rect x="648" y="713" width="464" height="37" rx="9" fill="#fff" stroke="#cbe5e0"/>
+      <text x="880" y="738" class="tag" style="fill:#246e68">ELF 构建 · Sail 签名 · 自检重编译</text>
+      <path d="M 880 750 V 762 H 764 V 776" fill="none" stroke="#249b91" stroke-width="1.7" marker-end="url(#teal-arrow)"/>
+      <path d="M 880 762 H 996 V 776" fill="none" stroke="#249b91" stroke-width="1.7" marker-end="url(#teal-arrow)"/>
+      <rect x="648" y="778" width="224" height="37" rx="9" fill="#fff" stroke="#cbe5e0"/>
+      <text x="760" y="803" class="tag" style="fill:#246e68">reference model</text>
+      <rect x="888" y="778" width="224" height="37" rx="9" fill="#fff" stroke="#cbe5e0"/>
+      <text x="1000" y="803" class="tag" style="fill:#246e68">coverage（适用时）</text>
+      <text x="648" y="843" class="small">另含 lint lane；商业工具须有合法介质与许可</text>
+      <text x="648" y="868" class="small">零 ELF / 零测试不算通过；缺环境保留阻塞证据</text>
+    </g>
+
+    <g id="semantic-lane" aria-label="AI 审查静态规则不能判定的语义并引用原文依据">
+      <rect x="1160" y="510" width="512" height="382" rx="17" fill="#f8f5ff" stroke="#e6ddf8"/>
+      <rect x="1160" y="531" width="4" height="31" rx="2" fill="#8b68c9"/>
+      <circle cx="1196" cy="545" r="12" fill="#ede5fc"/>
+      <path d="M 1196 537 L 1198 543 L 1204 545 L 1198 547 L 1196 553 L 1194 547 L 1188 545 L 1194 543 Z" fill="#8b68c9"/>
+      <text x="1219" y="553" class="label" style="fill:#7550ad">AI 语义审查 · 补足判断</text>
+      <text x="1184" y="585" class="small">主 Agent 逐项完成机器证据中的 review_tasks</text>
+      <rect x="1184" y="604" width="220" height="34" rx="8" fill="#eee7fa"/>
+      <text x="1294" y="627" class="tag" style="fill:#7550ad">ACT4 规范 · 遗漏</text>
+      <rect x="1416" y="604" width="232" height="34" rx="8" fill="#eee7fa"/>
+      <text x="1532" y="627" class="tag" style="fill:#7550ad">冗余 · coverpoint 设计</text>
+      <rect x="1184" y="649" width="220" height="34" rx="8" fill="#eee7fa"/>
+      <text x="1294" y="672" class="tag" style="fill:#7550ad">用例覆盖 · CI 适用性</text>
+      <rect x="1416" y="649" width="232" height="34" rx="8" fill="#eee7fa"/>
+      <text x="1532" y="672" class="tag" style="fill:#7550ad">可复现性 · 贡献质量</text>
+      <text x="1184" y="716" class="body">逐点审查 bins / cross、激励与预期结果</text>
+      <text x="1184" y="746" class="body">判断静态疑点，比较重复项的语义义务</text>
+      <text x="1184" y="776" class="body">依据：原文路径 + 行号 + 逐字引文</text>
+      <text x="1184" y="806" class="body">输出：推理 · 结论 · 置信度 · 限制</text>
+      <rect x="1184" y="828" width="464" height="38" rx="9" fill="#eee7fa"/>
+      <text x="1416" y="853" class="tag" style="fill:#7550ad">不能覆盖机器失败；证据不足写 unverified</text>
+    </g>
+
+    <path d="M 344 892 V 904 H 880" fill="none" stroke="#b1bdd1" stroke-width="1.6"/>
+    <path d="M 1416 892 V 904 H 880" fill="none" stroke="#b1bdd1" stroke-width="1.6"/>
+    <path d="M 880 892 V 918" class="connector"/>
+
+    <g id="review-evidence" aria-label="汇聚证据、逐点追踪与初审报告">
+      <rect x="88" y="920" width="1584" height="146" rx="15" fill="#f5f7fb" stroke="#e0e6f0"/>
+      <text x="112" y="952" class="label">证据汇聚与逐点追踪</text>
+      <text x="112" y="982" class="mono">source_files · testcase_links · review_tasks · review_digest</text>
+      <text x="112" y="1011" class="body">区分 measured / static / gap / unverified，逐项关联问题与建议</text>
+      <text x="112" y="1040" class="small">校验任务完整性、原文引用与摘要一致性；格式校验不等于证明语义结论正确。</text>
+      <line x1="1024" y1="944" x2="1024" y2="1043" stroke="#d9e1ee"/>
+      <text x="1050" y="953" class="label">初审交付</text>
+      <text x="1050" y="983" class="mono">review.yaml / review.md</text>
+      <text x="1050" y="1011" class="mono">evidence-before.json / authorization.json</text>
+      <text x="1050" y="1040" class="small">问题清单 · 精确修复路径 · 风险 · 复验 jobs</text>
+    </g>
+  </g>
+
+  <path d="M 880 1090 V 1126" class="connector"/>
+
+  <g id="stage-authorization" aria-label="第三阶段：等待人类审查并批准精确摘要，拒绝或变更方案需重新提交">
+    <rect x="64" y="1128" width="1632" height="164" rx="22" fill="url(#approval-fill)" stroke="#e8c887" stroke-width="1.5" filter="url(#card-shadow)"/>
+    <rect x="88" y="1151" width="43" height="38" rx="11" fill="#f8e7bd"/>
+    <text x="109.5" y="1177" class="number" style="fill:#9d691b">03</text>
+    <text x="151" y="1179" class="stage-title" style="fill:#865b1e">人工审查与精确授权</text>
+    <text x="151" y="1213" class="body">审核问题、修复路径、风险与复验计划；Complete 后停止等待人类。</text>
+    <text x="151" y="1253" class="small" style="fill:#997336">摘要绑定基线、范围、报告与初审证据；AI 不得代签或自行授权。</text>
+    <rect x="1090" y="1152" width="582" height="52" rx="13" fill="#fff" stroke="#ead3a1"/>
+    <text x="1381" y="1185" text-anchor="middle" class="mono" style="font-size:20px;fill:#8c611e">hmcheck_pass &lt;digest&gt;</text>
+    <text x="1381" y="1233" text-anchor="middle" class="small" style="fill:#997336">review_authorization · 真实人工控制门禁</text>
+    <text x="1381" y="1260" text-anchor="middle" class="small" style="fill:#997336">拒绝 / 改方案 → 返回初审，重算摘要</text>
+  </g>
+
+  <path d="M 1696 1209 H 1721 Q 1728 1209 1728 1202 V 1001 Q 1728 994 1721 994 H 1698" fill="none" stroke="#c38a25" stroke-width="1.7" stroke-dasharray="5 5" marker-end="url(#amber-arrow)"/>
+  <text x="1748" y="1101" class="small" text-anchor="middle" transform="rotate(-90 1748 1101)" style="fill:#a17835">重新提交方案</text>
+  <path d="M 880 1292 V 1311 H 459 V 1330" class="connector"/>
+  <text x="659" y="1325" class="small" style="fill:#7d8ba1">精确摘要获批后推进</text>
+
+  <g id="stage-repair" aria-label="第四阶段：在批准范围内修复候选副本并重新验证">
+    <rect x="64" y="1332" width="790" height="276" rx="22" class="card"/>
+    <rect x="88" y="1355" width="43" height="38" rx="11" fill="#eaf0fc"/>
+    <text x="109.5" y="1381" class="number" style="fill:#466cd0">04</text>
+    <text x="151" y="1383" class="stage-title">候选副本修复与复验</text>
+    <text x="830" y="1380" class="stage-id" text-anchor="end">review_repair</text>
+    <text x="96" y="1431" class="body">仅改批准路径；修复生成器后由原生入口重新生成用例</text>
+    <text x="96" y="1467" class="body">重跑原生验证，保留 evidence-after.json</text>
+    <text x="96" y="1503" class="body">AI 重新审查 after 全任务 + 原 finding + 每个变更文件</text>
+    <rect x="88" y="1533" width="742" height="50" rx="11" fill="#edf3ff"/>
+    <text x="459" y="1565" class="tag" style="fill:#4d6da9">超出授权范围 → 返回人工授权；不弱化断言或 coverage</text>
+  </g>
+
+  <path d="M 854 1470 H 904" class="connector"/>
+
+  <g id="stage-final" aria-label="第五阶段：完整交付检查修复报告与补丁，由人类应用到原始仓库">
+    <rect x="906" y="1332" width="790" height="276" rx="22" class="card"/>
+    <rect x="930" y="1355" width="43" height="38" rx="11" fill="#e2f4eb"/>
+    <text x="951.5" y="1381" class="number" style="fill:#2e8961">05</text>
+    <text x="993" y="1383" class="stage-title">完整报告与可应用补丁</text>
+    <text x="1672" y="1380" class="stage-id" text-anchor="end">review_final</text>
+    <text x="938" y="1431" class="mono" style="font-size:16px">final.yaml · final.md · changes.patch</text>
+    <text x="938" y="1467" class="body">逐问题处置、前后证据、覆盖变化、CI 结果与剩余风险</text>
+    <text x="938" y="1503" class="body">fixed 需关联复验通过，且 AI 复核为 passed / confirmed</text>
+    <rect x="930" y="1533" width="742" height="50" rx="11" fill="#eaf7f0"/>
+    <text x="1301" y="1565" class="tag" style="fill:#39815f">人类确认后应用补丁；隔离验证不等于远端 CI 已通过</text>
+  </g>
+
+  <g id="guardrails" aria-label="全程约束：只读输入、诚实报告、分层证据和可追溯交付">
+    <rect x="64" y="1640" width="1632" height="112" rx="18" fill="#eaf0f8"/>
+    <text x="92" y="1677" class="label" style="font-size:17px;fill:#435a78">只读输入</text>
+    <text x="92" y="1712" class="small">原始仓库与规范不改写</text>
+    <line x1="443" y1="1663" x2="443" y2="1729" stroke="#d2ddeb"/>
+    <text x="471" y="1677" class="label" style="font-size:17px;fill:#435a78">诚实报告</text>
+    <text x="471" y="1712" class="small">失败 / 未执行 / 缺许可不伪报通过</text>
+    <line x1="877" y1="1663" x2="877" y2="1729" stroke="#d2ddeb"/>
+    <text x="905" y="1677" class="label" style="font-size:17px;fill:#435a78">证据分层</text>
+    <text x="905" y="1712" class="small">编译 ≠ 源码可达 ≠ 实际 bin 命中</text>
+    <line x1="1304" y1="1663" x2="1304" y2="1729" stroke="#d2ddeb"/>
+    <text x="1332" y="1677" class="label" style="font-size:17px;fill:#435a78">可追溯交付</text>
+    <text x="1332" y="1712" class="small">候选补丁 + 前后证据 + 剩余风险</text>
+  </g>
+
+  <text x="64" y="1792" class="small" style="font-size:13px;fill:#8794a8">ACT4 plugin · workflows/extension-review.yaml · Guide_Doc/ACT4_Extension_Review_Guide.md</text>
+  <text x="1696" y="1792" class="small" text-anchor="end" style="font-size:13px;fill:#8794a8">静态优先 / 语义有据 / 人类决策</text>
+</svg>

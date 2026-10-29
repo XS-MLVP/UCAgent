@@ -14,7 +14,7 @@ REPOSITORY = Path(__file__).resolve().parents[1]
 NOTICE_FILES = ("LICENSE", "NOTICE.md")
 
 
-@pytest.fixture(params=["RTL2Spec", "DesignWithPPA"])
+@pytest.fixture(params=["RTL2Spec", "DesignWithPPA", "ACT4"])
 def plugin_project(tmp_path, request):
     """Copy maintained build inputs to a temporary checkout, excluding runtime output."""
     pytest.importorskip("build")

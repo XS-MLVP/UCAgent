@@ -49,7 +49,9 @@ from testgen.data.state import TestData
 from testgen.data.test_chunk import TestChunk
 from testgen.priv.registry import add_priv_test_generator
 
+
 # 填入已审计的 suite key、required_extensions、testcases_per_file 等参数。
+
 # @add_priv_test_generator(...)
 def make_suite(test_data: TestData) -> Sequence[TestChunk]:
     test_chunks: list[TestChunk] = []

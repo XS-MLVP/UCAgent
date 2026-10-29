@@ -1,8 +1,6 @@
 
 # ACT4FileManifestChecker
 
-实现：`act4_privileged_suite/checkers/act4_file_manifest_checker.py`
-
 ## 作用
 
 该 checker 负责两类硬 gate：资产账本完整性，以及 ACT4 protected framework integrity。
@@ -18,7 +16,7 @@
 - 该 checker 不落盘自身结果，避免“checker 输出改变 manifest，manifest 又需重算”的
   递归；工作流应先登记其他输出，最后运行 completeness check。
 
-## 代码实现原理
+## 提交前检查
 
 1. 验证 manifest v2 顶层、files 和 change_events schema、枚举、必填说明及 workspace
    containment；稳定文件重算 SHA-256，deleted/mutable/self-referential 情况执行专门规则。
@@ -31,9 +29,10 @@
    实际文件在 manifest 中有条目。宽泛的报告 glob 覆盖本地 `work/`、`work_*/` 构建树时，
    只强制登记其中的 `.S/.sig/.results/.sig.log` 和最终 `.elf`；`.sig.elf`、生成配置、
    stamp 等中间文件可保留，不逐个要求登记。work 树外的报告和独立辅助配置仍正常检查。
-4. 从 baseline inventory 读取受保护对象的 path/type/mode/SHA-256；扫描当前 ACT4 tree，
-   比较新增、删除、内容、symlink target 和权限变化。suite 自身 generator 是显式例外，
-   work/cache 等 artifact tree 不参与受保护扫描。
+4. baseline inventory 每个对象必须有唯一 path、`type: file|symlink`、引号包住的八进制
+   mode 及 64 位小写十六进制 SHA-256。比较受保护对象的新增、删除、内容、链接目标和
+   权限变化。suite generator 仅在基线不存在时允许本轮新建；基线已有时选择新 suite，
+   不得覆盖或改写基线。work/cache 等运行产物不参与受保护扫描。
 5. 若 baseline method 为 Git，同时运行 `git rev-parse HEAD`，确保当前 ACT4 HEAD 未漂移；
    manifest 中任何 policy_violation event 都直接失败。
 
@@ -53,15 +52,13 @@
   正常 ACT4 依赖、贡献源码间引用、注释和规范/profile 标记可用；norm YAML 中的
   rule/coverpoint 标识不是文件导入。不通过扫描全部字符串或全部本地文件实现此检查。
 
-## 测试
+## 失败后修复
 
-回归测试位于 `plugins/ACT4/tests/test_act4_file_manifest_checker.py`。
-
-## 实现定位与配置关系
-
-`_validate_file_entries()` 校验文件/hash，`_validate_contribution_set()` 检查贡献集合，
-`_validate_events()` 校验事件结构，`_validate_inventory()` 枚举实际产物，
-`_validate_framework()` 执行基线比较。
+`manifest_snapshot_inventory`：修正指出的重复路径或缺失/错误身份字段，依据首次写入前
+保存的真实记录填写，不能用当前修改后的内容重建历史。
+`manifest_suite_generator_exists`：当前是新 suite 工作流，选择基线中不存在的 suite，
+不要覆盖已有 generator。若已产生违规写入，保留证据并报告阻塞。
+其他 findings 给出具体文件；先修正资产或清单，再调用 `Check`。
 
 01/04 使用 integrity_only，不等于检查了完整 files/change_events；
 05 同时有 integrity-only 和 inventory 实例；06/07 启用 require_contribution_set。
@@ -72,3 +69,84 @@ inventory 只检查 actual - manifested 的遗漏，额外合法条目可保留�
 也不证明每次修改都记录。默认链接脚本模式针对 link.ld 等指定名称，不会自动识别全部
 其他 .ld/.lds 文件或语义上的通用代码。完整保护范围仍需按工作流政策审查。
 不要通过修改保护模式、重写基线或恢复原文件掩盖违反政策的写入。
+
+## 完整初始清单示例
+
+以下是隔离示例：ACT4 中只有内容为 `all:\n\t@true\n`、权限为 644 的受保护 Makefile，
+输出 `act4_assets/artifact.txt` 内容为 `asset\n`。示例用于填写初始清单，不表示真实
+ACT4 checkout 只有一个受保护文件；实际必须记录冻结时的完整对象集合。
+
+`act4_assets/baseline.yaml` 完整内容如下，换行及引号也是其字节内容的一部分：
+
+```yaml
+files:
+  - path: riscv-arch-test/Makefile
+    type: file
+    mode: "644"
+    sha256: 8e9d2d32d6d1845adc673c5ca7a7a5846c135698c20f967648ee4cdadbb6d297
+```
+
+`act4_assets/manifest.yaml` 完整内容：阶段 01 的贡献集为空，后续阶段按实际源码补齐；
+self-referential 清单本身不填写内容 hash。稳定的 baseline 和产物都填写真实 hash。
+
+```yaml
+schema_version: 2
+suite: H
+workspace_root: .
+baseline:
+  method: sha256_snapshot
+  git_head: null
+  preexisting_changes: []
+  status_command: sha256 snapshot before writes
+  status_recorded: true
+  baseline_inventory: act4_assets/baseline.yaml
+contribution_set: []
+files:
+  - path: act4_assets/artifact.txt
+    action: created
+    category: internal_asset
+    stage: 01_coverpoints
+    content_summary: Recorded the initial example asset
+    origin: isolated example
+    reason: Demonstrate a complete initial manifest
+    diff_summary: null
+    diff_evidence: null
+    existed_before: false
+    sha256_before: null
+    sha256_after: 38e2f84393baeb97ad9debdb0b096d4cceb12d9fc4204df0f351eb4fe919962f
+    hash_note: null
+  - path: act4_assets/baseline.yaml
+    action: created
+    category: report
+    stage: 01_coverpoints
+    content_summary: Recorded protected objects before suite writes
+    origin: frozen workspace inventory
+    reason: Compare protected files against the initial snapshot
+    diff_summary: null
+    diff_evidence: null
+    existed_before: false
+    sha256_before: null
+    sha256_after: c0d8680f27cadfefa1b527e9011734031e4c40e41c1a4fd201b2baa64d8e8774
+    hash_note: null
+  - path: act4_assets/manifest.yaml
+    action: created
+    category: report
+    stage: 01_coverpoints
+    content_summary: Initial asset inventory and framework comparison
+    origin: stage journal and saved evidence
+    reason: Track output ownership and integrity
+    diff_summary: null
+    diff_evidence: null
+    existed_before: false
+    sha256_before: null
+    sha256_after: null
+    hash_note: self-referential manifest
+change_events: []
+framework_integrity:
+  protected_files_modified: []
+  protected_files_deleted: []
+  protected_type_or_mode_changed: []
+  policy_violations: []
+  verification_command: sha256 and mode comparison with frozen snapshot
+  passed: true
+```

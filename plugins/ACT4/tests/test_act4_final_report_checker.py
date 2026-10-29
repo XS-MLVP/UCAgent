@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import pytest
 import yaml
 
 from act4_privileged_suite.checkers.act4_final_report_checker import ACT4FinalReportChecker
@@ -133,3 +134,32 @@ def test_unlinked_report_and_missing_explanation_fail(tmp_path: Path) -> None:
     assert "final_report_index" in checks
     assert "final_report_section" in checks
     assert "final_report_explanation" in checks
+
+
+@pytest.mark.parametrize("value", [0, 1, "true", None])
+@pytest.mark.parametrize("readiness", [False, True])
+def test_final_readiness_requires_boolean(tmp_path: Path, value, readiness: bool) -> None:
+    """Reject non-boolean summaries even when Python equality matches a bool."""
+    _write_inputs(tmp_path)
+    state_path = tmp_path / "unity_test/H/reports/state.yaml"
+    state = yaml.safe_load(state_path.read_text(encoding="utf-8"))
+    state["contribution_ready"] = readiness
+    state_path.write_text(yaml.safe_dump(state), encoding="utf-8")
+    report = tmp_path / "unity_test/H/reports/final.md"
+    report.write_text(
+        "\n# Final report\n\n## Final validation state\n\n```yaml\n"
+        + yaml.safe_dump(
+            {"source_contribution_ready": value, "generation_scope_status": "partial"}
+        )
+        + "```\n",
+        encoding="utf-8",
+    )
+    checker = ACT4FinalReportChecker(
+        report_file="unity_test/H/reports/final.md",
+        validation_state="unity_test/H/reports/state.yaml",
+    ).set_workspace(str(tmp_path))
+
+    passed, result = checker.do_check()
+
+    assert not passed
+    assert any(item["check"] == "final_report_state_summary" for item in result["findings"])
