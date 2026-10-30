@@ -66,9 +66,32 @@ The list defines the formats participating in the search: `[vcd]` searches only 
 
 If the selected file is empty, corrupted, or missing parsing dependencies, the tool returns the file's path, format, and recovery suggestions without automatically switching to another format. To switch, first fix waveform generation or explicitly adjust analysis priority, then re-call `WaveInfo`. The `format_priority` in the listing and selection results displays the order used for the current analysis.
 
+## Backend priority within each format
+
+`runtime_options.waveform_analysis_backend_priority` independently configures the reader libraries for each format. Defaults:
+
+```yaml
+runtime_options:
+  waveform_analysis_format_priority: [fst, vcd, fsdb]
+  waveform_analysis_backend_priority:
+    fst: [pywellen, wavekit]
+    vcd: [pywellen, wavekit]
+    fsdb: [wavekit]
+```
+
+Format priority selects the waveform file; backend priority then selects an implementation for that same file. Lists must be nonempty, lowercase and distinct. A configured but unregistered backend fails when constructing `WaveInfo`. Override only `vcd: [wavekit]` to keep other built-in defaults; a single entry disables library fallback for that format. Values come from resolved `cfg.runtime_options`, are validated and saved in `.ucagent/runtime_config.json`, and are never re-read from environment variables during a call.
+
+FST/VCD default to `WellenFstReader` / `WellenVcdReader`, with `WavekitFstReader` / `WavekitVcdReader` as alternatives. Concrete classes must carry a backend prefix. Dependencies are `pywellen>=0.25.7,<0.26`, `wavekit>=0.7.0,<0.8.0`, and the directly declared `pylibfst>=0.2.1,<0.3`.
+
+Only `ImportError`/`ModuleNotFoundError` during factory construction or context entry permits the next backend. Corruption, permission errors, query errors, unsupported advanced options and failures after analysis starts propagate without retrying. Selection never changes the TC, session, file or format. If every backend is unavailable, the tool directs the task to an operator to repair the environment and retry.
+
+The current pywellen Python API omits complete file time bounds and declared bit indices. The VCD implementation additionally scans declarations and timestamp markers without retaining trace data, preserving final timestamps with no signal changes. The FST implementation uses pylibfst only for names, indices and time bounds, then immediately closes that metadata handle. Signal values are decoded by pywellen. It loads selected signals on demand but retains each loaded signal's complete native trace; narrow windows use indexed binary search without copying every Python row. Catalog output is bounded, while native metadata enumeration remains complete. This does not eliminate large-file scanning or memory costs. Digital analysis supports declared indices, ascending/negative ranges, array paths, wide integers and X/Z; real/string variables are excluded from the digital catalog. Contiguous scalar declarations retain their original bit paths. If the binding exposes indistinguishable duplicate names, such as noncontiguous scalar declarations of one bus, analysis fails instead of guessing their correspondence. Native decoding panics become analysis errors with resource cleanup.
+
+Operator logs use the `[WaveInfo]` prefix. The runtime log records `backend_order`, each `backend_attempt`, `backend_unavailable` reasons, `backend_open_failed` and `backend_selected`. Console/runtime `analysis_started` / `analysis_finished` entries identify the actual `backend`, TC, status and elapsed time. They do not dump `backend_args`. Backend identity is not added to LLM tool results. File inventory does not open a reader and therefore has no selected-backend entry.
+
 ## FSDB Runtime Dependencies and Online Viewing
 
-FST, VCD, and FSDB use `wavekit`'s `FstReader`, `VcdReader`, and `FsdbReader`, respectively. FSDB also requires the Verdi NPI runtime library `libNPI.so`; configure it before starting UCAgent using one of the following methods:
+FSDB uses `WavekitFsdbReader` to adapt wavekit. FSDB also requires the Verdi NPI runtime library `libNPI.so`; configure it before starting UCAgent using one of the following methods:
 
 - `WAVEKIT_NPI_LIB`: The full path to `libNPI.so`.
 - `VERDI_HOME`: The Verdi installation directory.
@@ -200,37 +223,408 @@ python -m pytest -q tests/test_waveform_xpra_browser.py
 
 ## Registering Other Formats
 
-Register new extensions via the public interface `register_waveform_reader(format_name, factory)`. Registration should be explicitly performed during application or plugin initialization and must be completed before creating `WaveInfo`. A format can only be registered once; it cannot override built-in readers. After registration, the format name must also be added to the analysis priority.
+`ucagent/util/waveform_formats/` is a Python package. Its public protocols and registry do not depend on a waveform parsing library. Each format implements its reader in a separate file; formats using the same library can share an adapter:
+
+```text
+ucagent/util/waveform_formats/
+├── __init__.py          # Public exports and built-in registration
+├── protocols.py         # Reader, factory, scope, signal, and result contracts
+├── registry.py          # Priority validation and extension dispatch
+├── pagination.py        # Bounded, deterministic signal pages
+├── queries.py           # Library-independent signal queries
+├── adapter_pywellen.py  # Shared pywellen decoding and advanced options
+├── adapter_wavekit.py   # Shared wavekit context and value-loading adapter
+├── read_fst.py          # WellenFstReader / WavekitFstReader
+├── read_vcd.py          # WellenVcdReader / WavekitVcdReader
+└── read_fsdb.py         # WavekitFsdbReader
+```
+
+Import `WaveformReader`, `WaveformReaderFactory`, `WaveformScope`, `WaveformSignal`, `WaveformSignalMatches`, and `WaveformValueChanges` from the package entry point. These use structural typing: a function, callable object, or reader class can satisfy the signatures without inheriting from UCAgent or wavekit. `WaveInfo` consumes only this public protocol; wavekit's `_load_value_changes` is called only inside its dedicated adapter.
+
+### Factory and reader interface
+
+The following signatures define the essential inputs and outputs. Full method documentation is in `protocols.py`:
 
 ```python
+from collections.abc import Iterable, Mapping, Sequence
+from contextlib import AbstractContextManager
+from typing import Any, Literal, NotRequired, Protocol, TypedDict
+
+BackendArgs = dict[str, Any] | Literal["help"]
+
+class WaveformScope(Protocol):
+    @property
+    def full_name(self) -> str: ...
+
+class WaveformSignal(Protocol):
+    @property
+    def full_name(self) -> str: ...
+    @property
+    def base_name(self) -> str: ...
+    @property
+    def width(self) -> int: ...
+
+class WaveformSignalMatches(TypedDict):
+    signals: Mapping[Any, WaveformSignal]
+    total: int
+    offset: int
+    limit: int
+    extensions: NotRequired[dict[str, Any]]
+
+class WaveformValueChanges(TypedDict):
+    mapped: Iterable[tuple[int, int]]
+    extensions: NotRequired[dict[str, Any]]
+
+class WaveformReader(Protocol):
+    @property
+    def backend_name(self) -> str: ...
+    def configure_backend(self, backend_args: BackendArgs) -> dict[str, Any]: ...
+    @property
+    def begin_time(self) -> int: ...
+    @property
+    def end_time(self) -> int: ...
+    @property
+    def top_scopes(self) -> Sequence[WaveformScope]: ...
+
+    def get_matched_signals(
+        self, path: str, *, offset: int = 0, limit: int = 100,
+    ) -> WaveformSignalMatches: ...
+
+    def load_value_changes(
+        self,
+        signal: WaveformSignal,
+        value_mapping: Mapping[str, int],
+        begin_time: int | None = None,
+        end_time: int | None = None,
+    ) -> WaveformValueChanges: ...
+
+class WaveformReaderFactory(Protocol):
+    def __call__(self, path: str, /) -> AbstractContextManager[WaveformReader]: ...
+```
+
+| Interface | Input and output contract |
+| --- | --- |
+| `factory(path)` | Takes a file path string, absolute or relative to the caller's current directory, and returns a context manager yielding a `WaveformReader`. Open exactly that file without substituting a format or searching for another file. |
+| `backend_name` / `configure_backend(backend_args)` | Return the backend name for operator logs; process options once before queries. Accept `{}` for defaults and `"help"` for usage without traces. Reject invalid options with `WaveformBackendArgumentError`. |
+| `begin_time` / `end_time` | Return the first and last inclusive timestamps. All times are nonnegative integer native simulation ticks, with full precision; do not convert them to DUT cycles or other time units. |
+| `top_scopes` | Return the real top-level scopes, each exposing its full dotted `full_name`; return an empty sequence if there are none. |
+| `get_matched_signals(path)` | Support exact dotted paths, `*`, recursive `**`, `/{regex}/`, and brace alternatives/ranges. Accept `path` and keyword-only `offset=0`, `limit=100`. Return `signals`, the actual match count `total`, echoed `offset` / `limit`, and optional `extensions`. Sort by full path and return `[offset, offset + limit)`, preserving backend mapping keys. Empty or out-of-range pages have an empty signal map; invalid queries raise without loading traces. |
+| `WaveformSignal` | `full_name` is the exact full path, including declared bit indices; `base_name` is the unqualified name; `width` is a positive integer bit width. Descriptors can carry native handles but must be passed back only to their originating reader and remain valid only within its context. |
+| `load_value_changes(...)` | Takes a signal resolved by this reader, a four-state mapping, and optional window bounds. Returns a dictionary containing `mapped` and optional `extensions`, as specified below. |
+| Context exit | Release files, native handles, and other resources after both successful and failed analysis. Clean up partially allocated resources if opening fails. Propagate dependency, file, and query errors for operator diagnostics. |
+
+`value_mapping` contains all four lowercase `0`, `1`, `x`, and `z` keys with integer bit values, such as `{"0": 0, "1": 1, "x": 0, "z": 0}`. Map each source bit and assemble the unsigned integer in declared bit order. `mapped` is an iterable of ascending `(timestamp, mapped_integer)` pairs. Retain source transitions even when their mapped values are equal: `WaveInfo` reads value, X mask, and Z mask separately and aligns their timestamps. An empty signal trace returns an empty iterable.
+
+`begin_time=None` and `end_time=None` leave the respective bound unlimited. For a bounded start, retain the latest state at or before `begin_time` with its original timestamp. The end is exclusive: return only transitions strictly before `end_time`. This preserves the preceding state when a change occurs at the start of an explicit analysis window. Repeated loads must not modify metadata or interfere with subsequent loads of the same signal.
+
+### Paging and summaries for large signal sets
+
+`get_matched_signals(path, *, offset=0, limit=100)` returns at most 100 signals by default, covering the sorted range `[0, 100)`. `offset` must be a nonnegative integer and `limit` an integer from 1 to 1000. `total` counts all query matches, not the page size. Return exactly `min(limit, max(total - offset, 0))` descriptors. Empty queries and out-of-range offsets return an empty `signals` mapping with the actual total and requested bounds. Sort consistently by `full_name` within the same file; do not repeat or skip signals or invalidate descriptors from other pages.
+
+Libraries without native paging can use the public `paginate_signal_matches(mapping, offset=..., limit=...)` helper, preserving keys and descriptor objects. The built-in wavekit adapter uses this helper: it still obtains the underlying library's full match mapping, but returns only the selected page to `WaveInfo` and the LLM. A library with native paging can implement the same contract directly without building all descriptors. Generate query extensions for the current page instead of placing all omitted hierarchy/relationship details inside `extensions`.
+
+Local and MCP `WaveInfo` calls expose three catalog arguments, used when `pattern` is omitted:
+
+| Argument | Default | Purpose |
+| --- | --- | --- |
+| `signal_query` | `"**"` | Catalog query using exact paths or reader query syntax, such as `TOP.dut.**`. |
+| `signal_offset` | `0` | Starting index in the sorted signal catalog. |
+| `signal_limit` | `100` | Maximum signals per page, from 1 to 1000. |
+
+For example, request the second page:
+
+```python
+result = tool.analyze(
+    test_case_name="tests/test_demo.py::test_add",
+    signal_query="TOP.dut.**",
+    signal_offset=100,
+    signal_limit=100,
+)
+```
+
+With 250 matches, the catalog summary is as follows. The actual `signals` field contains the 100 full paths and widths on this page:
+
+```yaml
+signal_catalog:
+  query: TOP.dut.**
+  total: 250
+  offset: 100
+  limit: 100
+  shown: 100
+  end_offset: 200
+  remaining: 50
+  has_more: true
+  next_offset: 200
+  truncated: true
+  next_call:
+    test_case_name: tests/test_demo.py::test_add
+    signal_query: TOP.dut.**
+    signal_offset: 200
+    signal_limit: 100
+    include_extensions: false
+    backend_args: {}
+```
+
+Pass `signal_catalog.next_call` directly to `WaveInfo`; it retains the exact TC, query, page size, extension option and `backend_args`. Pages are `[0, 100)`, `[100, 200)`, then `[200, 250)`; the final page has no `next_call`. An out-of-range offset returns an empty page and a recovery call starting at 0. No matches prompt a broader `signal_query`. `waveform_info.signal_count` always counts the entire waveform.
+
+`signal_query_summary` provides the same counts for catalog, clock, event, and context queries. When more matches remain, it supplies a catalog-mode `next_call`. Clock hints and similar-signal suggestions use only the current bounded catalog page; absence from that page does not prove a signal is missing. Top-level scope names are limited to 100, with `top_scope_count`, `top_scopes_remaining`, and `top_scopes_truncated` describing omitted scopes.
+
+Catalog paging is independent of the event-analysis bound `max_signals`. Each event query loads at most `max_signals + 1` descriptors to detect overflow and uses the actual `total` to validate the complete match set. The union across patterns, context signals, and clocks must still satisfy `max_signals`. Overflow returns the true count, a bounded preview, and `catalog_call`; it cannot report successful analysis of only the first page. Browse and narrow `pattern` before analyzing events. Nondefault catalog arguments combined with a nonempty `pattern` fail explicitly. Nondefault catalog arguments also require `test_case_name`.
+
+### Input and output examples for both methods
+
+These examples also appear in the Protocol method docstrings on `WaveformReader`. First query one signal:
+
+```python
+matches = reader.get_matched_signals("TOP.dut.data[7:0]", offset=0, limit=100)
+```
+
+In the representative output, `data_signal` is a descriptor produced by this reader. The mapping key `data` illustrates a backend identity. Related signal paths in extensions do not automatically become matches or event triggers:
+
+```python
+from types import SimpleNamespace
+
+data_signal = SimpleNamespace(
+    full_name="TOP.dut.data[7:0]", base_name="data", width=8,
+)
+result = {
+    "signals": {"data": data_signal},
+    "total": 1,
+    "offset": 0,
+    "limit": 100,
+    "extensions": {
+        "hierarchy": {"TOP.dut.data[7:0]": {"parent_scope": "TOP.dut"}},
+        "related_signals": {"TOP.dut.data[7:0]": ["TOP.dut.valid", "TOP.dut.ready"]},
+    },
+}
+```
+
+
+Use the descriptor inside `signals` to load changes. Assume source states are `0: 8'b00000000`, `10: 8'b00000011`, `20: 8'b0000xz01`, and `30: 8'b11111111`:
+
+```python
+signal = matches["signals"]["data"]
+changes = reader.load_value_changes(
+    signal,
+    {"0": 0, "1": 1, "x": 0, "z": 0},
+    begin_time=15,
+    end_time=30,
+)
+```
+
+The output retains the state at 10 before the requested start of 15 and excludes the end at 30:
+
+```python
+result = {
+    "mapped": [(10, 3), (20, 1)],
+    "extensions": {
+        "raw_values": [[10, "00000011"], [20, "0000xz01"]],
+        "quality": {"source": "native", "gaps": []},
+    },
+}
+```
+
+
+With X-mask mapping, the same input produces `mapped` rows `[(10, 0), (20, 8)]`; Z-mask mapping produces `[(10, 0), (20, 4)]`. Without extensions, the methods return `{"signals": page, "total": total, "offset": offset, "limit": limit}` and `{"mapped": rows}` respectively; an empty `extensions` field is not required.
+
+### Adapting another library and registering it
+
+The following example belongs in a plugin's `read_wlf.py`. `my_wlf_library` is illustrative: assume its metadata and queries satisfy the contract above, `read_mapped` implements four-state mapping, source-transition retention, and window semantics, `query_metadata(path, page_signals)` returns JSON-serializable hierarchy/relationship information for only the current page, and `signal_quality` returns JSON-serializable quality information. Adapt actual library objects and semantics inside the format module. If a library supports only some query forms, implement the remaining forms in the adapter. The backend constructor must clean up partially opened resources when opening fails.
+
+```python
+
+# my_plugin/readers/read_wlf.py
+
+from contextlib import AbstractContextManager
+from ucagent.util.waveform_formats import (
+    WaveformSignalMatches, WaveformValueChanges, WaveformBackendArgumentError,
+    paginate_signal_matches,
+)
+
+class ExampleWlfReader(AbstractContextManager):
+    """Adapt the chosen WLF library to the UCAgent reader contract."""
+
+    backend_name = "example"
+
+    def configure_backend(self, backend_args):
+        """Accept defaults and describe the supported advanced options."""
+        if backend_args == "help":
+            return {"options": {}, "examples": [{"backend_args": {}}]}
+        if backend_args != {}:
+            raise WaveformBackendArgumentError('Use backend_args="help".')
+        return {}
+
+    def __init__(self, path: str):
+        self.path = path
+        self.backend = None
+
+    def __enter__(self):
+        from my_wlf_library import Reader
+
+        self.backend = Reader(self.path)
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.backend.close()
+        return False
+
+    @property
+    def begin_time(self):
+        return self.backend.begin_time
+
+    @property
+    def end_time(self):
+        return self.backend.end_time
+
+    @property
+    def top_scopes(self):
+        return self.backend.top_scopes
+
+    def get_matched_signals(self, path, *, offset=0, limit=100) -> WaveformSignalMatches:
+        page = paginate_signal_matches(
+            self.backend.find_signals(path), offset=offset, limit=limit,
+        )
+        page["extensions"] = self.backend.query_metadata(path, page["signals"])
+        return page
+
+    def load_value_changes(
+        self, signal, value_mapping, begin_time=None, end_time=None,
+    ) -> WaveformValueChanges:
+        return {
+            "mapped": self.backend.read_mapped(
+                signal, value_mapping, begin_time=begin_time, end_time=end_time,
+            ),
+            "extensions": {"quality": self.backend.signal_quality(signal)},
+        }
+
+# Plugin initialization
+
 from ucagent.tools import WaveInfo, register_waveform_reader
-from my_waveform_backend import WlfReader
+from my_plugin.readers.read_wlf import ExampleWlfReader
 
-# WlfReader accepts a file path and implements the reader contract below.
-
-register_waveform_reader("wlf", WlfReader)
-
+register_waveform_reader("wlf", ExampleWlfReader, backend="example")
 tool = WaveInfo(
     workspace="/path/to/workspace",
     test_dir="unity_test/tests",
     format_priority=["fst", "vcd", "fsdb", "wlf"],
+    backend_priority={"wlf": ["example"]},
 )
 result = tool.analyze(test_case_name="test_add")
 ```
 
-When integrating with the full UCAgent workflow, use the same registration call and configure:
+`register_waveform_reader(format_name, factory, *, backend="default")` accepts lowercase extension and backend names without a dot. Registration does not open files or import parsing dependencies. Register during application/plugin initialization before constructing `WaveInfo`. One format can have multiple backend names; duplicate `(format_name, backend)` entries cannot replace existing implementations. Single-backend plugins can use `"default"`; other configured names must be registered. Configure both priorities for a full workflow:
 
 ```yaml
 runtime_options:
   waveform_analysis_format_priority: [fst, vcd, fsdb, wlf]
+  waveform_analysis_backend_priority:
+    wlf: [example]
 ```
 
-The `factory(path)` function accepts a waveform file path string and returns a context manager. Upon entering the context, the returned object must comply with the `wavekit` reader interface:
+Load optional dependencies only when the factory is called or its context is entered. Default FST/VCD implementations share `adapter_pywellen.py`; their wavekit alternatives and FSDB share `adapter_wavekit.py`. Without advanced options, query/load methods return only standard fields. New formats share discovery, analysis, receipt, and replay workflows; registering an analysis reader does not add browser decoding capabilities.
 
-- `begin_time`, `end_time`: Integer simulation timestamps.
-- `top_scopes`: Each scope provides `full_name`.
-- `get_matched_signals(pattern)`: Supports query syntax used by WaveInfo, returning a signal mapping. Signals provide `full_name`, `base_name`, and `width`.
-- `_load_value_changes(signal, value_mapping, begin_time=None, end_time=None)`: Returns a 2D sequence of timestamps and mapped values. It must apply the passed 0/1/X/Z mapping; the start time should retain the previous most recent state, and the end time should be an open interval. WaveInfo reads values, X masks, and Z masks separately.
-- When exiting the context, close files, native handles, and other resources, including paths where analysis failed.
+### Advanced options and help
 
-Adapters can inherit the `wavekit` reader base class to implement these capabilities. Additional dependencies are loaded during factory calls, avoiding initialization of native runtime libraries merely by importing tools or listing files. Extended formats share existing discovery, analysis, receipt, and replay workflows; registering a reader does not extend the browser viewer's decoding capabilities.
+Local and MCP `backend_args: dict | Literal["help"]` defaults to `{}`. Objects can contain nested JSON data; non-string top-level keys, native objects and NaN/Infinity are rejected. Options apply only to the current reader. They do not select libraries, invoke arbitrary methods/code or change standard evidence semantics. Nonempty options and `"help"` require `test_case_name`; omit event `pattern` for help.
+
+```python
+help_result = tool.analyze(
+    test_case_name="tests/test_demo.py::test_add",
+    backend_args="help",
+)
+catalog = tool.analyze(
+    test_case_name="tests/test_demo.py::test_add",
+    signal_query="TOP.dut.**",
+    signal_limit=100,
+    backend_args={"signal_metadata": True},
+    include_extensions=True,
+)
+analysis = tool.analyze(
+    test_case_name="tests/test_demo.py::test_add",
+    pattern=[{"signal": "TOP.dut.data[7:0]", "event": "unknown"}],
+    start_step=10,
+    end_step=30,
+    backend_args={"statistics": True},
+    include_extensions=True,
+)
+```
+
+After entering the selected reader, the tool calls `configure_backend()` before catalog queries or event analysis. It passes a deep copy; a backend must not affect other calls. `"help"` returns only `status: advanced_help`, file selection and usage under `extensions.backend`. Explicit help is shown even with `include_extensions=False` and cannot become event evidence. Example pywellen help:
+
+```yaml
+extensions:
+  backend:
+    options:
+      signal_metadata:
+        type: boolean
+        default: false
+        description: Return declaration metadata for the current page.
+      statistics:
+        type: boolean
+        default: false
+        description: Return source-state counts for each loaded signal and window.
+    examples:
+      - backend_args:
+          signal_metadata: true
+        include_extensions: true
+      - backend_args:
+          statistics: true
+        include_extensions: true
+```
+
+Current pywellen `signal_metadata` returns parent scope, declaration type, direction, declared/selected indices, enum and VHDL type under `extensions.signal_queries[query].signal_metadata` for the selected page. When present, `enum_type` is the array `[type_name, [[bit_value, label], ...]]`; otherwise it is `null`. `statistics` returns `source_states`, `unknown_states`, first/last timestamps and load bounds under `extensions.value_changes[signal][channel].statistics`. Counts include the prior state needed to reconstruct the window start and are not event counts. Both options accept only booleans and default to false. Wavekit currently reports empty help `options`, accepting only `{}` and `"help"`.
+
+Ordinary advanced output follows the default-hidden policy: `extensions_available` announces fields; `include_extensions=True` reveals contents. Call-scoped `configure_backend()` results go under `extensions.backend`; other results retain their query-page/signal/mapping/window scope. Extensions cannot bypass pagination. Unsupported options return `invalid_backend_args` with a directly callable `details.help_call`, without switching readers. Pagination, overflow catalog calls, recommended evidence calls, receipts, recovery and replay preserve `backend_args`. Explicit extension contents participate in semantic comparison.
+
+Plugins must implement `backend_name` and `configure_backend()`. A reader without advanced features accepts `{}` and returns `{}`, accepts `"help"` and returns `{"options": {}}`, and rejects other nonempty dictionaries. A reader with advanced features documents types, defaults, result locations, bounds and usable examples in help; validates and stores options on the current reader; then generates query/load extensions. Never return native handles, secrets or unbounded data.
+
+### Extensions and optional output
+
+`get_matched_signals` requires `signals`, `total`, `offset`, and `limit` in its result dictionary; `load_value_changes` requires `mapped`. Both can omit `extensions` or return an empty dictionary. Nonempty extensions contain backend-defined fields with string keys at every level and only JSON objects, arrays, scalars, or `null` as values. Do not include Python tuples, native descriptors, handles, NaN/Infinity, or sensitive information. Query extensions belong to the current query page and can describe its hierarchy/relationships or bounded query-wide facts. Do not bypass pagination by including details for every omitted signal in extensions. Value-change extensions describe the signal, mapping, and read window. Bound their size to their respective scope: `max_points` limits only the standard timeline and does not truncate extension dictionaries. Malformed output fails the current query or analysis and produces operator diagnostics.
+
+Local `analyze()` and local/MCP tool calls support `include_extensions: bool = False`. The default hides extension contents. Nonempty extensions add field names in `extensions_available` and an `extensions_hint` so the LLM can decide whether to inspect them. Outputs use the following scope groups, omitting empty groups:
+
+- `backend`: call-scoped results or explicit help from `configure_backend()`.
+- `signal_queries`: extensions from the latest page keyed by the exact query string, including `**`; page bounds are in `signal_query_summary`.
+- `value_changes`: value-change extensions keyed by full signal path and `value` / `x_mask` / `z_mask` channel.
+
+For example, the relevant default output is:
+
+```yaml
+extensions_available:
+  signal_queries:
+    TOP.dut.result: [hierarchy, related_signals]
+  value_changes:
+    TOP.dut.result:
+      value: [quality]
+extensions_hint: "Additional signal information is available in the listed fields. If it would help your analysis, repeat this WaveInfo call with the same arguments and include_extensions=true to view its contents."
+```
+
+To inspect the contents, repeat the same TC, signals, window, and other query arguments with `include_extensions=true`. The result adds `extensions` under the same groups, retains `extensions_available`, and omits the viewing hint:
+
+```yaml
+extensions:
+  signal_queries:
+    TOP.dut.result:
+      hierarchy:
+        TOP.dut.result:
+          parent_scope: TOP.dut
+      related_signals:
+        TOP.dut.result: [TOP.dut.valid, TOP.dut.ready]
+  value_changes:
+    TOP.dut.result:
+      value:
+        quality:
+          source: native
+          gaps: []
+```
+
+Query extensions come only from queries actually executed and do not require loading signal values, so signal-catalog and other metadata calls can return them. Value-change extensions come only from signals actually loaded, including alignment clocks and context signals. File inventory does not open a reader and has no extensions. An unmatched query can retain related-candidate information without treating candidates as matched signals. If there are no extensions, all three extension-related fields are absent regardless of the option. The option does not change standard events, timeline, or window.
+
+Explicitly returned contents from all groups are stored with the tool call's signed receipt and participate in semantic replay comparison; default calls store only available field names. The central waveform record format in dynamic Bug documents retains its existing contract.
+
+When adding a backend, test registration and analysis without wavekit, query hierarchy/relationships, unmatched queries and metadata without traces, four-state mapping, window boundaries, empty traces, large integers, omitted/optional extension output, and cleanup after exceptions. Relevant regressions:
+
+```bash
+python -m pytest -q tests/test_waveform_backends.py tests/test_waveform_formats.py tests/test_waveform_tool.py
+```

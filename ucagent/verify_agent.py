@@ -605,6 +605,7 @@ class VerifyAgent:
             test_dir=self.cfg.tools.RunTestCases.test_dir,
             dut_name=self.dut_name,
             format_priority=self.cfg.runtime_options.waveform_analysis_format_priority,
+            backend_priority=self.cfg.runtime_options.waveform_analysis_backend_priority.as_dict(),
             write_dirs=self.cfg.write_dirs,
             un_write_dirs=self.cfg.un_write_dirs,
         )

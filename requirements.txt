@@ -18,6 +18,8 @@ kubernetes>=33.1.0
 pytoffee@git+https://gitlink.org.cn/XS-MLVP/toffee@master
 toffee-test@git+https://gitlink.org.cn/XS-MLVP/toffee-test@master
 wavekit>=0.7.0,<0.8.0
+pywellen>=0.25.7,<0.26
+pylibfst>=0.2.1,<0.3
 packaging>=24,<27
 PyYAML>=6.0,<7.0
 regex>=2024.11.6

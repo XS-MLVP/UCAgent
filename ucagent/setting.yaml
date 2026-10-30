@@ -8,6 +8,11 @@ lang: "zh"
 runtime_options:
   # Ordered enabled formats. Register a reader before adding another extension.
   waveform_analysis_format_priority: [fst, vcd, fsdb]
+  # Reader libraries for the selected file; missing dependencies try the next entry.
+  waveform_analysis_backend_priority:
+    fst: [pywellen, wavekit]
+    vcd: [pywellen, wavekit]
+    fsdb: [wavekit]
 
 # init commands to run at the start of the agent
 init_cmds: []
