@@ -141,7 +141,9 @@ cmd_api:
 
 相对`script`只在实际运行包的`ucagent/scripts`下解析，支持子目录，拒绝通过`../`或符号链接逃逸；不搜索工作目录或PATH。绝对路径按原路径检查。Python脚本由运行UCAgent的`sys.executable`执行。`args`必须是参数列表，`{wave_meta}`在启动时替换为已验证JSON的绝对路径；参数安全传递。`env`由运维配置指定。`idle_timeout`为`-1`或正整数秒。需要额外Verdi参数时可在默认脚本参数末尾加入`"--"`及对应参数列表。
 
-默认`verdi/launch_verdi.py`导入可支持的Verilog/SystemVerilog关联源码、打开FSDB、添加信号并恢复时间窗口和游标；Scala等保留为关联资料。启动Tcl使用`wvGetFileTimeUnit`读取实际FSDB时间尺度，再通过`wvSetWindowTimeUnit`把显示单位设置为一个原生tick，随后应用JSON中的时间值。无法取得尺度时启动失败，不假定ns或将日志cycle当作时间。临时Tcl随Verdi进程结束清理，应用异常和返回码保留在Xpra诊断中。
+默认`verdi/launch_verdi.py`优先从元数据关联的DUT Python入口目录查找`*.daidir/simv.kdb`，其次检查关联源码所在目录；不扫描其他设计目录。找到唯一数据库时通过`-dbdir`加载VCS已编译设计，要求编译时启用`-kdb`。没有数据库时导入可支持的Verilog/SystemVerilog关联源码；Scala等保留为关联资料。多个数据库时拒绝猜测，可在`cmd_api.waveform_viewers.fsdb.args`中加入`"--dbdir", "Adder/libDPIAdder.so.daidir"`显式选择（放在`"--"`之前，路径相对所选工作区，也支持该工作区内的绝对路径）。数据库及其符号链接必须位于所选工作区内。
+
+启动器打开FSDB、添加信号，并在同一Verdi窗口内停靠和显示波形，恢复时间窗口和游标。启动Tcl使用`wvGetFileTimeUnit`读取实际FSDB时间尺度，再通过`wvSetWindowTimeUnit`把显示单位设置为一个原生tick，随后应用JSON中的时间值。无法取得尺度时启动失败，不假定ns或将日志cycle当作时间。临时Tcl随Verdi进程结束清理，应用异常和返回码保留在Xpra诊断中。
 
 Xpra运行环境需要Xpra/X11、Verdi及有效许可证，运行库分析环境参见本页FSDB依赖说明。替身测试覆盖参数、路径、Tcl字面量、多个时间尺度和错误处理；真实信号与时间定位仍需在实际许可环境执行集成验收。子工作区参数和Master的task/agent CMD代理前缀沿用全部接口。
 

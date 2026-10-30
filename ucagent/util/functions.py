@@ -687,6 +687,16 @@ def _get_toffee_test_case_details(data: dict, tests: list) -> dict:
                 type_match = re.match(r"([A-Za-z_][A-Za-z0-9_.]*)", exception)
                 if type_match:
                     phase_detail["exception_type"] = type_match.group(1)
+            failure = phase.get("exception")
+            if isinstance(failure, dict) and all(
+                isinstance(failure.get(key), str) and failure[key]
+                for key in ("phase", "type")
+            ) and isinstance(failure.get("message"), str):
+                # Plain exception fields survive pytest worker serialization;
+                # CallInfo does not exist in the parent with --forked/xdist.
+                phase_detail["phase"] = failure["phase"]
+                phase_detail["exception_type"] = failure["type"]
+                phase_detail["exception"] = f"{failure['type']}: {failure['message']}"[:1000]
             failure_phases.append(phase_detail)
 
         if failure_phases:
@@ -2877,6 +2887,7 @@ def chmode_ro_by_pattern(
 
 
 def chmode_ro(path_list: list, ignore_list: list = ["__pycache__"]):
+    """Protect files from writes while preserving executable helper permissions."""
     mfile = stat.S_IREAD | stat.S_IRGRP | stat.S_IROTH
     mpath = mfile | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
     for file_path in path_list:
@@ -2895,7 +2906,7 @@ def chmode_ro(path_list: list, ignore_list: list = ["__pycache__"]):
         if os.path.isdir(file_path):
             os.chmod(file_path, mpath)
         else:
-            os.chmod(file_path, mfile)
+            os.chmod(file_path, mfile | (os.stat(file_path).st_mode & 0o111))
     info(f"Set file mode to read-only completed ({len(path_list)} files).")
     return path_list
 
@@ -2928,7 +2939,7 @@ def chmode_rw(path_list: list, ignore_list: list = ["__pycache__"]):
             if os.path.isdir(file_path):
                 os.chmod(file_path, mpath)
             else:
-                os.chmod(file_path, mfile)
+                os.chmod(file_path, mfile | (os.stat(file_path).st_mode & 0o111))
         else:
             warning(f"File not found for setting mode to read-write: {file_path}")
     info(f"Set file mode to read-write completed ({len(path_list)} files).")
