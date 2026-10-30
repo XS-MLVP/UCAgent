@@ -109,3 +109,11 @@ If the Code Agent pauses, first check `status` and `current_tips` in Terminal A,
 - `--mcp-server` additionally exposes the file operation tool group. `--no-write` restricts writes by UCAgent tools; permissions for the client's own file tools must be configured separately.
 - For remote access, explicitly set `--mcp-server-host` and restrict sources at the network layer; the default `127.0.0.1` only allows local connections.
 - The endpoint address, port, and client timeout must be consistent; if the connection fails, first check UCAgent logs and port usage, then check the client configuration.
+
+## 3.5 Stopping and restarting the service
+
+Use `stop_mcp_server` in the PDB or TUI console to stop MCP, inspect it with `mcp_server_status`, and restart with `start_mcp_server [host] [port]`. Shutdown actively closes this service's idle SSE notification connections without affecting other MCP instances. Active tool requests can finish within the 60-second HTTP graceful shutdown deadline. Requests exceeding that deadline are still cancelled and logged as timeout errors.
+
+The stop command waits up to five seconds for the background thread. If the thread remains alive, the command reports `still shutting down` and retains service ownership, preventing a replacement instance from starting. Wait for active calls to finish, then query status or retry `stop_mcp_server`. Success is reported only after the thread exits. A timed-out startup whose cleanup is still pending retains the same status and stop controls.
+
+`cmd_api_start` starts the separate CMD API and does not stop MCP. Starting MCP, CMD, or Master API listeners does not reset the process-wide Uvicorn logging levels or handlers. Leaving TUI returns to PDB; use the status commands to determine whether services remain active.

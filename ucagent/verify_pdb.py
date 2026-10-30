@@ -2165,6 +2165,11 @@ class VerifyPDB(Pdb):
         """Start MCP synchronously enough to prove readiness before model work."""
 
         if self._mcp_server is not None and self._mcp_server.is_running:
+            if self._mcp_server.is_stopping:
+                return False, (
+                    f"MCP server is still shutting down at {self._mcp_server.url()}. "
+                    "Wait for it to stop before restarting."
+                )
             return False, (
                 f"MCP server is already running at {self._mcp_server.url()}. "
                 "Stop it before starting a new instance."
@@ -2178,7 +2183,7 @@ class VerifyPDB(Pdb):
             ok, msg = server.start()
         except Exception as exc:
             return False, f"Failed to start MCP server: {exc}"
-        self._mcp_server = server if ok else None
+        self._mcp_server = server if ok or server.is_running else None
         return ok, msg
 
     def do_stop_mcp_server(self, arg):
@@ -2186,7 +2191,7 @@ class VerifyPDB(Pdb):
         Stop the MCP server.
         Usage: stop_mcp_server
         """
-        if self._mcp_server is None or not self._mcp_server.is_running:
+        if self._mcp_server is None:
             echo_y("MCP server is not running.")
             return
         ok, msg = self._mcp_server.stop()
@@ -2203,7 +2208,9 @@ class VerifyPDB(Pdb):
         if self._mcp_server is None:
             echo_y("MCP server has not been started.")
             return
-        if self._mcp_server.is_running:
+        if self._mcp_server.is_stopping:
+            echo_y(f"MCP server is still shutting down at {self._mcp_server.url()}.")
+        elif self._mcp_server.is_running:
             echo_g(f"MCP server is running at {self._mcp_server.url()}")
             if self._mcp_server.no_file_ops:
                 echo_g("  File ops   : disabled")

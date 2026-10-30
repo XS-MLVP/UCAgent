@@ -2352,7 +2352,7 @@ class PdbCmdApiServer:
                     self._app,
                     host=self.host,
                     port=self.port,
-                    log_level="error",
+                    log_config=None, log_level=None,
                     lifespan="off",
                     ws="websockets-sansio",
                 )
@@ -2384,7 +2384,7 @@ class PdbCmdApiServer:
                     sock_cfg = uvicorn.Config(
                         self._app,
                         uds=self.sock,
-                        log_level="error",
+                        log_config=None, log_level=None,
                         lifespan="off",
                         ws="websockets-sansio",
                     )
