@@ -10,6 +10,7 @@ import shlex
 import signal
 import sys
 import tempfile
+import threading
 import time
 from types import SimpleNamespace
 
@@ -714,12 +715,19 @@ def test_terminal_console_and_xpra_remain_independent(cmd_server):
     port = _start_listener(cmd_server)
     session = cmd_server._xpra.create(sys.executable)
     console_input = []
+    console_received = threading.Event()
+
+    def record_console_input(line):
+        """Record callback completion before notifying the client test thread."""
+        console_input.append(line)
+        console_received.set()
+
     command = shlex.join([sys.executable, "-u", "-c",
                           "import sys; print('READY',flush=True); "
                           "\nfor line in sys.stdin: print('TERM:'+line.strip(),flush=True)"])
     terminal = PdbWebTermServer(command, host="127.0.0.1", port=0, password="terminal-test")
     console = PdbWebTermServer(host="127.0.0.1", port=0, password="console-test",
-                               console_input_callback=console_input.append)
+                               console_input_callback=record_console_input)
     try:
         assert terminal.start()[0]
         assert console.start()[0]
@@ -747,6 +755,8 @@ def test_terminal_console_and_xpra_remain_independent(cmd_server):
                     await receive_marker(term_ws,b"TERM:first")
                     await console_ws.send_str("console-first\r")
                     await receive_marker(console_ws,b"\r\n")
+                    # The server sends the echo before dispatching the callback.
+                    assert await asyncio.to_thread(console_received.wait, 5), "Console input callback did not complete"
                     assert console_input == ["console-first"]
                     await xpra_ws.send_bytes(b"xpra-first")
                     assert (await xpra_ws.receive(timeout=3)).data == b"xpra-first"
