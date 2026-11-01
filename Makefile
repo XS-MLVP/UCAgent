@@ -7,6 +7,14 @@ GUIDE_DOC_CACHE ?= Guide_Doc
 CFG ?= config.yaml
 BBV ?= false
 SRC ?= examples
+# Select the picker simulator, for example: make init_Adder SIM=vcs.
+SIM ?= verilator
+# Waveform defaults follow ucagent/util/test_tools.py; gsim also uses fst.
+SIM_WAVEFORM_SUFFIX_verilator := fst
+SIM_WAVEFORM_SUFFIX_gsim := fst
+SIM_WAVEFORM_SUFFIX_vcs := fsdb
+SIM_WAVEFORM_SUFFIX_uvs := usdb
+WAVEFORM_SUFFIX = $(or $(SIM_WAVEFORM_SUFFIX_$(SIM)),$(error Unsupported SIM '$(SIM)'; use verilator, gsim, vcs or uvs))
 SWARM_IMAGE ?= ghcr.nju.edu.cn/xs-mlvp/ucagent:latest
 SWARM_NETWORK ?= ucagent_net
 SWARM_MASTER_SERVICE ?= ucagent_master
@@ -86,9 +94,9 @@ init_%:
 			option_fs="--fs $(CWD)/$*_RTL/filelist.txt"; \
 		fi; \
 		if [ -f $(CWD)/$*_RTL/$*.v ]; then \
-			picker export $(CWD)/$*_RTL/$*.v --rw 1 --sname $* --tdir $(CWD)/ -c -w $(CWD)/$*/$*.fst $$option_fs; \
+			picker export $(CWD)/$*_RTL/$*.v --sim $(SIM) --rw 1 --sname $* --tdir $(CWD)/ -c -w $(CWD)/$*/$*.$(WAVEFORM_SUFFIX) $$option_fs; \
 		elif [ -f $(CWD)/$*_RTL/$*.sv ]; then \
-			picker export $(CWD)/$*_RTL/$*.sv --rw 1 --sname $* --tdir $(CWD)/ -c -w $(CWD)/$*/$*.fst $$option_fs; \
+			picker export $(CWD)/$*_RTL/$*.sv --sim $(SIM) --rw 1 --sname $* --tdir $(CWD)/ -c -w $(CWD)/$*/$*.$(WAVEFORM_SUFFIX) $$option_fs; \
 		fi; \
 	fi
 	cp $(SRC)/$*/*.md $(CWD)/$*/  || true
