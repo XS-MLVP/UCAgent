@@ -47,7 +47,7 @@ class RunBashCommand(UCTool):
             "> /dev/sd", ">/dev/sd",# raw device write
             "shutdown", "reboot",   # system state
             ":(){ :|:& };:",       # fork bomb
-            "mv /"                  # move root
+            "mv /",                 # move root
             "sudo ", "sudo\t", "sudo\n",     # elevated privileges
             "chmod ", "chmod\t", "chmod\n",  # change permissions
             "chown ", "chown\t", "chown\n",  # change ownership
