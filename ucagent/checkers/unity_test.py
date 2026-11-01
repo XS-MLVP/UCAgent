@@ -276,6 +276,42 @@ def _iter_test_function_defs(test_file):
     return visitor.functions, None
 
 
+def _load_runtime_api_calls(receipt_file, test_cases, defined_api_names):
+    """Load and validate runtime API calls for the reported pytest nodes."""
+    try:
+        with open(receipt_file, "r", encoding="utf-8") as source_file:
+            receipt = json.load(source_file)
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        return None, f"Unable to read runtime API call receipt: {exc}"
+    calls = receipt.get("calls") if isinstance(receipt, dict) else None
+    if (
+        not isinstance(receipt, dict)
+        or receipt.get("version") != 1
+        or not isinstance(calls, dict)
+    ):
+        return None, "Runtime API call receipt has an unsupported format."
+
+    by_function = {}
+    defined_api_names = set(defined_api_names)
+    for node_id, observed_api_names in calls.items():
+        if not isinstance(node_id, str) or not isinstance(observed_api_names, list):
+            return None, "Runtime API call receipt contains invalid node entries."
+        function_name = node_id.rsplit("::", 1)[-1].split("[", 1)[0]
+        if not all(isinstance(api_name, str) for api_name in observed_api_names):
+            return None, "Runtime API call receipt contains a non-string API name."
+        if not set(observed_api_names).issubset(defined_api_names):
+            return None, "Runtime API call receipt contains an unknown API name."
+        by_function.setdefault(function_name, set()).update(observed_api_names)
+
+    runtime_calls = {}
+    for test_case in test_cases:
+        function_name = str(test_case).rsplit("::", 1)[-1].split("[", 1)[0]
+        if function_name not in by_function:
+            return None, f"Runtime API call receipt has no entry for '{test_case}'."
+        runtime_calls[test_case] = by_function[function_name]
+    return runtime_calls, None
+
+
 def _test_function_name_issues_for_files(
     workspace,
     test_files,
@@ -2459,11 +2495,45 @@ class UnityChipCheckerDutApiTest(BaseUnityChipCheckerTestCase):
         assert isinstance(timeout, int), f"timeout must be an integer. But got {type(timeout)}:{timeout}."
         timeout = timeout if timeout > 0 else self.timeout
         self._set_test_report_context()
+        receipt_fd, receipt_file = tempfile.mkstemp(
+            prefix=".ucagent-api-calls-", suffix=".json", dir=self.workspace
+        )
+        os.close(receipt_fd)
+        os.unlink(receipt_file)
+        pytest_ex_env = {
+            "UCAGENT_API_TRACE_NAMES": json.dumps(
+                [func.name for func in _python_source_definitions(
+                    self.get_path(self.target_file_api),
+                    f"{self.api_prefix}*",
+                    "function",
+                )[1]]
+            ),
+            "UCAGENT_API_TRACE_FILES": json.dumps([
+                self.get_path(self.target_file_api)
+            ]),
+            "UCAGENT_API_TRACE_RECEIPT": receipt_file,
+        }
         report, str_out, str_err = self.run_test.do(
-            "", 
-            pytest_ex_args=targets,
+            "",
+            pytest_ex_args=f"-p ucagent.tools.api_call_trace {targets}",
+            pytest_ex_env=pytest_ex_env,
             return_stdout=True, return_stderr=True, return_all_checks=True, timeout=timeout
         )
+        try:
+            runtime_calls, runtime_calls_error = _load_runtime_api_calls(
+                receipt_file,
+                report.get("tests", {}).get("test_cases", {}).keys(),
+                [func.name for func in _python_source_definitions(
+                    self.get_path(self.target_file_api),
+                    f"{self.api_prefix}*",
+                    "function",
+                )[1]],
+            )
+        finally:
+            try:
+                os.unlink(receipt_file)
+            except FileNotFoundError:
+                pass
         report, str_out, str_err = self._check_test_func_args(report, str_out, str_err)
         test_pass, test_msg = fc.is_run_report_pass(report, str_out, str_err)
         if not test_pass:
@@ -2477,16 +2547,26 @@ class UnityChipCheckerDutApiTest(BaseUnityChipCheckerTestCase):
                                      "Note: the api name is case-sensitive."}
         test_cases = report.get("tests", {}).get("test_cases", {})
         test_keys = test_cases.keys()
-        test_functions = []
-        api_un_tested = []
-        for func in func_list:
-            func_name = func.name
-            for k in test_keys:
-                if func_name in k:
-                    test_functions.append(func_name)
-                    break
-            if func_name not in test_functions:
-                api_un_tested.append(func_name)
+        api_names = [func.name for func in func_list]
+        if runtime_calls_error is not None:
+            return False, _report_failure_message(
+                "[Runtime API Call Evidence Unavailable] The API test run did not "
+                f"produce complete runtime call evidence: {runtime_calls_error} "
+                "Rerun the API tests with the runtime tracing plugin enabled.",
+                report_copy,
+                stdout=str_out,
+                stderr=str_err,
+                include_stdout=self.ret_std_out,
+                include_stderr=self.ret_std_error,
+            )
+        test_functions = sorted({
+            api_name
+            for test_case in test_keys
+            for api_name in runtime_calls[test_case]
+        })
+        api_un_tested = [
+            api_name for api_name in api_names if api_name not in test_functions
+        ]
         def get_emsg(m):
             return _report_failure_message(
                 m,

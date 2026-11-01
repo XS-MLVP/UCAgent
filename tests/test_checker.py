@@ -3,6 +3,8 @@
 """Self-contained tests for representative checker modules."""
 
 import json
+import os
+import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -23,7 +25,9 @@ from ucagent.checkers import (
     UnityChipCheckerTestTemplate,
 )
 from ucagent.checkers.base import Checker, UnityChipBatchTask
-from ucagent.checkers.unity_test import BaseUnityChipCheckerTestCase
+from ucagent.checkers.unity_test import (
+    BaseUnityChipCheckerTestCase,
+)
 from ucagent.util.config import Config
 
 
@@ -84,7 +88,7 @@ def _write_workspace_files(tmp_path):
     )
     (test_dir / "test_Demo_api.py").write_text(
         "def test_api_Demo_operate(env):\n"
-        "    assert env is not None\n",
+        "    api_Demo_operate(env); assert env is not None\n",
         encoding="utf-8",
     )
     return test_dir
@@ -111,11 +115,22 @@ def _passing_report(test_node=TEST_NODE):
     }
 
 
-def _set_report(checker, report):
+def _set_report(checker, report, runtime_calls=None):
+    def fake_run(*args, **kwargs):
+        receipt_file = kwargs.get("pytest_ex_env", {}).get(
+            "UCAGENT_API_TRACE_RECEIPT"
+        )
+        if receipt_file and runtime_calls is not None:
+            Path(receipt_file).write_text(
+                json.dumps({"version": 1, "calls": runtime_calls}),
+                encoding="utf-8",
+            )
+        return report, "", ""
+
     checker.run_test = SimpleNamespace(
         set_workspace=lambda _workspace: None,
         set_pre_call_back=lambda _callback: None,
-        do=lambda *args, **kwargs: (report, "", ""),
+        do=fake_run,
     )
 
 
@@ -373,12 +388,69 @@ def test_checker_api_test_uses_mocked_report_in_temporary_workspace(tmp_path):
         "unity_test/Demo_functions_and_checks.md",
         "unity_test/Demo_bug_analysis.md",
     ).set_workspace(str(tmp_path))
-    _set_report(checker, _passing_report(API_TEST_NODE))
+    _set_report(
+        checker,
+        _passing_report(API_TEST_NODE),
+        {"test_Demo_api.py::test_api_Demo_operate": ["api_Demo_operate"]},
+    )
 
     passed, message = checker.do_check()
 
     assert passed is True, message
     assert "passed" in message["success"]
+
+
+def test_runtime_api_trace_records_only_calls_that_execute(tmp_path):
+    api_file = tmp_path / "Demo_api.py"
+    test_file = tmp_path / "test_demo_api.py"
+    receipt = tmp_path / "api_calls.json"
+    api_file.write_text(
+        "def api_Demo_add(value):\n"
+        "    return value + 1\n\n"
+        "def api_Demo_unused(value):\n"
+        "    return value - 1\n",
+        encoding="utf-8",
+    )
+    test_file.write_text(
+        "from Demo_api import api_Demo_add\n\n"
+        "def test_api_Demo_add():\n"
+        "    assert api_Demo_add(1) == 2\n",
+        encoding="utf-8",
+    )
+    env = os.environ.copy()
+    env.update(
+        {
+            "PYTHONPATH": os.pathsep.join(
+                [str(Path(__file__).resolve().parents[1]), str(tmp_path)]
+            ),
+            "UCAGENT_API_TRACE_NAMES": json.dumps(
+                ["api_Demo_add", "api_Demo_unused"]
+            ),
+            "UCAGENT_API_TRACE_FILES": json.dumps([str(api_file)]),
+            "UCAGENT_API_TRACE_RECEIPT": str(receipt),
+        }
+    )
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "-q",
+            "-p",
+            "ucagent.tools.api_call_trace",
+            str(test_file),
+        ],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    calls = json.loads(receipt.read_text(encoding="utf-8"))["calls"]
+    node_id = next(node for node in calls if node.endswith("::test_api_Demo_add"))
+    assert calls[node_id] == ["api_Demo_add"]
 
 
 def test_api_checker_rejects_nonconforming_test_function_name_before_pytest(tmp_path):

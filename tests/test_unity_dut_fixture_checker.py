@@ -17,6 +17,25 @@ from ucagent.checkers.unity_test import (
 )
 
 
+def _runtime_receipt_runner(report, api_name, stdout="", stderr=""):
+    """Return a test double that publishes the runtime API-call receipt."""
+    def run(*args, **kwargs):
+        receipt_file = kwargs["pytest_ex_env"]["UCAGENT_API_TRACE_RECEIPT"]
+        with open(receipt_file, "w", encoding="utf-8") as source_file:
+            json.dump(
+                {
+                    "version": 1,
+                    "calls": {
+                        "test_Demo_api.py::test_api_Demo_operate": [api_name]
+                    },
+                },
+                source_file,
+            )
+        return report, stdout, stderr
+
+    return run
+
+
 def _check_fixture(tmp_path, fixture_body):
     source = "\n".join([
         "import pytest",
@@ -158,7 +177,7 @@ def test_api_checker_do_check_prioritizes_missing_coverage_diagnostic(tmp_path):
     ).set_workspace(str(tmp_path))
     checker.run_test = SimpleNamespace(
         set_report_context=lambda context: None,
-        do=lambda *args, **kwargs: (report, "", ""),
+        do=_runtime_receipt_runner(report, "api_Demo_operate"),
     )
     checker._check_test_func_args = lambda current_report, stdout, stderr: (
         current_report,
@@ -332,6 +351,7 @@ def test_mark_function_diagnostic_treats_comment_as_missing_call(tmp_path):
 def test_mark_function_diagnostic_explains_unrecorded_call(tmp_path):
     (tmp_path / "test_Demo_api.py").write_text(
         "def test_api_Demo_operate(env):\n"
+        "    api_Demo_operate(env)\n"
         "    env.dut.fc_cover['FG-API'].mark_function(\n"
         "        'FC-OPERATE', test_api_Demo_operate, ['CK-BASIC']\n"
         "    )\n"
@@ -392,6 +412,7 @@ def test_api_checker_reports_checkpoint_association_cause(tmp_path):
     )
     (tmp_path / "test_Demo_api.py").write_text(
         "def test_api_Demo_operate(env):\n"
+        "    api_Demo_operate(env)\n"
         "    env.dut.fc_cover['FG-API'].mark_function(\n"
         "        'FC-OPERATE', test_api_Demo_operate, ['CK-BASIC']\n"
         "    )\n"
@@ -427,11 +448,12 @@ def test_api_checker_reports_checkpoint_association_cause(tmp_path):
     ).set_workspace(str(tmp_path))
     checker.run_test = SimpleNamespace(
         set_report_context=lambda context: None,
-        do=lambda *args, **kwargs: (
+        do=_runtime_receipt_runner(
             report,
+            "api_Demo_operate",
             "original pytest output",
             "original Toffee mark_function warning",
-        )
+        ),
     )
 
     passed, message = checker.do_check()
