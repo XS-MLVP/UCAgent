@@ -121,7 +121,7 @@ The list must be nonempty and contain unique names. Only configured simulators a
 | VCS | `.fsdb` | DPI (`--rw 0`) |
 | UVS | `.usdb` | DPI (`--rw 0`) |
 
-The selection applies to single and batch compilation. A running batch keeps its selected simulator for every compile and launch request. Changing the simulator requires recompilation before launch; Relaunch reuses the compiled workspace's simulator. Single-task YAML imports use a top-level `simulator: vcs`, and compile API requests use a string `simulator` field. Omitting it selects the first available candidate by configured priority. Batch tasks use the shared form selection. Extra `picker_args` may specify other options, but cannot override `--sim`, `--rw` / `--access-mode`, or `-w` / `--wave_file_name`.
+The selection applies to single and batch compilation. A running batch keeps its selected simulator for every compile and launch request. Changing the simulator requires recompilation before launch. Launch and Relaunch reuse an existing compiled package's recorded simulator without repeating compiler availability detection. Single-task YAML imports use a top-level `simulator: vcs`, and compile API requests use a string `simulator` field. Omitting it selects the first available candidate by configured priority. Batch tasks use the shared form selection. Extra `picker_args` may specify other options, but cannot override `--sim`, `--rw` / `--access-mode`, or `-w` / `--wave_file_name`.
 
 ### 4.2 Best Practices
 

@@ -165,6 +165,33 @@ def test_launch_queues_when_saturated_and_dispatches_in_order():
         assert fake_launch.calls == [ws1["workspace_id"], ws2["workspace_id"], ws3["workspace_id"]]
 
 
+def test_waiting_launch_retains_recorded_simulator_without_compiler_discovery():
+    """Queueing and dispatch must reuse the compiled simulator even after candidate priorities change."""
+    with _queue_server(1) as server:
+        client = TestClient(server._app)
+        ws1 = _add_compiled_workspace(server)
+        ws2 = _add_compiled_workspace(server)
+        ws2["compile"]["simulator"] = "vcs"
+        fake_launch = _fake_launch_factory(server)
+        with (
+            patch.object(server, "_picker_simulator_options", side_effect=AssertionError("Unexpected compiler discovery")),
+            patch.object(server, "_launch_validated_task", side_effect=fake_launch) as launcher,
+        ):
+            assert _launch(client, ws1)["task"]["process_status"] == "starting"
+            assert _launch(client, ws2)["task"]["process_status"] == "waiting"
+            queued_request = server._tasks[ws2["task_id"]]["waiting_request"]
+            assert queued_request["simulator"] == "vcs"
+            server.cfg = Config({
+                "launch": {"default_args": {"launch_mode": ["process"], "simulator": ["verilator"]}},
+                "master_api": {"max_task_count": 1},
+            }).freeze()
+            _finish_task(server, ws1["task_id"])
+            server._dispatch_waiting_tasks()
+            assert server._tasks[ws2["task_id"]]["process_status"] == "starting"
+            assert launcher.call_args.args[0]["simulator"] == "vcs"
+        assert fake_launch.calls == [ws1["workspace_id"], ws2["workspace_id"]]
+
+
 def test_new_submission_queues_behind_existing_waiters():
     with _queue_server(1) as server:
         client = TestClient(server._app)

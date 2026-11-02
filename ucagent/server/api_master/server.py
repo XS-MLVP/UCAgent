@@ -1173,7 +1173,7 @@ class PdbMasterApiServer(
             return self._launch_validated_task(req, ws, prepared, compile_info, picker_status)
 
     def _normalized_launch_request(self, req: Dict[str, Any]) -> Dict[str, Any]:
-        """Merge launch default args, resolve the launch mode, and ensure a client id."""
+        """Merge launch defaults and validate explicit settings without probing compilation tools."""
         req = dict(req)
         default_args = self.cfg.get_value("launch.default_args", {}) or {}
         if hasattr(default_args, "as_dict"):
@@ -1182,8 +1182,8 @@ class PdbMasterApiServer(
             # A configured priority list must never become a task's selected simulator.
             default_args = {key: value for key, value in default_args.items() if key != "simulator"}
             req = _merge_launch_default_args(req, default_args)
-        if req.get("simulator") is not None or not req.get("_relaunch_from_ucagent_info"):
-            req["simulator"] = self._effective_simulator(req.get("simulator"))
+        if req.get("simulator") is not None:
+            req["simulator"] = self._effective_simulator(req["simulator"])
         enabled_launch_modes = self._enabled_launch_modes()
         requested_launch_mode = req.get("launch_mode", req.get("launch_type", req.get("runtime", None)))
         if isinstance(requested_launch_mode, (list, tuple, set)):
@@ -1208,6 +1208,7 @@ class PdbMasterApiServer(
     ) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any], str]:
         """Validate a launch request against the current workspace state.
 
+        Pin an omitted simulator to the successful compile record before queueing.
         Returns ``(workspace, prepared, compile_info, picker_status)``. Raises
         ``ValueError`` when the request has no usable compiled workspace.
         """
@@ -1221,6 +1222,10 @@ class PdbMasterApiServer(
             raise ValueError("'selected_module' is required")
         effective_dut = (req.get("dut_name") or "").strip() or selected_module
         compile_info = dict((ws.get("compile") or {}))
+        compiled_simulator = compile_info.get("simulator")
+        requested_simulator = req.get("simulator")
+        if requested_simulator is None:
+            requested_simulator = compiled_simulator
         allow_ucagent_info_relaunch = bool(req.get("_relaunch_from_ucagent_info")) and compile_info.get("status") != "success"
         ucagent_info: Dict[str, Any] = {}
         info_dut_name = ""
@@ -1247,7 +1252,8 @@ class PdbMasterApiServer(
             compile_info.get("status") == "success"
             and compile_info.get("dut_name") == _safe_name(effective_dut, "DUT")
             and compile_info.get("selected_module") == selected_module
-            and compile_info.get("simulator") == self._effective_simulator(req.get("simulator"))
+            and isinstance(compiled_simulator, str)
+            and compiled_simulator == self._effective_simulator(requested_simulator)
             and compiled_f_filelists == current_f_filelists
             and list(compile_info.get("picker_extra_args") or []) == requested_picker_args
             and (
@@ -1267,6 +1273,8 @@ class PdbMasterApiServer(
             )
 
         if compile_matches:
+            # Keep the package's simulator in both immediate and persisted waiting requests.
+            req["simulator"] = compiled_simulator
             prepared = {
                 "workspace_dir": ws["workspace_dir"],
                 "picker_workspace": compile_info.get("picker_workspace", ""),

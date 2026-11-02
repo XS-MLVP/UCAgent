@@ -36,7 +36,7 @@ def master(tmp_path, monkeypatch):
     monkeypatch.setenv("PATH", str(bin_dir))
     cfg = Config({"launch": {"file_browser_roots": [], "default_args": {
         "simulator": ["verilator", "vcs", "gsim", "uvs"], "picker_args": [],
-    }}}).freeze()
+    }}, "master_api": {"max_task_count": 100}}).freeze()
     server = PdbMasterApiServer(workspace=str(tmp_path / "master"), cfg=cfg)
     return server, TestClient(server._app), bin_dir
 
@@ -257,10 +257,10 @@ def test_compile_defaults_to_first_available_priority(master, transport):
     else:
         result = response.json()
     assert result["compile"]["simulator"] == "vcs"
-    # Merge launch defaults into a single selection before queuing a task.
+    # Launch validation pins the recorded compiler before queuing the task.
     request = server._normalized_launch_request({"workspace_id": ws["workspace_id"], "selected_module": "Adder"})
-    assert request["simulator"] == "vcs"
     assert server._validated_launch_context(request)[3] == "success"
+    assert request["simulator"] == "vcs"
     (bin_dir / "vcs").unlink()
     assert client.get("/api/launch/simulators").json()["default_simulator"] == "verilator"
     assert request["simulator"] == "vcs"
@@ -341,6 +341,52 @@ def test_relaunch_needs_no_compiler_availability(master, has_compile_record):
         response = client.post("/api/relaunch", json={"workspace_id": ws["workspace_id"]})
     assert response.status_code == 200, response.text
     assert response.json()["status"] == "ok"
+
+
+@pytest.mark.parametrize("simulator", ["verilator", "vcs", "gsim", "uvs"])
+@pytest.mark.parametrize("tools_available", [True, False])
+def test_launch_reuses_recorded_simulator_without_discovery(master, simulator, tools_available):
+    """Launching a compiled DUT must reuse its compiler regardless of current tool availability or priority."""
+    server, client, bin_dir = master
+    ws = add_sources(server)
+    response = client.post(f"/api/workspace/{ws['workspace_id']}/compile", json={
+        "selected_module": "Adder", "simulator": simulator,
+    })
+    assert response.json()["status"] == "ok"
+    if not tools_available:
+        for executable in bin_dir.iterdir():
+            executable.unlink()
+
+    def launch(req, workspace, prepared, compile_info, picker_status):
+        """Inspect the real launch validation while replacing only child-process startup."""
+        assert req["simulator"] == simulator
+        assert compile_info["simulator"] == simulator
+        assert picker_status == "success"
+        return {"task_id": workspace["task_id"], "process_status": "starting"}
+
+    with (
+        patch.object(server, "_picker_simulator_options", side_effect=AssertionError("Launch must not discover compilers")),
+        patch.object(server, "_launch_validated_task", side_effect=launch),
+    ):
+        request = server._normalized_launch_request({
+            "workspace_id": ws["workspace_id"], "selected_module": "Adder",
+        })
+        assert server._validated_launch_context(request)[3] == "success"
+        assert request["simulator"] == simulator
+        response = client.post("/api/tasks", json={
+            "workspace_id": ws["workspace_id"], "selected_module": "Adder",
+        })
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "ok"
+
+
+def test_launch_command_normalization_does_not_discover_compilers(master):
+    """Merging CLI launch defaults without a workspace must not require compilation tools."""
+    server, _, _ = master
+    with patch.object(server, "_picker_simulator_options", side_effect=AssertionError("Unexpected compiler discovery")):
+        request = server._normalized_launch_request({})
+    assert "simulator" not in request
+    assert request["launch_mode"] == "process"
 
 
 @pytest.mark.parametrize("changed", [
