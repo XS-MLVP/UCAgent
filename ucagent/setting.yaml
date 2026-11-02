@@ -212,6 +212,7 @@ launch:
     mcp_server_port: -1               # --mcp-server-port flag; -1 auto-selects a free port per task
     extra_skill_path: ""
     use_zip_workspace: true           # if true, launch task with a master-hosted workspace .tar.gz URL
+    simulator: ["verilator", "vcs", "gsim", "uvs"] # priority order; select the first available
     picker_args: []                   # additional picker export arguments used by Compile DUT
     workspace_base:                   # default --workspace-base for launched tasks using zipped workspace
       "process": "/tmp/ucagent_workspace_base"

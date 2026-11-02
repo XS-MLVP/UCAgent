@@ -101,8 +101,27 @@ Recommendations:
 1. Create a Launch Workspace
 2. Upload or import RTL/Spec/Requirement/Config files
 3. Mark the main RTL and parse modules
-4. Select DUT name and module, then execute compilation
+4. Select the DUT name, module, and Picker simulator, then execute compilation
 5. Check the command preview and launch the hosted task
+
+The compilation form's **Picker Simulator** displays inline radio choices in the order of the `launch.default_args.simulator` list and selects the first available simulator. The default priority is `[verilator, vcs, gsim, uvs]`. To prefer VCS, for example, configure:
+
+```yaml
+launch:
+  default_args:
+    simulator: [vcs, verilator, gsim, uvs]
+```
+
+The list must be nonempty and contain unique names. Only configured simulators are displayed and considered for automatic selection. The page checks the Master process's `PATH` for `picker` and each simulator executable. Unavailable choices are gray and disabled; hover to see the reason, or click **Refresh** to detect again. Refresh preserves a manual selection while it remains available; otherwise, it selects the first available candidate by priority. When none are available, nothing is selected and compilation is disabled. Compilation runs in the Master environment; compile logs determine license and toolchain readiness.
+
+| Simulator | Automatic waveform suffix | Access mode |
+| --- | --- | --- |
+| Verilator | `.fst` | MEM_DIRECT (`--rw 1`) |
+| GSim | `.fst` | DPI (`--rw 0`) |
+| VCS | `.fsdb` | DPI (`--rw 0`) |
+| UVS | `.usdb` | DPI (`--rw 0`) |
+
+The selection applies to single and batch compilation. A running batch keeps its selected simulator for every compile and launch request. Changing the simulator requires recompilation before launch; Relaunch reuses the compiled workspace's simulator. Single-task YAML imports use a top-level `simulator: vcs`, and compile API requests use a string `simulator` field. Omitting it selects the first available candidate by configured priority. Batch tasks use the shared form selection. Extra `picker_args` may specify other options, but cannot override `--sim`, `--rw` / `--access-mode`, or `-w` / `--wave_file_name`.
 
 ### 4.2 Best Practices
 

@@ -48,6 +48,7 @@ def _add_compiled_workspace(server):
     with server._workspaces_lock:
         server._workspaces[ws["workspace_id"]]["compile"] = {
             "status": "success",
+            "simulator": "verilator",
             "picker_workspace": picker_workspace,
             "dut_name": "Adder",
             "selected_module": "Adder",

@@ -68,6 +68,13 @@
   body.batch-mode .batch-mode-only.btn,
   body.batch-mode .batch-mode-only.pill{display:inline-flex}
   body.batch-mode .batch-mode-only.batch-elapsed{display:inline-flex}
+  .simulator-toolbar{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+  .simulator-toolbar .btn{padding:3px 8px;font-size:11px}
+  .simulator-label{font-size:12px;color:var(--text-dim)}
+  .simulator-options{display:flex;flex-wrap:wrap;gap:10px 20px}
+  .simulator-choice{display:inline-flex;align-items:center;gap:6px;margin:0;font-size:13px;cursor:pointer}
+  .simulator-choice input{width:auto;margin:0;padding:0;accent-color:var(--accent)}
+  .simulator-choice.unavailable{color:var(--text-dim);opacity:.5;cursor:not-allowed}
   body.batch-mode .single-mode-only,
   body.batch-mode .single-task-field,
   body.batch-mode .single-compile-actions{display:none!important}
@@ -288,8 +295,17 @@
       <div class="stage-note">Compile prepares <code>{DUT}_RTL</code>, <code>{DUT}_Doc</code>, runs <code>picker export</code>, and copies the verification-needs file into the generated DUT package as <code>README.md</code>.</div>
       <div class="grid">
         <div class="full-span">
+          <div class="simulator-toolbar">
+            <span id="simulator-label" class="simulator-label">Picker Simulator</span>
+            <button type="button" id="refresh-simulators-btn" class="btn" data-action="refresh-simulators" title="Refresh simulator availability in the Master environment">Refresh</button>
+          </div>
+          <div id="picker-simulators" class="simulator-options" role="radiogroup" aria-labelledby="simulator-label" aria-describedby="simulator-status"></div>
+          <div id="simulator-status" class="stage-note" role="status">Checking the Master compilation environment...</div>
+        </div>
+        <div class="full-span">
           <label>Picker Arguments</label>
-          <textarea id="picker-args" rows="2" placeholder="Extra picker export args, e.g. --sim vcs&#10;--vflag -Wall"></textarea>
+          <textarea id="picker-args" rows="2" placeholder="Extra picker export args, e.g. --vflag -Wall"></textarea>
+          <div class="stage-note">Simulator, access mode, and waveform path are set automatically. Do not put <code>--sim</code>, <code>--rw</code>, or <code>-w</code> in extra args.</div>
         </div>
       </div>
       <div class="actions single-compile-actions">
@@ -411,7 +427,7 @@ const TAG_OPTIONS = [
   { value: 'source_extra', label: 'Other Source' },
 ];
 
-const FIXED_LAUNCH_KEYS = new Set(['task_name', 'dut_name', 'output', 'master', 'configs', 'cfg', 'config', 'backend', 'launch_mode', 'use_zip_workspace', 'workspace_base', 'picker_args', 'picker_extra_args', 'meta']);
+const FIXED_LAUNCH_KEYS = new Set(['task_name', 'dut_name', 'output', 'master', 'configs', 'cfg', 'config', 'backend', 'launch_mode', 'use_zip_workspace', 'workspace_base', 'simulator', 'picker_args', 'picker_extra_args', 'meta']);
 const CFG_BASH_OVERRIDE_FLAG = '--override';
 const CFG_BASH_OVERRIDE_PATTERN = /^backend\.[^.]+\.args\.cfg_bash_enable=.*$/;
 const WORKSPACE_HEARTBEAT_INTERVAL_MS = 30000;
@@ -451,6 +467,7 @@ const state = {
     parentPath: '',
     selected: new Set(),
   },
+  simulators: [],
   modules: [],
   envRows: [],
   manualConfigPath: false,
@@ -491,9 +508,10 @@ dut: my_dut              # optional; default: module
 module: top_module       # optional with main_rtl
 output: unity_test       # optional; default: unity_test
 config: config.yaml      # optional config path/preset
+simulator: vcs           # optional: verilator, gsim, vcs, uvs
 picker_args:             # optional picker args
-  - --sim
-  - vcs
+  - --vflag
+  - -Wall
 
 files:
   main_rtl: rtl/top.sv               # required option A
@@ -1209,7 +1227,7 @@ function renderBatchModeState() {
   const emptyEnvRows = getEmptyEnvRows();
   const pendingCount = state.batchItems.filter((item) => item.status !== 'success').length;
   const failedItem = state.batchItems.find((item) => item.status === 'failed');
-  const ready = state.batchItems.length > 0 && !validating && emptyEnvRows.length === 0 && pendingCount > 0;
+  const ready = state.batchItems.length > 0 && !validating && canCompileSimulator() && emptyEnvRows.length === 0 && pendingCount > 0;
 
   setStatus(
     'file-gate-status',
@@ -1219,8 +1237,9 @@ function renderBatchModeState() {
       : 'Batch mode is enabled. Select YAML launch config files from the server to build the queue.'
   );
   document.getElementById('picker-preview').textContent = getPickerArgs().length
-    ? `Batch picker args: ${shellJoin(getPickerArgs())}`
-    : 'Batch picker args: (none)';
+    ? `Simulator: ${getSelectedSimulator()}\nBatch picker args: ${shellJoin(getPickerArgs())}`
+    : `Simulator: ${getSelectedSimulator()}\nBatch picker args: (none)`;
+  renderSimulatorStatus();
   document.getElementById('command-preview').textContent = buildBatchCommandPreview();
 
   if (!state.batchLaunching) {
@@ -1245,6 +1264,7 @@ function renderBatchModeState() {
   } else {
     const reasons = [];
     if (!state.batchItems.length) reasons.push('add at least one YAML task');
+    if (!canCompileSimulator()) reasons.push('select an available Picker simulator');
     if (validating) reasons.push('wait for YAML validation to finish');
     if (emptyEnvRows.length) reasons.push(`fill or remove empty environment variable(s): ${emptyEnvRows.map((row) => row.key).join(', ')}`);
     if (state.batchItems.length && pendingCount === 0) reasons.push('all queued tasks have already launched');
@@ -1538,7 +1558,7 @@ async function ensureBatchItemWorkspace(item) {
   return item.workspace;
 }
 
-async function compileBatchItem(item) {
+async function compileBatchItem(item, simulator = getSelectedSimulator()) {
   const workspace = await ensureBatchItemWorkspace(item);
   const mainFile = getWorkspaceMainFile(workspace);
   const selectedModule = String(item.selectedModule || '').trim();
@@ -1561,6 +1581,7 @@ async function compileBatchItem(item) {
       `DUT: <code>${esc(dutName)}</code>`,
       `Module: <code>${esc(selectedModule)}</code>`,
       `Workspace: <code>${esc(item.workspaceId || '-')}</code>`,
+      `Simulator: <code>${esc(simulator)}</code>`,
       `Picker Args: ${getPickerArgs().length ? `<code>${esc(getPickerArgs().join(' '))}</code>` : '<code>(none)</code>'}`,
     ].join('<br>');
   }
@@ -1571,6 +1592,7 @@ async function compileBatchItem(item) {
       dut_name: item.dutName || selectedModule,
       selected_module: selectedModule,
       main_verilog_path: mainFile ? mainFile.stored_path : '',
+      simulator,
       picker_args: getPickerArgs(),
     }),
   });
@@ -1615,7 +1637,7 @@ function batchConfigForItem(item) {
   return selectedConfig || itemConfig || 'config.yaml';
 }
 
-function collectBatchLaunchPayload(item) {
+function collectBatchLaunchPayload(item, simulator = getSelectedSimulator()) {
   const dynamicOptions = collectDynamicLaunchOptions();
   const dynamicMeta = isPlainObject(dynamicOptions.meta) ? dynamicOptions.meta : {};
   const meta = {
@@ -1630,6 +1652,7 @@ function collectBatchLaunchPayload(item) {
     dut_name: item.dutName || item.selectedModule,
     selected_module: item.selectedModule,
     main_verilog_path: mainFile ? mainFile.stored_path : '',
+    simulator,
     picker_args: getPickerArgs(),
     config: batchConfigForItem(item),
     backend: document.getElementById('backend').value.trim(),
@@ -1649,7 +1672,7 @@ async function launchBatchTasks() {
   if (!state.batchMode) return launchTask();
   syncEnvReferenceRows();
   const emptyEnvRows = getEmptyEnvRows();
-  if (!state.batchItems.length || emptyEnvRows.length) {
+  if (!state.batchItems.length || emptyEnvRows.length || !canCompileSimulator()) {
     updateLaunchState();
     return;
   }
@@ -1660,7 +1683,10 @@ async function launchBatchTasks() {
     return;
   }
 
+  // Keep compilation and launch on the same selection across asynchronous updates.
+  const simulator = getSelectedSimulator();
   state.batchLaunching = true;
+  renderSimulatorChoices(simulator);
   state.launching = true;
   startBatchElapsedTimer();
   setLaunchButton('Launching Batch...', true);
@@ -1689,7 +1715,7 @@ async function launchBatchTasks() {
         `Batch item ${index + 1}/${state.batchItems.length}: ${esc(batchCompileLabel(item))} from <code>${esc(batchItemName(item))}</code>.`
       );
 
-      await compileBatchItem(item);
+      await compileBatchItem(item, simulator);
       item.phase = 'launching';
       renderBatchModeState();
       setStatus(
@@ -1697,7 +1723,7 @@ async function launchBatchTasks() {
         'warn',
         `Launching batch item ${index + 1}/${state.batchItems.length}: <code>${esc(batchItemName(item))}</code>.`
       );
-      const payload = collectBatchLaunchPayload(item);
+      const payload = collectBatchLaunchPayload(item, simulator);
       const data = await api('/api/tasks', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1743,6 +1769,7 @@ async function launchBatchTasks() {
     stopBatchElapsedTimer();
     state.batchLaunching = false;
     state.launching = false;
+    renderSimulatorChoices(simulator);
     renderBatchModeState();
   }
 }
@@ -1948,6 +1975,57 @@ function getSelectedModule() {
   return document.getElementById('selected-module').value.trim();
 }
 
+function getSelectedSimulator() {
+  return document.querySelector('input[name="picker-simulator"]:checked')?.value || '';
+}
+
+function canCompileSimulator() {
+  return state.simulators.some((item) => item.value === getSelectedSimulator() && item.enabled);
+}
+
+function renderSimulatorStatus() {
+  const option = state.simulators.find((item) => item.value === getSelectedSimulator());
+  const status = document.getElementById('simulator-status');
+  document.getElementById('refresh-simulators-btn').disabled = state.batchLaunching;
+  if (state.relaunch) {
+    status.textContent = 'Relaunch reuses the compiled DUT simulator.';
+  } else if (option?.enabled) {
+    status.textContent = `Waveform: .${option.waveform_suffix}`;
+  } else {
+    status.textContent = option?.reason || 'No simulator is selected. Select an available simulator to compile.';
+  }
+}
+
+function renderSimulatorChoices(preferredValue = '') {
+  // The API supplies the validated configured candidates in priority order.
+  const options = [...state.simulators];
+  let selected = options.find((item) => item.value === preferredValue && item.enabled)?.value
+    || options.find((item) => item.enabled)?.value || '';
+  if (state.relaunch) {
+    selected = preferredValue;
+    // A recorded package remains usable when its compiler is no longer configured.
+    if (selected && !options.some((item) => item.value === selected)) {
+      options.push({value: selected, label: selected, enabled: false});
+    }
+  }
+  document.getElementById('picker-simulators').innerHTML = options.map((item) => `
+    <label class="simulator-choice${item.enabled ? '' : ' unavailable'}" title="${esc(item.reason || '')}">
+      <input type="radio" name="picker-simulator" value="${esc(item.value)}" ${item.value === selected ? 'checked' : ''} ${item.enabled && !state.relaunch && !state.batchLaunching ? '' : 'disabled'}>
+      <span>${esc(item.label)}</span>
+    </label>
+  `).join('');
+  renderSimulatorStatus();
+}
+
+async function refreshSimulators() {
+  if (state.batchLaunching) return;
+  const data = await api('/api/launch/simulators');
+  if (state.batchLaunching) return;
+  state.simulators = data.simulators || [];
+  renderSimulatorChoices(getSelectedSimulator());
+  updateLaunchState();
+}
+
 function getPickerArgs() {
   return parseExtraArgs(document.getElementById('picker-args')?.value || '');
 }
@@ -2027,6 +2105,7 @@ function isCompileCurrent() {
   return (
     compile.selected_module === selectedModule &&
     compile.main_verilog_path === currentMainPath &&
+    compile.simulator === getSelectedSimulator() &&
     compile.dut_name === normalizeDutName(getDesiredDutName()) &&
     JSON.stringify([...(compile.source_f_filelist_paths || compile.f_filelist_paths || [])].sort()) === JSON.stringify(currentFFilelistPaths()) &&
     JSON.stringify(compile.picker_extra_args || []) === JSON.stringify(getPickerArgs())
@@ -2173,7 +2252,7 @@ function renderGateState() {
   }
   document.getElementById('selected-module').disabled = !unlocked;
   document.getElementById('parse-modules-btn').disabled = !unlocked || !mainFile;
-  document.getElementById('compile-dut-btn').disabled = !unlocked || !getSelectedModule();
+  document.getElementById('compile-dut-btn').disabled = !unlocked || !getSelectedModule() || !canCompileSimulator();
   document.getElementById('module-gate-note').className = `summary-box${unlocked ? '' : ' muted'}`;
   document.getElementById('module-gate-note').innerHTML = unlocked
     ? (mainFile
@@ -2187,7 +2266,8 @@ function renderCompileState() {
   const selectedModule = getSelectedModule();
   const desiredDut = getDesiredDutName();
   const compileLabel = selectedModule ? `Compile ${selectedModule}` : 'Compile DUT';
-  setCompileButton(compileLabel, !isNextStepUnlocked() || !selectedModule);
+  setCompileButton(compileLabel, !isNextStepUnlocked() || !selectedModule || !canCompileSimulator());
+  renderSimulatorStatus();
   setDownloadWorkspaceButton(isCompileCurrent());
   const summary = document.getElementById('compile-summary');
   document.getElementById('picker-preview').textContent = buildPickerPreview();
@@ -2223,6 +2303,7 @@ function renderCompileState() {
       `Package Dir: <code>${esc(compile.dut_dir || '-')}</code>`,
       `Filelist: <code>${esc(compile.filelist_path || '(none)')}</code>${compile.generated_filelist ? ' (generated)' : ''}`,
       `.f Filelists: ${compile.f_filelist_paths?.length ? compile.f_filelist_paths.map((item) => `<code>${esc(item)}</code>`).join(', ') : '<code>(none)</code>'}`,
+      `Simulator: <code>${esc(compile.simulator || '-')}</code>`,
       `Picker Args: ${compile.picker_extra_args?.length ? `<code>${esc(compile.picker_extra_args.join(' '))}</code>` : '<code>(none)</code>'}`,
       `README: <code>${esc(compile.readme_path || '(not copied)')}</code>`,
     ].join('<br>');
@@ -2416,11 +2497,12 @@ function buildPickerArgs(selectedModule = getSelectedModule(), dutName = getDesi
     args.push(compiledRtlPath(mainFile, dut));
   }
   args.push(
-    '--rw', '1',
+    '--sim', getSelectedSimulator(),
+    '--rw', getSelectedSimulator() === 'verilator' ? '1' : '0',
     '--sname', selectedModule || '<module>',
     '--tdir', `${pickerWorkspace}/`,
     '-c',
-    '-w', `${pickerWorkspace}/${dut}/${dut}.fst`,
+    '-w', `${pickerWorkspace}/${dut}/${dut}.${state.simulators.find((item) => item.value === getSelectedSimulator())?.waveform_suffix || '<waveform>'}`,
   );
   const textFilelist = getFiles().find((item) => String(item.name || '').toLowerCase() === 'filelist.txt');
   const generatedFilelist = getGeneratedTextFilelistPath(dut);
@@ -2787,6 +2869,9 @@ function setInputIfPresent(id, value) {
 function applyLaunchYamlFields(spec) {
   const normalized = normalizeLaunchYamlSpec(spec);
   const fields = normalized.fields || {};
+  if (fields.simulator !== undefined && !state.simulators.some((item) => item.value === fields.simulator && item.enabled)) {
+    throw new Error(`Simulator '${fields.simulator}' is unavailable. Select an available configured simulator.`);
+  }
   state.launchYamlSpec = normalized;
 
   if (fields.config) {
@@ -2806,6 +2891,9 @@ function applyLaunchYamlFields(spec) {
   }
   if (taskName || dutName || selectedModule) {
     document.getElementById('task-name').value = taskName || dutName || selectedModule;
+  }
+  if (fields.simulator) {
+    renderSimulatorChoices(fields.simulator);
   }
   if (Array.isArray(fields.picker_args)) {
     setInputIfPresent('picker-args', fields.picker_args.join('\n'));
@@ -3019,7 +3107,7 @@ function clearModuleState(message) {
 async function compileDut() {
   const mainFile = getMainFile();
   const selectedModule = getSelectedModule();
-  if ((!mainFile && !hasPickerFFilelist()) || !selectedModule || !hasRequirementFile()) {
+  if ((!mainFile && !hasPickerFFilelist()) || !selectedModule || !hasRequirementFile() || !canCompileSimulator()) {
     updateLaunchState();
     return;
   }
@@ -3032,6 +3120,7 @@ async function compileDut() {
       dut_name: document.getElementById('dut-name').value.trim(),
       selected_module: selectedModule,
       main_verilog_path: mainFile ? mainFile.stored_path : '',
+      simulator: getSelectedSimulator(),
       picker_args: getPickerArgs(),
     }),
   });
@@ -3154,6 +3243,7 @@ function collectLaunchPayload() {
     dut_name: document.getElementById('dut-name').value.trim(),
     selected_module: selectedModule,
     main_verilog_path: state.relaunch ? (compile.main_verilog_path || '') : (mainFile ? mainFile.stored_path : ''),
+    simulator: state.relaunch ? compile.simulator : getSelectedSimulator(),
     picker_args: state.relaunch ? listValue(compile.picker_extra_args || []) : getPickerArgs(),
     config: document.getElementById('config-path').value.trim() || 'config.yaml',
     backend: document.getElementById('backend').value.trim(),
@@ -3713,6 +3803,7 @@ async function handleRelaunchConfigChange() {
 
 function applyRelaunchCompileDefaults() {
   const compile = getCompileInfo();
+  renderSimulatorChoices(compile.simulator || '');
   const taskId = getRelaunchTaskId();
   const dutName = compile.dut_name || getRelaunchDutName();
   const selectedModule = compile.selected_module || getRelaunchSelectedModule() || dutName;
@@ -3769,6 +3860,8 @@ async function initPage() {
     state.launchDefaultForceStageIndex = String(state.launchConfig.force_stage_index ?? '');
     state.backendOptions = configData.backend_options || [];
     state.backendKeyName = configData.backend_key_name || '';
+    state.simulators = configData.simulators || [];
+    renderSimulatorChoices();
     state.launchModes = configData.launch_modes || [];
     state.defaultLaunchMode = configData.default_launch_mode || 'process';
     renderBackendSelect();
@@ -3809,6 +3902,7 @@ function applyLaunchConfig(config) {
 function applyLaunchDefaults(config, options = {}) {
   if (!config) return;
   renderDynamicLaunchSettings(config);
+  renderSimulatorChoices(state.relaunch ? (getCompileInfo().simulator || '') : getSelectedSimulator());
   const pickerArgs = config.picker_args !== undefined ? config.picker_args : config.picker_extra_args;
   const fields = {
     'output': config.output ?? '',
@@ -3850,6 +3944,10 @@ document.addEventListener('click', async (event) => {
   if (!target) return;
   const action = target.dataset.action;
   try {
+    if (action === 'refresh-simulators') {
+      await refreshSimulators();
+      return;
+    }
     if (action === 'choose-upload') {
       if (state.batchMode) throw new Error('Batch mode accepts server YAML configs only.');
       document.getElementById('upload-files-input').click();
@@ -4077,6 +4175,10 @@ document.addEventListener('change', async (event) => {
     }
     if (target.id === 'selected-module') {
       syncModuleDerivedFields(target.value);
+      updateLaunchState();
+      return;
+    }
+    if (target.matches('input[name="picker-simulator"]')) {
       updateLaunchState();
       return;
     }

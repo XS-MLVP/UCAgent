@@ -97,8 +97,27 @@ ucagent ./output Adder --master 127.0.0.1:8800
 1. 创建 Launch Workspace
 2. 上传或导入 RTL/Spec/Requirement/Config 文件
 3. 标记主 RTL 并解析模块
-4. 选择 DUT 名称与模块后执行编译
+4. 选择 DUT 名称、模块与 Picker 仿真器后执行编译
 5. 检查命令预览并启动托管任务
+
+编译区的 **Picker Simulator** 使用横向单选勾选项，按 `launch.default_args.simulator` 列表顺序显示，默认勾选第一个可用仿真器。默认优先级为 `[verilator, vcs, gsim, uvs]`；例如优先使用 VCS，可配置：
+
+```yaml
+launch:
+  default_args:
+    simulator: [vcs, verilator, gsim, uvs]
+```
+
+列表必须非空、名称不能重复，只显示并自动选择列表中配置的仿真器。页面根据 Master 进程的 `PATH` 检测 `picker` 与各仿真器可执行程序；不可用项置灰禁选，悬停显示原因，点击 **Refresh** 可重新检测。刷新会保留仍可用的手动选择；当前选择不可用时，改选优先级最高的可用项。全部不可用时不勾选任何项，并禁用编译。编译在 Master 环境执行；许可证和工具链是否就绪以编译日志为准。
+
+| 仿真器 | 自动波形后缀 | 访问模式 |
+| --- | --- | --- |
+| Verilator | `.fst` | MEM_DIRECT（`--rw 1`） |
+| GSim | `.fst` | DPI（`--rw 0`） |
+| VCS | `.fsdb` | DPI（`--rw 0`） |
+| UVS | `.usdb` | DPI（`--rw 0`） |
+
+仿真器选择适用于单任务和批量编译。批量运行期间，每个编译与启动请求均使用开始时勾选的仿真器。切换仿真器后须重新编译才能启动任务；Relaunch 复用已编译工作区的仿真器。单任务 YAML 导入使用顶层 `simulator: vcs`，编译 API 使用字符串请求字段 `simulator`，省略时按配置顺序选择第一个可用项；批量任务统一使用表单选择。附加 `picker_args` 用于其他参数，不能覆盖 `--sim`、`--rw` / `--access-mode` 或 `-w` / `--wave_file_name`。
 
 ### 4.2 建议实践
 
