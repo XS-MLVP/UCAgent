@@ -37,7 +37,7 @@ class TestConfigLoader(unittest.TestCase):
         self.assertEqual(config["un_write_dirs"], ["{DUT}", "{GUIDE_DOC}"])
         self.assertEqual(
             config["write_dirs"],
-            ["{OUT}", "{DUT}/**/*.vdb", "{DUT}/**/*.fsdb", "{DUT}/**/*.fsdb.json",
+            ["{OUT}", "{DUT}/**/*.vdb", "{DUT}/**/*.vdb.lock", "{DUT}/**/*.fsdb", "{DUT}/**/*.fsdb.json",
              "{DUT}/**/*.vpd", "{DUT}/**/*.usdb", "{DUT}/**/*.usdb.json"],
         )
 
@@ -48,6 +48,8 @@ class TestConfigLoader(unittest.TestCase):
 
         allowed = [
             "Adder/simv.vdb",
+            "Adder/simv.vdb.lock",
+            "Adder/tests/cov.vdb.lock",
             "Adder/simv.vdb/snapshot/data",
             "Adder/tests/cov.vdb/history",
             "Adder/tests/wave.fsdb",
@@ -68,6 +70,8 @@ class TestConfigLoader(unittest.TestCase):
             "Adder/top.v",
             "Adder/tests/test_api.py",
             "Adder/simv.vdb.bak",
+            "Adder/simv.vdb.lock.bak",
+            "Adder/tests/cov.lock",
             "Adder/tests/wave.fsdb.old",
             "Adder/wave.vpd.json",
             "Adder/tests/wave.usdb.bak",
@@ -79,6 +83,39 @@ class TestConfigLoader(unittest.TestCase):
                 path, un_write_dirs=un_write_dirs, write_dirs=write_dirs
             )
             self.assertFalse(ok, f"{path} must stay protected")
+
+    def test_default_vdb_locks_remain_usable_after_dut_protection(self):
+        """Startup protection must preserve VCS locks while keeping RTL read-only."""
+        from pathlib import Path
+        import fcntl
+        from ucagent.util.functions import chmode_ro_by_pattern
+
+        config = load_yaml_with_env_vars(os.path.join(current_dir, "..", "ucagent", "setting.yaml"))
+        values = {"DUT": "Adder", "OUT": "out", "GUIDE_DOC": "Guide_Doc"}
+        protected = [entry.format(**values) for entry in config["un_write_dirs"]]
+        writable = [entry.format(**values) for entry in config["write_dirs"]]
+        with tempfile.TemporaryDirectory() as workspace:
+            dut = Path(workspace) / "Adder"
+            nested = dut / "tests"
+            nested.mkdir(parents=True)
+            locks = [dut / "Adder.vdb.lock", nested / "coverage.vdb.lock"]
+            for path in locks:
+                path.touch()
+            rtl = dut / "Adder.v"
+            rtl.write_text("module Adder; endmodule\n", encoding="utf-8")
+            chmode_ro_by_pattern(workspace, protected, write_dirs=writable)
+            try:
+                self.assertFalse(rtl.stat().st_mode & 0o200)
+                for path in locks:
+                    self.assertTrue(path.stat().st_mode & 0o200)
+                    with path.open("r+b") as lock:
+                        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        fcntl.flock(lock, fcntl.LOCK_UN)
+                # Picker may also create its first lock after startup protection.
+                with (nested / "new.vdb.lock").open("w+b") as lock:
+                    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            finally:
+                rtl.chmod(0o644)
 
     def test_default_document_path_uses_template_overwrite(self):
         config_path = os.path.join(

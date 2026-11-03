@@ -350,8 +350,9 @@ un_write_dirs:
 write_dirs:
   - "{OUT}"
   # Simulator artifact write permissions, independent of reader/viewer support:
-  # VCS *.vdb coverage and *.fsdb/*.vpd waveforms; UVS *.usdb waveforms.
+  # VCS *.vdb coverage, its sibling *.vdb.lock, and *.fsdb/*.vpd waveforms; UVS *.usdb waveforms.
   - "{DUT}/**/*.vdb"
+  - "{DUT}/**/*.vdb.lock"
   - "{DUT}/**/*.fsdb"
   - "{DUT}/**/*.fsdb.json"
   - "{DUT}/**/*.vpd"
