@@ -1371,7 +1371,7 @@ def test_default_config_disables_stalled_checker_pause():
 def test_swarm_launch_does_not_force_human_check():
     """Keep the example human-check injection documented but inactive."""
 
-    makefile_path = os.path.join(current_dir, "..", "Makefile")
+    makefile_path = os.path.join(current_dir, "..", "make", "master.mk")
     with open(makefile_path, encoding="utf-8") as makefile_handle:
         makefile = makefile_handle.read()
     override = (
