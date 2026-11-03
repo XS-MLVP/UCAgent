@@ -24,8 +24,6 @@ checker 短名注册、manual 路径配置和静态规范引用；生成器独�
 `act4_privileged_suite` 私有导入/路径及 `ACT4_MANUAL_ROOT`，允许 ACT4 原生输入。
 UCAgent 版本下限采用实际测试的 `26.9.2.dev25`。
 
-![ACT4 已有扩展测试资产 Review 工作流原理图](extension-review-workflow.svg)
-
 `workflows/extension-review.yaml` 提供 5 阶段已有资产审查，新增 `ACT4ReviewChecker` 管理
 冻结基线、审查契约、真实命令证据、人工授权范围、候选差异与最终补丁；复用
 `ACT4AssetChecker` 和现有 SV/assembly 分析，不使用仅允许新 suite 的 manifest 门禁。
