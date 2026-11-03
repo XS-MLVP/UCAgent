@@ -7,7 +7,7 @@
 
 ## 基本结构
 
-需要用ucagent库提供的函数`repeat_count`来控制测试用例的循环测试次数，具体示例如下：
+需要用ucagent库提供的函数`get_seed`和`repeat_count`来控制测试用例的随机种子和循环测试次数，具体示例如下：
 
 ```python
 from {DUT}_api import * # 重要，必须用 import *， 而不是 import env，不然会出现 dut 没定义错误
@@ -28,18 +28,22 @@ def test_random_basic_functionality(env):
     # Eg:
     # env.dut.fc_cover["FG-XXXXXX"].mark_function("FC-YYYYYY", test_basic_functionality, ["CK-AAA1", "CK-AAA2"])
 
-    # 1. 获取循环测试次数
+    # 1. 获取随机种子并初始化随机数生成器（必须）
+    seed = ucagent.get_seed(1234)
+    random.seed(seed)
+
+    # 2. 获取循环测试次数
     N = ucagent.repeat_count()
     for i in range(N):
-        # 2. 测试数据准备
+        # 3. 测试数据准备
         input_a = random.randint(0, 100)
         input_b = random.randint(0, 100)
         expected_result = input_a + input_b
 
-        # 3. 调用API执行操作
+        # 4. 调用API执行操作
         actual_result = api_{DUT}_operation(env, input_a, input_b)
 
-        # 4. 断言验证结果
+        # 5. 断言验证结果
         assert actual_result == expected_result, f"预期: {expected_result}, 实际: {actual_result}"
 
 # 其他随机测试用例
@@ -48,6 +52,7 @@ def test_random_basic_functionality(env):
 
 ## 设计原则
 
+- 必须通过`ucagent.get_seed(<seed>)`获取随机种子并立即用它初始化随机数生成器（例如`seed = ucagent.get_seed(1234); random.seed(seed)`），禁止直接写`random.seed(<数字>)`或使用其他种子来源
 - 必须通过`ucagent.repeat_count()`获取循环次数
 - 测试用例名称的命名格式为`test_random_<test_name>`
 - 测试文件名称的命名格式为`test_{DUT}_random_<group_name>.py`

@@ -9,7 +9,7 @@ Mock 组件是验证环境的重要组成部分（参见 `dut_mock.md`）。在�
 
 Mock DUT 是一个纯 Python 对象，它自动复制了真实 DUT Python 接口（通常是 `DUT{{DUT}}` 类）中定义的所有信号（Pin）。
 - 它不连接真实的仿真器（如 Verilator/VCS）。
-- 它的信号是 XPin 对象，读写时应通过 `.value` 访问（不要直接覆盖 pin 对象）。
+- 它的信号对象通过 `.value` 访问（不要直接覆盖 pin 对象）。
 - 它提供了 `Step(n)` 方法，用于推进虚拟的时间，触发注册的时钟回调函数。
 
 ## 创建 Mock DUT
@@ -54,7 +54,7 @@ def mock_dut():
 
 ### 信号读写规范
 
-Mock DUT 的 pin 是 XPin 对象，读写必须通过 `.value`：
+Mock DUT 的 pin 读写必须通过 `.value`：
 
 - 写入：`mock_dut.req_valid.value = 1`
 - 读取：`assert mock_dut.req_ready.value == 1`

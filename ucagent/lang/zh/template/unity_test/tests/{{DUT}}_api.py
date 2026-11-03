@@ -1,4 +1,5 @@
 #coding=utf-8
+"""DUT construction, fixtures, and shared test APIs for {{DUT}}."""
 
 import pytest
 import ucagent
@@ -14,21 +15,26 @@ import os
 
 
 def current_path_file(file_name):
+    """Resolve a path relative to this API module."""
     return os.path.join(os.path.dirname(os.path.abspath(__file__)), file_name)
 
 
-def get_coverage_data_path(request, new_path:bool):
+def get_coverage_data_path(request, dut, new_path:bool):
+    """Get a per-test coverage path using the DUT's simulator defaults."""
     # 通过toffee_test.reporter提供的get_file_in_tmp_dir方法可以让各用例产生的文件名称不重复 (获取新路径需要new_path=True，获取已有路径new_path=False)
     # 获取测试用例名称，为每个测试用例创建对应的代码行覆盖率文件
     tc_name = request.node.name if request is not None else "{{DUT}}"
-    return get_file_in_tmp_dir(request, current_path_file("data/"), f"{tc_name}.dat",  new_path=new_path)
+    suffix = ucagent.get_default_subfix(dut, "coverage")
+    return get_file_in_tmp_dir(request, current_path_file("data/"), f"{tc_name}.{suffix}",  new_path=new_path)
 
 
-def get_waveform_path(request, new_path:bool):
+def get_waveform_path(request, dut, new_path:bool):
+    """Get a per-test waveform path using the DUT's simulator defaults."""
     # 通过toffee_test.reporter提供的get_file_in_tmp_dir方法可以让各用例产生的文件名称不重复 (获取新路径需要new_path=True，获取已有路径new_path=False)
     # 获取测试用例名称，为每个测试用例创建对应的波形
     tc_name = request.node.name if request is not None else "{{DUT}}"
-    return get_file_in_tmp_dir(request, current_path_file("data/"), f"{tc_name}.fst",  new_path=new_path)
+    suffix = ucagent.get_default_subfix(dut, "waveform")
+    return get_file_in_tmp_dir(request, current_path_file("data/"), f"{tc_name}.{suffix}",  new_path=new_path)
 
 
 def create_dut(request):
@@ -46,16 +52,17 @@ def create_dut(request):
     dut = DUT{{DUT}}()
 
     # 设置覆盖率生成文件(必须设置覆盖率文件，否则无法统计覆盖率，导致测试失败)
-    dut.SetCoverage(get_coverage_data_path(request, new_path=True))
+    dut.SetCoverage(get_coverage_data_path(request, dut, new_path=True))
 
     # 设置波形生成文件
-    dut.SetWaveform(get_waveform_path(request, new_path=True))
+    dut.SetWaveform(get_waveform_path(request, dut, new_path=True))
 
     return dut
 
 
 @pytest.fixture(scope="function") # 用scope="function"确保每个测试用例都创建了一个全新的DUT
 def dut(request):
+    """Create one DUT per test and report its functional and line coverage."""
     # 以下覆盖组创建、fc_cover绑定、采样和teardown上报同时服务于真实DUT与模板阶段fake DUT，属于fixture结构契约，不得删除或绕过。
     dut = create_dut(request)                         # 创建DUT
     func_coverage_group = get_coverage_groups(dut)
@@ -81,7 +88,7 @@ def dut(request):
 
     # 设置需要收集的代码行覆盖率文件(获取已有路径new_path=False) 向toffee_test传代码行递覆盖率数据
     # 代码行覆盖率 ignore 文件的固定路径为当前文件所在目录下的：{{DUT}}.ignore，请不要改变
-    set_line_coverage(request, get_coverage_data_path(request, new_path=False), ignore=current_path_file("{{DUT}}.ignore"))
+    set_line_coverage(request, get_coverage_data_path(request, dut, new_path=False), ignore=current_path_file("{{DUT}}.ignore"))
 
     # 设置用户信息到报告
     set_user_info("UCAgent-{{Version}}", "{{Email}}")

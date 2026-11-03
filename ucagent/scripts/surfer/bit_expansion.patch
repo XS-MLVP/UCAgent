@@ -1,0 +1,39 @@
+--- a/libsurfer/src/translation/mod.rs
++++ b/libsurfer/src/translation/mod.rs
+@@ -14,0 +15 @@
++mod bit_expansion;
+@@ -109 +110 @@
+-        match self {
++        let mut result = match self {
+@@ -114,5 +115,2 @@
+-        }
+-    }
+-
+-    fn variable_info(&self, variable: &VariableMeta) -> Result<VariableInfo> {
+-        match self {
++        }?;
++        let info = match self {
+@@ -121,0 +120,13 @@
++            AnyTranslator::Python(t) => t.variable_info(variable),
++        }?;
++        if matches!(info, VariableInfo::Bits) {
++            bit_expansion::translate(variable, value, &mut result);
++        }
++        Ok(result)
++    }
++
++    fn variable_info(&self, variable: &VariableMeta) -> Result<VariableInfo> {
++        let info = match self {
++            AnyTranslator::Full(t) => t.variable_info(variable),
++            AnyTranslator::Basic(t) => t.variable_info(variable),
++            #[cfg(feature = "python")]
+@@ -124 +135,2 @@
+-        }
++        }?;
++        Ok(bit_expansion::variable_info(variable, info))
+--- a/libsurfer/src/view.rs
++++ b/libsurfer/src/view.rs
+@@ -942 +942,2 @@
+-                    egui::Id::new(&field),
++                    // Duplicate signal rows must have independent collapse state.
++                    egui::Id::new(&displayed_field_ref),

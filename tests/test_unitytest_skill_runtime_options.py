@@ -233,6 +233,7 @@ def test_agent_runtime_config_persists_resolved_values_from_cfg(tmp_path):
             "need_ref_model": True,
             "mock_components_enabled": False,
             "waveform_analysis_format_priority": ["fst", "vcd", "fsdb"],
+            "waveform_analysis_backend_priority": {"fst": ["pywellen", "wavekit"], "vcd": ["pywellen", "wavekit"], "fsdb": ["wavekit"]},
         },
     }
 

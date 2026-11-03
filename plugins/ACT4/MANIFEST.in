@@ -1,0 +1,4 @@
+include ucagent-plugin.toml Makefile
+recursive-include docs *.md
+recursive-include src/act4_privileged_suite *.md *.yaml
+recursive-include tests *.py

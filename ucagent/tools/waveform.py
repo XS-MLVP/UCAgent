@@ -6,6 +6,7 @@ from __future__ import annotations
 import ast
 from bisect import bisect_left, bisect_right
 from collections import OrderedDict
+from collections.abc import Mapping
 import copy
 from dataclasses import dataclass
 from datetime import datetime
@@ -27,7 +28,7 @@ import weakref
 
 from langchain_core.callbacks import CallbackManagerForToolRun
 from langchain_core.tools.base import ArgsSchema
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 import yaml
 
 from ucagent.util.functions import make_llm_tool_ret
@@ -62,26 +63,40 @@ from ucagent.util.bug_analysis_contract import (
     waveform_record_tag,
     waveform_reference,
 )
-from ucagent.util.log import log_msg, warning
+from ucagent.util.log import info as log_info, log_msg, warning
 from ucagent.util.markdown import ensure_markdown_file_heading_spacing
 from ucagent.util.waveform_formats import (
     DEFAULT_WAVEFORM_ANALYSIS_FORMAT_PRIORITY,
+    DEFAULT_WAVEFORM_ANALYSIS_BACKEND_PRIORITY,
+    BackendArgs,
+    WaveformBackendArgumentError,
+    DEFAULT_SIGNAL_LIMIT,
+    MAX_SIGNAL_LIMIT,
+    WaveformReader,
+    WaveformSignal,
     open_waveform_reader,
     register_waveform_reader,
     registered_waveform_formats,
+    registered_waveform_backends,
     validate_waveform_analysis_format_priority,
+    validate_waveform_analysis_backend_priority,
 )
 from ucagent.util.waveform_viewer import (
-    WAVEFORM_VIEWER_EXTENSIONS,
     WaveformViewerProtocolError,
     build_waveform_viewer_markdown_link,
     build_waveform_viewer_url,
     normalize_waveform_viewer_payload,
+    waveform_viewer_semantics,
+    WAVEFORM_METADATA_LOCK,
+    build_waveform_metadata,
+    resolve_workspace_path,
+    validate_waveform_metadata,
+    write_waveform_metadata,
 )
 from .uctool import UCTool
 
 
-_DOCUMENT_WRITE_LOCK = threading.Lock()
+_DOCUMENT_WRITE_LOCK = threading.RLock()
 _RECEIPT_STORE_LOCKS = weakref.WeakValueDictionary()
 _RECEIPT_STORE_LOCKS_GUARD = threading.Lock()
 
@@ -89,6 +104,19 @@ _RECEIPT_STORE_LOCKS_GUARD = threading.Lock()
 WaveEvent = Literal["change", "rising", "falling", "equals", "unknown"]
 ClockEdge = Literal["rising", "falling"]
 WaveClockMode = Literal["", "clocked", "combinational"]
+
+
+def _snapshot_json_object(value: Any, label: str) -> dict[str, Any]:
+    """Copy a JSON object without changing nested keys, arrays, or scalar values."""
+    if not isinstance(value, dict):
+        raise ValueError(f"{label} must be a JSON object")
+    try:
+        snapshot = json.loads(json.dumps(value, allow_nan=False))
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"{label} must contain only JSON objects, arrays and scalar values") from error
+    if snapshot != value:
+        raise ValueError(f"{label} must contain only JSON objects with string keys, arrays and scalar values")
+    return snapshot
 
 
 class WaveSignalPattern(BaseModel):
@@ -222,6 +250,8 @@ class WaveInfoAnalysisArgs(BaseModel):
             "removed; inventory basename hints are not source-test identities."
         ),
     )
+    source_files: list[str] = Field(default_factory=list, description="Workspace-relative related design source files selected after inspecting the source; do not list unrelated files.")
+    dut_python_path: str = Field(default="", description="Workspace-relative DUT Python entry file; leave empty for automatic discovery.")
     pattern: list[WaveSignalPattern] | None = Field(
         default=None,
         description=(
@@ -284,6 +314,19 @@ class WaveInfoAnalysisArgs(BaseModel):
             "extends signal loading by this many clock edges."
         ),
     )
+    signal_query: str = Field(
+        default="**",
+        min_length=1,
+        description="Signal catalog query; use an exact path or pattern. Applies when event pattern is omitted.",
+    )
+    signal_offset: int = Field(
+        default=0, ge=0, strict=True,
+        description="Zero-based signal catalog offset. The default page starts at 0; use the returned next_call to continue.",
+    )
+    signal_limit: int = Field(
+        default=DEFAULT_SIGNAL_LIMIT, ge=1, le=MAX_SIGNAL_LIMIT, strict=True,
+        description="Maximum signals per catalog page, default 100. Catalog paging does not select a subset for event analysis.",
+    )
     max_signals: int = Field(
         default=32,
         ge=1,
@@ -299,6 +342,30 @@ class WaveInfoAnalysisArgs(BaseModel):
         le=1000,
         description="Maximum number of timestamps returned in the event timeline.",
     )
+    include_extensions: bool = Field(
+        default=False,
+        description=(
+            "Return additional query and signal information when available. By default, only "
+            "the available field names and a hint to request their contents are returned."
+        ),
+    )
+    backend_args: BackendArgs = Field(
+        default_factory=dict,
+        description=(
+            'Advanced analysis options as a JSON object, or "help" to list available '
+            'options and examples for this test. Results use extensions; set '
+            'include_extensions=true to view them. Help contents are always shown.'
+        ),
+    )
+
+    @field_validator("backend_args", mode="before")
+    @classmethod
+    def validate_backend_args(cls, value):
+        """Accept a JSON object or the exact help literal, rejecting native values."""
+        if value == "help":
+            return value
+        return _snapshot_json_object(value, 'backend_args (or use "help")')
+
     max_files: int = Field(
         default=20,
         ge=1,
@@ -315,6 +382,21 @@ class WaveInfoAnalysisArgs(BaseModel):
 
     @model_validator(mode="after")
     def validate_window(self):
+        self.signal_query = self.signal_query.strip()
+        if not self.signal_query:
+            raise ValueError("signal_query must not be blank")
+        catalog_options = (
+            self.signal_query != "**" or self.signal_offset != 0
+            or self.signal_limit != DEFAULT_SIGNAL_LIMIT
+        )
+        if self.backend_args and not (self.test_case_name or "").strip():
+            raise ValueError("test_case_name is required for backend_args")
+        if self.backend_args == "help" and self.pattern:
+            raise ValueError("Omit pattern when requesting backend_args help")
+        if catalog_options and self.pattern:
+            raise ValueError("signal_query, signal_offset, and signal_limit require pattern to be omitted for catalog inspection")
+        if catalog_options and not self.test_case_name:
+            raise ValueError("test_case_name is required for signal catalog inspection")
         if self.test_case_name is not None:
             self.test_case_name = self.test_case_name.strip()
             if not self.test_case_name:
@@ -323,6 +405,8 @@ class WaveInfoAnalysisArgs(BaseModel):
             value is not None
             for value in (
                 self.pattern,
+                self.source_files or None,
+                self.dut_python_path or None,
                 self.signal_groups,
                 self.logged_cycle,
                 self.clock_signal,
@@ -415,6 +499,8 @@ class ArgWaveInfo(BaseModel):
             "components. Inventory basename hints are discovery-only."
         ),
     )
+    source_files: list[str] = Field(default_factory=list, description="Workspace-relative related design source files selected after inspecting the source; do not list unrelated files.")
+    dut_python_path: str = Field(default="", description="Workspace-relative DUT Python entry file; leave empty for automatic discovery.")
     pattern: list[WaveInfoToolPattern] = Field(
         default=[],
         description=(
@@ -485,6 +571,19 @@ class ArgWaveInfo(BaseModel):
             "extends signal loading by this many clock edges."
         ),
     )
+    signal_query: str = Field(
+        default="**",
+        min_length=1,
+        description="Signal catalog query; use an exact path or pattern. Applies when event pattern is omitted.",
+    )
+    signal_offset: int = Field(
+        default=0, ge=0, strict=True,
+        description="Zero-based signal catalog offset. The default page starts at 0; use the returned next_call to continue.",
+    )
+    signal_limit: int = Field(
+        default=DEFAULT_SIGNAL_LIMIT, ge=1, le=MAX_SIGNAL_LIMIT, strict=True,
+        description="Maximum signals per catalog page, default 100. Catalog paging does not select a subset for event analysis.",
+    )
     max_signals: int = Field(
         default=32,
         ge=1,
@@ -500,6 +599,30 @@ class ArgWaveInfo(BaseModel):
         le=1000,
         description="Maximum number of timestamps returned in the event timeline.",
     )
+    include_extensions: bool = Field(
+        default=False,
+        description=(
+            "Return additional query and signal information when available. By default, only "
+            "the available field names and a hint to request their contents are returned."
+        ),
+    )
+    backend_args: BackendArgs = Field(
+        default_factory=dict,
+        description=(
+            'Advanced analysis options as a JSON object, or "help" to list available '
+            'options and examples for this test. Results use extensions; set '
+            'include_extensions=true to view them. Help contents are always shown.'
+        ),
+    )
+
+    @field_validator("backend_args", mode="before")
+    @classmethod
+    def validate_backend_args(cls, value):
+        """Accept a JSON object or the exact help literal, rejecting native values."""
+        if value == "help":
+            return value
+        return _snapshot_json_object(value, 'backend_args (or use "help")')
+
     max_files: int = Field(
         default=20,
         ge=1,
@@ -514,11 +637,28 @@ class ArgWaveInfo(BaseModel):
 
     @model_validator(mode="after")
     def validate_request(self):
+        self.signal_query = self.signal_query.strip()
+        if not self.signal_query:
+            raise ValueError("signal_query must not be blank")
+        catalog_options = (
+            self.signal_query != "**" or self.signal_offset != 0
+            or self.signal_limit != DEFAULT_SIGNAL_LIMIT
+        )
+        if self.backend_args and not (self.test_case_name or "").strip():
+            raise ValueError("test_case_name is required for backend_args")
+        if self.backend_args == "help" and self.pattern:
+            raise ValueError("Omit pattern when requesting backend_args help")
+        if catalog_options and self.pattern:
+            raise ValueError("signal_query, signal_offset, and signal_limit require pattern to be omitted for catalog inspection")
+        if catalog_options and not self.test_case_name:
+            raise ValueError("test_case_name is required for signal catalog inspection")
         self.test_case_name = self.test_case_name.strip()
         self.clock_signal = self.clock_signal.strip()
         if not self.test_case_name and any(
             (
                 self.pattern,
+                self.source_files,
+                self.dut_python_path,
                 not self.signal_groups.is_empty(),
                 self.logged_cycle >= 0,
                 bool(self.clock_signal),
@@ -558,6 +698,8 @@ class ArgWaveInfo(BaseModel):
                 entry["value"] = None
         return {
             "test_case_name": self.test_case_name or None,
+            "source_files": self.source_files,
+            "dut_python_path": self.dut_python_path,
             "pattern": patterns or None,
             "signal_groups": (
                 None
@@ -572,8 +714,13 @@ class ArgWaveInfo(BaseModel):
             "start_step": self.start_step if self.start_step >= 0 else None,
             "end_step": self.end_step if self.end_step >= 0 else None,
             "context_steps": self.context_steps,
+            "signal_query": self.signal_query,
+            "signal_offset": self.signal_offset,
+            "signal_limit": self.signal_limit,
             "max_signals": self.max_signals,
             "max_points": self.max_points,
+            "include_extensions": self.include_extensions,
+            "backend_args": copy.deepcopy(self.backend_args),
             "max_files": self.max_files,
             "file_offset": self.file_offset,
         }
@@ -823,9 +970,12 @@ class _ValueState:
 
 @dataclass
 class _SignalTrace:
+    """Mapped digital states and optional information from each value/mask load."""
+
     name: str
     width: int
     states: list[_ValueState]
+    extensions: dict[str, dict[str, Any]]
 
     @property
     def wave_steps(self) -> list[int]:
@@ -850,6 +1000,11 @@ class WaveInfo(UCTool):
         "The tool searches only the newest test session and automatically selects the "
         "waveform for that exact test. It never substitutes another test or a stale "
         "session. Signal queries must be supplied as structured pattern entries. "
+        "Use source_files for relevant design sources selected after inspection and "
+        "dut_python_path when the DUT Python entry cannot be determined automatically; "
+        "both accept existing workspace-relative files. Use the returned viewer link. "
+        "Omit pattern to browse signals with signal_query, signal_offset, and signal_limit "
+        "(default range [0, 100)); follow signal_catalog.next_call for remaining signals. "
         "A pattern-only call is exploratory: final Bug evidence must use either a "
         "complete start_step/end_step window or logged_cycle with an exact clock_signal. "
         "Final Bug evidence also requires signal_groups with the DUT clock mode, relevant "
@@ -864,6 +1019,7 @@ class WaveInfo(UCTool):
         "pins before using it as Bug evidence. One simulation Step does not by itself make "
         "a request accepted or an output valid; inspect whether the API already steps/waits "
         "and what edge, latency, response-valid, done, or busy condition permits sampling. "
+        'Pass backend_args="help" with the target test to inspect advanced options and examples. '
         "WaveInfo finds reproducible events; it does not decide that a value is valid at "
         "an arbitrary timestamp or classify a DUT Bug."
     )
@@ -878,6 +1034,12 @@ class WaveInfo(UCTool):
         default_factory=lambda: list(DEFAULT_WAVEFORM_ANALYSIS_FORMAT_PRIORITY),
         description="Waveform extensions in selection order; omitted formats are disabled.",
     )
+    backend_priority: dict[str, list[str]] = Field(
+        default_factory=lambda: validate_waveform_analysis_backend_priority({}),
+        exclude=True, repr=False,
+    )
+    write_dirs: list[str] | None = Field(default=None, exclude=True, repr=False)
+    un_write_dirs: list[str] | None = Field(default=None, exclude=True, repr=False)
     analysis_receipts: list[dict[str, Any]] = Field(
         default_factory=list,
         exclude=True,
@@ -923,6 +1085,14 @@ class WaveInfo(UCTool):
                 f"No waveform reader registered for: {', '.join(sorted(unknown))}. "
                 "Register readers before constructing WaveInfo or correct waveform_analysis_format_priority."
             )
+        backend_priority = validate_waveform_analysis_backend_priority(
+            kwargs.get("backend_priority", DEFAULT_WAVEFORM_ANALYSIS_BACKEND_PRIORITY)
+        )
+        for extension, backends in backend_priority.items():
+            unknown_backends = set(backends) - set(registered_waveform_backends(extension))
+            if unknown_backends:
+                raise ValueError(f"No waveform reader registered for {extension}: {', '.join(sorted(unknown_backends))}")
+        kwargs["backend_priority"] = backend_priority
         kwargs["format_priority"] = priority
         super().__init__(**kwargs)
         self.workspace = os.path.abspath(workspace)
@@ -1726,6 +1896,9 @@ class WaveInfo(UCTool):
                 ),
             ]
         )
+        for key in ("extensions_available", "extensions", "signal_query_summary", "signal_catalog"):
+            if key in result:
+                receipt["result"][key] = copy.deepcopy(result[key])
         persisted = False
         with self._receipt_store_lock():
             self.analysis_receipts.append(receipt)
@@ -1766,6 +1939,12 @@ class WaveInfo(UCTool):
                 resolved = candidate.resolve(strict=False)
                 if resolved.is_file():
                     selected.add(resolved)
+
+        for value in [*invocation.get("source_files", []), invocation.get("dut_python_path")]:
+            if value:
+                path = resolve_workspace_path(workspace, value, must_exist=False)
+                if path.is_file():
+                    selected.add(path)
 
         for root, include_python in ((workspace, False), (test_parent, True)):
             if not root.is_dir():
@@ -1822,18 +2001,6 @@ class WaveInfo(UCTool):
         )
         return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
-    @staticmethod
-    def _semantic_viewer_payload(viewer: object) -> dict[str, Any] | None:
-        """Return stable viewer fields that participate in evidence meaning."""
-
-        if not isinstance(viewer, dict):
-            return None
-        payload = viewer.get("payload")
-        if not isinstance(payload, dict):
-            return None
-        keys = ("v", "test_dir", "test_case", "start", "end", "cursor", "signals")
-        return {key: copy.deepcopy(payload.get(key)) for key in keys}
-
     def analysis_semantic_fingerprint(
         self,
         invocation: dict[str, Any],
@@ -1857,9 +2024,10 @@ class WaveInfo(UCTool):
                 ("event_summary", copy.deepcopy(result.get("event_summary"))),
                 ("timeline", copy.deepcopy(result.get("timeline"))),
                 ("cycle_alignment", copy.deepcopy(result.get("cycle_alignment"))),
+                ("extensions", copy.deepcopy(result.get("extensions"))),
                 (
                     "waveform_viewer",
-                    self._semantic_viewer_payload(result.get("waveform_viewer")),
+                    waveform_viewer_semantics(result.get("waveform_viewer")),
                 ),
                 (
                     "analysis_context_fingerprint",
@@ -2034,6 +2202,7 @@ class WaveInfo(UCTool):
                 ("test_case_name", receipt_arguments.get("test_case_name")),
                 ("bug_document_fields", fields),
                 ("bug_document_viewer_link", viewer_link),
+                ("waveform_viewer", receipt_result["waveform_viewer"]),
                 (
                     "bug_document_completion_required",
                     list(WAVEFORM_LLM_ANALYSIS_FIELDS),
@@ -2198,12 +2367,12 @@ class WaveInfo(UCTool):
         )
         if isinstance(viewer, dict) and isinstance(viewer.get("url"), str):
             result["bug_document_viewer_link"] = build_waveform_viewer_markdown_link(
-                viewer["payload"]
+                viewer["meta"]
             )
         result["bug_document_note"] = (
             "Call ApplyWaveInfoEvidence with this receipt_id. It creates the BG-side "
             "WAVEFORM-REF and the TC's single central WAVEFORM-TC record; do not copy or edit "
-            "receipt-backed fields or the WAVEFORM-VIEWER token. Complete alignment_evidence "
+            "receipt-backed fields or the WAVEFORM-VIEWER link. Complete alignment_evidence "
             "once for the TC, then complete required_signals, observed_behavior, and "
             "source_correlation under bug_evidence for every associated BG. Before completing "
             "those fields, inspect the specification and test-driver/API Step ordering, "
@@ -2225,21 +2394,11 @@ class WaveInfo(UCTool):
     def _attach_waveform_viewer(
         self,
         result: OrderedDict,
+        invocation: dict[str, Any],
     ) -> None:
         """Attach a canonical viewer payload only to reproducible final evidence."""
 
         if result.get("evidence_usable") is not True:
-            return
-        selected_format = (result.get("waveform_selection") or {}).get("format")
-        if selected_format and f".{selected_format}" not in WAVEFORM_VIEWER_EXTENSIONS:
-            result["waveform_viewer_error"] = (
-                "The selected waveform cannot be displayed in the online viewer."
-            )
-            result["waveform_viewer_suggestion"] = (
-                "Report this test and waveform path to the operator to restore online viewing. "
-                "After the repair, rerun WaveInfo before applying final Bug evidence; "
-                "do not fabricate a viewer link."
-            )
             return
         signal_groups = result.get("signal_groups")
         if not isinstance(signal_groups, dict):
@@ -2275,104 +2434,115 @@ class WaveInfo(UCTool):
                 signals.append(signal)
 
         try:
-            workspace = Path(self.workspace).resolve()
-            test_dir = Path(self.test_dir).resolve()
-            try:
-                relative_test_dir = test_dir.relative_to(workspace)
-            except ValueError as error:
-                raise WaveformViewerProtocolError(
-                    "test directory must be workspace-relative"
-                ) from error
-            waveform_file = selection.get("waveform_file")
-            if not isinstance(waveform_file, str) or not waveform_file:
-                raise WaveformViewerProtocolError(
-                    "waveform evidence source must be workspace-relative"
-                )
-            waveform_path = Path(waveform_file)
-            if not waveform_path.is_absolute():
-                waveform_path = workspace / waveform_path
-            try:
-                waveform_path.resolve().relative_to(workspace)
-            except ValueError as error:
-                raise WaveformViewerProtocolError(
-                    "waveform evidence source must be workspace-relative"
-                ) from error
-            payload = normalize_waveform_viewer_payload(
-                OrderedDict(
-                    [
-                        ("v", 2),
-                        ("test_dir", relative_test_dir.as_posix() or "."),
-                        ("test_case", selection.get("normalized_test_case")),
-                        ("start", str(window.get("effective_start_step"))),
-                        ("end", str(window.get("effective_end_step"))),
-                        ("cursor", str(cursor)),
-                        ("signals", signals),
-                    ]
-                )
+            meta, payload, warnings = build_waveform_metadata(
+                self.workspace, selection["waveform_file"], dut_name=self.dut_name,
+                test_case=invocation.get("test_case_name") or "", test_dir=self.test_dir,
+                source_files=invocation.get("source_files") or [],
+                dut_python_path=invocation.get("dut_python_path") or None,
             )
-        except WaveformViewerProtocolError as error:
+            payload.update(start=str(window.get("effective_start_step")),
+                           end=str(window.get("effective_end_step")), cursor=str(cursor), signals=signals)
+            payload = normalize_waveform_viewer_payload(payload)
+        except (ValueError, OSError) as error:
             result["waveform_viewer_error"] = str(error)
-            if "workspace-relative" in str(error):
-                result["waveform_viewer_suggestion"] = (
-                    "Generate the failing test waveform inside the current UCAgent workspace, "
-                    "rerun the test, and call WaveInfo again."
-                )
-            else:
-                result["waveform_viewer_suggestion"] = (
-                    "Narrow the WaveInfo signal patterns to at most 64 actual signals and "
-                    "ensure the final window contains a real triggered event, then call "
-                    "WaveInfo again."
-                )
+            result["waveform_viewer_suggestion"] = "Correct the named source path or final signal/window arguments and retry WaveInfo."
             return
-        result["waveform_viewer"] = OrderedDict(
-            [
-                ("payload", payload),
-                ("url", build_waveform_viewer_url(payload)),
-            ]
-        )
+        result["waveform_viewer"] = OrderedDict(meta=meta, payload=payload, url=build_waveform_viewer_url(meta))
+        if warnings:
+            result["waveform_viewer_warnings"] = warnings
+
+    def publish_viewer_metadata(self, viewer: dict[str, Any], *, allow_missing: bool = False) -> None:
+        """Publish a signed viewing snapshot without making historical evidence depend on live files."""
+        validate_waveform_metadata(self.workspace, viewer["meta"], viewer["payload"], must_exist=False)
+        # Cleanup must not invalidate an immutable receipt or recreate its waveform directory.
+        if allow_missing:
+            try:
+                validate_waveform_metadata(self.workspace, viewer["meta"], viewer["payload"])
+            except FileNotFoundError:
+                return
+        write_waveform_metadata(self.workspace, viewer["meta"], viewer["payload"],
+                                write_dirs=self.write_dirs, un_write_dirs=self.un_write_dirs)
+
+    @staticmethod
+    def _reader_extensions(result: Mapping[str, Any]) -> dict[str, Any]:
+        """Validate and snapshot optional reader information for JSON tool output."""
+        extra = result.get("extensions", {})
+        # Snapshot before another query/load can reuse a backend's mutable buffers.
+        # Reject native handles, NaNs, and values that cannot cross the JSON boundary.
+        return _snapshot_json_object(extra, "Waveform reader extensions")
+
+    @staticmethod
+    def _match_signals(
+        reader: WaveformReader,
+        path: str,
+        query_extensions: dict[str, dict[str, Any]],
+        query_summaries: dict[str, dict[str, Any]],
+        *,
+        offset: int = 0,
+        limit: int = DEFAULT_SIGNAL_LIMIT,
+    ) -> tuple[list[WaveformSignal], int]:
+        """Validate a bounded query page and preserve its total, bounds, and extras."""
+        result = reader.get_matched_signals(path, offset=offset, limit=limit)
+        signals = result["signals"]
+        if not isinstance(signals, Mapping):
+            raise TypeError("WaveformSignalMatches.signals must be a signal mapping")
+        total = result["total"]
+        if (
+            type(total) is not int or total < 0
+            or type(result["offset"]) is not int or result["offset"] != offset
+            or type(result["limit"]) is not int or result["limit"] != limit
+            or len(signals) != min(limit, max(0, total - offset))
+        ):
+            raise ValueError("WaveformSignalMatches must contain an exact page and its actual total, offset, and limit")
+        matches = sorted(signals.values(), key=lambda signal: signal.full_name)
+        if len({signal.full_name for signal in matches}) != len(matches):
+            raise ValueError("WaveformSignalMatches must contain unique full signal paths")
+        end_offset = offset + len(matches)
+        has_more = end_offset < total
+        query_summaries[path] = {
+            "total": total, "offset": offset, "limit": limit,
+            "shown": len(matches), "end_offset": end_offset,
+            "remaining": max(0, total - end_offset), "has_more": has_more,
+            "next_offset": end_offset if has_more else None,
+            "truncated": len(matches) < total,
+        }
+        extra = WaveInfo._reader_extensions(result)
+        if extra:
+            query_extensions[path] = extra
+        else:
+            query_extensions.pop(path, None)
+        return matches, total
 
     @staticmethod
     def _load_trace(
-        reader: Any,
-        signal: Any,
+        reader: WaveformReader,
+        signal: WaveformSignal,
         begin_step: int | None = None,
         end_step: int | None = None,
     ) -> _SignalTrace:
-        loader = getattr(reader, "_load_value_changes", None)
-        if loader is None:
-            raise RuntimeError(
-                "The waveform reader must implement _load_value_changes; "
-                "built-in formats require wavekit>=0.7.0,<0.8.0."
-            )
+        """Load mapped values and X/Z masks, preserving per-load extensions."""
         # Include a state before the requested window so transitions at its first
-        # timestamp can be evaluated. wavekit retains the latest earlier state.
+        # timestamp can be evaluated. Readers retain the latest earlier state.
         load_begin = None if begin_step is None else max(0, begin_step - 1)
         load_end = None if end_step is None else end_step + 1
-        values = loader(
-            signal,
-            {"0": 0, "1": 1, "x": 0, "z": 0},
-            begin_time=load_begin,
-            end_time=load_end,
-        )
-        x_masks = loader(
-            signal,
-            {"0": 0, "1": 0, "x": 1, "z": 0},
-            begin_time=load_begin,
-            end_time=load_end,
-        )
-        z_masks = loader(
-            signal,
-            {"0": 0, "1": 0, "x": 0, "z": 1},
-            begin_time=load_begin,
-            end_time=load_end,
-        )
+        mapped = {}
+        extensions = {}
+        for channel, value_mapping in (
+            ("value", {"0": 0, "1": 1, "x": 0, "z": 0}),
+            ("x_mask", {"0": 0, "1": 0, "x": 1, "z": 0}),
+            ("z_mask", {"0": 0, "1": 0, "x": 0, "z": 1}),
+        ):
+            changes = reader.load_value_changes(
+                signal, value_mapping, begin_time=load_begin, end_time=load_end,
+            )
+            mapped[channel] = {int(row[0]): int(row[1]) for row in changes["mapped"]}
+            extra = WaveInfo._reader_extensions(changes)
+            if extra:
+                extensions[channel] = extra
 
-        def as_mapping(array: Any) -> dict[int, int]:
-            return {int(row[0]): int(row[1]) for row in array}
-
-        value_by_step = as_mapping(values)
-        x_by_step = as_mapping(x_masks)
-        z_by_step = as_mapping(z_masks)
+        value_by_step = mapped["value"]
+        x_by_step = mapped["x_mask"]
+        z_by_step = mapped["z_mask"]
         wave_steps = sorted(set(value_by_step) | set(x_by_step) | set(z_by_step))
         states = [
             _ValueState(
@@ -2383,7 +2553,9 @@ class WaveInfo(UCTool):
             )
             for wave_step in wave_steps
         ]
-        return _SignalTrace(name=signal.full_name, width=int(signal.width), states=states)
+        return _SignalTrace(
+            name=signal.full_name, width=int(signal.width), states=states, extensions=extensions,
+        )
 
     @staticmethod
     def _parse_value(value: int | str, width: int) -> int:
@@ -2476,7 +2648,7 @@ class WaveInfo(UCTool):
         return events
 
     @staticmethod
-    def _clock_candidates(signals: list[Any]) -> list[str]:
+    def _clock_candidates(signals: list[WaveformSignal]) -> list[str]:
         candidates = []
         for signal in signals:
             base = signal.base_name.lower()
@@ -2502,7 +2674,7 @@ class WaveInfo(UCTool):
 
     def _analyze(
         self,
-        reader: Any,
+        reader: WaveformReader,
         selection: _WaveSelection,
         patterns: list[WaveSignalPattern] | None,
         signal_groups: WaveSignalGroups | None,
@@ -2516,7 +2688,14 @@ class WaveInfo(UCTool):
         context_steps: int,
         max_signals: int,
         max_points: int,
+        signal_query: str,
+        signal_offset: int,
+        signal_limit: int,
+        query_extensions: dict[str, dict[str, Any]],
+        value_extensions: dict[str, dict[str, dict[str, Any]]],
+        query_summaries: dict[str, dict[str, Any]],
     ) -> OrderedDict:
+        """Analyze public reader metadata/traces and collect available extensions."""
         first_step = int(reader.begin_time)
         last_step = int(reader.end_time)
         if last_step < first_step:
@@ -2526,10 +2705,13 @@ class WaveInfo(UCTool):
                 details={"first_wave_step": first_step, "last_wave_step": last_step},
             )
 
-        all_signals = sorted(
-            reader.get_matched_signals("**").values(), key=lambda signal: signal.full_name
+        all_signals, signal_count = self._match_signals(
+            reader, "**", query_extensions if patterns or signal_query == "**" else {}, query_summaries,
+            offset=signal_offset if not patterns and signal_query == "**" else 0,
+            limit=signal_limit if not patterns and signal_query == "**" else DEFAULT_SIGNAL_LIMIT,
         )
-        if not all_signals:
+        initial_catalog_summary = dict(query_summaries["**"])
+        if signal_count == 0:
             return self._error(
                 "waveform_has_no_signals",
                 "The waveform opened successfully but contains no signals.",
@@ -2539,18 +2721,22 @@ class WaveInfo(UCTool):
                 ],
             )
 
-        top_scopes = [scope.full_name for scope in reader.top_scopes]
+        scopes = reader.top_scopes
+        top_scopes = [scope.full_name for scope in scopes[:DEFAULT_SIGNAL_LIMIT]]
         selection_info = self._selection_info(selection)
         basic_info = OrderedDict(
             [
-                ("step_basis", "wavekit_simulation_timestamp"),
+                ("step_basis", "waveform_simulation_timestamp"),
                 ("first_wave_step", first_step),
                 ("last_wave_step", last_step),
                 ("wave_step_span", last_step - first_step + 1),
                 ("wave_step_count", last_step - first_step + 1),
                 ("wave_step_is_dut_cycle", False),
-                ("signal_count", len(all_signals)),
+                ("signal_count", signal_count),
                 ("top_scopes", top_scopes),
+                ("top_scope_count", len(scopes)),
+                ("top_scopes_truncated", len(scopes) > len(top_scopes)),
+                ("top_scopes_remaining", len(scopes) - len(top_scopes)),
             ]
         )
 
@@ -2569,6 +2755,7 @@ class WaveInfo(UCTool):
                                 ("cycle_tolerance", cycle_tolerance),
                                 ("status", "clock_required"),
                                 ("candidate_clock_signals", self._clock_candidates(all_signals)),
+                                ("candidate_clock_signals_scope", "current signal catalog page"),
                                 (
                                     "reason",
                                     "logged_cycle cannot be compared directly with a waveform timestamp",
@@ -2589,10 +2776,12 @@ class WaveInfo(UCTool):
 
         clock_trace: _SignalTrace | None = None
         clock_edges: list[tuple[int, int]] = []
-        resolved_clock: Any | None = None
+        resolved_clock: WaveformSignal | None = None
         if clock_signal:
             try:
-                clock_matches = list(reader.get_matched_signals(clock_signal).values())
+                clock_matches, clock_count = self._match_signals(
+                    reader, clock_signal, query_extensions, query_summaries,
+                )
             except Exception as error:
                 log_msg(f"WaveInfo clock query failed for {clock_signal!r}: {error}")
                 return self._error(
@@ -2604,13 +2793,15 @@ class WaveInfo(UCTool):
                     },
                     suggestions=["Use an exact one-bit signal path from candidate_clock_signals."],
                 )
-            if len(clock_matches) != 1:
+            if clock_count != 1:
                 return self._error(
                     "clock_signal_not_unique",
                     "clock_signal must match exactly one signal.",
                     details={
                         "clock_signal": clock_signal,
                         "matched_clock_signals": [signal.full_name for signal in clock_matches],
+                        "matched_clock_signal_count": clock_count,
+                        "matched_clock_signals_truncated": len(clock_matches) < clock_count,
                         "candidate_clock_signals": self._clock_candidates(all_signals),
                     },
                     suggestions=["Use a fully-qualified exact clock path."],
@@ -2626,6 +2817,8 @@ class WaveInfo(UCTool):
                     },
                 )
             clock_trace = self._load_trace(reader, resolved_clock)
+            if clock_trace.extensions:
+                value_extensions[clock_trace.name] = clock_trace.extensions
             clock_edges = self._clock_edges(clock_trace, clock_edge)
             if not clock_edges:
                 return self._error(
@@ -2675,9 +2868,35 @@ class WaveInfo(UCTool):
             )
 
         if not patterns:
+            if signal_query == "**":
+                catalog_signals = all_signals
+            else:
+                try:
+                    catalog_signals, _ = self._match_signals(
+                        reader, signal_query, query_extensions, query_summaries,
+                        offset=signal_offset, limit=signal_limit,
+                    )
+                except Exception as error:
+                    log_msg(f"WaveInfo catalog query failed for {signal_query!r}: {error}")
+                    return self._error(
+                        "invalid_signal_query", "signal_query is not a valid signal catalog query.",
+                        details={"signal_query": signal_query},
+                        suggestions=["Use an exact signal path or the documented query syntax with pattern omitted."],
+                    )
             catalog = OrderedDict()
-            for signal in all_signals[:max_signals]:
+            for signal in catalog_signals:
                 catalog[signal.full_name] = OrderedDict([("width", int(signal.width))])
+            summary = initial_catalog_summary if signal_query == "**" else query_summaries[signal_query]
+            catalog_info = {
+                "query": signal_query, "signals": catalog, **summary,
+            }
+            if summary["has_more"] or (signal_offset >= summary["total"] and signal_offset > 0):
+                catalog_info["next_call"] = {
+                    "test_case_name": selection.test_case_name,
+                    "signal_query": signal_query,
+                    "signal_offset": summary["next_offset"] if summary["has_more"] else 0,
+                    "signal_limit": signal_limit,
+                }
             result = OrderedDict(
                 [
                     ("success", True),
@@ -2686,14 +2905,7 @@ class WaveInfo(UCTool):
                     ("waveform_info", basic_info),
                     (
                         "signal_catalog",
-                        OrderedDict(
-                            [
-                                ("signals", catalog),
-                                ("shown", len(catalog)),
-                                ("total", len(all_signals)),
-                                ("truncated", len(all_signals) > len(catalog)),
-                            ]
-                        ),
+                        catalog_info,
                     ),
                 ]
             )
@@ -2722,13 +2934,13 @@ class WaveInfo(UCTool):
                 ]
             return result
 
-        matched_by_name: OrderedDict[str, Any] = OrderedDict()
-        pattern_matches: list[tuple[WaveSignalPattern, list[Any]]] = []
+        matched_by_name: OrderedDict[str, WaveformSignal] = OrderedDict()
+        pattern_matches: list[tuple[WaveSignalPattern, list[WaveformSignal]]] = []
         for item in patterns:
             try:
-                matches = sorted(
-                    reader.get_matched_signals(item.signal).values(),
-                    key=lambda signal: signal.full_name,
+                matches, matched_count = self._match_signals(
+                    reader, item.signal, query_extensions, query_summaries,
+                    limit=max_signals + 1,
                 )
             except Exception as error:
                 log_msg(f"WaveInfo signal query failed for {item.signal!r}: {error}")
@@ -2739,6 +2951,24 @@ class WaveInfo(UCTool):
                     suggestions=[
                         "Call WaveInfo with pattern omitted to inspect the signal catalog, "
                         "then use an exact signal path or the documented query syntax."
+                    ],
+                )
+            if matched_count > max_signals:
+                return self._error(
+                    "signal_limit_exceeded",
+                    "The event query matches more signals than max_signals permits.",
+                    details={
+                        "pattern": item.model_dump(), "matched_signal_count": matched_count,
+                        "max_signals": max_signals,
+                        "first_matches": [signal.full_name for signal in matches],
+                        "catalog_call": {
+                            "test_case_name": selection.test_case_name,
+                            "signal_query": item.signal,
+                        },
+                    },
+                    suggestions=[
+                        "Call WaveInfo with details.catalog_call to browse matching signals, "
+                        "then narrow the event query or raise max_signals up to 64."
                     ],
                 )
             if not matches:
@@ -2774,9 +3004,8 @@ class WaveInfo(UCTool):
             for field_name in WAVEFORM_SIGNAL_GROUP_FIELDS:
                 for requested_name in getattr(signal_groups, field_name):
                     try:
-                        matches = sorted(
-                            reader.get_matched_signals(requested_name).values(),
-                            key=lambda signal: signal.full_name,
+                        matches, matched_count = self._match_signals(
+                            reader, requested_name, query_extensions, query_summaries,
                         )
                     except Exception as error:
                         log_msg(f"WaveInfo signal_groups.{field_name} query failed for {requested_name!r}: {error}")
@@ -2786,7 +3015,7 @@ class WaveInfo(UCTool):
                             details={"signal_group": field_name, "signal": requested_name},
                             suggestions=["Use exact signal paths from the WaveInfo signal catalog."],
                         )
-                    if len(matches) != 1 or matches[0].full_name != requested_name:
+                    if matched_count != 1 or matches[0].full_name != requested_name:
                         return self._error(
                             "signal_group_path_not_exact",
                             f"signal_groups.{field_name} must use an exact full waveform path.",
@@ -2794,6 +3023,8 @@ class WaveInfo(UCTool):
                                 "signal_group": field_name,
                                 "requested_signal": requested_name,
                                 "matched_signals": [signal.full_name for signal in matches],
+                                "matched_signal_count": matched_count,
+                                "matched_signals_truncated": len(matches) < matched_count,
                                 "close_signal_matches": get_close_matches(
                                     requested_name,
                                     all_signal_names,
@@ -2854,6 +3085,8 @@ class WaveInfo(UCTool):
                 traces[name] = self._load_trace(
                     reader, signal, effective_start, effective_end
                 )
+                if traces[name].extensions:
+                    value_extensions[name] = traces[name].extensions
 
         trigger_map: dict[int, OrderedDict[str, list[dict[str, Any]]]] = {}
         pattern_report: list[OrderedDict] = []
@@ -3183,7 +3416,7 @@ class WaveInfo(UCTool):
                 ("logged_cycle", logged_cycle),
                 ("cycle_tolerance", cycle_tolerance),
                 ("cycle_delta_unit", "clock_edges"),
-                ("wave_step_unit", "wavekit_simulation_timestamp"),
+                ("wave_step_unit", "waveform_simulation_timestamp"),
                 (
                     "clock",
                     OrderedDict(
@@ -3246,6 +3479,13 @@ class WaveInfo(UCTool):
         max_points: int = 200,
         max_files: int = 20,
         file_offset: int = 0,
+        source_files: list[str] = (),
+        dut_python_path: str = "",
+        include_extensions: bool = False,
+        signal_query: str = "**",
+        signal_offset: int = 0,
+        signal_limit: int = DEFAULT_SIGNAL_LIMIT,
+        backend_args: BackendArgs = {},
     ) -> OrderedDict:
         """Return the newest-session inventory or one structured waveform analysis."""
 
@@ -3266,6 +3506,13 @@ class WaveInfo(UCTool):
                 max_points=max_points,
                 max_files=max_files,
                 file_offset=file_offset,
+                source_files=list(source_files),
+                dut_python_path=dut_python_path,
+                include_extensions=include_extensions,
+                signal_query=signal_query,
+                signal_offset=signal_offset,
+                signal_limit=signal_limit,
+                backend_args=backend_args,
             )
         except Exception as error:
             return self._error(
@@ -3275,6 +3522,11 @@ class WaveInfo(UCTool):
         if args.test_case_name is None:
             return self._inventory(args.max_files, args.file_offset)
 
+        try:
+            for value in [*args.source_files, *([args.dut_python_path] if args.dut_python_path else [])]:
+                resolve_workspace_path(self.workspace, value)
+        except (ValueError, OSError) as error:
+            return self._error("invalid_source_path", str(error), suggestions=["Supply existing workspace-relative source files."])
         selection, discovery_error = self._discover_waveform(args.test_case_name)
         if discovery_error is not None:
             return discovery_error
@@ -3291,26 +3543,64 @@ class WaveInfo(UCTool):
                 ],
             )
 
+        query_extensions: dict[str, dict[str, Any]] = {}
+        value_extensions: dict[str, dict[str, dict[str, Any]]] = {}
+        query_summaries: dict[str, dict[str, Any]] = {}
+        backend_extensions = {}
+        backend_name = None
+        analysis_started = time.monotonic()
         try:
-            with open_waveform_reader(selection.waveform) as reader:
-                result = self._analyze(
-                    reader,
-                    selection,
-                    args.pattern,
-                    args.signal_groups,
-                    args.logged_cycle,
-                    args.cycle_tolerance,
-                    args.clock_signal,
-                    args.clock_edge,
-                    args.cycle_origin,
-                    args.start_step,
-                    args.end_step,
-                    args.context_steps,
-                    args.max_signals,
-                    args.max_points,
+            with open_waveform_reader(selection.waveform, backend_priority=self.backend_priority) as reader:
+                backend_name = reader.backend_name
+                log_info(
+                    f"[WaveInfo] analysis_started backend={backend_name} "
+                    f"test={args.test_case_name} file={self._display_path(selection.waveform)}"
                 )
+                backend_extensions = self._reader_extensions({
+                    "extensions": reader.configure_backend(copy.deepcopy(args.backend_args)),
+                })
+                if args.backend_args == "help":
+                    result = OrderedDict(
+                        success=True, status="advanced_help", evidence_usable=False,
+                        waveform_selection=self._selection_info(selection),
+                    )
+                else:
+                    result = self._analyze(
+                        reader,
+                        selection,
+                        args.pattern,
+                        args.signal_groups,
+                        args.logged_cycle,
+                        args.cycle_tolerance,
+                        args.clock_signal,
+                        args.clock_edge,
+                        args.cycle_origin,
+                        args.start_step,
+                        args.end_step,
+                        args.context_steps,
+                        args.max_signals,
+                        args.max_points,
+                        args.signal_query,
+                        args.signal_offset,
+                        args.signal_limit,
+                        query_extensions,
+                        value_extensions,
+                        query_summaries,
+                    )
+        except WaveformBackendArgumentError as error:
+            log_msg(f"WaveInfo advanced-option failure for {selection.waveform}: {error}")
+            result = self._error(
+                "invalid_backend_args", "The advanced options are unsupported or have invalid values.",
+                details={"help_call": {"test_case_name": args.test_case_name, "backend_args": "help"}},
+                suggestions=['Call WaveInfo with the provided help_call, then use the listed options and value types.'],
+            )
         except ImportError as error:
             log_msg(f"WaveInfo dependency failure for {selection.waveform}: {type(error).__name__}: {error}")
+            log_info(
+                f"[WaveInfo] analysis_finished backend={backend_name or 'unavailable'} "
+                f"test={args.test_case_name} status=waveform_reader_unavailable "
+                f"elapsed={time.monotonic() - analysis_started:.3f}s"
+            )
             return self._error(
                 "waveform_reader_unavailable",
                 "Waveform analysis is unavailable in the current environment.",
@@ -3334,7 +3624,72 @@ class WaveInfo(UCTool):
                 details={"waveform_selection": self._selection_info(selection)},
                 suggestions=suggestions,
             )
-        self._attach_waveform_viewer(result)
+        log_info(
+            f"[WaveInfo] analysis_finished backend={backend_name or 'unavailable'} "
+            f"test={args.test_case_name} status={result.get('status', 'unknown')} "
+            f"elapsed={time.monotonic() - analysis_started:.3f}s"
+        )
+        if query_summaries:
+            for path, summary in query_summaries.items():
+                if summary["has_more"]:
+                    summary["next_call"] = {
+                        "test_case_name": args.test_case_name,
+                        "signal_query": path,
+                        "signal_offset": summary["next_offset"],
+                        "signal_limit": summary["limit"],
+                        "include_extensions": args.include_extensions,
+                        "backend_args": copy.deepcopy(args.backend_args),
+                    }
+            result["signal_query_summary"] = query_summaries
+        catalog_call = (result.get("details") or {}).get("catalog_call")
+        if catalog_call is not None:
+            catalog_call.update(backend_args=copy.deepcopy(args.backend_args), include_extensions=args.include_extensions)
+        catalog = result.get("signal_catalog")
+        if catalog and "next_call" in catalog:
+            catalog["next_call"]["include_extensions"] = args.include_extensions
+            catalog["next_call"]["backend_args"] = copy.deepcopy(args.backend_args)
+            result["next_action"] = (
+                "Inspect signal_catalog.signals and its total/shown/remaining counts. "
+                "Call WaveInfo with signal_catalog.next_call to continue signal browsing. "
+                "Use exact signal paths when requesting events."
+            )
+        elif catalog and catalog["total"] == 0:
+            result["next_action"] = (
+                "No signals matched signal_query. Broaden signal_query or use ** to "
+                "inspect available paths; keep pattern omitted while browsing."
+            )
+        extensions = {}
+        available = {}
+        if backend_extensions:
+            extensions["backend"] = backend_extensions
+            available["backend"] = sorted(backend_extensions)
+        if query_extensions:
+            extensions["signal_queries"] = query_extensions
+            available["signal_queries"] = {
+                path: sorted(extra) for path, extra in query_extensions.items()
+            }
+        if value_extensions:
+            extensions["value_changes"] = value_extensions
+            available["value_changes"] = {
+                name: {channel: sorted(extra) for channel, extra in channels.items()}
+                for name, channels in value_extensions.items()
+            }
+        if extensions:
+            result["extensions_available"] = available
+            if args.include_extensions or args.backend_args == "help":
+                result["extensions"] = extensions
+            else:
+                result["extensions_hint"] = (
+                    "Additional signal information is available in the listed fields. "
+                    "If it would help your analysis, repeat this WaveInfo call with the "
+                    "same arguments and include_extensions=true to view its contents."
+                )
+        if "recommended_evidence_call" in result:
+            result["recommended_evidence_call"].update(
+                source_files=args.source_files, dut_python_path=args.dut_python_path,
+                backend_args=copy.deepcopy(args.backend_args), include_extensions=args.include_extensions,
+            )
+        self._attach_waveform_viewer(result, args.model_dump(mode="json"))
         return result
 
     def replay_analysis(self, **arguments: Any) -> OrderedDict:
@@ -3359,6 +3714,13 @@ class WaveInfo(UCTool):
         max_points: int = 200,
         max_files: int = 20,
         file_offset: int = 0,
+        source_files: list[str] = (),
+        dut_python_path: str = "",
+        include_extensions: bool = False,
+        signal_query: str = "**",
+        signal_offset: int = 0,
+        signal_limit: int = DEFAULT_SIGNAL_LIMIT,
+        backend_args: BackendArgs = {},
         run_manager: Optional[CallbackManagerForToolRun] = None,
     ) -> str:
         del run_manager
@@ -3379,6 +3741,13 @@ class WaveInfo(UCTool):
                 max_points=max_points,
                 max_files=max_files,
                 file_offset=file_offset,
+                source_files=list(source_files),
+                dut_python_path=dut_python_path,
+                include_extensions=include_extensions,
+                signal_query=signal_query,
+                signal_offset=signal_offset,
+                signal_limit=signal_limit,
+                backend_args=backend_args,
             )
         except Exception as error:
             result = self._error(
@@ -3387,6 +3756,12 @@ class WaveInfo(UCTool):
             return make_llm_tool_ret(result, check_pass=False)
         invocation = tool_args.analysis_arguments()
         result = self.analyze(**invocation)
+        if isinstance(result.get("waveform_viewer"), dict):
+            try:
+                self.publish_viewer_metadata(result["waveform_viewer"])
+            except (OSError, ValueError) as error:
+                return make_llm_tool_ret(self._error("waveform_metadata_write_failed", str(error),
+                    suggestions=["Correct metadata write permissions or source paths, then retry WaveInfo."]), check_pass=False)
         if invocation["test_case_name"] is not None:
             receipt_info = self._record_analysis_receipt(invocation, result)
             result["waveform_analysis_receipt"] = receipt_info
@@ -3685,6 +4060,8 @@ class ApplyWaveInfoEvidence(UCTool):
         return OrderedDict(
             [
                 ("test_case_name", required_test_case_name),
+                ("source_files", arguments.source_files),
+                ("dut_python_path", arguments.dut_python_path),
                 ("pattern", self.waveinfo._mcp_pattern_entries(arguments.pattern)),
                 (
                     "signal_groups",
@@ -3709,6 +4086,11 @@ class ApplyWaveInfoEvidence(UCTool):
                 ("context_steps", arguments.context_steps),
                 ("max_signals", arguments.max_signals),
                 ("max_points", arguments.max_points),
+                ("signal_query", arguments.signal_query),
+                ("signal_offset", arguments.signal_offset),
+                ("signal_limit", arguments.signal_limit),
+                ("include_extensions", arguments.include_extensions),
+                ("backend_args", copy.deepcopy(arguments.backend_args)),
                 ("max_files", arguments.max_files),
                 ("file_offset", arguments.file_offset),
             ]
@@ -3760,7 +4142,7 @@ class ApplyWaveInfoEvidence(UCTool):
                 "exactly, then retry Apply with that new receipt_id."
             )
         suggestions.append(
-            "Do not manually write receipt-backed YAML, waveform anchors, viewer URLs, or tokens."
+            "Do not manually write receipt-backed YAML, waveform anchors, viewer URLs, or metadata paths."
         )
         return self.waveinfo._error(
             "receipt_test_mismatch",
@@ -3913,7 +4295,7 @@ class ApplyWaveInfoEvidence(UCTool):
             )
         suggestions.append(
             "Do not retry path variants or manually write receipt-backed YAML, anchors, viewer "
-            "URLs, or tokens."
+            "URLs, or metadata paths."
         )
         return None, self.waveinfo._error(
             "matching_final_receipt_not_found",
@@ -4017,7 +4399,7 @@ class ApplyWaveInfoEvidence(UCTool):
                 continue
             if in_fence:
                 continue
-            if "<WAVEFORM-VIEWER>" in stripped or "/surfer/?wave=" in stripped:
+            if "<WAVEFORM-VIEWER>" in stripped or "/wave/?meta=" in stripped:
                 raise ValueError(
                     f"waveform viewer at line {index + 1} must follow the YAML in one "
                     "central WAVEFORM-TC record"
@@ -4488,6 +4870,38 @@ class ApplyWaveInfoEvidence(UCTool):
             if temp_name and os.path.exists(temp_name):
                 os.unlink(temp_name)
 
+    def _commit_evidence_files(self, target: Path, original: str, updated: str,
+                               viewers: list[dict[str, Any]]) -> None:
+        """Publish final views with the document and roll back views on commit failure."""
+        snapshots = []
+        with _DOCUMENT_WRITE_LOCK, WAVEFORM_METADATA_LOCK:
+            with target.open("r", encoding="utf-8", newline="") as handle:
+                if handle.read() != original:
+                    raise RuntimeError("target document changed while evidence was being prepared")
+            try:
+                for viewer in viewers:
+                    path, _ = validate_waveform_metadata(self.workspace, viewer["meta"],
+                                                         viewer["payload"], must_exist=False)
+                    before = path.read_bytes() if path.is_file() else None
+                    self.waveinfo.publish_viewer_metadata(viewer, allow_missing=True)
+                    after = path.read_bytes() if path.is_file() else None
+                    if before != after:
+                        snapshots.append((path, before, after))
+                if updated != original:
+                    self._atomic_replace(target, original, updated)
+            except (OSError, UnicodeError, ValueError, RuntimeError):
+                for path, before, after in reversed(snapshots):
+                    if path.is_file() and path.read_bytes() == after:
+                        if before is None:
+                            path.unlink()
+                        else:
+                            with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as handle:
+                                handle.write(before)
+                                rollback = handle.name
+                            os.chmod(rollback, stat.S_IMODE(path.stat().st_mode))
+                            os.replace(rollback, path)
+                raise
+
     def refresh_existing_evidence(
         self,
         *,
@@ -4700,8 +5114,8 @@ class ApplyWaveInfoEvidence(UCTool):
                             ]
                         )
                     )
-                if updated != original:
-                    self._atomic_replace(target, original, updated)
+                self._commit_evidence_files(target, original, updated,
+                    [item["evidence"]["waveform_viewer"] for item in prepared])
         except (OSError, UnicodeError, ValueError, RuntimeError) as error:
             return self.waveinfo._error(
                 "current_evidence_refresh_failed",
@@ -4731,6 +5145,7 @@ class ApplyWaveInfoEvidence(UCTool):
         checkpoint_path: str = "",
         receipt_id: str = "",
         replace_existing: bool = False,
+        _publish_metadata: bool = True,
     ) -> OrderedDict:
         """Validate and atomically apply one receipt-backed document block."""
 
@@ -4992,6 +5407,8 @@ class ApplyWaveInfoEvidence(UCTool):
                     "".join(updated_lines),
                 )
                 relative_target = target.relative_to(Path(self.workspace)).as_posix()
+                if _publish_metadata:
+                    self._commit_evidence_files(target, original, updated, [evidence["waveform_viewer"]])
                 if updated == original:
                     return OrderedDict(
                         [
@@ -5010,7 +5427,8 @@ class ApplyWaveInfoEvidence(UCTool):
                             ("completion_required", reset_fields),
                         ]
                     )
-                self._atomic_replace(target, original, updated)
+                if not _publish_metadata:
+                    self._atomic_replace(target, original, updated)
         except (OSError, UnicodeError, ValueError, RuntimeError) as error:
             return self.waveinfo._error(
                 "document_update_failed",
@@ -5438,6 +5856,7 @@ class ReviewWaveInfoEvidenceBatch(UCTool):
                     checkpoint_path=context["checkpoint_path"],
                     receipt_id=item.receipt_id,
                     replace_existing=True,
+                    _publish_metadata=False,
                 )
                 if applied.get("success") is not True:
                     applied.setdefault("details", {})["item_index"] = index
@@ -5535,7 +5954,9 @@ class ReviewWaveInfoEvidenceBatch(UCTool):
             active_test_case_tag = None
             with temp_target.open("r", encoding="utf-8", newline="") as handle:
                 updated = handle.read()
-            self.evidence_writer._atomic_replace(target, original, updated)
+            self.evidence_writer._commit_evidence_files(target, original, updated,
+                [self.evidence_writer.waveinfo.get_bug_document_evidence(item.receipt_id)["waveform_viewer"]
+                 for item in args.items])
         except (OSError, UnicodeError, ValueError, RuntimeError) as error:
             details = {
                 "scope": "document",

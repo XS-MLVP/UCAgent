@@ -158,7 +158,7 @@ def test_default_prompt_requires_waveinfo_for_dynamic_bugs():
     assert "一个BG有多个Fail TC时分别调用" in system_prompt
     assert "同名BG跨CK或目标关联有歧义时传`checkpoint_path=" in system_prompt
     assert "动态Bug文档以完整FG/FC/CK/BG路径为验收单位" in system_prompt
-    assert "不得手工复制receipt字段、中央波形或viewer token" in system_prompt
+    assert "不得手工复制receipt字段、中央波形或viewer链接" in system_prompt
     assert "工具保留其他BG路径、兄弟TC和中央记录" in system_prompt
     assert "一个Fail TC揭示多个独立Bug时保留不同BG" in system_prompt
     assert "相同test_case_tag和不同bug_tag分别调用" in system_prompt

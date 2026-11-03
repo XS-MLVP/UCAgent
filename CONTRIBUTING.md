@@ -25,6 +25,37 @@ Thanks for your interest in contributing to UCAgent! This document explains how 
 
 ## Coding Standards
 
+### Website Documentation
+
+The MkDocs site uses Simplified Chinese by default and publishes English under
+`/en/`. Keep each `docs/content/path/page.md` paired with an English translation
+at `docs/content/path/page.en.md`. The visible 中文 / English links in the header
+switch between matching pages. The site root uses the browser's first preferred
+language: `zh` and `zh-*` open Chinese; all other or unavailable languages open
+English. Without JavaScript, the root opens English. `/en/` always opens the
+English documentation. Shared images and other assets stay alongside the
+original documents.
+Use language-neutral relative link targets such as `page.md`; translate the link
+label and update heading fragments to match the destination language. Preserve
+command syntax, public identifiers, file paths, and configuration structure;
+translate explanatory comments and human-readable example text. Screenshots
+may show the original interface language; explain essential steps in the text.
+
+When adding a page, update `nav` and the English `nav_translations` in
+`mkdocs.yml`. Validate both languages with:
+
+```bash
+python -m pip install -r docs/requirements-docs.txt
+make docs-serve
+# In another terminal, build and validate the generated site:
+mkdocs build -f mkdocs.yml --strict
+UCAGENT_DOCS_SITE_DIR=site python -m unittest discover -s tests -p test_docs_i18n.py
+```
+
+The existing PDF target builds the Chinese sources only.
+
+### Implementation
+
 - Follow existing code style and project conventions (naming, structure, comments).
 - Prefer readable, maintainable solutions; add brief comments only when logic is not obvious.
 - Keep dependencies minimal and document any new requirements in `requirements.txt`, `pyproject.toml`, or related files.

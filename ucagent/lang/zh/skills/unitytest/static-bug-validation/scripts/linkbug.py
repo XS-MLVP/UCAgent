@@ -1,3 +1,5 @@
+"""Maintain static-to-dynamic Bug links using canonical waveform evidence."""
+
 import argparse
 import hashlib
 import os
@@ -8,6 +10,7 @@ from typing import List
 import yaml
 
 from ucagent.util.config import load_runtime_config
+from ucagent.util.waveform_viewer import parse_waveform_viewer_markdown_link
 from ucagent.util.markdown import ensure_markdown_heading_spacing
 from ucagent.util.bug_analysis_contract import (
     DYNAMIC_BUG_DOCUMENT_PATH,
@@ -368,11 +371,10 @@ def collect_confirmed_waveform_records(lines: List[str]) -> dict[str, dict]:
         index += 1
         while index < end and not lines[index].strip():
             index += 1
-        has_viewer = index < end and re.fullmatch(
-            r"\s*<WAVEFORM-VIEWER>\s+\[[^\]\r\n]+\]"
-            r"\(/surfer/\?wave=[A-Za-z0-9_-]+\)\s*",
-            lines[index],
-        )
+        try:
+            has_viewer = index < end and bool(parse_waveform_viewer_markdown_link(lines[index].strip()))
+        except ValueError:
+            has_viewer = False
         analysis = payload.get("waveform_analysis") if isinstance(payload, dict) else None
         valid_payload = isinstance(payload, dict) and set(payload) == {
             "waveform_analysis"

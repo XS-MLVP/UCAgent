@@ -1,11 +1,51 @@
 #coding=utf-8
+"""Helpers for DUT construction, test execution, and simulator artifact paths."""
 
 import os
+import random
+import time
 from ucagent.util.log import warning
 import inspect
 import ast
 from collections import OrderedDict
 import json
+
+
+# Add simulator defaults here so fixture path helpers need no simulator branches.
+_SIMULATOR_DEFAULT_SUFFIXES = {
+    "verilator": {"waveform": "fst", "coverage": "dat"},
+    "vcs": {"waveform": "fsdb", "coverage": "vdb"},
+    "uvs": {"waveform": "usdb", "coverage": "cdb"},
+}
+
+# Seeds stay within [0, 2**31 - 1] so every mode returns values accepted by
+# random.seed() and any simulator-side seed APIs that assume 31-bit integers.
+_SEED_RANGE_LIMIT = 2 ** 31
+
+
+def get_default_subfix(dut, sub_type: str) -> str:
+    """Return the simulator's default artifact suffix without a leading dot.
+
+    ``sub_type`` must be ``"waveform"`` or ``"coverage"``. Read ``SIMULATOR``
+    from the DUT instance (or class), ignoring case and surrounding whitespace.
+    Only an absent attribute defaults to Verilator; invalid or unsupported
+    values raise an explicit error rather than selecting the wrong format.
+    """
+    if not isinstance(sub_type, str):
+        raise TypeError("sub_type must be 'waveform' or 'coverage'.")
+    if sub_type not in ("waveform", "coverage"):
+        raise ValueError(f"Unsupported sub_type {sub_type!r}; use 'waveform' or 'coverage'.")
+    simulator = getattr(dut, "SIMULATOR", "verilator")
+    if not isinstance(simulator, str):
+        raise TypeError("DUT.SIMULATOR must be a nonempty simulator name string.")
+    simulator = simulator.strip().lower()
+    if simulator not in _SIMULATOR_DEFAULT_SUFFIXES:
+        supported = ", ".join(sorted(_SIMULATOR_DEFAULT_SUFFIXES))
+        raise ValueError(
+            f"Unsupported DUT.SIMULATOR {simulator!r}; supported simulators: {supported}. "
+            "Use a supported DUT build or add its artifact defaults before running tests."
+        )
+    return _SIMULATOR_DEFAULT_SUFFIXES[simulator][sub_type]
 
 
 def ucagent_lib_path():
@@ -23,6 +63,84 @@ def repeat_count():
         warning(f"convert os.env['UC_TEST_RCOUNT']({n}) to Int value fail: {e}, use default 3")
         return default_v
 
+
+def get_seed(seed: int) -> int:
+    """Resolve the seed of one random test case as configured by UC_SEED_MODEL.
+
+    The environment variable ``UC_SEED_MODEL`` selects the seed mode; an unset,
+    empty, or ``manual`` value returns ``seed`` unchanged so the literal seed
+    written in the test case is used. Other modes ignore ``seed`` and return:
+
+    - ``random``: a fresh nondeterministic integer in ``[0, 2**31 - 1]``;
+    - ``time``: an integer derived from the current wall-clock time;
+    - ``uniform:<min>:<max>``: a uniformly random integer in ``[min, max]``;
+    - ``normal:<mu>:<sigma>``: a Gaussian-distributed integer clamped to
+      ``[0, 2**31 - 1]``.
+
+    Any other ``UC_SEED_MODEL`` value, malformed expression, or non-int
+    ``seed`` raises with the accepted form so a misconfigured seed mode never
+    silently selects a different one.
+    """
+    if isinstance(seed, bool) or not isinstance(seed, int):
+        raise TypeError(
+            f"get_seed(seed) expects an int manual-mode seed, got {type(seed).__name__}."
+        )
+    mode = os.environ.get("UC_SEED_MODEL", "manual").strip().lower()
+    if not mode or mode == "manual":
+        return seed
+    rng = random.SystemRandom()
+    if mode == "random":
+        return rng.randrange(_SEED_RANGE_LIMIT)
+    if mode == "time":
+        return time.time_ns() % _SEED_RANGE_LIMIT
+    kind, _, params = mode.partition(":")
+    if kind == "uniform":
+        parts = params.split(":")
+        if len(parts) != 2:
+            raise ValueError(
+                f"Invalid UC_SEED_MODEL {mode!r}: 'uniform' needs exactly two "
+                "integer bounds, e.g. UC_SEED_MODEL='uniform:0:100000'."
+            )
+        try:
+            low, high = int(parts[0]), int(parts[1])
+        except ValueError:
+            raise ValueError(
+                f"Invalid UC_SEED_MODEL {mode!r}: 'uniform' bounds must be "
+                "integers, e.g. UC_SEED_MODEL='uniform:0:100000'."
+            ) from None
+        if low > high:
+            raise ValueError(
+                f"Invalid UC_SEED_MODEL {mode!r}: 'uniform' needs min <= max, "
+                "e.g. UC_SEED_MODEL='uniform:0:100000'."
+            )
+        return rng.randrange(low, high + 1)
+    if kind == "normal":
+        parts = params.split(":")
+        if len(parts) != 2:
+            raise ValueError(
+                f"Invalid UC_SEED_MODEL {mode!r}: 'normal' needs exactly two "
+                "numbers, e.g. UC_SEED_MODEL='normal:1000000:100'."
+            )
+        try:
+            mu, sigma = float(parts[0]), float(parts[1])
+        except ValueError:
+            raise ValueError(
+                f"Invalid UC_SEED_MODEL {mode!r}: 'normal' parameters must be "
+                "numbers, e.g. UC_SEED_MODEL='normal:1000000:100'."
+            ) from None
+        if sigma < 0:
+            raise ValueError(
+                f"Invalid UC_SEED_MODEL {mode!r}: 'normal' needs sigma >= 0, "
+                "e.g. UC_SEED_MODEL='normal:1000000:100'."
+            )
+        value = int(round(rng.gauss(mu, sigma)))
+        return max(0, min(value, _SEED_RANGE_LIMIT - 1))
+    raise ValueError(
+        f"Invalid UC_SEED_MODEL {mode!r}. Use 'manual', 'random', 'time', "
+        "'uniform:<min>:<max>', or 'normal:<mu>:<sigma>'."
+    )
+
+
 def get_fake_dut(cls):
     """Create a mock DUT instance with no functionality"""
     return get_mock_dut_from(cls)
@@ -34,15 +152,15 @@ def is_imp_test_template():
     return n.lower() in ["1", "true"]
 
 
-def get_xpin_info(cls):
-    """Get pins from DUT class"""
+def get_pin_info(cls):
+    """Read pin widths from XPin-wrapped or direct XData DUT assignments."""
     tree = ast.parse(inspect.getsource(cls))
-    xpin_info = OrderedDict()
+    pin_info = OrderedDict()
     # Find __init__ method
     init_node = next((node for node in ast.walk(tree)
                       if isinstance(node, ast.FunctionDef) and node.name == '__init__'), None)
     if not init_node:
-        return xpin_info
+        return pin_info
     for stmt in init_node.body:
         # Check for assignment: self.attr = ...
         if not isinstance(stmt, ast.Assign):
@@ -52,42 +170,39 @@ def get_xpin_info(cls):
                     isinstance(target.value, ast.Name) and
                     target.value.id == 'self'):
                 continue
-            # Check structure: xsp.XPin(xsp.XData(WIDTH, ...), ...)
-            try:
-                call = stmt.value
-                if not (isinstance(call, ast.Call) and call.func.attr == 'XPin'):
-                    continue
-                xdata_arg = call.args[0]
-                if not (isinstance(xdata_arg, ast.Call) and xdata_arg.func.attr == 'XData'):
-                    continue
-                width_node = xdata_arg.args[0]
-                # Support both Python 3.8+ (Constant) and older (Num)
-                width = getattr(width_node, 'value', getattr(width_node, 'n', None))
-                if width is not None:
-                    xpin_info[target.attr] = width
-            except AttributeError:
+            call = stmt.value
+            if (isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute)
+                    and call.func.attr == 'XPin' and call.args):
+                call = call.args[0]
+            if not (isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute)
+                    and call.func.attr == 'XData' and call.args):
                 continue
-    return xpin_info
+            width_node = call.args[0]
+            if isinstance(width_node, ast.Constant) and type(width_node.value) is int:
+                pin_info[target.attr] = width_node.value
+    return pin_info
 
 
 def get_mock_dut_from(cls):
-    """Create a mock DUT instance with no arguments"""
-    xpin_info = get_xpin_info(cls)
+    """Create a mock DUT using the available XPin or direct XData pin API."""
+    pin_info = get_pin_info(cls)
     cls_Xdata = cls.__init__.__globals__['xsp'].XData
-    cls_XPin = cls.__init__.__globals__['xsp'].XPin
+    cls_XPin = getattr(cls.__init__.__globals__['xsp'], 'XPin', None)
     cls_XClock = cls.__init__.__globals__['xsp'].XClock
     cls_XPort = cls.__init__.__globals__['xsp'].XPort
     get_test_step = cls.__init__.__globals__['xsp'].TEST_get_u64_step_func
     def initialize_mock_dut(self):
+        """Build writable pins and a virtual clock without starting the DUT."""
         self.xclock = cls_XClock(get_test_step(), 0)
         self.xport  = cls_XPort()
         self.xclock.Add(self.xport)
         self.event = self.xclock.getEvent()
         self._pins = {}
-        for pin_name, width in xpin_info.items():
-            value = cls_XPin(cls_Xdata(width, cls_Xdata.InOut), self.event)
+        for pin_name, width in pin_info.items():
+            xdata = cls_Xdata(width, cls_Xdata.InOut)
+            value = cls_XPin(xdata, self.event) if cls_XPin is not None else xdata
             setattr(self, pin_name, value)
-            self.xport.Add(pin_name, value.xdata)
+            self.xport.Add(pin_name, xdata)
             self._pins[pin_name] = value
         self._is_initialized = True
     class MockDUT(object):
@@ -103,9 +218,11 @@ def get_mock_dut_from(cls):
         def StepFal(self, callback, args=(), kwargs={}):
             self.xclock.StepFal(callback, args, kwargs)
         def __str__(self):
+            """Serialize pin widths and values through the shared XData port."""
             ret = OrderedDict()
-            for pin_name, pin in self._pins.items():
-                ret[f"{pin_name}[{pin.xdata.W()}]"] = pin.xdata.value
+            for pin_name in self._pins:
+                xdata = self.xport[pin_name]
+                ret[f"{pin_name}[{xdata.W()}]"] = xdata.value
             return json.dumps(ret, indent=4)
         def Finish(self):
             pass
@@ -149,4 +266,7 @@ def get_mock_dut_from(cls):
             pass
         def RefreshComb(self):
             pass
-    return MockDUT()
+    dut = MockDUT()
+    if hasattr(cls, "SIMULATOR"):
+        dut.SIMULATOR = cls.SIMULATOR
+    return dut

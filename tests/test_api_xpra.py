@@ -10,6 +10,7 @@ import shlex
 import signal
 import sys
 import tempfile
+import threading
 import time
 from types import SimpleNamespace
 
@@ -284,6 +285,7 @@ def test_unexpected_exit_updates_state_and_releases_quota(manager, monkeypatch, 
     """A crashed Xpra parent must reap children even in separate process groups."""
     session = manager.create(sys.executable, env={"FAKE_BEHAVIOR": "crash"})
     process = manager._sessions[session["id"]].process
+    _wait_for(lambda: any(line.startswith("CHILD:") for line in manager.get(session["id"])["log_tail"]))
     denied = []
     if deny_group_cleanup:
         original_killpg = os.killpg
@@ -595,6 +597,31 @@ def test_master_http_and_ws_proxy_auth_prefix_and_credentials(cmd_server, tmp_pa
                     pass
             assert error.value.code == 4401
         client.auth = ("user", master.password)
+        from ucagent.util.waveform_viewer import build_waveform_metadata, write_waveform_metadata
+        wave = Path(cmd_server.pdb.agent.workspace) / "proxy wave.vcd"
+        wave.write_bytes(b"proxy waveform")
+        meta, payload, _ = build_waveform_metadata(wave.parent, wave.name)
+        write_waveform_metadata(wave.parent, meta, payload)
+        cmd_prefix = f"/{kind}/test/cmd"
+        dispatch = client.get(cmd_prefix + "/wave/", params={"meta":meta}, follow_redirects=False)
+        assert dispatch.status_code == 303
+        assert dispatch.headers["location"].startswith("../surfer/?meta=")
+        assert client.get(cmd_prefix + "/api/waveform/metadata", params={"meta":meta}).json() == payload
+        dashboard = client.get(cmd_prefix + "/")
+        assert dashboard.status_code == 200
+        assert '_cmdApiPathPrefix()+"/"+"wave/?meta="' in dashboard.text
+        fsdb = wave.with_suffix(".fsdb")
+        fsdb.write_bytes(b"FSDB")
+        fsdb_meta, fsdb_payload, _ = build_waveform_metadata(wave.parent, fsdb.name)
+        write_waveform_metadata(wave.parent, fsdb_meta, fsdb_payload)
+        before = len(cmd_server._xpra.list()["sessions"])
+        launch_page = client.get(cmd_prefix + "/wave/", params={"meta":fsdb_meta})
+        assert "../api/xpra/sessions" in launch_page.text
+        assert len(cmd_server._xpra.list()["sessions"]) == before
+        launched = client.post(cmd_prefix + "/api/xpra/sessions", json={"wave_meta":fsdb_meta})
+        assert launched.status_code == 201, launched.text
+        reused = client.post(cmd_prefix + "/api/xpra/sessions", json={"wave_meta":fsdb_meta})
+        assert reused.json()["id"] == launched.json()["id"]
         with pytest.raises(WebSocketDisconnect) as error:
             with client.websocket_connect(prefix+f"/sessions/{session['id']}/client/", headers={"origin":"https://other.example"}):
                 pass
@@ -688,12 +715,19 @@ def test_terminal_console_and_xpra_remain_independent(cmd_server):
     port = _start_listener(cmd_server)
     session = cmd_server._xpra.create(sys.executable)
     console_input = []
+    console_received = threading.Event()
+
+    def record_console_input(line):
+        """Record callback completion before notifying the client test thread."""
+        console_input.append(line)
+        console_received.set()
+
     command = shlex.join([sys.executable, "-u", "-c",
                           "import sys; print('READY',flush=True); "
                           "\nfor line in sys.stdin: print('TERM:'+line.strip(),flush=True)"])
     terminal = PdbWebTermServer(command, host="127.0.0.1", port=0, password="terminal-test")
     console = PdbWebTermServer(host="127.0.0.1", port=0, password="console-test",
-                               console_input_callback=console_input.append)
+                               console_input_callback=record_console_input)
     try:
         assert terminal.start()[0]
         assert console.start()[0]
@@ -721,6 +755,8 @@ def test_terminal_console_and_xpra_remain_independent(cmd_server):
                     await receive_marker(term_ws,b"TERM:first")
                     await console_ws.send_str("console-first\r")
                     await receive_marker(console_ws,b"\r\n")
+                    # The server sends the echo before dispatching the callback.
+                    assert await asyncio.to_thread(console_received.wait, 5), "Console input callback did not complete"
                     assert console_input == ["console-first"]
                     await xpra_ws.send_bytes(b"xpra-first")
                     assert (await xpra_ws.receive(timeout=3)).data == b"xpra-first"

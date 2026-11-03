@@ -38,7 +38,7 @@ def _check_fixture(tmp_path, fixture_body):
 def test_dut_fixture_requires_set_func_coverage_call(tmp_path):
     passed, message = _check_fixture(tmp_path, [
         "func_coverage_group = []",
-        "get_coverage_data_path(request, new_path=False)",
+        "get_coverage_data_path(request, dut, new_path=False)",
         "yield object()",
         "# set_func_coverage is imported but not called",
     ])
@@ -51,7 +51,7 @@ def test_dut_fixture_requires_set_func_coverage_call(tmp_path):
 def test_dut_fixture_requires_set_func_coverage_after_yield(tmp_path):
     passed, message = _check_fixture(tmp_path, [
         "func_coverage_group = []",
-        "get_coverage_data_path(request, new_path=False)",
+        "get_coverage_data_path(request, dut, new_path=False)",
         "set_func_coverage(request, func_coverage_group)",
         "yield object()",
     ])
@@ -62,7 +62,7 @@ def test_dut_fixture_requires_set_func_coverage_after_yield(tmp_path):
 
 def test_dut_fixture_rejects_set_func_coverage_without_groups(tmp_path):
     passed, message = _check_fixture(tmp_path, [
-        "get_coverage_data_path(request, new_path=False)",
+        "get_coverage_data_path(request, dut, new_path=False)",
         "yield object()",
         "set_func_coverage(request)",
     ])
@@ -74,7 +74,7 @@ def test_dut_fixture_rejects_set_func_coverage_without_groups(tmp_path):
 def test_dut_fixture_accepts_set_func_coverage_during_teardown(tmp_path):
     passed, message = _check_fixture(tmp_path, [
         "func_coverage_group = []",
-        "get_coverage_data_path(request, new_path=False)",
+        "get_coverage_data_path(request, dut, new_path=False)",
         "yield object()",
         "set_func_coverage(request, func_coverage_group)",
     ])
@@ -86,7 +86,7 @@ def test_dut_fixture_accepts_set_func_coverage_during_teardown(tmp_path):
 def test_dut_fixture_rejects_conditional_set_func_coverage(tmp_path):
     passed, message = _check_fixture(tmp_path, [
         "func_coverage_group = []",
-        "get_coverage_data_path(request, new_path=False)",
+        "get_coverage_data_path(request, dut, new_path=False)",
         "yield object()",
         "if False:",
         "    set_func_coverage(request, func_coverage_group)",
@@ -99,7 +99,7 @@ def test_dut_fixture_rejects_conditional_set_func_coverage(tmp_path):
 def test_dut_fixture_accepts_set_func_coverage_in_finally(tmp_path):
     passed, message = _check_fixture(tmp_path, [
         "func_coverage_group = []",
-        "get_coverage_data_path(request, new_path=False)",
+        "get_coverage_data_path(request, dut, new_path=False)",
         "try:",
         "    yield object()",
         "finally:",

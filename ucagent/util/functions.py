@@ -687,6 +687,16 @@ def _get_toffee_test_case_details(data: dict, tests: list) -> dict:
                 type_match = re.match(r"([A-Za-z_][A-Za-z0-9_.]*)", exception)
                 if type_match:
                     phase_detail["exception_type"] = type_match.group(1)
+            failure = phase.get("exception")
+            if isinstance(failure, dict) and all(
+                isinstance(failure.get(key), str) and failure[key]
+                for key in ("phase", "type")
+            ) and isinstance(failure.get("message"), str):
+                # Plain exception fields survive pytest worker serialization;
+                # CallInfo does not exist in the parent with --forked/xdist.
+                phase_detail["phase"] = failure["phase"]
+                phase_detail["exception_type"] = failure["type"]
+                phase_detail["exception"] = f"{failure['type']}: {failure['message']}"[:1000]
             failure_phases.append(phase_detail)
 
         if failure_phases:
@@ -1693,87 +1703,69 @@ def copy_indent_from(src: list, dst: list):
     return ret
 
 
-def _install_uvicorn_log_bridge(logger):
-    """Attach a handler to the real uvicorn loggers that delegates to *logger*.
+def create_verify_mcps(mcp_tools: list, host: str, port: int, logger=None):
+    """Build an instance-drained MCP server without replacing global logging."""
+    from mcp.server.mcpserver import MCPServer
+    from ucagent.server.mcp_http import McpHttpServer
+    from ucagent.tools.uctool import to_mcp_tool
+    import uvicorn
 
-    uvicorn's module-level ``logger = logging.getLogger("uvicorn.error")`` is
-    evaluated at import time, before the monkey-patch in create_verify_mcps
-    runs.  This means runtime log calls bypass the patched getLogger and go to
-    the standard logger.  By adding a handler *after* construction we ensure
-    runtime messages (startup, connection, shutdown) are forwarded to the TUI.
-    """
+    converted_tools = [to_mcp_tool(tool) for tool in mcp_tools]
+    info(f"create MCP server with tools: {[tool.name for tool in converted_tools]}")
+    mcp = MCPServer("UnityTest", tools=converted_tools)
+    config = uvicorn.Config(
+        mcp.streamable_http_app(host=host),
+        host=host,
+        port=port,
+        # All embedded servers share logging with the enclosing application.
+        # Configuring Uvicorn's global handlers here would affect other services.
+        log_config=None,
+        log_level=None,
+        ws="none",
+        timeout_keep_alive=300,
+        timeout_graceful_shutdown=60,
+    )
+    server = McpHttpServer(config)
+    server.ui_logger = logger
+    return server
+
+
+def start_verify_mcps(server):
+    """Serve MCP and forward only this thread's Uvicorn logs to its UI."""
     import logging
+    import threading
+    import anyio
+
+    thread_id = threading.get_ident()
 
     class _BridgeHandler(logging.Handler):
+        """Forward this server's Uvicorn records to its configured UI."""
+
         def emit(self, record):
-            try:
-                logger.log(record.levelno, record.getMessage())
-            except Exception:
-                pass
+            """Route only records emitted by the owning server thread."""
+            if record.thread == thread_id:
+                try:
+                    server.ui_logger.log(record.levelno, record.getMessage(), exc_info=record.exc_info)
+                except Exception:
+                    # A TUI may have exited while the server is still running.
+                    pass
 
-    handler = _BridgeHandler()
-    handler.setLevel(logging.DEBUG)
-    for name in ("uvicorn.error", "uvicorn.access"):
-        uv_logger = logging.getLogger(name)
-        uv_logger.addHandler(handler)
-
-
-def create_verify_mcps(mcp_tools: list, host: str, port: int, logger=None):
-    """Build an MCP SDK HTTP application and its uvicorn server."""
-    import logging
-    __old_getLogger = logging.getLogger
-    def __getLogger(name):
-        """Route server construction logs to the agent's configured logger."""
-        return logger
-    if logger:
-        logging.getLogger = __getLogger
+    bridge = _BridgeHandler() if server.ui_logger is not None else None
+    loggers = [logging.getLogger(name) for name in ("uvicorn.error", "uvicorn.access")]
+    if bridge is not None:
+        for logger in loggers:
+            logger.addHandler(bridge)
     try:
-        from mcp.server.mcpserver import MCPServer
-        from ucagent.tools.uctool import to_mcp_tool
-        from ucagent.util.log import info
-        converted_tools = [to_mcp_tool(tool) for tool in mcp_tools]
-        info(f"create MCP server with tools: {[tool.name for tool in converted_tools]}")
-        mcp = MCPServer("UnityTest", tools=converted_tools)
-        starlette_app = mcp.streamable_http_app(host=host)
-        import uvicorn
-        config = uvicorn.Config(
-            starlette_app,
-            host=host,
-            port=port,
-            log_level=mcp.settings.log_level.lower(),
-            ws="none",
-            timeout_keep_alive=300,
-            timeout_graceful_shutdown=60,
-        )
-        server = uvicorn.Server(config)
-    finally:
-        logging.getLogger = __old_getLogger
-
-    if logger:
-        _install_uvicorn_log_bridge(logger)
-
-    return server, __old_getLogger
-
-
-def start_verify_mcps(server, old_getLogger):
-    """Run a configured uvicorn MCP server and propagate startup failures."""
-
-    import logging
-    from ucagent.util.log import info
-    import anyio
-    async def _run():
-        await server.serve()
-    try:
-        anyio.run(_run)
-    except Exception as e:
-        info(f"MCP server exit with: {e}")
+        anyio.run(server.serve)
+    except Exception as error:
+        info(f"MCP server exit with: {error}")
         raise
     finally:
+        if bridge is not None:
+            for logger in loggers:
+                logger.removeHandler(bridge)
+            bridge.close()
         info("MCP server stopped.")
-        # logging.getLogger was already restored in create_verify_mcps; this is
-        # kept for safety when old_getLogger is still the real function.
-        if old_getLogger is not None:
-            logging.getLogger = old_getLogger
 
 
 def stop_verify_mcps(server):
@@ -2031,7 +2023,7 @@ def description_bug_doc():
         "  - WaveInfo event matches are not automatic Bug decisions. The LLM must read the interface specification and test-driver/API Step ordering, identify ready/valid or the DUT's actual equivalent request-accept and response-valid conditions, account for backpressure and latency, and prove the observed output belongs to the failed transaction.",
         "  - One Step only advances simulation; it does not prove request acceptance or output validity. Check whether the API already steps/waits and sample only at the specified edge, after the required latency, or when response-valid/done/ack/busy conditions permit it.",
         "  - Do not classify a data mismatch sampled while valid/enable is inactive, ready/accept is false, reset/idle/transition rules make data invalid, or the documented response latency has not elapsed. Such a point is only an investigation clue unless the specification explicitly requires behavior there.",
-        "  - The first non-empty content after the central YAML fence must be the same final WaveInfo result's <WAVEFORM-VIEWER> tagged Markdown link. Its marker, /surfer/?wave= route, and signed token must not be edited or constructed manually.",
+        "  - The first non-empty content after the central YAML fence must be the same final WaveInfo result's <WAVEFORM-VIEWER> tagged Markdown link. Its marker, /wave/?meta= route, and signed metadata target must not be edited or constructed manually.",
         f"  - Inside every non-zero BG, include each analysis marker exactly once and in this order: {section_markers}.",
         "  - Put every TC and its WAVEFORM-REF directly after the owning BG heading. Put the three BG fields after the final TC/reference; no TC may appear after the first analysis marker.",
         f"  - Before each analysis marker, use the exact level-6 display title shown in Guide_Doc/dut_bug_analysis.md section 5.1, then write the field body after the marker. Keep this marker order: {section_markers}. Do not rename, translate, omit, duplicate, or reorder them.",
@@ -2410,10 +2402,13 @@ def replace_bash_var(in_str, data: dict):
 
 
 def tips_of_get_coverage_data_path(dut_name: str):
+    """Show the canonical per-test coverage path helper for fixture repairs."""
     return f"""
 If 'get_coverage_data_path' not find in the template, you should define it like this:
-def get_coverage_data_path(request, new_path:bool):
-    return get_file_in_tmp_dir(request, current_path_file("data/"), "{dut_name}.dat",  new_path=new_path)
+def get_coverage_data_path(request, dut, new_path:bool):
+    tc_name = request.node.name if request is not None else "{dut_name}"
+    suffix = ucagent.get_default_subfix(dut, "coverage")
+    return get_file_in_tmp_dir(request, current_path_file("data/"), f"{{tc_name}}.{{suffix}}", new_path=new_path)
 """
 
 
@@ -2874,6 +2869,7 @@ def chmode_ro_by_pattern(
 
 
 def chmode_ro(path_list: list, ignore_list: list = ["__pycache__"]):
+    """Protect files from writes while preserving executable helper permissions."""
     mfile = stat.S_IREAD | stat.S_IRGRP | stat.S_IROTH
     mpath = mfile | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
     for file_path in path_list:
@@ -2892,7 +2888,7 @@ def chmode_ro(path_list: list, ignore_list: list = ["__pycache__"]):
         if os.path.isdir(file_path):
             os.chmod(file_path, mpath)
         else:
-            os.chmod(file_path, mfile)
+            os.chmod(file_path, mfile | (os.stat(file_path).st_mode & 0o111))
     info(f"Set file mode to read-only completed ({len(path_list)} files).")
     return path_list
 
@@ -2925,7 +2921,7 @@ def chmode_rw(path_list: list, ignore_list: list = ["__pycache__"]):
             if os.path.isdir(file_path):
                 os.chmod(file_path, mpath)
             else:
-                os.chmod(file_path, mfile)
+                os.chmod(file_path, mfile | (os.stat(file_path).st_mode & 0o111))
         else:
             warning(f"File not found for setting mode to read-write: {file_path}")
     info(f"Set file mode to read-write completed ({len(path_list)} files).")

@@ -60,7 +60,7 @@ cmake --version
 
 `ucagent --help` 的界面示例：
 
-![ucagent --help](image1.png)
+![ucagent --help](ucagent_help.png)
 
 各参数的分组说明、默认值与完整示例见[参数说明](../02_usage/03_option.md)。
 

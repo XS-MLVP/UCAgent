@@ -39,6 +39,12 @@ class _CreateSession(BaseModel):
         return value
 
 
+class _WaveSession(BaseModel):
+    """Open exact waveform metadata using the operator-configured application."""
+    model_config = ConfigDict(extra="forbid")
+    wave_meta: StrictStr = Field(min_length=1)
+
+
 class _SessionPreset(_CreateSession):
     """An explicitly published form preset using the normal session fields."""
 
@@ -59,10 +65,19 @@ class _XpraRoute(APIRoute):
             except XpraError as exc:
                 return JSONResponse(status_code=exc.status, content={"detail": exc.detail})
             except RequestValidationError as exc:
+                errors = exc.errors()
+                # Report the chosen public request branch without internal union names.
+                if isinstance(exc.body, dict):
+                    branch = "_WaveSession" if "wave_meta" in exc.body else "_CreateSession"
+                    errors = [error for error in errors if len(error["loc"]) < 2
+                              or error["loc"][1] not in {"_WaveSession", "_CreateSession"}
+                              or error["loc"][1] == branch]
                 return JSONResponse(status_code=422, content={"detail": dict(
                     error_code="XPRA_REQUEST_INVALID", message="The Xpra request has invalid fields.",
                     next_action="Correct the named fields using the API schema.",
-                    fields=[".".join(str(part) for part in error["loc"]) for error in exc.errors()[:10]])})
+                    fields=[".".join(str(part) for part in error["loc"]
+                                      if part not in {"_WaveSession", "_CreateSession"})
+                            for error in errors[:10]])})
         return handle
 
 
@@ -109,8 +124,10 @@ def register_xpra_routes(app, server):
         return server._xpra.list()
 
     @router.post("/sessions", status_code=201)
-    def create(body: _CreateSession):
+    def create(body: _CreateSession | _WaveSession, request: Request):
         """Launch a session and return only after its HTML5 endpoint is ready."""
+        if isinstance(body, _WaveSession):
+            return server._waveform_launch.create(body.wave_meta, request)
         return server._xpra.create(**body.model_dump())
 
     @router.get("/sessions/{session_id}")

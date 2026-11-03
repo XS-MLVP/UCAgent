@@ -13,8 +13,8 @@ from fastapi.testclient import TestClient
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.abspath(os.path.join(current_dir, "..")))
 
-from ucagent.server.api_master import (
-    PdbMasterApiServer,
+from ucagent.server.api_master import PdbMasterApiServer
+from ucagent.server.api_master.common import (
     _tail_file,
     _task_logs_for_display,
     _task_stderr_tail,
@@ -95,6 +95,7 @@ def test_compiled_workspace_archive_uses_sync_workspace_ignore_patterns():
             fh.write("ignored")
         ws["compile"] = {
             "status": "success",
+            "simulator": "verilator",
             "picker_workspace": picker_workspace,
         }
 
@@ -701,6 +702,7 @@ def test_relaunch_drops_finished_old_task_record_before_launch():
             ws_locked = server._workspaces[workspace_id]
             ws_locked["compile"] = {
                 "status": "success",
+                "simulator": "verilator",
                 "picker_workspace": picker_workspace,
                 "dut_name": "Adder",
                 "selected_module": "Adder",
@@ -977,6 +979,7 @@ def test_relaunch_ucagent_info_switches_between_config_backups():
             ws_locked = server._workspaces[workspace_id]
             ws_locked["compile"] = {
                 "status": "success",
+                "simulator": "verilator",
                 "picker_workspace": picker_workspace,
                 "dut_name": "Adder",
                 "selected_module": "Adder",

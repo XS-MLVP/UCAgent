@@ -18,7 +18,9 @@ from .functions import (
 from .log import info
 from .waveform_formats import (
     DEFAULT_WAVEFORM_ANALYSIS_FORMAT_PRIORITY,
+    DEFAULT_WAVEFORM_ANALYSIS_BACKEND_PRIORITY,
     validate_waveform_analysis_format_priority,
+    validate_waveform_analysis_backend_priority,
 )
 import base64
 
@@ -550,6 +552,9 @@ def build_runtime_config(
     runtime_options["waveform_analysis_format_priority"] = validate_waveform_analysis_format_priority(
         runtime_options.get("waveform_analysis_format_priority", DEFAULT_WAVEFORM_ANALYSIS_FORMAT_PRIORITY)
     )
+    runtime_options["waveform_analysis_backend_priority"] = validate_waveform_analysis_backend_priority(
+        runtime_options.get("waveform_analysis_backend_priority", DEFAULT_WAVEFORM_ANALYSIS_BACKEND_PRIORITY)
+    )
 
     template_values = cfg.__dict__.get("_temp_cfg")
     if not isinstance(template_values, dict):
@@ -662,6 +667,9 @@ def validate_runtime_config(data: Any) -> Dict[str, Any]:
             )
     validate_waveform_analysis_format_priority(
         runtime_options.get("waveform_analysis_format_priority", DEFAULT_WAVEFORM_ANALYSIS_FORMAT_PRIORITY)
+    )
+    validate_waveform_analysis_backend_priority(
+        runtime_options.get("waveform_analysis_backend_priority", DEFAULT_WAVEFORM_ANALYSIS_BACKEND_PRIORITY)
     )
     plugin_options = data.get("plugin_options")
     if plugin_options is not None:

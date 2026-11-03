@@ -23,30 +23,41 @@ DUT fixture负责：
 
 > **阶段边界：** 本节模板只允许在DUT/API/fixture所属实现阶段按任务要求完善。进入测试模板创建、批量测试实现、静态Bug验证或随机测试阶段后，`{DUT}_api.py`中的`create_dut`、`dut/env` fixture、fake DUT分支和覆盖率绑定应作为稳定公共基础设施使用。不得为绕过某个测试的setup、`mark_function`或覆盖率错误而重写fixture、返回自建fake对象、移除`get_coverage_groups(dut)`/`fc_cover`绑定或取消`set_func_coverage`。若确有基础设施缺陷，必须用最早traceback和接口契约定位后做最小修复，并重新运行对应fixture/API Checker。
 
-在实现 dut Fixture 之前，需要先实现 `create_dut(request)` 函数，它的作用是创建 DUT。其基本结构如下：
+在实现 dut Fixture 之前，需要先实现 `create_dut(request)` 函数。路径辅助函数必须接收当前 `dut`，分别通过 `ucagent.get_default_subfix(dut, "coverage")` 和 `ucagent.get_default_subfix(dut, "waveform")` 获取不带点的默认后缀，不要写死后缀。DUT 没有 `SIMULATOR` 属性时默认使用 Verilator；属性存在时必须是受支持的非空名称，名称忽略大小写及两端空白。遇到无效名称，应核对 DUT 构建信息并联系环境维护者确认支持情况。
+
+创建路径时使用 `new_path=True`，清理上报时传入同一个 `dut` 并使用 `new_path=False`。覆盖率路径可能指向目录，仍须将完整路径传给 `SetCoverage` 和 `set_line_coverage`。以下为从导入、路径生成、DUT 创建到 fixture 清理的完整参考示例：
 
 ```python
 import ucagent
 import os
-from toffee_test.reporter import get_file_in_tmp_dir
+import pytest
+from {{DUT}} import DUT{{DUT}}
+from {{DUT}}_function_coverage_def import get_coverage_groups
+from toffee_test.reporter import set_func_coverage, set_line_coverage, get_file_in_tmp_dir
+from toffee_test.reporter import set_user_info, set_title_info
 
 
 def current_path_file(file_name):
+    """获取当前 API 文件旁的路径。"""
     return os.path.join(os.path.dirname(os.path.abspath(__file__)), file_name)
 
 
-def get_coverage_data_path(request, new_path:bool):
+def get_coverage_data_path(request, dut, new_path:bool):
+    """按当前 DUT 的默认后缀获取该用例的覆盖率路径。"""
     # 通过toffee_test.reporter提供的get_file_in_tmp_dir方法可以让各用例产生的文件名称不重复 (获取新路径需要new_path=True，获取已有路径new_path=False)
     # 获取测试用例名称，为每个测试用例创建对应的代码行覆盖率文件
     tc_name = request.node.name if request is not None else "{{DUT}}"
-    return get_file_in_tmp_dir(request, current_path_file("data/"), f"{tc_name}.dat",  new_path=new_path)
+    suffix = ucagent.get_default_subfix(dut, "coverage")
+    return get_file_in_tmp_dir(request, current_path_file("data/"), f"{tc_name}.{suffix}", new_path=new_path)
 
 
-def get_waveform_path(request, new_path:bool):
+def get_waveform_path(request, dut, new_path:bool):
+    """按当前 DUT 的默认后缀获取该用例的波形路径。"""
     # 通过toffee_test.reporter提供的get_file_in_tmp_dir方法可以让各用例产生的文件名称不重复 (获取新路径需要new_path=True，获取已有路径new_path=False)
     # 获取测试用例名称，为每个测试用例创建对应的波形
     tc_name = request.node.name if request is not None else "{{DUT}}"
-    return get_file_in_tmp_dir(request, current_path_file("data/"), f"{tc_name}.fst",  new_path=new_path)
+    suffix = ucagent.get_default_subfix(dut, "waveform")
+    return get_file_in_tmp_dir(request, current_path_file("data/"), f"{tc_name}.{suffix}", new_path=new_path)
 
 
 def create_dut(request):
@@ -57,38 +68,22 @@ def create_dut(request):
     """
     # 如果是正在生成测试模板，返回fake DUT用于提速（模板中不会真运行DUT）
     if ucagent.is_imp_test_template():
-        return ucagent.get_fake_dut(DUT{{DutClass}})
+        return ucagent.get_fake_dut(DUT{{DUT}})
 
-    # 导入并实例化具体的DUT类
-    from {{DUT}} import DUT{{DutClass}}
-    
-    dut = DUT{{DutClass}}()
+    dut = DUT{{DUT}}()
 
     # 设置覆盖率生成文件(必须设置覆盖率文件，否则无法统计覆盖率，导致测试失败)
-    dut.SetCoverage(get_coverage_data_path(request, new_path=True))
+    dut.SetCoverage(get_coverage_data_path(request, dut, new_path=True))
 
     # 设置波形生成文件
-    dut.SetWaveform(get_waveform_path(request, new_path=True))
-
-    # 进行必要的初始化设置
-    # 例如：设置默认值、复位等
-    dut.reset.value = 1  # 示例：设置复位信号
+    dut.SetWaveform(get_waveform_path(request, dut, new_path=True))
     
     return dut
-```
-
-dut Fixture 参考如下：
-
-```python
-import ucagent
-import pytest
-from toffee_test.reporter import set_func_coverage, set_line_coverage, get_file_in_tmp_dir
-from toffee_test.reporter import set_user_info, set_title_info
-from {DUT}_function_coverage_def import get_coverage_groups
 
 
 @pytest.fixture(scope="function") # 用scope="function"确保每个测试用例都创建了一个全新的DUT
 def dut(request):
+    """为每个用例创建 DUT，并在结束后上报覆盖率、释放资源。"""
     # 1. 创建DUT实例
     dut = create_dut(request)
     
@@ -117,7 +112,7 @@ def dut(request):
 
     # 8. 设置需要收集的代码行覆盖率文件(获取已有路径new_path=False) 向toffee_test传代码行递覆盖率数据
     # 代码行覆盖率 ignore 文件的固定路径为当前文件所在目录下的：{{DUT}}.ignore，请不要改变
-    set_line_coverage(request, get_coverage_data_path(request, new_path=False), ignore=current_path_file("{{DUT}}.ignore"))
+    set_line_coverage(request, get_coverage_data_path(request, dut, new_path=False), ignore=current_path_file("{{DUT}}.ignore"))
 
     # 9. 设置用户信息到报告 (以下信息请使用模板中给出的值)
     set_user_info("UCAgent-{{Version}}", "{{Email}}")
