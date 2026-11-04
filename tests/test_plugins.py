@@ -7,13 +7,16 @@ from types import SimpleNamespace
 import importlib
 import json
 import sys
+from dataclasses import replace
 from unittest import mock
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "plugins/unitytest/src"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "ucagent/plugins/UnityTest/src"))
 
-from unitytest_plugin.checkers import UnityChipCheckerTestMustPass
+from unity_test.report_store import TestProtocolRuntimeHook
+from unity_test.test_runner import RunTestCasesManagerTool
+from unity_test.checkers import UnityChipCheckerTestMustPass
 from ucagent.plugins import (
     CommandRequirement,
     GuideDocCopyPolicy,
@@ -152,7 +155,7 @@ def _write_local_plugin(
     return manifest
 
 
-def _context(workspace: Path) -> PluginContext:
+def _context(workspace: Path, dut_name: str = "") -> PluginContext:
     """Build a minimal resolved plugin context for tool factory tests."""
 
     return PluginContext(
@@ -162,6 +165,7 @@ def _context(workspace: Path) -> PluginContext:
         un_write_dirs=("rtl",),
         cfg=SimpleNamespace(),
         plugin_root=workspace,
+        dut_name=dut_name,
     )
 
 
@@ -193,6 +197,16 @@ def test_local_plugin_import_root_is_available_to_test_subprocesses(
     project = tmp_path / "DesignPlugin"
     _write_local_plugin(project)
     loaded = load_plugin(str(project), check_dependencies=False)
+    # Contribute the shared manager tool + snapshot hook the way a real
+    # workflow plugin's provider does; the workflow layer then opts in.
+    loaded = replace(
+        loaded,
+        plugin=replace(
+            loaded.plugin,
+            manager_tools=(RunTestCasesManagerTool,),
+            runtime_hooks=(TestProtocolRuntimeHook,),
+        ),
+    )
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     agent = VerifyAgent(
@@ -205,13 +219,20 @@ def test_local_plugin_import_root_is_available_to_test_subprocesses(
             {"guide_doc.enable": False},
             {"langfuse.enable": False},
             # master.yaml disables the default task workflow; declare the
-            # free runner explicitly (dotted path resolves without a
-            # registry, like DesignWithPPA workflows do)
-            {"tools.RunTestCases.test_dir": "{OUT}/tests"},
+            # manager tool and its free runner explicitly (dotted path
+            # resolves without a registry, like DesignWithPPA workflows do).
+            # A nested dict override is required: dotted override keys are
+            # fail-fast on missing intermediate sections.
+            {"manager_tools": ["RunTestCases"]},
             {
-                "tools.RunTestCases.free_runner_clss": (
-                    "unitytest_plugin.checkers.UnityChipCheckerTestFree"
-                )
+                "tools": {
+                    "RunTestCases": {
+                        "test_dir": "{OUT}/tests",
+                        "free_runner_clss": (
+                            "unity_test.checkers.UnityChipCheckerTestFree"
+                        ),
+                    }
+                }
             },
         ],
         no_embed_tools=True,
@@ -219,7 +240,9 @@ def test_local_plugin_import_root_is_available_to_test_subprocesses(
         plugins=[loaded],
     )
     try:
-        assert agent.stage_manager.free_pytest_run.run_test.extra_python_paths == [
+        [tool] = agent.stage_manager.plugin_manager_tools
+        assert isinstance(tool, RunTestCasesManagerTool)
+        assert tool.free_pytest_run.run_test.extra_python_paths == [
             str((project / "src").resolve())
         ]
     finally:
@@ -973,6 +996,29 @@ def test_tool_factories_receive_plugin_root_and_enforce_unique_uctools(
         create_plugin_tools([first, second], _context(tmp_path))
 
 
+def test_tool_factories_receive_resolved_dut_name(tmp_path: Path) -> None:
+    """Tool creation must forward the resolved DUT name to every factory."""
+
+    observed = []
+
+    def factory(context: PluginContext) -> _TestTool:
+        """Record the per-plugin DUT name and return a valid tool."""
+
+        observed.append(context.dut_name)
+        return _TestTool()
+
+    root = tmp_path / "plugin"
+    root.mkdir()
+    loaded = LoadedPlugin(
+        Plugin("dut", "1.0.0", "DUT plugin.", root, (factory,)),
+        "dut",
+        "dut",
+    )
+    tools = create_plugin_tools([loaded], _context(tmp_path, dut_name="Adder"))
+    assert [tool.name for tool in tools] == ["TestPluginTool"]
+    assert observed == ["Adder"]
+
+
 def test_duplicate_plugin_selection_is_rejected(tmp_path: Path) -> None:
     """Selecting the same plugin through a path and configured ID must fail clearly."""
 
@@ -1196,8 +1242,10 @@ def test_cli_activates_plugin_level_docs_and_skills_without_a_workflow(
         run()
 
     kwargs = verify_agent.call_args.kwargs
-    assert kwargs["plugin_guide_doc_paths"] == [str(docs)]
-    assert kwargs["plugin_skill_paths"] == [("sample-plugin", str(skills))]
+    # The default workflow pointer auto-activates its owning plugin, so the
+    # explicit plugin's contributions are asserted by membership.
+    assert str(docs) in kwargs["plugin_guide_doc_paths"]
+    assert ("sample-plugin", str(skills)) in kwargs["plugin_skill_paths"]
     assert kwargs["cfg_override"] == [{"skill.use_skill": False}]
 
 
@@ -1380,6 +1428,13 @@ def test_verify_agent_rejects_plugin_doc_conflicting_with_base_runtime_doc(
         ),
         check_dependencies=False,
     )
+    # The core language defaults ship no documents anymore; supply the base
+    # runtime document through the caller-provided guid_doc_path.
+    core_docs = tmp_path / "core_docs"
+    core_docs.mkdir()
+    (core_docs / "dut_api_instruction.md").write_text(
+        "# Core API Contract\n", encoding="utf-8"
+    )
     workspace = tmp_path / "workspace"
     workspace.mkdir()
 
@@ -1389,6 +1444,7 @@ def test_verify_agent_rejects_plugin_doc_conflicting_with_base_runtime_doc(
             dut_name="empty",
             output="unity_test",
             config_file="master.yaml",
+            guid_doc_path=[str(core_docs)],
             cfg_override=[
                 {"backend.key_name": "blank"},
                 {"guide_doc.enable": True},
@@ -1422,6 +1478,19 @@ def test_verify_agent_composes_core_and_plugin_guide_docs_by_policy(
         ),
         check_dependencies=False,
     )
+    # The core language defaults ship no documents anymore; supply the base
+    # runtime documents through the caller-provided guid_doc_path.
+    core_docs = tmp_path / "core_docs"
+    core_docs.mkdir()
+    (core_docs / "dut_api_instruction.md").write_text(
+        "# Core API Contract\n", encoding="utf-8"
+    )
+    (core_docs / "dut_bug_analysis.md").write_text(
+        "# Core Bug Analysis\n", encoding="utf-8"
+    )
+    (core_docs / "dut_fixture.md").write_text(
+        "# Core Fixture\n", encoding="utf-8"
+    )
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     agent = VerifyAgent(
@@ -1429,6 +1498,7 @@ def test_verify_agent_composes_core_and_plugin_guide_docs_by_policy(
         dut_name="empty",
         output="unity_test",
         config_file="master.yaml",
+        guid_doc_path=[str(core_docs)],
         cfg_override=[
             {"backend.key_name": "blank"},
             {"guide_doc.enable": True},
@@ -1486,11 +1556,19 @@ def test_verify_agent_filters_plugin_guide_docs_after_template_resolution(
     (runtime_docs / "coding_standard_verilog.md").write_text(
         "stale\n", encoding="utf-8"
     )
+    # The core language defaults ship no documents anymore; supply the base
+    # runtime document through the caller-provided guid_doc_path.
+    core_docs = tmp_path / "core_docs"
+    core_docs.mkdir()
+    (core_docs / "dut_fixture.md").write_text(
+        "# Core Fixture\n", encoding="utf-8"
+    )
     agent = VerifyAgent(
         workspace=str(workspace),
         dut_name="empty",
         output="unity_test",
         config_file="master.yaml",
+        guid_doc_path=[str(core_docs)],
         cfg_override=[
             {"backend.key_name": "blank"},
             {"guide_doc.enable": True},
@@ -1914,7 +1992,7 @@ def test_design_with_ppa_local_plugin_creates_mcp_compatible_tool(tmp_path: Path
     """The shipped DesignWithPPA project must load, locate assets, and convert to MCP."""
 
     repository = Path(__file__).resolve().parent.parent
-    project = repository / "plugins" / "DesignWithPPA"
+    project = repository / "ucagent" / "plugins" / "DesignWithPPA"
     # Resource discovery and MCP schemas do not execute the external PPA tools.
     loaded = load_plugin(str(project), check_dependencies=False)
     tools = create_plugin_tools([loaded], _context(tmp_path))

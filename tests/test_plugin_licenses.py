@@ -24,8 +24,8 @@ def plugin_project(tmp_path, request):
     (repository / "ucagent/__init__.py").write_text('"""Checkout marker."""\n')
     for name in NOTICE_FILES:
         shutil.copyfile(REPOSITORY / name, repository / name)
-    source = REPOSITORY / "plugins" / request.param
-    project = repository / "plugins" / request.param
+    source = REPOSITORY / "ucagent" / "plugins" / request.param
+    project = repository / "ucagent" / "plugins" / request.param
     project.mkdir(parents=True)
     for name in (
         "pyproject.toml", "setup.py", "MANIFEST.in", "README.md", "Makefile",

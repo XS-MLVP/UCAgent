@@ -32,8 +32,8 @@ except ImportError:  # pragma: no cover - exercised through a patched module val
 DEFAULT_MAX_DIFF_CHARS = 20000
 _MARKDOWN_WRITE_DESCRIPTION = (
     " For .md and .md.j2 targets, every successful write also normalizes the "
-    "required blank lines around ATX headings while preserving canonical machine "
-    "field companions."
+    "required blank lines around ATX headings while preserving the machine "
+    "field companions declared for this tool."
 )
 
 
@@ -1308,6 +1308,9 @@ class EditTextFile(UCTool, BaseReadWrite):
     args_schema: Optional[ArgsSchema] = ArgEditTextFile
     return_direct: bool = False
     call_lock_arguments: Tuple[str, ...] = ("path",)
+    # Markdown machine markers the workflow declares as allowed to stay
+    # directly under a field heading.
+    heading_companions: Tuple[str, ...] = ()
 
     def _run(self, path: str, content: str, append: bool = False,
              expected_sha256: Optional[str] = None,
@@ -1355,7 +1358,9 @@ class EditTextFile(UCTool, BaseReadWrite):
                     if file_exists
                     else f"Created '{path}' with {len(content)} characters"
                 )
-            new_content = ensure_markdown_file_heading_spacing(path, new_content)
+            new_content = ensure_markdown_file_heading_spacing(
+                path, new_content, self.heading_companions
+            )
 
             if file_exists and new_content == original_content:
                 result = {
@@ -1829,6 +1834,9 @@ class DeleteTextLines(UCTool, BaseReadWrite):
     args_schema: Optional[ArgsSchema] = ArgDeleteTextLines
     return_direct: bool = False
     call_lock_arguments: Tuple[str, ...] = ("path",)
+    # Markdown machine markers the workflow declares as allowed to stay
+    # directly under a field heading.
+    heading_companions: Tuple[str, ...] = ()
 
     @staticmethod
     def _normalize_line_blocks(
@@ -1929,6 +1937,7 @@ class DeleteTextLines(UCTool, BaseReadWrite):
             new_content = ensure_markdown_file_heading_spacing(
                 path,
                 "".join(kept_lines),
+                self.heading_companions,
             )
             deleted_line_count = sum(end - start + 1 for start, end in merged_ranges)
             new_sha256 = _sha256_bytes(new_content.encode("utf-8"))
@@ -2042,6 +2051,9 @@ class ReplaceStringInFile(UCTool, BaseReadWrite):
     args_schema: Optional[ArgsSchema] = ArgReplaceStringInFile
     return_direct: bool = False
     call_lock_arguments: Tuple[str, ...] = ("path",)
+    # Markdown machine markers the workflow declares as allowed to stay
+    # directly under a field heading.
+    heading_companions: Tuple[str, ...] = ()
 
     def _run(self, path: str, old_string: str, new_string: str,
              expected_sha256: Optional[str] = None, dry_run: bool = False,
@@ -2140,7 +2152,9 @@ class ReplaceStringInFile(UCTool, BaseReadWrite):
                 + replacement_content
                 + original_content[match_offset + len(old_content):]
             )
-            new_content = ensure_markdown_file_heading_spacing(path, new_content)
+            new_content = ensure_markdown_file_heading_spacing(
+                path, new_content, self.heading_companions
+            )
             if new_content == original_content:
                 result = {
                     "changed": False,

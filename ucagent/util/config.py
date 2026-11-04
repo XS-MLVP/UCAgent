@@ -26,9 +26,18 @@ _NEGATED_BOOL_PATTERN = re.compile(
 )
 _DELETE_OVERRIDE = object()
 RUNTIME_CONFIG_FILENAME = "runtime_config.json"
-CURRENT_TEST_REPORT_FILENAME = "current_test_report.json"
-CURRENT_TEST_REPORT_SCHEMA_VERSION = 1
-CURRENT_TEST_REPORT_RELATIVE_PATH = f".ucagent/{CURRENT_TEST_REPORT_FILENAME}"
+# Top-level runtime snapshot keys owned by the framework itself; plugin
+# runtime-hook sections may extend the snapshot but never claim these.
+FRAMEWORK_RUNTIME_CONFIG_KEYS = (
+    "schema_version",
+    "DUT",
+    "OUT",
+    "ucagent_python_path",
+    "runtime_options",
+    "plugin_python_paths",
+    "plugin_options",
+    "launch_context",
+)
 
 
 def _current_ucagent_python_path() -> Path:
@@ -521,6 +530,7 @@ def build_runtime_config(
     runtime_config_keys: Optional[List[str]] = None,
     launch_context: Optional[Dict[str, Any]] = None,
     plugin_python_paths: Optional[List[str]] = None,
+    snapshot_hooks: Optional[List[Any]] = None,
 ) -> Dict[str, Any]:
     """Build the non-secret runtime snapshot shared with workspace consumers."""
     if not isinstance(cfg, Config):
@@ -545,14 +555,6 @@ def build_runtime_config(
         raise ValueError("Resolved configuration value 'DUT' must be a non-empty string.")
     if not isinstance(output, str) or not output.strip():
         raise ValueError("Resolved configuration value 'OUT' must be a non-empty string.")
-    try:
-        test_output_dir = cfg.get_value("tools.RunTestCases.test_dir", None)
-    except AttributeError:
-        test_output_dir = None
-    if not isinstance(test_output_dir, str) or not test_output_dir.strip():
-        # workflows that run no tests declare no test dir; the snapshot then
-        # omits test_output_dir for its workspace consumers
-        test_output_dir = None
     ucagent_python_path = str(_current_ucagent_python_path())
     if not (Path(ucagent_python_path) / "ucagent" / "__init__.py").is_file():
         raise ValueError(
@@ -575,10 +577,6 @@ def build_runtime_config(
         "ucagent_python_path": ucagent_python_path,
         "runtime_options": runtime_options,
     }
-    if test_output_dir is not None:
-        result["test_output_dir"] = test_output_dir
-        # only test-running workflows publish the shared report pointer
-        result["current_test_report"] = CURRENT_TEST_REPORT_RELATIVE_PATH
     if plugin_import_roots:
         # plugin import roots feed skill-script PYTHONPATH resolution
         result["plugin_python_paths"] = plugin_import_roots
@@ -597,13 +595,60 @@ def build_runtime_config(
             )
     if plugin_options:
         result["plugin_options"] = plugin_options
+    for hook in snapshot_hooks or []:
+        snapshot_sections = getattr(hook, "snapshot_sections", None)
+        if snapshot_sections is None:
+            continue
+        sections = snapshot_sections(cfg)
+        if not isinstance(sections, dict) or not all(
+            isinstance(key, str) and key.strip() for key in sections
+        ):
+            raise ValueError(
+                f"Runtime snapshot hook {type(hook).__name__} must contribute "
+                "a mapping with non-empty string keys."
+            )
+        for key, value in sections.items():
+            if key in FRAMEWORK_RUNTIME_CONFIG_KEYS or key in result:
+                raise ValueError(
+                    f"Runtime snapshot hook {type(hook).__name__} cannot "
+                    f"contribute reserved or duplicate key {key!r}."
+                )
+            if not _is_json_safe(value):
+                raise ValueError(
+                    f"Runtime snapshot hook {type(hook).__name__} contributed "
+                    f"a non-JSON-safe value for {key!r}."
+                )
+            result[key] = value
     if launch_context is not None:
         result["launch_context"] = dict(launch_context)
     return result
 
 
-def validate_runtime_config(data: Any) -> Dict[str, Any]:
-    """Validate a runtime snapshot before it is consumed."""
+def _is_json_safe(value: Any) -> bool:
+    """Return whether *value* can round-trip through the JSON snapshot."""
+    if value is None or isinstance(value, (str, bool)):
+        return True
+    if isinstance(value, int):
+        return True
+    if isinstance(value, float):
+        return value == value and abs(value) != float("inf")
+    if isinstance(value, dict):
+        return all(
+            isinstance(key, str) and _is_json_safe(item)
+            for key, item in value.items()
+        )
+    if isinstance(value, (list, tuple)):
+        return all(_is_json_safe(item) for item in value)
+    return False
+
+
+def validate_runtime_config(data: Any, snapshot_hooks: Optional[List[Any]] = None) -> Dict[str, Any]:
+    """Validate a runtime snapshot before it is consumed.
+
+    Framework-owned keys are always validated; sections contributed by plugin
+    runtime hooks are validated by their owning hook when the hooks are
+    available, and by their owner's own consumers otherwise.
+    """
     if not isinstance(data, dict):
         raise ValueError("Resolved runtime config must be a JSON object.")
     if data.get("schema_version") != 1:
@@ -612,24 +657,6 @@ def validate_runtime_config(data: Any) -> Dict[str, Any]:
         if not isinstance(data.get(key), str) or not data[key].strip():
             raise ValueError(
                 f"Resolved runtime config value '{key}' must be a non-empty string."
-            )
-    if "test_output_dir" in data:
-        test_output_dir = data["test_output_dir"]
-        if not isinstance(test_output_dir, str) or not test_output_dir.strip():
-            raise ValueError(
-                "Resolved runtime config value 'test_output_dir' must be a non-empty string."
-            )
-    if "current_test_report" in data:
-        if data["current_test_report"] != CURRENT_TEST_REPORT_RELATIVE_PATH:
-            raise ValueError(
-                "Resolved runtime config value 'current_test_report' must be "
-                f"'{CURRENT_TEST_REPORT_RELATIVE_PATH}'."
-            )
-        if "test_output_dir" not in data:
-            raise ValueError(
-                "Resolved runtime config value 'current_test_report' requires "
-                "'test_output_dir': workflows without a test dir publish no "
-                "test report."
             )
     ucagent_python_path = data.get("ucagent_python_path")
     if not isinstance(ucagent_python_path, str) or not ucagent_python_path.strip():
@@ -727,6 +754,10 @@ def validate_runtime_config(data: Any) -> Dict[str, Any]:
             raise ValueError(
                 "Resolved runtime launch_context.plugin_selectors must be a list of non-empty strings."
             )
+    for hook in snapshot_hooks or []:
+        validate_sections = getattr(hook, "validate_runtime_snapshot", None)
+        if validate_sections is not None:
+            validate_sections(data)
     return data
 
 
@@ -736,6 +767,7 @@ def save_runtime_config(
     runtime_config_keys: Optional[List[str]] = None,
     launch_context: Optional[Dict[str, Any]] = None,
     plugin_python_paths: Optional[List[str]] = None,
+    snapshot_hooks: Optional[List[Any]] = None,
 ) -> Path:
     """Persist resolved runtime values for skills and other workspace consumers."""
     runtime_path = Path(
@@ -747,7 +779,9 @@ def save_runtime_config(
             runtime_config_keys=runtime_config_keys,
             launch_context=launch_context,
             plugin_python_paths=plugin_python_paths,
-        )
+            snapshot_hooks=snapshot_hooks,
+        ),
+        snapshot_hooks=snapshot_hooks,
     )
     save_json_file(str(runtime_path), runtime_data)
     return runtime_path
@@ -762,80 +796,6 @@ def load_runtime_config(workspace: str) -> Dict[str, Any]:
             "Start UCAgent for this workspace before using runtime consumers."
         )
     return validate_runtime_config(load_json_file(str(runtime_path)))
-
-
-def _current_test_report_path(workspace: str) -> Path:
-    """Return the workspace-local report shared by test consumers and Skills."""
-    runtime_config = load_runtime_config(workspace)
-    relative = runtime_config.get("current_test_report")
-    if not relative:
-        raise ValueError(
-            "Runtime config declares no 'current_test_report': workflows "
-            "without a test dir publish no current test report."
-        )
-    return Path(workspace) / relative
-
-
-def clear_current_test_report(workspace: str) -> None:
-    """Invalidate a previous stage's report when a stage becomes active."""
-    target = Path(workspace) / CURRENT_TEST_REPORT_RELATIVE_PATH
-    try:
-        target.unlink()
-    except FileNotFoundError:
-        pass
-
-
-def save_current_test_report(
-    workspace: str,
-    report: Dict[str, Any],
-    context: Optional[Dict[str, Any]] = None,
-) -> Path:
-    """Publish the latest structured test report for runtime consumers.
-
-    The report is deliberately kept outside the DUT output directory so a Skill
-    cannot accidentally bind itself to a stage-private or historical report.
-    ``context`` is diagnostic metadata only; the actual test report remains under
-    the stable ``report`` key.
-    """
-    if not isinstance(report, dict):
-        raise TypeError("Current test report must be a mapping.")
-    if context is not None and not isinstance(context, dict):
-        raise TypeError("Current test report context must be a mapping.")
-    target = _current_test_report_path(workspace)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    payload = {
-        "schema_version": CURRENT_TEST_REPORT_SCHEMA_VERSION,
-        "report": report,
-        "context": context or {},
-    }
-    temporary = target.with_suffix(target.suffix + ".tmp")
-    save_json_file(str(temporary), payload)
-    os.replace(temporary, target)
-    return target
-
-
-def load_current_test_report(workspace: str) -> Dict[str, Any]:
-    """Load and validate the latest structured test report for a workspace."""
-    target = _current_test_report_path(workspace)
-    if not target.is_file():
-        raise FileNotFoundError(
-            f"Current test report not found: {target}. Run the current stage's "
-            "real test cases with Check or RunTestCases before using a test-report Skill."
-        )
-    payload = load_json_file(str(target))
-    if not isinstance(payload, dict):
-        raise ValueError(f"Current test report {target} must be a JSON object.")
-    if payload.get("schema_version") != CURRENT_TEST_REPORT_SCHEMA_VERSION:
-        raise ValueError(
-            f"Current test report {target} has an unsupported schema_version."
-        )
-    report = payload.get("report")
-    if not isinstance(report, dict):
-        raise ValueError(f"Current test report {target} has no report object.")
-    context = payload.get("context", {})
-    if not isinstance(context, dict):
-        raise ValueError(f"Current test report {target} has invalid context metadata.")
-    return payload
 
 
 def find_file_in_paths(filename, search_paths):

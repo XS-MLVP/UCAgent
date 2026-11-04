@@ -37,56 +37,60 @@ and fabricated evidence from being accepted.
   and the shared `BatchTask` batch engine; workflow-specific checkers
   (including toffee-report, line-map, and test-case validation) live in
   each plugin's `checkers` package (for example
-  `plugins/unitytest/src/unitytest_plugin/checkers/`).
-- `ucagent/tools/`: LLM tools, file/test operations, MCP conversion, and skills
-  (waveform analysis tools and the UnityChip/toffee test runner live in the
-  unitytest plugin).
+  `ucagent/plugins/UnityTest/src/unity_test/checkers/`).
+- `ucagent/tools/`: LLM tools, file operations, MCP conversion, and skills
+  (waveform analysis tools, the UnityChip/toffee test runner, the pytest
+  execution tools, and the `RunTestCases` stage manager tool all live in the
+  UnityTest plugin under `ucagent/plugins/UnityTest/src/unity_test/`).
 - `ucagent/abackend/`: LangChain and command-line backend adapters.
 - `ucagent/server/`, `ucagent/tui/`: master APIs, terminals, web UI, and TUI.
 - `ucagent/lang/zh/config/default.yaml`: framework-layer language config
   (generic prompts, hooks, and the `workflow` pointer to the default task
   workflow).
-- `plugins/unitytest/`: the UnityTest workflow family plugin (DPPA-style layout:
-  everything workflow-related under `src/unitytest_plugin/`): `plugin.py`
+- `ucagent/plugins/UnityTest/`: the UnityTest workflow family plugin (DPPA-style layout:
+  everything workflow-related under `src/unity_test/`): `plugin.py`
   provider, `workflows/` (`unitytest.yaml` is the default UnityTest workflow —
   domain mission prompts appended to the framework layer, stage tasks, checker
   wiring, and workflow tool config; sibling self-sufficient baselines
   `incremental.yaml` and `vibe.yaml` replace it when selected),
   `presets/labeled_spec.yaml` (a stage-overlap `--config` preset, not a
   workflow), `templates/unity_test`, `skills/` (workspace skill ids
-  `ext/unitytest/<skill>`), and `Guide_Doc/`; the default launch auto-activates
-  the plugin that owns the `workflow` pointer target.
+  `ext/unitytest/<skill>`), `Guide_Doc/`, and the dynamic Bug analysis
+  contract (`bug_analysis_contract.py` with its `lang/zh/config` locale
+  data). It also owns the verification-domain helper modules (`test_utils`
+  imported by generated test code, the pytest substrate `testops`, the
+  `RunTestCases` stage manager tool `test_runner`, the report store
+  `report_store`, the mark/report parsers `doc_marks` and `test_report`,
+  and `str_utils`); a sibling plugin that needs them declares
+  `../UnityTest/src` as an extra manifest python-path root and imports them
+  as `unity_test.*`. The default launch auto-activates the plugin that owns
+  the `workflow` pointer target.
 - `ucagent/lang/zh/doc/Guide_Doc/`: retained empty (the self-check expects the
   directory); workflow-owned guidance ships with each plugin
-  (`plugins/unitytest/src/unitytest_plugin/Guide_Doc`).
-- `plugins/common/`: the shared verification-domain library `ucagent_common`
-  (package `plugins/common/src/ucagent_common`): the dynamic Bug analysis
-  contract together with its `lang/zh/config` locale data, the
-  FG/FC/CK/BG/TC document-mark parsers, the shared pytest-report checks, the
-  UnityTest-style test-domain helpers imported by generated test code as
-  `ucagent_common.test_utils` (simulator suffix defaults, seed/repeat-count
-  resolution, fake/mock DUT construction), and the shared string/list display
-  helpers (`str_utils.list_str_abbr`). Workflow plugins reference it from
-  their manifests (`python_path = ["src", "../common/src"]`); it may import
-  from the `ucagent` core, never the reverse.
+  (`ucagent/plugins/UnityTest/src/unity_test/Guide_Doc`).
 - `ucagent/lang/zh/template/`: retained empty; workflow templates ship with each
-  plugin (`plugins/unitytest/src/unitytest_plugin/templates`,
-  `plugins/formal/src/formal_plugin/templates`).
+  plugin (`ucagent/plugins/UnityTest/src/unity_test/templates`,
+  `ucagent/plugins/Formal/src/formal/templates`).
 - `ucagent/lang/zh/skills/`: retained empty; workflow skills ship with each
   plugin and copy to `.ucagent/skills/ext/<plugin_name>/` when skill support is
   enabled (the formal shared library `skills/lib` is also imported as
-  `formal_plugin.skills.lib` by that plugin's checkers).
+  `formal.skills.lib` by that plugin's checkers).
 - `docs/content/`: developer/user documentation for the MkDocs site. This is not
   the same as runtime `Guide_Doc`.
-- `tests/`: unit and focused regression tests.
-- `plugins/`: independently packaged, opt-in plugins maintained in this repository;
-  `plugins/unitytest` registers the UnityTest workflow family as a local plugin
-  (the default `unitytest` workflow plus the sibling `incremental` and `vibe`
-  workflows, selectable via `--plugin plugins/unitytest --plugin-workflow
-  unitytest:<name>`, and the `presets/labeled_spec.yaml` overlay preset);
-  `plugins/formal` registers the standalone Formal (SVA) workflow
-  (`--plugin plugins/formal --plugin-workflow formal:formal`);
-  each plugin owns its dependencies, resources, tests, and usage documentation.
+- `tests/`: framework unit and focused regression tests. Each plugin owns
+  its tests under `ucagent/plugins/<Plugin>/tests/` (for example
+  `ucagent/plugins/UnityTest/tests/` and `ucagent/plugins/Formal/tests/`).
+- `ucagent/plugins/`: the bundled workflow-plugin projects, one directory per
+  plugin, plus the plugin loader itself (`ucagent/plugins/__init__.py`); select
+  any of them locally with `--plugin ucagent/plugins/<Plugin>` (for example
+  `--plugin ucagent/plugins/Formal --plugin-workflow formal:formal` for the
+  standalone Formal (SVA) workflow). The framework distribution bundles only
+  UnityTest as package data — the
+  `ucagent.plugins` package-data key, the `packages.find` excludes, and the
+  `MANIFEST.in` prunes keep `Formal`, `DesignWithPPA`, `RTL2Spec`, and every
+  plugin's tests out of the wheel; those projects stay source-tree only until
+  they ship as their own distributions. Each plugin owns its dependencies,
+  resources, tests, and usage documentation.
 - `examples/`: example DUT inputs and, in some cases, generated verification
   artifacts. Do not treat generated example outputs as canonical source.
 
@@ -153,7 +157,7 @@ Configuration is loaded in this order:
    default task workflow the launcher resolved from the `workflow` selector
    (resolved relative to the lang config dir first, then to the repository
    root; currently
-   `plugins/unitytest/src/unitytest_plugin/workflows/unitytest.yaml`; a
+   `ucagent/plugins/UnityTest/src/unity_test/workflows/unitytest.yaml`; a
    `<importable-module>:<relative-path>` selector resolves inside an installed
    plugin package for pip-installed setups); `mission.prompt.system` and
    `mission.prompt.tips.*` append to the framework layer's values, and a
@@ -194,10 +198,18 @@ Important rules:
 - After template resolution, `VerifyAgent` writes the non-secret shared snapshot
   `<workspace>/.ucagent/runtime_config.json`. External scripts and other runtime
   consumers should use `load_runtime_config(workspace)`.
-- The snapshot carries `test_output_dir` and the shared `current_test_report`
-  report pointer only when the workflow declares `tools.RunTestCases.test_dir`;
-  workflows that run no tests omit both keys, and `current_test_report`
-  without `test_output_dir` is an invalid snapshot.
+- Plugin runtime hooks may contribute snapshot sections alongside the
+  framework-owned keys; sections must not collide with reserved framework
+  keys or another section. The shared test-protocol hook publishes
+  `test_output_dir` and the `current_test_report` report pointer only when
+  the workflow declares `tools.RunTestCases.test_dir`; workflows that run no
+  tests omit both keys, and `current_test_report` without `test_output_dir`
+  is an invalid snapshot.
+- A workflow declares its stage manager tools by name in `manager_tools`
+  (for example `["RunTestCases"]`); names resolve through the loaded
+  plugins' manager-tool registry at startup. An undeclared tool never
+  registers, while a declared tool whose required workflow config is missing
+  fails at startup instead of silently dropping the tool.
 - The runtime snapshot must include `ucagent_python_path`: an absolute Python
   import root containing the exact running `ucagent` package. Derive it from the
   loaded package location, not the current directory, repository name, an
@@ -206,8 +218,9 @@ Important rules:
   fail with an instruction to restart UCAgent and regenerate the snapshot.
 - When local workflow plugins are active, the snapshot also carries
   `plugin_python_paths`: the absolute import roots of every loaded plugin,
-  including extra manifest roots such as the shared `plugins/common/src`
-  library. Subprocess consumers must place these roots in the child
+  including extra manifest roots of declared sibling plugin dependencies
+  (for example DesignWithPPA's `../UnityTest/src`).
+  Subprocess consumers must place these roots in the child
   `PYTHONPATH` after `ucagent_python_path`, without duplication; a listed root
   that no longer exists must fail with an instruction to restart UCAgent and
   regenerate the snapshot.
@@ -345,12 +358,12 @@ For functional line mapping specifically:
 
 These layers form one behavioral contract and often must change together:
 
-1. `plugins/unitytest/src/unitytest_plugin/workflows/unitytest.yaml` task/system
+1. `ucagent/plugins/UnityTest/src/unity_test/workflows/unitytest.yaml` task/system
    prompts
-2. `plugins/unitytest/src/unitytest_plugin/Guide_Doc/*` runtime user guidance
-3. `plugins/unitytest/src/unitytest_plugin/templates/unity_test/*`
+2. `ucagent/plugins/UnityTest/src/unity_test/Guide_Doc/*` runtime user guidance
+3. `ucagent/plugins/UnityTest/src/unity_test/templates/unity_test/*`
    generated-file skeletons
-4. `plugins/unitytest/src/unitytest_plugin/skills/*/SKILL.md` and skill scripts
+4. `ucagent/plugins/UnityTest/src/unity_test/skills/*/SKILL.md` and skill scripts
    (workspace skill ids are `ext/unitytest/<skill>`)
 5. checker/parser implementation
 6. focused tests
@@ -649,16 +662,18 @@ git diff --check
 Useful focused suites:
 
 - config/runtime prompts: `tests/test_config_loader.py`,
-  `tests/test_waveform_prompt_config.py`,
-  `tests/test_unitytest_skill_runtime_options.py`
+  `ucagent/plugins/UnityTest/tests/test_waveform_prompt_config.py`,
+  `ucagent/plugins/UnityTest/tests/test_unitytest_skill_runtime_options.py`
 - stages and batches: `tests/test_stage_manager.py`,
-  `tests/test_file_linemap_batch_checker.py`, and the relevant
-  `tests/test_unity_*_checker.py`
-- tools/MCP/waveforms: `tests/test_waveform_tool.py`,
+  `ucagent/plugins/UnityTest/tests/test_file_linemap_batch_checker.py`, and the
+  relevant `ucagent/plugins/UnityTest/tests/test_unity_*_checker.py`
+- tools/MCP/waveforms: `ucagent/plugins/UnityTest/tests/test_waveform_tool.py`,
   `tests/test_mcp_waveinfo_visibility.py`, `tests/test_mcps.py`
-- Bug formats/checkers: `tests/test_toffee_report_waveform_analysis.py`,
-  `tests/test_toffee_report_mark_diagnostics.py`,
-  `tests/test_dynamic_bug_record_scripts.py`, `tests/test_static_bug.py`
+- Bug formats/checkers:
+  `ucagent/plugins/UnityTest/tests/test_toffee_report_waveform_analysis.py`,
+  `ucagent/plugins/UnityTest/tests/test_toffee_report_mark_diagnostics.py`,
+  `ucagent/plugins/UnityTest/tests/test_dynamic_bug_record_scripts.py`,
+  `ucagent/plugins/UnityTest/tests/test_static_bug.py`
 - server/TUI/backend changes: the matching `tests/test_api_*`,
   `tests/test_messages_panel*`, `tests/test_cmdline_backend.py`, or
   `tests/test_verify_pdb_runtime.py`

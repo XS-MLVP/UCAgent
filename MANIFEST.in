@@ -1,0 +1,10 @@
+# Framework distribution contents.
+#
+# The bundled workflow-plugin projects live in ucagent/plugins/. Only UnityTest
+# ships with the framework (via package-data in pyproject.toml); the other
+# projects and all plugin test suites stay source-tree only and are distributed
+# as their own packages.
+prune ucagent/plugins/Formal
+prune ucagent/plugins/DesignWithPPA
+prune ucagent/plugins/RTL2Spec
+prune ucagent/plugins/UnityTest/tests

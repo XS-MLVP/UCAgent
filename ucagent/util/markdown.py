@@ -7,11 +7,6 @@ import re
 
 _HEADING_RE = re.compile(r"^ {0,3}#{1,6}(?:[ \t]+.*)?$")
 _FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
-_MACHINE_HEADING_COMPANION_RE = re.compile(
-    r"^<(?:BUG-(?:OVERVIEW|SYMPTOMS|TRIGGER)|"
-    r"ROOT-(?:CAUSE-ANALYSIS|SOURCE-EVIDENCE|CAUSAL-CHAIN|FIX|RETEST)|"
-    r"RELATED-BUGS)>$"
-)
 
 
 def _fence_language(info: str) -> str:
@@ -135,15 +130,18 @@ def ensure_markdown_heading_spacing(
     return result
 
 
-def ensure_markdown_file_heading_spacing(path: str, text: str) -> str:
-    """Normalize headings when *path* identifies a Markdown document or template."""
+def ensure_markdown_file_heading_spacing(
+    path: str,
+    text: str,
+    heading_companions: tuple[str, ...] | frozenset[str] = (),
+) -> str:
+    """Normalize headings when *path* identifies a Markdown document or template.
+
+    Only companion lines declared by the caller may stay adjacent to a heading;
+    the formatter itself knows no document contract.
+    """
 
     normalized_path = str(path).lower()
     if not normalized_path.endswith((".md", ".md.j2")):
         return text
-    companions = frozenset(
-        line.strip()
-        for line in text.splitlines()
-        if _MACHINE_HEADING_COMPANION_RE.fullmatch(line.strip())
-    )
-    return ensure_markdown_heading_spacing(text, companions)
+    return ensure_markdown_heading_spacing(text, heading_companions)

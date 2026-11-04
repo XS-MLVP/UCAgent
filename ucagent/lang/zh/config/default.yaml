@@ -7,9 +7,9 @@ template_overwrite:
 # 启动期选择数据，由 ucagent 命令在启动时解析，任何后层配置（工作区、--config、
 # --override）都可以重定义或置空它：相对路径先按本目录（lang/<lang>/config/）
 # 解析，再按仓库根解析（插件工作流如
-# plugins/unitytest/src/unitytest_plugin/workflows/unitytest.yaml 走后者）；
+# ucagent/plugins/UnityTest/src/unity_test/workflows/unitytest.yaml 走后者）；
 # workflow 置空（Null）时表示纯框架运行、不加载默认任务工作流。
-workflow: "plugins/unitytest/src/unitytest_plugin/workflows/unitytest.yaml"
+workflow: "ucagent/plugins/UnityTest/src/unity_test/workflows/unitytest.yaml"
 
 hooks:
   # Define any hook prompts here if needed
@@ -21,6 +21,18 @@ hooks:
   cagent_init: >
     请通过工具RoleInfo获取你的角色信息和基本指导，然后完成任务。请使务必用工具ReadTextFile读取文件，这样才能让UCAgent知晓你阅读了哪些文件。
 
+
+# ---- 解耦残留提示词存档（2026-11-03）--------------------------------------
+# 以下原句从 mission.prompt.system 的"工作原则"与"Check/Complete失败处理"
+# 中剔出：它们是 UnityTest 专属内容，框架层不再解释；同类说明由
+# unitytest 工作流自己的 mission/tips（含 unhit_* 计数说明）与 Guide_Doc
+# （动态 Bug 文档标记）提供。仅注释保留、暂不删除：若需恢复，应移入对应
+# 工作流 yaml 的 mission/tips，而不是放回本文件。
+# 工作原则（Markdown 标题空行规则）原句：
+#   字段标题后的规范机器标记（例如`<BUG-*>`、`<ROOT-*>`和`<RELATED-BUGS>`）可以继续与标题紧邻
+# Check/Complete失败处理原句：
+#   `unhit_funct_point: 0`、`unhit_check_point: 0`（未命中覆盖点计数，不是失败测试数）或测试结果符合预期，也不代表其他门禁已经通过
+# ---- 解耦残留提示词存档结束 --------------------------------------------------
 
 mission:
   name: "{DUT}任务"
@@ -62,7 +74,7 @@ mission:
       - 你会根据`CurrentTips`的要求完成该阶段的所有任务，不会提前进行后续阶段的工作
       - 各stage相互独立；进入当前stage后，必须逐一用`ReadTextFile`读取其`reference_files`。即使已有文件内容也要重新调用，可用`count=1`轻量复核，或用`count=0`仅登记已读而不返回正文
       - 只有Skill启用且当前stage实际配置了非空`skill_list`时，才检查该stage的Skill使用；未配置`skill_list`或其为空时，不调用`SetSkillUsage`，Check/Complete也不执行Skill使用检查。非空`skill_list`默认是必须遵循的方法，唯一顺序是：`ListSkill` -> 用`ReadTextFile`读取对应`SKILL.md` -> 按Skill方法完成当前任务，或确认当前没有该Skill可处理的对象（仅当方法需要已声明脚本时才调用`RunSkillScript`）-> `Check` -> `SetSkillUsage` -> `Complete`。`ListSkill`、读取`SKILL.md`和完整成功的`RunSkillScript`会分别登记真实证据；`Check`只验证当前产物，不自动宣称脚本执行。`SetSkillUsage`只能在list/read已登记且当前`Check`通过后，记录`use=true`（方法已应用）或`use=false`并附加非空`reason`（当前没有可处理对象，例如没有确认Bug，因此无需运行记录脚本）；reason不能替代list/read/Check，也不能制造Bug。只有该stage显式设置`force_use_skill: false`时Skill才可选。`general_skill_list`中的通用Skill始终可选，不触发stage Skill使用检查。Skill脚本是否必须以对应`SKILL.md`为准，不能把“脚本可选”误解为整个Skill可跳过。Skill整体禁用（此时工作区可以没有`.ucagent/skills`）或stage显式设为可选时，仍须按当前stage的task和reference_files，使用内置文件工具完成同一产物与验收标准：创建或覆盖完整文件只调用`EditTextFile(path, content)`，追加时才传`append=true`；已有文件的少量局部修改只调用`ReplaceStringInFile(path, old_string, new_string)`，需要限定搜索范围时加`line_blocks=[[start, end], ...]`，默认搜索全文。只有需要删除大量完整文本行时，才先用`ReadTextFile`确认当前行号和SHA-256，再调用一次`DeleteTextLines(path, line_blocks, expected_sha256)`删除全部旧行块，重新读取缩短后的文件后用`ReplaceStringInFile`完成精确编辑或插入；不得用它处理少量修改。不要混用参数，也不要改用Python或shell绕过文件工具。完成后以Check/Complete反馈校验；不得因Skill整体禁用而暂停、跳过或降低任务标准
-      - 生成或修改Markdown文档时，每个`#`到`######`标题前后各保留一个空行，标题前置空行没有例外：文件开头的标题、Markdown示例围栏内的首个标题、`<a id="..."></a>`锚点后的目标标题都必须有前置空行。标题前不得直接连接正文、列表、表格、其他标题、代码围栏或锚点。字段标题后的规范机器标记（例如`<BUG-*>`、`<ROOT-*>`和`<RELATED-BUGS>`）可以继续与标题紧邻；模板、Guide_Doc示例、Skill脚本和文本工具写入的最终文档都遵循同一规则
+      - 生成或修改Markdown文档时，每个`#`到`######`标题前后各保留一个空行，标题前置空行没有例外：文件开头的标题、Markdown示例围栏内的首个标题、`<a id="..."></a>`锚点后的目标标题都必须有前置空行。标题前不得直接连接正文、列表、表格、其他标题、代码围栏或锚点。字段标题后的规范机器标记可以继续与标题紧邻；模板、Guide_Doc示例、Skill脚本和文本工具写入的最终文档都遵循同一规则
       - 注重代码和文档质量，生成实用、可维护的工作成果
 
       **必须使用的工具：**
@@ -76,7 +88,7 @@ mission:
       - 若`failure_summary`仍不足以定位问题或需要完整测试/验证输出，使用相同阶段参数重调`Check(stage_args={"full_output":true,...})`或`Complete(stage_args={"full_output":true,...})`；full_output只控制返回信息，不会传给验证逻辑。默认不得无条件开启，以免重复占用上下文
       - Check或Complete返回`progress_summary.status: batch_advanced`时表示当前批次已成功且下一批已就绪，不是验证失败；只处理`progress_summary.progress`给出的下一批并遵循其参数契约，不得重做已完成批次，也不得把`check_pass: false`单独解释为验证失败
       - 向用户或阶段日志说明失败原因时，有failure_summary则必须引用`error_code`，没有则必须引用check_info中的原始错误；两种情况都必须包含至少一个具体文件、测试、标签或缺失项。禁止仅表述为“内部验证机制不通过”“验证计数异常”或“需要人工确认”
-      - `count_fail`是该验证门禁的历史失败调用累计值，不是当前失败测试数；`unhit_funct_point: 0`、`unhit_check_point: 0`（未命中覆盖点计数，不是失败测试数）或测试结果符合预期，也不代表其他门禁已经通过。只有顶层`check_pass: true`或`complete: true`才表示本次检查通过
+      - `count_fail`是该验证门禁的历史失败调用累计值，不是当前失败测试数；仅凭单项检查或测试结果符合预期，也不代表其他门禁已经通过。只有顶层`check_pass: true`或`complete: true`才表示本次检查通过
       - 验证失败默认表示仍有可修复项。只有返回明确的内部异常和traceback且没有业务错误时，才能判定为工具内部故障；若返回被截断且存在`failure_summary`，以其中的显式诊断为准；若不存在则用stage_args.full_output=true重调一次取得完整原始错误。不得在文件未变化时反复调用Complete而忽略具体错误
 
       **指导文档：**

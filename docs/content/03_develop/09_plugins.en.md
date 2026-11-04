@@ -3,11 +3,11 @@
 
 UCAgent plugins are designed for independent delivery of domain capabilities. A single plugin may provide one or more of the following capabilities as needed: Tool, Checker, Skill, Guide_Doc, and workflow. These contributions are all first-level options, independent of one another, and do not require the plugin to provide a complete workflow. Plugins are standard Python distributions: they are automatically discovered via standard entry points after installation, and can also be discovered via explicitly configured search paths during source development. Plugins are imported and activated only after being selected by the user; UCAgent does not scan or execute arbitrary workspace Python files.
 
-The `plugins/RTL2Spec/` directory provides a documentation generation plugin; `plugins/DesignWithPPA/` demonstrates combinations of custom Tools, Checkers, templates, Skills, and workflows.
+The `ucagent/plugins/RTL2Spec/` directory provides a documentation generation plugin; `ucagent/plugins/DesignWithPPA/` demonstrates combinations of custom Tools, Checkers, templates, Skills, and workflows.
 
-## Co-located Optional Plugins
+## Co-located Bundled and Optional Plugins
 
-The `plugins/` directory is used to maintain plugins developed alongside UCAgent and packaged independently. Installing the core package does not install or enable these plugins. Plugin development should be confined to their own directories: dependencies, entry points, configurations, resources, tests, and maintenance commands are managed by the plugin itself, without adding plugin content to the core's dependency list, default configurations, or Tool/Checker export tables.
+Co-located plugins are maintained under `ucagent/plugins/` (the plugin loader itself is `ucagent/plugins/__init__.py`). Distribution splits into two tracks: the framework wheel bundles UnityTest and its shared `common` library as package data (the scope is pinned by the `ucagent.plugins` package-data key, the `packages.find` excludes, and the `MANIFEST.in` prunes in the repository), so installing the core provides the default UnityTest workflow with no separate installation; the remaining plugins do not ship with the core and are published as independent distributions on demand. In both tracks, plugin development should be confined to their own directories: dependencies, entry points, configurations, resources, tests, and maintenance commands are managed by the plugin itself, without adding plugin content to the core's dependency list, default configurations, or Tool/Checker export tables.
 
 | Content | Maintenance Location |
 | :--- | :--- |
@@ -23,17 +23,17 @@ The current co-located plugins are listed below. See the corresponding README fo
 
 | Project | Plugin ID / Workflow | Primary Purpose |
 | :--- | :--- | :--- |
-| [DesignWithPPA](https://github.com/XS-MLVP/UCAgent/blob/main/plugins/DesignWithPPA/README.md) | `design-with-ppa:unit-design-tdd` | Test-driven RTL design and PPA optimization |
-| [RTL2Spec](https://github.com/XS-MLVP/UCAgent/blob/main/plugins/RTL2Spec/README.md) | `rtl2spec:xiangshan-design-document` | Deliver Chinese design and functional checkpoint documentation based on XiangShan source and RTL generation evidence |
+| [DesignWithPPA](https://github.com/XS-MLVP/UCAgent/blob/main/ucagent/plugins/DesignWithPPA/README.md) | `design-with-ppa:unit-design-tdd` | Test-driven RTL design and PPA optimization |
+| [RTL2Spec](https://github.com/XS-MLVP/UCAgent/blob/main/ucagent/plugins/RTL2Spec/README.md) | `rtl2spec:xiangshan-design-document` | Deliver Chinese design and functional checkpoint documentation based on XiangShan source and RTL generation evidence |
 
-First install the core, then install plugins on-demand from the UCAgent repository root, for example:
+UnityTest and its shared `common` library are already bundled with the core package and need no separate installation. For the remaining plugins, first install the core, then install them on-demand from the UCAgent repository root, for example:
 
 ```bash
-python -m pip install ./plugins/RTL2Spec
+python -m pip install ./ucagent/plugins/RTL2Spec
 ucagent --validate-plugin rtl2spec
 ```
 
-Explicitly select `--plugin rtl2spec` and `--plugin-workflow rtl2spec:xiangshan-design-document` at runtime. During source development, you can replace the plugin ID with `--plugin ./plugins/RTL2Spec`; no prior installation of the plugin is required. The workspace is independent of the plugin implementation; selected workflows automatically locate and copy accompanying guide documents and other resources.
+Explicitly select `--plugin rtl2spec` and `--plugin-workflow rtl2spec:xiangshan-design-document` at runtime. During source development, you can replace the plugin ID with `--plugin ./ucagent/plugins/RTL2Spec`; no prior installation of the plugin is required. The workspace is independent of the plugin implementation; selected workflows automatically locate and copy accompanying guide documents and other resources.
 
 ### Repository Policy and Plugin-Specific Notes
 
@@ -96,7 +96,7 @@ DesignWithPPA/
 └── tests/
 ```
 
-Create only actual resource directories for release. Pure Tool, pure Checker, pure Skill, pure Guide_Doc, or pure workflow plugins are all valid. Additional contributions can be added in the same distribution later without modifying the UCAgent core package. Runtime scripts can be placed in `scripts/` within the package; test and maintenance configurations belong in the plugin project root. Co-located plugins follow the same structure, with the project root located at `plugins/<Project Directory>/`. The loader locates the project via the manifest, independent of the parent directory name. The standard structure does not require empty directories to be retained.
+Create only actual resource directories for release. Pure Tool, pure Checker, pure Skill, pure Guide_Doc, or pure workflow plugins are all valid. Additional contributions can be added in the same distribution later without modifying the UCAgent core package. Runtime scripts can be placed in `scripts/` within the package; test and maintenance configurations belong in the plugin project root. Co-located plugins follow the same structure, with the project root located at `ucagent/plugins/<Project Directory>/`. The loader locates the project via the manifest, independent of the parent directory name. The standard structure does not require empty directories to be retained.
 
 ## Local Source Manifest
 
@@ -141,7 +141,7 @@ Both the core and plugin must be installed in the same Python environment. Insta
 After installation, Python's distribution metadata provides discovery information. For example, run from the UCAgent root directory:
 
 ```bash
-python3 -m pip install ./plugins/DesignWithPPA
+python3 -m pip install ./ucagent/plugins/DesignWithPPA
 ucagent --list-plugins
 ucagent --validate-plugin design-with-ppa
 ucagent <workspace> <dut> --plugin design-with-ppa
@@ -172,9 +172,9 @@ Relative search paths are relative to the current working directory when UCAgent
 To force debugging of a specific source copy, pass the project path directly:
 
 ```bash
-ucagent --validate-plugin /opt/ucagent-plugins/DesignWithPPA
+ucagent --validate-plugin /opt/ucagent-ucagent/ucagent/plugins/DesignWithPPA
 ucagent <workspace> <dut> \
-  --plugin /opt/ucagent-plugins/DesignWithPPA
+  --plugin /opt/ucagent-ucagent/ucagent/plugins/DesignWithPPA
 ```
 
 Example using stable IDs for configuration:
@@ -419,11 +419,11 @@ First, prepare external tools declared by the plugin. The following commands ver
 ```bash
 python3 -m pip install -e .
 python3 -m pip install build pytest
-python3 -m pip install -e ./plugins/DesignWithPPA
-python3 -m py_compile plugins/DesignWithPPA/src/design_with_ppa/*.py
-python3 -m pytest -q plugins/DesignWithPPA/tests
-ucagent --validate-plugin ./plugins/DesignWithPPA
-python3 -m build ./plugins/DesignWithPPA
+python3 -m pip install -e ./ucagent/plugins/DesignWithPPA
+python3 -m py_compile ucagent/plugins/DesignWithPPA/src/design_with_ppa/*.py
+python3 -m pytest -q ucagent/plugins/DesignWithPPA/tests
+ucagent --validate-plugin ./ucagent/plugins/DesignWithPPA
+python3 -m build ./ucagent/plugins/DesignWithPPA
 ```
 
 Other plugins should replace the above plugin path with their own project directory. The default process of `python3 -m build` first builds an sdist, then builds a wheel from the sdist, which can isolate the `build/` cache existing in the source tree to prevent stale files from entering the release package. The equivalent `uv build` default process can also be used. Do not run `python3 -m build --wheel` only on source trees that may contain old caches.
@@ -433,7 +433,7 @@ Installation-state verification must also be performed on the generated wheel; i
 ```bash
 python3 -m venv /tmp/design-with-ppa-verify
 /tmp/design-with-ppa-verify/bin/python -m pip install .
-/tmp/design-with-ppa-verify/bin/python -m pip install plugins/DesignWithPPA/dist/ucagent_design_with_ppa-*.whl
+/tmp/design-with-ppa-verify/bin/python -m pip install ucagent/plugins/DesignWithPPA/dist/ucagent_design_with_ppa-*.whl
 /tmp/design-with-ppa-verify/bin/ucagent --list-plugins
 /tmp/design-with-ppa-verify/bin/ucagent --validate-plugin design-with-ppa
 /tmp/design-with-ppa-verify/bin/ucagent <workspace> <dut> \
