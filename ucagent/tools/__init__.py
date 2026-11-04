@@ -56,10 +56,6 @@ _EXPORT_GROUPS = {
         "ArgHumanHelp",
         "HumanHelp",
     ),
-    "testops": (
-        "ArgRunPyTest",
-        "RunPyTest",
-    ),
     "uctool": (
         "EmptyArgs",
         "ExtraArgModelBase",

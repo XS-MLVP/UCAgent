@@ -17,7 +17,7 @@
 
 `get_coverage_data_path(request, dut, new_path)` 和 `get_waveform_path(request, dut, new_path)` 将返回的后缀用于每个测试的唯一产物路径。创建时使用 `new_path=True`，覆盖率上报时使用同一个 DUT 和 `new_path=False`，以取得原路径。VCS 的 `.vdb` 可以是目录，按完整路径传递即可。模板阶段的 fake DUT 与独立 Mock DUT 保留原 DUT 类声明的 `SIMULATOR`，无需启动真实仿真器。
 
-新增仿真器时，在 `plugins/common/src/ucagent_common/test_utils.py` 的 `_SIMULATOR_DEFAULT_SUFFIXES` 中补充 `waveform` 和 `coverage` 两项，并增加对应测试；路径模板无需增加分支。此映射只定义命名规则，实际产物依赖 DUT 构建及仿真器支持；新波形格式仍需按本页注册读取器。覆盖率解析由 `toffee-test` 提供，使用 VCS 时还需确认所用版本支持 `.vdb`；后缀选择本身不会增加覆盖率解析能力。
+新增仿真器时，在 `ucagent/plugins/UnityTest/src/unity_test/test_utils.py` 的 `_SIMULATOR_DEFAULT_SUFFIXES` 中补充 `waveform` 和 `coverage` 两项，并增加对应测试；路径模板无需增加分支。此映射只定义命名规则，实际产物依赖 DUT 构建及仿真器支持；新波形格式仍需按本页注册读取器。覆盖率解析由 `toffee-test` 提供，使用 VCS 时还需确认所用版本支持 `.vdb`；后缀选择本身不会增加覆盖率解析能力。
 
 ## 格式优先级
 
@@ -176,7 +176,7 @@ python -m pytest -q tests/test_waveform_xpra_browser.py
 通过公开接口 `register_waveform_reader(format_name, factory)` 注册新扩展名。注册应在应用或插件初始化时显式执行，并在创建 `WaveInfo` 之前完成。同一格式只允许注册一次，不能覆盖内置读取器。注册后还需将格式名加入分析优先级。
 
 ```python
-from ucagent.tools import WaveInfo, register_waveform_reader
+from unity_test.waveform import WaveInfo, register_waveform_reader
 from my_waveform_backend import WlfReader
 
 # WlfReader accepts a file path and implements the reader contract below.

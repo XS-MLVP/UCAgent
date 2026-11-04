@@ -46,6 +46,10 @@ class ManagerTool(UCTool):
         self.function = func
         return self
 
+    def bind(self, manager):
+        """Attach stage-manager context; plugin manager tools override this."""
+        return self
+
 
 class ArgApproveStagePass(BaseModel):
     pass_or_not: bool = Field(
@@ -269,30 +273,6 @@ class ToolStdCheck(ManagerTool):
         return self.function(lines)
 
 
-class ArgCheck(BaseModel):
-    target: str = Field(
-        default="",
-        description=(
-            "Target test cases to run, supports pytest-style arguments for precise test selection. "
-            "Examples:\n"
-            "• '' (empty): Run all test cases in the test directory\n"
-            "• 'test_file.py': Run all tests in a specific file\n"
-            "• 'test_file.py::test_function': Run a specific test function\n"
-            "• 'test_file.py::TestClass::test_method': Run a specific test method in a class\n"
-            "• '-k pattern': Run tests matching the given pattern\n"
-            "• '-m marker': Run tests with specific markers\n"
-        )
-    )
-    timeout: int = Field(
-        default=0,
-        description="Timeout for the test run in seconds. Zero means use default cfg.call_time_out."
-    )
-    return_line_coverage: bool = Field(
-        default=False,
-        description="Whether to return line coverage information in the test results."
-    )
-
-
 def _prepare_stage_args(stage_args):
     """Validate and copy stage-defined arguments before checker dispatch."""
     if stage_args is None:
@@ -371,41 +351,10 @@ class ArgsDoCheck(BaseModel):
             "a string containing the complete valid JSON object as a fallback. Two "
             "control fields are consumed before Checker dispatch and never reach the "
             "stage: the boolean full_output=true returns complete raw Checker output "
-            "such as pytest STDOUT/STDERR, and timeout grants this call the same "
+            "such as raw Checker STDOUT/STDERR, and timeout grants this call the same "
             "call-time budget as the top-level timeout parameter."
         ),
     )
-
-
-class ToolRunTestCases(ManagerTool):
-    """Run test cases in current workspace."""
-    name: str = "RunTestCases"
-    description: str = (
-        "Run real pytest verification tests in the workspace and return their test and "
-        "coverage report. Use this only for pytest test targets after implementing or "
-        "modifying verification tests. It is not a Python script runner: never create or "
-        "run a temporary pytest test, maintenance script, or document-migration script to "
-        "edit workspace artifacts. Use the available file-editing tools for document and "
-        "source changes, and RunSkillScript only for an existing declared skill script. "
-        "The current pytest directory is '{TEST_DIR}'; every target path is relative to "
-        "that directory. Do not repeat '{TEST_DIR}' in target. For example, a test below "
-        "that directory is addressed as 'test_file.py::test_name'. This target syntax is "
-        "different from workspace-relative TC tags and waveform node IDs. If the tool "
-        "returns PYTEST_TARGET_DIRECTORY_PREFIX, retry with correct_target exactly."
-    )
-    args_schema: Optional[ArgsSchema] = ArgCheck
-
-    def _run(self, target="", timeout=0, return_line_coverage=False,
-             run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
-        try:
-            if timeout <= 0:
-                timeout = self.get_call_time_out()
-            return self.function(target, timeout, return_line_coverage)
-        except Exception as e:
-            traceback.print_exc()
-            error_msg = f"Test execution failed: {str(e)}"
-            info(error_msg)
-            return error_msg
 
 
 class ToolDoCheck(ManagerTool):
@@ -504,25 +453,6 @@ class ToolDoExit(ManagerTool):
     )
 
 
-def resolve_free_runner_clss(clss, checker_registry=None):
-    """Resolve the free pytest runner checker declared by the workflow.
-
-    Uses the same resolution as stage ``clss`` entries: a short name found in
-    the (plugin) checker registry wins; anything else is imported through
-    ``ucagent.checkers`` (fully-qualified class paths included).
-    """
-    registry = dict(checker_registry or {})
-    if "." not in clss and clss in registry:
-        return registry[clss]
-    try:
-        return import_class_from_str(clss, ucagent.checkers)
-    except (AttributeError, ImportError) as e:
-        raise ValueError(
-            "Cannot resolve tools.RunTestCases.free_runner_clss "
-            f"'{clss}' via the checker registry or ucagent.checkers: {e}"
-        )
-
-
 class StageManager(object):
     def __init__(
             self, workspace, cfg, agent, tool_read_text, ucagent_info: dict,
@@ -536,6 +466,8 @@ class StageManager(object):
             force_stage_index_explicit=False,
             checker_registry=None,
             test_python_import_roots=None,
+            manager_tool_registry=None,
+            runtime_hooks=None,
     ):
         """
         Initialize the StageManager with an empty list of stages.
@@ -545,32 +477,8 @@ class StageManager(object):
         self.force_todo = force_todo
         self.todo_panel = todo_panel
         self.test_python_import_roots = list(test_python_import_roots or [])
-        self.free_pytest_run = None
-        try:
-            test_dir = cfg.get_value("tools.RunTestCases.test_dir", None)
-        except AttributeError:
-            test_dir = None
-        try:
-            free_runner_clss = cfg.get_value(
-                "tools.RunTestCases.free_runner_clss", None
-            )
-        except AttributeError:
-            free_runner_clss = None
-        if (
-            isinstance(test_dir, str)
-            and test_dir.strip()
-            and isinstance(free_runner_clss, str)
-            and free_runner_clss.strip()
-        ):
-            runner_clss = resolve_free_runner_clss(
-                free_runner_clss, checker_registry
-            )
-            self.free_pytest_run = runner_clss(
-                "", test_dir, ""
-            ).set_workspace(workspace)
-            self.free_pytest_run.run_test.set_extra_python_paths(
-                self.test_python_import_roots
-            )
+        self.runtime_hooks = list(runtime_hooks or [])
+        self.manager_tool_registry = dict(manager_tool_registry or {})
         self.agent = agent
         self.tool_read_text = tool_read_text
         self.ucagent_info = ucagent_info
@@ -584,6 +492,43 @@ class StageManager(object):
         self.reference_files = reference_files
         self.checker_registry = dict(checker_registry or {})
         self.validation_revision = 0
+        # Declared manager tools bind after the registry and workspace exist.
+        self.plugin_manager_tools = self._create_declared_manager_tools()
+
+    def _create_declared_manager_tools(self):
+        """Instantiate the workflow-declared manager tools from the registry.
+
+        ``manager_tools`` is a list of tool names; each resolves through the
+        plugin manager-tool registry and binds this manager before the first
+        stage tool list is built.
+        """
+        try:
+            declared = self.cfg.get_value("manager_tools", [])
+        except AttributeError:
+            # Stub configs (tests) carry no get_value: nothing is declared.
+            declared = []
+        if not isinstance(declared, (list, tuple)) or not all(
+            isinstance(name, str) and name.strip() for name in declared
+        ):
+            raise ValueError(
+                "manager_tools must be a list of manager tool names."
+            )
+        tools = []
+        for name in declared:
+            tool_class = self.manager_tool_registry.get(name)
+            if tool_class is None:
+                available = ", ".join(sorted(self.manager_tool_registry)) or "none"
+                raise ValueError(
+                    f"Unknown manager tool {name!r}; available: {available}."
+                )
+            tool = tool_class()
+            if not isinstance(tool, ManagerTool):
+                raise ValueError(
+                    f"Manager tool {name!r} must be a ManagerTool instance."
+                )
+            tool.bind(self)
+            tools.append(tool)
+        return tools
 
     @staticmethod
     def _safe_int(value, default=0):
@@ -854,18 +799,11 @@ class StageManager(object):
         """
         Create and return a list of tools for the current stage.
         """
-        run_test_cases_tools = (
-            [
-                ToolRunTestCases().set_function(self.tool_run_test_cases).render_desc({"TEST_DIR": self.free_pytest_run.test_dir}),
-            ]
-            if self.free_pytest_run is not None
-            else []
-        )
         tools = [
             ToolCurrentTips().set_function(self.tool_current_tips),
             ToolDetail().set_function(self.tool_detail),
             ToolStatus().set_function(self.tool_status),
-            *run_test_cases_tools,
+            *self.plugin_manager_tools,
             ToolDoCheck().set_function(self.tool_check),
             ToolKillCheck().set_function(self.tool_kill_check),
             ToolStdCheck().set_function(self.tool_std_check),
@@ -1931,29 +1869,3 @@ class StageManager(object):
         tips = self.get_current_tips()
         info("Tips:\n" + tips)
         return tips
-
-    def tool_run_test_cases(self, pytest_args="", timeout=0, return_line_coverage=False, raw_return=False, detail=False):
-        """
-        Run test cases.
-        This tool is used to execute the test cases in the workspace.
-        """
-        stage = self.get_current_stage()
-        if self.free_pytest_run is None:
-            return make_llm_tool_ret({
-                "run_test_success": False,
-                "error": (
-                    "RunTestCases is unavailable: this workflow declares no "
-                    "tools.RunTestCases.free_runner_clss."
-                ),
-            })
-        self.free_pytest_run.run_test.set_report_context({
-            "source": "RunTestCases",
-            "stage_index": self.stage_index,
-            "stage_name": stage.name if stage is not None else None,
-        })
-        ret = self.free_pytest_run.do_check(pytest_args, timeout=timeout, return_line_coverage=return_line_coverage, detail=detail)
-        if raw_return:
-            return ret
-        ret = make_llm_tool_ret(ret[1])
-        info("RunTestCases:\n" + ret)
-        return self.attach_todo_summary(ret)

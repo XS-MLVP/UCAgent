@@ -253,4 +253,9 @@ def test_viewer_config_environment_and_template_resolution(monkeypatch, enabled)
     assert viewer.args == ['--meta','{wave_meta}','--verdi','verdi']
     assert viewer.script == 'verdi/launch_verdi.py' and viewer.idle_timeout == -1
     localized = load_yaml_with_env_vars(str(root/'ucagent/lang/zh/config/default.yaml'))
-    assert 'source_files' in localized['mission']['prompt']['system']
+    # The framework layer carries only generic guidance: domain prompt rules
+    # such as the waveform source_files contract append from the selected
+    # workflow instead of living in the localized default config.
+    system = localized['mission']['prompt']['system']
+    assert '任务工作流的具体职责、目标与专属规则会追加在本提示词之后' in system
+    assert 'source_files' not in system

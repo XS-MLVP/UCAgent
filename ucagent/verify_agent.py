@@ -35,6 +35,8 @@ from .plugins import (
     PluginContext,
     collect_plugin_resources,
     create_plugin_checker_registry,
+    create_plugin_manager_tools_registry,
+    create_plugin_runtime_hooks,
     create_plugin_tools,
 )
 
@@ -252,6 +254,10 @@ class VerifyAgent:
         )
         self.plugins = list(plugins or [])
         self.plugin_checker_registry = create_plugin_checker_registry(self.plugins)
+        self.plugin_manager_tool_registry = create_plugin_manager_tools_registry(
+            self.plugins
+        )
+        self.plugin_runtime_hooks = create_plugin_runtime_hooks(self.plugins)
         plugin_python_import_roots = [
             str(import_root)
             for loaded in self.plugins
@@ -315,6 +321,7 @@ class VerifyAgent:
             self.cfg,
             runtime_config_keys=list(plugin_runtime_config_keys or []),
             plugin_python_paths=plugin_python_import_roots,
+            snapshot_hooks=self.plugin_runtime_hooks,
             launch_context={
                 "config_file": (
                     os.path.abspath(self.config_file) if self.config_file else None
@@ -567,6 +574,8 @@ class VerifyAgent:
             reference_files=reference_files,
             checker_registry=self.plugin_checker_registry,
             test_python_import_roots=plugin_python_import_roots,
+            manager_tool_registry=self.plugin_manager_tool_registry,
+            runtime_hooks=self.plugin_runtime_hooks,
         )
         self._default_system_prompt = (
             sys_tips if sys_tips else self.get_default_system_prompt()
@@ -629,6 +638,11 @@ class VerifyAgent:
             ),
             None,
         )
+        # Workflow-declared Markdown machine markers the file tools may keep
+        # directly under a field heading; the framework itself knows none.
+        heading_companions = tuple(
+            self.cfg.get_value("markdown.heading_companions", [])
+        )
         self.tool_list_file = [
             # Directory and file listing tools
             self.tool_list_dir,
@@ -648,16 +662,19 @@ class VerifyAgent:
                 self.workspace,
                 write_dirs=self.cfg.write_dirs,
                 un_write_dirs=self.cfg.un_write_dirs,
+                heading_companions=heading_companions,
             ),
             DeleteTextLines(
                 self.workspace,
                 write_dirs=self.cfg.write_dirs,
                 un_write_dirs=self.cfg.un_write_dirs,
+                heading_companions=heading_companions,
             ),
             ReplaceStringInFile(
                 self.workspace,
                 write_dirs=self.cfg.write_dirs,
                 un_write_dirs=self.cfg.un_write_dirs,
+                heading_companions=heading_companions,
             ),
             # File management tools (require permissions)
             CopyFile(

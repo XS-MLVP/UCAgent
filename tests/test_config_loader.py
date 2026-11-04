@@ -49,10 +49,11 @@ class TestConfigLoader(unittest.TestCase):
         workflow_dir = os.path.join(
             current_dir,
             "..",
+            "ucagent",
             "plugins",
-            "unitytest",
+            "UnityTest",
             "src",
-            "unitytest_plugin",
+            "unity_test",
             "workflows",
         )
         simulator_write_dirs = [
@@ -109,10 +110,11 @@ class TestConfigLoader(unittest.TestCase):
         config_path = os.path.join(
             current_dir,
             "..",
+            "ucagent",
             "plugins",
-            "unitytest",
+            "UnityTest",
             "src",
-            "unitytest_plugin",
+            "unity_test",
             "workflows",
             "unitytest.yaml",
         )
@@ -149,10 +151,11 @@ class TestConfigLoader(unittest.TestCase):
         labeled_spec_path = os.path.join(
             current_dir,
             "..",
+            "ucagent",
             "plugins",
-            "unitytest",
+            "UnityTest",
             "src",
-            "unitytest_plugin",
+            "unity_test",
             "presets",
             "labeled_spec.yaml",
         )
@@ -175,6 +178,45 @@ class TestConfigLoader(unittest.TestCase):
         self.assertIn("逐一用`ReadTextFile`读取其`reference_files`", system_prompt)
         self.assertIn("`count=1`轻量复核", system_prompt)
         self.assertIn("`count=0`仅登记已读而不返回正文", system_prompt)
+
+    def test_framework_layer_prompts_carry_no_workflow_domain_content(self):
+        """Framework prompts stay domain-neutral; workflows teach their own marks."""
+
+        default_path = os.path.join(
+            current_dir, "..", "ucagent", "lang", "zh", "config", "default.yaml"
+        )
+        system_prompt = load_yaml_with_env_vars(default_path)["mission"]["prompt"][
+            "system"
+        ]
+        for domain_fragment in (
+            "<BUG-",
+            "<ROOT-",
+            "<RELATED-BUGS>",
+            "unhit_funct_point",
+            "unhit_check_point",
+        ):
+            self.assertNotIn(domain_fragment, system_prompt)
+
+        setting_path = os.path.join(current_dir, "..", "ucagent", "setting.yaml")
+        refinement = load_yaml_with_env_vars(setting_path)["vmanager"][
+            "llm_suggestion"
+        ]
+        advisor_prompts = [
+            refinement["check_fail_refinement"]["system_prompt"],
+            refinement["check_fail_refinement"]["suggestion_prompt"],
+            refinement["check_pass_refinement"]["system_prompt"],
+            refinement["check_pass_refinement"]["suggestion_prompt"],
+        ]
+        for prompt in advisor_prompts:
+            self.assertTrue(prompt.strip())
+            for domain_fragment in (
+                "Device Under Test",
+                "DUT",
+                "verification expert",
+                "functional points",
+                "{DUT}",
+            ):
+                self.assertNotIn(domain_fragment, prompt)
 
     def test_workflow_pointer_appends_mission_prompts(self):
         """The workflow layer extends mission prompts; later layers replace them."""

@@ -5,7 +5,7 @@
 
 ## 1. 默认工作流
 
-中文默认工作流由 `default.yaml` 的 `workflow` 指针指向 `plugins/unitytest/src/unitytest_plugin/workflows/unitytest.yaml`，当前有 20 个顶层阶段；带缩进的条目是子阶段。运行时 Stage Manager 会把父阶段和子阶段展平，因此 `--skip`、`hmcheck_set` 和 `GoToStage` 使用的索引必须以当前运行中的 `status` 或 `hmcheck_list` 为准。
+中文默认工作流由 `default.yaml` 的 `workflow` 指针指向 `ucagent/plugins/UnityTest/src/unity_test/workflows/unitytest.yaml`，当前有 20 个顶层阶段；带缩进的条目是子阶段。运行时 Stage Manager 会把父阶段和子阶段展平，因此 `--skip`、`hmcheck_set` 和 `GoToStage` 使用的索引必须以当前运行中的 `status` 或 `hmcheck_list` 为准。
 
 | 顶层索引 | 阶段 | 默认状态 |
 | ---: | --- | --- |

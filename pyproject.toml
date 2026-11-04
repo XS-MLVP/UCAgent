@@ -27,6 +27,9 @@ dependencies = [
     "psutil>=7.1.0",
     "langfuse>=3.9.1",
     "gitpython>=3.1.43",
+    # UnityTest default-workflow runtime dependencies: the plugin ships as
+    # framework package data, so its toffee test substrate installs with the
+    # framework itself (装框架=能跑默认工作流).
     "pytoffee@git+https://gitlink.org.cn/XS-MLVP/toffee@master",
     "toffee-test@git+https://gitlink.org.cn/XS-MLVP/toffee-test@master",
     "textual>=7.3.0",
@@ -36,6 +39,7 @@ dependencies = [
     "aiohttp>=3.13.5,<4",
     "docker>=7.1.0",
     "kubernetes>=33.1.0",
+    # UnityTest default-workflow waveform-analysis reader (see above).
     "wavekit>=0.7.0,<0.8.0",
     "packaging>=24,<27",
     "PyYAML>=6.0,<7.0",
@@ -60,6 +64,15 @@ include-package-data = true
 
 [tool.setuptools.packages.find]
 include = ["ucagent*"]
+# The bundled workflow-plugin projects under ucagent/plugins/ carry their own
+# src layouts and must never be discovered as ucagent subpackages (their code
+# imports through the plugin manifest roots, not as ucagent.plugins.<P>.src.*).
+exclude = [
+    "ucagent.plugins.UnityTest*",
+    "ucagent.plugins.Formal*",
+    "ucagent.plugins.DesignWithPPA*",
+    "ucagent.plugins.RTL2Spec*",
+]
 
 [tool.setuptools.package-data]
 ucagent = [
@@ -84,4 +97,14 @@ ucagent = [
     "**/*.toml",
     "**/*.wasm",
     "**/*.yaml",
+]
+# Built-in workflow bundled with the framework distribution: UnityTest. The
+# project manifest and the full src tree (workflows, presets, templates,
+# skills, docs) ship as package data; tests do not. The other plugin projects
+# stay source-tree only and are distributed as their own packages. The key is quoted because the package name contains a
+# dot; an unquoted `ucagent.plugins` would try to mutate the plain `ucagent`
+# array above, which TOML forbids.
+"ucagent.plugins" = [
+    "UnityTest/ucagent-plugin.toml",
+    "UnityTest/src/**/*",
 ]

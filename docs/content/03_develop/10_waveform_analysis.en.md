@@ -17,7 +17,7 @@ This function accepts a DUT instance or class, reads the simulator name from its
 
 `get_coverage_data_path(request, dut, new_path)` and `get_waveform_path(request, dut, new_path)` return the suffixes used for unique artifact paths for each test. When creating artifacts, use `new_path=True`; when reporting coverage, use the same DUT with `new_path=False` to obtain the original path. For VCS, `.vdb` may be a directory; pass the full path. The fake DUT in the template phase and independent Mock DUTs retain the `SIMULATOR` declared in the original DUT class without needing to start a real simulator.
 
-When adding a new simulator, add `waveform` and `coverage` to `_SIMULATOR_DEFAULT_SUFFIXES` in `plugins/common/src/ucagent_common/test_utils.py` and add the corresponding tests; no branches need to be added to the path templates. This mapping only defines naming rules; actual artifacts depend on DUT build and simulator support. New waveform formats still require registration of a reader as described in this page. Coverage parsing is provided by `toffee-test`, and when using VCS, ensure the used version supports `.vdb`. Selecting suffixes itself does not add coverage parsing capabilities.
+When adding a new simulator, add `waveform` and `coverage` to `_SIMULATOR_DEFAULT_SUFFIXES` in `ucagent/plugins/UnityTest/src/unity_test/test_utils.py` and add the corresponding tests; no branches need to be added to the path templates. This mapping only defines naming rules; actual artifacts depend on DUT build and simulator support. New waveform formats still require registration of a reader as described in this page. Coverage parsing is provided by `toffee-test`, and when using VCS, ensure the used version supports `.vdb`. Selecting suffixes itself does not add coverage parsing capabilities.
 
 ## Format Priority
 
@@ -176,7 +176,7 @@ python -m pytest -q tests/test_waveform_xpra_browser.py
 Register new extensions via the public interface `register_waveform_reader(format_name, factory)`. Registration should be explicitly performed during application or plugin initialization and must be completed before creating `WaveInfo`. A format can only be registered once; it cannot override built-in readers. After registration, the format name must also be added to the analysis priority.
 
 ```python
-from ucagent.tools import WaveInfo, register_waveform_reader
+from unity_test.waveform import WaveInfo, register_waveform_reader
 from my_waveform_backend import WlfReader
 
 # WlfReader accepts a file path and implements the reader contract below.

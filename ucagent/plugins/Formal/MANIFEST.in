@@ -1,0 +1,8 @@
+include ucagent-plugin.toml
+recursive-include tests *.py
+recursive-include src/formal/workflows *.yaml
+recursive-include src/formal/Guide_Doc *.md
+recursive-include src/formal/templates *
+recursive-include src/formal/skills *
+global-exclude *.py[cod]
+global-exclude __pycache__

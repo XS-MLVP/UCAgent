@@ -7,20 +7,21 @@ import sys
 REPOSITORY_ROOT = Path(__file__).parents[1]
 sys.path.insert(0, str(REPOSITORY_ROOT))
 sys.path.insert(
-    0, str(REPOSITORY_ROOT / "plugins" / "formal" / "src")
+    0, str(REPOSITORY_ROOT / "ucagent" / "plugins" / "Formal" / "src")
 )
 sys.path.insert(
-    0, str(REPOSITORY_ROOT / "plugins" / "common" / "src")
+    0, str(REPOSITORY_ROOT / "ucagent" / "plugins" / "UnityTest" / "src")
+)
+sys.path.insert(
+    0, str(REPOSITORY_ROOT / "ucagent" / "plugins" / "common" / "src")
 )
 
-from ucagent_common.bug_analysis_contract import (
+from unity_test.bug_analysis_contract import (
     BUG_ANALYSIS_SECTION_TITLES,
-    BUG_ANALYSIS_SECTION_MARKERS,
+    BUG_HEADING_COMPANIONS,
     DYNAMIC_BUG_DOCUMENT_PATH,
     NO_BUG_DOCUMENT_SECTIONS,
     NO_BUG_DOCUMENT_TITLE,
-    RELATED_BUGS_MARKER,
-    ROOT_ANALYSIS_SECTION_MARKERS,
     STATIC_BUG_DOCUMENT_PATH,
     TEST_CASE_SERIALIZATION,
     TEST_CASE_IDENTITY,
@@ -30,32 +31,28 @@ from ucagent.util.markdown import (
     ensure_markdown_heading_spacing,
     markdown_heading_spacing_errors,
 )
-from formal_plugin.skills.lib import formal_tools
+from formal.skills.lib import formal_tools
 
 
 IMPLEMENTATION_ROOT = REPOSITORY_ROOT / "ucagent"
 LANGUAGE_ROOT = IMPLEMENTATION_ROOT / "lang"
 CHINESE_LANGUAGE_ROOT = LANGUAGE_ROOT / "zh"
-UNITYTEST_PLUGIN_ROOT = REPOSITORY_ROOT / "plugins" / "unitytest"
-UNITYTEST_PLUGIN_ASSETS = UNITYTEST_PLUGIN_ROOT / "src" / "unitytest_plugin"
+UNITYTEST_PLUGIN_ROOT = REPOSITORY_ROOT / "ucagent" / "plugins" / "UnityTest"
+UNITYTEST_PLUGIN_ASSETS = UNITYTEST_PLUGIN_ROOT / "src" / "unity_test"
 FORMAL_PLUGIN_ASSETS = (
-    REPOSITORY_ROOT / "plugins" / "formal" / "src" / "formal_plugin"
+    REPOSITORY_ROOT / "ucagent" / "plugins" / "Formal" / "src" / "formal"
 )
 LOCALE_CONTRACT = (
     REPOSITORY_ROOT
+    / "ucagent"
     / "plugins"
-    / "common"
+    / "UnityTest"
     / "src"
-    / "ucagent_common"
+    / "unity_test"
     / "lang"
     / "zh"
     / "config"
     / "bug_analysis_contract.json"
-)
-BUG_HEADING_COMPANIONS = frozenset(
-    [marker for _field, marker in BUG_ANALYSIS_SECTION_MARKERS]
-    + [marker for _field, marker in ROOT_ANALYSIS_SECTION_MARKERS]
-    + [RELATED_BUGS_MARKER]
 )
 
 
@@ -82,8 +79,14 @@ def _contains_han(value: str) -> bool:
 
 def test_generic_implementation_python_has_no_chinese_literals():
     failures = []
+    # The bundled workflow trees under ucagent/plugins/ are plugin code with
+    # their own locale rules (plus unrendered {{DUT}} templates); this guard
+    # covers the framework implementation only.
+    bundled_workflows = IMPLEMENTATION_ROOT / "plugins"
     for path in sorted(IMPLEMENTATION_ROOT.rglob("*.py")):
         if path.is_relative_to(CHINESE_LANGUAGE_ROOT):
+            continue
+        if path.is_relative_to(bundled_workflows):
             continue
         source = path.read_text(encoding="utf-8")
         for line_number, line in enumerate(source.splitlines(), start=1):
@@ -260,10 +263,18 @@ def test_markdown_heading_spacing_has_no_preceding_blank_exceptions():
 def test_markdown_file_formatter_preserves_canonical_field_companions():
     sample = "# Bug\n###### Overview\n<BUG-OVERVIEW>\ncontent\n"
 
-    formatted = ensure_markdown_file_heading_spacing("bug.md", sample)
+    formatted = ensure_markdown_file_heading_spacing(
+        "bug.md", sample, BUG_HEADING_COMPANIONS
+    )
+    # Without declared companions the formatter is domain-neutral: a machine
+    # marker is treated like any other nonblank line.
+    neutral = ensure_markdown_file_heading_spacing("bug.md", sample)
 
     assert formatted == (
         "\n# Bug\n\n###### Overview\n<BUG-OVERVIEW>\ncontent\n"
+    )
+    assert neutral == (
+        "\n# Bug\n\n###### Overview\n\n<BUG-OVERVIEW>\ncontent\n"
     )
     assert ensure_markdown_file_heading_spacing("bug.txt", sample) == sample
 

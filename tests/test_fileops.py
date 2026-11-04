@@ -1163,7 +1163,10 @@ class TestFileOpsTools(unittest.TestCase):
             self.assertEqual(file_obj.read(), "updated\n")
 
     def test_text_mutation_tools_normalize_markdown_heading_spacing(self):
-        edit = EditTextFile(workspace=self.workspace)
+        edit = EditTextFile(
+            workspace=self.workspace,
+            heading_companions=("<BUG-OVERVIEW>",),
+        )
         edit._run(
             path="document.md",
             content="# Title\ntext\n###### Field\n<BUG-OVERVIEW>\nbody\n",
@@ -1175,7 +1178,24 @@ class TestFileOpsTools(unittest.TestCase):
                 "\n# Title\n\ntext\n\n###### Field\n<BUG-OVERVIEW>\nbody\n",
             )
 
-        ReplaceStringInFile(workspace=self.workspace)._run(
+        # Without declared companions the tool is contract-neutral: the
+        # machine marker is spaced like any other nonblank line.
+        EditTextFile(workspace=self.workspace)._run(
+            path="neutral.md",
+            content="# Title\ntext\n###### Field\n<BUG-OVERVIEW>\nbody\n",
+        )
+        with open(
+            os.path.join(self.workspace, "neutral.md"), "r", encoding="utf-8"
+        ) as file_obj:
+            self.assertEqual(
+                file_obj.read(),
+                "\n# Title\n\ntext\n\n###### Field\n\n<BUG-OVERVIEW>\nbody\n",
+            )
+
+        ReplaceStringInFile(
+            workspace=self.workspace,
+            heading_companions=("<BUG-OVERVIEW>",),
+        )._run(
             path="document.md",
             old_string="body\n",
             new_string="body\n## Added\ndetail\n",

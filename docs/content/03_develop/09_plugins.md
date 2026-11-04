@@ -7,14 +7,18 @@ Guide_Doc 和工作流中的任意一种或多种能力；这些贡献都是一�
 发现；源码开发时也可以通过显式配置的搜索路径发现。插件必须由用户选择后才会导入和
 激活，UCAgent 不会扫描或执行任意 workspace Python 文件。
 
-`plugins/RTL2Spec/` 提供文档生成插件；`plugins/DesignWithPPA/` 展示自定义
+`ucagent/plugins/RTL2Spec/` 提供文档生成插件；`ucagent/plugins/DesignWithPPA/` 展示自定义
 Tool、Checker、模板、Skill 与工作流的组合。
 
-## 同仓维护的可选插件
+## 同仓维护的内置与可选插件
 
-`plugins/` 用于维护随 UCAgent 一同开发、独立打包的插件。安装核心包不会安装或启用
-这些插件。插件的日常开发应限定在自己的目录中：依赖、入口、配置、资源、测试和维护
-命令均由插件管理，不向核心的依赖清单、默认配置或 Tool/Checker 导出表添加插件内容。
+同仓插件维护在 `ucagent/plugins/` 下（插件加载器即 `ucagent/plugins/__init__.py`）。
+发行口径分两类：框架 wheel 把 UnityTest 及其共享库 `common` 作为 package data 一并
+打入（由 `pyproject.toml` 的 `ucagent.plugins` package-data 键、`packages.find`
+exclude 与 `MANIFEST.in` prune 共同圈定范围），安装核心即获得默认 UnityTest 工作流，
+无需单独安装；其余插件不随核心安装，作为独立发行包按需发布。无论哪种口径，插件的
+日常开发都应限定在自己的目录中：依赖、入口、配置、资源、测试和维护命令均由插件
+管理，不向核心的依赖清单、默认配置或 Tool/Checker 导出表添加插件内容。
 
 | 内容 | 维护位置 |
 | :--- | :--- |
@@ -33,21 +37,22 @@ Tool、Checker、模板、Skill 与工作流的组合。
 
 | 项目 | 插件 ID / 工作流 | 主要用途 |
 | :--- | :--- | :--- |
-| [unitytest](https://github.com/XS-MLVP/UCAgent/blob/main/plugins/unitytest/README.md) | `unitytest:unitytest` / `unitytest:incremental` / `unitytest:vibe` | 默认单元验证工作流及增量验证、Vibe 协作两条同插件兄弟工作流 |
-| [formal](https://github.com/XS-MLVP/UCAgent/blob/main/plugins/formal/README.md) | `formal:formal` | SystemVerilog Assertions 形式化验证（规划/SVA/环境/覆盖率/反例/报告） |
-| [DesignWithPPA](https://github.com/XS-MLVP/UCAgent/blob/main/plugins/DesignWithPPA/README.md) | `design-with-ppa:unit-design-tdd` | 测试驱动 RTL 设计与 PPA 优化 |
-| [RTL2Spec](https://github.com/XS-MLVP/UCAgent/blob/main/plugins/RTL2Spec/README.md) | `rtl2spec:xiangshan-design-document` | 基于 XiangShan 源码和生成 RTL 的证据，交付中文设计与功能检测点文档 |
+| [unitytest](https://github.com/XS-MLVP/UCAgent/blob/main/ucagent/plugins/UnityTest/README.md) | `unitytest:unitytest` / `unitytest:incremental` / `unitytest:vibe` | 默认单元验证工作流及增量验证、Vibe 协作两条同插件兄弟工作流 |
+| [formal](https://github.com/XS-MLVP/UCAgent/blob/main/ucagent/plugins/Formal/README.md) | `formal:formal` | SystemVerilog Assertions 形式化验证（规划/SVA/环境/覆盖率/反例/报告） |
+| [DesignWithPPA](https://github.com/XS-MLVP/UCAgent/blob/main/ucagent/plugins/DesignWithPPA/README.md) | `design-with-ppa:unit-design-tdd` | 测试驱动 RTL 设计与 PPA 优化 |
+| [RTL2Spec](https://github.com/XS-MLVP/UCAgent/blob/main/ucagent/plugins/RTL2Spec/README.md) | `rtl2spec:xiangshan-design-document` | 基于 XiangShan 源码和生成 RTL 的证据，交付中文设计与功能检测点文档 |
 
-先安装核心，再从 UCAgent 仓库根目录按需安装，例如：
+UnityTest 及其共享库 `common` 已随核心包内置，无需单独安装。其余插件先安装核心，
+再从 UCAgent 仓库根目录按需安装，例如：
 
 ```bash
-python -m pip install ./plugins/RTL2Spec
+python -m pip install ./ucagent/plugins/RTL2Spec
 ucagent --validate-plugin rtl2spec
 ```
 
 运行时显式选择 `--plugin rtl2spec`
 和 `--plugin-workflow rtl2spec:xiangshan-design-document`。
-源码开发时可将插件 ID 换成 `--plugin ./plugins/RTL2Spec`，无需先安装插件。
+源码开发时可将插件 ID 换成 `--plugin ./ucagent/plugins/RTL2Spec`，无需先安装插件。
 工作区独立于插件实现；随包指导文档和其他资源由选中的工作流自动定位和复制。
 
 ### 仓库政策与插件专属说明
@@ -133,7 +138,7 @@ DesignWithPPA/
 只创建实际发布的资源目录。纯 Tool、纯 Checker、纯 Skill、纯 Guide_Doc 或纯工作流
 插件都是有效插件。后续可以在同一发行包中增加其他贡献，无需修改 UCAgent 核心包。
 运行时脚本可放在包内的 `scripts/`；测试和维护配置放在插件项目根目录。
-同仓插件遵守相同结构，项目根位于 `plugins/<项目目录>/`。加载器按清单定位项目，
+同仓插件遵守相同结构，项目根位于 `ucagent/plugins/<项目目录>/`。加载器按清单定位项目，
 不依赖父目录名称。标准结构不要求保留空目录。
 
 ## 本地引导清单
@@ -182,7 +187,7 @@ design-with-ppa = "design_with_ppa.plugin:get_plugin"
 安装后，Python 的 distribution metadata 会提供发现信息，例如从 UCAgent 根目录运行：
 
 ```bash
-python3 -m pip install ./plugins/DesignWithPPA
+python3 -m pip install ./ucagent/plugins/DesignWithPPA
 ucagent --list-plugins
 ucagent --validate-plugin design-with-ppa
 ucagent <workspace> <dut> --plugin design-with-ppa
@@ -218,9 +223,9 @@ plugin:
 需要强制调试某个源码副本时，直接传项目路径：
 
 ```bash
-ucagent --validate-plugin /opt/ucagent-plugins/DesignWithPPA
+ucagent --validate-plugin /opt/ucagent-ucagent/ucagent/plugins/DesignWithPPA
 ucagent <workspace> <dut> \
-  --plugin /opt/ucagent-plugins/DesignWithPPA
+  --plugin /opt/ucagent-ucagent/ucagent/plugins/DesignWithPPA
 ```
 
 使用稳定 ID 的配置示例：
@@ -428,7 +433,7 @@ guide_doc:
 ## 工作流及其专属资源
 
 插件可以声明一个或多个 `PluginWorkflow`，把工作流和发行包绑定。同一插件内的多条工作流
-共享插件的检查器与资产（如 `plugins/unitytest` 提供 `unitytest`、`incremental`、`vibe`
+共享插件的检查器与资产（如 `ucagent/plugins/UnityTest` 提供 `unitytest`、`incremental`、`vibe`
 三条工作流）；兄弟工作流之间同样是整体替换关系，因此每条工作流都要自带完整的工具、
 运行时和 Skill 声明（自足基线）：
 
@@ -462,9 +467,9 @@ ucagent <workspace> <dut> \
 插件工作流，或启动时由 `workflow` 指针解析出的默认任务工作流）、workspace 设置、显式
 `--config`、CLI `--override`。`workflow` 指针是启动期选择数据，由命令行在启动时解析，
 任何后层（工作区配置、`--config`、`--override`）都可以重定义或置空它（置空即纯框架运
-行）。仓库自带的默认 UT 工作流本身就是一个本地插件（`plugins/unitytest`），由
+行）。仓库自带的默认 UT 工作流本身就是一个本地插件（`ucagent/plugins/UnityTest`），由
 `default.yaml` 的 `workflow` 指针自动解析并激活；pip 安装场景下指针可写成
-`<可导入模块>:<包内相对路径>`（如 `unitytest_plugin:workflows/unitytest.yaml`）以定
+`<可导入模块>:<包内相对路径>`（如 `unity_test:workflows/unitytest.yaml`）以定
 位已安装插件包内的配置。显式选择某个插件工作流时，默认工作流被整体替换而非叠加，因此
 每个插件工作流应自带其工具、运行时和 Skill 配置。未限定插件 ID 的短工作流名只有在已激
 活插件中唯一时才允许。运行元数据会分别保留显式配置、插件与工作流选择器和工作流配置来
@@ -535,11 +540,11 @@ sdist 还应通过 `MANIFEST.in` 递归包含同一资源集合以及本地 `uca
 ```bash
 python3 -m pip install -e .
 python3 -m pip install build pytest
-python3 -m pip install -e ./plugins/DesignWithPPA
-python3 -m py_compile plugins/DesignWithPPA/src/design_with_ppa/*.py
-python3 -m pytest -q plugins/DesignWithPPA/tests
-ucagent --validate-plugin ./plugins/DesignWithPPA
-python3 -m build ./plugins/DesignWithPPA
+python3 -m pip install -e ./ucagent/plugins/DesignWithPPA
+python3 -m py_compile ucagent/plugins/DesignWithPPA/src/design_with_ppa/*.py
+python3 -m pytest -q ucagent/plugins/DesignWithPPA/tests
+ucagent --validate-plugin ./ucagent/plugins/DesignWithPPA
+python3 -m build ./ucagent/plugins/DesignWithPPA
 ```
 
 其他插件将上述插件路径替换为自己的项目目录。`python3 -m build` 的默认流程先构建 sdist、再由
@@ -552,7 +557,7 @@ sdist 构建 wheel，可以隔离源码树中既有的 `build/` 缓存，避免�
 ```bash
 python3 -m venv /tmp/design-with-ppa-verify
 /tmp/design-with-ppa-verify/bin/python -m pip install .
-/tmp/design-with-ppa-verify/bin/python -m pip install plugins/DesignWithPPA/dist/ucagent_design_with_ppa-*.whl
+/tmp/design-with-ppa-verify/bin/python -m pip install ucagent/plugins/DesignWithPPA/dist/ucagent_design_with_ppa-*.whl
 /tmp/design-with-ppa-verify/bin/ucagent --list-plugins
 /tmp/design-with-ppa-verify/bin/ucagent --validate-plugin design-with-ppa
 /tmp/design-with-ppa-verify/bin/ucagent <workspace> <dut> \

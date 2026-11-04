@@ -296,6 +296,7 @@ def test_unexpected_exit_updates_state_and_releases_quota(manager, monkeypatch, 
             return original_killpg(pid, sig)
 
         monkeypatch.setattr(os, "killpg", killpg)
+    _wait_for(lambda: any(line.startswith("CHILD:") for line in manager.get(session["id"])["log_tail"]))
     details = manager.get(session["id"])
     child_pid = int(next(line[6:] for line in details["log_tail"] if line.startswith("CHILD:")))
     directory = Path(manager.socket_path(session["id"])).parent

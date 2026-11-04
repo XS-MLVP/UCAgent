@@ -11,9 +11,8 @@ import sys
 from pathlib import Path
 
 _REPO_ROOT = str(Path(__file__).resolve().parents[1])
-_UNITYTEST_SRC = str(Path(_REPO_ROOT) / "plugins" / "unitytest" / "src")
-_COMMON_SRC = str(Path(_REPO_ROOT) / "plugins" / "common" / "src")
+_UNITYTEST_SRC = str(Path(_REPO_ROOT) / "ucagent" / "plugins" / "UnityTest" / "src")
 
-for _entry in (_REPO_ROOT, _UNITYTEST_SRC, _COMMON_SRC):
+for _entry in (_REPO_ROOT, _UNITYTEST_SRC):
     if _entry not in sys.path:
         sys.path.insert(0, _entry)

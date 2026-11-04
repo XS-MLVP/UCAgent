@@ -3,8 +3,12 @@
 
 try:
     from ._version import __version__
+    # No generated ``_version`` module: this is the repository source tree,
+    # not an installed distribution.
+    SOURCE_TREE_RUNTIME = False
 except ImportError:
     __version__ = "0.9.1+source.code"
+    SOURCE_TREE_RUNTIME = True
 
 __author__ = "XS-MLVP"
 __email__ = "unitychip@bosc.ac.cn"

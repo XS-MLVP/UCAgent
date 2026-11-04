@@ -12,7 +12,7 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 repo_root = os.path.abspath(os.path.join(current_dir, ".."))
 repo_package_root = os.path.join(repo_root, "ucagent")
 sys.path.insert(0, repo_root)
-sys.path.insert(0, os.path.join(repo_root, "plugins/unitytest/src"))
+sys.path.insert(0, os.path.join(repo_root, "ucagent/plugins/UnityTest/src"))
 
 loaded_ucagent = sys.modules.get("ucagent")
 loaded_ucagent_path = os.path.abspath(getattr(loaded_ucagent, "__file__", "") or "")
@@ -22,24 +22,25 @@ if loaded_ucagent is not None and not loaded_ucagent_path.startswith(repo_packag
             del sys.modules[module_name]
 
 import ucagent.stage.vmanager as vmanager
-from unitytest_plugin.checkers.unity_test import _report_failure_message
+from unity_test.checkers.unity_test import _report_failure_message
 from ucagent.stage.vstage import VerifyStage
 from ucagent.stage.vmanager import (
     ArgsDoCheck,
     StageManager,
     ToolDoCheck,
     ToolDoComplete,
-    ToolRunTestCases,
     ToolSetCurrentStageJournal,
     ToolSetSkillUsage,
 )
+from unity_test.report_store import TestProtocolRuntimeHook
+from unity_test.test_runner import RunTestCasesManagerTool
 from ucagent.tools.uctool import to_mcp_tool
 from ucagent.util import functions as fc
 from ucagent.util.config import Config
 
 
 def test_run_test_cases_contract_rejects_non_test_scripts():
-    description = ToolRunTestCases().description
+    description = RunTestCasesManagerTool().description
 
     assert "real pytest verification tests" in description
     assert "not a Python script runner" in description
@@ -2208,6 +2209,7 @@ def test_stage_activation_invalidates_previous_current_test_report(tmp_path):
     stage.skill_list = {}
     stage.time_start = None
     stage.name = "new-stage"
+    stage.vmanager = SimpleNamespace(runtime_hooks=[TestProtocolRuntimeHook()])
 
     stage.on_init()
 

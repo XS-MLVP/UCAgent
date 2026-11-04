@@ -47,7 +47,7 @@ class ToolRecommendationEngine:
                 'CreateDirectory', 'PathList'
             ],
             ToolCategory.VERIFICATION: [
-                'RunTestCases', 'Status', 'Detail', 'CurrentTips'
+                'Status', 'Detail', 'CurrentTips'
             ],
             ToolCategory.PLANNING: [
                 'CreateToDo', 'CompleteToDoSteps', 'UndoToDoSteps', 'ResetToDo', 'GetToDoSummary'
@@ -60,7 +60,7 @@ class ToolRecommendationEngine:
                 'Reflect', 'HumanHelp'
             ],
             ToolCategory.EXECUTION: [
-                'RunTestCases', 'EditTextFile', 'DeleteTextLines',
+                'EditTextFile', 'DeleteTextLines',
                 'ReplaceStringInFile'
             ]
         }

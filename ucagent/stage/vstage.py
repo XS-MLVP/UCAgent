@@ -655,10 +655,13 @@ class VerifyStage(object):
                                 message, self.vmanager.is_break if self.vmanager else None)
 
     def on_init(self):
-        # A test-report Skill must consume evidence produced in this stage, not
-        # whichever test happened to run in the preceding stage.
-        from ucagent.util.config import clear_current_test_report
-        clear_current_test_report(self.workspace)
+        # Plugin runtime hooks own stage-transition side effects such as
+        # invalidating a workflow-owned report snapshot.
+        if self.vmanager is not None:
+            for hook in self.vmanager.runtime_hooks:
+                on_stage_start = getattr(hook, "on_stage_start", None)
+                if callable(on_stage_start):
+                    on_stage_start(self.workspace)
         self._process_cmds(self.pre_cmds, "Pre-Bash")
         for c in self.checker:
             c.on_init()

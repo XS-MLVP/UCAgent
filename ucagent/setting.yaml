@@ -209,7 +209,7 @@ launch:
     extra_args: []                    # additional CLI arguments
     configs:                          # predefined config options for dropdown
       UT:
-        cfg: "plugins/unitytest/src/unitytest_plugin/workflows/unitytest.yaml"
+        cfg: "ucagent/plugins/UnityTest/src/unity_test/workflows/unitytest.yaml"
       Formal:
         cfg: "formal.yaml"
         use_skill: true
@@ -340,6 +340,11 @@ un_write_dirs:
 write_dirs:
   - "{OUT}"
 
+# Markdown machine markers allowed to stay directly under a field heading;
+# the framework default stays contract-neutral, workflow layers declare theirs.
+markdown:
+  heading_companions: []
+
 guide_doc:
   path: "{GUIDE_DOC}"
   enable: true
@@ -396,6 +401,26 @@ hooks:
   exit: "/exit"
 
 
+# ---- Decoupling residue archive (2026-11-03) -------------------------------
+# Workflow-domain sentences removed from the vmanager.llm_suggestion prompts
+# below. Kept as comments only, not deleted: if a workflow later wants its
+# advisor to speak as a domain expert again, restore the text into that
+# workflow's yaml (overriding vmanager.llm_suggestion.*.system_prompt /
+# suggestion_prompt) instead of putting it back here.
+#
+# check_fail_refinement.system_prompt, removed lines:
+#   You are a professional testing assistant. An LLM expert is testing a Device Under Test (DUT) (Current DUT is `{DUT}`) based on the high-level task requirements.
+#   The goal of the high-level task is to identify and document DUT bugs, not to make reasonable fail cases pass.
+#   You are not care about the bugs in the DUT, only focus on helping the LLM expert to pass the 'Check' tasks.
+#
+# check_pass_refinement.system_prompt / suggestion_prompt, removed lines:
+#   You are a verification expert, highly skilled at identifying issues in others' verification work, with extremely high standards for the quality of verification projects.
+#   Another LLM verification expert is currently verifying the DUT ({DUT}). At the end of each critical stage, it requires your evaluation of the results.
+#   (5) You must prevent the LLM verification expert from focusing solely on passing `Checker` inspections at the expense of thoroughly and properly completing the actual verification work.
+#   • For verification work, you place great emphasis on ensuring no functional points are missing.
+#   Now, the LLM verification expert has completed the tasks for the current stage.
+# ---- End of decoupling residue archive --------------------------------------
+
 vmanager:
   llm_suggestion:
     check_fail_refinement:
@@ -409,7 +434,7 @@ vmanager:
         temperature: $(FAIL_SUGGESTION_TEMPERATURE: null)
         top_p: $(FAIL_SUGGESTION_TOP_P: null)
       system_prompt: >
-        You are a professional testing assistant. An LLM expert is testing a Device Under Test (DUT) (Current DUT is `{DUT}`) based on the high-level task requirements.
+        You are a professional assistant. An LLM expert is executing the current mission based on the high-level task requirements.
         Your job is to analyze the current task fail information, identify the reason
         why the current stage of 'Check' did not pass, and then provide him precise recommendations to pass it.
         In your recommendations:
@@ -421,9 +446,8 @@ vmanager:
         6. Do not include any thought process or analysis in your final suggestion, only provide the actionable suggestion.
         Note:
           Your tool has a limited call quota, so make sure to use them wisely.
-          The goal of the high-level task is to identify and document DUT bugs, not to make reasonable fail cases pass.
           The tasks and test information is dynamic, you should keep updating your analysis and suggestions based on the latest test information.
-          You are not care about the bugs in the DUT, only focus on helping the LLM expert to pass the 'Check' tasks.
+          You only focus on helping the LLM expert to pass the 'Check' tasks.
       suggestion_prompt: >
         Now, the tasks corresponding 'Check' did not pass.
         Please analyze the above test information, then provide the precise recommendations to pass it.
@@ -440,23 +464,23 @@ vmanager:
         temperature: $(PASS_SUGGESTION_TEMPERATURE: null)
         top_p: $(PASS_SUGGESTION_TOP_P: null)
       system_prompt: >
-        You are a verification expert, highly skilled at identifying issues in others' verification work, with extremely high standards for the quality of verification projects.
-        Another LLM verification expert is currently verifying the DUT ({DUT}). At the end of each critical stage, it requires your evaluation of the results.
+        You are a strict reviewer, highly skilled at identifying issues in others' work, with extremely high standards for the quality of the mission.
+        Another LLM expert is currently executing the mission. At the end of each critical stage, it requires your evaluation of the results.
         Only after you confirm that there are no issues can it proceed to subsequent stages. Therefore, your role is crucial.
         Your specific responsibilities are as follows:
         (1) Clarify the specific tasks for the current stage and define evaluation criteria based on the stage's requirements.
         (2) If issues are identified, provide clear and actionable suggestions for improvement.
-        (3) Ensure the verification results align with the requirements outlined in the reference documentation.
+        (3) Ensure the results align with the requirements outlined in the reference documentation.
         (4) If no issues are found, call tool `ApproveStagePass` to approve the current stage.
-        (5) You must prevent the LLM verification expert from focusing solely on passing `Checker` inspections at the expense of thoroughly and properly completing the actual verification work.
+        (5) You must prevent the LLM expert from focusing solely on passing `Checker` inspections at the expense of thoroughly and properly completing the actual work.
         Important Notes:
-        • For verification work, you place great emphasis on ensuring no functional points are missing.
+        • You place great emphasis on ensuring no required work items are missing.
         • Checkpoints must be clearly described and highly actionable.
         • Your suggestions should be concise and to the point, avoiding unnecessary length.
         • You can use tool `StageDiff` to help you analyze the differences in the work results before and after the current stage.
         • You can use tool `StageCommit` to help you commit the current stage's work results for better analysis.
       suggestion_prompt: >
-        Now, the LLM verification expert has completed the tasks for the current stage.
+        Now, the LLM expert has completed the tasks for the current stage.
         Please evaluate whether the tasks have been completed properly based on the above requirements.
         If you find any issues, please provide clear and actionable suggestions for improvement.
         You Must use `ApproveStagePass` to approve or not approve the current stage to be passed.
