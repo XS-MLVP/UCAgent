@@ -297,29 +297,54 @@ def _prepare_workspace_archive_source(workspace: str, dut_name: str, workspace_b
     except OSError as exc:
         raise WorkspaceArchiveError(f"Failed to create --workspace-base directory '{base_dir}': {exc}") from exc
 
+    # Never overwrite an existing directory.
+    # The directory may contain user data and its ownership cannot
+    # be established merely by checking its name or marker file.
     if os.path.lexists(extract_dir):
-        try:
-            _remove_workspace_archive_extract(extract_dir)
-        except OSError as exc:
-            raise WorkspaceArchiveError(f"Failed to clean previous extracted workspace '{extract_dir}': {exc}") from exc
+        raise WorkspaceArchiveError(
+            f"Workspace extraction directory already exists: {extract_dir}. "
+            "Please choose another --workspace-base or remove the directory manually."
+        )
+
+    # Track whether this invocation successfully created the directory.
+    created_extract_dir = False
+
     try:
         os.makedirs(extract_dir, exist_ok=False)
+        created_extract_dir = True
+
         _write_workspace_archive_marker(marker_path, workspace)
-        with tempfile.TemporaryDirectory(prefix="ucagent_workspace_archive_") as tmp_dir:
+
+        with tempfile.TemporaryDirectory(
+            prefix="ucagent_workspace_archive_"
+        ) as tmp_dir:
             archive_path = workspace
+
             if parsed.scheme in ("http", "https"):
-                archive_path = os.path.join(tmp_dir, f"{archive_name}.tar.gz")
+                archive_path = os.path.join(
+                    tmp_dir, f"{archive_name}.tar.gz"
+                )
                 _download_workspace_archive(workspace, archive_path)
             else:
-                archive_path = os.path.abspath(os.path.expanduser(workspace))
+                archive_path = os.path.abspath(
+                    os.path.expanduser(workspace)
+                )
                 if not os.path.isfile(archive_path):
-                    raise WorkspaceArchiveError(f"Workspace archive file not found: {archive_path}")
-            effective_workspace = _safe_extract_workspace_archive(archive_path, extract_dir, dut_name)
+                    raise WorkspaceArchiveError(
+                        f"Workspace archive file not found: {archive_path}"
+                    )
+
+            effective_workspace = _safe_extract_workspace_archive(
+                archive_path, extract_dir, dut_name
+            )
+
     except Exception:
-        try:
-            _remove_workspace_archive_extract(extract_dir)
-        except OSError:
-            pass
+        # Only clean up a directory created by this invocation.
+        if created_extract_dir:
+            try:
+                _remove_workspace_archive_extract(extract_dir)
+            except OSError:
+                pass
         raise
 
     _write_workspace_archive_marker(marker_path, workspace, effective_workspace)
