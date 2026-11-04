@@ -1,0 +1,23 @@
+UniVista Simulator Plus (UVS+)
+Version: UVS2026.06.P3 (Release, amd64)
+
+start time: 0
+end time: 9000170
+time scale: 1ns
+scope number: 10
+variable number: 73
+idcode number: 69
+vcb number: 1
+vc1 number: 1800096
+vcn number: 900200
+completed: true
+native: true
+compute: false
+glitch: true
+seq: true
+region: false
+force: false
+genblk: false
+from emu: false
+random: false
+mda group size: 0
