@@ -7,4 +7,5 @@
 prune ucagent/plugins/Formal
 prune ucagent/plugins/DesignWithPPA
 prune ucagent/plugins/RTL2Spec
+prune ucagent/plugins/ACT4
 prune ucagent/plugins/UnityTest/tests

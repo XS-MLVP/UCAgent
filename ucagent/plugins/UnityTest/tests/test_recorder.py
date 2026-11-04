@@ -1440,7 +1440,7 @@ def test_master_record_api_accepts_generic_payload_and_logs_summary(tmp_path):
         "source": {"stage_name": "summary"},
     }
 
-    with patch("ucagent.server.api_master._master_log") as master_log:
+    with patch("ucagent.server.api_master.routes._master_log") as master_log:
         response = client.post("/api/records", json=report)
 
     assert response.status_code == 200
@@ -1475,7 +1475,7 @@ def test_master_record_api_logs_launch_task_order(tmp_path):
         "source": {"stage_name": "plan-next"},
     }
 
-    with patch("ucagent.server.api_master._master_log") as master_log:
+    with patch("ucagent.server.api_master.routes._master_log") as master_log:
         response = client.post("/api/records", json=report)
 
     assert response.status_code == 200

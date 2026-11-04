@@ -694,6 +694,11 @@ def test_runtime_options_stay_internal_and_update_checker_contracts(monkeypatch)
         "need_ref_model": True,
         "mock_components_enabled": True,
         "waveform_analysis_format_priority": ["fst", "vcd", "fsdb"],
+        "waveform_analysis_backend_priority": {
+            "fst": ["pywellen", "wavekit"],
+            "vcd": ["pywellen", "wavekit"],
+            "fsdb": ["wavekit"],
+        },
     }
 
     for stage in _iter_stages(config["stage"]):

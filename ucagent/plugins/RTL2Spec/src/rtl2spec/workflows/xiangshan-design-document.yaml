@@ -57,7 +57,7 @@ mission:
       先调用 CurrentTips。每个阶段先用 ReadTextFile 读取该阶段 reference_files 中的文件，再按任务读取相关源码区间；按 Guide_Doc/chip_design_document_template_zh.md
       写作。
 
-      使用 RTL2SpecCommand 的 preflight、evidence、related_sources、ports、metadata、review、finalize 操作。validate 用于草稿诊断，lint
+      使用 RTL2SpecCommand 的 evidence、related_sources、ports、metadata、review、finalize 操作。preflight 用于独立排查输入与环境；validate 用于草稿诊断，lint
       用于复核记录诊断；正常收尾只需 finalize 后 Complete，失败时再按诊断修订。
 
       正文区分入口接受、目标接受和响应消费；逐项确认存储、旁路、实时配置、复位和环境假设。正文逻辑接口名可以独立于 RTL 名称，附录 A 必须精确映射 ports.csv 每个端口及其方向/位宽。
@@ -71,9 +71,7 @@ stage:
   desc: 核验输入并生成证据
   task:
   - 先读取 Guide_Doc/xiangshan-input-guide.md，检查输入、配置和输出目录。
-  - 执行 RTL2SpecCommand(action='preflight', module='{DUT}', config='{XS_CONFIG}')；按诊断修复输入或工具环境。
-  - 执行 RTL2SpecCommand(action='evidence', module='{DUT}', config='{XS_CONFIG}')；读取 {OUT}/evidence/manifest.json、ports.csv
-    和 {DUT}.sv。
+  - 执行 RTL2SpecCommand(action='evidence', module='{DUT}', config='{XS_CONFIG}')，该操作包含输入与环境预检；失败时按诊断修复，需要单独排查时使用 preflight。成功后读取 {OUT}/evidence/manifest.json、ports.csv 和 {DUT}.sv。
   - 读取实际支撑行为结论的相关源码，记录路径与行号；用 related_sources 登记实际使用的相关文件或模块。
   - 执行 RTL2SpecCommand(action='ports', module='{DUT}', config='{XS_CONFIG}')，生成 {OUT}/evidence/ports.md 端口骨架。
   reference_files:

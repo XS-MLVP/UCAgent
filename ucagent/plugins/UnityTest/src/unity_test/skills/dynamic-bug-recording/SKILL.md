@@ -32,6 +32,12 @@ CK失败时必须先核对coverage/check function、predicate和sample时机；C
 
 `RunTestCases`只运行已有真实pytest用例；本脚本只能通过`RunSkillScript`执行。`RunSkillScript.commands`中的每条命令严格使用`[skill_name, skill_script, args]`三字符串结构。
 
+## 重新分析与排除错误 Bug
+
+TC 的断言、激励或源码变化后，即使波形相同也要重新完成进入条件中的规格对照。仍为 DUT Bug 时，用对应 MODE 更新 BG/ROOT 结论并提交当前签名证据；语义重放失败按下方整批 review 流程处理。
+
+验证问题修正且真实完整测试报告证明 TC Pass 后，按 Guide_Doc/dut_bug_analysis.md section 6 使用普通文本工具清理被排除的精确 TC/BG 关联，这是有反证依据的语义删除。若只反证某个 BG 关联，而 TC 仍复现其他已确认 Bug，则只移除被反证的关联，保留 TC 的真实 Fail 和其他 BG。保留其他失败 TC 仍支持的 BG 和共享 ROOT；同步清理不再被引用的 BG、ROOT、中央波形、静态动态确认链接及已有汇总。剩余中央机器证据仍由 WaveInfo/Apply 或批量 review 更新。局部报告未出现历史 TC 不能作为删除依据；正确测试仍 Fail 时禁止删除关联或降低置信度规避门禁。独立重新分析任务由调用方执行最终验证时，完成文档更新后返回处理结果，不调用 Check/Complete 或推进阶段。
+
 ## 多次调用上下文
 
 新增一条动态Bug不是单次脚本调用。`MODE bug`、必要的`MODE repair`和`MODE root`每次都会返回`workflow_context`；后续调用以这个结构化字段为续跑上下文，不凭记忆重建身份：

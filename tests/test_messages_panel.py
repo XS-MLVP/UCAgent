@@ -727,19 +727,69 @@ class TestVerifyAppPersistence:
 
     @pytest.mark.asyncio
     async def test_cancel_running_command_logs_sigint_message(self):
+        """Cancellation must render and persist its notice before returning."""
         vpdb = _FakeVPDB()
         vpdb._running_commands = ["loop status"]
 
         app = VerifyApp(vpdb)
-        async with app.run_test() as pilot:
+        async with app.run_test():
             assert app.cancel_running_command() is True
-            await pilot.pause(0.2)
 
             console = app.query_one("#console", ConsoleWidget)
-            outputs = [
-                entry.payload for entry in console._entries if entry.kind == "output"
+            notice = "\033[33mSIGINT received. Stopping execution ...\033[0m\n"
+            assert [(entry.kind, entry.payload) for entry in console._entries] == [
+                ("output", notice)
             ]
-            assert any("SIGINT received. Stopping execution ..." in text for text in outputs)
+            assert vpdb.get_running_commands() == []
+            assert vpdb.render_console_entries_since() == notice
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("capture_enabled", [True, False])
+    async def test_flush_console_output_drains_pending_sources(self, capture_enabled):
+        """Explicit flushing must drain both queues once without a timer tick."""
+        vpdb = _FakeVPDB()
+        app = VerifyApp(vpdb)
+
+        async with app.run_test():
+            console = app.query_one("#console", ConsoleWidget)
+            if not capture_enabled:
+                app.restore_console_capture()
+
+            app.console_output("queued output\n")
+            if capture_enabled:
+                app._console_capture.write("captured output\n")
+
+            app.flush_console_output()
+            app.flush_console_output()
+
+            expected = "queued output\n"
+            if capture_enabled:
+                expected += "captured output\n"
+            assert [(entry.kind, entry.payload) for entry in console._entries] == [
+                ("output", expected)
+            ]
+            persisted = vpdb.render_console_entries_since()
+            assert persisted.count("queued output\n") == 1
+            assert persisted.count("captured output\n") == int(capture_enabled)
+            assert console._batch_queue.empty()
+
+            console._tick()
+            assert console._entries[0].payload == expected
+            assert vpdb.render_console_entries_since() == persisted
+
+    @pytest.mark.asyncio
+    async def test_cancel_without_running_command_leaves_console_unchanged(self):
+        """An idle cancellation must not log a misleading interruption notice."""
+        vpdb = _FakeVPDB()
+        app = VerifyApp(vpdb)
+
+        async with app.run_test():
+            assert app.cancel_running_command() is False
+            app.flush_console_output()
+
+            console = app.query_one("#console", ConsoleWidget)
+            assert console._entries == []
+            assert vpdb.render_console_entries_since() == ""
 
 
 class TestVerifyAppShutdown:

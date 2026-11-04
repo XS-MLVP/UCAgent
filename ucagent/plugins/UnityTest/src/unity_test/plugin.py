@@ -3,6 +3,7 @@
 from pathlib import Path
 
 from ucagent.plugins import Plugin, PluginContext, PluginWorkflow
+from ucagent.util.config import Config
 from unity_test.report_store import TestProtocolRuntimeHook
 from unity_test.test_runner import RunTestCasesManagerTool
 from .waveform import (
@@ -10,7 +11,10 @@ from .waveform import (
     ReviewWaveInfoEvidenceBatch,
     WaveInfo,
 )
-from unity_test.waveform_formats import DEFAULT_WAVEFORM_ANALYSIS_FORMAT_PRIORITY
+from unity_test.waveform_formats import (
+    DEFAULT_WAVEFORM_ANALYSIS_BACKEND_PRIORITY,
+    DEFAULT_WAVEFORM_ANALYSIS_FORMAT_PRIORITY,
+)
 
 from .checkers import (
     GitNotDirtyChecker,
@@ -70,11 +74,23 @@ def create_waveform_tools(context: PluginContext) -> list:
         )
     except AttributeError:
         format_priority = DEFAULT_WAVEFORM_ANALYSIS_FORMAT_PRIORITY
+    try:
+        backend_priority = context.cfg.get_value(
+            "runtime_options.waveform_analysis_backend_priority",
+            DEFAULT_WAVEFORM_ANALYSIS_BACKEND_PRIORITY,
+        )
+    except AttributeError:
+        backend_priority = DEFAULT_WAVEFORM_ANALYSIS_BACKEND_PRIORITY
+    # Layered config assembly wraps nested mappings in Config objects, which
+    # are not Mapping instances; normalize before validation.
+    if isinstance(backend_priority, Config):
+        backend_priority = backend_priority.as_dict()
     tool_waveinfo = WaveInfo(
         workspace=str(context.workspace),
         test_dir=test_dir,
         dut_name=context.dut_name,
         format_priority=format_priority,
+        backend_priority=backend_priority,
         write_dirs=context.cfg.get_value("write_dirs", None),
         un_write_dirs=context.cfg.get_value("un_write_dirs", []),
     )

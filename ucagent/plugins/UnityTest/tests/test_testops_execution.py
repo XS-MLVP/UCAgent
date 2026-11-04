@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
 from pathlib import Path
 import sys
 
@@ -411,3 +413,23 @@ def test_run_unity_chip_test_defaults_simulator_log_level(tmp_path, monkeypatch)
     tool.do("tests", pytest_ex_env={"UC_IS_IMP_TEMPLATE": "true"})
 
     assert captured == {"UC_IS_IMP_TEMPLATE": "true", "XSPCOMM_LOG_LEVEL": "4"}
+
+@pytest.mark.parametrize("raw_output", ["non-ASCII output: café".encode("utf-8"), b"native log: \xff"])
+@pytest.mark.parametrize("exit_code", [0, 1])
+def test_run_pytest_decodes_native_output_independently_of_parent_locale(tmp_path, monkeypatch, raw_output, exit_code):
+    """A simulator changing the parent locale must not discard valid pytest results."""
+    binary = tmp_path / "pytest"
+    binary.write_text("#!" + sys.executable + "\nimport os\nos.write(1, " + repr(raw_output) +
+                      ")\nos.write(2, " + repr(raw_output) + ")\nraise SystemExit(" + str(exit_code) + ")\n", encoding="utf-8")
+    binary.chmod(0o755)
+    monkeypatch.setenv("PATH", str(tmp_path) + os.pathsep + os.environ["PATH"])
+    monkeypatch.setattr(subprocess, "_text_encoding", lambda: "ascii")
+    tool = RunPyTest()
+
+    passed, stdout, stderr = tool.do(str(tmp_path), return_stdout=True, return_stderr=True)
+
+    assert passed is (exit_code == 0)
+    assert stdout == raw_output.decode("utf-8", errors="replace")
+    assert stderr == stdout
+    assert tool.last_execution["pytest_returncode"] == exit_code
+    assert tool.last_execution["diagnostic_code"] == ("OK" if exit_code == 0 else "PYTEST_ASSERTION_FAILURE")

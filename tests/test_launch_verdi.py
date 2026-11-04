@@ -52,6 +52,8 @@ script=pathlib.Path(argv[argv.index("-play")+1]).read_text()
 prelude = """
 set recorded {}
 set opened ""
+proc verdiSetPrefEnv {args} {lappend ::recorded [linsert $args 0 preference]}
+proc wvRaiseWindow {args} {return 1}
 proc wvCreateWindow {} {return wave1}
 proc wvOpenFile {args} {set ::opened [lindex $args end]; lappend ::recorded [linsert $args 0 open]; return $::opened}
 proc wvAddSignal {args} {lappend ::recorded [linsert $args 0 signal]; return 1}
@@ -75,6 +77,8 @@ sys.exit(result.returncode)
     assert '{signal -win wave1 -delim . {TOP.dut.data[7:0]}}' in result['out']
     assert '{zoom -win wave1 100 200}' in result['out']
     assert '{cursor -win wave1 150}' in result['out']
+    assert '{preference -bUndockNewCreatedWindow off}' in result['out']
+    assert '-logdir' in result['argv']
     assert 'wvGetFileTimeUnit' in result['script']
     assert 'wvSetWindowTimeUnit -win' in result['script']
     assert not Path(result['argv'][-1]).exists()
@@ -158,7 +162,8 @@ def test_launcher_reports_tcl_zero_return_failures(tmp_path, monkeypatch, comman
             'proc ' + name + ' {args} {return ' + (
                 '0' if name == command else '1ps' if name == 'wvGetFileTimeUnit' else '1'
             ) + '}'
-            for name in ('wvCreateWindow', 'wvOpenFile', 'wvAddSignal', 'wvGetFileTimeUnit',
+            for name in ('verdiSetPrefEnv', 'wvRaiseWindow',
+                         'wvCreateWindow', 'wvOpenFile', 'wvAddSignal', 'wvGetFileTimeUnit',
                          'wvSetWindowTimeUnit', 'wvZoom', 'wvSetCursor')
         )
         result = run([tclsh], input=prelude + '\n' + script, text=True, capture_output=True)
@@ -168,3 +173,98 @@ def test_launcher_reports_tcl_zero_return_failures(tmp_path, monkeypatch, comman
     monkeypatch.setattr(subprocess, 'run', execute_startup)
     assert launch(meta, 'verdi', [], workspace=tmp_path) == 1
     assert diagnostic in results[0].stderr
+
+
+@pytest.mark.parametrize('location', ['dut', 'source', 'explicit', 'absolute'])
+def test_launcher_loads_elaborated_database_without_recompiling_sources(tmp_path, monkeypatch, location):
+    """Prefer the exact DUT database, with source associations and explicit selection as alternatives."""
+    meta = _metadata(tmp_path)
+    entry = tmp_path / 'DUT/__init__.py'
+    entry.parent.mkdir()
+    entry.touch()
+    stored = load_waveform_metadata(tmp_path, meta.relative_to(tmp_path).as_posix())[1]
+    stored['dut_python_path'] = '../DUT/__init__.py'
+    write_waveform_metadata(tmp_path, meta.relative_to(tmp_path).as_posix(), stored)
+    directory = tmp_path / {'dut': 'DUT', 'source': 'rtl', 'explicit': 'other', 'absolute': 'other'}[location] / 'design with spaces.daidir'
+    directory.mkdir(parents=True)
+    (directory / 'simv.kdb').write_text('KDB=TRUE')
+    # An unrelated design does not make the DUT's selection ambiguous.
+    unrelated = tmp_path / 'unrelated/other.daidir'
+    unrelated.mkdir(parents=True)
+    (unrelated / 'simv.kdb').write_text('KDB=TRUE')
+    if location == 'dut':
+        associated = tmp_path / 'rtl/other.daidir'
+        associated.mkdir()
+        (associated / 'simv.kdb').write_text('KDB=TRUE')
+    argv = []
+
+    def capture(command, check):
+        """Observe the external process boundary after metadata and database validation."""
+        argv.extend(command)
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(subprocess, 'run', capture)
+    explicit = directory.relative_to(tmp_path) if location == 'explicit' else directory if location == 'absolute' else None
+    assert launch(meta, 'verdi', [], workspace=tmp_path, dbdir=explicit) == 0
+    assert argv[argv.index('-dbdir') + 1] == str(directory)
+    assert '-sv' not in argv
+
+
+@pytest.mark.parametrize('failure', ['ambiguous', 'uncompiled', 'missing', 'missing_kdb', 'escape', 'linked_file', 'linked_directory'])
+def test_launcher_rejects_unsafe_or_ambiguous_databases(tmp_path, monkeypatch, failure):
+    """Reject ambiguous selection, missing KDB and escaping database artifacts before spawning."""
+    meta = _metadata(tmp_path)
+    database = tmp_path / 'rtl/design.daidir'
+    database.mkdir()
+    (database / 'simv.kdb').write_text('KDB=FALSE' if failure == 'uncompiled' else 'KDB=TRUE')
+    explicit = None
+    if failure == 'ambiguous':
+        other = tmp_path / 'rtl/other.daidir'
+        other.mkdir()
+        (other / 'simv.kdb').write_text('KDB=TRUE')
+    if failure == 'missing_kdb':
+        (database / 'simv.kdb').unlink()
+        explicit = database
+    if failure == 'missing':
+        explicit = Path('missing.daidir')
+    if failure in ('escape', 'linked_file', 'linked_directory'):
+        outside = tmp_path.parent / (tmp_path.name + '-outside')
+        outside.mkdir()
+        (outside / 'simv.kdb').write_text('KDB=TRUE')
+        if failure == 'escape':
+            explicit = tmp_path / 'external.daidir'
+            explicit.symlink_to(outside, target_is_directory=True)
+        elif failure == 'linked_file':
+            (database / 'simv.kdb').unlink()
+            (database / 'simv.kdb').symlink_to(outside / 'simv.kdb')
+        else:
+            (database / 'library').symlink_to(outside, target_is_directory=True)
+
+    def unexpected(*args, **kwargs):
+        """Validation failures must never reach the external application."""
+        pytest.fail('Invalid database launched Verdi')
+
+    monkeypatch.setattr(subprocess, 'run', unexpected)
+    with pytest.raises((ValueError, FileNotFoundError)):
+        launch(meta, 'verdi', [], workspace=tmp_path, dbdir=explicit)
+
+
+def test_standalone_launcher_accepts_database_selection_before_extra_argv(tmp_path):
+    """The configured CLI selects a workspace database and preserves remaining Verdi arguments."""
+    meta = _metadata(tmp_path)
+    directory = tmp_path / 'custom database'
+    directory.mkdir()
+    (directory / 'simv.kdb').write_text('KDB=TRUE')
+    capture = tmp_path / 'argv.json'
+    binary = tmp_path / 'fake-verdi'
+    binary.write_text('#!' + sys.executable + '\nimport json, pathlib, sys\n' +
+                      'pathlib.Path(' + repr(str(capture)) + ').write_text(json.dumps(sys.argv))\n')
+    binary.chmod(0o755)
+    script = Path(__file__).resolve().parents[1] / 'ucagent/scripts/verdi/launch_verdi.py'
+    result = subprocess.run([sys.executable, str(script), '--meta', str(meta), '--verdi', str(binary),
+                             '--dbdir', directory.name, '--', '-nologo'], cwd=tmp_path,
+                            capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    argv = json.loads(capture.read_text())
+    assert argv[1] == '-nologo'
+    assert argv[argv.index('-dbdir') + 1] == str(directory)

@@ -270,9 +270,11 @@ def require_clean_output(root: Path, output_dir: str = "outputs") -> None:
         )
 
 
-def port_scaffold_text(root: Path, module: str, ports: list[dict], *, generic: bool = False,
-                       output_dir: str = "outputs") -> str:
-    """Render the protected port scaffold from current parsed facts without writing it."""
+def generate_port_scaffold(root: Path, module: str, config: str, *, generic: bool = False,
+                           output_dir: str = "outputs") -> Path:
+    """Generate an Appendix A drafting aid from verified ports, leaving only prose to fill."""
+    validator = validate_generic_evidence if generic else validate_evidence
+    _, ports = validator(root, module, config, output_dir)
     locations = port_locations(root, module, ports, generic=generic, output_dir=output_dir)
     lines = ["", "# " + ARTIFACT_TEXT["ports_title"], "", ARTIFACT_TEXT["ports_instruction"], "",
              "| " + " | ".join(ARTIFACT_TEXT["port_header"]) + " |",
@@ -283,17 +285,9 @@ def port_scaffold_text(root: Path, module: str, ports: list[dict], *, generic: b
         cells = [f"`IO-{port['index']:03d}`", "TODO", "TODO", f"`{location}`",
                  f"`{port_shape(port)}`", "Generated", f"`{port['name']}`", "TODO", "`E-RTL-PORTS`"]
         lines.append("| " + " | ".join(cells) + " |")
-    return "\n".join(lines) + "\n"
-
-
-def generate_port_scaffold(root: Path, module: str, config: str, *, generic: bool = False,
-                           output_dir: str = "outputs") -> Path:
-    """Generate factual Appendix A cells from verified ports, leaving only prose to fill."""
-    validator = validate_generic_evidence if generic else validate_evidence
-    _, ports = validator(root, module, config, output_dir)
     folder = local_path(root, output_root(root, output_dir) / "evidence")
     target = local_path(root, folder / "ports.md")
-    target.write_text(port_scaffold_text(root, module, ports, generic=generic, output_dir=output_dir), encoding="utf-8")
+    target.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return target
 
 

@@ -40,7 +40,8 @@ class FakeVerdi:
         callbacks = {'wvCreateWindow': self.create_window, 'wvOpenFile': self.open_file,
                      'wvAddSignal': self.add_signal, 'wvGetFileTimeUnit': self.get_time_unit,
                      'wvSetWindowTimeUnit': self.set_time_unit, 'wvZoom': self.zoom,
-                     'wvSetCursor': self.set_cursor}
+                     'wvSetCursor': self.set_cursor,
+                     'verdiSetPrefEnv': lambda *args: '', 'wvRaiseWindow': lambda *args: root.lift()}
         for name, callback in callbacks.items():
             root.tk.createcommand(name, callback)
         root.tk.eval(args.play.read_text(encoding='utf-8'))
@@ -167,6 +168,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--fake-state', type=Path, required=True)
     parser.add_argument('-sv', nargs='+', default=[])
+    parser.add_argument('-logdir')
     parser.add_argument('-play', type=Path, required=True)
     args = parser.parse_args()
     root = tk.Tk()

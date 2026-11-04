@@ -19,6 +19,7 @@ template: "unity_test"
 write_dirs:
   - "{OUT}"
   - "{DUT}/**/*.vdb"
+  - "{DUT}/**/*.vdb.lock"
   - "{DUT}/**/*.fsdb"
   - "{DUT}/**/*.fsdb.json"
   - "{DUT}/**/*.vpd"
@@ -44,6 +45,11 @@ runtime_options:
   mock_components_enabled: not $(IGNORE_MOCK_COMPONENT: true)
   # Ordered enabled formats. Register a reader before adding another extension.
   waveform_analysis_format_priority: [fst, vcd, fsdb]
+  # Reader libraries for the selected file; missing dependencies try the next entry.
+  waveform_analysis_backend_priority:
+    fst: [pywellen, wavekit]
+    vcd: [pywellen, wavekit]
+    fsdb: [wavekit]
 
 # 阶段管理面工具，按名字从已加载插件的注册表解析；不声明则不注册。
 manager_tools: ["RunTestCases"]

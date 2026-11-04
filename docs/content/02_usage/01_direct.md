@@ -49,6 +49,8 @@ embed:
 
 ## 2. 使用源码仓库的快速命令
 
+在源码仓库根目录执行 `make help`，可按功能查看可用目标、常用变量和调用示例。
+
 仓库中的 `make test_<DUT>` 会完成示例初始化、picker 导出和 UCAgent 启动。以 Adder 为例：
 
 ```bash

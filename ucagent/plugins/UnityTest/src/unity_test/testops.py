@@ -329,6 +329,10 @@ class RunPyTest(UCTool):
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
+                # Native simulator readers can change the process locale to C.
+                # Pytest logs are UTF-8; stray native bytes must not discard results.
+                encoding="utf-8",
+                errors="replace",
                 env=env,
                 bufsize=10,
                 cwd=work_dir

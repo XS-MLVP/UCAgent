@@ -49,6 +49,8 @@ The configuration file supports environment variable placeholders in the form `$
 
 ## 2. Quick Commands Using the Source Repository
 
+Run `make help` from the repository root to view available targets grouped by function, common variables, and usage examples.
+
 The `make test_<DUT>` command in the repository completes example initialization, picker export, and UCAgent startup. Taking Adder as an example:
 
 ```bash

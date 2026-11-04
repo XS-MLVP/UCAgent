@@ -2,6 +2,7 @@
 """UnityTest waveform Bug-analysis Checker."""
 
 import copy
+from typing import Callable
 
 from ucagent.checkers.base import Checker
 from .toffee_report import check_all_documented_waveform_bug_analysis
@@ -25,7 +26,9 @@ class UnityChipCheckerWaveformBugAnalysis(Checker):
         self.test_dir = test_dir
         self.require_current_replay = require_current_replay
 
-    def do_check(self, **kwargs) -> tuple[bool, object]:
+    def do_check(
+        self, progress_callback: Callable[[str], None] | None = None, **kwargs
+    ) -> tuple[bool, object]:
         """Validate dynamic Bug analysis and safely refresh current WaveInfo evidence."""
         del kwargs
         waveform_tool = None
@@ -40,6 +43,7 @@ class UnityChipCheckerWaveformBugAnalysis(Checker):
             waveform_evidence_tool=waveform_evidence_tool,
             waveform_test_dir=self.test_dir,
             require_current_replay=self.require_current_replay,
+            progress_callback=progress_callback,
         )
         if passed:
             return True, {"success": message}

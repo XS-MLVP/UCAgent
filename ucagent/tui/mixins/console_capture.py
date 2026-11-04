@@ -185,12 +185,14 @@ class ConsoleCaptureMixin:
         self._console_capture = None
 
     def flush_console_output(self) -> None:
-        """Flush captured console output to the console widget."""
+        """Render queued and captured output immediately on the UI thread."""
+        from ..widgets import ConsoleWidget
+        console = self.query_one("#console", ConsoleWidget)  # type: ignore[attr-defined]
+        # Explicit flushes must not leave queued notices waiting for the timer.
+        console._flush_batch()
         if self._console_capture is None:
             return
         text = self._console_capture.get_and_clear()
         if not text:
             return
-        from ..widgets import ConsoleWidget
-        console = self.query_one("#console", ConsoleWidget)  # type: ignore[attr-defined]
         console.append_output(text, sync_to_vpdb=False)

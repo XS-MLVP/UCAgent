@@ -55,6 +55,30 @@ def test_waveform_tool_stack_built_when_workflow_declares_test_dir(tmp_path):
     ]
 
 
+def test_waveform_tool_stack_normalizes_config_wrapped_backend_priority(tmp_path):
+    cfg = Config(
+        {
+            "tools": {"RunTestCases": {"test_dir": "tests"}},
+            "runtime_options": {
+                "waveform_analysis_backend_priority": {"vcd": ["wavekit"]}
+            },
+            "write_dirs": ["tests"],
+            "un_write_dirs": [],
+        }
+    )
+    tools = create_waveform_tools(_plugin_context(cfg, tmp_path))
+    assert [tool.name for tool in tools] == [
+        "WaveInfo",
+        "ApplyWaveInfoEvidence",
+        "ReviewWaveInfoEvidenceBatch",
+    ]
+    assert tools[0].backend_priority == {
+        "fst": ["pywellen", "wavekit"],
+        "vcd": ["wavekit"],
+        "fsdb": ["wavekit"],
+    }
+
+
 def test_waveform_tool_stack_skipped_without_test_dir(tmp_path):
     cfg = Config(
         {

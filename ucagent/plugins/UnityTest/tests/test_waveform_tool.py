@@ -24,7 +24,7 @@ from unity_test.waveform import (
     WaveInfo,
 )
 from unity_test import waveform as waveform_module
-from unity_test import waveform_formats
+from unity_test.waveform_formats import registry as waveform_registry
 from ucagent.tools.uctool import to_mcp_tool
 from unity_test.bug_analysis_contract import (
     BUG_HEADING_COMPANIONS,
@@ -251,6 +251,11 @@ def test_mcp_schema_uses_non_nullable_sentinel_arguments():
     assert schema["properties"]["start_step"]["default"] == -1
     assert schema["properties"]["end_step"]["default"] == -1
     assert schema["properties"]["max_files"]["default"] == 20
+    assert schema["properties"]["signal_query"]["default"] == "**"
+    assert schema["properties"]["signal_offset"]["default"] == 0
+    assert schema["properties"]["signal_offset"]["minimum"] == 0
+    assert schema["properties"]["signal_limit"]["default"] == 100
+    assert schema["properties"]["signal_limit"]["maximum"] == 1000
 
 
 def test_apply_waveinfo_evidence_schema_is_mcp_compatible(tmp_path):
@@ -457,7 +462,7 @@ def test_vcd_reports_freshness_events_and_clock_based_cycle_alignment(tmp_path):
     assert anchor["cycle_delta"] == 1
     assert anchor["wave_step"] == 15
     assert result["cycle_alignment"]["cycle_delta_unit"] == "clock_edges"
-    assert result["cycle_alignment"]["wave_step_unit"] == "wavekit_simulation_timestamp"
+    assert result["cycle_alignment"]["wave_step_unit"] == "waveform_simulation_timestamp"
     assert result["cycle_alignment"]["confirmed"] is False
     assert result["timeline"][15]["values"]["TOP.dut.data[3:0]"] == "4'h3"
     assert result["timeline"][15]["values"]["TOP.dut.result[3:0]"] == "4'h0"
@@ -621,6 +626,8 @@ def test_all_event_types_and_xz_values_are_preserved(tmp_path):
         "end_step": 40,
         "context_steps": 0,
         "max_points": 200,
+        "backend_args": {},
+        "include_extensions": False,
     }
     assert "current receipt is exploratory" in result["next_action"]
     assert "bug_document_fields" not in result
@@ -857,10 +864,10 @@ def test_fsdb_runtime_failure_is_actionable_and_does_not_fall_back(tmp_path, mon
 def test_registered_reader_participates_in_discovery_analysis_and_cleanup(tmp_path, monkeypatch):
     """A new extension must work through the public registration API without core edits."""
     from contextlib import contextmanager
-    import wavekit
     from unity_test.waveform_formats import register_waveform_reader
+    from unity_test.waveform_formats.read_vcd import WavekitVcdReader
 
-    monkeypatch.setattr(waveform_formats, "_READERS", dict(waveform_formats._READERS))
+    monkeypatch.setattr(waveform_registry, "_READERS", dict(waveform_registry._READERS))
     calls = []
 
     @contextmanager
@@ -868,7 +875,7 @@ def test_registered_reader_participates_in_discovery_analysis_and_cleanup(tmp_pa
         """Adapt a custom extension to a reader with deterministic resource cleanup."""
         calls.append("opened")
         try:
-            with wavekit.VcdReader(path) as reader:
+            with WavekitVcdReader(path) as reader:
                 yield reader
         finally:
             calls.append("closed")
@@ -902,7 +909,7 @@ def test_reader_registration_rejects_duplicates_and_invalid_factories():
     from unity_test.waveform_formats import register_waveform_reader
 
     with pytest.raises(ValueError, match="already registered"):
-        register_waveform_reader("fst", lambda path: None)
+        register_waveform_reader("fst", lambda path: None, backend="pywellen")
     with pytest.raises(ValueError, match="lowercase extensions"):
         register_waveform_reader("../wave", lambda path: None)
     with pytest.raises(TypeError, match="callable"):
@@ -951,7 +958,7 @@ def test_metadata_only_catalog_and_clock_required_diagnostic(tmp_path):
     _write_vcd(session, "test_catalog")
     tool = _tool(tmp_path, test_dir)
 
-    metadata = _call(tool, test_case_name="test_catalog", max_signals=2)
+    metadata = _call(tool, test_case_name="test_catalog", signal_limit=2)
     assert metadata["status"] == "metadata_only"
     assert metadata["signal_catalog"]["shown"] == 2
     assert metadata["signal_catalog"]["truncated"] is True
@@ -1032,7 +1039,7 @@ def test_empty_corrupt_dependency_and_signal_limit_errors(tmp_path, monkeypatch)
         """Simulate a missing backend dependency without requiring package removal."""
         raise ModuleNotFoundError("wavekit missing for test")
 
-    monkeypatch.setitem(waveform_formats._READERS, "vcd", unavailable)
+    monkeypatch.setitem(waveform_registry._READERS, "vcd", {"pywellen": unavailable, "wavekit": unavailable})
     operator_log = []
     monkeypatch.setattr(waveform_module, "log_msg", operator_log.append)
     missing = _call(tool, test_case_name="test_dependency")
@@ -1064,7 +1071,7 @@ def test_invalid_query_diagnostics_keep_backend_errors_in_operator_logs(tmp_path
     test_dir = tmp_path / "tests"
     session = _session(test_dir, "toffee_tmp_20260814150000_000")
     _write_vcd(session, "test_query")
-    tool = _tool(tmp_path, test_dir)
+    tool = WaveInfo(workspace=str(tmp_path), test_dir=str(test_dir), backend_priority={"vcd": ["wavekit"]})
     original_query = wavekit.VcdReader.get_matched_signals
 
     def reject_query(reader, query):

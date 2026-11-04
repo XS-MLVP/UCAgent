@@ -87,7 +87,7 @@ and fabricated evidence from being accepted.
   standalone Formal (SVA) workflow). The framework distribution bundles only
   UnityTest as package data — the
   `ucagent.plugins` package-data key, the `packages.find` excludes, and the
-  `MANIFEST.in` prunes keep `Formal`, `DesignWithPPA`, `RTL2Spec`, and every
+  `MANIFEST.in` prunes keep `Formal`, `DesignWithPPA`, `RTL2Spec`, `ACT4`, and every
   plugin's tests out of the wheel; those projects stay source-tree only until
   they ship as their own distributions. Each plugin owns its dependencies,
   resources, tests, and usage documentation.
