@@ -10,11 +10,12 @@ from ucagent.util.log import log_msg
 from .protocols import WaveformReader, WaveformReaderFactory
 
 
-DEFAULT_WAVEFORM_ANALYSIS_FORMAT_PRIORITY = ("fst", "vcd", "fsdb")
+DEFAULT_WAVEFORM_ANALYSIS_FORMAT_PRIORITY = ("fst", "vcd", "fsdb", "usdb")
 DEFAULT_WAVEFORM_ANALYSIS_BACKEND_PRIORITY = {
     "fst": ["pywellen", "wavekit"],
     "vcd": ["pywellen", "wavekit"],
     "fsdb": ["wavekit"],
+    "usdb": ["uvd"],
 }
 _FORMAT_NAME = re.compile(r"[a-z][a-z0-9_]*")
 _READERS: dict[str, dict[str, WaveformReaderFactory]] = {}

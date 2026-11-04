@@ -1,0 +1,21 @@
+#--------------------------------------------
+# Report : getUsdbHier.log
+# Date   : 2026-11-03 19:06:25
+# Command: dap getUsdbHier -export_scope -usdb vista.usdb
+#--------------------------------------------
+
+# Target Scope : *(Top Instances)
+# APP: getUsdbHier
+
+#============================================
+
+tb
+tb.FSM_Mealy_1_inst
+tb.FSM_Mealy_2_inst
+tb.FSM_Mealy_3_inst
+tb.FSM_Moore_1_ins
+tb.FSM_Moore_2_inst
+tb.FSM_Moore_3_inst
+tb.ohot
+tb1
+ttb

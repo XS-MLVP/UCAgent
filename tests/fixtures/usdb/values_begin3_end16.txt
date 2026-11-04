@@ -1,0 +1,16 @@
+UniVista Simulator Plus (UVS+)
+Version: UVS2026.06.P3 (Release, amd64)
+
+Signal: tb.ohot.clk
+Time: 0                 Value: 0
+Time: 10                Value: 1
+Signal: tb.ohot.rst_n
+Time: 0                 Value: 0
+Time: 5                 Value: 1
+
+Signal: tb.ohot.rd
+Time: 0                 Value: 0
+Time: 10                Value: 1
+
+Signal: tb.ohot.ds
+Time: 0                 Value: 0
