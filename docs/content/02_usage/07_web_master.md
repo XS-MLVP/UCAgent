@@ -189,6 +189,14 @@ launch:
 
 ---
 
+### 6.4 报告与波形同步
+
+使用压缩工作区启动任务时，`master_api.sync_workspace.on_stage_complete` 和 `on_exit` 默认在阶段完成及退出时将工作区同步回 Master。默认过滤规则不按后缀排除 `.vdb`、`.fsdb`，但仍排除测试数据和报告目录（`{OUT}/tests/data/`、`uc_test_report/`）；这些目录中的文件仍会被过滤，不受后缀影响。同机运行并查看结果时，按[使用 VCS 验证与查看结果](10_vcs.md)关闭压缩工作区模式。
+
+`master_api.sync_workspace.ignore_patterns` 同时用于工作区打包下载和回传。自定义列表会完整替换默认列表；排除 DUT 数据库会影响子任务的覆盖率收集，排除 `unity_test/tests/data/` 或 `uc_test_report/` 会使 Master 端缺少报告及其引用的波形。修改配置后需重新加载相关服务/任务，已经被过滤的文件不会自动恢复。工作区跨路径复制后的波形查看元数据还须通过验签，不能以手工修改签名绕过校验。
+
+---
+
 ## 7. Web Terminal 与访问模式
 
 ### 7.1 两种常见模式
