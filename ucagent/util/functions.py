@@ -291,7 +291,7 @@ def parse_nested_keys(
         if pre_values[i - 1] is None:
             return None, nkey
         return pre_values[i - 1][keyname_list[i]], nkey
-    with open(target_file, 'r') as f:
+    with open(target_file, 'r', encoding="utf-8") as f:
         index = 1
         lines = f.readlines()
         pre_pod = {}
@@ -875,8 +875,9 @@ def get_unity_chip_doc_marks(path: str, leaf_node: str, mini_leaf_count: int = 0
 
 
 def get_file_blocks(file_path: str, line_info) -> dict:
+    """Read UTF-8 source excerpts for the requested physical line blocks."""
     blocks = OrderedDict()
-    with open(file_path, "r") as f:
+    with open(file_path, "r", encoding="utf-8") as f:
         lines = f.read().splitlines()
         for k, v in line_info.items():
             blocks[k] = []

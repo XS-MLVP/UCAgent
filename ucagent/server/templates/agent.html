@@ -2349,7 +2349,7 @@ async function openView(path,name,ext){
   try{
     if(_HTML_EXTS.has(ext)){
       body.style.padding="0";body.style.overflow="hidden";
-      body.innerHTML=`<iframe id="view-frame" src="${_workspaceBaseFileUrl(path)}" sandbox="allow-scripts allow-same-origin"></iframe>`;
+      body.innerHTML=`<iframe id="view-frame" src="${_workspaceBaseFileUrl(path)}" sandbox="allow-scripts allow-same-origin allow-popups"></iframe>`;
     }else if(_IMG_EXTS.has(ext)){
       body.style.padding="14px";body.style.overflow="auto";
       body.innerHTML=`<img id="view-img" src="${_workspaceFileUrl(path)}" alt="${esc(name)}">`;

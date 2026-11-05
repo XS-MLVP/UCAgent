@@ -184,7 +184,6 @@ master_api:
       - "*.pyc"
       - "*.pyd"
       - "*.dat"
-      - "*.vdb"
       - "*.fst"
       - "*.fdb"
       - "*.vcd"
