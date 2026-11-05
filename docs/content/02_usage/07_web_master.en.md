@@ -193,6 +193,14 @@ For stage output files, you can:
 
 ---
 
+### 6.4 Report and Waveform Synchronization
+
+When tasks use archived workspaces, `master_api.sync_workspace.on_stage_complete` and `on_exit` synchronize the workspace back to Master at stage completion and exit by default. The default filters do not exclude `.vdb` or `.fsdb` by suffix, but still exclude test data and report directories (`{OUT}/tests/data/` and `uc_test_report/`). Files inside an excluded directory are omitted regardless of suffix. For the same-machine viewing workflow, disable archived workspaces as described in [Verify with VCS and Inspect Results](10_vcs.md).
+
+`master_api.sync_workspace.ignore_patterns` applies to both workspace archive downloads and sync-back uploads. A custom list replaces the entire default list. Excluding DUT databases affects coverage collection in child tasks; excluding `unity_test/tests/data/` or `uc_test_report/` removes reports and referenced waveforms from Master. Reload affected services/tasks after changing configuration; previously filtered files are not restored automatically. Waveform viewing metadata copied across workspace paths must also pass signature validation; do not edit signatures manually to bypass it.
+
+---
+
 ## 7. Web Terminal and Access Modes
 
 ### 7.1 Two Common Modes

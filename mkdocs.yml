@@ -74,6 +74,7 @@ nav:
       - Web Master 使用指南: content/02_usage/07_web_master.md
       - 技能 SKILL: content/02_usage/08_skill.md
       - Xpra 图形应用: content/02_usage/09_web_xpra.md
+      - 使用 VCS 验证与查看结果: content/02_usage/10_vcs.md
   - 定制开发:
       - 概览: content/03_develop/00_index.md
       - 定制开发入门: content/03_develop/01_quick_start.md
@@ -170,6 +171,7 @@ plugins:
             Web Master 使用指南: Web Master Guide
             技能 SKILL: Skills
             Xpra 图形应用: Graphical Applications with Xpra
+            使用 VCS 验证与查看结果: Verify with VCS and Inspect Results
             定制开发: Development
             概览: Overview
             定制开发入门: Development Quick Start
