@@ -146,6 +146,25 @@ Commands are split into arguments by quotes and do not automatically interpret s
 
 Sessions include `id`, `name`, `mode`, `command`, `cwd`, `idle_timeout`, `status`, `created_at`, `viewer_path`, and `last_error`; details also include `log_tail` with up to 200 lines of output. `viewer_path` is resolved relative to the current `/api/xpra/` base address. `created_at` is a Unix timestamp. Environment variable values are not returned as session fields; known credentials and submitted environment variable values are masked in captured logs.
 
+## Coverage application links
+
+`RunUnityChipTest` only selects `--report-custom=coverage-gui-xpra` for Toffee. No resolver,
+workspace option or installation-time registration is required, including
+source-tree launches through `make`.
+
+The coverage provider owns application links and launch pages. Existing viewer
+URLs navigate directly. To launch an application, a provider page calls the
+generic `POST /api/xpra/sessions` described above with `command`, `mode`, `name`
+and `cwd`, then opens the returned `viewer_path`. UCAgent has no coverage-specific
+request schema, database parser or viewer configuration.
+
+The VCS provider still uses URG for HTML and provides a Verdi entry. Open the
+report through the UCAgent workspace browser; a session starts only on clicking
+Verdi. The provider owns the command and artifact paths, and the application must
+be installed in the Xpra service environment. UVS remains a provider scaffold.
+Reopening a launch page creates another session; close unused sessions in the
+Xpra manager.
+
 ## Display Page Operations
 
 Clicking **Open** launches the application directly. The Console defaults to filling the available display area, while the GUI retains the application's own window size and adjustment capabilities. The top bar displays the actual connection status and provides **Reconnect**, **Full screen**, **Sessions**, **Exit**, and a window switch list; minimized applications can be restored via the window list.

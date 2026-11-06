@@ -146,6 +146,21 @@ curl -u :your-password \
 
 会话包含 `id`、`name`、`mode`、`command`、`cwd`、`idle_timeout`、`status`、`created_at`、`viewer_path` 和 `last_error`；详情还包括最多 200 条输出的 `log_tail`。`viewer_path` 相对于当前 `/api/xpra/` 基址解析。`created_at` 是 Unix 时间戳。环境变量值不会作为会话字段返回，已知凭据及提交的环境变量值会在捕获日志中遮盖。
 
+## 覆盖率报告中的应用入口
+
+`RunUnityChipTest` 只需为 Toffee 设置 `--report-custom=coverage-gui-xpra`，无需 resolver、
+工作区参数或安装时注册，源码目录中的 `make` 启动同样支持。
+
+覆盖率 provider 负责生成应用链接及启动页面。已有查看页面直接跳转；需要启动
+应用时，由页面调用上面的通用 `POST /api/xpra/sessions`，提交
+`command`、`mode`、`name`、`cwd`，然后打开返回的 `viewer_path`。
+UCAgent 不解析覆盖率数据库，也没有覆盖率专用请求或查看器配置。
+
+VCS provider 仍通过 URG 生成 HTML，并提供 Verdi 入口。通过 UCAgent 工作区
+浏览器打开报告后，点击 Verdi 才启动会话。运行命令和数据库路径由 provider
+决定；应用须已安装在 Xpra 服务所在环境。UVS provider 仍是待实现骨架。
+重复点击启动页会创建新会话，可在 Xpra 管理页关闭不再使用的会话。
+
 ## 显示页操作
 
 点击 **Open** 后直接进入应用。Console 默认铺满可用显示区域；GUI 保留应用自身的窗口尺寸和调整功能。顶部显示实际连接状态，提供 **Reconnect**、**Full screen**、**Sessions**、**Exit**，以及窗口切换列表；最小化的应用可以通过窗口列表恢复。
