@@ -1,0 +1,8 @@
+__pycache__/
+.pytest_cache/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+# Downloaded upstream documentation; regenerate with scripts/download_standards.py.
+/src/bug_review/references/

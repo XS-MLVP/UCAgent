@@ -1,0 +1,103 @@
+template: null
+runtime_options:
+  bug_review_waveform_enabled: $(BUG_REVIEW_WAVEFORM_ENABLED: false)
+  bug_review_full_regression_enabled: $(BUG_REVIEW_FULL_REGRESSION_ENABLED: false)
+guide_doc:
+  core_copy_policy:
+    default_action: ignore
+    retain: []
+    override: []
+    ignore: []
+write_dirs: ["{OUT}/notes.md"]
+un_write_dirs: ["unity_test/", "{OUT}/inputs/", "{OUT}/runs/work/", "Guide_Doc/"]
+hist_ignore_pattern: ["*.fst", "*.vcd", "*.dat", "__pycache__", ".pytest_cache"]
+tools:
+  ignore_tools: ["WorkDiff", "WorkCommit", "RunBashCommand", "ApplyWaveInfoEvidence", "ReviewWaveInfoEvidenceBatch"]
+  RunTestCases:
+    test_dir: "{OUT}/runs/work"
+    report_dir: "{OUT}/runs/reports"
+    extra_python_paths: ["."]
+  WaveInfo:
+    test_dir: "{OUT}/runs/work"
+    allowed_case_index: "{OUT}/review.json"
+    session_scope: all
+skill:
+  general_skill_list: []
+mission:
+  name: "原 Bug 定向复核"
+  prompt:
+    system: |
+      核实原报告的 Bug 声明，不修改原始测试、断言、fixture、参考模型、规格或 RTL。
+      先阅读 Guide_Doc/analysis.md。原始 UnityTest 保存在 {OUT}/inputs，复核记录为 {OUT}/review.json；
+      测试执行副本和结果位于 {OUT}/runs，报告位于 {OUT}/report。使用专用工具提交结构化字段，不手写正式 JSON。
+      原声明由你阅读材料后整理，来源格式不限；原结论不是独立证据。每条声明须有裁决，不因未复现就排除。
+      默认仅复跑关联用例。定向复核阶段只运行测试并分析测试、日志、规格和 RTL，不调用波形工具。
+      波形阶段默认跳过；关闭时不得要求波形收据、波形事件或预览才能完成。开启后仅分析确有必要的 Case。
+      无法运行时记录具体 replay_blocker，可导入 inputs 内历史报告；历史结果不能写成本次已复现。
+      真实性与内部根因分开：正确测试的真实功能违例可以成立而内部原因仍未定位；静态 RTL 推导不得称为动态实测。
+      单次通过不足以排除原 Bug；测试预期、激励或环境错误需具体反证。通用规范库为 {OUT}/inputs/review_standards/catalog.json 所列香山、RISC-V、Chisel 原文。适用条款与真实合法测试证明 DUT 违例时可以确认 Bug，无需额外等待项目专用已审核 Spec。核对版本、扩展、参数、规范性条款及接口类型；原验证自动生成的检查点不能替代原始规范。仅在适用性或实际证据仍有具体缺口时保留未定。
+      CurrentTips 列出可用 Skill 时可阅读辅助执行；没有 Skill 时按 Guide 和普通工具完成相同产物。
+      每阶段先 Check，通过后记录 SetCurrentStageJournal 并 Complete。
+    tips:
+      always:
+        - "定向复核用 ReviewWorkQueue 获取 next_group，按原 Bug 关联的一组 Case 处理；ReviewContext(claim_id=声明ID) 分页读取组上下文，case_id 只用于必要的单项详情。UpdateCaseAnalysis 只表示保存，不代表完成。"
+      random: []
+mcp_server:
+  init_prompt: "调用 CurrentTips，阅读 Guide_Doc/analysis.md，推进当前原 Bug 复核阶段。"
+stage:
+  - name: input_inventory
+    desc: "盘点原始输入"
+    task:
+      - "调用 PrepareReviewInputs，将原始 unity_test 归档到 {OUT}/inputs，列出文档和缺失材料。不要求先编译、收集或重跑。返回的 standards_catalog 指向已归档的通用规范库，确认三类来源可读。查看根目录是否提供 DUT 运行包、项目规格和 RTL；不能把原报告的源码片段冒充实际源码。"
+    reference_files: ["Guide_Doc/analysis.md"]
+    output_files: ["{OUT}/review.json"]
+    checker: [{name: review_inputs, clss: BugReviewStageChecker, args: {stage: input_inventory}}]
+  - name: claim_inventory
+    desc: "整理原始 Bug 声明与用例关联"
+    task:
+      - "阅读 PrepareReviewInputs 返回的原文，包括摘要、分析、静态候选和测试总结。填写 source_reviews 对每份文档说明 claims/no_claims/supporting/unreadable 及理由。"
+      - "用 SubmitReviewClaims 提交 context（description、scope，及有依据的 version、configuration、limitations、source_refs）和全部声明，按 B001、B002 分配稳定 ID。填写 title、statement、source_refs、source_labels、case_ids、mapping_reason、missing_information。重复声明可合并但保留所有来源，检查点或 BG 块数不等于 Bug 数。缺少字段如实留作缺口，不补造原声明。"
+      - "Case 使用 tests/file.py::function 的精确身份；缺关联则 case_ids 留空并说明。当前阶段只整理原主张，不作最终判断。全部来源明确无 Bug 时可提交空 claims，不能把解析失败当作无 Bug。"
+    reference_files: ["Guide_Doc/analysis.md", "Guide_Doc/bug_review_writing.md"]
+    output_files: ["{OUT}/review.json"]
+    skill_list: ["ext/bug_review/claim-review"]
+    force_use_skill: false
+    checker: [{name: review_claims, clss: BugReviewStageChecker, args: {stage: claim_inventory}}]
+  - name: targeted_review
+    desc: "定向复跑并分析关联测试"
+    task:
+      - "先用 ReviewContext 查看现有 Case 执行。仅在需要首次执行或补充真实缺失证据时调用 CollectReviewCases，并用其精确 target 调用 RunTestCases；已有导入结果的 Case 直接分析，不因接续会话或说明字段缺失而重跑。默认只执行原报告关联用例；全量回归仅在已启用相应选项时执行。每次运行后用精确 invocation_id 调用 CaptureReplayReport。"
+      - "先 ReviewWorkQueue 获取 next_group，按原 Bug 的 case_ids 分组分析测试、fixture、API、参考模型、独立规格、日志与相关 RTL。公共规范、helper、驱动与采样规则在组内审查一次，再核实每项的激励、实际失败点、执行分支与预期差异；同组不代表结论相同。先按 inputs/review_standards/catalog.json 的来源、revision 和 entry_points 检索相关原文，用 SearchText/ReadTextFile 按需读取，禁止整库灌入上下文。核对规范条款适用的设计版本、扩展、配置与接口类型，再核对输入、预期、采样、超时和实际失败。不得因缺少项目专用 Spec 就跳过通用规范；Chisel DecoupledIO 不具有 IrrevocableIO 的背压稳定性保证。已有足够功能证据时不等待内部根因全部定位；证据有具体缺口则记录 remaining_gap/next_action 并继续其他项，不为凑进度凭超时或检索次数判未定。定向阶段不分析波形。"
+      - "同组证据充分后及时用 UpdateCaseAnalysis 每批最多 5 项提交；shared 填公共规格、有效性、时序审查及引用，cases 各自填写 scenario、test_expected、actual、reasoning、selected_execution、failure_refs 和分类。超过五项分批，不为分批重新研究公共部分。已有组内 reusable_evidence 可导航原始依据，不把已有结论当独立证据；每项仍需核对适用性。字段见 Guide_Doc/analysis.md。选择真实 selected_execution，失败项用 failure_refs 引用该执行报告或日志的具体行；类别为 dut/test/environment/specification/unresolved/no_failure。dut 需独立 spec_refs、真实失败和正确测试；缺口写 remaining_gap/next_action。"
+      - "缺运行依赖时在 replay_blocker 写明具体错误和恢复方法，可通过 CaptureReplayReport(historical_path='inputs/...json') 导入既有报告；不得声称本次复现。没有真实执行结果且无法运行时保留 unresolved，不编造状态或通过数。"
+    reference_files: ["Guide_Doc/analysis.md"]
+    output_files: ["{OUT}/review.json"]
+    skill_list: ["ext/bug_review/targeted-review"]
+    force_use_skill: false
+    checker: [{name: review_tests, clss: BugReviewStageChecker, args: {stage: targeted_review}}]
+  - name: waveform_review
+    desc: "按需波形分析"
+    skip: not $(BUG_REVIEW_WAVEFORM_ENABLED: false)
+    task:
+      - "只对尚需解释的时序、事务或内部传播分析波形。不需要分析的 Case 用 SetWaveformReviewNote 记录具体理由；缺波形记录阻塞，不影响其他已有充分证据的裁决。"
+      - "ReviewContext 返回精确 waveform_test_case_name。先 ReviewSignalCatalog 获取真实路径；WaveInfo 的 signal_groups 只填路径，事件条件用 pattern。响应无边沿时用真实请求或时钟定位窗口，不能把 no_candidate 当作文件不可读。"
+      - "取得最终收据后用 ApplyReceiptToCase 绑定 Case 和 invocation，填写 observation/alignment/source_refs；需要记录具体信号值时调用 ApplyWaveformEvent，由工具测量 raw_value。正常握手不是首错。已有有效证据不重复取证，确实缺失时才定向补跑并导入新 invocation。"
+      - "波形结论有变化时 UpdateCaseAnalysis 修正分析，保留真实历史执行，不改变原声明或断言。"
+    reference_files: ["Guide_Doc/analysis.md"]
+    output_files: ["{OUT}/review.json"]
+    checker: [{name: review_wave, clss: BugReviewStageChecker, args: {stage: waveform_review}}]
+  - name: decisions
+    desc: "逐条裁决与根因整理"
+    task:
+      - "用 SubmitReviewDecisions 提交每个原始 claim_id 的 confirmed/refuted/inconclusive 裁决、reasoning、case_ids、source_refs、next_action，并填写 narrative：title、summary、expected_behavior、trigger_steps、comparisons（condition/expected/actual/source_refs）、cause_analysis、impact、scope。违反适用的香山、RISC-V 或 Chisel 规范可 confirmed，reasoning 写明具体要求、适用性及实际违例；规范允许或未定义的行为不能据此确认为 Bug。未定必须给出具体 remaining_gap 和 next_action，不能笼统填写“没有独立 Spec”；排除需具体反证而不是一次通过。"
+      - "确认功能违例不强制定位内部根因。不确定内部原因时 root_id=null。能够定位的共同根因在 roots 中只定义一次，Bug 只引用 root_id；填写实际 rtl_refs、explanation、alternatives。静态推导 basis=static_inference；实测 basis=waveform_observation 需本根因成员的 receipt_ids。"
+    reference_files: ["Guide_Doc/analysis.md", "Guide_Doc/bug_review_writing.md"]
+    output_files: ["{OUT}/review.json"]
+    checker: [{name: review_decisions, clss: BugReviewStageChecker, args: {stage: decisions}}]
+  - name: publish
+    desc: "生成并核验复核报告"
+    task:
+      - "调用 RenderBugReviewReport，再调用 verify_only=true 验证报告。查看原声明、裁决、Case 和来源链接是否完整；关闭波形时不补造波形字段或空预览。全部声明已处理仍可有未定项，不能宣称所有 Bug 已解决。Check 后记录日志并 Complete。"
+    reference_files: ["Guide_Doc/analysis.md", "Guide_Doc/bug_review_writing.md"]
+    output_files: ["{OUT}/report/index.html", "{OUT}/report/manifest.json"]
+    checker: [{name: review_publish, clss: BugReviewStageChecker, args: {stage: publish}}]
