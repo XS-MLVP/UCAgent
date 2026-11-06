@@ -164,4 +164,6 @@ ucagent <workspace> <DUT> \
 
 配置解析后，UCAgent 在工作区写入 `.ucagent/runtime_config.json`。它只包含已解析的非敏感字段，例如 `DUT`、`OUT`、`runtime_options`、`current_test_report` 和 `ucagent_python_path`。Skill 脚本应读取该快照，不要从脚本位置猜测源码路径或重新解释环境变量；快照中的 `ucagent_python_path` 必须是包含当前 `ucagent/__init__.py` 的绝对路径。
 
+工作区 `.ucagent/` 及其全部内容对 Agent/LLM 只读。统一系统提示禁止模型通过文件工具、后端原生工具、shell 或脚本创建、修改、删除、移动这些文件或更改其权限，用户自定义系统提示也保留此规则。内置文件工具强制拒绝写入，opencode 生成配置同时禁止原生编辑该目录；读取仍然可用。UCAgent 及公开工作流工具仍可维护配置快照、进度与证据。遇到运行环境阻塞时，模型应报告诊断和所需人工操作；由操作者修正配置或环境并重启 UCAgent，不让模型修改运行状态或框架/插件源码来修复环境。已启动的进程不会自动重新加载配置、系统提示或后端权限。
+
 下一步：先运行 [Mini 示例](08_mini_example.md)，再根据需要学习[定制工具](05_customize.md)、[模板文件](04_template.md)和[插件](09_plugins.md)。

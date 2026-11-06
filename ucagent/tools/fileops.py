@@ -301,13 +301,22 @@ def is_file_writeable(path: str, un_write_dirs: list=None, write_dirs: list=None
     A path matching entries from both lists is decided by the deepest entry:
     a write entry strictly below a no-write entry carves that subtree back out
     as writable, while an equal-depth conflict keeps the path protected.
+    The workspace .ucagent tree is always read-only to agent file operations.
     """
     try:
         path = _normalize_relative_path(path)
     except ValueError as exc:
         return False, str(exc)
+    # This is an agent boundary, independent of configurable write carve-outs.
+    # Runtime owners write their state directly instead of using file tools.
+    if PurePosixPath(path).parts[0].casefold() == ".ucagent":
+        return False, (
+            "The workspace .ucagent/ directory is read-only to the agent. "
+            "Read it for diagnosis and use workflow tools for managed updates; "
+            "ask the operator to repair runtime configuration and restart UCAgent."
+        )
     if un_write_dirs is None and write_dirs is None:
-        return True, "No write restrictions defined."
+        return True, "No additional write restrictions apply to this path."
     if un_write_dirs is not None:
         assert isinstance(un_write_dirs, list), "un_write_dirs must be a list."
     if write_dirs is not None:
@@ -347,11 +356,11 @@ class BaseReadWrite:
     )
     write_able_dirs: List[str] = Field(
         default=None,
-        description="List of directories where files can be modified. If empty, all directories are writable."
+        description="Writable path entries. None applies only protected-path restrictions; an empty list permits no writes."
     )
     un_write_able_dirs: List[str] = Field(
         default=None,
-        description="List of directories where files cannot be modified. If empty, no directories are restricted."
+        description="Additional protected path entries. The workspace .ucagent/ tree remains read-only even when this list is empty."
     )
     create_file: bool = Field(
         default=False,
@@ -410,6 +419,9 @@ class BaseReadWrite:
         self.write_able_dirs = self.refine_dirs(self.workspace, write_dirs)
         self.un_write_able_dirs = self.refine_dirs(self.workspace, un_write_dirs)
         self.max_read_size = max_read_size
+        self.description = getattr(self, "description", "") + (
+            "\n\nThe workspace .ucagent/ directory is read-only to you; reading it is allowed."
+        )
         if write_dirs is not None:
             if len(write_dirs) == 0:
                 self.description += "\n\nNote: All directories are read only."
@@ -421,7 +433,7 @@ class BaseReadWrite:
                     warning(f"Writable path entry {d} matches nothing in workspace {workspace}.")
         if un_write_dirs is not None:
             if len(un_write_dirs) == 0:
-                self.description += "\n\nNote: No directories are restricted."
+                self.description += "\n\nNote: No additional directories are restricted."
             else:
                 self.description += f"\n\nNote: Directories in {un_write_dirs} are not writable."
             for d in un_write_dirs:

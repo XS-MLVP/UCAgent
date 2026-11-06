@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+"""Assemble verification agents and coordinate tools, prompts, and work loops."""
 
 from curses import echo
 from .tools.context import ArbitContextSummary
@@ -559,9 +560,7 @@ class VerifyAgent:
             checker_registry=self.plugin_checker_registry,
             test_python_import_roots=plugin_python_import_roots,
         )
-        self._default_system_prompt = (
-            sys_tips if sys_tips else self.get_default_system_prompt()
-        )
+        self._default_system_prompt = self.get_default_system_prompt(sys_tips)
         self.tool_list_base = [
             self.tool_read_text,
             RoleInfo(self._default_system_prompt),
@@ -1086,15 +1085,29 @@ class VerifyAgent:
         """Get the current system message for the agent."""
         return self._system_message
 
-    def get_default_system_prompt(self):
-        """Get the default system prompt for the agent. And if skill is enabled, include skill prompt and skill list."""
-        system = self.cfg.mission.prompt.get_value("system", "").strip()
+    def get_default_system_prompt(self, sys_tips=None):
+        """Render mission guidance and the invariant agent runtime-state boundary."""
+        system = (sys_tips or self.cfg.mission.prompt.get_value("system", "")).strip()
         if self.cfg.skill.use_skill:
             formatted_skill_list = list_skills_in_format(_list_skills(self.workspace),self.workspace,self.cfg.skill.general_skill_list)
             skill_prompt = self.cfg.mission.prompt.get_value("skill_system", "").replace("{general_skill_list}", formatted_skill_list)
             system = system.replace("{skill_system}", skill_prompt)
         else:
             system = system.replace("{skill_system}", "")
+        system += (
+            "\n\nThe workspace `.ucagent/` directory and all its contents are "
+            "read-only to you. You may read them when needed, but must not "
+            "create, edit, overwrite, delete, move, rename, or change permissions "
+            "on them through file tools, backend-native tools, shell commands, "
+            "or scripts. This includes settings, copied Skills, runtime "
+            "snapshots, checkpoints, receipts, and history. Use the documented "
+            "workflow tools to record progress and evidence; their managed "
+            "state updates are allowed. If runtime configuration or a tool "
+            "environment blocks work, report the exact diagnostic and required "
+            "operator action. Do not edit `.ucagent/` or framework/plugin "
+            "source to repair the running environment. Runtime configuration "
+            "changes require an operator to restart UCAgent."
+        )
         warning(f"System prompt: {system}")
         return system
 
