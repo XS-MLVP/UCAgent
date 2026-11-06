@@ -368,12 +368,12 @@ def cmd_status(args: argparse.Namespace) -> int:
         ],
     )
     status = request_json(target, "GET", "/api/status", password, timeout=args.timeout)
-    pdb_status = request_json(target, "GET", "/api/pdb_status", password, timeout=args.timeout)
+    runtime_status = request_json(target, "GET", "/api/runtime/status", password, timeout=args.timeout)
     server_info = request_json(target, "GET", "/api/server_info", password, timeout=args.timeout)
     print("\nAgent status:")
     print_json(unwrap_response(status))
-    print("\nPDB runtime:")
-    print_json(unwrap_response(pdb_status))
+    print("\nRuntime state:")
+    print_json(unwrap_response(runtime_status))
     print("\nServer info:")
     print_json(unwrap_response(server_info))
     return 0
@@ -384,14 +384,14 @@ def cmd_cmd(args: argparse.Namespace) -> int:
         args.command = args.command[1:]
     command = " ".join(args.command).strip()
     if not command:
-        raise UCAgentClientError("cmd requires a PDB command, for example: cmd status")
+        raise UCAgentClientError("cmd requires a runtime command, for example: cmd status")
     target, password = pick_connection(args.url, args.passwd)
     result = request_json(
         target,
         "POST",
         "/api/cmd",
         password,
-        body={"cmd": command},
+        body={"cmd": command, "confirmed": args.confirmed, **({"session_id": args.session} if args.session else {})},
         timeout=args.timeout,
     )
     print_json(result)
@@ -407,7 +407,7 @@ def cmd_batch(args: argparse.Namespace) -> int:
     commands = [command.strip() for command in commands if command.strip()]
     if not commands:
         raise UCAgentClientError(
-            "batch requires at least one PDB command; quote commands that contain spaces"
+            "batch requires at least one runtime command; quote commands that contain spaces"
         )
     target, password = pick_connection(args.url, args.passwd)
     result = request_json(
@@ -415,7 +415,7 @@ def cmd_batch(args: argparse.Namespace) -> int:
         "POST",
         "/api/cmds/batch",
         password,
-        body={"cmds": commands},
+        body={"cmds": commands, "confirmed": args.confirmed, **({"session_id": args.session} if args.session else {})},
         timeout=args.timeout,
     )
     print_json(result)
@@ -434,7 +434,7 @@ def cmd_help(args: argparse.Namespace) -> int:
         result = request_json(target, "GET", "/api/help", password, query=query, timeout=args.timeout)
     except UCAgentClientError:
         if args.command is None:
-            print("Remote PDB help unavailable because no CMD API connection is configured.")
+            print("Remote runtime help unavailable because no CMD API connection is configured.")
             return 0
         raise
     print_json(unwrap_response(result))
@@ -572,9 +572,17 @@ def cmd_file(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_interrupt(args: argparse.Namespace) -> int:
+def cmd_operation(args: argparse.Namespace) -> int:
+    """Read or cancel one operation by its returned identifier."""
     target, password = pick_connection(args.url, args.passwd)
-    result = request_json(target, "POST", "/api/interrupt", password, timeout=args.timeout)
+    path = f"/api/operations/{args.operation_id}" + ("/cancel" if args.cancel else "")
+    print_json(request_json(target, "POST" if args.cancel else "GET", path, password, timeout=args.timeout))
+    return 0
+
+
+def cmd_pause(args: argparse.Namespace) -> int:
+    target, password = pick_connection(args.url, args.passwd)
+    result = request_json(target, "POST", "/api/runtime/pause", password, timeout=args.timeout)
     print_json(result)
     return 0
 
@@ -635,13 +643,17 @@ def build_parser() -> argparse.ArgumentParser:
     status_parser.add_argument("--no-state", action="store_true", help="Ignore saved connection state")
     status_parser.set_defaults(func=cmd_status)
 
-    cmd_parser = subparsers.add_parser("cmd", help="Enqueue a PDB command")
+    cmd_parser = subparsers.add_parser("cmd", help="Enqueue a runtime command")
     add_common_connection_args(cmd_parser)
-    cmd_parser.add_argument("command", nargs=argparse.REMAINDER, help="PDB command and arguments")
+    cmd_parser.add_argument("--confirmed", action="store_true", help="Confirm commands requiring explicit approval")
+    cmd_parser.add_argument("--session", help="Reuse a command session ID and its working directory")
+    cmd_parser.add_argument("command", nargs=argparse.REMAINDER, help="runtime command and arguments")
     cmd_parser.set_defaults(func=cmd_cmd)
 
-    batch_parser = subparsers.add_parser("batch", help="Enqueue multiple PDB commands")
+    batch_parser = subparsers.add_parser("batch", help="Enqueue multiple runtime commands")
     add_common_connection_args(batch_parser)
+    batch_parser.add_argument("--confirmed", action="store_true", help="Confirm commands requiring explicit approval")
+    batch_parser.add_argument("--session", help="Reuse a command session ID")
     batch_parser.add_argument(
         "--stdin",
         action="store_true",
@@ -650,17 +662,17 @@ def build_parser() -> argparse.ArgumentParser:
     batch_parser.add_argument(
         "commands",
         nargs=argparse.REMAINDER,
-        help="PDB commands; quote each command containing spaces",
+        help="runtime commands; quote each command containing spaces",
     )
     batch_parser.set_defaults(func=cmd_batch)
 
-    help_parser = subparsers.add_parser("help", help="Show local help or remote PDB command help")
+    help_parser = subparsers.add_parser("help", help="Show local help or remote runtime command help")
     add_common_connection_args(help_parser)
-    help_parser.add_argument("command", nargs="?", help="PDB command name")
+    help_parser.add_argument("command", nargs="?", help="runtime command name")
     help_parser.add_argument("--local", action="store_true", help="Show local helper help only")
     help_parser.set_defaults(func=cmd_help)
 
-    cmds_parser = subparsers.add_parser("cmds", help="List available PDB commands")
+    cmds_parser = subparsers.add_parser("cmds", help="List available runtime commands")
     add_common_connection_args(cmds_parser)
     cmds_parser.add_argument("prefix", nargs="?", default="", help="Optional command prefix")
     cmds_parser.set_defaults(func=cmd_cmds)
@@ -709,9 +721,15 @@ def build_parser() -> argparse.ArgumentParser:
     file_parser.add_argument("path", help="Workspace-relative text file path")
     file_parser.set_defaults(func=cmd_file)
 
-    interrupt_parser = subparsers.add_parser("interrupt", help="Send Ctrl-C interrupt to UCAgent")
-    add_common_connection_args(interrupt_parser)
-    interrupt_parser.set_defaults(func=cmd_interrupt)
+    for name, cancel in (("operation", False), ("cancel", True)):
+        operation_parser = subparsers.add_parser(name, help="Query or cancel an operation by ID")
+        add_common_connection_args(operation_parser)
+        operation_parser.add_argument("operation_id")
+        operation_parser.set_defaults(func=cmd_operation, cancel=cancel)
+
+    pause_parser = subparsers.add_parser("pause", help="Pause UCAgent at a safe boundary")
+    add_common_connection_args(pause_parser)
+    pause_parser.set_defaults(func=cmd_pause)
 
     disconnect_parser = subparsers.add_parser("disconnect", help="Remove saved connection state")
     disconnect_parser.set_defaults(func=cmd_disconnect)
@@ -734,17 +752,17 @@ Connection:
       and then http://127.0.0.1:8765.
 
 Core:
-  cmd <pdb-command> [args...]
-      Enqueue a UCAgent PDB command.
+  cmd <command> [args...]
+      Enqueue a UCAgent runtime command.
   batch <command> [<command> ...]
-      Enqueue multiple PDB commands. Quote commands containing spaces.
+      Enqueue multiple runtime commands. Quote commands containing spaces.
   status
-      Show saved target, agent status, PDB runtime state, and server info.
-  help [pdb-command]
-      Show this help plus remote PDB command help when connected.
+      Show saved target, agent status, runtime runtime state, and server info.
+  help [command]
+      Show this help plus remote runtime command help when connected.
 
 Useful extras:
-  cmds [prefix]         List PDB commands.
+  cmds [prefix]         List runtime commands.
   console [--lines N]   Show captured console output.
   clear-console         Clear captured console output.
   mission               Show mission progress.
@@ -754,7 +772,9 @@ Useful extras:
   changed-files         Show recently changed output files.
   files [path]           List a workspace directory through the CMD API.
   file <path>            Read a workspace text file through the CMD API.
-  interrupt             Send Ctrl-C to the running agent.
+  pause                 Pause after the current call.
+  operation <id>        Query an operation result.
+  cancel <id>           Request cancellation of one operation.
   disconnect            Remove saved connection state.
   raw METHOD PATH [JSON] Call any CMD API endpoint.
 

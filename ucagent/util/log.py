@@ -66,11 +66,7 @@ def _stream_chain_records_console(stream) -> bool:
     current = stream
     while current is not None and id(current) not in visited:
         visited.add(id(current))
-        if getattr(current, "_record_to_vpdb", False):
-            return True
-        if current.__class__.__name__ == "PersistentConsoleMirror" and hasattr(current, "_vpdb"):
-            return True
-        if current.__class__.__name__ == "_ConsoleCapture":
+        if getattr(current, "records_console", False):
             return True
         current = getattr(current, "_original", None)
     return False

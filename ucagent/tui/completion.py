@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol
+from shlex import quote
+
+from ucagent.control.commands import completion_base
 
 if TYPE_CHECKING:
     from .handlers import KeyHandler
@@ -79,7 +82,7 @@ class CompletionHandler:
         if is_cycling and self.state.has_items:
             selected = self.state.cycle_next()
             if selected:
-                new_text = self.state.base + selected
+                new_text = self.state.base + (quote(selected) if self.state.base else selected)
                 return new_text, self.state.items, self.state.index
             return None, [], -1
 
@@ -93,16 +96,14 @@ class CompletionHandler:
 
         if len(completions) == 1:
             self.reset()
-            return base + completions[0], [], -1
+            return base + (quote(completions[0]) if base else completions[0]), [], -1
 
         self.state.items = completions
         self.state.index = 0
         self.state.base = base
-        return base + completions[0], completions, 0
+        return base + (quote(completions[0]) if base else completions[0]), completions, 0
 
     @staticmethod
     def _extract_base(text: str) -> str:
         """Extract the base prefix before the completion word."""
-        if " " in text:
-            return text[: text.rfind(" ") + 1]
-        return ""
+        return completion_base(text)

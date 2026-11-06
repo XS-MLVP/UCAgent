@@ -169,9 +169,11 @@ CHECK_INTERVAL=120
 
 ### 3.9 `停止运行`
 
-向约定 tmux pane 发送一次 `Ctrl-C`，等待 UCAgent 清理并退出。持续观察，直到业务进程
-真正终止。默认保留 tmux shell 和正式产物，不杀 session、不删除 history、不清理 tmp。
-若一次 `Ctrl-C` 后仍在框架清理阶段，等待，不连续发送信号。
+在约定 tmux pane 的 UCAgent Console/TUI 输入 `shutdown` 并回车，等待清理和业务进程
+真正退出。`Ctrl-C` 只请求取消前台操作，TUI 的 `q` 只退出界面，不能作为进程退出确认。
+没有可用输入入口时，先核对目标 UCAgent PID，再发送 `SIGTERM` 请求正常关闭。
+默认保留 tmux shell 和正式产物，不杀 session、不删除 history、不清理 tmp；清理期间持续观察，
+不要重复发送关闭命令或信号。
 
 ### 3.10 `深度修理`
 
@@ -292,7 +294,7 @@ change_history、用户明确要求保留的日志或仍在运行进程使用的
   路径搜索和目录同步相关函数。
 - 历史恢复、权限或 `.ucagent/history` 异常：继续阅读 `vstage.py`、`vmanager.py` 中
   `hist_sync`、`hist_commit` 和 UCAgent 信息保存逻辑。
-- MCP 接入问题：继续阅读 `server/api_mcp.py` 和 `verify_pdb.py` 的服务启动部分。
+- MCP 接入问题：继续阅读 `server/api_mcp.py` 和 `control/runtime/services.py` 的服务启动部分。
 - TUI 不出现或颜色异常：阅读 `tui/` 和 CLI 对 `--tui` 的处理，同时检查是否存在真实
   TTY，不要先修改业务配置。
 

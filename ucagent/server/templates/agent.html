@@ -243,26 +243,26 @@ html[data-theme="light"] #console-output-wrap.sub-workspace-mode{background:line
 .con-btn:disabled:hover{border-color:var(--border);color:var(--text-dim)}
 .con-btn.active:disabled{border-color:var(--green);color:var(--green)}
 .con-btn.cdanger:hover{border-color:var(--red);color:var(--red)}
-/* ── pdb command input bar ── */
-#pdb-cmd-bar{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;align-items:center;padding:4px 8px;background:var(--bg2);border-top:1px solid var(--border);gap:6px;flex-shrink:0;min-height:36px;position:relative;z-index:61;margin-top:auto}
-#pdb-cmd-input{flex:1;background:var(--bg3);border:1px solid var(--border);color:var(--text);font-family:var(--mono);font-size:12px;padding:3px 8px;border-radius:4px;outline:none}
-#pdb-cmd-input:focus{border-color:var(--accent)}
-#pdb-cmd-input:disabled{opacity:.45;cursor:not-allowed}
-#pdb-cmd-send{background:var(--accent);border:none;color:#fff;padding:3px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap}
-#pdb-cmd-send:disabled{opacity:.45;cursor:not-allowed}
-#pdb-interrupt-btn{background:none;border:1px solid var(--red);color:var(--red);padding:3px 10px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap}
-#pdb-interrupt-btn:hover{background:rgba(248,114,114,.12)}
-#pdb-status-badge{font-size:10px;white-space:nowrap;padding:2px 7px;border-radius:10px;border:1px solid var(--border);color:var(--text-dim)}
-#pdb-status-badge.busy{border-color:var(--red);color:var(--red)}
-#pdb-status-badge.idle{border-color:var(--green);color:var(--green)}
-#pdb-status-badge.tui{border-color:var(--accent);color:var(--accent)}
-#pdb-running{display:none;align-items:center;gap:6px;padding:2px 8px;font-size:11px;color:var(--text-dim);border-bottom:1px solid var(--border);background:var(--bg2);min-height:22px}
-#pdb-running.visible{display:flex}
-#pdb-running-label{white-space:nowrap;opacity:.7}
-#pdb-running-cmds{flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-family:monospace;color:var(--accent)}
-#pdb-autocomplete{display:none;position:absolute;bottom:100%;left:0;right:0;max-height:180px;overflow-y:auto;background:var(--bg3);border:1px solid var(--border);border-radius:4px 4px 0 0;margin-bottom:2px;z-index:50;font-family:var(--mono);font-size:12px}
-#pdb-autocomplete .ac-item{padding:3px 10px;cursor:pointer;color:var(--text);white-space:nowrap}
-#pdb-autocomplete .ac-item:hover,#pdb-autocomplete .ac-item.active{background:var(--accent);color:#fff}
+/* ── runtime command input bar ── */
+#runtime-cmd-bar{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;align-items:center;padding:4px 8px;background:var(--bg2);border-top:1px solid var(--border);gap:6px;flex-shrink:0;min-height:36px;position:relative;z-index:61;margin-top:auto}
+#runtime-cmd-input{flex:1;background:var(--bg3);border:1px solid var(--border);color:var(--text);font-family:var(--mono);font-size:12px;padding:3px 8px;border-radius:4px;outline:none}
+#runtime-cmd-input:focus{border-color:var(--accent)}
+#runtime-cmd-input:disabled{opacity:.45;cursor:not-allowed}
+#runtime-cmd-send{background:var(--accent);border:none;color:#fff;padding:3px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap}
+#runtime-cmd-send:disabled{opacity:.45;cursor:not-allowed}
+#runtime-interrupt-btn{background:none;border:1px solid var(--red);color:var(--red);padding:3px 10px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap}
+#runtime-interrupt-btn:hover{background:rgba(248,114,114,.12)}
+#runtime-status-badge{font-size:10px;white-space:nowrap;padding:2px 7px;border-radius:10px;border:1px solid var(--border);color:var(--text-dim)}
+#runtime-status-badge.busy{border-color:var(--red);color:var(--red)}
+#runtime-status-badge.idle{border-color:var(--green);color:var(--green)}
+#runtime-status-badge.tui{border-color:var(--accent);color:var(--accent)}
+#runtime-running{display:none;align-items:center;gap:6px;padding:2px 8px;font-size:11px;color:var(--text-dim);border-bottom:1px solid var(--border);background:var(--bg2);min-height:22px}
+#runtime-running.visible{display:flex}
+#runtime-running-label{white-space:nowrap;opacity:.7}
+#runtime-running-cmds{flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-family:monospace;color:var(--accent)}
+#runtime-autocomplete{display:none;position:absolute;bottom:100%;left:0;right:0;max-height:180px;overflow-y:auto;background:var(--bg3);border:1px solid var(--border);border-radius:4px 4px 0 0;margin-bottom:2px;z-index:50;font-family:var(--mono);font-size:12px}
+#runtime-autocomplete .ac-item{padding:3px 10px;cursor:pointer;color:var(--text);white-space:nowrap}
+#runtime-autocomplete .ac-item:hover,#runtime-autocomplete .ac-item.active{background:var(--accent);color:#fff}
 
 /* ── modals ── */
 .modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:100;display:block}
@@ -505,22 +505,23 @@ pre code.hljs,code.hljs{background:transparent!important;padding:0!important}
         <button class="con-btn" id="console-chat-btn" onclick="toggleConsoleChatMode()" disabled title="Enable chat mode (Shift+C when idle)">Chat</button>
         <button class="con-btn cdanger" onclick="clearConsole()">Clear</button>
       </div>
-      <div id="pdb-running">
-        <span id="pdb-running-label">running:</span>
-        <span id="pdb-running-cmds"></span>
+      <div id="runtime-running">
+        <span id="runtime-running-label">running:</span>
+        <span id="runtime-running-cmds"></span>
       </div>
+      <pre id="runtime-results" style="max-height:90px;overflow:auto;white-space:pre-wrap;margin:0;padding:4px 8px;font-size:11px"></pre>
       <div id="console-output-wrap">
         <div id="console-output"></div>
       </div>
-      <div id="pdb-cmd-bar">
-        <span id="pdb-status-badge">&#8226; idle</span>
+      <div id="runtime-cmd-bar">
+        <span id="runtime-status-badge">&#8226; idle</span>
         <div style="position:relative;flex:1;display:flex">
-          <div id="pdb-autocomplete"></div>
-          <input id="pdb-cmd-input" type="text" placeholder="PDB command…" autocomplete="off"
+          <div id="runtime-autocomplete"></div>
+          <input id="runtime-cmd-input" type="text" placeholder="Runtime command…" autocomplete="off"
                  onkeydown="handleCmdKeydown(event)" onblur="setTimeout(_acHide,150)" style="flex:1">
         </div>
-        <button id="pdb-cmd-send" onclick="sendPdbCmd()">Send</button>
-        <button id="pdb-interrupt-btn" onclick="sendPdbInterrupt()" title="Send Ctrl-C">&#9632; Interrupt</button>
+        <button id="runtime-cmd-send" onclick="sendRuntimeCmd()">Send</button>
+        <button id="runtime-interrupt-btn" onclick="sendRuntimeInterrupt()" title="Pause after the current call">&#9632; Pause</button>
       </div>
     </div>
   </div>
@@ -733,7 +734,7 @@ function resetUiLayout(){
     "ucagent-show-git-diff",
     "ucagent-outcome-count",
     "ucagent-collapsed-stages",
-    "ucagent.console.h",
+    "ucagent.control.console.h",
     "ucagent.sidebar.w",
     "ucagent.modal.drag",
     "ucagent.modal.resize",
@@ -833,7 +834,7 @@ function _workspaceBaseFileUrl(path){
 async function apiFetch(path,opts){
   const r=await fetch(_withSubWorkspaceParam(path),opts);
   const j=await r.json().catch(()=>({status:"error",detail:"Non-JSON response"}));
-  if(!r.ok||j.status==="error") throw new Error([j.detail?.message||j.message||(typeof j.detail==="string"?j.detail:"Request failed"),j.detail?.next_action].filter(Boolean).join(" "));
+  if(!r.ok||j.status==="error") { const error = new Error([j.error?.message||j.detail?.message||j.message||(typeof j.detail==="string"?j.detail:"Request failed"),j.detail?.next_action].filter(Boolean).join(" ")); error.code=j.error?.code; throw error; }
   return j;
 }
 
@@ -841,7 +842,7 @@ async function apiFetch(path,opts){
 async function fetchStatus(){
   try{
     const j=await apiFetch("/api/status");
-    const txt=j.data||"";
+    const txt=typeof j.data === "string" ? j.data : Object.entries(j.data||{}).map(([key,value])=>key+": "+JSON.stringify(value)).join("\n");
     qs("#status-text").textContent=_stripAnsi(txt);
     _updateSubWorkspaceModeUi();
     const firstLine=_stripAnsi(txt).split("\n")[0]||"";
@@ -1185,6 +1186,8 @@ async function _postStageUpdate(payload){
   _stageActionBusy=true;
   _updateStageSelectionUi();
   try{
+    const snapshot = await apiFetch("/api/stages/state");
+    payload.expected_revision = snapshot.data.control_revision;
     await apiFetch("/api/stages/update",{
       method:"POST",
       headers:{"Content-Type":"application/json"},
@@ -1420,7 +1423,7 @@ async function fetchMission(){
   try{
     const j=await apiFetch("/api/mission");
     const data=j.data||{};
-    const missionName=data.misson_name||"Mission";
+    const missionName=data.mission_name||"Mission";
     const stages=data.stages||[];
     const enableLlmFailSuggestion=!!data.enable_llm_fail_suggestion;
     const enableLlmPassSuggestion=!!data.enable_llm_pass_suggestion;
@@ -1434,7 +1437,7 @@ async function fetchMission(){
     for(const stage of stages){
       const canEditFlags=!!stage.can_edit_flags;
       const canQuickEditFlags=!_subWorkspace&&(canEditFlags||!!stage.is_current);
-      const outcome=stage.out_come;
+      const outcome=stage.outcome;
       const outputFiles=outcome?.output_files||{};
       const outputSet=new Set(Object.values(outputFiles).flat().filter(Boolean));
       const fileStatuses=outcome?.changed_file_statuses||{};
@@ -1459,7 +1462,7 @@ async function fetchMission(){
       }
       html+=`<div style="flex:1;min-width:0">`;
       html+=`<div class="stage-row">`;
-      html+=`<button type="button" class="stage-text stage-title-btn" onclick="openStageTask(${stage.index})" title="View stage task detail">${_ansiToHtml(stage.text||"")}</button>`;
+      html+=`<button type="button" class="stage-text stage-title-btn" onclick="openStageTask(${stage.index})" title="View stage task detail">${_ansiToHtml(stage.title||"")}</button>`;
       if(canQuickEditFlags){
         html+=`<div class="stage-actions">`;
         html+=`<button class="stage-quick-btn${stage.needs_human_check?" active-hm":""}" onclick="toggleStageQuickAction(${stage.index},'hmcheck_needed',${stage.needs_human_check?'true':'false'})" title="Toggle human check">HM</button>`;
@@ -1917,7 +1920,7 @@ function _refreshWorkspaceViews(){
   fetchTools();
   fetchFiles("");
   fetchChangedFiles();
-  fetchPdbStatus();
+  fetchRuntimeStatus();
 }
 
 function changeWorkspace(path){
@@ -2530,24 +2533,26 @@ function _ansiToHtml(s){
   return out;
 }
 
-/* ── pdb command bar ── */
-let _pdbBusy = false;
-let _pdbInTui = false;
+/* ── runtime command bar ── */
+let _runtimeBusy = false;
+const _submittedOperations = new Set();
+const _commandSession = crypto.randomUUID();
+let _runtimeInTui = false;
 let _consoleChatMode = false;
 let _cmdHistory = [];
 let _cmdHistoryIdx = -1;
 let _cmdHistorySaved = "";
 let _acItems = [];
 let _acIdx = -1;
-let _pdbFocusAfterBusy = false;
+let _runtimeFocusAfterBusy = false;
 
 function _consoleChatToggleAvailable() {
-  return !_pdbBusy && !_pdbInTui;
+  return !_runtimeBusy && !_runtimeInTui;
 }
 
 function _updateConsoleChatControl() {
   const btn = qs("#console-chat-btn");
-  const input = qs("#pdb-cmd-input");
+  const input = qs("#runtime-cmd-input");
   const available = _consoleChatToggleAvailable();
   if (btn) {
     btn.disabled = !available;
@@ -2556,7 +2561,7 @@ function _updateConsoleChatControl() {
     btn.title = available ? "Toggle chat mode (Shift+C)" : "Chat mode can be toggled when console is idle";
   }
   if (input) {
-    input.placeholder = _consoleChatMode ? "Chat message..." : "PDB command...";
+    input.placeholder = _consoleChatMode ? "Chat message..." : "Runtime command...";
   }
 }
 
@@ -2564,17 +2569,17 @@ function toggleConsoleChatMode() {
   if (!_consoleChatToggleAvailable()) return;
   _consoleChatMode = !_consoleChatMode;
   _updateConsoleChatControl();
-  const input = qs("#pdb-cmd-input");
+  const input = qs("#runtime-cmd-input");
   if (input && !input.disabled) input.focus();
 }
 
-function _focusPdbCmdInputSoon(force=false) {
-  const input = qs("#pdb-cmd-input");
+function _focusRuntimeCmdInputSoon(force=false) {
+  const input = qs("#runtime-cmd-input");
   if (!input || input.disabled) return;
   requestAnimationFrame(() => {
     if (!input || input.disabled) return;
     const active = document.activeElement;
-    const canRestore = force || !active || active === document.body || active === input || active.id === "pdb-cmd-send";
+    const canRestore = force || !active || active === document.body || active === input || active.id === "runtime-cmd-send";
     if (canRestore) input.focus();
   });
 }
@@ -2597,12 +2602,12 @@ function _shouldToggleConsoleChatFromKey(event) {
   if (event.repeat || event.altKey || event.ctrlKey || event.metaKey) return false;
   if (!event.shiftKey || String(event.key).toLowerCase() !== "c") return false;
   const target = event.target;
-  if (target && target.id === "pdb-cmd-input") return !String(target.value || "").trim();
+  if (target && target.id === "runtime-cmd-input") return !String(target.value || "").trim();
   return !_isEditableShortcutTarget(target);
 }
 
 function _acShow(items, stripPrefix) {
-  const ac = qs("#pdb-autocomplete");
+  const ac = qs("#runtime-autocomplete");
   _acItems = items;
   _acIdx = -1;
   if (!items.length) { ac.style.display = "none"; return; }
@@ -2613,10 +2618,10 @@ function _acShow(items, stripPrefix) {
   ac.style.display = "block";
 }
 
-function _acHide() { qs("#pdb-autocomplete").style.display = "none"; _acItems = []; _acIdx = -1; }
+function _acHide() { qs("#runtime-autocomplete").style.display = "none"; _acItems = []; _acIdx = -1; }
 
 function _acHighlight(idx) {
-  const ac = qs("#pdb-autocomplete");
+  const ac = qs("#runtime-autocomplete");
   const els = ac.querySelectorAll(".ac-item");
   els.forEach(e => e.classList.remove("active"));
   if (idx >= 0 && idx < els.length) { els[idx].classList.add("active"); els[idx].scrollIntoView({block:"nearest"}); }
@@ -2624,7 +2629,7 @@ function _acHighlight(idx) {
 }
 
 function _acPick(idx) {
-  const input = qs("#pdb-cmd-input");
+  const input = qs("#runtime-cmd-input");
   if (idx >= 0 && idx < _acItems.length) {
     // Items are always full input-ready strings (command or "cmd arg")
     input.value = _acItems[idx] + " ";
@@ -2634,7 +2639,7 @@ function _acPick(idx) {
 }
 
 async function _acComplete() {
-  const input = qs("#pdb-cmd-input");
+  const input = qs("#runtime-cmd-input");
   // Use the raw value; trimStart removes only leading whitespace so a
   // trailing space ("tool_invoke ") is preserved, which signals arg mode.
   const val = input.value.replace(/^\s+/, "");
@@ -2661,7 +2666,7 @@ async function _acComplete() {
 }
 
 function handleCmdKeydown(event) {
-  const ac = qs("#pdb-autocomplete");
+  const ac = qs("#runtime-autocomplete");
   const visible = ac.style.display !== "none" && _acItems.length > 0;
   if (event.key === "Tab") {
     event.preventDefault();
@@ -2685,33 +2690,33 @@ function handleCmdKeydown(event) {
     _acPick(_acIdx);
     return;
   }
-  if (event.key === "Enter") { _acHide(); sendPdbCmd(); return; }
+  if (event.key === "Enter") { _acHide(); sendRuntimeCmd(); return; }
   // Command history: Up/Down when autocomplete is not visible
   if (!visible && event.key === "ArrowUp") {
     event.preventDefault();
     if (_cmdHistory.length === 0) return;
-    if (_cmdHistoryIdx === -1) { _cmdHistorySaved = qs("#pdb-cmd-input").value; _cmdHistoryIdx = _cmdHistory.length; }
-    if (_cmdHistoryIdx > 0) { _cmdHistoryIdx--; qs("#pdb-cmd-input").value = _cmdHistory[_cmdHistoryIdx]; }
+    if (_cmdHistoryIdx === -1) { _cmdHistorySaved = qs("#runtime-cmd-input").value; _cmdHistoryIdx = _cmdHistory.length; }
+    if (_cmdHistoryIdx > 0) { _cmdHistoryIdx--; qs("#runtime-cmd-input").value = _cmdHistory[_cmdHistoryIdx]; }
     return;
   }
   if (!visible && event.key === "ArrowDown") {
     event.preventDefault();
     if (_cmdHistoryIdx === -1) return;
     _cmdHistoryIdx++;
-    if (_cmdHistoryIdx >= _cmdHistory.length) { _cmdHistoryIdx = -1; qs("#pdb-cmd-input").value = _cmdHistorySaved; }
-    else { qs("#pdb-cmd-input").value = _cmdHistory[_cmdHistoryIdx]; }
+    if (_cmdHistoryIdx >= _cmdHistory.length) { _cmdHistoryIdx = -1; qs("#runtime-cmd-input").value = _cmdHistorySaved; }
+    else { qs("#runtime-cmd-input").value = _cmdHistory[_cmdHistoryIdx]; }
     return;
   }
   // Any other key hides autocomplete
   setTimeout(() => _acHide(), 0);
 }
 
-function _setPdbBusy(busy, inTui) {
-  _pdbBusy = busy;
-  _pdbInTui = !!inTui;
-  const input = qs("#pdb-cmd-input");
-  const sendBtn = qs("#pdb-cmd-send");
-  const badge = qs("#pdb-status-badge");
+function _setRuntimeBusy(busy, inTui) {
+  _runtimeBusy = busy;
+  _runtimeInTui = !!inTui;
+  const input = qs("#runtime-cmd-input");
+  const sendBtn = qs("#runtime-cmd-send");
+  const badge = qs("#runtime-status-badge");
   if (inTui) {
     input.disabled = false;
     sendBtn.disabled = false;
@@ -2719,7 +2724,7 @@ function _setPdbBusy(busy, inTui) {
     badge.textContent = "\u25cf TUI";
   } else if (busy) {
     input.disabled = false;
-    sendBtn.disabled = true;
+    sendBtn.disabled = false;
     badge.className = "busy";
     badge.textContent = "\u25cf busy";
   } else {
@@ -2729,67 +2734,90 @@ function _setPdbBusy(busy, inTui) {
     badge.textContent = "\u25cf idle";
   }
   _updateConsoleChatControl();
-  if (_pdbFocusAfterBusy && input && !input.disabled && (!busy || inTui)) {
-    _pdbFocusAfterBusy = false;
-    _focusPdbCmdInputSoon();
+  if (_runtimeFocusAfterBusy && input && !input.disabled && (!busy || inTui)) {
+    _runtimeFocusAfterBusy = false;
+    _focusRuntimeCmdInputSoon();
   }
 }
 
-async function fetchPdbStatus() {
+async function fetchRuntimeStatus() {
   try {
-    const j = await apiFetch("/api/pdb_status");
+    const j = await apiFetch("/api/runtime/status");
     const d = j.data || {};
-    const inTui = !!d.in_tui;
-    const busy = !inTui && (d.pending_count > 0 || (d.running_cmds && d.running_cmds.length > 0));
-    _setPdbBusy(busy, inTui);
+    const inTui = false;
+    const operations = d.operations || [];
+    const busy = operations.some(op => !["succeeded", "failed", "cancelled"].includes(op.state));
+    _setRuntimeBusy(busy, inTui);
     // running commands
-    const running = d.running_cmds || [];
-    const runEl = qs("#pdb-running");
-    const runCmds = qs("#pdb-running-cmds");
+    const running = operations.filter(op => !["succeeded", "failed", "cancelled"].includes(op.state));
+    for (const op of operations) {
+      if (_submittedOperations.has(op.id) && ["succeeded", "failed", "cancelled"].includes(op.state)) {
+        _submittedOperations.delete(op.id);
+        if (op.state !== "succeeded") showErr(op.error?.message || op.command + ": " + op.state);
+      }
+    }
+    const runEl = qs("#runtime-running");
+    const runCmds = qs("#runtime-running-cmds");
     if (running.length) {
-      runCmds.textContent = running.join("  |  ");
+      runCmds.replaceChildren();
+      for (const op of running) {
+        const label = document.createElement("span");
+        label.textContent = op.command + " (" + op.state + ") ";
+        const cancel = document.createElement("button");
+        cancel.className = "con-btn cdanger";
+        cancel.textContent = "Cancel";
+        cancel.onclick = async () => {
+          try { await apiFetch("/api/operations/" + encodeURIComponent(op.id) + "/cancel", {method: "POST"}); await fetchRuntimeStatus(); }
+          catch (error) { showErr(error.message); }
+        };
+        runCmds.append(label, cancel);
+      }
       runEl.classList.add("visible");
     } else {
       runEl.classList.remove("visible");
     }
+    const completed = operations.filter(op => ["succeeded", "failed", "cancelled"].includes(op.state)).slice(-3);
+    qs("#runtime-results").textContent = completed.map(op => op.command + ": " + op.state + "\n" + JSON.stringify(op.error || op.result)).join("\n");
   } catch(e) {}
 }
 
-async function sendPdbCmd() {
-  const input = qs("#pdb-cmd-input");
-  if (_pdbBusy && !_pdbInTui) {
-    _focusPdbCmdInputSoon(true);
-    return;
-  }
+async function sendRuntimeCmd() {
+  const input = qs("#runtime-cmd-input");
   const rawCmd = input.value.trim();
   if (!rawCmd) return;
   try {
     const cmd = _commandForConsoleMode(rawCmd);
     if (!cmd) return;
     input.value = "";
-    _pdbFocusAfterBusy = true;
-    _focusPdbCmdInputSoon(true);
-    await apiFetch("/api/cmd", {
-      method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({cmd})
+    _runtimeFocusAfterBusy = true;
+    _focusRuntimeCmdInputSoon(true);
+    let accepted;
+    const submit = confirmed => apiFetch("/api/cmd", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({cmd, session_id: _commandSession, confirmed})
     });
+    try { accepted = await submit(false); }
+    catch (error) {
+      if (error.code !== "confirmation_required" || !window.confirm("Run this command?\n" + cmd)) throw error;
+      accepted = await submit(true);
+    }
+    _submittedOperations.add(accepted.operation_id);
     // Record in local history (dedup consecutive)
     if (!_cmdHistory.length || _cmdHistory[_cmdHistory.length - 1] !== rawCmd) _cmdHistory.push(rawCmd);
     _cmdHistoryIdx = -1;
-    _setPdbBusy(true);
-    _focusPdbCmdInputSoon(true);
+    _setRuntimeBusy(true);
+    _focusRuntimeCmdInputSoon(true);
   } catch(e) {
     showErr(e.message);
-    _pdbFocusAfterBusy = false;
+    _runtimeFocusAfterBusy = false;
     if (!String(input.value || "").trim()) input.value = rawCmd;
-    _focusPdbCmdInputSoon(true);
+    _focusRuntimeCmdInputSoon(true);
   }
 }
 
-async function sendPdbInterrupt() {
+async function sendRuntimeInterrupt() {
   try {
-    await apiFetch("/api/interrupt", {method: "POST"});
+    await apiFetch("/api/runtime/pause", {method: "POST"});
   } catch(e) { showErr(e.message); }
 }
 
@@ -2836,7 +2864,7 @@ async function clearConsole(){
   function clampConsoleHeight(h){
     return Math.max(minConsoleHeight, Math.min(h, getMaxConsoleHeight()));
   }
-  const savedH=+localStorage.getItem('ucagent.console.h');
+  const savedH=+localStorage.getItem('ucagent.control.console.h');
   const initialH=Number.isFinite(savedH)&&savedH>0?savedH:220;
   panel.style.height=clampConsoleHeight(initialH)+'px';
   let startY,startH;
@@ -2856,7 +2884,7 @@ async function clearConsole(){
     resizer.classList.remove("dragging");
     document.body.style.userSelect="";
     resizer.removeEventListener("pointermove",onMove);
-    try{localStorage.setItem('ucagent.console.h',panel.offsetHeight);}catch(e){}
+    try{localStorage.setItem('ucagent.control.console.h',panel.offsetHeight);}catch(e){}
   }
   window.addEventListener("resize",()=>{
     panel.style.height=clampConsoleHeight(panel.offsetHeight)+"px";
@@ -3118,12 +3146,12 @@ document.addEventListener("keydown",function(e){
 });
 
 /* ── init ── */
-_updateSubWorkspaceModeUi();_initMissionSettings();_initFileDeleteControls();_initMasterBtn();fetchStatus();fetchMission();fetchTools();fetchFiles("");fetchChangedFiles();fetchConsole();fetchPdbStatus();fetchServerInfo();
+_updateSubWorkspaceModeUi();_initMissionSettings();_initFileDeleteControls();_initMasterBtn();fetchStatus();fetchMission();fetchTools();fetchFiles("");fetchChangedFiles();fetchConsole();fetchRuntimeStatus();fetchServerInfo();
 if(_subWorkspace)_syncConsoleWorkspace();
 setInterval(()=>{fetchStatus();fetchMission();fetchTools();},8000);
 setInterval(fetchChangedFiles,15000);
 setInterval(fetchConsole,2000);
-setInterval(fetchPdbStatus,2000);
+setInterval(fetchRuntimeStatus,2000);
 setInterval(fetchServerInfo,5000);
 </script>
 <script src="/static/share/ucagent-shell.js"></script>

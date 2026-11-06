@@ -1,7 +1,7 @@
 
 # 普通模式
 
-普通模式由一个 UCAgent 进程完成一个验证任务。默认后端是 `langchain`，UCAgent 直接连接模型；人工操作在当前终端的 PDB/TUI 控制台完成，不需要外部 Code Agent 或 MCP。
+普通模式由一个 UCAgent 进程完成一个验证任务。默认后端是 `langchain`，UCAgent 直接连接模型；人工操作在当前终端的 Console/TUI 控制台完成，不需要外部 Code Agent 或 MCP。
 
 本章使用一个有意截断 `sum` 位宽的 64 位加法器示例。示例用于说明流程，实际项目应替换为自己的 RTL 和验证需求。
 
@@ -127,11 +127,11 @@ python3 ucagent.py output/workspace_Adder/ Adder \
   --config config.yaml -s -hm --tui -l
 ```
 
-`-l/--loop` 使任务立即进入模型循环；省略它时，启动后在控制台输入 `loop` 才会继续。普通模式不启动 MCP，因此不会自动运行 opencode 等外部 Code Agent。
+在上述交互启动中，`-l/--loop` 在初始化且 TUI 就绪后提交模型循环；省略它且没有其他启动任务命令时，在控制台输入 `loop` 才会继续。普通模式不启动 MCP，因此不会自动运行 opencode 等外部 Code Agent。
 
 ## 2.5 运行中干预
 
-在 TUI 底部输入 `status` 查看阶段状态，输入 `current_tips` 查看当前阶段指导。需要暂停时按 `Ctrl+C`，修复文件或环境后使用 `tool_invoke Check` 检查，再输入 `loop` 继续。完整命令和人工审核流程见[人机协同验证](../02_usage/02_assit.md)与[TUI](../02_usage/04_tui.md)。
+在 TUI 底部输入 `status` 查看阶段状态，输入 `current_tips` 查看当前阶段指导。需要介入时按 `Ctrl+C` 请求取消当前前台操作，等待结束后修复文件或环境，再使用 `tool_invoke Check` 检查；等待检查返回后输入 `loop` 继续。完整命令和人工审核流程见[人机协同验证](../02_usage/02_assit.md)与[TUI](../02_usage/04_tui.md)。
 
 ## 2.6 结果位置
 

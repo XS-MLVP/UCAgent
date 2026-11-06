@@ -1,4 +1,5 @@
 #coding: utf-8 -*-
+"""External model commands with shared process cleanup and activity monitoring."""
 
 
 from .base import AgentBackendBase
@@ -67,18 +68,11 @@ class UCAgentCmdLineBackend(AgentBackendBase):
         self.vagent.message_echo(txt)
 
     def _get_mcp_port(self):
-        """Return the actual port from the running MCP server instance.
-        Falls back to the config value if the server is not yet started."""
-        try:
-            mcp = self.vagent.pdb._mcp_server
-            if mcp is not None:
-                return mcp.port
-        except AttributeError:
-            pass
-        return self.config.mcp_server.port
+        """Require the actual ready MCP endpoint instead of guessing from configuration."""
+        return self.vagent.services.require_endpoint("mcp")["port"]
 
     def process_bash_cmd(self, cmd):
-        """Run a backend command with output and tool-activity monitoring."""
+        """Run with activity monitoring and the calling operation's cancellation token."""
         # Snapshot the file-recency baseline before the command runs so the
         # command's first artifact change resets the idle timer immediately.
         self._workspace_files_changed()
@@ -210,18 +204,31 @@ class UCAgentCmdLineBackend(AgentBackendBase):
         info("All config files rendered.")
 
     def init(self):
+        """Initialize local state without starting external work before MCP readiness."""
         self.CWD = self.vagent.workspace
         self.MSG_FILE = get_abs_path_cwd_ucagent(self.CWD, "cmdline.txt")
         self.cmdline_dir = os.path.dirname(self.MSG_FILE)
         os.makedirs(self.cmdline_dir, exist_ok=True)
         self._call_count = 0
-        for cmd in self.pre_bash_cmd:
-            self.process_bash_cmd(cmd.format(**self._get_dft_ctx()))
+        self._prepared_port = None
+        self._pre_commands_done = False
+        info("Init cmdline backend state complete")
+
+    def prepare(self):
+        """Prepare external configuration only after MCP is ready, refreshing a changed port."""
+        port = self._get_mcp_port()
+        if self._prepared_port == port:
+            return
+        if not self._pre_commands_done:
+            for cmd in self.pre_bash_cmd:
+                self.process_bash_cmd(cmd.format(**self._get_dft_ctx()))
+            self._pre_commands_done = True
         self.render_config_files()
         if self.cfg_bash_enable:
             for cmd in self.cfg_bash_cmd:
                 self.process_bash_cmd(cmd.format(**self._get_dft_ctx()))
-        info("Init cmdline backend complete")
+        self._prepared_port = port
+        info("Cmdline backend prepared for ready MCP endpoint")
 
     def model_name(self):
         return self.config.backend.key_name
@@ -239,6 +246,7 @@ class UCAgentCmdLineBackend(AgentBackendBase):
         return self.do_work_values(instructions, config)
 
     def do_work_values(self, instructions, config):
+        self.prepare()
         assert "messages" in instructions, "Messages not found in instructions."
         msg_size = len(instructions["messages"])
         with open(self.MSG_FILE, "w+") as f:

@@ -7,7 +7,7 @@ Normal mode executes a single task, while Master mode manages multiple tasks. Bo
 | --- | --- | --- |
 | Positioning | A single Agent process completes one verification task | Multi-task management process |
 | Execution Method | The current Agent executes the verification task | Creates, launches, and monitors multiple sub-Agents |
-| Interaction Interface | Terminal (PDB/TUI); the Web entry point for the normal Agent can also be enabled | Browser Web panel (default `http://127.0.0.1:8800`) |
+| Interaction Interface | Terminal (Console/TUI); the Web entry point for the normal Agent can also be enabled | Browser Web panel (default `http://127.0.0.1:8800`) |
 | Use Cases | Single-module verification, local debugging | Parallel multi-task execution, centralized scheduling, team collaboration |
 
 ## Normal Mode
@@ -52,19 +52,19 @@ The expanded full command is:
 python3 ucagent.py output/workspace_Adder/ Adder --config config.yaml -s -hm --tui --mcp-server-no-file-tools --loop --backend=opencode
 ```
 
-`--loop` (`-l`) causes the Agent to enter the automatic execution loop immediately after startup; without this parameter, the Agent stops at the interactive console and waits for manual input of `loop` before starting execution.
+In the interactive launches above, `--loop` (`-l`) submits the automatic execution loop during initialization. Without it or another startup task command, the instance waits for manual `loop` input. See [Runtime Control](../02_usage/10_runtime_control.md) for defaults when launching services without a local interface.
 
 See [MCP Integration](03_mcp_mode.md) for the complete steps (installation, LLM API configuration, startup) using opencode as an example; the method of manually starting the MCP Server and connecting from another terminal is also covered in that chapter. See [Direct Usage](../02_usage/01_direct.md) for model configuration for direct LangChain connection.
 
 ### TUI Terminal
 
-Add the `--tui` parameter (or enter the `tui` command in the PDB console after startup) to enter the terminal interactive interface: the left side contains the task/stage/tool panel, the right side contains the message panel, and the bottom contains the command input box. All PDB commands can be entered directly. See [Normal Mode](02_normal_mode.md) for complete onboarding (including DUT preparation and model configuration), and [TUI](../02_usage/04_tui.md) for interface operations.
+Add the `--tui` parameter (or enter the `tui` command in the Console after startup) to enter the terminal interactive interface: the left side contains the task/stage/tool panel, the right side contains the message panel, and the bottom contains the command input box. Task commands are shared with Console; exit and display actions depend on the current interface. See [Normal Mode](02_normal_mode.md) for complete onboarding (including DUT preparation and model configuration), and [TUI](../02_usage/04_tui.md) for interface operations.
 
 ### Web Interface
 
 Normal mode can complete interaction without relying on the terminal. There are three Web entry points:
 
-- **Agent Dashboard**: Use the startup parameter `--export-cmd-api`, or execute `cmd_api_start` in the PDB/TUI console after startup, then open `http://127.0.0.1:8765` in the browser. You can view stage progress, task and tool status, toggle human review switches for stage HM/Skip, manage workspace files, and directly chat with the configured large model via Chat mode. This entry point does not require entering TUI first.
+- **Agent Dashboard**: Use the startup parameter `--export-cmd-api`, or execute `cmd_api_start` in the Console/TUI console after startup, then open `http://127.0.0.1:8765` in the browser. You can view stage progress, task and tool status, toggle human review switches for stage HM/Skip, manage workspace files, and directly chat with the configured large model via Chat mode. This entry point does not require entering TUI first.
 - **`--web-console`**: Hosts a complete command-line/TUI session in the browser (default `localhost:8000`).
 - **`--web-terminal`**: Uses a Web terminal in parallel with the local terminal (default `127.0.0.1:8818`).
 

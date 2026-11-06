@@ -9,8 +9,8 @@ Provides two operating modes:
    connections simply re-attach to the running process.
 
 2. **Console mode** – mirrors the hosting process's stdout into connected
-   browsers and forwards browser input to a callback (e.g. ``pdb.add_cmds``).
-   Works with both the PDB command line and the Textual TUI.
+   browsers and forwards browser input to a an injected command callback.
+   Works with console frontends and the Textual TUI.
 
 Both modes are exposed via a lightweight aiohttp server that serves an
 xterm.js-based HTML page on ``/`` and a WebSocket endpoint on ``/ws``.
@@ -54,6 +54,7 @@ from typing import (
 )
 
 from aiohttp import WSMsgType, web
+from ucagent.control.runtime.services import lifecycle_timeout
 
 log = logging.getLogger("ucagent.terminal")
 
@@ -224,7 +225,7 @@ def _print_web_console_abnormal_exit_output(
     return True
 
 
-def _get_web_console_exit_code(server: "PdbWebTermServer") -> Optional[int]:
+def _get_web_console_exit_code(server: "WebTerminalServer") -> Optional[int]:
     if server._process_exit_code is not None:
         return server._process_exit_code
     if server._process is not None:
@@ -253,7 +254,7 @@ def _serve_web_console(argv: Optional[List[str]] = None) -> None:
     exit_code: Optional[int] = None
     replayed_abnormal = False
     try:
-        server = PdbWebTermServer(
+        server = WebTerminalServer(
             command + f" --web-console-session-host={host} --web-console-session-port={port}",
             host=host,
             port=port,
@@ -561,7 +562,7 @@ def _load_template(name: str) -> str:
 # The server
 # ---------------------------------------------------------------------------
 
-class PdbWebTermServer:
+class WebTerminalServer:
     """Lightweight aiohttp server that serves a web terminal via WebSocket.
 
     **Process mode** (default):  ``command`` is spawned once in a pty.
@@ -640,6 +641,9 @@ class PdbWebTermServer:
         self._site: Optional[web.TCPSite] = None
         self._thread: Optional[threading.Thread] = None
         self._running = False
+        self._stop_requested = False
+        self._cleaning = False
+        self._lifecycle_lock = threading.RLock()
 
         # PTY mode state (for TUI support)
         self._pty_active = False
@@ -665,7 +669,14 @@ class PdbWebTermServer:
 
     @property
     def is_running(self) -> bool:
-        return self._running
+        """Keep startup and asynchronous cleanup visible to the service owner."""
+        return self._running or any(thread is not None and thread.is_alive() for thread in
+                                    (self._thread, self._pty_reader_thread, self._pty_stdin_thread))
+
+    @property
+    def is_ready(self) -> bool:
+        """Distinguish an accepting terminal from a starting or draining worker."""
+        return self._running and not self._stop_requested
 
     def url(self) -> str:
         return f"http://{self.host}:{self.port}"
@@ -674,52 +685,76 @@ class PdbWebTermServer:
     def client_count(self) -> int:
         return len(self._clients)
 
-    def start(self) -> Tuple[bool, str]:
-        """Start the web terminal server in a background thread.
+    def start(self, timeout=10) -> Tuple[bool, str]:
+        """Start a terminal only after the listener and optional child are ready."""
+        timeout = lifecycle_timeout(timeout)
+        with self._lifecycle_lock:
+            if self._running or (self._thread is not None and self._thread.is_alive()) or (self._stop_requested and self.is_running):
+                return False, f"Terminal server is already running or stopping at {self.url()}"
+            if timeout == 0:
+                return False, "Terminal startup timeout must be positive"
+            ready = threading.Event()
+            errors = []
+            self._stop_requested = False
+            self._cleaning = False
 
-        Returns ``(success, message)``."""
-        if self._running:
-            return False, f"Terminal server already running at {self.url()}"
+            def run():
+                """Own the event loop until all asynchronous cleanup has finished."""
+                try:
+                    self._loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(self._loop)
+                    self._loop.run_until_complete(self._start_async(ready, errors))
+                    if not errors and not self._stop_requested:
+                        self._loop.run_forever()
+                except BaseException as error:
+                    errors.append(str(error))
+                    ready.set()
+                finally:
+                    self._cleaning = True
+                    self._running = False
+                    if self._loop is not None:
+                        try:
+                            self._loop.run_until_complete(self._cleanup_async())
+                        finally:
+                            self._loop.close()
+                    self._running = False
+                    self.started_at = None
 
-        ready = threading.Event()
-        error_holder: List[str] = []
+            self._thread = threading.Thread(target=run, daemon=True, name="web-terminal")
+            self._thread.start()
+            signalled = ready.wait(timeout)
+            if signalled and not errors and self.is_ready:
+                return True, f"Terminal server started at {self.url()}"
+            self.stop(timeout=1)
+            return False, "Terminal server failed to start: " + (errors[0] if errors else "startup deadline expired")
 
-        def _run() -> None:
-            try:
-                self._loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(self._loop)
-                self._loop.run_until_complete(self._start_async(ready, error_holder))
-                self._loop.run_forever()
-            except Exception as exc:
-                error_holder.append(str(exc))
-                ready.set()
-            finally:
-                self._loop.run_until_complete(self._cleanup_async())
-                self._loop.close()
-                self._running = False
+    def stop(self, timeout=5) -> Tuple[bool, str]:
+        """Request cleanup and preserve the thread while any resource is still live."""
+        timeout = lifecycle_timeout(timeout)
+        deadline = time.monotonic() + timeout
+        with self._lifecycle_lock:
+            first_request = not self._stop_requested
+            self._stop_requested = True
 
-        self._thread = threading.Thread(target=_run, daemon=True, name="web-terminal")
-        self._thread.start()
-        ready.wait(timeout=10)
+            def request_stop():
+                """Stop serving without interrupting startup or asynchronous cleanup."""
+                if self._running and not self._cleaning:
+                    self._loop.stop()
 
-        if error_holder:
-            return False, f"Terminal server failed: {error_holder[0]}"
-
-        self._running = True
-        self.started_at = time.time()
-        return True, f"Terminal server started at {self.url()}"
-
-    def stop(self) -> Tuple[bool, str]:
-        """Shut down the server and (in process mode) the subprocess."""
-        if not self._running or self._loop is None:
-            return False, "Terminal server is not running"
-
-        self._loop.call_soon_threadsafe(self._loop.stop)
-        if self._thread is not None:
-            self._thread.join(timeout=5)
-        self._running = False
-        self.started_at = None
-        return True, "Terminal server stopped"
+            if first_request and self._loop is not None and not self._loop.is_closed():
+                self._loop.call_soon_threadsafe(request_stop)
+            if self._thread is not None and self._thread.ident is not None and self._thread is not threading.current_thread():
+                self._thread.join(timeout)
+            if self._thread is not None and self._thread.is_alive():
+                return False, "Terminal server is still stopping"
+            self.exit_pty_mode(timeout=max(0, deadline - time.monotonic()))
+            self.uninstall_console_capture()
+            if self.is_running:
+                return False, "Terminal relay threads are still stopping"
+            self._thread = None
+            self._running = False
+            self.started_at = None
+            return True, "Terminal server stopped"
 
     def start_blocking(self) -> None:
         """Start and block the calling thread (for use as the main entry
@@ -744,6 +779,8 @@ class PdbWebTermServer:
         except (KeyboardInterrupt, SystemExit):
             pass
         finally:
+            self._cleaning = True
+            self._running = False
             loop.run_until_complete(self._cleanup_async())
             loop.close()
             self._running = False
@@ -756,10 +793,7 @@ class PdbWebTermServer:
 
     def get_status(self) -> Dict[str, Any]:
         """Return a status dict for the /api/status endpoint."""
-        try:
-            from ucagent.version import __version__
-        except ImportError:
-            __version__ = "unknown"
+        from ucagent.version import __version__
         result: Dict[str, Any] = {
             "running": self._running,
             "mode": ("process" if self.is_process_mode
@@ -904,12 +938,17 @@ class PdbWebTermServer:
         except (termios.error, OSError):
             pass
 
-    def exit_pty_mode(self) -> None:
-        """Switch back from PTY mode to normal console mode."""
-        if not self._pty_active:
+    def exit_pty_mode(self, timeout=2) -> None:
+        """Restore terminal descriptors while retaining any relay that has not exited."""
+        deadline = time.monotonic() + lifecycle_timeout(timeout)
+        if not self._pty_active and self._pty_reader_thread is None and self._pty_stdin_thread is None:
             return
 
         self._pty_active = False
+        # Polling relays normally leave without input; never discard a blocked writer.
+        for thread in (self._pty_reader_thread, self._pty_stdin_thread):
+            if thread is not None and thread is not threading.current_thread():
+                thread.join(max(0, deadline - time.monotonic()))
 
         # Restore original file descriptors.
         if self._pty_saved_fds is not None:
@@ -948,8 +987,10 @@ class PdbWebTermServer:
         for thr_attr in ("_pty_reader_thread", "_pty_stdin_thread"):
             thr = getattr(self, thr_attr, None)
             if thr is not None:
-                thr.join(timeout=2)
-                setattr(self, thr_attr, None)
+                if thr is not threading.current_thread():
+                    thr.join(max(0, deadline - time.monotonic()))
+                if not thr.is_alive():
+                    setattr(self, thr_attr, None)
 
         # Unregister the atexit handler since we've cleanly restored.
         if self._pty_atexit_registered:
@@ -964,6 +1005,9 @@ class PdbWebTermServer:
         """Read from PTY master, write to original terminal and WS."""
         while self._pty_active:
             try:
+                readable, _, _ = select.select([master_fd], [], [], 0.1)
+                if not readable or not self._pty_active:
+                    continue
                 data = os.read(master_fd, 16384)
                 if not data:
                     break
@@ -989,6 +1033,9 @@ class PdbWebTermServer:
         """Relay real keyboard input to the PTY master."""
         while self._pty_active:
             try:
+                readable, _, _ = select.select([stdin_fd], [], [], 0.1)
+                if not readable or not self._pty_active:
+                    continue
                 data = os.read(stdin_fd, 1024)
                 if not data:
                     break
@@ -1071,11 +1118,14 @@ class PdbWebTermServer:
             ready.set()
             return
 
+        self.port = self._runner.addresses[0][1]
         # Process mode: start the managed subprocess immediately so the
         # command begins running even if no browser has connected yet.
         if self.is_process_mode:
             await self._ensure_process()
 
+        self._running = True
+        self.started_at = time.time()
         ready.set()
 
     async def _cleanup_async(self) -> None:
@@ -1101,7 +1151,8 @@ class PdbWebTermServer:
             await asyncio.to_thread(self._process.wait)
             self._process.close_fd()
 
-        # Uninstall console mirror
+        # Restore PTY resources before releasing the console mirror.
+        self.exit_pty_mode()
         self.uninstall_console_capture()
 
         if self._site is not None:
@@ -1259,6 +1310,11 @@ class PdbWebTermServer:
         return web.json_response(self.get_clients())
 
     async def _handle_ws(self, request: web.Request) -> web.WebSocketResponse:
+        """Relay one terminal client and apply POSIX resize operations when available."""
+        if os.name == "posix":
+            import fcntl
+            import termios as _termios
+
         ws = web.WebSocketResponse(heartbeat=20)
         await ws.prepare(request)
 
@@ -1356,8 +1412,6 @@ class PdbWebTermServer:
                                             pass
                             if (self._pty_active
                                     and self._pty_slave_fd is not None):
-                                import fcntl
-                                import termios as _termios
                                 winsize = struct.pack(
                                     "HHHH", rows, cols, 0, 0)
                                 try:

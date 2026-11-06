@@ -98,17 +98,17 @@ current_tips
 loop
 ```
 
-When a stage fails, first check the specific files and next steps returned by the Checker, then fix them and invoke:
+When a stage fails, wait for the active operation to end, inspect the files and next steps reported by the Checker, repair them, then invoke each command and wait for its result:
 
 ```text
 tool_invoke Check
 tool_invoke Complete
 ```
 
-If the check process has no output:
+If a check has no output, inspect the logs. Cancel active model/tool work with `Ctrl+C` or the [HTTP operation API](10_runtime_control.md) and wait for it to end. The following tool calls also use the model-operation slot and are rejected while it is busy:
 
 ```text
-tool_invoke StdCheck lines=-1
+tool_invoke StdCheck {"lines":-1}
 tool_invoke KillCheck
 ```
 

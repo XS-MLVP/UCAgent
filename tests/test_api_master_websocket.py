@@ -9,7 +9,7 @@ import aiohttp
 from fastapi import WebSocket
 import pytest
 
-from ucagent.server.api_master import PdbMasterApiServer
+from ucagent.server.api_master import MasterApiServer
 from ucagent.util.config import Config
 
 
@@ -19,7 +19,7 @@ def test_master_listeners_support_text_and_binary_websockets(tmp_path, tcp):
     # Keep the Unix socket path below the platform limit on macOS.
     with tempfile.TemporaryDirectory(prefix="uca-ws-", dir="/tmp") as socket_dir:
         socket_path = str(Path(socket_dir) / "master.sock")
-        server = PdbMasterApiServer(
+        server = MasterApiServer(
             workspace=str(tmp_path), host="127.0.0.1", port=0, tcp=tcp,
             sock="" if tcp else socket_path,
             cfg=Config({"launch": {"file_browser_roots": []}}).freeze(),

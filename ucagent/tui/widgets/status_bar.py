@@ -25,9 +25,9 @@ class StatusBar(Horizontal):
 
     def update_content(self) -> None:
         """Update status bar content."""
-        vpdb = self.app.vpdb
-        stats = vpdb.agent.status_info()
-        backend_type = vpdb.agent.cfg.get_value("backend.key_name", "unknown")
+        console = self.app.frontend
+        stats = console.agent.status_info()
+        backend_type = console.agent.cfg.get_value("backend.key_name", "unknown")
 
         fields = [
             ("Run Time", stats.get("Run Time", "-")),

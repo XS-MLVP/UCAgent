@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.abspath(os.path.join(current_dir, "..")))
 
-from ucagent.server.api_master import PdbMasterApiServer
+from ucagent.server.api_master import MasterApiServer
 from ucagent.server.api_master.common import (
     _tail_file,
     _task_logs_for_display,
@@ -24,7 +24,7 @@ from ucagent.util.config import Config
 
 def test_master_launch_workspace_defaults_to_master_workspace():
     with tempfile.TemporaryDirectory() as master_ws:
-        server = PdbMasterApiServer(workspace=master_ws)
+        server = MasterApiServer(workspace=master_ws)
 
         ws = server._create_workspace()
 
@@ -36,7 +36,7 @@ def test_master_launch_workspace_defaults_to_master_workspace():
 
 def test_task_record_reuses_launch_workspace_task_id():
     with tempfile.TemporaryDirectory() as master_ws:
-        server = PdbMasterApiServer(workspace=master_ws)
+        server = MasterApiServer(workspace=master_ws)
 
         ws = server._create_workspace()
         task = server._create_task_record({
@@ -58,7 +58,7 @@ def test_master_server_uses_passed_config_for_launch_defaults():
             },
         }).freeze()
 
-        server = PdbMasterApiServer(workspace=master_ws, cfg=cfg)
+        server = MasterApiServer(workspace=master_ws, cfg=cfg)
 
         assert server._enabled_launch_modes() == ["docker_swarm"]
         assert server._launch_cluster_config()["image"] == "123123123"
@@ -78,7 +78,7 @@ def test_compiled_workspace_archive_uses_sync_workspace_ignore_patterns():
                 },
             },
         }).freeze()
-        server = PdbMasterApiServer(workspace=master_ws, cfg=cfg)
+        server = MasterApiServer(workspace=master_ws, cfg=cfg)
         ws = server._create_workspace()
         picker_workspace = ws["picker_workspace"]
         os.makedirs(os.path.join(picker_workspace, "pkg", "__pycache__"), exist_ok=True)
@@ -117,7 +117,7 @@ def test_compiled_workspace_archive_uses_sync_workspace_ignore_patterns():
 
 def test_relaunch_ucagent_info_workspace_can_be_archived_without_compile():
     with tempfile.TemporaryDirectory() as master_ws:
-        server = PdbMasterApiServer(workspace=master_ws)
+        server = MasterApiServer(workspace=master_ws)
         ws = server._create_workspace()
         picker_workspace = ws["picker_workspace"]
         os.makedirs(os.path.join(picker_workspace, ".ucagent"), exist_ok=True)
@@ -140,7 +140,7 @@ def test_relaunch_ucagent_info_workspace_can_be_archived_without_compile():
 
 def test_cluster_mounts_keep_master_source_host_path(monkeypatch):
     with tempfile.TemporaryDirectory() as master_ws, tempfile.TemporaryDirectory() as task_ws:
-        server = PdbMasterApiServer(workspace=master_ws)
+        server = MasterApiServer(workspace=master_ws)
         source_host_path = "/host/path/UCAgent-not-visible-inside-master-container"
         monkeypatch.setenv("UCAGENT_MASTER_SOURCE", source_host_path)
 
@@ -156,7 +156,7 @@ def test_master_source_overrides_process_launch_cli(monkeypatch):
         os.makedirs(os.path.dirname(source_cli))
         open(source_cli, "w", encoding="utf-8").close()
         monkeypatch.setenv("UCAGENT_MASTER_SOURCE", source_ws)
-        server = PdbMasterApiServer(workspace=master_ws)
+        server = MasterApiServer(workspace=master_ws)
 
         argv, _env = server._build_ucagent_command(
             {},
@@ -169,7 +169,7 @@ def test_master_source_overrides_process_launch_cli(monkeypatch):
 
 def test_task_launch_command_preserves_human_mode():
     with tempfile.TemporaryDirectory() as master_ws:
-        server = PdbMasterApiServer(workspace=master_ws)
+        server = MasterApiServer(workspace=master_ws)
 
         argv, _env = server._build_ucagent_command(
             {"human": True, "launch_mode": "docker_swarm"},
@@ -186,7 +186,7 @@ def test_task_launch_command_preserves_human_mode():
 )
 def test_task_launch_command_preserves_skill_mode(use_skill, expected_option):
     with tempfile.TemporaryDirectory() as master_ws:
-        server = PdbMasterApiServer(workspace=master_ws)
+        server = MasterApiServer(workspace=master_ws)
 
         argv, _env = server._build_ucagent_command(
             {"use_skill": use_skill},
@@ -206,7 +206,7 @@ def test_task_launch_command_auto_selects_mcp_port_from_default_args():
                 "default_args": {"launch_mode": ["process"], "mcp_server_port": -1},
             },
         }).freeze()
-        server = PdbMasterApiServer(workspace=master_ws, cfg=cfg)
+        server = MasterApiServer(workspace=master_ws, cfg=cfg)
 
         argv, _env = server._build_ucagent_command(
             server._normalized_launch_request({}),
@@ -226,7 +226,7 @@ def test_task_launch_command_prefers_requested_mcp_port_over_default():
                 "default_args": {"launch_mode": ["process"], "mcp_server_port": -1},
             },
         }).freeze()
-        server = PdbMasterApiServer(workspace=master_ws, cfg=cfg)
+        server = MasterApiServer(workspace=master_ws, cfg=cfg)
 
         argv, _env = server._build_ucagent_command(
             server._normalized_launch_request({"mcp_server_port": 5001}),
@@ -248,7 +248,7 @@ def test_launch_request_env_overrides_default_env():
                 ],
             },
         }).freeze()
-        server = PdbMasterApiServer(workspace=master_ws, cfg=cfg)
+        server = MasterApiServer(workspace=master_ws, cfg=cfg)
 
         _argv, env = server._build_ucagent_command(
             {
@@ -276,7 +276,7 @@ def test_launch_request_env_resolves_references_from_same_payload():
                 ],
             },
         }).freeze()
-        server = PdbMasterApiServer(workspace=master_ws, cfg=cfg)
+        server = MasterApiServer(workspace=master_ws, cfg=cfg)
 
         _argv, env = server._build_ucagent_command(
             {
@@ -322,7 +322,7 @@ launch:
             })
             object.__setattr__(cfg, "_loaded_config_files", [config_path])
             cfg.freeze()
-            server = PdbMasterApiServer(workspace=master_ws, cfg=cfg)
+            server = MasterApiServer(workspace=master_ws, cfg=cfg)
 
             preview = {item["key"]: item for item in server._launch_env_preview()}
         finally:
@@ -364,7 +364,7 @@ launch:
             })
             object.__setattr__(cfg, "_loaded_config_files", list(config_paths))
             cfg.freeze()
-            server = PdbMasterApiServer(workspace=master_ws, cfg=cfg)
+            server = MasterApiServer(workspace=master_ws, cfg=cfg)
 
             preview = {item["key"]: item for item in server._launch_env_preview()}
         finally:
@@ -386,7 +386,7 @@ def test_master_source_overrides_container_launch_cli(monkeypatch):
     with tempfile.TemporaryDirectory() as master_ws:
         source_host_path = "/host/path/UCAgent-not-visible-inside-master-container"
         monkeypatch.setenv("UCAGENT_MASTER_SOURCE", source_host_path)
-        server = PdbMasterApiServer(workspace=master_ws)
+        server = MasterApiServer(workspace=master_ws)
 
         command = server._container_command(["/usr/bin/python3", "/old/ucagent/cli.py", "/work", "Adder"])
 
@@ -397,7 +397,7 @@ def test_master_source_overrides_container_launch_cli(monkeypatch):
 def test_master_source_empty_does_not_override_container_launch(monkeypatch):
     with tempfile.TemporaryDirectory() as master_ws:
         monkeypatch.delenv("UCAGENT_MASTER_SOURCE", raising=False)
-        server = PdbMasterApiServer(workspace=master_ws)
+        server = MasterApiServer(workspace=master_ws)
 
         command = server._container_command(["/usr/bin/python3", "/old/ucagent/cli.py", "/work", "Adder"])
 
@@ -415,7 +415,7 @@ def test_docker_host_master_keeps_host_gateway_and_publishes_task_ports():
                 },
             },
         }).freeze()
-        server = PdbMasterApiServer(workspace=master_ws, cfg=cfg)
+        server = MasterApiServer(workspace=master_ws, cfg=cfg)
         task = {"task_id": "task1", "stdout_log_path": os.path.join(master_ws, "stdout.log")}
         open(task["stdout_log_path"], "w", encoding="utf-8").close()
 
@@ -461,7 +461,7 @@ def test_docker_container_master_uses_configured_network_alias_for_task():
                 },
             },
         }).freeze()
-        server = PdbMasterApiServer(workspace=master_ws, cfg=cfg)
+        server = MasterApiServer(workspace=master_ws, cfg=cfg)
         task = {"task_id": "task1", "stdout_log_path": os.path.join(master_ws, "stdout.log")}
         open(task["stdout_log_path"], "w", encoding="utf-8").close()
 
@@ -494,7 +494,7 @@ def test_docker_container_master_uses_configured_network_alias_for_task():
 
 def test_swarm_task_cmd_proxy_uses_service_dns_over_agent_task_ip():
     with tempfile.TemporaryDirectory() as master_ws:
-        server = PdbMasterApiServer(workspace=master_ws)
+        server = MasterApiServer(workspace=master_ws)
         task = server._create_task_record(
             {
                 "task_name": "swarm",
@@ -523,7 +523,7 @@ def test_swarm_task_cmd_proxy_uses_service_dns_over_agent_task_ip():
 
 def test_swarm_task_finish_keeps_service_for_debug_logs():
     with tempfile.TemporaryDirectory() as master_ws:
-        server = PdbMasterApiServer(workspace=master_ws)
+        server = MasterApiServer(workspace=master_ws)
         task = server._create_task_record(
             {
                 "task_id": "task-finished",
@@ -551,7 +551,7 @@ def test_swarm_task_finish_keeps_service_for_debug_logs():
 
 def test_swarm_launch_removes_exited_same_name_service_before_create():
     with tempfile.TemporaryDirectory() as master_ws:
-        server = PdbMasterApiServer(workspace=master_ws)
+        server = MasterApiServer(workspace=master_ws)
         task = server._create_task_record(
             {
                 "task_id": "task-relaunch",
@@ -612,7 +612,7 @@ def test_swarm_launch_removes_exited_same_name_service_before_create():
 
 def test_swarm_launch_rejects_active_same_name_service():
     with tempfile.TemporaryDirectory() as master_ws:
-        server = PdbMasterApiServer(workspace=master_ws)
+        server = MasterApiServer(workspace=master_ws)
         task = server._create_task_record(
             {
                 "task_id": "task-active",
@@ -660,7 +660,7 @@ def test_swarm_launch_rejects_active_same_name_service():
 
 def test_cleanup_stale_swarm_services_deletes_old_or_untracked_exited_services():
     with tempfile.TemporaryDirectory() as master_ws:
-        server = PdbMasterApiServer(workspace=master_ws)
+        server = MasterApiServer(workspace=master_ws)
         now = time.time()
         old_task = server._create_task_record({"task_id": "old"})
         old_task["process_status"] = "stopped"
@@ -692,7 +692,7 @@ def test_cleanup_stale_swarm_services_deletes_old_or_untracked_exited_services()
 
 def test_relaunch_drops_finished_old_task_record_before_launch():
     with tempfile.TemporaryDirectory() as master_ws:
-        server = PdbMasterApiServer(workspace=master_ws)
+        server = MasterApiServer(workspace=master_ws)
         client = TestClient(server._app)
         ws = server._create_workspace()
         workspace_id = ws["workspace_id"]
@@ -749,7 +749,7 @@ def test_relaunch_drops_finished_old_task_record_before_launch():
 
 def test_relaunch_ucagent_info_preserves_requested_zip_workspace():
     with tempfile.TemporaryDirectory() as master_ws:
-        server = PdbMasterApiServer(workspace=master_ws)
+        server = MasterApiServer(workspace=master_ws)
         client = TestClient(server._app)
         ws = server._create_workspace()
         workspace_id = ws["workspace_id"]
@@ -793,7 +793,7 @@ def test_relaunch_ucagent_info_preserves_requested_zip_workspace():
 
 def test_manual_relaunch_workspace_uses_directory_name_for_ids():
     with tempfile.TemporaryDirectory() as master_ws:
-        server = PdbMasterApiServer(workspace=master_ws)
+        server = MasterApiServer(workspace=master_ws)
         picker_workspace = os.path.join(master_ws, "my_1234", "workspace")
         os.makedirs(os.path.join(picker_workspace, ".ucagent"), exist_ok=True)
         with open(os.path.join(picker_workspace, ".ucagent", "ucagent_info.json"), "w", encoding="utf-8") as fh:
@@ -819,7 +819,7 @@ def test_manual_relaunch_workspace_uses_directory_name_for_ids():
 
 def test_manual_relaunch_workspace_rejects_stale_info_ids():
     with tempfile.TemporaryDirectory() as master_ws:
-        server = PdbMasterApiServer(workspace=master_ws)
+        server = MasterApiServer(workspace=master_ws)
         picker_workspace = os.path.join(master_ws, "my_1234", "workspace")
         os.makedirs(os.path.join(picker_workspace, ".ucagent"), exist_ok=True)
         with open(os.path.join(picker_workspace, ".ucagent", "ucagent_info.json"), "w", encoding="utf-8") as fh:
@@ -849,7 +849,7 @@ def test_manual_relaunch_workspace_rejects_stale_info_ids():
 
 def test_process_task_cmd_proxy_can_use_agent_reported_tcp_url():
     with tempfile.TemporaryDirectory() as master_ws:
-        server = PdbMasterApiServer(workspace=master_ws)
+        server = MasterApiServer(workspace=master_ws)
         task = server._create_task_record(
             {
                 "task_name": "process",
@@ -874,7 +874,7 @@ def test_process_task_cmd_proxy_can_use_agent_reported_tcp_url():
 
 def test_master_task_log_capture_drains_fast_failed_process():
     with tempfile.TemporaryDirectory() as master_ws, tempfile.TemporaryDirectory() as task_ws:
-        server = PdbMasterApiServer(workspace=master_ws)
+        server = MasterApiServer(workspace=master_ws)
         task = server._create_task_record(
             {
                 "task_name": "fast-fail",
@@ -910,7 +910,7 @@ def test_master_task_log_capture_drains_fast_failed_process():
 
 def test_master_task_logs_include_web_console_capture_only_for_exception():
     with tempfile.TemporaryDirectory() as master_ws:
-        server = PdbMasterApiServer(workspace=master_ws)
+        server = MasterApiServer(workspace=master_ws)
         task = server._create_task_record(
             {
                 "task_name": "web-console-fail",
@@ -941,7 +941,7 @@ def test_master_task_logs_include_web_console_capture_only_for_exception():
 
 def test_master_task_logs_show_normal_outer_logs_without_web_console_noise():
     with tempfile.TemporaryDirectory() as master_ws:
-        server = PdbMasterApiServer(workspace=master_ws)
+        server = MasterApiServer(workspace=master_ws)
         task = server._create_task_record(
             {
                 "task_name": "running",
@@ -967,7 +967,7 @@ def test_master_task_logs_show_normal_outer_logs_without_web_console_noise():
 
 def test_relaunch_ucagent_info_switches_between_config_backups():
     with tempfile.TemporaryDirectory() as master_ws:
-        server = PdbMasterApiServer(workspace=master_ws)
+        server = MasterApiServer(workspace=master_ws)
         ws = server._create_workspace()
         workspace_id = ws["workspace_id"]
         picker_workspace = ws["picker_workspace"]
@@ -1035,7 +1035,7 @@ def test_relaunch_ucagent_info_switches_between_config_backups():
 
 def test_agent_list_keeps_cached_launch_task_id_after_task_record_delete():
     with tempfile.TemporaryDirectory() as master_ws:
-        server = PdbMasterApiServer(workspace=master_ws)
+        server = MasterApiServer(workspace=master_ws)
         client = TestClient(server._app)
 
         register = client.post("/api/register", json={"id": "agent-1", "host": "worker-1"})
@@ -1058,7 +1058,7 @@ def test_agent_list_keeps_cached_launch_task_id_after_task_record_delete():
 
 def test_agent_delete_block_rejoin_controls_removed_set():
     with tempfile.TemporaryDirectory() as master_ws:
-        server = PdbMasterApiServer(workspace=master_ws)
+        server = MasterApiServer(workspace=master_ws)
         client = TestClient(server._app)
 
         assert client.post("/api/register", json={"id": "offline-agent", "host": "worker-1"}).status_code == 200

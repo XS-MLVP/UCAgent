@@ -15,6 +15,8 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
+from ucagent.control.runtime.services import lifecycle_timeout, start_http_listeners, stop_http_listeners
 import uuid
 from typing import Any, Dict, List, Optional, Tuple
 from ucagent.util.config import get_config
@@ -59,7 +61,7 @@ from .relaunch import RelaunchMixin
 from .routes import RoutesMixin
 
 
-class PdbMasterApiServer(
+class MasterApiServer(
     WorkspaceMixin, CompilationMixin, LaunchRuntimeMixin, RelaunchMixin, RoutesMixin,
 ):
     """FastAPI-based master that aggregates agents and manages launched tasks."""
@@ -85,16 +87,9 @@ class PdbMasterApiServer(
         cfg: Any = None,
     ) -> None:
         """Validate Master configuration and initialize persistent records, runtimes, and routes."""
-        try:
-            import fastapi  # noqa: F401
-            import uvicorn  # noqa: F401
-        except ImportError as exc:
-            raise ImportError(
-                "FastAPI and uvicorn are required. Install with: pip install fastapi uvicorn"
-            ) from exc
 
         if sock is None:
-            sock = f"/tmp/ucagent_master_{port}.sock"
+            sock = f"/tmp/ucagent_master_{port}.sock" if port else f"/tmp/ucagent_master_{os.getpid()}_{id(self):x}.sock"
         elif sock == "":
             sock = None
         if not tcp and not sock:
@@ -106,7 +101,9 @@ class PdbMasterApiServer(
         self.port = port
         self.sock = sock
         self.tcp = tcp
-        self.offline_timeout = offline_timeout
+        self.offline_timeout = lifecycle_timeout(offline_timeout)
+        if self.offline_timeout == 0:
+            raise ValueError("offline_timeout must be positive")
         self.workspace = os.path.abspath(workspace)
         self.access_key = access_key
         self.password = password
@@ -142,6 +139,11 @@ class PdbMasterApiServer(
         # relative order ahead of everything enqueued by this run.
         self._waiting_seq = _now()
 
+        self._lifecycle_lock = threading.RLock()
+        self._listener_sockets = []
+        self._listener_errors = []
+        self._owned_sock_path = None
+        self._stop_requested = False
         self._running = False
         self.started_at: Optional[float] = None
         self._tcp_server = None
@@ -151,7 +153,7 @@ class PdbMasterApiServer(
         self._monitor_thread: Optional[threading.Thread] = None
         self._monitor_stop = threading.Event()
         self._online_cache: Dict[str, bool] = {}
-        self._proxy_session = None
+        self._proxy_sessions = {}
         self._dirty = False
         self._last_saved = 0.0
         self._last_launch_cleanup = 0.0
@@ -920,9 +922,9 @@ class PdbMasterApiServer(
     def _probe_child_service(self, svc: Dict[str, Any], task: Optional[Dict[str, Any]] = None) -> bool:
         if not svc.get("enabled"):
             return False
-        try:
-            import requests
+        import requests
 
+        try:
             kwargs: Dict[str, Any] = {"timeout": 1.5}
             if svc.get("password"):
                 kwargs["auth"] = ("", svc["password"])
@@ -1985,112 +1987,52 @@ class PdbMasterApiServer(
             if self._dirty and (now - self._last_saved) >= self.PERIODIC_SAVE_INTERVAL:
                 self._save_db()
 
-    def start(self) -> Tuple[bool, str]:
-        if self._running:
-            return False, f"Master API server is already running at {self.url()}"
-
-        import uvicorn
-
-        started: List[str] = []
-        errors: List[str] = []
-        if self.tcp:
+    def start(self, timeout=10) -> Tuple[bool, str]:
+        """Start every requested listener and the monitor only after HTTP readiness."""
+        with self._lifecycle_lock:
+            ok, message = start_http_listeners(self, timeout=timeout, name="master")
+            if not ok:
+                return ok, message
+            self._monitor_stop.clear()
+            self._monitor_thread = threading.Thread(target=self._monitor_loop, daemon=True, name="master-monitor")
             try:
-                cfg = uvicorn.Config(self._app, host=self.host, port=self.port,
-                                     log_config=None, log_level=None, ws="websockets-sansio")
-                self._tcp_server = uvicorn.Server(cfg)
-                self._tcp_thread = threading.Thread(target=self._tcp_server.run, daemon=True, name="master-api-tcp")
-                self._tcp_thread.start()
-                started.append(f"TCP  http://{self.host}:{self.port}  (docs: http://{self.host}:{self.port}/docs)")
-            except Exception as exc:
-                errors.append(f"TCP listener failed: {exc}")
-                self._tcp_server = None
-                self._tcp_thread = None
-        if self.sock:
-            if os.path.exists(self.sock):
-                try:
-                    os.unlink(self.sock)
-                except OSError as exc:
-                    errors.append(f"Cannot remove socket '{self.sock}': {exc}")
-            if not any("Cannot remove" in item for item in errors):
-                try:
-                    cfg = uvicorn.Config(self._app, uds=self.sock, log_config=None, log_level=None,
-                                         ws="websockets-sansio")
-                    self._sock_server = uvicorn.Server(cfg)
-                    self._sock_thread = threading.Thread(target=self._sock_server.run, daemon=True, name="master-api-sock")
-                    self._sock_thread.start()
-                    started.append(f"Sock {self.sock}  (docs: curl --unix-socket {self.sock} http://localhost/docs)")
-                except Exception as exc:
-                    errors.append(f"Socket listener failed: {exc}")
-                    self._sock_server = None
-                    self._sock_thread = None
-        if not started:
-            return False, "Master API server failed to start:\n  " + "\n  ".join(errors)
+                self._monitor_thread.start()
+            except Exception as error:
+                self._monitor_stop.set()
+                stop_http_listeners(self, timeout=1)
+                return False, f"Master monitor failed to start: {error}"
+            return True, message
 
-        self._running = True
-        self.started_at = _now()
-        if self.sock:
-            import atexit
-
-            sock_path = self.sock
-
-            def _cleanup_sock():
-                try:
-                    if os.path.exists(sock_path):
-                        os.unlink(sock_path)
-                except OSError:
-                    pass
-
-            atexit.register(_cleanup_sock)
-        self._monitor_stop.clear()
-        self._monitor_thread = threading.Thread(target=self._monitor_loop, daemon=True, name="master-monitor")
-        self._monitor_thread.start()
-        msg = "Master API server started:\n  " + "\n  ".join(started)
-        if errors:
-            msg += "\n  (warnings) " + "; ".join(errors)
-        return True, msg
-
-    def stop(self) -> Tuple[bool, str]:
-        if not self._running:
-            return False, "Master API server is not running"
-        if self._tcp_server:
-            self._tcp_server.should_exit = True
-            self._tcp_server = None
-        self._tcp_thread = None
-        if self._sock_server:
-            self._sock_server.should_exit = True
-            self._sock_server = None
-        self._sock_thread = None
-        self._running = False
-        self.started_at = None
-        self._monitor_stop.set()
-        self._monitor_thread = None
-        self._online_cache.clear()
-        session = self._proxy_session
-        self._proxy_session = None
-        if session is not None and not session.closed:
-            try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    loop.create_task(session.close())
-                else:
-                    loop.run_until_complete(session.close())
-            except Exception:
-                pass
-        if self._dirty:
-            self._save_db()
-        if self.sock:
-            try:
-                if os.path.exists(self.sock):
-                    os.unlink(self.sock)
-            except OSError:
-                pass
-        return True, "Master API server stopped"
+    def stop(self, timeout=5) -> Tuple[bool, str]:
+        """Drain listeners and retain the monitor until its current operation finishes."""
+        deadline = time.monotonic() + lifecycle_timeout(timeout)
+        with self._lifecycle_lock:
+            self._monitor_stop.set()
+            ok, message = stop_http_listeners(self, timeout=max(0, deadline - time.monotonic()))
+            monitor = self._monitor_thread
+            if monitor is not None and monitor.ident is not None and monitor is not threading.current_thread():
+                monitor.join(max(0, deadline - time.monotonic()))
+            if not ok or (monitor is not None and monitor.is_alive()):
+                return False, "Master service is still stopping"
+            self._monitor_thread = None
+            self._online_cache.clear()
+            if self._dirty:
+                self._save_db()
+            return True, "Master API server stopped"
 
     @property
     def is_running(self) -> bool:
-        tcp_alive = self.tcp and self._tcp_thread is not None and self._tcp_thread.is_alive()
-        sock_alive = bool(self.sock) and self._sock_thread is not None and self._sock_thread.is_alive()
-        return self._running and (tcp_alive or sock_alive)
+        """Include startup, request draining and monitor shutdown in owned liveness."""
+        return any(thread is not None and thread.is_alive()
+                   for thread in (self._tcp_thread, self._sock_thread, self._monitor_thread))
+
+    @property
+    def is_ready(self) -> bool:
+        """Publish endpoints only while every enabled listener is accepting requests."""
+        return self._running and not self._stop_requested and all(
+            server is not None and server.started and thread is not None and thread.is_alive()
+            for enabled, server, thread in ((self.tcp, self._tcp_server, self._tcp_thread),
+                                            (bool(self.sock), self._sock_server, self._sock_thread)) if enabled)
 
     def url(self) -> str:
         parts = []

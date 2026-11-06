@@ -25,9 +25,9 @@ import ucagent.checkers as checkers
 from unity_test.checkers.recorder import Recorder, RecordType
 from unity_test.checkers.toffee_report import parse_bug_label
 from ucagent.plugins import create_plugin_checker_registry, load_plugin
-from ucagent.server.api_master import PdbMasterApiServer, PdbMasterClient
+from ucagent.server.api_master import MasterApiServer, MasterClient
 from ucagent.stage.vmanager import StageManager
-from ucagent.util.config import load_yaml_with_env_vars
+from ucagent.util.config import Config, load_yaml_with_env_vars
 from ucagent.util.markdown import markdown_heading_spacing_errors
 
 
@@ -76,8 +76,8 @@ class _FakeStageManager:
         self.data = {}
         self.save_count = 0
         self.stages = [stage]
-        pdb = SimpleNamespace(_master_clients=master_clients or {})
-        self.agent = SimpleNamespace(dut_name="Adder", pdb=pdb)
+        self.master_connections = lambda: dict(master_clients or {})
+        self.agent = SimpleNamespace(dut_name="Adder")
 
     def get_data(self, key, default=None):
         return self.data.get(key, default)
@@ -1429,7 +1429,7 @@ def test_default_workflow_ends_with_record_and_report_bugs_stage():
 
 
 def test_master_record_api_accepts_generic_payload_and_logs_summary(tmp_path):
-    server = PdbMasterApiServer(workspace=str(tmp_path))
+    server = MasterApiServer(workspace=str(tmp_path))
     client = TestClient(server._app)
     report = {
         "schema_version": 1,
@@ -1458,7 +1458,7 @@ def test_master_record_api_accepts_generic_payload_and_logs_summary(tmp_path):
 
 
 def test_master_record_api_logs_launch_task_order(tmp_path):
-    server = PdbMasterApiServer(workspace=str(tmp_path))
+    server = MasterApiServer(workspace=str(tmp_path))
     client = TestClient(server._app)
     report = {
         "schema_version": 1,
@@ -1485,7 +1485,7 @@ def test_master_record_api_logs_launch_task_order(tmp_path):
 
 
 def test_master_record_api_validates_generic_envelope(tmp_path):
-    server = PdbMasterApiServer(workspace=str(tmp_path))
+    server = MasterApiServer(workspace=str(tmp_path))
     client = TestClient(server._app)
 
     response = client.post("/api/records", json={
@@ -1508,7 +1508,7 @@ def test_master_record_api_validates_generic_envelope(tmp_path):
 def test_master_record_api_rejects_invalid_envelope_field_types(
     tmp_path, field, value, detail
 ):
-    server = PdbMasterApiServer(workspace=str(tmp_path))
+    server = MasterApiServer(workspace=str(tmp_path))
     client = TestClient(server._app)
     report = {
         "schema_version": 1,
@@ -1526,11 +1526,9 @@ def test_master_record_api_rejects_invalid_envelope_field_types(
     assert response.json()["detail"] == detail
 
 
-def test_master_client_reports_records_with_agent_identity():
-    pdb = SimpleNamespace()
-    client = PdbMasterClient(
-        pdb,
-        master_url="http://master:8800",
+def test_master_client_reports_records_with_agent_identity(tmp_path):
+    client = MasterClient(
+        master_url="http://master:8800", payload=lambda: {}, workspace=str(tmp_path), cfg=Config({}),
         agent_id="agent-7",
         access_key="secret",
     )
@@ -1554,10 +1552,9 @@ def test_master_client_reports_records_with_agent_identity():
     assert post.call_args.kwargs["headers"] == {"X-Access-Key": "secret"}
 
 
-def test_master_client_rejects_non_json_record_report():
-    client = PdbMasterClient(
-        SimpleNamespace(),
-        master_url="http://master:8800",
+def test_master_client_rejects_non_json_record_report(tmp_path):
+    client = MasterClient(
+        master_url="http://master:8800", payload=lambda: {}, workspace=str(tmp_path), cfg=Config({}),
         agent_id="agent-7",
     )
     client._running = True

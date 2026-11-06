@@ -1,6 +1,6 @@
 """Master API server and heartbeat client for UCAgent."""
 
-from .client import PdbMasterClient
-from .server import PdbMasterApiServer
+from .client import MasterClient
+from .server import MasterApiServer
 
-__all__ = ["PdbMasterApiServer", "PdbMasterClient"]
+__all__ = ["MasterApiServer", "MasterClient"]

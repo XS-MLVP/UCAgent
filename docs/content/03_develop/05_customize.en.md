@@ -59,7 +59,7 @@ mcp_tool = to_mcp_tool(tool)
 assert mcp_tool.name == "Hello"
 ```
 
-After startup, you can view tools using `tool_list` and invoke them using `tool_invoke Hello who='UCAgent'`.
+After startup, you can view tools using `tool_list` and invoke them using `tool_invoke Hello {"who":"UCAgent"}`.
 
 ## File Paths and Permissions
 

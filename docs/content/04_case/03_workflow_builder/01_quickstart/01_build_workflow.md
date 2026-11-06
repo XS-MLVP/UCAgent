@@ -151,7 +151,7 @@ make WS=~/work/ucagent_tasks/docx/workspace session
 tmux attach -t ucagent_workflow_builder -r
 ```
 
-只读 attach 不会把按键传给 TUI。需要停止时进入可写会话，先 `Ctrl+C` 等待当前命令取消，再按 UCAgent 提示退出；不要直接删除 tmux session，让子进程和权限守护留在后台。
+只读 attach 不会把按键传给 TUI。需要停止时进入可写会话，在 UCAgent 输入 `shutdown` 并等待进程实际退出；`Ctrl+C` 只取消前台操作，TUI 的 `q` 只退出界面。不要直接删除 tmux session，让子进程和权限守护留在后台。
 
 ## 阶段观察表
 

@@ -156,7 +156,7 @@ Analyze only, do not modify; unless the user says `Check and fix failure cause`.
 
 ### 3.9 `Stop Execution`
 
-Send a single `Ctrl-C` to the agreed tmux pane, wait for UCAgent to clean up and exit. Continue observing until the business process truly terminates. By default, retain the tmux shell and formal artifacts; do not kill the session, do not delete history, do not clean tmp. If still in the framework cleanup phase after one `Ctrl-C`, wait, do not send signals consecutively.
+Enter `shutdown` and press Enter in the agreed tmux pane's UCAgent Console/TUI, then wait for cleanup and actual process exit. `Ctrl-C` only requests foreground cancellation; TUI `q` only detaches the view, so neither establishes process exit. If no input interface is available, verify the target UCAgent PID and send `SIGTERM` for normal shutdown. Retain the tmux shell and formal artifacts; do not kill the session, delete history, or clean tmp. Observe cleanup without repeatedly sending shutdown commands or signals.
 
 ### 3.10 `Deep Repair`
 
@@ -265,7 +265,7 @@ Read specifically when encountering concrete issues:
 
 - Path expansion or `reference_files` tracking anomalies: Continue reading template, path search, and directory synchronization functions in `ucagent/util/functions.py`.
 - History recovery, permissions, or `.ucagent/history` anomalies: Continue reading `hist_sync`, `hist_commit`, and UCAgent information saving logic in `vstage.py` and `vmanager.py`.
-- MCP integration issues: Continue reading the service startup section in `server/api_mcp.py` and `verify_pdb.py`.
+- MCP integration issues: Continue reading the service startup section in `server/api_mcp.py` and `control/runtime/services.py`.
 - TUI not appearing or color anomalies: Read `tui/` and the CLI handling of `--tui`, and check for a real TTY; do not modify business configuration first.
 
 ### 5.2 UCAgent Understanding Prompt

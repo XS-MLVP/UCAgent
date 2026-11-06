@@ -1,109 +1,89 @@
-"""Main application for UCAgent TUI."""
+"""Textual frontend attached to an ordinary console and its runtime host."""
 
-from __future__ import annotations
+from contextlib import asynccontextmanager
+from uuid import uuid4
 
-from typing import TYPE_CHECKING, ClassVar
-
-from textual.app import App, ComposeResult
+from textual.app import App
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical
-from textual.css.query import NoMatches
 from textual.events import Key
+from textual.containers import Horizontal, Vertical
 from textual.reactive import reactive
 from textual.widgets import HelpPanel
 
 from .handlers import KeyHandler
-from .mixins import ConsoleCaptureMixin, SigintHandlerMixin
 from .screens import ThemePickerScreen
-from .utils import create_ui_logger
-from .widgets import (
-    TaskPanel,
-    StatusBar,
-    MessagesPanel,
-    ConsoleWidget,
-    ConsoleInput,
-    VerticalSplitter,
-    HorizontalSplitter,
-)
 from .widgets.splitter import _clamp_split_value
-
-if TYPE_CHECKING:
-    from ucagent.verify_pdb import VerifyPDB
+from .widgets import TaskPanel, StatusBar, MessagesPanel, ConsoleWidget, ConsoleInput, VerticalSplitter, HorizontalSplitter
 
 
-class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
-    """Main UCAgent verification TUI application."""
+class VerifyApp(App):
+    """Present shared state without owning services, signals or business workers."""
 
     CSS_PATH = "styles/default.tcss"
+    BINDINGS = [Binding("ctrl+c", "interrupt", "Cancel operation", priority=True),
+                Binding("ctrl+q", "detach", "Return to console", priority=True),
+                Binding("f1", "toggle_help_panel", "Help"),
+                Binding("escape", "hide_help_panel", "Close help", show=False, priority=True)]
+    _split_step = 2
+    BINDINGS += [Binding("ctrl+t", "choose_theme", "Theme"),
+                 *[Binding(key, "split_" + direction, show=False, priority=True)
+                   for key, direction in (("ctrl+left", "left"), ("ctrl+right", "right"),
+                       ("ctrl+up", "up"), ("ctrl+down", "down"), ("ctrl+h", "left"),
+                       ("ctrl+l", "right"), ("ctrl+k", "up"), ("ctrl+j", "down"))]]
+    task_width = reactive(84)
+    console_height = reactive(13)
 
-    BINDINGS: ClassVar[list[Binding]] = [
-        Binding("ctrl+c", "interrupt_or_quit", "Interrupt", show=False, priority=True),
-        Binding("ctrl+t", "choose_theme", "Choose theme", show=False),
-        Binding("f1", "toggle_help_panel", "Help", show=False),
-        # Arrow keys
-        Binding("ctrl+left", "split_left", "Split left", show=False, priority=True),
-        Binding("ctrl+right", "split_right", "Split right", show=False, priority=True),
-        Binding("ctrl+up", "split_up", "Split up", show=False, priority=True),
-        Binding("ctrl+down", "split_down", "Split down", show=False, priority=True),
-        # Vim-style arrow keys
-        Binding("ctrl+h", "split_left", "Split left", show=False, priority=True),
-        Binding("ctrl+l", "split_right", "Split right", show=False, priority=True),
-        Binding("ctrl+k", "split_up", "Split up", show=False, priority=True),
-        Binding("ctrl+j", "split_down", "Split down", show=False, priority=True),
-    ]
-
-    # Reactive properties for dynamic layout
-    task_width: reactive[int] = reactive(84)
-    console_height: reactive[int] = reactive(13)
-    _split_step: int = 2
-
-    def __init__(self, vpdb: "VerifyPDB") -> None:
+    def __init__(self, session):
+        """Attach one transient view to a persistent command session."""
         super().__init__()
-        self.vpdb = vpdb
         self.theme = "textual-dark"
-
-        # Command history
-        self.cmd_history: list[str] = []
-        self.cmd_history_index: int = 0
-
-        # Handler for key events
+        self.frontend = session
+        self.host = session.host
         self.key_handler = KeyHandler(self)
+        self.cmd_history = session.history
+        self.daemon_cmds = []
+        self._control_id = "tui:" + uuid4().hex
+        self._cleaned = False
+        self._replay_prefix = session.render_console_entries_since()
+        self.session_output = ""
+        self._stream_capture = None
+        self._console_widget = None
+        self._messages_widget = None
 
-        # Daemon commands tracking (current TUI session only)
-        self.daemon_cmds: dict[float, str] = {}
+    async def run_async(self, **kwargs):
+        """Keep capture active until Textual has fully restored its terminal streams."""
+        try:
+            return await super().run_async(**kwargs)
+        finally:
+            self._release_capture()
 
-        # Track previous logger for cleanup
-        self._mcps_logger_prev = None
-        self._ui_handlers_installed: bool = False
+    @asynccontextmanager
+    async def run_test(self, **kwargs):
+        """Apply the same stream lifetime to headless and real-terminal test drivers."""
+        try:
+            async with super().run_test(**kwargs) as pilot:
+                yield pilot
+        finally:
+            self._release_capture()
 
-        # Session output history for dumping to terminal after exit
-        self._session_output: str = ""
-        self._console_replay_start: int = 0
-        self._is_shutting_down: bool = False
-        self._cleanup_done: bool = False
+    def _release_capture(self):
+        """Release the view bridge after teardown, including shutdown during a UI session."""
+        if self._stream_capture is not None:
+            self._stream_capture.__exit__(None, None, None)
+            self._stream_capture = None
+        if self.host.snapshot()["instance"] in {"closed", "failed"}:
+            self.host.output.close()
 
-    @property
-    def session_output(self) -> str:
-        return self._session_output
-
-    @property
-    def is_shutting_down(self) -> bool:
-        return self._is_shutting_down
-
-    def get_css_variables(self) -> dict[str, str]:
-        """Provide extra theme variables for custom styles."""
+    def get_css_variables(self):
+        """Provide the focus background used by the existing theme stylesheet."""
         variables = super().get_css_variables()
         if self.current_theme.name == "textual-light":
-            variables["console-input-focus"] = variables.get(
-                "surface", variables.get("background", "ansi_default")
-            )
+            variables["console-input-focus"] = variables.get("surface", variables.get("background", "ansi_default"))
         else:
-            variables["console-input-focus"] = variables.get(
-                "surface-active", variables.get("surface", "ansi_default")
-            )
+            variables["console-input-focus"] = variables.get("surface-active", variables.get("surface", "ansi_default"))
         return variables
 
-    def compose(self) -> ComposeResult:
+    def compose(self):
         """Compose the application layout."""
         with Vertical(id="app-container"):
             with Horizontal(id="main-container"):
@@ -120,91 +100,118 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
                 classes="splitter horizontal",
             )
             with Vertical(id="console-container"):
-                yield ConsoleWidget(id="console", prompt=self.vpdb.prompt)
+                yield ConsoleWidget(id="console", prompt=self.frontend.prompt)
                 yield StatusBar(id="status-bar")
 
-    async def on_mount(self) -> None:
-        """Initialize after mounting."""
-        # Install message echo handler and UI logger now that widgets are ready
-        self.vpdb.agent.set_message_echo_handler(self.message_echo)
-        self._mcps_logger_prev = getattr(self.vpdb.agent, "_mcps_logger", None)
-        self.vpdb.agent._mcps_logger = create_ui_logger(self, level="INFO")
-        self._ui_handlers_installed = True
-        self._restore_command_history()
-        self._restore_console_history()
-        self._restore_messages_history()
-        if hasattr(self.vpdb, "get_console_entry_count"):
-            self._console_replay_start = self.vpdb.get_console_entry_count()
-
-        # Install console capture and signal handler for TUI
-        # sessions so stdout/log output appears in the Console panel.
-        self.install_console_capture()
-        self.install_sigint_handler()
-        self.set_interval(0.5, self.refresh_runtime_state)
-        self.refresh_runtime_state()
-
-        # Process initial batch commands if any
-        if self.vpdb.init_cmd:
-            def process_batch():
-                while self.vpdb.init_cmd:
-                    cmd = self.vpdb.init_cmd.pop(0)
-                    self.key_handler.process_command(cmd)
-                console_input = self.query_one(ConsoleInput)
-                console_input.update_running_commands()
-
-            self.call_later(process_batch)
-
-        # Focus the console input
+    def on_mount(self):
+        """Restore display state and subscribe through existing agent message callbacks."""
+        self._console_widget = self.query_one(ConsoleWidget)
+        self._messages_widget = self.query_one(MessagesPanel)
+        self.host.attach_control(self._control_id, interrupt=self.frontend.cancel_foreground, messages=True)
+        self._stream_capture = self.host.output.capture()
+        self._stream_capture.__enter__()
+        self.query_one(ConsoleWidget).restore_state(self.frontend.tui_console_state)
+        self.query_one(MessagesPanel).restore_state(self.frontend.tui_messages_state)
+        self.set_interval(0.1, self.refresh_runtime_state)
         self.query_one(ConsoleInput).focus_input()
 
-    async def on_ready(self) -> None:
-        # Use default value from tcss
-        task_panel = self.query_one(TaskPanel)
-        self.task_width = task_panel.size.width
+    def message_echo(self, text, end="\n", **kwargs):
+        """Queue model messages on the widget's existing thread-safe input buffer."""
+        self.host.message_echo(text, end=end)
 
-        # Set console height to half of available height (1:1 ratio with main-container)
-        available_height = self.app.size.height // 2
-        self.console_height = available_height
+    def console_output(self, text):
+        """Queue display output for the UI timer without writing from worker threads."""
+        self.frontend.queue_output(text)
 
-    def on_key(self, event: Key) -> None:
-        """Allow Esc to dismiss the help panel without stealing other Esc uses."""
+    def flush_console_output(self):
+        """Drain queued output exactly once and persist it through the console widget."""
+        if self._cleaned or self._console_widget is None:
+            return
+        text = self.frontend.drain_output()
+        if text:
+            self.query_one(ConsoleWidget).append_output(text)
+        messages = self.frontend.drain_messages()
+        if messages:
+            self.query_one(MessagesPanel).append_message(messages)
+
+    def refresh_runtime_state(self):
+        """Poll owned operations; detaching this view never changes their identities."""
+        if self._cleaned:
+            return
+        self.console_output(self.frontend.completed_output())
+        self.flush_console_output()
+        self.daemon_cmds = self.frontend.get_background_commands()
+        self.query_one(ConsoleInput).set_busy(bool(self.frontend.get_running_commands()))
+        self.query_one(ConsoleInput).update_running_commands()
+        if self.host.snapshot()["instance"] in {"closing", "closed", "failed"}:
+            self.action_detach()
+
+    def on_console_input_command_submitted(self, event):
+        """Forward one input event to the explicit command handler."""
+        self.key_handler.process_command(event.command, event.daemon)
+
+    def cancel_running_command(self):
+        """Cancel this session's foreground operation without process signals."""
+        if not self.frontend.cancel_foreground():
+            return False
+        self.console_output("Cancellation requested.\n")
+        self.flush_console_output()
+        return True
+
+    def action_interrupt(self):
+        """Ctrl-C affects only the foreground operation selected by this session."""
+        self.cancel_running_command()
+
+    def action_detach(self):
+        """Return to the console without shutting down the application."""
+        self.cleanup()
+        self.exit()
+
+    def action_quit(self):
+        """Exit this view without requesting task or instance shutdown."""
+        self.action_detach()
+
+    def on_ready(self):
+        """Size the initial split from the terminal, matching the original layout."""
+        self.task_width = self.query_one(TaskPanel).size.width
+        self.console_height = self.size.height // 2
+        self.host.startup.release()
+        self.refresh_runtime_state()
+
+    def check_action(self, action, parameters):
+        """Reserve Escape for help only while its overlay is visible."""
+        if action == "hide_help_panel":
+            return bool(self.query("#help-overlay"))
+        return True
+
+    def on_key(self, event: Key):
+        """Dismiss binding help with Escape without consuming unrelated keys."""
         if event.key == "escape" and self.query("#help-overlay"):
             self.action_hide_help_panel()
             event.prevent_default()
             event.stop()
 
-    def on_unmount(self) -> None:
-        """Cleanup on exit."""
+    def on_unmount(self):
+        """Persist view state exactly once even on exceptional UI exits."""
         self.cleanup()
 
-    def message_echo(self, msg: str, end: str = "\n") -> None:
-        """Thread-safe message echo handler invoked from worker threads."""
-        if not msg:
+    def cleanup(self):
+        """Persist view state while the outer app lifetime continues capturing teardown output."""
+        if self._cleaned or self._console_widget is None:
             return
-        messages_panel = self.query_one("#messages-panel", MessagesPanel)
-        messages_panel.append_message(f"{msg}{end}")
-
-    def console_output(self, text: str) -> None:
-        """Thread-safe console output method.
-
-        From worker threads, this puts text into the console's batch queue.
-
-        Args:
-            text: Text to output
-        """
-        console = self.query_one("#console", ConsoleWidget)
-        console.queue_output(text)
-
-    # Action methods for key bindings
-    def action_interrupt_or_quit(self) -> None:
-        """Cancel running command or quit."""
-        self._handle_ctrl_c()
-
-    def action_quit(self) -> None:
-        """Handle quit action."""
-        self.stop_running_tasks(include_detached=False)
-        self.cleanup()
-        self.exit()
+        try:
+            self.console_output(self.frontend.completed_output())
+            self.flush_console_output()
+            self.frontend.tui_console_state = self._console_widget.export_state()
+            self.frontend.tui_messages_state = self._messages_widget.export_state()
+            self.frontend.save_cmd_history()
+            transcript = self.frontend.render_console_entries_since()
+            self.session_output = (transcript[len(self._replay_prefix):]
+                                   if transcript.startswith(self._replay_prefix) else transcript)
+        finally:
+            self._cleaned = True
+            self.host.startup.release()
+            self.host.detach_control(self._control_id)
 
     def action_choose_theme(self) -> None:
         """Open theme picker modal."""
@@ -238,6 +245,7 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
             self.action_show_help_panel()
 
     def _apply_theme_selection(self, theme_name: str | None) -> None:
+        """Apply a selected theme after the picker closes."""
         if not theme_name:
             return
         if theme_name in self.available_themes:
@@ -266,125 +274,3 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
             "console_height", self.console_height - self._split_step
         )
         self.console_height = new_value
-
-    def on_console_input_command_submitted(
-        self, event: ConsoleInput.CommandSubmitted
-    ) -> None:
-        self.key_handler.process_command(event.command, event.daemon)
-        console_input = self.query_one(ConsoleInput)
-        console_input.update_running_commands()
-
-    def cancel_running_command(self) -> bool:
-        cancelled = False
-        if self.key_handler.has_active_worker():
-            cancelled = self.key_handler.cancel_last_worker()
-        else:
-            cancelled = self.vpdb.cancel_last_running_command()
-
-        if cancelled:
-            self.console_output("\033[33mSIGINT received. Stopping execution ...\033[0m\n")
-            self.flush_console_output()
-            try:
-                console_input = self.query_one(ConsoleInput)
-            except NoMatches:
-                return True
-            console_input.update_running_commands()
-        return cancelled
-
-    def stop_running_tasks_with_policy(self, *, include_detached: bool) -> bool:
-        cancelled = self.key_handler.cancel_all_workers(
-            include_detached=include_detached
-        )
-        if not cancelled:
-            return False
-        self.flush_console_output()
-        try:
-            console_input = self.query_one(ConsoleInput)
-            console_input.update_running_commands()
-        except NoMatches:
-            pass
-        try:
-            task_panel = self.query_one("#task-panel", TaskPanel)
-            task_panel.update_content()
-        except NoMatches:
-            pass
-        return True
-
-    def stop_running_tasks(self, include_detached: bool = True) -> bool:
-        return self.stop_running_tasks_with_policy(
-            include_detached=include_detached
-        )
-
-    def refresh_runtime_state(self) -> None:
-        if self._cleanup_done:
-            return
-        running_commands = self.vpdb.get_running_commands()
-        try:
-            console = self.query_one("#console", ConsoleWidget)
-            console.set_busy(bool(running_commands))
-            console_input = self.query_one(ConsoleInput)
-            console_input.update_running_commands(running_commands)
-        except NoMatches:
-            return
-
-    def _restore_messages_history(self) -> None:
-        messages_panel = self.query_one("#messages-panel", MessagesPanel)
-        messages_panel.restore_state(self.vpdb.tui_messages_state)
-
-    def _restore_console_history(self) -> None:
-        console = self.query_one("#console", ConsoleWidget)
-        console.restore_state(self.vpdb.tui_console_state)
-
-    def _restore_command_history(self) -> None:
-        self.cmd_history = self.vpdb.get_cmd_history()
-        self.cmd_history_index = len(self.cmd_history)
-        self.key_handler.last_cmd = self.cmd_history[-1] if self.cmd_history else None
-
-    def _save_messages_history(self) -> None:
-        try:
-            messages_panel = self.query_one("#messages-panel", MessagesPanel)
-        except NoMatches:
-            return
-        self.vpdb.tui_messages_state = messages_panel.export_state()
-
-    def _save_console_history(self) -> None:
-        try:
-            console = self.query_one("#console", ConsoleWidget)
-        except NoMatches:
-            return
-        self.vpdb.tui_console_state = console.export_state()
-
-    def _save_command_history(self) -> None:
-        self.vpdb.save_cmd_history()
-
-    def cleanup(self) -> None:
-        """Cleanup resources on exit."""
-        if self._cleanup_done:
-            return
-        self._cleanup_done = True
-        self._is_shutting_down = True
-        self.stop_running_tasks(include_detached=False)
-
-        try:
-            self.flush_console_output()
-        except NoMatches:
-            pass
-
-        # Collect console history (best-effort, only on first call)
-        if not self._session_output:
-            if hasattr(self.vpdb, "render_console_entries_since"):
-                self._session_output = self.vpdb.render_console_entries_since(
-                    self._console_replay_start
-                )
-            elif self._console_capture is not None:
-                self._session_output = self._console_capture.get_history()
-        self._save_command_history()
-        self._save_console_history()
-        self._save_messages_history()
-
-        if self._ui_handlers_installed:
-            self.vpdb.agent.unset_message_echo_handler()
-            self.vpdb.agent._mcps_logger = self._mcps_logger_prev
-            self._ui_handlers_installed = False
-        self.restore_sigint_handler()
-        self.restore_console_capture()

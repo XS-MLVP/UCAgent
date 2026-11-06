@@ -4,23 +4,22 @@ from __future__ import annotations
 
 import asyncio
 import time
-from typing import TYPE_CHECKING
 
 from textual import work
+from rich.text import Text
 from textual.app import ComposeResult
 from textual.containers import VerticalScroll
 from textual.worker import Worker
 from textual.widgets import Static
 
-if TYPE_CHECKING:
-    pass
+from ucagent.control.runtime.presentation import format_mission, format_status
 
 
 class TaskPanel(VerticalScroll):
     """Panel displaying mission tasks, changed files, and tool status."""
 
     def __init__(self, **kwargs) -> None:
-        """Initialize the panel with no file scan in flight."""
+        """Construct the mission view without acquiring any runtime resources."""
         super().__init__(**kwargs)
         self.border_title = "Mission"
         self._changed_files_worker: Worker[None] | None = None
@@ -38,22 +37,22 @@ class TaskPanel(VerticalScroll):
         yield Static(id="status-summary")
 
     def on_mount(self) -> None:
+        """Subscribe to layout changes and refresh the detached mission snapshot."""
         self.watch(self.app, "task_width", self._apply_task_width)
         self._apply_task_width(self.app.task_width)
         self.update_content()
         self.set_interval(1.0, self.update_content)
 
     def _apply_task_width(self, value: int) -> None:
+        """Apply the current splitter width once the widget has mounted."""
         if not self.is_mounted:
             return
         self.styles.width = value
 
     def update_content(self) -> None:
-        """Update panel content from VerifyPDB data."""
-        from rich.text import Text
-
-        vpdb = self.app.vpdb
-        task_data = vpdb.api_task_list()
+        """Update panel content from Controller data."""
+        console = self.app.frontend
+        task_data = console.controller.task_status()
         mission_name = task_data.get("mission_name") or task_data.get(
             "task_list", {}
         ).get("mission", "")
@@ -72,19 +71,20 @@ class TaskPanel(VerticalScroll):
         self._update_status_summary()
 
     def _format_task_lines(self) -> list[str]:
-        mission_info = self.app.vpdb.api_mission_info()
-        if not mission_info:
-            return []
-        return mission_info[1:]
+        """Restore the mission's visual markers from detached controller data."""
+        console = self.app.frontend
+        return format_mission(console.controller.mission_info(),
+                              use_skills=console.agent.cfg.get_value("skill.use_skill", False))
 
     @work(group="changed-files", exit_on_error=False)
     async def _update_changed_files(self) -> None:
         """Scan off the UI thread, then render results on the event loop."""
         from ucagent.util.functions import fmt_time_stamp, fmt_time_deta
 
-        changed_files = (await asyncio.to_thread(self.app.vpdb.api_changed_files))[:5]
+        rows = await asyncio.to_thread(self.app.frontend.controller.changed_files)
         if not self.is_mounted:
             return
+        changed_files = [(row["age_seconds"], row["mtime"], row["path"]) for row in rows][:5]
         lines = []
         for delta, mtime, filename in changed_files:
             time_str = fmt_time_stamp(mtime)
@@ -99,7 +99,7 @@ class TaskPanel(VerticalScroll):
     def _update_tool_status(self) -> None:
         """Update tool call status."""
         tool_info = []
-        for name, count, busy in self.app.vpdb.api_tool_status():
+        for name, count, busy in [(row["name"], row["call_count"], row["is_hot"]) for row in self.app.frontend.controller.tool_list()]:
             if busy:
                 tool_info.append(f"[yellow]{name}({count})[/yellow]")
             else:
@@ -109,8 +109,8 @@ class TaskPanel(VerticalScroll):
 
     def _update_status_summary(self) -> None:
         """Update status summary section."""
-        status_text = self.app.vpdb.api_status()
-        self.query_one("#status-summary", Static).update(status_text)
+        status_text = format_status(self.app.frontend.controller.status())
+        self.query_one("#status-summary", Static).update(Text(status_text))
 
     def _update_daemon_cmds(self) -> None:
         """Update daemon commands section."""
@@ -123,9 +123,11 @@ class TaskPanel(VerticalScroll):
 
         ntime = time.time()
         lines = ["\nDaemon Commands"]
-        for key, cmd in daemon_cmds.items():
+        for operation in daemon_cmds:
+            key = operation["started_at"] or operation["created_at"]
+            cmd = operation["line"]
             lines.append(
                 f"{cmd}: {fmt_time_stamp(key)} - {fmt_time_deta(ntime - key, True)}"
             )
 
-        self.query_one("#daemon-cmds", Static).update("\n".join(lines))
+        self.query_one("#daemon-cmds", Static).update(Text("\n".join(lines)))

@@ -1,20 +1,17 @@
 # -*- coding: utf-8 -*-
 """
-MCP server lifecycle wrapper for VerifyPDB.
+MCP server lifecycle with explicit tools and resolved configuration.
 
-Provides :class:`PdbMcpServer` which manages starting and stopping the
+Provides :class:`McpServer` which manages starting and stopping the
 MCPServer/uvicorn server that exposes UCAgent tools via the Model Context
 Protocol (MCP).  The class follows the same lifecycle pattern as
-:class:`PdbCmdApiServer`.
+the other application services.
 """
 
 import math
 import threading
 import time
-from typing import TYPE_CHECKING, Any, List, Optional, Tuple
-
-if TYPE_CHECKING:
-    from ucagent.verify_pdb import VerifyPDB
+from typing import Any, List, Optional, Tuple
 
 
 def _collect_mcp_tools(agent: Any, no_file_ops: bool) -> List[Any]:
@@ -39,72 +36,25 @@ def _collect_mcp_tools(agent: Any, no_file_ops: bool) -> List[Any]:
     return tools
 
 
-class PdbMcpServer:
-    """
-    Lifecycle wrapper for the MCPServer/uvicorn MCP server.
+class McpServer:
+    """Own one ready MCP application and its graceful background-thread shutdown."""
 
-    Creates and manages an MCP server in a background daemon thread,
-    exposing the agent's tools via the Model Context Protocol.
-
-    Usage
-    -----
-    ::
-
-        server = PdbMcpServer(pdb, host="127.0.0.1", port=5000)
-        ok, msg = server.start()
-        ...
-        ok, msg = server.stop()
-    """
-
-    def __init__(
-        self,
-        pdb_instance: "VerifyPDB",
-        host: str = "127.0.0.1",
-        port: int = 5000,
-        no_file_ops: bool = False,
-    ) -> None:
-        """
-        Parameters
-        ----------
-        pdb_instance : VerifyPDB
-            The active VerifyPDB instance (used to access the underlying agent).
-        host : str
-            TCP address on which the MCP HTTP server will listen.
-        port : int
-            TCP port for the MCP HTTP server.
-        no_file_ops : bool
-            When True, file-operation tools are excluded from the MCP server.
-        """
-        try:
-            import uvicorn  # noqa: F401
-            from mcp.server.mcpserver import MCPServer  # noqa: F401
-        except ImportError as exc:
-            raise ImportError(
-                "MCPServer and uvicorn are required for the MCP server. "
-                "Install them with: pip install 'mcp>=2.3.0,<3.0' uvicorn"
-            ) from exc
-
-        self.pdb = pdb_instance
+    def __init__(self, tools, *, cfg, host="127.0.0.1", port=5000, no_file_ops=False, logger=None):
+        """Accept filtered tools and configuration without constructing an agent or debugger."""
+        self.tools = list(tools)
+        self.cfg = cfg
+        self.logger = logger
         self.host = host
         self.port = port
         self.no_file_ops = no_file_ops
-        self._server = None          # uvicorn.Server instance
-        self._thread: Optional[threading.Thread] = None
-        self._startup_error: Optional[BaseException] = None
+        self._server = None
+        self._thread = None
+        self._startup_error = None
         self._lifecycle_lock = threading.RLock()
-        self.started_at: Optional[float] = None
-
-    # ------------------------------------------------------------------
-    # Lifecycle
-    # ------------------------------------------------------------------
+        self.started_at = None
 
     def _clear_stopped_state(self) -> None:
         """Release ownership only after the background thread has exited."""
-        agent = self.pdb.agent
-        if getattr(agent, "_mcps", None) is self._server:
-            agent._mcps = None
-        if getattr(agent, "_mcp_server_thread", None) is self._thread:
-            agent._mcp_server_thread = None
         self._server = None
         self._thread = None
         self.started_at = None
@@ -119,9 +69,8 @@ class PdbMcpServer:
                 return False, "MCP server startup timeout must be a positive finite number"
             self._clear_stopped_state()
             self._startup_error = None
-            agent = self.pdb.agent
-            tools = _collect_mcp_tools(agent, self.no_file_ops)
-            agent.cfg.update_template({"TOOLS": ", ".join(t.name for t in tools)})
+            tools = self.tools
+            self.cfg.update_template({"TOOLS": ", ".join(t.name for t in tools)})
 
             from ucagent.util.functions import create_verify_mcps, start_verify_mcps, stop_verify_mcps
             from ucagent.util.log import info
@@ -129,12 +78,12 @@ class PdbMcpServer:
             try:
                 server = create_verify_mcps(
                     tools, host=self.host, port=self.port,
-                    logger=getattr(agent, "_mcps_logger", None),
+                    logger=self.logger,
                 )
             except Exception as error:
                 return False, f"Failed to create MCP server: {error}"
             self._server = server
-            info("Init Prompt:\n" + agent.cfg.mcp_server.init_prompt)
+            info("Init Prompt:\n" + self.cfg.get_value("mcp_server.init_prompt", ""))
 
             def _run():
                 """Serve the captured instance, retaining startup failures for the caller."""
@@ -143,16 +92,15 @@ class PdbMcpServer:
                 except BaseException as error:
                     self._startup_error = error
 
-            self._thread = threading.Thread(target=_run, daemon=True, name="pdb-mcp-server")
+            self._thread = threading.Thread(target=_run, daemon=True, name="ucagent-mcp-server")
             # Preserve ownership even if startup times out before the loop exits.
-            agent._mcps = server
-            agent._mcp_server_thread = self._thread
             self._thread.start()
             deadline = time.monotonic() + float(timeout)
             while time.monotonic() < deadline:
                 if self._startup_error is not None or not self._thread.is_alive():
                     break
                 if server.started:
+                    self.port = server.servers[0].sockets[0].getsockname()[1]
                     self.started_at = time.time()
                     return True, f"MCP server started at {self.url()}"
                 time.sleep(0.01)
@@ -172,10 +120,10 @@ class PdbMcpServer:
     def stop(self, timeout: float = 5.0) -> Tuple[bool, str]:
         """Drain idle streams and wait up to timeout seconds, retaining live ownership."""
         with self._lifecycle_lock:
-            if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not math.isfinite(timeout) or timeout <= 0:
-                return False, "MCP server shutdown timeout must be a positive finite number"
+            if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not math.isfinite(timeout) or timeout < 0:
+                return False, "MCP server shutdown timeout must be a non-negative finite number"
             if self._thread is None:
-                return False, "MCP server is not running"
+                return True, "MCP server is stopped"
 
             from ucagent.util.functions import stop_verify_mcps
 
@@ -197,6 +145,11 @@ class PdbMcpServer:
         """Return thread liveness, including startup and pending shutdown."""
         thread = self._thread
         return thread is not None and thread.is_alive()
+
+    @property
+    def is_ready(self) -> bool:
+        """Expose an endpoint only after HTTP readiness and before shutdown begins."""
+        return self.is_running and self._server is not None and self._server.started and not self._server.should_exit
 
     @property
     def is_stopping(self) -> bool:

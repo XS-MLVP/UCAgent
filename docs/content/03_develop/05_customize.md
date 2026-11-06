@@ -59,7 +59,7 @@ mcp_tool = to_mcp_tool(tool)
 assert mcp_tool.name == "Hello"
 ```
 
-启动后可以用 `tool_list` 查看工具，用 `tool_invoke Hello who='UCAgent'` 调用。
+启动后可以用 `tool_list` 查看工具，用 `tool_invoke Hello {"who":"UCAgent"}` 调用。
 
 ## 文件路径与权限
 

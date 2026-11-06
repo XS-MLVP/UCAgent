@@ -234,7 +234,7 @@ class ConsoleInput(Vertical):
     def update_running_commands(self, commands: list[str] | None = None) -> None:
         """Update the running commands display."""
         if commands is None:
-            commands = self.app.vpdb.get_running_commands()
+            commands = self.app.frontend.get_running_commands()
 
         if not commands:
             self._hide_running_commands()
@@ -242,7 +242,7 @@ class ConsoleInput(Vertical):
 
         # Format as [1] cmd1 [2] cmd2 ...
         formatted = " ".join(f"[{i + 1}] {cmd}" for i, cmd in enumerate(commands))
-        self.query_one("#running-commands", Static).update(formatted)
+        self.query_one("#running-commands", Static).update(Text(formatted))
         self._show_running_commands()
 
         # Calculate height

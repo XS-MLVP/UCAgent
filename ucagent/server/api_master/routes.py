@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import asynccontextmanager
 import base64
 import json
 import mimetypes
@@ -58,7 +59,18 @@ class RoutesMixin:
         import aiohttp
         import secrets as _secrets
 
+        @asynccontextmanager
+        async def lifespan(app):
+            """Close this listener's proxy session on its own event loop after draining."""
+            try:
+                yield
+            finally:
+                session = self._proxy_sessions.pop(asyncio.get_running_loop(), None)
+                if session is not None:
+                    await session.close()
+
         app = FastAPI(
+            lifespan=lifespan,
             title="UCAgent Master API",
             description="Aggregates heartbeats and manages launched UCAgent tasks.",
             version="2.0.0",
@@ -84,11 +96,11 @@ class RoutesMixin:
             headers = {key: value for key, value in headers.items() if key.lower() != "accept-encoding"}
             if request.method == "HEAD":
                 headers["Accept-Encoding"] = "identity"
-            session = self._proxy_session
+            session = self._proxy_sessions.get(asyncio.get_running_loop())
             if session is None or session.closed:
                 connector = aiohttp.TCPConnector(limit=256, limit_per_host=64, ttl_dns_cache=30, keepalive_timeout=30)
                 session = aiohttp.ClientSession(connector=connector, timeout=proxy_timeout)
-                self._proxy_session = session
+                self._proxy_sessions[asyncio.get_running_loop()] = session
             last_exc: Optional[BaseException] = None
             for attempt in range(3):
                 try:

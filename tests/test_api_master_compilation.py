@@ -10,7 +10,7 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 import pytest
 
-from ucagent.server.api_master import PdbMasterApiServer
+from ucagent.server.api_master import MasterApiServer
 from ucagent.util.config import Config, load_yaml_with_env_vars
 
 
@@ -37,7 +37,7 @@ def master(tmp_path, monkeypatch):
     cfg = Config({"launch": {"file_browser_roots": [], "default_args": {
         "simulator": ["verilator", "vcs", "gsim", "uvs"], "picker_args": [],
     }}, "master_api": {"max_task_count": 100}}).freeze()
-    server = PdbMasterApiServer(workspace=str(tmp_path / "master"), cfg=cfg)
+    server = MasterApiServer(workspace=str(tmp_path / "master"), cfg=cfg)
     return server, TestClient(server._app), bin_dir
 
 
@@ -224,7 +224,7 @@ def test_invalid_configured_simulator_fails_at_startup(tmp_path, simulator):
     cfg = Config({"launch": {"default_args": {"simulator": simulator}}}).freeze()
     workspace = tmp_path / "invalid-master"
     with pytest.raises(ValueError, match="launch.default_args.simulator.*nonempty ordered list"):
-        PdbMasterApiServer(workspace=str(workspace), cfg=cfg)
+        MasterApiServer(workspace=str(workspace), cfg=cfg)
     assert not workspace.exists()
 
 
@@ -280,7 +280,7 @@ def test_no_available_priority_allows_master_but_blocks_compile(master, tmp_path
     cfg = Config({"launch": {"file_browser_roots": [], "default_args": {
         "simulator": ["vcs", "verilator"],
     }}}).freeze()
-    server = PdbMasterApiServer(workspace=str(tmp_path / "unavailable-master"), cfg=cfg)
+    server = MasterApiServer(workspace=str(tmp_path / "unavailable-master"), cfg=cfg)
     client = TestClient(server._app)
     for endpoint in ("/api/launch/config", "/api/launch/simulators"):
         response = client.get(endpoint)

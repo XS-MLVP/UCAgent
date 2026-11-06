@@ -36,11 +36,11 @@ export OPENAI_API_BASE="https://<provider>/v1"
 先读取 Checker 返回的 `artifact`、`location`、`observed`、`expected` 和 `next_action`。必要时使用：
 
 ```text
-tool_invoke StdCheck lines=-1
+tool_invoke StdCheck {"lines":-1}
 tool_invoke KillCheck
 ```
 
-修复后重新运行测试、`Check` 和 `Complete`。测试基础设施失败应先修复到 Pass；可复现且断言正确的 DUT 失败才记录为 Bug。
+这些 `tool_invoke` 调用也占用模型操作槽位；若当前操作仍在运行并返回 `busy`，应先通过 `Ctrl+C` 或 [HTTP 接口](10_runtime_control.md)取消对应操作并等待结束。修复后重新运行测试、`Check` 和 `Complete`。测试基础设施失败应先修复到 Pass；可复现且断言正确的 DUT 失败才记录为 Bug。
 
 ### 为什么启动时找不到 `config.yaml`？
 

@@ -1,0 +1,99 @@
+{
+  "date": "2026-11-05",
+  "status": "runtime_frontend_separation_and_control_layout_pending_user_tests",
+  "final_pytest": {
+    "command": ".venv/bin/python -m pytest -q -rs tests ucagent/plugins/UnityTest/tests/test_recorder.py ucagent/plugins/UnityTest/tests/test_waveform_replay_operation.py ucagent/plugins/UnityTest/tests/test_toffee_report_waveform_analysis.py",
+    "passed": 1287,
+    "skipped": 57,
+    "failed": 0,
+    "warnings": 19,
+    "duration_seconds": 100.36,
+    "scope": "Historical B00-B10 run before the user-visible parity repairs; not validation of the current worktree."
+  },
+  "skip_reasons": [
+    "SKIPPED [2] tests/test_api_xpra_browser.py:169: Requires a running complete UCAgent and browsers",
+    "SKIPPED [2] tests/test_api_xpra_full_runtime.py:35: Requires a complete Linux UCAgent and Xpra server installation",
+    "SKIPPED [1] tests/test_docs_i18n.py:249: Install docs/requirements-docs.txt",
+    "SKIPPED [1] tests/test_docs_i18n.py:303: Install docs/requirements-docs.txt",
+    "SKIPPED [1] tests/test_docs_i18n.py:137: Install docs/requirements-docs.txt",
+    "SKIPPED [1] tests/test_docs_i18n.py:172: Install docs/requirements-docs.txt",
+    "SKIPPED [1] tests/test_docs_i18n.py:237: Install docs/requirements-docs.txt",
+    "SKIPPED [1] tests/test_docs_i18n.py:145: Install docs/requirements-docs.txt",
+    "SKIPPED [1] tests/test_docs_i18n.py:330: Install docs/requirements-docs.txt",
+    "SKIPPED [1] tests/test_docs_i18n.py:188: Install docs/requirements-docs.txt",
+    "SKIPPED [1] tests/test_docs_i18n.py:314: Install docs/requirements-docs.txt",
+    "SKIPPED [1] tests/test_docs_i18n.py:159: Install docs/requirements-docs.txt",
+    "SKIPPED [1] tests/test_docs_i18n.py:344: Pandoc is required to validate PDF section links",
+    "SKIPPED [3] tests/test_launch_verdi.py:43: Tcl interpreter unavailable",
+    "SKIPPED [7] tests/test_launch_verdi.py:153: Tcl interpreter unavailable",
+    "SKIPPED [3] tests/test_plugin_licenses.py:63: could not import 'build': No module named 'build'",
+    "SKIPPED [3] tests/test_plugin_licenses.py:114: could not import 'build': No module named 'build'",
+    "SKIPPED [12] tests/test_plugin_licenses.py:129: could not import 'build': No module named 'build'",
+    "SKIPPED [3] tests/test_plugin_licenses.py:155: could not import 'build': No module named 'build'",
+    "SKIPPED [1] tests/test_plugin_licenses.py:171: could not import 'build': No module named 'build'",
+    "SKIPPED [4] tests/test_surfer_metadata_browser.py:29: Requires opt-in Playwright browsers with WebGL support",
+    "SKIPPED [2] tests/test_waveform_xpra_browser.py:19: Requires the real waveform Xpra fixture server",
+    "SKIPPED [1] tests/test_waveform_xpra_runtime.py:139: Requires real Linux Xpra, Xvfb, HTML5 assets and Tk",
+    "SKIPPED [1] tests/test_waveform_xpra_runtime.py:194: Requires real Linux Xpra, Xvfb, HTML5 assets and Tk",
+    "SKIPPED [2] tests/test_waveform_xpra_runtime.py:211: Requires real Linux Xpra, Xvfb, HTML5 assets and Tk"
+  ],
+  "environment_limits": [
+    "Real Xpra/browser and graphical waveform acceptance were not run.",
+    "MkDocs/Pandoc, Tcl and build-dependent checks were skipped because dependencies are unavailable.",
+    "Model-provider acceptance uses deterministic backends; no claim is made about live provider accounts."
+  ],
+  "static_checks": {
+    "python_files_compiled": 82,
+    "imports_inside_try": 0,
+    "legacy_dependency_files_scanned": 976,
+    "legacy_dependency_residuals": 0,
+    "agent_page_javascript": "node --check passed",
+    "git_diff_check": "passed"
+  },
+  "batch_results": {
+    "B04": "27 passed",
+    "B05": "77 passed",
+    "B06": "149 passed; 106 passed; 78 passed; 6 passed",
+    "B07": "92 passed; 180 passed",
+    "B08": "235 passed; 54 passed",
+    "B09": "45 passed; 91 passed; 25 passed; 48 passed",
+    "B10": "1287 passed; 57 skipped; 0 failed"
+  },
+  "untouched_user_files": [
+    "config.yaml",
+    "ucagent_command.py"
+  ],
+  "commit_created": false,
+  "pending_change": {
+    "date": "2026-11-06",
+    "scope": "Runtime-owned startup, output and operation identity; independent sessions and terminal views; TUI quit detaches and explicit shutdown closes the instance.",
+    "pytest_executed": false,
+    "test_runner": "user",
+    "regression_command": ".venv/bin/python -m pytest -q tests/test_runtime_frontends.py tests/test_tui_parity.py tests/test_tui_runtime.py tests/test_messages_panel.py tests/test_console_runtime.py tests/test_commands.py tests/test_runtime_operations.py tests/test_runtime_cli.py tests/test_runtime_host.py tests/test_runtime_integration.py tests/test_runtime_stage_control.py tests/test_runtime_services.py tests/test_control_api_runtime.py tests/test_runtime_contract.py tests/test_runtime_import_boundaries.py",
+    "manual_acceptance": "make test_Adder: q returns to Console while the task runs; tui reattaches the same task; Ctrl+C cancels the foreground task; shutdown closes the instance."
+  },
+  "directory_layout_change": {
+    "date": "2026-11-06",
+    "scope": "Move the existing controller, command registry, Console and runtime package under ucagent/control; update imports and path references without changing behavior.",
+    "module_moves": {
+      "controller": "ucagent/control/controller.py",
+      "commands": "ucagent/control/commands.py",
+      "console": "ucagent/control/console.py",
+      "runtime": "ucagent/control/runtime/"
+    },
+    "pytest_executed": false,
+    "test_runner": "user",
+    "static_checks": {
+      "path_only_code_and_test_comparison": "passed against pre-migration working-tree snapshots",
+      "python_files_compiled": 46,
+      "new_package_imports_resolved": 87,
+      "imports_inside_try_in_control_package": 0,
+      "old_module_locations": "absent",
+      "obsolete_module_references": 0,
+      "contract_reference_inventory": "all files present; no unclassified references",
+      "package_discovery": "both packages included by existing setuptools rules",
+      "protected_user_files": "config.yaml and ucagent_command.py unchanged"
+    },
+    "regression_command": ".venv/bin/python -m pytest -q -rs tests ucagent/plugins/UnityTest/tests/test_recorder.py ucagent/plugins/UnityTest/tests/test_waveform_replay_operation.py ucagent/plugins/UnityTest/tests/test_toffee_report_waveform_analysis.py"
+  }
+}

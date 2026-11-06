@@ -159,7 +159,7 @@ make WS=~/work/ucagent_tasks/docx/workspace session
 tmux attach -t ucagent_workflow_builder -r
 ```
 
-Read-only attach does not pass keystrokes to the TUI. To stop, enter the writable session, press `Ctrl+C` to cancel the current command, then follow the UCAgent prompt to exit; do not delete the tmux session directly, allowing child processes and permission daemons to remain in the background.
+Read-only attach does not pass keystrokes to TUI. To stop, enter the writable session, run `shutdown` in UCAgent, and wait for actual process exit. `Ctrl+C` only cancels foreground work, and TUI `q` only detaches the view. Do not delete the tmux session directly and leave child processes or permission daemons running.
 
 ## Stage Observation Table
 

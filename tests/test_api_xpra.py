@@ -20,10 +20,11 @@ import psutil
 import pytest
 from starlette.websockets import WebSocketDisconnect
 
-from ucagent.server.api_cmd import PdbCmdApiServer
+from ucagent.server.api_cmd import ControlApiServer
 from ucagent.server.api_cmd.xpra import XpraError, XpraSessionManager
-from ucagent.server.api_master import PdbMasterApiServer
-from ucagent.server.api_terminal import PdbWebTermServer
+from ucagent.server.api_master import MasterApiServer
+from ucagent.server.api_terminal import WebTerminalServer
+from ucagent.control.controller import Controller
 from ucagent.util.config import Config, load_yaml_with_env_vars
 from ucagent.util import log
 
@@ -113,19 +114,9 @@ def manager(tmp_path, xpra_config):
 def cmd_server(tmp_path, xpra_config):
     """Restore the existing process-wide console capture after every API test."""
     pdb = SimpleNamespace(agent=SimpleNamespace(workspace=str(tmp_path), cfg=xpra_config), stdout=None)
-    server = PdbCmdApiServer(pdb, port=0, sock="", password="cmd-test-password")
+    server = ControlApiServer(Controller(pdb.agent), port=0, sock="", password="cmd-test-password")
     yield server
-    if server._running:
-        threads = [server._tcp_thread, server._sock_thread]
-        server.stop()
-        for thread in threads:
-            if thread:
-                thread.join(timeout=5)
-    server.close_sessions()
-    if sys.stdout is server._console_capture:
-        sys.stdout = server._console_capture._original
-    log.set_console_sync_handler(server._original_sync_handler)
-    atexit.unregister(server.close_sessions)
+    assert server.stop()[0]
 
 
 def _wait_for(predicate, timeout=5):
@@ -373,7 +364,7 @@ def test_presets_publish_only_configured_form_fields_without_starting_xpra(cmd_s
                    "env": {"TERM": "xterm-256color", "PROMPT_HINT": "quoted \"text\"\nnext line"}}]
     if idle_timeout is not None:
         configured[0]["idle_timeout"] = idle_timeout
-    cmd_server.pdb.agent.cfg.cmd_api.xpra.from_dict({"presets": configured})
+    cmd_server.agent.cfg.cmd_api.xpra.from_dict({"presets": configured})
     cmd_server._xpra.options["executable"] = "/missing-xpra"
     with TestClient(cmd_server._app) as client:
         client.auth = ("user", cmd_server.password)
@@ -401,7 +392,7 @@ def test_rest_rejects_invalid_idle_seconds(cmd_server, idle_timeout):
                                Config({"cmd_api": {"xpra": {"presets": []}}})])
 def test_empty_or_absent_presets_hide_shortcuts_without_fallback(cmd_server, cfg):
     """Empty or unspecified lists leave manual creation available."""
-    cmd_server.pdb.agent.cfg = cfg
+    cmd_server.agent.cfg = cfg
     with TestClient(cmd_server._app) as client:
         assert client.get("/api/xpra/presets", auth=("user", cmd_server.password)).json() == {"presets": []}
 
@@ -413,7 +404,7 @@ def test_empty_or_absent_presets_hide_shortcuts_without_fallback(cmd_server, cfg
     [{"label": "Codex", "command": "codex", "password": "config-secret-value"}]])
 def test_invalid_presets_have_bounded_errors_and_preserve_manual_creation(cmd_server, configured):
     """Malformed shortcut settings never leak values or disable the session API."""
-    cmd_server.pdb.agent.cfg.cmd_api.xpra.from_dict({"presets": configured})
+    cmd_server.agent.cfg.cmd_api.xpra.from_dict({"presets": configured})
     with TestClient(cmd_server._app) as client:
         client.auth = ("user", cmd_server.password)
         response = client.get("/api/xpra/presets")
@@ -571,7 +562,7 @@ def test_master_http_and_ws_proxy_auth_prefix_and_credentials(cmd_server, tmp_pa
     """Both Master proxies authenticate their caller and inject child credentials."""
     port = _start_listener(cmd_server)
     session = cmd_server._xpra.create(sys.executable)
-    master = PdbMasterApiServer(workspace=str(tmp_path), host="127.0.0.1", port=0, sock="",
+    master = MasterApiServer(workspace=str(tmp_path), host="127.0.0.1", port=0, sock="",
                                 password="master-test-password", cfg=Config({"launch":{"file_browser_roots":[], "default_args": {}}}))
     child = dict(status="running",base_url_internal=f"http://127.0.0.1:{port}",password=cmd_server.password)
     master._tasks["test"] = dict(task_id="test",cmd_api=child,launch_mode="local")
@@ -599,7 +590,7 @@ def test_master_http_and_ws_proxy_auth_prefix_and_credentials(cmd_server, tmp_pa
             assert error.value.code == 4401
         client.auth = ("user", master.password)
         from ucagent.util.waveform_viewer import build_waveform_metadata, write_waveform_metadata
-        wave = Path(cmd_server.pdb.agent.workspace) / "proxy wave.vcd"
+        wave = Path(cmd_server.agent.workspace) / "proxy wave.vcd"
         wave.write_bytes(b"proxy waveform")
         meta, payload, _ = build_waveform_metadata(wave.parent, wave.name)
         write_waveform_metadata(wave.parent, meta, payload)
@@ -628,7 +619,7 @@ def test_master_http_and_ws_proxy_auth_prefix_and_credentials(cmd_server, tmp_pa
                 pass
         assert error.value.code == 4403
         assert client.get(prefix+"/sessions").status_code == 200
-        cmd_server.pdb.agent.cfg.cmd_api.xpra.from_dict({"presets": [{"label": "Proxy shortcut", "command": "codex", "mode": "console"}]})
+        cmd_server.agent.cfg.cmd_api.xpra.from_dict({"presets": [{"label": "Proxy shortcut", "command": "codex", "mode": "console"}]})
         shortcut = client.get(prefix+"/presets")
         assert shortcut.status_code == 200
         assert shortcut.json()["presets"][0]["label"] == "Proxy shortcut"
@@ -675,8 +666,8 @@ def test_master_http_and_ws_proxy_auth_prefix_and_credentials(cmd_server, tmp_pa
             "cmd_api_password": "",
         }).status_code == 200
         assert master._agents["test"]["cmd_api_password"] == ""
-    if master._proxy_session is not None:
-        asyncio.run(master._proxy_session.close())
+    for session in list(master._proxy_sessions.values()):
+        asyncio.run(session.close())
 
 
 def test_simultaneous_tcp_and_unix_listeners_share_capacity(cmd_server):
@@ -726,8 +717,8 @@ def test_terminal_console_and_xpra_remain_independent(cmd_server):
     command = shlex.join([sys.executable, "-u", "-c",
                           "import sys; print('READY',flush=True); "
                           "\nfor line in sys.stdin: print('TERM:'+line.strip(),flush=True)"])
-    terminal = PdbWebTermServer(command, host="127.0.0.1", port=0, password="terminal-test")
-    console = PdbWebTermServer(host="127.0.0.1", port=0, password="console-test",
+    terminal = WebTerminalServer(command, host="127.0.0.1", port=0, password="terminal-test")
+    console = WebTerminalServer(host="127.0.0.1", port=0, password="console-test",
                                console_input_callback=record_console_input)
     try:
         assert terminal.start()[0]

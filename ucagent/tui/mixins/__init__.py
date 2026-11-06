@@ -1,11 +1,5 @@
-"""Mixins for UCAgent TUI application."""
+"""Reusable display scrolling behavior."""
 
 from .auto_scroll import AutoScrollMixin
-from .console_capture import ConsoleCaptureMixin
-from .sigint import SigintHandlerMixin
 
-__all__ = [
-    "AutoScrollMixin",
-    "ConsoleCaptureMixin",
-    "SigintHandlerMixin",
-]
+__all__ = ["AutoScrollMixin"]

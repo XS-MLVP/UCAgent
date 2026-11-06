@@ -26,7 +26,7 @@ Web Master is not just a status display; it is a complete task management entry 
 
 ### 2.1 Starting Master
 
-Master retains a local PDB console for executing Master API, task, terminal, status, and file management commands, but it does not initialize, probe, or invoke API/command-line model backends. When executing model work commands such as `loop`, `chat`, or `next_round`, `BlankBackend` directly returns "not supported" and does not invoke the model.
+Master retains a local Console for executing Master API, task, terminal, status, and file management commands, but it does not initialize, probe, or invoke API/command-line model backends. When executing model work commands such as `loop`, `chat`, or `next_round`, `BlankBackend` directly returns "not supported" and does not invoke the model.
 
 ```bash
 

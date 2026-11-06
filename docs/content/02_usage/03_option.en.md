@@ -36,12 +36,12 @@ ucagent <workspace> <dut_name> [options]
 | Option | Short | Value/Type | Default | Description |
 | :------------------- | :--- | :------------------------- | :------- | :------------------------------------------------------------ |
 | --stream-output | -s | flag | Off | Stream output to the console |
-| --human | -hm | flag | Off | Enter manual input/breakpoint mode at startup |
+| --human | -hm | flag | Off | Start the ordinary interactive Console |
 | --interaction-mode | -im | standard/enhanced/advanced | standard | Interaction mode; enhanced includes planning and memory management, advanced includes adaptive strategies |
 | --tui | | flag | Off | Enable terminal TUI interface |
 | --web-console | | [host[:port]] [password] | Off | Enable browser Web UI (standalone mode). Default `localhost:8000`. **Note: Provides only the Web interface, not local command-line interaction** |
 | --web-terminal | | [host[:port]] [password] | Off | Start Web Terminal server. Default `127.0.0.1:8818`. **Provides both Web terminal and local command-line interaction** |
-| --loop | -l | flag | Off | Enter the main loop immediately after startup (can be used with --loop-msg) |
+| --loop | -l | flag | Off | Submit the automatic loop during initialization (supports --loop-msg) |
 | --loop-msg | | str | Empty | The first message injected when entering the loop |
 | --seed | | int | Random | Random seed (automatically random if not specified) |
 | --sys-tips | | str | Empty | Override system prompt |

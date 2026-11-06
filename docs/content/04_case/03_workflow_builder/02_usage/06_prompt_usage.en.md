@@ -37,7 +37,7 @@ Short commands only have stable meaning after the protocol is loaded and environ
 
 ## Switching Between Supervision and Intervention
 
-Supervision mode defaults to using the `--loop` option in the Makefile. Before switching to intervention mode, safely stop the current TUI to avoid two Agents processing the same stage simultaneously; then start using `RUN_LOOP_ARGS=`. When returning to supervision after intervention, also confirm the current stage and historical status before creating a second concurrent session.
+Supervision mode defaults to using the `--loop` option in the Makefile. Before switching to intervention mode, run `shutdown` in UCAgent and confirm process exit (TUI `q` only detaches the view) to avoid two Agents processing the same stage simultaneously; then start using `RUN_LOOP_ARGS=`. When returning to supervision after intervention, also confirm the current stage and historical status before creating a second concurrent session.
 
 ## Boundaries of Prompt Usage
 

@@ -77,4 +77,4 @@ make check_example
 
 审查实现计划是否比用户需求更具体、workflow build spec 是否闭合、开发者文档是否引用真实业务源码、config 是否完成 placeholder 和引用自审。速度不是质量证据。
 
-停止时先让当前命令响应 SIGINT，再退出 TUI。模型流异常若自动 retry，可以继续观察；进程退出后保留 `.ucagent` 重启。恢复时先确认 saved stage index，不应自动加 `--no-history`。
+停止实例时在 Console/TUI 输入 `shutdown`，等待清理和进程退出；SIGINT 只请求暂停或取消，退出 TUI 也不停止任务。模型流异常若自动 retry，可以继续观察；进程退出后保留 `.ucagent` 重启。恢复时先确认 saved stage index，不应自动加 `--no-history`。

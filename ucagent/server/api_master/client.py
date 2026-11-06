@@ -7,8 +7,7 @@ import os
 import shutil
 import socket
 import threading
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
-from ucagent.util.functions import load_ucagent_info
+from typing import Any, Callable, Dict, List, Optional, Tuple
 from ucagent.util.log import warning
 from ucagent.util.workspace_archive import create_workspace_archive
 
@@ -21,31 +20,30 @@ from .common import (
     _workspace_sync_ignore_patterns_from_cfg,
 )
 
-if TYPE_CHECKING:
-    from ucagent.verify_pdb import VerifyPDB
 
-
-class PdbMasterClient:
+class MasterClient:
     """
     Background thread that periodically sends a heartbeat + status snapshot
-    to a PdbMasterApiServer via HTTP.
+    to a MasterApiServer via HTTP.
     """
 
     def __init__(
         self,
-        pdb_instance: "VerifyPDB",
         master_url: str,
+        *,
+        payload: Callable[[], dict],
+        workspace: str,
+        cfg: Any,
         agent_id: Optional[str] = None,
         interval: float = 5.0,
         reconnect_interval: float = 10.0,
         access_key: str = "",
     ) -> None:
-        try:
-            import requests  # noqa: F401
-        except ImportError as exc:
-            raise ImportError("'requests' is required for the master client. Install with: pip install requests") from exc
-
-        self.pdb = pdb_instance
+        """Receive state and workspace dependencies without a debugger reference."""
+        self.payload = payload
+        self.workspace = workspace
+        self.cfg = cfg
+        self._lifecycle_lock = threading.RLock()
         self.master_url = master_url.rstrip("/")
         self.agent_id = agent_id or f"{socket.gethostname()}-{os.getpid()}"
         self.interval = interval
@@ -74,111 +72,8 @@ class PdbMasterClient:
             return (getattr(resp, "text", "") or "").strip()[:500]
 
     def _build_payload(self) -> dict:
-        from ucagent.version import __version__
-
-        pdb = self.pdb
-        srv = getattr(pdb, "_cmd_api_server", None)
-        tcp_url = ""
-        sock_path = ""
-        if srv and srv.is_running:
-            if getattr(srv, "tcp", False):
-                tcp_url = f"http://{srv.host}:{srv.port}"
-            if getattr(srv, "sock", None):
-                sock_path = srv.sock
-
-        try:
-            task_list = pdb.api_task_list()
-        except Exception:
-            task_list = None
-
-        current_stage_index = -1
-        total_stage_count = 0
-        is_mission_complete = False
-        current_stage_name = ""
-        if task_list:
-            tl_inner = task_list.get("task_list") or {}
-            stage_list = tl_inner.get("stage_list", [])
-            total_stage_count = len(stage_list)
-            raw_index = task_list.get("task_index", -1)
-            current_stage_index = raw_index
-            is_mission_complete = total_stage_count > 0 and raw_index >= total_stage_count
-            current_stage_name = tl_inner.get("current_stage_name", "")
-            if not current_stage_name and 0 <= raw_index < total_stage_count:
-                current_stage_name = stage_list[raw_index].get("title", "")
-
-        run_time = ""
-        try:
-            from ucagent.util.functions import fmt_time_deta as _fmt_time_deta
-
-            agent_tmp = getattr(pdb, "agent", None)
-            if agent_tmp is not None:
-                run_time = _fmt_time_deta(agent_tmp.stage_manager.get_time_cost())
-            else:
-                run_time = "-"
-        except Exception as exc:
-            warning("Failed to get run_time from agent.stage_manager.get_time_cost(): " + str(exc))
-            run_time = "-"
-
-        agent = getattr(pdb, "agent", None)
-        mcp_running = False
-        if agent is not None:
-            mcps = getattr(agent, "_mcps", None)
-            mcp_thread = getattr(agent, "_mcp_server_thread", None)
-            mcp_running = mcps is not None and (mcp_thread is None or mcp_thread.is_alive())
-        is_break = bool(agent.is_break()) if agent is not None else False
-        last_cmd = getattr(pdb, "lastcmd", "") or ""
-        meta = {}
-        if agent is not None:
-            try:
-                workspace = getattr(agent, "workspace", "")
-                if workspace:
-                    saved_info = load_ucagent_info(workspace)
-                    saved_meta = saved_info.get("meta") if isinstance(saved_info, dict) else {}
-                    if isinstance(saved_meta, dict):
-                        meta.update(_copy_jsonable(saved_meta))
-            except Exception:
-                pass
-            agent_meta = getattr(agent, "meta", {})
-            if isinstance(agent_meta, dict):
-                meta.update(_copy_jsonable(agent_meta))
-
-        try:
-            mission_info_lines = pdb.api_mission_info()
-            mission_info_ansi = "\n".join(str(v) for v in mission_info_lines)
-        except Exception as exc:
-            warning("Failed to get mission_info_ansi: " + str(exc))
-            mission_info_ansi = ""
-        try:
-            server_info = pdb.api_server_info() or {}
-        except Exception as exc:
-            warning("Failed to get server_info for master payload: " + str(exc))
-            server_info = {}
-
-        return {
-            "id": self.agent_id,
-            "host": _local_ip(),
-            "version": __version__,
-            "cmd_api_tcp": tcp_url,
-            "cmd_api_sock": sock_path,
-            "cmd_api_password": srv.password if srv and srv.is_running else "",
-            "web_console": server_info.get("web_console") or {},
-            "terminal_api": server_info.get("terminal_api") or {},
-            "task_list": task_list,
-            "current_stage_index": current_stage_index,
-            "total_stage_count": total_stage_count,
-            "is_mission_complete": is_mission_complete,
-            "current_stage_name": current_stage_name,
-            "run_time": run_time,
-            "mcp_running": mcp_running,
-            "is_break": is_break,
-            "last_cmd": last_cmd,
-            "meta": meta,
-            "mission_info_ansi": mission_info_ansi,
-            "extra": {
-                "workspace": getattr(agent, "workspace", ""),
-                "pid": os.getpid(),
-            },
-        }
+        """Detach the injected status snapshot and apply this connection's identity."""
+        return {**_copy_jsonable(self.payload()), "id": self.agent_id}
 
     def _heartbeat_loop(self) -> None:
         import requests
@@ -259,27 +154,40 @@ class PdbMasterClient:
         return False, f"Exit heartbeat failed for master {self.master_url}: HTTP {resp.status_code} {self._response_detail(resp)}"
 
     def start(self) -> Tuple[bool, str]:
-        if self._running:
-            return False, f"Already connected to master at {self.master_url}"
-        if self._kicked:
-            return False, f"This agent was removed from master {self.master_url}. Use a new PdbMasterClient instance to reconnect."
-        if self._auth_failed:
-            return False, f"Access key was rejected by master {self.master_url} (HTTP 403). Provide the correct --key value and reconnect."
-        self._stop_event.clear()
-        self._force_next = True
-        self._thread = threading.Thread(target=self._heartbeat_loop, daemon=True, name="master-client")
-        self._thread.start()
-        self._running = True
-        return True, f"Connected to master {self.master_url} as '{self.agent_id}' (interval={self.interval}s, reconnect_interval={self.reconnect_interval}s)"
+        """Start one heartbeat worker; reconnect waits remain interruptible."""
+        with self._lifecycle_lock:
+            if self.is_running:
+                return False, f"Master client is already running or stopping: {self.master_url}"
+            if self._kicked or self._auth_failed:
+                return False, "Master rejected this connection; create a new connection with valid identity and credentials"
+            self._stop_event.clear()
+            self._force_next = True
+            self._connected = False
+            self._running = True
+            self._thread = threading.Thread(target=self._heartbeat_loop, daemon=True, name="master-client")
+            try:
+                self._thread.start()
+            except Exception:
+                self._running = False
+                raise
+            return True, f"Master heartbeat started for {self.master_url} as '{self.agent_id}'"
 
-    def stop(self) -> Tuple[bool, str]:
-        if not self._running:
-            return False, "Not connected to master"
-        self._stop_event.set()
-        self._running = False
-        self._connected = False
-        self._thread = None
-        return True, f"Disconnected from master {self.master_url}"
+    def stop(self, timeout=5) -> Tuple[bool, str]:
+        """Retain a heartbeat thread blocked in HTTP until that request actually ends."""
+        from ucagent.control.runtime.services import lifecycle_timeout
+
+        timeout = lifecycle_timeout(timeout)
+        with self._lifecycle_lock:
+            self._stop_event.set()
+            self._running = False
+            self._connected = False
+            thread = self._thread
+            if thread is not None and thread.ident is not None and thread is not threading.current_thread():
+                thread.join(timeout)
+            if thread is not None and thread.is_alive():
+                return False, f"Master client is still stopping: {self.master_url}"
+            self._thread = None
+            return True, f"Disconnected from master {self.master_url}"
 
     def report_records(self, report: Dict[str, Any]) -> Tuple[bool, str]:
         """Send one versioned, type-discriminated record envelope to the master."""
@@ -368,15 +276,15 @@ class PdbMasterClient:
         return True, str(status.get("reason") or "Workspace sync-back is available"), status
 
     def _sync_workspace_ignore_patterns(self) -> List[str]:
-        agent = getattr(self.pdb, "agent", None)
-        return _workspace_sync_ignore_patterns_from_cfg(getattr(agent, "cfg", None))
+        return _workspace_sync_ignore_patterns_from_cfg(self.cfg)
 
     def sync_workspace_back(self, workspace_dir: str = "", reason: str = "manual") -> Tuple[bool, str]:
         ok, msg, status = self.workspace_sync_status()
         if not ok:
+            if status and not status.get("enabled") and (reason == "exit" or reason.startswith("stage_complete:")):
+                return True, f"Workspace sync-back skipped: {msg}"
             return False, msg
-        agent = getattr(self.pdb, "agent", None)
-        workspace = os.path.abspath(workspace_dir or getattr(agent, "workspace", "") or "")
+        workspace = os.path.abspath(workspace_dir or self.workspace)
         if not workspace or not os.path.isdir(workspace):
             return False, f"Workspace directory not found: {workspace or '<empty>'}"
 
@@ -427,11 +335,11 @@ class PdbMasterClient:
 
     @property
     def is_running(self) -> bool:
-        return self._running and self._thread is not None and self._thread.is_alive()
+        return self._thread is not None and self._thread.is_alive()
 
     @property
     def is_connected(self) -> bool:
-        return self._connected
+        return self._connected and self.is_running and not self._stop_event.is_set()
 
     @property
     def is_kicked(self) -> bool:

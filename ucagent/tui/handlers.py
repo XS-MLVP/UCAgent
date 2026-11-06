@@ -1,368 +1,107 @@
-"""Event handlers for UCAgent TUI."""
+"""TUI input dispatch and history; operations remain owned by the runtime host."""
 
-from __future__ import annotations
-
-from dataclasses import dataclass
-import threading
-import time
-import traceback
-from typing import TYPE_CHECKING
-
-from textual.css.query import NoMatches
-from textual.worker import Worker, WorkerState
-
-from .widgets import ConsoleWidget, ConsoleInput, TaskPanel
-
-if TYPE_CHECKING:
-    from .app import VerifyApp
-
-
-@dataclass
-class DetachedCommand:
-    command: str
-    started_at: float
-    is_daemon: bool
-    thread: threading.Thread | None = None
-    thread_id: int | None = None
-    cancel_requested: bool = False
-
-    def is_alive(self) -> bool:
-        return self.thread is not None and self.thread.is_alive()
-
-
-@dataclass
-class ForegroundCommandHandle:
-    kind: str
-    token: Worker | float
+from ucagent.control.controller import ControlError
+from ucagent.control.commands import CommandResult
+from .widgets import ConsoleWidget
+from .screens.confirmation import ConfirmationScreen
 
 
 class KeyHandler:
-    def __init__(self, app: "VerifyApp") -> None:
+    """Translate UI actions without creating threads or using thread identifiers."""
+
+    def __init__(self, app):
+        """Bind one view to its persistent console session."""
         self.app = app
-        self.last_cmd: str | None = None
-        self._active_workers: list[Worker] = []
-        self._worker_commands: dict[Worker, str] = {}
-        self._worker_threads: dict[Worker, int] = {}
-        self._foreground_handles: list[ForegroundCommandHandle] = []
-        self._detached_lock = threading.Lock()
-        self._detached_commands: dict[float, DetachedCommand] = {}
+        self.last_cmd = app.frontend.history[-1] if app.frontend.history else None
+        self._history_index = len(app.frontend.history)
+        self._history_length = len(app.frontend.history)
 
-    def is_exit_cmd(self, cmd: str) -> bool:
-        return cmd.lower() in ("q", "exit", "quit")
-
-    def is_detachable_cmd(self, cmd: str) -> bool:
-        return cmd.split(maxsplit=1)[0].lower() == "loop"
-
-    def cancel_all_workers(self, *, include_detached: bool = True) -> bool:
-        cancelled_any = False
-        self._cleanup_finished_state()
-        for worker in list(self._active_workers):
-            if worker.state in (WorkerState.PENDING, WorkerState.RUNNING):
-                self._cancel_worker(worker)
-                cancelled_any = True
-        self._active_workers.clear()
-        self._worker_commands.clear()
-
-        if include_detached:
-            for key in self._list_detached_keys():
-                if self._cancel_detached_command(key):
-                    cancelled_any = True
-
-        self._cleanup_finished_state()
-        self._update_busy_state()
-        return cancelled_any
-
-    def cancel_last_worker(self) -> bool:
-        """Cancel the most recently started foreground command (LIFO)."""
-        self._cleanup_finished_state()
-        if not self._foreground_handles:
-            return False
-
-        handle = self._foreground_handles[-1]
-        if handle.kind == "worker":
-            worker = handle.token
-            if isinstance(worker, Worker) and worker.state in (
-                    WorkerState.PENDING, WorkerState.RUNNING
-            ):
-                self._cancel_worker(worker)
-                if worker in self._active_workers:
-                    self._active_workers.remove(worker)
-                self._worker_commands.pop(worker, None)
-                self._cleanup_finished_state()
-                self._update_busy_state()
-                return True
-            return False
-
-        cancelled = self._cancel_detached_command(handle.token)
-        self._cleanup_finished_state()
-        self._update_busy_state()
-        return cancelled
-
-    def get_running_commands(self) -> list[str]:
-        """Get list of currently running command texts from persistent PDB state."""
-        self._cleanup_finished_state()
-        commands = self.app.vpdb.get_running_commands()
-        self._update_busy_state()
-        return commands
-
-    def has_active_worker(self) -> bool:
-        self._cleanup_finished_state()
-        return len(self._foreground_handles) > 0
-
-    def process_command(self, cmd: str, daemon: bool = False) -> None:
+    def process_command(self, cmd, daemon=False, *, confirmed=False):
+        """Submit input without blocking Textual; confirm destructive actions explicitly."""
+        cmd = cmd.strip()
         if not cmd:
-            if self.last_cmd:
-                cmd = self.last_cmd
+            return
+        name, *tail = cmd.split(maxsplit=1)
+        if name.lower() in {"q", "quit", "exit"}:
+            if tail:
+                self.app.console_output("Use q to leave TUI, or shutdown [force] to close the instance.\n")
+                self.app.flush_console_output()
             else:
-                task_panel = self.app.query_one("#task-panel", TaskPanel)
-                task_panel.update_content()
+                self.app.action_detach()
+            return
+        if name in {"tui", "clear"}:
+            if tail:
+                self.app.console_output(f"{name} takes no arguments.\n")
+                self.app.flush_console_output()
                 return
-
-        self.last_cmd = cmd
-        self._add_to_history(cmd)
-
-        if self.is_exit_cmd(cmd):
-            self.app.action_quit()
+            if name == "clear":
+                self.app.frontend.clear_console_state()
+                self.app.query_one(ConsoleWidget).clear_output()
             return
-
-        if cmd == "clear":
-            console = self.app.query_one("#console", ConsoleWidget)
-            console.clear_output()
-            return
-
-        if daemon:
-            self._execute_daemon_command(cmd)
-        else:
-            self._execute_command(cmd)
-
-    def _execute_command(self, cmd: str) -> None:
-        console = self.app.query_one("#console", ConsoleWidget)
-        console.echo_command(cmd)
-
-        if self.is_detachable_cmd(cmd):
-            self._execute_detached_command(cmd, is_daemon=False)
-            return
-
-        worker_holder: list[Worker] = []
-        worker_ready = threading.Event()
-
-        def run_command() -> None:
-            worker_ready.wait()
-            thread_id = threading.current_thread().ident
-            self.app.call_from_thread(
-                self._register_worker_thread, worker_holder[0], thread_id
-            )
-            try:
-                self.app.vpdb.execute_command(cmd, foreground=True)
-            except KeyboardInterrupt:
-                pass
-            except Exception as e:
-                error_msg = (
-                    f"\033[33mCommand Error: {e}\n{traceback.format_exc()}\033[0m\n"
-                )
-                console.queue_output(error_msg)
-            finally:
-                if worker_holder:
-                    self.app.call_from_thread(
-                        self._on_command_complete, worker_holder[0]
-                    )
-
-        worker = self.app.run_worker(run_command, thread=True, group="cmd-exec")
-        worker_holder.append(worker)
-        worker_ready.set()
-        self._active_workers.append(worker)
-        self._worker_commands[worker] = cmd
-        self._foreground_handles.append(
-            ForegroundCommandHandle(kind="worker", token=worker)
-        )
-        self._update_busy_state()
-
-    def _execute_daemon_command(self, cmd: str) -> None:
-        self._execute_detached_command(cmd, is_daemon=True)
-
-    def _execute_detached_command(self, cmd: str, *, is_daemon: bool) -> None:
-        key = time.time()
-        task = DetachedCommand(command=cmd, started_at=key, is_daemon=is_daemon)
-
-        def run_detached() -> None:
-            thread_id = threading.current_thread().ident
-            with self._detached_lock:
-                current = self._detached_commands.get(key)
-                if current is None:
-                    return
-                current.thread_id = thread_id
-                should_break = current.cancel_requested
-
-            if should_break and thread_id is not None:
-                self.app.vpdb.request_thread_interrupt(thread_id)
-
-            try:
-                self.app.vpdb.execute_command(cmd, foreground=not is_daemon)
-            except KeyboardInterrupt:
-                pass
-            except Exception as e:
-                prefix = "Daemon Error" if is_daemon else "Command Error"
-                print(
-                    f"\033[33m{prefix}: {e}\n{traceback.format_exc()}\033[0m",
-                    end="",
-                )
-            finally:
-                if thread_id is not None:
-                    self.app.vpdb.agent.clear_break_thread(thread_id)
-                with self._detached_lock:
-                    finished = self._detached_commands.pop(key, None)
-                    self.app.daemon_cmds.pop(key, None)
-                if (
-                        is_daemon
-                        and finished is not None
-                        and not finished.cancel_requested
-                        and not self.app.is_shutting_down
-                ):
-                    print(
-                        f"\033[33mDaemon command completed: {cmd}\033[0m",
-                        end="\n",
-                    )
-
-        thread = threading.Thread(
-            target=run_detached,
-            name=f"tui-detached-{int(key * 1000)}",
-            daemon=True,
-        )
-        task.thread = thread
-        with self._detached_lock:
-            self._detached_commands[key] = task
-            if is_daemon:
-                self.app.daemon_cmds[key] = cmd
-            else:
-                self._foreground_handles.append(
-                    ForegroundCommandHandle(kind="detached", token=key)
-                )
-        thread.start()
-        self._update_busy_state()
-
-    def _on_command_complete(self, worker: Worker) -> None:
-        if worker in self._active_workers:
-            self._active_workers.remove(worker)
-        self._worker_commands.pop(worker, None)
-        thread_id = self._worker_threads.pop(worker, None)
-        if thread_id is not None:
-            self.app.vpdb.agent.clear_break_thread(thread_id)
-        self._cleanup_finished_state()
-        if self.app.is_shutting_down:
-            return
-        self.app.flush_console_output()
-        self._update_busy_state()
-        console_input = self.app.query_one(ConsoleInput)
-        console_input.update_running_commands()
-        if not self.has_active_worker():
-            task_panel = self.app.query_one("#task-panel", TaskPanel)
-            task_panel.update_content()
-
-    def _register_worker_thread(self, worker: Worker, thread_id: int) -> None:
-        self._worker_threads[worker] = thread_id
-
-    def _cancel_worker(self, worker: Worker) -> None:
-        thread_id = self._worker_threads.get(worker)
-        if thread_id is not None:
-            self.app.vpdb.request_thread_interrupt(thread_id)
-        worker.cancel()
-
-    def _cancel_detached_command(self, key: float) -> bool:
-        with self._detached_lock:
-            task = self._detached_commands.get(key)
-            if task is None or not task.is_alive():
-                return False
-            task.cancel_requested = True
-            thread_id = task.thread_id
-
-        if thread_id is not None:
-            self.app.vpdb.request_thread_interrupt(thread_id)
-        return True
-
-    def _list_detached_keys(self) -> list[float]:
-        with self._detached_lock:
-            return list(self._detached_commands.keys())
-
-    def _get_detached_command(self, key: float) -> str | None:
-        with self._detached_lock:
-            task = self._detached_commands.get(key)
-            if task is None or not task.is_alive():
-                return None
-            return task.command
-
-    def _cleanup_finished_workers(self) -> None:
-        self._active_workers = [
-            worker
-            for worker in self._active_workers
-            if worker.state in (WorkerState.PENDING, WorkerState.RUNNING)
-        ]
-
-    def _cleanup_finished_detached_commands(self) -> None:
-        with self._detached_lock:
-            finished_keys = [
-                key
-                for key, task in self._detached_commands.items()
-                if not task.is_alive()
-            ]
-            for key in finished_keys:
-                self._detached_commands.pop(key, None)
-                self.app.daemon_cmds.pop(key, None)
-
-    def _cleanup_foreground_handles(self) -> None:
-        active_handles: list[ForegroundCommandHandle] = []
-        for handle in self._foreground_handles:
-            if handle.kind == "worker":
-                worker = handle.token
-                if isinstance(worker, Worker) and worker in self._active_workers:
-                    active_handles.append(handle)
-                continue
-
-            key = handle.token
-            if self._get_detached_command(key) is not None:
-                active_handles.append(handle)
-        self._foreground_handles = active_handles
-
-    def _cleanup_finished_state(self) -> None:
-        self._cleanup_finished_workers()
-        self._cleanup_finished_detached_commands()
-        self._cleanup_foreground_handles()
-
-    def _update_busy_state(self) -> None:
+        if not confirmed:
+            self.app.query_one(ConsoleWidget).echo_command(cmd)
         try:
-            console = self.app.query_one("#console", ConsoleWidget)
-        except NoMatches:
-            return
-        console.set_busy(self.app.vpdb.has_running_commands())
+            result = self.app.frontend.execute_line(cmd, foreground=not daemon, confirmed=confirmed)
+            if result is not None and result.command == "help":
+                rows = result.data if isinstance(result.data, list) else [result.data]
+                described = []
+                for row in rows:
+                    if row["name"] == "quit":
+                        shutdown = {**row, "name": "shutdown", "aliases": [], "usage": "shutdown [force]",
+                                    "summary": "Close the instance and stop tasks and services."}
+                        if tail and tail[0] == "shutdown":
+                            described.append(shutdown)
+                        else:
+                            described.append({**row, "aliases": ["q", "exit"], "usage": "quit",
+                                              "summary": "Leave TUI; keep tasks and services running."})
+                            if not tail:
+                                described.append(shutdown)
+                    else:
+                        described.append(row)
+                result = CommandResult("help", described)
+            self._add_to_history(cmd)
+            self.app.console_output(self.app.frontend.format_result(result) + "\n" if result else "")
+        except ControlError as error:
+            if error.code == "confirmation_required":
+                def accept(approved):
+                    """Confirm only the original command; cancellation never dispatches it."""
+                    if approved:
+                        self.process_command(cmd, daemon, confirmed=True)
+                    else:
+                        self.app.console_output("Command cancelled.\n")
+                        self.app.flush_console_output()
+                self.app.push_screen(ConfirmationScreen(cmd), accept)
+            else:
+                self.app.console_output(f"{error.code}: {error}\n")
+        self.app.flush_console_output()
 
-    def _add_to_history(self, cmd: str) -> None:
-        """Add command to history."""
-        if cmd not in self.app.cmd_history or self.app.cmd_history[-1] != cmd:
-            self.app.cmd_history.append(cmd)
-            self.app.vpdb.record_cmd_history(cmd)
-        self.app.cmd_history_index = len(self.app.cmd_history)
+    def _add_to_history(self, cmd):
+        """Share history with the ordinary console and later UI attachments."""
+        self.app.frontend.record_cmd_history(cmd)
+        self.last_cmd = cmd
+        self._history_index = len(self.app.frontend.history)
+        self._history_length = len(self.app.frontend.history)
 
-    def complete_command(self, text: str) -> list[str]:
-        """Get command completions."""
-        cmd, args, _ = self.app.vpdb.parseline(text)
+    def get_history_item(self, direction):
+        """Navigate this session's command history without modifying another session."""
+        history = self.app.frontend.history
+        if len(history) != self._history_length:
+            self._history_index = self._history_length = len(history)
+        self._history_index = max(0, min(len(history), self._history_index + direction))
+        return history[self._history_index] if self._history_index < len(history) else ""
 
-        if " " in text:
-            complete_func = getattr(
-                self.app.vpdb, f"complete_{cmd}", self.app.vpdb.completedefault
-            )
-            arg = args
-            if " " in args:
-                arg = args.split()[-1]
-            idx = text.find(arg)
-            return complete_func(arg, text, idx, len(text))
-        return self.app.vpdb.api_all_cmds(text)
+    def complete_command(self, text):
+        """Complete explicit registered commands and session-relative arguments."""
+        return self.app.frontend.registry.complete(text, self.app.frontend.session)
 
-    def get_history_item(self, offset: int) -> str | None:
-        """Get command from history with offset."""
-        new_index = self.app.cmd_history_index + offset
-        if 0 <= new_index < len(self.app.cmd_history):
-            self.app.cmd_history_index = new_index
-            return self.app.cmd_history[new_index]
-        if new_index >= len(self.app.cmd_history):
-            self.app.cmd_history_index = len(self.app.cmd_history)
-            return ""
-        return None
+    def get_running_commands(self):
+        """Read active operation names from the runtime owner."""
+        return self.app.frontend.get_running_commands()
+
+    def cancel_last_worker(self):
+        """Request cooperative cancellation of the selected foreground operation."""
+        return self.app.frontend.cancel_foreground()
+
+    def has_active_worker(self):
+        """Report active operations without keeping UI worker handles."""
+        return bool(self.get_running_commands())

@@ -242,6 +242,9 @@ All `Plugin` capability fields default to empty:
 | `guide_doc_paths` | Includes runtime `Guide_Doc` files or directories when the plugin is activated |
 | `skill_paths` | Copies the Skill collection directory when the plugin is activated and Skill functionality is enabled |
 | `workflows` | Optional complete configuration entry points and workflow-specific resources |
+| `manager_tools` | Contribute stage manager tools selectable by workflows |
+| `runtime_hooks` | Explicitly contribute configuration snapshot and stage-start hooks |
+| `command_factories` | Contribute Console/TUI/HTTP commands to the instance's shared registry |
 
 All capability fields are allowed to be empty, facilitating the initial release and validation of plugin metadata, dependencies, and asset contracts before gradually adding capabilities. Actual release versions should provide at least one capability or asset useful to the user.
 
@@ -257,6 +260,35 @@ All capability fields are allowed to be empty, facilitating the initial release 
 | `plugin_root` | Absolute `Path` of the current plugin provider package directory |
 
 Tools must inherit `UCTool`, use `Pydantic` `BaseModel` as `args_schema`, and adhere to workspace path and read/write strategies. A factory may return a single tool or a list of tools. UCAgent will reject non-`UCTool` instances, tools with duplicate names across plugins, and tools sharing names with core or external tools. Plugin tools enter the same standard filtering process as Agent and MCP tools; therefore, both `tools.ignore_tools` and `tools.selected_tools` will take effect.
+
+## Runtime Commands
+
+Plugins can register interaction commands through `Plugin.command_factories` without changing Console, TUI, or HTTP. Each factory receives the instance's `Controller` and returns a sequence of `CommandSpec` declarations. `RuntimeHost` invokes the factories while assembling the registry and rejects names or aliases conflicting with core commands or other plugins.
+
+This read-only command reuses an existing stage query without creating tasks or threads:
+
+```python
+from ucagent.control.commands import Argument, CommandSpec
+
+
+def create_commands(controller):
+    return (
+        CommandSpec(
+            name="project_stage",
+            summary="Inspect a stage in this instance.",
+            owner="project",
+            arguments=(Argument("index", "int", None),),
+            handler=controller.task_detail,
+            completion="stages",
+        ),
+    )
+```
+
+Add `command_factories=(create_commands,)` to the plugin's existing `Plugin(...)` declaration. Once activated, users can run `help project_stage` and `project_stage 2`; HTTP `/api/cmd` uses the same declaration. With `handler`, `owner` identifies responsibility. Without `handler`, a matching executor must already be injected by the runtime; the declaration does not create one.
+
+For ordinary slow handlers that do not reserve the model slot, declare `blocking=True` so the registry submits work to the shared executor. Commands needing model exclusion, progress, or cancellation context should explicitly submit an operation to that executor, use cancellation boundaries such as `context.checkpoint()`, and return serializable results. Do not own threads or manipulate TUI objects. `CommandSpec.model=True` is scheduling metadata and does not itself reserve the model slot; the operation submission must also specify `model=True`. The current reference implementation is `waveform_commands` in UnityTest's `operations/waveform_replay.py`.
+
+A command contribution does not automatically become an MCP Tool. Use `tool_factories` or the stage manager tool contract for MCP exposure. Both interfaces can reuse a business implementation without bypassing Check/Complete gates. See [Architecture](02_architecture.md) for ownership and [Runtime Control](../02_usage/10_runtime_control.md) for usage.
 
 ## Checker
 

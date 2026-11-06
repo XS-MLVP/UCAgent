@@ -101,7 +101,7 @@ def register_xpra_routes(app, server):
     @router.get("/presets")
     def presets():
         """Publish configured form defaults without launching or probing programs."""
-        cfg = getattr(server.pdb.agent, "cfg", None)
+        cfg = getattr(server.agent, "cfg", None)
         try:
             configured = cfg.get_value("cmd_api.xpra.presets", []) if cfg is not None else []
         except AttributeError:

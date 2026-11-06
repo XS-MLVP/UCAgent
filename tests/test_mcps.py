@@ -14,7 +14,7 @@ from mcp.client.streamable_http import streamable_http_client
 from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import BaseModel, ConfigDict, Field
 
-from ucagent.server.api_mcp import PdbMcpServer
+from ucagent.server.api_mcp import McpServer
 from ucagent.tools.uctool import UCTool, to_mcp_tool
 from ucagent.util.config import Config
 
@@ -52,7 +52,7 @@ def mcp_server():
         tool_list_file=[],
         cfg=Config({"mcp_server": {"init_prompt": "MCP test"}, "tools": {}}),
     )
-    server = PdbMcpServer(SimpleNamespace(agent=agent), host="127.0.0.1", port=port)
+    server = McpServer(agent.tool_list_base, cfg=agent.cfg, host="127.0.0.1", port=port)
     ok, message = server.start(timeout=5)
     assert ok, message
     try:
@@ -148,7 +148,7 @@ def test_mcp_conversion_rejects_injected_arguments():
 
 
 def test_mcp_server_reports_missing_sdk(monkeypatch):
-    """A missing current SDK must identify the dependency and installation command."""
+    """Startup reports the exact missing SDK import without an alternate import path."""
     original_import = builtins.__import__
 
     def without_mcp(name, *args, **kwargs):
@@ -158,5 +158,7 @@ def test_mcp_server_reports_missing_sdk(monkeypatch):
         return original_import(name, *args, **kwargs)
 
     monkeypatch.setattr(builtins, "__import__", without_mcp)
-    with pytest.raises(ImportError, match="mcp>=2.3.0,<3.0"):
-        PdbMcpServer(SimpleNamespace())
+    server = McpServer([], cfg=Config({}))
+    ok, message = server.start()
+    assert not ok and "mcp.server.mcpserver" in message
+    assert not server.is_running

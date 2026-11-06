@@ -270,10 +270,6 @@ def test_framework_core_stays_test_domain_neutral():
     # pytest protocol; this guard covers the framework core only.
     bundled = REPO_ROOT / "ucagent" / "plugins"
     for path in sorted((REPO_ROOT / "ucagent").rglob("*.py")):
-        # The interactive PDB shell allowlist treats `pytest` like any other
-        # operator command; it is not test-protocol coupling.
-        if path.name == "verify_pdb.py":
-            continue
         if path.is_relative_to(bundled):
             continue
         text = path.read_text(encoding="utf-8").lower()
