@@ -1842,8 +1842,8 @@ def test_rtl_backend_forwards_configured_verilator_args_and_rebuilds(
     assert passed is True
     assert observed_vflags == ["-O3 --output-split 4000", None]
 
-    # A shell-based picker launcher (pip console entry) re-joins argv through
-    # a shell, so a multi-token passthrough value must carry embedded quotes.
+    # Script launchers preserve argv too; their shebang cannot justify quotes
+    # inside the --vflag value passed to the generated build.
     script_launcher = tmp_path / "picker-launcher"
     script_launcher.write_text("#!/bin/sh\nexec picker \"$@\"\n", encoding="ascii")
     monkeypatch.setattr(
@@ -1858,7 +1858,7 @@ def test_rtl_backend_forwards_configured_verilator_args_and_rebuilds(
     ).set_workspace(str(tmp_path))
     passed, _ = scripted.do_check()
     assert passed is True
-    assert observed_vflags[-1] == "'--output-split 2000'"
+    assert observed_vflags[-1] == "--output-split 2000"
 
 
 
