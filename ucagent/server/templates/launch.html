@@ -2108,7 +2108,7 @@ function isCompileCurrent() {
     compile.simulator === getSelectedSimulator() &&
     compile.dut_name === normalizeDutName(getDesiredDutName()) &&
     JSON.stringify([...(compile.source_f_filelist_paths || compile.f_filelist_paths || [])].sort()) === JSON.stringify(currentFFilelistPaths()) &&
-    JSON.stringify(compile.picker_extra_args || []) === JSON.stringify(getPickerArgs())
+    (getPickerArgs().length === 0 || JSON.stringify(compile.picker_extra_args || []) === JSON.stringify(getPickerArgs()))
   );
 }
 
@@ -3244,7 +3244,9 @@ function collectLaunchPayload() {
     selected_module: selectedModule,
     main_verilog_path: state.relaunch ? (compile.main_verilog_path || '') : (mainFile ? mainFile.stored_path : ''),
     simulator: state.relaunch ? compile.simulator : getSelectedSimulator(),
-    picker_args: state.relaunch ? listValue(compile.picker_extra_args || []) : getPickerArgs(),
+    picker_args: state.relaunch
+      ? listValue(compile.picker_extra_args || [])
+      : (getPickerArgs().length ? getPickerArgs() : listValue(compile.picker_extra_args || [])),
     config: document.getElementById('config-path').value.trim() || 'config.yaml',
     backend: document.getElementById('backend').value.trim(),
     launch_mode: getSelectedLaunchMode(),

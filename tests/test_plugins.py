@@ -201,6 +201,8 @@ def test_local_plugin_import_root_is_available_to_test_subprocesses(
             {"backend.key_name": "blank"},
             {"guide_doc.enable": False},
             {"langfuse.enable": False},
+            {"tools.RunTestCases.report_dir": "run/test_report"},
+            {"tools.RunTestCases.extra_python_paths": ["run"]},
         ],
         no_embed_tools=True,
         no_history=True,
@@ -208,10 +210,29 @@ def test_local_plugin_import_root_is_available_to_test_subprocesses(
     )
     try:
         assert agent.stage_manager.free_pytest_run.run_test.extra_python_paths == [
-            str((project / "src").resolve())
+            str((project / "src").resolve()), str(workspace / "run")
         ]
+        assert agent.stage_manager.free_pytest_run.run_test.result_dir == str(workspace / "run/test_report")
     finally:
         agent.exit()
+
+
+@pytest.mark.parametrize("field,value", [
+    ("tools.RunTestCases.report_dir", ""),
+    ("tools.RunTestCases.extra_python_paths", "run"),
+])
+def test_run_test_cases_rejects_invalid_paths(tmp_path: Path, field: str, value) -> None:
+    """Configured test report and import paths must have their declared shapes."""
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    with pytest.raises(ValueError, match="tools.RunTestCases"):
+        VerifyAgent(
+            workspace=str(workspace), dut_name="empty", output="unity_test",
+            config_file="master.yaml",
+            cfg_override=[{"backend.key_name": "blank"}, {"guide_doc.enable": False},
+                          {"langfuse.enable": False}, {field: value}],
+            no_embed_tools=True, no_history=True,
+        )
 
 
 def test_plugin_import_root_is_available_to_stage_checker_pytest(

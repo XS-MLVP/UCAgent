@@ -817,6 +817,8 @@ class VerifyStage(object):
     def _mark_reference_file_read(self, file_path):
         if file_path in self.reference_files and not self.reference_files[file_path]:
             self.reference_files[file_path] = True
+            if self.vmanager is not None:
+                self.vmanager.save_stage_info()
             info(f"[{self.__class__.__name__}.{self.name}] Reference file {file_path} has been read by the LLM.")
     
     def on_file_read(self, success, file_path, content):

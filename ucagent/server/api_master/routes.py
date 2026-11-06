@@ -328,6 +328,11 @@ class RoutesMixin:
                     raise HTTPException(status_code=400, detail="Missing uploaded workspace archive")
                 if not agent_id:
                     raise HTTPException(status_code=400, detail="'agent_id' is required")
+                reason = str(
+                    form.get("reason")
+                    or request.query_params.get("reason")
+                    or ""
+                ).strip()
 
                 size = 0
                 with open(archive_path, "wb") as fh:
@@ -339,7 +344,8 @@ class RoutesMixin:
                         fh.write(chunk)
                 if size <= 0:
                     raise HTTPException(status_code=400, detail="Uploaded workspace archive is empty")
-                sync_info = self._sync_workspace_archive_back(agent_id, archive_path, archive_size=size)
+                sync_info = self._sync_workspace_archive_back(
+                    agent_id, archive_path, archive_size=size, reason=reason)
                 return {"status": "ok", "sync": sync_info}
             except HTTPException:
                 raise

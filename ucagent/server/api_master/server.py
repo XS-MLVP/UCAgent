@@ -24,6 +24,8 @@ from ucagent.util.workspace_archive import create_workspace_archive, extract_wor
 
 from .common import (
     HTTPException,
+    BUG_REVIEW_RUN_SYNC_IGNORES,
+    _is_bug_review_run_dir,
     _ACTIVE_TASK_STATUSES,
     _CONTAINER_LAUNCH_MODES,
     _K8S_JOB_STATUS_JSONPATH,
@@ -307,11 +309,15 @@ class PdbMasterApiServer(
             archive_stem or os.path.basename(os.path.abspath(ws.get("workspace_dir", ""))),
             "workspace",
         )
+        if _is_bug_review_run_dir(picker_workspace):
+            ignore_patterns: List[str] = list(BUG_REVIEW_RUN_SYNC_IGNORES)
+        else:
+            ignore_patterns = _workspace_sync_ignore_patterns_from_cfg(self.cfg)
         return create_workspace_archive(
             picker_workspace,
             archive_stem=archive_stem,
             root_name="workspace",
-            ignore_patterns=_workspace_sync_ignore_patterns_from_cfg(self.cfg),
+            ignore_patterns=ignore_patterns,
         )
 
     def _workspace_archive_download_url(self, archive_ref: str, launch_mode: str, master_host: str = "") -> str:
@@ -457,7 +463,20 @@ class PdbMasterApiServer(
         finally:
             shutil.rmtree(staging_dir, ignore_errors=True)
 
-    def _sync_workspace_archive_back(self, agent_id: str, archive_path: str, archive_size: int = 0) -> Dict[str, Any]:
+    def _publish_bug_review_after_sync(self, task: Dict[str, Any], target_dir: str, reason: str) -> str:
+        """Publish the canonical Bug Review run after a publishing sync event."""
+        if str(reason or "").strip() not in {"stage_complete:publish", "exit"}:
+            return ""
+        structured = task.get("cli_args_structured") or {}
+        if not str(structured.get("plugin_workflow") or "").startswith("bug_review:"):
+            return ""
+        from bug_review.publishing import publish_run
+
+        run_dir = pathlib.Path(target_dir)
+        return str(publish_run(run_dir, run_dir.parent))
+
+    def _sync_workspace_archive_back(self, agent_id: str, archive_path: str, archive_size: int = 0,
+                                     reason: str = "") -> Dict[str, Any]:
         if not self._sync_workspace_back_enabled():
             raise ValueError("Workspace sync-back is disabled because launch.default_args.use_zip_workspace is false")
         target = self._resolve_workspace_sync_target(agent_id)
@@ -473,6 +492,9 @@ class PdbMasterApiServer(
             "archive_size": int(archive_size or 0),
             "synced_at": _now(),
         }
+        published_index = self._publish_bug_review_after_sync(task, target_dir, reason)
+        if published_index:
+            sync_info["published_index"] = published_index
         with self._workspaces_lock:
             ws_locked = self._workspaces.get(ws.get("workspace_id"))
             if ws_locked is not None:
@@ -587,15 +609,39 @@ class PdbMasterApiServer(
             argv.extend([flag, str(value)])
 
         def add_list(flag: str, values: List[Any]) -> None:
+            if isinstance(values, str):
+                values = [values]
             for value in values or []:
                 add_value(flag, value)
 
         add_value("--config", req.get("config"))
+        plugins = req.get("plugin") or []
+        if isinstance(plugins, str):
+            plugins = [plugins]
+        for plugin in plugins:
+            plugin = str(plugin).strip()
+            if plugin and not os.path.isabs(plugin) and launch_mode == "process":
+                # Agent processes run inside their own workspace directory, so a
+                # repo-relative plugin selector must be anchored at the Master's
+                # source tree before the child resolves it. Container launch
+                # modes keep the configured value because the layout inside the
+                # container image differs.
+                repo_root = os.path.dirname(os.path.dirname(cli_path))
+                for base in (os.getcwd(), repo_root):
+                    candidate = os.path.join(base, plugin)
+                    if os.path.isdir(candidate):
+                        plugin = candidate
+                        break
+            add_value("--plugin", plugin)
+        add_value("--plugin-workflow", req.get("plugin_workflow"))
         add_value("--workspace-base", req.get("workspace_base"))
         add_value("--template-dir", req.get("template_dir"))
         add_flag("--template-overwrite", req.get("template_overwrite"))
         add_list("--template-cfg-override", req.get("template_cfg_override", []))
-        add_value("--output", req.get("output") or "unity_test")
+        default_output = ("results"
+                          if str(req.get("plugin_workflow") or "").startswith("bug_review:")
+                          else "unity_test")
+        add_value("--output", req.get("output") or default_output)
 
         override = req.get("override") or {}
         if override:
@@ -931,7 +977,13 @@ class PdbMasterApiServer(
                 return False
             url = base.rstrip("/") + "/api/status"
             resp = requests.get(url, **kwargs)
-            return resp.ok
+            if not resp.ok:
+                return False
+            if task and svc is task.get("cmd_api"):
+                expected = task.get("client_id")
+                identity = resp.json().get("identity", {})
+                return bool(expected and expected in identity.get("agent_ids", []))
+            return True
         except Exception:
             return False
 
@@ -960,6 +1012,8 @@ class PdbMasterApiServer(
 
     def _agent_for_task_unlocked(self, task: Dict[str, Any], agents: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
         task_client_id = str(task.get("client_id") or "").strip()
+        if task_client_id:
+            return next((agent for agent in agents if agent.get("id") == task_client_id), None)
         pid = task.get("pid")
         pid_str = str(pid) if pid not in (None, "") else ""
         task_workspace = os.path.abspath(task.get("workspace_dir", "")) if task.get("workspace_dir") else ""
@@ -1248,6 +1302,14 @@ class PdbMasterApiServer(
             if str(path or "").strip()
         )
         requested_picker_args = self._effective_picker_args(req.get("picker_args", req.get("picker_extra_args", None)))
+        # An omitted picker selection reuses the compiled package settings.
+        if not requested_picker_args:
+            requested_picker_args = list(compile_info.get("picker_extra_args") or [])
+        requested_main_verilog = os.path.abspath(str(req.get("main_verilog_path") or ""))
+        main_verilog_matches = (
+            not req.get("main_verilog_path")
+            or os.path.abspath(str(compile_info.get("main_verilog_path") or "")) == requested_main_verilog
+        )
         compile_matches = (
             compile_info.get("status") == "success"
             and compile_info.get("dut_name") == _safe_name(effective_dut, "DUT")
@@ -1256,10 +1318,7 @@ class PdbMasterApiServer(
             and compiled_simulator == self._effective_simulator(requested_simulator)
             and compiled_f_filelists == current_f_filelists
             and list(compile_info.get("picker_extra_args") or []) == requested_picker_args
-            and (
-                not req.get("main_verilog_path")
-                or os.path.abspath(str(compile_info.get("main_verilog_path") or "")) == os.path.abspath(str(req.get("main_verilog_path") or ""))
-            )
+            and main_verilog_matches
         )
         info_relaunch_matches = bool(
             allow_ucagent_info_relaunch
@@ -1267,9 +1326,37 @@ class PdbMasterApiServer(
             and info_dut_name == _safe_name(effective_dut, "DUT")
         )
         if not compile_matches and not info_relaunch_matches:
+            mismatches = []
+            if compile_info.get("status") != "success":
+                mismatches.append(f"compile status is '{compile_info.get('status') or 'none'}' (not success)")
+            if compile_info.get("dut_name") != _safe_name(effective_dut, "DUT"):
+                mismatches.append(
+                    f"DUT is '{compile_info.get('dut_name') or 'none'}' but launch wants '{_safe_name(effective_dut, 'DUT')}'"
+                )
+            if compile_info.get("selected_module") != selected_module:
+                mismatches.append(
+                    f"module is '{compile_info.get('selected_module') or 'none'}' but launch wants '{selected_module}'"
+                )
+            if not isinstance(compiled_simulator, str) or compiled_simulator != self._effective_simulator(requested_simulator):
+                mismatches.append(
+                    f"compile used simulator '{compiled_simulator or 'none'}' "
+                    f"but launch requests '{self._effective_simulator(requested_simulator)}'"
+                )
+            if compiled_f_filelists != current_f_filelists:
+                mismatches.append("the imported .f filelists changed since the compile")
+            if list(compile_info.get("picker_extra_args") or []) != requested_picker_args:
+                mismatches.append(
+                    f"compile used picker args {compile_info.get('picker_extra_args') or []} "
+                    f"but launch requests {requested_picker_args}"
+                )
+            if not main_verilog_matches:
+                mismatches.append(
+                    f"compile used Main RTL '{compile_info.get('main_verilog_path') or 'none'}' "
+                    f"but launch requests '{req.get('main_verilog_path')}'"
+                )
             raise ValueError(
-                f"Workspace '{workspace_id}' has no successful compile matching DUT '{_safe_name(effective_dut, 'DUT')}' "
-                f"and module '{selected_module}'. Please compile first."
+                f"Workspace '{workspace_id}' has no successful compile matching the launch request; recompile first. "
+                + "; ".join(mismatches)
             )
 
         if compile_matches:

@@ -432,3 +432,43 @@ def test_idle_timeout_fires_without_file_changes(tmp_path):
     assert return_code != 0
     assert elapsed < 2.0
     assert backend._fail_count == 1
+
+
+def test_codex_api_commands_use_task_home_without_changing_personal_config(tmp_path, monkeypatch):
+    personal = tmp_path / "personal"
+    personal.mkdir()
+    config_file = personal / "config.toml"
+    config_file.write_text('model_provider = "openai"\n', encoding="utf-8")
+    workspace = tmp_path / "workspace with 'quotes'"
+    workspace.mkdir()
+    monkeypatch.setenv("CODEX_HOME", str(personal))
+    monkeypatch.setenv("OPENAI_API_BASE", "http://gateway.test/v1")
+    monkeypatch.setenv("OPENAI_API_KEY", "fake-task-key")
+    monkeypatch.setenv("OPENAI_MODEL", "test-alias")
+    probe = shlex.quote(sys.executable) + " -c " + shlex.quote(
+        "import os; print('selected-home=' + os.environ['CODEX_HOME'])"
+    )
+    agent = _FakeAgent(workspace=str(workspace))
+    backend = UCAgentCmdLineBackend(
+        agent, config=SimpleNamespace(mcp_server=SimpleNamespace(port=5678)),
+        cli_cmd_new="{CODEX_ENV} " + probe, cli_cmd_ctx="{CODEX_ENV} " + probe,
+        render_files={os.path.join(current_dir, "..", "ucagent", "assets", "mcp_codex.toml"):
+                      "{CWD}/.codex/config.toml"},
+    )
+    backend.init()
+    backend.do_work_values({"messages": ["test"]}, None)
+    backend.do_work_values({"messages": ["resume test"]}, None)
+    selected = [m for m in agent.messages if m.startswith("selected-home=")]
+    assert len(selected) == 2
+    assert all(m.strip() == "selected-home=" + str(workspace / ".codex") for m in selected)
+    task_config = tomllib.loads((workspace / ".codex/config.toml").read_text())
+    assert task_config["model_provider"] == "ucagent"
+    assert task_config["model_providers"]["ucagent"]["env_key"] == "OPENAI_API_KEY"
+    assert task_config["model_providers"]["ucagent"]["requires_openai_auth"] is False
+    assert "fake-task-key" not in (workspace / ".codex/config.toml").read_text()
+    assert config_file.read_text() == 'model_provider = "openai"\n'
+    assert os.environ["CODEX_HOME"] == str(personal)
+
+    monkeypatch.delenv("OPENAI_API_BASE")
+    backend.do_work_values({"messages": ["login mode"]}, None)
+    assert any(m.strip() == "selected-home=" + str(personal) for m in agent.messages)

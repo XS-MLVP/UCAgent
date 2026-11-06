@@ -5,6 +5,7 @@ template_overwrite:
   RTL_PATH: "{DUT}_RTL"
 
 runtime_options:
+  human_review_stage_names: ""
   need_ref_model: $(NEED_REF_MODEL: false)
   mock_components_enabled: not $(IGNORE_MOCK_COMPONENT: true)
 

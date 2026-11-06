@@ -451,7 +451,10 @@ def get_override_dict(override_str: Optional[str]) -> OverrideValues:
             try:
                 value = ast.literal_eval(value)  # Convert Python literals while leaving raw strings alone.
             except (ValueError, SyntaxError):
-                value = value.strip()
+                try:
+                    value = json.loads(value)  # Platform overrides use JSON booleans/null.
+                except (ValueError, TypeError):
+                    value = value.strip()
         overrides.append({key: value})
         seen.add(key)
     if len(overrides) == len(seen):
@@ -1314,11 +1317,20 @@ def run() -> None:
     # Workflow-owned keys do not exist until its config layer is selected. The
     # discovery pass needs only plugin search-path overrides; the final agent
     # config applies and validates the complete override list afterwards.
-    discovery_cfg = get_config(
-        args.config,
-        _plugin_discovery_overrides(args.override),
-        args.workspace,
-    )
+    discovery_args = (args.config, _plugin_discovery_overrides(args.override), args.workspace)
+    try:
+        discovery_cfg = get_config(*discovery_args)
+    except FileNotFoundError:
+        if not args.plugin_workflow:
+            raise
+        # A Master preset may name a config that the selected plugin workflow
+        # owns (for example "bug_review"); that name only resolves once the
+        # workflow layer is selected, so discovery runs without it and the
+        # final config uses the workflow baseline alone.
+        discovery_config = args.config
+        args.config = None
+        discovery_cfg = get_config(None, *discovery_args[1:])
+        info(f"Preset config '{discovery_config}' is owned by workflow '{args.plugin_workflow}'; using the workflow baseline config.")
     discovery_cfg.update_template(
         {
             "WORKSPACE": os.path.abspath(args.workspace),
@@ -1584,6 +1596,33 @@ def run() -> None:
         if not ok:
             raise RuntimeError(msg)
         info(msg)
+
+    if not (args.human or args.tui) and args.as_master is None:
+        # Headless workers never enter PDB.interaction(), which normally
+        # drains these commands. Bring their transports up before model work.
+        # Dispatch directly so credentials do not enter command history or
+        # the public last-command state; leave interactive commands queued.
+        services = {"cmd_api_start", "terminal_api_start", "connect_master_to"}
+        pending = agent.pdb.init_cmd
+        if isinstance(pending, list):
+            startup = []
+            deferred = []
+            for command in pending:
+                name, _, argument = command.partition(" ") if isinstance(command, str) else ("", "", "")
+                if args.loop and command == "loop " + args.loop_msg:
+                    # Headless run() starts the loop directly; do not leave a
+                    # second loop queued for a later interactive breakpoint.
+                    continue
+                if name in services:
+                    startup.append((name, argument))
+                else:
+                    deferred.append(command)
+            agent.pdb.init_cmd = deferred
+            for name, argument in startup:
+                getattr(agent.pdb, "do_" + name)(argument)
+
+        if args.loop and args.loop_msg:
+            agent.set_continue_msg(args.loop_msg)
 
     # Set break mode if human interaction or TUI is requested
     if args.human or args.tui:

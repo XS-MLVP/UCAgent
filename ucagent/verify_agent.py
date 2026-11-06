@@ -600,15 +600,24 @@ class VerifyAgent:
             self.cfg.get_value("un_write_dirs", []),
             write_dirs=self.cfg.get_value("write_dirs", None),
         )
+        waveinfo_cfg = self.cfg.get_value("tools.WaveInfo", {}) or {}
+        if not isinstance(waveinfo_cfg, dict) and hasattr(waveinfo_cfg, "as_dict"):
+            waveinfo_cfg = waveinfo_cfg.as_dict()
+        if not isinstance(waveinfo_cfg, dict):
+            waveinfo_cfg = {}
         self.tool_waveinfo = WaveInfo(
             workspace=self.workspace,
-            test_dir=self.cfg.tools.RunTestCases.test_dir,
+            test_dir=waveinfo_cfg.get("test_dir") or self.cfg.tools.RunTestCases.test_dir,
             dut_name=self.dut_name,
             format_priority=self.cfg.runtime_options.waveform_analysis_format_priority,
             backend_priority=self.cfg.runtime_options.waveform_analysis_backend_priority.as_dict(),
             write_dirs=self.cfg.write_dirs,
             un_write_dirs=self.cfg.un_write_dirs,
+            allowed_case_index=waveinfo_cfg.get("allowed_case_index", ""),
+            signal_group_presets_path=waveinfo_cfg.get("signal_group_presets_path", ""),
+            session_scope=waveinfo_cfg.get("session_scope", "latest"),
         )
+        self.tool_waveinfo_receipts = WaveInfoReceipts(waveinfo=self.tool_waveinfo)
         self.tool_apply_waveinfo_evidence = ApplyWaveInfoEvidence(
             waveinfo=self.tool_waveinfo,
             workspace=self.workspace,
@@ -620,6 +629,7 @@ class VerifyAgent:
         )
         self.tool_list_waveform = [
             self.tool_waveinfo,
+            self.tool_waveinfo_receipts,
             self.tool_apply_waveinfo_evidence,
             self.tool_review_waveinfo_evidence_batch,
         ]
@@ -1235,10 +1245,15 @@ class VerifyAgent:
             self._queue_exit_on_completion()
 
     def _queue_exit_on_completion(self):
+        """Quit an active console, avoiding SIGINT after a headless mission exits."""
         if self._exit_on_completion_queued:
             return
         self._exit_on_completion_pending = False
         self._exit_on_completion_queued = True
+        if (getattr(self, "_is_exit", False)
+                and not getattr(self.pdb, "allow_kbdint", False)
+                and not getattr(self.pdb, "_in_tui", False)):
+            return
         self.pdb.add_cmds(["sleep 5"] + ["quit"] * 3)
 
     def get_work_config(self):
@@ -1262,13 +1277,23 @@ class VerifyAgent:
         if msg:
             self.set_continue_msg(msg)
         self._need_human = False
+        no_tool_rounds = 0
+        max_no_tool_rounds = self.cfg.get_value("loop_settings.max_no_tool_rounds", 3)
+        if isinstance(max_no_tool_rounds, bool) or not isinstance(max_no_tool_rounds, int) or max_no_tool_rounds < 0:
+            raise ValueError("loop_settings.max_no_tool_rounds must be a non-negative integer")
         # conversation loop
         while not self.is_exit():
             validation_revision = getattr(
                 self.stage_manager, "validation_revision", 0
             )
             stage_index = getattr(self.stage_manager, "stage_index", None)
+            tool_calls = sum(getattr(tool, "call_count", 0) for tool in self.test_tools)
             self.one_loop()
+            current_calls = sum(getattr(tool, "call_count", 0) for tool in self.test_tools)
+            no_tool_rounds = no_tool_rounds + 1 if current_calls == tool_calls else 0
+            if max_no_tool_rounds and no_tool_rounds >= max_no_tool_rounds and not self.is_exit():
+                warning(f"Pausing after {no_tool_rounds} consecutive rounds without tool execution; external input is required.")
+                self._need_human = True
             self._update_stalled_rounds(validation_revision, stage_index)
             if self.is_exit():
                 break
@@ -1396,13 +1421,22 @@ class VerifyAgent:
         # Standard logic (fallback)
         if msg:
             self.set_continue_msg(msg)
-        # one conversation round with retry on tool call error
+        # Bound malformed tool-call repair independently of prose-only rounds.
+        tool_error_rounds = 0
+        max_tool_error_rounds = self.cfg.get_value("loop_settings.max_tool_error_rounds", 3)
+        if isinstance(max_tool_error_rounds, bool) or not isinstance(max_tool_error_rounds, int) or max_tool_error_rounds < 0:
+            raise ValueError("loop_settings.max_tool_error_rounds must be a non-negative integer")
         while True:
             tips = self.get_current_tips()
             if self.is_exit():
                 return
             self.do_work(tips, self.get_work_config())
             if not self._tool__call_error:
+                break
+            tool_error_rounds += 1
+            if max_tool_error_rounds and tool_error_rounds >= max_tool_error_rounds:
+                warning(f"Pausing after {tool_error_rounds} consecutive rounds with tool invocation errors.")
+                self._need_human = True
                 break
             if self.is_break():
                 return

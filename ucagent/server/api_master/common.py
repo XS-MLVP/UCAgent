@@ -12,7 +12,7 @@ import shlex
 import socket
 import time
 from typing import Any, Deque, Dict, List, Optional, Tuple
-from ucagent.util.config import load_yaml_with_env_vars
+from ucagent.util.config import load_yaml_with_env_vars, load_runtime_config
 from ucagent.util.functions import find_available_port, is_port_free, replace_bash_var
 from ucagent.util.log import echo_g
 
@@ -473,6 +473,22 @@ def _workspace_sync_ignore_patterns_from_cfg(cfg: Any) -> List[str]:
     else:
         return []
     return [pattern for pattern in (str(item).strip() for item in items) if pattern]
+
+
+# Preserve archived evidence when the resolved workflow declares Bug Review options.
+BUG_REVIEW_RUN_SYNC_IGNORES = [
+    "*.pyc", "*.pyd", "*.vdb", "*.fdb", "__pycache__", ".pytest_cache",
+    "toffee_tmp_*", ".gitignore", ".git/",
+]
+
+
+def _is_bug_review_run_dir(path: str) -> bool:
+    """Identify a prepared review from its resolved runtime options."""
+    run_dir = pathlib.Path(path).expanduser().resolve()
+    if not (run_dir / '.ucagent/runtime_config.json').is_file():
+        return False
+    runtime = load_runtime_config(str(run_dir))
+    return 'bug_review_waveform_enabled' in runtime['runtime_options'] and (run_dir / 'unity_test').is_dir()
 
 
 def _normalize_cluster_master_ip_config(value: Any) -> Any:

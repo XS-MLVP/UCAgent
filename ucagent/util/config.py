@@ -544,6 +544,8 @@ def build_runtime_config(
     else:
         raise TypeError("Configuration value 'runtime_options' must be a mapping.")
 
+    from ucagent.swarm_review_plan import review_stage_names
+    review_stage_names(runtime_options.get("human_review_stage_names", ""))
     for key in REQUIRED_RUNTIME_BOOL_OPTIONS:
         if type(runtime_options.get(key)) is not bool:
             raise ValueError(
@@ -660,6 +662,8 @@ def validate_runtime_config(data: Any) -> Dict[str, Any]:
     runtime_options = data.get("runtime_options")
     if not isinstance(runtime_options, dict):
         raise ValueError("Resolved runtime config has no runtime_options mapping.")
+    from ucagent.swarm_review_plan import review_stage_names
+    review_stage_names(runtime_options.get("human_review_stage_names", ""))
     for key in REQUIRED_RUNTIME_BOOL_OPTIONS:
         if type(runtime_options.get(key)) is not bool:
             raise ValueError(
@@ -770,13 +774,16 @@ def save_current_test_report(
     workspace: str,
     report: Dict[str, Any],
     context: Optional[Dict[str, Any]] = None,
+    pytest_stdout: str = "",
 ) -> Path:
     """Publish the latest structured Unity test report for runtime consumers.
 
     The report is deliberately kept outside the DUT output directory so a Skill
     cannot accidentally bind itself to a stage-private or historical report.
     ``context`` is diagnostic metadata only; the actual test report remains under
-    the stable ``report`` key.
+    the stable ``report`` key. ``pytest_stdout`` carries the raw pytest output so
+    evidence consumers can parse per-case tracebacks without re-running tests;
+    an empty value keeps the payload unchanged.
     """
     if not isinstance(report, dict):
         raise TypeError("Current test report must be a mapping.")
@@ -789,6 +796,8 @@ def save_current_test_report(
         "report": report,
         "context": context or {},
     }
+    if pytest_stdout.strip():
+        payload["pytest_stdout"] = pytest_stdout
     temporary = target.with_suffix(target.suffix + ".tmp")
     save_json_file(str(temporary), payload)
     os.replace(temporary, target)
@@ -976,8 +985,10 @@ def get_config(
                                                              os.path.join(user_home, '.ucagent/'),
                                                              os.path.join(os.path.dirname(__file__), f"../lang/{lang}/config/")
                                                       ])
-    if config_file is not None:
-        assert user_config_file_path is not None, f"Config file '{config_file}' not found in current directory or default config path."
+    if config_file is not None and user_config_file_path is None:
+        raise FileNotFoundError(
+            f"Config file '{config_file}' not found in current directory or default config path."
+        )
     if user_config_file_path is None:
         info(f"Default user config file '{config_file}' not found, ignore.")
     else:

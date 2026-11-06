@@ -7,6 +7,7 @@ from ucagent.util.log import warning, info
 import ucagent.util.functions as fc
 from ucagent.util.functions import get_abs_path_cwd_ucagent, process_bash_cmd
 import os
+import shlex
 
 
 class UCAgentCmdLineBackend(AgentBackendBase):
@@ -178,6 +179,12 @@ class UCAgentCmdLineBackend(AgentBackendBase):
         ctx.update({
             "ASSETS": self._get_assets_path(),
             "CWD": self.CWD,
+            # Codex ignores provider routing in project-local config. API
+            # runs must load the rendered file as their task-local user config.
+            "CODEX_ENV": (
+                "CODEX_HOME=" + shlex.quote(os.path.join(self.CWD, ".codex"))
+                if os.environ.get("OPENAI_API_BASE") else ""
+            ),
             "PORT": self._get_mcp_port(),
             "UC_ENV_CMD_BACKEND_EX_ARGS": os.environ.get("UC_ENV_CMD_BACKEND_EX_ARGS", ""),
             "UC_ENV_CMD_BACKEND_EX_ARGS_N": os.environ.get("UC_ENV_CMD_BACKEND_EX_ARGS_N", ""),
@@ -256,4 +263,5 @@ class UCAgentCmdLineBackend(AgentBackendBase):
                                              UC_ENV_CMD_BACKEND_EX_ARGS_N=os.environ.get("UC_ENV_CMD_BACKEND_EX_ARGS_N", ""),
                                              UC_ENV_CMD_BACKEND_EX_ARGS_C=os.environ.get("UC_ENV_CMD_BACKEND_EX_ARGS_C", ""),
                                              CWD=self.CWD,
+                                             CODEX_ENV=self._get_dft_ctx()["CODEX_ENV"],
                                              PORT=self._get_mcp_port()))

@@ -739,6 +739,20 @@ def test_info_output_outside_command_is_recorded(probe_pdb):
     assert "shared info output" in rendered
 
 
+def test_large_streamed_console_output_retains_order_in_bounded_chunks(probe_pdb):
+    """Large tool diffs must retain every byte without one growing string."""
+    probe_pdb.clear_console_state()
+    parts = [f"line {i}: " + "x" * 100 + "\n" for i in range(4000)]
+    for part in parts:
+        probe_pdb.record_console_output(part)
+    probe_pdb.record_console_command("next")
+    tail = "large-fragment:" + "z" * 140000
+    probe_pdb.record_console_output(tail)
+    entries = probe_pdb._ensure_console_state().entries
+    assert all(len(entry.payload) <= 64 * 1024 for entry in entries)
+    assert probe_pdb.render_console_entries_since(0) == "".join(parts) + "> next\n" + tail
+
+
 def test_chcwd_controls_pdb_and_shell_command_cwd(tmp_path, capsys):
     workspace = tmp_path / "workspace"
     subdir = workspace / "subdir"
@@ -1182,6 +1196,47 @@ def test_exit_on_completion_defers_until_work_finishes():
     assert agent.pdb.cmds == [["sleep 5", "quit", "quit", "quit"]]
 
 
+def test_headless_completion_does_not_signal_an_already_exited_agent():
+    """Completion during work must not turn a clean headless exit into SIGINT."""
+    agent = VerifyAgent.__new__(VerifyAgent)
+    agent._exit_on_completion = True
+    agent._exit_on_completion_pending = False
+    agent._exit_on_completion_queued = False
+    agent._is_work_busy = False
+    agent._is_exit = False
+    agent._need_break = False
+    agent.stream_output = False
+
+    def unexpected_console_wakeup(_commands):
+        """Reproduce the signal sent by add_cmds outside a console loop."""
+        raise KeyboardInterrupt
+
+    agent.pdb = SimpleNamespace(allow_kbdint=False, _in_tui=False,
+                               add_cmds=unexpected_console_wakeup)
+
+    def complete_during_work(_instructions, _config):
+        """Model StageManager exiting before the backend's work returns."""
+        agent._is_exit = True
+        agent.try_exit_on_completion()
+
+    agent.do_work_values = complete_during_work
+    agent.do_work({}, {})
+    assert agent._exit_on_completion_queued
+    assert not agent._exit_on_completion_pending
+
+
+def test_completed_interactive_console_still_receives_quit_commands():
+    """Interactive PDB must keep its normal completion shutdown path."""
+    commands = []
+    agent = VerifyAgent.__new__(VerifyAgent)
+    agent._is_exit = True
+    agent._exit_on_completion_queued = False
+    agent.pdb = SimpleNamespace(allow_kbdint=True, _in_tui=False,
+                               add_cmds=commands.append)
+    agent._queue_exit_on_completion()
+    assert commands == [["sleep 5", "quit", "quit", "quit"]]
+
+
 def test_do_work_recovers_pending_tool_calls_before_reraising():
     class _Backend:
         def __init__(self):
@@ -1398,3 +1453,70 @@ def test_max_stalled_rounds_rejects_ambiguous_values(value):
 @pytest.mark.parametrize("value", [0, 1, 3])
 def test_max_stalled_rounds_accepts_non_negative_integers(value):
     assert VerifyAgent._validated_max_stalled_rounds(value) == value
+
+
+@pytest.mark.parametrize("tool_rounds, expected_rounds", [([], 3), ([2], 5)])
+def test_autonomous_loop_pauses_prose_only_rounds(tool_rounds, expected_rounds):
+    """Prose cannot sustain the loop; a real tool call resets the idle counter."""
+    agent = VerifyAgent.__new__(VerifyAgent)
+    agent.cfg = SimpleNamespace(get_value=lambda key, default: default)
+    agent.test_tools = [SimpleNamespace(call_count=0)]
+    agent.stage_manager = SimpleNamespace(validation_revision=0, stage_index=0)
+    agent.invoke_round = 0
+    agent.is_exit = lambda: False
+    agent.is_break = lambda: False
+    agent.check_pdb_trace = lambda: None
+    agent._update_stalled_rounds = lambda *args: None
+
+    def one_loop():
+        """Simulate completed model turns with optional tool execution."""
+        agent.invoke_round += 1
+        assert agent.invoke_round <= 6
+        if agent.invoke_round in tool_rounds:
+            agent.test_tools[0].call_count += 1
+
+    agent.one_loop = one_loop
+    agent.run_loop()
+    assert agent.invoke_round == expected_rounds
+    assert agent._need_human
+
+
+def test_no_tool_round_guard_can_be_disabled():
+    """Zero preserves autonomous rounds when the caller explicitly disables the guard."""
+    agent = VerifyAgent.__new__(VerifyAgent)
+    agent.cfg = SimpleNamespace(get_value=lambda key, default: 0)
+    agent.test_tools = []
+    agent.stage_manager = SimpleNamespace(validation_revision=0, stage_index=0)
+    agent.invoke_round = 0
+    agent._time_start = time.time()
+    agent.is_exit = lambda: agent.invoke_round >= 5
+    agent.is_break = lambda: False
+    agent.check_pdb_trace = lambda: None
+    agent._update_stalled_rounds = lambda *args: None
+    agent.one_loop = lambda: setattr(agent, 'invoke_round', agent.invoke_round + 1)
+    agent.run_loop()
+    assert agent.invoke_round == 5
+    assert not agent._need_human
+
+
+def test_invalid_tool_arguments_cannot_loop_forever_inside_one_round():
+    """Repeated schema errors must reach the outer pause boundary."""
+    agent = VerifyAgent.__new__(VerifyAgent)
+    agent.cfg = SimpleNamespace(get_value=lambda key, default: default)
+    agent.interaction_mode = 'standard'
+    agent.invoke_round = 0
+    agent._need_human = False
+    agent.is_exit = lambda: False
+    agent.is_break = lambda: False
+    agent.get_current_tips = lambda: {}
+    agent.get_work_config = lambda: {}
+    calls = []
+    def invalid_call(*args):
+        """Simulate a rejected tool schema rather than tool execution."""
+        calls.append(True)
+        assert len(calls) <= 3
+        agent._tool__call_error = ['path is required']
+    agent.do_work = invalid_call
+    agent.one_loop()
+    assert len(calls) == 3
+    assert agent._need_human

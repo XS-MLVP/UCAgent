@@ -1374,7 +1374,10 @@ class PdbCmdApiServer:
                 if is_sub_workspace:
                     info = _load_ucagent_info_for_workspace(workspace_root)
                     return {"status": "ok", "data": _format_sub_status(workspace_root, info)}
-                return {"status": "ok", "data": pdb.api_status()}
+                return {"status": "ok", "data": pdb.api_status(),
+                        "identity": {"workspace": str(getattr(getattr(pdb, "agent", None), "workspace", "")),
+                                     "agent_ids": [client.agent_id for client in
+                                         (getattr(pdb, "_master_clients", {}) or {}).values()]}}
             except HTTPException:
                 raise
             except Exception as exc:
@@ -1482,6 +1485,28 @@ class PdbCmdApiServer:
                 raise
             except Exception as exc:
                 raise HTTPException(status_code=500, detail=str(exc))
+
+        @app.get("/api/swarm/review", summary="Stage-bound Swarm review status")
+        def get_swarm_review():
+            """Expose current evidence and command receipts under CMD authentication."""
+            from ucagent.swarm_review import snapshot
+            return snapshot(pdb)
+
+        @app.post("/api/swarm/review", summary="Apply HM or queue a stage-bound review")
+        def post_swarm_review(body: dict):
+            """Enable HM immediately; serialize model work through the PDB queue."""
+            import json
+            from ucagent.swarm_review import apply
+            action = body.get("action")
+            if action not in ("enable_hm", "continue", "feedback") or len(json.dumps(body)) > 20000:
+                raise HTTPException(status_code=400, detail="invalid review command")
+            if action == "enable_hm":
+                try:
+                    return apply(pdb, body)
+                except (ValueError, TypeError, KeyError) as exc:
+                    raise HTTPException(status_code=409, detail=str(exc))
+            pdb.add_cmds(["swarm_review " + json.dumps(body)])
+            return {"status": "queued", "operation_id": body.get("operation_id")}
 
         # ── GET /api/mission ───────────────────────────────────────────
         @app.get("/api/mission", summary="Mission overview")

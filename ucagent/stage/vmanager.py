@@ -526,10 +526,20 @@ class StageManager(object):
         self.todo_panel = todo_panel
         self.free_pytest_run = UnityChipCheckerTestFree(
             "", cfg.tools.RunTestCases.test_dir, ""
-        ).set_workspace(workspace)
+        )
+        report_dir = cfg.get_value("tools.RunTestCases.report_dir", "uc_test_report")
+        if not isinstance(report_dir, str) or not report_dir.strip():
+            raise ValueError("tools.RunTestCases.report_dir must be a non-empty string")
+        self.free_pytest_run.run_test.result_dir = report_dir
+        self.free_pytest_run.set_workspace(workspace)
         self.test_python_import_roots = list(test_python_import_roots or [])
+        configured_import_roots = cfg.get_value("tools.RunTestCases.extra_python_paths", [])
+        if not isinstance(configured_import_roots, list) or any(
+                not isinstance(path, str) or not path.strip() for path in configured_import_roots):
+            raise ValueError("tools.RunTestCases.extra_python_paths must be a list of paths")
         self.free_pytest_run.run_test.set_extra_python_paths(
-            self.test_python_import_roots
+            [*self.test_python_import_roots,
+             *(os.path.join(workspace, path) for path in configured_import_roots)]
         )
         self.agent = agent
         self.tool_read_text = tool_read_text
@@ -544,6 +554,21 @@ class StageManager(object):
         self.reference_files = reference_files
         self.checker_registry = dict(checker_registry or {})
         self.validation_revision = 0
+        self.post_test_case_run_callbacks = {}
+
+    def add_post_test_case_run_callback(self, name, callback):
+        """Register one named callable invoked after every RunTestCases completes."""
+        if not callable(callback):
+            raise ValueError("post-test callback must be callable")
+        self.post_test_case_run_callbacks[str(name)] = callback
+
+    def _run_post_test_case_callbacks(self):
+        """Run every registered post-test callback; one failure never fails the run."""
+        for name, callback in list(self.post_test_case_run_callbacks.items()):
+            try:
+                callback()
+            except Exception as e:
+                warning(f"post-test callback {name!r} failed: {e}")
 
     @staticmethod
     def _safe_int(value, default=0):
@@ -626,6 +651,8 @@ class StageManager(object):
                         f"Stage '{stage.name}' has invalid persisted Skill evidence; "
                         "list/read/use evidence will be collected again."
                     )
+        from ucagent.swarm_review_plan import apply_review_plan
+        apply_review_plan(self)
         self._go_skip_stage()
         for s in self.stages:
             s.set_stage_manager(self)
@@ -1037,7 +1064,9 @@ class StageManager(object):
         if unknown_skills:
             return (
                 "skill_usage contains Skills that are not assigned to the current stage: "
-                f"{', '.join(sorted(unknown_skills))}. Remove them and call "
+                f"{', '.join(repr(name) for name in sorted(unknown_skills))}. "
+                f"Expected: {', '.join(repr(name) for name in current_stage.skill_list)}. "
+                "Remove them and call "
                 "`SetSkillUsage` again."
             )
 
@@ -1288,7 +1317,16 @@ class StageManager(object):
         )
         result = copy.deepcopy(failure_summary)
         result["repeat_failure_count"] = count
-        result["next_action"] = f"{escalation}\n{result.get('next_action', '')}".strip()
+        if (count >= 3 and isinstance(signature[0], str)
+                and signature[0].startswith("BUG_REVIEW_")):
+            result["retry_blocked"] = True
+            result["next_action"] = (
+                "Do not call Check again while the reported Bug Review artifact is unchanged. "
+                "Perform the exact repair tool call in this diagnostic, then verify the artifact "
+                "changed before the next Check.\n" + result.get("next_action", "")
+            ).strip()
+        else:
+            result["next_action"] = f"{escalation}\n{result.get('next_action', '')}".strip()
         return result
 
     def _reset_repeat_failure_state(self, stage_index):
@@ -1890,6 +1928,13 @@ class StageManager(object):
             "stage_name": stage.name if stage is not None else None,
         })
         ret = self.free_pytest_run.do_check(pytest_args, timeout=timeout, return_line_coverage=return_line_coverage, detail=detail)
+        self._run_post_test_case_callbacks()
+        invocation = getattr(self.free_pytest_run.run_test, "last_execution", {})
+        if isinstance(invocation, dict) and invocation.get("invocation_id"):
+            payload = dict(ret[1]) if isinstance(ret[1], dict) else {"result": ret[1]}
+            payload["invocation_id"] = invocation["invocation_id"]
+            payload["report_snapshot_path"] = invocation["report_snapshot_path"]
+            ret = (ret[0], payload)
         if raw_return:
             return ret
         ret = make_llm_tool_ret(ret[1])

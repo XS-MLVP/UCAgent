@@ -8,12 +8,15 @@ from .middleware import (
     TokenSpeedCallbackHandler,
     TrimAndSummaryMiddleware,
 )
+from .middleware.transport import TransportRetryMiddleware
 from langchain.agents import create_agent
 from langgraph.checkpoint.memory import MemorySaver
 from ucagent.util.models import get_chat_model, negotiate_openai_api_mode
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, ToolMessage
 from ucagent.util.functions import dump_as_json, get_ai_message_tool_call
 
+
+from .middleware.tool_errors import ToolErrorGuard
 
 class UCAgentLangChainBackend(AgentBackendBase):
     """
@@ -44,7 +47,8 @@ class UCAgentLangChainBackend(AgentBackendBase):
             self.config,
             [self.cb_summary_stream_output, self.cb_runtime_output],
             openai_api_mode=self.openai_api_mode,
-            streaming=vagent.stream_output,
+            # Summaries are consumed as a whole; avoid an unnecessary SSE stream.
+            streaming=False,
         )
 
         if vagent.context_management_strategy == "TrimAndSummaryMiddleware":
@@ -71,7 +75,9 @@ class UCAgentLangChainBackend(AgentBackendBase):
             model=self.model,
             tools=self.vagent.test_tools,
             checkpointer=MemorySaver(),
-            middleware=[self.message_manage_node]
+            middleware=[ToolErrorGuard(self.config.get_value("loop_settings.max_tool_error_rounds", 3),
+                                       on_pause=lambda: setattr(self.vagent, "_need_human", True)),
+                        self.message_manage_node, TransportRetryMiddleware(cancelled=self.vagent.is_break)]
         )
 
     def reset_chat(self, force=False):

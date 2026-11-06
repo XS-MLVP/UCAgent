@@ -268,3 +268,6 @@ UCAgent 支持通过环境变量配置各类参数。环境变量用于覆盖内
 | `UC_TEST_RCOUNT` | 测试用例重复执行次数 | `3` |
 | `UC_IS_IMP_TEMPLATE` | 是否为实现层测试模板 | `false` |
 | `UC_SEED_MODEL` | 随机测试种子的获取模式：`manual`原样返回`ucagent.get_seed(seed)`传入的字面值；`random`返回全新随机种子；`time`按当前时间生成；`uniform:<min>:<max>`在闭区间内均匀取值；`normal:<mu>:<sigma>`按高斯分布取值并钳位到`[0, 2^31-1]`。非法取值会直接报错 | `manual` |
+
+
+`--web-console` 保留子进程的真实退出码；重复读取退出状态不会改变已记录的结果。验证日志中的预期断言失败或异常示例不会把正常退出改判为启动失败。

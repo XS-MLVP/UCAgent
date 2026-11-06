@@ -99,7 +99,7 @@ def test_compile_transports_dispatch_selected_simulator(master, simulator, suffi
                "simulator": simulator, "picker_args": ["--vflag", "-Wall"]}
     assert server._validated_launch_context(request)[3] == "success"
     request["simulator"] = "vcs" if simulator != "vcs" else "verilator"
-    with pytest.raises(ValueError, match="Please compile first"):
+    with pytest.raises(ValueError, match="recompile first"):
         server._validated_launch_context(request)
 
 
@@ -453,5 +453,5 @@ def test_failed_recompile_cannot_reuse_deleted_package_metadata(master, transpor
             assert runtime["status"] == "failed", runtime
         else:
             assert response.status_code == 400
-    with pytest.raises(ValueError, match="Please compile first"):
+    with pytest.raises(ValueError, match="recompile first"):
         server._validated_launch_context({**request, "workspace_id": ws["workspace_id"]})

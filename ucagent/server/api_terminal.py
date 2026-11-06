@@ -263,7 +263,10 @@ def _serve_web_console(argv: Optional[List[str]] = None) -> None:
         )
         server.start_blocking()
         exit_code = _get_web_console_exit_code(server)
-        replayed_abnormal = _print_web_console_abnormal_exit_output(exit_code, capture_path)
+        # A completed subprocess owns its status. Captured test output can
+        # legitimately contain assertion failures and exception tracebacks.
+        if exit_code != 0:
+            replayed_abnormal = _print_web_console_abnormal_exit_output(exit_code, capture_path)
     finally:
         if cleanup_capture:
             try:

@@ -328,15 +328,22 @@ class VerifyPDB(Pdb):
         return True
 
     def record_console_output(self, text: str) -> None:
+        """Retain all output in bounded chunks without recopying the transcript."""
         if not text:
             return
 
+        chunk_limit = 64 * 1024
         with self._console_state_lock:
             state = self._ensure_console_state()
-            if state.entries and state.entries[-1].kind == "output":
-                state.entries[-1].payload += text
-                return
-            state.entries.append(self._new_console_entry("output", text))
+            offset = 0
+            while offset < len(text):
+                if (not state.entries or state.entries[-1].kind != "output"
+                        or len(state.entries[-1].payload) >= chunk_limit):
+                    state.entries.append(self._new_console_entry("output", ""))
+                entry = state.entries[-1]
+                end = offset + chunk_limit - len(entry.payload)
+                entry.payload += text[offset:end]
+                offset = min(end, len(text))
 
     def record_console_command(self, cmd: str) -> None:
         cmd = cmd.strip()
@@ -4058,6 +4065,18 @@ class VerifyPDB(Pdb):
             message(stage.do_get_hmcheck_result())
         else:
             echo_y("HMCheck is not needed for the current stage.")
+
+    def do_swarm_review(self, arg):
+        """Apply a stage-bound JSON review command from the Swarm platform."""
+        from ucagent.swarm_review import apply, reject
+        import json
+        request = None
+        try:
+            request = json.loads(arg)
+            message(apply(self, request))
+        except (ValueError, TypeError, KeyError) as exc:
+            reject(self, request, str(exc))
+            echo_r(str(exc))
 
     def do_hmcheck_pass(self, arg):
         """

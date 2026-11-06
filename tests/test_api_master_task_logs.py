@@ -1,3 +1,5 @@
+"""Test Master task launch configuration and bounded runtime log handling."""
+
 import os
 import json
 import shutil
@@ -1070,3 +1072,35 @@ def test_agent_delete_block_rejoin_controls_removed_set():
         unregister = client.delete("/api/agent/online-agent?block_rejoin=true")
         assert unregister.status_code == 200
         assert "online-agent" in server._removed
+
+
+@pytest.mark.parametrize(("workflow", "output", "expected"), [
+    ("bug_review:analysis", None, "results"),
+    ("bug_review:analysis", "custom-review", "custom-review"),
+    ("other:analysis", None, "unity_test"),
+])
+def test_task_launch_output_matches_selected_workflow(tmp_path, workflow, output, expected):
+    """Review tasks use the compact output tree while explicit output takes precedence."""
+    server = PdbMasterApiServer(workspace=str(tmp_path))
+    argv, _env = server._build_ucagent_command(
+        {"plugin_workflow": workflow, "output": output},
+        {"workspace_dir": str(tmp_path), "picker_workspace": str(tmp_path), "dut_name": "demo"},
+        {"host": "127.0.0.1", "port": 8765, "password": "test-only"},
+    )
+    assert argv[argv.index("--output") + 1] == expected
+
+
+@pytest.mark.parametrize("review_options", [False, True])
+def test_review_archive_detection_uses_resolved_runtime_options(tmp_path, monkeypatch, review_options):
+    """Custom output paths and disabled waveform analysis still identify review workspaces."""
+    from ucagent.server.api_master import common
+    (tmp_path / '.ucagent').mkdir()
+    (tmp_path / '.ucagent/runtime_config.json').write_text('{}')
+    (tmp_path / 'unity_test').mkdir()
+    runtime = {'OUT': 'custom/results', 'runtime_options': {}}
+    if review_options:
+        runtime['runtime_options']['bug_review_waveform_enabled'] = False
+    monkeypatch.setattr(common, 'load_runtime_config', lambda _: runtime)
+    assert common._is_bug_review_run_dir(str(tmp_path)) is review_options
+    (tmp_path / '.ucagent/runtime_config.json').unlink()
+    assert common._is_bug_review_run_dir(str(tmp_path)) is False
