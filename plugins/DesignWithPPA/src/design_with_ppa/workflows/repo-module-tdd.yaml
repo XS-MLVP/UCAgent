@@ -42,12 +42,20 @@ design_with_ppa:
     backend: yosys_opensta
     backend_options: {}
     pdk:
-      name: nangate45
-      corner: typical
+      name: asap7sc7p5t_28
+      corner: RVT_TT_0p7V_25C
       files: {}
       tie_high: null
       tie_low: null
       parameters: {}
+    # To use bundled Nangate45, replace the pdk block above with:
+    # pdk:
+    #   name: nangate45
+    #   corner: typical
+    #   files: {}
+    #   tie_high: {cell: LOGIC1_X1, port: Z}
+    #   tie_low: {cell: LOGIC0_X1, port: Z}
+    #   parameters: {}
     liberty_file: null
     sdc_file: null
     # OpenSTA detail depth for every measured candidate; same keys as unit-design-tdd.

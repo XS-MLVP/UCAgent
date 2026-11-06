@@ -372,8 +372,8 @@ def _report(
                 {"path": waveform_path, "sha256": waveform_hash}
             ],
             "top_module": "dut",
-            "liberty_file": "bundled:NangateOpenCellLibrary_typical.lib",
-            "liberty_sha256": "8d540a4d4cf6d09d27c87ad067857a9c0c2eeb023ab7a56e058cd3113db4e9b1",
+            "liberty_file": "bundled:asap7sc7p5t_28_RVT_TT_nldm_merged.lib",
+            "liberty_sha256": "5d5d792741a15885a918cb1634de8124f0256e3f6d5b1f5a4d3c8a358e8597a0",
             "sdc_file": None,
             "sdc_sha256": None,
             "clock_constraint": None,

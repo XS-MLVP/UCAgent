@@ -215,6 +215,9 @@ def get_plugin() -> Plugin:
             "pylibfst>=0.2.1,<0.3.0",
         ),
         assets=(
+            root / "assets" / "asap7sc7p5t_28_RVT_TT_nldm_merged.lib",
+            root / "assets" / "asap7sc7p5t_28_RVT_TT_nldm_merged.manifest.json",
+            root / "assets" / "LICENSE-ASAP7.txt",
             root / "assets" / "NangateOpenCellLibrary_typical.lib",
             root / "assets" / "SOURCE.md",
         ),

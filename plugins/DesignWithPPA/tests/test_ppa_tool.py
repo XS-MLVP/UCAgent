@@ -988,6 +988,7 @@ def test_real_mixed_waveform_analysis_produces_complete_report(tmp_path: Path) -
     assert report["summary"]["area"]["total"] > 0
     assert report["summary"]["area"]["sequential_cell_count"] == 0
     assert report["summary"]["area"]["combinational_cell_count"] == report["summary"]["area"]["cell_count"]
+    assert report["provenance"]["pdk"]["name"] == "asap7sc7p5t_28"
     assert report["summary"]["timing"]["critical_path_delay_ns"] > 0
     assert report["summary"]["power"]["total_w"] > 0
     assert report["provenance"]["tools"]["yosys"]["version"]
@@ -1047,7 +1048,7 @@ def test_synthesized_netlist_avoids_opensta_rejected_constructs(
     netlist = (tmp_path / "mapped.v").read_text(encoding="ascii")
     assert re.search(r"=\s*1'[bhd]", netlist) is None
     assert "\\" not in netlist
-    assert "LOGIC0_X1" in netlist or "LOGIC1_X1" in netlist
+    assert "TIELOx1_ASAP7_75t_R" in netlist or "TIEHIx1_ASAP7_75t_R" in netlist
 
 
 @pytest.mark.skipif(

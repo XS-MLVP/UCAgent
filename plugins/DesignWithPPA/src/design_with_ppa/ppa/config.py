@@ -13,6 +13,12 @@ from .common import _sha256_file
 
 
 _BUNDLED_PDKS = {
+    "asap7sc7p5t_28": {
+        "corner": "RVT_TT_0p7V_25C",
+        "liberty": "asap7sc7p5t_28_RVT_TT_nldm_merged.lib",
+        "tie_high": {"cell": "TIEHIx1_ASAP7_75t_R", "port": "H"},
+        "tie_low": {"cell": "TIELOx1_ASAP7_75t_R", "port": "L"},
+    },
     "nangate45": {
         "corner": "typical",
         "liberty": "NangateOpenCellLibrary_typical.lib",
@@ -34,8 +40,8 @@ class PDKConfig(BaseModel):
     """Technology identity, named file sets, and optional constant mapping cells."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
-    name: str = Field(default="nangate45", min_length=1)
-    corner: str = Field(default="typical", min_length=1)
+    name: str = Field(default="asap7sc7p5t_28", min_length=1)
+    corner: str = Field(default="RVT_TT_0p7V_25C", min_length=1)
     files: dict[str, list[str]] = Field(default_factory=dict)
     tie_high: ConstantCell | None = None
     tie_low: ConstantCell | None = None

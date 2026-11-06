@@ -3,7 +3,7 @@
 
 `AnalyzePPA` 将工作区输入、报告发布与具体分析工具分开。两个 workflow、直接调用
 `AnalyzePPA` 以及 `RunDesignConsistency` 都使用解析后的 `design_with_ppa.ppa` 配置。
-默认组合是 `yosys_opensta` 和 Nangate45 typical，执行布局布线前的面积、时序与
+默认组合是 `yosys_opensta` 和 ASAP7 RVT/TT，执行布局布线前的面积、时序与
 独立性能 TC 波形驱动的功耗分析。当前内置一个分析后端；其他工具通过 Python 接口接入。
 
 ## 配置默认分析与其他 PDK
@@ -16,8 +16,8 @@ design_with_ppa:
     backend: yosys_opensta
     backend_options: {}
     pdk:
-      name: nangate45
-      corner: typical
+      name: asap7sc7p5t_28
+      corner: RVT_TT_0p7V_25C
       files: {}
       tie_high: null
       tie_low: null
@@ -28,9 +28,24 @@ design_with_ppa:
     max_power_instances: 10
 ```
 
-`nangate45` 预设在未提供 `files.liberty` 时加载插件内的 typical Liberty，并提供
-`LOGIC1_X1/Z`、`LOGIC0_X1/Z` 常量映射。捆绑文件只支持 `corner: typical`。
-`name` 使用其他值时不会补充任何工艺文件或常量单元。
+`files: {}` 使用插件捆绑的单文件 Liberty，安装后即可分析，无需把库复制到工作区。
+`tie_high`、`tie_low` 为 `null` 时使用对应预设的常量单元：
+
+| `pdk.name` | 捆绑库支持的 `corner` | 常量 1 / 常量 0 单元及引脚 |
+| --- | --- | --- |
+| `asap7sc7p5t_28`（默认） | `RVT_TT_0p7V_25C` | `TIEHIx1_ASAP7_75t_R/H` / `TIELOx1_ASAP7_75t_R/L` |
+| `nangate45` | `typical` | `LOGIC1_X1/Z` / `LOGIC0_X1/Z` |
+
+默认文件为 `assets/asap7sc7p5t_28_RVT_TT_nldm_merged.lib`：合并五份上游
+RVT/TT NLDM 库，共 202 个单元，0.7 V、25°C。它是用于研究和相对 PPA 比较的
+预测性 7nm 标准单元模型；不包含完整物理 PDK，也不能提供制造或签核结果。
+来源、合并规则、内容哈希及 BSD-3-Clause 许可见
+[assets/SOURCE.md](../src/design_with_ppa/assets/SOURCE.md)。
+
+选择 Nangate45 时同时设置 `pdk.name: nangate45` 和 `pdk.corner: typical`。
+每个预设只提供表中列出的捆绑 corner；其他 corner 必须显式提供 `files.liberty`。
+使用其他 `name` 不会自动补充工艺文件或常量单元。缺少捆绑资源会报错，需重新安装
+插件或提供工作区内的库文件。
 
 接入其他工艺时，将获准使用的工艺文件放入工作区，并明确设置工艺、corner 和单元：
 

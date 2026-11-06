@@ -29,6 +29,8 @@ where = ["src"]
 design_with_ppa = [
     "assets/*.lib",
     "assets/*.md",
+    "assets/*.json",
+    "assets/*.txt",
     "workflows/*.yaml",
     "Guide_Doc/*.md",
     "templates/**/*",

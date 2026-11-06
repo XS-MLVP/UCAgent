@@ -407,8 +407,8 @@ def test_all_declared_runtime_config_keys_export_as_scalars(
     runtime = build_runtime_config(cfg, runtime_config_keys=declared)
     options = runtime["plugin_options"]
     assert options["design_with_ppa.ppa.backend"] == "yosys_opensta"
-    assert options["design_with_ppa.ppa.pdk.name"] == "nangate45"
-    assert options["design_with_ppa.ppa.pdk.corner"] == "typical"
+    assert options["design_with_ppa.ppa.pdk.name"] == "asap7sc7p5t_28"
+    assert options["design_with_ppa.ppa.pdk.corner"] == "RVT_TT_0p7V_25C"
     assert set(declared) <= set(options)
     for key, value in options.items():
         assert value is None or isinstance(
