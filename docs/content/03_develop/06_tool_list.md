@@ -87,3 +87,7 @@ ToDo 工具需由对应选项启用。检索和记忆工具依赖嵌入模型，
 `--mcp-server-no-file-tools` 省略文件操作工具组，仍保留基础 `ReadTextFile`、阶段工具和已注册的扩展工具。因此，这个选项并非禁止所有文件写入：外部客户端和自定义工具都需要各自遵守工作区权限。
 
 默认配置的 `tools.ignore_tools` 包含 `RunBashCommand`、`WorkDiff`、`WorkCommit`。过滤规则由 `tools.ignore_tools` 和 `tools.selected_tools` 共同决定，调整后应以 `tool_list` 及 MCP 工具发现结果确认。CLI 选项见[参数说明](../02_usage/03_option.md)。
+
+## Test invocation snapshots
+
+RunUnityChipTest preserves each invocation's raw report, stdout/stderr and exit facts in `<report_dir>/invocations/<invocation_id>/`; the shared current report includes that ID and a workspace-relative snapshot path. Subsequent runs clear only the current projection, retaining invocation and baseline-coverage directories. Report paths must stay in the workspace and must not contain input targets. Missing source identities cannot support cross-invocation full-set coverage aggregation.

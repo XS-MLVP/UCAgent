@@ -456,8 +456,8 @@ def test_vcd_reports_freshness_events_and_clock_based_cycle_alignment(tmp_path):
     assert result["cycle_alignment"]["cycle_delta_unit"] == "clock_edges"
     assert result["cycle_alignment"]["wave_step_unit"] == "waveform_simulation_timestamp"
     assert result["cycle_alignment"]["confirmed"] is False
-    assert result["timeline"][15]["values"]["TOP.dut.data[3:0]"] == "4'h3"
-    assert result["timeline"][15]["values"]["TOP.dut.result[3:0]"] == "4'h0"
+    assert result["timeline"]["15"]["values"]["TOP.dut.data[3:0]"] == "4'h3"
+    assert result["timeline"]["15"]["values"]["TOP.dut.result[3:0]"] == "4'h0"
     assert result["signal_groups"] == FINAL_SIGNAL_GROUPS
     viewer = result["waveform_viewer"]
     assert viewer["payload"] == {
@@ -612,6 +612,7 @@ def test_all_event_types_and_xz_values_are_preserved(tmp_path):
             },
             {"signal": "TOP.dut.result[3:0]", "event": "unknown", "value": ""},
         ],
+        "signal_group_preset": "",
         "logged_cycle": -1,
         "clock_signal": "",
         "start_step": 0,
@@ -625,8 +626,8 @@ def test_all_event_types_and_xz_values_are_preserved(tmp_path):
     assert "bug_document_fields" not in result
     assert "waveform_viewer" not in result
     assert "bug_document_viewer_link" not in result
-    assert result["timeline"][25]["values"]["TOP.dut.result[3:0]"] == "4'b0x1z"
-    assert result["timeline"][35]["triggers"]["TOP.dut.valid"] == [
+    assert result["timeline"]["25"]["values"]["TOP.dut.result[3:0]"] == "4'b0x1z"
+    assert result["timeline"]["35"]["triggers"]["TOP.dut.valid"] == [
         {"event": "falling"}
     ]
     event_counts = {item["event"]: item["event_count"] for item in result["patterns"]}
@@ -741,7 +742,7 @@ def test_runtime_generated_fst_is_parsed_and_preferred(tmp_path):
     assert result["waveform_selection"]["format"] == "fst"
     assert result["waveform_selection"]["numeric_suffix"] == 10
     assert result["waveform_selection"]["waveform_file"].endswith("test_fst010.fst")
-    assert result["timeline"][30]["values"]["TOP.data[3:0]"] == "4'b0x1z"
+    assert result["timeline"]["30"]["values"]["TOP.data[3:0]"] == "4'b0x1z"
 
 
 @pytest.mark.parametrize("priority,available,expected", [
@@ -976,6 +977,65 @@ def test_latest_session_does_not_fall_back_to_stale_waveform(tmp_path):
     assert result["details"]["available_latest_session_test_names"] == ["test_other"]
 
 
+def test_all_scope_selects_older_session_waveform(tmp_path):
+    test_dir = tmp_path / "tests"
+    old = _session(test_dir, "toffee_tmp_20260814140000_000")
+    latest = _session(test_dir, "toffee_tmp_20260814150000_000")
+    _write_vcd(old, "test_target")
+    _write_vcd(latest, "test_other")
+
+    tool = WaveInfo(workspace=str(tmp_path), test_dir=str(test_dir),
+                    dut_name="Demo", session_scope="all")
+    selection, error = tool._discover_waveform("test_target")
+
+    assert error is None
+    info = tool._selection_info(selection)
+    assert info["waveform_file"].endswith("test_target.vcd")
+    assert info["evidence_session"].endswith("toffee_tmp_20260814140000_000")
+    assert info["latest_session"].endswith("toffee_tmp_20260814150000_000")
+    assert info["is_latest_session"] is False
+    assert "every toffee_tmp_* session" in tool.description
+
+
+def test_all_scope_prefers_newest_session_when_both_match(tmp_path):
+    test_dir = tmp_path / "tests"
+    old = _session(test_dir, "toffee_tmp_20260814140000_000")
+    latest = _session(test_dir, "toffee_tmp_20260814150000_000")
+    _write_vcd(old, "test_target")
+    _write_vcd(latest, "test_target")
+
+    tool = WaveInfo(workspace=str(tmp_path), test_dir=str(test_dir),
+                    dut_name="Demo", session_scope="all")
+    selection, error = tool._discover_waveform("test_target")
+
+    assert error is None
+    info = tool._selection_info(selection)
+    assert info["evidence_session"].endswith("toffee_tmp_20260814150000_000")
+    assert info["is_latest_session"] is True
+
+
+def test_all_scope_reports_missing_across_every_session(tmp_path):
+    test_dir = tmp_path / "tests"
+    old = _session(test_dir, "toffee_tmp_20260814140000_000")
+    latest = _session(test_dir, "toffee_tmp_20260814150000_000")
+    _write_vcd(old, "test_other")
+    _write_vcd(latest, "test_other")
+
+    tool = WaveInfo(workspace=str(tmp_path), test_dir=str(test_dir),
+                    dut_name="Demo", session_scope="all")
+    result = _call(tool, test_case_name="test_missing")
+
+    assert result["success"] is False
+    assert result["status"] == "waveform_not_found_in_latest_session"
+    assert result["details"]["searched_session_count"] == 2
+
+
+def test_invalid_session_scope_is_rejected(tmp_path):
+    with pytest.raises(ValueError):
+        WaveInfo(workspace=str(tmp_path), test_dir=str(tmp_path / "tests"),
+                 dut_name="Demo", session_scope="newest-first")
+
+
 def test_function_level_lookup_reports_parameterized_waveforms_as_hints_only(tmp_path):
     test_dir = tmp_path / "tests"
     session = _session(test_dir, "toffee_tmp_20260814150000_000")
@@ -1196,7 +1256,7 @@ def test_duplicate_patterns_keep_per_pattern_counts_without_duplicate_triggers(t
     )
 
     assert [item["event_count"] for item in result["patterns"]] == [1, 1]
-    assert result["timeline"][15]["triggers"]["TOP.dut.valid"] == [
+    assert result["timeline"]["15"]["triggers"]["TOP.dut.valid"] == [
         {"event": "rising"}
     ]
 
@@ -3472,3 +3532,98 @@ def test_apply_synchronizes_final_view_and_rolls_back_on_document_failure(tmp_pa
     Path(tool.workspace,first['waveform_selection']['waveform_file']).unlink()
     assert writer.apply_evidence(**args)['status'] == 'already_applied'
     assert not meta.exists()
+
+
+@pytest.mark.parametrize("preset", ["boundary", "missing", " invalid "])
+def test_explicit_signal_groups_override_stale_preset_through_invoke(tmp_path, preset):
+    test_dir = tmp_path / "tests"
+    _write_vcd(_session(test_dir, "toffee_tmp_20260814150000_123"), "test_preset")
+    different = dict(FINAL_SIGNAL_GROUPS, key_signals=["TOP.dut.ready"])
+    (tmp_path / "presets.json").write_text(json.dumps({"presets": {"boundary": different}}))
+    tool = _tool(tmp_path, test_dir)
+    tool.signal_group_presets_path = "presets.json"
+    result = json.loads(tool.invoke(dict(
+        test_case_name="test_preset", signal_group_preset=preset,
+        signal_groups=FINAL_SIGNAL_GROUPS,
+        pattern=[{"signal": "TOP.dut.valid", "event": "rising"}],
+        start_step=10, end_step=25,
+    )))
+    assert result["evidence_usable"] is True
+    receipt = tool.get_analysis_receipt(result["waveform_analysis_receipt"]["receipt_id"])
+    assert receipt["arguments"]["signal_groups"] == FINAL_SIGNAL_GROUPS
+    assert receipt["result"]["signal_groups"] == FINAL_SIGNAL_GROUPS
+
+
+@pytest.mark.parametrize("groups", [None, {}])
+def test_preset_recommendation_round_trip_through_invoke(tmp_path, groups):
+    test_dir = tmp_path / "tests"
+    _write_vcd(_session(test_dir, "toffee_tmp_20260814150000_123"), "test_preset")
+    preset_file = tmp_path / "presets.json"
+    preset_file.write_text(json.dumps({"presets": {"boundary": FINAL_SIGNAL_GROUPS}}))
+    tool = _tool(tmp_path, test_dir)
+    tool.signal_group_presets_path = "presets.json"
+    args = dict(test_case_name="test_preset", signal_group_preset="boundary",
+                pattern=[{"signal": "TOP.dut.valid", "event": "rising"}])
+    if groups is not None:
+        args["signal_groups"] = groups
+    result = json.loads(tool.invoke(args))
+    assert result["status"] == "evidence_window_required"
+    recommended = result["recommended_evidence_call"]
+    assert recommended["signal_group_preset"] == ""
+    assert recommended["signal_groups"] == FINAL_SIGNAL_GROUPS
+    preset_file.unlink()  # Follow-up must depend only on the returned explicit paths.
+    final = json.loads(tool.invoke(args | recommended))
+    assert final["evidence_usable"] is True
+    receipt = tool.get_analysis_receipt(final["waveform_analysis_receipt"]["receipt_id"])
+    assert receipt["arguments"]["signal_groups"] == FINAL_SIGNAL_GROUPS
+
+
+def test_invalid_explicit_groups_do_not_fall_back_to_preset(tmp_path):
+    tool = _tool(tmp_path, tmp_path / "tests")
+    result = tool.invoke(dict(test_case_name="test_preset", signal_group_preset="boundary",
+                             signal_groups=dict(FINAL_SIGNAL_GROUPS, key_signals=[]),
+                             pattern=[{"signal": "TOP.dut.valid", "event": "rising"}]))
+    assert "key_signals" in result
+    assert "validation error" in result
+
+
+def test_indexed_numeric_test_name_is_not_another_tests_dump_sequence(tmp_path):
+    """An independently collected numeric suffix owns its exact waveform filename."""
+    test_dir = tmp_path / 'tests'
+    session = _session(test_dir, 'toffee_tmp_20260814150000_123')
+    _write_vcd(session, 'test_wframe_n')
+    _write_vcd(session, 'test_wframe_n129')
+    names = ['tests/test_frame.py::test_wframe_n', 'tests/test_frame.py::test_wframe_n129']
+    (tmp_path / 'index.json').write_text(json.dumps({'cases': {
+        name: {'waveform_test_case_name': name} for name in names}}))
+    tool = _tool(tmp_path, test_dir)
+    tool.allowed_case_index = 'index.json'
+    for name in names:
+        result = tool.analyze(test_case_name=name)
+        assert result['status'] == 'metadata_only'
+        assert Path(result['waveform_selection']['waveform_file']).stem == name.split('::')[-1]
+    (session / 'master/test_wframe_n.vcd').unlink()
+    assert tool.analyze(test_case_name=names[0])['status'] != 'metadata_only'
+
+
+def test_indexed_same_function_in_distinct_files_fails_closed(tmp_path):
+    """A basename alone cannot prove which collected module produced the dump."""
+    test_dir = tmp_path / 'tests'
+    _write_vcd(_session(test_dir, 'toffee_tmp_20260814150000_123'), 'test_same')
+    names = ['tests/test_a.py::test_same', 'tests/test_b.py::test_same']
+    (tmp_path / 'index.json').write_text(json.dumps({'cases': {
+        name: {'waveform_test_case_name': name} for name in names}}))
+    tool = _tool(tmp_path, test_dir)
+    tool.allowed_case_index = 'index.json'
+    assert tool.analyze(test_case_name=names[0])['status'] == 'waveform_case_ambiguous'
+
+
+def test_indexed_numeric_dump_sequence_still_works_without_competing_case(tmp_path):
+    """A real numbered dump remains selectable when no collected case claims it."""
+    test_dir = tmp_path / 'tests'
+    _write_vcd(_session(test_dir, 'toffee_tmp_20260814150000_123'), 'test_stream12')
+    name = 'tests/test_stream.py::test_stream'
+    (tmp_path / 'index.json').write_text(json.dumps({'cases': {name: {'waveform_test_case_name': name}}}))
+    tool = _tool(tmp_path, test_dir)
+    tool.allowed_case_index = 'index.json'
+    assert tool.analyze(test_case_name=name)['waveform_selection']['numeric_suffix'] == 12

@@ -265,7 +265,7 @@ def test_unity_test_publishes_current_report_with_invocation_context(
     assert published["schema_version"] == 1
     assert published["report"] == report
     assert published["report"]["tests"]["fails"] == 1
-    assert published["context"] == {
+    expected = {
         "source": "checker",
         "stage_index": 22,
         "stage_name": "basic_api_functional_test",
@@ -273,6 +273,69 @@ def test_unity_test_publishes_current_report_with_invocation_context(
         "pytest_ex_args": "test_demo.py",
         "result_path": str(tmp_path / "report/toffee_report.json"),
     }
+    assert {key: published["context"][key] for key in expected} == expected
+    assert len(published["context"]["invocation_id"]) == 32
+    snapshot = tmp_path / published["context"]["report_snapshot_path"]
+    assert (snapshot / "report.json").is_file()
+
+
+
+def test_unity_test_publishes_pytest_stdout_in_current_report(tmp_path, monkeypatch):
+    """The raw pytest stdout is published for evidence consumers and omitted when empty."""
+    cfg = Config(
+        {
+            "runtime_options": {
+                "need_ref_model": False,
+                "mock_components_enabled": False,
+            },
+            "tools": {"RunTestCases": {"test_dir": "tests"}},
+        }
+    )
+    cfg._temp_cfg = {"DUT": "Demo", "OUT": "unity_test"}
+    save_runtime_config(str(tmp_path), cfg)
+    test_dir = tmp_path / "tests"
+    test_dir.mkdir()
+    (test_dir / "test_demo.py").write_text(
+        "def test_failure():\n    assert False\n", encoding="utf-8"
+    )
+    tool = RunUnityChipTest(workspace=str(tmp_path), report_dir="report")
+    stdout_holder = {"text": "Traceback E boom"}
+
+    def fake_run_pytest(self, *_args, **_kwargs):
+        stdout_text = stdout_holder["text"]
+        self.last_execution = {
+            "pytest_returncode": 1,
+            "invocation_success": False,
+            "diagnostic_code": "PYTEST_ASSERTION_FAILURE",
+            "report_exists": False,
+            "report_has_tests": False,
+        }
+        self._last_process_stdout = stdout_text
+        self._last_process_stderr = ""
+        report_dir = Path(self.result_dir)
+        report_dir.mkdir(parents=True, exist_ok=True)
+        abstract_key = f"{test_dir / 'test_demo.py'}:1-2::test_failure"
+        (report_dir / self.result_json_path).write_text(
+            json.dumps(
+                {
+                    "test_abstract_info": {abstract_key: "FAILED"},
+                    "coverages": {"functional": {}},
+                }
+            ),
+            encoding="utf-8",
+        )
+        return False, stdout_text, ""
+
+    monkeypatch.setattr(RunPyTest, "do", fake_run_pytest)
+
+    tool.do("tests", pytest_ex_args="test_demo.py")
+    published = load_current_test_report(str(tmp_path))
+    assert published["pytest_stdout"] == "Traceback E boom"
+
+    stdout_holder["text"] = ""
+    tool.do("tests", pytest_ex_args="test_demo.py")
+    republished = load_current_test_report(str(tmp_path))
+    assert "pytest_stdout" not in republished
 
 
 def test_toffee_report_lists_only_failed_parameterized_instances(tmp_path):
@@ -357,18 +420,35 @@ def test_classifier_ignores_failure_phrases_in_passing_runs():
 @pytest.mark.parametrize("exit_code", [0, 1])
 def test_run_pytest_decodes_native_output_independently_of_parent_locale(tmp_path, monkeypatch, raw_output, exit_code):
     """A simulator changing the parent locale must not discard valid pytest results."""
-    binary = tmp_path / "pytest"
-    binary.write_text("#!" + sys.executable + "\nimport os\nos.write(1, " + repr(raw_output) +
-                      ")\nos.write(2, " + repr(raw_output) + ")\nraise SystemExit(" + str(exit_code) + ")\n", encoding="utf-8")
-    binary.chmod(0o755)
-    monkeypatch.setenv("PATH", str(tmp_path) + os.pathsep + os.environ["PATH"])
+    (tmp_path / "test_native.py").write_text(
+        "import os\ndef test_output():\n    os.write(1, " + repr(raw_output) +
+        ")\n    os.write(2, " + repr(raw_output) + ")\n    assert " + str(exit_code) + " == 0\n",
+        encoding="utf-8",
+    )
     monkeypatch.setattr(subprocess, "_text_encoding", lambda: "ascii")
     tool = RunPyTest()
 
     passed, stdout, stderr = tool.do(str(tmp_path), return_stdout=True, return_stderr=True)
 
     assert passed is (exit_code == 0)
-    assert stdout == raw_output.decode("utf-8", errors="replace")
-    assert stderr == stdout
+    assert raw_output.decode("utf-8", errors="replace") in stdout
+    assert raw_output.decode("utf-8", errors="replace") in stderr
     assert tool.last_execution["pytest_returncode"] == exit_code
     assert tool.last_execution["diagnostic_code"] == ("OK" if exit_code == 0 else "PYTEST_ASSERTION_FAILURE")
+
+
+def test_pytest_uses_agent_interpreter_despite_shadowed_path(tmp_path, monkeypatch):
+    """A foreign pytest executable on PATH must never control replay dependencies."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    fake = bin_dir / "pytest"
+    fake.write_text("#!/bin/sh\necho WRONG_PYTEST >&2\nexit 99\n")
+    fake.chmod(0o755)
+    monkeypatch.setenv("PATH", str(bin_dir))
+    monkeypatch.setenv("PYTEST_ADDOPTS", "--forked")
+    (tmp_path / "test_ok.py").write_text("def test_ok():\n    assert True\n")
+    tool = RunPyTest()
+    passed, stdout, stderr = tool.do(str(tmp_path), return_stdout=True, return_stderr=True)
+    assert passed, stderr
+    assert "1 passed" in stdout
+    assert "WRONG_PYTEST" not in stderr

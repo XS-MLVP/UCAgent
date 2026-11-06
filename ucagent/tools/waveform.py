@@ -512,8 +512,13 @@ class ArgWaveInfo(BaseModel):
         default_factory=WaveSignalGroups,
         description=(
             "Required for final Bug-document evidence. Use exact full paths and classify "
-            "the DUT clock mode, relevant inputs, outputs, protocol controls, and key signals."
+            "the DUT clock mode, relevant inputs, outputs, protocol controls, and key signals. "
+            "Non-empty explicit groups take precedence over signal_group_preset."
         ),
+    )
+    signal_group_preset: str = Field(
+        default="",
+        description="Named signal_groups preset from the configured workspace preset file; expands before signing only when explicit signal_groups are empty.",
     )
     logged_cycle: int = Field(
         default=-1,
@@ -654,12 +659,20 @@ class ArgWaveInfo(BaseModel):
             raise ValueError("test_case_name is required for signal catalog inspection")
         self.test_case_name = self.test_case_name.strip()
         self.clock_signal = self.clock_signal.strip()
+        self.signal_group_preset = self.signal_group_preset.strip()
+        if self.signal_group_preset and not self.signal_groups.is_empty():
+            # Explicit groups may come from a recommended follow-up call merged
+            # into an earlier preset request. Sign exactly those explicit paths.
+            self.signal_group_preset = ""
+        if self.signal_group_preset and not self.pattern:
+            raise ValueError("signal_group_preset requires a non-empty event pattern")
         if not self.test_case_name and any(
             (
                 self.pattern,
                 self.source_files,
                 self.dut_python_path,
                 not self.signal_groups.is_empty(),
+                bool(self.signal_group_preset),
                 self.logged_cycle >= 0,
                 bool(self.clock_signal),
                 self.start_step >= 0,
@@ -958,6 +971,8 @@ class _WaveSelection:
     waveform: Path
     suffix: int
     worker: str
+    latest_session: Path
+    is_latest: bool
 
 
 @dataclass(frozen=True)
@@ -997,9 +1012,9 @@ class WaveInfo(UCTool):
         "For Bug evidence, test_case_name must be the complete target TC pytest node ID "
         "with only the leading TC- removed. Inventory basenames locate waveform files but "
         "do not define or shorten the source-test identity. "
-        "The tool searches only the newest test session and automatically selects the "
-        "waveform for that exact test. It never substitutes another test or a stale "
-        "session. Signal queries must be supplied as structured pattern entries. "
+        "The tool searches toffee_tmp_* sessions (by default only the newest one), "
+        "using the configured waveform format priority, and never substitutes another test. "
+        "Signal queries must be supplied as structured pattern entries. "
         "Use source_files for relevant design sources selected after inspection and "
         "dut_python_path when the DUT Python entry cannot be determined automatically; "
         "both accept existing workspace-relative files. Use the returned viewer link. "
@@ -1040,6 +1055,17 @@ class WaveInfo(UCTool):
     )
     write_dirs: list[str] | None = Field(default=None, exclude=True, repr=False)
     un_write_dirs: list[str] | None = Field(default=None, exclude=True, repr=False)
+    allowed_case_index: str = Field(default="", description="Optional workspace-relative index containing exact legal case identities.")
+    signal_group_presets_path: str = Field(default="", description="Optional workspace-relative named signal group presets.")
+    session_scope: str = Field(
+        default="latest",
+        description=(
+            "Waveform session search scope: 'latest' uses only the newest toffee_tmp_* "
+            "session; 'all' searches every session newest-first so evidence written by "
+            "an earlier per-run session stays usable when the newest session did not "
+            "run that test."
+        ),
+    )
     analysis_receipts: list[dict[str, Any]] = Field(
         default_factory=list,
         exclude=True,
@@ -1110,6 +1136,16 @@ class WaveInfo(UCTool):
             f"'{configured_test_dir}'. Exact source node IDs must start with "
             f"'{configured_test_dir}/'."
         )
+        if self.session_scope not in ("latest", "all"):
+            raise ValueError(
+                f"WaveInfo session_scope must be 'latest' or 'all', got {self.session_scope!r}"
+            )
+        if self.session_scope == "all":
+            self.description = (
+                f"{self.description} This run searches every toffee_tmp_* session "
+                "newest-first, so a waveform written by an earlier per-run session is "
+                "returned with is_latest_session=false instead of being rejected as stale."
+            )
         self.dut_name = dut_name
         self.analysis_receipts = []
         self._load_analysis_receipts()
@@ -1377,6 +1413,16 @@ class WaveInfo(UCTool):
             return False, 0
         suffix = match.group("suffix")
         return True, int(suffix) if suffix else 0
+
+    @classmethod
+    def waveform_case_owners(cls, path: Path, case_names: list[str]) -> list[str]:
+        """Resolve numbered dump names without stealing another indexed test's exact name."""
+        names = [(name, cls._normalize_test_case_name(name)) for name in case_names]
+        exact = [name for name, stem in names if path.stem == stem]
+        if exact:
+            return exact
+        return [name for name, stem in names
+                if re.fullmatch(rf"{re.escape(stem)}\d*", path.stem, flags=re.IGNORECASE)]
 
     @staticmethod
     def _data_name_match(path: Path, basename: str) -> bool:
@@ -1668,7 +1714,27 @@ class WaveInfo(UCTool):
                 suggestions=common_suggestions,
             )
 
+        indexed_names = []
+        if self.allowed_case_index:
+            try:
+                index_path = (Path(self.workspace) / self.allowed_case_index).resolve()
+                if not index_path.is_relative_to(Path(self.workspace).resolve()):
+                    raise ValueError("allowed case index is outside the workspace")
+                index = json.loads(index_path.read_text(encoding="utf-8"))
+                indexed_names = sorted({entry["waveform_test_case_name"] for entry in index["cases"].values()
+                                        if entry.get("waveform_test_case_name")})
+                if test_case_name not in indexed_names:
+                    raise ValueError("use the exact indexed waveform_test_case_name")
+                aliases = [name for name in indexed_names if self._normalize_test_case_name(name) == normalized]
+                if len(aliases) > 1:
+                    return None, self._error("waveform_case_ambiguous",
+                        "Different collected cases share this dump basename; obtain an isolated replay with explicit ownership.",
+                        details={"requested": test_case_name, "candidates": aliases[:20]})
+            except (OSError, ValueError, KeyError, TypeError) as error:
+                return None, self._error("allowed_case_index_invalid", str(error))
         latest = sessions[0]
+        search_sessions = sessions if self.session_scope == "all" else sessions[:1]
+        ambiguous = []
 
         def collect_matches(session: Path) -> list[tuple[Path, int]]:
             matches: list[tuple[Path, int]] = []
@@ -1677,10 +1743,26 @@ class WaveInfo(UCTool):
                     continue
                 matched, suffix = self._wave_name_match(path, normalized)
                 if matched:
+                    if indexed_names:
+                        owners = self.waveform_case_owners(path, indexed_names)
+                        if owners != [test_case_name]:
+                            if test_case_name in owners:
+                                ambiguous.append({"file": self._display_path(path), "candidates": owners[:20]})
+                            continue
                     matches.append((path, suffix))
             return matches
 
-        latest_matches = collect_matches(latest)
+        selected_session: Path | None = None
+        selected_matches: list[tuple[Path, int]] = []
+        for session in search_sessions:
+            matches = collect_matches(session)
+            if matches:
+                selected_session, selected_matches = session, matches
+                break
+        if ambiguous:
+            return None, self._error("waveform_case_ambiguous",
+                "Numbered dump ownership is ambiguous; do not attach a receipt until the case is resolved.",
+                details={"requested": test_case_name, "files": ambiguous[:20]})
         available_names = sorted(
             {
                 path.stem
@@ -1688,21 +1770,29 @@ class WaveInfo(UCTool):
                 if path.is_file() and path.suffix.lower().lstrip(".") in self.format_priority
             }
         )
-        dat_matches = sorted(
-            self._display_path(path)
-            for path in latest.rglob("*.dat")
-            if self._data_name_match(path, normalized)
-        )
-        old_matches: list[str] = []
-        for session in sessions[1:]:
-            old_matches.extend(
-                self._display_path(path) for path, _suffix in collect_matches(session)
+        dat_search_sessions = sessions if self.session_scope == "all" else sessions[:1]
+        dat_matches = []
+        for session in dat_search_sessions:
+            dat_matches.extend(
+                self._display_path(path)
+                for path in session.rglob("*.dat")
+                if self._data_name_match(path, normalized)
+                and (not indexed_names or self.waveform_case_owners(path, indexed_names) == [test_case_name])
             )
-            if len(old_matches) >= 10:
+            if len(dat_matches) >= 10:
                 break
-        old_matches = old_matches[:10]
+        dat_matches = dat_matches[:10]
+        old_matches: list[str] = []
+        if selected_session is None and self.session_scope == "latest":
+            for session in sessions[1:]:
+                old_matches.extend(
+                    self._display_path(path) for path, _suffix in collect_matches(session)
+                )
+                if len(old_matches) >= 10:
+                    break
+            old_matches = old_matches[:10]
 
-        if not latest_matches:
+        if selected_session is None:
             close_names = get_close_matches(normalized, available_names, n=8, cutoff=0.45)
             parameterized_names = []
             for available_name in available_names:
@@ -1712,12 +1802,13 @@ class WaveInfo(UCTool):
                     and available_name[: available_name.find("[")] == normalized
                 ):
                     parameterized_names.append(available_name)
+            all_scope = self.session_scope == "all"
             if dat_matches:
                 code = "waveform_missing_but_test_data_exists"
                 message = (
-                    "Matching .dat test data exists in the latest session, but no waveform "
-                    "was generated. SetWaveform may not have been called, waveform creation "
-                    "may have failed, or the test may have exited before dut.Finish() flushed it."
+                    "Matching .dat test data exists, but no waveform was generated. "
+                    "SetWaveform may not have been called, waveform creation may have "
+                    "failed, or the test may have exited before dut.Finish() flushed it."
                 )
             elif old_matches:
                 code = "stale_waveform_only"
@@ -1728,15 +1819,22 @@ class WaveInfo(UCTool):
             else:
                 code = "waveform_not_found_in_latest_session"
                 message = (
-                    "The latest test session has no waveform for the exact requested test. "
+                    "No test session has a waveform for the exact requested test. "
                     "The name may be wrong, the parameterized case may differ, or the target "
-                    "test did not run in the latest session."
+                    "test did not run."
+                    if all_scope
+                    else (
+                        "The latest test session has no waveform for the exact requested test. "
+                        "The name may be wrong, the parameterized case may differ, or the target "
+                        "test did not run in the latest session."
+                    )
                 )
             return None, self._error(
                 code,
                 message,
                 details={
                     "searched_latest_session": self._display_path(latest),
+                    "searched_session_count": len(search_sessions),
                     "expected_basename": normalized,
                     "format_priority": list(self.format_priority),
                     "available_latest_session_test_names": available_names[:50],
@@ -1760,7 +1858,7 @@ class WaveInfo(UCTool):
                 ),
             )
 
-        latest_matches.sort(
+        selected_matches.sort(
             key=lambda item: (
                 -self.format_priority.index(item[0].suffix.lower().lstrip(".")),
                 item[1],
@@ -1769,9 +1867,9 @@ class WaveInfo(UCTool):
             ),
             reverse=True,
         )
-        waveform, suffix = latest_matches[0]
+        waveform, suffix = selected_matches[0]
         try:
-            worker = str(waveform.parent.relative_to(latest)) or "."
+            worker = str(waveform.parent.relative_to(selected_session)) or "."
         except ValueError:
             worker = waveform.parent.name
         return (
@@ -1779,10 +1877,12 @@ class WaveInfo(UCTool):
                 test_case_name=test_case_name,
                 expected_basename=normalized,
                 data_dir=data_dir,
-                session=latest,
+                session=selected_session,
                 waveform=waveform,
                 suffix=suffix,
                 worker=worker,
+                latest_session=latest,
+                is_latest=selected_session == latest,
             ),
             None,
         )
@@ -1790,15 +1890,18 @@ class WaveInfo(UCTool):
     def _selection_info(self, selection: _WaveSelection) -> OrderedDict:
         waveform_stat = selection.waveform.stat()
         session_stat = selection.session.stat()
+        latest_stat = selection.latest_session.stat()
         observed_at = time.time()
         return OrderedDict(
             [
                 ("requested_test_case", selection.test_case_name),
                 ("normalized_test_case", selection.expected_basename),
                 ("format_priority", list(self.format_priority)),
-                ("latest_session", self._display_path(selection.session)),
+                ("latest_session", self._display_path(selection.latest_session)),
+                ("latest_session_modified_at", self._format_time(latest_stat.st_mtime)),
+                ("evidence_session", self._display_path(selection.session)),
                 ("session_started_at", self._session_started_at(selection.session)),
-                ("latest_session_modified_at", self._format_time(session_stat.st_mtime)),
+                ("session_modified_at", self._format_time(session_stat.st_mtime)),
                 ("worker", selection.worker),
                 ("waveform_file", self._display_path(selection.waveform)),
                 ("format", selection.waveform.suffix.lower().lstrip(".")),
@@ -1812,10 +1915,13 @@ class WaveInfo(UCTool):
                     "freshness_identity",
                     f"{self._display_path(selection.waveform)}:{waveform_stat.st_size}:{waveform_stat.st_mtime_ns}",
                 ),
-                ("is_latest_session", True),
+                ("is_latest_session", selection.is_latest),
                 (
                     "selection_rule",
-                    "newest test session, exact test name, automatic waveform selection",
+                    "newest session containing the waveform, configured format priority, highest "
+                    "numeric suffix, newest mtime"
+                    if self.session_scope == "all"
+                    else "latest session, configured format priority, highest numeric suffix, newest mtime",
                 ),
             ]
         )
@@ -1883,6 +1989,8 @@ class WaveInfo(UCTool):
                             ("signals", copy.deepcopy(result.get("signals"))),
                             ("event_steps", event_steps),
                             ("timeline", copy.deepcopy(result.get("timeline"))),
+                            ("timeline_truncated", result.get("timeline_truncated")),
+                            ("omitted_timeline_points", result.get("omitted_timeline_points")),
                             (
                                 "waveform_viewer",
                                 copy.deepcopy(result.get("waveform_viewer")),
@@ -2127,6 +2235,15 @@ class WaveInfo(UCTool):
 
         with self._receipt_store_lock():
             return self._get_analysis_receipt_unlocked(receipt_id)
+
+    def list_analysis_receipts(self) -> list[dict[str, Any]]:
+        """Return actual WaveInfo receipts after restoring verified persisted entries."""
+
+        with self._receipt_store_lock():
+            self.analysis_receipts = self._merge_receipts(
+                self.analysis_receipts, self._load_persisted_receipts()
+            )
+            return copy.deepcopy(self.analysis_receipts)
 
     def _get_analysis_receipt_unlocked(
         self,
@@ -2983,6 +3100,7 @@ class WaveInfo(UCTool):
                     f"Signal pattern '{item.signal}' matched no waveform signal.",
                     details={
                         "pattern": item.model_dump(),
+                        "matched_signal_count": 0,
                         "close_signal_matches": close_names,
                         "top_scopes": top_scopes,
                     },
@@ -3061,6 +3179,9 @@ class WaveInfo(UCTool):
         loaded_signal_names = list(matched_by_name)
         if resolved_clock is not None and resolved_clock.full_name not in matched_by_name:
             loaded_signal_names.insert(0, resolved_clock.full_name)
+        pattern_signal_count = len({signal.full_name for _, matches in pattern_matches for signal in matches})
+        context_signal_count = len({signal for field in WAVEFORM_SIGNAL_GROUP_FIELDS
+                                    for signal in (resolved_signal_groups or {}).get(field, [])})
         if len(loaded_signal_names) > max_signals:
             return self._error(
                 "signal_limit_exceeded",
@@ -3068,6 +3189,9 @@ class WaveInfo(UCTool):
                 "not truncated silently.",
                 details={
                     "matched_signal_count": len(loaded_signal_names),
+                    "pattern_signal_count": pattern_signal_count,
+                    "context_signal_count": context_signal_count,
+                    "combined_unique_signal_count": len(loaded_signal_names),
                     "max_signals": max_signals,
                     "first_matches": loaded_signal_names[:max_signals],
                 },
@@ -3215,6 +3339,10 @@ class WaveInfo(UCTool):
                 ),
                 ("patterns", pattern_report),
                 ("signal_groups", resolved_signal_groups),
+                ("signal_budget", {"pattern_signal_count": pattern_signal_count,
+                                   "context_signal_count": context_signal_count,
+                                   "combined_unique_signal_count": len(loaded_signal_names),
+                                   "max_signals": max_signals}),
                 ("signals", signal_report),
                 (
                     "event_summary",
@@ -3268,6 +3396,11 @@ class WaveInfo(UCTool):
                 "No unique cycle anchor was established. Add cycle_basis and relevant pin/state "
                 "logs, rerun the failing test, or refine the pattern."
             )
+            if result["status"] == "no_candidate" and all(item.event == "unknown" for item in patterns):
+                result["evidence_warning"] = (
+                    "No unknown (X/Z) values matched in the effective window. This does not mean "
+                    "the signal is absent; use change, rising, falling or equals for the intended event."
+                )
         elif logged_cycle is None and not explicit_window:
             result["status"] = "evidence_window_required"
             result["evidence_usable"] = False
@@ -3280,6 +3413,7 @@ class WaveInfo(UCTool):
                 [
                     ("test_case_name", selection.test_case_name),
                     ("pattern", self._mcp_pattern_entries(patterns)),
+                    ("signal_group_preset", ""),
                     ("logged_cycle", -1),
                     ("clock_signal", ""),
                     ("start_step", effective_start),
@@ -3306,6 +3440,11 @@ class WaveInfo(UCTool):
                 "backpressure/latency, transaction identity, failing assertion, and source "
                 "root cause. Do not classify a mismatch at an arbitrary or protocol-invalid "
                 "timestamp as a Bug."
+            )
+        if result["analysis_window"]["clamped_to_waveform"]:
+            result["window_warning"] = (
+                "The requested step window exceeded the waveform. Inspect analysis_window "
+                "requested_* and effective_* before claiming evidence coverage."
             )
         return result
 
@@ -3702,6 +3841,7 @@ class WaveInfo(UCTool):
         test_case_name: str = "",
         pattern: list[WaveInfoToolPattern] = [],
         signal_groups: WaveSignalGroups = WaveSignalGroups(),
+        signal_group_preset: str = "",
         logged_cycle: int = -1,
         cycle_tolerance: int = 5,
         clock_signal: str = "",
@@ -3729,6 +3869,7 @@ class WaveInfo(UCTool):
                 test_case_name=test_case_name,
                 pattern=pattern,
                 signal_groups=signal_groups,
+                signal_group_preset=signal_group_preset,
                 logged_cycle=logged_cycle,
                 cycle_tolerance=cycle_tolerance,
                 clock_signal=clock_signal,
@@ -3753,7 +3894,34 @@ class WaveInfo(UCTool):
             result = self._error(
                 "invalid_arguments", f"Invalid WaveInfo arguments: {error}"
             )
-            return make_llm_tool_ret(result, check_pass=False)
+            return json.dumps(result, ensure_ascii=False, default=str)
+        if tool_args.signal_group_preset:
+            try:
+                preset_file = (Path(self.workspace) / self.signal_group_presets_path).resolve()
+                if (not self.signal_group_presets_path or not preset_file.is_relative_to(Path(self.workspace).resolve())):
+                    raise ValueError("signal group preset path is not configured inside the workspace")
+                presets = json.loads(preset_file.read_text(encoding="utf-8"))["presets"]
+                tool_args.signal_groups = WaveSignalGroups.model_validate(presets[tool_args.signal_group_preset])
+                if tool_args.signal_groups.clock_mode == "combinational" and tool_args.clock_signal:
+                    raise ValueError("clock_signal is not valid with a combinational signal group preset")
+            except (OSError, ValueError, KeyError, TypeError) as error:
+                return json.dumps(self._error("signal_group_preset_invalid", str(error)), ensure_ascii=False)
+        if self.allowed_case_index and tool_args.test_case_name and not tool_args.signal_groups.is_empty():
+            try:
+                index_path = (Path(self.workspace) / self.allowed_case_index).resolve()
+                if not index_path.is_relative_to(Path(self.workspace).resolve()):
+                    raise ValueError("allowed case index is outside the workspace")
+                index = json.loads(index_path.read_text(encoding="utf-8"))
+                allowed = sorted({entry.get("waveform_test_case_name") for entry in index["cases"].values()
+                                  if entry.get("waveform_test_case_name")})
+            except (OSError, ValueError, KeyError, TypeError) as error:
+                return json.dumps(self._error("allowed_case_index_invalid", str(error)), ensure_ascii=False)
+            if tool_args.test_case_name not in allowed:
+                return json.dumps(self._error(
+                    "test_case_name_not_indexed",
+                    "Final WaveInfo test_case_name must match an indexed exact report node ID.",
+                    details={"requested": tool_args.test_case_name, "available": allowed[:30]},
+                ), ensure_ascii=False)
         invocation = tool_args.analysis_arguments()
         result = self.analyze(**invocation)
         if isinstance(result.get("waveform_viewer"), dict):
@@ -3762,11 +3930,121 @@ class WaveInfo(UCTool):
             except (OSError, ValueError) as error:
                 return make_llm_tool_ret(self._error("waveform_metadata_write_failed", str(error),
                     suggestions=["Correct metadata write permissions or source paths, then retry WaveInfo."]), check_pass=False)
+        result["response_format"] = "JSON text; use WaveInfoReceipts for structured saved evidence"
+        result["overflow_recovery"] = (
+            "If this display is moved to a .txt file, its contents remain JSON. "
+            "Read that file as JSON or query WaveInfoReceipts by receipt_id."
+        )
+        if isinstance(result.get("analysis_window"), dict):
+            result["clamped_to_waveform"] = result["analysis_window"].get("clamped_to_waveform")
         if invocation["test_case_name"] is not None:
             receipt_info = self._record_analysis_receipt(invocation, result)
+            receipt_info["test_case_name"] = invocation["test_case_name"]
+            receipt_info["status"] = result.get("status")
+            receipt_info["evidence_usable"] = result.get("evidence_usable")
+            receipt_info["timeline_truncated"] = result.get("timeline_truncated")
+            receipt_info["omitted_timeline_points"] = result.get("omitted_timeline_points")
             result["waveform_analysis_receipt"] = receipt_info
             self._attach_bug_document_fields(result, invocation, receipt_info)
-        return make_llm_tool_ret(result, check_pass=False)
+        return json.dumps(result, ensure_ascii=False, default=str)
+
+
+class ArgWaveInfoReceipts(BaseModel):
+    """Filter or inspect signed WaveInfo receipts without replaying a waveform."""
+
+    test_case_name: str = Field(default="", description="Exact report node ID; empty lists all cases.")
+    receipt_id: str = Field(default="", description="Exact receipt ID to inspect; empty lists matching receipts.")
+    usable_only: bool = Field(default=True, description="Show only final evidence-usable receipts when listing.")
+    limit: int = Field(default=50, ge=1, le=200, description="Maximum receipt summaries to return.")
+    offset: int = Field(default=0, ge=0, description="Starting receipt index after filtering.")
+    include_result: bool = Field(default=False, description="Return the saved result when inspecting one receipt.")
+    timeline_offset: int = Field(default=0, ge=0, description="Starting timeline point when including result.")
+    timeline_limit: int = Field(default=50, ge=1, le=200, description="Maximum saved timeline points to return.")
+
+
+class WaveInfoReceipts(UCTool):
+    """Expose verified WaveInfo receipt identity and saved evidence by exact case."""
+
+    name: str = "WaveInfoReceipts"
+    description: str = (
+        "List signed WaveInfo receipts by exact test_case_name, or inspect one receipt_id. "
+        "Returns authoritative case identity, status, evidence usability, window and signal groups. "
+        "Use include_result=true with timeline paging to recover a result hidden by display overflow."
+    )
+    args_schema: Optional[ArgsSchema] = ArgWaveInfoReceipts
+    waveinfo: Any = Field(default=None, exclude=True, repr=False)
+
+    def __init__(self, waveinfo: WaveInfo, **kwargs):
+        """Use the same WaveInfo instance and signed scope as the analysis tool."""
+        super().__init__(waveinfo=waveinfo, **kwargs)
+
+    def _run(self, test_case_name: str = "", receipt_id: str = "", usable_only: bool = True,
+             limit: int = 50, offset: int = 0, include_result: bool = False,
+             timeline_offset: int = 0, timeline_limit: int = 50) -> dict[str, Any]:
+        """Return bounded summaries or one saved result without a new analysis call."""
+        if receipt_id:
+            receipt = self.waveinfo.get_analysis_receipt(receipt_id)
+            if receipt is None:
+                return {"success": False, "error_code": "RECEIPT_NOT_FOUND", "receipt_id": receipt_id}
+            arguments = receipt.get("arguments", {})
+            if test_case_name and arguments.get("test_case_name") != test_case_name:
+                return {"success": False, "error_code": "TEST_CASE_MISMATCH", "receipt_id": receipt_id,
+                        "test_case_name": arguments.get("test_case_name")}
+            result = receipt.get("result", {})
+            final_usable = (result.get("evidence_usable") is True
+                            and self.waveinfo.get_bug_document_evidence(receipt_id).get("success") is True)
+            response = {"success": True, "receipt_id": receipt_id,
+                        "test_case_name": arguments.get("test_case_name"),
+                        "recorded_at": receipt.get("recorded_at"),
+                        "arguments": arguments,
+                        "status": result.get("status"),
+                        "evidence_usable": result.get("evidence_usable"),
+                        "final_evidence_usable": final_usable,
+                        "timeline_truncated": result.get("timeline_truncated"),
+                        "omitted_timeline_points": result.get("omitted_timeline_points")}
+            if include_result:
+                saved = copy.deepcopy(result)
+                timeline = list((saved.pop("timeline", {}) or {}).items())
+                saved["timeline"] = dict(timeline[timeline_offset:timeline_offset + timeline_limit])
+                response["result"] = saved
+                response["timeline_total"] = len(timeline)
+                response["timeline_offset"] = timeline_offset
+            return response
+
+        receipts = list(reversed(self.waveinfo.list_analysis_receipts()))
+        matches = []
+        matching_case_count = 0
+        for receipt in receipts:
+            arguments, result = receipt.get("arguments", {}), receipt.get("result", {})
+            if test_case_name and arguments.get("test_case_name") != test_case_name:
+                continue
+            matching_case_count += 1
+            receipt_key = receipt.get("receipt_id")
+            final_usable = (result.get("evidence_usable") is True
+                            and self.waveinfo.get_bug_document_evidence(receipt_key).get("success") is True)
+            if usable_only and not final_usable:
+                continue
+            matches.append({"receipt_id": receipt_key,
+                            "test_case_name": arguments.get("test_case_name"),
+                            "recorded_at": receipt.get("recorded_at"),
+                            "status": result.get("status"),
+                            "evidence_usable": result.get("evidence_usable"),
+                            "final_evidence_usable": final_usable,
+                            "analysis_window": result.get("analysis_window"),
+                            "signal_groups": result.get("signal_groups"),
+                            "timeline_truncated": result.get("timeline_truncated"),
+                            "omitted_timeline_points": result.get("omitted_timeline_points")})
+        if test_case_name and not matches:
+            available = sorted({str(receipt.get("arguments", {}).get("test_case_name"))
+                                for receipt in receipts if receipt.get("arguments", {}).get("test_case_name")})
+            return {"success": False, "error_code": "CASE_RECEIPT_NOT_FOUND",
+                    "searched_test_case_name": test_case_name,
+                    "matching_receipt_count": matching_case_count,
+                    "available_case_names": available[:20],
+                    "next_action": ("Retry with usable_only=false to inspect unusable receipts"
+                                    if matching_case_count else "Use the exact RunTestCases report node ID")}
+        return {"success": True, "total": len(matches), "offset": offset,
+                "receipts": matches[offset:offset + limit]}
 
 
 @dataclass(frozen=True)
