@@ -236,4 +236,4 @@ PPAContext, PPAResult, PPAConfig, PDKConfig`，包顶层也导出这些名称。
 
 在插件根目录运行 `python3 -m pytest tests/test_ppa_backends.py tests/test_ppa_tool.py`，
 分别验证独立后端、工艺边界、条件变化、超时取消，以及默认工具链的真实分析。
-工作流回归还覆盖配置导出、冻结身份、缓存复用。
+工作流回归还覆盖配置导出、冻结身份、缓存复用和优化日志。

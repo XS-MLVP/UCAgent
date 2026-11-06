@@ -576,6 +576,7 @@
       <section class="sidebar-section" aria-labelledby="links-title">
         <h2 class="section-label" id="links-title">Reports</h2>
         <nav class="report-links" aria-label="PPA report artifacts">
+          <a id="optimization-log-link" href="{{DUT}}_optimization_log.html" target="_blank" rel="noopener">Optimization log / direction and changes</a>
           <a href="{{DUT}}_design_summary.md" target="_blank" rel="noopener">Design summary</a>
           <a href="{{DUT}}_final_ppa_report.json" target="_blank" rel="noopener">Final PPA report</a>
           <a href="reports/ppa/base.json" target="_blank" rel="noopener">Base PPA report</a>
@@ -1177,6 +1178,9 @@
             readJson(SOURCES.runtimeConfig), readJson(SOURCES.iterationState), readJson(SOURCES.currentTestReport), readJson(SOURCES.finalPpa), readJson(SOURCES.currentPpa), readJson(SOURCES.curve),
           ]);
           renderProgress(state.ok ? state.data : null, runtime.ok ? runtime.data : null, curve.ok ? curve.data : null);
+          const logRuntime = runtime.ok ? runtime.data : EMBEDDED_SNAPSHOT.runtime;
+          byId("optimization-log-link").href = pluginOption(logRuntime, "design_with_ppa.repo.enabled") === true
+            ? "repo/reports/optimization_log.html" : `${DUT}_optimization_log.html`;
           renderPpa(finalPpa.ok ? finalPpa : currentPpa, finalPpa.ok ? "Final PPA" : "Current PPA");
           renderCurve(curve); updateToffeeLink(testReport);
           setText("last-updated", `Updated ${new Intl.DateTimeFormat("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date())}`);

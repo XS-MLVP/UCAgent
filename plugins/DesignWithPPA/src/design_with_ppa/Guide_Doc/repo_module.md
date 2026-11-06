@@ -73,6 +73,14 @@
 
 每次 PPA 测量都会刷新 `{OUT}/design_with_ppa_dashboard.html`（复用既有 HTML 报告），其中嵌入最新面积/时序/功耗结果。
 
+每轮先在 `candidate.yaml` 的 `hypothesis` 写清优化方向、具体结构变化与预期指标影响。
+自动日志 `{OUT}/repo/reports/optimization_log.html`（同名 `.md` 可阅读）从测量启动时更新，
+列出方向、实际源码与接口/适配文件改动、源码 diff、实测指标、相对比较版本和 base 的变化、
+接受/拒绝原因；也可通过 PPA 看板的 `Optimization log / direction and changes` 入口查看。
+`started_unmeasured` 表示尚无完成结果；`failed_unmeasured` 保留失败原因，但不计入有效轮次、
+不提供 PPA 改善结论。修复后重试会保留先前失败记录。不要改写自动日志。
+交付包的 `reports/optimization_log.html` 保留同样历史及其相对证据链接。
+
 ## 独立构建配方
 
 `recipe.yaml` 的 `scope` 必须是 `unit`。`build` 为可选命令列表，每项含 `argv`、副本内 `cwd` 和 `timeout`；命令仅导出目标模块及其依赖。不要配置顶层系统构建。Chisel 等生成器使用目标项目所需版本和依赖，在副本内运行模块级导出。`tool_versions` 使用同样结构记录项目工具版本。

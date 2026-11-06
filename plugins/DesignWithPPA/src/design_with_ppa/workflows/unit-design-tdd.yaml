@@ -1289,6 +1289,8 @@ stage:
           - "{OUT}/reports/ppa/base.json"
           - "{OUT}/reports/ppa/iterations/iteration-000.json"
           - "{OUT}/{DUT}_optimization_ledger.yaml"
+          - "{OUT}/{DUT}_optimization_log.md"
+          - "{OUT}/{DUT}_optimization_log.html"
 
       - name: ppa_candidate_optimization
         desc: "Pareto 候选循环 [{PPA_CANDIDATE_COUNT}/{PPA_MIN_OPTIMIZATION_ITERATIONS} min, {PPA_MAX_OPTIMIZATION_ITERATIONS} max]"
@@ -1301,7 +1303,7 @@ stage:
           - "第2步：根据上次 Check 的 accepted {PPA_ACCEPTED_ITERATION}、best {PPA_BEST_ITERATION}、单一 PPA score 及相对 previous/base/best 的逐项 diff，选择一个有界 hotspot。"
           - "第3步：为 candidate {PPA_NEXT_CANDIDATE} 按 Guide_Doc/ppa_optimization.md 重写 {OUT}/reports/ppa/candidate_hypothesis.yaml，iteration 必须连续；随后只修改 {RTL_LANGUAGE} 源码。"
           - "第4步：调用 Check 自动重建 backend、运行全部功能测试和完全相同的性能 TC、分析 PPA、执行 Pareto 接受门禁判定；一次只评估一个候选。"
-          - "第5步：accepted 后从新版本继续；rejected 后源码会自动恢复上一 accepted。不得修改自动生成的报告、版本记录、恢复证据、波形或测试身份。"
+          - "第5步：查看自动更新的 {OUT}/{DUT}_optimization_log.html（或同名 .md），核对本轮方向、源码 diff、实测指标及接受/拒绝原因；通过 PPA 看板的 Optimization log 入口也可查看。accepted 后从新版本继续；rejected 后源码会自动恢复上一 accepted。不得修改自动生成的日志、报告、版本记录、恢复证据、波形或测试身份。"
           - "第6步：工具或基础设施错误先修复后重试，不消耗无改善次数。若发现 reference 与权威功能合同不一致，允许修正，但必须让旧 base 失效并重新完成 Python、RTL、性能和 base 门禁，不能把 reference 修改混入一个候选比较。Check 要求新候选时再次 CurrentTips；只有返回终止状态后才 Complete。"
         reference_files:
           - "Guide_Doc/ppa_optimization.md"
@@ -1339,7 +1341,10 @@ stage:
         output_files:
           - "{RTL_SOURCE_GLOB}"
           - "{OUT}/reports/ppa/iterations/*.json"
+          - "{OUT}/reports/ppa/iterations/*.diff"
           - "{OUT}/{DUT}_optimization_ledger.yaml"
+          - "{OUT}/{DUT}_optimization_log.md"
+          - "{OUT}/{DUT}_optimization_log.html"
 
       - name: ppa_best_version_finalization
         desc: "最佳 accepted 版本确定性恢复"
@@ -1397,6 +1402,8 @@ stage:
           - "{OUT}/{DUT}_final_ppa_report.json"
           - "{OUT}/{DUT}_performance_curve.json"
           - "{OUT}/{DUT}_ppa_dashboard.html"
+          - "{OUT}/{DUT}_optimization_log.md"
+          - "{OUT}/{DUT}_optimization_log.html"
 
   - name: final_documentation_sync
     desc: "最终 RTL 文档同步与全量无 Bug 交付"

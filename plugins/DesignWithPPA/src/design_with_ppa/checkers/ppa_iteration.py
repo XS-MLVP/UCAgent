@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 import re
 import shutil
@@ -31,6 +32,7 @@ from ..ppa import (
     resolve_ppa_config,
     compare_ppa_reports,
 )
+from ..optimization_log import changed_files, write_unit_optimization_log
 from ..rtl import (
     RTLPreparationRequest,
     discover_rtl_libraries,
@@ -1112,6 +1114,19 @@ class PPAIterationChecker(Checker):
 
         state_path = workspace / ".ucagent" / "design_with_ppa" / "state.json"
         ledger_path = resolve_workspace_path(workspace, self.ledger_file)
+        record = ledger["records"][-1]
+        record.setdefault("recorded_at", datetime.now(timezone.utc).isoformat())
+        parent = next((row for row in ledger["records"]
+                       if row["iteration"] == record.get("parent_accepted_iteration")), None)
+        record["source_changes"] = changed_files(
+            {row["path"]: row["sha256"] for row in parent["rtl_sources"]},
+            {row["path"]: row["sha256"] for row in record["rtl_sources"]},
+        ) if parent else []
+        if parent:
+            diff_path = resolve_workspace_path(
+                workspace, Path(self.iteration_report_dir) / f"iteration-{record['iteration']:03d}.diff"
+            )
+            record["source_diff"] = diff_path.relative_to(workspace).as_posix()
         atomic_json(state_path, state)
         from ..contracts import atomic_yaml
 
@@ -1121,6 +1136,13 @@ class PPAIterationChecker(Checker):
         atomic_yaml(ledger_path, ledger)
         state["ledger_sha256"] = sha256_file(ledger_path)
         atomic_json(state_path, state)
+        log_path = write_unit_optimization_log(workspace, ledger, self.ledger_file)
+        from ucagent.util.log import info
+
+        info(f"[PPA optimization] v{record['iteration']} "
+             f"{'accepted' if record['accepted'] else 'rejected'}; "
+             f"direction: {' '.join(record['optimization_hypothesis'].split())[:240]}; "
+             f"log: {log_path.with_suffix('.html').relative_to(workspace)}")
         self._cache_state(state)
         return history_commit
 

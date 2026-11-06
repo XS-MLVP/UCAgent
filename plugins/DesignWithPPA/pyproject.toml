@@ -54,5 +54,6 @@ design_with_ppa = [
 ]
 "share/ucagent-design-with-ppa/docs" = [
     "docs/repo-module-tdd.md",
+    "docs/ppa-optimization-log.md",
     "docs/ppa-backends.md",
 ]

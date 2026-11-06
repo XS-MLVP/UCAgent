@@ -1,3 +1,4 @@
 variant_id: baseline
+# State the optimization direction, concrete structural change, and expected metric impact for each candidate.
 hypothesis: "Measure the original module under the frozen unit workload."
 changes: []

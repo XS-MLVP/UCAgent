@@ -31,6 +31,7 @@ from ..rtl import (
     discover_rtl_sources,
     resolve_rtl_config,
 )
+from ..optimization_log import write_unit_optimization_log
 
 from .common import (
     _inline_reason,
@@ -1544,6 +1545,7 @@ class DesignFinalDeliveryChecker(Checker):
                 },
             }
             atomic_json(curve_json_path, curve_payload)
+            write_unit_optimization_log(workspace, ledger, self.ledger_file)
             final_report_relative = resolve_workspace_path(
                 workspace, self.final_report_file, must_exist=True
             ).relative_to(workspace).as_posix()
@@ -1821,6 +1823,9 @@ class DesignFinalDeliveryChecker(Checker):
             "best_iteration": state["best_iteration"],
             "stop_reason": state["stop_reason"],
             "performance_curve_json": curve_json_relative,
+            "optimization_log": resolve_workspace_path(
+                workspace, Path(self.ledger_file).with_name(f"{ledger['dut']}_optimization_log.html")
+            ).relative_to(workspace).as_posix(),
             "final_ppa_report": final_report_relative,
             "final_all_tc_validation": (
                 final_validation["path"] if final_validation is not None else None

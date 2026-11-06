@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import fnmatch
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 import shutil
 import sys
 import tempfile
+from uuid import uuid4
 
 import ucagent.util.functions as uc_functions
 
@@ -15,8 +17,10 @@ from ..checkers.ppa_iteration import (
     _metric_category, _ppa_primary_metrics, _ppa_selection_score,
     _primary_metric_changes, select_best_accepted_record,
 )
-from ..contracts import atomic_json, canonical_json_sha256, load_json, sha256_file
+from ..contracts import (atomic_json, canonical_json_sha256, load_json, sha256_file,
+                         no_improvement_patience, optimization_limits)
 from ..ppa import AnalyzePPA, AnalyzePPAArgs, resolve_ppa_config
+from ..optimization_log import changed_files, write_optimization_log, write_source_diff
 from .build import prepare_unit
 from .common import RepoPaths, inside, run_command, selected_path, tree_identity
 from .evidence import seal, unseal
@@ -159,6 +163,7 @@ def validate_unit(paths: RepoPaths, *, baseline: bool = False, persist: bool = T
         raise ValueError("RunRepoValidation(baseline=true) is required before candidate measurements")
     if baseline and original:
         if original["input_identity"] == current_identity(paths):
+            write_repo_optimization_log(paths, records)
             return original
         raise ValueError("The original baseline already exists and cannot be replaced")
     if not original and paths.options["mode"] == "optimize" and candidate.changes:
@@ -181,116 +186,238 @@ def validate_unit(paths: RepoPaths, *, baseline: bool = False, persist: bool = T
     if persist:
         for record in records:
             if record["input_identity"] == before:
+                write_repo_optimization_log(paths, records)
                 return record
             if record["variant_id"] == candidate.variant_id:
                 raise ValueError("A measured variant_id is immutable; select a new variant_id for changed files")
             if record["experiment_identity"] == experiment:
                 raise ValueError("Only variant_id/hypothesis changed; implement a distinct unit experiment before measuring another round")
-    paths.run.mkdir(parents=True, exist_ok=True)
-    run_root = Path(tempfile.mkdtemp(prefix=candidate.variant_id + "-", dir=paths.run))
-    repository, build = run_root / "repository", run_root / "validation"
-    source_files = materialize(paths.snapshot, candidate_root, candidate.changes, repository)
-    build_evidence = prepare_unit(repository, candidate_root, build, recipe, interface, cfg=paths.cfg)
-    if not persist:
-        measured = next((r for r in records if r["input_identity"] == before), None)
-        if measured is None or measured["build"]["normalized_rtl_sha256"] != build_evidence["normalized_rtl_sha256"]:
-            raise ValueError("Rebuilt RTL differs from the measured variant; inspect generator/toolchain changes before delivery")
-    shutil.copy2(paths.edit / "contract.yaml", build / "contract.yaml")
-    shutil.copytree(paths.edit / "verification", build / "verification")
-    env = child_environment()
-    reference_run = run_command([sys.executable, "-m", "design_with_ppa.repo.runner", "reference", str(build)], build, recipe.timeout, env=env)
-    rtl_run = run_command([sys.executable, "-m", "design_with_ppa.repo.runner", "rtl", str(build)], build, recipe.timeout, env=env)
-    results = load_json(build / "unit_results.json")
-    latencies, throughputs = [], []
-    for scenario in workload.scenarios:
-        result = results["scenarios"][scenario.name]
-        rows = result["results"]
-        # User-visible latency includes waiting after a frozen release time; an adapter
-        # cannot improve it by delaying accept() until hardware is ready.
-        latencies += [max(1, rows[t.id]["completed_cycle"] - t.release_cycle) for t in scenario.transactions]
-        duration = max(1, max(r["completed_cycle"] for r in rows.values()) - min(t.release_cycle for t in scenario.transactions) + 1)
-        throughputs.append(len(rows) / duration)
-    performance = {"unit.latency_cycles": {"value": max(latencies), "unit": "cycle", "direction": "min"},
-                   "unit.throughput_per_cycle": {"value": min(throughputs), "unit": "transaction/cycle", "direction": "max"}}
-    hard_pass = max(latencies) <= contract.max_latency_cycles and min(throughputs) >= contract.min_throughput_per_cycle
-    sdc = paths.cfg.get_value("design_with_ppa.ppa.sdc_file", None)
-    arguments = AnalyzePPAArgs(
-        rtl_files=[(build / "design/rtl/unit.v").relative_to(paths.workspace).as_posix()],
-        top_module=interface.top,
-        waveform_files=[(build / result["waveform"]).relative_to(paths.workspace).as_posix() for result in results["scenarios"].values()],
-        waveform_scope=f"TOP.{interface.top}",
-        liberty_file=paths.cfg.get_value("design_with_ppa.ppa.liberty_file", None),
-        sdc_file=sdc,
-        clock_port=interface.clock if not sdc else None,
-        clock_period_ns=contract.clock_period_ns if interface.clock and not sdc else None,
-        max_timing_paths=paths.cfg.get_value("design_with_ppa.ppa.max_timing_paths", 10),
-        max_power_instances=paths.cfg.get_value("design_with_ppa.ppa.max_power_instances", 10),
-        report_path=(paths.output / "repo/reports" / (run_root.name + "-ppa.json")).relative_to(paths.workspace).as_posix(),
-        timeout=recipe.timeout,
-    )
-    report = AnalyzePPA(workspace=str(paths.workspace), output_dir=paths.output.relative_to(paths.workspace).as_posix(),
-                        write_dirs=[paths.output.relative_to(paths.workspace).as_posix()], un_write_dirs=[],
-                        analysis_config=resolve_ppa_config(paths.cfg)).analyze(arguments)
-    if original:
-        original_provenance = original["ppa_report"].get("provenance", {})
-        provenance = report.get("provenance", {})
-        if any(provenance.get(key) != original_provenance.get(key) for key in ("backend", "pdk")):
-            raise ValueError("PPA backend or PDK changed; establish a fresh baseline in a new workspace")
-        original_versions = {key: row.get("version") for key, row in original_provenance.get("tools", {}).items()}
-        versions = {key: row.get("version") for key, row in provenance.get("tools", {}).items()}
-        if versions != original_versions:
-            raise ValueError("PPA tool versions changed; establish a fresh baseline in a new workspace")
-    ppa_metrics = _ppa_primary_metrics(report)
-    # A combinational unit may become sequential during interface exploration.
-    # Keep a stable period metric while retaining the complete native STA report.
-    timing_key = next(k for k in ppa_metrics if k.startswith("ppa.timing."))
-    timing = ppa_metrics.pop(timing_key)
-    period = 1e9 / timing["value"] if timing["unit"] == "Hz" else timing["value"]
-    ppa_metrics["ppa.timing.effective_period_ns"] = {"value": period, "unit": "ns", "direction": "min"}
-    hard_pass = hard_pass and all(limit is None or ppa_metrics[key]["value"] <= limit for key, limit in (
-        ("ppa.area.total", contract.max_area), ("ppa.power.total_w", contract.max_power_w),
-        ("ppa.timing.effective_period_ns", contract.max_effective_period_ns)))
-    comparisons = {}
-    accepted = hard_pass or not original
-    categories = tuple(semantic["ppa"]["no_regression_metrics"].split(","))
-    if any(c not in {"performance", "timing", "area", "power"} for c in categories):
-        raise ValueError("no_regression_metrics must list performance,timing,area,power categories")
-    # Existing metric selection classifies non-PPA names as functional performance.
-    if original:
-        previous = select_best_accepted_record(records, categories=categories)
-        comparisons = _primary_metric_changes({**previous["ppa_metrics"], **previous["performance_metrics"]},
-                                               {**ppa_metrics, **performance}, rel_tol=1e-6, abs_tol=1e-12)
-        accepted = hard_pass and not any(c["assessment"] == "regressed" and _metric_category(k) in categories for k, c in comparisons.items())
-    drifted = [name for name, tree in frozen_trees.items()
-               if tree != tree_identity(paths.snapshot if name == "source_snapshot"
-                                        else paths.edit / name)]
-    if current_identity(paths) != before or drifted:
-        raise ValueError(f"Authored inputs changed while the measurement was running: {drifted or ['task README, contract.yaml, or settings']}; "
-                         "finish your edits first, then rerun the current variant")
-    record = {"schema_version": 1, "variant_id": candidate.variant_id,
-              "iteration": len(records), "baseline": not bool(original), "accepted": accepted,
-              "hard_targets_pass": hard_pass, "input_identity": before,
-              "experiment_identity": experiment,
-              "semantic_identity": semantic_hash, "interface": interface.model_dump(),
-              "source_identity": source["snapshot_identity"], "functional_regression": {"pass": True},
-              "verification_scope": "unit_only", "system_integration": "not_run",
-              "ppa_metrics": ppa_metrics, "performance_metrics": performance,
-              "comparisons": comparisons, "ppa_report": report,
-              "ppa_score": _ppa_selection_score(original["ppa_metrics"] if original else ppa_metrics, ppa_metrics,
-                                                 weights=semantic["ppa"]["score_weights"]),
-              "unit_results": results, "build": build_evidence,
-              "reference_run": reference_run, "rtl_run": rtl_run,
-              "materialized_sources": source_files,
-              "run_directory": run_root.relative_to(paths.workspace).as_posix()}
+    attempt_id = uuid4().hex
+    attempt_path = inside(paths.state, f"attempts/{attempt_id}.json")
+    attempt = {
+        "iteration": len(records), "label": candidate.variant_id,
+        "decision": "started_unmeasured", "recorded_at": datetime.now(timezone.utc).isoformat(),
+        "hypothesis": candidate.hypothesis, "compared_with": "no completed comparison",
+        "reason": "Measurement started; no completed result is recorded for this attempt.",
+        "changes": changed_files(
+            {k.removeprefix("candidate/"): v for k, v in records[-1]["snapshot_files"].items()
+             if k.startswith("candidate/") and k != "candidate/candidate.yaml"} if records else {},
+            candidate_files,
+        ),
+        "metrics": {}, "changes_previous": {}, "changes_base": {},
+        "evidence": f"attempts/{attempt_id}.json",
+    } if persist else None
     if persist:
-        saved = paths.state / "versions" / candidate.variant_id
-        if saved.exists():
-            raise ValueError(f"Version snapshot already exists without valid record: {candidate.variant_id}")
-        shutil.copytree(candidate_root, saved / "candidate")
-        shutil.copytree(paths.edit / "verification", saved / "verification")
-        shutil.copy2(paths.edit / "contract.yaml", saved / "contract.yaml")
-        record["snapshot"] = saved.relative_to(paths.state).as_posix()
-        record["snapshot_files"] = tree_identity(saved)
-        atomic_json(paths.state / "records" / f"{len(records):06d}.json", seal(paths, record))
-        atomic_json(paths.edit / "reports" / (candidate.variant_id + ".json"), record)
-    return record
+        atomic_json(attempt_path, seal(paths, attempt))
+        write_repo_optimization_log(paths, records)
+    try:
+        paths.run.mkdir(parents=True, exist_ok=True)
+        run_root = Path(tempfile.mkdtemp(prefix=candidate.variant_id + "-", dir=paths.run))
+        repository, build = run_root / "repository", run_root / "validation"
+        source_files = materialize(paths.snapshot, candidate_root, candidate.changes, repository)
+        build_evidence = prepare_unit(repository, candidate_root, build, recipe, interface, cfg=paths.cfg)
+        if not persist:
+            measured = next((r for r in records if r["input_identity"] == before), None)
+            if measured is None or measured["build"]["normalized_rtl_sha256"] != build_evidence["normalized_rtl_sha256"]:
+                raise ValueError("Rebuilt RTL differs from the measured variant; inspect generator/toolchain changes before delivery")
+        shutil.copy2(paths.edit / "contract.yaml", build / "contract.yaml")
+        shutil.copytree(paths.edit / "verification", build / "verification")
+        env = child_environment()
+        reference_run = run_command([sys.executable, "-m", "design_with_ppa.repo.runner", "reference", str(build)], build, recipe.timeout, env=env)
+        rtl_run = run_command([sys.executable, "-m", "design_with_ppa.repo.runner", "rtl", str(build)], build, recipe.timeout, env=env)
+        results = load_json(build / "unit_results.json")
+        latencies, throughputs = [], []
+        for scenario in workload.scenarios:
+            result = results["scenarios"][scenario.name]
+            rows = result["results"]
+            # User-visible latency includes waiting after a frozen release time; an adapter
+            # cannot improve it by delaying accept() until hardware is ready.
+            latencies += [max(1, rows[t.id]["completed_cycle"] - t.release_cycle) for t in scenario.transactions]
+            duration = max(1, max(r["completed_cycle"] for r in rows.values()) - min(t.release_cycle for t in scenario.transactions) + 1)
+            throughputs.append(len(rows) / duration)
+        performance = {"unit.latency_cycles": {"value": max(latencies), "unit": "cycle", "direction": "min"},
+                       "unit.throughput_per_cycle": {"value": min(throughputs), "unit": "transaction/cycle", "direction": "max"}}
+        hard_pass = max(latencies) <= contract.max_latency_cycles and min(throughputs) >= contract.min_throughput_per_cycle
+        sdc = paths.cfg.get_value("design_with_ppa.ppa.sdc_file", None)
+        arguments = AnalyzePPAArgs(
+            rtl_files=[(build / "design/rtl/unit.v").relative_to(paths.workspace).as_posix()],
+            top_module=interface.top,
+            waveform_files=[(build / result["waveform"]).relative_to(paths.workspace).as_posix() for result in results["scenarios"].values()],
+            waveform_scope=f"TOP.{interface.top}",
+            liberty_file=paths.cfg.get_value("design_with_ppa.ppa.liberty_file", None),
+            sdc_file=sdc,
+            clock_port=interface.clock if not sdc else None,
+            clock_period_ns=contract.clock_period_ns if interface.clock and not sdc else None,
+            max_timing_paths=paths.cfg.get_value("design_with_ppa.ppa.max_timing_paths", 10),
+            max_power_instances=paths.cfg.get_value("design_with_ppa.ppa.max_power_instances", 10),
+            report_path=(paths.output / "repo/reports" / (run_root.name + "-ppa.json")).relative_to(paths.workspace).as_posix(),
+            timeout=recipe.timeout,
+        )
+        report = AnalyzePPA(workspace=str(paths.workspace), output_dir=paths.output.relative_to(paths.workspace).as_posix(),
+                            write_dirs=[paths.output.relative_to(paths.workspace).as_posix()], un_write_dirs=[],
+                            analysis_config=resolve_ppa_config(paths.cfg)).analyze(arguments)
+        if original:
+            original_provenance = original["ppa_report"].get("provenance", {})
+            provenance = report.get("provenance", {})
+            if any(provenance.get(key) != original_provenance.get(key) for key in ("backend", "pdk")):
+                raise ValueError("PPA backend or PDK changed; establish a fresh baseline in a new workspace")
+            original_versions = {key: row.get("version") for key, row in original_provenance.get("tools", {}).items()}
+            versions = {key: row.get("version") for key, row in provenance.get("tools", {}).items()}
+            if versions != original_versions:
+                raise ValueError("PPA tool versions changed; establish a fresh baseline in a new workspace")
+        ppa_metrics = _ppa_primary_metrics(report)
+        # A combinational unit may become sequential during interface exploration.
+        # Keep a stable period metric while retaining the complete native STA report.
+        timing_key = next(k for k in ppa_metrics if k.startswith("ppa.timing."))
+        timing = ppa_metrics.pop(timing_key)
+        period = 1e9 / timing["value"] if timing["unit"] == "Hz" else timing["value"]
+        ppa_metrics["ppa.timing.effective_period_ns"] = {"value": period, "unit": "ns", "direction": "min"}
+        hard_pass = hard_pass and all(limit is None or ppa_metrics[key]["value"] <= limit for key, limit in (
+            ("ppa.area.total", contract.max_area), ("ppa.power.total_w", contract.max_power_w),
+            ("ppa.timing.effective_period_ns", contract.max_effective_period_ns)))
+        comparisons = {}
+        previous = None
+        accepted = hard_pass or not original
+        categories = tuple(semantic["ppa"]["no_regression_metrics"].split(","))
+        if any(c not in {"performance", "timing", "area", "power"} for c in categories):
+            raise ValueError("no_regression_metrics must list performance,timing,area,power categories")
+        # Existing metric selection classifies non-PPA names as functional performance.
+        if original:
+            previous = select_best_accepted_record(records, categories=categories)
+            comparisons = _primary_metric_changes({**previous["ppa_metrics"], **previous["performance_metrics"]},
+                                                   {**ppa_metrics, **performance}, rel_tol=1e-6, abs_tol=1e-12)
+            accepted = hard_pass and not any(c["assessment"] == "regressed" and _metric_category(k) in categories for k, c in comparisons.items())
+        drifted = [name for name, tree in frozen_trees.items()
+                   if tree != tree_identity(paths.snapshot if name == "source_snapshot"
+                                            else paths.edit / name)]
+        if current_identity(paths) != before or drifted:
+            raise ValueError(f"Authored inputs changed while the measurement was running: {drifted or ['task README, contract.yaml, or settings']}; "
+                             "finish your edits first, then rerun the current variant")
+        record = {"schema_version": 1, "variant_id": candidate.variant_id,
+                  "recorded_at": datetime.now(timezone.utc).isoformat(),
+                  "optimization_hypothesis": candidate.hypothesis,
+                  "parent_accepted_iteration": previous["iteration"] if previous else None,
+                  "source_changes": changed_files(previous["materialized_sources"] if previous else source["files"], source_files),
+                  "candidate_changes": changed_files(
+                      {k.removeprefix("candidate/"): v for k, v in previous["snapshot_files"].items()
+                       if k.startswith("candidate/") and k != "candidate/candidate.yaml"} if previous else {},
+                      candidate_files,
+                  ) if previous else [],
+                  "rejection_reason": "hard_performance_target_failed" if not hard_pass else
+                      "pareto_regression" if not accepted else None,
+                  "iteration": len(records), "baseline": not bool(original), "accepted": accepted,
+                  "hard_targets_pass": hard_pass, "input_identity": before,
+                  "experiment_identity": experiment,
+                  "semantic_identity": semantic_hash, "interface": interface.model_dump(),
+                  "source_identity": source["snapshot_identity"], "functional_regression": {"pass": True},
+                  "verification_scope": "unit_only", "system_integration": "not_run",
+                  "ppa_metrics": ppa_metrics, "performance_metrics": performance,
+                  "comparisons": comparisons, "ppa_report": report,
+                  "ppa_score": _ppa_selection_score(original["ppa_metrics"] if original else ppa_metrics, ppa_metrics,
+                                                     weights=semantic["ppa"]["score_weights"]),
+                  "unit_results": results, "build": build_evidence,
+                  "reference_run": reference_run, "rtl_run": rtl_run,
+                  "materialized_sources": source_files,
+                  "run_directory": run_root.relative_to(paths.workspace).as_posix()}
+        if persist:
+            saved = paths.state / "versions" / candidate.variant_id
+            if saved.exists():
+                raise ValueError(f"Version snapshot already exists without valid record: {candidate.variant_id}")
+            shutil.copytree(candidate_root, saved / "candidate")
+            shutil.copytree(paths.edit / "verification", saved / "verification")
+            shutil.copy2(paths.edit / "contract.yaml", saved / "contract.yaml")
+            record["snapshot"] = saved.relative_to(paths.state).as_posix()
+            record["snapshot_files"] = tree_identity(saved)
+            if previous:
+                record["source_diff"] = candidate.variant_id + ".diff"
+            atomic_json(paths.state / "records" / f"{len(records):06d}.json", seal(paths, record))
+            attempt["decision"] = "measured"
+            atomic_json(attempt_path, seal(paths, attempt))
+            write_repo_optimization_log(paths, [*records, record])
+        return record
+    except Exception as exc:
+        if persist and attempt["decision"] != "measured":
+            # A failed build/test is visible but never becomes a measured round
+            # or a claim that the PPA search has plateaued.
+            attempt["decision"] = "failed_unmeasured"
+            from ..checkers.evidence import _public_evidence_error
+
+            attempt["reason"] = (_public_evidence_error(str(exc))[:1200] +
+                                 " Repair the current Check/RunRepoValidation diagnostic and retry this candidate.")
+            atomic_json(attempt_path, seal(paths, attempt))
+            write_repo_optimization_log(paths, validated_records(paths))
+        raise
+
+
+def write_repo_optimization_log(paths: RepoPaths, records: list[dict]) -> None:
+    """Publish measured module history without reading editable report claims."""
+
+    categories = tuple(paths.cfg.get_value("design_with_ppa.no_regression_metrics", "performance,timing").split(","))
+    best = select_best_accepted_record(records, categories=categories) if records else None
+    base_metrics = {**records[0]["ppa_metrics"], **records[0]["performance_metrics"]} if records else {}
+    entries = [{
+        "iteration": row["iteration"], "label": row["variant_id"],
+        "decision": "accepted" if row["accepted"] else "rejected",
+        "recorded_at": row["recorded_at"], "hypothesis": row["optimization_hypothesis"],
+        "compared_with": f"accepted v{row['parent_accepted_iteration']}" if not row["baseline"] else "baseline",
+        "reason": row["rejection_reason"] or "functional and PPA gates passed",
+        "interface": row["interface"]["version"],
+        "changes": [*row["source_changes"], *[
+            {**change, "path": "candidate/" + change["path"]} for change in row["candidate_changes"]
+            if not change["path"].startswith("files/")
+        ]],
+        "metrics": {**row["ppa_metrics"], **row["performance_metrics"]},
+        "changes_previous": row["comparisons"],
+        "changes_base": _primary_metric_changes(
+            base_metrics, {**row["ppa_metrics"], **row["performance_metrics"]}, rel_tol=1e-6, abs_tol=1e-12
+        ) if not row["baseline"] else {},
+        "score": row["ppa_score"], "evidence": row["variant_id"] + ".json",
+        "diff": row.get("source_diff"),
+    } for row in records]
+    log_path = inside(paths.edit, "reports/optimization_log.md")
+    # A repeated Check regenerates this projection; it never appends duplicate rounds.
+    inside(paths.edit, "reports/optimization_log.html")
+    for record in records:
+        if record.get("source_diff"):
+            previous = next(row for row in records if row["iteration"] == record["parent_accepted_iteration"])
+            before_files, after_files = {}, {}
+            for version, files in ((previous, before_files), (record, after_files)):
+                saved_candidate = inside(paths.state, version["snapshot"] + "/candidate")
+                for change in record["source_changes"]:
+                    name = change["path"]
+                    if name not in version["materialized_sources"]:
+                        continue
+                    overlay = inside(saved_candidate, "files/" + name)
+                    files[name] = overlay if overlay.exists() else inside(paths.snapshot, name, exists=True)
+                for change in record["candidate_changes"]:
+                    name = change["path"]
+                    if name.startswith("files/"):
+                        continue
+                    artifact = inside(saved_candidate, name)
+                    if artifact.exists():
+                        files["candidate/" + name] = artifact
+            write_source_diff(inside(paths.edit, "reports/" + record["source_diff"]), before_files, after_files)
+        atomic_json(inside(paths.edit, "reports/" + record["variant_id"] + ".json"), record)
+    for artifact in sorted((paths.state / "attempts").glob("*.json")):
+        attempt = unseal(paths, artifact)
+        public = inside(paths.edit, "reports/" + attempt["evidence"])
+        atomic_json(public, attempt)
+        if attempt["decision"] != "measured":
+            entries.append(attempt)
+    entries.sort(key=lambda entry: entry["recorded_at"])
+    minimum, maximum = optimization_limits(paths.cfg)
+    patience = no_improvement_patience(paths.cfg)
+    measured = len(records) - 1
+    improved = max([0] + [row["iteration"] for row in records[1:]
+                         if row["accepted"] and any(c["assessment"] == "improved" for c in row["comparisons"].values())])
+    stop_reason = ("base_only" if minimum == 0 else
+                   "max_iterations_reached" if measured >= maximum else
+                   "no_pareto_improvement" if measured >= minimum and measured - improved >= patience else None)
+    write_optimization_log(log_path, entries, best_iteration=best["iteration"] if best else None,
+                           stop_reason=stop_reason if records else None)
+    from ucagent.util.log import info
+
+    latest = entries[-1]
+    info(f"[PPA optimization] v{latest['iteration']} {latest['label']} {latest['decision']}; "
+         f"direction: {' '.join(latest['hypothesis'].split())[:240]}; "
+         f"log: {log_path.with_suffix('.html').relative_to(paths.workspace)}")

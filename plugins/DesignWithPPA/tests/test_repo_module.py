@@ -20,6 +20,7 @@ from design_with_ppa.plugin import create_tools, get_plugin
 from design_with_ppa.repo.apply_bundle import apply_bundle
 from design_with_ppa.repo.common import RepoPaths, git_read, inside, tree_identity
 from design_with_ppa.repo.delivery import deliver, restore_best
+from design_with_ppa.repo.evidence import unseal
 from design_with_ppa.repo.models import Interface, Recipe, validate_python
 from design_with_ppa.repo.checkers import RepoModuleChecker
 from design_with_ppa.repo.common import run_command
@@ -307,6 +308,11 @@ def test_real_unit_baseline_candidate_delivery(repo_case):
     measured = validate_unit(paths)
     assert measured["accepted"]
     assert len(validated_records(paths)) == 2
+    log = (paths.edit / "reports/optimization_log.md").read_text()
+    assert "Explore renamed public output" in log
+    assert "candidate/interface.yaml" in log
+    assert "[Source diff](renamed.diff)" in log
+    assert "result" in (paths.edit / "reports/renamed.diff").read_text()
     paths.cfg.set_value("design_with_ppa.repo.interface_policy", "preserve")
     # Source-selection settings are frozen too: a resumed run cannot silently
     # reinterpret the authorization under which its baseline was measured.
@@ -325,12 +331,26 @@ def test_real_unit_baseline_candidate_delivery(repo_case):
     atomic_yaml(variant_path, variant_yaml)
     with pytest.raises(ValueError, match="distinct unit experiment"):
         validate_unit(paths)
+    attempts = paths.edit / "reports/attempts"
+    atomic_text(attempts / "unverified.json", '{"claim": "not measured"}\n')
+    external = paths.workspace.parent / "external-attempt.txt"
+    atomic_text(external, "External file must not enter a delivery bundle.\n")
+    (attempts / "external.json").symlink_to(external)
     restore_best(paths)
     result = deliver(paths, migration_script=True)
     bundle = paths.edit / "delivery"
     assert result["patch_rebuild_pass"]
     assert (bundle / "apply.py").is_file()
     assert (bundle / "changes.patch").stat().st_size > 0
+    assert (bundle / "reports/optimization_log.html").is_file()
+    assert (bundle / "reports/renamed.json").is_file()
+    assert (bundle / "reports/renamed.diff").is_file()
+    assert "reports/optimization_log.html" in (bundle / "summary.md").read_text()
+    assert not (bundle / "reports/attempts/unverified.json").exists()
+    assert not (bundle / "reports/attempts/external.json").exists()
+    for artifact in (paths.state / "attempts").glob("*.json"):
+        attempt = unseal(paths, artifact)
+        assert json.loads((bundle / "reports" / attempt["evidence"]).read_text()) == attempt
     target = paths.workspace.parent / "manual target"
     shutil.copytree(paths.source, target)
     assert apply_bundle(bundle, target)["status"] == "preview"

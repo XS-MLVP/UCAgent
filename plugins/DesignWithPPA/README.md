@@ -8,6 +8,8 @@
 - `unit-design-tdd`：从 README 和设计 Spec 开始，生成并验证 Verilog 或 Chisel 单元模块，并执行 PPA 优化；
 - [`repo-module-tdd`](docs/repo-module-tdd.md)：使用已有仓库提供的源码和依赖，在独立副本中优化或新增模块，完成单元测试、PPA 和补丁交付。入口为 `make run-repo SOURCE_PATH=... CASE=...`。
 
+两个工作流的逐轮优化方向、改动和实测结果可通过自动生成的 [PPA 优化日志](docs/ppa-optimization-log.md)查看。
+
 Python 发行包名为 `ucagent-design-with-ppa`，插件 ID 为 `design-with-ppa`，要求 Python 3.11 及以上和 `UCAgent>=26.9.2.dev6`。
 
 ## 构建与安装

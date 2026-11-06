@@ -54,6 +54,10 @@ commit 导入会记录被排除的本地修改并固定子模块版本。缺失�
 
 原始基线测量后不可变。修改冻结的任务、参考或工作负载需要新工作区和重新建立基线。PPA 迭代复用 `unit-design-tdd` 的键名和默认值：`min_optimization_iterations`/`max_optimization_iterations`/`no_improvement_patience` 约束候选轮数，`no_regression_metrics` 和 `score_weights` 驱动接受判定和最佳版本选择，`ppa.max_timing_paths`/`ppa.max_power_instances` 设定每次测量的详情深度。这些键全部导出到运行时快照。后端、PDK 和工艺文件的配置及冻结规则见 [PPA 后端与 PDK 接入](ppa-backends.md)。不宣称任何完整系统验证。
 
+优化过程自动写入 `{OUT}/repo/reports/optimization_log.html` 和同名 Markdown；PPA 看板与
+交付总结提供入口。每轮优化方向、实际改动、源码 diff、实测结果和失败/拒绝记录的说明见
+[PPA 优化日志](ppa-optimization-log.md)。
+
 ## 交付
 
 `RunRepoValidation(action="deliver", migration_script=true)` 创建包含原始和最终接口合同、文件哈希、测试、PPA 和完整候选历史的源码/RTL/补丁交付包。自动生成的 `summary.md` 报告基线与交付版本的主指标对比、接口版本和如实的改善结论，只由封签测量记录生成。交付包在新副本中应用并重建。没有改善时，报告会如实说明。
