@@ -16,7 +16,7 @@ from ..checkers.ppa_iteration import (
     _primary_metric_changes, select_best_accepted_record,
 )
 from ..contracts import atomic_json, canonical_json_sha256, load_json, sha256_file
-from ..ppa import AnalyzePPA, AnalyzePPAArgs
+from ..ppa import AnalyzePPA, AnalyzePPAArgs, resolve_ppa_config
 from .build import prepare_unit
 from .common import RepoPaths, inside, run_command, selected_path, tree_identity
 from .evidence import seal, unseal
@@ -69,7 +69,8 @@ def read_contract(paths: RepoPaths) -> tuple[TaskContract, Workload, dict]:
                 "verification": tree_identity(paths.edit / "verification")}
     liberty = paths.cfg.get_value("design_with_ppa.ppa.liberty_file", None)
     sdc = paths.cfg.get_value("design_with_ppa.ppa.sdc_file", None)
-    identity["ppa"] = {"liberty": sha256_file(inside(paths.workspace, liberty, exists=True)) if liberty else "bundled",
+    analysis = AnalyzePPA(workspace=str(paths.workspace), analysis_config=resolve_ppa_config(paths.cfg))
+    identity["ppa"] = {"analysis": analysis.analysis_identity(liberty),
                        "sdc": sha256_file(inside(paths.workspace, sdc, exists=True)) if sdc else None,
                        "no_regression_metrics": paths.cfg.get_value("design_with_ppa.no_regression_metrics", "performance,timing"),
                        "score_weights": {k: paths.cfg.get_value(f"design_with_ppa.score_weights.{k}", 1.0) for k in ("timing", "area", "power")}}
@@ -228,7 +229,17 @@ def validate_unit(paths: RepoPaths, *, baseline: bool = False, persist: bool = T
         timeout=recipe.timeout,
     )
     report = AnalyzePPA(workspace=str(paths.workspace), output_dir=paths.output.relative_to(paths.workspace).as_posix(),
-                        write_dirs=[paths.output.relative_to(paths.workspace).as_posix()], un_write_dirs=[]).analyze(arguments)
+                        write_dirs=[paths.output.relative_to(paths.workspace).as_posix()], un_write_dirs=[],
+                        analysis_config=resolve_ppa_config(paths.cfg)).analyze(arguments)
+    if original:
+        original_provenance = original["ppa_report"].get("provenance", {})
+        provenance = report.get("provenance", {})
+        if any(provenance.get(key) != original_provenance.get(key) for key in ("backend", "pdk")):
+            raise ValueError("PPA backend or PDK changed; establish a fresh baseline in a new workspace")
+        original_versions = {key: row.get("version") for key, row in original_provenance.get("tools", {}).items()}
+        versions = {key: row.get("version") for key, row in provenance.get("tools", {}).items()}
+        if versions != original_versions:
+            raise ValueError("PPA tool versions changed; establish a fresh baseline in a new workspace")
     ppa_metrics = _ppa_primary_metrics(report)
     # A combinational unit may become sequential during interface exploration.
     # Keep a stable period metric while retaining the complete native STA report.

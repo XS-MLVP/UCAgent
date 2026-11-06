@@ -69,7 +69,7 @@ print(json.dumps({
     assert json.loads(completed.stdout) == {
         "runtime": "design_with_ppa.python_dut",
         "performance": "design_with_ppa.performance",
-        "tool": "design_with_ppa.ppa",
+        "tool": "design_with_ppa.ppa.tool",
         "plugin": "design-with-ppa",
         "loaded": [],
     }

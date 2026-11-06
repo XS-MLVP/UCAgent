@@ -1904,7 +1904,9 @@ def test_design_with_ppa_local_plugin_creates_mcp_compatible_tool(tmp_path: Path
     assert loaded.plugin.name == "design-with-ppa"
     assert plugin_summary(loaded)["tool_factories"] == 1
     assert [tool.name for tool in tools] == ["AnalyzePPA", "RunDesignConsistency"]
-    assert tools[0]._DEFAULT_LIBERTY.is_file()
+    assert tools[0].analysis_identity()["pdk"]["files"]["liberty"][0]["path"] == (
+        "bundled:NangateOpenCellLibrary_typical.lib"
+    )
     parameters = to_mcp_tool(tools[0]).parameters
     rtl_schema = parameters["properties"]["rtl_files"]
     assert rtl_schema["anyOf"][0] == {"items": {"type": "string"}, "type": "array"}

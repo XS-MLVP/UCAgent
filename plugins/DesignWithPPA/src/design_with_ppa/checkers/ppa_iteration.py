@@ -28,6 +28,7 @@ from ..contracts import (
 from ..ppa import (
     AnalyzePPA,
     AnalyzePPAArgs,
+    resolve_ppa_config,
     compare_ppa_reports,
 )
 from ..rtl import (
@@ -227,7 +228,7 @@ def _load_cached_ppa(workspace: Path, report_id: str) -> dict[str, Any]:
     if sha256_file(report_path) != expected_hash:
         raise ValueError(f"cached PPA report hash mismatch: {report_id}")
     report = load_json(report_path)
-    if report.get("report_id") != report_id or report.get("schema_version") != "1.1":
+    if report.get("report_id") != report_id or report.get("schema_version") != "1.2":
         raise ValueError(f"cached PPA report identity is invalid: {report_id}")
     return report
 
@@ -249,7 +250,7 @@ def _load_bound_ledger(
 
 
 def _resolved_workflow_ppa_config(
-    cfg: Any, top_module: str
+    cfg: Any, top_module: str, workspace: Path
 ) -> dict[str, Any]:
     """Return the finite PPA configuration bound to workflow history."""
 
@@ -274,6 +275,10 @@ def _resolved_workflow_ppa_config(
             "design_with_ppa.ppa.max_power_instances", 10
         ),
     }
+    analysis_config = resolve_ppa_config(cfg)
+    result["analysis_identity"] = AnalyzePPA(
+        workspace=str(workspace), analysis_config=analysis_config,
+    ).analysis_identity(result["liberty_file"])
     try:
         json.dumps(result, allow_nan=False)
     except (TypeError, ValueError) as exc:
@@ -311,7 +316,7 @@ def _run_workflow_ppa(
     ]
     if not waveform_files or any(not isinstance(path, str) for path in waveform_files):
         raise ValueError("performance manifest has no valid ordered waveform set")
-    ppa_config = _resolved_workflow_ppa_config(cfg, top_module)
+    ppa_config = _resolved_workflow_ppa_config(cfg, top_module, workspace)
     build_root = Path(tempfile.mkdtemp(prefix="ucagent-design-with-ppa-ppa-"))
     try:
         request = RTLPreparationRequest(
@@ -351,6 +356,7 @@ def _run_workflow_ppa(
         )
         report = AnalyzePPA(
             workspace=str(workspace),
+            analysis_config=resolve_ppa_config(cfg),
             output_dir=resolved_output(cfg),
             write_dirs=[resolved_output(cfg)],
             un_write_dirs=[],
@@ -421,6 +427,9 @@ def _ppa_primary_metrics(report: dict[str, Any]) -> dict[str, dict[str, Any]]:
     if not isinstance(summary, dict):
         raise ValueError("PPA report summary is missing")
     area = finite_number(summary.get("area", {}).get("total"), "PPA area.total")
+    area_unit = summary["area"].get("unit")
+    if not isinstance(area_unit, str) or not area_unit:
+        raise ValueError("PPA area.unit must identify the measured area unit")
     power = finite_number(summary.get("power", {}).get("total_w"), "PPA power.total_w")
     timing = summary.get("timing")
     if not isinstance(timing, dict):
@@ -441,7 +450,7 @@ def _ppa_primary_metrics(report: dict[str, Any]) -> dict[str, dict[str, Any]]:
         timing_direction = "min"
         timing_unit = "ns"
     return {
-        "ppa.area.total": {"value": area, "unit": "library_area", "direction": "min"},
+        "ppa.area.total": {"value": area, "unit": area_unit, "direction": "min"},
         f"ppa.timing.{timing_name}": {
             "value": timing_value,
             "unit": timing_unit,
@@ -1769,7 +1778,7 @@ class PPAIterationChecker(Checker):
                     expected={"score_weights": dict(self.score_weights)},
                 )
             ppa_config = _resolved_workflow_ppa_config(
-                self.cfg, ledger.get("top_module")
+                self.cfg, ledger.get("top_module"), workspace
             )
             if state.get("ppa_config") != ppa_config:
                 return False, diagnostic(
@@ -1861,7 +1870,7 @@ class PPAIterationChecker(Checker):
             ]
             ppa_report = None
             ppa_config = _resolved_workflow_ppa_config(
-                self.cfg, contract["top_module"]
+                self.cfg, contract["top_module"], workspace
             )
             expected_clock_constraint = (
                 {
@@ -1870,10 +1879,6 @@ class PPAIterationChecker(Checker):
                 }
                 if ppa_config["clock_port"] is not None
                 else None
-            )
-            expected_liberty_file = (
-                ppa_config["liberty_file"]
-                or "bundled:NangateOpenCellLibrary_typical.lib"
             )
             ppa_report_path = resolve_workspace_path(
                 workspace, self.ppa_report_file
@@ -1915,7 +1920,8 @@ class PPAIterationChecker(Checker):
                         and provenance.get("top_module") == contract["top_module"]
                         and provenance.get("waveform_scope")
                         == ppa_config["waveform_scope"]
-                        and provenance.get("liberty_file") == expected_liberty_file
+                        and {key: provenance.get(key) for key in ("backend", "pdk")}
+                        == ppa_config["analysis_identity"]
                         and provenance.get("sdc_file") == ppa_config["sdc_file"]
                         and provenance.get("clock_constraint")
                         == expected_clock_constraint

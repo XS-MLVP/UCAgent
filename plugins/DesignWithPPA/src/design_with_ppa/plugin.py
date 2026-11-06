@@ -10,7 +10,7 @@ from ucagent.plugins import (
 )
 
 from . import __version__
-from .ppa import AnalyzePPA
+from .ppa import AnalyzePPA, resolve_ppa_config
 from .consistency import RunDesignConsistency
 from .rtl import build_rtl_template_context
 from .repo.checkers import RepoModuleChecker
@@ -70,6 +70,7 @@ def create_tools(context: PluginContext) -> list[object]:
             output_dir=context.output_dir,
             write_dirs=list(context.write_dirs),
             un_write_dirs=list(context.un_write_dirs),
+            analysis_config=resolve_ppa_config(context.cfg),
         ),
         RunDesignConsistency(
             workspace=str(context.workspace),
@@ -167,6 +168,9 @@ def get_plugin() -> Plugin:
                     "design_with_ppa.ppa.sdc_file",
                     "design_with_ppa.ppa.clock_port",
                     "design_with_ppa.ppa.clock_period_ns",
+                    "design_with_ppa.ppa.backend",
+                    "design_with_ppa.ppa.pdk.name",
+                    "design_with_ppa.ppa.pdk.corner",
                     "design_with_ppa.ppa.max_timing_paths",
                     "design_with_ppa.ppa.max_power_instances",
                 ),
@@ -197,6 +201,9 @@ def get_plugin() -> Plugin:
                     "design_with_ppa.score_weights.timing",
                     "design_with_ppa.score_weights.area",
                     "design_with_ppa.score_weights.power",
+                    "design_with_ppa.ppa.backend",
+                    "design_with_ppa.ppa.pdk.name",
+                    "design_with_ppa.ppa.pdk.corner",
                     "design_with_ppa.ppa.max_timing_paths",
                     "design_with_ppa.ppa.max_power_instances",
                 ),
@@ -206,10 +213,6 @@ def get_plugin() -> Plugin:
         python_requirements=(
             "vcdvcd>=2.3.5,<3.0.0",
             "pylibfst>=0.2.1,<0.3.0",
-        ),
-        command_requirements=(
-            CommandRequirement(name="Yosys", alternatives=("yosys",)),
-            CommandRequirement(name="OpenSTA", alternatives=("sta", "opensta")),
         ),
         assets=(
             root / "assets" / "NangateOpenCellLibrary_typical.lib",

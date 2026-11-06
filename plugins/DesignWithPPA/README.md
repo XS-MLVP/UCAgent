@@ -38,7 +38,7 @@ python3 -m pip install -e .
 ucagent --validate-plugin design-with-ppa
 ```
 
-PPA 分析需要环境中的 `yosys` 和 OpenSTA（`sta` 或 `opensta`）。运行设计工作流还需要 `picker`。Chisel 模式使用插件锁定的 Chisel 7.15.0（Scala 2.13.18）工具链，另外需要 JDK 17 及 Mill 0.4.2；Verilog 模式不依赖 Chisel 工具链。
+默认 PPA 后端需要环境中的 `yosys` 和 OpenSTA（`sta` 或 `opensta`）。其他分析工具与工艺的配置见 [PPA 后端与 PDK 接入](docs/ppa-backends.md)。运行设计工作流还需要 `picker`。Chisel 模式使用插件锁定的 Chisel 7.15.0（Scala 2.13.18）工具链，另外需要 JDK 17 及 Mill 0.4.2；Verilog 模式不依赖 Chisel 工具链。
 
 ### 安装依赖（Ubuntu）
 

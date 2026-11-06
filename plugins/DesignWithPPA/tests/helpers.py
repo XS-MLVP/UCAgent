@@ -16,6 +16,7 @@ import subprocess
 from types import ModuleType, SimpleNamespace
 from typing import Any
 import yaml
+from design_with_ppa.ppa import AnalyzePPA, PPAConfig
 from design_with_ppa.checkers import (  # noqa: E402
     DesignAllPassBatchTestsChecker,
     DesignArchitectureChecker,
@@ -126,7 +127,7 @@ def _config(
                 "options": {},
             },
         },
-        "ppa": {"waveform_scope": "tb.dut"},
+        "ppa": {**PPAConfig().model_dump(), "waveform_scope": "tb.dut"},
         "score_weights": {"timing": 1.0, "area": 1.0, "power": 1.0},
     }
     if no_regression is not None:
@@ -324,7 +325,7 @@ def _report(
     delay: float = 1.0,
     baseline_report_id: str | None = None,
 ) -> dict:
-    """Build one complete comparable schema-1.1 PPA report fixture."""
+    """Build one complete comparable schema-1.2 PPA report fixture."""
 
     comparison = {
         "status": "not_requested" if baseline_report_id is None else "success",
@@ -332,12 +333,12 @@ def _report(
         "current_report_id": report_id,
     }
     return {
-        "schema_version": "1.1",
+        "schema_version": "1.2",
         "report_id": report_id,
         "status": "success",
         "summary": {
             "design_type": "combinational",
-            "area": {"total": area},
+            "area": {"total": area, "unit": "liberty_area_unit"},
             "timing": {
                 "metric_kind": "critical_path_delay",
                 "critical_path_delay_ns": delay,
@@ -364,6 +365,7 @@ def _report(
         "details": {"area_by_cell_type": {"BUF_X1": 1}},
         "diagnostics": [],
         "provenance": {
+            **AnalyzePPA().analysis_identity(),
             "rtl_files": rtl_rows,
             "rtl_libraries": [],
             "waveform_files": [
@@ -371,7 +373,7 @@ def _report(
             ],
             "top_module": "dut",
             "liberty_file": "bundled:NangateOpenCellLibrary_typical.lib",
-            "liberty_sha256": "a" * 64,
+            "liberty_sha256": "8d540a4d4cf6d09d27c87ad067857a9c0c2eeb023ab7a56e058cd3113db4e9b1",
             "sdc_file": None,
             "sdc_sha256": None,
             "clock_constraint": None,

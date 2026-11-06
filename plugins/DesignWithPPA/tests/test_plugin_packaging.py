@@ -255,6 +255,7 @@ def test_fp_matrix_example_is_declared_for_wheel_installation() -> None:
         "cases/LowPrecisionMatMul2x2/spec/*.md",
         "cases/repo_byte_increment/README.md",
         "docs/repo-module-tdd.md",
+        "docs/ppa-backends.md",
     }
 
 

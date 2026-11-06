@@ -52,7 +52,7 @@ commit 导入会记录被排除的本地修改并固定子模块版本。缺失�
 
 接口演进保持逻辑语义和工作负载不变，而引脚名、位宽、握手和延迟可以在任务约束内演进。必需的硬件适配属于被测单元边界内。调用方影响被记录下来供后续手工集成。每个被测版本完整保留全部源码修改、接口文档、适配器、协议测试、参考/工作负载输入和构建说明。
 
-原始基线测量后不可变。修改冻结的任务、参考或工作负载需要新工作区和重新建立基线。PPA 迭代复用 `unit-design-tdd` 的键名和默认值：`min_optimization_iterations`/`max_optimization_iterations`/`no_improvement_patience` 约束候选轮数，`no_regression_metrics` 和 `score_weights` 驱动接受判定和最佳版本选择，`ppa.max_timing_paths`/`ppa.max_power_instances` 设定每次测量的 OpenSTA 详情深度。这些键全部导出到运行时快照。不宣称任何完整系统验证。
+原始基线测量后不可变。修改冻结的任务、参考或工作负载需要新工作区和重新建立基线。PPA 迭代复用 `unit-design-tdd` 的键名和默认值：`min_optimization_iterations`/`max_optimization_iterations`/`no_improvement_patience` 约束候选轮数，`no_regression_metrics` 和 `score_weights` 驱动接受判定和最佳版本选择，`ppa.max_timing_paths`/`ppa.max_power_instances` 设定每次测量的详情深度。这些键全部导出到运行时快照。后端、PDK 和工艺文件的配置及冻结规则见 [PPA 后端与 PDK 接入](ppa-backends.md)。不宣称任何完整系统验证。
 
 ## 交付
 

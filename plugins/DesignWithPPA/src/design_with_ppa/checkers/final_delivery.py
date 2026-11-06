@@ -825,7 +825,7 @@ class DesignFinalDeliveryChecker(Checker):
             if ledger.get("rtl_language") != self.rtl_config.language:
                 raise ValueError("optimization ledger RTL language is stale")
             if state.get("ppa_config") != _resolved_workflow_ppa_config(
-                self.cfg, ledger.get("top_module")
+                self.cfg, ledger.get("top_module"), workspace
             ):
                 raise ValueError("private iteration PPA configuration is stale")
             if state.get("status") != "complete":
