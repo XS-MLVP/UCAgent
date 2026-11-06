@@ -166,4 +166,12 @@ After configuration parsing, UCAgent writes `.ucagent/runtime_config.json` to th
 
 The workspace `.ucagent/` directory and all its contents are read-only to the Agent/LLM. The shared system prompt prohibits creating, editing, deleting, moving, or changing permissions on these files through file tools, backend-native tools, shell commands, or scripts. Custom system prompts retain this rule. Built-in file tools reject writes, and the generated opencode configuration also denies native edits to this directory; reads remain available. UCAgent and public workflow tools can still maintain snapshots, progress, and evidence. When the runtime environment blocks work, the model should report the diagnostic and required operator action. The operator repairs configuration or the environment and restarts UCAgent; the model must not edit runtime state or framework/plugin source to repair the environment. Running processes do not automatically reload configuration, system prompts, or backend permissions.
 
+## 9. Loop Stall Protection
+
+`loop_settings.max_stalled_rounds` accepts a nonnegative integer, defaults to `18`, and can be disabled with `0`. It detects stalls after each completed model round: repeated identical explicit Checker diagnostics in the same stage accumulate, as do rounds with no new Check/Complete and no changes to task files in the output directory. A normal CLI exit or read-only file activity does not count as progress.
+
+A stage transition, a new passing check, or batch progress resets the counter; a changed explicit diagnostic starts a new count at `1`. Without a new check, creating, modifying, or deleting an output task file also resets it. File changes use path, size, and modification time; hidden directories, symlinks, caches, logs, temporary files, and waveform data do not count as progress. If a new check still returns the same diagnostic, writing a file does not cancel that failure.
+
+At the limit, UCAgent pauses `--loop`, displays the latest diagnostic when available, and preserves the task and artifacts for operator intervention. After repairing task inputs, enter `loop` in the console to resume with a fresh counter. Configuration or runtime environment changes require restarting UCAgent. This protection applies to completed model rounds; a single blocked backend call remains subject to backend timeout and interruption controls.
+
 Next: Run the [Mini Example](08_mini_example.md) first, then learn [Custom Tools](05_customize.md), [Template Files](04_template.md), and [Plugins](09_plugins.md) as needed.
