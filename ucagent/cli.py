@@ -10,7 +10,6 @@ wrapping the functionality from verify_agent.py into a proper CLI module.
 import os
 import sys
 import argparse
-import bdb
 import base64
 import ast
 import json
@@ -1011,7 +1010,7 @@ def get_args() -> argparse.Namespace:
         default=None,
         metavar="[host[:port]][ password]",
         help=(
-            "Start the CMD API server (PdbCmdApiServer) as part of agent startup. "
+            "Start the CMD API server (ControlApiServer) as part of agent startup. "
             "Bare '--export-cmd-api' uses default host/port (127.0.0.1:8765). "
             "'--export-cmd-api host[:port]' binds to the given address. "
             "Append a password after a space to enable HTTP Basic Auth, "
@@ -1482,10 +1481,6 @@ def run() -> None:
             args.override = _append_override(args.override, "skill.use_skill", True)
         args.override = _append_override(args.override, "skill.extra_skill_path", args.extra_skill_path)
 
-    # Make sure mcp server is started before tui
-    if args.tui:
-        init_cmds += ["tui"]
-
     template_cfg_overrides = {}
     if args.template_cfg_override:
         for cfg_file in args.template_cfg_override:
@@ -1545,6 +1540,7 @@ def run() -> None:
             master_cmd = f"connect_master_to {master_addr}{extra_client_opts}"
         init_cmds += [master_cmd]
 
+    service_command_count = len(init_cmds)
     init_cmds.append("logo_and_version")
     if args.icmd:
         init_cmds += args.icmd
@@ -1573,7 +1569,6 @@ def run() -> None:
         guid_doc_path=args.guid_doc_path,
         stream_output=args.stream_output,
         seed=args.seed,
-        init_cmd=init_cmds,
         sys_tips=args.sys_tips,
         ex_tools=ex_tools,
         no_embed_tools=args.no_embed_tools,
@@ -1606,66 +1601,73 @@ def run() -> None:
             "port": args.web_console_session_port,
         }
 
-    # Command-line backends need MCP before their first model invocation.  PDB
-    # startup commands are interaction-driven and therefore cannot provide this
-    # ordering in a headless run.
-    if start_mcp_server:
-        mcp_host = (
-            args.mcp_server_host
-            if args.mcp_server_host is not None
-            else agent.cfg.mcp_server.host
-        )
-        mcp_port = (
-            args.mcp_server_port
-            if args.mcp_server_port is not None
-            else agent.cfg.mcp_server.port
-        )
-        ok, msg = agent.pdb.start_mcp_server(
-            host=mcp_host,
-            port=mcp_port,
-            no_file_ops=args.mcp_server_no_file_tools,
-        )
-        if not ok:
-            raise RuntimeError(msg)
-        info(msg)
+    from ucagent.control.runtime.host import RuntimeHost
+    from ucagent.control.console import Console
+    from ucagent.control.runtime.session import RuntimeSession
+    from ucagent.server.api_cmd import ControlApiServer
+    from ucagent.tui import enter_tui
 
-    # Set break mode if human interaction or TUI is requested
-    if args.human or args.tui:
-        agent.set_break(True)
-    
-    # Run the agent
+    mode = "master" if args.as_master is not None else "console" if args.human or args.tui else "service" if (args.export_cmd_api is not None or start_mcp_server) else "once"
+    host = RuntimeHost(agent, mode=mode, exit_on_completion=args.exit_on_completion, force_exit=os._exit)
+    session = RuntimeSession(host)
+    console = (Console(host, session=session, tui_factory=enter_tui)
+               if mode == "console" or args.tui or (mode == "master" and sys.stdin.isatty()) else None)
+    host.services.command_factory = lambda **options: ControlApiServer(
+        host.controller, registry=host.registry, operations=host.operations,
+        services=host.services, host_control=host, **options)
+    host.services.console_input = lambda line: session.execute_line(line, foreground=False)
+    host.services.last_command = lambda: session.session.last_command
+    host.services.terminal_prepare = lambda server: server.enter_pty_mode()
+    host.add_cleanup(agent.backend.exit)
+    host.start()
     try:
-        if args.emulate_config:
-            agent.emulate_config()
-        else:
-            agent.run()
-            while args.as_master is not None and not agent.is_exit():
-                agent.set_break(True)
-                agent.check_pdb_trace()
-    except AssertionError as e:
-        info(f"Fail: {e}")
-        sys.exit(1)
-    finally:
-        if args.as_master is not None:
-            pdb = getattr(agent, "pdb", None)
-            master_server = getattr(pdb, "_master_api_server", None)
-            if master_server is not None and master_server.is_running:
-                try:
-                    pdb.do_master_api_stop("")
-                except Exception as e:
-                    info(f"Warning: failed to stop Master API server: {e}")
-        try:
-            agent.exit()
-        except Exception as e:
-            info(f"Warning: failed during agent exit cleanup: {e}")
+        with host.signals():
+            if start_mcp_server:
+                result = host.services.start_mcp(
+                    host=args.mcp_server_host, port=args.mcp_server_port,
+                    no_file_ops=args.mcp_server_no_file_tools)
+                if not result["ok"]:
+                    raise RuntimeError(result["message"])
+            # Service readiness precedes all user/model work, independently of the display.
+            for command in init_cmds[:service_command_count]:
+                result = host.registry.execute(command, session.session)
+                host.output.emit(session.format_result(result) + "\n")
+                if isinstance(result.data, dict) and result.data.get("ok") is False:
+                    raise RuntimeError(result.data.get("message", "Service startup failed"))
+            commands = [command for command in init_cmds[service_command_count:] if command != "tui"]
+            commands.extend(agent.cfg.get_value("init_cmds", []))
+            if args.emulate_config:
+                agent.emulate_config()
+                host.request_shutdown("emulation_finished")
+            else:
+                agent.pre_run()
+                default_model = mode == "once" or (mode == "service" and agent.cfg.backend.key_name != "blank" and not args.loop)
+                host.startup.start(commands, session, wait_for_display=args.tui,
+                                   interactive=mode in {"console", "service", "master"},
+                                   default_model=default_model)
+                if args.tui:
+                    console.output.write(enter_tui(session))
+                    console.output.flush()
+                if mode == "console" or (mode == "master" and sys.stdin.isatty()):
+                    console.run()
+                    # EOF is a launch-policy decision; detaching a view never shuts down its host.
+                    if host.snapshot()["instance"] == "ready" and host.services.status("cmd")["state"] != "ready":
+                        host.request_shutdown("console_eof")
+            state = host.wait()
+            if state["exit_code"]:
+                for error in state.get("errors", []):
+                    info(f"Cleanup failed ({error['step']}): {error['message']}")
+                raise SystemExit(state["exit_code"])
+    except BaseException:
+        host.request_shutdown("startup_or_runtime_failure", exit_code=1)
+        host.wait(host.shutdown_timeout)
+        raise
 
 
 def main() -> None:
     """Main entry point with exception handling."""
     try:
         run()
-    except bdb.BdbQuit:
-        pass
     except WorkspaceArchiveError as e:
         info(f"Workspace archive error: {e}")
         sys.exit(1)

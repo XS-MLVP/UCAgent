@@ -1,7 +1,7 @@
 
 # Normal Mode
 
-Normal mode completes a verification task with a single UCAgent process. The default backend is `langchain`, and UCAgent connects directly to the model; manual operations are performed in the PDB/TUI console of the current terminal, without requiring an external Code Agent or MCP.
+Normal mode completes a verification task with a single UCAgent process. The default backend is `langchain`, and UCAgent connects directly to the model; manual operations are performed in the Console/TUI console of the current terminal, without requiring an external Code Agent or MCP.
 
 This chapter uses a 64-bit adder example where the `sum` bit width is intentionally truncated. The example is used to illustrate the workflow; actual projects should replace it with their own RTL and verification requirements.
 
@@ -127,11 +127,11 @@ python3 ucagent.py output/workspace_Adder/ Adder \
   --config config.yaml -s -hm --tui -l
 ```
 
-`-l/--loop` makes the task enter the model loop immediately; if omitted, you must type `loop` in the console after startup to continue. Normal mode does not start MCP, so external Code Agents like opencode will not run automatically.
+In these interactive launches, `-l/--loop` submits the model loop during initialization after TUI is ready. Without it or another startup task command, enter `loop` in the console to continue. Normal mode does not start MCP, so external Code Agents like opencode will not run automatically.
 
 ## 2.5 Intervention During Execution
 
-Type `status` at the bottom of the TUI to view the phase status, and type `current_tips` to view guidance for the current phase. To pause, press `Ctrl+C`; after fixing files or the environment, use `tool_invoke Check` to verify, then type `loop` to continue. See [Human-in-the-Loop Verification](../02_usage/02_assit.md) and [TUI](../02_usage/04_tui.md) for complete commands and the human review process.
+Type `status` at the bottom of the TUI to view the phase status, and type `current_tips` to view guidance for the current phase. To intervene, press `Ctrl+C` to request foreground cancellation and wait for it to finish. Repair files or the environment, run `tool_invoke Check`, then wait for its result before entering `loop`. See [Human-in-the-Loop Verification](../02_usage/02_assit.md) and [TUI](../02_usage/04_tui.md) for complete commands and the human review process.
 
 ## 2.6 Result Locations
 

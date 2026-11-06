@@ -1,9 +1,9 @@
-"""Opt-in Xpra acceptance through the real CLI, workflow, PDB and terminals.
+"""Opt-in Xpra acceptance through the real CLI, workflow, runtime and terminals.
 
 Run in Linux with all project requirements, picker, Verilator, Xpra,
 xpra-html5, Xvfb, xterm and xclock installed:
 UCAGENT_RUN_XPRA_INTEGRATION=1 python -m pytest -q
-tests/test_api_xpra_full_runtime.py. No agent or PDB objects are substituted.
+tests/test_api_xpra_full_runtime.py. No agent or runtime owners are substituted.
 """
 
 import asyncio
@@ -140,7 +140,11 @@ def test_cli_cmd_xpra_and_terminals_share_a_complete_agent(tmp_path, terminal_mo
             ]}, timeout=5)
             assert response.status_code == 200, response.text
             wait_for(lambda: console_contains("FULL_CMD_OK"))
-            assert console_contains("Current working directory:")
+            batch_id = response.json()["operation_id"]
+            wait_for(lambda: client.get(base + "/api/operations/" + batch_id, timeout=5).json()["data"]["state"] == "succeeded")
+            rows = client.get(base + "/api/operations/" + batch_id, timeout=5).json()["data"]["result"]
+            directory = client.get(base + "/api/operations/" + rows[3]["operation_id"], timeout=5).json()["data"]["result"]
+            assert Path(directory["cwd"]).resolve() == workspace.resolve()
 
             for mode, application in (("gui", "xclock"), ("console", "bash -l")):
                 marker = "full-runtime-" + uuid.uuid4().hex
@@ -165,7 +169,7 @@ def test_cli_cmd_xpra_and_terminals_share_a_complete_agent(tmp_path, terminal_mo
             proxied = master_client.get(proxy + "/api/xpra/sessions", timeout=5)
             assert proxied.status_code == 200
             assert proxied.json()["active_count"] == 1
-            assert client.post(base + "/api/interrupt", timeout=5).status_code == 200
+            assert client.post(base + "/api/runtime/pause", timeout=5).status_code == 200
             assert client.get(base + "/api/xpra/sessions", timeout=5).json()["active_count"] == 1
             assert client.post(base + "/api/cmd", json={"cmd": "quit"}, timeout=5).status_code == 200
             process.wait(timeout=30)

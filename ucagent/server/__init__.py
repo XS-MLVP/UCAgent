@@ -6,19 +6,19 @@ from __future__ import annotations
 from importlib import import_module
 
 __all__ = [
-    "PdbCmdApiServer",
-    "PdbMasterApiServer",
-    "PdbMasterClient",
-    "PdbMcpServer",
-    "PdbWebTermServer",
+    "ControlApiServer",
+    "MasterApiServer",
+    "MasterClient",
+    "McpServer",
+    "WebTerminalServer",
 ]
 
 _EXPORTS = {
-    "PdbCmdApiServer": ".api_cmd",
-    "PdbMasterApiServer": ".api_master",
-    "PdbMasterClient": ".api_master",
-    "PdbMcpServer": ".api_mcp",
-    "PdbWebTermServer": ".api_terminal",
+    "ControlApiServer": ".api_cmd",
+    "MasterApiServer": ".api_master",
+    "MasterClient": ".api_master",
+    "McpServer": ".api_mcp",
+    "WebTerminalServer": ".api_terminal",
 }
 
 

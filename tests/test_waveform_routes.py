@@ -11,8 +11,9 @@ from types import SimpleNamespace
 from fastapi.testclient import TestClient
 import pytest
 
-from ucagent.server.api_cmd import PdbCmdApiServer
+from ucagent.server.api_cmd import ControlApiServer
 from ucagent.server.api_cmd.xpra import XpraError
+from ucagent.control.controller import Controller
 from ucagent.util.config import Config
 from ucagent.util.waveform_viewer import build_waveform_metadata, load_waveform_metadata, write_waveform_metadata
 
@@ -58,7 +59,7 @@ def service(tmp_path):
     cfg = Config(dict(cmd_api=dict(xpra={}, waveform_viewers=dict(
         fst=dict(kind='web', url='/surfer/'), vcd=dict(kind='web', url='/surfer/'),
         fsdb=dict(kind='xpra', script='verdi/launch_verdi.py', args=['--meta','{wave_meta}','--verdi','verdi'], env={'EXAMPLE':'a b'}, idle_timeout=30)))))
-    server = PdbCmdApiServer(SimpleNamespace(agent=SimpleNamespace(workspace=str(tmp_path), cfg=cfg), stdout=None),
+    server = ControlApiServer(Controller(SimpleNamespace(workspace=str(tmp_path), cfg=cfg)),
         sock='', password='wave-password')
     server._xpra = Sessions()
     client = TestClient(server._app)
@@ -100,12 +101,12 @@ def test_configured_python_launch_reuse_concurrency_and_exit(tmp_path, service):
     payload['signals'] = ['TOP.dut.result']
     write_waveform_metadata(tmp_path, meta, payload)
     assert open_wave(0) == '2'
-    server.pdb.agent.cfg.cmd_api.waveform_viewers.fsdb.args.append('--extra')
+    server.agent.cfg.cmd_api.waveform_viewers.fsdb.args.append('--extra')
     assert open_wave(0) == '3'
     server._xpra.live.remove('3')
     assert open_wave(0) == '4'
     server._xpra.max_sessions = len(server._xpra.live)
-    server.pdb.agent.cfg.cmd_api.waveform_viewers.fsdb.args.append('change')
+    server.agent.cfg.cmd_api.waveform_viewers.fsdb.args.append('change')
     assert client.post('/api/xpra/sessions', json={'wave_meta':meta}).status_code == 429
 
 
@@ -116,7 +117,7 @@ def test_relative_scripts_never_search_cwd_or_path(tmp_path, service, script, co
     server, client = service
     (tmp_path / 'missing.py').write_text('pass')
     meta = _meta(tmp_path)
-    server.pdb.agent.cfg.cmd_api.waveform_viewers.fsdb.script = script
+    server.agent.cfg.cmd_api.waveform_viewers.fsdb.script = script
     result = client.post('/api/xpra/sessions', json={'wave_meta':meta})
     assert result.status_code == 503
     assert result.json()['detail']['error_code'] == code
@@ -129,7 +130,7 @@ def test_absolute_and_nested_package_scripts(tmp_path, service, monkeypatch):
     meta = _meta(tmp_path)
     script = tmp_path / 'launcher absolute.py'
     script.write_text('pass')
-    viewer = server.pdb.agent.cfg.cmd_api.waveform_viewers.fsdb
+    viewer = server.agent.cfg.cmd_api.waveform_viewers.fsdb
     viewer.script = str(script)
     assert client.post('/api/xpra/sessions', json={'wave_meta':meta}).status_code == 201
     assert shlex.split(server._xpra.created[-1]['command'])[1] == str(script.resolve())
@@ -162,7 +163,7 @@ def test_absolute_and_nested_package_scripts(tmp_path, service, monkeypatch):
 def test_malformed_configuration_has_bounded_diagnostics(tmp_path, service, value):
     """A broken viewer cannot launch an arbitrary fallback or leak configured secrets."""
     server, client = service
-    server.pdb.agent.cfg.cmd_api.waveform_viewers.fsdb = Config(value)
+    server.agent.cfg.cmd_api.waveform_viewers.fsdb = Config(value)
     response = client.get('/wave/', params={'meta':_meta(tmp_path)})
     assert response.status_code == 503
     assert response.json()['detail']['next_action']
@@ -175,7 +176,7 @@ def test_custom_format_and_missing_mapping(tmp_path, service, extension):
     server, client = service
     meta = _meta(tmp_path, 'trace.' + extension)
     assert client.get('/wave/',params={'meta':meta}).status_code == 415
-    setattr(server.pdb.agent.cfg.cmd_api.waveform_viewers, extension, Config(dict(kind='web',url='/custom/')))
+    setattr(server.agent.cfg.cmd_api.waveform_viewers, extension, Config(dict(kind='web',url='/custom/')))
     assert extension in client.get('/api/waveform/viewers').json()['formats']
     response = client.get('/wave/',params={'meta':meta},follow_redirects=False)
     assert response.headers['location'] == '../custom/?meta=trace.' + extension + '.json'
@@ -229,7 +230,7 @@ def test_subworkspace_creation_containment_and_command_injection(tmp_path, servi
     assert shlex.split(server._xpra.created[-1]['command'])[3] == str((child/'a.fsdb.json').resolve())
     for body in ({'wave_meta':'a.fsdb.json','command':'sh'}, {'wave_meta':'a.fsdb.json','env':{'X':'Y'}}):
         assert client.post('/api/xpra/sessions?sub_worspace=child',json=body).status_code == 422
-    server.pdb.agent.cfg.un_write_dirs=['child/protected']
+    server.agent.cfg.un_write_dirs=['child/protected']
     (child/'protected').mkdir()
     (child/'protected/a.vcd').write_bytes(b'wave')
     assert client.post('/api/waveform/metadata?sub_worspace=child',json={'waveform_file':'protected/a.vcd'}).status_code == 422

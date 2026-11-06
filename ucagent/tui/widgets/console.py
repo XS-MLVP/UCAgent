@@ -101,15 +101,15 @@ class ConsoleWidget(AutoScrollMixin, Vertical):
         )
 
     def restore_state(self, state: ConsoleWidgetState | None) -> None:
-        self.clear_output(sync_to_vpdb=False)
+        self.clear_output(sync_to_console=False)
         if state is None:
             return
 
         for entry in state.entries:
             if entry.kind == "command":
-                self._write_command(entry.payload, record=True, sync_to_vpdb=False)
+                self._write_command(entry.payload, record=True, sync_to_console=False)
             elif entry.kind == "output":
-                self._write_output(entry.payload, record=True, sync_to_vpdb=False)
+                self._write_output(entry.payload, record=True, sync_to_console=False)
 
     def _flush_batch(self) -> None:
         texts: list[str] = []
@@ -125,15 +125,15 @@ class ConsoleWidget(AutoScrollMixin, Vertical):
         combined = "".join(texts)
         self.append_output(combined)
 
-    def append_output(self, text: str, *, sync_to_vpdb: bool = True) -> None:
-        self._write_output(text, record=True, sync_to_vpdb=sync_to_vpdb)
+    def append_output(self, text: str, *, sync_to_console: bool = True) -> None:
+        self._write_output(text, record=True, sync_to_console=sync_to_console)
 
     def _write_output(
             self,
             text: str,
             *,
             record: bool,
-            sync_to_vpdb: bool,
+            sync_to_console: bool,
     ) -> None:
         if not text:
             return
@@ -142,10 +142,10 @@ class ConsoleWidget(AutoScrollMixin, Vertical):
                 self._entries[-1].payload += text
             else:
                 self._entries.append(ConsoleEntry("output", text))
-        if sync_to_vpdb:
-            vpdb = getattr(self.app, "vpdb", None)
-            if vpdb is not None and hasattr(vpdb, "record_console_output"):
-                vpdb.record_console_output(text)
+        if sync_to_console:
+            console = getattr(self.app, "frontend", None)
+            if console is not None and hasattr(console, "record_console_output"):
+                console.record_console_output(text)
 
         processed = text.replace("\t", "    ")
         processed = processed.replace("\r\n", "\n").replace("\r", "\n")
@@ -158,22 +158,22 @@ class ConsoleWidget(AutoScrollMixin, Vertical):
                 continue
             output_log.write(Text.from_ansi(line))
 
-    def echo_command(self, cmd: str, *, sync_to_vpdb: bool = True) -> None:
-        self._write_command(cmd, record=True, sync_to_vpdb=sync_to_vpdb)
+    def echo_command(self, cmd: str, *, sync_to_console: bool = True) -> None:
+        self._write_command(cmd, record=True, sync_to_console=sync_to_console)
 
     def _write_command(
             self,
             cmd: str,
             *,
             record: bool,
-            sync_to_vpdb: bool,
+            sync_to_console: bool,
     ) -> None:
         if record:
             self._entries.append(ConsoleEntry("command", cmd))
-        if sync_to_vpdb:
-            vpdb = getattr(self.app, "vpdb", None)
-            if vpdb is not None and hasattr(vpdb, "record_console_command"):
-                vpdb.record_console_command(cmd)
+        if sync_to_console:
+            console = getattr(self.app, "frontend", None)
+            if console is not None and hasattr(console, "record_console_command"):
+                console.record_console_command(cmd)
         output_log = self.query_one("#console-output", RichLog)
         t = Text(f"> {cmd}", style="bold")
         output_log.write(
@@ -186,15 +186,15 @@ class ConsoleWidget(AutoScrollMixin, Vertical):
             )
         )
 
-    def clear_output(self, *, sync_to_vpdb: bool = True) -> None:
+    def clear_output(self, *, sync_to_console: bool = True) -> None:
         output_log = self.query_one("#console-output", RichLog)
         output_log.clear()
         self._entries.clear()
         self._exit_manual_scroll()
-        if sync_to_vpdb:
-            vpdb = getattr(self.app, "vpdb", None)
-            if vpdb is not None and hasattr(vpdb, "clear_console_state"):
-                vpdb.clear_console_state()
+        if sync_to_console:
+            console = getattr(self.app, "frontend", None)
+            if console is not None and hasattr(console, "clear_console_state"):
+                console.clear_console_state()
 
     def action_clear_console(self) -> None:
         self.clear_output()

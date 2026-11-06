@@ -11,6 +11,7 @@ from dataclasses import replace
 from unittest import mock
 
 import pytest
+from ucagent.control.runtime.host import RuntimeHost
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "ucagent/plugins/UnityTest/src"))
 
@@ -49,6 +50,14 @@ from ucagent.tools.uctool import UCTool, to_mcp_tool
 from ucagent.tools.fileops import is_file_writeable as _is_file_writeable
 from ucagent.util.config import Config
 from ucagent.verify_agent import VerifyAgent
+
+
+def _close_agent(agent):
+    """Close test-owned resources through the same lifecycle owner as the application."""
+    host = RuntimeHost(agent)
+    host.start()
+    host.request_shutdown()
+    assert host.wait(3)["instance"] == "closed"
 
 
 @pytest.fixture(autouse=True)
@@ -246,7 +255,7 @@ def test_local_plugin_import_root_is_available_to_test_subprocesses(
             str((project / "src").resolve())
         ]
     finally:
-        agent.exit()
+        _close_agent(agent)
 
 
 def test_plugin_import_root_is_available_to_stage_checker_pytest(
@@ -1123,6 +1132,7 @@ def test_plugin_discovery_uses_only_search_path_overrides() -> None:
     ]
 
 
+@pytest.mark.usefixtures("cli_runtime")
 def test_plugin_workflow_keeps_declared_skills_optional_when_disabled(
     tmp_path: Path,
 ) -> None:
@@ -1193,6 +1203,7 @@ def test_plugin_workflow_keeps_declared_skills_optional_when_disabled(
     ]
 
 
+@pytest.mark.usefixtures("cli_runtime")
 def test_cli_activates_plugin_level_docs_and_skills_without_a_workflow(
     tmp_path: Path,
 ) -> None:
@@ -1316,7 +1327,7 @@ def test_verify_agent_direct_plugin_activation_copies_docs_and_optional_skills(
             / "resource-plugin"
         ).exists()
     finally:
-        disabled_agent.exit()
+        _close_agent(disabled_agent)
 
     (docs / "plugin-api.md").write_text(
         "# Updated Plugin API\n", encoding="utf-8"
@@ -1327,7 +1338,7 @@ def test_verify_agent_direct_plugin_activation_copies_docs_and_optional_skills(
             disabled_workspace / "Guide_Doc" / "plugin-api.md"
         ).read_text(encoding="utf-8") == "# Updated Plugin API\n"
     finally:
-        refreshed_agent.exit()
+        _close_agent(refreshed_agent)
 
     enabled_workspace = tmp_path / "enabled"
     enabled_agent = create_agent(enabled_workspace, True)
@@ -1342,7 +1353,7 @@ def test_verify_agent_direct_plugin_activation_copies_docs_and_optional_skills(
             / "SKILL.md"
         ).is_file()
     finally:
-        enabled_agent.exit()
+        _close_agent(enabled_agent)
 
 
 def test_verify_agent_refreshes_plugin_docs_after_interrupted_run(
@@ -1403,8 +1414,8 @@ def test_verify_agent_refreshes_plugin_docs_after_interrupted_run(
         assert runtime_doc.read_text(encoding="utf-8") == "# Updated Plugin API\n"
     finally:
         if second_agent is not None:
-            second_agent.exit()
-        first_agent.exit()
+            _close_agent(second_agent)
+        _close_agent(first_agent)
 
 
 def test_verify_agent_rejects_plugin_doc_conflicting_with_base_runtime_doc(
@@ -1523,7 +1534,7 @@ def test_verify_agent_composes_core_and_plugin_guide_docs_by_policy(
         assert (runtime_docs / "dut_fixture.md").is_file()
         assert (runtime_docs / "plugin_only.md").is_file()
     finally:
-        agent.exit()
+        _close_agent(agent)
 
 
 def test_verify_agent_filters_plugin_guide_docs_after_template_resolution(
@@ -1590,7 +1601,7 @@ def test_verify_agent_filters_plugin_guide_docs_after_template_resolution(
         assert not (runtime_docs / "coding_standard_verilog.md").exists()
         assert (runtime_docs / "dut_fixture.md").is_file()
     finally:
-        agent.exit()
+        _close_agent(agent)
 
 
 def test_verify_agent_rejects_plugin_doc_symlink_parent(
@@ -1934,7 +1945,7 @@ def test_verify_agent_renders_resolved_template_override_values(
             encoding="utf-8"
         ) == "language=chisel dut=VectorUnit\n"
     finally:
-        agent.exit()
+        _close_agent(agent)
 
 
 def test_verify_agent_renders_dynamic_workflow_template_context(
@@ -1985,7 +1996,7 @@ def test_verify_agent_renders_dynamic_workflow_template_context(
             encoding="utf-8"
         ) == "language=chisel\n"
     finally:
-        agent.exit()
+        _close_agent(agent)
 
 
 def test_design_with_ppa_local_plugin_creates_mcp_compatible_tool(tmp_path: Path) -> None:

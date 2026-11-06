@@ -36,11 +36,11 @@ First, confirm that the old UCAgent and any external Code Agent have exited, the
 First, read the `artifact`, `location`, `observed`, `expected`, and `next_action` returned by the Checker. If necessary, use:
 
 ```text
-tool_invoke StdCheck lines=-1
+tool_invoke StdCheck {"lines":-1}
 tool_invoke KillCheck
 ```
 
-After fixing, re-run the tests, `Check`, and `Complete`. Test infrastructure failures should be fixed to Pass first; only reproducible DUT failures with correct assertions should be recorded as Bugs.
+These `tool_invoke` calls also use the model-operation slot. If active work causes `busy`, cancel the relevant operation with `Ctrl+C` or the [HTTP API](10_runtime_control.md) and wait for it to end. After fixing, re-run the tests, `Check`, and `Complete`. Test infrastructure failures should be fixed to Pass first; only reproducible DUT failures with correct assertions should be recorded as Bugs.
 
 ### Why is `config.yaml` not found at startup?
 

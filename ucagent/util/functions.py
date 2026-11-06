@@ -21,6 +21,8 @@ import locale
 from pathlib import Path, PurePosixPath
 import yaml
 from collections import OrderedDict
+from contextvars import ContextVar
+import math
 import subprocess
 import selectors
 import signal
@@ -579,7 +581,6 @@ def fill_dlist_none(data, value, keys=None, json_keys=[]):
             json.loads(v)
             return v
         except json.JSONDecodeError as e:
-            from .log import warning
             v = f"Find Invalid JSON string: {repr(v)} - {e}, set as empty JSON object."
             warning(v)
             return json.dumps({"error": v})
@@ -1395,168 +1396,166 @@ def get_workspace_skill_root(workspace):
     return get_abs_path_cwd_ucagent(workspace, "skills")
 
 
-def process_bash_cmd(
-    CWD,
-    cmd,
-    echo_func,
-    interrupted_fc=None,
-    idle_timeout=None,
-    activity_fc=None,
+# A worker sets this token for nested command-line backend calls. Each worker
+# has its own context; cancellation never crosses into another operation.
+PROCESS_CANCELLATION = ContextVar("ucagent_process_cancellation", default=None)
+
+
+def run_shell_process(
+    cwd, command, output_fc=None, *, cancel_event=None, interrupted_fc=None,
+    idle_timeout=0, activity_fc=None, termination_grace=1.0, output_limit=1048576,
 ):
-    """Run a shell command while streaming output and honoring cancellation.
+    """Run a POSIX shell process group and return its real exit and stream data.
 
-    ``idle_timeout`` measures seconds since the last stdout/stderr byte or
-    active callback report. A non-positive value or ``None`` disables the
-    timeout. The command and its descendants are terminated as one process
-    group when cancellation or the idle timeout fires. The timeout is reported
-    as a command failure, while explicit cancellation remains an interruption.
-    ``activity_fc`` may return a falsy value while still marking activity by
-    mutating the shared ``activity_marks`` list, so callers can report
-    side-channel work (for example observed file changes) without blocking
-    the tool-call probe.
+    Output is delivered as decoded chunks before process exit. Any output byte
+    or positive activity probe refreshes the idle deadline. Cancellation sends
+    TERM, then KILL after the grace period; the direct child is always reaped.
+    Background processes in this operation's group are also cleaned up when
+    the shell exits. Detached daemons belong to a service owner, not this API.
     """
-    activity_marks: list = []
-    def _terminate_process(process):
-        if process.poll() is not None:
-            info(f"Process {process.pid} already terminated.")
-            return
-        warning(f"Terminating process {process.pid}...")
-        try:
-            if os.name != "nt":
-                os.killpg(process.pid, signal.SIGTERM)
-            else:
-                process.terminate()
-            process.wait(timeout=1)
-        except subprocess.TimeoutExpired:
-            if os.name != "nt":
-                os.killpg(process.pid, signal.SIGKILL)
-            else:
-                process.kill()
-            process.wait(timeout=1)
-        except ProcessLookupError:
-            warning(f"Process {process.pid} does not exist, it may have already terminated.")
-        except Exception as e:
-            warning(f"Failed to terminate process {process.pid}: {e}, trying to force kill...")
-            try:
-                process.kill()
-                process.wait(timeout=1)
-            except Exception as e:
-                warning(f"Failed to force kill process {process.pid}: {e}")
-    info(f'Executing bash command: {cmd}')
-    popen_kwargs = {}
-    if os.name != "nt":
-        popen_kwargs["start_new_session"] = True
-    process = subprocess.Popen(cmd, shell=True, cwd=CWD,
-                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                               bufsize=0, **popen_kwargs)
-    output_lines = []
-    interrupted = False
-    last_output_at = time.monotonic()
-    line_buffer = ""
-    decoder = codecs.getincrementaldecoder(locale.getpreferredencoding(False))(errors="replace")
-
-    def _emit_output_line(line):
-        line = line.strip()
-        output_lines.append(line)
-        if callable(echo_func):
-            echo_func(line)
-
-    def _append_output_text(text):
-        nonlocal line_buffer
-        line_buffer += text
-        lines = line_buffer.splitlines(keepends=True)
-        if lines and not lines[-1].endswith(("\n", "\r")):
-            line_buffer = lines.pop()
-        else:
-            line_buffer = ""
-        for line in lines:
-            _emit_output_line(line)
-
-    def _flush_output_buffer():
-        nonlocal line_buffer
-        tail = decoder.decode(b"", final=True)
-        if tail:
-            _append_output_text(tail)
-        if line_buffer:
-            _emit_output_line(line_buffer)
-            line_buffer = ""
-
-    with selectors.DefaultSelector() as selector:
-        stdout_fd = None
-        stdout_open = False
-        if process.stdout is not None:
-            stdout_fd = process.stdout.fileno()
-            os.set_blocking(stdout_fd, False)
-            selector.register(stdout_fd, selectors.EVENT_READ)
-            stdout_open = True
-
-        def _drain_stdout(timeout=0):
-            nonlocal stdout_open
-            if not stdout_open or stdout_fd is None:
-                return False
-            read_any = False
-            for _, _ in selector.select(timeout=timeout):
-                while True:
-                    try:
-                        chunk = os.read(stdout_fd, 4096)
-                    except BlockingIOError:
-                        break
-                    except OSError:
-                        stdout_open = False
-                        break
-                    if not chunk:
-                        stdout_open = False
-                        try:
-                            selector.unregister(stdout_fd)
-                        except Exception:
-                            pass
-                        break
-                    read_any = True
-                    _append_output_text(decoder.decode(chunk))
-            return read_any
-
-        try:
+    if os.name != "posix":
+        raise NotImplementedError("Managed shell process groups require POSIX.")
+    if not isinstance(command, str) or not command.strip():
+        raise ValueError("Shell command cannot be empty")
+    for name, value in (("idle_timeout", idle_timeout), ("termination_grace", termination_grace)):
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
+            raise ValueError(f"{name} must be a finite non-negative number")
+    if type(output_limit) is not int or output_limit < 1:
+        raise ValueError("output_limit must be a positive integer")
+    if cancel_event is None:
+        cancel_event = PROCESS_CANCELLATION.get()
+    if cancel_event is not None and cancel_event.is_set():
+        return {"pid": None, "returncode": None, "reason": "cancelled", "stdout": "", "stderr": "", "truncated": False}
+    decoders = {name: codecs.getincrementaldecoder(locale.getpreferredencoding(False))(errors="replace")
+                for name in ("stdout", "stderr")}
+    process = subprocess.Popen(command, shell=True, cwd=cwd, stdin=subprocess.DEVNULL,
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                               bufsize=0, start_new_session=True)
+    streams = {"stdout": process.stdout, "stderr": process.stderr}
+    captured = {name: "" for name in streams}
+    truncated = False
+    last_activity = time.monotonic()
+    stop_at = None
+    reason = "completed"
+    activity_marks = []
+    try:
+        with selectors.DefaultSelector() as selector:
+            for name, stream in streams.items():
+                os.set_blocking(stream.fileno(), False)
+                selector.register(stream, selectors.EVENT_READ, name)
             while True:
-                if callable(interrupted_fc) and interrupted_fc():
-                    interrupted = True
-                    _terminate_process(process)
-                    info(f"Bash command '{cmd}' aborted.")
-                    break
-                read_any = _drain_stdout(timeout=0.1)
-                tool_active = False
-                if callable(activity_fc):
+                now = time.monotonic()
+                if stop_at is None:
+                    cancelled = ((cancel_event is not None and cancel_event.is_set())
+                                 or (interrupted_fc is not None and interrupted_fc()))
+                    if cancelled:
+                        reason = "cancelled"
+                        stop_at = now
+                    elif process.poll() is not None:
+                        stop_at = now
+                    if stop_at is not None:
+                        # Do not skip group cleanup just because the shell exited.
+                        try:
+                            os.killpg(process.pid, signal.SIGTERM)
+                        except ProcessLookupError:
+                            pass
+                if stop_at is not None and now - stop_at >= termination_grace:
                     try:
-                        tool_active = bool(activity_fc(activity_marks))
-                    except Exception:
-                        # Treat an unavailable probe as active work so a
-                        # backend cannot kill a command during a tool call.
-                        tool_active = True
-                if read_any or tool_active or activity_marks:
-                    activity_marks.clear()
-                    last_output_at = time.monotonic()
-                if process.poll() is not None:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    if now - stop_at > termination_grace + 1 and selector.get_map():
+                        raise RuntimeError("Output pipes remained open after process-group cleanup")
+                for key, _ in selector.select(timeout=0.05):
+                    try:
+                        chunk = os.read(key.fd, 65536)
+                    except BlockingIOError:
+                        continue
+                    if chunk:
+                        last_activity = time.monotonic()
+                    else:
+                        selector.unregister(key.fileobj)
+                    text = decoders[key.data].decode(chunk, final=not chunk)
+                    if text:
+                        value = captured[key.data] + text
+                        truncated = truncated or len(value) > output_limit
+                        captured[key.data] = value[-output_limit:]
+                        if output_fc is not None:
+                            output_fc(key.data, text)
+                if process.poll() is not None and not selector.get_map():
                     break
-                if (
-                    idle_timeout is not None
-                    and idle_timeout > 0
-                    and time.monotonic() - last_output_at >= idle_timeout
-                ):
-                    warning(
-                        f"Terminating process {process.pid} after "
-                        f"{idle_timeout:g} seconds without output or active tool calls."
-                    )
-                    _terminate_process(process)
-                    info(f"Bash command '{cmd}' timed out while idle.")
-                    break
-        except KeyboardInterrupt:
-            interrupted = True
-            _terminate_process(process)
-            info(f"Bash command '{cmd}' interrupted.")
-        while _drain_stdout(timeout=0):
+                # Probe after polling: files/tools may progress during the wait.
+                # Timestamp the observation after the probe, which can itself take time.
+                if stop_at is None:
+                    active = False
+                    if activity_fc is not None:
+                        try:
+                            active = bool(activity_fc(activity_marks))
+                        except Exception:
+                            # An unavailable probe cannot establish that a tool is idle.
+                            active = True
+                    if active or activity_marks:
+                        last_activity = time.monotonic()
+                        activity_marks.clear()
+                # Account for output and side-channel activity before the idle decision.
+                if (stop_at is None and process.poll() is None and idle_timeout
+                        and time.monotonic() - last_activity >= idle_timeout):
+                    reason = "timeout"
+                    stop_at = time.monotonic()
+                    try:
+                        os.killpg(process.pid, signal.SIGTERM)
+                    except ProcessLookupError:
+                        pass
+    except KeyboardInterrupt:
+        reason = "cancelled"
+    finally:
+        # Exception paths (including failed output callbacks) have the same owner.
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
             pass
-        _flush_output_buffer()
-        if process.stdout is not None:
-            process.stdout.close()
-    return_code = process.poll()
-    info(f"Bash command '{cmd}' finished with return code {return_code}.")
-    return return_code, output_lines, interrupted
+        finally:
+            process.wait()
+            for stream in streams.values():
+                stream.close()
+    return {"pid": process.pid, "returncode": process.returncode, "reason": reason,
+            **captured, "truncated": truncated}
+
+
+def process_bash_cmd(
+    CWD, cmd, echo_func, interrupted_fc=None, idle_timeout=None, activity_fc=None,
+):
+    """Run a backend command using shared streaming, cancellation and group cleanup.
+
+    Keep the backend's line-oriented return contract. A timeout remains a
+    retryable failure, while explicit cancellation resets its failure budget.
+    Activity probes retain the mutable marks contract used by MCP tools.
+    """
+    output_lines = []
+    buffers = {"stdout": "", "stderr": ""}
+
+    def on_output(stream, text):
+        """Deliver complete lines while retaining partial output until stream end."""
+        lines = (buffers[stream] + text).splitlines(keepends=True)
+        buffers[stream] = ""
+        if lines and not lines[-1].endswith(("\n", "\r")):
+            buffers[stream] = lines.pop()
+        for line in lines:
+            line = line.strip()
+            output_lines.append(line)
+            if echo_func is not None:
+                echo_func(line)
+
+    info(f"Executing bash command: {cmd}")
+    result = run_shell_process(CWD, cmd, on_output, interrupted_fc=interrupted_fc,
+                               idle_timeout=idle_timeout or 0, activity_fc=activity_fc)
+    for tail in buffers.values():
+        if tail:
+            output_lines.append(tail.strip())
+            if echo_func is not None:
+                echo_func(tail.strip())
+    code = result["returncode"]
+    if result["reason"] == "timeout" and not code:
+        code = 124
+    info(f"Bash command finished with return code {code} ({result['reason']}).")
+    return code, output_lines, result["reason"] == "cancelled"

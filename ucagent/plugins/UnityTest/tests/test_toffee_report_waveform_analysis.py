@@ -3483,11 +3483,11 @@ def test_current_replay_does_not_apply_memory_only_receipt(tmp_path, monkeypatch
         "reanalyze_confirmed_bug", "reanalyze_not_bug", "reanalyze_false_removal",
     ],
 )
-def test_pdb_waveform_replay_uses_real_classification_and_signed_evidence(
+def test_plugin_waveform_replay_uses_real_classification_and_signed_evidence(
     tmp_path, monkeypatch, capsys, outcome
 ):
     """Manual replay preserves real classifier, receipt, replay, and writer contracts."""
-    from ucagent.verify_pdb import VerifyPDB
+    from unity_test.operations.waveform_replay import WaveformReplay
     from unity_test.bug_analysis_contract import NO_BUG_DOCUMENT_TITLE, NO_BUG_DOCUMENT_SECTIONS
 
     _write_functions(tmp_path)
@@ -3636,12 +3636,10 @@ def test_pdb_waveform_replay_uses_real_classification_and_signed_evidence(
     monkeypatch.setattr(type(classifier.run_test), "do", run_full_tests)
     if outcome == "write_failure":
         monkeypatch.setattr(ApplyWaveInfoEvidence, "_atomic_replace", fail_replace)
-    pdb = VerifyPDB.__new__(VerifyPDB)
-    pdb.agent = agent
-    pdb._waveform_replay_lock = threading.Lock()
+    replay = WaveformReplay(agent)
     agent.custom_chat = reanalyze
 
-    pdb.do_waveform_replay("--reanalyze --max-rounds 1" if outcome.startswith("reanalyze_") else "")
+    replay.run("--reanalyze --max-rounds 1" if outcome.startswith("reanalyze_") else "")
 
     log = capsys.readouterr().out
     assert len(runner_calls) == (2 if outcome.startswith("reanalyze_") else 1), log
@@ -3664,7 +3662,7 @@ def test_pdb_waveform_replay_uses_real_classification_and_signed_evidence(
         assert len(model_calls) == 1
         assert "LLM REANALYSIS round 1/1" in log
         assert agent.is_break() is True
-        assert pdb._waveform_replay_lock.locked() is False
+        assert replay._waveform_replay_lock.locked() is False
         if outcome == "reanalyze_false_removal":
             assert "[waveform_replay] SUCCESS" not in log
             assert "DUT test classification failed" in log
@@ -3720,11 +3718,11 @@ def test_pdb_waveform_replay_uses_real_classification_and_signed_evidence(
 
 
 @pytest.mark.parametrize("relationship", ["shared_bg", "shared_tc", "shared_root"])
-def test_pdb_waveform_reanalysis_preserves_supported_shared_findings(
+def test_plugin_waveform_reanalysis_preserves_supported_shared_findings(
     tmp_path, monkeypatch, capsys, relationship
 ):
     """Scoped removal preserves shared BGs, failing TCs, roots, and signed central evidence."""
-    from ucagent.verify_pdb import VerifyPDB
+    from unity_test.operations.waveform_replay import WaveformReplay
 
     _write_functions(tmp_path)
     test_dir = tmp_path / "tests"
@@ -3838,10 +3836,8 @@ def test_pdb_waveform_reanalysis_preserves_supported_shared_findings(
 
     monkeypatch.setattr(type(classifier.run_test), "do", run_tests)
     agent.custom_chat = reanalyze
-    pdb = VerifyPDB.__new__(VerifyPDB)
-    pdb.agent = agent
-    pdb._waveform_replay_lock = threading.Lock()
-    pdb.do_waveform_replay("--reanalyze --max-rounds 1")
+    replay = WaveformReplay(agent)
+    replay.run("--reanalyze --max-rounds 1")
 
     log = capsys.readouterr().out
     assert "[waveform_replay] SUCCESS" in log, log

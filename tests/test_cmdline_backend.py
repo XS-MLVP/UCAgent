@@ -22,7 +22,7 @@ class _FakeAgent:
         self._break = False
         self.messages = []
         self.workspace = workspace or current_dir
-        self.pdb = SimpleNamespace(_mcp_server=None)
+        self.services = SimpleNamespace(require_endpoint=lambda name: {"host": "127.0.0.1", "port": 5678})
 
     def message_echo(self, txt: str) -> None:
         self.messages.append(txt)
@@ -199,6 +199,7 @@ def test_render_config_files_uses_context_and_creates_parent_dir(tmp_path, monke
     )
 
     backend.init()
+    backend.prepare()
 
     rendered_file = workspace / "nested" / "config.json"
     assert rendered_file.read_text(encoding="utf-8") == (
@@ -228,6 +229,7 @@ def test_opencode_template_denies_shell_and_external_workspace_access(
         render_files={template_file: "{CWD}/opencode.json"},
     )
     backend.init()
+    backend.prepare()
 
     rendered = json.loads((workspace / "opencode.json").read_text(encoding="utf-8"))
     assert rendered["permission"] == {
@@ -259,6 +261,7 @@ def test_codex_template_includes_env_key_only_when_openai_api_key_exists(tmp_pat
         render_files={template_file: "{CWD}/with-key.toml"},
     )
     backend.init()
+    backend.prepare()
 
     with_key = (workspace / "with-key.toml").read_text(encoding="utf-8")
     assert 'env_key = "OPENAI_API_KEY"' in with_key
@@ -271,6 +274,7 @@ def test_codex_template_includes_env_key_only_when_openai_api_key_exists(tmp_pat
         render_files={template_file: "{CWD}/without-key.toml"},
     )
     backend.init()
+    backend.prepare()
 
     without_key = (workspace / "without-key.toml").read_text(encoding="utf-8")
     assert 'env_key = "OPENAI_API_KEY"' not in without_key
@@ -305,6 +309,7 @@ def _render_model_backend_templates(tmp_path, monkeypatch):
         render_files=render_files,
     )
     backend.init()
+    backend.prepare()
     return workspace
 
 

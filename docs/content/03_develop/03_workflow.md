@@ -113,11 +113,11 @@ ucagent <workspace> <DUT> --unskip <runtime_stage_index>
 ```text
 skip_stage <runtime_stage_index>
 unskip_stage <runtime_stage_index>
-tool_invoke GoToStage index=<runtime_stage_index>
+tool_invoke GoToStage {"index":2}
 hmcheck_set <runtime_stage_index> true
 ```
 
-索引是展平后的运行时索引；修改工作流后不要继续使用旧编号。`GoToStage` 只能回到已经到达的阶段。跳过阶段不会生成它本应产出的文件，后续 Checker 可能因此失败；只有确认阶段不适用时才跳过。
+示例中的 `2` 应替换为目标索引。索引是展平后的运行时索引；修改工作流后不要继续使用旧编号。`GoToStage` 只能回到已经到达的阶段。跳过阶段不会生成它本应产出的文件，后续 Checker 可能因此失败；只有确认阶段不适用时才跳过。
 
 ## 5. Checker 配置
 

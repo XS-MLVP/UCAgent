@@ -1198,8 +1198,8 @@ class Recorder(Checker):
             )
 
         agent = getattr(self.stage_manager, "agent", None)
-        pdb = getattr(agent, "pdb", None)
-        master_clients = getattr(pdb, "_master_clients", {}) if pdb is not None else {}
+        connections = self.stage_manager.master_connections
+        master_clients = connections() if connections is not None else {}
         if not master_clients:
             info(
                 f"Recorder skipped Master synchronization for type '{self.record_type}' "

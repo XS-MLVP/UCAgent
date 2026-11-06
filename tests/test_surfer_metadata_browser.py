@@ -14,7 +14,9 @@ from urllib.parse import urlencode
 
 import pytest
 
-from ucagent.server.api_cmd import PdbCmdApiServer
+from ucagent.server.api_cmd import ControlApiServer
+from ucagent.control.controller import Controller
+from ucagent.util.config import Config
 from ucagent.util import waveform_viewer
 
 
@@ -83,9 +85,9 @@ def test_metadata_populates_variables_and_uses_full_names(
     with socket.socket() as reservation:
         reservation.bind(("127.0.0.1", 0))
         port = reservation.getsockname()[1]
-    server = PdbCmdApiServer(SimpleNamespace(
-        agent=SimpleNamespace(workspace=str(workspace)), stdout=None,
-    ), host="127.0.0.1", port=port, sock="")
+    server = ControlApiServer(Controller(SimpleNamespace(
+        workspace=str(workspace), cfg=Config({"cmd_api": {"xpra": {}, "waveform_viewers": {}}}),
+    )), host="127.0.0.1", port=port, sock="")
     try:
         ok, message = server.start()
         assert ok, message

@@ -36,12 +36,12 @@ ucagent <workspace> <dut_name> [options]
 | 选项                 | 简写 | 取值/类型                  | 默认值   | 说明                                                          |
 | :------------------- | :--- | :------------------------- | :------- | :------------------------------------------------------------ |
 | --stream-output      | -s   | flag                       | 关闭     | 流式输出到控制台                                              |
-| --human              | -hm  | flag                       | 关闭     | 启动时进入人工输入/断点模式                                   |
+| --human              | -hm  | flag                       | 关闭     | 启动普通 Console 交互入口                                   |
 | --interaction-mode   | -im  | standard/enhanced/advanced | standard | 交互模式；enhanced 含规划与记忆管理，advanced 含自适应策略    |
 | --tui                |      | flag                       | 关闭     | 启用终端 TUI 界面                                              |
 | --web-console        |      | [host[:port]] [password]   | 关闭     | 启用浏览器 Web UI（独立模式）。默认 `localhost:8000`。**注意：仅提供 Web 界面，不提供本地命令行交互** |
 | --web-terminal       |      | [host[:port]] [password]   | 关闭     | 启动 Web Terminal 服务器。默认 `127.0.0.1:8818`。**同时提供 Web 终端和本地命令行交互** |
-| --loop               | -l   | flag                       | 关闭     | 启动后立即进入主循环（可配合 --loop-msg） |
+| --loop               | -l   | flag                       | 关闭     | 初始化时提交自动执行循环（可配合 --loop-msg） |
 | --loop-msg           |      | str                        | 空       | 进入循环时注入的首条消息                                      |
 | --seed               |      | int                        | 随机     | 随机种子（未指定则自动随机）                                  |
 | --sys-tips           |      | str                        | 空       | 覆盖系统提示词                                                |

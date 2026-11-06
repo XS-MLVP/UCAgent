@@ -294,6 +294,9 @@ def get_plugin():
 | `guide_doc_paths` | 插件激活时合入 runtime `Guide_Doc` 的文件或目录 |
 | `skill_paths` | 插件激活且 Skill 功能开启时复制的 Skill 集合目录 |
 | `workflows` | 可选择的完整配置入口及该工作流专属资源 |
+| `manager_tools` | 扩展可由工作流选择的阶段管理工具 |
+| `runtime_hooks` | 显式提供配置快照与阶段开始 hook |
+| `command_factories` | 向实例共享注册表贡献 Console/TUI/HTTP 命令 |
 
 允许所有能力字段为空，便于先发布和验证插件的 metadata、依赖及资产合同，再逐步增加
 能力。实际发行版本应至少提供一种对用户有用的能力或资产。
@@ -313,6 +316,35 @@ def get_plugin():
 路径和读写策略。一个工厂可以返回一个工具或工具列表。UCAgent 会拒绝非 `UCTool`、
 插件间同名工具以及和核心/外部工具同名的工具。插件工具进入 Agent 与 MCP 的同一标准
 过滤流程，因此 `tools.ignore_tools` 和 `tools.selected_tools` 都会生效。
+
+## 运行控制命令
+
+插件可通过 `Plugin.command_factories` 注册交互命令，无需修改 Console、TUI 或 HTTP 的实现。工厂接收当前实例的 `Controller`，返回 `CommandSpec` 序列；`RuntimeHost` 组装注册表时调用它，拒绝命令名或别名与核心、其他插件冲突。
+
+以下只读命令复用已有阶段查询，不创建任务或线程：
+
+```python
+from ucagent.control.commands import Argument, CommandSpec
+
+
+def create_commands(controller):
+    return (
+        CommandSpec(
+            name="project_stage",
+            summary="Inspect a stage in this instance.",
+            owner="project",
+            arguments=(Argument("index", "int", None),),
+            handler=controller.task_detail,
+            completion="stages",
+        ),
+    )
+```
+
+在插件已有的 `Plugin(...)` 声明中加入 `command_factories=(create_commands,)`。插件激活后，用户可以执行 `help project_stage`、`project_stage 2`，HTTP `/api/cmd` 也使用同一声明。传入 `handler` 时，`owner` 标记职责；省略 `handler` 则要求运行层已经注入同名执行器，不会自动创建执行器。
+
+耗时且不占模型槽位的普通处理可声明 `blocking=True`，由注册表提交到共享执行器。需要模型互斥、进度和取消上下文的命令，应显式向共享执行器提交操作，使用 `context.checkpoint()` 等取消边界，并返回可序列化结果；不要自行管理线程或操作 TUI 对象。`CommandSpec.model=True` 是调度元数据，不会单独完成模型槽位预留；实现还需在提交操作时指定 `model=True`。当前参考实现是 UnityTest 的 `operations/waveform_replay.py` 中的 `waveform_commands`。
+
+命令贡献不会自动成为 MCP Tool。需要 MCP 暴露时另用 `tool_factories` / 阶段管理工具契约；两种入口可以调用同一业务实现，不能绕过 Check/Complete 门禁。运行层归属见[架构与工作原理](02_architecture.md)，调用方式见[运行控制](../02_usage/10_runtime_control.md)。
 
 ## Checker
 

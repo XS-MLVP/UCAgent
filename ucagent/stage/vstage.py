@@ -8,6 +8,8 @@ from ucagent.util.log import info, warning, message
 from ucagent.util.config import Config
 import ucagent.checkers as checkers
 from collections import OrderedDict
+from contextlib import nullcontext
+from functools import wraps
 import copy
 import json
 import time
@@ -15,6 +17,21 @@ import os
 from typing import Dict, Any
 
 SKILL_USAGE_EVIDENCE_SCHEMA_VERSION = 1
+
+
+def coordinated_stage_mutation(kind, *, manager=False):
+    """Wrap a domain mutation with the optional runtime admission callback."""
+    def decorate(method):
+        """Retain the existing domain method and its public signature."""
+        @wraps(method)
+        def guarded(self, *args, **kwargs):
+            """Reserve mutation ownership without holding a lock during domain work."""
+            owner = self if manager else getattr(self, "vmanager", None)
+            guard = getattr(owner, "control_guard", None)
+            with guard(kind, stage=None if manager else self) if guard is not None else nullcontext():
+                return method(self, *args, **kwargs)
+        return guarded
+    return decorate
 
 
 def update_dict(d, u):
@@ -315,27 +332,14 @@ class VerifyStage(object):
         return default
 
     def _sync_workspace_back_on_complete(self, _stage):
-        if not self._cfg_bool("master_api.sync_workspace.on_stage_complete", True):
+        """Save stage state before invoking the injected workspace synchronization callback."""
+        if not self._cfg_bool("master_api.sync_workspace.on_stage_complete", True) or self.vmanager is None:
             return
-        if not self.vmanager:
+        callback = self.vmanager.workspace_sync_callback
+        if callback is None:
             return
-        agent = getattr(self.vmanager, "agent", None)
-        pdb = getattr(agent, "pdb", None)
-        master_clients = getattr(pdb, "_master_clients", {}) or {}
-        if not master_clients:
-            return
-        try:
-            self.vmanager.save_stage_info()
-        except Exception as exc:
-            warning(f"[{self.__class__.__name__}.{self.name}] save stage info before sync-back failed: {exc}")
-        for url, client in list(master_clients.items()):
-            if not getattr(client, "is_running", False):
-                continue
-            ok, msg = client.sync_workspace_back(reason=f"stage_complete:{self.name}")
-            if ok:
-                info(msg)
-            else:
-                info(f"Workspace sync-back skipped for {url}: {msg}")
+        self.vmanager.save_stage_info()
+        callback(reason=f"stage_complete:{self.name}")
 
     def set_usage_skill_list(
         self,
@@ -707,7 +711,9 @@ class VerifyStage(object):
         else:
             warning(f"Stage {self.name} is already inited, cannot recall on_init.")
 
+    @coordinated_stage_mutation("human")
     def on_complete(self):
+        """Commit stage completion and notify existing callbacks under mutation ownership."""
         self._process_cmds(self.post_cmds, "Post-Bash")
         if self.time_end is not None:
             return
@@ -767,19 +773,25 @@ class VerifyStage(object):
             ret.append(f"{secs:02}s")
         return " ".join(ret)
 
+    @coordinated_stage_mutation("skip")
     def set_skip(self, is_skip):
+        """Apply a coordinated skip flag to this stage and its substages."""
         self.skip = is_skip
         for sb in self.substages:
             sb.set_skip(is_skip)
 
+    @coordinated_stage_mutation("flags")
     def set_llm_pass_suggestion(self, value):
+        """Set the coordinated pass-suggestion override; None inherits configuration."""
         self.need_pass_llm_suggestion = value
         if value is None:
             return
         for sb in self.substages:
             sb.set_llm_pass_suggestion(value)
 
+    @coordinated_stage_mutation("flags")
     def set_llm_fail_suggestion(self, value):
+        """Set the coordinated failure-suggestion override; None inherits configuration."""
         self.need_fail_llm_suggestion = value
         if value is None:
             return
@@ -883,6 +895,7 @@ class VerifyStage(object):
             return False
         return self._hum_check_passed is not True
 
+    @coordinated_stage_mutation("review")
     def do_hmcheck_pass(self, msg=""):
         """
         Call the hmcheck_pass method of all HumanChecker in this stage.
@@ -893,6 +906,7 @@ class VerifyStage(object):
         self._hum_check_msg = msg
         return f"set stage '{self.name}' human check passed."
 
+    @coordinated_stage_mutation("review")
     def do_hmcheck_fail(self, msg=""):
         """
         Call the hmcheck_fail method of all HumanChecker in this stage.
@@ -914,6 +928,7 @@ class VerifyStage(object):
         else:
             return f"This stage({self.name}) human check failed."
 
+    @coordinated_stage_mutation("flags")
     def do_set_hmcheck_needed(self, need: bool):
         """
         Set whether human check is needed for all HumanChecker in this stage.
@@ -947,7 +962,9 @@ class VerifyStage(object):
             "fail": self.last_do_check_info_fail,
         }
 
+    @coordinated_stage_mutation("validation")
     def do_check(self, *a, **kwargs):
+        """Run the existing validation gates and retain detached result snapshots."""
         ck_pass, ck_info = self._do_check(*a, **kwargs)
         ck_info_snapshot = copy.deepcopy(ck_info)
         if ck_pass:
@@ -1326,7 +1343,30 @@ class VerifyStage(object):
                 "needs_human_check": self.is_hmcheck_needed(),
                 "last_human_check_result": self._hum_check_passed,
                 "last_human_check_msg": self._hum_check_msg,
+                "need_fail_llm_suggestion": self.need_fail_llm_suggestion,
+                "need_pass_llm_suggestion": self.need_pass_llm_suggestion,
         })
+
+    def restore_control_state(self, saved):
+        """Restore persisted review and flag values before runtime ownership is bound."""
+        fields = {"needs_human_check": "need_human_check",
+                  "last_human_check_result": "_hum_check_passed",
+                  "last_human_check_msg": "_hum_check_msg",
+                  "need_fail_llm_suggestion": "need_fail_llm_suggestion",
+                  "need_pass_llm_suggestion": "need_pass_llm_suggestion"}
+        for key, attribute in fields.items():
+            if key not in saved:
+                continue
+            value = saved[key]
+            if key == "last_human_check_msg":
+                valid = isinstance(value, str)
+            elif key == "needs_human_check":
+                valid = type(value) is bool
+            else:
+                valid = value is None or type(value) is bool
+            if not valid:
+                raise ValueError(f"Invalid persisted stage control field: {key}")
+            setattr(self, attribute, value)
 
     def public_detail(self):
         """Return stage guidance without validation implementation metadata."""

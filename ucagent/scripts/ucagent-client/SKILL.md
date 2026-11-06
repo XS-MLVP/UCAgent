@@ -1,12 +1,12 @@
 ---
 name: ucagent-client
-description: Control a running UCAgent CMD API server from an AI agent or shell. Use when the user wants to connect to UCAgent, run CMD/PDB commands, inspect status, console, mission, tasks, tools, workspace files, interrupt execution, or call raw CMD API endpoints.
+description: Control a running UCAgent CMD API server from an AI agent or shell. Use when the user wants to connect to UCAgent, run runtime commands, inspect status, console, mission, tasks, tools, workspace files, pause or cancel execution, or call raw CMD API endpoints.
 ---
 
 # UCAgent Client
 
 Use the bundled helper to communicate with a running UCAgent
-`PdbCmdApiServer`. The helper is dependency-free Python and can be used from
+`ControlApiServer`. The helper is dependency-free Python and can be used from
 any agent runtime that can execute local shell commands.
 
 ## Helper Resolution
@@ -36,11 +36,11 @@ Do not print password values. It is fine to report whether a password is set.
 Map user intent to helper subcommands:
 
 - Connect/save target: `python3 <helper> init [url] [--passwd <key>]`
-- Run one PDB command: `python3 <helper> cmd <cmd> [args...]`
+- Run one runtime command: `python3 <helper> cmd <cmd> [args...]`
 - Run multiple commands: `python3 <helper> batch <cmd> [<cmd> ...]`
 - Show status: `python3 <helper> status`
 - Show help: `python3 <helper> help [cmd]`
-- List PDB commands: `python3 <helper> cmds [prefix]`
+- List runtime commands: `python3 <helper> cmds [prefix]`
 - Show console output: `python3 <helper> console [--lines N]`
 - Clear console output: `python3 <helper> clear-console`
 - Show mission progress: `python3 <helper> mission`
@@ -50,9 +50,15 @@ Map user intent to helper subcommands:
 - Show recently changed files: `python3 <helper> changed-files [--count N]`
 - List workspace files: `python3 <helper> files [path]`
 - Read a workspace text file: `python3 <helper> file <path>`
-- Interrupt UCAgent: `python3 <helper> interrupt`
+- Pause UCAgent: `python3 <helper> pause`
+- Query an operation: `python3 <helper> operation <id>`
+- Cancel an operation: `python3 <helper> cancel <id>`
 - Remove saved state: `python3 <helper> disconnect`
 - Call an endpoint directly: `python3 <helper> raw <METHOD> <PATH> [JSON]`
 
 For status-style commands, summarize the important fields instead of dumping
 very large JSON unless the user asks for raw output.
+
+Command submissions return `operation_id`; poll the operation until `succeeded`, `failed`, or `cancelled`. Acceptance alone is not completion.
+
+Use `cmd --session <id> ...` to reuse the session returned by an earlier submission. Supply `--confirmed` only after the operator has approved a command that requires confirmation.

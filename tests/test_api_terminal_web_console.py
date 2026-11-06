@@ -8,7 +8,7 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.abspath(os.path.join(current_dir, "..")))
 
 from ucagent.server import api_terminal
-from ucagent.server.api_terminal import PdbWebTermServer, _get_web_console_exit_code
+from ucagent.server.api_terminal import WebTerminalServer, _get_web_console_exit_code
 
 
 def test_web_console_process_capture_records_traceback_from_pty():
@@ -25,7 +25,7 @@ def test_web_console_process_capture_records_traceback_from_pty():
                 "raise RuntimeError('web console boom')"
             ),
         ])
-        server = PdbWebTermServer(
+        server = WebTerminalServer(
             command,
             host="127.0.0.1",
             port=0,
@@ -91,7 +91,7 @@ def test_cli_writes_exception_to_web_console_capture_arg():
             "--web-console-capture-path",
             capture.name,
         ])
-        server = PdbWebTermServer(
+        server = WebTerminalServer(
             command,
             host="127.0.0.1",
             port=0,

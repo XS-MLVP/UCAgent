@@ -127,6 +127,7 @@ class Plugin:
     runtime_config_keys: tuple[str, ...] = ()
     manager_tools: tuple[type[Any], ...] = ()
     runtime_hooks: tuple[Callable[[], Any], ...] = ()
+    command_factories: tuple[Callable[[Any], Sequence[Any]], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -634,6 +635,8 @@ def validate_plugin(plugin: Plugin, *, check_dependencies: bool = True) -> Plugi
 
     if not isinstance(plugin, Plugin):
         raise PluginError("Plugin entry must return ucagent.plugins.Plugin")
+    if any(not callable(factory) for factory in plugin.command_factories):
+        raise PluginError("Plugin command_factories must be callable")
     if plugin.api_version != PLUGIN_API_VERSION:
         raise PluginError(
             f"Plugin {plugin.name!r} api_version must be {PLUGIN_API_VERSION}"
@@ -799,6 +802,7 @@ def validate_plugin(plugin: Plugin, *, check_dependencies: bool = True) -> Plugi
         checkers=checker_classes,
         manager_tools=plugin.manager_tools,
         runtime_hooks=plugin.runtime_hooks,
+        command_factories=plugin.command_factories,
         guide_doc_paths=guide_doc_paths,
         skill_paths=skill_paths,
         workflows=tuple(workflows),
@@ -1322,6 +1326,7 @@ def plugin_summary(loaded: LoadedPlugin) -> dict[str, Any]:
         "checkers": [checker.__name__ for checker in plugin.checkers],
         "manager_tools": [tool_class().name for tool_class in plugin.manager_tools],
         "runtime_hooks": [factory.__name__ for factory in plugin.runtime_hooks],
+        "command_factories": [factory.__name__ for factory in plugin.command_factories],
         "guide_docs": [
             str(path.relative_to(plugin.root)) for path in plugin.guide_doc_paths
         ],
@@ -1406,3 +1411,23 @@ def resolve_workflow_template_context(
             "Workflow template context must contain finite JSON values"
         ) from exc
     return dict(context)
+
+
+def register_plugin_commands(registry, plugins):
+    """Validate plugin command declarations and reject collisions with core or other plugins."""
+    from ucagent.control.commands import CommandSpec
+
+    pending = []
+    names = set(registry._names)
+    for loaded in plugins:
+        for factory in loaded.plugin.command_factories:
+            for spec in factory(registry.controller):
+                if not isinstance(spec, CommandSpec):
+                    raise PluginError("Plugin commands must be CommandSpec declarations")
+                for name in (spec.name, *spec.aliases):
+                    if name in names:
+                        raise PluginError(f"Plugin command name conflict: {name}")
+                    names.add(name)
+                pending.append(spec)
+    for spec in pending:
+        registry.register(spec)

@@ -112,9 +112,11 @@ Used during runtime:
 ```text
 skip_stage <runtime_stage_index>
 unskip_stage <runtime_stage_index>
-tool_invoke GoToStage index=<runtime_stage_index>
+tool_invoke GoToStage {"index":2}
 hmcheck_set <runtime_stage_index> true
 ```
+
+Replace `2` with the target runtime index.
 
 The index is the flattened runtime index; do not continue using old numbers after modifying the workflow. `GoToStage` can only go back to stages already reached. Skipping a stage does not generate the files it should have produced; subsequent Checkers may fail as a result; only skip if the stage is confirmed not applicable.
 

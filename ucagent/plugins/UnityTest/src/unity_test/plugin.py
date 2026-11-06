@@ -4,6 +4,7 @@ from pathlib import Path
 
 from ucagent.plugins import Plugin, PluginContext, PluginWorkflow
 from ucagent.util.config import Config
+from .operations.waveform_replay import waveform_commands
 from unity_test.report_store import TestProtocolRuntimeHook
 from unity_test.test_runner import RunTestCasesManagerTool
 from .waveform import (
@@ -119,6 +120,7 @@ def get_plugin() -> Plugin:
         tool_factories=(create_waveform_tools,),
         manager_tools=(RunTestCasesManagerTool,),
         runtime_hooks=(TestProtocolRuntimeHook,),
+        command_factories=(waveform_commands,),
         checkers=(
             GitNotDirtyChecker,
             MustHaveCKs,

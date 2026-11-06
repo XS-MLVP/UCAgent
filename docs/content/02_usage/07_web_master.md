@@ -26,7 +26,7 @@ Web Master 不只是状态展示，而是完整的任务管理入口，核心能
 
 ### 2.1 启动 Master
 
-Master 保留本地 PDB 控制台，用于执行 Master API、任务、终端、状态和文件管理命令，但不会初始化、探测或调用 API/命令行模型后端。执行 `loop`、`chat`、`next_round` 等模型工作命令时，`BlankBackend` 会直接返回不支持，不会调用模型。
+Master 保留本地 Console 控制台，用于执行 Master API、任务、终端、状态和文件管理命令，但不会初始化、探测或调用 API/命令行模型后端。执行 `loop`、`chat`、`next_round` 等模型工作命令时，`BlankBackend` 会直接返回不支持，不会调用模型。
 
 ```bash
 # 源码仓库：临时工作区

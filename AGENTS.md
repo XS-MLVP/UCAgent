@@ -23,6 +23,8 @@ and fabricated evidence from being accepted.
 ## Repository Map
 
 - `ucagent/verify_agent.py`: top-level agent assembly and runtime initialization.
+- `ucagent/control/`: shared controller and commands, terminal Console, and the
+  `runtime/` package that owns operations, services, sessions, and instance lifetime.
 - `ucagent/cli.py`, `ucagent.py`: installed and source-tree CLI entry points.
 - `ucagent/setting.yaml`: global defaults, backends, tools, launch settings, and
   environment-backed defaults.
@@ -135,7 +137,7 @@ every document that happens to mention the affected feature.
   genuinely needs more detail. Do not duplicate the same explanatory paragraphs
   across README files, option references, tutorials, and feature guides.
 - For Master mode specifically, document the Master process's blank backend,
-  separation from child-Agent backend configuration, retained PDB control
+  separation from child-Agent backend configuration, Console control
   surface, and unsupported model-work commands only in
   `docs/content/02_usage/07_web_master.md`. Do not add those details to README
   files or the general CLI option reference.
@@ -676,7 +678,7 @@ Useful focused suites:
   `ucagent/plugins/UnityTest/tests/test_static_bug.py`
 - server/TUI/backend changes: the matching `tests/test_api_*`,
   `tests/test_messages_panel*`, `tests/test_cmdline_backend.py`, or
-  `tests/test_verify_pdb_runtime.py`
+  `tests/test_runtime_cli.py`
 
 Testing caveats:
 

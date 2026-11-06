@@ -13,7 +13,7 @@ CMD 服务和目标应用可部署在具备上述依赖的 Linux 主机或 Docke
 
 CMD 服务缺少 Xpra 时仍可启动，其他 API 继续可用。管理页会显示缺少程序或资源的提示。`status` 接口检查可执行程序、版本及显式配置的资源路径；实际创建会话时进一步检查服务端和 HTML5 服务是否能够启动。
 
-沿用 CMD 服务的启动和认证设置，例如在 PDB 中执行：
+沿用 CMD 服务的启动和认证设置，例如在 Console 中执行：
 
 ```text
 cmd_api_start --passwd your-password
@@ -217,4 +217,4 @@ Agent 通过实际注册和心跳向所连接的 Master 更新 CMD 代理凭据�
 UCAGENT_RUN_XPRA_INTEGRATION=1 python -m pytest -q tests/test_api_xpra_full_runtime.py
 ```
 
-测试先用 picker 和 Verilator 从 Adder RTL 导出并编译真实 DUT 包，再通过正式 CLI 加载默认验证工作流，分别验证 Web Terminal、Web Console 模式与 CMD API、Xpra 的共存。它检查真实 PDB 命令执行、终端输入输出、实际心跳注册后的 Master 认证代理、GUI/Console 会话创建删除，以及正常退出 UCAgent 后的所属进程清理。同一个 Agent 的 Web Terminal 和 Web Console 沿用 CLI 原有的互斥限制；可在多个 Agent 中分别运行。测试使用项目自带的 `blank` 后端，不发起模型请求；不会替换 Agent、PDB 或工作流对象。未显式启用时跳过此测试，普通单元测试不要求本机安装 Xpra 服务端。
+测试先用 picker 和 Verilator 从 Adder RTL 导出并编译真实 DUT 包，再通过正式 CLI 加载默认验证工作流，分别验证 Web Terminal、Web Console 模式与 CMD API、Xpra 的共存。它检查真实 Console 命令执行、终端输入输出、实际心跳注册后的 Master 认证代理、GUI/Console 会话创建删除，以及正常退出 UCAgent 后的所属进程清理。同一个 Agent 的 Web Terminal 和 Web Console 沿用 CLI 原有的互斥限制；可在多个 Agent 中分别运行。测试使用项目自带的 `blank` 后端，不发起模型请求；不会替换 Agent、Console 或工作流对象。未显式启用时跳过此测试，普通单元测试不要求本机安装 Xpra 服务端。

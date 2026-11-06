@@ -1,7 +1,7 @@
 
 # Human-in-the-Loop Verification
 
-UCAgent allows pausing during stage execution, testing, or Checker failure, enabling manual repair of files or the environment before allowing the Agent to continue. Normal mode and MCP mode use the same set of PDB commands; Master mode places common operations on the Web page.
+UCAgent allows pausing during stage execution, testing, or Checker failure, enabling manual repair of files or the environment before allowing the Agent to continue. Normal mode and MCP mode use the same set of Console commands; Master mode places common operations on the Web page.
 
 ## 1. When to Intervene
 
@@ -16,7 +16,7 @@ A test failure itself does not equal a DUT defect. First, confirm that the fixtu
 
 ## 2. Pausing and Checking Status
 
-When using LangChain direct connection, press `Ctrl+C` to pause; for external Code Agents, pause according to their client operations. After returning to the UCAgent console, the common commands are:
+In local Console/TUI, press `Ctrl+C` to request cancellation of this interaction session's latest active foreground operation; it does not close the interface or instance. A Code Agent launched by UCAgent's command-line backend is cancelled through that operation; a manually launched client uses its own pause controls. Wait for active work to end before changing stage state or invoking another tool; see [Runtime Control](10_runtime_control.md). Queries remain available during execution:
 
 ```text
 status
@@ -29,7 +29,7 @@ changed_files
 
 ## 3. Checking, Fixing, and Continuing
 
-1. Read the artifact, location, expected, and next_action returned by `Check`.
+1. Confirm that the previous model/tool operation has ended, then read the artifact, location, expected, and next_action returned by `Check`.
 2. Manually edit files or fix the environment, running a single pytest case if necessary.
 3. Re-check:
 
@@ -40,28 +40,28 @@ tool_invoke Check
 4. After the check passes, record the work for this stage, then proceed:
 
 ```text
-tool_invoke SetCurrentStageJournal journal='Fixed fixture, related tests and Check all passed'
+tool_invoke SetCurrentStageJournal {"journal":"Fixed fixture, related tests and Check all passed"}
 tool_invoke Complete
 ```
 
 `Complete` requires that the current stage already has a log; if prompted that reference files are unread, use `ReadTextFile` to read the listed files first. If human review is required, confirm according to the next section and then call `Complete` again.
 
-5. Continue the Agent loop:
+5. Wait for the preceding tool calls to finish, then choose one way to resume the Agent loop:
 
 ```text
 loop
 loop Fixed fixture, please re-run failed cases and complete the current stage
 ```
 
-If `Check` has no output for a long time:
+If `Check` has no output for a long time, inspect logs and operation state. Request cancellation with `Ctrl+C` for local foreground work, or use the [HTTP operation API](10_runtime_control.md#4-http-queries-and-control) for work from other interfaces. Diagnostic tool syntax is:
 
 ```text
-tool_invoke StdCheck lines=-1
+tool_invoke StdCheck {"lines":-1}
 tool_invoke KillCheck
 tool_invoke Check
 ```
 
-`StdCheck` and `KillCheck` target only the running check process; check the output first, then decide whether to terminate.
+`StdCheck` and `KillCheck` target check processes only. All `tool_invoke` commands share the model-operation slot; these diagnostic calls can also return `busy` while `loop` or `tool_invoke Check` is active. Use operation cancellation in that case and wait for completion before retrying. Do not submit repeated checks; wait for each tool result before the next command.
 
 ## 4. Forced Human Review
 
@@ -75,7 +75,7 @@ hmcheck_cstat
 hmcheck_list
 ```
 
-The stage index is the flattened index of the current runtime; do not directly apply the numbering from another configuration. Use the index displayed by `status` or `hmcheck_list` as the reference.
+The stage index is the flattened index of the current runtime; do not reuse numbering from another configuration. Use `status` or `hmcheck_list`. Review and flag updates can return `busy` while model work is active; pause and wait first. If Web/API reports a stale revision, refresh and confirm the current state before resubmitting.
 
 After pausing, confirm the artifacts and test results, then approve or reject the review:
 
@@ -109,7 +109,7 @@ Workflow stage control:
 ```text
 skip_stage 3
 unskip_stage 3
-tool_invoke GoToStage 2
+tool_invoke GoToStage {"index":2}
 ```
 
 `skip_stage`, `unskip_stage`, and `GoToStage` all use stage indices; `GoToStage` can only return to stages already reached. When starting from the command line, you can also use `--skip`, `--unskip`, and `--force-stage-index`; see [Parameter Description](./03_option.md) for details.
@@ -122,26 +122,27 @@ tool_invoke GoToStage 2
 | `task_detail` | View stage details | `task_detail 2` |
 | `current_tips` | Get current stage guidance | `current_tips` |
 | `tool_list` | List available tools | `tool_list` |
-| `tool_invoke` | Invoke tool in PDB | `tool_invoke RunTestCases target='',timeout=120` |
+| `tool_invoke` | Invoke tool in Console | `tool_invoke RunTestCases {"target":"","timeout":120}` |
 | `hmcheck_set` | Set human review | `hmcheck_set 2 true` |
 | `hmcheck_pass` / `hmcheck_fail` | Pass or reject human review | `hmcheck_pass Confirmed` |
 | `skip_stage` / `unskip_stage` | Skip or restore stage | `skip_stage 3` |
 | `loop` | Continue model loop | `loop` |
 | `help` | View current version commands | `help` |
-| `quit` | Exit process | `quit` |
+| `quit` | Close the instance in Console; detach the view in TUI | `quit` |
+| `shutdown` | Explicitly close the entire instance | `shutdown` |
 
-Entering `q`, `exit`, or `quit` in the TUI first returns to the PDB console; you must enter `quit` again to terminate the process.
+In ordinary Console, `q/exit/quit` closes the instance. In TUI, these commands and Ctrl+Q only detach the view; tasks and services continue. `shutdown` explicitly closes the instance from either frontend.
 
 The parameter format for `tool_invoke` is:
 
 ```text
-tool_invoke <tool_name> [arg1,arg2,key=value,...]
+tool_invoke <tool_name> {"key": "value"}
 ```
 
-Parameters are separated by commas, strings use Python quotes, and boolean values use `True/False`. `RunTestCases.target` is relative to the current test directory (default `unity_test/tests/`); do not add the directory prefix again. For example:
+Arguments use a JSON object with `true/false` booleans. `RunTestCases.target` is relative to the current test directory (default `unity_test/tests/`); do not add the directory prefix again. For example:
 
 ```text
-tool_invoke RunTestCases target='test_adder.py::test_add',timeout=120
+tool_invoke RunTestCases {"target":"test_adder.py::test_add","timeout":120}
 ```
 
 ## 7. Master Page

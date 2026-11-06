@@ -69,6 +69,7 @@ nav:
       - 人机协同验证: content/02_usage/02_assit.md
       - 参数说明: content/02_usage/03_option.md
       - TUI: content/02_usage/04_tui.md
+      - 运行控制: content/02_usage/10_runtime_control.md
       - FAQ: content/02_usage/05_faq.md
       - LLM Check & Refinement: content/02_usage/06_llm_check.md
       - Web Master 使用指南: content/02_usage/07_web_master.md
@@ -167,6 +168,7 @@ plugins:
             直接使用: Direct Use
             人机协同验证: Human–Agent Collaboration
             参数说明: CLI Options
+            运行控制: Runtime Control
             Web Master 使用指南: Web Master Guide
             技能 SKILL: Skills
             Xpra 图形应用: Graphical Applications with Xpra

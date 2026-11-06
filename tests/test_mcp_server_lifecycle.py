@@ -21,8 +21,9 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from ucagent.server.api_mcp import PdbMcpServer
+from ucagent.server.api_mcp import McpServer
 from ucagent.util.config import Config
+from ucagent.control.controller import Controller
 
 
 def _available_port() -> int:
@@ -36,34 +37,19 @@ def _available_port() -> int:
         sock.close()
 
 
-def _fake_pdb(*, file_tools=None, plugin_tools=None):
-    """Build the minimum PDB/agent surface consumed by PdbMcpServer."""
-
-    agent = SimpleNamespace(
-        tool_list_base=[],
-        tool_list_task=[],
-        tool_list_ext=[],
-        tool_list_plugin=list(plugin_tools or []),
-        tool_list_file=list(file_tools or []),
-        cfg=Config(
-            {
-                "mcp_server": {"init_prompt": "lifecycle test"},
-                "tools": {},
-            }
-        ),
-        _mcps_logger=None,
-        _mcps=None,
-        _mcp_server_thread=None,
-    )
-    return SimpleNamespace(agent=agent)
+def _mcp_options(*, file_tools=None, plugin_tools=None, logger=None):
+    """Supply explicit tool, configuration and log dependencies without a debugger."""
+    return {"tools": list(plugin_tools or []) + list(file_tools or []),
+            "cfg": Config({"mcp_server": {"init_prompt": "lifecycle test"}, "tools": {}}),
+            "logger": logger}
 
 
 def test_mcp_start_waits_until_http_endpoint_is_reachable():
     """Successful start means uvicorn has completed application startup."""
 
     port = _available_port()
-    server = PdbMcpServer(
-        _fake_pdb(),
+    server = McpServer(
+        **_mcp_options(),
         host="127.0.0.1",
         port=port,
         no_file_ops=True,
@@ -90,8 +76,8 @@ def test_mcp_start_reports_occupied_port_before_model_work():
     occupied.listen(1)
     port = int(occupied.getsockname()[1])
     try:
-        server = PdbMcpServer(
-            _fake_pdb(),
+        server = McpServer(
+            **_mcp_options(),
             host="127.0.0.1",
             port=port,
             no_file_ops=True,
@@ -137,7 +123,7 @@ async def _connected_client(server):
 
 def test_stop_drains_connected_stream_and_allows_restart(caplog):
     """A live client observes clean EOF before stop succeeds, including after restart."""
-    server = PdbMcpServer(_fake_pdb(), port=_available_port())
+    server = McpServer(**_mcp_options(), port=_available_port())
 
     async def exercise():
         """Keep the client open during both shutdowns on the same listening port."""
@@ -155,7 +141,7 @@ def test_stop_drains_connected_stream_and_allows_restart(caplog):
                     assert not thread.is_alive()
                     assert await stream.aread() == b""
                     assert server._server is None
-                    assert server.pdb.agent._mcps is None
+                    assert server._server is None
             finally:
                 if server.is_running:
                     server.stop(timeout=2)
@@ -167,8 +153,8 @@ def test_stop_is_isolated_from_another_connected_server(caplog):
     """Draining one instance never changes global SSE state or a peer's stream."""
     from sse_starlette.sse import AppStatus
 
-    first = PdbMcpServer(_fake_pdb(), port=_available_port())
-    second = PdbMcpServer(_fake_pdb(), port=_available_port())
+    first = McpServer(**_mcp_options(), port=_available_port())
+    second = McpServer(**_mcp_options(), port=_available_port())
     before = AppStatus.should_exit
 
     async def exercise():
@@ -215,7 +201,7 @@ def test_stop_timeout_preserves_active_tool_and_server_ownership(caplog):
         return "finished normally"
 
     tool = StructuredTool.from_function(coroutine=slow_tool, name="SlowTool", description="Wait for test release.")
-    server = PdbMcpServer(_fake_pdb(plugin_tools=[tool]), port=_available_port())
+    server = McpServer(**_mcp_options(plugin_tools=[tool]), port=_available_port())
     ok, message = server.start(timeout=3)
     assert ok, message
     native, thread = server._server, server._thread
@@ -233,8 +219,8 @@ def test_stop_timeout_preserves_active_tool_and_server_ownership(caplog):
                 assert not ok and "still shutting down" in message
                 assert thread.is_alive() and server.is_running and server.is_stopping
                 assert server._server is native and server._thread is thread
-                assert server.pdb.agent._mcps is native
-                assert server.pdb.agent._mcp_server_thread is thread
+                assert server._server is native
+                assert server._thread is thread
                 ok, message = server.start()
                 assert not ok and "shutting down" in message
                 release.set()
@@ -245,7 +231,7 @@ def test_stop_timeout_preserves_active_tool_and_server_ownership(caplog):
                 assert ok, message
                 assert not thread.is_alive()
                 assert not server.is_running
-                assert server.pdb.agent._mcps is None
+                assert server._server is None
                 assert await stream.aread() == b""
             finally:
                 release.set()
@@ -262,15 +248,14 @@ def test_stop_timeout_preserves_active_tool_and_server_ownership(caplog):
 @pytest.mark.parametrize("timeout", [0, -1, True, float('nan'), float('inf')])
 def test_lifecycle_rejects_invalid_timeouts(timeout):
     """Neither startup nor shutdown accepts unbounded or ambiguous waits."""
-    server = PdbMcpServer(_fake_pdb(), port=_available_port())
+    server = McpServer(**_mcp_options(), port=_available_port())
     assert server.start(timeout=timeout)[0] is False
-    assert server.stop(timeout=timeout)[0] is False
+    assert server.stop(timeout=timeout)[0] is (timeout == 0 and type(timeout) is int)
 
 
-def test_startup_timeout_preserves_live_thread_until_it_exits(monkeypatch, capsys):
+def test_startup_timeout_preserves_live_thread_until_it_exits(monkeypatch):
     """A startup timeout cannot orphan its thread or allow a competing restart."""
     from ucagent.util import functions
-    from ucagent.verify_pdb import VerifyPDB
 
     release = threading.Event()
     native = SimpleNamespace(started=False, should_exit=False)
@@ -285,42 +270,45 @@ def test_startup_timeout_preserves_live_thread_until_it_exits(monkeypatch, capsy
 
     monkeypatch.setattr(functions, 'create_verify_mcps', create)
     monkeypatch.setattr(functions, 'start_verify_mcps', serve)
-    server = PdbMcpServer(_fake_pdb(), port=_available_port())
+    server = McpServer(**_mcp_options(), port=_available_port())
     try:
         ok, message = server.start(timeout=0.01)
         assert not ok and 'shutdown is still pending' in message
         assert server.is_running and server.is_stopping
-        assert server.pdb.agent._mcps is native
+        assert server._server is native
         assert server.start()[0] is False
         release.set()
         server._thread.join(timeout=2)
         assert not server.is_running
-        VerifyPDB.do_stop_mcp_server(SimpleNamespace(_mcp_server=server), '')
-        assert 'MCP server stopped' in capsys.readouterr().out
+        ok, message = server.stop(timeout=2)
+        assert ok and 'MCP server stopped' in message
         assert server._thread is None and server._server is None
-        assert server.pdb.agent._mcps is None
     finally:
         release.set()
         server.stop(timeout=2)
 
 
-def test_pdb_retains_wrapper_when_failed_start_is_still_stopping(monkeypatch):
-    """The PDB must keep a live wrapper returned by a timed-out start."""
-    from ucagent import server as server_package
-    from ucagent.verify_pdb import VerifyPDB
+def test_services_retain_wrapper_when_failed_start_is_still_stopping(monkeypatch, tmp_path):
+    """The current frontend delegates ownership of a pending wrapper to ServiceManager."""
+    from ucagent.server import api_mcp
+    from ucagent.control.runtime.services import ServiceManager
 
     pending = SimpleNamespace(
-        is_running=True, is_stopping=True, url=lambda: 'http://127.0.0.1:5000',
-        start=lambda: (False, 'shutdown pending'),
+        is_running=True, is_ready=False, is_stopping=True, host="127.0.0.1", port=5000,
+        started_at=None, url=lambda: "http://127.0.0.1:5000",
+        start=lambda timeout: (False, "shutdown pending"), stop=lambda timeout: (False, "shutdown pending"),
     )
-    monkeypatch.setattr(server_package, 'PdbMcpServer', lambda *args, **kwargs: pending)
-    pdb = SimpleNamespace(_mcp_server=None)
-    ok, message = VerifyPDB.start_mcp_server(pdb, '127.0.0.1', 5000)
-    assert not ok and message == 'shutdown pending'
-    assert pdb._mcp_server is pending
-    ok, message = VerifyPDB.start_mcp_server(pdb, '127.0.0.1', 5000)
-    assert not ok and 'still shutting down' in message
-    assert pdb._mcp_server is pending
+    monkeypatch.setattr(api_mcp, "McpServer", lambda *args, **kwargs: pending)
+    agent = SimpleNamespace(workspace=str(tmp_path), cfg=Config({}), tool_list_base=[],
+                            tool_list_task=[], tool_list_ext=[], tool_list_file=[])
+    services = ServiceManager(agent)
+    result = services.start_mcp(host="127.0.0.1", port=5000)
+    assert not result["ok"] and result["message"] == "shutdown pending"
+    assert services.get("mcp") is pending
+    result = services.start_mcp(host="127.0.0.1", port=5000)
+    assert not result["ok"] and services.status("mcp")["state"] == "stopping"
+    assert services.get("mcp") is pending
+
 
 
 @pytest.mark.parametrize('response_state', ['pending', 'streaming', 'complete'])
@@ -408,8 +396,8 @@ def test_get_stream_preserves_external_failures(failure):
 @pytest.mark.parametrize('kind', ['cmd', 'master'])
 def test_embedded_api_start_preserves_shared_uvicorn_logging(tmp_path, kind, short_socket_dir):
     """Starting either API listener leaves existing MCP loggers and handlers intact."""
-    from ucagent.server.api_cmd import PdbCmdApiServer
-    from ucagent.server.api_master import PdbMasterApiServer
+    from ucagent.server.api_cmd import ControlApiServer
+    from ucagent.server.api_master import MasterApiServer
 
     # Importing the SDK may initialize its own logging, so snapshot after imports.
     loggers = [logging.getLogger(name) for name in ('uvicorn', 'uvicorn.error', 'uvicorn.access', 'uvicorn.asgi')]
@@ -417,9 +405,9 @@ def test_embedded_api_start_preserves_shared_uvicorn_logging(tmp_path, kind, sho
     cfg = Config({'launch': {'file_browser_roots': []}, 'cmd_api': {'xpra': {}, 'waveform_viewers': {}}})
     if kind == 'cmd':
         pdb = SimpleNamespace(agent=SimpleNamespace(workspace=str(tmp_path), cfg=cfg), stdout=None)
-        server = PdbCmdApiServer(pdb, port=_available_port(), sock=str(short_socket_dir / 'cmd.sock'))
+        server = ControlApiServer(Controller(pdb.agent), port=_available_port(), sock=str(short_socket_dir / 'cmd.sock'))
     else:
-        server = PdbMasterApiServer(workspace=str(tmp_path), cfg=cfg, port=_available_port(), sock=str(short_socket_dir / 'master.sock'))
+        server = MasterApiServer(workspace=str(tmp_path), cfg=cfg, port=_available_port(), sock=str(short_socket_dir / 'master.sock'))
     threads = []
     try:
         ok, message = server.start()
@@ -453,9 +441,8 @@ def test_mcp_logging_bridge_is_thread_scoped_and_removed_on_stop(caplog):
     for logger in loggers:
         caplog.set_level(logging.DEBUG, logger=logger.name)
     before = [tuple(logger.handlers) for logger in loggers]
-    pdb = _fake_pdb()
-    pdb.agent._mcps_logger = SimpleNamespace(log=lambda *args, **kwargs: received.append(args))
-    server = PdbMcpServer(pdb, port=_available_port())
+    logger = SimpleNamespace(log=lambda *args, **kwargs: received.append(args))
+    server = McpServer(**_mcp_options(logger=logger), port=_available_port())
     try:
         for _ in range(2):
             ok, message = server.start(timeout=3)

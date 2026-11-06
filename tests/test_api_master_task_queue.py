@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.abspath(os.path.join(current_dir, "..")))
 
-from ucagent.server.api_master import PdbMasterApiServer
+from ucagent.server.api_master import MasterApiServer
 from ucagent.util.config import Config
 
 
@@ -35,7 +35,7 @@ def _queue_server(max_task_count):
             "launch": {"file_browser_roots": [], "default_args": {"launch_mode": ["process"]}},
             "master_api": {"max_task_count": max_task_count},
         }).freeze()
-        server = PdbMasterApiServer(workspace=master_ws, cfg=cfg)
+        server = MasterApiServer(workspace=master_ws, cfg=cfg)
         yield server
 
 
@@ -95,14 +95,14 @@ def _launch(client, ws, task_name="task"):
 
 def test_max_task_count_reads_config_and_falls_back_to_default():
     with tempfile.TemporaryDirectory() as master_ws:
-        server = PdbMasterApiServer(workspace=master_ws)
+        server = MasterApiServer(workspace=master_ws)
         assert server._max_task_count() == 100
 
         cfg = Config({
             "launch": {"file_browser_roots": []},
             "master_api": {"max_task_count": 3},
         }).freeze()
-        server = PdbMasterApiServer(workspace=master_ws, cfg=cfg)
+        server = MasterApiServer(workspace=master_ws, cfg=cfg)
         assert server._max_task_count() == 3
 
         for invalid in ("abc", 0, -2, None):
@@ -110,7 +110,7 @@ def test_max_task_count_reads_config_and_falls_back_to_default():
                 "launch": {"file_browser_roots": []},
                 "master_api": {"max_task_count": invalid},
             }).freeze()
-            server = PdbMasterApiServer(workspace=master_ws, cfg=cfg)
+            server = MasterApiServer(workspace=master_ws, cfg=cfg)
             assert server._max_task_count() == 100
 
 

@@ -16,6 +16,8 @@ from pydantic import BaseModel, ConfigDict, Field, StrictStr, TypeAdapter, Valid
 
 import ucagent
 from ucagent.util.config import Config
+from ucagent.util import config as config_module
+from ucagent.tools.fileops import is_file_writeable
 from ucagent.util.waveform_viewer import (
     WAVEFORM_METADATA_LOCK, WaveformMetadataIntegrityError, build_waveform_metadata, build_waveform_viewer_url,
     load_waveform_metadata, resolve_workspace_path, write_waveform_metadata,
@@ -67,7 +69,7 @@ class WaveformLaunch:
 
     def viewers(self):
         """Validate the resolved mapping without probing optional application dependencies."""
-        cfg = getattr(self.server.pdb.agent, "cfg", None)
+        cfg = getattr(self.server.agent, "cfg", None)
         section = cfg.get_value("cmd_api", None) if cfg is not None else None
         value = section.get_value("waveform_viewers", _DEFAULT_VIEWERS) if section is not None else _DEFAULT_VIEWERS
         if isinstance(value, Config):
@@ -157,7 +159,7 @@ class WaveformLaunch:
                 except XpraError:
                     self.sessions.pop(identity, None)
             session = self.server._xpra.create(command=shlex.join(argv), mode="gui",
-                name=payload["waveform_file"], cwd=str(workspace.relative_to(Path(self.server.pdb.agent.workspace).resolve())) or ".",
+                name=payload["waveform_file"], cwd=str(workspace.relative_to(Path(self.server.agent.workspace).resolve())) or ".",
                 env=viewer.env, idle_timeout=viewer.idle_timeout)
             self.sessions[identity] = session["id"]
             return session
@@ -184,7 +186,7 @@ def register_waveform_routes(app, server, request_workspace):
     def create_metadata(body: _MetadataRequest, request: Request):
         """Create missing ordinary metadata, preserving any existing final-evidence settings."""
         workspace, _, _ = request_workspace(request)
-        cfg = getattr(server.pdb.agent, "cfg", None)
+        cfg = getattr(server.agent, "cfg", None)
         try:
             wave = resolve_workspace_path(workspace, body.waveform_file)
             meta = wave.relative_to(Path(workspace).resolve()).as_posix() + ".json"
@@ -193,16 +195,14 @@ def register_waveform_routes(app, server, request_workspace):
                     _, payload = load_waveform_metadata(workspace, meta)
                     launch.viewer(payload)
                 else:
-                    dut_name = getattr(server.pdb.agent, "dut_name", "")
-                    if Path(workspace).resolve() != Path(server.pdb.agent.workspace).resolve():
-                        from ucagent.util.config import load_runtime_config
-                        dut_name = load_runtime_config(workspace)["DUT"]
+                    dut_name = getattr(server.agent, "dut_name", "")
+                    if Path(workspace).resolve() != Path(server.agent.workspace).resolve():
+                        dut_name = config_module.load_runtime_config(workspace)["DUT"]
                     _, payload, _ = build_waveform_metadata(workspace, body.waveform_file, dut_name=dut_name)
                     launch.viewer(payload)
                     # Evaluate the service's restrictions against its actual root path,
                     # including a selected child workspace rather than a bare child path.
-                    from ucagent.tools.fileops import is_file_writeable
-                    policy_path = (Path(workspace) / meta).relative_to(Path(server.pdb.agent.workspace).resolve()).as_posix()
+                    policy_path = (Path(workspace) / meta).relative_to(Path(server.agent.workspace).resolve()).as_posix()
                     allowed, reason = is_file_writeable(policy_path,
                         cfg.get_value("un_write_dirs", None) if cfg is not None else None,
                         cfg.get_value("write_dirs", None) if cfg is not None else None)

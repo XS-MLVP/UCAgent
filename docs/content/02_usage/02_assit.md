@@ -1,7 +1,7 @@
 
 # 人机协同验证
 
-UCAgent 允许在阶段执行、测试或 Checker 失败时暂停，人工修复文件或环境，再让 Agent 继续。普通模式和 MCP 模式使用同一套 PDB 命令；Master 模式把常用操作放到 Web 页面。
+UCAgent 允许在阶段执行、测试或 Checker 失败时暂停，人工修复文件或环境，再让 Agent 继续。普通模式和 MCP 模式使用同一套 Console 命令；Master 模式把常用操作放到 Web 页面。
 
 ## 1. 什么时候介入
 
@@ -16,7 +16,7 @@ UCAgent 允许在阶段执行、测试或 Checker 失败时暂停，人工修复
 
 ## 2. 暂停和查看状态
 
-使用 LangChain 直连时可按 `Ctrl+C` 暂停；外部 Code Agent 的暂停按其客户端操作执行。回到 UCAgent 控制台后常用命令是：
+在本地 Console/TUI 按 `Ctrl+C`，请求取消当前交互会话最近的活动前台操作；这不关闭界面或实例。若外部 Code Agent 由 UCAgent 的命令行 backend 启动，也通过该操作取消；手动双终端启动的客户端则使用自己的暂停方式。等待活动操作结束后再修改阶段状态或重新调用工具，详细规则见[运行控制](10_runtime_control.md)。运行中可随时查询：
 
 ```text
 status
@@ -29,7 +29,7 @@ changed_files
 
 ## 3. 检查、修复和继续
 
-1. 阅读 `Check` 返回的 artifact、location、expected 和 next_action。
+1. 确认前一个模型或工具操作已结束，再阅读 `Check` 返回的 artifact、location、expected 和 next_action。
 2. 手动编辑文件或修复环境，必要时运行单个 pytest 用例。
 3. 重新检查：
 
@@ -40,28 +40,28 @@ tool_invoke Check
 4. 检查通过后记录本阶段工作，再推进：
 
 ```text
-tool_invoke SetCurrentStageJournal journal='已修复 fixture，相关测试和 Check 均通过'
+tool_invoke SetCurrentStageJournal {"journal":"已修复 fixture，相关测试和 Check 均通过"}
 tool_invoke Complete
 ```
 
 `Complete` 要求当前阶段已有日志；如果提示参考文件未读，先用 `ReadTextFile` 读取列出的文件。需要人工审核时，按下节确认后再次调用 `Complete`。
 
-5. 继续 Agent 循环：
+5. 等待前述工具调用完成，再选择一种方式继续 Agent 循环：
 
 ```text
 loop
 loop 已修复 fixture，请重新运行失败用例并完成当前阶段
 ```
 
-如果 `Check` 长时间没有输出：
+如果 `Check` 长时间没有输出，先看运行日志和操作状态；本会话的活动检查可按 `Ctrl+C` 请求取消，其他入口提交的操作可通过 [HTTP 操作接口](10_runtime_control.md#4-http-查询和控制)按 ID 查询和取消。检查诊断工具的调用格式为：
 
 ```text
-tool_invoke StdCheck lines=-1
+tool_invoke StdCheck {"lines":-1}
 tool_invoke KillCheck
 tool_invoke Check
 ```
 
-`StdCheck` 和 `KillCheck` 只针对正在运行的检查进程；先查看输出，再决定是否终止。
+`StdCheck` 和 `KillCheck` 只针对检查进程。所有 `tool_invoke` 命令共用模型操作槽位；已有 `loop` 或 `tool_invoke Check` 活动时，这些诊断调用也可能返回 `busy`。此时使用操作取消入口，等待结束后再重试；不要连续提交重复检查。上述步骤中的各条工具命令都应等待结果后再进行下一条。
 
 ## 4. 强制人工审核
 
@@ -75,7 +75,7 @@ hmcheck_cstat
 hmcheck_list
 ```
 
-阶段索引是当前运行时的展平索引，不能直接套用另一份配置的编号。以 `status` 或 `hmcheck_list` 显示的索引为准。
+阶段索引是当前运行时的展平索引，不能直接套用另一份配置的编号。以 `status` 或 `hmcheck_list` 显示的索引为准。审核和阶段开关修改可能因模型运行中返回 `busy`，应先暂停并等待；Web/API 操作若提示状态版本过期，刷新后重新确认再提交。
 
 暂停后确认产物和测试结果，审核通过或拒绝：
 
@@ -109,7 +109,7 @@ del_un_write_path Adder/
 ```text
 skip_stage 3
 unskip_stage 3
-tool_invoke GoToStage 2
+tool_invoke GoToStage {"index":2}
 ```
 
 `skip_stage`、`unskip_stage` 和 `GoToStage` 都使用阶段索引；`GoToStage` 只能回到已经到达的阶段。命令行启动时也可以用 `--skip`、`--unskip` 和 `--force-stage-index`，详见[参数说明](./03_option.md)。
@@ -122,26 +122,27 @@ tool_invoke GoToStage 2
 | `task_detail` | 查看阶段详情 | `task_detail 2` |
 | `current_tips` | 获取当前阶段指导 | `current_tips` |
 | `tool_list` | 列出可用工具 | `tool_list` |
-| `tool_invoke` | 在 PDB 中调用工具 | `tool_invoke RunTestCases target='',timeout=120` |
+| `tool_invoke` | 在 Console 中调用工具 | `tool_invoke RunTestCases {"target":"","timeout":120}` |
 | `hmcheck_set` | 设置人工审核 | `hmcheck_set 2 true` |
 | `hmcheck_pass` / `hmcheck_fail` | 通过或拒绝人工审核 | `hmcheck_pass 已确认` |
 | `skip_stage` / `unskip_stage` | 跳过或恢复阶段 | `skip_stage 3` |
 | `loop` | 继续模型循环 | `loop` |
 | `help` | 查看当前版本命令 | `help` |
-| `quit` | 退出进程 | `quit` |
+| `quit` | 普通 Console 关闭实例；TUI 仅退出界面 | `quit` |
+| `shutdown` | 明确关闭整个实例 | `shutdown` |
 
-在 TUI 中输入 `q`、`exit` 或 `quit` 会先返回 PDB 控制台，需再次输入 `quit` 才结束进程。
+普通 Console 中的 `q/exit/quit` 关闭整个实例；TUI 中的这些命令及 Ctrl+Q 仅退出界面，任务和服务继续运行。`shutdown` 在两种界面中都明确关闭整个实例。
 
 `tool_invoke` 的参数格式是：
 
 ```text
-tool_invoke <tool_name> [arg1,arg2,key=value,...]
+tool_invoke <tool_name> {"key": "value"}
 ```
 
-参数用逗号分隔，字符串使用 Python 引号，布尔值使用 `True/False`。`RunTestCases.target` 相对于当前测试目录（默认 `unity_test/tests/`），不要重复添加该目录前缀。例如：
+参数使用 JSON 对象，布尔值使用 `true/false`。`RunTestCases.target` 相对于当前测试目录（默认 `unity_test/tests/`），不要重复添加该目录前缀。例如：
 
 ```text
-tool_invoke RunTestCases target='test_adder.py::test_add',timeout=120
+tool_invoke RunTestCases {"target":"test_adder.py::test_add","timeout":120}
 ```
 
 ## 7. Master 页面

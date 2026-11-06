@@ -3,7 +3,7 @@
 
 ## TUI (Interface and Operations)
 
-UCAgent includes a built-in terminal user interface (TUI) based on Textual, designed for local interactive observation of task progress, message streams, and console output, as well as for directly entering commands (such as entering/exiting loops, switching modes, and executing debug commands).
+UCAgent includes a built-in terminal user interface (TUI) based on Textual, designed for local interactive observation of task progress, message streams, and console output, as well as for directly entering commands (such as starting loops, querying state, invoking tools, and controlling services).
 
 ### Interface Components
 
@@ -40,8 +40,8 @@ Note: The interface automatically refreshes once per second (without affecting i
 
 **Global Operations**
 
-- Enter: Executes the current input command; does nothing if the input is empty. Enter q/Q/exit/quit to exit the TUI and return to the PDB console.
-- Ctrl+C: Cancels the currently running command; exits the TUI if no command is running.
+- Enter: execute a registered command. `quit/exit/q` or Ctrl+Q only leaves TUI; tasks and services keep running. Use `shutdown` to close the instance.
+- Ctrl+C: request cancellation of this session's foreground operation. Idle Ctrl+C leaves the UI open.
 - Esc:
   - If browsing Messages history, exits manual scrolling and returns to the end;
   - If Output is in paginated view, exits pagination;
@@ -76,16 +76,18 @@ Pagination Mode Note: When Output enters paginated viewing, a prompt "PageUp/Pag
 - Ctrl+T: Opens the theme selector dialog. Press Enter to confirm the selected theme, or Esc to cancel and restore the original theme.
 - F1: Shows/hides the shortcut key help panel.
 
-After exiting the TUI, the UCAgent process remains running. To terminate the process, enter `quit` in the returned PDB console. If a task is currently executing, use `Ctrl+C` to cancel it and wait for the return before exiting.
+In TUI, `q/quit/exit` and Ctrl+Q detach the view and return to Console while all tasks and services keep running. Enter `tui` to reattach the same session. Use `shutdown` to close the instance. In ordinary Console, `q/quit/exit` still closes the instance. Empty Enter does nothing in TUI; Ctrl+C cancels the latest active foreground task and leaves an idle view open.
 
 ### Commands and Usage
 
-- Regular Commands: Type directly and press Enter, e.g., loop, tui, help, etc. (handled by the internal debugger).
+- Regular Commands: Type directly and press Enter, e.g., loop, tui, help, etc. (handled by the shared command registry).
 - History Commands: Use Up / Down to select a historical command, then press Enter to execute.
 - Clear Screen: Type clear and press Enter to clear only the Output (does not affect message records).
-- Background Commands: Appending & to the end of a command runs it in the background; completion is indicated in the Output area. Current background commands can be viewed via list_demo_cmds.
-- Executing System Commands: Input that cannot be recognized as a PDB command is executed directly as a shell command; input prefixed with `!` forces evaluation as a Python expression (native PDB behavior), and this mode prioritizes scrolling to the latest output after execution.
-- Listing Background Commands: list_demo_cmds displays the list of running background commands and their start times.
+- Background commands: append `&` to mark work as background for this session; completion appears in Output. This does not increase model concurrency, and Ctrl+C targets active foreground work only.
+- Run a system command explicitly with `shell <command>`. Unknown commands are rejected; Python expression execution is unavailable.
+- Active operations appear above the command input. `list_demo_cmds` lists configured example commands.
+
+See [Runtime Control](10_runtime_control.md) for JSON arguments, service controls, operation queries, and instance shutdown.
 
 #### Message Configuration (messages_config)
 

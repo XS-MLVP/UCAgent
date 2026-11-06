@@ -3,6 +3,7 @@
 import os
 import sys
 from unittest import mock
+import pytest
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 repo_root = os.path.abspath(os.path.join(current_dir, ".."))
@@ -23,8 +24,8 @@ from ucagent.cli import run
 from ucagent.verify_agent import VerifyAgent
 
 
-def test_cli_master_selects_blank_backend_and_keeps_pdb_start_command(tmp_path):
-    """Master CLI must select BlankBackend while preserving its PDB commands."""
+def test_cli_master_selects_blank_backend_and_starts_owned_service(tmp_path, cli_runtime):
+    """Master selects BlankBackend and starts the service through its runtime owner."""
     with mock.patch(
         "sys.argv",
         ["ucagent", str(tmp_path), "empty", "--as-master", "127.0.0.1:9900"],
@@ -43,12 +44,10 @@ def test_cli_master_selects_blank_backend_and_keeps_pdb_start_command(tmp_path):
         "vmanager.llm_suggestion.check_pass_refinement.enable": False
     } in kwargs["cfg_override"]
     assert kwargs["no_embed_tools"] is True
-    assert "master_api_start 127.0.0.1 9900" in kwargs["init_cmd"]
-    verify_agent.return_value.set_break.assert_called_once_with(True)
-    verify_agent.return_value.run.assert_called_once_with()
+    assert cli_runtime.registry.execute.call_args_list[0].args[0] == "master_api_start 127.0.0.1 9900"
 
 
-def test_cli_master_backend_is_a_child_default_without_mcp_requirement(tmp_path):
+def test_cli_master_backend_is_a_child_default_without_mcp_requirement(tmp_path, cli_runtime):
     """A Master backend option configures children and must not require local MCP."""
     with mock.patch(
         "sys.argv",
@@ -60,24 +59,23 @@ def test_cli_master_backend_is_a_child_default_without_mcp_requirement(tmp_path)
     assert {"backend.key_name": "blank"} in kwargs["cfg_override"]
     assert {"backend.key_name": "codex"} not in kwargs["cfg_override"]
     assert {"launch.default_args.backend": "codex"} in kwargs["cfg_override"]
-    assert not any(command.startswith("start_mcp_server") for command in kwargs["init_cmd"])
+    cli_runtime.services.start_mcp.assert_not_called()
 
 
-def test_cli_master_reenters_pdb_after_agent_run_returns(tmp_path):
-    """Master CLI must keep its PDB control surface alive after ``continue``."""
+def test_cli_master_waits_for_host_shutdown(tmp_path, cli_runtime):
+    """Master lifetime is owned by the host rather than by model execution."""
     with mock.patch(
         "sys.argv",
         ["ucagent", str(tmp_path), "empty", "--as-master", "127.0.0.1:9900"],
     ), mock.patch("ucagent.verify_agent.VerifyAgent") as verify_agent:
         agent = verify_agent.return_value
         agent.is_exit.side_effect = [False, True]
-        agent.pdb._master_api_server = None
+        agent.services.get.return_value = None
 
         run()
 
-    agent.run.assert_called_once_with()
-    agent.set_break.assert_has_calls([mock.call(True), mock.call(True)])
-    agent.check_pdb_trace.assert_called_once_with()
+    cli_runtime.wait.assert_called_once_with()
+    agent.pre_run.assert_not_called()
 
 
 def test_blank_backend_config_uses_normal_backend_factory_without_model_integrations(
@@ -116,7 +114,11 @@ def test_blank_backend_config_uses_normal_backend_factory_without_model_integrat
         assert agent.stage_manager.llm_fail_suggestion is None
         assert agent.stage_manager.llm_pass_suggestion is None
     finally:
-        agent.exit()
+        from ucagent.control.runtime.host import RuntimeHost
+        host = RuntimeHost(agent, mode="master")
+        host.start()
+        host.request_shutdown()
+        assert host.wait(3)["instance"] == "closed"
 
 
 def test_blank_backend_rejects_model_work():

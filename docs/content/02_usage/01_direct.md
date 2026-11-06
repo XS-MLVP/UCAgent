@@ -95,17 +95,17 @@ current_tips
 loop
 ```
 
-阶段失败时先查看 Checker 返回的具体文件和下一步，再修复后调用：
+阶段失败时，先等待当前操作结束，阅读 Checker 返回的具体文件和下一步，修复后逐条调用并等待结果：
 
 ```text
 tool_invoke Check
 tool_invoke Complete
 ```
 
-检查进程无输出时：
+如果检查没有输出，先查看日志；若仍有活动模型/工具操作，用 `Ctrl+C` 或 [HTTP 操作取消](10_runtime_control.md)请求取消并等待结束。下列工具调用同样占用模型操作槽位，忙碌时会被拒绝：
 
 ```text
-tool_invoke StdCheck lines=-1
+tool_invoke StdCheck {"lines":-1}
 tool_invoke KillCheck
 ```
 

@@ -24,22 +24,25 @@ if loaded_ucagent is not None and not loaded_ucagent_path.startswith(
         if module_name == "ucagent" or module_name.startswith("ucagent."):
             del sys.modules[module_name]
 
-from ucagent.server.api_cmd import PdbCmdApiServer
+from ucagent.server.api_cmd import ControlApiServer
+from ucagent.control.controller import Controller
+from ucagent.util.config import Config
 from ucagent.util.waveform_viewer import build_waveform_metadata, load_waveform_metadata, write_waveform_metadata
 from unity_test.waveform import WaveInfo
 
 
-def _server(tmp_path: Path) -> PdbCmdApiServer:
+def _server(tmp_path: Path) -> ControlApiServer:
     pdb = SimpleNamespace(
         agent=SimpleNamespace(
             workspace=str(tmp_path),
+            cfg=Config({"cmd_api": {"xpra": {}, "waveform_viewers": {"fst": {"kind": "web", "url": "/surfer/"}, "vcd": {"kind": "web", "url": "/surfer/"}, "fsdb": {"kind": "xpra", "script": "verdi/launch_verdi.py", "args": ["--meta", "{wave_meta}"], "idle_timeout": -1}}}}),
             tool_waveinfo=WaveInfo(
                 workspace=str(tmp_path), test_dir="unity_test/tests"
             ),
         ),
         stdout=None,
     )
-    return PdbCmdApiServer(pdb, sock="", tcp=True)
+    return ControlApiServer(Controller(pdb.agent), sock="", tcp=True)
 
 
 def test_surfer_adapter_and_readiness_command_are_served_before_wasm(tmp_path):

@@ -13,7 +13,7 @@ The CMD service and target applications can be deployed on Linux hosts or Docker
 
 The CMD service can still start if Xpra is missing, and other APIs remain available. The management page will display prompts indicating missing programs or resources. The `status` endpoint checks executables, versions, and explicitly configured resource paths; when actually creating a session, it further checks whether the server and HTML5 service can start.
 
-Follow the CMD service's startup and authentication settings, for example, execute in PDB:
+Follow the CMD service's startup and authentication settings, for example, execute in Console:
 
 ```text
 cmd_api_start --passwd your-password
@@ -217,4 +217,4 @@ In a Linux environment with the project's full dependencies, picker, Verilator, 
 UCAGENT_RUN_XPRA_INTEGRATION=1 python -m pytest -q tests/test_api_xpra_full_runtime.py
 ```
 
-The test first exports and compiles a real DUT package from Adder RTL using picker and Verilator, then loads the default verification workflow via the formal CLI, verifying coexistence of Web Terminal, Web Console modes, and CMD API/Xpra. It checks real PDB command execution, terminal input/output, Master authentication proxy after actual heartbeat registration, GUI/Console session creation/deletion, and process cleanup after normal UCAgent exit. Web Terminal and Web Console for the same Agent follow the mutual exclusion limits of the CLI; tests can be run separately across multiple Agents. The test uses the project's built-in `blank` backend, does not initiate model requests, and does not replace Agent, PDB, or workflow objects. This test is skipped unless explicitly enabled; standard unit tests do not require local Xpra server installation.
+The test first exports and compiles a real DUT package from Adder RTL using picker and Verilator, then loads the default verification workflow via the formal CLI, verifying coexistence of Web Terminal, Web Console modes, and CMD API/Xpra. It checks real Console command execution, terminal input/output, Master authentication proxy after actual heartbeat registration, GUI/Console session creation/deletion, and process cleanup after normal UCAgent exit. Web Terminal and Web Console for the same Agent follow the mutual exclusion limits of the CLI; tests can be run separately across multiple Agents. The test uses the project's built-in `blank` backend, does not initiate model requests, and does not replace Agent, Console, or workflow objects. This test is skipped unless explicitly enabled; standard unit tests do not require local Xpra server installation.

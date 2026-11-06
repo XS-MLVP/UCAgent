@@ -1,11 +1,5 @@
 # -*- coding: utf-8 -*-
-"""
-CMD API server for VerifyPDB — FastAPI implementation.
-
-Runs a FastAPI/uvicorn HTTP server in a background thread, exposing the
-PDB instance's api_* methods and command queue via REST endpoints so
-external tools can inspect/control the agent without touching the console.
-"""
+"""Authenticated HTTP controls, operation results and workspace inspection."""
 
 import collections
 import atexit
@@ -17,94 +11,15 @@ import os
 import re
 import sys
 import threading
+from ucagent.control.runtime.services import lifecycle_timeout, start_http_listeners, stop_http_listeners
 import time
 import warnings
-from typing import TYPE_CHECKING, List, Optional, Tuple
-
-if TYPE_CHECKING:
-    from ucagent.verify_pdb import VerifyPDB
+from typing import List, Optional, Tuple
 
 
 # ---------------------------------------------------------------------------
-# Console capture – tees sys.stdout into a fixed-size ring buffer so the
-# REST API can surface recent output without re-running commands.
+# Output is retained by the runtime buffer shared with other frontends.
 # ---------------------------------------------------------------------------
-
-class _ConsoleCapture:
-    """Thread-safe wrapper that mirrors writes to both the original stream and
-    an in-memory ring buffer of *complete* lines.
-
-    Install via ``sys.stdout = _ConsoleCapture(sys.stdout)``.
-    """
-
-    def __init__(self, original, maxlines: int = 2000) -> None:
-        from ucagent.tui.utils import PersistentConsoleMirror
-        while isinstance(original, (_ConsoleCapture, PersistentConsoleMirror)):
-            original = original._original
-        self._original = original
-        self._buf: collections.deque = collections.deque(maxlen=maxlines)
-        self._lock = threading.Lock()
-        self._pending = ""          # accumulates bytes until a newline arrives
-
-    # ---- stream interface -----------------------------------------------
-
-    def write(self, s) -> int:
-        if isinstance(s, (bytes, bytearray)):
-            s = s.decode(getattr(self._original, "encoding", "utf-8") or "utf-8",
-                          errors="replace")
-        elif not isinstance(s, str):
-            s = str(s)
-        self._original.write(s)
-        # Split on newlines; every complete segment goes into the ring buffer
-        with self._lock:
-            text = self._pending + s
-            lines = text.split("\n")
-            for line in lines[:-1]:   # all complete lines
-                self._buf.append(line)
-            self._pending = lines[-1]  # remainder (possibly empty)
-        return len(s)
-
-    def flush(self):
-        self._original.flush()
-
-    def isatty(self) -> bool:
-        return getattr(self._original, "isatty", lambda: False)()
-
-    def fileno(self) -> int:
-        return self._original.fileno()
-
-    @property
-    def encoding(self):
-        return getattr(self._original, "encoding", "utf-8")
-
-    @property
-    def errors(self):
-        return getattr(self._original, "errors", "replace")
-
-    def __getattr__(self, name):
-        return getattr(self._original, name)
-
-    # ---- buffer helpers -------------------------------------------------
-
-    def get_lines(self, n: int = 200) -> list:
-        """Return the most recent *n* lines (including any pending partial line)."""
-        with self._lock:
-            lines = list(self._buf)
-            if self._pending:
-                lines.append(self._pending)
-        return lines[-n:] if n > 0 else lines
-
-    def clear(self) -> None:
-        with self._lock:
-            self._buf.clear()
-            self._pending = ""
-
-    def inject(self, line: str) -> None:
-        """Add a line directly to the ring buffer without writing to the
-        underlying stream.  Used to echo API-submitted commands so the
-        web console shows prompt + command like the terminal does."""
-        with self._lock:
-            self._buf.append(line)
 
 _ANSI_RE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 
@@ -135,20 +50,20 @@ def _sub_workspace_lifecycle_from_info(info: dict) -> str:
     return "running"
 
 
-class PdbCmdApiServer:
+class ControlApiServer:
     """
-    FastAPI-based CMD API wrapper around a :class:`VerifyPDB` instance.
+    Authenticated FastAPI control surface for one runtime instance.
 
     Endpoints
     ---------
     GET  /                             - HTML dashboard (agent status + file manager)
-    GET  /api/status                   - Agent status string (?sub_worspace=...)
+    GET  /api/status                   - Structured agent status (?sub_workspace=...)
     GET  /api/server_info              - Running servers info (cmd_api, master_api, mcp)
-    GET  /api/pdb_status               - PDB runtime status (tui, pending cmds, break state)
+    GET  /api/runtime/status           - Instance, execution and operation state
     GET  /api/tasks                    - Task list (?sub_worspace=...)
     GET  /api/task/{index}             - Task detail (?sub_worspace=...)
     GET  /api/mission                  - Mission overview (raw ANSI; ?strip_ansi=true to strip&sub_worspace=...)
-    GET  /api/cmds                     - All available PDB commands  (?prefix=)
+    GET  /api/cmds                     - All available commands  (?prefix=)
     GET  /api/help                     - Command help  (?cmd=<name>)
     GET  /api/tools                    - Tool list with call counts
     GET  /api/changed_files            - Recently changed output files  (?count=10)
@@ -163,8 +78,8 @@ class PdbCmdApiServer:
     GET  /api/console                  - Captured stdout/stderr ring buffer (?lines=200&strip_ansi=false)
     DELETE /api/console                - Clear captured stdout buffer
     POST /api/cmd                      - Enqueue a single PDB command  {"cmd": "..."}
-    POST /api/cmds/batch               - Enqueue multiple PDB commands  {"cmds": [...]}
-    POST /api/interrupt                - Send Ctrl-C interrupt to PDB
+    POST /api/cmds/batch               - Submit ordered registered commands  {"cmds": [...]}
+    POST /api/runtime/pause            - Pause at the next safe boundary
     GET  /api/files                    - List workspace directory  (?path=subdir&sub_worspace=...)
     GET  /api/file                     - Read text file content  (?path=...&sub_worspace=...)
     POST /api/file/new                 - Create new text file  body: {"path":"...","content":"..."}
@@ -183,61 +98,55 @@ class PdbCmdApiServer:
 
     def __init__(
         self,
-        pdb_instance: "VerifyPDB",
+        controller,
+        *,
+        registry=None,
+        operations=None,
+        services=None,
+        host_control=None,
         host: str = "127.0.0.1",
         port: int = 8765,
         sock: Optional[str] = None,
         tcp: bool = True,
         password: str = "",
     ) -> None:
-        """
-        Parameters
-        ----------
-        pdb_instance : VerifyPDB
-            The PDB instance to wrap.
-        host : str
-            TCP host address for the HTTP listener.
-        port : int
-            TCP port for the HTTP listener.
-        sock : str, optional
-            Path to a Unix-domain socket file.  When provided the server
-            also listens on this socket (independent of TCP).
-        tcp : bool
-            Whether to enable the TCP listener.  Defaults to True.
-            Set to False to run on Unix socket only.
-        password : str
-            If non-empty, all API endpoints (except /docs and /redoc) require
-            HTTP Basic Auth with this password.  Username is ignored.
-        """
-        try:
-            import fastapi  # noqa: F401
-            import uvicorn  # noqa: F401
-        except ImportError as exc:
-            raise ImportError(
-                "FastAPI and uvicorn are required for the CMD API server. "
-                "Install them with:  pip install fastapi uvicorn"
-            ) from exc
+        """Bind explicit controls and owned operations while preserving HTTP authentication."""
+        from ucagent.control.commands import create_registry, SessionCommands
+        from ucagent.control.runtime.operations import OperationExecutor
+
+        self.controller = controller
+        self.agent = controller.agent
+        self.operations = operations or controller.operations or OperationExecutor(controller)
+        self.services = services or getattr(self.agent, "services", None)
+        self.host_control = host_control
+        self.registry = registry or create_registry(controller, executors={
+            "operations": self.operations, "stages": self.operations.stages,
+            "services": self.services, "host": host_control, "session": SessionCommands()})
+        self._sessions = {}
 
         # Resolve sock:
         #   None  → auto-generate a default path that embeds the port
         #   ""    → explicitly disabled
         #   other → use as-is (user-supplied path)
         if sock is None:
-            sock = f"/tmp/ucagent_cmd_{port}.sock"
+            sock = f"/tmp/ucagent_cmd_{port}.sock" if port else f"/tmp/ucagent_cmd_{os.getpid()}_{id(self):x}.sock"
         elif sock == "":
             sock = None
 
         if not tcp and not sock:
             raise ValueError("At least one of 'tcp' or 'sock' must be enabled.")
 
-        self.pdb = pdb_instance
         self.host = host
         self.port = port
         self.sock = sock
         self.tcp = tcp
         self.password = password
         self._xpra = self._new_xpra_manager()
-        atexit.register(self.close_sessions)
+        self._lifecycle_lock = threading.RLock()
+        self._listener_sockets = []
+        self._listener_errors = []
+        self._owned_sock_path = None
+        self._stop_requested = False
         self._running = False
         self.started_at: Optional[float] = None
         # TCP listener state
@@ -246,21 +155,12 @@ class PdbCmdApiServer:
         # Unix socket listener state
         self._sock_server = None
         self._sock_thread: Optional[threading.Thread] = None
-        # Install stdout ring-buffer capture so /api/console can surface output
-        self._original_stdout = sys.stdout
-        self._console_capture = _ConsoleCapture(sys.stdout)
-        sys.stdout = self._console_capture
-        # Also redirect pdb.stdout so PDB prompt/output goes into the capture
-        pdb_instance.stdout = self._console_capture
-        # Set console sync handler to capture output from log functions
-        from ucagent.util import log
-        self._original_sync_handler = log.get_console_sync_handler()
-        def sync_to_capture(text: str):
-            self._console_capture.write(text)
-            if self._original_sync_handler:
-                self._original_sync_handler(text)
-        log.set_console_sync_handler(sync_to_capture)
+        from ucagent.control.runtime.output import OutputBuffer
+        self._console_capture = host_control.output if host_control else OutputBuffer()
+        self._owns_output = host_control is None
         self._app = self._build_app()
+        self._console_capture.install()
+        atexit.register(self.close_sessions)
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -269,7 +169,7 @@ class PdbCmdApiServer:
     def _new_xpra_manager(self):
         """Create an isolated manager from the agent's resolved server settings."""
         from .xpra import XpraSessionManager
-        return XpraSessionManager(self.pdb.agent.workspace, getattr(self.pdb.agent, "cfg", None),
+        return XpraSessionManager(self.agent.workspace, getattr(self.agent, "cfg", None),
                                   secrets=(self.password,))
 
     def close_sessions(self):
@@ -289,7 +189,8 @@ class PdbCmdApiServer:
             from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
             from fastapi.responses import FileResponse, HTMLResponse, Response
             from starlette.background import BackgroundTask
-        from pydantic import BaseModel
+        from pydantic import BaseModel, Field
+        from uuid import uuid4
         from ucagent.util import diff_ops
         from ucagent.util.functions import (
             find_files_by_pattern,
@@ -300,11 +201,11 @@ class PdbCmdApiServer:
         from ucagent.util.log import L_GREEN, L_RED, L_YELLOW, RESET
 
         app = FastAPI(
-            title="UCAgent PDB CMD API",
+            title="UCAgent Control API",
             description=(
-                "REST API for inspecting the UCAgent VerifyPDB instance. "
+                "REST API for the UCAgent runtime. "
                 "Use GET /api/status, /api/mission, /api/tasks, /api/console for monitoring. "
-                "GET /api/cmds lists available PDB commands."
+                "GET /api/cmds lists available commands."
             ),
             version="1.0.0",
         )
@@ -333,10 +234,19 @@ class PdbCmdApiServer:
 
         app.add_middleware(_AuthMiddleware)
 
+        from ucagent.control.controller import ControlError
+
+        @app.exception_handler(ControlError)
+        async def control_error(request, error):
+            """Translate typed business errors without reporting them as successful commands."""
+            code = 409 if error.code in {"busy", "stale_revision", "stale_stage", "closing"} else 404 if error.code in {"unknown_command", "unknown_operation", "not_found"} else 400
+            return _JSONResponse(status_code=code, content={"status": "error", "error": error.as_dict()})
+
+
         from .xpra_routes import register_xpra_routes
         register_xpra_routes(app, self)
 
-        pdb = self.pdb  # capture for closures
+        control = self.controller
 
         # ── request bodies ─────────────────────────────────────────────
         class FileEditBody(BaseModel):
@@ -344,19 +254,33 @@ class PdbCmdApiServer:
             content: str
         class CmdBody(BaseModel):
             cmd: str
+            session_id: str = Field(default_factory=lambda: uuid4().hex)
+            cwd: Optional[str] = None
+            confirmed: bool = False
 
-        class CmdsBody(BaseModel):
+        class CmdsBody(CmdBody):
+            cmd: str = ""
             cmds: List[str]
 
         class StageFlagsBody(BaseModel):
             indices: List[int]
+            expected_revision: int
             hmcheck_needed: Optional[bool] = None
             skip: Optional[bool] = None
             llm_fail_suggestion: Optional[bool] = None
             llm_pass_suggestion: Optional[bool] = None
+        class StageReviewBody(BaseModel):
+            """Bind approval to one observed stage revision."""
+            index: int
+            expected_revision: int
+            approved: bool
+            message: str = ""
+            resume: bool = False
+            session_id: str = Field(default_factory=lambda: uuid4().hex)
+
         # ── path / sub-workspace helpers ───────────────────────────────
         def _base_workspace_root() -> str:
-            return os.path.abspath(pdb.agent.workspace)
+            return os.path.abspath(self.agent.workspace)
 
         def _workspace_root(workspace_root: Optional[str] = None) -> str:
             return os.path.abspath(workspace_root or _base_workspace_root())
@@ -854,7 +778,7 @@ class PdbCmdApiServer:
             current_index = task_data["task_index"]
             stage_list = task_data["task_list"]["stage_list"]
             ret = collections.OrderedDict({
-                "misson_name": task_data["mission_name"],
+                "mission_name": task_data["mission_name"],
                 "current_index": current_index,
                 "enable_llm_fail_suggestion": any(s.get("need_fail_llm_suggestion") for s in stage_list),
                 "enable_llm_pass_suggestion": any(s.get("need_pass_llm_suggestion") for s in stage_list),
@@ -887,7 +811,7 @@ class PdbCmdApiServer:
                 ret["stages"].append({
                     "index": index,
                     "text": text,
-                    "out_come": outcome,
+                    "outcome": outcome,
                     "title": title,
                     "is_current": is_current,
                     "is_completed": is_completed,
@@ -1263,23 +1187,37 @@ class PdbCmdApiServer:
             finally:
                 repo.close()
 
-        def _commands_for_workspace(
-            cmds: List[str],
-            workspace_root: str,
-            workspace_rel: str,
-        ) -> List[str]:
-            if not workspace_rel:
-                return cmds
-            routed = []
-            chcwd_cmd = f"chcwd {workspace_root}"
-            for cmd in cmds:
-                # In sub-workspace mode, reset-style cwd commands should land
-                # at the active sub-workspace root. Other commands run as-is.
-                if cmd.strip().lower() in ("cd", "chcwd ."):
-                    routed.append(chcwd_cmd)
-                else:
-                    routed.append(cmd)
-            return routed
+        def command_session(request, session_id, cwd=None, confirmed=False):
+            """Keep directories scoped to a client and selected workspace, with traversal checks."""
+            from ucagent.control.commands import CommandSession
+            from pathlib import Path
+
+            workspace, relative, is_sub = _request_workspace(request)
+            key = (session_id, workspace)
+            with self._lifecycle_lock:
+                session = self._sessions.setdefault(key, CommandSession(Path(workspace), repeat=False))
+                if cwd is not None:
+                    candidate = (Path(workspace) / cwd).resolve()
+                    if not candidate.is_relative_to(Path(workspace).resolve()) or not candidate.is_dir():
+                        raise HTTPException(403, "Command directory must be inside the selected workspace")
+                    session.cwd = candidate
+                session.confirmed = confirmed
+            return session, is_sub
+
+        def submit_command(line, session, is_sub):
+            """Record synchronous results and return existing IDs for real background operations."""
+            from ucagent.control.controller import ControlError
+
+            spec = self.registry.resolve(line.split(maxsplit=1)[0])
+            if spec.owner == "view":
+                raise ControlError("unavailable", "Display commands require a local view.")
+            if is_sub and spec.name not in {"ls", "cd", "chcwd", "pwd", "help"}:
+                raise HTTPException(403, "This command cannot control the parent from a sub-workspace")
+            result = self.registry.submit(line, session)
+            data = result.data
+            if isinstance(data, dict) and "id" in data and "state" in data:
+                return data
+            return self.operations.record_result(result.command, data)
 
         def _archive_dir_response(abs_dir: str, archive_base: str, filename: str):
             fd, archive_path = tempfile.mkstemp(
@@ -1374,7 +1312,7 @@ class PdbCmdApiServer:
                 if is_sub_workspace:
                     info = _load_ucagent_info_for_workspace(workspace_root)
                     return {"status": "ok", "data": _format_sub_status(workspace_root, info)}
-                return {"status": "ok", "data": pdb.api_status()}
+                return {"status": "ok", "data": control.status()}
             except HTTPException:
                 raise
             except Exception as exc:
@@ -1384,33 +1322,39 @@ class PdbCmdApiServer:
         @app.get("/api/server_info", summary="Running servers info (cmd_api, master_api, mcp)")
         def get_server_info():
             try:
-                return {"status": "ok", "data": pdb.api_server_info()}
+                return {"status": "ok", "data": self.services.server_info()}
             except Exception as exc:
                 raise HTTPException(status_code=500, detail=str(exc))
 
-        # ── GET /api/pdb_status ─────────────────────────────────────────────
-        @app.get("/api/pdb_status", summary="PDB runtime status")
-        def get_pdb_status():
-            try:
-                in_tui = getattr(pdb, "_in_tui", False)
-                init_cmd = list(pdb.init_cmd) if pdb.init_cmd else []
-                cmdqueue = list(pdb.cmdqueue) if pdb.cmdqueue else []
-                pending = init_cmd if in_tui else cmdqueue
-                is_break = pdb.agent.is_break()
-                running_cmds = pdb.get_running_commands()
-                return {
-                    "status": "ok",
-                    "data": {
-                        "in_tui": in_tui,
-                        "is_break": is_break,
-                        "pending_cmds": pending,
-                        "pending_count": len(pending),
-                        "prompt": pdb.prompt,
-                        "running_cmds": running_cmds,
-                    },
-                }
-            except Exception as exc:
-                raise HTTPException(status_code=500, detail=str(exc))
+        @app.get("/api/runtime/status", summary="Runtime and operation state")
+        def runtime_status():
+            """Expose application state separately from actual operation results."""
+            state = self.host_control.snapshot() if self.host_control else {"instance": "ready", "execution": "idle"}
+            return {"status": "ok", "data": {**state, "operations": self.operations.list()}}
+
+        @app.get("/api/operations/{operation_id}")
+        def operation_status(operation_id: str):
+            """Read a detached operation without joining its worker."""
+            return {"status": "ok", "data": control.operation_status(operation_id)}
+
+        @app.post("/api/operations/{operation_id}/cancel")
+        def cancel_operation(operation_id: str, request: Request):
+            """Cancel the identified operation; sub-workspace views cannot control the parent."""
+            if _request_workspace(request)[2]:
+                raise HTTPException(403, "Parent operations cannot be cancelled from a sub-workspace")
+            return {"status": "ok", "data": control.cancel_operation(operation_id)}
+
+        @app.post("/api/runtime/pause")
+        def pause_runtime(request: Request):
+            """Request a safe pause instead of delivering process signals."""
+            if _request_workspace(request)[2]:
+                raise HTTPException(403, "Parent runtime cannot be paused from a sub-workspace")
+            return {"status": "ok", "data": self.host_control.pause()}
+
+        @app.get("/api/stages/state")
+        def stage_state():
+            """Expose the revision required by review and flag updates."""
+            return {"status": "ok", "data": control.stage_state()}
 
         # ── GET /api/tasks ─────────────────────────────────────────────
         @app.get("/api/tasks", summary="Task list")
@@ -1420,16 +1364,16 @@ class PdbCmdApiServer:
                 if is_sub_workspace:
                     info = _load_ucagent_info_for_workspace(workspace_root)
                     return {"status": "ok", "data": _sub_task_list(workspace_root, info)}
-                return {"status": "ok", "data": pdb.api_task_list()}
+                return {"status": "ok", "data": control.task_status()}
             except HTTPException:
                 raise
             except Exception as exc:
                 raise HTTPException(status_code=500, detail=str(exc))
 
         def _task_detail_with_journal(index: int):
-            data = pdb.api_task_detail(index=index)
+            data = control.task_detail(index=index)
             if isinstance(data, dict):
-                stage = pdb.agent.stage_manager.get_stage(index)
+                stage = self.agent.stage_manager.get_stage(index)
                 journal = stage.meta_get_journal() if stage else None
                 last_do_check_info = None
                 get_last_do_check_info = getattr(stage, "get_last_do_check_info", None) if stage else None
@@ -1495,10 +1439,10 @@ class PdbCmdApiServer:
                     info = _load_ucagent_info_for_workspace(workspace_root)
                     mission_data = _sub_mission_info(workspace_root, info)
                 else:
-                    mission_data = pdb.api_mission_info(return_dict=True)
+                    mission_data = control.mission_info()
                 if strip_ansi:
                     for stage in mission_data["stages"]:
-                        stage["text"] = _strip_ansi(stage["text"])
+                        stage["text"] = _strip_ansi(stage.get("text", stage.get("title", "")))
                 return {"status": "ok", "data": mission_data}
             except HTTPException:
                 raise
@@ -1506,43 +1450,19 @@ class PdbCmdApiServer:
                 raise HTTPException(status_code=500, detail=str(exc))
 
         # ── GET /api/cmds ──────────────────────────────────────────────
-        @app.get("/api/cmds", summary="List available PDB commands")
+        @app.get("/api/cmds", summary="List available commands")
         def get_cmds(
             prefix: str = Query(default="", description="Filter commands by prefix")
         ):
             try:
-                return {"status": "ok", "data": pdb.api_all_cmds(prefix)}
+                return {"status": "ok", "data": self.registry.complete(prefix)}
             except Exception as exc:
                 raise HTTPException(status_code=500, detail=str(exc))
 
-        # ── GET /api/help ──────────────────────────────────────────────
-        @app.get("/api/help", summary="Command help")
-        def get_help(
-            cmd: str = Query(default="", description="Command name; omit to list all")
-        ):
-            try:
-                if cmd:
-                    func = getattr(pdb, f"do_{cmd}", None)
-                    if func is None:
-                        raise HTTPException(
-                            status_code=404,
-                            detail=f"Command '{cmd}' not found",
-                        )
-                    return {
-                        "status": "ok",
-                        "data": {"cmd": cmd, "help": (func.__doc__ or "").strip()},
-                    }
-                result = {}
-                for c in pdb.api_all_cmds():
-                    func = getattr(pdb, f"do_{c}", None)
-                    if func:
-                        doc = (func.__doc__ or "").strip()
-                        result[c] = doc.split("\n")[0] if doc else ""
-                return {"status": "ok", "data": result}
-            except HTTPException:
-                raise
-            except Exception as exc:
-                raise HTTPException(status_code=500, detail=str(exc))
+        @app.get("/api/help", summary="Registered command help")
+        def get_help(cmd: str = ""):
+            """Describe only declared commands; debugger methods are never discovered."""
+            return {"status": "ok", "data": self.registry.describe(cmd or None)}
 
         # ── GET /api/tools ─────────────────────────────────────────────
         @app.get("/api/tools", summary="Tool list with call counts")
@@ -1551,11 +1471,7 @@ class PdbCmdApiServer:
                 _, _, is_sub_workspace = _request_workspace(request)
                 if is_sub_workspace:
                     return {"status": "ok", "data": []}
-                tools = pdb.api_tool_status()
-                data = [
-                    {"name": name, "call_count": count, "is_hot": is_hot}
-                    for name, count, is_hot in tools
-                ]
+                data = control.tool_list()
                 return {"status": "ok", "data": data}
             except HTTPException:
                 raise
@@ -1577,13 +1493,13 @@ class PdbCmdApiServer:
                         for d, t, f in files
                     ]
                     return {"status": "ok", "data": data, "output_dir": ""}
-                files = pdb.api_changed_files(count)
+                files = control.changed_files(count)
                 data = [
-                    {"delta_seconds": d, "timestamp": t, "file": f}
-                    for d, t, f in files
+                    {"delta_seconds": row["age_seconds"], "timestamp": row["mtime"], "file": row["path"]}
+                    for row in files
                 ]
-                _workspace = os.path.abspath(pdb.agent.workspace)
-                _output_dir = os.path.abspath(pdb.agent.output_dir)
+                _workspace = os.path.abspath(self.agent.workspace)
+                _output_dir = os.path.abspath(self.agent.output_dir)
                 output_dir_rel = os.path.relpath(_output_dir, _workspace)
                 return {"status": "ok", "data": data, "output_dir": output_dir_rel}
             except HTTPException:
@@ -1782,7 +1698,7 @@ class PdbCmdApiServer:
                         "status": "ok",
                         "data": _sub_stage_file_payload(workspace_root, info, index, file_path, current=False),
                     }
-                data = pdb.api_get_stage_file(index, file_path)
+                data = control.stage_file_content(file_path, index)
                 return {"status": "ok", "data": data}
             except HTTPException:
                 raise
@@ -1812,7 +1728,7 @@ class PdbCmdApiServer:
                             sync_history=sync_history,
                         ),
                     }
-                data = pdb.api_get_stage_file_current(index, file_path, sync_history=sync_history)
+                data = control.stage_cfile_content(file_path, index, sync_history=sync_history)
                 return {"status": "ok", "data": data}
             except HTTPException:
                 raise
@@ -1871,38 +1787,55 @@ class PdbCmdApiServer:
             except Exception as exc:
                 raise HTTPException(status_code=500, detail=str(exc))
 
-        # ── POST /api/cmd ─────────────────────────────────────────────────
-        @app.post("/api/cmd", summary="Enqueue a single PDB command")
+        @app.post("/api/cmd", summary="Submit a registered command")
         def post_cmd(body: CmdBody, request: Request):
-            try:
-                workspace_root, workspace_rel, _ = _request_workspace(request)
-                cmd = body.cmd.strip()
-                if not cmd:
-                    raise HTTPException(status_code=400, detail="'cmd' must not be empty")
-                _capture.inject(f"{pdb.prompt}{cmd}")
-                pdb.add_cmds(_commands_for_workspace([cmd], workspace_root, workspace_rel))
-                return {"status": "ok", "message": f"Command enqueued", "cmd": cmd}
-            except HTTPException:
-                raise
-            except Exception as exc:
-                raise HTTPException(status_code=500, detail=str(exc))
+            """Return an operation ID that identifies success, failure or pending work."""
+            if not body.cmd.strip():
+                raise HTTPException(400, "Command cannot be empty")
+            session, is_sub = command_session(request, body.session_id, body.cwd, body.confirmed)
+            operation = submit_command(body.cmd.strip(), session, is_sub)
+            _capture.inject(f"ucagent> {body.cmd}")
+            return {"status": "accepted", "operation_id": operation["id"], "session_id": body.session_id, "data": operation}
 
-        # ── POST /api/cmds/batch ─────────────────────────────────────────────
-        @app.post("/api/cmds/batch", summary="Enqueue multiple PDB commands")
+        @app.post("/api/cmds/batch", summary="Submit ordered commands")
         def post_cmds_batch(body: CmdsBody, request: Request):
-            try:
-                workspace_root, workspace_rel, _ = _request_workspace(request)
-                cmds = [c.strip() for c in body.cmds if c.strip()]
-                if not cmds:
-                    raise HTTPException(status_code=400, detail="'cmds' list is empty or all blank")
-                for c in cmds:
-                    _capture.inject(f"{pdb.prompt}{c}")
-                pdb.add_cmds(_commands_for_workspace(cmds, workspace_root, workspace_rel))
-                return {"status": "ok", "message": f"{len(cmds)} command(s) enqueued", "count": len(cmds), "cmds": cmds}
-            except HTTPException:
-                raise
-            except Exception as exc:
-                raise HTTPException(status_code=500, detail=str(exc))
+            """Execute each command after its predecessor finishes and retain per-command errors."""
+            session, is_sub = command_session(request, body.session_id, body.cwd, body.confirmed)
+            commands = [line.strip() for line in body.cmds if line.strip()]
+            if not commands:
+                raise HTTPException(400, "Command list cannot be empty")
+
+            def batch(context):
+                """Wait for child results without claiming the model reservation itself."""
+                from ucagent.control.controller import ControlError
+                from ucagent.control.runtime.operations import OperationFailure
+                results = []
+                for line in commands:
+                    context.checkpoint()
+                    try:
+                        child = submit_command(line, session, is_sub)
+                        child = self.operations.wait_tree(context, child["id"])
+                        results.append({"cmd": line, "operation_id": child["id"], "state": child["state"], "error": child["error"]})
+                    except (ControlError, HTTPException) as error:
+                        detail = error.as_dict() if isinstance(error, ControlError) else {"code": "forbidden", "message": str(error.detail), "details": {}}
+                        child = self.operations.record_result(line, None, error=detail)
+                        results.append({"cmd": line, "operation_id": child["id"], "state": "failed", "error": detail})
+                if any(row["state"] != "succeeded" for row in results):
+                    raise OperationFailure("batch_failed", "One or more commands failed or were cancelled.", results)
+                return results
+
+            operation = self.operations.submit("batch", batch)
+            return {"status": "accepted", "operation_id": operation["id"], "session_id": body.session_id, "data": operation}
+
+        @app.post("/api/stages/review", summary="Review the observed current stage")
+        def review_stage(body: StageReviewBody, request: Request):
+            """Persist revision-checked human approval before optional coordinated resume."""
+            session, is_sub = command_session(request, body.session_id)
+            if is_sub:
+                raise HTTPException(403, "Parent stage review is unavailable from a sub-workspace")
+            return {"status": "ok", "data": control.review_stage(
+                body.index, body.expected_revision, body.approved, body.message,
+                resume=body.resume, session=session)}
 
         @app.post("/api/stages/update", summary="Update stage flags")
         def post_stage_update(body: StageFlagsBody, request: Request):
@@ -1910,33 +1843,18 @@ class PdbCmdApiServer:
                 _, _, is_sub_workspace = _request_workspace(request)
                 if is_sub_workspace:
                     raise HTTPException(status_code=400, detail="Stage flags cannot be modified from sub-workspace view")
-                updated = pdb.api_update_stage_flags(
+                updated = control.update_stage_flags(
+                    expected_revision=body.expected_revision,
                     indices=body.indices,
-                    hmcheck_needed=body.hmcheck_needed,
-                    skip=body.skip,
-                    llm_fail_suggestion=body.llm_fail_suggestion,
-                    llm_pass_suggestion=body.llm_pass_suggestion,
+                    **body.model_dump(exclude_unset=True, exclude={"indices", "expected_revision"}),
                 )
                 return {"status": "ok", "data": updated}
             except HTTPException:
                 raise
+            except ControlError:
+                raise
             except ValueError as exc:
                 raise HTTPException(status_code=400, detail=str(exc))
-            except Exception as exc:
-                raise HTTPException(status_code=500, detail=str(exc))
-
-        # ── POST /api/interrupt ──────────────────────────────────────────────
-        @app.post("/api/interrupt", summary="Send Ctrl-C interrupt to PDB")
-        def post_interrupt():
-            import signal as _signal
-            try:
-                # Set the break flag first so the installed signal handler
-                # will NOT raise KeyboardInterrupt when the OS signal arrives.
-                pdb.agent.set_break(True)
-                # Deliver SIGINT to the main thread (Python always delivers
-                # signals to the main thread, where the handler is registered).
-                os.kill(os.getpid(), _signal.SIGINT)
-                return {"status": "ok", "message": "Interrupt sent"}
             except Exception as exc:
                 raise HTTPException(status_code=500, detail=str(exc))
 
@@ -1946,8 +1864,9 @@ class PdbCmdApiServer:
             request: Request,
             path: str = Query(default="", description="Relative path within workspace (default: root)")
         ):
+            import datetime
+
             try:
-                import datetime
                 workspace_root, workspace_rel, is_sub_workspace = _request_workspace(request)
                 abs_path = _safe_abs(path, workspace_root)
                 if not os.path.isdir(abs_path):
@@ -2159,7 +2078,7 @@ class PdbCmdApiServer:
                 dut_name = (
                     os.path.basename(os.path.normpath(workspace_root))
                     if is_sub_workspace
-                    else (getattr(pdb.agent, "dut_name", "") or "workspace")
+                    else (getattr(self.agent, "dut_name", "") or "workspace")
                 )
                 archive_base = _safe_archive_base(dut_name, "workspace")
                 return _archive_dir_response(
@@ -2323,170 +2242,39 @@ class PdbCmdApiServer:
     # Lifecycle
     # ------------------------------------------------------------------
 
-    def start(self) -> Tuple[bool, str]:
-        """Start the CMD API server.  TCP and Unix-socket listeners start
-        independently and may both be active at the same time.
-
-        Returns
-        -------
-        (success, message)
-        """
-        if self._running:
-            return False, f"CMD API server is already running at {self.url()}"
-
+    def start(self, timeout=10) -> Tuple[bool, str]:
+        """Use the common readiness lifecycle while retaining current command routes."""
         if self._xpra._closed:
             self._xpra = self._new_xpra_manager()
         atexit.unregister(self.close_sessions)
         atexit.register(self.close_sessions)
+        return start_http_listeners(self, timeout=timeout, name="command", lifespan="off")
 
-        import os
-        import uvicorn
-
-        started_lines: List[str] = []
-        errors: List[str] = []
-
-        # ── TCP listener ───────────────────────────────────────────────
-        if self.tcp:
-            try:
-                tcp_cfg = uvicorn.Config(
-                    self._app,
-                    host=self.host,
-                    port=self.port,
-                    log_config=None, log_level=None,
-                    lifespan="off",
-                    ws="websockets-sansio",
-                )
-                self._tcp_server = uvicorn.Server(tcp_cfg)
-                self._tcp_thread = threading.Thread(
-                    target=self._tcp_server.run,
-                    daemon=True,
-                    name="pdb-cmd-api-tcp",
-                )
-                self._tcp_thread.start()
-                started_lines.append(
-                    f"TCP  http://{self.host}:{self.port}  (docs: http://{self.host}:{self.port}/docs)"
-                )
-            except Exception as exc:
-                errors.append(f"TCP listener failed: {exc}")
-                self._tcp_server = None
-                self._tcp_thread = None
-
-        # ── Unix-socket listener ───────────────────────────────────────
-        if self.sock:
-            # Remove stale socket file so uvicorn can bind cleanly
-            if os.path.exists(self.sock):
-                try:
-                    os.unlink(self.sock)
-                except OSError as exc:
-                    errors.append(f"Cannot remove existing socket '{self.sock}': {exc}")
-            if not any(e.startswith("Cannot remove") for e in errors):
-                try:
-                    sock_cfg = uvicorn.Config(
-                        self._app,
-                        uds=self.sock,
-                        log_config=None, log_level=None,
-                        lifespan="off",
-                        ws="websockets-sansio",
-                    )
-                    self._sock_server = uvicorn.Server(sock_cfg)
-                    self._sock_thread = threading.Thread(
-                        target=self._sock_server.run,
-                        daemon=True,
-                        name="pdb-cmd-api-sock",
-                    )
-                    self._sock_thread.start()
-                    started_lines.append(
-                        f"Sock {self.sock}"
-                        f"  (docs: curl --unix-socket {self.sock} http://localhost/docs)"
-                    )
-                except Exception as exc:
-                    errors.append(f"Socket listener failed: {exc}")
-                    self._sock_server = None
-                    self._sock_thread = None
-
-        if not started_lines:
-            # Nothing started
-            return False, "CMD API server failed to start:\n  " + "\n  ".join(errors)
-
-        self._running = True
-        self.started_at = __import__('time').time()
-        # Register atexit cleanup so the sock file is removed even if stop()
-        # is never called (e.g. process exits via sys.exit or reaches end).
-        if self.sock:
-            import atexit as _atexit, os as _os
-            _sock = self.sock
-            def _cleanup_sock():
-                try:
-                    if _os.path.exists(_sock):
-                        _os.unlink(_sock)
-                except OSError:
-                    pass
-            _atexit.register(_cleanup_sock)
-        msg = "CMD API server started:\n  " + "\n  ".join(started_lines)
-        if errors:
-            msg += "\n  (warnings) " + "; ".join(errors)
-        return True, msg
-
-    def stop(self) -> Tuple[bool, str]:
-        """Cleanly shut down all active listeners."""
+    def stop(self, timeout=5) -> Tuple[bool, str]:
+        """Restore captures only after all native request handlers have stopped."""
+        ok, message = stop_http_listeners(self, timeout=timeout)
+        if not ok:
+            return ok, message
         self.close_sessions()
         atexit.unregister(self.close_sessions)
-        if not self._running:
-            return False, "CMD API server is not running"
-
-        if self._tcp_server is not None:
-            self._tcp_server.should_exit = True
-            self._tcp_server = None
-        self._tcp_thread = None
-
-        if self._sock_server is not None:
-            self._sock_server.should_exit = True
-            self._sock_server = None
-        self._sock_thread = None
-
-        self._running = False
-        self.started_at = None
-
-        # Restore stdout/stderr.  Use the *current* downstream of the capture
-        # wrapper (``_original``), NOT the value saved at __init__ time.  If
-        # PdbCmdApiServer was created inside a TUI session, _original_stdout
-        # captures the TUI's sink, which is dead after TUI exits.  However,
-        # the TUI exit path relinks _console_capture._original to the real
-        # stdout, so _console_capture._original is always the correct target.
-        restore_to = getattr(self._console_capture, '_original', self._original_stdout)
-        if sys.stdout is self._console_capture:
-            sys.stdout = restore_to
-        if self.pdb.stdout is self._console_capture:
-            self.pdb.stdout = restore_to
-
-        # Restore original console sync handler
-        from ucagent.util import log
-        log.set_console_sync_handler(self._original_sync_handler)
-
-        # Clean up the socket file
-        if self.sock:
-            import os
-            try:
-                if os.path.exists(self.sock):
-                    os.unlink(self.sock)
-            except OSError:
-                pass
+        if self._owns_output:
+            self._console_capture.close()
 
         return True, "CMD API server stopped"
 
     @property
     def is_running(self) -> bool:
-        tcp_alive = (
-            self.tcp
-            and self._tcp_thread is not None
-            and self._tcp_thread.is_alive()
-        )
-        sock_alive = (
-            bool(self.sock)
-            and self._sock_thread is not None
-            and self._sock_thread.is_alive()
-        )
-        return self._running and (tcp_alive or sock_alive)
+        """Keep startup and draining threads visible to the service owner."""
+        return any(thread is not None and thread.is_alive()
+                   for thread in (self._tcp_thread, self._sock_thread))
+
+    @property
+    def is_ready(self) -> bool:
+        """Report readiness for every enabled listener, independently of route migration."""
+        return self._running and not self._stop_requested and all(
+            server is not None and server.started and thread is not None and thread.is_alive()
+            for enabled, server, thread in ((self.tcp, self._tcp_server, self._tcp_thread),
+                                            (bool(self.sock), self._sock_server, self._sock_thread)) if enabled)
 
     def url(self) -> str:
         """Return a human-readable address string for all active listeners."""

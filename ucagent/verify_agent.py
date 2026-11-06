@@ -28,7 +28,6 @@ from .tools.fileops import write_entry_has_wildcards, wildcard_entry_overlaps
 from .tools.skill import ListSkill, _list_skills, list_skills_in_format
 from .tools.planning import *
 from .stage import StageManager
-from .verify_pdb import VerifyPDB
 from .interaction import EnhancedInteractionLogic, AdvancedInteractionLogic
 from .version import __version__, __email__
 from .plugins import (
@@ -43,7 +42,6 @@ from .plugins import (
 import time
 import math
 import random
-import signal
 import copy
 import threading
 import shutil
@@ -156,7 +154,6 @@ class VerifyAgent:
         template_cfg: Optional[Dict[str, Any]] = None,
         guid_doc_path: List[str] = [],
         stream_output: bool = False,
-        init_cmd: Optional[List[str]] = None,
         seed: Optional[int] = None,
         sys_tips: str = "",
         ex_tools: Optional[List[str]] = None,
@@ -198,7 +195,6 @@ class VerifyAgent:
             tmp_overwrite (bool, optional): Whether to overwrite existing templates in the workspace. Defaults to False.
             template_dir (str, optional): Path to the template directory. Defaults to None.
             stream_output (bool, optional): Whether to stream output to the console. Defaults to False.
-            init_cmd (list, optional): Initial commands to run in the agent. Defaults to None.
             seed (int, optional): Seed for random number generation. Defaults to None.
             sys_tips (str, optional): Set of system tips to be used in the agent.
                                       Defaults to an empty string.
@@ -768,25 +764,16 @@ class VerifyAgent:
         self._sync_workspace_back_on_exit_done = False
         self._tip_index = 0
         self._need_break = False
-        self._break_threads: set[int] = set()
         self._need_human = False
         self._max_stalled_rounds = self._validated_max_stalled_rounds(
             self.cfg.get_value("loop_settings.max_stalled_rounds", 0)
         )
         self._stalled_rounds = 0
         self._last_stall_signature = None
-        self._force_trace = False
         self._continue_msg = None
-        self._mcps = None               # set by PdbMcpServer for api_master heartbeat
-        self._mcp_server_thread = None   # set by PdbMcpServer for api_master heartbeat
         self._mcps_logger = None
-        self.original_sigint = signal.getsignal(signal.SIGINT)
-        self._sigint_count = 0
         self._exit_on_completion = exit_on_completion
-        self._exit_on_completion_pending = False
-        self._exit_on_completion_queued = False
         self._is_work_busy = False
-        self.handle_sigint()
 
         # Initialize interaction logic based on mode
         self.interaction_mode = interaction_mode
@@ -802,12 +789,7 @@ class VerifyAgent:
         else:
             info("Using standard interaction mode")
         self.generate_instruction_file(gen_instruct_file)
-        cfg_icmds = self.cfg.get_value("init_cmds", [])
-        if cfg_icmds:
-            if init_cmd is None:
-                init_cmd = []
-            init_cmd = init_cmd + cfg_icmds
-        # PDB and backend
+        # Backend initialization is independent of terminal and service ownership.
         self.backend = get_backend(self, self.cfg)
         self.message_manage_node = self.backend.get_message_manage_node()
         self.context_tools = []
@@ -829,16 +811,6 @@ class VerifyAgent:
             + self.planning_tools
             + self.context_tools,
             self.cfg.tools.as_dict(),
-        )
-        self.pdb = VerifyPDB(
-            self,
-            init_cmd=init_cmd,
-            max_loop_retry=self.cfg.loop_settings.max_loop_retry,
-            retry_delay=(
-                self.cfg.loop_settings.retry_delay_start,
-                self.cfg.loop_settings.retry_delay_end,
-            ),
-            loop_alive_time=self.cfg.loop_settings.loop_alive_time,
         )
         self.backend.init()
         self.backend.set_debug(debug)
@@ -1029,48 +1001,17 @@ class VerifyAgent:
         else:
             message(msg, end=end)
 
-    def handle_sigint(self):
-        def _sigint_handler(s, f):
-            self._sigint_count += 1
-            if self._sigint_count > 4:
-                return self.original_sigint(s, f)
-            if self._sigint_count > 3:
-                info("SIGINT received again, exiting...")
-                self.exit()
-                return
-            if self._sigint_count > 1:
-                # self.original_sigint(s, f)
-                info("SIGINT received again, more times will exit directly")
-                return
-            info("SIGINT received")
-            self.set_break(True)
 
-        signal.signal(signal.SIGINT, _sigint_handler)
 
-    def set_force_trace(self, value):
-        self._force_trace = value
-
-    def check_pdb_trace(self):
-        if self._force_trace:
-            self.pdb.set_trace()
-        elif self.is_break():
-            self.pdb.set_trace()
 
     def set_break(self, value=True):
         self._need_break = value
 
     def is_break(self):
-        return self._need_break or threading.current_thread().ident in self._break_threads
+        return self._need_break
 
-    def set_break_thread(self, thread_id: int) -> None:
-        self.set_break(True)
-        self._break_threads.add(thread_id)
 
-    def clear_break_thread(self, thread_id: int) -> None:
-        self._break_threads.discard(thread_id)
 
-    def clear_all_break_threads(self) -> None:
-        self._break_threads.clear()
 
     def get_current_tips(self):
         if self._tool__call_error:
@@ -1138,38 +1079,7 @@ class VerifyAgent:
             info("Verify Agent is exited.")
         return self._is_exit
 
-    def exit(self):
-        """Persist runtime state, stop owned services, and restore input modes."""
 
-        if self.is_exit():
-            return
-        try:
-            self._is_exit = True
-            try:
-                if getattr(self, "stage_manager", None) is not None:
-                    self.stage_manager.save_stage_info()
-            except Exception as exc:
-                warning(f"Failed to save stage information on exit: {exc}")
-            self._sync_workspace_back_on_exit()
-            pdb = getattr(self, "pdb", None)
-            mcp_server = getattr(pdb, "_mcp_server", None)
-            if mcp_server is not None and mcp_server.is_running:
-                ok, msg = mcp_server.stop()
-                if not ok:
-                    warning(msg)
-        finally:
-            try:
-                cmd_server = getattr(getattr(self, "pdb", None), "_cmd_api_server", None)
-                if cmd_server is not None:
-                    cmd_server.close_sessions()
-            finally:
-                fc.chmode_rw(self.cwd_read_only_files)
-
-    def exit_unset(self):
-        if not self.is_exit():
-            return False
-        self._is_exit = False
-        return True
 
     def _cfg_bool(self, key: str, default: bool = False) -> bool:
         value = self.cfg.get_value(key, default)
@@ -1190,18 +1100,9 @@ class VerifyAgent:
         self._sync_workspace_back_on_exit_done = True
         if not self._cfg_bool("master_api.sync_workspace.on_exit", True):
             return
-        pdb = getattr(self, "pdb", None)
-        master_clients = getattr(pdb, "_master_clients", {}) or {}
-        if not master_clients:
-            return
-        for url, client in list(master_clients.items()):
-            if not getattr(client, "is_running", False):
-                continue
-            ok, msg = client.sync_workspace_back(reason="exit")
-            if ok:
-                info(msg)
-            else:
-                info(f"Workspace sync-back skipped for {url}: {msg}")
+        services = getattr(self, "services", None)
+        if services is not None:
+            services.sync_workspace_back(reason="exit")
 
     def protect_files_on(self, new_files: List[str]):
         for f in new_files:
@@ -1236,27 +1137,11 @@ class VerifyAgent:
         else:
             fc.chmode_rw(off_files)
 
-    def try_exit_on_completion(self):
-        if self._exit_on_completion:
-            self.set_break(False)
-            if self.is_work_busy():
-                self._exit_on_completion_pending = True
-                return
-            self._queue_exit_on_completion()
 
-    def _queue_exit_on_completion(self):
-        if self._exit_on_completion_queued:
-            return
-        self._exit_on_completion_pending = False
-        self._exit_on_completion_queued = True
-        self.pdb.add_cmds(["sleep 5"] + ["quit"] * 3)
 
     def get_work_config(self):
         return self.backend.get_work_config()
 
-    def run(self):
-        self.pre_run()
-        self.run_loop()
 
     def pre_run(self):
         time_start = self._time_start = time.time()
@@ -1265,37 +1150,8 @@ class VerifyAgent:
             + time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time_start))
         )
         info("Seed: " + str(self.seed))
-        self.check_pdb_trace()
         return self
 
-    def run_loop(self, msg=None):
-        if msg:
-            self.set_continue_msg(msg)
-        self._need_human = False
-        # conversation loop
-        while not self.is_exit():
-            validation_revision = getattr(
-                self.stage_manager, "validation_revision", 0
-            )
-            stage_index = getattr(self.stage_manager, "stage_index", None)
-            self.one_loop()
-            self._update_stalled_rounds(validation_revision, stage_index)
-            if self.is_exit():
-                break
-            if self.is_break():
-                info("Break at loop: " + str(self.invoke_round))
-                return
-            if self._need_human:
-                info("Waiting for human input at loop: " + str(self.invoke_round))
-                return
-            self.check_pdb_trace()
-        time_end = self._time_end = time.time()
-        info(
-            "Verify Agent finished at: "
-            + time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time_end))
-        )
-        info(f"Total time taken: {fmt_time_deta(time_end - self._time_start)}")
-        return self
 
     @staticmethod
     def _validated_max_stalled_rounds(value):
@@ -1527,8 +1383,6 @@ class VerifyAgent:
             raise
         finally:
             self._is_work_busy = False
-            if self._exit_on_completion_pending:
-                self._queue_exit_on_completion()
 
     def is_work_busy(self):
         """Check if the agent is currently busy with work."""

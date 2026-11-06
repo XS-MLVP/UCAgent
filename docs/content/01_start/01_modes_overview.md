@@ -7,7 +7,7 @@
 | --- | --- | --- |
 | 定位 | 单个 Agent 进程完成一个验证任务 | 多任务管理进程 |
 | 执行方式 | 当前 Agent 执行验证任务 | 创建、启动并监控多个子 Agent |
-| 交互载体 | 终端（PDB/TUI），也可开启普通 Agent 的 Web 入口 | 浏览器 Web 面板（默认 `http://127.0.0.1:8800`） |
+| 交互载体 | 终端（Console/TUI），也可开启普通 Agent 的 Web 入口 | 浏览器 Web 面板（默认 `http://127.0.0.1:8800`） |
 | 适用场景 | 单模块验证、本地调试 | 多任务并行、集中调度、团队协作 |
 
 ## 普通模式
@@ -52,19 +52,19 @@ make mcp_Adder ARGS="--loop --backend=opencode"
 python3 ucagent.py output/workspace_Adder/ Adder --config config.yaml -s -hm --tui --mcp-server-no-file-tools --loop --backend=opencode
 ```
 
-`--loop`（`-l`）使 Agent 启动后立即进入自动执行循环；不加该参数时，Agent 停在交互控制台，等待手动输入 `loop` 后才开始执行。
+在上述交互启动命令中，`--loop`（`-l`）在初始化时提交自动执行循环；省略它且没有其他启动任务命令时，等待手动输入 `loop`。无本地界面的服务启动默认行为见[运行控制](../02_usage/10_runtime_control.md)。
 
 以 opencode 为例的完整步骤（安装、LLM API 配置、启动）见 [MCP 接入](03_mcp_mode.md)；手动启动 MCP Server、再从另一个终端连接的方式也在该章。LangChain 直连的模型配置见[直接使用](../02_usage/01_direct.md)。
 
 ### TUI 终端
 
-加 `--tui` 参数（或启动后在 PDB 控制台输入 `tui` 命令）进入终端交互界面：左侧任务/阶段/工具面板，右侧消息面板，底部命令输入框，全部 PDB 命令均可直接输入。完整上手（含 DUT 准备与模型配置）见[普通模式](02_normal_mode.md)，界面操作见 [TUI](../02_usage/04_tui.md)。
+加 `--tui` 参数（或启动后在 Console 控制台输入 `tui` 命令）进入终端交互界面：左侧任务/阶段/工具面板，右侧消息面板，底部命令输入框，任务命令与 Console 共用，退出和显示操作按当前界面处理。完整上手（含 DUT 准备与模型配置）见[普通模式](02_normal_mode.md)，界面操作见 [TUI](../02_usage/04_tui.md)。
 
 ### Web 界面
 
 普通模式不依赖终端也能完成交互，Web 入口有三种：
 
-- **Agent 仪表盘**：启动参数 `--export-cmd-api`，或启动后在 PDB/TUI 控制台执行 `cmd_api_start`，浏览器打开 `http://127.0.0.1:8765`。可查看阶段进度、任务与工具状态，切换阶段 HM/Skip 等人工审核开关，管理工作区文件，并通过 Chat 模式直接与所配置的大模型对话。该入口不要求先进入 TUI。
+- **Agent 仪表盘**：启动参数 `--export-cmd-api`，或启动后在 Console/TUI 控制台执行 `cmd_api_start`，浏览器打开 `http://127.0.0.1:8765`。可查看阶段进度、任务与工具状态，切换阶段 HM/Skip 等人工审核开关，管理工作区文件，并通过 Chat 模式直接与所配置的大模型对话。该入口不要求先进入 TUI。
 - **`--web-console`**：在浏览器中托管完整的命令行/TUI 会话（默认 `localhost:8000`）。
 - **`--web-terminal`**：Web 终端与本地终端并行使用（默认 `127.0.0.1:8818`）。
 

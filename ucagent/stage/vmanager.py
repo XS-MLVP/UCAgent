@@ -18,7 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 import ucagent.util.functions as fc
 import ucagent.checkers
-from ucagent.stage.vstage import get_root_stage
+from ucagent.stage.vstage import get_root_stage, coordinated_stage_mutation
 from ucagent.tools.uctool import UCTool, EmptyArgs
 from ucagent.util.functions import import_class_from_str, make_llm_tool_ret
 from ucagent.util.config import Config
@@ -454,6 +454,13 @@ class ToolDoExit(ManagerTool):
 
 
 class StageManager(object):
+    """Own verification rules and accept an optional runtime mutation coordinator."""
+
+    control_guard = None
+    control_revision = 0
+    workspace_sync_callback = None
+    master_connections = None
+
     def __init__(
             self, workspace, cfg, agent, tool_read_text, ucagent_info: dict,
             force_stage_index=0,
@@ -480,6 +487,7 @@ class StageManager(object):
         self.runtime_hooks = list(runtime_hooks or [])
         self.manager_tool_registry = dict(manager_tool_registry or {})
         self.agent = agent
+        self.completion_callback = None
         self.tool_read_text = tool_read_text
         self.ucagent_info = ucagent_info
         self.data = self.ucagent_info.get("stage_data", {})
@@ -492,6 +500,8 @@ class StageManager(object):
         self.reference_files = reference_files
         self.checker_registry = dict(checker_registry or {})
         self.validation_revision = 0
+        # A new assembly also invalidates approvals prepared for the prior run.
+        self.control_revision = self._safe_int(ucagent_info.get("control_revision", 0)) + 1
         # Declared manager tools bind after the registry and workspace exist.
         self.plugin_manager_tools = self._create_declared_manager_tools()
 
@@ -597,6 +607,8 @@ class StageManager(object):
             if idx >= len(self.stages):
                 continue
             stage: VerifyStage = self.stages[idx]
+            if isinstance(stage, VerifyStage):
+                stage.restore_control_state(stage_info)
             stage.set_fail_count(stage_info.get("fail_count", 0))
             stage.set_time_prev_cost(stage_info.get("time_cost", 0.0))
             stage.set_skip(stage_info.get("is_skipped", stage.is_skipped()))
@@ -976,6 +988,7 @@ class StageManager(object):
     def get_current_stage(self):
         return self.get_stage(self.stage_index)
 
+    @coordinated_stage_mutation("tool", manager=True)
     def set_current_stage_journal(self, journal, mode="replace"):
         """Set or append to the current stage journal.
 
@@ -1009,6 +1022,7 @@ class StageManager(object):
             journals[stage.title()] = stage.meta_get_journal()
         return journals
 
+    @coordinated_stage_mutation("tool", manager=True)
     def set_current_stage_skill_usage(self, skill_usage: Dict[str, Any]):
         """Validate real usage evidence recorded by Skill-aware tools and checks."""
         current_stage = self.get_current_stage()
@@ -1206,6 +1220,7 @@ class StageManager(object):
             return self.stages[index]
         return None
 
+    @coordinated_stage_mutation("human", manager=True)
     def go_to_stage(self, index):
         """
         Go to a specific stage by index.
@@ -1227,6 +1242,7 @@ class StageManager(object):
             msg = f"Invalid stage index: {index}. No change made."
         return {"message": msg, "success": success}
 
+    @coordinated_stage_mutation("human", manager=True)
     def force_go_to_stage(self, index):
         """
         Force go to a specific stage by index, ignoring whether it is reached or not.
@@ -1317,7 +1333,9 @@ class StageManager(object):
         if "action" in ret_data and isinstance(ret_data["action"], str):
             ret_data["action"] = f"{ret_data['action']} {warning}"
 
+    @coordinated_stage_mutation("validation", manager=True)
     def check(self, timeout, stage_args=None):
+        """Run the existing Check gates under the injected mutation reservation."""
         if not self.stage_index < len(self.stages):
             return OrderedDict({
                 "check_pass": False,
@@ -1574,6 +1592,7 @@ class StageManager(object):
             "dut_name": getattr(self.agent, "dut_name", ""),
             "DUT": getattr(self.agent, "dut_name", ""),
             "stage_index": self.stage_index,
+            "control_revision": self.control_revision,
             "all_completed": all_completed,
             "time_begin": self.time_begin,
             "time_end": self.time_end,
@@ -1591,9 +1610,14 @@ class StageManager(object):
         if stage:
             is_wait_human_check = stage.is_wait_human_check()
         info["is_wait_human_check"] = is_wait_human_check
+        provider = getattr(self.agent, "runtime_status_provider", None)
+        if provider is not None:
+            info["runtime"] = provider()
         fc.save_ucagent_info(self.workspace, info)
 
+    @coordinated_stage_mutation("human", manager=True)
     def next_stage(self):
+        """Advance and persist the next stage within the current mutation."""
         self.stage_index += 1
         self._go_skip_stage()
         self._refresh_all_completed()
@@ -1612,7 +1636,9 @@ class StageManager(object):
         if sk > 0:
             info(f"skipped {sk} stages, current stage index is now {self.stage_index}.")
 
+    @coordinated_stage_mutation("human", manager=True)
     def skip_stage(self, index):
+        """Set skip through the stage setter and advance when the domain permits it."""
         if 0 <= index < len(self.stages):
             self.stages[index].set_skip(True)
             info(f"Stage '{self.stages[index].name}' is set to be skipped.")
@@ -1621,21 +1647,27 @@ class StageManager(object):
         else:
             warning(f"Invalid stage index: {index}, can not set skip.")
 
+    @coordinated_stage_mutation("human", manager=True)
     def unskip_stage(self, index):
+        """Restore a skipped stage under the injected mutation reservation."""
         if 0 <= index < len(self.stages):
             self.stages[index].set_skip(False)
             info(f"Stage '{self.stages[index].name}' is set to be unskipped.")
         else:
             warning(f"Invalid stage index: {index}, can not set unskip.")
 
+    @coordinated_stage_mutation("human", manager=True)
     def _stage_complete(self, stage):
+        """Run the existing completion callbacks while retaining stage ownership."""
         stage.on_complete()
         if self.llm_fail_suggestion:
             self.llm_fail_suggestion.on_stage_complete(stage)
         if self.llm_pass_suggestion:
             self.llm_pass_suggestion.on_stage_complete(stage)
 
+    @coordinated_stage_mutation("validation", manager=True)
     def complete(self, timeout, stage_args=None):
+        """Apply all completion gates before advancing the coordinated stage."""
         if self.stage_index >= len(self.stages):
             return self._public_check_result({
                 "complete": False,
@@ -1756,22 +1788,16 @@ class StageManager(object):
             return self.gen_fail_suggestion(public_last_check_info)
         return ret
 
+    @coordinated_stage_mutation("tool", manager=True)
     def exit(self):
         """
         Exit the agent and end the mission after all stages are completed.
         """
         if self._refresh_all_completed():
             self.time_end = time.time()
-            self.agent.exit()  # Exit the agent if all stages are completed
-            self.save_stage_info()
-            self.agent.try_exit_on_completion()
-            ex_msg = ""
-            if self.agent._exit_on_completion:
-                ex_msg = " UCAgent has quit. The MCP server is shutting down — all MCP tools will become unavailable. You need to stop Now!"
-            return {
-                "exit": True,
-                "message": "All stages completed. Exiting the mission." + ex_msg
-            }
+            if self.completion_callback is not None:
+                self.completion_callback()
+            return {"exit": True, "message": "All stages completed. Mission completion recorded."}
         return {
             "exit": False,
             "message": "Not all stages are completed yet. Please complete all stages before exiting."
@@ -1816,7 +1842,9 @@ class StageManager(object):
         info("ToolStatus:\n" + stat)
         return self.attach_todo_summary(stat)
 
+    @coordinated_stage_mutation("tool", manager=True)
     def tool_go_to_stage(self, index):
+        """Admit a model tool transition without waiting for its parent model call."""
         ret = make_llm_tool_ret(self.go_to_stage(index))
         info("ToolGoToStage:\n" + ret)
         return self.attach_todo_summary(ret)

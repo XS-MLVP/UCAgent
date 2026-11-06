@@ -3,9 +3,9 @@
 
 `WaveInfo` 根据文件扩展名自动选择读取器，内置支持 FST、VCD、FSDB。文件清单、信号查询、事件分析和证据重放使用同一套格式配置。此配置只影响分析时搜索和选择已有波形，不改变模拟器、`SetWaveform` 或测试 fixture 生成的格式。
 
-## PDB 手动重放全部 Bug 波形
+## Console 手动重放全部 Bug 波形
 
-在 UCAgent 的 PDB 控制台执行：
+`waveform_replay` 由 UnityTest 插件通过命令注册表提供；插件未激活时该命令不可用。它可从 Console、TUI 或 HTTP 命令接口提交，由共享执行器管理操作和取消。在 Console 中执行：
 
 ```text
 (UnityChip) waveform_replay
@@ -18,7 +18,7 @@
 
 命令先执行该分类检查，重跑完整 DUT 测试集合并核对失败测试与 BG/TC/CK；正确复现 DUT Bug 的测试仍保持 Fail，分类检查失败则停止，不进入 replay。分类通过后，对所有非零置信度动态 Bug 关联的唯一 TC 逐一重放，每个 TC 只处理一次。签名语义未变的记录复用原有分析结论，自动原子刷新当前 receipt、波形路径和查看配置；已是当前证据时不重复写入。没有有效动态 Bug 时，校验规范空文档并报告无需重放。
 
-控制台和 UCAgent 运行日志使用 `[waveform_replay]` 前缀，记录目标文档、测试目录、测试超时、分类结果、每个 TC 的进度与状态、刷新数量，以及最终耗时和 `SUCCESS`、`FAILED` 或 `CANCELLED`。按 Ctrl+C 可取消执行。配置缺失或歧义、测试分类失败、波形缺失、receipt 无效或写入失败都会明确报告当前操作及完整诊断；按诊断修复后重试。
+控制台和 UCAgent 运行日志使用 `[waveform_replay]` 前缀，记录目标文档、测试目录、测试超时、分类结果、每个 TC 的进度与状态、刷新数量，以及最终耗时和 `SUCCESS`、`FAILED` 或 `CANCELLED`。本地前台执行时可按 Ctrl+C 请求取消；HTTP 提交的操作按返回 ID 取消，见[运行控制](../02_usage/10_runtime_control.md)。配置缺失或歧义、测试分类失败、波形缺失、receipt 无效或写入失败都会明确报告当前操作及完整诊断；按诊断修复后重试。
 
 TC 的断言、激励或对应测试源码变化时，即使重放出的波形完全一致，该 TC 仍必须报错，保留原分析记录并要求重新分析关联 Bug；测试路径、函数名或参数化 node ID 变化也不能自动建立等价关系。源码、timeline、信号值等签名语义变化返回 `WAVEFORM_SEMANTIC_BATCH_REVIEW_REQUIRED`，并包含 `requires_bug_reanalysis: true`、精确 TC、变化文件和完整 `review_batch_call`，供后续分析使用。先按返回调用使用 `ReviewWaveInfoEvidenceBatch` 准备全部上下文，结合当前 TC、规格、源码和波形重新分析全部关联 Bug，再一次原子提交全部 review；随后按诊断执行一次 `Check`。整次命令可能已刷新其他语义未变的记录，已完成的刷新会有独立日志；每次文档写入仍遵循原子提交约束。
 
