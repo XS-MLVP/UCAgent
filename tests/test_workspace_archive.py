@@ -139,50 +139,78 @@ def test_workspace_archive_still_rejects_hardlink(tmp_path):
         _safe_extract_workspace_archive(str(archive), str(extract_dir), "Adder")
 
 
-def test_workspace_archive_prepare_replaces_previous_extract_with_restricted_permissions(tmp_path):
+def test_workspace_archive_prepare_rejects_existing_extract_with_restricted_permissions(tmp_path):
     archive = tmp_path / "compiled.tar.gz"
     workspace_base = tmp_path / "workspace_base"
+
     _write_archive(
         archive,
         lambda tf: _add_file(tf, "workspace/Adder/version.txt", b"new"),
     )
 
-    first_workspace = _prepare_workspace_archive_source(str(archive), "Adder", str(workspace_base))
+    first_workspace = _prepare_workspace_archive_source(
+        str(archive), "Adder", str(workspace_base)
+    )
+
     stale_file = os.path.join(first_workspace, "Adder", "stale.txt")
     with open(stale_file, "wb") as fh:
         fh.write(b"old")
+
     os.chmod(first_workspace, 0o500)
 
     try:
-        second_workspace = _prepare_workspace_archive_source(str(archive), "Adder", str(workspace_base))
+        with pytest.raises(WorkspaceArchiveError, match="already exists"):
+            _prepare_workspace_archive_source(
+                str(archive), "Adder", str(workspace_base)
+            )
+
+        assert os.path.exists(stale_file)
+        with open(stale_file, "rb") as fh:
+            assert fh.read() == b"old"
+
     finally:
         if os.path.isdir(first_workspace):
             os.chmod(first_workspace, 0o700)
 
-    assert second_workspace == first_workspace
-    assert not os.path.exists(stale_file)
-    with open(os.path.join(second_workspace, "Adder", "version.txt"), "rb") as fh:
-        assert fh.read() == b"new"
 
-
-def test_workspace_archive_prepare_replaces_previous_extract_without_marker(tmp_path):
+@pytest.mark.parametrize(
+    "marker_content",
+    [
+        None,
+        "source=/another/archive.tar.gz\nworkspace=/another/workspace\n",
+    ],
+    ids=["without-marker", "different-archive-marker"],
+)
+def test_workspace_archive_prepare_preserves_existing_directory(
+    tmp_path, marker_content
+):
     archive = tmp_path / "compiled.tar.gz"
     workspace_base = tmp_path / "workspace_base"
     extract_dir = workspace_base / "compiled"
+
     stale_workspace = extract_dir / "workspace" / "Adder"
     stale_workspace.mkdir(parents=True)
-    (stale_workspace / "stale.txt").write_bytes(b"old")
+
+    stale_file = stale_workspace / "stale.txt"
+    stale_file.write_bytes(b"old")
+
+    if marker_content is not None:
+        (extract_dir / ".ucagent_archive_extract").write_text(
+            marker_content, encoding="utf-8"
+        )
+
     _write_archive(
         archive,
         lambda tf: _add_file(tf, "workspace/Adder/version.txt", b"new"),
     )
 
-    workspace_dir = _prepare_workspace_archive_source(str(archive), "Adder", str(workspace_base))
+    with pytest.raises(WorkspaceArchiveError, match="already exists"):
+        _prepare_workspace_archive_source(
+            str(archive), "Adder", str(workspace_base)
+        )
 
-    assert workspace_dir == str(extract_dir / "workspace")
-    assert not (stale_workspace / "stale.txt").exists()
-    assert (stale_workspace / "version.txt").read_bytes() == b"new"
-
+    assert stale_file.read_bytes() == b"old"
+    assert not (stale_workspace / "version.txt").exists()
 
 def test_create_workspace_archive_applies_ignore_patterns(tmp_path):
     workspace = tmp_path / "workspace"
@@ -227,3 +255,60 @@ def test_create_workspace_archive_applies_ignore_patterns(tmp_path):
     assert "workspace/unity_test/tests/data/sample.dat" not in names
     assert "workspace/uc_test_report" not in names
     assert "workspace/uc_test_report/index.html" not in names
+def test_workspace_archive_prepare_extracts_successfully(tmp_path):
+    archive = tmp_path / "compiled.tar.gz"
+    workspace_base = tmp_path / "workspace_base"
+
+    _write_archive(
+        archive,
+        lambda tf: _add_file(
+            tf, "workspace/Adder/version.txt", b"new"
+        ),
+    )
+
+    workspace_dir = _prepare_workspace_archive_source(
+        str(archive), "Adder", str(workspace_base)
+    )
+
+    assert workspace_dir == str(workspace_base / "compiled" / "workspace")
+
+    version_file = os.path.join(
+        workspace_dir, "Adder", "version.txt"
+    )
+
+    assert os.path.isfile(version_file)
+
+    with open(version_file, "rb") as fh:
+        assert fh.read() == b"new"
+
+def test_workspace_archive_prepare_cleans_up_after_extract_failure(
+    tmp_path, monkeypatch
+):
+    import ucagent.cli as cli
+
+    archive = tmp_path / "compiled.tar.gz"
+    workspace_base = tmp_path / "workspace_base"
+    extract_dir = workspace_base / "compiled"
+
+    _write_archive(
+        archive,
+        lambda tf: _add_file(
+            tf, "workspace/Adder/version.txt", b"new"
+        ),
+    )
+
+    def fail_extract(*args, **kwargs):
+        raise WorkspaceArchiveError("Simulated extraction failure")
+
+    monkeypatch.setattr(
+        cli, "_safe_extract_workspace_archive", fail_extract
+    )
+
+    with pytest.raises(
+        WorkspaceArchiveError, match="Simulated extraction failure"
+    ):
+        _prepare_workspace_archive_source(
+            str(archive), "Adder", str(workspace_base)
+        )
+
+    assert not os.path.lexists(extract_dir)
