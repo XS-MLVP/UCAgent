@@ -1,0 +1,20 @@
+{# Select the root language before rendering; explicit language URLs stay fixed. #}
+{% extends "main.html" %}
+
+{% block extrahead %}
+  {{ super() }}
+  {% if page.meta.redirect_to_zh %}
+    <script id="uc-language-redirect">
+      const language = (navigator.languages && navigator.languages[0]) || navigator.language || "";
+      const destination = /^zh(?:-|$)/i.test(language)
+        ? {{ page.meta.redirect_to_zh | url | tojson }}
+        : {{ page.meta.redirect_to | url | tojson }};
+      window.location.replace(destination + window.location.search + window.location.hash);
+    </script>
+    <noscript>
+      <meta http-equiv="refresh" content="0; url={{ page.meta.redirect_to | url }}">
+    </noscript>
+  {% else %}
+  <meta http-equiv="refresh" content="0; url={{ page.meta.redirect_to | url }}">
+  {% endif %}
+{% endblock %}
