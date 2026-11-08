@@ -16,23 +16,24 @@ from ucagent.util.config import Config
 from test_waveform_routes import Sessions
 
 
-def application(root):
-    """Let the VCS provider build a page using its own command and VDB path."""
+def application(root, simulator="vcs"):
+    """Let each provider build a page using its own command and database path."""
     from toffee_test.utils.code_coverage import CodeCoverageResult
-    from toffee_test.utils.code_coverage.vcs import VcsCoverageProvider
+    from toffee_test.utils.code_coverage import get_coverage_provider
     from urllib.parse import unquote
-    database = root / "DUT data.vdb"
+    database = root / ("DUT data.vdb" if simulator == "vcs" else "DUT data.cdb")
     database.mkdir(parents=True)
     report = root / "report"
-    result = CodeCoverageResult("vcs", databases=[str(database)])
-    details = VcsCoverageProvider().build_details(result, report / "coverage_data")
+    result = CodeCoverageResult(simulator, databases=[str(database)])
+    details = get_coverage_provider(simulator).build_details(result, report / "coverage_data")
     link, = [item for item in details if item.href]
     page = report / unquote(link.href)
     payload = json.loads(re.search(r"const coverageRequest = (.*);", page.read_text())[1])
     return page, payload
 
 
-def test_provider_page_uses_generic_authenticated_xpra_api(tmp_path):
+@pytest.mark.parametrize("simulator", ["vcs", "uvs"])
+def test_provider_page_uses_generic_authenticated_xpra_api(tmp_path, simulator):
     """Coverage needs no special request schema, routes, config or resolver."""
     server = PdbCmdApiServer(SimpleNamespace(
         agent=SimpleNamespace(workspace=str(tmp_path), cfg=Config({"cmd_api": {"xpra": {}}})),
@@ -41,7 +42,7 @@ def test_provider_page_uses_generic_authenticated_xpra_api(tmp_path):
     client = TestClient(server._app)
     client.auth = ("user", server.password)
     try:
-        page, payload = application(tmp_path / "nested")
+        page, payload = application(tmp_path / "nested", simulator)
         assert set(payload) == {"command", "mode", "name", "cwd"}
         assert not server._xpra.created
         response = client.get("/workspace/" + page.relative_to(tmp_path).as_posix())
@@ -50,8 +51,9 @@ def test_provider_page_uses_generic_authenticated_xpra_api(tmp_path):
         assert client.post("/api/xpra/sessions", json=payload, auth=("bad", "bad")).status_code == 401
         response = client.post("/api/xpra/sessions", json=payload)
         assert response.status_code == 201, response.text
-        assert shlex.split(server._xpra.created[0]["command"]) == [
-            "verdi", "-cov", "-covdir", str(tmp_path / "nested/DUT data.vdb")]
+        expected = (["verdi", "-cov", "-covdir", str(tmp_path / "nested/DUT data.vdb")]
+                    if simulator == "vcs" else ["uvd", "-geometry", "1500x740+0+0", "-ucdb", str(tmp_path / "nested/DUT data.cdb")])
+        assert shlex.split(server._xpra.created[0]["command"]) == expected
     finally:
         server._running = True
         server.stop()
