@@ -1628,7 +1628,8 @@ class VerifyPDB(Pdb):
                 "need_pass_llm_suggestion": stage.get("need_pass_llm_suggestion", False),
                 "can_edit_flags": (i > current_index) and (vstage is not None) and (not is_current_stage) and (not is_completed_stage),
             }
-            if current_index >= i:
+            # Text-only polling must not perform unused history comparisons.
+            if return_dict and current_index >= i:
                 if vstage:
                     vstage_data["out_come"] = vstage.get_stage_outcome(current_index != i)
             ret_dict["stages"].append(vstage_data)
