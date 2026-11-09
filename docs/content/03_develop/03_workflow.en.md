@@ -3,6 +3,8 @@
 
 A workflow consists of a set of stages executed in sequence. Each stage describes tasks, reference files, expected outputs, and a Checker; the Agent can call `Check` to view feedback, then use `Complete` to perform final acceptance and proceed. If a stage fails, it should first be fixed according to the Checker's diagnosis before retrying.
 
+Before completing a stage, use `SetCurrentStageJournal` to record the work summary, artifacts, check results, and unresolved issues. A successful `Check` prompts for a missing journal; `Complete` returns immediately without running Checkers when the journal is missing. Record it and call `Complete` again to run final validation and applicable gates.
+
 ## 1. Default Workflow
 
 The default Chinese configuration is located at `ucagent/lang/zh/config/default.yaml`, which currently has 20 top-level stages; indented entries are sub-stages. The runtime Stage Manager flattens parent and child stages, therefore indices used by `--skip`, `hmcheck_set`, and `GoToStage` must be based on the current `status` or `hmcheck_list` in the active run.
