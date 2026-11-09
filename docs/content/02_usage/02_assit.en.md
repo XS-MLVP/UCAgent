@@ -138,10 +138,16 @@ The parameter format for `tool_invoke` is:
 tool_invoke <tool_name> [arg1,arg2,key=value,...]
 ```
 
-Parameters are separated by commas, strings use Python quotes, and boolean values use `True/False`. `RunTestCases.target` is relative to the current test directory (default `unity_test/tests/`); do not add the directory prefix again. For example:
+Arguments use Python literals: `True/False` for booleans and `None` for null values. Quoted strings, numbers, lists, dictionaries, and nested structures are supported. Commas separate only top-level arguments; whitespace, commas, equals signs, and semicolons inside strings are preserved. Function calls, variable references, expressions, and `*`/`**` argument unpacking are rejected.
+
+Positional arguments bind in the order of public parameters in the tool method signature. Extra positional arguments, duplicate assignments, and undeclared arguments produce errors (unless the tool explicitly allows extra fields). Use `tool_list <tool_name>` to inspect public arguments. The tool schema checks types and required fields before invocation.
+
+`RunTestCases.target` is relative to the current test directory (default `unity_test/tests/`); do not add the directory prefix again. For example:
 
 ```text
 tool_invoke RunTestCases target='test_adder.py::test_add',timeout=120
+tool_invoke Check stage_args={"full_output": True},timeout=120
+tool_invoke SetCurrentStageJournal journal='Checked A, B; results recorded'
 ```
 
 ## 7. Master Page
