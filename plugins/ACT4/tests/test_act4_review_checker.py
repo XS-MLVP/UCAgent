@@ -1,6 +1,7 @@
 """Exercise existing-extension audit, evidence integrity, and real human gating."""
 
 import json
+from copy import deepcopy
 from pathlib import Path
 import re
 import subprocess
@@ -165,6 +166,92 @@ class ReviewHarness:
         for callback in self.callbacks:
             callback(self.gate)
         return gate
+
+
+def test_scope_reports_independent_fields_without_freezing(tmp_path: Path, monkeypatch) -> None:
+    """Report root, asset, reference and same-job failures together before any baseline work."""
+    harness = ReviewHarness(tmp_path)
+    original = deepcopy(harness.scope)
+    harness.scope.update(suite="wrong", references=[], discovery=[])
+    harness.scope["assets"]["generators"] = ["missing.py", "../outside.py"]
+    harness.scope["reference_files"] = ["missing.adoc"]
+    harness.scope["jobs"][0].update(timeout_seconds=0, argv="python check.py", cwd="../outside")
+    harness.write("scope.yaml", harness.scope)
+    checker = harness.checker("inventory")
+    with monkeypatch.context() as patch:
+        def unexpected_baseline(*args):
+            """Fail if an invalid scope reaches baseline creation or source fingerprinting."""
+            pytest.fail("Invalid scopes must not reach baseline work")
+
+        patch.setattr(checker, "_baseline", unexpected_baseline)
+        passed, result = checker.do_check()
+    assert not passed and result["error_code"] == "act4_review_contract"
+    assert "errors" in result, result
+    fields = {item["field"] for item in result["errors"]}
+    assert fields == {"scope.suite", "scope.references", "scope.discovery",
+                      "scope.assets.generators[0]", "scope.assets.generators[1]",
+                      "scope.reference_files[0]", "scope.jobs[0].timeout_seconds",
+                      "scope.jobs[0].argv", "scope.jobs[0].cwd"}
+    assert result["error_count"] == 9 and result["errors_omitted"] == 0
+    assert all(item["next_action"] and item["error"] for item in result["errors"])
+    assert result["artifact"] == "reports/H/review/scope.yaml"
+    assert not (harness.output / "baseline").exists()
+    harness.write("scope.yaml", original)
+    assert checker.do_check()[0]
+
+
+@pytest.mark.parametrize("field,value", [
+    ("assets", None), ("assets", []), ("targets", [{"name": "rv64"}]),
+    ("reference_files", None), ("jobs", None), ("jobs", [None]),
+    ("jobs", [{"id": ["bad"], "target": [], "purpose": {}, "disposition": []}]),
+])
+def test_scope_invalid_parent_preserves_unrelated_diagnostics(tmp_path: Path, field: str, value) -> None:
+    """Reject malformed parent types while continuing checks outside their dependency chain."""
+    harness = ReviewHarness(tmp_path)
+    harness.scope[field] = value
+    harness.scope["references"] = []
+    harness.write("scope.yaml", harness.scope)
+    passed, result = harness.checker("inventory").do_check()
+    assert not passed, result
+    fields = {item["field"] for item in result["errors"]}
+    assert "scope.references" in fields
+    assert any(name == f"scope.{field}" or name.startswith(f"scope.{field}[") for name in fields)
+    if field == "targets":
+        assert not any(name.endswith(".target") or name == "scope.jobs.needs" for name in fields)
+    assert not (harness.output / "baseline").exists()
+
+
+@pytest.mark.parametrize("field,value", [
+    ("needs", [None]), ("purpose", []), ("timeout_seconds", True),
+    ("diagnostics", {}), ("diagnostics", [None]), ("artifacts", {}),
+    ("artifacts", [None]), ("artifacts", [{"path": "x", "kind": []}]),
+])
+def test_scope_invalid_job_field_does_not_hide_sibling_error(tmp_path: Path, field: str, value) -> None:
+    """Handle malformed job fields without losing an independent error in the same job."""
+    harness = ReviewHarness(tmp_path)
+    harness.scope["jobs"][0].update({field: value, "cwd": "../outside"})
+    harness.write("scope.yaml", harness.scope)
+    passed, result = harness.checker("inventory").do_check()
+    assert not passed, result
+    fields = {item["field"] for item in result["errors"]}
+    assert "scope.jobs[0].cwd" in fields
+    assert any(name.startswith(f"scope.jobs[0].{field}") for name in fields)
+    assert not (harness.output / "baseline").exists()
+
+
+def test_scope_bounds_diagnostics_and_exposes_remaining_errors(tmp_path: Path) -> None:
+    """Bound tool output, count omitted failures and expose them on the next Check."""
+    harness = ReviewHarness(tmp_path)
+    harness.scope["assets"]["generators"] = [f"missing-{index}.py" for index in range(25)]
+    harness.write("scope.yaml", harness.scope)
+    passed, result = harness.checker("inventory").do_check()
+    assert not passed and result["error_count"] == 25
+    assert len(result["errors"]) == 20 and result["errors_omitted"] == 5
+    for index in range(20):
+        (harness.source / f"missing-{index}.py").write_text("VALUE = 1\n")
+    passed, result = harness.checker("inventory").do_check()
+    assert not passed and result["error_count"] == 5 and result["errors_omitted"] == 0
+    assert len(result["errors"]) == 5
 
 
 @pytest.mark.parametrize("outcome", ["installed", "present", "wrong_version", "install_failure", "missing_license"])
