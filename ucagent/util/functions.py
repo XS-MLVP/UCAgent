@@ -1505,7 +1505,7 @@ def list_files_by_mtime(
     subdir: str | Sequence[str] | None = None,
     ignore_patterns: str = "*.pyc,*.log,*.tmp,*.fst,*.dat,*.vcd,*.bin,*.ini,.*",
 ) -> list[tuple[float, float, str]]:
-    """Return files ordered from most recently modified to oldest."""
+    """Return newest files, pruning ignored paths and directory symlinks."""
     root = Path(directory).resolve()
     if not root.is_dir():
         return []
@@ -1515,31 +1515,26 @@ def list_files_by_mtime(
     files: list[tuple[float, float, str]] = []
 
     def collect(current: Path) -> None:
+        """Scan each real directory without following directory aliases or loops."""
         try:
-            for entry in current.iterdir():
-                try:
-                    stat_result = entry.stat()
-                except OSError as error:
-                    warning(f"Error processing path {entry}: {error}")
-                    continue
+            with os.scandir(current) as entries:
+                for entry in entries:
+                    relative_str = os.path.relpath(entry.path, root)
+                    if any(fnmatch.fnmatch(relative_str, pattern) for pattern in patterns):
+                        continue
+                    try:
+                        # DirEntry reuses directory metadata where available.
+                        if entry.is_dir(follow_symlinks=False):
+                            collect(Path(entry.path))
+                            continue
+                        if not entry.is_file():
+                            continue
+                        stat_result = entry.stat()
+                    except OSError as error:
+                        warning(f"Error processing path {entry.path}: {error}")
+                        continue
 
-                if stat.S_ISDIR(stat_result.st_mode):
-                    collect(entry)
-                    continue
-
-                if not stat.S_ISREG(stat_result.st_mode):
-                    continue
-
-                try:
-                    relative = entry.relative_to(root)
-                except ValueError:
-                    relative = Path(os.path.relpath(entry, root))
-
-                relative_str = str(relative)
-                if any(fnmatch.fnmatch(relative_str, pattern) for pattern in patterns):
-                    continue
-
-                files.append((now - stat_result.st_mtime, stat_result.st_mtime, relative_str))
+                    files.append((now - stat_result.st_mtime, stat_result.st_mtime, relative_str))
         except OSError as error:
             warning(f"Error listing directory {current}: {error}")
 
