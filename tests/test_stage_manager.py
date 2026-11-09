@@ -158,10 +158,14 @@ class _FakeCurrentStageManager:
 
 
 class _RecordingCheckStage:
+    """Record validation calls while exposing the stage completion prerequisites."""
+
     name = "recording-stage"
 
-    def __init__(self):
+    def __init__(self, journal="journal"):
+        """Initialize a stage double with a configurable journal."""
         self.calls = []
+        self.journal = journal
         self._is_reached = False
         self.init_count = 0
 
@@ -170,7 +174,8 @@ class _RecordingCheckStage:
         return True, {"seen": kwargs}
 
     def meta_get_journal(self):
-        return "journal"
+        """Return the current journal without changing stage progress."""
+        return self.journal
 
     def get_approved(self):
         return True
@@ -544,7 +549,8 @@ def test_mcp_complete_preserves_stage_args():
 
 
 def test_stage_manager_check_and_complete_forward_stage_args():
-    stage = _RecordingCheckStage()
+    """Resume final validation after recording a journal without losing stage arguments."""
+    stage = _RecordingCheckStage(journal=None)
     next_stage = _RecordingCheckStage()
     manager = StageManager.__new__(StageManager)
     manager.stage_index = 0
@@ -570,6 +576,11 @@ def test_stage_manager_check_and_complete_forward_stage_args():
         "refined": {"CK": "check"},
         "detail": True,
     })
+    missing_journal = manager.complete(10, stage_args={"full_output": True})
+    assert missing_journal["complete"] is False
+    assert "SetCurrentStageJournal" in missing_journal["error"]
+    assert len(stage.calls) == 1
+    stage.journal = "Recorded the current work and check results"
     complete_ret = manager.complete(10, stage_args={
         "full_output": True,
         "refined": {"CK": "complete"},
@@ -589,6 +600,72 @@ def test_stage_manager_check_and_complete_forward_stage_args():
             "is_complete": True,
         },
     ]
+
+
+@pytest.mark.parametrize("journal", [None, "Recorded summary"])
+def test_check_success_prompts_for_missing_journal(journal):
+    """Keep Check available without a journal and give the correct completion action."""
+    stage = _RecordingCheckStage(journal=journal)
+    manager = StageManager.__new__(StageManager)
+    manager.stage_index = 0
+    manager.stages = [stage]
+    manager.last_check_info = None
+
+    result = manager.check(9, stage_args={"full_output": True})
+
+    assert result["check_pass"] is True
+    assert len(stage.calls) == 1
+    assert manager.stage_index == 0
+    assert stage.journal == journal
+    assert ("SetCurrentStageJournal" in result["message"]) is (journal is None)
+    assert "Complete" in result["message"]
+
+
+@pytest.mark.parametrize("full_output", [False, True])
+def test_complete_missing_journal_skips_validation_and_preserves_state(full_output):
+    """Reject missing journals before validation, suggestions, or progress mutations."""
+    stage = _RecordingCheckStage(journal=None)
+    manager = StageManager.__new__(StageManager)
+    manager.stage_index = 0
+    manager.stages = [stage]
+    previous_result = {"check_pass": False, "check_info": "Previous diagnostic"}
+    manager.last_check_info = previous_result
+    manager.validation_revision = 7
+    manager._repeat_failure_state = {0: {"count": 2}}
+    manager.gen_pass_suggestion = lambda _data: pytest.fail("Must not request review")
+    manager._stage_complete = lambda _stage: pytest.fail("Must not complete the stage")
+    manager.next_stage = lambda: pytest.fail("Must not advance the stage")
+
+    result = manager.complete(9, stage_args={"full_output": full_output})
+
+    assert result["complete"] is False
+    assert "SetCurrentStageJournal" in result["error"]
+    assert stage.calls == []
+    assert manager.stage_index == 0
+    assert manager.last_check_info is previous_result
+    assert manager.validation_revision == 7
+    assert manager._repeat_failure_state == {0: {"count": 2}}
+
+
+def test_complete_with_journal_still_requires_human_approval():
+    """A recorded journal permits validation but does not authorize stage completion."""
+    stage = _RecordingCheckStage()
+    stage.is_hmcheck_needed = lambda: True
+    stage.get_hmcheck_state = lambda: (None, "")
+    manager = StageManager.__new__(StageManager)
+    manager.stage_index = 0
+    manager.stages = [stage]
+    manager.agent = SimpleNamespace(_need_human=False)
+    manager.gen_pass_suggestion = lambda _data: ""
+    manager._stage_complete = lambda _stage: pytest.fail("Human approval is required")
+    manager.next_stage = lambda: pytest.fail("Human approval is required")
+
+    result = manager.complete(9)
+
+    assert result["complete"] is False
+    assert len(stage.calls) == 1
+    assert manager.stage_index == 0
+    assert manager.agent._need_human is True
 
 
 
@@ -952,7 +1029,9 @@ def test_check_reports_batch_advance_as_progress_not_failure():
 
 
 def test_complete_reports_batch_advance_as_progress_not_failure():
-    class BatchStage:
+    """Preserve batch progress responses when the completion journal is present."""
+    class BatchStage(_RecordingCheckStage):
+        """Expose a completed batch while retaining the journal prerequisite."""
         name = "batch_stage"
         is_batch_success = True
 
@@ -1108,6 +1187,7 @@ def test_failure_summary_preserves_test_function_contract_issues():
 
 
 def test_failure_without_explicit_diagnostic_preserves_all_checker_output():
+    """Preserve raw Check and Complete failures after satisfying completion prerequisites."""
     raw_message = {
         "error": "[Test Function Failure] Check test functions failed.",
         "details": [
@@ -1118,7 +1198,8 @@ def test_failure_without_explicit_diagnostic_preserves_all_checker_output():
         "STDERR": "full pytest stderr",
     }
 
-    class FailingStage:
+    class FailingStage(_RecordingCheckStage):
+        """Return raw validation failure after the journal prerequisite is satisfied."""
         name = "evaluate_env_fixture"
 
         @staticmethod
@@ -1211,6 +1292,7 @@ def test_stage_args_full_output_preserves_raw_output_with_diagnostic():
 
 
 def test_complete_stage_args_full_output_preserves_raw_diagnostic():
+    """Keep the full failure response when final validation follows journal preflight."""
     raw_message = {
         "error": "short error",
         "diagnostic": {
@@ -1221,7 +1303,8 @@ def test_complete_stage_args_full_output_preserves_raw_diagnostic():
         "STDERR": "complete raw stderr",
     }
 
-    class FailingStage:
+    class FailingStage(_RecordingCheckStage):
+        """Retain full completion diagnostics with an existing journal."""
         name = "diagnostic_stage"
 
         @staticmethod
@@ -1686,6 +1769,7 @@ def test_forced_skill_usage_does_not_block_intermediate_check(tmp_path):
 
 
 def test_forced_skill_usage_complete_failure_is_named_and_actionable(tmp_path):
+    """Report missing forced Skill evidence once the completion journal is recorded."""
     calls = []
     stage = _make_precheck_gate_stage(
         tmp_path,
@@ -1699,6 +1783,7 @@ def test_forced_skill_usage_complete_failure_is_named_and_actionable(tmp_path):
         "unitytest/required-b": [False, True, False],
     }
     stage.force_use_skill = True
+    stage.meta_set_journal("Implementation reviewed; required Skill evidence remains incomplete")
     stage.cfg.skill.general_skill_list = ["unitytest/general-optional"]
     manager = StageManager.__new__(StageManager)
     manager.stage_index = 3

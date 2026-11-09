@@ -3,6 +3,8 @@
 
 工作流由一组按顺序执行的阶段组成。每个阶段描述任务、参考文件、预期产物和 Checker；Agent 可调用 `Check` 查看反馈，再用 `Complete` 执行最终验收并推进。阶段失败时应先按 Checker 的诊断修复，再重试。
 
+完成阶段前须用 `SetCurrentStageJournal` 记录工作摘要、产物、检查结果及未解决事项。`Check` 通过但尚无 journal 时会提示先填写；`Complete` 缺少 journal 时直接返回，不运行 Checker。补齐后再调用 `Complete`，继续执行最终验收和适用门禁。
+
 ## 1. 默认工作流
 
 中文默认配置位于 `ucagent/lang/zh/config/default.yaml`，当前有 20 个顶层阶段；带缩进的条目是子阶段。运行时 Stage Manager 会把父阶段和子阶段展平，因此 `--skip`、`hmcheck_set` 和 `GoToStage` 使用的索引必须以当前运行中的 `status` 或 `hmcheck_list` 为准。
