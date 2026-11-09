@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING
 
 from ucagent.tui.utils import PersistentConsoleMirror
 from ucagent.util.config import Config
+from ucagent.abackend.base import NonRetryableBackendError
 from ucagent.tools.fileops import write_entry_has_wildcards
 
 DEFAULT_CMD_IDLE_TIMEOUT = 1200.0
@@ -1279,6 +1280,9 @@ class VerifyPDB(Pdb):
                 return None
             except Exception as e:
                 echo_y(f"Error during loop execution: {e}\n{traceback.format_exc()}")
+                if isinstance(e, NonRetryableBackendError):
+                    echo_r("Automatic loop retries stopped; correct the reported backend error before resuming.")
+                    return None
                 delay_time = random.randint(self.retry_delay_start, self.retry_delay_end)
                 while delay_time > 0:
                     echo_y(f"[{try_count}]Retrying in {delay_time} seconds...")
