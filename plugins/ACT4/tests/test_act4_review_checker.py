@@ -705,6 +705,9 @@ def test_review_workflow_initializes_without_skill_dependency(tmp_path: Path, mo
             assert not (tmp_path / ".ucagent/skills").exists()
         assert agent.cfg.write_dirs == ["reports"]
         assert agent.cfg.un_write_dirs == ["Guide_Doc"]
+        assert [tool.name for tool in agent.tool_list_plugin] == ["WriteACT4ReviewReport"]
+        assert "WriteACT4ReviewReport" in str(audit.task())
+        assert "EditTextFile" in str(audit.task())
         assert (tmp_path / "Guide_Doc/ACT4_Extension_Review_Guide.md").is_file()
         from ucagent.tools.fileops import is_file_writeable
         assert not is_file_writeable("riscv-arch-test/generators/H.py", agent.cfg.un_write_dirs, agent.cfg.write_dirs)[0]

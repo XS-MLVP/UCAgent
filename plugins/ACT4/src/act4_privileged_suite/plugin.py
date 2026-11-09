@@ -15,6 +15,7 @@ from .checkers.act4_switch_capability_checker import ACT4SwitchCapabilityChecker
 from .checkers.act4_test_asset_checker import ACT4TestAssetChecker
 from .checkers.act4_review_checker import ACT4ReviewChecker
 from .workspace import validate_input_paths
+from .report_tools import create_review_report_tools
 
 
 def get_plugin() -> Plugin:
@@ -28,6 +29,7 @@ def get_plugin() -> Plugin:
             "Evidence-driven generation, review, and validation of RISC-V ACT4 test assets."
         ),
         root=root,
+        tool_factories=(create_review_report_tools,),
         checkers=(
             ACT4AIReviewChecker,
             ACT4AssetChecker,

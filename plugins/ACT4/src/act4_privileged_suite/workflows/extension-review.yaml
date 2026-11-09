@@ -83,6 +83,9 @@ stage:
       - 第五步：按 Guide_Doc/ACT4_Extension_Review_Guide.md 创建 review.yaml，汇总 ACT4 规范、
         规范/计划/生成器/用例间遗漏、冗余、coverpoint 设计与实际覆盖、CI、可复现性和贡献质量的审查结果，
         填写 findings、修复提案和 post_assets。
+      - 写入报告时，如 WriteACT4ReviewReport 可用，将完整报告对象作为 document，path 指向
+        {OUT}/{DUT}/review/review.yaml；basis 提供 path、lines、observation，省略 quote 由工具精确提取。
+        使用当前 evidence_digest，语义判断仍由你完成。工具不可用时使用 EditTextFile 写入完整 YAML 并核对 quote。
       - 第六步：用普通 Check 校验报告，按反馈补齐报告和证据，准备提交人工决策。
       - 要求（真实执行）：不得因没有 ELF 而跳过构建；前置失败时后续阻塞，不运行空测试。
         模型通过数必须等于非零输入 ELF 数；构建器的 succeeded 是构建任务数，不是测试通过数。
@@ -145,6 +148,9 @@ stage:
         fixed/deferred/not_fixed 状态及证据。
       - 第二步：完成 semantic_review 中全部 after.review_tasks，另逐项审核 finding:<ID> 和 change:<确切变更路径>，
         引用修改后源码并比较基线，删除项引用基线。
+      - 写入 final.yaml 时，如 WriteACT4ReviewReport 可用，提供完整 document 与
+        {OUT}/{DUT}/review/final.yaml 路径，由工具按 basis 的 path、lines 提取 quote；
+        工具不可用时使用 EditTextFile 写入完整 YAML 并核对 quote。写入后仍需普通 Check。
       - 第三步：将未解决的语义疑点、推断及验证限制全部列入 remaining_risks，汇总批准前后证据、
         每个目标的 CI 结果、coverpoint 覆盖变化、精确变更和应用补丁后的复验要求。
       - 第四步：调用 Check 生成 final.md 和 changes.patch，交付完整报告和可应用补丁。
