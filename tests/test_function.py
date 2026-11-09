@@ -529,6 +529,69 @@ def test_check_has_assert_ignores_comments_and_fragments(tmp_path):
     assert "test_strong" not in msg["error"]
 
 
+def test_list_files_by_mtime_skips_directory_symlinks(tmp_path):
+    """Aliases, cycles, and external directories are not traversed; files remain visible."""
+    workspace = tmp_path / "workspace"
+    source = workspace / "source"
+    source.mkdir(parents=True)
+    (source / "report.md").write_text("report", encoding="utf-8")
+    (workspace / "alias").symlink_to(source, target_is_directory=True)
+    (source / "cycle").symlink_to(workspace, target_is_directory=True)
+    external = tmp_path / "external"
+    external.mkdir()
+    (external / "outside.md").write_text("outside", encoding="utf-8")
+    (workspace / "external").symlink_to(external, target_is_directory=True)
+    (workspace / "report-link.md").symlink_to(source / "report.md")
+    (workspace / "dangling").symlink_to(tmp_path / "missing")
+
+    result = fc.list_files_by_mtime(workspace)
+
+    assert {entry[2] for entry in result} == {"source/report.md", "report-link.md"}
+
+
+def test_list_files_by_mtime_prunes_ignored_directories(tmp_path, monkeypatch):
+    """Ignored trees are never opened, while normal files are sorted and limited."""
+    hidden = tmp_path / ".cache"
+    hidden.mkdir()
+    (hidden / "cached.md").write_text("cache", encoding="utf-8")
+    for name, mtime in [("older.md", 100), ("newer.md", 200)]:
+        path = tmp_path / name
+        path.write_text(name, encoding="utf-8")
+        os.utime(path, (mtime, mtime))
+    original_scandir = os.scandir
+
+    def checked_scandir(path):
+        """Reject attempts to traverse an ignored directory."""
+        assert os.fspath(path) != str(hidden)
+        return original_scandir(path)
+
+    monkeypatch.setattr(os, "scandir", checked_scandir)
+    result = fc.list_files_by_mtime(tmp_path, max_files=1)
+    assert [entry[2] for entry in result] == ["newer.md"]
+    assert result[0][1] == 200
+
+
+def test_list_files_by_mtime_tolerates_unreadable_directories(tmp_path, monkeypatch):
+    """A directory disappearing or becoming unreadable does not abort sibling results."""
+    blocked = tmp_path / "blocked"
+    blocked.mkdir()
+    (tmp_path / "report.md").write_text("report", encoding="utf-8")
+    original_scandir = os.scandir
+    warnings = []
+
+    def checked_scandir(path):
+        """Simulate a filesystem error independent of the current user's privileges."""
+        if os.fspath(path) == str(blocked):
+            raise PermissionError("unreadable directory")
+        return original_scandir(path)
+
+    monkeypatch.setattr(os, "scandir", checked_scandir)
+    monkeypatch.setattr(fc, "warning", warnings.append)
+    assert [entry[2] for entry in fc.list_files_by_mtime(tmp_path)] == ["report.md"]
+    assert len(warnings) == 1
+    assert str(blocked) in warnings[0]
+
+
 def test_newest_file_mtime_reuses_recent_scan(tmp_path):
     """A fresh changed-files scan is reused instead of rescanning."""
 
