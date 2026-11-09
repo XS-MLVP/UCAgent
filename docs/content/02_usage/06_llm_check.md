@@ -37,7 +37,7 @@ vmanager:
   llm_suggestion:
     check_fail_refinement:
       enable: true
-      clss: ucagent.stage.llm_suggestion.OpenAILLMFailSuggestion
+      clss: ucagent.core.stage.llm_suggestion.OpenAILLMFailSuggestion
       args:
         model_name: "<model_name>"
         openai_api_key: "<api_key>"
@@ -48,7 +48,7 @@ vmanager:
       default_apply_all_stages: true
     check_pass_refinement:
       enable: true
-      clss: ucagent.stage.llm_suggestion.OpenAILLMPassSuggestion
+      clss: ucagent.core.stage.llm_suggestion.OpenAILLMPassSuggestion
       args:
         model_name: "<model_name>"
         openai_api_key: "<api_key>"
@@ -121,4 +121,4 @@ check_pass_refinement:
 - 建议模型调用会增加延迟和费用。优先对关键阶段启用，并设置合理的 API 超时和上下文摘要阈值。
 - 普通 Checker 结果始终是事实来源。LLM 建议只能帮助定位，不能替代测试、源码、报告和波形证据。
 
-配置字段和默认值以 `ucagent/setting.yaml` 当前版本为准；需要修改实现或增加新的评审策略时，参见 `ucagent/stage/llm_suggestion/` 及[工作流配置](../03_develop/03_workflow.md)。
+配置字段和默认值以 `ucagent/setting.yaml` 当前版本为准；需要修改实现或增加新的评审策略时，参见 `ucagent/core/stage/llm_suggestion/` 及[工作流配置](../03_develop/03_workflow.md)。

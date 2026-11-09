@@ -10,7 +10,7 @@ from langgraph.prebuilt import ToolNode
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from ucagent.abackend.langchain.agent import UCAgentLangChainBackend
+from ucagent.core.backends.langchain.agent import UCAgentLangChainBackend
 
 
 class _InvalidOutputTool(BaseTool):

@@ -37,7 +37,7 @@ vmanager:
   llm_suggestion:
     check_fail_refinement:
       enable: true
-      clss: ucagent.stage.llm_suggestion.OpenAILLMFailSuggestion
+      clss: ucagent.core.stage.llm_suggestion.OpenAILLMFailSuggestion
       args:
         model_name: "<model_name>"
         openai_api_key: "<api_key>"
@@ -48,7 +48,7 @@ vmanager:
       default_apply_all_stages: true
     check_pass_refinement:
       enable: true
-      clss: ucagent.stage.llm_suggestion.OpenAILLMPassSuggestion
+      clss: ucagent.core.stage.llm_suggestion.OpenAILLMPassSuggestion
       args:
         model_name: "<model_name>"
         openai_api_key: "<api_key>"
@@ -121,4 +121,4 @@ Stage names must use the `name` from the current configuration, not the page tit
 - Suggestion model calls increase latency and cost. Prioritize enabling it for critical stages, and set reasonable API timeouts and context summary thresholds.
 - Regular Checker results are always the source of truth. LLM suggestions can only help locate issues; they cannot replace tests, source code, reports, or waveform evidence.
 
-Configuration fields and default values are subject to the current version of `ucagent/setting.yaml`; to modify the implementation or add new review strategies, refer to `ucagent/stage/llm_suggestion/` and [Workflow Configuration](../03_develop/03_workflow.md).
+Configuration fields and default values are subject to the current version of `ucagent/setting.yaml`; to modify the implementation or add new review strategies, refer to `ucagent/core/stage/llm_suggestion/` and [Workflow Configuration](../03_develop/03_workflow.md).

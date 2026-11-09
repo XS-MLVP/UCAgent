@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from ucagent.plugins import Plugin, PluginContext, PluginWorkflow
+from ucagent.core.plugins import Plugin, PluginContext, PluginWorkflow
 from ucagent.util.config import Config
 from .operations.waveform_replay import waveform_commands
 from unity_test.report_store import TestProtocolRuntimeHook

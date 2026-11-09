@@ -23,7 +23,7 @@ The `--output` flag can change the directory name of `unity_test/`. Specific fil
 
 ### Guide_Doc
 
-Files in `Guide_Doc/` are runtime reference materials, typically sourced from `ucagent/lang/<lang>/doc/Guide_Doc/` or a custom `--guid-doc-path`. A stage can declare required files via `reference_files`; before the `Complete` state is reached, the stage's reference files and output files must satisfy the gate. Custom directories override the built-in `Guide_Doc` source (the last specified directory takes effect); file parameters are appended to the copy set by filename.
+Files in `Guide_Doc/` are runtime reference materials, typically sourced from the selected workflow plugin or a custom `--guid-doc-path`. A stage can declare required files via `reference_files`; before the `Complete` state is reached, the stage's reference files and output files must satisfy the gate. A `--guid-doc-path` directory supplies the base document set (the last directory takes effect); file arguments append by filename. Plugin documents are composed with that set under the configured copy policy.
 
 `Guide_Doc` should clearly specify:
 
@@ -36,7 +36,7 @@ Runtime paths are always relative to the workspace. For example, when referencin
 
 ### Generation Templates
 
-Templates are initial files copied or rendered into the workspace. The template directory can be specified at startup using `--template-dir`, and existing targets can be overwritten using `--template-overwrite`. Template override configuration is passed via `--template-cfg-override <yaml>`; it handles only template variables and does not alter the stage `Checker`'s judgment rules.
+Templates are initial files copied or rendered into the workspace. The selected workflow supplies its template directory; custom templates can use `--template-dir`, and existing targets can be overwritten using `--template-overwrite`. Template override configuration is passed via `--template-cfg-override <yaml>`; it handles only template variables and does not alter the stage `Checker`'s judgment rules.
 
 ## Common Artifacts
 

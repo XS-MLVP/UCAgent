@@ -20,7 +20,7 @@ import shutil
 from typing import Any
 from design_with_ppa.contracts import sha256_file
 from design_with_ppa.plugin import get_plugin
-from ucagent.tools.skill import RunSkillScript
+from ucagent.core.tools.skill import RunSkillScript
 from ucagent.util.config import (  # noqa: E402
     Config,
     build_runtime_config,

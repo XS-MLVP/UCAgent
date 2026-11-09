@@ -86,7 +86,7 @@ def main() -> int:
         "project"
     ]
     if (
-        project["entry-points"]["ucagent.plugins"].get(manifest["name"])
+        project["entry-points"]["ucagent.core.plugins"].get(manifest["name"])
         != manifest["entry"]
     ):
         errors.append("source manifest and installed plugin entry point disagree")

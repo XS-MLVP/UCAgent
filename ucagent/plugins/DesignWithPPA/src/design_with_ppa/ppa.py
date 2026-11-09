@@ -27,8 +27,8 @@ from langchain_core.tools.base import ArgsSchema
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
 
 from ucagent.util.functions import make_llm_tool_ret
-from ucagent.tools.fileops import is_file_writeable
-from ucagent.tools.uctool import UCTool
+from ucagent.util.file_policy import is_file_writeable
+from ucagent.core.tools.uctool import UCTool
 from ucagent.util.log import info
 
 

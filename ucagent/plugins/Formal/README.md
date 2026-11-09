@@ -26,4 +26,4 @@ ucagent <workspace> <DUT> --plugin ucagent/plugins/Formal --plugin-workflow form
 ucagent <workspace> <DUT> --plugin formal --plugin-workflow formal:formal --output formal_test
 ```
 
-也可以把 `ucagent/lang/zh/config/default.yaml`（或 `~/.ucagent/setting.yaml`）中的 `workflow` 指针改为本工作流，使其成为默认任务工作流（源码树用路径，安装后用 `formal:workflows/formal.yaml`）。
+也可以把 `ucagent/core/locales/zh.yaml`（或 `~/.ucagent/setting.yaml`）中的 `workflow` 指针改为本工作流，使其成为默认任务工作流（源码树用路径，安装后用 `formal:workflows/formal.yaml`）。

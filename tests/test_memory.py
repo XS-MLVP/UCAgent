@@ -8,8 +8,8 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.store.memory import InMemoryStore
 import pytest
 
-from ucagent.tools import memory
-from ucagent.tools.memory import MemoryGet, MemoryPut, SemanticSearchInGuidDoc
+from ucagent.core.tools import memory
+from ucagent.core.tools.memory import MemoryGet, MemoryPut, SemanticSearchInGuidDoc
 
 
 def test_memory_round_trip_preserves_scopes_json_and_timestamps():

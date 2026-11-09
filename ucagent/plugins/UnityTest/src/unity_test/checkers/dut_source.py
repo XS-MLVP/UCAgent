@@ -6,7 +6,7 @@ import os
 from typing import Tuple
 
 import ucagent.util.functions as fc
-from ucagent.checkers.base import Checker
+from ucagent.core.checkers.base import Checker
 from ucagent.util.log import info
 from .unity_test import (
     UnityChipCheckerBaseFixture,

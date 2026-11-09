@@ -2,8 +2,8 @@
 
 import pytest
 from test_console_runtime import console
-from ucagent.tui.app import VerifyApp
-from ucagent.tui.widgets import ConsoleWidget, MessagesPanel
+from ucagent.interfaces.terminal.tui.app import VerifyApp
+from ucagent.interfaces.terminal.tui.widgets import ConsoleWidget, MessagesPanel
 
 
 @pytest.mark.asyncio

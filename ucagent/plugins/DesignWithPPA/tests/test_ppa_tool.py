@@ -30,7 +30,7 @@ from design_with_ppa.ppa import (  # noqa: E402
     _parse_vcd_activity,
     _parse_sta_metric,
 )
-from ucagent.tools.uctool import to_mcp_tool  # noqa: E402
+from ucagent.core.tools.uctool import to_mcp_tool  # noqa: E402
 from ucagent.util.functions import get_tools_from_cfg  # noqa: E402
 
 

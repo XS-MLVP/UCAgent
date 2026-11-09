@@ -14,11 +14,11 @@ from langchain_core.callbacks import CallbackManagerForToolRun
 from langchain_core.tools.base import ArgsSchema
 from pydantic import BaseModel, Field
 
-from ucagent.stage.vmanager import ManagerTool
+from ucagent.core.stage.vmanager import ManagerTool
 from ucagent.util.functions import import_class_from_str, make_llm_tool_ret
 from ucagent.util.log import info
 
-import ucagent.checkers
+import ucagent.core.checkers
 
 
 class ArgRunTestCases(BaseModel):
@@ -50,17 +50,17 @@ def resolve_free_runner_clss(clss, checker_registry=None):
 
     Uses the same resolution as stage ``clss`` entries: a short name found in
     the (plugin) checker registry wins; anything else is imported through
-    ``ucagent.checkers`` (fully-qualified class paths included).
+    ``ucagent.core.checkers`` (fully-qualified class paths included).
     """
     registry = dict(checker_registry or {})
     if "." not in clss and clss in registry:
         return registry[clss]
     try:
-        return import_class_from_str(clss, ucagent.checkers)
+        return import_class_from_str(clss, ucagent.core.checkers)
     except (AttributeError, ImportError) as e:
         raise ValueError(
             "Cannot resolve tools.RunTestCases.free_runner_clss "
-            f"'{clss}' via the checker registry or ucagent.checkers: {e}"
+            f"'{clss}' via the checker registry or ucagent.core.checkers: {e}"
         )
 
 

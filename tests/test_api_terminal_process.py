@@ -12,8 +12,8 @@ import time
 
 import pytest
 
-from ucagent.server import api_terminal
-from ucagent.server.api_terminal import _ManagedProcess
+from ucagent.interfaces.server import api_terminal
+from ucagent.interfaces.server.api_terminal import _ManagedProcess
 
 
 def _python_command(code: str) -> str:

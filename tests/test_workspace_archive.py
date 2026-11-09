@@ -12,7 +12,7 @@ import pytest
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.abspath(os.path.join(current_dir, "..")))
 
-from ucagent.cli import (
+from ucagent.application.workspace import (
     WorkspaceArchiveError,
     _prepare_workspace_archive_source,
     _safe_extract_workspace_archive,

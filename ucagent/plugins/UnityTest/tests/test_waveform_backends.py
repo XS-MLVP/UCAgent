@@ -12,7 +12,7 @@ import yaml
 
 from unity_test.waveform import WaveInfo
 from unity_test.waveform import ArgWaveInfo, WaveInfoAnalysisArgs
-from ucagent.tools.uctool import to_mcp_tool
+from ucagent.core.tools.uctool import to_mcp_tool
 from ucagent.util.config import Config, load_runtime_config, load_yaml_with_env_vars, save_runtime_config
 from unity_test.waveform_formats import (
     DEFAULT_WAVEFORM_ANALYSIS_BACKEND_PRIORITY,

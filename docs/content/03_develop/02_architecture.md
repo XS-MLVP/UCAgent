@@ -1,66 +1,68 @@
 
 # 架构与工作原理
 
-UCAgent 用配置定义任务，用工具执行操作，用 Checker 验收产物。后端负责模型交互，阶段层负责检查和推进，运行层负责操作、服务和实例生命周期。Console、TUI 与 HTTP 是交互入口。本章说明当前已经实现的组件关系。
+UCAgent 通过工作流定义任务，由 Agent 和工具执行，通过阶段与 Checker 验收产物。目录按现有能力的职责组织：`core/` 是完整 Agent，`application/` 负责启动，`runtime/` 托管实例，`interfaces/` 提供人机和网络接入。
 
-## 核心组件
+## 目录职责
 
-| 组件 | 职责 | 主要代码入口 |
-| --- | --- | --- |
-| `VerifyAgent` | 加载配置，准备工作区，装配后端、工具和阶段 | `ucagent/verify_agent.py` |
-| `RuntimeHost` | 管理实例生命周期，持有控制器、执行器、服务与启动协调器 | `ucagent/control/runtime/host.py` |
-| `Controller` / `CommandRegistry` | 提供业务操作与查询，声明命令、别名、参数和分派规则 | `ucagent/control/controller.py`、`commands.py` |
-| `OperationExecutor` / `StageCoordinator` | 管理长操作、取消、模型操作槽位，以及阶段变更协调 | `ucagent/control/runtime/operations.py` |
-| `ServiceManager` | 管理 MCP、HTTP、Master 连接和终端等服务的就绪与关闭 | `ucagent/control/runtime/services.py` |
-| `RuntimeSession` / `Console` / TUI | 保存本地交互状态，接收输入并展示输出 | `ucagent/control/runtime/session.py`、`ucagent/control/console.py`、`ucagent/tui/` |
-| Backend | 与模型或命令行 Code Agent 交互 | `ucagent/abackend/` |
-| `StageManager` / `VerifyStage` | 提供阶段任务，管理 Check、Complete、历史和跳过状态 | `ucagent/stage/` |
-| Tool | 读取、编辑、计算、运行测试或调用外部服务 | `ucagent/tools/` |
-| Checker | 根据文件、配置、测试结果和证据判断任务是否满足要求 | `ucagent/checkers/` |
-| Guide_Doc / 模板 | 提供运行指导、完整格式示例和初始文件 | 当前工作流插件声明的资源目录及配置路径 |
-| Skill（可选） | 提供任务方法和脚本，帮助完成同一套验收要求 | 插件声明的技能目录及配置中的额外技能路径 |
+| 目录 | 职责 |
+| --- | --- |
+| `core/agent/` | 任务配置、自有组件构造、执行、消息与统计 |
+| `core/backends/` | LangChain、命令行与 blank 后端；`assets/` 保存客户端配置模板 |
+| `core/interaction/` | 增强执行、反思与自适应工具编排 |
+| `core/stage/` | 阶段推进、Check/Complete、历史、人工及模型审核 |
+| `core/checkers/` | Checker 生命周期、诊断与 BatchTask |
+| `core/tools/` | 完整的通用文件、Shell、规划、记忆、上下文和技能工具 |
+| `core/workspace/` | 任务文档、模板、技能、指令文件与权限恢复 |
+| `core/plugins.py` | 插件声明、发现、校验与能力注册 |
+| `core/locales/` | 框架语言配置，中文默认配置为 `zh.yaml` |
+| `application/` | 入口编排、启动请求与计划、工作区来源、日志和运行组件连接 |
+| `application/presets/` | 应用模式预设，包括 `zh/master.yaml` |
+| `runtime/` | Host 生命周期、操作调度与取消、服务管理、会话与输出缓冲 |
+| `runtime/control/` | Controller、命令参数与分派、插件命令注册 |
+| `interfaces/cli/` | CLI 语法、管理操作和启动数据转换 |
+| `interfaces/terminal/` | Console 与结果展示，`tui/` 提供可视化终端 |
+| `interfaces/server/` | HTTP、MCP、Master、Web Terminal、页面、静态资源和查看器转换 |
+| `plugins/` | 独立工作流项目及其文档、模板、技能和领域实现 |
+| `util/` | 配置加载、文件策略、日志等共享基础能力 |
 
-工具执行动作，Checker 验证结果。例如，写文件工具成功只说明写入完成；文档内容是否符合规则，仍由相应 Checker 判断。
+`core/` 包含完整 Agent 实现，包括具体后端和工具，并非只有抽象接口。插件资源仍随工作流保存，核心准备逻辑按同一任务契约选择并落地。根目录 `setting.yaml` 保留跨层全局默认配置。
 
-## 入口与运行层的连接
+## 目录依赖方向
+
+下图箭头表示主要源码依赖方向，不表示运行时回调。应用层选择并连接现有具体实现，不引入新的执行框架。
 
 ```mermaid
-flowchart TD
-    Local[Console / TUI] --> Session[RuntimeSession]
-    Session --> Commands[共享命令注册表]
-    HTTP[HTTP 命令接口] --> Commands
-    subgraph Runtime[RuntimeHost 管理的运行层]
-        Commands --> Control[Controller / 业务查询与控制]
-        Commands --> Operations[OperationExecutor / 长操作]
-        Commands --> Services[ServiceManager / 服务生命周期]
-        Operations --> Coordination[StageCoordinator / 阶段变更协调]
-    end
-    Operations --> Agent[VerifyAgent / Backend]
-    Control --> Stages[StageManager / VerifyStage]
-    Coordination --> Stages
-    Agent --> Tools[工具与插件能力]
-    MCP[MCP 客户端] --> Tools
-    Tools --> Stages
-    Stages --> Checkers[Checker / 证据与验收]
+flowchart TB
+    APP["application/<br/>启动准备与组装"] --> IFACE["interfaces/<br/>CLI、终端和网络接入"]
+    APP --> RUNTIME["runtime/<br/>控制、调度与生命周期"]
+    APP --> CORE["core/<br/>完整 Agent 能力"]
+    APP --> PLUGINS["plugins/<br/>具体工作流项目"]
+    IFACE --> RUNTIME
+    IFACE --> CORE
+    RUNTIME --> CORE
+    PLUGINS --> CORE
+    CORE --> UTIL["util/<br/>公共基础能力"]
+    APP --> UTIL
+    RUNTIME --> UTIL
+    IFACE --> UTIL
 ```
 
-图展示主要调用关系。CLI 为 HTTP 注入与本地界面相同的 Controller、注册表、执行器和服务管理器；结构化状态、取消和审核接口直接调用对应运行对象。MCP 暴露已装配的工具，其中 Check/Complete 进入同一个阶段层，也受阶段变更协调约束，但 MCP 调用不自动生成统一操作记录。TUI 的部分状态读取和 HTTP 文件接口也不经过命令注册表。
+核心包不导入 `application`、`runtime` 或 `interfaces`；运行时不导入应用启动和具体接入实现；接入层不反向调用应用启动；基础函数不导入上述业务包。`tests/test_dependency_boundaries.py` 检查绝对、相对和函数内导入。这些包边界不代表所有内部模块和动态插件都构成全局无环图。
 
-`RuntimeHost` 负责实例，`RuntimeSession` 负责工作目录、命令历史、前台操作归属和显示状态；它不是独立验证任务，也不代表完整模型会话。Console 和 TUI 复用本地会话，HTTP 按客户端标识维护自己的命令会话。界面只提交操作、读取状态和订阅输出，不持有执行线程或负责启动命令队列。
+服务构造器由应用层传入。运行会话由终端或应用调用者提供结果格式化回调，因此共享会话状态不导入前端。插件命令声明由运行控制层注册，核心插件加载器不依赖运行控制实现。
 
-`control/runtime/startup.py` 协调初始化，`output.py` 管输出与消息缓冲，`presentation.py` 格式化命令结果。这些缓冲支持界面订阅，但还不是覆盖所有业务状态变化的持久化事件系统。
+## 从启动到执行与退出
 
-## 从启动到执行
+1. `ucagent`、`python -m ucagent` 和源码 `ucagent.py` 均进入 `application/entry.py`，由它调用 CLI 解析，并在构造 Agent 前处理管理请求。
+2. CLI 转换得到普通启动数据，应用层建立 `LaunchRequest`，准备工作区来源和日志，再调用核心任务配置。`core/locales/<语言>.yaml` 提供框架提示词，`application/presets/<语言>/` 提供应用预设。[配置优先级](03_workflow.md#3-配置加载和模板变量)保持不变。
+3. `core/agent/construction.py` 准备选定工作流资源，构造阶段、工具、后端和执行状态。Python 调用者通过 `from ucagent import VerifyAgent` 使用同一路径，不需要导入应用启动层。
+4. 应用层创建 RuntimeHost 和会话，传入具体服务构造器与展示回调，再交接清理责任。MCP 和其他要求的服务就绪后，才执行用户或模型启动命令。
+5. 初始命令保留顺序。TUI 就绪释放显示门闩，命令仍由运行时执行。无界面、无服务的普通任务默认执行；服务和交互启动等待明确模型工作请求。
+6. 运行时调度 Agent；后端调用工具，阶段工具进入同一 StageManager 和 Checker。HTTP 控制运行实例，MCP 暴露同一任务工具；MCP 调用不自动生成 HTTP 操作 ID。
+7. TUI 脱离不关闭任务。实例关闭时等待操作与服务清理，保存状态并恢复资源；工作区内共享库符号链接的真实目标恢复原始权限。
 
-1. CLI 解析参数、发现并校验选中的插件、解析工作流；`VerifyAgent` 按层加载配置。完整顺序见[工作流配置](03_workflow.md#3-配置加载和模板变量)。
-2. `VerifyAgent` 准备 Guide_Doc、模板、技能和配置快照，装配阶段、工具和 backend，初始化 backend 并恢复可用的阶段状态。此时尚未提交模型执行循环。
-3. CLI 创建 `RuntimeHost` 和本地 `RuntimeSession`，按模式创建 Console；注入 HTTP 服务工厂。`host.start()` 安装输出/消息连接并启动运行监督线程，不直接执行模型任务。
-4. 先启动参数要求的 MCP，再执行启动参数生成的服务命令，并检查就绪或失败。HTTP、Master 连接等无需依赖进入 TUI。自定义 `--icmd` / 配置 `init_cmds` 中的服务命令仍在各自队列位置执行。
-5. `StartupCommands` 接收初始化命令。如果指定 `--tui`，CLI 打开 TUI，TUI 就绪后只释放启动门闩；命令由运行层执行。不使用 TUI 时不等待显示就绪。
-6. 初始化按产品信息、重复的 `--icmd`、可选 `--loop`、配置 `init_cmds` 的顺序提交。交互/服务模式的模型循环不会阻塞后续普通查询；后续模型命令等待前一个模型操作结束，其他异步初始化命令按完成顺序推进。
-7. 执行器调用 Agent/backend，Agent 使用工具完成当前阶段，再通过 `Check` / `Complete` 验收。TUI 返回后，CLI 才进入普通 Console 的输入循环；无本地界面时由运行层继续管理实例。
-
-默认执行策略与入口有关：`--human` / `--tui` 等待明确的启动命令或用户输入；无交互、无服务的单次模式会在未提交模型任务时默认 `continue`；HTTP/MCP 服务模式的非 `blank` 后端也会采用这一默认执行策略。具体操作见[运行控制](../02_usage/10_runtime_control.md)。
+LangChain 在首次模型工作前准备模型；命令行后端根据已就绪的 MCP 端点准备配置。查询和确定性工具不准备主模型；显式启用的 embedding、审核能力仍保留各自要求。具体用法见[运行控制](../02_usage/10_runtime_control.md)。
 
 ## 阶段执行循环
 

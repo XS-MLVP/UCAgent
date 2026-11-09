@@ -485,7 +485,7 @@ def test_checkpoint_replace_failure_preserves_previous_state(
     def fail_replace(_source, _destination):
         raise OSError("injected replace failure")
 
-    monkeypatch.setattr("ucagent.checkers.base.os.replace", fail_replace)
+    monkeypatch.setattr("ucagent.core.checkers.base.os.replace", fail_replace)
 
     with pytest.raises(OSError, match="injected replace failure"):
         checker.batch_task.savepoint_file()

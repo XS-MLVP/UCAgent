@@ -1,3 +1,4 @@
+from ucagent.application.plan import LaunchRequest
 import os
 import sys
 from unittest import mock
@@ -16,7 +17,8 @@ if loaded_ucagent is not None and not loaded_ucagent_path.startswith(repo_packag
         if module_name == "ucagent" or module_name.startswith("ucagent."):
             del sys.modules[module_name]
 
-from ucagent.cli import get_args, run
+from ucagent.interfaces.cli.arguments import get_args
+from ucagent.application.entry import run
 
 pytestmark = pytest.mark.usefixtures("cli_runtime")
 
@@ -51,7 +53,7 @@ def test_skill_cli_only_overrides_config_when_explicit(
     tmp_path, arguments, expected_overrides
 ):
     with mock.patch("sys.argv", ["ucagent", str(tmp_path), "dut", *arguments]), \
-            mock.patch("ucagent.verify_agent.VerifyAgent") as verify_agent:
+            mock.patch("ucagent.VerifyAgent") as verify_agent:
         run()
 
     assert verify_agent.call_args.kwargs["cfg_override"] == expected_overrides
@@ -70,7 +72,7 @@ def test_extra_skill_path_enables_skill_support(tmp_path):
             "--extra-skill-path",
             str(skill_path),
         ],
-    ), mock.patch("ucagent.verify_agent.VerifyAgent") as verify_agent:
+    ), mock.patch("ucagent.VerifyAgent") as verify_agent:
         run()
 
     assert verify_agent.call_args.kwargs["cfg_override"] == [
@@ -109,18 +111,15 @@ def test_blank_backend_does_not_require_mcp_server():
     assert args.backend == "blank"
 
 
-def test_non_langchain_backend_requires_mcp_server(capsys):
-    with pytest.raises(SystemExit) as exc_info:
-        _parse_args("workspace", "dut", "--backend", "claude")
-
-    assert exc_info.value.code == 2
-    error = capsys.readouterr().err
-    assert (
-        "--backend='claude' requires '--mcp-server-no-file-tools' or '--mcp-server'"
-        in error
-    )
-    assert "communicate with UCAgent through MCP" in error
-    assert "'--mcp-server-no-file-tools' (recommended)" in error
+def test_command_backend_requires_mcp_after_final_config(tmp_path):
+    """Dependency validation uses the backend selected by merged configuration."""
+    from ucagent.application.preparation import prepare_launch
+    from ucagent.interfaces.cli.options import parse_launch_options
+    config = tmp_path / "launch.yaml"
+    config.write_text("workflow: null\nbackend:\n  key_name: claude\n")
+    args = _parse_args(str(tmp_path), "DUT", "--config", str(config))
+    with pytest.raises(ValueError, match="requires.*--mcp-server-no-file-tools"):
+        prepare_launch(LaunchRequest(**parse_launch_options(args)))
 
 
 @pytest.mark.parametrize("mcp_option", ["--mcp-server", "--mcp-server-no-file-tools"])
@@ -166,7 +165,7 @@ def test_cli_starts_mcp_before_headless_backend_run(tmp_path, cli_runtime):
             "--mcp-server-port",
             "-1",
         ],
-    ), mock.patch("ucagent.verify_agent.VerifyAgent") as verify_agent:
+    ), mock.patch("ucagent.VerifyAgent") as verify_agent:
         agent = verify_agent.return_value
         agent.cfg.mcp_server.host = "127.0.0.1"
         lifecycle = []
@@ -179,7 +178,7 @@ def test_cli_starts_mcp_before_headless_backend_run(tmp_path, cli_runtime):
             lifecycle.append(("run", {}))
 
         cli_runtime.services.start_mcp.side_effect = start_mcp
-        cli_runtime.registry.execute.side_effect = lambda *args: run_agent()
+        cli_runtime.startup.start.side_effect = lambda *args, **kwargs: run_agent()
 
         run()
 
@@ -203,7 +202,7 @@ def test_cli_aborts_before_backend_run_when_mcp_start_fails(tmp_path, cli_runtim
             "opencode",
             "--mcp-server-no-file-tools",
         ],
-    ), mock.patch("ucagent.verify_agent.VerifyAgent") as verify_agent:
+    ), mock.patch("ucagent.VerifyAgent") as verify_agent:
         agent = verify_agent.return_value
         cli_runtime.services.start_mcp.return_value = {"ok": False, "message": "MCP server failed to start"}
 

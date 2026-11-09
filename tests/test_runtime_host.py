@@ -6,9 +6,9 @@ import time
 import pytest
 
 from test_runtime_stage_control import build_runtime
-from ucagent.control.commands import CommandSession
-from ucagent.control.controller import ControlError
-from ucagent.control.runtime.host import RuntimeHost
+from ucagent.runtime.control.commands import CommandSession
+from ucagent.runtime.control.controller import ControlError
+from ucagent.runtime.host import RuntimeHost
 from ucagent.util.functions import load_ucagent_info
 
 
@@ -17,6 +17,8 @@ def make_host(tmp_path, **kwargs):
     runtime = build_runtime(tmp_path)
     runtime.agent.cfg.set_value("master_api", {"sync_workspace": {"on_exit": True}})
     host = RuntimeHost(runtime.agent, controller=runtime.control, operations=runtime.owner, **kwargs)
+    from ucagent.application.launch import configure_services
+    configure_services(host.services)
     return host, runtime
 
 

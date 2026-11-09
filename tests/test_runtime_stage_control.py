@@ -9,11 +9,11 @@ from unittest.mock import Mock
 import pytest
 import yaml
 
-from ucagent.checkers.base import BatchTask, Checker
-from ucagent.control.commands import CommandSession, create_registry
-from ucagent.control.controller import Controller, ControlError
-from ucagent.control.runtime.operations import OperationExecutor
-from ucagent.stage.vmanager import StageManager, ToolDoCheck, ToolDoComplete
+from ucagent.core.checkers.base import BatchTask, Checker
+from ucagent.runtime.control.commands import CommandSession, create_registry
+from ucagent.runtime.control.controller import Controller, ControlError
+from ucagent.runtime.operations import OperationExecutor
+from ucagent.core.stage.vmanager import StageManager, ToolDoCheck, ToolDoComplete
 from ucagent.util.config import Config
 from ucagent.util.functions import load_ucagent_info
 

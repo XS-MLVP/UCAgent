@@ -206,10 +206,10 @@ checker:
 
 #### 2.2.1 基本结构
 
-所有自定义Checker都需要继承`ucagent.checkers.base.Checker`基类，并实现`do_check`方法：
+所有自定义Checker都需要继承`ucagent.core.checkers.base.Checker`基类，并实现`do_check`方法：
 
 ```python
-from ucagent.checkers.base import Checker
+from ucagent.core.checkers.base import Checker
 import os
 
 class MyCustomChecker(Checker):

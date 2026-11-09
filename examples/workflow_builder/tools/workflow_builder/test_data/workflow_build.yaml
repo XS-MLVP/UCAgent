@@ -189,7 +189,7 @@ workflow_spec:
         method: do_check
       source: |
         from pathlib import Path
-        from ucagent.checkers.base import Checker
+        from ucagent.core.checkers.base import Checker
 
 
         class PlannedArtifactChecker(Checker):

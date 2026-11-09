@@ -15,7 +15,7 @@ from unity_test.str_utils import list_str_abbr
 from unity_test.report_store import load_current_test_report
 from ucagent.util.log import info, warning
 from ..testops import RunUnityChipTest
-from ucagent.checkers.base import Checker, BatchTask
+from ucagent.core.checkers.base import Checker, BatchTask
 from .toffee_report import (
     check_line_coverage,
     check_report,

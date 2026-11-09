@@ -21,12 +21,12 @@ if loaded_ucagent is not None and not loaded_ucagent_path.startswith(repo_packag
         if module_name == "ucagent" or module_name.startswith("ucagent."):
             del sys.modules[module_name]
 
-import ucagent.checkers as checkers
+import ucagent.core.checkers as checkers
 from unity_test.checkers.recorder import Recorder, RecordType
 from unity_test.checkers.toffee_report import parse_bug_label
-from ucagent.plugins import create_plugin_checker_registry, load_plugin
-from ucagent.server.api_master import MasterApiServer, MasterClient
-from ucagent.stage.vmanager import StageManager
+from ucagent.core.plugins import create_plugin_checker_registry, load_plugin
+from ucagent.interfaces.server.api_master import MasterApiServer, MasterClient
+from ucagent.core.stage.vmanager import StageManager
 from ucagent.util.config import Config, load_yaml_with_env_vars
 from ucagent.util.markdown import markdown_heading_spacing_errors
 
@@ -1022,7 +1022,7 @@ def test_recorder_supports_exported_and_fully_qualified_custom_type_names(
 def test_recorder_resolves_for_stage_configuration():
     """Stage configs reference ``Recorder`` by short name; short-name
     resolution goes through the plugin checker registry (VerifyStage), not a
-    core ``ucagent.checkers`` export."""
+    core ``ucagent.core.checkers`` export."""
     loaded = load_plugin(os.path.join(repo_root, "ucagent", "plugins", "UnityTest"))
     registry = create_plugin_checker_registry([loaded])
     assert registry["Recorder"] is Recorder
@@ -1440,7 +1440,7 @@ def test_master_record_api_accepts_generic_payload_and_logs_summary(tmp_path):
         "source": {"stage_name": "summary"},
     }
 
-    with patch("ucagent.server.api_master.routes._master_log") as master_log:
+    with patch("ucagent.interfaces.server.api_master.routes._master_log") as master_log:
         response = client.post("/api/records", json=report)
 
     assert response.status_code == 200
@@ -1475,7 +1475,7 @@ def test_master_record_api_logs_launch_task_order(tmp_path):
         "source": {"stage_name": "plan-next"},
     }
 
-    with patch("ucagent.server.api_master.routes._master_log") as master_log:
+    with patch("ucagent.interfaces.server.api_master.routes._master_log") as master_log:
         response = client.post("/api/records", json=report)
 
     assert response.status_code == 200

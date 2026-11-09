@@ -19,15 +19,14 @@ from ucagent.util.config import Config, load_yaml_with_env_vars
 
 def test_runtime_waveform_guidance_does_not_require_backend_or_format_knowledge():
     """Guides and optional skills must teach public actions rather than waveform setup."""
-    language_root = Path(__file__).parents[4] / "ucagent/lang/zh"
+    locale = Path(__file__).parents[4] / "ucagent/core/locales/zh.yaml"
     plugin_root = Path(__file__).parents[1] / "src/unity_test"
-    sources = [language_root / "config/default.yaml"]
+    sources = [locale]
     # The framework layer keeps its generic prompt config; workflow-owned
     # guides, templates, and skills ship under the plugin's src package. The
     # workflow yaml itself is machine configuration (it legitimately names
     # format options) and is not LLM-facing guidance.
     for root, directories in (
-        (language_root, ("doc/Guide_Doc", "template", "skills")),
         (plugin_root, ("Guide_Doc", "templates", "skills")),
     ):
         for directory in directories:
@@ -86,7 +85,7 @@ def test_default_prompt_requires_waveinfo_for_dynamic_bugs():
     config = load_yaml_with_env_vars(str(config_path))
     system_prompt = config["mission"]["prompt"]["system"]
     framework_prompt = load_yaml_with_env_vars(
-        str(Path(__file__).parents[4] / "ucagent/lang/zh/config/default.yaml")
+        str(Path(__file__).parents[4] / "ucagent/core/locales/zh.yaml")
     )["mission"]["prompt"]["system"]
     parent_stage = next(
         stage

@@ -32,7 +32,7 @@ ucagent output/ Adder -s --human --tui --loop \
 
 Choose one of these launch methods. Running `ucagent` again creates another instance rather than attaching to the existing task. The source repository's `make test_Adder` uses `output/workspace_Adder/`; substitute the actual workspace path.
 
-An interactive launch with `--human` or `--tui` waits for input when neither `--loop` nor another startup task command is supplied. Do not apply this rule to HTTP/MCP service mode without a local interface: a non-`blank` backend defaults to submitting `continue` if startup did not submit model work. For manual MCP clients, use the interactive launch examples in [MCP Integration](../01_start/03_mcp_mode.md).
+Interactive and HTTP/MCP service launches wait for explicit work: use `--loop`, a model command in `--icmd`/`init_cmds`, or a runtime command such as `continue`. Without an interface or service, a normal task still runs automatically. Status queries and deterministic tool calls do not prepare the main model. `blank` rejects model execution; enabled embedding, model review, and failure suggestions still require their own configuration. A tool or Checker may independently require a model.
 
 ## 2. Commands, Arguments, and Long Operations
 

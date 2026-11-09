@@ -10,7 +10,7 @@ import shutil
 import subprocess
 import tempfile
 from typing import Any
-from ucagent.checkers.base import Checker
+from ucagent.core.checkers.base import Checker
 from ..contracts import (
     atomic_json,
     diagnostic,

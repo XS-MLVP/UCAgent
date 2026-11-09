@@ -7,8 +7,8 @@ import tempfile
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.abspath(os.path.join(current_dir, "..")))
 
-from ucagent.server import api_terminal
-from ucagent.server.api_terminal import WebTerminalServer, _get_web_console_exit_code
+from ucagent.interfaces.server import api_terminal
+from ucagent.interfaces.server.api_terminal import WebTerminalServer, _get_web_console_exit_code
 
 
 def test_web_console_process_capture_records_traceback_from_pty():
@@ -82,7 +82,7 @@ def test_cli_writes_exception_to_web_console_capture_arg():
     try:
         command = shlex.join([
             sys.executable,
-            os.path.abspath(os.path.join(current_dir, "..", "ucagent", "cli.py")),
+            os.path.abspath(os.path.join(current_dir, "..", "ucagent", "__main__.py")),
             "/tmp/no-workspace",
             "NoDut",
             "--no-use-skill",

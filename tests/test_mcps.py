@@ -14,8 +14,8 @@ from mcp.client.streamable_http import streamable_http_client
 from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import BaseModel, ConfigDict, Field
 
-from ucagent.server.api_mcp import McpServer
-from ucagent.tools.uctool import UCTool, to_mcp_tool
+from ucagent.interfaces.server.api_mcp import McpServer
+from ucagent.core.tools.uctool import UCTool, to_mcp_tool
 from ucagent.util.config import Config
 
 

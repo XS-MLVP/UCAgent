@@ -18,11 +18,11 @@ cmd_timeout: 1200
 backend:
   key_name: "langchain"  # options: blank, langchain, claude, opencode, copilot, etc.
   blank:
-    clss: ucagent.abackend.BlankBackend
+    clss: ucagent.core.backends.BlankBackend
   langchain:
-    clss: ucagent.abackend.langchain.UCAgentLangChainBackend
+    clss: ucagent.core.backends.langchain.UCAgentLangChainBackend
   claude:
-    clss: ucagent.abackend.UCAgentCmdLineBackend
+    clss: ucagent.core.backends.UCAgentCmdLineBackend
     args:
       cli_cmd_new: "claude {UC_ENV_CMD_BACKEND_EX_ARGS} {UC_ENV_CMD_BACKEND_EX_ARGS_N} --dangerously-skip-permissions -p < {MSG_FILE}"
       cli_cmd_ctx: "claude {UC_ENV_CMD_BACKEND_EX_ARGS} {UC_ENV_CMD_BACKEND_EX_ARGS_C} --dangerously-skip-permissions -c -p < {MSG_FILE}"
@@ -31,7 +31,7 @@ backend:
       cfg_bash_enable: false
 
   opencode:
-    clss: ucagent.abackend.UCAgentCmdLineBackend
+    clss: ucagent.core.backends.UCAgentCmdLineBackend
     args:
       cli_cmd_new: "opencode run {UC_ENV_CMD_BACKEND_EX_ARGS} {UC_ENV_CMD_BACKEND_EX_ARGS_N} < {MSG_FILE}"
       cli_cmd_ctx: "opencode run {UC_ENV_CMD_BACKEND_EX_ARGS} {UC_ENV_CMD_BACKEND_EX_ARGS_C} -c < {MSG_FILE}"
@@ -40,7 +40,7 @@ backend:
       cfg_bash_enable: false
 
   copilot:
-    clss: ucagent.abackend.UCAgentCmdLineBackend
+    clss: ucagent.core.backends.UCAgentCmdLineBackend
     args:
       cli_cmd_new: "copilot {UC_ENV_CMD_BACKEND_EX_ARGS} {UC_ENV_CMD_BACKEND_EX_ARGS_N} --allow-all-tools < {MSG_FILE}"
       cli_cmd_ctx: "copilot {UC_ENV_CMD_BACKEND_EX_ARGS} {UC_ENV_CMD_BACKEND_EX_ARGS_C} --allow-all-tools --continue < {MSG_FILE}"
@@ -51,7 +51,7 @@ backend:
       cfg_bash_enable: false
 
   qwen:
-    clss: ucagent.abackend.UCAgentCmdLineBackend
+    clss: ucagent.core.backends.UCAgentCmdLineBackend
     args:
       cli_cmd_new: "qwen {UC_ENV_CMD_BACKEND_EX_ARGS} {UC_ENV_CMD_BACKEND_EX_ARGS_N} -y -p < {MSG_FILE}"
       cli_cmd_ctx: "qwen {UC_ENV_CMD_BACKEND_EX_ARGS} {UC_ENV_CMD_BACKEND_EX_ARGS_C} -y -c -p < {MSG_FILE}"
@@ -62,7 +62,7 @@ backend:
       cfg_bash_enable: false
 
   iflow:
-    clss: ucagent.abackend.UCAgentCmdLineBackend
+    clss: ucagent.core.backends.UCAgentCmdLineBackend
     args:
       cli_cmd_new: "iflow {UC_ENV_CMD_BACKEND_EX_ARGS} {UC_ENV_CMD_BACKEND_EX_ARGS_N} -y < {MSG_FILE}"
       cli_cmd_ctx: "iflow {UC_ENV_CMD_BACKEND_EX_ARGS} {UC_ENV_CMD_BACKEND_EX_ARGS_C} -y < {MSG_FILE}"
@@ -73,7 +73,7 @@ backend:
       cfg_bash_enable: false
 
   kilo:
-    clss: ucagent.abackend.UCAgentCmdLineBackend
+    clss: ucagent.core.backends.UCAgentCmdLineBackend
     args:
       cli_cmd_new: "kilo run {UC_ENV_CMD_BACKEND_EX_ARGS} {UC_ENV_CMD_BACKEND_EX_ARGS_N} < {MSG_FILE}"
       cli_cmd_ctx: "kilo run {UC_ENV_CMD_BACKEND_EX_ARGS} {UC_ENV_CMD_BACKEND_EX_ARGS_C} -c < {MSG_FILE}"
@@ -84,7 +84,7 @@ backend:
       cfg_bash_enable: false
 
   codex:
-    clss: ucagent.abackend.UCAgentCmdLineBackend
+    clss: ucagent.core.backends.UCAgentCmdLineBackend
     args:
       cli_cmd_new: "codex exec {UC_ENV_CMD_BACKEND_EX_ARGS} {UC_ENV_CMD_BACKEND_EX_ARGS_N} --yolo < {MSG_FILE}"
       cli_cmd_ctx: "codex exec {UC_ENV_CMD_BACKEND_EX_ARGS} {UC_ENV_CMD_BACKEND_EX_ARGS_C} resume --last --yolo < {MSG_FILE}"
@@ -426,7 +426,7 @@ vmanager:
   llm_suggestion:
     check_fail_refinement:
       enable: $(ENABLE_LLM_FAIL_SUGGESTION: false)
-      clss: ucagent.stage.llm_suggestion.OpenAILLMFailSuggestion
+      clss: ucagent.core.stage.llm_suggestion.OpenAILLMFailSuggestion
       args:
         model_name: $(FAIL_SUGGESTION_MODEL: <your_chat_model_name>)
         openai_api_key: $(FAIL_SUGGESTION_API_KEY: <your_api_key>)
@@ -457,7 +457,7 @@ vmanager:
       default_apply_all_stages: true
     check_pass_refinement:
       enable: $(ENABLE_LLM_PASS_SUGGESTION: false)
-      clss: ucagent.stage.llm_suggestion.OpenAILLMPassSuggestion
+      clss: ucagent.core.stage.llm_suggestion.OpenAILLMPassSuggestion
       args:
         model_name: $(PASS_SUGGESTION_MODEL: <your_chat_model_name>)
         openai_api_key: $(PASS_SUGGESTION_API_KEY: <your_api_key>)

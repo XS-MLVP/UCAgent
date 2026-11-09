@@ -6,7 +6,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from ucagent.plugins import (
+from ucagent.core.plugins import (
     create_plugin_checker_registry,
     load_plugin,
     resolve_plugin_workflow,
@@ -68,7 +68,7 @@ def test_formal_checker_short_names_resolve_in_plugin_registry():
 def test_formal_workflow_references_plugin_names_not_core_paths():
     """The migrated workflow uses registry short names and ext/formal skill ids."""
     text = WORKFLOW_CONFIG.read_text(encoding="utf-8")
-    assert "ucagent.checkers.formal" not in text
+    assert "ucagent.core.checkers.formal" not in text
     assert "ucagent.lang.zh.skills" not in text
     assert '"formal/' not in text
     assert "ext/formal/" in text

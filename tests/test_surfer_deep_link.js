@@ -1,7 +1,7 @@
 "use strict";
 const assert = require("node:assert/strict");
-const api = require("../ucagent/server/static/surfer/deep-link.js");
-const marked = require("../ucagent/server/static/marked.min.js");
+const api = require("../ucagent/interfaces/server/static/surfer/deep-link.js");
+const marked = require("../ucagent/interfaces/server/static/marked.min.js");
 const payload = {schema_version:1, waveform_file:"波形 a.fst", signals:["TOP.dut.clk"],
   source_files:["../rtl/Demo.sv"], dut_python_path:null, test_case:"tests/test_demo.py::test_x[a]",
   start:"10", end:"184467440737095516170", cursor:"9007199254740993"};

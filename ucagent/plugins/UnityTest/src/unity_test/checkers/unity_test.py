@@ -26,7 +26,7 @@ import traceback
 import copy
 import ast
 
-from ucagent.checkers.base import Checker, BatchTask, format_stage_args_examples
+from ucagent.core.checkers.base import Checker, BatchTask, format_stage_args_examples
 from .toffee_report import (
     check_line_coverage,
     check_report,

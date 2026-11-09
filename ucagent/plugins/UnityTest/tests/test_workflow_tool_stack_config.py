@@ -10,8 +10,8 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from unity_test.checkers import UnityChipCheckerTestFree
-from ucagent.stage.vmanager import StageManager
-from ucagent.plugins import PluginContext
+from ucagent.core.stage.vmanager import StageManager
+from ucagent.core.plugins import PluginContext
 from ucagent.util.config import Config
 from unity_test.test_runner import (
     RunTestCasesManagerTool,

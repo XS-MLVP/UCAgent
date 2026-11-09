@@ -26,7 +26,7 @@ from design_with_ppa.repo.common import run_command
 from design_with_ppa.repo.snapshot import snapshot_repository
 from design_with_ppa.repo.tools import RunRepoValidation, RunRepoValidationArgs
 from design_with_ppa.repo.validation import reference_check, validate_unit, validated_records
-from ucagent.plugins import PluginContext
+from ucagent.core.plugins import PluginContext
 
 
 def git(root: Path, *args: str) -> str:
@@ -618,7 +618,7 @@ def test_source_receipt_forgery_is_rejected(repo_case):
 def test_repo_workflow_configuration_and_stage_lifecycle(repo_case, monkeypatch, skills_enabled):
     """Resolve new YAML, instantiate every stage gate, and require no optional skill files."""
 
-    from ucagent.stage.vstage import VerifyStage
+    from ucagent.core.stage.vstage import VerifyStage
     from ucagent.util.config import build_runtime_config
     from design_with_ppa.checkers import (DesignFunctionalContractChecker,
                                           DesignLabelStructureChecker,
@@ -664,7 +664,7 @@ def test_repo_workflow_configuration_and_stage_lifecycle(repo_case, monkeypatch,
 def test_repo_tool_mcp_and_local_failures(repo_case):
     """The workflow-local tool converts to MCP and diagnoses real local invocation failures."""
 
-    from ucagent.tools.uctool import to_mcp_tool
+    from ucagent.core.tools.uctool import to_mcp_tool
 
     tool = RunRepoValidation(workspace=str(repo_case.workspace), cfg=repo_case.cfg)
     schema = to_mcp_tool(tool).parameters

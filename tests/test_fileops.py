@@ -21,9 +21,10 @@ from pydantic import ValidationError
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.abspath(os.path.join(current_dir, "..")))
 
-from ucagent.tools.fileops import *
-from ucagent.tools import DeleteTextLines as ExportedDeleteTextLines
-from ucagent.tools.uctool import to_mcp_tool
+from ucagent.core.tools.fileops import *
+from ucagent.util.file_policy import is_file_writeable, write_entry_matches_anything, wildcard_entry_overlaps
+from ucagent.core.tools import DeleteTextLines as ExportedDeleteTextLines
+from ucagent.core.tools.uctool import to_mcp_tool
 
 
 class TestFileOpsTools(unittest.TestCase):
@@ -409,7 +410,7 @@ class TestFileOpsTools(unittest.TestCase):
         self.assertIn("Regular expression timed out", result)
 
     def test_search_text_reports_missing_regex_dependency(self):
-        with patch("ucagent.tools.fileops.regex_lib", None):
+        with patch("ucagent.core.tools.fileops.regex_lib", None):
             result = SearchText(workspace=self.workspace)._run(
                 pattern="Line.*",
                 directory="simple.txt",

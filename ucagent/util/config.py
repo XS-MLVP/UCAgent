@@ -949,7 +949,7 @@ def _merge_config_file(cfg, config_file, loaded_configs, loading_stack=None, app
 def resolve_workflow_pointer_path(workflow_selector, lang):
     """Resolve the 'workflow' pointer selector to an absolute config path.
 
-    Relative selectors resolve against the lang config dir first, then the
+    Relative selectors resolve against core/locales first, then the
     repository root, so the pointer can name workflow configs owned by
     in-repo plugin projects (plugins/<name>/config/...). A
     "<importable-module>:<relative-path>" selector resolves inside an
@@ -970,7 +970,7 @@ def resolve_workflow_pointer_path(workflow_selector, lang):
             return os.path.abspath(os.path.join(base, module_match.group(2)))
     config_dir = os.path.dirname(os.path.abspath(__file__))
     lang_dir_candidate = os.path.abspath(
-        os.path.join(config_dir, "../lang", lang, "config", workflow_selector)
+        os.path.join(config_dir, "../core/locales", workflow_selector)
     )
     if os.path.isfile(lang_dir_candidate):
         return lang_dir_candidate
@@ -981,14 +981,14 @@ def resolve_workflow_pointer_path(workflow_selector, lang):
 
 def _find_user_config_file(config_file, user_home, lang):
     """Resolve the explicit --config file (default: config.yaml) against the
-    standard search paths: cwd, ~/.ucagent/, the lang config dir, repo root.
+    standard search paths: cwd, ~/.ucagent/, application presets for the selected language, repo root.
     """
     target_file = config_file
     if config_file is None:
         target_file = 'config.yaml'  # Default configuration file
     return find_file_in_paths(target_file, [os.getcwd(),
                                              os.path.join(user_home, '.ucagent/'),
-                                             os.path.join(os.path.dirname(__file__), f"../lang/{lang}/config/"),
+                                             os.path.join(os.path.dirname(__file__), f"../application/presets/{lang}/"),
                                              os.path.join(os.path.dirname(__file__), "../..")
                                              ])
 
@@ -1007,7 +1007,7 @@ def get_config(
     :param workflow_config_file: Optional plugin workflow baseline config.
     :return: Configuration dictionary.
 
-    Load order: setting.yaml layers -> lang default.yaml (framework prompts) ->
+    Load order: setting.yaml layers -> core/locales/<lang>.yaml (framework prompts) ->
     the task workflow baseline (an explicitly selected plugin workflow, or the
     default workflow the launcher resolved from the 'workflow' selector),
     whose mission system/tips prompts append to the framework layer ->
@@ -1041,7 +1041,7 @@ def get_config(
 
     # 3. load lang config
     lang = cfg.get_value('lang', 'zh')
-    lang_config_file = os.path.abspath(os.path.join(os.path.dirname(__file__), f"../lang/{lang}/config/default.yaml"))
+    lang_config_file = os.path.abspath(os.path.join(os.path.dirname(__file__), f"../core/locales/{lang}.yaml"))
     info(f"Load config from '{lang_config_file}'")
     assert os.path.isfile(lang_config_file), f"Language configuration file '{lang_config_file}' not found."
     _merge_config_file(cfg, lang_config_file, loaded_configs)
@@ -1114,3 +1114,26 @@ def resolve_default_task_workflow(config_file=None, cfg_override=None,
     if not isinstance(selector, str) or not selector.strip():
         return None
     return resolve_workflow_pointer_path(selector.strip(), lang)
+
+
+def discovery_overrides(
+    overrides: object,
+) -> list[dict]:
+    """Return only overrides needed before a plugin workflow is selected."""
+
+    if overrides is None:
+        return []
+    values = overrides if isinstance(overrides, list) else [overrides]
+    return [
+        {key: value}
+        for item in values
+        for key, value in item.items()
+        if (
+            key == "plugin.search_paths"
+            or key.startswith("plugin.search_paths[")
+            # the default-workflow pointer is selection data too: without it
+            # here, --override workflow=... could not redirect or null the
+            # default task workflow
+            or key == "workflow"
+        )
+    ]

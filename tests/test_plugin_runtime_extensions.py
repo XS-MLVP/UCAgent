@@ -13,7 +13,7 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
-from ucagent.plugins import (
+from ucagent.core.plugins import (
     LoadedPlugin,
     Plugin,
     PluginError,
@@ -21,7 +21,7 @@ from ucagent.plugins import (
     create_plugin_runtime_hooks,
     plugin_summary,
 )
-from ucagent.stage.vmanager import ManagerTool
+from ucagent.core.stage.vmanager import ManagerTool
 from ucagent.util.config import (
     Config,
     build_runtime_config,

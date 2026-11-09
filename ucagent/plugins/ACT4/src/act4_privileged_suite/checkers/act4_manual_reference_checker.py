@@ -12,7 +12,7 @@ from typing import Any
 import yaml
 
 
-from ucagent.checkers.base import Checker
+from ucagent.core.checkers.base import Checker
 
 
 def _finding(

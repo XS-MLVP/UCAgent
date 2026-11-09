@@ -14,8 +14,8 @@ from act4_privileged_suite.checkers.act4_review_checker import ACT4ReviewChecker
 from act4_privileged_suite.checkers import act4_review_checker
 from act4_privileged_suite.checkers.act4_asset_checker import ACT4AssetChecker
 from act4_privileged_suite.plugin import get_plugin
-from ucagent.plugins import LoadedPlugin, create_plugin_checker_registry, load_plugin
-from ucagent.verify_agent import VerifyAgent
+from ucagent.core.plugins import LoadedPlugin, create_plugin_checker_registry, load_plugin
+from ucagent import VerifyAgent
 
 
 class ReviewHarness:
@@ -706,7 +706,7 @@ def test_review_workflow_initializes_without_skill_dependency(tmp_path: Path, mo
         assert agent.cfg.write_dirs == ["reports"]
         assert agent.cfg.un_write_dirs == ["Guide_Doc"]
         assert (tmp_path / "Guide_Doc/ACT4_Extension_Review_Guide.md").is_file()
-        from ucagent.tools.fileops import is_file_writeable
+        from ucagent.util.file_policy import is_file_writeable
         assert not is_file_writeable("riscv-arch-test/generators/H.py", agent.cfg.un_write_dirs, agent.cfg.write_dirs)[0]
     finally:
         agent.exit()

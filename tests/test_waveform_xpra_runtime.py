@@ -28,8 +28,8 @@ import psutil
 import pytest
 import requests
 
-from ucagent.server.api_cmd import ControlApiServer
-from ucagent.control.controller import Controller
+from ucagent.interfaces.server.api_cmd import ControlApiServer
+from ucagent.runtime.control.controller import Controller
 from ucagent.util.config import Config
 from ucagent.util import waveform_viewer
 

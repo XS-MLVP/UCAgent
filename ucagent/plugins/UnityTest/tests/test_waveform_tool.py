@@ -25,7 +25,7 @@ from unity_test.waveform import (
 )
 from unity_test import waveform as waveform_module
 from unity_test.waveform_formats import registry as waveform_registry
-from ucagent.tools.uctool import to_mcp_tool
+from ucagent.core.tools.uctool import to_mcp_tool
 from unity_test.bug_analysis_contract import (
     BUG_HEADING_COMPANIONS,
     BUG_TODO_MARKER,

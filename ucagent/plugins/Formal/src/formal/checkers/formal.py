@@ -40,7 +40,7 @@ import os
 import re
 import time
 
-from ucagent.checkers.base import Checker
+from ucagent.core.checkers.base import Checker
 from ucagent.util.log import info, warning
 
 

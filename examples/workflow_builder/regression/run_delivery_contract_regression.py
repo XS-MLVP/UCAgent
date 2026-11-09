@@ -829,7 +829,7 @@ def main() -> None:
             return {"ok": False, "errors": ["source_path is required"]}
         return {"ok": True, "data": {"source_path": source_path}}
 """
-        analyze_checker_source = """from ucagent.checkers.base import Checker
+        analyze_checker_source = """from ucagent.core.checkers.base import Checker
 
 
 class AnalyzeChecker(Checker):

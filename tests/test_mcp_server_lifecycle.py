@@ -1,5 +1,6 @@
 """Regression tests for readiness-aware MCP server lifecycle management."""
 
+from ucagent.application.launch import configure_services
 import asyncio
 from contextlib import asynccontextmanager
 import logging
@@ -21,9 +22,9 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from ucagent.server.api_mcp import McpServer
+from ucagent.interfaces.server.api_mcp import McpServer
 from ucagent.util.config import Config
-from ucagent.control.controller import Controller
+from ucagent.runtime.control.controller import Controller
 
 
 def _available_port() -> int:
@@ -255,7 +256,7 @@ def test_lifecycle_rejects_invalid_timeouts(timeout):
 
 def test_startup_timeout_preserves_live_thread_until_it_exits(monkeypatch):
     """A startup timeout cannot orphan its thread or allow a competing restart."""
-    from ucagent.util import functions
+    from ucagent.interfaces.server import mcp_http
 
     release = threading.Event()
     native = SimpleNamespace(started=False, should_exit=False)
@@ -268,8 +269,8 @@ def test_startup_timeout_preserves_live_thread_until_it_exits(monkeypatch):
         """Remain alive through startup cleanup until explicitly released."""
         release.wait(timeout=3)
 
-    monkeypatch.setattr(functions, 'create_verify_mcps', create)
-    monkeypatch.setattr(functions, 'start_verify_mcps', serve)
+    monkeypatch.setattr(mcp_http, 'create_verify_mcps', create)
+    monkeypatch.setattr(mcp_http, 'start_verify_mcps', serve)
     server = McpServer(**_mcp_options(), port=_available_port())
     try:
         ok, message = server.start(timeout=0.01)
@@ -290,8 +291,8 @@ def test_startup_timeout_preserves_live_thread_until_it_exits(monkeypatch):
 
 def test_services_retain_wrapper_when_failed_start_is_still_stopping(monkeypatch, tmp_path):
     """The current frontend delegates ownership of a pending wrapper to ServiceManager."""
-    from ucagent.server import api_mcp
-    from ucagent.control.runtime.services import ServiceManager
+    from ucagent.interfaces.server import api_mcp
+    from ucagent.runtime.services import ServiceManager
 
     pending = SimpleNamespace(
         is_running=True, is_ready=False, is_stopping=True, host="127.0.0.1", port=5000,
@@ -302,6 +303,7 @@ def test_services_retain_wrapper_when_failed_start_is_still_stopping(monkeypatch
     agent = SimpleNamespace(workspace=str(tmp_path), cfg=Config({}), tool_list_base=[],
                             tool_list_task=[], tool_list_ext=[], tool_list_file=[])
     services = ServiceManager(agent)
+    configure_services(services)
     result = services.start_mcp(host="127.0.0.1", port=5000)
     assert not result["ok"] and result["message"] == "shutdown pending"
     assert services.get("mcp") is pending
@@ -314,7 +316,7 @@ def test_services_retain_wrapper_when_failed_start_is_still_stopping(monkeypatch
 @pytest.mark.parametrize('response_state', ['pending', 'streaming', 'complete'])
 def test_get_drain_completes_response_once_and_rejects_new_requests(response_state):
     """A shutdown race must leave valid HTTP framing and reject subsequent work."""
-    from ucagent.server.mcp_http import _DrainableMcpApp
+    from ucagent.interfaces.server.mcp_http import _DrainableMcpApp
 
     async def exercise():
         """Drain before headers, during a stream, or after the body has ended."""
@@ -359,7 +361,7 @@ def test_get_drain_completes_response_once_and_rejects_new_requests(response_sta
 @pytest.mark.parametrize('failure', ['cancel', 'error'])
 def test_get_stream_preserves_external_failures(failure):
     """Draining support must never suppress real app errors or external cancellation."""
-    from ucagent.server.mcp_http import _DrainableMcpApp
+    from ucagent.interfaces.server.mcp_http import _DrainableMcpApp
 
     async def exercise():
         """Interrupt a live GET without requesting the server's own drain."""
@@ -396,8 +398,8 @@ def test_get_stream_preserves_external_failures(failure):
 @pytest.mark.parametrize('kind', ['cmd', 'master'])
 def test_embedded_api_start_preserves_shared_uvicorn_logging(tmp_path, kind, short_socket_dir):
     """Starting either API listener leaves existing MCP loggers and handlers intact."""
-    from ucagent.server.api_cmd import ControlApiServer
-    from ucagent.server.api_master import MasterApiServer
+    from ucagent.interfaces.server.api_cmd import ControlApiServer
+    from ucagent.interfaces.server.api_master import MasterApiServer
 
     # Importing the SDK may initialize its own logging, so snapshot after imports.
     loggers = [logging.getLogger(name) for name in ('uvicorn', 'uvicorn.error', 'uvicorn.access', 'uvicorn.asgi')]

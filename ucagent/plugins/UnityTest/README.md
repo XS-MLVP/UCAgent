@@ -16,7 +16,7 @@ python3 -m pip install dist/ucagent_unitytest-0.1.0-py3-none-any.whl
 ucagent --validate-plugin unitytest
 ```
 
-源码树内无需安装：默认启动会通过 `ucagent/lang/zh/config/default.yaml` 的 `workflow` 指针自动激活本插件。
+源码树内无需安装：默认启动会通过 `ucagent/core/locales/zh.yaml` 的 `workflow` 指针自动激活本插件。
 
 ## 选用方式
 
@@ -35,4 +35,4 @@ pip 安装（无源码树）时，把 `~/.ucagent/setting.yaml`（或 lang 层 `
 workflow: "unity_test:workflows/unitytest.yaml"
 ```
 
-框架按 `<可导入模块>:<包内相对路径>` 解析该指针，并在已安装的 `ucagent.plugins` 入口点中定位归属插件。
+框架按 `<可导入模块>:<包内相对路径>` 解析该指针，并在已安装的 `ucagent.core.plugins` 入口点中定位归属插件。

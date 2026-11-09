@@ -112,7 +112,7 @@ workflow_spec:
         method: do_check
       source: |
         from pathlib import Path
-        from ucagent.checkers.base import Checker
+        from ucagent.core.checkers.base import Checker
 
         class ResultChecker(Checker):
             """Validate a generated result."""
@@ -143,7 +143,7 @@ workflow_spec:
 ```
 
 `source` 是受信任的完整 Python 源码，不限于少数声明式规则。入口类必须继承
-`ucagent.checkers.base.Checker`，`entry.method` 固定为 `do_check`，而且
+`ucagent.core.checkers.base.Checker`，`entry.method` 固定为 `do_check`，而且
 `do_check` 函数体第一条语句必须是非空 docstring；类 docstring 或 description
 不能替代方法 docstring。每个 Checker 必须显式声明 fixture，路径只能位于
 `.workflow/checker_tests/cases/<CheckerName>/`，tests 至少有一个

@@ -4,7 +4,7 @@
 import copy
 from typing import Callable
 
-from ucagent.checkers.base import Checker
+from ucagent.core.checkers.base import Checker
 from .toffee_report import check_all_documented_waveform_bug_analysis
 
 

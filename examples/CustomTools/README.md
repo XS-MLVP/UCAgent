@@ -7,7 +7,7 @@
 #### 开发要求
 
 创建工具类时需要：
-- 继承 `ucagent.tools.uctool.UCTool`，以获得统一的初始化和参数校验逻辑
+- 继承 `ucagent.core.tools.uctool.UCTool`，以获得统一的初始化和参数校验逻辑
 - 实现 `_run` 方法，在其中编写具体行为；方法应返回字符串或约定的数据结构
 - 可选地参考 LangChain 的 [BaseTool 文档](https://langchain-doc.readthedocs.io/en/latest/modules/agents/examples/custom_tools.html#subclassing-the-basetool-class) 获取更丰富的设计范式
 
@@ -17,7 +17,7 @@
 #coding=utf-8
 """Custom tools for UCAgent."""
 
-from ucagent.tools.uctool import UCTool
+from ucagent.core.tools.uctool import UCTool
 
 
 class MyCustomTool(UCTool):

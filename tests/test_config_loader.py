@@ -10,7 +10,7 @@ from unittest import mock
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.abspath(os.path.join(current_dir, "..")))
 
-from ucagent.cli import get_args, get_override_dict
+from ucagent.interfaces.cli.arguments import get_args, get_override_dict
 from ucagent.util.config import (
     Config,
     load_yaml_with_env_vars,
@@ -70,7 +70,7 @@ class TestConfigLoader(unittest.TestCase):
         values = {"DUT": "Adder", "OUT": "out", "GUIDE_DOC": "Guide_Doc"}
         un_write_dirs = [entry.format(**values) for entry in framework_config["un_write_dirs"]]
         write_dirs = [entry.format(**values) for entry in simulator_write_dirs]
-        from ucagent.tools.fileops import is_file_writeable
+        from ucagent.util.file_policy import is_file_writeable
 
         allowed = [
             "Adder/simv.vdb",
@@ -212,7 +212,7 @@ class TestConfigLoader(unittest.TestCase):
 
     def test_default_prompt_requires_stage_local_reference_file_reads(self):
         config_path = os.path.join(
-            current_dir, "..", "ucagent", "lang", "zh", "config", "default.yaml"
+            current_dir, "..", "ucagent", "core", "locales", "zh.yaml"
         )
 
         config = load_yaml_with_env_vars(config_path)
@@ -227,7 +227,7 @@ class TestConfigLoader(unittest.TestCase):
         """Framework prompts stay domain-neutral; workflows teach their own marks."""
 
         default_path = os.path.join(
-            current_dir, "..", "ucagent", "lang", "zh", "config", "default.yaml"
+            current_dir, "..", "ucagent", "core", "locales", "zh.yaml"
         )
         system_prompt = load_yaml_with_env_vars(default_path)["mission"]["prompt"][
             "system"

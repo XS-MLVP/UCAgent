@@ -7,7 +7,7 @@ from collections import OrderedDict
 from typing import Tuple
 
 import ucagent.util.functions as fc
-from ucagent.checkers.base import BatchTask, format_stage_args_examples
+from ucagent.core.checkers.base import BatchTask, format_stage_args_examples
 from .unity_test import (
     BaseUnityChipCheckerTestCase,
     _iter_test_function_defs,

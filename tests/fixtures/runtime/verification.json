@@ -76,10 +76,10 @@
     "date": "2026-11-06",
     "scope": "Move the existing controller, command registry, Console and runtime package under ucagent/control; update imports and path references without changing behavior.",
     "module_moves": {
-      "controller": "ucagent/control/controller.py",
-      "commands": "ucagent/control/commands.py",
-      "console": "ucagent/control/console.py",
-      "runtime": "ucagent/control/runtime/"
+      "controller": "ucagent/runtime/control/controller.py",
+      "commands": "ucagent/runtime/control/commands.py",
+      "console": "ucagent/interfaces/terminal/console.py",
+      "runtime": "ucagent/runtime/"
     },
     "pytest_executed": false,
     "test_runner": "user",

@@ -11,9 +11,9 @@ from types import SimpleNamespace
 from fastapi.testclient import TestClient
 import pytest
 
-from ucagent.server.api_cmd import ControlApiServer
-from ucagent.server.api_cmd.xpra import XpraError
-from ucagent.control.controller import Controller
+from ucagent.interfaces.server.api_cmd import ControlApiServer
+from ucagent.interfaces.server.api_cmd.xpra import XpraError
+from ucagent.runtime.control.controller import Controller
 from ucagent.util.config import Config
 from ucagent.util.waveform_viewer import build_waveform_metadata, load_waveform_metadata, write_waveform_metadata
 
@@ -138,7 +138,7 @@ def test_absolute_and_nested_package_scripts(tmp_path, service, monkeypatch):
     nested = package / 'scripts/nested/launch.py'
     nested.parent.mkdir(parents=True)
     nested.write_text('pass')
-    monkeypatch.setattr('ucagent.server.api_cmd.waveform_routes.inspect.getfile', lambda obj: str(package/'__init__.py'))
+    monkeypatch.setattr('ucagent.interfaces.server.api_cmd.waveform_routes.inspect.getfile', lambda obj: str(package/'__init__.py'))
     viewer.script = 'nested/launch.py'
     assert client.post('/api/xpra/sessions', json={'wave_meta':meta}).status_code == 201
     assert shlex.split(server._xpra.created[-1]['command'])[1] == str(nested.resolve())
@@ -253,7 +253,7 @@ def test_viewer_config_environment_and_template_resolution(monkeypatch, enabled)
     viewer = cfg.cmd_api.waveform_viewers.fsdb
     assert viewer.args == ['--meta','{wave_meta}','--verdi','verdi']
     assert viewer.script == 'verdi/launch_verdi.py' and viewer.idle_timeout == -1
-    localized = load_yaml_with_env_vars(str(root/'ucagent/lang/zh/config/default.yaml'))
+    localized = load_yaml_with_env_vars(str(root/'ucagent/core/locales/zh.yaml'))
     # The framework layer carries only generic guidance: domain prompt rules
     # such as the waveform source_files contract append from the selected
     # workflow instead of living in the localized default config.

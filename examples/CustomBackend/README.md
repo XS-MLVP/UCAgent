@@ -9,9 +9,9 @@ UCAgent 内置了 `langchain` 后端用于与 LLM 进行交互（需配置 OPENA
 backend:
   key_name: "langchain"  # 可选值: langchain, claude, opencode 等
   langchain:
-    clss: ucagent.abackend.langchain.UCAgentLangChainBackend
+    clss: ucagent.core.backends.langchain.UCAgentLangChainBackend
   claude:
-    clss: ucagent.abackend.UCAgentCmdLineBackend
+    clss: ucagent.core.backends.UCAgentCmdLineBackend
     args:
       cli_cmd_new: "claude {UC_ENV_CMD_BACKEND_EX_ARGS} --dangerously-skip-permissions -p < {MSG_FILE}"
       cli_cmd_ctx: "claude {UC_ENV_CMD_BACKEND_EX_ARGS} --dangerously-skip-permissions -c -p < {MSG_FILE}"
@@ -20,7 +20,7 @@ backend:
         - "cp ~/.claude/.mcp.json {CWD}/.mcp.json" # 确保已使用 claude mcp add --scope project ... 添加server，并备份到了 ~/.claude/.mcp.json
         - "sed -i \"s/5000\/mcp/{PORT}\/mcp/\" {CWD}/.mcp.json" # 动态修改mcp端口(5000)为配置的端口
   opencode:
-    clss: ucagent.abackend.UCAgentCmdLineBackend
+    clss: ucagent.core.backends.UCAgentCmdLineBackend
     args:
       cli_cmd_new: "opencode run {UC_ENV_CMD_BACKEND_EX_ARGS} < {MSG_FILE}"
       cli_cmd_ctx: "opencode run {UC_ENV_CMD_BACKEND_EX_ARGS} -c < {MSG_FILE}"
@@ -44,7 +44,7 @@ backend:
 
 #### 方式一：继承基类（推荐用于深度定制）
 
-1. 创建一个新的 Python 类，继承自 `ucagent.abackend.base.AgentBackendBase`。
+1. 创建一个新的 Python 类，继承自 `ucagent.core.backends.base.AgentBackendBase`。
 2. 实现基类中定义的所有抽象方法。
 3. 在 `custom.yaml` 中注册该后端类（配置格式参考 `langchain`）。
 
@@ -60,7 +60,7 @@ backend:
 backend:
   key_name: "claude"
   claude:
-    clss: ucagent.abackend.UCAgentCmdLineBackend
+    clss: ucagent.core.backends.UCAgentCmdLineBackend
     args:
       # 首次启动会话时执行的命令（可选）
       # {MSG_FILE} 会被自动替换为包含当前提示词的临时文件路径

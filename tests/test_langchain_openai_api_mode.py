@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from langchain_openai import ChatOpenAI
 
-from ucagent.abackend.langchain.agent import UCAgentLangChainBackend
+from ucagent.core.backends.langchain.agent import UCAgentLangChainBackend
 from ucagent.util.config import Config, load_yaml_with_env_vars
 from ucagent.util.models import get_chat_model_openai, negotiate_openai_api_mode
 

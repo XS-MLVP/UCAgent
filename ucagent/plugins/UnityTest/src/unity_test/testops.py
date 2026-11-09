@@ -11,7 +11,7 @@ publishes the current test report snapshot consumed by the stage checkers.
 from langchain_core.callbacks import (
     CallbackManagerForToolRun,
 )
-from ucagent.tools.uctool import UCTool
+from ucagent.core.tools.uctool import UCTool
 from langchain_core.tools.base import ArgsSchema
 from pydantic import BaseModel, Field
 

@@ -6,7 +6,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from ucagent.plugins import (
+from ucagent.core.plugins import (
     create_plugin_checker_registry,
     create_plugin_manager_tools_registry,
     create_plugin_runtime_hooks,
@@ -272,7 +272,7 @@ def test_pointer_plugin_falls_back_to_installed_entry_points(monkeypatch):
     """Without a local manifest, the installed entry-point owner is activated once."""
     from importlib.metadata import EntryPoint
 
-    import ucagent.plugins as plugins_module
+    import ucagent.core.plugins as plugins_module
 
     monkeypatch.setattr(plugins_module, "find_owning_plugin_project", lambda _f: None)
     monkeypatch.setattr(
@@ -306,7 +306,7 @@ def test_pointer_plugin_falls_back_to_installed_entry_points(monkeypatch):
 
 def test_pointer_plugin_returns_none_without_any_owner(monkeypatch):
     """A pointer file owned by neither a local project nor an install is inert."""
-    import ucagent.plugins as plugins_module
+    import ucagent.core.plugins as plugins_module
 
     monkeypatch.setattr(plugins_module, "find_owning_plugin_project", lambda _f: None)
     monkeypatch.setattr(plugins_module, "_entry_points", lambda: [])

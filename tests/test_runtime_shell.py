@@ -11,10 +11,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from ucagent.abackend.cmdline import UCAgentCmdLineBackend
-from ucagent.control.commands import CommandSession
-from ucagent.control.controller import Controller, ControlError
-from ucagent.control.runtime.operations import OperationContext, OperationExecutor
+from ucagent.core.backends.cmdline import UCAgentCmdLineBackend
+from ucagent.runtime.control.commands import CommandSession
+from ucagent.runtime.control.controller import Controller, ControlError
+from ucagent.runtime.operations import OperationContext, OperationExecutor
 from ucagent.util.config import Config
 import ucagent.util.functions as runtime_functions
 from ucagent.util.functions import run_shell_process

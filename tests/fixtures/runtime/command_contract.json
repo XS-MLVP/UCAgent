@@ -156,8 +156,8 @@
       ],
       "status": "user_reported_pass",
       "implemented_files": [
-        "ucagent/control/controller.py",
-        "ucagent/control/commands.py",
+        "ucagent/runtime/control/controller.py",
+        "ucagent/runtime/control/commands.py",
         "tests/test_control.py",
         "tests/test_commands.py"
       ],
@@ -177,12 +177,12 @@
       ],
       "status": "user_reported_pass",
       "implemented_files": [
-        "ucagent/control/runtime/__init__.py",
-        "ucagent/control/runtime/operations.py",
-        "ucagent/control/commands.py",
-        "ucagent/control/controller.py",
+        "ucagent/runtime/__init__.py",
+        "ucagent/runtime/operations.py",
+        "ucagent/runtime/control/commands.py",
+        "ucagent/runtime/control/controller.py",
         "ucagent/util/functions.py",
-        "ucagent/abackend/cmdline.py",
+        "ucagent/core/backends/cmdline.py",
         "tests/test_runtime_operations.py",
         "tests/test_runtime_shell.py",
         "tests/test_commands.py",
@@ -210,11 +210,11 @@
       ],
       "status": "user_reported_pass",
       "implemented_files": [
-        "ucagent/control/controller.py",
-        "ucagent/control/commands.py",
-        "ucagent/control/runtime/operations.py",
-        "ucagent/stage/vmanager.py",
-        "ucagent/stage/vstage.py",
+        "ucagent/runtime/control/controller.py",
+        "ucagent/runtime/control/commands.py",
+        "ucagent/runtime/operations.py",
+        "ucagent/core/stage/vmanager.py",
+        "ucagent/core/stage/vstage.py",
         "tests/test_runtime_stage_control.py"
       ],
       "test_execution": "user_reported_pass",
@@ -243,23 +243,23 @@
         "tests/test_mcps.py",
         "tests/test_runtime_services.py",
         "tests/test_verify_pdb_runtime.py",
-        "ucagent/abackend/cmdline.py",
-        "ucagent/cli.py",
+        "ucagent/core/backends/cmdline.py",
+        "ucagent/__main__.py",
         "ucagent/plugins/UnityTest/src/unity_test/checkers/recorder.py",
         "ucagent/plugins/UnityTest/tests/test_recorder.py",
-        "ucagent/control/runtime/services.py",
-        "ucagent/server/__init__.py",
-        "ucagent/server/api_cmd/server.py",
-        "ucagent/server/api_master/__init__.py",
-        "ucagent/server/api_master/client.py",
-        "ucagent/server/api_master/routes.py",
-        "ucagent/server/api_master/server.py",
-        "ucagent/server/api_mcp.py",
-        "ucagent/server/api_terminal.py",
-        "ucagent/stage/vmanager.py",
-        "ucagent/stage/vstage.py",
+        "ucagent/runtime/services.py",
+        "ucagent/interfaces/server/__init__.py",
+        "ucagent/interfaces/server/api_cmd/server.py",
+        "ucagent/interfaces/server/api_master/__init__.py",
+        "ucagent/interfaces/server/api_master/client.py",
+        "ucagent/interfaces/server/api_master/routes.py",
+        "ucagent/interfaces/server/api_master/server.py",
+        "ucagent/interfaces/server/api_mcp.py",
+        "ucagent/interfaces/server/api_terminal.py",
+        "ucagent/core/stage/vmanager.py",
+        "ucagent/core/stage/vstage.py",
         "ucagent/util/functions.py",
-        "ucagent/verify_agent.py",
+        "ucagent/core/agent/execution.py",
         "ucagent/verify_pdb.py"
       ],
       "test_execution": "27 passed",
@@ -273,7 +273,7 @@
       "removed_legacy_symbol_references": [
         {
           "symbol": "do_master_api_stop",
-          "file": "ucagent/cli.py"
+          "file": "ucagent/__main__.py"
         },
         {
           "symbol": "do_stop_mcp_server",
@@ -281,15 +281,15 @@
         },
         {
           "symbol": "api_mission_info",
-          "file": "ucagent/server/api_master/client.py"
+          "file": "ucagent/interfaces/server/api_master/client.py"
         },
         {
           "symbol": "api_server_info",
-          "file": "ucagent/server/api_master/client.py"
+          "file": "ucagent/interfaces/server/api_master/client.py"
         },
         {
           "symbol": "api_task_list",
-          "file": "ucagent/server/api_master/client.py"
+          "file": "ucagent/interfaces/server/api_master/client.py"
         }
       ],
       "agent_test_execution": "agent_verified_pass",
@@ -309,9 +309,9 @@
       "status": "agent_verified_pass",
       "test_execution": "77 passed",
       "implemented_files": [
-        "ucagent/control/runtime/host.py",
-        "ucagent/control/runtime/operations.py",
-        "ucagent/stage/vmanager.py",
+        "ucagent/runtime/host.py",
+        "ucagent/runtime/operations.py",
+        "ucagent/core/stage/vmanager.py",
         "tests/test_runtime_host.py",
         "tests/test_runtime_shutdown.py"
       ]
@@ -323,56 +323,56 @@
       "removed_legacy_symbol_references": [
         {
           "symbol": "api_all_cmds",
-          "file": "ucagent/server/api_cmd/server.py"
+          "file": "ucagent/interfaces/server/api_cmd/server.py"
         },
         {
           "symbol": "api_changed_files",
-          "file": "ucagent/server/api_cmd/server.py"
+          "file": "ucagent/interfaces/server/api_cmd/server.py"
         },
         {
           "symbol": "api_get_stage_file",
-          "file": "ucagent/server/api_cmd/server.py"
+          "file": "ucagent/interfaces/server/api_cmd/server.py"
         },
         {
           "symbol": "api_get_stage_file_current",
-          "file": "ucagent/server/api_cmd/server.py"
+          "file": "ucagent/interfaces/server/api_cmd/server.py"
         },
         {
           "symbol": "api_mission_info",
-          "file": "ucagent/server/api_cmd/server.py"
+          "file": "ucagent/interfaces/server/api_cmd/server.py"
         },
         {
           "symbol": "api_server_info",
-          "file": "ucagent/server/api_cmd/server.py"
+          "file": "ucagent/interfaces/server/api_cmd/server.py"
         },
         {
           "symbol": "api_status",
-          "file": "ucagent/server/api_cmd/server.py"
+          "file": "ucagent/interfaces/server/api_cmd/server.py"
         },
         {
           "symbol": "api_task_detail",
-          "file": "ucagent/server/api_cmd/server.py"
+          "file": "ucagent/interfaces/server/api_cmd/server.py"
         },
         {
           "symbol": "api_task_list",
-          "file": "ucagent/server/api_cmd/server.py"
+          "file": "ucagent/interfaces/server/api_cmd/server.py"
         },
         {
           "symbol": "api_tool_status",
-          "file": "ucagent/server/api_cmd/server.py"
+          "file": "ucagent/interfaces/server/api_cmd/server.py"
         },
         {
           "symbol": "api_update_stage_flags",
-          "file": "ucagent/server/api_cmd/server.py"
+          "file": "ucagent/interfaces/server/api_cmd/server.py"
         }
       ],
       "status": "agent_verified_pass",
       "test_execution": "149 passed; 106 passed; 78 passed; 6 passed",
       "implemented_files": [
-        "ucagent/server/api_cmd/server.py",
-        "ucagent/server/api_cmd/waveform_routes.py",
-        "ucagent/server/api_cmd/xpra_routes.py",
-        "ucagent/server/templates/agent.html",
+        "ucagent/interfaces/server/api_cmd/server.py",
+        "ucagent/interfaces/server/api_cmd/waveform_routes.py",
+        "ucagent/interfaces/server/api_cmd/xpra_routes.py",
+        "ucagent/interfaces/server/templates/agent.html",
         "ucagent/scripts/ucagent-client/scripts/ucagent_client.py",
         "ucagent/scripts/ucagent-client/SKILL.md",
         "tests/test_control_api_runtime.py"
@@ -385,7 +385,7 @@
       ],
       "deleted_reference_files": [
         {
-          "path": "ucagent/tui/mixins/console_capture.py",
+          "path": "ucagent/interfaces/terminal/tui/mixins/console_capture.py",
           "markers": [
             "pdb_type",
             "pdb_service",
@@ -401,11 +401,11 @@
       "removed_legacy_symbol_references": [
         {
           "symbol": "do_tui",
-          "file": "ucagent/tui/mixins/console_capture.py"
+          "file": "ucagent/interfaces/terminal/tui/mixins/console_capture.py"
         },
         {
           "symbol": "api_all_cmds",
-          "file": "ucagent/tui/handlers.py"
+          "file": "ucagent/interfaces/terminal/tui/handlers.py"
         },
         {
           "symbol": "api_changed_files",
@@ -413,7 +413,7 @@
         },
         {
           "symbol": "api_changed_files",
-          "file": "ucagent/tui/widgets/task_panel.py"
+          "file": "ucagent/interfaces/terminal/tui/widgets/task_panel.py"
         },
         {
           "symbol": "api_mission_info",
@@ -421,7 +421,7 @@
         },
         {
           "symbol": "api_mission_info",
-          "file": "ucagent/tui/widgets/task_panel.py"
+          "file": "ucagent/interfaces/terminal/tui/widgets/task_panel.py"
         },
         {
           "symbol": "api_status",
@@ -429,7 +429,7 @@
         },
         {
           "symbol": "api_status",
-          "file": "ucagent/tui/widgets/task_panel.py"
+          "file": "ucagent/interfaces/terminal/tui/widgets/task_panel.py"
         },
         {
           "symbol": "api_task_list",
@@ -437,7 +437,7 @@
         },
         {
           "symbol": "api_task_list",
-          "file": "ucagent/tui/widgets/task_panel.py"
+          "file": "ucagent/interfaces/terminal/tui/widgets/task_panel.py"
         },
         {
           "symbol": "api_tool_status",
@@ -445,16 +445,16 @@
         },
         {
           "symbol": "api_tool_status",
-          "file": "ucagent/tui/widgets/task_panel.py"
+          "file": "ucagent/interfaces/terminal/tui/widgets/task_panel.py"
         }
       ],
       "status": "agent_verified_pass",
       "test_execution": "92 passed; 180 passed",
       "implemented_files": [
-        "ucagent/control/console.py",
-        "ucagent/control/runtime/output.py",
-        "ucagent/tui/app.py",
-        "ucagent/tui/handlers.py",
+        "ucagent/interfaces/terminal/console.py",
+        "ucagent/runtime/output.py",
+        "ucagent/interfaces/terminal/tui/app.py",
+        "ucagent/interfaces/terminal/tui/handlers.py",
         "tests/test_console_runtime.py",
         "tests/test_tui_runtime.py"
       ]
@@ -467,7 +467,7 @@
       "status": "agent_verified_pass",
       "test_execution": "235 passed; 54 passed",
       "implemented_files": [
-        "ucagent/plugins/__init__.py",
+        "ucagent/core/plugins.py",
         "ucagent/plugins/UnityTest/src/unity_test/plugin.py",
         "ucagent/plugins/UnityTest/src/unity_test/operations/waveform_replay.py",
         "ucagent/plugins/UnityTest/tests/test_waveform_replay_operation.py",
@@ -554,9 +554,9 @@
       "status": "agent_verified_pass",
       "test_execution": "45 passed; 91 passed; 25 passed; 48 passed",
       "implemented_files": [
-        "ucagent/cli.py",
-        "ucagent/verify_agent.py",
-        "ucagent/stage/vmanager.py",
+        "ucagent/__main__.py",
+        "ucagent/core/agent/execution.py",
+        "ucagent/core/stage/vmanager.py",
         "tests/test_runtime_cli.py",
         "tests/test_runtime_import_boundaries.py",
         "tests/test_verify_agent_instructions.py",
@@ -578,17 +578,17 @@
   },
   "entrypoints": {
     "console": {
-      "file": "ucagent/control/console.py",
+      "file": "ucagent/interfaces/terminal/console.py",
       "symbol": "Console.execute_line",
       "batch": "B07"
     },
     "tui": {
-      "file": "ucagent/tui/handlers.py",
+      "file": "ucagent/interfaces/terminal/tui/handlers.py",
       "symbol": "KeyHandler.process_command",
       "batch": "B07"
     },
     "http_commands": {
-      "file": "ucagent/server/api_cmd/server.py",
+      "file": "ucagent/interfaces/server/api_cmd/server.py",
       "routes": [
         "/api/cmd",
         "/api/cmds/batch"
@@ -603,7 +603,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "add_un_write_path",
-      "owner": "ucagent/control/controller.py",
+      "owner": "ucagent/runtime/control/controller.py",
       "batch": "B01",
       "target_tests": [
         "tests/test_control.py"
@@ -622,7 +622,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "add_write_path",
-      "owner": "ucagent/control/controller.py",
+      "owner": "ucagent/runtime/control/controller.py",
       "batch": "B01",
       "target_tests": [
         "tests/test_control.py"
@@ -641,7 +641,7 @@
       "source_kind": "method",
       "disposition": "remap",
       "canonical_name": "agent_break",
-      "owner": "ucagent/control/runtime/operations.py",
+      "owner": "ucagent/runtime/operations.py",
       "batch": "B02",
       "target_tests": [
         "tests/test_runtime_operations.py"
@@ -660,7 +660,7 @@
       "source_kind": "method",
       "disposition": "remap",
       "canonical_name": "agent_is_break",
-      "owner": "ucagent/control/runtime/operations.py",
+      "owner": "ucagent/runtime/operations.py",
       "batch": "B02",
       "target_tests": [
         "tests/test_runtime_operations.py"
@@ -679,7 +679,7 @@
       "source_kind": "method",
       "disposition": "remap",
       "canonical_name": "agent_unbreak",
-      "owner": "ucagent/control/runtime/operations.py",
+      "owner": "ucagent/runtime/operations.py",
       "batch": "B02",
       "target_tests": [
         "tests/test_runtime_operations.py"
@@ -698,7 +698,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "cd",
-      "owner": "ucagent/control/runtime/session.py",
+      "owner": "ucagent/runtime/session.py",
       "batch": "B07",
       "target_tests": [
         "tests/test_console_runtime.py",
@@ -718,7 +718,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "changed_files",
-      "owner": "ucagent/control/controller.py",
+      "owner": "ucagent/runtime/control/controller.py",
       "batch": "B01",
       "target_tests": [
         "tests/test_control.py"
@@ -737,7 +737,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "chat",
-      "owner": "ucagent/control/runtime/operations.py",
+      "owner": "ucagent/runtime/operations.py",
       "batch": "B02",
       "target_tests": [
         "tests/test_runtime_operations.py"
@@ -756,7 +756,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "chcwd",
-      "owner": "ucagent/control/runtime/session.py",
+      "owner": "ucagent/runtime/session.py",
       "batch": "B07",
       "target_tests": [
         "tests/test_console_runtime.py",
@@ -776,7 +776,7 @@
       "source_kind": "method",
       "disposition": "remap",
       "canonical_name": "checker_attr",
-      "owner": "ucagent/control/controller.py",
+      "owner": "ucagent/runtime/control/controller.py",
       "batch": "B01",
       "target_tests": [
         "tests/test_control.py"
@@ -795,7 +795,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "cmd_api_start",
-      "owner": "ucagent/control/runtime/services.py",
+      "owner": "ucagent/runtime/services.py",
       "batch": "B06",
       "target_tests": [
         "tests/test_control_api_runtime.py",
@@ -815,7 +815,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "cmd_api_status",
-      "owner": "ucagent/control/runtime/services.py",
+      "owner": "ucagent/runtime/services.py",
       "batch": "B06",
       "target_tests": [
         "tests/test_control_api_runtime.py",
@@ -835,7 +835,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "cmd_api_stop",
-      "owner": "ucagent/control/runtime/services.py",
+      "owner": "ucagent/runtime/services.py",
       "batch": "B06",
       "target_tests": [
         "tests/test_control_api_runtime.py",
@@ -855,7 +855,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "cmd_timeout",
-      "owner": "ucagent/control/runtime/operations.py",
+      "owner": "ucagent/runtime/operations.py",
       "batch": "B02",
       "target_tests": [
         "tests/test_runtime_shell.py"
@@ -874,7 +874,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "config_detail",
-      "owner": "ucagent/control/controller.py",
+      "owner": "ucagent/runtime/control/controller.py",
       "batch": "B01",
       "target_tests": [
         "tests/test_control.py"
@@ -893,7 +893,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "connect_master_close",
-      "owner": "ucagent/control/runtime/services.py",
+      "owner": "ucagent/runtime/services.py",
       "batch": "B04",
       "target_tests": [
         "tests/test_runtime_services.py"
@@ -912,7 +912,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "connect_master_list",
-      "owner": "ucagent/control/runtime/services.py",
+      "owner": "ucagent/runtime/services.py",
       "batch": "B04",
       "target_tests": [
         "tests/test_runtime_services.py"
@@ -931,7 +931,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "connect_master_to",
-      "owner": "ucagent/control/runtime/services.py",
+      "owner": "ucagent/runtime/services.py",
       "batch": "B04",
       "target_tests": [
         "tests/test_runtime_services.py"
@@ -950,7 +950,7 @@
       "source_kind": "method",
       "disposition": "remap",
       "canonical_name": "continue",
-      "owner": "ucagent/control/runtime/operations.py",
+      "owner": "ucagent/runtime/operations.py",
       "batch": "B02",
       "target_tests": [
         "tests/test_runtime_operations.py"
@@ -969,7 +969,7 @@
       "source_kind": "method",
       "disposition": "remap",
       "canonical_name": "continue_with_message",
-      "owner": "ucagent/control/runtime/operations.py",
+      "owner": "ucagent/runtime/operations.py",
       "batch": "B02",
       "target_tests": [
         "tests/test_runtime_operations.py"
@@ -988,7 +988,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "current_tips",
-      "owner": "ucagent/control/controller.py",
+      "owner": "ucagent/runtime/control/controller.py",
       "batch": "B01",
       "target_tests": [
         "tests/test_control.py"
@@ -1007,7 +1007,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "del_un_write_path",
-      "owner": "ucagent/control/controller.py",
+      "owner": "ucagent/runtime/control/controller.py",
       "batch": "B01",
       "target_tests": [
         "tests/test_control.py"
@@ -1026,7 +1026,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "del_write_path",
-      "owner": "ucagent/control/controller.py",
+      "owner": "ucagent/runtime/control/controller.py",
       "batch": "B01",
       "target_tests": [
         "tests/test_control.py"
@@ -1045,7 +1045,7 @@
       "source_kind": "method",
       "disposition": "remap",
       "canonical_name": "quit",
-      "owner": "ucagent/control/runtime/host.py",
+      "owner": "ucagent/runtime/host.py",
       "batch": "B05",
       "target_tests": [
         "tests/test_runtime_host.py",
@@ -1141,7 +1141,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "get_sys_tips",
-      "owner": "ucagent/control/controller.py",
+      "owner": "ucagent/runtime/control/controller.py",
       "batch": "B01",
       "target_tests": [
         "tests/test_control.py"
@@ -1160,7 +1160,7 @@
       "source_kind": "method",
       "disposition": "remap",
       "canonical_name": "help",
-      "owner": "ucagent/control/commands.py",
+      "owner": "ucagent/runtime/control/commands.py",
       "batch": "B01",
       "target_tests": [
         "tests/test_commands.py"
@@ -1179,7 +1179,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "hmcheck_cstat",
-      "owner": "ucagent/control/controller.py",
+      "owner": "ucagent/runtime/control/controller.py",
       "batch": "B03",
       "target_tests": [
         "tests/test_runtime_stage_control.py"
@@ -1198,7 +1198,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "hmcheck_fail",
-      "owner": "ucagent/control/controller.py",
+      "owner": "ucagent/runtime/control/controller.py",
       "batch": "B03",
       "target_tests": [
         "tests/test_runtime_stage_control.py"
@@ -1210,7 +1210,7 @@
       ],
       "contract": "Use existing stage rules through shared mutation coordination; human approval never bypasses Complete.",
       "symbol_reference_files": [
-        "ucagent/stage/vstage.py"
+        "ucagent/core/stage/vstage.py"
       ]
     },
     {
@@ -1219,7 +1219,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "hmcheck_list",
-      "owner": "ucagent/control/controller.py",
+      "owner": "ucagent/runtime/control/controller.py",
       "batch": "B03",
       "target_tests": [
         "tests/test_runtime_stage_control.py"
@@ -1238,7 +1238,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "hmcheck_pass",
-      "owner": "ucagent/control/controller.py",
+      "owner": "ucagent/runtime/control/controller.py",
       "batch": "B03",
       "target_tests": [
         "tests/test_runtime_stage_control.py"
@@ -1250,7 +1250,7 @@
       ],
       "contract": "Use existing stage rules through shared mutation coordination; human approval never bypasses Complete.",
       "symbol_reference_files": [
-        "ucagent/stage/vstage.py"
+        "ucagent/core/stage/vstage.py"
       ]
     },
     {
@@ -1259,7 +1259,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "hmcheck_pass_and_continue",
-      "owner": "ucagent/control/controller.py",
+      "owner": "ucagent/runtime/control/controller.py",
       "batch": "B03",
       "target_tests": [
         "tests/test_runtime_stage_control.py"
@@ -1278,7 +1278,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "hmcheck_set",
-      "owner": "ucagent/control/controller.py",
+      "owner": "ucagent/runtime/control/controller.py",
       "batch": "B03",
       "target_tests": [
         "tests/test_runtime_stage_control.py"
@@ -1297,7 +1297,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "list_checkers",
-      "owner": "ucagent/control/controller.py",
+      "owner": "ucagent/runtime/control/controller.py",
       "batch": "B01",
       "target_tests": [
         "tests/test_control.py"
@@ -1316,7 +1316,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "list_demo_cmds",
-      "owner": "ucagent/control/console.py",
+      "owner": "ucagent/interfaces/terminal/console.py",
       "batch": "B07",
       "target_tests": [
         "tests/test_console_runtime.py",
@@ -1336,7 +1336,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "list_rw_paths",
-      "owner": "ucagent/control/controller.py",
+      "owner": "ucagent/runtime/control/controller.py",
       "batch": "B01",
       "target_tests": [
         "tests/test_control.py"
@@ -1355,7 +1355,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "lmcheck_flist",
-      "owner": "ucagent/control/controller.py",
+      "owner": "ucagent/runtime/control/controller.py",
       "batch": "B03",
       "target_tests": [
         "tests/test_runtime_stage_control.py"
@@ -1374,7 +1374,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "lmcheck_fset",
-      "owner": "ucagent/control/controller.py",
+      "owner": "ucagent/runtime/control/controller.py",
       "batch": "B03",
       "target_tests": [
         "tests/test_runtime_stage_control.py"
@@ -1393,7 +1393,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "lmcheck_plist",
-      "owner": "ucagent/control/controller.py",
+      "owner": "ucagent/runtime/control/controller.py",
       "batch": "B03",
       "target_tests": [
         "tests/test_runtime_stage_control.py"
@@ -1412,7 +1412,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "lmcheck_pset",
-      "owner": "ucagent/control/controller.py",
+      "owner": "ucagent/runtime/control/controller.py",
       "batch": "B03",
       "target_tests": [
         "tests/test_runtime_stage_control.py"
@@ -1431,7 +1431,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "logo_and_version",
-      "owner": "ucagent/control/controller.py",
+      "owner": "ucagent/runtime/control/controller.py",
       "batch": "B01",
       "target_tests": [
         "tests/test_control.py"
@@ -1450,7 +1450,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "loop",
-      "owner": "ucagent/control/runtime/operations.py",
+      "owner": "ucagent/runtime/operations.py",
       "batch": "B02",
       "target_tests": [
         "tests/test_runtime_operations.py"
@@ -1469,7 +1469,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "ls",
-      "owner": "ucagent/control/runtime/session.py",
+      "owner": "ucagent/runtime/session.py",
       "batch": "B07",
       "target_tests": [
         "tests/test_console_runtime.py",
@@ -1489,7 +1489,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "master_api_list",
-      "owner": "ucagent/control/runtime/services.py",
+      "owner": "ucagent/runtime/services.py",
       "batch": "B04",
       "target_tests": [
         "tests/test_runtime_services.py"
@@ -1508,7 +1508,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "master_api_start",
-      "owner": "ucagent/control/runtime/services.py",
+      "owner": "ucagent/runtime/services.py",
       "batch": "B04",
       "target_tests": [
         "tests/test_runtime_services.py"
@@ -1527,7 +1527,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "master_api_status",
-      "owner": "ucagent/control/runtime/services.py",
+      "owner": "ucagent/runtime/services.py",
       "batch": "B04",
       "target_tests": [
         "tests/test_runtime_services.py"
@@ -1546,7 +1546,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "master_api_stop",
-      "owner": "ucagent/control/runtime/services.py",
+      "owner": "ucagent/runtime/services.py",
       "batch": "B04",
       "target_tests": [
         "tests/test_runtime_services.py"
@@ -1565,7 +1565,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "mcp_server_status",
-      "owner": "ucagent/control/runtime/services.py",
+      "owner": "ucagent/runtime/services.py",
       "batch": "B04",
       "target_tests": [
         "tests/test_runtime_services.py"
@@ -1584,7 +1584,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "messages_config",
-      "owner": "ucagent/control/controller.py",
+      "owner": "ucagent/runtime/control/controller.py",
       "batch": "B01",
       "target_tests": [
         "tests/test_control.py"
@@ -1603,7 +1603,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "messages_config",
-      "owner": "ucagent/control/controller.py",
+      "owner": "ucagent/runtime/control/controller.py",
       "batch": "B01",
       "target_tests": [
         "tests/test_control.py"
@@ -1622,7 +1622,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "messages_info",
-      "owner": "ucagent/control/controller.py",
+      "owner": "ucagent/runtime/control/controller.py",
       "batch": "B01",
       "target_tests": [
         "tests/test_control.py"
@@ -1641,7 +1641,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "messages_print",
-      "owner": "ucagent/control/controller.py",
+      "owner": "ucagent/runtime/control/controller.py",
       "batch": "B01",
       "target_tests": [
         "tests/test_control.py"
@@ -1660,7 +1660,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "messages_reset",
-      "owner": "ucagent/control/controller.py",
+      "owner": "ucagent/runtime/control/controller.py",
       "batch": "B01",
       "target_tests": [
         "tests/test_control.py"
@@ -1679,7 +1679,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "messages_summary",
-      "owner": "ucagent/control/controller.py",
+      "owner": "ucagent/runtime/control/controller.py",
       "batch": "B01",
       "target_tests": [
         "tests/test_control.py"
@@ -1698,7 +1698,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "mission_info",
-      "owner": "ucagent/control/controller.py",
+      "owner": "ucagent/runtime/control/controller.py",
       "batch": "B01",
       "target_tests": [
         "tests/test_control.py"
@@ -1717,7 +1717,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "next_round",
-      "owner": "ucagent/control/runtime/operations.py",
+      "owner": "ucagent/runtime/operations.py",
       "batch": "B02",
       "target_tests": [
         "tests/test_runtime_operations.py"
@@ -1736,7 +1736,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "next_round_with_message",
-      "owner": "ucagent/control/runtime/operations.py",
+      "owner": "ucagent/runtime/operations.py",
       "batch": "B02",
       "target_tests": [
         "tests/test_runtime_operations.py"
@@ -1755,7 +1755,7 @@
       "source_kind": "assignment_alias",
       "disposition": "preserve",
       "canonical_name": "next_round",
-      "owner": "ucagent/control/runtime/operations.py",
+      "owner": "ucagent/runtime/operations.py",
       "batch": "B02",
       "target_tests": [
         "tests/test_runtime_operations.py"
@@ -1774,7 +1774,7 @@
       "source_kind": "assignment_alias",
       "disposition": "preserve",
       "canonical_name": "next_round_with_message",
-      "owner": "ucagent/control/runtime/operations.py",
+      "owner": "ucagent/runtime/operations.py",
       "batch": "B02",
       "target_tests": [
         "tests/test_runtime_operations.py"
@@ -1793,7 +1793,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "protect_files_off",
-      "owner": "ucagent/control/controller.py",
+      "owner": "ucagent/runtime/control/controller.py",
       "batch": "B01",
       "target_tests": [
         "tests/test_control.py"
@@ -1812,7 +1812,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "protect_files_on",
-      "owner": "ucagent/control/controller.py",
+      "owner": "ucagent/runtime/control/controller.py",
       "batch": "B01",
       "target_tests": [
         "tests/test_control.py"
@@ -1831,7 +1831,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "pwd",
-      "owner": "ucagent/control/runtime/session.py",
+      "owner": "ucagent/runtime/session.py",
       "batch": "B07",
       "target_tests": [
         "tests/test_console_runtime.py",
@@ -1851,7 +1851,7 @@
       "source_kind": "method",
       "disposition": "remap",
       "canonical_name": "quit",
-      "owner": "ucagent/control/runtime/host.py",
+      "owner": "ucagent/runtime/host.py",
       "batch": "B05",
       "target_tests": [
         "tests/test_runtime_host.py",
@@ -1871,7 +1871,7 @@
       "source_kind": "method",
       "disposition": "remap",
       "canonical_name": "quit",
-      "owner": "ucagent/control/runtime/host.py",
+      "owner": "ucagent/runtime/host.py",
       "batch": "B05",
       "target_tests": [
         "tests/test_runtime_host.py",
@@ -1891,7 +1891,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "render_template",
-      "owner": "ucagent/control/controller.py",
+      "owner": "ucagent/runtime/control/controller.py",
       "batch": "B01",
       "target_tests": [
         "tests/test_control.py"
@@ -1910,7 +1910,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "repeat_mode",
-      "owner": "ucagent/control/runtime/session.py",
+      "owner": "ucagent/runtime/session.py",
       "batch": "B07",
       "target_tests": [
         "tests/test_console_runtime.py",
@@ -1930,7 +1930,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "set_sys_tips",
-      "owner": "ucagent/control/controller.py",
+      "owner": "ucagent/runtime/control/controller.py",
       "batch": "B01",
       "target_tests": [
         "tests/test_control.py"
@@ -1949,7 +1949,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "shell",
-      "owner": "ucagent/control/runtime/operations.py",
+      "owner": "ucagent/runtime/operations.py",
       "batch": "B02",
       "target_tests": [
         "tests/test_runtime_shell.py"
@@ -1968,7 +1968,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "short_prompt",
-      "owner": "ucagent/control/runtime/operations.py",
+      "owner": "ucagent/runtime/operations.py",
       "batch": "B02",
       "target_tests": [
         "tests/test_runtime_operations.py"
@@ -1987,7 +1987,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "short_prompt_del",
-      "owner": "ucagent/control/controller.py",
+      "owner": "ucagent/runtime/control/controller.py",
       "batch": "B01",
       "target_tests": [
         "tests/test_control.py"
@@ -2006,7 +2006,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "short_prompt_list",
-      "owner": "ucagent/control/controller.py",
+      "owner": "ucagent/runtime/control/controller.py",
       "batch": "B01",
       "target_tests": [
         "tests/test_control.py"
@@ -2025,7 +2025,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "short_prompt_set",
-      "owner": "ucagent/control/controller.py",
+      "owner": "ucagent/runtime/control/controller.py",
       "batch": "B01",
       "target_tests": [
         "tests/test_control.py"
@@ -2044,7 +2044,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "show_web_session",
-      "owner": "ucagent/control/controller.py",
+      "owner": "ucagent/runtime/control/controller.py",
       "batch": "B01",
       "target_tests": [
         "tests/test_control.py"
@@ -2063,7 +2063,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "skip_stage",
-      "owner": "ucagent/control/controller.py",
+      "owner": "ucagent/runtime/control/controller.py",
       "batch": "B03",
       "target_tests": [
         "tests/test_runtime_stage_control.py"
@@ -2082,7 +2082,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "sleep",
-      "owner": "ucagent/control/runtime/operations.py",
+      "owner": "ucagent/runtime/operations.py",
       "batch": "B02",
       "target_tests": [
         "tests/test_runtime_operations.py"
@@ -2101,7 +2101,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "stage_cfile_content",
-      "owner": "ucagent/control/controller.py",
+      "owner": "ucagent/runtime/control/controller.py",
       "batch": "B01",
       "target_tests": [
         "tests/test_control.py"
@@ -2120,7 +2120,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "stage_commit",
-      "owner": "ucagent/control/controller.py",
+      "owner": "ucagent/runtime/control/controller.py",
       "batch": "B01",
       "target_tests": [
         "tests/test_control.py"
@@ -2139,7 +2139,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "stage_diff",
-      "owner": "ucagent/control/controller.py",
+      "owner": "ucagent/runtime/control/controller.py",
       "batch": "B01",
       "target_tests": [
         "tests/test_control.py"
@@ -2158,7 +2158,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "stage_file_content",
-      "owner": "ucagent/control/controller.py",
+      "owner": "ucagent/runtime/control/controller.py",
       "batch": "B01",
       "target_tests": [
         "tests/test_control.py"
@@ -2177,7 +2177,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "stage_outcome",
-      "owner": "ucagent/control/controller.py",
+      "owner": "ucagent/runtime/control/controller.py",
       "batch": "B01",
       "target_tests": [
         "tests/test_control.py"
@@ -2196,7 +2196,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "start_mcp_server",
-      "owner": "ucagent/control/runtime/services.py",
+      "owner": "ucagent/runtime/services.py",
       "batch": "B04",
       "target_tests": [
         "tests/test_runtime_services.py"
@@ -2215,7 +2215,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "start_mcp_server_no_file_ops",
-      "owner": "ucagent/control/runtime/services.py",
+      "owner": "ucagent/runtime/services.py",
       "batch": "B04",
       "target_tests": [
         "tests/test_runtime_services.py"
@@ -2234,7 +2234,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "status",
-      "owner": "ucagent/control/controller.py",
+      "owner": "ucagent/runtime/control/controller.py",
       "batch": "B01",
       "target_tests": [
         "tests/test_control.py"
@@ -2253,7 +2253,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "stop_mcp_server",
-      "owner": "ucagent/control/runtime/services.py",
+      "owner": "ucagent/runtime/services.py",
       "batch": "B04",
       "target_tests": [
         "tests/test_runtime_services.py"
@@ -2272,7 +2272,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "sync_workspace_back",
-      "owner": "ucagent/control/runtime/services.py",
+      "owner": "ucagent/runtime/services.py",
       "batch": "B04",
       "target_tests": [
         "tests/test_runtime_services.py"
@@ -2291,7 +2291,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "task_detail",
-      "owner": "ucagent/control/controller.py",
+      "owner": "ucagent/runtime/control/controller.py",
       "batch": "B01",
       "target_tests": [
         "tests/test_control.py"
@@ -2310,7 +2310,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "task_status",
-      "owner": "ucagent/control/controller.py",
+      "owner": "ucagent/runtime/control/controller.py",
       "batch": "B01",
       "target_tests": [
         "tests/test_control.py"
@@ -2329,7 +2329,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "terminal_api_list",
-      "owner": "ucagent/control/runtime/services.py",
+      "owner": "ucagent/runtime/services.py",
       "batch": "B04",
       "target_tests": [
         "tests/test_runtime_services.py"
@@ -2348,7 +2348,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "terminal_api_start",
-      "owner": "ucagent/control/runtime/services.py",
+      "owner": "ucagent/runtime/services.py",
       "batch": "B04",
       "target_tests": [
         "tests/test_runtime_services.py"
@@ -2367,7 +2367,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "terminal_api_status",
-      "owner": "ucagent/control/runtime/services.py",
+      "owner": "ucagent/runtime/services.py",
       "batch": "B04",
       "target_tests": [
         "tests/test_runtime_services.py"
@@ -2386,7 +2386,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "terminal_api_stop",
-      "owner": "ucagent/control/runtime/services.py",
+      "owner": "ucagent/runtime/services.py",
       "batch": "B04",
       "target_tests": [
         "tests/test_runtime_services.py"
@@ -2405,7 +2405,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "tool_invoke",
-      "owner": "ucagent/control/controller.py",
+      "owner": "ucagent/runtime/control/controller.py",
       "batch": "B01",
       "target_tests": [
         "tests/test_control.py"
@@ -2424,7 +2424,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "tool_list",
-      "owner": "ucagent/control/controller.py",
+      "owner": "ucagent/runtime/control/controller.py",
       "batch": "B01",
       "target_tests": [
         "tests/test_control.py"
@@ -2443,7 +2443,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "tool_timeout_list",
-      "owner": "ucagent/control/controller.py",
+      "owner": "ucagent/runtime/control/controller.py",
       "batch": "B01",
       "target_tests": [
         "tests/test_control.py"
@@ -2462,7 +2462,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "tool_timeout_set",
-      "owner": "ucagent/control/controller.py",
+      "owner": "ucagent/runtime/control/controller.py",
       "batch": "B01",
       "target_tests": [
         "tests/test_control.py"
@@ -2481,7 +2481,7 @@
       "source_kind": "method",
       "disposition": "remap",
       "canonical_name": "tui",
-      "owner": "ucagent/control/console.py",
+      "owner": "ucagent/interfaces/terminal/console.py",
       "batch": "B07",
       "target_tests": [
         "tests/test_console_runtime.py",
@@ -2501,7 +2501,7 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "unskip_stage",
-      "owner": "ucagent/control/controller.py",
+      "owner": "ucagent/runtime/control/controller.py",
       "batch": "B03",
       "target_tests": [
         "tests/test_runtime_stage_control.py"
@@ -2625,7 +2625,7 @@
       "canonical_name": "continue",
       "disposition": "remap",
       "batch": "B01",
-      "owner": "ucagent/control/commands.py",
+      "owner": "ucagent/runtime/control/commands.py",
       "target_tests": [
         "tests/test_commands.py"
       ],
@@ -2685,7 +2685,7 @@
       "canonical_name": "continue",
       "disposition": "remap",
       "batch": "B01",
-      "owner": "ucagent/control/commands.py",
+      "owner": "ucagent/runtime/control/commands.py",
       "target_tests": [
         "tests/test_commands.py"
       ],
@@ -2781,7 +2781,7 @@
       "canonical_name": "help",
       "disposition": "remap",
       "batch": "B01",
-      "owner": "ucagent/control/commands.py",
+      "owner": "ucagent/runtime/control/commands.py",
       "target_tests": [
         "tests/test_commands.py"
       ],
@@ -3164,12 +3164,12 @@
     {
       "name": "clear",
       "scope": "tui",
-      "source_file": "ucagent/tui/handlers.py",
+      "source_file": "ucagent/interfaces/terminal/tui/handlers.py",
       "source_symbol": "KeyHandler.process_command",
       "disposition": "preserve",
       "canonical_name": "clear",
       "batch": "B07",
-      "owner": "ucagent/tui/handlers.py",
+      "owner": "ucagent/interfaces/terminal/tui/handlers.py",
       "target_tests": [
         "tests/test_tui_runtime.py"
       ],
@@ -3179,7 +3179,7 @@
   "python_api": [
     {
       "source_symbol": "api_all_cmds",
-      "owner": "ucagent/control/commands.py",
+      "owner": "ucagent/runtime/control/commands.py",
       "batch": "B01",
       "target_tests": [
         "tests/test_commands.py"
@@ -3190,7 +3190,7 @@
     },
     {
       "source_symbol": "api_changed_files",
-      "owner": "ucagent/control/controller.py",
+      "owner": "ucagent/runtime/control/controller.py",
       "batch": "B01",
       "target_tests": [
         "tests/test_control.py"
@@ -3201,7 +3201,7 @@
     },
     {
       "source_symbol": "api_complite_workspace_file",
-      "owner": "ucagent/control/commands.py",
+      "owner": "ucagent/runtime/control/commands.py",
       "batch": "B01",
       "target_tests": [
         "tests/test_commands.py"
@@ -3212,7 +3212,7 @@
     },
     {
       "source_symbol": "api_current_tips",
-      "owner": "ucagent/control/controller.py",
+      "owner": "ucagent/runtime/control/controller.py",
       "batch": "B01",
       "target_tests": [
         "tests/test_control.py"
@@ -3223,7 +3223,7 @@
     },
     {
       "source_symbol": "api_get_check_tag_list",
-      "owner": "ucagent/control/controller.py",
+      "owner": "ucagent/runtime/control/controller.py",
       "batch": "B01",
       "target_tests": [
         "tests/test_control.py"
@@ -3234,7 +3234,7 @@
     },
     {
       "source_symbol": "api_get_stage_file",
-      "owner": "ucagent/control/controller.py",
+      "owner": "ucagent/runtime/control/controller.py",
       "batch": "B01",
       "target_tests": [
         "tests/test_control.py"
@@ -3245,7 +3245,7 @@
     },
     {
       "source_symbol": "api_get_stage_file_current",
-      "owner": "ucagent/control/controller.py",
+      "owner": "ucagent/runtime/control/controller.py",
       "batch": "B01",
       "target_tests": [
         "tests/test_control.py"
@@ -3256,7 +3256,7 @@
     },
     {
       "source_symbol": "api_is_valid_workspace_path",
-      "owner": "ucagent/control/controller.py",
+      "owner": "ucagent/runtime/control/controller.py",
       "batch": "B01",
       "target_tests": [
         "tests/test_control.py"
@@ -3267,7 +3267,7 @@
     },
     {
       "source_symbol": "api_list_checker_instance",
-      "owner": "ucagent/control/controller.py",
+      "owner": "ucagent/runtime/control/controller.py",
       "batch": "B01",
       "target_tests": [
         "tests/test_control.py"
@@ -3278,7 +3278,7 @@
     },
     {
       "source_symbol": "api_mission_info",
-      "owner": "ucagent/control/controller.py",
+      "owner": "ucagent/runtime/control/controller.py",
       "batch": "B01",
       "target_tests": [
         "tests/test_control.py"
@@ -3289,7 +3289,7 @@
     },
     {
       "source_symbol": "api_parse_args",
-      "owner": "ucagent/control/commands.py",
+      "owner": "ucagent/runtime/control/commands.py",
       "batch": "B01",
       "target_tests": [
         "tests/test_commands.py"
@@ -3300,7 +3300,7 @@
     },
     {
       "source_symbol": "api_server_info",
-      "owner": "ucagent/control/runtime/services.py",
+      "owner": "ucagent/runtime/services.py",
       "batch": "B04",
       "target_tests": [
         "tests/test_runtime_services.py"
@@ -3311,7 +3311,7 @@
     },
     {
       "source_symbol": "api_status",
-      "owner": "ucagent/control/controller.py",
+      "owner": "ucagent/runtime/control/controller.py",
       "batch": "B01",
       "target_tests": [
         "tests/test_control.py"
@@ -3322,7 +3322,7 @@
     },
     {
       "source_symbol": "api_task_detail",
-      "owner": "ucagent/control/controller.py",
+      "owner": "ucagent/runtime/control/controller.py",
       "batch": "B01",
       "target_tests": [
         "tests/test_control.py"
@@ -3333,7 +3333,7 @@
     },
     {
       "source_symbol": "api_task_list",
-      "owner": "ucagent/control/controller.py",
+      "owner": "ucagent/runtime/control/controller.py",
       "batch": "B01",
       "target_tests": [
         "tests/test_control.py"
@@ -3344,7 +3344,7 @@
     },
     {
       "source_symbol": "api_tool_status",
-      "owner": "ucagent/control/controller.py",
+      "owner": "ucagent/runtime/control/controller.py",
       "batch": "B01",
       "target_tests": [
         "tests/test_control.py"
@@ -3355,7 +3355,7 @@
     },
     {
       "source_symbol": "api_update_stage_flags",
-      "owner": "ucagent/control/controller.py",
+      "owner": "ucagent/runtime/control/controller.py",
       "batch": "B03",
       "target_tests": [
         "tests/test_runtime_stage_control.py"
@@ -4138,7 +4138,7 @@
       "review_scope": "migrate_dependency_or_documentation"
     },
     {
-      "path": "ucagent/abackend/cmdline.py",
+      "path": "ucagent/core/backends/cmdline.py",
       "markers": [
         "business_command",
         "pdb_attribute",
@@ -4152,7 +4152,7 @@
       "review_scope": "migrate_dependency_or_documentation"
     },
     {
-      "path": "ucagent/checkers/base.py",
+      "path": "ucagent/core/checkers/base.py",
       "markers": [
         "business_command"
       ],
@@ -4163,7 +4163,7 @@
       "review_scope": "inspect_command_usage"
     },
     {
-      "path": "ucagent/cli.py",
+      "path": "ucagent/__main__.py",
       "markers": [
         "business_command",
         "debugger_control",
@@ -4181,7 +4181,7 @@
       "review_scope": "migrate_dependency_or_documentation"
     },
     {
-      "path": "ucagent/control/commands.py",
+      "path": "ucagent/runtime/control/commands.py",
       "markers": [
         "business_command"
       ],
@@ -4194,7 +4194,7 @@
       "review_scope": "inspect_command_usage"
     },
     {
-      "path": "ucagent/control/controller.py",
+      "path": "ucagent/runtime/control/controller.py",
       "markers": [
         "business_command"
       ],
@@ -4207,7 +4207,7 @@
       "review_scope": "inspect_command_usage"
     },
     {
-      "path": "ucagent/interaction/advanced.py",
+      "path": "ucagent/core/interaction/advanced.py",
       "markers": [
         "business_command"
       ],
@@ -4218,7 +4218,7 @@
       "review_scope": "inspect_command_usage"
     },
     {
-      "path": "ucagent/interaction/enhanced.py",
+      "path": "ucagent/core/interaction/enhanced.py",
       "markers": [
         "business_command"
       ],
@@ -4377,7 +4377,7 @@
       "review_scope": "migrate_dependency_or_documentation"
     },
     {
-      "path": "ucagent/control/runtime/operations.py",
+      "path": "ucagent/runtime/operations.py",
       "markers": [
         "business_command"
       ],
@@ -4389,7 +4389,7 @@
       "review_scope": "inspect_command_usage"
     },
     {
-      "path": "ucagent/control/runtime/services.py",
+      "path": "ucagent/runtime/services.py",
       "markers": [
         "business_command"
       ],
@@ -4425,7 +4425,7 @@
       "review_scope": "migrate_dependency_or_documentation"
     },
     {
-      "path": "ucagent/server/__init__.py",
+      "path": "ucagent/interfaces/server/__init__.py",
       "markers": [
         "pdb_service"
       ],
@@ -4437,7 +4437,7 @@
       "review_scope": "migrate_dependency_or_documentation"
     },
     {
-      "path": "ucagent/server/api_cmd/__init__.py",
+      "path": "ucagent/interfaces/server/api_cmd/__init__.py",
       "markers": [
         "pdb_service"
       ],
@@ -4448,7 +4448,7 @@
       "review_scope": "migrate_dependency_or_documentation"
     },
     {
-      "path": "ucagent/server/api_cmd/server.py",
+      "path": "ucagent/interfaces/server/api_cmd/server.py",
       "markers": [
         "business_command",
         "legacy_http",
@@ -4465,7 +4465,7 @@
       "review_scope": "migrate_dependency_or_documentation"
     },
     {
-      "path": "ucagent/server/api_cmd/waveform_routes.py",
+      "path": "ucagent/interfaces/server/api_cmd/waveform_routes.py",
       "markers": [
         "pdb_attribute",
         "pdb_mention"
@@ -4477,7 +4477,7 @@
       "review_scope": "migrate_dependency_or_documentation"
     },
     {
-      "path": "ucagent/server/api_cmd/xpra_routes.py",
+      "path": "ucagent/interfaces/server/api_cmd/xpra_routes.py",
       "markers": [
         "pdb_attribute",
         "pdb_mention"
@@ -4489,7 +4489,7 @@
       "review_scope": "migrate_dependency_or_documentation"
     },
     {
-      "path": "ucagent/server/api_master/__init__.py",
+      "path": "ucagent/interfaces/server/api_master/__init__.py",
       "markers": [
         "pdb_service"
       ],
@@ -4500,7 +4500,7 @@
       "review_scope": "migrate_dependency_or_documentation"
     },
     {
-      "path": "ucagent/server/api_master/client.py",
+      "path": "ucagent/interfaces/server/api_master/client.py",
       "markers": [
         "business_command",
         "pdb_attribute",
@@ -4515,7 +4515,7 @@
       "review_scope": "migrate_dependency_or_documentation"
     },
     {
-      "path": "ucagent/server/api_master/server.py",
+      "path": "ucagent/interfaces/server/api_master/server.py",
       "markers": [
         "pdb_service"
       ],
@@ -4526,7 +4526,7 @@
       "review_scope": "migrate_dependency_or_documentation"
     },
     {
-      "path": "ucagent/server/api_mcp.py",
+      "path": "ucagent/interfaces/server/api_mcp.py",
       "markers": [
         "pdb_attribute",
         "pdb_mention",
@@ -4540,7 +4540,7 @@
       "review_scope": "migrate_dependency_or_documentation"
     },
     {
-      "path": "ucagent/server/api_terminal.py",
+      "path": "ucagent/interfaces/server/api_terminal.py",
       "markers": [
         "pdb_mention",
         "pdb_service"
@@ -4552,7 +4552,7 @@
       "review_scope": "migrate_dependency_or_documentation"
     },
     {
-      "path": "ucagent/server/templates/agent.html",
+      "path": "ucagent/interfaces/server/templates/agent.html",
       "markers": [
         "legacy_http",
         "pdb_mention",
@@ -4577,7 +4577,7 @@
       "review_scope": "migrate_dependency_or_documentation"
     },
     {
-      "path": "ucagent/stage/llm_suggestion/langchain_suggestion.py",
+      "path": "ucagent/core/stage/llm_suggestion/langchain_suggestion.py",
       "markers": [
         "business_command"
       ],
@@ -4590,7 +4590,7 @@
       "review_scope": "inspect_command_usage"
     },
     {
-      "path": "ucagent/stage/vmanager.py",
+      "path": "ucagent/core/stage/vmanager.py",
       "markers": [
         "business_command"
       ],
@@ -4603,7 +4603,7 @@
       "review_scope": "inspect_command_usage"
     },
     {
-      "path": "ucagent/stage/vstage.py",
+      "path": "ucagent/core/stage/vstage.py",
       "markers": [
         "business_command",
         "pdb_attribute",
@@ -4618,7 +4618,7 @@
       "review_scope": "migrate_dependency_or_documentation"
     },
     {
-      "path": "ucagent/tools/uctool.py",
+      "path": "ucagent/core/tools/uctool.py",
       "markers": [
         "business_command"
       ],
@@ -4629,7 +4629,7 @@
       "review_scope": "inspect_command_usage"
     },
     {
-      "path": "ucagent/tools/workdiff.py",
+      "path": "ucagent/core/tools/workdiff.py",
       "markers": [
         "business_command"
       ],
@@ -4640,7 +4640,7 @@
       "review_scope": "inspect_command_usage"
     },
     {
-      "path": "ucagent/tui/__init__.py",
+      "path": "ucagent/interfaces/terminal/tui/__init__.py",
       "markers": [
         "pdb_type"
       ],
@@ -4651,7 +4651,7 @@
       "review_scope": "migrate_dependency_or_documentation"
     },
     {
-      "path": "ucagent/tui/app.py",
+      "path": "ucagent/interfaces/terminal/tui/app.py",
       "markers": [
         "pdb_type"
       ],
@@ -4662,7 +4662,7 @@
       "review_scope": "migrate_dependency_or_documentation"
     },
     {
-      "path": "ucagent/tui/handlers.py",
+      "path": "ucagent/interfaces/terminal/tui/handlers.py",
       "markers": [
         "pdb_type",
         "pdb_mention"
@@ -4674,7 +4674,7 @@
       "review_scope": "migrate_dependency_or_documentation"
     },
     {
-      "path": "ucagent/tui/utils.py",
+      "path": "ucagent/interfaces/terminal/tui/utils.py",
       "markers": [
         "pdb_type"
       ],
@@ -4685,7 +4685,7 @@
       "review_scope": "migrate_dependency_or_documentation"
     },
     {
-      "path": "ucagent/tui/widgets/console.py",
+      "path": "ucagent/interfaces/terminal/tui/widgets/console.py",
       "markers": [
         "pdb_type"
       ],
@@ -4696,7 +4696,7 @@
       "review_scope": "migrate_dependency_or_documentation"
     },
     {
-      "path": "ucagent/tui/widgets/console_input.py",
+      "path": "ucagent/interfaces/terminal/tui/widgets/console_input.py",
       "markers": [
         "pdb_type"
       ],
@@ -4707,7 +4707,7 @@
       "review_scope": "migrate_dependency_or_documentation"
     },
     {
-      "path": "ucagent/tui/widgets/status_bar.py",
+      "path": "ucagent/interfaces/terminal/tui/widgets/status_bar.py",
       "markers": [
         "pdb_type"
       ],
@@ -4718,7 +4718,7 @@
       "review_scope": "migrate_dependency_or_documentation"
     },
     {
-      "path": "ucagent/tui/widgets/task_panel.py",
+      "path": "ucagent/interfaces/terminal/tui/widgets/task_panel.py",
       "markers": [
         "pdb_type",
         "business_command"
@@ -4765,7 +4765,7 @@
       "review_scope": "inspect_command_usage"
     },
     {
-      "path": "ucagent/verify_agent.py",
+      "path": "ucagent/core/agent/execution.py",
       "markers": [
         "business_command",
         "debugger_control",
@@ -4795,7 +4795,7 @@
       "review_scope": "inspect_command_usage"
     },
     {
-      "path": "ucagent/control/runtime/host.py",
+      "path": "ucagent/runtime/host.py",
       "markers": [
         "business_command"
       ],
@@ -4818,7 +4818,7 @@
       "review_scope": "migrate_dependency_or_documentation"
     },
     {
-      "path": "ucagent/control/console.py",
+      "path": "ucagent/interfaces/terminal/console.py",
       "markers": [
         "business_command"
       ],
@@ -4908,7 +4908,7 @@
       "review_scope": "inspect_command_usage"
     },
     {
-      "path": "ucagent/control/runtime/presentation.py",
+      "path": "ucagent/interfaces/terminal/presentation.py",
       "markers": [
         "business_command"
       ],
@@ -4939,6 +4939,105 @@
       ],
       "kind": "source_or_configuration",
       "review_scope": "inspect_command_usage"
+    },
+    {
+      "path": "docs/content/02_usage/10_runtime_control.en.md",
+      "markers": [
+        "business_command"
+      ],
+      "batches": [
+        "B09"
+      ],
+      "kind": "documentation",
+      "review_scope": "migrate_dependency_or_documentation"
+    },
+    {
+      "path": "docs/content/02_usage/10_runtime_control.md",
+      "markers": [
+        "business_command"
+      ],
+      "batches": [
+        "B09"
+      ],
+      "kind": "documentation",
+      "review_scope": "migrate_dependency_or_documentation"
+    },
+    {
+      "path": "docs/content/03_develop/09_plugins.en.md",
+      "markers": [
+        "business_command"
+      ],
+      "batches": [
+        "B09"
+      ],
+      "kind": "documentation",
+      "review_scope": "migrate_dependency_or_documentation"
+    },
+    {
+      "path": "docs/content/03_develop/09_plugins.md",
+      "markers": [
+        "business_command"
+      ],
+      "batches": [
+        "B09"
+      ],
+      "kind": "documentation",
+      "review_scope": "migrate_dependency_or_documentation"
+    },
+    {
+      "path": "tests/test_initialization.py",
+      "markers": [
+        "business_command"
+      ],
+      "batches": [
+        "B09"
+      ],
+      "kind": "test",
+      "review_scope": "migrate_dependency_or_documentation"
+    },
+    {
+      "path": "ucagent/interfaces/cli/arguments.py",
+      "markers": [
+        "business_command"
+      ],
+      "batches": [
+        "B09"
+      ],
+      "kind": "source_or_configuration",
+      "review_scope": "migrate_dependency_or_documentation"
+    },
+    {
+      "path": "ucagent/application/preparation.py",
+      "markers": [
+        "business_command"
+      ],
+      "batches": [
+        "B09"
+      ],
+      "kind": "source_or_configuration",
+      "review_scope": "migrate_dependency_or_documentation"
+    },
+    {
+      "path": "ucagent/core/workspace/assets.py",
+      "markers": [
+        "business_command"
+      ],
+      "batches": [
+        "B09"
+      ],
+      "kind": "source_or_configuration",
+      "review_scope": "migrate_dependency_or_documentation"
+    },
+    {
+      "path": "ucagent/interfaces/cli/options.py",
+      "markers": [
+        "business_command"
+      ],
+      "batches": [
+        "B09"
+      ],
+      "kind": "source_or_configuration",
+      "review_scope": "migrate_dependency_or_documentation"
     }
   ],
   "test_migrations": [
@@ -5184,7 +5283,7 @@
             "test_extra_skill_path_rejects_explicitly_disabled_skills",
             "test_langchain_backend_does_not_require_mcp_server",
             "test_blank_backend_does_not_require_mcp_server",
-            "test_non_langchain_backend_requires_mcp_server",
+            "test_command_backend_requires_mcp_after_final_config",
             "test_non_langchain_backend_accepts_either_mcp_server_option",
             "test_non_langchain_backend_allows_embed_tools_when_mcp_is_enabled",
             "test_cli_starts_mcp_before_headless_backend_run",
@@ -6354,7 +6453,7 @@
     {
       "name": "shutdown",
       "canonical_name": "quit",
-      "owner": "ucagent/control/runtime/host.py",
+      "owner": "ucagent/runtime/host.py",
       "contract": "Explicit instance shutdown in every frontend; bare q/quit/exit detach only when entered in TUI."
     }
   ]

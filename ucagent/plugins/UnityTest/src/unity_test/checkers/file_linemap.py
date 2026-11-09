@@ -8,7 +8,7 @@ import traceback
 from collections import OrderedDict
 
 import ucagent.util.functions as fc
-from ucagent.checkers.base import Checker, BatchTask
+from ucagent.core.checkers.base import Checker, BatchTask
 from ucagent.util.log import info, warning
 
 from .descriptions import description_func_doc

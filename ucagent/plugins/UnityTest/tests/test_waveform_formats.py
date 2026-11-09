@@ -12,7 +12,7 @@ import pytest
 import yaml
 
 from unity_test.waveform import WaveInfo
-from ucagent.tools.uctool import to_mcp_tool
+from ucagent.core.tools.uctool import to_mcp_tool
 from unity_test.waveform_formats import (
     open_waveform_reader, paginate_signal_matches, register_waveform_reader,
 )

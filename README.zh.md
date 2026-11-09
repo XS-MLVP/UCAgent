@@ -263,7 +263,7 @@ A: 可以，详见[自定义文档](https://ucagent.open-verify.cc/content/03_de
 
 **Q: 如何添加自定义工具？**
 
-A: 在 `ucagent/tools/` 目录下创建新的工具类，继承 `UCTool` 基类，并通过 `--ex-tools` 参数加载。详见[工具列表文档](https://ucagent.open-verify.cc/content/03_develop/02_tool_list/)。
+A: 在 `ucagent/core/tools/` 目录下创建新的工具类，继承 `UCTool` 基类，并通过 `--ex-tools` 参数加载。详见[工具列表文档](https://ucagent.open-verify.cc/content/03_develop/02_tool_list/)。
 
 > 🔍 **更多问题：** 查看完整 [FAQ 文档](https://ucagent.open-verify.cc/content/02_usage/05_faq/)
 

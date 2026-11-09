@@ -1,0 +1,1899 @@
+# -*- coding: utf-8 -*-
+"""Verification manager for UCAgent stage execution."""
+
+import copy
+import json
+import os
+import time
+import traceback
+import random
+from collections import OrderedDict
+from typing import Optional, Callable, Dict, Any, Union, Literal
+
+from langchain_core.callbacks import (
+    CallbackManagerForToolRun,
+)
+from langchain_core.tools.base import ArgsSchema
+from pydantic import BaseModel, ConfigDict, Field
+
+import ucagent.util.functions as fc
+import ucagent.core.checkers
+from ucagent.core.stage.vstage import get_root_stage, coordinated_stage_mutation
+from ucagent.core.tools.uctool import UCTool, EmptyArgs
+from ucagent.util.functions import import_class_from_str, make_llm_tool_ret
+from ucagent.util.config import Config
+from ucagent.util.log import info, warning
+from ucagent.core.stage.llm_suggestion.base_suggestion import get_llm_check_instance
+from ucagent.core.tools.skill import _list_skills, list_skills_in_format
+
+
+# Fields the manager injects itself and stage_args must not override.  The
+# control fields ``timeout`` and ``full_output`` are different: an LLM may
+# grant them inside stage_args, and the manager consumes both before
+# dispatching the remaining stage-defined arguments to Checkers.
+_INTERNAL_STAGE_ARG_NAMES = frozenset({"is_complete"})
+
+
+class ManagerTool(UCTool):
+    # custom vars
+    function: Callable = None
+    args_schema: Optional[ArgsSchema] = EmptyArgs
+
+    def _run(self, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
+        return self.function()
+
+    def set_function(self, func):
+        self.function = func
+        return self
+
+    def bind(self, manager):
+        """Attach stage-manager context; plugin manager tools override this."""
+        return self
+
+
+class ArgApproveStagePass(BaseModel):
+    pass_or_not: bool = Field(
+        default=True,
+        description="Indicates whether to pass or not current stage task, True means pass and False means fail. Default is True."
+    )
+
+
+class ApproveStagePass(ManagerTool):
+    """Approve the current stage as passed."""
+    name: str = "ApproveStagePass"
+    args_schema: Optional[ArgsSchema] = ArgApproveStagePass
+    description: str = (
+        "Approve the current stage as passed. \n"
+        "This tool is used when you have verified that the current stage has been properly completed. \n"
+    )
+    def _run(self, pass_or_not: bool = True, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
+        return self.function(pass_or_not)
+
+
+class ToolStatus(ManagerTool):
+    """List current missoin status."""
+    name: str = "Status"
+    description: str = (
+        "Returns the current status of your mission."
+    )
+
+
+class ToolCurrentTips(ManagerTool):
+    """Get tips for the current task."""
+    name: str = "CurrentTips"
+    description: str = (
+        "Returns the tips for the current task."
+    )
+
+
+class ToolDetail(ManagerTool):
+    """Get current missoin detials."""
+    name: str = "Detail"
+    description: str = (
+        "Returns the detail info of your mission, including all stages and their details. \n"
+    )
+
+
+class ToolKillCheck(ManagerTool):
+    """Kill the current check process."""
+    name: str = "KillCheck"
+    description: str = (
+        "Kill the current check process. \n"
+        "This tool is only used when the tool 'Check' is long time running or get stuck. \n"
+    )
+
+
+class ToolStageJournal(ManagerTool):
+    """Get the journal of the current stage."""
+    name: str = "StageJournal"
+    description: str = (
+        "Get the journal of the current stage. "
+    )
+
+
+class ToolAllStageJournal(ManagerTool):
+    """get the journal of the all stages."""
+    name: str = "AllStageJournal"
+    description: str = (
+        "Get the journal of all stages. \n"
+        "This tool is used to when continue a previous mission or the LLM context is compressed and other similar situations. "
+    )
+
+
+class ArgSetCurrentStageJournal(BaseModel):
+    journal: str = Field(
+        description="The journal content to set for or append to the current stage journal. Cannot be empty."
+    )
+    mode: Literal["replace", "append"] = Field(
+        default="replace",
+        description=(
+            "How to apply the journal content: 'replace' rewrites the whole "
+            "journal of the current stage; 'append' adds the content to the "
+            "end of the already recorded journal, joining records with one "
+            "blank line."
+        )
+    )
+
+
+class ToolSetCurrentStageJournal(ManagerTool):
+    """set or append to the journal of the current stage."""
+    name: str = "SetCurrentStageJournal"
+    description: str = (
+        "Set the journal of the current stage. \n"
+        "This tool is used to record important information during the current stage. When completing the stage, the journal should be set. \n"
+        "The journal content should be concise and clear and only the necessary information should be included.\n"
+        "Use mode='append' to add new progress to the end of the already recorded journal without rewriting it; "
+        "the default mode='replace' rewrites the whole journal. When the current journal is empty, mode='append' behaves like mode='replace'. \n"
+        "eg: - What you have done in this stage.\n"
+        "    - What problems you have encountered and how you solved them.\n"
+        "    - Experience or lessons learned during this stage.\n"
+        "    - Files and its comments you have created or modified in this stage.\n"
+        "    - Things to note when re-continuing this stage in the future.\n"
+    )
+    args_schema: Optional[ArgsSchema] = ArgSetCurrentStageJournal
+
+    def _run(self, journal: str = "", mode: str = "replace",
+             run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
+        if not journal:
+            return "Journal content cannot be empty."
+        return self.function(journal, mode)
+
+
+class ArgSkillUsage(BaseModel):
+    skill_usage: Dict[str, Any] = Field(
+        description=(
+            "The current stage's stage-specific Skills and their list/read/use state. "
+            "Use this only when the current stage has a nonempty skill_list. "
+            "list, read, and use must be booleans. Each Skill may also include a "
+            "nonempty reason; reason is required when use=false records that the "
+            "Skill has no applicable object in the checked stage result."
+        )
+    )
+
+class ToolSetSkillUsage(ManagerTool):
+    """Validate and record observed Skill usage for the current stage."""
+    name: str = "SetSkillUsage"
+    description: str = (
+        "Validate the current stage's Skill outcome before Complete only when that "
+        "stage has a nonempty stage-specific skill_list. A stage with no configured "
+        "skill_list has no Skill usage check and must not call this tool merely because "
+        "Skill support or general Skills are available. This tool cannot "
+        "create or upgrade list/read evidence: `ListSkill` records list=true, and "
+        "successfully reading that Skill's SKILL.md with `ReadTextFile` records "
+        "read=true. A fully successful `RunSkillScript` call records use=true for an "
+        "applied script. After list/read and a passing current `Check`, SetSkillUsage "
+        "may record use=true when a text method was applied, or validate use=false with "
+        "a nonempty reason when the method had no applicable object (for example, no "
+        "confirmed Bug, so no recording script was needed). Stage-specific Skills are "
+        "required by "
+        "default unless force_use_skill=false; general Skills remain optional. Pass a "
+        "JSON object. Applied method example: {\"<skill_id>\": {\"list\": true, "
+        "\"read\": true, \"use\": true}}. No-applicable-work "
+        "example: {\"<skill_id>\": {\"list\": true, "
+        "\"read\": true, \"use\": false, \"reason\": \"<nonempty reason no Skill "
+        "work applied in this stage>\"}}. A reason cannot "
+        "replace list/read or the current Check and must not be used to manufacture work."
+    )
+    args_schema: Optional[ArgsSchema] = ArgSkillUsage
+
+    def _run(self, skill_usage: Dict[str, Any] = None, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
+        if not skill_usage:
+            return (
+                "skill_usage cannot be empty. Complete the Skill evidence sequence, "
+                "then call `SetSkillUsage` with the current stage-specific Skill names "
+                "and boolean list/read/use fields."
+            )
+        return self.function(skill_usage)
+
+
+class ArgStageDiff(BaseModel):
+    target_file: str = Field(".", description="The target file or path to get diff, default is current workspace directory.")
+    show_detail: bool = Field(False, description="Whether to show detailed diff output, default is False.")
+    start_line: int = Field(1, description="The starting line number for diff output, default is 1")
+    line_count: int = Field(-1, description="The number of lines to show in the diff output, default is -1 (show all lines)")
+
+
+class ToolStageDiff(ManagerTool):
+    """Retrieve the differences between the current file and the file at the last `StageCommit`."""
+    name: str = "StageDiff"
+    description: str = (
+        "Get the differences between the current file and the file at the last `StageCommit`. \n"
+        "This tool helps you to identify changes made since the last commit in the current stage. \n"
+        "Use this tool to review modifications before proceeding with further actions. \n"
+    )
+    args_schema: Optional[ArgsSchema] = ArgStageDiff
+    def _run(self, target_file: str = ".",
+             show_detail: bool = False,
+             start_line: int = 1,
+             line_count: int = -1,
+             run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
+        return self.function(target_file, show_detail, start_line, line_count)
+
+
+class ArgStageCommit(BaseModel):
+    commit_message: str = Field(..., description="The commit message for the changes in the current stage.")
+
+
+class ToolStageCommit(ManagerTool):
+    """Commit current stage changes."""
+    name: str = "StageCommit"
+    description: str = (
+        "Commit current stage changes. \n"
+        "This tool records your progress and changes made during the current stage. \n"
+        "Use this tool to ensure that all modifications are saved before proceeding with further actions. \n"
+        "When called this tool, all changes in the current stage will be committed with the provided commit message and "
+        "you cannot undo this action. \n"
+    )
+    args_schema: Optional[ArgsSchema] = ArgStageCommit
+    def _run(self, commit_message: str = "",
+             run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
+        if not commit_message:
+            return "Commit message cannot be empty."
+        return self.function(commit_message)
+
+
+class ArgStdCheck(BaseModel):
+    lines: int = Field(
+        default=-1,
+        description="lines to read, -1 means read all"
+    )
+
+
+class ToolStdCheck(ManagerTool):
+    """get the standard output of the current check process."""
+    name: str = "StdCheck"
+    description: str = (
+        "Get the standard output of the current check process. \n"
+        "This tool is only used to get the output of the runnig tool 'Check'. \n"
+        "You can specify the number of lines to read, -1 means read all lines. \n"
+    )
+    args_schema: Optional[ArgsSchema] = ArgStdCheck
+
+    def _run(self, lines: int = -1, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
+        return self.function(lines)
+
+
+def _prepare_stage_args(stage_args):
+    """Validate and copy stage-defined arguments before checker dispatch."""
+    if stage_args is None:
+        return {}
+    if isinstance(stage_args, str):
+        try:
+            stage_args = json.loads(stage_args)
+        except json.JSONDecodeError as exc:
+            raise ValueError(
+                "stage_args string must contain a valid JSON object"
+            ) from exc
+    if not isinstance(stage_args, dict):
+        raise TypeError(
+            "stage_args must be a JSON object or a string containing one"
+        )
+    if _INTERNAL_STAGE_ARG_NAMES.intersection(stage_args):
+        raise ValueError(
+            "stage_args contains fields reserved for internal dispatch "
+            f"({', '.join(sorted(_INTERNAL_STAGE_ARG_NAMES.intersection(stage_args)))}); "
+            "is_complete is set automatically by Complete and must be removed"
+        )
+    if "full_output" in stage_args and not isinstance(stage_args["full_output"], bool):
+        raise TypeError("stage_args.full_output must be a boolean")
+    timeout = stage_args.get("timeout")
+    if timeout is not None and (
+        isinstance(timeout, bool) or not isinstance(timeout, int) or timeout < 0
+    ):
+        raise TypeError(
+            "stage_args.timeout must be a non-negative integer number of seconds"
+        )
+    return dict(stage_args)
+
+
+def _split_stage_control_args(stage_args):
+    """Remove manager-owned controls before dispatching stage-defined arguments.
+
+    A ``timeout`` field inside stage_args grants the same Check/Complete
+    call-time budget as the tool-level timeout parameter, so it is consumed
+    here instead of reaching Checker dispatch.
+    """
+
+    prepared = _prepare_stage_args(stage_args)
+    full_output = prepared.pop("full_output", False)
+    timeout = prepared.pop("timeout", 0)
+    return prepared, full_output, timeout
+
+
+class ArgsDoCheck(BaseModel):
+    """Stable arguments for Check/Complete across all verification stages."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "description": (
+                "Arguments for Check/Complete. Put all current-stage custom input in "
+                "the stage_args JSON object using the structure documented by the "
+                "current stage task or checker diagnostic."
+            )
+        },
+    )
+
+    timeout: int = Field(
+        default=0,
+        description=(
+            "Timeout in seconds for this Check/Complete call. Zero means use "
+            "default cfg.call_time_out. The same budget may also be granted "
+            "as a timeout field inside stage_args; the larger value wins."
+        )
+    )
+    stage_args: Union[Dict[str, Any], str] = Field(
+        default_factory=dict,
+        description=(
+            "Current-stage custom arguments as a JSON object. Its keys and value shapes "
+            "are defined by the current stage task and checker diagnostics. Prefer the "
+            "object itself; if the caller cannot serialize a nested object correctly, pass "
+            "a string containing the complete valid JSON object as a fallback. Two "
+            "control fields are consumed before Checker dispatch and never reach the "
+            "stage: the boolean full_output=true returns complete raw Checker output "
+            "such as raw Checker STDOUT/STDERR, and timeout grants this call the same "
+            "call-time budget as the top-level timeout parameter."
+        ),
+    )
+
+
+class ToolDoCheck(ManagerTool):
+    """Advanced validation tool for stage requirements and implementation quality."""
+    name: str = "Check"
+    description: str = (
+        "Perform comprehensive validation of your current stage's implementation against requirements.\n"
+        "The tool provides detailed feedback.\n"
+        "When the current stage requires custom input, pass it in the stage_args JSON "
+        "object using the structure documented by that stage."
+    )
+    args_schema: Optional[ArgsSchema] = ArgsDoCheck
+
+    def _run(self, timeout=0, stage_args=None,
+             run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
+        """
+        Execute stage validation with enhanced error handling and reporting.
+        
+        Args:
+            timeout: Check timeout in seconds.
+            stage_args: Current-stage custom arguments passed to checkers.
+            run_manager: Callback manager for tool execution
+            
+        Returns:
+            str: Comprehensive validation report in JSON format
+        """
+        try:
+            stage_args = _prepare_stage_args(stage_args)
+            if timeout <= 0:
+                timeout = self.get_call_time_out()
+            return self.function(timeout, stage_args=stage_args)
+        except Exception as e:
+            traceback.print_exc()
+            error_msg = f"Validation failed: {str(e)}"
+            info(error_msg)
+            return make_llm_tool_ret({
+                "check_pass": False,
+                "check_info": error_msg
+            })
+
+
+class ToolDoComplete(ManagerTool):
+    """Tell the manager that you have completed the current stage."""
+    name: str = "Complete"
+    description: str = (
+        "Perform comprehensive validation of your current stage's implementation against requirements and mark the stage as complete if all checks pass.\n"
+        "The tool provides detailed feedback (Different from tool 'Check': if all checks pass, the stage is marked as complete and the manager advances to the next stage).\n\n"
+        "When the current stage requires custom input, pass it in the stage_args JSON "
+        "object using the structure documented by that stage."
+    )
+    args_schema: Optional[ArgsSchema] = ArgsDoCheck
+
+    def _run(self, timeout=0, stage_args=None,
+             run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
+        try:
+            stage_args = _prepare_stage_args(stage_args)
+            if timeout <= 0:
+                timeout = self.get_call_time_out()
+            return self.function(timeout, stage_args=stage_args)
+        except Exception as e:
+            traceback.print_exc()
+            error_msg = f"Completion failed: {str(e)}"
+            info(error_msg)
+            return error_msg
+
+
+class ArgToolGoToStage(BaseModel):
+    index: int = Field(
+        default=-1,
+        description="Stage index to go to. "
+    )
+
+
+class ToolGoToStage(ManagerTool):
+    """Go to a specific stage by index."""
+    name: str = "GoToStage"
+    description: str = (
+        "Go to a specific stage by index. Only those stages that have been reached can be selected. \n"
+        "Stage is reached means that all checks in the stage have been passed. \n"
+        "This tool is used when you want refine your previous work, or want to go back to a previous stage. \n"
+        "Returns the result of the operation."
+    )
+    args_schema: Optional[ArgsSchema] = ArgToolGoToStage
+
+    def _run(self, index: int = -1, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
+        return self.function(index)
+
+
+class ToolDoExit(ManagerTool):
+    """Exit the agent and end the mission after all stages are completed."""
+    name: str = "Exit"
+    description: str = (
+        "Exit the agent and end the mission after all stages are completed. \n"
+        "This tool is used when you have completed all stages and want to exit the agent. \n"
+        "Returns a message indicating the exit status."
+    )
+
+
+class StageManager(object):
+    """Own verification rules and accept an optional runtime mutation coordinator."""
+
+    control_guard = None
+    control_revision = 0
+    workspace_sync_callback = None
+    master_connections = None
+
+    def __init__(
+            self, workspace, cfg, agent, tool_read_text, ucagent_info: dict,
+            force_stage_index=0,
+            force_todo=False,
+            todo_panel=None,
+            stage_skip_list=None,
+            stage_unskip_list=None,
+            tool_inspect_file=None,
+            reference_files=None,
+            force_stage_index_explicit=False,
+            checker_registry=None,
+            test_python_import_roots=None,
+            manager_tool_registry=None,
+            runtime_hooks=None,
+    ):
+        """
+        Initialize the StageManager with an empty list of stages.
+        """
+        self.cfg = cfg
+        self.workspace = workspace
+        self.force_todo = force_todo
+        self.todo_panel = todo_panel
+        self.test_python_import_roots = list(test_python_import_roots or [])
+        self.runtime_hooks = list(runtime_hooks or [])
+        self.manager_tool_registry = dict(manager_tool_registry or {})
+        self.agent = agent
+        self.completion_callback = None
+        self.tool_read_text = tool_read_text
+        self.ucagent_info = ucagent_info
+        self.data = self.ucagent_info.get("stage_data", {})
+        self.force_stage_index = force_stage_index
+        self.force_stage_index_explicit = force_stage_index_explicit
+        self._saved_info_truncated_by_force = False
+        self.stage_skip_list = stage_skip_list
+        self.stage_unskip_list = stage_unskip_list
+        self.tool_inspect_file = tool_inspect_file
+        self.reference_files = reference_files
+        self.checker_registry = dict(checker_registry or {})
+        self.validation_revision = 0
+        # A new assembly also invalidates approvals prepared for the prior run.
+        self.control_revision = self._safe_int(ucagent_info.get("control_revision", 0)) + 1
+        # Declared manager tools bind after the registry and workspace exist.
+        self.plugin_manager_tools = self._create_declared_manager_tools()
+
+    def _create_declared_manager_tools(self):
+        """Instantiate the workflow-declared manager tools from the registry.
+
+        ``manager_tools`` is a list of tool names; each resolves through the
+        plugin manager-tool registry and binds this manager before the first
+        stage tool list is built.
+        """
+        try:
+            declared = self.cfg.get_value("manager_tools", [])
+        except AttributeError:
+            # Stub configs (tests) carry no get_value: nothing is declared.
+            declared = []
+        if not isinstance(declared, (list, tuple)) or not all(
+            isinstance(name, str) and name.strip() for name in declared
+        ):
+            raise ValueError(
+                "manager_tools must be a list of manager tool names."
+            )
+        tools = []
+        for name in declared:
+            tool_class = self.manager_tool_registry.get(name)
+            if tool_class is None:
+                available = ", ".join(sorted(self.manager_tool_registry)) or "none"
+                raise ValueError(
+                    f"Unknown manager tool {name!r}; available: {available}."
+                )
+            tool = tool_class()
+            if not isinstance(tool, ManagerTool):
+                raise ValueError(
+                    f"Manager tool {name!r} must be a ManagerTool instance."
+                )
+            tool.bind(self)
+            tools.append(tool)
+        return tools
+
+    @staticmethod
+    def _safe_int(value, default=0):
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
+
+    def _truncate_loaded_info_for_forced_stage(self, force_stage_index):
+        if not self.force_stage_index_explicit:
+            return False
+        saved_stage_index = self._safe_int(self.ucagent_info.get("stage_index", 0), 0)
+        if force_stage_index >= saved_stage_index:
+            return False
+
+        warning(
+            f"Force stage index {force_stage_index} is earlier than saved stage index "
+            f"{saved_stage_index}; clearing saved progress from stage {force_stage_index} onward."
+        )
+        self.ucagent_info = copy.deepcopy(self.ucagent_info)
+        stages_info = self.ucagent_info.get("stages_info", {})
+        if isinstance(stages_info, dict):
+            self.ucagent_info["stages_info"] = {
+                stage_idx: stage_info
+                for stage_idx, stage_info in stages_info.items()
+                if self._safe_int(stage_idx, -1) < force_stage_index
+            }
+        self.ucagent_info["stage_index"] = force_stage_index
+        self.ucagent_info["all_completed"] = False
+        self.ucagent_info["time_end"] = None
+        self.ucagent_info["is_agent_exit"] = False
+        self.ucagent_info["is_wait_human_check"] = False
+        return True
+
+    def init_stage(self):
+        from ucagent.core.stage import VerifyStage
+        self.root_stage = get_root_stage(
+            self.cfg,
+            self.workspace,
+            self.tool_read_text,
+            self.checker_registry,
+        )
+        self.stages = self.root_stage.get_substages()
+        if self.reference_files:
+            for si, flist in self.reference_files.items():
+                if 0 <= si < len(self.stages):
+                    info(f"Stage {si} try add reference files: {flist}")
+                    self.stages[si].add_reference_files(flist)
+                elif si == -1:
+                    info(f"All stages try add reference files: {flist}")
+                    for s in self.stages:
+                        s.add_reference_files(flist)
+                else:
+                    warning(f"Invalid stage index {si} in reference_files, ignored.")
+        self.mission = self.cfg.mission
+        info(f"Initialized StageManager with {len(self.stages)} stages.")
+        info("Stages:\n" + "\n".join([f"{i:2d}:   {stage.title()}{' (skipped)' if stage.is_skipped() else ''}" for i, stage in enumerate(self.stages)]))
+        self.stage_index = min(max(0, self.force_stage_index), len(self.stages))
+        self._saved_info_truncated_by_force = self._truncate_loaded_info_for_forced_stage(self.stage_index)
+        for i in range(min(self.stage_index + 1, len(self.stages))):
+            self.stages[i].set_reached(True)
+        stages_info = self.ucagent_info.get("stages_info", {})
+
+        for stage_idx_str, stage_info in stages_info.items():
+            idx = int(stage_idx_str)
+            if idx >= len(self.stages):
+                continue
+            stage: VerifyStage = self.stages[idx]
+            if isinstance(stage, VerifyStage):
+                stage.restore_control_state(stage_info)
+            stage.set_fail_count(stage_info.get("fail_count", 0))
+            stage.set_time_prev_cost(stage_info.get("time_cost", 0.0))
+            stage.set_skip(stage_info.get("is_skipped", stage.is_skipped()))
+            if idx < self.stage_index:
+                stage.is_complete = stage_info.get("is_completed", stage.is_completed())
+            stage.set_reference_file_status(stage_info.get("task", {}).get("reference_files", {}))
+            if "meta_data" in stage_info:
+                stage.meta_data = copy.deepcopy(stage_info["meta_data"])
+                restore_skill_usage = getattr(stage, "restore_skill_usage", None)
+                if callable(restore_skill_usage) and not restore_skill_usage():
+                    warning(
+                        f"Stage '{stage.name}' has invalid persisted Skill evidence; "
+                        "list/read/use evidence will be collected again."
+                    )
+        self._go_skip_stage()
+        for s in self.stages:
+            s.set_stage_manager(self)
+        if self.stage_index < len(self.stages):
+            self.stages[self.stage_index].on_init()
+        self.last_check_info = {}
+        if self.stage_skip_list:
+            for si in self.stage_skip_list:
+                self.skip_stage(si)
+                info(f"Stage {si} is set to be skipped.")
+        if self.stage_unskip_list:
+            for sui in self.stage_unskip_list:
+                self.unskip_stage(sui)
+                info(f"Stage {sui} is set to be unskipped.")
+        self._refresh_all_completed()
+        info("Current stage index is " + str(self.stage_index) + ".")
+        self.time_begin = self.ucagent_info.get("time_begin", time.time())
+        self.time_end = self.ucagent_info.get("time_end", None)
+        self.llm_fail_suggestion = get_llm_check_instance(
+            self.cfg.vmanager.llm_suggestion.check_fail_refinement,
+            self,
+            self.tool_inspect_file
+        )
+        self.llm_pass_suggestion = get_llm_check_instance(
+            self.cfg.vmanager.llm_suggestion.check_pass_refinement,
+            self,
+            self.tool_inspect_file + [ApproveStagePass().set_function(self.tool_stage_approve),
+                                      ToolStageDiff().set_function(self.tool_stage_diff),
+                                      ToolStageCommit().set_function(self.tool_stage_commit)]
+        )
+        if self.stage_index < len(self.stages):
+            self.stages[self.stage_index].hist_init()
+        self.save_stage_info()
+
+    def is_break(self):
+        return self.agent.is_break()
+
+    def tool_stage_approve(self, pass_or_not: bool = True) -> str:
+        vstage = self.get_current_stage()
+        if vstage is None:
+            return "No current stage available."
+        vstage.set_approved(pass_or_not)
+        return f"Stage '{vstage.name}' approved status set to {pass_or_not}."
+
+    def tool_stage_diff(self, target_file, show_detail, start_line, line_count) -> str:
+        vstage = self.get_current_stage()
+        if vstage is None:
+            return "No current stage available."
+        return vstage.hist_diff(target_file, show_detail, start_line, line_count)
+
+    def tool_stage_commit(self, commit_message) -> str:
+        vstage = self.get_current_stage()
+        if vstage is None:
+            return "No current stage available."
+        vstage.hist_commit(commit_message)
+        return f"Stage '{vstage.name}' changes committed."
+
+    def gen_fail_suggestion(self, error_msg):
+        stage = self.get_current_stage()
+        if stage is None:
+            return error_msg
+        if not isinstance(error_msg, dict) or not error_msg.get("failure_summary"):
+            return error_msg
+        if self.stage_need_llm_fail_suggestion(stage) is False:
+            return self._compact_check_result(error_msg)
+        try:
+            fail_suggestion = self.gen_llm_suggestion(
+                error_msg,
+                stage,
+                self.llm_fail_suggestion,
+                self.stage_need_llm_fail_suggestion,
+            )
+            stage.meta_set_llm_fail_suggestion(fail_suggestion)
+            result = copy.deepcopy(error_msg)
+            result["action"] = fail_suggestion
+            return self._compact_check_result(result)
+        except Exception as e:
+            traceback.print_exc()
+            warning(f"Generate fail suggestion failed: {str(e)}")
+            return error_msg
+
+    def is_llm_suggestion_needed(self, stage_name, suggestion_ins, need_llm_suggestion) -> bool:
+        if not suggestion_ins:
+            return False
+        if need_llm_suggestion is not None:
+            return need_llm_suggestion
+        cfg = suggestion_ins.get_cfg()
+        bypass_stages = cfg.get("bypass_stages", [])
+        if bypass_stages:
+            if stage_name in bypass_stages:
+                return False
+        target_stages = cfg.get("target_stages", [])
+        if target_stages:
+            if stage_name not in target_stages:
+                return False
+        return cfg.get("default_apply_all_stages", True)
+
+    def stage_need_llm_pass_suggestion(self, stage) -> bool:
+        if stage is None:
+            return False
+        return self.is_llm_suggestion_needed(
+            stage.name,
+            self.llm_pass_suggestion,
+            stage.need_pass_llm_suggestion,
+        )
+
+    def stage_need_llm_fail_suggestion(self, stage) -> bool:
+        if stage is None:
+            return False
+        return self.is_llm_suggestion_needed(
+            stage.name,
+            self.llm_fail_suggestion,
+            stage.need_fail_llm_suggestion,
+        )
+
+    def gen_pass_suggestion(self, raw_msg) -> str:
+        stage = self.get_current_stage()
+        if stage is None:
+            return raw_msg
+        try:
+            pass_suggestion = self.gen_llm_suggestion(
+                raw_msg,
+                stage,
+                self.llm_pass_suggestion,
+                self.stage_need_llm_pass_suggestion,
+                pre_llm_cb = lambda: stage.set_approved(False),
+            )
+            stage.meta_set_llm_pass_suggestion(pass_suggestion)
+            return pass_suggestion
+        except Exception as e:
+            traceback.print_exc()
+            warning(f"Generate pass suggestion failed: {str(e)}")
+            warning("Set stage as approved due to exception in generating pass suggestion.")
+            stage.set_approved(True)
+            return raw_msg
+
+    def gen_llm_suggestion(self, raw_msg, stage,
+                           suggestion_instance,
+                           stage_need_llm_suggestion_fc,
+                           pre_llm_cb=None) -> str:
+        assert stage is not None, "stage can not be None"
+        if stage_need_llm_suggestion_fc(stage) is False:
+            return raw_msg
+        if callable(pre_llm_cb):
+            pre_llm_cb()
+        stage.set_force_unactive(True)
+        try:
+            return suggestion_instance.suggest([
+                    stage.task_info(),
+                    raw_msg],
+                    stage)
+        finally:
+            stage.set_force_unactive(False)
+
+    def get_time_cost(self):
+        if self.time_end is None:
+            return time.time() - self.time_begin
+        return self.time_end - self.time_begin
+
+    def _compute_all_completed(self):
+        if not self.stages:
+            return True
+        if self.stage_index >= len(self.stages):
+            return True
+        return all(stage.is_skipped() or stage.is_completed() for stage in self.stages)
+
+    def _refresh_all_completed(self):
+        self.all_completed = self._compute_all_completed()
+        return self.all_completed
+
+    def attach_todo_summary(self, data):
+        assert isinstance(data, str), "the target data type of attach_todo_summary must be str"
+        if not self.force_todo:
+            return data
+        if not self.todo_panel:
+            return data
+        return data + self.todo_panel._summary()
+
+    def set_data(self, key, value):
+        self.data[key] = value
+
+    def get_data(self, key, default=None):
+        return self.data.get(key, default)
+
+    def new_tools(self):
+        """
+        Create and return a list of tools for the current stage.
+        """
+        tools = [
+            ToolCurrentTips().set_function(self.tool_current_tips),
+            ToolDetail().set_function(self.tool_detail),
+            ToolStatus().set_function(self.tool_status),
+            *self.plugin_manager_tools,
+            ToolDoCheck().set_function(self.tool_check),
+            ToolKillCheck().set_function(self.tool_kill_check),
+            ToolStdCheck().set_function(self.tool_std_check),
+            ToolDoComplete().set_function(self.tool_complete),
+            ToolGoToStage().set_function(self.tool_go_to_stage),
+            ToolDoExit().set_function(self.tool_exit),
+            ToolStageJournal().set_function(self.tool_get_current_journal),
+            ToolAllStageJournal().set_function(self.tool_get_all_journal),
+            ToolSetCurrentStageJournal().set_function(self.tool_set_journal),
+        ]
+        if self.agent.cfg.skill.use_skill:
+            tools.append(ToolSetSkillUsage().set_function(self.tool_set_skill_usage))
+        return tools
+
+    def _previous_stage_journal(self, stage_index, limit=800):
+        """Return a bounded excerpt of the previous stage's recorded journal.
+
+        The excerpt deliberately favors the beginning of the journal, where
+        the agent records what was broken and what was fixed; later progress
+        notes matter less for the next stage.
+        """
+
+        if stage_index <= 0:
+            return ""
+        previous = self.stages[stage_index - 1]
+        if not previous.is_completed():
+            return ""
+        journal = previous.meta_get_journal() if callable(getattr(previous, "meta_get_journal", None)) else None
+        if not isinstance(journal, str) or not journal.strip():
+            return ""
+        excerpt = journal.strip()
+        if len(excerpt) > limit:
+            excerpt = excerpt[:limit] + "...[truncated]"
+        return excerpt
+
+    def get_current_tips(self):
+        if self.stage_index >= len(self.stages):
+            return "Your mission is completed. No more stages available. You can use `Exit` tool to exit the mission or `GoToStage` tool to go to a specific stage to review."
+        cstage = self.stages[self.stage_index]
+        tips = OrderedDict()
+        tips["mission"] = self.mission.name
+        stage_detail = getattr(cstage, "public_detail", None)
+        if not callable(stage_detail):
+            stage_detail = getattr(cstage, "detail")
+        tips["current_stage"] = OrderedDict({
+            "index": self.stage_index,
+            **stage_detail(),
+        })
+        # Carry the immediately preceding stage's journal forward so hard-won
+        # lessons (for example numeric-encoding bugs fixed on the Python
+        # reference) are visible when the next stage starts implementing the
+        # same behavior in another form.
+        previous_journal = self._previous_stage_journal(self.stage_index)
+        if previous_journal:
+            tips["previous_stage_journal"] = previous_journal
+        ref_files = []
+        for k, v in cstage.reference_files.items():
+            if v:
+                continue
+            ref_files.append(k)
+        if ref_files:
+            tips["notes"] = f"You need use tool: {self.tool_read_text.name} to read the reference files.\n"
+        
+        # list the skills needed to use in current stage
+        skills_to_use = [skill_name for skill_name in cstage.skill_list]
+        if skills_to_use:
+            formatted_skill_list = list_skills_in_format(_list_skills(self.workspace), self.workspace, skills_to_use)
+            if cstage.force_use_skill:
+                try:
+                    usage_examples = self.cfg.get_value(
+                        "skill.no_applicable_examples", {}
+                    )
+                except AttributeError:
+                    usage_examples = {}
+                # Layered configs wrap nested mappings in Config; normalize
+                # before dict access (the mission tips below do the same).
+                if isinstance(usage_examples, Config):
+                    usage_examples = usage_examples.as_dict()
+                no_applicable_example = ""
+                if isinstance(usage_examples, dict):
+                    for skill_name in skills_to_use:
+                        example = usage_examples.get(skill_name)
+                        if isinstance(example, str) and example.strip():
+                            no_applicable_example += f" {example.strip()}"
+                skill_note = (
+                    "This stage requires the following Skills. Use this sequence: "
+                    "ListSkill -> ReadTextFile(SKILL.md) -> perform the Skill method "
+                    "(and RunSkillScript only when that method calls for a declared "
+                    "script), or determine that it has no applicable object -> Check -> "
+                    "SetSkillUsage -> Complete. After a passing Check, submit use=true "
+                    "for an applied text method, or use=false with a nonempty reason for "
+                    "no applicable object."
+                    + no_applicable_example
+                    + "\n"
+                )
+            else:
+                skill_note = (
+                    "Optional Skills available for this stage are listed below. Use them "
+                    "when helpful; their absence or non-use does not block Check or Complete:\n"
+                )
+            tips["notes"] = tips.get("notes", "") + skill_note + formatted_skill_list + "\n"
+
+        tips["process"] = f"{self.stage_index}/{len(self.stages)}"
+        mession_tips = self.mission.get_value("prompt.tips")
+        if mession_tips is not None:
+            mession_tips = mession_tips.as_dict()
+            current_tips = mession_tips.get("always", [])
+            random_tips = mession_tips.get("random", [])
+            if random_tips:
+                rindex = random.randint(0, len(random_tips) - 1)
+                current_tips.append(random_tips[rindex])
+            if current_tips:
+                random.shuffle(current_tips)
+                tips["tips"] = current_tips
+        tips = make_llm_tool_ret(tips)
+        return self.attach_todo_summary(tips)
+
+    def detail(self):
+        """
+        Get the details of the current mission, including all stages and their details.
+        """
+        ret = OrderedDict()
+        ret["mission"] = self.mission.name
+        ret["stage_list"] = []
+        for i, stage in enumerate(self.stages):
+            stage_detail = getattr(stage, "public_detail", None)
+            if not callable(stage_detail):
+                stage_detail = getattr(stage, "detail")
+            ret["stage_list"].append(stage_detail())
+            ret["stage_list"][-1]["index"] = i
+        ret["current_stage_index"] = self.stage_index
+        ret["current_stage_name"] = self.stages[self.stage_index].name if self.stage_index < len(self.stages) else None
+        return ret
+
+    def status(self):
+        ret = OrderedDict()
+        ret["mission"] = self.mission.name
+        ret["all_completed"] = self._compute_all_completed()
+        ret["stage_list"] = []
+        for i, stage in enumerate(self.stages):
+            stage_status = {
+                "index": i,
+                "title": stage.title(),
+                "reached": stage.is_reached(),
+                "fail_count": stage.fail_count,
+                "is_skipped": stage.is_skipped(),
+                "time_start": stage.get_time_start_str(),
+                "time_end": stage.get_time_end_str(),
+                "time_cost": stage.get_time_cost_str(),
+                "is_completed": stage.is_completed(),
+                "needs_human_check": stage.is_hmcheck_needed(),
+                "need_fail_llm_suggestion": self.stage_need_llm_fail_suggestion(stage),
+                "need_pass_llm_suggestion": self.stage_need_llm_pass_suggestion(stage),
+            }
+            if self.cfg.skill.use_skill and stage.skill_list:
+                stage_status["skill_list"] = list(stage.skill_list.keys())
+            ret["stage_list"].append(stage_status)
+        ret["process"] = f"{self.stage_index}/{len(self.stages)}"
+        cstage = self.stages[self.stage_index] if self.stage_index < len(self.stages) else None
+        ret["current_task"] = "No stages available (Maybe mission is completed, you can use the `GoToStage` tool to go back to a previous stage if needed)"
+        if cstage:
+            ret["current_stage_index"] = self.stage_index
+            ret["current_stage_name"] = cstage.name
+            ret["current_task"] = cstage.task_info()
+        ret["last_check_result"] = self._compact_check_result(
+            self._public_check_result(self.last_check_info)
+        )
+        return ret
+
+    def get_current_stage(self):
+        return self.get_stage(self.stage_index)
+
+    @coordinated_stage_mutation("tool", manager=True)
+    def set_current_stage_journal(self, journal, mode="replace"):
+        """Set or append to the current stage journal.
+
+        mode='replace' rewrites the whole journal. mode='append' adds the
+        content after the existing records, joining them with one blank line;
+        an unset or blank current journal is written directly, so appending
+        never leaves a leading separator.
+        """
+        stage = self.get_current_stage()
+        if stage:
+            current = stage.meta_get_journal()
+            if mode == "append":
+                if isinstance(current, str) and current.strip():
+                    stage.meta_set_journal(current + "\n\n" + journal)
+                else:
+                    stage.meta_set_journal(journal)
+                return "Append journal success."
+            stage.meta_set_journal(journal)
+            return "Set journal success."
+        return "No current stage available."
+
+    def get_current_stage_journal(self):
+        stage = self.get_current_stage()
+        if stage:
+            return stage.meta_get_journal()
+        return "No current stage available."
+
+    def get_all_stage_journal(self):
+        journals = OrderedDict()
+        for stage in self.stages:
+            journals[stage.title()] = stage.meta_get_journal()
+        return journals
+
+    @coordinated_stage_mutation("tool", manager=True)
+    def set_current_stage_skill_usage(self, skill_usage: Dict[str, Any]):
+        """Validate real usage evidence recorded by Skill-aware tools and checks."""
+        current_stage = self.get_current_stage()
+        if not current_stage.skill_list:
+            return "No stage-specific Skill usage needs to be recorded."
+
+        stage_cfg = getattr(current_stage, "cfg", None)
+        skill_cfg = getattr(stage_cfg, "skill", None)
+        if skill_cfg is None:
+            skill_cfg = getattr(getattr(self, "cfg", None), "skill", None)
+        if skill_cfg is not None and not bool(getattr(skill_cfg, "use_skill", True)):
+            return "Skill support is disabled; no stage-specific Skill usage needs to be recorded."
+
+        if not isinstance(skill_usage, dict):
+            return "skill_usage must be an object keyed by current stage Skill name."
+
+        unknown_skills = set(skill_usage) - set(current_stage.skill_list)
+        if unknown_skills:
+            return (
+                "skill_usage contains Skills that are not assigned to the current stage: "
+                f"{', '.join(sorted(unknown_skills))}. Remove them and call "
+                "`SetSkillUsage` again."
+            )
+
+        force_use_skill = bool(getattr(current_stage, "force_use_skill", True))
+        reasons = {}
+        text_method_skills = []
+        no_applicable_skills = []
+        for skill_name in current_stage.skill_list:
+            skill_info = skill_usage.get(skill_name)
+            if skill_info is None:
+                if force_use_skill:
+                    return (
+                        f"Required Skill '{skill_name}' is missing from skill_usage. "
+                        "List it with `ListSkill`, read its `SKILL.md`, then either "
+                        "apply its method or determine that the checked stage has no "
+                        "applicable object. After a passing `Check`, include the "
+                        "corresponding use=true or use=false with reason state in "
+                        "`SetSkillUsage`."
+                    )
+                continue
+            if not isinstance(skill_info, dict):
+                return (
+                    f"Skill usage for '{skill_name}' must be an object containing "
+                    "boolean list, read, and use fields, plus an optional reason."
+                )
+            unexpected_fields = set(skill_info) - {"list", "read", "use", "reason"}
+            if unexpected_fields:
+                return (
+                    f"Skill usage for '{skill_name}' has unsupported fields: "
+                    f"{', '.join(sorted(unexpected_fields))}. Use only list, read, use, "
+                    "and optional reason."
+                )
+            missing_fields = {"list", "read", "use"} - set(skill_info)
+            if missing_fields:
+                return (
+                    f"Skill usage for '{skill_name}' is missing required boolean fields: "
+                    f"{', '.join(sorted(missing_fields))}."
+                )
+            reason = skill_info.get("reason")
+            if reason is not None:
+                if not isinstance(reason, str) or not reason.strip():
+                    return (
+                        f"Skill usage reason for '{skill_name}' must be a nonempty string."
+                    )
+                reasons[skill_name] = reason.strip()
+            usage_flags = {}
+            for field_name in ("list", "read", "use"):
+                field_value = skill_info.get(field_name, False)
+                if not isinstance(field_value, bool):
+                    return (
+                        f"Skill usage field '{skill_name}.{field_name}' must be a "
+                        "boolean."
+                    )
+                usage_flags[field_name] = field_value
+
+            if usage_flags["use"] and reason is not None:
+                return (
+                    f"Skill '{skill_name}' has use=true, so reason is not allowed. "
+                    "Use reason only with use=false for a no-applicable-work outcome."
+                )
+
+            if force_use_skill:
+                skill_workspace = getattr(
+                    current_stage, "workspace", getattr(self, "workspace", None)
+                )
+                if not skill_workspace:
+                    return (
+                        f"Cannot validate required Skill '{skill_name}': the current "
+                        "stage workspace is unavailable."
+                    )
+                skill_root = fc.get_workspace_skill_root(skill_workspace)
+                skill_root_abs = os.path.abspath(skill_root)
+                skill_dir = os.path.abspath(os.path.join(skill_root_abs, skill_name))
+                if (
+                    os.path.commonpath([skill_root_abs, skill_dir]) != skill_root_abs
+                    or not os.path.isdir(skill_dir)
+                    or not os.path.isfile(os.path.join(skill_dir, "SKILL.md"))
+                ):
+                    return (
+                        f"Required Skill '{skill_name}' is not available in the workspace. "
+                        "Restore the configured Skill before calling `Complete`."
+                    )
+            listed, read, used = current_stage.skill_list[skill_name]
+            observed_flags = {
+                "list": bool(listed),
+                "read": bool(read),
+                "use": bool(used),
+            }
+
+            mismatched_observed_fields = [
+                field_name
+                for field_name in ("list", "read")
+                if usage_flags[field_name] != observed_flags[field_name]
+            ]
+            if mismatched_observed_fields:
+                required_actions = {
+                    "list": "call `ListSkill`" if not listed else "submit list=true",
+                    "read": (
+                        "read its `SKILL.md` with `ReadTextFile`"
+                        if not read else "submit read=true"
+                    ),
+                }
+                return (
+                    f"Skill usage for '{skill_name}' does not match observed evidence for: "
+                    f"{', '.join(mismatched_observed_fields)}. "
+                    + ", ".join(
+                        required_actions[field] for field in mismatched_observed_fields
+                    )
+                    + ", then call `SetSkillUsage` again."
+                )
+
+            if not listed or not read:
+                missing_actions = []
+                if not listed:
+                    missing_actions.append("list it with `ListSkill`")
+                if not read:
+                    missing_actions.append("read its `SKILL.md` with `ReadTextFile`")
+                return (
+                    f"Skill usage evidence for '{skill_name}' is incomplete: "
+                    + ", ".join(missing_actions)
+                    + ", then call `Check` and `SetSkillUsage` again."
+                )
+
+            if usage_flags["use"]:
+                if not observed_flags["use"]:
+                    text_method_skills.append(skill_name)
+            else:
+                if observed_flags["use"]:
+                    return (
+                        f"Skill '{skill_name}' already has observed use=true evidence. "
+                        "Submit use=true; a reason cannot downgrade observed usage."
+                    )
+                if reason is None:
+                    return (
+                        f"Skill '{skill_name}' has use=false. Provide a nonempty reason "
+                        "explaining why the checked stage result has no applicable object, "
+                        "or apply the Skill method and submit use=true."
+                    )
+                no_applicable_skills.append(skill_name)
+
+        if not getattr(current_stage, "check_pass", False):
+            return (
+                "Current Skill evidence has not passed `Check` in its present state. "
+                "Call `Check` after ListSkill/ReadTextFile and after any Skill script or "
+                "method changes, then call `SetSkillUsage` again."
+            )
+
+        for skill_name in text_method_skills:
+            current_stage.set_usage_skill_list(
+                skill_name, used=True, validated_by_check=True
+            )
+
+        observed_usage = current_stage.get_skill_usage()
+        current_stage.meta_set_skill_usage(
+            observed_usage, validated=True, reasons=reasons
+        )
+        self.save_stage_info()
+        if force_use_skill:
+            if no_applicable_skills:
+                return (
+                    "All required stage Skills have complete usage evidence. "
+                    "No-applicable-work was recorded for: "
+                    + ", ".join(no_applicable_skills)
+                    + "."
+                )
+            return "All required stage Skills have complete usage evidence."
+        return (
+            "Optional stage Skill usage was recorded. Optional Skill non-use does not "
+            "block `Check` or `Complete`."
+        )
+
+    def get_stage(self, index):
+        if 0 <= index < len(self.stages):
+            return self.stages[index]
+        return None
+
+    @coordinated_stage_mutation("human", manager=True)
+    def go_to_stage(self, index):
+        """
+        Go to a specific stage by index.
+        """
+        success = False
+        if 0 <= index < len(self.stages):
+            if index == self.stage_index:
+                msg = f"Already at stage {index}: {self.stages[index].name}."
+                success = True
+            elif self.stages[index].is_skipped():
+                msg = f"Can not goto the skipped stage"
+            elif self.stages[index].is_reached():
+                self.stage_index = index
+                msg = f"Changed to stage {index}: {self.stages[index].name} success."
+                success = True
+            else:
+                msg = f"Stage {index} is not reached yet. Can only go to stages that have been reached. You can use tool `ToolStaus` to find all reached stages."
+        else:
+            msg = f"Invalid stage index: {index}. No change made."
+        return {"message": msg, "success": success}
+
+    @coordinated_stage_mutation("human", manager=True)
+    def force_go_to_stage(self, index):
+        """
+        Force go to a specific stage by index, ignoring whether it is reached or not.
+        This is used when initializing the StageManager with a specific stage index.
+        """
+        if 0 <= index < len(self.stages):
+            self.stage_index = index
+            return True
+        return False
+
+    # Same-signature failure streak that triggers an escalation note.  A
+    # repeated identical failure means incremental edits are not converging;
+    # the agent needs to be pushed back to first principles or to reporting
+    # a structural conflict instead of continuing to guess.
+    REPEAT_FAILURE_ESCALATION_THRESHOLD = 8
+
+    def _escalate_repeated_failure(self, stage_index, failure_summary):
+        """Return the failure summary with an escalation note when looping.
+
+        Tracks consecutive failures carrying the same error_code and location
+        on one stage.  From the threshold-th repetition onward the diagnostic
+        gains an explicit stop-and-rethink instruction.
+        """
+
+        if not isinstance(failure_summary, dict):
+            return failure_summary
+        signature = (
+            failure_summary.get("error_code"),
+            failure_summary.get("location"),
+        )
+        state = getattr(self, "_repeat_failure_state", None)
+        if state is None:
+            state = self._repeat_failure_state = {}
+        previous = state.get(stage_index)
+        if previous is not None and previous[0] == signature:
+            count = previous[1] + 1
+        else:
+            count = 1
+        state[stage_index] = (signature, count)
+        if count < self.REPEAT_FAILURE_ESCALATION_THRESHOLD:
+            return failure_summary
+        escalation = (
+            f"ESCALATION: this exact failure (same error_code and location) has "
+            f"now repeated {count} times. Stop making small edits to the same "
+            "spot. Re-derive the complete behavior table from README/Spec "
+            "(encodings, widths, thresholds, and timing) and compare it against "
+            "the implementation in one pass; if the authority itself is "
+            "ambiguous or the two contracts cannot both be satisfied, write "
+            "that structural conflict to the stage journal with the exact "
+            "evidence instead of guessing again."
+        )
+        result = copy.deepcopy(failure_summary)
+        result["repeat_failure_count"] = count
+        result["next_action"] = f"{escalation}\n{result.get('next_action', '')}".strip()
+        return result
+
+    def _reset_repeat_failure_state(self, stage_index):
+        """Clear the loop tracker when a stage stops failing identically."""
+
+        state = getattr(self, "_repeat_failure_state", None)
+        if state is not None:
+            state.pop(stage_index, None)
+
+    @staticmethod
+    def _ignored_stage_args_keys(stage, stage_args):
+        """Return sorted stage_args keys that no gate in the stage declares."""
+        if not isinstance(stage_args, dict) or not stage_args:
+            return []
+        declared: set = set()
+        for checker in getattr(stage, "checker", None) or []:
+            declared.update(getattr(checker, "accepted_stage_args", None) or ())
+        return sorted(str(key) for key in stage_args if key not in declared)
+
+    @staticmethod
+    def _annotate_ignored_stage_args(ret_data, ignored):
+        """Echo stage_args keys that every gate ignored into the response."""
+
+        if not ignored or not isinstance(ret_data, dict):
+            return
+        warning = (
+            f"Warning: stage_args keys ignored by every validation gate: "
+            f"{', '.join(ignored)}. The current stage did not record them; use "
+            "only the keys documented by the current stage task or checker "
+            "diagnostics."
+        )
+        ret_data["ignored_stage_args"] = list(ignored)
+        ret_data["message"] = f"{ret_data.get('message', '')} {warning}".strip()
+        if "action" in ret_data and isinstance(ret_data["action"], str):
+            ret_data["action"] = f"{ret_data['action']} {warning}"
+
+    @coordinated_stage_mutation("validation", manager=True)
+    def check(self, timeout, stage_args=None):
+        """Run the existing Check gates under the injected mutation reservation."""
+        if not self.stage_index < len(self.stages):
+            return OrderedDict({
+                "check_pass": False,
+                "check_info": f"Stage index{self.stage_index} out of range. (Mission maybe completed, you can use the `GoToStage` tool to go back to a previous stage if needed)",
+            })
+        stage = self.stages[self.stage_index]
+        stage_args, full_output, args_timeout = _split_stage_control_args(stage_args)
+        # Never truncate a caller-granted budget: the larger of the
+        # tool-level and stage_args timeouts governs this Check run.
+        if args_timeout > timeout:
+            timeout = args_timeout
+        ignored_stage_args = self._ignored_stage_args_keys(stage, stage_args)
+        ck_pass, ck_info = stage.do_check(
+            timeout=timeout,
+            stage_args=stage_args,
+        )
+        ret_data = OrderedDict()
+        batch_advanced = not ck_pass and bool(getattr(stage, "is_batch_success", False))
+        if not ck_pass:
+            if batch_advanced:
+                action = self._batch_progress_action("Check")
+                ret_data["progress_summary"] = self._build_batch_progress_summary(
+                    stage, ck_info, action, self.stage_index
+                )
+            else:
+                failure_summary = self._build_failure_summary(
+                    stage, ck_info, stage_index=self.stage_index
+                )
+                if failure_summary is not None:
+                    failure_summary = self._escalate_repeated_failure(
+                        self.stage_index, failure_summary
+                    )
+                    ret_data["failure_summary"] = failure_summary
+                    action = failure_summary["next_action"]
+                else:
+                    action = self._raw_failure_action("Check")
+        ret_data["check_pass"] = ck_pass
+        if not ck_pass:
+            ret_data["action"] = action
+        ret_data["check_info"] = ck_info
+        self.last_check_info = copy.deepcopy(ret_data)
+        ret_data = self._public_check_result(ret_data)
+        self.validation_revision = getattr(self, "validation_revision", 0) + 1
+        if ck_pass or batch_advanced:
+            self._reset_repeat_failure_state(self.stage_index)
+        if ck_pass:
+            ret_data["message"] = f"Congratulations! Stage {self.stage_index} checks passed successfully, you can use tool 'Complete' to finish this stage."
+        self._annotate_ignored_stage_args(ret_data, ignored_stage_args)
+        if not ck_pass and ignored_stage_args:
+            ret_data.setdefault("action", "")
+            ret_data["action"] = (ret_data["action"] or "").strip()
+        elif full_output:
+            return ret_data
+        elif batch_advanced:
+            return self._compact_check_result(ret_data)
+        elif "failure_summary" not in ret_data:
+            return ret_data
+        else:
+            return self.gen_fail_suggestion(ret_data)
+        return ret_data
+
+    @staticmethod
+    def _extract_checker_diagnostic(last_msg):
+        """Return only an explicit validation diagnostic."""
+        if not isinstance(last_msg, dict):
+            return None
+        candidates = []
+        if isinstance(last_msg.get("diagnostic"), dict):
+            candidates.append(last_msg["diagnostic"])
+        if last_msg.get("error_code"):
+            candidates.append(last_msg)
+        if not candidates:
+            return None
+        required = {"error_code", "error", "next_action"}
+        for diagnostic in candidates:
+            if required.issubset(diagnostic) and all(
+                diagnostic[key] not in (None, "", [], {}) for key in required
+            ):
+                return copy.deepcopy(diagnostic)
+        return None
+
+    @classmethod
+    def _build_failure_summary(cls, stage, check_info, stage_index=None):
+        checker_entries = check_info if isinstance(check_info, list) else [check_info]
+        failed_index = None
+        failed_entry = None
+        for index, entry in enumerate(checker_entries):
+            if not isinstance(entry, dict):
+                continue
+            if entry.get("checked_in_last_run") and entry.get("last_check_pass") is False:
+                failed_index = index
+                failed_entry = entry
+                break
+        if failed_entry is None:
+            for index, entry in enumerate(checker_entries):
+                if not isinstance(entry, dict):
+                    continue
+                if entry.get("last_check_pass") is False or entry.get("count_fail", 0) > 0:
+                    failed_index = index
+                    failed_entry = entry
+                    break
+
+        if failed_entry is None:
+            return None
+        last_msg = failed_entry.get("last_msg")
+        diagnostic = cls._extract_checker_diagnostic(last_msg)
+        if diagnostic is None:
+            return None
+
+        remaining_checkers = max(0, len(checker_entries) - (failed_index + 1)) if failed_index is not None else 0
+        summary = OrderedDict({
+            "status": "validation_failed",
+            "stage_index": stage_index,
+            "stage_name": getattr(stage, "name", ""),
+            "failed_validation_gate_index": failed_index,
+            "error_code": diagnostic["error_code"],
+            "error": diagnostic["error"],
+            "next_action": diagnostic["next_action"],
+            "remaining_validation_gates_not_run": remaining_checkers,
+        })
+        reserved_summary_fields = set(summary)
+        for key, value in diagnostic.items():
+            if key not in reserved_summary_fields:
+                summary[key] = copy.deepcopy(value)
+        return summary
+
+    @staticmethod
+    def _raw_failure_action(tool_name):
+        return (
+            "No explicit structured diagnostic was provided by the failed validation gate. "
+            "Inspect every field in the original `check_info` below, including "
+            f"details, STDOUT, and STDERR; fix all reported errors, then call `{tool_name}` "
+            "again. The original validation output has been preserved without summarization."
+        )
+
+    @staticmethod
+    def _batch_progress_action(tool_name):
+        return (
+            "The current batch passed and the next batch is ready. Work only on the next "
+            "batch shown in 'progress_summary.progress', follow the current stage task and "
+            f"the provided argument contract, then call `{tool_name}` again. Do not redo "
+            "the completed batch or diagnose this progress result as a gate failure."
+        )
+
+    @classmethod
+    def _build_batch_progress_summary(
+        cls, stage, check_info, next_action, stage_index=None
+    ):
+        checker_entries = check_info if isinstance(check_info, list) else [check_info]
+        progress_index = None
+        progress_entry = None
+        for index, entry in enumerate(checker_entries):
+            if not isinstance(entry, dict):
+                continue
+            if entry.get("checked_in_last_run") and entry.get("last_check_pass") is False:
+                progress_index = index
+                progress_entry = entry
+                break
+        if progress_entry is None:
+            progress_entry = {"last_msg": check_info}
+
+        remaining_checkers = (
+            max(0, len(checker_entries) - (progress_index + 1))
+            if progress_index is not None
+            else 0
+        )
+        return OrderedDict({
+            "status": "batch_advanced",
+            "stage_index": stage_index,
+            "stage_name": getattr(stage, "name", ""),
+            "validation_gate_index": progress_index,
+            "progress": copy.deepcopy(progress_entry.get("last_msg")),
+            "next_action": next_action,
+            "remaining_validation_gates_not_run": remaining_checkers,
+            "diagnostic_note": (
+                "This is successful batch progress, not a gate failure. Only the next "
+                "batch in the progress payload is currently actionable."
+            ),
+        })
+
+    @staticmethod
+    def _compact_check_result(check_result):
+        if not isinstance(check_result, dict):
+            return check_result
+        if not check_result.get("failure_summary") and not check_result.get("progress_summary"):
+            return check_result
+        compact_result = OrderedDict()
+        for key in (
+            "failure_summary",
+            "progress_summary",
+            "check_pass",
+            "complete",
+            "action",
+            "message",
+            "ignored_stage_args",
+        ):
+            if key in check_result:
+                compact_result[key] = copy.deepcopy(check_result[key])
+        # The compact response already carries the repair action inside
+        # failure_summary.next_action; repeating the identical text as a
+        # top-level action doubles the token cost without adding guidance.
+        failure_summary = compact_result.get("failure_summary")
+        if (
+            isinstance(failure_summary, dict)
+            and compact_result.get("action") == failure_summary.get("next_action")
+        ):
+            del compact_result["action"]
+        return compact_result or check_result
+
+    @staticmethod
+    def _public_check_info(check_info):
+        """Remove validation implementation identities from one public result."""
+
+        def redact(value):
+            if isinstance(value, dict):
+                return {
+                    key: redact(item)
+                    for key, item in value.items()
+                    if key not in {"checker_name", "checker_class"}
+                }
+            if isinstance(value, list):
+                return [redact(item) for item in value]
+            return copy.deepcopy(value)
+
+        public_info = redact(check_info)
+        entries = public_info if isinstance(public_info, list) else [public_info]
+        for entry in entries:
+            if not isinstance(entry, dict) or "last_msg" not in entry:
+                continue
+            entry.pop("name", None)
+        return public_info
+
+    @classmethod
+    def _public_check_result(cls, check_result):
+        """Return an LLM-facing check result with complete task diagnostics."""
+
+        public_result = copy.deepcopy(check_result)
+        if not isinstance(public_result, dict):
+            return public_result
+        if "check_info" in public_result:
+            public_result["check_info"] = cls._public_check_info(
+                public_result["check_info"]
+            )
+        nested = public_result.get("last_check_result")
+        if isinstance(nested, dict):
+            public_result["last_check_result"] = cls._public_check_result(nested)
+        return public_result
+
+    def save_stage_info(self):
+        all_completed = self._refresh_all_completed()
+        info = self.agent.get_stat_info()
+        info.update({
+            "mission_name": self.agent.cfg.mission.name,
+            "dut_name": getattr(self.agent, "dut_name", ""),
+            "DUT": getattr(self.agent, "dut_name", ""),
+            "stage_index": self.stage_index,
+            "control_revision": self.control_revision,
+            "all_completed": all_completed,
+            "time_begin": self.time_begin,
+            "time_end": self.time_end,
+            "is_agent_exit": self.agent.is_exit(),
+            "stage_data": self.data,
+        })
+        info["stages_info"] = {}
+        for idx, stage in enumerate(self.stages):
+            stage_info = stage.detail()
+            stage_info["time_cost"] = stage.get_time_cost()
+            stage_info["meta_data"] = stage.meta_data
+            info["stages_info"][idx] = stage_info
+        stage = self.get_current_stage()
+        is_wait_human_check = False
+        if stage:
+            is_wait_human_check = stage.is_wait_human_check()
+        info["is_wait_human_check"] = is_wait_human_check
+        provider = getattr(self.agent, "runtime_status_provider", None)
+        if provider is not None:
+            info["runtime"] = provider()
+        fc.save_ucagent_info(self.workspace, info)
+
+    @coordinated_stage_mutation("human", manager=True)
+    def next_stage(self):
+        """Advance and persist the next stage within the current mutation."""
+        self.stage_index += 1
+        self._go_skip_stage()
+        self._refresh_all_completed()
+        self.save_stage_info()
+        return self.get_current_stage()
+
+    def _go_skip_stage(self):
+        if self.stage_index >= len(self.stages):
+            return
+        sk = 0
+        while self.stages[self.stage_index].is_skipped():
+            self.stage_index += 1
+            sk += 1
+            if self.stage_index >= len(self.stages):
+                break
+        if sk > 0:
+            info(f"skipped {sk} stages, current stage index is now {self.stage_index}.")
+
+    @coordinated_stage_mutation("human", manager=True)
+    def skip_stage(self, index):
+        """Set skip through the stage setter and advance when the domain permits it."""
+        if 0 <= index < len(self.stages):
+            self.stages[index].set_skip(True)
+            info(f"Stage '{self.stages[index].name}' is set to be skipped.")
+            if index == self.stage_index:
+                self.next_stage()
+        else:
+            warning(f"Invalid stage index: {index}, can not set skip.")
+
+    @coordinated_stage_mutation("human", manager=True)
+    def unskip_stage(self, index):
+        """Restore a skipped stage under the injected mutation reservation."""
+        if 0 <= index < len(self.stages):
+            self.stages[index].set_skip(False)
+            info(f"Stage '{self.stages[index].name}' is set to be unskipped.")
+        else:
+            warning(f"Invalid stage index: {index}, can not set unskip.")
+
+    @coordinated_stage_mutation("human", manager=True)
+    def _stage_complete(self, stage):
+        """Run the existing completion callbacks while retaining stage ownership."""
+        stage.on_complete()
+        if self.llm_fail_suggestion:
+            self.llm_fail_suggestion.on_stage_complete(stage)
+        if self.llm_pass_suggestion:
+            self.llm_pass_suggestion.on_stage_complete(stage)
+
+    @coordinated_stage_mutation("validation", manager=True)
+    def complete(self, timeout, stage_args=None):
+        """Apply all completion gates before advancing the coordinated stage."""
+        if self.stage_index >= len(self.stages):
+            return self._public_check_result({
+                "complete": False,
+                "message": ("No more stages to complete. You can review your work and use the `GoToStage` tool to go back to a previous stage if needed. "
+                            "Or you can use the `Exit` tool to exit the mission."),
+                "last_check_result": self.last_check_info,
+            })
+        stage_args, full_output, args_timeout = _split_stage_control_args(stage_args)
+        # Never truncate a caller-granted budget: the larger of the
+        # tool-level and stage_args timeouts governs this Complete run.
+        if args_timeout > timeout:
+            timeout = args_timeout
+        stage = self.stages[self.stage_index]
+        ignored_stage_args = self._ignored_stage_args_keys(stage, stage_args)
+        ck_pass, ck_info = stage.do_check(
+            timeout=timeout,
+            stage_args=stage_args,
+            is_complete=True,
+        )
+        if ck_pass:
+            if stage.meta_get_journal() is None:
+                return {"complete": False,
+                        "error": "Please use tool 'SetCurrentStageJournal' to set the journal of this stage before completing it."}
+        if ck_pass:
+            llm_msg = self.gen_pass_suggestion(self._public_check_info(ck_info))
+            ck_pass = stage.get_approved()
+            if not ck_pass:
+                if isinstance(llm_msg, str):
+                    return {"complete": False, "error": "Stage Complete Fail:\n\n" + llm_msg}
+                return {"complete": False, "error": "Stage Complete Fail:\n\n" + llm_msg}
+        if ck_pass and stage.is_hmcheck_needed():
+            hm_passed, ck_msg = stage.get_hmcheck_state()
+            if hm_passed is None:
+                self.agent._need_human = True
+                return {"error": ("Now you have passed the self check of this stage, but human check is needed before completing this stage. "
+                                  "Please give a bref introduction of your work to help the human reviewer understand your implementation. "
+                                  "Then wait for human review and approval."),
+                        "complete": False}
+            elif hm_passed is False:
+                self.agent._need_human = True
+                return {"error": ("Human check did not approve your work for this stage. "
+                                  "Please address the issues raised by the human reviewer and then use the `Complete` tool again to complete this stage."),
+                         "human_review_msg": ck_msg,
+                         "complete": False
+                        }
+            else:
+                assert hm_passed is True, "hm_passed should be True here"
+                info("Human check approved for stage " + stage.name)
+
+        self.last_check_info = OrderedDict()
+        batch_advanced = not ck_pass and bool(getattr(stage, "is_batch_success", False))
+        if not ck_pass:
+            if batch_advanced:
+                action = self._batch_progress_action("Check")
+                self.last_check_info["progress_summary"] = (
+                    self._build_batch_progress_summary(
+                        stage, ck_info, action, self.stage_index
+                    )
+                )
+            else:
+                failure_summary = self._build_failure_summary(
+                    stage, ck_info, stage_index=self.stage_index
+                )
+                if failure_summary is not None:
+                    failure_summary = self._escalate_repeated_failure(
+                        self.stage_index, failure_summary
+                    )
+                    self.last_check_info["failure_summary"] = failure_summary
+                    action = failure_summary["next_action"]
+                else:
+                    action = self._raw_failure_action("Complete")
+        self.last_check_info["check_pass"] = ck_pass
+        if not ck_pass:
+            self.last_check_info["action"] = action
+        self.last_check_info["check_info"] = ck_info
+        self.validation_revision = getattr(self, "validation_revision", 0) + 1
+        if ck_pass:
+            self._reset_repeat_failure_state(self.stage_index)
+            message = f"Stage {self.stage_index} completed successfully. "
+            self._stage_complete(self.stages[self.stage_index])
+            self.next_stage()
+            if self.all_completed:
+                message = ("All stages completed successfully. "
+                           "Now you should review your work to check if everything is correct and all the users needs are matched. "
+                           "When you are confident that everything is fine, you can use the `Exit` tool to exit the mission. "
+                           )
+            else:
+                message += f"Current stage index is now {self.stage_index}. Use `CurrentTips` tool to get your new task. "
+                self.stages[self.stage_index].set_reached(True)
+                self.stages[self.stage_index].on_init()
+                # next_stage() persisted this stage's task snapshot before its
+                # checkers ran on_init, so batch progress placeholders like "-/-"
+                # would stay stale until the next Check; re-save the live view.
+                self.save_stage_info()
+        else:
+            message = f"Stage {self.stage_index} not completed. Please check the task requirements."
+        ret = OrderedDict({
+            "complete": ck_pass,
+            "message": message,
+            "last_check_result": self.last_check_info,
+        })
+        public_last_check_info = self._public_check_result(self.last_check_info)
+        ret["last_check_result"] = public_last_check_info
+        self._annotate_ignored_stage_args(ret, ignored_stage_args)
+        self._annotate_ignored_stage_args(public_last_check_info, ignored_stage_args)
+        if full_output and not ck_pass:
+            return public_last_check_info
+        if batch_advanced:
+            public_check_info = self._public_check_result(self.last_check_info)
+            return self._compact_check_result(OrderedDict({
+                "complete": False,
+                "message": "The current batch passed. Continue with the next batch.",
+                **public_check_info,
+            }))
+        if not ck_pass and "failure_summary" not in self.last_check_info:
+            return public_last_check_info
+        if not ck_pass:
+            return self.gen_fail_suggestion(public_last_check_info)
+        return ret
+
+    @coordinated_stage_mutation("tool", manager=True)
+    def exit(self):
+        """
+        Exit the agent and end the mission after all stages are completed.
+        """
+        if self._refresh_all_completed():
+            self.time_end = time.time()
+            if self.completion_callback is not None:
+                self.completion_callback()
+            return {"exit": True, "message": "All stages completed. Mission completion recorded."}
+        return {
+            "exit": False,
+            "message": "Not all stages are completed yet. Please complete all stages before exiting."
+        }
+
+    def tool_set_journal(self, journal, mode="replace"):
+        """
+        Set or append to the journal of the current stage.
+        This is used to when current stage is completed or the LLM context is compressed and other similar situations.
+        mode='append' records incremental progress without rewriting already recorded journal entries.
+        The journal content should be concise and clear and only the necessary information should be included.
+        """
+        ret = make_llm_tool_ret(self.set_current_stage_journal(journal, mode))
+        info("ToolSetCurrentStageJournal:\n" + ret)
+        return self.attach_todo_summary(ret)
+
+    def tool_get_all_journal(self):
+        ret = make_llm_tool_ret(self.get_all_stage_journal())
+        info("ToolGetAllStageJournal:\n" + ret)
+        return self.attach_todo_summary(ret)
+
+    def tool_get_current_journal(self):
+        ret = make_llm_tool_ret(self.get_current_stage_journal())
+        info("ToolGetCurrentStageJournal:\n" + ret)
+        return self.attach_todo_summary(ret)
+    
+    def tool_set_skill_usage(self, skill_usage: Dict[str, Any]):
+        ret = make_llm_tool_ret(self.set_current_stage_skill_usage(skill_usage))
+        info("ToolSetSkillUsage:\n" + ret)
+        return self.attach_todo_summary(ret)
+
+    def tool_detail(self):
+        """
+        Get the details of the current mission, including all stages and their details.
+        """
+        detail = make_llm_tool_ret(self.detail())
+        info("ToolDetail:\n" + detail)
+        return self.attach_todo_summary(detail)
+
+    def tool_status(self):
+        stat = make_llm_tool_ret(self.status())
+        info("ToolStatus:\n" + stat)
+        return self.attach_todo_summary(stat)
+
+    @coordinated_stage_mutation("tool", manager=True)
+    def tool_go_to_stage(self, index):
+        """Admit a model tool transition without waiting for its parent model call."""
+        ret = make_llm_tool_ret(self.go_to_stage(index))
+        info("ToolGoToStage:\n" + ret)
+        return self.attach_todo_summary(ret)
+
+    def tool_check(self, timeout, stage_args=None):
+        ret = make_llm_tool_ret(self.check(timeout, stage_args=stage_args))
+        info("ToolCheck:\n" + ret)
+        return self.attach_todo_summary(ret)
+
+    def tool_exit(self):
+        ret = make_llm_tool_ret(self.exit())
+        info("ToolExit:\n" + ret)
+        return ret
+
+    def tool_complete(self, timeout, stage_args=None):
+        ret = make_llm_tool_ret(self.complete(timeout, stage_args=stage_args))
+        info("ToolComplete:\n" + ret)
+        return self.attach_todo_summary(ret)
+
+    def tool_kill_check(self):
+        """
+        Kill the current check process.
+        This is used when the tool 'Check' is long time running or get stuck.
+        """
+        if not self.stage_index < len(self.stages):
+            return f"Stage index({self.stage_index}) out of range. (Maybe mission is completed, you can use the `GoToStage` tool to go back to a previous stage if needed)"
+        stage = self.stages[self.stage_index]
+        ret = stage.do_kill()
+        info("KillCheck:\n" + ret)
+        return ret
+
+    def tool_std_check(self, lines=-1):
+        """
+        Get the standard output of the current check process.
+        This tool is only used to get the output of the running tool 'Check'.
+        You can specify the number of lines to read, -1 means read all lines.
+        """
+        if not self.stage_index < len(self.stages):
+            return f"Stage index({self.stage_index}) out of range. (Maybe mission is completed, you can use the `GoToStage` tool to go back to a previous stage if needed)"
+        stage = self.stages[self.stage_index]
+        ret = stage.do_std(lines)
+        info("StdCheck:\n" + ret)
+        return ret
+
+    def tool_current_tips(self):
+        """
+        Get the tips for the current task.
+        This is used to provide guidance to the user on what to do next.
+        """
+        tips = self.get_current_tips()
+        info("Tips:\n" + tips)
+        return tips

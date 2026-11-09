@@ -2,7 +2,7 @@
 """Increment Verification Checker for UC Agent."""
 
 
-from ucagent.checkers.base import Checker
+from ucagent.core.checkers.base import Checker
 from ucagent.util.log import info
 import ucagent.util.diff_ops as diff_ops
 

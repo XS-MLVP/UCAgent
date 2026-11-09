@@ -22,79 +22,59 @@ and fabricated evidence from being accepted.
 
 ## Repository Map
 
-- `ucagent/verify_agent.py`: top-level agent assembly and runtime initialization.
-- `ucagent/control/`: shared controller and commands, terminal Console, and the
-  `runtime/` package that owns operations, services, sessions, and instance lifetime.
-- `ucagent/cli.py`, `ucagent.py`: installed and source-tree CLI entry points.
-- `ucagent/setting.yaml`: global defaults, backends, tools, launch settings, and
-  environment-backed defaults.
-- `ucagent/util/config.py`: layered config loading, overrides, template handling,
-  and the shared `.ucagent/runtime_config.json` snapshot.
-- `ucagent/util/waveform_viewer.py`: the shared signed waveform metadata/link
-  protocol and workspace-safe path validation only; toffee session discovery
-  lives inside the unitytest plugin's `WaveInfo` tool.
-- `ucagent/stage/`: `VerifyStage`, `StageManager`, Check/Complete lifecycle, stage
-  history, and stage tools.
-- `ucagent/checkers/`: the generic Checker base classes, lifecycle helpers,
-  and the shared `BatchTask` batch engine; workflow-specific checkers
-  (including toffee-report, line-map, and test-case validation) live in
-  each plugin's `checkers` package (for example
-  `ucagent/plugins/UnityTest/src/unity_test/checkers/`).
-- `ucagent/tools/`: LLM tools, file operations, MCP conversion, and skills
-  (waveform analysis tools, the UnityChip/toffee test runner, the pytest
-  execution tools, and the `RunTestCases` stage manager tool all live in the
-  UnityTest plugin under `ucagent/plugins/UnityTest/src/unity_test/`).
-- `ucagent/abackend/`: LangChain and command-line backend adapters.
-- `ucagent/server/`, `ucagent/tui/`: master APIs, terminals, web UI, and TUI.
-- `ucagent/lang/zh/config/default.yaml`: framework-layer language config
-  (generic prompts, hooks, and the `workflow` pointer to the default task
-  workflow).
-- `ucagent/plugins/UnityTest/`: the UnityTest workflow family plugin (DPPA-style layout:
-  everything workflow-related under `src/unity_test/`): `plugin.py`
-  provider, `workflows/` (`unitytest.yaml` is the default UnityTest workflow —
-  domain mission prompts appended to the framework layer, stage tasks, checker
-  wiring, and workflow tool config; sibling self-sufficient baselines
-  `incremental.yaml` and `vibe.yaml` replace it when selected),
-  `presets/labeled_spec.yaml` (a stage-overlap `--config` preset, not a
-  workflow), `templates/unity_test`, `skills/` (workspace skill ids
-  `ext/unitytest/<skill>`), `Guide_Doc/`, and the dynamic Bug analysis
-  contract (`bug_analysis_contract.py` with its `lang/zh/config` locale
-  data). It also owns the verification-domain helper modules (`test_utils`
-  imported by generated test code, the pytest substrate `testops`, the
-  `RunTestCases` stage manager tool `test_runner`, the report store
-  `report_store`, the mark/report parsers `doc_marks` and `test_report`,
-  and `str_utils`); a sibling plugin that needs them declares
-  `../UnityTest/src` as an extra manifest python-path root and imports them
-  as `unity_test.*`. The default launch auto-activates the plugin that owns
-  the `workflow` pointer target.
-- `ucagent/lang/zh/doc/Guide_Doc/`: retained empty (the self-check expects the
-  directory); workflow-owned guidance ships with each plugin
-  (`ucagent/plugins/UnityTest/src/unity_test/Guide_Doc`).
-- `ucagent/lang/zh/template/`: retained empty; workflow templates ship with each
-  plugin (`ucagent/plugins/UnityTest/src/unity_test/templates`,
-  `ucagent/plugins/Formal/src/formal/templates`).
-- `ucagent/lang/zh/skills/`: retained empty; workflow skills ship with each
-  plugin and copy to `.ucagent/skills/ext/<plugin_name>/` when skill support is
-  enabled (the formal shared library `skills/lib` is also imported as
-  `formal.skills.lib` by that plugin's checkers).
-- `docs/content/`: developer/user documentation for the MkDocs site. This is not
-  the same as runtime `Guide_Doc`.
-- `tests/`: framework unit and focused regression tests. Each plugin owns
-  its tests under `ucagent/plugins/<Plugin>/tests/` (for example
-  `ucagent/plugins/UnityTest/tests/` and `ucagent/plugins/Formal/tests/`).
-- `ucagent/plugins/`: the bundled workflow-plugin projects, one directory per
-  plugin, plus the plugin loader itself (`ucagent/plugins/__init__.py`); select
-  any of them locally with `--plugin ucagent/plugins/<Plugin>` (for example
-  `--plugin ucagent/plugins/Formal --plugin-workflow formal:formal` for the
-  standalone Formal (SVA) workflow). The framework distribution bundles only
-  UnityTest as package data — the
-  `ucagent.plugins` package-data key, the `packages.find` excludes, and the
-  `MANIFEST.in` prunes keep `Formal`, `DesignWithPPA`, `RTL2Spec`, `ACT4`, and every
-  plugin's tests out of the wheel; those projects stay source-tree only until
-  they ship as their own distributions. Each plugin owns its dependencies,
-  resources, tests, and usage documentation.
-- `examples/`: example DUT inputs and, in some cases, generated verification
-  artifacts. Do not treat generated example outputs as canonical source.
+- `ucagent/core/`: complete Agent capabilities; no imports from application,
+  runtime or interface packages. `agent/` owns execution, task configuration and
+  construction; `backends/` owns concrete model/command backends and their
+  `assets/`; `interaction/` owns enhanced task-execution strategies.
+- `ucagent/core/stage/`: StageManager, VerifyStage, Check/Complete, history and
+  review gates. `core/checkers/` owns the generic Checker and BatchTask engines.
+- `ucagent/core/tools/`: generic tools, including file, shell, planning, memory,
+  context and optional Skill execution. Workflow-specific tools and Checkers
+  remain inside their plugins.
+- `ucagent/core/workspace/`: task assets, templates, instructions, shared runtime
+  snapshots and reversible file protection. `ucagent/util/file_policy.py` owns
+  the shared path/write rules and imports only the standard library.
+- `ucagent/core/plugins.py`: plugin declarations, discovery, validation and
+  registries. The distribution entry-point group remains `ucagent.plugins`.
+  Runtime command registration belongs to `runtime/control/commands.py`.
+- `ucagent/core/locales/zh.yaml`: generic Chinese framework prompts, hooks and
+  default workflow selector. There are no framework Guide_Doc/template/Skill
+  directories beneath locales; each selected workflow supplies its resources.
+- `ucagent/application/`: launch entry, workspace/logging preparation, execution
+  plan and runtime assembly. `workspace.py` owns archive/temporary workspace
+  sources; `presets/zh/master.yaml` is the Master launch preset.
+- `ucagent/runtime/`: instance lifetime, operation scheduling, cancellation,
+  service management, shared sessions, startup commands and output buffers.
+  `control/` owns Controller and command registration/dispatch. Concrete service
+  constructors and presentation callbacks are supplied by application/interfaces.
+- `ucagent/interfaces/`: CLI parsing and input adaptation (`cli/`), Console and
+  result presentation (`terminal/`), TUI (`terminal/tui/`), and network services
+  (`server/`: HTTP, MCP, Master, Web Terminal, static assets and page templates).
+- `ucagent/__init__.py`: public `from ucagent import VerifyAgent` export.
+  `ucagent/__main__.py` and root `ucagent.py` are package/source entrypoints;
+  installed `ucagent` calls `ucagent.application.entry:main`.
+- `ucagent/setting.yaml`: cross-layer global defaults. `ucagent/util/config.py`
+  owns layered loading and `.ucagent/runtime_config.json`; `util/` contains only
+  shared foundations and does not import core/application/runtime/interfaces.
+- `ucagent/util/waveform_viewer.py`: signed waveform metadata/link protocol and
+  workspace-safe paths; toffee session discovery lives in UnityTest's WaveInfo.
+- `ucagent/plugins/`: independent workflow projects. Each plugin keeps its code,
+  workflows, Guide_Doc, templates, skills, dependencies and tests together.
+  UnityTest owns verification-domain helpers imported as `unity_test.*` and
+  the dynamic Bug contract. Other plugins declare sibling import roots when
+  they use those helpers. Plugins copy optional skills to
+  `.ucagent/skills/ext/<plugin_name>/`.
+- `ucagent/plugins/UnityTest/src/unity_test/workflows/`: default `unitytest.yaml`
+  and self-contained `incremental.yaml`/`vibe.yaml` baselines. The sibling
+  `presets/labeled_spec.yaml` is an overlapping `--config` preset, not a workflow.
+- Only UnityTest ships in the framework wheel. `ucagent.plugins` remains a data
+  package; its package-data key, packages.find excludes and MANIFEST.in prunes
+  exclude Formal, DesignWithPPA, RTL2Spec, ACT4 and plugin tests from the wheel.
+- `tests/`: framework and focused regression tests. Plugin tests stay under
+  `ucagent/plugins/<Plugin>/tests/`.
+- `docs/content/`: MkDocs developer/user documentation, distinct from runtime
+  Guide_Doc. `examples/` contains DUT inputs and some generated outputs; generated
+  example artifacts are not canonical source.
 
 ## Working Tree Discipline
 
@@ -154,10 +134,10 @@ Configuration is loaded in this order:
 
 1. `ucagent/setting.yaml`
 2. `~/.ucagent/setting.yaml`
-3. `ucagent/lang/<lang>/config/default.yaml`
+3. `ucagent/core/locales/<lang>.yaml`
 4. the task workflow baseline: an explicitly selected plugin workflow, or the
    default task workflow the launcher resolved from the `workflow` selector
-   (resolved relative to the lang config dir first, then to the repository
+   (resolved relative to core/locales first, then to the repository
    root; currently
    `ucagent/plugins/UnityTest/src/unity_test/workflows/unitytest.yaml`; a
    `<importable-module>:<relative-path>` selector resolves inside an installed
@@ -296,7 +276,7 @@ Follow these rules when implementing checkers:
   expose the next; Complete succeeds only when all work and final validation are
   complete.
 - A checker referenced by `clss` in YAML resolves through the plugin checker
-  registry first, then through its `ucagent/checkers/__init__.py` export;
+  registry first, then through its `ucagent/core/checkers/__init__.py` export;
   plugin-owned checkers need no core export, and dotted `module.Class` names
   always resolve directly.
 
@@ -340,7 +320,7 @@ For functional line mapping specifically:
   `BaseModel` `args_schema` with useful `Field` descriptions.
 - MCP conversion requires a `BaseModel` schema and does not support LangChain
   injected arguments. Test local invocation and MCP-schema conversion.
-- Export a new built-in tool from `ucagent/tools/__init__.py` if configs should
+- Export a new built-in tool from `ucagent/core/tools/__init__.py` if configs should
   refer to it by short name.
 - Resolve workspace-relative paths safely. Do not let tool arguments escape the
   configured workspace or bypass read/write directory restrictions.
@@ -635,11 +615,11 @@ Preserve these established semantics unless the task explicitly changes them:
 - Self-test every distinct feature point and its important failure boundaries.
   Run sufficient focused and proportional regression tests before stating that
   the implementation is correct, complete, or has no remaining problems.
-- Use UTF-8. Files in `ucagent/lang/zh/` may contain Chinese. Do not put Chinese
+- Use UTF-8. Files in `ucagent/core/locales/` may contain Chinese. Do not put Chinese
   literals in generic implementation Python files outside the language tree,
   including Unicode escapes that decode to Chinese at runtime. When generic
   Python needs localized titles, templates, prompt text, or diagnostic guidance,
-  load them from the matching `ucagent/lang/<lang>/` resource instead of
+  load them from the matching `ucagent/core/locales/` resource instead of
   duplicating them in Python.
 - Keep generic checker and tool diagnostics language-neutral. Refer to stable
   field keys, machine tags, and exact Guide_Doc paths; do not embed or echo a

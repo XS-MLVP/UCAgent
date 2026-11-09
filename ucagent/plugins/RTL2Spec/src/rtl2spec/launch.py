@@ -38,7 +38,7 @@ def build_command(config_file: Path) -> list[str]:
     workspace = workspace.resolve()
     output_root(workspace, settings.output)
     return [
-        sys.executable, "-P", "-m", "ucagent.cli", str(workspace), settings.module,
+        sys.executable, "-P", "-m", "ucagent", str(workspace), settings.module,
         "--plugin", "rtl2spec",
         "--plugin-workflow", f"rtl2spec:{settings.workflow}",
         "--config", str(config_file), "--output", settings.output,

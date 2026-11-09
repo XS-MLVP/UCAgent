@@ -26,7 +26,7 @@ from rtl2spec.tools import RTL2SpecCommandArgs
 )
 def test_startup_rejects_old_output_before_workspace_initialization(tmp_path, relative, workflow_index):
     """Abort before copying resources or exposing editing tools, preserving all old files."""
-    from ucagent.verify_agent import VerifyAgent
+    from ucagent import VerifyAgent
 
     old = tmp_path / relative
     old.parent.mkdir(parents=True, exist_ok=True)

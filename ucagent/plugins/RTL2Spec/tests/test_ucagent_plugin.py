@@ -11,7 +11,7 @@ import pytest
 from rtl2spec.plugin import get_plugin
 from rtl2spec.checkers import RTL2SpecArtifactsChecker
 from rtl2spec.tools import RTL2SpecCommand, create_tools
-from ucagent.plugins import (
+from ucagent.core.plugins import (
     LoadedPlugin,
     PluginContext,
     PluginError,
@@ -22,8 +22,8 @@ from ucagent.plugins import (
     validate_workflow_dependencies,
     validate_plugin,
 )
-from ucagent.tools.uctool import to_mcp_tool
-from ucagent.tools.fileops import is_file_writeable
+from ucagent.core.tools.uctool import to_mcp_tool
+from ucagent.util.file_policy import is_file_writeable
 from ucagent.util.functions import get_tools_from_cfg
 
 
@@ -44,7 +44,7 @@ def test_plugin_descriptor_validates() -> None:
     assert (root / manifest["python_path"] / "rtl2spec/plugin.py").is_file()
     assert plugin.version == project["version"]
     assert plugin.name == manifest["name"]
-    assert project["entry-points"]["ucagent.plugins"][plugin.name] == manifest["entry"]
+    assert project["entry-points"]["ucagent.core.plugins"][plugin.name] == manifest["entry"]
     assert f"UCAgent{plugin.requires_ucagent}" in project["dependencies"]
     assert set(plugin.python_requirements) <= set(project["dependencies"])
     assert set((root / "requirements.txt").read_text().splitlines()) == set(project["dependencies"])
@@ -66,8 +66,8 @@ def test_command_rejects_shell_like_arguments(tmp_path: Path) -> None:
 def test_ucagent_compatibility_matches_verified_baseline(monkeypatch, version, compatible):
     """Reject unverified old cores while allowing the declared tested baseline."""
     # The gate protects installed hosts; the repository source tree is exempt.
-    monkeypatch.setattr("ucagent.plugins.SOURCE_TREE_RUNTIME", False)
-    monkeypatch.setattr("ucagent.plugins.__version__", version)
+    monkeypatch.setattr("ucagent.core.plugins.SOURCE_TREE_RUNTIME", False)
+    monkeypatch.setattr("ucagent.core.plugins.__version__", version)
     if compatible:
         validate_plugin(get_plugin(), check_dependencies=False)
     else:
@@ -78,8 +78,8 @@ def test_ucagent_compatibility_matches_verified_baseline(monkeypatch, version, c
 def test_source_tree_runtime_is_exempt_from_version_gate(monkeypatch):
     """A source-tree checkout is the newest code by definition: its fallback
     version string never rejects a plugin that declares requires_ucagent."""
-    monkeypatch.setattr("ucagent.plugins.SOURCE_TREE_RUNTIME", True)
-    monkeypatch.setattr("ucagent.plugins.__version__", "0.9.1+source.code")
+    monkeypatch.setattr("ucagent.core.plugins.SOURCE_TREE_RUNTIME", True)
+    monkeypatch.setattr("ucagent.core.plugins.__version__", "0.9.1+source.code")
     validate_plugin(get_plugin(), check_dependencies=False)
 
 
@@ -123,7 +123,7 @@ def test_missing_host_command_fails_at_activation(monkeypatch, command, label):
         """Hide only the command under test without changing the actual environment."""
         return None if name == command else real_which(name)
 
-    monkeypatch.setattr("ucagent.plugins.shutil.which", available)
+    monkeypatch.setattr("ucagent.core.plugins.shutil.which", available)
     with pytest.raises(PluginError, match=f"requires command {label}: {command}"):
         validate_workflow_dependencies(
             "rtl2spec", get_plugin().workflows[0]
@@ -233,7 +233,7 @@ def test_broken_command_version_fails_at_activation(monkeypatch, failure):
             return subprocess.CompletedProcess(args, 1 if failure == "exit" else 0, "", "")
         return real_run(args, **kwargs)
 
-    monkeypatch.setattr("ucagent.plugins.subprocess.run", probe)
+    monkeypatch.setattr("ucagent.core.plugins.subprocess.run", probe)
     with pytest.raises(PluginError, match="(query Git version|working Git version command)"):
         validate_workflow_dependencies("rtl2spec", get_plugin().workflows[0])
 
@@ -259,7 +259,7 @@ def test_registered_tool_obeys_agent_and_mcp_filters(tmp_path, policy, expected)
 
 def test_checker_registration_rejects_conflicts_without_global_mutation(monkeypatch):
     """Short names resolve locally and reject both plugin and core collisions."""
-    import ucagent.checkers as core_checkers
+    import ucagent.core.checkers as core_checkers
 
     plugin = get_plugin()
     loaded = LoadedPlugin(plugin, plugin.name, "test")

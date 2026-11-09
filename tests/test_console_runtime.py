@@ -1,5 +1,6 @@
 """Console sessions use shared operations and never change process working directory."""
 
+from ucagent.interfaces.terminal.presentation import format_result, format_operation
 import io
 import os
 import threading
@@ -7,9 +8,9 @@ import threading
 import pytest
 
 from test_runtime_host import make_host
-from ucagent.control.console import Console
-from ucagent.control.runtime.session import RuntimeSession
-from ucagent.control.runtime.output import OutputBuffer
+from ucagent.interfaces.terminal.console import Console
+from ucagent.runtime.session import RuntimeSession
+from ucagent.runtime.output import OutputBuffer
 
 
 @pytest.fixture
@@ -22,7 +23,7 @@ def console(tmp_path):
     runtime.agent.message_echo_handler = None
     runtime.agent.set_message_echo_handler = lambda handler: setattr(runtime.agent, "message_echo_handler", handler)
     runtime.agent.unset_message_echo_handler = lambda: setattr(runtime.agent, "message_echo_handler", None)
-    frontend = RuntimeSession(host)
+    frontend = RuntimeSession(host, result_formatter=format_result, operation_formatter=format_operation)
     host.attach_control("test-console")
     host.start()
     yield frontend
@@ -32,7 +33,7 @@ def console(tmp_path):
 
 def test_aliases_and_foreground_cancellation_are_session_local(console):
     """Cancelling a console operation leaves another session's operation running."""
-    other = RuntimeSession(console.host)
+    other = RuntimeSession(console.host, result_formatter=format_result, operation_formatter=format_operation)
     first = console.execute_line("sleep 10").data
     second = other.execute_line("sleep 10").data
     assert console.cancel_foreground()
@@ -51,10 +52,10 @@ def test_directories_history_and_explicit_shell_are_independent(console, tmp_pat
     (tmp_path / "child").mkdir()
     console.execute_line("cd child")
     assert os.getcwd() == original
-    other = RuntimeSession(console.host)
+    other = RuntimeSession(console.host, result_formatter=format_result, operation_formatter=format_operation)
     assert other.session.cwd == tmp_path
     console.save_cmd_history()
-    restored = RuntimeSession(console.host)
+    restored = RuntimeSession(console.host, result_formatter=format_result, operation_formatter=format_operation)
     assert restored.history == ["cd child"]
     operation = console.execute_line("shell pwd").data
     assert console.host.operations.wait(operation["id"], 2)["stdout"].strip() == str(tmp_path / "child")
@@ -99,8 +100,8 @@ import sys
 from pathlib import Path
 sys.path.insert(0, "tests")
 from test_runtime_host import make_host
-from ucagent.control.console import Console
-from ucagent.tui import enter_tui
+from ucagent.interfaces.terminal.console import Console
+from ucagent.interfaces.terminal.tui import enter_tui
 host, runtime = make_host(Path(sys.argv[1]))
 runtime.agent.cfg.set_value("backend", {"key_name": "test"})
 runtime.agent.test_tools = []
@@ -159,7 +160,7 @@ def test_console_completed_notice_and_confirmation_are_session_scoped(console):
 
 def test_console_created_after_host_start_does_not_recapture_its_display(console):
     """A late console writes to the underlying terminal without queuing its own redraw."""
-    from ucagent.control.runtime.output import StreamBridge
+    from ucagent.runtime.output import StreamBridge
 
     other = Console(console.host)
     assert not isinstance(other.output, StreamBridge)
@@ -185,7 +186,7 @@ import sys
 from pathlib import Path
 sys.path.insert(0, "tests")
 from test_runtime_host import make_host
-from ucagent.control.console import Console
+from ucagent.interfaces.terminal.console import Console
 host, runtime = make_host(Path(sys.argv[1]))
 frontend = Console(host)
 host.start()
@@ -233,7 +234,7 @@ assert host.wait(5)["instance"] == "closed"
 def test_temporary_capture_restores_streams_and_keeps_runtime_owners_separate(monkeypatch):
     """A UI capture neither echoes its output nor redirects another host's worker logs."""
     import sys
-    from ucagent.control.runtime.output import OUTPUT_OWNER
+    from ucagent.runtime.output import OUTPUT_OWNER
 
     stdout, stderr = io.StringIO(), io.StringIO()
     monkeypatch.setattr(sys, "stdout", stdout)
@@ -252,3 +253,24 @@ def test_temporary_capture_restores_streams_and_keeps_runtime_owners_separate(mo
     assert stdout.getvalue() == ""
     assert one.get_lines() == ["view-output"]
     assert two.get_lines() == ["other-runtime"]
+
+
+def test_console_prompt_follows_terminal_input_readiness(console, monkeypatch):
+    """Control keys cannot arrive while the visible prompt still has canonical input mode."""
+    from unittest.mock import Mock
+    events = []
+    stream = Mock()
+    stream.fileno.return_value = 37
+    stream.isatty.return_value = True
+    output = Mock()
+    output.write.side_effect = lambda text: events.append(("output", text))
+    frontend = Console(console.host, session=console, input_stream=stream, output_stream=output)
+    monkeypatch.setattr("termios.tcgetattr", lambda fd: ["original"])
+    monkeypatch.setattr("termios.tcsetattr", lambda *args: events.append(("restore", args[2])))
+    monkeypatch.setattr("tty.setcbreak", lambda *args: events.append(("ready", args[0])))
+    monkeypatch.setattr("select.select", lambda *args: ([37], [], []))
+    monkeypatch.setattr("os.read", lambda *args: b"\n")
+    monkeypatch.setattr(frontend, "_flush_output", lambda *args: None)
+    assert frontend._readline("READY> ") == "\n"
+    assert events[:2] == [("ready", 37), ("output", "READY> ")]
+    assert events[-1] == ("restore", ["original"])

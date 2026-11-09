@@ -21,8 +21,8 @@ from ucagent.util.config import (
     load_yaml_with_env_vars,
     save_runtime_config,
 )
-from ucagent.stage.vstage import VerifyStage, parse_vstage
-from ucagent.tools.skill import (
+from ucagent.core.stage.vstage import VerifyStage, parse_vstage
+from ucagent.core.tools.skill import (
     ArgsRunSkillScript,
     ListSkill,
     RunSkillScript,
@@ -954,7 +954,7 @@ def test_plugin_workflow_appends_mission_prompts_over_framework(tmp_path, monkey
     )
 
     framework_system = load_yaml_with_env_vars(
-        str(REPO_ROOT / "ucagent/lang/zh/config/default.yaml")
+        str(REPO_ROOT / "ucagent/core/locales/zh.yaml")
     )["mission"]["prompt"]["system"].rstrip("\n")
 
     assert cfg.mission.name == "{DUT}插件任务"
@@ -973,7 +973,7 @@ def test_default_workflow_requires_stage_skills_by_default(tmp_path, monkeypatch
     cfg = get_config(config_file=str(CONFIG_PATH))
     config = load_yaml_with_env_vars(str(CONFIG_PATH))
     framework_system = load_yaml_with_env_vars(
-        str(REPO_ROOT / "ucagent/lang/zh/config/default.yaml")
+        str(REPO_ROOT / "ucagent/core/locales/zh.yaml")
     )["mission"]["prompt"]["system"]
     stages = _stage_map(config)
 

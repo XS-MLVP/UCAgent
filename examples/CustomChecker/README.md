@@ -24,7 +24,7 @@ UCAgent 内置了常用的 Checker，但在真实项目中往往需要额外的�
 
 ### Checker 要求
 
-- 需要继承 `ucagent.checkers.base.Checker`
+- 需要继承 `ucagent.core.checkers.base.Checker`
 - `__init__`函数用来接收yaml配置文件中传递的参数
 - 需要实现函数 `do_check(self, timeout=0, **kwargs) -> tuple[bool, object]`
 - 需要给 `do_check` 函数添加 docstring 说明其功能。
@@ -40,7 +40,7 @@ UCAgent 内置了常用的 Checker，但在真实项目中往往需要额外的�
 ```python
 #coding=utf-8
 
-from ucagent.checkers.base import Checker
+from ucagent.core.checkers.base import Checker
 
 class MyChecker(Checker):
 

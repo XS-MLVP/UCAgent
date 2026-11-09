@@ -3,7 +3,7 @@
 
 插件实现位于 `src/act4_privileged_suite/`，不修改 UCAgent 核心的默认 workflow、
 依赖或 checker 导出。`ucagent-plugin.toml` 支持源码加载，`pyproject.toml` 的
-`ucagent.plugins` entry point 支持安装态发现；两者指向相同 provider。
+`ucagent.core.plugins` entry point 支持安装态发现；两者指向相同 provider。
 
 ## 资源和注册
 
@@ -62,7 +62,7 @@ cross default-bin/bitwalk 结构检查，
 完整运行契约及示例集中在 `Guide_Doc/ACT4_Extension_Review_Guide.md`。
 
 本工作流不主动启用核心 `check_pass_refinement` 独立 LLM 复核：核心当前在建议生成异常时
-会将阶段标为 approved（`ucagent/stage/vmanager.py` 的 `gen_pass_suggestion`），不宜将它
+会将阶段标为 approved（`ucagent/core/stage/vmanager.py` 的 `gen_pass_suggestion`），不宜将它
 作为强制语义门禁。采用主 Agent 的结构化审查，不增加第二套模型 API 配置，也不把 schema
 校验当成独立模型已审查的证明。真正的人工摘要授权继续独立生效。
 

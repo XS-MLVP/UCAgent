@@ -50,7 +50,7 @@ dependencies = [
 dynamic = ["version"]
 
 [project.scripts]
-ucagent = "ucagent.cli:main"
+ucagent = "ucagent.application.entry:main"
 
 [project.urls]
 Homepage = "https://github.com/XS-MLVP/UCAgent"

@@ -18,7 +18,7 @@ from unity_test.checkers import (
     UnityChipCheckerLabelStructure,
     UnityChipCheckerTestCase,
 )
-from ucagent.checkers.base import Checker, BatchTask
+from ucagent.core.checkers.base import Checker, BatchTask
 from unity_test.checkers.unity_test import BaseUnityChipCheckerTestCase
 from ucagent.util.config import Config
 from unity_test.checkers import (

@@ -13,7 +13,7 @@ export OPENAI_API_KEY="<api_key>"
 export OPENAI_API_BASE="https://<provider>/v1"
 ```
 
-UCAgent 使用 OpenAI 兼容接口。LangChain 后端的 `OPENAI_API_MODE` 默认为 `auto`：启动时探测 Responses API，服务端明确不支持时才回退到 Chat Completions。需要固定协议时设置为 `responses` 或 `chat_completions`。`OPENAI_REASONING_EFFORT` 默认是 `xhigh`，值会原样传给服务端，请按模型支持的值填写。
+UCAgent 使用 OpenAI 兼容接口。LangChain 后端的 `OPENAI_API_MODE` 默认为 `auto`：首次模型工作前探测 Responses API，服务端明确不支持时才回退到 Chat Completions。需要固定协议时设置为 `responses` 或 `chat_completions`。`OPENAI_REASONING_EFFORT` 默认是 `xhigh`，值会原样传给服务端，请按模型支持的值填写。
 
 需要语义检索或记忆工具时，再配置嵌入模型：
 

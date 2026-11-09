@@ -1,5 +1,6 @@
 """Cross-entrypoint contention, shutdown admission, instance isolation and real Master lifetime."""
 
+from ucagent.interfaces.terminal.presentation import format_result, format_operation
 import json
 from pathlib import Path
 import socket
@@ -14,16 +15,16 @@ import pytest
 
 from test_runtime_host import make_host
 from test_runtime_cli import cli_command, ROOT
-from ucagent.control.runtime.session import RuntimeSession
-from ucagent.control.controller import ControlError
-from ucagent.server.api_cmd import ControlApiServer
+from ucagent.runtime.session import RuntimeSession
+from ucagent.runtime.control.controller import ControlError
+from ucagent.interfaces.server.api_cmd import ControlApiServer
 
 
 def test_console_and_http_share_model_slot_and_keep_queries_responsive(tmp_path):
     """A model waiting in Console rejects HTTP competitors while status and cancellation work."""
     host, runtime = make_host(tmp_path)
     runtime.agent.cfg.set_value("cmd_api", {"xpra": {}, "waveform_viewers": {}})
-    console = RuntimeSession(host)
+    console = RuntimeSession(host, result_formatter=format_result, operation_formatter=format_operation)
     server = ControlApiServer(host.controller, registry=host.registry, operations=host.operations,
                               services=host.services, host_control=host, sock="")
     entered, release = threading.Event(), threading.Event()
@@ -260,8 +261,8 @@ def test_closing_rejects_synchronous_mutations_but_keeps_queries(tmp_path):
 def test_external_process_calls_real_mcp_check_complete_and_exit(tmp_path):
     """A separate tool client traverses real gates and receives Exit before owned shutdown."""
     import sys
-    from ucagent.server.api_mcp import McpServer
-    from ucagent.stage.vmanager import ToolDoCheck, ToolDoComplete, ToolDoExit, ToolSetCurrentStageJournal
+    from ucagent.interfaces.server.api_mcp import McpServer
+    from ucagent.core.stage.vmanager import ToolDoCheck, ToolDoComplete, ToolDoExit, ToolSetCurrentStageJournal
 
     host, runtime = make_host(tmp_path, exit_on_completion=True)
     runtime.agent.cfg.set_value("mcp_server", {"init_prompt": "External lifecycle test"})

@@ -11,12 +11,12 @@ from unittest.mock import Mock
 from pydantic import BaseModel
 import pytest
 
-from ucagent.control.commands import (
+from ucagent.runtime.control.commands import (
     Argument, CommandRegistry, CommandSession, CommandSpec, create_registry,
 )
-from ucagent.control.controller import Controller, ControlError
+from ucagent.runtime.control.controller import Controller, ControlError
 from ucagent.util.config import Config
-from ucagent.control.runtime.operations import OperationExecutor
+from ucagent.runtime.operations import OperationExecutor
 
 
 class ToolArguments(BaseModel):
@@ -287,7 +287,7 @@ def test_plugin_command_is_present_only_after_registration(registry, tmp_path):
 def test_new_components_have_explicit_imports_and_no_expression_execution():
     """Guard the requested import discipline and absence of interpreter escape paths."""
     root = Path(__file__).resolve().parents[1]
-    for relative in ("ucagent/control/controller.py", "ucagent/control/commands.py"):
+    for relative in ("ucagent/runtime/control/controller.py", "ucagent/runtime/control/commands.py"):
         tree = ast.parse((root / relative).read_text())
         for node in ast.walk(tree):
             if isinstance(node, ast.Try):
@@ -299,8 +299,8 @@ def test_new_components_have_explicit_imports_and_no_expression_execution():
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
                 assert node.func.id not in {"eval", "exec", "__import__"}
     process = subprocess.run(
-        [sys.executable, "-c", "import sys; import ucagent.control.controller; import ucagent.control.commands; "
-         "assert 'ucagent.verify_pdb' not in sys.modules; assert 'ucagent.verify_agent' not in sys.modules"],
+        [sys.executable, "-c", "import sys; import ucagent.runtime.control.controller; import ucagent.runtime.control.commands; "
+         "assert 'ucagent.verify_pdb' not in sys.modules; assert 'ucagent.core.agent.execution' not in sys.modules"],
         cwd=root, capture_output=True, text=True, timeout=30,
     )
     assert process.returncode == 0, process.stderr

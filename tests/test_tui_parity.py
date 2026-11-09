@@ -10,11 +10,11 @@ from rich.text import Text
 from textual.widgets import Input, Static
 
 from test_console_runtime import console
-from ucagent.control.runtime.operations import TERMINAL_STATES
-from ucagent.control.runtime.presentation import format_mission, format_status
-from ucagent.tui.app import VerifyApp
-from ucagent.tui.screens.confirmation import ConfirmationScreen
-from ucagent.tui.widgets import ConsoleWidget, MessagesPanel, TaskPanel
+from ucagent.runtime.operations import TERMINAL_STATES
+from ucagent.interfaces.terminal.presentation import format_mission, format_status
+from ucagent.interfaces.terminal.tui.app import VerifyApp
+from ucagent.interfaces.terminal.tui.screens.confirmation import ConfirmationScreen
+from ucagent.interfaces.terminal.tui.widgets import ConsoleWidget, MessagesPanel, TaskPanel
 from ucagent.util.log import info
 
 

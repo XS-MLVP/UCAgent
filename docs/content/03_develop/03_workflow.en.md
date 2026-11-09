@@ -5,7 +5,7 @@ A workflow consists of a set of stages executed in sequence. Each stage describe
 
 ## 1. Default Workflow
 
-The default Chinese configuration is located at `ucagent/lang/zh/config/default.yaml`, which currently has 20 top-level stages; indented entries are sub-stages. The runtime Stage Manager flattens parent and child stages, therefore indices used by `--skip`, `hmcheck_set`, and `GoToStage` must be based on the current `status` or `hmcheck_list` in the active run.
+The default workflow is selected by `workflow` in `ucagent/core/locales/zh.yaml` and resolves to `ucagent/plugins/UnityTest/src/unity_test/workflows/unitytest.yaml`, which currently has 20 top-level stages; indented entries are sub-stages. The runtime Stage Manager flattens parent and child stages, therefore indices used by `--skip`, `hmcheck_set`, and `GoToStage` must be based on the current `status` or `hmcheck_list` in the active run.
 
 | Top Index | Stage | Default Status |
 | ---: | --- | --- |
@@ -75,12 +75,12 @@ Configuration is loaded in the following order, with later layers overriding ear
 
 1. `ucagent/setting.yaml`
 2. `~/.ucagent/setting.yaml`
-3. `ucagent/lang/<lang>/config/default.yaml`
+3. `ucagent/core/locales/<lang>.yaml`
 4. Workspace `./.ucagent/setting.yaml`
 5. File specified by `--config` (defaults to `config.yaml` if not specified)
 6. CLI arguments and `--override`
 
-When selecting a plugin workflow, its configuration baseline is inserted after the language default configuration and before the workspace configuration; see [Plugin Development and Release](09_plugins.md). The project configuration search scope includes the current startup directory, `~/.ucagent/`, and the language configuration directory; relative `--config` paths are not default relative to the workspace.
+When selecting a plugin workflow, its configuration baseline is inserted after the language default configuration and before the workspace configuration; see [Plugin Development and Release](09_plugins.md). The project configuration search scope includes the current startup directory, `~/.ucagent/`, `ucagent/application/presets/<lang>/`, and the repository root; relative `--config` paths are not default relative to the workspace.
 
 List fields (especially `stage`, `checker`, `reference_files`) are replaced as a whole, not merged item by item by project name. When modifying default stages, copy the complete list and edit.
 
@@ -122,7 +122,7 @@ The index is the flattened runtime index; do not continue using old numbers afte
 
 ## 5. Checker Configuration
 
-Checker classes are specified via `clss`, short names are imported from `ucagent.checkers`, and full paths can point to custom modules:
+Checker classes are specified via `clss`, short names are imported from `ucagent.core.checkers`, and full paths can point to custom modules:
 
 ```yaml
 checker:

@@ -23,7 +23,7 @@ SWARM_MASTER_PERSIST_MKDIR = $(if $(filter 1 true yes,$(SWARM_IS_COLIMA)),$(SWAR
 ifneq ($(strip $(UCAGENT_MASTER_SOURCE)),)
 SWARM_MASTER_SOURCE_DIR := $(abspath $(UCAGENT_MASTER_SOURCE))
 SWARM_MASTER_UCAGENT_MOUNT := --mount type=bind,source=$(SWARM_MASTER_SOURCE_DIR),target=/UCAgent
-SWARM_MASTER_CMD := python3 /UCAgent/ucagent/cli.py
+SWARM_MASTER_CMD := python3 /UCAgent/ucagent/__main__.py
 SWARM_MASTER_SOURCE_ENV := --env UCAGENT_MASTER_SOURCE=$(SWARM_MASTER_SOURCE_DIR)
 else
 SWARM_MASTER_SOURCE_DIR :=
@@ -57,8 +57,8 @@ swarm_check: ## Check Docker, its socket, and Swarm manager readiness
 	@command -v docker >/dev/null 2>&1 || { echo "Error: docker CLI is not installed or not in PATH."; exit 1; }
 	@docker info >/dev/null 2>&1 || { echo "Error: Docker daemon is not available. Please start Docker first."; exit 1; }
 	@$(SWARM_DOCKER_SOCK_CHECK) || { echo "Error: Docker socket $(SWARM_DOCKER_SOCK) is not available."; exit 1; }
-	@if [ -n "$(SWARM_MASTER_SOURCE_DIR)" ] && [ ! -f "$(SWARM_MASTER_SOURCE_DIR)/ucagent/cli.py" ]; then \
-		echo "Error: UCAGENT_MASTER_SOURCE must point to a UCAgent source tree containing ucagent/cli.py: $(SWARM_MASTER_SOURCE_DIR)"; \
+	@if [ -n "$(SWARM_MASTER_SOURCE_DIR)" ] && [ ! -f "$(SWARM_MASTER_SOURCE_DIR)/ucagent/__main__.py" ]; then \
+		echo "Error: UCAGENT_MASTER_SOURCE must point to a UCAgent source tree containing ucagent/__main__.py: $(SWARM_MASTER_SOURCE_DIR)"; \
 		exit 1; \
 	fi
 	@state=$$(docker info --format '{{.Swarm.LocalNodeState}}' 2>/dev/null); \

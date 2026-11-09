@@ -55,7 +55,7 @@ from unity_test.bug_analysis_contract import (
     waveform_record_tag as _waveform_record_tag,
     waveform_reference as _waveform_reference,
 )
-from ucagent.checkers.base import Checker
+from ucagent.core.checkers.base import Checker
 from unity_test.bug_analysis_contract import test_case_parent
 from ucagent.util.functions import load_json_file
 from .descriptions import (

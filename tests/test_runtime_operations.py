@@ -6,9 +6,9 @@ from unittest.mock import Mock
 
 import pytest
 
-from ucagent.control.commands import CommandSession, create_registry
-from ucagent.control.controller import Controller, ControlError
-from ucagent.control.runtime.operations import OperationExecutor, OperationFailure, RetryPolicy, TERMINAL_STATES
+from ucagent.runtime.control.commands import CommandSession, create_registry
+from ucagent.runtime.control.controller import Controller, ControlError
+from ucagent.runtime.operations import OperationExecutor, OperationFailure, RetryPolicy, TERMINAL_STATES
 from ucagent.util.config import Config
 from ucagent.util.functions import PROCESS_CANCELLATION
 

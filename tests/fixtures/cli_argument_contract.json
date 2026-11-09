@@ -1,0 +1,807 @@
+{
+  "help": {
+    "options": [
+      "-h",
+      "--help"
+    ],
+    "default": "==SUPPRESS==",
+    "const": null,
+    "nargs": 0,
+    "type": null,
+    "choices": null,
+    "required": false,
+    "hidden": false
+  },
+  "workspace": {
+    "options": [],
+    "default": null,
+    "const": null,
+    "nargs": "?",
+    "type": "str",
+    "choices": null,
+    "required": false,
+    "hidden": false
+  },
+  "dut": {
+    "options": [],
+    "default": null,
+    "const": null,
+    "nargs": "?",
+    "type": "str",
+    "choices": null,
+    "required": false,
+    "hidden": false
+  },
+  "workspace_base": {
+    "options": [
+      "--workspace-base"
+    ],
+    "default": "/tmp/ucagent_workspace_base",
+    "const": null,
+    "nargs": null,
+    "type": "str",
+    "choices": null,
+    "required": false,
+    "hidden": false
+  },
+  "config": {
+    "options": [
+      "--config"
+    ],
+    "default": null,
+    "const": null,
+    "nargs": null,
+    "type": "str",
+    "choices": null,
+    "required": false,
+    "hidden": false
+  },
+  "plugin": {
+    "options": [
+      "--plugin"
+    ],
+    "default": [],
+    "const": null,
+    "nargs": null,
+    "type": "str",
+    "choices": null,
+    "required": false,
+    "hidden": false
+  },
+  "plugin_workflow": {
+    "options": [
+      "--plugin-workflow"
+    ],
+    "default": null,
+    "const": null,
+    "nargs": null,
+    "type": "str",
+    "choices": null,
+    "required": false,
+    "hidden": false
+  },
+  "list_plugins": {
+    "options": [
+      "--list-plugins"
+    ],
+    "default": false,
+    "const": true,
+    "nargs": 0,
+    "type": null,
+    "choices": null,
+    "required": false,
+    "hidden": false
+  },
+  "validate_plugin": {
+    "options": [
+      "--validate-plugin"
+    ],
+    "default": [],
+    "const": null,
+    "nargs": null,
+    "type": "str",
+    "choices": null,
+    "required": false,
+    "hidden": false
+  },
+  "template_dir": {
+    "options": [
+      "--template-dir"
+    ],
+    "default": null,
+    "const": null,
+    "nargs": null,
+    "type": "str",
+    "choices": null,
+    "required": false,
+    "hidden": false
+  },
+  "template_overwrite": {
+    "options": [
+      "--template-overwrite"
+    ],
+    "default": false,
+    "const": true,
+    "nargs": 0,
+    "type": null,
+    "choices": null,
+    "required": false,
+    "hidden": false
+  },
+  "template_cfg_override": {
+    "options": [
+      "--template-cfg-override"
+    ],
+    "default": [],
+    "const": null,
+    "nargs": null,
+    "type": "str",
+    "choices": null,
+    "required": false,
+    "hidden": false
+  },
+  "output": {
+    "options": [
+      "--output"
+    ],
+    "default": null,
+    "const": null,
+    "nargs": null,
+    "type": "str",
+    "choices": null,
+    "required": false,
+    "hidden": false
+  },
+  "override": {
+    "options": [
+      "--override"
+    ],
+    "default": [],
+    "const": null,
+    "nargs": null,
+    "type": "get_override_dict",
+    "choices": null,
+    "required": false,
+    "hidden": false
+  },
+  "stream_output": {
+    "options": [
+      "--stream-output",
+      "-s"
+    ],
+    "default": false,
+    "const": true,
+    "nargs": 0,
+    "type": null,
+    "choices": null,
+    "required": false,
+    "hidden": false
+  },
+  "human": {
+    "options": [
+      "--human",
+      "-hm"
+    ],
+    "default": false,
+    "const": true,
+    "nargs": 0,
+    "type": null,
+    "choices": null,
+    "required": false,
+    "hidden": false
+  },
+  "interaction_mode": {
+    "options": [
+      "--interaction-mode",
+      "-im"
+    ],
+    "default": "standard",
+    "const": null,
+    "nargs": null,
+    "type": "str",
+    "choices": [
+      "standard",
+      "enhanced",
+      "advanced"
+    ],
+    "required": false,
+    "hidden": false
+  },
+  "force_todo": {
+    "options": [
+      "--force-todo",
+      "-fp"
+    ],
+    "default": false,
+    "const": true,
+    "nargs": 0,
+    "type": null,
+    "choices": null,
+    "required": false,
+    "hidden": false
+  },
+  "use_todo_tools": {
+    "options": [
+      "--use-todo-tools",
+      "-utt"
+    ],
+    "default": false,
+    "const": true,
+    "nargs": 0,
+    "type": null,
+    "choices": null,
+    "required": false,
+    "hidden": false
+  },
+  "emulate_config": {
+    "options": [
+      "--emulate-config"
+    ],
+    "default": false,
+    "const": true,
+    "nargs": 0,
+    "type": null,
+    "choices": null,
+    "required": false,
+    "hidden": false
+  },
+  "use_skill": {
+    "options": [
+      "--use-skill",
+      "--no-use-skill"
+    ],
+    "default": "==SUPPRESS==",
+    "const": null,
+    "nargs": 0,
+    "type": null,
+    "choices": null,
+    "required": false,
+    "hidden": false
+  },
+  "extra_skill_path": {
+    "options": [
+      "--extra-skill-path"
+    ],
+    "default": null,
+    "const": null,
+    "nargs": null,
+    "type": "str",
+    "choices": null,
+    "required": false,
+    "hidden": false
+  },
+  "seed": {
+    "options": [
+      "--seed"
+    ],
+    "default": null,
+    "const": null,
+    "nargs": null,
+    "type": "int",
+    "choices": null,
+    "required": false,
+    "hidden": false
+  },
+  "tui": {
+    "options": [
+      "--tui"
+    ],
+    "default": false,
+    "const": true,
+    "nargs": 0,
+    "type": null,
+    "choices": null,
+    "required": false,
+    "hidden": false
+  },
+  "web_console": {
+    "options": [
+      "--web-console"
+    ],
+    "default": null,
+    "const": "",
+    "nargs": "?",
+    "type": "str",
+    "choices": null,
+    "required": false,
+    "hidden": false
+  },
+  "web_terminal": {
+    "options": [
+      "--web-terminal"
+    ],
+    "default": null,
+    "const": "",
+    "nargs": "?",
+    "type": "str",
+    "choices": null,
+    "required": false,
+    "hidden": false
+  },
+  "sys_tips": {
+    "options": [
+      "--sys-tips"
+    ],
+    "default": "",
+    "const": null,
+    "nargs": null,
+    "type": "str",
+    "choices": null,
+    "required": false,
+    "hidden": false
+  },
+  "ex_tools": {
+    "options": [
+      "--ex-tools",
+      "-et"
+    ],
+    "default": [],
+    "const": null,
+    "nargs": null,
+    "type": "str",
+    "choices": null,
+    "required": false,
+    "hidden": false
+  },
+  "no_embed_tools": {
+    "options": [
+      "--no-embed-tools"
+    ],
+    "default": true,
+    "const": true,
+    "nargs": "?",
+    "type": "<lambda>",
+    "choices": null,
+    "required": false,
+    "hidden": false
+  },
+  "loop": {
+    "options": [
+      "--loop",
+      "-l"
+    ],
+    "default": false,
+    "const": true,
+    "nargs": 0,
+    "type": null,
+    "choices": null,
+    "required": false,
+    "hidden": false
+  },
+  "loop_msg": {
+    "options": [
+      "--loop-msg"
+    ],
+    "default": "",
+    "const": null,
+    "nargs": null,
+    "type": "str",
+    "choices": null,
+    "required": false,
+    "hidden": false
+  },
+  "log": {
+    "options": [
+      "--log"
+    ],
+    "default": false,
+    "const": true,
+    "nargs": 0,
+    "type": null,
+    "choices": null,
+    "required": false,
+    "hidden": false
+  },
+  "log_file": {
+    "options": [
+      "--log-file"
+    ],
+    "default": null,
+    "const": null,
+    "nargs": null,
+    "type": "str",
+    "choices": null,
+    "required": false,
+    "hidden": false
+  },
+  "msg_file": {
+    "options": [
+      "--msg-file"
+    ],
+    "default": null,
+    "const": null,
+    "nargs": null,
+    "type": "str",
+    "choices": null,
+    "required": false,
+    "hidden": false
+  },
+  "mcp_server": {
+    "options": [
+      "--mcp-server"
+    ],
+    "default": null,
+    "const": true,
+    "nargs": 0,
+    "type": null,
+    "choices": null,
+    "required": false,
+    "hidden": false
+  },
+  "mcp_server_no_file_tools": {
+    "options": [
+      "--mcp-server-no-file-tools"
+    ],
+    "default": false,
+    "const": true,
+    "nargs": 0,
+    "type": null,
+    "choices": null,
+    "required": false,
+    "hidden": false
+  },
+  "mcp_server_host": {
+    "options": [
+      "--mcp-server-host"
+    ],
+    "default": null,
+    "const": null,
+    "nargs": null,
+    "type": "str",
+    "choices": null,
+    "required": false,
+    "hidden": false
+  },
+  "mcp_server_port": {
+    "options": [
+      "--mcp-server-port"
+    ],
+    "default": null,
+    "const": null,
+    "nargs": null,
+    "type": "int",
+    "choices": null,
+    "required": false,
+    "hidden": false
+  },
+  "force_stage_index": {
+    "options": [
+      "--force-stage-index"
+    ],
+    "default": 0,
+    "const": null,
+    "nargs": null,
+    "type": "int",
+    "choices": null,
+    "required": false,
+    "hidden": false
+  },
+  "no_write": {
+    "options": [
+      "--no-write",
+      "-nw"
+    ],
+    "default": null,
+    "const": null,
+    "nargs": "+",
+    "type": "str",
+    "choices": null,
+    "required": false,
+    "hidden": false
+  },
+  "gen_instruct_file": {
+    "options": [
+      "--gen-instruct-file",
+      "-gif"
+    ],
+    "default": "AGENTS.md",
+    "const": null,
+    "nargs": null,
+    "type": "str",
+    "choices": null,
+    "required": false,
+    "hidden": false
+  },
+  "guid_doc_path": {
+    "options": [
+      "--guid-doc-path"
+    ],
+    "default": [],
+    "const": null,
+    "nargs": null,
+    "type": "str",
+    "choices": null,
+    "required": false,
+    "hidden": false
+  },
+  "backend": {
+    "options": [
+      "--backend"
+    ],
+    "default": null,
+    "const": null,
+    "nargs": null,
+    "type": "str",
+    "choices": null,
+    "required": false,
+    "hidden": false
+  },
+  "append_py_path": {
+    "options": [
+      "--append-py-path",
+      "-app"
+    ],
+    "default": [],
+    "const": null,
+    "nargs": null,
+    "type": "str",
+    "choices": null,
+    "required": false,
+    "hidden": false
+  },
+  "ref": {
+    "options": [
+      "--ref"
+    ],
+    "default": [],
+    "const": null,
+    "nargs": null,
+    "type": "str",
+    "choices": null,
+    "required": false,
+    "hidden": false
+  },
+  "skip": {
+    "options": [
+      "--skip"
+    ],
+    "default": [],
+    "const": null,
+    "nargs": null,
+    "type": "int",
+    "choices": null,
+    "required": false,
+    "hidden": false
+  },
+  "unskip": {
+    "options": [
+      "--unskip"
+    ],
+    "default": [],
+    "const": null,
+    "nargs": null,
+    "type": "int",
+    "choices": null,
+    "required": false,
+    "hidden": false
+  },
+  "icmd": {
+    "options": [
+      "--icmd"
+    ],
+    "default": [],
+    "const": null,
+    "nargs": null,
+    "type": "str",
+    "choices": null,
+    "required": false,
+    "hidden": false
+  },
+  "as_master": {
+    "options": [
+      "--as-master"
+    ],
+    "default": null,
+    "const": "",
+    "nargs": "?",
+    "type": "str",
+    "choices": null,
+    "required": false,
+    "hidden": false
+  },
+  "master": {
+    "options": [
+      "--master"
+    ],
+    "default": [],
+    "const": null,
+    "nargs": "+",
+    "type": null,
+    "choices": null,
+    "required": false,
+    "hidden": false
+  },
+  "client_id": {
+    "options": [
+      "--client-id"
+    ],
+    "default": null,
+    "const": null,
+    "nargs": null,
+    "type": "str",
+    "choices": null,
+    "required": false,
+    "hidden": false
+  },
+  "meta": {
+    "options": [
+      "--meta"
+    ],
+    "default": [],
+    "const": null,
+    "nargs": null,
+    "type": "get_meta_pair",
+    "choices": null,
+    "required": false,
+    "hidden": true
+  },
+  "as_master_key": {
+    "options": [
+      "--as-master-key"
+    ],
+    "default": null,
+    "const": null,
+    "nargs": null,
+    "type": "str",
+    "choices": null,
+    "required": false,
+    "hidden": false
+  },
+  "as_master_password": {
+    "options": [
+      "--as-master-password"
+    ],
+    "default": null,
+    "const": null,
+    "nargs": null,
+    "type": "str",
+    "choices": null,
+    "required": false,
+    "hidden": false
+  },
+  "as_master_persist": {
+    "options": [
+      "--as-master-persist"
+    ],
+    "default": null,
+    "const": "/tmp/ucagent_master",
+    "nargs": "?",
+    "type": "str",
+    "choices": null,
+    "required": false,
+    "hidden": false
+  },
+  "export_cmd_api": {
+    "options": [
+      "--export-cmd-api"
+    ],
+    "default": null,
+    "const": "",
+    "nargs": "?",
+    "type": "str",
+    "choices": null,
+    "required": false,
+    "hidden": false
+  },
+  "no_history": {
+    "options": [
+      "--no-history"
+    ],
+    "default": false,
+    "const": true,
+    "nargs": 0,
+    "type": null,
+    "choices": null,
+    "required": false,
+    "hidden": false
+  },
+  "enable_context_manage_tools": {
+    "options": [
+      "--enable-context-manage-tools"
+    ],
+    "default": false,
+    "const": true,
+    "nargs": 0,
+    "type": null,
+    "choices": null,
+    "required": false,
+    "hidden": false
+  },
+  "exit_on_completion": {
+    "options": [
+      "--exit-on-completion",
+      "-eoc"
+    ],
+    "default": false,
+    "const": true,
+    "nargs": 0,
+    "type": null,
+    "choices": null,
+    "required": false,
+    "hidden": false
+  },
+  "version": {
+    "options": [
+      "--version"
+    ],
+    "default": "==SUPPRESS==",
+    "const": null,
+    "nargs": 0,
+    "type": null,
+    "choices": null,
+    "required": false,
+    "hidden": false
+  },
+  "upgrade": {
+    "options": [
+      "--upgrade"
+    ],
+    "default": null,
+    "const": "",
+    "nargs": "?",
+    "type": null,
+    "choices": null,
+    "required": false,
+    "hidden": false
+  },
+  "check": {
+    "options": [
+      "--check"
+    ],
+    "default": null,
+    "const": null,
+    "nargs": 0,
+    "type": null,
+    "choices": null,
+    "required": false,
+    "hidden": false
+  },
+  "hook_message": {
+    "options": [
+      "--hook-message"
+    ],
+    "default": null,
+    "const": null,
+    "nargs": 1,
+    "type": "str",
+    "choices": null,
+    "required": false,
+    "hidden": false
+  },
+  "web_console_session_host": {
+    "options": [
+      "--web-console-session-host"
+    ],
+    "default": null,
+    "const": null,
+    "nargs": null,
+    "type": "str",
+    "choices": null,
+    "required": false,
+    "hidden": true
+  },
+  "web_console_session_port": {
+    "options": [
+      "--web-console-session-port"
+    ],
+    "default": null,
+    "const": null,
+    "nargs": null,
+    "type": "int",
+    "choices": null,
+    "required": false,
+    "hidden": true
+  },
+  "web_console_capture_path": {
+    "options": [
+      "--web-console-capture-path"
+    ],
+    "default": "",
+    "const": null,
+    "nargs": null,
+    "type": "str",
+    "choices": null,
+    "required": false,
+    "hidden": true
+  }
+}

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Guard the import surface of the stage package against optional model stacks.
 
-Importing ``ucagent.stage`` (and therefore every plugin that reuses the
+Importing ``ucagent.core.stage`` (and therefore every plugin that reuses the
 framework manager tools through ``unity_test.test_runner``) must stay
 loadable without the optional model stacks: they belong to runtime features
 such as LLM check suggestions and may be absent in a plugin-only process.
@@ -29,8 +29,8 @@ def test_stage_imports_stay_clean_and_clss_resolves_lazily() -> None:
 import json
 import sys
 
-import ucagent.stage.vmanager  # pulls the full ucagent.stage package init
-import ucagent.stage.llm_suggestion as llm_suggestion_module
+import ucagent.core.stage.vmanager  # pulls the full ucagent.core.stage package init
+import ucagent.core.stage.llm_suggestion as llm_suggestion_module
 
 loaded = sorted(
     name for name in sys.modules
@@ -39,7 +39,7 @@ loaded = sorted(
         "langchain_openai", "mem0",
     }
 )
-# The YAML contract ``clss: ucagent.stage.llm_suggestion.OpenAILLM*`` must
+# The YAML contract ``clss: ucagent.core.stage.llm_suggestion.OpenAILLM*`` must
 # still resolve through the package root, loading the stack only at that point.
 cls = llm_suggestion_module.OpenAILLMFailSuggestion
 print(json.dumps({
@@ -64,6 +64,6 @@ print(json.dumps({
     result = json.loads(completed.stdout)
     assert result["loaded"] == []
     assert result["clss_module"] == (
-        "ucagent.stage.llm_suggestion.langchain_suggestion"
+        "ucagent.core.stage.llm_suggestion.langchain_suggestion"
     )
     assert result["stack_loaded_after_resolve"] is True

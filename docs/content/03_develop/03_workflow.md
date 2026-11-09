@@ -5,7 +5,7 @@
 
 ## 1. 默认工作流
 
-中文默认工作流由 `default.yaml` 的 `workflow` 指针指向 `ucagent/plugins/UnityTest/src/unity_test/workflows/unitytest.yaml`，当前有 20 个顶层阶段；带缩进的条目是子阶段。运行时 Stage Manager 会把父阶段和子阶段展平，因此 `--skip`、`hmcheck_set` 和 `GoToStage` 使用的索引必须以当前运行中的 `status` 或 `hmcheck_list` 为准。
+中文默认工作流由 `ucagent/core/locales/zh.yaml` 的 `workflow` 指针指向 `ucagent/plugins/UnityTest/src/unity_test/workflows/unitytest.yaml`，当前有 20 个顶层阶段；带缩进的条目是子阶段。运行时 Stage Manager 会把父阶段和子阶段展平，因此 `--skip`、`hmcheck_set` 和 `GoToStage` 使用的索引必须以当前运行中的 `status` 或 `hmcheck_list` 为准。
 
 | 顶层索引 | 阶段 | 默认状态 |
 | ---: | --- | --- |
@@ -75,13 +75,13 @@ stage:
 
 1. `ucagent/setting.yaml`
 2. `~/.ucagent/setting.yaml`
-3. `ucagent/lang/<lang>/config/default.yaml`
+3. `ucagent/core/locales/<lang>.yaml`
 4. 任务工作流基线：显式选择的插件工作流，或启动时由 `workflow` 指针解析出的默认任务工作流（mission 提示追加而非替换；不传则纯框架运行）
 5. 工作区 `./.ucagent/setting.yaml`
 6. `--config` 指定的文件（未指定时会查找 `config.yaml`）
 7. CLI 参数和 `--override`
 
-`workflow` 指针是启动期选择数据，由 `ucagent` 命令在启动时解析：任何后层（工作区配置、`--config`、`--override`）都可以重定义或置空它，置空即纯框架运行（master 模式即此形态）；配置装配本身不解释该键，直接调用 `get_config` 的库代码需自行解析（用 `resolve_default_task_workflow`）并把结果作为任务工作流传入。显式选择插件工作流时，其基线替换默认工作流（不是叠加在其下）、插在语言默认配置之后、工作区配置之前，详见[插件开发与发布](09_plugins.md)。项目配置的查找范围包括当前启动目录、`~/.ucagent/` 和语言配置目录；相对 `--config` 路径并非默认相对于 workspace。
+`workflow` 指针是启动期选择数据，由 `ucagent` 命令在启动时解析：任何后层（工作区配置、`--config`、`--override`）都可以重定义或置空它，置空即纯框架运行（master 模式即此形态）；配置装配本身不解释该键，直接调用 `get_config` 的库代码需自行解析（用 `resolve_default_task_workflow`）并把结果作为任务工作流传入。显式选择插件工作流时，其基线替换默认工作流（不是叠加在其下）、插在语言默认配置之后、工作区配置之前，详见[插件开发与发布](09_plugins.md)。项目配置的查找范围包括当前启动目录、`~/.ucagent/`、`ucagent/application/presets/<lang>/` 和仓库根目录；相对 `--config` 路径并非默认相对于 workspace。
 
 列表字段（尤其是 `stage`、`checker`、`reference_files`）整体替换，不会按项目名逐项合并。修改默认阶段时，应复制完整列表再编辑。
 
@@ -121,7 +121,7 @@ hmcheck_set <runtime_stage_index> true
 
 ## 5. Checker 配置
 
-Checker 类通过 `clss` 指定，短名从 `ucagent.checkers` 导入，完整路径可指向自定义模块：
+Checker 类通过 `clss` 指定，短名从 `ucagent.core.checkers` 导入，完整路径可指向自定义模块：
 
 ```yaml
 checker:

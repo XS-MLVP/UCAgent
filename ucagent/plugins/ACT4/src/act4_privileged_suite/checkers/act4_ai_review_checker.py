@@ -12,7 +12,7 @@ try:
 except ImportError:  # pragma: no cover - reported by the checker.
     yaml = None  # type: ignore[assignment]
 
-from ucagent.checkers.base import Checker
+from ucagent.core.checkers.base import Checker
 
 
 REVIEW_STATUSES = {"approved", "approved_with_limitations", "blocked"}

@@ -1,5 +1,6 @@
 """Task and service lifetime must remain independent of local frontend attachment."""
 
+from ucagent.interfaces.terminal.presentation import format_result, format_operation
 import io
 import threading
 
@@ -9,11 +10,11 @@ import pytest
 from test_console_runtime import console
 from test_runtime_host import make_host
 from test_tui_parity import observe
-from ucagent.control.console import Console
-from ucagent.control.controller import ControlError
-from ucagent.control.runtime.session import RuntimeSession
-from ucagent.server.api_cmd import ControlApiServer
-from ucagent.tui.app import VerifyApp
+from ucagent.interfaces.terminal.console import Console
+from ucagent.runtime.control.controller import ControlError
+from ucagent.runtime.session import RuntimeSession
+from ucagent.interfaces.server.api_cmd import ControlApiServer
+from ucagent.interfaces.terminal.tui.app import VerifyApp
 from textual.widgets import Input
 
 
@@ -86,7 +87,7 @@ def test_sessions_do_not_replace_global_executors_or_interrupt_targets(console):
     executors = dict(host.registry.executors)
     first = console.execute_line("sleep 30").data
     host.attach_control("active-first", interrupt=console.cancel_foreground)
-    other = RuntimeSession(host)
+    other = RuntimeSession(host, result_formatter=format_result, operation_formatter=format_operation)
     Console(host, session=other, output_stream=io.StringIO())
     second = other.execute_line("sleep 30").data
     assert host.registry.executors == executors
@@ -107,7 +108,7 @@ def test_headless_runtime_keeps_messages_and_tasks_without_console(tmp_path):
     try:
         runtime.agent._mcps_logger.info("before-any-view")
         operation = host.operations.submit("background", lambda context: context.wait(30))
-        session = RuntimeSession(host)
+        session = RuntimeSession(host, result_formatter=format_result, operation_formatter=format_operation)
         assert "before-any-view" in session.drain_messages()
         session.close()
         assert host.operations.get(operation["id"])["state"] == "running"

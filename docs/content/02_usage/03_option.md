@@ -24,30 +24,49 @@ ucagent <workspace> <dut_name> [options]
 
 > 对输出的详细解释可以参考[结果分析与流程总结](../01_start/06_summary.md#工作区结构)
 
-### 位置参数
+### 任务与工作区
 
 | 参数      | 必填 | 说明                                                         | 示例     |
 | :-------- | :--: | :----------------------------------------------------------- | :------- |
 | workspace | 普通任务必填 | 工作目录，也可传本地 `.tar.gz` 或 HTTP(S) 压缩包 URL | ./output |
 | dut | 普通任务必填 | DUT 名称（工作目录下的子目录名）；信息查询等入口无需指定 | Adder |
 
-### 执行与交互
+| 选项 | 简写 | 取值/类型 | 默认值 | 说明 |
+| --- | --- | --- | --- | --- |
+| --workspace-base | | path | /tmp/ucagent_workspace_base | 压缩包工作区的解压基目录；有效工作区为 `<base>/<archive-name>/workspace` |
+| --output                |      | dir                        | 工作流 `output` 声明 | 输出目录名                                                      |
 
-| 选项                 | 简写 | 取值/类型                  | 默认值   | 说明                                                          |
-| :------------------- | :--- | :------------------------- | :------- | :------------------------------------------------------------ |
+### 配置与工作流
+
+| 选项 | 简写 | 取值/类型 | 默认值 | 说明 |
+| --- | --- | --- | --- | --- |
+| --config                |      | path                       | 无         | 配置文件路径，如 `--config config.yaml`                         |
+| --plugin                |      | name/path（可多次）        | []         | 激活已安装插件 ID 或本地插件项目路径                            |
+| --plugin-workflow       |      | [plugin:]workflow          | 无         | 使用已激活插件声明的工作流配置层；可与 `--config` 同时使用      |
+| --override              |      | A.B.C=VALUE[,X.Y=VAL2,...] | 无         | 以点号路径覆盖配置，可重复使用；值按 Python 字面量解析，布尔值写 `True/False`，未解析的值作为字符串 |
+
+### 执行与模型
+
+| 选项 | 简写 | 取值/类型 | 默认值 | 说明 |
+| --- | --- | --- | --- | --- |
+| --interaction-mode   | -im  | standard/enhanced/advanced | standard | 交互模式；enhanced 含规划与记忆管理，advanced 含自适应策略    |
+| --seed               |      | int                        | 随机     | 随机种子（未指定则自动随机）                                  |
+| --sys-tips           |      | str                        | 空       | 覆盖系统提示词                                                |
+| --loop               | -l   | flag                       | 关闭     | 初始化时提交自动执行循环（可配合 --loop-msg） |
+| --loop-msg           |      | str                        | 空       | 进入循环时注入的首条消息                                      |
+| --backend               |      | str                        | 无         | 指定后端（覆盖配置文件设置）                                    |
+| --icmd               |      | str（可多次）              | []       | 启动时执行的初始命令，可多次使用                              |
+| --exit-on-completion | -eoc | flag                       | 关闭     | 任务完成后自动退出代理（Exit 工具调用成功后）                 |
+
+### 界面与显示
+
+| 选项 | 简写 | 取值/类型 | 默认值 | 说明 |
+| --- | --- | --- | --- | --- |
 | --stream-output      | -s   | flag                       | 关闭     | 流式输出到控制台                                              |
 | --human              | -hm  | flag                       | 关闭     | 启动普通 Console 交互入口                                   |
-| --interaction-mode   | -im  | standard/enhanced/advanced | standard | 交互模式；enhanced 含规划与记忆管理，advanced 含自适应策略    |
 | --tui                |      | flag                       | 关闭     | 启用终端 TUI 界面                                              |
 | --web-console        |      | [host[:port]] [password]   | 关闭     | 启用浏览器 Web UI（独立模式）。默认 `localhost:8000`。**注意：仅提供 Web 界面，不提供本地命令行交互** |
 | --web-terminal       |      | [host[:port]] [password]   | 关闭     | 启动 Web Terminal 服务器。默认 `127.0.0.1:8818`。**同时提供 Web 终端和本地命令行交互** |
-| --loop               | -l   | flag                       | 关闭     | 初始化时提交自动执行循环（可配合 --loop-msg） |
-| --loop-msg           |      | str                        | 空       | 进入循环时注入的首条消息                                      |
-| --seed               |      | int                        | 随机     | 随机种子（未指定则自动随机）                                  |
-| --sys-tips           |      | str                        | 空       | 覆盖系统提示词                                                |
-| --icmd               |      | str（可多次）              | []       | 启动时执行的初始命令，可多次使用                              |
-| --no-history         |      | flag                       | 关闭     | 禁用从工作目录加载历史记录                                    |
-| --exit-on-completion | -eoc | flag                       | 关闭     | 任务完成后自动退出代理（Exit 工具调用成功后）                 |
 
 `--web-console` 提供独立 Web 会话；`--web-terminal` 可与本地终端同时使用。例如：
 
@@ -58,97 +77,81 @@ ucagent ./output Adder --web-terminal '127.0.0.1:8818 mysecret'
 
 Master 的 Dashboard、Launch、Task 和 Agent 页面见 [Web Master 使用指南](07_web_master.md)。
 
-### 配置与模板
+### 阶段与历史
 
-| 选项                    | 简写 | 取值/类型                  | 默认值     | 说明                                                            |
-| :---------------------- | :--- | :------------------------- | :--------- | :-------------------------------------------------------------- |
-| --workspace-base | | path | /tmp/ucagent_workspace_base | 压缩包工作区的解压基目录；有效工作区为 `<base>/<archive-name>/workspace` |
-| --config                |      | path                       | 无         | 配置文件路径，如 `--config config.yaml`                         |
-| --plugin                |      | name/path（可多次）        | []         | 激活已安装插件 ID 或本地插件项目路径                            |
-| --plugin-workflow       |      | [plugin:]workflow          | 无         | 使用已激活插件声明的工作流配置层；可与 `--config` 同时使用      |
-| --list-plugins          |      | flag                       | 否         | 列出 entry point 和 `plugin.search_paths` 可发现的插件后退出    |
-| --validate-plugin       |      | name/path（可多次）        | []         | 校验插件清单、兼容性、依赖、命令和资源后退出                    |
+| 选项 | 简写 | 取值/类型 | 默认值 | 说明 |
+| --- | --- | --- | --- | --- |
+| --force-stage-index |      | int             | 0      | 指定运行时阶段索引；回退会重置该阶段及之后的已保存数据                        |
+| --ref               |      | str（可多次）   | []     | 指定阶段需读取的参考文件，格式：`[stage_index:]file_path1[,file_path2]` |
+| --skip              |      | int（可多次）   | []     | 跳过指定阶段索引，可重复提供                  |
+| --unskip            |      | int（可多次）   | []     | 取消跳过指定阶段索引，可重复提供              |
+| --no-history         |      | flag                       | 关闭     | 禁用从工作目录加载历史记录                                    |
+
+### 文档、模板与文件保护
+
+| 选项 | 简写 | 取值/类型 | 默认值 | 说明 |
+| --- | --- | --- | --- | --- |
 | --template-dir          |      | path                       | 无         | 自定义模板目录                                                  |
 | --template-overwrite    |      | flag                       | 否         | 渲染模板到 workspace 时允许覆盖已存在内容                       |
 | --template-cfg-override |      | path（可多次）             | []         | 从 YAML 文件覆盖模板配置，可多次使用                            |
-| --output                |      | dir                        | 工作流 `output` 声明 | 输出目录名                                                      |
-| --override              |      | A.B.C=VALUE[,X.Y=VAL2,...] | 无         | 以点号路径覆盖配置，可重复使用；值按 Python 字面量解析，布尔值写 `True/False`，未解析的值作为字符串 |
+| --no-write          | -nw  | path1 path2 ... | 无     | 禁止写入指定文件或目录；路径必须位于 workspace 内，非通配路径必须已存在 |
 | --gen-instruct-file     | -gif | file                       | AGENTS.md | 在 workspace 下生成外部 Agent 的引导文件（存在则覆盖）          |
 | --guid-doc-path         |      | path（可多次）             | 无         | 选择自定义 Guide_Doc 目录或追加文件                   |
-| --use-skill / --no-use-skill | | flag                       | 开启       | 显式启用/关闭技能 SKILL；未指定时使用配置值，内置配置默认开启 |
-| --extra-skill-path      |      | path                       | 无         | 除默认 SKILL 外，额外使用指定路径下的 SKILL；不能与 `--no-use-skill` 同时使用 |
-| --backend               |      | str                        | 无         | 指定后端（覆盖配置文件设置）                                    |
-| --emulate-config        |      | flag                       | 否         | 仅模拟配置过程，不实际运行各阶段                                |
 
-### 计划与 ToDo
+### 工具与技能
 
-| 选项             | 简写 | 取值/类型 | 默认值 | 说明                                                             |
-| :--------------- | :--- | :-------- | :----- | :--------------------------------------------------------------- |
+| 选项 | 简写 | 取值/类型 | 默认值 | 说明 |
+| --- | --- | --- | --- | --- |
 | --force-todo     | -fp  | flag      | 否     | 在 standard 模式下也启用 ToDo 工具，并在每轮提示中附带 ToDo 信息 |
 | --use-todo-tools | -utt | flag      | 否     | 启用 ToDo 相关工具（不限于 standard 模式）                       |
+| --use-skill / --no-use-skill | | flag                       | 开启       | 显式启用/关闭技能 SKILL；未指定时使用配置值，内置配置默认开启 |
+| --extra-skill-path      |      | path                       | 无         | 除默认 SKILL 外，额外使用指定路径下的 SKILL；不能与 `--no-use-skill` 同时使用 |
+| --ex-tools       | -et  | name1[,name2...] | 无     | 逗号分隔的外部工具类名列表（如：SqThink），可多次使用 |
+| --no-embed-tools |      | `true_or_false`（可省略值） | `true` | 禁用内置的检索/记忆类嵌入工具；裸参数或 `true` 表示禁用，传 `false` 才启用 |
+| --append-py-path    | -app | path（可多次）  | []     | 添加 Python 路径或文件用于模块加载            |
+| --enable-context-manage-tools |      | flag      | 关闭   | 启用上下文管理工具；适用于 API 模式等需要显式管理上下文的场景 |
 
 ToDo 工具用于记录计划，不替代阶段验收。步骤索引从 1 开始，新建计划需要 2–20 步；工具用途见[工具列表](../03_develop/06_tool_list.md)。
 
-### 外部与嵌入工具
+### MCP 与 HTTP 服务
 
-| 选项             | 简写 | 取值/类型        | 默认值 | 说明                                      |
-| :--------------- | :--- | :--------------- | :----- | :---------------------------------------- |
-| --ex-tools       | -et  | name1[,name2...] | 无     | 逗号分隔的外部工具类名列表（如：SqThink），可多次使用 |
-| --no-embed-tools |      | `true_or_false`（可省略值） | `true` | 禁用内置的检索/记忆类嵌入工具；裸参数或 `true` 表示禁用，传 `false` 才启用 |
-
-### 日志
-
-| 选项       | 简写 | 取值/类型 | 默认值 | 说明                             |
-| :--------- | :--- | :-------- | :----- | :------------------------------- |
-| --log      |      | flag      | 否     | 启用日志                         |
-| --log-file |      | path      | 自动   | 日志输出文件（未指定则使用默认） |
-| --msg-file |      | path      | 自动   | 消息日志文件（未指定则使用默认） |
-
-### MCP Server
-
-| 选项                       | 简写 | 取值/类型 | 默认值    | 说明                              |
-| :------------------------- | :--- | :-------- | :-------- | :-------------------------------- |
+| 选项 | 简写 | 取值/类型 | 默认值 | 说明 |
+| --- | --- | --- | --- | --- |
 | --mcp-server               |      | flag      | 否        | 启动 MCP Server（含文件工具）     |
 | --mcp-server-no-file-tools |      | flag      | 否        | 启动 MCP Server，省略文件操作工具组；保留基础 `ReadTextFile` |
 | --mcp-server-host          |      | host      | 127.0.0.1 | Server 监听地址                   |
 | --mcp-server-port          |      | int       | 5000      | Server 端口；使用 -1 自动选择可用端口 |
-
-### 阶段控制与安全
-
-| 选项                | 简写 | 取值/类型       | 默认值 | 说明                                          |
-| :------------------ | :--- | :-------------- | :----- | :-------------------------------------------- |
-| --force-stage-index |      | int             | 0      | 指定运行时阶段索引；回退会重置该阶段及之后的已保存数据                        |
-| --skip              |      | int（可多次）   | []     | 跳过指定阶段索引，可重复提供                  |
-| --unskip            |      | int（可多次）   | []     | 取消跳过指定阶段索引，可重复提供              |
-| --no-write          | -nw  | path1 path2 ... | 无     | 禁止写入指定文件或目录；路径必须位于 workspace 内，非通配路径必须已存在 |
-| --ref               |      | str（可多次）   | []     | 指定阶段需读取的参考文件，格式：`[stage_index:]file_path1[,file_path2]` |
-| --append-py-path    | -app | path（可多次）  | []     | 添加 Python 路径或文件用于模块加载            |
-
-### Master API 与分布式
-
-| 选项                | 简写 | 取值/类型     | 默认值 | 说明                                                              |
-| :------------------ | :--- | :------------ | :----- | :---------------------------------------------------------------- |
-| --as-master         |      | [ip[:port]]   | 关闭   | 作为 Master API 服务器启动；不指定地址则使用默认值                |
-| --master            |      | host[:port] [key] | [] | 连接到 Master API 服务器，可指定 access_key，可多次使用           |
-| --as-master-persist |      | [path]         | /tmp/ucagent_master | Master 使用持久化工作区目录（配合 --as-master 使用）   |
-| --as-master-key     |      | str           | 无     | 客户端注册时需提供的访问密钥（配合 --as-master 使用）             |
-| --as-master-password|      | str           | 无     | HTTP Basic Auth 密码保护 Master API（配合 --as-master 使用）      |
-| --client-id         |      | str           | 无     | 连接 Master 时使用的客户端标识（配合 --master 使用）              |
 | --export-cmd-api    |      | [ip[:port]][ passwd] | 关闭 | 启动 CMD API 服务器，默认 `127.0.0.1:8765`，可指定密码启用 HTTP Basic Auth |
 
-### 上下文管理
+### Master 管理与连接
 
-| 选项                          | 简写 | 取值/类型 | 默认值 | 说明                                              |
-| :---------------------------- | :--- | :-------- | :----- | :------------------------------------------------ |
-| --enable-context-manage-tools |      | flag      | 关闭   | 启用上下文管理工具；适用于 API 模式等需要显式管理上下文的场景 |
+| 选项 | 简写 | 取值/类型 | 默认值 | 说明 |
+| --- | --- | --- | --- | --- |
+| --as-master         |      | [ip[:port]]   | 关闭   | 作为 Master API 服务器启动；不指定地址则使用默认值                |
+| --master            |      | host[:port] [key] | [] | 连接到 Master API 服务器，可指定 access_key，可多次使用           |
+| --client-id         |      | str           | 无     | 连接 Master 时使用的客户端标识（配合 --master 使用）              |
+| --as-master-key     |      | str           | 无     | 客户端注册时需提供的访问密钥（配合 --as-master 使用）             |
+| --as-master-password|      | str           | 无     | HTTP Basic Auth 密码保护 Master API（配合 --as-master 使用）      |
+| --as-master-persist |      | [path]         | /tmp/ucagent_master | Master 使用持久化工作区目录（配合 --as-master 使用）   |
 
-### 版本与检查
+### 日志与记录
 
-| 选项          | 简写 | 取值/类型   | 默认值 | 说明                                                    |
-| :------------ | :--- | :---------- | :----- | :------------------------------------------------------ |
-| --check       |      | flag        | 否     | 检查默认配置、语言目录、模板与 Guide_Doc 是否存在后退出 |
+| 选项 | 简写 | 取值/类型 | 默认值 | 说明 |
+| --- | --- | --- | --- | --- |
+| --log      |      | flag      | 否     | 启用日志                         |
+| --log-file |      | path      | 自动   | 日志输出文件（未指定则使用默认） |
+| --msg-file |      | path      | 自动   | 消息日志文件（未指定则使用默认） |
+
+### 检查与管理操作
+
+| 选项 | 简写 | 取值/类型 | 默认值 | 说明 |
+| --- | --- | --- | --- | --- |
+| --list-plugins          |      | flag                       | 否         | 列出 entry point 和 `plugin.search_paths` 可发现的插件后退出    |
+| --validate-plugin       |      | name/path（可多次）        | []         | 校验插件清单、兼容性、依赖、命令和资源后退出                    |
+| --emulate-config        |      | flag                       | 否         | 遍历配置中的阶段并执行检查                                |
 | --version     |      | flag        |        | 输出版本并退出                                          |
 | --upgrade     |      | [pip_args]  | 否     | 从 GitHub main 分支升级 UCAgent，可选传递 pip 额外参数  |
+| --check       |      | flag        | 否     | 检查默认配置、语言目录、模板与 Guide_Doc 是否存在后退出 |
 | --hook-message|      | str         | 无     | Hook continue/complete key 用于自定义提示处理（Code Agent 使用） |
 
 ### 示例
@@ -190,7 +193,7 @@ UCAgent 支持通过环境变量配置各类参数。环境变量用于覆盖内
 | `OPENAI_CONTEXT_SIZE` | 命令行后端所用模型的上下文窗口大小（token 数），渲染进各后端的上下文窗口配置；未设置时使用后端默认值 | 未设置 |
 | `OPENAI_OUTPUT_SIZE` | 命令行后端所用模型的单次响应输出上限（token 数），仅 opencode/kilo 后端在已声明上下文窗口时生效 | 未设置 |
 | `OPENAI_API_MODE` | LangChain 后端使用的 OpenAI API 模式：`auto`、`responses` 或 `chat_completions` | `auto` |
-| `OPENAI_RESPONSES_PROBE_TIMEOUT` | 启动时 Responses API 能力探测超时秒数，必须为正数 | `10` |
+| `OPENAI_RESPONSES_PROBE_TIMEOUT` | 首次模型工作前 Responses API 能力探测超时秒数，必须为正数 | `10` |
 | `OPENAI_REASONING_EFFORT` | LangChain 后端的思考程度；按当前 OpenAI 或兼容模型服务支持的字符串原样传递 | `xhigh` |
 | `OPENAI_TEMPERATURE` | OpenAI 模型 temperature 参数 | 未设置 |
 | `OPENAI_TOP_P` | OpenAI 模型 top_p 参数 | 未设置 |

@@ -20,7 +20,7 @@ from typing import Any
 
 import yaml
 
-from ucagent.checkers.base import CB_KEY_ON_INIT, Checker
+from ucagent.core.checkers.base import CB_KEY_ON_INIT, Checker
 
 from .act4_asset_checker import ACT4AssetChecker
 from .act4_asset_consistency import scan_systemverilog

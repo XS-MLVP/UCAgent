@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from ucagent.plugins import CommandRequirement, Plugin, PluginWorkflow
+from ucagent.core.plugins import CommandRequirement, Plugin, PluginWorkflow
 
 from . import __version__
 from .checkers.act4_ai_review_checker import ACT4AIReviewChecker

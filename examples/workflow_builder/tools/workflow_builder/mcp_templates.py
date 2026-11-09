@@ -15,7 +15,7 @@ from typing import Any
 
 import yaml
 from pydantic import BaseModel, Field, create_model
-from ucagent.tools.uctool import UCTool
+from ucagent.core.tools.uctool import UCTool
 
 
 ROOT = Path.cwd().resolve()

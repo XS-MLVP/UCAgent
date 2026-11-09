@@ -1,6 +1,6 @@
 #coding=utf-8
 
-from ucagent.checkers.base import Checker
+from ucagent.core.checkers.base import Checker
 
 class MyChecker(Checker):
 

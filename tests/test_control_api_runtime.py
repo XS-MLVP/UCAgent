@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 import pytest
 
 from test_runtime_host import make_host
-from ucagent.server.api_cmd import ControlApiServer
+from ucagent.interfaces.server.api_cmd import ControlApiServer
 
 
 @pytest.fixture

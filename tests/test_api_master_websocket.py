@@ -9,7 +9,7 @@ import aiohttp
 from fastapi import WebSocket
 import pytest
 
-from ucagent.server.api_master import MasterApiServer
+from ucagent.interfaces.server.api_master import MasterApiServer
 from ucagent.util.config import Config
 
 

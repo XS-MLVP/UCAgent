@@ -1,0 +1,335 @@
+#coding=utf-8
+"""LangChain backend integration for UCAgent."""
+
+import threading
+
+from ucagent.core.backends.base import AgentBackendBase
+from ucagent.util.log import info, warning, error
+from ucagent.core.backends.langchain.middleware import (
+    MessageStatistic,
+    TokenSpeedCallbackHandler,
+    TrimAndSummaryMiddleware,
+)
+from langchain.agents import create_agent
+from langgraph.checkpoint.memory import MemorySaver
+from ucagent.util.models import get_chat_model, negotiate_openai_api_mode
+from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, ToolMessage
+from ucagent.util.functions import dump_as_json, get_ai_message_tool_call
+
+
+class UCAgentLangChainBackend(AgentBackendBase):
+    """
+    LangChain-based agent backend implementation.
+    """
+
+    def __init__(self, vagent, config, **kwargs):
+        """Create local message/context state without constructing model clients."""
+        super().__init__(vagent, config, **kwargs)
+        self.message_statistic = MessageStatistic()
+        self.cb_stream_output = TokenSpeedCallbackHandler()
+        self.cb_summary_stream_output = TokenSpeedCallbackHandler()
+        self.cb_runtime_output = TokenSpeedCallbackHandler()
+        # Retain the old attribute for callers that inspect the backend directly.
+        self.cb_token_speed = self.cb_runtime_output
+        # Stream events replace this tuple atomically, keeping status rendering
+        # independent from the graph's live state lock.
+        self._status_messages = ()
+        self.openai_api_mode = None
+        self.model = None
+        self.sumary_model = None
+        self.agent = None
+        self._prepare_lock = threading.Lock()
+        self._prepare_error = None
+        if vagent.context_management_strategy == "TrimAndSummaryMiddleware":
+            message_manage_node = TrimAndSummaryMiddleware(
+                msg_stat=self.message_statistic,
+                max_summary_tokens=vagent.max_summary_tokens,
+                max_keep_msgs=vagent.max_keep_msgs,
+                max_tokens=vagent.max_token,
+                tail_keep_msgs=vagent.tail_keep_msgs,
+                model=None,
+            )
+        else:
+            raise ValueError(f"Unsupported context_management_strategy: {vagent.context_management_strategy}")
+        message_manage_node.vagent = vagent
+        self.message_manage_node = message_manage_node
+
+    def set_debug(self, debug):
+        from langchain_core.globals import set_debug
+        set_debug(debug)
+
+    def init(self):
+        """Bind the final tool list without preparing models or probing a provider."""
+        self.message_manage_node.set_tools(self.vagent.test_tools)
+
+    def prepare(self):
+        """Prepare models and graph once at the first explicit model operation."""
+        with self._prepare_lock:
+            if self.agent is not None:
+                return
+            if self._prepare_error is not None:
+                raise self._prepare_error
+            try:
+                if self.config.get_value("model_type", "openai") == "openai":
+                    self.openai_api_mode = negotiate_openai_api_mode(self.config)
+                self.model = get_chat_model(
+                    self.config, [self.cb_stream_output, self.cb_runtime_output],
+                    openai_api_mode=self.openai_api_mode, streaming=self.vagent.stream_output,
+                )
+                self.sumary_model = get_chat_model(
+                    self.config, [self.cb_summary_stream_output, self.cb_runtime_output],
+                    openai_api_mode=self.openai_api_mode, streaming=self.vagent.stream_output,
+                )
+                self.message_manage_node.model = self.sumary_model
+                self.agent = create_agent(
+                    model=self.model, tools=self.vagent.test_tools,
+                    checkpointer=MemorySaver(), middleware=[self.message_manage_node],
+                )
+            except Exception as error:
+                # Configuration remains fixed for this instance; repeated status/work
+                # calls must not keep probing a broken provider configuration.
+                self._prepare_error = error
+                raise
+
+    def reset_chat(self, force=False):
+        self.message_manage_node.reset_chat(force)
+
+    def on_stage_complete(self, stage):
+        self.reset_chat(force=False)
+
+    def get_human_message(self, text):
+        return HumanMessage(content=text)
+
+    def get_system_message(self, text):
+        msg = SystemMessage(content=text)
+        self.message_manage_node.set_system_message(msg)
+        return msg
+
+    def state_record_mesg(self, msg):
+        if isinstance(msg, AIMessage):
+            self._stat_msg_count_ai += 1
+        elif isinstance(msg, ToolMessage):
+            self._stat_msg_count_tool += 1
+        elif isinstance(msg, SystemMessage):
+            self._stat_msg_count_system += 1
+        self.message_statistic.update_message(msg, usage_source="main")
+
+    def get_message_manage_node(self):
+        return self.message_manage_node
+
+    def _process_msg_content(self, msg):
+        """Render user-visible text from provider-neutral LangChain content blocks."""
+        if isinstance(msg, str):
+            return msg
+        if isinstance(msg, dict):
+            block_type = msg.get("type")
+            if block_type in {"text", "output_text"}:
+                return self._process_msg_content(msg.get("text", ""))
+            if block_type == "refusal":
+                return self._process_msg_content(msg.get("refusal", ""))
+            if block_type in {"thinking", "summary_text"}:
+                return self._process_msg_content(
+                    msg.get("thinking", msg.get("text", ""))
+                )
+            if block_type == "reasoning":
+                return self._process_msg_content(msg.get("summary", ""))
+            if block_type:
+                return ""
+            if not msg:
+                return ""
+            if len(msg) != 1:
+                return str(msg)
+            return self._process_msg_content(next(iter(msg.values())))
+        if isinstance(msg, list):
+            return "".join(self._process_msg_content(item) for item in msg)
+        return str(msg)
+
+    def do_work_stream(self, instructions, config):
+        """Prepare on demand and stream one model operation."""
+        self.prepare()
+        last_msg_index = None
+        fist_ai_message = True
+        for v, data in self.agent.stream(instructions, config, stream_mode=["values", "messages"]):
+            if self.vagent.is_break():
+                    break
+            if v == "messages":
+                if fist_ai_message:
+                    fist_ai_message = False
+                    self.vagent.message_echo("\n\n================================== AI Message ==================================")
+                msg = data[0]
+                self.vagent.message_echo(self._process_msg_content(msg.content), end="")
+            else:
+                index = len(data["messages"])
+                self._status_messages = tuple(data["messages"])
+                if index == last_msg_index:
+                    continue
+                last_msg_index = index
+                msg = data["messages"][-1]
+                self.state_record_mesg(msg)
+                if isinstance(msg, AIMessage):
+                    self.vagent.message_echo(get_ai_message_tool_call(msg))
+                    self.check_tool_call_error(msg)
+                    continue
+                self.vagent.message_echo("\n"+msg.pretty_repr())
+
+    def do_work_values(self, instructions, config):
+        """Prepare on demand and execute one model operation."""
+        self.prepare()
+        last_msg_index = None
+        for _, step in self.agent.stream(instructions, config, stream_mode=["values"]):
+            if self.vagent.is_break():
+                break
+            index = len(step["messages"])
+            self._status_messages = tuple(step["messages"])
+            if index == last_msg_index:
+                continue
+            last_msg_index = index
+            msg = step["messages"][-1]
+            self.check_tool_call_error(msg)
+            self.state_record_mesg(msg)
+            self.vagent.message_echo(msg.pretty_repr())
+
+    def check_tool_call_error(self, msg):
+        if not isinstance(msg, AIMessage):
+            return
+        if not hasattr(msg, "invalid_tool_calls"):
+            return
+        if len(msg.invalid_tool_calls) < 1:
+            return
+        for call in msg.invalid_tool_calls:
+            name = call.get("name")
+            tool = next((tool for tool in self.vagent.test_tools if tool.name == name), None)
+            args = call.get("args") or {}
+            status = "success"
+            try:
+                assert tool is not None, f"Tool {name} not found"
+                result = tool._run(*(), **args)
+            except Exception as e:
+               error(f"Error executing tool {call}: {e}")
+               result = str(e)
+               status = "error"
+            if not isinstance(result, str):
+                result = dump_as_json(result)
+            self.vagent._tool__call_error.append(ToolMessage(
+                content=result,
+                tool_call_id=call["id"],
+                name=name,
+                status=status
+            ))
+        warning(f"Tool call error: {msg.invalid_tool_calls}, have re-called them in custom way")
+
+    def messages_get_raw(self):
+        """Read existing history without creating a graph or model client."""
+        if self.agent is None:
+            return []
+        try:
+            values = self.agent.get_state(self.get_work_config()).values
+            messages = values.get("messages", [])
+            self._status_messages = tuple(messages)
+            return messages
+        except Exception as e:
+            warning(f"Failed to get messages from agent state: {e}")
+        return []
+
+    def messages_get_status(self):
+        """Return the latest stream snapshot without acquiring graph state."""
+        return list(self._status_messages)
+
+    @staticmethod
+    def _pending_tool_calls(messages):
+        pending = {}
+        for msg in messages:
+            if isinstance(msg, AIMessage):
+                for call in msg.tool_calls:
+                    tool_call_id = call.get("id")
+                    if not tool_call_id:
+                        continue
+                    pending[tool_call_id] = call.get("name") or "unknown"
+            elif isinstance(msg, ToolMessage):
+                pending.pop(msg.tool_call_id, None)
+        return pending
+
+    def recover_pending_tool_calls(self, error) -> int:
+        pending = self._pending_tool_calls(self.messages_get_raw())
+        if not pending:
+            return 0
+        reason = str(error).strip().splitlines()[0]
+        if len(reason) > 500:
+            reason = reason[:497] + "..."
+        recovery_messages = [
+            ToolMessage(
+                content=(
+                    "[ERROR] The tool call ended before producing a usable result. "
+                    f"Reason: {reason or type(error).__name__}. Review the arguments "
+                    "and retry."
+                ),
+                tool_call_id=tool_call_id,
+                name=name,
+                status="error",
+            )
+            for tool_call_id, name in pending.items()
+        ]
+        try:
+            self.agent.update_state(
+                self.get_work_config(),
+                {"messages": recovery_messages},
+                as_node="tools",
+            )
+        except Exception as recovery_error:
+            warning(f"Failed to recover pending tool calls: {recovery_error}")
+            return 0
+        warning(f"Recovered {len(recovery_messages)} pending tool call(s).")
+        return len(recovery_messages)
+
+    def get_work_config(self):
+        work_config = {
+            "configurable": {"thread_id": f"{self.vagent.thread_id}"},
+            "recursion_limit": self.config.get_value("recursion_limit", 100000),
+        }
+        if self.vagent.langfuse_enable:
+            work_config["callbacks"] = [self.vagent.langfuse_handler]
+            work_config["metadata"] = {
+                # "langfuse_user_id": "user_id",
+                "langfuse_session_id": self.vagent.session_id.hex,
+                # "langfuse_tags": ["some-tag",]
+            }
+        return work_config
+
+    def model_name(self):
+        """Describe the selected model without preparing it for status queries."""
+        if self.model is None:
+            provider = self.config.get_value("model_type", "openai")
+            return self.config.get_value(f"{provider}.model_name", "unconfigured")
+        # ChatOpenAI stores the name as `model_name`; ChatAnthropic uses `model`.
+        return getattr(self.model, "model_name", None) or getattr(self.model, "model", "unknown")
+
+    def temperature(self):
+        """Read configured temperature until a prepared model is available."""
+        if self.model is None:
+            provider = self.config.get_value("model_type", "openai")
+            return self.config.get_value(f"{provider}.temperature", None)
+        return self.model.temperature
+
+    def get_statistics(self):
+        return self.message_statistic.get_statistics()
+
+    def token_speed(self):
+        return self.cb_runtime_output.get_speed()
+
+    def idle(self):
+        return self.cb_runtime_output.get_idle()
+
+    def token_total(self):
+        usage = self.get_statistics()["provider_usage"]["all"]
+        if usage["responses_with_usage"] < 1:
+            return -1
+        return usage["total_tokens"]
+
+    def stream_character_speed(self):
+        return self.cb_stream_output.get_speed()
+
+    def stream_character_total(self):
+        return self.cb_stream_output.total()
+
+    def summary_stream_character_total(self):
+        return self.cb_summary_stream_output.total()

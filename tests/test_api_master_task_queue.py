@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.abspath(os.path.join(current_dir, "..")))
 
-from ucagent.server.api_master import MasterApiServer
+from ucagent.interfaces.server.api_master import MasterApiServer
 from ucagent.util.config import Config
 
 
