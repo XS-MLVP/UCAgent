@@ -32,7 +32,7 @@ ucagent output/ Adder -s --human --tui --loop \
 
 上面两种启动方式二选一。再次执行 `ucagent` 会创建另一个实例，不会连接到已有任务。源码仓库的 `make test_Adder` 使用 `output/workspace_Adder/`，请按实际工作区替换路径。
 
-指定 `--human` 或 `--tui` 的交互启动，在没有 `--loop` 和其他启动任务命令时等待输入。无本地界面的 HTTP/MCP 服务模式不应按这个规则推断：非 `blank` 后端在没有启动模型命令时会默认提交 `continue`。手动 MCP 双终端接入按 [MCP 接入](../01_start/03_mcp_mode.md)的交互启动示例操作。
+交互启动和 HTTP/MCP 服务启动均等待明确的执行请求：使用 `--loop`、`--icmd`/`init_cmds` 中的模型命令，或启动后提交 `continue` 等命令。无界面、无服务的普通任务仍默认自动执行。状态查询和确定性工具调用不准备主模型。`blank` 会拒绝模型执行；显式启用的 embedding、模型审核和失败建议仍需各自的配置，工具或 Checker 也可能有独立模型依赖。
 
 ## 2. 命令、参数和长操作
 

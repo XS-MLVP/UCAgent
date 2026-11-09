@@ -16,7 +16,7 @@ import pytest
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.abspath(os.path.join(current_dir, "..")))
 
-from ucagent.abackend.cmdline import UCAgentCmdLineBackend
+from ucagent.core.backends.cmdline import UCAgentCmdLineBackend
 
 
 class _FakeAgent:
@@ -218,7 +218,7 @@ def test_opencode_template_denies_shell_and_runtime_state_edits(
     workspace = tmp_path / directory
     workspace.mkdir()
     template_file = os.path.abspath(
-        os.path.join(current_dir, "..", "ucagent", "assets", "mcp_opencode.json")
+        os.path.join(current_dir, "..", "ucagent", "core", "backends", "assets", "mcp_opencode.json")
     )
     config = SimpleNamespace(mcp_server=SimpleNamespace(port=5678))
     monkeypatch.setenv("OPENAI_MODEL", "test-model")
@@ -254,7 +254,7 @@ def test_codex_template_includes_env_key_only_when_openai_api_key_exists(tmp_pat
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     template_file = os.path.abspath(
-        os.path.join(current_dir, "..", "ucagent", "assets", "mcp_codex.toml")
+        os.path.join(current_dir, "..", "ucagent", "core", "backends", "assets", "mcp_codex.toml")
     )
     config = SimpleNamespace(mcp_server=SimpleNamespace(port=5678))
 
@@ -298,7 +298,7 @@ def _render_model_backend_templates(tmp_path, monkeypatch):
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     config = SimpleNamespace(mcp_server=SimpleNamespace(port=5678))
-    assets = os.path.abspath(os.path.join(current_dir, "..", "ucagent", "assets"))
+    assets = os.path.abspath(os.path.join(current_dir, "..", "ucagent", "core", "backends", "assets"))
     monkeypatch.setenv("OPENAI_MODEL", "test-model")
     monkeypatch.setenv("OPENAI_API_BASE", "http://example.test/v1")
     render_files = {

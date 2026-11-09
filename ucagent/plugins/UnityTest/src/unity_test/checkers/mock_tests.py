@@ -5,7 +5,7 @@
 import os
 from ..testops import RunUnityChipTest
 import ucagent.util.functions as fc
-from ucagent.checkers.base import Checker, BatchTask
+from ucagent.core.checkers.base import Checker, BatchTask
 from .unity_test import (
     _iter_test_function_defs,
     _test_function_contract_failure,

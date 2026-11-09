@@ -24,8 +24,8 @@ if loaded_ucagent is not None and not loaded_ucagent_path.startswith(
         if module_name == "ucagent" or module_name.startswith("ucagent."):
             del sys.modules[module_name]
 
-from ucagent.server.api_cmd import ControlApiServer
-from ucagent.control.controller import Controller
+from ucagent.interfaces.server.api_cmd import ControlApiServer
+from ucagent.runtime.control.controller import Controller
 from ucagent.util.config import Config
 from ucagent.util.waveform_viewer import build_waveform_metadata, load_waveform_metadata, write_waveform_metadata
 from unity_test.waveform import WaveInfo

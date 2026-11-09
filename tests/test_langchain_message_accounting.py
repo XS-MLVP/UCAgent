@@ -12,7 +12,7 @@ from langchain_core.messages import (
 )
 from langchain_core.outputs import ChatGenerationChunk
 
-from ucagent.abackend.langchain.middleware.messages import (
+from ucagent.core.backends.langchain.middleware.messages import (
     MessageStatistic,
     StreamedOutputCallbackHandler,
     TrimAndSummaryMiddleware,
@@ -20,8 +20,8 @@ from ucagent.abackend.langchain.middleware.messages import (
     retain_skill_read_messages_as_human,
     summarize_messages,
 )
-from ucagent.abackend.langchain.agent import UCAgentLangChainBackend
-from ucagent.verify_agent import VerifyAgent
+from ucagent.core.backends.langchain.agent import UCAgentLangChainBackend
+from ucagent import VerifyAgent
 from ucagent.util.config import load_yaml_with_env_vars
 from ucagent.util.models import get_chat_model_openai
 
@@ -131,7 +131,7 @@ def test_stream_callback_counts_characters_and_handles_missing_chunk():
 def test_stream_speed_uses_observed_output_and_excludes_idle(monkeypatch):
     timestamps = iter((10.0, 11.0, 12.0, 13.0))
     monkeypatch.setattr(
-        "ucagent.abackend.langchain.middleware.messages.time.perf_counter",
+        "ucagent.core.backends.langchain.middleware.messages.time.perf_counter",
         lambda: next(timestamps),
     )
     callback = StreamedOutputCallbackHandler()
@@ -165,7 +165,7 @@ def test_stream_speed_uses_observed_output_and_excludes_idle(monkeypatch):
 def test_nonstream_speed_uses_total_response_time(monkeypatch):
     timestamps = iter((20.0, 24.0))
     monkeypatch.setattr(
-        "ucagent.abackend.langchain.middleware.messages.time.perf_counter",
+        "ucagent.core.backends.langchain.middleware.messages.time.perf_counter",
         lambda: next(timestamps),
     )
     callback = StreamedOutputCallbackHandler()
@@ -184,7 +184,7 @@ def test_nonstream_speed_uses_total_response_time(monkeypatch):
 def test_stream_callback_reports_live_estimated_speed(monkeypatch):
     now = [30.0]
     monkeypatch.setattr(
-        "ucagent.abackend.langchain.middleware.messages.time.perf_counter",
+        "ucagent.core.backends.langchain.middleware.messages.time.perf_counter",
         lambda: now[0],
     )
     callback = StreamedOutputCallbackHandler()
@@ -203,7 +203,7 @@ def test_stream_callback_reports_live_estimated_speed(monkeypatch):
 def test_stream_speed_is_unavailable_before_output(monkeypatch):
     now = [10.0]
     monkeypatch.setattr(
-        "ucagent.abackend.langchain.middleware.messages.time.perf_counter",
+        "ucagent.core.backends.langchain.middleware.messages.time.perf_counter",
         lambda: now[0],
     )
     callback = StreamedOutputCallbackHandler()
@@ -220,7 +220,7 @@ def test_stream_speed_is_unavailable_before_output(monkeypatch):
 def test_stream_callback_counts_tool_call_as_first_output(monkeypatch):
     timestamps = iter((10.0, 11.0, 14.0))
     monkeypatch.setattr(
-        "ucagent.abackend.langchain.middleware.messages.time.perf_counter",
+        "ucagent.core.backends.langchain.middleware.messages.time.perf_counter",
         lambda: next(timestamps),
     )
     callback = StreamedOutputCallbackHandler()
@@ -241,7 +241,7 @@ def test_stream_callback_counts_tool_call_as_first_output(monkeypatch):
 def test_responses_reasoning_summary_counts_as_first_output(monkeypatch):
     now = [10.0]
     monkeypatch.setattr(
-        "ucagent.abackend.langchain.middleware.messages.time.perf_counter",
+        "ucagent.core.backends.langchain.middleware.messages.time.perf_counter",
         lambda: now[0],
     )
     callback = StreamedOutputCallbackHandler()
@@ -272,7 +272,7 @@ def test_responses_reasoning_summary_counts_as_first_output(monkeypatch):
 def test_responses_function_call_content_is_tool_chunk_fallback(monkeypatch):
     now = [20.0]
     monkeypatch.setattr(
-        "ucagent.abackend.langchain.middleware.messages.time.perf_counter",
+        "ucagent.core.backends.langchain.middleware.messages.time.perf_counter",
         lambda: now[0],
     )
     callback = StreamedOutputCallbackHandler()
@@ -300,7 +300,7 @@ def test_responses_function_call_content_is_tool_chunk_fallback(monkeypatch):
 def test_idle_resets_for_each_model_request_and_excludes_tool_time(monkeypatch):
     now = [20.0]
     monkeypatch.setattr(
-        "ucagent.abackend.langchain.middleware.messages.time.perf_counter",
+        "ucagent.core.backends.langchain.middleware.messages.time.perf_counter",
         lambda: now[0],
     )
     callback = StreamedOutputCallbackHandler()
@@ -331,7 +331,7 @@ def test_idle_resets_for_each_model_request_and_excludes_tool_time(monkeypatch):
 def test_nonstream_idle_is_live_and_freezes_at_response_end(monkeypatch):
     now = [10.0]
     monkeypatch.setattr(
-        "ucagent.abackend.langchain.middleware.messages.time.perf_counter",
+        "ucagent.core.backends.langchain.middleware.messages.time.perf_counter",
         lambda: now[0],
     )
     callback = StreamedOutputCallbackHandler()
@@ -352,7 +352,7 @@ def test_nonstream_idle_is_live_and_freezes_at_response_end(monkeypatch):
 def test_tool_result_content_is_not_model_output(monkeypatch):
     now = [10.0]
     monkeypatch.setattr(
-        "ucagent.abackend.langchain.middleware.messages.time.perf_counter",
+        "ucagent.core.backends.langchain.middleware.messages.time.perf_counter",
         lambda: now[0],
     )
     callback = StreamedOutputCallbackHandler()
@@ -377,7 +377,7 @@ def test_tool_result_content_is_not_model_output(monkeypatch):
 def test_stream_speed_uses_separate_windows_across_tool_calls(monkeypatch):
     now = [0.0]
     monkeypatch.setattr(
-        "ucagent.abackend.langchain.middleware.messages.time.perf_counter",
+        "ucagent.core.backends.langchain.middleware.messages.time.perf_counter",
         lambda: now[0],
     )
     callback = StreamedOutputCallbackHandler()
@@ -426,7 +426,7 @@ def test_stream_speed_uses_separate_windows_across_tool_calls(monkeypatch):
 def test_single_buffered_stream_chunk_has_no_measurable_speed(monkeypatch):
     timestamps = iter((10.0, 20.0, 20.001))
     monkeypatch.setattr(
-        "ucagent.abackend.langchain.middleware.messages.time.perf_counter",
+        "ucagent.core.backends.langchain.middleware.messages.time.perf_counter",
         lambda: next(timestamps),
     )
     callback = StreamedOutputCallbackHandler()
@@ -446,7 +446,7 @@ def test_single_buffered_stream_chunk_has_no_measurable_speed(monkeypatch):
 def test_buffered_stream_burst_has_no_measurable_speed(monkeypatch):
     timestamps = iter((10.0, 20.0, 20.01, 20.02))
     monkeypatch.setattr(
-        "ucagent.abackend.langchain.middleware.messages.time.perf_counter",
+        "ucagent.core.backends.langchain.middleware.messages.time.perf_counter",
         lambda: next(timestamps),
     )
     callback = StreamedOutputCallbackHandler()
@@ -664,11 +664,11 @@ def test_backend_binds_tools_after_verify_agent_finishes_tool_setup(monkeypatch)
         return "openai" if key == "model_type" else default
 
     monkeypatch.setattr(
-        "ucagent.abackend.langchain.agent.negotiate_openai_api_mode",
+        "ucagent.core.backends.langchain.agent.negotiate_openai_api_mode",
         lambda config: negotiations.append(config) or "responses",
     )
     monkeypatch.setattr(
-        "ucagent.abackend.langchain.agent.get_chat_model",
+        "ucagent.core.backends.langchain.agent.get_chat_model",
         lambda config, callbacks, openai_api_mode=None, streaming=None: (
             model_calls.append(
                 {
@@ -686,7 +686,7 @@ def test_backend_binds_tools_after_verify_agent_finishes_tool_setup(monkeypatch)
         return object()
 
     monkeypatch.setattr(
-        "ucagent.abackend.langchain.agent.create_agent", fake_create_agent
+        "ucagent.core.backends.langchain.agent.create_agent", fake_create_agent
     )
 
     backend = UCAgentLangChainBackend(
@@ -694,6 +694,12 @@ def test_backend_binds_tools_after_verify_agent_finishes_tool_setup(monkeypatch)
         SimpleNamespace(get_value=config_value),
     )
     assert backend.message_manage_node.tools == []
+    assert negotiations == [] and model_calls == [] and created == {}
+    vagent.test_tools = [{"type": "function", "function": {"name": "Read"}}]
+    backend.init()
+    assert negotiations == [] and model_calls == [] and created == {}
+    backend.prepare()
+    backend.prepare()
     assert negotiations == [backend.config]
     assert [call["openai_api_mode"] for call in model_calls] == [
         "responses",
@@ -708,9 +714,6 @@ def test_backend_binds_tools_after_verify_agent_finishes_tool_setup(monkeypatch)
         backend.cb_summary_stream_output,
         backend.cb_runtime_output,
     ]
-
-    vagent.test_tools = [{"type": "function", "function": {"name": "Read"}}]
-    backend.init()
 
     assert backend.message_manage_node.tools == vagent.test_tools
     assert created["tools"] == vagent.test_tools

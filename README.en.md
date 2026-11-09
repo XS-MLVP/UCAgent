@@ -264,7 +264,7 @@ A: Yes, see [Customization Documentation](https://ucagent.open-verify.cc/content
 
 **Q: How to add custom tools?**
 
-A: Create a new tool class in the `ucagent/tools/` directory, inherit from the `UCTool` base class, and load it with the `--ex-tools` parameter. See [Tool List Documentation](https://ucagent.open-verify.cc/content/03_develop/02_tool_list/).
+A: Create a new tool class in the `ucagent/core/tools/` directory, inherit from the `UCTool` base class, and load it with the `--ex-tools` parameter. See [Tool List Documentation](https://ucagent.open-verify.cc/content/03_develop/02_tool_list/).
 
 > 🔍 **More Questions:** Check the complete [FAQ Documentation](https://ucagent.open-verify.cc/content/02_usage/05_faq/)
 

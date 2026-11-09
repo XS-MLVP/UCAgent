@@ -14,7 +14,7 @@ try:
 except ImportError:  # pragma: no cover - reported by the checker.
     yaml = None  # type: ignore[assignment]
 
-from ucagent.checkers.base import Checker
+from ucagent.core.checkers.base import Checker
 
 
 CONTROL_CLASSES = {

@@ -34,7 +34,7 @@ workspace 和 stage。Stage Manager 之后才会注入；因此：
 ~~~python
 from pathlib import Path
 
-from ucagent.checkers.base import Checker
+from ucagent.core.checkers.base import Checker
 
 
 class FileExistsChecker(Checker):
@@ -77,7 +77,7 @@ class FileExistsChecker(Checker):
 ## 配置 Checker
 
 阶段配置通过 `clss` 指定类，`args` 传给构造函数，`extra_args` 在实例化后通过
-`set_extra` 设置。短名从 `ucagent.checkers` 导出；自定义类使用完整导入路径：
+`set_extra` 设置。短名从 `ucagent.core.checkers` 导出；自定义类使用完整导入路径：
 
 ~~~yaml
 stage:
@@ -134,7 +134,7 @@ return False, {
 需要分批处理测试用例、功能点或行映射时，使用 `BatchTask`，不要另写 checkpoint
 和批次状态机：
 
-`BatchTask` 从 `ucagent.checkers.base` 导入。完成输入与产物校验、同步任务列表后，调用：
+`BatchTask` 从 `ucagent.core.checkers.base` 导入。完成输入与产物校验、同步任务列表后，调用：
 
 ~~~python
 return self.batch_task.do_complete(

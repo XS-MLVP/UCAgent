@@ -20,11 +20,11 @@ import psutil
 import pytest
 from starlette.websockets import WebSocketDisconnect
 
-from ucagent.server.api_cmd import ControlApiServer
-from ucagent.server.api_cmd.xpra import XpraError, XpraSessionManager
-from ucagent.server.api_master import MasterApiServer
-from ucagent.server.api_terminal import WebTerminalServer
-from ucagent.control.controller import Controller
+from ucagent.interfaces.server.api_cmd import ControlApiServer
+from ucagent.interfaces.server.api_cmd.xpra import XpraError, XpraSessionManager
+from ucagent.interfaces.server.api_master import MasterApiServer
+from ucagent.interfaces.server.api_terminal import WebTerminalServer
+from ucagent.runtime.control.controller import Controller
 from ucagent.util.config import Config, load_yaml_with_env_vars
 from ucagent.util import log
 
@@ -506,10 +506,10 @@ def test_browser_grants_reject_forgery_expiry_and_service_restart(cmd_server, mo
         token = token[:-1] + ("0" if token[-1] != "0" else "1")
     elif mutation == "expired":
         issued_at = time.time()
-        monkeypatch.setattr("ucagent.server.api_cmd.transport.time.time", lambda: issued_at+301)
+        monkeypatch.setattr("ucagent.interfaces.server.api_cmd.transport.time.time", lambda: issued_at+301)
     elif mutation == "future":
         issued_at = time.time()
-        monkeypatch.setattr("ucagent.server.api_cmd.transport.time.time", lambda: issued_at-600)
+        monkeypatch.setattr("ucagent.interfaces.server.api_cmd.transport.time.time", lambda: issued_at-600)
     elif mutation == "malformed":
         token = "not-a-signed-grant"
     if mutation == "restart":

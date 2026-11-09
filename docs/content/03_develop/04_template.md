@@ -27,9 +27,9 @@ output/
 ### Guide_Doc
 
 `Guide_Doc/` 中的文件是运行时参考资料，通常来自
-`ucagent/lang/<lang>/doc/Guide_Doc/` 或自定义的 `--guid-doc-path`。阶段可以通过
+选定工作流插件的文档目录，或自定义的 `--guid-doc-path`。阶段可以通过
 `reference_files` 声明需要阅读的文件；在 `Complete` 前，必须满足该阶段的引用文件和
-输出文件门禁。自定义目录会替换内置 Guide_Doc 的来源（多次指定目录时最后一个生效）；文件参数则按文件名追加到复制集合。
+输出文件门禁。`--guid-doc-path` 目录定义基础文档集合（多次指定目录时最后一个生效），文件参数按文件名追加；插件文档再按文档复制策略合入。
 
 Guide_Doc 应写清以下内容：
 
@@ -43,7 +43,7 @@ Guide_Doc 应写清以下内容：
 
 ### 生成模板
 
-模板是复制或渲染到工作区的初始文件。启动时可以用 `--template-dir` 指定模板目录，
+模板是复制或渲染到工作区的初始文件，由选定工作流提供模板目录；自定义模板可用 `--template-dir` 指定目录，
 用 `--template-overwrite` 覆盖已存在的目标。模板覆盖配置通过
 `--template-cfg-override <yaml>` 传入；它只负责模板变量，不会改变阶段 Checker 的
 判定规则。

@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from ucagent.plugins import Plugin, PluginWorkflow
+from ucagent.core.plugins import Plugin, PluginWorkflow
 
 from .checkers import (
     BasicInfoStructureChecker,

@@ -17,7 +17,7 @@ try:
 except ImportError:  # pragma: no cover - reported when header validation runs.
     yaml = None  # type: ignore[assignment]
 
-from ucagent.checkers.base import Checker
+from ucagent.core.checkers.base import Checker
 
 
 class ACT4TestAssetChecker(Checker):

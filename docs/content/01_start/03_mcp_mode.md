@@ -59,7 +59,7 @@ ucagent output/ Adder -s -hm --tui \
   --mcp-server-no-file-tools --loop --backend=opencode
 ```
 
-命令行后端必须同时启用 `--mcp-server` 或 `--mcp-server-no-file-tools`，否则 CLI 会拒绝启动。其他后端名称和客户端命令见 `ucagent/setting.yaml` 的 `backend` 配置。
+启动时请求命令行后端执行任务，需要同时启用 `--mcp-server` 或 `--mcp-server-no-file-tools`；依赖校验依据最终 backend 配置。客户端配置准备和执行必须等 MCP 就绪。其他后端名称和客户端命令见 `ucagent/setting.yaml` 的 `backend` 配置。
 
 ## 3.3 手动双终端接入（以 Codex 为例）
 
@@ -73,6 +73,8 @@ ucagent output/ Adder -s -hm --tui \
 ```
 
 不进入 `loop` 时，UCAgent 等待终端 B 的客户端调用工具。Codex 的登录和模型配置需在终端 B 完成，见其客户端文档。
+
+只提供工具服务且不需要本地界面时，可使用 `ucagent output/ Adder --mcp-server`。未指定 `--loop` 或其他模型执行命令时，服务等待客户端连接，不创建或探测主模型。显式启用的 embedding、审核等能力仍需各自的配置，见[运行控制](../02_usage/10_runtime_control.md)。
 
 终端 A 默认监听 `127.0.0.1:5000`。如果端口已占用，传入 `--mcp-server-port <port>`，并在客户端配置中使用同一个端口。
 

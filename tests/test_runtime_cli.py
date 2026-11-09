@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 BACKEND = '''"""Deterministic verification backend for real CLI lifecycle tests."""
 from pathlib import Path
-from ucagent.abackend.base import AgentBackendBase
+from ucagent.core.backends.base import AgentBackendBase
 
 class TestBackend(AgentBackendBase):
     """Exercise real human review and completion without contacting a model provider."""
@@ -107,7 +107,7 @@ def test_real_cli_console_can_query_and_quit(tmp_path):
 
 def test_real_cli_mcp_is_ready_before_backend_and_closes_on_completion(tmp_path):
     """External-backend prerequisites use the actual ready port before any model work."""
-    command = cli_command(tmp_path, require_mcp=True) + ["--mcp-server", "--mcp-server-port", "0", "--exit-on-completion"]
+    command = cli_command(tmp_path, require_mcp=True) + ["--mcp-server", "--mcp-server-port", "0", "--exit-on-completion", "--loop"]
     result = run_cli(command)
     assert result.returncode == 0, result.stdout + result.stderr
     assert int((tmp_path / "ready-port").read_text()) > 0
@@ -119,7 +119,7 @@ def test_real_cli_headless_http_review_complete_exit(tmp_path):
     with socket.socket() as reservation:
         reservation.bind(("127.0.0.1", 0))
         port = reservation.getsockname()[1]
-    command = cli_command(tmp_path, human=True) + ["--export-cmd-api", f"127.0.0.1:{port}", "--exit-on-completion"]
+    command = cli_command(tmp_path, human=True) + ["--export-cmd-api", f"127.0.0.1:{port}", "--exit-on-completion", "--loop"]
     logfile = tmp_path / "cli.log"
     with logfile.open("w") as output:
         process = subprocess.Popen(command, cwd=ROOT, stdin=subprocess.DEVNULL, stdout=output, stderr=output)
@@ -248,3 +248,45 @@ def test_real_cli_tui_streaming_loop_starts_with_output_capture(tmp_path):
             process.terminate()
             process.wait(timeout=5)
         os.close(master)
+
+
+def test_real_cli_service_queries_do_not_probe_main_model(tmp_path):
+    """A real MCP/HTTP process stays usable with an intentionally invalid main-model protocol."""
+    import socket
+    with socket.socket() as reservation:
+        reservation.bind(("127.0.0.1", 0))
+        port = reservation.getsockname()[1]
+    command = cli_command(tmp_path, backend="langchain")
+    path = tmp_path / "runtime.yaml"
+    config = yaml.safe_load(path.read_text())
+    config["openai"] = {"api_mode": "invalid-test-protocol"}
+    path.write_text(yaml.safe_dump(config))
+    logfile = tmp_path / "service.log"
+    command += ["--mcp-server", "--mcp-server-port", "0", "--export-cmd-api", f"127.0.0.1:{port}"]
+    with logfile.open("w") as output:
+        process = subprocess.Popen(command, cwd=ROOT, stdin=subprocess.DEVNULL, stdout=output, stderr=output)
+        try:
+            with httpx.Client(base_url=f"http://127.0.0.1:{port}", timeout=1) as client:
+                deadline = time.monotonic() + 12
+                while True:
+                    assert process.poll() is None and time.monotonic() < deadline, logfile.read_text()
+                    try:
+                        response = client.get("/api/runtime/status")
+                        if response.status_code == 200:
+                            break
+                    except httpx.ConnectError:
+                        pass
+                    time.sleep(0.05)
+                state = response.json()["data"]
+                assert state["execution"] == "idle"
+                response = client.post("/api/cmd", json={"cmd": "status", "session_id": "operator"})
+                assert response.status_code == 200, response.text
+                response = client.post("/api/cmd", json={"cmd": "shutdown", "session_id": "operator"})
+                assert response.status_code == 200, response.text
+            process.wait(timeout=10)
+            assert process.returncode == 0, logfile.read_text()
+            assert "invalid-test-protocol" not in logfile.read_text()
+        finally:
+            if process.poll() is None:
+                process.terminate()
+                process.wait(timeout=5)

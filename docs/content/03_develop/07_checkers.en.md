@@ -29,7 +29,7 @@ Minimal structure:
 ~~~python
 from pathlib import Path
 
-from ucagent.checkers.base import Checker
+from ucagent.core.checkers.base import Checker
 
 
 class FileExistsChecker(Checker):
@@ -71,7 +71,7 @@ class FileExistsChecker(Checker):
 
 ## Configuring a Checker
 
-Stage configuration specifies the class via `clss`, passes `args` to the constructor, and sets `extra_args` after instantiation via `set_extra`. Short names are exported from `ucagent.checkers`; custom classes use the full import path:
+Stage configuration specifies the class via `clss`, passes `args` to the constructor, and sets `extra_args` after instantiation via `set_extra`. Short names are exported from `ucagent.core.checkers`; custom classes use the full import path:
 
 ~~~yaml
 stage:
@@ -122,7 +122,7 @@ The `is_complete` parameter in `do_check` distinguishes intermediate `Check` fro
 
 When processing test cases, features, or line mappings in batches, use `UnityChipBatchTask` instead of writing separate checkpoints and batch state machines:
 
-`UnityChipBatchTask` is imported from `ucagent.checkers.base`. After completing input and artifact validation and synchronizing the task list, call:
+`UnityChipBatchTask` is imported from `ucagent.core.checkers.base`. After completing input and artifact validation and synchronizing the task list, call:
 
 ~~~python
 return self.batch_task.do_complete(

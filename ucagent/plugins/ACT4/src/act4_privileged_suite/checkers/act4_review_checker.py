@@ -22,7 +22,7 @@ from typing import Any, Iterator
 
 import yaml
 
-from ucagent.checkers.base import Checker, UnityChipBatchTask
+from ucagent.core.checkers.base import Checker, BatchTask
 from ucagent.util.log import warning
 from ..environment import prepared_environment
 
@@ -452,7 +452,7 @@ class ACT4ReviewChecker(Checker):
         self.max_experiments, self.max_experiment_seconds = max_experiments, max_experiment_seconds
         self._stalled_checks = 0
         self._last_stall_signature = None
-        self.batch = UnityChipBatchTask(f"act4_review_{phase}", self)
+        self.batch = BatchTask(f"act4_review_{phase}", self)
         self._review_tasks: dict[str, Any] = {}
         self._review_completed: set[str] = set()
 

@@ -5,8 +5,8 @@ import shlex
 import threading
 import time
 
-from ucagent.control.commands import Argument, CommandSpec
-from ucagent.control.runtime.operations import OperationCancelled, OperationFailure
+from ucagent.runtime.control.commands import Argument, CommandSpec
+from ucagent.runtime.operations import OperationCancelled, OperationFailure
 from ucagent.util.log import info, echo, echo_r, echo_g, echo_y
 from ucagent.util.functions import dump_as_json
 from unity_test.checkers.waveform import UnityChipCheckerWaveformBugAnalysis
@@ -34,8 +34,8 @@ class WaveformReplay:
         update confirmed Bugs, and remove disproved associations. Revalidate after
         each round (default maximum: 3). No stage completion or Bug recording.
         """
-        from ucagent.abackend.blank import BlankBackend
-        from ucagent.stage.vmanager import ManagerTool
+        from ucagent.core.backends.blank import BlankBackend
+        from ucagent.core.stage.vmanager import ManagerTool
 
         BugRecordType_name = "BugRecordType"
 

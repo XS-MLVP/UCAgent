@@ -25,7 +25,7 @@ from design_with_ppa.ppa.comparison import _compare_reports, _metric_change
 from design_with_ppa.ppa.backends.yosys_opensta import YosysOpenSTABackend
 from design_with_ppa.ppa.config import resolve_pdk
 from design_with_ppa.ppa.process import ProcessRunner
-from ucagent.tools.uctool import to_mcp_tool  # noqa: E402
+from ucagent.core.tools.uctool import to_mcp_tool  # noqa: E402
 from ucagent.util.functions import get_tools_from_cfg  # noqa: E402
 
 

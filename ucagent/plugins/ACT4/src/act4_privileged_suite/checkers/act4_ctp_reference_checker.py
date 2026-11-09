@@ -16,7 +16,7 @@ from urllib.parse import parse_qs, urlparse
 import yaml
 
 
-from ucagent.checkers.base import Checker
+from ucagent.core.checkers.base import Checker
 
 
 CTP_URL = "https://riscv.github.io/riscv-arch-test/ctp.html"

@@ -15,7 +15,7 @@ from urllib.parse import quote
 
 import ucagent.util.functions as fc
 from unity_test.str_utils import list_str_abbr
-from ucagent.checkers.base import Checker, format_stage_args_examples
+from ucagent.core.checkers.base import Checker, format_stage_args_examples
 from .static_bug import (
     parse_confirmed_static_bug_links,
     parse_source_location,
@@ -1065,7 +1065,7 @@ class Recorder(Checker):
                 raise ValueError("Recorder 'type' must not be empty.")
             record_type_class = BUILTIN_RECORD_TYPES.get(type_name.lower())
             if record_type_class is None:
-                checker_module = sys.modules.get("ucagent.checkers")
+                checker_module = sys.modules.get("ucagent.core.checkers")
                 record_type_class = import_class_from_str(type_name, checker_module)
         elif isinstance(type, builtins.type) and issubclass(type, RecordType):
             record_type_class = type

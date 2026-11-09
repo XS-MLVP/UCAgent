@@ -35,6 +35,6 @@ def test_production_has_no_debugger_imports_or_thread_exception_injection():
 
 def test_runtime_host_has_no_concrete_frontend_imports():
     """The lifetime owner receives its frontend and HTTP construction dependencies."""
-    tree = ast.parse((ROOT / "ucagent/control/runtime/host.py").read_text())
+    tree = ast.parse((ROOT / "ucagent/runtime/host.py").read_text())
     imports = [node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)]
-    assert not any(name and (name.startswith("ucagent.tui") or name.startswith("ucagent.server")) for name in imports)
+    assert not any(name and (name.startswith("ucagent.interfaces.terminal.tui") or name.startswith("ucagent.interfaces.server")) for name in imports)

@@ -6,7 +6,7 @@ import tempfile
 from pathlib import Path
 
 import yaml
-from ucagent.tools.fileops import is_file_writeable
+from ucagent.util.file_policy import is_file_writeable
 from examples.workflow_builder.tools.workflow_builder.history_permissions import restore_owner_write
 
 

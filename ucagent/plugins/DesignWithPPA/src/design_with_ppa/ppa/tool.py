@@ -13,8 +13,8 @@ import time
 from langchain_core.callbacks import CallbackManagerForToolRun
 from langchain_core.tools.base import ArgsSchema
 from pydantic import Field, PrivateAttr
-from ucagent.tools.uctool import UCTool
-from ucagent.tools.fileops import is_file_writeable
+from ucagent.core.tools.uctool import UCTool
+from ucagent.util.file_policy import is_file_writeable
 from ucagent.util.functions import make_llm_tool_ret
 from ucagent.util.log import info
 

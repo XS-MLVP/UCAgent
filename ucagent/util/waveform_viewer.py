@@ -224,7 +224,7 @@ def write_waveform_metadata(workspace: str | Path, meta: str, payload: Mapping[s
                             un_write_dirs: list[str] | None = None) -> None:
     """Atomically publish signed metadata without bypassing write restrictions."""
     with WAVEFORM_METADATA_LOCK:
-        from ucagent.tools.fileops import is_file_writeable
+        from ucagent.util.file_policy import is_file_writeable
         target, normalized = validate_waveform_metadata(workspace, meta, payload)
         # A workspace-contained symlink must not bypass a protected target directory.
         for policy_path in {meta, target.relative_to(Path(workspace).resolve()).as_posix()}:

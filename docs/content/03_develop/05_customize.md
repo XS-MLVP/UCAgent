@@ -11,7 +11,7 @@
 """Example tool that greets a named recipient."""
 
 from pydantic import BaseModel, Field
-from ucagent.tools.uctool import UCTool
+from ucagent.core.tools.uctool import UCTool
 
 
 class HelloArgs(BaseModel):
@@ -45,13 +45,13 @@ ex_tools:
 
 临时注册可以使用 `--ex-tools my_tools.HelloTool`。配置和 CLI 中的外部工具都会被装配；配置文件之间的 `ex_tools` 列表仍遵循整体替换规则。工具类或工厂需要支持零参调用。
 
-内置短名从 `ucagent.tools` 导出，目前通过 `ucagent/tools/__init__.py` 的延迟导出映射维护。项目工具通常使用完整模块路径即可。需要运行时上下文、包内资源或独立分发时，使用[插件](09_plugins.md)。
+内置短名从 `ucagent.core.tools` 导出，目前通过 `ucagent/core/tools/__init__.py` 的延迟导出映射维护。项目工具通常使用完整模块路径即可。需要运行时上下文、包内资源或独立分发时，使用[插件](09_plugins.md)。
 
 本地测试：
 
 ```python
 from my_tools import HelloTool
-from ucagent.tools.uctool import to_mcp_tool
+from ucagent.core.tools.uctool import to_mcp_tool
 
 tool = HelloTool()
 assert tool.invoke({"who": "UCAgent"}) == {"greeting": "Hello, UCAgent!"}
@@ -70,8 +70,8 @@ assert mcp_tool.name == "Hello"
 
 from pathlib import Path
 from pydantic import BaseModel, Field
-from ucagent.tools.fileops import BaseReadWrite
-from ucagent.tools.uctool import UCTool
+from ucagent.core.tools.fileops import BaseReadWrite
+from ucagent.core.tools.uctool import UCTool
 
 
 class TextLengthArgs(BaseModel):

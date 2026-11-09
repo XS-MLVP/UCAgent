@@ -13,8 +13,8 @@ from fastapi.testclient import TestClient
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.abspath(os.path.join(current_dir, "..")))
 
-from ucagent.server.api_master import MasterApiServer
-from ucagent.server.api_master.common import (
+from ucagent.interfaces.server.api_master import MasterApiServer
+from ucagent.interfaces.server.api_master.common import (
     _tail_file,
     _task_logs_for_display,
     _task_stderr_tail,
@@ -152,7 +152,7 @@ def test_cluster_mounts_keep_master_source_host_path(monkeypatch):
 
 def test_master_source_overrides_process_launch_cli(monkeypatch):
     with tempfile.TemporaryDirectory() as master_ws, tempfile.TemporaryDirectory() as source_ws:
-        source_cli = os.path.join(source_ws, "ucagent", "cli.py")
+        source_cli = os.path.join(source_ws, "ucagent", "__main__.py")
         os.makedirs(os.path.dirname(source_cli))
         open(source_cli, "w", encoding="utf-8").close()
         monkeypatch.setenv("UCAGENT_MASTER_SOURCE", source_ws)
@@ -388,9 +388,9 @@ def test_master_source_overrides_container_launch_cli(monkeypatch):
         monkeypatch.setenv("UCAGENT_MASTER_SOURCE", source_host_path)
         server = MasterApiServer(workspace=master_ws)
 
-        command = server._container_command(["/usr/bin/python3", "/old/ucagent/cli.py", "/work", "Adder"])
+        command = server._container_command(["/usr/bin/python3", "/old/ucagent/__main__.py", "/work", "Adder"])
 
-        assert command[:2] == ["python3", "/UCAgent/ucagent/cli.py"]
+        assert command[:2] == ["python3", "/UCAgent/ucagent/__main__.py"]
         assert command[2:] == ["/work", "Adder"]
 
 
@@ -399,7 +399,7 @@ def test_master_source_empty_does_not_override_container_launch(monkeypatch):
         monkeypatch.delenv("UCAGENT_MASTER_SOURCE", raising=False)
         server = MasterApiServer(workspace=master_ws)
 
-        command = server._container_command(["/usr/bin/python3", "/old/ucagent/cli.py", "/work", "Adder"])
+        command = server._container_command(["/usr/bin/python3", "/old/ucagent/__main__.py", "/work", "Adder"])
 
         assert command[:3] == ["ucagent", "/work", "Adder"]
 
@@ -562,7 +562,7 @@ def test_swarm_launch_removes_exited_same_name_service_before_create():
                 "web_console": {"enabled": False, "status": "stopped"},
             }
         )
-        task["resolved_command"] = ["python3", "ucagent/cli.py", "/work", "Adder"]
+        task["resolved_command"] = ["python3", "ucagent/__main__.py", "/work", "Adder"]
         events = []
 
         def fake_context(_task, _env, _prepared, _mode):
@@ -623,7 +623,7 @@ def test_swarm_launch_rejects_active_same_name_service():
                 "web_console": {"enabled": False, "status": "stopped"},
             }
         )
-        task["resolved_command"] = ["python3", "ucagent/cli.py", "/work", "Adder"]
+        task["resolved_command"] = ["python3", "ucagent/__main__.py", "/work", "Adder"]
 
         with patch.object(server, "_cluster_launch_context", return_value={
                 "cfg": {"image": "ucagent:test", "swarm_extra_args": []},

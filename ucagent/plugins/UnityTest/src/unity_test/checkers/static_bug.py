@@ -8,7 +8,7 @@ import re
 from typing import List, Tuple
 
 import ucagent.util.functions as fc
-from ucagent.checkers.base import Checker, BatchTask
+from ucagent.core.checkers.base import Checker, BatchTask
 from unity_test.bug_analysis_contract import STATIC_BUG_SECTION_MARKERS
 from ucagent.util.log import info, warning
 from unity_test.doc_marks import (

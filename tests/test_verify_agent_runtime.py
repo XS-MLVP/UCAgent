@@ -4,7 +4,7 @@ import os
 import types
 from types import SimpleNamespace
 import pytest
-from ucagent.verify_agent import VerifyAgent
+from ucagent import VerifyAgent
 from ucagent.util.config import Config, load_yaml_with_env_vars
 current_dir = os.path.dirname(__file__)
 

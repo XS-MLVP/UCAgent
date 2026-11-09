@@ -12,7 +12,7 @@ Tool、Checker、模板、Skill 与工作流的组合。
 
 ## 同仓维护的内置与可选插件
 
-同仓插件维护在 `ucagent/plugins/` 下（插件加载器即 `ucagent/plugins/__init__.py`）。
+同仓插件维护在 `ucagent/plugins/` 下（插件加载器即 `ucagent/core/plugins.py`）。
 发行口径分两类：框架 wheel 把 UnityTest 及其共享库 `common` 作为 package data 一并
 打入（由 `pyproject.toml` 的 `ucagent.plugins` package-data 键、`packages.find`
 exclude 与 `MANIFEST.in` prune 共同圈定范围），安装核心即获得默认 UnityTest 工作流，
@@ -242,12 +242,12 @@ ucagent <workspace> <dut> \
 
 ## Provider 与运行时上下文
 
-Provider 返回 `ucagent.plugins.Plugin`：
+Provider 返回 `ucagent.core.plugins.Plugin`：
 
 ```python
 from pathlib import Path
 
-from ucagent.plugins import CommandRequirement, Plugin, PluginContext
+from ucagent.core.plugins import CommandRequirement, Plugin, PluginContext
 
 from .checkers import TimingBudgetChecker
 from .my_tool import MyTool
@@ -324,7 +324,7 @@ def get_plugin():
 以下只读命令复用已有阶段查询，不创建任务或线程：
 
 ```python
-from ucagent.control.commands import Argument, CommandSpec
+from ucagent.runtime.control.commands import Argument, CommandSpec
 
 
 def create_commands(controller):
@@ -348,7 +348,7 @@ def create_commands(controller):
 
 ## Checker
 
-`checkers` 中的每一项必须是 `ucagent.checkers.base.Checker` 的子类。激活插件后，任意
+`checkers` 中的每一项必须是 `ucagent.core.checkers.base.Checker` 的子类。激活插件后，任意
 正常配置文件都可以通过类的短名引用它，不要求配置属于该插件的工作流：
 
 ```yaml
@@ -363,7 +363,7 @@ stage:
 ```
 
 UCAgent 会显式地把插件 Checker 注册表传给阶段解析器，不会把类写入全局
-`ucagent.checkers` 模块。Checker 类名在所有已激活插件之间必须唯一，也不能与核心
+`ucagent.core.checkers` 模块。Checker 类名在所有已激活插件之间必须唯一，也不能与核心
 Checker 同名。完整 dotted path 仍可用于普通可导入类，但正式的 `checkers` 声明提供
 启动时类型校验、短名引用、冲突检测和插件摘要。
 
@@ -470,7 +470,7 @@ guide_doc:
 运行时和 Skill 声明（自足基线）：
 
 ```python
-from ucagent.plugins import CommandRequirement, PluginWorkflow
+from ucagent.core.plugins import CommandRequirement, PluginWorkflow
 
 workflow = PluginWorkflow(
     name="unit-design-tdd",

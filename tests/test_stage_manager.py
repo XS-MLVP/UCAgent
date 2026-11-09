@@ -21,10 +21,10 @@ if loaded_ucagent is not None and not loaded_ucagent_path.startswith(repo_packag
         if module_name == "ucagent" or module_name.startswith("ucagent."):
             del sys.modules[module_name]
 
-import ucagent.stage.vmanager as vmanager
+import ucagent.core.stage.vmanager as vmanager
 from unity_test.checkers.unity_test import _report_failure_message
-from ucagent.stage.vstage import VerifyStage
-from ucagent.stage.vmanager import (
+from ucagent.core.stage.vstage import VerifyStage
+from ucagent.core.stage.vmanager import (
     ArgsDoCheck,
     StageManager,
     ToolDoCheck,
@@ -34,7 +34,7 @@ from ucagent.stage.vmanager import (
 )
 from unity_test.report_store import TestProtocolRuntimeHook
 from unity_test.test_runner import RunTestCasesManagerTool
-from ucagent.tools.uctool import to_mcp_tool
+from ucagent.core.tools.uctool import to_mcp_tool
 from ucagent.util import functions as fc
 from ucagent.util.config import Config
 

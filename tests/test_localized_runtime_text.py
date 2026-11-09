@@ -35,8 +35,8 @@ from formal.skills.lib import formal_tools
 
 
 IMPLEMENTATION_ROOT = REPOSITORY_ROOT / "ucagent"
-LANGUAGE_ROOT = IMPLEMENTATION_ROOT / "lang"
-CHINESE_LANGUAGE_ROOT = LANGUAGE_ROOT / "zh"
+LANGUAGE_ROOT = IMPLEMENTATION_ROOT / "core/locales"
+CHINESE_LANGUAGE_ROOT = LANGUAGE_ROOT
 UNITYTEST_PLUGIN_ROOT = REPOSITORY_ROOT / "ucagent" / "plugins" / "UnityTest"
 UNITYTEST_PLUGIN_ASSETS = UNITYTEST_PLUGIN_ROOT / "src" / "unity_test"
 FORMAL_PLUGIN_ASSETS = (
@@ -99,7 +99,7 @@ def test_generic_implementation_python_has_no_chinese_literals():
                     failures.append(
                         f"{path.relative_to(REPOSITORY_ROOT)}:{node.lineno} (decoded string)"
                     )
-    assert not failures, "Chinese literals found outside ucagent/lang/zh: " + ", ".join(
+    assert not failures, "Chinese literals found in framework Python: " + ", ".join(
         sorted(set(failures))
     )
 

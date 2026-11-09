@@ -32,10 +32,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 import yaml
 
 from ucagent.util.functions import make_llm_tool_ret
-from ucagent.tools.fileops import (
-    deepest_matching_write_entry,
-    write_entry_has_wildcards,
-)
+from ucagent.util.file_policy import deepest_matching_write_entry, write_entry_has_wildcards
 from unity_test.bug_analysis_contract import (
     BUG_ANALYSIS_SECTION_MARKERS,
     BUG_ANALYSIS_SECTION_TITLES,
@@ -94,7 +91,7 @@ from ucagent.util.waveform_viewer import (
     validate_waveform_metadata,
     write_waveform_metadata,
 )
-from ucagent.tools.uctool import UCTool
+from ucagent.core.tools.uctool import UCTool
 
 
 _DOCUMENT_WRITE_LOCK = threading.RLock()

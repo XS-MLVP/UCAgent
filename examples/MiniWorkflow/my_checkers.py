@@ -7,7 +7,7 @@ MiniWorkflow 自定义检查器
 
 import os
 import re
-from ucagent.checkers.base import Checker
+from ucagent.core.checkers.base import Checker
 
 
 class WordCountChecker(Checker):

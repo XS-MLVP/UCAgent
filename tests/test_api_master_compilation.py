@@ -10,7 +10,7 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 import pytest
 
-from ucagent.server.api_master import MasterApiServer
+from ucagent.interfaces.server.api_master import MasterApiServer
 from ucagent.util.config import Config, load_yaml_with_env_vars
 
 
@@ -202,7 +202,7 @@ def test_package_resources_and_launch_yaml_simulator(master, tmp_path):
     prepared = {"workspace_dir": ws["workspace_dir"], "dut_name": "Adder"}
     command, _ = server._build_ucagent_command({"use_zip_workspace": False}, prepared, {"host": "127.0.0.1", "port": 8818, "password": ""})
     assert Path(command[1]).is_file()
-    assert Path(command[1]).name == "cli.py"
+    assert Path(command[1]).name == "__main__.py"
     spec = server._normalize_launch_yaml_spec(str(tmp_path / "launch.yaml"), {
         "module": "Adder", "simulator": "uvs",
     })

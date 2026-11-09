@@ -8,7 +8,7 @@ from pathlib import Path
 import re
 import subprocess
 from typing import Any
-from ucagent.checkers.base import Checker
+from ucagent.core.checkers.base import Checker
 from ..contracts import (
     atomic_json,
     canonical_json_sha256,

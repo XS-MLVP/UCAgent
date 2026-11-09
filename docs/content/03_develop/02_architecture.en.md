@@ -1,66 +1,68 @@
 
 # Architecture and Operation
 
-UCAgent defines tasks using configuration, executes operations using tools, and accepts outputs using Checkers. The backend handles model interaction, the stage layer handles validation and progression, and the runtime owns operations, services, and instance lifetime. Console, TUI, and HTTP provide interaction interfaces. This chapter describes the implemented component relationships.
+UCAgent defines tasks through workflows, executes them through an Agent and its tools, and accepts artifacts through stages and Checkers. The package groups existing capabilities by responsibility: a complete Agent in `core/`, startup in `application/`, instance ownership in `runtime/`, and human/network access in `interfaces/`.
 
-## Core Components
+## Directory Responsibilities
 
-| Component | Responsibility | Primary Code Entry Point |
-| --- | --- | --- |
-| `VerifyAgent` | Loads configuration, prepares workspace, assembles backend, tools, and stages | `ucagent/verify_agent.py` |
-| `RuntimeHost` | Owns instance lifetime, controller, executor, services, and startup coordinator | `ucagent/control/runtime/host.py` |
-| `Controller` / `CommandRegistry` | Expose business operations and queries; declare commands, aliases, arguments, and dispatch | `ucagent/control/controller.py`, `commands.py` |
-| `OperationExecutor` / `StageCoordinator` | Manage long operations, cancellation, the model-operation slot, and stage mutation coordination | `ucagent/control/runtime/operations.py` |
-| `ServiceManager` | Manage readiness and shutdown of MCP, HTTP, Master connections, and terminal services | `ucagent/control/runtime/services.py` |
-| `RuntimeSession` / `Console` / TUI | Preserve local interaction state, accept input, and render output | `ucagent/control/runtime/session.py`, `ucagent/control/console.py`, `ucagent/tui/` |
-| Backend | Interacts with the model or a Code Agent via CLI | `ucagent/abackend/` |
-| `StageManager` / `VerifyStage` | Provides stage tasks, manages Check, Complete, history, and skip states | `ucagent/stage/` |
-| Tool | Reads, edits, computes, runs tests, or calls external services | `ucagent/tools/` |
-| Checker | Determines if a task meets requirements based on files, configuration, test results, and evidence | `ucagent/checkers/` |
-| Guide_Doc / Template | Provide runtime guidance, complete examples, and initial files | Resource directories declared by the workflow plugin and configured paths |
-| Skill (Optional) | Provide methods and scripts for the same acceptance requirements | Plugin-declared skill directories and configured additional paths |
+| Directory | Responsibility |
+| --- | --- |
+| `core/agent/` | Task configuration, Agent-owned construction, execution, messages and statistics |
+| `core/backends/` | LangChain, command-line and blank backends; client configuration templates in `assets/` |
+| `core/interaction/` | Enhanced execution, reflection and adaptive tool orchestration |
+| `core/stage/` | Stage progression, Check/Complete, history, human/model review |
+| `core/checkers/` | Checker lifecycle, diagnostics and BatchTask |
+| `core/tools/` | Complete generic file, shell, planning, memory, context and Skill tools |
+| `core/workspace/` | Task documents/templates/skills, instruction generation and permission restoration |
+| `core/plugins.py` | Plugin declarations, discovery, validation and capability registries |
+| `core/locales/` | Framework language configuration; Chinese defaults are `zh.yaml` |
+| `application/` | Entry orchestration, launch requests/plans, workspace sources, logging and runtime wiring |
+| `application/presets/` | Application-mode presets, including `zh/master.yaml` |
+| `runtime/` | Host lifetime, operation scheduling/cancellation, service ownership, sessions and output buffers |
+| `runtime/control/` | Controller, command schemas, dispatch and plugin command registration |
+| `interfaces/cli/` | CLI syntax, management actions and conversion to launch data |
+| `interfaces/terminal/` | Console and result formatting; TUI lives in `tui/` |
+| `interfaces/server/` | HTTP, MCP, Master, Web Terminal, pages, static assets and viewer conversion |
+| `plugins/` | Independently owned workflow projects and their documents/templates/skills and domain implementations |
+| `util/` | Shared configuration, file policy, logging and other foundation functions |
 
-Tools execute actions, while Checkers verify results. For example, a write file tool succeeding only indicates that the write is complete; whether the document content complies with rules is still determined by the corresponding Checker.
+`core/` contains the full Agent implementation, including concrete backends and tools. It is not limited to abstract interfaces. Plugin resources stay with their workflow; core preparation selects and materializes them as one task contract. Root `setting.yaml` remains the cross-layer defaults file.
 
-## Interfaces and the Runtime
+## Directory Dependency Direction
+
+The arrows below describe the main source dependency direction, not runtime callbacks. The application selects and wires existing concrete implementations; no new execution framework is introduced.
 
 ```mermaid
-flowchart TD
-    Local[Console / TUI] --> Session[RuntimeSession]
-    Session --> Commands[Shared command registry]
-    HTTP[HTTP command API] --> Commands
-    subgraph Runtime[RuntimeHost owns the runtime]
-        Commands --> Control[Controller / queries and control]
-        Commands --> Operations[OperationExecutor / long operations]
-        Commands --> Services[ServiceManager / service lifetime]
-        Operations --> Coordination[StageCoordinator / mutation coordination]
-    end
-    Operations --> Agent[VerifyAgent / Backend]
-    Control --> Stages[StageManager / VerifyStage]
-    Coordination --> Stages
-    Agent --> Tools[Tools and plugin capabilities]
-    MCP[MCP client] --> Tools
-    Tools --> Stages
-    Stages --> Checkers[Checkers / evidence and acceptance]
+flowchart TB
+    APP["application/<br/>Startup and wiring"] --> IFACE["interfaces/<br/>CLI, terminal and network access"]
+    APP --> RUNTIME["runtime/<br/>Control, scheduling and lifetime"]
+    APP --> CORE["core/<br/>Complete Agent capabilities"]
+    APP --> PLUGINS["plugins/<br/>Workflow projects"]
+    IFACE --> RUNTIME
+    IFACE --> CORE
+    RUNTIME --> CORE
+    PLUGINS --> CORE
+    CORE --> UTIL["util/<br/>Shared foundations"]
+    APP --> UTIL
+    RUNTIME --> UTIL
+    IFACE --> UTIL
 ```
 
-The diagram shows the main call paths. The CLI injects the same Controller, registry, executor, and service manager into HTTP and local interfaces. Structured status, cancellation, and review endpoints call their runtime owners directly. MCP exposes the assembled tools; Check/Complete reach the same stage layer and mutation coordination, but MCP calls do not automatically create shared operation records. Some TUI status reads and HTTP file endpoints also bypass the command registry.
+The core package does not import `application`, `runtime` or `interfaces`. Runtime does not import application or concrete interfaces. Interfaces do not call back into application startup. Utilities do not import these business packages. `tests/test_dependency_boundaries.py` checks absolute, relative and function-local imports. These package boundaries do not claim that every internal module or dynamically loaded plugin is globally acyclic.
 
-`RuntimeHost` owns the instance. `RuntimeSession` preserves the working directory, command history, foreground ownership, and display state; it is neither a separate verification task nor a complete model session. Console and TUI share the local session; HTTP maintains command sessions by client identifier. Views submit operations, read state, and subscribe to output, without owning execution threads or startup command processing.
+Service constructors are supplied by application wiring. Runtime sessions receive result-formatting callbacks from terminal/application callers, so shared session state has no frontend import. Plugin command declarations are registered by runtime control rather than the core plugin loader.
 
-`control/runtime/startup.py` coordinates initialization, `output.py` manages output/message buffers, and `presentation.py` formats command results. The buffers support view subscriptions, but are not a persistent event system covering all business state changes.
+## Startup, Execution and Shutdown
 
-## From Startup to Execution
+1. `ucagent`, `python -m ucagent`, and source `ucagent.py` reach `application/entry.py`, which calls CLI parsing and handles management requests before constructing an Agent.
+2. CLI conversion supplies plain launch data; application creates a `LaunchRequest`, resolves workspace sources and logging, and invokes core task configuration. `core/locales/<language>.yaml` supplies framework prompts; `application/presets/<language>/` supplies named application presets. The [configuration precedence](03_workflow.md#3-configuration-loading-and-template-variables) is preserved.
+3. `core/agent/construction.py` prepares selected workflow resources and constructs stages, tools, backends and execution state. Python callers use the same path through `from ucagent import VerifyAgent`, without importing application startup.
+4. Application creates RuntimeHost and sessions, supplies concrete service constructors and presentation callbacks, and hands over cleanup. MCP and other requested services become ready before user/model startup commands execute.
+5. Startup commands retain their ordering. TUI readiness releases the display gate; runtime owns their execution. Tasks without an interface or service default to execution; service and interactive launches wait for explicit model work.
+6. Runtime schedules Agent work. Backends invoke tools; stage tools enter the same StageManager and Checkers. HTTP controls the runtime, while MCP exposes the same task tools. MCP calls do not automatically create HTTP operation IDs.
+7. TUI detaches without closing the task. Instance shutdown drains work and services, persists state, and restores acquired resources. Workspace-contained shared-library links retain their original target permissions.
 
-1. The CLI parses arguments, discovers and validates selected plugins, and resolves the workflow. `VerifyAgent` loads layered configuration; see [Workflow Configuration](03_workflow.md#3-configuration-loading-and-template-variables).
-2. `VerifyAgent` prepares Guide_Doc, templates, skills, and the configuration snapshot; assembles stages, tools, and backend; initializes the backend and restores available stage state. The model execution loop has not been submitted yet.
-3. The CLI creates `RuntimeHost` and a local `RuntimeSession`, creates Console as required by the mode, and injects the HTTP service factory. `host.start()` connects output/messages and starts the supervisor; it does not execute model work.
-4. MCP requested by startup flags starts first, followed by service commands derived from startup flags, with readiness/failure checks. HTTP and Master connections do not depend on entering TUI. Services requested in custom `--icmd` or configuration `init_cmds` retain their later queue positions.
-5. `StartupCommands` receives initialization commands. With `--tui`, the CLI opens TUI, whose readiness event only releases a gate; the runtime executes initialization. Without TUI, no display readiness wait is required.
-6. Initialization submits product information, repeated `--icmd` values, optional `--loop`, and configuration `init_cmds`, in that order. In interactive/service modes, a model loop does not block later ordinary queries. Later model commands wait for previous model work; other asynchronous initialization commands are awaited in order.
-7. The executor calls Agent/backend, which uses tools for the current stage and requests acceptance through `Check` / `Complete`. After TUI returns, the CLI enters Console's input loop. Without a local interface, the runtime continues managing the instance.
-
-Default execution depends on the interface: `--human` / `--tui` wait for explicit startup commands or user input. A run without interactive/service interfaces defaults to `continue` if no model work was submitted; HTTP/MCP service mode does the same for non-`blank` backends. See [Runtime Control](../02_usage/10_runtime_control.md) for usage.
+LangChain prepares models on first model work. Command-line backends prepare against a ready MCP endpoint. Queries and deterministic tools do not prepare the main model; explicitly enabled embedding/review capabilities retain their own requirements. See [Runtime Control](../02_usage/10_runtime_control.md).
 
 ## Stage Execution Loop
 

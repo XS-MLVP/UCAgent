@@ -17,7 +17,7 @@ if loaded_ucagent is not None and not loaded_ucagent_path.startswith(repo_packag
         if module_name == "ucagent" or module_name.startswith("ucagent."):
             del sys.modules[module_name]
 
-from ucagent.server.api_cmd import (
+from ucagent.interfaces.server.api_cmd import (
     _sub_mission_name_from_info,
     _sub_workspace_lifecycle_from_info,
 )

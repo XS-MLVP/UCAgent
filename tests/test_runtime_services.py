@@ -1,5 +1,6 @@
 """Real-listener coverage for service ownership, ready endpoints and Master integration."""
 
+from ucagent.application.launch import configure_services
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -15,16 +16,16 @@ from unittest.mock import Mock
 import httpx
 import pytest
 
-from ucagent.abackend.cmdline import UCAgentCmdLineBackend
-from ucagent.control.controller import Controller, ControlError
-from ucagent.control.runtime.services import ServiceManager
-from ucagent.server.api_cmd import ControlApiServer
-from ucagent.server.api_master import MasterApiServer, MasterClient
-from ucagent.server.api_mcp import McpServer
-from ucagent.server.api_terminal import WebTerminalServer
-from ucagent.stage.vstage import VerifyStage
+from ucagent.core.backends.cmdline import UCAgentCmdLineBackend
+from ucagent.runtime.control.controller import Controller, ControlError
+from ucagent.runtime.services import ServiceManager
+from ucagent.interfaces.server.api_cmd import ControlApiServer
+from ucagent.interfaces.server.api_master import MasterApiServer, MasterClient
+from ucagent.interfaces.server.api_mcp import McpServer
+from ucagent.interfaces.server.api_terminal import WebTerminalServer
+from ucagent.core.stage.vstage import VerifyStage
 from ucagent.util.config import Config
-from ucagent.verify_agent import VerifyAgent
+from ucagent import VerifyAgent
 
 
 class Agent:
@@ -73,6 +74,7 @@ def wait_until(predicate, timeout=3, *, description="Expected service state", di
 def services(tmp_path):
     """Own every listener and connection created by a test and check final cleanup."""
     owner = ServiceManager(Agent(tmp_path))
+    configure_services(owner)
     yield owner
     result = owner.close(5)
     assert result["closed"], result
@@ -237,7 +239,7 @@ def test_backend_waits_for_ready_mcp_and_renders_allocated_port(services, tmp_pa
 
 def test_starting_mcp_is_not_exposed_to_backend_and_close_retains_owner(services, monkeypatch):
     """A worker held in startup stays owned through a shutdown deadline."""
-    from ucagent.util import functions
+    from ucagent.interfaces.server import mcp_http
 
     entered, release = threading.Event(), threading.Event()
     native = SimpleNamespace(started=False, should_exit=False)
@@ -247,8 +249,8 @@ def test_starting_mcp_is_not_exposed_to_backend_and_close_retains_owner(services
         entered.set()
         assert release.wait(5)
 
-    monkeypatch.setattr(functions, "create_verify_mcps", lambda *args, **kwargs: native)
-    monkeypatch.setattr(functions, "start_verify_mcps", serve)
+    monkeypatch.setattr(mcp_http, "create_verify_mcps", lambda *args, **kwargs: native)
+    monkeypatch.setattr(mcp_http, "start_verify_mcps", serve)
     with ThreadPoolExecutor(max_workers=1) as pool:
         starting = pool.submit(services.start_mcp, timeout=0.02)
         try:
@@ -270,6 +272,7 @@ def test_two_service_owners_do_not_share_listeners(services, tmp_path):
     other_path = tmp_path / "other"
     other_path.mkdir()
     other = ServiceManager(Agent(other_path))
+    configure_services(other)
     try:
         assert services.start_mcp()["ok"] and other.start_mcp()["ok"]
         endpoint = other.require_endpoint("mcp")

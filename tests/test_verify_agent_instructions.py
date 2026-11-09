@@ -1,6 +1,6 @@
 """Generated agent instructions preserve canonical Markdown heading spacing."""
 
-from ucagent.verify_agent import VerifyAgent
+from ucagent import VerifyAgent
 from ucagent.util.markdown import markdown_heading_spacing_errors
 
 def test_generated_instruction_file_has_blank_lines_before_every_heading(tmp_path):

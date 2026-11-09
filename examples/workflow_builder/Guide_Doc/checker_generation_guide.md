@@ -2,7 +2,7 @@
 
 ## 概述
 
-Checker 是 UCAgent 的确定性检查器，继承 `ucagent.checkers.base.Checker`，在阶段完成时由 UCAgent 自动调用。每个 Checker 的 `do_check` 方法返回 `(bool, dict)`——第一个值表示通过/失败，第二个值包含详细信息。
+Checker 是 UCAgent 的确定性检查器，继承 `ucagent.core.checkers.base.Checker`，在阶段完成时由 UCAgent 自动调用。每个 Checker 的 `do_check` 方法返回 `(bool, dict)`——第一个值表示通过/失败，第二个值包含详细信息。
 
 主构建流程不再设置后置的 Checker 设计与生成阶段。Stage 1 必须在
 `workflow_build.yaml` 的 `workflow_spec.checkers` 中一次规划全部业务 Checker，
@@ -81,7 +81,7 @@ tests:                                # 测试用例（auto_tests=true 时由生
 import json
 from pathlib import Path
 
-from ucagent.checkers.base import Checker
+from ucagent.core.checkers.base import Checker
 
 
 class MyChecker(Checker):
@@ -186,7 +186,7 @@ stage:
 # checkers/json_required_keys_checker.py
 import json
 from pathlib import Path
-from ucagent.checkers.base import Checker
+from ucagent.core.checkers.base import Checker
 
 
 class JsonRequiredKeysChecker(Checker):
@@ -263,7 +263,7 @@ register:
 # checkers/json_numeric_range_checker.py
 import json
 from pathlib import Path
-from ucagent.checkers.base import Checker
+from ucagent.core.checkers.base import Checker
 
 
 class JsonNumericRangeChecker(Checker):
@@ -320,7 +320,7 @@ class JsonNumericRangeChecker(Checker):
 ```python
 # checkers/file_exists_checker.py
 from pathlib import Path
-from ucagent.checkers.base import Checker
+from ucagent.core.checkers.base import Checker
 
 
 class FileExistsChecker(Checker):
@@ -360,7 +360,7 @@ class FileExistsChecker(Checker):
 # checkers/command_exit_code_checker.py
 import subprocess
 from pathlib import Path
-from ucagent.checkers.base import Checker
+from ucagent.core.checkers.base import Checker
 
 
 class CommandExitCodeChecker(Checker):
@@ -414,7 +414,7 @@ class CommandExitCodeChecker(Checker):
 ```python
 # checkers/markdown_sections_checker.py
 from pathlib import Path
-from ucagent.checkers.base import Checker
+from ucagent.core.checkers.base import Checker
 
 
 class MarkdownSectionsChecker(Checker):

@@ -9,7 +9,7 @@ from collections import OrderedDict
 from typing import Tuple
 
 import ucagent.util.functions as fc
-from ucagent.checkers.base import Checker, BatchTask, format_stage_args_examples
+from ucagent.core.checkers.base import Checker, BatchTask, format_stage_args_examples
 from ucagent.util.log import info, warning
 from .unity_test import (
     UnityChipCheckerLabelStructure,

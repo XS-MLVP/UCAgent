@@ -19,9 +19,9 @@ if loaded_ucagent is not None and not loaded_ucagent_path.startswith(
         if module_name == "ucagent" or module_name.startswith("ucagent."):
             del sys.modules[module_name]
 
-from ucagent.abackend.blank import BlankBackend
-from ucagent.cli import run
-from ucagent.verify_agent import VerifyAgent
+from ucagent.core.backends.blank import BlankBackend
+from ucagent.application.entry import run
+from ucagent import VerifyAgent
 
 
 def test_cli_master_selects_blank_backend_and_starts_owned_service(tmp_path, cli_runtime):
@@ -29,7 +29,7 @@ def test_cli_master_selects_blank_backend_and_starts_owned_service(tmp_path, cli
     with mock.patch(
         "sys.argv",
         ["ucagent", str(tmp_path), "empty", "--as-master", "127.0.0.1:9900"],
-    ), mock.patch("ucagent.verify_agent.VerifyAgent") as verify_agent:
+    ), mock.patch("ucagent.VerifyAgent") as verify_agent:
         run()
 
     kwargs = verify_agent.call_args.kwargs
@@ -52,7 +52,7 @@ def test_cli_master_backend_is_a_child_default_without_mcp_requirement(tmp_path,
     with mock.patch(
         "sys.argv",
         ["ucagent", "--as-master-persist", str(tmp_path), "--as-master", "--backend", "codex"],
-    ), mock.patch("ucagent.verify_agent.VerifyAgent") as verify_agent:
+    ), mock.patch("ucagent.VerifyAgent") as verify_agent:
         run()
 
     kwargs = verify_agent.call_args.kwargs
@@ -67,7 +67,7 @@ def test_cli_master_waits_for_host_shutdown(tmp_path, cli_runtime):
     with mock.patch(
         "sys.argv",
         ["ucagent", str(tmp_path), "empty", "--as-master", "127.0.0.1:9900"],
-    ), mock.patch("ucagent.verify_agent.VerifyAgent") as verify_agent:
+    ), mock.patch("ucagent.VerifyAgent") as verify_agent:
         agent = verify_agent.return_value
         agent.is_exit.side_effect = [False, True]
         agent.services.get.return_value = None
@@ -75,7 +75,7 @@ def test_cli_master_waits_for_host_shutdown(tmp_path, cli_runtime):
         run()
 
     cli_runtime.wait.assert_called_once_with()
-    agent.pre_run.assert_not_called()
+    agent.pre_run.assert_called_once()
 
 
 def test_blank_backend_config_uses_normal_backend_factory_without_model_integrations(
@@ -83,10 +83,10 @@ def test_blank_backend_config_uses_normal_backend_factory_without_model_integrat
 ):
     """Blank selection must use the factory without constructing model clients."""
     with mock.patch(
-        "ucagent.verify_agent.SemanticSearchInGuidDoc",
+        "ucagent.core.agent.construction.SemanticSearchInGuidDoc",
         side_effect=AssertionError("embedding tools must not be initialized"),
     ), mock.patch(
-        "ucagent.verify_agent.Langfuse",
+        "ucagent.core.agent.construction.Langfuse",
         side_effect=AssertionError("Langfuse must not be initialized"),
     ):
         agent = VerifyAgent(
@@ -114,7 +114,7 @@ def test_blank_backend_config_uses_normal_backend_factory_without_model_integrat
         assert agent.stage_manager.llm_fail_suggestion is None
         assert agent.stage_manager.llm_pass_suggestion is None
     finally:
-        from ucagent.control.runtime.host import RuntimeHost
+        from ucagent.runtime.host import RuntimeHost
         host = RuntimeHost(agent, mode="master")
         host.start()
         host.request_shutdown()

@@ -2,7 +2,7 @@
 """Markdown file checkers for UCAgent."""
 
 
-from ucagent.checkers.base import Checker, BatchTask
+from ucagent.core.checkers.base import Checker, BatchTask
 import ucagent.util.functions as fc
 from ucagent.util.log import info
 from collections import OrderedDict

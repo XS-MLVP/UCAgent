@@ -14,11 +14,11 @@ from textual.app import App
 from textual.worker import WorkerState
 from textual.widgets import Input
 
-from ucagent.tui.app import VerifyApp
-from ucagent.tui.widgets.console import ConsoleEntry, ConsoleWidget, ConsoleWidgetState
-from ucagent.tui.widgets.console_input import ConsoleInput
-from ucagent.tui.widgets.messages_panel import MessagesPanel
-from ucagent.tui.widgets.status_bar import StatusBar
+from ucagent.interfaces.terminal.tui.app import VerifyApp
+from ucagent.interfaces.terminal.tui.widgets.console import ConsoleEntry, ConsoleWidget, ConsoleWidgetState
+from ucagent.interfaces.terminal.tui.widgets.console_input import ConsoleInput
+from ucagent.interfaces.terminal.tui.widgets.messages_panel import MessagesPanel
+from ucagent.interfaces.terminal.tui.widgets.status_bar import StatusBar
 
 
 class TestMessagesPanelPayloadProcessing:

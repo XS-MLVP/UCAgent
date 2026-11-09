@@ -438,8 +438,8 @@ def test_checker_reads_current_state(artifacts):
 @pytest.mark.parametrize("output_dir", ["outputs", "unity_test", "runs/custom output"])
 def test_fresh_agent_stages(workspace, monkeypatch, enabled, workflow, output_dir):
     """Both workflows complete in the selected directory with Skills enabled or absent."""
-    from ucagent.verify_agent import VerifyAgent
-    from ucagent.plugins import (
+    from ucagent import VerifyAgent
+    from ucagent.core.plugins import (
         collect_plugin_resources,
         load_plugin,
         resolve_plugin_workflow,
@@ -451,7 +451,7 @@ def test_fresh_agent_stages(workspace, monkeypatch, enabled, workflow, output_di
     if get_plugin().root == project / "src/rtl2spec":
         if enabled:
             # Exercise source discovery as it works before the distribution is installed.
-            monkeypatch.setattr("ucagent.plugins._entry_points", lambda: [])
+            monkeypatch.setattr("ucagent.core.plugins._entry_points", lambda: [])
             loaded = load_plugin("rtl2spec", search_paths=[project])
         else:
             loaded = load_plugin(str(project))

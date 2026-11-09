@@ -11,14 +11,14 @@ from dataclasses import replace
 from unittest import mock
 
 import pytest
-from ucagent.control.runtime.host import RuntimeHost
+from ucagent.runtime.host import RuntimeHost
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "ucagent/plugins/UnityTest/src"))
 
 from unity_test.report_store import TestProtocolRuntimeHook
 from unity_test.test_runner import RunTestCasesManagerTool
 from unity_test.checkers import UnityChipCheckerTestMustPass
-from ucagent.plugins import (
+from ucagent.core.plugins import (
     CommandRequirement,
     GuideDocCopyPolicy,
     PluginGuideDocCopyPolicy,
@@ -42,14 +42,15 @@ from ucagent.plugins import (
     validate_plugin,
     validate_workflow_dependencies,
 )
-import ucagent.plugins as plugin_module
-from ucagent.checkers.base import Checker
-from ucagent.cli import _plugin_discovery_overrides, run
-from ucagent.stage.vstage import parse_vstage
-from ucagent.tools.uctool import UCTool, to_mcp_tool
-from ucagent.tools.fileops import is_file_writeable as _is_file_writeable
+import ucagent.core.plugins as plugin_module
+from ucagent.core.checkers.base import Checker
+from ucagent.application.entry import run
+from ucagent.util.config import discovery_overrides
+from ucagent.core.stage.vstage import parse_vstage
+from ucagent.core.tools.uctool import UCTool, to_mcp_tool
+from ucagent.util.file_policy import is_file_writeable as _is_file_writeable
 from ucagent.util.config import Config
-from ucagent.verify_agent import VerifyAgent
+from ucagent import VerifyAgent
 
 
 def _close_agent(agent):
@@ -118,8 +119,8 @@ def _write_local_plugin(
             [
                 '"""Temporary plugin provider."""',
                 "from pathlib import Path",
-                "from ucagent.plugins import Plugin, PluginContext",
-                "from ucagent.tools.uctool import UCTool",
+                "from ucagent.core.plugins import Plugin, PluginContext",
+                "from ucagent.core.tools.uctool import UCTool",
                 "",
                 "class LocalTool(UCTool):",
                 '    """Minimal local plugin tool."""',
@@ -391,7 +392,7 @@ def test_validation_rejects_escaped_resources_and_missing_dependencies(
             CommandRequirement("missing", ("ucagent-command-that-does-not-exist",)),
         ),
     )
-    monkeypatch.setattr("ucagent.plugins.shutil.which", lambda executable: None)
+    monkeypatch.setattr("ucagent.core.plugins.shutil.which", lambda executable: None)
     with pytest.raises(PluginError, match="requires command"):
         validate_plugin(missing_command)
 
@@ -450,7 +451,7 @@ def test_workflow_dependencies_are_checked_only_after_selection(
         command_requirements=(CommandRequirement("Yosys", ("yosys",)),),
     )
     monkeypatch.setattr(
-        "ucagent.plugins.shutil.which",
+        "ucagent.core.plugins.shutil.which",
         lambda executable: executable if executable == "yosys" else None,
     )
     validated = validate_plugin(plugin)
@@ -477,7 +478,7 @@ def test_workflow_dependency_probes_version_and_subcommand(
             ),
         ),
     )
-    monkeypatch.setattr("ucagent.plugins.shutil.which", lambda executable: "/bin/picker")
+    monkeypatch.setattr("ucagent.core.plugins.shutil.which", lambda executable: "/bin/picker")
     calls = []
 
     def fake_run(command, **kwargs):
@@ -486,7 +487,7 @@ def test_workflow_dependency_probes_version_and_subcommand(
         calls.append(command)
         return SimpleNamespace(returncode=0, stdout="picker 1.0", stderr="")
 
-    monkeypatch.setattr("ucagent.plugins.subprocess.run", fake_run)
+    monkeypatch.setattr("ucagent.core.plugins.subprocess.run", fake_run)
     validate_workflow_dependencies("sample", workflow)
     assert calls == [
         ["/bin/picker", "--version"],
@@ -685,7 +686,7 @@ def test_plugin_checker_short_name_is_resolved_without_global_injection(
     )[0]
 
     assert isinstance(stage.checker[0], PluginCheckerSample)
-    assert not hasattr(importlib.import_module("ucagent.checkers"), "PluginCheckerSample")
+    assert not hasattr(importlib.import_module("ucagent.core.checkers"), "PluginCheckerSample")
     assert stage._do_check(is_complete=True)[0] is True
 
 
@@ -720,7 +721,7 @@ def test_plugin_checker_validation_and_cross_plugin_conflicts_are_rejected(
     with pytest.raises(PluginError, match="Duplicate plugin Checker name"):
         create_plugin_checker_registry(loaded)
 
-    from ucagent.checkers import HumanChecker
+    from ucagent.core.checkers import HumanChecker
 
     core_conflict = Plugin(
         "core-conflict",
@@ -1126,7 +1127,7 @@ def test_plugin_discovery_uses_only_search_path_overrides() -> None:
         {"backend.key_name": "opencode"},
     ]
 
-    assert _plugin_discovery_overrides(overrides) == [
+    assert discovery_overrides(overrides) == [
         {"plugin.search_paths": ["/plugins"]},
         {"plugin.search_paths[0]": "/other-plugins"},
     ]
@@ -1158,8 +1159,8 @@ def test_plugin_workflow_keeps_declared_skills_optional_when_disabled(
     provider = project / "src" / "sample_plugin" / "provider.py"
     content = provider.read_text(encoding="utf-8")
     content = content.replace(
-        "from ucagent.plugins import Plugin, PluginContext",
-        "from ucagent.plugins import Plugin, PluginContext, PluginWorkflow",
+        "from ucagent.core.plugins import Plugin, PluginContext",
+        "from ucagent.core.plugins import Plugin, PluginContext, PluginWorkflow",
     ).replace(
         "        tool_factories=(create_tools,),",
         "        tool_factories=(create_tools,),\n"
@@ -1187,7 +1188,7 @@ def test_plugin_workflow_keeps_declared_skills_optional_when_disabled(
             "--override",
             "workflow_only.value=selected",
         ],
-    ), mock.patch("ucagent.verify_agent.VerifyAgent") as verify_agent:
+    ), mock.patch("ucagent.VerifyAgent") as verify_agent:
         run()
 
     kwargs = verify_agent.call_args.kwargs
@@ -1249,7 +1250,7 @@ def test_cli_activates_plugin_level_docs_and_skills_without_a_workflow(
             str(project),
             "--no-use-skill",
         ],
-    ), mock.patch("ucagent.verify_agent.VerifyAgent") as verify_agent:
+    ), mock.patch("ucagent.VerifyAgent") as verify_agent:
         run()
 
     kwargs = verify_agent.call_args.kwargs

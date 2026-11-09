@@ -8,8 +8,8 @@ import httpx
 import pytest
 
 from test_runtime_host import make_host
-from ucagent.control.controller import ControlError
-from ucagent.server.api_master import MasterApiServer
+from ucagent.runtime.control.controller import ControlError
+from ucagent.interfaces.server.api_master import MasterApiServer
 
 
 def test_pending_operation_retains_closing_state_until_actual_return(tmp_path):
@@ -84,8 +84,8 @@ def test_real_mcp_exit_returns_result_before_host_stops_server(tmp_path):
     import asyncio
     from mcp import ClientSession
     from mcp.client.streamable_http import streamable_http_client
-    from ucagent.server.api_mcp import McpServer
-    from ucagent.stage.vmanager import ToolDoExit
+    from ucagent.interfaces.server.api_mcp import McpServer
+    from ucagent.core.stage.vmanager import ToolDoExit
 
     host, runtime = make_host(tmp_path, exit_on_completion=True)
     runtime.agent.cfg.set_value("mcp_server", {"init_prompt": "Host lifecycle test"})

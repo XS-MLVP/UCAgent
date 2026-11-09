@@ -22,8 +22,8 @@ def test_lightweight_tool_import_avoids_optional_model_stacks() -> None:
 import json
 import sys
 
-from ucagent.tools.uctool import UCTool
-from ucagent.tools import DeleteTextLines, RunSkillScript
+from ucagent.core.tools.uctool import UCTool
+from ucagent.core.tools import DeleteTextLines, RunSkillScript
 
 print(json.dumps({
     "uctool": UCTool.__module__,
@@ -60,9 +60,9 @@ print(json.dumps({
     assert "PyTorch was not found" not in completed.stderr
     assert "LangGraphDeprecatedSinceV10" not in completed.stderr
     assert json.loads(completed.stdout) == {
-        "uctool": "ucagent.tools.uctool",
-        "file_tool": "ucagent.tools.fileops",
-        "skill_tool": "ucagent.tools.skill",
+        "uctool": "ucagent.core.tools.uctool",
+        "file_tool": "ucagent.core.tools.fileops",
+        "skill_tool": "ucagent.core.tools.skill",
         "loaded": [],
     }
 
@@ -82,8 +82,8 @@ class BlockRemovedDependencies(importlib.abc.MetaPathFinder):
             raise ModuleNotFoundError(fullname)
 
 sys.meta_path.insert(0, BlockRemovedDependencies())
-from ucagent.tools.memory import MemoryGet, MemoryPut, SemanticSearchInGuidDoc
-from ucagent.abackend.langchain.middleware.messages import TrimAndSummaryMiddleware
+from ucagent.core.tools.memory import MemoryGet, MemoryPut, SemanticSearchInGuidDoc
+from ucagent.core.backends.langchain.middleware.messages import TrimAndSummaryMiddleware
 assert not {'langmem', 'trustcall'}.intersection(sys.modules)
 """
     completed = subprocess.run(

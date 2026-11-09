@@ -2,7 +2,7 @@
 
 from types import SimpleNamespace
 
-from ucagent.server.api_mcp import _collect_mcp_tools
+from ucagent.interfaces.server.api_mcp import _collect_mcp_tools
 
 
 def _agent(ignore_tools: list[str] | None = None):

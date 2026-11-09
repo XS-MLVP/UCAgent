@@ -6,7 +6,7 @@ import ast
 import sys
 import traceback
 
-from ucagent.checkers.base import Checker, BatchTask
+from ucagent.core.checkers.base import Checker, BatchTask
 from ucagent.util.log import error
 
 from ..contracts import atomic_json, diagnostic, no_improvement_patience, optimization_limits

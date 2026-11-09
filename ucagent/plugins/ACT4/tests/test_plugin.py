@@ -9,7 +9,7 @@ import pytest
 import yaml
 
 from act4_privileged_suite.plugin import get_plugin
-from ucagent.plugins import (
+from ucagent.core.plugins import (
     LoadedPlugin,
     collect_plugin_resources,
     configured_plugin_search_paths,
@@ -20,7 +20,7 @@ from ucagent.plugins import (
     validate_workflow_dependencies,
 )
 from ucagent.util.config import Config
-from ucagent.verify_agent import VerifyAgent
+from ucagent import VerifyAgent
 
 
 def test_plugin_descriptor_and_resources_validate() -> None:
@@ -108,7 +108,7 @@ def test_configured_search_path_finds_plugin(monkeypatch, parent_search) -> None
     project_root = Path(__file__).resolve().parents[1]
     search_root = project_root.parent if parent_search else project_root
     config = Config({"plugin": {"search_paths": [str(search_root)]}})
-    monkeypatch.setattr("ucagent.plugins._entry_points", lambda: ())
+    monkeypatch.setattr("ucagent.core.plugins._entry_points", lambda: ())
     loaded = load_plugin(
         "act4-privileged-suite",
         search_paths=configured_plugin_search_paths(config),
@@ -120,7 +120,7 @@ def test_configured_search_path_finds_plugin(monkeypatch, parent_search) -> None
 @pytest.mark.parametrize("checker_class", get_plugin().checkers, ids=lambda item: item.__name__)
 def test_registry_rejects_conflicts_without_global_mutation(monkeypatch, checker_class) -> None:
     """Keep every checker local and reject collisions with plugins and core exports."""
-    import ucagent.checkers as core_checkers
+    import ucagent.core.checkers as core_checkers
 
     plugin = get_plugin()
     loaded = LoadedPlugin(plugin, plugin.name, "test")
@@ -142,7 +142,7 @@ def test_registry_rejects_conflicts_without_global_mutation(monkeypatch, checker
 )
 def test_ucagent_compatibility_matches_verified_baseline(monkeypatch, version, compatible) -> None:
     """Require the core release exercised by the plugin's lifecycle tests."""
-    monkeypatch.setattr("ucagent.plugins.__version__", version)
+    monkeypatch.setattr("ucagent.core.plugins.__version__", version)
     if compatible:
         validate_plugin(get_plugin(), check_dependencies=False)
     else:
@@ -167,7 +167,7 @@ def test_missing_yaml_dependency_reports_requirement(monkeypatch) -> None:
 
 def test_workflow_startup_allows_environment_stage_to_prepare_tools(monkeypatch) -> None:
     """Do not reject workflows before their own preparation stage can inspect missing tools."""
-    monkeypatch.setattr("ucagent.plugins.shutil.which", lambda executable: None)
+    monkeypatch.setattr("ucagent.core.plugins.shutil.which", lambda executable: None)
     validate_plugin(get_plugin(), check_dependencies=True)
     plugin = get_plugin()
     for workflow in plugin.workflows:
@@ -184,7 +184,7 @@ def test_distribution_and_source_manifest_share_plugin_identity() -> None:
     manifest = tomllib.loads((project_root / "ucagent-plugin.toml").read_text())
     plugin = get_plugin()
     assert plugin.name == manifest["name"]
-    assert project["entry-points"]["ucagent.plugins"][plugin.name] == manifest["entry"]
+    assert project["entry-points"]["ucagent.core.plugins"][plugin.name] == manifest["entry"]
     assert project["version"] == plugin.version
     assert f"UCAgent{plugin.requires_ucagent}" in project["dependencies"]
     assert set(plugin.python_requirements) <= set(project["dependencies"])
@@ -306,3 +306,4 @@ def test_separate_output_and_readonly_manual_are_allowed(tmp_path, manual) -> No
     assert get_plugin().workflows[0].template_context_factory(
         config, {"WORKSPACE": str(workspace), "OUT": "generated/act4_assets"}
     ) == {}
+

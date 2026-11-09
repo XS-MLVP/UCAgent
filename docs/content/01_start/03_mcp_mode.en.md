@@ -59,7 +59,7 @@ ucagent output/ Adder -s -hm --tui \
   --mcp-server-no-file-tools --loop --backend=opencode
 ```
 
-The command-line backend must enable either `--mcp-server` or `--mcp-server-no-file-tools`; otherwise, the CLI will refuse to start. See the `backend` configuration in `ucagent/setting.yaml` for other backend names and client commands.
+When startup requests command-line backend execution, enable `--mcp-server` or `--mcp-server-no-file-tools`; the dependency check uses the final backend configuration. Client preparation and execution wait until MCP is ready. See the `backend` configuration in `ucagent/setting.yaml` for other backend names and client commands.
 
 ## 3.3 Manual Dual-Terminal Integration (Using Codex as an Example)
 
@@ -75,6 +75,8 @@ ucagent output/ Adder -s -hm --tui \
 ```
 
 When not entering `loop`, UCAgent waits for the client in Terminal B to call tools. Codex login and model configuration must be completed in Terminal B; see its client documentation.
+
+To expose tools without a local interface, use `ucagent output/ Adder --mcp-server`. Without `--loop` or an explicit model command, the service waits for clients and does not create or probe the main model. Enabled embedding/review capabilities retain their requirements; see [Runtime Control](../02_usage/10_runtime_control.md).
 
 Terminal A listens on `127.0.0.1:5000` by default. If the port is already in use, pass `--mcp-server-port <port>` and use the same port in the client configuration.
 

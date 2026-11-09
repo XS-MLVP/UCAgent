@@ -14,7 +14,7 @@ def _header(spec: dict[str, Any], imports: str, class_body: str) -> str:
 
 {imports}
 
-from ucagent.checkers.base import Checker
+from ucagent.core.checkers.base import Checker
 
 
 class {entry["class_name"]}(Checker):

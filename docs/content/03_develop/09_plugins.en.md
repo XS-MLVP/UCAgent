@@ -7,7 +7,7 @@ The `ucagent/plugins/RTL2Spec/` directory provides a documentation generation pl
 
 ## Co-located Bundled and Optional Plugins
 
-Co-located plugins are maintained under `ucagent/plugins/` (the plugin loader itself is `ucagent/plugins/__init__.py`). Distribution splits into two tracks: the framework wheel bundles UnityTest and its shared `common` library as package data (the scope is pinned by the `ucagent.plugins` package-data key, the `packages.find` excludes, and the `MANIFEST.in` prunes in the repository), so installing the core provides the default UnityTest workflow with no separate installation; the remaining plugins do not ship with the core and are published as independent distributions on demand. In both tracks, plugin development should be confined to their own directories: dependencies, entry points, configurations, resources, tests, and maintenance commands are managed by the plugin itself, without adding plugin content to the core's dependency list, default configurations, or Tool/Checker export tables.
+Co-located plugins are maintained under `ucagent/plugins/` (the plugin loader itself is `ucagent/core/plugins.py`). Distribution splits into two tracks: the framework wheel bundles UnityTest and its shared `common` library as package data (the scope is pinned by the `ucagent.plugins` package-data key, the `packages.find` excludes, and the `MANIFEST.in` prunes in the repository), so installing the core provides the default UnityTest workflow with no separate installation; the remaining plugins do not ship with the core and are published as independent distributions on demand. In both tracks, plugin development should be confined to their own directories: dependencies, entry points, configurations, resources, tests, and maintenance commands are managed by the plugin itself, without adding plugin content to the core's dependency list, default configurations, or Tool/Checker export tables.
 
 | Content | Maintenance Location |
 | :--- | :--- |
@@ -190,12 +190,12 @@ The configuration list is processed according to UCAgent's overall replacement s
 
 ## Provider and Runtime Context
 
-A Provider returns `ucagent.plugins.Plugin`:
+A Provider returns `ucagent.core.plugins.Plugin`:
 
 ```python
 from pathlib import Path
 
-from ucagent.plugins import CommandRequirement, Plugin, PluginContext
+from ucagent.core.plugins import CommandRequirement, Plugin, PluginContext
 
 from .checkers import TimingBudgetChecker
 from .my_tool import MyTool
@@ -268,7 +268,7 @@ Plugins can register interaction commands through `Plugin.command_factories` wit
 This read-only command reuses an existing stage query without creating tasks or threads:
 
 ```python
-from ucagent.control.commands import Argument, CommandSpec
+from ucagent.runtime.control.commands import Argument, CommandSpec
 
 
 def create_commands(controller):
@@ -292,7 +292,7 @@ A command contribution does not automatically become an MCP Tool. Use `tool_fact
 
 ## Checker
 
-Each item in `checkers` must be a subclass of `ucagent.checkers.base.Checker`. After activating a plugin, any valid configuration file can reference it by its short name, regardless of whether the configuration belongs to the plugin's workflow:
+Each item in `checkers` must be a subclass of `ucagent.core.checkers.base.Checker`. After activating a plugin, any valid configuration file can reference it by its short name, regardless of whether the configuration belongs to the plugin's workflow:
 
 ```yaml
 stage:
@@ -305,7 +305,7 @@ stage:
         args: {}
 ```
 
-UCAgent explicitly passes the plugin Checker registry to the stage parser, without writing the class to the global `ucagent.checkers` module. Checker class names must be unique across all activated plugins and cannot match core Checker names. Full dotted paths can still be used for regular importable classes, but formal `checkers` declarations provide startup type checking, short-name referencing, conflict detection, and plugin summaries.
+UCAgent explicitly passes the plugin Checker registry to the stage parser, without writing the class to the global `ucagent.core.checkers` module. Checker class names must be unique across all activated plugins and cannot match core Checker names. Full dotted paths can still be used for regular importable classes, but formal `checkers` declarations provide startup type checking, short-name referencing, conflict detection, and plugin summaries.
 
 ### Isolated Execution Code Generation
 
@@ -380,7 +380,7 @@ All three fields must be present. `default_action` and explicit actions can only
 Plugins can declare `PluginWorkflow` to bind future workflows and packages:
 
 ```python
-from ucagent.plugins import CommandRequirement, PluginWorkflow
+from ucagent.core.plugins import CommandRequirement, PluginWorkflow
 
 workflow = PluginWorkflow(
     name="unit-design-tdd",

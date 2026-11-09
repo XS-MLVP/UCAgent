@@ -84,7 +84,7 @@ def test_opencode_denies_shell_and_external_paths(tmp_path):
     thread.start()
     try:
         # Reuse the installed UCAgent backend asset; never duplicate its permissions here.
-        asset = Path(ucagent.__file__).parent / "assets/mcp_opencode.json"
+        asset = Path(ucagent.__file__).parent / "core/backends/assets/mcp_opencode.json"
         config = json.loads(Template(asset.read_text()).render(
             PORT=1, OPENAI_API_BASE=f"http://127.0.0.1:{server.server_port}/v1",
             OPENAI_MODEL="probe",

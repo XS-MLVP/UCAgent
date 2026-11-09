@@ -6,7 +6,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
-from ucagent.tools.uctool import UCTool
+from ucagent.core.tools.uctool import UCTool
 
 from ..contracts import diagnostic
 from .common import RepoPaths

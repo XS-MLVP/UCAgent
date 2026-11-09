@@ -219,7 +219,7 @@ def test_batch_checker_reports_uncovered_ranges_and_numbered_content(tmp_path):
 
 
 def test_read_text_file_and_batch_checker_use_same_physical_line_numbers(tmp_path):
-    from ucagent.tools.fileops import ReadTextFile
+    from ucagent.core.tools.fileops import ReadTextFile
 
     (tmp_path / "src").mkdir()
     (tmp_path / "out").mkdir()

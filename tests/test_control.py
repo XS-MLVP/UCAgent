@@ -12,11 +12,11 @@ from unittest.mock import Mock
 from langchain_core.messages import AIMessage, HumanMessage
 import pytest
 
-from ucagent.checkers.base import Checker as BaseChecker
-from ucagent.control.controller import Controller, ControlError, public_data
-from ucagent.stage.vmanager import StageManager
-from ucagent.stage.vstage import VerifyStage
-from ucagent.tools.fileops import CopyFile
+from ucagent.core.checkers.base import Checker as BaseChecker
+from ucagent.runtime.control.controller import Controller, ControlError, public_data
+from ucagent.core.stage.vmanager import StageManager
+from ucagent.core.stage.vstage import VerifyStage
+from ucagent.core.tools.fileops import CopyFile
 from ucagent.util.config import Config
 from ucagent.util.diff_ops import get_latest_commit_hash
 

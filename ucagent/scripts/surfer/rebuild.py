@@ -28,7 +28,7 @@ def main() -> None:
     parser.add_argument("--wasm-bindgen", default="wasm-bindgen",
                         help="Path to wasm-bindgen CLI version " + BINDGEN_VERSION)
     parser.add_argument("--output", type=Path,
-                        default=Path(__file__).resolve().parents[2] / "server/static/surfer",
+                        default=Path(__file__).resolve().parents[2] / "interfaces/server/static/surfer",
                         help="Existing bundle directory containing UCAgent's index.html")
     args = parser.parse_args()
     source, output = args.source.resolve(), args.output.resolve()

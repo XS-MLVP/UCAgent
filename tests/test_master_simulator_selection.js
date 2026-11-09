@@ -5,7 +5,7 @@ const path = require('node:path');
 const test = require('node:test');
 const vm = require('node:vm');
 
-const html = fs.readFileSync(path.join(__dirname, '../ucagent/server/templates/launch.html'), 'utf8');
+const html = fs.readFileSync(path.join(__dirname, '../ucagent/interfaces/server/templates/launch.html'), 'utf8');
 const script = html.match(/<script>([\s\S]*?)<\/script>/)[1];
 const simulators = [
   {value: 'verilator', label: 'Verilator', enabled: true, waveform_suffix: 'fst'},

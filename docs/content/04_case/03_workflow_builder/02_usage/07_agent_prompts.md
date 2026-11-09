@@ -276,16 +276,16 @@ change_history、用户明确要求保留的日志或仍在运行进程使用的
 
 | 文件 | 需要理解的内容 |
 |---|---|
-| `UCAGENT_ROOT/ucagent/cli.py` | CLI 参数，特别是 loop、TUI、MCP、history、config、output、guid-doc-path |
-| `UCAGENT_ROOT/ucagent/verify_agent.py` | 配置初始化、模板覆盖、工具注册、权限设置和 Verify Agent 生命周期 |
-| `UCAGENT_ROOT/ucagent/stage/vstage.py` | stage 创建、参考文件读取跟踪、输出文件检查、Checker 调用和 Complete 条件 |
-| `UCAGENT_ROOT/ucagent/stage/vmanager.py` | stage 切换、工具命令、Complete、历史同步和失败处理 |
-| `UCAGENT_ROOT/ucagent/checkers/base.py` | Checker 基类、返回协议和描述要求 |
-| `UCAGENT_ROOT/ucagent/tools/uctool.py` | RoleInfo 等 UCAgent 工具的接口与返回内容 |
-| `UCAGENT_ROOT/ucagent/tools/fileops.py` | Read/Edit/Write 工具以及 write_dirs/un_write_dirs 边界 |
+| `UCAGENT_ROOT/ucagent/interfaces/cli/arguments.py` | CLI 参数，特别是 loop、TUI、MCP、history、config、output、guid-doc-path |
+| `UCAGENT_ROOT/ucagent/core/agent/execution.py` | 配置初始化、模板覆盖、工具注册、权限设置和 Verify Agent 生命周期 |
+| `UCAGENT_ROOT/ucagent/core/stage/vstage.py` | stage 创建、参考文件读取跟踪、输出文件检查、Checker 调用和 Complete 条件 |
+| `UCAGENT_ROOT/ucagent/core/stage/vmanager.py` | stage 切换、工具命令、Complete、历史同步和失败处理 |
+| `UCAGENT_ROOT/ucagent/core/checkers/base.py` | Checker 基类、返回协议和描述要求 |
+| `UCAGENT_ROOT/ucagent/core/tools/uctool.py` | RoleInfo 等 UCAgent 工具的接口与返回内容 |
+| `UCAGENT_ROOT/ucagent/core/tools/fileops.py` | Read/Edit/Write 工具以及 write_dirs/un_write_dirs 边界 |
 | `UCAGENT_ROOT/ucagent/util/config.py` | YAML 配置对象和 template_overwrite 的递归替换方式 |
-| `UCAGENT_ROOT/ucagent/server/api_mcp.py` | MCP 服务如何启动、线程生命周期和端口行为 |
-| `UCAGENT_ROOT/ucagent/tui/app.py` | TUI 运行前提、终端显示和交互入口 |
+| `UCAGENT_ROOT/ucagent/interfaces/server/api_mcp.py` | MCP 服务如何启动、线程生命周期和端口行为 |
+| `UCAGENT_ROOT/ucagent/interfaces/terminal/tui/app.py` | TUI 运行前提、终端显示和交互入口 |
 | `UCAGENT_ROOT/ucagent/setting.yaml` | UCAgent 默认设置及可能影响运行的全局行为 |
 
 遇到具体问题时再定向读取：
@@ -304,17 +304,17 @@ change_history、用户明确要求保留的日志或仍在运行进程使用的
 本阶段只读 UCAgent，不修改源码，不启动子工作流。
 
 依次阅读：
-1. ucagent/cli.py 中 --loop、--loop-msg、--tui、--no-history、--mcp-server、
+1. ucagent/interfaces/cli/arguments.py 中 --loop、--loop-msg、--tui、--no-history、--mcp-server、
    --mcp-server-port、--config、--output、--guid-doc-path 的定义和传递位置。
-2. ucagent/verify_agent.py 中 Config 加载、template_overwrite、RoleInfo 注册、
+2. ucagent/core/agent/execution.py 中 Config 加载、template_overwrite、RoleInfo 注册、
    write_dirs/un_write_dirs 和 stage manager 构建。
-3. ucagent/stage/vstage.py 中 reference_files 初始化、ReadTextFile 回调、output_files
+3. ucagent/core/stage/vstage.py 中 reference_files 初始化、ReadTextFile 回调、output_files
    查找、checker 执行、fail_count、Complete 和历史状态。
-4. ucagent/stage/vmanager.py 中 Check/Complete/Status、stage 切换和 history commit。
-5. ucagent/checkers/base.py 和 ucagent/tools/uctool.py 中 Checker/RoleInfo 协议。
-6. ucagent/tools/fileops.py 中读写权限判断。
+4. ucagent/core/stage/vmanager.py 中 Check/Complete/Status、stage 切换和 history commit。
+5. ucagent/core/checkers/base.py 和 ucagent/core/tools/uctool.py 中 Checker/RoleInfo 协议。
+6. ucagent/core/tools/fileops.py 中读写权限判断。
 7. ucagent/util/config.py 中模板替换模型。
-8. ucagent/server/api_mcp.py 中 MCP 生命周期。
+8. ucagent/interfaces/server/api_mcp.py 中 MCP 生命周期。
 
 输出一份框架认识摘要，必须回答：
 - UCAgent 何时认为一个 stage 完成？

@@ -13,7 +13,7 @@ export OPENAI_API_KEY="<api_key>"
 export OPENAI_API_BASE="https://<provider>/v1"
 ```
 
-UCAgent uses the OpenAI-compatible interface. The `OPENAI_API_MODE` for the LangChain backend defaults to `auto`: it probes the Responses API at startup and falls back to Chat Completions only if the server explicitly does not support it. Set it to `responses` or `chat_completions` if you need to fix the protocol. `OPENAI_REASONING_EFFORT` defaults to `xhigh`; the value is passed to the server as-is, so please fill in a value supported by your model.
+UCAgent uses the OpenAI-compatible interface. The `OPENAI_API_MODE` for the LangChain backend defaults to `auto`: it probes the Responses API before the first model operation and falls back to Chat Completions only if the server explicitly does not support it. Set it to `responses` or `chat_completions` if you need to fix the protocol. `OPENAI_REASONING_EFFORT` defaults to `xhigh`; the value is passed to the server as-is, so please fill in a value supported by your model.
 
 Configure an embedding model if you need semantic search or memory tools:
 

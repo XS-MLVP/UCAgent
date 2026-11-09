@@ -7,6 +7,7 @@ import socket
 import stat
 from collections.abc import Sequence
 from ucagent.util.log import info, warning
+from ucagent.util.file_policy import is_file_writeable
 import os
 from typing import List, Union
 import json
@@ -560,11 +561,8 @@ def get_template_path(template_name: str, lang:str=None, template_path:str=None)
     if not template_name:
         return None
     if not template_path:
-        assert lang is not None, "Language must be specified if template_path is not provided."
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        template_path = os.path.abspath(os.path.join(current_dir, "../lang", lang, "template"))
-    else:
-        assert os.path.exists(template_path), f"Template path {template_path} does not exist."
+        raise ValueError("A selected template requires its workflow template directory or --template-dir.")
+    assert os.path.exists(template_path), f"Template path {template_path} does not exist."
     tmp = os.path.join(template_path, template_name)
     assert os.path.exists(tmp), f"Template {template_name} does not exist at {template_path}."
     return tmp
@@ -819,116 +817,6 @@ def import_and_instance_tools(class_list: List[str], module=None):
             tools.append(_attach_call_count(getattr(mod, class_name)()))
     return tools
 
-
-def convert_tools(tools):
-    from langgraph.prebuilt.tool_node import ToolNode
-    llm_builtin_tools: list[dict] = []
-    if isinstance(tools, ToolNode):
-        tool_classes = list(tools.tools_by_name.values())
-        tool_node = tools
-    else:
-        llm_builtin_tools = [t for t in tools if isinstance(t, dict)]
-        tool_node = ToolNode([t for t in tools if not isinstance(t, dict)])
-        tool_classes = list(tool_node.tools_by_name.values())
-    return llm_builtin_tools + tool_classes
-
-
-def copy_indent_from(src: list, dst: list):
-    """
-    Copy the indentation from the source string to the destination string.
-    :param src: The source string from which to copy the indentation.
-    :param dst: The destination string to which the indentation will be applied.
-    :return: The destination string with the copied indentation.
-    """
-    if not src or not dst:
-        return dst
-    ret = []
-    indent = 0
-    for s, d in zip(src, dst):
-        if not s or not d:
-            ret.append(d)
-            continue
-        indent = len(s) - len(s.lstrip())
-        ret.append(" " * indent + d.lstrip())
-    if len(src) < len(dst):
-        for d in dst[len(src) :]:
-            ret.append(" " * indent + d)
-    return ret
-
-
-def create_verify_mcps(mcp_tools: list, host: str, port: int, logger=None):
-    """Build an instance-drained MCP server without replacing global logging."""
-    from mcp.server.mcpserver import MCPServer
-    from ucagent.server.mcp_http import McpHttpServer
-    from ucagent.tools.uctool import to_mcp_tool
-    import uvicorn
-
-    converted_tools = [to_mcp_tool(tool) for tool in mcp_tools]
-    info(f"create MCP server with tools: {[tool.name for tool in converted_tools]}")
-    mcp = MCPServer("UnityTest", tools=converted_tools)
-    config = uvicorn.Config(
-        mcp.streamable_http_app(host=host),
-        host=host,
-        port=port,
-        # All embedded servers share logging with the enclosing application.
-        # Configuring Uvicorn's global handlers here would affect other services.
-        log_config=None,
-        log_level=None,
-        ws="none",
-        timeout_keep_alive=300,
-        timeout_graceful_shutdown=60,
-    )
-    server = McpHttpServer(config)
-    server.ui_logger = logger
-    return server
-
-
-def start_verify_mcps(server):
-    """Serve MCP and forward only this thread's Uvicorn logs to its UI."""
-    import logging
-    import threading
-    import anyio
-
-    thread_id = threading.get_ident()
-
-    class _BridgeHandler(logging.Handler):
-        """Forward this server's Uvicorn records to its configured UI."""
-
-        def emit(self, record):
-            """Route only records emitted by the owning server thread."""
-            if record.thread == thread_id:
-                try:
-                    server.ui_logger.log(record.levelno, record.getMessage(), exc_info=record.exc_info)
-                except Exception:
-                    # A TUI may have exited while the server is still running.
-                    pass
-
-    bridge = _BridgeHandler() if server.ui_logger is not None else None
-    loggers = [logging.getLogger(name) for name in ("uvicorn.error", "uvicorn.access")]
-    if bridge is not None:
-        for logger in loggers:
-            logger.addHandler(bridge)
-    try:
-        anyio.run(server.serve)
-    except Exception as error:
-        info(f"MCP server exit with: {error}")
-        raise
-    finally:
-        if bridge is not None:
-            for logger in loggers:
-                logger.removeHandler(bridge)
-            bridge.close()
-        info("MCP server stopped.")
-
-
-def stop_verify_mcps(server):
-    """Request graceful shutdown of a running MCP HTTP server."""
-    from ucagent.util.log import info
-    if server is not None:
-        info("Stopping MCP server...")
-        server.should_exit = True
-    else:
-        info("MCP server is not running.")
 
 
 def get_diff(old_lines, new_lines, file_name):
@@ -1211,9 +1099,6 @@ def chmode_ro_by_pattern(
                 warning(f"File not found for: {file_path}")
     all_list = file_list + path_list
     if write_dirs is not None:
-        # Imported lazily: fileops imports this module at load time.
-        from ucagent.tools.fileops import is_file_writeable
-
         kept = []
         for candidate in all_list:
             relative = os.path.relpath(candidate, workspace).replace(os.sep, "/")
@@ -1383,20 +1268,16 @@ def sync_dir_to(
             _remove_sync_node(os.path.join(target_dir, item))
     return target_dir
 
-def copy_skill_files(cfg, workspace, root_dir, plugin_skill_paths=None):
-    """Copy core, configured, and active-plugin Skill collections to a workspace.
+def copy_skill_files(cfg, workspace, plugin_skill_paths=None):
+    """Copy configured and active-plugin Skill collections to a workspace.
 
     Args:
         cfg: Configuration object
         workspace: Workspace directory path
-        root_dir: Root directory path
         plugin_skill_paths: Plugin-name and Skill-root pairs contributed by active plugins.
     """
     dst_path = get_workspace_skill_root(workspace)
     copy_tasks = []
-    # default skills path
-    default_skill_path = os.path.join(root_dir, "lang", cfg.lang, "skills")
-    copy_tasks.append((default_skill_path, dst_path))
     # additional skills path
     if cfg.skill.extra_skill_path:
         extra_skill_path = os.path.abspath(cfg.skill.extra_skill_path)
@@ -1585,3 +1466,15 @@ def process_bash_cmd(
         code = 124
     info(f"Bash command finished with return code {code} ({result['reason']}).")
     return code, output_lines, result["reason"] == "cancelled"
+
+
+def local_ip() -> str:
+    """Best-effort local IP (non-loopback)."""
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.connect(("8.8.8.8", 80))
+        ip = sock.getsockname()[0]
+        sock.close()
+        return ip
+    except Exception:
+        return "127.0.0.1"
