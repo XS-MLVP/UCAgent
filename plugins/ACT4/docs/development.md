@@ -48,6 +48,15 @@ hardlinks；生成文件不反写 baseline/candidate。每项命令记录 argv�
 日志、产物和候选内容变化会使证据失效。静态结果与 measured coverage 分开，通用门禁
 只能核验 coverage 产物来源，具体 bins/义务等价仍需 AI 与人类结合原生产物审查。
 
+inventory/audit 支持 `Check(stage_args={"prepare_environment": true})` 单独运行环境准备，
+输出 `execution-preparation.json` 和独立的 `prepare-before-*` 日志，不写正式 evidence 或授权摘要。
+复用同一隔离命令执行路径与安装/复验逻辑；正式取证仍重新探测环境。
+调度先完成所有 environment jobs，再执行其他 lane；environment 依赖只允许其他 environment。
+每次启动前检查 cwd 和 argv[0]，按子进程 cwd 解析相对 PATH；无法启动时保留结构化诊断。
+准备阶段对可能由原生前序任务创建的缺失路径标为 deferred，实际执行仍重新检查。
+该模式不能 Complete，也不能与 run_commands 同用；完整任务契约见
+`Guide_Doc/ACT4_Extension_Review_Guide.md`。
+
 review 在保留现有资产检查的基础上启用完整声明资产的格式解析、generator 独立性及现有
 cross default-bin/bitwalk 结构检查，
 复用 assembly 条件分析建立源码/本轮生成用例的 descriptor-label 对应；条件未知、确定不可达

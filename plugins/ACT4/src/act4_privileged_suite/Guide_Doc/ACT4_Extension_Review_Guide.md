@@ -46,10 +46,25 @@ Questa/VCS 先检查既有安装、可用合法介质与许可证，并进行最
 不得把版本命令成功等同于 license checkout 成功，也不得用另一仿真器替代所要求的 coverage。
 
 `needs: [job-id, ...]` 声明依赖，按依赖顺序执行而非列表顺序；未知依赖和循环依赖会失败。
-每个可运行 job 都依赖本 target 的环境；build 还必须依赖 generation。
+environment 只能依赖其他 environment jobs；所有环境探测、安装和复验均先于其他 lane。
+每个可运行的非 environment job 都依赖本 target 的环境；build 还必须依赖 generation。
 没有 ELF 时先原生生成测试，再构建签名 ELF、运行 Sail 生成签名、重编译为自检 ELF，然后实际执行。
 不能用旧 ELF、空目录或仅一次编译替代该流程。任一前置 job 失败/不可用时，依赖 job 记录
 `blocked`，不会空跑；修复环境后显式重新收集证据。
+
+完成 scope 后，在 inventory 调用 `Check(stage_args={"prepare_environment": true})`；
+audit 中也可使用同一调用排查准备问题。该调用仅运行 environment 的 probe、按需 install
+及复验，并提前检查其他可运行命令的 cwd 和 argv[0]，不运行生成、构建、参考模型、coverage 或 lint。
+读取 `execution-preparation.json` 的完整 jobs 与日志；失败返回最多 20 项 failed_jobs、总数和省略数，
+一起修复后重复准备检查。Python probe 应输出并核验实际解释器、版本及模块导入路径，
+工具版本条件取自当前 ACT4 提交。
+
+其他 lane 在准备报告中保持 `not_run`：`preparation.status: entry_ready` 仅表示启动目录和程序可用；
+`deferred` 表示缺失路径可能由原生依赖任务生成，须在正式执行时复查；`blocked` 表示先修复环境依赖。
+通过准备检查不证明命令参数、生成产物或测试结果有效，也不代替正式取证。
+准备报告使用独立日志，不改写已有正式证据与审查报告。
+`prepare_environment` 必须是布尔值，只可用于 inventory/audit 的 Check，不能与 run_commands 同用，
+不能传给 Complete。准备检查后使用普通 Complete 完成 inventory；audit 仍须收集完整证据并完成审查。
 
 `artifacts: [{path: ..., kind: ...}]` 中 kind 为 `coverage/elf/signature/results/generated/other`。
 path 为命令副本内精确相对路径，也可指定目录与 `pattern: "**/*.elf"`，禁止越界匹配。
