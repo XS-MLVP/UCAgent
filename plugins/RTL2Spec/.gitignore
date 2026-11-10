@@ -25,4 +25,5 @@ Desktop.ini
 
 # Local environment overrides; keep a shareable example trackable.
 /.env.*
+/rtl2spec.local.toml
 !/.env.example

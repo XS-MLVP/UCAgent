@@ -5,16 +5,27 @@
 
 ## 安装
 
-需要 Python 3.11+、Linux/macOS 和 UCAgent `>=26.9.2.dev14`。先用 `cd` 进入仓库根目录，使下面的 `.` 和 `./plugins/RTL2Spec` 指向正确的安装源。两条 `pip install` 分别安装 UCAgent 核心和 RTL2Spec 插件；最后用 `--validate-plugin` 检查当前 Python 环境能否加载插件及其依赖：
+需要 Python 3.11+（含 pip）、Linux/macOS 和 UCAgent `>=26.9.2.dev14`。从保留在本地的源码安装：先安装 UCAgent 核心，再运行插件一键安装脚本，最后检查当前 Python 环境能否加载插件及其依赖：
 
 ```bash
 cd "[你的UCAgent仓库绝对路径]"
 python -m pip install .
-python -m pip install ./plugins/RTL2Spec
+bash plugins/RTL2Spec/scripts/install.sh --python python
 ucagent --validate-plugin rtl2spec
 ```
 
-核心和插件须安装在同一 Python 环境。macOS 安装前设置 `export ARCHFLAGS="-arch $(uname -m)"`。下文使用 Codex 后端，先按 [UCAgent 使用说明](https://github.com/XS-MLVP/UCAgent/blob/main/README.zh.md)配置后端。
+核心和插件须安装在同一 Python 环境。脚本安装插件及依赖，获取 FM-Agent 源码、调用原生安装器并保存路径。安装可能联网并更新用户工具及配置；模型配置与认证见 [FM-Agent 文档](https://github.com/fmagent-project/FM-Agent)。macOS 安装前设置 `export ARCHFLAGS="-arch $(uname -m)"`。下文使用 Codex 后端，先按 [UCAgent 使用说明](https://github.com/XS-MLVP/UCAgent/blob/main/README.zh.md)配置后端。
+
+### 复用已有 FM-Agent
+
+已有源码时，可补装依赖；已有完整环境时，可直接指定解释器：
+
+```bash
+bash plugins/RTL2Spec/scripts/install.sh --python python --fmagent-root /path/to/FM-Agent --skip-fetch
+bash plugins/RTL2Spec/scripts/install.sh --python python --fmagent-root /path/to/FM-Agent --fmagent-python /path/to/env/bin/python --skip-fetch --skip-install
+```
+
+源码默认放在插件的 `third_party/FM-Agent`，路径选择保存在 `rtl2spec.local.toml`。安装后请保留 UCAgent 源码目录；当前采用源码安装方式。分步管理命令、路径覆盖和安装选项见 [FM-Agent 管理参考](docs/reference.md#fm-agent-管理)。
 
 ## 目录约定
 
@@ -27,7 +38,7 @@ ucagent --validate-plugin rtl2spec
 | YAML 的 `rtl2spec.workspace` | 存放输入与生成结果；相对路径以 YAML 所在目录为基准 |
 | YAML 的 `rtl2spec.output` | 工作区内的输出目录，必须为空或尚不存在 |
 
-任务目录可以自行更换，后续 `cd` 路径保持一致。`rtl2spec --init` 在当前目录导出配置，不覆盖已有文件；`Guide_Doc/`、`.ucagent/` 和输出由运行时生成，无需手工创建。
+任务目录可以自行更换，后续 `cd` 路径保持一致。`rtl2spec --init` 在当前目录导出配置，不覆盖已有文件，并将选定的绝对 `fmagent.root/python` 保存到新 YAML。下面的 YAML 示例展示任务字段。`Guide_Doc/`、`.ucagent/` 和输出由运行时生成，无需手工创建。
 
 ## 示例一：通用 RTL（Example: GenericBlock）
 

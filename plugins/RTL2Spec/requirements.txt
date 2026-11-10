@@ -1,3 +1,4 @@
 UCAgent>=26.9.2.dev14
 markdown-it-py>=3,<5
 pyslang>=9.1,<10
+tomlkit>=0.13,<1

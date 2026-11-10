@@ -20,6 +20,7 @@ UCAgent/plugins/RTL2Spec/
 ├── setup.py                     # 构建时复制根目录 LICENSE、NOTICE.md
 ├── MANIFEST.in                  # sdist 范围
 ├── Makefile                     # 维护命令
+├── scripts/install.sh           # 本地插件安装及独立 FM-Agent 动作编排
 ├── docs/                        # 原理与设计、开发验证、工具参考
 ├── src/rtl2spec/
 │   ├── *.py                     # 插件实现，职责见下表
@@ -37,7 +38,8 @@ UCAgent/plugins/RTL2Spec/
 | --- | --- |
 | `__init__.py`、`plugin.py` | 插件版本、能力和依赖声明，启动前检查输出目录 |
 | `tools.py` | 工具参数、工作区权限、子进程和超时管理 |
-| `launch.py` | 从用户 YAML 解析启动参数，将同一文件交给 UCAgent 加载；导出随包配置模板 |
+| `launch.py` | 从用户 YAML 解析启动参数，将同一文件交给 UCAgent 加载；导出动态路径模板并分派管理命令 |
+| `fmagent_config.py`、`fmagent.py` | 保留来源定位、分层路径与 TOML 更新；独立 fetch/install/bind/status，不参与文档工作流 |
 | `checkers.py` | 阶段验收入口，调用 `validation.py` |
 | `runtime.py` | 调度证据生成、元数据同步和检查 |
 | `evidence.py` | 源码状态、RTL、端口、相关模块源码及工具凭据 |
@@ -84,6 +86,7 @@ git diff --check
 | 复核与验收 | `test_review_acceptance.py`、`test_incremental_review.py`：两种事实状态的引用关联、七类 checks、依赖失效、答案保留、并发修改及签名 |
 | 阶段和工作区 | `test_runtime.py`、`test_generic_workflow.py`、`test_output_lifecycle.py`、`test_ucagent_plugin.py`：两套工作流、Skill 开关、独立输出、损坏 manifest/越界软链接的诊断及修复后重试 |
 | 文件配置启动 | `test_launch.py`：两套模板、真实 CLI 和配置加载、相对路径、无覆盖导出、默认配置启动及非法输入拒绝 |
+| FM-Agent 管理 | `test_fmagent_config.py`、`test_fmagent.py`、`test_install_script.py`、`test_launch_fmagent.py`：分层配对、TOML 保留、本地 Git、原生调用桩、skip 编排及原启动隔离 |
 
 修改后端权限或升级 UCAgent/OpenCode 时，安装 OpenCode 并执行以下测试（已验证 OpenCode 1.18.26）：
 
@@ -107,6 +110,8 @@ python -I -m pytest -q --import-mode=append -o pythonpath=''
 默认构建先生成 sdist，再从 sdist 构建 wheel。wheel 包含代码、脚本、工作流、启动配置模板及 Guide_Doc，并注册 `rtl2spec` 命令；sdist 还包含清单、`docs/`、示例和测试。恢复源码开发时重新执行可编辑安装。
 
 检查 wheel 中的 `sv_frontend.py`、`Guide_Doc/artifact-templates.json`、全部运行指南和两套工作流均存在，安装后可以加载。通过 `python -I` 运行测试可避免源码目录和 `PYTHONPATH` 遮蔽已安装的包；测试仍须使用 sdist 携带的完整 fixtures。构建和安装测试应在临时环境执行，不覆盖正在使用的 UCAgent 环境。
+
+插件的文档工作流资源支持 wheel；FM-Agent 管理与动态路径模板另要求保留本地源码，安装态通过 `direct_url.json` 定位该来源。独立 wheel 不支持这些源码管理功能，不从当前目录猜测来源。`tomlkit` 仅用于保留本地 TOML 注释和其他内容。
 
 插件沿用 UCAgent 根目录的 [Apache-2.0 许可证](https://github.com/XS-MLVP/UCAgent/blob/main/LICENSE)；发行包包含构建时复制的许可证和版权声明。打包规则见 [UCAgent 插件开发文档](https://github.com/XS-MLVP/UCAgent/blob/main/docs/content/03_develop/09_plugins.md#发行包中的许可证)。
 
