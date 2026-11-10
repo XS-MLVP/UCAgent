@@ -135,4 +135,4 @@ python3 ucagent.py output/workspace_Adder/ Adder \
 
 ## 2.6 结果位置
 
-默认输出目录是工作区下的 `unity_test/`，测试报告通常位于 `uc_test_report/`。Makefile 示例的工作区是 `output/workspace_Adder/`，因此产物位于该目录下；直接 CLI 示例的产物位于 `output/unity_test/`。文件用途见[结果分析与流程总结](06_summary.md)。
+默认输出目录是工作区下的 `unit_test/`，测试报告通常位于 `uc_test_report/`。Makefile 示例的工作区是 `output/workspace_Adder/`，因此产物位于该目录下；直接 CLI 示例的产物位于 `output/unit_test/`。文件用途见[结果分析与流程总结](06_summary.md)。

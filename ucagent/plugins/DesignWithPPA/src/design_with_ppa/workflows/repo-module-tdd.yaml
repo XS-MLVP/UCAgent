@@ -63,7 +63,7 @@ manager_tools: ["RunTestCases"]
 tools:
   RunTestCases:
     test_dir: "{OUT}/repo/tests"
-    free_runner_clss: "unity_test.checkers.UnityChipCheckerTestFree"
+    free_runner_clss: "unit_test.checkers.UnityChipCheckerTestFree"
   ignore_tools: [WorkDiff, WorkCommit, RunBashCommand]
 un_write_dirs: []
 

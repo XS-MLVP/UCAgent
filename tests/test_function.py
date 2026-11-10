@@ -74,16 +74,16 @@ def test_render_template_dir(tmp_path):
     """Test the render_template_dir function."""
     workspace = str(tmp_path)
     template = os.path.abspath(
-        os.path.join(current_dir, "../ucagent/plugins/UnityTest/src/unity_test/templates/unity_test")
+        os.path.join(current_dir, "../ucagent/plugins/UnitTest/src/unit_test/templates/unit_test")
     )
     context = {"DUT": "alu"}
 
     rendered_files = render_template_dir(workspace, template, context)
 
-    assert "unity_test/alu_bug_analysis.md" in rendered_files
-    assert "unity_test/alu_functions_and_checks.md" in rendered_files
-    assert "unity_test/tests/alu_api.py" in rendered_files
-    assert (tmp_path / "unity_test" / "alu_bug_analysis.md").is_file()
+    assert "unit_test/alu_bug_analysis.md" in rendered_files
+    assert "unit_test/alu_functions_and_checks.md" in rendered_files
+    assert "unit_test/tests/alu_api.py" in rendered_files
+    assert (tmp_path / "unit_test" / "alu_bug_analysis.md").is_file()
 
 
 def test_chmode_ro_by_pattern_keeps_write_dirs_carve_outs(tmp_path):
@@ -134,7 +134,7 @@ def test_render_template_target_preserves_non_template_files(tmp_path):
     assert rendered == ["generated/alu.txt"]
     assert (output / "alu.txt").read_text(encoding="utf-8") == "DUT=alu OUT=generated\n"
     assert preserved.read_text(encoding="utf-8") == "literal {{DUT}}\n"
-    assert not (tmp_path / "unity_test" / "{{DUT}}_bug_analysis.md").exists()
+    assert not (tmp_path / "unit_test" / "{{DUT}}_bug_analysis.md").exists()
 
 
 def test_render_template_dir_excludes_installer_bytecode(tmp_path):

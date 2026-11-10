@@ -110,12 +110,12 @@ Formal Agent 将验证任务分解为 11 个自动化阶段：
 
 ## 📦 生成产物说明
 
-运行验证后，会在 `output/unity_test/` 目录下生成以下文件：
+运行验证后，会在 `output/unit_test/` 目录下生成以下文件：
 
 ### 分析文档
 
 ```
-output/unity_test/
+output/unit_test/
 ├── 01_{DUT}_verification_needs_and_plan.md  # 验证需求与规划文档
 ├── 02_{DUT}_basic_info.md                   # DUT 基础信息（接口定义、时钟域等）
 ├── 03_{DUT}_functions_and_checks.md         # 功能点与检测点详细描述
@@ -133,7 +133,7 @@ output/unity_test/
 ### 验证代码与结果
 
 ```
-output/unity_test/tests/
+output/unit_test/tests/
 ├── {DUT}_checker.sv       # SVA 属性文件（Assertion/Assume/Cover）
 ├── {DUT}_wrapper.sv       # DUT 包装器（实例化 DUT 和 Checker）
 ├── {DUT}_formal.tcl       # 形式化验证工具脚本（AVIS/JasperGold）
@@ -170,7 +170,7 @@ make mcp_Adder
 # 输入初始提示词
 
 # 查看验证结果
-cat output/unity_tests/tests/avis.log
+cat output/unit_tests/tests/avis.log
 ```
 
 **预期产物**：
@@ -190,7 +190,7 @@ cp /path/to/MyDesignREADME.md rtls/MyDesign/README.md    # 准备规格说明文
 make mcp_MyDesign
 
 # 3. 查看生成的验证环境
-ls -la output/unity_tests/tests/
+ls -la output/unit_tests/tests/
 ```
 
 ## ⚙️ 配置说明

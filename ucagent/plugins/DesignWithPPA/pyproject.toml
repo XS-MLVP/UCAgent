@@ -15,7 +15,7 @@ authors = [
 ]
 dependencies = [
     "UCAgent>=26.9.2.dev6",
-    "ucagent-unitytest>=0.1.0",
+    "ucagent-unittest>=0.1.0",
     "vcdvcd>=2.3.5,<3.0.0",
     "pylibfst>=0.2.1,<0.3.0",
 ]

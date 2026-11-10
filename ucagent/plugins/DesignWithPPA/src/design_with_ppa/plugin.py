@@ -8,8 +8,8 @@ from ucagent.core.plugins import (
     PluginContext,
     PluginWorkflow,
 )
-from unity_test.report_store import TestProtocolRuntimeHook
-from unity_test.test_runner import RunTestCasesManagerTool
+from unit_test.report_store import TestProtocolRuntimeHook
+from unit_test.test_runner import RunTestCasesManagerTool
 
 from . import __version__
 from .ppa import AnalyzePPA

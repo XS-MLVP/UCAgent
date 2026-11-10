@@ -210,7 +210,7 @@ launch:
     extra_args: []                    # additional CLI arguments
     configs:                          # predefined config options for dropdown
       UT:
-        cfg: "ucagent/plugins/UnityTest/src/unity_test/workflows/unitytest.yaml"
+        cfg: "ucagent/plugins/UnitTest/src/unit_test/workflows/unittest.yaml"
       Formal:
         cfg: "formal.yaml"
         use_skill: true

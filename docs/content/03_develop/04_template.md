@@ -7,19 +7,19 @@ Checker 会检查哪些条件；它们本身不是测试结果，也不能替代
 
 ## 工作区中的相关目录
 
-以 `output/` 为工作区、默认输出目录 `unity_test/` 为例：
+以 `output/` 为工作区、默认输出目录 `unit_test/` 为例：
 
 ```text
 output/
 ├── <DUT>/                  # DUT 源码、README 和输入资料
 ├── Guide_Doc/              # 运行时复制的指导文档
-├── unity_test/             # 工作流生成的文档、测试和覆盖率定义
+├── unit_test/             # 工作流生成的文档、测试和覆盖率定义
 │   └── tests/              # pytest/toffee 测试文件
 ├── uc_test_report/         # 测试工具生成的报告（如果运行了测试）
 └── .ucagent/               # 运行配置快照、历史和状态
 ```
 
-`--output` 可以改变 `unity_test/` 的目录名。具体文件由当前配置的阶段、模板和 Checker
+`--output` 可以改变 `unit_test/` 的目录名。具体文件由当前配置的阶段、模板和 Checker
 决定，因此不要把某个示例中的完整文件树当作所有工作流的固定输出。
 
 ## Guide_Doc 和模板的区别
@@ -50,7 +50,7 @@ Guide_Doc 应写清以下内容：
 
 ## 常见产物
 
-默认 UnityTest 工作流通常会在 `unity_test/` 生成以下几类内容，是否出现取决于当前
+默认 UnitTest 工作流通常会在 `unit_test/` 生成以下几类内容，是否出现取决于当前
 阶段是否启用：
 
 - `*_basic_info.md`、`*_verification_needs_and_plan.md`：DUT 信息、验证需求和计划；

@@ -7,7 +7,7 @@ The `ucagent/plugins/RTL2Spec/` directory provides a documentation generation pl
 
 ## Co-located Bundled and Optional Plugins
 
-Co-located plugins are maintained under `ucagent/plugins/` (the plugin loader itself is `ucagent/core/plugins.py`). Distribution splits into two tracks: the framework wheel bundles UnityTest and its shared `common` library as package data (the scope is pinned by the `ucagent.plugins` package-data key, the `packages.find` excludes, and the `MANIFEST.in` prunes in the repository), so installing the core provides the default UnityTest workflow with no separate installation; the remaining plugins do not ship with the core and are published as independent distributions on demand. In both tracks, plugin development should be confined to their own directories: dependencies, entry points, configurations, resources, tests, and maintenance commands are managed by the plugin itself, without adding plugin content to the core's dependency list, default configurations, or Tool/Checker export tables.
+Co-located plugins are maintained under `ucagent/plugins/` (the plugin loader itself is `ucagent/core/plugins.py`). Distribution splits into two tracks: the framework wheel bundles UnitTest and its shared `common` library as package data (the scope is pinned by the `ucagent.plugins` package-data key, the `packages.find` excludes, and the `MANIFEST.in` prunes in the repository), so installing the core provides the default UnitTest workflow with no separate installation; the remaining plugins do not ship with the core and are published as independent distributions on demand. In both tracks, plugin development should be confined to their own directories: dependencies, entry points, configurations, resources, tests, and maintenance commands are managed by the plugin itself, without adding plugin content to the core's dependency list, default configurations, or Tool/Checker export tables.
 
 | Content | Maintenance Location |
 | :--- | :--- |
@@ -26,7 +26,7 @@ The current co-located plugins are listed below. See the corresponding README fo
 | [DesignWithPPA](https://github.com/XS-MLVP/UCAgent/blob/main/ucagent/plugins/DesignWithPPA/README.md) | `design-with-ppa:unit-design-tdd` | Test-driven RTL design and PPA optimization |
 | [RTL2Spec](https://github.com/XS-MLVP/UCAgent/blob/main/ucagent/plugins/RTL2Spec/README.md) | `rtl2spec:xiangshan-design-document` | Deliver Chinese design and functional checkpoint documentation based on XiangShan source and RTL generation evidence |
 
-UnityTest and its shared `common` library are already bundled with the core package and need no separate installation. For the remaining plugins, first install the core, then install them on-demand from the UCAgent repository root, for example:
+UnitTest and its shared `common` library are already bundled with the core package and need no separate installation. For the remaining plugins, first install the core, then install them on-demand from the UCAgent repository root, for example:
 
 ```bash
 python -m pip install ./ucagent/plugins/RTL2Spec
@@ -286,7 +286,7 @@ def create_commands(controller):
 
 Add `command_factories=(create_commands,)` to the plugin's existing `Plugin(...)` declaration. Once activated, users can run `help project_stage` and `project_stage 2`; HTTP `/api/cmd` uses the same declaration. With `handler`, `owner` identifies responsibility. Without `handler`, a matching executor must already be injected by the runtime; the declaration does not create one.
 
-For ordinary slow handlers that do not reserve the model slot, declare `blocking=True` so the registry submits work to the shared executor. Commands needing model exclusion, progress, or cancellation context should explicitly submit an operation to that executor, use cancellation boundaries such as `context.checkpoint()`, and return serializable results. Do not own threads or manipulate TUI objects. `CommandSpec.model=True` is scheduling metadata and does not itself reserve the model slot; the operation submission must also specify `model=True`. The current reference implementation is `waveform_commands` in UnityTest's `operations/waveform_replay.py`.
+For ordinary slow handlers that do not reserve the model slot, declare `blocking=True` so the registry submits work to the shared executor. Commands needing model exclusion, progress, or cancellation context should explicitly submit an operation to that executor, use cancellation boundaries such as `context.checkpoint()`, and return serializable results. Do not own threads or manipulate TUI objects. `CommandSpec.model=True` is scheduling metadata and does not itself reserve the model slot; the operation submission must also specify `model=True`. The current reference implementation is `waveform_commands` in UnitTest's `operations/waveform_replay.py`.
 
 A command contribution does not automatically become an MCP Tool. Use `tool_factories` or the stage manager tool contract for MCP exposure. Both interfaces can reuse a business implementation without bypassing Check/Complete gates. See [Architecture](02_architecture.md) for ownership and [Runtime Control](../02_usage/10_runtime_control.md) for usage.
 

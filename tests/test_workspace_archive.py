@@ -188,14 +188,14 @@ def test_create_workspace_archive_applies_ignore_patterns(tmp_path):
     workspace = tmp_path / "workspace"
     (workspace / "pkg" / "__pycache__").mkdir(parents=True)
     (workspace / ".pytest_cache").mkdir(parents=True)
-    (workspace / "unity_test" / "tests" / "data").mkdir(parents=True)
+    (workspace / "unit_test" / "tests" / "data").mkdir(parents=True)
     (workspace / "uc_test_report").mkdir(parents=True)
     (workspace / "keep.txt").write_text("keep", encoding="utf-8")
     (workspace / "pkg" / "keep.py").write_text("keep", encoding="utf-8")
     (workspace / "pkg" / "module.pyc").write_bytes(b"ignored")
     (workspace / "pkg" / "__pycache__" / "module.pyc").write_bytes(b"ignored")
     (workspace / ".pytest_cache" / "cache.bin").write_bytes(b"ignored")
-    (workspace / "unity_test" / "tests" / "data" / "sample.dat").write_bytes(b"ignored")
+    (workspace / "unit_test" / "tests" / "data" / "sample.dat").write_bytes(b"ignored")
     (workspace / "uc_test_report" / "index.html").write_text("ignored", encoding="utf-8")
 
     archive_path, _filename, temp_dir = create_workspace_archive(
@@ -206,7 +206,7 @@ def test_create_workspace_archive_applies_ignore_patterns(tmp_path):
             "*.pyc",
             "__pycache__",
             ".pytest_cache",
-            "unity_test/tests/data/",
+            "unit_test/tests/data/",
             "uc_test_report/",
         ],
     )
@@ -223,7 +223,7 @@ def test_create_workspace_archive_applies_ignore_patterns(tmp_path):
     assert "workspace/pkg/__pycache__/module.pyc" not in names
     assert "workspace/.pytest_cache" not in names
     assert "workspace/.pytest_cache/cache.bin" not in names
-    assert "workspace/unity_test/tests/data" not in names
-    assert "workspace/unity_test/tests/data/sample.dat" not in names
+    assert "workspace/unit_test/tests/data" not in names
+    assert "workspace/unit_test/tests/data/sample.dat" not in names
     assert "workspace/uc_test_report" not in names
     assert "workspace/uc_test_report/index.html" not in names

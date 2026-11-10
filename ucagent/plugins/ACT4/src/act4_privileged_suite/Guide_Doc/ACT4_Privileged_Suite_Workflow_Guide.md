@@ -531,7 +531,7 @@ resource mode 只能是：
 标记 blocked 前必须依次评估：suite-local `.data/.bss` 或汇编能否实现、是否有不依赖
 受保护服务的正向子集、是否存在已审计原生入口、缺失项是否只影响运行/coverage。
 
-实验资产只能放在 `unity_test/{DUT}/experimental/`，不能注册到正式 generator，不能
+实验资产只能放在 `unit_test/{DUT}/experimental/`，不能注册到正式 generator，不能
 进入主流程 `.S`、ELF pairing、`generation_scope` 或 `contribution_ready`。升级时必须
 更新审计和 contract，再由正式 generator 重新生成，不能直接复制实验 `.S`。
 

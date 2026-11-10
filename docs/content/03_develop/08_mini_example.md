@@ -17,7 +17,7 @@ examples/MiniWorkflow/
 └── Makefile
 ```
 
-`mini.yaml` 使用当前工作流字段：`ex_tools`、`template_overwrite`、`mission`、`stage`、`reference_files`、`output_files` 和 `checker`。启动命令使用 `output/` 作为 workspace，未传 `--output`，阶段产物实际位于 `examples/MiniWorkflow/output/unity_test/`。更改输出目录时应传 `--output <name>`，并用当前阶段信息确认路径。
+`mini.yaml` 使用当前工作流字段：`ex_tools`、`template_overwrite`、`mission`、`stage`、`reference_files`、`output_files` 和 `checker`。启动命令使用 `output/` 作为 workspace，未传 `--output`，阶段产物实际位于 `examples/MiniWorkflow/output/unit_test/`。更改输出目录时应传 `--output <name>`，并用当前阶段信息确认路径。
 
 ## 2. 运行
 
@@ -57,14 +57,14 @@ make run ARGS="--mcp-server --backend=codex"
 阶段 `analyze_project`：
 
 1. 读取 `Calculator/README.md` 和 `Guide_Doc/project_analysis_guide.md`；
-2. 生成 `unity_test/Calculator_analysis.md`（相对于 workspace）；
+2. 生成 `unit_test/Calculator_analysis.md`（相对于 workspace）；
 3. 使用 `CountWords` 提供统计信息；
 4. 用字数和 Markdown 格式 Checker 验收。
 
 阶段 `generate_documentation`：
 
 1. 读取分析文档和 `Guide_Doc/documentation_template.md`；
-2. 生成 `unity_test/Calculator_documentation.md`（相对于 workspace）；
+2. 生成 `unit_test/Calculator_documentation.md`（相对于 workspace）；
 3. 使用 `ExtractSections` 检查章节；
 4. 用字数、必需章节和 Markdown 格式 Checker 验收。
 
@@ -73,8 +73,8 @@ make run ARGS="--mcp-server --backend=codex"
 ## 4. 查看结果
 
 ```bash
-cat output/unity_test/Calculator_analysis.md
-cat output/unity_test/Calculator_documentation.md
+cat output/unit_test/Calculator_analysis.md
+cat output/unit_test/Calculator_documentation.md
 ```
 
 实际字数和内容由模型输出决定，不能把示例中的字数范围当作所有工作流的通用要求。

@@ -846,7 +846,7 @@ def _load_local_plugin(path: Path, *, check_dependencies: bool) -> LoadedPlugin:
         root, Path(python_path_values[0]), "python_path", directory=True
     )
     # Later python_path entries name sibling import roots, e.g. a dependency
-    # plugin's src like ../UnityTest/src; unlike the first entry they may escape
+    # plugin's src like ../UnitTest/src; unlike the first entry they may escape
     # the plugin project directory.
     extra_paths = []
     for value in python_path_values[1:]:

@@ -863,7 +863,7 @@ def test_xlen_conflict_is_blocking(tmp_path: Path) -> None:
 
 
 def test_experimental_manifest_is_isolated_and_non_gating(tmp_path: Path) -> None:
-    experimental = tmp_path / "unity_test" / "H" / "experimental"
+    experimental = tmp_path / "unit_test" / "H" / "experimental"
     experimental.mkdir(parents=True)
     (experimental / "candidate.S").write_text("candidate\n", encoding="utf-8")
     manifest = experimental / "H_experimental_assets.yaml"
@@ -875,7 +875,7 @@ def test_experimental_manifest_is_isolated_and_non_gating(tmp_path: Path) -> Non
                 "assets": [
                     {
                         "id": "candidate",
-                        "path": "unity_test/H/experimental/candidate.S",
+                        "path": "unit_test/H/experimental/candidate.S",
                         "kind": "assembly_candidate",
                         "validation_status": "runtime_blocked",
                         "limitations": ["reference model unavailable"],

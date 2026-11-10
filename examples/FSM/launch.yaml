@@ -4,7 +4,7 @@
 task_name: FSM
 dut: FSM
 module: FSM
-output: unity_test
+output: unit_test
 
 files:
   main_rtl: FSM.v

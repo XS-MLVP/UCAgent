@@ -23,7 +23,7 @@ from .common import (
 from .coverage_model import (
     _coverage_public_attributes,
 )
-from unity_test.doc_marks import get_doc_marks
+from unit_test.doc_marks import get_doc_marks
 
 
 _OBSERVATION_SOURCES = {

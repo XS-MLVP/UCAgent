@@ -106,7 +106,7 @@ guide_doc:
     ignore: []
 
 skill:
-  # Core UnityTest general skills describe verification-only Bug workflows that are
+  # Core UnitTest general skills describe verification-only Bug workflows that are
   # not part of this design mission. Workflow-local optional skills remain available.
   general_skill_list: []
 
@@ -116,7 +116,7 @@ manager_tools: ["RunTestCases"]
 tools:
   RunTestCases:
     test_dir: "{OUT}/tests"
-    free_runner_clss: "unity_test.checkers.UnityChipCheckerTestFree"
+    free_runner_clss: "unit_test.checkers.UnityChipCheckerTestFree"
   ignore_tools: ["WorkDiff", "WorkCommit", "RunBashCommand"]
 
 # The rendered shared conftest is template-managed: every pytest gate depends
@@ -159,9 +159,9 @@ mission:
       一同完善，也可以单独完善，但最终必须重新运行所有受影响 TC，并确认对应功能覆盖真实命中、
       相关测试门禁全部通过。
 
-      文件读取、编辑、阶段推进和验证必须使用当前会话中以 `unitytest_` 开头的工作流工具，
-      例如 `unitytest_ReadTextFile`、`unitytest_CurrentTips`、`unitytest_Check` 和
-      `unitytest_Complete`。OpenCode 原生的 `read`、`edit`、`glob`、`grep` 或其他文件工具
+      文件读取、编辑、阶段推进和验证必须使用当前会话中以 `unittest_` 开头的工作流工具，
+      例如 `unittest_ReadTextFile`、`unittest_CurrentTips`、`unittest_Check` 和
+      `unittest_Complete`。OpenCode 原生的 `read`、`edit`、`glob`、`grep` 或其他文件工具
       不能替代这些工作流工具，否则读取和验证不会被记录；不要调用 shell、直接 Python 命令或
       临时脚本执行测试。`{OUT}/tests/conftest.py` 是模板托管的只读文件（工作流已设为不可写）：
       任何阶段都不要修改或重写它；发现它与 architecture、统一环境规范或 adapter 公开能力

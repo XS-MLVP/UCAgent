@@ -4,6 +4,7 @@
 from ucagent.util.functions import import_class_from_str, find_files_by_pattern
 import ucagent.util.functions as fc
 import ucagent.util.diff_ops as diff_ops
+from ucagent.core.stage.history import StageHistory
 from ucagent.util.log import info, warning, message
 from ucagent.util.config import Config
 import ucagent.core.checkers as checkers
@@ -460,194 +461,35 @@ class VerifyStage(object):
                 self.reference_files[f] = False
                 info(f"[{self.__class__.__name__}] Reference file {f} added.")
 
+    def history_query(self):
+        """Project live metadata into the same read-only query used by saved views."""
+        return StageHistory(self.workspace, self.hist_sav_dir, self.output_files,
+                            dict(self.meta_data.get("commit", {})),
+                            self.hist_src_dir, self.hist_ign_list)
+
     def get_stage_outcome(self, use_cache=True):
-        commit_meta = self.meta_data.get('commit', {})
-        hash_id = commit_meta.get('hash', None)
-        has_stage_changes = self._commit_has_stage_changes(commit_meta, hash_id)
-        use_workspace_dry_run = self.is_curent_active() and not self.is_completed() and hash_id is None
-        if self._cached_stage_outcome is not None and use_cache and not use_workspace_dry_run:
-            if hash_id == self._cached_stage_outcome.get("commit_hash", None):
+        """Read committed artifacts or preview current output without writing history."""
+        commit = self.meta_data.get("commit", {}).get("hash")
+        preview = self.is_curent_active() and not self.is_completed() and commit is None
+        if use_cache and not preview and self._cached_stage_outcome is not None:
+            if commit == self._cached_stage_outcome.get("commit_hash"):
                 return self._cached_stage_outcome
-        output_files = {p:find_files_by_pattern(self.workspace, p, ignore_warn=True) for p in self.output_files}
-        changed_file_statuses = {}
-        if hash_id is not None and has_stage_changes:
-            changed_file_statuses = diff_ops.get_commit_changed_file_statuses(self.hist_sav_dir, hash_id)
-        if use_workspace_dry_run:
-            try:
-                changed_file_statuses.update(self._workspace_output_changed_file_statuses())
-            except Exception as exc:
-                warning(f"[{self.__class__.__name__}.{self.name}] Failed to read current workspace output changes: {exc}")
-        changed_file_statuses = dict(sorted(changed_file_statuses.items(), key=lambda item: item[0].lower()))
-        changed_files = list(changed_file_statuses.keys())
-        outcome = {
-            "output_files": output_files,
-            "changed_files": changed_files,
-            "changed_file_statuses": changed_file_statuses,
-            "commit_hash": hash_id,
-            "commit_message": commit_meta.get('message', None),
-            "commit_has_changes": has_stage_changes,
-        }
-        if not use_workspace_dry_run:
+        outcome = self.history_query().outcome(preview=preview)
+        if not preview:
             self._cached_stage_outcome = outcome
         return outcome
 
-    def _workspace_output_changed_files(self):
-        return list(self._workspace_output_changed_file_statuses().keys())
-
-    def _workspace_output_changed_file_statuses(self):
-        src_path = os.path.abspath(os.path.join(self.workspace, self.hist_src_dir))
-        if not os.path.isdir(src_path) or not os.path.isdir(self.hist_sav_dir):
-            return {}
-        repo = diff_ops.git.Repo(self.hist_sav_dir)
-        try:
-            head_commit = repo.head.commit if repo.head.is_valid() else None
-            changed_files = {}
-            seen_history_files = set()
-            for root, dirnames, filenames in os.walk(src_path):
-                relative_root = os.path.relpath(root, src_path).replace(os.sep, "/")
-                if relative_root == ".":
-                    relative_root = ""
-                dirnames[:] = [
-                    dirname for dirname in dirnames
-                    if not (
-                        fc.match_pattern_list(dirname, self.hist_ign_list)
-                        or fc.match_pattern_list(
-                            "/".join(
-                                part for part in (relative_root, dirname) if part
-                            ),
-                            self.hist_ign_list,
-                        )
-                    )
-                ]
-                for filename in filenames:
-                    relative_file = "/".join(
-                        part for part in (relative_root, filename) if part
-                    )
-                    if fc.match_pattern_list(
-                        filename, self.hist_ign_list
-                    ) or fc.match_pattern_list(relative_file, self.hist_ign_list):
-                        continue
-                    abs_path = os.path.join(root, filename)
-                    rel_to_src = relative_file
-                    hist_file_path = os.path.join(self.hist_src_dir, rel_to_src).replace(os.sep, "/")
-                    seen_history_files.add(hist_file_path)
-                    with open(abs_path, "rb") as fh:
-                        workspace_content = fh.read()
-                    if head_commit is None:
-                        changed_files[hist_file_path] = "added"
-                        continue
-                    try:
-                        blob = head_commit.tree / hist_file_path
-                        history_content = blob.data_stream.read()
-                    except KeyError:
-                        changed_files[hist_file_path] = "added"
-                        continue
-                    if workspace_content != history_content:
-                        changed_files[hist_file_path] = "modified"
-            if head_commit is not None:
-                prefix = self.hist_src_dir.strip("/").replace(os.sep, "/") + "/"
-                for blob in head_commit.tree.traverse():
-                    if blob.type != "blob":
-                        continue
-                    blob_path = blob.path.replace(os.sep, "/")
-                    if blob_path.startswith(prefix) and blob_path not in seen_history_files:
-                        changed_files[blob_path] = "deleted"
-            return changed_files
-        except ValueError:
-            return {}
-        finally:
-            repo.close()
-
-    def _workspace_file_content_payload(self, file_path):
-        abs_path = os.path.abspath(os.path.join(self.workspace, file_path))
-        workspace_abs = os.path.abspath(self.workspace)
-        try:
-            if os.path.commonpath([workspace_abs, abs_path]) != workspace_abs:
-                return {"is_text": False, "content": "", "diff": "", "error": "Path traversal not allowed"}
-        except ValueError:
-            return {"is_text": False, "content": "", "diff": "", "error": "Path traversal not allowed"}
-        if not os.path.exists(abs_path):
-            return {"is_text": False, "content": "", "diff": "", "error": f"File '{file_path}' does not exist in workspace"}
-        if os.path.isdir(abs_path):
-            return {"is_text": False, "content": "", "diff": "", "error": f"'{file_path}' is a directory, not a file."}
-        with open(abs_path, "rb") as f:
-            content_bytes = f.read()
-        if not diff_ops._is_text_file(content_bytes):
-            return {"is_text": False, "content": "", "diff": "", "error": f"File '{file_path}' is not a text file"}
-        return {
-            "is_text": True,
-            "content": content_bytes.decode("utf-8", errors="replace"),
-            "diff": "",
-            "error": None,
-            "exists": True,
-        }
-
-    def _commit_has_stage_changes(self, commit_meta, hash_id):
-        has_stage_changes = commit_meta.get('has_changes', True)
-        if hash_id is not None and "has_changes" not in commit_meta:
-            commit_title = commit_meta.get("stage_title")
-            meta_message = commit_meta.get("message", "")
-            if not commit_title and ":\n\n" in meta_message:
-                commit_title = meta_message.split(":\n\n", 1)[0]
-            commit_message = ""
-            try:
-                commit_message = diff_ops.get_commit_message(self.hist_sav_dir, hash_id)
-            except Exception:
-                commit_message = meta_message
-            if commit_title:
-                has_stage_changes = commit_message.startswith(commit_title + ":")
-            elif commit_message:
-                has_stage_changes = commit_message.startswith(self.title_short() + ":")
-        return has_stage_changes
-
     def get_current_file_content_with_diff(self, file_path, sync_history=False):
+        """Optionally synchronize explicitly, then use the shared read-only query."""
         if sync_history:
             self.hist_sync()
-        content_payload = self._workspace_file_content_payload(file_path)
-        file_missing_in_workspace = content_payload.get("error") and "does not exist in workspace" in content_payload.get("error", "")
-        if file_missing_in_workspace:
-            content_payload = {
-                "is_text": True,
-                "content": "",
-                "diff": "",
-                "error": None,
-                "exists": False,
-                "status": "deleted",
-            }
-        elif content_payload.get("error"):
-            return content_payload
-        if self.is_curent_active() and not self.is_completed() and not sync_history:
-            content_payload["diff"] = ""
-            content_payload["error"] = None
-            return content_payload
-        hash_id = self.meta_data.get('commit', {}).get('hash', None)
-        try:
-            if hash_id is None:
-                diff_payload = diff_ops.get_worktree_file_content_and_diff(self.hist_sav_dir, file_path)
-            else:
-                diff_payload = diff_ops.get_current_file_content_and_diff_from_commit(self.hist_sav_dir, hash_id, file_path)
-        except Exception as e:
-            content_payload["diff"] = ""
-            content_payload["error"] = f"cannot get file diff ({file_path}) from history: {e}"
-            return content_payload
-        content_payload["diff"] = diff_payload.get("diff", "")
-        content_payload["error"] = None
-        if sync_history and diff_payload.get("is_text") is False and diff_payload.get("error") and not content_payload["diff"]:
-            content_payload["error"] = diff_payload.get("error")
-        return content_payload
+        suppress = self.is_curent_active() and not self.is_completed() and not sync_history
+        return self.history_query().current_file(file_path, suppress_diff=suppress)
 
     def get_stage_file_content(self, file_path):
-        commit_meta = self.meta_data.get('commit', {})
-        hash_id = commit_meta.get('hash', None)
-        if hash_id is None:
-            return self.get_current_file_content_with_diff(file_path)
-        try:
-            payload = diff_ops.get_commit_file_content_and_diff(self.hist_sav_dir, hash_id, file_path)
-        except Exception as e:
-            return {"error": f"cannot get file content ({file_path}) from commit ({hash_id}): {e}"}
-        if not self._commit_has_stage_changes(commit_meta, hash_id):
-            payload["diff"] = ""
-        return payload
+        """Read stage-owned history, retaining the current-view behavior before a commit."""
+        suppress = self.is_curent_active() and not self.is_completed()
+        return self.history_query().historical_file(file_path, suppress_diff=suppress)
 
     def _process_cmds(self, cmd_list, prefix=""):
         if not cmd_list:

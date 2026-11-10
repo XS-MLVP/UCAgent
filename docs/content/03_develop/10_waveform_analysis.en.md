@@ -5,7 +5,7 @@
 
 ## Manual Bug waveform replay in Console
 
-`waveform_replay` is contributed by the UnityTest plugin through the command registry and is unavailable unless the plugin is active. Console, TUI, and HTTP can submit it through the shared executor, which owns operation state and cancellation. In Console:
+`waveform_replay` is contributed by the UnitTest plugin through the command registry and is unavailable unless the plugin is active. Console, TUI, and HTTP can submit it through the shared executor, which owns operation state and cancellation. In Console:
 
 ```text
 (UnityChip) waveform_replay
@@ -42,11 +42,11 @@ This function accepts a DUT instance or class, reads the simulator name from its
 
 `get_coverage_data_path(request, dut, new_path)` and `get_waveform_path(request, dut, new_path)` return the suffixes used for unique artifact paths for each test. When creating artifacts, use `new_path=True`; when reporting coverage, use the same DUT with `new_path=False` to obtain the original path. For VCS, `.vdb` may be a directory; pass the full path. The fake DUT in the template phase and independent Mock DUTs retain the `SIMULATOR` declared in the original DUT class without needing to start a real simulator.
 
-When adding a new simulator, add `waveform` and `coverage` to `_SIMULATOR_DEFAULT_SUFFIXES` in `ucagent/plugins/UnityTest/src/unity_test/test_utils.py` and add the corresponding tests; no branches need to be added to the path templates. This mapping only defines naming rules; actual artifacts depend on DUT build and simulator support. New waveform formats still require registration of a reader as described in this page. Coverage parsing is provided by `toffee-test`, and when using VCS, ensure the used version supports `.vdb`. Selecting suffixes itself does not add coverage parsing capabilities.
+When adding a new simulator, add `waveform` and `coverage` to `_SIMULATOR_DEFAULT_SUFFIXES` in `ucagent/plugins/UnitTest/src/unit_test/test_utils.py` and add the corresponding tests; no branches need to be added to the path templates. This mapping only defines naming rules; actual artifacts depend on DUT build and simulator support. New waveform formats still require registration of a reader as described in this page. Coverage parsing is provided by `toffee-test`, and when using VCS, ensure the used version supports `.vdb`. Selecting suffixes itself does not add coverage parsing capabilities.
 
 ## Format Priority
 
-The default configuration is located in the UnityTest workflow `ucagent/plugins/UnityTest/src/unity_test/workflows/unitytest.yaml`:
+The default configuration is located in the UnitTest workflow `ucagent/plugins/UnitTest/src/unit_test/workflows/unittest.yaml`:
 
 ```yaml
 runtime_options:
@@ -114,8 +114,8 @@ Example `waves/a.fsdb.json`:
   "signals": ["TOP.dut.clk", "TOP.dut.result"],
   "source_files": ["../rtl/Demo.sv", "../src/Demo.scala"],
   "dut_python_path": "../Demo/__init__.py",
-  "test_file": "../unity_test/tests/test_demo.py",
-  "test_case": "unity_test/tests/test_demo.py::test_saturation",
+  "test_file": "../unit_test/tests/test_demo.py",
+  "test_case": "unit_test/tests/test_demo.py::test_saturation",
   "start": "100",
   "end": "200",
   "cursor": "150",
@@ -223,10 +223,10 @@ python -m pytest -q tests/test_waveform_xpra_browser.py
 
 ## Registering Other Formats
 
-`ucagent/plugins/UnityTest/src/unity_test/waveform_formats/` is a Python package. Its public protocols and registry do not depend on a waveform parsing library. Each format implements its reader in a separate file; formats using the same library can share an adapter:
+`ucagent/plugins/UnitTest/src/unit_test/waveform_formats/` is a Python package. Its public protocols and registry do not depend on a waveform parsing library. Each format implements its reader in a separate file; formats using the same library can share an adapter:
 
 ```text
-ucagent/plugins/UnityTest/src/unity_test/waveform_formats/
+ucagent/plugins/UnitTest/src/unit_test/waveform_formats/
 ├── __init__.py          # Public exports and built-in registration
 ├── protocols.py         # Reader, factory, scope, signal, and result contracts
 ├── registry.py          # Priority validation and extension dispatch
@@ -436,7 +436,7 @@ The following example belongs in a plugin's `read_wlf.py`. `my_wlf_library` is i
 # my_plugin/readers/read_wlf.py
 
 from contextlib import AbstractContextManager
-from unity_test.waveform_formats import (
+from unit_test.waveform_formats import (
     WaveformSignalMatches, WaveformValueChanges, WaveformBackendArgumentError,
     paginate_signal_matches,
 )
@@ -499,14 +499,14 @@ class ExampleWlfReader(AbstractContextManager):
 
 # Plugin initialization
 
-from unity_test.waveform import WaveInfo
-from unity_test.waveform_formats import register_waveform_reader
+from unit_test.waveform import WaveInfo
+from unit_test.waveform_formats import register_waveform_reader
 from my_plugin.readers.read_wlf import ExampleWlfReader
 
 register_waveform_reader("wlf", ExampleWlfReader, backend="example")
 tool = WaveInfo(
     workspace="/path/to/workspace",
-    test_dir="unity_test/tests",
+    test_dir="unit_test/tests",
     format_priority=["fst", "vcd", "fsdb", "wlf"],
     backend_priority={"wlf": ["example"]},
 )

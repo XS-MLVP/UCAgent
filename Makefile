@@ -13,7 +13,7 @@ endif
 ## Development
 all: clean test
 
-.PHONY: help unitytest
+.PHONY: help unittest
 help: ## Show grouped targets, common variables, and examples
 	@awk 'BEGIN { FS = ":.*## "; print "Usage: make <target> [VARIABLE=value ...]"; \
 		print "Replace % with the DUT name, e.g. test_Adder." } \
@@ -26,7 +26,7 @@ help: ## Show grouped targets, common variables, and examples
 		print "  make mcp_Adder ARGS=\"--loop --backend=codex\""; \
 		print "  make as_master_persist PATH_PERSISTENT=/tmp/ucagent_master" }' $(MAKEFILE_LIST)
 
-unitytest: ## Run the Python and JavaScript test suites
+unittest: ## Run the Python and JavaScript test suites
 	$(PYTHON) -m pytest -q tests
 	$(NODE) --test tests/test_*.js
 

@@ -1,7 +1,7 @@
 
 # 多实例并发执行
 
-同时验证多个 DUT 时，每个实例必须拥有独立的 workspace、状态目录和服务端口。不要让两个 Agent 共享同一个 `.ucagent/`、`unity_test/` 或 MCP 端口，否则历史、产物和工具调用会互相覆盖。
+同时验证多个 DUT 时，每个实例必须拥有独立的 workspace、状态目录和服务端口。不要让两个 Agent 共享同一个 `.ucagent/`、`unit_test/` 或 MCP 端口，否则历史、产物和工具调用会互相覆盖。
 
 ## 1. 选择运行方式
 
@@ -28,11 +28,11 @@ workspaces/
 分别启动：
 
 ```bash
-ucagent workspaces/adder Adder --output unity_test --tui --loop
-ucagent workspaces/mux Mux --output unity_test --tui --loop
+ucagent workspaces/adder Adder --output unit_test --tui --loop
+ucagent workspaces/mux Mux --output unit_test --tui --loop
 ```
 
-两个进程的 workspace 不同，即使都使用默认输出目录 `unity_test` 也不会冲突。生产脚本应记录每个任务的 PID、日志路径和退出码；不要在循环中删除共享的 `output/`。
+两个进程的 workspace 不同，即使都使用默认输出目录 `unit_test` 也不会冲突。生产脚本应记录每个任务的 PID、日志路径和退出码；不要在循环中删除共享的 `output/`。
 
 源码仓库中也可以使用 Makefile 的 `CWD` 覆盖：
 

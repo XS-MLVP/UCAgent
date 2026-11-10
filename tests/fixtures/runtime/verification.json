@@ -2,7 +2,7 @@
   "date": "2026-11-05",
   "status": "runtime_frontend_separation_and_control_layout_pending_user_tests",
   "final_pytest": {
-    "command": ".venv/bin/python -m pytest -q -rs tests ucagent/plugins/UnityTest/tests/test_recorder.py ucagent/plugins/UnityTest/tests/test_waveform_replay_operation.py ucagent/plugins/UnityTest/tests/test_toffee_report_waveform_analysis.py",
+    "command": ".venv/bin/python -m pytest -q -rs tests ucagent/plugins/UnitTest/tests/test_recorder.py ucagent/plugins/UnitTest/tests/test_waveform_replay_operation.py ucagent/plugins/UnitTest/tests/test_toffee_report_waveform_analysis.py",
     "passed": 1287,
     "skipped": 57,
     "failed": 0,
@@ -94,6 +94,6 @@
       "package_discovery": "both packages included by existing setuptools rules",
       "protected_user_files": "config.yaml and ucagent_command.py unchanged"
     },
-    "regression_command": ".venv/bin/python -m pytest -q -rs tests ucagent/plugins/UnityTest/tests/test_recorder.py ucagent/plugins/UnityTest/tests/test_waveform_replay_operation.py ucagent/plugins/UnityTest/tests/test_toffee_report_waveform_analysis.py"
+    "regression_command": ".venv/bin/python -m pytest -q -rs tests ucagent/plugins/UnitTest/tests/test_recorder.py ucagent/plugins/UnitTest/tests/test_waveform_replay_operation.py ucagent/plugins/UnitTest/tests/test_toffee_report_waveform_analysis.py"
   }
 }

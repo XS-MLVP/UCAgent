@@ -113,7 +113,7 @@ function browserLocation(source) {
 }
 
 const fstMetadata = {
-  resolvedPath: "unity_test/tests/data/toffee_tmp_20260818182306_136/master/test_array.fst",
+  resolvedPath: "unit_test/tests/data/toffee_tmp_20260818182306_136/master/test_array.fst",
   etag: '"fst-v1"',
   lastModified: "Tue, 18 Aug 2026 10:23:06 GMT",
   size: 8,
@@ -199,7 +199,7 @@ void (async () => {
 
   const changedMetadata = {
     ...fstMetadata,
-    resolvedPath: "unity_test/tests/data/toffee_tmp_20260818190000_001/master/test_array.fst",
+    resolvedPath: "unit_test/tests/data/toffee_tmp_20260818190000_001/master/test_array.fst",
     etag: '"fst-v2"',
     lastModified: "Tue, 18 Aug 2026 11:00:00 GMT",
   };
@@ -243,7 +243,7 @@ void (async () => {
 
   const opaqueVcdMetadata = {
     ...fstMetadata,
-    resolvedPath: "unity_test/tests/data/toffee_tmp_20260818190000_001/master/test.vcd",
+    resolvedPath: "unit_test/tests/data/toffee_tmp_20260818190000_001/master/test.vcd",
     etag: '"vcd-v1"',
   };
   const opaqueVcdFetchCalls = [];

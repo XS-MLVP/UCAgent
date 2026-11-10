@@ -81,7 +81,7 @@ continue_%: ## Resume a workspace; set DUT=<name> and ARGS as needed
 
 # Workspace cleanup
 reset_%: ## Remove generated tests, agent state, reports, and workspace Markdown
-	rm $(CWD)/unity_test -rf  || true
+	rm $(CWD)/unit_test -rf  || true
 	rm $(CWD)/.ucagent -rf  || true
 	rm $(CWD)/uc_test_report -rf  || true
 	rm $(CWD)/*.md -rf  || true
@@ -89,5 +89,5 @@ reset_%: ## Remove generated tests, agent state, reports, and workspace Markdown
 clean_%: ## Remove the entire DUT workspace
 	rm -rf $(CWD)
 
-clean_test_%: ## Remove only the generated unity_test directory
-	rm -rf $(CWD)/unity_test
+clean_test_%: ## Remove only the generated unit_test directory
+	rm -rf $(CWD)/unit_test
