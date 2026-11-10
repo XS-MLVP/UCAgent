@@ -6,6 +6,7 @@
 <title>UCAgent Master Dashboard</title>
 <link rel="icon" type="image/svg+xml" href="/static/share/ucagent-favicon.svg">
 <link rel="stylesheet" href="/static/share/ucagent-shell.css">
+<script src="/static/share/stage-view.js"></script>
 <script>
 (function(){
   var CH='ucagent-master-dashboard';
@@ -228,7 +229,7 @@
       <option value="status">Sort by: Status</option>
       <option value="last_seen">Sort by: Last active</option>
       <option value="first_seen">Sort by: First seen</option>
-      <option value="current_stage_index">Sort by: Progress</option>
+      <option value="current_stage_index">Sort by: Stage position</option>
     </select>
     <button class="btn btn-ghost btn-sm" id="sort-order-btn" onclick="toggleSortOrder()" title="Toggle ascending/descending">↓ Desc</button>
     <button class="btn btn-ghost btn-sm" id="select-all-btn" onclick="toggleSelectAll()" style="display:none">☐ Select all</button>
@@ -893,10 +894,10 @@ function renderTable() {
   }
   tbody.innerHTML = pageItems.map(a => {
     const st     = isOnlineAgent(a);
-    const cur    = a.current_stage_index >= 0 ? a.current_stage_index : -1;
-    const tot    = a.total_stage_count    || 0;
-    const pct    = tot > 0 ? Math.min(Math.round(((cur + 1) / tot) * 100), 100) : 0;
-    const progLabel = tot > 0 ? `${cur >= 0 ? cur : '?'}/${tot}` : '—';
+    const progress = UCAgentStageView.progress(a);
+    const tot = progress.total;
+    const pct = progress.percent;
+    const progLabel = progress.label;
     const done   = a.is_mission_complete;
     const checked = _selectedIds.has(a.id) ? 'checked' : '';
     const rowClass = st ? '' : 'style="opacity:.6"';
@@ -915,8 +916,8 @@ function renderTable() {
       <td><span class="version-cell" title="${esc(a.version || '—')}">${esc(a.version || '—')}</span></td>
       <td>
         ${tot > 0
-          ? `<div class="progress-bar-wrap"><div class="progress-bar" style="width:${pct}%;background:${done?'var(--online)':'var(--accent)'}"></div></div>
-             <div class="progress-label">${progLabel}${done ? ' ✓' : ''}</div>`
+          ? `${pct === null ? '' : `<div class="progress-bar-wrap"><div class="progress-bar" style="width:${pct}%;background:${done?'var(--online)':'var(--accent)'}"></div></div>`}
+             <div class="progress-label">${esc(progLabel)}${done ? ' ✓' : ''}</div>`
           : '<span style="color:var(--text-dim)">—</span>'}
       </td>
       <td style="font-size:12px;white-space:nowrap;color:var(--text-dim)">${esc(a.run_time || '—')}</td>
@@ -1151,7 +1152,7 @@ function openDetail(id) {
     ['Version',      a.version || '—'],
     ['Mission',      a.mission || '—'],
     ['Stage',        a.current_stage_name || '—'],
-    ['Progress',     a.total_stage_count > 0 ? `${a.current_stage_index}/${a.total_stage_count}` : '—'],
+    ['Progress',     UCAgentStageView.progress(a).label],
     ['Run Time',     a.run_time || '—'],
     ['Complete',     a.is_mission_complete ? 'Yes ✓' : 'No'],
     ['Task ID',      a.launch_task_id || '—'],
@@ -1171,7 +1172,7 @@ function openDetail(id) {
   const grid = fields.map(([k, v]) =>
     `<div class="detail-field"><div class="detail-field-label">${esc(k)}</div><div class="detail-field-value">${esc(String(v))}</div></div>`
   ).join('') + cmdApiHtml;
-  // ── Stage timeline (ANSI-rendered mission info) ────────────────────────
+  // ── Structured stage timeline (legacy ANSI fallback) ────────────────────────
   const stageHtml = buildMissionInfo(a);
   document.getElementById('detail-modal-body').innerHTML =
     `<div class="detail-grid">${grid}</div>
@@ -1184,9 +1185,9 @@ function openDetail(id) {
 }
 function buildMissionInfo(a) {
   const mi = a.mission_info_ansi || '';
-  const cur  = a.current_stage_index >= 0 ? a.current_stage_index : -1;
-  const tot  = a.total_stage_count  || 0;
-  const pct  = tot > 0 ? Math.min(Math.round(((cur + 1) / tot) * 100), 100) : 0;
+  const progress = UCAgentStageView.progress(a);
+  const tot = progress.total;
+  const pct = progress.percent;
   const done = a.is_mission_complete;
   const bar = tot > 0 ? `
     <div style="margin-bottom:10px">
@@ -1194,17 +1195,20 @@ function buildMissionInfo(a) {
                   margin-bottom:5px;font-size:12px">
         <span style="color:var(--text-dim)">${esc(a.mission || '')}</span>
         <span style="color:var(--text-dim)">
-          ${cur >= 0 ? cur : '?'}/${tot} stages${done
+          ${esc(progress.label)}${done
             ? ' &nbsp;<span style="color:var(--online)">&#x2713; Complete</span>' : ''}
         </span>
       </div>
-      <div class="progress-bar-wrap" style="height:8px">
+      ${pct === null ? '' : `<div class="progress-bar-wrap" style="height:8px">
         <div class="progress-bar" style="width:${pct}%;background:${
           done ? 'var(--online)' : 'var(--accent)'}"></div>
-      </div>
+      </div>`}
     </div>` : '';
-  if (!mi) return bar ? `<div class="section-label">Task Progress</div>${bar}` : '';
-  const rendered = ansiToHtml(mi);
+  const stages = a.task_list?.task_list?.stage_list;
+  const rendered = Array.isArray(stages) && stages.length
+    ? stages.map(stage => UCAgentStageView.renderStage(stage,a.current_stage_index)).join("\n")
+    : ansiToHtml(mi);
+  if (!rendered) return bar ? `<div class="section-label">Task Progress</div>${bar}` : '';
   return `<div class="section-label">Task Progress</div>
     ${bar}
     <pre id="detail-mission-pre" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;

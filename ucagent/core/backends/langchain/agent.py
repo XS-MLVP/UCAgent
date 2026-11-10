@@ -2,6 +2,7 @@
 """LangChain backend integration for UCAgent."""
 
 import threading
+from ucagent.util.output import output_source, output_context
 
 from ucagent.core.backends.base import AgentBackendBase
 from ucagent.util.log import info, warning, error
@@ -144,6 +145,7 @@ class UCAgentLangChainBackend(AgentBackendBase):
             return "".join(self._process_msg_content(item) for item in msg)
         return str(msg)
 
+    @output_source("model")
     def do_work_stream(self, instructions, config):
         """Prepare on demand and stream one model operation."""
         self.prepare()
@@ -167,11 +169,17 @@ class UCAgentLangChainBackend(AgentBackendBase):
                 msg = data["messages"][-1]
                 self.state_record_mesg(msg)
                 if isinstance(msg, AIMessage):
-                    self.vagent.message_echo(get_ai_message_tool_call(msg))
+                    tool_call = get_ai_message_tool_call(msg)
+                    if tool_call:
+                        with output_context(source="tool", kind="call"):
+                            self.vagent.message_echo(tool_call)
                     self.check_tool_call_error(msg)
                     continue
-                self.vagent.message_echo("\n"+msg.pretty_repr())
+                with output_context(source="tool" if isinstance(msg, ToolMessage) else "model",
+                                kind="result" if isinstance(msg, ToolMessage) else "message"):
+                    self.vagent.message_echo("\n"+msg.pretty_repr())
 
+    @output_source("model")
     def do_work_values(self, instructions, config):
         """Prepare on demand and execute one model operation."""
         self.prepare()
@@ -187,7 +195,9 @@ class UCAgentLangChainBackend(AgentBackendBase):
             msg = step["messages"][-1]
             self.check_tool_call_error(msg)
             self.state_record_mesg(msg)
-            self.vagent.message_echo(msg.pretty_repr())
+            with output_context(source="tool" if isinstance(msg, ToolMessage) else "model",
+                                kind="result" if isinstance(msg, ToolMessage) else "message"):
+                self.vagent.message_echo(msg.pretty_repr())
 
     def check_tool_call_error(self, msg):
         if not isinstance(msg, AIMessage):

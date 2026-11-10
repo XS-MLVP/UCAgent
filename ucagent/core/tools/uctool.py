@@ -10,6 +10,9 @@ from typing import Callable, Optional, Any
 from mcp.server.mcpserver import Context
 from mcp.server.mcpserver.utilities.func_metadata import ArgModelBase, FuncMetadata
 from mcp.server.mcpserver.tools import Tool as MCPTool
+from ucagent.util.output import output_source, publish_output
+from contextvars import copy_context
+
 import ucagent.util.functions as fc
 
 import threading
@@ -303,7 +306,9 @@ class UCTool(BaseTool):
                 locks.append(lock)
         return locks
 
+    @output_source("tool")
     def invoke(self, input, config = None, **kwargs):
+        """Run a synchronous tool under its locks with tool-scoped output metadata."""
         if self.is_disabled:
             error_msg = f"[ERROR] Tool ({self.__class__.__name__}) is disabled. Reason: {self.disable_reason}"
             return self._error_output(input, error_msg)
@@ -347,7 +352,9 @@ class UCTool(BaseTool):
     def put_alive_data(self, data):
         self.stream_queue.put(data)
 
+    @output_source("tool")
     def __alive_loop(self, timeout: int, ctx: Context):
+        """Report tool progress on an isolated loop with inherited output ownership."""
         import asyncio
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
@@ -404,7 +411,9 @@ class UCTool(BaseTool):
         self.set_force_exit(True)
         self.is_alive_loop = False
 
+    @output_source("tool")
     async def ainvoke(self, input, config = None, **kwargs):
+        """Run an asynchronous tool while retaining ownership through streaming cleanup."""
         if self.is_disabled:
             error_msg = f"[ERROR] Tool ({self.__class__.__name__}) is disabled. Reason: {self.disable_reason}"
             return self._error_output(input, error_msg)
@@ -477,7 +486,7 @@ class UCTool(BaseTool):
         self.is_in_streaming = True
         self.last_call_time = time.time()
         self.reset_force_exit()
-        alive_thread = threading.Thread(target=self.__alive_loop, args=(timeout, ctx), daemon=True)
+        alive_thread = threading.Thread(target=copy_context().run, args=(self.__alive_loop, timeout, ctx), daemon=True)
         alive_thread.start()
         try:
             data = await super().ainvoke(tool_input, config, **kwargs)
@@ -570,7 +579,14 @@ def to_mcp_tool(tool: BaseTool) -> MCPTool:
 
     async def fn(**arguments: dict[str, Any]) -> Any:
         """Dispatch validated MCP arguments through the LangChain tool interface."""
-        return await tool.ainvoke(arguments)
+        publish_output(f"{tool.name}: started\n", source="tool", kind="call")
+        try:
+            result = await tool.ainvoke(arguments)
+        except Exception as error:
+            publish_output(f"{tool.name}: {error}\n", source="tool", kind="result", level="ERROR")
+            raise
+        publish_output(f"{tool.name}: {result}\n", source="tool", kind="result")
+        return result
 
     context_kwarg = "ctx" if issubclass(tool.__class__, UCTool) else None
     return MCPTool(

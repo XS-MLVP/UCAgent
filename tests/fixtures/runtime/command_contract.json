@@ -5085,6 +5085,17 @@
       ],
       "kind": "production",
       "review_scope": "inspect_command_usage"
+    },
+    {
+      "path": "tests/test_dashboard_stage_view.js",
+      "markers": [
+        "business_command"
+      ],
+      "batches": [
+        "B06"
+      ],
+      "kind": "source_or_configuration",
+      "review_scope": "inspect_command_usage"
     }
   ],
   "test_migrations": [
@@ -5181,7 +5192,8 @@
             "test_master_task_logs_show_normal_outer_logs_without_web_console_noise",
             "test_relaunch_ucagent_info_switches_between_config_backups",
             "test_agent_list_keeps_cached_launch_task_id_after_task_record_delete",
-            "test_agent_delete_block_rejoin_controls_removed_set"
+            "test_agent_delete_block_rejoin_controls_removed_set",
+            "test_master_registration_keeps_zero_index_and_structured_stage_details"
           ]
         }
       ]

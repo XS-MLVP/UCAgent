@@ -9,13 +9,14 @@ const marked = require(path.join(
   __dirname,
   "..",
   "ucagent",
+  "interfaces",
   "server",
   "static",
   "marked.min.js",
 ));
 
 const html = fs.readFileSync(
-  path.join(__dirname, "..", "ucagent", "server", "templates", "agent.html"),
+  path.join(__dirname, "..", "ucagent", "interfaces", "server", "templates", "agent.html"),
   "utf8",
 );
 const scriptMatch = html.match(/<script>\s*"use strict";([\s\S]*?)<\/script>/);

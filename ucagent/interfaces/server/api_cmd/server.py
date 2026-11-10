@@ -47,6 +47,7 @@ class ControlApiServer:
     GET  /api/stage/{index}/file_current - Get current stage file content (?file_path=...)
     GET  /api/workspace_git_status     - Workspace Git modified/untracked files (?sub_worspace=...)
     GET  /api/workspace_git_file       - Workspace Git file content and diff (?file_path=...)
+    GET  /api/events                   - Classified activity/system/raw output with incremental cursors
     GET  /api/console                  - Captured stdout/stderr ring buffer (?lines=200&strip_ansi=false)
     DELETE /api/console                - Clear captured stdout buffer
     POST /api/cmd                      - Enqueue a single PDB command  {"cmd": "..."}
@@ -100,6 +101,7 @@ class ControlApiServer:
         #   None  → auto-generate a default path that embeds the port
         #   ""    → explicitly disabled
         #   other → use as-is (user-supplied path)
+        self._auto_sock = sock is None
         if sock is None:
             sock = f"/tmp/ucagent_cmd_{port}.sock" if port else f"/tmp/ucagent_cmd_{os.getpid()}_{id(self):x}.sock"
         elif sock == "":
@@ -127,8 +129,9 @@ class ControlApiServer:
         # Unix socket listener state
         self._sock_server = None
         self._sock_thread: Optional[threading.Thread] = None
+        from ucagent.runtime.events import EventBuffer
         from ucagent.runtime.output import OutputBuffer
-        self._console_capture = host_control.output if host_control else OutputBuffer()
+        self._console_capture = host_control.output if host_control else OutputBuffer(events=EventBuffer())
         self._owns_output = host_control is None
         self._app = self._build_app()
         self._console_capture.install()
@@ -307,7 +310,13 @@ class ControlApiServer:
             data = result.data
             if isinstance(data, dict) and "id" in data and "state" in data:
                 return data
-            return self.operations.record_result(result.command, data)
+            operation = self.operations.record_result(result.command, data, session_id=session.id, input_line=line)
+            if not is_sub:
+                self._console_capture.events.append(
+                    f"{result.command}: {operation['state']}\n", source="command", kind="result",
+                    operation_id=operation["id"], session_id=session.id,
+                    level="ERROR" if operation["error"] else "INFO")
+            return operation
 
 
         # ── HTML dashboard templates ─────────────────────────────────────
@@ -352,8 +361,14 @@ class ControlApiServer:
                 raise HTTPException(status_code=500, detail=str(exc))
 
         @app.get("/api/runtime/status", summary="Runtime and operation state")
-        def runtime_status():
+        def runtime_status(request: Request):
             """Expose application state separately from actual operation results."""
+            workspace, _, is_sub = _request_workspace(request)
+            if is_sub:
+                with self._lifecycle_lock:
+                    sessions = {session.id for (_, root), session in self._sessions.items() if root == workspace}
+                operations = [row for row in self.operations.list() if row["session_id"] in sessions]
+                return {"status": "ok", "data": {"instance": "historical", "execution": "idle", "operations": operations}}
             state = self.host_control.snapshot() if self.host_control else {"instance": "ready", "execution": "idle"}
             return {"status": "ok", "data": {**state, "operations": self.operations.list()}}
 
@@ -385,10 +400,28 @@ class ControlApiServer:
         # ── GET /api/cmds ──────────────────────────────────────────────
         @app.get("/api/cmds", summary="List available commands")
         def get_cmds(
-            prefix: str = Query(default="", description="Filter commands by prefix")
+            request: Request,
+            prefix: str = Query(default="", description="Filter commands by prefix"),
+            session_id: Optional[str] = Query(default=None, description="Page command session"),
         ):
+            """Complete in the selected session and return both tokens and input-ready lines."""
+            from pathlib import Path
+            from shlex import quote
+            from ucagent.runtime.control.commands import CommandSession, completion_base
+
             try:
-                return {"status": "ok", "data": self.registry.complete(prefix)}
+                workspace, _, _ = _request_workspace(request)
+                # Completion is a read: do not create stored sessions or reset command approval.
+                with self._lifecycle_lock:
+                    session = self._sessions.get((session_id, workspace))
+                    if session is None:
+                        session = CommandSession(Path(workspace), repeat=False)
+                    candidates = self.registry.complete(prefix, session)
+                base = completion_base(prefix)
+                return {"status": "ok", "data": candidates,
+                        "completions": [base + (quote(item) if base else item) for item in candidates]}
+            except (HTTPException, WorkspaceAccessError):
+                raise
             except Exception as exc:
                 raise HTTPException(status_code=500, detail=str(exc))
 
@@ -444,24 +477,47 @@ class ControlApiServer:
         # ── GET /api/console ───────────────────────────────────────────
         _capture = self._console_capture  # capture ref for closures
 
+        @app.get("/api/events", summary="Source-classified output with independent view cursors")
+        def get_events(request: Request, view: str = "activity", after: Optional[int] = Query(default=None, ge=0),
+                       generation: Optional[str] = None, limit: int = Query(default=200, ge=1, le=1000),
+                       tail: bool = False):
+            """Never substitute the host's live output for a selected child's saved transcript."""
+            _, _, is_sub = _request_workspace(request)
+            if view not in ("activity", "system", "raw"):
+                raise HTTPException(400, "View must be activity, system or raw")
+            if is_sub:
+                return {"status": "ok", "available": False, "data": [],
+                        "message": "No saved execution transcript is available for this workspace."}
+            return {"status": "ok", "available": True,
+                    **_capture.events.read(view, after=after, generation=generation, limit=limit, tail=tail)}
+
         @app.get("/api/console", summary="Captured stdout ring buffer")
         def get_console(
+            request: Request,
             lines: int = Query(default=200, description="Max lines to return (0 = all)"),
             strip_ansi: bool = Query(default=False, description="Strip ANSI colour codes"),
         ):
             try:
-                data = _capture.get_lines(lines)
+                _, _, is_sub = _request_workspace(request)
+                data = [] if is_sub else _capture.get_lines(lines)
                 if strip_ansi:
                     data = [_strip_ansi(l) for l in data]
                 return {"status": "ok", "data": data, "count": len(data)}
+            except (HTTPException, WorkspaceAccessError):
+                raise
             except Exception as exc:
                 raise HTTPException(status_code=500, detail=str(exc))
 
         @app.delete("/api/console", summary="Clear captured stdout buffer")
-        def clear_console():
+        def clear_console(request: Request):
             try:
+                _, _, is_sub = _request_workspace(request)
+                if is_sub:
+                    raise HTTPException(403, "A saved workspace cannot clear host output")
                 _capture.clear()
                 return {"status": "ok", "message": "Console buffer cleared"}
+            except (HTTPException, WorkspaceAccessError):
+                raise
             except Exception as exc:
                 raise HTTPException(status_code=500, detail=str(exc))
 
@@ -472,7 +528,10 @@ class ControlApiServer:
                 raise HTTPException(400, "Command cannot be empty")
             session, is_sub = command_session(request, body.session_id, body.cwd, body.confirmed)
             operation = submit_command(body.cmd.strip(), session, is_sub)
-            _capture.inject(f"ucagent> {body.cmd}")
+            from ucagent.util.output import output_context
+            with output_context(source="command", kind="input", operation_id=operation["id"], session_id=session.id):
+                if not is_sub:
+                    _capture.inject(f"ucagent> {body.cmd}")
             return {"status": "accepted", "operation_id": operation["id"], "session_id": body.session_id, "data": operation}
 
         @app.post("/api/cmds/batch", summary="Submit ordered commands")

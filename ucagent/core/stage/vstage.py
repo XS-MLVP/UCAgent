@@ -9,6 +9,7 @@ from ucagent.util.log import info, warning, message
 from ucagent.util.config import Config
 import ucagent.core.checkers as checkers
 from collections import OrderedDict
+from ucagent.util.output import output_context
 from contextlib import nullcontext
 from functools import wraps
 import copy
@@ -29,7 +30,7 @@ def coordinated_stage_mutation(kind, *, manager=False):
             """Reserve mutation ownership without holding a lock during domain work."""
             owner = self if manager else getattr(self, "vmanager", None)
             guard = getattr(owner, "control_guard", None)
-            with guard(kind, stage=None if manager else self) if guard is not None else nullcontext():
+            with output_context(source="stage"), (guard(kind, stage=None if manager else self) if guard is not None else nullcontext()):
                 return method(self, *args, **kwargs)
         return guarded
     return decorate

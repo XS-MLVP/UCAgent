@@ -22,6 +22,7 @@ from ucagent.runtime.control.commands import CommandSession, COMMAND_ORIGIN
 from ucagent.core.stage.vmanager import StageManager
 from ucagent.runtime.control.controller import ControlError, Controller, public_data
 from ucagent.runtime.output import OUTPUT_OWNER
+from ucagent.util.output import OUTPUT_METADATA, OUTPUT_SINK, output_context
 from ucagent.util.functions import PROCESS_CANCELLATION, run_shell_process
 
 
@@ -132,7 +133,9 @@ class OperationContext:
             setattr(self.record, stream, value[-self.executor.output_limit:])
         host = getattr(self.executor.agent, "runtime_host", None)
         if host is not None:
-            host.output.emit(text)
+            with output_context(source="command", kind="output", operation_id=self.record.id,
+                                session_id=self.record.session_id, stream=stream):
+                host.output.emit(text)
 
 
 class StageCoordinator:
@@ -364,6 +367,8 @@ class OperationExecutor:
         token = PROCESS_CANCELLATION.set(record.cancel)
         host = getattr(self.agent, "runtime_host", None)
         output_token = OUTPUT_OWNER.set(host.output if host is not None else None)
+        metadata_token = OUTPUT_METADATA.set({"operation_id": record.id, "session_id": record.session_id})
+        sink_token = OUTPUT_SINK.set(host.events.append if host is not None else None)
         result, error = None, None
         try:
             with self._lock:
@@ -391,6 +396,8 @@ class OperationExecutor:
         finally:
             PROCESS_CANCELLATION.reset(token)
             OUTPUT_OWNER.reset(output_token)
+            OUTPUT_METADATA.reset(metadata_token)
+            OUTPUT_SINK.reset(sink_token)
             OPERATION_PARENT.reset(parent_token)
             COMMAND_ORIGIN.reset(origin_token)
             with self._lock:
@@ -404,10 +411,15 @@ class OperationExecutor:
                 record.finished_at = time.time()
                 if record.model:
                     self._model_id = None
+                if host is not None:
+                    host.events.append(f"{record.command}: {record.state}" +
+                                       (f" — {error['message']}" if error else "") + "\n",
+                                       source="command", kind="result", operation_id=record.id,
+                                       session_id=record.session_id, level="ERROR" if error else "INFO")
                 record.done.set()
             self.on_change()
 
-    def record_result(self, command, result, *, error=None):
+    def record_result(self, command, result, *, error=None, session_id=None, input_line=None):
         """Give an already completed synchronous command the same queryable result contract."""
         with self._lock:
             failed = (isinstance(result, dict) and result.get("ok") is False) or (
@@ -415,7 +427,8 @@ class OperationExecutor:
             if failed and error is None:
                 error = {"code": "command_failed", "message": "Command reported a failure.", "details": {}}
             record = OperationRecord(uuid4().hex, command, False, state="failed" if error else "succeeded",
-                                     result=public_data(result), error=public_data(error), finished_at=time.time())
+                                     result=public_data(result), error=public_data(error), finished_at=time.time(),
+                                     session_id=session_id, input_line=input_line)
             record.done.set()
             self._records[record.id] = record
             return record.snapshot()

@@ -1070,3 +1070,22 @@ def test_agent_delete_block_rejoin_controls_removed_set():
         unregister = client.delete("/api/agent/online-agent?block_rejoin=true")
         assert unregister.status_code == 200
         assert "online-agent" in server._removed
+
+
+def test_master_registration_keeps_zero_index_and_structured_stage_details(tmp_path):
+    """Initial registration and a return to stage zero survive list/detail projection."""
+    server = MasterApiServer(workspace=str(tmp_path))
+    client = TestClient(server._app)
+    rows = [{"index": 0, "title": "First", "is_completed": False, "is_skipped": False},
+            {"index": 1, "title": "Second", "is_completed": False, "is_skipped": False}]
+    for index in (0, 1, 0):
+        payload = {"id": "stage-agent", "current_stage_index": index, "total_stage_count": 2,
+                   "task_list": {"mission_name": "Test", "task_index": index,
+                                 "task_list": {"stage_list": rows}}}
+        assert client.post("/api/register", json=payload).status_code == 200
+        listing = client.get("/api/agents").json()["agents"][0]
+        detail = client.get("/api/agent/stage-agent").json()["data"]
+        for record in (listing, detail):
+            assert record["current_stage_index"] == index
+            assert record["task_list"]["task_list"]["stage_list"] == rows
+    assert client.get("/static/share/stage-view.js").status_code == 200

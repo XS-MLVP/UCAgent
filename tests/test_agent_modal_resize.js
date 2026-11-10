@@ -7,7 +7,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const html = fs.readFileSync(
-  path.join(__dirname, "..", "ucagent", "server", "templates", "agent.html"),
+  path.join(__dirname, "..", "ucagent", "interfaces", "server", "templates", "agent.html"),
   "utf8",
 );
 const scriptMatch = html.match(/<script>\s*"use strict";([\s\S]*?)<\/script>/);

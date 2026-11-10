@@ -88,6 +88,7 @@ class MasterApiServer(
     ) -> None:
         """Validate Master configuration and initialize persistent records, runtimes, and routes."""
 
+        self._auto_sock = sock is None
         if sock is None:
             sock = f"/tmp/ucagent_master_{port}.sock" if port else f"/tmp/ucagent_master_{os.getpid()}_{id(self):x}.sock"
         elif sock == "":
