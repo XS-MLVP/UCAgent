@@ -89,3 +89,31 @@ assert.match(script, /addEventListener\('pointercancel',onUp\)/);
 assert.match(html, /@media \(pointer:coarse\),\(max-width:600px\)/);
 
 console.log("Agent modal resize geometry tests passed");
+
+// File content must use the available flex height even before any saved resize
+// exists. Measuring a Loading placeholder used to freeze the body at a tiny size.
+const contentStart=script.indexOf('function _resizeModalContent');
+const contentEnd=script.indexOf('function _applyStoredModalResize',contentStart);
+const resizeContent=new Function(`${script.slice(contentStart,contentEnd)}\nreturn _resizeModalContent;`)();
+const fileBody={id:'view-body',style:{height:'60px',maxHeight:'60px'}};
+resizeContent({querySelector:selector=>selector==='.modal-body'?fileBody:null});
+assert.equal(fileBody.style.height,'');
+assert.equal(fileBody.style.maxHeight,'');
+
+const resetStart=script.indexOf('function resetFileViewSize');
+const resetEnd=script.indexOf('function showErr',resetStart);
+const sizes={'view-modal':{w:450,h:260},'edit-modal':{w:900,h:600}};
+const positions={'view-modal':{x:12,y:15},'edit-modal':{x:20,y:30}};
+const box={style:{width:'450px',height:'260px',maxWidth:'none',maxHeight:'none',left:'12px',top:'15px',transform:'none'}};
+const stored=new Map();let reopened;
+const reset=new Function('_modalResizeState','_modalDragState','localStorage','qs','openModal',
+  `${script.slice(resetStart,resetEnd)}\nreturn resetFileViewSize;`)(sizes,positions,
+  {setItem:(key,value)=>stored.set(key,value)},()=>box,id=>{reopened=id;});
+reset();
+assert.equal(reopened,'view-modal');
+assert(!sizes['view-modal']&&!positions['view-modal']);
+assert.deepEqual(sizes['edit-modal'],{w:900,h:600});
+assert.deepEqual(positions['edit-modal'],{x:20,y:30});
+assert(Object.values(box.style).every(value=>value===''));
+assert(!JSON.parse(stored.get('ucagent.modal.resize'))['view-modal']);
+console.log('File viewer initial layout and scoped reset tests passed');
