@@ -8,19 +8,19 @@ same make target (including the DUT workspace preparation prerequisite) that
 developers run today, so output, environment, and exit status are identical:
 
     python3 ucagent_command.py master                             -> make as_master
-    python3 ucagent_command.py master unitytest Adder              -> make test_with_master_Adder
+    python3 ucagent_command.py master unittest Adder              -> make test_with_master_Adder
     python3 ucagent_command.py master formal ALU754 --backend codex
                                                                   -> make formal_mcp_ALU754 ARGS="--backend codex"
-    python3 ucagent_command.py tui unitytest Adder                 -> make test_Adder
-    python3 ucagent_command.py mcp unitytest Adder                 -> make mcp_Adder
-    python3 ucagent_command.py mcp unitytest Adder --backend codex -> make mcp_Adder ARGS="--backend codex"
+    python3 ucagent_command.py tui unittest Adder                 -> make test_Adder
+    python3 ucagent_command.py mcp unittest Adder                 -> make mcp_Adder
+    python3 ucagent_command.py mcp unittest Adder --backend codex -> make mcp_Adder ARGS="--backend codex"
 
 Grammar:
     ucagent_command.py <entry> [<workflow>] [<dut>] [<message words>...] [ucagent flags | VAR=value]
 
 - entry: master (workbench / registered task), tui (local interactive run),
   mcp (external-agent access).
-- workflow: unitytest (default; aliases unity_test, unity-test, unity) or
+- workflow: unittest (default; aliases unit_test, unit-test, unit) or
   formal. The workflow decides which Makefile target family runs.
 - dut: example DUT directory name under examples/ (formal: examples/Formal/).
 - message: remaining free-text words; passed to the agent as the initial loop
@@ -53,8 +53,8 @@ MAKE_VARIABLE_RE = re.compile(r"^[A-Z][A-Z0-9_]*=")
 # master entry uses without --backend; None falls back to "master_backend"
 # (formal has no separate loop/master target).
 WORKFLOWS = {
-    "unitytest": {
-        "aliases": ("unitytest", "unity_test", "unity-test", "unity"),
+    "unittest": {
+        "aliases": ("unittest", "unit_test", "unit-test", "unit"),
         "examples_dir": "examples",
         "targets": {
             "tui": "test_%s",
@@ -91,16 +91,16 @@ Entries:
                     launches the external executor automatically.
 
 Workflows:
-  unitytest         UnityChip/toffee verification (default; aliases: unity_test,
-                    unity-test, unity) -> make test_% / mcp_% / ..._with_master_%
+  unittest         UnityChip/toffee verification (default; aliases: unit_test,
+                    unit-test, unit) -> make test_% / mcp_% / ..._with_master_%
   formal            Formal (SVA) verification -> make formal_% / formal_mcp_%
 
 Examples:
   python3 ucagent_command.py master
-  python3 ucagent_command.py master unitytest Adder "fix the carry bug"
+  python3 ucagent_command.py master unittest Adder "fix the carry bug"
   python3 ucagent_command.py master formal ALU754 --backend codex
-  python3 ucagent_command.py tui unitytest Adder
-  python3 ucagent_command.py mcp unitytest Adder --backend codex
+  python3 ucagent_command.py tui unittest Adder
+  python3 ucagent_command.py mcp unittest Adder --backend codex
   python3 ucagent_command.py tui Adder SIM=vcs
 
 Notes:
@@ -120,8 +120,8 @@ Starts the local Master workbench, or runs a task locally and registers it
 with a running Master (start the workbench first, or point --to at one).
 Equivalent make targets:
   master                                   -> make as_master
-  master unitytest <DUT> [message]         -> make test_with_master_<DUT>
-  master unitytest <DUT> --backend codex   -> make mcp_with_master_<DUT> ARGS="--backend codex"
+  master unittest <DUT> [message]         -> make test_with_master_<DUT>
+  master unittest <DUT> --backend codex   -> make mcp_with_master_<DUT> ARGS="--backend codex"
   master formal <DUT>                      -> make formal_mcp_<DUT>
 A --backend task always selects the MCP master target, because command-line
 backends communicate through MCP. --to overrides MASTER_IP (default 127.0.0.1).
@@ -132,7 +132,7 @@ Usage:
 
 Runs local interactive verification in TUI mode with the automatic loop.
 Equivalent make targets:
-  tui unitytest <DUT> [message]            -> make test_<DUT>
+  tui unittest <DUT> [message]            -> make test_<DUT>
   tui formal <DUT>                         -> make formal_<DUT>
 """,
     "mcp": """\
@@ -143,8 +143,8 @@ Starts the MCP server (no file tools) so an external agent can connect, and
 opens the local TUI console. With --backend the external executor itself is
 launched and connects back through MCP.
 Equivalent make targets:
-  mcp unitytest <DUT>                      -> make mcp_<DUT>
-  mcp unitytest <DUT> --backend codex      -> make mcp_<DUT> ARGS="--backend codex"
+  mcp unittest <DUT>                      -> make mcp_<DUT>
+  mcp unittest <DUT> --backend codex      -> make mcp_<DUT> ARGS="--backend codex"
   mcp formal <DUT>                         -> make formal_mcp_<DUT>
 """,
 }
@@ -248,9 +248,9 @@ def main(argv) -> int:
         if dut is None:
             fail(
                 f"'{entry}' requires <dut> (and optionally <workflow> before it); "
-                f"e.g. ucagent_command.py {entry} unitytest Adder"
+                f"e.g. ucagent_command.py {entry} unittest Adder"
             )
-        workflow = workflow or "unitytest"
+        workflow = workflow or "unittest"
         spec = WORKFLOWS[workflow]
         if not (REPO_ROOT / spec["examples_dir"] / dut).is_dir():
             names = ", ".join(available_duts(spec["examples_dir"])) or "(none)"

@@ -20,7 +20,7 @@ ucagent <workspace> <dut_name> [options]
 
 ### Output
 
-- The workflow prepares `Guide_Doc/` in the workspace and generates `<output>/tests/`, documentation, and test reports by stage; `uc_test_report/` will only appear after the corresponding tests are actually executed. The default `<output>` is `unity_test`.
+- The workflow prepares `Guide_Doc/` in the workspace and generates `<output>/tests/`, documentation, and test reports by stage; `uc_test_report/` will only appear after the corresponding tests are actually executed. The default `<output>` is `unit_test`.
 
 > For a detailed explanation of the output, refer to [Result Analysis and Process Summary](../01_start/06_summary.md#workspace-structure)
 

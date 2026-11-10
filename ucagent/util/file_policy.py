@@ -3,7 +3,7 @@
 import fnmatch
 import glob as glob_module
 import os
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from typing import Optional, Tuple
 
 
@@ -160,3 +160,26 @@ def is_file_writeable(path: str, un_write_dirs: list=None, write_dirs: list=None
     return False, f"Path '{path}' is not allowed to write, except in: {write_dirs}."
 
 
+
+
+def resolve_workspace_path(workspace: str, path: str, *, allow_workspace: bool = True) -> str:
+    """Resolve a workspace-root-relative path, rejecting lexical and symlink escapes.
+
+    Return the lexical absolute path so unlink/rename act on a link itself.
+    A leading slash follows the existing workspace-root-relative control API.
+    """
+    if not isinstance(path, str) or "\x00" in path:
+        raise ValueError("A valid workspace-relative path is required.")
+    root = os.path.abspath(workspace)
+    relative = normalize_relative_path(path.strip().lstrip("/"), allow_workspace=allow_workspace)
+    candidate = os.path.abspath(os.path.join(root, relative))
+    try:
+        resolved_root = Path(root).resolve()
+        resolved = Path(candidate).resolve()
+        if not resolved.is_relative_to(resolved_root):
+            raise ValueError("Path is outside the workspace.")
+        if not allow_workspace and resolved == resolved_root:
+            raise ValueError("The workspace root cannot be used as a file path.")
+    except (OSError, RuntimeError) as error:
+        raise ValueError("Cannot resolve the workspace path.") from error
+    return candidate

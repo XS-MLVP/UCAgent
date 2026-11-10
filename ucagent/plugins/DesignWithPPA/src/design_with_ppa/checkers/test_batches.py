@@ -5,7 +5,7 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 from typing import Any
-from unity_test.checkers.unity_test import (
+from unit_test.checkers.unit_test import (
     BaseUnityChipCheckerTestCase,
     UnityChipCheckerCoverageGroup,
     UnityChipCheckerCoverageGroupBatchImplementation,
@@ -13,7 +13,7 @@ from unity_test.checkers.unity_test import (
     UnityChipCheckerLabelStructure,
     UnityChipCheckerTestCase,
 )
-from unity_test.checkers import (
+from unit_test.checkers import (
     UnityChipCheckerBatchTestsImplementation,
     UnityChipCheckerLabelStructureRefine,
     UnityChipCheckerMarkdownFileFormat,
@@ -22,12 +22,12 @@ from unity_test.checkers import (
     UnityChipCheckerTestMustPass,
     UnityChipCheckerTestTemplate,
 )
-from unity_test.checkers.unity_test_random import (
+from unit_test.checkers.unit_test_random import (
     RandomTestCasesChecker,
     _iter_test_function_defs,
 )
-from unity_test.checkers.descriptions import has_executable_mark_function_call
-from unity_test.checkers.toffee_report import (
+from unit_test.checkers.descriptions import has_executable_mark_function_call
+from unit_test.checkers.toffee_report import (
     get_missing_functional_coverage_message,
 )
 import ucagent.util.functions as uc_functions
@@ -55,8 +55,8 @@ from .test_quality import (
     _api_assertion_quality_violations,
     _environment_contract_violations,
 )
-from unity_test.doc_marks import get_doc_marks
-from unity_test.test_report import check_has_assert_in_tc, is_run_report_pass
+from unit_test.doc_marks import get_doc_marks
+from unit_test.test_report import check_has_assert_in_tc, is_run_report_pass
 
 
 class DesignTestTemplateChecker(DesignTestTemplateBatchChecker):

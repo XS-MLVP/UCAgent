@@ -5,7 +5,7 @@
 
 ## Console 手动重放全部 Bug 波形
 
-`waveform_replay` 由 UnityTest 插件通过命令注册表提供；插件未激活时该命令不可用。它可从 Console、TUI 或 HTTP 命令接口提交，由共享执行器管理操作和取消。在 Console 中执行：
+`waveform_replay` 由 UnitTest 插件通过命令注册表提供；插件未激活时该命令不可用。它可从 Console、TUI 或 HTTP 命令接口提交，由共享执行器管理操作和取消。在 Console 中执行：
 
 ```text
 (UnityChip) waveform_replay
@@ -42,11 +42,11 @@ TC 的断言、激励或对应测试源码变化时，即使重放出的波形�
 
 `get_coverage_data_path(request, dut, new_path)` 和 `get_waveform_path(request, dut, new_path)` 将返回的后缀用于每个测试的唯一产物路径。创建时使用 `new_path=True`，覆盖率上报时使用同一个 DUT 和 `new_path=False`，以取得原路径。VCS 的 `.vdb` 可以是目录，按完整路径传递即可。模板阶段的 fake DUT 与独立 Mock DUT 保留原 DUT 类声明的 `SIMULATOR`，无需启动真实仿真器。
 
-新增仿真器时，在 `ucagent/plugins/UnityTest/src/unity_test/test_utils.py` 的 `_SIMULATOR_DEFAULT_SUFFIXES` 中补充 `waveform` 和 `coverage` 两项，并增加对应测试；路径模板无需增加分支。此映射只定义命名规则，实际产物依赖 DUT 构建及仿真器支持；新波形格式仍需按本页注册读取器。覆盖率解析由 `toffee-test` 提供，使用 VCS 时还需确认所用版本支持 `.vdb`；后缀选择本身不会增加覆盖率解析能力。
+新增仿真器时，在 `ucagent/plugins/UnitTest/src/unit_test/test_utils.py` 的 `_SIMULATOR_DEFAULT_SUFFIXES` 中补充 `waveform` 和 `coverage` 两项，并增加对应测试；路径模板无需增加分支。此映射只定义命名规则，实际产物依赖 DUT 构建及仿真器支持；新波形格式仍需按本页注册读取器。覆盖率解析由 `toffee-test` 提供，使用 VCS 时还需确认所用版本支持 `.vdb`；后缀选择本身不会增加覆盖率解析能力。
 
 ## 格式优先级
 
-默认配置位于 UnityTest 工作流 `ucagent/plugins/UnityTest/src/unity_test/workflows/unitytest.yaml`：
+默认配置位于 UnitTest 工作流 `ucagent/plugins/UnitTest/src/unit_test/workflows/unittest.yaml`：
 
 ```yaml
 runtime_options:
@@ -114,8 +114,8 @@ FSDB 使用 `WavekitFsdbReader` 适配 wavekit。FSDB 还需要 Verdi NPI 运行
   "signals": ["TOP.dut.clk", "TOP.dut.result"],
   "source_files": ["../rtl/Demo.sv", "../src/Demo.scala"],
   "dut_python_path": "../Demo/__init__.py",
-  "test_file": "../unity_test/tests/test_demo.py",
-  "test_case": "unity_test/tests/test_demo.py::test_saturation",
+  "test_file": "../unit_test/tests/test_demo.py",
+  "test_case": "unit_test/tests/test_demo.py::test_saturation",
   "start": "100",
   "end": "200",
   "cursor": "150",
@@ -223,10 +223,10 @@ python -m pytest -q tests/test_waveform_xpra_browser.py
 
 ## 注册其他格式
 
-`ucagent/plugins/UnityTest/src/unity_test/waveform_formats/` 是一个 Python 包。公共协议与注册机制不依赖任何波形解析库；每个格式在独立文件中实现 reader，多个格式使用同一库时可以共享适配器：
+`ucagent/plugins/UnitTest/src/unit_test/waveform_formats/` 是一个 Python 包。公共协议与注册机制不依赖任何波形解析库；每个格式在独立文件中实现 reader，多个格式使用同一库时可以共享适配器：
 
 ```text
-ucagent/plugins/UnityTest/src/unity_test/waveform_formats/
+ucagent/plugins/UnitTest/src/unit_test/waveform_formats/
 ├── __init__.py          # Public exports and built-in registration
 ├── protocols.py         # Reader, factory, scope, signal, and result contracts
 ├── registry.py          # Priority validation and extension dispatch
@@ -436,7 +436,7 @@ result = {
 # my_plugin/readers/read_wlf.py
 
 from contextlib import AbstractContextManager
-from unity_test.waveform_formats import (
+from unit_test.waveform_formats import (
     WaveformSignalMatches, WaveformValueChanges, WaveformBackendArgumentError,
     paginate_signal_matches,
 )
@@ -499,14 +499,14 @@ class ExampleWlfReader(AbstractContextManager):
 
 # Plugin initialization
 
-from unity_test.waveform import WaveInfo
-from unity_test.waveform_formats import register_waveform_reader
+from unit_test.waveform import WaveInfo
+from unit_test.waveform_formats import register_waveform_reader
 from my_plugin.readers.read_wlf import ExampleWlfReader
 
 register_waveform_reader("wlf", ExampleWlfReader, backend="example")
 tool = WaveInfo(
     workspace="/path/to/workspace",
-    test_dir="unity_test/tests",
+    test_dir="unit_test/tests",
     format_priority=["fst", "vcd", "fsdb", "wlf"],
     backend_priority={"wlf": ["example"]},
 )

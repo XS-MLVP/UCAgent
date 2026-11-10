@@ -5,7 +5,7 @@
 
 ## 1. 默认工作流
 
-中文默认工作流由 `ucagent/core/locales/zh.yaml` 的 `workflow` 指针指向 `ucagent/plugins/UnityTest/src/unity_test/workflows/unitytest.yaml`，当前有 20 个顶层阶段；带缩进的条目是子阶段。运行时 Stage Manager 会把父阶段和子阶段展平，因此 `--skip`、`hmcheck_set` 和 `GoToStage` 使用的索引必须以当前运行中的 `status` 或 `hmcheck_list` 为准。
+中文默认工作流由 `ucagent/core/locales/zh.yaml` 的 `workflow` 指针指向 `ucagent/plugins/UnitTest/src/unit_test/workflows/unittest.yaml`，当前有 20 个顶层阶段；带缩进的条目是子阶段。运行时 Stage Manager 会把父阶段和子阶段展平，因此 `--skip`、`hmcheck_set` 和 `GoToStage` 使用的索引必须以当前运行中的 `status` 或 `hmcheck_list` 为准。
 
 | 顶层索引 | 阶段 | 默认状态 |
 | ---: | --- | --- |
@@ -30,7 +30,7 @@
 | 18 | `verification_review_and_summary` | 执行 |
 | 19 | `record_and_report_bugs` | 执行 |
 
-默认配置中 `human_check_env_specification`、`human_check_env_implementation` 和 `line_coverage_analysis_and_improvement` 使用 `skip: true`；具体是否执行还会受环境变量和项目覆盖配置影响。Formal、Vibe、Increment 是插件工作流（分别经 `--plugin-workflow formal:formal`、`unitytest:vibe`、`unitytest:incremental` 选用），阶段数量和名称不同，不能套用上表。
+默认配置中 `human_check_env_specification`、`human_check_env_implementation` 和 `line_coverage_analysis_and_improvement` 使用 `skip: true`；具体是否执行还会受环境变量和项目覆盖配置影响。Formal、Vibe、Increment 是插件工作流（分别经 `--plugin-workflow formal:formal`、`unittest:vibe`、`unittest:incremental` 选用），阶段数量和名称不同，不能套用上表。
 
 ## 2. 阶段字段
 
@@ -90,12 +90,12 @@ stage:
 | 变量 | 含义 |
 | --- | --- |
 | `{DUT}` | DUT 子目录名 |
-| `{OUT}` | 工作区下的输出目录，默认 `unity_test` |
+| `{OUT}` | 工作区下的输出目录，默认 `unit_test` |
 | `{WORKSPACE}` | 当前工作区绝对路径 |
 | `{GUIDE_DOC}` | 工作区运行时 `Guide_Doc` 路径 |
 | `{DOC_GEN_LANG}` | 文档语言，来自模板配置 |
 
-`{OUT}` 在首轮配置渲染时由 `--output` 决定；未指定时取工作流 yaml 声明的 `output`（默认工作流为 `unity_test`），框架兜底值为 `output`。更改输出路径请使用该选项，不要仅修改 `template_overwrite.OUT`。
+`{OUT}` 在首轮配置渲染时由 `--output` 决定；未指定时取工作流 yaml 声明的 `output`（默认工作流为 `unit_test`），框架兜底值为 `output`。更改输出路径请使用该选项，不要仅修改 `template_overwrite.OUT`。
 
 环境变量替换发生在 YAML 加载时，例如 `$(NEED_REF_MODEL: false)`；`{DUT}` 和 `{OUT}` 等模板变量在配置解析后渲染。不要在运行时重新读取原始环境变量来推断已解析配置。
 

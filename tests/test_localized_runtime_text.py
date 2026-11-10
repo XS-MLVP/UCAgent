@@ -10,13 +10,13 @@ sys.path.insert(
     0, str(REPOSITORY_ROOT / "ucagent" / "plugins" / "Formal" / "src")
 )
 sys.path.insert(
-    0, str(REPOSITORY_ROOT / "ucagent" / "plugins" / "UnityTest" / "src")
+    0, str(REPOSITORY_ROOT / "ucagent" / "plugins" / "UnitTest" / "src")
 )
 sys.path.insert(
     0, str(REPOSITORY_ROOT / "ucagent" / "plugins" / "common" / "src")
 )
 
-from unity_test.bug_analysis_contract import (
+from unit_test.bug_analysis_contract import (
     BUG_ANALYSIS_SECTION_TITLES,
     BUG_HEADING_COMPANIONS,
     DYNAMIC_BUG_DOCUMENT_PATH,
@@ -37,8 +37,8 @@ from formal.skills.lib import formal_tools
 IMPLEMENTATION_ROOT = REPOSITORY_ROOT / "ucagent"
 LANGUAGE_ROOT = IMPLEMENTATION_ROOT / "core/locales"
 CHINESE_LANGUAGE_ROOT = LANGUAGE_ROOT
-UNITYTEST_PLUGIN_ROOT = REPOSITORY_ROOT / "ucagent" / "plugins" / "UnityTest"
-UNITYTEST_PLUGIN_ASSETS = UNITYTEST_PLUGIN_ROOT / "src" / "unity_test"
+UNITTEST_PLUGIN_ROOT = REPOSITORY_ROOT / "ucagent" / "plugins" / "UnitTest"
+UNITTEST_PLUGIN_ASSETS = UNITTEST_PLUGIN_ROOT / "src" / "unit_test"
 FORMAL_PLUGIN_ASSETS = (
     REPOSITORY_ROOT / "ucagent" / "plugins" / "Formal" / "src" / "formal"
 )
@@ -46,9 +46,9 @@ LOCALE_CONTRACT = (
     REPOSITORY_ROOT
     / "ucagent"
     / "plugins"
-    / "UnityTest"
+    / "UnitTest"
     / "src"
-    / "unity_test"
+    / "unit_test"
     / "lang"
     / "zh"
     / "config"
@@ -110,14 +110,14 @@ def test_bug_analysis_titles_come_from_zh_locale_contract():
     assert dict(BUG_ANALYSIS_SECTION_TITLES) == payload["analysis_section_titles"]
 
     asset = (
-        UNITYTEST_PLUGIN_ASSETS
+        UNITTEST_PLUGIN_ASSETS
         / "skills"
         / "dynamic-bug-recording"
         / "assets"
         / "dynamic_bug_entry.md"
     ).read_text(encoding="utf-8")
     guide = (
-        UNITYTEST_PLUGIN_ASSETS / "Guide_Doc" / "dut_bug_analysis.md"
+        UNITTEST_PLUGIN_ASSETS / "Guide_Doc" / "dut_bug_analysis.md"
     ).read_text(encoding="utf-8")
     for title in payload["analysis_section_titles"].values():
         assert asset.count(title) == 1
@@ -154,11 +154,11 @@ def test_bug_analysis_paths_tc_forms_and_no_bug_shape_come_from_locale_contract(
     ]
     for root, relative_path in (
         (
-            UNITYTEST_PLUGIN_ASSETS,
-            "templates/unity_test/{{DUT}}_bug_analysis.md",
+            UNITTEST_PLUGIN_ASSETS,
+            "templates/unit_test/{{DUT}}_bug_analysis.md",
         ),
         (
-            UNITYTEST_PLUGIN_ASSETS,
+            UNITTEST_PLUGIN_ASSETS,
             "skills/dynamic-bug-recording/assets/bug_analysis_document.md",
         ),
     ):
@@ -293,9 +293,9 @@ def test_runtime_markdown_headings_are_surrounded_by_blank_lines():
         CHINESE_LANGUAGE_ROOT / "doc",
         CHINESE_LANGUAGE_ROOT / "template",
         CHINESE_LANGUAGE_ROOT / "skills",
-        UNITYTEST_PLUGIN_ASSETS / "Guide_Doc",
-        UNITYTEST_PLUGIN_ASSETS / "templates",
-        UNITYTEST_PLUGIN_ASSETS / "skills",
+        UNITTEST_PLUGIN_ASSETS / "Guide_Doc",
+        UNITTEST_PLUGIN_ASSETS / "templates",
+        UNITTEST_PLUGIN_ASSETS / "skills",
         FORMAL_PLUGIN_ASSETS / "Guide_Doc",
         FORMAL_PLUGIN_ASSETS / "templates",
         FORMAL_PLUGIN_ASSETS / "skills",
@@ -314,9 +314,9 @@ def test_runtime_markdown_headings_are_surrounded_by_blank_lines():
         companions = (
             BUG_HEADING_COMPANIONS
             if (
-                path == UNITYTEST_PLUGIN_ASSETS / "Guide_Doc" / "dut_bug_analysis.md"
+                path == UNITTEST_PLUGIN_ASSETS / "Guide_Doc" / "dut_bug_analysis.md"
                 or path.is_relative_to(
-                    UNITYTEST_PLUGIN_ASSETS
+                    UNITTEST_PLUGIN_ASSETS
                     / "skills"
                     / "dynamic-bug-recording"
                     / "assets"

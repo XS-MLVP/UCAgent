@@ -27,7 +27,7 @@ def _populate_workspace(workspace: Path) -> list[Path]:
         workspace / ".ucagent/current_test_report.json",
         workspace / ".ucagent/history/stage.json",
         workspace / ".ucagent/batch_checkpoints/test_cases.json",
-        workspace / "unity_test/Demo_bug_analysis.md",
+        workspace / "unit_test/Demo_bug_analysis.md",
         workspace / "tests/data/session/test_demo.vcd",
         workspace / "uc_test_report/report.json",
         workspace / "Demo/build/output.bin",
@@ -101,7 +101,7 @@ def test_refresh_rejects_unsafe_workspace_and_guide_paths(tmp_path):
         "/tmp/Guide_Doc",
         "docs/../Guide_Doc",
         ".ucagent/Guide_Doc",
-        "unity_test",
+        "unit_test",
     ):
         result = _run_script(workspace, unsafe_guide)
         assert result.returncode == 2

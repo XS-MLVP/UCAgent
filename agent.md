@@ -127,7 +127,7 @@ python -m pytest -q tests/test_runtime_cli.py tests/test_runtime_host.py tests/t
 # R06
 python -m pytest -q tests/test_cli_argument_dependencies.py tests/test_cmdline_backend.py tests/test_mcps.py tests/test_langchain_openai_api_mode.py tests/test_langchain_message_accounting.py tests/test_langchain_tool_recovery.py
 # R07：限定目录，避免收集生成工作区和未渲染模板
-python -m pytest -q tests ucagent/plugins/UnityTest/tests ucagent/plugins/Formal/tests ucagent/plugins/DesignWithPPA/tests
+python -m pytest -q tests ucagent/plugins/UnitTest/tests ucagent/plugins/Formal/tests ucagent/plugins/DesignWithPPA/tests
 git diff --check
 ```
 
@@ -184,7 +184,7 @@ R07 已修复源码文件直接执行时的包路径问题、TUI 卸载后的输
 
 本轮按功能归入 `application/`、`agent/`、`workspace/`，公共 Python 入口为 `from ucagent import VerifyAgent`，命令入口统一到 `application/cli/`。共享应用模块不再依赖 CLI；Master 与配置演练保留独立开关，工作区来源准备先于日志打开。工作流资源仍归插件所有。
 
-- 最终 pytest：2532 passed、80 skipped、0 failed，耗时 240.23 秒；范围为框架及 UnityTest、Formal、DesignWithPPA。
+- 最终 pytest：2532 passed、80 skipped、0 failed，耗时 240.23 秒；范围为框架及 UnitTest、Formal、DesignWithPPA。
 - 源码目录、仓库外模块启动、Master 子进程入口和规范化 Python 启动请求均已验证。
 - 已在临时源码副本构建 wheel，并在隔离安装目录验证 `ucagent`、`python -m ucagent`、Agent 构造、后端资源根路径、运行配置快照和正常退出。
 - 已复制真实 Adder DUT 包到临时目录，通过新模块入口完成无模型启动和退出；符号链接保留，权限恢复，原工作区未改动。
@@ -207,7 +207,7 @@ Agent 自身的配置与组件构造归入 `agent/configuration.py`、`agent/con
 
 验证结果：
 
-- 最终全量 pytest：2543 passed、80 skipped、0 failed，244.05 秒；框架及 UnityTest、Formal、DesignWithPPA。
+- 最终全量 pytest：2543 passed、80 skipped、0 failed，244.05 秒；框架及 UnitTest、Formal、DesignWithPPA。
 - 隔离 wheel 构建与安装通过，新语言/预设/模板/网页资源均包含在 wheel 中。
 - 安装版 `ucagent`、`python -m ucagent`、自检、纯核心构造和 Master 子进程路径通过。
 - 安装版结合真实 Adder DUT 包临时副本完成无模型启动和退出；工作流资源发现、符号链接保留和权限恢复通过，原工作区与用户 config.yaml 未改动。

@@ -17,11 +17,11 @@ def test_public_runtime_and_tool_imports_avoid_optional_model_stacks() -> None:
     env = os.environ.copy()
     existing = env.get("PYTHONPATH")
     # Mirror the plugin loader's import roots: the plugin's own src plus its
-    # declared UnityTest sibling dependency root, then the repository.
+    # declared UnitTest sibling dependency root, then the repository.
     env["PYTHONPATH"] = os.pathsep.join(
         [
             str(plugin_root / "src"),
-            str(plugin_root.parent / "UnityTest" / "src"),
+            str(plugin_root.parent / "UnitTest" / "src"),
             str(repository),
             *([existing] if existing else []),
         ]

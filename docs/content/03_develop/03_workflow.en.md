@@ -5,7 +5,7 @@ A workflow consists of a set of stages executed in sequence. Each stage describe
 
 ## 1. Default Workflow
 
-The default workflow is selected by `workflow` in `ucagent/core/locales/zh.yaml` and resolves to `ucagent/plugins/UnityTest/src/unity_test/workflows/unitytest.yaml`, which currently has 20 top-level stages; indented entries are sub-stages. The runtime Stage Manager flattens parent and child stages, therefore indices used by `--skip`, `hmcheck_set`, and `GoToStage` must be based on the current `status` or `hmcheck_list` in the active run.
+The default workflow is selected by `workflow` in `ucagent/core/locales/zh.yaml` and resolves to `ucagent/plugins/UnitTest/src/unit_test/workflows/unittest.yaml`, which currently has 20 top-level stages; indented entries are sub-stages. The runtime Stage Manager flattens parent and child stages, therefore indices used by `--skip`, `hmcheck_set`, and `GoToStage` must be based on the current `status` or `hmcheck_list` in the active run.
 
 | Top Index | Stage | Default Status |
 | ---: | --- | --- |
@@ -89,12 +89,12 @@ Common template variables:
 | Variable | Meaning |
 | --- | --- |
 | `{DUT}` | DUT subdirectory name |
-| `{OUT}` | Output directory under the workspace, default `unity_test` |
+| `{OUT}` | Output directory under the workspace, default `unit_test` |
 | `{WORKSPACE}` | Absolute path of the current workspace |
 | `{GUIDE_DOC}` | Runtime `Guide_Doc` path in the workspace |
 | `{DOC_GEN_LANG}` | Document language, from template configuration |
 
-`{OUT}` is determined by `--output` (default `unity_test`) during the first configuration render. To change the output path, use this option; do not just modify `template_overwrite.OUT`.
+`{OUT}` is determined by `--output` (default `unit_test`) during the first configuration render. To change the output path, use this option; do not just modify `template_overwrite.OUT`.
 
 Environment variable substitution occurs during YAML loading, e.g., `$(NEED_REF_MODEL: false)`; template variables like `{DUT}` and `{OUT}` are rendered after configuration parsing. Do not re-read raw environment variables at runtime to infer the already-parsed configuration.
 

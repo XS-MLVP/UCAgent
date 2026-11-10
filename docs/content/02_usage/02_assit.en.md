@@ -98,9 +98,9 @@ View or adjust Agent writable paths:
 
 ```text
 list_rw_paths
-add_write_path unity_test/
+add_write_path unit_test/
 add_un_write_path Adder/
-del_write_path unity_test/
+del_write_path unit_test/
 del_un_write_path Adder/
 ```
 
@@ -139,7 +139,7 @@ The parameter format for `tool_invoke` is:
 tool_invoke <tool_name> {"key": "value"}
 ```
 
-Arguments use a JSON object with `true/false` booleans. `RunTestCases.target` is relative to the current test directory (default `unity_test/tests/`); do not add the directory prefix again. For example:
+Arguments use a JSON object with `true/false` booleans. `RunTestCases.target` is relative to the current test directory (default `unit_test/tests/`); do not add the directory prefix again. For example:
 
 ```text
 tool_invoke RunTestCases {"target":"test_adder.py::test_add","timeout":120}

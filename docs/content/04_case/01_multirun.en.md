@@ -1,7 +1,7 @@
 
 # Concurrent Execution of Multiple Instances
 
-When verifying multiple DUTs simultaneously, each instance must have an independent workspace, state directory, and service port. Do not allow two Agents to share the same `.ucagent/`, `unity_test/`, or MCP port, as this will cause history, artifacts, and tool calls to overwrite each other.
+When verifying multiple DUTs simultaneously, each instance must have an independent workspace, state directory, and service port. Do not allow two Agents to share the same `.ucagent/`, `unit_test/`, or MCP port, as this will cause history, artifacts, and tool calls to overwrite each other.
 
 ## 1. Select Execution Mode
 
@@ -28,11 +28,11 @@ workspaces/
 Start them separately:
 
 ```bash
-ucagent workspaces/adder Adder --output unity_test --tui --loop
-ucagent workspaces/mux Mux --output unity_test --tui --loop
+ucagent workspaces/adder Adder --output unit_test --tui --loop
+ucagent workspaces/mux Mux --output unit_test --tui --loop
 ```
 
-Since the workspaces of the two processes are different, there will be no conflict even if both use the default output directory `unity_test`. Production scripts should record the PID, log path, and exit code for each task; do not delete the shared `output/` directory within a loop.
+Since the workspaces of the two processes are different, there will be no conflict even if both use the default output directory `unit_test`. Production scripts should record the PID, log path, and exit code for each task; do not delete the shared `output/` directory within a loop.
 
 The `CWD` override in the Makefile can also be used in the source repository:
 

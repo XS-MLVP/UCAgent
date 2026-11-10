@@ -60,7 +60,7 @@ ucagent --hook-message 'continue|quit'
 Claude Code 的 MCP 添加命令示例：
 
 ```bash
-claude mcp add --transport http unitytest http://127.0.0.1:5000/mcp
+claude mcp add --transport http unittest http://127.0.0.1:5000/mcp
 ```
 
 iFlow、Claude Code、Gemini CLI 等客户端的完整 hook 配置请参考各自文档和仓库中的 BatchRun 示例，不要把一个客户端的 JSON 直接用于另一个客户端。

@@ -21,7 +21,7 @@ from .common import RepoPaths, inside, run_command, selected_path, tree_identity
 from .evidence import seal, unseal
 from .models import Candidate, Interface, Recipe, TaskContract, Workload, read_model, validate_python
 from .snapshot import materialize, snapshot_repository
-from unity_test.doc_marks import get_doc_marks
+from unit_test.doc_marks import get_doc_marks
 
 
 def module_checkpoints(paths: RepoPaths) -> list[str]:

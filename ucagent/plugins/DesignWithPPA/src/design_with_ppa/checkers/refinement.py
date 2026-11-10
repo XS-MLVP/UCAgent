@@ -5,7 +5,7 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 from typing import Any
-from unity_test.checkers.unity_test import (
+from unit_test.checkers.unit_test import (
     BaseUnityChipCheckerTestCase,
     UnityChipCheckerCoverageGroup,
     UnityChipCheckerCoverageGroupBatchImplementation,
@@ -13,7 +13,7 @@ from unity_test.checkers.unity_test import (
     UnityChipCheckerLabelStructure,
     UnityChipCheckerTestCase,
 )
-from unity_test.checkers import (
+from unit_test.checkers import (
     UnityChipCheckerBatchTestsImplementation,
     UnityChipCheckerLabelStructureRefine,
     UnityChipCheckerMarkdownFileFormat,

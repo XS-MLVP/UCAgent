@@ -12,7 +12,7 @@
 | [Generator](privileged_test_generator_template.md) | 04，05 复核 | 冻结 API、注册参数、chunk、CSR/trap 与 VM 序列 |
 | [Validation and handoff](privileged_validation_handoff_template.md) | 05-07 | 首选模型、attempt/fallback、证据配对、审查、manifest、最终报告 |
 
-变量约定：`{OUT}` 是工作流输出根（通常 `unity_test`），`{DUT}` 是大小写敏感 suite；
+变量约定：`{OUT}` 是工作流输出根（通常 `unit_test`），`{DUT}` 是大小写敏感 suite；
 `riscv-arch-test/` 是工作区中的 ACT4 副本。模板中路径相对运行 workspace，文档链接相对
 当前 Markdown。占位文本、演示 target 和示例 XLEN 都要由实际证据替换。
 

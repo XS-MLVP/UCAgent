@@ -81,7 +81,7 @@ ucagent output/ Adder -s -hm --tui -l
 常用参数：
 
 - `--config <path>`：指定项目配置；不指定时使用分层默认配置。
-- `--output <name>`：修改工作区下的输出目录；未指定时取工作流声明的 `output`（默认工作流为 `unity_test`）。
+- `--output <name>`：修改工作区下的输出目录；未指定时取工作流声明的 `output`（默认工作流为 `unit_test`）。
 - `--human` / `-hm`：启动人工可干预模式。
 - `--tui`：打开 TUI；不使用 TUI 时可用 `--web-console` 或 `--web-terminal`。
 - `--skip <index>`、`--unskip <index>`：按运行时阶段索引控制阶段；索引以 `status`/`hmcheck_list` 显示为准。
@@ -113,7 +113,7 @@ tool_invoke KillCheck
 
 ## 5. 产物和下一步
 
-默认产物位于 `<workspace>/unity_test/`，toffee-test 报告（若已运行测试）位于 `<workspace>/uc_test_report/`。工作流决定具体文档和测试文件名；不要预设一定会生成 Bug、波形或覆盖率文件。
+默认产物位于 `<workspace>/unit_test/`，toffee-test 报告（若已运行测试）位于 `<workspace>/uc_test_report/`。工作流决定具体文档和测试文件名；不要预设一定会生成 Bug、波形或覆盖率文件。
 
 - 想让外部 Code Agent 参与：阅读 [MCP 接入](../01_start/03_mcp_mode.md)。
 - 想集中管理多个任务：阅读 [Master 模式](../01_start/04_master_mode.md)。

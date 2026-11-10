@@ -298,7 +298,7 @@ class ACT4SwitchCapabilityChecker(Checker):
                 continue
             if not self.verify_audited_source_paths:
                 continue
-            match = re.match(r"^((?:riscv-arch-test|unity_test)/[^:\s]+)", text)
+            match = re.match(r"^((?:riscv-arch-test|unit_test)/[^:\s]+)", text)
             if not match:
                 continue
             verified += 1

@@ -5,11 +5,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 from ucagent.core.checkers.base import Checker
-from unity_test.checkers.file_linemap import (
+from unit_test.checkers.file_linemap import (
     _line_block_base,
     line_map_check_one_file,
 )
-from unity_test.checkers import UnityChipBatchCheckerFileLineMap
+from unit_test.checkers import UnityChipBatchCheckerFileLineMap
 
 from ..contracts import (
     resolve_workspace_path,
@@ -20,7 +20,7 @@ from .common import (
     _exception_contract_diagnostic,
     _is_batch_progress,
 )
-from unity_test.doc_marks import get_doc_marks
+from unit_test.doc_marks import get_doc_marks
 
 
 class DesignLineMapReferenceChecker(Checker):

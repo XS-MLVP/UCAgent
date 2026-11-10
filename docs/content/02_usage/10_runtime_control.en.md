@@ -120,6 +120,14 @@ Stage writes require the latest observed `control_revision` as `expected_revisio
 
 HTTP rejects display commands. Sub-workspace views also cannot control the parent through command or cancellation endpoints. MCP tool calls do not automatically receive these HTTP operation IDs; see [Architecture](../03_develop/02_architecture.md) for interface boundaries.
 
+### Workspace files and stage history
+
+Web file management uses operator permissions: HTTP authentication, the selected workspace boundary, and operating-system permissions apply. LLM tool restrictions in `write_dirs/un_write_dirs` do not apply, and file permissions are never changed automatically. Operator reads, edits, and uploads do not create LLM tool-use or reference-file-read evidence. Selecting a child with `sub_workspace` confines file operations to that workspace. Uploads, renames, reads, and downloads validate final paths and symlink targets.
+
+Ordinary file deletion supports recursive deletion of selected directories, but protects the selected workspace root. Delete an entire child workspace through the dedicated sub-workspace deletion operation. Its `cleanup_parents=true` option only removes non-workspace parents that are empty after deletion; ordinary files and other workspaces in those parents are preserved.
+
+Viewing stage artifacts, historical files, and diffs does not synchronize history, create commits, or run Checkers. Explicit `sync_history=true` is available only for the current live stage, not a child viewed through a saved snapshot. A saved snapshot does not establish that the child Agent has stopped. Existing stage commits remain readable after a file is deleted from the current directory. Unavailable history is reported explicitly; current files are not presented as historical evidence.
+
 ## 5. Recovery Scope
 
 Switching Console/TUI within one process preserves local interaction context, and HTTP continues to operate the same instance. Existing mechanisms persist stage state, history, and some tool evidence in the workspace so stage work can resume after restart.

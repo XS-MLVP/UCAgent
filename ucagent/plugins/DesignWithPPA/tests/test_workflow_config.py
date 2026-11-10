@@ -950,7 +950,7 @@ def test_workflow_keeps_reference_repairable_without_following_wrong_rtl() -> No
 
 
 
-def test_workflow_overrides_unrelated_core_unitytest_tips(tmp_path: Path) -> None:
+def test_workflow_overrides_unrelated_core_unittest_tips(tmp_path: Path) -> None:
     """Resolved plugin prompts must not inherit Bug-verification-only guidance."""
 
     workflow_path = (

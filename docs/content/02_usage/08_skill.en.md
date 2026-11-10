@@ -32,7 +32,7 @@ stage:
     task:
       - "Read source code and requirements, complete static analysis according to Guide_Doc/dut_bug_analysis.md"
     skill_list:
-      - unitytest/static-bug-analysis
+      - unittest/static-bug-analysis
     force_use_skill: true
 ```
 
@@ -64,7 +64,7 @@ When a method has been applied, the tool parameters for `SetSkillUsage` are as f
 ```json
 {
   "skill_usage": {
-    "unitytest/static-bug-analysis": {
+    "unittest/static-bug-analysis": {
       "list": true,
       "read": true,
       "use": true
@@ -84,7 +84,7 @@ If the current stage has no objects for skills to process, after executing its n
 | `RunSkillScript` | Executes listed skill scripts sequentially; registers usage only if all succeed |
 | `SetSkillUsage` | Validates and saves evidence for current stage-specific skills |
 
-`ListSkill` prioritizes listing all stage skills, then supplements with general skills limited by `skill.max_skill_list_count`; stage skills are not truncated by this limit. Skill identifiers are paths relative to the workspace skill root directory, e.g., `unitytest/static-bug-analysis`.
+`ListSkill` prioritizes listing all stage skills, then supplements with general skills limited by `skill.max_skill_list_count`; stage skills are not truncated by this limit. Skill identifiers are paths relative to the workspace skill root directory, e.g., `unittest/static-bug-analysis`.
 
 `RunSkillScript.commands` is a non-empty array, where each item is a tuple of three strings: `[skill_name, script_filename, args]`. Script names do not include directories or runners. Assuming a custom skill `example/analysis` has listed the script `analyze.py`, the call format is:
 

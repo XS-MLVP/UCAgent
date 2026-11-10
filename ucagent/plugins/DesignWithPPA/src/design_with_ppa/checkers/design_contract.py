@@ -8,7 +8,7 @@ from pathlib import Path
 import re
 from typing import Any
 from ucagent.core.checkers.base import Checker
-from unity_test.checkers.unity_test import (
+from unit_test.checkers.unit_test import (
     BaseUnityChipCheckerTestCase,
     UnityChipCheckerCoverageGroup,
     UnityChipCheckerCoverageGroupBatchImplementation,
@@ -16,7 +16,7 @@ from unity_test.checkers.unity_test import (
     UnityChipCheckerLabelStructure,
     UnityChipCheckerTestCase,
 )
-from unity_test.checkers import (
+from unit_test.checkers import (
     UnityChipCheckerBatchTestsImplementation,
     UnityChipCheckerLabelStructureRefine,
     UnityChipCheckerMarkdownFileFormat,

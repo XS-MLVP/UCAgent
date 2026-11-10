@@ -84,7 +84,7 @@ ucagent output/ Adder -s -hm --tui -l
 Common parameters:
 
 - `--config <path>`: Specifies the project configuration; if not specified, the hierarchical default configuration is used.
-- `--output <name>`: Modifies the output directory under the workspace, defaulting to `unity_test`.
+- `--output <name>`: Modifies the output directory under the workspace, defaulting to `unit_test`.
 - `--human` / `-hm`: Starts human-intervention mode.
 - `--tui`: Opens the TUI; if not using the TUI, you can use `--web-console` or `--web-terminal`.
 - `--skip <index>`, `--unskip <index>`: Controls stages by runtime stage index; the index is based on what is displayed in `status`/`hmcheck_list`.
@@ -116,7 +116,7 @@ For a complete command reference, see [Human-Machine Collaborative Verification]
 
 ## 5. Artifacts and Next Steps
 
-Default artifacts are located in `<workspace>/unity_test/`, and toffee-test reports (if tests have been run) are located in `<workspace>/uc_test_report/`. The workflow determines the specific documentation and test file names; do not assume that Bug, waveform, or coverage files will necessarily be generated.
+Default artifacts are located in `<workspace>/unit_test/`, and toffee-test reports (if tests have been run) are located in `<workspace>/uc_test_report/`. The workflow determines the specific documentation and test file names; do not assume that Bug, waveform, or coverage files will necessarily be generated.
 
 - To involve an external Code Agent: Read [MCP Integration](../01_start/03_mcp_mode.md).
 - To centrally manage multiple tasks: Read [Master Mode](../01_start/04_master_mode.md).
