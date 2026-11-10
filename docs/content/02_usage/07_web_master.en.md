@@ -199,6 +199,8 @@ For stage output files, you can:
 2. View Diff (comparison between current result and changes)
 3. Quickly locate artifacts corresponding to failed stages
 
+The file viewer defaults to approximately 92% of the viewport width and 88% of its height, with scrolling available immediately and fixed header/footer controls. Drag its edges to resize and retain the layout; Reset size in the title bar restores only the file viewer to its large centered default.
+
 ### 6.4 Activity and System Logs
 
 The lower-right Output panel opens on **Activity**: model/backend output, tool calls and results, stage checks, and command output. HTTP access records and service diagnostics appear under **System logs**, whose tab indicates warnings and errors. **Raw output** retains captured process console text for troubleshooting. Long tool results and recent command results can be expanded.

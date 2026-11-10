@@ -345,6 +345,15 @@ html[data-theme="light"] #console-output-wrap.sub-workspace-mode{background:line
 .editor-wrap{display:flex;height:480px;overflow:hidden;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg)}
 .editor-gutter{background:var(--bg2);color:var(--text-dim);font-family:var(--mono);font-size:13px;line-height:1.6;padding:10px 8px;text-align:right;user-select:none;overflow:hidden;min-width:44px;border-right:1px solid var(--border);white-space:pre;flex-shrink:0}
 textarea#edit-content{flex:1;background:var(--bg);color:var(--text);border:none;padding:10px;font-family:var(--mono);font-size:13px;line-height:1.6;resize:none;outline:none;overflow:auto}
+/* ── file viewer: definite outer height, shrinkable content and fixed controls ── */
+#view-modal .modal-box{width:92vw;height:88vh;max-width:calc(100vw - 16px);max-height:calc(100vh - 16px)}
+#view-modal .modal-hdr,#view-modal .modal-footer{flex-shrink:0}
+#view-body{flex:1 1 0;min-height:0;min-width:0;overflow:hidden}
+#view-body .stage-file-container,#view-body .stage-content-section,#view-body .stage-diff-section{min-height:0;min-width:0}
+#view-body .stage-toggle-bar{flex-shrink:0}
+#view-body .view-wrap{min-height:0;min-width:0}
+#view-body #view-pre{min-width:0}
+#view-body,#view-pre,#view-md,#view-body .stage-diff-section{overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:var(--text-dim) var(--bg)}
 /* ── view with line numbers ── */
 .view-wrap{display:flex;height:100%;overflow:hidden;border-radius:var(--radius);background:var(--bg)}
 .view-gutter{background:var(--bg2);color:var(--text-dim);font-family:var(--mono);font-size:12px;line-height:1.6;padding:12px 8px;text-align:right;user-select:none;overflow:hidden;min-width:42px;border-right:1px solid var(--border);white-space:pre;flex-shrink:0}
@@ -583,6 +592,7 @@ pre code.hljs,code.hljs{background:transparent!important;padding:0!important}
   <div class="modal-box">
     <div class="modal-hdr">
       <h2 id="view-title">View file</h2>
+      <button class="fm-btn" id="view-reset-size" onclick="resetFileViewSize()" title="Restore the large centered file viewer">Reset size</button>
       <button class="modal-close" onclick="closeModal('view-modal')">&#x2715;</button>
     </div>
     <div class="modal-body" id="view-body"></div>
@@ -738,6 +748,18 @@ function openModal(id){
     box.style.left='50%';box.style.top='50%';box.style.transform='translate(-50%,-50%)';
   }
   _applyStoredModalResize(id);
+}
+function resetFileViewSize(){
+  // Clear only this viewer's geometry; other dialogs keep their saved layout.
+  delete _modalResizeState['view-modal'];
+  delete _modalDragState['view-modal'];
+  try{
+    localStorage.setItem('ucagent.modal.resize',JSON.stringify(_modalResizeState));
+    localStorage.setItem('ucagent.modal.drag',JSON.stringify(_modalDragState));
+  }catch(e){}
+  const box=qs('#view-modal .modal-box');
+  for(const property of ['width','height','maxWidth','maxHeight','left','top','transform'])box.style[property]='';
+  openModal('view-modal');
 }
 function showErr(msg){alert("Error: "+msg)}
 function _initFileDeleteControls(){
@@ -3184,6 +3206,13 @@ function _resizeModalContent(box){
   const footer=box.querySelector('.modal-footer');
   const body=box.querySelector('.modal-body');
   if(!body)return;
+  if(body.id==='view-body'){
+    // Flex sizes the viewer from its explicit window height, even while loading
+    // or switching renderers. Do not freeze a height measured from placeholder text.
+    body.style.height='';
+    body.style.maxHeight='';
+    return;
+  }
   const hdrH=hdr?hdr.offsetHeight:0;
   const footH=footer?footer.offsetHeight:0;
   const bodyH=Math.max(60,box.offsetHeight-hdrH-footH);
