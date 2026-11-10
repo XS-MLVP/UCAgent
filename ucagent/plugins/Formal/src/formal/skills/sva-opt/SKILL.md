@@ -44,15 +44,9 @@ python3 .ucagent/skills/ext/formal/sva-gen/scripts/update_sva_body.py <CK-ID> "<
 ⚠️ **必须用 assert 验证行为正确性，不能仅靠 cover 刷 COI**
 
 
-### 4. 重跑验证
+### 4. 重跑受管理证明批次
 
-使用 `RunSkillScript` 工具执行以下命令重跑验证，并查看新的 COI：
-
-```bash
-python3 .ucagent/skills/ext/formal/sva-opt/scripts/run_formal_verification.py -timeout 3600
-```
-
-如果设计状态空间明显较大，可以将 `-timeout` 继续提高到 7200 或更长。
+修改 YAML 并完成环境生成后调用 `RunFormal(action="run")`；`RunFormal(action="status")` 查看 5 分钟和 20 分钟快照。对超出预算的未解决属性先分析原因，再使用 `RunFormal(action="review", property_names=["完整属性名"], disposition="retry" 或 "defer", reason="具体分析", next_action="下一步")` 记录处置。暂缓是 UNPROVEN，不得视作 Pass。运行与处置契约见 `Guide_Doc/formal_execution.md`；证明仅通过 RunFormal 启动。
 
 ### 5. 完成后调用 Complete
 

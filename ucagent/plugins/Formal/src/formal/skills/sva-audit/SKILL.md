@@ -11,7 +11,7 @@ Markdown 排版契约：本技能生成、维护或展示的任何 Markdown 中�
 
 本阶段的唯一事实来源是 `.formal_records.yaml.analysis`，必要时会联动修正 `.formal_records.yaml.spec`。
 
-> **注意**：得益于自动化升级，Checker 在执行验证后已自动在 `.formal_records.yaml` 中为所有异常属性生成了 `[LLM-TODO]` 骨架。你不再需要手动运行初始化脚本。
+> **注意**：在调用 `RunFormal(action="run")`、等待 `RunFormal(action="status")` 显示结束，并对所有未解决属性完成 review 后，Checker 才会读取该批次机器证据并为异常属性建立分析骨架。Check/Complete 不会自行运行形式化证明。未证明属性不是 RTL Bug，也不是 Pass。
 
 执行说明：
 - 在本工作流中，请优先通过 `RunSkillScript` 调用技能脚本
@@ -61,7 +61,7 @@ python3 .ucagent/skills/ext/formal/sva-audit/scripts/update_analysis.py \
 
 ### 4. 增量更新 (可选)
 
-如果你修改了 SVA 代码或约束并重跑了验证，Checker 会自动检测新异常并追加骨架。若需手动触发同步，可运行：
+如果修改了 SVA 代码或约束，请调用 `RunFormal(action="run")` 为新输入生成一批机器证据，再调用 Check；Checker 只会针对已完成的当前输入解析异常并追加骨架。必要时可用下列脚本手动同步：
 
 ```bash
 python3 .ucagent/skills/ext/formal/sva-audit/scripts/env_analysis.py -mode update

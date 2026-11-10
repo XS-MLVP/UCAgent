@@ -15,13 +15,14 @@ description: 基于 basic_info.clock_reset 与 extra_config.tcl 渲染 wrapper/c
 核心规则：
 1. 禁止直接编辑 `tests/{DUT}_formal.tcl`
 2. 禁止直接编辑 `tests/{DUT}_wrapper.sv`
-3. 只能通过 `RunSkillScript` 调用 `update_extra_config.py` 修改 YAML
+3. 可使用 `RunSkillScript` 调用 `update_extra_config.py` 修改 YAML；未启用技能时用普通文件工具直接更新 YAML
 4. `formal.tcl`、`wrapper.sv`、`checker.sv` 都是派生产物，Checker 通过后系统会自动 full refresh 重建
 
 执行说明：
-- 在本工作流中，请优先通过 `RunSkillScript` 调用技能脚本
-- 不要假设宿主 `python3` 环境具备所有依赖
-- 当 YAML 或模板发生变化时，应以 full refresh 后的生成结果为准
+- 该技能仅帮助维护 YAML；技能不可用时可直接使用可用文件工具更新 `.formal_records.yaml`。
+- 使用 `RunFormal(action="run")` 启动当前输入的受管理证明；运行过程中用 `RunFormal(action="status")` 查询进展，不能依赖 Check 隐式启动证明。
+- 超时后的分析、retry/defer 与未证明缺口处理见 `Guide_Doc/formal_execution.md`。
+- 不要假设宿主 `python3` 环境具备所有依赖；当 YAML 或模板变化时，以正式生成结果为准。
 
 常用命令：
 
@@ -29,7 +30,7 @@ description: 基于 basic_info.clock_reset 与 extra_config.tcl 渲染 wrapper/c
 python3 .ucagent/skills/ext/formal/env-config/scripts/update_extra_config.py -action show
 python3 .ucagent/skills/ext/formal/env-config/scripts/update_extra_config.py -action set -path clock_reset.clock_signal -value "clk_i"
 python3 .ucagent/skills/ext/formal/env-config/scripts/update_extra_config.py -action set -path clock_reset.reset_signal -value "rst"
-python3 .ucagent/skills/ext/formal/env-config/scripts/update_extra_config.py -action append -path tcl.extra_commands -value '"set_prove_time_limit 3600"'
+python3 .ucagent/skills/ext/formal/env-config/scripts/update_extra_config.py -action append -path tcl.extra_commands -value '"set_opt -bfd on"'
 ```
 
 字段清单：

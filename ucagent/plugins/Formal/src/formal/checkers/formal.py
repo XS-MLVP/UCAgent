@@ -45,16 +45,15 @@ from ucagent.util.log import info, warning
 
 
 # Shared utilities – single source of truth
+from formal.execution import FormalExecution
 from formal.skills.lib.formal_paths import FormalPaths
 from formal.skills.lib.formal_tools import (
     parse_avis_log,
     extract_property_code,
     strip_prop_prefix,
     extract_property_details,
-    run_formal_verification,
     extract_rtl_bug_from_analysis_doc,
     extract_static_bugs,
-    summarize_execution,
     extract_python_test_functions,
     analyze_signal_coverage_usage,
     FormalStageContext,
@@ -77,10 +76,40 @@ from formal.skills.lib.formal_tools import (
 
 class BaseFormalChecker(Checker):
     """Base class for formal verification checkers."""
-    def __init__(self, dut_name, **kwargs):
+    def __init__(self, dut_name, cfg=None, **kwargs):
+        """Store the resolved configuration supplied by stage construction."""
         super().__init__()
+        self.cfg = cfg
         self.dut_name = dut_name
-        self.paths = FormalPaths(dut=dut_name)
+        self.paths = None
+
+    def _resolve_paths(self):
+        """Honor the final CLI/workflow OUT template value rather than process environment."""
+        values = self.cfg._temp_cfg if self.cfg.has_attr("_temp_cfg") else {}
+        if hasattr(values, "as_dict"):
+            values = values.as_dict()
+        output = values.get("OUT") or self.cfg.get_value("output", None) or "output"
+        return FormalPaths(dut=self.dut_name, out=output, workspace=self.workspace)
+
+    def on_init(self):
+        """Resolve the active output directory from the assembled workflow config."""
+        self.paths = self._resolve_paths()
+        return super().on_init()
+
+    def _execution(self) -> FormalExecution:
+        """Read the current Formal execution evidence using resolved config."""
+        if not getattr(self, "workspace", None) or not getattr(self, "cfg", None):
+            raise ValueError("Formal checker requires initialized workspace and configuration")
+        if self.paths is None or self.paths.workspace != self.workspace:
+            self.paths = self._resolve_paths()
+        return FormalExecution(
+            workspace=self.workspace,
+            output_dir=self.paths.out,
+            dut=self.dut_name,
+            cfg=self.cfg,
+            write_dirs=self.cfg.get_value("write_dirs", None),
+            un_write_dirs=self.cfg.get_value("un_write_dirs", None),
+        )
 
     def _pass(self, msg: str) -> tuple[bool, str]:
         return True, msg
@@ -88,47 +117,22 @@ class BaseFormalChecker(Checker):
     def _fail(self, err: str, details: str = "", suggestion: str = "") -> tuple[bool, dict]:
         return False, {"error": err, "details": details, "suggestion": suggestion}
 
-    def _ensure_tcl_executed(self, dep_paths: list, tcl_script_path: str, timeout: int = 300) -> tuple[bool, dict, bool]:
-        """
-        Ensures that the TCL script is re-executed if any dependency file
-        has uncommitted changes (detected via git dirty-file list).
-
-        When source files (checker.sv, wrapper.sv) are dirty, re-running the
-        EDA tool is mandatory and the log is guaranteed to be regenerated.
-
-        Returns: (is_success, error_result_or_none, was_executed)
-        """
-        need_rerun = False
-        rerun_reason = ""
-
-        # Check if any dependency file has uncommitted changes
-        try:
-            from ucagent.util import diff_ops
-            dirty_files = set(diff_ops.get_dirty_files(self.workspace))
-            for dep in dep_paths:
-                rel_dep = os.path.relpath(dep, self.workspace)
-                if rel_dep in dirty_files:
-                    need_rerun = True
-                    rerun_reason = f"{os.path.basename(dep)} has uncommitted changes"
-                    break
-        except (ValueError, Exception):
-            # Not a git repo or workspace not set — fallback: always rerun
-            need_rerun = True
-            rerun_reason = "Git status unavailable, running verification to be safe"
-
-        if need_rerun:
-            info(f"🚀 {rerun_reason}, executing TCL script...")
-            res = run_formal_verification(tcl_script_path, timeout, records_path=self.paths.records_yaml)
-            if not res["success"]:
-                return False, {
-                    "error": "❌ TCL script execution failed",
-                    "details": f"{res['error']}\n{summarize_execution(res.get('stdout', ''), res.get('stderr', ''))}",
-                    "suggestion": "Please check the TCL script, checker.sv, and wrapper.sv for syntax errors"
-                }, True
-                
-            info("✅ TCL execution successful, logs updated")
-            
-        return True, {}, need_rerun
+    def _require_execution(self) -> tuple[bool, dict]:
+        """Require current-input proof evidence without launching a proof from Check."""
+        passed, result = self._execution().check()
+        if not passed:
+            return False, {
+                "error_code": "formal_execution_pending",
+                "error": "Formal proof batch is not ready for analysis",
+                "details": result,
+                "next_action": (
+                    "Call RunFormal(action='run'), then RunFormal(action='status'). "
+                    "For unresolved properties call RunFormal(action='review', "
+                    "property_names=[...], disposition='defer' or 'retry', "
+                    "reason='...', next_action='...')."
+                ),
+            }
+        return True, result
 
 
 class PlanningStructureChecker(BaseFormalChecker):
@@ -376,29 +380,18 @@ class PropertyStructureChecker(BaseFormalChecker):
 
         # All CKs have implementation in YAML -> Trigger Rendering
         try:
-            import subprocess
-            env_script = os.path.join(
-                os.path.dirname(os.path.abspath(__file__)),
-                "..", "lang", "zh", "skills", "formal", "sva-gen",
-                "scripts", "generate_formal_env.py"
+            from formal.tools import render_environment
+            render_environment(
+                self.workspace, self.paths.out, self.dut_name,
+                write_dirs=self.cfg.get_value("write_dirs", None),
+                un_write_dirs=self.cfg.get_value("un_write_dirs", None),
             )
-            env_script = os.path.normpath(env_script)
-            if os.path.exists(env_script):
-                result = subprocess.run(
-                    ["python3", env_script, "--mode", "full"],
-                    capture_output=True, text=True,
-                    env={**os.environ, "DUT": self.dut_name},
-                    timeout=30,
-                )
-
-                if result.returncode == 0:
-                    info(f"Successfully rendered checker/wrapper artifacts from YAML.")
-                else:
-                    return self._fail(f"Render failed: {result.stderr[:200]}")
-            else:
-                return self._fail(f"Render script not found at {env_script}")
-        except Exception as e:
-            return self._fail(f"Error during rendering: {e}")
+        except Exception as exc:
+            return self._fail(
+                "Formal environment generation failed",
+                details=str(exc),
+                suggestion="Correct .formal_records.yaml and run Check again.",
+            )
 
         return self._pass(
             f"✅ All {ck_count} SVA properties implemented in YAML and rendered to SV files."
@@ -430,27 +423,18 @@ class ScriptGenerationChecker(BaseFormalChecker):
             )
 
         try:
-            import subprocess
-            env_script = os.path.join(
-                os.path.dirname(os.path.abspath(__file__)),
-                "..", "lang", "zh", "skills", "formal", "sva-gen",
-                "scripts", "generate_formal_env.py"
+            from formal.tools import render_environment
+            render_environment(
+                self.workspace, self.paths.out, self.dut_name,
+                write_dirs=self.cfg.get_value("write_dirs", None),
+                un_write_dirs=self.cfg.get_value("un_write_dirs", None),
             )
-            env_script = os.path.normpath(env_script)
-            result = subprocess.run(
-                ["python3", env_script, "--mode", "full"],
-                capture_output=True, text=True,
-                env={**os.environ, "DUT": self.dut_name},
-                timeout=30,
+        except Exception as exc:
+            return self._fail(
+                "Formal environment could not be rendered from current records",
+                details=str(exc),
+                suggestion="Correct .formal_records.yaml, then call RunFormal(action='run').",
             )
-            if result.returncode != 0:
-                return self._fail(
-                    "❌ Failed to render formal environment from YAML",
-                    details=result.stderr[:400] or result.stdout[:400],
-                    suggestion="Check basic_info/spec/extra_config.tcl fields in .formal_records.yaml.",
-                )
-        except Exception as e:
-            return self._fail(f"❌ Failed to render formal environment: {e}")
 
         # --- Step 1: TCL keyword check ---
         info("📝 Step 1/2: Checking TCL script keywords...")
@@ -474,38 +458,28 @@ class ScriptGenerationChecker(BaseFormalChecker):
             )
         info("✅ Step 1/2 Passed: TCL script keywords OK")
 
-        # --- Step 2: Execute formal verification ---
-        info("🚀 Step 2/2: Executing TCL script and validating...")
-        res = run_formal_verification(tcl_path, timeout,
-                                      on_start=lambda w: self.set_check_process(w, timeout),
-                                      records_path=self.paths.records_yaml)
-
-        if not res["success"]:
-            err = res.get("error", "Unknown error")
-            return self._fail(
-                "❌ Step 2/2 Failed: FormalMC execution did not produce results",
-                details=f"{err}\n{summarize_execution(res.get('stdout', ''), res.get('stderr', ''))}",
-                suggestion="Please check the TCL script, checker.sv, and wrapper.sv for syntax errors",
-            )
-
-        # Blackbox check
-        if res.get("blackbox_count", 0) > 0:
-            return self._fail(
-                f"Design contains {res['blackbox_count']} blackboxes which is not allowed for complete formal verification.",
-                details="Please modify your formal TCL script to ensure all RTL files are correctly included.",
-            )
-
-        # Log result analysis
-        parsed = res.get("parsed_log") or {}
-        failed_count = len(parsed.get("false", [])) + len(parsed.get("cover_fail", []))
-        if failed_count > 0:
-            return self._pass(
-                f"✅ Script generation checks passed. "
-                f"Verification completed, but {failed_count} properties failed. "
-                f"The next stage will involve analyzing these failures."
-            )
-
-        return self._pass("✅ Script generation checks passed. All properties passed.")
+        # An explicit RunFormal run owns proof execution and its auditable results.
+        passed, evidence = self._execution().check()
+        if not passed:
+            return False, {
+                "error": "Formal script is valid, but current-input proof evidence is incomplete",
+                "diagnostic": evidence,
+                "next_action": (
+                    "Call RunFormal(action='run'), inspect RunFormal(action='status'), "
+                    "and review unresolved properties before Complete."
+                ),
+            }
+        if evidence.get("proof_complete") is False:
+            return True, {
+                "message": "Formal proof batch is reviewed, but deferred properties remain UNPROVEN.",
+                "proof_complete": False,
+                "evidence": evidence,
+            }
+        return True, {
+            "message": "Formal script and current-input proof batch are verified.",
+            "proof_complete": evidence.get("proof_complete"),
+            "evidence": evidence,
+        }
 
 
 
@@ -656,11 +630,9 @@ class EnvironmentAnalysisChecker(BaseFormalChecker):
         wrapper_path = self.paths.wrapper
 
         # Step 0: Ensure TCL is executed (updates records.run_results)
-        exec_success, exec_result, was_rerun = self._ensure_tcl_executed(
-            [checker_path, wrapper_path], self.paths.tcl, timeout
-        )
+        exec_success, exec_result = self._require_execution()
         if not exec_success:
-            return self._fail(**exec_result)
+            return False, exec_result
 
         # Step 1: Load records (which now contains proactive run_results)
         records_path = self.paths.records_yaml
@@ -671,9 +643,13 @@ class EnvironmentAnalysisChecker(BaseFormalChecker):
         run_res = records.run_results
         tt_props = run_res.tt_properties
         all_fail = run_res.failing_properties
-        # Distinguish between failing asserts and failing covers
-        false_props = [p for p in all_fail if not (p.startswith("C_") or "COVER" in p.upper())]
-        cover_fail = [p for p in all_fail if (p.startswith("C_") or "COVER" in p.upper())]
+        if run_res.assert_failing_properties is None or run_res.cover_failing_properties is None:
+            return self._fail(
+                "Current Formal evidence has no assertion/cover classification",
+                suggestion="RunFormal(action='run') must produce typed current-input results before analysis.",
+            )
+        false_props = run_res.assert_failing_properties
+        cover_fail = run_res.cover_failing_properties
         
         # Reconstruct parsed log dict for downstream tools
         log_result_dict = {
@@ -849,12 +825,16 @@ class CoverageAnalysisChecker(BaseFormalChecker):
         fanin_path = coverage_report_path(self.paths.tests)
 
         # Step 1: Ensure TCL is executed if dependency files changed
-        exec_success, exec_result, was_rerun = self._ensure_tcl_executed(
-            [checker_path], self.paths.tcl, timeout
-        )
+        exec_success, exec_result = self._require_execution()
         if not exec_success:
-            exec_result["suggestion"] = "Please check checker.sv and wrapper.sv for syntax errors"
-            return self._fail(err=exec_result.get("error", ""), details=exec_result.get("details", ""), suggestion=exec_result.get("suggestion", ""))
+            return False, exec_result
+        if not exec_result.get("coverage_artifact"):
+            return False, {
+                "error_code": "formal_coverage_missing",
+                "error": "Current proof run did not produce a COI coverage report.",
+                "observed": {"run_id": exec_result.get("run_id"), "coverage_artifact": None},
+                "next_action": "Inspect RunFormal(action='status') report and rerun after fixing coverage generation.",
+            }
 
         # Step 2: Parse coverage via adapter
         info(f"🔍 Parsing COI coverage report...")
@@ -1198,7 +1178,14 @@ class FormalSummaryChecker(BaseFormalChecker):
     """Validates YAML-backed summary data and renders final summary markdown."""
 
     def do_check(self, timeout=0, **kwargs) -> tuple[bool, object]:
-        """Validate summary fields in .formal_records.yaml and render the final summary markdown."""
+        """Validate summary against current machine proof evidence and render it."""
+        evidence_ok, proof = self._execution().check()
+        if not evidence_ok:
+            return False, {
+                "error": "Summary needs current completed Formal proof evidence",
+                "diagnostic": proof,
+                "next_action": "Call RunFormal(action='run'), then review every unresolved property.",
+            }
         records = load_records(self.paths.records_yaml)
         if not records or not records.summary:
             return self._fail(
@@ -1217,6 +1204,10 @@ class FormalSummaryChecker(BaseFormalChecker):
         for key in ("safety", "liveness", "cover"):
             if not str((summary.get("completeness", {}) or {}).get(key, "")).strip():
                 errors.append(f"completeness.{key} is empty")
+        if proof.get("proof_complete") is False:
+            gap_text = f"{summary.get('overall_result', '')} {summary.get('acceptance_conclusion', '')}".upper()
+            if "UNPROVEN" not in gap_text:
+                errors.append("Deferred properties remain UNPROVEN; overall_result or acceptance_conclusion must disclose the validation gap")
 
         if errors:
             return self._fail(
@@ -1225,9 +1216,14 @@ class FormalSummaryChecker(BaseFormalChecker):
             )
 
         coverage = parse_coverage(self.paths.tests)
-        generate_summary_doc(records, self.paths.summary, coverage=coverage)
+        generate_summary_doc(records, self.paths.summary, coverage=coverage, machine=proof)
         info(f"Auto-generated summary doc: {self.paths.summary}")
-        return self._pass("✅ Summary section is complete and rendered.")
+        return True, {
+            "message": "Summary section rendered with current machine proof status.",
+            "proof_complete": proof.get("proof_complete"),
+            "deferred_total": proof.get("deferred_total", 0),
+            "evidence_report": proof.get("report"),
+        }
 
 
 

@@ -9,7 +9,7 @@ Markdown 排版契约：本技能生成、维护或展示的任何 Markdown 中�
 
 本技能用于维护 `.formal_records.yaml` 中的 `summary` 字段。
 
-本阶段的唯一事实来源是 `.formal_records.yaml.summary`。
+本阶段人工总结写入 `.formal_records.yaml.summary`；当前输入的证明状态、暂缓清单和不可变快照以 `RunFormal(action="status")` 报告为机器证据。暂缓仍为 UNPROVEN，不得描述为全部已证明。运行与处置见 `Guide_Doc/formal_execution.md`。
 
 核心规则：
 1. 禁止直接编辑 `05_{DUT}_formal_summary.md`

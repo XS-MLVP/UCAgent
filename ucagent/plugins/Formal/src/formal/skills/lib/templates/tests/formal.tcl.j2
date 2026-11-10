@@ -39,6 +39,7 @@ set_opt -time {{ extra_config.tcl.timeout | default(100000) if extra_config and 
 {{ cmd }}
 {%- endfor %}
 {%- endif %}
+# UCAGENT_PROOF_BEGIN
 prove
 
 # Report summary

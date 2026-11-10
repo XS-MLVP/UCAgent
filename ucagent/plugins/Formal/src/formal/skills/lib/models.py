@@ -1,3 +1,5 @@
+"""Canonical YAML models for Formal task inputs, typed results, and analysis."""
+
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Union, Any
 
@@ -38,6 +40,8 @@ class RunResults(BaseModel):
     stats: Dict[str, int]
     failing_properties: List[str]
     tt_properties: List[str]
+    assert_failing_properties: Optional[List[str]] = None
+    cover_failing_properties: Optional[List[str]] = None
     uncovered_signals: List[str] = []
     iteration_history: List[IterationEntry] = []
 

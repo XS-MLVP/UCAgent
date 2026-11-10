@@ -8,7 +8,24 @@
 - **被测模块**: {{ DUT }}
 - **核心功能**: {{ summary.core_function or "" }}
 - **工具引擎**: FormalMC
-- **测试结果**: {{ summary.overall_result or "" }}
+- **测试结果（人工分析）**: {{ summary.overall_result or "" }}
+
+## 当前输入机器证明状态
+
+- **证明结论全部已判定**: {{ "是" if machine.proof_complete else "否；存在未证明属性" }}
+- **已证明**: {{ machine.counts.PROVEN or 0 }}
+- **反例**: {{ machine.counts.FALSIFIED or 0 }}
+- **过约束/空泛通过**: {{ machine.counts.TRIVIALLY_TRUE or 0 }}
+- **未证明**: {{ machine.counts.UNPROVEN or 0 }}
+- **暂缓**: {{ machine.deferred_total or 0 }}（仍为 UNPROVEN，不计入已证明）
+- **机器证据报告**: `{{ machine.report or "未生成" }}`
+
+{% if machine.deferred_properties %}
+**暂缓清单（仅展示部分；以机器证据报告为准）**：
+{% for item in machine.deferred_properties %}
+- `{{ item }}`：未证明，需按记录中的条件恢复验证。
+{% endfor %}
+{% endif %}
 
 ## 2. 断言与属性统计
 

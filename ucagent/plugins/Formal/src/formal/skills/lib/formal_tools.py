@@ -5,12 +5,10 @@ Merges utilities, parsing, execution and stage context.
 import os
 import re
 import shutil
-import subprocess
 import yaml
 import time
 import hashlib
 from typing import Dict, List, Optional, Tuple, Set, Union
-import psutil
 
 from ucagent.util.log import str_error, str_info, warning, info
 from ucagent.util import diff_ops, functions as fc
@@ -25,7 +23,6 @@ __all__ = [
     "tool_display_name",
     "log_filename",
     "coverage_report_path",
-    "build_formal_command",
     "required_script_commands",
     "parse_avis_log",
     "validate_log_has_results",
@@ -33,14 +30,11 @@ __all__ = [
     "parse_coverage",
     "extract_rtl_bug_from_analysis_doc",
     "extract_python_test_functions",
-    "run_formal_command_sync",
     "strip_prop_prefix",
     "extract_property_code",
     "extract_property_details",
     "extract_static_bugs",
     "analyze_signal_coverage_usage",
-    "run_formal_verification",
-    "summarize_execution",
     "backup_if_exists",
     "FormalStageContext",
     # YAML-based utilities
@@ -80,9 +74,6 @@ def log_filename() -> str:
 def coverage_report_path(tests_dir: str) -> Optional[str]:
     return os.path.join(tests_dir, "avis", "fanin.rep")
 
-def build_formal_command(tcl_path: str, exec_dir: str) -> List[str]:
-    return ["FormalMC", "-f", tcl_path, "-override", "-work_dir", exec_dir]
-
 def required_script_commands() -> List[str]:
     return ["read_design", "prove", "def_clk", "def_rst"]
 
@@ -94,6 +85,8 @@ def backup_if_exists(filepath: str) -> None:
     if os.path.exists(filepath): shutil.copy2(filepath, filepath + ".bak")
 
 def strip_prop_prefix(prop_name: str) -> str:
+    """Match generated CK names against hierarchical FormalMC property names."""
+    prop_name = prop_name.rsplit(".", 1)[-1]
     for prefix in ("A_CK_", "M_CK_", "C_CK_", "CK_", "A_", "M_", "C_"):
         if prop_name.startswith(prefix): return prop_name[len(prefix):]
     return prop_name
@@ -106,41 +99,8 @@ def get_file_hash(filepath: str) -> str:
     return sha256.hexdigest()
 
 # =============================================================================
-# Execution & Subprocess
+# Execution results projection (managed by RunFormal)
 # =============================================================================
-
-def _terminate_process_tree(proc: subprocess.Popen, timeout: int = 5) -> None:
-    try:
-        parent = psutil.Process(proc.pid)
-        children = parent.children(recursive=True)
-        for child in children:
-            try: child.terminate()
-            except psutil.NoSuchProcess: pass
-        try: parent.terminate()
-        except psutil.NoSuchProcess: pass
-        gone, alive = psutil.wait_procs(children + [parent], timeout=timeout)
-        for p in alive:
-            try: p.kill()
-            except psutil.NoSuchProcess: pass
-    except psutil.NoSuchProcess: pass
-    except Exception:
-        try: proc.kill()
-        except Exception: pass
-
-def run_formal_command_sync(cmd: List[str], exec_dir: str, timeout: int = 300, on_start=None) -> Tuple[bool, str, str, str]:
-    stdout_log, stderr_log = "", ""
-    try:
-        worker = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=exec_dir)
-        if on_start: on_start(worker)
-        try: stdout_log, stderr_log = worker.communicate(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            _terminate_process_tree(worker, timeout=5)
-            stdout_log, stderr_log = worker.communicate()
-            return False, stdout_log, stderr_log, f"Timeout after {timeout} seconds"
-        if worker.returncode != 0: return False, stdout_log, stderr_log, f"Return code {worker.returncode}"
-        return True, stdout_log, stderr_log, ""
-    except FileNotFoundError: return False, "", "", f"Command '{cmd[0]}' not found"
-    except Exception as e: return False, "", "", f"Execution error: {e}"
 
 def update_records_run_results(records: FormalRecords, log_result: dict, log_path: str) -> None:
     stats = {"pass_count": len(log_result.get("pass", [])), "tt_count": len(log_result.get("trivially_true", [])), "fail_count": len(log_result.get("false", [])), "cover_pass_count": len(log_result.get("cover_pass", [])), "cover_fail_count": len(log_result.get("cover_fail", []))}
@@ -153,32 +113,6 @@ def update_records_run_results(records: FormalRecords, log_result: dict, log_pat
         records.run_results.iteration_history.append(iteration)
     else:
         records.run_results = RunResults(timestamp=timestamp, log_hash=get_file_hash(log_path), stats=stats, failing_properties=log_result.get("false", []) + log_result.get("cover_fail", []), tt_properties=log_result.get("trivially_true", []), iteration_history=[iteration])
-
-def run_formal_verification(tcl_path: str, timeout: int = 300, on_start=None, records_path: str = None) -> dict:
-    exec_dir = os.path.dirname(tcl_path)
-    log_path = os.path.join(exec_dir, log_filename())
-    cmd = build_formal_command(tcl_path, exec_dir)
-    success, stdout, stderr, err_msg = run_formal_command_sync(cmd, exec_dir, timeout, on_start)
-    if not success: return {"success": False, "error": err_msg, "log_path": log_path, "parsed_log": None, "blackbox_count": 0, "has_results": False, "stdout": stdout, "stderr": stderr}
-    if not os.path.exists(log_path): return {"success": False, "error": "Log not generated", "log_path": log_path, "stdout": stdout, "stderr": stderr}
-    with open(log_path, 'r', encoding='utf-8', errors='ignore') as f: log_content = f.read()
-    blackbox_count, has_results = extract_blackbox_count(log_content), validate_log_has_results(log_content)
-    parsed_log = parse_avis_log(log_path) if has_results else None
-    if records_path and parsed_log:
-        try:
-            records = load_records(records_path)
-            if records: update_records_run_results(records, parsed_log, log_path); save_records(records_path, records); info(f"📊 Proactively updated run_results in {os.path.basename(records_path)}")
-        except Exception as e: warning(f"Failed to proactively update records: {e}")
-    return {"success": has_results, "error": None if has_results else "No valid results in log", "log_path": log_path, "parsed_log": parsed_log, "blackbox_count": blackbox_count, "has_results": has_results, "stdout": stdout, "stderr": stderr}
-
-def summarize_execution(stdout: str, stderr: str, max_chars: int = 1500) -> str:
-    def trunc(txt: str) -> str:
-        if not txt or len(txt) <= max_chars: return txt
-        return txt[:max_chars//2] + "\n\n... [TRUNCATED] ...\n\n" + txt[-max_chars//2:]
-    res = []
-    if stderr: res.append(f"--- STDERR ---\n{trunc(stderr)}")
-    if stdout and "Return code" not in stdout: res.append(f"--- STDOUT ---\n{trunc(stdout)}")
-    return "\n".join(res) if res else "(empty)"
 
 # =============================================================================
 # EDA Tool Parsing
@@ -613,7 +547,8 @@ def generate_bug_report_doc(records: FormalRecords, op: str) -> None:
     }
     _render_to_file("bug_report.md", context, op)
 
-def generate_summary_doc(records: FormalRecords, op: str, coverage: Optional[dict] = None) -> None:
+def generate_summary_doc(records: FormalRecords, op: str, coverage: Optional[dict] = None, machine: Optional[dict] = None) -> None:
+    """Render the task summary together with current machine proof completeness."""
     stats = {
         "assume_total": 0,
         "sva_total": 0,
@@ -640,8 +575,6 @@ def generate_summary_doc(records: FormalRecords, op: str, coverage: Optional[dic
         stats["assert_fail"] = rs.get("fail_count", 0)
         stats["assert_tt"] = rs.get("tt_count", 0)
         stats["cover_pass"] = rs.get("cover_pass_count", 0)
-    if records.summary and isinstance(records.summary.get("stats_override"), dict):
-        stats.update(records.summary["stats_override"])
 
     cov = coverage or {"nets": {}, "dffs": {}}
     cov_ctx = {
@@ -664,6 +597,7 @@ def generate_summary_doc(records: FormalRecords, op: str, coverage: Optional[dic
     context = {
         "DUT": records.dut,
         "summary": summary,
+        "machine": machine or {},
     }
     _render_to_file("formal_summary.md", context, op)
 
@@ -806,12 +740,31 @@ def incremental_merge_checker(records: FormalRecords, sv_path: str, port_info: O
 # Stage Context
 # =============================================================================
 
-class FormalStageContext:
-    """Caches parsed verification data and shares it across checkers."""
+class FormalStageContext(dict):
+    """Caches parsed verification data and shares it across checkers.
+
+    继承 dict：stage manager 持久化时（save_stage_info -> save_ucagent_info）
+    会把 smanager_set_value 存入的数据整体 JSON 序列化；普通对象会触发
+    TypeError（Data provided is not JSON serializable），使所有 Check/Complete
+    在协调器收尾持久化阶段失败。属性读写统一代理到 dict 项，保证内存状态
+    与序列化视图一致；历史遗留的非序列化实例在进程重启后由 get_or_create
+    自动重建为可序列化实例。
+    """
     _SMANAGER_KEY = "_formal_stage_context"
     def __init__(self, workspace: str = None):
-        self._checker_cache = {}
+        super().__init__()
         self._workspace = workspace
+        self._checker_cache = {}
+
+    def __getattr__(self, name):
+        # 仅在常规属性查找失败时触发：把属性访问映射到等名 dict 项。
+        try:
+            return self[name]
+        except KeyError:
+            raise AttributeError(name)
+
+    def __setattr__(self, name, value):
+        self[name] = value
 
     @classmethod
     def get_or_create(cls, ci, *_args):
