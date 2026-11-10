@@ -2976,80 +2976,71 @@ def match_pattern_list(name: str, pattern_list: list) -> bool:
     return False
 
 
+def _remove_sync_node(path):
+    """Remove one destination node without following a symbolic link."""
+    if stat.S_ISDIR(os.lstat(path).st_mode):
+        shutil.rmtree(path)
+    else:
+        os.unlink(path)
+
+
 def sync_dir_to(
     source_dir,
     target_dir,
     ignore_pattern_list=None,
     _relative_root="",
 ):
-    """Sync source directory to target directory with incremental updates and deletion support.
+    """Incrementally sync a file tree, preserving symlink text without visiting targets.
 
-    Args:
-        source_dir: Source directory path
-        target_dir: Target directory path
-        ignore_pattern_list: Basename or source-relative POSIX path patterns to ignore
-        _relative_root: Internal source-relative recursion prefix
-
-    Returns:
-        target_dir: The target directory path
-
-    Features:
-        - Only copies files if they don't exist in target or have newer modification time
-        - Removes files/directories in target that don't exist in source
-        - Recursively syncs subdirectories
+    Roots must be separate real directories. Ignore patterns match basenames or
+    source-relative POSIX paths. Regular files copy on newer mtime or changed permissions;
+    links are compared by target text. Removed and type-changed nodes are replaced
+    without following destination links. Special source nodes fail explicitly.
     """
     ignore_pattern_list = list(ignore_pattern_list or [])
-    if not os.path.exists(source_dir):
-        raise Exception(f"Source directory '{source_dir}' does not exist.")
-    if not os.path.isdir(source_dir):
-        raise Exception(f"Source path '{source_dir}' is not a directory.")
-    if not os.path.exists(target_dir):
-        os.makedirs(target_dir)
-    # Track items in source (excluding ignored ones)
+    source_root = os.path.abspath(source_dir)
+    target_root = os.path.abspath(target_dir)
+    if os.path.realpath(source_root) != source_root or not os.path.isdir(source_root):
+        raise ValueError(f"Source must be a real directory without symlink ancestors: {source_dir}")
+    if os.path.realpath(target_root) != target_root:
+        raise ValueError(f"Target must not have symlink ancestors: {target_dir}")
+    common = os.path.commonpath([source_root, target_root])
+    if common in (source_root, target_root):
+        raise ValueError("Source and target directories must not overlap")
+    os.makedirs(target_dir, exist_ok=True)
     source_items = set()
-    # Sync items from source to target
     for item in os.listdir(source_dir):
         relative_item = "/".join(part for part in (_relative_root, item) if part)
-        if match_pattern_list(item, ignore_pattern_list) or match_pattern_list(
-            relative_item, ignore_pattern_list
-        ):
+        if match_pattern_list(item, ignore_pattern_list) or match_pattern_list(relative_item, ignore_pattern_list):
             continue
         source_items.add(item)
-        s = os.path.join(source_dir, item)
-        d = os.path.join(target_dir, item)
-        if os.path.isdir(s):
-            # Recursively sync subdirectories
-            sync_dir_to(s, d, ignore_pattern_list, relative_item)
-        else:
-            # Check if file needs to be copied
-            need_copy = False
-            if not os.path.exists(d):
-                need_copy = True
-                info(f"New file to copy: {item}")
-            else:
-                # Compare modification times
-                source_mtime = os.path.getmtime(s)
-                target_mtime = os.path.getmtime(d)
-                if source_mtime > target_mtime:
-                    need_copy = True
-                    info(f"Updated file to copy: {item}")
-            if need_copy:
-                shutil.copy2(s, d)
-    # Remove items in target that don't exist in source
+        source = os.path.join(source_dir, item)
+        target = os.path.join(target_dir, item)
+        source_mode = os.lstat(source).st_mode
+        if not (stat.S_ISREG(source_mode) or stat.S_ISDIR(source_mode) or stat.S_ISLNK(source_mode)):
+            raise ValueError(f"Unsupported source node: {source}")
+        target_mode = os.lstat(target).st_mode if os.path.lexists(target) else None
+        same_type = target_mode is not None and stat.S_IFMT(source_mode) == stat.S_IFMT(target_mode)
+        if target_mode is not None and not same_type:
+            _remove_sync_node(target)
+        # Link identity is its text, including dangling, external and cyclic links.
+        if stat.S_ISLNK(source_mode):
+            link_text = os.readlink(source)
+            if not same_type or os.readlink(target) != link_text:
+                if same_type:
+                    os.unlink(target)
+                os.symlink(link_text, target)
+        elif stat.S_ISDIR(source_mode):
+            sync_dir_to(source, target, ignore_pattern_list, relative_item)
+        elif (not same_type or os.path.getmtime(source) > os.path.getmtime(target)
+              or (source_mode ^ target_mode) & 0o7777):
+            shutil.copy2(source, target, follow_symlinks=False)
     for item in os.listdir(target_dir):
         relative_item = "/".join(part for part in (_relative_root, item) if part)
-        if match_pattern_list(item, ignore_pattern_list) or match_pattern_list(
-            relative_item, ignore_pattern_list
-        ):
+        if match_pattern_list(item, ignore_pattern_list) or match_pattern_list(relative_item, ignore_pattern_list):
             continue
         if item not in source_items:
-            d = os.path.join(target_dir, item)
-            if os.path.isdir(d):
-                shutil.rmtree(d)
-                info(f"Removed directory from target: {item}")
-            else:
-                os.remove(d)
-                info(f"Removed file from target: {item}")
+            _remove_sync_node(os.path.join(target_dir, item))
     return target_dir
 
 def copy_skill_files(cfg, workspace, root_dir, plugin_skill_paths=None):
