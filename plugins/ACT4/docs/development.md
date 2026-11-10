@@ -24,26 +24,35 @@ checker 短名注册、manual 路径配置和静态规范引用；生成器独�
 `act4_privileged_suite` 私有导入/路径及 `ACT4_MANUAL_ROOT`，允许 ACT4 原生输入。
 UCAgent 版本下限采用实际测试的 `26.9.2.dev25`。
 
-`workflows/extension-review.yaml` 提供 5 阶段已有资产审查，新增 `ACT4ReviewChecker` 管理
-冻结基线、审查契约、真实命令证据、人工授权范围、候选差异与最终补丁；复用
+`workflows/extension-review.yaml` 提供审查、修复两个阶段，`ACT4ReviewChecker` 管理
+冻结基线、审查契约、真实命令证据、声明的修复范围、候选差异与最终补丁；复用
 `ACT4AssetChecker` 和现有 SV/assembly 分析，不使用仅允许新 suite 的 manifest 门禁。
 初审允许资产检查或 CI 失败，门禁要求报告完整、真实并保留限制。修复在候选副本进行；
 输入 checkout 通过文件工具写入白名单保护，并在每次 Check 检查内容、模式、HEAD 及子模块。
 工作流只将 Guide_Doc 配置为 `un_write_dirs`，避免核心初始化的 chmod 改动输入模式；
 `write_dirs` 只允许输出目录。外部 shell/MCP 仍须遵守只读输入约定，边界不是 OS 沙箱。
 
-授权采用真正的 `need_human_check`，摘要绑定 baseline、scope、review 和初审证据。
-`Check` 不签发授权；`Complete` 后的 stage completion callback 才记录控制器状态。
-修复检查同时确认该阶段已完成、未跳过及匹配的摘要；恢复会话从 stage_data 读取授权，
-不从 agent 可编写的 `authorization.json` 或 `approved` 字段推断许可。
+`review_audit` 合并范围盘点、基线冻结与完整审查；首次 Check 在 scope.yaml 之前也可运行，
+先生成受状态摘要保护的 environment.json，探测 Questa/VCS/Xcelium 的可执行文件及最小
+SystemVerilog covergroup 编译/仿真。每条探测命令超时 20 秒，普通 Check 复用结果；
+refresh_tools 仅允许在 audit 显式重探测，并使已有原生命令证据失效。有 scope 时继续冻结基线，Complete
+仍要求真实命令证据及完整 review.yaml。`review_repair` 依次运行 repair、final 两个 gate，
+准备 candidate、校验声明路径和复验结果，并要求最终报告后才能完成。
+流程自动推进，恢复会话沿用基线、证据指纹及 candidate 状态。信息不足的 finding 可标为
+deferred/not_fixed，但须记录分类、诊断进度、带精确引文的调查动作、具体 blocker、责任方和最终风险；
+需要用户输入时单独写具体请求及为何只能由用户提供。dismissed 表示经证据排除的疑点，不计为修复。
+修复提案只能关联 confirmed_defect/repair_ready；fixed 仍要求实际修改、
+关联验证通过和当前语义复核。更新修复计划时重新校验报告，执行输入变化时重新取证。
 规范示例见独立运行指南，避免在生成工作流文档中复制另一套契约。
 
 原生命令在独立本地 Git clone 中运行，包含冻结的 dirty 源码及初始化子模块，无共享
 hardlinks；生成文件不反写 baseline/candidate。每项命令记录 argv、cwd、退出码、日志和
 产物摘要。后续 Check 使用绑定源码/矩阵的缓存，只有显式 `run_commands: true` 才重跑。
-矩阵通过 `needs` 排序并传播前置失败；每个 target 声明 environment lane，工具探测失败时
-运行声明的安装命令并复验。安装只使用输出下的 tools 目录，Questa/VCS 缺介质/许可证时
-保留实测日志与恢复动作。build 依赖 generation，执行依赖同 target 的非空 ELF 构建产物，
+矩阵通过 `needs` 排序并传播前置失败；每个 target 声明 environment lane，公开工具探测失败时
+运行声明的安装命令并复验。安装只使用输出下的 tools 目录。商业工具以 optional_tool 声明，
+不提供安装流程；不可用时只跳过依赖它的可选 job，必要 job 不得依赖可选 job。
+可选 lane 未执行时完整 ci_passed 仍为 false，报告独立计算必要验证结果，允许如实完成审查。
+build 依赖 generation，执行依赖同 target 的非空 ELF 构建产物，
 模型结果按原生格式核对通过数等于输入 ELF 数；零测试、空产物和 signature-only 结果均失败。
 日志、产物和候选内容变化会使证据失效。静态结果与 measured coverage 分开，通用门禁
 只能核验 coverage 产物来源，具体 bins/义务等价仍需 AI 与人类结合原生产物审查。
@@ -55,16 +64,28 @@ cross default-bin/bitwalk 结构检查，
 规范输入通过 `scope.reference_files` 单独冻结并核对原件；这些设置仅在 review 中启用，
 不更改共享 checker 的实现、默认参数或生成工作流的门禁。
 
-主 Agent 必须完成 `semantic_review`：机器证据列出八类主题、逐 coverpoint/cross、静态诊断、
-条件疑点和字节重复候选；每项给出推理、结论、置信度及可验证的原文引用。门禁校验任务完整性、
+机器从所有声明的计划/规范文本生成最多 80 行的 obligation_sources/source 任务，独立于
+coverage/testgen 是否存在。Agent 从这些区块提取 obligations，建立目标、覆盖点与实现的
+正向映射；缺口必须关联 finding，排除必须说明理由。此划分是阅读完整性约束，不是 ISA 语义解析器，
+不能证明未声明的来源已经找到，也不能机械证明每条义务已被正确解释。修复后保留原义务 ID 和
+已删除计划的基线来源，防止通过删计划消除待审查项。shared_assets 单列消费者及审查边界。
+
+主 Agent 必须完成 `semantic_review`：机器证据列出八类主题、来源、共享依赖、逐 coverpoint/cross、静态诊断、
+条件疑点和字节重复候选，另逐项审查 obligation/finding；每项给出推理、结论、置信度及可验证的原文引用。
+静态诊断另有 asset_defect/scanner_limitation/scope_mismatch/unresolved 分类，原始静态结果保持不变。
+门禁校验任务完整性、
 输入摘要、行号/引文、关联 finding 和结论一致性，不宣称能机械证明推理正确。
 修复后以 after 证据复核全部任务、原 finding 和变更文件，未解决的判断进入最终风险。
 完整运行契约及示例集中在 `Guide_Doc/ACT4_Extension_Review_Guide.md`。
 
+final.md 先呈现摘要、按问题性质和处置状态统计的结果、调查与未修复原因、用户请求，随后
+列出验证限制；前后原生命令表及日志放在可展开详情中，完整结构化证据链接到 YAML/JSON。
+扫描告警数与确认缺陷数分开，空补丁或可选 coverage 缺失不再掩盖实际完成的审查。
+
 本工作流不主动启用核心 `check_pass_refinement` 独立 LLM 复核：核心当前在建议生成异常时
 会将阶段标为 approved（`ucagent/stage/vmanager.py` 的 `gen_pass_suggestion`），不宜将它
 作为强制语义门禁。采用主 Agent 的结构化审查，不增加第二套模型 API 配置，也不把 schema
-校验当成独立模型已审查的证明。真正的人工摘要授权继续独立生效。
+校验当成独立模型已审查的证明。
 
 manual 路径由工作流的 `template_overwrite.ACT4_MANUAL_ROOT` 提供，加载 YAML 时解析
 `ACT4_MANUAL_ROOT` 环境变量，再由 UCAgent 模板系统统一渲染进提示和 checker 参数。
@@ -119,16 +140,16 @@ generator API/拆分/独立性、VM scope、testcase 可达性、ELF/签名、�
 和最终报告；测试不等价于真实套件的编译、参考模型执行或 coverage 命中。
 正式 ACT4 生成和模拟执行需按 README 准备真实依赖并另行运行。
 
-`test_act4_review_checker.py` 覆盖真实 Complete 的等待/拒绝/摘要匹配、审批完成回调、
-已批准/未完成审批的重启恢复、两种 Skill 设置，以及初审失败仍可交付报告的语义。
+`test_act4_review_checker.py` 覆盖两个阶段的真实 Complete、自动修复及重启恢复、两种
+Skill 设置，以及初审失败、信息不足或无需修改时仍可交付报告的语义。
 合成 CI 命令用于验证非零退出、缺工具、超时、缺产物及陈旧产物不得冒充成功；另测
-源码/基线/报告/日志/产物漂移、越权路径、新 coverage 资产、完整追踪和最终处置。
+源码/基线/日志/产物漂移、未声明路径、新 coverage 资产、完整追踪和最终处置。
 同时覆盖缺失/初始化子模块、dirty 子模块输入、越界路径与符号链接，以及布尔/数值等
 不能冒充文本说明或证据列表的格式边界。
 环境和依赖测试覆盖已安装时跳过安装、安装/版本复验失败、缺商业许可、依赖循环/未知 ID、
 缺 ELF 自动先构建、无效 ELF 阻塞执行，以及原生结果为空/失败/数量不符和安装证据漂移。
 review 专属回归覆盖失败/超时诊断保留、截断和省略标记、诊断篡改及越界、未跟踪/忽略资产
-进入原生 lint 索引、说明修改复用证据但使授权失效，以及精简报告中的 ELF/模型计数。
+进入原生 lint 索引、说明修改复用证据并继续修复，以及精简报告中的 ELF/模型计数。
 显式重新执行仍运行完整矩阵，诊断片段不能代替 coverage 证据或覆盖 ELF 输入。
 语义审查回归还覆盖格式错误与逐点/重复/条件任务发现、缺失/重复任务、伪造引用与行号、
 规范快照漂移、陈旧 digest、无依据的通过/修复声明和 after 复核；完整指南示例也执行这些门禁。

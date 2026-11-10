@@ -6,7 +6,8 @@
 分别取证；插件通过不代表真实 DUT 验证或架构认证。
 
 已有 extension 使用独立的 `extension-review` 工作流：全面检查资产、输出审查与优化方案、
-等待人类批准、修复候选副本并复验，最后交付完整报告和补丁。该流程支持按现有仓库布局
+直接修复有充分依据的问题并复验，最后交付完整报告和补丁。缺少必要信息的问题保留
+未修复原因及后续动作，不强行修改。该流程支持按现有仓库布局
 审查 privileged/unprivileged 资产，原始 ACT4 checkout 始终保持不变。
 
 ```bash
@@ -16,12 +17,13 @@ ucagent "$ACT4_WORKSPACE" H \
   --output act4_review --backend langchain --tui
 ```
 
-先按下文准备独立 checkout（保留要审查的已有资产）和只读规范库。进入人工审批阶段后，
-在 UCAgent 控制台执行 `hmcheck_pass <authorization.json 中的 digest>`，再继续 agent；
-未批准、拒绝或方案变化时均不能开始修复。输出位于 `act4_review/H/review/`，包括
-`review.md`、`final.md`、前后验证证据及 `changes.patch`。完整字段和审批操作见
+先按下文准备独立 checkout（保留要审查的已有资产）和只读规范库。工作流按审查、修复
+两个阶段自动推进，在修复阶段完成复验及最终报告。输出位于 `act4_review/H/review/`，包括
+`review.md`、`final.md`、前后验证证据及 `changes.patch`。完整字段和执行步骤见
 [已有资产审查指南](src/act4_privileged_suite/Guide_Doc/ACT4_Extension_Review_Guide.md)。
-本地原生命令验证不等同于远端 CI 已通过；工具缺失和未覆盖项会保留在报告中。
+审查从规范/测试计划建立义务清单，并反查覆盖点与测试生成实现。Questa/VCS/Xcelium 在开始时
+探测且均为可选；缺失不妨碍独立验证和报告交付。最终报告先说明发现、修复、遗留原因及所需协助，
+再提供完整证据。本地原生命令验证不等同于远端 CI 已通过。
 
 ## 1. 安装
 
