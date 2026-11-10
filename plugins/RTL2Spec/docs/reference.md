@@ -33,6 +33,35 @@
 
 启动器使用当前 Python 环境执行原有 `ucagent` CLI，固定启用 `--no-history` 和 `--mcp-server-no-file-tools`，使新任务从第一阶段开始并通过 UCAgent 工具读写文件。配置文件放在输入目录之外，避免被作为 DUT 源码捕获；它与工作区可以分别存放。
 
+## FM-Agent 管理
+
+通过以下命令分别管理源码、依赖和本地路径。fetch 和 install 会显示操作提醒并请求确认；使用 `-y` 或 `--yes` 可跳过询问。非交互运行需提供该选项。一键脚本同样接受并传递该选项。
+
+| 命令 | 参数与行为 |
+| --- | --- |
+| `rtl2spec fmagent fetch` | `--fmagent-root`、`--repo`、`--branch`；默认获取 `https://github.com/fmagent-project/FM-Agent` 的 `main` 到插件 `third_party/FM-Agent`，已有有效 checkout 仅复用，不更新、安装或绑定 |
+| `rtl2spec fmagent install` | `--fmagent-root`；要求已有源码，调用其 `bash install.sh` 准备 `root/.venv`，可显式透传 `--with-dsh`、`--with-erlang`、`--with-chisel` |
+| `rtl2spec fmagent bind` | `--fmagent-root`、`--fmagent-python`；仅保存路径，可绑定尚未准备依赖的源码并提醒；缺源码报错 |
+| `rtl2spec fmagent status` | `--fmagent-root`、`--fmagent-python`；显示路径及来源，本地短时检查源码、解释器、Python 导入和原生配置 |
+
+`status` 就绪返回 0，环境未就绪返回 1，参数/本地 TOML 错误返回 2。它不验证模型凭据或外部工具是否可执行。fetch 的来源/分支差异只作本地提醒：默认目录按默认值或显式值比较，自定义目录仅比较显式值；不修改 remote、切换分支或清理用户改动。开发来源可显式选 `--repo https://github.com/n3sRan/FM-Agent --branch feat/chip-only-spec`，不固定提交、不登记 submodule。
+
+管理命令（独立 `bind` 除外）和 `--init` 共用路径选择：**显式参数 > 进程环境 > 插件本地 TOML > 默认值**。环境变量为 `RTL2SPEC_FMAGENT_ROOT`、`RTL2SPEC_FMAGENT_PYTHON`；不读取任何 `.env` 来选择这些路径。路径支持 `~` 和相对路径并转为绝对路径，空字符串按未提供处理。Python 默认选定 root 下的 `.venv/bin/python`，只能由 root 同层或更高层的 Python 覆盖；例如环境 root 不继承 TOML Python，显式 root 不继承环境 Python。
+
+绑定文件固定为保留的插件源码根目录 `rtl2spec.local.toml`，不依赖当前目录，也不使用 HOME 全局注册表：
+
+```toml
+[fmagent]
+root = "/absolute/path/to/FM-Agent"
+python = "/absolute/path/to/FM-Agent/.venv/bin/python"
+```
+
+独立 `bind` 按 **显式参数 > 本地 TOML > 默认值** 选择保存目标，不读取临时 `RTL2SPEC_FMAGENT_*`；root/python 仍按同层配对。它只更新两个路径字段，保留其他表、字段和注释，不修改 shell 配置或任务 YAML；进程环境仍可临时覆盖保存值并显示提醒。损坏 TOML 需要修正，或在路径选择时同时显式指定 root/python 绕过；bind 不能覆盖无法解析的文件。管理功能要求从保留的本地目录普通或 editable 安装，不支持独立 wheel；删除原来源后需重新从本地源码安装。
+
+源码 `scripts/install.sh` 先用 `--python` 指定的 Python（默认 `python3`，需含 pip）安装插件声明依赖，再用同一环境顺序执行 fetch/install/bind。可用 `--skip-fetch`、`--skip-install`、`--skip-bind` 跳过对应动作；三个全跳过时只装插件。脚本支持 `--fmagent-root`、`--fmagent-python`、`--repo`、`--branch`，其中 `--fmagent-python` 要求 `--skip-install`，用于绑定已有解释器。跳过 fetch 时，install/bind 要求已有源码。脚本显示本次选定的路径，安装成功后保存 root 和其 `.venv/bin/python`；跳过安装时保存选定的已有解释器。使用 `--skip-bind` 可保持原绑定。失败时保留已完成步骤。原生安装的网络及用户工具/配置影响按 FM-Agent 文档处理。
+
+`--init generic/xiangshan` 可使用 `--fmagent-root`、`--fmagent-python` 将有效绝对路径写入新 YAML 的顶层 `fmagent` 表，其他模板字段保持，已有文件不覆盖。环境未就绪仍可导出并提醒准备；后续 bind/export 不改已生成的 YAML。路径选项仅用于 init，不覆盖 `--config` 任务。
+
 ## 后端配置
 
 在启动 YAML 中修改 `backend.key_name` 并添加该后端所需的 UCAgent 配置。使用其他后端时，先配置并验证同等权限限制；后端权限验证方法见[开发与验证](development.md#开发与验证)。
