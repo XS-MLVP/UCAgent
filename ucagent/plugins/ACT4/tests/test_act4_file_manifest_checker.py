@@ -182,11 +182,11 @@ def test_local_asset_cannot_be_relabelled_as_act4_contribution(tmp_path):
     (".py", "from act4_privileged_suite.checkers import load_contract"),
     (".py", 'from pathlib import Path\np = Path("out/artifact.txt")\np.read_text()'),
     (".py", 'import os\nos.getenv("ITGEN_WORKSPACE")'),
-    (".svh", '`include "../../../unity_test/H/local.svh"'),
+    (".svh", '`include "../../../unit_test/H/local.svh"'),
     (".svh", '`include "out/artifact.txt"'),
     (".svh", 'initial $readmemh("out/artifact.txt", data);'),
     (".adoc", 'include::out/artifact.txt[]'),
-    (".adoc", 'image::unity_test/H/chart.png[]'),
+    (".adoc", 'image::unit_test/H/chart.png[]'),
 ])
 def test_final_gate_rejects_explicit_local_dependencies(tmp_path, suffix, content):
     manifest = _manifest(tmp_path)
@@ -220,17 +220,17 @@ def test_local_helpers_comments_native_inputs_and_source_dependencies_are_allowe
     manifest = _manifest(tmp_path)
     # Internal scripts may read contracts. Only the declared PR set is checked.
     helper = tmp_path / "out/artifact.txt"
-    helper.write_text('import itgen\nopen("unity_test/H/H_vm_resource_contract.yaml")')
+    helper.write_text('import itgen\nopen("unit_test/H/H_vm_resource_contract.yaml")')
     manifest["files"][0]["sha256_after"] = _sha(helper)
     _add_contribution(tmp_path, manifest, "riscv-arch-test/coverpoints/priv/data.svh", "// native source")
     _add_contribution(tmp_path, manifest, "riscv-arch-test/coverpoints/priv/H.svh", '''
 // `include "out/artifact.txt"
-/* `include "unity_test/H/local.svh" */
+/* `include "unit_test/H/local.svh" */
 `include "data.svh"
 `include "coverage/RISCV_coverage.svh"
 ''')
     _add_contribution(tmp_path, manifest, "riscv-arch-test/coverpoints/priv/H.py", '''
-"""See unity_test/H/H_vm_resource_contract.yaml for local review history."""
+"""See unit_test/H/H_vm_resource_contract.yaml for local review history."""
 from pathlib import Path
 from testgen.priv.registry import add_priv_test_generator
 Path("testplans/H.csv").read_text()

@@ -114,7 +114,7 @@ stage:
 return False, {
     "error_code": "DOCUMENT_TOO_SHORT",
     "error": "the document contains 450 words; at least 500 are required",
-    "artifact": "unity_test/Adder_analysis.md",
+    "artifact": "unit_test/Adder_analysis.md",
     "observed": {"word_count": 450},
     "expected": {"minimum_word_count": 500},
     "next_action": "add at least 50 words of relevant content, then call Check",

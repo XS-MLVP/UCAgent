@@ -17,10 +17,7 @@ if loaded_ucagent is not None and not loaded_ucagent_path.startswith(repo_packag
         if module_name == "ucagent" or module_name.startswith("ucagent."):
             del sys.modules[module_name]
 
-from ucagent.interfaces.server.api_cmd import (
-    _sub_mission_name_from_info,
-    _sub_workspace_lifecycle_from_info,
-)
+from ucagent.runtime.workspace.queries import mission_name, workspace_lifecycle
 
 
 def test_complete_summary_uses_saved_mission_name(tmp_path):
@@ -28,29 +25,29 @@ def test_complete_summary_uses_saved_mission_name(tmp_path):
     workspace.mkdir()
 
     assert (
-        _sub_mission_name_from_info(str(workspace), {"mission_name": "Formal Mission"})
+        mission_name(str(workspace), {"mission_name": "Formal Mission"})
         == "Formal Mission"
     )
     assert (
-        _sub_mission_name_from_info(str(workspace), {"mission": {"name": "Dict Mission"}})
+        mission_name(str(workspace), {"mission": {"name": "Dict Mission"}})
         == "Dict Mission"
     )
-    assert _sub_mission_name_from_info(str(workspace), {}) == "sub-workspace"
+    assert mission_name(str(workspace), {}) == "sub-workspace"
 
 
 def test_complete_summary_marks_explicit_exit_as_exited():
-    assert _sub_workspace_lifecycle_from_info({"is_agent_exit": True}) == "exited"
+    assert workspace_lifecycle({"is_agent_exit": True}) == "exited"
     assert (
-        _sub_workspace_lifecycle_from_info(
+        workspace_lifecycle(
             {"is_agent_exit": True, "all_completed": True}
         )
         == "completed"
     )
     assert (
-        _sub_workspace_lifecycle_from_info(
+        workspace_lifecycle(
             {"is_wait_human_check": True, "all_completed": False}
         )
         == "waiting"
     )
-    assert _sub_workspace_lifecycle_from_info({"all_completed": True}) == "completed"
-    assert _sub_workspace_lifecycle_from_info({}) == "running"
+    assert workspace_lifecycle({"all_completed": True}) == "completed"
+    assert workspace_lifecycle({}) == "running"

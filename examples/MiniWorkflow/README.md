@@ -28,14 +28,14 @@ make run ARGS="--mcp-server --backend=codex"
 
 | 阶段 | 产物（相对于工作区 `output/`） | 验收 |
 | --- | --- | --- |
-| `analyze_project` | `unity_test/Calculator_analysis.md` | 500–2000 字、Markdown 格式 |
-| `generate_documentation` | `unity_test/Calculator_documentation.md` | 800–3000 字、四个必需章节、Markdown 格式 |
+| `analyze_project` | `unit_test/Calculator_analysis.md` | 500–2000 字、Markdown 格式 |
+| `generate_documentation` | `unit_test/Calculator_documentation.md` | 800–3000 字、四个必需章节、Markdown 格式 |
 
 字数按中文字符和英文单词统计。所有内容须基于 Calculator README；通过 `Check` 后记录阶段日志，再调用 `Complete` 推进。
 
 ```bash
-cat output/unity_test/Calculator_analysis.md
-cat output/unity_test/Calculator_documentation.md
+cat output/unit_test/Calculator_analysis.md
+cat output/unit_test/Calculator_documentation.md
 ```
 
 ## 修改入口

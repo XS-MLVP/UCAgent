@@ -14,7 +14,7 @@ import subprocess
 import tempfile
 from typing import Any
 from ucagent.core.checkers.base import Checker
-from unity_test.checkers.unity_test import (
+from unit_test.checkers.unit_test import (
     BaseUnityChipCheckerTestCase,
     UnityChipCheckerCoverageGroup,
     UnityChipCheckerCoverageGroupBatchImplementation,
@@ -22,7 +22,7 @@ from unity_test.checkers.unity_test import (
     UnityChipCheckerLabelStructure,
     UnityChipCheckerTestCase,
 )
-from unity_test.checkers import (
+from unit_test.checkers import (
     UnityChipCheckerBatchTestsImplementation,
     UnityChipCheckerLabelStructureRefine,
     UnityChipCheckerMarkdownFileFormat,
@@ -31,7 +31,7 @@ from unity_test.checkers import (
     UnityChipCheckerTestMustPass,
     UnityChipCheckerTestTemplate,
 )
-from unity_test.checkers.toffee_report import check_line_coverage
+from unit_test.checkers.toffee_report import check_line_coverage
 
 from ucagent.util.log import warning as log_warning
 from ..contracts import (
@@ -90,7 +90,7 @@ from .test_quality import (
     _api_assertion_quality_violations,
 )
 from . import runtime  # qualified so tests patch one runtime module
-from unity_test.test_report import check_has_assert_in_tc, is_run_report_pass
+from unit_test.test_report import check_has_assert_in_tc, is_run_report_pass
 
 
 class RTLLineCoverageChecker(UnityChipCheckerTestCaseWithLineCoverage):

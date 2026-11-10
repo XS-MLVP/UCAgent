@@ -15,7 +15,7 @@ uvicorn[standard]>=0.42.0
 aiohttp>=3.13.5,<4
 docker>=7.1.0
 kubernetes>=33.1.0
-# UnityTest default-workflow runtime dependencies: the plugin ships as
+# UnitTest default-workflow runtime dependencies: the plugin ships as
 # framework package data, so its toffee test substrate and waveform reader
 # install with the framework itself (装框架=能跑默认工作流).
 pytoffee@git+https://gitlink.org.cn/XS-MLVP/toffee@master

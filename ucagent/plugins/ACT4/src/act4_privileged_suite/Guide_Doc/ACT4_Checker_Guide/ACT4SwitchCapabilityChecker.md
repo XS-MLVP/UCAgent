@@ -52,7 +52,7 @@
 检查 required_by/evidence 及配置指定的能力名；`_validate_audited_sources()` 验证证据结构。
 `do_check()` 对照 decision_summary 与 baseline 中声明的 HEAD，不查询实际 Git HEAD。
 
-路径存在性只识别以 `riscv-arch-test/` 或 `unity_test/` 开头的部分文本，
+路径存在性只识别以 `riscv-arch-test/` 或 `unit_test/` 开头的部分文本，
 即使 verify_audited_source_paths=true，也不代表所有绝对路径、其他前缀或行号都验证过。
 当前 03/04/05 要求 reference_model_executable、signature_self_checking_execution、
 sail_rvvi_coverage_backend 三项 capability；01 没有该固定名称列表。

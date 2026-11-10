@@ -11,13 +11,13 @@
 
 ## 工作区与输出目录
 
-`workspace` 是本次任务允许操作的工程目录；`--output` 是其中的产物目录名，默认 `unity_test`。例如：
+`workspace` 是本次任务允许操作的工程目录；`--output` 是其中的产物目录名，默认 `unit_test`。例如：
 
 ```text
 output/                     # 启动时传入的 workspace
 ├── Adder/                  # DUT 包、源码和需求
 ├── Guide_Doc/              # 运行时指导文档
-├── unity_test/             # 当前工作流生成的文档和测试
+├── unit_test/             # 当前工作流生成的文档和测试
 ├── uc_test_report/         # 实际运行测试后生成的报告
 └── .ucagent/               # 运行配置与任务状态
 ```
@@ -28,7 +28,7 @@ output/                     # 启动时传入的 workspace
 
 工作流是一组有顺序的阶段。每个阶段规定任务、参考文件、预期输出和 Checker。Agent 使用工具完成任务，再调用 `Check` 查看验收结果；调用 `Complete` 通过最终检查和适用门禁后，才能推进到下一阶段。
 
-框架提示与默认配置在 `ucagent/core/locales/zh.yaml`，其 `workflow` 指针指向默认中文 UT 工作流（已插件化，位于 `ucagent/plugins/UnityTest`）；Formal、Vibe、Increment 等也已插件化（`ucagent/plugins/Formal` 与 `ucagent/plugins/UnityTest` 内的兄弟工作流），经 `--plugin-workflow` 选用。自定义流程通过 `--config <file>` 加载，无需修改框架或额外注册。具体配置方法见[工作流配置](../03_develop/03_workflow.md)。
+框架提示与默认配置在 `ucagent/core/locales/zh.yaml`，其 `workflow` 指针指向默认中文 UT 工作流（已插件化，位于 `ucagent/plugins/UnitTest`）；Formal、Vibe、Increment 等也已插件化（`ucagent/plugins/Formal` 与 `ucagent/plugins/UnitTest` 内的兄弟工作流），经 `--plugin-workflow` 选用。自定义流程通过 `--config <file>` 加载，无需修改框架或额外注册。具体配置方法见[工作流配置](../03_develop/03_workflow.md)。
 
 ## 配置与启动入口
 

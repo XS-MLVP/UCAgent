@@ -245,8 +245,8 @@
         "tests/test_verify_pdb_runtime.py",
         "ucagent/core/backends/cmdline.py",
         "ucagent/__main__.py",
-        "ucagent/plugins/UnityTest/src/unity_test/checkers/recorder.py",
-        "ucagent/plugins/UnityTest/tests/test_recorder.py",
+        "ucagent/plugins/UnitTest/src/unit_test/checkers/recorder.py",
+        "ucagent/plugins/UnitTest/tests/test_recorder.py",
         "ucagent/runtime/services.py",
         "ucagent/interfaces/server/__init__.py",
         "ucagent/interfaces/server/api_cmd/server.py",
@@ -462,20 +462,20 @@
     "B08": {
       "planned_new_tests": [
         "tests/test_plugin_commands.py",
-        "ucagent/plugins/UnityTest/tests/test_waveform_replay_operation.py"
+        "ucagent/plugins/UnitTest/tests/test_waveform_replay_operation.py"
       ],
       "status": "agent_verified_pass",
       "test_execution": "235 passed; 54 passed",
       "implemented_files": [
         "ucagent/core/plugins.py",
-        "ucagent/plugins/UnityTest/src/unity_test/plugin.py",
-        "ucagent/plugins/UnityTest/src/unity_test/operations/waveform_replay.py",
-        "ucagent/plugins/UnityTest/tests/test_waveform_replay_operation.py",
+        "ucagent/plugins/UnitTest/src/unit_test/plugin.py",
+        "ucagent/plugins/UnitTest/src/unit_test/operations/waveform_replay.py",
+        "ucagent/plugins/UnitTest/tests/test_waveform_replay_operation.py",
         "tests/test_plugin_commands.py"
       ],
       "removed_legacy_symbol_references": [
         {
-          "file": "ucagent/plugins/UnityTest/tests/test_toffee_report_waveform_analysis.py",
+          "file": "ucagent/plugins/UnitTest/tests/test_toffee_report_waveform_analysis.py",
           "symbol": "do_waveform_replay"
         }
       ]
@@ -2520,17 +2520,17 @@
       "source_kind": "method",
       "disposition": "preserve",
       "canonical_name": "waveform_replay",
-      "owner": "ucagent/plugins/UnityTest/src/unity_test/operations/waveform_replay.py",
+      "owner": "ucagent/plugins/UnitTest/src/unit_test/operations/waveform_replay.py",
       "batch": "B08",
       "target_tests": [
-        "ucagent/plugins/UnityTest/tests/test_waveform_replay_operation.py"
+        "ucagent/plugins/UnitTest/tests/test_waveform_replay_operation.py"
       ],
       "entrypoints": [
         "console",
         "tui",
         "http_commands"
       ],
-      "contract": "Preserve classification, evidence replay, bounded reanalysis and record invalidation in UnityTest.",
+      "contract": "Preserve classification, evidence replay, bounded reanalysis and record invalidation in UnitTest.",
       "symbol_reference_files": []
     }
   ],
@@ -4296,7 +4296,7 @@
       "review_scope": "inspect_command_usage"
     },
     {
-      "path": "ucagent/plugins/UnityTest/src/unity_test/checkers/file_markdown.py",
+      "path": "ucagent/plugins/UnitTest/src/unit_test/checkers/file_markdown.py",
       "markers": [
         "business_command"
       ],
@@ -4307,7 +4307,7 @@
       "review_scope": "inspect_command_usage"
     },
     {
-      "path": "ucagent/plugins/UnityTest/src/unity_test/checkers/recorder.py",
+      "path": "ucagent/plugins/UnitTest/src/unit_test/checkers/recorder.py",
       "markers": [
         "pdb_attribute",
         "pdb_mention"
@@ -4319,7 +4319,7 @@
       "review_scope": "migrate_dependency_or_documentation"
     },
     {
-      "path": "ucagent/plugins/UnityTest/src/unity_test/checkers/static_bug.py",
+      "path": "ucagent/plugins/UnitTest/src/unit_test/checkers/static_bug.py",
       "markers": [
         "business_command"
       ],
@@ -4330,7 +4330,7 @@
       "review_scope": "inspect_command_usage"
     },
     {
-      "path": "ucagent/plugins/UnityTest/src/unity_test/checkers/toffee_report.py",
+      "path": "ucagent/plugins/UnitTest/src/unit_test/checkers/toffee_report.py",
       "markers": [
         "business_command"
       ],
@@ -4341,7 +4341,7 @@
       "review_scope": "inspect_command_usage"
     },
     {
-      "path": "ucagent/plugins/UnityTest/src/unity_test/waveform.py",
+      "path": "ucagent/plugins/UnitTest/src/unit_test/waveform.py",
       "markers": [
         "business_command"
       ],
@@ -4352,7 +4352,7 @@
       "review_scope": "inspect_command_usage"
     },
     {
-      "path": "ucagent/plugins/UnityTest/tests/test_recorder.py",
+      "path": "ucagent/plugins/UnitTest/tests/test_recorder.py",
       "markers": [
         "pdb_mention",
         "pdb_service"
@@ -4364,7 +4364,7 @@
       "review_scope": "migrate_dependency_or_documentation"
     },
     {
-      "path": "ucagent/plugins/UnityTest/tests/test_toffee_report_waveform_analysis.py",
+      "path": "ucagent/plugins/UnitTest/tests/test_toffee_report_waveform_analysis.py",
       "markers": [
         "pdb_type",
         "pdb_mention",
@@ -4840,7 +4840,7 @@
       "review_scope": "inspect_command_usage"
     },
     {
-      "path": "ucagent/plugins/UnityTest/src/unity_test/plugin.py",
+      "path": "ucagent/plugins/UnitTest/src/unit_test/plugin.py",
       "markers": [
         "business_command"
       ],
@@ -4851,7 +4851,7 @@
       "review_scope": "inspect_command_usage"
     },
     {
-      "path": "ucagent/plugins/UnityTest/src/unity_test/operations/waveform_replay.py",
+      "path": "ucagent/plugins/UnitTest/src/unit_test/operations/waveform_replay.py",
       "markers": [
         "business_command"
       ],
@@ -4862,7 +4862,7 @@
       "review_scope": "inspect_command_usage"
     },
     {
-      "path": "ucagent/plugins/UnityTest/tests/test_waveform_replay_operation.py",
+      "path": "ucagent/plugins/UnitTest/tests/test_waveform_replay_operation.py",
       "markers": [
         "business_command"
       ],
@@ -5038,6 +5038,53 @@
       ],
       "kind": "source_or_configuration",
       "review_scope": "migrate_dependency_or_documentation"
+    },
+    {
+      "path": "tests/test_workspace_history.py",
+      "markers": [
+        "business_command"
+      ],
+      "batches": [
+        "B01",
+        "B03",
+        "B06"
+      ],
+      "kind": "test",
+      "review_scope": "inspect_command_usage"
+    },
+    {
+      "path": "ucagent/core/stage/history.py",
+      "markers": [
+        "business_command"
+      ],
+      "batches": [
+        "B03"
+      ],
+      "kind": "production",
+      "review_scope": "inspect_command_usage"
+    },
+    {
+      "path": "ucagent/interfaces/server/api_cmd/stage_routes.py",
+      "markers": [
+        "business_command"
+      ],
+      "batches": [
+        "B06"
+      ],
+      "kind": "production",
+      "review_scope": "inspect_command_usage"
+    },
+    {
+      "path": "ucagent/runtime/workspace/queries.py",
+      "markers": [
+        "business_command"
+      ],
+      "batches": [
+        "B03",
+        "B06"
+      ],
+      "kind": "production",
+      "review_scope": "inspect_command_usage"
     }
   ],
   "test_migrations": [
@@ -5871,7 +5918,7 @@
           ],
           "disposition": "move",
           "batch": "B08",
-          "target_file": "ucagent/plugins/UnityTest/tests/test_waveform_replay_operation.py",
+          "target_file": "ucagent/plugins/UnitTest/tests/test_waveform_replay_operation.py",
           "contract": "Original classification, reanalysis, invalidation and evidence assertions now invoke the plugin operation directly."
         }
       ],
@@ -6086,87 +6133,87 @@
           "test": "test_swarm_launch_does_not_force_human_check"
         },
         "test_waveform_replay_runs_full_classification_then_strict_gate": {
-          "file": "ucagent/plugins/UnityTest/tests/test_waveform_replay_operation.py",
+          "file": "ucagent/plugins/UnitTest/tests/test_waveform_replay_operation.py",
           "test": "test_waveform_replay_runs_full_classification_then_strict_gate"
         },
         "test_waveform_replay_rejects_invalid_timeout": {
-          "file": "ucagent/plugins/UnityTest/tests/test_waveform_replay_operation.py",
+          "file": "ucagent/plugins/UnitTest/tests/test_waveform_replay_operation.py",
           "test": "test_waveform_replay_rejects_invalid_timeout"
         },
         "test_waveform_replay_rejects_missing_or_ambiguous_gates": {
-          "file": "ucagent/plugins/UnityTest/tests/test_waveform_replay_operation.py",
+          "file": "ucagent/plugins/UnitTest/tests/test_waveform_replay_operation.py",
           "test": "test_waveform_replay_rejects_missing_or_ambiguous_gates"
         },
         "test_waveform_replay_requires_matching_preceding_classification": {
-          "file": "ucagent/plugins/UnityTest/tests/test_waveform_replay_operation.py",
+          "file": "ucagent/plugins/UnitTest/tests/test_waveform_replay_operation.py",
           "test": "test_waveform_replay_requires_matching_preceding_classification"
         },
         "test_waveform_replay_requires_evidence_tools": {
-          "file": "ucagent/plugins/UnityTest/tests/test_waveform_replay_operation.py",
+          "file": "ucagent/plugins/UnitTest/tests/test_waveform_replay_operation.py",
           "test": "test_waveform_replay_requires_evidence_tools"
         },
         "test_waveform_replay_preserves_test_failure_diagnostic": {
-          "file": "ucagent/plugins/UnityTest/tests/test_waveform_replay_operation.py",
+          "file": "ucagent/plugins/UnitTest/tests/test_waveform_replay_operation.py",
           "test": "test_waveform_replay_preserves_test_failure_diagnostic"
         },
         "test_waveform_replay_preserves_complete_batch_review_diagnostic": {
-          "file": "ucagent/plugins/UnityTest/tests/test_waveform_replay_operation.py",
+          "file": "ucagent/plugins/UnitTest/tests/test_waveform_replay_operation.py",
           "test": "test_waveform_replay_preserves_complete_batch_review_diagnostic"
         },
         "test_waveform_replay_reports_exception_and_cancellation_context": {
-          "file": "ucagent/plugins/UnityTest/tests/test_waveform_replay_operation.py",
+          "file": "ucagent/plugins/UnitTest/tests/test_waveform_replay_operation.py",
           "test": "test_waveform_replay_reports_exception_and_cancellation_context"
         },
         "test_waveform_replay_rejects_an_active_check": {
-          "file": "ucagent/plugins/UnityTest/tests/test_waveform_replay_operation.py",
+          "file": "ucagent/plugins/UnitTest/tests/test_waveform_replay_operation.py",
           "test": "test_waveform_replay_rejects_an_active_check"
         },
         "test_waveform_replay_cancels_running_test_process": {
-          "file": "ucagent/plugins/UnityTest/tests/test_waveform_replay_operation.py",
+          "file": "ucagent/plugins/UnitTest/tests/test_waveform_replay_operation.py",
           "test": "test_waveform_replay_cancels_running_test_process"
         },
         "test_waveform_replay_reanalyzes_failures_and_revalidates": {
-          "file": "ucagent/plugins/UnityTest/tests/test_waveform_replay_operation.py",
+          "file": "ucagent/plugins/UnitTest/tests/test_waveform_replay_operation.py",
           "test": "test_waveform_replay_reanalyzes_failures_and_revalidates"
         },
         "test_waveform_replay_reanalysis_requires_opt_in_and_an_actual_failure": {
-          "file": "ucagent/plugins/UnityTest/tests/test_waveform_replay_operation.py",
+          "file": "ucagent/plugins/UnitTest/tests/test_waveform_replay_operation.py",
           "test": "test_waveform_replay_reanalysis_requires_opt_in_and_an_actual_failure"
         },
         "test_waveform_replay_rejects_invalid_reanalysis_arguments": {
-          "file": "ucagent/plugins/UnityTest/tests/test_waveform_replay_operation.py",
+          "file": "ucagent/plugins/UnitTest/tests/test_waveform_replay_operation.py",
           "test": "test_waveform_replay_rejects_invalid_reanalysis_arguments"
         },
         "test_waveform_replay_reanalysis_limit_cannot_be_bypassed_by_llm_claims": {
-          "file": "ucagent/plugins/UnityTest/tests/test_waveform_replay_operation.py",
+          "file": "ucagent/plugins/UnitTest/tests/test_waveform_replay_operation.py",
           "test": "test_waveform_replay_reanalysis_limit_cannot_be_bypassed_by_llm_claims"
         },
         "test_waveform_replay_reanalysis_rejects_unavailable_backend": {
-          "file": "ucagent/plugins/UnityTest/tests/test_waveform_replay_operation.py",
+          "file": "ucagent/plugins/UnitTest/tests/test_waveform_replay_operation.py",
           "test": "test_waveform_replay_reanalysis_rejects_unavailable_backend"
         },
         "test_waveform_replay_rejects_model_work_before_running_tests": {
-          "file": "ucagent/plugins/UnityTest/tests/test_waveform_replay_operation.py",
+          "file": "ucagent/plugins/UnitTest/tests/test_waveform_replay_operation.py",
           "test": "test_waveform_replay_rejects_model_work_before_running_tests"
         },
         "test_waveform_replay_guards_stage_tools_and_restores_state": {
-          "file": "ucagent/plugins/UnityTest/tests/test_waveform_replay_operation.py",
+          "file": "ucagent/plugins/UnitTest/tests/test_waveform_replay_operation.py",
           "test": "test_waveform_replay_guards_stage_tools_and_restores_state"
         },
         "test_waveform_replay_rejects_overlapping_command": {
-          "file": "ucagent/plugins/UnityTest/tests/test_waveform_replay_operation.py",
+          "file": "ucagent/plugins/UnitTest/tests/test_waveform_replay_operation.py",
           "test": "test_waveform_replay_rejects_overlapping_command"
         },
         "test_waveform_replay_invalidates_recorded_bugs_after_reanalysis_edits": {
-          "file": "ucagent/plugins/UnityTest/tests/test_waveform_replay_operation.py",
+          "file": "ucagent/plugins/UnitTest/tests/test_waveform_replay_operation.py",
           "test": "test_waveform_replay_invalidates_recorded_bugs_after_reanalysis_edits"
         },
         "test_waveform_replay_invalidates_recorded_bugs_after_automatic_refresh": {
-          "file": "ucagent/plugins/UnityTest/tests/test_waveform_replay_operation.py",
+          "file": "ucagent/plugins/UnitTest/tests/test_waveform_replay_operation.py",
           "test": "test_waveform_replay_invalidates_recorded_bugs_after_automatic_refresh"
         },
         "test_waveform_replay_reanalysis_requires_current_static_links": {
-          "file": "ucagent/plugins/UnityTest/tests/test_waveform_replay_operation.py",
+          "file": "ucagent/plugins/UnitTest/tests/test_waveform_replay_operation.py",
           "test": "test_waveform_replay_reanalysis_requires_current_static_links"
         }
       }
@@ -6212,13 +6259,13 @@
       ]
     },
     {
-      "source_file": "ucagent/plugins/UnityTest/tests/test_recorder.py",
+      "source_file": "ucagent/plugins/UnitTest/tests/test_recorder.py",
       "coverage": "all_test_functions",
       "groups": [
         {
           "disposition": "retain",
           "batch": "B04",
-          "target_file": "ucagent/plugins/UnityTest/tests/test_recorder.py",
+          "target_file": "ucagent/plugins/UnitTest/tests/test_recorder.py",
           "contract": "Preserve generic record publication, stage completion and Master transport; inject the Master connection interface.",
           "tests": [
             "test_bug_recorder_normalizes_and_caches_bug_list",
@@ -6280,13 +6327,13 @@
       ]
     },
     {
-      "source_file": "ucagent/plugins/UnityTest/tests/test_toffee_report_waveform_analysis.py",
+      "source_file": "ucagent/plugins/UnitTest/tests/test_toffee_report_waveform_analysis.py",
       "coverage": "all_test_functions",
       "groups": [
         {
           "disposition": "retain",
           "batch": "B08",
-          "target_file": "ucagent/plugins/UnityTest/tests/test_toffee_report_waveform_analysis.py",
+          "target_file": "ucagent/plugins/UnitTest/tests/test_toffee_report_waveform_analysis.py",
           "contract": "Retain domain assertions; update dependency wiring only when its caller changes.",
           "tests": [
             "test_check_report_accepts_receipt_without_replaying_updated_waveform",
@@ -6387,7 +6434,7 @@
         {
           "disposition": "move",
           "batch": "B08",
-          "target_file": "ucagent/plugins/UnityTest/tests/test_waveform_replay_operation.py",
+          "target_file": "ucagent/plugins/UnitTest/tests/test_waveform_replay_operation.py",
           "contract": "Keep real classification and signed evidence/shared-finding assertions while invoking the plugin operation directly.",
           "tests": [
             "test_plugin_waveform_replay_uses_real_classification_and_signed_evidence",
@@ -6433,11 +6480,11 @@
   ],
   "additional_connections": [
     {
-      "file": "ucagent/plugins/UnityTest/src/unity_test/checkers/recorder.py",
+      "file": "ucagent/plugins/UnitTest/src/unit_test/checkers/recorder.py",
       "batch": "B04",
       "contract": "Record publication reads master clients through agent.pdb; inject the same connection interface used for workspace synchronization.",
       "tests": [
-        "ucagent/plugins/UnityTest/tests/test_recorder.py"
+        "ucagent/plugins/UnitTest/tests/test_recorder.py"
       ]
     },
     {

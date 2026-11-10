@@ -43,7 +43,7 @@ class TestConfigLoader(unittest.TestCase):
         self.assertEqual(config["un_write_dirs"], ["{DUT}", "{GUIDE_DOC}"])
         self.assertEqual(config["write_dirs"], ["{OUT}"])
 
-    def test_unitytest_workflows_carve_out_simulator_artifacts(self):
+    def test_unittest_workflows_carve_out_simulator_artifacts(self):
         """Simulator artifacts and waveform metadata stay writable inside protected DUTs."""
 
         workflow_dir = os.path.join(
@@ -51,16 +51,16 @@ class TestConfigLoader(unittest.TestCase):
             "..",
             "ucagent",
             "plugins",
-            "UnityTest",
+            "UnitTest",
             "src",
-            "unity_test",
+            "unit_test",
             "workflows",
         )
         simulator_write_dirs = [
             "{OUT}", "{DUT}/**/*.vdb", "{DUT}/**/*.fsdb", "{DUT}/**/*.fsdb.json",
             "{DUT}/**/*.vpd", "{DUT}/**/*.usdb", "{DUT}/**/*.usdb.json",
         ]
-        for name in ("unitytest.yaml", "incremental.yaml", "vibe.yaml"):
+        for name in ("unittest.yaml", "incremental.yaml", "vibe.yaml"):
             workflow_config = load_yaml_with_env_vars(os.path.join(workflow_dir, name))
             self.assertEqual(workflow_config["write_dirs"], simulator_write_dirs, name)
 
@@ -116,7 +116,14 @@ class TestConfigLoader(unittest.TestCase):
         import fcntl
         from ucagent.util.functions import chmode_ro_by_pattern
 
-        config = load_yaml_with_env_vars(os.path.join(current_dir, "..", "ucagent", "setting.yaml"))
+        framework = load_yaml_with_env_vars(os.path.join(current_dir, "..", "ucagent", "setting.yaml"))
+        workflow = load_yaml_with_env_vars(
+            os.path.join(
+                current_dir,
+                "..", "ucagent", "plugins", "UnitTest", "src", "unit_test",
+                "workflows", "unittest.yaml",
+            )
+        )
         values = {"DUT": "Adder", "OUT": "out", "GUIDE_DOC": "Guide_Doc"}
         protected = [entry.format(**values) for entry in config["un_write_dirs"]]
         writable = [entry.format(**values) for entry in config["write_dirs"]]
@@ -149,11 +156,11 @@ class TestConfigLoader(unittest.TestCase):
             "..",
             "ucagent",
             "plugins",
-            "UnityTest",
+            "UnitTest",
             "src",
-            "unity_test",
+            "unit_test",
             "workflows",
-            "unitytest.yaml",
+            "unittest.yaml",
         )
         config_data = load_yaml_with_env_vars(config_path)
 
@@ -190,9 +197,9 @@ class TestConfigLoader(unittest.TestCase):
             "..",
             "ucagent",
             "plugins",
-            "UnityTest",
+            "UnitTest",
             "src",
-            "unity_test",
+            "unit_test",
             "presets",
             "labeled_spec.yaml",
         )
@@ -260,7 +267,7 @@ class TestConfigLoader(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temp_dir:
             framework_file = os.path.join(temp_dir, "default.yaml")
-            workflow_file = os.path.join(temp_dir, "unitytest.yaml")
+            workflow_file = os.path.join(temp_dir, "unittest.yaml")
             override_file = os.path.join(temp_dir, "override.yaml")
             with open(framework_file, "w", encoding="utf-8") as handle:
                 handle.write(

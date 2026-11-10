@@ -16,6 +16,8 @@ from ucagent.util.file_policy import write_entry_has_wildcards
 from ucagent.util.config import Config
 from ucagent.util.functions import list_files_by_mtime
 from ucagent.version import __version__
+from ucagent.runtime.workspace.access import WorkspaceAccess
+from ucagent.runtime.workspace.queries import WorkspaceQueries
 
 
 class ControlError(Exception):
@@ -52,6 +54,8 @@ class Controller:
         """Reference domain owners without starting services, models or terminals."""
         self.agent = agent
         self.workspace = Path(agent.workspace).resolve()
+        self.workspace_access = WorkspaceAccess(str(self.workspace))
+        self.workspace_queries = WorkspaceQueries(self.workspace_access)
         self.operations = None
 
     def _operation_owner(self):
@@ -243,8 +247,15 @@ class Controller:
         """Read mission details or a selected stage without modifying its state."""
         if index is None:
             return public_data(self.agent.stage_manager.detail())
-        return {"is_current": index == self.agent.stage_manager.stage_index,
-                "detail": public_data(self._stage(index).public_detail())}
+        stage = self._stage(index)
+        detail = public_data(stage.public_detail())
+        extra = {"journal": stage.meta_get_journal(), "StageJournal": stage.meta_get_journal(),
+                 "last_do_check_info": stage.get_last_do_check_info(),
+                 "llm_suggestions": {"pass": stage.meta_get_llm_pass_suggestion(),
+                                     "fail": stage.meta_get_llm_fail_suggestion()}}
+        detail.update(public_data(extra))
+        return {"is_current": stage is self.agent.stage_manager.get_current_stage(),
+                "detail": detail, **public_data(extra)}
 
     def current_tips(self):
         """Read stage tips; never call the agent's prompt-consuming tips method."""

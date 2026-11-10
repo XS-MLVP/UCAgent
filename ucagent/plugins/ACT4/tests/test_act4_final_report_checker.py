@@ -7,7 +7,7 @@ from act4_privileged_suite.checkers.act4_final_report_checker import ACT4FinalRe
 
 
 def _write_inputs(tmp_path: Path) -> None:
-    reports = tmp_path / "unity_test/H/reports"
+    reports = tmp_path / "unit_test/H/reports"
     reports.mkdir(parents=True)
     (reports / "detail.md").write_text("# Detail\n", encoding="utf-8")
     (reports / "state.yaml").write_text(
@@ -23,14 +23,14 @@ def _write_inputs(tmp_path: Path) -> None:
 
 def _checker(tmp_path: Path) -> ACT4FinalReportChecker:
     return ACT4FinalReportChecker(
-        report_file="unity_test/H/reports/final.md",
+        report_file="unit_test/H/reports/final.md",
         required_reports=[
-            "unity_test/H/reports/detail.md",
-            "unity_test/H/reports/state.yaml",
+            "unit_test/H/reports/detail.md",
+            "unit_test/H/reports/state.yaml",
         ],
         required_sections=["Executive conclusion", "Report index", "Limitations"],
         required_phrases=["human inspector", "superseded"],
-        validation_state="unity_test/H/reports/state.yaml",
+        validation_state="unit_test/H/reports/state.yaml",
     ).set_workspace(str(tmp_path))
 
 
@@ -40,7 +40,7 @@ def test_checker_provides_ucagent_description() -> None:
 
 def test_complete_navigable_report_passes(tmp_path: Path) -> None:
     _write_inputs(tmp_path)
-    report = tmp_path / "unity_test/H/reports/final.md"
+    report = tmp_path / "unit_test/H/reports/final.md"
     report.write_text(
         """# Final report
 
@@ -79,7 +79,7 @@ def test_narrative_keywords_cannot_mask_wrong_structured_state(
     tmp_path: Path,
 ) -> None:
     _write_inputs(tmp_path)
-    report = tmp_path / "unity_test/H/reports/final.md"
+    report = tmp_path / "unit_test/H/reports/final.md"
     report.write_text(
         """# Final report
 
@@ -121,7 +121,7 @@ Human inspector review is still required.
 
 def test_unlinked_report_and_missing_explanation_fail(tmp_path: Path) -> None:
     _write_inputs(tmp_path)
-    report = tmp_path / "unity_test/H/reports/final.md"
+    report = tmp_path / "unit_test/H/reports/final.md"
     report.write_text(
         "# Final report\n\n## Executive conclusion\n\nPartial contribution.\n",
         encoding="utf-8",
@@ -141,11 +141,11 @@ def test_unlinked_report_and_missing_explanation_fail(tmp_path: Path) -> None:
 def test_final_readiness_requires_boolean(tmp_path: Path, value, readiness: bool) -> None:
     """Reject non-boolean summaries even when Python equality matches a bool."""
     _write_inputs(tmp_path)
-    state_path = tmp_path / "unity_test/H/reports/state.yaml"
+    state_path = tmp_path / "unit_test/H/reports/state.yaml"
     state = yaml.safe_load(state_path.read_text(encoding="utf-8"))
     state["contribution_ready"] = readiness
     state_path.write_text(yaml.safe_dump(state), encoding="utf-8")
-    report = tmp_path / "unity_test/H/reports/final.md"
+    report = tmp_path / "unit_test/H/reports/final.md"
     report.write_text(
         "\n# Final report\n\n## Final validation state\n\n```yaml\n"
         + yaml.safe_dump(
@@ -155,8 +155,8 @@ def test_final_readiness_requires_boolean(tmp_path: Path, value, readiness: bool
         encoding="utf-8",
     )
     checker = ACT4FinalReportChecker(
-        report_file="unity_test/H/reports/final.md",
-        validation_state="unity_test/H/reports/state.yaml",
+        report_file="unit_test/H/reports/final.md",
+        validation_state="unit_test/H/reports/state.yaml",
     ).set_workspace(str(tmp_path))
 
     passed, result = checker.do_check()

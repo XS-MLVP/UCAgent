@@ -106,7 +106,7 @@ code。不能只调用它以满足静态 linkage。begin/end 会保存 signature
 
 AI 在编写 generator 时依据 contract 选择并落实 profile，不从 suite 名推测 Sv39 或 guest execution。
 contract 是设计和审查输入；ACT4 generator 不得读取或探测它、JSON projection、
-AI review、manifest 或 `unity_test/`，也不得导入 ITGen、UCAgent 或 `act4_privileged_suite`。
+AI review、manifest 或 `unit_test/`，也不得导入 ITGen、UCAgent 或 `act4_privileged_suite`。
 文件缺失时跳过的可选加载同样不允许。必要参数和序列写入 generator，审查状态、契约 hash
 和一致性检查保留在 suite 的审查资产中。
 允许 ACT4 原生 API、仓库资源及注册参数；profile 注释由测试语义确定。

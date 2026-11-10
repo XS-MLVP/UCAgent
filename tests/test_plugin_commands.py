@@ -9,7 +9,7 @@ from ucagent.runtime.control.commands import CommandSession, create_registry
 from ucagent.runtime.control.controller import ControlError
 from ucagent.runtime.control.commands import register_plugin_commands
 from ucagent.core.plugins import Plugin, LoadedPlugin, PluginError, validate_plugin, plugin_summary
-from unity_test.operations.waveform_replay import WaveformReplay, waveform_commands
+from unit_test.operations.waveform_replay import WaveformReplay, waveform_commands
 
 
 def test_plugin_absence_registration_and_collision(tmp_path):

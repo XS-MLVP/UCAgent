@@ -283,7 +283,7 @@ def test_explicit_registry_covers_retained_commands_and_aliases(contract: dict) 
     from types import SimpleNamespace
 
     from ucagent.runtime.control.commands import create_registry
-    from unity_test.operations.waveform_replay import waveform_commands
+    from unit_test.operations.waveform_replay import waveform_commands
     from ucagent.runtime.control.controller import Controller
 
     registry = create_registry(Controller(SimpleNamespace(workspace=str(REPOSITORY_ROOT))))
@@ -303,7 +303,7 @@ def test_explicit_registry_covers_retained_commands_and_aliases(contract: dict) 
         spec = registry.resolve(name)
         assert spec is registry.resolve(canonical)
         assert spec.handler is not None or spec.owner in {
-            "operations", "services", "stages", "host", "session", "view", "unitytest"
+            "operations", "services", "stages", "host", "session", "view", "unittest"
         }
     b01 = {entry["canonical_name"] for entry in contract["commands"] if entry["batch"] == "B01"}
     long_business = {"tool_invoke", "messages_summary"}

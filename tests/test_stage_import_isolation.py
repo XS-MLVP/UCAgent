@@ -2,7 +2,7 @@
 """Guard the import surface of the stage package against optional model stacks.
 
 Importing ``ucagent.core.stage`` (and therefore every plugin that reuses the
-framework manager tools through ``unity_test.test_runner``) must stay
+framework manager tools through ``unit_test.test_runner``) must stay
 loadable without the optional model stacks: they belong to runtime features
 such as LLM check suggestions and may be absent in a plugin-only process.
 """

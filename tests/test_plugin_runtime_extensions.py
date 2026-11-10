@@ -29,11 +29,11 @@ from ucagent.util.config import (
     save_runtime_config,
     validate_runtime_config,
 )
-from unity_test.report_store import (
+from unit_test.report_store import (
     CURRENT_TEST_REPORT_RELATIVE_PATH,
     TestProtocolRuntimeHook,
 )
-from unity_test.test_runner import RunTestCasesManagerTool
+from unit_test.test_runner import RunTestCasesManagerTool
 
 
 def _loaded(name: str, **fields) -> LoadedPlugin:
@@ -163,7 +163,7 @@ def _report_cfg(test_dir=None):
         "RunTestCases": {"test_dir": test_dir}
     }
     cfg = Config({"tools": tools})
-    cfg._temp_cfg = {"DUT": "Adder", "OUT": "unity_test"}
+    cfg._temp_cfg = {"DUT": "Adder", "OUT": "unit_test"}
     return cfg
 
 

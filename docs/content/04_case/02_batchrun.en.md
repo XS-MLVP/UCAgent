@@ -62,7 +62,7 @@ In shell hooks, correctly quote prompts containing spaces and explicitly specify
 Example command to add MCP for Claude Code:
 
 ```bash
-claude mcp add --transport http unitytest http://127.0.0.1:5000/mcp
+claude mcp add --transport http unittest http://127.0.0.1:5000/mcp
 ```
 
 For complete hook configurations in clients like iFlow, Claude Code, and Gemini CLI, refer to their respective documentation and the BatchRun examples in the repository; do not directly use one client's JSON for another.

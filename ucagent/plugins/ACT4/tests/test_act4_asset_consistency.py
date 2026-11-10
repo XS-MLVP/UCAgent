@@ -34,21 +34,21 @@ def test_generator_cannot_depend_on_plugin_package(tmp_path, source):
 @pytest.mark.parametrize("source", [
     '''from pathlib import Path
 def load_contract():
-    suite = Path(__file__).resolve().parents[7] / "unity_test/H"
+    suite = Path(__file__).resolve().parents[7] / "unit_test/H"
     projection = suite / "H_generator_contract.json"
     if not projection.exists():
         return
     return projection.read_text()
 ''',
     'from pathlib import Path as P\np = P("H_vm_resource_contract.yaml")\ndata = p.read_bytes()',
-    'import pathlib as pl\np = pl.Path("unity_test") / "H" / "data.json"\ndata = p.read_text()',
-    'import os.path as op\np = op.join("unity_test", "H", "data.json")\nopen(p)',
-    'from io import open as read_file\nread_file(file="../unity_test/H/data.json")',
+    'import pathlib as pl\np = pl.Path("unit_test") / "H" / "data.json"\ndata = p.read_text()',
+    'import os.path as op\np = op.join("unit_test", "H", "data.json")\nopen(p)',
+    'from io import open as read_file\nread_file(file="../unit_test/H/data.json")',
     'from act4_privileged_suite.checkers import validate_contract',
     'try:\n    import ucagent\nexcept ImportError:\n    pass',
     'import importlib as imp\nimp.import_module("itgen.checker")',
-    'import sys\nfrom pathlib import Path\nsys.path.insert(0, str(Path(__file__).parents[7] / "unity_test/H"))',
-    'import sys\nsys.path.extend(["../unity_test/H"] )',
+    'import sys\nfrom pathlib import Path\nsys.path.insert(0, str(Path(__file__).parents[7] / "unit_test/H"))',
+    'import sys\nsys.path.extend(["../unit_test/H"] )',
     'import os\nopen(os.getenv("ITGEN_CONTRACT_PATH"))',
     'import os\nopen(os.environ["UCAGENT_WORKSPACE"])',
     'import os\nopen(os.environ["ACT4_MANUAL_ROOT"])',
@@ -70,14 +70,14 @@ def test_standalone_generator_rejects_private_dependencies(tmp_path, source):
 
 
 @pytest.mark.parametrize("source", [
-    '"""ITGen must not read unity_test/H/H_vm_resource_contract.yaml."""\n# import itgen',
+    '"""ITGen must not read unit_test/H/H_vm_resource_contract.yaml."""\n# import itgen',
     'import json\nfrom pathlib import Path\ndata = json.loads(Path("testplans/H.json").read_text())',
     'from pathlib import Path\np = Path(__file__).parent / "data.json"\ndata = p.read_text()',
     'def load_contract():\n    return {"mode": "Sv39"}',
     'code = ["# H_VM_PROFILE rv64_hlv_m", "# H_RESOURCE_MODE two_stage"]',
-    'raise ValueError("missing unity_test/H/H_vm_resource_contract.yaml")',
-    'def first():\n    path = "unity_test/H/private.json"\ndef second():\n    path = "testplans/H.json"\n    open(path)',
-    'path = "unity_test/H/private.json"\ndef read_native(path):\n    open(path)',
+    'raise ValueError("missing unit_test/H/H_vm_resource_contract.yaml")',
+    'def first():\n    path = "unit_test/H/private.json"\ndef second():\n    path = "testplans/H.json"\n    open(path)',
+    'path = "unit_test/H/private.json"\ndef read_native(path):\n    open(path)',
     'import os\nimport sys\nsys.path.append("generators/testgen/src")\nvalue = os.getenv("ACT4_CONFIG")',
 ])
 def test_standalone_generator_allows_native_inputs_and_annotations(tmp_path, source):

@@ -32,7 +32,7 @@ stage:
     task:
       - "阅读源码和需求，按 Guide_Doc/dut_bug_analysis.md 完成静态分析"
     skill_list:
-      - unitytest/static-bug-analysis
+      - unittest/static-bug-analysis
     force_use_skill: true
 ```
 
@@ -64,7 +64,7 @@ stage:
 ```json
 {
   "skill_usage": {
-    "unitytest/static-bug-analysis": {
+    "unittest/static-bug-analysis": {
       "list": true,
       "read": true,
       "use": true
@@ -84,7 +84,7 @@ stage:
 | `RunSkillScript` | 顺序执行已列出的技能脚本，全部成功后登记使用 |
 | `SetSkillUsage` | 验证并保存当前阶段专用技能的证据 |
 
-`ListSkill` 优先列出全部阶段技能，再按 `skill.max_skill_list_count` 限制补充通用技能；阶段技能不会因该上限被截断。技能标识是相对于工作区技能根目录的路径，例如 `unitytest/static-bug-analysis`。
+`ListSkill` 优先列出全部阶段技能，再按 `skill.max_skill_list_count` 限制补充通用技能；阶段技能不会因该上限被截断。技能标识是相对于工作区技能根目录的路径，例如 `unittest/static-bug-analysis`。
 
 `RunSkillScript.commands` 是非空数组，每项为三个字符串：`[skill_name, script_filename, args]`。脚本名不含目录或 runner。假设自定义技能 `example/analysis` 已列出脚本 `analyze.py`，调用形式为：
 

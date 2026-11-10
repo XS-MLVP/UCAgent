@@ -435,7 +435,7 @@ def test_checker_reads_current_state(artifacts):
 
 @pytest.mark.parametrize("enabled", [False, True])
 @pytest.mark.parametrize("workflow", ["xiangshan", "generic"])
-@pytest.mark.parametrize("output_dir", ["outputs", "unity_test", "runs/custom output"])
+@pytest.mark.parametrize("output_dir", ["outputs", "unit_test", "runs/custom output"])
 def test_fresh_agent_stages(workspace, monkeypatch, enabled, workflow, output_dir):
     """Both workflows complete in the selected directory with Skills enabled or absent."""
     from ucagent import VerifyAgent

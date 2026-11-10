@@ -13,9 +13,9 @@ Tool、Checker、模板、Skill 与工作流的组合。
 ## 同仓维护的内置与可选插件
 
 同仓插件维护在 `ucagent/plugins/` 下（插件加载器即 `ucagent/core/plugins.py`）。
-发行口径分两类：框架 wheel 把 UnityTest 及其共享库 `common` 作为 package data 一并
+发行口径分两类：框架 wheel 把 UnitTest 及其共享库 `common` 作为 package data 一并
 打入（由 `pyproject.toml` 的 `ucagent.plugins` package-data 键、`packages.find`
-exclude 与 `MANIFEST.in` prune 共同圈定范围），安装核心即获得默认 UnityTest 工作流，
+exclude 与 `MANIFEST.in` prune 共同圈定范围），安装核心即获得默认 UnitTest 工作流，
 无需单独安装；其余插件不随核心安装，作为独立发行包按需发布。无论哪种口径，插件的
 日常开发都应限定在自己的目录中：依赖、入口、配置、资源、测试和维护命令均由插件
 管理，不向核心的依赖清单、默认配置或 Tool/Checker 导出表添加插件内容。
@@ -37,12 +37,12 @@ exclude 与 `MANIFEST.in` prune 共同圈定范围），安装核心即获得默
 
 | 项目 | 插件 ID / 工作流 | 主要用途 |
 | :--- | :--- | :--- |
-| [unitytest](https://github.com/XS-MLVP/UCAgent/blob/main/ucagent/plugins/UnityTest/README.md) | `unitytest:unitytest` / `unitytest:incremental` / `unitytest:vibe` | 默认单元验证工作流及增量验证、Vibe 协作两条同插件兄弟工作流 |
+| [unittest](https://github.com/XS-MLVP/UCAgent/blob/main/ucagent/plugins/UnitTest/README.md) | `unittest:unittest` / `unittest:incremental` / `unittest:vibe` | 默认单元验证工作流及增量验证、Vibe 协作两条同插件兄弟工作流 |
 | [formal](https://github.com/XS-MLVP/UCAgent/blob/main/ucagent/plugins/Formal/README.md) | `formal:formal` | SystemVerilog Assertions 形式化验证（规划/SVA/环境/覆盖率/反例/报告） |
 | [DesignWithPPA](https://github.com/XS-MLVP/UCAgent/blob/main/ucagent/plugins/DesignWithPPA/README.md) | `design-with-ppa:unit-design-tdd` | 测试驱动 RTL 设计与 PPA 优化 |
 | [RTL2Spec](https://github.com/XS-MLVP/UCAgent/blob/main/ucagent/plugins/RTL2Spec/README.md) | `rtl2spec:xiangshan-design-document` | 基于 XiangShan 源码和生成 RTL 的证据，交付中文设计与功能检测点文档 |
 
-UnityTest 及其共享库 `common` 已随核心包内置，无需单独安装。其余插件先安装核心，
+UnitTest 及其共享库 `common` 已随核心包内置，无需单独安装。其余插件先安装核心，
 再从 UCAgent 仓库根目录按需安装，例如：
 
 ```bash
@@ -342,7 +342,7 @@ def create_commands(controller):
 
 在插件已有的 `Plugin(...)` 声明中加入 `command_factories=(create_commands,)`。插件激活后，用户可以执行 `help project_stage`、`project_stage 2`，HTTP `/api/cmd` 也使用同一声明。传入 `handler` 时，`owner` 标记职责；省略 `handler` 则要求运行层已经注入同名执行器，不会自动创建执行器。
 
-耗时且不占模型槽位的普通处理可声明 `blocking=True`，由注册表提交到共享执行器。需要模型互斥、进度和取消上下文的命令，应显式向共享执行器提交操作，使用 `context.checkpoint()` 等取消边界，并返回可序列化结果；不要自行管理线程或操作 TUI 对象。`CommandSpec.model=True` 是调度元数据，不会单独完成模型槽位预留；实现还需在提交操作时指定 `model=True`。当前参考实现是 UnityTest 的 `operations/waveform_replay.py` 中的 `waveform_commands`。
+耗时且不占模型槽位的普通处理可声明 `blocking=True`，由注册表提交到共享执行器。需要模型互斥、进度和取消上下文的命令，应显式向共享执行器提交操作，使用 `context.checkpoint()` 等取消边界，并返回可序列化结果；不要自行管理线程或操作 TUI 对象。`CommandSpec.model=True` 是调度元数据，不会单独完成模型槽位预留；实现还需在提交操作时指定 `model=True`。当前参考实现是 UnitTest 的 `operations/waveform_replay.py` 中的 `waveform_commands`。
 
 命令贡献不会自动成为 MCP Tool。需要 MCP 暴露时另用 `tool_factories` / 阶段管理工具契约；两种入口可以调用同一业务实现，不能绕过 Check/Complete 门禁。运行层归属见[架构与工作原理](02_architecture.md)，调用方式见[运行控制](../02_usage/10_runtime_control.md)。
 
@@ -465,7 +465,7 @@ guide_doc:
 ## 工作流及其专属资源
 
 插件可以声明一个或多个 `PluginWorkflow`，把工作流和发行包绑定。同一插件内的多条工作流
-共享插件的检查器与资产（如 `ucagent/plugins/UnityTest` 提供 `unitytest`、`incremental`、`vibe`
+共享插件的检查器与资产（如 `ucagent/plugins/UnitTest` 提供 `unittest`、`incremental`、`vibe`
 三条工作流）；兄弟工作流之间同样是整体替换关系，因此每条工作流都要自带完整的工具、
 运行时和 Skill 声明（自足基线）：
 
@@ -499,9 +499,9 @@ ucagent <workspace> <dut> \
 插件工作流，或启动时由 `workflow` 指针解析出的默认任务工作流）、workspace 设置、显式
 `--config`、CLI `--override`。`workflow` 指针是启动期选择数据，由命令行在启动时解析，
 任何后层（工作区配置、`--config`、`--override`）都可以重定义或置空它（置空即纯框架运
-行）。仓库自带的默认 UT 工作流本身就是一个本地插件（`ucagent/plugins/UnityTest`），由
+行）。仓库自带的默认 UT 工作流本身就是一个本地插件（`ucagent/plugins/UnitTest`），由
 `default.yaml` 的 `workflow` 指针自动解析并激活；pip 安装场景下指针可写成
-`<可导入模块>:<包内相对路径>`（如 `unity_test:workflows/unitytest.yaml`）以定
+`<可导入模块>:<包内相对路径>`（如 `unit_test:workflows/unittest.yaml`）以定
 位已安装插件包内的配置。显式选择某个插件工作流时，默认工作流被整体替换而非叠加，因此
 每个插件工作流应自带其工具、运行时和 Skill 配置。未限定插件 ID 的短工作流名只有在已激
 活插件中唯一时才允许。运行元数据会分别保留显式配置、插件与工作流选择器和工作流配置来

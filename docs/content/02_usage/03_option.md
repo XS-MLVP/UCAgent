@@ -20,7 +20,7 @@ ucagent <workspace> <dut_name> [options]
 
 ### 输出
 
-- 工作流会在工作区准备 `Guide_Doc/`，并按阶段生成 `<output>/tests/`、文档和测试报告；`uc_test_report/` 需要实际运行相应测试后才会出现。`<output>` 由 `--output` 指定，未指定时取工作流声明的 `output`（默认工作流为 `unity_test`）。
+- 工作流会在工作区准备 `Guide_Doc/`，并按阶段生成 `<output>/tests/`、文档和测试报告；`uc_test_report/` 需要实际运行相应测试后才会出现。`<output>` 由 `--output` 指定，未指定时取工作流声明的 `output`（默认工作流为 `unit_test`）。
 
 > 对输出的详细解释可以参考[结果分析与流程总结](../01_start/06_summary.md#工作区结构)
 

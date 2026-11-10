@@ -7,10 +7,10 @@ from pathlib import Path
 
 PLUGIN_SOURCE = Path(__file__).resolve().parent.parent / "src"
 REPOSITORY_ROOT = PLUGIN_SOURCE.parents[3]
-UNITYTEST_PLUGIN_SOURCE = REPOSITORY_ROOT / "ucagent" / "plugins" / "UnityTest" / "src"
+UNITTEST_PLUGIN_SOURCE = REPOSITORY_ROOT / "ucagent" / "plugins" / "UnitTest" / "src"
 sys.path.insert(0, str(PLUGIN_SOURCE))
-if UNITYTEST_PLUGIN_SOURCE.is_dir():
-    sys.path.insert(0, str(UNITYTEST_PLUGIN_SOURCE))
+if UNITTEST_PLUGIN_SOURCE.is_dir():
+    sys.path.insert(0, str(UNITTEST_PLUGIN_SOURCE))
 
 import hashlib
 import json

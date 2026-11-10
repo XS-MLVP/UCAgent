@@ -92,7 +92,7 @@ def test_blank_backend_config_uses_normal_backend_factory_without_model_integrat
         agent = VerifyAgent(
             workspace=str(tmp_path),
             dut_name="empty",
-            output="unity_test",
+            output="unit_test",
             config_file="master.yaml",
             cfg_override=[
                 {"backend.key_name": "blank"},

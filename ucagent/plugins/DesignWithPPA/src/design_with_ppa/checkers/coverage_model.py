@@ -10,7 +10,7 @@ import re
 import shutil
 from typing import Any
 from ucagent.core.checkers.base import Checker
-from unity_test.checkers.unity_test import (
+from unit_test.checkers.unit_test import (
     BaseUnityChipCheckerTestCase,
     UnityChipCheckerCoverageGroup,
     UnityChipCheckerCoverageGroupBatchImplementation,
@@ -18,7 +18,7 @@ from unity_test.checkers.unity_test import (
     UnityChipCheckerLabelStructure,
     UnityChipCheckerTestCase,
 )
-from unity_test.checkers import (
+from unit_test.checkers import (
     UnityChipCheckerBatchTestsImplementation,
     UnityChipCheckerLabelStructureRefine,
     UnityChipCheckerMarkdownFileFormat,
@@ -43,7 +43,7 @@ from .common import (
 from .test_quality import (
     _environment_contract_violations,
 )
-from unity_test.doc_marks import get_doc_marks
+from unit_test.doc_marks import get_doc_marks
 
 
 def _coverage_predicate_inventory(

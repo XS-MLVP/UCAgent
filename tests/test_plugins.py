@@ -13,11 +13,11 @@ from unittest import mock
 import pytest
 from ucagent.runtime.host import RuntimeHost
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "ucagent/plugins/UnityTest/src"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "ucagent/plugins/UnitTest/src"))
 
-from unity_test.report_store import TestProtocolRuntimeHook
-from unity_test.test_runner import RunTestCasesManagerTool
-from unity_test.checkers import UnityChipCheckerTestMustPass
+from unit_test.report_store import TestProtocolRuntimeHook
+from unit_test.test_runner import RunTestCasesManagerTool
+from unit_test.checkers import UnityChipCheckerTestMustPass
 from ucagent.core.plugins import (
     CommandRequirement,
     GuideDocCopyPolicy,
@@ -222,7 +222,7 @@ def test_local_plugin_import_root_is_available_to_test_subprocesses(
     agent = VerifyAgent(
         workspace=str(workspace),
         dut_name="empty",
-        output="unity_test",
+        output="unit_test",
         config_file="master.yaml",
         cfg_override=[
             {"backend.key_name": "blank"},
@@ -239,7 +239,7 @@ def test_local_plugin_import_root_is_available_to_test_subprocesses(
                     "RunTestCases": {
                         "test_dir": "{OUT}/tests",
                         "free_runner_clss": (
-                            "unity_test.checkers.UnityChipCheckerTestFree"
+                            "unit_test.checkers.UnityChipCheckerTestFree"
                         ),
                     }
                 }
@@ -1301,7 +1301,7 @@ def test_verify_agent_direct_plugin_activation_copies_docs_and_optional_skills(
         return VerifyAgent(
             workspace=str(workspace),
             dut_name="empty",
-            output="unity_test",
+            output="unit_test",
             config_file="master.yaml",
             cfg_override=[
                 {"backend.key_name": "blank"},
@@ -1387,7 +1387,7 @@ def test_verify_agent_refreshes_plugin_docs_after_interrupted_run(
         return VerifyAgent(
             workspace=str(workspace),
             dut_name="empty",
-            output="unity_test",
+            output="unit_test",
             config_file="master.yaml",
             cfg_override=[
                 {"backend.key_name": "blank"},
@@ -1454,7 +1454,7 @@ def test_verify_agent_rejects_plugin_doc_conflicting_with_base_runtime_doc(
         VerifyAgent(
             workspace=str(workspace),
             dut_name="empty",
-            output="unity_test",
+            output="unit_test",
             config_file="master.yaml",
             guid_doc_path=[str(core_docs)],
             cfg_override=[
@@ -1508,7 +1508,7 @@ def test_verify_agent_composes_core_and_plugin_guide_docs_by_policy(
     agent = VerifyAgent(
         workspace=str(workspace),
         dut_name="empty",
-        output="unity_test",
+        output="unit_test",
         config_file="master.yaml",
         guid_doc_path=[str(core_docs)],
         cfg_override=[
@@ -1578,7 +1578,7 @@ def test_verify_agent_filters_plugin_guide_docs_after_template_resolution(
     agent = VerifyAgent(
         workspace=str(workspace),
         dut_name="empty",
-        output="unity_test",
+        output="unit_test",
         config_file="master.yaml",
         guid_doc_path=[str(core_docs)],
         cfg_override=[
@@ -1635,7 +1635,7 @@ def test_verify_agent_rejects_plugin_doc_symlink_parent(
         VerifyAgent(
             workspace=str(workspace),
             dut_name="empty",
-            output="unity_test",
+            output="unit_test",
             config_file="master.yaml",
             cfg_override=[
                 {"backend.key_name": "blank"},
@@ -1675,7 +1675,7 @@ def test_verify_agent_rejects_doc_contribution_when_runtime_docs_are_disabled(
         VerifyAgent(
             workspace=str(workspace),
             dut_name="empty",
-            output="unity_test",
+            output="unit_test",
             config_file="master.yaml",
             cfg_override=[{"backend.key_name": "blank"}],
             no_embed_tools=True,

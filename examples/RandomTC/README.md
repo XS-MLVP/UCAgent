@@ -6,7 +6,7 @@ UCAgent生成的随机测试用例通过`test_utils.repeat_count`获取随机测
 
 例如：
 ```bash
-cd unity_test/tests
+cd unit_test/tests
 UC_TEST_RCOUNT=1000000 pytest test_Adder_random*
 # 或者
 UC_TEST_RCOUNT=1000000 pytest -n auto test_Adder_random*

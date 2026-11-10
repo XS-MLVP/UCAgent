@@ -135,4 +135,4 @@ Type `status` at the bottom of the TUI to view the phase status, and type `curre
 
 ## 2.6 Result Locations
 
-The default output directory is `unity_test/` under the workspace, and test reports are usually located in `uc_test_report/`. The workspace for the Makefile example is `output/workspace_Adder/`, so artifacts are located under that directory; artifacts for the direct CLI example are located in `output/unity_test/`. See [Result Analysis and Workflow Summary](06_summary.md) for file purposes.
+The default output directory is `unit_test/` under the workspace, and test reports are usually located in `uc_test_report/`. The workspace for the Makefile example is `output/workspace_Adder/`, so artifacts are located under that directory; artifacts for the direct CLI example are located in `output/unit_test/`. See [Result Analysis and Workflow Summary](06_summary.md) for file purposes.

@@ -7,9 +7,9 @@ template_overwrite:
 # 启动期选择数据，由 ucagent 命令在启动时解析，任何后层配置（工作区、--config、
 # --override）都可以重定义或置空它：相对路径先按本目录（core/locales/）
 # 解析，再按仓库根解析（插件工作流如
-# ucagent/plugins/UnityTest/src/unity_test/workflows/unitytest.yaml 走后者）；
+# ucagent/plugins/UnitTest/src/unit_test/workflows/unittest.yaml 走后者）；
 # workflow 置空（Null）时表示纯框架运行、不加载默认任务工作流。
-workflow: "ucagent/plugins/UnityTest/src/unity_test/workflows/unitytest.yaml"
+workflow: "ucagent/plugins/UnitTest/src/unit_test/workflows/unittest.yaml"
 
 hooks:
   # Define any hook prompts here if needed
@@ -24,8 +24,8 @@ hooks:
 
 # ---- 解耦残留提示词存档（2026-11-03）--------------------------------------
 # 以下原句从 mission.prompt.system 的"工作原则"与"Check/Complete失败处理"
-# 中剔出：它们是 UnityTest 专属内容，框架层不再解释；同类说明由
-# unitytest 工作流自己的 mission/tips（含 unhit_* 计数说明）与 Guide_Doc
+# 中剔出：它们是 UnitTest 专属内容，框架层不再解释；同类说明由
+# unittest 工作流自己的 mission/tips（含 unhit_* 计数说明）与 Guide_Doc
 # （动态 Bug 文档标记）提供。仅注释保留、暂不删除：若需恢复，应移入对应
 # 工作流 yaml 的 mission/tips，而不是放回本文件。
 # 工作原则（Markdown 标题空行规则）原句：

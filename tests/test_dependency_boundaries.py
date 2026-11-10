@@ -119,3 +119,48 @@ assert not (protected / "signal.vcd.json").exists()
     result = subprocess.run([sys.executable, "-c", source, str(tmp_path)], cwd=ROOT,
                             capture_output=True, text=True, timeout=30)
     assert result.returncode == 0, (result.stdout + result.stderr)[-6000:]
+
+
+def test_internal_modules_do_not_import_launch_entrypoints():
+    """Path discovery and reusable modules cannot load application through an entrypoint."""
+    failures = []
+    for folder in ("core", "runtime", "interfaces", "util", "application"):
+        for path in (ROOT / "ucagent" / folder).rglob("*.py"):
+            for target, line in internal_imports(path):
+                if target in {"ucagent.__main__", "ucagent.application.entry"} or target.startswith(("ucagent.__main__.", "ucagent.application.entry.")):
+                    failures.append(f"{path.relative_to(ROOT)}:{line}: {target}")
+    assert not failures, "\n".join(failures)
+
+
+def test_workspace_services_do_not_import_http():
+    """File/history policy and saved queries remain independent of the HTTP framework."""
+    paths = [ROOT / "ucagent/core/workspace/files.py", ROOT / "ucagent/core/stage/history.py",
+             *(ROOT / "ucagent/runtime/workspace").glob("*.py")]
+    for path in paths:
+        for target, line in internal_imports(path):
+            assert not target.startswith(("fastapi", "starlette", "ucagent.interfaces")), (path, line, target)
+
+
+def test_master_default_root_does_not_load_launch_entrypoints():
+    """Resolve source and installed package locations with startup imports blocked."""
+    source = r'''import importlib.abc
+import os
+import sys
+import ucagent
+
+class EntryBlocked(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname == "ucagent.__main__" or fullname.startswith("ucagent.application"):
+            raise AssertionError("Path discovery loaded startup: " + fullname)
+
+sys.meta_path.insert(0, EntryBlocked())
+from ucagent.interfaces.server.api_master.common import _default_launch_root
+original = ucagent.__file__
+assert _default_launch_root() == os.path.abspath(os.path.join(os.path.dirname(original), "..", "examples"))
+ucagent.__file__ = "/installed/site-packages/ucagent/__init__.py"
+assert _default_launch_root() == "/installed/site-packages/examples"
+assert "ucagent.__main__" not in sys.modules
+assert not any(name.startswith("ucagent.application") for name in sys.modules)
+'''
+    result = subprocess.run([sys.executable, "-c", source], cwd=ROOT, capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0, (result.stdout + result.stderr)[-6000:]

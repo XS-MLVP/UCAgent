@@ -59,7 +59,7 @@ iFlow 的 [Hooks](https://platform.iflow.cn/cli/examples/hooks) 功能可在 LLM
 1. 添加 MCP Server：
 ```bash
 # claude mcp add --transport http <name> <url>
-claude mcp add --transport http unitytest http://127.0.0.1:5000/mcp
+claude mcp add --transport http unittest http://127.0.0.1:5000/mcp
 ```
 2. 配置 hooks（~/.claude/settings.json）：
 ```json

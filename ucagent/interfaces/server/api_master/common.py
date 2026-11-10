@@ -815,7 +815,8 @@ def _normalize_arg_list(value: Any) -> List[str]:
 
 
 def _default_launch_root() -> str:
-    import ucagent.__main__ as _cli
+    """Locate the source examples without importing a launch entrypoint."""
+    import ucagent
 
-    cli_dir = os.path.dirname(os.path.abspath(_cli.__file__))
+    cli_dir = os.path.dirname(os.path.abspath(ucagent.__file__))
     return os.path.abspath(os.path.join(cli_dir, os.pardir, "examples"))

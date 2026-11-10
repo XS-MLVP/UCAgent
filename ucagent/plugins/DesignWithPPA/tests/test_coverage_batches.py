@@ -59,11 +59,11 @@ from design_with_ppa.checkers import (  # noqa: E402
     _run_workflow_ppa,
     select_best_accepted_record,
 )
-from unity_test.checkers.unity_test import (  # noqa: E402
+from unit_test.checkers.unit_test import (  # noqa: E402
     BaseUnityChipCheckerTestCase,
     UnityChipCheckerTestCase,
 )
-from unity_test.checkers import (  # noqa: E402
+from unit_test.checkers import (  # noqa: E402
     UnityChipCheckerTestCaseWithLineCoverage,
 )
 

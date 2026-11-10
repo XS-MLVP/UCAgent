@@ -98,9 +98,9 @@ HM 是人工审核开关。Web 页面上的 LFail/LPass 是 LLM 失败建议和�
 
 ```text
 list_rw_paths
-add_write_path unity_test/
+add_write_path unit_test/
 add_un_write_path Adder/
-del_write_path unity_test/
+del_write_path unit_test/
 del_un_write_path Adder/
 ```
 
@@ -139,7 +139,7 @@ tool_invoke GoToStage {"index":2}
 tool_invoke <tool_name> {"key": "value"}
 ```
 
-参数使用 JSON 对象，布尔值使用 `true/false`。`RunTestCases.target` 相对于当前测试目录（默认 `unity_test/tests/`），不要重复添加该目录前缀。例如：
+参数使用 JSON 对象，布尔值使用 `true/false`。`RunTestCases.target` 相对于当前测试目录（默认 `unit_test/tests/`），不要重复添加该目录前缀。例如：
 
 ```text
 tool_invoke RunTestCases {"target":"test_adder.py::test_add","timeout":120}

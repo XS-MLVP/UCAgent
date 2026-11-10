@@ -1,6 +1,6 @@
 """DesignWithPPA public package with dependency-isolated lazy exports."""
 
-# DesignWithPPA checkers build on the UnityTest plugin's Checkers; the
+# DesignWithPPA checkers build on the UnitTest plugin's Checkers; the
 # dependency is declared in ucagent-plugin.toml (python_path) and
 # pyproject.toml, so the loader puts the sibling import root on sys.path
 # before this package is imported.

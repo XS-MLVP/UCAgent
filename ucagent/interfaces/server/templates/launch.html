@@ -351,7 +351,7 @@
         </div>
         <div>
           <label>Output Directory</label>
-          <input id="output" value="unity_test">
+          <input id="output" value="unit_test">
         </div>
         <div>
           <label>Workspace Base</label>
@@ -506,7 +506,7 @@ const LAUNCH_YAML_HELP = `# REQUIRED: RTL input.
 task_name: my_task       # optional; default: module/task id
 dut: my_dut              # optional; default: module
 module: top_module       # optional with main_rtl
-output: unity_test       # optional; default: unity_test
+output: unit_test       # optional; default: unit_test
 config: config.yaml      # optional config path/preset
 simulator: vcs           # optional: verilator, gsim, vcs, uvs
 picker_args:             # optional picker args
@@ -1283,7 +1283,7 @@ function buildBatchCommandPreview() {
     useZipWorkspace ? '/api/workspace/<batch-task>.tar.gz' : '<batch-workspace>/workspace',
     '<yaml-dut>',
     '--config', '<yaml/common config>',
-    '--output', document.getElementById('output').value.trim() || 'unity_test',
+    '--output', document.getElementById('output').value.trim() || 'unit_test',
   ];
   if (useZipWorkspace && workspaceBase) args.push('--workspace-base', workspaceBase);
   if (dynamicOptions.stream_output) args.push('-s');
@@ -1657,7 +1657,7 @@ function collectBatchLaunchPayload(item, simulator = getSelectedSimulator()) {
     config: batchConfigForItem(item),
     backend: document.getElementById('backend').value.trim(),
     launch_mode: getSelectedLaunchMode(),
-    output: document.getElementById('output').value.trim() || 'unity_test',
+    output: document.getElementById('output').value.trim() || 'unit_test',
     master: document.getElementById('master-override').value.trim(),
     env: collectEnvOverrides(),
     use_zip_workspace: state.launchConfig?.use_zip_workspace !== false,
@@ -2559,7 +2559,7 @@ function buildCommandPreview() {
     workspacePath,
     state.relaunch ? getRelaunchDutName() : (compileCurrent ? compile.dut_name : normalizeDutName(dutName)),
     '--config', document.getElementById('config-path').value.trim() || 'config.yaml',
-    '--output', document.getElementById('output').value.trim() || 'unity_test',
+    '--output', document.getElementById('output').value.trim() || 'unit_test',
   ];
   if (useZipWorkspace && workspaceBase) {
     args.push('--workspace-base', workspaceBase);
@@ -3248,7 +3248,7 @@ function collectLaunchPayload() {
     config: document.getElementById('config-path').value.trim() || 'config.yaml',
     backend: document.getElementById('backend').value.trim(),
     launch_mode: getSelectedLaunchMode(),
-    output: document.getElementById('output').value.trim() || 'unity_test',
+    output: document.getElementById('output').value.trim() || 'unit_test',
     master: document.getElementById('master-override').value.trim(),
     env: collectEnvOverrides(),
     use_zip_workspace: useZipWorkspace,

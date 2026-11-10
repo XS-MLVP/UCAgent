@@ -271,11 +271,11 @@ def test_domain_errors_and_execution_failures_are_structured(registry, tmp_path)
 
 
 def test_plugin_command_is_present_only_after_registration(registry, tmp_path):
-    """UnityTest declarations do not expose its command in an unloaded core registry."""
+    """UnitTest declarations do not expose its command in an unloaded core registry."""
     with pytest.raises(ControlError) as caught:
         registry.resolve("waveform_replay")
     assert caught.value.code == "unknown_command"
-    from unity_test.operations.waveform_replay import waveform_commands
+    from unit_test.operations.waveform_replay import waveform_commands
     registry.register(waveform_commands(registry.controller)[0])
     assert registry.resolve("waveform_replay").parse("30 --reanalyze --max-rounds 2") == {
         "argv": ["30", "--reanalyze", "--max-rounds", "2"]}

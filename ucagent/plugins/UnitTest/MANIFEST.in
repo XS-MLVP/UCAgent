@@ -1,0 +1,10 @@
+include ucagent-plugin.toml
+recursive-include tests *.py
+recursive-include tests/test_data *
+recursive-include src/unit_test/workflows *.yaml
+recursive-include src/unit_test/Guide_Doc *.md
+recursive-include src/unit_test/templates *
+recursive-include src/unit_test/skills *
+recursive-include src/unit_test/lang *.json
+global-exclude *.py[cod]
+global-exclude __pycache__

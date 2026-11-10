@@ -1342,7 +1342,7 @@ def _inferred_testcase_records(
 def is_itgen_private_path(value: str) -> bool:
     """Recognize private inputs only when used as dependencies, not prose."""
     return bool(re.search(
-        r"(?:^|[/\\])(?:unity_test|itgen|ucagent|act4_privileged_suite|\.ucagent)(?:[/\\]|$)"
+        r"(?:^|[/\\])(?:unit_test|itgen|ucagent|act4_privileged_suite|\.ucagent)(?:[/\\]|$)"
         r"|(?:^|[/\\])[^/\\]*_(?:vm_resource_contract|generator_contract|"
         r"coverage_intent|ai_review|switch_capability_audit|file_manifest)\.(?:yaml|yml|json)$",
         value,
@@ -1369,7 +1369,7 @@ def _generator_workspace_dependencies(
     def private_module(name: str) -> bool:
         return (
             name.split(".", 1)[0].lower() in {
-                "itgen", "ucagent", "unity_test", "act4_privileged_suite"
+                "itgen", "ucagent", "unit_test", "act4_privileged_suite"
             }
             or bool(module_is_local and module_is_local(name))
         )
