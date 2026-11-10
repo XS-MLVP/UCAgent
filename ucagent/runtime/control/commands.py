@@ -352,7 +352,7 @@ class CommandRegistry:
         if spec.completion in ("workspace_paths", "session_paths", "session_dirs", "shell") and (
             index == 0 or spec.arguments[-1].kind == "words" or spec.completion == "shell"
         ):
-            root = self.controller.workspace
+            root = session.workspace if session is not None else self.controller.workspace
             base = session.cwd if session and (spec.completion.startswith("session_") or spec.completion == "shell") else root
             parent_text, _, _ = prefix.rpartition("/")
             directory = ((root if prefix.startswith("/") else base) / parent_text.lstrip("/")).resolve()

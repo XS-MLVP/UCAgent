@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from contextvars import Context
 import argparse
+import errno
 import math
 import os
 from uuid import uuid4
@@ -37,8 +39,10 @@ def start_http_listeners(owner, *, timeout=10, name="http", lifespan="auto"):
         owner._stop_requested = False
         owner._owned_sock_path = None
         listeners = []
+        step = f"{name} listener configuration"
         try:
             if owner.tcp:
+                step = f"{name} TCP {owner.host}:{owner.port}"
                 addresses = socket.getaddrinfo(owner.host, owner.port, type=socket.SOCK_STREAM, flags=socket.AI_PASSIVE)
                 family, kind, protocol, _, address = addresses[0]
                 bound = socket.socket(family, kind, protocol)
@@ -51,12 +55,23 @@ def start_http_listeners(owner, *, timeout=10, name="http", lifespan="auto"):
             if owner.sock:
                 bound = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
                 owner._listener_sockets.append(bound)
-                # Never unlink another live listener or unrelated file to make room.
-                bound.bind(owner.sock)
+                # Auto-generated endpoints may move; explicit paths must fail without
+                # unlinking another listener, a stale socket, or an unrelated file.
+                step = f"{name} Unix socket {owner.sock}"
+                try:
+                    bound.bind(owner.sock)
+                except OSError as error:
+                    if error.errno != errno.EADDRINUSE or not getattr(owner, "_auto_sock", False):
+                        raise
+                    stem, suffix = os.path.splitext(owner.sock)
+                    owner.sock = f"{stem}_{uuid4().hex}{suffix}"
+                    step = f"{name} Unix socket {owner.sock}"
+                    bound.bind(owner.sock)
                 owner._owned_sock_path = owner.sock
                 bound.listen(socket.SOMAXCONN)
                 listeners.append(("sock", bound))
             for transport, bound in listeners:
+                step = f"{name} {transport} listener startup"
                 config = uvicorn.Config(owner._app, host=owner.host, port=owner.port,
                                         log_config=None, log_level=None, lifespan=lifespan,
                                         ws="websockets-sansio")
@@ -69,7 +84,13 @@ def start_http_listeners(owner, *, timeout=10, name="http", lifespan="auto"):
                     except BaseException as error:
                         owner._listener_errors.append(str(error))
 
-                thread = threading.Thread(target=serve, name=f"ucagent-{name}-{transport}", daemon=True)
+                from ucagent.runtime.output import OUTPUT_OWNER
+                # A service outlives its launching operation: propagate only the
+                # instance owner, never cancellation, command or model contexts.
+                listener_context = Context()
+                output = getattr(owner, "_console_capture", None) or OUTPUT_OWNER.get()
+                listener_context.run(OUTPUT_OWNER.set, output)
+                thread = threading.Thread(target=listener_context.run, args=(serve,), name=f"ucagent-{name}-{transport}", daemon=True)
                 setattr(owner, f"_{transport}_server", server)
                 setattr(owner, f"_{transport}_thread", thread)
                 thread.start()
@@ -86,7 +107,7 @@ def start_http_listeners(owner, *, timeout=10, name="http", lifespan="auto"):
                     break
                 threading.Event().wait(0.01)
         except Exception as error:
-            owner._listener_errors.append(str(error))
+            owner._listener_errors.append(f"{step}: {error}")
         detail = "; ".join(owner._listener_errors) or "startup did not become ready before the deadline"
         stop_http_listeners(owner, timeout=1)
         return False, f"HTTP listeners failed to start: {detail}"
@@ -195,6 +216,9 @@ class ServiceManager:
                 return {"ok": False, **self.status(name)}
             record = ServiceRecord(resource)
             self._records[name] = record
+        from ucagent.runtime.output import OUTPUT_OWNER
+        runtime = getattr(self.agent, "runtime_host", None)
+        output_token = OUTPUT_OWNER.set(runtime.output if runtime is not None else None)
         try:
             if prepare is not None:
                 prepare(resource)
@@ -206,6 +230,8 @@ class ServiceManager:
                     ok, message = False, "Service manager closed during startup"
         except Exception as error:
             ok, message = False, str(error)
+        finally:
+            OUTPUT_OWNER.reset(output_token)
         if not ok:
             try:
                 resource.stop(timeout=min(timeout, 1))

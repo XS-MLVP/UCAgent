@@ -7,6 +7,7 @@ import os
 import sys
 from typing import Callable, Optional
 from datetime import datetime
+from ucagent.util.output import output_source
 
 RESET = "\033[0m"
 GREEN = "\033[32m"
@@ -168,6 +169,7 @@ def log_msg(msg: str, level = logging.INFO, end: str = "\n"):
             logger.critical(msg, extra=extra)
 
 
+@output_source(kind="log", level="DEBUG")
 def debug(msg: str):
     """Prints a debug message."""
     if is_silent():
@@ -197,6 +199,7 @@ def echo_g(msg: str):
     log_msg(msg, logging.INFO)
 
 
+@output_source(kind="log", level="ERROR")
 def echo_r(msg: str):
     """Prints an error message red."""
     rendered = f"{RED}%s{RESET}" % msg
@@ -205,6 +208,7 @@ def echo_r(msg: str):
     log_msg(msg, logging.ERROR)
 
 
+@output_source(kind="log", level="WARNING")
 def echo_y(msg: str):
     """Prints a warning message yellow."""
     if is_silent():
@@ -215,6 +219,7 @@ def echo_y(msg: str):
     log_msg(msg, logging.WARNING)
 
 
+@output_source(kind="log", level="INFO")
 def info(msg: str):
     """Prints an info message."""
     if is_silent():
@@ -225,6 +230,7 @@ def info(msg: str):
     log_msg(msg, logging.INFO)
 
 
+@output_source(kind="log", level="WARNING")
 def warning(msg: str):
     """Prints a warning message."""
     if is_silent():
@@ -235,6 +241,7 @@ def warning(msg: str):
     log_msg(msg, logging.WARNING)
 
 
+@output_source(kind="log", level="ERROR")
 def error(msg: str):
     """Prints an error message."""
     rendered = f"{RED}[{get_log_time_str()} ERROR] %s{RESET}" % msg

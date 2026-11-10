@@ -78,8 +78,8 @@ def register_stage_routes(app, control, queries, _request_workspace, _strip_ansi
                 info = load_info(workspace_root)
                 mission_data = queries.mission_info(workspace_root, info)
                 for row in mission_data["stages"]:
-                    fail_count = row.pop("fail_count")
-                    time_cost = row.pop("time_cost")
+                    fail_count = row["fail_count"]
+                    time_cost = row["time_cost"]
                     skipped = row["is_skipped"]
                     suffix = "" if skipped else f" ({fail_count} fails{', ' + time_cost if time_cost else ''})"
                     title = row["title"] + (" (skipped)" if skipped else "")

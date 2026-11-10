@@ -121,8 +121,15 @@ def start_verify_mcps(server):
                     # A TUI may have exited while the server is still running.
                     pass
 
-    bridge = _BridgeHandler() if server.ui_logger is not None else None
-    loggers = [logging.getLogger(name) for name in ("uvicorn.error", "uvicorn.access")]
+    from ucagent.runtime.output import OUTPUT_OWNER
+    from ucagent.util.output import OUTPUT_SINK
+    output = getattr(server.ui_logger, "runtime_output", None)
+    owner_token = OUTPUT_OWNER.set(output)
+    sink_token = OUTPUT_SINK.set(output.events.append if output is not None else None)
+    # Runtime captures service records before formatting; legacy custom UI loggers
+    # still receive diagnostics, but never HTTP access records as model messages.
+    bridge = _BridgeHandler() if server.ui_logger is not None and output is None else None
+    loggers = [logging.getLogger(name) for name in ("uvicorn.error",)]
     if bridge is not None:
         for logger in loggers:
             logger.addHandler(bridge)
@@ -137,6 +144,8 @@ def start_verify_mcps(server):
                 logger.removeHandler(bridge)
             bridge.close()
         info("MCP server stopped.")
+        OUTPUT_SINK.reset(sink_token)
+        OUTPUT_OWNER.reset(owner_token)
 
 
 def stop_verify_mcps(server):

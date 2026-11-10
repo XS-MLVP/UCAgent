@@ -398,7 +398,7 @@ class RoutesMixin:
                     else ("" if not client_exit else existing.get("exit_reason", ""))
                 )
                 tcp_url = _fix_tcp_url(str(body.get("cmd_api_tcp") or ""), client_ip)
-                current_stage_index = int(body.get("current_stage_index", -1) or -1)
+                current_stage_index = int(body["current_stage_index"]) if body.get("current_stage_index") is not None else -1
                 total_stage_count = int(body.get("total_stage_count", 0) or 0)
                 raw_meta = body.get("meta")
                 meta = _copy_jsonable(raw_meta) if isinstance(raw_meta, dict) else _copy_jsonable(existing.get("meta", {}))

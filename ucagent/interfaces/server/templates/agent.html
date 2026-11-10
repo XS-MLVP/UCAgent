@@ -6,6 +6,8 @@
 <title>UCAgent Dashboard</title>
 <link rel="icon" type="image/svg+xml" href="/static/share/ucagent-favicon.svg">
 <link rel="stylesheet" href="/static/share/ucagent-shell.css">
+<script src="/static/share/stage-view.js"></script>
+<script src="/static/share/console-view.js"></script>
 <script>
 (function(){
   var CH='ucagent-dashboard';
@@ -56,21 +58,29 @@ a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
 .master-btn:hover{border-color:var(--accent);color:var(--accent);text-decoration:none}
 
 /* ── layout ── */
-#layout{display:flex;flex:1;overflow:hidden}
+#layout{display:flex;flex:1;min-height:0;overflow:hidden}
 
 /* ── sidebar ── */
-#sidebar{width:280px;min-width:160px;background:var(--bg2);display:flex;flex-direction:column;overflow:hidden;flex-shrink:0;position:relative}
+#sidebar{width:280px;min-width:160px;min-height:0;background:var(--bg2);display:grid;grid-template-rows:minmax(0,56fr) 6px minmax(0,22fr) 6px minmax(0,22fr);overflow:hidden;flex-shrink:0;position:relative}
 #sb-resizer{width:4px;background:var(--border);cursor:col-resize;flex-shrink:0;transition:background .15s;z-index:10}
 #sb-resizer:hover,#sb-resizer.dragging{background:var(--accent)}
-.sb-section{padding:12px 14px;border-bottom:1px solid var(--border);flex-shrink:0}
-.sb-section h3{font-size:11px;text-transform:uppercase;letter-spacing:.8px;color:var(--text-dim);margin-bottom:8px}
+.sb-section{display:flex;flex-direction:column;min-height:0;min-width:0;overflow:hidden}
+.sb-section h3{flex-shrink:0;padding:8px 10px;border-bottom:1px solid var(--border);font-size:11px;text-transform:uppercase;letter-spacing:.8px;color:var(--text-dim);margin:0}
+.sb-panel-body{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior-y:contain;scrollbar-gutter:stable;scrollbar-color:var(--text-dim) var(--bg2);scrollbar-width:thin;padding:8px 10px}
+.sb-panel-resizer{height:6px;background:var(--border);cursor:row-resize;touch-action:none;user-select:none;position:relative;z-index:2}
+.sb-panel-resizer::after{content:"";position:absolute;left:calc(50% - 16px);top:2px;width:32px;height:2px;background:var(--text-dim);border-radius:2px}
+.sb-panel-resizer:hover,.sb-panel-resizer.dragging,.sb-panel-resizer:focus-visible{background:var(--accent);outline:none}
+.mission-controls{display:flex;align-items:center;justify-content:flex-end;gap:6px 8px;flex-wrap:wrap;margin-bottom:8px}
 #agent-status-section{position:relative;overflow:hidden}
 #agent-status-section h3,#agent-status-section #status-text{position:relative;z-index:1}
 #agent-status-section.sub-workspace-mode{background:linear-gradient(135deg,rgba(79,142,247,.18),rgba(54,211,153,.10))}
 #agent-status-section.sub-workspace-mode::before{content:"Sub";position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
   font-size:var(--sub-watermark-size,72px);font-weight:800;line-height:.9;color:rgba(79,142,247,.18);letter-spacing:2px;
   text-transform:uppercase;pointer-events:none;z-index:0}
-#status-text{font-family:var(--mono);font-size:11px;line-height:1.6;color:var(--text);white-space:pre-wrap;word-break:break-all}
+#status-text{display:flex;flex-wrap:wrap;align-content:flex-start;gap:4px 14px;font-family:var(--mono);font-size:11px;line-height:1.6;color:var(--text)}
+.status-item{display:inline-flex;align-items:baseline;flex-wrap:wrap;gap:0 4px;max-width:100%;min-width:0}
+.status-key{color:var(--text-dim)}
+.status-value{min-width:0;overflow-wrap:anywhere;white-space:pre-wrap}
 #mission-list{font-family:var(--mono);font-size:12px;line-height:1.7;padding:4px 6px;white-space:pre-wrap;word-break:break-all}
 .mission-name{text-align:center;font-weight:600;font-size:13px;color:var(--accent);margin-bottom:8px;padding:4px 0;border-bottom:1px solid var(--border)}
 .stage-item{margin-bottom:4px}
@@ -172,10 +182,6 @@ a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
 #cmd-send{background:var(--accent2);border:none;color:#fff;padding:5px 10px;border-radius:var(--radius);cursor:pointer;font-size:12px}
 #cmd-send:hover{background:var(--accent)}
 #cmd-result{margin-top:6px;font-family:var(--mono);font-size:11px;color:var(--green);min-height:16px;word-break:break-all}
-.sb-scroll{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column}
-#mission-section{display:flex;flex-direction:column}
-#tools-section{flex-shrink:0;padding:12px 14px;border-top:1px solid var(--border)}
-#tools-section h3{font-size:11px;text-transform:uppercase;letter-spacing:.8px;color:var(--text-dim);margin-bottom:8px}
 .show-current-label{font-size:10px;font-weight:normal;text-transform:none;color:var(--text-dim);cursor:pointer;display:inline-flex;align-items:center;gap:3px;margin-left:auto}
 .show-current-label input{cursor:pointer}
 .show-current-label:hover{color:var(--text)}
@@ -229,7 +235,7 @@ td.col-name .fn.dir{color:var(--accent)}
 #console-bar .csep{flex:1}
 #console-output-wrap{flex:1;min-height:0;position:relative;overflow:hidden;background:var(--bg);z-index:0;isolation:isolate}
 #console-output-wrap.sub-workspace-mode{background:linear-gradient(135deg,rgba(79,142,247,.12),rgba(251,189,35,.08)),var(--bg)}
-#console-output-wrap.sub-workspace-mode::before{content:"Master";position:absolute;inset:0;display:flex;align-items:flex-end;justify-content:center;
+#console-output-wrap.sub-workspace-mode::before{content:"";position:absolute;inset:0;display:flex;align-items:flex-end;justify-content:center;
   font-size:var(--master-watermark-size,110px);font-weight:800;line-height:.82;color:rgba(251,189,35,.16);letter-spacing:2px;
   text-transform:uppercase;white-space:nowrap;pointer-events:none;z-index:2}
 #console-output{position:relative;z-index:1;height:100%;overflow-y:auto;font-family:var(--mono);font-size:12px;line-height:1.6;padding:6px 10px;background:transparent!important;white-space:pre-wrap;word-break:break-all;color:var(--text)}
@@ -372,6 +378,20 @@ textarea#edit-content{flex:1;background:var(--bg);color:var(--text);border:none;
 #relaunch-frame{width:100%;height:100%;border:0;background:var(--bg)}
 /* ── hljs override ── */
 pre code.hljs,code.hljs{background:transparent!important;padding:0!important}
+.console-tabs{display:flex;gap:3px;flex-wrap:wrap}
+#console-bar{flex-wrap:wrap;height:auto;min-height:32px}
+#console-notice{font-size:11px;color:var(--yellow);padding:0 10px}
+#console-notice:empty{display:none}
+#console-new-output{align-self:center}
+#console-new-output[hidden]{display:none}
+#console-output{white-space:normal;scrollbar-color:var(--text-dim) var(--bg);scrollbar-width:thin}
+.console-event{margin-bottom:5px}
+.console-event-label{font-size:10px;opacity:.65;white-space:normal}
+.console-event pre,#runtime-results pre{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;font:inherit}
+.console-event-alert .console-event-label,.console-tabs .has-notice{color:#fbbd23;opacity:1}
+.console-event details summary,#runtime-results summary{cursor:pointer}
+#runtime-results{max-height:72px;overflow:auto;font-size:11px;padding:0 8px}
+#runtime-results details{margin:2px 0}
 </style>
 <link rel="stylesheet" href="/static/highlight-atom-one-dark.min.css">
 <script src="/static/highlight.min.js"></script>
@@ -396,16 +416,12 @@ pre code.hljs,code.hljs{background:transparent!important;padding:0!important}
 <!-- layout -->
 <div id="layout">
 
-  <!-- sidebar -->
+  <!-- sidebar: each panel scrolls independently; separators resize adjacent panels. -->
   <div id="sidebar" style="border-right:none">
-    <div class="sb-scroll">
-      <div class="sb-section" id="agent-status-section">
-        <h3>Agent Status</h3>
-        <pre id="status-text">Loading…</pre>
-      </div>
       <div class="sb-section" id="mission-section">
-        <h3 style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">Mission / Tasks
-          <div style="margin-left:auto;display:flex;align-items:center;gap:8px;">
+        <h3>Mission / Tasks</h3>
+        <div class="sb-panel-body" id="mission-scroll" tabindex="0" aria-label="Stage information">
+          <div class="mission-controls">
             <label class="show-current-label" title="Show current file content instead of committed version">
               <input type="checkbox" id="show-current-content">
               <span>Current Content</span>
@@ -425,7 +441,6 @@ pre code.hljs,code.hljs{background:transparent!important;padding:0!important}
               <button onclick="outcomeCountStep(1)" title="Show more">&#9650;</button>
             </div>
           </div>
-        </h3>
         <div class="stage-bulk-bar">
           <span class="stage-select-meta" id="stage-select-meta">0 selected</span>
           <button class="stage-bulk-btn" onclick="toggleStageSelectionAll(true)">All</button>
@@ -439,12 +454,20 @@ pre code.hljs,code.hljs{background:transparent!important;padding:0!important}
           <button class="stage-bulk-btn stage-bulk-lp" onclick="applyStageBulkAction({llm_pass_suggestion:true})">LPass On</button>
           <button class="stage-bulk-btn stage-bulk-lp" onclick="applyStageBulkAction({llm_pass_suggestion:false})">LPass Off</button>
         </div>
-        <div id="mission-list">Loading…</div>
+          <div id="mission-list">Loading…</div>
+        </div>
       </div>
-      <div id="tools-section">
-        <h3>Tools</h3>
+    <div class="sb-panel-resizer" data-panel-boundary="0" role="separator" tabindex="0" aria-orientation="horizontal" aria-label="Resize stages and tools" aria-controls="mission-section tools-section" title="Drag to resize stages and tools; arrow keys also adjust height"></div>
+    <div class="sb-section" id="tools-section">
+      <h3>Tools</h3>
+      <div class="sb-panel-body" id="tools-scroll" tabindex="0" aria-label="Tool call counts">
         <div id="tools-list">Loading…</div>
       </div>
+    </div>
+    <div class="sb-panel-resizer" data-panel-boundary="1" role="separator" tabindex="0" aria-orientation="horizontal" aria-label="Resize tools and agent status" aria-controls="tools-section agent-status-section" title="Drag to resize tools and agent status; arrow keys also adjust height"></div>
+    <div class="sb-section" id="agent-status-section">
+      <h3>Agent Status</h3>
+      <div class="sb-panel-body" id="status-text" tabindex="0" aria-label="Agent status">Loading…</div>
     </div>
   </div>
 
@@ -499,7 +522,12 @@ pre code.hljs,code.hljs{background:transparent!important;padding:0!important}
     <!-- console output panel -->
     <div id="console-panel">
       <div id="console-bar">
-        <span class="label">Console Output</span>
+        <span class="label">Output</span>
+        <div class="console-tabs" role="tablist" aria-label="Output source">
+          <button class="con-btn active" role="tab" id="console-tab-activity">Activity</button>
+          <button class="con-btn" role="tab" id="console-tab-system">System logs</button>
+          <button class="con-btn" role="tab" id="console-tab-raw">Raw output</button>
+        </div>
         <span class="csep"></span>
         <button class="con-btn active" id="console-autoscroll-btn" onclick="toggleAutoScroll()">Auto-scroll</button>
         <button class="con-btn" id="console-chat-btn" onclick="toggleConsoleChatMode()" disabled title="Enable chat mode (Shift+C when idle)">Chat</button>
@@ -509,7 +537,9 @@ pre code.hljs,code.hljs{background:transparent!important;padding:0!important}
         <span id="runtime-running-label">running:</span>
         <span id="runtime-running-cmds"></span>
       </div>
-      <pre id="runtime-results" style="max-height:90px;overflow:auto;white-space:pre-wrap;margin:0;padding:4px 8px;font-size:11px"></pre>
+      <div id="runtime-results"></div>
+      <div id="console-notice" role="status"></div>
+      <button class="con-btn" id="console-new-output" hidden>New output · scroll to latest</button>
       <div id="console-output-wrap">
         <div id="console-output"></div>
       </div>
@@ -736,6 +766,7 @@ function resetUiLayout(){
     "ucagent-collapsed-stages",
     "ucagent.control.console.h",
     "ucagent.sidebar.w",
+    "ucagent.sidebar.rows",
     "ucagent.modal.drag",
     "ucagent.modal.resize",
     _FILE_DELETE_CONTROLS_KEY
@@ -842,10 +873,33 @@ async function apiFetch(path,opts){
 async function fetchStatus(){
   try{
     const j=await apiFetch("/api/status");
-    const txt=typeof j.data === "string" ? j.data : Object.entries(j.data||{}).map(([key,value])=>key+": "+JSON.stringify(value)).join("\n");
-    qs("#status-text").textContent=_stripAnsi(txt);
+    // Saved workspaces return lines; live agents return structured statistics.
+    const entries=typeof j.data === "string"
+      ? _stripAnsi(j.data).split(/\r?\n/).filter(line=>line.trim()).map(line=>{
+          const colon=line.indexOf(":");
+          return colon>0?[line.slice(0,colon),line.slice(colon+1).trim()]:["",line];
+        })
+      : Object.entries(j.data||{}).map(([key,value])=>[key,
+          value===null?"—":typeof value==="object"?JSON.stringify(value):String(value)]);
+    const fragment=document.createDocumentFragment();
+    for(const [key,value] of entries){
+      const item=document.createElement("span");
+      item.className="status-item";
+      if(key){
+        const label=document.createElement("span");
+        label.className="status-key";
+        label.textContent=key+":";
+        item.appendChild(label);
+      }
+      const content=document.createElement("span");
+      content.className="status-value";
+      content.textContent=_stripAnsi(value);
+      item.appendChild(content);
+      fragment.appendChild(item);
+    }
+    qs("#status-text").replaceChildren(fragment);
     _updateSubWorkspaceModeUi();
-    const firstLine=_stripAnsi(txt).split("\n")[0]||"";
+    const firstLine=entries.length?entries[0].filter(Boolean).join(": "):"";
     qs("#status-bar").innerHTML='<span class="dot"></span>'+esc(firstLine.slice(0,80));
   }catch(e){
     qs("#status-text").textContent="(unavailable)";
@@ -1462,7 +1516,7 @@ async function fetchMission(){
       }
       html+=`<div style="flex:1;min-width:0">`;
       html+=`<div class="stage-row">`;
-      html+=`<button type="button" class="stage-text stage-title-btn" onclick="openStageTask(${stage.index})" title="View stage task detail">${_ansiToHtml(stage.title||"")}</button>`;
+      html+=`<button type="button" class="stage-text stage-title-btn" onclick="openStageTask(${stage.index})" title="View stage task detail">${UCAgentStageView.renderStage(stage,data.current_index)}</button>`;
       if(canQuickEditFlags){
         html+=`<div class="stage-actions">`;
         html+=`<button class="stage-quick-btn${stage.needs_human_check?" active-hm":""}" onclick="toggleStageQuickAction(${stage.index},'hmcheck_needed',${stage.needs_human_check?'true':'false'})" title="Toggle human check">HM</button>`;
@@ -1908,7 +1962,7 @@ async function _syncConsoleWorkspace(){
     await apiFetch("/api/cmd",{
       method:"POST",
       headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({cmd:"chcwd ."})
+      body:JSON.stringify({cmd:"chcwd .",session_id:_commandSession})
     });
   }catch(e){}
 }
@@ -2536,7 +2590,12 @@ function _ansiToHtml(s){
 /* ── runtime command bar ── */
 let _runtimeBusy = false;
 const _submittedOperations = new Set();
-const _commandSession = crypto.randomUUID();
+// Session identity must also work when randomUUID is unavailable (for example over HTTP).
+const _commandSession = typeof globalThis.crypto?.randomUUID === "function"
+  ? globalThis.crypto.randomUUID()
+  : typeof globalThis.crypto?.getRandomValues === "function"
+    ? Array.from(globalThis.crypto.getRandomValues(new Uint8Array(16)),byte=>byte.toString(16).padStart(2,"0")).join("")
+    : "page-"+Date.now().toString(36)+"-"+Math.random().toString(36).slice(2);
 let _runtimeInTui = false;
 let _consoleChatMode = false;
 let _cmdHistory = [];
@@ -2647,8 +2706,9 @@ async function _acComplete() {
   const cmdVal = _consoleChatMode ? val.slice(1) : val;
   const isArgMode = cmdVal.includes(" ");  // space present → argument completion
   try {
-    const j = await apiFetch("/api/cmds?prefix="+encodeURIComponent(cmdVal));
-    const items = _consoleChatMode ? (j.data || []).map(t => "/" + t) : (j.data || []);
+    const j = await apiFetch("/api/cmds?prefix="+encodeURIComponent(cmdVal)+"&session_id="+encodeURIComponent(_commandSession));
+    const completions = j.completions || j.data || [];
+    const items = _consoleChatMode ? completions.map(t => "/" + t) : completions;
     if (items.length === 1) {
       input.value = items[0] + " ";
       _acHide();
@@ -2741,8 +2801,10 @@ function _setRuntimeBusy(busy, inTui) {
 }
 
 async function fetchRuntimeStatus() {
+  const workspace=_subWorkspace;
   try {
     const j = await apiFetch("/api/runtime/status");
+    if(workspace!==_subWorkspace)return;
     const d = j.data || {};
     const inTui = false;
     const operations = d.operations || [];
@@ -2777,7 +2839,17 @@ async function fetchRuntimeStatus() {
       runEl.classList.remove("visible");
     }
     const completed = operations.filter(op => ["succeeded", "failed", "cancelled"].includes(op.state)).slice(-3);
-    qs("#runtime-results").textContent = completed.map(op => op.command + ": " + op.state + "\n" + JSON.stringify(op.error || op.result)).join("\n");
+    const resultBox=qs("#runtime-results");
+    const signature=JSON.stringify(completed.map(op=>[op.id,op.state]));
+    if(resultBox.dataset.signature!==signature){
+      resultBox.dataset.signature=signature;
+      resultBox.replaceChildren(...completed.map(op=>{
+        const details=document.createElement("details"),summary=document.createElement("summary"),body=document.createElement("pre");
+        summary.textContent=op.command+" · "+op.state;
+        body.textContent=JSON.stringify(op.error||op.result,null,2);
+        details.append(summary,body);return details;
+      }));
+    }
   } catch(e) {}
 }
 
@@ -2823,32 +2895,19 @@ async function sendRuntimeInterrupt() {
 
 /* ── console panel ── */
 let _consoleAutoScroll=true;
-
-async function fetchConsole(){
-  try{
-    const j=await apiFetch("/api/console?lines=500");
-    const out=qs("#console-output");
-    const lines=j.data||[];
-    if(!lines.length){out.innerHTML="";_updateSubWorkspaceModeUi();return;}
-    out.innerHTML=lines.map(l=>_ansiToHtml(l)).join("\n");
-    _updateSubWorkspaceModeUi();
-    if(_consoleAutoScroll)out.scrollTop=out.scrollHeight;
-  }catch(e){}
-}
-
+const _consoleView=new UCAgentConsoleView({
+  output:qs("#console-output"),notice:qs("#console-notice"),newButton:qs("#console-new-output"),
+  tabs:{activity:qs("#console-tab-activity"),system:qs("#console-tab-system"),raw:qs("#console-tab-raw")},
+  request:apiFetch,scope:()=>_subWorkspace,renderAnsi:_ansiToHtml
+});
+async function fetchConsole(){await _consoleView.poll();}
 function toggleAutoScroll(){
   _consoleAutoScroll=!_consoleAutoScroll;
-  const btn=qs("#console-autoscroll-btn");
-  if(_consoleAutoScroll){btn.classList.add("active");btn.textContent="Auto-scroll";}
-  else{btn.classList.remove("active");btn.textContent="Auto-scroll";}
+  _consoleView.autoScroll=_consoleAutoScroll;
+  qs("#console-autoscroll-btn").classList.toggle("active",_consoleAutoScroll);
+  if(_consoleAutoScroll){_consoleView.states[_consoleView.view].follow=true;_consoleView.scrollToEnd();}
 }
-
-async function clearConsole(){
-  try{
-    await fetch("/api/console",{method:"DELETE"});
-    qs("#console-output").innerHTML="";
-  }catch(e){}
-}
+async function clearConsole(){await _consoleView.clear();}
 
 /* ── console resize (vertical drag) ── */
 (function(){
@@ -2899,6 +2958,106 @@ async function clearConsole(){
   if(!ta||!gutter)return;
   ta.addEventListener("input",_updateEditGutter);
   ta.addEventListener("scroll",()=>{gutter.scrollTop=ta.scrollTop;});
+})();
+
+/* ── sidebar panel heights ── */
+(function(){
+  const sidebar=document.getElementById("sidebar");
+  const panels=["mission-section","tools-section","agent-status-section"].map(id=>document.getElementById(id));
+  const handles=Array.from(document.querySelectorAll(".sb-panel-resizer"));
+  if(!sidebar||panels.some(panel=>!panel)||handles.length!==2)return;
+  const storageKey="ucagent.sidebar.rows";
+  let shares=[0.56,0.22,0.22];
+  try{
+    const saved=JSON.parse(localStorage.getItem(storageKey));
+    if(Array.isArray(saved)&&saved.length===3&&saved.every(value=>Number.isFinite(value)&&value>0)){
+      const total=saved.reduce((sum,value)=>sum+value,0);
+      if(Number.isFinite(total))shares=saved.map(value=>value/total);
+    }
+  }catch(e){}
+
+  /** Apply panel sizes without changing any panel's scroll position or contents. */
+  function setHeights(heights){
+    sidebar.style.gridTemplateRows=`${heights[0]}px ${handles[0].offsetHeight}px ${heights[1]}px ${handles[1].offsetHeight}px ${heights[2]}px`;
+    handles.forEach((handle,index)=>{
+      const pair=heights[index]+heights[index+1];
+      const minimum=Math.min(64,heights.reduce((sum,height)=>sum+height,0)/3);
+      handle.setAttribute("aria-valuemin",Math.round(minimum/pair*100));
+      handle.setAttribute("aria-valuemax",Math.round((pair-minimum)/pair*100));
+      handle.setAttribute("aria-valuenow",Math.round(heights[index]/pair*100));
+    });
+    _updateSubWorkspaceModeUi();
+  }
+
+  /** Fit saved proportions into the viewport while keeping all three panels accessible. */
+  function fitRows(){
+    const available=sidebar.clientHeight-handles.reduce((sum,handle)=>sum+handle.offsetHeight,0);
+    if(available<=0)return;
+    const minimum=Math.min(64,available/3);
+    const heights=shares.map(share=>share*available);
+    const deficit=heights.reduce((sum,height)=>sum+Math.max(0,minimum-height),0);
+    const surplus=heights.reduce((sum,height)=>sum+Math.max(0,height-minimum),0);
+    setHeights(heights.map(height=>height<minimum?minimum:
+      height-(surplus?deficit*Math.max(0,height-minimum)/surplus:0)));
+  }
+
+  /** Move a separator by resizing only its two neighboring panels. */
+  function resizePair(index,delta,heights){
+    const next=heights.slice();
+    const total=next.reduce((sum,height)=>sum+height,0);
+    if(total<=0)return;
+    const minimum=Math.min(64,total/3);
+    const pair=next[index]+next[index+1];
+    next[index]=Math.max(minimum,Math.min(pair-minimum,next[index]+delta));
+    next[index+1]=pair-next[index];
+    shares=next.map(height=>height/total);
+    setHeights(next);
+  }
+
+  /** Save relative sizes so the layout can be restored at another window height. */
+  function saveRows(){
+    try{localStorage.setItem(storageKey,JSON.stringify(shares));}catch(e){}
+  }
+
+  handles.forEach((handle,index)=>{
+    let drag=null;
+    handle.addEventListener("pointerdown",event=>{
+      if(event.button!==0||drag)return;
+      event.preventDefault();
+      drag={id:event.pointerId,y:event.clientY,heights:panels.map(panel=>panel.getBoundingClientRect().height),
+        userSelect:document.body.style.userSelect};
+      handle.setPointerCapture(event.pointerId);
+      handle.classList.add("dragging");
+      document.body.style.userSelect="none";
+    });
+    handle.addEventListener("pointermove",event=>{
+      if(drag&&event.pointerId===drag.id)resizePair(index,event.clientY-drag.y,drag.heights);
+    });
+    /** Release pointer ownership even when a drag is cancelled or capture is lost. */
+    function finishDrag(event){
+      if(!drag||event.pointerId!==drag.id)return;
+      const previous=drag;
+      drag=null;
+      handle.classList.remove("dragging");
+      document.body.style.userSelect=previous.userSelect;
+      if(handle.hasPointerCapture(previous.id))handle.releasePointerCapture(previous.id);
+      saveRows();
+    }
+    handle.addEventListener("pointerup",finishDrag);
+    handle.addEventListener("pointercancel",finishDrag);
+    handle.addEventListener("lostpointercapture",finishDrag);
+    handle.addEventListener("keydown",event=>{
+      const step=event.shiftKey?40:12;
+      const delta={ArrowUp:-step,ArrowDown:step,Home:-Infinity,End:Infinity}[event.key];
+      if(delta===undefined)return;
+      event.preventDefault();
+      resizePair(index,delta,panels.map(panel=>panel.getBoundingClientRect().height));
+      saveRows();
+    });
+  });
+  fitRows();
+  if(typeof ResizeObserver!=="undefined")new ResizeObserver(fitRows).observe(sidebar);
+  else window.addEventListener("resize",fitRows);
 })();
 
 /* ── sidebar resize ── */

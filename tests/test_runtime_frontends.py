@@ -109,7 +109,9 @@ def test_headless_runtime_keeps_messages_and_tasks_without_console(tmp_path):
         runtime.agent._mcps_logger.info("before-any-view")
         operation = host.operations.submit("background", lambda context: context.wait(30))
         session = RuntimeSession(host, result_formatter=format_result, operation_formatter=format_operation)
-        assert "before-any-view" in session.drain_messages()
+        assert "before-any-view" in session.drain_output()
+        assert "before-any-view" not in session.drain_messages()
+        assert host.events.read("system")["data"][-1]["source"] == "service"
         session.close()
         assert host.operations.get(operation["id"])["state"] == "running"
         assert host.snapshot()["instance"] == "ready"

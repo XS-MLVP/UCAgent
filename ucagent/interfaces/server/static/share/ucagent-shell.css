@@ -236,3 +236,10 @@ html[data-theme="light"] .task-row-highlight{
   background:rgba(37,99,235,.10) !important;
   outline-color:rgba(37,99,235,.55) !important;
 }
+
+/* Stage colors use each dashboard's theme and always accompany a status label. */
+.uc-stage-completed { color: var(--green, var(--online)); }
+.uc-stage-current { color: var(--red); }
+.uc-stage-skipped { color: var(--yellow, var(--warn)); }
+.uc-stage-pending { color: var(--text); }
+.uc-stage-status, .uc-stage-flags { font-size: .9em; }

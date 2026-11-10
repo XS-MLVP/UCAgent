@@ -332,7 +332,7 @@ class WorkspaceQueries:
             time_cost = stage.get("time_cost", "")
             is_skipped = bool(stage.get("is_skipped", False))
             is_current = index == current_index and not bool(info.get("all_completed", False))
-            is_completed = bool(stage.get("is_completed", False)) or index < current_index or bool(info.get("all_completed", False))
+            is_completed = bool(stage.get("is_completed", False))
             detail = stage_detail_map.get(index, {})
             outcome = None
             if stage.get("reached", False) or is_completed or is_current:
@@ -341,6 +341,8 @@ class WorkspaceQueries:
                 "index": index,
                 "fail_count": fail_count,
                 "time_cost": time_cost,
+                "skill_list": stage.get("skill_list", []),
+                "reached": stage.get("reached", False),
                 "outcome": outcome,
                 "title": title,
                 "is_current": is_current,

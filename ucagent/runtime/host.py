@@ -9,7 +9,9 @@ import time
 from ucagent.runtime.control.commands import create_registry, SessionCommands
 from ucagent.runtime.control.controller import Controller, ControlError, public_data
 from ucagent.runtime.operations import OperationExecutor, TERMINAL_STATES
-from ucagent.runtime.output import OutputBuffer, MessageHandler
+from ucagent.runtime.output import OutputBuffer, MessageHandler, OUTPUT_OWNER
+from ucagent.runtime.events import EventBuffer
+from ucagent.util.output import OUTPUT_METADATA, OUTPUT_RECORDED
 from ucagent.runtime.startup import StartupCommands
 from ucagent.util.log import message
 from ucagent.runtime.services import ServiceManager, lifecycle_timeout
@@ -53,7 +55,8 @@ class RuntimeHost:
         self._steps = set()
         self._controls = set()
         self._seen_operations = set()
-        self.output = OutputBuffer()
+        self.events = EventBuffer()
+        self.output = OutputBuffer(events=self.events)
         self.messages = OutputBuffer()
         self.startup = StartupCommands(self)
         self._previous_message_handler = None
@@ -110,11 +113,31 @@ class RuntimeHost:
         return handler() if handler is not None else self.pause()
 
     def message_echo(self, text, end="\n", **kwargs):
-        """Keep model and MCP messages available even when no terminal view exists."""
+        """Keep backend activity available to Web independently of terminal attachment."""
+        metadata = dict(OUTPUT_METADATA.get())
+        metadata.setdefault("source", "model")
+        metadata.setdefault("kind", "message")
+        self.events.append(str(text) + end, **metadata)
         self.messages.write(str(text) + end)
         if not self.message_view_attached:
             sink = self._previous_message_handler or message
-            sink(text, end=end)
+            recorded = OUTPUT_RECORDED.set(True)
+            owner = OUTPUT_OWNER.set(self.output)
+            try:
+                sink(text, end=end)
+            finally:
+                OUTPUT_OWNER.reset(owner)
+                OUTPUT_RECORDED.reset(recorded)
+
+    def service_message(self, text):
+        """Retain MCP diagnostics as system output instead of model messages."""
+        from ucagent.util.output import output_context
+        owner = OUTPUT_OWNER.set(self.output)
+        try:
+            with output_context(source="service", kind="log"):
+                self.output.emit(str(text) + "\n")
+        finally:
+            OUTPUT_OWNER.reset(owner)
 
     def restore_messages(self):
         """Release the agent message and MCP logger bindings during instance shutdown."""
@@ -143,7 +166,8 @@ class RuntimeHost:
                 setter(self.message_echo)
                 self._message_handler_installed = True
             logger = logging.Logger("ucagent.messages", level=logging.INFO)
-            logger.addHandler(MessageHandler(self.message_echo))
+            logger.addHandler(MessageHandler(self.service_message))
+            logger.runtime_output = self.output
             logger.propagate = False
             self.agent._mcps_logger = logger
             self.instance_state = "ready"

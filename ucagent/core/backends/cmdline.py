@@ -5,6 +5,8 @@
 from ucagent.core.backends.base import AgentBackendBase
 from jinja2 import Environment, FileSystemLoader
 from ucagent.util.log import warning, info
+from ucagent.util.output import output_source
+
 import ucagent.util.functions as fc
 from ucagent.util.functions import get_abs_path_cwd_ucagent, process_bash_cmd
 import os
@@ -67,7 +69,9 @@ class UCAgentCmdLineBackend(AgentBackendBase):
         asset_path = os.path.join(current_path, "core", "backends", "assets")
         return os.path.abspath(asset_path)
 
+    @output_source("backend")
     def _echo_message(self, txt):
+        """Retain external CLI text as backend output without guessing its message type."""
         self.vagent.message_echo(txt)
 
     def _get_mcp_port(self):

@@ -108,3 +108,136 @@ def test_remote_shell_confirmation_is_structured_and_never_reads_stdin(api, tmp_
     response = client.post("/api/cmd", json={"cmd": "shell rm temporary.txt", "confirmed": True})
     assert host.operations.wait(response.json()["operation_id"], 2)["state"] == "succeeded"
     assert not target.exists()
+
+
+def test_page_completion_and_workspace_reset_share_session(api, tmp_path):
+    """HTTP completion follows page cwd, quotes paths, and observes same-session resets."""
+    client, _, _ = api
+    (tmp_path / "nested" / "inside only").mkdir(parents=True)
+    assert client.post("/api/cmd", json={"cmd": "cd nested", "session_id": "page"}).status_code == 200
+    result = client.get("/api/cmds", params={"prefix": "cd ins", "session_id": "page"}).json()
+    assert result["data"] == ["inside only/"]
+    assert result["completions"] == ["cd 'inside only/'"]
+    quoted = client.get("/api/cmds", params={"prefix": 'cd "ins', "session_id": "page"}).json()
+    assert quoted["completions"] == result["completions"]
+    assert client.get("/api/cmds", params={"prefix": "cd ins", "session_id": "other"}).json()["data"] == []
+    reset = client.post("/api/cmd", json={"cmd": "chcwd .", "session_id": "page"})
+    assert reset.status_code == 200
+    cwd = client.post("/api/cmd", json={"cmd": "pwd", "session_id": "page"}).json()
+    assert cwd["data"]["result"]["cwd"] == str(tmp_path)
+    assert client.get("/api/cmds", params={"prefix": "cd nes", "session_id": "page"}).json()["completions"] == ["cd nested/"]
+    # Consumers using raw completion tokens retain the existing response field.
+    assert client.get("/api/cmds", params={"prefix": "status"}).json()["data"] == ["status"]
+
+
+def test_completion_uses_selected_workspace_root_and_boundary(api, tmp_path):
+    """Nested workspace completion follows its own cwd and never lists parent paths."""
+    client, _, _ = api
+    child = tmp_path / "child"
+    (child / ".ucagent").mkdir(parents=True)
+    (child / ".ucagent/ucagent_info.json").write_text("{}")
+    (child / "inner" / "leaf").mkdir(parents=True)
+    (tmp_path / "parent-only").mkdir()
+    (child / "outside").symlink_to(tmp_path, target_is_directory=True)
+    query = {"sub_workspace": "child", "session_id": "page"}
+    assert client.get("/api/cmds", params={**query, "prefix": "cd in"}).json()["completions"] == ["cd inner/"]
+    assert client.post("/api/cmd?sub_workspace=child", json={"cmd": "cd inner", "session_id": "page"}).status_code == 200
+    assert client.get("/api/cmds", params={**query, "prefix": "cd le"}).json()["completions"] == ["cd leaf/"]
+    assert client.get("/api/cmds", params={**query, "prefix": "cd /in"}).json()["completions"] == ["cd /inner/"]
+    for prefix in ("cd ../../", "cd /parent", "cd /outside/"):
+        assert client.get("/api/cmds", params={**query, "prefix": prefix}).json()["data"] == []
+    assert client.get("/api/cmds", params={"sub_workspace": "../", "prefix": "cd "}).status_code == 403
+
+
+@pytest.mark.parametrize("strip_ansi", [False, True])
+def test_mission_preserves_structured_state_for_live_and_saved_views(api, tmp_path, strip_ansi):
+    """Both views retain presentation fields and respect explicit incomplete saved stages."""
+    client, _, runtime = api
+    runtime.manager.stages[0].fail_count = 2
+    live = client.get("/api/mission", params={"strip_ansi": strip_ansi}).json()["data"]
+    assert live["stages"][0]["fail_count"] == 2
+    assert live["stages"][0]["is_current"] is True
+    assert "time_cost" in live["stages"][0]
+    child = tmp_path / "saved"
+    (child / ".ucagent").mkdir(parents=True)
+    snapshot = {"mission_name": "Saved mission", "stage_index": 2, "stages_info": {
+        "0": {"is_completed": False, "fail_count": 3, "time_cost": 12,
+              "task": {"title": "Unfinished earlier stage", "skill_list": {"review": []}}},
+        "1": {"is_completed": True, "task": {"title": "Completed stage"}},
+        "2": {"is_skipped": True, "task": {"title": "Skipped stage"}},
+    }}
+    (child / ".ucagent/ucagent_info.json").write_text(json.dumps(snapshot))
+    response = client.get("/api/mission", params={"sub_workspace": "saved", "strip_ansi": strip_ansi})
+    assert response.status_code == 200, response.text
+    rows = response.json()["data"]["stages"]
+    assert rows[0]["is_completed"] is False
+    assert rows[0]["fail_count"] == 3 and rows[0]["time_cost"]
+    assert rows[0]["skill_list"] == ["review"]
+    assert rows[1]["is_completed"] is True and rows[2]["is_skipped"] is True
+    assert all(not row["can_edit_flags"] for row in rows)
+    assert client.get("/static/share/stage-view.js").status_code == 200
+
+
+def test_event_views_auth_partial_messages_and_browser_local_cursors(api):
+    """Independent browser cursors read identical model history without destructive consumption."""
+    client, host, _ = api
+    host.attach_control("tui", messages=True)
+    host.message_echo("partial", end="")
+    first = client.get("/api/events").json()
+    assert first["available"] and first["data"][-1]["text"] == "partial"
+    assert client.get("/api/events").json()["data"] == first["data"]
+    tail = client.get("/api/events?tail=true").json()
+    assert tail["data"] == []
+    assert client.get("/api/events").json()["data"] == first["data"]
+    host.message_echo(" remainder")
+    next_page = client.get("/api/events", params={"after": tail["cursor"], "generation": first["generation"]}).json()
+    assert next_page["data"][-1]["text"] == " remainder\n"
+    assert client.get("/api/events", auth=("user", "wrong")).status_code == 401
+    assert client.get("/api/events?view=unknown").status_code == 400
+    assert client.get("/api/events?limit=1001").status_code == 422
+    assert client.get("/api/events?after=-1").status_code == 422
+    host.detach_control("tui")
+
+
+def test_saved_workspace_never_displays_live_host_output_or_operations(api, tmp_path):
+    """Historical views cannot misattribute Master output or clear another instance's transcript."""
+    client, host, _ = api
+    (tmp_path / "child/.ucagent").mkdir(parents=True)
+    (tmp_path / "child/.ucagent/ucagent_info.json").write_text("{}")
+    host.message_echo("host-only message")
+    host.output.inject("host raw output")
+    events = client.get("/api/events?sub_workspace=child").json()
+    assert events["available"] is False and events["data"] == []
+    assert client.get("/api/console?sub_workspace=child").json()["data"] == []
+    assert client.get("/api/runtime/status?sub_workspace=child").json()["data"]["operations"] == []
+    assert client.get("/api/events?sub_workspace=../").status_code == 403
+    assert client.delete("/api/console?sub_workspace=child").status_code == 403
+    assert any("host raw output" in line for line in client.get("/api/console").json()["data"])
+
+
+def test_shell_events_preserve_stream_identity_and_failure_summary(api):
+    """A shell stderr stream and a failed operation remain visible in the default activity view."""
+    client, host, _ = api
+    response = client.post("/api/cmd", json={"cmd": "shell printf out; printf err >&2; exit 7", "session_id": "page"})
+    result = host.operations.wait(response.json()["operation_id"], 3)
+    assert result["state"] == "failed"
+    rows = client.get("/api/events").json()["data"]
+    assert any(row["stream"] == "stderr" and "err" in row["text"] for row in rows)
+    assert any(row["kind"] == "result" and row["level"] == "ERROR" for row in rows)
+    assert all(row["operation_id"] == result["id"] for row in rows)
+    assert result["session_id"] is not None
+    assert all(row["session_id"] == result["session_id"] for row in rows)
+
+
+def test_saved_workspace_command_results_are_local_to_selected_workspace(api, tmp_path):
+    """A saved workspace's file commands stay usable without displaying parent operations."""
+    client, host, _ = api
+    (tmp_path / "child/.ucagent").mkdir(parents=True)
+    (tmp_path / "child/.ucagent/ucagent_info.json").write_text("{}")
+    parent = client.post("/api/cmd", json={"cmd": "pwd", "session_id": "page"}).json()
+    child = client.post("/api/cmd?sub_workspace=child", json={"cmd": "pwd", "session_id": "page"}).json()
+    rows = client.get("/api/runtime/status?sub_workspace=child").json()["data"]["operations"]
+    assert [row["id"] for row in rows] == [child["operation_id"]]
+    assert rows[0]["result"]["cwd"] == str(tmp_path / "child")
+    assert parent["operation_id"] != child["operation_id"]
+    assert not any(row["operation_id"] == child["operation_id"] for row in host.events.read("activity")["data"])

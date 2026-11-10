@@ -114,6 +114,7 @@ def test_partial_start_failure_rolls_back_real_listener_and_preserves_occupied_p
                                                host="127.0.0.1", port=port, sock="")),
         ])
         assert not result["ok"]
+        assert f"master TCP 127.0.0.1:{port}" in services.status("master")["message"]
         assert result["rollback"][0]["ok"]
         assert not services.get("mcp").is_running
         assert not services.get("master").is_running
@@ -464,3 +465,71 @@ def test_idle_terminal_relays_can_stop_without_new_input(method, monkeypatch):
         os.close(read_fd)
         os.close(write_fd)
         thread.join(2)
+
+
+@pytest.mark.parametrize("service_name", ["cmd", "master"])
+@pytest.mark.parametrize("collision", ["stale", "live", "file"])
+def test_automatic_unix_socket_collision_uses_owned_path(services, service_name, collision):
+    """Default socket collisions preserve existing paths and publish the actual new endpoint."""
+    if service_name == "cmd":
+        server = ControlApiServer(services.controller, services=services, port=0)
+    else:
+        server = MasterApiServer(workspace=services.agent.workspace, cfg=services.agent.cfg,
+                                 host="127.0.0.1", port=0)
+    original = Path(server.sock)
+    occupied = None
+    try:
+        if collision == "file":
+            original.write_text("existing unrelated file")
+        else:
+            occupied = socket.socket(socket.AF_UNIX)
+            occupied.bind(str(original))
+            if collision == "live":
+                occupied.listen(4)
+            else:
+                occupied.close()
+                occupied = None
+        identity = original.stat().st_ino
+        result = services.start(service_name, lambda: server)
+        assert result["ok"], result
+        endpoint = services.require_endpoint(service_name)
+        actual = Path(endpoint["sock"])
+        assert actual != original and actual.is_socket()
+        assert original.stat().st_ino == identity
+        assert httpx.get(endpoint["url"] + "/", timeout=2).status_code == 200
+        with httpx.Client(transport=httpx.HTTPTransport(uds=str(actual)), base_url="http://localhost") as client:
+            assert client.get("/").status_code == 200
+        assert services.stop(service_name)["ok"]
+        assert not actual.exists() and original.stat().st_ino == identity
+        if occupied is not None:
+            with socket.socket(socket.AF_UNIX) as probe:
+                probe.settimeout(1)
+                probe.connect(str(original))
+        if collision == "file":
+            assert original.read_text() == "existing unrelated file"
+    finally:
+        services.stop(service_name)
+        if occupied is not None:
+            occupied.close()
+        original.unlink(missing_ok=True)
+
+
+@pytest.mark.parametrize("service_name", ["cmd", "master"])
+def test_explicit_stale_socket_reports_address_and_preserves_path(services, service_name):
+    """An explicitly configured socket cannot silently move even if its listener has exited."""
+    with tempfile.TemporaryDirectory(prefix="uc-explicit-", dir="/tmp") as directory:
+        path = Path(directory) / "stale.sock"
+        with socket.socket(socket.AF_UNIX) as previous:
+            previous.bind(str(path))
+        identity = path.stat().st_ino
+        if service_name == "cmd":
+            server = ControlApiServer(services.controller, services=services, port=0, sock=str(path))
+        else:
+            server = MasterApiServer(workspace=services.agent.workspace, cfg=services.agent.cfg,
+                                     host="127.0.0.1", port=0, sock=str(path))
+        result = services.start(service_name, lambda: server)
+        assert not result["ok"]
+        assert "Unix socket " + str(path) in result["message"]
+        assert path.stat().st_ino == identity and server.sock == str(path)
+        with pytest.raises(OSError):
+            socket.create_connection(("127.0.0.1", server.port), timeout=0.5)
