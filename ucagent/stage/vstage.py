@@ -494,6 +494,8 @@ class VerifyStage(object):
         src_path = os.path.abspath(os.path.join(self.workspace, self.hist_src_dir))
         if not os.path.isdir(src_path) or not os.path.isdir(self.hist_sav_dir):
             return {}
+        if os.path.realpath(src_path) != src_path:
+            raise ValueError("History source must be a real directory without symlink ancestors")
         repo = diff_ops.git.Repo(self.hist_sav_dir)
         try:
             head_commit = repo.head.commit if repo.head.is_valid() else None
@@ -503,9 +505,11 @@ class VerifyStage(object):
                 relative_root = os.path.relpath(root, src_path).replace(os.sep, "/")
                 if relative_root == ".":
                     relative_root = ""
+                # Directory links are leaf entries, including aliases and loops.
+                filenames += [name for name in dirnames if os.path.islink(os.path.join(root, name))]
                 dirnames[:] = [
                     dirname for dirname in dirnames
-                    if not (
+                    if not os.path.islink(os.path.join(root, dirname)) and not (
                         fc.match_pattern_list(dirname, self.hist_ign_list)
                         or fc.match_pattern_list(
                             "/".join(
@@ -523,22 +527,22 @@ class VerifyStage(object):
                         filename, self.hist_ign_list
                     ) or fc.match_pattern_list(relative_file, self.hist_ign_list):
                         continue
-                    abs_path = os.path.join(root, filename)
-                    rel_to_src = relative_file
-                    hist_file_path = os.path.join(self.hist_src_dir, rel_to_src).replace(os.sep, "/")
+                    hist_file_path = os.path.join(self.hist_src_dir, relative_file).replace(os.sep, "/")
                     seen_history_files.add(hist_file_path)
-                    with open(abs_path, "rb") as fh:
-                        workspace_content = fh.read()
+                    workspace_content, workspace_mode = diff_ops._read_worktree_node(src_path, relative_file)
                     if head_commit is None:
                         changed_files[hist_file_path] = "added"
                         continue
                     try:
                         blob = head_commit.tree / hist_file_path
+                        if blob.type != "blob":
+                            changed_files[hist_file_path] = "added"
+                            continue
                         history_content = blob.data_stream.read()
                     except KeyError:
                         changed_files[hist_file_path] = "added"
                         continue
-                    if workspace_content != history_content:
+                    if workspace_content != history_content or workspace_mode != blob.mode:
                         changed_files[hist_file_path] = "modified"
             if head_commit is not None:
                 prefix = self.hist_src_dir.strip("/").replace(os.sep, "/") + "/"
@@ -562,13 +566,15 @@ class VerifyStage(object):
                 return {"is_text": False, "content": "", "diff": "", "error": "Path traversal not allowed"}
         except ValueError:
             return {"is_text": False, "content": "", "diff": "", "error": "Path traversal not allowed"}
-        if not os.path.exists(abs_path):
+        try:
+            content_bytes, node_mode = diff_ops._read_worktree_node(workspace_abs, file_path)
+        except FileNotFoundError:
             return {"is_text": False, "content": "", "diff": "", "error": f"File '{file_path}' does not exist in workspace"}
-        if os.path.isdir(abs_path):
+        except IsADirectoryError:
             return {"is_text": False, "content": "", "diff": "", "error": f"'{file_path}' is a directory, not a file."}
-        with open(abs_path, "rb") as f:
-            content_bytes = f.read()
-        if not diff_ops._is_text_file(content_bytes):
+        except (OSError, ValueError) as exc:
+            return {"is_text": False, "content": "", "diff": "", "error": str(exc)}
+        if node_mode != 0o120000 and not diff_ops._is_text_file(content_bytes):
             return {"is_text": False, "content": "", "diff": "", "error": f"File '{file_path}' is not a text file"}
         return {
             "is_text": True,
