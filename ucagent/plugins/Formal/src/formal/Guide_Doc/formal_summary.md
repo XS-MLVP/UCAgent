@@ -1,16 +1,16 @@
 
 # 形式化验证总结
 
-本阶段填写 `.formal_records.yaml.summary`，由 Check 生成 `05_{DUT}_formal_summary.md`。不要直接编辑派生报告。先调用 `RunFormal(action="status")` 获取当前输入的机器结果，再总结功能范围、Bug 和验证缺口；执行和暂缓规则见 `Guide_Doc/formal_execution.md`。
+本阶段填写 `.formal_records.yaml.summary`，在Complete验收时生成 `05_{DUT}_formal_summary.md`。不要直接编辑派生报告。先调用 `RunFormal(action="status")` 获取当前输入的机器结果，再总结功能范围、Bug 和验证缺口；执行和暂缓规则见 `Guide_Doc/formal_execution.md`。
 
 ## 输入与完成条件
 
 - 使用当前运行的机器统计、覆盖率、异常属性分析与 Bug 报告；不要修改机器统计或用文字补造证明结果。
 - `summary` 必须包含非空 `core_function`、`overall_result`、`acceptance_conclusion`，以及 `completeness.safety`、`completeness.liveness`、`completeness.cover`。
-- 提供 `coi_assessment.unreachable_notes` 列表和 `severe_bugs` 列表；没有相关条目时使用空列表。
+- 可提供 `coi_assessment.unreachable_notes` 列表；没有说明时使用空列表。严重缺陷汇总从已核验Bug记录派生，不提交severe_bugs或重复维护汇总表字段。
 - 仍有暂缓属性时，`overall_result` 或 `acceptance_conclusion` 必须明确包含 `UNPROVEN`，说明风险与恢复条件，不能称为全部通过。机器状态和暂缓清单会自动写入报告。
 - `proof_complete` 表示全部目标已有判定，不表示没有反例；FALSE 仍须区分环境问题与 RTL 缺陷。COI 覆盖率不等于目标全部已证明。
-- 技能启用且可用时可借助 summary 技能；否则直接用普通文件工具维护上述 YAML 字段，然后调用 Check / Complete。
+- 数据技能可用时，经RunSkillScript调用inspect summary并通过JSON请求文件批量update；关闭或缺失技能时用普通文件工具维护相同summary字段。两条路径都核对当前机器结果和Bug关联，登记阶段日志后Complete。
 
 ## 完整报告参考示例
 
@@ -34,7 +34,8 @@
 - **证明结论全部已判定**: 否；存在未证明属性
 - **已证明**: 1
 - **反例**: 0
-- **过约束/空泛通过**: 0
+- **静态契约失败 (TrivF)**: 0
+- **平凡证明（需按工具原因审核）**: 0
 - **未证明**: 1
 - **暂缓**: 1（仍为 UNPROVEN，不计入已证明）
 - **机器证据报告**: `formal_test/formal_runs/0123456789abcdef0123456789abcdef/report.md`

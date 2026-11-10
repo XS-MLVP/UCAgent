@@ -47,8 +47,12 @@ from ucagent.util.log import info, warning
 # Shared utilities – single source of truth
 from formal.execution import FormalExecution
 from formal.skills.lib.formal_paths import FormalPaths
+from formal.skills.lib.models import normalize_summary, normalize_author_section, missing_author_fields
 from formal.skills.lib.formal_tools import (
     parse_avis_log,
+    typed_run_results,
+    validate_analysis_evidence,
+    bug_root_groups,
     extract_property_code,
     strip_prop_prefix,
     extract_property_details,
@@ -117,6 +121,21 @@ class BaseFormalChecker(Checker):
     def _fail(self, err: str, details: str = "", suggestion: str = "") -> tuple[bool, dict]:
         return False, {"error": err, "details": details, "suggestion": suggestion}
 
+    def _check_author_section(self, section, value):
+        """Return the complete author checklist rather than leaking render-time exceptions."""
+        action = f"Fill the {section} author fields in {self.paths.records_yaml} using ordinary file tools or the optional ext/formal/data Skill, then call Complete. See Guide_Doc/formal_data.md for the shared contract."
+        try:
+            normalized = normalize_author_section(section, value)
+            missing = missing_author_fields(section, normalized)
+        except ValueError as exc:
+            return None, {"error_code": "formal_author_section_invalid", "error": str(exc)[:2000],
+                          "artifact": self.paths.records_yaml, "section": section, "next_action": action}
+        if missing:
+            return None, {"error_code": "formal_author_fields_missing", "error": f"Required author fields are incomplete in {section}.",
+                          "artifact": self.paths.records_yaml, "section": section,
+                          "missing_fields": missing[:40], "missing_total": len(missing), "next_action": action}
+        return normalized, None
+
     def _require_execution(self) -> tuple[bool, dict]:
         """Require current-input proof evidence without launching a proof from Check."""
         passed, result = self._execution().check()
@@ -141,32 +160,16 @@ class PlanningStructureChecker(BaseFormalChecker):
     def do_check(self, timeout=0, **kwargs) -> tuple[bool, object]:
         """Validate planning fields in .formal_records.yaml and render the planning markdown."""
         records = load_records(self.paths.records_yaml)
-        if not records or not records.planning:
-            return self._fail(
-                "❌ planning data missing in .formal_records.yaml",
-                suggestion="Use formal/plan skill to fill the planning section.",
-            )
-
-        planning = records.planning
-        errors = []
-        if not str(planning.get("project_overview", "")).strip():
-            errors.append("project_overview is empty")
-        if not (planning.get("verification_scope", {}) or {}).get("included"):
-            errors.append("verification_scope.included is empty")
-        if not planning.get("strategy"):
-            errors.append("strategy is empty")
-        if not planning.get("deliverables"):
-            errors.append("deliverables is empty")
-        if not planning.get("risks"):
-            errors.append("risks is empty")
-
-        if errors:
-            return self._fail(
-                f"❌ planning validation failed ({len(errors)} issues)",
-                details="\n".join(f"  - {e}" for e in errors),
-            )
-
-        generate_planning_doc(records, self.paths.planning)
+        planning, diagnostic = self._check_author_section("planning", records.planning if records else None)
+        if diagnostic:
+            return False, diagnostic
+        records.planning = planning
+        try:
+            generate_planning_doc(records, self.paths.planning)
+        except ValueError as exc:
+            return False, {"error_code": "formal_report_render_failed", "error": str(exc)[:2000],
+                           "artifact": self.paths.planning,
+                           "next_action": "Review planning in the task records using ordinary file tools or the optional data Skill; correct the named fields before Complete."}
         info(f"Auto-generated planning doc: {self.paths.planning}")
         return self._pass("✅ Planning section is complete and rendered.")
 
@@ -177,36 +180,16 @@ class BasicInfoStructureChecker(BaseFormalChecker):
     def do_check(self, timeout=0, **kwargs) -> tuple[bool, object]:
         """Validate basic_info fields in .formal_records.yaml and render the basic info markdown."""
         records = load_records(self.paths.records_yaml)
-        if not records or not records.basic_info:
-            return self._fail(
-                "❌ basic_info data missing in .formal_records.yaml",
-                suggestion="Use formal/basic-info skill to fill the basic_info section.",
-            )
-
-        basic_info = records.basic_info
-        errors = []
-        if not str(basic_info.get("module_type", "")).strip():
-            errors.append("module_type is empty")
-        if not (basic_info.get("ports", {}) or {}).get("inputs"):
-            errors.append("ports.inputs is empty")
-        if not (basic_info.get("ports", {}) or {}).get("outputs"):
-            errors.append("ports.outputs is empty")
-        clock_reset = (basic_info.get("clock_reset", {}) or {})
-        clock_count = str(clock_reset.get("clock_count", "")).strip()
-        if clock_count and clock_count != "0" and not str(clock_reset.get("clock_signal", "")).strip():
-            errors.append("clock_reset.clock_signal is empty for a clocked DUT")
-        if not basic_info.get("core_functions"):
-            errors.append("core_functions is empty")
-        if not basic_info.get("correctness_requirements"):
-            errors.append("correctness_requirements is empty")
-
-        if errors:
-            return self._fail(
-                f"❌ basic_info validation failed ({len(errors)} issues)",
-                details="\n".join(f"  - {e}" for e in errors),
-            )
-
-        generate_basic_info_doc(records, self.paths.basic_info)
+        basic_info, diagnostic = self._check_author_section("basic_info", records.basic_info if records else None)
+        if diagnostic:
+            return False, diagnostic
+        records.basic_info = basic_info
+        try:
+            generate_basic_info_doc(records, self.paths.basic_info)
+        except ValueError as exc:
+            return False, {"error_code": "formal_report_render_failed", "error": str(exc)[:2000],
+                           "artifact": self.paths.basic_info,
+                           "next_action": "Review basic_info in the task records using ordinary file tools or the optional data Skill; correct the named fields before Complete."}
         info(f"Auto-generated basic info doc: {self.paths.basic_info}")
         return self._pass("✅ Basic info section is complete and rendered.")
 
@@ -247,6 +230,8 @@ class FormalSpecJsonChecker(BaseFormalChecker):
 
         errors = []
         fg_ids = set()
+        fc_ids = set()
+        ck_ids = set()
         fc_count = 0
         ck_count = 0
 
@@ -255,6 +240,8 @@ class FormalSpecJsonChecker(BaseFormalChecker):
             if not fg_id:
                 errors.append("A function group is missing 'id' field.")
                 continue
+            if fg_id in fg_ids:
+                errors.append(f"Duplicate function group ID: {fg_id}")
             fg_ids.add(fg_id)
 
             functions = fg.functions
@@ -270,6 +257,9 @@ class FormalSpecJsonChecker(BaseFormalChecker):
                 if not fc_id:
                     errors.append(f"{fg_id}: A function is missing 'id' field.")
                     continue
+                if fc_id in fc_ids:
+                    errors.append(f"Duplicate function point ID: {fc_id}")
+                fc_ids.add(fc_id)
                 fc_count += 1
 
                 # CK-level checks (ck level only)
@@ -285,6 +275,9 @@ class FormalSpecJsonChecker(BaseFormalChecker):
                         if not ck_id:
                             errors.append(f"{fc_id}: A check_point is missing 'id' field.")
                             continue
+                        if ck_id in ck_ids:
+                            errors.append(f"Duplicate check point ID: {ck_id}")
+                        ck_ids.add(ck_id)
                         if not ck_id.startswith("CK-"):
                             errors.append(f"{ck_id}: CK id must start with 'CK-'.")
                         if style.lower() not in self._VALID_STYLES:
@@ -296,13 +289,6 @@ class FormalSpecJsonChecker(BaseFormalChecker):
                 else:
                     # Count CKs for display even if not validating
                     ck_count += len(fc.check_points)
-
-        # FG-API is required at ck level
-        if self._check_level == "ck":
-            if not any(fid.startswith("FG-API") for fid in fg_ids):
-                errors.append(
-                    "Missing required 'FG-API' function group (environment constraints)."
-                )
 
         self._counts = {"fg": len(fg_ids), "fc": fc_count, "ck": ck_count}
 
@@ -318,8 +304,8 @@ class FormalSpecJsonChecker(BaseFormalChecker):
                 from formal.skills.lib.formal_tools import generate_spec_doc
                 generate_spec_doc(records, self.paths.spec)
                 info(f"Auto-generated spec doc: {self.paths.spec}")
-            except Exception as e:
-                info(f"Warning: Could not auto-generate spec doc: {e}")
+            except Exception as exc:
+                return self._fail("Specification report generation failed", details=str(exc), suggestion="Repair the report inputs and call Check again.")
 
         level_label = {"fg": "FG", "fc": "FG+FC", "ck": "FG+FC+CK"}[self._check_level]
         return self._pass(
@@ -364,11 +350,41 @@ class PropertyStructureChecker(BaseFormalChecker):
             for fc_item in fg.functions:
                 for ck in fc_item.check_points:
                     ck_count += 1
-                    body = ck.sva_body or ""
-                    if body and "[LLM-TODO]" not in body and "1'b1;" not in body:
-                        implemented_count += 1
-                    else:
-                        errors.append(f"Missing or placeholder SVA implementation in YAML for '{ck.id}'")
+                    body = re.sub(r"/\*.*?\*/|//[^\n]*", "", ck.sva_body or "", flags=re.DOTALL).strip()
+                    expression = body.rstrip(";").strip()
+                    while expression.startswith("(") and expression.endswith(")"):
+                        depth = 0
+                        outer = True
+                        for index, char in enumerate(expression):
+                            depth += (char == "(") - (char == ")")
+                            if depth == 0 and index < len(expression) - 1:
+                                outer = False
+                                break
+                        if not outer:
+                            break
+                        expression = expression[1:-1].strip()
+                    literal = re.fullmatch(r"(?:(\d+)?'[sS]?([bBdDhH])([0-9a-fA-F_]+)|(\d+))", expression)
+                    constant_true = expression.lower() in {"true", "'1"}
+                    if literal:
+                        base = {"b": 2, "d": 10, "h": 16}.get((literal.group(2) or "d").lower())
+                        try:
+                            value = int((literal.group(3) or literal.group(4)).replace("_", ""), base)
+                            if literal.group(1):
+                                value &= (1 << int(literal.group(1))) - 1
+                            constant_true = value != 0
+                        except ValueError:
+                            constant_true = False
+                    no_op = re.search(r"\|(?:->|=>)\s*\(*\s*(?:1|true|1'[bBdDhH]1)\s*\)*$", expression, re.IGNORECASE)
+                    if not expression or re.search(r"\[LLM-TODO\]|\bTODO\b", expression) or constant_true or no_op:
+                        errors.append(f"Missing or constant-true placeholder SVA body for '{ck.id}'")
+                        continue
+                    if ck.style.lower() == "comb":
+                        # Same-cycle boolean |-> is accepted; delayed sequences are not.
+                        temporal = any(token in body for token in self._TEMPORAL_OPS)
+                        if temporal or re.search(r"@|\[\s*(?:\*|=|->)", body):
+                            errors.append(f"Comb property '{ck.id}' uses a clock, sampled history, or delayed sequence; use a current-state boolean expression or same-cycle boolean implication.")
+                            continue
+                    implemented_count += 1
 
 
         if errors:
@@ -490,7 +506,7 @@ class EnvironmentAnalysisChecker(BaseFormalChecker):
     VALID_TT_ACTIONS = {"FIXED", "ACCEPTED"}
     VALID_FA_RESOLUTIONS = {"RTL_BUG", "ENV_FIXED", "ENV_PENDING", "COVER_EXPECTED_FAIL"}
 
-    def __init__(self, dut_name, accepted_ratio_threshold=50.0, **kwargs):
+    def __init__(self, dut_name, accepted_ratio_threshold=100.0, **kwargs):
         super().__init__(dut_name, **kwargs)
         self.accepted_ratio_threshold = accepted_ratio_threshold
 
@@ -501,39 +517,15 @@ class EnvironmentAnalysisChecker(BaseFormalChecker):
     # Validation sub-methods (extracted from do_check step 6)
     # -------------------------------------------------------------------------
     def _validate_completeness(self, tt_props, false_props, cover_fail, tt_entries, fa_entries):
-        """Validate that every abnormal log property has a corresponding doc entry.
-
-        Uses strip_prop_prefix() to normalize both sides before comparison,
-        so 'A_CK_X', 'CK_X', and 'M_CK_X' all match the same core name.
-
-        Returns a list of error strings (empty if all complete).
-        """
+        """Require exact current machine identities with no stale or aliased entries."""
         errors = []
-
-        # Build normalized lookup: core_name -> original entry key
-        tt_core = {strip_prop_prefix(k): k for k in tt_entries}
-        fa_core = {strip_prop_prefix(k): k for k in fa_entries}
-
-        # 6a: every TT prop must have a <TT-*> entry
-        missing_tt = [p for p in tt_props if strip_prop_prefix(p) not in tt_core]
-        if missing_tt:
-            errors.append(
-                f"❌ {len(missing_tt)} TRIVIALLY_TRUE properties missing analysis in document:\n"
-                + "\n".join(f"  - {p} (needs a <TT-NNN> entry)" for p in missing_tt)
-                + f"\n  Log properties (normalized): {[strip_prop_prefix(p) for p in tt_props]}"
-                + f"\n  Doc entries (normalized):     {list(tt_core.keys())}"
-            )
-
-        # 6b: every FALSE prop must have a <FA-*> entry
-        missing_fa = [p for p in (false_props + cover_fail) if strip_prop_prefix(p) not in fa_core]
-        if missing_fa:
-            errors.append(
-                f"❌ {len(missing_fa)} FALSE properties missing analysis in document:\n"
-                + "\n".join(f"  - {p} (needs a <FA-NNN> entry)" for p in missing_fa)
-                + f"\n  Log properties (normalized): {[strip_prop_prefix(p) for p in (false_props + cover_fail)]}"
-                + f"\n  Doc entries (normalized):     {list(fa_core.keys())}"
-            )
-
+        for kind, expected, observed in (("TT", set(tt_props), set(tt_entries)),
+                                         ("FA", set(false_props + cover_fail), set(fa_entries))):
+            missing, extra = expected - observed, observed - expected
+            if missing:
+                errors.append(f"{kind} analysis missing exact property IDs: {sorted(missing)}")
+            if extra:
+                errors.append(f"{kind} analysis contains unknown property IDs: {sorted(extra)}")
         return errors
 
     @staticmethod
@@ -563,8 +555,7 @@ class EnvironmentAnalysisChecker(BaseFormalChecker):
                     f"❌ ACCEPTED ratio for TRIVIALLY_TRUE too high: "
                     f"{accepted_count}/{total_tt} = {accepted_ratio:.0f}% "
                     f"(threshold: {self.accepted_ratio_threshold:.0f}%)\n"
-                    f"  → Too many TRIVIALLY_TRUE properties accepted without fixing. "
-                    f"Review and fix the underlying assume constraints."
+                    f"  Review current tool reasons and evidence, or adjust the configured acceptance threshold when the proof is legitimate."
                 )
 
         # 6d: Field completeness, [LLM-TODO] detection, and enum validity
@@ -580,13 +571,15 @@ class EnvironmentAnalysisChecker(BaseFormalChecker):
 
             root_cause = entry.get("root_cause")
             action     = entry.get("action")
+            if str(action or "").upper() == "FIXED":
+                errors.append(f"TT property {prop} is still present in current machine results; FIXED requires corrected inputs and a new run where it is no longer abnormal.")
+            if str(action or "").upper() == "ACCEPTED" and str(root_cause or "").upper() != "DESIGN_EXPECTED":
+                errors.append(f"TT property {prop} can be ACCEPTED only with DESIGN_EXPECTED and current tool evidence; otherwise repair the environment and rerun.")
             if root_cause and not self._is_unfilled(str(root_cause)):
-                if str(root_cause).upper() not in self.VALID_TT_ROOT_CAUSES:
-                    warnings.append(
-                        f"⚠️  <TT> entry '{prop}' has unknown root cause: '{root_cause}'."
-                    )
+                if str(root_cause) not in self.VALID_TT_ROOT_CAUSES:
+                    errors.append(f"TT property {prop} has invalid root_cause: {root_cause}")
             if action and not self._is_unfilled(str(action)):
-                if str(action).upper() not in self.VALID_TT_ACTIONS:
+                if str(action) not in self.VALID_TT_ACTIONS:
                     errors.append(f"❌ <TT> entry '{prop}' has invalid action: '{action}'.")
 
         _FA_REQUIRED = ["resolution", "analysis"]
@@ -600,8 +593,14 @@ class EnvironmentAnalysisChecker(BaseFormalChecker):
                     )
 
             resolution = entry.get("resolution")
+            if str(resolution or "").upper() == "ENV_FIXED":
+                errors.append(f"Failed property {prop} is still present in current machine results; ENV_FIXED requires a new run after repairing its inputs.")
+            if str(resolution or "").upper() == "COVER_EXPECTED_FAIL" and entry.get("prop_type") != "cover":
+                errors.append(f"Property {prop} is not a typed cover; COVER_EXPECTED_FAIL cannot classify an assertion failure.")
+            if str(resolution or "").upper() == "RTL_BUG" and entry.get("prop_type") != "assert":
+                errors.append(f"Property {prop} is not a typed assertion; RTL_BUG cannot classify a cover result.")
             if resolution and not self._is_unfilled(str(resolution)):
-                if str(resolution).upper() not in self.VALID_FA_RESOLUTIONS:
+                if str(resolution) not in self.VALID_FA_RESOLUTIONS:
                     errors.append(f"❌ <FA> entry '{prop}' has invalid resolution: '{resolution}'.")
 
         # 6e: ENV_PENDING resolution gate
@@ -699,9 +698,13 @@ class EnvironmentAnalysisChecker(BaseFormalChecker):
             "false": false_props,
             "cover_fail": cover_fail
         }
-        if auto_scaffold_analysis_entries(records, log_result_dict, checker_content):
-            save_records(records_path, records)
-            info("🏗️ Automatically scaffolded [LLM-TODO] entries in .formal_records.yaml")
+        try:
+            if auto_scaffold_analysis_entries(records, typed_run_results(records), checker_content):
+                save_records(records_path, records)
+                info("Current machine analysis queue synchronized")
+        except ValueError as exc:
+            return False, {"error_code": "formal_analysis_identity_invalid", "error": str(exc),
+                           "next_action": "Use exact current property IDs from RunFormal; remove duplicate or unknown analysis entries without renaming machine identities."}
 
         # Step 4-5: Load entries for validation
         json_has_analysis = False
@@ -727,6 +730,12 @@ class EnvironmentAnalysisChecker(BaseFormalChecker):
                 "iteration": len(history),
             }
 
+
+        try:
+            validate_analysis_evidence(records)
+        except ValueError as exc:
+            return False, {"error_code": "formal_analysis_evidence_invalid", "error": str(exc),
+                           "next_action": "Call RunFormal action=evidence for each RTL_BUG property; use the returned current evidence_ref and verify its inputs and outputs."}
 
         # Step 6: Dual-source validation (log × analysis doc)
         # Note: checker.sv is no longer a validation source — analysis doc is sole truth for bug classification
@@ -772,8 +781,8 @@ class EnvironmentAnalysisChecker(BaseFormalChecker):
             from formal.skills.lib.formal_tools import generate_env_analysis_doc
             generate_env_analysis_doc(records, log_result_dict, self.paths.analysis)
             info(f"Auto-regenerated analysis doc: {self.paths.analysis}")
-        except Exception as e:
-            info(f"Warning: Could not regenerate analysis doc: {e}")
+        except Exception as exc:
+            return self._fail("Environment analysis report generation failed", details=str(exc), suggestion="Repair the report input and call Check again.")
 
         # Build summary
         tt_fixed = sum(1 for e in tt_entries.values()
@@ -1005,7 +1014,7 @@ class CounterexampleTestgenChecker(BaseFormalChecker):
         covered_bugs = set()
         for bug_prop in rtl_bugs:
             # Normalize: A_CK_XXX -> ck_xxx (strip prefix then lowercase)
-            normalized = strip_prop_prefix(bug_prop).lower()
+            normalized = re.sub(r"[^a-z0-9_]", "_", bug_prop.lower())
 
             # Exact matching: test function name must end with the normalized property name
             # e.g., test_cex_ck_core_arith_result should match ck_core_arith_result
@@ -1078,6 +1087,11 @@ class BugReportConsistencyChecker(BaseFormalChecker):
     def do_check(self, timeout=0, **kwargs) -> tuple[bool, object]:
         """Validates the consistency of the formal verification bug report."""
 
+        evidence_ok, evidence = self._execution().check()
+        if not evidence_ok:
+            return False, {"error_code": "formal_bug_evidence_pending", "error": "Bug reporting requires current completed machine evidence.",
+                           "next_action": "Call RunFormal and complete current-input review before writing Bug conclusions.", "diagnostic": evidence}
+
         records_path = self.paths.records_yaml
         if not os.path.exists(records_path):
             return self._fail(
@@ -1094,8 +1108,13 @@ class BugReportConsistencyChecker(BaseFormalChecker):
             if auto_scaffold_bug_entries(records):
                 save_records(records_path, records)
                 info("🏗️ Automatically scaffolded [LLM-TODO] bug entries in .formal_records.yaml")
-        except Exception as e:
-            warning(f"Failed to auto-scaffold bug entries: {e}")
+        except Exception as exc:
+            return self._fail("Bug identities are invalid", details=str(exc), suggestion="Use exact machine property identities and current analysis.")
+
+        try:
+            validate_analysis_evidence(records)
+        except ValueError as exc:
+            return self._fail("Bug analysis evidence is invalid", details=str(exc), suggestion="Review current machine evidence before writing Bug conclusions.")
 
         # Step 1: Extract RTL defects from analysis
         if not records or not records.analysis:
@@ -1125,13 +1144,11 @@ class BugReportConsistencyChecker(BaseFormalChecker):
 
         reported_props = [b.property for b in records.bugs]
 
-        # Step 3: Compare using normalized names
-        defect_core = {strip_prop_prefix(d): d for d in rtl_defects}
-        report_core = {strip_prop_prefix(r): r for r in reported_props}
-
-        missing = [defect_core[k] for k in defect_core if k not in report_core]
-        extra = [report_core[k] for k in report_core if k not in defect_core]
-
+        # Full machine identities are authoritative, including repeated leaf labels.
+        if len(reported_props) != len(set(reported_props)) or len({bug.id for bug in records.bugs}) != len(records.bugs):
+            return self._fail("Duplicate Bug property or ID", suggestion="Keep one entry per exact machine property ID.")
+        missing = sorted(set(rtl_defects) - set(reported_props))
+        extra = sorted(set(reported_props) - set(rtl_defects))
         if missing or extra:
             issues = []
             if missing:
@@ -1160,16 +1177,23 @@ class BugReportConsistencyChecker(BaseFormalChecker):
                 details="\n".join(unfilled_errors),
             )
 
+        try:
+            roots = bug_root_groups(records)
+        except ValueError as exc:
+            return self._fail("Shared root-cause contract is invalid", details=str(exc), suggestion="Assign explicit root_cause_id values; properties sharing one root must use the same root_cause, fix, and severity.")
+
         # Step 5: Auto-regenerate markdown from JSON on pass
         try:
             from formal.skills.lib.formal_tools import generate_bug_report_doc
             generate_bug_report_doc(records, self.paths.bug_report)
             info(f"Auto-regenerated bug report: {self.paths.bug_report}")
-        except Exception as e:
-            info(f"Warning: Could not regenerate bug report: {e}")
+        except Exception as exc:
+            return self._fail("Bug report generation failed", details=str(exc), suggestion="Repair report fields and call Check again.")
 
         return True, {
-            "message": f"✅ Bug report check passed: {len(rtl_defects)} RTL defects reported",
+            "message": "Bug report observations and explicit shared root causes are validated.",
+            "property_count": len(rtl_defects),
+            "root_cause_count": len(roots),
             "rtl_defects": rtl_defects,
         }
 
@@ -1187,23 +1211,11 @@ class FormalSummaryChecker(BaseFormalChecker):
                 "next_action": "Call RunFormal(action='run'), then review every unresolved property.",
             }
         records = load_records(self.paths.records_yaml)
-        if not records or not records.summary:
-            return self._fail(
-                "❌ summary data missing in .formal_records.yaml",
-                suggestion="Use formal/summary skill to fill the summary section.",
-            )
-
-        summary = records.summary
+        summary, diagnostic = self._check_author_section("summary", records.summary if records else None)
+        if diagnostic:
+            return False, diagnostic
+        records.summary = summary
         errors = []
-        if not str(summary.get("core_function", "")).strip():
-            errors.append("core_function is empty")
-        if not str(summary.get("overall_result", "")).strip():
-            errors.append("overall_result is empty")
-        if not str(summary.get("acceptance_conclusion", "")).strip():
-            errors.append("acceptance_conclusion is empty")
-        for key in ("safety", "liveness", "cover"):
-            if not str((summary.get("completeness", {}) or {}).get(key, "")).strip():
-                errors.append(f"completeness.{key} is empty")
         if proof.get("proof_complete") is False:
             gap_text = f"{summary.get('overall_result', '')} {summary.get('acceptance_conclusion', '')}".upper()
             if "UNPROVEN" not in gap_text:
@@ -1216,7 +1228,12 @@ class FormalSummaryChecker(BaseFormalChecker):
             )
 
         coverage = parse_coverage(self.paths.tests)
-        generate_summary_doc(records, self.paths.summary, coverage=coverage, machine=proof)
+        try:
+            generate_summary_doc(records, self.paths.summary, coverage=coverage, machine=proof)
+        except Exception as exc:
+            return False, {"error_code": "formal_summary_delivery_invalid", "error": str(exc)[:2000],
+                           "artifact": self.paths.summary,
+                           "next_action": "Review summary and Bug records using ordinary file tools or the optional data Skill. Complete current verified Bug observations and correct the named author fields, then Complete; do not submit derived severe_bugs rows."}
         info(f"Auto-generated summary doc: {self.paths.summary}")
         return True, {
             "message": "Summary section rendered with current machine proof status.",

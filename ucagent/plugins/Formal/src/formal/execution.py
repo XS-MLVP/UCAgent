@@ -27,7 +27,7 @@ import time
 import uuid
 
 
-FINAL_RESULTS = {"PROVEN", "FALSIFIED", "TRIVIALLY_TRUE", "COVER_REACHED", "COVER_UNREACHABLE"}
+FINAL_RESULTS = {"PROVEN", "FALSIFIED", "TRIVIALLY_TRUE", "TRIVIALLY_FALSE", "COVER_REACHED", "COVER_UNREACHABLE"}
 PROOF_MARKER = "# UCAGENT_PROOF_BEGIN"
 ACTIVE_RUNS = {"PREPARING", "RUNNING", "CANCELLING"}
 ROW = re.compile(r"^\s*(\d+)\s+(\S+)\s*:\s*(.*?)\s*$", re.MULTILINE)
@@ -148,16 +148,19 @@ def parse_properties(text: str, property_kind: str | None = None) -> dict:
     for match in ROW.finditer(text):
         name, details = match.group(2), match.group(3)
         fields = [part.strip() for part in details.split("\t") if part.strip()]
-        status = re.match(r"(NotRun|Undet|Undec|Pass|Fail|TrivT|Covered|Uncoverable)\b", fields[0] if fields else "")
+        status = re.match(r"(NotRun|Undet|Undec|Pass|Fail|TrivT|TrivF|Covered|Uncoverable)\b", fields[0] if fields else "")
         if not status:
             raise ValueError(f"Unrecognized FormalMC property status for {name}: {fields[0] if fields else 'empty'}")
         raw = status.group(1)
         is_cover = property_kind == "cover"
         verdict = {"Pass": "COVER_REACHED" if is_cover else "PROVEN",
                    "Fail": "COVER_UNREACHABLE" if is_cover else "FALSIFIED",
-                   "TrivT": "TRIVIALLY_TRUE", "Covered": "COVER_REACHED",
+                   "TrivT": "COVER_REACHED" if is_cover else "TRIVIALLY_TRUE",
+                   "TrivF": "COVER_UNREACHABLE" if is_cover else "TRIVIALLY_FALSE", "Covered": "COVER_REACHED",
                    "Uncoverable": "COVER_UNREACHABLE"}.get(raw, "UNPROVEN")
         depth = re.search(r"\((\d+)\)", fields[0])
+        if name in result:
+            raise ValueError(f"Duplicate property identity in FormalMC table: {name}")
         result[name] = {"id": int(match.group(1)), "name": name, "kind": property_kind,
                         "result": verdict, "raw_status": fields[0],
                         "depth": int(depth.group(1)) if depth else None,
@@ -208,6 +211,37 @@ def write_report(run_dir: Path, state: dict) -> None:
     (run_dir / "report.md").write_text("\n".join(lines), encoding="utf-8")
 
 
+def property_evidence(run_dir: Path, state: dict, name: str, item: dict) -> dict:
+    """Bind one final result to its exact report and optional tool-generated witness."""
+    if item["result"] not in FINAL_RESULTS or not item["attempts"]:
+        raise ValueError(f"Property has no completed proof evidence: {name}")
+    attempt = item["attempts"][-1]
+    console = run_dir / attempt["console"]
+    if not console.resolve().is_relative_to(run_dir.resolve()) or console.is_symlink():
+        raise ValueError("Invalid property evidence path")
+    payload = console.read_bytes()
+    report_hash = hashlib.sha256(payload).hexdigest()
+    if report_hash != attempt.get("console_hash") or attempt.get("returncode") != 0:
+        raise ValueError(f"Property report changed or execution was unsuccessful: {name}")
+    text = payload.decode("utf-8", errors="replace")
+    block = re.search(r"^UCAGENT_RESULT_BEGIN\r?\n(.*?)^UCAGENT_RESULT_END\r?$", text, re.MULTILINE | re.DOTALL)
+    actual = parse_properties(block.group(1), item["kind"]).get(name) if block else None
+    if not actual or actual["result"] != item["result"]:
+        raise ValueError(f"Property conclusion does not match the tool report: {name}")
+    witness = console.parent / "avis" / name / (name + ".tb.v")
+    if not witness.resolve().is_relative_to(console.parent.resolve()) or witness.is_symlink():
+        raise ValueError("Invalid property witness path")
+    witness_hash = hashlib.sha256(witness.read_bytes()).hexdigest() if witness.is_file() else None
+    if witness_hash != attempt.get("witness_hash"):
+        raise ValueError(f"Property witness changed after execution: {name}")
+    return {"run_id": state["run_id"], "attempt_console": str(console.relative_to(Path(state["workspace"]))),
+            "raw_status": item["raw_status"], "result": item["result"], "depth": item.get("depth"),
+            "witness_artifact": str(witness.relative_to(Path(state["workspace"]))) if witness_hash else None,
+            "witness_sha256": witness_hash,
+            "evidence_ref": {"run_id": state["run_id"], "input_fingerprint": state["fingerprint"],
+                             "property": name, "report_sha256": report_hash, "witness_sha256": witness_hash}}
+
+
 class FormalExecution:
     """Control one current run per output directory using atomic records and locks."""
 
@@ -218,7 +252,7 @@ class FormalExecution:
         self.policy = ExecutionPolicy.from_cfg(cfg)
         self.write_dirs, self.un_write_dirs = write_dirs, un_write_dirs
 
-    def _paths(self):
+    def _paths(self, create: bool = True):
         """Validate resolved workspace paths and policy before any artifact writes."""
         from ucagent.util.file_policy import is_file_writeable, normalize_relative_path
         output = normalize_relative_path(self.output_dir)
@@ -248,12 +282,13 @@ class FormalExecution:
                     allowed, reason = is_file_writeable(str(path.relative_to(self.workspace)), self.un_write_dirs, self.write_dirs)
                     if not allowed:
                         raise ValueError(reason)
-        root.mkdir(parents=True, exist_ok=True)
+        if create:
+            root.mkdir(parents=True, exist_ok=True)
         return target, source, root
 
-    def _inputs(self):
+    def _inputs(self, create: bool = True):
         """Fingerprint actual input files, resolved execution policy, and executable identity."""
-        target, source, root = self._paths()
+        target, source, root = self._paths(create=create)
         executable = shutil.which("FormalMC")
         if not executable:
             raise ValueError("Formal verification is unavailable; ask the operator to restore the tool and retry RunFormal.")
@@ -279,11 +314,16 @@ class FormalExecution:
             records = yaml.safe_load(records_path.read_text(encoding="utf-8"))
             if not isinstance(records, dict):
                 raise ValueError("Formal records must be a mapping")
-            semantic = {key: records.get(key) for key in ("dut", "basic_info", "spec", "extra_config")}
+            from formal.skills.lib.models import semantic_inputs
+            semantic = semantic_inputs(records)
         tool = Path(executable).resolve()
         identity = {"path": str(tool), "size": tool.stat().st_size, "mtime_ns": tool.stat().st_mtime_ns}
         fingerprint = hashlib.sha256(json.dumps({"files": manifest, "semantic": semantic, "policy": asdict(self.policy), "tool": identity}, sort_keys=True).encode()).hexdigest()
         return target, root, executable, manifest, fingerprint
+
+    def input_fingerprint(self) -> str:
+        """Compute exact current input identity without creating artifacts or changing runs."""
+        return self._inputs(create=False)[-1]
 
     def _load(self, root):
         """Load only the current run underneath the managed artifact directory."""
@@ -356,7 +396,19 @@ class FormalExecution:
             (frozen_tests / "setup.tcl").write_text(setup, encoding="utf-8")
             checker_text = (frozen_tests / f"{self.dut}_checker.sv").read_text(encoding="utf-8")
             expected_labels = re.findall(r"\b([A-Za-z_][A-Za-z_0-9]*)\s*:\s*(?:assert|cover)\s+property\b", checker_text)
+            semantic_inputs = None
+            records_path = target / ".formal_records.yaml"
+            if records_path.exists():
+                import yaml
+                records = yaml.safe_load(records_path.read_text(encoding="utf-8"))
+                from formal.skills.lib.models import semantic_inputs as canonical_inputs
+                semantic_inputs = canonical_inputs(records)
+                archived = inputs / self.output_dir / ".formal_records.yaml"
+                archived.write_bytes(records_path.read_bytes())
+            if self._inputs()[-1] != fingerprint:
+                raise ValueError("Formal inputs changed while freezing the run; retry RunFormal.")
             state = {"run_id": run_id, "fingerprint": fingerprint, "status": "PREPARING",
+                     "semantic_inputs": semantic_inputs,
                      "expected_labels": expected_labels,
                      "workspace": str(self.workspace), "output_dir": self.output_dir, "dut": self.dut,
                      "executable": executable, "policy": asdict(self.policy), "created_at": time.time(),
@@ -458,7 +510,8 @@ class FormalExecution:
         """Return aggregate progress with a bounded queue and an exact report location."""
         properties = state["properties"]
         queue = [{"property": name, "state": item["state"], "active_s": round(item["execution_elapsed_s"], 2),
-                  "reason": item.get("error"), "disposition": item.get("disposition")}
+                  "depth": item.get("depth"), "engine": item.get("engine"), "raw_status": item.get("raw_status"),
+                  "reason": item.get("error") or item.get("reason"), "error_code": item.get("error_code"), "disposition": item.get("disposition")}
                  for name, item in properties.items() if item["result"] not in FINAL_RESULTS]
         return {"run_id": state["run_id"], "status": state["status"], "counts": dict(collections.Counter(item["result"] for item in properties.values())),
                 "states": dict(collections.Counter(item["state"] for item in properties.values())), "total": len(properties),
@@ -470,13 +523,53 @@ class FormalExecution:
                 "state_artifact": str((run_dir / "state.json").relative_to(self.workspace)),
                 "coverage_artifact": str((run_dir / "inventory" / "avis" / "fanin.rep").relative_to(self.workspace)) if (run_dir / "inventory" / "avis" / "fanin.rep").is_file() else None,
                 "checkpoints": state["checkpoints"][-10:], "checkpoint_total": len(state["checkpoints"]),
-                "next_action": "Wait for progress using RunFormal action=status; do not restart active work." if state["status"] in ACTIVE_RUNS else
-                               "Analyze unresolved properties; optimize inputs and call RunFormal action=run, or use action=review with defer/retry, reason and next_action. Resolved counterexamples still need environment/Bug analysis."}
+                "next_action": (
+                    "Wait for progress using RunFormal action=status; do not restart active work." if state["status"] in ACTIVE_RUNS else
+                    "Preserve the original properties. Inspect the named attempt reports and ask the operator to repair the tool/environment; only retry after repair. Do not replace proof goals to evade an execution error."
+                    if state["status"] in {"ERROR", "NEEDS_OPERATOR", "INTERRUPTED", "CANCELLED"} else
+                    "Review current results through the optional ext/formal/data Skill or ordinary file tools. RunFormal action=evidence provides original evidence for analysis. For budget-exhausted UNPROVEN targets, record reason and next_action with review; deferred never means proved."
+                )}
+
+    def evidence(self, property_names: list[str]) -> dict:
+        """Return bounded original proof witnesses; never invent or minimize trace inputs."""
+        if not property_names or len(property_names) > 20 or len(set(property_names)) != len(property_names):
+            raise ValueError("evidence requires between 1 and 20 unique exact property_names")
+        _, root, _, _, fingerprint = self._inputs()
+        with (root / "control.lock").open("a+") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            run_dir, state = self._load(root)
+            if not state or state["fingerprint"] != fingerprint or state["status"] in ACTIVE_RUNS:
+                raise ValueError("Evidence requires current stopped inputs; inspect RunFormal status first")
+            items = []
+            for name in property_names:
+                if name not in state["properties"]:
+                    raise ValueError(f"Exact property identity not found: {name}")
+                item = state["properties"][name]
+                evidence = property_evidence(run_dir, state, name, item)
+                values = []
+                if evidence["witness_artifact"]:
+                    # Read only the tool's initialization section, not arbitrary user SV.
+                    witness = self.workspace / evidence["witness_artifact"]
+                    with witness.open(encoding="utf-8", errors="replace") as stream:
+                        text = stream.read(32768)
+                    initialization = re.search(r"// initialization\s*initial\s+begin(.*?)\bend\b", text, re.DOTALL)
+                    if initialization:
+                        for signal_name, width, bits in re.findall(r"([\w.$\[\]\\]+)\s*<=\s*(\d+)'b([01xzXZ]+)\s*;", initialization.group(1)):
+                            if len(values) >= 64:
+                                break
+                            value = hex(int(bits, 2)) if set(bits) <= {"0", "1"} else bits[:256]
+                            values.append({"signal": signal_name, "width": int(width), "value": value,
+                                           "has_unknown": bool(set(bits.lower()) & {"x", "z"})})
+                items.append({"property": name, **evidence, "initial_values": values,
+                              "initial_values_only": True,
+                              "next_action": "Use this original witness and the stated specification to check expected versus observed behavior. An alternate example is not a proven counterexample without replay; constant failures may have no dynamic witness."})
+            return {"run_id": state["run_id"], "items": items,
+                    "verification_scope": "tool_report_and_original_witness_only; intended specification semantics remain to be reviewed"}
 
     def check(self) -> tuple[bool, dict]:
         """Gate current evidence without starting a proof or treating a deferred item as Pass."""
         result = self.status()
-        ready = result.get("current_inputs") and result["status"] not in ACTIVE_RUNS | {"INTERRUPTED", "ERROR", "CANCELLED"} and result.get("total", 0) > 0
+        ready = result.get("current_inputs") and result["status"] not in ACTIVE_RUNS | {"INTERRUPTED", "ERROR", "NEEDS_OPERATOR", "CANCELLED"} and result.get("total", 0) > 0
         _, _, root = self._paths()
         run_dir, state = self._load(root)
         if ready:
@@ -507,8 +600,16 @@ class FormalExecution:
                         ready = False
                 elif not observed or observed["result"] != item["result"]:
                     ready = False
+                else:
+                    try:
+                        property_evidence(run_dir, state, name, item)
+                    except ValueError:
+                        ready = False
         if ready:
             self.export_results()
+            if self._inputs()[-1] != state["fingerprint"]:
+                return False, {"error_code": "formal_inputs_changed_during_check", "error": "Formal inputs changed while validating evidence.",
+                               "next_action": "Inspect the changed task inputs and run the current revision before completing the stage."}
             return True, result
         return False, {**result, "error_code": "formal_execution_pending", "error": "Current formal results require execution or review.",
                        "next_action": result.get("next_action", "Call RunFormal action=run, then Check.")}
@@ -521,22 +622,34 @@ class FormalExecution:
         if not state or state["fingerprint"] != fingerprint or state["status"] in ACTIVE_RUNS:
             raise ValueError("Only current, stopped results can be published")
         parsed = {key: [] for key in ("pass", "trivially_true", "false", "cover_pass", "cover_fail")}
-        mapping = {"PROVEN": "pass", "TRIVIALLY_TRUE": "trivially_true", "FALSIFIED": "false", "COVER_REACHED": "cover_pass", "COVER_UNREACHABLE": "cover_fail"}
+        mapping = {"PROVEN": "pass", "TRIVIALLY_TRUE": "trivially_true", "FALSIFIED": "false", "TRIVIALLY_FALSE": "false", "COVER_REACHED": "cover_pass", "COVER_UNREACHABLE": "cover_fail"}
         lines = []
         for number, (name, item) in enumerate(state["properties"].items(), 1):
             if item["result"] in mapping:
                 parsed[mapping[item["result"]]].append(name)
-            status = {"PROVEN": "Pass", "TRIVIALLY_TRUE": "TrivT", "FALSIFIED": "Fail", "COVER_REACHED": "Pass", "COVER_UNREACHABLE": "Fail"}.get(item["result"], "Undec")
+            status = {"PROVEN": "Pass", "TRIVIALLY_TRUE": "TrivT", "TRIVIALLY_FALSE": "TrivF", "FALSIFIED": "Fail", "COVER_REACHED": "Pass", "COVER_UNREACHABLE": "Fail"}.get(item["result"], "Undec")
             lines.append(f" {number} {name} : {status}\tunknown\t{item['execution_elapsed_s']:.2f}\t(-)")
         log = target / "tests" / "avis.log"
         log.write_text("\n".join(lines) + "\n", encoding="utf-8")
         records = load_records(str(target / ".formal_records.yaml"))
         if records:
-            if not records.run_results or records.run_results.log_hash != hashlib.sha256(log.read_bytes()).hexdigest():
+            if not records.run_results or records.run_results.run_id != state["run_id"] or records.run_results.log_hash != hashlib.sha256(log.read_bytes()).hexdigest():
                 update_records_run_results(records, parsed, str(log))
-                records.run_results.assert_failing_properties = parsed["false"]
-                records.run_results.cover_failing_properties = parsed["cover_fail"]
-                save_records(str(target / ".formal_records.yaml"), records)
+            # Rebuild every machine field even if a task writer kept the old run/log IDs.
+            records.run_results.assert_failing_properties = parsed["false"]
+            records.run_results.cover_failing_properties = parsed["cover_fail"]
+            records.run_results.failing_properties = parsed["false"] + parsed["cover_fail"]
+            records.run_results.tt_properties = parsed["trivially_true"]
+            records.run_results.run_id = state["run_id"]
+            records.run_results.input_fingerprint = state["fingerprint"]
+            records.run_results.property_kinds = {name: item["kind"] for name, item in state["properties"].items()}
+            records.run_results.property_evidence = {name: property_evidence(run_dir, state, name, item)
+                                                   for name, item in state["properties"].items() if item["result"] in FINAL_RESULTS}
+            records.run_results.stats = {"pass_count": len(parsed["pass"]), "tt_count": len(parsed["trivially_true"]),
+                                        "fail_count": len(parsed["false"]), "cover_pass_count": len(parsed["cover_pass"]),
+                                        "cover_fail_count": len(parsed["cover_fail"]),
+                                        "trivially_false_count": sum(item["result"] == "TRIVIALLY_FALSE" for item in state["properties"].values())}
+            save_records(str(target / ".formal_records.yaml"), records)
         coverage = run_dir / "inventory" / "avis" / "fanin.rep"
         if coverage.exists():
             destination = target / "tests" / "avis" / "fanin.rep"
@@ -658,7 +771,12 @@ def controller(run_dir: Path) -> None:
                 worker["log"].close()
                 console = worker["console_path"].read_text(encoding="utf-8", errors="replace")
                 result_block = re.search(r"^UCAGENT_RESULT_BEGIN\r?\n(.*?)^UCAGENT_RESULT_END\r?$", console, re.MULTILINE | re.DOTALL)
-                final = parse_properties(result_block.group(1), item["kind"]).get(worker["name"]) if result_block else None
+                final, parse_error = None, None
+                if result_block:
+                    try:
+                        final = parse_properties(result_block.group(1), item["kind"]).get(worker["name"])
+                    except ValueError as exc:
+                        parse_error = str(exc)
                 # Count active wall time, not queue time or summed parallel CPU times.
                 charged = elapsed
                 markers = re.search(r"^UCAGENT_PROOF_STARTED (\d+)\r?$.*?^UCAGENT_PROOF_FINISHED (\d+)\r?$", console, re.MULTILINE | re.DOTALL)
@@ -670,22 +788,36 @@ def controller(run_dir: Path) -> None:
                     charged = 0.0
                 item["execution_elapsed_s"] = worker["base_elapsed"] + charged
                 item["round_elapsed_s"] += charged
+                witness = worker["console_path"].parent / "avis" / worker["name"] / (worker["name"] + ".tb.v")
+                if not witness.resolve().is_relative_to(worker["console_path"].parent.resolve()) or witness.is_symlink():
+                    parse_error = "Invalid tool witness path"
+                    witness_hash = None
+                else:
+                    witness_hash = hashlib.sha256(witness.read_bytes()).hexdigest() if witness.is_file() else None
                 attempt.update({"running": False, "ended_at": time.time(), "active_s": charged,
+                                "witness_hash": witness_hash,
                                 "console_hash": hashlib.sha256(worker["console_path"].read_bytes()).hexdigest(),
                                 "returncode": process.returncode, "forced": forced})
                 valid = (final and final["raw_status"].split("(")[0].strip() != "NotRun"
                          and "UCAGENT_PROOF_FINISHED" in console and process.returncode == 0
                          and not re.search(r"^\s*(?:Error:|Error-|Fatal)", console, re.MULTILINE))
-                if valid and final["result"] in FINAL_RESULTS:
+                if parse_error:
+                    item["state"] = "ERROR"
+                    item["error_code"] = "formal_tool_result_unsupported"
+                    item["error"] = parse_error
+                elif valid and final["result"] in FINAL_RESULTS:
                     item.update(final)
                     item["state"] = "RESOLVED"
                     item["error"] = None
                 elif valid or forced == "PROOF_TIMEOUT":
+                    if valid:
+                        item.update(final)
                     item["result"] = "UNPROVEN"
                     item["state"] = "QUEUED_SLOW" if worker["lane"] == "fast" and item["execution_elapsed_s"] < policy.property_cumulative_budget_s else "REVIEW"
                     item["error"] = None
                 else:
                     item["state"] = "ERROR"
+                    item["error_code"] = "formal_attempt_failed"
                     item["error"] = "Attempt failed or did not produce a complete property report; inspect its console.log."
                 active.remove(worker)
                 snapshot(run_dir, state, f"property-{worker['index']}-{worker['lane']}")
@@ -722,7 +854,11 @@ def controller(run_dir: Path) -> None:
                                "budget": budget, "base_elapsed": item["execution_elapsed_s"]})
                 atomic_json(run_dir / "state.json", state)
             if not active and not any(item["state"].startswith("QUEUED") for item in state["properties"].values()):
-                state["status"] = "AWAITING_REVIEW" if any(item["result"] not in FINAL_RESULTS for item in state["properties"].values()) else "COMPLETED"
+                if any(item["state"] == "ERROR" for item in state["properties"].values()):
+                    state["status"] = "NEEDS_OPERATOR"
+                    state["error"] = "Some property attempts need tool or environment repair; preserve the verification goals."
+                else:
+                    state["status"] = "AWAITING_REVIEW" if any(item["result"] not in FINAL_RESULTS for item in state["properties"].values()) else "COMPLETED"
                 break
             while checkpoint_due and now - started_batch >= checkpoint_due[0]:
                 snapshot(run_dir, state, f"batch-{checkpoint_due.pop(0)}s")
@@ -731,6 +867,7 @@ def controller(run_dir: Path) -> None:
             time.sleep(0.1)
     except Exception as exc:
         state["status"] = "ERROR"
+        state["error_code"] = "formal_preparation_or_controller_failed"
         state["error"] = str(exc)
     finally:
         if inventory_child is not None:
@@ -746,6 +883,11 @@ def controller(run_dir: Path) -> None:
             worker["log"].close()
             attempt["running"] = False
             state["properties"][worker["name"]]["state"] = "CANCELLED" if state["status"] == "CANCELLED" else "ERROR"
+        for item in state["properties"].values():
+            if item["state"].startswith("QUEUED"):
+                item["state"] = "NOT_EXECUTED"
+                item["error_code"] = "formal_batch_stopped"
+                item["error"] = "The batch stopped before this property was executed; restore execution before review."
         snapshot(run_dir, state, "final")
         atomic_json(run_dir / "state.json", state)
         write_report(run_dir, state)

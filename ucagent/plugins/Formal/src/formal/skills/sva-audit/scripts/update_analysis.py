@@ -10,6 +10,7 @@ Usage:
 """
 
 import argparse
+import json
 import os
 import sys
 from typing import Optional, Union
@@ -26,11 +27,12 @@ if _skill_root not in sys.path:
     sys.path.insert(0, _skill_root)
 
 from lib.formal_paths import FormalPaths
+from lib.formal_tools import runtime_formal_paths
 from lib.formal_tools import (
     load_records, 
     save_records, 
     auto_scaffold_analysis_entries,
-    strip_prop_prefix
+    typed_run_results
 )
 from lib.models import FormalRecords, AnalysisEntry, AnalysisData
 from ucagent.util.log import str_error, str_info, warning
@@ -41,31 +43,14 @@ VALID_FA_RESOLUTIONS = {"RTL_BUG", "ENV_FIXED", "ENV_PENDING", "COVER_EXPECTED_F
 
 
 def _ensure_analysis_data(records: FormalRecords, paths: FormalPaths) -> bool:
-    """Auto-scaffold analysis if missing but run_results exist."""
-    if records.analysis:
-        return True
-    
+    """Always reconcile current machine results, including an existing empty object."""
     if not records.run_results:
-        return False
-    
-    print(str_info("🏗️ Analysis data missing, attempting auto-scaffolding from run_results..."))
-    
-    # Reconstruct log_result from run_results for scaffolding
-    log_result = {
-        "trivially_true": records.run_results.tt_properties,
-        "false": [p for p in records.run_results.failing_properties if not (p.startswith("C_") or "COVER" in p.upper())],
-        "cover_fail": [p for p in records.run_results.failing_properties if (p.startswith("C_") or "COVER" in p.upper())]
-    }
-    
-    checker_content = ""
-    if os.path.exists(paths.checker):
-        with open(paths.checker, "r", encoding="utf-8", errors="ignore") as f:
-            checker_content = f.read()
-            
-    if auto_scaffold_analysis_entries(records, log_result, checker_content):
+        raise ValueError("Current machine run_results are required; call RunFormal and Check first.")
+    with open(paths.checker, encoding="utf-8") as stream:
+        checker_content = stream.read()
+    if auto_scaffold_analysis_entries(records, typed_run_results(records), checker_content):
         save_records(paths.records_yaml, records)
-        return True
-    return False
+    return True
 
 
 def _find_target(records: FormalRecords, entry_type: str, search_id: str) -> Optional[AnalysisEntry]:
@@ -74,20 +59,14 @@ def _find_target(records: FormalRecords, entry_type: str, search_id: str) -> Opt
     
     entries = records.analysis.tt_entries if entry_type == "tt" else records.analysis.fa_entries
     
-    # Strategy 1: Match by ID (exact)
-    target = next((e for e in entries if e.id == search_id), None)
-    if target:
-        return target
-        
-    # Strategy 2: Match by property name (exact or normalized)
-    search_norm = strip_prop_prefix(search_id)
-    target = next((e for e in entries if e.prop_name == search_id or strip_prop_prefix(e.prop_name) == search_norm), None)
-    
-    return target
+    matches = [entry for entry in entries if entry.id == search_id or entry.prop_name == search_id]
+    if len(matches) != 1:
+        raise ValueError(f"Expected one exact analysis ID or full property name for {search_id}; found {len(matches)}.")
+    return matches[0]
 
 
 def _fill(records: FormalRecords, args):
-    if not _ensure_analysis_data(records, FormalPaths()):
+    if not _ensure_analysis_data(records, runtime_formal_paths()):
         return str_error("Analysis data missing and could not be auto-scaffolded (is TCL executed?)")
     
     target = _find_target(records, args.entry_type, args.id)
@@ -97,7 +76,7 @@ def _fill(records: FormalRecords, args):
     updated = []
     if args.root_cause:
         if args.root_cause.upper() not in VALID_TT_ROOT_CAUSES:
-            return str_error(f"Invalid root_cause '{args.root_cause}'. Valid: {VALID_TT_ROOT_CAUSES}")
+            raise ValueError(f"Invalid root_cause: {args.root_cause}")
         target.root_cause = args.root_cause.upper()
         updated.append("root_cause")
         
@@ -105,13 +84,20 @@ def _fill(records: FormalRecords, args):
         target.related_assume = args.related_assume
         updated.append("related_assume")
         
+    if args.evidence_ref:
+        value = json.loads(args.evidence_ref)
+        if not isinstance(value, dict):
+            raise ValueError("evidence_ref must be a JSON object returned by RunFormal")
+        target.evidence_ref = value
+        updated.append("evidence_ref")
+
     if args.analysis:
         target.analysis = args.analysis
         updated.append("analysis")
         
     if args.action_val:
         if args.action_val.upper() not in VALID_TT_ACTIONS:
-            return str_error(f"Invalid action '{args.action_val}'. Valid: {VALID_TT_ACTIONS}")
+            raise ValueError(f"Invalid action: {args.action_val}")
         target.action = args.action_val.upper()
         updated.append("action")
         
@@ -121,20 +107,20 @@ def _fill(records: FormalRecords, args):
         
     if args.resolution:
         if args.resolution.upper() not in VALID_FA_RESOLUTIONS:
-            return str_error(f"Invalid resolution '{args.resolution}'. Valid: {VALID_FA_RESOLUTIONS}")
+            raise ValueError(f"Invalid resolution: {args.resolution}")
         target.resolution = args.resolution.upper()
         updated.append("resolution")
 
     if not updated:
-        return str_error("No fields provided to update")
+        raise ValueError("No fields provided to update")
     return str_info(f"✅ Updated {target.id} ({target.prop_name}): {', '.join(updated)}")
 
 
 def _show(records: FormalRecords, args):
-    _ensure_analysis_data(records, FormalPaths())
+    _ensure_analysis_data(records, runtime_formal_paths())
     
-    if not records.analysis:
-        return str_info("📋 No analysis data found. Run verification first.")
+    if records.analysis is None:
+        raise ValueError("No current analysis queue; call Check first.")
     
     tt = records.analysis.tt_entries
     fa = records.analysis.fa_entries
@@ -163,29 +149,27 @@ def main():
     parser.add_argument("-id", default="", help="Entry ID (e.g. FA-001) or Property Name")
     parser.add_argument("-root_cause", default="", help="TT root cause")
     parser.add_argument("-related_assume", default="", help="Related assume")
+    parser.add_argument("-evidence_ref", default="", help="Current RunFormal evidence_ref as a JSON object")
     parser.add_argument("-analysis", default="", help="Analysis process details")
     parser.add_argument("-action_val", default="", help="TT action: FIXED/ACCEPTED")
     parser.add_argument("-action_detail", default="", help="Action detail")
     parser.add_argument("-resolution", default="", help="FA resolution: RTL_BUG/ENV_FIXED/etc.")
     args = parser.parse_args()
 
-    paths = FormalPaths()
+    paths = runtime_formal_paths()
     if paths.dut == "N/A":
-        print(str_error("Cannot determine DUT. Set DUT env var or ensure .formal_records.yaml exists."))
-        return
+        raise ValueError("Cannot determine DUT from the runtime snapshot; restart UCAgent.")
 
     records = load_records(paths.records_yaml)
     if not records:
-        print(str_error(f"Records file not found at {paths.records_yaml}"))
-        return
+        raise ValueError(f"Records file not found at {paths.records_yaml}")
 
     if args.action == "show":
         print(_show(records, args))
         return
 
     if not args.id:
-        print(str_error("Missing -id (ID or Property Name required)"))
-        return
+        raise ValueError("Missing -id (exact entry ID or full property name required)")
 
     result = _fill(records, args)
     print(result)

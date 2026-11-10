@@ -1,110 +1,14 @@
 ---
 name: func-spec
-description: 提取和分析被测模块(DUT)的功能规格和形式化检测点
+description: 提取独立验证目标并通过 数据技能 批量维护 FG/FC/CK。
 ---
 
-# 功能规格与检测点分析工作流 (Functional Spec)
+# 功能规格与检测点
 
-Markdown 排版契约：本技能生成、维护或展示的任何 Markdown 中，每个 `#` 到 `######` 标题前后各保留一个空行；标题前置空行没有例外：文件开头的标题、Markdown 示例围栏内首个标题和 `<a id="..."></a>` 锚点后的目标标题都必须有前置空行。标题前不得直接连接正文、列表、表格、下一级标题、代码围栏或锚点；字段标题后的规范机器标记（例如 `<BUG-*>`、`<ROOT-*>` 和 `<RELATED-BUGS>`）可以继续与标题紧邻。
+一次维护完整FG/FC/CK层次。ID全任务唯一，前缀FG-/FC-/CK-，style为Assume/Comb/Seq/Cover。选择最小独立目标，Cover不替代assert；无约束需求不凑Assume，无状态不凑活性。Complete统一验收所有层次。
 
-本技能指导如何基于给定的基础信息，细化出该 DUT 应该包含的具体功能检测点，通过 **`update_spec.py` 脚本** 写入 `.formal_records.yaml`。
+数据技能仅为可选捷径：需要批量维护时加载`ext/formal/data`，通过原有RunSkillScript调用`formal_data.py inspect spec`，把返回的结构化请求模板写入输出目录JSON文件，再调用`update --request-file`。不拼shell内嵌JSON或逐字段set，不改变已有Skill执行接口。完整调用与请求格式见`Guide_Doc/formal_data.md`。
 
-本阶段的唯一事实来源是 `.formal_records.yaml.spec`。
+技能关闭或目录缺失时，用ReadTextFile及普通文件编辑工具维护相同YAML子树；analysis/bugs先Check协调精确条目，再取得RunFormal当前真实证据。两条路径同等验收，不写run_results或运行状态，不改派生Markdown。
 
-> **功能点标签规范、Style 标注规则与高级模式示例参见 `Guide_Doc/functions_and_checks.md`**
-
-## 步骤
-
-### 1. 读取基础信息
-
-阅读输入说明、RTL 源码或预生成的文档骨架，理解 DUT 的核心功能。
-
-### 2. 规划三级标签结构
-
-按照 `Guide_Doc/functions_and_checks.md` 中的规范，使用 `FG-XXX` (功能组)、`FC-XXX` (功能点)、`CK-XXX` (检测点) 组织层级。
-
-### 3. 通过脚本写入 YAML
-
-**禁止直接编辑 `.formal_records.yaml`**，必须通过 `RunSkillScript` 调用 `update_spec.py`。
-在本工作流中，请优先通过 `RunSkillScript` 调用技能脚本，不要假设宿主 `python3` 环境具备所有依赖：
-
-#### 添加功能组 (FG)
-
-```
-python3 .ucagent/skills/ext/formal/func-spec/scripts/update_spec.py \
-  -action add_fg -id FG-API -name "验证环境约束"
-```
-
-#### 添加功能点 (FC)
-
-```
-python3 .ucagent/skills/ext/formal/func-spec/scripts/update_spec.py \
-  -action add_fc -fg FG-API -id FC-API-INPUT-CONSTRAINT -desc "定义输入信号的合法约束条件"
-```
-
-#### 添加检测点 (CK)
-
-```
-python3 .ucagent/skills/ext/formal/func-spec/scripts/update_spec.py \
-  -action add_ck -fc FC-API-INPUT-CONSTRAINT -id CK-API-INPUT-NO-X -style Assume -desc "输入信号不能为 X 态"
-```
-
-#### 修改条目
-
-```
-python3 .ucagent/skills/ext/formal/func-spec/scripts/update_spec.py \
-  -action update -id CK-API-INPUT-NO-X -style Comb -desc "新的描述"
-```
-
-#### 删除条目
-
-```
-python3 .ucagent/skills/ext/formal/func-spec/scripts/update_spec.py \
-  -action delete -id CK-API-INPUT-NO-X
-```
-
-#### 管理全局参数 (Parameters)
-
-用于定义 `WIDTH` 等硬件常量，会自动同步到 SV 模块头和实例化语句中。
-```
-python3 .ucagent/skills/ext/formal/func-spec/scripts/update_spec.py \
-  -action set_param -id WIDTH -value 64
-```
-删除参数：
-```
-python3 .ucagent/skills/ext/formal/func-spec/scripts/update_spec.py \
-  -action delete_param -id WIDTH
-```
-
-#### 管理白盒观察信号 (Whitebox Signals)
-
-用于在 `wrapper.sv` 中手动声明一些用于观察内部逻辑的信号。
-```
-python3 .ucagent/skills/ext/formal/func-spec/scripts/update_spec.py \
-  -action add_signal -desc "logic [WIDTH-1:0] internal_state"
-```
-删除信号（需提供完全匹配的声明字符串）：
-```
-python3 .ucagent/skills/ext/formal/func-spec/scripts/update_spec.py \
-  -action delete_signal -desc "logic [WIDTH-1:0] internal_state"
-```
-
-#### 查看当前结构 (Show)
-
-```
-python3 .ucagent/skills/ext/formal/func-spec/scripts/update_spec.py -action show
-```
-
-
-### 4. 完成后调用 Check
-
-`03_{DUT}_functions_and_checks.md` 是派生产物。
-Checker 会验证 YAML 结构完整性，通过后自动重建该文档。
-
-## 核心规则
-
-1. 对于每一个状态转移或者核心功能 Seq 检测点，尽最大可能配对提供一个 Cover 检查（证明其可达性）。
-2. 在规划阶段严禁编写真实的 SystemVerilog 代码，只写逻辑描述。
-3. 必须包含 `FG-API`（环境约束）和 `FG-COVERAGE`（可达性覆盖）两个功能组。
-4. `id` 必须以 `CK-` 开头，使用大写字母和横杠（如 `CK-CORE-ARITH-RESULT`）。
-5. `style` 必须是 `Assume` / `Comb` / `Seq` / `Cover` 之一。
+本指南仅按需提供方法，不是默认阶段完成仪式。目标齐备后SetCurrentStageJournal记录日志，再Complete；Check仅定位实际缺口。领域格式与完整例子见`Guide_Doc/functions_and_checks.md`。

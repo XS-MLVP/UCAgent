@@ -3,7 +3,20 @@
 
 > 本文档由 `.formal_records.yaml` 自动生成，请勿手动编辑。
 
-本报告记录了 {{ bugs | length }} 个 RTL 缺陷。
+本报告记录了 {{ bugs | length }} 条失败属性观测，关联 {{ roots | length }} 个独立根因。
+
+## Root causes
+
+{% for root in roots %}
+
+### {{ root.id }}
+
+- Root cause: {{ root.root_cause }}
+- Fix: {{ root.fix }}
+- Severity: {{ root.severity }}
+- Properties: {{ root.properties | join(", ") }}
+
+{% endfor %}
 
 ---
 
@@ -21,12 +34,10 @@
 
 **FILE-RTL文件路径**: {{ b.rtl_file }}:{{ b.rtl_line }}
 **问题描述**: {{ b.description }}
-**根本原因**: {{ b.root_cause }}
+**根因引用**: {{ b.root_cause_id }}
 **触发条件**: {{ b.trigger }}
 **预期行为**: {{ b.expected }}
 **实际行为**: {{ b.actual }}
-**修复建议**: {{ b.fix }}
-**影响范围**: {{ b.severity }}
 **置信度**: {{ b.confidence }}
 
 ---

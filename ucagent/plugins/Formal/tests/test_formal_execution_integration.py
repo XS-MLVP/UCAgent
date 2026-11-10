@@ -64,7 +64,7 @@ def test_machine_summary_exposes_deferred_without_relabeling_as_proven(tmp_path)
     records = FormalRecords(dut="DUT", summary={
         "core_function": "queue", "overall_result": "一条属性未证明",
         "acceptance_conclusion": "存在暂缓属性，验证不完整",
-        "coi_assessment": {"unreachable_notes": []}, "severe_bugs": [],
+        "coi_assessment": {"unreachable_notes": []},
         "completeness": {"safety": "partial", "liveness": "partial", "cover": "partial"},
     })
     output = tmp_path / "summary.md"

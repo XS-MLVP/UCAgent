@@ -104,7 +104,12 @@ if 'SLOW' in name:
     result = 'Undet (42)'
 else:
     time.sleep(0.15)
-    result = 'Pass'
+    result = 'TrivF (0)' if 'STATIC_FALSE' in name else 'Unsupported' if 'UNSUPPORTED' in name else 'Fail (2)' if 'WITNESS' in name else 'Pass'
+if 'WITNESS' in name:
+    work = Path(sys.argv[sys.argv.index('-work_dir') + 1])
+    witness = work / 'avis' / name / (name + '.tb.v')
+    witness.parent.mkdir(parents=True, exist_ok=True)
+    witness.write_text("// initialization\ninitial begin\ninput_data <= 8'b10100101;\nvalid <= 1'b1;\nend\n")
 print('UCAGENT_PROOF_FINISHED', flush=True)
 print('UCAGENT_RESULT_BEGIN', flush=True)
 rows(target=name, status=result)
@@ -194,6 +199,53 @@ UCAGENT_COVER_END
     assert parsed["A_SLOW"]["result"] == "UNPROVEN"
     assert parsed["A_SLOW"]["solver_reported_time_s"] == 1.01
     assert parsed["reach_without_prefix"]["result"] == "COVER_REACHED"
+
+
+def test_static_false_results_keep_remaining_properties_running(execution_factory):
+    """Static constant failures are real final results, not controller exceptions."""
+    execution, workspace = execution_factory(("lane.STATIC_FALSE", "other.A_FAST", "reach_STATIC_FALSE"))
+    execution.run()
+    done = wait_for(execution, lambda item: item["status"] not in ACTIVE_RUNS)
+    assert done["status"] == "COMPLETED"
+    assert done["counts"] == {"TRIVIALLY_FALSE": 1, "PROVEN": 1, "COVER_UNREACHABLE": 1}
+    assert execution.check()[0] is True
+    reference = execution.evidence(["lane.STATIC_FALSE"])["items"][0]
+    assert reference["raw_status"] == "TrivF (0)"
+    assert reference["witness_artifact"] is None
+
+
+def test_unknown_status_isolated_without_changing_goals(execution_factory):
+    """Unsupported engine output stops only its target and asks for operator repair."""
+    execution, workspace = execution_factory(("first.UNSUPPORTED", "second.A_FAST"))
+    execution.run()
+    done = wait_for(execution, lambda item: item["status"] not in ACTIVE_RUNS)
+    assert done["status"] == "NEEDS_OPERATOR"
+    state = state_for(workspace, done)
+    assert state["properties"]["first.UNSUPPORTED"]["error_code"] == "formal_tool_result_unsupported"
+    assert state["properties"]["second.A_FAST"]["result"] == "PROVEN"
+    assert state["properties"]["first.UNSUPPORTED"]["attempts"][0]["ended_at"]
+    assert execution.check()[0] is False
+    assert "Preserve the original properties" in done["next_action"]
+    with pytest.raises(ValueError, match="budget-exhausted"):
+        execution.review(["first.UNSUPPORTED"], "defer", "Parser does not support output", "Fix tool adapter")
+
+
+def test_witness_export_is_exact_current_and_tamper_checked(execution_factory):
+    """Evidence returns original numeric inputs and binds exact hierarchical identity."""
+    execution, workspace = execution_factory(("nested.WITNESS",))
+    execution.run()
+    done = wait_for(execution, lambda item: item["status"] not in ACTIVE_RUNS)
+    evidence = execution.evidence(["nested.WITNESS"])["items"][0]
+    assert evidence["evidence_ref"]["property"] == "nested.WITNESS"
+    assert evidence["initial_values"] == [{"signal": "input_data", "width": 8, "value": "0xa5", "has_unknown": False},
+                                           {"signal": "valid", "width": 1, "value": "0x1", "has_unknown": False}]
+    with pytest.raises(ValueError, match="Exact property"):
+        execution.evidence(["WITNESS"])
+    with pytest.raises(ValueError, match="unique"):
+        execution.evidence([])
+    (workspace / evidence["witness_artifact"]).write_text("modified trace")
+    with pytest.raises(ValueError, match="witness changed"):
+        execution.evidence(["nested.WITNESS"])
 
 
 def test_run_is_idempotent_and_preserves_cover_type(execution_factory):

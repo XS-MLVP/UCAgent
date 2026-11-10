@@ -5,6 +5,7 @@ from pathlib import Path
 from ucagent.core.plugins import Plugin, PluginContext, PluginWorkflow
 
 from .execution import ExecutionPolicy
+from .runtime import FormalDataRuntimeHook
 from .tools import RunFormal
 
 from .checkers import (
@@ -47,6 +48,7 @@ def get_plugin() -> Plugin:
         description="Formal (SVA) verification workflow",
         root=root,
         tool_factories=(create_tools,),
+        runtime_hooks=(FormalDataRuntimeHook,),
         checkers=(
             PlanningStructureChecker,
             BasicInfoStructureChecker,

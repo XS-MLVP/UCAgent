@@ -1,57 +1,14 @@
 ---
 name: sva-opt
-description: 指导解释覆盖率报告并优化未覆盖死角的技能
+description: 根据当前覆盖缺口优化独立属性，保留原验证目标。
 ---
 
-# 形式化覆盖率优化工作流 (Coverage Optimization)
+# 覆盖与慢属性优化
 
-本技能指导如何根据覆盖率检查结果对断言集合进行增补，实现 COI 覆盖闭环。
+根据真实覆盖缺口增加独立目标；无缺口不重复补断言或重跑。慢属性区分排队、求解与工具错误，不能删目标、增加无依据assume或把无界目标改弱。辅助不变量和分解须保留原证明义务。
 
-本阶段的主要写入口是 `.formal_records.yaml.spec` 与对应的 `sva_body` 字段。
+数据技能仅为可选捷径：需要批量维护时加载`ext/formal/data`，通过原有RunSkillScript调用`formal_data.py inspect spec`，把返回的结构化请求模板写入输出目录JSON文件，再调用`update --request-file`。不拼shell内嵌JSON或逐字段set，不改变已有Skill执行接口。完整调用与请求格式见`Guide_Doc/formal_data.md`。
 
-> **COI 概念、fanin.rep 格式、信号映射表参见 `Guide_Doc/coi_coverage.md`**
-> **SVA 编码规范参见 `Guide_Doc/sva_property.md`**
+技能关闭或目录缺失时，用ReadTextFile及普通文件编辑工具维护相同YAML子树；analysis/bugs先Check协调精确条目，再取得RunFormal当前真实证据。两条路径同等验收，不写run_results或运行状态，不改派生Markdown。
 
-执行说明：
-- 在本工作流中，请优先通过 `RunSkillScript` 调用技能脚本
-- 不要假设宿主 `python3` 环境具备所有依赖
-- `checker.sv` 是派生产物，新增断言后应以 full refresh 生成结果为准
-
-## 步骤
-
-### 1. 读取 Checker 反馈
-
-调用 Check → 读取 Checker 返回的 COI 覆盖率数据和未覆盖信号列表。
-Formal 工具的执行时间可能很长，尤其在多时钟域和大状态空间设计上，这是正常现象。不要因为短时间没有输出就频繁中断或重试，优先等待更长时间的结果再做判断。
-
-### 2. 分析每个未覆盖信号
-
-对照 `Guide_Doc/coi_coverage.md` 中的信号→断言映射表，判断每个未覆盖信号：
-- 是有效业务逻辑 → 需要补断言
-- 是不可达死逻辑 → 标记 UNREACHABLE
-
-### 3. 补充断言（先更新 YAML，再自动同步）
-
-1. 使用 `update_spec.py` 在 `.formal_records.yaml` 中新增 `CK-XXX` 检测点条目。
-2. 使用 `update_sva_body.py` 为新检测点编写 SVA 代码实现：
-
-```bash
-python3 .ucagent/skills/ext/formal/sva-gen/scripts/update_sva_body.py <CK-ID> "<SVA_CODE_BODY>"
-```
-
-3. 调用 `PropertyStructureChecker`。系统会自动根据最新的 YAML 渲染并覆盖 `checker.sv`，确保新断言生效。
-
-⚠️ **必须用 assert 验证行为正确性，不能仅靠 cover 刷 COI**
-
-
-### 4. 重跑受管理证明批次
-
-修改 YAML 并完成环境生成后调用 `RunFormal(action="run")`；`RunFormal(action="status")` 查看 5 分钟和 20 分钟快照。对超出预算的未解决属性先分析原因，再使用 `RunFormal(action="review", property_names=["完整属性名"], disposition="retry" 或 "defer", reason="具体分析", next_action="下一步")` 记录处置。暂缓是 UNPROVEN，不得视作 Pass。运行与处置契约见 `Guide_Doc/formal_execution.md`；证明仅通过 RunFormal 启动。
-
-### 5. 完成后调用 Complete
-
-## 核心规则
-
-1. 每个未覆盖信号至少需要一个 assert，仅 cover 引用不够
-2. 补断言时必须先更新 `.formal_records.yaml`，不要直接编辑 checker.sv
-3. UNREACHABLE 必须满足严格条件才能标记（参见 `Guide_Doc/coi_coverage.md`）
+本指南仅按需提供方法，不是默认阶段完成仪式。目标齐备后SetCurrentStageJournal记录日志，再Complete；Check仅定位实际缺口。领域格式与完整例子见`Guide_Doc/coi_coverage.md`。

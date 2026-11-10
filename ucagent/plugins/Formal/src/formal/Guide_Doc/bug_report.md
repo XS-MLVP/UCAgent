@@ -1,61 +1,79 @@
 
-# Bug 报告领域知识参考
+# 形式化缺陷报告
 
-> **本文档是 RTL 缺陷分析与报告阶段的领域知识参考。**
->
-> - **数据写入方式**: Checker 会从 `.formal_records.yaml` 的 `analysis.fa_entries` 中自动提取 `RTL_BUG` 属性并生成骨架，再用 `update_bug.py` 逐条填写详情，数据存储在 `.formal_records.yaml` 的 `bugs` 字段中。
-> - **文档自动生成**: Checker 通过后自动从 JSON 生成 `04_{DUT}_bug_report.md`，**无需手动编写 Markdown**。
+本阶段依据已核验的 `RTL_BUG` 分析填写缺陷观测，Check生成 `04_{DUT}_bug_report.md`。使用可选数据技能或普通文件工具维护同一YAML，以RunFormal evidence核对真实证据，不手写派生Markdown。公共数据完整例子见 `Guide_Doc/formal_data.md`。
 
----
+## 提交与验收
 
-## BG 标签命名规范
+1. 技能可用时，通过原有RunSkillScript调用ext/formal/data的`formal_data.py prepare bugs`，取得精确观测和ready_update；无技能时Check协调条目，用普通文件工具读取并填写同一bugs子树。
+2. 核对RunFormal evidence给出的本条真实反例、独立参考值及实际输出；静态失败使用声明契约证据，不编造输入序列。
+3. 数据技能可用`data.shared`一次提交共同根因及entries；将完整结构化请求写JSON文件，再经RunSkillScript调用`update --request-file`，不拼shell内嵌JSON。无技能时各YAML观测保留一致的共享值。
+4. 日志后Complete，Check只用于实际诊断。无RTL_BUG时不制造占位Bug；修复建议未经新验证不得称已通过。
 
-| 前缀 | 类型 | 示例 |
-|------|------|------|
-| BG-SUM- | 求和/算术相关 | BG-SUM-WIDTH-001 |
-| BG-FSM- | 状态机相关 | BG-FSM-DEAD-001 |
-| BG-INTF- | 接口协议相关 | BG-INTF-HANDSHAKE-001 |
-| BG-LOGIC- | 通用逻辑相关 | BG-LOGIC-OVERFLOW-001 |
-| BG-MEM- | 存储/FIFO相关 | BG-MEM-CORRUPT-001 |
+`shared` 可含 `root_cause_id/root_cause/fix/severity/confidence`，必须有明确的非空root_cause_id。`entries` 每项含工具返回的id/property及该属性的 `description/trigger/expected/actual`，并补齐 `ck_id/fg_id/fc_id/rtl_file/rtl_line`。严重度和置信度从HIGH/MEDIUM/LOW选取。共享字段若在entry重复出现，值必须一致，不能悄悄覆盖。
 
----
+失败属性数量是观测数，独立root_cause_id数量是根因数。相同根因只维护一次原因与修复，各条目保留自己的触发和输出证据。Cover、UNPROVEN、超时或工具故障不能登记成RTL Bug；属性参考计算错误必须先修至通过。
 
-## Bug 条目必需字段
+## 完整报告参考
 
-通过 `update_bug.py` 填写每个 bug 时，以下字段全部必填：
+下面是两个属性观测关联一个根因的完整渲染布局。真实名称、位置和数值必须来自当前任务与证据；不得复制本例作为证明。报告从标题到最后分隔线与生成模板一致。
 
-| 字段 | 说明 |
-|------|------|
-| `fg_id` | 功能组标签（来自 spec） |
-| `fc_id` | 功能点标签（来自 spec） |
-| `rtl_file` | 缺陷所在的 RTL 文件路径 |
-| `rtl_line` | 缺陷所在行号 |
-| `description` | 问题描述：什么条件下触发了错误 |
-| `root_cause` | 根本原因：RTL 代码中的逻辑错误分析 |
-| `trigger` | 触发条件：输入组合或状态序列 |
-| `expected` | 预期行为：规格要求的正确表现 |
-| `actual` | 实际行为：当前 RTL 的错误表现 |
-| `fix` | 修复建议：具体的逻辑修改方案 |
-| `severity` | 影响范围：`HIGH` / `MEDIUM` / `LOW` |
-| `confidence` | 置信度：`HIGH` / `MEDIUM` / `LOW` |
+```markdown
+
+# PacketGate 形式化验证缺陷报告
+
+> 本文档由 `.formal_records.yaml` 自动生成，请勿手动编辑。
+
+本报告记录了 2 条失败属性观测，关联 1 个独立根因。
+
+## Root causes
+
+### ROOT-PACKET-ELIGIBILITY
+
+- Root cause: 共同资格条件取反，导致两侧输出不符合规格。
+- Fix: 修正共同资格条件，按原目标重新运行并检查真实结果。
+- Severity: HIGH
+- Properties: u_left.A_CK_PACKET_ELIGIBLE, u_right.A_CK_PACKET_ELIGIBLE
 
 ---
 
-## 故障归因与聚类
+## Failed Property: `u_left.A_CK_PACKET_ELIGIBLE`
 
-在实际 formal 项目中，一个 RTL 缺陷经常导致**多个属性同时 FALSE**（例如一个位宽错误影响所有用到该信号的断言）。不要逐条独立分析，应先做归因聚类：
+### <FG-LOGIC> 关联的功能组
 
-### 归因步骤
+### <FC-PACKET-LEFT> 关联的功能点
 
-1. **列出所有 RTL_BUG 属性的失败信号**：检查每个反例中，最终导致断言违反的信号是什么。
-2. **按共同信号分组**：如果多个属性的违反都涉及同一个 RTL 信号（例如 `sum[7:0]` 被截断），它们大概率是同一个 bug。
-3. **选一个代表属性做详细分析**：写清反例波形、根因、修复建议。
-4. **其余同组属性引用代表分析**：`根因同 <BG-XXX>，此处省略重复分析`。
+### <BG-FORMAL-001> 左侧资格输出与规格不符
 
-### 根因分析总结表
+<CK-PACKET-LEFT>
 
-当报告中出现 3 个以上 RTL_BUG 时，**必须**在报告末尾填写总结表：
+**FILE-RTL文件路径**: PacketGate/PacketGate.sv:8
+**问题描述**: 当前左侧witness中request=1但eligible=0，与组合资格条件不符。
+**根因引用**: ROOT-PACKET-ELIGIBILITY
+**触发条件**: 工具当前左侧属性witness的request=1采样。
+**预期行为**: eligible=1。
+**实际行为**: eligible=0。
+**置信度**: HIGH
 
-| 根因编号 | 影响的属性数 | 根因描述 | 修复方案（一句话） |
-|---|---|---|---|
-| ROOT-1 | 5 | sum 信号位宽不足导致截断 | 修改 Adder.v 第10行：扩展 sum 为 N+1 位 |
+---
+
+## Failed Property: `u_right.A_CK_PACKET_ELIGIBLE`
+
+### <FG-LOGIC> 关联的功能组
+
+### <FC-PACKET-RIGHT> 关联的功能点
+
+### <BG-FORMAL-002> 右侧输出受到相同资格条件错误影响
+
+<CK-PACKET-RIGHT>
+
+**FILE-RTL文件路径**: PacketGate/PacketGate.sv:9
+**问题描述**: 当前右侧witness中request=0但eligible=1，与规格不符。
+**根因引用**: ROOT-PACKET-ELIGIBILITY
+**触发条件**: 工具当前右侧属性witness的request=0采样。
+**预期行为**: eligible=0。
+**实际行为**: eligible=1。
+**置信度**: HIGH
+
+---
+```

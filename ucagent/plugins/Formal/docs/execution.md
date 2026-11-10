@@ -1,13 +1,40 @@
 
 # Formal execution operations
 
-The Formal plugin exposes `RunFormal` locally and over MCP. An agent implements
-properties in the task YAML, calls `RunFormal(action="run")`, inspects `status`
-and `Check`, and only supplies analysis when a property remains unresolved.
-Queueing, timing, report collection, process cleanup, and evidence projection are
-automatic. `status` waits up to 300 seconds by default for a new checkpoint or
-completion, with normal UCTool heartbeat support; use `wait_s=0` for an immediate
-query or configure the call argument up to 1200 seconds. Runtime task instructions are in
+The Formal plugin exposes `RunFormal` for managed proof execution and evidence.
+Structured task authoring is the optional `ext/formal/data` Skill, not an
+independent UCTool. It executes through the existing `RunSkillScript` interface;
+no framework Skill execution behavior is changed.
+
+The default stages declare no Skill requirements. When the data Skill is useful,
+load it once using ListSkill and ReadTextFile, then call the existing command
+triples, for example `commands:[["ext/formal/data","formal_data.py","inspect planning"]]`.
+For a batch update, write a structured request file under the output directory,
+then invoke `update --request-file formal_test/data_update.json`. Requests contain
+`section`, `expected_sha256`, and exactly one of `data` or `bodies`; no inline
+shell JSON or field-by-field set sequence is required.
+
+`inspect` is read-only. `prepare analysis` / `prepare bugs` explicitly validates
+current stopped proof evidence, coordinates exact queues, and returns a
+`ready_update` request with original witness context. The Skill binds verified
+references automatically. It does not prove the intended specification semantics
+or justify a Bug classification without review.
+
+With Skills disabled or absent, ordinary file tools maintain the same canonical
+YAML, Check coordinates current analysis/Bug entries, and RunFormal evidence
+supplies current exact references. The same acceptance gates apply. Neither a
+missing Skill nor a disabled Skill directory is a reason to skip work.
+
+Shared roots use an explicit root_cause_id; evidence remains property-specific.
+Severe-Bug summaries derive from accepted observations and roots, not a separately
+authored summary list. Stage journaling remains mandatory; Complete validates
+and advances, while Check is used for actual diagnostics. See
+`src/formal/Guide_Doc/formal_data.md` for full enabled/disabled examples.
+
+Queueing, timing, report collection, and process cleanup are automatic.
+`status` requests up to 300 seconds by default and is capped below the resolved
+tool-call timeout with return headroom; use `wait_s=0` for an immediate query.
+The execution and original-evidence contract is in
 `src/formal/Guide_Doc/formal_execution.md`.
 
 ## Configuration
@@ -65,7 +92,12 @@ licensed designs. The implementation uses exact `set_opt -timeout`, explicit
 `prove <property>`, typed `show_prop -only_assert`/`-only_cover`, and final
 `show_prop -time -engine -reason` reports. `Undet` and `NotRun` are not success.
 An error can be printed even when the process exits zero, so exit code alone is
-not evidence of a completed proof.
+not evidence of a completed proof. `TrivF` is retained as `TRIVIALLY_FALSE`,
+a distinct static/constant failure. `TrivT` reason metadata is retained for review;
+a direct identity proof must not automatically be labeled overconstraint. Unknown
+result spellings become property-specific `NEEDS_OPERATOR` diagnostics while
+other independent work can finish; never rewrite a verification objective merely
+to avoid a tool-result parser error.
 
 Each turn starts a fresh process and re-reads frozen input files. It does **not**
 resume a solver's internal search: 5+15 minutes of independent attempts is not a
@@ -111,7 +143,7 @@ Only current stopped results are projected into task analysis data. Coverage
 must refer to the current run's inventory report; an old projected fanin report
 cannot authorize coverage for a newer run. A deferred run can finish its review
 stage, but the final summary must include the literal `UNPROVEN` and renders
-machine proof counts and gaps separately from agent-authored conclusions.
+machine proof counts and gaps separately from agent-authored conclusions. Severe-Bug summaries are derived from accepted Bug observations and shared roots; authors do not maintain a second severe_bugs structure.
 
 Machine artifacts are not editable progress checklists. Raw evidence lives in
 run-scoped attempt logs; the shared `tests/avis.log` is only an aggregate result

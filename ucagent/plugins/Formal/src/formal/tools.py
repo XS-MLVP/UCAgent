@@ -69,14 +69,14 @@ class RunFormalArgs(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    action: Literal["run", "status", "cancel", "review"] = Field(
+    action: Literal["run", "status", "cancel", "review", "evidence"] = Field(
         description="Run or inspect the current proof batch, cancel it, or review unresolved properties."
     )
     wait_s: int = Field(default=300, ge=0, le=1200,
                         description="For status, wait for a new result checkpoint or completion, up to this many seconds; use 0 for an immediate query.")
     property_names: list[str] = Field(
         default_factory=list,
-        description="Exact unresolved property names for a review action; empty for other actions.",
+        description="Exact current property names for review or evidence; empty for other actions.",
     )
     disposition: Literal["defer", "retry"] | None = Field(
         default=None,
@@ -152,9 +152,12 @@ class RunFormal(UCTool):
             )
             return execution.run()
         if action == "status":
-            return execution.status(wait_s=wait_s)
+            effective_wait = min(wait_s, max(0, self.call_time_out - 15))
+            return execution.status(wait_s=effective_wait)
         if action == "cancel":
             return execution.cancel()
+        if action == "evidence":
+            return execution.evidence(property_names or [])
         return execution.review(
             property_names=property_names or [],
             action=disposition,
