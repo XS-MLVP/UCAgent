@@ -17,8 +17,8 @@ tools:
   ignore_tools: [WorkCommit]
 hooks:
   continue: >
-    使用 CurrentTips、StageJournal 恢复任务。只在当前阶段工作，按 Check 的反馈修复报告；
-    发现资产缺陷是审查结果，不得在人工授权前修复资产。
+    使用 CurrentTips、StageJournal 恢复任务。先调查资产和证据，再更新报告；
+    审查完成后直接进入候选修复与报告交付。对未解决问题记录已调查内容、具体缺项、责任方和下一步，继续处理可修复项。
 mission:
   name: ACT4 existing extension review
   prompt:
@@ -32,23 +32,29 @@ mission:
       审核全部 evidence.review_tasks；AI 不能用自己的判断覆盖失败的机器结果或补造命中证据。
       编译成功、静态标签可达和真实 coverpoint 命中是三种不同证据。
       验证前按当前提交的版本校验和 CI 准备环境；缺失的公开工具先安装到 review/tools 并复验。
-      Questa/VCS 等商业工具先查已有安装、合法介质和许可证；可用时安装并验证实际可运行，缺少介质或许可时记录具体阻塞和恢复动作。不得将工具缺失直接当作检查完成。
+      开始先调用 Check，读取 environment.json 中 Questa/VCS/Xcelium 的实际探测结果。这些工具可选，不安装商业工具；缺失或许可不可用时继续审查及独立验证。
+      依赖商业仿真器的 job 声明 optional_tool，generation/build/reference_model/lint 不依赖这些可选 job；未测 coverage 保留限制，不当作资产缺陷。
       无 ELF 时先执行原生测试生成、ELF 构建（含 Sail 签名和自检重编译），再执行真实测试。
-      授权前只审查和运行基线验证；人工批准精确摘要后，只在 candidate 中修复批准的路径。
-      不得调用或模拟人工控制命令，不得以报告字段、聊天同意或 ApproveStagePass 代替人工门禁。
-      发现范围外缺陷时记录并交还人工，不扩大修改范围。最终提供补丁而不自动应用到原始仓库。
+      按 review_audit、review_repair 两个阶段完成审查、修复、复验和最终报告，自动推进。
+      审查阶段冻结基线并记录修复计划；修复阶段只在 candidate 中修改 review.changes 声明的路径。
+      从规范和 CTP/测试计划独立提取 obligations，再追踪 coverage、generator、用例和目标配置；两个实现端都遗漏的义务也必须登记。
+      分别记录问题性质 classification、诊断进度 diagnosis 和最终修复状态；不能用未修复推断问题未确认。
+      缺少信息时先核查现有规范、计划、共享源码、配置和失败日志，记录 investigation 的实际动作、结果和精确引用。
+      已有规范明确的行为应记实现缺口，不笼统索要规范；普通排查由 agent 继续，只有外部确实掌握的输入才请求用户帮助。
+      新发现的问题先更新 findings、changes 和 post_assets 并校验，再实施有充分依据的修复。
+      最终提供完整报告和补丁，原始仓库保持不变。
 stage:
-  - name: review_inventory
-    desc: 冻结已有资产与版本，确定审查范围和原生 CI 矩阵
+  - name: review_audit
+    desc: 冻结资产与版本，全面审查并形成有证据支持的修复计划
     task:
-      - 第一步：读取 Guide_Doc/ACT4_Extension_Review_Guide.md，阅读原始仓库 README、DeveloperGuide、
+      - 第一步：读取 Guide_Doc/ACT4_Extension_Review_Guide.md，立即调用 Check 探测可选工具，读取 environment.json；阅读原始仓库 README、DeveloperGuide、
         .github/workflows、规范和该 extension 的资产，确定当前版本的审查契约与原生验证入口。
       - 第二步：盘点已有资产，记录实际 HEAD 和 dirty 输入，区分上游已有资产与单独保存的本地资产。
       - 第三步：创建 {OUT}/{DUT}/review/scope.yaml，逐项填写 test_plans、coverage、generators、
-        test_cases、mappings，列出所有选定 XLEN/目标配置及适用原生 CI jobs。
+        test_cases、mappings，列出所有选定 XLEN/目标配置及适用原生 CI jobs；shared_assets 写共享路径、消费者和审查边界，无共享项写 []。
       - 第四步：在 reference_files 中登记实际读取的规范/CTP/元数据文件，使用工作区内确切相对路径，随基线冻结。
-      - 第五步：配置 environment jobs 的 probe、install 和版本校验；核查 Questa/VCS 安装路径、
-        安装介质和许可证，为缺失项填写具体 reason 和补齐动作。
+      - 第五步：为公开工具配置 environment jobs 的 probe、install 和版本校验；依赖 Questa/VCS/Xcelium 的
+        coverage job 用 optional_tool 声明具体工具，保留原生命令；由实际探测决定是否执行，不配置商业工具安装。
       - 第六步：为每个 target 声明 environment、generation、build、reference_model、coverage、lint 六类 lane，
         用 needs 配置依赖，并填写 ELF 输入、产物、模型结果与通过/失败模式。
       - 第七步：为 CI 命令注明 workflow/文档来源、目标、工具前提和适用性；
@@ -64,95 +70,75 @@ stage:
         diagnostics 保留当前版本的签名日志、失败用例日志和诊断文件；必需 CI 产物仍写 artifacts。
         禁止用 true/echo 充当 CI。
       - 要求（基线）：冻结后不得改变原始输入。更新了仓库版本后重新读取命令、版本约束和资产，
-        不能沿用另一提交的测试结论或授权。
-    reference_files: ["Guide_Doc/ACT4_Extension_Review_Guide.md"]
-    checker:
-      - name: review_baseline
-        clss: ACT4ReviewChecker
-        args: {phase: inventory, suite: "{DUT}", review_dir: "{OUT}/{DUT}/review"}
-  - name: review_audit
-    desc: 全面检查并交付缺陷清单与逐项优化方案，不修改资产
-    task:
-      - '第一步：运行 Check(stage_args={"run_commands": true})，先探测/安装/复验环境，
+        不能沿用另一提交的测试结论。
+      - '第九步：运行 Check(stage_args={"run_commands": true})，先探测/安装/复验环境，
         再按 needs 执行生成、ELF 构建与实际测试，保存工具准备日志、ELF 数量、实际测试数量和结果。'
-      - 第二步：读取 evidence-before.json、命令日志和保留的 diagnostics，核对静态诊断与执行结果；
+      - 第十步：读取 evidence-before.json、命令日志和保留的 diagnostics，核对静态诊断与执行结果；
         对失败项分析根因，提出修复建议或说明暂缓所需证据。
-      - 第三步：读取 evidence-before.json 的完整 review_tasks，逐项完成 semantic_review；
-        检查规范义务、采样/iff、bins、cross、激励、预期结果及用例配置，对重复候选比较等价义务。
-      - 第四步：对全部 coverpoint 建立定义、义务和用例追踪，区分 measured/static/gap/unverified。
-      - 第五步：按 Guide_Doc/ACT4_Extension_Review_Guide.md 创建 review.yaml，汇总 ACT4 规范、
+      - 第十一步：读取 evidence-before.json 的完整 review_tasks，逐项完成 semantic_review；
+        从 obligation_sources 的每个规范/计划区块提取 obligations，逐项映射目标配置、覆盖点和实现源码，排除项说明理由；
+        检查采样/iff、bins、cross、激励、预期结果，对重复候选比较等价义务。
+      - 第十二步：对全部 coverpoint 建立定义、义务和用例追踪，区分 measured/static/gap/unverified。
+      - 第十三步：按 Guide_Doc/ACT4_Extension_Review_Guide.md 创建 review.yaml，汇总 ACT4 规范、
         规范/计划/生成器/用例间遗漏、冗余、coverpoint 设计与实际覆盖、CI、可复现性和贡献质量的审查结果，
         填写 findings、修复提案和 post_assets。
-      - 第六步：用普通 Check 校验报告，按反馈补齐报告和证据，准备提交人工决策。
+      - 第十四步：用普通 Check 校验报告，按反馈补齐报告和证据，Complete 后直接进入修复阶段。
       - 要求（真实执行）：不得因没有 ELF 而跳过构建；前置失败时后续阻塞，不运行空测试。
         模型通过数必须等于非零输入 ELF 数；构建器的 succeeded 是构建任务数，不是测试通过数。
         不得把产物缺失当作唯一根因。
       - 要求（语义审查）：八类总审查、每个 coverpoint/cross、静态告警、条件疑点及重复候选均须有判断；
-        同义任务可合并，但每个 task ID 只出现一次。静态错误区分资产缺陷、扫描限制与范围偏差，
+        source、shared、obligation 和 finding 任务也逐项审核。同义任务可合并，但每个 task ID 只出现一次。diagnostics 区分 asset_defect、scanner_limitation、scope_mismatch、unresolved，
         保留原始结果，并引用实际源码解释依据。
       - 要求（判断依据）：basis 引用冻结源码/规范或本轮保留的日志/产物，用确切行号、逐字 quote 和 observation
         支撑 reasoning 与 conclusion。evidence_digest 使用本轮 review_digest，issues 关联 finding；
         证据不足明确写 unverified、limitation 和 next_action，不能仅批量填未知而不分析已具备的证据。
       - 要求（覆盖追踪）：static 用例须来自 testcase_links 且引用其保留源码；静态扫描无法建立的对应记 unverified。
         measured 只引用成功 coverage job 的真实产物，不能用模型运行或标签链接代替。
-      - 要求（问题与提案）：每个问题含证据和修复建议；每个提案含确切路径、风险和复验 jobs。
-        post_assets 列出修复后完整资产集合，新增/删除成员必须属于拟批准路径。
-        有问题但暂不提出修改时，逐项说明待确认的根因、补齐动作和风险；空批准路径不授权任何源码修改。
-      - 要求（如实交付）：即使 CI 失败或工具缺失，也必须交付诚实报告等待人工决策，不能通过隐藏缺陷让审查通过。
+      - 要求（问题与提案）：每个问题含 classification、diagnosis、investigation 和修复建议；
+        仅 confirmed_defect 且 repair_ready 的问题进入 changes，每个提案含确切路径、风险和复验 jobs。
+        post_assets 列出修复后完整资产集合，新增/删除成员必须属于 changes 声明的路径。
+        缺少必要信息时保留 finding，说明缺失信息、补齐动作和风险，不强行提出修改；changes 允许为空。
+      - 要求（如实交付）：即使 CI 失败或工具缺失，也必须交付诚实报告并继续处理有依据的修复，不能隐藏缺陷。
         无问题允许 findings/changes 为空。
       - 提示：首次收集证据后，用普通 Check 校验报告。仅修改 references/discovery 或报告文字无需重跑命令，
-        但会更新授权摘要；变更执行输入或主动复测时才调用 run_commands=true。
+        变更执行输入或主动复测时才调用 run_commands=true。
     reference_files: ["Guide_Doc/ACT4_Extension_Review_Guide.md"]
     checker:
       - name: review_evidence
         clss: ACT4ReviewChecker
         args: {phase: audit, suite: "{DUT}", review_dir: "{OUT}/{DUT}/review"}
-  - name: review_authorization
-    desc: 展示审查报告与精确修复范围，等待人类审批
-    need_human_check: true
-    task:
-      - 第一步：向人类提交 review.md、review.yaml、evidence-before.json 和 authorization.json。
-      - 第二步：说明审查结论、未验证项、风险和精确批准范围。
-      - 第三步：调用 Complete，然后停止并等待人工审批。
-      - 要求：人类必须在控制台执行 hmcheck_pass <authorization.json 中的 digest> 才能推进。
-        拒绝或修改方案后必须重新生成摘要并重新授权；绝不自行授权。
-    reference_files: ["Guide_Doc/ACT4_Extension_Review_Guide.md"]
-    checker:
-      - name: review_human_scope
-        clss: ACT4ReviewChecker
-        args: {phase: authorize, suite: "{DUT}", review_dir: "{OUT}/{DUT}/review"}
   - name: review_repair
-    desc: 仅修复已批准的候选资产并重新执行验证
+    desc: 修复有充分依据的问题，复验并交付最终报告及补丁
     task:
-      - 第一步：调用 Check，验证真实授权并准备 candidate。
-      - 第二步：在 candidate 中修复批准 paths 内的资产；修复生成器后，用原生入口重新生成 .S。
+      - 第一步：调用 Check 准备 candidate；此时提示缺少修复后证据或 final.yaml 时，按以下步骤继续。
+      - 第二步：在 candidate 中修复 review.changes 声明且有充分依据的问题；修复生成器后，用原生入口重新生成 .S。
+        对缺少必要信息的问题保留原资产，记录缺失信息、不能安全修复的原因、影响及后续动作，继续处理其它问题。
       - '第三步：用 Check(stage_args={"run_commands": true}) 重新验证，读取本轮命令日志与执行结果。'
       - 第四步：阅读 evidence-after.json，对修改的源码、受影响义务及剩余静态疑点重新进行语义审查，
         为 final.yaml 准备本轮证据。
-      - 要求（修改与执行）：只编辑批准 paths，不手工修改生成用例或弱化断言/coverage 掩盖缺陷；
+      - 要求（修改与执行）：只编辑 review.changes 声明的 paths，不手工修改生成用例或弱化断言/coverage 掩盖缺陷；
         不得修改 CI 命令来规避失败。命令只在隔离副本中执行。
       - 要求（复核与范围）：初审判断不能替代修复后的复核。
-        新范围需求须停止并请操作员返回 review_authorization 更新方案、重新授权。
-    reference_files: ["Guide_Doc/ACT4_Extension_Review_Guide.md"]
-    checker:
-      - name: review_authorized_changes
-        clss: ACT4ReviewChecker
-        args: {phase: repair, suite: "{DUT}", review_dir: "{OUT}/{DUT}/review"}
-  - name: review_final
-    desc: 交付完整检查、修复、剩余风险和可应用补丁
-    task:
-      - 第一步：按 Guide_Doc/ACT4_Extension_Review_Guide.md 创建 final.yaml，逐项交代所有 finding 的
-        fixed/deferred/not_fixed 状态及证据。
-      - 第二步：完成 semantic_review 中全部 after.review_tasks，另逐项审核 finding:<ID> 和 change:<确切变更路径>，
+        新发现的问题先更新 review.yaml 中的证据、修复计划及 post_assets，再 Check 校验；证据不足时保留待修复项。
+      - 第五步：按 Guide_Doc/ACT4_Extension_Review_Guide.md 创建 final.yaml，逐项交代所有 finding 的
+        fixed/deferred/not_fixed/dismissed 状态、classification、diagnosis、investigation、证据和 reason；
+        未修复项填写 blocker 的具体缺项、影响、未解决原因、owner 和 next_action，需要用户协助时才写 request 与 reason_user_needed。
+      - 第六步：完成 semantic_review 中全部 after.review_tasks，另逐项审核 finding:<ID> 和 change:<确切变更路径>，
         引用修改后源码并比较基线，删除项引用基线。
-      - 第三步：将未解决的语义疑点、推断及验证限制全部列入 remaining_risks，汇总批准前后证据、
-        每个目标的 CI 结果、coverpoint 覆盖变化、精确变更和应用补丁后的复验要求。
-      - 第四步：调用 Check 生成 final.md 和 changes.patch，交付完整报告和可应用补丁。
+      - 第七步：将未解决的语义疑点、推断及验证限制全部列入 remaining_risks，汇总修复前后证据、
+        每个目标的 CI 结果、coverpoint 覆盖变化、精确变更和应用补丁后的复验要求；保留原有 obligation ID 并更新映射和结论。
+      - 要求（摘要）：summary 用清晰的自然语言先说明检查了什么、发现什么、修复什么、还剩什么及原因；
+        区分真实资产问题、扫描限制和环境限制；写明具体用户协助或无需用户输入，不以任务计数或原始日志开篇。
+      - 第八步：调用 Check 生成 final.md 和 changes.patch，Complete 后交付完整报告和可应用补丁。
+        没有可安全修复的问题时允许空补丁；已如实记录的 deferred/not_fixed 不阻止报告交付。
       - 要求（复核证据）：semantic_review 使用 after 的 review_digest。
         finding 标为 fixed 时，其复核判断必须 passed/confirmed，且关联复验 jobs 均通过。
       - 要求（结论与输入）：不得把环境限制当 DUT Bug，或把未执行 CI 标为通过；原始输入保持不变。
     reference_files: ["Guide_Doc/ACT4_Extension_Review_Guide.md"]
     checker:
+      - name: review_candidate_changes
+        clss: ACT4ReviewChecker
+        args: {phase: repair, suite: "{DUT}", review_dir: "{OUT}/{DUT}/review"}
       - name: review_final_report
         clss: ACT4ReviewChecker
         args: {phase: final, suite: "{DUT}", review_dir: "{OUT}/{DUT}/review"}

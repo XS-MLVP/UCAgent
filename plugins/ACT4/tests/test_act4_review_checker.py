@@ -1,4 +1,4 @@
-"""Exercise existing-extension audit, evidence integrity, and real human gating."""
+"""Exercise automatic extension review, scoped repairs, and honest partial reports."""
 
 import json
 from pathlib import Path
@@ -18,8 +18,16 @@ from ucagent.plugins import LoadedPlugin, create_plugin_checker_registry, load_p
 from ucagent.verify_agent import VerifyAgent
 
 
+@pytest.fixture(autouse=True)
+def isolate_optional_simulators(monkeypatch) -> None:
+    """Keep tests independent of developer licenses while allowing explicit probe fixtures."""
+    original = act4_review_checker.shutil.which
+    names = {name for binaries in act4_review_checker.OPTIONAL_SIMULATORS.values() for name in binaries}
+    monkeypatch.setattr(act4_review_checker.shutil, "which", lambda name, **kwargs: None if name in names else original(name, **kwargs))
+
+
 class ReviewHarness:
-    """Provide controller state and operator-only approval for focused gate tests."""
+    """Provide persisted controller state and native fixtures for review and repair tests."""
 
     def __init__(self, root: Path) -> None:
         """Create a tiny committed ACT4 input with a real native command fixture."""
@@ -36,19 +44,10 @@ class ReviewHarness:
         self.output = root / "reports/H/review"
         self.output.mkdir(parents=True)
         self.data = {}
-        self.callbacks = []
-        self.human = None
-        self.message = ""
-        self.completed = False
-        self.gate = SimpleNamespace(
-            name="review_authorization", get_hmcheck_state=lambda: (self.human, self.message),
-            is_hmcheck_needed=lambda: True, is_skipped=lambda: False,
-            is_completed=lambda: self.completed, append_on_complete_callback=self.callbacks.append,
-        )
-        self.manager = SimpleNamespace(get_data=self.data.get, set_data=self.data.__setitem__,
-                                       stages=[self.gate], save_stage_info=lambda: None)
+        self.manager = SimpleNamespace(get_data=self.data.get, set_data=self.data.__setitem__)
         self.scope = {"schema_version": 1, "suite": "H", "assets": {kind: [] for kind in ASSET_KINDS},
                       "targets": ["rv64"], "references": ["manual H chapter"], "reference_files": [],
+                      "shared_assets": [],
                       "discovery": ["Reviewed all extension paths"], "jobs": []}
         self.scope["assets"]["generators"] = ["generators/H.py"]
         for purpose in ("generation", "build", "reference_model", "coverage", "lint"):
@@ -77,15 +76,35 @@ class ReviewHarness:
         """Construct a normal stage checker with trusted controller state."""
         checker = ACT4ReviewChecker(phase, "H", "reports/H/review").set_workspace(str(self.root))
         checker.set_stage_manager(self.manager)
-        if phase == "authorize":
-            checker.set_stage(self.gate)
-            checker.on_init()
         return checker
 
     def assess(self, document: dict, label: str = "before") -> dict:
         """Build source-quoted semantic judgments without certifying synthetic ISA assets."""
         evidence = json.loads((self.output / f"evidence-{label}.json").read_text())
         tasks = dict(evidence["review_tasks"])
+        tasks.update({f"finding:{item['id']}": {} for item in document["findings"]})
+        if "obligations" not in document:
+            document["obligations"] = [{"id": f"O{number}", "sources": [identity],
+                "requirement": "Assess all fixture requirements in this block", "status": "unverified",
+                "reason": "Synthetic fixture cannot establish ISA completeness", "targets": evidence["targets"],
+                "coverpoints": [], "implementation": [], "findings": []}
+                for number, identity in enumerate(evidence["obligation_sources"], 1)]
+        for item in document["obligations"]:
+            tasks[f"obligation:{item['id']}"] = {"sources": sorted({evidence["obligation_sources"][source]["path"] for source in item["sources"]} | set(item["implementation"]) |
+                {tasks[f"point:{point}"]["path"] for point in item["coverpoints"]})}
+        for finding in document["findings"]:
+            finding.setdefault("classification", "confirmed_defect")
+            finding.setdefault("diagnosis", "repair_ready")
+            prefix = "baseline" if label == "before" else "candidate"
+            physical = (self.output / prefix / "generators/H.py").read_text().splitlines()
+            source, line = f"{prefix}/generators/H.py", 1
+            if not any(item.strip() for item in physical):
+                source, physical = f"evidence-{label}.json", ["{"]
+            finding.setdefault("investigation", [{"action": "Inspect fixture implementation", "result": "Identified the synthetic fixture boundary",
+                "basis": [{"path": source, "lines": [line, line], "quote": physical[0], "observation": "Actual fixture contents"}]}])
+            if finding.get("status") in {"deferred", "not_fixed"}:
+                finding.setdefault("blocker", {"kind": "implementation", "detail": "Fixture implementation remains incomplete",
+                    "impact": "No real ISA validation", "why_not_resolved": "This fixture only validates the review lifecycle", "owner": "agent"})
         if label == "after":
             tasks.update({f"finding:{item['id']}": {} for item in document["findings"]})
             baseline = act4_review_checker.tree_state(self.output / "baseline")
@@ -106,7 +125,7 @@ class ReviewHarness:
             if identity.startswith("change:"):
                 name = identity.removeprefix("change:")
                 path = f"candidate/{name}" if (self.output / "candidate" / name).exists() else f"baseline/{name}"
-            number = task.get("line", 1)
+            number = task.get("line", task.get("lines", [1])[0] or 1)
             basis = []
             for source in task.get("sources", [path]):
                 line = number if source == path else 1
@@ -119,13 +138,17 @@ class ReviewHarness:
                     "observation": "This is the exact fixture source being assessed"})
             fixed = any(identity == f"finding:{item['id']}" and item.get("status") == "fixed"
                         for item in document["findings"])
+            confirmed = next((item for item in document["findings"] if identity == f"finding:{item['id']}" and item["classification"] == "confirmed_defect"), None)
             judgments.append({"tasks": [identity], "status": "passed" if fixed else "unverified",
                 "confidence": "confirmed" if fixed else "unverified",
                 "reasoning": "The cited synthetic fixture supports the lifecycle assertion only; it contains no complete ISA obligations or real bin-hit measurements.",
-                "conclusion": "Approved fixture change verified" if fixed else "ISA semantics remain unverified",
+                "conclusion": "Fixture change verified" if fixed else "ISA semantics remain unverified",
                 "limitation": "Synthetic source cannot establish real extension correctness",
                 "next_action": "Review the real specification and native coverage results",
-                "findings": [], "basis": basis})
+                "findings": [], "basis": basis,
+                "diagnostics": {identity: "unresolved"} if identity.startswith("diagnostic:") else {}})
+            if confirmed and not fixed:
+                judgments[-1].update(status="issues", confidence="confirmed", findings=[confirmed["id"]])
         return {"reviewer": "ai", "evidence_digest": evidence["review_digest"], "judgments": judgments}
 
     def write_final(self, value: dict) -> None:
@@ -135,11 +158,15 @@ class ReviewHarness:
 
     def audit(self) -> dict:
         """Collect deterministic evidence then fill the review using its actual findings."""
-        assert self.checker("inventory").do_check()[0]
+        assert self.checker("audit").do_check()[0]
         self.checker("audit").do_check(run_commands=True)
         guide = get_plugin().root / "Guide_Doc/ACT4_Extension_Review_Guide.md"
         examples = re.findall(r"```yaml\n(.*?)```", guide.read_text(), re.DOTALL)
         review = yaml.safe_load(examples[1])
+        review.pop("obligations", None)
+        for finding in review["findings"]:
+            for field in ("classification", "diagnosis", "investigation"):
+                finding.pop(field, None)
         review["post_assets"] = self.scope["assets"]
         evidence = json.loads((self.output / "evidence-before.json").read_text())
         review["traceability"] = [{"coverpoint": point, "obligation": "H boundary obligation",
@@ -153,19 +180,6 @@ class ReviewHarness:
         passed, result = self.checker("audit").do_check()
         assert passed, result
         return review
-
-    def authorize(self) -> ACT4ReviewChecker:
-        """Model the real operator approval followed by successful stage completion."""
-        gate = self.checker("authorize")
-        passed, result = gate.do_check(is_complete=True)
-        assert passed, result
-        self.human, self.message = True, result["digest"]
-        assert gate.do_check(is_complete=True)[0]
-        self.completed = True
-        for callback in self.callbacks:
-            callback(self.gate)
-        return gate
-
 
 @pytest.mark.parametrize("outcome", ["installed", "present", "wrong_version", "install_failure", "missing_license"])
 def test_environment_probe_install_and_verify(tmp_path: Path, outcome: str) -> None:
@@ -233,7 +247,7 @@ def test_execution_dependency_contract(tmp_path: Path, defect: str) -> None:
     else:
         jobs[-1]["expected_output"] = "["
     harness.write("scope.yaml", harness.scope)
-    passed, error = harness.checker("inventory").do_check()
+    passed, error = harness.checker("audit").do_check()
     assert not passed, error
 
 
@@ -279,7 +293,7 @@ def test_guide_prepared_scope_validates_against_current_contract(tmp_path: Path)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("Native preparation fixture\n")
     harness.write("scope.yaml", scope)
-    passed, error = harness.checker("inventory").do_check()
+    passed, error = harness.checker("audit").do_check()
     assert passed, error
 
 
@@ -381,7 +395,7 @@ def test_diagnostic_selectors_reject_unsafe_or_ambiguous_paths(tmp_path: Path, s
     harness = ReviewHarness(tmp_path)
     harness.scope["jobs"][1]["diagnostics"] = [selector]
     harness.write("scope.yaml", harness.scope)
-    passed, error = harness.checker("inventory").do_check()
+    passed, error = harness.checker("audit").do_check()
     assert not passed and error["error_code"] == "act4_review_contract"
 
 
@@ -395,7 +409,7 @@ def test_generated_diagnostic_symlink_cannot_escape_checkout(tmp_path: Path) -> 
         f'from pathlib import Path; Path("escape.log").symlink_to({str(outside)!r})'],
         diagnostics=[{"path": "escape.log"}])
     harness.write("scope.yaml", harness.scope)
-    assert harness.checker("inventory").do_check()[0]
+    assert harness.checker("audit").do_check()[0]
     passed, error = harness.checker("audit").do_check(run_commands=True)
     assert not passed and "escapes" in error["error"]
     assert not (harness.output / "diagnostics-before/build/escape.log").exists()
@@ -422,13 +436,11 @@ def test_native_git_lint_includes_frozen_untracked_assets(tmp_path: Path, ignore
     assert asset not in subprocess.check_output(["git", "-C", str(harness.source), "ls-files"], text=True).splitlines()
 
 
-def test_scope_commentary_reuses_evidence_but_invalidates_approval(tmp_path: Path, monkeypatch) -> None:
-    """Allow report corrections without native reruns while retaining exact human approval."""
+def test_scope_commentary_reuses_evidence_and_allows_repair(tmp_path: Path, monkeypatch) -> None:
+    """Allow corrected explanations and current repair plans without native reruns."""
     harness = ReviewHarness(tmp_path)
     harness.audit()
-    harness.authorize()
     evidence_bytes = (harness.output / "evidence-before.json").read_bytes()
-    old_digest = json.loads((harness.output / "authorization.json").read_text())["digest"]
     harness.scope["references"].append("Clarified manual revision and obligation")
     harness.scope["discovery"].append("Clarified why unrelated assets were excluded")
     harness.write("scope.yaml", harness.scope)
@@ -440,11 +452,10 @@ def test_scope_commentary_reuses_evidence_but_invalidates_approval(tmp_path: Pat
     monkeypatch.setattr(act4_review_checker, "execute_command", reject_execution)
     passed, result = harness.checker("audit").do_check()
     assert passed, result
-    assert result["digest"] != old_digest
     assert (harness.output / "evidence-before.json").read_bytes() == evidence_bytes
     passed, error = harness.checker("repair").do_check()
-    assert not passed and "No matching human authorization" in error["error"]
-    assert not (harness.output / "candidate").exists()
+    assert passed, error
+    assert (harness.output / "candidate").is_dir()
 
 
 @pytest.mark.parametrize("change", ["assets", "jobs"])
@@ -487,7 +498,7 @@ def test_diagnostic_cleanup_cannot_delete_elf_inputs(tmp_path: Path) -> None:
     harness = ReviewHarness(tmp_path)
     harness.scope["jobs"][2]["diagnostics"] = [{"path": "fixture.elf"}]
     harness.write("scope.yaml", harness.scope)
-    assert harness.checker("inventory").do_check()[0]
+    assert harness.checker("audit").do_check()[0]
     passed, error = harness.checker("audit").do_check(run_commands=True)
     assert not passed and "must not overwrite its ELF inputs" in error["error"]
 
@@ -527,10 +538,10 @@ def test_compact_reports_keep_counts_and_link_complete_evidence(tmp_path: Path) 
     assert "Build task counts are not executed test counts" in report
     assert "[evidence-before.json](evidence-before.json)" in report
     assert "reachability:" not in report and "H-79.S" not in report
-    harness.authorize()
     assert harness.checker("repair").do_check(run_commands=True)[0]
-    harness.write_final({"schema_version": 1, "suite": "H", "summary": "No changes approved",
+    harness.write_final({"schema_version": 1, "suite": "H", "summary": "No source changes needed",
         "findings": [{"id": "F1", "status": "deferred", "reason": "Needs root-cause confirmation",
+                      "next_action": "Obtain the pinned specification and confirm the root cause",
                       "evidence": ["review.yaml"]}], "ci_passed": True,
         "remaining_risks": ["Deferred finding"], "coverage_changes": [], "traceability": []})
     passed, result = harness.checker("final").do_check()
@@ -543,29 +554,116 @@ def test_compact_reports_keep_counts_and_link_complete_evidence(tmp_path: Path) 
     assert all("artifacts" not in item for item in result["ci"])
 
 
-def test_empty_proposal_explicitly_authorizes_report_only(tmp_path: Path) -> None:
-    """Expose unresolved findings without implying that an empty approved path list permits edits."""
+def test_empty_proposal_preserves_sources(tmp_path: Path) -> None:
+    """Keep unresolved findings reportable while rejecting undeclared source changes."""
     harness = ReviewHarness(tmp_path)
     review = harness.audit()
     review["changes"] = []
     harness.write("review.yaml", review)
     assert harness.checker("audit").do_check()[0]
-    authorization = json.loads((harness.output / "authorization.json").read_text())
-    assert authorization["mode"] == "report_only"
-    assert authorization["paths"] == [] and authorization["findings_without_changes"] == ["F1"]
-    assert "authorizes no source edits" in (harness.output / "review.md").read_text()
-    harness.authorize()
+    assert "No source changes are included" in (harness.output / "review.md").read_text()
     assert harness.checker("repair").do_check()[0]
-    (harness.output / "candidate/generators/H.py").write_text("unapproved\n")
+    (harness.output / "candidate/generators/H.py").write_text("undeclared\n")
     passed, error = harness.checker("repair").do_check()
-    assert not passed and "Unauthorized candidate changes" in error["error"]
+    assert not passed and "outside review.changes paths" in error["error"]
 
 
-def test_review_and_authorized_repair_end_to_end(tmp_path: Path) -> None:
+def test_audit_preflight_cannot_complete_without_evidence_and_review(tmp_path: Path) -> None:
+    """Freeze a valid scope on Check without allowing an empty audit to Complete."""
+    harness = ReviewHarness(tmp_path)
+    checker = harness.checker("audit")
+    passed, result = checker.do_check()
+    assert passed, result
+    assert (harness.output / "baseline.json").is_file()
+    passed, result = checker.do_check(is_complete=True)
+    assert not passed and "collect before evidence" in result["error"]
+    checker.do_check(run_commands=True)
+    passed, result = checker.do_check(is_complete=True)
+    assert not passed and "review.yaml" in result["error"]
+    assert not (harness.output / "candidate").exists()
+
+
+@pytest.mark.parametrize("repair_supported", [True, False])
+@pytest.mark.parametrize("status", ["deferred", "not_fixed"])
+def test_information_gaps_allow_partial_or_unchanged_delivery(tmp_path: Path,
+        repair_supported: bool, status: str) -> None:
+    """Deliver supported fixes while retaining every information gap without speculative edits."""
+    harness = ReviewHarness(tmp_path)
+    review = harness.audit()
+    review["findings"].append({**review["findings"][0], "id": "F2",
+        "problem": "Target trap behavior is unspecified",
+        "recommendation": "Obtain the target configuration and expected trap behavior before editing"})
+    if not repair_supported:
+        review["changes"] = []
+    review["semantic_review"] = harness.assess(review)
+    harness.write("review.yaml", review)
+    assert harness.checker("audit").do_check(is_complete=True)[0]
+    checker = harness.checker("repair")
+    assert checker.do_check()[0]
+    if repair_supported:
+        (harness.output / "candidate/generators/H.py").write_text('"""Native H generator fixture."""\nVALUE = 2\n')
+    assert checker.do_check(run_commands=True)[0]
+    dispositions = [{"id": finding["id"], "status": status,
+        "reason": "Target configuration and expected trap behavior are missing; changing the assertions would be speculative",
+        "next_action": "Obtain the target configuration and normative trap behavior, then reproduce the case",
+        "evidence": ["review.yaml", "evidence-after.json"]} for finding in review["findings"]]
+    if repair_supported:
+        dispositions[0].update(status="fixed", reason="Applied the supported generator repair")
+    final = {"schema_version": 1, "suite": "H", "summary": "Delivered supported work with explicit information gaps",
+        "findings": dispositions, "ci_passed": True,
+        "remaining_risks": ["Unresolved findings lack target configuration and normative trap behavior"],
+        "coverage_changes": [], "traceability": []}
+    harness.write_final(final)
+    passed, result = harness.checker("final").do_check(is_complete=True)
+    assert passed, result
+    report = (harness.output / "final.md").read_text()
+    assert "Target configuration and expected trap behavior are missing" in report
+    assert "Next action (agent):" in report and f" / {status}**" in report
+    assert bool((harness.output / "changes.patch").read_text()) is repair_supported
+    assert "VALUE = 1" in (harness.source / "generators/H.py").read_text()
+    dispositions[-1].pop("next_action")
+    harness.write_final(final)
+    passed, result = harness.checker("final").do_check(is_complete=True)
+    assert not passed and "F2 needs next_action" in result["error"]
+
+
+def test_clean_review_delivers_an_empty_patch(tmp_path: Path) -> None:
+    """Complete a review with no proposed defects or edits while preserving verification limits."""
+    harness = ReviewHarness(tmp_path)
+    review = harness.audit()
+    review.update(findings=[], changes=[])
+    review["semantic_review"] = harness.assess(review)
+    harness.write("review.yaml", review)
+    assert harness.checker("audit").do_check(is_complete=True)[0]
+    assert harness.checker("repair").do_check(run_commands=True)[0]
+    harness.write_final({"schema_version": 1, "suite": "H", "summary": "No source changes required",
+        "findings": [], "ci_passed": True, "remaining_risks": ["Synthetic assets lack complete ISA coverage"],
+        "coverage_changes": [], "traceability": []})
+    passed, result = harness.checker("final").do_check(is_complete=True)
+    assert passed, result
+    assert not (harness.output / "changes.patch").read_text()
+
+
+def test_repair_plan_can_be_updated_without_recollecting_unchanged_evidence(tmp_path: Path) -> None:
+    """Validate new declared paths and retain a current review while allowing automatic repair."""
+    harness = ReviewHarness(tmp_path)
+    review = harness.audit()
+    assert harness.checker("repair").do_check()[0]
+    before = (harness.output / "evidence-before.json").read_bytes()
+    review["changes"][0]["paths"].append("generators/boundary.txt")
+    review["changes"][0]["action"] = "Document the boundary alongside its generator"
+    harness.write("review.yaml", review)
+    assert harness.checker("repair").do_check()[0]
+    (harness.output / "candidate/generators/boundary.txt").write_text("Boundary behavior from the frozen source\n")
+    passed, result = harness.checker("repair").do_check()
+    assert passed and result["changed_paths"] == ["generators/boundary.txt"], result
+    assert (harness.output / "evidence-before.json").read_bytes() == before
+
+
+def test_review_and_automatic_repair_end_to_end(tmp_path: Path) -> None:
     """Preserve original sources, execute real commands, and produce an applicable patch."""
     harness = ReviewHarness(tmp_path)
     harness.audit()
-    harness.authorize()
     checker = harness.checker("repair")
     assert checker.do_check()[0]
     candidate = harness.output / "candidate/generators/H.py"
@@ -582,38 +680,32 @@ def test_review_and_authorized_repair_end_to_end(tmp_path: Path) -> None:
     assert (harness.output / "final.md").read_text().startswith("\n# ")
 
 
-@pytest.mark.parametrize("approval", [None, False, "forged", "check_only"])
-def test_repair_rejects_missing_rejected_or_forged_approval(tmp_path: Path, approval) -> None:
-    """Neither a YAML field nor a Check-time approval can create repair permission."""
+@pytest.mark.parametrize("missing", ["review", "evidence", "semantic_review"])
+def test_repair_requires_complete_review_evidence(tmp_path: Path, missing: str) -> None:
+    """Prepare candidates only after validating a complete current review and its evidence."""
     harness = ReviewHarness(tmp_path)
-    harness.audit()
-    if approval == "check_only":
-        gate = harness.checker("authorize")
-        _, result = gate.do_check()
-        harness.human, harness.message = True, result["digest"]
-        assert gate.do_check()[0]
+    review = harness.audit()
+    if missing == "review":
+        (harness.output / "review.yaml").unlink()
+    elif missing == "evidence":
+        (harness.output / "evidence-before.json").unlink()
     else:
-        harness.human = approval is not None
-        harness.message = str(approval)
-    harness.write("authorization.json", {"schema_version": 1, "approved": True})
+        review.pop("semantic_review")
+        harness.write("review.yaml", review)
     passed, result = harness.checker("repair").do_check()
     assert not passed, result
     assert not (harness.output / "candidate").exists()
 
 
-@pytest.mark.parametrize("drift", ["source", "baseline", "proposal", "scope", "log", "artifact", "candidate", "rejection"])
-def test_review_rejects_drift_and_unapproved_scope(tmp_path: Path, drift: str) -> None:
-    """Invalidate stale evidence and reject out-of-scope changes even after authorization."""
+@pytest.mark.parametrize("drift", ["source", "baseline", "scope", "log", "artifact", "candidate"])
+def test_review_rejects_drift_and_undeclared_scope(tmp_path: Path, drift: str) -> None:
+    """Invalidate stale evidence and reject candidate changes outside the repair plan."""
     harness = ReviewHarness(tmp_path)
-    review = harness.audit()
-    harness.authorize()
+    harness.audit()
     assert harness.checker("repair").do_check()[0]
     if drift in {"source", "baseline"}:
         root = harness.source if drift == "source" else harness.output / "baseline"
         (root / "generators/H.py").write_text("changed\n")
-    elif drift == "proposal":
-        review["summary"] = "Changed after approval"
-        harness.write("review.yaml", review)
     elif drift == "scope":
         harness.scope["jobs"][0]["argv"].append("new")
         harness.write("scope.yaml", harness.scope)
@@ -622,9 +714,7 @@ def test_review_rejects_drift_and_unapproved_scope(tmp_path: Path, drift: str) -
     elif drift == "artifact":
         (harness.output / "artifacts-before/build/result.txt").write_text("forged coverage")
     elif drift == "candidate":
-        (harness.output / "candidate/README.md").write_text("unauthorized")
-    else:
-        harness.human = False
+        (harness.output / "candidate/README.md").write_text("undeclared")
     passed, result = harness.checker("repair").do_check()
     assert not passed, result
 
@@ -657,14 +747,13 @@ def test_guide_complete_no_repair_examples(tmp_path: Path) -> None:
     harness = ReviewHarness(tmp_path)
     examples = re.findall(r"```yaml\n(.*?)```", (get_plugin().root / "Guide_Doc/ACT4_Extension_Review_Guide.md").read_text(), re.DOTALL)
     harness.write("scope.yaml", yaml.safe_load(examples[0]))
-    assert harness.checker("inventory").do_check()[0]
+    assert harness.checker("audit").do_check()[0]
     harness.checker("audit").do_check(run_commands=True)
     review = yaml.safe_load(examples[1])
     review["semantic_review"]["evidence_digest"] = json.loads((harness.output / "evidence-before.json").read_text())["review_digest"]
     harness.write("review.yaml", review)
     passed, result = harness.checker("audit").do_check()
     assert passed, result
-    harness.authorize()
     assert harness.checker("repair").do_check(run_commands=True)[0]
     final = yaml.safe_load(examples[3])
     final["semantic_review"]["evidence_digest"] = json.loads((harness.output / "evidence-after.json").read_text())["review_digest"]
@@ -676,7 +765,7 @@ def test_guide_complete_no_repair_examples(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("skill_enabled", [True, False])
 def test_review_workflow_initializes_without_skill_dependency(tmp_path: Path, monkeypatch, skill_enabled: bool) -> None:
-    """Instantiate real stages, copied docs, and the genuine operator gate in both modes."""
+    """Initialize two automatic stages and complete task guidance in both skill modes."""
     monkeypatch.setenv("HOME", str(tmp_path))
     loaded = load_plugin(str(Path(__file__).resolve().parents[1]))
     workflow = next(item for item in loaded.plugin.workflows if item.name == "extension-review")
@@ -693,11 +782,10 @@ def test_review_workflow_initializes_without_skill_dependency(tmp_path: Path, mo
         cfg_override=[{"backend.key_name": "blank"}, {"skill.use_skill": skill_enabled}, {"langfuse.enable": False}],
         no_embed_tools=True, no_history=True)
     try:
-        assert len(agent.stage_manager.stages) == 5
-        gate = agent.stage_manager.stages[2]
-        assert gate.is_hmcheck_needed() and gate.is_wait_human_check()
+        assert [stage.name for stage in agent.stage_manager.stages] == ["review_audit", "review_repair"]
+        assert all(not stage.is_hmcheck_needed() for stage in agent.stage_manager.stages)
         assert all(not stage.skill_list for stage in agent.stage_manager.stages)
-        audit = agent.stage_manager.stages[1]
+        audit = agent.stage_manager.stages[0]
         final = agent.stage_manager.stages[-1]
         assert "semantic_review" in str(audit.task()) and "review_tasks" in str(audit.task())
         assert "finding:<ID>" in str(final.task())
@@ -712,12 +800,18 @@ def test_review_workflow_initializes_without_skill_dependency(tmp_path: Path, mo
         agent.exit()
 
 
-@pytest.mark.parametrize("resume_approved", [True, False])
-def test_real_complete_requires_operator_and_restores_only_completed_approval(tmp_path: Path, monkeypatch, resume_approved: bool) -> None:
-    """Exercise actual Complete, rejection, digest matching, callbacks, and restart."""
+@pytest.mark.parametrize("skill_enabled", [True, False])
+@pytest.mark.parametrize("prepare_before_restart", [True, False])
+@pytest.mark.parametrize("repair_supported", [True, False])
+def test_real_complete_advances_automatically_and_resumes_repairs(tmp_path: Path, monkeypatch,
+        skill_enabled: bool, prepare_before_restart: bool, repair_supported: bool) -> None:
+    """Complete both real stages across restart without human input in either skill mode."""
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     harness = ReviewHarness(tmp_path)
-    harness.audit()
+    review = harness.audit()
+    if not repair_supported:
+        review["changes"] = []
+        harness.write("review.yaml", review)
     loaded = load_plugin(str(Path(__file__).resolve().parents[1]))
     workflow = next(item for item in loaded.plugin.workflows if item.name == "extension-review")
     options = dict(workspace=str(tmp_path), dut_name="H", output="reports",
@@ -725,49 +819,67 @@ def test_real_complete_requires_operator_and_restores_only_completed_approval(tm
         plugin_workflow=f"{loaded.plugin.name}:{workflow.name}",
         template_context_factory=workflow.template_context_factory,
         plugin_guide_doc_paths=[str(path) for path in workflow.guide_doc_paths],
-        cfg_override=[{"backend.key_name": "blank"}, {"skill.use_skill": False},
+        cfg_override=[{"backend.key_name": "blank"}, {"skill.use_skill": skill_enabled},
                       {"langfuse.enable": False}], no_embed_tools=True, no_history=False)
     agent = VerifyAgent(**options)
     try:
         manager = agent.stage_manager
         manager.data.update(harness.data)
-        manager.stage_index = 2
-        for stage in manager.stages[:2]:
-            stage.is_complete = True
-        gate = manager.stages[2]
+        gate = manager.stages[0]
         gate.on_init()
         gate.set_reference_file_status({name: "Readed" for name in gate.reference_files})
         gate.meta_set_journal({"summary": "Review and proposal delivered"})
         gate.need_pass_llm_suggestion = False
         result = manager.complete(timeout=30)
-        assert result["complete"] is False and agent._need_human
-        assert manager.stage_index == 2
+        assert result["complete"], result
+        assert not agent._need_human
+        assert manager.stage_index == 1
         assert not (harness.output / "candidate").exists()
-        gate.do_hmcheck_fail("Review requires revision")
-        rejected = manager.complete(timeout=30)
-        assert rejected.get("complete", rejected.get("check_pass")) is False
-        gate.do_hmcheck_pass("wrong report digest")
-        mismatched = manager.complete(timeout=30)
-        assert mismatched.get("complete", mismatched.get("check_pass")) is False
-        approval = json.loads((harness.output / "authorization.json").read_text())["digest"]
-        gate.do_hmcheck_pass(approval)
-        if resume_approved:
-            result = manager.complete(timeout=30)
-            assert result["complete"], result
-            assert manager.stage_index == 3
-            assert manager.stages[3].checker[0].do_check()[0]
-        else:
-            manager.save_stage_info()
+        if prepare_before_restart:
+            passed, result = manager.stages[1].checker[0].do_check()
+            assert passed, result
+            if repair_supported:
+                (harness.output / "candidate/generators/H.py").write_text('"""Native H generator fixture."""\nVALUE = 2\n')
+        manager.save_stage_info()
     finally:
         agent.exit()
     restored = VerifyAgent(**options)
     try:
         manager = restored.stage_manager
-        assert manager.stage_index == (3 if resume_approved else 2)
-        passed, result = manager.stages[3].checker[0].do_check()
-        assert passed is resume_approved, result
-        if not resume_approved:
-            assert manager.stages[2].is_wait_human_check()
+        assert manager.stage_index == 1
+        gate = manager.stages[1]
+        assert all(not stage.is_hmcheck_needed() for stage in manager.stages)
+        assert gate.checker[0].do_check()[0]
+        candidate = harness.output / "candidate/generators/H.py"
+        if prepare_before_restart and repair_supported:
+            assert "VALUE = 2" in candidate.read_text()
+        elif repair_supported:
+            candidate.write_text('"""Native H generator fixture."""\nVALUE = 2\n')
+        gate.set_reference_file_status({name: "Readed" for name in gate.reference_files})
+        gate.meta_set_journal({"summary": "Repaired candidate; validate and deliver the final report"})
+        gate.need_pass_llm_suggestion = False
+        result = manager.check(timeout=30, stage_args={"run_commands": True})
+        assert not result["check_pass"], result
+        assert (harness.output / "evidence-after.json").is_file()
+        result = manager.complete(timeout=30)
+        assert not result.get("complete", result.get("check_pass")), result
+        assert manager.stage_index == 1 and not restored._need_human
+        harness.write_final({"schema_version": 1, "suite": "H", "summary": "Review and repair completed with limitations",
+            "findings": [{"id": "F1", "status": "fixed" if repair_supported else "deferred",
+                "reason": "Added case" if repair_supported else "Missing specification prevents a reliable repair",
+                "next_action": "Obtain the pinned specification and reproduce the missing boundary",
+                "evidence": ["evidence-after.json"]}],
+            "ci_passed": True, "remaining_risks": ["Synthetic fixture has incomplete ACT4 mappings"],
+            "coverage_changes": [], "traceability": []})
+        result = manager.complete(timeout=30)
+        assert result["complete"], result
+        assert all(stage.is_completed() for stage in manager.stages)
+        assert not restored._need_human
+        assert (harness.output / "final.md").is_file()
+        assert bool((harness.output / "changes.patch").read_text()) is repair_supported
+        assert "VALUE = 1" in (harness.source / "generators/H.py").read_text()
+        if not skill_enabled:
+            assert not (tmp_path / ".ucagent/skills").exists()
     finally:
         restored.exit()
 
@@ -804,14 +916,13 @@ def test_coverpoint_traceability_rejects_missing_and_invented_evidence(tmp_path:
     assert not harness.checker("audit").do_check()[0]
 
 
-def test_new_approved_coverage_is_checked_and_reported(tmp_path: Path) -> None:
+def test_new_declared_coverage_is_checked_and_reported(tmp_path: Path) -> None:
     """Revalidate new assets and require complete post-repair coverpoint accounting."""
     harness = ReviewHarness(tmp_path)
     review = harness.audit()
     review["changes"][0]["paths"].append("H.svh")
     review["post_assets"]["coverage"] = ["H.svh"]
     harness.write("review.yaml", review)
-    harness.authorize()
     checker = harness.checker("repair")
     assert checker.do_check()[0]
     (harness.output / "candidate/H.svh").write_text("covergroup H_cg;\ncp: coverpoint flag;\nendgroup\n")
@@ -844,7 +955,6 @@ def test_review_patch_preserves_source_forms(tmp_path: Path, kind: str) -> None:
     review = harness.audit()
     review["changes"][0]["paths"] = [name]
     harness.write("review.yaml", review)
-    harness.authorize()
     assert harness.checker("repair").do_check()[0]
     target = harness.output / "candidate" / name
     if kind == "deleted":
@@ -855,7 +965,7 @@ def test_review_patch_preserves_source_forms(tmp_path: Path, kind: str) -> None:
         target.write_bytes(b"new\r\n" if kind == "crlf" else b"new" if kind == "no_newline" else b"new\n")
     assert harness.checker("repair").do_check(run_commands=True)[0]
     harness.write_final({"schema_version": 1, "suite": "H", "summary": "Text repair",
-        "findings": [{"id": "F1", "status": "fixed", "reason": "Applied approved change", "evidence": ["evidence-after.json"]}],
+        "findings": [{"id": "F1", "status": "fixed", "reason": "Applied declared change", "evidence": ["evidence-after.json"]}],
         "ci_passed": True, "remaining_risks": ["Fixture is incomplete ACT4"], "coverage_changes": [], "traceability": []})
     passed, result = harness.checker("final").do_check()
     assert passed, result
@@ -864,13 +974,13 @@ def test_review_patch_preserves_source_forms(tmp_path: Path, kind: str) -> None:
         assert b"-old\r\n+new\r\n" in (harness.output / "changes.patch").read_bytes()
 
 
-def test_preexisting_candidate_cannot_smuggle_unapproved_changes(tmp_path: Path) -> None:
-    """Reject even a matching proposal when the repair tree predates real authorization."""
+def test_preexisting_candidate_cannot_smuggle_source_changes(tmp_path: Path) -> None:
+    """Reject candidate trees that were not prepared from the frozen baseline."""
     harness = ReviewHarness(tmp_path)
     harness.audit()
     (harness.output / "candidate").mkdir()
-    passed, result = harness.checker("authorize").do_check()
-    assert not passed and "before authorization" in result["error"]
+    passed, result = harness.checker("repair").do_check()
+    assert not passed and "not prepared from the frozen baseline" in result["error"]
 
 
 def test_validation_cannot_reuse_a_stale_artifact(tmp_path: Path) -> None:
@@ -920,20 +1030,21 @@ def test_review_rejects_nontextual_scalar_evidence(tmp_path: Path, field: str, v
 @pytest.mark.parametrize("field,value", [
     ("summary", True), ("findings", [{"id": ["F1"]}]),
     ("remaining_risks", [False]), ("evidence", True), ("reason", 1),
+    ("next_action", None), ("next_action", " "), ("next_action", True), ("next_action", 1),
     ("coverage_changes", [{"coverpoint": "H_cg/cp", "reason": True}]),
 ])
 def test_final_rejects_scalar_explanations(tmp_path: Path, field: str, value) -> None:
     """Reject fabricated final evidence and risks even when CI really succeeded."""
     harness = ReviewHarness(tmp_path)
     harness.audit()
-    harness.authorize()
     assert harness.checker("repair").do_check(run_commands=True)[0]
-    final = {"schema_version": 1, "suite": "H", "summary": "No source changes approved",
+    final = {"schema_version": 1, "suite": "H", "summary": "No safe source repair available",
         "findings": [{"id": "F1", "status": "deferred", "reason": "Awaiting assets",
+                      "next_action": "Obtain the complete authoritative assets",
                       "evidence": ["evidence-after.json"]}],
         "ci_passed": True, "remaining_risks": ["Finding F1 is deferred"],
         "coverage_changes": [], "traceability": []}
-    if field in {"evidence", "reason"}:
+    if field in {"evidence", "reason", "next_action"}:
         final["findings"][0][field] = value
     else:
         final[field] = value
@@ -957,7 +1068,7 @@ def test_review_submodules_are_frozen_and_available_to_native_jobs(tmp_path: Pat
                     "submodule", "add", "-q", str(module_source), "deps/module"], check=True)
     if not initialized:
         subprocess.run(["git", "-C", str(harness.source), "submodule", "deinit", "-f", "deps/module"], check=True)
-        passed, result = harness.checker("inventory").do_check()
+        passed, result = harness.checker("audit").do_check()
         assert not passed and "Initialize" in result["error"]
         return
     (harness.source / "deps/module/input.txt").write_text("dirty module input\n")
@@ -989,7 +1100,7 @@ def test_review_rejects_escaping_input_paths(tmp_path: Path, escape: str) -> Non
         (harness.source / "generators/link.py").symlink_to(external)
         harness.scope["assets"]["generators"].append("generators/link.py")
     harness.write("scope.yaml", harness.scope)
-    passed, result = harness.checker("inventory").do_check()
+    passed, result = harness.checker("audit").do_check()
     assert not passed and result["error_code"] == "act4_review_contract"
     assert not (harness.output / "baseline").exists()
 
@@ -1010,8 +1121,9 @@ def test_review_reuses_format_checks_and_queues_diagnostics(tmp_path: Path, exte
     evidence = json.loads((harness.output / "evidence-before.json").read_text())
     assert not evidence["static_passed"]
     assert any(item.get("check") == check for item in evidence["review_tasks"].values())
-    assert {task for item in review["semantic_review"]["judgments"] for task in item["tasks"]} == evidence["review_tasks"].keys()
-    assert harness.checker("authorize").do_check()[0]
+    expected = set(evidence["review_tasks"]) | {f"finding:{item['id']}" for item in review["findings"]} | {f"obligation:{item['id']}" for item in review["obligations"]}
+    assert {task for item in review["semantic_review"]["judgments"] for task in item["tasks"]} == expected
+    assert harness.checker("audit").do_check(is_complete=True)[0]
 
 
 @pytest.mark.parametrize("generated", [True, False])
@@ -1273,14 +1385,13 @@ def test_passing_specification_review_requires_pinned_reference(tmp_path: Path, 
 
 
 @pytest.mark.parametrize("drift", ["original", "copy", "membership"])
-def test_reference_drift_invalidates_review_and_authorization(tmp_path: Path, drift: str) -> None:
-    """Bind human approval to both original reference bytes and their frozen copies."""
+def test_reference_drift_invalidates_review_and_repair(tmp_path: Path, drift: str) -> None:
+    """Validate both original reference bytes and their frozen copies before repair."""
     harness = ReviewHarness(tmp_path)
     (tmp_path / "manual.adoc").write_text("Pinned H specification\n")
     harness.scope["reference_files"] = ["manual.adoc"]
     harness.write("scope.yaml", harness.scope)
     harness.audit()
-    harness.authorize()
     if drift == "original":
         (tmp_path / "manual.adoc").write_text("Changed H specification\n")
     elif drift == "copy":
@@ -1299,7 +1410,7 @@ def test_scope_requires_safe_existing_reference_files(tmp_path: Path, value) -> 
     harness = ReviewHarness(tmp_path)
     harness.scope["reference_files"] = value
     harness.write("scope.yaml", harness.scope)
-    assert not harness.checker("inventory").do_check()[0]
+    assert not harness.checker("audit").do_check()[0]
 
 
 def test_noncoverage_job_artifact_cannot_prove_measured_hits(tmp_path: Path) -> None:
@@ -1322,15 +1433,14 @@ def test_noncoverage_job_artifact_cannot_prove_measured_hits(tmp_path: Path) -> 
 
 @pytest.mark.parametrize("defect", ["before_digest", "missing_finding", "missing_change", "fixed_unverified", "fixed_wrong_source", "change_wrong_source", "no_risks"])
 def test_final_review_reassesses_findings_changes_and_risks(tmp_path: Path, defect: str) -> None:
-    """Require current AI reassessment for approved repairs and retain every remaining semantic limit."""
+    """Require current AI reassessment for declared repairs and retain every remaining semantic limit."""
     harness = ReviewHarness(tmp_path)
     harness.audit()
-    harness.authorize()
     assert harness.checker("repair").do_check()[0]
-    (harness.output / "candidate/generators/H.py").write_text('"""Approved generator fixture."""\nVALUE = 2\n')
+    (harness.output / "candidate/generators/H.py").write_text('"""Repaired generator fixture."""\nVALUE = 2\n')
     assert harness.checker("repair").do_check(run_commands=True)[0]
-    final = {"schema_version": 1, "suite": "H", "summary": "Approved fixture change reviewed",
-        "findings": [{"id": "F1", "status": "fixed", "reason": "Approved fixture edit",
+    final = {"schema_version": 1, "suite": "H", "summary": "Fixture change reviewed",
+        "findings": [{"id": "F1", "status": "fixed", "reason": "Declared fixture edit",
                       "evidence": ["evidence-after.json"]}], "ci_passed": True,
         "remaining_risks": ["ISA semantics remain unverified"], "coverage_changes": [], "traceability": []}
     final["semantic_review"] = harness.assess(final, "after")
@@ -1352,3 +1462,320 @@ def test_final_review_reassesses_findings_changes_and_risks(tmp_path: Path, defe
     harness.write("final.yaml", final)
     passed, error = harness.checker("final").do_check()
     assert not passed and error["error_code"] == "act4_review_contract", error
+
+
+def test_optional_preflight_precedes_scope_and_cannot_complete_audit(tmp_path: Path) -> None:
+    """Discover absent simulators before authoring scope without claiming a completed review."""
+    harness = ReviewHarness(tmp_path)
+    (harness.output / "scope.yaml").unlink()
+    checker = harness.checker("audit")
+    passed, result = checker.do_check()
+    assert passed, result
+    assert result["optional_tools"] == {name: "not_found" for name in ("questa", "vcs", "xcelium")}
+    assert (harness.output / "environment.json").is_file()
+    assert not (harness.output / "baseline.json").exists()
+    passed, result = checker.do_check(is_complete=True)
+    assert not passed and "scope.yaml" in result["error"]
+
+
+@pytest.mark.parametrize("tool", ["questa", "vcs", "xcelium"])
+@pytest.mark.parametrize("outcome", ["available", "license_failure", "version_only"])
+def test_optional_tools_require_real_compile_and_execution(tmp_path: Path, monkeypatch, tool: str, outcome: str) -> None:
+    """Run bounded process fixtures and reject a version banner or failed license checkout."""
+    harness = ReviewHarness(tmp_path)
+    tool_bin = tmp_path / "fake-bin"
+    tool_bin.mkdir()
+    marker = "ACT4_REVIEW_SMOKE_PASS" if outcome == "available" else "Tool version 1.0"
+    run_script = f"#!{sys.executable}\nprint({marker!r})\n"
+    code = (f"#!{sys.executable}\nfrom pathlib import Path\nimport sys\n"
+            f"assert 'covergroup' in Path('smoke.sv').read_text()\n"
+            f"print({marker!r} if Path(sys.argv[0]).name in ('vsim', 'xrun') else 'compiled')\n"
+            f"output = Path('smoke'); output.write_text({run_script!r}); output.chmod(0o755)\n"
+            f"raise SystemExit({7 if outcome == 'license_failure' else 0})\n")
+    for name in act4_review_checker.OPTIONAL_SIMULATORS[tool]:
+        path = tool_bin / name
+        path.write_text(code)
+        path.chmod(0o755)
+    monkeypatch.setattr(act4_review_checker.shutil, "which", lambda name, **kwargs: str(tool_bin / name) if (tool_bin / name).exists() else None)
+    passed, result = harness.checker("audit").do_check()
+    assert passed, result
+    report = json.loads((harness.output / "environment.json").read_text())
+    record = report["tools"][tool]
+    assert record["status"] == ("available" if outcome == "available" else "unusable")
+    assert all("--version" not in item["argv"] for item in record["attempts"])
+    assert all((harness.output / item["log"]).is_file() for item in record["attempts"])
+    saved = (harness.output / "environment.json").read_bytes()
+    monkeypatch.setattr(act4_review_checker, "execute_command", lambda *args, **kwargs: pytest.fail("Ordinary Check must reuse probes"))
+    assert harness.checker("audit").do_check()[0]
+    assert saved == (harness.output / "environment.json").read_bytes()
+    (harness.output / record["attempts"][0]["log"]).write_text("forged")
+    passed, result = harness.checker("audit").do_check()
+    assert not passed and "probe log changed" in result["error"]
+
+
+def test_optional_probe_timeout_keeps_review_available(tmp_path: Path, monkeypatch) -> None:
+    """Record an unavailable licensed capability when a bounded smoke probe times out."""
+    harness = ReviewHarness(tmp_path)
+    monkeypatch.setattr(act4_review_checker.shutil, "which", lambda name, **kwargs: "/fixture/vcs" if name == "vcs" else None)
+
+    def timeout(argv, cwd, env, log, timeout, append=False):
+        """Model a license server timeout without waiting for a real server."""
+        assert timeout <= 20
+        log.write_text("Waiting for license server")
+        return {"argv": argv, "status": "timeout", "exit_code": None}
+
+    monkeypatch.setattr(act4_review_checker, "execute_command", timeout)
+    assert harness.checker("audit").do_check()[0]
+    report = json.loads((harness.output / "environment.json").read_text())
+    assert report["tools"]["vcs"]["status"] == "unusable"
+
+
+def test_optional_tool_refresh_invalidates_native_evidence(tmp_path: Path) -> None:
+    """Reject fabricated capabilities and require fresh validation after an explicit refresh."""
+    harness = ReviewHarness(tmp_path)
+    harness.audit()
+    path = harness.output / "environment.json"
+    report = json.loads(path.read_text())
+    report["tools"]["questa"]["status"] = "available"
+    path.write_text(json.dumps(report))
+    passed, result = harness.checker("audit").do_check()
+    assert not passed and "environment.json changed" in result["error"]
+    passed, result = harness.checker("audit").do_check(refresh_tools=True)
+    assert not passed and "evidence is stale" in result["error"]
+    assert json.loads(path.read_text())["tools"]["questa"]["status"] == "not_found"
+
+
+def test_optional_coverage_unavailable_allows_independent_validation_and_delivery(tmp_path: Path) -> None:
+    """Finish an honest review with generation, build and model passing without a simulator."""
+    harness = ReviewHarness(tmp_path)
+    harness.scope["jobs"][3]["optional_tool"] = "questa"
+    harness.write("scope.yaml", harness.scope)
+    review = harness.audit()
+    evidence = json.loads((harness.output / "evidence-before.json").read_text())
+    assert evidence["jobs"][3]["status"] == "unavailable"
+    assert all(job["status"] == "passed" for job in evidence["jobs"] if not job["optional"])
+    assert not (harness.output / "before-coverage.log").exists()
+    review["changes"] = []
+    harness.write("review.yaml", review)
+    assert harness.checker("audit").do_check(is_complete=True)[0]
+    assert harness.checker("repair").do_check(run_commands=True)[0]
+    harness.write_final({"schema_version": 1, "suite": "H", "summary": "Source audit finished; native model passed, measured coverage unavailable.",
+        "findings": [{"id": "F1", "status": "deferred", "classification": "validation_gap", "diagnosis": "cause_identified",
+                      "reason": "No licensed simulator is available", "next_action": "Run coverage when a supported simulator is provided",
+                      "evidence": ["environment.json"], "blocker": {"kind": "tooling", "detail": "Questa is absent on PATH",
+                          "impact": "Bin hits cannot be measured", "why_not_resolved": "The smoke preflight found no executable",
+                          "owner": "user", "request": "Optionally supply an existing Questa installation and working license for measured coverage",
+                          "reason_user_needed": "The user controls commercial tool access"}}],
+        "ci_passed": False, "remaining_risks": ["No measured coverage"], "coverage_changes": [], "traceability": []})
+    passed, result = harness.checker("final").do_check(is_complete=True)
+    assert passed, result
+    report = (harness.output / "final.md").read_text()
+    assert "Required native validation: **passed**" in report
+    assert "Confirmed defects: **0**" in report and "validation gaps: **1**" in report
+    assert "Fixed: **0**; deferred: **1**" in report
+    assert "Optionally supply an existing Questa" in report
+    assert report.index("Source audit finished") < report.index("Findings and outcomes") < report.index("Help requested") < report.index("Native validation (before)")
+    assert "```yaml" not in report
+    assert (harness.output / "changes.patch").read_text() == ""
+
+
+@pytest.mark.parametrize("defect", ["required_dependency", "install", "unknown", "manual_skip", "model_optional"])
+def test_optional_job_contract_prevents_required_lane_contamination(tmp_path: Path, defect: str) -> None:
+    """Require declared optional capabilities and keep them out of required dependency chains."""
+    harness = ReviewHarness(tmp_path)
+    job = harness.scope["jobs"][3]
+    job["optional_tool"] = "questa"
+    if defect == "required_dependency":
+        harness.scope["jobs"][4]["needs"].append("coverage")
+    elif defect == "install":
+        job["install"] = ["installer"]
+    elif defect == "unknown":
+        job["optional_tool"] = "invented"
+    elif defect == "manual_skip":
+        job.update(disposition="unavailable", reason="Assume license absent")
+    else:
+        harness.scope["jobs"][2]["optional_tool"] = "questa"
+    harness.write("scope.yaml", harness.scope)
+    passed, result = harness.checker("audit").do_check()
+    assert not passed and "optional" in result["error"].lower()
+
+
+@pytest.mark.parametrize("defect", ["none", "missing_inventory", "unknown_source", "missing_finding", "invented_point", "false_implemented", "wrong_block_quote"])
+def test_plan_obligations_survive_absence_from_coverage_and_generator(tmp_path: Path, defect: str) -> None:
+    """Demand forward traceability even for requirements that have no existing implementation."""
+    harness = ReviewHarness(tmp_path)
+    plan = "testplan.md"
+    (harness.source / plan).write_text("STCE must read as zero when H is present without Sstc.\n" * 81)
+    harness.scope["assets"]["test_plans"] = [plan]
+    harness.write("scope.yaml", harness.scope)
+    review = harness.audit()
+    evidence = json.loads((harness.output / "evidence-before.json").read_text())
+    assert evidence["coverpoints"] == [] and len(evidence["obligation_sources"]) == 2
+    for item in review["obligations"]:
+        item.update(status="gap", findings=["F1"], requirement="Test H without Sstc: STCE is read-only zero")
+    review["semantic_review"] = harness.assess(review)
+    for judgment in review["semantic_review"]["judgments"]:
+        if judgment["tasks"][0].startswith("obligation:"):
+            judgment.update(status="issues", confidence="confirmed", findings=["F1"])
+    if defect == "missing_inventory":
+        review["obligations"].pop()
+    elif defect == "unknown_source":
+        review["obligations"][0]["sources"] = ["invented"]
+    elif defect == "missing_finding":
+        review["obligations"][0]["findings"] = []
+    elif defect == "invented_point":
+        review["obligations"][0]["coverpoints"] = ["Missing/cp_stce"]
+    elif defect == "false_implemented":
+        review["obligations"][0]["status"] = "implemented"
+    elif defect == "wrong_block_quote":
+        judgment = next(item for item in review["semantic_review"]["judgments"] if item["tasks"] == [f"source:plan:{plan}:81-81"])
+        judgment["basis"][0]["lines"] = [1, 1]
+    harness.write("review.yaml", review)
+    passed, result = harness.checker("audit").do_check()
+    assert passed is (defect == "none"), result
+
+
+def test_specification_sources_are_independent_and_removed_plan_stays_reviewable(tmp_path: Path) -> None:
+    """Preserve original obligations when a plan is removed and include spec-only requirements."""
+    harness = ReviewHarness(tmp_path)
+    (harness.source / "plan.md").write_text("CSR writes require all four instruction variants.\n")
+    (tmp_path / "manual.adoc").write_text("New settings take effect without SFENCE.VMA.\n")
+    harness.scope["assets"]["test_plans"] = ["plan.md"]
+    harness.scope["reference_files"] = ["manual.adoc"]
+    harness.write("scope.yaml", harness.scope)
+    review = harness.audit()
+    assert len(review["obligations"]) == 2
+    review["changes"][0]["paths"].append("plan.md")
+    review["post_assets"]["test_plans"] = []
+    harness.write("review.yaml", review)
+    assert harness.checker("repair").do_check()[0]
+    (harness.output / "candidate/plan.md").unlink()
+    assert harness.checker("repair").do_check(run_commands=True)[0]
+    evidence = json.loads((harness.output / "evidence-after.json").read_text())
+    assert evidence["obligation_sources"]["source:plan:plan.md:1-1"]["path"] == "baseline/plan.md"
+    assert evidence["obligation_sources"]["source:specification:manual.adoc:1-1"]["path"] == "references/manual.adoc"
+
+
+@pytest.mark.parametrize("defect", ["none", "unknown_path", "no_consumers", "no_boundary", "unclassified_diagnostic"])
+def test_shared_assets_and_scanner_scope_are_explicit(tmp_path: Path, defect: str) -> None:
+    """Review cross-suite dependencies and retain raw diagnostics with separate adjudication."""
+    harness = ReviewHarness(tmp_path)
+    harness.scope["shared_assets"] = [{"path": "generators/H.py", "consumers": ["H", "Sstc"],
+        "boundary": "Review shared CSR helpers for both consumers; native matrix is H only"}]
+    if defect == "unknown_path":
+        harness.scope["shared_assets"][0]["path"] = "missing.py"
+    elif defect == "no_consumers":
+        harness.scope["shared_assets"][0]["consumers"] = []
+    elif defect == "no_boundary":
+        harness.scope["shared_assets"][0]["boundary"] = ""
+    harness.write("scope.yaml", harness.scope)
+    if defect in {"unknown_path", "no_consumers", "no_boundary"}:
+        passed, result = harness.checker("audit").do_check()
+        assert not passed and "shared" in result["error"].lower()
+        return
+    review = harness.audit()
+    evidence = json.loads((harness.output / "evidence-before.json").read_text())
+    assert "shared:generators/H.py" in evidence["review_tasks"]
+    judgment = next(item for item in review["semantic_review"]["judgments"] if item["tasks"][0].startswith("diagnostic:"))
+    if defect == "unclassified_diagnostic":
+        judgment.pop("diagnostics")
+    else:
+        judgment.update(status="not_applicable", confidence="confirmed", diagnostics={judgment["tasks"][0]: "scope_mismatch"})
+    harness.write("review.yaml", review)
+    passed, result = harness.checker("audit").do_check()
+    assert passed is (defect == "none"), result
+    if passed:
+        report = (harness.output / "review.md").read_text()
+        assert "Scanner diagnostics (not defect counts)" in report and "scope_mismatch: 1" in report
+        assert evidence["static_passed"] is False
+
+
+@pytest.mark.parametrize("defect", ["investigation", "quote", "classification", "diagnosis", "blocker", "impact", "why_not_resolved", "owner", "user_request", "reason_user_needed"])
+def test_unresolved_findings_require_specific_investigation_and_blockers(tmp_path: Path, defect: str) -> None:
+    """Reject unsupported deferrals and avoid transferring ordinary investigation to the user."""
+    harness = ReviewHarness(tmp_path)
+    harness.audit()
+    assert harness.checker("repair").do_check(run_commands=True)[0]
+    final = {"schema_version": 1, "suite": "H", "summary": "Missing implementation remains open",
+        "findings": [{"id": "F1", "status": "deferred", "reason": "No implementation yet", "evidence": ["evidence-after.json"],
+            "next_action": "Implement the specified behavior"}], "ci_passed": True,
+        "remaining_risks": ["Unimplemented behavior"], "coverage_changes": [], "traceability": []}
+    final["semantic_review"] = harness.assess(final, "after")
+    finding = final["findings"][0]
+    if defect in {"investigation", "classification", "diagnosis", "blocker"}:
+        finding.pop(defect)
+    elif defect == "quote":
+        finding["investigation"][0]["basis"][0]["quote"] = "fabricated"
+    elif defect in {"user_request", "reason_user_needed"}:
+        finding["blocker"].update(owner="user", request="Provide a custom configuration", reason_user_needed="Configuration is external")
+        finding["blocker"].pop("request" if defect == "user_request" else "reason_user_needed")
+    else:
+        finding["blocker"].pop(defect)
+    harness.write("final.yaml", final)
+    passed, result = harness.checker("final").do_check()
+    assert not passed and result["error_code"] == "act4_review_contract"
+
+
+@pytest.mark.parametrize("field,value", [("classification", "suspected_defect"), ("diagnosis", "symptoms_only")])
+def test_repair_proposals_require_supported_diagnosis(tmp_path: Path, field: str, value: str) -> None:
+    """Keep evidence-insufficient findings in the audit without inventing a repair proposal."""
+    harness = ReviewHarness(tmp_path)
+    review = harness.audit()
+    review["findings"][0][field] = value
+    harness.write("review.yaml", review)
+    passed, result = harness.checker("audit").do_check()
+    assert not passed and "repair_ready" in result["error"]
+    review["changes"] = []
+    harness.write("review.yaml", review)
+    assert harness.checker("audit").do_check()[0]
+
+
+def test_dismissed_finding_is_not_counted_as_a_fix(tmp_path: Path) -> None:
+    """Allow a source-grounded false positive resolution without producing a fake patch."""
+    harness = ReviewHarness(tmp_path)
+    review = harness.audit()
+    review["changes"] = []
+    harness.write("review.yaml", review)
+    assert harness.checker("repair").do_check(run_commands=True)[0]
+    final = {"schema_version": 1, "suite": "H", "summary": "The suspected issue was a scope mismatch",
+        "findings": [{"id": "F1", "status": "dismissed", "classification": "not_a_defect", "reason": "External suite owns this obligation",
+                      "evidence": ["evidence-after.json"]}], "ci_passed": True,
+        "remaining_risks": ["Synthetic fixture is not an ISA proof"], "coverage_changes": [], "traceability": []}
+    final["semantic_review"] = harness.assess(final, "after")
+    judgment = next(item for item in final["semantic_review"]["judgments"] if item["tasks"] == ["finding:F1"])
+    judgment.update(status="not_applicable", confidence="confirmed")
+    harness.write("final.yaml", final)
+    passed, result = harness.checker("final").do_check()
+    assert passed, result
+    report = (harness.output / "final.md").read_text()
+    assert "Fixed: **0**" in report and "dismissed without a patch: **1**" in report
+    assert "No user input is currently required" in report
+    assert (harness.output / "changes.patch").read_text() == ""
+
+
+@pytest.mark.parametrize("defect", ["none", "plan_as_implementation", "missing_definition", "unconfirmed_finding"])
+def test_implemented_obligations_require_both_definition_and_code(tmp_path: Path, defect: str) -> None:
+    """Tie positive forward mappings to actual code and coverage without upgrading them to hits."""
+    harness = ReviewHarness(tmp_path)
+    (harness.source / "plan.md").write_text("Observe flag on the fixture transaction.\n")
+    (harness.source / "H.svh").write_text("covergroup H_cg;\ncp: coverpoint flag;\nendgroup\n")
+    harness.scope["assets"]["test_plans"] = ["plan.md"]
+    harness.scope["assets"]["coverage"] = ["H.svh"]
+    harness.write("scope.yaml", harness.scope)
+    review = harness.audit()
+    review["obligations"][0].update(status="implemented", implementation=["baseline/generators/H.py"], coverpoints=["H_cg/cp"])
+    review["semantic_review"] = harness.assess(review)
+    judgment = next(item for item in review["semantic_review"]["judgments"] if item["tasks"] == ["obligation:O1"])
+    judgment.update(status="passed", confidence="confirmed")
+    citation = next(item for item in judgment["basis"] if item["path"] == "baseline/H.svh")
+    if defect != "missing_definition":
+        citation.update(lines=[2, 2], quote="cp: coverpoint flag;")
+    if defect == "plan_as_implementation":
+        review["obligations"][0]["implementation"] = ["baseline/plan.md"]
+    elif defect == "unconfirmed_finding":
+        finding = next(item for item in review["semantic_review"]["judgments"] if item["tasks"] == ["finding:F1"])
+        finding.update(status="unverified", confidence="unverified")
+    harness.write("review.yaml", review)
+    passed, result = harness.checker("audit").do_check()
+    assert passed is (defect == "none"), result
+    assert review["traceability"][0]["coverage"] == "unverified"

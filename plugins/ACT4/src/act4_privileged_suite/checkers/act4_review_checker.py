@@ -1,4 +1,4 @@
-"""Audit existing ACT4 assets, bind human approval, and validate scoped repairs."""
+"""Audit existing ACT4 assets and validate evidence-driven repairs and final reports."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ from typing import Any
 
 import yaml
 
-from ucagent.checkers.base import CB_KEY_ON_INIT, Checker
+from ucagent.checkers.base import Checker
 
 from .act4_asset_checker import ACT4AssetChecker
 from .act4_asset_consistency import scan_systemverilog
@@ -45,6 +45,11 @@ ASSET_KINDS = {"test_plans", "coverage", "generators", "test_cases", "mappings"}
 PURPOSES = {"environment", "generation", "build", "reference_model", "coverage", "lint"}
 DIAGNOSTIC_FILE_LIMIT = 50
 DIAGNOSTIC_BYTE_LIMIT = 256 * 1024
+OPTIONAL_SIMULATORS = {
+    "questa": ("vlib", "vlog", "vsim"),
+    "vcs": ("vcs",),
+    "xcelium": ("xrun",),
+}
 
 
 def is_text(value: Any) -> bool:
@@ -66,6 +71,7 @@ def evidence_fingerprint(tree: Path, scope: dict[str, Any]) -> str:
     """Bind native evidence to executable inputs while allowing scope commentary edits."""
     return digest({"tree": tree_state(tree), "assets": scope["assets"],
                    "targets": scope["targets"], "jobs": scope["jobs"],
+                   "shared_assets": scope["shared_assets"],
                    "reference_files": scope["reference_files"]})
 
 
@@ -172,39 +178,22 @@ def record_validation_failure(record: dict[str, Any], message: str) -> None:
 
 
 class ACT4ReviewChecker(Checker):
-    """Gate review completeness separately from asset health and human permission."""
+    """Validate review and repair completeness while preserving unresolved findings."""
 
-    accepted_stage_args = ("run_commands",)
+    accepted_stage_args = ("run_commands", "refresh_tools")
 
     def __init__(self, phase: str, suite: str, review_dir: str,
                  act4_root: str = "riscv-arch-test", **kwargs: Any) -> None:
         """Store stage configuration without inspecting the live workspace."""
         super().__init__()
         kwargs.pop("cfg", None)
-        if kwargs or phase not in {"inventory", "audit", "authorize", "repair", "final"}:
+        if kwargs or phase not in {"audit", "repair", "final"}:
             raise ValueError("Invalid ACT4 review phase or checker arguments")
         self.phase, self.suite = phase, suite
         self.review_dir, self.act4_root = review_dir, act4_root
-        self._approval_callback_installed = False
-        if phase == "authorize":
-            self.add_cb(CB_KEY_ON_INIT, self._install_approval_callback)
-
-    def _install_approval_callback(self, checker: Any) -> None:
-        """Attach the completion hook after the stage has finished construction."""
-        if not self._approval_callback_installed:
-            self.stage.append_on_complete_callback(self._capture_approval)
-            self._approval_callback_installed = True
-
-    def _capture_approval(self, stage: Any) -> None:
-        """Persist approval only after the real human-gated stage actually completes."""
-        state = self._state()
-        passed, message = stage.get_hmcheck_state()
-        if passed is True and message.strip() == state.get("pending_digest"):
-            state["approved_digest"] = message.strip()
-            self.stage_manager.save_stage_info()
 
     def _state(self) -> dict[str, Any]:
-        """Access persisted controller-owned state, never an agent-authored approval file."""
+        """Access persisted baseline, evidence fingerprints, and candidate preparation state."""
         if self.stage_manager is None:
             raise ValueError("Review requires an active stage manager; restart this workflow")
         key = f"act4_review:{self.review_dir}:{self.suite}"
@@ -279,8 +268,8 @@ class ACT4ReviewChecker(Checker):
         if baseline.is_symlink() or reference_root.is_symlink():
             raise ValueError("Frozen input directories must not be symlinks")
         if "baseline" not in state:
-            if self.phase != "inventory" or baseline.exists():
-                raise ValueError("Baseline trust state is missing; start a new review output and obtain new approval")
+            if self.phase != "audit" or baseline.exists():
+                raise ValueError("Baseline trust state is missing; start a new review output in review_audit")
             copy_sources(self.source, baseline, current)
             copy_sources(Path(self.workspace), reference_root, references)
             state["baseline"] = identity
@@ -308,6 +297,18 @@ class ACT4ReviewChecker(Checker):
                     raise ValueError(f"Missing review asset: {name}; use [] and report an omission")
         if not any(assets.values()):
             raise ValueError("Review requires existing test assets; use the generation workflow for a new suite")
+        shared = scope.get("shared_assets")
+        if not isinstance(shared, list):
+            raise ValueError("scope.shared_assets must list shared paths, consumer suites and their review boundary; use [] when none")
+        seen_shared = set()
+        for item in shared:
+            if not isinstance(item, dict) or not is_text(item.get("path")) or item["path"] in seen_shared:
+                raise ValueError("shared_assets requires unique path mappings")
+            seen_shared.add(item["path"])
+            if not safe_path(self.source, item["path"]).is_file() or not any(item["path"] in paths for paths in assets.values()):
+                raise ValueError("Shared assets must be existing declared assets")
+            if not is_text_list(item.get("consumers")) or not is_text(item.get("boundary")):
+                raise ValueError("Shared assets require consumers and boundary explaining reviewed and excluded suites")
         for field in ("targets", "references", "discovery"):
             if not is_text_list(scope.get(field)):
                 raise ValueError(f"scope.{field} must document the complete review boundary as nonempty strings")
@@ -343,6 +344,11 @@ class ACT4ReviewChecker(Checker):
                 raise ValueError(f"CI job {job['id']} needs must list unique prerequisite job IDs")
             if job.get("disposition") not in {"run", "not_applicable", "unavailable"}:
                 raise ValueError("CI disposition must be run, not_applicable, or unavailable")
+            if "optional_tool" in job:
+                if job["optional_tool"] not in OPTIONAL_SIMULATORS or job["purpose"] not in {"coverage", "environment"}:
+                    raise ValueError("optional_tool must identify questa/vcs/xcelium for a coverage or simulator environment job")
+                if job["disposition"] != "run" or "install" in job:
+                    raise ValueError("Optional simulator jobs must use disposition: run without install; availability comes from environment.json")
             if job["purpose"] == "environment" and job["disposition"] != "run":
                 raise ValueError("Environment jobs must run a real probe before reporting unavailable tools")
             if job["disposition"] != "run":
@@ -423,6 +429,8 @@ class ACT4ReviewChecker(Checker):
                 remaining.remove(job)
         indexed = {job["id"]: job for job in jobs}
         for job in ordered:
+            if "optional_tool" not in job and any("optional_tool" in indexed[name] for name in ancestors[job["id"]]):
+                raise ValueError(f"Required job {job['id']} must not depend on an optional simulator; keep generation/build/model/lint independent")
             if job["disposition"] != "run" or job["purpose"] == "environment":
                 continue
             prerequisites = [indexed[name] for name in ancestors[job["id"]]]
@@ -435,11 +443,68 @@ class ACT4ReviewChecker(Checker):
                     raise ValueError(f"ELF provider {name} must be a prerequisite build for {job['target']}")
         return scope
 
+    def _environment(self, state: dict[str, Any], refresh: bool) -> dict[str, Any]:
+        """Probe optional simulators before scope authoring and retain tamper-evident smoke results."""
+        path = self.output / "environment.json"
+        if state.get("environment") and not refresh:
+            data = self._load("environment.json")
+            if digest(data) != state["environment"]:
+                raise ValueError("environment.json changed; use Check(stage_args={\"refresh_tools\": true}) in review_audit")
+            for tool in data["tools"].values():
+                for attempt in tool["attempts"]:
+                    if hashlib.sha256(safe_path(self.output, attempt["log"]).read_bytes()).hexdigest() != attempt["sha256"]:
+                        raise ValueError("Optional simulator probe log changed; refresh_tools in review_audit")
+            return data
+        if self.phase != "audit":
+            raise ValueError("Start in review_audit to probe optional tools before reviewing assets")
+        environment = dict(os.environ)
+        environment["PATH"] = str(self.output / "tools/bin") + os.pathsep + environment.get("PATH", "")
+        data = {"schema_version": 1, "checked_at": datetime.now(timezone.utc).isoformat(), "tools": {}}
+        smoke = ('module review_smoke;\nint value;\n'
+                 'covergroup sample_cg; cp: coverpoint value { bins one = {1}; } endgroup\n'
+                 'sample_cg coverage_sample;\ninitial begin coverage_sample = new; value = 1; '
+                 'coverage_sample.sample(); $display("ACT4_REVIEW_SMOKE_PASS"); $finish; end\nendmodule\n')
+        for tool, binaries in OPTIONAL_SIMULATORS.items():
+            resolved = {name: shutil.which(name, path=environment["PATH"]) for name in binaries}
+            record = {"executables": resolved, "attempts": [], "status": "not_found",
+                      "impact": "Measured coverage using this simulator is unavailable; source review and independent jobs continue."}
+            data["tools"][tool] = record
+            missing = [name for name, location in resolved.items() if location is None]
+            if missing:
+                record["reason"] = "Executables not on PATH: " + ", ".join(missing)
+                continue
+            with tempfile.TemporaryDirectory(prefix=f"probe-{tool}-", dir=self.output) as temporary:
+                directory = Path(temporary)
+                (directory / "smoke.sv").write_text(smoke, encoding="utf-8")
+                if tool == "questa":
+                    commands = [[resolved["vlib"], "work"], [resolved["vlog"], "-sv", "smoke.sv"],
+                                [resolved["vsim"], "-c", "-coverage", "work.review_smoke", "-do", "run -all; quit -f"]]
+                elif tool == "vcs":
+                    commands = [[resolved["vcs"], "-full64", "-sverilog", "smoke.sv", "-o", "smoke"], [str(directory / "smoke")]]
+                else:
+                    commands = [[resolved["xrun"], "-64bit", "-sv", "-coverage", "all", "smoke.sv"]]
+                for index, argv in enumerate(commands):
+                    log_name = f"environment-{tool}-{index}.log"
+                    log = safe_path(self.output, log_name)
+                    attempt = execute_command(argv, directory, environment, log, 20)
+                    attempt.update(log=log_name, sha256=hashlib.sha256(log.read_bytes()).hexdigest())
+                    record["attempts"].append(attempt)
+                    if attempt["status"] != "passed":
+                        break
+                success = len(record["attempts"]) == len(commands) and all(item["status"] == "passed" for item in record["attempts"])
+                success = success and "ACT4_REVIEW_SMOKE_PASS" in log.read_text(errors="replace")
+                record["status"] = "available" if success else "unusable"
+                record["reason"] = ("SystemVerilog covergroup compile and simulation smoke passed; native ACT4 coverage still requires its own job."
+                                    if success else "Compilation or simulation smoke failed/timed out or did not finish; inspect probe logs for license/tool configuration errors.")
+        self._write("environment.json", data)
+        state["environment"] = digest(data)
+        return data
+
     def _evidence(self, state: dict[str, Any], scope: dict[str, Any], tree: Path,
                   label: str, run_commands: bool) -> dict[str, Any]:
         """Reuse asset checks and record real isolated command results bound to input bytes."""
         fingerprint = digest({"sources": evidence_fingerprint(tree, scope),
-                              "references": state["baseline"]["references"]})
+                              "references": state["baseline"]["references"], "environment": state["environment"]})
         evidence_path = safe_path(self.output, f"evidence-{label}.json")
         cached = state.get(f"evidence-{label}")
         if not run_commands:
@@ -487,6 +552,7 @@ class ACT4ReviewChecker(Checker):
                 duplicates.setdefault(hashlib.sha256(path.read_bytes()).hexdigest(), []).append(name)
         evidence = {"schema_version": 1, "fingerprint": fingerprint,
                     "act4_head": state["baseline"]["head"],
+                    "environment": self._load("environment.json"), "targets": scope["targets"],
                     "static_passed": passed, "static": results, "missing_assets": missing, "coverpoints": points,
                     "reachability": reachability,
                     "duplicate_assets": [sorted(names) for names in duplicates.values() if len(names) > 1], "jobs": []}
@@ -512,11 +578,17 @@ class ACT4ReviewChecker(Checker):
                 job = next(item for item in pending if all(name in records for name in item.get("needs", [])))
                 pending.remove(job)
                 record = {"id": job["id"], "target": job["target"],
-                          "purpose": job["purpose"], "status": job["disposition"]}
+                          "purpose": job["purpose"], "status": job["disposition"],
+                          "optional": "optional_tool" in job}
+                optional = evidence["environment"]["tools"].get(job.get("optional_tool"))
+                if optional is not None:
+                    record["optional_tool"] = job["optional_tool"]
                 records[job["id"]] = record
                 blocked = [name for name in job.get("needs", []) if records[name]["status"] != "passed"]
                 if job["disposition"] != "run":
                     record["reason"] = job["reason"]
+                elif optional is not None and optional["status"] != "available":
+                    record.update(status="unavailable", reason=optional["reason"], evidence="environment.json")
                 elif blocked:
                     record.update(status="blocked", blocked_by=blocked,
                                   reason="Prepare or repair prerequisite jobs, then rerun validation")
@@ -621,6 +693,8 @@ class ACT4ReviewChecker(Checker):
         evidence["source_files"].update({
             f"references/{name}": identity["sha256"]
             for name, identity in state["baseline"]["references"].items() if identity["kind"] == "file"})
+        evidence["implementation_sources"] = sorted({f"{source_prefix}/{name}"
+            for kind in ("generators", "test_cases") for name in scope["assets"][kind] if (tree / name).is_file()})
         assembly = {f"{source_prefix}/{name}": name for name in scope["assets"]["test_cases"]
                     if Path(name).suffix.lower() == ".s" and (tree / name).is_file()}
         for job in evidence["jobs"]:
@@ -649,6 +723,36 @@ class ACT4ReviewChecker(Checker):
                         "line": descriptors.count("\n", 0, match.start(1)) + 1})
         tasks = {f"topic:{topic}": {"topic": topic, "question": question}
                  for topic, question in sorted(SEMANTIC_QUESTIONS.items())}
+        evidence["obligation_sources"] = {}
+        inputs = [(f"{source_prefix}/{name}", "plan", name) for name in scope["assets"]["test_plans"] if (tree / name).is_file()]
+        inputs.extend((f"references/{name}", "specification", name) for name in scope["reference_files"])
+        for path, kind, name in inputs:
+            content = safe_path(self.output, path).read_bytes()
+            try:
+                lines = content.decode("utf-8").splitlines()
+            except UnicodeDecodeError:
+                lines = []
+            blocks = [(start + 1, min(start + 80, len(lines))) for start in range(0, len(lines), 80)
+                      if any(line.strip() for line in lines[start:start + 80])]
+            for start, end in blocks or [(0, 0)]:
+                identity = f"source:{kind}:{name}:{start}-{end}"
+                task = {"topic": "omissions", "path": path, "lines": [start, end], "kind": kind,
+                        "question": "Extract all applicable obligations from this source block, including ones absent from both coverage and testgen; map each obligation or justify exclusion. Read adjacent blocks for context."}
+                evidence["obligation_sources"][identity] = task
+                tasks[identity] = task
+        if label == "after":
+            before_sources = self._load("evidence-before.json")["obligation_sources"]
+            for identity, task in before_sources.items():
+                if identity not in evidence["obligation_sources"]:
+                    evidence["obligation_sources"][identity] = task
+                    tasks[identity] = task
+                    evidence["source_files"][task["path"]] = hashlib.sha256(safe_path(self.output, task["path"]).read_bytes()).hexdigest()
+        for item in scope["shared_assets"]:
+            path = f"{source_prefix}/{item['path']}" if (tree / item["path"]).is_file() else f"baseline/{item['path']}"
+            evidence["source_files"][path] = hashlib.sha256(safe_path(self.output, path).read_bytes()).hexdigest()
+            tasks[f"shared:{item['path']}"] = {"topic": "contribution_quality", "path": path,
+                "consumers": item["consumers"], "boundary": item["boundary"],
+                "question": "Review shared dependencies and cross-suite impact. Distinguish missing external scope from real defects; propose validation for affected consumers."}
         for group, data in coverage["groups"].items():
             for point, detail in data["coverpoint_details"].items():
                 identity = f"{group}/{point}"
@@ -689,7 +793,7 @@ class ACT4ReviewChecker(Checker):
         evidence["review_tasks"] = tasks
         evidence["review_digest"] = digest(evidence)
         if digest({"sources": evidence_fingerprint(tree, scope),
-                   "references": state["baseline"]["references"]}) != fingerprint:
+                   "references": state["baseline"]["references"], "environment": state["environment"]}) != fingerprint:
             raise ValueError("Source changed during validation; discard results and retry")
         self._write(f"evidence-{label}.json", evidence)
         state[f"evidence-{label}"] = digest(evidence)
@@ -728,6 +832,9 @@ class ACT4ReviewChecker(Checker):
                 raise ValueError("Each change needs exact paths, action, and risk")
             if not is_text_list(change.get("validation_jobs")) or not set(change["validation_jobs"]) <= {job["id"] for job in scope["jobs"]}:
                 raise ValueError("Each change needs declared validation_jobs")
+            if any(item.get("classification") != "confirmed_defect" or item.get("diagnosis") != "repair_ready"
+                   for item in findings if item["id"] in change["findings"]):
+                raise ValueError("Propose repairs only for confirmed_defect findings with diagnosis: repair_ready; investigate other findings first")
             for name in change["paths"]:
                 path = safe_path(self.source, name)
                 if path.is_symlink():
@@ -742,7 +849,7 @@ class ACT4ReviewChecker(Checker):
             for name in names:
                 safe_path(self.source, name)
             if (set(names) ^ set(scope["assets"][kind])) - allowed:
-                raise ValueError("Changed post-review asset membership must be within approved source paths")
+                raise ValueError("Changed post-review asset membership must be within declared repair paths")
         self._traceability(review.get("traceability"), evidence)
         if checks["ci"]["status"] == "passed" and (not any(job["status"] == "passed" for job in evidence["jobs"]) or any(job["status"] not in {"passed", "not_applicable"} for job in evidence["jobs"])):
             raise ValueError("CI cannot be passed with failed, unavailable, or unexecuted jobs")
@@ -762,6 +869,7 @@ class ACT4ReviewChecker(Checker):
         if semantic.get("evidence_digest") != evidence["review_digest"]:
             raise ValueError(f"Review the current evidence and set semantic_review.evidence_digest to {evidence['review_digest']}")
         tasks = dict(evidence["review_tasks"])
+        tasks.update({f"finding:{item['id']}": {"topic": item.get("topic", "contribution_quality")} for item in document["findings"]})
         if review is not None:
             tasks.update({f"finding:{item['id']}": {"topic": item["topic"]} for item in review["findings"]})
             tasks.update({f"change:{name}": {"topic": "contribution_quality"} for name in changed or []})
@@ -769,19 +877,81 @@ class ACT4ReviewChecker(Checker):
         evidence_name = "evidence-before.json" if review is None else "evidence-after.json"
         allowed[evidence_name] = hashlib.sha256((json.dumps(evidence, indent=2) + "\n").encode()).hexdigest()
         if review is not None:
-            allowed.update(self._load("evidence-before.json")["source_files"])
-        for job in evidence["jobs"]:
-            for field in ("log", "probe_log"):
-                if field in job:
-                    allowed[job[field]] = job[f"{field}_sha256"]
-            allowed.update({item["path"]: item["sha256"]
-                            for item in job.get("artifacts", []) + job.get("diagnostics", [])})
+            before = self._load("evidence-before.json")
+            allowed.update(before["source_files"])
+            allowed["evidence-before.json"] = hashlib.sha256((json.dumps(before, indent=2) + "\n").encode()).hexdigest()
+        for run in ([before, evidence] if review is not None else [evidence]):
+            for job in run["jobs"]:
+                for field in ("log", "probe_log"):
+                    if field in job:
+                        allowed[job[field]] = job[f"{field}_sha256"]
+                allowed.update({item["path"]: item["sha256"]
+                                for item in job.get("artifacts", []) + job.get("diagnostics", [])})
+        allowed["environment.json"] = hashlib.sha256((json.dumps(evidence["environment"], indent=2) + "\n").encode()).hexdigest()
+        for tool in evidence["environment"]["tools"].values():
+            allowed.update({attempt["log"]: attempt["sha256"] for attempt in tool["attempts"]})
+        source_lines = {}
+        for finding in document["findings"]:
+            if finding.get("classification") not in {"confirmed_defect", "suspected_defect", "validation_gap", "not_a_defect"}:
+                raise ValueError(f"Finding {finding['id']} needs classification separating defects from suspicion and validation gaps")
+            if finding.get("diagnosis") not in {"symptoms_only", "cause_identified", "repair_ready"}:
+                raise ValueError(f"Finding {finding['id']} needs diagnosis: symptoms_only/cause_identified/repair_ready")
+            attempts = finding.get("investigation")
+            if not isinstance(attempts, list) or not attempts:
+                raise ValueError(f"Finding {finding['id']} needs investigation entries documenting work actually attempted, results and quoted evidence")
+            for attempt in attempts:
+                if not isinstance(attempt, dict) or not all(is_text(attempt.get(field)) for field in ("action", "result")):
+                    raise ValueError("Each investigation requires action, result and basis; a generic request for more evidence is insufficient")
+                self._citations(attempt.get("basis"), allowed, source_lines)
+            if review is not None and finding["status"] in {"deferred", "not_fixed"}:
+                blocker = finding.get("blocker")
+                if not isinstance(blocker, dict) or blocker.get("kind") not in {"specification", "configuration", "reproduction", "tooling", "implementation"}:
+                    raise ValueError(f"Finding {finding['id']} needs a precise blocker kind; use implementation when behavior is known but the test is missing")
+                if not all(is_text(blocker.get(field)) for field in ("detail", "impact", "why_not_resolved")) or blocker.get("owner") not in {"agent", "user", "upstream"}:
+                    raise ValueError("Unresolved findings require blocker detail, impact, why_not_resolved and owner: agent/user/upstream")
+                if blocker["owner"] == "user" and not all(is_text(blocker.get(field)) for field in ("request", "reason_user_needed")):
+                    raise ValueError("User assistance needs a concrete request and reason_user_needed; ordinary investigation remains agent work")
+            if review is not None and finding["status"] == "fixed" and (finding["classification"] != "confirmed_defect" or finding["diagnosis"] != "repair_ready"):
+                raise ValueError("Only a confirmed_defect with repair_ready diagnosis and an actual validated source change can be fixed")
+            if review is not None and finding["status"] == "dismissed" and finding["classification"] != "not_a_defect":
+                raise ValueError("A dismissed finding requires classification: not_a_defect and a source-grounded reassessment")
+        obligations = document.get("obligations")
+        if not isinstance(obligations, list):
+            raise ValueError("obligations must map every evidence.obligation_sources block to requirements or explicit exclusions")
+        source_ids = set(evidence["obligation_sources"])
+        covered_sources, obligation_ids = set(), set()
+        for item in obligations:
+            if not isinstance(item, dict) or not is_text(item.get("id")) or not re.fullmatch(r"O[0-9]+", item["id"]) or item["id"] in obligation_ids:
+                raise ValueError("Obligations require unique O<number> identities")
+            obligation_ids.add(item["id"])
+            if not is_text_list(item.get("sources")) or not set(item["sources"]) <= source_ids:
+                raise ValueError(f"Obligation {item['id']} must cite current obligation_sources IDs")
+            covered_sources.update(item["sources"])
+            if not all(is_text(item.get(field)) for field in ("requirement", "reason")) or item.get("status") not in {"implemented", "gap", "unverified", "not_applicable"}:
+                raise ValueError("Each obligation needs requirement, reason and implemented/gap/unverified/not_applicable status")
+            if not is_text_list(item.get("targets")) or not set(item["targets"]) <= set(evidence["targets"]):
+                raise ValueError("Obligation targets must identify selected configurations")
+            for field, available in (("coverpoints", evidence["coverpoints"]), ("implementation", evidence["implementation_sources"]),
+                                     ("findings", [finding["id"] for finding in document["findings"]])):
+                if not is_text_list(item.get(field), allow_empty=True) or not set(item[field]) <= set(available):
+                    raise ValueError(f"Obligation {item['id']} has unknown {field} links")
+            if item["status"] == "gap" and not item["findings"]:
+                raise ValueError("Missing obligations must link to findings even if coverage and generator both lack them")
+            if item["status"] == "implemented" and (not item["coverpoints"] or not item["implementation"]):
+                raise ValueError("Implemented obligations require both coverpoints and implementation source links; otherwise record a gap or unverified")
+            tasks[f"obligation:{item['id']}"] = {"topic": "omissions",
+                "sources": sorted({evidence["obligation_sources"][name]["path"] for name in item["sources"]} | set(item["implementation"]) |
+                                  {tasks[f"point:{point}"]["path"] for point in item["coverpoints"]}),
+                "obligation_status": item["status"], "findings": item["findings"], "coverpoints": item["coverpoints"]}
+        if covered_sources != source_ids:
+            raise ValueError(f"Obligation inventory omits source blocks: {sorted(source_ids - covered_sources)[:12]}")
+        if review is not None and not {item["id"] for item in review["obligations"]} <= obligation_ids:
+            raise ValueError("Final obligations must retain every original obligation ID; explain exclusions instead of dropping gaps")
         judgments = semantic.get("judgments")
         if not isinstance(judgments, list) or not judgments:
             raise ValueError("semantic_review.judgments must assess every evidence review_task; an empty or missing AI review cannot pass")
         observed = set()
         finding_ids = {item["id"] for item in document["findings"]}
-        source_lines = {}
         for judgment in judgments:
             if not isinstance(judgment, dict) or not is_text_list(judgment.get("tasks")):
                 raise ValueError("Each AI judgment needs nonempty task IDs from evidence.review_tasks")
@@ -815,32 +985,37 @@ class ACT4ReviewChecker(Checker):
             if not is_text_list(linked, allow_empty=True) or not set(linked) <= finding_ids or (status == "issues" and not linked):
                 raise ValueError("AI judgment findings must name existing finding IDs; issues must be recorded as findings")
             basis = judgment.get("basis")
-            if not isinstance(basis, list) or not basis:
-                raise ValueError("AI judgments require source evidence with path, lines, exact quote and observation")
-            for citation in basis:
-                if not isinstance(citation, dict) or not is_text(citation.get("path")) or citation["path"] not in allowed:
-                    raise ValueError("AI basis.path must name a frozen source/reference, current evidence JSON or retained command log/artifact; report text is not evidence")
-                name = citation["path"]
-                if name not in source_lines:
-                    content = safe_path(self.output, name).read_bytes()
-                    if hashlib.sha256(content).hexdigest() != allowed[name]:
-                        raise ValueError(f"AI basis source changed: {name}; recollect evidence")
-                    try:
-                        source_lines[name] = content.decode("utf-8").splitlines()
-                    except UnicodeDecodeError as exc:
-                        raise ValueError(f"AI basis requires UTF-8 text: {name}; cite a retained textual report for binary artifacts") from exc
-                lines = citation.get("lines")
-                physical = source_lines[name]
-                if not isinstance(lines, list) or len(lines) != 2 or any(type(number) is not int for number in lines) or not 1 <= lines[0] <= lines[1] <= len(physical) or lines[1] - lines[0] >= 100:
-                    raise ValueError(f"AI basis.lines must select 1..100 existing physical lines: {citation['path']}")
-                if not is_text(citation.get("quote")) or citation["quote"] != "\n".join(physical[lines[0] - 1:lines[1]]):
-                    raise ValueError(f"AI basis.quote must exactly match the selected source lines: {citation['path']}")
-                if not is_text(citation.get("observation")):
-                    raise ValueError("AI basis.observation must explain what the quoted source establishes")
+            self._citations(basis, allowed, source_lines)
+            diagnostics = {subject for subject in subjects if subject.startswith("diagnostic:")}
+            dispositions = judgment.get("diagnostics", {})
+            if not isinstance(dispositions, dict) or set(dispositions) != diagnostics or any(
+                value not in {"asset_defect", "scanner_limitation", "scope_mismatch", "unresolved"} for value in dispositions.values()
+            ):
+                raise ValueError("Each diagnostic task needs a diagnostics entry: asset_defect/scanner_limitation/scope_mismatch/unresolved")
+            if "asset_defect" in dispositions.values() and (status != "issues" or not linked):
+                raise ValueError("An asset_defect diagnostic must be issues and link to a finding")
+            if "unresolved" in dispositions.values() and status == "passed":
+                raise ValueError("An unresolved diagnostic cannot be passed")
             if status == "passed" and any(task in {"topic:omissions", "topic:coverpoint_quality"} for task in subjects) and not any(item["path"].startswith("references/") for item in basis):
                 raise ValueError("Passing specification-completeness or coverpoint-quality review needs a frozen reference citation; declare scope.reference_files or report unverified")
             for subject in subjects:
                 task = tasks[subject]
+                if subject.startswith("source:") and task["lines"][0] and not any(
+                    item["path"] == task["path"] and task["lines"][0] <= item["lines"][0] <= item["lines"][1] <= task["lines"][1]
+                    for item in basis
+                ):
+                    raise ValueError(f"Source task {subject} must cite its own source block")
+                if subject.startswith("obligation:"):
+                    expected_status = {"implemented": "passed", "gap": "issues", "unverified": "unverified", "not_applicable": "not_applicable"}[task["obligation_status"]]
+                    if status != expected_status:
+                        raise ValueError(f"Judgment for {subject} must match its obligation status: {expected_status}")
+                    if not set(task["findings"]) <= set(linked):
+                        raise ValueError(f"Judgment for {subject} must link its obligation findings")
+                    if status == "passed":
+                        for point in task["coverpoints"]:
+                            definition = tasks[f"point:{point}"]
+                            if not any(item["path"] == definition["path"] and item["lines"][0] <= definition["line"] <= item["lines"][1] for item in basis):
+                                raise ValueError(f"Implemented obligation {subject} must cite its coverpoint definition: {point}")
                 required_sources = task.get("sources", [task["path"]] if "path" in task else [])
                 cited = {item["path"] for item in basis}
                 if not subject.startswith("point:"):
@@ -864,17 +1039,23 @@ class ACT4ReviewChecker(Checker):
                     expected = f"candidate/{name}" if f"candidate/{name}" in evidence["source_files"] else f"baseline/{name}"
                     if not any(item["path"] == expected for item in basis):
                         raise ValueError(f"AI judgment for {subject} must cite the changed source: {expected}")
-                if review is not None and subject.startswith("finding:"):
+                if subject.startswith("finding:"):
                     finding = next(item for item in document["findings"] if subject == f"finding:{item['id']}")
-                    if finding["status"] == "fixed" and status != "passed":
+                    if finding["classification"] == "confirmed_defect" and finding.get("status") != "fixed" and (status != "issues" or confidence != "confirmed" or finding["id"] not in linked):
+                        raise ValueError(f"Confirmed defect {finding['id']} needs an issues/confirmed judgment linked to the finding, even when repair is deferred")
+                    if finding["classification"] == "not_a_defect" and (status not in {"passed", "not_applicable"} or confidence != "confirmed"):
+                        raise ValueError(f"Ruling out finding {finding['id']} requires a confirmed passed/not_applicable judgment")
+                    if finding.get("status") == "fixed" and status != "passed":
                         raise ValueError(f"Finding {finding['id']} cannot be fixed while its AI reassessment is {status}")
-                    if finding["status"] == "fixed":
+                    if finding.get("status") == "fixed":
                         paths = {name for change in review["changes"] if finding["id"] in change["findings"]
                                  for name in change["paths"] if name in (changed or [])}
                         sources = {f"candidate/{name}" if f"candidate/{name}" in evidence["source_files"] else f"baseline/{name}"
                                    for name in paths}
                         if not sources.intersection(item["path"] for item in basis):
-                            raise ValueError(f"AI reassessment of fixed finding {finding['id']} must cite its approved changed source")
+                            raise ValueError(f"AI reassessment of fixed finding {finding['id']} must cite its changed source")
+                    if finding.get("status") == "dismissed" and (status not in {"passed", "not_applicable"} or confidence != "confirmed"):
+                        raise ValueError("Dismissed findings need a confirmed reassessment explaining why no source repair is needed")
             if review is None and status in {"issues", "unverified"}:
                 for subject in subjects:
                     topic = tasks[subject]["topic"]
@@ -883,6 +1064,30 @@ class ACT4ReviewChecker(Checker):
         if observed != tasks.keys():
             missing = sorted(tasks.keys() - observed)
             raise ValueError(f"AI review is incomplete: {len(missing)} tasks missing; first tasks: {missing[:12]}; read the complete evidence.review_tasks")
+
+    def _citations(self, basis: Any, allowed: dict[str, str], source_lines: dict[str, list[str]]) -> None:
+        """Verify exact quotations for semantic judgments and documented investigation attempts."""
+        if not isinstance(basis, list) or not basis:
+            raise ValueError("Source evidence requires path, lines, exact quote and observation")
+        for citation in basis:
+            if not isinstance(citation, dict) or not is_text(citation.get("path")) or citation["path"] not in allowed:
+                raise ValueError("AI basis.path must name a frozen source/reference, current evidence JSON or retained command log/artifact; report text is not evidence")
+            name = citation["path"]
+            if name not in source_lines:
+                content = safe_path(self.output, name).read_bytes()
+                if hashlib.sha256(content).hexdigest() != allowed[name]:
+                    raise ValueError(f"AI basis source changed: {name}; recollect evidence")
+                try:
+                    source_lines[name] = content.decode("utf-8").splitlines()
+                except UnicodeDecodeError as exc:
+                    raise ValueError(f"AI basis requires UTF-8 text: {name}; cite a retained textual report for binary artifacts") from exc
+            lines, physical = citation.get("lines"), source_lines[name]
+            if not isinstance(lines, list) or len(lines) != 2 or any(type(number) is not int for number in lines) or not 1 <= lines[0] <= lines[1] <= len(physical) or lines[1] - lines[0] >= 100:
+                raise ValueError(f"AI basis.lines must select 1..100 existing physical lines: {name}")
+            if not is_text(citation.get("quote")) or citation["quote"] != "\n".join(physical[lines[0] - 1:lines[1]]):
+                raise ValueError(f"AI basis.quote must exactly match the selected source lines: {name}")
+            if not is_text(citation.get("observation")):
+                raise ValueError("AI basis.observation must explain what the quoted source establishes")
 
     def _traceability(self, trace: Any, evidence: dict[str, Any]) -> None:
         """Check complete coverpoint accounting without treating static presence as hits."""
@@ -911,50 +1116,85 @@ class ACT4ReviewChecker(Checker):
         if observed != set(evidence["coverpoints"]):
             raise ValueError("Traceability must list every scanned group/coverpoint exactly once")
 
-    def _authorization(self, state: dict[str, Any], scope: dict[str, Any],
-                       review: dict[str, Any]) -> str:
-        """Bind operator approval to baseline, proposal, matrix, and original evidence."""
-        approval = digest({"baseline": state["baseline"], "scope": scope,
-                           "review": review, "evidence": state["evidence-before"]})
-        paths = sorted({path for item in review["changes"] for path in item["paths"]})
-        self._write("authorization.json", {"schema_version": 1, "digest": approval,
-                    "paths": paths, "mode": "repair" if paths else "report_only",
-                    "findings_without_changes": sorted({item["id"] for item in review["findings"]}
-                        - {name for item in review["changes"] for name in item["findings"]}),
-                    "operator_command": f"hmcheck_pass {approval}"})
-        return approval
-
-    def _require_approval(self, state: dict[str, Any], approval: str) -> None:
-        """Accept only a receipt produced from the real stage human gate."""
-        if state.get("approved_digest") != approval:
-            raise ValueError("No matching human authorization; return to review_authorization and request approval")
-        gate = next((stage for stage in self.stage_manager.stages if stage.name == "review_authorization"), None)
-        if gate is None or not gate.is_completed() or not gate.is_hmcheck_needed() or gate.is_skipped():
-            raise ValueError("The human authorization stage is required")
-        passed, message = gate.get_hmcheck_state()
-        if passed is False or (passed is True and message.strip() != approval):
-            raise ValueError("Human authorization was rejected or does not match the current proposal")
-
     def _changes(self, state: dict[str, Any], review: dict[str, Any]) -> list[str]:
-        """Reject candidate changes outside approved exact paths, including modes and deletions."""
+        """Reject candidate changes outside declared repair paths, including modes and deletions."""
         before, after = state["baseline"]["files"], tree_state(self.output / "candidate")
         changed = sorted(name for name in before.keys() | after.keys() if before.get(name) != after.get(name))
         allowed = {name for item in review["changes"] for name in item["paths"]}
         if set(changed) - allowed:
-            raise ValueError(f"Unauthorized candidate changes: {sorted(set(changed) - allowed)[:20]}")
+            raise ValueError(f"Candidate changes outside review.changes paths: {sorted(set(changed) - allowed)[:20]}")
         return changed
 
     def _markdown(self, name: str, title: str, data: dict[str, Any],
                   runs: list[tuple[str, dict[str, Any]]]) -> None:
-        """Render decisions and native outcomes with links to complete machine evidence."""
+        """Lead with outcomes, unresolved causes and useful requests before technical evidence."""
         text = f"\n# {title}\n\n{data.get('summary', '')}\n\n"
         structured = "final.yaml" if name == "final.md" else "review.yaml"
+        originals = {item["id"]: item for item in data.get("original_review", data)["findings"]}
+        findings = [{**originals[item["id"]], **item} for item in data["findings"]]
+        classes = {kind: sum(item["classification"] == kind for item in findings)
+                   for kind in ("confirmed_defect", "suspected_defect", "validation_gap", "not_a_defect")}
+        outcomes = {status: sum(item.get("status") == status for item in findings)
+                    for status in ("fixed", "deferred", "not_fixed", "dismissed")}
+        text += (f"Confirmed defects: **{classes['confirmed_defect']}**; suspected defects: **{classes['suspected_defect']}**; "
+                 f"validation gaps: **{classes['validation_gap']}**; ruled out: **{classes['not_a_defect']}**.\n\n")
+        if name == "final.md":
+            text += (f"Fixed: **{outcomes['fixed']}**; deferred: **{outcomes['deferred']}**; not fixed: **{outcomes['not_fixed']}**; "
+                     f"dismissed without a patch: **{outcomes['dismissed']}**. "
+                     f"Source files changed: **{len(data['changed_paths'])}**. [Patch](changes.patch).\n\n")
+        latest = runs[-1][1]
+        required = [job for job in latest["jobs"] if not job["optional"]]
+        required_passed = any(job["status"] == "passed" for job in required) and all(job["status"] in {"passed", "not_applicable"} for job in required)
+        optional_gaps = [job["id"] for job in latest["jobs"] if job["optional"] and job["status"] not in {"passed", "not_applicable"}]
+        text += f"Required native validation: **{'passed' if required_passed else 'incomplete or failed'}**. "
+        if optional_gaps:
+            text += f"Optional validation not completed: {', '.join(optional_gaps)}. "
+        text += "Report completion does not certify every asset or establish measured coverage.\n"
+        text += "\n## Findings and outcomes\n\n"
+        if not findings:
+            text += "No findings were recorded within the reviewed scope. The validation limits below still apply.\n"
+        for item in findings:
+            classification = {"confirmed_defect": "Confirmed defect", "suspected_defect": "Suspected defect",
+                              "validation_gap": "Validation limitation", "not_a_defect": "Not a defect"}[item["classification"]]
+            diagnosis = {"symptoms_only": "Symptoms observed; cause not yet established",
+                         "cause_identified": "Cause identified", "repair_ready": "Evidence supports a concrete repair"}[item["diagnosis"]]
+            text += (f"\n### {item['id']} — {item['problem']}\n\n"
+                     f"**{classification} / {item.get('status', 'reviewed')}** · {item['severity']} · {item['location']}\n\n"
+                     f"{item.get('reason', item['recommendation'])}\n\n"
+                     f"Diagnosis: {diagnosis}.\n")
+            blocker = item.get("blocker")
+            if blocker:
+                text += (f"\nStill missing or unfinished: {blocker['detail']}\n\n"
+                         f"Why it remains open: {blocker['why_not_resolved']}\n\n"
+                         f"Impact: {blocker['impact']}\n\n"
+                         f"Next action ({blocker['owner']}): {item['next_action']}\n")
+            for attempt in item["investigation"]:
+                text += f"\n- Investigated: {attempt['action']} Result: {attempt['result']}\n"
+        text += "\n## Help requested from the user\n\n"
+        requests = [item for item in findings if item.get("blocker", {}).get("owner") == "user"]
+        if not requests:
+            text += "No user input is currently required. Remaining investigation and implementation actions are listed with their owners above.\n"
+        for item in requests:
+            blocker = item["blocker"]
+            text += f"- **{item['id']}**: {blocker['request']} Why user help is needed: {blocker['reason_user_needed']}\n"
+        text += "\n## Validation limits and evidence\n\n"
+        for risk in data.get("remaining_risks", []):
+            text += f"- {risk}\n"
+        disposition_counts: dict[str, int] = {}
+        for judgment in data["semantic_review"]["judgments"]:
+            for disposition in judgment.get("diagnostics", {}).values():
+                disposition_counts[disposition] = disposition_counts.get(disposition, 0) + 1
+        if disposition_counts:
+            text += "\nScanner diagnostics (not defect counts): " + "; ".join(f"{kind}: {count}" for kind, count in sorted(disposition_counts.items())) + ". Raw failures remain in the evidence.\n\n"
         text += (f"Full report data: [{structured}]({structured}); [scope.yaml](scope.yaml); "
-                 "[baseline.json](baseline.json); [authorization.json](authorization.json).\n")
+                 "[baseline.json](baseline.json); [optional tool probes](environment.json).\n")
         if name == "final.md":
             text += "Original review: [review.md](review.md), [review.yaml](review.yaml).\n"
+        for tool, record in latest["environment"]["tools"].items():
+            text += f"\n- {tool}: **{record['status']}**. {record['reason']}\n"
         for label, evidence in runs:
-            text += (f"\n## Native validation ({label})\n\nACT4 HEAD: `{evidence['act4_head']}`. "
+            text += (f"\n<details>\n<summary>Native validation ({label})</summary>\n\n"
+                     f"\n### Native validation ({label})\n\nACT4 HEAD: `{evidence['act4_head']}`. "
                      f"Full evidence: [evidence-{label}.json](evidence-{label}.json).\n\n"
                      "Build task counts are not executed test counts. Only validated model results "
                      "populate the model-test column; blocked jobs have no execution result.\n\n"
@@ -982,26 +1222,23 @@ class ACT4ReviewChecker(Checker):
                     text += f"\n- [{item['source_path']}]({item['path']}){note}\n"
                 if job.get("diagnostic_summary", {}).get("omitted_files"):
                     text += f"\nDiagnostic file limit reached; inspect evidence-{label}.json and narrow scope.jobs diagnostics before rerunning.\n"
-        for field, value in data.items():
-            if field in {"schema_version", "suite", "summary", "post_assets", "traceability", "semantic_review",
-                         "original_review", "before", "after"}:
-                continue
-            text += f"\n## {field.replace('_', ' ').title()}\n\n```yaml\n{yaml.safe_dump(value, sort_keys=False, allow_unicode=True)}```\n"
+            text += "\n</details>\n"
         judgments = data["semantic_review"]["judgments"]
         counts = {status: sum(len(item["tasks"]) for item in judgments if item["status"] == status)
                   for status in ("passed", "issues", "unverified", "not_applicable")}
-        text += f"\n## AI semantic review\n\n```yaml\n{yaml.safe_dump(counts, sort_keys=False)}```\n\n"
+        text += "\n## AI semantic review\n\n" + "; ".join(f"{status}: {count}" for status, count in counts.items()) + ".\n\n"
         text += f"Every judgment's reasoning, confidence, source quotations and limitations are in [{structured}]({structured}).\n"
         trace = data.get("traceability", [])
         counts = {status: sum(item["coverage"] == status for item in trace)
                   for status in ("measured", "static", "gap", "unverified")}
-        text += f"\n## Coverpoint traceability\n\n```yaml\n{yaml.safe_dump(counts, sort_keys=False)}```\n\n"
+        text += "\n## Coverpoint traceability\n\n" + "; ".join(f"{status}: {count}" for status, count in counts.items()) + ".\n\n"
         text += f"Every point's obligation, testcases and evidence are in [{structured}]({structured}).\n"
+        text += f"\nSource-derived obligations: **{len(data['obligations'])}** across **{len(latest['obligation_sources'])}** source blocks; forward mappings and exclusions are in [{structured}]({structured}).\n"
         if not data.get("changes", data.get("changed_paths", [])):
-            text += "\nNo source changes are included. Approval of an empty path list authorizes no source edits.\n"
+            text += "\nNo source changes are included. Unresolved findings remain documented with reasons and follow-up actions.\n"
         safe_path(self.output, name).write_text(text, encoding="utf-8")
 
-    def _final(self, state: dict[str, Any], review: dict[str, Any],
+    def _final(self, review: dict[str, Any],
                evidence: dict[str, Any], changed: list[str]) -> dict[str, Any]:
         """Validate all dispositions and generate a portable text-source patch and final report."""
         final = self._load("final.yaml")
@@ -1014,12 +1251,14 @@ class ACT4ReviewChecker(Checker):
         if not is_text_list(ids, allow_empty=True) or len(set(ids)) != len(ids) or set(ids) != {item["id"] for item in review["findings"]}:
             raise ValueError("Final dispositions must cover all original findings exactly once")
         for item in results:
-            if item.get("status") not in {"fixed", "deferred", "not_fixed"} or not is_text_list(item.get("evidence")) or not is_text(item.get("reason")):
-                raise ValueError("Final findings need fixed/deferred/not_fixed, a nonempty evidence string list, and textual reason")
+            if item.get("status") not in {"fixed", "deferred", "not_fixed", "dismissed"} or not is_text_list(item.get("evidence")) or not is_text(item.get("reason")):
+                raise ValueError("Final findings need fixed/deferred/not_fixed/dismissed, a nonempty evidence string list, and textual reason")
+            if item["status"] in {"deferred", "not_fixed"} and not is_text(item.get("next_action")):
+                raise ValueError(f"Finding {item['id']} needs next_action describing the missing information or follow-up required for repair")
             if item["status"] == "fixed":
                 proposals = [change for change in review["changes"] if item["id"] in change["findings"]]
                 if not any(set(change["paths"]) & set(changed) for change in proposals):
-                    raise ValueError(f"Finding {item['id']} claims a fix without an approved source change")
+                    raise ValueError(f"Finding {item['id']} claims a fix without a declared source change")
                 required = {job for change in proposals for job in change["validation_jobs"]}
                 if any(job["status"] != "passed" for job in evidence["jobs"] if job["id"] in required):
                     raise ValueError(f"Finding {item['id']} cannot be fixed without passing its validation jobs")
@@ -1067,7 +1306,7 @@ class ACT4ReviewChecker(Checker):
                                              tofile=f"b/{name}" if after.exists() else "/dev/null"):
                 patch.append(line if line.endswith("\n") else line + "\n\\ No newline at end of file\n")
         safe_path(self.output, "changes.patch").write_bytes("".join(patch).encode("utf-8"))
-        final.update(authorization=state["approved_digest"], changed_paths=changed,
+        final.update(changed_paths=changed,
                      asset_checks_passed=evidence["static_passed"],
                      original_review=review, before=before_evidence, after=evidence,
                      patch="changes.patch", input_checkout_modified=False)
@@ -1075,12 +1314,14 @@ class ACT4ReviewChecker(Checker):
                        [("before", before_evidence), ("after", evidence)])
         return final
 
-    def do_check(self, is_complete: bool = False, run_commands: bool = False,
+    def do_check(self, is_complete: bool = False, run_commands: bool = False, refresh_tools: bool = False,
                  **kwargs: Any) -> tuple[bool, dict[str, Any]]:
-        """Validate the review phase, real evidence, human authorization, and repair scope."""
+        """Validate current review evidence, scoped candidate repairs, and final dispositions."""
         try:
-            if type(run_commands) is not bool:
-                raise ValueError("run_commands must be a boolean")
+            if type(run_commands) is not bool or type(refresh_tools) is not bool:
+                raise ValueError("run_commands and refresh_tools must be booleans")
+            if refresh_tools and self.phase != "audit":
+                raise ValueError("Refresh optional tools in review_audit, then recollect before and after evidence")
             workspace = Path(self.workspace).resolve()
             self.source = safe_path(workspace, self.act4_root)
             self.output = safe_path(workspace, self.review_dir)
@@ -1088,43 +1329,35 @@ class ACT4ReviewChecker(Checker):
                 raise ValueError("Review artifacts and input checkout must be separate")
             self.output.mkdir(parents=True, exist_ok=True)
             state = self._state()
+            environment = self._environment(state, refresh_tools)
+            if self.phase == "audit" and not (self.output / "scope.yaml").exists() and not is_complete:
+                return True, {"environment": "environment.json", "optional_tools": {name: item["status"] for name, item in environment["tools"].items()},
+                              "next_action": "Create scope.yaml using the detected capabilities; optional simulators must not be prerequisites of generation/build/model/lint."}
             scope = self._scope()
             self._baseline(state, scope)
             candidate = self.output / "candidate"
             if candidate.is_symlink():
                 raise ValueError("Repair candidate must not be a symlink")
-            if self.phase in {"inventory", "audit", "authorize"} and candidate.exists() and state.get("candidate_prepared") is not True:
-                raise ValueError("A repair candidate must not exist before authorization; use a fresh review output")
-            if self.phase == "inventory":
-                return True, {"baseline": "baseline.json", "scope": "scope.yaml"}
+            if candidate.exists() and state.get("candidate_prepared") is not True:
+                raise ValueError("Candidate was not prepared from the frozen baseline by Check; use a fresh review output")
+            if self.phase == "audit" and not run_commands and not is_complete and not state.get("evidence-before"):
+                return True, {"baseline": "baseline.json", "scope": "scope.yaml",
+                              "next_action": 'Run Check(stage_args={"run_commands": true}), then write review.yaml using evidence-before.json'}
             before = self._evidence(state, scope, self.output / "baseline", "before",
                                     run_commands and self.phase == "audit")
             review = self._review(scope, before)
-            approval = self._authorization(state, scope, review)
             self._markdown("review.md", "ACT4 Extension Review", review, [("before", before)])
             if self.phase == "audit":
-                return True, {"report": "review.md", "digest": approval, "asset_health": before["static_passed"]}
-            if self.phase == "authorize":
-                if self.stage is None or not self.stage.is_hmcheck_needed():
-                    raise ValueError("Human authorization cannot be disabled for this stage")
-                passed, message = self.stage.get_hmcheck_state()
-                if passed is False or (passed is True and message.strip() != approval):
-                    raise ValueError(f"Request human approval of the current report: hmcheck_pass {approval}")
-                if is_complete and passed is True:
-                    state["pending_digest"] = approval
-                return True, {"digest": approval, "next_action": f"Wait for the operator: hmcheck_pass {approval}"}
-            self._require_approval(state, approval)
+                return True, {"report": "review.md", "asset_health": before["static_passed"]}
             if not candidate.exists():
                 if self.phase != "repair":
-                    raise ValueError("Candidate missing; return to the authorized repair stage")
+                    raise ValueError("Candidate missing; run Check in review_repair to prepare it")
                 copy_sources(self.output / "baseline", candidate, state["baseline"]["files"])
                 state["candidate_prepared"] = True
-            elif state.get("candidate_prepared") is not True:
-                raise ValueError("Candidate was not prepared by an authorized Check; use a fresh review output")
             changed = self._changes(state, review)
             if self.phase == "repair" and not run_commands and not is_complete:
                 return True, {"candidate": str(candidate), "changed_paths": changed,
-                              "next_action": "Repair approved paths, then Check(stage_args={\"run_commands\": true})"}
+                              "next_action": 'Repair evidence-supported review.changes paths; document unresolved findings, then Check(stage_args={"run_commands": true}) and create final.yaml'}
             for kind in ASSET_KINDS:
                 for name in set(scope["assets"][kind]) - set(review["post_assets"][kind]):
                     if safe_path(candidate, name).exists():
@@ -1132,7 +1365,7 @@ class ACT4ReviewChecker(Checker):
             post_scope = {**scope, "assets": review["post_assets"]}
             after = self._evidence(state, post_scope, candidate, "after", run_commands and self.phase == "repair")
             if self.phase == "final":
-                self._final(state, review, after, changed)
+                self._final(review, after, changed)
             self._baseline(state, scope)
             return True, {"report": "final.md" if self.phase == "final" else "evidence-after.json",
                           "changed_paths": changed, "ci": [{key: value for key, value in job.items()
@@ -1141,4 +1374,4 @@ class ACT4ReviewChecker(Checker):
         except (ValueError, TypeError, KeyError, OSError, re.error, yaml.YAMLError, subprocess.SubprocessError) as exc:
             return False, {"error_code": "act4_review_contract", "error": str(exc),
                            "artifact": self.review_dir, "phase": self.phase,
-                           "next_action": "Correct the named review artifact or request operator action; follow Guide_Doc/ACT4_Extension_Review_Guide.md"}
+                           "next_action": "Correct the named review artifact and rerun Check; follow Guide_Doc/ACT4_Extension_Review_Guide.md"}
