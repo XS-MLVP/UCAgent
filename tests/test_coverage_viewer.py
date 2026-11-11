@@ -18,14 +18,18 @@ from test_waveform_routes import Sessions
 
 def application(root):
     """Let the VCS provider build a page using its own command and VDB path."""
-    from toffee_test.utils.code_coverage import CodeCoverageResult
-    from toffee_test.utils.code_coverage.vcs import VcsCoverageProvider
+    coverage = pytest.importorskip(
+        "toffee_test.utils.code_coverage", reason="Requires Toffee's coverage provider API",
+    )
+    vcs = pytest.importorskip(
+        "toffee_test.utils.code_coverage.vcs", reason="Requires Toffee's VCS coverage provider",
+    )
     from urllib.parse import unquote
     database = root / "DUT data.vdb"
     database.mkdir(parents=True)
     report = root / "report"
-    result = CodeCoverageResult("vcs", databases=[str(database)])
-    details = VcsCoverageProvider().build_details(result, report / "coverage_data")
+    result = coverage.CodeCoverageResult("vcs", databases=[str(database)])
+    details = vcs.VcsCoverageProvider().build_details(result, report / "coverage_data")
     link, = [item for item in details if item.href]
     page = report / unquote(link.href)
     payload = json.loads(re.search(r"const coverageRequest = (.*);", page.read_text())[1])

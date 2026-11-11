@@ -4,17 +4,18 @@ import json
 import os
 from pathlib import Path
 import shlex
-import shutil
 import subprocess
 import sys
 import textwrap
 
 import pytest
+from runtime_requirements import require_commands
 
 
 @pytest.fixture
 def swarm_make(tmp_path):
     """Run the real Make recipes against isolated Docker, HTTP, and clock stubs."""
+    make = require_commands("make")["make"]
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     log_path = tmp_path / "calls.jsonl"
@@ -94,7 +95,7 @@ def swarm_make(tmp_path):
             **variables,
         }
         result = subprocess.run(
-            [shutil.which("make"), target, *[f"{key}={value}" for key, value in settings.items()]],
+            [make, target, *[f"{key}={value}" for key, value in settings.items()]],
             cwd=Path(__file__).resolve().parents[1],
             env=env,
             text=True,
