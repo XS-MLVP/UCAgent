@@ -54,6 +54,8 @@ stage:
       - 第七步：为 CI 命令注明 workflow/文档来源、目标、工具前提和适用性；
         为构建/执行填写 diagnostics 路径与 pattern，并在 artifacts 中声明必需 CI 产物。
       - 第八步：完成 scope.yaml 后调用 Check，冻结 baseline。
+      - 校验失败时按 errors 中各 field 的 next_action 一起修复后再 Check；
+        errors_omitted 非零或父字段格式错误时，修复后继续读取下一轮诊断。
       - 要求（资产与规范）：不存在的资产用空列表记录并作为遗漏审查；至少必须有一项现存测试资产。
         无法取得规范原文时 reference_files 写 []，后续不得把完整性和覆盖点语义审查标为通过。
       - 要求（环境）：probe 必须实测工具版本和可运行性，缺失时执行 install 并再次 probe；

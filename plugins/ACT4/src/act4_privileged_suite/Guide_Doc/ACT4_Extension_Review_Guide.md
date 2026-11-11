@@ -11,6 +11,9 @@ Skill 不参与必需流程。
 
 按 `review_inventory → review_audit → review_authorization → review_repair → review_final`
 推进。先建立 `scope.yaml`，再 Check 冻结原始 HEAD、文件内容、模式及子模块。
+scope 校验返回 `errors` 时，一起修复其中各项 `field`，再调用 Check。
+每项包含问题和 `next_action`；最多展示 20 项，`error_count` 为总数，`errors_omitted`
+为未展示数量。父字段格式错误时，修复后可能出现依赖该字段的新诊断；校验通过前不会冻结基线或运行命令。
 已有未提交变更属于本轮基线，不得擅自丢弃；忽略目录中的必要输入也须列入 assets。
 所有子模块必须预先初始化。不要复制符号链接到工作区外、绝对符号链接或共享工作树。
 开始前核对实际 HEAD、提交日期及本地变更，区分上游已有资产与另外保留的本地输入。

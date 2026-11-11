@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 import difflib
 from datetime import datetime, timezone
 import hashlib
@@ -16,7 +17,7 @@ import stat
 import subprocess
 import tempfile
 import time
-from typing import Any
+from typing import Any, Iterator
 
 import yaml
 
@@ -45,6 +46,27 @@ ASSET_KINDS = {"test_plans", "coverage", "generators", "test_cases", "mappings"}
 PURPOSES = {"environment", "generation", "build", "reference_model", "coverage", "lint"}
 DIAGNOSTIC_FILE_LIMIT = 50
 DIAGNOSTIC_BYTE_LIMIT = 256 * 1024
+
+
+class ScopeValidationError(ValueError):
+    """Carry bounded field diagnostics without freezing or executing an invalid scope."""
+
+    def __init__(self, errors: list[dict[str, str]]) -> None:
+        """Retain the total count and the first twenty actionable field errors."""
+        self.error_count = len(errors)
+        self.errors = errors[:20]
+        super().__init__("; ".join(f"{item['field']}: {item['error']}" for item in self.errors))
+
+
+@contextmanager
+def scope_field(errors: list[dict[str, str]], field: str) -> Iterator[None]:
+    """Collect one field failure so independent scope checks can continue safely."""
+    try:
+        yield
+    except (ValueError, TypeError, KeyError, OSError, re.error) as exc:
+        message = str(exc)
+        errors.append({"field": field, "error": message,
+                       "next_action": f"Correct {field}: {message}"})
 
 
 def is_text(value: Any) -> bool:
@@ -293,146 +315,207 @@ class ACT4ReviewChecker(Checker):
             raise ValueError("baseline.json changed; restore the original checker-generated baseline report")
 
     def _scope(self) -> dict[str, Any]:
-        """Validate exact existing assets and a documented, target-specific CI matrix."""
+        """Collect independent scope errors before freezing inputs or executing native jobs."""
         scope = self._load("scope.yaml")
-        if scope.get("suite") != self.suite or not isinstance(scope.get("assets"), dict):
-            raise ValueError("scope.yaml must identify this suite and its assets")
-        assets = scope["assets"]
-        if set(assets) != ASSET_KINDS:
-            raise ValueError(f"scope.assets requires exactly {sorted(ASSET_KINDS)}")
-        for kind, paths in assets.items():
-            if not is_text_list(paths, allow_empty=True) or len(set(paths)) != len(paths):
-                raise ValueError(f"scope.assets.{kind} must list unique exact paths")
-            for name in paths:
-                if not safe_path(self.source, name).is_file():
-                    raise ValueError(f"Missing review asset: {name}; use [] and report an omission")
-        if not any(assets.values()):
-            raise ValueError("Review requires existing test assets; use the generation workflow for a new suite")
+        errors: list[dict[str, str]] = []
+        with scope_field(errors, "scope.suite"):
+            if scope.get("suite") != self.suite:
+                raise ValueError(f"scope.yaml must identify suite {self.suite}")
+        assets = scope.get("assets")
+        with scope_field(errors, "scope.assets"):
+            if not isinstance(assets, dict) or set(assets) != ASSET_KINDS:
+                raise ValueError(f"scope.assets requires exactly {sorted(ASSET_KINDS)}")
+        if isinstance(assets, dict):
+            for kind, paths in assets.items():
+                field = f"scope.assets.{kind}"
+                with scope_field(errors, field):
+                    if not is_text_list(paths, allow_empty=True) or len(set(paths)) != len(paths):
+                        raise ValueError(f"{field} must list unique exact paths")
+                if not is_text_list(paths, allow_empty=True):
+                    continue
+                for index, name in enumerate(paths):
+                    with scope_field(errors, f"{field}[{index}]"):
+                        if not safe_path(self.source, name).is_file():
+                            raise ValueError(f"Missing review asset: {name}; use [] and report an omission")
+            with scope_field(errors, "scope.assets"):
+                if not any(assets.values()):
+                    raise ValueError("Review requires existing test assets; use the generation workflow for a new suite")
         for field in ("targets", "references", "discovery"):
-            if not is_text_list(scope.get(field)):
-                raise ValueError(f"scope.{field} must document the complete review boundary as nonempty strings")
+            with scope_field(errors, f"scope.{field}"):
+                if not is_text_list(scope.get(field)):
+                    raise ValueError(f"scope.{field} must document the complete review boundary as nonempty strings")
         reference_files = scope.get("reference_files")
-        if not is_text_list(reference_files, allow_empty=True) or len(set(reference_files)) != len(reference_files):
-            raise ValueError("scope.reference_files must list unique workspace-relative specification inputs; use [] and report missing sources")
-        for name in reference_files:
-            path = safe_path(Path(self.workspace), name)
-            if path.resolve().is_relative_to(self.output.resolve()) or not path.is_file() or path.is_symlink():
-                raise ValueError(f"Reference inputs must be existing files outside the review output: {name}")
+        with scope_field(errors, "scope.reference_files"):
+            if not is_text_list(reference_files, allow_empty=True) or len(set(reference_files)) != len(reference_files):
+                raise ValueError("scope.reference_files must list unique workspace-relative specification inputs; use [] and report missing sources")
+        if is_text_list(reference_files, allow_empty=True):
+            for index, name in enumerate(reference_files):
+                with scope_field(errors, f"scope.reference_files[{index}]"):
+                    path = safe_path(Path(self.workspace), name)
+                    if path.resolve().is_relative_to(self.output.resolve()) or not path.is_file() or path.is_symlink():
+                        raise ValueError(f"Reference inputs must be existing files outside the review output: {name}")
         jobs = scope.get("jobs")
-        if not isinstance(jobs, list) or not jobs:
-            raise ValueError("scope.jobs must cover native CI or explicitly document why it is unavailable")
+        with scope_field(errors, "scope.jobs"):
+            if not isinstance(jobs, list) or not jobs:
+                raise ValueError("scope.jobs must cover native CI or explicitly document why it is unavailable")
+        # Invalid parents suppress their dependent checks, not unrelated fields or jobs.
+        jobs_error_start = len(errors)
         names = set()
         matrix = set()
-        for job in jobs:
-            if not isinstance(job, dict) or not is_text(job.get("id")) or not re.fullmatch(r"[A-Za-z0-9_-]+", job["id"]):
-                raise ValueError("Each CI job needs a unique safe id")
-            if job["id"] in names:
-                raise ValueError(f"Duplicate CI job: {job['id']}")
-            names.add(job["id"])
-            for field in ("target", "source", "purpose"):
-                if not isinstance(job.get(field), str) or not job[field].strip():
-                    raise ValueError(f"CI job {job['id']} needs {field}")
-            if not safe_path(self.source, job["source"]).is_file():
-                raise ValueError(f"CI job {job['id']} source must name an existing CI/documentation file")
-            if job["target"] not in scope["targets"]:
-                raise ValueError(f"CI job {job['id']} has an undeclared target")
-            if job["purpose"] not in PURPOSES:
-                raise ValueError(f"CI purpose must be one of {sorted(PURPOSES)}")
-            matrix.add((job["target"], job["purpose"]))
-            if not is_text_list(job.get("needs", []), allow_empty=True) or len(set(job.get("needs", []))) != len(job.get("needs", [])):
-                raise ValueError(f"CI job {job['id']} needs must list unique prerequisite job IDs")
-            if job.get("disposition") not in {"run", "not_applicable", "unavailable"}:
-                raise ValueError("CI disposition must be run, not_applicable, or unavailable")
-            if job["purpose"] == "environment" and job["disposition"] != "run":
-                raise ValueError("Environment jobs must run a real probe before reporting unavailable tools")
-            if job["disposition"] != "run":
-                if not isinstance(job.get("reason"), str) or not job["reason"].strip():
-                    raise ValueError("Unexecuted CI jobs need a concrete reason and impact")
+        for index, job in enumerate(jobs if isinstance(jobs, list) else []):
+            field = f"scope.jobs[{index}]"
+            with scope_field(errors, field):
+                if not isinstance(job, dict):
+                    raise ValueError("Each CI job must be a mapping with a unique safe id")
+            if not isinstance(job, dict):
                 continue
-            commands = [job.get("probe")] if job["purpose"] == "environment" else [job.get("argv")]
-            if "install" in job:
-                if job["purpose"] != "environment":
-                    raise ValueError("Only environment jobs may declare install")
-                commands.append(job["install"])
-            elif job["purpose"] == "environment" and not is_text(job.get("reason")):
-                raise ValueError("An environment without an installer needs the concrete missing media/license and recovery action")
-            for argv in commands:
-                if not is_text_list(argv):
-                    raise ValueError("CI commands must be nonempty argument lists, not shell strings")
-                if Path(argv[0]).name in {"true", "false", "echo", "printf"}:
-                    raise ValueError("CI commands must run the actual native checks, not placeholder commands")
+            with scope_field(errors, f"{field}.id"):
+                if not is_text(job.get("id")) or not re.fullmatch(r"[A-Za-z0-9_-]+", job["id"]):
+                    raise ValueError("Each CI job needs a unique safe id")
+                if job["id"] in names:
+                    raise ValueError(f"Duplicate CI job: {job['id']}")
+                names.add(job["id"])
+            for key in ("target", "source", "purpose"):
+                with scope_field(errors, f"{field}.{key}"):
+                    if not is_text(job.get(key)):
+                        raise ValueError(f"CI job needs {key} as a nonempty string")
+                    if key == "source" and not safe_path(self.source, job[key]).is_file():
+                        raise ValueError("CI job source must name an existing CI/documentation file")
+                    if key == "target" and is_text_list(scope.get("targets")) and job[key] not in scope["targets"]:
+                        raise ValueError("CI job has an undeclared target")
+                    if key == "purpose" and job[key] not in PURPOSES:
+                        raise ValueError(f"CI purpose must be one of {sorted(PURPOSES)}")
+            if is_text(job.get("target")) and is_text(job.get("purpose")):
+                matrix.add((job["target"], job["purpose"]))
+            with scope_field(errors, f"{field}.needs"):
+                needs = job.get("needs", [])
+                if not is_text_list(needs, allow_empty=True) or len(set(needs)) != len(needs):
+                    raise ValueError("CI job needs must list unique prerequisite job IDs")
+            with scope_field(errors, f"{field}.disposition"):
+                if job.get("disposition") not in ("run", "not_applicable", "unavailable"):
+                    raise ValueError("CI disposition must be run, not_applicable, or unavailable")
+                if job.get("purpose") == "environment" and job["disposition"] != "run":
+                    raise ValueError("Environment jobs must run a real probe before reporting unavailable tools")
+            if job.get("disposition") in ("not_applicable", "unavailable"):
+                with scope_field(errors, f"{field}.reason"):
+                    if not is_text(job.get("reason")):
+                        raise ValueError("Unexecuted CI jobs need a concrete reason and impact")
+            if job.get("disposition") != "run":
+                continue
+            purpose = job.get("purpose")
+            # Command requirements depend on a valid purpose, but timing and selectors do not.
+            if is_text(purpose) and purpose in PURPOSES:
+                commands = ["probe" if purpose == "environment" else "argv"]
+                if "install" in job:
+                    with scope_field(errors, f"{field}.install"):
+                        if purpose != "environment":
+                            raise ValueError("Only environment jobs may declare install")
+                    commands.append("install")
+                elif purpose == "environment":
+                    with scope_field(errors, f"{field}.reason"):
+                        if not is_text(job.get("reason")):
+                            raise ValueError("An environment without an installer needs the concrete missing media/license and recovery action")
+                for key in commands:
+                    with scope_field(errors, f"{field}.{key}"):
+                        argv = job.get(key)
+                        if not is_text_list(argv):
+                            raise ValueError("CI commands must be nonempty argument lists, not shell strings")
+                        if Path(argv[0]).name in {"true", "false", "echo", "printf"}:
+                            raise ValueError("CI commands must run the actual native checks, not placeholder commands")
             if "expected_output" in job:
-                if job["purpose"] != "environment" or not is_text(job["expected_output"]):
-                    raise ValueError("expected_output is a nonempty environment probe regex")
-                re.compile(job["expected_output"])
-            if type(job.get("timeout_seconds")) is not int or not 1 <= job["timeout_seconds"] <= 3600:
-                raise ValueError("CI timeout_seconds must be an integer in 1..3600")
-            if job.get("cwd", ".") != ".":
-                safe_path(self.source, job["cwd"])
-            diagnostics = job.get("diagnostics", [])
-            if not isinstance(diagnostics, list):
-                raise ValueError(f"CI job {job['id']} diagnostics must list relative path/pattern mappings")
-            for diagnostic in diagnostics:
-                if not isinstance(diagnostic, dict) or set(diagnostic) - {"path", "pattern"}:
-                    raise ValueError("Diagnostic selectors accept only path and optional pattern")
-                safe_path(self.source, diagnostic.get("path"))
-                artifact_paths(self.source, diagnostic)
+                with scope_field(errors, f"{field}.expected_output"):
+                    if purpose != "environment" or not is_text(job["expected_output"]):
+                        raise ValueError("expected_output is a nonempty environment probe regex")
+                    re.compile(job["expected_output"])
+            with scope_field(errors, f"{field}.timeout_seconds"):
+                if type(job.get("timeout_seconds")) is not int or not 1 <= job["timeout_seconds"] <= 3600:
+                    raise ValueError("CI timeout_seconds must be an integer in 1..3600")
+            with scope_field(errors, f"{field}.cwd"):
+                if job.get("cwd", ".") != ".":
+                    safe_path(self.source, job["cwd"])
+            for key in ("diagnostics", "artifacts"):
+                selectors = job.get(key, [])
+                with scope_field(errors, f"{field}.{key}"):
+                    if not isinstance(selectors, list):
+                        raise ValueError(f"CI {key} must list relative path/pattern mappings")
+                if not isinstance(selectors, list):
+                    continue
+                for number, item in enumerate(selectors):
+                    item_field = f"{field}.{key}[{number}]"
+                    with scope_field(errors, item_field):
+                        if not isinstance(item, dict):
+                            raise ValueError("Each selector must be a path/pattern mapping")
+                        if key == "diagnostics" and set(item) - {"path", "pattern"}:
+                            raise ValueError("Diagnostic selectors accept only path and optional pattern")
+                        if key == "artifacts" and item.get("kind") not in ("coverage", "elf", "signature", "results", "generated", "other"):
+                            raise ValueError("Each CI artifact needs a path and kind")
+                        safe_path(self.source, item.get("path"))
+                        artifact_paths(self.source, item)
+                    if key != "artifacts" or not isinstance(item, dict):
+                        continue
+                    with scope_field(errors, f"{item_field}.min_count"):
+                        if type(item.get("min_count", 1)) is not int or not 1 <= item.get("min_count", 1) <= 100000:
+                            raise ValueError("Artifact min_count must be an integer in 1..100000")
+                    for pattern in ("pass_pattern", "fail_pattern"):
+                        if pattern in item:
+                            with scope_field(errors, f"{item_field}.{pattern}"):
+                                if item.get("kind") != "results" or not is_text(item[pattern]):
+                                    raise ValueError(f"{pattern} requires a nonempty results regex")
+                                if re.compile(item[pattern]).search(""):
+                                    raise ValueError("Result patterns must not match empty text")
             artifacts = job.get("artifacts", [])
-            if not isinstance(artifacts, list):
-                raise ValueError("CI artifacts must list exact paths and kinds")
-            for artifact in artifacts:
-                if not isinstance(artifact, dict) or artifact.get("kind") not in {"coverage", "elf", "signature", "results", "generated", "other"}:
-                    raise ValueError("Each CI artifact needs a path and kind")
-                safe_path(self.source, artifact.get("path"))
-                artifact_paths(self.source, artifact)
-                if type(artifact.get("min_count", 1)) is not int or not 1 <= artifact.get("min_count", 1) <= 100000:
-                    raise ValueError("Artifact min_count must be an integer in 1..100000")
-                for field in ("pass_pattern", "fail_pattern"):
-                    if field in artifact:
-                        if artifact["kind"] != "results" or not is_text(artifact[field]):
-                            raise ValueError(f"{field} requires a nonempty results regex")
-                        expression = re.compile(artifact[field])
-                        if expression.search(""):
-                            raise ValueError("Result patterns must not match empty text")
-            if job["purpose"] == "build" and not any(item["kind"] == "elf" for item in artifacts):
-                raise ValueError(f"Build {job['id']} must declare nonempty ELF artifacts")
-            if job["purpose"] in {"reference_model", "coverage"}:
-                if not is_text_list(job.get("elf_inputs")):
-                    raise ValueError(f"Execution {job['id']} must declare elf_inputs from prerequisite build jobs")
-                kind = "results" if job["purpose"] == "reference_model" else "coverage"
-                required = [item for item in artifacts if item["kind"] == kind]
-                if not required or (kind == "results" and any(
-                    not all(field in item for field in ("pass_pattern", "fail_pattern")) for item in required
-                )):
-                    raise ValueError(f"Execution {job['id']} must declare {kind} evidence; results need pass_pattern and fail_pattern")
-        expected = {(target, purpose) for target in scope["targets"]
-                    for purpose in PURPOSES}
-        if matrix != expected:
-            raise ValueError(f"Declare every CI lane or explain its unavailability: {sorted(expected - matrix)}")
-        ordered = []
-        remaining = list(jobs)
-        ancestors: dict[str, set[str]] = {}
-        while remaining:
-            ready = [job for job in remaining if set(job.get("needs", [])) <= set(ancestors)]
-            if not ready:
-                raise ValueError("CI needs contains a cycle, self reference, or unknown job ID")
-            for job in ready:
-                parents = set(job.get("needs", []))
-                ancestors[job["id"]] = parents | {parent for name in parents for parent in ancestors[name]}
-                ordered.append(job)
-                remaining.remove(job)
-        indexed = {job["id"]: job for job in jobs}
-        for job in ordered:
-            if job["disposition"] != "run" or job["purpose"] == "environment":
-                continue
-            prerequisites = [indexed[name] for name in ancestors[job["id"]]]
-            for purpose in ({"environment", "generation"} if job["purpose"] == "build" else {"environment"}):
-                if not any(item["purpose"] == purpose and item["target"] == job["target"] for item in prerequisites):
-                    raise ValueError(f"CI job {job['id']} must depend on its target's {purpose} jobs")
-            for name in job.get("elf_inputs", []):
-                provider = indexed.get(name, {})
-                if name not in ancestors[job["id"]] or provider.get("purpose") != "build" or provider.get("target") != job["target"]:
-                    raise ValueError(f"ELF provider {name} must be a prerequisite build for {job['target']}")
+            if isinstance(artifacts, list) and all(isinstance(item, dict) for item in artifacts):
+                with scope_field(errors, f"{field}.artifacts"):
+                    if purpose == "build" and not any(item.get("kind") == "elf" for item in artifacts):
+                        raise ValueError(f"Build {job.get('id')} must declare nonempty ELF artifacts")
+                    if purpose in ("reference_model", "coverage"):
+                        kind = "results" if purpose == "reference_model" else "coverage"
+                        required = [item for item in artifacts if item.get("kind") == kind]
+                        if not required or (kind == "results" and any(
+                            not all(key in item for key in ("pass_pattern", "fail_pattern")) for item in required
+                        )):
+                            raise ValueError(f"Execution must declare {kind} evidence; results need pass_pattern and fail_pattern")
+            if purpose in ("reference_model", "coverage"):
+                with scope_field(errors, f"{field}.elf_inputs"):
+                    if not is_text_list(job.get("elf_inputs")):
+                        raise ValueError("Execution must declare elf_inputs from prerequisite build jobs")
+        # Cross-job checks need valid job fields and target identities to avoid cascades.
+        if isinstance(jobs, list) and jobs and len(errors) == jobs_error_start and is_text_list(scope.get("targets")):
+            with scope_field(errors, "scope.jobs"):
+                expected = {(target, purpose) for target in scope["targets"] for purpose in PURPOSES}
+                if matrix != expected:
+                    raise ValueError(f"Declare every CI lane or explain its unavailability: {sorted(expected - matrix)}")
+            ordered = []
+            remaining = list(jobs)
+            ancestors: dict[str, set[str]] = {}
+            with scope_field(errors, "scope.jobs.needs"):
+                while remaining:
+                    ready = [job for job in remaining if set(job.get("needs", [])) <= set(ancestors)]
+                    if not ready:
+                        raise ValueError("CI needs contains a cycle, self reference, or unknown job ID")
+                    for job in ready:
+                        parents = set(job.get("needs", []))
+                        ancestors[job["id"]] = parents | {parent for name in parents for parent in ancestors[name]}
+                        ordered.append(job)
+                        remaining.remove(job)
+            if not remaining:
+                indexed = {job["id"]: job for job in jobs}
+                for job in ordered:
+                    if job["disposition"] != "run" or job["purpose"] == "environment":
+                        continue
+                    field = f"scope.jobs[{jobs.index(job)}]"
+                    prerequisites = [indexed[name] for name in ancestors[job["id"]]]
+                    for purpose in ({"environment", "generation"} if job["purpose"] == "build" else {"environment"}):
+                        with scope_field(errors, f"{field}.needs"):
+                            if not any(item["purpose"] == purpose and item["target"] == job["target"] for item in prerequisites):
+                                raise ValueError(f"CI job {job['id']} must depend on its target's {purpose} jobs")
+                    for name in job.get("elf_inputs", []):
+                        with scope_field(errors, f"{field}.elf_inputs"):
+                            provider = indexed.get(name, {})
+                            if name not in ancestors[job["id"]] or provider.get("purpose") != "build" or provider.get("target") != job["target"]:
+                                raise ValueError(f"ELF provider {name} must be a prerequisite build for {job['target']}")
+        if errors:
+            raise ScopeValidationError(errors)
         return scope
 
     def _evidence(self, state: dict[str, Any], scope: dict[str, Any], tree: Path,
@@ -1138,6 +1221,12 @@ class ACT4ReviewChecker(Checker):
                           "changed_paths": changed, "ci": [{key: value for key, value in job.items()
                               if key in {"id", "status", "purpose", "log", "reason", "elf_count", "executed_tests"}}
                               for job in after["jobs"]]}
+        except ScopeValidationError as exc:
+            return False, {"error_code": "act4_review_contract", "error": str(exc),
+                           "artifact": f"{self.review_dir}/scope.yaml", "phase": self.phase,
+                           "errors": exc.errors, "error_count": exc.error_count,
+                           "errors_omitted": exc.error_count - len(exc.errors),
+                           "next_action": "Correct the listed scope.yaml fields together, then call Check again; additional errors may appear after invalid parent fields are repaired"}
         except (ValueError, TypeError, KeyError, OSError, re.error, yaml.YAMLError, subprocess.SubprocessError) as exc:
             return False, {"error_code": "act4_review_contract", "error": str(exc),
                            "artifact": self.review_dir, "phase": self.phase,
