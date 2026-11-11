@@ -162,7 +162,7 @@ def control(tmp_path):
     manager.attach_todo_summary = partial(StageManager.attach_todo_summary, manager)
     manager.get_current_tips = partial(StageManager.get_current_tips, manager)
     manager.detail = partial(StageManager.detail, manager)
-    manager.status = Mock(return_value={"stage_list": [
+    manager.status = Mock(return_value={"all_completed": False, "stage_list": [
         {"index": i, "title": stage.title(), "is_completed": False,
          "needs_human_check": False, "need_fail_llm_suggestion": False,
          "need_pass_llm_suggestion": False} for i, stage in enumerate(stages)]})

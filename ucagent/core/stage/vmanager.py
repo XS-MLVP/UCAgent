@@ -959,6 +959,9 @@ class StageManager(object):
             stage_status = {
                 "index": i,
                 "title": stage.title(),
+                "section_index": stage.prefix,
+                "stage_name": stage.name,
+                "display_group": stage.display_group,
                 "reached": stage.is_reached(),
                 "fail_count": stage.fail_count,
                 "is_skipped": stage.is_skipped(),
@@ -980,6 +983,9 @@ class StageManager(object):
             ret["current_stage_index"] = self.stage_index
             ret["current_stage_name"] = cstage.name
             ret["current_task"] = cstage.task_info()
+            ret["is_waiting_for_review"] = bool(
+                getattr(self.agent, "_need_human", False) and cstage.is_wait_human_check()
+            )
         ret["last_check_result"] = self._compact_check_result(
             self._public_check_result(self.last_check_info)
         )

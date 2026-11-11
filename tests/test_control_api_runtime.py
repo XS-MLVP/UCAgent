@@ -157,13 +157,17 @@ def test_mission_preserves_structured_state_for_live_and_saved_views(api, tmp_pa
     live = client.get("/api/mission", params={"strip_ansi": strip_ansi}).json()["data"]
     assert live["stages"][0]["fail_count"] == 2
     assert live["stages"][0]["is_current"] is True
+    assert live["stages"][0]["section_index"] == "1"
+    assert live["stages"][0]["stage_name"] == "stage-0"
+    assert live["is_waiting_for_review"] is False
     assert "time_cost" in live["stages"][0]
     child = tmp_path / "saved"
     (child / ".ucagent").mkdir(parents=True)
     snapshot = {"mission_name": "Saved mission", "stage_index": 2, "stages_info": {
         "0": {"is_completed": False, "fail_count": 3, "time_cost": 12,
               "task": {"title": "Unfinished earlier stage", "skill_list": {"review": []}}},
-        "1": {"is_completed": True, "task": {"title": "Completed stage"}},
+        "1": {"is_completed": True, "section_index": "2.1", "stage_name": "fixture",
+              "display_group": "Setup", "task": {"title": "2.1-fixture-Completed stage"}},
         "2": {"is_skipped": True, "task": {"title": "Skipped stage"}},
     }}
     (child / ".ucagent/ucagent_info.json").write_text(json.dumps(snapshot))
@@ -174,6 +178,7 @@ def test_mission_preserves_structured_state_for_live_and_saved_views(api, tmp_pa
     assert rows[0]["fail_count"] == 3 and rows[0]["time_cost"]
     assert rows[0]["skill_list"] == ["review"]
     assert rows[1]["is_completed"] is True and rows[2]["is_skipped"] is True
+    assert (rows[1]["section_index"], rows[1]["stage_name"], rows[1]["display_group"]) == ("2.1", "fixture", "Setup")
     assert all(not row["can_edit_flags"] for row in rows)
     assert client.get("/static/share/stage-view.js").status_code == 200
 

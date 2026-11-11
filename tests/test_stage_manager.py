@@ -23,7 +23,7 @@ if loaded_ucagent is not None and not loaded_ucagent_path.startswith(repo_packag
 
 import ucagent.core.stage.vmanager as vmanager
 from unit_test.checkers.unit_test import _report_failure_message
-from ucagent.core.stage.vstage import VerifyStage
+from ucagent.core.stage.vstage import VerifyStage, get_root_stage
 from ucagent.core.stage.vmanager import (
     ArgsDoCheck,
     StageManager,
@@ -1522,6 +1522,8 @@ def test_output_gate_complete_failure_names_complete_as_next_action(tmp_path):
 def _make_precheck_gate_stage(tmp_path, checkers):
     stage = VerifyStage.__new__(VerifyStage)
     stage.name = "generic-precheck-stage"
+    stage.prefix = "1"
+    stage.display_group = ""
     stage.cfg = SimpleNamespace(skill=SimpleNamespace(use_skill=True))
     stage.skill_list = {}
     stage.force_use_skill = False
@@ -1608,6 +1610,31 @@ def test_stage_without_configured_skills_skips_skill_usage_gate(tmp_path):
     )
 
 
+def test_display_groups_start_at_top_level_stages(tmp_path):
+    """Display groups preserve executable order and survive saving nested stages."""
+    cfg = Config({
+        "mission": {"name": "Workflow", "stage_groups": {"plan": "Planning", "verify": "Verification"}},
+        "skill": {"use_skill": False},
+        "hist_ignore_pattern": [],
+        "stage": [
+            {"name": "plan", "desc": "Plan", "task": []},
+            {"name": "verify", "desc": "Verify", "task": [], "output_files": ["out/report.md"],
+             "stage": [{"name": "run", "desc": "Run tests", "task": []}]},
+            {"name": "review", "desc": "Review results", "task": []},
+        ],
+    })
+    cfg._temp_cfg = {"OUT": "out"}
+    root = get_root_stage(cfg, str(tmp_path), None)
+    stages = root.get_substages()
+    assert [(stage.prefix, stage.name, stage.display_group) for stage in stages] == [
+        ("1", "plan", "Planning"),
+        ("2.1", "run", "Verification"),
+        ("2", "verify", "Verification"),
+        ("3", "review", "Verification"),
+    ]
+    assert stages[1].detail()["display_group"] == "Verification"
+
+
 def test_status_omits_skill_list_for_stage_without_configured_skills(tmp_path):
     stage = _make_precheck_gate_stage(tmp_path, [])
     stage.title = lambda: "generic-precheck-stage"
@@ -1622,6 +1649,7 @@ def test_status_omits_skill_list_for_stage_without_configured_skills(tmp_path):
 
     manager = StageManager.__new__(StageManager)
     manager.mission = SimpleNamespace(name="mission")
+    manager.agent = SimpleNamespace(_need_human=False)
     manager.stages = [stage]
     manager.stage_index = 0
     manager.cfg = stage.cfg
@@ -1649,6 +1677,7 @@ def test_status_keeps_skill_list_for_configured_stage_skill(tmp_path):
 
     manager = StageManager.__new__(StageManager)
     manager.mission = SimpleNamespace(name="mission")
+    manager.agent = SimpleNamespace(_need_human=False)
     manager.stages = [stage]
     manager.stage_index = 0
     manager.cfg = stage.cfg

@@ -13,10 +13,14 @@ const styles = fs.readFileSync(path.join(server, 'static/share/ucagent-shell.css
 /** Load real template functions and the shared renderer with a small DOM surface. */
 function page(html, start, end, extras = {}) {
   const elements = {};
+  const element = id => elements[id] ??= {
+    dataset:{}, classList:{toggle(){}}, setAttribute(){}, querySelectorAll:()=>[],
+    querySelector:()=>null, contains:()=>false, scrollTop:0,
+  };
   const context = vm.createContext({
     console, URLSearchParams, Uint8Array, ...extras,
-    document: {getElementById: id => elements[id] ??= {}},
-    qs: id => elements[id] ??= {},
+    document: {getElementById: element},
+    qs: element,
     esc: value => String(value).replace(/[&<>"']/g, char => ({
       '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;',
     })[char]),
@@ -30,50 +34,68 @@ function page(html, start, end, extras = {}) {
 }
 
 const stages = [
-  {index:0, title:'Done <artifact>', is_completed:true, fail_count:2, time_cost:'12s', needs_human_check:true},
-  {index:1, title:'Working', is_completed:false, is_current:true, fail_count:1, skill_list:['review'], need_fail_llm_suggestion:true},
-  {index:2, title:'Skip', is_completed:false, is_skipped:true, need_pass_llm_suggestion:true},
-  {index:3, title:'Later', is_completed:false},
+  {index:0, title:'1-done-Done <artifact>', display_group:'Plan', is_completed:true, fail_count:2, time_cost:'12s', needs_human_check:true},
+  {index:1, title:'2.1-working-Working[12/29|42]', display_group:'Verify', is_completed:false, is_current:true, fail_count:1, skill_list:['review'], need_fail_llm_suggestion:true},
+  {index:2, title:'2-skip-Parent check', display_group:'Verify', is_completed:false, is_skipped:true, need_pass_llm_suggestion:true, can_edit_flags:true},
+  {index:3, title:'3-later-Later[-/-|0]', display_group:'Verify', is_completed:false, can_edit_flags:true},
 ];
 
 for (const saved of [false, true]) {
   test(`Agent ${saved ? 'saved' : 'live'} view displays stage state and metadata`, async () => {
-    const p = page(agentHtml, 'async function fetchMission()', '\nfunction getOutcomeShowCount', {
+    const p = page(agentHtml, 'let _missionData=', '\nfunction _renderOutcomeFile', {
       window:{}, _subWorkspace:saved ? 'saved' : '', _selectedStages:new Set(),
-      apiFetch:async () => ({data:{mission_name:'Review',current_index:1,stages}}),
-      _setStageFeatureVisibility(){}, _pruneSelectedStages(){}, _isStageCollapsed(){return false;},
+      apiFetch:async () => ({data:{mission_name:'Review',current_index:1,is_waiting_for_review:true,stages}}),
+      _setStageFeatureVisibility(){}, _pruneSelectedStages(){},
       _updateStageSelectionUi(){},
     });
+    p.run('locateCurrentStage = () => {}');
     await p.run('fetchMission()');
     const markup=p.elements['#mission-list'].innerHTML;
     for (const state of ['completed','current','skipped','pending']) {
       assert.match(markup,new RegExp(`uc-stage-${state}`));
       assert.match(styles,new RegExp(`\\.uc-stage-${state} \\{ color:`));
     }
-    assert.match(markup,/0 Done &lt;artifact&gt;/);
-    assert.match(markup,/2 fails, 12s/);
+    assert.match(markup,/class="uc-stage-name">Done &lt;artifact&gt;/);
+    assert.match(markup,/2 failed checks · 12s/);
     assert.match(markup,/Skills: review/);
-    for (const label of ['Completed','Current','Skipped','Pending','HM','LF','LP']) assert(markup.includes(`[${label}]`));
-    assert.match(markup,/onclick="openStageTask\(0\)"/);
+    for (const label of ['Completed','Awaiting review','Scheduled to skip','Pending','HM','LF','LP']) assert(markup.includes(label));
+    assert.match(markup,/data-stage-group="0">/);
+    assert.match(markup,/data-stage-group="1" open>/);
+    assert.match(markup,/12\/29 · 41%/);
+    assert(markup.indexOf('2.1-working') < markup.indexOf('2-skip'), 'Parent check stays after its child');
+    assert.equal(p.elements['#mission-percent'].textContent,'25%');
+    assert.equal(p.elements['#mission-bulk-btn'].hidden,saved);
+    if (saved) {
+      assert.match(markup,/Select stage 1 for relaunch/);
+      assert.doesNotMatch(markup,/toggleStageQuickAction/);
+    } else {
+      assert.match(markup,/toggleStageQuickAction\(1,'hmcheck_needed',false\)/);
+      assert.doesNotMatch(markup,/toggleStageQuickAction\(1,'skip'/);
+      assert.match(markup,/toggleStageQuickAction\(2,'skip',true\)/);
+    }
+    assert.match(markup,/onclick="toggleStageInfo\(0\)" aria-expanded="false" aria-controls="stage-info-0"/);
+    assert.match(markup,/id="stage-info-0" data-stage-index="0" hidden/);
     assert.doesNotMatch(markup,/<artifact>/);
   });
 }
 
 test('Master Detail uses structured rows and retains legacy ANSI fallback', () => {
-  const p=page(masterHtml,'function buildMissionInfo(a)', '\nasync function refreshDetail', {
+  const p=page(masterHtml,'function buildMissionInfo(a,', '\nasync function refreshDetail', {
     agent:{current_stage_index:1,total_stage_count:4,mission_info_ansi:'obsolete summary',task_list:{task_list:{stage_list:stages}}},
     ansiToHtml:value=>`legacy:${value}`,
   });
   const markup=p.run('buildMissionInfo(agent)');
-  assert.match(markup,/1\/4 completed · 1 skipped/);
-  assert.match(markup,/width:50%/);
+  assert.match(markup,/1\/4 completed/);
+  assert.match(markup,/width:25%/);
   assert.match(markup,/uc-stage-current/);
-  assert.match(markup,/3 Later/);
+  assert.match(markup,/data-stage-group="1" open>/);
+  assert.match(markup,/class="uc-stage-name">Later<\/span>/);
+  assert.doesNotMatch(p.run('buildMissionInfo(agent, {index:"1", openGroups:new Set()})'), /data-stage-group="1" open>/);
   assert.doesNotMatch(markup,/obsolete summary/);
   assert.match(p.run('buildMissionInfo({mission_info_ansi:"old colored stages"})'),/legacy:old colored stages/);
 });
 
-test('Master list uses completed and skipped counts instead of stage position', () => {
+test('Master list includes a skip only after execution has passed it', () => {
   const agent={id:'a',current_stage_index:3,total_stage_count:4,task_list:{task_list:{stage_list:stages}}};
   const p=page(masterHtml,'function renderTable()', '\nfunction updatePaginationControls', {
     getVisible:()=>[agent], updateMultiClientAlert(){}, _isSearching:false, _totalPages:1,_totalCount:1,
@@ -94,6 +116,7 @@ test('Progress handles initial, last, skipped, complete, absent, and returned st
   const make=(rows,index)=>({current_stage_index:index,total_stage_count:rows.length,task_list:{task_list:{stage_list:rows}}});
   assert.equal(view.progress(make([{is_completed:false},{is_completed:false}],0)).percent,0);
   assert.equal(view.progress(make([{is_completed:true},{is_completed:false}],1)).percent,50);
+  assert.equal(view.progress(make([{is_completed:true},{is_completed:false},{is_skipped:true}],1)).percent,33);
   const mixed=view.progress(make([{is_completed:true},{is_completed:true,is_skipped:true}],2));
   assert.equal(mixed.percent,100);
   assert.equal(mixed.label,'1/2 completed · 1 skipped');
@@ -137,7 +160,7 @@ test('Session creation works with UUID, random bytes, and no crypto object', () 
 
 test('Dashboard scripts parse and load the shared renderer before rendering', () => {
   for (const html of [agentHtml,masterHtml]) {
-    assert(html.indexOf('src="/static/share/stage-view.js"') < html.indexOf('UCAgentStageView.'));
+    assert(html.indexOf('src="/static/share/stage-view.js"') < html.indexOf('UCAgentStageView'));
     for (const [,script] of html.matchAll(/<script>([\s\S]*?)<\/script>/g)) new vm.Script(script);
   }
 });

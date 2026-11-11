@@ -273,6 +273,8 @@ class Controller:
             row["can_edit_flags"] = index > manager.stage_index and not stage.is_completed()
             row["outcome"] = public_data(stage.get_stage_outcome()) if index <= manager.stage_index else None
         return {"mission_name": result["mission_name"], "current_index": manager.stage_index,
+                "all_completed": result["task_list"]["all_completed"],
+                "is_waiting_for_review": result["task_list"].get("is_waiting_for_review", False),
                 "enable_llm_fail_suggestion": manager.llm_fail_suggestion is not None,
                 "enable_llm_pass_suggestion": manager.llm_pass_suggestion is not None,
                 "stages": stages}

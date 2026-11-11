@@ -148,6 +148,9 @@ class WorkspaceQueries:
             stage_list.append({
                 "index": index,
                 "title": task.get("title") or detail.get("title") or f"Stage {index}",
+                "section_index": detail.get("section_index", ""),
+                "stage_name": detail.get("stage_name", ""),
+                "display_group": detail.get("display_group", ""),
                 "reached": bool(detail.get("reached", index <= stage_index)),
                 "fail_count": detail.get("fail_count", 0),
                 "skill_list": skill_list,
@@ -320,6 +323,8 @@ class WorkspaceQueries:
         ret = collections.OrderedDict({
             "mission_name": task_data["mission_name"],
             "current_index": current_index,
+            "all_completed": bool(info.get("all_completed", False)),
+            "is_waiting_for_review": workspace_lifecycle(info) == "waiting",
             "enable_llm_fail_suggestion": any(s.get("need_fail_llm_suggestion") for s in stage_list),
             "enable_llm_pass_suggestion": any(s.get("need_pass_llm_suggestion") for s in stage_list),
             "stages": [],
@@ -345,6 +350,9 @@ class WorkspaceQueries:
                 "reached": stage.get("reached", False),
                 "outcome": outcome,
                 "title": title,
+                "section_index": stage["section_index"],
+                "stage_name": stage["stage_name"],
+                "display_group": stage["display_group"],
                 "is_current": is_current,
                 "is_completed": is_completed,
                 "is_skipped": is_skipped,

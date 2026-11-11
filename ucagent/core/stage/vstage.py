@@ -88,6 +88,7 @@ class VerifyStage(object):
                 f"Stage '{self.name}' force_use_skill must be a boolean."
             )
         self.prefix = prefix
+        self.display_group = ""
         self.skip = skip
         self.need_fail_llm_suggestion = need_fail_llm_suggestion
         self.need_pass_llm_suggestion = need_pass_llm_suggestion
@@ -1177,6 +1178,8 @@ class VerifyStage(object):
         return OrderedDict({
                 "task": self.task_info(),
                 "section_index": self.prefix,
+                "stage_name": self.name,
+                "display_group": self.display_group,
                 "checker": [str(c) for c in self.checker],
                 "reached": self.is_reached(),
                 "is_completed": self.is_completed(),
@@ -1417,4 +1420,16 @@ def get_root_stage(cfg, workspace, tool_read_text, checker_registry=None):
     root.substages = parse_vstage(
         cfg, cfg.stage, workspace, tool_read_text, checker_registry=checker_registry
     )
+    groups = cfg.get_value("mission.stage_groups")
+    if groups is not None:
+        if not isinstance(groups, Config):
+            raise ValueError("mission.stage_groups must map top-level stage names to display labels")
+        labels = groups.as_dict()
+        if any(not isinstance(label, str) for label in labels.values()):
+            raise ValueError("mission.stage_groups labels must be strings")
+        group = ""
+        for stage in root.substages:
+            group = labels.get(stage.name, group)
+            for member in stage.get_substages():
+                member.display_group = group
     return root

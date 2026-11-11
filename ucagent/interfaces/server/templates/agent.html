@@ -8,6 +8,8 @@
 <link rel="stylesheet" href="/static/share/ucagent-shell.css">
 <script src="/static/share/stage-view.js"></script>
 <script src="/static/share/console-view.js"></script>
+<script src="/static/share/function-map.js"></script>
+<script src="/static/share/function-map-results.js"></script>
 <script>
 (function(){
   var CH='ucagent-dashboard';
@@ -61,18 +63,50 @@ a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
 #layout{display:flex;flex:1;min-height:0;overflow:hidden}
 
 /* ── sidebar ── */
-#sidebar{width:280px;min-width:160px;min-height:0;background:var(--bg2);display:grid;grid-template-rows:minmax(0,56fr) 6px minmax(0,22fr) 6px minmax(0,22fr);overflow:hidden;flex-shrink:0;position:relative}
+#sidebar{width:280px;min-width:160px;min-height:0;background:var(--bg2);display:grid;grid-template-rows:minmax(0,70fr) 6px minmax(0,30fr);overflow:hidden;flex-shrink:0;position:relative}
 #sb-resizer{width:4px;background:var(--border);cursor:col-resize;flex-shrink:0;transition:background .15s;z-index:10}
 #sb-resizer:hover,#sb-resizer.dragging{background:var(--accent)}
 .sb-section{display:flex;flex-direction:column;min-height:0;min-width:0;overflow:hidden}
-.sb-section h3{flex-shrink:0;padding:8px 10px;border-bottom:1px solid var(--border);font-size:11px;text-transform:uppercase;letter-spacing:.8px;color:var(--text-dim);margin:0}
 .sb-panel-body{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior-y:contain;scrollbar-gutter:stable;scrollbar-color:var(--text-dim) var(--bg2);scrollbar-width:thin;padding:8px 10px}
 .sb-panel-resizer{height:6px;background:var(--border);cursor:row-resize;touch-action:none;user-select:none;position:relative;z-index:2}
 .sb-panel-resizer::after{content:"";position:absolute;left:calc(50% - 16px);top:2px;width:32px;height:2px;background:var(--text-dim);border-radius:2px}
 .sb-panel-resizer:hover,.sb-panel-resizer.dragging,.sb-panel-resizer:focus-visible{background:var(--accent);outline:none}
-.mission-controls{display:flex;align-items:center;justify-content:flex-end;gap:6px 8px;flex-wrap:wrap;margin-bottom:8px}
-#agent-status-section{position:relative;overflow:hidden}
-#agent-status-section h3,#agent-status-section #status-text{position:relative;z-index:1}
+#mission-section{container-type:inline-size}
+#mission-header{flex:none;padding:5px 7px 4px;border-bottom:1px solid var(--border)}
+.mission-heading,.mission-meta{display:flex;align-items:center;gap:4px;min-width:0}
+#mission-name,#mission-counts,#mission-current{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#mission-name{font-size:12px;font-weight:600}
+#mission-percent{color:var(--accent);font-size:12px;font-variant-numeric:tabular-nums}
+#mission-progress{display:block;width:100%;height:4px;margin:2px 0;accent-color:var(--accent)}
+#mission-progress[hidden]{display:none}
+#mission-scroll{padding:2px 5px 4px}
+#mission-counts{font-size:10px;color:var(--text-dim)}
+#mission-current{padding:0;text-align:left;color:var(--accent)}
+#mission-current.awaiting-review{color:var(--yellow)}
+.mission-control-btn{flex:none;border:0;background:none;color:var(--text-dim);padding:2px;font:inherit;font-size:11px;cursor:pointer}
+.mission-control-btn:hover{color:var(--accent)}
+.mission-dialog{width:min(510px,calc(100vw - 24px));max-height:80vh;overflow:auto;padding:14px;
+  color:var(--text);background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius)}
+.mission-dialog::backdrop{background:#0008}
+.mission-dialog h2{font-size:14px;margin:0 0 10px;overflow-wrap:anywhere}
+.mission-dialog-footer{display:flex;justify-content:flex-end;margin-top:12px}
+.mission-controls,.stage-bulk-list{display:grid;gap:8px;margin-bottom:10px}
+.stage-bulk-list{max-height:38vh;overflow:auto}
+.stage-bulk-list label{display:flex;align-items:baseline;gap:5px;overflow-wrap:anywhere}
+#sidebar-information{container-type:inline-size}
+#sidebar-tabs{flex:none;display:grid;grid-template-columns:minmax(min-content,.75fr) minmax(min-content,1fr) minmax(min-content,1.25fr);
+  gap:4px;padding:3px 6px 0;border-bottom:1px solid var(--border);background:var(--bg2)}
+.sidebar-tab{min-height:26px;padding:2px 6px 1px;border:0;border-bottom:2px solid transparent;border-radius:4px 4px 0 0;
+  background:transparent;color:var(--text);font:inherit;font-size:12px;font-weight:550;line-height:1.1;cursor:pointer}
+.sidebar-tab:hover{background:var(--bg3);color:var(--text-bright)}
+.sidebar-tab[aria-selected="true"]{border-bottom-color:var(--accent);background:color-mix(in srgb,var(--accent) 9%,transparent);color:var(--text-bright)}
+.sidebar-tab:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+@container (max-width:248px){
+  #sidebar-tabs{gap:3px;padding-inline:4px}
+  .sidebar-tab{padding-inline:2px;font-size:11px}
+}
+#agent-status-section{position:relative}
+#agent-status-section #status-text{position:relative;z-index:1}
 #agent-status-section.sub-workspace-mode{background:linear-gradient(135deg,rgba(79,142,247,.18),rgba(54,211,153,.10))}
 #agent-status-section.sub-workspace-mode::before{content:"Sub";position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
   font-size:var(--sub-watermark-size,72px);font-weight:800;line-height:.9;color:rgba(79,142,247,.18);letter-spacing:2px;
@@ -81,31 +115,52 @@ a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
 .status-item{display:inline-flex;align-items:baseline;flex-wrap:wrap;gap:0 4px;max-width:100%;min-width:0}
 .status-key{color:var(--text-dim)}
 .status-value{min-width:0;overflow-wrap:anywhere;white-space:pre-wrap}
-#mission-list{font-family:var(--mono);font-size:12px;line-height:1.7;padding:4px 6px;white-space:pre-wrap;word-break:break-all}
-.mission-name{text-align:center;font-weight:600;font-size:13px;color:var(--accent);margin-bottom:8px;padding:4px 0;border-bottom:1px solid var(--border)}
-.stage-item{margin-bottom:4px}
-.stage-bulk-bar{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:6px 0 10px;border-bottom:1px solid var(--border);margin-bottom:8px}
+#mission-list{font-size:12px;line-height:1.4}
+.stage-item{padding:2px 0 2px 3px}
+.stage-row{display:flex;align-items:center;gap:4px;min-width:0}
+.stage-item.current-stage > .stage-row{background:var(--bg3);border-radius:4px}
+.stage-bulk-bar{display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin:6px 0}
 .stage-select-meta{font-size:10px;color:var(--text-dim);margin-right:4px}
 .stage-bulk-btn,.stage-quick-btn{background:var(--bg3);border:1px solid var(--border);color:var(--text-dim);padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;line-height:1.4}
 .stage-bulk-btn:hover,.stage-quick-btn:hover{border-color:var(--accent);color:var(--accent)}
-.stage-bulk-btn:disabled{opacity:.45;cursor:not-allowed}
+.stage-bulk-btn:disabled,.stage-quick-btn:disabled{opacity:.45;cursor:not-allowed}
 .stage-select{margin-top:2px;accent-color:var(--accent);cursor:pointer}
-.stage-select-slot{width:13px;flex-shrink:0;display:inline-block}
-.stage-text-wrap{display:flex;align-items:flex-start;gap:4px}
-.stage-main{display:flex;align-items:flex-start;gap:6px;flex:1;min-width:0}
-.stage-row{display:flex;align-items:flex-start;gap:8px;min-width:0;flex-wrap:wrap}
-.stage-collapse-btn{cursor:pointer;color:var(--text-dim);font-size:10px;width:12px;flex-shrink:0;user-select:none}
-.stage-collapse-btn:hover{color:var(--accent)}
-.stage-text{padding:2px 0;flex:1 1 120px;min-width:0;word-break:break-word}
-.stage-title-btn{background:none;border:none;color:inherit;font:inherit;font-family:var(--mono);line-height:inherit;text-align:left;cursor:pointer;white-space:pre-wrap;width:100%}
+.stage-title-btn{display:flex;align-items:baseline;gap:4px;flex:1;min-width:0;padding:2px 0;background:none;border:none;color:inherit;font:inherit;text-align:left;cursor:pointer}
 .stage-title-btn:hover{color:var(--accent);text-decoration:underline;text-underline-offset:2px}
-.stage-actions{display:flex;align-items:center;gap:4px;flex-wrap:wrap;justify-content:flex-end;flex-shrink:0;margin-left:auto}
+.stage-title-btn .uc-stage{flex:1}
+.stage-chevron{flex:0 0 9px;color:var(--accent);font-size:16px;line-height:1;text-align:center}
+.stage-title-btn[aria-expanded="true"] .stage-chevron{transform:rotate(90deg)}
+.stage-actions,#mission-list .uc-stage-time{display:none}
+@container (min-width: 330px){
+  .stage-actions{display:flex;align-items:center;gap:4px;flex:none}
+  #mission-list .uc-stage-time{display:inline}
+}
+@container (max-width: 220px){
+  #mission-list :is(.uc-stage-batch,.uc-stage-flags,.uc-stage-fails){display:none}
+}
 .stage-quick-btn.active-hm{border-color:var(--red);color:var(--red)}
 .stage-quick-btn.active-skip{border-color:var(--yellow);color:var(--yellow)}
 .stage-quick-btn.active-lf{border-color:var(--orange);color:var(--orange)}
 .stage-quick-btn.active-lp{border-color:var(--green);color:var(--green)}
 .stage-bulk-btn.hidden,.stage-quick-btn.hidden{display:none}
-.stage-outcome{margin-left:16px;margin-top:2px;font-size:11px}
+.stage-inline-info{margin:3px 0 6px 9px;padding-inline-start:6px;border-inline-start:1px solid var(--border);min-width:0}
+.stage-inline-info .outcome-file-wrap{max-width:100%;flex-wrap:wrap}
+.stage-inline-info :is(.outcome-path-part,.outcome-name){min-width:0;max-width:100%;overflow-wrap:anywhere;border:0;font:inherit;text-align:left}
+.stage-inline-info .outcome-path-part{padding:0;background:none}
+.stage-inline-info .stage-task-meta{margin:4px 0}
+.stage-inline-info .stage-info-task{max-width:100%;margin:2px 0 4px;white-space:normal;overflow-wrap:anywhere}
+.stage-info-section{margin:8px 0}
+.stage-info-heading{display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:2px 6px;padding:4px 5px;
+  color:var(--text);background:var(--bg3);border:1px solid var(--border);border-radius:4px;font-size:13px;font-weight:650}
+.stage-info-value,.stage-info-empty{color:var(--text-dim);font-size:12px;font-weight:400}
+.stage-info-content{padding-block:3px;font-size:13px;overflow-wrap:anywhere}
+.stage-info-skills{padding-inline-start:16px}
+.stage-info-skill-status{color:var(--text-dim);margin-inline-start:6px}
+.stage-info-check + .stage-info-check{margin-block-start:8px}
+.stage-info-check h4{font-size:13px;font-weight:600}
+.stage-info-check pre{margin-top:4px;color:var(--text-dim);white-space:pre-wrap;overflow-wrap:anywhere}
+.stage-info-files{list-style:none;display:grid;gap:4px}
+.stage-info-files .outcome-file-wrap{font-size:13px}
 .outcome-section{margin:4px 0}
 .outcome-label{color:var(--text-dim);margin-right:6px;font-size:10px}
 .outcome-files-grid{display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:2px}
@@ -124,8 +179,6 @@ a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
 .outcome-file-wrap.deleted{opacity:.78}
 .outcome-file-wrap.deleted .outcome-name{text-decoration:line-through}
 .outcome-file-wrap.deleted .outcome-name:hover{text-decoration:line-through underline}
-.outcome-more-btn{color:var(--accent);cursor:pointer;font-size:10px;padding:1px 4px}
-.outcome-more-btn:hover{text-decoration:underline}
 .workspace-git-section{margin-top:10px;padding-top:8px;border-top:1px solid var(--border);font-size:11px;font-family:var(--mono);line-height:1.6}
 .workspace-git-hdr{display:flex;align-items:center;gap:6px;margin-bottom:6px;color:var(--text-dim)}
 .workspace-git-title{font-size:10px;text-transform:uppercase;letter-spacing:.6px;color:var(--text-dim);font-weight:600}
@@ -172,7 +225,7 @@ a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
 .task-row.pending .name{color:var(--text-dim)}
 .task-row.fail .name{color:var(--red)}
 #tools-list{display:flex;flex-wrap:wrap;gap:4px}
-.tool-chip{background:var(--bg3);border:1px solid var(--border);border-radius:12px;padding:2px 8px;font-size:11px;white-space:nowrap}
+.tool-chip{max-width:100%;overflow-wrap:anywhere;background:var(--bg3);border:1px solid var(--border);border-radius:12px;padding:2px 8px;font-size:11px}
 .tool-chip.hot{border-color:var(--orange);color:var(--orange)}
 #sidebar-bottom{padding:12px 14px;flex-shrink:0}
 #sidebar-bottom h3{font-size:11px;text-transform:uppercase;letter-spacing:.8px;color:var(--text-dim);margin-bottom:8px}
@@ -187,11 +240,172 @@ a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
 .show-current-label:hover{color:var(--text)}
 
 /* ── file manager ── */
-#fm{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
+#fm{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;overflow:hidden;container:reports / inline-size}
 #fm-bar{display:flex;align-items:center;padding:8px 14px;background:var(--bg2);border-bottom:1px solid var(--border);gap:8px;flex-shrink:0;flex-wrap:wrap}
-#breadcrumb{flex:1;font-size:12px;font-family:var(--mono);color:var(--text-dim);word-break:break-all}
-#breadcrumb span{cursor:pointer;color:var(--accent)}#breadcrumb span:hover{text-decoration:underline}
-#breadcrumb .sep{color:var(--text-dim);margin:0 2px}
+#reports-title{flex:1;font-size:14px;color:var(--text-bright)}
+#workspace-sidebar[hidden]{display:none}
+#workspace-sidebar{flex:1}
+#workspace-file-scroll{padding:5px 6px;container:file-list / inline-size}
+.workspace-toolbar{display:flex;align-items:center;gap:5px;padding:4px 6px;border-bottom:1px solid var(--border)}
+.reports-tool-buttons{display:flex;flex-wrap:wrap;gap:6px;padding:6px 14px;background:var(--bg2);border-bottom:1px solid var(--border)}
+.reports-tool-buttons .fm-btn[aria-expanded="true"]{color:var(--accent);border-color:var(--accent)}
+#report-file-actions{padding:4px 14px;background:var(--bg2);border-bottom:1px solid var(--border)}
+.workspace-actions{display:flex;flex-wrap:wrap;gap:4px;padding:4px 0}
+#workspace-content{flex:1;min-width:0;min-height:0;display:flex;overflow:hidden}
+#workspace-reports{flex:1;min-width:0;min-height:0}
+#workspace-reports{display:flex;flex-direction:column}
+#reports-breadcrumb{padding:6px 14px;border-bottom:1px solid var(--border)}
+#report-file-list{flex:1;min-height:0;overflow:auto;container:file-list / inline-size}
+#workspace-content > [hidden]{display:none}
+#function-map{flex:0 0 clamp(300px,37%,460px);min-width:0;display:flex;flex-direction:column;border-inline-start:1px solid var(--border);background:var(--bg)}
+#function-map-toggle{display:none;margin-inline-start:auto}
+#function-map-toggle[aria-pressed="true"]{border-color:var(--accent);color:var(--text-bright)}
+.function-map-header{display:flex;align-items:center;justify-content:space-between;gap:6px;padding:8px 12px;border-bottom:1px solid var(--border);background:var(--bg2)}
+.function-map-header h3{font-size:13px;color:var(--text-bright)}
+.function-map-actions{display:flex;align-items:center;gap:6px}
+.function-map-actions button{margin:0}
+#function-map-expand[aria-pressed="true"]{border-color:var(--accent);color:var(--text-bright)}
+#function-map-search{margin:7px 10px;min-width:0;padding:5px 8px;border:1px solid var(--border);border-radius:var(--radius);
+  background:var(--bg2);color:var(--text-bright);font:inherit;font-size:12px}
+.function-map-body{display:flex;flex:1;position:relative;min-height:0;container:map-body / inline-size}
+.function-map-body[hidden]{display:none}
+.function-map-stage{display:flex;flex:1;flex-direction:column;min-width:0;min-height:0}
+.function-map-viewport{position:relative;flex:1;min-height:0;overflow:clip;touch-action:none;cursor:grab;user-select:none;
+  background-image:radial-gradient(circle,var(--border) 1px,transparent 1px);background-size:17px 17px}
+.function-map-viewport.dragging,.function-map-viewport.dragging button{cursor:grabbing}
+.function-map-viewport canvas,.function-map-nodes{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+.function-map-nodes{transform-origin:0 0}
+.function-map-item{--branch-color:var(--accent);position:absolute;transform:translate(-50%,-50%)}
+.function-map-node{display:flex;width:100%;height:100%;flex-direction:column;
+  justify-content:center;align-items:center;gap:3px;padding:4px 8px;border:1px solid color-mix(in srgb,var(--branch-color) 66%,var(--border));
+  border-radius:10px;background:color-mix(in srgb,var(--branch-color) 10%,var(--bg2));color:var(--text-bright);
+  font-family:inherit;font-size:14px;font-weight:600;line-height:1.1;pointer-events:auto;cursor:pointer}
+.function-map-node[data-kind="DUT"]{border-width:2px;border-radius:14px;background:color-mix(in srgb,var(--accent) 20%,var(--bg2));font-size:16px}
+.function-map-node:hover,.function-map-node[aria-pressed="true"]{border-color:var(--branch-color);background:color-mix(in srgb,var(--branch-color) 23%,var(--bg2))}
+.function-map-node:focus-visible,.function-map-branch-toggle:focus-visible,.function-map-viewport:focus-visible{outline:2px solid var(--accent);outline-offset:-3px}
+.function-map-node-label{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;overflow-wrap:anywhere}
+.function-map-node code{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-dim);font:11px var(--mono)}
+.function-map-branch-toggle{position:absolute;top:50%;transform:translateY(-50%);display:grid;place-items:center;width:20px;height:20px;
+  border:1px solid var(--branch-color);border-radius:50%;background:var(--bg2);color:var(--text-bright);font-size:13px;pointer-events:auto;cursor:pointer}
+.function-map-branch-toggle:hover{background:color-mix(in srgb,var(--branch-color) 25%,var(--bg2))}
+.function-map-branch-toggle[data-side="1"]{right:-10px}
+.function-map-branch-toggle[data-side="-1"]{left:-10px}
+.function-map-no-match,#function-map-status{padding:8px 10px}
+.function-map-toolbar{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:5px 9px;
+  padding:6px 9px;border-top:1px solid var(--border);background:var(--bg2)}
+#function-map-counts,.function-map-scale{color:var(--text-dim);font-size:11px}
+.function-map-zoom{display:flex;align-items:center;gap:4px}
+.function-map-zoom button{margin:0;min-height:22px}
+.function-map-scale{min-width:36px;text-align:center;font-variant-numeric:tabular-nums}
+.function-map-detail{position:relative;flex:0 0 clamp(290px,34%,380px);min-width:0;overflow:auto;border-inline-start:1px solid var(--border);
+  background:var(--bg2);color:var(--text);font-size:12px;line-height:1.5;overflow-wrap:anywhere;overscroll-behavior:contain}
+@container map-body (max-width:680px){
+  .function-map-detail{position:absolute;inset-block:0;inset-inline-end:0;z-index:1;width:min(340px,86%);box-shadow:-10px 0 24px #0004}
+}
+.function-map-detail-header{position:sticky;top:0;z-index:1;padding:14px 48px 12px 16px;
+  border-bottom:1px solid var(--border);background:var(--bg2)}
+.function-map-detail-header h3{color:var(--text-bright);font-size:17px;font-weight:650;line-height:1.3}
+.function-map-detail-header code{display:block;margin-top:5px;color:var(--text-dim);font:10px/1.45 var(--mono)}
+.function-map-detail-path button{padding:0;border:0;background:none;color:var(--accent);font:inherit;cursor:pointer}
+.function-map-detail-path button:hover{text-decoration:underline}
+.function-map-detail-close{position:absolute;inset-block-start:12px;inset-inline-end:14px;min-width:26px;min-height:26px;margin:0;font-size:15px}
+.function-map-detail-content{display:grid;gap:15px;padding:14px 16px 18px}
+.function-map-detail-content h4{margin-bottom:6px;color:var(--text-bright);font-size:12px;font-weight:650}
+.function-map-metrics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.function-map-metrics[hidden]{display:none}
+.function-map-metrics > div{min-width:0;padding:7px 9px;border:1px solid var(--border);border-radius:7px;background:var(--bg)}
+.function-map-metrics dt{color:var(--text-dim);font-size:11px}
+.function-map-metrics dd{margin-top:2px;color:var(--text-bright);font-size:14px;font-weight:650;font-variant-numeric:tabular-nums}
+.function-map-metrics dd[data-outcome="pass"]{color:var(--green)}
+.function-map-metrics dd[data-outcome="fail"]{color:var(--red)}
+.function-map-results{display:flex;justify-content:center;gap:3px;max-width:100%}
+.function-map-result{display:inline-block;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  padding:2px 4px;border-radius:4px;background:var(--bg4);color:var(--text);font-size:10px;font-weight:600;line-height:1.2}
+.function-map-result[data-outcome="pass"]{background:color-mix(in srgb,var(--green) 14%,var(--bg2));color:var(--green)}
+.function-map-result[data-outcome="fail"]{background:color-mix(in srgb,var(--red) 14%,var(--bg2));color:var(--red)}
+.function-map-result[data-outcome="bug"]{background:color-mix(in srgb,var(--yellow) 17%,var(--bg2));color:var(--yellow)}
+.function-map-case-results ul,.function-map-bug-results ul{display:grid;gap:7px;list-style:none}
+.function-map-case-results li{min-width:0;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg)}
+.function-map-case-heading{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start;gap:5px 8px}
+.function-map-case-heading .function-map-result{padding:3px 5px}
+.function-map-case-link{padding:0;border:0;background:none;color:var(--text-bright);font:600 12px/1.4 var(--mono);
+  text-align:left;overflow-wrap:anywhere;cursor:pointer}
+.function-map-case-link:hover,.function-map-wave-link:hover{text-decoration:underline}
+.function-map-case-location{display:block;margin-top:3px;color:var(--text-dim);font:11px/1.4 var(--mono)}
+.function-map-case-waves{display:flex;flex-direction:column;align-items:flex-start;gap:3px;margin-top:7px;padding-top:6px;
+  border-top:1px solid var(--border);color:var(--text-dim);font-size:11px}
+.function-map-wave-link{max-width:100%;padding:0;border:0;background:none;color:var(--accent);font:inherit;font-weight:600;
+  overflow-wrap:anywhere;text-align:left;cursor:pointer}
+.function-map-wave-link::after{content:" ↗"}
+.function-map-bug-results button{width:100%;padding:6px 8px;margin:0;text-align:left;overflow-wrap:anywhere;line-height:1.4}
+.function-map-definition p{font-size:12px;line-height:1.7}
+.function-map-definition p + p{margin-top:7px}
+.function-map-definition code,.function-map-steps p code{color:var(--text-bright);font:11px var(--mono)}
+.function-map-steps ol,.function-map-children ul{display:grid;gap:7px;list-style:none}
+.function-map-steps li{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:start;gap:8px;padding:8px;
+  border:1px solid var(--border);border-radius:8px;background:var(--bg)}
+.function-map-step-number{padding:3px 5px;border-radius:4px;background:var(--bg3);color:var(--text);font:11px/1.4 var(--mono)}
+.function-map-steps strong{color:var(--text-bright)}
+.function-map-steps p{margin-top:3px;line-height:1.6}
+.function-map-step-checks{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+.function-map-step-checks button{margin:0;font:10px/1.35 var(--mono)}
+.function-map-child-link{position:relative;display:grid;gap:3px;width:100%;padding:7px 25px 7px 9px;border:1px solid var(--border);
+  border-radius:7px;background:var(--bg);color:var(--text-bright);text-align:left;font:inherit;cursor:pointer}
+.function-map-child-link:hover{border-color:var(--accent)}
+.function-map-child-link::after{content:"›";position:absolute;inset-block-start:7px;inset-inline-end:9px;color:var(--accent);font-size:16px;line-height:1}
+.function-map-child-link code{color:var(--text-dim);font:10px var(--mono)}
+.function-map-child-link .function-map-results{justify-content:flex-start}
+.function-map-empty{color:var(--text-dim)}
+@container reports (width > 760px){
+  #workspace-content.function-map-expanded #workspace-reports{display:none}
+  #workspace-content.function-map-expanded #function-map{flex:1;border-inline-start:0}
+}
+@container reports (max-width:760px){
+  #function-map-toggle{display:inline-block}
+  #function-map-expand{display:none}
+  #function-map{flex:1;border-inline-start:0}
+  #workspace-content:not(.show-function-map) #function-map,
+  #workspace-content.show-function-map #workspace-reports{display:none}
+}
+.file-table{table-layout:fixed}
+.file-table .file-type{width:65px}
+.file-table .file-size{width:72px;text-align:right}
+.file-table .file-modified{width:150px}
+.file-table td:is(.file-size,.file-modified){color:var(--text-dim);font:11px var(--mono)}
+.file-table .file-actions{width:110px}
+.file-table .file-link{display:flex;align-items:baseline;gap:5px;max-width:100%;border:0;background:none;
+  color:var(--text-bright);font:inherit;font-size:13px;text-align:left;overflow-wrap:anywhere;white-space:normal}
+.file-table button.file-link{cursor:pointer}
+.file-table button.file-link:hover,.file-table .file-link.dir{color:var(--accent)}
+.file-table .file-icon{flex:none}
+.file-table .file-origin{display:block;color:var(--text-dim);font-size:11px;overflow-wrap:anywhere;white-space:normal}
+.file-table .file-buttons{display:flex;align-items:center;gap:2px}
+.file-table .act-btn{margin:0;padding:2px 4px}
+.file-table .file-buttons .act-btn{flex:none;padding-inline:3px}
+.file-table .file-action-menu,.file-table .file-more{display:none}
+#workspace-file-scroll .file-table :is(.file-type,.file-size,.file-modified){display:none}
+.badge-dir,.badge-file,.badge-text{border-radius:3px;padding:1px 5px;font-size:10px}
+.badge-dir{background:var(--bg4);color:var(--accent)}
+.badge-file{background:var(--bg4);color:var(--text-dim)}
+.badge-text{background:var(--bg3);color:var(--green)}
+@container file-list (max-width:440px){
+  .file-table :is(.file-type,.file-size,.file-modified){display:none}
+  .file-table :is(td,th){padding:4px 3px}
+  .file-table .file-link{font-size:12px}
+}
+@container file-list (max-width:220px){
+  .file-table .file-actions{width:48px}
+  .file-table .file-buttons .file-secondary{display:none}
+  .file-table .file-more{display:inline-block}
+  .file-table .file-action-menu:not([hidden]){display:table-row}
+  .file-table .file-action-menu .workspace-actions{white-space:normal}
+}
+.report-message{color:var(--text-dim);font-size:13px;padding:5px 3px}
+.directory-breadcrumb{font-size:12px;font-family:var(--mono);color:var(--text-dim);word-break:break-all}
+#breadcrumb{flex:1}
+.directory-breadcrumb button{border:0;background:none;color:var(--accent);font:inherit;cursor:pointer;overflow-wrap:anywhere}
+.directory-breadcrumb button:hover{text-decoration:underline}
+.directory-breadcrumb .sep{color:var(--text-dim);margin:0 2px}
 #workspace-mode-label{font-family:var(--mono);font-size:11px;color:var(--yellow);max-width:360px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .fm-btn{background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:4px 10px;border-radius:var(--radius);cursor:pointer;font-size:12px;white-space:nowrap}
 .fm-btn:hover{border-color:var(--accent);color:var(--accent)}
@@ -201,30 +415,14 @@ a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
 .fm-btn.danger:hover{background:var(--red);color:#fff}
 .fm-toggle{display:inline-flex;align-items:center;gap:5px;color:var(--text-dim);font-size:12px;cursor:pointer;white-space:nowrap}
 .fm-toggle:hover{color:var(--text)}
-#fm-table-wrap{flex:1;min-height:0;overflow:auto}
 table{width:100%;border-collapse:collapse}
 th{background:var(--bg3);color:var(--text-dim);font-size:11px;font-weight:600;padding:8px 12px;text-align:left;white-space:nowrap;position:sticky;top:0;z-index:1;border-bottom:1px solid var(--border)}
 td{padding:7px 12px;border-bottom:1px solid var(--border);vertical-align:middle;white-space:nowrap}
 tr:hover td{background:var(--bg3)}
-.col-name{width:40%}
-.col-type{width:8%}
-.col-size{width:10%;text-align:right}
-.col-mtime{width:18%}
-.col-act{width:28%;white-space:nowrap}
-td.col-size{font-family:var(--mono);font-size:12px;color:var(--text-dim);text-align:right}
-td.col-mtime{font-family:var(--mono);font-size:11px;color:var(--text-dim)}
-td.col-name .icon{margin-right:6px;font-size:13px}
-td.col-name .fn{cursor:pointer;color:var(--text-bright)}
-td.col-name .fn:hover{color:var(--accent)}
-td.col-name .fn.dir{color:var(--accent)}
 .act-btn{background:none;border:1px solid var(--border);color:var(--text-dim);padding:2px 7px;border-radius:4px;cursor:pointer;font-size:11px;margin-right:3px}
 .act-btn:hover{border-color:var(--accent);color:var(--accent)}
 .act-btn.del:hover{border-color:var(--red);color:var(--red)}
-.badge-dir{background:var(--bg4);color:var(--accent);border-radius:3px;padding:1px 5px;font-size:10px}
-.badge-file{background:var(--bg4);color:var(--text-dim);border-radius:3px;padding:1px 5px;font-size:10px}
-.badge-text{background:#1e3a2f;color:var(--green);border-radius:3px;padding:1px 5px;font-size:10px}
-#fm-empty{display:none;padding:40px;text-align:center;color:var(--text-dim);font-size:13px}
-#fm-loading{display:none;padding:20px;text-align:center;color:var(--text-dim)}
+#fm-empty,#fm-loading{display:none;padding:5px 2px;color:var(--text-dim);font-size:12px}
 
 /* ── console panel ── */
 #fm-resizer{height:4px;background:var(--border);cursor:row-resize;flex-shrink:0;transition:background .15s}
@@ -326,12 +524,13 @@ html[data-theme="light"] #console-output-wrap.sub-workspace-mode{background:line
 }
 /* ── changed files bar ── */
 #changed-files-bar{display:flex;flex-direction:column;padding:4px 12px 6px;border-bottom:1px solid var(--border);background:var(--bg2);flex-shrink:0;max-height:160px;overflow-y:auto}
+#changed-files-bar[hidden]{display:none}
 #cf-meta{display:flex;align-items:center;gap:4px;flex-shrink:0}
 #cf-chips{display:flex;flex-direction:row;flex-wrap:wrap;align-items:baseline;gap:0 16px;margin-top:3px}
 .cf-header{font-size:10px;text-transform:uppercase;letter-spacing:.7px;color:var(--text-dim);white-space:nowrap;flex-shrink:0}
 .cf-dir-link{font-size:10px;letter-spacing:.7px;color:var(--accent);white-space:nowrap;flex-shrink:0;cursor:pointer;text-transform:none}
 .cf-dir-link:hover{text-decoration:underline}
-.cf-chip{font-family:var(--mono);font-size:11px;white-space:nowrap;cursor:pointer;padding:1px 0;color:var(--text)}
+.cf-chip{font-family:var(--mono);font-size:11px;max-width:100%;overflow-wrap:anywhere;cursor:pointer;padding:1px 0;color:var(--text)}
 .cf-chip.recent{color:var(--green)}
 .cf-chip:hover{text-decoration:underline}
 .cf-count-label{font-size:10px;color:var(--text-dim);flex-shrink:0}
@@ -347,7 +546,9 @@ html[data-theme="light"] #console-output-wrap.sub-workspace-mode{background:line
 textarea#edit-content{flex:1;background:var(--bg);color:var(--text);border:none;padding:10px;font-family:var(--mono);font-size:13px;line-height:1.6;resize:none;outline:none;overflow:auto}
 /* ── file viewer: definite outer height, shrinkable content and fixed controls ── */
 #view-modal .modal-box{width:92vw;height:88vh;max-width:calc(100vw - 16px);max-height:calc(100vh - 16px)}
-#view-modal .modal-hdr,#view-modal .modal-footer{flex-shrink:0}
+#view-content{display:flex;flex-direction:column;height:100%;min-height:0;min-width:0}
+#view-content .modal-hdr,#view-content .modal-footer{flex-shrink:0}
+#view-content .modal-hdr h2{min-width:0;overflow-wrap:anywhere}
 #view-body{flex:1 1 0;min-height:0;min-width:0;overflow:hidden}
 #view-body .stage-file-container,#view-body .stage-content-section,#view-body .stage-diff-section{min-height:0;min-width:0}
 #view-body .stage-toggle-bar{flex-shrink:0}
@@ -357,6 +558,7 @@ textarea#edit-content{flex:1;background:var(--bg);color:var(--text);border:none;
 /* ── view with line numbers ── */
 .view-wrap{display:flex;height:100%;overflow:hidden;border-radius:var(--radius);background:var(--bg)}
 .view-gutter{background:var(--bg2);color:var(--text-dim);font-family:var(--mono);font-size:12px;line-height:1.6;padding:12px 8px;text-align:right;user-select:none;overflow:hidden;min-width:42px;border-right:1px solid var(--border);white-space:pre;flex-shrink:0}
+.view-gutter .view-line-target{background:var(--accent2);color:var(--text-bright);border-radius:3px}
 #view-pre{flex:1;font-family:var(--mono);font-size:12px;line-height:1.6;padding:12px;white-space:pre;overflow:auto;background:var(--bg);color:var(--text);margin:0;min-height:0}
 #view-frame{width:100%;height:100%;border:none;background:#fff}
 #view-img{max-width:100%;max-height:540px;display:block;margin:auto}
@@ -428,101 +630,136 @@ pre code.hljs,code.hljs{background:transparent!important;padding:0!important}
   <!-- sidebar: each panel scrolls independently; separators resize adjacent panels. -->
   <div id="sidebar" style="border-right:none">
       <div class="sb-section" id="mission-section">
-        <h3>Mission / Tasks</h3>
-        <div class="sb-panel-body" id="mission-scroll" tabindex="0" aria-label="Stage information">
-          <div class="mission-controls">
-            <label class="show-current-label" title="Show current file content instead of committed version">
-              <input type="checkbox" id="show-current-content">
-              <span>Current Content</span>
-            </label>
-            <label class="show-current-label" title="Show files for each stage">
-              <input type="checkbox" id="show-files">
-              <span>Show Files</span>
-            </label>
-            <label class="show-current-label" title="Show workspace Git modified and untracked files">
-              <input type="checkbox" id="show-git-diff">
-              <span>Show Git Diff</span>
-            </label>
-            <span class="cf-count-label">Max files:</span>
-            <div class="cf-count-ctrl" title="Max files to show per section">
-              <button onclick="outcomeCountStep(-1)" title="Show fewer">&#9660;</button>
-              <input id="outcome-count-input" type="number" value="10" min="1" max="99" onchange="refreshOutcomeFiles()" title="Max files">
-              <button onclick="outcomeCountStep(1)" title="Show more">&#9650;</button>
-            </div>
+        <div id="mission-header">
+          <div class="mission-heading"><span id="mission-name">Mission / Tasks</span><span id="mission-percent" aria-hidden="true"></span></div>
+          <progress id="mission-progress" aria-label="Verification progress" hidden></progress>
+          <div class="mission-meta">
+            <span id="mission-counts"></span>
+            <button type="button" class="mission-control-btn" id="mission-current" onclick="locateCurrentStage()" hidden></button>
+            <button type="button" class="mission-control-btn" id="mission-bulk-btn" onclick="openStageBulk()" aria-haspopup="dialog" hidden>Bulk</button>
+            <button type="button" class="mission-control-btn" onclick="qs('#mission-settings-dialog').showModal()" aria-haspopup="dialog" aria-label="Workflow display settings" title="Workflow display settings">⋯</button>
           </div>
-        <div class="stage-bulk-bar">
-          <span class="stage-select-meta" id="stage-select-meta">0 selected</span>
-          <button class="stage-bulk-btn" onclick="toggleStageSelectionAll(true)">All</button>
-          <button class="stage-bulk-btn" onclick="toggleStageSelectionAll(false)">Clear</button>
-          <button class="stage-bulk-btn" onclick="applyStageBulkAction({hmcheck_needed:true})">HM On</button>
-          <button class="stage-bulk-btn" onclick="applyStageBulkAction({hmcheck_needed:false})">HM Off</button>
-          <button class="stage-bulk-btn" onclick="applyStageBulkAction({skip:true})">Skip</button>
-          <button class="stage-bulk-btn" onclick="applyStageBulkAction({skip:false})">Unskip</button>
-          <button class="stage-bulk-btn stage-bulk-lf" onclick="applyStageBulkAction({llm_fail_suggestion:true})">LFail On</button>
-          <button class="stage-bulk-btn stage-bulk-lf" onclick="applyStageBulkAction({llm_fail_suggestion:false})">LFail Off</button>
-          <button class="stage-bulk-btn stage-bulk-lp" onclick="applyStageBulkAction({llm_pass_suggestion:true})">LPass On</button>
-          <button class="stage-bulk-btn stage-bulk-lp" onclick="applyStageBulkAction({llm_pass_suggestion:false})">LPass Off</button>
         </div>
+        <div class="sb-panel-body" id="mission-scroll" tabindex="0" aria-label="Stage information">
           <div id="mission-list">Loading…</div>
         </div>
       </div>
-    <div class="sb-panel-resizer" data-panel-boundary="0" role="separator" tabindex="0" aria-orientation="horizontal" aria-label="Resize stages and tools" aria-controls="mission-section tools-section" title="Drag to resize stages and tools; arrow keys also adjust height"></div>
-    <div class="sb-section" id="tools-section">
-      <h3>Tools</h3>
-      <div class="sb-panel-body" id="tools-scroll" tabindex="0" aria-label="Tool call counts">
+    <div class="sb-panel-resizer" id="sidebar-panel-resizer" role="separator" tabindex="0" aria-orientation="horizontal" aria-label="Resize stages and agent information" aria-controls="mission-section sidebar-information" title="Drag or use arrow keys to adjust height"></div>
+    <div class="sb-section" id="sidebar-information">
+      <div id="sidebar-tabs" role="tablist" aria-label="Agent information">
+        <button type="button" class="sidebar-tab" id="sidebar-tools-tab" role="tab" aria-selected="true" aria-controls="tools-section">Tools</button>
+        <button type="button" class="sidebar-tab" id="sidebar-workspace-tab" role="tab" aria-selected="false" aria-controls="workspace-sidebar" tabindex="-1">Workspace</button>
+        <button type="button" class="sidebar-tab" id="sidebar-status-tab" role="tab" aria-selected="false" aria-controls="agent-status-section" tabindex="-1">Agent Status</button>
+      </div>
+      <div class="sb-panel-body" id="agent-status-section" role="tabpanel" aria-labelledby="sidebar-status-tab" tabindex="0" hidden>
+        <div id="status-text">Loading…</div>
+      </div>
+      <div class="sb-panel-body" id="tools-section" role="tabpanel" aria-labelledby="sidebar-tools-tab" tabindex="0">
         <div id="tools-list">Loading…</div>
       </div>
-    </div>
-    <div class="sb-panel-resizer" data-panel-boundary="1" role="separator" tabindex="0" aria-orientation="horizontal" aria-label="Resize tools and agent status" aria-controls="tools-section agent-status-section" title="Drag to resize tools and agent status; arrow keys also adjust height"></div>
-    <div class="sb-section" id="agent-status-section">
-      <h3>Agent Status</h3>
-      <div class="sb-panel-body" id="status-text" tabindex="0" aria-label="Agent status">Loading…</div>
+      <section class="sb-section" id="workspace-sidebar" role="tabpanel" aria-labelledby="sidebar-workspace-tab" hidden>
+        <div class="workspace-toolbar">
+          <nav id="breadcrumb" class="directory-breadcrumb" aria-label="Workspace directory"></nav>
+          <button type="button" class="con-btn" onclick="fetchFiles(_curPath)" aria-label="Refresh directory">↻</button>
+        </div>
+        <div class="sb-panel-body" id="workspace-file-scroll" tabindex="0" aria-label="Workspace files">
+          <div id="fm-loading">Loading…</div>
+          <div id="fm-empty">This directory is empty.</div>
+          <div id="fm-body"></div>
+        </div>
+      </section>
     </div>
   </div>
 
   <!-- resize handle -->
   <div id="sb-resizer"></div>
 
-  <!-- file manager -->
+  <!-- verification reports and file preview -->
   <div id="fm">
     <div id="fm-bar">
-      <span id="breadcrumb"></span>
+      <h2 id="reports-title">Reports</h2>
       <span id="workspace-mode-label"></span>
-      <label class="fm-toggle" title="Display file delete controls">
-        <input type="checkbox" id="show-file-delete-controls" style="accent-color:var(--accent)"> Show delete
-      </label>
-      <button class="fm-btn" id="workspace-change-btn" onclick="changeWorkspaceFromCurrent()" style="display:none">Change Workspace</button>
-      <button class="fm-btn primary" id="workspace-relaunch-btn" onclick="openRelaunchDialog()" style="display:none">Relaunch</button>
-      <button class="fm-btn danger" id="workspace-exit-btn" onclick="exitSubWorkspace()" style="display:none">Exit Workspace</button>
-      <button class="fm-btn" onclick="refreshFiles()">&#8635;</button>
-      <button class="fm-btn" onclick="downloadWorkspace()" title="Download whole workspace as DUT tar.gz">&#8681; Workspace</button>
-      <button class="fm-btn" onclick="openNewFile()">&#43; New File</button>
-      <button class="fm-btn primary" onclick="openUpload()">&#8679; Upload</button>
+      <button type="button" class="fm-btn" onclick="fetchReports()" aria-label="Refresh reports">↻</button>
     </div>
-    <div id="changed-files-bar">
+    <div class="reports-tool-buttons">
+      <button type="button" class="fm-btn" aria-expanded="false" aria-controls="report-file-actions" onclick="toggleReportTools(this)">File actions</button>
+      <button type="button" class="fm-btn" aria-expanded="false" aria-controls="changed-files-bar" onclick="toggleReportTools(this)">Recent changes</button>
+      <button type="button" id="function-map-toggle" class="fm-btn" aria-pressed="false" aria-controls="function-map" onclick="toggleFunctionMap()">Function map</button>
+    </div>
+    <div id="report-file-actions" hidden>
+      <div class="workspace-actions">
+        <button type="button" class="act-btn" onclick="openNewFile()">New file</button>
+        <button type="button" class="act-btn" onclick="openUpload()">Upload</button>
+        <button type="button" class="act-btn" onclick="downloadWorkspace()">Download workspace</button>
+        <label class="fm-toggle"><input type="checkbox" id="show-file-delete-controls"> Show delete</label>
+        <button type="button" class="act-btn" id="workspace-change-btn" onclick="changeWorkspaceFromCurrent()" style="display:none">Change workspace</button>
+        <button type="button" class="act-btn" id="workspace-relaunch-btn" onclick="openRelaunchDialog()" style="display:none">Relaunch</button>
+        <button type="button" class="act-btn" id="workspace-exit-btn" onclick="exitSubWorkspace()" style="display:none">Exit workspace</button>
+      </div>
+    </div>
+    <div id="changed-files-bar" hidden>
       <div id="cf-meta">
         <span id="cf-title"><span class="cf-header">Recent Changes</span></span>
         <div class="cf-count-ctrl">
-          <button onclick="cfCountStep(-1)" title="Show fewer">&#9660;</button>
+          <button type="button" onclick="cfCountStep(-1)" title="Show fewer">&#9660;</button>
           <input id="cf-count-input" type="number" value="5" min="1" max="99" onchange="fetchChangedFiles()" title="Files to show">
-          <button onclick="cfCountStep(1)" title="Show more">&#9650;</button>
+          <button type="button" onclick="cfCountStep(1)" title="Show more">&#9650;</button>
         </div>
       </div>
       <div id="cf-chips"></div>
     </div>
-    <div id="fm-table-wrap">
-      <div id="fm-loading">Loading…</div>
-      <div id="fm-empty">This directory is empty.</div>
-      <table id="fm-table">
-        <thead><tr>
-          <th class="col-name">Name</th>
-          <th class="col-type">Type</th>
-          <th class="col-size">Size</th>
-          <th class="col-mtime">Modified</th>
-          <th class="col-act">Actions</th>
-        </tr></thead>
-        <tbody id="fm-body"></tbody>
-      </table>
+    <div id="workspace-content">
+      <div id="workspace-reports" aria-label="Important reports">
+        <nav id="reports-breadcrumb" class="directory-breadcrumb" aria-label="Reports directory" hidden></nav>
+        <div id="report-file-list" tabindex="-1"><p class="report-message">Loading reports…</p></div>
+      </div>
+      <section id="function-map" aria-labelledby="function-map-title">
+        <div class="function-map-header">
+          <h3 id="function-map-title">Function map</h3>
+          <div class="function-map-actions">
+            <button type="button" id="function-map-expand" class="act-btn" aria-pressed="false" onclick="toggleFunctionMapSize(this)" hidden>Enlarge map</button>
+            <button type="button" id="function-map-source" class="act-btn" hidden>Open source report</button>
+          </div>
+        </div>
+        <input type="search" id="function-map-search" aria-label="Search functions and checkpoints" placeholder="Search functions and checkpoints" hidden>
+        <p id="function-map-status" class="report-message" role="status">Loading function map…</p>
+        <div class="function-map-body" hidden>
+          <div class="function-map-stage">
+          <div class="function-map-viewport" tabindex="0" role="group" aria-label="Function map canvas. Use arrow keys to pan.">
+            <canvas aria-hidden="true"></canvas>
+            <div class="function-map-nodes"></div>
+            <p class="function-map-no-match report-message" role="status" hidden>No matching functions or checkpoints.</p>
+          </div>
+          <div class="function-map-toolbar">
+            <p id="function-map-counts"></p>
+            <div class="function-map-zoom" role="group" aria-label="Map zoom">
+              <button type="button" class="act-btn" data-map-zoom="out" aria-label="Zoom out">−</button>
+              <span class="function-map-scale">100%</span>
+              <button type="button" class="act-btn" data-map-zoom="in" aria-label="Zoom in">+</button>
+              <button type="button" class="act-btn" data-map-zoom="fit" aria-label="Fit map">Fit</button>
+            </div>
+          </div>
+          </div>
+          <aside class="function-map-detail" aria-labelledby="function-map-detail-title" hidden>
+            <header class="function-map-detail-header">
+              <h3 id="function-map-detail-title" aria-live="polite"></h3>
+              <code class="function-map-detail-path"></code>
+              <button type="button" class="act-btn function-map-detail-close" aria-label="Close node details">×</button>
+            </header>
+            <div class="function-map-detail-content">
+              <dl class="function-map-metrics" hidden>
+                <div><dt>Coverage</dt><dd data-metric="coverage"></dd></div>
+                <div><dt>Test results</dt><dd data-metric="tests"></dd></div>
+              </dl>
+              <section class="function-map-case-results" hidden><h4>Test cases</h4><div></div></section>
+              <section class="function-map-bug-results" hidden><h4>Recorded bugs</h4><ul></ul></section>
+              <section class="function-map-definition" hidden><h4>Definition</h4><div></div></section>
+              <section class="function-map-steps" hidden><h4>Verification steps</h4><ol></ol></section>
+              <section class="function-map-children" hidden><h4>Function points</h4><ul></ul></section>
+            </div>
+          </aside>
+        </div>
+      </section>
     </div>
 
     <!-- console resize handle -->
@@ -588,17 +825,78 @@ pre code.hljs,code.hljs{background:transparent!important;padding:0!important}
 </div>
 
 <!-- view modal -->
-<div class="modal-backdrop hidden" id="view-modal">
-  <div class="modal-box">
+<dialog class="mission-dialog" id="mission-settings-dialog" aria-labelledby="mission-settings-title">
+  <h2 id="mission-settings-title">Workflow display settings</h2>
+  <div class="mission-controls">
+    <label class="show-current-label" title="Show current file content instead of committed version">
+      <input type="checkbox" id="show-current-content"> Current Content
+    </label>
+    <label class="show-current-label">
+      <input type="checkbox" id="show-files"> Show stage files
+    </label>
+    <label class="show-current-label">
+      <input type="checkbox" id="show-git-diff"> Show workspace Git changes
+    </label>
+  </div>
+  <form method="dialog" class="mission-dialog-footer"><button class="fm-btn">Close</button></form>
+</dialog>
+
+<dialog class="mission-dialog" id="stage-bulk-dialog" aria-labelledby="stage-bulk-title">
+  <h2 id="stage-bulk-title">Bulk stage settings</h2>
+  <div class="stage-bulk-bar">
+    <span class="stage-select-meta" id="stage-select-meta" aria-live="polite">0 selected</span>
+    <button class="stage-bulk-btn" onclick="toggleStageSelectionAll(true)">All</button>
+    <button class="stage-bulk-btn" onclick="toggleStageSelectionAll(false)">Clear</button>
+  </div>
+  <div class="stage-bulk-list" id="stage-bulk-list"></div>
+  <div class="stage-bulk-bar">
+    <button class="stage-bulk-btn" onclick="applyStageBulkAction({hmcheck_needed:true})">HM On</button>
+    <button class="stage-bulk-btn" onclick="applyStageBulkAction({hmcheck_needed:false})">HM Off</button>
+    <button class="stage-bulk-btn" onclick="applyStageBulkAction({skip:true})">Skip</button>
+    <button class="stage-bulk-btn" onclick="applyStageBulkAction({skip:false})">Unskip</button>
+    <button class="stage-bulk-btn stage-bulk-lf" onclick="applyStageBulkAction({llm_fail_suggestion:true})">LFail On</button>
+    <button class="stage-bulk-btn stage-bulk-lf" onclick="applyStageBulkAction({llm_fail_suggestion:false})">LFail Off</button>
+    <button class="stage-bulk-btn stage-bulk-lp" onclick="applyStageBulkAction({llm_pass_suggestion:true})">LPass On</button>
+    <button class="stage-bulk-btn stage-bulk-lp" onclick="applyStageBulkAction({llm_pass_suggestion:false})">LPass Off</button>
+  </div>
+  <form method="dialog" class="mission-dialog-footer"><button class="fm-btn">Close</button></form>
+</dialog>
+
+<template id="stage-info-template">
+    <div class="stage-task-meta" data-stage-meta></div>
+    <div class="stage-bulk-bar" data-stage-flags></div>
+    <section class="stage-info-section" data-stage-section="output">
+      <h3 class="stage-info-heading"><span>Output files</span><span class="stage-info-value"></span></h3>
+      <div class="stage-info-content uc-stage-group-items"></div>
+    </section>
+    <section class="stage-info-section" data-stage-section="changed">
+      <h3 class="stage-info-heading"><span>Changed files</span><span class="stage-info-value"></span></h3>
+      <div class="stage-info-content uc-stage-group-items"></div>
+    </section>
+    <section class="stage-info-section" data-stage-section="skills">
+      <h3 class="stage-info-heading"><span>Skills</span><span class="stage-info-value"></span></h3>
+      <div class="stage-info-content uc-stage-group-items"></div>
+    </section>
+    <section class="stage-info-section" data-stage-section="check">
+      <h3 class="stage-info-heading"><span>Check</span><span class="stage-info-value"></span></h3>
+      <div class="stage-info-content uc-stage-group-items"></div>
+    </section>
+    <button type="button" class="fm-btn stage-info-task">Task details</button>
+</template>
+
+<div class="modal-backdrop hidden" id="view-modal" onclick="if(event.target===this)closeFileView()">
+  <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="view-title">
+    <div id="view-content">
     <div class="modal-hdr">
       <h2 id="view-title">View file</h2>
       <button class="fm-btn" id="view-reset-size" onclick="resetFileViewSize()" title="Restore the large centered file viewer">Reset size</button>
-      <button class="modal-close" onclick="closeModal('view-modal')">&#x2715;</button>
+      <button class="modal-close" onclick="closeFileView()" aria-label="Close preview">&#x2715;</button>
     </div>
     <div class="modal-body" id="view-body"></div>
     <div class="modal-footer">
       <button class="fm-btn" id="view-raw-btn" onclick="toggleViewRaw()" style="display:none;margin-right:auto">Show Raw</button>
-      <button class="fm-btn" onclick="closeModal('view-modal')">Close</button>
+      <button class="fm-btn" onclick="closeFileView()">Close</button>
+    </div>
     </div>
     <div class="modal-resize-handle" data-resize-direction="se" aria-hidden="true"></div>
   </div>
@@ -784,8 +1082,6 @@ function resetUiLayout(){
     "ucagent-show-current",
     "ucagent-show-files",
     "ucagent-show-git-diff",
-    "ucagent-outcome-count",
-    "ucagent-collapsed-stages",
     "ucagent.control.console.h",
     "ucagent.sidebar.w",
     "ucagent.sidebar.rows",
@@ -1109,67 +1405,23 @@ async function fetchServerInfo(){
 const _STORAGE_KEYS={
   showCurrent:"ucagent-show-current",
   showFiles:"ucagent-show-files",
-  showGitDiff:"ucagent-show-git-diff",
-  outcomeCount:"ucagent-outcome-count",
-  collapsedStages:"ucagent-collapsed-stages"
+  showGitDiff:"ucagent-show-git-diff"
 };
 
 function _loadMissionSettings(){
   const showCurrent=localStorage.getItem(_STORAGE_KEYS.showCurrent)==="true";
   const showFiles=localStorage.getItem(_STORAGE_KEYS.showFiles)!=="false";
   const showGitDiff=localStorage.getItem(_STORAGE_KEYS.showGitDiff)==="true";
-  const outcomeCount=parseInt(localStorage.getItem(_STORAGE_KEYS.outcomeCount))||10;
   const el1=qs("#show-current-content");
   const el2=qs("#show-files");
   const elGit=qs("#show-git-diff");
-  const el3=qs("#outcome-count-input");
   if(el1)el1.checked=showCurrent;
   if(el2)el2.checked=showFiles;
   if(elGit)elGit.checked=showGitDiff;
-  if(el3)el3.value=outcomeCount;
 }
 
 function _saveMissionSetting(key,value){
   localStorage.setItem(key,String(value));
-}
-
-function _getCollapsedStages(){
-  const saved=localStorage.getItem(_STORAGE_KEYS.collapsedStages);
-  if(saved)return new Set(JSON.parse(saved));
-  return null;
-}
-
-function _saveCollapsedStages(set){
-  localStorage.setItem(_STORAGE_KEYS.collapsedStages,JSON.stringify([...set]));
-}
-
-function _isStageCollapsed(stageIndex,hasFiles){
-  if(!hasFiles)return true;
-  const collapsed=_getCollapsedStages();
-  if(collapsed===null)return true;
-  return collapsed.has(stageIndex);
-}
-
-function _toggleStageCollapse(stageIndex){
-  let collapsed=_getCollapsedStages();
-  if(collapsed===null){
-    collapsed=new Set();
-  }
-  const isCurrentlyCollapsed=collapsed.has(stageIndex);
-  if(isCurrentlyCollapsed){
-    collapsed.delete(stageIndex);
-  }else{
-    collapsed.add(stageIndex);
-  }
-  _saveCollapsedStages(collapsed);
-  const content=qs(`#stage-content-${stageIndex}`);
-  const btn=qs(`#stage-collapse-btn-${stageIndex}`);
-  if(content){
-    content.style.display=isCurrentlyCollapsed?"block":"none";
-  }
-  if(btn){
-    btn.textContent=isCurrentlyCollapsed?"▼":"▶";
-  }
 }
 
 function _initMissionSettings(){
@@ -1199,24 +1451,16 @@ function _updateStageSelectionUi(){
   const selected=_selectedStageIndexes();
   const meta=qs("#stage-select-meta");
   if(meta){
-    meta.textContent=_subWorkspace
-      ? (selected.length?`Relaunch stage ${selected[0]}`:"Select one stage for relaunch")
-      : `${selected.length} selected`;
+    meta.textContent=`${selected.length} selected`;
   }
   document.querySelectorAll(".stage-select").forEach(el=>{
     const idx=parseInt(el.dataset.stageIndex,10);
     el.checked=_selectedStages.has(idx);
   });
   document.querySelectorAll(".stage-bulk-btn").forEach((btn,idx)=>{
-    if(_subWorkspace){
-      const isClear=idx===1;
-      btn.style.display=isClear?"":"none";
-      btn.disabled=_stageActionBusy||(isClear&&selected.length===0);
-    }else{
-      btn.style.display="";
-      btn.disabled=_stageActionBusy||(idx>=2&&selected.length===0);
-    }
+    btn.disabled=_stageActionBusy||(idx>0&&selected.length===0);
   });
+  document.querySelectorAll(".stage-flag-btn").forEach(btn=>{btn.disabled=_stageActionBusy;});
 }
 
 function toggleStageSelection(stageIndex,checked){
@@ -1359,7 +1603,7 @@ function _stageTaskCollectionMarkdown(title,value){
   return md+String(value)+"\n\n";
 }
 
-function _stageTaskStatusMarkdown(payload,detail){
+function _stageTaskStatusMarkdown(payload,detail,timeCost){
   const items=[
     ["Current",payload.is_current],
     ["Reached",detail.reached],
@@ -1367,7 +1611,8 @@ function _stageTaskStatusMarkdown(payload,detail){
     ["Check Pass",detail.check_pass],
     ["Skipped",detail.is_skipped],
     ["Human Check",detail.needs_human_check],
-    ["Fail Count",detail.fail_count]
+    ["Fail Count",detail.fail_count],
+    ["Elapsed",timeCost||undefined]
   ].filter(item=>item[1]!==undefined&&item[1]!==null);
   if(!items.length)return "";
   let html='<div class="stage-task-meta">';
@@ -1407,11 +1652,16 @@ function _stageTaskLastCheckInfoValue(payload,detail,task){
   ]);
 }
 
-function _stageTaskLastCheckMarkdown(payload,detail,task){
+/** Return the independently recorded last failure and pass. */
+function _stageTaskCheckRuns(payload,detail,task){
   const info=_stageTaskLastCheckInfoValue(payload,detail,task);
-  if(_stageTaskIsEmpty(info))return "## Last Check Results\n\n_None_\n\n";
-  const fail=info.fail??info.last_fail??info.failed??info.failure;
-  const pass=info.pass??info.last_pass??info.passed??info.success;
+  return [info?.fail??info?.last_fail??info?.failed??info?.failure,
+    info?.pass??info?.last_pass??info?.passed??info?.success];
+}
+
+function _stageTaskLastCheckMarkdown(payload,detail,task){
+  const [fail,pass]=_stageTaskCheckRuns(payload,detail,task);
+  if(_stageTaskIsEmpty(fail)&&_stageTaskIsEmpty(pass))return "## Last Check Results\n\n_None_\n\n";
   let md="## Last Check Results\n\n";
   md+=`### Last Fail\n\n${_stageTaskValueMarkdown(fail)}\n\n`;
   md+=`### Last Pass\n\n${_stageTaskValueMarkdown(pass)}\n\n`;
@@ -1445,10 +1695,10 @@ function _stageTaskDescriptionMarkdown(task,heading){
   return md;
 }
 
-function _stageTaskDetailToMarkdown(data,stageIndex){
+function _stageTaskDetailToMarkdown(data,stageIndex,timeCost){
   const {payload,detail,task}=_stageTaskPayload(data);
   let md=`# ${_stageTaskMdText(_stageTaskTitle(data,stageIndex))}\n\n`;
-  md+=_stageTaskStatusMarkdown(payload,detail);
+  md+=_stageTaskStatusMarkdown(payload,detail,timeCost);
   md+=_stageTaskDescriptionMarkdown(task,"Task");
   if(task.notes)md+=`## Notes\n\n${_stageTaskValueMarkdown(task.notes)}\n\n`;
   md+=_stageTaskCollectionMarkdown("Reference Files",task.reference_files);
@@ -1468,180 +1718,284 @@ function _stageTaskDetailToMarkdown(data,stageIndex){
   return md.trim()||"(empty task detail)";
 }
 
+/** Load the same stage detail for the overview and the full task viewer. */
+async function _fetchStageTask(stageIndex){
+  const {data}=await apiFetch("/api/stage/"+stageIndex+"/task");
+  if(typeof data==="string")throw new Error(data);
+  return data;
+}
+
 async function openStageTask(stageIndex){
+  const request=_openFilePreview(`Stage ${stageIndex} Task`);
   const body=qs("#view-body");
-  qs("#view-title").textContent=`Stage ${stageIndex} Task`;
-  qs("#view-raw-btn").style.display="none";
-  _viewIsRaw=false;
-  _viewIsStageFile=false;
-  _viewIsCurrentStageFile=false;
-  body.style.padding="0";
-  body.style.overflow="hidden";
-  body.innerHTML='<div style="color:var(--text-dim);padding:20px">Loading…</div>';
-  openModal("view-modal");
   try{
-    const j=await apiFetch("/api/stage/"+stageIndex+"/task");
-    const data=j.data;
-    if(typeof data==="string")throw new Error(data);
+    const data=await _fetchStageTask(stageIndex);
+    if(request!==_viewRequest)return;
     qs("#view-title").textContent=_stageTaskTitle(data,stageIndex);
     _viewCurrentPath="";
     _viewCurrentExt="md";
-    _viewCurrentContent=_stageTaskDetailToMarkdown(data,stageIndex);
+    const timeCost=window._missionStages?.find(stage=>stage.index===stageIndex)?.time_cost;
+    _viewCurrentContent=_stageTaskDetailToMarkdown(data,stageIndex,timeCost);
     body.innerHTML='<div id="view-md"></div>';
     _renderViewMarkdown(_viewCurrentContent);
   }catch(e){
-    body.innerHTML=`<div style="color:var(--red);padding:20px">${esc(e.message)}</div>`;
+    if(request===_viewRequest)body.innerHTML=`<div style="color:var(--red);padding:20px">${esc(e.message)}</div>`;
   }
-  _applyStoredModalResize('view-modal');
 }
 
+let _missionData={};
+let _missionRequest=0;
+let _missionPosition=null;
+let _stageInfoRequest=0;
+
+/** Render eligible flag controls with the last observed value. */
+function _stageFlagButtons(stage,inline){
+  if(_subWorkspace||stage.is_completed||(!stage.can_edit_flags&&!stage.is_current))return "";
+  const flags=[
+    ["HM","hmcheck_needed",stage.needs_human_check,"Toggle human review requirement","hm"],
+    ...(stage.can_edit_flags?[["Skip","skip",stage.is_skipped,"Toggle scheduled skip","skip"]]:[]),
+    ...(!inline&&_missionData.enable_llm_fail_suggestion?[["LF","llm_fail_suggestion",stage.need_fail_llm_suggestion,"Toggle LLM fail suggestion","lf"]]:[]),
+    ...(!inline&&_missionData.enable_llm_pass_suggestion?[["LP","llm_pass_suggestion",stage.need_pass_llm_suggestion,"Toggle LLM pass suggestion","lp"]]:[]),
+  ];
+  return flags.map(([label,key,enabled,help,style])=>
+    `<button type="button" id="stage-${inline?"inline":"info"}-${key}-${stage.index}" class="stage-quick-btn stage-flag-btn${enabled?" active-"+style:""}" aria-pressed="${!!enabled}" title="${help}" onclick="toggleStageQuickAction(${stage.index},'${key}',${!!enabled})">${label}</button>`
+  ).join("");
+}
+
+/** Leave unchanged content in place and retain focus when an action updates. */
+function _setStageInfoMarkup(node,markup){
+  if(node.dataset.markup===markup)return;
+  const focus=node.contains(document.activeElement)?document.activeElement.id:"";
+  node.dataset.markup=markup;
+  node.innerHTML=markup;
+  if(focus)document.getElementById(focus)?.focus({preventScroll:true});
+}
+
+/** Show the skills attached to this stage, including any recorded usage status. */
+function _showStageSkills(panel,skills){
+  const {escape}=UCAgentStageView;
+  const section=panel.querySelector('[data-stage-section="skills"]');
+  const entries=Array.isArray(skills)?skills.map(name=>[name,null]):Object.entries(skills||{});
+  section.querySelector(".stage-info-value").textContent=String(entries.length);
+  const items=entries.map(([name,state])=>{
+    const status=Array.isArray(state)?state[2]:"";
+    return `<li>${escape(name)}${status?` <span class="stage-info-skill-status">${escape(status)}</span>`:""}</li>`;
+  }).join("");
+  _setStageInfoMarkup(section.querySelector(".stage-info-content"),items
+    ? `<ul class="stage-info-skills">${items}</ul>`
+    : '<span class="stage-info-empty">No skills listed for this stage.</span>');
+}
+
+/** Expand or collapse the selected row without opening another surface. */
+function toggleStageInfo(index){
+  const stage=(window._missionStages||[]).find(row=>row.index===index);
+  const panel=qs(`#stage-info-${index}`);
+  if(!stage||!panel)return;
+  panel.hidden=!panel.hidden;
+  qs(`#stage-title-${index}`).setAttribute("aria-expanded",String(!panel.hidden));
+  if(!panel.hidden)_refreshStageInfo(stage,panel);
+}
+
+/** Populate an expanded row and ignore stale Check and Skills requests. */
+async function _refreshStageInfo(stage,panel){
+  const {escape,stageTitle,stageStatus}=UCAgentStageView;
+  const firstOpen=!panel.firstElementChild;
+  if(firstOpen){
+    panel.append(qs("#stage-info-template").content.cloneNode(true));
+    panel.querySelector(".stage-info-task").addEventListener("click",()=>openStageTask(stage.index));
+  }
+  const {batch}=stageTitle(stage);
+  const status=stageStatus(stage,_missionData.current_index,_missionData.all_completed,_missionData.is_waiting_for_review);
+  const meta=[status.label,stage.time_cost,stage.fail_count>0?`${stage.fail_count} failures`:"",batch?`Batch ${batch[1]}/${batch[2]}`:""];
+  _setStageInfoMarkup(panel.querySelector("[data-stage-meta]"),meta.filter(Boolean).map(value=>`<span class="stage-task-pill">${escape(value)}</span>`).join(""));
+  _setStageInfoMarkup(panel.querySelector("[data-stage-flags]"),_stageFlagButtons(stage,false));
+  const check=panel.querySelector('[data-stage-section="check"]');
+  const checkStatus=check.querySelector(".stage-info-value");
+  const checkBody=check.querySelector(".stage-info-content");
+  if(firstOpen){
+    checkStatus.textContent="Loading…";
+    _setStageInfoMarkup(checkBody,'<span class="stage-info-empty">Loading Check results…</span>');
+    _showStageSkills(panel,stage.skill_list);
+  }
+  for(const kind of ["output","changed"]){
+    const files=panel.querySelector(`[data-stage-section="${kind}"]`);
+    files.hidden=!qs("#show-files").checked;
+    if(!files.hidden)_showStageFiles(stage,files,kind);
+  }
+  panel.querySelectorAll(".stage-flag-btn").forEach(button=>{button.disabled=_stageActionBusy;});
+  const request=String(++_stageInfoRequest);
+  panel.dataset.request=request;
+  const workspace=_subWorkspace;
+  try{
+    const data=await _fetchStageTask(stage.index);
+    if(request!==panel.dataset.request||!panel.isConnected||panel.hidden||workspace!==_subWorkspace)return;
+    const {payload,detail,task}=_stageTaskPayload(data);
+    _showStageSkills(panel,task.skill_list??stage.skill_list);
+    const [fail,pass]=_stageTaskCheckRuns(payload,detail,task);
+    const hasFail=!_stageTaskIsEmpty(fail);
+    const hasPass=!_stageTaskIsEmpty(pass);
+    checkStatus.textContent=detail.check_pass?"Passed":hasFail?"Failed":hasPass?"Pass recorded":"No results";
+    const checks=[["Last failure",fail],["Last pass",pass]].flatMap(([label,items])=>{
+      if(_stageTaskIsEmpty(items))return [];
+      return (Array.isArray(items)?items:[items]).map(item=>{
+        const name=item?.checker_name||item?.name;
+        const result=item?.checked_in_last_run===false?" · Not run":item?.last_check_pass===true?" · Passed":item?.last_check_pass===false?" · Failed":"";
+        const value=item?.last_msg??item;
+        const message=typeof value==="string"?value:JSON.stringify(value,null,2);
+        return `<div class="stage-info-check"><h4>${escape(name?`${label} · ${name}${result}`:label)}</h4><pre>${escape(message)}</pre></div>`;
+      });
+    }).join("");
+    _setStageInfoMarkup(checkBody,checks||'<span class="stage-info-empty">No Check results recorded for this stage.</span>');
+  }catch(error){
+    if(request!==panel.dataset.request||!panel.isConnected||panel.hidden||workspace!==_subWorkspace)return;
+    checkStatus.textContent="Unavailable";
+    _setStageInfoMarkup(checkBody,`<span class="stage-info-empty">${escape(error.message)}</span>`);
+  }
+}
+
+/** List only stages the server marks as eligible for bulk editing. */
+function openStageBulk(){
+  if(_subWorkspace)return;
+  const {escape,stageTitle}=UCAgentStageView;
+  const list=qs("#stage-bulk-list");
+  const dialog=qs("#stage-bulk-dialog");
+  const eligible=(window._missionStages||[]).filter(stage=>stage.can_edit_flags);
+  const markup=eligible.map(stage=>{
+    const {section,label}=stageTitle(stage);
+    return `<label><input type="checkbox" class="stage-select" data-stage-index="${stage.index}" onchange="toggleStageSelection(${stage.index},this.checked)">${escape(section+" "+label)}</label>`;
+  }).join("");
+  if(list.dataset.markup!==markup){
+    list.dataset.markup=markup;
+    list.innerHTML=markup||"No editable stages.";
+  }
+  if(!dialog.open&&eligible.length)dialog.showModal();
+  _updateStageSelectionUi();
+}
+
+/** Open the active disclosure and scroll only its stage pane. */
+function locateCurrentStage(){
+  const row=qs("#mission-list .current-stage");
+  if(!row)return;
+  row.closest("details").open=true;
+  const scroller=qs("#mission-scroll");
+  const bounds=row.querySelector(".stage-row").getBoundingClientRect();
+  const viewport=scroller.getBoundingClientRect();
+  if(bounds.top<viewport.top||bounds.height>viewport.height)scroller.scrollTop+=bounds.top-viewport.top;
+  else if(bounds.bottom>viewport.bottom)scroller.scrollTop+=bounds.bottom-viewport.bottom;
+}
+
+/** Refresh the workflow while retaining the reader's disclosure and scroll position. */
 async function fetchMission(){
+  const request=++_missionRequest;
+  const workspace=_subWorkspace;
+  const list=qs("#mission-list");
   try{
     const j=await apiFetch("/api/mission");
+    if(request!==_missionRequest||workspace!==_subWorkspace)return;
     const data=j.data||{};
-    const missionName=data.mission_name||"Mission";
     const stages=data.stages||[];
-    const enableLlmFailSuggestion=!!data.enable_llm_fail_suggestion;
-    const enableLlmPassSuggestion=!!data.enable_llm_pass_suggestion;
-    _setStageFeatureVisibility(enableLlmFailSuggestion,enableLlmPassSuggestion);
+    const {escape,isCurrent,stageTitle,renderStage,groupStages,renderGroup,summarize}=UCAgentStageView;
+    const currentIndex=data.current_index;
+    const current=stages.find(stage=>isCurrent(stage,currentIndex));
+    const allCompleted=!!data.all_completed;
+    const waiting=!!data.is_waiting_for_review;
+    const sameMission=_missionPosition?.workspace===workspace&&_missionPosition.name===data.mission_name;
+    const currentChanged=!sameMission||_missionPosition.index!==current?.index||(_missionPosition.waiting!==waiting&&waiting);
+    const openGroups=new Set(sameMission?Array.from(list.querySelectorAll("details[open]"),node=>node.dataset.stageGroup):[]);
+    const openStageInfo=new Map(sameMission?Array.from(list.querySelectorAll(".stage-inline-info:not([hidden])"),
+      node=>[Number(node.dataset.stageIndex),node]):[]);
+    const scroll=qs("#mission-scroll");
+    const scrollTop=sameMission?scroll.scrollTop:0;
+    const focused=list.contains(document.activeElement)?document.activeElement:null;
+    const focusedId=focused?.id;
+    const focusedGroup=focused?.closest("summary")?.parentElement.dataset.stageGroup;
+    _missionPosition={workspace,name:data.mission_name,index:current?.index,waiting};
+    _missionData=data;
+    _setStageFeatureVisibility(data.enable_llm_fail_suggestion,data.enable_llm_pass_suggestion);
     window._missionStages=stages;
     _pruneSelectedStages(stages);
-    window._missionOutcomeData={};
-    const showFiles=qs("#show-files")?.checked!==false;
-    const showGitDiff=qs("#show-git-diff")?.checked===true;
-    let html=`<div class="mission-name">${esc(missionName)}</div>`;
-    for(const stage of stages){
-      const canEditFlags=!!stage.can_edit_flags;
-      const canQuickEditFlags=!_subWorkspace&&(canEditFlags||!!stage.is_current);
-      const outcome=stage.outcome;
-      const outputFiles=outcome?.output_files||{};
-      const outputSet=new Set(Object.values(outputFiles).flat().filter(Boolean));
-      const fileStatuses=outcome?.changed_file_statuses||{};
-      const changedFiles=(outcome?.changed_files||[]).slice();
-      const allFiles=[...new Set([...outputSet,...changedFiles])].sort();
-      const hasFiles=allFiles.length>0;
-      const isCollapsed=_isStageCollapsed(stage.index,hasFiles);
-      html+=`<div class="stage-item">`;
-      html+=`<div class="stage-text-wrap">`;
-      const canSelectStage=_subWorkspace||canEditFlags;
-      if(canSelectStage){
-        const selectTitle=_subWorkspace?`Select stage ${stage.index} as relaunch start`:`Select stage ${stage.index}`;
-        html+=`<input class="stage-select" type="checkbox" data-stage-index="${stage.index}" onchange="toggleStageSelection(${stage.index},this.checked)" ${_selectedStages.has(stage.index)?"checked":""} title="${esc(selectTitle)}">`;
-      }else{
-        html+=`<span class="stage-select-slot"></span>`;
-      }
-      html+=`<div class="stage-main">`;
-      if(hasFiles){
-        html+=`<span class="stage-collapse-btn" id="stage-collapse-btn-${stage.index}" onclick="_toggleStageCollapse(${stage.index})">${isCollapsed?"▶":"▼"}</span>`;
-      }else{
-        html+=`<span class="stage-collapse-btn"></span>`;
-      }
-      html+=`<div style="flex:1;min-width:0">`;
-      html+=`<div class="stage-row">`;
-      html+=`<button type="button" class="stage-text stage-title-btn" onclick="openStageTask(${stage.index})" title="View stage task detail">${UCAgentStageView.renderStage(stage,data.current_index)}</button>`;
-      if(canQuickEditFlags){
-        html+=`<div class="stage-actions">`;
-        html+=`<button class="stage-quick-btn${stage.needs_human_check?" active-hm":""}" onclick="toggleStageQuickAction(${stage.index},'hmcheck_needed',${stage.needs_human_check?'true':'false'})" title="Toggle human check">HM</button>`;
-        if(canEditFlags){
-          html+=`<button class="stage-quick-btn${stage.is_skipped?" active-skip":""}" onclick="toggleStageQuickAction(${stage.index},'skip',${stage.is_skipped?'true':'false'})" title="Toggle skip">Skip</button>`;
-        }
-        if(enableLlmFailSuggestion){
-          html+=`<button class="stage-quick-btn${stage.need_fail_llm_suggestion?" active-lf":""}" onclick="toggleStageQuickAction(${stage.index},'llm_fail_suggestion',${stage.need_fail_llm_suggestion?'true':'false'})" title="Toggle LLM fail suggestion">LF</button>`;
-        }
-        if(enableLlmPassSuggestion){
-          html+=`<button class="stage-quick-btn${stage.need_pass_llm_suggestion?" active-lp":""}" onclick="toggleStageQuickAction(${stage.index},'llm_pass_suggestion',${stage.need_pass_llm_suggestion?'true':'false'})" title="Toggle LLM pass suggestion">LP</button>`;
-        }
-        html+=`</div>`;
-      }
-      html+=`</div>`;
-      html+=`</div>`;
-      html+=`</div>`;
-      html+=`</div>`;
-      if(showFiles&&outcome&&hasFiles){
-        window._missionOutcomeData[stage.index]=outcome;
-        html+=`<div class="stage-outcome" id="stage-content-${stage.index}" style="display:${isCollapsed?"none":"block"}">`;
-        html+=`<div class="outcome-section">`;
-        html+=`<span class="outcome-label">Files:</span>`;
-        html+=`<div class="outcome-files-grid" id="files-${stage.index}">`;
-        html+=_renderOutcomeFiles(allFiles,stage.index,outputSet,false,fileStatuses);
-        html+=`</div></div>`;
-        html+=`</div>`;
-      }
-      html+=`</div>`;
+    const showGitDiff=qs("#show-git-diff").checked;
+    const summary=summarize(stages,currentIndex,allCompleted);
+    const name=qs("#mission-name");
+    name.textContent=data.mission_name||"Mission / Tasks";
+    name.title=name.textContent;
+    const progress=qs("#mission-progress");
+    progress.hidden=!summary.total;
+    progress.max=summary.total||1;
+    progress.value=summary.completed+summary.skipped;
+    progress.setAttribute("aria-valuetext",summary.label);
+    qs("#mission-percent").textContent=summary.percent===null?"":summary.percent+"%";
+    const counts=qs("#mission-counts");
+    counts.textContent=summary.total?`${summary.completed} done · ${summary.skipped} skipped`:"";
+    counts.title=summary.label;
+    counts.hidden=!!current;
+    const currentButton=qs("#mission-current");
+    currentButton.hidden=!current;
+    currentButton.classList.toggle("awaiting-review",waiting);
+    if(current){
+      const {section,label}=stageTitle(current);
+      currentButton.textContent=(waiting?"HM · ":"")+section+" "+label;
+      currentButton.title=(waiting?"Awaiting human review: ":"Locate current stage: ")+section+" "+label;
     }
+    qs("#mission-bulk-btn").hidden=!!workspace||!stages.some(stage=>stage.can_edit_flags);
+    const groups=groupStages(stages);
+    let html=groups.map(group=>{
+      const rows=group.stages.map(stage=>{
+        const index=stage.index;
+        const active=stage===current;
+        const expanded=openStageInfo.has(index);
+        const inline=_stageFlagButtons(stage,true);
+        return `<div class="stage-item${active?" current-stage":""}"><div class="stage-row">`
+          +(workspace?`<input id="stage-select-${index}" class="stage-select" type="checkbox" data-stage-index="${index}" aria-label="Select stage ${index} for relaunch" title="Select stage ${index} for relaunch" onchange="toggleStageSelection(${index},this.checked)">`:"")
+          +`<button type="button" id="stage-title-${index}" class="stage-title-btn" onclick="toggleStageInfo(${index})" aria-expanded="${expanded}" aria-controls="stage-info-${index}" title="${escape(stage.title)}"${active?' aria-current="step"':''}>`
+          +`<span class="stage-chevron" aria-hidden="true">›</span>${renderStage(stage,currentIndex,allCompleted,waiting)}</button>`
+          +(inline?`<div class="stage-actions">${inline}</div>`:"")
+          +`</div><div class="stage-inline-info" id="stage-info-${index}" data-stage-index="${index}" hidden></div></div>`;
+      }).join("");
+      const open=openGroups.has(String(group.key))||(currentChanged&&group.stages.includes(current));
+      return renderGroup(group,currentIndex,allCompleted,open,rows);
+    }).join("");
     if(showGitDiff){
-      html+=`<div class="workspace-git-section" id="workspace-git-status">`;
-      html+=`<div class="workspace-git-hdr"><span class="workspace-git-title">Workspace Git Changes</span><button class="workspace-git-refresh" onclick="fetchWorkspaceGitStatus()">Refresh</button></div>`;
-      html+=`<div class="workspace-git-msg">Loading Git status…</div>`;
-      html+=`</div>`;
+      html+='<div class="workspace-git-section" id="workspace-git-status"><div class="workspace-git-msg">Loading Git status…</div></div>';
     }
-    qs("#mission-list").innerHTML=html||"(no tasks)";
+    list.innerHTML=html||"No stages";
+    for(const stage of stages){
+      const panel=openStageInfo.get(stage.index);
+      if(!panel)continue;
+      qs(`#stage-info-${stage.index}`).replaceWith(panel);
+      if(panel.closest("details").open)_refreshStageInfo(stage,panel);
+    }
+    scroll.scrollTop=scrollTop;
+    if(currentChanged&&current)locateCurrentStage();
+    else if(focusedId)document.getElementById(focusedId)?.focus({preventScroll:true});
+    else if(focused?.isConnected)focused.focus({preventScroll:true});
+    else if(focusedGroup!==undefined)list.querySelector(`[data-stage-group="${focusedGroup}"] summary`)?.focus({preventScroll:true});
+    if(qs("#stage-bulk-dialog").open)openStageBulk();
     _updateStageSelectionUi();
     if(showGitDiff)fetchWorkspaceGitStatus();
-  }catch(e){qs("#mission-list").textContent="(unavailable)";}
-}
-
-function getOutcomeShowCount(){
-  const el=qs("#outcome-count-input");
-  return el?Math.max(1,parseInt(el.value)||10):10;
-}
-
-function outcomeCountStep(d){
-  const el=qs("#outcome-count-input");
-  if(!el)return;
-  const v=Math.max(1,Math.min(99,(parseInt(el.value)||10)+d));
-  el.value=v;
-  _saveMissionSetting(_STORAGE_KEYS.outcomeCount,v);
-  refreshOutcomeFiles();
-}
-
-function refreshOutcomeFiles(){
-  if(!window._missionOutcomeData)return;
-  for(const stageIndex in window._missionOutcomeData){
-    const outcome=window._missionOutcomeData[stageIndex];
-    const outputFiles=outcome.output_files||{};
-    const outputSet=new Set(Object.values(outputFiles).flat().filter(Boolean));
-    const statuses=outcome.changed_file_statuses||{};
-    const changedFiles=(outcome.changed_files||[]).slice();
-    const allFiles=[...new Set([...outputSet,...changedFiles])].sort();
-    const grid=qs(`#files-${stageIndex}`);
-    if(grid&&allFiles.length){
-      grid.innerHTML=_renderOutcomeFiles(allFiles,parseInt(stageIndex),outputSet,false,statuses);
+  }catch(e){
+    if(request!==_missionRequest||workspace!==_subWorkspace)return;
+    if(_missionPosition?.workspace!==workspace||!list.querySelector(".uc-stage-group")){
+      list.textContent="(unavailable)";
     }
   }
 }
 
-function _renderOutcomeFiles(files,stageIndex,outputSet,expanded,statuses={}){
-  const maxCount=getOutcomeShowCount();
-  const showCount=expanded?files.length:maxCount;
-  let html="";
-  for(let i=0;i<Math.min(showCount,files.length);i++){
-    html+=_renderOutcomeFile(files[i],stageIndex,outputSet,statuses);
-  }
-  if(files.length>maxCount){
-    if(!expanded){
-      html+=`<span class="outcome-more-btn" onclick="_toggleOutcomeFiles(${stageIndex},true)">…${files.length-maxCount} more</span>`;
-    }else{
-      html+=`<span class="outcome-more-btn" onclick="_toggleOutcomeFiles(${stageIndex},false)">« less</span>`;
-    }
-  }
-  return html;
-}
-
-function _toggleOutcomeFiles(stageIndex,expanded){
-  const grid=qs(`#files-${stageIndex}`);
-  if(!grid)return;
-  const outcome=window._missionOutcomeData?.[stageIndex];
-  if(!outcome)return;
-  const outputFiles=outcome.output_files||{};
-  const outputSet=new Set(Object.values(outputFiles).flat().filter(Boolean));
-  const statuses=outcome.changed_file_statuses||{};
-  const changedFiles=(outcome.changed_files||[]).slice();
-  const allFiles=[...new Set([...outputSet,...changedFiles])].sort();
-  grid.innerHTML=_renderOutcomeFiles(allFiles,stageIndex,outputSet,expanded,statuses);
+/** Show every recorded file in the selected stage section. */
+function _showStageFiles(stage,section,kind){
+  const outcome=stage.outcome;
+  const statuses=outcome?.changed_file_statuses||{};
+  const changed=kind==="changed";
+  const outputSet=changed?new Set():new Set(Object.values(outcome?.output_files||{}).flat().filter(Boolean));
+  const files=(changed?[...new Set([...(outcome?.changed_files||[]),...Object.keys(statuses)])]:[...outputSet]).sort();
+  section.querySelector(".stage-info-value").textContent=String(files.length);
+  const items=files.map(file=>`<li>${_renderOutcomeFile(file,stage.index,outputSet,changed?statuses:{})}</li>`).join("");
+  _setStageInfoMarkup(section.querySelector(".stage-info-content"),items?`<ul class="stage-info-files">${items}</ul>`
+    : '<span class="stage-info-empty">No files recorded for this stage.</span>');
 }
 
 function _renderOutcomeFile(filePath,stageIndex,outputSet,statuses={}){
+  const {escape}=UCAgentStageView;
   const isOutput=outputSet.has(filePath);
   const status=statuses[filePath]||"";
   const deleted=status==="deleted";
@@ -1660,15 +2014,16 @@ function _renderOutcomeFile(filePath,stageIndex,outputSet,statuses={}){
     const part=parts[i];
     builtPath=builtPath?builtPath+"/"+part:part;
     const p=builtPath;
-    pathHtml+=`<span class="outcome-path-part ${colorCls}" onclick="fetchFiles('${esc(p)}')" title="${esc(p)}">${esc(part)}</span>`;
+    pathHtml+=`<button type="button" class="outcome-path-part ${colorCls}" onclick="fetchFiles('${escape(jsq(p))}')" title="${escape(p)}">${esc(part)}</button>`;
     pathHtml+=`<span class="outcome-sep ${colorCls}">/</span>`;
   }
   if(canView){
-    pathHtml+=`<span class="outcome-name ${cls}" onclick="openStageFile(${stageIndex},'${esc(filePath)}','${esc(name)}','${esc(ext)}')" title="${esc(filePath)}">${esc(name)}</span>`;
+    pathHtml+=`<button type="button" class="outcome-name ${cls}" onclick="openStageFile(${stageIndex},'${escape(jsq(filePath))}','${escape(jsq(name))}','${escape(jsq(ext))}')" title="${escape(filePath)}">${esc(name)}</button>`;
   }else{
-    pathHtml+=`<span class="outcome-name ${cls}" onclick="fetchFiles('${esc(builtPath)}')" title="${esc(filePath)}">${esc(name)}</span>`;
+    pathHtml+=`<button type="button" class="outcome-name ${cls}" onclick="fetchFiles('${escape(jsq(builtPath))}')" title="${escape(filePath)}">${esc(name)}</button>`;
   }
-  return`<span class="outcome-file-wrap ${deleted?"deleted":""}">${pathHtml}</span>`;
+  const statusLabel=status?` <span class="stage-info-value">${escape(status)}</span>`:"";
+  return`<span class="outcome-file-wrap ${deleted?"deleted":""}">${pathHtml}${statusLabel}</span>`;
 }
 
 function _renderWorkspaceGitStatus(data){
@@ -1731,8 +2086,59 @@ async function fetchWorkspaceGitStatus(){
 }
 
 let _viewCurrentPath="",_viewCurrentExt="",_viewCurrentContent="",_viewCurrentDiff="",_viewStageIndex=0,_viewFilePath="",_viewFileName="",_viewIsStageFile=false,_viewIsCurrentStageFile=false,_stageDiffRefreshing=false;
+let _viewRequest=0;
+let _viewOpener;
+
+/** Open a file over the current report or graph without changing the underlying view. */
+function _openFilePreview(name){
+  if(qs("#view-modal").classList.contains("hidden"))_viewOpener=document.activeElement;
+  qs("#view-title").textContent=name;
+  qs("#view-raw-btn").style.display="none";
+  const body=qs("#view-body");
+  body.style.height="";
+  body.style.maxHeight="";
+  body.style.padding="0";
+  body.style.overflow="hidden";
+  body.innerHTML='<div class="report-message">Loading…</div>';
+  _viewIsRaw=false;
+  _viewIsStageFile=false;
+  _viewIsCurrentStageFile=false;
+  _stageDiffRefreshing=false;
+  openModal("view-modal");
+  qs("#view-modal .modal-close").focus({preventScroll:true});
+  return ++_viewRequest;
+}
+
+function closeFileView(){
+  _viewRequest++;
+  if(qs("#view-modal").classList.contains("hidden"))return;
+  closeModal("view-modal");
+  qs("#view-body").replaceChildren();
+  if(_viewOpener?.isConnected)_viewOpener.focus({preventScroll:true});
+  _viewOpener=null;
+}
+
+document.addEventListener("keydown",event=>{
+  const modal=qs("#view-modal");
+  if(modal.classList.contains("hidden"))return;
+  if(event.key==="Escape"){
+    event.preventDefault();
+    event.stopPropagation();
+    closeFileView();
+  }else if(event.key==="Tab"){
+    const controls=[...modal.querySelectorAll("button, a[href], iframe, [tabindex='0']")]
+      .filter(element=>!element.disabled&&element.getClientRects().length);
+    const edge=event.shiftKey?controls[0]:controls.at(-1);
+    if(document.activeElement===edge||!modal.contains(document.activeElement)){
+      event.preventDefault();
+      (event.shiftKey?controls.at(-1):controls[0])?.focus();
+    }
+  }
+},true);
 
 async function openStageFile(stageIndex,filePath,name,ext){
+  const request=_openFilePreview(name);
+  const body=qs("#view-body");
   try{
     const showCurrent=qs("#show-current-content")?.checked||false;
     const stageInfo=(window._missionStages||[]).find(stage=>stage.index===stageIndex);
@@ -1741,11 +2147,9 @@ async function openStageFile(stageIndex,filePath,name,ext){
     const useCurrent=showCurrent||forceCurrent;
     const apiPath=useCurrent?"/api/stage/"+stageIndex+"/file_current":"/api/stage/"+stageIndex+"/file";
     const j=await apiFetch(apiPath+"?file_path="+encodeURIComponent(filePath));
+    if(request!==_viewRequest)return;
     const data=j.data||{};
-    if(data.error){
-      showErr(data.error);
-      return;
-    }
+    if(data.error)throw new Error(data.error);
     _viewCurrentPath=filePath;
     _viewCurrentExt=ext;
     let content=data.content||"";
@@ -1761,35 +2165,20 @@ async function openStageFile(stageIndex,filePath,name,ext){
     _viewIsCurrentStageFile=isCurrentStage;
     _stageDiffRefreshing=false;
     qs("#view-title").textContent=data.status==="deleted"||data.exists===false?name+" (deleted)":name;
-    qs("#view-raw-btn").style.display="none";
-    const body=qs("#view-body");
-    body.style.padding="0";
-    body.style.overflow="hidden";
     _renderStageFileContent(body,ext,false);
-    openModal("view-modal");
-    _applyStoredModalResize('view-modal');
-  }catch(e){showErr(e.message);}
+  }catch(e){
+    if(request===_viewRequest)body.innerHTML=`<div class="report-message">${esc(e.message)}</div>`;
+  }
 }
 
 async function openWorkspaceGitFile(filePath,name,ext){
+  const request=_openFilePreview(name+" - Git");
   const body=qs("#view-body");
-  qs("#view-title").textContent=name+" - Git";
-  qs("#view-raw-btn").style.display="none";
-  _viewIsRaw=false;
-  body.style.padding="0";
-  body.style.overflow="hidden";
-  body.innerHTML='<div style="color:var(--text-dim);padding:20px">Loading…</div>';
-  openModal("view-modal");
   try{
     const j=await apiFetch("/api/workspace_git_file?file_path="+encodeURIComponent(filePath));
+    if(request!==_viewRequest)return;
     const data=j.data||{};
-    if(data.error){
-      body.style.padding="14px";
-      body.style.overflow="auto";
-      body.innerHTML=`<div style="color:var(--red);line-height:1.6">${esc(data.error)}</div>`;
-      _applyStoredModalResize('view-modal');
-      return;
-    }
+    if(data.error)throw new Error(data.error);
     _viewCurrentPath=filePath;
     _viewCurrentExt=ext;
     let content=data.content||"";
@@ -1805,15 +2194,9 @@ async function openWorkspaceGitFile(filePath,name,ext){
     _viewIsCurrentStageFile=false;
     _stageDiffRefreshing=false;
     qs("#view-title").textContent=(data.exists===false?name+" (deleted)":name)+" - Git";
-    body.style.padding="0";
-    body.style.overflow="hidden";
     _renderStageFileContent(body,ext,!!diff.trim()&&!content.trim());
-    _applyStoredModalResize('view-modal');
   }catch(e){
-    body.style.padding="14px";
-    body.style.overflow="auto";
-    body.innerHTML=`<div style="color:var(--red);line-height:1.6">${esc(e.message)}</div>`;
-    _applyStoredModalResize('view-modal');
+    if(request===_viewRequest)body.innerHTML=`<div class="report-message">${esc(e.message)}</div>`;
   }
 }
 
@@ -1876,10 +2259,12 @@ async function refreshStageDiff(){
   if(!_viewIsStageFile||!_viewIsCurrentStageFile||!Number.isInteger(_viewStageIndex)||_viewStageIndex<0||!_viewFilePath)return;
   const body=qs("#view-body");
   if(!body||_stageDiffRefreshing)return;
+  const request=_viewRequest;
   _stageDiffRefreshing=true;
   _renderStageFileContent(body,_viewCurrentExt,true);
   try{
     const j=await apiFetch("/api/stage/"+_viewStageIndex+"/file_current?file_path="+encodeURIComponent(_viewFilePath)+"&sync_history=true");
+    if(request!==_viewRequest)return;
     const data=j.data||{};
     if(data.error){
       showErr(data.error);
@@ -1893,10 +2278,12 @@ async function refreshStageDiff(){
       fetchMission();
     }
   }catch(e){
-    showErr(e.message);
+    if(request===_viewRequest)showErr(e.message);
   }finally{
-    _stageDiffRefreshing=false;
-    _renderStageFileContent(body,_viewCurrentExt,true);
+    if(request===_viewRequest){
+      _stageDiffRefreshing=false;
+      _renderStageFileContent(body,_viewCurrentExt,true);
+    }
   }
 }
 
@@ -1990,11 +2377,21 @@ async function _syncConsoleWorkspace(){
 }
 
 function _refreshWorkspaceViews(){
+  closeFileView();
   _selectedStages.clear();
+  _lastFileMeta={};
+  delete qs("#workspace-file-scroll").dataset.workspace;
+  qs("#breadcrumb").replaceChildren();
+  qs("#fm-body").replaceChildren();
   fetchStatus();
   fetchMission();
   fetchTools();
-  fetchFiles("");
+  _reportFolders=[];
+  qs("#reports-breadcrumb").hidden=true;
+  qs("#report-file-list").textContent="Loading reports…";
+  qs("#function-map-search").value="";
+  _showFunctionMapMessage("Loading function map…");
+  refreshFiles();
   fetchChangedFiles();
   fetchRuntimeStatus();
 }
@@ -2094,23 +2491,379 @@ window.addEventListener("message",function(event){
 });
 
 /* ── file manager ── */
+let _reportRequest=0;
+let _reportFolders=[];
+let _functionMapRequest=0;
+let _functionMap;
+let _fileListRequest=0;
+const _REPORT_DIRECTORIES=new Set(["unit_test","unity_test","uc_test_report","reports","report","coverage","coverage_data","line_dat"]);
+const _WAVE_DIRECTORIES=new Set(["waveforms","waves"]);
+const _TEST_DATA_DIRECTORIES=new Set(["data","waveforms","waves"]);
+
+/** Show one report toolbar panel at a time and let either button close it. */
+function toggleReportTools(button){
+  const opening=button.getAttribute("aria-expanded")==="false";
+  for(const control of button.parentElement.querySelectorAll("[aria-expanded][aria-controls]")){
+    const expanded=control===button&&opening;
+    control.setAttribute("aria-expanded",String(expanded));
+    document.getElementById(control.getAttribute("aria-controls")).hidden=!expanded;
+  }
+  if(opening&&button.getAttribute("aria-controls")==="changed-files-bar")fetchChangedFiles();
+}
+
+/** Switch between the map and reports when there is room for one panel. */
+function toggleFunctionMap(){
+  const content=qs("#workspace-content");
+  const showing=content.classList.toggle("show-function-map");
+  qs("#function-map-toggle").setAttribute("aria-pressed",String(showing));
+}
+
+/** Give the graph the report area when more space is needed. */
+function toggleFunctionMapSize(button){
+  const enlarged=qs("#workspace-content").classList.toggle("function-map-expanded");
+  button.setAttribute("aria-pressed",String(enlarged));
+}
+
+/** Clear the previous map and report the current availability. */
+function _showFunctionMapMessage(text){
+  qs("#function-map-search").hidden=true;
+  qs("#function-map-source").hidden=true;
+  qs("#function-map-expand").hidden=true;
+  qs("#workspace-content").classList.remove("function-map-expanded");
+  qs("#function-map-expand").setAttribute("aria-pressed","false");
+  qs("#function-map .function-map-body").hidden=true;
+  const message=qs("#function-map-status");
+  message.textContent=text;
+  message.hidden=false;
+  _functionMap?.clear();
+}
+
+/** Select the current DUT's definitions and load them through the workspace file API. */
+async function _loadFunctionMap(files,runtime,workspace,testReports,isCurrent){
+  const suffix=/_functions_and_checks\.(?:md|markdown)$/i;
+  const candidates=[...new Map(files.filter(file=>suffix.test(file.name)).map(file=>[file.path,file])).values()];
+  const dut=typeof runtime.DUT==="string"?runtime.DUT:"";
+  const matching=dut?candidates.filter(file=>file.name.replace(suffix,"")===dut):candidates;
+  const source=matching.find(file=>file.path===runtime.OUT+"/"+file.name)
+    ||(matching.length===1?matching[0]:null);
+  if(!source){
+    _showFunctionMapMessage(matching.length>1?"Multiple function reports found.":"Function points will appear when their report is generated.");
+    return;
+  }
+  try{
+    const result=await apiFetch("/api/file?path="+encodeURIComponent(source.path));
+    if(!isCurrent())return;
+    const groups=UCAgentFunctionMap.parse(result.content||"");
+    if(!groups.length)_showFunctionMapMessage("No function groups have been defined yet.");
+    const open=qs("#function-map-source");
+    open.hidden=false;
+    open.onclick=()=>openView(source.path,source.name,source.type);
+    if(!groups.length)return;
+    const functions=groups.flatMap(group=>group.children);
+    const checkpoints=functions.reduce((count,point)=>count+point.children.length,0);
+    qs("#function-map-counts").textContent=groups.length+" groups · "+functions.length+" functions · "+checkpoints+" checkpoints";
+    qs("#function-map-search").hidden=false;
+    qs("#function-map-expand").hidden=false;
+    qs("#function-map-status").hidden=true;
+    qs("#function-map .function-map-body").hidden=false;
+    _functionMap??=UCAgentFunctionMap.create(qs("#function-map"),{
+      openTest:test=>openView(test.file,test.node,"py",test.line),
+      openWave:wave=>_WAVE_EXTS.has(wave.name.split(".").at(-1).toLowerCase())?openWaveform(wave.path):downloadFile(wave.path),
+      openBug:bug=>openView(bug.file.path,bug.file.name,bug.file.type,0,bug.anchor)
+    });
+    _functionMap.setData(dut||source.name.replace(suffix,""),groups);
+    const bugStem=source.path.replace(suffix,"_bug_analysis");
+    const bugFile=files.find(file=>file.path.replace(/\.(?:md|markdown)$/i,"")===bugStem);
+    const [evidence,bugReport]=await Promise.all([
+      UCAgentFunctionMapResults.load({
+        runtime,workspace,reports:testReports,
+        readJson:path=>apiFetch("/api/file?path="+encodeURIComponent(path)).then(file=>JSON.parse(file.content)).catch(()=>null),
+        readDirectory:path=>isCurrent()?_workspaceDirectory(path):Promise.resolve([]),
+        isWaveform:_isWaveArtifact
+      }).catch(()=>undefined),
+      bugFile?apiFetch("/api/file?path="+encodeURIComponent(bugFile.path)).catch(()=>null):null
+    ]);
+    if(!isCurrent())return;
+    const bugs=UCAgentFunctionMapResults.parseBugs(bugReport?.content||"");
+    for(const entries of bugs.values())for(const bug of entries)bug.file=bugFile;
+    _functionMap.setResults(evidence,bugs);
+  }catch(error){
+    if(isCurrent())_showFunctionMapMessage("Unable to read the function report. "+error.message);
+  }
+}
+
+/** Use the existing workspace-scoped directory API for report and artifact discovery. */
+async function _workspaceDirectory(path){
+  const {data=[]}=await apiFetch("/api/files?path="+encodeURIComponent(path));
+  return data;
+}
+
+/** Read the curated report folders and flatten their document entries. */
+async function _readReportDirectory(path,depth){
+  try{
+    const entries=await _workspaceDirectory(path);
+    const files=entries.filter(file=>!file.is_dir&&!file.name.startsWith(".")&&
+      (/\.(md|markdown)$/i.test(file.name)||/^index\.html?$/i.test(file.name)));
+    const tests=entries.filter(entry=>entry.is_dir&&entry.name==="tests").map(entry=>entry.path);
+    const waves=entries.filter(entry=>entry.is_dir&&_WAVE_DIRECTORIES.has(entry.name)).map(entry=>entry.path);
+    const testReports=entries.filter(entry=>!entry.is_dir&&entry.name==="toffee_report.json").map(entry=>entry.path);
+    const children=depth<3?entries.filter(entry=>entry.is_dir&&_REPORT_DIRECTORIES.has(entry.name)):[];
+    for(const child of await Promise.all(children.map(entry=>_readReportDirectory(entry.path,depth+1)))){
+      files.push(...child.files);
+      tests.push(...child.tests);
+      waves.push(...child.waves);
+      testReports.push(...child.testReports);
+    }
+    return {files,tests,waves,testReports};
+  }catch(error){return {files:[],tests:[],waves:[],testReports:[]};}
+}
+
+/** Give report entries and workspace files the same columns and row treatment. */
+function _fileTable(rows){
+  const table=document.createElement("table");
+  table.className="file-table";
+  table.innerHTML='<thead><tr><th scope="col">Name</th><th scope="col" class="file-type">Type</th>'
+    +'<th scope="col" class="file-size">Size</th><th scope="col" class="file-modified">Modified</th>'
+    +'<th scope="col" class="file-actions">Actions</th></tr></thead>';
+  table.createTBody().append(...rows);
+  return table;
+}
+
+/** Populate the original file columns and keep the filename keyboard-accessible. */
+function _fileRow(file,{open,origin="",wave=false}={}){
+  const row=document.createElement("tr");
+  const name=row.insertCell();
+  name.className="file-name";
+  const link=document.createElement(open?"button":"span");
+  link.className="file-link"+(file.is_dir?" dir":"");
+  link.title=file.path||file.name;
+  if(open){link.type="button";link.onclick=open;}
+  const icon=document.createElement("span");
+  icon.className="file-icon";
+  icon.setAttribute("aria-hidden","true");
+  icon.textContent=file.is_dir?"📂":wave?"🌊":_HTML_EXTS.has(file.type)?"🌐":_IMG_EXTS.has(file.type)?"🖼":"📄";
+  const label=document.createElement("span");
+  label.textContent=file.name;
+  link.append(icon,label);
+  name.append(link);
+  if(origin){
+    const location=document.createElement("span");
+    location.className="file-origin";
+    location.textContent=origin;
+    name.append(location);
+  }
+  const type=row.insertCell();
+  type.className="file-type";
+  const badge=document.createElement("span");
+  badge.className=file.is_dir?"badge-dir":_TEXT_EXTS.has(file.type)||_MD_EXTS.has(file.type)?"badge-text":"badge-file";
+  badge.textContent=file.is_dir?"dir":file.type?"."+file.type:"file";
+  type.append(badge);
+  const size=row.insertCell();
+  size.className="file-size";
+  size.textContent=file.is_dir||!Number.isFinite(file.size)?"—":_fmtSize(file.size);
+  const modified=row.insertCell();
+  modified.className="file-modified";
+  modified.textContent=file.mtime_str||"—";
+  const actions=row.insertCell();
+  actions.className="file-actions";
+  return {row,actions};
+}
+
+/** Use the same action controls in the report and workspace tables. */
+function _fileAction(symbol,label,action){
+  const button=document.createElement("button");
+  button.type="button";
+  button.className="act-btn";
+  button.title=label;
+  button.setAttribute("aria-label",label);
+  button.textContent=symbol;
+  button.onclick=action;
+  return button;
+}
+
+/** Open an indexed artifact using its exact workspace-relative path. */
+function _reportFileRow(file,wave=false){
+  const open=()=>wave
+    ? (_WAVE_EXTS.has(file.type)?openWaveform(file.path):downloadFile(file.path))
+    : openView(file.path,file.name,file.type);
+  const origin=/^index\.html?$/i.test(file.name)&&file.path.includes("/")
+    ?file.path.slice(0,file.path.lastIndexOf("/")):"";
+  const {row,actions}=_fileRow(file,{open,origin,wave});
+  const buttons=document.createElement("div");
+  buttons.className="file-buttons";
+  const view=_fileAction(wave?"↗":"View",wave?"Open waveform":"View",open);
+  view.classList.add("file-secondary");
+  buttons.append(view,_fileAction("↓","Download",()=>downloadFile(file.path)));
+  actions.append(buttons);
+  return row;
+}
+
+/** Recognize stored waves even when a viewer for their format is unavailable. */
+function _isWaveArtifact(file){
+  return !file.is_dir&&(/\.(fst|vcd|fsdb)$/i.test(file.name)||_WAVE_EXTS.has(file.type));
+}
+
+/** Navigate to a report directory and render links back to its ancestors. */
+function _navigateReports(folders){
+  _reportFolders=folders;
+  const breadcrumb=qs("#reports-breadcrumb");
+  breadcrumb.hidden=!folders.length;
+  breadcrumb.replaceChildren();
+  if(folders.length){
+    for(const [index,{name}] of [{name:"Reports"},...folders].entries()){
+      if(index){
+        const separator=document.createElement("span");
+        separator.className="sep";
+        separator.setAttribute("aria-hidden","true");
+        separator.textContent=" / ";
+        breadcrumb.append(separator);
+      }
+      const current=index===folders.length;
+      const item=document.createElement(current?"span":"button");
+      item.textContent=name;
+      if(current)item.setAttribute("aria-current","location");
+      else{
+        item.type="button";
+        item.onclick=()=>_navigateReports(folders.slice(0,index));
+      }
+      breadcrumb.append(item);
+    }
+  }
+  const list=qs("#report-file-list");
+  const message=document.createElement("p");
+  message.className="report-message";
+  message.textContent="Loading…";
+  list.replaceChildren(message);
+  list.scrollTop=0;
+  list.focus({preventScroll:true});
+  fetchReports(false);
+}
+
+/** Enter the selected folder using the same file-row control as Workspace. */
+function _reportFolder(file){
+  return _fileRow(file,{open:()=>_navigateReports([..._reportFolders,file])}).row;
+}
+
+/** Group testcase source or waveform files by their actual directory path. */
+async function _artifactDirectory(path,wave){
+  if(wave)await _waveViewersReady;
+  const entries=await _workspaceDirectory(path);
+  const files=entries.filter(file=>wave?_isWaveArtifact(file):!file.is_dir&&/(^test_.*|.*_test)\.py$/i.test(file.name));
+  const dirs=entries.filter(entry=>entry.is_dir&&!entry.name.startsWith(".")&&entry.name!=="__pycache__"
+    &&(wave||!_TEST_DATA_DIRECTORIES.has(entry.name)));
+  return [...dirs.map(_reportFolder),...files.map(file=>_reportFileRow(file,wave))];
+}
+
+/** Refresh the active report directory using the current workspace. */
+async function fetchReports(refreshMap=true){
+  const request=++_reportRequest;
+  const mapRequest=refreshMap?++_functionMapRequest:null;
+  const workspace=_subWorkspace;
+  const list=qs("#report-file-list");
+  const folders=_reportFolders;
+  const category=folders[0]?.name;
+  const isCurrent=()=>request===_reportRequest&&workspace===_subWorkspace;
+  const isCurrentMap=()=>mapRequest===_functionMapRequest&&workspace===_subWorkspace;
+  const message=document.createElement("p");
+  message.className="report-message";
+  message.textContent="No files available.";
+  let reportIndexLoaded=false;
+  const render=rows=>{
+    if(isCurrent())list.replaceChildren(rows.length?_fileTable(rows):message);
+  };
+  try{
+    if(folders.length>1&&!refreshMap){
+      render(await _artifactDirectory(folders.at(-1).path,category==="Waveforms"));
+      return;
+    }
+    const [root,runtime]=await Promise.all([
+      apiFetch("/api/files?path="),
+      apiFetch("/api/file?path="+encodeURIComponent(".ucagent/runtime_config.json"))
+        .then(response=>JSON.parse(response.content)||{}).catch(()=>({})),
+    ]);
+    const entries=root.data||[];
+    const testDir=typeof runtime.test_output_dir==="string"?runtime.test_output_dir:"";
+    const outputDir=testDir.split("/").slice(0,-1).join("/");
+    const reportPaths=new Set(entries.filter(entry=>entry.is_dir&&_REPORT_DIRECTORIES.has(entry.name)).map(entry=>entry.path));
+    if(outputDir)reportPaths.add(outputDir);
+    if(typeof runtime.OUT==="string"&&runtime.OUT)reportPaths.add(runtime.OUT);
+    const reports=await Promise.all([...reportPaths].map(path=>_readReportDirectory(path,0)));
+    reportIndexLoaded=true;
+    if(isCurrentMap()){
+      const testReports=new Set([...entries.filter(entry=>!entry.is_dir&&entry.name==="toffee_report.json").map(entry=>entry.path),
+        ...reports.flatMap(report=>report.testReports)]);
+      _loadFunctionMap([...entries.filter(entry=>!entry.is_dir),...reports.flatMap(report=>report.files)],
+        runtime,root.workspace,[...testReports],isCurrentMap);
+    }
+    if(!isCurrent())return;
+    if(qs("#workspace-file-scroll").dataset.workspace!==workspace)_lastFileMeta=root;
+    _updateWorkspaceControls(_lastFileMeta);
+    if(folders.length>1){
+      render(await _artifactDirectory(folders.at(-1).path,category==="Waveforms"));
+      return;
+    }
+    const testRoots=[...new Set([testDir,...reports.flatMap(report=>report.tests)].filter(Boolean))];
+    if(category==="Tests"){
+      render(testRoots.length===1?await _artifactDirectory(testRoots[0],false)
+        :testRoots.map(path=>_reportFolder({name:path,path,is_dir:true})));
+      return;
+    }
+    if(category==="Waveforms"){
+      await _waveViewersReady;
+      const dut=entries.find(entry=>entry.is_dir&&entry.name===runtime.DUT);
+      const paths=[...new Set([...(dut?[dut.path]:[]),...testRoots])];
+      const sources=await Promise.all(paths.map(path=>_workspaceDirectory(path).catch(()=>[])));
+      const waveFiles=[...entries,...sources.flat()].filter(_isWaveArtifact);
+      const waveDirs=[...entries.filter(entry=>entry.is_dir&&_WAVE_DIRECTORIES.has(entry.name)).map(entry=>entry.path),
+        ...reports.flatMap(report=>report.waves),
+        ...sources.flat().filter(file=>file.is_dir&&_TEST_DATA_DIRECTORIES.has(file.name)).map(file=>file.path)];
+      render([...new Set(waveDirs)].map(path=>_reportFolder({name:path,path,is_dir:true}))
+        .concat([...new Map(waveFiles.map(file=>[file.path,file])).values()].map(file=>_reportFileRow(file,true))));
+      return;
+    }
+    const files=new Map([...entries.filter(entry=>!entry.is_dir&&/^index\.html?$/i.test(entry.name)),
+      ...reports.flatMap(report=>report.files)].map(file=>[file.path,file]));
+    const ordered=[...files.values()].sort((left,right)=>{
+      const priority=file=>file.path==="uc_test_report/index.html"?0:_HTML_EXTS.has(file.type)?1:2;
+      return priority(left)-priority(right)||left.path.localeCompare(right.path);
+    });
+    render([...ordered.map(file=>_reportFileRow(file)),...["Tests","Waveforms"].map(name=>_reportFolder({name,is_dir:true}))]);
+  }catch(error){
+    if(!reportIndexLoaded&&isCurrentMap())_showFunctionMapMessage("Unable to load function reports. "+error.message);
+    if(isCurrent()){
+      message.textContent=error.message;
+      list.replaceChildren(message);
+    }
+  }
+}
+
 async function fetchFiles(path){
+  _selectSidebarTab(qs("#sidebar-workspace-tab"));
+  const request=++_fileListRequest;
+  const workspace=_subWorkspace;
+  const scroll=qs("#workspace-file-scroll");
   await _waveViewersReady;
+  if(request!==_fileListRequest||workspace!==_subWorkspace)return;
   _curPath=path||"";
   qs("#fm-loading").style.display="block";
   qs("#fm-empty").style.display="none";
-  qs("#fm-table").style.display="none";
+  qs("#fm-body").replaceChildren();
   try{
     const j=await apiFetch("/api/files?path="+encodeURIComponent(_curPath));
-    _lastFileMeta=j||{};
+    if(request!==_fileListRequest||workspace!==_subWorkspace)return;
+    _lastFileMeta=j;
+    scroll.dataset.workspace=workspace;
     _renderBreadcrumb(j.path||"");
-    _updateWorkspaceControls(j||{});
+    _updateWorkspaceControls(j);
     _renderFiles(j.data||[]);
-  }catch(e){showErr(e.message);}
-  finally{qs("#fm-loading").style.display="none";}
+  }catch(error){if(request===_fileListRequest&&workspace===_subWorkspace)showErr(error.message);}
+  finally{if(request===_fileListRequest)qs("#fm-loading").style.display="none";}
 }
 
-function refreshFiles(){fetchFiles(_curPath);}
+function refreshFiles(){
+  fetchReports();
+  if(!qs("#workspace-sidebar").hidden)fetchFiles(_curPath);
+}
 
 function _updateWorkspaceControls(meta){
   const label=qs("#workspace-mode-label");
@@ -2136,15 +2889,15 @@ function _updateWorkspaceControls(meta){
 }
 
 function _renderBreadcrumb(p){
+  const {escape}=UCAgentStageView;
   const rootLabel=_subWorkspace?"sub workspace":"workspace";
-  let html='<span onclick="fetchFiles(\'\')" title="workspace root">'+rootLabel+'</span>';
+  let html='<button type="button" onclick="fetchFiles(\'\')" title="Workspace root">'+rootLabel+'</button>';
   if(p){
     const parts=p.split("/").filter(Boolean);
     let built="";
     for(const part of parts){
       built=built?built+"/"+part:part;
-      const b=built;
-      html+='<span class="sep">/</span><span onclick="fetchFiles(\''+b+'\')" title="'+esc(b)+'">'+esc(part)+'</span>';
+      html+=`<span class="sep">/</span><button type="button" onclick="fetchFiles('${escape(jsq(built))}')" title="${escape(built)}">${escape(part)}</button>`;
     }
   }
   qs("#breadcrumb").innerHTML=html;
@@ -2158,16 +2911,6 @@ function _fmtSize(n){
   return(i===0?n.toFixed(0):n.toFixed(1))+" "+units[i];
 }
 
-function _extBadge(e){
-  if(!e)return'<span class="badge-file">file</span>';
-  const text_exts=new Set(["txt","md","py","js","ts","css","json","yaml","yml","sh","v","sv","c","h","cpp","java","rs","go","log","toml","ini","conf","xml","lua"]);
-  const img_exts=new Set(["png","jpg","jpeg","gif","svg","webp","ico"]);
-  const html_exts=new Set(["html","htm"]);
-  if(text_exts.has(e))return`<span class="badge-text">.${esc(e)}</span>`;
-  if(img_exts.has(e)||html_exts.has(e))return`<span class="badge-file">.${esc(e)}</span>`;
-  return`<span class="badge-file">.${esc(e)}</span>`;
-}
-
 const _IMG_EXTS=new Set(["png","jpg","jpeg","gif","svg","webp","ico","bmp"]);
 const _HTML_EXTS=new Set(["html","htm"]);
 const _TEXT_EXTS=new Set(["txt","md","py","js","ts","css","json","yaml","yml","sh","v","sv","c","h","cpp","hpp","java","rs","go","log","toml","ini","conf","xml","lua","rst","scala","r","tex"]);
@@ -2176,58 +2919,59 @@ const _waveViewersReady=apiFetch("/api/waveform/viewers").then(result=>{
   result.formats.forEach(ext=>_WAVE_EXTS.add(ext));
 }).catch(error=>{console.warn("Waveform viewer configuration: "+error.message);});
 
+/** Render the workspace directory with the same columns as Reports. */
 function _renderFiles(entries){
-  if(!entries.length){
-    qs("#fm-empty").style.display="block";
-    qs("#fm-table").style.display="none";
-    return;
-  }
-  qs("#fm-table").style.display="table";
-  let html="";
+  qs("#fm-empty").style.display=entries.length?"none":"block";
+  const rows=[];
   if(_curPath){
-    const parent=_curPath.includes("/")?_curPath.rsplit?_curPath.split("/").slice(0,-1).join("/"):""  : "";
-    const ppath=_curPath.split("/").slice(0,-1).join("/");
-    html+=`<tr><td class="col-name"><span class="icon">&#128194;</span><span class="fn dir" onclick="fetchFiles('${esc(ppath)}')">..</span></td><td></td><td class="col-size">—</td><td class="col-mtime">—</td><td></td></tr>`;
+    const parent=_curPath.split("/").slice(0,-1).join("/");
+    rows.push(_fileRow({name:"..",path:parent,is_dir:true},{open:()=>fetchFiles(parent)}).row);
   }
-  for(const e of entries){
-    const fpath=e.path;
-    const name=e.name;
-    const ext=e.type||"";
-    if(e.is_dir){
-      const canChangeWs=e.is_ucagent_workspace&&e.sub_workspace_path&&e.sub_workspace_path!==_subWorkspace;
-      html+=`<tr>
-        <td class="col-name"><span class="icon">&#128194;</span><span class="fn dir" onclick="fetchFiles('${esc(fpath)}')">${esc(name)}</span></td>
-        <td><span class="badge-dir">dir</span></td>
-        <td class="col-size">—</td>
-        <td class="col-mtime">${esc(e.mtime_str)}</td>
-        <td class="col-act">
-          ${canChangeWs?`<button class="act-btn" onclick="event.stopPropagation();changeWorkspace('${jsq(e.sub_workspace_path)}')" title="Switch to this UCAgent workspace">Change Workspace</button>`:""}
-          <button class="act-btn" onclick="downloadFile('${esc(fpath)}')" title="Download as tar.gz">&#8681;</button>
-          <button class="act-btn" onclick="openRename('${esc(fpath)}','${esc(name)}')">Rename</button>
-          ${_showFileDeleteControls?`<button class="act-btn del" onclick="confirmDelete('${esc(fpath)}','${esc(name)}')">Delete</button>`:""}
-        </td>
-      </tr>`;
-    }else{
-      const canEdit=_TEXT_EXTS.has(ext);
-      const canView=canEdit||_IMG_EXTS.has(ext)||_HTML_EXTS.has(ext);
-      const canWave=_WAVE_EXTS.has(ext);
-      const icon=_IMG_EXTS.has(ext)?"&#128444;":_HTML_EXTS.has(ext)?"&#127760;":canWave?"&#127976;":"&#128196;";
-      html+=`<tr>
-        <td class="col-name"><span class="icon">${icon}</span><span class="fn" onclick="${canWave?`openWaveform('${esc(fpath)}')`:canView?`openView('${esc(fpath)}','${esc(name)}','${esc(ext)}')`:""}" style="${(canView||canWave)?"cursor:pointer":"cursor:default"}">${esc(name)}</span></td>
-        <td>${_extBadge(ext)}</td>
-        <td class="col-size">${_fmtSize(e.size)}</td>
-        <td class="col-mtime">${esc(e.mtime_str)}</td>
-        <td class="col-act">
-          ${canEdit?`<button class="act-btn" onclick="openEdit('${esc(fpath)}','${esc(name)}')">Edit</button>`:""}
-          ${canView?`<button class="act-btn" onclick="openView('${esc(fpath)}','${esc(name)}','${esc(ext)}')">View</button>`:""}
-          ${canWave?`<button class="act-btn" onclick="openWaveform('${esc(fpath)}')" title="Open waveform viewer">&#127976; Wave</button>`:""}          <button class="act-btn" onclick="serveFile('${esc(fpath)}')" title="Open in browser">&#128279;</button>          <button class="act-btn" onclick="downloadFile('${esc(fpath)}')">&#8681;</button>
-          <button class="act-btn" onclick="openRename('${esc(fpath)}','${esc(name)}')" title="Rename">&#9998;</button>
-          ${_showFileDeleteControls?`<button class="act-btn del" onclick="confirmDelete('${esc(fpath)}','${esc(name)}')">Del</button>`:""}
-        </td>
-      </tr>`;
+  for(const file of entries){
+    const {path,name}=file;
+    const ext=file.type||"";
+    const editable=!file.is_dir&&(_TEXT_EXTS.has(ext)||_MD_EXTS.has(ext));
+    const viewable=editable||(!file.is_dir&&(_IMG_EXTS.has(ext)||_HTML_EXTS.has(ext)));
+    const wave=!file.is_dir&&_WAVE_EXTS.has(ext);
+    const open=file.is_dir?()=>fetchFiles(path):wave?()=>openWaveform(path)
+      :viewable?()=>openView(path,name,ext):null;
+    const {row,actions}=_fileRow(file,{open,wave});
+    const canChange=file.is_dir&&file.is_ucagent_workspace&&file.sub_workspace_path&&file.sub_workspace_path!==_subWorkspace;
+    const options=[
+      ...(canChange?[["↪","Change workspace",()=>changeWorkspace(file.sub_workspace_path)]]:[]),
+      ...(editable?[["✎","Edit",()=>openEdit(path,name)]]:[]),
+      ...(!file.is_dir?[["↗","Open in browser",()=>serveFile(path)]]:[]),
+      ["≡","Rename",()=>openRename(path,name)],
+      ...(_showFileDeleteControls?[["×","Delete",()=>confirmDelete(path,name)]]:[]),
+    ];
+    const buttons=document.createElement("div");
+    buttons.className="file-buttons";
+    for(const [symbol,label,callback] of options){
+      const button=_fileAction(symbol,label,callback);
+      button.classList.add("file-secondary");
+      buttons.append(button);
     }
+    buttons.append(_fileAction("↓","Download",()=>downloadFile(path)));
+    const menu=document.createElement("tr");
+    menu.className="file-action-menu";
+    menu.hidden=true;
+    const menuCell=menu.insertCell();
+    menuCell.colSpan=5;
+    const menuButtons=document.createElement("div");
+    menuButtons.className="workspace-actions";
+    for(const [,label,callback] of options)menuButtons.append(_fileAction(label,label,callback));
+    menuCell.append(menuButtons);
+    const more=_fileAction("⚙","Actions for "+name,()=>{
+      menu.hidden=!menu.hidden;
+      more.setAttribute("aria-expanded",String(!menu.hidden));
+    });
+    more.classList.add("file-more");
+    more.setAttribute("aria-expanded","false");
+    buttons.append(more);
+    actions.append(buttons);
+    rows.push(row,menu);
   }
-  qs("#fm-body").innerHTML=html;
+  qs("#fm-body").replaceChildren(...(rows.length?[_fileTable(rows)]:[]));
 }
 
 /* ── edit ── */
@@ -2346,7 +3090,7 @@ async function fetchChangedFiles(){
       const label=recent?`${ts} (${_fmtTimeDelta(f.delta_seconds)}) ${f.file}`:`${ts} ${f.file}`;
       const canView=_TEXT_EXTS.has(ext)||_IMG_EXTS.has(ext)||_HTML_EXTS.has(ext);
       const canWave=_WAVE_EXTS.has(ext);
-      const onclick=canWave?`openWaveform('${esc(fullPath)}');fetchFiles('${esc(parts.join("/"))}')`:canView?`openView('${esc(fullPath)}','${esc(name)}','${esc(ext)}');fetchFiles('${esc(parts.join("/"))}')`:`fetchFiles('`+esc(parts.join("/"))+`')`;
+      const onclick=canWave?`openWaveform('${esc(fullPath)}')`:canView?`openView('${esc(fullPath)}','${esc(name)}','${esc(ext)}')`:`fetchFiles('`+esc(parts.join("/"))+`')`;
       return `<span class="cf-chip${recent?' recent':''}" onclick="${onclick}" title="${esc(fullPath)}">${esc(label)}</span>`;
     }).join("");
   }catch(e){}
@@ -2380,18 +3124,30 @@ const _EXT_LANG={py:"python",js:"javascript",ts:"typescript",css:"css",
 const _MD_EXTS=new Set(["md","markdown"]);
 let _viewIsRaw=false;
 
-function _renderViewCode(content,ext){
+function _renderViewCode(content,ext,focusLine=0){
   const gutter=qs("#view-gutter"),pre=qs("#view-pre");
   if(!gutter||!pre)return;
   const lines=content.split("\n");
   let s="";for(let i=1;i<=lines.length;i++)s+=i+"\n";
-  gutter.textContent=s;
+  if(focusLine>0&&focusLine<=lines.length){
+    const numbers=s.split("\n");
+    const marker=document.createElement("span");
+    marker.className="view-line-target";
+    marker.textContent=String(focusLine);
+    const before=numbers.slice(0,focusLine-1).join("\n");
+    gutter.replaceChildren(before?before+"\n":"",marker,"\n"+numbers.slice(focusLine).join("\n"));
+  }else gutter.textContent=s;
   const lang=_EXT_LANG[ext]||"";
   if(lang&&typeof hljs!=="undefined"){
     try{const r=hljs.highlight(content,{language:lang,ignoreIllegals:true});pre.innerHTML=r.value;}
     catch(err){pre.textContent=content;}
   }else{pre.textContent=content;}
   pre.onscroll=()=>{gutter.scrollTop=pre.scrollTop;};
+  if(focusLine>0&&focusLine<=lines.length){
+    const lineHeight=parseFloat(getComputedStyle(pre).lineHeight);
+    pre.scrollTop=(focusLine-1)*lineHeight-pre.clientHeight/4;
+    gutter.scrollTop=pre.scrollTop;
+  }
 }
 
 function _collapseMarkdownYamlBlocks(root){
@@ -2418,36 +3174,35 @@ function _renderViewMarkdown(content){
   _decorateWaveformViewerLinks(el);
 }
 
-async function openView(path,name,ext){
-  _viewCurrentPath=path;_viewCurrentExt=ext;_viewCurrentContent="";_viewIsRaw=false;
-  qs("#view-title").textContent=name;
-  qs("#view-raw-btn").style.display="none";
+async function openView(path,name,ext,focusLine=0,anchor=""){
+  const request=_openFilePreview(name);
+  _viewCurrentPath=path;_viewCurrentExt=ext;_viewCurrentContent="";
   const body=qs("#view-body");
-  body.innerHTML='<div style="color:var(--text-dim);padding:20px">Loading…</div>';
-  openModal("view-modal");
   try{
     if(_HTML_EXTS.has(ext)){
-      body.style.padding="0";body.style.overflow="hidden";
-      body.innerHTML=`<iframe id="view-frame" src="${_workspaceBaseFileUrl(path)}" sandbox="allow-scripts allow-same-origin"></iframe>`;
+      body.innerHTML=`<iframe id="view-frame" title="${UCAgentStageView.escape(name)}" src="${_workspaceBaseFileUrl(path)}" sandbox="allow-scripts allow-same-origin"></iframe>`;
     }else if(_IMG_EXTS.has(ext)){
       body.style.padding="14px";body.style.overflow="auto";
-      body.innerHTML=`<img id="view-img" src="${_workspaceFileUrl(path)}" alt="${esc(name)}">`;
+      body.innerHTML=`<img id="view-img" src="${_workspaceFileUrl(path)}" alt="${UCAgentStageView.escape(name)}">`;
     }else{
       body.style.padding="0";body.style.overflow="hidden";
       const j=await apiFetch("/api/file?path="+encodeURIComponent(path));
+      if(request!==_viewRequest)return;
       _viewCurrentContent=j.content||"";
       if(_MD_EXTS.has(ext)){
         qs("#view-raw-btn").style.display="inline-flex";
         qs("#view-raw-btn").textContent="Show Raw";
         body.innerHTML='<div id="view-md"></div>';
         _renderViewMarkdown(_viewCurrentContent);
+        if(anchor)qs("#view-md")?.querySelector("#"+CSS.escape(anchor))?.scrollIntoView({block:"start"});
       }else{
         body.innerHTML='<div class="view-wrap"><div id="view-gutter" class="view-gutter"></div><pre id="view-pre"></pre></div>';
-        _renderViewCode(_viewCurrentContent,ext);
+        _renderViewCode(_viewCurrentContent,ext,focusLine);
       }
     }
-  }catch(e){body.innerHTML=`<div style="color:var(--red);padding:20px">${esc(e.message)}</div>`;}
-  _applyStoredModalResize('view-modal');
+  }catch(e){
+    if(request===_viewRequest)body.innerHTML=`<div class="report-message">${esc(e.message)}</div>`;
+  }
 }
 
 function toggleViewRaw(){
@@ -2462,7 +3217,6 @@ function toggleViewRaw(){
     body.innerHTML='<div class="view-wrap"><div id="view-gutter" class="view-gutter"></div><pre id="view-pre"></pre></div>';
     _renderViewCode(_viewCurrentContent,_viewCurrentExt);
   }
-  _applyStoredModalResize('view-modal');
 }
 
 /* ── waveform viewer ── */
@@ -2982,100 +3736,117 @@ async function clearConsole(){await _consoleView.clear();}
   ta.addEventListener("scroll",()=>{gutter.scrollTop=ta.scrollTop;});
 })();
 
+/* ── sidebar information tabs ── */
+/** Switch panels without recreating the contents. */
+function _selectSidebarTab(tab){
+  for(const button of document.querySelectorAll("#sidebar-tabs [role=tab]")){
+    const selected=button===tab;
+    button.setAttribute("aria-selected",String(selected));
+    button.tabIndex=selected?0:-1;
+    document.getElementById(button.getAttribute("aria-controls")).hidden=!selected;
+  }
+  _updateSubWorkspaceModeUi();
+}
+
+(function(){
+  const tabs=Array.from(document.querySelectorAll("#sidebar-tabs [role=tab]"));
+  tabs.forEach((tab,index)=>{
+    tab.addEventListener("click",()=>{
+      _selectSidebarTab(tab);
+      if(tab.id==="sidebar-workspace-tab"&&qs("#workspace-file-scroll").dataset.workspace!==_subWorkspace)fetchFiles(_curPath);
+    });
+    tab.addEventListener("keydown",event=>{
+      const next={ArrowLeft:(index+tabs.length-1)%tabs.length,ArrowRight:(index+1)%tabs.length,
+        Home:0,End:tabs.length-1}[event.key];
+      if(next===undefined)return;
+      event.preventDefault();
+      tabs[next].click();
+      tabs[next].focus();
+    });
+  });
+})();
+
 /* ── sidebar panel heights ── */
 (function(){
   const sidebar=document.getElementById("sidebar");
-  const panels=["mission-section","tools-section","agent-status-section"].map(id=>document.getElementById(id));
-  const handles=Array.from(document.querySelectorAll(".sb-panel-resizer"));
-  if(!sidebar||panels.some(panel=>!panel)||handles.length!==2)return;
+  const stages=document.getElementById("mission-section");
+  const handle=document.getElementById("sidebar-panel-resizer");
+  if(!sidebar||!stages||!handle)return;
   const storageKey="ucagent.sidebar.rows";
-  let shares=[0.56,0.22,0.22];
+  let stageShare=0.70;
   try{
     const saved=JSON.parse(localStorage.getItem(storageKey));
-    if(Array.isArray(saved)&&saved.length===3&&saved.every(value=>Number.isFinite(value)&&value>0)){
+    if(Array.isArray(saved)&&(saved.length===2||saved.length===3)&&saved.every(value=>Number.isFinite(value)&&value>0)){
+      // A three-panel preference allocates both lower shares to the tabbed panel.
       const total=saved.reduce((sum,value)=>sum+value,0);
-      if(Number.isFinite(total))shares=saved.map(value=>value/total);
+      if(Number.isFinite(total))stageShare=saved[0]/total;
     }
   }catch(e){}
 
-  /** Apply panel sizes without changing any panel's scroll position or contents. */
-  function setHeights(heights){
-    sidebar.style.gridTemplateRows=`${heights[0]}px ${handles[0].offsetHeight}px ${heights[1]}px ${handles[1].offsetHeight}px ${heights[2]}px`;
-    handles.forEach((handle,index)=>{
-      const pair=heights[index]+heights[index+1];
-      const minimum=Math.min(64,heights.reduce((sum,height)=>sum+height,0)/3);
-      handle.setAttribute("aria-valuemin",Math.round(minimum/pair*100));
-      handle.setAttribute("aria-valuemax",Math.round((pair-minimum)/pair*100));
-      handle.setAttribute("aria-valuenow",Math.round(heights[index]/pair*100));
-    });
+  /** Apply a bounded stage height while keeping both panels reachable. */
+  function setHeight(height,available){
+    const minimum=Math.min(64,available/2);
+    const stageHeight=Math.max(minimum,Math.min(available-minimum,height));
+    sidebar.style.gridTemplateRows=`${stageHeight}px ${handle.offsetHeight}px ${available-stageHeight}px`;
+    handle.setAttribute("aria-valuemin",Math.round(minimum/available*100));
+    handle.setAttribute("aria-valuemax",Math.round((available-minimum)/available*100));
+    handle.setAttribute("aria-valuenow",Math.round(stageHeight/available*100));
     _updateSubWorkspaceModeUi();
+    return stageHeight;
   }
 
-  /** Fit saved proportions into the viewport while keeping all three panels accessible. */
+  /** Refit saved proportions when the sidebar changes size. */
   function fitRows(){
-    const available=sidebar.clientHeight-handles.reduce((sum,handle)=>sum+handle.offsetHeight,0);
-    if(available<=0)return;
-    const minimum=Math.min(64,available/3);
-    const heights=shares.map(share=>share*available);
-    const deficit=heights.reduce((sum,height)=>sum+Math.max(0,minimum-height),0);
-    const surplus=heights.reduce((sum,height)=>sum+Math.max(0,height-minimum),0);
-    setHeights(heights.map(height=>height<minimum?minimum:
-      height-(surplus?deficit*Math.max(0,height-minimum)/surplus:0)));
+    const available=sidebar.clientHeight-handle.offsetHeight;
+    if(available>0)setHeight(stageShare*available,available);
   }
 
-  /** Move a separator by resizing only its two neighboring panels. */
-  function resizePair(index,delta,heights){
-    const next=heights.slice();
-    const total=next.reduce((sum,height)=>sum+height,0);
-    if(total<=0)return;
-    const minimum=Math.min(64,total/3);
-    const pair=next[index]+next[index+1];
-    next[index]=Math.max(minimum,Math.min(pair-minimum,next[index]+delta));
-    next[index+1]=pair-next[index];
-    shares=next.map(height=>height/total);
-    setHeights(next);
+  /** Update the saved share only for direct user resize actions. */
+  function resizeTo(height){
+    const available=sidebar.clientHeight-handle.offsetHeight;
+    if(available>0)stageShare=setHeight(height,available)/available;
   }
 
   /** Save relative sizes so the layout can be restored at another window height. */
   function saveRows(){
-    try{localStorage.setItem(storageKey,JSON.stringify(shares));}catch(e){}
+    try{localStorage.setItem(storageKey,JSON.stringify([stageShare,1-stageShare]));}catch(e){}
   }
 
-  handles.forEach((handle,index)=>{
-    let drag=null;
-    handle.addEventListener("pointerdown",event=>{
-      if(event.button!==0||drag)return;
-      event.preventDefault();
-      drag={id:event.pointerId,y:event.clientY,heights:panels.map(panel=>panel.getBoundingClientRect().height),
-        userSelect:document.body.style.userSelect};
-      handle.setPointerCapture(event.pointerId);
-      handle.classList.add("dragging");
-      document.body.style.userSelect="none";
-    });
-    handle.addEventListener("pointermove",event=>{
-      if(drag&&event.pointerId===drag.id)resizePair(index,event.clientY-drag.y,drag.heights);
-    });
-    /** Release pointer ownership even when a drag is cancelled or capture is lost. */
-    function finishDrag(event){
-      if(!drag||event.pointerId!==drag.id)return;
-      const previous=drag;
-      drag=null;
-      handle.classList.remove("dragging");
-      document.body.style.userSelect=previous.userSelect;
-      if(handle.hasPointerCapture(previous.id))handle.releasePointerCapture(previous.id);
-      saveRows();
-    }
-    handle.addEventListener("pointerup",finishDrag);
-    handle.addEventListener("pointercancel",finishDrag);
-    handle.addEventListener("lostpointercapture",finishDrag);
-    handle.addEventListener("keydown",event=>{
-      const step=event.shiftKey?40:12;
-      const delta={ArrowUp:-step,ArrowDown:step,Home:-Infinity,End:Infinity}[event.key];
-      if(delta===undefined)return;
-      event.preventDefault();
-      resizePair(index,delta,panels.map(panel=>panel.getBoundingClientRect().height));
-      saveRows();
-    });
+  let drag=null;
+  handle.addEventListener("pointerdown",event=>{
+    if(event.button!==0||drag)return;
+    event.preventDefault();
+    drag={id:event.pointerId,y:event.clientY,height:stages.getBoundingClientRect().height,
+      userSelect:document.body.style.userSelect};
+    handle.setPointerCapture(event.pointerId);
+    handle.classList.add("dragging");
+    document.body.style.userSelect="none";
+  });
+  handle.addEventListener("pointermove",event=>{
+    if(drag&&event.pointerId===drag.id)resizeTo(drag.height+event.clientY-drag.y);
+  });
+
+  /** Restore pointer state even when the browser cancels the drag. */
+  function finishDrag(event){
+    if(!drag||event.pointerId!==drag.id)return;
+    const previous=drag;
+    drag=null;
+    handle.classList.remove("dragging");
+    document.body.style.userSelect=previous.userSelect;
+    if(handle.hasPointerCapture(previous.id))handle.releasePointerCapture(previous.id);
+    saveRows();
+  }
+
+  handle.addEventListener("pointerup",finishDrag);
+  handle.addEventListener("pointercancel",finishDrag);
+  handle.addEventListener("lostpointercapture",finishDrag);
+  handle.addEventListener("keydown",event=>{
+    const step=event.shiftKey?40:12;
+    const delta={ArrowUp:-step,ArrowDown:step,Home:-Infinity,End:Infinity}[event.key];
+    if(delta===undefined)return;
+    event.preventDefault();
+    resizeTo(stages.getBoundingClientRect().height+delta);
+    saveRows();
   });
   fitRows();
   if(typeof ResizeObserver!=="undefined")new ResizeObserver(fitRows).observe(sidebar);
@@ -3334,7 +4105,7 @@ document.addEventListener("keydown",function(e){
 });
 
 /* ── init ── */
-_updateSubWorkspaceModeUi();_initMissionSettings();_initFileDeleteControls();_initMasterBtn();fetchStatus();fetchMission();fetchTools();fetchFiles("");fetchChangedFiles();fetchConsole();fetchRuntimeStatus();fetchServerInfo();
+_updateSubWorkspaceModeUi();_initMissionSettings();_initFileDeleteControls();_initMasterBtn();fetchStatus();fetchMission();fetchTools();refreshFiles();fetchChangedFiles();fetchConsole();fetchRuntimeStatus();fetchServerInfo();
 if(_subWorkspace)_syncConsoleWorkspace();
 setInterval(()=>{fetchStatus();fetchMission();fetchTools();},8000);
 setInterval(fetchChangedFiles,15000);

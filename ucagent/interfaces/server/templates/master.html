@@ -105,6 +105,15 @@
   .badge-break{background:#451a03;color:#fed7aa}
   .progress-bar-wrap{background:var(--bg);border-radius:4px;height:5px;min-width:48px;overflow:hidden;margin-bottom:2px}
   .progress-bar{height:100%;border-radius:4px;background:var(--accent);transition:width .3s}
+  .detail-workflow-summary{display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap;margin-bottom:4px;font-size:12px}
+  .detail-workflow-list{container-type:inline-size;max-height:min(360px,45vh);overflow:auto;overscroll-behavior:contain;
+    background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:5px 8px;font-size:12px}
+  .detail-workflow-list .uc-stage{padding:3px 4px}
+  .detail-workflow-list .uc-stage-current{background:var(--bg3);border-radius:4px}
+  .detail-workflow-legacy{white-space:pre-wrap;overflow-wrap:anywhere;margin:0}
+  @container (max-width: 300px){
+    .detail-workflow-list :is(.uc-stage-time,.uc-stage-flags,.uc-stage-fails){display:none}
+  }
   .progress-label{font-size:10px;color:var(--text-dim)}
   .cmd-cell{display:inline-block;max-width:132px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
     font-family:'Consolas','Courier New',monospace;font-size:11px;color:var(--text-dim)}
@@ -1131,7 +1140,7 @@ function ansiToHtml(text) {
   return html;
 }
 // ── Detail modal ───────────────────────────────────────────────────────────
-function openDetail(id) {
+function openDetail(id, position = {}) {
   const a = _allAgents.find(x => x.id === id);
   if (!a) return;
   _currentDetailId = id;
@@ -1172,8 +1181,7 @@ function openDetail(id) {
   const grid = fields.map(([k, v]) =>
     `<div class="detail-field"><div class="detail-field-label">${esc(k)}</div><div class="detail-field-value">${esc(String(v))}</div></div>`
   ).join('') + cmdApiHtml;
-  // ── Structured stage timeline (legacy ANSI fallback) ────────────────────────
-  const stageHtml = buildMissionInfo(a);
+  const stageHtml = buildMissionInfo(a, position);
   document.getElementById('detail-modal-body').innerHTML =
     `<div class="detail-grid">${grid}</div>
      ${stageHtml}
@@ -1182,39 +1190,46 @@ function openDetail(id) {
        <pre class="detail-json">${esc(JSON.stringify(a, null, 2))}</pre>
      </details>`;
   document.getElementById('detail-modal').classList.add('open');
+  const list = document.getElementById('detail-mission-pre');
+  if (list) {
+    const current = list.querySelector('.uc-stage-current');
+    list.scrollTop = position.index === list.dataset.currentStage
+      ? position.scrollTop
+      : current ? current.getBoundingClientRect().top - list.getBoundingClientRect().top : 0;
+  }
 }
-function buildMissionInfo(a) {
+function buildMissionInfo(a, position = {}) {
   const mi = a.mission_info_ansi || '';
-  const progress = UCAgentStageView.progress(a);
-  const tot = progress.total;
-  const pct = progress.percent;
+  const view = UCAgentStageView;
+  const {total, percent, label} = view.progress(a);
   const done = a.is_mission_complete;
-  const bar = tot > 0 ? `
+  const bar = total > 0 ? `
     <div style="margin-bottom:10px">
-      <div style="display:flex;justify-content:space-between;align-items:center;
-                  margin-bottom:5px;font-size:12px">
-        <span style="color:var(--text-dim)">${esc(a.mission || '')}</span>
-        <span style="color:var(--text-dim)">
-          ${esc(progress.label)}${done
-            ? ' &nbsp;<span style="color:var(--online)">&#x2713; Complete</span>' : ''}
-        </span>
+      <div class="detail-workflow-summary">
+        <span>${esc(label)}</span>
+        ${percent === null ? '' : `<strong>${percent}%</strong>`}
       </div>
-      ${pct === null ? '' : `<div class="progress-bar-wrap" style="height:8px">
-        <div class="progress-bar" style="width:${pct}%;background:${
+      ${percent === null ? '' : `<div class="progress-bar-wrap" role="progressbar" aria-label="Verification progress" aria-valuenow="${percent}" aria-valuetext="${view.escape(label)}">
+        <div class="progress-bar" style="width:${percent}%;background:${
           done ? 'var(--online)' : 'var(--accent)'}"></div>
       </div>`}
     </div>` : '';
-  const stages = a.task_list?.task_list?.stage_list;
+  const task = a.task_list?.task_list;
+  const stages = task?.stage_list;
+  const currentIndex = a.current_stage_index;
+  const currentKey = String(currentIndex ?? '');
   const rendered = Array.isArray(stages) && stages.length
-    ? stages.map(stage => UCAgentStageView.renderStage(stage,a.current_stage_index)).join("\n")
-    : ansiToHtml(mi);
+    ? view.groupStages(stages).map(group => {
+        const open = position.openGroups?.has(String(group.key))
+          || (position.index !== currentKey && group.stages.some(stage => view.isCurrent(stage, currentIndex)));
+        const rows = group.stages.map(stage => view.renderStage(stage, currentIndex, done, task.is_waiting_for_review)).join('');
+        return view.renderGroup(group, currentIndex, done, open, rows);
+      }).join('')
+    : mi ? `<pre class="detail-workflow-legacy">${ansiToHtml(mi)}</pre>` : '';
   if (!rendered) return bar ? `<div class="section-label">Task Progress</div>${bar}` : '';
   return `<div class="section-label">Task Progress</div>
     ${bar}
-    <pre id="detail-mission-pre" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;
-                padding:12px 14px;font-size:13px;font-family:'Consolas','Courier New',monospace;
-                white-space:pre-wrap;word-break:break-word;max-height:360px;overflow-y:auto;
-                line-height:1.6;margin:0">${rendered}</pre>`;
+    <div id="detail-mission-pre" class="detail-workflow-list" tabindex="0" aria-label="Stage list" data-current-stage="${view.escape(currentKey)}">${rendered}</div>`;
 }
 async function refreshDetail() {
   if (!_currentDetailId) return;
@@ -1224,16 +1239,18 @@ async function refreshDetail() {
   try {
     const body = document.getElementById('detail-modal-body');
     const scrollTop    = body ? body.scrollTop : 0;
-    const pre          = document.getElementById('detail-mission-pre');
-    const preScrollTop = pre  ? pre.scrollTop  : 0;
+    const list = document.getElementById('detail-mission-pre');
+    const position = list ? {
+      index: list.dataset.currentStage,
+      scrollTop: list.scrollTop,
+      openGroups: new Set(Array.from(list.querySelectorAll('details[open]'), node => node.dataset.stageGroup)),
+    } : {};
     await fetchAgents();
     if (savedId === _currentDetailId) {
-      openDetail(savedId);
+      openDetail(savedId, position);
       requestAnimationFrame(() => requestAnimationFrame(() => {
         const b2 = document.getElementById('detail-modal-body');
         if (b2) b2.scrollTop = scrollTop;
-        const p2 = document.getElementById('detail-mission-pre');
-        if (p2) p2.scrollTop = preScrollTop;
       }));
     }
   } catch(e) { console.warn('refreshDetail failed', e); }
