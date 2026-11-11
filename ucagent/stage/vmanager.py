@@ -452,6 +452,7 @@ class ToolDoComplete(ManagerTool):
     description: str = (
         "Perform comprehensive validation of your current stage's implementation against requirements and mark the stage as complete if all checks pass.\n"
         "The tool provides detailed feedback (Different from tool 'Check': if all checks pass, the stage is marked as complete and the manager advances to the next stage).\n\n"
+        "Record the current stage journal with SetCurrentStageJournal before calling Complete.\n"
         "When the current stage requires custom input, pass it in the stage_args JSON "
         "object using the structure documented by that stage."
     )
@@ -1326,6 +1327,7 @@ class StageManager(object):
             ret_data["action"] = f"{ret_data['action']} {warning}"
 
     def check(self, timeout, stage_args=None):
+        """Validate the current stage and identify the next action before completion."""
         if not self.stage_index < len(self.stages):
             return OrderedDict({
                 "check_pass": False,
@@ -1372,7 +1374,15 @@ class StageManager(object):
         if ck_pass or batch_advanced:
             self._reset_repeat_failure_state(self.stage_index)
         if ck_pass:
-            ret_data["message"] = f"Congratulations! Stage {self.stage_index} checks passed successfully, you can use tool 'Complete' to finish this stage."
+            if stage.meta_get_journal() is None:
+                ret_data["message"] = (
+                    f"Stage {self.stage_index} checks passed successfully. "
+                    "Use 'SetCurrentStageJournal' to record the current stage's "
+                    "work, artifacts, results and remaining issues, then call "
+                    "'Complete' to finish this stage."
+                )
+            else:
+                ret_data["message"] = f"Congratulations! Stage {self.stage_index} checks passed successfully, you can use tool 'Complete' to finish this stage."
         self._annotate_ignored_stage_args(ret_data, ignored_stage_args)
         if not ck_pass and ignored_stage_args:
             ret_data.setdefault("action", "")
@@ -1644,6 +1654,7 @@ class StageManager(object):
             self.llm_pass_suggestion.on_stage_complete(stage)
 
     def complete(self, timeout, stage_args=None):
+        """Require a stage journal before final validation and completion gates."""
         if self.stage_index >= len(self.stages):
             return self._public_check_result({
                 "complete": False,
@@ -1657,16 +1668,16 @@ class StageManager(object):
         if args_timeout > timeout:
             timeout = args_timeout
         stage = self.stages[self.stage_index]
+        # A missing journal is repairable without running or advancing checkers.
+        if stage.meta_get_journal() is None:
+            return {"complete": False,
+                    "error": "Please use tool 'SetCurrentStageJournal' to set the journal of this stage before completing it."}
         ignored_stage_args = self._ignored_stage_args_keys(stage, stage_args)
         ck_pass, ck_info = stage.do_check(
             timeout=timeout,
             stage_args=stage_args,
             is_complete=True,
         )
-        if ck_pass:
-            if stage.meta_get_journal() is None:
-                return {"complete": False,
-                        "error": "Please use tool 'SetCurrentStageJournal' to set the journal of this stage before completing it."}
         if ck_pass:
             llm_msg = self.gen_pass_suggestion(self._public_check_info(ck_info))
             ck_pass = stage.get_approved()
