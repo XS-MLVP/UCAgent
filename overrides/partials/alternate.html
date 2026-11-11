@@ -1,0 +1,14 @@
+{# Keep both languages visible and preserve the current page when switching. #}
+<div class="md-header__option">
+  <nav class="uc-language-switch" aria-label="{{ lang.t('select.language') }}">
+    {% for alt in config.extra.alternate %}
+      <a href="{{ alt.link | url }}"
+         hreflang="{{ alt.lang }}"
+         lang="{{ alt.lang }}"
+         class="uc-language-switch__link"
+         {% if alt.lang == config.theme.language %}aria-current="true"{% endif %}>
+        {{ "中文" if alt.lang == "zh" else alt.name }}
+      </a>
+    {% endfor %}
+  </nav>
+</div>

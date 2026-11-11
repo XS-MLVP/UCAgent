@@ -1,0 +1,28 @@
+% Pandoc LaTeX header to improve code block rendering
+% - Enable line wrapping in code blocks to avoid overflow beyond page margins
+% - Keep compatibility with Pandoc's default fancyvrb-based Highlighting env
+
+\usepackage{fvextra} % extends fancyvrb, provides breaklines/breakanywhere
+\usepackage{etoolbox}
+\usepackage{float}   % enable [H] figure placement used by fig-pos=H
+
+% Ensure code blocks created by Pandoc can break long lines
+\DefineVerbatimEnvironment{Highlighting}{Verbatim}{breaklines=true,breakanywhere=true,commandchars=\\\{\}}
+\DefineVerbatimEnvironment{Verbatim}{Verbatim}{breaklines=true,breakanywhere=true}
+
+% Also make VerbatimInput (if used) wrap lines
+\RecustomVerbatimCommand\VerbatimInput{VerbatimInput}{breaklines=true,breakanywhere=true}
+
+% Optional: slightly tighter monospace to help fit long commands without clipping
+% (Can be commented if not desired)
+%\fvset{baselinestretch=0.98}
+
+% Default image scaling for PDF only (does not affect website)
+% Make images 0.8x of the line width by default; explicit width on an image still overrides
+\AtBeginDocument{\setkeys{Gin}{width=.8\linewidth}}
+
+% Improve breaking of long words/URLs inside table cells and paragraphs
+\PassOptionsToPackage{hyphens}{url}
+\usepackage{microtype}
+\emergencystretch=3em
+\usepackage{seqsplit}
