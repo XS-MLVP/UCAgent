@@ -23,6 +23,14 @@
 
 TT根因可选 `ASSUME_TOO_STRONG/SIGNAL_CONSTANT/WRAPPER_ERROR/DESIGN_EXPECTED`。当前正确恒等式可选动作 `ACCEPTED` 并说明 `DESIGN_EXPECTED`；仍出现的当前异常不能仅声明 `FIXED`。有合法组合被错误assume排除才放松约束；没有证据不能为了消除TT随意改写。`ACCEPTED`须说明验证目标仍有效，遵循当前阶段阈值，不靠修改文字制造证明。
 
+## 类型化填写与批量诊断
+
+`prepare analysis`对每个目标返回精确类型契约与最小补丁。FA断言只允许`id/prop_name/analysis/resolution/action_detail`；FA cover使用相同字段，但不能决定`RTL_BUG`。TT只允许`id/prop_name/analysis/root_cause/action/action_detail/related_assume`，不含`resolution`。
+
+FA根因解释是`analysis`里的自由文本，TT的`root_cause`才是枚举；不要把Bug阶段的自由`root_cause`字段复制到FA请求。静态TrivF属于FA，仍依据真实静态失败分析。当前允许的FA决定为assert的`RTL_BUG/ENV_PENDING`、cover的`COVER_EXPECTED_FAIL/ENV_PENDING`。TT只有`DESIGN_EXPECTED`可与`ACCEPTED`配对；其它根因需修输入并重跑。
+
+数据技能自动验证并附上当前证据，机器字段不可编辑。整批有错则不写任何条目，诊断`formal_data_review_invalid`给出各自位置与允许值，不通过重复提交同一个坏对象来试错。修完后重新提交当前哈希版本。一次更新后pending集合可能缩短；始终`prepare analysis --offset 0`重取，旧页偏移不是稳定身份。
+
 ## 失败归因
 
 先问属性与参考计算是否正确，再问输入是否符合规格和DUT输出是否正确：

@@ -15,7 +15,7 @@ description: 批量维护 Formal 任务数据、准备当前分析队列并核�
 {"commands":[["ext/formal/data","formal_data.py","inspect planning"]]}
 ```
 
-可查看 `overview`、`planning`、`basic_info`、`spec`、`analysis`、`bugs`、`summary`。结果给出 `sha256`、字段契约、所有当前缺项以及 `ready_update`。分页时使用 `--offset` 和 `--limit`。
+可查看 `overview`、`planning`、`basic_info`、`spec`、`analysis`、`bugs`、`summary`。默认只返回当前缺项和最小 `ready_update`，已完成时返回null，不必重写既有内容。完整字段结构按需运行 `inspect planning --schema`（basic_info/summary同理）；可选表格不是每阶段必须重复填写的事实。分页时使用 `--offset` 和 `--limit`。basic_info必须明确clock_count；未知时保留null待核实，确无时钟才填0。
 
 1. 用普通文件工具把填好的 `ready_update` 写入输出目录下的 JSON 请求文件，例如 `formal_test/data_update.json`。
 2. 请求文件只有 `section`、`expected_sha256`，以及 `data` 或 `bodies` 二选一；不要加入 `action`，不要把整段 JSON 拼进命令参数。
@@ -37,7 +37,11 @@ description: 批量维护 Formal 任务数据、准备当前分析队列并核�
 
 结果包含精确分析 ID、完整属性名、原始证据及可直接填写的 `ready_update`，不必先制造一次失败的 Check 来初始化。按证据和规格填写分析及分类；证据引用由脚本校验后绑定，不由请求文件填写。常量真可能是合法恒等式，常量假可能是静态契约失败，都不能仅为变绿而改弱目标。
 
-环境分析完成后，用 `prepare bugs` 准备 Bug 观察项。可在更新中使用显式 `shared.root_cause_id` 和共享根因、修复建议；每条观察仍保留其真实触发、预期及实际行为。失败属性数不等于独立缺陷数。
+分析补丁必须按`review_contracts`区分类型：FA只填`analysis/resolution/action_detail`，`resolution`按机器类型选assert的`RTL_BUG/ENV_PENDING`或cover的`COVER_EXPECTED_FAIL/ENV_PENDING`；不要给FA提交TT的`root_cause/action/related_assume`。TT填写`analysis/root_cause/action`，只有`DESIGN_EXPECTED/ACCEPTED`可接受当前恒真；`FIXED/ENV_FIXED`不能声明当前仍异常的结果已修复。所有条目保留精确id/prop_name，机器引用不填。批量有错整批不写入，一次修正诊断列出的所有位置。
+
+更新后pending集合会变化，按`after_update_command`从offset 0重新准备；next_offset只用于不变队列的只读翻页。不要因旧偏移返回空页就宣称完成，错误偏移会给出明确诊断。
+
+环境分析完成后，用 `prepare bugs` 准备未完成的Bug观察项。`review_progress`分别报告总数、待审数和已审数；已完成且引用有效的条目不重复返回。可在更新中使用显式 `shared.root_cause_id` 和共享根因、修复建议。真实输入 `trigger` 与实际观测 `actual` 由工具从原始证据生成，不在请求里填写；预期关系与根因解释才是人工分析。采样时间不一定等于失败周期，未知位或数据缺失均明确标记，不能补造值或无证据的失败比例。
 
 没有待填项时无需提交空请求。填写完成后，按阶段要求记录日志并调用 `Complete`；需要定位问题时才调用 `Check`。总结的统计和 Bug 表由已验证记录生成，不再填写 `severe_bugs`。
 

@@ -26,6 +26,7 @@ def main() -> int:
         commands = parser.add_subparsers(dest="action", required=True, parser_class=Arguments)
         inspect = commands.add_parser("inspect")
         inspect.add_argument("section", choices=("overview", "planning", "basic_info", "spec", "analysis", "bugs", "summary"))
+        inspect.add_argument("--schema", action="store_true", help="Include the full author schema for planning, basic_info, or summary")
         prepare = commands.add_parser("prepare")
         prepare.add_argument("section", choices=("analysis", "bugs"))
         for operation in (inspect, prepare):
@@ -46,7 +47,7 @@ def main() -> int:
                       "write_dirs": policy["write_dirs"], "un_write_dirs": policy["un_write_dirs"]})
         store = FormalDataStore(str(workspace), output, dut, cfg=cfg, **policy)
         if args.action == "inspect":
-            result = store.inspect(args.section, args.offset, args.limit)
+            result = store.inspect(args.section, args.offset, args.limit, include_schema=args.schema)
         elif args.action == "prepare":
             result = store.prepare(args.section, args.offset, args.limit)
         else:
@@ -75,8 +76,11 @@ def main() -> int:
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0 if result.get("status") not in {"error", "conflict"} else 2
     except (ValueError, TypeError, KeyError, OSError) as exc:
-        print(json.dumps({"status": "error", "error_code": "formal_data_skill_invalid", "error": str(exc)[:2500],
-                          "next_action": "Correct the named request or task field. For missing or stale runtime context, restart UCAgent to regenerate the runtime snapshot, then retry this Skill script."}, ensure_ascii=False))
+        diagnostic = getattr(exc, "diagnostic", None)
+        if diagnostic is None:
+            diagnostic = {"status": "error", "error_code": "formal_data_skill_invalid", "error": str(exc)[:2500],
+                          "next_action": "Correct the named request or task field. For missing or stale runtime context, restart UCAgent to regenerate the runtime snapshot, then retry this Skill script."}
+        print(json.dumps(diagnostic, ensure_ascii=False))
         return 2
 
 

@@ -23,6 +23,7 @@ def complete_author(section):
                      "strategy": ["Check interface obligations"], "deliverables": ["Current proof report"],
                      "risks": [{"risk": "Unspecified reset behavior", "mitigation": "Confirm specification"}]},
         "basic_info": {"module_type": "event router", "ports": {"inputs": [{"name": "event"}], "outputs": [{"name": "routed"}]},
+                       "clock_reset": {"clock_count": 0, "clock_signal": "", "reset_signal": ""},
                        "core_functions": ["Route an event"], "correctness_requirements": ["Routing preserves the event"]},
         "summary": {"core_function": "Route events", "overall_result": "Reviewed current evidence",
                     "acceptance_conclusion": "Repair the confirmed interface issue before acceptance",
@@ -44,10 +45,12 @@ def verified_records():
         run.property_evidence[name] = {"evidence_ref": reference}
         records.analysis.fa_entries.append(AnalysisEntry(id=f"FA-{index:03d}", prop_name=name, prop_type="assert",
             resolution="RTL_BUG", analysis="Reviewed the original tool witness against the specification", evidence_ref=reference))
+        from formal.evidence import observation_text
+        trigger, actual = observation_text(run.property_evidence[name])
         records.bugs.append(BugEntry(id=f"BG-{index:03d}", property=name, root_cause_id="routing_selection",
             ck_id=f"CK-ROUTE-{index}", fg_id="FG-ROUTE", fc_id="FC-ROUTE", rtl_file="EventRouter/route.sv", rtl_line=4,
             description=f"Current routing observation {index}", root_cause="Wrong routing selection condition", fix="Correct the selection condition",
-            trigger="Original tool witness", expected="Specified route", actual="Different route", severity="HIGH", confidence="HIGH"))
+            trigger=trigger, expected="Specified route", actual=actual, severity="HIGH", confidence="HIGH"))
     records.summary = complete_author("summary")
     return records
 

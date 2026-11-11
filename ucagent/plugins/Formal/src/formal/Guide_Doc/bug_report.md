@@ -10,7 +10,9 @@
 3. 数据技能可用`data.shared`一次提交共同根因及entries；将完整结构化请求写JSON文件，再经RunSkillScript调用`update --request-file`，不拼shell内嵌JSON。无技能时各YAML观测保留一致的共享值。
 4. 日志后Complete，Check只用于实际诊断。无RTL_BUG时不制造占位Bug；修复建议未经新验证不得称已通过。
 
-`shared` 可含 `root_cause_id/root_cause/fix/severity/confidence`，必须有明确的非空root_cause_id。`entries` 每项含工具返回的id/property及该属性的 `description/trigger/expected/actual`，并补齐 `ck_id/fg_id/fc_id/rtl_file/rtl_line`。严重度和置信度从HIGH/MEDIUM/LOW选取。共享字段若在entry重复出现，值必须一致，不能悄悄覆盖。
+`shared` 可含 `root_cause_id/root_cause/fix/severity/confidence`，必须有明确的非空root_cause_id。`entries` 每项仅填写精确id/property及 `description/expected`、`ck_id/fg_id/fc_id/rtl_file/rtl_line` 等人工分析。`trigger` 和 `actual` 由当前原始证据自动生成，不在请求中填写；无技能时Check同样生成并核验这两个字段。严重度和置信度从HIGH/MEDIUM/LOW选取。共享字段若在entry重复出现，值必须一致，不能悄悄覆盖。
+
+原始观测标明采样时间、位宽、未知位及省略范围。它是保存的采样，不自动等于失败周期；数据不可用时明确标为不可用，不推断零值。`expected` 是基于规格的解释：只有经独立计算或参考模型核验的数值才写为确定值，否则描述必须满足的关系，不自行补造十六进制结果或输入空间比例。
 
 失败属性数量是观测数，独立root_cause_id数量是根因数。相同根因只维护一次原因与修复，各条目保留自己的触发和输出证据。Cover、UNPROVEN、超时或工具故障不能登记成RTL Bug；属性参考计算错误必须先修至通过。
 
@@ -50,9 +52,9 @@
 **FILE-RTL文件路径**: PacketGate/PacketGate.sv:8
 **问题描述**: 当前左侧witness中request=1但eligible=0，与组合资格条件不符。
 **根因引用**: ROOT-PACKET-ELIGIBILITY
-**触发条件**: 工具当前左侧属性witness的request=1采样。
+**触发条件**: Original tool initialization: request=0x1 (width=1)
 **预期行为**: eligible=1。
-**实际行为**: eligible=0。
+**实际行为**: Original tool verdict: Fail (1). Stored sample at 0 x 1 ns (not asserted to be the failure cycle): PacketShell.eligible=0x0 (width=1)
 **置信度**: HIGH
 
 ---
@@ -70,9 +72,9 @@
 **FILE-RTL文件路径**: PacketGate/PacketGate.sv:9
 **问题描述**: 当前右侧witness中request=0但eligible=1，与规格不符。
 **根因引用**: ROOT-PACKET-ELIGIBILITY
-**触发条件**: 工具当前右侧属性witness的request=0采样。
+**触发条件**: Original tool initialization: request=0x0 (width=1)
 **预期行为**: eligible=0。
-**实际行为**: eligible=1。
+**实际行为**: Original tool verdict: Fail (1). Stored sample at 0 x 1 ns (not asserted to be the failure cycle): PacketShell.eligible=0x1 (width=1)
 **置信度**: HIGH
 
 ---

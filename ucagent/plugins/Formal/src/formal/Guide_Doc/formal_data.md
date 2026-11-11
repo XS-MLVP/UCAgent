@@ -11,7 +11,9 @@
 {"commands":[["ext/formal/data","formal_data.py","inspect planning"]]}
 ```
 
-`inspect planning|basic_info|spec|analysis|bugs|summary|overview`只读查看已知字段、完整契约、缺失项、分页与sha256。`--offset/--limit`用于列表分页，按返回next_offset继续；截断预览不能当作完整值覆盖。端口和参数必须来自实际规格/RTL，空值不代表可以编造。
+`inspect planning|basic_info|spec|analysis|bugs|summary|overview`只读查看当前缺项、分页与sha256；planning/basic_info/summary的完整结构按需使用`--schema`，不要为可选事实表重复填写全部数据。`--offset/--limit`用于列表分页，按返回next_offset继续；截断预览不能当作完整值覆盖。basic_info中clock_count未知应待核实，明确无时钟才填0。
+
+`inspect spec`还给出从实际RTL解析的`effective_interface`：真实声明默认参数、覆盖后的有效值与端口宽度/符号。`spec.parameters`只填写有意的显式整数覆盖；留空使用真实声明默认值，派生参数随基础参数覆盖重新计算。`basic_info.parameters/ports`是说明数据，不控制生成绑定；不要通过改说明中的位宽修复生成错误。无法解析时按返回的来源或spec.parameters位置处理，不猜模块专属默认值。
 
 使用普通`EditTextFile`在输出目录写一个JSON请求文件，例如`formal_test/data_update.json`，再调用：
 
@@ -41,7 +43,19 @@
 
 prepare核验当前证据、协调精确队列并返回ready_update请求对象及原始witness上下文，不启动新证明。审阅真实输入、独立参考计算、观测输出及断言，填写ready_update中的人工分析，再将该对象写入请求文件调用update。证据由技能核验并绑定，不手工复制哈希，不把准备动作当作RTL_BUG归因。
 
-分析条目保留精确id/prop_name；只填写analysis/root_cause/action/action_detail/related_assume/resolution等人工字段。真实RTL缺陷保留Fail；错误属性或环境必须修复并取得新运行结果；Cover、超时、未知和工具错误不能冒充RTL Bug。TRIVIALLY_TRUE可能是正确恒等式，依据原因审核；TRIVIALLY_FALSE是静态失败，不能改弱原目标来消除工具状态。
+分析请求按类型分开，必须使用prepare返回的`review_contracts`。各项只有精确`id/prop_name`是定位字段；不能把不同类型字段混写：
+
+| 列表 | 必填人工字段 | 其他可填字段 | 当前允许决定 |
+| --- | --- | --- | --- |
+| `fa_entries`（assert） | `analysis/resolution` | `action_detail` | `RTL_BUG`或`ENV_PENDING` |
+| `fa_entries`（cover） | `analysis/resolution` | `action_detail` | `COVER_EXPECTED_FAIL`或`ENV_PENDING` |
+| `tt_entries`（assert） | `analysis/root_cause/action` | `action_detail/related_assume` | `action=ACCEPTED`仅配合`root_cause=DESIGN_EXPECTED` |
+
+FA的自由根因解释写在`analysis`中，不提交TT专用的`root_cause/action/related_assume`。TT根因枚举为`ASSUME_TOO_STRONG/SIGNAL_CONSTANT/WRAPPER_ERROR/DESIGN_EXPECTED`；前3类需要修环境后重跑，不能据此接受当前结果。当前仍失败或恒真的条目不能填`ENV_FIXED/FIXED`冒充修复。`ENV_PENDING`可记录尚未解决的问题，但保持待审并阻止推进。
+
+`evidence_ref/prop_type/sva_code`都是机器字段，不在请求里填写。批量请求有任何错误时整批不写入；`formal_data_review_invalid`一次列出有界的所有错误位置、允许字段和值，先修完整批再重试。真实RTL缺陷保留Fail；属性/参考计算错误修复后重新RunFormal。TRIVIALLY_FALSE保留静态失败，不能改弱目标。
+
+`prepare --offset/--limit`分页只适用于同一只读队列。**每次update后，按返回的`after_update_command`从offset 0重新取pending**，不要沿用更新前的next_offset。旧偏移越过当前非空队列时明确报`review_pending_offset_stale`，不能把空页当成全部完成。无待审项时ready_update才为null。
 
 Bug阶段对应`prepare bugs`，保留精确id/property。一个共享根因的完整请求形状如下；真实id、名称和哈希均来自本次准备，不复制示例作证据：
 
@@ -58,8 +72,8 @@ Bug阶段对应`prepare bugs`，保留精确id/property。一个共享根因的�
       "confidence":"HIGH"
     },
     "entries":[
-      {"id":"BG-FORMAL-001","property":"u_left.A_CK_PACKET_ELIGIBLE","description":"左输出与规格不符。","trigger":"当前左侧witness的request=1。","expected":"eligible=1。","actual":"eligible=0。","ck_id":"CK-PACKET-LEFT","fg_id":"FG-LOGIC","fc_id":"FC-PACKET-LEFT","rtl_file":"PacketGate/PacketGate.sv","rtl_line":8},
-      {"id":"BG-FORMAL-002","property":"u_right.A_CK_PACKET_ELIGIBLE","description":"右输出受同一条件错误影响。","trigger":"当前右侧witness的request=0。","expected":"eligible=0。","actual":"eligible=1。","ck_id":"CK-PACKET-RIGHT","fg_id":"FG-LOGIC","fc_id":"FC-PACKET-RIGHT","rtl_file":"PacketGate/PacketGate.sv","rtl_line":9}
+      {"id":"BG-FORMAL-001","property":"u_left.A_CK_PACKET_ELIGIBLE","description":"左输出与规格不符。","expected":"eligible=1。","ck_id":"CK-PACKET-LEFT","fg_id":"FG-LOGIC","fc_id":"FC-PACKET-LEFT","rtl_file":"PacketGate/PacketGate.sv","rtl_line":8},
+      {"id":"BG-FORMAL-002","property":"u_right.A_CK_PACKET_ELIGIBLE","description":"右输出受同一条件错误影响。","expected":"eligible=0。","ck_id":"CK-PACKET-RIGHT","fg_id":"FG-LOGIC","fc_id":"FC-PACKET-RIGHT","rtl_file":"PacketGate/PacketGate.sv","rtl_line":9}
     ]
   }
 }

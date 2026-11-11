@@ -234,12 +234,22 @@ def property_evidence(run_dir: Path, state: dict, name: str, item: dict) -> dict
     witness_hash = hashlib.sha256(witness.read_bytes()).hexdigest() if witness.is_file() else None
     if witness_hash != attempt.get("witness_hash"):
         raise ValueError(f"Property witness changed after execution: {name}")
-    return {"run_id": state["run_id"], "attempt_console": str(console.relative_to(Path(state["workspace"]))),
+    from formal.evidence import original_inputs, trace_observations
+    trace = witness.with_name(name + ".vcd")
+    if not trace.resolve().is_relative_to(console.parent.resolve()) or trace.is_symlink():
+        raise ValueError("Invalid original observation path")
+    trace_hash = hashlib.sha256(trace.read_bytes()).hexdigest() if trace.is_file() else None
+    if trace_hash != attempt.get("trace_hash"):
+        raise ValueError(f"Original trace changed after execution: {name}")
+    return {**original_inputs(witness), "trace_observations": trace_observations(trace),
+            "trace_artifact": str(trace.relative_to(Path(state["workspace"]))) if trace_hash else None,
+            "trace_sha256": trace_hash,
+            "run_id": state["run_id"], "attempt_console": str(console.relative_to(Path(state["workspace"]))),
             "raw_status": item["raw_status"], "result": item["result"], "depth": item.get("depth"),
             "witness_artifact": str(witness.relative_to(Path(state["workspace"]))) if witness_hash else None,
             "witness_sha256": witness_hash,
             "evidence_ref": {"run_id": state["run_id"], "input_fingerprint": state["fingerprint"],
-                             "property": name, "report_sha256": report_hash, "witness_sha256": witness_hash}}
+                             "property": name, "report_sha256": report_hash, "witness_sha256": witness_hash, "trace_sha256": trace_hash}}
 
 
 class FormalExecution:
@@ -546,23 +556,8 @@ class FormalExecution:
                     raise ValueError(f"Exact property identity not found: {name}")
                 item = state["properties"][name]
                 evidence = property_evidence(run_dir, state, name, item)
-                values = []
-                if evidence["witness_artifact"]:
-                    # Read only the tool's initialization section, not arbitrary user SV.
-                    witness = self.workspace / evidence["witness_artifact"]
-                    with witness.open(encoding="utf-8", errors="replace") as stream:
-                        text = stream.read(32768)
-                    initialization = re.search(r"// initialization\s*initial\s+begin(.*?)\bend\b", text, re.DOTALL)
-                    if initialization:
-                        for signal_name, width, bits in re.findall(r"([\w.$\[\]\\]+)\s*<=\s*(\d+)'b([01xzXZ]+)\s*;", initialization.group(1)):
-                            if len(values) >= 64:
-                                break
-                            value = hex(int(bits, 2)) if set(bits) <= {"0", "1"} else bits[:256]
-                            values.append({"signal": signal_name, "width": int(width), "value": value,
-                                           "has_unknown": bool(set(bits.lower()) & {"x", "z"})})
-                items.append({"property": name, **evidence, "initial_values": values,
-                              "initial_values_only": True,
-                              "next_action": "Use this original witness and the stated specification to check expected versus observed behavior. An alternate example is not a proven counterexample without replay; constant failures may have no dynamic witness."})
+                items.append({"property": name, **evidence,
+                              "next_action": "Use the original recorded input and signal observations with the stated specification. The last stored sample is not necessarily the failure cycle; no expected behavior or alternate example has been computed."})
             return {"run_id": state["run_id"], "items": items,
                     "verification_scope": "tool_report_and_original_witness_only; intended specification semantics remain to be reviewed"}
 
@@ -794,7 +789,14 @@ def controller(run_dir: Path) -> None:
                     witness_hash = None
                 else:
                     witness_hash = hashlib.sha256(witness.read_bytes()).hexdigest() if witness.is_file() else None
+                trace = witness.with_name(worker["name"] + ".vcd")
+                if not trace.resolve().is_relative_to(worker["console_path"].parent.resolve()) or trace.is_symlink():
+                    parse_error = "Invalid original observation path"
+                    trace_hash = None
+                else:
+                    trace_hash = hashlib.sha256(trace.read_bytes()).hexdigest() if trace.is_file() else None
                 attempt.update({"running": False, "ended_at": time.time(), "active_s": charged,
+                                "trace_hash": trace_hash,
                                 "witness_hash": witness_hash,
                                 "console_hash": hashlib.sha256(worker["console_path"].read_bytes()).hexdigest(),
                                 "returncode": process.returncode, "forced": forced})

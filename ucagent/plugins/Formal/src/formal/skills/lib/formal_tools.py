@@ -626,6 +626,12 @@ def auto_scaffold_bug_entries(records: FormalRecords) -> bool:
         bug_id = f"BG-FORMAL-{number:03d}"
         occupied.add(bug_id)
         records.bugs.append(BugEntry(id=bug_id, property=name, ck_id=f"CK-{strip_prop_prefix(name).replace('_', '-')}"))
+    from formal.evidence import observation_text
+    for bug in records.bugs:
+        evidence = records.run_results.property_evidence.get(bug.property) if records.run_results else None
+        if not evidence or not evidence.get("evidence_ref"):
+            raise ValueError(f"Current original observations are required for Bug {bug.property}; run the current proof and prepare its analysis.")
+        bug.trigger, bug.actual = observation_text(evidence)
     return before != [bug.model_dump() for bug in records.bugs]
 
 import jinja2
@@ -731,7 +737,21 @@ def bug_root_groups(records: FormalRecords) -> list[dict]:
     return list(groups.values())
 
 
+def validate_original_observations(records: FormalRecords) -> None:
+    """Reject authored or stale machine-observation prose at either delivery boundary."""
+    from formal.evidence import observation_text
+    for bug in records.bugs or []:
+        evidence = records.run_results.property_evidence.get(bug.property) if records.run_results else None
+        if not evidence or not evidence.get("evidence_ref"):
+            raise ValueError(f"Current original observations are required for {bug.property}.")
+        trigger, actual = observation_text(evidence)
+        if bug.trigger != trigger or bug.actual != actual:
+            raise ValueError(f"Machine observations changed for {bug.property}; prepare the current Bug queue instead of editing trigger or actual.")
+
+
 def generate_bug_report_doc(records: FormalRecords, op: str) -> None:
+    """Publish only machine-derived original observations and authored semantic reviews."""
+    validate_original_observations(records)
     context = {
         "DUT": records.dut,
         "roots": bug_root_groups(records),
@@ -759,6 +779,7 @@ def summary_bug_rows(records: FormalRecords) -> list[dict]:
     identifiers = [bug.id for bug in observations]
     if len(names) != len(set(names)) or len(identifiers) != len(set(identifiers)) or set(names) != set(claims):
         raise ValueError("Summary requires exactly one verified Bug observation per current RTL_BUG property; call Check in the Bug report stage before summary.")
+    validate_original_observations(records)
     roots = {group["id"]: group for group in bug_root_groups(records)}
     rows = []
     for bug in observations:
@@ -924,6 +945,8 @@ def incremental_merge_checker(records: FormalRecords, sv_path: str, port_info: O
             "reset_signal": reset_signal,
             "reset_disable_expr": cr_ctx["reset_disable_expr"],
             "clock_reset_aliases": cr_ctx["aliases"],
+            "has_clock": cr_ctx["has_clock"],
+            "has_reset": cr_ctx["has_reset"],
         }
         _render_to_file("tests/checker.sv", context, sv_path)
         with open(sv_path, 'r', encoding='utf-8') as f: return f.read()

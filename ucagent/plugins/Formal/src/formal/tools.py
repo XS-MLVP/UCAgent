@@ -40,11 +40,21 @@ def render_environment(
             raise ValueError(reason)
         if (generated / "tests" / f"{dut}_{suffix}").is_symlink():
             raise ValueError("Generated formal inputs must not be symlinks")
+    from .interface import inspect_interface
+    from .skills.lib.formal_tools import load_records
+    records = load_records(str(generated / ".formal_records.yaml"))
+    if records is None:
+        raise ValueError("Formal task records are missing; initialize the current workflow before rendering")
+    inspect_interface(workspace, output_dir, dut, records.spec.parameters if records.spec else {})
     script = Path(__file__).resolve().parent / "skills" / "sva-gen" / "scripts" / "generate_formal_env.py"
+    import ucagent
+    import_roots = [str(Path(ucagent.__file__).resolve().parent.parent), str(Path(__file__).resolve().parent.parent)]
+    import_roots += os.environ.get("PYTHONPATH", "").split(os.pathsep)
+    python_path = os.pathsep.join(dict.fromkeys(path for path in import_roots if path))
     result = subprocess.run(
         [sys.executable, str(script), "--mode", "full"],
         cwd=workspace,
-        env={**os.environ, "UCAGENT_WORKSPACE": workspace, "OUT": output_dir, "DUT": dut},
+        env={**os.environ, "UCAGENT_WORKSPACE": workspace, "OUT": output_dir, "DUT": dut, "PYTHONPATH": python_path},
         capture_output=True,
         text=True,
         timeout=120,

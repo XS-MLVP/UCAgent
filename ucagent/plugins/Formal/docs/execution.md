@@ -37,6 +37,31 @@ tool-call timeout with return headroom; use `wait_s=0` for an immediate query.
 The execution and original-evidence contract is in
 `src/formal/Guide_Doc/formal_execution.md`.
 
+## Effective interface preflight
+
+The Formal plugin requires pyslang 12.1.x for parser-backed interface preparation.
+The parser and generated Tcl use the same deterministic direct DUT source order:
+`.v` files followed by `.sv` files, each sorted. No BasicInfo prose is consumed as
+an executable parameter default. The actual selected module's public scalar
+integral parameter defaults are elaborated; `spec.parameters` supplies only
+explicit public overrides. Derived defaults are recomputed after overrides,
+and zero is a valid explicit value. Unknown/local/type/non-integral or unresolved
+bindings are rejected rather than guessed.
+
+The generated verification ports have concrete resolved dimensions and
+signedness. The original DUT receives only explicit overrides, preserving its
+own default dependency relationships; the checker receives effective constants
+needed by SVA. Read-only `inspect spec` exposes effective interface data from the
+same preflight. Missing bindings and unsupported compilation context must identify
+the input and `spec.parameters`, not suggest editing descriptive `basic_info`.
+Preflight does not modify the task's parameter map or source RTL.
+
+The initial supported context is direct source files and scalar packed integral
+ports. Preprocessor/include contexts or richer type/interface constructs that
+cannot be matched safely are rejected explicitly; operators must provide a
+supported consistent compilation context instead of relying on silent regex
+fallbacks. This is not a full SystemVerilog project build system.
+
 ## Configuration
 
 Override the resolved workflow configuration, for example:
@@ -149,6 +174,29 @@ Machine artifacts are not editable progress checklists. Raw evidence lives in
 run-scoped attempt logs; the shared `tests/avis.log` is only an aggregate result
 projection, not the original counterexample transcript. Use the run report and
 attempt logs when analyzing a counterexample.
+
+## Compact data review and original observations
+
+The data Skill returns only missing required author fields by default. Full
+planning/basic_info/summary schemas remain available with `inspect <section>
+--schema`; optional render defaults are not prefilled into every request.
+Clock applicability must be explicitly reviewed: an unknown count is null,
+whereas zero means a confirmed clockless design.
+
+`prepare` filters completed reviews and reports total/pending/completed counts.
+Inspection remains read-only. Evidence metadata is attached by the shared data
+backend. The Skill still runs exclusively through the unchanged RunSkillScript
+framework; no additional data tool is registered.
+
+RunFormal now hashes the original VCD alongside the tool report and generated
+testbench. The existing wavekit VcdReader provides bounded top-scope samples at
+the last recorded timestamp, preserving widths, X/Z masks, omitted signal counts,
+and unavailable states. This sample is not necessarily a failure cycle or a
+full replay. Bug trigger/actual fields are deterministic projections of this
+original evidence and are not authored through the data Skill; raw YAML edits
+are rejected at report delivery. Reference semantics, root-cause interpretation,
+and any expected-value calculation still require independent review. No
+DUT-specific arithmetic oracle is supplied.
 
 ## Verification
 

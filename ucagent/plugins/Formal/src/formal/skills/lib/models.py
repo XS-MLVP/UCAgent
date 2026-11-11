@@ -166,17 +166,17 @@ def author_section_contract(section: str) -> Dict[str, Any]:
             "ports": mapping({"inputs": ports, "outputs": ports}),
             "parameters": rows({"name": text, "default": scalar, "range": text, "desc": text}),
             "core_functions": strings, "correctness_requirements": strings,
-            "clock_reset": mapping({"clock_count": {"type": "integer", "minimum": 0, "default": 0},
+            "clock_reset": mapping({"clock_count": {"type": ["integer", "null"], "minimum": 0, "default": None},
                 **{key: text for key in ("clock_signal", "clock_type", "cdc_note", "reset_signal", "reset_type", "reset_init_state")}}),
             "architecture": mapping({key: text for key in ("ascii_diagram", "datapath", "control_logic")}),
             "parameter_impact": strings,
             "special_units": mapping({key: rows({"unit_type": text, "exists": {"type": "boolean", "default": False}, "note": text}) for key in ("arithmetic", "storage")}),
             "env_config_notes": mapping({"clock_constraints": strings, "reset_sequence": text, "input_constraints": strings}), "conclusion": text})
-        required = ["module_type", "ports.inputs", "ports.outputs", "core_functions", "correctness_requirements"]
+        required = ["module_type", "ports.inputs", "ports.outputs", "core_functions", "correctness_requirements", "clock_reset.clock_count"]
         skeleton = {"module_type": "", "ports": {"inputs": [{"name": "", "width": "", "desc": ""}],
                                                 "outputs": [{"name": "", "width": "", "desc": ""}]},
                     "core_functions": [""], "correctness_requirements": [""],
-                    "clock_reset": {"clock_count": 0, "clock_signal": "", "reset_signal": ""}}
+                    "clock_reset": {"clock_count": None, "clock_signal": "", "reset_signal": ""}}
     elif section == "summary":
         schema = mapping({"core_function": text, "overall_result": text, "acceptance_conclusion": text,
                           "completeness": mapping({key: text for key in ("safety", "liveness", "cover")}),
@@ -189,8 +189,10 @@ def author_section_contract(section: str) -> Dict[str, Any]:
     schema = copy.deepcopy(schema)
     schema.pop("default", None)
     defaults = _normalize_value(schema, {}, section)
+    # The request skeleton is deliberately smaller than render defaults: optional
+    # fact tables belong in their owning stage, not in every author response.
     return {"json_schema": schema, "required_at_check": required,
-            "update_skeleton": _normalize_value(schema, skeleton, section), "optional_defaults": defaults}
+            "update_skeleton": copy.deepcopy(skeleton), "optional_defaults": defaults}
 
 
 def normalize_author_section(section: str, value: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -223,8 +225,10 @@ def missing_author_fields(section: str, value: Optional[Dict[str, Any]]) -> List
                     for key in keys:
                         if not str(entry.get(key, "")).strip() or "[LLM-TODO]" in str(entry.get(key, "")):
                             missing.append(f"{dotted}[{index}].{key}")
-    if section == "basic_info" and data["clock_reset"]["clock_count"] > 0 and not data["clock_reset"]["clock_signal"].strip():
-        missing.append("clock_reset.clock_signal")
+    if section == "basic_info":
+        count = data["clock_reset"]["clock_count"]
+        if count is not None and count > 0 and not data["clock_reset"]["clock_signal"].strip():
+            missing.append("clock_reset.clock_signal")
     return missing
 
 

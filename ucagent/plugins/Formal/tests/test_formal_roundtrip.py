@@ -95,6 +95,11 @@ def test_generic_data_execution_evidence_analysis_and_summary(tmp_path):
         assert store.update("analysis", {"fa_entries": patches}, None, document["sha256"])["status"] == "updated"
         bound = yaml.safe_load(records_path.read_text())["analysis"]["fa_entries"]
         assert all(entry["evidence_ref"] == references[entry["prop_name"]] for entry in bound)
+        reviewed = store.prepare("analysis")
+        assert reviewed["review_progress"]["pending"] == 0
+        assert reviewed["review_progress"]["completed"] == 2
+        assert reviewed["ready_update"] is None
+        assert reviewed["evidence"] == []
         passed, details = env.do_check()
         assert passed, details
         bug_checker = BugReportConsistencyChecker(dut_name=name, cfg=cfg)
@@ -105,8 +110,7 @@ def test_generic_data_execution_evidence_analysis_and_summary(tmp_path):
         entries = [{"id": entry["id"], "property": entry["property"], "root_cause_id": f"CAUSE_{index}",
                     "root_cause": "The implementation does not meet this explicit interface obligation.",
                     "description": "Observed mismatch against the independently stated requirement.",
-                    "trigger": "Use the original tool proof context linked by the analysis evidence.",
-                    "expected": "The stated interface requirement holds.", "actual": "The current proof reports failure.",
+                    "expected": "The stated interface requirement holds.",
                     "fix": "Correct the implementation without weakening the requirement.",
                     "severity": "HIGH", "confidence": "HIGH", "rtl_file": f"{name}/{name}.v", "rtl_line": 1,
                     "fg_id": "FG-FORWARD", "fc_id": "FC-OUTPUT"}

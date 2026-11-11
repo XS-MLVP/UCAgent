@@ -196,7 +196,7 @@ def test_missing_scaffold_returns_exact_next_action(task):
     result = store.inspect("analysis")
     assert result["pending_analysis"]["total"] == 2
     assert result["pending_analysis"]["items"][0]["analysis_id"] is None
-    assert "Check once" in result["pending_analysis"]["items"][0]["next_action"]
+    assert "prepare analysis" in result["pending_analysis"]["items"][0]["next_action"]
 
 
 def test_policy_symlinks_and_traversal_rejected_before_writes(task, tmp_path):

@@ -232,6 +232,7 @@ stage:
     task:
       - "目标：将 `.formal_records.yaml.spec` 中的 `sva_body` 占位符替换为真实的 SVA 断言代码。"
       - "技能可用时通过数据技能 inspect spec取得参数、端口及missing_bodies，用bodies映射批量实现；技能不可用时直接填写YAML中各CK的sva_body。"
+      - "参数由实际RTL预检展开：spec.parameters仅为显式整数覆盖，缺省沿用声明默认值；不要重复抄写默认值或通过basic_info说明字段修复生成绑定。技能可用时inspect spec查看effective_interface。"
       - "本阶段只负责维护 YAML 子树 `spec.*.check_points[*].sva_body`。"
       - "1. 数据技能请求形状为section/spec、expected_sha256及bodies映射，写入请求文件后经RunSkillScript调用；无技能时用普通文件工具编辑相同字段。"
       - "2. **禁止直接修改 .sv 文件**，系统会自动 full refresh 渲染生成验证环境。"
