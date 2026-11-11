@@ -156,6 +156,29 @@ evidence 引用对应的保留源码路径；已证明不可达、条件未知�
 报告顶层 checks 不能在相关 AI 判断仍为 issues/unverified 时写 passed。
 证据重收集后使用新 digest 重新审查，普通 Check 校验现有判断，不额外调用模型。
 
+### 写入报告与精确引用
+
+可用时，使用 `WriteACT4ReviewReport` 写入报告：`path` 为工作区相对路径
+`{OUT}/{DUT}/review/review.yaml` 或 `{OUT}/{DUT}/review/final.yaml`，`document` 为下文完整示例所示的报告对象。
+你仍需填写全部语义判断、状态、推理、结论、限制和引用观察；每个 `basis` 项填写
+`path`、`lines`、`observation`，可以省略 `quote`，工具将从对应证据原文提取并写入精确引用。
+例如，选择下文示例的两行生成器源码时，输入引用项为：
+
+```json
+{
+  "path": "baseline/generators/H.py",
+  "lines": [1, 2],
+  "observation": "The declared generator only defines a constant and contains no stimulus or registration."
+}
+```
+
+如提供 `quote`，内容必须已经与选定原文一致。使用当前 evidence 中的 `review_digest`，
+证据更新后重新审查，不能只替换 digest 沿用旧结论。路径、行号、来源变化或输入错误时，
+工具拒绝写入并指出具体引用位置；报告在准备过程中被其他操作修改时，保留外部修改。
+写入成功后读取报告，再调用普通 Check；写入成功不代表审查结论通过或阶段完成。
+工具不可用时，使用 `EditTextFile` 按下文完整 YAML 格式写入报告，自行逐字核对所有 quote，
+然后调用相同的普通 Check。两条路径遵守相同的报告与证据要求。
+
 ## 2. 人工授权与修复
 
 所有 `evidence` 字段使用非空字符串列表；结论、位置、义务、风险和原因使用非空文本，

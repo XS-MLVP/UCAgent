@@ -82,6 +82,43 @@ def safe_path(root: Path, value: str) -> Path:
     return path
 
 
+def review_citation_sources(evidence: dict[str, Any], evidence_name: str,
+                           before: dict[str, Any] | None = None) -> dict[str, str]:
+    """Collect the exact source identities eligible for a review or final-report citation."""
+    allowed = dict(evidence["source_files"])
+    allowed[evidence_name] = hashlib.sha256((json.dumps(evidence, indent=2) + "\n").encode()).hexdigest()
+    if before is not None:
+        allowed.update(before["source_files"])
+    for job in evidence["jobs"]:
+        for field in ("log", "probe_log"):
+            if field in job:
+                allowed[job[field]] = job[f"{field}_sha256"]
+        allowed.update({item["path"]: item["sha256"]
+                        for item in job.get("artifacts", []) + job.get("diagnostics", [])})
+    return allowed
+
+
+def read_review_quote(root: Path, citation: dict[str, Any], allowed: dict[str, str],
+                      source_lines: dict[str, list[str]]) -> str:
+    """Extract a bounded exact quote after verifying its recorded source identity."""
+    if not isinstance(citation, dict) or not is_text(citation.get("path")) or citation["path"] not in allowed:
+        raise ValueError("AI basis.path must name a frozen source/reference, current evidence JSON or retained command log/artifact; report text is not evidence")
+    name = citation["path"]
+    if name not in source_lines:
+        content = safe_path(root, name).read_bytes()
+        if hashlib.sha256(content).hexdigest() != allowed[name]:
+            raise ValueError(f"AI basis source changed: {name}; recollect evidence")
+        try:
+            source_lines[name] = content.decode("utf-8").splitlines()
+        except UnicodeDecodeError as exc:
+            raise ValueError(f"AI basis requires UTF-8 text: {name}; cite a retained textual report for binary artifacts") from exc
+    lines = citation.get("lines")
+    physical = source_lines[name]
+    if not isinstance(lines, list) or len(lines) != 2 or any(type(number) is not int for number in lines) or not 1 <= lines[0] <= lines[1] <= len(physical) or lines[1] - lines[0] >= 100:
+        raise ValueError(f"AI basis.lines must select 1..100 existing physical lines: {name}")
+    return "\n".join(physical[lines[0] - 1:lines[1]])
+
+
 def tree_state(root: Path, paths: list[str] | None = None) -> dict[str, Any]:
     """Fingerprint source bytes, executable modes, and safe relative symlinks."""
     if paths is None:
@@ -765,17 +802,9 @@ class ACT4ReviewChecker(Checker):
         if review is not None:
             tasks.update({f"finding:{item['id']}": {"topic": item["topic"]} for item in review["findings"]})
             tasks.update({f"change:{name}": {"topic": "contribution_quality"} for name in changed or []})
-        allowed = dict(evidence["source_files"])
         evidence_name = "evidence-before.json" if review is None else "evidence-after.json"
-        allowed[evidence_name] = hashlib.sha256((json.dumps(evidence, indent=2) + "\n").encode()).hexdigest()
-        if review is not None:
-            allowed.update(self._load("evidence-before.json")["source_files"])
-        for job in evidence["jobs"]:
-            for field in ("log", "probe_log"):
-                if field in job:
-                    allowed[job[field]] = job[f"{field}_sha256"]
-            allowed.update({item["path"]: item["sha256"]
-                            for item in job.get("artifacts", []) + job.get("diagnostics", [])})
+        allowed = review_citation_sources(evidence, evidence_name,
+                                         self._load("evidence-before.json") if review is not None else None)
         judgments = semantic.get("judgments")
         if not isinstance(judgments, list) or not judgments:
             raise ValueError("semantic_review.judgments must assess every evidence review_task; an empty or missing AI review cannot pass")
@@ -818,22 +847,8 @@ class ACT4ReviewChecker(Checker):
             if not isinstance(basis, list) or not basis:
                 raise ValueError("AI judgments require source evidence with path, lines, exact quote and observation")
             for citation in basis:
-                if not isinstance(citation, dict) or not is_text(citation.get("path")) or citation["path"] not in allowed:
-                    raise ValueError("AI basis.path must name a frozen source/reference, current evidence JSON or retained command log/artifact; report text is not evidence")
-                name = citation["path"]
-                if name not in source_lines:
-                    content = safe_path(self.output, name).read_bytes()
-                    if hashlib.sha256(content).hexdigest() != allowed[name]:
-                        raise ValueError(f"AI basis source changed: {name}; recollect evidence")
-                    try:
-                        source_lines[name] = content.decode("utf-8").splitlines()
-                    except UnicodeDecodeError as exc:
-                        raise ValueError(f"AI basis requires UTF-8 text: {name}; cite a retained textual report for binary artifacts") from exc
-                lines = citation.get("lines")
-                physical = source_lines[name]
-                if not isinstance(lines, list) or len(lines) != 2 or any(type(number) is not int for number in lines) or not 1 <= lines[0] <= lines[1] <= len(physical) or lines[1] - lines[0] >= 100:
-                    raise ValueError(f"AI basis.lines must select 1..100 existing physical lines: {citation['path']}")
-                if not is_text(citation.get("quote")) or citation["quote"] != "\n".join(physical[lines[0] - 1:lines[1]]):
+                quote = read_review_quote(self.output, citation, allowed, source_lines)
+                if not is_text(citation.get("quote")) or citation["quote"] != quote:
                     raise ValueError(f"AI basis.quote must exactly match the selected source lines: {citation['path']}")
                 if not is_text(citation.get("observation")):
                     raise ValueError("AI basis.observation must explain what the quoted source establishes")
