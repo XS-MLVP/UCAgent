@@ -127,6 +127,12 @@ cmd_api:
       args: ["--meta", "{wave_meta}", "--verdi", "verdi"]
       env: {}
       idle_timeout: -1
+    usdb:
+      kind: xpra
+      script: uvd/launch_uvd.py
+      args: ["--meta", "{wave_meta}", "--uvd", "uvd"]
+      env: {}
+      idle_timeout: -1
   xpra:
     executable: xpra
     max_sessions: 5
