@@ -135,12 +135,35 @@ def artifact_paths(root: Path, artifact: dict[str, Any]) -> list[Path]:
     return sorted(safe_path(root, str(item.relative_to(root))) for item in path.glob(pattern) if item.is_file())
 
 
+def command_preparation(argv: list[str], cwd: Path, env: dict[str, str]) -> dict[str, str] | None:
+    """Check the launch directory and executable without running or parsing the command."""
+    problem = None
+    if not cwd.is_dir():
+        problem = {"error_code": "act4_execution_cwd", "error": f"Command cwd is not an existing directory: {cwd}",
+                   "next_action": "Set this job's checkout-relative cwd to the native command directory, or prepare it in a prerequisite job"}
+    else:
+        # Relative PATH entries and argv paths are resolved from the child cwd, not UCAgent's cwd.
+        search_path = os.pathsep.join(str(cwd / item) if not Path(item).is_absolute() else item
+                                      for item in env.get("PATH", os.defpath).split(os.pathsep))
+        program = str(cwd / argv[0]) if os.sep in argv[0] and not Path(argv[0]).is_absolute() else argv[0]
+        if shutil.which(program, path=search_path) is None:
+            problem = {"error_code": "act4_execution_entry", "error": f"Command entry is missing or not executable: {argv[0]}",
+                       "next_action": "Correct argv[0] or prepare the executable and its PATH in an environment job"}
+    return problem
+
+
 def execute_command(argv: list[str], cwd: Path, env: dict[str, str], log: Path,
                     timeout: int, append: bool = False) -> dict[str, Any]:
     """Run a real command with a bounded lifetime and preserve startup and timeout failures."""
     started = time.monotonic()
     result: dict[str, Any] = {"argv": argv, "started_at": datetime.now(timezone.utc).isoformat()}
     with log.open("ab" if append else "wb") as stream:
+        problem = command_preparation(argv, cwd, env)
+        if problem is not None:
+            stream.write((problem["error"] + "\n" + problem["next_action"] + "\n").encode())
+            result.update(status="unavailable", reason=problem["error"], diagnostic=problem,
+                          duration_seconds=round(time.monotonic() - started, 3))
+            return result
         try:
             process = subprocess.Popen(argv, cwd=cwd, env=env, stdout=stream,
                                        stderr=subprocess.STDOUT, start_new_session=True)
@@ -174,7 +197,7 @@ def record_validation_failure(record: dict[str, Any], message: str) -> None:
 class ACT4ReviewChecker(Checker):
     """Gate review completeness separately from asset health and human permission."""
 
-    accepted_stage_args = ("run_commands",)
+    accepted_stage_args = ("run_commands", "prepare_environment")
 
     def __init__(self, phase: str, suite: str, review_dir: str,
                  act4_root: str = "riscv-arch-test", **kwargs: Any) -> None:
@@ -423,7 +446,11 @@ class ACT4ReviewChecker(Checker):
                 remaining.remove(job)
         indexed = {job["id"]: job for job in jobs}
         for job in ordered:
-            if job["disposition"] != "run" or job["purpose"] == "environment":
+            if job["purpose"] == "environment":
+                if any(indexed[name]["purpose"] != "environment" for name in ancestors[job["id"]]):
+                    raise ValueError("Environment jobs may depend only on other environment jobs; prepare tools before native generation or validation")
+                continue
+            if job["disposition"] != "run":
                 continue
             prerequisites = [indexed[name] for name in ancestors[job["id"]]]
             for purpose in ({"environment", "generation"} if job["purpose"] == "build" else {"environment"}):
@@ -435,61 +462,9 @@ class ACT4ReviewChecker(Checker):
                     raise ValueError(f"ELF provider {name} must be a prerequisite build for {job['target']}")
         return scope
 
-    def _evidence(self, state: dict[str, Any], scope: dict[str, Any], tree: Path,
-                  label: str, run_commands: bool) -> dict[str, Any]:
-        """Reuse asset checks and record real isolated command results bound to input bytes."""
-        fingerprint = digest({"sources": evidence_fingerprint(tree, scope),
-                              "references": state["baseline"]["references"]})
-        evidence_path = safe_path(self.output, f"evidence-{label}.json")
-        cached = state.get(f"evidence-{label}")
-        if not run_commands:
-            if not cached or not evidence_path.exists() or digest(json.loads(evidence_path.read_text())) != cached:
-                raise ValueError(f"Run Check(stage_args={{\"run_commands\": true}}) to collect {label} evidence")
-            evidence = json.loads(evidence_path.read_text())
-            if evidence["fingerprint"] != fingerprint:
-                raise ValueError(f"{label} evidence is stale; rerun the declared commands")
-            for job in evidence["jobs"]:
-                if "log" in job and hashlib.sha256(safe_path(self.output, job["log"]).read_bytes()).hexdigest() != job["log_sha256"]:
-                    raise ValueError(f"Command log changed: {job['log']}; rerun validation")
-                if "probe_log" in job and hashlib.sha256(safe_path(self.output, job["probe_log"]).read_bytes()).hexdigest() != job["probe_log_sha256"]:
-                    raise ValueError(f"Environment probe log changed: {job['probe_log']}; rerun validation")
-                for artifact in job.get("artifacts", []) + job.get("diagnostics", []):
-                    if hashlib.sha256(safe_path(self.output, artifact["path"]).read_bytes()).hexdigest() != artifact["sha256"]:
-                        raise ValueError(f"Command artifact changed: {artifact['path']}; rerun validation")
-            return evidence
-        results = []
-        missing = sorted({name for names in scope["assets"].values() for name in names
-                          if not safe_path(tree, name).is_file()})
-        passed = not missing
-        for mapping in scope["assets"]["mappings"] or [None]:
-            checker = ACT4AssetChecker(
-                suite=self.suite, act4_root=str(tree),
-                coverage_files=[str(tree / name) for name in scope["assets"]["coverage"]],
-                discover_coverage=False,
-                generator_files=[str(tree / name) for name in scope["assets"]["generators"]],
-                mapping=str(tree / mapping) if mapping else None,
-                assets=[{"path": str(tree / name)} for name in sorted({
-                    name for names in scope["assets"].values() for name in names})],
-                require_standalone_generator=True,
-                require_priv_coverage_semantics=True,
-            ).set_workspace(str(self.workspace))
-            check_passed, result = checker.do_check()
-            passed = passed and check_passed
-            results.append(result)
-        findings: list[dict[str, Any]] = []
-        coverage = scan_systemverilog([tree / name for name in scope["assets"]["coverage"] if (tree / name).is_file()], findings)
-        points = sorted(f"{group}/{cp}" for group, data in coverage["groups"].items() for cp in data["coverpoints"])
-        reachability = {}
-        duplicates: dict[str, list[str]] = {}
-        for name in {name for paths in scope["assets"].values() for name in paths}:
-            path = tree / name
-            if path.is_file():
-                duplicates.setdefault(hashlib.sha256(path.read_bytes()).hexdigest(), []).append(name)
-        evidence = {"schema_version": 1, "fingerprint": fingerprint,
-                    "act4_head": state["baseline"]["head"],
-                    "static_passed": passed, "static": results, "missing_assets": missing, "coverpoints": points,
-                    "reachability": reachability,
-                    "duplicate_assets": [sorted(names) for names in duplicates.values() if len(names) > 1], "jobs": []}
+    def _execute_jobs(self, state: dict[str, Any], scope: dict[str, Any], tree: Path,
+                      label: str, preparation_only: bool = False) -> list[dict[str, Any]]:
+        """Run isolated jobs with all environment probes before native generation or validation."""
         with tempfile.TemporaryDirectory(prefix=f"run-{label}-", dir=self.output) as temporary:
             execution = Path(temporary) / "checkout"
             subprocess.run(["git", "clone", "--quiet", "--no-hardlinks", "--no-checkout", str(self.source), str(execution)], check=True, capture_output=True)
@@ -507,9 +482,11 @@ class ACT4ReviewChecker(Checker):
             (tools / "bin").mkdir(parents=True, exist_ok=True)
             environment = {**os.environ, "PATH": str(tools / "bin") + os.pathsep + os.environ.get("PATH", "")}
             records: dict[str, dict[str, Any]] = {}
-            pending = list(scope["jobs"])
+            pending = [job for job in scope["jobs"]
+                       if not preparation_only or job["purpose"] == "environment"]
             while pending:
-                job = next(item for item in pending if all(name in records for name in item.get("needs", [])))
+                ready = [item for item in pending if all(name in records for name in item.get("needs", []))]
+                job = next((item for item in ready if item["purpose"] == "environment"), ready[0])
                 pending.remove(job)
                 record = {"id": job["id"], "target": job["target"],
                           "purpose": job["purpose"], "status": job["disposition"]}
@@ -613,7 +590,92 @@ class ACT4ReviewChecker(Checker):
                         "matched_files": len(diagnostic_paths), "saved_files": len(selected),
                         "omitted_files": len(diagnostic_paths) - len(selected),
                         "truncated_files": sum(item["truncated"] for item in record["diagnostics"])}
-            evidence["jobs"] = [records[job["id"]] for job in scope["jobs"]]
+            if preparation_only:
+                indexed = {job["id"]: job for job in scope["jobs"]}
+                for job in scope["jobs"]:
+                    if job["purpose"] == "environment":
+                        continue
+                    record = {"id": job["id"], "target": job["target"], "purpose": job["purpose"], "status": "not_run"}
+                    records[job["id"]] = record
+                    if job["disposition"] != "run":
+                        record["preparation"] = {"status": job["disposition"], "reason": job["reason"]}
+                        continue
+                    ancestors = set()
+                    waiting = set(job.get("needs", []))
+                    while waiting:
+                        name = waiting.pop()
+                        if name not in ancestors:
+                            ancestors.add(name)
+                            waiting.update(indexed[name].get("needs", []))
+                    blocked = [name for name in sorted(ancestors) if indexed[name]["purpose"] == "environment" and records[name]["status"] != "passed"]
+                    if blocked:
+                        record["preparation"] = {"status": "blocked", "blocked_by": blocked}
+                        continue
+                    cwd = execution if job.get("cwd", ".") == "." else safe_path(execution, job["cwd"])
+                    problem = command_preparation(job["argv"], cwd, environment)
+                    if problem and any(indexed[name]["purpose"] != "environment" for name in ancestors):
+                        record["preparation"] = {"status": "deferred", **problem,
+                            "next_action": "Recheck after native prerequisite jobs create their directories or executables"}
+                    else:
+                        record["preparation"] = {"status": "unavailable" if problem else "entry_ready", **(problem or {})}
+            return [records[job["id"]] for job in scope["jobs"] if job["id"] in records]
+
+    def _evidence(self, state: dict[str, Any], scope: dict[str, Any], tree: Path,
+                  label: str, run_commands: bool) -> dict[str, Any]:
+        """Reuse asset checks and record real isolated command results bound to input bytes."""
+        fingerprint = digest({"sources": evidence_fingerprint(tree, scope),
+                              "references": state["baseline"]["references"]})
+        evidence_path = safe_path(self.output, f"evidence-{label}.json")
+        cached = state.get(f"evidence-{label}")
+        if not run_commands:
+            if not cached or not evidence_path.exists() or digest(json.loads(evidence_path.read_text())) != cached:
+                raise ValueError(f"Run Check(stage_args={{\"run_commands\": true}}) to collect {label} evidence")
+            evidence = json.loads(evidence_path.read_text())
+            if evidence["fingerprint"] != fingerprint:
+                raise ValueError(f"{label} evidence is stale; rerun the declared commands")
+            for job in evidence["jobs"]:
+                if "log" in job and hashlib.sha256(safe_path(self.output, job["log"]).read_bytes()).hexdigest() != job["log_sha256"]:
+                    raise ValueError(f"Command log changed: {job['log']}; rerun validation")
+                if "probe_log" in job and hashlib.sha256(safe_path(self.output, job["probe_log"]).read_bytes()).hexdigest() != job["probe_log_sha256"]:
+                    raise ValueError(f"Environment probe log changed: {job['probe_log']}; rerun validation")
+                for artifact in job.get("artifacts", []) + job.get("diagnostics", []):
+                    if hashlib.sha256(safe_path(self.output, artifact["path"]).read_bytes()).hexdigest() != artifact["sha256"]:
+                        raise ValueError(f"Command artifact changed: {artifact['path']}; rerun validation")
+            return evidence
+        results = []
+        missing = sorted({name for names in scope["assets"].values() for name in names
+                          if not safe_path(tree, name).is_file()})
+        passed = not missing
+        for mapping in scope["assets"]["mappings"] or [None]:
+            checker = ACT4AssetChecker(
+                suite=self.suite, act4_root=str(tree),
+                coverage_files=[str(tree / name) for name in scope["assets"]["coverage"]],
+                discover_coverage=False,
+                generator_files=[str(tree / name) for name in scope["assets"]["generators"]],
+                mapping=str(tree / mapping) if mapping else None,
+                assets=[{"path": str(tree / name)} for name in sorted({
+                    name for names in scope["assets"].values() for name in names})],
+                require_standalone_generator=True,
+                require_priv_coverage_semantics=True,
+            ).set_workspace(str(self.workspace))
+            check_passed, result = checker.do_check()
+            passed = passed and check_passed
+            results.append(result)
+        findings: list[dict[str, Any]] = []
+        coverage = scan_systemverilog([tree / name for name in scope["assets"]["coverage"] if (tree / name).is_file()], findings)
+        points = sorted(f"{group}/{cp}" for group, data in coverage["groups"].items() for cp in data["coverpoints"])
+        reachability = {}
+        duplicates: dict[str, list[str]] = {}
+        for name in {name for paths in scope["assets"].values() for name in paths}:
+            path = tree / name
+            if path.is_file():
+                duplicates.setdefault(hashlib.sha256(path.read_bytes()).hexdigest(), []).append(name)
+        evidence = {"schema_version": 1, "fingerprint": fingerprint,
+                    "act4_head": state["baseline"]["head"],
+                    "static_passed": passed, "static": results, "missing_assets": missing, "coverpoints": points,
+                    "reachability": reachability,
+                    "duplicate_assets": [sorted(names) for names in duplicates.values() if len(names) > 1], "jobs": []}
+        evidence["jobs"] = self._execute_jobs(state, scope, tree, label)
         source_prefix = "baseline" if label == "before" else "candidate"
         evidence["source_files"] = {
             f"{source_prefix}/{name}": identity["sha256"]
@@ -1076,11 +1138,18 @@ class ACT4ReviewChecker(Checker):
         return final
 
     def do_check(self, is_complete: bool = False, run_commands: bool = False,
+                 prepare_environment: bool = False,
                  **kwargs: Any) -> tuple[bool, dict[str, Any]]:
         """Validate the review phase, real evidence, human authorization, and repair scope."""
         try:
+            started = time.monotonic()
+            started_at = datetime.now(timezone.utc).isoformat()
             if type(run_commands) is not bool:
                 raise ValueError("run_commands must be a boolean")
+            if type(prepare_environment) is not bool:
+                raise ValueError("prepare_environment must be a boolean")
+            if prepare_environment and (run_commands or is_complete or self.phase not in {"inventory", "audit"}):
+                raise ValueError("Use prepare_environment only in an inventory/audit Check, without run_commands; preparation cannot Complete a stage")
             workspace = Path(self.workspace).resolve()
             self.source = safe_path(workspace, self.act4_root)
             self.output = safe_path(workspace, self.review_dir)
@@ -1095,6 +1164,28 @@ class ACT4ReviewChecker(Checker):
                 raise ValueError("Repair candidate must not be a symlink")
             if self.phase in {"inventory", "audit", "authorize"} and candidate.exists() and state.get("candidate_prepared") is not True:
                 raise ValueError("A repair candidate must not exist before authorization; use a fresh review output")
+            if prepare_environment:
+                jobs = self._execute_jobs(state, scope, self.output / "baseline", "prepare-before", preparation_only=True)
+                self._baseline(state, scope)
+                failed = []
+                for job in jobs:
+                    if ((job["purpose"] == "environment" and job["status"] != "passed")
+                            or job.get("preparation", {}).get("status") == "unavailable"):
+                        failed.append({key: job[key] for key in ("id", "target", "status", "reason", "blocked_by", "log", "preparation") if key in job})
+                report = {"schema_version": 1, "kind": "execution_preparation", "jobs": jobs,
+                          "ready": not failed, "native_jobs_run": False,
+                          "started_at": started_at,
+                          "duration_seconds": round(time.monotonic() - started, 3)}
+                self._write("execution-preparation.json", report)
+                result = {"preparation_only": True, "ready": not failed,
+                          "report": "execution-preparation.json", "environment_jobs": sum(job["purpose"] == "environment" for job in jobs),
+                          "native_jobs_run": False,
+                          "next_action": "Inspect the preparation report; collect full native evidence with Check(stage_args={\"run_commands\": true}) before completing the audit"}
+                if failed:
+                    result.update(error_code="act4_execution_not_ready", error="Execution prerequisites are not ready",
+                                  failed_jobs=failed[:20], failed_job_count=len(failed), omitted_jobs=max(0, len(failed) - 20),
+                                  next_action="Fix the reported environment jobs or provide the required tools, then repeat Check(stage_args={\"prepare_environment\": true})")
+                return not failed, result
             if self.phase == "inventory":
                 return True, {"baseline": "baseline.json", "scope": "scope.yaml"}
             before = self._evidence(state, scope, self.output / "baseline", "before",

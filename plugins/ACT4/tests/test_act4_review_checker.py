@@ -168,7 +168,8 @@ class ReviewHarness:
 
 
 @pytest.mark.parametrize("outcome", ["installed", "present", "wrong_version", "install_failure", "missing_license"])
-def test_environment_probe_install_and_verify(tmp_path: Path, outcome: str) -> None:
+@pytest.mark.parametrize("preparation_only", [False, True])
+def test_environment_probe_install_and_verify(tmp_path: Path, outcome: str, preparation_only: bool) -> None:
     """Install missing tools before dependent jobs and reject failed installation or probing."""
     harness = ReviewHarness(tmp_path)
     job = harness.scope["jobs"][-1]
@@ -189,21 +190,30 @@ def test_environment_probe_install_and_verify(tmp_path: Path, outcome: str) -> N
     else:
         job["reason"] = "No licensed simulator installer/license; operator must provide both, then rerun"
     harness.write("scope.yaml", harness.scope)
-    harness.audit()
-    evidence = json.loads((harness.output / "evidence-before.json").read_text())
+    if preparation_only:
+        passed, result = harness.checker("inventory").do_check(prepare_environment=True)
+        assert passed is (outcome in {"installed", "present"}), result
+        evidence = json.loads((harness.output / "execution-preparation.json").read_text())
+        assert all(item["status"] == "not_run" for item in evidence["jobs"][:-1])
+        assert not (harness.output / "evidence-before.json").exists()
+    else:
+        harness.audit()
+        evidence = json.loads((harness.output / "evidence-before.json").read_text())
     record = evidence["jobs"][-1]
     if outcome in {"installed", "present"}:
         assert record["status"] == "passed"
         assert record["installed"] is (outcome == "installed")
         assert len(record["attempts"]) == (3 if outcome == "installed" else 1)
-        assert all(item["status"] == "passed" for item in evidence["jobs"])
-        if outcome == "installed":
+        if not preparation_only:
+            assert all(item["status"] == "passed" for item in evidence["jobs"])
+        if outcome == "installed" and not preparation_only:
             (harness.output / record["probe_log"]).write_text("forged")
             passed, error = harness.checker("audit").do_check()
             assert not passed and "probe log changed" in error["error"]
     else:
         assert record["status"] == "unavailable"
-        assert all(item["status"] == "blocked" for item in evidence["jobs"][:-1])
+        if not preparation_only:
+            assert all(item["status"] == "blocked" for item in evidence["jobs"][:-1])
         assert not (harness.output / "before-reference_model.log").exists()
 
 
@@ -678,6 +688,7 @@ def test_guide_complete_no_repair_examples(tmp_path: Path) -> None:
 def test_review_workflow_initializes_without_skill_dependency(tmp_path: Path, monkeypatch, skill_enabled: bool) -> None:
     """Instantiate real stages, copied docs, and the genuine operator gate in both modes."""
     monkeypatch.setenv("HOME", str(tmp_path))
+    harness = ReviewHarness(tmp_path)
     loaded = load_plugin(str(Path(__file__).resolve().parents[1]))
     workflow = next(item for item in loaded.plugin.workflows if item.name == "extension-review")
     config = yaml.safe_load(workflow.config_file.read_text())
@@ -698,7 +709,11 @@ def test_review_workflow_initializes_without_skill_dependency(tmp_path: Path, mo
         assert gate.is_hmcheck_needed() and gate.is_wait_human_check()
         assert all(not stage.skill_list for stage in agent.stage_manager.stages)
         audit = agent.stage_manager.stages[1]
+        inventory = agent.stage_manager.stages[0]
         final = agent.stage_manager.stages[-1]
+        assert 'Check(stage_args={"prepare_environment": true})' in str(inventory.task())
+        assert 'Check(stage_args={"prepare_environment": true})' in str(audit.task())
+        assert "prepare_environment" in inventory.checker[0].accepted_stage_args
         assert "semantic_review" in str(audit.task()) and "review_tasks" in str(audit.task())
         assert "finding:<ID>" in str(final.task())
         if not skill_enabled:
@@ -708,6 +723,22 @@ def test_review_workflow_initializes_without_skill_dependency(tmp_path: Path, mo
         assert (tmp_path / "Guide_Doc/ACT4_Extension_Review_Guide.md").is_file()
         from ucagent.tools.fileops import is_file_writeable
         assert not is_file_writeable("riscv-arch-test/generators/H.py", agent.cfg.un_write_dirs, agent.cfg.write_dirs)[0]
+        inventory.set_reference_file_status({name: "Readed" for name in inventory.reference_files})
+        inventory.meta_set_journal({"summary": "Inventory and isolated environment preparation checked"})
+        inventory.need_pass_llm_suggestion = False
+        result = agent.stage_manager.check(timeout=30, stage_args={"prepare_environment": True})
+        assert result["check_pass"], result
+        assert not (harness.output / "evidence-before.json").exists()
+        result = agent.stage_manager.complete(timeout=30, stage_args={"prepare_environment": True})
+        assert not result.get("complete", result.get("check_pass")), result
+        assert agent.stage_manager.stage_index == 0
+        result = agent.stage_manager.complete(timeout=30)
+        assert result["complete"], result
+        assert agent.stage_manager.stage_index == 1
+        audit.set_reference_file_status({name: "Readed" for name in audit.reference_files})
+        result = agent.stage_manager.complete(timeout=30)
+        assert not result.get("complete", result.get("check_pass")), result
+        assert not (harness.output / "candidate").exists()
     finally:
         agent.exit()
 

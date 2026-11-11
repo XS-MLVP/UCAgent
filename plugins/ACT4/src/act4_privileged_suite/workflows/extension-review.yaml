@@ -53,12 +53,17 @@ stage:
         用 needs 配置依赖，并填写 ELF 输入、产物、模型结果与通过/失败模式。
       - 第七步：为 CI 命令注明 workflow/文档来源、目标、工具前提和适用性；
         为构建/执行填写 diagnostics 路径与 pattern，并在 artifacts 中声明必需 CI 产物。
-      - 第八步：完成 scope.yaml 后调用 Check，冻结 baseline。
+      - '第八步：完成 scope.yaml 后调用 Check(stage_args={"prepare_environment": true})，
+        冻结 baseline 并单独检查执行准备；读取 execution-preparation.json，集中修复环境、cwd 和命令入口问题。'
       - 要求（资产与规范）：不存在的资产用空列表记录并作为遗漏审查；至少必须有一项现存测试资产。
         无法取得规范原文时 reference_files 写 []，后续不得把完整性和覆盖点语义审查标为通过。
       - 要求（环境）：probe 必须实测工具版本和可运行性，缺失时执行 install 并再次 probe；
         install 复用当前 CI 的安装方式，使用 {OUT}/{DUT}/review/tools 隔离目录。
         Python 探测应确认导入的是本轮命令副本内的 ACT4 模块。不适用或安装后仍不可用也须记录理由，不能省略。
+        environment 的 needs 只依赖其他 environment jobs；全部环境探测先于生成、构建和执行。
+      - 要求（准备检查）：准备检查只运行 environment 的 probe/install/复验，不运行其他 lane；
+        deferred 表示目录或程序可能由原生前序任务创建，正式取证时仍需检查。
+        准备结果不能替代 evidence-before.json；Complete 使用普通调用，不携带 prepare_environment。
       - 要求（执行与证据）：build 必须依赖环境和 generation，并声明非空 ELF 产物；
         reference_model/coverage 的 elf_inputs 指向依赖的 build jobs。
         diagnostics 保留当前版本的签名日志、失败用例日志和诊断文件；必需 CI 产物仍写 artifacts。
@@ -73,7 +78,8 @@ stage:
   - name: review_audit
     desc: 全面检查并交付缺陷清单与逐项优化方案，不修改资产
     task:
-      - '第一步：运行 Check(stage_args={"run_commands": true})，先探测/安装/复验环境，
+      - '第一步：如需排查环境，先用 Check(stage_args={"prepare_environment": true}) 并读取 execution-preparation.json；
+        正式取证运行 Check(stage_args={"run_commands": true})，先完成全部环境探测/安装/复验，
         再按 needs 执行生成、ELF 构建与实际测试，保存工具准备日志、ELF 数量、实际测试数量和结果。'
       - 第二步：读取 evidence-before.json、命令日志和保留的 diagnostics，核对静态诊断与执行结果；
         对失败项分析根因，提出修复建议或说明暂缓所需证据。
