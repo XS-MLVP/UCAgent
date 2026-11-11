@@ -9,6 +9,7 @@ SWARM_MASTER_PORT ?= 8800
 SWARM_MASTER_PERSIST ?= /tmp/ucagent_master
 SWARM_DOCKER_SOCK ?= /var/run/docker.sock
 SWARM_MASTER_HOST ?=
+SWARM_MASTER_WAIT_SECONDS ?= 300
 SWARM_LOCAL_UCAGENT_DIR := $(CURDIR)
 SWARM_IS_COLIMA ?= $(shell ctx="$$(docker context show 2>/dev/null)"; host="$$(docker context inspect "$$ctx" --format '{{.Endpoints.docker.Host}}' 2>/dev/null)"; printf '%s\n%s\n' "$$ctx" "$$host" | grep -Eq '(^colima|[/.]colima)' && echo 1 || echo 0)
 SWARM_COLIMA_SSH ?= colima ssh --
@@ -32,8 +33,10 @@ SWARM_MASTER_CMD := ucagent
 SWARM_MASTER_SOURCE_ENV := --env UCAGENT_MASTER_SOURCE=
 endif
 
+# CLI overrides require @@ for the literal @ in image digests.
 SWARM_OVERRIDE := --override launch.default_args.launch_mode=docker_swarm \
                   --override launch.cluster.docker_network=$(SWARM_NETWORK) \
+                  --override launch.cluster.image=$(subst @,@@,$(SWARM_IMAGE)) \
                   --override launch.cluster.master_ip=$(SWARM_MASTER_SERVICE)
 #                 --override launch.default_args.extra_args[0:0]=@base64:LS1vdmVycmlkZQpzdGFnZVstMV0ubmVlZF9odW1hbl9jaGVjaz1UcnVl
 
@@ -55,6 +58,9 @@ as_master_persist: ## Start Master with PATH_PERSISTENT for persistent storage
 # Swarm validation and resources
 swarm_check: ## Check Docker, its socket, and Swarm manager readiness
 	@command -v docker >/dev/null 2>&1 || { echo "Error: docker CLI is not installed or not in PATH."; exit 1; }
+	@command -v curl >/dev/null 2>&1 || { echo "Error: curl is not installed or not in PATH."; exit 1; }
+	@case "$(SWARM_MASTER_WAIT_SECONDS)" in ''|*[!0-9]*) echo "Error: SWARM_MASTER_WAIT_SECONDS must be a positive integer."; exit 1;; esac; \
+	[ "$(SWARM_MASTER_WAIT_SECONDS)" -gt 0 ] || { echo "Error: SWARM_MASTER_WAIT_SECONDS must be a positive integer."; exit 1; }
 	@docker info >/dev/null 2>&1 || { echo "Error: Docker daemon is not available. Please start Docker first."; exit 1; }
 	@$(SWARM_DOCKER_SOCK_CHECK) || { echo "Error: Docker socket $(SWARM_DOCKER_SOCK) is not available."; exit 1; }
 	@if [ -n "$(SWARM_MASTER_SOURCE_DIR)" ] && [ ! -f "$(SWARM_MASTER_SOURCE_DIR)/ucagent/cli.py" ]; then \
@@ -87,7 +93,7 @@ swarm_init: ## Check Swarm and prepare the network and image
 	else \
 		docker network create --driver overlay --attachable $(SWARM_NETWORK); \
 	fi
-	@if ! docker image inspect $(SWARM_IMAGE) >/dev/null 2>&1; then \
+	@if ! docker image inspect $(SWARM_IMAGE) >/dev/null 2>&1 || ! echo '$(SWARM_IMAGE)' | grep -q '@sha256:'; then \
 		echo "Pulling Docker image $(SWARM_IMAGE)..."; \
 		docker pull $(SWARM_IMAGE); \
 	fi
@@ -128,28 +134,37 @@ swarm_master: swarm_init ## Deploy Master as a Docker Swarm service
 		$(SWARM_IMAGE) \
 		sh -c "tail -f /dev/null | $(SWARM_MASTER_CMD) --export-cmd-api --as-master-persist $(SWARM_MASTER_PERSIST) --as-master 0.0.0.0:$(SWARM_MASTER_PORT) $(SWARM_OVERRIDE) $(ARGS)"
 	@echo "Waiting for $(SWARM_MASTER_SERVICE) to start..."
-	@for i in $$(seq 1 30); do \
-		replicas=$$(docker service ls --filter name=$(SWARM_MASTER_SERVICE) --format '{{.Replicas}}' | head -n 1); \
+	@host="$(SWARM_MASTER_HOST)"; \
+	if [ -z "$$host" ]; then \
+		if [ "$(SWARM_IS_COLIMA)" = "1" ] || [ "$(SWARM_IS_COLIMA)" = "true" ] || [ "$(SWARM_IS_COLIMA)" = "yes" ]; then \
+			host=127.0.0.1; \
+		else \
+			host=$$(docker node inspect self --format '{{.Status.Addr}}' 2>/dev/null | head -n 1); \
+		fi; \
+	fi; \
+	if [ -z "$$host" ] || [ "$$host" = "<no value>" ]; then \
+		host=$$(docker info --format '{{.Swarm.NodeAddr}}' 2>/dev/null); \
+	fi; \
+	if [ -z "$$host" ] || [ "$$host" = "<no value>" ]; then \
+		host=$$(hostname -I 2>/dev/null | awk '{print $$1}'); \
+	fi; \
+	if [ -z "$$host" ]; then host=127.0.0.1; fi; \
+	deadline=$$(expr "$$(date +%s)" + "$(SWARM_MASTER_WAIT_SECONDS)"); \
+	while [ "$$(date +%s)" -lt "$$deadline" ]; do \
+		replicas=$$(docker service ls --filter name=$(SWARM_MASTER_SERVICE) --format '{{.Name}} {{.Replicas}}' | awk '$$1 == "$(SWARM_MASTER_SERVICE)" {print $$2}'); \
 		if [ "$$replicas" = "1/1" ]; then \
-			host="$(SWARM_MASTER_HOST)"; \
-			if [ -z "$$host" ]; then \
-				host=$$(docker node inspect self --format '{{.Status.Addr}}' 2>/dev/null | head -n 1); \
+			code=$$(curl --silent --output /dev/null --write-out '%{http_code}' --connect-timeout 1 --max-time 2 "http://$$host:$(SWARM_MASTER_PORT)/api/launch/config" || true); \
+			if [ "$$code" = "200" ] || [ "$$code" = "401" ]; then \
+				echo "Docker Swarm master is running: http://$(SWARM_MASTER_SERVICE):$(SWARM_MASTER_PORT) on network $(SWARM_NETWORK)"; \
+				echo "Published on host: http://$$host:$(SWARM_MASTER_PORT)"; \
+				echo "Override the printed host with: make swarm_master SWARM_MASTER_HOST=<reachable-ip-or-dns>"; \
+				exit 0; \
 			fi; \
-			if [ -z "$$host" ] || [ "$$host" = "<no value>" ]; then \
-				host=$$(docker info --format '{{.Swarm.NodeAddr}}' 2>/dev/null); \
-			fi; \
-			if [ -z "$$host" ] || [ "$$host" = "<no value>" ]; then \
-				host=$$(hostname -I 2>/dev/null | awk '{print $$1}'); \
-			fi; \
-			if [ -z "$$host" ]; then host=127.0.0.1; fi; \
-			echo "Docker Swarm master is running: http://$(SWARM_MASTER_SERVICE):$(SWARM_MASTER_PORT) on network $(SWARM_NETWORK)"; \
-			echo "Published on host: http://$$host:$(SWARM_MASTER_PORT)"; \
-			echo "Override the printed host with: make swarm_master SWARM_MASTER_HOST=<reachable-ip-or-dns>"; \
-			exit 0; \
 		fi; \
 		sleep 1; \
 	done; \
-	echo "Error: Docker Swarm service $(SWARM_MASTER_SERVICE) did not reach 1/1 replicas."; \
+	echo "Error: Docker Swarm service $(SWARM_MASTER_SERVICE) did not reach 1/1 replicas with a responding Master API."; \
 	echo "Hint: inspect it with: docker service ps $(SWARM_MASTER_SERVICE) --no-trunc"; \
 	echo "Hint: view logs with: docker service logs $(SWARM_MASTER_SERVICE)"; \
+	echo "Hint: check that SWARM_MASTER_HOST and port $(SWARM_MASTER_PORT) are reachable from this shell."; \
 	exit 1

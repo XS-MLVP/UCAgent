@@ -25,6 +25,7 @@ import psutil
 import pytest
 import requests
 
+from runtime_requirements import require_xpra_runtime
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("UCAGENT_RUN_XPRA_INTEGRATION") != "1",
@@ -35,6 +36,7 @@ pytestmark = pytest.mark.skipif(
 @pytest.mark.parametrize("terminal_mode", ["web-terminal", "web-console"])
 def test_cli_cmd_xpra_and_terminals_share_a_complete_agent(tmp_path, terminal_mode):
     """Exercise real CMD wakeups and Xpra with each supported terminal mode."""
+    require_xpra_runtime("picker", "verilator", "cmake", "make", "g++", "swig", "xterm", "xclock", "bash")
     repository = Path(__file__).resolve().parents[1]
     workspace = tmp_path / "workspace"
     dut = workspace / "Adder"
@@ -53,7 +55,6 @@ def test_cli_cmd_xpra_and_terminals_share_a_complete_agent(tmp_path, terminal_mo
         for reservation in reservations:
             reservation.close()
     picker = shutil.which("picker")
-    assert picker, "Install the official XS-MLVP picker and Verilator before enabling this test."
     exported = subprocess.run([
         picker, "export", str(source), "--sname", "Adder",
         "--target_dir", str(workspace) + os.sep, "--lang", "python", "-j", "4",

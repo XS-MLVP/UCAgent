@@ -358,6 +358,13 @@ def _build_usdb(tmp_path: Path, source_name: str) -> Path:
     uvs = Path(home).resolve() / "bin" / "uvs"
     if not uvs.is_file() or not os.access(uvs, os.X_OK):
         pytest.skip("no uvs executable under UVS_HOME/bin for USDB fixtures")
+    from ucagent.util.waveform_formats.read_usdb import _find_tool, UsdbRuntimeError
+
+    for tool in ("usdbaccess", "dap"):
+        try:
+            _find_tool(tool)
+        except UsdbRuntimeError:
+            pytest.skip(f"USDB fixtures require a working {tool} in the configured UVS/UVD installation")
     (tmp_path / source_name).write_text(_TEST_SOURCES[source_name], encoding="utf-8")
     env = dict(os.environ)
     compile_result = subprocess.run(

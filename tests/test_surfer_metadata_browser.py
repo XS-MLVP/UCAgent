@@ -16,6 +16,7 @@ import pytest
 
 from ucagent.server.api_cmd import PdbCmdApiServer
 from ucagent.util import waveform_viewer
+from runtime_requirements import launch_browser
 
 
 pytestmark = pytest.mark.skipif(
@@ -100,7 +101,7 @@ def test_metadata_populates_variables_and_uses_full_names(
                 executable = os.environ.get("UCAGENT_SURFER_CHROMIUM_EXECUTABLE")
                 if executable:
                     options["executable_path"] = executable
-            browser = getattr(playwright, browser_kind).launch(headless=True, **options)
+            browser = launch_browser(playwright, browser_kind, **options)
             context = browser.new_context(viewport={"width": 1440, "height": 950}, service_workers="block")
             page = context.new_page()
             errors = []

@@ -59,6 +59,7 @@ Read [Master mode](./01_start/04_master_mode.md) when you need to manage multipl
 - **[FAQ](./02_usage/05_faq.md)**: common questions.
 - **[LLM Check and Refinement](./02_usage/06_llm_check.md)**: optional stage reviews and repair suggestions.
 - **[Web Master guide](./02_usage/07_web_master.md)**: web interface reference.
+- **[Docker Swarm deployment](./02_usage/11_docker_swarm.md)**: build a 2- or 3-node cluster and start Swarm Master Web.
 - **[Skills](./02_usage/08_skill.md)**: optional task guidance and scripts.
 - **[Graphical applications with Xpra](./02_usage/09_web_xpra.md)**: graphical applications in the browser.
 

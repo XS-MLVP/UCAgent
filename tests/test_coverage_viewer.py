@@ -18,14 +18,19 @@ from test_waveform_routes import Sessions
 
 def application(root, simulator="vcs"):
     """Let each provider build a page using its own command and database path."""
-    from toffee_test.utils.code_coverage import CodeCoverageResult
-    from toffee_test.utils.code_coverage import get_coverage_provider
+    coverage = pytest.importorskip(
+        "toffee_test.utils.code_coverage", reason="Requires Toffee's coverage provider API",
+    )
+    pytest.importorskip(
+        f"toffee_test.utils.code_coverage.{simulator}",
+        reason=f"Requires Toffee's {simulator.upper()} coverage provider",
+    )
     from urllib.parse import unquote
     database = root / ("DUT data.vdb" if simulator == "vcs" else "DUT data.cdb")
     database.mkdir(parents=True)
     report = root / "report"
-    result = CodeCoverageResult(simulator, databases=[str(database)])
-    details = get_coverage_provider(simulator).build_details(result, report / "coverage_data")
+    result = coverage.CodeCoverageResult(simulator, databases=[str(database)])
+    details = coverage.get_coverage_provider(simulator).build_details(result, report / "coverage_data")
     link, = [item for item in details if item.href]
     page = report / unquote(link.href)
     payload = json.loads(re.search(r"const coverageRequest = (.*);", page.read_text())[1])
