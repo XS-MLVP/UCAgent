@@ -66,6 +66,45 @@ def test_fetch_clones_only_and_reuses_without_touching_changes(paths, tmp_path):
     assert not paths.local_config.exists()
 
 
+@pytest.mark.parametrize("override", [None, "branch", "repo", "official-repo"])
+def test_fetch_pins_official_default_only(paths, tmp_path, monkeypatch, override):
+    """Fresh official fetches pin a commit; explicit branches and other repos select their tip."""
+    upstream = tmp_path / "upstream"
+    commit = checkout(upstream)
+    (upstream / "main.py").write_text("# next revision\n")
+    git(upstream, "add", ".")
+    git(upstream, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "next")
+    tip = git(upstream, "rev-parse", "HEAD")
+    monkeypatch.setattr(fmagent, "DEFAULT_REPO", str(upstream))
+    monkeypatch.setattr(fmagent, "DEFAULT_COMMIT", commit)
+    repo = None
+    if override == "repo":
+        repo = str(tmp_path / "other")
+        git(tmp_path, "clone", str(upstream), repo)
+    elif override == "official-repo":
+        repo = str(upstream)
+    fmagent.fetch(paths, repo, "main" if override == "branch" else None)
+    assert git(paths.root, "rev-parse", "HEAD") == (tip if override in {"branch", "repo"} else commit)
+    assert not paths.local_config.exists()
+    if override in {None, "official-repo"}:
+        assert git(paths.root, "rev-parse", "--abbrev-ref", "HEAD") == "HEAD"
+        (paths.root / "main.py").write_text("# user change\n")
+        fmagent.fetch(paths)
+        assert (paths.root / "main.py").read_text() == "# user change\n"
+
+
+def test_failed_pinned_checkout_stops_before_binding(paths, tmp_path, monkeypatch):
+    """An unavailable default commit preserves the clone and reports the failed selection."""
+    upstream = tmp_path / "upstream"
+    checkout(upstream)
+    monkeypatch.setattr(fmagent, "DEFAULT_REPO", str(upstream))
+    monkeypatch.setattr(fmagent, "DEFAULT_COMMIT", "0" * 40)
+    with pytest.raises(ValueError, match="checkout failed"):
+        fmagent.fetch(paths)
+    assert (paths.root / "main.py").is_file()
+    assert not paths.local_config.exists()
+
+
 @pytest.mark.parametrize("default,explicit,warning", [(False, False, False), (False, True, True), (True, False, True)])
 def test_checkout_difference_warning_is_local_nonblocking(paths, monkeypatch, capsys, default, explicit, warning):
     """Default directories warn by default; custom directories compare only explicit choices."""
