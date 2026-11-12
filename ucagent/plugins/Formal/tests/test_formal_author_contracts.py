@@ -42,15 +42,20 @@ def verified_records():
     for index, name in enumerate(names, 1):
         reference = {"run_id": "run-current", "input_fingerprint": "fp-current", "property": name,
                      "report_sha256": f"report-{index}", "witness_sha256": f"witness-{index}"}
-        run.property_evidence[name] = {"evidence_ref": reference}
+        run.property_evidence[name] = {"evidence_ref": reference, "result": "FALSIFIED"}
         records.analysis.fa_entries.append(AnalysisEntry(id=f"FA-{index:03d}", prop_name=name, prop_type="assert",
             resolution="RTL_BUG", analysis="Reviewed the original tool witness against the specification", evidence_ref=reference))
         from formal.evidence import observation_text
+        from formal.reference import expectation_text
         trigger, actual = observation_text(run.property_evidence[name])
+        requirement = "The routed output must match the stated interface requirement."
+        records.analysis.fa_entries[-1].expected_requirement = requirement
+        expected = expectation_text(requirement, [])
         records.bugs.append(BugEntry(id=f"BG-{index:03d}", property=name, root_cause_id="routing_selection",
             ck_id=f"CK-ROUTE-{index}", fg_id="FG-ROUTE", fc_id="FC-ROUTE", rtl_file="EventRouter/route.sv", rtl_line=4,
             description=f"Current routing observation {index}", root_cause="Wrong routing selection condition", fix="Correct the selection condition",
-            trigger=trigger, expected="Specified route", actual=actual, severity="HIGH", confidence="HIGH"))
+            trigger=trigger, expected_requirement=requirement, expected=expected, actual=actual, severity="HIGH", confidence="HIGH"))
+    ft.auto_scaffold_bug_entries(records)
     records.summary = complete_author("summary")
     return records
 
@@ -168,8 +173,10 @@ def test_stale_analysis_cannot_supply_derived_summary_rows():
 
 def test_summary_with_no_current_defects_has_no_blank_observation_rows(tmp_path):
     """No-defect summaries need no invented Bug or analysis placeholders."""
-    records = FormalRecords(dut="EventRouter", summary=complete_author("summary"))
+    records = FormalRecords(dut="EventRouter", summary=complete_author("summary"),
+                            planning={"verification_scope": {"excluded": ["Parameter variants beyond the selected configuration"]}})
     ft.generate_summary_doc(records, str(tmp_path / "summary.md"), machine={"proof_complete": True, "counts": {"PROVEN": 1}})
     text = (tmp_path / "summary.md").read_text()
+    assert "Parameter variants beyond the selected configuration" in text
     assert "|  |  |  |  |" not in text
     assert ft.summary_bug_rows(records) == []

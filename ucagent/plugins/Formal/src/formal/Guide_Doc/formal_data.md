@@ -11,7 +11,7 @@
 {"commands":[["ext/formal/data","formal_data.py","inspect planning"]]}
 ```
 
-`inspect planning|basic_info|spec|analysis|bugs|summary|overview`只读查看当前缺项、分页与sha256；planning/basic_info/summary的完整结构按需使用`--schema`，不要为可选事实表重复填写全部数据。`--offset/--limit`用于列表分页，按返回next_offset继续；截断预览不能当作完整值覆盖。basic_info中clock_count未知应待核实，明确无时钟才填0。
+`inspect planning|basic_info|spec|analysis|bugs|summary|overview`默认只读查看缺项、必要上下文、分页与sha256，不重复展开已有作者正文。需要复核或修订已有内容时加`--full`，需要完整字段契约时加`--schema`（所有节均支持）；优先使用默认视图，不为可选事实表重复填写全部数据。`--offset/--limit`用于列表分页，按返回next_offset继续；截断预览不能当作完整值覆盖。basic_info中clock_count未知应待核实，明确无时钟才填0。
 
 `inspect spec`还给出从实际RTL解析的`effective_interface`：真实声明默认参数、覆盖后的有效值与端口宽度/符号。`spec.parameters`只填写有意的显式整数覆盖；留空使用真实声明默认值，派生参数随基础参数覆盖重新计算。`basic_info.parameters/ports`是说明数据，不控制生成绑定；不要通过改说明中的位宽修复生成错误。无法解析时按返回的来源或spec.parameters位置处理，不猜模块专属默认值。
 
@@ -31,7 +31,7 @@
 }
 ```
 
-更新指定节时`data`和`bodies`选一个。planning/basic_info/spec/summary只替换提供的顶层字段，嵌套对象和列表整体替换，因此须保留全部需要项。bodies只用于已有唯一CK-ID的完整属性体。冲突不会覆盖较新内容，重新inspect再写请求。机器计数、运行状态与证据文件不能由请求改写。
+更新指定节时`data`和`bodies`选一个。planning/basic_info/spec/summary只替换提供的顶层字段，嵌套对象和列表整体替换，因此须保留全部需要项。bodies只用于已有唯一CK-ID的完整属性体。成功更新会返回新sha256、剩余作者缺项或待审项；没有缺项时不必再次inspect确认写入，审阅摘要、记录阶段日志后调用Complete。返回仅说明作者字段校验，不代表证明或阶段已经通过。冲突不会覆盖较新内容，重新inspect再写请求。机器计数、运行状态与证据文件不能由请求改写。
 
 ## 准备分析与Bug队列
 
@@ -43,11 +43,11 @@
 
 prepare核验当前证据、协调精确队列并返回ready_update请求对象及原始witness上下文，不启动新证明。审阅真实输入、独立参考计算、观测输出及断言，填写ready_update中的人工分析，再将该对象写入请求文件调用update。证据由技能核验并绑定，不手工复制哈希，不把准备动作当作RTL_BUG归因。
 
-分析请求按类型分开，必须使用prepare返回的`review_contracts`。各项只有精确`id/prop_name`是定位字段；不能把不同类型字段混写：
+分析请求按类型分开：`review_items`用`contract_id`引用同批`review_contracts`中的共享契约，不能把不同类型字段混写。各项只有精确`id/prop_name`是定位字段：
 
 | 列表 | 必填人工字段 | 其他可填字段 | 当前允许决定 |
 | --- | --- | --- | --- |
-| `fa_entries`（assert） | `analysis/resolution` | `action_detail` | `RTL_BUG`或`ENV_PENDING` |
+| `fa_entries`（assert） | `analysis/resolution`；RTL_BUG另需`expected_requirement` | `action_detail/reference_calculations` | `RTL_BUG`或`ENV_PENDING` |
 | `fa_entries`（cover） | `analysis/resolution` | `action_detail` | `COVER_EXPECTED_FAIL`或`ENV_PENDING` |
 | `tt_entries`（assert） | `analysis/root_cause/action` | `action_detail/related_assume` | `action=ACCEPTED`仅配合`root_cause=DESIGN_EXPECTED` |
 
@@ -57,7 +57,7 @@ FA的自由根因解释写在`analysis`中，不提交TT专用的`root_cause/act
 
 `prepare --offset/--limit`分页只适用于同一只读队列。**每次update后，按返回的`after_update_command`从offset 0重新取pending**，不要沿用更新前的next_offset。旧偏移越过当前非空队列时明确报`review_pending_offset_stale`，不能把空页当成全部完成。无待审项时ready_update才为null。
 
-Bug阶段对应`prepare bugs`，保留精确id/property。一个共享根因的完整请求形状如下；真实id、名称和哈希均来自本次准备，不复制示例作证据：
+Bug阶段对应`prepare bugs`，保留精确id/property。`reused_analysis`直接带回首次分析及计算；规格关系和表达式不重复提交，只补缺失的共享根因、源码位置、修复建议和可选`impact_assessment`。观察描述由工具限定为当前反例或静态检查；影响范围推断始终标为人工评估，不由单个反例宣称所有输入的规律。一个共享根因的完整请求形状如下：
 
 ```json
 {
@@ -72,14 +72,43 @@ Bug阶段对应`prepare bugs`，保留精确id/property。一个共享根因的�
       "confidence":"HIGH"
     },
     "entries":[
-      {"id":"BG-FORMAL-001","property":"u_left.A_CK_PACKET_ELIGIBLE","description":"左输出与规格不符。","expected":"eligible=1。","ck_id":"CK-PACKET-LEFT","fg_id":"FG-LOGIC","fc_id":"FC-PACKET-LEFT","rtl_file":"PacketGate/PacketGate.sv","rtl_line":8},
-      {"id":"BG-FORMAL-002","property":"u_right.A_CK_PACKET_ELIGIBLE","description":"右输出受同一条件错误影响。","expected":"eligible=0。","ck_id":"CK-PACKET-RIGHT","fg_id":"FG-LOGIC","fc_id":"FC-PACKET-RIGHT","rtl_file":"PacketGate/PacketGate.sv","rtl_line":9}
+      {"id":"BG-FORMAL-001","property":"u_left.A_CK_PACKET_ELIGIBLE","ck_id":"CK-PACKET-LEFT","fg_id":"FG-LOGIC","fc_id":"FC-PACKET-LEFT","rtl_file":"PacketGate/PacketGate.sv","rtl_line":8},
+      {"id":"BG-FORMAL-002","property":"u_right.A_CK_PACKET_ELIGIBLE","ck_id":"CK-PACKET-RIGHT","fg_id":"FG-LOGIC","fc_id":"FC-PACKET-RIGHT","rtl_file":"PacketGate/PacketGate.sv","rtl_line":9}
     ]
   }
 }
 ```
 
 共享root_cause_id明确指定，不按模块或相似文本推断；同组共享值必须一致。每个属性仍保留自身的真实触发与输出。需要聚焦读取时调用RunFormal(action="evidence",property_names=["完整属性名"])。它提供原始证据，不自动验证任意规格的数学含义。
+
+## 规格预期与可复现参考计算
+
+首次失败分析的`fa_entries`中填写`expected_requirement`描述规格关系，需要精确值时同时提交`reference_calculations`；update返回工具计算结果。Bug阶段直接复用，不再提交规格关系、表达式或计算答案。`description/expected/reference_results/trigger/actual`均是派生字段。无数值计算、无动态反例的静态契约检查使用空计算列表；证据或参考表达式变化后必须重新审阅，不能用旧计算支持新输入。
+
+每项恰含`id/expression/bindings`。绑定名由任务自定，`source`为`initial`或`sample`，`signal`必须与当前返回证据中的完整名字一致；不能填自选数值代替真实信号。例如某个输入字段需截为低8位时，完整请求形状如下（精确id和哈希取本轮prepare，不直接复制示例）：
+
+```json
+{
+  "section":"analysis",
+  "expected_sha256":"最近prepare返回的哈希",
+  "data":{"fa_entries":[{
+    "id":"FA-001",
+    "prop_name":"u_checker.A_CK_FIELD",
+    "analysis":"当前反例输出与独立规格关系不符；已核对当前绑定与表达式。",
+    "resolution":"RTL_BUG",
+    "expected_requirement":"输出字段应保持输入字段的低8位。",
+    "reference_calculations":[{
+      "id":"field_low8",
+      "expression":"payload & 0xff",
+      "bindings":{"payload":{"source":"initial","signal":"input_payload"}}
+    }]
+  }]}
+}
+```
+
+表达式使用数学整数的`+ - * // % << >> & | ^`和一元`+ - ~`，不隐含HDL位宽或有符号转换；需要截断、符号重解释时显式写关系。只允许整数、绑定名和这些运算，不执行函数或任意代码。每批最多10项、每项20个绑定、表达式2048字符、128语法节点、整数/移位上限4096位。未知、缺失和不完整信号不能用于计算。
+
+初始化与保存采样是不同上下文，均不自动代表失败周期。计算结果只核验“所写表达式在这些绑定值上的结果”，不证明表达式就是正确规格。规格解释和根因仍需人工审阅；不要在其他自由文本中再抄写一个未经检查的计算结果，也不要仅凭COI/Cover断言规格完备。
 
 ## 技能关闭或缺失时
 

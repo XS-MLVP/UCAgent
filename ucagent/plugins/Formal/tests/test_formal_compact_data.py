@@ -56,6 +56,27 @@ def test_review_pending_logic_includes_current_evidence_and_type():
     assert review_missing_fields(record, "tt_entries", {"evidence_ref": reference}) == []
     assert "evidence_ref" in review_missing_fields(record, "tt_entries", {"evidence_ref": {"property": "other"}})
     assert "analysis" in review_missing_fields({**record, "analysis": "   "}, "tt_entries", {"evidence_ref": reference})
-    for section in ("spec", "overview"):
-        with pytest.raises(ValueError, match="Full author schema"):
-            FormalDataStore("/tmp", "proof", "RouteBlock").inspect(section, include_schema=True)
+
+
+@pytest.mark.parametrize("section", ["planning", "basic_info", "spec", "analysis", "bugs", "summary", "overview"])
+def test_schema_option_is_uniform_for_all_public_sections(tmp_path, section):
+    """A discoverable inspection option must not cause a needless failed round trip."""
+    output = tmp_path / "proof"
+    output.mkdir()
+    (output / ".formal_records.yaml").write_text("dut: RouteBlock\n")
+    result = FormalDataStore(str(tmp_path), "proof", "RouteBlock").inspect(section, include_schema=True)
+    assert result["status"] == "ok"
+    assert isinstance(result["contract"], dict)
+
+
+def test_existing_author_content_is_opt_in_not_repeated_on_every_inspection(tmp_path):
+    """Completed facts remain available without bloating the default missing-work view."""
+    output = tmp_path / "proof"
+    output.mkdir()
+    (output / ".formal_records.yaml").write_text(yaml.safe_dump({"dut": "RouteBlock", "planning": {"project_overview": "Known routing facts " * 100}}))
+    store = FormalDataStore(str(tmp_path), "proof", "RouteBlock")
+    brief = store.inspect("planning")
+    complete = store.inspect("planning", include_content=True)
+    assert "data" not in brief
+    assert complete["data"]["items"][0]["field"] == "project_overview"
+    assert len(json.dumps(brief)) < len(json.dumps(complete))

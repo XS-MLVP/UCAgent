@@ -3,12 +3,18 @@
 
 set SCRIPT_DIR [file dirname [info script]]
 
-# RTL Files - glob both .v and .sv from the RTL directory
-set RTL_DIR [file join $SCRIPT_DIR "../../{{ DUT }}"]
-set RTL_FILES [concat [lsort [glob -nocomplain [file join $RTL_DIR *.v]]] [lsort [glob -nocomplain [file join $RTL_DIR *.sv]]]]
+# Compile exactly the ordered sources admitted by the interface preflight.
+set RTL_FILES [list]
+{% for source in source_files %}
+lappend RTL_FILES [file join $SCRIPT_DIR {../../{{ source }}}]
+{% endfor %}
+set INCLUDE_DIRS [list]
+{% for directory in include_dirs %}
+lappend INCLUDE_DIRS [file join $SCRIPT_DIR {../../{{ directory }}}]
+{% endfor %}
 
 if {[llength $RTL_FILES] == 0} {
-    error "ERROR: No RTL source files (*.v / *.sv) found in: $RTL_DIR"
+    error "ERROR: No admitted RTL source files; inspect the DUT filelist.txt and source directory"
 }
 
 # Verification Files (Checker + Wrapper)
@@ -17,7 +23,7 @@ lappend RTL_FILES [file join $SCRIPT_DIR {{ DUT }}_wrapper.sv]
 
 # Read Design with Wrapper as Top
 # Using -mfcu (Multi-File Compilation Unit) is recommended for SVA binding and parameter propagation
-read_design -top {{ DUT }}_wrapper -sysv -mfcu $RTL_FILES
+read_design -top {{ DUT }}_wrapper -sysv -mfcu -incdir $INCLUDE_DIRS $RTL_FILES
 
 # Clock and Reset
 # Generic env signals `clk` / `rst_n` are only emitted when DUT actually has clock/reset.

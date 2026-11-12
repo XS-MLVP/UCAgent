@@ -167,7 +167,7 @@ def test_rtl_bug_requires_current_exact_evidence_reference():
     records = records_for(("left.A_CHECK",))
     reference = {"run_id": "run-1", "input_fingerprint": "revision-1", "property": "left.A_CHECK", "report_sha256": "abc", "witness_sha256": None}
     records.run_results.property_evidence = {"left.A_CHECK": {"evidence_ref": reference}}
-    entry = AnalysisEntry(id="FA-001", prop_name="left.A_CHECK", resolution="RTL_BUG", analysis="reviewed")
+    entry = AnalysisEntry(id="FA-001", prop_name="left.A_CHECK", resolution="RTL_BUG", analysis="reviewed", expected_requirement="Output satisfies the stated contract")
     records.analysis = AnalysisData(source_fingerprint="revision-1", fa_entries=[entry])
     with pytest.raises(ValueError, match="evidence_ref"):
         ft.validate_analysis_evidence(records)
@@ -262,11 +262,11 @@ def test_shared_root_groups_and_machine_counts(tmp_path, monkeypatch):
     records.bugs = []
     for index, name in enumerate(records.run_results.failing_properties, 1):
         reference = {"run_id": "run-1", "input_fingerprint": "revision-1", "property": name, "report_sha256": f"digest-{index}", "witness_sha256": None}
-        records.run_results.property_evidence[name] = {"evidence_ref": reference}
-        records.analysis.fa_entries.append(AnalysisEntry(id=f"FA-{index:03d}", prop_name=name, analysis="Reviewed current witness", resolution="RTL_BUG", evidence_ref=reference))
+        records.run_results.property_evidence[name] = {"evidence_ref": reference, "result": "FALSIFIED"}
+        records.analysis.fa_entries.append(AnalysisEntry(id=f"FA-{index:03d}", prop_name=name, analysis="Reviewed current witness", resolution="RTL_BUG", expected_requirement="specified output", evidence_ref=reference))
         records.bugs.append(BugEntry(id=f"BG-{index}", property=name, root_cause_id="queue_boundary", root_cause="shared boundary logic", fix="repair shared condition", severity="HIGH", confidence="HIGH",
                                     ck_id="CK-CHECK", fg_id="FG-CONTROL", fc_id="FC-CONTROL", rtl_file="Synthetic/logic.sv", rtl_line=8,
-                                    description=f"Observation {index}", trigger="current witness", expected="specified output", actual="observed output"))
+                                    description=f"Observation {index}", trigger="current witness", expected_requirement="specified output", actual="observed output"))
     assert len(ft.bug_root_groups(records)) == 1
     output = tmp_path / "out"; output.mkdir(); (output / ".formal_records.yaml").write_text("present")
     checker = BugReportConsistencyChecker("Synthetic", cfg=Config({"output": "out"}))

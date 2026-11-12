@@ -67,7 +67,7 @@ def test_top_selection_ordered_packages_and_nonansi_ports(tmp_path):
     ("module RouteSelector #(parameter type WORD=logic)(input WORD a,output y); assign y=a; endmodule", {}, "type parameter"),
     ("module RouteSelector #(parameter TEXT=\"word\")(input a,output y); assign y=a; endmodule", {}, "non-scalar"),
     ("module RouteSelector #(parameter N=4)(input[N-1:0] a,output y); assign y=a[0]; endmodule", {"N": "1; $finish;"}, "integer"),
-    ("`include \"external.svh\"\nmodule RouteSelector(input a,output y);assign y=a;endmodule", {}, "preprocessor context"),
+    ("`include \"external.svh\"\nmodule RouteSelector(input a,output y);assign y=a;endmodule", {}, "missing local include"),
     ("module RouteSelector(input[1:0][3:0] a,output y);assign y=a[0][0];endmodule", {}, "unsupported array"),
     ("module RouteSelector #(parameter N=missing)(input[N-1:0] a,output y);assign y=a[0];endmodule", {}, "elaboration failed"),
 ])

@@ -70,7 +70,8 @@ def main() -> int:
             Path(paths.wrapper).write_text(rendered, encoding="utf-8")
         if args.mode == "full" or not Path(paths.tcl).exists():
             rendered = environment.get_template("tests/formal.tcl.j2").render(
-                DUT=records.dut, extra_config=records.extra_config, basic_info=records.basic_info or {})
+                DUT=records.dut, extra_config=records.extra_config, basic_info=records.basic_info or {},
+                source_files=interface["source_files"], include_dirs=interface["include_dirs"])
             Path(paths.tcl).write_text(rendered, encoding="utf-8")
         print("Formal environment generated from the resolved RTL interface.")
         return 0

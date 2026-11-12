@@ -26,7 +26,8 @@ def main() -> int:
         commands = parser.add_subparsers(dest="action", required=True, parser_class=Arguments)
         inspect = commands.add_parser("inspect")
         inspect.add_argument("section", choices=("overview", "planning", "basic_info", "spec", "analysis", "bugs", "summary"))
-        inspect.add_argument("--schema", action="store_true", help="Include the full author schema for planning, basic_info, or summary")
+        inspect.add_argument("--schema", action="store_true", help="Include the complete author contract for this section")
+        inspect.add_argument("--full", action="store_true", help="Include existing author content for focused review or revision")
         prepare = commands.add_parser("prepare")
         prepare.add_argument("section", choices=("analysis", "bugs"))
         for operation in (inspect, prepare):
@@ -47,7 +48,7 @@ def main() -> int:
                       "write_dirs": policy["write_dirs"], "un_write_dirs": policy["un_write_dirs"]})
         store = FormalDataStore(str(workspace), output, dut, cfg=cfg, **policy)
         if args.action == "inspect":
-            result = store.inspect(args.section, args.offset, args.limit, include_schema=args.schema)
+            result = store.inspect(args.section, args.offset, args.limit, include_schema=args.schema, include_content=args.full)
         elif args.action == "prepare":
             result = store.prepare(args.section, args.offset, args.limit)
         else:

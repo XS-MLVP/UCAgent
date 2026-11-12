@@ -33,7 +33,8 @@ SECTION_FIELDS = {
     "summary": {"core_function", "overall_result", "completeness", "coi_assessment", "acceptance_conclusion"},
     "spec": {"parameters", "whitebox_signals", "function_groups"},
 }
-BUG_FIELDS = {"root_cause_id", "ck_id", "fg_id", "fc_id", "rtl_file", "rtl_line", "description", "root_cause", "expected", "fix", "severity", "confidence"}
+BUG_FIELDS = {"root_cause_id", "ck_id", "fg_id", "fc_id", "rtl_file", "rtl_line", "root_cause", "impact_assessment", "fix", "severity", "confidence"}
+BUG_REQUIRED_FIELDS = BUG_FIELDS - {"impact_assessment"}
 SECTION_CONTRACTS = {
     "spec": {"format": "parameters mapping, whitebox_signals list, function_groups:[{id,name,description,functions:[{id,description,check_points:[{id,style,description,sva_body}]}]}]. Lists replace the complete named list. Use bodies for a CK-ID to SVA-body batch."},
     "analysis": {"format": "Use the exact kind-specific required_fields, allowed_fields and allowed_values returned with each current property. FA and TT envelopes are disjoint; evidence references are tool-owned."},
@@ -79,10 +80,12 @@ def review_contract(kind: str, property_kind: str) -> dict:
     identity = ["id", "prop_name"]
     if kind == "fa_entries":
         fields = identity + ["analysis", "resolution", "action_detail"]
+        if property_kind == "assert":
+            fields += ["expected_requirement", "reference_calculations"]
         values = ["RTL_BUG", "ENV_PENDING"] if property_kind == "assert" else ["COVER_EXPECTED_FAIL", "ENV_PENDING"]
         required = identity + ["analysis", "resolution"]
         enums = {"resolution": values}
-        notes = "ENV_PENDING records unfinished work and blocks completion. ENV_FIXED is not a current failed-result decision; repair inputs and rerun instead."
+        notes = "For RTL_BUG, supply expected_requirement once and optional evidence-bound reference_calculations; Bug delivery reuses them. ENV_PENDING blocks completion; repair inputs and rerun instead of declaring ENV_FIXED."
     else:
         fields = identity + ["analysis", "root_cause", "action", "action_detail", "related_assume"]
         required = identity + ["analysis", "root_cause", "action"]
@@ -91,7 +94,7 @@ def review_contract(kind: str, property_kind: str) -> dict:
         notes = "Only DESIGN_EXPECTED can be ACCEPTED with current evidence. Other causes require repaired inputs and a new proof; FIXED cannot classify a still-current trivial result."
     return {"entry_type": kind, "property_kind": property_kind, "required_fields": required,
             "allowed_fields": fields, "allowed_values": enums, "additional_fields": False,
-            "machine_fields": ["evidence_ref", "prop_type", "sva_code"], "notes": notes}
+            "machine_fields": ["evidence_ref", "prop_type", "sva_code", "reference_results"], "notes": notes}
 
 
 class ReviewUpdateError(ValueError):
@@ -99,6 +102,7 @@ class ReviewUpdateError(ValueError):
 
     def __init__(self, issues: list[dict], section: str = "analysis"):
         """Retain all issue counts while bounding details exposed to the task agent."""
+        issues = list({json.dumps(issue, sort_keys=True): issue for issue in issues}.values())
         self.diagnostic = {"status": "error", "error_code": "formal_data_review_invalid",
                            "error": "Review request violates the current per-kind contract; no changes were written.",
                            "issues": issues[:40], "issue_total": len(issues),
@@ -117,6 +121,11 @@ def review_entry_issues(entry: dict, kind: str, property_kind: str, location: st
                        "allowed_fields": contract["allowed_fields"]})
     for field in sorted(set(entry) & allowed):
         value = entry[field]
+        if field == "reference_calculations":
+            if not isinstance(value, list):
+                issues.append({"location": f"{location}.{field}", "error_code": "review_field_type",
+                               "error": "Reference requests must be a list of evidence-bound integer expressions.", "expected": "list"})
+            continue
         if field == "related_assume" and value is None:
             continue
         if not isinstance(value, str):
@@ -133,6 +142,12 @@ def review_entry_issues(entry: dict, kind: str, property_kind: str, location: st
             if not isinstance(value, str) or not value.strip() or "[LLM-TODO]" in value:
                 issues.append({"location": f"{location}.{field}", "error_code": "review_field_required",
                                "error": "A nonempty reviewed value is required.", "expected": "nonempty string without placeholders"})
+    if kind == "fa_entries" and property_kind == "assert" and entry.get("resolution") == "RTL_BUG":
+        requirement = entry.get("expected_requirement")
+        if not isinstance(requirement, str) or not requirement.strip() or "[LLM-TODO]" in requirement:
+            issues.append({"location": f"{location}.expected_requirement", "error_code": "review_spec_requirement_missing",
+                           "error": "Record the specification relationship once in the initial failed-property review; Bug delivery reuses it.",
+                           "expected": "nonempty author-reviewed specification relationship"})
     if kind == "tt_entries" and entry.get("action") == "ACCEPTED" and entry.get("root_cause") not in {None, "DESIGN_EXPECTED"}:
         issues.append({"location": f"{location}.root_cause", "error_code": "review_acceptance_not_supported",
                        "error": "A current trivial result can be accepted only as DESIGN_EXPECTED; otherwise repair the inputs and rerun.",
@@ -230,10 +245,10 @@ class FormalDataStore:
         except (ValueError, OSError):
             return False
 
-    def inspect(self, section: str = "overview", offset: int = 0, limit: int = 20, *, include_schema: bool = False) -> dict:
-        """Return compact pending work; full author schemas are an explicit opt-in."""
-        if type(include_schema) is not bool or include_schema and section not in {"planning", "basic_info", "summary"}:
-            raise ValueError("Full author schema inspection supports planning, basic_info, or summary")
+    def inspect(self, section: str = "overview", offset: int = 0, limit: int = 20, *, include_schema: bool = False, include_content: bool = False) -> dict:
+        """Inspect missing work by default; opt in to full schemas or existing author content."""
+        if type(include_schema) is not bool or type(include_content) is not bool:
+            raise ValueError("Inspect schema and content flags must be booleans")
         if section not in SECTIONS | {"overview"} or type(offset) is not int or offset < 0 or type(limit) is not int or not 1 <= limit <= 50:
             raise ValueError("Inspect requires a public section, nonnegative offset, and limit 1..50")
         output = normalize_relative_path(self.output_dir)
@@ -250,6 +265,19 @@ class FormalDataStore:
                        "authoring_rule": "Fill missing required fields in ready_update only. Optional fact tables are not mandatory repeated work."})}
         missing = missing_author_fields(section, records.get(section)) if section in {"planning", "basic_info", "summary"} else []
         result["missing_fields"] = missing
+        result["content_command"] = f"inspect {section} --full"
+        if include_schema and section == "spec":
+            from .skills.lib.models import FormalSpec
+            result["contract"] = {**contract, "json_schema": FormalSpec.model_json_schema(),
+                                  "parameter_rule": "Only explicit integral overrides; omitted values use actual RTL defaults."}
+        elif include_schema and section == "analysis":
+            result["contract"] = {"review_contracts": {f"{kind}:{prop_type}": review_contract(kind, prop_type)
+                for kind, prop_type in (("tt_entries", "assert"), ("fa_entries", "assert"), ("fa_entries", "cover"))}}
+        elif include_schema and section == "bugs":
+            from .reference import REFERENCE_CONTRACT
+            result["contract"] = {**contract, "allowed_entry_fields": ["id", "property", *sorted(BUG_FIELDS)],
+                                  "machine_fields": ["description", "trigger", "actual", "expected_requirement", "reference_calculations", "expected", "reference_results"],
+                                  "reference_calculations": copy.deepcopy(REFERENCE_CONTRACT)}
         if section in {"planning", "basic_info", "summary"}:
             patch = {}
             current = records.get(section) or {}
@@ -306,13 +334,13 @@ class FormalDataStore:
                                     "evidence_ref": ((records.get("run_results") or {}).get("property_evidence", {}).get(name) or {}).get("evidence_ref"),
                                     "evidence_call": {"action": "evidence", "property_names": [name]}})
             result["pending_analysis"] = page(pending, offset, limit)
-            if section == "analysis":
+            if section == "analysis" and include_content:
                 result["data"] = page(entries, offset, limit)
-            if section == "bugs":
+            if section == "bugs" and include_content:
                 result["data"] = page(records.get("bugs") or [], offset, limit)
-        if section in {"planning", "basic_info", "summary"}:
+        if include_content and section in {"planning", "basic_info", "summary"}:
             result["data"] = page([{"field": key, "value": value} for key, value in (records.get(section) or {}).items()], offset, limit)
-        elif section == "spec":
+        elif include_content and section == "spec":
             result["data"] = page((records.get("spec") or {}).get("function_groups", []), offset, limit)
         if section in {"planning", "basic_info", "summary"}:
             result["next_action"] = ("No required author fields remain. Review the current content and required references, record the stage journal, then Complete. Do not submit an empty update."
@@ -336,7 +364,8 @@ class FormalDataStore:
             raise ValueError("Current resolved Formal configuration is required for prepare")
         from .execution import FormalExecution
         from .skills.lib.formal_tools import (auto_scaffold_analysis_entries, auto_scaffold_bug_entries, bug_root_groups,
-                                             load_records, save_records, typed_run_results, validate_analysis_evidence)
+                                             load_records, save_records, typed_run_results, validate_analysis_evidence,
+                                             refresh_analysis_references)
         execution = FormalExecution(str(self.workspace), self.output_dir, self.dut, self.cfg,
                                     self.write_dirs, self.un_write_dirs)
         state, _ = self._run()
@@ -351,12 +380,14 @@ class FormalDataStore:
         model = load_records(str(path))
         checker = self._path(f"{self.output_dir}/tests/{self.dut}_checker.sv")
         changed = auto_scaffold_analysis_entries(model, typed_run_results(model), checker.read_text(encoding="utf-8"))
+        changed = refresh_analysis_references(model) or changed
         if section == "bugs":
             validate_analysis_evidence(model)
             changed = auto_scaffold_bug_entries(model) or changed
         if changed:
             save_records(str(path), model)
         result = self.inspect(section, offset, limit)
+        result.pop("pending_analysis", None)
         if section == "analysis":
             complete_rows = [{"entry_type": kind, **entry.model_dump()} for kind in ("tt_entries", "fa_entries")
                              for entry in getattr(model.analysis, kind)]
@@ -369,7 +400,7 @@ class FormalDataStore:
         else:
             unfinished = [row for row in complete_rows if any(
                 row.get(field) is None or isinstance(row.get(field), str) and (not row[field].strip() or "[LLM-TODO]" in row[field])
-                for field in BUG_FIELDS) or type(row.get("rtl_line")) is not int or row["rtl_line"] < 1]
+                for field in BUG_REQUIRED_FIELDS) or type(row.get("rtl_line")) is not int or row["rtl_line"] < 1]
             if complete_rows and not unfinished:
                 try:
                     bug_root_groups(model)
@@ -389,7 +420,9 @@ class FormalDataStore:
         rows = complete_rows[offset:offset + limit]
         patches = {}
         if section == "analysis":
-            contracts = []
+            from .reference import REFERENCE_CONTRACT
+            result["reference_contract"] = copy.deepcopy(REFERENCE_CONTRACT)
+            contracts, items = {}, []
             for row in rows:
                 entry_type = row["entry_type"]
                 machine = state["properties"][row["prop_name"]]
@@ -400,15 +433,26 @@ class FormalDataStore:
                 for field in required:
                     if field not in {"id", "prop_name"} and field in missing:
                         patch[field] = ""
+                if entry_type == "fa_entries" and machine["kind"] == "assert":
+                    patch["expected_requirement"] = row.get("expected_requirement") or ""
+                    patch["reference_calculations"] = row.get("reference_calculations") or []
                 patches.setdefault(entry_type, []).append(patch)
-                contracts.append({"id": row["id"], "prop_name": row["prop_name"], **contract,
-                                  "missing_fields": [field for field in missing if field != "evidence_ref"],
-                                  "evidence_binding": "Tool-owned; submit only reviewed author fields."})
+                contract_id = f"{entry_type}:{machine['kind']}"
+                contracts[contract_id] = contract
+                items.append({"id": row["id"], "prop_name": row["prop_name"], "contract_id": contract_id,
+                              "missing_fields": [field for field in missing if field != "evidence_ref"]})
             result["review_contracts"] = contracts
+            result["review_items"] = items
             selected = [row["prop_name"] for row in rows]
         else:
+            result["reused_analysis"] = page([{"id": row["id"], "property": row["property"],
+                "expected": bounded(row.get("expected")), "reference_results": bounded(row.get("reference_results", [])),
+                "analysis": bounded(next(entry.analysis for entry in model.analysis.fa_entries if entry.prop_name == row["property"]))}
+                for row in rows], 0, limit)
             patches["entries"] = [{"id": row["id"], "property": row["property"],
-                                    **{field: row.get(field) for field in sorted(BUG_FIELDS)}} for row in rows]
+                **{field: row.get(field) for field in sorted(BUG_REQUIRED_FIELDS)
+                   if row.get(field) is None or isinstance(row.get(field), str) and (not row[field].strip() or "[LLM-TODO]" in row[field])
+                   or field == "rtl_line" and (type(row.get(field)) is not int or row[field] < 1)}} for row in rows]
             selected = [row["property"] for row in rows]
         evidence = []
         for start in range(0, len(selected), 20):
@@ -417,9 +461,10 @@ class FormalDataStore:
         result["ready_update"] = ({"section": section,
                                    "expected_sha256": result["sha256"], "data": patches} if rows else None)
         result["prepared"] = True
-        result["next_action"] = ("Review the returned original evidence and the specification; fill author fields in ready_update. "
-                                 "Evidence references are attached by the tool, not authored. Do not claim a computed expected value unless independently verified. "
-                                 "Record the stage journal and call Complete when the complete current queue has been reviewed.")
+        result["next_action"] = ("Use reused_analysis as the current reviewed source; fill only missing root/source/fix metadata. Do not reread or recalculate the same evidence unless a contradiction or changed input requires new review. Impact assessments are human hypotheses, not universal proof."
+            if section == "bugs" else
+            "Review the original evidence once; submit classification, specification relationship and optional reference expressions together. The update returns checked calculation results for reuse by Bug delivery; do not duplicate them with a second script.")
+        result["next_action"] += " Record the stage journal and Complete after the current queue is reviewed."
         return result
 
     def update(self, section: str, data: dict | None, bodies: dict[str, str] | None, expected_sha256: str) -> dict:
@@ -484,9 +529,46 @@ class FormalDataStore:
             finally:
                 if temporary is not None and temporary.exists():
                     temporary.unlink()
-        return {"status": "updated", "section": section, "sha256": hashlib.sha256(encoded).hexdigest(),
-                "after_update_command": f"prepare {section} --offset 0" if section in {"analysis", "bugs"} else f"inspect {section}",
-                "records_artifact": f"{output}/.formal_records.yaml", "next_action": "Review the changed data and required references, record the stage journal, then Complete; use Check only for diagnostics. After proof-input changes call RunFormal action=run for current evidence."}
+        result = {"status": "updated", "section": section, "sha256": hashlib.sha256(encoded).hexdigest(),
+                  "records_artifact": f"{output}/.formal_records.yaml", "updated_fields": sorted(payload),
+                  "validation_scope": "author_fields_only; Complete still checks current evidence and the stage",
+                  "next_action": "Review the update summary and required references, record the stage journal, then Complete. Do not repeat inspect solely to confirm this successful write."}
+        if section in {"planning", "basic_info", "summary"}:
+            missing = missing_author_fields(section, candidate.get(section))
+            result["missing_fields"] = missing
+            result["author_fields_complete"] = not missing
+            result["after_update_command"] = f"inspect {section}" if missing else None
+        elif section == "analysis":
+            pending = [{"id": row["id"], "prop_name": row["prop_name"],
+                        "missing_fields": review_missing_fields(row, kind, (candidate.get("run_results") or {}).get("property_evidence", {}).get(row["prop_name"]))}
+                       for kind in ("tt_entries", "fa_entries") for row in (candidate.get("analysis") or {}).get(kind, [])]
+            result["pending_review"] = page([row for row in pending if row["missing_fields"]], 0, 20)
+            result["calculation_results"] = [{"id": row["id"], "prop_name": row["prop_name"],
+                "calculations": bounded([{key: calculation[key] for key in ("id", "expression", "decimal", "hex")}
+                    for calculation in row.get("reference_results", [])])}
+                for kind in ("tt_entries", "fa_entries") for row in (candidate.get("analysis") or {}).get(kind, [])
+                if any(patch.get("id") == row["id"] for patch in data.get(kind, []))]
+            result["after_update_command"] = "prepare analysis --offset 0" if result["pending_review"]["total"] else None
+        elif section == "bugs":
+            pending = [{"id": row["id"], "property": row["property"],
+                        "missing_fields": [field for field in sorted(BUG_REQUIRED_FIELDS)
+                            if row.get(field) is None or isinstance(row.get(field), str) and (not row[field].strip() or "[LLM-TODO]" in row[field])
+                            or field == "rtl_line" and (type(row.get(field)) is not int or row[field] < 1)]}
+                       for row in candidate.get("bugs", [])]
+            result["pending_review"] = page([row for row in pending if row["missing_fields"]], 0, 20)
+            result["calculation_results"] = [{"id": row["id"], "property": row["property"],
+                "calculations": bounded([{key: calculation[key] for key in ("id", "expression", "decimal", "hex")}
+                                           for calculation in row.get("reference_results", [])])}
+                for row in candidate.get("bugs", []) if any(entry.get("id") == row["id"] for entry in data["entries"])]
+            result["after_update_command"] = "prepare bugs --offset 0" if result["pending_review"]["total"] else None
+        else:
+            rows = checkpoint_rows(candidate)
+            result["checkpoint_count"] = len(rows)
+            result["missing_bodies"] = page([row["id"] for row in rows if row["body_missing"]], 0, 20)
+            result["after_update_command"] = "inspect spec" if result["missing_bodies"]["total"] else None
+        if result.get("after_update_command"):
+            result["next_action"] = f"Address the remaining author work using {result['after_update_command']}; after any update restart pending pagination at offset 0."
+        return result
 
     def _review_update(self, candidate: dict, section: str, data: dict, run: dict | None) -> None:
         """Patch exact current analysis/Bug identities without accepting machine-field edits."""
@@ -527,7 +609,8 @@ class FormalDataStore:
                     if token in seen:
                         issues.append({"location": location, "error_code": "review_identity_duplicate", "error": "The same current entry cannot be patched twice."})
                     seen.add(token)
-                    issues.extend(review_entry_issues(patch, kind, expected_kind, location, complete=False))
+                    issues.extend(issue for issue in review_entry_issues(patch, kind, expected_kind, location, complete=False)
+                                  if issue["error_code"] != "review_spec_requirement_missing")
                     allowed_results = {"TRIVIALLY_TRUE"} if kind == "tt_entries" else {"FALSIFIED", "TRIVIALLY_FALSE", "COVER_UNREACHABLE"}
                     if item.get("result") not in allowed_results or kind == "tt_entries" and item.get("kind") != "assert":
                         issues.append({"location": location, "error_code": "review_machine_kind_mismatch", "error": "The selected review list does not match the current machine result."})
@@ -539,6 +622,7 @@ class FormalDataStore:
                     if kind == "tt_entries" and merged.get("action") == "ACCEPTED" and merged.get("root_cause") not in {None, "DESIGN_EXPECTED"}:
                         issues.append({"location": f"{location}.root_cause", "error_code": "review_acceptance_not_supported",
                                        "error": "ACCEPTED requires DESIGN_EXPECTED in the resulting current review.", "allowed_values": ["DESIGN_EXPECTED"]})
+                    issues.extend(review_entry_issues(merged, kind, expected_kind, location, complete=False))
                     updates.append((matches[0], patch, allowed, name, location))
             if issues:
                 raise ReviewUpdateError(issues)
@@ -548,14 +632,21 @@ class FormalDataStore:
             verified = {}
             for _, _, _, name, location in updates:
                 try:
-                    verified[name] = execution.evidence([name])["items"][0]["evidence_ref"]
+                    verified[name] = execution.evidence([name])["items"][0]
                 except (ValueError, OSError, KeyError) as exc:
                     issues.append({"location": location, "error_code": "review_evidence_invalid", "error": str(exc)[:1000]})
             if issues:
                 raise ReviewUpdateError(issues)
-            for entry, patch, allowed, name, _ in updates:
+            from .reference import calculate_references
+            for entry, patch, allowed, name, location in updates:
                 entry.update({field: value for field, value in patch.items() if field in allowed})
-                entry["evidence_ref"] = verified[name]
+                entry["evidence_ref"] = verified[name]["evidence_ref"]
+                try:
+                    entry["reference_results"] = calculate_references(entry.get("reference_calculations", []), verified[name])
+                except ValueError as exc:
+                    issues.append({"location": f"{location}.reference_calculations", "error_code": "review_reference_invalid", "error": str(exc)[:1000]})
+            if issues:
+                raise ReviewUpdateError(issues)
             return
         else:
             if set(data) - {"entries", "shared"} or "entries" not in data:
@@ -592,7 +683,7 @@ class FormalDataStore:
                 if len(matches) != 1:
                     raise ValueError("Entry id/property pair is missing or ambiguous; call Check to coordinate records, then inspect again")
                 result = properties[name].get("result")
-                if result not in {"FALSIFIED", "TRIVIALLY_FALSE"}:
+                if result not in {"FALSIFIED", "TRIVIALLY_FALSE"} or properties[name].get("kind") != "assert":
                     raise ValueError("Bug updates require a current failed assertion, not an unknown or cover result")
                 if not any(entry.get("prop_name") == name and entry.get("resolution") == "RTL_BUG" for entry in (candidate.get("analysis") or {}).get("fa_entries", [])):
                     raise ValueError("Bug updates require the exact property classified RTL_BUG in current analysis")
@@ -604,6 +695,8 @@ class FormalDataStore:
                     if "rtl_line" in patch and (type(patch["rtl_line"]) is not int or patch["rtl_line"] < 1):
                         raise ValueError("Bug rtl_line must be a positive source line number")
                 matches[0].update({key: value for key, value in patch.items() if key in allowed})
+                if "impact_assessment" in patch and not isinstance(patch["impact_assessment"], str):
+                    raise ValueError(f"bugs.{identity}.impact_assessment must be an optional author-labelled range assessment")
 
     def _validate(self, records: dict, section: str) -> None:
         """Reject unknown typed fields, duplicate identities, and malformed section structures."""

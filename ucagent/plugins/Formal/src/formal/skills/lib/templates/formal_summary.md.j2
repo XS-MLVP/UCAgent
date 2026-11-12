@@ -30,6 +30,14 @@
 
 ## 2. 断言与属性统计
 
+以下检测点及表达式直接来自本次验证输入；Cover 名称或描述不能替代其实际条件。
+
+| 检测点 | 类型 | 实际表达式 |
+| --- | --- | --- |
+{% for item in checkpoint_facts | default([]) -%}
+| {{ item.ck_id }} | {{ item.style }} | `{{ item.sva_body | replace('|', '&#124;') | replace('\n', ' ') }}` |
+{% endfor %}
+
 | 属性类型 | 提取自 Checker (总数) | Log (Pass) | Log (Fail) | Log (Trivially_True) | 覆盖率(Cover) |
 |----------|-----------------------|------------|------------|----------------------|---------------|
 | Assume   | {{ summary.stats.assume_total or 0 }} | 无数据 | 无数据 | 无数据 | - |
@@ -49,6 +57,17 @@
 {% endfor %}
 
 ## 4. 验证完备性评估
+
+本节是人工规格范围评估，不是机器完备性证明。全部属性已判定、Cover 可达或 COI 达标均不能证明规格目标没有遗漏。
+
+**规划中明确排除的范围（人工声明）：**
+{% if scope_exclusions %}
+{% for item in scope_exclusions -%}
+- {{ item }}
+{% endfor %}
+{% else %}
+未单列排除项；不代表已证明完整规格覆盖。
+{% endif %}
 
 ### 4.1 Safety (安全性) 评估
 

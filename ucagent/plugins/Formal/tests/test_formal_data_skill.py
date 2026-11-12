@@ -60,7 +60,7 @@ def test_real_skill_inspect_and_structured_update_ignore_environment(skill_works
                                          "data": {"project_overview": "Independent routing verification"}})
     updated = json.loads(call_skill(skill_workspace, f"update --request-file {path}"))
     assert updated["status"] == "updated"
-    inspected = json.loads(call_skill(skill_workspace, "inspect planning --offset 0 --limit 5"))
+    inspected = json.loads(call_skill(skill_workspace, "inspect planning --full --offset 0 --limit 5"))
     assert any(item["field"] == "project_overview" for item in inspected["data"]["items"])
     assert not (skill_workspace.parent / "outside").exists()
 
@@ -207,7 +207,7 @@ def test_real_proof_prepare_through_unchanged_skill_runner(skill_workspace):
         assert result["prepared"] is True
         assert result["ready_update"]["section"] == "analysis"
         assert "action" not in result["ready_update"]
-        assert result["data"]["items"][0]["prop_name"] == "u_checker.A_BAD"
+        assert result["review_items"][0]["prop_name"] == "u_checker.A_BAD"
         assert result["evidence"][0]["evidence_ref"]["property"] == "u_checker.A_BAD"
         assert execution.status()["current_inputs"] is True
     finally:

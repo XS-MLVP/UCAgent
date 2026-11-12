@@ -61,7 +61,10 @@ class AnalysisEntry(BaseModel):
     related_assume: Optional[str] = None
     prop_type: Optional[str] = None
     sva_code: Optional[str] = None
-    resolution: Optional[str] = Field(None, description="FA: Resolution: RTL_BUG, ENV_FIXED, etc.")
+    resolution: Optional[str] = Field(None, description="FA: Resolution: RTL_BUG, ENV_PENDING, COVER_EXPECTED_FAIL")
+    expected_requirement: str = Field("", description="FA RTL_BUG author-provided specification requirement; not machine-proven")
+    reference_calculations: List[Dict[str, Any]] = Field(default_factory=list, description="FA optional evidence-bound integer expressions")
+    reference_results: List[Dict[str, Any]] = Field(default_factory=list, description="Machine-derived results for this FA review")
 
 class BugEntry(BaseModel):
     """One property observation linked to an explicit shared root-cause identity."""
@@ -74,10 +77,14 @@ class BugEntry(BaseModel):
     fc_id: str = "[LLM-TODO]"
     rtl_file: str = "[LLM-TODO]"
     rtl_line: int = 0
-    description: str = "[LLM-TODO]"
+    description: str = Field("[LLM-TODO]", description="Machine-derived current property observation; not an impact-range claim")
+    impact_assessment: str = Field("", description="Optional author impact-range hypothesis, not established by one counterexample")
     root_cause: str = "[LLM-TODO]"
     trigger: str = "[LLM-TODO]"
-    expected: str = "[LLM-TODO]"
+    expected_requirement: str = Field("[LLM-TODO]", description="Derived from the current FA review; not Bug-authored")
+    reference_calculations: List[Dict[str, Any]] = Field(default_factory=list, description="Copied from current FA review")
+    expected: str = Field("[LLM-TODO]", description="Machine-derived projection separating intended requirement from evidence-bound arithmetic")
+    reference_results: List[Dict[str, Any]] = Field(default_factory=list, description="Machine-derived reference expression results and provenance")
     actual: str = "[LLM-TODO]"
     fix: str = "[LLM-TODO]"
     severity: str = "[LLM-TODO]"

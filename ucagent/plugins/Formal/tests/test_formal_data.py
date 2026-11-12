@@ -238,7 +238,7 @@ def test_bounded_pagination_and_malformed_section_inputs(task):
     store, path, records = task
     records["planning"]["project_overview"] = "x" * 10000
     path.write_text(yaml.safe_dump(records))
-    result = store.inspect("planning", limit=1)
+    result = store.inspect("planning", limit=1, include_content=True)
     assert result["data"]["items"][0]["truncated"] is True
     before = path.read_bytes()
     with pytest.raises(ValueError):
@@ -250,7 +250,7 @@ def test_analysis_receipt_is_bound_by_the_shared_backend(task):
     """Authors submit their review, never manually copy or forge evidence metadata."""
     store, path, _ = task
     install_run(task)
-    patch = {"id": "FA-001", "prop_name": "left.A_CK_GATE_PASS", "analysis": "Reviewed the original evidence", "resolution": "RTL_BUG"}
+    patch = {"id": "FA-001", "prop_name": "left.A_CK_GATE_PASS", "analysis": "Reviewed the original evidence", "resolution": "RTL_BUG", "expected_requirement": "Output must preserve the specified qualification condition"}
     result = store.update("analysis", {"fa_entries": [patch]}, None, store.inspect()["sha256"])
     assert result["status"] == "updated"
     entry = yaml.safe_load(path.read_text())["analysis"]["fa_entries"][0]
@@ -272,13 +272,13 @@ def test_shared_root_cause_batch_preserves_exact_property_evidence(task):
     path.write_text(yaml.safe_dump(records))
     shared = {"root_cause_id": "ROOT-GATE-CONDITION", "root_cause": "Shared qualification condition is inverted",
               "fix": "Repair the common condition and rerun original targets", "severity": "HIGH", "confidence": "HIGH"}
-    entries = [{"id": "BG-FORMAL-001", "property": "left.A_CK_GATE_PASS", "description": "Left observation"},
-               {"id": "BG-FORMAL-002", "property": "right.A_CK_GATE_PASS", "description": "Right observation"}]
+    entries = [{"id": "BG-FORMAL-001", "property": "left.A_CK_GATE_PASS", "impact_assessment": "Left observation; broader scope unverified"},
+               {"id": "BG-FORMAL-002", "property": "right.A_CK_GATE_PASS", "impact_assessment": "Right observation; broader scope unverified"}]
     result = store.update("bugs", {"shared": shared, "entries": entries}, None, store.inspect()["sha256"])
     assert result["status"] == "updated"
     records = yaml.safe_load(path.read_text())
     assert {entry["root_cause_id"] for entry in records["bugs"]} == {"ROOT-GATE-CONDITION"}
-    assert [entry["description"] for entry in records["bugs"]] == ["Left observation", "Right observation"]
+    assert [entry["impact_assessment"] for entry in records["bugs"]] == ["Left observation; broader scope unverified", "Right observation; broader scope unverified"]
     previous = path.read_bytes()
     entries[1]["severity"] = "LOW"
     with pytest.raises(ValueError, match="conflicts"):

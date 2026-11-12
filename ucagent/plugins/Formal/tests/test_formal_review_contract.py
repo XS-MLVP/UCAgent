@@ -78,7 +78,7 @@ def test_contracts_are_disjoint_and_type_specific():
     assertion = review_contract("fa_entries", "assert")
     cover = review_contract("fa_entries", "cover")
     trivial = review_contract("tt_entries", "assert")
-    assert set(assertion["allowed_fields"]) == {"id", "prop_name", "analysis", "resolution", "action_detail"}
+    assert set(assertion["allowed_fields"]) == {"id", "prop_name", "analysis", "resolution", "action_detail", "expected_requirement", "reference_calculations"}
     assert "root_cause" not in assertion["allowed_fields"]
     assert assertion["allowed_values"]["resolution"] == ["RTL_BUG", "ENV_PENDING"]
     assert cover["allowed_values"]["resolution"] == ["COVER_EXPECTED_FAIL", "ENV_PENDING"]
@@ -92,9 +92,15 @@ def test_prepare_returns_exact_typed_minimal_patches_and_original_evidence(revie
     """Every prepared target has the same allowed contract used during mutation."""
     store, path = review_task()
     prepared = store.prepare("analysis")
-    assert len(prepared["review_contracts"]) == 4
+    assert len(prepared["review_contracts"]) == 3
+    assert len(prepared["review_items"]) == 4
+    assert all(item["contract_id"] in prepared["review_contracts"] for item in prepared["review_items"])
     envelopes = prepared["ready_update"]["data"]
-    assert all(set(entry) == {"id", "prop_name", "analysis", "resolution"} for entry in envelopes["fa_entries"])
+    for entry in envelopes["fa_entries"]:
+        fields = {"id", "prop_name", "analysis", "resolution"}
+        if entry["prop_name"] != "coverage.reachable":
+            fields |= {"expected_requirement", "reference_calculations"}
+        assert set(entry) == fields
     assert set(envelopes["tt_entries"][0]) == {"id", "prop_name", "analysis", "root_cause", "action"}
     assert len(prepared["evidence"]) == 4
     assert {entry["property"] for entry in prepared["evidence"]} == {"left.A_SHARED", "right.A_SHARED", "control.A_TRIVIAL", "coverage.reachable"}
@@ -132,13 +138,16 @@ def test_valid_batch_keeps_hierarchical_identity_and_attaches_current_receipts(r
     prepared = store.prepare("analysis")
     data = prepared["ready_update"]["data"]
     for entry in data["fa_entries"]:
+        if entry["prop_name"] != "coverage.reachable":
+            entry["expected_requirement"] = "Output must satisfy the specified routing obligation"
         entry.update(analysis="Reviewed original report against the independent specification.",
                      resolution="COVER_EXPECTED_FAIL" if entry["prop_name"] == "coverage.reachable" else "RTL_BUG")
     for entry in data["tt_entries"]:
         entry.update(analysis="Reviewed valid combinational identity.", root_cause="DESIGN_EXPECTED", action="ACCEPTED")
     updated = store.update("analysis", data, None, prepared["sha256"])
     assert updated["status"] == "updated"
-    assert updated["after_update_command"] == "prepare analysis --offset 0"
+    assert updated["after_update_command"] is None
+    assert updated["pending_review"]["total"] == 0
     model = yaml.safe_load(path.read_text())
     entries = model["analysis"]["fa_entries"] + model["analysis"]["tt_entries"]
     assert len({entry["prop_name"] for entry in entries}) == 4
@@ -155,7 +164,7 @@ def test_pending_pagination_cannot_silently_drop_work_after_update(review_task):
     assert page["review_progress"]["next_offset"] == 20
     patches = page["ready_update"]["data"]
     for entry in patches["fa_entries"]:
-        entry.update(analysis="Reviewed original tool report.", resolution="RTL_BUG")
+        entry.update(analysis="Reviewed original tool report.", resolution="RTL_BUG", expected_requirement="Output preserves the specified routing obligation")
     store.update("analysis", patches, None, page["sha256"])
     with pytest.raises(ReviewUpdateError) as caught:
         store.prepare("analysis", offset=20, limit=20)
@@ -177,4 +186,4 @@ def test_env_pending_is_recorded_but_remains_in_review_queue(review_task):
     pending = store.prepare("analysis")
     assert pending["review_progress"]["pending"] == 1
     patch = pending["ready_update"]["data"]["fa_entries"][0]
-    assert patch == {"id": entry["id"], "prop_name": entry["prop_name"], "resolution": ""}
+    assert patch == {"id": entry["id"], "prop_name": entry["prop_name"], "resolution": "", "expected_requirement": "", "reference_calculations": []}

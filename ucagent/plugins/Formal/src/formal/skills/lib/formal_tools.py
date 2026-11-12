@@ -3,6 +3,7 @@
 Merges utilities, parsing, execution and stage context.
 """
 import os
+import copy
 import re
 import shutil
 import yaml
@@ -28,6 +29,8 @@ __all__ = [
     "typed_run_results",
     "runtime_formal_paths",
     "validate_analysis_evidence",
+    "refresh_analysis_references",
+    "bug_observation_description",
     "validate_log_has_results",
     "extract_blackbox_count",
     "parse_coverage",
@@ -178,6 +181,58 @@ def runtime_formal_paths() -> FormalPaths:
     return FormalPaths(dut=snapshot["DUT"], out=snapshot["OUT"], workspace=str(workspace))
 
 
+def refresh_analysis_references(records: FormalRecords) -> bool:
+    """Atomically refresh authored expressions after validating old machine projections.
+
+    Existing results carry their original expression and exact binding names. Replay
+    those requests first, so legitimate author edits need no machine-field cleanup
+    while edited answers, receipts, or sample metadata still fail closed.
+    """
+    from formal.reference import calculate_references
+    if not records.run_results or not records.analysis:
+        return False
+    updates = []
+    for entry in records.analysis.fa_entries:
+        if entry.resolution != "RTL_BUG":
+            continue
+        evidence = records.run_results.property_evidence.get(entry.prop_name)
+        reference = evidence.get("evidence_ref") if isinstance(evidence, dict) else None
+        if not reference or entry.evidence_ref != reference:
+            raise ValueError(f"Current exact evidence_ref is required before calculating {entry.prop_name}.")
+        if not entry.expected_requirement.strip() or "[LLM-TODO]" in entry.expected_requirement:
+            continue
+        if entry.reference_results:
+            try:
+                old_requests = [{"id": result["id"], "expression": result["expression"],
+                    "bindings": {alias: {"source": binding["source"], "signal": binding["signal"]}
+                                 for alias, binding in result["bindings"].items()}}
+                                for result in entry.reference_results]
+                original_results = calculate_references(old_requests, evidence)
+            except (KeyError, TypeError, AttributeError, ValueError) as exc:
+                raise ValueError(f"Machine reference calculation changed for {entry.prop_name}; restore the original derived results before reviewing author expressions.") from exc
+            if entry.reference_results != original_results:
+                raise ValueError(f"Machine reference calculation changed for {entry.prop_name}; derived answers or evidence metadata were edited.")
+        results = calculate_references(entry.reference_calculations, evidence)
+        if entry.reference_results != results:
+            updates.append((entry, results))
+    # Do not leave an earlier entry refreshed if a later request fails validation.
+    for entry, results in updates:
+        entry.reference_results = results
+    return bool(updates)
+
+
+def bug_observation_description(name: str, evidence: dict) -> str:
+    """Describe only the current recorded verdict, never a universal impact range."""
+    if not isinstance(evidence, dict) or not evidence.get("evidence_ref") or evidence["evidence_ref"].get("property") != name:
+        raise ValueError(f"Current exact machine evidence is required to describe {name}.")
+    result = evidence.get("result")
+    if result not in {"FALSIFIED", "TRIVIALLY_FALSE"}:
+        raise ValueError(f"A Bug observation must have a current failed assertion: {name}.")
+    if result == "TRIVIALLY_FALSE":
+        return f"Current property {name}: TRIVIALLY_FALSE (static contract failure). No dynamic counterexample was exported; this description is limited to the recorded property verdict."
+    return f"Current property {name}: FALSIFIED. This observation applies to the original recorded counterexample only; wider input-range impact needs separate justification."
+
+
 def validate_analysis_evidence(records: FormalRecords) -> None:
     """Require current machine provenance for claimed defects and accepted trivial proofs."""
     if not records.analysis or not records.run_results:
@@ -210,6 +265,14 @@ def validate_analysis_evidence(records: FormalRecords) -> None:
                     or reference.get("run_id") != records.run_results.run_id
                     or reference.get("input_fingerprint") != records.run_results.input_fingerprint):
                 raise ValueError(f"Current evidence_ref is required for {entry.prop_name}; call RunFormal action=evidence and copy its evidence_ref before classifying RTL_BUG or accepting a trivial proof.")
+            if entry.resolution == "RTL_BUG":
+                from formal.reference import derive_expected
+                if not entry.expected_requirement.strip() or "[LLM-TODO]" in entry.expected_requirement:
+                    raise ValueError(f"Current RTL_BUG review requires expected_requirement for {entry.prop_name}; describe the specification relation before Bug preparation.")
+                evidence = records.run_results.property_evidence[entry.prop_name]
+                _, calculation_results = derive_expected(entry.expected_requirement, entry.reference_calculations, evidence)
+                if entry.reference_results != calculation_results:
+                    raise ValueError(f"Machine reference calculation changed for {entry.prop_name}; refresh analysis against current evidence, not Bug data.")
 
 
 def typed_run_results(records: FormalRecords) -> dict:
@@ -627,10 +690,25 @@ def auto_scaffold_bug_entries(records: FormalRecords) -> bool:
         occupied.add(bug_id)
         records.bugs.append(BugEntry(id=bug_id, property=name, ck_id=f"CK-{strip_prop_prefix(name).replace('_', '-')}"))
     from formal.evidence import observation_text
+    from formal.reference import derive_expected
     for bug in records.bugs:
         evidence = records.run_results.property_evidence.get(bug.property) if records.run_results else None
         if not evidence or not evidence.get("evidence_ref"):
             raise ValueError(f"Current original observations are required for Bug {bug.property}; run the current proof and prepare its analysis.")
+        reviewed = [entry for entry in records.analysis.fa_entries if entry.prop_name == bug.property and entry.resolution == "RTL_BUG"]
+        if len(reviewed) != 1 or reviewed[0].evidence_ref != evidence["evidence_ref"]:
+            raise ValueError(f"Bug {bug.property} requires exactly one current reviewed FA and matching evidence_ref; do not reauthor the requirement in Bug data.")
+        fa = reviewed[0]
+        if not fa.expected_requirement.strip() or "[LLM-TODO]" in fa.expected_requirement:
+            raise ValueError(f"Bug {bug.property} requires a current FA expected_requirement before preparing Bug records.")
+        expected, calculations = derive_expected(fa.expected_requirement, fa.reference_calculations, evidence)
+        if fa.reference_results != calculations:
+            raise ValueError(f"Bug {bug.property} requires verified FA reference_results; complete analysis before preparing Bugs.")
+        bug.expected_requirement = fa.expected_requirement
+        bug.reference_calculations = copy.deepcopy(fa.reference_calculations)
+        bug.reference_results = copy.deepcopy(calculations)
+        bug.expected = expected
+        bug.description = bug_observation_description(bug.property, evidence)
         bug.trigger, bug.actual = observation_text(evidence)
     return before != [bug.model_dump() for bug in records.bugs]
 
@@ -726,6 +804,8 @@ def bug_root_groups(records: FormalRecords) -> list[dict]:
         if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]{0,79}", root_id):
             raise ValueError(f"Bug {bug.id} requires root_cause_id matching [A-Za-z][A-Za-z0-9_-]* with at most 80 characters.")
         shared = {key: getattr(bug, key) for key in ("root_cause", "fix", "severity")}
+        if not bug.expected_requirement.strip() or "[LLM-TODO]" in bug.expected_requirement:
+            raise ValueError(f"Bug {bug.id} requires an author-reviewed expected_requirement; arithmetic results do not define the specification.")
         if any(not str(value).strip() or "[LLM-TODO]" in str(value) for value in shared.values()):
             raise ValueError(f"Root {root_id} has unfinished root_cause, fix, or severity fields.")
         if root_id in groups:
@@ -740,13 +820,31 @@ def bug_root_groups(records: FormalRecords) -> list[dict]:
 def validate_original_observations(records: FormalRecords) -> None:
     """Reject authored or stale machine-observation prose at either delivery boundary."""
     from formal.evidence import observation_text
+    from formal.reference import derive_expected
     for bug in records.bugs or []:
         evidence = records.run_results.property_evidence.get(bug.property) if records.run_results else None
         if not evidence or not evidence.get("evidence_ref"):
             raise ValueError(f"Current original observations are required for {bug.property}.")
         trigger, actual = observation_text(evidence)
+        matches = [entry for entry in (records.analysis.fa_entries if records.analysis else [])
+                   if entry.prop_name == bug.property and entry.resolution == "RTL_BUG"]
+        if len(matches) != 1 or matches[0].evidence_ref != evidence["evidence_ref"]:
+            raise ValueError(f"Current reviewed FA and matching evidence are required for {bug.property}.")
+        fa = matches[0]
+        if (bug.expected_requirement != fa.expected_requirement
+                or bug.reference_calculations != fa.reference_calculations
+                or bug.reference_results != fa.reference_results):
+            raise ValueError(f"Bug review forked from the current FA for {bug.property}; prepare Bug entries from accepted analysis instead of editing copied requirement or calculations.")
+        description = bug_observation_description(bug.property, evidence)
+        expected, reference_results = derive_expected(fa.expected_requirement, fa.reference_calculations, evidence)
+        if fa.reference_results != reference_results:
+            raise ValueError(f"FA reference results changed for {bug.property}; recalculate from exact current evidence.")
+        if bug.description != description:
+            raise ValueError(f"Machine observation description changed for {bug.property}; regenerate from the original property verdict.")
         if bug.trigger != trigger or bug.actual != actual:
             raise ValueError(f"Machine observations changed for {bug.property}; prepare the current Bug queue instead of editing trigger or actual.")
+        if bug.expected != expected or bug.reference_results != reference_results:
+            raise ValueError(f"Expected-value calculation changed for {bug.property}; refresh it from current evidence instead of editing derived fields.")
 
 
 def generate_bug_report_doc(records: FormalRecords, op: str) -> None:
@@ -843,6 +941,11 @@ def generate_summary_doc(records: FormalRecords, op: str, coverage: Optional[dic
     context = {
         "DUT": records.dut,
         "summary": summary,
+        "scope_exclusions": ((records.planning or {}).get("verification_scope") or {}).get("excluded") or [],
+        "checkpoint_facts": [{"fg_id": fg.id, "fc_id": fc.id, "ck_id": ck.id,
+                              "style": ck.style, "sva_body": ck.sva_body or ""}
+                             for fg in (records.spec.function_groups if records.spec else [])
+                             for fc in fg.functions for ck in fc.check_points],
         "machine": {"proof_complete": False, "deferred_total": 0, "deferred_properties": [], "report": "", **(machine or {}),
                     "counts": {key: (machine or {}).get("counts", {}).get(key, 0) for key in ("PROVEN", "FALSIFIED", "TRIVIALLY_TRUE", "TRIVIALLY_FALSE", "UNPROVEN", "COVER_REACHED", "COVER_UNREACHABLE")}},
     }

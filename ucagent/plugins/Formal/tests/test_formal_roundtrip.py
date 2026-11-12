@@ -84,15 +84,21 @@ def test_generic_data_execution_evidence_analysis_and_summary(tmp_path):
         document = store.prepare("analysis")
         assert document["prepared"] is True
         assert "action" not in document["ready_update"]
-        pending = document["pending_analysis"]["items"]
+        pending = document["review_items"]
         assert len(pending) == 2
-        names = [entry["property"] for entry in pending]
+        names = [entry["prop_name"] for entry in pending]
         originals = {"items": document["evidence"]}
         references = {item["property"]: item["evidence_ref"] for item in originals["items"]}
         assert any(item["initial_values"] for item in originals["items"] if item["result"] == "FALSIFIED")
-        patches = [{"id": item["analysis_id"], "prop_name": item["property"], "resolution": "RTL_BUG",
+        patches = [{"id": item["id"], "prop_name": item["prop_name"], "resolution": "RTL_BUG",
+                    "expected_requirement": "The independently stated interface requirement holds.",
                     "analysis": "Reviewed the original tool evidence against the independent interface requirement."} for item in pending]
-        assert store.update("analysis", {"fa_entries": patches}, None, document["sha256"])["status"] == "updated"
+        dynamic = next(item for item in originals["items"] if item["result"] == "FALSIFIED")
+        next(entry for entry in patches if entry["prop_name"] == dynamic["property"])["reference_calculations"] = [
+            {"id": "required_payload", "expression": "incoming", "bindings": {"incoming": {"source": "initial", "signal": "payload"}}}]
+        updated_analysis = store.update("analysis", {"fa_entries": patches}, None, document["sha256"])
+        assert updated_analysis["status"] == "updated"
+        assert updated_analysis["calculation_results"][0]["calculations"][0]["hex"] == "0x1"
         bound = yaml.safe_load(records_path.read_text())["analysis"]["fa_entries"]
         assert all(entry["evidence_ref"] == references[entry["prop_name"]] for entry in bound)
         reviewed = store.prepare("analysis")
@@ -107,15 +113,33 @@ def test_generic_data_execution_evidence_analysis_and_summary(tmp_path):
         bug_checker.on_init()
         bugs = store.prepare("bugs")
         assert bugs["prepared"] is True
+        assert len(bugs["reused_analysis"]["items"]) == 2
+        assert any(item["reference_results"] for item in bugs["reused_analysis"]["items"])
+        assert all(not ({"description", "expected_requirement", "reference_calculations"} & set(entry))
+                   for entry in bugs["ready_update"]["data"]["entries"])
         entries = [{"id": entry["id"], "property": entry["property"], "root_cause_id": f"CAUSE_{index}",
                     "root_cause": "The implementation does not meet this explicit interface obligation.",
-                    "description": "Observed mismatch against the independently stated requirement.",
-                    "expected": "The stated interface requirement holds.",
                     "fix": "Correct the implementation without weakening the requirement.",
                     "severity": "HIGH", "confidence": "HIGH", "rtl_file": f"{name}/{name}.v", "rtl_line": 1,
                     "fg_id": "FG-FORWARD", "fc_id": "FC-OUTPUT"}
-                   for index, entry in enumerate(bugs["data"]["items"], 1)]
-        assert store.update("bugs", {"entries": entries}, None, bugs["sha256"])["status"] == "updated"
+                   for index, entry in enumerate(bugs["ready_update"]["data"]["entries"], 1)]
+        updated_bugs = store.update("bugs", {"entries": entries}, None, bugs["sha256"])
+        assert updated_bugs["status"] == "updated"
+        assert updated_bugs["after_update_command"] is None
+        persisted = yaml.safe_load(records_path.read_text())
+        calculated = next(bug for bug in persisted["bugs"] if bug["property"] == dynamic["property"])
+        assert calculated["reference_results"][0]["hex"] == "0x1"
+        assert "Checked arithmetic" in calculated["expected"]
+        assert "not machine-proven" in calculated["expected"]
+        before = records_path.read_bytes()
+        with pytest.raises(ValueError, match="machine-authored"):
+            store.update("bugs", {"entries": [{"id": calculated["id"], "property": calculated["property"],
+                "reference_results": [{"hex": "0x777"}]}]}, None, updated_bugs["sha256"])
+        assert records_path.read_bytes() == before
+        with pytest.raises(ValueError, match="machine-authored"):
+            store.update("bugs", {"entries": [{"id": calculated["id"], "property": calculated["property"],
+                "expected_requirement": "A different specification fork"}]}, None, updated_bugs["sha256"])
+        assert records_path.read_bytes() == before
         passed, details = bug_checker.do_check()
         assert passed, details
         assert details["property_count"] == 2

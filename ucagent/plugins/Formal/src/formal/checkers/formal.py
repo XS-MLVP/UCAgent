@@ -52,6 +52,7 @@ from formal.skills.lib.formal_tools import (
     parse_avis_log,
     typed_run_results,
     validate_analysis_evidence,
+    refresh_analysis_references,
     bug_root_groups,
     extract_property_code,
     strip_prop_prefix,
@@ -732,6 +733,8 @@ class EnvironmentAnalysisChecker(BaseFormalChecker):
 
 
         try:
+            if refresh_analysis_references(records):
+                save_records(records_path, records)
             validate_analysis_evidence(records)
         except ValueError as exc:
             return False, {"error_code": "formal_analysis_evidence_invalid", "error": str(exc),
@@ -1158,7 +1161,7 @@ class BugReportConsistencyChecker(BaseFormalChecker):
             return self._fail("❌ Bug report inconsistent", details="\n".join(issues))
 
         # Step 4: Check for unfilled [LLM-TODO] fields in bugs
-        _BUG_REQUIRED = ["description", "root_cause", "trigger", "expected", "actual", "fix", "severity", "confidence"]
+        _BUG_REQUIRED = ["description", "root_cause", "trigger", "expected_requirement", "expected", "actual", "fix", "severity", "confidence"]
         unfilled_errors = []
         for bug in records.bugs:
             bug_id = bug.id

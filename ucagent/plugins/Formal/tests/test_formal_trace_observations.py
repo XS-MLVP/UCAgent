@@ -126,13 +126,15 @@ def test_bug_scaffold_overwrites_authored_observations_with_original_machine_val
                                        "signals": [{"name": "Shell.observed", "width": 1, "value": "0x0"}]}}
     records = FormalRecords(dut="ControlBlock", run_results=RunResults(timestamp="now", log_hash="digest", stats={},
         failing_properties=[name], tt_properties=[], property_evidence={name: evidence}),
-        analysis=AnalysisData(fa_entries=[AnalysisEntry(id="FA-001", prop_name=name, resolution="RTL_BUG")]),
-        bugs=[BugEntry(id="BG-001", property=name, trigger="invented inputs", actual="invented output", expected="Specification requires acknowledgement")])
+        analysis=AnalysisData(fa_entries=[AnalysisEntry(id="FA-001", prop_name=name, resolution="RTL_BUG", evidence_ref=evidence["evidence_ref"], expected_requirement="Specification requires acknowledgement")]),
+        bugs=[BugEntry(id="BG-001", property=name, trigger="invented inputs", actual="invented output", expected_requirement="Specification requires acknowledgement")])
     assert auto_scaffold_bug_entries(records)
     bug = records.bugs[0]
     assert "request=0x1" in bug.trigger and "invented" not in bug.trigger
     assert "Shell.observed=0x0" in bug.actual and "not asserted to be the failure cycle" in bug.actual
-    assert bug.expected == "Specification requires acknowledgement"
+    assert bug.expected_requirement == "Specification requires acknowledgement"
+    assert "Specification requires acknowledgement" in bug.expected
+    assert "not machine-proven" in bug.expected
     assert not auto_scaffold_bug_entries(records)
     validate_original_observations(records)
     target = tmp_path / "bug-report.md"

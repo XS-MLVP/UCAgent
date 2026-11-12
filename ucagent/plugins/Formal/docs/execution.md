@@ -40,9 +40,12 @@ The execution and original-evidence contract is in
 ## Effective interface preflight
 
 The Formal plugin requires pyslang 12.1.x for parser-backed interface preparation.
-The parser and generated Tcl use the same deterministic direct DUT source order:
-`.v` files followed by `.sv` files, each sorted. No BasicInfo prose is consumed as
-an executable parameter default. The actual selected module's public scalar
+The parser and generated Tcl use one ordered compilation context. A DUT-local
+`filelist.txt` selects source order explicitly, with one plain relative path per
+line; blank lines and whole-line `#` / `//` comments are allowed. Without a
+manifest, direct `.v` files followed by `.sv` files are sorted. Absolute paths,
+parent traversal, symlinks, duplicates and build flags are rejected. No BasicInfo
+prose is consumed as an executable parameter default. The actual selected module's public scalar
 integral parameter defaults are elaborated; `spec.parameters` supplies only
 explicit public overrides. Derived defaults are recomputed after overrides,
 and zero is a valid explicit value. Unknown/local/type/non-integral or unresolved
@@ -56,11 +59,15 @@ same preflight. Missing bindings and unsupported compilation context must identi
 the input and `spec.parameters`, not suggest editing descriptive `basic_info`.
 Preflight does not modify the task's parameter map or source RTL.
 
-The initial supported context is direct source files and scalar packed integral
-ports. Preprocessor/include contexts or richer type/interface constructs that
-cannot be matched safely are rejected explicitly; operators must provide a
-supported consistent compilation context instead of relying on silent regex
-fallbacks. This is not a full SystemVerilog project build system.
+Ordered sources share one preprocessing unit in pyslang and FormalMC `-mfcu`:
+file-defined macros and conditional compilation remain visible across the source
+order. Literal quoted local includes are admitted only within the DUT tree;
+both tools receive the same deterministic include directories. Macro-generated
+include paths, external headers and arbitrary manifest flags are unsupported.
+The execution snapshot already hashes and copies the complete DUT tree, including
+the manifest and headers, so edits invalidate current evidence. Scalar packed
+integral ports remain the supported interface. This is not a full SystemVerilog
+project build system.
 
 ## Configuration
 
@@ -177,11 +184,13 @@ attempt logs when analyzing a counterexample.
 
 ## Compact data review and original observations
 
-The data Skill returns only missing required author fields by default. Full
-planning/basic_info/summary schemas remain available with `inspect <section>
---schema`; optional render defaults are not prefilled into every request.
-Clock applicability must be explicitly reviewed: an unknown count is null,
-whereas zero means a confirmed clockless design.
+The data Skill defaults to missing required author fields and compact metadata.
+All sections support `inspect <section> --schema`; `--full` opts into existing
+author content for focused revision. Successful updates return remaining author
+work and do not require an extra inspect merely to confirm publication. Stage
+completion still requires current evidence and Complete. Optional render defaults
+are not prefilled into every request. Clock applicability must be reviewed:
+unknown is null, while zero means a confirmed clockless design.
 
 `prepare` filters completed reviews and reports total/pending/completed counts.
 Inspection remains read-only. Evidence metadata is attached by the shared data
@@ -194,9 +203,25 @@ the last recorded timestamp, preserving widths, X/Z masks, omitted signal counts
 and unavailable states. This sample is not necessarily a failure cycle or a
 full replay. Bug trigger/actual fields are deterministic projections of this
 original evidence and are not authored through the data Skill; raw YAML edits
-are rejected at report delivery. Reference semantics, root-cause interpretation,
-and any expected-value calculation still require independent review. No
-DUT-specific arithmetic oracle is supplied.
+are rejected at report delivery. The initial failed-assertion review owns the
+author's expected_requirement and optional reference_calculations. Current
+review receipts and calculated results are reused by Bug delivery; copied Bug
+fields cannot fork from their source review. Bug authors fill root/source/fix
+metadata and an optional explicitly unverified impact_assessment, not a second
+specification interpretation or calculation. Machine descriptions cover only the
+recorded counterexample or static check; root cause is labelled as a human
+source assessment, never a universal impact proof. Reference calculations
+are bounded integer expressions bound to exact current initial/sample signal
+names. A restricted AST interpreter executes arithmetic/bit operations without
+Python eval, calls, attributes or indexing; results preserve provenance and time
+context, and unknown or out-of-range values fail rather than default to zero.
+Expression correctness against the specification remains an author obligation.
+The generated expected/reference_results fields are recomputed and checked at
+report delivery; raw result edits fail. No DUT-specific arithmetic oracle is
+supplied. Summary tables directly include checkpoint IDs, types and the original
+SVA expressions, avoiding manual Cover-boundary rewrites. Summary templates
+separately label proof status, structure/scenario coverage, and human scope
+assessment, including planning exclusions.
 
 ## Verification
 

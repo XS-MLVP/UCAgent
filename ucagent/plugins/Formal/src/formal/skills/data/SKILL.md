@@ -15,7 +15,7 @@ description: 批量维护 Formal 任务数据、准备当前分析队列并核�
 {"commands":[["ext/formal/data","formal_data.py","inspect planning"]]}
 ```
 
-可查看 `overview`、`planning`、`basic_info`、`spec`、`analysis`、`bugs`、`summary`。默认只返回当前缺项和最小 `ready_update`，已完成时返回null，不必重写既有内容。完整字段结构按需运行 `inspect planning --schema`（basic_info/summary同理）；可选表格不是每阶段必须重复填写的事实。分页时使用 `--offset` 和 `--limit`。basic_info必须明确clock_count；未知时保留null待核实，确无时钟才填0。
+可查看 `overview`、`planning`、`basic_info`、`spec`、`analysis`、`bugs`、`summary`。先用默认视图只看缺项和最小请求；需要修改既有正文时加`--full`，需要完整契约才加`--schema`，所有节选项一致。可选事实表不必重复填满。更新成功后直接使用返回的新sha256、剩余缺项和下一步，不必为确认写入再inspect。分页用`--offset/--limit`；basic_info.clock_count未知需核实，确无时钟才填0。
 
 1. 用普通文件工具把填好的 `ready_update` 写入输出目录下的 JSON 请求文件，例如 `formal_test/data_update.json`。
 2. 请求文件只有 `section`、`expected_sha256`，以及 `data` 或 `bodies` 二选一；不要加入 `action`，不要把整段 JSON 拼进命令参数。
@@ -37,11 +37,11 @@ description: 批量维护 Formal 任务数据、准备当前分析队列并核�
 
 结果包含精确分析 ID、完整属性名、原始证据及可直接填写的 `ready_update`，不必先制造一次失败的 Check 来初始化。按证据和规格填写分析及分类；证据引用由脚本校验后绑定，不由请求文件填写。常量真可能是合法恒等式，常量假可能是静态契约失败，都不能仅为变绿而改弱目标。
 
-分析补丁必须按`review_contracts`区分类型：FA只填`analysis/resolution/action_detail`，`resolution`按机器类型选assert的`RTL_BUG/ENV_PENDING`或cover的`COVER_EXPECTED_FAIL/ENV_PENDING`；不要给FA提交TT的`root_cause/action/related_assume`。TT填写`analysis/root_cause/action`，只有`DESIGN_EXPECTED/ACCEPTED`可接受当前恒真；`FIXED/ENV_FIXED`不能声明当前仍异常的结果已修复。所有条目保留精确id/prop_name，机器引用不填。批量有错整批不写入，一次修正诊断列出的所有位置。
+分析补丁用`review_items.contract_id`查询共享`review_contracts`：FA填写`analysis/resolution/action_detail`，assert归为RTL_BUG时同时填写`expected_requirement`和可选`reference_calculations`，首次完成规格关系与计算绑定，结果随update返回供后续复用。`resolution`按机器类型选assert的`RTL_BUG/ENV_PENDING`或cover的`COVER_EXPECTED_FAIL/ENV_PENDING`；FA不填TT的`root_cause/action/related_assume`。TT填写`analysis/root_cause/action`，仅`DESIGN_EXPECTED/ACCEPTED`可接受当前恒真。精确id/prop_name不变，机器引用与计算结果不填。批量有错整批不写入。
 
 更新后pending集合会变化，按`after_update_command`从offset 0重新准备；next_offset只用于不变队列的只读翻页。不要因旧偏移返回空页就宣称完成，错误偏移会给出明确诊断。
 
-环境分析完成后，用 `prepare bugs` 准备未完成的Bug观察项。`review_progress`分别报告总数、待审数和已审数；已完成且引用有效的条目不重复返回。可在更新中使用显式 `shared.root_cause_id` 和共享根因、修复建议。真实输入 `trigger` 与实际观测 `actual` 由工具从原始证据生成，不在请求里填写；预期关系与根因解释才是人工分析。采样时间不一定等于失败周期，未知位或数据缺失均明确标记，不能补造值或无证据的失败比例。
+环境分析完成后，用`prepare bugs`取得`reused_analysis`，无需重读同一反例、重新计算或再次填写规格。只补根因分组、源码位置、修复建议和可选`impact_assessment`；后者是人工影响推断，不能冒充所有输入上的证明。Bug的`description/trigger/actual/expected_requirement/reference_calculations/expected/reference_results`均派生，不提交。没有新证据或矛盾时，按现有已审内容继续，完整例子见`Guide_Doc/formal_data.md`。
 
 没有待填项时无需提交空请求。填写完成后，按阶段要求记录日志并调用 `Complete`；需要定位问题时才调用 `Check`。总结的统计和 Bug 表由已验证记录生成，不再填写 `severe_bugs`。
 

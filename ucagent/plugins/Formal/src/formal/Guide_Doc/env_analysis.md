@@ -8,7 +8,7 @@
 1. 等待RunFormal status显示当前输入已停止；工具错误按诊断处理，不修改验证目标绕行。
 2. 技能可用且需要批量操作时，按Guide_Doc/formal_data.md加载ext/formal/data，通过原有RunSkillScript调用`formal_data.py prepare analysis`，取得精确队列、真实witness及ready_update。填写人工分析后写JSON请求文件并调用`update --request-file`，证据由技能验证并绑定。
 3. 技能关闭或缺失时，Check协调当前条目，用ReadTextFile读取YAML与RunFormal evidence，再用普通文件工具填写人工字段并原样使用该属性的当前证据引用。不得手动去重、重编号、改机器状态或制造引用。
-4. 两条路径都须核对真实输入、独立参考计算、观测输出和对应断言；引用存在不代表数学正确。改spec/basic_info后重新RunFormal，旧证据不能支持新输入。
+4. 首次FA分析在`analysis`描述当前观察与分类依据；归为RTL_BUG时一次填写`expected_requirement`及可选`reference_calculations`，用prepare返回的真实信号绑定执行参考计算，不另抄数字答案。结果随update返回，Bug和总结阶段直接复用，不重复读取反例或再执行同一计算；只有证据、参考表达式变化或发现矛盾时重新审阅。一次反例不证明所有输入的影响范围，普遍推断不能写成机器已证明事实。
 5. 完成后记录阶段日志并Complete，Check仅用于实际诊断；派生`07_{DUT}_env_analysis.md`不直接编辑。
 
 ## 真、静态失败与未解决

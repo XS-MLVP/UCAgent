@@ -5,13 +5,15 @@
 
 本报告记录了 {{ bugs | length }} 条失败属性观测，关联 {{ roots | length }} 个独立根因。
 
+机器观测只覆盖记录中的反例或静态检查；不会由单个反例证明所有输入上的影响。规格解释、根因和影响范围推断均为人工评估，须与机器观测区分。
+
 ## Root causes
 
 {% for root in roots %}
 
 ### {{ root.id }}
 
-- Root cause: {{ root.root_cause }}
+- Root cause (人工源码归因，不是影响范围证明): {{ root.root_cause }}
 - Fix: {{ root.fix }}
 - Severity: {{ root.severity }}
 - Properties: {{ root.properties | join(", ") }}
@@ -38,6 +40,10 @@
 **触发条件**: {{ b.trigger }}
 **预期行为**: {{ b.expected }}
 **实际行为**: {{ b.actual }}
+**证据范围**: 仅本条当前反例或静态检查；未据此证明所有输入上的影响。
+{% if b.impact_assessment %}
+**影响范围推断（人工，当前反例不能单独证明）**: {{ b.impact_assessment }}
+{% endif %}
 **置信度**: {{ b.confidence }}
 
 ---
