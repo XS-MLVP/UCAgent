@@ -21,8 +21,9 @@ if _skill_root not in sys.path:
     sys.path.insert(0, _skill_root)
 
 from lib.formal_paths import FormalPaths
+from lib.formal_tools import runtime_formal_paths
 from lib.formal_tools import (
-    parse_avis_log,
+    typed_run_results,
     extract_property_code,
     load_records,
     save_records,
@@ -36,20 +37,18 @@ def main() -> None:
     parser.add_argument("-mode", choices=["update"], default="update", help="Update mode (incremental)")
     args = parser.parse_args()
 
-    paths = FormalPaths()
+    paths = runtime_formal_paths()
     log_path = paths.log
     checker_path = paths.checker
 
     if not os.path.exists(log_path):
-        print(str_error(f"Error: log file not found at {log_path}"))
-        return
+        raise ValueError(f"Current log file not found at {log_path}; call RunFormal and Check first.")
 
     records = load_records(paths.records_yaml)
     if not records:
-        print(str_error(f"Error: records file not found at {paths.records_yaml}"))
-        return
+        raise ValueError(f"Records file not found at {paths.records_yaml}")
 
-    log_result = parse_avis_log(log_path)
+    log_result = typed_run_results(records)
     
     checker_content = ""
     if os.path.exists(checker_path):

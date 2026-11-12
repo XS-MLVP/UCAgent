@@ -1218,12 +1218,13 @@ function buildMissionInfo(a, position = {}) {
   const stages = task?.stage_list;
   const currentIndex = a.current_stage_index;
   const currentKey = String(currentIndex ?? '');
+  const renderStage = stage => view.renderStage(stage, currentIndex, done, task.is_waiting_for_review);
   const rendered = Array.isArray(stages) && stages.length
-    ? view.groupStages(stages).map(group => {
+    ? view.useFlatStages(stages) ? stages.map(renderStage).join('') : view.groupStages(stages).map(group => {
         const open = position.openGroups?.has(String(group.key))
           || (position.index !== currentKey && group.stages.some(stage => view.isCurrent(stage, currentIndex)));
-        const rows = group.stages.map(stage => view.renderStage(stage, currentIndex, done, task.is_waiting_for_review)).join('');
-        return view.renderGroup(group, currentIndex, done, open, rows);
+        const rows = group.stages.map(renderStage).join('');
+        return view.renderGroup(group, currentIndex, done, open, rows, task.is_waiting_for_review);
       }).join('')
     : mi ? `<pre class="detail-workflow-legacy">${ansiToHtml(mi)}</pre>` : '';
   if (!rendered) return bar ? `<div class="section-label">Task Progress</div>${bar}` : '';

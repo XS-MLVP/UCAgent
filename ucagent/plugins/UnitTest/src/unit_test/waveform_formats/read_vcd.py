@@ -78,3 +78,8 @@ class WavekitVcdReader(WavekitReaderAdapter):
         import wavekit
 
         super().__init__(wavekit.VcdReader(path))
+
+    @property
+    def timescale(self) -> dict:
+        """Expose the original VCD time scale from the open decoder."""
+        return dict(self._reader.file_handle.timescale)

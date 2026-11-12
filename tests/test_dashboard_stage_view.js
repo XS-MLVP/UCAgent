@@ -61,12 +61,14 @@ for (const saved of [false, true]) {
     for (const label of ['Completed','Awaiting review','Scheduled to skip','Pending','HM','LF','LP']) assert(markup.includes(label));
     assert.match(markup,/data-stage-group="0">/);
     assert.match(markup,/data-stage-group="1" open>/);
+    assert.match(markup,/<summary data-state="review">/);
+    assert.match(markup,/uc-stage-group-note">Awaiting HM</);
     assert.match(markup,/12\/29 · 41%/);
     assert(markup.indexOf('2.1-working') < markup.indexOf('2-skip'), 'Parent check stays after its child');
     assert.equal(p.elements['#mission-percent'].textContent,'25%');
     assert.equal(p.elements['#mission-bulk-btn'].hidden,saved);
+    assert.doesNotMatch(markup,/stage-select|stage-chevron/);
     if (saved) {
-      assert.match(markup,/Select stage 1 for relaunch/);
       assert.doesNotMatch(markup,/toggleStageQuickAction/);
     } else {
       assert.match(markup,/toggleStageQuickAction\(1,'hmcheck_needed',false\)/);
@@ -130,6 +132,44 @@ test('Progress handles initial, last, skipped, complete, absent, and returned st
   assert.match(view.renderStage({index:0,title:'Skipped current',is_current:true,is_skipped:true},0),/uc-stage-skipped/);
 });
 
+test('Older UnitTest records infer the configured phase boundaries, including children before parents', () => {
+  const context=vm.createContext({});
+  vm.runInContext(shared,context);
+  const view=context.UCAgentStageView;
+  const workflow=fs.readFileSync(path.join(__dirname,
+    '../ucagent/plugins/UnitTest/src/unit_test/workflows/unittest.yaml'),'utf8');
+  const labels=new Map(Array.from(workflow.split('  stage_groups:\n')[1].split('  prompt:')[0]
+    .matchAll(/^    (\w+): "([^"]+)"$/gm),([,key,label])=>[key,label]));
+  const rows=Array.from(workflow.matchAll(/^  - name: (\w+)$/gm),([,name],i)=>{
+    const section=i+1;
+    const parent={title:`${section}-${name}-Stage`,is_completed:true};
+    return [6,8,14].includes(section)
+      ? [{title:`${section}.1-child-Child stage`,is_completed:true},parent] : [parent];
+  }).flat().map((stage,index)=>({...stage,index}));
+  const groups=view.groupStages(rows);
+  const ranges=Array.from(groups,({first,last})=>first===last?first:`${first}–${last}`);
+  assert.deepEqual(ranges,['1–5','6–7','8','9–12','13–16','17–18','19–20']);
+  assert.deepEqual(Array.from(groups,group=>group.name),Array.from(labels.values()));
+  assert.match(groups[1].stages[0].title,/^6\.1/);
+  assert.match(groups[2].stages[0].title,/^8\.1/);
+  groups[2].stages[0].is_skipped=true;
+  const markup=view.renderGroup(groups[2],groups[2].key,true,false,'');
+  assert.match(markup,/<summary data-state="done">/);
+  assert.match(markup,/aria-label="Stages 8">8</);
+  assert.match(markup,/title="1\/2 completed · 1 skipped">2\/2</);
+  assert.match(markup,/uc-stage-group-note">1 skipped</);
+  assert.doesNotMatch(markup,/Awaiting HM|Current/);
+  assert.equal(view.groupStages(rows.slice(0,-2))[0].name,'');
+  assert.equal(view.groupStages(rows.map(stage=>({...stage,display_group:'Custom'})))[0].name,'Custom');
+  const olderRows=rows.filter(stage=>!stage.title.startsWith('8-'))
+    .map(stage=>stage.title.startsWith('8.1-')
+      ? {...stage,section_index:'8.6',stage_name:'',title:'8.6-env_fixture_implementation-环境 fixture'}
+      : stage);
+  const olderGroups=view.groupStages(olderRows);
+  assert.equal(olderGroups[2].name,'验证环境');
+  assert.equal(view.stageTitle(olderGroups[2].stages[0]).label,'环境 fixture');
+});
+
 test('Workspace resets and completion requests carry the page session identity', async () => {
   const calls=[];
   const p=page(agentHtml,'async function _syncConsoleWorkspace()', '\nfunction _refreshWorkspaceViews', {
@@ -146,6 +186,22 @@ test('Workspace resets and completion requests carry the page session identity',
   assert.equal(params.get('session_id'),'page-session');
   assert.equal(params.get('prefix'),'cd ins');
   assert.equal(p.elements['#runtime-cmd-input'].value,"cd 'inside only/' ");
+});
+
+test('Relaunch carries the stage opened from its details and keeps the workspace action stage-neutral', async () => {
+  const p=page(agentHtml,'function _relaunchQueryParams()', '\nwindow.addEventListener("message"', {
+    _subWorkspace:'saved/workspace', _relaunchTaskId:'', _masterPath:path=>path,
+    masterFetch:async ()=>({data:{can_relaunch:true,task_id:'task'}}),
+    openModal(){}, showErr(message){throw Error(message);},
+  });
+  await p.run('openRelaunchDialog(0)');
+  const frame=p.elements['#relaunch-frame'];
+  const query=()=>new URL(frame.src,'http://127.0.0.1').searchParams;
+  assert.equal(query().get('force_stage_index'),'0');
+  assert.equal(query().get('task_id'),'task');
+  assert.equal(query().get('sub_worspace'),'saved/workspace');
+  await p.run('openRelaunchDialog()');
+  assert.equal(query().has('force_stage_index'),false);
 });
 
 test('Session creation works with UUID, random bytes, and no crypto object', () => {

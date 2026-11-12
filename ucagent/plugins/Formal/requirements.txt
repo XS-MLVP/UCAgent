@@ -1,0 +1,2 @@
+# Parser used for source-backed effective interface and parameter binding.
+pyslang>=12.1,<13

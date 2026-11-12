@@ -8,9 +8,48 @@
 - **被测模块**: {{ DUT }}
 - **核心功能**: {{ summary.core_function or "" }}
 - **工具引擎**: FormalMC
-- **测试结果**: {{ summary.overall_result or "" }}
+- **测试结果（人工分析）**: {{ summary.overall_result or "" }}
+
+## 当前输入机器证明状态
+
+- **证明结论全部已判定**: {{ "是" if machine.proof_complete else "否；存在未证明属性" }}
+- **完整运行 ID**: `{{ machine.run_id | default("未记录", true) }}`
+- **输入指纹**: `{{ machine.input_fingerprint | default("未记录", true) }}`
+- **Cover 可达**: {{ machine.counts.COVER_REACHED or 0 }}
+- **Cover 不可达**: {{ machine.counts.COVER_UNREACHABLE or 0 }}
+- **已证明**: {{ machine.counts.PROVEN or 0 }}
+- **反例**: {{ machine.counts.FALSIFIED or 0 }}
+- **静态契约失败 (TrivF)**: {{ machine.counts.TRIVIALLY_FALSE or 0 }}
+- **平凡证明（需按工具原因审核）**: {{ machine.counts.TRIVIALLY_TRUE or 0 }}
+- **未证明**: {{ machine.counts.UNPROVEN or 0 }}
+- **暂缓**: {{ machine.deferred_total or 0 }}（仍为 UNPROVEN，不计入已证明）
+- **机器证据报告**: `{{ machine.report or "未生成" }}`
+
+{% if machine.deferred_properties %}
+**暂缓清单（仅展示部分；以机器证据报告为准）**：
+{% for item in machine.deferred_properties %}
+- `{{ item }}`：未证明，需按记录中的条件恢复验证。
+{% endfor %}
+{% endif %}
 
 ## 2. 断言与属性统计
+
+以下检测点及表达式直接来自本次验证输入；Cover 名称或描述不能替代其实际条件。
+
+**当前时钟与复位记录**：{{ clock_reset.clock_signal | default("未声明时钟", true) }} / {{ clock_reset.reset_signal | default("未声明复位", true) }} {{ clock_reset.reset_type | default("") }}
+
+**实际生效的 Assume**：
+{% for item in checkpoint_facts | default([]) if item.style | lower == "assume" -%}
+- `{{ item.ck_id }}` · `{{ item.sva_body | replace('\n', ' ') }}`
+{% else -%}
+- 当前输入未定义 Assume。
+{% endfor %}
+
+| 检测点 | 类型 | 实际表达式 |
+| --- | --- | --- |
+{% for item in checkpoint_facts | default([]) -%}
+| {{ item.ck_id }} | {{ item.style }} | `{{ item.sva_body | replace('|', '&#124;') | replace('\n', ' ') }}` |
+{% endfor %}
 
 | 属性类型 | 提取自 Checker (总数) | Log (Pass) | Log (Fail) | Log (Trivially_True) | 覆盖率(Cover) |
 |----------|-----------------------|------------|------------|----------------------|---------------|
@@ -32,6 +71,17 @@
 
 ## 4. 验证完备性评估
 
+本节是人工规格范围评估，不是机器完备性证明。全部属性已判定、Cover 可达或 COI 达标均不能证明规格目标没有遗漏。
+
+**规划中明确排除的范围（人工声明）：**
+{% if scope_exclusions %}
+{% for item in scope_exclusions -%}
+- {{ item }}
+{% endfor %}
+{% else %}
+未单列排除项；不代表已证明完整规格覆盖。
+{% endif %}
+
 ### 4.1 Safety (安全性) 评估
 
 {{ summary.completeness.safety or "" }}
@@ -48,9 +98,14 @@
 
 | Bug ID | 类型 | 描述 | Checker 关联 |
 |--------|------|------|--------------|
-{% for item in summary.severe_bugs or [] -%}
-| {{ item.bug_id }} | {{ item.bug_type }} | {{ item.desc }} | {{ item.checker_link }} |
+{% if summary.severe_bugs %}
+{% for item in summary.severe_bugs -%}
+| {{ item.bug_id }} | {{ item.bug_type }} ({{ item.severity }}; {{ item.root_cause_id }}) | {{ item.desc }} | {{ item.checker_link }} |
 {% endfor %}
+{% else %}
+
+当前已核验证据中没有需报告的 RTL 缺陷观测。
+{% endif %}
 
 ## 6. 验收结论
 

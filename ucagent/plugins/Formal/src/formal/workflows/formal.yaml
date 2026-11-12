@@ -9,6 +9,20 @@
 # ---------- Skill Configuration ----------
 skill:
   use_skill: true
+  general_skill_list:
+    - "ext/formal/data"
+
+# Managed proof budgets (seconds), overridable through resolved configuration.
+runtime_options:
+  formal_execution:
+    first_pass_budget_s: 300
+    analysis_threshold_s: 1200
+    max_active_workers: 2
+    slow_queue_max_workers: 1
+    setup_timeout_s: 120
+    stop_grace_s: 10
+    max_review_rounds: 3
+    property_cumulative_budget_s: 3600
 
 # ---------- Template Variables ----------
 template_overwrite:
@@ -38,7 +52,7 @@ hooks:
   continue: >
     你还没有完成所有任务，请继续。请通过Check和Complete工具来判断你是否完成了当前阶段的任务。
     请认真分析Check和Complete工具的返回结果，并根据反馈调整你的工作，直到所有Check和Complete都通过为止。
-    如果出现属性 TRIVIALLY_TRUE，请优先排查 assume 约束是否过强。
+    TRIVIALLY_TRUE 应先核对工具原因与前提可达性，不等于总是过约束；TRIVIALLY_FALSE 要分析静态失败，不得改弱目标绕过工具错误。
     如果出现属性 FALSE，请先判断是环境欠约束还是 RTL 缺陷，再决定修复方向。
     优先使用Complete工具（阶段推进总耗时时间更短），必要时使用Check工具进行阶段检查。
 
@@ -62,9 +76,9 @@ mission:
       # ══════════════════════════════════════════════════════════════
       # 2. FORMAL VERIFICATION PRINCIPLES (5 条核心原则)
       # ══════════════════════════════════════════════════════════════
-      P1-拒绝无效证明: TRIVIALLY_TRUE = 环境缺陷，必须修正约束，不可忽略。
+      P1-拒绝伪证据: TRIVIALLY_TRUE 需依据原因审计；TRIVIALLY_FALSE 是静态失败，均保留真实状态与证据。
       P2-白盒思维: 通过 wrapper 引出内部指针/状态机/标志位编写精确断言（核心仍围绕功能正确性）。
-      P3-协议严谨: 所有 Valid-Ready 接口必须施加稳定性 Assume 约束。
+      P3-协议严谨: 仅对规格明确要求的环境行为添加 Assume；不要约束DUT输出，不为凑模板制造假设。
       P4-优先级排除: 验证常规行为时，在前提中排除高优先级信号（flush/clear/bypass）。
       P5-正负向结合: 正向（条件触发→状态变化）+ 负向 Frame Conditions（非条件→$stable）。
 
@@ -77,8 +91,8 @@ mission:
         - M_CK_FV_IDX_KNOWN:  !$isunknown(fv_idx)
       缺失→索引漂移→假阳性。详见 Guide_Doc/sva_property.md。
 
-      **活性证明**: s_eventually / No-Starvation，确保无死锁。
-      **覆盖率驱动**: 关键状态（Full/Empty/Hit）必须有 Cover 属性证明可达性。
+      **适用性**: 仅真实时序/协议目标需要活性和状态可达；纯组合设计可明确不适用，不制造时钟复位。
+      **覆盖率驱动**: 对适用的关键输入与状态使用Cover；COI或Cover达标不能替代功能证明。
       **高级 SVA**: s_eventually, $stable, $past, $rose, $fell。
 
       # ══════════════════════════════════════════════════════════════
@@ -93,9 +107,8 @@ mission:
       | EditTextFile | 通过`path`和`content`创建或覆盖完整文件；仅追加时传`append=true` |
       | DeleteTextLines | 仅在大量文本修改时，先按`line_blocks`批量删除完整行；重新读取后再用`ReplaceStringInFile`精确编辑 |
       | ReplaceStringInFile | 局部替换已有文件；可用`line_blocks`限定搜索范围，默认全文 |
-      | GenerateChecker | 生成 checker.sv + wrapper.sv |
-      | GenerateFormalScript | 生成 TCL 脚本 |
-      | RunSkillScript | 执行技能脚本（例如运行形式化验证、生成文档骨架） |
+      | RunSkillScript | 技能可用时调用 ext/formal/data 的 formal_data.py，结构化批量维护任务数据 |
+      | RunFormal | run启动当前输入；status等待结果；evidence取得完整属性的真实证据；review处置未决项；cancel取消 |
       | SetCurrentStageJournal | 阶段日志记录（推进前必调；mode=append 增量追加）|
       | Detail / Status | Mission 详情 / 摘要与阶段状态 |
 
@@ -103,10 +116,13 @@ mission:
       # 5. WORKFLOW RULES (操作规范)
       # ══════════════════════════════════════════════════════════════
       - 工作流由多个 Stage 组成，按顺序完成。子 Stage 全部完成后父 Stage 才可推进。
-      - 优先用 Complete（检查+推进），仅需验证时用 Check（仅检查）。
+      - 完成人工数据和真实证据审阅后，SetCurrentStageJournal记录日志，再Complete；仅需诊断当前缺口时用Check，不固定重复Check与Complete。
+      - 默认阶段不声明强制Skill要求，不需要SetSkillUsage。技能可用且要使用时按ListSkill/ReadTextFile加载ext/formal/data；禁用或缺失时直接用普通文件工具维护相同YAML，再按Check/Complete验收。
       - 推进前必须调用 SetCurrentStageJournal 记录阶段日志。
       - 根据 Complete/Check 的结果调整工作，目标是所有检查都通过。
       - 除非 Checker 要求人工确认，否则不需要人工介入或询问。
+      - 数据技能是可选捷径：通过原有RunSkillScript调用formal_data.py inspect，再写结构化请求JSON并调用update --request-file；技能不可用时用普通文件工具编辑同一YAML。完整两条路径见Guide_Doc/formal_data.md。
+      - 不读取插件实现、不拼接逐字段shell命令、不直接编辑派生文件或机器证据。数据冲突重新读取；证明失败先核对真实反例和独立参考计算。
       - 中途接入时: CurrentTips → Status → AllStageJournal 获取上下文。
       **指导文档领域知识速查：**
       - functions_and_checks.md — 功能组规划与高级检测点模式
@@ -116,6 +132,8 @@ mission:
       - bug_report.md           — 故障归因聚类与报告结构
       - coi_coverage.md         — COI 概念、映射表与 Cover/Assert 差异
       - formal_summary.md       — 验证总结报告格式
+      - formal_execution.md     — RunFormal 5/20 分钟分批结果、慢属性处置与未证明缺口
+      - formal_data.md          — 可选数据技能、普通文件等价路径与完整示例
       (均位于 Guide_Doc/ 目录)
 
       现在调用`CurrentTips`，开启你的验证工作！
@@ -125,10 +143,12 @@ mission:
         - "你需要完成所有阶段的任务，才算完成整个验证任务"
         - "不清楚目标时，需要通过工具RoleInfo获取角色信息和基本指导"
       random:
-        - "如果属性出现 TRIVIALLY_TRUE，说明 assume 约束过强导致环境过约束，需放松约束"
+        - "TRIVIALLY_TRUE先核对工具原因，不总是过约束；TRIVIALLY_FALSE不得用较弱目标替换静态检查"
         - "FALSE 属性需区分【环境欠约束】和【RTL 缺陷】，先判断再决定修复方向"
         - "每个 CK 检测点都必须有对应的 SVA 属性实现，不允许遗漏"
-        - "可通过 RunSkillScript 执行 `python3 .ucagent/skills/ext/formal/sva-opt/scripts/run_formal_verification.py` 即时验证，无需等待 Check 触发"
+        - "验证由 RunFormal(action=run) 管理：先查 status；执行达到 5 分钟收集首轮属性结果、20 分钟形成未解决清单；Check/Complete 只校验当前输入证据，不会启动长证明。"
+        - "对未解决属性用 RunFormal(action=review, property_names=[...], disposition=retry 或 defer, reason=..., next_action=...) 记录决定；defer 仍是 UNPROVEN，不得写成 Pass。详见 Guide_Doc/formal_execution.md。"
+        - "正式证明批次只能通过 RunFormal 工具运行，避免绕过证据与队列。"
         - "判断是否完成阶段任务时，优先使用Complete工具，其次是Check工具"
         - "符号化索引 fv_idx 的三个强制约束（STABLE/VALID/KNOWN）是防止假阳性的关键"
         - "Cover 属性用于证明关键状态可达，防止 assume 过约束导致全量伪通过"
@@ -144,10 +164,9 @@ mcp_server:
 stage:
   - name: requirement_analysis_and_planning
     desc: "需求分析与验证规划"
-    skill_list: ["ext/formal/plan"]
     task:
       - "目标：将验证规划写入 `.formal_records.yaml.planning`，并由系统自动渲染 `01_{DUT}_verification_needs_and_plan.md`。"
-      - "**首要行动：加载 `ext/formal/plan` 技能并严格按其步骤执行。**"
+      - "技能可用时用数据技能 inspect planning，写一次结构化请求再update --request-file；否则用普通文件工具维护planning，完整字段与示例见Guide_Doc/formal_data.md。"
       - "本阶段只负责维护 YAML 子树 `planning`；`01_{DUT}_verification_needs_and_plan.md` 是派生产物，禁止直接编辑。"
       - "阅读 `{DUT}` 目录下的 README 和 RTL 源文件，提炼项目概述、验证范围、策略、交付物、风险与初步缺陷线索。"
       - "强调形式化验证目标是发现设计缺陷，属性失败（Fail）是重要输出。"
@@ -166,13 +185,12 @@ stage:
   # ========== Stage 2: DUT Function Understanding ==========
   - name: dut_function_understanding
     desc: "{DUT}功能理解"
-    skill_list: ["ext/formal/basic-info"]
     task:
       - "目标：将 DUT 基本信息写入 `.formal_records.yaml.basic_info`，并由系统自动渲染 `02_{DUT}_basic_info.md`。"
-      - "**首要行动：加载 `ext/formal/basic-info` 技能并严格按其步骤执行。**"
+      - "技能可用时通过数据技能 inspect basic_info/批量update维护真实接口、参数、时钟复位和正确性要求；否则用普通文件工具编辑同一basic_info。"
       - "本阶段只负责维护 YAML 子树 `basic_info`；`02_{DUT}_basic_info.md` 是派生产物，禁止直接编辑。"
       - "通读代码，梳理 input/output、参数、时钟域、复位域、核心功能与潜在明显缺陷。"
-      - "禁止直接编辑 Markdown 文档，所有内容必须通过脚本写入 YAML。"
+      - "可选数据技能接受一个结构化JSON请求；技能不可用时用普通文件工具编辑YAML，不直接编辑派生Markdown。"
     reference_files:
       - "{DUT}/README.md"
       - "{RTL_PATH}/*.v"
@@ -188,10 +206,9 @@ stage:
   # ========== Stage 3: Functional Specification Analysis and Formal Strategy Definition ==========
   - name: functional_specification_analysis
     desc: "功能规格分析与形式化策略定义{COUNT_FG}/{COUNT_FC}/{COUNT_CK}"
-    skill_list: ["ext/formal/func-spec"]
     task:
-      - "目标：基于 DUT 的基础信息，分批次划分功能组(FG)、功能点(FC)和检测点(CK)，通过脚本写入 `.formal_records.yaml.spec`。"
-      - "**首要行动：加载 `ext/formal/func-spec` 技能并严格按其步骤执行。**"
+      - "目标：基于DUT基础信息设计独立验证目标，一次维护FG/FC/CK完整层次与参数；可选数据技能提供批量更新，无技能时用普通文件工具。"
+      - "使用可选数据技能 inspect spec/结构化update，或用普通文件工具维护完整spec；Complete统一校验FG/FC/CK所有层次，不重复分阶段填表。"
       - "本阶段只负责维护 YAML 子树 `spec`；`03_{DUT}_functions_and_checks.md` 是派生产物，禁止直接编辑。"
       - "参考 `Guide_Doc/functions_and_checks.md` 的标签规范与高级模式。"
     reference_files:
@@ -200,57 +217,24 @@ stage:
       - "{OUT}/01_{DUT}_verification_needs_and_plan.md"
     output_files:
       - "{OUT}/.formal_records.yaml"
-    stage:
-      - name: dut_function_grouping
-        desc: "DUT功能分组与层次划分{COUNT_FG}"
-        task:
-          - "按照规范指导划分系统状态与业务逻辑分组：FG-XXX。"
-          - "使用 `update_spec.py -action add_fg` 添加每个功能组。"
-          - "必须包含 `FG-API`（环境约束）和 `FG-COVERAGE`（可达性覆盖）两个功能组。"
-        checker:
-          - name: group_structure_check
-            clss: "FormalSpecJsonChecker"
-            args:
-              dut_name: "{DUT}"
-              check_level: "fg"
-      - name: function_point_definition
-        desc: "具体功能点识别与定义{COUNT_FC}"
-        task:
-          - "将具体业务逻辑拆解到独立的 FC-XXX 单元中。"
-          - "使用 `update_spec.py -action add_fc` 为每个 FG 添加功能点。"
-          - "确保每个 FG 下至少有一个 FC。"
-        checker:
-          - name: function_point_check
-            clss: "FormalSpecJsonChecker"
-            args:
-              dut_name: "{DUT}"
-              check_level: "fc"
-      - name: check_point_design
-        desc: "检测点设计与定义{COUNT_CK}"
-        skill_list: ["ext/formal/func-spec"]
-        task:
-          - "目标：为每个具体功能点设计 CK-XXX 属性检查点。"
-          - "使用 `update_spec.py -action add_ck` 为每个 FC 添加检测点。"
-          - "**强制约束**：每个检测点的 style 必须从 `Assume`/`Seq`/`Comb`/`Cover` 中选取。"
-          - "请检查 Safety 和 Liveness 是否齐全，且对所有存在死锁嫌疑的路径增加了 Cover 探测点。"
-        checker:
-          - name: check_point_check
-            clss: "FormalSpecJsonChecker"
-            args:
-              dut_name: "{DUT}"
-              check_level: "ck"
+    checker:
+      - name: formal_specification_check
+        clss: "FormalSpecJsonChecker"
+        args:
+          dut_name: "{DUT}"
+          check_level: "ck"
     need_human_check: $(HUMAN_CHECK_CK: false)
 
     
   # ========== Stage 4: SVA Property Implementation ==========
   - name: property_generation
     desc: "SVA 属性实现与自动同步"
-    skill_list: ["ext/formal/sva-gen"]
     task:
       - "目标：将 `.formal_records.yaml.spec` 中的 `sva_body` 占位符替换为真实的 SVA 断言代码。"
-      - "**首要行动：加载 `ext/formal/sva-gen` 技能并严格按其步骤执行。**"
+      - "技能可用时通过数据技能 inspect spec取得参数、端口及missing_bodies，用bodies映射批量实现；技能不可用时直接填写YAML中各CK的sva_body。"
+      - "参数由实际RTL预检展开：spec.parameters仅为显式整数覆盖，缺省沿用声明默认值；不要重复抄写默认值或通过basic_info说明字段修复生成绑定。技能可用时inspect spec查看effective_interface。"
       - "本阶段只负责维护 YAML 子树 `spec.*.check_points[*].sva_body`。"
-      - "1. 使用 `update_sva_body.py` 脚本为每个检测点填充逻辑。"
+      - "1. 数据技能请求形状为section/spec、expected_sha256及bodies映射，写入请求文件后经RunSkillScript调用；无技能时用普通文件工具编辑相同字段。"
       - "2. **禁止直接修改 .sv 文件**，系统会自动 full refresh 渲染生成验证环境。"
       - "3. 参考 `Guide_Doc/sva_property.md` 了解编码规范。"
     reference_files:
@@ -268,14 +252,13 @@ stage:
   # ========== Stage 5: Verification Script Generation ==========
   - name: script_generation
     desc: "验证脚本校验"
-    skill_list: ["ext/formal/env-config"]
     task:
       - "目标：基于 `.formal_records.yaml.basic_info.clock_reset` 与 `.formal_records.yaml.extra_config.tcl` 自动渲染 `wrapper/checker/formal.tcl`。"
-      - "**首要行动：加载 `ext/formal/env-config` 技能并严格按其步骤执行。**"
-      - "本阶段只负责确认 `basic_info.clock_reset` 与 `extra_config.tcl`；`formal.tcl`、`wrapper.sv`、`checker.sv` 都是派生产物，禁止直接编辑。"
-      - "时钟和复位信号必须在 Stage 2 的 `basic_info.clock_reset` 中明确定义；Stage 5 只渲染，不再推断。"
-      - "当 YAML 或模板发生变化时，应以 full refresh 后的生成环境为准。"
-      - "完成配置后调用 Check 工具验证生成的 formal 环境可以正常运行。"
+      - "使用任务basic_info核对真实时钟复位；可选数据技能inspect/update或普通文件工具均可维护，运行预算沿用配置，不直接修改派生TCL。"
+      - "本阶段确认 `basic_info.clock_reset` 与 `extra_config.tcl`，生成的 formal.tcl、wrapper.sv、checker.sv 不直接编辑。"
+      - "检查生成脚本后，显式调用 RunFormal(action=run) 启动当前输入证明，RunFormal(action=status) 查看运行状态和 5/20 分钟快照。"
+      - "对 20 分钟未解决属性逐一分析并使用 RunFormal(action=review, property_names=[...], disposition=retry 或 defer, reason=..., next_action=...) 记录处置。暂缓不等于证明通过。"
+      - "只有当前输入的所有未决项已有处置时，调用 Complete；Checker 不会隐式运行 TCL。"
     reference_files:
       - "{OUT}/.formal_records.yaml"
       - "{OUT}/tests/{DUT}_checker.sv"
@@ -290,14 +273,13 @@ stage:
   # ========== Stage 6: Verification Environment Debugging and Iterative Fixing ==========
   - name: environment_debugging_iteration
     desc: "验证环境调试与迭代修复{MAX_ITERATION: 5}"
-    skill_list:
-      - "ext/formal/sva-audit"
     task:
-      - "目标：消除所有环境问题（TRIVIALLY_TRUE 和环境相关 FALSE），确保验证环境无过约束/欠约束。"
-      - "**首要行动：加载 `ext/formal/sva-audit` 技能并严格按其步骤执行。**"
-      - "本阶段主要维护 YAML 子树 `analysis`，必要时联动修正 `spec`。"
-      - "1. **环境纠偏**：如果遇到参数未定义（如 WIDTH）或位宽错误，**禁止手动修改 SV 文件**，必须使用 `update_spec.py` 的 `set_param` 或 `add_signal` 动作更新 YAML。"
-      - "2. **分析填写**：使用 `update_analysis.py` 脚本为每个异常属性填写分析详情。"
+      - "目标：依据当前工具原因和真实证据分析恒真、静态失败及反例，修复实际属性/环境问题，保留真实RTL缺陷。"
+      - "当前运行结束后，技能可用时通过数据技能 prepare analysis取得异常队列、真实证据和ready_update；无技能时调用Check协调条目，再用普通文件工具填写人工分析。"
+      - "本阶段分析当前输入的完整机器证明结果与 FALSE/TRIVIALLY_TRUE，任何暂缓项仍为 UNPROVEN，不能分类成 RTL Bug 或通过。"
+      - "环境纠偏：参数/位宽错误时更新 YAML，不直接改派生 SV；分析异常结果后修正 spec 时再次调用 RunFormal(action=run) 获取新输入的证据。"
+      - "首次RTL_BUG分析一次填写expected_requirement和可选reference_calculations，绑定prepare返回的当前真实信号；结果随update返回，无技能时Check计算。后续Bug和总结直接复用，同一证据与表达式不重复读取或另起脚本计算；只有发现矛盾或输入变化才重审。"
+      - "数据技能会绑定当前证据；无技能时用RunFormal evidence取得本条真实引用并原样填写。两条路径都保留精确id/prop_name，不重编号、不写机器字段，核对真实witness与独立参考计算。"
 
     reference_files:
       - "{OUT}/.formal_records.yaml"
@@ -318,11 +300,10 @@ stage:
   # ========== Stage 7: Coverage Analysis and Assertion Optimization ==========
   - name: coverage_analysis_and_optimization
     desc: "覆盖率分析与断言优化"
-    skill_list: ["ext/formal/sva-opt"]
     task:
       - "目标：分析 fanin 覆盖率报告，为未覆盖信号补充断言以提升 COI。"
-      - "**首要行动：加载 `ext/formal` 目录下技能并按其步骤执行。**"
-      - "本阶段主要维护 YAML 子树 `spec` 与对应 `sva_body`，不要直接编辑 `checker.sv`。"
+      - "按当前覆盖缺口决定是否新增独立目标；通过可选数据技能或普通文件工具维护spec，已达标且无缺口时不重复重跑。"
+      - "新增或修改属性后调用 RunFormal(action=run)，status等待结果，review处置未决项；目标齐备后记录日志并Complete，只有需定位实际缺口时调用Check。"
     reference_files:
       - "{OUT}/tests/{FANIN_REP}"
       - "{OUT}/tests/{DUT}_checker.sv"
@@ -344,11 +325,9 @@ stage:
   # ========== Stage 8: Counterexample Python Test Generation ==========
   - name: counterexample_python_testgen
     desc: "形式化反例 Python 测试用例生成"
-    skill_list:
-      - "ext/formal/cex-gen"
     task:
       - "目标：为 RTL_BUG 属性编写引脚级 Python 测试用例复现 Bug。"
-      - "**首要行动：加载 `ext/formal/cex-gen` 技能并完善测试逻辑。**"
+      - "参考 Guide_Doc/counterexample.md，根据当前真实反例用普通文件工具填写引脚测试；不依赖技能目录或脚本。"
       - "注：Checker 已自动生成 `{OUT}/tests/test_{DUT}_counterexample.py` 骨架，你只需填充引脚驱动和断言。"
     reference_files:
       - "{OUT}/.formal_records.yaml"
@@ -368,13 +347,12 @@ stage:
   # (Renumbered from Stage 10 after merging env-gen into property_generation)
   - name: formal_execution
     desc: "RTL缺陷分析与报告"
-    skill_list:
-      - "ext/formal/bug-report"
     task:
       - "目标：对 RTL_BUG 属性进行深度分析并生成 BUG 报告。"
-      - "**首要行动：加载 `ext/formal/bug-report` 技能并填充 Bug 详情。**"
+      - "技能可用时用数据技能 prepare bugs取得已核验RTL_BUG观测和ready_update；无技能时Check协调条目，再用普通文件工具填写相同bugs字段。"
       - "本阶段只负责维护 YAML 子树 `bugs`；`04_{DUT}_bug_report.md` 是派生产物。"
-      - "注：Checker 已自动在 .formal_records.yaml 中为所有 RTL_BUG 生成了 Bug 报告骨架，你只需通过 `update_bug.py` 脚本开始填写即可。"
+      - "prepare bugs的reused_analysis复用已核验FA规格关系、参考计算和当前观察，本阶段只补缺失的共享根因、源码位置、修复建议和可选impact_assessment，不重新分析同一反例。description/expected_requirement/reference_calculations及计算结果均派生不可重填。观察限于当前证据；影响推断标为人工，不能把单例行为写为所有输入的已证结论。"
+      - "显式root_cause_id关联共享根因；数据技能可用shared批量更新，无技能时在YAML各观测中填写一致共享值。失败属性数与根因数分开，不编造最小反例或修复结果。"
     reference_files:
       - "Guide_Doc/bug_report.md"
       - "{OUT}/.formal_records.yaml"
@@ -391,36 +369,11 @@ stage:
   - name: static_bug_validation
     desc: "静态分析Bug与形式化验证结果关联"
     task:
-      - "目标：将静态Bug分析阶段发现的潜在Bug与形式化验证结果进行关联，建立标签追踪链接，消除所有<LINK-BUG-[BG-TBD]>占位标签"
-      - "第1步：扫描{OUT}/04_{DUT}_static_bug_analysis.md，列出所有<BG-STATIC-*>条目及其<LINK-BUG-[BG-TBD]>标签，确认每个待关联的静态Bug"
-      - "第2步：读取{OUT}/tests/{LOG_FILE}和{OUT}/04_{DUT}_bug_report.md，提取形式化验证已证实的RTL缺陷列表"
-      - "  - 从 {LOG_FILE} 提取所有FALSE状态的属性"
-      - "  - 从bug_report.md提取所有<BG-*>标签及其详细信息"
-      - "第3步：建立静态Bug与形式化Bug的关联映射"
-      - "  对于每个<BG-STATIC-*>静态Bug，执行以下判断："
-      - "  情况A - 已被形式化验证证实："
-      - "    1. 检查该静态Bug对应的检测点（<CK-*>）是否有FALSE属性"
-      - "    2. 检查bug_report.md中是否有相同根因的Bug记录"
-      - "    3. 将'<LINK-BUG-[BG-TBD]>'替换为对应的形式化Bug标签，例如：<LINK-BUG-[BG-SUM-WIDTH-001]>"
-      - "    4. 若对应多个形式化Bug：<LINK-BUG-[BG-XXX-001][BG-XXX-002]>"
-      - "  情况B - 未被形式化验证发现（误报）："
-      - "    1. 将'<LINK-BUG-[BG-TBD]>'替换为'<LINK-BUG-[BG-NA]>'"
-      - "    2. 在标签下方可选添加误判说明（如'- 误判说明：形式化验证未发现此问题，可能为防御性代码或设计意图'）"
-      - "  情况C - 静态Bug标记为无Bug（如<BG-STATIC-002-NO-BUG>）："
-      - "    1. 确保<LINK-BUG-[BG-NA]>已正确设置"
-      - "第4步：更新{OUT}/04_{DUT}_static_bug_analysis.md文档末尾的汇总表格"
-      - "  - 更新'动态Bug关联'列（实际为'形式化Bug关联'）"
-      - "  - 统计：证实数、误报数、无Bug数"
-      - "第5步：评估静态分析效果"
-      - "  - 证实比例 = 证实的静态Bug数 / 发现的潜在Bug总数"
-      - "  - 误报比例 = 误报数 / 发现的潜在Bug总数"
-      - "  - 在文档末尾添加评估结论"
-      - "**重要说明**："
-      - "  - 形式化验证通过SVA断言严格证明设计正确性，FALSE属性即为真实的RTL缺陷"
-      - "  - 静态分析基于代码审查，可能存在误报，这是正常现象"
-      - "  - 阶段完成时{OUT}/04_{DUT}_static_bug_analysis.md中不允许有任何<LINK-BUG-[BG-TBD]>残留"
-      - "  - <LINK-BUG-*>标签仅在静态分析文档中使用，不出现在bug_report.md中"
-      - "  - 所有文档内容使用{DOC_GEN_LANG}编写"
+      - "核对静态候选与当前完整批次的精确属性和已核验 Bug。每个静态候选保留独立的关联标签。"
+      - "已确认使用 <LINK-BUG-[BG-XXX-NNN]>，引用当前已核验 Bug；多个观察可以在同一标签内列出。"
+      - "已有证据排除使用 <LINK-BUG-[BG-RULED-OUT]>，另写 Evidence: `完整属性名` — 说明该当前已证明断言如何排除候选。证据适用范围随当前假设和配置。"
+      - "未执行、UNPROVEN、覆盖缺口或其他证据不足情形使用 <LINK-BUG-[BG-UNVERIFIED]>。已有 BG-NA 作为未验证保留。"
+      - "汇总分别列出已确认、已有证据排除和尚未验证，清理未处理的 BG-TBD 占位。"
     reference_files:
       - "{OUT}/04_{DUT}_static_bug_analysis.md"
       - "{OUT}/04_{DUT}_bug_report.md"
@@ -437,12 +390,12 @@ stage:
   # ========== Stage 11: Verification Summary and Review ==========
   - name: verification_review_and_summary
     desc: "验证总结与审查"
-    skill_list: ["ext/formal/summary"]
     task:
       - "目标：将最终总结写入 `.formal_records.yaml.summary`，并自动渲染 `05_{DUT}_formal_summary.md`。"
-      - "**首要行动：加载 `ext/formal/summary` 技能并严格按其步骤执行。**"
-      - "本阶段只负责维护 YAML 子树 `summary`；`05_{DUT}_formal_summary.md` 是派生产物，禁止直接编辑。"
+      - "通过可选数据技能 inspect summary/批量update或普通文件工具维护人工结论、completeness与coi_assessment；严重缺陷表从已核验Bug记录生成，不填写severe_bugs或机器统计。"
+      - "先查询 RunFormal(action=status)，以机器证据填写总体结果和验证缺口；若有暂缓，必须明确 UNPROVEN，不能声称全部证明通过。最终报告由 Checker 生成。"
       - "结合 `run_results`、覆盖率、Bug 报告与验证规划，填写总体结果、完备性评估、严重漏洞汇总和验收结论。"
+      - "总结中的检测点、Cover实际表达式与Bug观察表直接来自当前输入和已核验分析，不重新手抄常量、边界或计算结果。人工字段仅补验收判断和范围风险，不再次分析相同反例；不能将单例行为或COI/Cover达标泛化为所有输入的已证结论。"
       - "禁止直接编辑 Markdown 总结文档。"
     reference_files:
       - "{OUT}/01_{DUT}_verification_needs_and_plan.md"
@@ -453,6 +406,7 @@ stage:
       - "Guide_Doc/formal_summary.md"
     output_files:
       - "{OUT}/.formal_records.yaml"
+      - "{OUT}/formal_view.json"
     checker:
       - name: formal_summary_check
         clss: "FormalSummaryChecker"
@@ -469,7 +423,7 @@ vmanager:
         验证过程分为多个阶段，每个阶段结束后需要通过 'Check' 工具进行检查。
         你的任务是分析当前阶段 Check 未通过的原因，然后提供精准的改进建议。
         在分析时，请重点关注以下形式化验证常见问题：
-        1. **TRIVIALLY_TRUE**：assume 约束过强导致属性无法被有效触发，需放松约束
+        1. **TRIVIALLY_TRUE**：依据工具原因、前提可达性判断；正确恒等式可直接证明，不一律放松约束
         2. **环境欠约束**：缺少必要的 assume，导致工具找到不真实的反例
         3. **SVA 语法错误**：Comb 风格中误用时序操作符、缺少时钟定义等
         4. **符号化索引遗漏**：使用 fv_idx 但未添加三个强制约束

@@ -1,4 +1,4 @@
 schema_version = 1
 name = "formal"
 entry = "formal.plugin:get_plugin"
-python_path = "src"
+python_path = ["src", "../UnitTest/src"]

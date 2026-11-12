@@ -4,7 +4,10 @@
 from __future__ import annotations
 
 import ast
-from bisect import bisect_left, bisect_right
+from bisect import bisect_left
+from unit_test.waveform_formats.sampling import (
+    SignalTrace as _SignalTrace, ValueState as _ValueState, is_clock_edge, load_signal_trace,
+)
 from collections import OrderedDict
 from collections.abc import Mapping
 import copy
@@ -958,30 +961,6 @@ class _WaveSelection:
     worker: str
 
 
-@dataclass(frozen=True)
-class _ValueState:
-    wave_step: int
-    value: int
-    x_mask: int
-    z_mask: int
-
-
-@dataclass
-class _SignalTrace:
-    """Mapped digital states and optional information from each value/mask load."""
-
-    name: str
-    width: int
-    states: list[_ValueState]
-    extensions: dict[str, dict[str, Any]]
-
-    @property
-    def wave_steps(self) -> list[int]:
-        return [state.wave_step for state in self.states]
-
-    def value_at(self, wave_step: int) -> _ValueState | None:
-        index = bisect_right(self.wave_steps, wave_step) - 1
-        return self.states[index] if index >= 0 else None
 
 
 class WaveInfo(UCTool):
@@ -2512,48 +2491,9 @@ class WaveInfo(UCTool):
         return matches, total
 
     @staticmethod
-    def _load_trace(
-        reader: WaveformReader,
-        signal: WaveformSignal,
-        begin_step: int | None = None,
-        end_step: int | None = None,
-    ) -> _SignalTrace:
-        """Load mapped values and X/Z masks, preserving per-load extensions."""
-        # Include a state before the requested window so transitions at its first
-        # timestamp can be evaluated. Readers retain the latest earlier state.
-        load_begin = None if begin_step is None else max(0, begin_step - 1)
-        load_end = None if end_step is None else end_step + 1
-        mapped = {}
-        extensions = {}
-        for channel, value_mapping in (
-            ("value", {"0": 0, "1": 1, "x": 0, "z": 0}),
-            ("x_mask", {"0": 0, "1": 0, "x": 1, "z": 0}),
-            ("z_mask", {"0": 0, "1": 0, "x": 0, "z": 1}),
-        ):
-            changes = reader.load_value_changes(
-                signal, value_mapping, begin_time=load_begin, end_time=load_end,
-            )
-            mapped[channel] = {int(row[0]): int(row[1]) for row in changes["mapped"]}
-            extra = WaveInfo._reader_extensions(changes)
-            if extra:
-                extensions[channel] = extra
-
-        value_by_step = mapped["value"]
-        x_by_step = mapped["x_mask"]
-        z_by_step = mapped["z_mask"]
-        wave_steps = sorted(set(value_by_step) | set(x_by_step) | set(z_by_step))
-        states = [
-            _ValueState(
-                wave_step=wave_step,
-                value=value_by_step.get(wave_step, 0),
-                x_mask=x_by_step.get(wave_step, 0),
-                z_mask=z_by_step.get(wave_step, 0),
-            )
-            for wave_step in wave_steps
-        ]
-        return _SignalTrace(
-            name=signal.full_name, width=int(signal.width), states=states, extensions=extensions,
-        )
+    def _load_trace(reader, signal, begin_step=None, end_step=None):
+        """Load shared four-state samples with the WaveInfo extension contract."""
+        return load_signal_trace(reader, signal, begin_step, end_step, WaveInfo._reader_extensions)
 
     @staticmethod
     def _parse_value(value: int | str, width: int) -> int:
@@ -2622,13 +2562,7 @@ class WaveInfo(UCTool):
                 previous.z_mask,
             ) != (current.value, current.x_mask, current.z_mask)
         if event in {"rising", "falling"}:
-            if width != 1:
-                raise ValueError(f"event='{event}' requires a one-bit signal")
-            if current_unknown or previous_unknown:
-                return False
-            if event == "rising":
-                return previous.value == 0 and current.value == 1
-            return previous.value == 1 and current.value == 0
+            return is_clock_edge(previous, current, event, width)
         assert event == "equals" and equals_value is not None
         return (
             not current_unknown

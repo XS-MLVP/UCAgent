@@ -27,3 +27,5 @@ ucagent <workspace> <DUT> --plugin formal --plugin-workflow formal:formal --outp
 ```
 
 也可以把 `ucagent/core/locales/zh.yaml`（或 `~/.ucagent/setting.yaml`）中的 `workflow` 指针改为本工作流，使其成为默认任务工作流（源码树用路径，安装后用 `formal:workflows/formal.yaml`）。
+
+受管理证明的运行预算、慢属性处置和工具限制见[运行说明](docs/execution.md)。

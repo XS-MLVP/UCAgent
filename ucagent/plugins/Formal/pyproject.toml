@@ -14,6 +14,7 @@ authors = [
 ]
 dependencies = [
     "UCAgent",
+    "pyslang>=12.1,<13",
 ]
 
 [project.entry-points."ucagent.plugins"]

@@ -3,14 +3,13 @@
 Merges utilities, parsing, execution and stage context.
 """
 import os
+import copy
 import re
 import shutil
-import subprocess
 import yaml
 import time
 import hashlib
 from typing import Dict, List, Optional, Tuple, Set, Union
-import psutil
 
 from ucagent.util.log import str_error, str_info, warning, info
 from ucagent.util import diff_ops, functions as fc
@@ -18,29 +17,30 @@ from ucagent.util.markdown import ensure_markdown_heading_spacing
 from .formal_paths import FormalPaths
 from .models import (
     FormalRecords, CheckPoint, FunctionGroup, FunctionPoint, 
-    AnalysisEntry, BugEntry, RunResults, IterationEntry, AnalysisData
+    AnalysisEntry, BugEntry, RunResults, IterationEntry, AnalysisData, normalize_summary, normalize_author_section
 )
 
 __all__ = [
     "tool_display_name",
     "log_filename",
     "coverage_report_path",
-    "build_formal_command",
     "required_script_commands",
     "parse_avis_log",
+    "typed_run_results",
+    "runtime_formal_paths",
+    "validate_analysis_evidence",
+    "refresh_analysis_references",
+    "bug_observation_description",
     "validate_log_has_results",
     "extract_blackbox_count",
     "parse_coverage",
     "extract_rtl_bug_from_analysis_doc",
     "extract_python_test_functions",
-    "run_formal_command_sync",
     "strip_prop_prefix",
     "extract_property_code",
     "extract_property_details",
     "extract_static_bugs",
     "analyze_signal_coverage_usage",
-    "run_formal_verification",
-    "summarize_execution",
     "backup_if_exists",
     "FormalStageContext",
     # YAML-based utilities
@@ -52,6 +52,8 @@ __all__ = [
     "generate_basic_info_doc",
     "generate_env_analysis_doc",
     "generate_bug_report_doc",
+    "bug_root_groups",
+    "summary_bug_rows",
     "generate_summary_doc",
     "get_primary_clock_reset",
     "set_nested_value",
@@ -80,9 +82,6 @@ def log_filename() -> str:
 def coverage_report_path(tests_dir: str) -> Optional[str]:
     return os.path.join(tests_dir, "avis", "fanin.rep")
 
-def build_formal_command(tcl_path: str, exec_dir: str) -> List[str]:
-    return ["FormalMC", "-f", tcl_path, "-override", "-work_dir", exec_dir]
-
 def required_script_commands() -> List[str]:
     return ["read_design", "prove", "def_clk", "def_rst"]
 
@@ -94,6 +93,8 @@ def backup_if_exists(filepath: str) -> None:
     if os.path.exists(filepath): shutil.copy2(filepath, filepath + ".bak")
 
 def strip_prop_prefix(prop_name: str) -> str:
+    """Match generated CK names against hierarchical FormalMC property names."""
+    prop_name = prop_name.rsplit(".", 1)[-1]
     for prefix in ("A_CK_", "M_CK_", "C_CK_", "CK_", "A_", "M_", "C_"):
         if prop_name.startswith(prefix): return prop_name[len(prefix):]
     return prop_name
@@ -106,41 +107,8 @@ def get_file_hash(filepath: str) -> str:
     return sha256.hexdigest()
 
 # =============================================================================
-# Execution & Subprocess
+# Execution results projection (managed by RunFormal)
 # =============================================================================
-
-def _terminate_process_tree(proc: subprocess.Popen, timeout: int = 5) -> None:
-    try:
-        parent = psutil.Process(proc.pid)
-        children = parent.children(recursive=True)
-        for child in children:
-            try: child.terminate()
-            except psutil.NoSuchProcess: pass
-        try: parent.terminate()
-        except psutil.NoSuchProcess: pass
-        gone, alive = psutil.wait_procs(children + [parent], timeout=timeout)
-        for p in alive:
-            try: p.kill()
-            except psutil.NoSuchProcess: pass
-    except psutil.NoSuchProcess: pass
-    except Exception:
-        try: proc.kill()
-        except Exception: pass
-
-def run_formal_command_sync(cmd: List[str], exec_dir: str, timeout: int = 300, on_start=None) -> Tuple[bool, str, str, str]:
-    stdout_log, stderr_log = "", ""
-    try:
-        worker = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=exec_dir)
-        if on_start: on_start(worker)
-        try: stdout_log, stderr_log = worker.communicate(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            _terminate_process_tree(worker, timeout=5)
-            stdout_log, stderr_log = worker.communicate()
-            return False, stdout_log, stderr_log, f"Timeout after {timeout} seconds"
-        if worker.returncode != 0: return False, stdout_log, stderr_log, f"Return code {worker.returncode}"
-        return True, stdout_log, stderr_log, ""
-    except FileNotFoundError: return False, "", "", f"Command '{cmd[0]}' not found"
-    except Exception as e: return False, "", "", f"Execution error: {e}"
 
 def update_records_run_results(records: FormalRecords, log_result: dict, log_path: str) -> None:
     stats = {"pass_count": len(log_result.get("pass", [])), "tt_count": len(log_result.get("trivially_true", [])), "fail_count": len(log_result.get("false", [])), "cover_pass_count": len(log_result.get("cover_pass", [])), "cover_fail_count": len(log_result.get("cover_fail", []))}
@@ -154,32 +122,6 @@ def update_records_run_results(records: FormalRecords, log_result: dict, log_pat
     else:
         records.run_results = RunResults(timestamp=timestamp, log_hash=get_file_hash(log_path), stats=stats, failing_properties=log_result.get("false", []) + log_result.get("cover_fail", []), tt_properties=log_result.get("trivially_true", []), iteration_history=[iteration])
 
-def run_formal_verification(tcl_path: str, timeout: int = 300, on_start=None, records_path: str = None) -> dict:
-    exec_dir = os.path.dirname(tcl_path)
-    log_path = os.path.join(exec_dir, log_filename())
-    cmd = build_formal_command(tcl_path, exec_dir)
-    success, stdout, stderr, err_msg = run_formal_command_sync(cmd, exec_dir, timeout, on_start)
-    if not success: return {"success": False, "error": err_msg, "log_path": log_path, "parsed_log": None, "blackbox_count": 0, "has_results": False, "stdout": stdout, "stderr": stderr}
-    if not os.path.exists(log_path): return {"success": False, "error": "Log not generated", "log_path": log_path, "stdout": stdout, "stderr": stderr}
-    with open(log_path, 'r', encoding='utf-8', errors='ignore') as f: log_content = f.read()
-    blackbox_count, has_results = extract_blackbox_count(log_content), validate_log_has_results(log_content)
-    parsed_log = parse_avis_log(log_path) if has_results else None
-    if records_path and parsed_log:
-        try:
-            records = load_records(records_path)
-            if records: update_records_run_results(records, parsed_log, log_path); save_records(records_path, records); info(f"📊 Proactively updated run_results in {os.path.basename(records_path)}")
-        except Exception as e: warning(f"Failed to proactively update records: {e}")
-    return {"success": has_results, "error": None if has_results else "No valid results in log", "log_path": log_path, "parsed_log": parsed_log, "blackbox_count": blackbox_count, "has_results": has_results, "stdout": stdout, "stderr": stderr}
-
-def summarize_execution(stdout: str, stderr: str, max_chars: int = 1500) -> str:
-    def trunc(txt: str) -> str:
-        if not txt or len(txt) <= max_chars: return txt
-        return txt[:max_chars//2] + "\n\n... [TRUNCATED] ...\n\n" + txt[-max_chars//2:]
-    res = []
-    if stderr: res.append(f"--- STDERR ---\n{trunc(stderr)}")
-    if stdout and "Return code" not in stdout: res.append(f"--- STDOUT ---\n{trunc(stdout)}")
-    return "\n".join(res) if res else "(empty)"
-
 # =============================================================================
 # EDA Tool Parsing
 # =============================================================================
@@ -191,20 +133,166 @@ def extract_blackbox_count(log_content: str) -> int:
     m = re.search(r"blackboxes\s*:\s*(\d+)", log_content, re.IGNORECASE)
     return int(m.group(1)) if m else 0
 
-def parse_avis_log(log_path: str) -> Dict[str, list]:
-    res: Dict[str, list] = {"pass": [], "trivially_true": [], "false": [], "cover_pass": [], "cover_fail": []}
-    if not os.path.exists(log_path): return res
-    with open(log_path, "r", encoding="utf-8", errors="ignore") as f: content = f.read()
-    def _is_cover(n: str) -> bool: return n.startswith("C_") or "COVER" in n.upper()
-    def _record(p: str, s: str) -> None:
-        ic = _is_cover(p)
-        if s in ("TrivT", "TRIVIALLY_TRUE"): (res["trivially_true"].append(p) if not ic else None)
-        elif s in ("Fail", "FALSE"): (res["cover_fail"] if ic else res["false"]).append(p)
-        elif s in ("Pass", "TRUE"): (res["cover_pass"] if ic else res["pass"]).append(p)
-    for m in re.finditer(r"^\s*\d+\s+([\w.]+\.[\w.]+)\s*:\s*(TrivT|Fail|Pass|Undec)", content, re.MULTILINE): _record(m.group(1).split(".")[-1], m.group(2))
-    if not any(res[k] for k in ("pass", "trivially_true", "false")):
-        for m in re.finditer(r"Info-P016:\s*property\s+([\w.]+)\s+is\s+(TRIVIALLY_TRUE|TRUE|FALSE)", content, re.IGNORECASE): _record(m.group(1).split(".")[-1], m.group(2).upper())
-    return res
+def parse_avis_log(log_path: str, property_kinds: Optional[dict] = None) -> Dict[str, list]:
+    """Read full property identities; only explicit type data can classify covers.
+
+    Untyped logs are assertion logs. Consumers of managed runs must instead use
+    ``typed_run_results`` so a naming convention cannot reinterpret a verdict.
+    """
+    result = {key: [] for key in ("pass", "trivially_true", "false", "cover_pass", "cover_fail", "unproven")}
+    if not os.path.exists(log_path):
+        return result
+    with open(log_path, encoding="utf-8", errors="replace") as stream:
+        content = stream.read()
+    rows = list(re.finditer(r"^\s*\d+\s+(\S+)\s*:\s*(TrivT|TrivF|Fail|Pass|Undec|Undet|NotRun)\b", content, re.MULTILINE))
+    observations = [(match.group(1), match.group(2)) for match in rows]
+    if not rows:
+        observations = re.findall(r"Info-P016:\s*property\s+(\S+)\s+is\s+(TRIVIALLY_TRUE|TRIVIALLY_FALSE|TRUE|FALSE|UNDETERMINED)\b", content)
+    latest = dict(observations)
+    for name, status in latest.items():
+        kind = (property_kinds or {}).get(name, "assert")
+        if property_kinds is not None and name not in property_kinds:
+            raise ValueError(f"Property type is missing for {name}; use current machine results.")
+        if kind not in {"assert", "cover"}:
+            raise ValueError(f"Invalid property type for {name}: {kind}")
+        if status in {"TrivT", "TRIVIALLY_TRUE"}:
+            key = "cover_pass" if kind == "cover" else "trivially_true"
+        elif status in {"TrivF", "TRIVIALLY_FALSE", "Fail", "FALSE"}:
+            key = "cover_fail" if kind == "cover" else "false"
+        elif status in {"Pass", "TRUE"}:
+            key = "cover_pass" if kind == "cover" else "pass"
+        else:
+            key = "unproven"
+        result[key].append(name)
+    return result
+
+
+def runtime_formal_paths() -> FormalPaths:
+    """Resolve script paths only from the current workspace runtime snapshot."""
+    from pathlib import Path
+    from ucagent.util.config import load_runtime_config
+    workspace = Path.cwd().resolve()
+    snapshot = load_runtime_config(str(workspace))
+    for key in ("DUT", "OUT"):
+        value = snapshot[key]
+        target = (workspace / value).resolve()
+        if not target.is_relative_to(workspace) or Path(value).is_absolute():
+            raise ValueError(f"Runtime {key} must stay within the workspace; restart UCAgent.")
+    return FormalPaths(dut=snapshot["DUT"], out=snapshot["OUT"], workspace=str(workspace))
+
+
+def refresh_analysis_references(records: FormalRecords) -> bool:
+    """Atomically refresh authored expressions after validating old machine projections.
+
+    Existing results carry their original expression and exact binding names. Replay
+    those requests first, so legitimate author edits need no machine-field cleanup
+    while edited answers, receipts, or sample metadata still fail closed.
+    """
+    from formal.reference import calculate_references
+    if not records.run_results or not records.analysis:
+        return False
+    updates = []
+    for entry in records.analysis.fa_entries:
+        if entry.resolution != "RTL_BUG":
+            continue
+        evidence = records.run_results.property_evidence.get(entry.prop_name)
+        reference = evidence.get("evidence_ref") if isinstance(evidence, dict) else None
+        if not reference or entry.evidence_ref != reference:
+            raise ValueError(f"Current exact evidence_ref is required before calculating {entry.prop_name}.")
+        if not entry.expected_requirement.strip() or "[LLM-TODO]" in entry.expected_requirement:
+            continue
+        if entry.reference_results:
+            try:
+                old_requests = [{"id": result["id"], "expression": result["expression"],
+                    "bindings": {alias: {"source": binding["source"], "signal": binding["signal"]}
+                                 for alias, binding in result["bindings"].items()}}
+                                for result in entry.reference_results]
+                original_results = calculate_references(old_requests, evidence)
+            except (KeyError, TypeError, AttributeError, ValueError) as exc:
+                raise ValueError(f"Machine reference calculation changed for {entry.prop_name}; restore the original derived results before reviewing author expressions.") from exc
+            if entry.reference_results != original_results:
+                raise ValueError(f"Machine reference calculation changed for {entry.prop_name}; derived answers or evidence metadata were edited.")
+        results = calculate_references(entry.reference_calculations, evidence)
+        if entry.reference_results != results:
+            updates.append((entry, results))
+    # Do not leave an earlier entry refreshed if a later request fails validation.
+    for entry, results in updates:
+        entry.reference_results = results
+    return bool(updates)
+
+
+def bug_observation_description(name: str, evidence: dict) -> str:
+    """Describe only the current recorded verdict, never a universal impact range."""
+    if not isinstance(evidence, dict) or not evidence.get("evidence_ref") or evidence["evidence_ref"].get("property") != name:
+        raise ValueError(f"Current exact machine evidence is required to describe {name}.")
+    result = evidence.get("result")
+    if result not in {"FALSIFIED", "TRIVIALLY_FALSE"}:
+        raise ValueError(f"A Bug observation must have a current failed assertion: {name}.")
+    if result == "TRIVIALLY_FALSE":
+        return f"Current property {name}: TRIVIALLY_FALSE (static contract failure). No dynamic counterexample was exported; this description is limited to the recorded property verdict."
+    return f"Current property {name}: FALSIFIED. This observation applies to the original recorded counterexample only; wider input-range impact needs separate justification."
+
+
+def validate_analysis_evidence(records: FormalRecords) -> None:
+    """Require current machine provenance for claimed defects and accepted trivial proofs."""
+    if not records.analysis or not records.run_results:
+        raise ValueError("Current run results and analysis are required")
+    if records.analysis.source_fingerprint != records.run_results.input_fingerprint:
+        raise ValueError("Analysis input fingerprint is stale; call Check to build the current analysis queue.")
+    typed = typed_run_results(records)
+    identifiers = [entry.id for entry in records.analysis.fa_entries + records.analysis.tt_entries]
+    if len(identifiers) != len(set(identifiers)):
+        raise ValueError("Duplicate analysis entry IDs")
+    for entries, expected in ((records.analysis.fa_entries, set(typed["false"] + typed["cover_fail"])),
+                              (records.analysis.tt_entries, set(typed["trivially_true"]))):
+        names = [entry.prop_name for entry in entries]
+        if len(names) != len(set(names)) or set(names) != expected:
+            raise ValueError("Analysis properties must match the exact current machine queue without duplicates or omissions.")
+        for entry in entries:
+            if entry.prop_name not in expected:
+                raise ValueError(f"Unknown current analysis property: {entry.prop_name}")
+            if entry.resolution and entry.resolution not in {"RTL_BUG", "ENV_FIXED", "ENV_PENDING", "COVER_EXPECTED_FAIL", "[LLM-TODO]"}:
+                raise ValueError(f"Noncanonical analysis resolution for {entry.prop_name}")
+            if entry.action and entry.action not in {"FIXED", "ACCEPTED", "[LLM-TODO]"}:
+                raise ValueError(f"Noncanonical analysis action for {entry.prop_name}")
+            if entry.resolution == "RTL_BUG" and records.run_results.property_kinds.get(entry.prop_name) != "assert":
+                raise ValueError(f"RTL_BUG requires a current failed assertion, not a cover result: {entry.prop_name}")
+            if entry.resolution != "RTL_BUG" and entry.action != "ACCEPTED":
+                continue
+            reference = records.run_results.property_evidence.get(entry.prop_name, {}).get("evidence_ref")
+            if (not reference or entry.evidence_ref != reference
+                    or reference.get("property") != entry.prop_name
+                    or reference.get("run_id") != records.run_results.run_id
+                    or reference.get("input_fingerprint") != records.run_results.input_fingerprint):
+                raise ValueError(f"Current evidence_ref is required for {entry.prop_name}; call RunFormal action=evidence and copy its evidence_ref before classifying RTL_BUG or accepting a trivial proof.")
+            if entry.resolution == "RTL_BUG":
+                from formal.reference import derive_expected
+                if not entry.expected_requirement.strip() or "[LLM-TODO]" in entry.expected_requirement:
+                    raise ValueError(f"Current RTL_BUG review requires expected_requirement for {entry.prop_name}; describe the specification relation before Bug preparation.")
+                evidence = records.run_results.property_evidence[entry.prop_name]
+                _, calculation_results = derive_expected(entry.expected_requirement, entry.reference_calculations, evidence)
+                if entry.reference_results != calculation_results:
+                    raise ValueError(f"Machine reference calculation changed for {entry.prop_name}; refresh analysis against current evidence, not Bug data.")
+
+
+def typed_run_results(records: FormalRecords) -> dict:
+    """Project current machine classifications without guessing types from names."""
+    run = records.run_results
+    if run is None or run.assert_failing_properties is None or run.cover_failing_properties is None:
+        raise ValueError("Current typed run_results are required; call RunFormal and Check first.")
+    buckets = {"trivially_true": list(run.tt_properties), "false": list(run.assert_failing_properties),
+               "cover_fail": list(run.cover_failing_properties)}
+    names = [name for values in buckets.values() for name in values]
+    if len(names) != len(set(names)) or any(not name or name != name.strip() for name in names):
+        raise ValueError("Machine results contain duplicate or invalid property identities.")
+    if len(run.failing_properties) != len(set(run.failing_properties)) or set(run.failing_properties) != set(buckets["false"] + buckets["cover_fail"]):
+        raise ValueError("Machine failing_properties disagree with typed verdict lists.")
+    if run.property_kinds:
+        for key, expected_kind in (("trivially_true", "assert"), ("false", "assert"), ("cover_fail", "cover")):
+            for name in buckets[key]:
+                if run.property_kinds.get(name) != expected_kind:
+                    raise ValueError(f"Machine type data disagrees with {key} verdict for {name}.")
+    return buckets
 
 def parse_coverage(tests_dir: str) -> dict:
     empty = {"covered": 0, "total": 0, "pct": 0.0}
@@ -242,16 +330,33 @@ def extract_python_test_functions(tp: str) -> dict:
     return fns
 
 def extract_static_bugs(sp: str) -> dict:
-    res = {"pending": [], "confirmed": [], "false_positive": []}
-    if not os.path.exists(sp): return res
-    with open(sp, 'r', encoding='utf-8', errors='ignore') as f: content = f.read()
-    for bid in re.findall(r'(<BG-STATIC-[A-Za-z0-9_-]+>)', content):
-        p = content.find(bid); lm = re.findall(r'(<LINK-BUG-\[([^]]+)\]>)', content[p:p+500])
-        for ft, lv in lm:
-            if lv == "BG-TBD": res["pending"].append((bid, ft))
-            elif lv == "BG-NA": res["false_positive"].append((bid, ft))
-            else: res["confirmed"].append((bid, ft))
-    return res
+    """Read explicit candidate dispositions and exact linked evidence identifiers."""
+    result = {"pending": [], "confirmed": [], "ruled_out": [], "unverified": []}
+    if not os.path.exists(sp):
+        return result
+    with open(sp, encoding="utf-8") as stream:
+        content = stream.read()
+    candidates = list(re.finditer(r"<BG-STATIC-[A-Za-z0-9_-]+>", content))
+    seen = set()
+    for index, match in enumerate(candidates):
+        candidate = match[0]
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        block = content[match.end():candidates[index + 1].start() if index + 1 < len(candidates) else len(content)]
+        links = re.search(r"<LINK-BUG-((?:\[[^]\n]+\])+)>", block)
+        targets = re.findall(r"\[([^]]+)\]", links[1]) if links else []
+        if not targets or "BG-TBD" in targets:
+            result["pending"].append((candidate, targets))
+        elif targets in (["BG-NA"], ["BG-UNVERIFIED"]):
+            result["unverified"].append((candidate, targets))
+        elif targets == ["BG-RULED-OUT"]:
+            evidence = re.search(r"(?m)^\s*(?:[-*]\s+)?Evidence:\s*`([^`]+)`\s+—\s+(\S[^\n]*)", block)
+            result["ruled_out"].append((candidate, evidence.groups() if evidence else None))
+        else:
+            result["confirmed"].append((candidate, targets))
+    return result
+
 
 def extract_property_details(content: str) -> dict:
     details = {}
@@ -264,11 +369,20 @@ def extract_property_details(content: str) -> dict:
     except Exception as e: warning(f"Failed to extract property details: {e}"); return {}
 
 def extract_property_code(cc: str, pn: str) -> str:
-    if not cc: return f"  // Property code unavailable for {pn}"
-    m = re.search(rf"(property\s+(?:(?:A|M|C)_)?{re.escape(pn)}[\s;].*?endproperty)", cc, re.DOTALL)
-    if m: return "\n".join("  " + l for l in m.group(1).split("\n"))
-    m = re.search(rf"(?:assert|assume|cover)\s+property\s*\([^;]*{re.escape(pn)}[^;]*\)\s*;", cc)
-    return f"  {m.group(0)}" if m else f"  // Property definition not found for {pn}"
+    """Map a machine identity to one unique assertion label and its declaration.
+
+    Hierarchy is retained by the caller. Only the generated declaration lookup
+    uses the leaf label; duplicate labels fail instead of selecting one module.
+    """
+    label = pn.rsplit(".", 1)[-1]
+    matches = list(re.finditer(rf"\b{re.escape(label)}\s*:\s*(assert|assume|cover)\s+property\s*\(\s*([A-Za-z_][A-Za-z0-9_$]*)\s*\)\s*;", cc))
+    if len(matches) != 1:
+        raise ValueError(f"Expected one declaration label for {pn}; found {len(matches)}. Regenerate the checker and inspect its labels.")
+    prop = matches[0].group(2)
+    declarations = list(re.finditer(rf"\bproperty\s+{re.escape(prop)}\s*;(.*?)\bendproperty\b", cc, re.DOTALL))
+    if len(declarations) != 1:
+        raise ValueError(f"Expected one property body for {pn} label {label}; found {len(declarations)}.")
+    return declarations[0].group(0) + "\n" + matches[0].group(0)
 
 def analyze_signal_coverage_usage(cc: str, unc: List[str]) -> List[str]:
     co = []
@@ -282,18 +396,45 @@ def analyze_signal_coverage_usage(cc: str, unc: List[str]) -> List[str]:
 # =============================================================================
 
 def load_records(rp: str) -> Optional[FormalRecords]:
-    if os.path.exists(rp):
-        with open(rp, 'r', encoding='utf-8') as f:
-            try:
-                data = yaml.safe_load(f)
-                return FormalRecords.model_validate(data) if data else None
-            except Exception as e: warning(f"Failed to load records from {rp}: {e}")
-    return None
+    """Load canonical task data and retain its digest for optimistic publication."""
+    if not os.path.exists(rp):
+        return None
+    with open(rp, "rb") as stream:
+        payload = stream.read()
+    data = yaml.safe_load(payload.decode("utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError(f"Formal records must be a nonempty mapping: {rp}")
+    records = FormalRecords.model_validate(data)
+    object.__setattr__(records, "_source_sha256", hashlib.sha256(payload).hexdigest())
+    return records
+
 
 def save_records(rp: str, records: Union[FormalRecords, dict]) -> None:
-    os.makedirs(os.path.dirname(rp), exist_ok=True)
-    d = records.model_dump(exclude_none=True) if isinstance(records, FormalRecords) else records
-    with open(rp, 'w', encoding='utf-8') as f: yaml.safe_dump(d, f, indent=2, allow_unicode=True, sort_keys=False, default_flow_style=False)
+    """Publish YAML atomically under the shared lock, rejecting stale model writes."""
+    import fcntl
+    import tempfile
+    parent = os.path.dirname(os.path.abspath(rp))
+    os.makedirs(parent, exist_ok=True)
+    data = records.model_dump(exclude_none=True) if isinstance(records, FormalRecords) else records
+    payload = yaml.safe_dump(data, indent=2, allow_unicode=True, sort_keys=False, default_flow_style=False).encode("utf-8")
+    temporary = None
+    with open(os.path.join(parent, ".formal_data.lock"), "a+") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        expected = getattr(records, "_source_sha256", None) if isinstance(records, FormalRecords) else None
+        current = get_file_hash(rp) if os.path.exists(rp) else None
+        if expected is not None and expected != current:
+            raise ValueError("Formal records changed during this operation; read current task data and retry without overwriting the other update.")
+        try:
+            with tempfile.NamedTemporaryFile(mode="wb", dir=parent, delete=False) as stream:
+                temporary = stream.name
+                stream.write(payload)
+            os.replace(temporary, rp)
+            temporary = None
+            if isinstance(records, FormalRecords):
+                object.__setattr__(records, "_source_sha256", hashlib.sha256(payload).hexdigest())
+        finally:
+            if temporary is not None:
+                os.unlink(temporary)
 
 def get_all_ck_from_records(records: FormalRecords) -> list:
     items = []
@@ -491,29 +632,102 @@ def validate_extra_config_against_design(records: FormalRecords, port_info: Opti
     return list(dict.fromkeys(mismatches))
 
 def auto_scaffold_analysis_entries(records: FormalRecords, lr: dict, cc: str) -> bool:
-    if not records.analysis: records.analysis = AnalysisData(); ch = True
-    else: ch = False
-    ct, cf = set(lr.get("trivially_true", [])), set(lr.get("false", [])) | set(lr.get("cover_fail", []))
-    et, ef = {e.prop_name for e in records.analysis.tt_entries}, {e.prop_name for e in records.analysis.fa_entries}
-    nt, nf = sorted(ct - et), sorted(cf - ef)
-    if nt:
-        next_id = max((int(e.id.split("-")[1]) for e in records.analysis.tt_entries), default=0) + 1
-        for p in nt: records.analysis.tt_entries.append(AnalysisEntry(id=f"TT-{next_id:03d}", prop_name=p, sva_code=extract_property_code(cc, p), root_cause="[LLM-TODO]", action="[LLM-TODO]")); next_id += 1; ch = True
-    if nf:
-        next_id = max((int(e.id.split("-")[1]) for e in records.analysis.fa_entries), default=0) + 1
-        for p in nf: records.analysis.fa_entries.append(AnalysisEntry(id=f"FA-{next_id:03d}", prop_name=p, prop_type="cover" if p in lr.get("cover_fail", []) else "assert", sva_code=extract_property_code(cc, p), resolution="[LLM-TODO]")); next_id += 1; ch = True
-    return ch
+    """Reconcile current exact machine identities, invalidating changed-input analysis."""
+    fingerprint = records.run_results.input_fingerprint if records.run_results else None
+    before = records.analysis.model_dump() if records.analysis else None
+    changed_inputs = bool(records.analysis and records.analysis.source_fingerprint != fingerprint and fingerprint)
+    if changed_inputs:
+        records.analysis = AnalysisData(source_fingerprint=fingerprint)
+        records.bugs = []
+    if records.analysis is None:
+        records.analysis = AnalysisData(source_fingerprint=fingerprint)
+    expected = {"tt_entries": list(lr.get("trivially_true", [])),
+                "fa_entries": list(lr.get("false", [])) + list(lr.get("cover_fail", []))}
+    all_names = [name for values in expected.values() for name in values]
+    if len(all_names) != len(set(all_names)):
+        raise ValueError("Duplicate machine property identities in analysis input.")
+    all_ids = []
+    for field, names in expected.items():
+        entries = getattr(records.analysis, field)
+        known = {}
+        retained = []
+        for entry in entries:
+            if entry.prop_name in known or entry.id in all_ids:
+                raise ValueError(f"Duplicate analysis identity or ID: {entry.prop_name}, {entry.id}")
+            all_ids.append(entry.id)
+            known[entry.prop_name] = entry
+            if entry.prop_name not in names:
+                if records.run_results and entry.prop_name in records.run_results.property_kinds:
+                    continue
+                raise ValueError(f"Unknown or stale analysis property {entry.prop_name}; expected exact current machine IDs.")
+            retained.append(entry)
+        setattr(records.analysis, field, retained)
+        entries = retained
+        known = {entry.prop_name: entry for entry in entries}
+        prefix = "TT" if field == "tt_entries" else "FA"
+        occupied = {entry.id for entry in entries}
+        next_number = 1
+        for name in names:
+            if name in known:
+                continue
+            while f"{prefix}-{next_number:03d}" in occupied:
+                next_number += 1
+            entry_id = f"{prefix}-{next_number:03d}"
+            occupied.add(entry_id)
+            values = {"id": entry_id, "prop_name": name, "sva_code": extract_property_code(cc, name)}
+            if prefix == "TT":
+                values.update(root_cause="[LLM-TODO]", action="[LLM-TODO]")
+            else:
+                values.update(prop_type="cover" if name in lr.get("cover_fail", []) else "assert", resolution="[LLM-TODO]")
+            entries.append(AnalysisEntry(**values))
+    records.analysis.source_fingerprint = fingerprint
+    return changed_inputs or before != records.analysis.model_dump()
 
 def auto_scaffold_bug_entries(records: FormalRecords) -> bool:
-    if not records.analysis: return False
-    rtl_bugs = [e for e in records.analysis.fa_entries if e.resolution and e.resolution.upper() == "RTL_BUG"]
-    if not rtl_bugs: return False
-    if records.bugs is None: records.bugs = []; ch = True
-    else: ch = False
-    ex = {b.property for b in records.bugs}
-    for e in rtl_bugs:
-        if e.prop_name not in ex: records.bugs.append(BugEntry(id=f"BG-FORMAL-{len(records.bugs) + 1:03d}", property=e.prop_name, ck_id=f"CK-{strip_prop_prefix(e.prop_name).replace('_', '-')}")); ch = True
-    return ch
+    """Scaffold current RTL-defect observations using exact property identities."""
+    if not records.analysis:
+        return False
+    expected = {entry.prop_name for entry in records.analysis.fa_entries if entry.resolution == "RTL_BUG"}
+    before = None if records.bugs is None else [bug.model_dump() for bug in records.bugs]
+    if records.bugs is None:
+        records.bugs = []
+    identities = [bug.property for bug in records.bugs]
+    ids = [bug.id for bug in records.bugs]
+    if len(identities) != len(set(identities)) or len(ids) != len(set(ids)):
+        raise ValueError("Duplicate Bug identities or IDs")
+    unknown = set(identities) - expected
+    if unknown:
+        raise ValueError(f"Unknown or stale Bug properties: {sorted(unknown)}")
+    occupied = set(ids)
+    number = 1
+    for name in sorted(expected - set(identities)):
+        while f"BG-FORMAL-{number:03d}" in occupied:
+            number += 1
+        bug_id = f"BG-FORMAL-{number:03d}"
+        occupied.add(bug_id)
+        records.bugs.append(BugEntry(id=bug_id, property=name, ck_id=f"CK-{strip_prop_prefix(name).replace('_', '-')}"))
+    from formal.evidence import observation_text
+    from formal.reference import derive_expected
+    for bug in records.bugs:
+        evidence = records.run_results.property_evidence.get(bug.property) if records.run_results else None
+        if not evidence or not evidence.get("evidence_ref"):
+            raise ValueError(f"Current original observations are required for Bug {bug.property}; run the current proof and prepare its analysis.")
+        reviewed = [entry for entry in records.analysis.fa_entries if entry.prop_name == bug.property and entry.resolution == "RTL_BUG"]
+        if len(reviewed) != 1 or reviewed[0].evidence_ref != evidence["evidence_ref"]:
+            raise ValueError(f"Bug {bug.property} requires exactly one current reviewed FA and matching evidence_ref; do not reauthor the requirement in Bug data.")
+        fa = reviewed[0]
+        if not fa.expected_requirement.strip() or "[LLM-TODO]" in fa.expected_requirement:
+            raise ValueError(f"Bug {bug.property} requires a current FA expected_requirement before preparing Bug records.")
+        expected, calculations = derive_expected(fa.expected_requirement, fa.reference_calculations, evidence)
+        if fa.reference_results != calculations:
+            raise ValueError(f"Bug {bug.property} requires verified FA reference_results; complete analysis before preparing Bugs.")
+        bug.expected_requirement = fa.expected_requirement
+        bug.reference_calculations = copy.deepcopy(fa.reference_calculations)
+        bug.reference_results = copy.deepcopy(calculations)
+        bug.expected = expected
+        bug.description = bug_observation_description(bug.property, evidence)
+        bug.trigger, bug.actual = observation_text(evidence)
+    return before != [bug.model_dump() for bug in records.bugs]
 
 import jinja2
 
@@ -534,39 +748,30 @@ def _indent_string(s: str, width: int, first: bool = False) -> str:
 STYLE_PREFIX_MAP = {"assume": "M_CK_", "comb": "A_CK_", "seq": "A_CK_", "cover": "C_CK_"}
 
 def _render_to_file(template_name: str, context: dict, output_path: str) -> None:
+    """Render completely before atomic publication; failures preserve the old artifact."""
+    import tempfile
+    template_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates", template_name + ".j2")
+    temporary = None
     try:
-        # Templates are now stored privately in lib/templates
-        lib_dir = os.path.dirname(os.path.abspath(__file__))
-        tp = os.path.join(lib_dir, "templates", template_name + ".j2")
-        
-        if not os.path.exists(tp):
-            from ucagent.util.log import error
-            error(f"Template not found at {tp}")
-            return
-
-        with open(tp, 'r', encoding='utf-8') as f:
-            template_content = f.read()
-        
-        env = jinja2.Environment(keep_trailing_newline=True)
-        # Add indent filter for SV code
-        def indent_filter(s, width, first=False):
-            lines = s.split('\n')
-            res = []
-            for i, line in enumerate(lines):
-                if i == 0 and not first:
-                    res.append(line)
-                else:
-                    res.append(' ' * width + line)
-            return '\n'.join(res)
-        env.filters['indent'] = indent_filter
-        
-        template = env.from_string(template_content)
+        with open(template_path, encoding="utf-8") as stream:
+            environment = jinja2.Environment(keep_trailing_newline=True, undefined=jinja2.StrictUndefined if template_name == "formal_summary.md" else jinja2.Undefined)
+            template = environment.from_string(stream.read())
+        template.environment.filters["indent"] = _indent_string
         rendered = ensure_markdown_heading_spacing(template.render(**context))
-        with open(output_path, 'w', encoding='utf-8') as f:
-            f.write(rendered)
-    except Exception as e:
-        from ucagent.util.log import error
-        error(f"Failed to render template {template_name}: {e}")
+        if not rendered.strip() or "[LLM-TODO]" in rendered or re.search(r"<!--.*?-->", rendered, re.DOTALL):
+            raise ValueError("Rendered report is empty or contains unfinished placeholders")
+        parent = os.path.dirname(os.path.abspath(output_path))
+        os.makedirs(parent, exist_ok=True)
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=parent, delete=False) as stream:
+            temporary = stream.name
+            stream.write(rendered)
+        os.replace(temporary, output_path)
+        temporary = None
+    except Exception as exc:
+        raise ValueError(f"Cannot render {template_name} to {output_path}: {exc}. Repair the named input fields and run Check again.") from exc
+    finally:
+        if temporary is not None:
+            os.unlink(temporary)
 
 def generate_spec_doc(records: FormalRecords, op: str) -> None:
     context = {
@@ -576,16 +781,18 @@ def generate_spec_doc(records: FormalRecords, op: str) -> None:
     _render_to_file("functions_and_checks.md", context, op)
 
 def generate_planning_doc(records: FormalRecords, op: str) -> None:
+    """Render complete planning containers without inventing optional design facts."""
     context = {
         "DUT": records.dut,
-        "planning": records.planning or {},
+        "planning": normalize_author_section("planning", records.planning),
     }
     _render_to_file("verification_needs_and_plan.md", context, op)
 
 def generate_basic_info_doc(records: FormalRecords, op: str) -> None:
+    """Render typed interface facts with deterministic optional container defaults."""
     context = {
         "DUT": records.dut,
-        "basic_info": records.basic_info or {},
+        "basic_info": normalize_author_section("basic_info", records.basic_info),
     }
     _render_to_file("basic_info.md", context, op)
 
@@ -606,14 +813,102 @@ def generate_env_analysis_doc(records: FormalRecords, lp: dict, op: str) -> None
     }
     _render_to_file("env_analysis.md", context, op)
 
+def bug_root_groups(records: FormalRecords) -> list[dict]:
+    """Validate explicit shared root identities and return one canonical record per root."""
+    groups = {}
+    for bug in records.bugs or []:
+        root_id = bug.root_cause_id
+        if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]{0,79}", root_id):
+            raise ValueError(f"Bug {bug.id} requires root_cause_id matching [A-Za-z][A-Za-z0-9_-]* with at most 80 characters.")
+        shared = {key: getattr(bug, key) for key in ("root_cause", "fix", "severity")}
+        if not bug.expected_requirement.strip() or "[LLM-TODO]" in bug.expected_requirement:
+            raise ValueError(f"Bug {bug.id} requires an author-reviewed expected_requirement; arithmetic results do not define the specification.")
+        if any(not str(value).strip() or "[LLM-TODO]" in str(value) for value in shared.values()):
+            raise ValueError(f"Root {root_id} has unfinished root_cause, fix, or severity fields.")
+        if root_id in groups:
+            if any(groups[root_id][key] != value for key, value in shared.items()):
+                raise ValueError(f"Root {root_id} has conflicting shared root_cause, fix, or severity values.")
+        else:
+            groups[root_id] = {"id": root_id, **shared, "properties": []}
+        groups[root_id]["properties"].append(bug.property)
+    return list(groups.values())
+
+
+def validate_original_observations(records: FormalRecords) -> None:
+    """Reject authored or stale machine-observation prose at either delivery boundary."""
+    from formal.evidence import observation_text
+    from formal.reference import derive_expected
+    for bug in records.bugs or []:
+        evidence = records.run_results.property_evidence.get(bug.property) if records.run_results else None
+        if not evidence or not evidence.get("evidence_ref"):
+            raise ValueError(f"Current original observations are required for {bug.property}.")
+        trigger, actual = observation_text(evidence)
+        matches = [entry for entry in (records.analysis.fa_entries if records.analysis else [])
+                   if entry.prop_name == bug.property and entry.resolution == "RTL_BUG"]
+        if len(matches) != 1 or matches[0].evidence_ref != evidence["evidence_ref"]:
+            raise ValueError(f"Current reviewed FA and matching evidence are required for {bug.property}.")
+        fa = matches[0]
+        if (bug.expected_requirement != fa.expected_requirement
+                or bug.reference_calculations != fa.reference_calculations
+                or bug.reference_results != fa.reference_results):
+            raise ValueError(f"Bug review forked from the current FA for {bug.property}; prepare Bug entries from accepted analysis instead of editing copied requirement or calculations.")
+        description = bug_observation_description(bug.property, evidence)
+        expected, reference_results = derive_expected(fa.expected_requirement, fa.reference_calculations, evidence)
+        if fa.reference_results != reference_results:
+            raise ValueError(f"FA reference results changed for {bug.property}; recalculate from exact current evidence.")
+        if bug.description != description:
+            raise ValueError(f"Machine observation description changed for {bug.property}; regenerate from the original property verdict.")
+        if bug.trigger != trigger or bug.actual != actual:
+            raise ValueError(f"Machine observations changed for {bug.property}; prepare the current Bug queue instead of editing trigger or actual.")
+        if bug.expected != expected or bug.reference_results != reference_results:
+            raise ValueError(f"Expected-value calculation changed for {bug.property}; refresh it from current evidence instead of editing derived fields.")
+
+
 def generate_bug_report_doc(records: FormalRecords, op: str) -> None:
+    """Publish only machine-derived original observations and authored semantic reviews."""
+    validate_original_observations(records)
     context = {
         "DUT": records.dut,
+        "roots": bug_root_groups(records),
         "bugs": records.bugs or []
     }
     _render_to_file("bug_report.md", context, op)
 
-def generate_summary_doc(records: FormalRecords, op: str, coverage: Optional[dict] = None) -> None:
+def summary_bug_rows(records: FormalRecords) -> list[dict]:
+    """Derive summary observations only from exact current reviewed failure records."""
+    run = records.run_results
+    abnormal = bool(run and (run.failing_properties or run.tt_properties))
+    if abnormal or records.bugs:
+        validate_analysis_evidence(records)
+        for entry in records.analysis.tt_entries:
+            if entry.action != "ACCEPTED" or entry.root_cause != "DESIGN_EXPECTED" or not entry.analysis.strip() or "[LLM-TODO]" in entry.analysis:
+                raise ValueError(f"Summary requires completed current trivial-proof review for {entry.prop_name}.")
+        for entry in records.analysis.fa_entries:
+            expected = "COVER_EXPECTED_FAIL" if run.property_kinds.get(entry.prop_name) == "cover" else "RTL_BUG"
+            if entry.resolution != expected or not entry.analysis.strip() or "[LLM-TODO]" in entry.analysis:
+                raise ValueError(f"Summary requires completed current failure review for {entry.prop_name}; unresolved environment results cannot be summarized as accepted.")
+    claims = [entry.prop_name for entry in (records.analysis.fa_entries if records.analysis else [])
+              if entry.resolution == "RTL_BUG"]
+    observations = records.bugs or []
+    names = [bug.property for bug in observations]
+    identifiers = [bug.id for bug in observations]
+    if len(names) != len(set(names)) or len(identifiers) != len(set(identifiers)) or set(names) != set(claims):
+        raise ValueError("Summary requires exactly one verified Bug observation per current RTL_BUG property; call Check in the Bug report stage before summary.")
+    validate_original_observations(records)
+    roots = {group["id"]: group for group in bug_root_groups(records)}
+    rows = []
+    for bug in observations:
+        required = ("description", "trigger", "expected", "actual", "confidence", "rtl_file", "ck_id", "fg_id", "fc_id")
+        if any(not str(getattr(bug, key)).strip() or "[LLM-TODO]" in str(getattr(bug, key)) for key in required) or bug.rtl_line < 1:
+            raise ValueError(f"Summary cannot include unfinished Bug observation {bug.id}; complete the Bug report stage first.")
+        root = roots[bug.root_cause_id]
+        rows.append({"bug_id": bug.id, "bug_type": "RTL_BUG", "desc": bug.description,
+                     "checker_link": bug.property, "root_cause_id": root["id"], "severity": root["severity"]})
+    return rows
+
+
+def generate_summary_doc(records: FormalRecords, op: str, coverage: Optional[dict] = None, machine: Optional[dict] = None) -> None:
+    """Render the task summary together with current machine proof completeness."""
     stats = {
         "assume_total": 0,
         "sva_total": 0,
@@ -640,8 +935,6 @@ def generate_summary_doc(records: FormalRecords, op: str, coverage: Optional[dic
         stats["assert_fail"] = rs.get("fail_count", 0)
         stats["assert_tt"] = rs.get("tt_count", 0)
         stats["cover_pass"] = rs.get("cover_pass_count", 0)
-    if records.summary and isinstance(records.summary.get("stats_override"), dict):
-        stats.update(records.summary["stats_override"])
 
     cov = coverage or {"nets": {}, "dffs": {}}
     cov_ctx = {
@@ -658,12 +951,21 @@ def generate_summary_doc(records: FormalRecords, op: str, coverage: Optional[dic
             "pct": cov.get("dffs", {}).get("pct", 0.0),
         },
     }
-    summary = dict(records.summary or {})
+    summary = normalize_summary(records.summary)
+    summary["severe_bugs"] = summary_bug_rows(records)
     summary["stats"] = stats
     summary["coverage"] = cov_ctx
     context = {
         "DUT": records.dut,
         "summary": summary,
+        "clock_reset": ((records.basic_info or {}).get("clock_reset") or {}),
+        "scope_exclusions": ((records.planning or {}).get("verification_scope") or {}).get("excluded") or [],
+        "checkpoint_facts": [{"fg_id": fg.id, "fc_id": fc.id, "ck_id": ck.id,
+                              "style": ck.style, "sva_body": ck.sva_body or ""}
+                             for fg in (records.spec.function_groups if records.spec else [])
+                             for fc in fg.functions for ck in fc.check_points],
+        "machine": {"proof_complete": False, "deferred_total": 0, "deferred_properties": [], "report": "", **(machine or {}),
+                    "counts": {key: (machine or {}).get("counts", {}).get(key, 0) for key in ("PROVEN", "FALSIFIED", "TRIVIALLY_TRUE", "TRIVIALLY_FALSE", "UNPROVEN", "COVER_REACHED", "COVER_UNREACHABLE")}},
     }
     _render_to_file("formal_summary.md", context, op)
 
@@ -764,6 +1066,8 @@ def incremental_merge_checker(records: FormalRecords, sv_path: str, port_info: O
             "reset_signal": reset_signal,
             "reset_disable_expr": cr_ctx["reset_disable_expr"],
             "clock_reset_aliases": cr_ctx["aliases"],
+            "has_clock": cr_ctx["has_clock"],
+            "has_reset": cr_ctx["has_reset"],
         }
         _render_to_file("tests/checker.sv", context, sv_path)
         with open(sv_path, 'r', encoding='utf-8') as f: return f.read()
@@ -806,12 +1110,31 @@ def incremental_merge_checker(records: FormalRecords, sv_path: str, port_info: O
 # Stage Context
 # =============================================================================
 
-class FormalStageContext:
-    """Caches parsed verification data and shares it across checkers."""
+class FormalStageContext(dict):
+    """Caches parsed verification data and shares it across checkers.
+
+    继承 dict：stage manager 持久化时（save_stage_info -> save_ucagent_info）
+    会把 smanager_set_value 存入的数据整体 JSON 序列化；普通对象会触发
+    TypeError（Data provided is not JSON serializable），使所有 Check/Complete
+    在协调器收尾持久化阶段失败。属性读写统一代理到 dict 项，保证内存状态
+    与序列化视图一致；历史遗留的非序列化实例在进程重启后由 get_or_create
+    自动重建为可序列化实例。
+    """
     _SMANAGER_KEY = "_formal_stage_context"
     def __init__(self, workspace: str = None):
-        self._checker_cache = {}
+        super().__init__()
         self._workspace = workspace
+        self._checker_cache = {}
+
+    def __getattr__(self, name):
+        # 仅在常规属性查找失败时触发：把属性访问映射到等名 dict 项。
+        try:
+            return self[name]
+        except KeyError:
+            raise AttributeError(name)
+
+    def __setattr__(self, name, value):
+        self[name] = value
 
     @classmethod
     def get_or_create(cls, ci, *_args):

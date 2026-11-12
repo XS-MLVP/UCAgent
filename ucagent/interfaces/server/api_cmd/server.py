@@ -278,6 +278,8 @@ class ControlApiServer:
         register_file_routes(app, access, queries, _request_workspace,
                              dut_name=getattr(self.agent, "dut_name", "") or "workspace")
         register_stage_routes(app, control, queries, _request_workspace, _strip_ansi)
+        from ucagent.interfaces.server.api_cmd.formal_routes import register_formal_routes
+        register_formal_routes(app, self.agent, _request_workspace)
 
 
         def command_session(request, session_id, cwd=None, confirmed=False):

@@ -83,10 +83,11 @@ mission:
   # Each entry starts a display group at the named top-level stage.
   stage_groups:
     requirement_analysis_and_planning: "规格与 RTL"
-    dut_wrapper_implementation: "DUT 与环境"
-    basic_api_implementation: "API 与模型"
+    dut_wrapper_implementation: "DUT 与覆盖模型"
+    test_environment_implementation: "验证环境"
+    basic_api_implementation: "API 与参考模型"
     create_test_case_templates: "用例与缺陷"
-    line_coverage_analysis_and_improvement: "覆盖率与随机"
+    line_coverage_analysis_and_improvement: "覆盖与随机"
     verification_review_and_summary: "审查与报告"
   prompt:
     system: |

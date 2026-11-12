@@ -8,6 +8,7 @@ const api = require(path.join(
   __dirname,
   "..",
   "ucagent",
+  "interfaces",
   "server",
   "static",
   "surfer",

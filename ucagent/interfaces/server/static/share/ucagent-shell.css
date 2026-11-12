@@ -253,40 +253,48 @@ html[data-theme="light"] .task-row-highlight{
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
   flex: 1; min-width: 0; overflow: hidden; overflow-wrap: anywhere; color: var(--text);
 }
-.uc-stage-group + .uc-stage-group { margin-block-start: 5px; }
+.uc-stage-group + .uc-stage-group { border-block-start: 1px solid var(--pane-line, var(--border)); }
 .uc-stage-group > summary {
-  display: flex; align-items: center; gap: 6px; min-height: 32px; padding: 4px 7px;
-  cursor: pointer; list-style: none; font-size: 14px; font-weight: 650;
-  color: var(--text); background: var(--bg3); border: 1px solid var(--border); border-radius: 5px;
+  display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; align-items: baseline;
+  gap: 1px 6px; min-height: 33px; padding: 7px 6px;
+  cursor: pointer; list-style: none; font-size: 13px; font-weight: 600; color: var(--text);
 }
-.uc-stage-group[open] > summary {
-  background: color-mix(in srgb, var(--accent) 12%, var(--bg2));
-  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+.uc-stage-group > summary:has(.uc-stage-group-range) {
+  grid-template-columns: 10px minmax(33px, max-content) minmax(0, 1fr) auto;
 }
+.uc-stage-group > summary:hover, .uc-stage-group[open] > summary { background: var(--bg3); }
+.uc-stage-group > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.uc-stage-group > summary[data-state="current"] { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.uc-stage-group > summary[data-state="review"] { background: color-mix(in srgb, var(--yellow, var(--warn)) 14%, transparent); }
 .uc-stage-group > summary::-webkit-details-marker { display: none; }
 .uc-stage-group > summary::before {
-  content: '›'; flex: 0 0 10px; text-align: center; color: var(--accent); font-size: 18px; line-height: 1;
+  content: ''; width: 5px; height: 5px; margin-inline: 1px; align-self: center;
+  border: solid var(--text-dim); border-width: 0 1px 1px 0; transform: rotate(-45deg);
 }
-.uc-stage-group[open] > summary::before { transform: rotate(90deg); }
-.uc-stage-group-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.uc-stage-group-count {
-  padding: 1px 4px; border-radius: 4px; color: var(--text-dim); background: var(--bg2);
-  white-space: nowrap; font-size: 12px; font-weight: 500; font-variant-numeric: tabular-nums;
+.uc-stage-group[open] > summary::before { transform: rotate(45deg); }
+.uc-stage-group-name { min-width: 0; overflow-wrap: anywhere; }
+.uc-stage-group-range, .uc-stage-group-count, .uc-stage-group-note {
+  color: var(--text-dim); font-size: 11px; font-weight: 500; font-variant-numeric: tabular-nums;
 }
+.uc-stage-group-count { white-space: nowrap; justify-self: end; }
+.uc-stage-group-note { grid-column: 2 / -1; }
+.uc-stage-group summary[data-state="done"] .uc-stage-group-count { color: var(--green, var(--online)); }
+.uc-stage-group summary[data-state="current"] .uc-stage-group-note { color: var(--accent); }
+.uc-stage-group summary[data-state="review"] .uc-stage-group-note { color: var(--yellow, var(--warn)); }
 .uc-stage-group-items {
   margin: 4px 0 6px 11px; padding-inline-start: 6px; border-inline-start: 1px solid var(--border);
 }
 
-/* Keep enlarged controls within the resizable workflow pane. */
-#mission-section #mission-header { padding-block: 4px 3px; line-height: 1.25; }
-#mission-header :is(#mission-name, #mission-percent) { font-size: 15px; font-weight: 650; }
-#mission-header :is(#mission-counts, .mission-control-btn) { font-size: 12px; }
-#mission-header #mission-progress { height: 5px; }
-#mission-header .mission-control-btn:not(#mission-current) { min-height: 23px; padding-inline: 4px; }
 #mission-list .stage-item { padding-block: 3px; }
 #mission-list .stage-quick-btn { min-height: 25px; font-size: 12px; padding: 3px 6px; }
 .mission-dialog :is(.stage-quick-btn, .stage-bulk-btn) { min-height: 28px; font-size: 13px; }
 @container (max-width: 220px) {
+  .uc-stage-group > summary:has(.uc-stage-group-range) { column-gap: 4px; }
+  .uc-stage-group > summary:has(.uc-stage-group-range)::before { grid-area: 1 / 1; }
+  .uc-stage-group > summary:has(.uc-stage-group-range) .uc-stage-group-name { grid-area: 1 / 2 / 2 / 4; }
+  .uc-stage-group > summary:has(.uc-stage-group-range) .uc-stage-group-count { grid-area: 1 / 4; }
+  .uc-stage-group-range { grid-area: 2 / 2; }
+  .uc-stage-group > summary:has(.uc-stage-group-range) .uc-stage-group-note { grid-area: 2 / 3 / 3 / -1; }
   #mission-list .uc-stage-group-items { margin-inline-start: 6px; padding-inline-start: 3px; }
   #mission-list .uc-stage { gap: 4px; }
 }

@@ -86,13 +86,13 @@
   const maxZoom = 1.8;
 
   /** Keep matching branches and the ancestors that connect them to the module. */
-  function matchBranches(groups, query) {
+  function matchBranches(groups, query, accept = () => true, describe = () => "") {
     function match(node, parentPath, inherited) {
       const path = parentPath ? parentPath + '/' + node.id : node.id;
-      const matches = inherited || [path, node.label, node.description, ...(node.steps || []).map(step => step.number + ' ' + step.label)]
+      const matches = inherited || [path, node.label, node.description, describe(path), ...(node.steps || []).map(step => step.number + ' ' + step.label)]
         .some(value => value.toLowerCase().includes(query));
       const children = node.children.map(child => match(child, path, matches)).filter(Boolean);
-      return matches || children.length ? {...node, path, allChildren: node.children, children} : null;
+      return (matches && accept(node, path)) || children.length ? {...node, path, allChildren: node.children, children} : null;
     }
 
     return groups.flatMap((group, index) => {
@@ -141,7 +141,7 @@
   }
 
   /** Manage the graph viewport, branch navigation, and checkpoint detail. */
-  function create(panel, {openTest, openWave, openBug}) {
+  function create(panel, {openTest, openWave, openBug, showFormal}) {
     const doc = panel.ownerDocument;
     const viewport = panel.querySelector('.function-map-viewport');
     const canvas = viewport.querySelector('canvas');
@@ -161,6 +161,8 @@
     let selected = null;
     let selectionButton;
     let results;
+    let formal;
+    let filter = "";
     let bugs = new Map();
     let issues = new Map();
     const expanded = new Set();
@@ -172,7 +174,7 @@
     let drag;
     let moved = false;
 
-    const isOpen = path => query ? !searchCollapsed.has(path) : expanded.has(path);
+    const isOpen = path => query || filter ? !searchCollapsed.has(path) : expanded.has(path);
 
     /** Schedule a single paint for the current camera and device pixel ratio. */
     function repaint() {
@@ -256,7 +258,8 @@
       if (!issue) return;
       const strip = doc.createElement('span');
       strip.className = 'function-map-results';
-      if (node.kind !== 'CK' && issue.failures.size) strip.append(badge(issue.failures.size + ' failed', 'fail'));
+      if (node.kind !== 'CK' && issue.failures?.size) strip.append(badge(issue.failures.size + ' failed', 'fail'));
+      if (node.kind !== 'CK' && issue.attention) strip.append(badge(issue.attention + ' issues', 'bug'));
       if (issue.bugs) strip.append(badge(issue.bugs === 1 ? '1 Bug' : issue.bugs + ' Bugs', 'bug'));
       if (strip.childElementCount) button.append(strip);
     }
@@ -281,6 +284,16 @@
 
     /** Represent the two evidence sources with independent badges on the map. */
     function badges(path) {
+      if (formal) {
+        const property = formal.properties.get(path);
+        const strip = doc.createElement('span');
+        strip.className = 'function-map-results';
+        if (property) {
+          strip.append(badge(property.kind.toUpperCase(), 'neutral'),
+            badge(root.UCAgentFormalView.status(property), root.UCAgentFormalView.style(property)));
+        }
+        return strip;
+      }
       const {coverage, tests, coverageStyle, testsStyle} = checkpointResults(path);
       const hit = coverage ? coverage.hit ? 'Hit' + (coverage.count == null ? '' : ' ' + coverage.count) : 'Unhit' : 'Coverage —';
       const strip = doc.createElement('span');
@@ -429,9 +442,10 @@
         search.value = '';
         query = '';
         searchCollapsed.clear();
-        branches = matchBranches(groups, query);
+        filter = "";
+        rebuildBranches();
       }
-      if (query) searchCollapsed.delete(parent.path);
+      if (query || filter) searchCollapsed.delete(parent.path);
       else {
         const parts = parent.path.split('/');
         for (let index = 1; index <= parts.length; index++) expanded.add(parts.slice(0, index).join('/'));
@@ -529,7 +543,13 @@
           path.append(link);
         }
       }
-      const summary = node.kind === 'CK' ? checkpointResults(node.path) : null;
+      const summary = node.kind === 'CK' && !formal ? checkpointResults(node.path) : null;
+      const formalSection = detail.querySelector('.function-map-formal');
+      const property = formal?.properties.get(node.path);
+      if (formalSection) {
+        formalSection.hidden = !property;
+        if (property) showFormal?.(formalSection, property, formal.view);
+      }
       showMetrics(summary);
       showCases(summary);
       showBugs(node);
@@ -542,7 +562,7 @@
     /** Update the positioned node buttons and their matching connector paths. */
     function render(focusPath, focusToggle = false) {
       nodes = layout(moduleName, branches, isOpen, issues);
-      empty.hidden = !query || Boolean(branches.length);
+      empty.hidden = (!query && !filter) || Boolean(branches.length);
       let restoreFocus;
       const items = nodes.map(node => {
         const item = doc.createElement('div');
@@ -601,7 +621,7 @@
           toggle.addEventListener('click', event => {
             if (moved && event.detail) return;
             const opening = !isOpen(node.path);
-            const set = query ? searchCollapsed : expanded;
+            const set = query || filter ? searchCollapsed : expanded;
             if (set.has(node.path)) set.delete(node.path);
             else set.add(node.path);
             render(node.path, true);
@@ -618,9 +638,16 @@
       repaint();
     }
 
+    function rebuildBranches() {
+      branches = matchBranches(groups, query,
+        (node, path) => !filter || (node.kind === 'CK' && formal?.properties.has(path)
+          && root.UCAgentFormalView.matches(formal.properties.get(path), filter)),
+        path => formal?.properties.get(path)?.name || '');
+    }
+
     function updateSearch() {
       query = search.value.trim().toLowerCase();
-      branches = matchBranches(groups, query);
+      rebuildBranches();
       searchCollapsed.clear();
       showDetail(null);
       render();
@@ -718,7 +745,34 @@
         expanded.clear();
         updateSearch();
       },
+      setFormal(view, projection, nextFilter = "") {
+        const previousFilter = filter;
+        const previousProperty = formal?.properties.get(selected);
+        const first = !formal || formal.view.run?.run_id !== view.run?.run_id;
+        formal = {view, ...projection};
+        results = undefined;
+        bugs = new Map();
+        issues = projection.issues;
+        filter = nextFilter;
+        if (first || previousFilter !== filter) updateSearch();
+        else {
+          rebuildBranches();
+          const focused = layer.contains(doc.activeElement) ? doc.activeElement : null;
+          render(focused?.dataset.path, focused?.classList.contains('function-map-branch-toggle'));
+          if (fitted) fit();
+          const property = formal.properties.get(selected);
+          if (property && !detail.contains(doc.activeElement)
+              && JSON.stringify(property) !== JSON.stringify(previousProperty)) {
+            showDetail(nodes.find(node => node.path === selected), selectionButton);
+          }
+        }
+      },
       setResults(next, nextBugs) {
+        if (formal) {
+          formal = undefined;
+          filter = "";
+          updateSearch();
+        }
         results = next;
         bugs = nextBugs;
         issues = root.UCAgentFunctionMapResults.collectIssues(groups, results?.index, bugs);
@@ -730,6 +784,8 @@
       clear() {
         dataKey = '';
         results = undefined;
+        formal = undefined;
+        filter = '';
         bugs = new Map();
         issues = new Map();
         groups = [];

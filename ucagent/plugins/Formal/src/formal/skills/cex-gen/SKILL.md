@@ -1,38 +1,12 @@
 ---
 name: cex-gen
-description: 自动解析环境分析文档和 wrapper.sv，为每个 RTL_BUG 生成 Python 测试函数框架，LLM 填写引脚驱动和断言逻辑。
+description: 根据原始形式化反例设计独立的引脚复现测试。
 ---
 
-# 反例测试用例生成
+# 反例引脚测试
 
-## 概述
+仅当当前任务启用反例测试阶段且有已核验RTL缺陷时使用。读取阶段规格、DUT公开接口与RunFormal返回的原始反例，不根据Bug描述自行发明输入序列。完整测试格式见 `Guide_Doc/counterexample.md`。
 
-自动化生成 `{OUT}/tests/test_{DUT}_counterexample.py`，每个 RTL_BUG 对应一个测试函数框架（含 DUT 初始化、复位序列），LLM 只需在 `[LLM-TODO]` 处填写引脚驱动和断言。
+用普通文件工具填写阶段返回的测试骨架；每条目标使用精确完整属性身份，真实时序设计才配置真实时钟和复位。预期值依据独立核验的reference，不能用DUT自身输出作为预期。反例复现必须保留真实断言；没有确认Bug时按阶段无适用分支结束，不制造占位Bug或证据。
 
-执行说明：
-- 在本工作流中，请优先通过 `RunSkillScript` 调用技能脚本
-- 不要假设宿主 `python3` 环境具备所有依赖
-- 该阶段当前仍会产出需要人工/LLM补充的 Python 测试代码
-
-## 步骤
-
-### 1. 生成测试文件框架
-
-使用 `RunSkillScript` 工具执行以下命令生成测试文件骨架：
-
-```bash
-python3 .ucagent/skills/ext/formal/cex-gen/scripts/init_test_file.py
-```
-
-工具会自动从分析文档提取 RTL_BUG，从 wrapper.sv 识别时钟/复位端口，生成完整测试文件框架。
-
-### 2. 填写测试逻辑
-
-对于每个测试函数中的 `[LLM-TODO]`：读取 avis.log 反例信息 + RTL 源码，填写引脚驱动和 assert 断言。
-
-### 3. 完成后调用 Complete
-
-## 核心规则
-
-1. 每个函数至少一个 assert，末尾调用 `dut.Finish()`
-2. 若无 RTL_BUG，生成注释文件即可
+目标齐备后登记阶段日志并Complete，Check仅定位实际缺口。本技能是按需方法指导；默认阶段不声明Skill要求，不需要ListSkill/SetSkillUsage。已有RunSkillScript执行接口和脚本行为保持不变。

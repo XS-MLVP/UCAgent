@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="/static/share/ucagent-shell.css">
 <script src="/static/share/stage-view.js"></script>
 <script src="/static/share/console-view.js"></script>
+<script src="/static/share/formal-view.js"></script>
 <script src="/static/share/function-map.js"></script>
 <script src="/static/share/function-map-results.js"></script>
 <script>
@@ -35,7 +36,8 @@
 :root{--bg:#0f1117;--bg2:#1a1d25;--bg3:#22262f;--bg4:#2a2e3a;
       --border:#2e3340;--text:#c8cdd6;--text-dim:#6b7280;--text-bright:#e8ecf2;
       --accent:#4f8ef7;--accent2:#2d5cb8;--green:#36d399;--red:#f87272;
-      --yellow:#fbbd23;--orange:#f97316;--radius:6px;--mono:'Consolas','Menlo',monospace}
+      --yellow:#fbbd23;--orange:#f97316;--radius:6px;--mono:'Consolas','Menlo',monospace;
+      --pane-inset:12px;--pane-heading-height:44px;--pane-line:color-mix(in srgb,var(--border) 80%,var(--bg))}
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;height:100vh;display:flex;flex-direction:column;overflow:hidden;padding-bottom:var(--uc-footer-height, 32px)}
 a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
@@ -44,10 +46,24 @@ a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
 #hdr{display:flex;align-items:center;padding:0 16px;height:48px;background:var(--bg2);border-bottom:1px solid var(--border);flex-shrink:0;gap:12px}
 #hdr .logo{font-weight:700;font-size:16px;color:var(--text-bright);letter-spacing:.5px}
 #hdr .logo span{color:var(--accent)}
-#hdr .sep{flex:1}
-#status-bar{font-size:12px;color:var(--text-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:420px}
-.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--green);margin-right:6px;flex-shrink:0}
-.dot.err{background:var(--red)}
+#hdr .logo{flex:none}
+#task-context{display:flex;align-items:baseline;gap:8px;min-width:0;padding-inline-start:12px;border-inline-start:1px solid var(--border)}
+#mission-name{font-size:14px;font-weight:600;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#uc-shell-header-actions{margin-inline-start:auto;flex:none}
+#hdr #workspace-mode-label{white-space:nowrap}
+@media (max-width:660px){#hdr #workspace-mode-label{display:none}}
+@media (max-width:480px){#hdr{gap:8px;padding-inline:8px}#hdr .logo > span:last-child{display:none}#task-context{padding-inline-start:8px}}
+#status-bar{font-size:12px;color:var(--red);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#status-bar:empty{display:none}
+#header-more{position:relative}
+#header-more > summary{cursor:pointer;list-style:none}
+#header-more > summary::-webkit-details-marker{display:none}
+#header-more[open] > summary{border-color:var(--accent);color:var(--accent)}
+#header-more-actions{position:absolute;z-index:70;inset-block-start:calc(100% + 6px);inset-inline-end:0;
+  display:grid;align-items:stretch;min-width:180px;gap:6px;padding:8px;background:var(--bg2);
+  border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 6px 18px #0003}
+#header-more-actions :is(a,button){text-align:left}
+#header-more-actions .uc-theme-toggle{justify-content:space-between}
 #refresh-btn{background:none;border:1px solid var(--border);color:var(--text-dim);padding:4px 10px;border-radius:var(--radius);cursor:pointer;font-size:12px}
 #refresh-btn:hover{border-color:var(--accent);color:var(--accent)}
 .ui-reset-btn{background:none;border:1px solid var(--border);color:var(--text-dim);padding:4px 10px;border-radius:var(--radius);cursor:pointer;font-size:12px}
@@ -61,27 +77,41 @@ a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
 
 /* ── layout ── */
 #layout{display:flex;flex:1;min-height:0;overflow:hidden}
+.pane-heading{display:flex;align-items:center;justify-content:space-between;gap:4px 8px;
+  min-height:var(--pane-heading-height);padding:4px var(--pane-inset);border-block-end:1px solid var(--pane-line);flex:none}
+.pane-heading h2{color:var(--text-bright);font-size:14px;font-weight:650;white-space:nowrap}
+.pane-actions{display:flex;align-items:center;justify-content:flex-end;gap:2px;flex-wrap:wrap;min-width:0}
+.pane-action{color:var(--text-dim);font:inherit;font-size:12px;line-height:1.25;white-space:nowrap;
+  min-height:28px;border:0;border-radius:4px;background:transparent;padding:3px 6px;cursor:pointer}
+.pane-action:hover,.pane-action[aria-expanded="true"],.pane-action[aria-pressed="true"]{color:var(--text-bright);background:var(--bg3)}
+.pane-action:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.pane-action[hidden]{display:none}
 
 /* ── sidebar ── */
-#sidebar{width:280px;min-width:160px;min-height:0;background:var(--bg2);display:grid;grid-template-rows:minmax(0,70fr) 6px minmax(0,30fr);overflow:hidden;flex-shrink:0;position:relative}
-#sb-resizer{width:4px;background:var(--border);cursor:col-resize;flex-shrink:0;transition:background .15s;z-index:10}
+#sidebar{width:280px;min-width:160px;min-height:0;display:grid;grid-template-rows:minmax(0,70fr) 6px minmax(0,30fr);overflow:hidden;flex-shrink:0}
+#sb-resizer{width:1px;position:relative;background:var(--pane-line);cursor:col-resize;flex-shrink:0;z-index:10}
+#sb-resizer::after{content:"";position:absolute;inset:0 -3px}
 #sb-resizer:hover,#sb-resizer.dragging{background:var(--accent)}
 .sb-section{display:flex;flex-direction:column;min-height:0;min-width:0;overflow:hidden}
-.sb-panel-body{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior-y:contain;scrollbar-gutter:stable;scrollbar-color:var(--text-dim) var(--bg2);scrollbar-width:thin;padding:8px 10px}
-.sb-panel-resizer{height:6px;background:var(--border);cursor:row-resize;touch-action:none;user-select:none;position:relative;z-index:2}
-.sb-panel-resizer::after{content:"";position:absolute;left:calc(50% - 16px);top:2px;width:32px;height:2px;background:var(--text-dim);border-radius:2px}
-.sb-panel-resizer:hover,.sb-panel-resizer.dragging,.sb-panel-resizer:focus-visible{background:var(--accent);outline:none}
+.sb-panel-body{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior-y:contain;scrollbar-gutter:stable;scrollbar-color:var(--text-dim) var(--bg);scrollbar-width:thin;padding:8px var(--pane-inset)}
+.sb-panel-resizer{height:6px;cursor:row-resize;touch-action:none;user-select:none;position:relative;z-index:2}
+.sb-panel-resizer::before,.sb-panel-resizer::after{content:"";position:absolute;top:2px;height:1px;background:var(--pane-line)}
+.sb-panel-resizer::before{inset-inline:0}
+.sb-panel-resizer::after{left:calc(50% - 10px);width:20px;background:var(--text-dim)}
+.sb-panel-resizer:is(:hover,.dragging,:focus-visible)::after{background:var(--accent)}
 #mission-section{container-type:inline-size}
-#mission-header{flex:none;padding:5px 7px 4px;border-bottom:1px solid var(--border)}
-.mission-heading,.mission-meta{display:flex;align-items:center;gap:4px;min-width:0}
-#mission-name,#mission-counts,#mission-current{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-#mission-name{font-size:12px;font-weight:600}
-#mission-percent{color:var(--accent);font-size:12px;font-variant-numeric:tabular-nums}
-#mission-progress{display:block;width:100%;height:4px;margin:2px 0;accent-color:var(--accent)}
+#mission-header{flex:none}
+#mission-header .pane-actions{flex-wrap:nowrap}
+.mission-summary{display:grid;gap:5px;padding:9px var(--pane-inset) 8px}
+.mission-meta{display:flex;align-items:center;gap:5px;min-width:0;min-height:18px}
+#mission-counts,#mission-current{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#mission-bulk-btn{margin-inline-start:auto;min-height:22px;padding:2px 5px}
+#mission-percent{color:var(--accent-hover,var(--accent));font-size:13px;font-weight:650;font-variant-numeric:tabular-nums}
+#mission-progress{display:block;width:100%;height:3px;accent-color:var(--accent)}
 #mission-progress[hidden]{display:none}
-#mission-scroll{padding:2px 5px 4px}
-#mission-counts{font-size:10px;color:var(--text-dim)}
-#mission-current{padding:0;text-align:left;color:var(--accent)}
+#mission-scroll{padding:0 5px 4px}
+#mission-counts{font-size:12px;color:var(--text-dim)}
+#mission-current{padding:0;text-align:left;color:var(--accent-hover,var(--accent));font-size:12px}
 #mission-current.awaiting-review{color:var(--yellow)}
 .mission-control-btn{flex:none;border:0;background:none;color:var(--text-dim);padding:2px;font:inherit;font-size:11px;cursor:pointer}
 .mission-control-btn:hover{color:var(--accent)}
@@ -95,22 +125,16 @@ a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
 .stage-bulk-list label{display:flex;align-items:baseline;gap:5px;overflow-wrap:anywhere}
 #sidebar-information{container-type:inline-size}
 #sidebar-tabs{flex:none;display:grid;grid-template-columns:minmax(min-content,.75fr) minmax(min-content,1fr) minmax(min-content,1.25fr);
-  gap:4px;padding:3px 6px 0;border-bottom:1px solid var(--border);background:var(--bg2)}
-.sidebar-tab{min-height:26px;padding:2px 6px 1px;border:0;border-bottom:2px solid transparent;border-radius:4px 4px 0 0;
+  gap:4px;padding:2px 6px 0;border-bottom:1px solid var(--pane-line)}
+.sidebar-tab{min-height:30px;padding:2px 6px 1px;border:0;border-bottom:2px solid transparent;border-radius:4px 4px 0 0;
   background:transparent;color:var(--text);font:inherit;font-size:12px;font-weight:550;line-height:1.1;cursor:pointer}
 .sidebar-tab:hover{background:var(--bg3);color:var(--text-bright)}
-.sidebar-tab[aria-selected="true"]{border-bottom-color:var(--accent);background:color-mix(in srgb,var(--accent) 9%,transparent);color:var(--text-bright)}
+.sidebar-tab[aria-selected="true"]{border-bottom-color:var(--accent);color:var(--text-bright)}
 .sidebar-tab:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
 @container (max-width:248px){
   #sidebar-tabs{gap:3px;padding-inline:4px}
   .sidebar-tab{padding-inline:2px;font-size:11px}
 }
-#agent-status-section{position:relative}
-#agent-status-section #status-text{position:relative;z-index:1}
-#agent-status-section.sub-workspace-mode{background:linear-gradient(135deg,rgba(79,142,247,.18),rgba(54,211,153,.10))}
-#agent-status-section.sub-workspace-mode::before{content:"Sub";position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
-  font-size:var(--sub-watermark-size,72px);font-weight:800;line-height:.9;color:rgba(79,142,247,.18);letter-spacing:2px;
-  text-transform:uppercase;pointer-events:none;z-index:0}
 #status-text{display:flex;flex-wrap:wrap;align-content:flex-start;gap:4px 14px;font-family:var(--mono);font-size:11px;line-height:1.6;color:var(--text)}
 .status-item{display:inline-flex;align-items:baseline;flex-wrap:wrap;gap:0 4px;max-width:100%;min-width:0}
 .status-key{color:var(--text-dim)}
@@ -125,11 +149,9 @@ a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
 .stage-bulk-btn:hover,.stage-quick-btn:hover{border-color:var(--accent);color:var(--accent)}
 .stage-bulk-btn:disabled,.stage-quick-btn:disabled{opacity:.45;cursor:not-allowed}
 .stage-select{margin-top:2px;accent-color:var(--accent);cursor:pointer}
-.stage-title-btn{display:flex;align-items:baseline;gap:4px;flex:1;min-width:0;padding:2px 0;background:none;border:none;color:inherit;font:inherit;text-align:left;cursor:pointer}
+.stage-title-btn{flex:1;min-width:0;padding:2px 0;background:none;border:none;color:inherit;font:inherit;text-align:left;cursor:pointer}
 .stage-title-btn:hover{color:var(--accent);text-decoration:underline;text-underline-offset:2px}
-.stage-title-btn .uc-stage{flex:1}
-.stage-chevron{flex:0 0 9px;color:var(--accent);font-size:16px;line-height:1;text-align:center}
-.stage-title-btn[aria-expanded="true"] .stage-chevron{transform:rotate(90deg)}
+.stage-title-btn[aria-expanded="true"] .uc-stage-name{color:var(--accent-hover,var(--accent))}
 .stage-actions,#mission-list .uc-stage-time{display:none}
 @container (min-width: 330px){
   .stage-actions{display:flex;align-items:center;gap:4px;flex:none}
@@ -148,7 +170,8 @@ a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
 .stage-inline-info :is(.outcome-path-part,.outcome-name){min-width:0;max-width:100%;overflow-wrap:anywhere;border:0;font:inherit;text-align:left}
 .stage-inline-info .outcome-path-part{padding:0;background:none}
 .stage-inline-info .stage-task-meta{margin:4px 0}
-.stage-inline-info .stage-info-task{max-width:100%;margin:2px 0 4px;white-space:normal;overflow-wrap:anywhere}
+.stage-info-actions{display:flex;flex-wrap:wrap;gap:4px;margin:2px 0 4px}
+.stage-info-actions .fm-btn{max-width:100%;white-space:normal;overflow-wrap:anywhere}
 .stage-info-section{margin:8px 0}
 .stage-info-heading{display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:2px 6px;padding:4px 5px;
   color:var(--text);background:var(--bg3);border:1px solid var(--border);border-radius:4px;font-size:13px;font-weight:650}
@@ -241,37 +264,46 @@ a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
 
 /* ── file manager ── */
 #fm{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;overflow:hidden;container:reports / inline-size}
-#fm-bar{display:flex;align-items:center;padding:8px 14px;background:var(--bg2);border-bottom:1px solid var(--border);gap:8px;flex-shrink:0;flex-wrap:wrap}
-#reports-title{flex:1;font-size:14px;color:var(--text-bright)}
+#fm-bar,.function-map-header{flex-wrap:wrap}
 #workspace-sidebar[hidden]{display:none}
 #workspace-sidebar{flex:1}
 #workspace-file-scroll{padding:5px 6px;container:file-list / inline-size}
 .workspace-toolbar{display:flex;align-items:center;gap:5px;padding:4px 6px;border-bottom:1px solid var(--border)}
-.reports-tool-buttons{display:flex;flex-wrap:wrap;gap:6px;padding:6px 14px;background:var(--bg2);border-bottom:1px solid var(--border)}
-.reports-tool-buttons .fm-btn[aria-expanded="true"]{color:var(--accent);border-color:var(--accent)}
-#report-file-actions{padding:4px 14px;background:var(--bg2);border-bottom:1px solid var(--border)}
+#report-file-actions{padding:4px var(--pane-inset);border-bottom:1px solid var(--pane-line);flex:none}
 .workspace-actions{display:flex;flex-wrap:wrap;gap:4px;padding:4px 0}
 #workspace-content{flex:1;min-width:0;min-height:0;display:flex;overflow:hidden}
-#workspace-reports{flex:1;min-width:0;min-height:0}
-#workspace-reports{display:flex;flex-direction:column}
-#reports-breadcrumb{padding:6px 14px;border-bottom:1px solid var(--border)}
+#workspace-reports{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column}
+#reports-breadcrumb{padding:6px var(--pane-inset);border-bottom:1px solid var(--pane-line)}
 #report-file-list{flex:1;min-height:0;overflow:auto;container:file-list / inline-size}
+#report-file-list > .report-message{padding:8px var(--pane-inset)}
+#formal-overview{padding:8px var(--pane-inset);border-bottom:1px solid var(--pane-line);font-size:12px}
+#formal-overview[hidden],.function-map-formal[hidden]{display:none}
+.formal-batch-controls,.formal-result-filters,.formal-links{display:flex;align-items:center;flex-wrap:wrap;gap:5px}
+.formal-batch-controls{margin-bottom:6px}
+.formal-result-filters .pane-action{min-height:24px}
+.formal-result-filters .pane-action[aria-pressed="true"]{color:var(--accent-hover,var(--accent))}
+.formal-run-status{color:var(--text-dim)}
+.function-map-formal{display:grid;gap:7px;min-width:0}
+.function-map-formal > code{color:var(--text-dim)}
+.function-map-formal pre,.formal-comparison-content pre{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--bg);padding:6px}
+.formal-trace[open],.formal-review-form{display:flex;flex-direction:column;align-items:flex-start;gap:5px}
+.formal-signal-list{display:flex;flex-wrap:wrap;gap:4px;margin-block:5px}
+.formal-signal-list .act-btn{overflow-wrap:anywhere;text-align:left}
+#formal-overview select,.function-map-formal :is(select,input,textarea){max-width:100%;min-width:0;padding:4px;color:var(--text);background:var(--bg2);border:1px solid var(--border);border-radius:4px;font:inherit}
+.function-map-formal :is(input,textarea){width:100%}
+.formal-comparison-content{display:grid;gap:8px;font-size:13px}
+.formal-comparison-content ul,.function-map-formal ol{padding-inline-start:18px}
 #workspace-content > [hidden]{display:none}
-#function-map{flex:0 0 clamp(300px,37%,460px);min-width:0;display:flex;flex-direction:column;border-inline-start:1px solid var(--border);background:var(--bg)}
-#function-map-toggle{display:none;margin-inline-start:auto}
-#function-map-toggle[aria-pressed="true"]{border-color:var(--accent);color:var(--text-bright)}
-.function-map-header{display:flex;align-items:center;justify-content:space-between;gap:6px;padding:8px 12px;border-bottom:1px solid var(--border);background:var(--bg2)}
-.function-map-header h3{font-size:13px;color:var(--text-bright)}
-.function-map-actions{display:flex;align-items:center;gap:6px}
-.function-map-actions button{margin:0}
-#function-map-expand[aria-pressed="true"]{border-color:var(--accent);color:var(--text-bright)}
-#function-map-search{margin:7px 10px;min-width:0;padding:5px 8px;border:1px solid var(--border);border-radius:var(--radius);
-  background:var(--bg2);color:var(--text-bright);font:inherit;font-size:12px}
+#function-map{flex:0 0 min(52%,640px);min-width:0;display:flex;flex-direction:column;border-inline-start:1px solid var(--pane-line)}
+#function-map-toggle,#function-map-back{display:none}
+#function-map-search{min-width:0;padding:8px var(--pane-inset);border:0;border-block-end:1px solid var(--pane-line);
+  background:transparent;color:var(--text-bright);font:inherit;font-size:12px}
+#function-map-search:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
 .function-map-body{display:flex;flex:1;position:relative;min-height:0;container:map-body / inline-size}
 .function-map-body[hidden]{display:none}
 .function-map-stage{display:flex;flex:1;flex-direction:column;min-width:0;min-height:0}
 .function-map-viewport{position:relative;flex:1;min-height:0;overflow:clip;touch-action:none;cursor:grab;user-select:none;
-  background-image:radial-gradient(circle,var(--border) 1px,transparent 1px);background-size:17px 17px}
+  background-image:radial-gradient(circle,color-mix(in srgb,var(--border) 65%,transparent) 1px,transparent 1px);background-size:18px 18px}
 .function-map-viewport.dragging,.function-map-viewport.dragging button{cursor:grabbing}
 .function-map-viewport canvas,.function-map-nodes{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
 .function-map-nodes{transform-origin:0 0}
@@ -290,9 +322,9 @@ a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
 .function-map-branch-toggle:hover{background:color-mix(in srgb,var(--branch-color) 25%,var(--bg2))}
 .function-map-branch-toggle[data-side="1"]{right:-10px}
 .function-map-branch-toggle[data-side="-1"]{left:-10px}
-.function-map-no-match,#function-map-status{padding:8px 10px}
+.function-map-no-match,#function-map-status{padding:8px var(--pane-inset)}
 .function-map-toolbar{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:5px 9px;
-  padding:6px 9px;border-top:1px solid var(--border);background:var(--bg2)}
+  padding:5px var(--pane-inset);border-top:1px solid var(--pane-line)}
 #function-map-counts,.function-map-scale{color:var(--text-dim);font-size:11px}
 .function-map-zoom{display:flex;align-items:center;gap:4px}
 .function-map-zoom button{margin:0;min-height:22px}
@@ -361,7 +393,7 @@ a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
   #workspace-content.function-map-expanded #function-map{flex:1;border-inline-start:0}
 }
 @container reports (max-width:760px){
-  #function-map-toggle{display:inline-block}
+  #function-map-toggle,#function-map-back{display:inline-block}
   #function-map-expand{display:none}
   #function-map{flex:1;border-inline-start:0}
   #workspace-content:not(.show-function-map) #function-map,
@@ -379,6 +411,11 @@ a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
 .file-table button.file-link:hover,.file-table .file-link.dir{color:var(--accent)}
 .file-table .file-icon{flex:none}
 .file-table .file-origin{display:block;color:var(--text-dim);font-size:11px;overflow-wrap:anywhere;white-space:normal}
+#report-file-list .report-index thead{display:none}
+#report-file-list .report-index td{padding-inline:var(--pane-inset);border-color:var(--pane-line)}
+#report-file-list .file-primary .file-link{color:var(--accent-hover,var(--accent));font-weight:650}
+#report-file-list .report-index :is(.file-type,.file-size,.file-modified){display:none}
+#report-file-list .report-index .file-actions{width:64px;text-align:right}
 .file-table .file-buttons{display:flex;align-items:center;gap:2px}
 .file-table .act-btn{margin:0;padding:2px 4px}
 .file-table .file-buttons .act-btn{flex:none;padding-inline:3px}
@@ -406,7 +443,8 @@ a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
 .directory-breadcrumb button{border:0;background:none;color:var(--accent);font:inherit;cursor:pointer;overflow-wrap:anywhere}
 .directory-breadcrumb button:hover{text-decoration:underline}
 .directory-breadcrumb .sep{color:var(--text-dim);margin:0 2px}
-#workspace-mode-label{font-family:var(--mono);font-size:11px;color:var(--yellow);max-width:360px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#workspace-mode-label{font-size:12px;color:var(--text-dim)}
+#workspace-mode-label:empty{display:none}
 .fm-btn{background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:4px 10px;border-radius:var(--radius);cursor:pointer;font-size:12px;white-space:nowrap}
 .fm-btn:hover{border-color:var(--accent);color:var(--accent)}
 .fm-btn.primary{background:var(--accent2);border-color:var(--accent2);color:#fff}
@@ -425,21 +463,24 @@ tr:hover td{background:var(--bg3)}
 #fm-empty,#fm-loading{display:none;padding:5px 2px;color:var(--text-dim);font-size:12px}
 
 /* ── console panel ── */
-#fm-resizer{height:4px;background:var(--border);cursor:row-resize;flex-shrink:0;transition:background .15s}
+#fm-resizer{height:1px;position:relative;background:var(--pane-line);cursor:row-resize;touch-action:none;flex-shrink:0;z-index:10}
+#fm-resizer::after{content:"";position:absolute;inset:-3px 0}
 #fm-resizer:hover,#fm-resizer.dragging{background:var(--accent)}
-#console-panel{height:220px;min-height:160px;display:flex;flex-direction:column;overflow:hidden;flex-shrink:0}
-#console-bar{display:flex;align-items:center;padding:4px 12px;background:var(--bg2);border-bottom:1px solid var(--border);border-top:1px solid var(--border);gap:8px;flex-shrink:0}
-#console-bar .label{font-size:11px;text-transform:uppercase;letter-spacing:.8px;color:var(--text-dim);font-weight:600}
+#console-panel{height:var(--console-height,220px);min-height:160px;display:flex;flex-direction:column;overflow:hidden;flex-shrink:0}
+#console-panel.is-collapsed{height:auto;min-height:0}
+#console-content{display:flex;flex:1;flex-direction:column;min-height:0}
+#console-content[hidden],#fm-resizer[hidden],.console-controls[hidden]{display:none}
+.console-controls{display:flex;flex-wrap:wrap;gap:4px}
+#console-bar{display:flex;align-items:center;padding:4px var(--pane-inset);border-bottom:1px solid var(--pane-line);gap:8px;flex-shrink:0}
+#console-panel.is-collapsed #console-bar{border-block:1px solid var(--pane-line);border-block-end:0}
+#console-toggle{display:flex;align-items:center;gap:7px;padding:3px 3px 3px 0;border:0;background:none;color:var(--text);font:inherit;font-size:12px;font-weight:600;cursor:pointer}
+#console-toggle::before{content:"";width:5px;height:5px;border:solid var(--text-dim);border-width:0 1px 1px 0;transform:rotate(-45deg)}
+#console-toggle[aria-expanded="true"]::before{transform:rotate(45deg)}
 #console-bar .csep{flex:1}
 #console-output-wrap{flex:1;min-height:0;position:relative;overflow:hidden;background:var(--bg);z-index:0;isolation:isolate}
-#console-output-wrap.sub-workspace-mode{background:linear-gradient(135deg,rgba(79,142,247,.12),rgba(251,189,35,.08)),var(--bg)}
-#console-output-wrap.sub-workspace-mode::before{content:"";position:absolute;inset:0;display:flex;align-items:flex-end;justify-content:center;
-  font-size:var(--master-watermark-size,110px);font-weight:800;line-height:.82;color:rgba(251,189,35,.16);letter-spacing:2px;
-  text-transform:uppercase;white-space:nowrap;pointer-events:none;z-index:2}
 #console-output{position:relative;z-index:1;height:100%;overflow-y:auto;font-family:var(--mono);font-size:12px;line-height:1.6;padding:6px 10px;background:transparent!important;white-space:pre-wrap;word-break:break-all;color:var(--text)}
 html[data-theme="light"] #console-output-wrap{background:#16202b!important;color:#e6edf5!important}
 html[data-theme="light"] #console-output{color:#e6edf5!important}
-html[data-theme="light"] #console-output-wrap.sub-workspace-mode{background:linear-gradient(135deg,rgba(79,142,247,.18),rgba(251,189,35,.12)),#16202b!important}
 .con-btn{background:none;border:1px solid var(--border);color:var(--text-dim);padding:2px 8px;border-radius:4px;cursor:pointer;font-size:11px}
 .con-btn:hover{border-color:var(--accent);color:var(--accent)}
 .con-btn.active{border-color:var(--green);color:var(--green)}
@@ -523,7 +564,7 @@ html[data-theme="light"] #console-output-wrap.sub-workspace-mode{background:line
   .modal-resize-handle[data-resize-direction="nw"]{left:-9px;top:-9px}
 }
 /* ── changed files bar ── */
-#changed-files-bar{display:flex;flex-direction:column;padding:4px 12px 6px;border-bottom:1px solid var(--border);background:var(--bg2);flex-shrink:0;max-height:160px;overflow-y:auto}
+#changed-files-bar{display:flex;flex-direction:column;padding:4px var(--pane-inset) 6px;border-bottom:1px solid var(--pane-line);flex-shrink:0;max-height:160px;overflow-y:auto}
 #changed-files-bar[hidden]{display:none}
 #cf-meta{display:flex;align-items:center;gap:4px;flex-shrink:0}
 #cf-chips{display:flex;flex-direction:row;flex-wrap:wrap;align-items:baseline;gap:0 16px;margin-top:3px}
@@ -590,6 +631,9 @@ textarea#edit-content{flex:1;background:var(--bg);color:var(--text);border:none;
 /* ── hljs override ── */
 pre code.hljs,code.hljs{background:transparent!important;padding:0!important}
 .console-tabs{display:flex;gap:3px;flex-wrap:wrap}
+.console-tabs .con-btn{border-color:transparent;padding:3px 7px}
+.console-tabs .con-btn:hover{background:var(--bg3);color:var(--text-bright)}
+.console-tabs .con-btn.active{background:var(--bg3);color:var(--text-bright)}
 #console-bar{flex-wrap:wrap;height:auto;min-height:32px}
 #console-notice{font-size:11px;color:var(--yellow);padding:0 10px}
 #console-notice:empty{display:none}
@@ -612,15 +656,20 @@ pre code.hljs,code.hljs{background:transparent!important;padding:0!important}
 <!-- header -->
 <div id="hdr">
   <div class="logo uc-shell-brand"><span class="uc-shell-brand-mark">UC</span><span>UC<span>Agent</span></span></div>
-  <div id="status-bar"><span class="dot"></span>Loading...</div>
-  <div class="sep"></div>
+  <div id="task-context"><h1 id="mission-name">Mission / Tasks</h1><span id="workspace-mode-label"></span></div>
+  <div id="status-bar" role="status"></div>
   <div id="uc-shell-header-actions" class="uc-shell-actions">
     <a id="master-btn" class="master-btn" href="/" style="display:none" title="Go to Master Dashboard">Master</a>
-    <a id="complete-btn" class="master-btn" href="/complete/" style="display:none" title="Open sub-workspace completion dashboard">Completed Task</a>
-    <button id="web-terminal-btn" class="web-terminal-btn" disabled title="Web Terminal not running. Use 'terminal_api_start' command to start.">Web Terminal</button>
-    <a id="xpra-btn" class="master-btn" href="/api/xpra/" target="_blank" rel="noopener" title="Manage GUI and console sessions">Xpra</a>
-    <button id="ui-reset-btn" class="ui-reset-btn" onclick="resetUiLayout()" title="Reset saved UI layout and dashboard preferences (Alt+Shift+R)">Reset UI</button>
     <button id="refresh-btn" onclick="refreshAll()">&#8635; Refresh</button>
+    <details id="header-more">
+      <summary class="master-btn">More <span aria-hidden="true">⌄</span></summary>
+      <div id="header-more-actions">
+        <a id="complete-btn" class="master-btn" href="/complete/" style="display:none" title="Open sub-workspace completion dashboard">Completed Task</a>
+        <button id="web-terminal-btn" class="web-terminal-btn" disabled title="Web Terminal not running. Use 'terminal_api_start' command to start.">Web Terminal</button>
+        <a id="xpra-btn" class="master-btn" href="/api/xpra/" target="_blank" rel="noopener" title="Manage GUI and console sessions">Xpra</a>
+        <button id="ui-reset-btn" class="ui-reset-btn" onclick="resetUiLayout()" title="Reset saved UI layout and dashboard preferences (Alt+Shift+R)">Reset UI</button>
+      </div>
+    </details>
   </div>
 </div>
 
@@ -628,16 +677,23 @@ pre code.hljs,code.hljs{background:transparent!important;padding:0!important}
 <div id="layout">
 
   <!-- sidebar: each panel scrolls independently; separators resize adjacent panels. -->
-  <div id="sidebar" style="border-right:none">
+  <div id="sidebar">
       <div class="sb-section" id="mission-section">
         <div id="mission-header">
-          <div class="mission-heading"><span id="mission-name">Mission / Tasks</span><span id="mission-percent" aria-hidden="true"></span></div>
-          <progress id="mission-progress" aria-label="Verification progress" hidden></progress>
-          <div class="mission-meta">
-            <span id="mission-counts"></span>
-            <button type="button" class="mission-control-btn" id="mission-current" onclick="locateCurrentStage()" hidden></button>
-            <button type="button" class="mission-control-btn" id="mission-bulk-btn" onclick="openStageBulk()" aria-haspopup="dialog" hidden>Bulk</button>
-            <button type="button" class="mission-control-btn" onclick="qs('#mission-settings-dialog').showModal()" aria-haspopup="dialog" aria-label="Workflow display settings" title="Workflow display settings">⋯</button>
+          <div class="pane-heading">
+            <h2>Workflow</h2>
+            <div class="pane-actions">
+              <span id="mission-percent" aria-hidden="true"></span>
+              <button type="button" class="pane-action" onclick="qs('#mission-settings-dialog').showModal()" aria-haspopup="dialog" aria-label="Workflow display settings" title="Workflow display settings">⋯</button>
+            </div>
+          </div>
+          <div class="mission-summary">
+            <progress id="mission-progress" aria-label="Workflow progress" hidden></progress>
+            <div class="mission-meta">
+              <span id="mission-counts"></span>
+              <button type="button" class="mission-control-btn" id="mission-current" onclick="locateCurrentStage()" hidden></button>
+              <button type="button" class="pane-action" id="mission-bulk-btn" onclick="openStageBulk()" aria-haspopup="dialog" hidden>Bulk</button>
+            </div>
           </div>
         </div>
         <div class="sb-panel-body" id="mission-scroll" tabindex="0" aria-label="Stage information">
@@ -676,51 +732,60 @@ pre code.hljs,code.hljs{background:transparent!important;padding:0!important}
 
   <!-- verification reports and file preview -->
   <div id="fm">
-    <div id="fm-bar">
-      <h2 id="reports-title">Reports</h2>
-      <span id="workspace-mode-label"></span>
-      <button type="button" class="fm-btn" onclick="fetchReports()" aria-label="Refresh reports">↻</button>
-    </div>
-    <div class="reports-tool-buttons">
-      <button type="button" class="fm-btn" aria-expanded="false" aria-controls="report-file-actions" onclick="toggleReportTools(this)">File actions</button>
-      <button type="button" class="fm-btn" aria-expanded="false" aria-controls="changed-files-bar" onclick="toggleReportTools(this)">Recent changes</button>
-      <button type="button" id="function-map-toggle" class="fm-btn" aria-pressed="false" aria-controls="function-map" onclick="toggleFunctionMap()">Function map</button>
-    </div>
-    <div id="report-file-actions" hidden>
-      <div class="workspace-actions">
-        <button type="button" class="act-btn" onclick="openNewFile()">New file</button>
-        <button type="button" class="act-btn" onclick="openUpload()">Upload</button>
-        <button type="button" class="act-btn" onclick="downloadWorkspace()">Download workspace</button>
-        <label class="fm-toggle"><input type="checkbox" id="show-file-delete-controls"> Show delete</label>
-        <button type="button" class="act-btn" id="workspace-change-btn" onclick="changeWorkspaceFromCurrent()" style="display:none">Change workspace</button>
-        <button type="button" class="act-btn" id="workspace-relaunch-btn" onclick="openRelaunchDialog()" style="display:none">Relaunch</button>
-        <button type="button" class="act-btn" id="workspace-exit-btn" onclick="exitSubWorkspace()" style="display:none">Exit workspace</button>
-      </div>
-    </div>
-    <div id="changed-files-bar" hidden>
-      <div id="cf-meta">
-        <span id="cf-title"><span class="cf-header">Recent Changes</span></span>
-        <div class="cf-count-ctrl">
-          <button type="button" onclick="cfCountStep(-1)" title="Show fewer">&#9660;</button>
-          <input id="cf-count-input" type="number" value="5" min="1" max="99" onchange="fetchChangedFiles()" title="Files to show">
-          <button type="button" onclick="cfCountStep(1)" title="Show more">&#9650;</button>
-        </div>
-      </div>
-      <div id="cf-chips"></div>
-    </div>
     <div id="workspace-content">
-      <div id="workspace-reports" aria-label="Important reports">
-        <nav id="reports-breadcrumb" class="directory-breadcrumb" aria-label="Reports directory" hidden></nav>
-        <div id="report-file-list" tabindex="-1"><p class="report-message">Loading reports…</p></div>
-      </div>
-      <section id="function-map" aria-labelledby="function-map-title">
-        <div class="function-map-header">
-          <h3 id="function-map-title">Function map</h3>
-          <div class="function-map-actions">
-            <button type="button" id="function-map-expand" class="act-btn" aria-pressed="false" onclick="toggleFunctionMapSize(this)" hidden>Enlarge map</button>
-            <button type="button" id="function-map-source" class="act-btn" hidden>Open source report</button>
+      <section id="workspace-reports" aria-labelledby="reports-title">
+        <header id="fm-bar" class="pane-heading">
+          <h2 id="reports-title">Reports</h2>
+          <div class="pane-actions">
+            <button type="button" class="pane-action" aria-expanded="false" aria-controls="report-file-actions" onclick="toggleReportTools(this)">File actions</button>
+            <button type="button" class="pane-action" aria-expanded="false" aria-controls="changed-files-bar" onclick="toggleReportTools(this)">Recent changes</button>
+            <button type="button" class="pane-action" onclick="fetchReports()" aria-label="Refresh reports">↻</button>
+            <button type="button" id="function-map-toggle" class="pane-action" aria-controls="function-map" onclick="toggleFunctionMap()">Function map <span aria-hidden="true">→</span></button>
+          </div>
+        </header>
+        <div id="report-file-actions" hidden>
+          <div class="workspace-actions">
+            <button type="button" class="act-btn" onclick="openNewFile()">New file</button>
+            <button type="button" class="act-btn" onclick="openUpload()">Upload</button>
+            <button type="button" class="act-btn" onclick="downloadWorkspace()">Download workspace</button>
+            <label class="fm-toggle"><input type="checkbox" id="show-file-delete-controls"> Show delete</label>
+            <button type="button" class="act-btn" id="workspace-change-btn" onclick="changeWorkspaceFromCurrent()" style="display:none">Change workspace</button>
+            <button type="button" class="act-btn" id="workspace-relaunch-btn" onclick="openRelaunchDialog()" style="display:none">Relaunch</button>
+            <button type="button" class="act-btn" id="workspace-exit-btn" onclick="exitSubWorkspace()" style="display:none">Exit workspace</button>
           </div>
         </div>
+        <div id="changed-files-bar" hidden>
+          <div id="cf-meta">
+            <span id="cf-title"><span class="cf-header">Recent Changes</span></span>
+            <div class="cf-count-ctrl">
+              <button type="button" onclick="cfCountStep(-1)" title="Show fewer">&#9660;</button>
+              <input id="cf-count-input" type="number" value="5" min="1" max="99" onchange="fetchChangedFiles()" title="Files to show">
+              <button type="button" onclick="cfCountStep(1)" title="Show more">&#9650;</button>
+            </div>
+          </div>
+          <div id="cf-chips"></div>
+        </div>
+        <div id="formal-overview" hidden>
+          <div class="formal-batch-controls">
+            <select id="formal-batch" aria-label="Formal proof batch"></select>
+            <button type="button" class="act-btn" id="formal-compare-button" hidden>Compare previous</button>
+            <button type="button" class="act-btn del" id="formal-cancel-button" hidden>Cancel batch</button>
+            <span id="formal-run-status" class="formal-run-status" role="status"></span>
+          </div>
+          <div id="formal-result-filters" class="formal-result-filters" aria-label="Filter Formal checkpoints"></div>
+        </div>
+        <nav id="reports-breadcrumb" class="directory-breadcrumb" aria-label="Reports directory" hidden></nav>
+        <div id="report-file-list" tabindex="-1"><p class="report-message">Loading reports…</p></div>
+      </section>
+      <section id="function-map" aria-labelledby="function-map-title">
+        <header class="pane-heading function-map-header">
+          <h2 id="function-map-title">Function map</h2>
+          <div class="pane-actions">
+            <button type="button" id="function-map-expand" class="pane-action" aria-pressed="false" onclick="toggleFunctionMapSize(this)" hidden>Enlarge map</button>
+            <button type="button" id="function-map-source" class="pane-action" hidden>Open source report</button>
+            <button type="button" id="function-map-back" class="pane-action" aria-controls="workspace-reports" onclick="toggleFunctionMap()"><span aria-hidden="true">←</span> Reports</button>
+          </div>
+        </header>
         <input type="search" id="function-map-search" aria-label="Search functions and checkpoints" placeholder="Search functions and checkpoints" hidden>
         <p id="function-map-status" class="report-message" role="status">Loading function map…</p>
         <div class="function-map-body" hidden>
@@ -751,6 +816,7 @@ pre code.hljs,code.hljs{background:transparent!important;padding:0!important}
                 <div><dt>Coverage</dt><dd data-metric="coverage"></dd></div>
                 <div><dt>Test results</dt><dd data-metric="tests"></dd></div>
               </dl>
+              <section class="function-map-formal" hidden></section>
               <section class="function-map-case-results" hidden><h4>Test cases</h4><div></div></section>
               <section class="function-map-bug-results" hidden><h4>Recorded bugs</h4><ul></ul></section>
               <section class="function-map-definition" hidden><h4>Definition</h4><div></div></section>
@@ -768,40 +834,50 @@ pre code.hljs,code.hljs{background:transparent!important;padding:0!important}
     <!-- console output panel -->
     <div id="console-panel">
       <div id="console-bar">
-        <span class="label">Output</span>
+        <button type="button" id="console-toggle" aria-expanded="true" aria-controls="console-content" onclick="setConsoleCollapsed(this.getAttribute('aria-expanded')==='true')">Output</button>
         <div class="console-tabs" role="tablist" aria-label="Output source">
           <button class="con-btn active" role="tab" id="console-tab-activity">Activity</button>
           <button class="con-btn" role="tab" id="console-tab-system">System logs</button>
           <button class="con-btn" role="tab" id="console-tab-raw">Raw output</button>
         </div>
         <span class="csep"></span>
-        <button class="con-btn active" id="console-autoscroll-btn" onclick="toggleAutoScroll()">Auto-scroll</button>
-        <button class="con-btn" id="console-chat-btn" onclick="toggleConsoleChatMode()" disabled title="Enable chat mode (Shift+C when idle)">Chat</button>
-        <button class="con-btn cdanger" onclick="clearConsole()">Clear</button>
-      </div>
-      <div id="runtime-running">
-        <span id="runtime-running-label">running:</span>
-        <span id="runtime-running-cmds"></span>
-      </div>
-      <div id="runtime-results"></div>
-      <div id="console-notice" role="status"></div>
-      <button class="con-btn" id="console-new-output" hidden>New output · scroll to latest</button>
-      <div id="console-output-wrap">
-        <div id="console-output"></div>
-      </div>
-      <div id="runtime-cmd-bar">
-        <span id="runtime-status-badge">&#8226; idle</span>
-        <div style="position:relative;flex:1;display:flex">
-          <div id="runtime-autocomplete"></div>
-          <input id="runtime-cmd-input" type="text" placeholder="Runtime command…" autocomplete="off"
-                 onkeydown="handleCmdKeydown(event)" onblur="setTimeout(_acHide,150)" style="flex:1">
+        <div class="console-controls" id="console-controls">
+          <button class="con-btn active" id="console-autoscroll-btn" onclick="toggleAutoScroll()">Auto-scroll</button>
+          <button class="con-btn" id="console-chat-btn" onclick="toggleConsoleChatMode()" disabled title="Enable chat mode (Shift+C when idle)">Chat</button>
+          <button class="con-btn cdanger" onclick="clearConsole()">Clear</button>
         </div>
-        <button id="runtime-cmd-send" onclick="sendRuntimeCmd()">Send</button>
-        <button id="runtime-interrupt-btn" onclick="sendRuntimeInterrupt()" title="Pause after the current call">&#9632; Pause</button>
+      </div>
+      <div id="console-content">
+        <div id="runtime-running">
+          <span id="runtime-running-label">running:</span>
+          <span id="runtime-running-cmds"></span>
+        </div>
+        <div id="runtime-results"></div>
+        <div id="console-notice" role="status"></div>
+        <button class="con-btn" id="console-new-output" hidden>New output · scroll to latest</button>
+        <div id="console-output-wrap">
+          <div id="console-output"></div>
+        </div>
+        <div id="runtime-cmd-bar">
+          <span id="runtime-status-badge">&#8226; idle</span>
+          <div style="position:relative;flex:1;display:flex">
+            <div id="runtime-autocomplete"></div>
+            <input id="runtime-cmd-input" type="text" placeholder="Runtime command…" autocomplete="off"
+                   onkeydown="handleCmdKeydown(event)" onblur="setTimeout(_acHide,150)" style="flex:1">
+          </div>
+          <button id="runtime-cmd-send" onclick="sendRuntimeCmd()">Send</button>
+          <button id="runtime-interrupt-btn" onclick="sendRuntimeInterrupt()" title="Pause after the current call">&#9632; Pause</button>
+        </div>
       </div>
     </div>
   </div>
 </div>
+
+<dialog id="formal-compare" class="mission-dialog" aria-labelledby="formal-compare-title">
+  <h2 id="formal-compare-title">Compare proof batches</h2>
+  <div class="formal-comparison-content"></div>
+  <form method="dialog" class="mission-dialog-footer"><button class="fm-btn">Close</button></form>
+</dialog>
 
 <!-- edit modal -->
 <div class="modal-backdrop hidden" id="edit-modal">
@@ -881,7 +957,10 @@ pre code.hljs,code.hljs{background:transparent!important;padding:0!important}
       <h3 class="stage-info-heading"><span>Check</span><span class="stage-info-value"></span></h3>
       <div class="stage-info-content uc-stage-group-items"></div>
     </section>
-    <button type="button" class="fm-btn stage-info-task">Task details</button>
+    <div class="stage-info-actions">
+      <button type="button" class="fm-btn stage-info-task">Task details</button>
+      <button type="button" class="fm-btn stage-info-relaunch" hidden>Relaunch from this stage</button>
+    </div>
 </template>
 
 <div class="modal-backdrop hidden" id="view-modal" onclick="if(event.target===this)closeFileView()">
@@ -1101,34 +1180,6 @@ function _updateSubWorkspaceUrl(){
   if(_subWorkspace)url.searchParams.set("sub_worspace",_subWorkspace);
   else url.searchParams.delete("sub_worspace");
   window.history.replaceState(null,"",url.pathname+url.search+url.hash);
-  _updateSubWorkspaceModeUi();
-}
-
-function _updateSubWorkspaceModeUi(){
-  const statusSection=qs("#agent-status-section");
-  const consoleWrap=qs("#console-output-wrap");
-  const consoleOutput=qs("#console-output");
-  if(statusSection){
-    statusSection.classList.toggle("sub-workspace-mode",!!_subWorkspace);
-    if(_subWorkspace){
-      const h=Math.max(72,statusSection.clientHeight||0);
-      statusSection.style.setProperty("--sub-watermark-size",Math.round(h*0.86)+"px");
-    }else{
-      statusSection.style.removeProperty("--sub-watermark-size");
-    }
-  }
-  if(consoleWrap){
-    consoleWrap.classList.toggle("sub-workspace-mode",!!_subWorkspace);
-    if(_subWorkspace){
-      const h=Math.max(120,consoleWrap.clientHeight||(consoleOutput&&consoleOutput.clientHeight)||0);
-      const w=Math.max(120,consoleWrap.clientWidth||(consoleOutput&&consoleOutput.clientWidth)||0);
-      const heightSize=h*0.82;
-      const widthSize=Math.max(28,(w-24)/4.35);
-      consoleWrap.style.setProperty("--master-watermark-size",Math.round(Math.min(heightSize,widthSize))+"px");
-    }else{
-      consoleWrap.style.removeProperty("--master-watermark-size");
-    }
-  }
 }
 
 function _withSubWorkspaceParam(path){
@@ -1216,12 +1267,10 @@ async function fetchStatus(){
       fragment.appendChild(item);
     }
     qs("#status-text").replaceChildren(fragment);
-    _updateSubWorkspaceModeUi();
-    const firstLine=entries.length?entries[0].filter(Boolean).join(": "):"";
-    qs("#status-bar").innerHTML='<span class="dot"></span>'+esc(firstLine.slice(0,80));
+    qs("#status-bar").textContent="";
   }catch(e){
     qs("#status-text").textContent="(unavailable)";
-    qs("#status-bar").innerHTML='<span class="dot err"></span>Agent unreachable';
+    qs("#status-bar").textContent="Agent unreachable";
   }
 }
 
@@ -1464,19 +1513,14 @@ function _updateStageSelectionUi(){
 }
 
 function toggleStageSelection(stageIndex,checked){
-  if(_subWorkspace){
-    _selectedStages=checked?new Set([stageIndex]):new Set();
-  }else if(checked)_selectedStages.add(stageIndex);
+  if(_subWorkspace)return;
+  if(checked)_selectedStages.add(stageIndex);
   else _selectedStages.delete(stageIndex);
   _updateStageSelectionUi();
 }
 
 function toggleStageSelectionAll(selectAll){
-  if(_subWorkspace){
-    _selectedStages.clear();
-    _updateStageSelectionUi();
-    return;
-  }
+  if(_subWorkspace)return;
   if(selectAll){
     _selectedStages=new Set((window._missionStages||[]).filter(stage=>stage.can_edit_flags).map(stage=>stage.index));
   }else{
@@ -1486,9 +1530,8 @@ function toggleStageSelectionAll(selectAll){
 }
 
 function _pruneSelectedStages(stages){
-  const valid=new Set((stages||[]).filter(stage=>_subWorkspace||stage.can_edit_flags).map(stage=>stage.index));
-  const next=_selectedStageIndexes().filter(idx=>valid.has(idx));
-  _selectedStages=new Set(_subWorkspace?next.slice(0,1):next);
+  const valid=new Set((stages||[]).filter(stage=>stage.can_edit_flags).map(stage=>stage.index));
+  _selectedStages=new Set(_selectedStageIndexes().filter(idx=>valid.has(idx)));
 }
 
 function _setStageFeatureVisibility(enableFail,enablePass){
@@ -1803,7 +1846,10 @@ async function _refreshStageInfo(stage,panel){
   if(firstOpen){
     panel.append(qs("#stage-info-template").content.cloneNode(true));
     panel.querySelector(".stage-info-task").addEventListener("click",()=>openStageTask(stage.index));
+    const relaunch=panel.querySelector(".stage-info-relaunch");
+    relaunch.addEventListener("click",()=>openRelaunchDialog(stage.index,relaunch));
   }
+  panel.querySelector(".stage-info-relaunch").hidden=!(_subWorkspace&&_masterRootUrl());
   const {batch}=stageTitle(stage);
   const status=stageStatus(stage,_missionData.current_index,_missionData.all_completed,_missionData.is_waiting_for_review);
   const meta=[status.label,stage.time_cost,stage.fail_count>0?`${stage.fail_count} failures`:"",batch?`Batch ${batch[1]}/${batch[2]}`:""];
@@ -1876,7 +1922,8 @@ function openStageBulk(){
 function locateCurrentStage(){
   const row=qs("#mission-list .current-stage");
   if(!row)return;
-  row.closest("details").open=true;
+  const group=row.closest("details");
+  if(group)group.open=true;
   const scroller=qs("#mission-scroll");
   const bounds=row.querySelector(".stage-row").getBoundingClientRect();
   const viewport=scroller.getBoundingClientRect();
@@ -1894,7 +1941,7 @@ async function fetchMission(){
     if(request!==_missionRequest||workspace!==_subWorkspace)return;
     const data=j.data||{};
     const stages=data.stages||[];
-    const {escape,isCurrent,stageTitle,renderStage,groupStages,renderGroup,summarize}=UCAgentStageView;
+    const {escape,isCurrent,stageTitle,renderStage,groupStages,renderGroup,summarize,useFlatStages}=UCAgentStageView;
     const currentIndex=data.current_index;
     const current=stages.find(stage=>isCurrent(stage,currentIndex));
     const allCompleted=!!data.all_completed;
@@ -1938,22 +1985,21 @@ async function fetchMission(){
       currentButton.title=(waiting?"Awaiting human review: ":"Locate current stage: ")+section+" "+label;
     }
     qs("#mission-bulk-btn").hidden=!!workspace||!stages.some(stage=>stage.can_edit_flags);
-    const groups=groupStages(stages);
-    let html=groups.map(group=>{
-      const rows=group.stages.map(stage=>{
+    const renderRow=stage=>{
         const index=stage.index;
         const active=stage===current;
         const expanded=openStageInfo.has(index);
         const inline=_stageFlagButtons(stage,true);
         return `<div class="stage-item${active?" current-stage":""}"><div class="stage-row">`
-          +(workspace?`<input id="stage-select-${index}" class="stage-select" type="checkbox" data-stage-index="${index}" aria-label="Select stage ${index} for relaunch" title="Select stage ${index} for relaunch" onchange="toggleStageSelection(${index},this.checked)">`:"")
           +`<button type="button" id="stage-title-${index}" class="stage-title-btn" onclick="toggleStageInfo(${index})" aria-expanded="${expanded}" aria-controls="stage-info-${index}" title="${escape(stage.title)}"${active?' aria-current="step"':''}>`
-          +`<span class="stage-chevron" aria-hidden="true">›</span>${renderStage(stage,currentIndex,allCompleted,waiting)}</button>`
+          +`${renderStage(stage,currentIndex,allCompleted,waiting)}</button>`
           +(inline?`<div class="stage-actions">${inline}</div>`:"")
           +`</div><div class="stage-inline-info" id="stage-info-${index}" data-stage-index="${index}" hidden></div></div>`;
-      }).join("");
+    };
+    let html=useFlatStages(stages)?stages.map(renderRow).join(""):groupStages(stages).map(group=>{
+      const rows=group.stages.map(renderRow).join("");
       const open=openGroups.has(String(group.key))||(currentChanged&&group.stages.includes(current));
-      return renderGroup(group,currentIndex,allCompleted,open,rows);
+      return renderGroup(group,currentIndex,allCompleted,open,rows,waiting);
     }).join("");
     if(showGitDiff){
       html+='<div class="workspace-git-section" id="workspace-git-status"><div class="workspace-git-msg">Loading Git status…</div></div>';
@@ -1963,7 +2009,7 @@ async function fetchMission(){
       const panel=openStageInfo.get(stage.index);
       if(!panel)continue;
       qs(`#stage-info-${stage.index}`).replaceWith(panel);
-      if(panel.closest("details").open)_refreshStageInfo(stage,panel);
+      if(panel.closest("details")?.open!==false)_refreshStageInfo(stage,panel);
     }
     scroll.scrollTop=scrollTop;
     if(currentChanged&&current)locateCurrentStage();
@@ -1975,7 +2021,7 @@ async function fetchMission(){
     if(showGitDiff)fetchWorkspaceGitStatus();
   }catch(e){
     if(request!==_missionRequest||workspace!==_subWorkspace)return;
-    if(_missionPosition?.workspace!==workspace||!list.querySelector(".uc-stage-group")){
+    if(_missionPosition?.workspace!==workspace||!list.querySelector(".stage-item")){
       list.textContent="(unavailable)";
     }
   }
@@ -2362,7 +2408,7 @@ async function fetchTools(){
       const hot=t.is_hot?"hot":"";
       html+=`<div class="tool-chip ${hot}" title="${esc(t.name)}: ${t.call_count} calls">${esc(t.name)}<span style="opacity:.6;font-size:10px"> ×${t.call_count}</span></div>`;
     }
-    qs("#tools-list").innerHTML=html||"(no tools)";
+    qs("#tools-list").innerHTML=html||'<p class="report-message">No recorded tool calls.</p>';
   }catch(e){qs("#tools-list").textContent="(unavailable)";}
 }
 
@@ -2378,6 +2424,7 @@ async function _syncConsoleWorkspace(){
 
 function _refreshWorkspaceViews(){
   closeFileView();
+  setConsoleCollapsed(!!_subWorkspace);
   _selectedStages.clear();
   _lastFileMeta={};
   delete qs("#workspace-file-scroll").dataset.workspace;
@@ -2387,6 +2434,10 @@ function _refreshWorkspaceViews(){
   fetchMission();
   fetchTools();
   _reportFolders=[];
+  _formalView=null;
+  _formalSelection="";
+  _formalFilter="";
+  qs("#formal-overview").hidden=true;
   qs("#reports-breadcrumb").hidden=true;
   qs("#report-file-list").textContent="Loading reports…";
   qs("#function-map-search").value="";
@@ -2438,13 +2489,12 @@ function closeRelaunchDialog(){
   closeModal("relaunch-modal");
 }
 
-function _openRelaunchFrame(data){
+function _openRelaunchFrame(data,stageIndex){
   const params=new URLSearchParams();
   params.set("relaunch","1");
   params.set("embed","1");
   params.set("sub_worspace",_subWorkspace);
-  const selectedStage=_selectedStageIndexes()[0];
-  if(Number.isInteger(selectedStage))params.set("force_stage_index",String(selectedStage));
+  if(Number.isInteger(stageIndex))params.set("force_stage_index",String(stageIndex));
   if(data&&data.task_id)params.set("task_id",data.task_id);
   else if(_relaunchTaskId)params.set("task_id",_relaunchTaskId);
   if(data&&data.workspace_id)params.set("workspace_id",data.workspace_id);
@@ -2453,25 +2503,27 @@ function _openRelaunchFrame(data){
   openModal("relaunch-modal");
 }
 
-async function openRelaunchDialog(){
-  if(!_subWorkspace){
+async function openRelaunchDialog(stageIndex,btn=qs("#workspace-relaunch-btn")){
+  const workspace=_subWorkspace;
+  if(!workspace){
     showErr("Relaunch is available only in sub workspace mode.");
     return;
   }
-  const btn=qs("#workspace-relaunch-btn");
   const oldText=btn?btn.textContent:"";
   if(btn){btn.disabled=true;btn.textContent="Checking...";}
   try{
     const status=await _fetchRelaunchStatus();
+    if(workspace!==_subWorkspace)return;
     const data=status.data||{};
     if(!data.can_relaunch){
       showErr(data.message||"Task cannot be relaunched yet. Wait for the old task to disappear and the client to exit, or remove the related records.");
       return;
     }
-    _openRelaunchFrame(data);
+    _openRelaunchFrame(data,stageIndex);
   }catch(e){
+    if(workspace!==_subWorkspace)return;
     if(_masterRootUrl()&&_masterRootUrl()!=="/"){
-      _openRelaunchFrame({});
+      _openRelaunchFrame({},stageIndex);
     }else{
       showErr(e.message||String(e));
     }
@@ -2495,6 +2547,10 @@ let _reportRequest=0;
 let _reportFolders=[];
 let _functionMapRequest=0;
 let _functionMap;
+let _formalView=null;
+let _formalSelection="";
+let _formalFilter="";
+let _formalRequest=0;
 let _fileListRequest=0;
 const _REPORT_DIRECTORIES=new Set(["unit_test","unity_test","uc_test_report","reports","report","coverage","coverage_data","line_dat"]);
 const _WAVE_DIRECTORIES=new Set(["waveforms","waves"]);
@@ -2515,7 +2571,7 @@ function toggleReportTools(button){
 function toggleFunctionMap(){
   const content=qs("#workspace-content");
   const showing=content.classList.toggle("show-function-map");
-  qs("#function-map-toggle").setAttribute("aria-pressed",String(showing));
+  qs(showing?"#function-map-back":"#function-map-toggle").focus({preventScroll:true});
 }
 
 /** Give the graph the report area when more space is needed. */
@@ -2536,6 +2592,165 @@ function _showFunctionMapMessage(text){
   message.textContent=text;
   message.hidden=false;
   _functionMap?.clear();
+}
+
+/** Instantiate the shared graph with workspace-scoped file and evidence actions. */
+function _getFunctionMap(){
+  _functionMap??=UCAgentFunctionMap.create(qs("#function-map"),{
+    openTest:test=>openView(test.file,test.node,"py",test.line),
+    openWave:wave=>_WAVE_EXTS.has(wave.name.split(".").at(-1).toLowerCase())?openWaveform(wave.path):downloadFile(wave.path),
+    openBug:bug=>openView(bug.file.path,bug.file.name,bug.file.type,0,bug.anchor),
+    showFormal:(section,property,view)=>UCAgentFormalView.renderDetail(section,property,view,{
+      openFile:_openFormalFile, openTrace:_openFormalTrace, trace:_queryFormalTrace,
+      runSelected:name=>_formalAction({action:"run",scope:"selected",property_names:[name]},true),
+      review:(view,name,disposition,reason,nextAction)=>_formalAction({action:"review",scope:view.run.scope,
+        run_id:view.run.run_id,property_names:[name],disposition,reason,next_action:nextAction})
+    })
+  });
+  return _functionMap;
+}
+
+function _openFormalFile(path,line=0){
+  const name=path.split("/").at(-1);
+  openView(path,name,name.split(".").at(-1),line);
+}
+
+/** Query the exact proof artifact used by the model-facing Formal evidence tool. */
+function _queryFormalTrace(view,property,query){
+  return UCAgentFormalView.requestJSON(apiFetch,"/api/formal/trace",{scope:view.run.scope,run_id:view.run.run_id,property,query});
+}
+
+/** Validate the trace before opening the existing waveform viewer. */
+async function _openFormalTrace(view,property){
+  const workspace=_subWorkspace;
+  const tab=window.open("about:blank","_blank");
+  if(tab)tab.opener=null;
+  try{
+    const evidence=await _queryFormalTrace(view,property,{mode:"artifact"});
+    if(workspace!==_subWorkspace){tab?.close();return;}
+    const prefix=_cmdApiPathPrefix();
+    const file=prefix+"/"+"workspace/"+evidence.trace_artifact.split("/").map(encodeURIComponent).join("/");
+    const url=new URL(prefix+"/"+"surfer/",location.origin);
+    url.searchParams.set("load_url",new URL(_withSubWorkspaceParam(file),location.origin).href);
+    if(workspace)url.searchParams.set("sub_worspace",workspace);
+    if(tab)tab.location.replace(url);else window.open(url,"_blank","noopener,noreferrer");
+  }catch(error){tab?.close();showErr(error.message);}
+}
+
+async function _formalAction(body,select=false){
+  const workspace=_subWorkspace;
+  try{
+    const result=await UCAgentFormalView.requestJSON(apiFetch,"/api/formal/action",body);
+    if(workspace!==_subWorkspace)return;
+    if(select){_formalSelection=result.scope+":"+result.run_id;_formalFilter="";}
+    await _refreshFormal();
+  }catch(error){showErr(error.message);}
+}
+
+function _renderFormalOverview(view){
+  const panel=qs("#formal-overview");
+  panel.hidden=false;
+  const run=view.run;
+  const choices=qs("#formal-batch");
+  const options=[new Option("Latest full batch",""),...view.history.map(item=>
+    new Option((item.scope==="full"?"Full":"Selected")+" · "+item.run_id.slice(0,8)+" · "+item.status,item.scope+":"+item.run_id))];
+  const optionKey=JSON.stringify(options.map(item=>[item.value,item.text]));
+  if(choices.dataset.options!==optionKey){
+    choices.dataset.options=optionKey;
+    choices.replaceChildren(...options);
+  }
+  choices.value=_formalSelection;
+  choices.onchange=()=>{_formalSelection=choices.value;_formalFilter="";_refreshFormal();};
+  qs("#formal-run-status").textContent=run?[run.status,view.freshness,run.error].filter(Boolean).join(" · "):"Not started";
+  const compare=qs("#formal-compare-button");
+  const prior=run&&view.history.find(item=>item.scope===run.scope&&item.run_id!==run.run_id
+    && item.created_at<view.history.find(row=>row.run_id===run.run_id)?.created_at);
+  compare.hidden=!prior;
+  compare.onclick=async()=>{
+    const params=new URLSearchParams({before_id:prior.run_id,before_scope:prior.scope,after_id:run.run_id,after_scope:run.scope});
+    try{
+      const data=await apiFetch("/api/formal/compare?"+params);
+      UCAgentFormalView.showComparison(qs("#formal-compare"),data.data);
+    }catch(error){showErr(error.message);}
+  };
+  const cancel=qs("#formal-cancel-button");
+  cancel.hidden=view.archived||!["PREPARING","RUNNING","CANCELLING"].includes(run?.status);
+  cancel.disabled=run?.status==="CANCELLING";
+  cancel.onclick=()=>_formalAction({action:"cancel",scope:run.scope,run_id:run.run_id});
+  const controls=qs("#formal-result-filters");
+  const metrics=[
+    ["", "All"],
+    ["PROVEN", (view.counts.PROVEN||0)+" proven"],
+    ["TRIVIALLY_TRUE", (view.counts.TRIVIALLY_TRUE||0)+" trivial"],
+    ["COVER_REACHED", (view.counts.COVER_REACHED||0)+" cover reached"],
+    ["UNPROVEN", (view.counts.UNPROVEN||0)+" unproven"],
+    ["review", (run?.needs_review||0)+" to review"],
+    ["counterexamples", view.counterexamples+" counterexamples"],
+    ["bugs", view.bugs+" verified bugs"]
+  ];
+  const metricKey=JSON.stringify(metrics);
+  if(controls.dataset.metrics===metricKey){
+    [...controls.children].forEach((control,index)=>control.setAttribute("aria-pressed",String(metrics[index][0]===_formalFilter)));
+    return;
+  }
+  controls.dataset.metrics=metricKey;
+  controls.replaceChildren(...metrics.map(([key,text])=>{
+    const button=document.createElement("button");
+    button.type="button";
+    button.className="pane-action";
+    button.textContent=text;
+    button.setAttribute("aria-pressed",String(key===_formalFilter));
+    button.onclick=()=>{
+      _formalFilter=key;
+      [...controls.children].forEach(control=>control.setAttribute("aria-pressed",String(control===button)));
+      _functionMap?.setFormal(_formalView,UCAgentFormalView.tree(_formalView),key);
+      if(getComputedStyle(qs("#function-map")).display==="none")toggleFunctionMap();
+    };
+    return button;
+  }));
+}
+
+/** Load the selected version of the Formal map and report index. */
+async function _refreshFormal(){
+  const request=++_formalRequest;
+  const workspace=_subWorkspace;
+  const selected=_formalSelection;
+  const [scope,runId]=selected.split(":");
+  const query=runId?"?"+new URLSearchParams({scope,run_id:runId}):"";
+  try{
+    const response=await apiFetch("/api/formal/view"+query);
+    if(request!==_formalRequest||workspace!==_subWorkspace||selected!==_formalSelection)return;
+    const view=response.data;
+    const previous=_formalView;
+    _formalView=view;
+    if(view.schema_version!==1)throw new Error("Unsupported Formal dashboard schema.");
+    _renderFormalOverview(view);
+    if(!previous||JSON.stringify(previous.reports)!==JSON.stringify(view.reports)){
+      const files=view.reports.map(file=>_reportFileRow(file));
+      const list=qs("#report-file-list");
+      if(files.length){
+        const table=_fileTable(files);
+        table.classList.add("report-index");
+        list.replaceChildren(table);
+      }else list.textContent="No Formal reports have been generated yet.";
+    }
+    if(!view.groups.length){_showFunctionMapMessage("No Formal checkpoints in this snapshot.");return;}
+    qs("#function-map-counts").textContent=view.groups.length+" groups · "
+      +view.groups.flatMap(group=>group.children).flatMap(functionPoint=>functionPoint.children).length+" checkpoints";
+    qs("#function-map-search").hidden=false;
+    qs("#function-map-expand").hidden=false;
+    qs("#function-map-status").hidden=true;
+    qs("#function-map .function-map-body").hidden=false;
+    const source=qs("#function-map-source");
+    source.hidden=false;
+    source.onclick=()=>_openFormalFile(view.records);
+    const graph=_getFunctionMap();
+    const projection=UCAgentFormalView.tree(view);
+    graph.setData(view.dut,projection.groups);
+    graph.setFormal(view,projection,_formalFilter);
+  }catch(error){
+    if(request===_formalRequest&&workspace===_subWorkspace)_showFunctionMapMessage("Unable to load Formal data. "+error.message);
+  }
 }
 
 /** Select the current DUT's definitions and load them through the workspace file API. */
@@ -2566,11 +2781,7 @@ async function _loadFunctionMap(files,runtime,workspace,testReports,isCurrent){
     qs("#function-map-expand").hidden=false;
     qs("#function-map-status").hidden=true;
     qs("#function-map .function-map-body").hidden=false;
-    _functionMap??=UCAgentFunctionMap.create(qs("#function-map"),{
-      openTest:test=>openView(test.file,test.node,"py",test.line),
-      openWave:wave=>_WAVE_EXTS.has(wave.name.split(".").at(-1).toLowerCase())?openWaveform(wave.path):downloadFile(wave.path),
-      openBug:bug=>openView(bug.file.path,bug.file.name,bug.file.type,0,bug.anchor)
-    });
+    _getFunctionMap();
     _functionMap.setData(dut||source.name.replace(suffix,""),groups);
     const bugStem=source.path.replace(suffix,"_bug_analysis");
     const bugFile=files.find(file=>file.path.replace(/\.(?:md|markdown)$/i,"")===bugStem);
@@ -2630,7 +2841,7 @@ function _fileTable(rows){
 }
 
 /** Populate the original file columns and keep the filename keyboard-accessible. */
-function _fileRow(file,{open,origin="",wave=false}={}){
+function _fileRow(file,{open,label=file.name,origin="",wave=false}={}){
   const row=document.createElement("tr");
   const name=row.insertCell();
   name.className="file-name";
@@ -2642,9 +2853,9 @@ function _fileRow(file,{open,origin="",wave=false}={}){
   icon.className="file-icon";
   icon.setAttribute("aria-hidden","true");
   icon.textContent=file.is_dir?"📂":wave?"🌊":_HTML_EXTS.has(file.type)?"🌐":_IMG_EXTS.has(file.type)?"🖼":"📄";
-  const label=document.createElement("span");
-  label.textContent=file.name;
-  link.append(icon,label);
+  const text=document.createElement("span");
+  text.textContent=label;
+  link.append(icon,text);
   name.append(link);
   if(origin){
     const location=document.createElement("span");
@@ -2686,15 +2897,13 @@ function _reportFileRow(file,wave=false){
   const open=()=>wave
     ? (_WAVE_EXTS.has(file.type)?openWaveform(file.path):downloadFile(file.path))
     : openView(file.path,file.name,file.type);
-  const origin=/^index\.html?$/i.test(file.name)&&file.path.includes("/")
-    ?file.path.slice(0,file.path.lastIndexOf("/")):"";
-  const {row,actions}=_fileRow(file,{open,origin,wave});
-  const buttons=document.createElement("div");
-  buttons.className="file-buttons";
-  const view=_fileAction(wave?"↗":"View",wave?"Open waveform":"View",open);
-  view.classList.add("file-secondary");
-  buttons.append(view,_fileAction("↓","Download",()=>downloadFile(file.path)));
-  actions.append(buttons);
+  const primary=file.path==="uc_test_report/index.html";
+  const testRun=/^(?:unity_test|unit_test)\/uc_test_report\/index\.html$/.test(file.path);
+  const label=file.label||(primary?"Final report":testRun?"Test run report":file.name);
+  const origin=/^index\.html?$/i.test(file.name)&&file.path.includes("/")?file.path:"";
+  const {row,actions}=_fileRow(file,{open,label,origin,wave});
+  row.classList.toggle("file-primary",primary);
+  actions.append(_fileAction("↓",`Download ${file.name}`,()=>downloadFile(file.path)));
   return row;
 }
 
@@ -2769,7 +2978,14 @@ async function fetchReports(refreshMap=true){
   message.textContent="No files available.";
   let reportIndexLoaded=false;
   const render=rows=>{
-    if(isCurrent())list.replaceChildren(rows.length?_fileTable(rows):message);
+    if(!isCurrent())return;
+    if(!rows.length){
+      list.replaceChildren(message);
+      return;
+    }
+    const table=_fileTable(rows);
+    table.classList.toggle("report-index",!category);
+    list.replaceChildren(table);
   };
   try{
     if(folders.length>1&&!refreshMap){
@@ -2782,6 +2998,13 @@ async function fetchReports(refreshMap=true){
         .then(response=>JSON.parse(response.content)||{}).catch(()=>({})),
     ]);
     const entries=root.data||[];
+    const isFormal=runtime.formal_data||(!runtime.test_output_dir&&entries.some(entry=>entry.is_dir&&entry.name==="formal_test"));
+    if(isFormal){
+      if(qs("#workspace-file-scroll").dataset.workspace!==workspace)_lastFileMeta=root;
+      _updateWorkspaceControls(_lastFileMeta);
+      await _refreshFormal();
+      return;
+    }
     const testDir=typeof runtime.test_output_dir==="string"?runtime.test_output_dir:"";
     const outputDir=testDir.split("/").slice(0,-1).join("/");
     const reportPaths=new Set(entries.filter(entry=>entry.is_dir&&_REPORT_DIRECTORIES.has(entry.name)).map(entry=>entry.path));
@@ -2823,10 +3046,13 @@ async function fetchReports(refreshMap=true){
     }
     const files=new Map([...entries.filter(entry=>!entry.is_dir&&/^index\.html?$/i.test(entry.name)),
       ...reports.flatMap(report=>report.files)].map(file=>[file.path,file]));
-    const ordered=[...files.values()].sort((left,right)=>{
-      const priority=file=>file.path==="uc_test_report/index.html"?0:_HTML_EXTS.has(file.type)?1:2;
-      return priority(left)-priority(right)||left.path.localeCompare(right.path);
-    });
+    const priority=file=>{
+      if(file.path==="uc_test_report/index.html")return 0;
+      if(_HTML_EXTS.has(file.type))return 1;
+      if(/_(functions_and_checks|test_summary|bug_summary)\.md$/i.test(file.name))return 2;
+      return 3;
+    };
+    const ordered=[...files.values()].sort((left,right)=>priority(left)-priority(right)||left.path.localeCompare(right.path));
     render([...ordered.map(file=>_reportFileRow(file)),...["Tests","Waveforms"].map(name=>_reportFolder({name,is_dir:true}))]);
   }catch(error){
     if(!reportIndexLoaded&&isCurrentMap())_showFunctionMapMessage("Unable to load function reports. "+error.message);
@@ -2872,7 +3098,10 @@ function _updateWorkspaceControls(meta){
   const exitBtn=qs("#workspace-exit-btn");
   const currentSub=meta.current_sub_workspace||"";
   const canChange=!!currentSub&&currentSub!==_subWorkspace;
-  if(label)label.textContent=_subWorkspace?("Sub Workspace: "+_subWorkspace):"";
+  if(label){
+    label.textContent=_subWorkspace?"Saved workspace":"";
+    label.title=_subWorkspace;
+  }
   if(changeBtn){
     changeBtn.style.display=canChange?"":"none";
     changeBtn.title=canChange?("Switch to "+currentSub):"";
@@ -3685,12 +3914,32 @@ function toggleAutoScroll(){
 }
 async function clearConsole(){await _consoleView.clear();}
 
+/** Keep logs and commands one click away when reviewing a saved workspace. */
+function setConsoleCollapsed(collapsed){
+  const panel=qs("#console-panel");
+  const wasCollapsed=panel.classList.contains("is-collapsed");
+  if(collapsed&&!wasCollapsed)_consoleView.states[_consoleView.view].scroll=_consoleView.output.scrollTop;
+  panel.classList.toggle("is-collapsed",collapsed);
+  qs("#console-content").hidden=collapsed;
+  qs("#console-controls").hidden=collapsed;
+  qs("#fm-resizer").hidden=collapsed;
+  qs("#console-toggle").setAttribute("aria-expanded",String(!collapsed));
+  if(!collapsed&&wasCollapsed){
+    const state=_consoleView.states[_consoleView.view];
+    if(state.follow&&_consoleView.autoScroll)_consoleView.scrollToEnd();
+    else _consoleView.output.scrollTop=state.scroll;
+  }
+}
+qs(".console-tabs").addEventListener("click",event=>{
+  if(event.target.closest("[role=tab]"))setConsoleCollapsed(false);
+},true);
+
 /* ── console resize (vertical drag) ── */
 (function(){
   const resizer=document.getElementById("fm-resizer");
   const panel=document.getElementById("console-panel");
   if(!resizer||!panel)return;
-  const minConsoleHeight=120;
+  const minConsoleHeight=160;
   function getMaxConsoleHeight(){
     const parent=panel.parentElement;
     if(!parent)return 320;
@@ -3701,7 +3950,9 @@ async function clearConsole(){await _consoleView.clear();}
   }
   const savedH=+localStorage.getItem('ucagent.control.console.h');
   const initialH=Number.isFinite(savedH)&&savedH>0?savedH:220;
-  panel.style.height=clampConsoleHeight(initialH)+'px';
+  let expandedHeight=initialH;
+  const fitHeight=()=>panel.style.setProperty("--console-height",clampConsoleHeight(expandedHeight)+"px");
+  fitHeight();
   let startY,startH;
   resizer.addEventListener("pointerdown",e=>{
     startY=e.clientY;startH=panel.offsetHeight;
@@ -3712,19 +3963,16 @@ async function clearConsole(){await _consoleView.clear();}
     resizer.addEventListener("pointerup",onUp,{once:true});
   });
   function onMove(e){
-    panel.style.height=clampConsoleHeight(startH-(e.clientY-startY))+"px";
-    _updateSubWorkspaceModeUi();
+    expandedHeight=clampConsoleHeight(startH-(e.clientY-startY));
+    fitHeight();
   }
   function onUp(){
     resizer.classList.remove("dragging");
     document.body.style.userSelect="";
     resizer.removeEventListener("pointermove",onMove);
-    try{localStorage.setItem('ucagent.control.console.h',panel.offsetHeight);}catch(e){}
+    try{localStorage.setItem('ucagent.control.console.h',expandedHeight);}catch(e){}
   }
-  window.addEventListener("resize",()=>{
-    panel.style.height=clampConsoleHeight(panel.offsetHeight)+"px";
-    _updateSubWorkspaceModeUi();
-  });
+  window.addEventListener("resize",fitHeight);
 })();
 
 /* ── edit gutter sync ── */
@@ -3745,7 +3993,6 @@ function _selectSidebarTab(tab){
     button.tabIndex=selected?0:-1;
     document.getElementById(button.getAttribute("aria-controls")).hidden=!selected;
   }
-  _updateSubWorkspaceModeUi();
 }
 
 (function(){
@@ -3791,7 +4038,6 @@ function _selectSidebarTab(tab){
     handle.setAttribute("aria-valuemin",Math.round(minimum/available*100));
     handle.setAttribute("aria-valuemax",Math.round((available-minimum)/available*100));
     handle.setAttribute("aria-valuenow",Math.round(stageHeight/available*100));
-    _updateSubWorkspaceModeUi();
     return stageHeight;
   }
 
@@ -3872,13 +4118,11 @@ function _selectSidebarTab(tab){
   function onMove(e){
     const w=Math.max(startW+(e.clientX-startX),160);
     sidebar.style.width=w+"px";
-    _updateSubWorkspaceModeUi();
   }
   function onUp(){
     resizer.classList.remove("dragging");
     document.body.style.userSelect="";
     resizer.removeEventListener("pointermove",onMove);
-    _updateSubWorkspaceModeUi();
     try{localStorage.setItem('ucagent.sidebar.w',sidebar.offsetWidth);}catch(e){}
   }
 })();
@@ -4092,7 +4336,15 @@ function _applyStoredModalResize(modalId){
 /* ── refresh all ── */
 function refreshAll(){fetchStatus();fetchMission();fetchTools();refreshFiles();fetchChangedFiles();fetchConsole();fetchServerInfo();}
 
+const _headerMore=qs("#header-more");
+document.addEventListener("click",event=>{
+  if(_headerMore.open&&!_headerMore.contains(event.target))_headerMore.open=false;
+});
 document.addEventListener("keydown",function(e){
+  if(e.key==="Escape"&&_headerMore.open){
+    _headerMore.open=false;
+    if(_headerMore.contains(e.target))_headerMore.querySelector("summary").focus();
+  }
   if(e.altKey&&e.shiftKey&&String(e.key).toLowerCase()==="r"){
     e.preventDefault();
     resetUiLayout();
@@ -4100,22 +4352,24 @@ document.addEventListener("keydown",function(e){
   }
   if(_shouldToggleConsoleChatFromKey(e)&&_consoleChatToggleAvailable()){
     e.preventDefault();
+    setConsoleCollapsed(false);
     toggleConsoleChatMode();
   }
 });
 
 /* ── init ── */
-_updateSubWorkspaceModeUi();_initMissionSettings();_initFileDeleteControls();_initMasterBtn();fetchStatus();fetchMission();fetchTools();refreshFiles();fetchChangedFiles();fetchConsole();fetchRuntimeStatus();fetchServerInfo();
+setConsoleCollapsed(!!_subWorkspace);_initMissionSettings();_initFileDeleteControls();_initMasterBtn();fetchStatus();fetchMission();fetchTools();refreshFiles();fetchChangedFiles();fetchConsole();fetchRuntimeStatus();fetchServerInfo();
 if(_subWorkspace)_syncConsoleWorkspace();
 setInterval(()=>{fetchStatus();fetchMission();fetchTools();},8000);
 setInterval(fetchChangedFiles,15000);
+setInterval(()=>{if(_formalView&&!document.hidden)_refreshFormal();},8000);
 setInterval(fetchConsole,2000);
 setInterval(fetchRuntimeStatus,2000);
 setInterval(fetchServerInfo,5000);
 </script>
 <script src="/static/share/ucagent-shell.js"></script>
 <script>
-window.UCAgentShell.init({actionsSelector:'#uc-shell-header-actions',metaUrl:'/api/ui-meta',fixedFooter:true});
+window.UCAgentShell.init({actionsSelector:'#header-more-actions',metaUrl:'/api/ui-meta',fixedFooter:true});
 </script>
 </body>
 </html>

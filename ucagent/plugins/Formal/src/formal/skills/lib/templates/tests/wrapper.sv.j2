@@ -36,10 +36,10 @@ module {{ DUT }}_wrapper
 {%- endif %}
 
   {{ DUT }} 
-{%- if parameter_items %}
+{%- if dut_parameter_items %}
   #(
-  {%- for key, value in parameter_items %}
-    .{{ key }}({{ key }}){{ "," if not loop.last }}
+  {%- for key, value in dut_parameter_items %}
+    .{{ key }}({{ value }}){{ "," if not loop.last }}
   {%- endfor %}
   ) 
 {%- endif %}

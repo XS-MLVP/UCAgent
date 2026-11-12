@@ -25,12 +25,13 @@
     const title = String(stage.title || '');
     const numberedTitle = /^(\d+(?:\.\d+)*)-([A-Za-z0-9_]+)-([\s\S]+)$/.exec(title);
     const section = stage.section_index || numberedTitle?.[1] || String(stage.index ?? '');
-    const identity = [stage.section_index, stage.stage_name].filter(Boolean).join('-');
+    const name = stage.stage_name || numberedTitle?.[2];
+    const identity = [stage.section_index, name].filter(Boolean).join('-');
     const description = identity && title.startsWith(identity + '-')
       ? title.slice(identity.length + 1) : numberedTitle?.[3] || title;
     const batch = /\[(\d+)\/(\d+)(?:\|[^\]]*)?\]\s*$/.exec(description);
     const label = description.replace(/\s*\[(?:\d+|-)(?:\/(?:\d+|-))?(?:\|[^\]]*)?\]\s*$/, '').trim() || description;
-    return {section, label, batch: batch && Number(batch[2]) > 0 ? batch : null};
+    return {section, name, label, batch: batch && Number(batch[2]) > 0 ? batch : null};
   }
 
   /** Describe stage state consistently in the workflow and the stage dialog. */
@@ -82,15 +83,48 @@
       label: `${completed}/${total} completed${skipped ? ` · ${skipped} skipped` : ''}`};
   }
 
-  /** Use workflow labels when provided, and group other workflows by adjacent sections. */
+  // Snapshots saved before mission.stage_groups was exported still include stage names.
+  const unitTestGroups = [
+    ['requirement_analysis_and_planning', '规格与 RTL'],
+    ['dut_wrapper_implementation', 'DUT 与覆盖模型'],
+    ['test_environment_implementation', '验证环境', 'env_fixture_implementation'],
+    ['basic_api_implementation', 'API 与参考模型'],
+    ['create_test_case_templates', '用例与缺陷'],
+    ['line_coverage_analysis_and_improvement', '覆盖与随机'],
+    ['verification_review_and_summary', '审查与报告'],
+  ];
+
+  /** Identify the older UnitTest layout before assigning any inferred labels. */
+  function legacyUnitTestGroups(stages) {
+    const sections = new Map(stages.map(stageTitle)
+      .filter(({section}) => /^\d+(?:\.\d+)*$/.test(section))
+      .map(({name, section}) => [name, section]));
+    const boundaries = unitTestGroups.map(([name, label, legacyChild]) => ({
+      // Older UnitTest releases ended the environment phase at its last child.
+      section: Number(sections.get(name) ?? (legacyChild && sections.get(legacyChild)?.split('.')[0])),
+      label,
+    }));
+    return boundaries.every(({section}, i) => Number.isInteger(section) && (!i || section > boundaries[i - 1].section))
+      ? boundaries : [];
+  }
+
+  /** Formal has a short top-level workflow, including in older saved snapshots. */
+  function useFlatStages(stages) {
+    const names = new Set(stages.map(stage => stageTitle(stage).name));
+    return ['property_generation', 'script_generation', 'environment_debugging_iteration',
+      'coverage_analysis_and_optimization'].every(name => names.has(name));
+  }
+
+  /** Use workflow labels, inferred UnitTest labels, or adjacent sections. */
   function groupStages(stages) {
     const groups = [];
+    const boundaries = stages.some(stage => stage.display_group) ? [] : legacyUnitTestGroups(stages);
     let lastSection;
     let sectionCount = 0;
     for (const stage of stages) {
       const section = stageTitle(stage).section.split('.')[0];
       const group = groups[groups.length - 1];
-      const name = stage.display_group || '';
+      const name = stage.display_group || boundaries.findLast(boundary => Number(section) >= boundary.section)?.label || '';
       const startsSection = section !== lastSection;
       if (!group || name !== group.name || (!name && startsSection && sectionCount >= 5)) {
         groups.push({key: stage.index, name, first: section, last: section, stages: []});
@@ -105,13 +139,21 @@
     return groups;
   }
 
-  /** Render one disclosure in execution order, with a resolved-stage count. */
-  function renderGroup(group, currentIndex, allCompleted, open, rows) {
-    const {completed, skipped, total} = summarize(group.stages, currentIndex, allCompleted);
-    const name = group.name || (group.first === group.last ? `Stage ${group.first}` : `Stages ${group.first}–${group.last}`);
+  /** Keep the section range, progress and active state visible while folded. */
+  function renderGroup(group, currentIndex, allCompleted, open, rows, waitingForReview) {
+    const {completed, skipped, total, label} = summarize(group.stages, currentIndex, allCompleted);
+    const range = group.first === group.last ? group.first : `${group.first}–${group.last}`;
+    const name = group.name || `${group.first === group.last ? 'Stage' : 'Stages'} ${range}`;
+    const active = !allCompleted && group.stages.some(stage => isCurrent(stage, currentIndex));
+    const status = active ? (waitingForReview ? 'Awaiting HM' : 'Current') : '';
+    const state = active ? (waitingForReview ? 'review' : 'current') : completed + skipped === total ? 'done' : 'pending';
     return `<details class="uc-stage-group" data-stage-group="${escape(group.key)}"${open ? ' open' : ''}>`
-      + `<summary title="${escape(name)}"><span class="uc-stage-group-name">${escape(name)}</span>`
-      + `<span class="uc-stage-group-count" title="${completed} completed · ${skipped} skipped">${completed + skipped}/${total}</span></summary>`
+      + `<summary data-state="${state}">`
+      + (group.name ? `<span class="uc-stage-group-range" aria-label="Stages ${escape(range)}">${escape(range)}</span>` : '')
+      + `<span class="uc-stage-group-name">${escape(name)}</span>`
+      + `<span class="uc-stage-group-count" title="${label}">${completed + skipped}/${total}</span>`
+      + (status || skipped ? `<span class="uc-stage-group-note">${[status, skipped && `${skipped} skipped`].filter(Boolean).join(' · ')}</span>` : '')
+      + '</summary>'
       + `<div class="uc-stage-group-items">${rows}</div></details>`;
   }
 
@@ -129,5 +171,5 @@
     return summarize(stages, agent.current_stage_index, agent.is_mission_complete);
   }
 
-  root.UCAgentStageView = {escape, isCurrent, stageTitle, stageStatus, renderStage, groupStages, renderGroup, summarize, progress};
+  root.UCAgentStageView = {escape, isCurrent, stageTitle, stageStatus, renderStage, groupStages, renderGroup, summarize, progress, useFlatStages};
 })(globalThis);

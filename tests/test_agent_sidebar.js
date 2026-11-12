@@ -31,7 +31,6 @@ function sidebar(saved=null){
   const context=vm.createContext({
     document:{getElementById:id=>elements[id],body},
     localStorage:{getItem:key=>storage.get(key)||null,setItem:(key,value)=>storage.set(key,value)},
-    _updateSubWorkspaceModeUi(){},
     window:{addEventListener(name,fn){if(name==='resize')resize=fn;}},
   });
   vm.runInContext(resizeScript,context);
@@ -105,7 +104,7 @@ for(const [name,data] of [
     const target=node(),bar={};
     const context=vm.createContext({
       apiFetch:async()=>({data}),document:{createDocumentFragment:node,createElement:node},
-      qs:id=>id==='#status-text'?target:bar,_stripAnsi:value=>value,esc:value=>value,_updateSubWorkspaceModeUi(){},
+      qs:id=>id==='#status-text'?target:bar,_stripAnsi:value=>value,
     });
     vm.runInContext(statusScript,context);
     await vm.runInContext('fetchStatus()',context);
@@ -113,6 +112,6 @@ for(const [name,data] of [
     if(name==='live')assert.deepEqual(values,['UCAgent: 0.9','Seed: 3','IsBreak: false','LLM: <model>','Context: {"tokens":123}']);
     else assert.deepEqual(values,['UCAgent: 0.9','Workspace: /tmp/a:b','All Completed: True','extra note']);
     assert(target.children.every(item=>item.className==='status-item'));
-    assert.match(bar.innerHTML,/UCAgent: 0.9/);
+    assert.equal(bar.textContent,'');
   });
 }

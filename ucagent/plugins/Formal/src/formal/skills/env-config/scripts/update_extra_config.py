@@ -16,6 +16,7 @@ if _skill_root not in sys.path:
     sys.path.insert(0, _skill_root)
 
 from lib.formal_paths import FormalPaths
+from lib.formal_tools import runtime_formal_paths
 from lib.formal_tools import load_records, save_records, set_nested_value, append_nested_value
 from lib.models import FormalRecords
 from ucagent.util.log import str_error, str_info
@@ -35,10 +36,9 @@ def main():
     parser.add_argument("-value", default="")
     args = parser.parse_args()
 
-    paths = FormalPaths()
+    paths = runtime_formal_paths()
     if paths.dut == "N/A":
-        print(str_error("Cannot determine DUT. Set DUT env var or ensure .formal_records.yaml exists."))
-        return
+        raise ValueError("Cannot determine DUT; restart UCAgent with the current runtime snapshot.")
 
     records = load_records(paths.records_yaml)
     if not records:
@@ -48,8 +48,7 @@ def main():
         return
 
     if not args.path:
-        print(str_error("Missing -path"))
-        return
+        raise ValueError("Missing -path")
 
     value = _parse_value(args.value)
     try:
@@ -69,15 +68,12 @@ def main():
             else:
                 raise ValueError("append requires a nested list path")
     except Exception as exc:
-        print(str_error(str(exc)))
-        return
+        raise ValueError(f"Cannot update {args.path}: {exc}") from exc
 
     save_records(paths.records_yaml, records)
     print(str_info(f"Updated {args.path}"))
 
 
-if __name__ == "__main__":
-    main()
 def _build_env_view(records):
     basic_info = records.basic_info or {}
     return {
@@ -103,3 +99,7 @@ def _resolve_target(records, path: str):
         raise ValueError("extra_config is not a mapping")
     sub_path = path
     return records, "extra_config", sub_path
+
+
+if __name__ == "__main__":
+    main()

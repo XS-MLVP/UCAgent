@@ -3,12 +3,18 @@
 
 set SCRIPT_DIR [file dirname [info script]]
 
-# RTL Files - glob both .v and .sv from the RTL directory
-set RTL_DIR [file join $SCRIPT_DIR "../../{{ DUT }}"]
-set RTL_FILES [glob -nocomplain [file join $RTL_DIR *.v] [file join $RTL_DIR *.sv]]
+# Compile exactly the ordered sources admitted by the interface preflight.
+set RTL_FILES [list]
+{% for source in source_files %}
+lappend RTL_FILES [file join $SCRIPT_DIR {../../{{ source }}}]
+{% endfor %}
+set INCLUDE_DIRS [list]
+{% for directory in include_dirs %}
+lappend INCLUDE_DIRS [file join $SCRIPT_DIR {../../{{ directory }}}]
+{% endfor %}
 
 if {[llength $RTL_FILES] == 0} {
-    error "ERROR: No RTL source files (*.v / *.sv) found in: $RTL_DIR"
+    error "ERROR: No admitted RTL source files; inspect the DUT filelist.txt and source directory"
 }
 
 # Verification Files (Checker + Wrapper)
@@ -17,12 +23,13 @@ lappend RTL_FILES [file join $SCRIPT_DIR {{ DUT }}_wrapper.sv]
 
 # Read Design with Wrapper as Top
 # Using -mfcu (Multi-File Compilation Unit) is recommended for SVA binding and parameter propagation
-read_design -top {{ DUT }}_wrapper -sysv -mfcu $RTL_FILES
+read_design -top {{ DUT }}_wrapper -sysv -mfcu -incdir $INCLUDE_DIRS $RTL_FILES
 
 # Clock and Reset
 # Generic env signals `clk` / `rst_n` are only emitted when DUT actually has clock/reset.
-{%- set has_clock = basic_info and basic_info.clock_reset and basic_info.clock_reset.clock_count and basic_info.clock_reset.clock_count != '0' %}
-{%- set has_reset = basic_info and basic_info.clock_reset and basic_info.clock_reset.reset_signal and basic_info.clock_reset.reset_signal not in ['无', '不适用', 'None', 'N/A'] %}
+{%- set clock_reset = basic_info.get("clock_reset") or {} %}
+{%- set has_clock = clock_reset.get("clock_count") and clock_reset.get("clock_count") != '0' %}
+{%- set has_reset = clock_reset.get("reset_signal") and clock_reset.get("reset_signal") not in ['无', '不适用', 'None', 'N/A'] %}
 {%- if has_clock %}
 def_clk clk
 {%- endif %}
@@ -31,14 +38,13 @@ def_rst rst_n -value 0
 {%- endif %}
 
 # Set timeout (default 100000s)
-set_opt -time {{ extra_config.tcl.timeout | default(100000) if extra_config and extra_config.tcl else 100000 }}
+set_opt -time {{ ((extra_config or {}).get("tcl") or {}).get("timeout", 100000) }}
 
 # Start proof (default engine)
-{%- if extra_config and extra_config.tcl and extra_config.tcl.extra_commands %}
-{%- for cmd in extra_config.tcl.extra_commands %}
+{%- for cmd in ((extra_config or {}).get("tcl") or {}).get("extra_commands", []) %}
 {{ cmd }}
 {%- endfor %}
-{%- endif %}
+# UCAGENT_PROOF_BEGIN
 prove
 
 # Report summary
