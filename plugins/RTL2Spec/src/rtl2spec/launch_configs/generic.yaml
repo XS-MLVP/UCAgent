@@ -9,3 +9,10 @@ backend:
 
 template_overwrite:
   GENERIC_CONFIG: Generic
+
+fmagent:
+  enabled: false
+  mode: run
+  resume: false
+  isolate: false
+  submodule: .

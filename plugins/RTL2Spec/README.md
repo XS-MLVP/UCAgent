@@ -38,7 +38,13 @@ bash plugins/RTL2Spec/scripts/install.sh --python python --fmagent-root /path/to
 | YAML 的 `rtl2spec.workspace` | 存放输入与生成结果；相对路径以 YAML 所在目录为基准 |
 | YAML 的 `rtl2spec.output` | 工作区内的输出目录，必须为空或尚不存在 |
 
-任务目录可以自行更换，后续 `cd` 路径保持一致。`rtl2spec --init` 在当前目录导出配置，不覆盖已有文件，并将选定的绝对 `fmagent.root/python` 保存到新 YAML。下面的 YAML 示例展示任务字段。`Guide_Doc/`、`.ucagent/` 和输出由运行时生成，无需手工创建。
+任务目录可以自行更换，后续 `cd` 路径保持一致。`rtl2spec --init` 在当前目录导出任务配置，不覆盖已有文件，也不检查 FM-Agent 环境或保存 root/python。下面的 YAML 示例展示任务字段。`Guide_Doc/`、`.ucagent/` 和输出由运行时生成，无需手工创建。
+
+## 可选 FM-Agent 模块规格
+
+将任务配置的 `fmagent.enabled` 改为 `true`，工作流会在自动运行规格准备。`mode: run` 使用已准备的 FM-Agent 环境，以原生 `chip --only-spec` 生成资料；`resume`、`isolate` 透传原生选项。 `mode: reuse` 直接消费输入项目已有的 `fm_agent/`，不需要 FM-Agent 环境。两个模式都会将项目的 `fm_agent/` 和存在的 `.codegraph/` **永久迁至 `{OUT}-fmagent/`**，任务结束不搬回。两个输出目录须为空或不存在，且在输入项目及其 Git 仓库之外。再次 reuse 时，可手动复制旧 `fm_agent/` 回输入项目，选择新的空输出，保留旧交付副本。
+
+四个下游阶段分别读取原生资料中的 spec/info。进入草稿阶段时自动向 `{OUT}/specs/` 原样导出全部发现的 `*_spec.md`，保持原层级、文件名和字节，info 仅保留为可选参考。没有 spec 时创建空目录；不要求正文非空、格式或模块覆盖，不生成占位 spec，也不修订其正文。中文文档的原验收保持，specs 不纳入其质量签核。完整配置、直接 UCAgent 入口和失败处理见[参考手册](docs/reference.md)。
 
 ## 示例一：通用 RTL（Example: GenericBlock）
 
@@ -73,6 +79,13 @@ backend:
 
 template_overwrite:
   GENERIC_CONFIG: Generic              # [文档配置标签]
+
+fmagent:
+  enabled: false
+  mode: run
+  resume: false
+  isolate: false
+  submodule: .
 ```
 
 准备后的目录为：
@@ -140,6 +153,13 @@ backend:
 
 template_overwrite:
   XS_CONFIG: DefaultConfig              # [香山配置类名]
+
+fmagent:
+  enabled: false
+  mode: run
+  resume: false
+  isolate: false
+  submodule: src/main/scala/xiangshan/mem/sbuffer
 ```
 
 准备后的目录为：

@@ -9,3 +9,10 @@ backend:
 
 template_overwrite:
   XS_CONFIG: DefaultConfig
+
+fmagent:
+  enabled: false
+  mode: run
+  resume: false
+  isolate: false
+  submodule: src/main/scala/xiangshan/mem/sbuffer
