@@ -46,7 +46,7 @@
 
 `status` 就绪返回 0，环境未就绪返回 1，参数/本地 TOML 错误返回 2。它不验证模型凭据或外部工具是否可执行。fetch 的来源/分支差异只作本地提醒：默认目录按默认值或显式值比较，自定义目录仅比较显式值；不修改 remote、切换分支或清理用户改动。开发来源可显式选 `--repo https://github.com/n3sRan/FM-Agent --branch feat/chip-only-spec`，不固定提交、不登记 submodule。
 
-管理命令（独立 `bind` 除外）和 `--init` 共用路径选择：**显式参数 > 进程环境 > 插件本地 TOML > 默认值**。环境变量为 `RTL2SPEC_FMAGENT_ROOT`、`RTL2SPEC_FMAGENT_PYTHON`；不读取任何 `.env` 来选择这些路径。路径支持 `~` 和相对路径并转为绝对路径，空字符串按未提供处理。Python 默认选定 root 下的 `.venv/bin/python`，只能由 root 同层或更高层的 Python 覆盖；例如环境 root 不继承 TOML Python，显式 root 不继承环境 Python。
+管理命令（独立 `bind` 除外）共用路径选择：**显式参数 > 进程环境 > 插件本地 TOML > 默认值**。环境变量为 `RTL2SPEC_FMAGENT_ROOT`、`RTL2SPEC_FMAGENT_PYTHON`；不读取任何 `.env` 来选择这些路径。路径支持 `~` 和相对路径并转为绝对路径，空字符串按未提供处理。Python 默认选定 root 下的 `.venv/bin/python`，只能由 root 同层或更高层的 Python 覆盖；例如环境 root 不继承 TOML Python，显式 root 不继承环境 Python。
 
 绑定文件固定为保留的插件源码根目录 `rtl2spec.local.toml`，不依赖当前目录，也不使用 HOME 全局注册表：
 
@@ -60,7 +60,19 @@ python = "/absolute/path/to/FM-Agent/.venv/bin/python"
 
 源码 `scripts/install.sh` 先用 `--python` 指定的 Python（默认 `python3`，需含 pip）安装插件声明依赖，再用同一环境顺序执行 fetch/install/bind。可用 `--skip-fetch`、`--skip-install`、`--skip-bind` 跳过对应动作；三个全跳过时只装插件。脚本支持 `--fmagent-root`、`--fmagent-python`、`--repo`、`--branch`，其中 `--fmagent-python` 要求 `--skip-install`，用于绑定已有解释器。跳过 fetch 时，install/bind 要求已有源码。脚本显示本次选定的路径，安装成功后保存 root 和其 `.venv/bin/python`；跳过安装时保存选定的已有解释器。使用 `--skip-bind` 可保持原绑定。失败时保留已完成步骤。原生安装的网络及用户工具/配置影响按 FM-Agent 文档处理。
 
-`--init generic/xiangshan` 可使用 `--fmagent-root`、`--fmagent-python` 将有效绝对路径写入新 YAML 的顶层 `fmagent` 表，其他模板字段保持，已有文件不覆盖。环境未就绪仍可导出并提醒准备；后续 bind/export 不改已生成的 YAML。路径选项仅用于 init，不覆盖 `--config` 任务。
+`--init generic/xiangshan` 只导出任务模板，已有文件不覆盖，不解析路径或探测 FM-Agent 环境。模板不含 root/python，路径选项仅保留在管理子命令中。
+
+### 可选自动规格准备
+
+设置 `fmagent.enabled: true` 后，工作流在证据阶段前自动准备 FM-Agent 规格；默认关闭时保持原四阶段。配置项为 `mode`（`run` 或 `reuse`）、`resume`、`isolate` 和项目内相对路径 `submodule`。`run` 调用原生 `chip --only-spec`，需已有 FM-Agent 环境；`reuse` 使用输入项目已有的 `fm_agent/`，不启动生成，也不需要 FM-Agent 环境。`reuse` 不接受 `resume` 或 `isolate`。`--init` 仅导出模板，不检查或写入 FM-Agent 路径。
+
+Generic 输入位于 `inputs/{DUT}/`，包含 RTL 和 `rtl2spec.json`；XiangShan 输入位于 `third_party/XiangShan/`，`submodule` 指向分析范围。CLI 会按 `enabled` 选择对应 workflow；直接使用 UCAgent 时，选择对应的 `*-design-document-fmagent` workflow，并在新任务中启用该配置。
+
+启用后阶段顺序为准备、证据、草稿、源码复核和验收。准备结束时，项目中的 `fm_agent/` 与存在的 `.codegraph/` 永久迁至 `{OUT}-fmagent/`，不自动搬回。`{OUT}` 和 `{OUT}-fmagent` 必须为空或不存在，并位于输入项目及 Git 仓库之外。下一次 reuse 前，操作者手动将旧 `fm_agent/` 复制回输入项目，并使用新的空输出目录。
+
+FM-Agent 的 spec/info 会登记为原四阶段的必读参考。证据阶段完成后，系统把所有 `*_spec.md` 按原层级和字节复制到 `{OUT}/specs/`；info 保留在完整运行副本中，作为可选参考。没有 spec 时仍创建空目录并继续，不检查正文质量或模块覆盖，也不修订规格内容。
+
+输入、配置、权限、进程、迁移或复制失败会阻止后续阶段并保留已有数据，不自动回迁、删除或重试。Generic 的 `inputs/` 父目录保持只读；fresh 运行若需在该目录下创建 FM-Agent 原生归档，可能因权限失败。按运行日志处理输入布局后再启动；不自动放宽权限或切换 reuse。
 
 ## 后端配置
 

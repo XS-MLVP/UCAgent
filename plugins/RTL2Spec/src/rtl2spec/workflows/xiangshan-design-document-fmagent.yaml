@@ -1,0 +1,24 @@
+include: xiangshan-design-document.yaml
+stage[0:0]:
+  name: prepare_fmagent
+  desc: 自动准备模块规格
+  task:
+  - 模块资料已由本阶段自动准备，无需调用生成工具。读取 Guide_Doc/fmagent-preparation-guide.md，查看 Check 返回的准备状态与规格数量；数量为0也可继续。
+  - 记录阶段日志后 Complete。失败时保留现有目录并请操作者处理，不自行重跑或修订原始模块资料。
+  reference_files:
+  - Guide_Doc/fmagent-preparation-guide.md
+  checker:
+  - name: fmagent_preparation
+    clss: RTL2SpecFMAgentPrepareChecker
+    args:
+      module: '{DUT}'
+      kind: xiangshan
+      output_dir: '{OUT}'
+stage[2].checker[0:0]:
+  name: fmagent_spec_export
+  clss: RTL2SpecFMAgentExportChecker
+  args: {}
+stage[1].task[0:0]: 先用 ReadTextFile 读取本阶段新增的模块 spec/info references；它们是预期要求，源码与RTL是实现证据。冲突登记为开放项，不修订原始资料。
+stage[2].task[0:0]: 模块 spec 已自动原样导出至 {OUT}/specs/；零spec和空spec均允许，info可选。读取本阶段 references，以源码核对事实，不修改原生资料或spec副本。
+stage[3].task[0:0]: 读取本阶段模块 spec/info references，分别保留预期要求与实现观察，冲突按原文档流程登记开放项。
+stage[4].task[0:0]: 读取本阶段模块 spec/info references。{OUT}/specs/仅为原样交付，不属于文档质量签核范围，不要求spec存在或具有特定正文。

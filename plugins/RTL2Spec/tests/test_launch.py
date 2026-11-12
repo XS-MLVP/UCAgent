@@ -83,7 +83,7 @@ def test_workspace_expands_home_and_preserves_absolute_paths(tmp_path, monkeypat
     monkeypatch.setenv("HOME", str(tmp_path))
     config_file = tmp_path / "run.yaml"
     config_file.write_text(yaml.safe_dump({"rtl2spec": {"workspace": workspace, "module": "Top", "workflow": "generic-design-document"}}))
-    assert build_command(config_file)[4] == str(Path(workspace).expanduser())
+    assert build_command(config_file)[4] == str(Path(workspace).expanduser().resolve())
 
 
 @pytest.mark.parametrize("text", [

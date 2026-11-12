@@ -12,6 +12,7 @@ from typing import Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
+from .fmagent_workflow import FMAgentSettings
 from .evidence import output_root
 
 
@@ -32,6 +33,8 @@ def build_command(config_file: Path) -> list[str]:
     if not isinstance(data, dict) or "rtl2spec" not in data:
         raise ValueError("Expected a YAML mapping with an rtl2spec section; create one with --init")
     settings = LaunchSettings.model_validate(data["rtl2spec"])
+    fmagent = FMAgentSettings.model_validate(data.get("fmagent", {}))
+    workflow = settings.workflow + ("-fmagent" if fmagent.enabled else "")
     workspace = Path(settings.workspace).expanduser()
     if not workspace.is_absolute():
         workspace = config_file.parent / workspace
@@ -40,7 +43,7 @@ def build_command(config_file: Path) -> list[str]:
     return [
         sys.executable, "-P", "-m", "ucagent.cli", str(workspace), settings.module,
         "--plugin", "rtl2spec",
-        "--plugin-workflow", f"rtl2spec:{settings.workflow}",
+        "--plugin-workflow", f"rtl2spec:{workflow}",
         "--config", str(config_file), "--output", settings.output,
         "--no-history", "--mcp-server-no-file-tools",
     ]
@@ -55,26 +58,14 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, prog="rtl2spec", epilog="FM-Agent management: rtl2spec fmagent {fetch,install,bind,status} --help")
     parser.add_argument("--config", type=Path, default=Path("rtl2spec.yaml"), help="Run configuration (default: rtl2spec.yaml)")
     parser.add_argument("--init", choices=("generic", "xiangshan"), help="Write a bundled configuration template without overwriting files")
-    parser.add_argument("--fmagent-root", help="FM-Agent source path saved by --init")
-    parser.add_argument("--fmagent-python", help="FM-Agent interpreter saved by --init")
     args = parser.parse_args(argv)
-    if not args.init and (args.fmagent_root is not None or args.fmagent_python is not None):
-        parser.error("--fmagent-root/--fmagent-python require --init; existing YAML paths are not changed")
     try:
         if args.init:
-            from .fmagent_config import resolve_paths
-            from .fmagent import local_status
-
-            paths = resolve_paths(args.fmagent_root, args.fmagent_python)
             template = Path(__file__).parent / "launch_configs" / f"{args.init}.yaml"
             content = template.read_text(encoding="utf-8")
-            content += yaml.safe_dump({"fmagent": {"root": str(paths.root), "python": str(paths.python)}}, sort_keys=False)
             target = args.config.expanduser()
             with target.open("x", encoding="utf-8") as stream:
                 stream.write(content)
-            state, detail = local_status(paths)
-            if state != "ready":
-                print(f"Warning: {state}: {detail}. Prepare separately with rtl2spec fmagent fetch/install/bind; inspect with rtl2spec fmagent status.", file=sys.stderr)
             print(f"Created {target}. Edit its workspace/module, prepare the input, then run rtl2spec --config {shlex.quote(str(target))}.")
             return 0
         command = build_command(args.config)
