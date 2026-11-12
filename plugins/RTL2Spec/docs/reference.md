@@ -39,12 +39,12 @@
 
 | 命令 | 参数与行为 |
 | --- | --- |
-| `rtl2spec fmagent fetch` | `--fmagent-root`、`--repo`、`--branch`；默认获取 `https://github.com/fmagent-project/FM-Agent` 的 `main` 到插件 `third_party/FM-Agent`，已有有效 checkout 仅复用，不更新、安装或绑定 |
+| `rtl2spec fmagent fetch` | `--fmagent-root`、`--repo`、`--branch`；默认获取 `https://github.com/fmagent-project/FM-Agent` 的固定提交 `3e42260b25a8edb9b799b9fad126bc6aa2ca9d5d`（detached HEAD）到插件 `third_party/FM-Agent`，已有有效 checkout 仅复用，不更新、安装或绑定 |
 | `rtl2spec fmagent install` | `--fmagent-root`；要求已有源码，调用其 `bash install.sh` 准备 `root/.venv`，可显式透传 `--with-dsh`、`--with-erlang`、`--with-chisel` |
 | `rtl2spec fmagent bind` | `--fmagent-root`、`--fmagent-python`；仅保存路径，可绑定尚未准备依赖的源码并提醒；缺源码报错 |
 | `rtl2spec fmagent status` | `--fmagent-root`、`--fmagent-python`；显示路径及来源，本地短时检查源码、解释器、Python 导入和原生配置 |
 
-`status` 就绪返回 0，环境未就绪返回 1，参数/本地 TOML 错误返回 2。它不验证模型凭据或外部工具是否可执行。fetch 的来源/分支差异只作本地提醒：默认目录按默认值或显式值比较，自定义目录仅比较显式值；不修改 remote、切换分支或清理用户改动。开发来源可显式选 `--repo https://github.com/n3sRan/FM-Agent --branch feat/chip-only-spec`，不固定提交、不登记 submodule。
+`status` 就绪返回 0，环境未就绪返回 1，参数/本地 TOML 错误返回 2。它不验证模型凭据或外部工具是否可执行。fetch 的来源/提交/分支差异只作本地提醒：默认目录按默认值或显式值比较，自定义目录仅比较显式值；不修改 remote、切换已有 checkout 的分支或清理用户改动。新建 checkout 使用默认官方来源时固定上述提交；显式 `--branch` 或其他 `--repo` 使用所选分支（未指定分支时为 `main`），不应用默认提交，不登记 submodule。
 
 管理命令（独立 `bind` 除外）共用路径选择：**显式参数 > 进程环境 > 插件本地 TOML > 默认值**。环境变量为 `RTL2SPEC_FMAGENT_ROOT`、`RTL2SPEC_FMAGENT_PYTHON`；不读取任何 `.env` 来选择这些路径。路径支持 `~` 和相对路径并转为绝对路径，空字符串按未提供处理。Python 默认选定 root 下的 `.venv/bin/python`，只能由 root 同层或更高层的 Python 覆盖；例如环境 root 不继承 TOML Python，显式 root 不继承环境 Python。
 

@@ -9,7 +9,7 @@ import shlex
 import subprocess
 import sys
 
-from .fmagent_config import DEFAULT_BRANCH, DEFAULT_REPO, FMAgentPaths, bind_paths, plugin_source_root, resolve_paths
+from .fmagent_config import DEFAULT_BRANCH, DEFAULT_COMMIT, DEFAULT_REPO, FMAgentPaths, bind_paths, plugin_source_root, resolve_paths
 
 
 SOURCE_FILES = ("main.py", "config.py", "install.sh", "pyproject.toml")
@@ -52,6 +52,7 @@ def fetch(paths: FMAgentPaths, repo: str | None = None, branch: str | None = Non
     """Clone once or reuse a valid checkout without updating, installing, or binding it."""
     root = paths.root
     environment = isolated_environment()
+    pinned_commit = DEFAULT_COMMIT if branch is None and (repo is None or repo.removesuffix(".git") == DEFAULT_REPO.removesuffix(".git")) else None
     if root.exists() and (not root.is_dir() or any(root.iterdir())):
         if not source_present(root) or not (root / ".git").exists():
             raise ValueError(f"Refusing non-FM-Agent checkout: {root}; select an absent/empty directory or a valid FM-Agent checkout")
@@ -62,7 +63,8 @@ def fetch(paths: FMAgentPaths, repo: str | None = None, branch: str | None = Non
         is_default = root == (plugin_source_root() / "third_party/FM-Agent").resolve()
         for requested, arguments, label in (
             (repo or (DEFAULT_REPO if is_default else None), ["remote", "get-url", "origin"], "origin"),
-            (branch or (DEFAULT_BRANCH if is_default else None), ["symbolic-ref", "--short", "-q", "HEAD"], "branch"),
+            ((pinned_commit if is_default else None), ["rev-parse", "HEAD"], "commit"),
+            (branch or (DEFAULT_BRANCH if is_default and not pinned_commit else None), ["symbolic-ref", "--short", "-q", "HEAD"], "branch"),
         ):
             if requested is not None:
                 actual = subprocess.run(["git", "-C", str(root), *arguments], env=environment,
@@ -76,6 +78,10 @@ def fetch(paths: FMAgentPaths, repo: str | None = None, branch: str | None = Non
     result = subprocess.run(command, env=environment)
     if result.returncode:
         raise ValueError(f"FM-Agent fetch failed (exit {result.returncode}); no retry performed; inspect {root} before retrying")
+    if pinned_commit:
+        result = subprocess.run(["git", "-C", str(root), "checkout", "--detach", pinned_commit], env=environment)
+        if result.returncode:
+            raise ValueError(f"FM-Agent checkout failed for {pinned_commit} (exit {result.returncode}); no retry, installation or binding performed; inspect {root}")
     if not source_present(root):
         raise ValueError(f"Cloned source lacks FM-Agent entry points: {root}; no installation or binding performed")
     print(f"Fetched FM-Agent source: {root}")
@@ -153,7 +159,7 @@ def main(argv: list[str] | None = None) -> int:
             child.add_argument("-y", "--yes", action="store_true", help="Confirm without prompting")
         if action == "fetch":
             child.add_argument("--repo", help=f"Clone source (default: {DEFAULT_REPO})")
-            child.add_argument("--branch", help=f"Clone branch (default: {DEFAULT_BRANCH})")
+            child.add_argument("--branch", help=f"Clone branch instead of default pinned commit {DEFAULT_COMMIT}")
         if action == "install":
             for option in ("--with-dsh", "--with-erlang", "--with-chisel"):
                 child.add_argument(option, action="store_true", help="Pass this native toolchain option to install.sh")
