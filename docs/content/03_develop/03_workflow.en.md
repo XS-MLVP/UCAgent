@@ -69,6 +69,10 @@ stage:
 - `need_human_check`: Wait for human review after passing the Checker.
 - `skill_list`: Specialized skills for the current stage. When a skill is enabled and the list is non-empty, a real list/read/use evidence is required by default; `force_use_skill: false` makes it optional.
 
+### Files and Links in Stage History
+
+Stage history stores regular output files and symbolic links themselves. Directory links are not traversed; file, dangling, absolute, and external links retain their original target strings, which are also used for history comparisons and content views. Targets inside the output tree are archived at their real paths. External targets are not included automatically, so storing a link does not establish target availability or successful execution. Sync roots and their ancestors must be real directories, and source and destination must not overlap. Avoid concurrent modifications to the output tree during archiving.
+
 ## 3. Configuration Loading and Template Variables
 
 Configuration is loaded in the following order, with later layers overriding earlier ones:
