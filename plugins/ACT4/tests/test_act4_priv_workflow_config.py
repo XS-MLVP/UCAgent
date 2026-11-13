@@ -44,11 +44,13 @@ def _checker(stage, name):
     return next(item for item in stage["checker"] if item["name"] == name)
 
 
-def test_priv_workflow_has_unique_keys_and_seven_ordered_stages() -> None:
+def test_priv_workflow_has_unique_keys_and_environment_preparation_first() -> None:
     workflow = _load_workflow()
     stages = workflow["stage"]
 
-    assert len(stages) == 7
+    assert len(stages) == 8
+    assert stages[0]["name"] == "prepare_environment"
+    stages = stages[1:]
     checker_names = [
         checker["name"] for stage in stages for checker in stage["checker"]
     ]
@@ -68,7 +70,7 @@ def test_priv_workflow_checkers_accept_ucagent_cfg_injection() -> None:
 
 
 def test_priv_workflow_enables_review_regression_gates() -> None:
-    stages = _load_workflow()["stage"]
+    stages = _load_workflow()["stage"][1:]
     norm_args = _checker(stages[1], "act4_norm_mapping_asset_check")["args"]
     generator_args = _checker(stages[3], "act4_generator_asset_check")["args"]
     build_args = _checker(stages[4], "act4_generated_test_asset_check")["args"]
@@ -143,6 +145,7 @@ def test_priv_workflow_enables_review_regression_gates() -> None:
     final_args = _checker(
         stages[-1], "act4_final_human_report_check"
     )["args"]
+    assert "{OUT}/{DUT}/environment/summary.md" in final_args["required_reports"]
     assert "{OUT}/{DUT}/reports/**/*" not in final_args["required_reports"]
     assert "required_phrases" not in final_args
 
@@ -155,7 +158,7 @@ def test_contribution_gate_requires_ci_review_without_blocking_tool_limits(
     tmp_path: Path, ci_state: str, expected_pass: bool,
 ) -> None:
     args = _checker(
-        _load_workflow()["stage"][5], "act4_contribution_ai_review"
+        _load_workflow()["stage"][6], "act4_contribution_ai_review"
     )["args"]
     names = args["required_check_names"]
     assert "local_ci_reproduction" in names
@@ -216,7 +219,7 @@ def test_contribution_gate_requires_ci_review_without_blocking_tool_limits(
         )
 
 def test_priv_workflow_prevents_reference_model_scope_degradation() -> None:
-    stages = _load_workflow()["stage"]
+    stages = _load_workflow()["stage"][1:]
     vm_text = "\n".join(stages[2]["task"])
     build_text = "\n".join(stages[4]["task"])
 
@@ -234,7 +237,7 @@ def test_priv_workflow_prevents_reference_model_scope_degradation() -> None:
 
 def test_priv_workflow_discovers_ctp_sheet_and_manual_references() -> None:
     workflow = _load_workflow()
-    stages = workflow["stage"]
+    stages = workflow["stage"][1:]
     first = stages[0]
     ctp_args = _checker(first, "act4_ctp_reference_check")["args"]
     manual_args = _checker(first, "act4_manual_reference_check")["args"]
