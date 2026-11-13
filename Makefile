@@ -27,7 +27,7 @@ help: ## Show grouped targets, common variables, and examples
 		print "  make as_master_persist PATH_PERSISTENT=/tmp/ucagent_master" }' $(MAKEFILE_LIST)
 
 unitytest: ## Run the Python and JavaScript test suites
-	$(PYTHON) -m pytest -q tests
+	$(PYTHON) -m pytest -q -ra tests
 	$(NODE) --test tests/test_*.js
 
 init: ## Install project dependencies

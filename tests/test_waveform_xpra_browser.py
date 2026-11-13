@@ -10,6 +10,7 @@ from pathlib import Path
 from urllib.parse import urlencode
 
 import pytest
+from runtime_requirements import launch_browser
 
 
 _URL = os.environ.get('UCAGENT_WAVE_XPRA_URL', '')
@@ -19,7 +20,9 @@ pytestmark = pytest.mark.skipif(not _URL, reason='Requires the real waveform Xpr
 @pytest.mark.parametrize('browser_kind', ['chromium', 'webkit'])
 def test_wave_link_displays_restored_waveform_and_accepts_remote_input(browser_kind, tmp_path):
     """Open /wave/, observe actual Tk pixels and round-trip keyboard input over Xpra."""
-    from playwright.sync_api import sync_playwright
+    playwright_api = pytest.importorskip("playwright.sync_api")
+    if not os.environ.get('UCAGENT_WAVE_XPRA_PASSWORD'):
+        pytest.skip('Requires UCAGENT_WAVE_XPRA_PASSWORD for the external waveform server')
 
     base = _URL.rstrip('/')
     credentials = dict(username='ucagent', password=os.environ['UCAGENT_WAVE_XPRA_PASSWORD'])
@@ -28,8 +31,8 @@ def test_wave_link_displays_restored_waveform_and_accepts_remote_input(browser_k
     options = {}
     if browser_kind == 'chromium' and os.environ.get('UCAGENT_XPRA_CHROMIUM_EXECUTABLE'):
         options['executable_path'] = os.environ['UCAGENT_XPRA_CHROMIUM_EXECUTABLE']
-    with sync_playwright() as playwright:
-        browser = getattr(playwright, browser_kind).launch(headless=True, **options)
+    with playwright_api.sync_playwright() as playwright:
+        browser = launch_browser(playwright, browser_kind, **options)
         context = browser.new_context(http_credentials=credentials, viewport={'width': 1440, 'height': 950})
         page = context.new_page()
         try:

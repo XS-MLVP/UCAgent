@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+"""Assemble verification agents and coordinate tools, prompts, and work loops."""
 
 from curses import echo
 from .tools.context import ArbitContextSummary
@@ -559,9 +560,7 @@ class VerifyAgent:
             checker_registry=self.plugin_checker_registry,
             test_python_import_roots=plugin_python_import_roots,
         )
-        self._default_system_prompt = (
-            sys_tips if sys_tips else self.get_default_system_prompt()
-        )
+        self._default_system_prompt = self.get_default_system_prompt(sys_tips)
         self.tool_list_base = [
             self.tool_read_text,
             RoleInfo(self._default_system_prompt),
@@ -760,7 +759,7 @@ class VerifyAgent:
         self._break_threads: set[int] = set()
         self._need_human = False
         self._max_stalled_rounds = self._validated_max_stalled_rounds(
-            self.cfg.get_value("loop_settings.max_stalled_rounds", 0)
+            self.cfg.get_value("loop_settings.max_stalled_rounds", 18)
         )
         self._stalled_rounds = 0
         self._last_stall_signature = None
@@ -1086,15 +1085,29 @@ class VerifyAgent:
         """Get the current system message for the agent."""
         return self._system_message
 
-    def get_default_system_prompt(self):
-        """Get the default system prompt for the agent. And if skill is enabled, include skill prompt and skill list."""
-        system = self.cfg.mission.prompt.get_value("system", "").strip()
+    def get_default_system_prompt(self, sys_tips=None):
+        """Render mission guidance and the invariant agent runtime-state boundary."""
+        system = (sys_tips or self.cfg.mission.prompt.get_value("system", "")).strip()
         if self.cfg.skill.use_skill:
             formatted_skill_list = list_skills_in_format(_list_skills(self.workspace),self.workspace,self.cfg.skill.general_skill_list)
             skill_prompt = self.cfg.mission.prompt.get_value("skill_system", "").replace("{general_skill_list}", formatted_skill_list)
             system = system.replace("{skill_system}", skill_prompt)
         else:
             system = system.replace("{skill_system}", "")
+        system += (
+            "\n\nThe workspace `.ucagent/` directory and all its contents are "
+            "read-only to you. You may read them when needed, but must not "
+            "create, edit, overwrite, delete, move, rename, or change permissions "
+            "on them through file tools, backend-native tools, shell commands, "
+            "or scripts. This includes settings, copied Skills, runtime "
+            "snapshots, checkpoints, receipts, and history. Use the documented "
+            "workflow tools to record progress and evidence; their managed "
+            "state updates are allowed. If runtime configuration or a tool "
+            "environment blocks work, report the exact diagnostic and required "
+            "operator action. Do not edit `.ucagent/` or framework/plugin "
+            "source to repair the running environment. Runtime configuration "
+            "changes require an operator to restart UCAgent."
+        )
         warning(f"System prompt: {system}")
         return system
 
@@ -1259,17 +1272,20 @@ class VerifyAgent:
         return self
 
     def run_loop(self, msg=None):
+        """Run completed backend rounds until completion, interruption, or a stall."""
         if msg:
             self.set_continue_msg(msg)
         self._need_human = False
+        self._reset_stalled_rounds()
         # conversation loop
         while not self.is_exit():
             validation_revision = getattr(
                 self.stage_manager, "validation_revision", 0
             )
             stage_index = getattr(self.stage_manager, "stage_index", None)
+            artifacts = self._loop_artifact_state() if self._max_stalled_rounds else None
             self.one_loop()
-            self._update_stalled_rounds(validation_revision, stage_index)
+            self._update_stalled_rounds(validation_revision, stage_index, artifacts)
             if self.is_exit():
                 break
             if self.is_break():
@@ -1289,6 +1305,7 @@ class VerifyAgent:
 
     @staticmethod
     def _validated_max_stalled_rounds(value):
+        """Accept a nonnegative round limit, with zero explicitly disabling it."""
         if isinstance(value, bool) or not isinstance(value, int) or value < 0:
             raise ValueError(
                 "loop_settings.max_stalled_rounds must be a non-negative integer"
@@ -1297,6 +1314,7 @@ class VerifyAgent:
 
     @staticmethod
     def _checker_failure_signature(check_result):
+        """Identify an explicit Checker failure without inferring a diagnosis."""
         if not isinstance(check_result, dict):
             return None
         summary = check_result.get("failure_summary")
@@ -1322,44 +1340,93 @@ class VerifyAgent:
         return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
     def _reset_stalled_rounds(self):
+        """Start a fresh budget after progress or an explicit loop resume."""
         self._stalled_rounds = 0
         self._last_stall_signature = None
 
-    def _update_stalled_rounds(self, previous_revision, previous_stage_index):
+    def _loop_artifact_state(self):
+        """Snapshot output file metadata, excluding runtime state and transient files."""
+        root = getattr(self, "output_dir", None)
+        if not root:
+            return ()
+        files = []
+        for directory, dirs, names in os.walk(root, followlinks=False):
+            dirs[:] = [
+                name for name in dirs
+                if not name.startswith(".") and name != "__pycache__"
+                and not Path(directory, name).is_symlink()
+            ]
+            for name in names:
+                path = Path(directory, name)
+                if path.is_symlink() or path.suffix in {
+                    ".pyc", ".pyo", ".log", ".tmp",
+                    ".fst", ".vcd", ".fsdb", ".usdb", ".dat"
+                }:
+                    continue
+                try:
+                    stat = path.stat()
+                except OSError:
+                    continue
+                files.append((str(path.relative_to(root)), stat.st_size, stat.st_mtime_ns))
+        return tuple(sorted(files))
+
+    def _update_stalled_rounds(
+        self, previous_revision, previous_stage_index, previous_artifacts=None
+    ):
+        """Pause on repeated failures or completed rounds without observable progress."""
         if self._max_stalled_rounds == 0:
             return
         current_revision = getattr(
             self.stage_manager, "validation_revision", previous_revision
         )
-        if current_revision == previous_revision:
-            return
         current_stage_index = getattr(
             self.stage_manager, "stage_index", previous_stage_index
         )
         check_result = getattr(self.stage_manager, "last_check_info", {})
-        if (
-            current_stage_index != previous_stage_index
-            or check_result.get("check_pass") is True
-            or check_result.get("progress_summary")
-        ):
+        if current_stage_index != previous_stage_index:
             self._reset_stalled_rounds()
             return
-        signature = self._checker_failure_signature(check_result)
-        if signature is None:
-            self._reset_stalled_rounds()
-            return
+        if current_revision == previous_revision:
+            if (
+                previous_artifacts is not None
+                and self._loop_artifact_state() != previous_artifacts
+            ):
+                self._reset_stalled_rounds()
+                return
+            # A normal CLI exit and read-only tool activity do not prove
+            # progress. Preserve the current failure identity across these
+            # rounds so an external-environment blocker cannot spin forever.
+            signature = self._checker_failure_signature(check_result)
+            signature = signature or f"no_progress:{current_stage_index}"
+        else:
+            if (
+                check_result.get("check_pass") is True
+                or check_result.get("progress_summary")
+            ):
+                self._reset_stalled_rounds()
+                return
+            signature = self._checker_failure_signature(check_result)
+            if signature is None:
+                self._reset_stalled_rounds()
+                return
         if signature == self._last_stall_signature:
             self._stalled_rounds += 1
         else:
             self._last_stall_signature = signature
             self._stalled_rounds = 1
         if self._stalled_rounds >= self._max_stalled_rounds:
-            summary = check_result["failure_summary"]
+            summary = check_result.get("failure_summary", {})
+            diagnostic = (
+                f"Current Checker diagnostic: {summary['error_code']}. "
+                if summary.get("error_code") else ""
+            )
             warning(
                 "Pausing the agent loop after "
-                f"{self._stalled_rounds} rounds with unchanged Checker diagnostic "
-                f"{summary['error_code']} in stage {summary['stage_index']} "
-                f"({summary['stage_name']})."
+                f"{self._stalled_rounds} stalled rounds in stage {current_stage_index}. "
+                f"{diagnostic}"
+                "Inspect the latest validation diagnostic or backend output, "
+                "repair the blocking input or environment, then resume with loop. "
+                "Restart UCAgent if runtime configuration changed."
             )
             self._need_human = True
 

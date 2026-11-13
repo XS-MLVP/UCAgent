@@ -676,7 +676,7 @@ def test_pareto_candidate_is_accepted_at_iteration_limit(
         "current": 9.0,
         "delta": -1.0,
         "percent_change": -10.0,
-        "unit": "library_area",
+        "unit": "liberty_area_unit",
         "direction": "min",
         "assessment": "improved",
     }
@@ -1101,7 +1101,7 @@ def test_best_selection_scopes_pareto_comparison_to_protected_categories() -> No
             "ppa_metrics": {
                 "ppa.area.total": {
                     "value": area,
-                    "unit": "library_area",
+                    "unit": "liberty_area_unit",
                     "direction": "min",
                 },
                 "ppa.timing.critical_path_delay_ns": {

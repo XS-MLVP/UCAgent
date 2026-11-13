@@ -6,8 +6,8 @@
 ## 本阶段操作
 
 1. 先用 ReadTextFile 读取本阶段 reference_files。确认 `{OUT}` 无旧产物；已有结果按用户授权清理或另选输出目录。
-2. 运行 `RTL2SpecCommand(action="preflight", module="Sbuffer", config="DefaultConfig")` 检查构建条件；替换为本次模块和配置。
-3. 运行 `action="evidence"` 生成 RTL，读取 `{OUT}/evidence/manifest.json`、`ports.csv` 和 `{DUT}.sv`，确认 commit、配置、生成状态与当前输入一致。
+2. 运行 `RTL2SpecCommand(action="evidence", module="Sbuffer", config="DefaultConfig")`，替换为本次模块和配置。此操作包含构建条件预检；需要单独诊断输入或环境时使用 `action="preflight"`。
+3. 读取 `{OUT}/evidence/manifest.json`、`ports.csv` 和 `{DUT}.sv`，确认 commit、配置、生成状态与当前输入一致。
 4. 读取 DUT Scala 和支撑结论的相关模块。使用 `action="related_sources", related_modules=["RelatedClass"]` 登记确实参考的模块；没有参考的模块不登记。
 5. 运行 `action="ports"` 生成 `{OUT}/evidence/ports.md`；记录本阶段结果并 Complete。
 

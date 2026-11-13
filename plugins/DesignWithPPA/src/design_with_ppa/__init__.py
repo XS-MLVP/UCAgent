@@ -15,6 +15,15 @@ _EXPORT_GROUPS = {
     "ppa": (
         "AnalyzePPA",
         "AnalyzePPAArgs",
+        "PPABackend",
+        "PPARequest",
+        "PPAContext",
+        "PPAResult",
+        "PPAConfig",
+        "PDKConfig",
+        "ResolvedPDK",
+        "ConstantCell",
+        "resolve_ppa_config",
         "compare_ppa_reports",
     ),
     "consistency": (

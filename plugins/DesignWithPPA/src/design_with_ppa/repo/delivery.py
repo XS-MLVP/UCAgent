@@ -14,9 +14,11 @@ from ..contracts import atomic_json, atomic_text
 from . import apply_bundle as migration
 from .build import prepare_unit
 from .common import RepoPaths, inside, run_command, tree_identity
+from .evidence import unseal
 from .models import Candidate, Interface, Recipe, TaskContract, read_model
 from .snapshot import snapshot_repository
-from .validation import child_environment, current_identity, seal, validate_unit, validated_records
+from .validation import (child_environment, current_identity, seal, validate_unit, validated_records,
+                         write_repo_optimization_log)
 
 
 def best_record(paths: RepoPaths) -> dict:
@@ -137,6 +139,17 @@ def deliver(paths: RepoPaths, *, migration_script: bool = False) -> dict:
         improvement = any(row["assessment"] == "improved" for row in changes.values())
         atomic_json(bundle / "validation.json", final)
         atomic_json(bundle / "history.json", {"records": records})
+        write_repo_optimization_log(paths, records)
+        # Keep relative evidence links usable when the bundle is moved elsewhere.
+        for record in records:
+            atomic_json(bundle / "reports" / (record["variant_id"] + ".json"), record)
+            if record.get("source_diff"):
+                shutil.copy2(inside(paths.edit, "reports/" + record["source_diff"]), bundle / "reports" / record["source_diff"])
+        for name in ("optimization_log.md", "optimization_log.html"):
+            shutil.copy2(paths.edit / "reports" / name, bundle / "reports" / name)
+        for artifact in sorted((paths.state / "attempts").glob("*.json")):
+            attempt = unseal(paths, artifact)
+            atomic_json(inside(bundle, "reports/" + attempt["evidence"]), attempt)
         atomic_text(bundle / "interface_changes.md", "\n# Interface Changes\n\n"
                     + "Baseline interface: `" + records[0]["interface"]["version"] + "`.\n\n"
                     + "Delivered interface: `" + best["interface"]["version"] + "`.\n\n"
@@ -154,6 +167,8 @@ def deliver(paths: RepoPaths, *, migration_script: bool = False) -> dict:
             + f" | {row['assessment']} |"
             for name, row in changes.items())
         atomic_text(bundle / "summary.md", "\n# Repository Module Delivery Summary\n\n"
+                    + "[Optimization log](reports/optimization_log.html) | "
+                    + "[Markdown log](reports/optimization_log.md)\n\n"
                     + f"- Task: {contract.objective}\n"
                     + f"- Mode: {paths.options['mode']}; source commit `{source['commit']}` "
                     + f"({source['snapshot_mode']} snapshot).\n"

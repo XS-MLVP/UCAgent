@@ -18,18 +18,13 @@ from pydantic import ValidationError
 PLUGIN_SOURCE = Path(__file__).resolve().parent.parent / "src"
 sys.path.insert(0, str(PLUGIN_SOURCE))
 
-from design_with_ppa.ppa import (  # noqa: E402
-    AnalyzePPA,
-    AnalyzePPAArgs,
-    _InputBit,
-    _aggregate_tc_activity,
-    _classify_design,
-    _compare_reports,
-    _convert_fst_to_vcd,
-    _metric_change,
-    _parse_vcd_activity,
-    _parse_sta_metric,
-)
+from design_with_ppa.ppa import AnalyzePPA, AnalyzePPAArgs, PPAContext, PPAConfig
+from design_with_ppa.ppa.activity import _InputBit, _aggregate_tc_activity, _convert_fst_to_vcd, _parse_vcd_activity
+from design_with_ppa.ppa.parsers import _classify_design, _parse_sta_metric
+from design_with_ppa.ppa.comparison import _compare_reports, _metric_change
+from design_with_ppa.ppa.backends.yosys_opensta import YosysOpenSTABackend
+from design_with_ppa.ppa.config import resolve_pdk
+from design_with_ppa.ppa.process import ProcessRunner
 from ucagent.tools.uctool import to_mcp_tool  # noqa: E402
 from ucagent.util.functions import get_tools_from_cfg  # noqa: E402
 
@@ -195,13 +190,14 @@ def _synthetic_report(
     """Build one current-schema report for deterministic cache and diff tests."""
 
     return {
-        "schema_version": "1.1",
+        "schema_version": "1.2",
         "report_id": report_id,
         "created_at": "2026-09-01T00:00:00+00:00",
         "status": "success",
         "summary": {
             "design_type": "combinational",
             "area": {
+                "unit": "liberty_area_unit",
                 "total": total_area,
                 "sequential": 0.0,
                 "combinational": total_area,
@@ -248,6 +244,7 @@ def _synthetic_report(
         },
         "diagnostics": [],
         "provenance": {
+            **AnalyzePPA().analysis_identity(),
             "top_module": top_module,
             "rtl_libraries": [],
             "liberty_sha256": "a" * 64,
@@ -434,7 +431,7 @@ def test_report_ids_are_unique_cached_and_persistent(tmp_path: Path) -> None:
     )
     first = tool.analyze(arguments)
     second = tool.analyze(arguments)
-    assert first["schema_version"] == "1.1"
+    assert first["schema_version"] == "1.2"
     assert first["status"] == "error"
     assert first["report_id"] != second["report_id"]
     assert first["report_id"].startswith("ppa-")
@@ -445,9 +442,9 @@ def test_report_ids_are_unique_cached_and_persistent(tmp_path: Path) -> None:
 
     reloaded_tool = _tool(tmp_path)
     assert reloaded_tool.cache_limit == 100
-    cached = reloaded_tool._load_cached_report(first["report_id"])
+    cached = reloaded_tool._reports._load_cached_report(first["report_id"])
     assert cached["report_id"] == first["report_id"]
-    assert reloaded_tool._available_report_ids()[:2] == [
+    assert reloaded_tool._reports._available_report_ids()[:2] == [
         second["report_id"],
         first["report_id"],
     ]
@@ -459,7 +456,7 @@ def test_report_cache_evicts_oldest_entries_at_configured_limit(tmp_path: Path) 
     tool = _tool(tmp_path, cache_limit=3)
     report_ids = [f"ppa-{index:032x}" for index in range(1, 6)]
     for report_id in report_ids:
-        tool._store_cached_report(_synthetic_report(report_id))
+        tool._reports._store_cached_report(_synthetic_report(report_id))
 
     cache_root = tmp_path / ".ucagent/ppa_reports"
     index = json.loads((cache_root / "index.json").read_text(encoding="utf-8"))
@@ -472,7 +469,7 @@ def test_report_cache_evicts_oldest_entries_at_configured_limit(tmp_path: Path) 
         json.dumps(_synthetic_report(report_ids[0])), encoding="utf-8"
     )
     with pytest.raises(FileNotFoundError, match="not retained"):
-        tool._load_cached_report(report_ids[0])
+        tool._reports._load_cached_report(report_ids[0])
 
 
 def test_report_cache_rejects_tampered_report_bytes(tmp_path: Path) -> None:
@@ -480,14 +477,14 @@ def test_report_cache_rejects_tampered_report_bytes(tmp_path: Path) -> None:
 
     tool = _tool(tmp_path)
     report_id = f"ppa-{'9' * 32}"
-    tool._store_cached_report(_synthetic_report(report_id))
+    tool._reports._store_cached_report(_synthetic_report(report_id))
     report_path = tmp_path / ".ucagent" / "ppa_reports" / f"{report_id}.json"
     tampered = json.loads(report_path.read_text(encoding="utf-8"))
     tampered["summary"]["area"]["total"] = 999.0
     report_path.write_text(json.dumps(tampered), encoding="utf-8")
 
     with pytest.raises(ValueError, match="hash does not match"):
-        tool._load_cached_report(report_id)
+        tool._reports._load_cached_report(report_id)
 
 
 @pytest.mark.parametrize("cache_limit", [True, 0, 10001])
@@ -507,7 +504,7 @@ def test_report_cache_rejects_symlinked_internal_state(tmp_path: Path) -> None:
     outside.mkdir()
     (tmp_path / ".ucagent").symlink_to(outside, target_is_directory=True)
     with pytest.raises(ValueError, match="must not be a symbolic link"):
-        _tool(tmp_path)._cache_root(create=True)
+        _tool(tmp_path)._reports._cache_root(create=True)
 
 
 def test_cached_report_json_replaces_nonfinite_values(tmp_path: Path) -> None:
@@ -517,8 +514,8 @@ def test_cached_report_json_replaces_nonfinite_values(tmp_path: Path) -> None:
     report_id = f"ppa-{'a' * 32}"
     report = _synthetic_report(report_id)
     report["summary"]["area"]["total"] = float("nan")
-    tool._store_cached_report(report)
-    cached = tool._load_cached_report(report_id)
+    tool._reports._store_cached_report(report)
+    cached = tool._reports._load_cached_report(report_id)
     assert cached["summary"]["area"]["total"] is None
     json.dumps(cached, allow_nan=False)
 
@@ -792,7 +789,7 @@ def test_opensta_wns_tns_parser_rejects_infinity() -> None:
     assert _parse_sta_metric("worst slack max -0.125\n", "wns") == -0.125
     assert _parse_sta_metric("tns max -1.75\n", "tns") == -1.75
     assert _parse_sta_metric("worst slack max INF\n", "wns") is None
-    clocks = AnalyzePPA._parse_clock_period(
+    clocks = YosysOpenSTABackend._parse_clock_period(
         "clk period_min = 0.17 fmax = 5933.13\n"
     )
     assert clocks[0]["maximum_frequency_hz"] == pytest.approx(5.93313e9)
@@ -827,9 +824,11 @@ def test_large_design_instance_power_failure_keeps_group_report(
             return subprocess.CompletedProcess(command, 0, "", "")
         return subprocess.CompletedProcess(command, 1, "", "Error: unsupported option\n")
 
-    monkeypatch.setattr(AnalyzePPA, "_run_process", fake_process)
+    monkeypatch.setattr(ProcessRunner, "_run_process", fake_process)
+    backend = YosysOpenSTABackend()
+    backend._context = PPAContext(tmp_path, 100.0, tool._runner._run_process, lambda message: None)
     monkeypatch.setattr(shutil, "which", lambda name: "/fake/sta")
-    result = tool._run_opensta(
+    result = backend._run_opensta(
         mode="power",
         netlist=tmp_path / "mapped.v",
         top_module="dut",
@@ -911,7 +910,7 @@ def test_trusted_workflow_rtl_stays_external_and_report_paths_are_redacted(
 
         raise ValueError(f"compiler failed for {private_rtl}")
 
-    monkeypatch.setattr(tool, "_synthesize", fail_synthesis)
+    monkeypatch.setattr(YosysOpenSTABackend, "_synthesize", fail_synthesis)
     report = tool.analyze(
         AnalyzePPAArgs(
             rtl_files=["dut.scala"],
@@ -987,6 +986,9 @@ def test_real_mixed_waveform_analysis_produces_complete_report(tmp_path: Path) -
     ]
     assert report["summary"]["design_type"] == "combinational"
     assert report["summary"]["area"]["total"] > 0
+    assert report["summary"]["area"]["sequential_cell_count"] == 0
+    assert report["summary"]["area"]["combinational_cell_count"] == report["summary"]["area"]["cell_count"]
+    assert report["provenance"]["pdk"]["name"] == "asap7sc7p5t_28"
     assert report["summary"]["timing"]["critical_path_delay_ns"] > 0
     assert report["summary"]["power"]["total_w"] > 0
     assert report["provenance"]["tools"]["yosys"]["version"]
@@ -1033,17 +1035,20 @@ def test_synthesized_netlist_avoids_opensta_rejected_constructs(
         encoding="ascii",
     )
     tool = _tool(tmp_path)
-    tool._synthesize(
+    backend = YosysOpenSTABackend()
+    backend._context = PPAContext(tmp_path, time.monotonic() + 120, tool._runner._run_process, lambda message: None)
+    backend._pdk = resolve_pdk(PPAConfig().pdk, tool._resolve_input)
+    backend._synthesize(
         [tmp_path / "const_tie.v"],
         "const_tie",
-        tool._DEFAULT_LIBERTY,
+        backend._pdk.files["liberty"][0],
         tmp_path,
         time.monotonic() + 120,
     )
     netlist = (tmp_path / "mapped.v").read_text(encoding="ascii")
     assert re.search(r"=\s*1'[bhd]", netlist) is None
     assert "\\" not in netlist
-    assert "LOGIC0_X1" in netlist or "LOGIC1_X1" in netlist
+    assert "TIELOx1_ASAP7_75t_R" in netlist or "TIEHIx1_ASAP7_75t_R" in netlist
 
 
 @pytest.mark.skipif(
@@ -1115,6 +1120,11 @@ def test_real_sequential_design_is_auto_classified_with_slack_finding(
     assert report["status"] == "success", report["diagnostics"]
     assert report["summary"]["design_type"] == "sequential"
     assert report["summary"]["area"]["sequential"] > 0
+    assert report["summary"]["area"]["sequential_cell_count"] == 2
+    assert report["summary"]["area"]["cell_count"] == (
+        report["summary"]["area"]["sequential_cell_count"]
+        + report["summary"]["area"]["combinational_cell_count"]
+    )
     assert report["details"]["classification"]["state_cell_types"]
     assert report["summary"]["timing"]["metric_kind"] == "minimum_clock_period"
     assert report["summary"]["timing"]["maximum_frequency_hz"] > 0
@@ -1190,7 +1200,7 @@ def test_real_report_diff_survives_restart_and_missing_baseline(tmp_path: Path) 
     assert comparison["detail_changes"]["area_by_cell_type"][
         "total_changed_cell_types"
     ] > 0
-    assert _tool(tmp_path)._load_cached_report(current["report_id"])[
+    assert _tool(tmp_path)._reports._load_cached_report(current["report_id"])[
         "comparison"
     ]["status"] == "success"
 
@@ -1218,7 +1228,7 @@ def test_real_cache_failure_preserves_completed_ppa_metrics(
         del report
         raise OSError("cache is read-only")
 
-    monkeypatch.setattr(tool, "_store_cached_report", fail_cache)
+    monkeypatch.setattr(tool._reports, "_store_cached_report", fail_cache)
     report = tool.analyze(
         AnalyzePPAArgs(
             rtl_files=["combo.v"],

@@ -273,7 +273,7 @@ class RunDesignConsistency(UCTool):
                 if ppa_report_file
                 else str(Path(self.output_dir) / "reports" / f"{dut}_consistency_ppa.json")
             )
-            info(f"[RunDesignConsistency] Step 4/4: PPA analysis (yosys synthesis + OpenSTA timing/power, writing to {report_file})...")
+            info(f"[RunDesignConsistency] Step 4/4: configured PPA analysis (writing to {report_file})...")
             report = _run_workflow_ppa(
                 workspace,
                 self._cfg,

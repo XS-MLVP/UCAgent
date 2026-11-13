@@ -1,0 +1,53 @@
+{
+  "file": "asap7sc7p5t_28_RVT_TT_nldm_merged.lib",
+  "sha256": "5d5d792741a15885a918cb1634de8124f0256e3f6d5b1f5a4d3c8a358e8597a0",
+  "bytes": 46154226,
+  "cells": 202,
+  "sources": [
+    {
+      "file": "asap7sc7p5t_AO_RVT_TT_nldm_211120.lib",
+      "sha256": "b1ece108c0a2acd8d01c05cee6daee2834425037b1d9aad625d6f1dd640f1940",
+      "cells": 42,
+      "explicit_pin_max_transition_added": 0,
+      "url": "https://raw.githubusercontent.com/The-OpenROAD-Project/OpenROAD-flow-scripts/master/flow/platforms/asap7/lib/NLDM/asap7sc7p5t_AO_RVT_TT_nldm_211120.lib.gz"
+    },
+    {
+      "file": "asap7sc7p5t_INVBUF_RVT_TT_nldm_220122.lib",
+      "sha256": "a4ceb32e418e1aac8667e28fbd8e9e46baf520180be4db075598a4d7c681a56e",
+      "cells": 37,
+      "explicit_pin_max_transition_added": 0,
+      "url": "https://raw.githubusercontent.com/The-OpenROAD-Project/OpenROAD-flow-scripts/master/flow/platforms/asap7/lib/NLDM/asap7sc7p5t_INVBUF_RVT_TT_nldm_220122.lib.gz"
+    },
+    {
+      "file": "asap7sc7p5t_OA_RVT_TT_nldm_211120.lib",
+      "sha256": "6529c6c72465cd133dfbfb03952327ab2774bb6aa4be866d78fd7bc6c58c9f6f",
+      "cells": 34,
+      "explicit_pin_max_transition_added": 0,
+      "url": "https://raw.githubusercontent.com/The-OpenROAD-Project/OpenROAD-flow-scripts/master/flow/platforms/asap7/lib/NLDM/asap7sc7p5t_OA_RVT_TT_nldm_211120.lib.gz"
+    },
+    {
+      "file": "asap7sc7p5t_SEQ_RVT_TT_nldm_220123.lib",
+      "sha256": "57a0b403485b99ebd676942af4673ac086b86c7c75fbdc3e5c0038501dd22ba3",
+      "cells": 33,
+      "explicit_pin_max_transition_added": 0,
+      "url": "https://raw.githubusercontent.com/The-OpenROAD-Project/OpenROAD-flow-scripts/master/flow/platforms/asap7/lib/NLDM/asap7sc7p5t_SEQ_RVT_TT_nldm_220123.lib"
+    },
+    {
+      "file": "asap7sc7p5t_SIMPLE_RVT_TT_nldm_211120.lib",
+      "sha256": "fa92e6ab1481810602811b1eea54bc016a341f11fb5188d7512c026599adf038",
+      "cells": 56,
+      "explicit_pin_max_transition_added": 58,
+      "url": "https://raw.githubusercontent.com/The-OpenROAD-Project/OpenROAD-flow-scripts/master/flow/platforms/asap7/lib/NLDM/asap7sc7p5t_SIMPLE_RVT_TT_nldm_211120.lib.gz"
+    }
+  ],
+  "notes": [
+    "Cell and table data retained; duplicate equal global definitions deduplicated.",
+    "The first source supplies library date/comment metadata and default_max_transition=320.",
+    "SIMPLE default_max_transition=4000 is preserved explicitly on 58 affected pins.",
+    "Both combinational and sequential table-template families are retained.",
+    "Source URLs identify moving branches; decompressed source SHA-256 hashes identify the exact input content."
+  ],
+  "license": "BSD-3-Clause",
+  "upstream_project": "https://github.com/The-OpenROAD-Project/asap7",
+  "scope": "Predictive 7nm, 7.5-track, RVT, TT, 0.7V, 25C, NLDM standard-cell Liberty"
+}

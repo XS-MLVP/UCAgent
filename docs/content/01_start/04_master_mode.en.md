@@ -57,3 +57,11 @@ Fill in model-related environment variables in **Environment Variables**. See th
 Whether there are bugs, waveforms, or coverage reports ultimately depends on the workflow, test results, and configuration. Rely on the actual artifacts in the workspace, Checker return values, and `uc_test_report/`; do not treat the completion status displayed on the page as proof of DUT correctness.
 
 For more page capabilities, agents, and access control, see the [Web Master User Guide](../02_usage/07_web_master.md).
+
+## 4.5 Docker Swarm Deployment
+
+To run Master and child Agents in Docker Swarm, follow the [Docker Swarm deployment guide](../02_usage/11_docker_swarm.md)
+to prepare a 2- or 3-node cluster, then run `make swarm_master` on a manager. The
+target starts Master Web, creates the overlay network, and sets `docker_swarm` as
+the Launch page's default mode. The deployment guide lists the image, Docker
+socket, network, and persistent-directory requirements.

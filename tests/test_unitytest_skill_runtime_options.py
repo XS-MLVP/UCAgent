@@ -232,8 +232,8 @@ def test_agent_runtime_config_persists_resolved_values_from_cfg(tmp_path):
         "runtime_options": {
             "need_ref_model": True,
             "mock_components_enabled": False,
-            "waveform_analysis_format_priority": ["fst", "vcd", "fsdb"],
-            "waveform_analysis_backend_priority": {"fst": ["pywellen", "wavekit"], "vcd": ["pywellen", "wavekit"], "fsdb": ["wavekit"]},
+            "waveform_analysis_format_priority": ["fst", "vcd", "fsdb", "usdb"],
+            "waveform_analysis_backend_priority": {"fst": ["pywellen", "wavekit"], "vcd": ["pywellen", "wavekit"], "fsdb": ["wavekit"], "usdb": ["uvd"]},
         },
     }
 
@@ -256,7 +256,7 @@ def test_agent_runtime_config_rejects_non_boolean_options(tmp_path, invalid_key)
         save_runtime_config(str(tmp_path), cfg)
 
 
-@pytest.mark.parametrize("priority", [["fst", "vcd", "fsdb"], ["vcd"], ["fsdb", "vcd", "fst"]])
+@pytest.mark.parametrize("priority", [["fst", "vcd", "fsdb", "usdb"], ["usdb"], ["vcd"], ["fsdb", "vcd", "fst"]])
 def test_runtime_config_persists_analysis_format_priority(tmp_path, priority):
     """Snapshots must carry resolved analysis formats, including disabled alternatives."""
     cfg = Config({

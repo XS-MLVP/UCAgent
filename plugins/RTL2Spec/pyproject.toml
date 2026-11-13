@@ -22,6 +22,9 @@ dev = ["pytest>=8", "build>=1"]
 [project.entry-points."ucagent.plugins"]
 rtl2spec = "rtl2spec.plugin:get_plugin"
 
+[project.scripts]
+rtl2spec = "rtl2spec.launch:main"
+
 [tool.setuptools]
 include-package-data = false
 
@@ -36,6 +39,7 @@ rtl2spec = [
   "Guide_Doc/*.json",
   "scripts/*.sh",
   "workflows/*.yaml",
+  "launch_configs/*.yaml",
 ]
 
 [tool.pytest.ini_options]

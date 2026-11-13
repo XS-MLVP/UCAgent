@@ -10,7 +10,13 @@
   },
   "permission": {
     "bash": "deny",
-    "external_directory": "deny"
+    "external_directory": "deny",
+    "edit": {
+      ".ucagent": "deny",
+      ".ucagent/**": "deny",
+      {{ (CWD ~ '/.ucagent') | tojson }}: "deny",
+      {{ (CWD ~ '/.ucagent/**') | tojson }}: "deny"
+    }
   },
   "provider": {
     "ucagent": {

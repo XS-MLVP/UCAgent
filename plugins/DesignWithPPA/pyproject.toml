@@ -29,6 +29,8 @@ where = ["src"]
 design_with_ppa = [
     "assets/*.lib",
     "assets/*.md",
+    "assets/*.json",
+    "assets/*.txt",
     "workflows/*.yaml",
     "Guide_Doc/*.md",
     "templates/**/*",
@@ -54,4 +56,6 @@ design_with_ppa = [
 ]
 "share/ucagent-design-with-ppa/docs" = [
     "docs/repo-module-tdd.md",
+    "docs/ppa-optimization-log.md",
+    "docs/ppa-backends.md",
 ]

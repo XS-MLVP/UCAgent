@@ -82,6 +82,15 @@ class Candidate(StrictModel):
     hypothesis: str = Field(min_length=1)
     changes: list[Change]
 
+    @field_validator("hypothesis")
+    @classmethod
+    def validate_hypothesis(cls, value):
+        """Require a visible optimization direction in the experiment history."""
+
+        if not value.strip():
+            raise ValueError("hypothesis must describe the optimization direction and concrete change")
+        return value
+
 
 class Pin(StrictModel):
     """Specify every public pin's exact packed representation and purpose."""

@@ -226,6 +226,115 @@ def test_concurrent_change_is_never_signed(artifacts, monkeypatch):
     assert receipt.read_bytes() == before
 
 
+def test_report_change_after_validation_is_never_signed(artifacts, monkeypatch):
+    """A report changed after the checked hashes cannot become a new signed baseline."""
+    import rtl2spec.review as review
+
+    _, report = artifact_paths(artifacts, "Sbuffer")
+    target = artifacts / "outputs/validation.json"
+    before = target.read_bytes()
+    external = b"\n# Invalid report written by another editor\n"
+    original_hashes = review.acceptance_hashes
+    calls = 0
+
+    def edit_after_hash_check(*args, **kwargs):
+        """Change the report just after the post-validation snapshot has been read."""
+        nonlocal calls
+        result = original_hashes(*args, **kwargs)
+        calls += 1
+        if calls == 2:
+            report.write_bytes(external)
+        return result
+
+    monkeypatch.setattr(review, "acceptance_hashes", edit_after_hash_check)
+    with pytest.raises(ValueError, match="changed"):
+        finalize(artifacts, "Sbuffer", "DefaultConfig")
+    assert report.read_bytes() == external
+    assert target.read_bytes() == before
+
+
+def test_report_edit_during_assembly_is_preserved(artifacts, monkeypatch):
+    """An edit arriving while the acceptance block is assembled must survive publication."""
+    import rtl2spec.review as review
+
+    _, report = artifact_paths(artifacts, "Sbuffer")
+    target = artifacts / "outputs/validation.json"
+    before = target.read_bytes()
+    external = report.read_bytes() + b"\nExternal report correction.\n"
+    original_sub = review.re.sub
+    edited = False
+
+    def edit_during_assembly(pattern, *args, **kwargs):
+        """Model an editor saving the report while its owned block is being rebuilt."""
+        nonlocal edited
+        result = original_sub(pattern, *args, **kwargs)
+        if pattern == review.re.escape(review.ACCEPTANCE_START) + r".*?" + review.re.escape(review.ACCEPTANCE_END):
+            report.write_bytes(external)
+            edited = True
+        return result
+
+    monkeypatch.setattr(review.re, "sub", edit_during_assembly)
+    with pytest.raises(ValueError, match="changed"):
+        finalize(artifacts, "Sbuffer", "DefaultConfig")
+    assert edited
+    assert report.read_bytes() == external
+    assert target.read_bytes() == before
+
+
+@pytest.mark.parametrize("timing", ["signing", "serialization"])
+@pytest.mark.parametrize("artifact", ["design", "report", "review", "evidence", "receipt", "new_receipt", "new_evidence"])
+def test_finalize_rechecks_inputs_before_receipt_publication(artifacts, monkeypatch, timing, artifact):
+    """Late input edits or competing receipts block publication and preserve external content."""
+    import rtl2spec.review as review
+
+    design, report = artifact_paths(artifacts, "Sbuffer")
+    target = artifacts / "outputs/validation.json"
+    if artifact == "new_receipt":
+        target.unlink()
+    before = target.read_bytes() if target.exists() else None
+    paths = {
+        "design": design,
+        "report": report,
+        "review": artifacts / "outputs/semantic_review.json",
+        "evidence": artifacts / "outputs/evidence/Sbuffer.sv",
+        "receipt": target,
+        "new_receipt": target,
+        "new_evidence": artifacts / "outputs/evidence/new-file.txt",
+    }
+    path = paths[artifact]
+    external = b"\nConcurrent external edit.\n"
+    changed = False
+    original_receipt = review.receipt
+    original_dump = review.json.dump
+
+    def edit_when_signing(root, value, **kwargs):
+        """Modify an input after all report checks but before the signed JSON is staged."""
+        nonlocal changed
+        result = original_receipt(root, value, **kwargs)
+        if timing == "signing" and kwargs.get("sign"):
+            path.write_bytes(external)
+            changed = True
+        return result
+
+    def edit_when_serializing(value, *args, **kwargs):
+        """Modify an input after the signed receipt has been serialized to its temporary file."""
+        nonlocal changed
+        result = original_dump(value, *args, **kwargs)
+        if timing == "serialization" and "artifact_sha256" in value:
+            path.write_bytes(external)
+            changed = True
+        return result
+
+    monkeypatch.setattr(review, "receipt", edit_when_signing)
+    monkeypatch.setattr(review.json, "dump", edit_when_serializing)
+    with pytest.raises(ValueError, match="changed"):
+        finalize(artifacts, "Sbuffer", "DefaultConfig")
+    assert changed
+    assert path.read_bytes() == external
+    if path != target:
+        assert target.read_bytes() == before
+
+
 def test_new_actions_respect_resolved_write_policy(artifacts, command):
     """An internal symlink cannot redirect the action log into protected inputs."""
     log = artifacts / "outputs/logs/actions.jsonl"

@@ -67,7 +67,7 @@ The `timeout` input for `RunPyTest` defaults to 15 seconds; UCAgent also sets th
 
 Waveform tools depend on the optional `wavekit`. Phases requiring waveform evidence must have dependencies and real test data. Exploratory queries cannot replace complete evidence; parameters, TC nodes, and bug document formats follow the current tool schema and runtime `Guide_Doc/dut_bug_analysis.md`.
 
-By default, analysis files are selected in FST, VCD, FSDB order; `runtime_options.waveform_analysis_format_priority` can be configured. FSDB runtime dependencies, browser limitations, and readers for other formats are documented in [Waveform Analysis Formats and Extensions](10_waveform_analysis.md).
+By default, analysis files are selected in FST, VCD, FSDB, USDB order; `runtime_options.waveform_analysis_format_priority` can be configured. FSDB runtime dependencies, browser limitations, and readers for other formats are documented in [Waveform Analysis Formats and Extensions](10_waveform_analysis.md).
 
 ## Skills, Planning, and Retrieval
 

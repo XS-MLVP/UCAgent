@@ -276,13 +276,17 @@ class RTL2SpecCommand(UCTool):
             )
             if not resolved_permitted:
                 permitted, reason = False, resolved_reason
-            protected_children = [
-                path
-                for path in self.un_write_dirs
-                if (workspace / path)
-                .resolve()
-                .is_relative_to((workspace / name).resolve())
-            ]
+            protected_children = []
+            for path in self.un_write_dirs:
+                if write_entry_has_wildcards(path):
+                    if wildcard_entry_overlaps(path, name) or wildcard_entry_overlaps(
+                        path, resolved_name
+                    ):
+                        protected_children.append(path)
+                elif (workspace / path).resolve().is_relative_to(
+                    (workspace / name).resolve()
+                ):
+                    protected_children.append(path)
             if not permitted or protected_children:
                 return {
                     "ok": False,

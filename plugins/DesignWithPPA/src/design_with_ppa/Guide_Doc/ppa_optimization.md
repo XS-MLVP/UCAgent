@@ -17,6 +17,18 @@ Check/Complete 生成的报告、曲线和性能数据。
 失败的版本只记录拒绝原因和测试证据，不伪造 PPA 指标。这样可以在账本、恢复记录和看板中
 完整追踪每个 RTL 版本，同时仍然只把有完整 PPA 证据的版本绘制为指标曲线点。
 
+每轮评估后自动更新 `{OUT}/{DUT}_optimization_log.md` 和同名 `.html`；从 PPA 看板的
+`Optimization log / direction and changes` 入口或直接打开 HTML 查看。日志按版本列出时间、
+优化假设、目标热点、预期指标、实际变更文件、源码 diff、相对上一 accepted 与 base 的实测
+变化、PPA score 和接受/拒绝原因。假设描述预期，指标表描述实测，不把 rejected 版本的
+收益作为最终改善。功能失败记录保留方向和改动，缺失的 PPA 数据标为 unavailable。
+源码 diff 位于 `{OUT}/reports/ppa/iterations/iteration-XXX.diff`，可从日志点击打开。
+这些文件自动生成且只读，不需要手写日志；Skill 关闭时同样生成。
+
+在同一优化过程中保持分析后端、工艺、corner、工艺文件和约束不变。若 `Check` 提示
+测量条件变化，恢复原条件再重试；需要采用新条件时重新建立基线，不把不同条件的数值
+变化写成优化收益。
+
 工作流使用固定 `relative=1e-6`、`absolute=1e-12` 容差。frequency/throughput 越大越好，
 delay/latency/area/power 越小越好。候选必须满足全部硬目标，所有可比主指标相对上一
 accepted 版本均不退化，并且至少一项严格改善。功能或性能测试失败时先修复当前语言源码；

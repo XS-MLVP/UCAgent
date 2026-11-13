@@ -1,7 +1,7 @@
 
 # 波形分析格式与扩展
 
-`WaveInfo` 根据文件扩展名自动选择读取器，内置支持 FST、VCD、FSDB。文件清单、信号查询、事件分析和证据重放使用同一套格式配置。此配置只影响分析时搜索和选择已有波形，不改变模拟器、`SetWaveform` 或测试 fixture 生成的格式。
+`WaveInfo` 根据文件扩展名自动选择读取器，内置支持 FST、VCD、FSDB、USDB。文件清单、信号查询、事件分析和证据重放使用同一套格式配置。此配置只影响分析时搜索和选择已有波形，不改变模拟器、`SetWaveform` 或测试 fixture 生成的格式。
 
 ## PDB 手动重放全部 Bug 波形
 
@@ -50,17 +50,17 @@ TC 的断言、激励或对应测试源码变化时，即使重放出的波形�
 
 ```yaml
 runtime_options:
-  waveform_analysis_format_priority: [fst, vcd, fsdb]
+  waveform_analysis_format_priority: [fst, vcd, fsdb, usdb]
 ```
 
 可在工作区配置或显式指定的配置文件中覆盖，例如优先分析 VCD：
 
 ```yaml
 runtime_options:
-  waveform_analysis_format_priority: [vcd, fst, fsdb]
+  waveform_analysis_format_priority: [vcd, fst, fsdb, usdb]
 ```
 
-列表同时定义参与搜索的格式：`[vcd]` 只搜索 VCD，禁用 FST、FSDB。列表必须非空，扩展名使用小写且不带点，不允许重复。该配置遵循正常配置层级，解析后的值写入 `.ucagent/runtime_config.json` 的 `runtime_options`，运行时不重新读取环境变量。
+列表同时定义参与搜索的格式：`[vcd]` 只搜索 VCD，禁用 FST、FSDB、USDB。列表必须非空，扩展名使用小写且不带点，不允许重复。该配置遵循正常配置层级，解析后的值写入 `.ucagent/runtime_config.json` 的 `runtime_options`，运行时不重新读取环境变量。
 
 `WaveInfo` 先确定最新的 `toffee_tmp_*` 测试会话，再匹配精确测试名及可选的数字 dump 后缀。在同一会话内，先比较格式优先级，再比较数字后缀、文件修改时间和路径。因此，默认配置下 `test_add001.fst` 优先于 `test_add999.vcd`。不会为了找到更高优先级格式而使用旧会话，也不会替换成相似测试名。文件扩展名的大小写不影响格式识别。
 
@@ -72,11 +72,12 @@ runtime_options:
 
 ```yaml
 runtime_options:
-  waveform_analysis_format_priority: [fst, vcd, fsdb]
+  waveform_analysis_format_priority: [fst, vcd, fsdb, usdb]
   waveform_analysis_backend_priority:
     fst: [pywellen, wavekit]
     vcd: [pywellen, wavekit]
     fsdb: [wavekit]
+    usdb: [uvd]
 ```
 
 格式优先级先选择波形文件，后端优先级再选择读取同一文件的实现。列表必须非空、名称小写且不重复；列出但未注册的后端在创建 `WaveInfo` 时失败。可以仅覆盖 `vcd: [wavekit]`，其他内置格式继续使用默认值；只列一个后端会禁用该格式的库回退。值来自解析后的 `cfg.runtime_options`，同时验证并保存至 `.ucagent/runtime_config.json`，不会在调用时读取环境变量。
@@ -221,6 +222,21 @@ python -m pytest -q tests/test_waveform_xpra_browser.py
 
 可用 `UCAGENT_XPRA_CHROMIUM_EXECUTABLE` 指定已安装的 Chrome。浏览器测试从 `/wave/?meta=...` 自动进入远程应用，检查实际绘制像素、信号和精确时间，发送键盘输入，再验证刷新重连及重复打开的会话复用，并保存截图。服务收到中断或终止信号时清理会话和临时文件。这些测试验证查看链路和启动协议；真实 Verdi 的 FSDB 解码、命令兼容性及时间定位仍需在有许可证的运行环境验收。
 
+## USDB 读取
+
+`uvd` 后端通过 `usdbaccess` 和 `dap` 读取 `.usdb` 文件。将 `UVD_HOME`和 `UVS_HOME` 设为对应的安装根目录。工具仅按上述顺序在两个安装目录的 `bin` 子目录查找；缺少工具或工具不可用时返回分析错误。
+
+`Type:Real` 变量不参与数字信号分析。此后端没有高级选项，`backend_args` 接受 `{}` 使用默认行为，或接受 `"help"` 查询选项帮助。不支持在浏览器中查看 USDB 波形。
+
+默认格式优先级已包含 USDB。如需优先分析 USDB，可配置：
+
+```yaml
+runtime_options:
+  waveform_analysis_format_priority: [usdb, fst, vcd, fsdb]
+  waveform_analysis_backend_priority:
+    usdb: [uvd]
+```
+
 ## 注册其他格式
 
 `ucagent/util/waveform_formats/` 是一个 Python 包。公共协议与注册机制不依赖任何波形解析库；每个格式在独立文件中实现 reader，多个格式使用同一库时可以共享适配器：
@@ -236,7 +252,8 @@ ucagent/util/waveform_formats/
 ├── adapter_wavekit.py   # Shared wavekit context and value-loading adapter
 ├── read_fst.py          # WellenFstReader / WavekitFstReader
 ├── read_vcd.py          # WellenVcdReader / WavekitVcdReader
-└── read_fsdb.py         # WavekitFsdbReader
+├── read_fsdb.py         # WavekitFsdbReader
+└── read_usdb.py         # UsdbReader
 ```
 
 通过包入口导入 `WaveformReader`、`WaveformReaderFactory`、`WaveformScope`、`WaveformSignal`、`WaveformSignalMatches` 和 `WaveformValueChanges`。它们采用结构化类型：函数、可调用对象或 reader 类只要满足签名即可，不要求继承 UCAgent 或 wavekit 的基类。`WaveInfo` 只消费此公共协议；wavekit 的 `_load_value_changes` 仅在其专用适配器内调用。
@@ -516,7 +533,7 @@ result = tool.analyze(test_case_name="test_add")
 
 ```yaml
 runtime_options:
-  waveform_analysis_format_priority: [fst, vcd, fsdb, wlf]
+  waveform_analysis_format_priority: [fst, vcd, fsdb, usdb, wlf]
   waveform_analysis_backend_priority:
     wlf: [example]
 ```

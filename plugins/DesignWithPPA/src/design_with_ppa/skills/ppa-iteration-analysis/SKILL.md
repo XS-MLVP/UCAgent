@@ -9,6 +9,8 @@ Start from the accepted iteration, remaining candidate count, single base-normal
 
 Record one bounded hypothesis in `{OUT}/reports/ppa/candidate_hypothesis.yaml` with exactly `iteration`, `hypothesis`, `target_hotspot`, and `expected_metrics`. An ordinary PPA candidate changes only the selected-language source, then calls `Check` to rerun the same functional and performance TC sets and return the PPA comparison. Do not edit reports or curve data produced by Check/Complete.
 
+After each evaluation, read `{OUT}/{DUT}_optimization_log.md` or its `.html` view to compare the intended direction with actual file changes, the source diff, measured metric changes and the acceptance decision. The PPA dashboard also links to this log. Use rejected and functionally failing versions to avoid repeating failed hypotheses; do not edit the generated history. The log is also available when Skills are disabled.
+
 The Python reference remains a repairable implementation of README, Spec, architecture, and FG/FC/CK, but a reference repair is never a PPA candidate optimization. If functional evidence proves the reference wrong, repair it and rebuild the Python, RTL, performance, and base-PPA evidence before proposing another candidate; do not compare against the stale base. Never change reference behavior or expected values to make a candidate pass or improve its score.
 
 Use `Guide_Doc/ppa_optimization.md` for the canonical artifact. The normal stage task and Check diagnostics provide the same route without this Skill.

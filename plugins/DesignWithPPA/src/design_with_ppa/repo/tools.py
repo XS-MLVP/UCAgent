@@ -62,6 +62,7 @@ class RunRepoValidation(UCTool):
             return {"status": "pass", "variant_id": record["variant_id"], "accepted": record["accepted"],
                     "verification_scope": "unit_only", "system_integration": "not_run",
                     "ppa_metrics": record["ppa_metrics"], "performance_metrics": record["performance_metrics"],
+                    "optimization_log": f"{paths.output.relative_to(paths.workspace)}/repo/reports/optimization_log.html",
                     "report": f"{paths.output.relative_to(paths.workspace)}/repo/reports/{record['variant_id']}.json"}
         except Exception as exc:
             return diagnostic("repo_validation_failed", str(exc)[-6000:],
