@@ -105,6 +105,14 @@ def supervisor_tools(agent):
         ("StartWorkflow", "Start the configured Super model's planning/execution loop. Requires a non-blank supervisor backend.", WorkflowArgs, "start_workflow"),
         ("PauseWorkflow", "Stop planning and ask the user for missing information or a decision.", PauseArgs, "pause_workflow"),
     ]
+    if getattr(agent, "workflow_handoff_settings", None) is not None:
+        from ucagent.core.workflow.contracts import NextWorkflow, EndChain
+        definitions.extend([
+            ("ListWorkflows", "List permitted successor workflows and required inputs.", NoArgs, "list_workflows"),
+            ("RequestNextWorkflow", "Request a successor during handoff. Accepted means queued; yield after success.", NextWorkflow, "request_next_workflow"),
+            ("CompleteWorkflowChain", "End the chain after accepted deliverables satisfy the original goal.", EndChain, "complete_workflow_chain"),
+            ("WorkflowTransitionStatus", "Inspect chain progress and lifecycle errors without advancing it.", NoArgs, "workflow_transition_status"),
+        ])
     return tools + [SupervisorTool(name=name, description=description, args_schema=schema,
                                   service=agent.multi_agent, action=action)
                     for name, description, schema, action in definitions]

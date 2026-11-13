@@ -167,3 +167,6 @@ LangChain Super/Sub 的 Langfuse callback 独立、共享同一个 run/session �
 本轮定向验收使用真实子进程/MCP、三种配置的模拟 CLI（Codex/OpenCode/client_a）：主子隔离、跨轮恢复、连续子阶段和后续规划；另验证 LangChain/CLI 的 A/B→C 调度、取消与失败，以及 single 配置。已用本机 Codex/OpenCode 做无模型调用的有效 MCP 配置检查。此前专用后端的真实模型最小闭环属于历史记录，不能代替本轮回归；本轮没有运行真实模型闭环、实际 Adder 或全量测试。
 
 工作流自动切换、运行中自然语言收件箱、队列重启恢复、嵌套 Sub 和 Master 尚未实施。实现完全位于 UCAgent，不导入旁边的旧 SubAgent 项目。
+
+
+跨工作流串行执行见[工作流接力](12_workflow_handoff.md)：当前 Super 在业务验收后选择后继，应用进程保持存活，每个后继使用新实例与独立工作区。

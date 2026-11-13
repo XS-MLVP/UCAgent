@@ -210,6 +210,35 @@ class ControlApiServer:
         from ucagent.interfaces.server.api_cmd.xpra_routes import register_xpra_routes
         register_xpra_routes(app, self)
 
+        if getattr(self.host_control, "workflow_chain", None) is not None:
+            from ucagent.runtime.workflow_control import EXPECTED_RUN
+            from ucagent.runtime.control.controller import ControlError
+
+            @app.middleware("http")
+            async def workflow_identity(request, call_next):
+                """Fence mutating HTTP requests across peer workflow cutovers."""
+                current = self.host_control.workflow_chain.current["run_id"]
+                expected = request.headers.get("X-UCAgent-Run-ID")
+                if request.method not in {"GET", "HEAD", "OPTIONS"} and expected != current:
+                    return _JSONResponse(status_code=409, content={"detail":
+                        "Refresh workflow status and send X-UCAgent-Run-ID for mutations.", "run_id": current})
+                mutating = request.method not in {"GET", "HEAD", "OPTIONS"}
+                if mutating:
+                    try:
+                        self.host_control.begin_control_write(expected, control_only=request.url.path in {
+                            "/api/runtime/pause", "/api/cmd", "/api/cmds/batch"})
+                    except ControlError as error:
+                        return _JSONResponse(status_code=409, content={"detail": str(error), "run_id": current})
+                token = EXPECTED_RUN.set(expected)
+                try:
+                    response = await call_next(request)
+                    response.headers["X-UCAgent-Run-ID"] = current
+                    return response
+                finally:
+                    EXPECTED_RUN.reset(token)
+                    if mutating:
+                        self.host_control.end_control_write()
+
         control = self.controller
         access = control.workspace_access
         queries = control.workspace_queries

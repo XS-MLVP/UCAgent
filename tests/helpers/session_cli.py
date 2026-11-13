@@ -103,6 +103,23 @@ async def main():
                         return result.content[0].text
 
                 tips = await call("CurrentTips")
+                if "--relay-fixture" in options:
+                    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+                    from relay_fakes import decision, worker_action
+                    if "SubAgentTool" in names:
+                        name, arguments = decision(tips)
+                        await call(name, **arguments)
+                    else:
+                        source = ""
+                        for index in range(6):
+                            name, arguments = worker_action(index, tips, source)
+                            result = await call(name, **arguments)
+                            if index == 1:
+                                source = str(result)
+                            if name == "Check":
+                                assert result["check_pass"], result
+                    emit("turn.completed", usage={"input_tokens": 10, "output_tokens": 4})
+                    return
                 if "SubAgentTool" in names:
                     assert not names & {"EditTextFile", "Complete", "SubmitTaskResult"}
                     if tips["stage"] is not None:

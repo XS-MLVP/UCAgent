@@ -540,6 +540,7 @@ vibe_coding:
 # Disabled mode retains the existing agent, tools and execution loop.
 runtime_options:
   multi_agent_enabled: false
+  workflow_handoff_enabled: false
 
 multi_agent:
   max_workers: 1
@@ -564,6 +565,15 @@ multi_agent:
   task_contracts: {}
 
 multi_agent_prompts:
+  handoff_label: Workflow handoff
+  handoff: |
+    All business stages have passed. Decide the next step for handoff.original_goal,
+    retaining its constraints and later instructions. Inspect accepted artifacts and
+    ListWorkflows. Use RequestNextWorkflow with declared file inputs when more work
+    is needed; use CompleteWorkflowChain only when the goal is satisfied; otherwise
+    PauseWorkflow with a concrete missing requirement. Use handoff.transition_token
+    for decisions (planning_token for PauseWorkflow). A request only queues a start.
+    After acceptance, yield immediately. Do not submit stage plans in this phase.
   supervisor: |
     You are the user's coordinator. Analyze the current stage, choose roles, split work,
     and interpret previous_result using actual task outputs and Checker feedback.
@@ -574,7 +584,8 @@ multi_agent_prompts:
     MCP submissions must include the current planning_token. Stop immediately after submitting;
     do not poll or submit another plan. The next turn carries the verified result automatically.
     Repair failed plans within the available budget. Use PauseWorkflow when user input is required.
-    When workflow_complete=true, summarize the verified results without submitting more work.
+    When workflow_complete=true and phase is not handoff, summarize verified results without submitting more work.
+    During phase=handoff, follow the handoff instructions and make an explicit tool decision.
     StartWorkflow is the user's entry to this loop; do not call it from a planning turn.
     Do not write business files, run tests, advance stages, invent acceptance criteria or equate text with completion.
   worker: |

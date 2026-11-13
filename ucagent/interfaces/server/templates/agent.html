@@ -884,8 +884,31 @@ function _workspaceBaseFileUrl(path){
   return "/workspace/"+basePath.split("/").map(encodeURIComponent).join("/");
 }
 
+let _workflowRunId = null;
+let _workflowEpochChanged = false;
+
+/** Keep edits bound to the workflow the operator opened, across background refreshes. */
+async function workflowFetch(path, options = {}) {
+  const method = String(options.method || "GET").toUpperCase();
+  const mutating = !["GET", "HEAD", "OPTIONS"].includes(method);
+  if (mutating && !_workflowRunId) {
+    const status = await fetch("/api/runtime/status");
+    _workflowRunId = status.headers.get("X-UCAgent-Run-ID");
+  }
+  if (mutating && _workflowEpochChanged) {
+    throw new Error("The workflow changed. Reload this page before submitting edits or commands.");
+  }
+  const headers = new Headers(options.headers || {});
+  if (mutating && _workflowRunId) headers.set("X-UCAgent-Run-ID", _workflowRunId);
+  const response = await fetch(path, {...options, headers});
+  const observed = response.headers.get("X-UCAgent-Run-ID");
+  if (observed && _workflowRunId && observed !== _workflowRunId) _workflowEpochChanged = true;
+  if (!_workflowRunId) _workflowRunId = observed;
+  return response;
+}
+
 async function apiFetch(path,opts){
-  const r=await fetch(_withSubWorkspaceParam(path),opts);
+  const r=await workflowFetch(_withSubWorkspaceParam(path),opts);
   const j=await r.json().catch(()=>({status:"error",detail:"Non-JSON response"}));
   if(!r.ok||j.status==="error") { const error = new Error([j.error?.message||j.detail?.message||j.message||(typeof j.detail==="string"?j.detail:"Request failed"),j.detail?.next_action].filter(Boolean).join(" ")); error.code=j.error?.code; throw error; }
   return j;
@@ -2575,7 +2598,7 @@ async function doUpload(){
     const fd=new FormData();
     fd.append("file",f);
     try{
-      const r=await fetch(_withSubWorkspaceParam("/api/file/upload?path="+encodeURIComponent(_curPath)),{method:"POST",body:fd});
+      const r=await workflowFetch(_withSubWorkspaceParam("/api/file/upload?path="+encodeURIComponent(_curPath)),{method:"POST",body:fd});
       if(r.ok)ok++;else{const j=await r.json().catch(()=>({detail:"failed"}));fail++;console.warn(f.name,j.detail);}
     }catch(e){fail++;}
   }

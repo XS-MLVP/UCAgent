@@ -347,18 +347,52 @@ class SessionCommandBackend(AgentBackendBase):
 
     def prepare(self):
         """Bind this Agent's tools before rendering any client connection settings."""
-        if self.endpoint is not None:
-            return
-        session = getattr(self.vagent, "execution_session", None)
-        factory = session.endpoint_factory() if session else None
-        if factory is not None:
-            self.endpoint = self._stack.enter_context(factory(self.vagent.test_tools, self.config))
-        elif session is not None:
-            raise RuntimeError("Managed CLI session requires an injected ready MCP endpoint factory")
-        else:
-            endpoint = self.vagent.services.require_endpoint("mcp")
-            base_url = endpoint.get("url") or f"http://127.0.0.1:{endpoint['port']}"
-            self.endpoint = {"url": base_url.rstrip("/") + "/mcp", "token": endpoint.get("token", "")}
+        if self.endpoint is None:
+            session = getattr(self.vagent, "execution_session", None)
+            factory = session.endpoint_factory() if session else None
+            if factory is not None:
+                self.endpoint = self._stack.enter_context(factory(self.vagent.test_tools, self.config))
+            elif session is not None:
+                raise RuntimeError("Managed CLI session requires an injected ready MCP endpoint factory")
+            else:
+                endpoint = self.vagent.services.require_endpoint("mcp")
+                base_url = endpoint.get("url") or f"http://127.0.0.1:{endpoint['port']}"
+                self.endpoint = {"url": base_url.rstrip("/") + "/mcp", "token": endpoint.get("token", "")}
+        import os
+        import shutil
+        env = os.environ.copy()
+        env.update({"UCAGENT_WORKSPACE": str(self.vagent.workspace),
+                    "UCAGENT_WORKER_MCP_URL": self.endpoint["url"],
+                    "UCAGENT_WORKER_MCP_TOKEN": self.endpoint["token"],
+                    "UCAGENT_WORKER_SESSION_DIR": str(self.directory),
+                    "UCAGENT_WORKER_PROMPT_FILE": str(self.prompt_file)})
+        if self._cancel_requested.is_set() or self.vagent.is_break():
+            return None
+        try:
+            if self.inspect:
+                self._inherited = self._capture(self._render_argv(self.inspect, self._context()), env)
+            context = self._context()
+            for name, template in self.files.items():
+                path = (self.directory / name).resolve()
+                if not path.is_relative_to(self.directory.resolve()):
+                    raise ValueError("CLI config files must stay inside the private session directory")
+                path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+                path.write_text(self.templates.from_string(template).render(context), encoding="utf-8")
+                path.chmod(0o600)
+            env.update({name: self.templates.from_string(value).render(context) for name, value in self.env.items()})
+            if self.validate:
+                context["command"] = self._render_argv(self.argv, context) + self.extra_args
+                result = self._capture(self._render_argv(self.validate["argv"], context), env)
+                valid = self.templates.compile_expression(self.validate["expect"])(**context, result=result)
+                if valid is not True:
+                    raise RuntimeError("CLI configuration validation failed; no model was started")
+        except InterruptedError:
+            return None
+        argv = self.build_argv()
+        executable = argv[0] if argv else ""
+        if not executable or shutil.which(executable, path=env.get("PATH")) is None:
+            raise RuntimeError("Configured CLI executable is unavailable; check the backend executable setting")
+        return env
 
     def _context(self):
         """Expose declared connection and session data to trusted configuration templates."""
@@ -524,38 +558,12 @@ class SessionCommandBackend(AgentBackendBase):
         """Run one bounded CLI turn through the same path for every configured backend name."""
         import subprocess
         import time
-        self.prepare()
+        env = self.prepare()
+        if env is None:
+            return
         self._turn_completed = False
         self._yield_started = None
         self.prompt_file.write_text("\n\n".join(instructions["messages"]), encoding="utf-8")
-        env = os.environ.copy()
-        env.update({"UCAGENT_WORKSPACE": str(self.vagent.workspace),
-                    "UCAGENT_WORKER_MCP_URL": self.endpoint["url"],
-                    "UCAGENT_WORKER_MCP_TOKEN": self.endpoint["token"],
-                    "UCAGENT_WORKER_SESSION_DIR": str(self.directory),
-                    "UCAGENT_WORKER_PROMPT_FILE": str(self.prompt_file)})
-        if self._cancel_requested.is_set() or self.vagent.is_break():
-            return
-        try:
-            if self.inspect:
-                self._inherited = self._capture(self._render_argv(self.inspect, self._context()), env)
-            context = self._context()
-            for name, template in self.files.items():
-                path = (self.directory / name).resolve()
-                if not path.is_relative_to(self.directory.resolve()):
-                    raise ValueError("CLI config files must stay inside the private session directory")
-                path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-                path.write_text(self.templates.from_string(template).render(context), encoding="utf-8")
-                path.chmod(0o600)
-            env.update({name: self.templates.from_string(value).render(context) for name, value in self.env.items()})
-            if self.validate:
-                context["command"] = self._render_argv(self.argv, context) + self.extra_args
-                result = self._capture(self._render_argv(self.validate["argv"], context), env)
-                valid = self.templates.compile_expression(self.validate["expect"])(**context, result=result)
-                if valid is not True:
-                    raise RuntimeError("CLI configuration validation failed; no model was started")
-        except InterruptedError:
-            return
         argv = self.build_argv()
         if self.vagent.is_break() or self._cancel_requested.is_set():
             return

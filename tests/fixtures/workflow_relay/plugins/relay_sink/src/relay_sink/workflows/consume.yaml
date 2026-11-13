@@ -1,0 +1,29 @@
+output: result_b
+template: null
+manager_tools: []
+write_dirs: ["{OUT}"]
+un_write_dirs: [inputs, Guide_Doc]
+skill:
+  use_skill: false
+runtime_options:
+  multi_agent_enabled: true
+vmanager:
+  llm_suggestion:
+    check_fail_refinement: {enable: false}
+    check_pass_refinement: {enable: false}
+mission:
+  name: relay-sink
+  prompt:
+    system: "Increment a validated integer payload and return the input digest."
+stage:
+  - name: consume
+    desc: Increment a validated integer payload and return the input digest.
+    task:
+      - "Read inputs/payload.json and Guide_Doc/sink.md. Write value+1 and source_sha256 from CurrentTips.handoff_inputs into result_b/result.json."
+      - "Record the stage journal, Check the artifact, then submit the result."
+    reference_files: [Guide_Doc/sink.md]
+    output_files: ["{OUT}/result.json"]
+    checker:
+      - name: validated_result
+        clss: RelaySinkChecker
+        args: {}

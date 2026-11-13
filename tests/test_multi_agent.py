@@ -452,11 +452,14 @@ def test_batch_gate_remains_in_same_stage(tmp_path):
     agent.cfg.set_value("write_dirs", ["out"])
     agent.cfg.set_value("tools", {})
     agent.cfg.set_value("conversation_summary", {})
+    agent.cfg.set_value("backend", {"key_name": "langchain", "langchain": {"clss": "ucagent.core.backends.langchain.UCAgentLangChainBackend", "args": {}}})
     agent.dut_name = "DUT"
+    from uuid import uuid4
+    agent.session_id = uuid4()
     agent.plugins = []
     agent.message_echo = lambda *args, **kwargs: None
     runtime.manager.stages[0].do_set_hmcheck_needed(False)
-    settings = Settings.model_validate({"roles": {"worker": {"system": "work", "allowed_tools": []}}})
+    settings = Settings.model_validate({"roles": {"worker": {"system": "work", "backend": "langchain", "allowed_tools": []}}})
     service = MultiAgentService(agent, settings)
     agent.multi_agent = service
     observed = []
@@ -470,7 +473,7 @@ def test_batch_gate_remains_in_same_stage(tmp_path):
     try:
         service.submit({"plan_id": "batch", "scope": "stage", "tasks": [{"id": "t", "instruction": "batch"}]})
         result = finish(service, "batch")
-        assert result["plans"]["batch"]["state"] == "completed", json.dumps(result, indent=2)
+        assert result["plans"]["batch"]["state"] == "completed", json.dumps(result, indent=2, default=str)
         assert observed == [0, 0]
         assert runtime.manager.stage_index == 1
     finally:
@@ -501,7 +504,7 @@ def test_role_files_and_model_overrides_are_resolved_without_widening_policy(tmp
     """Relative role prompts resolve in the workspace and model overrides cannot edit policy."""
     from ucagent.core.multi_agent.contracts import Role
     (tmp_path / "role.md").write_text("custom role prompt")
-    cfg = Config({"runtime_options": {"multi_agent_enabled": True}, "multi_agent": {
+    cfg = Config({"backend": {"key_name": "langchain", "langchain": {"clss": "ucagent.core.backends.langchain.UCAgentLangChainBackend", "args": {}}}, "runtime_options": {"multi_agent_enabled": True}, "multi_agent": {
         "roles": {"worker": {"system_file": "role.md"}}}})
     assert load_settings(cfg, tmp_path).roles["worker"].system == "custom role prompt"
     with pytest.raises(ValueError, match="model_overrides"):

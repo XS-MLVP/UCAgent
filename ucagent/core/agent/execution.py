@@ -63,6 +63,7 @@ class VerifyAgent:
         plugin_runtime_config_keys: Optional[List[str]] = None,
         *,
         _task_configuration=None,
+        _defer_workspace_activation=False,
     ):
         """Construct a task through the shared preparation and component assembly path."""
         parameters = locals().copy()
