@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Task execution, interaction, messages and statistics for one verification Agent."""
 
-from ucagent.util.log import echo_g, info, message, warning, msg_msg
+from ucagent.util.log import echo_g, info, message, warning, msg_msg, MESSAGE_LOG_DEFERRED
 from ucagent.util.functions import fmt_time_deta, fmt_time_stamp
 from ucagent.util.functions import yam_str, make_llm_tool_ret
 import ucagent.util.functions as fc
@@ -155,12 +155,14 @@ class VerifyAgent:
     def message_echo(self, msg, end="\n"):
         """Echo a message using the custom message echo handler if set."""
         if self.message_echo_handler is not None:
-            self.message_echo_handler(msg, end)
-            if msg:
-                self._msg_buffer = self._msg_buffer + msg + end
-            if end == "\n":
-                msg_msg(self._msg_buffer)
-                self._msg_buffer = ""
+            # Frontends may forward through message(), which also logs. The
+            # outer Agent owns this record; context-local deferral isolates workers.
+            token = MESSAGE_LOG_DEFERRED.set(True)
+            try:
+                self.message_echo_handler(msg, end)
+            finally:
+                MESSAGE_LOG_DEFERRED.reset(token)
+                msg_msg(msg, end=end)
         else:
             message(msg, end=end)
 
@@ -168,9 +170,19 @@ class VerifyAgent:
 
     def set_break(self, value=True):
         self._need_break = value
+        if value and callable(getattr(self.backend, "cancel", None)):
+            self.backend.cancel()
+        service = getattr(self, "multi_agent", None)
+        if not value and service is not None:
+            service._workflow_stop.clear()
+        if value and service is not None:
+            for name, plan in list(service.plans.items()):
+                if plan["state"] == "running":
+                    service.cancel(name)
 
     def is_break(self):
-        return self._need_break
+        service = getattr(self, "multi_agent", None)
+        return self._need_break or bool(service and service.planning_interrupted())
 
 
 
@@ -391,6 +403,14 @@ class VerifyAgent:
 
     def one_loop(self, msg=None):
         """Enhanced one loop with intelligent interaction logic based on configured mode"""
+        service = getattr(self, "multi_agent", None)
+        if service is not None:
+            instruction = msg if msg is not None else self._continue_msg
+            self._continue_msg = None
+            service.run_workflow(instruction)
+            self.invoke_round += 1
+            self._need_human = service.workflow_state == "waiting_human"
+            return self
         # Use the configured interaction mode
         if self.interaction_mode == "advanced" and self.advanced_logic:
             try:
@@ -436,10 +456,14 @@ class VerifyAgent:
         return self
 
     def custom_chat(self, msg):
-        """Custom chat message to the agent."""
-        self.do_work(
-            {"messages": [self.backend.get_human_message(msg)]}, self.get_work_config()
-        )
+        """Run user instructions through the same multi-agent planning loop when enabled."""
+        service = getattr(self, "multi_agent", None)
+        if service is not None:
+            if service.has_active():
+                raise RuntimeError("Delegated work is active; pause it before changing the plan")
+            service.run_workflow(msg)
+            return
+        self.do_work({"messages": [self.backend.get_human_message(msg)]}, self.get_work_config())
 
     def get_interaction_status(self):
         """Get the status of the interaction logic"""
@@ -669,25 +693,44 @@ class VerifyAgent:
         )
         stats["Token Speed"] = f"{max(0.0, token_speed):.2f} tok/s"
         stats["Idle"] = f"{max(0.0, idle):.2f} s"
+        service = getattr(self, "multi_agent", None)
+        if service is not None:
+            state = service.status()
+            stats["Multi-Agent"] = (f"{state['workflow_state']} / "
+                f"workers={state['running']}/{state['max_workers']} / "
+                f"plans={state['metrics']['plans']} / starts={state['metrics']['worker_starts']}")
         return stats
 
     def message_get_str(self, index, count):
+        """Render history through the same display policy as live backend messages."""
         messages = self.messages_get_raw()
         if len(messages) == 0:
             warning(f"No messages found, cannot get message. Please try later.")
             return []
         index = index % len(messages)
-        return [m.pretty_repr() for m in messages[index : index + count]]
+        formatter = getattr(self.backend, "format_message", lambda message: message.pretty_repr())
+        return [formatter(m) for m in messages[index : index + count]]
 
     def do_work_values(self, instructions, config):
+        """Use the managed session when present, retaining the single-Agent entry."""
+        if getattr(self, "execution_session", None) is not None:
+            return self.execution_session.run_turn(instructions, config)
         return self.backend.do_work_values(instructions, config)
 
     def do_work_stream(self, instructions, config):
+        """Route managed streaming through the same backend lifecycle."""
+        if getattr(self, "execution_session", None) is not None:
+            return self.execution_session.run_turn(instructions, config, stream=True)
         return self.backend.do_work_stream(instructions, config)
 
     def get_tool_by_name(self, tool_name: str):
         """Get a tool by its name."""
-        tool = next((tool for tool in self.test_tools if tool.name == tool_name), None)
+        tools = self.test_tools
+        if getattr(self, "multi_agent", None) is not None:
+            from ucagent.core.multi_agent.supervisor import STAGE_OWNER
+            if STAGE_OWNER.get() is self.multi_agent.driver:
+                tools = self.multi_agent_business_tools
+        tool = next((tool for tool in tools if tool.name == tool_name), None)
         return tool
 
     def set_tool_call_time_out(self, time_out: int):

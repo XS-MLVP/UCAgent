@@ -544,6 +544,16 @@ def to_mcp_tool(tool: BaseTool) -> MCPTool:
     if tool.args_schema.model_fields.keys() - call_schema.model_fields.keys():
         raise NotImplementedError("LangChain tools with injected arguments are not supported")
     parameters = call_schema.model_json_schema()
+    if "$defs" in parameters:
+        # Some CLI clients discard local definitions while converting MCP schemas.
+        # Inline finite schemas only; recursive schemas retain their original refs.
+        import json
+        from langchain_core.utils.json_schema import dereference_refs
+        expanded = dereference_refs(parameters)
+        expanded.pop("$defs", None)
+        definitions = parameters["$defs"]
+        if not any('"$ref"' in json.dumps(definition) for definition in definitions.values()):
+            parameters = expanded
     field_definitions = {
         field: (field_info.annotation, field_info)
         for field, field_info in call_schema.model_fields.items()

@@ -52,6 +52,8 @@ class LaunchPlan:
 
 def build_launch_plan(request: LaunchRequest, cfg) -> LaunchPlan:
     """Validate actual backend needs and derive startup policy without creating runtime owners."""
+    if request.master and cfg.get_value("runtime_options.multi_agent_enabled", False):
+        raise ValueError("Multi-agent execution is not supported in Master mode")
     backend_class = get_backend_class(cfg)
     start_mcp = "mcp" in request.services
     mode = ("master" if request.master else "console" if request.interface != "none"
@@ -62,7 +64,9 @@ def build_launch_plan(request: LaunchRequest, cfg) -> LaunchPlan:
     commands = [*request.commands, *cfg.get_value("init_cmds", [])]
     model_requested = not request.emulate_config and (default_model or any(
         tokens and tokens[0] in model_commands for tokens in (shlex.split(command) for command in commands)))
-    if model_requested and backend_class.requires_mcp and not start_mcp:
+    managed = (cfg.get_value("runtime_options.multi_agent_enabled", False)
+               and backend_class.capabilities.managed_sessions)
+    if model_requested and backend_class.requires_mcp and not start_mcp and not managed:
         raise ValueError(f"backend={cfg.backend.key_name!r} requires '--mcp-server-no-file-tools' or '--mcp-server': "
                          "command-line backends communicate with UCAgent through MCP; "
                          "enable '--mcp-server-no-file-tools' (recommended).")

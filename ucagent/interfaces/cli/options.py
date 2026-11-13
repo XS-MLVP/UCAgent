@@ -68,6 +68,19 @@ def parse_launch_options(args) -> dict:
         else:
             init_cmds += [f"terminal_api_start {addr_part}{extra_web_term_opts}"]
 
+    agent_mode = getattr(args, "agent_mode", None)
+    max_subagents = getattr(args, "max_subagents", None)
+    if agent_mode is not None:
+        args.override = _append_override(args.override, "runtime_options.multi_agent_enabled", agent_mode == "multi")
+    if max_subagents is not None:
+        if max_subagents <= 0 or agent_mode == "single":
+            raise ValueError("--max-subagents requires multi mode and a positive integer")
+        args.override = _append_override(args.override, "multi_agent.max_workers", max_subagents)
+        # Validate after all config layers have resolved, even when mode came from YAML.
+        args.override = _append_override(args.override, "multi_agent_cli_limit", True)
+    if args.as_master is not None and agent_mode == "multi":
+        raise ValueError("Multi-agent execution is not supported in Master mode")
+
     # Handle MCP server commands
     args.override = args.override or []
     if args.mcp_server_port == -1:

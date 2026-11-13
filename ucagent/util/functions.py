@@ -605,31 +605,43 @@ def fill_dlist_none(data, value, keys=None, json_keys=[]):
     return data
 
 
+def format_message_value(value, indent=0):
+    """Render structured display data with literal text lines and nested indentation."""
+    prefix = " " * indent
+    if isinstance(value, dict) and value:
+        lines = []
+        for key, item in value.items():
+            if isinstance(item, (dict, list)) and item:
+                lines.append(f"{prefix}{key}:")
+                lines.append(format_message_value(item, indent + 2))
+            else:
+                parts = str(item).splitlines() or [""]
+                lines.append(f"{prefix}{key}: {parts[0]}")
+                lines.extend(prefix + "  " + line for line in parts[1:])
+        return "\n".join(lines)
+    if isinstance(value, list) and value:
+        lines = []
+        for item in value:
+            parts = format_message_value(item, indent + 2).splitlines()
+            lines.append(prefix + "- " + parts[0][indent + 2:])
+            lines.extend(parts[1:])
+        return "\n".join(lines)
+    return "\n".join(prefix + line for line in (str(value).splitlines() or [""]))
+
+
 def get_ai_message_tool_call(msg):
+    """Render tool calls once, including literal newlines inside nested task arguments."""
     lines = []
-    def _format_tool_args(tc) -> list[str]:
-        lines = [
-            f"  {tc.get('name', 'Tool')} ({tc.get('id')})",
-            f" Call ID: {tc.get('id')}",
-        ]
-        if tc.get("error"):
-            lines.append(f"  Error: {tc.get('error')}")
-        lines.append("  Args:")
-        args = tc.get("args")
-        if isinstance(args, str):
-            lines.append(f"    {args}")
-        elif isinstance(args, dict):
-            for arg, value in args.items():
-                lines.append(f"    {arg}: {value}")
-        return lines
-    if msg.tool_calls:
-        lines.append("Tool Calls:")
-        for tc in msg.tool_calls:
-            lines.extend(_format_tool_args(tc))
-    if msg.invalid_tool_calls:
-        lines.append("Invalid Tool Calls:")
-        for itc in msg.invalid_tool_calls:
-            lines.extend(_format_tool_args(itc))
+    for title, calls in (("Tool Calls:", msg.tool_calls), ("Invalid Tool Calls:", msg.invalid_tool_calls)):
+        if not calls:
+            continue
+        lines.append(title)
+        for call in calls:
+            lines.append(f"  {call.get('name', 'Tool')} ({call.get('id')})")
+            if call.get("error"):
+                lines.append(format_message_value({"Error": call["error"]}, 4))
+            lines.append("    Args:")
+            lines.append(format_message_value(call.get("args"), 6))
     return "\n".join(lines) if lines else None
 
 

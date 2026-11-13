@@ -31,13 +31,30 @@ backend:
       cfg_bash_enable: false
 
   opencode:
-    clss: ucagent.core.backends.UCAgentCmdLineBackend
+    clss: ucagent.core.backends.cmdline.SessionCommandBackend
     args:
-      cli_cmd_new: "opencode run {UC_ENV_CMD_BACKEND_EX_ARGS} {UC_ENV_CMD_BACKEND_EX_ARGS_N} < {MSG_FILE}"
-      cli_cmd_ctx: "opencode run {UC_ENV_CMD_BACKEND_EX_ARGS} {UC_ENV_CMD_BACKEND_EX_ARGS_C} -c < {MSG_FILE}"
-      render_files:
-        "{ASSETS}/mcp_opencode.json": "{CWD}/opencode.json"
-      cfg_bash_enable: false
+      executable: opencode
+      argv: ["{{ executable }}", --pure]
+      new_args: [run, --format, json, --agent, "{{ server_name }}"]
+      resume_args: [run, --format, json, --agent, "{{ server_name }}", --session, "{{ session_id }}"]
+      inspect: ["{{ executable }}", --pure, debug, config]
+      files:
+        mcp.json: "{% include 'cli_opencode_config.json.j2' %}"
+      env:
+        OPENCODE_CONFIG: "{{ session_dir }}/mcp.json"
+      validate:
+        argv: ["{{ executable }}", --pure, debug, config]
+        expect: "result.mcp | dictsort | selectattr('1.enabled', 'equalto', true) | map(attribute='0') | list == [server_name]"
+      output:
+        format: jsonl
+        events:
+          - {match: {type: step_start}, session: sessionID}
+          - {match: {type: text}, session: sessionID, text: part.text}
+          - {match: {type: step_finish, part.reason: stop}, done: true}
+          - {match: {type: error}, error: error.data.message}
+      extra_args: "$(UC_ENV_CMD_BACKEND_EX_ARGS: )"
+      extra_new_args: "$(UC_ENV_CMD_BACKEND_EX_ARGS_N: )"
+      extra_resume_args: "$(UC_ENV_CMD_BACKEND_EX_ARGS_C: )"
 
   copilot:
     clss: ucagent.core.backends.UCAgentCmdLineBackend
@@ -84,18 +101,29 @@ backend:
       cfg_bash_enable: false
 
   codex:
-    clss: ucagent.core.backends.UCAgentCmdLineBackend
+    clss: ucagent.core.backends.cmdline.SessionCommandBackend
     args:
-      cli_cmd_new: "codex exec {UC_ENV_CMD_BACKEND_EX_ARGS} {UC_ENV_CMD_BACKEND_EX_ARGS_N} --yolo < {MSG_FILE}"
-      cli_cmd_ctx: "codex exec {UC_ENV_CMD_BACKEND_EX_ARGS} {UC_ENV_CMD_BACKEND_EX_ARGS_C} resume --last --yolo < {MSG_FILE}"
-      pre_bash_cmd:
-        - "mkdir -p {CWD}/.codex/"
-      render_files:
-        "{ASSETS}/mcp_codex.toml": "{CWD}/.codex/config.toml"
-      cfg_bash_cmd:
-        - "mkdir -p ~/.codex"
-        - "cp {CWD}/.codex/config.toml ~/.codex/config.toml"
-      cfg_bash_enable: false
+      executable: codex
+      argv: "{% include 'cli_codex_args.json.j2' %}"
+      new_args: [exec, --json, --skip-git-repo-check, "-"]
+      resume_args: [exec, resume, "{{ session_id }}", --json, --skip-git-repo-check, "-"]
+      inspect: ["{{ executable }}", mcp, list, --json]
+      validate:
+        argv: "{{ (command + ['mcp', 'list', '--json']) | tojson }}"
+        expect: "result | selectattr('enabled', 'equalto', true) | map(attribute='name') | list == [server_name]"
+      output:
+        format: jsonl
+        events:
+          - {match: {type: thread.started}, session: thread_id}
+          - {match: {type: item.completed, item.type: agent_message}, text: item.text}
+          - {match: {type: item.completed, item.type: mcp_tool_call}, tool: true}
+          - match: {type: turn.completed}
+            done: true
+            usage: {input_tokens: usage.input_tokens, output_tokens: usage.output_tokens, cached_input_tokens: usage.cached_input_tokens}
+          - {match: {type: turn.failed}, error: error.message}
+      extra_args: "$(UC_ENV_CMD_BACKEND_EX_ARGS: )"
+      extra_new_args: "$(UC_ENV_CMD_BACKEND_EX_ARGS_N: )"
+      extra_resume_args: "$(UC_ENV_CMD_BACKEND_EX_ARGS_C: )"
 
 mcp_server:
   host: 127.0.0.1
@@ -508,3 +536,52 @@ vibe_coding:
       resolve these errors, and avoid being distracted by other information.
     summarize: |
       Please summarize your task and your completion status.
+
+# Disabled mode retains the existing agent, tools and execution loop.
+runtime_options:
+  multi_agent_enabled: false
+
+multi_agent:
+  max_workers: 1
+  default_role: worker
+  delegation_scope: auto
+  limits:
+    supervisor_backend_turns: 8
+    worker_backend_turns: 80
+    supervisor_model_rounds: 8
+    supervisor_tool_calls: 40
+    supervisor_timeout_seconds: 300
+    planning_revisions: 3
+    worker_model_rounds: 80
+    worker_tool_calls: 200
+    worker_timeout_seconds: 1800
+    task_max_attempts: 2
+  roles:
+    worker:
+      description: "Execute the delegated workflow stage."
+      system: "Complete the assigned task using its authorized tools and submit actual results."
+      allowed_tools: [ReadTextFile, PathList, SearchText, FindFiles, GetFileInfo, EditTextFile, ReplaceStringInFile, DeleteTextLines, CreateDirectory, RunTestCases, WaveInfo, ApplyWaveInfoEvidence, ReviewWaveInfoEvidenceBatch, RunSkillScript]
+  task_contracts: {}
+
+multi_agent_prompts:
+  supervisor: |
+    You are the user's coordinator. Analyze the current stage, choose roles, split work,
+    and interpret previous_result using actual task outputs and Checker feedback.
+    Inspect inputs with read-only tools when needed. Submit one complete plan through SubAgentTool.
+    Independent file tasks use scope=task with explicit inputs, disjoint outputs, dependencies and roles.
+    Dynamic file tasks need no named contract, but existing output rules remain mandatory.
+    Use exclusive auto/stage scope for shared test state, test/waveform tools and sequential substages.
+    MCP submissions must include the current planning_token. Stop immediately after submitting;
+    do not poll or submit another plan. The next turn carries the verified result automatically.
+    Repair failed plans within the available budget. Use PauseWorkflow when user input is required.
+    When workflow_complete=true, summarize the verified results without submitting more work.
+    StartWorkflow is the user's entry to this loop; do not call it from a planning turn.
+    Do not write business files, run tests, advance stages, invent acceptance criteria or equate text with completion.
+  worker: |
+    Work only within the assigned task and its available tools. Call CurrentTips.
+    For a subtree, record the current stage journal and use CompleteSubStage with
+    the latest step_token. Continue authorized descendants in this same session.
+    At scope_done, submit the aggregate result; do not enter the next stage.
+    For a single stage, set its journal and submit after implementation and Check.
+    SubmitTaskResult freezes this attempt. Report human review or inability to
+    continue with status=blocked. Never claim success based on text or exit status.

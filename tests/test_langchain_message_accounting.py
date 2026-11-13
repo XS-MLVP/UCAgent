@@ -665,7 +665,7 @@ def test_backend_binds_tools_after_verify_agent_finishes_tool_setup(monkeypatch)
 
     monkeypatch.setattr(
         "ucagent.core.backends.langchain.agent.negotiate_openai_api_mode",
-        lambda config: negotiations.append(config) or "responses",
+        lambda config, **kwargs: negotiations.append(config) or "responses",
     )
     monkeypatch.setattr(
         "ucagent.core.backends.langchain.agent.get_chat_model",

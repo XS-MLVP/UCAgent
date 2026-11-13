@@ -2,7 +2,7 @@
 """External model commands with shared process cleanup and activity monitoring."""
 
 
-from ucagent.core.backends.base import AgentBackendBase
+from ucagent.core.backends.base import AgentBackendBase, BackendCapabilities
 from jinja2 import Environment, FileSystemLoader
 from ucagent.util.log import warning, info
 from ucagent.util.output import output_source
@@ -11,6 +11,32 @@ import ucagent.util.functions as fc
 from ucagent.util.functions import get_abs_path_cwd_ucagent, process_bash_cmd
 import os
 import ucagent
+
+
+def _idle_timeout(config, value):
+    """Resolve the shared CLI idle timeout without treating booleans as seconds."""
+    if value is None:
+        get_value = getattr(config, "get_value", None)
+        value = (
+            get_value("cmd_timeout", 1200) if callable(get_value) else 1200
+        )
+    if isinstance(value, bool):
+        raise ValueError("command_idle_timeout must be a non-negative number")
+    if isinstance(value, str) and value.lower() in {
+        "off",
+        "none",
+        "disabled",
+    }:
+        value = 0
+    try:
+        value = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "command_idle_timeout must be a non-negative number or off"
+        ) from exc
+    if value < 0:
+        raise ValueError("command_idle_timeout must be a non-negative number")
+    return value
 
 
 class UCAgentCmdLineBackend(AgentBackendBase):
@@ -41,28 +67,7 @@ class UCAgentCmdLineBackend(AgentBackendBase):
         self.render_files = render_files or {}
         self.cfg_bash_cmd = cfg_bash_cmd or []
         self.cfg_bash_enable = cfg_bash_enable
-        if command_idle_timeout is None:
-            get_value = getattr(config, "get_value", None)
-            command_idle_timeout = (
-                get_value("cmd_timeout", 1200) if callable(get_value) else 1200
-            )
-        if isinstance(command_idle_timeout, bool):
-            raise ValueError("command_idle_timeout must be a non-negative number")
-        if isinstance(command_idle_timeout, str) and command_idle_timeout.lower() in {
-            "off",
-            "none",
-            "disabled",
-        }:
-            command_idle_timeout = 0
-        try:
-            command_idle_timeout = float(command_idle_timeout)
-        except (TypeError, ValueError) as exc:
-            raise ValueError(
-                "command_idle_timeout must be a non-negative number or off"
-            ) from exc
-        if command_idle_timeout < 0:
-            raise ValueError("command_idle_timeout must be a non-negative number")
-        self.command_idle_timeout = command_idle_timeout
+        self.command_idle_timeout = _idle_timeout(config, command_idle_timeout)
 
     def _get_assets_path(self):
         current_path = os.path.dirname(os.path.abspath(ucagent.__file__))
@@ -240,7 +245,8 @@ class UCAgentCmdLineBackend(AgentBackendBase):
     def model_name(self):
         return self.config.backend.key_name
 
-    def get_human_message(self, text: str):
+    def get_human_message(self, text: str, *, display_text=None):
+        """Preserve the full prompt for external clients, which own their rendering."""
         return "[Human]: " + text
 
     def get_system_message(self, text: str):
@@ -272,3 +278,366 @@ class UCAgentCmdLineBackend(AgentBackendBase):
                                              UC_ENV_CMD_BACKEND_EX_ARGS_C=os.environ.get("UC_ENV_CMD_BACKEND_EX_ARGS_C", ""),
                                              CWD=self.CWD,
                                              PORT=self._get_mcp_port()))
+
+
+class SessionCommandBackend(AgentBackendBase):
+    """Run configured MCP clients with independent processes, credentials and CLI history."""
+
+    requires_mcp = True
+    capabilities = BackendCapabilities(managed_sessions=True)
+
+    def __init__(self, vagent, config, *, argv=None, executable=None, new_args=None,
+                 resume_args=None, env=None, files=None, inspect=None, validate=None,
+                 output=None, extra_args="", extra_new_args="", extra_resume_args="",
+                 yield_timeout=5, command_idle_timeout=None, **kwargs):
+        """Declare CLI syntax as data; scheduling never selects a provider-specific class."""
+        super().__init__(vagent, config, **kwargs)
+        from jinja2 import StrictUndefined
+        from pathlib import Path
+        import shlex
+        if argv is None:
+            if not isinstance(executable, str) or not executable:
+                raise ValueError("Command backend requires argv or executable")
+            argv = ["{{ executable }}"]
+        if not isinstance(argv, (list, str)) or not argv:
+            raise ValueError("argv must be a nonempty argument list or JSON-list template")
+        self.argv = argv
+        self.executable = executable
+        self.new_args = new_args or []
+        self.resume_args = resume_args
+        self.env = env or {}
+        self.files = files or {}
+        self.inspect = inspect
+        self.validate = validate
+        self.output = output or {}
+        if self.output.get("format", "text") not in {"text", "jsonl"}:
+            raise ValueError("output.format must be text or jsonl")
+        self.extra_args = shlex.split(extra_args)
+        self.extra_new_args = shlex.split(extra_new_args)
+        self.extra_resume_args = shlex.split(extra_resume_args)
+        self.command_idle_timeout = _idle_timeout(config, command_idle_timeout)
+        self.yield_timeout = float(yield_timeout)
+        if not 0 <= self.yield_timeout <= 60:
+            raise ValueError("yield_timeout must be between 0 and 60 seconds")
+        self.templates = Environment(loader=FileSystemLoader(Path(__file__).parent / "assets"),
+                                     undefined=StrictUndefined, autoescape=False)
+        self.capabilities = BackendCapabilities(managed_sessions=True, resume=resume_args is not None)
+        self.process = None
+        self.endpoint = None
+        self.cli_session_id = None
+        self._call_count = 0
+        self._stack = None
+        self._inherited = None
+        self._usage = {}
+        self._turn_completed = False
+        self._yield_started = None
+
+    def init(self):
+        """Allocate only local state; execution waits for a ready tool endpoint."""
+        from contextlib import ExitStack
+        from pathlib import Path
+        from uuid import uuid4
+        self.session_key = uuid4().hex
+        session = getattr(self.vagent, "execution_session", None)
+        self.directory = (session.directory if session else
+                          Path(self.vagent.workspace) / ".ucagent" / "cli" / self.session_key)
+        self.directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+        self.prompt_file = self.directory / "prompt.txt"
+        self._stack = ExitStack()
+
+    def prepare(self):
+        """Bind this Agent's tools before rendering any client connection settings."""
+        if self.endpoint is not None:
+            return
+        session = getattr(self.vagent, "execution_session", None)
+        factory = session.endpoint_factory() if session else None
+        if factory is not None:
+            self.endpoint = self._stack.enter_context(factory(self.vagent.test_tools, self.config))
+        elif session is not None:
+            raise RuntimeError("Managed CLI session requires an injected ready MCP endpoint factory")
+        else:
+            endpoint = self.vagent.services.require_endpoint("mcp")
+            base_url = endpoint.get("url") or f"http://127.0.0.1:{endpoint['port']}"
+            self.endpoint = {"url": base_url.rstrip("/") + "/mcp", "token": endpoint.get("token", "")}
+
+    def _context(self):
+        """Expose declared connection and session data to trusted configuration templates."""
+        return {"executable": self.executable, "workspace": str(self.vagent.workspace),
+                "session_dir": str(self.directory), "prompt_file": str(self.prompt_file),
+                "session_id": self.cli_session_id, "server_name": "ucagent_" + self.session_key,
+                "mcp_url": self.endpoint["url"], "mcp_token": self.endpoint["token"],
+                "managed": getattr(self.vagent, "execution_session", None) is not None,
+                "tools": [tool.name for tool in getattr(self.vagent, "test_tools", ())],
+                "tool_timeout": self.config.get_value("call_time_out", 300),
+                "inherited": self._inherited}
+
+    def _render_argv(self, value, context):
+        """Render an argument vector without shell interpolation or command substitution."""
+        import json
+        if isinstance(value, str):
+            value = json.loads(self.templates.from_string(value).render(context))
+        else:
+            value = [self.templates.from_string(part).render(context) for part in value]
+        if not isinstance(value, list) or not all(isinstance(part, str) and "\0" not in part for part in value):
+            raise ValueError("CLI command template must produce a list of string arguments")
+        return value
+
+    def build_argv(self):
+        """Use the configured continuation command and this Agent's explicit session identity."""
+        context = self._context()
+        args = self.resume_args if self._call_count else self.new_args
+        if args is None:
+            raise RuntimeError("CLI continuation is not configured; set resume_args for this backend")
+        if self._call_count and "session_id" in str(args) and not self.cli_session_id:
+            raise RuntimeError("CLI did not report a session ID; refusing to resume an unrelated conversation")
+        return (self._render_argv(self.argv, context) + self.extra_args +
+                self._render_argv(args, context) +
+                (self.extra_resume_args if self._call_count else self.extra_new_args))
+
+    def _capture(self, argv, env):
+        """Read a bounded configuration probe without logging credentials or blocking cancellation."""
+        import json
+        import subprocess
+        import time
+        if not argv:
+            raise ValueError("CLI probe requires a nonempty argument list")
+        self.process = subprocess.Popen(argv, cwd=self.vagent.workspace, env=env,
+                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
+        deadline = time.monotonic() + 15
+        try:
+            while True:
+                if self._cancel_requested.is_set() or self.vagent.is_break():
+                    raise InterruptedError("CLI configuration was interrupted")
+                if time.monotonic() >= deadline:
+                    raise RuntimeError("CLI configuration probe timed out")
+                try:
+                    stdout, _ = self.process.communicate(timeout=0.05)
+                    break
+                except subprocess.TimeoutExpired:
+                    continue
+            if self.process.returncode:
+                raise RuntimeError("CLI configuration probe failed; check the configured inspect/validate command")
+            try:
+                return json.loads(stdout)
+            except (ValueError, UnicodeError) as exc:
+                raise RuntimeError("CLI configuration probe must return JSON") from exc
+        finally:
+            self._stop_process()
+            self.process = None
+
+    def get_human_message(self, text, *, display_text=None):
+        """Pass the task text to the client owning this Agent's model history."""
+        return "[Human]: " + text
+
+    def get_system_message(self, text):
+        """Provide role and workflow instructions to the external client."""
+        return "[System]: " + text
+
+    def messages_get_raw(self):
+        """External model history is not fabricated as framework model messages."""
+        return []
+
+    @staticmethod
+    def _field(event, path):
+        """Read a dotted JSON field without evaluating client-provided expressions."""
+        for part in path.split("."):
+            if not isinstance(event, dict):
+                return None
+            event = event.get(part)
+        return event
+
+    @output_source("backend")
+    def process_output(self, line):
+        """Project configured text/events; raw client dictionaries stay in private stdout."""
+        import json
+        try:
+            event = json.loads(line)
+        except (ValueError, TypeError):
+            if self.output.get("format", "text") == "text" and line:
+                self.vagent.message_echo(line)
+            return
+        if self.output.get("format", "text") == "text":
+            text = event.get("text") if isinstance(event, dict) else None
+            if isinstance(text, str):
+                self.vagent.message_echo(text)
+            return
+        for rule in self.output.get("events", []):
+            if not all(self._field(event, key) == value for key, value in rule.get("match", {}).items()):
+                continue
+            if "session" in rule:
+                session_id = self._field(event, rule["session"])
+                if not isinstance(session_id, str) or not session_id or len(session_id) > 256 or any(ord(c) < 32 for c in session_id):
+                    raise RuntimeError("CLI returned an invalid session ID")
+                if self.cli_session_id is not None and self.cli_session_id != session_id:
+                    raise RuntimeError("CLI resumed a different session; refusing mixed Agent history")
+                self.cli_session_id = session_id
+                (self.directory / "session.json").write_text(json.dumps({"session_id": session_id}), encoding="utf-8")
+            if "text" in rule:
+                text = self._field(event, rule["text"])
+                if isinstance(text, str) and text:
+                    self.vagent.message_echo(text)
+                    self._stat_msg_count_ai += 1
+            if rule.get("tool"):
+                self._stat_msg_count_tool += 1
+            if rule.get("done"):
+                self._turn_completed = True
+            for name, field in rule.get("usage", {}).items():
+                value = self._field(event, field)
+                if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+                    self._usage[name] = self._usage.get(name, 0) + value
+            if "error" in rule:
+                message = self._field(event, rule["error"])
+                raise RuntimeError("CLI turn failed: " + (message[:2000] if isinstance(message, str) else "unknown error"))
+
+    def yield_ready(self):
+        """Drain the accepted MCP reply, then give the client a bounded chance to save history."""
+        import time
+        idle = self.endpoint.get("responses_idle")
+        if idle is not None and not idle.is_set():
+            return False
+        self._yield_started = self._yield_started or time.monotonic()
+        return self._turn_completed or time.monotonic() - self._yield_started >= self.yield_timeout
+
+    def _stop_process(self):
+        """Terminate only this backend's process group and reap it before releasing ownership."""
+        import signal
+        import subprocess
+        process = self.process
+        if process is None:
+            return
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        try:
+            process.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            pass
+        finally:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.wait()
+
+    def do_work_values(self, instructions, config):
+        """Run one bounded CLI turn through the same path for every configured backend name."""
+        import subprocess
+        import time
+        self.prepare()
+        self._turn_completed = False
+        self._yield_started = None
+        self.prompt_file.write_text("\n\n".join(instructions["messages"]), encoding="utf-8")
+        env = os.environ.copy()
+        env.update({"UCAGENT_WORKSPACE": str(self.vagent.workspace),
+                    "UCAGENT_WORKER_MCP_URL": self.endpoint["url"],
+                    "UCAGENT_WORKER_MCP_TOKEN": self.endpoint["token"],
+                    "UCAGENT_WORKER_SESSION_DIR": str(self.directory),
+                    "UCAGENT_WORKER_PROMPT_FILE": str(self.prompt_file)})
+        if self._cancel_requested.is_set() or self.vagent.is_break():
+            return
+        try:
+            if self.inspect:
+                self._inherited = self._capture(self._render_argv(self.inspect, self._context()), env)
+            context = self._context()
+            for name, template in self.files.items():
+                path = (self.directory / name).resolve()
+                if not path.is_relative_to(self.directory.resolve()):
+                    raise ValueError("CLI config files must stay inside the private session directory")
+                path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+                path.write_text(self.templates.from_string(template).render(context), encoding="utf-8")
+                path.chmod(0o600)
+            env.update({name: self.templates.from_string(value).render(context) for name, value in self.env.items()})
+            if self.validate:
+                context["command"] = self._render_argv(self.argv, context) + self.extra_args
+                result = self._capture(self._render_argv(self.validate["argv"], context), env)
+                valid = self.templates.compile_expression(self.validate["expect"])(**context, result=result)
+                if valid is not True:
+                    raise RuntimeError("CLI configuration validation failed; no model was started")
+        except InterruptedError:
+            return
+        argv = self.build_argv()
+        if self.vagent.is_break() or self._cancel_requested.is_set():
+            return
+        if not argv:
+            raise ValueError("CLI command must have an executable")
+        self._call_count += 1
+        with (open(self.directory / "stdout.log", "ab") as out,
+              open(self.directory / "stderr.log", "ab") as err,
+              open(self.prompt_file, "rb") as prompt):
+            start = out.tell()
+            self.process = subprocess.Popen(argv, cwd=self.vagent.workspace, env=env, stdin=prompt,
+                                            stdout=out, stderr=err, start_new_session=True)
+            buffer = ""
+            last_activity = time.monotonic()
+            activity_signature = None
+            with open(self.directory / "stdout.log", encoding="utf-8", errors="replace") as reader:
+                reader.seek(start)
+                try:
+                    while True:
+                        buffer += reader.read()
+                        while "\n" in buffer:
+                            line, buffer = buffer.split("\n", 1)
+                            self.process_output(line)
+                        if self.process.poll() is not None:
+                            buffer += reader.read()
+                            for line in buffer.splitlines():
+                                self.process_output(line)
+                            break
+                        if self.vagent.is_break() or self._cancel_requested.is_set():
+                            session = getattr(self.vagent, "execution_session", None)
+                            if session is not None and session.yielded() and not self._cancel_requested.is_set():
+                                if not self.yield_ready():
+                                    time.sleep(0.01)
+                                    continue
+                            break
+                        if self.command_idle_timeout:
+                            now = time.monotonic()
+                            signature = [os.fstat(out.fileno()).st_size, os.fstat(err.fileno()).st_size]
+                            busy = False
+                            for tool in getattr(self.vagent, "test_tools", ()):
+                                signature.append(getattr(tool, "call_count", 0))
+                                try:
+                                    busy = busy or any(getattr(tool, probe, lambda: False)()
+                                                       for probe in ("is_busy", "is_hot"))
+                                except Exception:
+                                    busy = True
+                            try:
+                                signature.append(fc.newest_file_mtime(
+                                    getattr(self.vagent, "output_dir", None) or self.vagent.workspace,
+                                    max_age=min(5.0, self.command_idle_timeout / 3)))
+                            except Exception:
+                                signature.append(None)
+                            if busy or signature != activity_signature:
+                                last_activity, activity_signature = now, signature
+                            elif now - last_activity >= self.command_idle_timeout:
+                                raise RuntimeError("CLI idle timeout expired without output, tool or file activity")
+                        self._cancel_requested.wait(0.025)
+                finally:
+                    self._stop_process()
+            session = getattr(self.vagent, "execution_session", None)
+            if self.process.returncode and not self.vagent.is_break() and not (session and session.yielded()):
+                raise RuntimeError(f"CLI exited with status {self.process.returncode}; inspect its session stderr.log")
+
+    def do_work_stream(self, instructions, config):
+        """Streaming uses the same subprocess and cancellation contract."""
+        return self.do_work_values(instructions, config)
+
+    def get_statistics(self):
+        """Report only observable public events, never infer internal model-call counts."""
+        return {"message_in": -1, "message_out": self._stat_msg_count_ai,
+                "tool_calls": sum(getattr(tool, "call_count", 0) for tool in getattr(self.vagent, "test_tools", ())),
+                "usage": dict(self._usage),
+                "model_rounds": None, "trace_coverage": "public_cli_events"}
+
+    def token_total(self):
+        """Sum token counters only when this client exposes them."""
+        return sum(self._usage.get(name, 0) for name in ("input_tokens", "output_tokens")) if self._usage else -1
+
+    def exit(self):
+        """Revoke the endpoint after the child process and in-flight tool calls have drained."""
+        self._stop_process()
+        self.process = None
+        if self._stack is not None:
+            self._stack.close()
+        self.endpoint = None

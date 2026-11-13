@@ -73,7 +73,9 @@ See [Human–Agent Collaboration](02_assit.md) for repair, stage review, and con
 
 After cancellation is requested, an operation may remain `cancelling`. Wait for `cancelled`, `failed`, or `succeeded` before starting conflicting work; a cancellation request does not mean tools and subprocesses have already exited. Cancel work from another HTTP session by its operation ID. Stop a manually launched external MCP client through that client's own controls.
 
-Normal `shutdown` stops accepting new operations, waits for active operations to finish or cancel, saves stage state, synchronizes the workspace, notifies connections, and then closes services and cleans up resources. `SIGTERM` requests shutdown. `SIGINT` requests cancellation of the local foreground operation, or cooperative pause when no local interface is attached.
+Normal `shutdown` stops admission and actively cancels model requests. It waits for running tools to return safely before saving stage state, synchronizing the workspace, notifying connections, closing services and releasing resources. The whole shutdown shares a default five-second grace period; repeated `q` commands do not reset it. If cleanup remains pending, the instance stays `closing` and reports the task, tool or cleanup step. Console remains interactive: `q` refreshes shutdown status and `q force` terminates the process without guaranteeing pending persistence or log delivery. Live writers are never silently abandoned or marked stopped.
+
+The framework LangChain backend uses cancellable async requests for main models, summaries and protocol probes while retaining synchronous tool/Checker completion boundaries. Custom providers with only synchronous implementations may remain pending; request status reports that limitation. `SIGTERM` requests shutdown. `SIGINT` cancels the local foreground operation, or requests a pause when no local interface is attached.
 
 Closing the terminal or sending EOF is different from leaving TUI. After Console EOF, the CLI requests shutdown unless the command HTTP service is ready. Do not use EOF as background supervision; explicitly choose a service launch when no local terminal is needed.
 

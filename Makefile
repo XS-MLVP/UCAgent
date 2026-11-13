@@ -19,10 +19,12 @@ help: ## Show grouped targets, common variables, and examples
 		print "Replace % with the DUT name, e.g. test_Adder." } \
 		/^## / { printf "\n%s\n", substr($$0, 4) } \
 		/^[[:alnum:]_.%-]+:.*## / { printf "  %-24s %s\n", $$1, $$2 } \
-		END { print "\nCommon variables: CWD, SRC, SIM, CFG, ARGS, BBV, MASTER_IP, PATH_PERSISTENT"; \
+		END { print "\nCommon variables: CWD, SRC, SIM, CFG, ARGS, BBV, MAX_SUBAGENTS, MASTER_IP, PATH_PERSISTENT"; \
 		print "Simulators: verilator (default), gsim, vcs, uvs"; \
 		print "\nExamples:"; \
 		print "  make test_Adder SIM=vcs"; \
+		print "  make test_multi_Adder MAX_SUBAGENTS=2"; \
+		print "  make mcp_multi_Adder MAX_SUBAGENTS=2"; \
 		print "  make mcp_Adder ARGS=\"--loop --backend=codex\""; \
 		print "  make as_master_persist PATH_PERSISTENT=/tmp/ucagent_master" }' $(MAKEFILE_LIST)
 

@@ -5,6 +5,7 @@ CWD ?= output/workspace_$*
 GUIDE_DOC_CACHE ?= Guide_Doc
 CFG ?= config.yaml
 BBV ?= false
+MAX_SUBAGENTS ?= 2
 SRC ?= examples
 # Select the picker simulator, for example: make init_Adder SIM=vcs.
 SIM ?= verilator
@@ -64,11 +65,19 @@ init_%: ## Prepare the DUT workspace and export the simulator interface
 test_%: init_% ## Run verification in automatic loop mode
 	$(WORKSPACE_CMD) -l ${ARGS}
 
+test_multi_%: BACKEND ?= langchain
+test_multi_%: init_% ## Run multi-agent verification; MAX_SUBAGENTS caps workers
+	$(WORKSPACE_CMD) -l --agent-mode multi --backend $(BACKEND) --max-subagents $(MAX_SUBAGENTS) --no-embed-tools --log ${ARGS}
+
 test_with_master_%: init_% ## Run verification connected to MASTER_IP
 	$(WORKSPACE_CMD) -l --master ${MASTER_IP} --export-cmd-api  ${ARGS}
 
 mcp_%: init_% ## Start MCP mode without file tools
 	$(WORKSPACE_CMD) --mcp-server-no-file-tools ${ARGS}
+
+mcp_multi_%: BACKEND ?= codex
+mcp_multi_%: init_% ## Run Super planning automatically and expose supervisor MCP tools
+	$(WORKSPACE_CMD) -l --mcp-server --agent-mode multi --backend $(BACKEND) --max-subagents $(MAX_SUBAGENTS) --no-embed-tools --log ${ARGS}
 
 mcp_with_master_%: init_% ## Start MCP mode connected to MASTER_IP
 	$(WORKSPACE_CMD) --mcp-server-no-file-tools --master ${MASTER_IP} --export-cmd-api ${ARGS}

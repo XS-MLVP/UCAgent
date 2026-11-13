@@ -2,6 +2,8 @@
 """Model utilities for UCAgent chat models."""
 
 from typing import Any
+import os
+from concurrent.futures import CancelledError
 from .config import Config
 from langchain_core.rate_limiters import InMemoryRateLimiter
 from ucagent.util.log import echo_g, warning
@@ -115,10 +117,21 @@ def get_chat_model_openai(
                 "timeout": probe_timeout,
             }
         )
+    # LangChain may cache default async transports across model instances. A
+    # backend runs on its own loop and closes its clients when a worker stops,
+    # so its transport must never come from that process-wide cache. Explicit
+    # caller clients are preserved; LangChain's proxy path already creates a
+    # fresh transport per model instead of using the default cache.
+    proxy = kw.get("openai_proxy", os.environ.get("OPENAI_PROXY"))
+    if not proxy and not any(kw.get(key) is not None for key in ("http_async_client", "async_client")):
+        from openai import DefaultAsyncHttpxClient
+        kw["http_async_client"] = DefaultAsyncHttpxClient(
+            timeout=kw.get("timeout", kw.get("request_timeout")),
+        )
     return ChatOpenAI(**kw)
 
 
-def negotiate_openai_api_mode(cfg: Config) -> str:
+def negotiate_openai_api_mode(cfg: Config, *, invoke=None) -> str:
     """Select the OpenAI API protocol before the LangChain agent starts."""
     requested_mode = cfg.openai.get_value("api_mode", "auto")
     if requested_mode not in OPENAI_API_MODES:
@@ -144,7 +157,10 @@ def negotiate_openai_api_mode(cfg: Config) -> str:
         probe=True,
     )
     try:
-        probe_model.invoke("Reply with OK.", max_tokens=8)
+        (invoke(probe_model, "Reply with OK.", phase="probe", max_tokens=8) if invoke
+         else probe_model.invoke("Reply with OK.", max_tokens=8))
+    except CancelledError:
+        raise
     except Exception as probe_error:
         response = getattr(probe_error, "response", None)
         status_code = getattr(probe_error, "status_code", None)
@@ -215,7 +231,10 @@ def negotiate_openai_api_mode(cfg: Config) -> str:
                 probe=True,
             )
             try:
-                chat_probe_model.invoke("Reply with OK.", max_tokens=8)
+                (invoke(chat_probe_model, "Reply with OK.", phase="probe", max_tokens=8) if invoke
+                 else chat_probe_model.invoke("Reply with OK.", max_tokens=8))
+            except CancelledError:
+                raise
             except Exception as chat_probe_error:
                 chat_reason = str(chat_probe_error).strip().splitlines()[0]
                 if len(chat_reason) > 500:

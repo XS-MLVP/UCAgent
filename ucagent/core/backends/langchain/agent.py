@@ -2,10 +2,13 @@
 """LangChain backend integration for UCAgent."""
 
 import threading
+from concurrent.futures import CancelledError
 from ucagent.util.output import output_source, output_context
 
-from ucagent.core.backends.base import AgentBackendBase
-from ucagent.util.log import info, warning, error
+from ucagent.core.backends.base import AgentBackendBase, BackendCapabilities
+from ucagent.core.backends.langchain.cancellation import AsyncModelView, CancellableModelCalls, ModelRequests
+from ucagent.core.backends.langchain.content import content_text, format_message, new_messages
+from ucagent.util.log import info, warning
 from ucagent.core.backends.langchain.middleware import (
     MessageStatistic,
     TokenSpeedCallbackHandler,
@@ -15,13 +18,15 @@ from langchain.agents import create_agent
 from langgraph.checkpoint.memory import MemorySaver
 from ucagent.util.models import get_chat_model, negotiate_openai_api_mode
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, ToolMessage
-from ucagent.util.functions import dump_as_json, get_ai_message_tool_call
+from ucagent.util.functions import get_ai_message_tool_call
 
 
 class UCAgentLangChainBackend(AgentBackendBase):
     """
     LangChain-based agent backend implementation.
     """
+
+    capabilities = BackendCapabilities(managed_sessions=True, model_rounds=True, resume=True)
 
     def __init__(self, vagent, config, **kwargs):
         """Create local message/context state without constructing model clients."""
@@ -41,6 +46,7 @@ class UCAgentLangChainBackend(AgentBackendBase):
         self.agent = None
         self._prepare_lock = threading.Lock()
         self._prepare_error = None
+        self.requests = ModelRequests(vagent)
         if vagent.context_management_strategy == "TrimAndSummaryMiddleware":
             message_manage_node = TrimAndSummaryMiddleware(
                 msg_stat=self.message_statistic,
@@ -62,6 +68,9 @@ class UCAgentLangChainBackend(AgentBackendBase):
     def init(self):
         """Bind the final tool list without preparing models or probing a provider."""
         self.message_manage_node.set_tools(self.vagent.test_tools)
+        from .middleware.execution import ExecutionBudget
+        session = getattr(self.vagent, "execution_session", None)
+        self._session_middleware = [ExecutionBudget(session=session)] if session else []
 
     def prepare(self):
         """Prepare models and graph once at the first explicit model operation."""
@@ -72,7 +81,7 @@ class UCAgentLangChainBackend(AgentBackendBase):
                 raise self._prepare_error
             try:
                 if self.config.get_value("model_type", "openai") == "openai":
-                    self.openai_api_mode = negotiate_openai_api_mode(self.config)
+                    self.openai_api_mode = negotiate_openai_api_mode(self.config, invoke=self.requests.invoke)
                 self.model = get_chat_model(
                     self.config, [self.cb_stream_output, self.cb_runtime_output],
                     openai_api_mode=self.openai_api_mode, streaming=self.vagent.stream_output,
@@ -81,25 +90,40 @@ class UCAgentLangChainBackend(AgentBackendBase):
                     self.config, [self.cb_summary_stream_output, self.cb_runtime_output],
                     openai_api_mode=self.openai_api_mode, streaming=self.vagent.stream_output,
                 )
-                self.message_manage_node.model = self.sumary_model
+                self.message_manage_node.model = AsyncModelView(self.sumary_model, self.requests, "summary")
                 self.agent = create_agent(
                     model=self.model, tools=self.vagent.test_tools,
-                    checkpointer=MemorySaver(), middleware=[self.message_manage_node],
+                    checkpointer=MemorySaver(), middleware=[*getattr(self.vagent, "additional_middleware", []), *self._session_middleware,
+                        CancellableModelCalls(self.requests), self.message_manage_node],
                 )
             except Exception as error:
                 # Configuration remains fixed for this instance; repeated status/work
                 # calls must not keep probing a broken provider configuration.
-                self._prepare_error = error
+                if not isinstance(error, CancelledError):
+                    self._prepare_error = error
                 raise
+
+    def cancel(self):
+        """Interrupt only an active provider request, leaving tools to reach a safe boundary."""
+        self.requests.cancel()
+
+    def exit(self):
+        """Drain backend-owned network resources after model and tool execution has stopped."""
+        self.requests.close()
 
     def reset_chat(self, force=False):
         self.message_manage_node.reset_chat(force)
 
     def on_stage_complete(self, stage):
-        self.reset_chat(force=False)
+        """Preserve conversation history across stage boundaries for now."""
+        # Temporarily disabled: self.reset_chat(force=False).
+        # Explicit reset/summary and context-limit compression remain available.
+        pass
 
-    def get_human_message(self, text):
-        return HumanMessage(content=text)
+    def get_human_message(self, text, *, display_text=None):
+        """Keep the full model prompt and optionally attach a separate display body."""
+        metadata = {"ucagent_display_text": display_text} if display_text is not None else {}
+        return HumanMessage(content=text, response_metadata=metadata)
 
     def get_system_message(self, text):
         msg = SystemMessage(content=text)
@@ -119,114 +143,98 @@ class UCAgentLangChainBackend(AgentBackendBase):
         return self.message_manage_node
 
     def _process_msg_content(self, msg):
-        """Render user-visible text from provider-neutral LangChain content blocks."""
-        if isinstance(msg, str):
-            return msg
-        if isinstance(msg, dict):
-            block_type = msg.get("type")
-            if block_type in {"text", "output_text"}:
-                return self._process_msg_content(msg.get("text", ""))
-            if block_type == "refusal":
-                return self._process_msg_content(msg.get("refusal", ""))
-            if block_type in {"thinking", "summary_text"}:
-                return self._process_msg_content(
-                    msg.get("thinking", msg.get("text", ""))
-                )
-            if block_type == "reasoning":
-                return self._process_msg_content(msg.get("summary", ""))
-            if block_type:
-                return ""
-            if not msg:
-                return ""
-            if len(msg) != 1:
-                return str(msg)
-            return self._process_msg_content(next(iter(msg.values())))
-        if isinstance(msg, list):
-            return "".join(self._process_msg_content(item) for item in msg)
-        return str(msg)
+        """Extract only text from provider content blocks."""
+        return content_text(msg)
+
+    def format_message(self, msg):
+        """Apply tool-owned display policies to live output and history views alike."""
+        body = None
+        if isinstance(msg, ToolMessage):
+            tool = next((tool for tool in getattr(self.vagent, "test_tools", ()) if tool.name == msg.name), None)
+            formatter = getattr(tool, "display_result", None)
+            if formatter is not None:
+                body = formatter(content_text(msg.content))
+        return format_message(msg, body=body)
+
+    def echo_message(self, msg):
+        """Emit one complete text message under its model/tool output attribution."""
+        with output_context(source="tool" if isinstance(msg, ToolMessage) else "model",
+                            kind="result" if isinstance(msg, ToolMessage) else "message"):
+            rendered = self.format_message(msg)
+            if rendered:
+                self.vagent.message_echo(rendered)
 
     @output_source("model")
     def do_work_stream(self, instructions, config):
-        """Prepare on demand and stream one model operation."""
+        """Render each main-model response with a separate header and intact text lines."""
         self.prepare()
-        last_msg_index = None
-        fist_ai_message = True
-        for v, data in self.agent.stream(instructions, config, stream_mode=["values", "messages"]):
-            if self.vagent.is_break():
+        seen = set()
+        streamed_text = ""
+        line_open = False
+        try:
+            for event, data in self.agent.stream(instructions, config, stream_mode=["values", "messages"]):
+                if self.vagent.is_break() and not (getattr(self.vagent, "execution_session", None)
+                    and self.vagent.execution_session.yielded()):
                     break
-            if v == "messages":
-                if fist_ai_message:
-                    fist_ai_message = False
-                    self.vagent.message_echo("\n\n================================== AI Message ==================================")
-                msg = data[0]
-                self.vagent.message_echo(self._process_msg_content(msg.content), end="")
-            else:
-                index = len(data["messages"])
+                if event == "messages":
+                    msg, metadata = data
+                    if not isinstance(msg, AIMessage) or metadata.get("langgraph_node") not in {None, "model"}:
+                        continue
+                    if msg.id is not None and msg.id in seen:
+                        continue
+                    text = self._process_msg_content(msg.content)
+                    if not text:
+                        continue
+                    # This graph has one serial main-model node. Its final values
+                    # event commits the response; provider chunk IDs may change.
+                    if not streamed_text:
+                        self.vagent.message_echo("\n" + " AI Message ".center(80, "=") + "\n")
+                    self.vagent.message_echo(text, end="")
+                    streamed_text += text
+                    line_open = not text.endswith("\n")
+                    continue
                 self._status_messages = tuple(data["messages"])
-                if index == last_msg_index:
-                    continue
-                last_msg_index = index
-                msg = data["messages"][-1]
-                self.state_record_mesg(msg)
-                if isinstance(msg, AIMessage):
-                    tool_call = get_ai_message_tool_call(msg)
-                    if tool_call:
-                        with output_context(source="tool", kind="call"):
-                            self.vagent.message_echo(tool_call)
-                    self.check_tool_call_error(msg)
-                    continue
-                with output_context(source="tool" if isinstance(msg, ToolMessage) else "model",
-                                kind="result" if isinstance(msg, ToolMessage) else "message"):
-                    self.vagent.message_echo("\n"+msg.pretty_repr())
+                for msg in new_messages(data["messages"], seen):
+                    self.state_record_mesg(msg)
+                    if isinstance(msg, AIMessage) and streamed_text:
+                        # A provider may only stream a prefix. Preserve the rest
+                        # of the committed body without printing another heading.
+                        final_text = content_text(msg.content)
+                        if final_text.startswith(streamed_text):
+                            tail = final_text[len(streamed_text):]
+                            if tail:
+                                self.vagent.message_echo(tail, end="")
+                                line_open = not tail.endswith("\n")
+                        if line_open:
+                            self.vagent.message_echo("")
+                            line_open = False
+                        tool_call = get_ai_message_tool_call(msg)
+                        if tool_call:
+                            with output_context(source="tool", kind="call"):
+                                self.vagent.message_echo("\n" + tool_call)
+                        streamed_text = ""
+                    else:
+                        if line_open:
+                            self.vagent.message_echo("")
+                            line_open = False
+                        self.echo_message(msg)
+        finally:
+            if line_open:
+                self.vagent.message_echo("")
 
     @output_source("model")
     def do_work_values(self, instructions, config):
-        """Prepare on demand and execute one model operation."""
+        """Emit complete text messages without serializing provider block dictionaries."""
         self.prepare()
-        last_msg_index = None
+        seen = set()
         for _, step in self.agent.stream(instructions, config, stream_mode=["values"]):
-            if self.vagent.is_break():
+            if self.vagent.is_break() and not (getattr(self.vagent, "execution_session", None)
+                    and self.vagent.execution_session.yielded()):
                 break
-            index = len(step["messages"])
             self._status_messages = tuple(step["messages"])
-            if index == last_msg_index:
-                continue
-            last_msg_index = index
-            msg = step["messages"][-1]
-            self.check_tool_call_error(msg)
-            self.state_record_mesg(msg)
-            with output_context(source="tool" if isinstance(msg, ToolMessage) else "model",
-                                kind="result" if isinstance(msg, ToolMessage) else "message"):
-                self.vagent.message_echo(msg.pretty_repr())
-
-    def check_tool_call_error(self, msg):
-        if not isinstance(msg, AIMessage):
-            return
-        if not hasattr(msg, "invalid_tool_calls"):
-            return
-        if len(msg.invalid_tool_calls) < 1:
-            return
-        for call in msg.invalid_tool_calls:
-            name = call.get("name")
-            tool = next((tool for tool in self.vagent.test_tools if tool.name == name), None)
-            args = call.get("args") or {}
-            status = "success"
-            try:
-                assert tool is not None, f"Tool {name} not found"
-                result = tool._run(*(), **args)
-            except Exception as e:
-               error(f"Error executing tool {call}: {e}")
-               result = str(e)
-               status = "error"
-            if not isinstance(result, str):
-                result = dump_as_json(result)
-            self.vagent._tool__call_error.append(ToolMessage(
-                content=result,
-                tool_call_id=call["id"],
-                name=name,
-                status=status
-            ))
-        warning(f"Tool call error: {msg.invalid_tool_calls}, have re-called them in custom way")
+            for msg in new_messages(step["messages"], seen):
+                self.state_record_mesg(msg)
+                self.echo_message(msg)
 
     def messages_get_raw(self):
         """Read existing history without creating a graph or model client."""
@@ -292,6 +300,7 @@ class UCAgentLangChainBackend(AgentBackendBase):
         return len(recovery_messages)
 
     def get_work_config(self):
+        """Attach the session callback and optional worker correlation to every graph run."""
         work_config = {
             "configurable": {"thread_id": f"{self.vagent.thread_id}"},
             "recursion_limit": self.config.get_value("recursion_limit", 100000),
@@ -299,10 +308,14 @@ class UCAgentLangChainBackend(AgentBackendBase):
         if self.vagent.langfuse_enable:
             work_config["callbacks"] = [self.vagent.langfuse_handler]
             work_config["metadata"] = {
-                # "langfuse_user_id": "user_id",
                 "langfuse_session_id": self.vagent.session_id.hex,
-                # "langfuse_tags": ["some-tag",]
+                **getattr(self.vagent, "langfuse_metadata", {}),
             }
+            if hasattr(self.vagent, "multi_agent"):
+                work_config["metadata"].update(ucagent_agent="super-agent", langfuse_tags=["super-agent"])
+                work_config["run_name"] = "Super-Agent"
+            elif getattr(self.vagent, "langfuse_run_name", None):
+                work_config["run_name"] = self.vagent.langfuse_run_name
         return work_config
 
     def model_name(self):

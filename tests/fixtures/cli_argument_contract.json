@@ -803,5 +803,32 @@
     "choices": null,
     "required": false,
     "hidden": true
+  },
+  "agent_mode": {
+    "options": [
+      "--agent-mode"
+    ],
+    "default": null,
+    "const": null,
+    "nargs": null,
+    "type": null,
+    "choices": [
+      "single",
+      "multi"
+    ],
+    "required": false,
+    "hidden": false
+  },
+  "max_subagents": {
+    "options": [
+      "--max-subagents"
+    ],
+    "default": null,
+    "const": null,
+    "nargs": null,
+    "type": "int",
+    "choices": null,
+    "required": false,
+    "hidden": false
   }
 }

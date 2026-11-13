@@ -17,6 +17,9 @@ from typing import Any, List, Optional, Tuple
 def _collect_mcp_tools(agent: Any, no_file_ops: bool) -> List[Any]:
     """Return configuration-filtered MCP tools, optionally without file operations."""
 
+    if getattr(agent, "multi_agent", None) is not None:
+        file_names = {tool.name for tool in agent.tool_list_file} | {"ReadTextFile"}
+        return [tool for tool in agent.test_tools if not no_file_ops or tool.name not in file_names]
     tools = (
         agent.tool_list_base
         + agent.tool_list_task
@@ -39,8 +42,9 @@ def _collect_mcp_tools(agent: Any, no_file_ops: bool) -> List[Any]:
 class McpServer:
     """Own one ready MCP application and its graceful background-thread shutdown."""
 
-    def __init__(self, tools, *, cfg, host="127.0.0.1", port=5000, no_file_ops=False, logger=None):
+    def __init__(self, tools, *, cfg, host="127.0.0.1", port=5000, no_file_ops=False, logger=None, bearer_token=None):
         """Accept filtered tools and configuration without constructing an agent or debugger."""
+        self.bearer_token = bearer_token
         self.tools = list(tools)
         self.cfg = cfg
         self.logger = logger
@@ -79,6 +83,7 @@ class McpServer:
                 server = create_verify_mcps(
                     tools, host=self.host, port=self.port,
                     logger=self.logger,
+                    **({"bearer_token": self.bearer_token} if self.bearer_token else {}),
                 )
             except Exception as error:
                 return False, f"Failed to create MCP server: {error}"
@@ -139,6 +144,11 @@ class McpServer:
                     )
             self._clear_stopped_state()
             return True, "MCP server stopped"
+
+    @property
+    def responses_idle(self):
+        """Expose completion of in-flight POST responses without coupling core to ASGI."""
+        return self._server._mcp_app.responses_idle
 
     @property
     def is_running(self) -> bool:

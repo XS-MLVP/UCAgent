@@ -461,6 +461,10 @@ def build_argument_parser() -> argparse.ArgumentParser:
         help="Path to the custom Guide_Doc directory or file to append (can be used multiple times). If no path specified, the default Guide_Doc from the package will be used."
     )
 
+    execution.add_argument("--agent-mode", choices=["single", "multi"], default=None,
+                        help="Select single-agent or multi-agent execution (overrides config)")
+    execution.add_argument("--max-subagents", type=int, default=None,
+                        help="Maximum concurrently running sub-agents in multi mode")
     execution.add_argument(
         "--backend",
         type=str,

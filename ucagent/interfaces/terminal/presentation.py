@@ -60,6 +60,14 @@ def format_result(result, *, use_skills=False):
     data = result.data
     if result.command == "logo_and_version":
         return banner
+    if result.command == "quit" and isinstance(data, dict):
+        shutdown = data.get("shutdown", {})
+        pending = shutdown.get("pending", [])
+        if data.get("instance") in {"closed", "failed"}:
+            return f"Shutdown {data['instance']}."
+        return ("Shutting down" + (" (grace period expired)" if shutdown.get("grace_expired") else "")
+                + ": " + ("; ".join(pending) or shutdown.get("phase") or "cleanup")
+                + ". Use q to refresh status; q force skips remaining cleanup.")
     if result.command == "status":
         return format_status(data)
     if result.command == "mission_info":

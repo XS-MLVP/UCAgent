@@ -93,6 +93,9 @@ def configure_services(services):
     from ucagent.interfaces.server.api_mcp import McpServer, _collect_mcp_tools
     from ucagent.interfaces.server.api_terminal import WebTerminalServer
 
+    if getattr(services.agent, "multi_agent", None) is not None:
+        from ucagent.interfaces.server.worker_mcp import worker_endpoint
+        services.agent.multi_agent.endpoint_factory = worker_endpoint
     services.client_factory = MasterClient
     services.master_factory = MasterApiServer
     services.terminal_factory = WebTerminalServer
