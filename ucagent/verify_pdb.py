@@ -839,8 +839,9 @@ class VerifyPDB(Pdb):
             # cmd.Cmd.cmdloop.  Pdb._cmdloop catches the resulting
             # KeyboardInterrupt and restarts cmdloop(), which re-checks
             # cmdqueue at the top of its loop – executing our commands.
-            self._api_wakeup = True
-            os.kill(os.getpid(), signal.SIGINT)
+            if threading.current_thread() is not threading.main_thread():
+                self._api_wakeup = True
+                os.kill(os.getpid(), signal.SIGINT)
 
     @staticmethod
     def _is_exit_command(cmd: str) -> bool:
