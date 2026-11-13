@@ -1,0 +1,50 @@
+# Run: ucagent /tmp/multi-demo DUT --config docs/examples/multi-agent.yaml --no-embed-tools --no-history
+# Super/Sub inherit --backend (default langchain); external CLI adapters use their own login/model settings.
+# External example: add --backend codex; the framework owns both Super and Sub sessions.
+workflow: null
+output: work
+write_dirs: [work]
+un_write_dirs: []
+template: null
+backend: {key_name: langchain}
+skill: {use_skill: false}
+langfuse: {enable: false}
+runtime_options: {multi_agent_enabled: true}
+vmanager:
+  llm_suggestion:
+    check_fail_refinement: {enable: false}
+    check_pass_refinement: {enable: false}
+multi_agent:
+  max_workers: 2
+  default_role: writer
+  delegation_scope: auto
+  roles:
+    writer:
+      description: "实现最小文档阶段"
+      system: "根据 CurrentTips 生成所需文件，记录日志并提交真实结果。"
+      allowed_tools: [ReadTextFile, EditTextFile, PathList]
+  task_contracts:
+    a:
+      rules: [{path: work/a.txt, contains: [evidence]}]
+    b:
+      rules: [{path: work/b.txt, contains: [evidence]}]
+    review:
+      rules: [{path: work/review.txt, contains: [reviewed]}]
+stage:
+  - name: documents
+    desc: "连续执行两个子阶段"
+    task: ["完成子阶段；父节点是纯分组，不需要额外 Complete。"]
+    stage:
+      - name: a
+        desc: "生成 A"
+        task: ["创建 work/a.txt，内容包含 evidence。记录日志，使用 CompleteSubStage。"]
+        output_files: [work/a.txt]
+      - name: b
+        desc: "生成 B"
+        task: ["创建 work/b.txt，内容包含 evidence。记录日志，使用 CompleteSubStage。"]
+        output_files: [work/b.txt]
+  - name: review
+    desc: "生成汇总"
+    task: ["读取 work/a.txt 和 work/b.txt，创建 work/review.txt，包含 reviewed。记录日志并 SubmitTaskResult。"]
+    reference_files: [work/a.txt, work/b.txt]
+    output_files: [work/review.txt]

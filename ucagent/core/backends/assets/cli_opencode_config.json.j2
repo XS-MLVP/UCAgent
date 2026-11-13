@@ -1,0 +1,25 @@
+{
+  "mcp": {
+    {% for name in (inherited or {}).get('mcp', {}) %}
+    {{ name | tojson }}: {"enabled": false},
+    {% endfor %}
+    {{ server_name | tojson }}: {
+      "type": "remote", "url": {{ mcp_url | tojson }}, "enabled": true,
+      "timeout": {{ tool_timeout * 1000 }},
+      "headers": {"Authorization": "Bearer {env:UCAGENT_WORKER_MCP_TOKEN}"}
+    }
+  },
+  "agent": {
+    {{ server_name | tojson }}: {
+      "mode": "primary",
+      "description": "UCAgent session with its own MCP tool permissions",
+      "permission": {
+        {% if managed %}
+        "*": "deny", {{ (server_name ~ '_*') | tojson }}: "allow"
+        {% else %}
+        "bash": "deny", "external_directory": "deny"
+        {% endif %}
+      }
+    }
+  }
+}

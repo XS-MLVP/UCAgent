@@ -12,7 +12,7 @@ class BlankBackend(AgentBackendBase):
     def init(self):
         """Initialize the blank backend without external side effects."""
 
-    def get_human_message(self, text: str):
+    def get_human_message(self, text: str, *, display_text=None):
         """Return plain text for status-only callers that format a human message."""
         return text
 

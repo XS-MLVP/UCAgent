@@ -1,4 +1,5 @@
 #coding=utf-8
+"""LangChain helpers for optional stage-check suggestions."""
 
 import asyncio
 import threading
@@ -15,6 +16,7 @@ from langchain.agents.middleware.types import AgentState
 from langgraph.graph.message import REMOVE_ALL_MESSAGES
 from langgraph.checkpoint.memory import MemorySaver
 from ucagent.util.log import warning
+from ucagent.core.backends.langchain.content import format_message
 
 
 class RemoveAllSummarizationMiddleware(SummarizationMiddleware):
@@ -92,7 +94,7 @@ async def _do_work_values_async(self, instructions, config):
         last_msg_index = index
         ret_msg = step["messages"][-1]
         msg = ret_msg.text
-        self.message_echo(ret_msg.pretty_repr())
+        self.message_echo(format_message(ret_msg))
     return msg
 
 

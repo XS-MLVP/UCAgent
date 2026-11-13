@@ -42,6 +42,15 @@ from ucagent.version import __version__
 
 
 
+def close_agent_resource(agent, label, callback):
+    """Expose the current cleanup owner without importing runtime or interrupting cleanup."""
+    agent._cleanup_activity = label
+    try:
+        callback()
+    finally:
+        agent._cleanup_activity = None
+
+
 def initialize_agent(agent, parameters):
     """Use the same task preparation for CLI and direct construction, cleaning failures."""
     options = SimpleNamespace(**parameters)
@@ -91,6 +100,8 @@ def prepare_task(agent, options):
         plugin_runtime_config_keys=options.plugin_runtime_config_keys, seed=options.seed,
     )
     agent.cfg = prepared.cfg
+    from ucagent.core.multi_agent.contracts import load_settings
+    agent.multi_agent_settings = load_settings(agent.cfg, agent.workspace)
     agent.plugins = list(prepared.plugins)
     agent.workflow_config_file = prepared.workflow_config_file or ''
     agent.plugin_workflow = prepared.plugin_workflow or ''
@@ -158,8 +169,15 @@ def assemble_stage_tools(agent, options, history):
         runtime_hooks=agent.plugin_runtime_hooks,
     )
     agent._default_system_prompt = options.sys_tips if options.sys_tips else agent.get_default_system_prompt()
+    agent._business_system_prompt = agent._default_system_prompt
+    if agent.multi_agent_settings is not None:
+        agent._default_system_prompt = agent.cfg.get_value("multi_agent_prompts.supervisor", "")
     agent.tool_list_base = [agent.tool_read_text, RoleInfo(agent._default_system_prompt)]
     if not options.no_embed_tools:
+        from ucagent.core.backends import get_backend_class
+        if agent.multi_agent_settings is not None and not get_backend_class(agent.cfg).capabilities.model_rounds:
+            raise ValueError("Managed external backends do not implement internal embedding tools; "
+                             "pass --no-embed-tools to select an all-external execution path")
         agent.tool_reference = SemanticSearchInGuidDoc(agent.cfg.embed, workspace=agent.workspace, doc_path='Guide_Doc')
         agent.tool_memory_put = MemoryPut().set_store(agent.cfg.embed)
         agent.tool_memory_get = MemoryGet().set_store(store=agent.tool_memory_put.get_store())
@@ -252,7 +270,6 @@ def initialize_execution(agent, options):
     agent.update_handler = None
     agent._time_start = time.time()
     agent._time_end = None
-    agent._msg_buffer = ''
     agent._system_message = agent._default_system_prompt
     agent.stream_output = options.stream_output
     agent.invoke_round = 0
@@ -285,7 +302,7 @@ def initialize_execution(agent, options):
 def assemble_backend(agent, options):
     """Bind the backend and context tools before initializing the active stage and telemetry."""
     agent.backend = get_backend(agent, agent.cfg)
-    agent._startup_cleanup.callback(agent.backend.exit)
+    agent._startup_cleanup.callback(close_agent_resource, agent, "model connections", agent.backend.close)
     agent.message_manage_node = agent.backend.get_message_manage_node()
     agent.context_tools = []
     if options.enable_context_manage_tools:
@@ -294,21 +311,45 @@ def assemble_backend(agent, options):
         else:
             warning('Context management tools are enabled but no message management node is available.')
     agent.test_tools = fc.get_tools_from_cfg(agent.tool_list_base + agent.tool_list_plugin + agent.tool_list_file + agent.tool_list_task + agent.tool_list_ext + agent.planning_tools + agent.context_tools, agent.cfg.tools.as_dict())
-    agent.backend.init()
-    agent.backend.set_debug(options.debug)
-    agent.set_tool_call_time_out(agent.cfg.get_value('call_time_out', 300))
-    agent.set_tool_block_log_count(agent.cfg.get_value('tool_block_log_count', 100))
-    agent.set_tool_block_log_intervals(agent.cfg.get_value('tool_block_log_min_interval', 10), agent.cfg.get_value('tool_block_log_max_interval', 0))
-    agent.stage_manager.init_stage()
+    # ExitStack must drain workers before shutting down their shared trace exporter.
     agent.session_id = uuid4()
     langfuse_cfg = agent.cfg.get_value('langfuse', {})
-    agent.langfuse_enable = langfuse_cfg.get_value('enable', False) is True
+    trace_models = agent.backend.capabilities.model_rounds
+    if agent.multi_agent_settings is not None:
+        from ucagent.core.backends import get_backend_class
+        from ucagent.core.multi_agent.contracts import role_backend_config
+        trace_models = trace_models or any(
+            get_backend_class(role_backend_config(agent.cfg, role)).capabilities.model_rounds
+            for role in agent.multi_agent_settings.roles.values())
+    agent.langfuse_enable = langfuse_cfg.get_value('enable', False) is True and trace_models
     if agent.langfuse_enable:
         public_key = langfuse_cfg.get_value('public_key', '')
         secret_key = langfuse_cfg.get_value('secret_key', '')
         base_url = langfuse_cfg.get_value('base_url', '')
         agent.langfuse = Langfuse(public_key=public_key, secret_key=secret_key, base_url=base_url)
-        agent._startup_cleanup.callback(agent.langfuse.shutdown)
+        agent._startup_cleanup.callback(close_agent_resource, agent, "Langfuse shutdown", agent.langfuse.shutdown)
         assert agent.langfuse.auth_check(), "Can't connect to langfuse, please check your configuration"
-        agent.langfuse_handler = CallbackHandler()
+        agent.langfuse_handler = CallbackHandler(public_key=public_key)
 
+    if agent.multi_agent_settings is not None:
+        from ucagent.core.multi_agent.service import MultiAgentService
+        from ucagent.core.tools.delegation import supervisor_tools
+        agent.multi_agent_business_tools = list(agent.test_tools)
+        agent.multi_agent_business_names = {tool.name for tool in agent.test_tools}
+        agent.multi_agent = MultiAgentService(agent, agent.multi_agent_settings)
+        agent._startup_cleanup.callback(close_agent_resource, agent, "Sub-Agent shutdown", agent.multi_agent.drain)
+        agent.test_tools = supervisor_tools(agent)
+        from ucagent.core.agent.session import AgentSession
+        AgentSession(agent, directory=Path(agent.workspace) / ".ucagent" / "multi_agent" / agent.session_id.hex / "super",
+                     before_turn=agent.multi_agent.before_backend_turn, before_model=agent.multi_agent.before_model,
+                     yielded=agent.multi_agent.yielded, endpoint_factory=lambda: agent.multi_agent.endpoint_factory)
+    agent.backend.init()
+    agent.backend.set_debug(options.debug)
+    agent.set_tool_call_time_out(agent.cfg.get_value('call_time_out', 300))
+    agent.set_tool_block_log_count(agent.cfg.get_value('tool_block_log_count', 100))
+    agent.set_tool_block_log_intervals(agent.cfg.get_value('tool_block_log_min_interval', 10), agent.cfg.get_value('tool_block_log_max_interval', 0))
+    if getattr(agent, "multi_agent", None) is not None:
+        with agent.multi_agent.driver.ownership():
+            agent.stage_manager.init_stage()
+    else:
+        agent.stage_manager.init_stage()

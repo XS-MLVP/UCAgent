@@ -7,6 +7,7 @@ import os
 import sys
 from typing import Callable, Optional
 from datetime import datetime
+from contextvars import ContextVar
 from ucagent.util.output import output_source
 
 RESET = "\033[0m"
@@ -19,6 +20,8 @@ L_GREEN = "\033[92m"
 L_RED = "\033[91m"
 L_YELLOW = "\033[93m"
 L_BLUE = "\033[94m"
+
+MESSAGE_LOG_DEFERRED = ContextVar("ucagent_message_log_deferred", default=False)
 
 __silent__: bool = False
 __log_logger__: Optional[logging.Logger] = None
@@ -115,6 +118,19 @@ def init_log_logger(name: str = "ucagent-log", level: int = logging.DEBUG,
     __log_logger__.addHandler(fh)
 
 
+class MessageFileHandler(logging.handlers.RotatingFileHandler):
+    """Preserve stream fragment boundaries under the logging handler's own lock."""
+
+    def emit(self, record):
+        """Use the caller's end marker instead of adding a newline to every token."""
+        previous = self.terminator
+        self.terminator = getattr(record, "end", "\n")
+        try:
+            super().emit(record)
+        finally:
+            self.terminator = previous
+
+
 def init_msg_logger(name: str = "ucagent-msg", level: int = logging.INFO,
                 log_file:str="log/ucagent-msg.log"):
     """Initializes the message logger with the given name and level."""
@@ -126,7 +142,7 @@ def init_msg_logger(name: str = "ucagent-msg", level: int = logging.INFO,
     log_path = os.path.dirname(log_file)
     if log_path and not os.path.exists(log_path):
         os.makedirs(log_path)
-    fh = logging.handlers.RotatingFileHandler(
+    fh = MessageFileHandler(
         log_file, maxBytes=10 * 1024 * 1024, backupCount
         =5)
     fh.setLevel(level)
@@ -134,8 +150,8 @@ def init_msg_logger(name: str = "ucagent-msg", level: int = logging.INFO,
 
 
 def msg_msg(msg: str, end: str = "\n"):
-    """Prints a message with a newline at the end."""
-    if is_silent():
+    """Record exact message fragments once, after any frontend forwarding completes."""
+    if is_silent() or MESSAGE_LOG_DEFERRED.get():
         return
     logger = get_msg_logger()
     if logger:

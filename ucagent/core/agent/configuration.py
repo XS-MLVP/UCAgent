@@ -88,6 +88,8 @@ def resolve_task_configuration(workspace, dut_name, output=None, config_file=Non
     cfg.seed = seed if seed is not None else random.randint(1, 999999)
     cfg._temp_cfg = values
     cfg.freeze()
+    from ucagent.core.multi_agent.contracts import load_settings
+    load_settings(cfg, workspace)
     resolve_guide_doc_copy_policy(cfg)
     resolve_plugin_guide_doc_copy_policy(cfg)
     return TaskConfiguration(cfg, workspace, dut_name, output, tuple(loaded), workflow_config_file,

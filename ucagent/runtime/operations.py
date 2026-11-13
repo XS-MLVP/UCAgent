@@ -327,6 +327,9 @@ class OperationExecutor:
                 raise ControlError("busy", "A stage mutation is still active.")
             if model and self._model_id is not None:
                 raise ControlError("busy", "A model operation is still active.", operation_id=self._model_id)
+            service = getattr(self.agent, "multi_agent", None)
+            if model and service is not None and service._workflow_lock.locked():
+                raise ControlError("busy", "The managed Super workflow is still active.")
             origin = COMMAND_ORIGIN.get()
             parent_id = OPERATION_PARENT.get()
             if parent_id not in self._records:
@@ -486,7 +489,7 @@ class OperationExecutor:
             for child in list(self._records.values()):
                 if child.parent_id == operation_id:
                     self.cancel(child.id)
-            if record.state not in TERMINAL_STATES:
+            if record.state not in TERMINAL_STATES and not record.cancel.is_set():
                 record.cancel.set()
                 record.state = "cancelling"
                 if record.model:
@@ -613,6 +616,9 @@ class OperationExecutor:
                 self.agent.custom_chat(message)
             else:
                 self.agent.one_loop(message or None)
+            service = getattr(self.agent, "multi_agent", None)
+            if service is not None and service.workflow_state == "failed":
+                raise OperationFailure("delegation_failed", "Delegated workflow stopped; inspect TaskStatus.", service.status())
             reason = ("completed" if self.agent.is_exit() else "waiting_human" if self.agent._need_human
                       else "paused" if self.agent.is_break() else "round_complete")
             return {"reason": reason,
@@ -641,6 +647,9 @@ class OperationExecutor:
                     revision = self.agent.stage_manager.validation_revision
                     index = self.agent.stage_manager.stage_index
                     self.agent.one_loop()
+                    service = getattr(self.agent, "multi_agent", None)
+                    if service is not None and service.workflow_state == "failed":
+                        raise OperationFailure("delegation_failed", "Delegated workflow stopped; inspect TaskStatus.", service.status())
                     self.agent._update_stalled_rounds(revision, index)
                     context.checkpoint()
                     if self.agent.is_exit():
@@ -650,7 +659,7 @@ class OperationExecutor:
                     if self.agent._need_human:
                         return {"reason": "waiting_human", "invoke_round": self.agent.invoke_round}
                 return {"reason": "completed", "invoke_round": self.agent.invoke_round}
-            except OperationCancelled:
+            except (OperationCancelled, OperationFailure):
                 raise
             except Exception:
                 context.checkpoint()

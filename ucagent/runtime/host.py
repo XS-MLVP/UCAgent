@@ -64,6 +64,9 @@ class RuntimeHost:
         self._message_handler_installed = False
         self._cleanup = [self.output.close, self.restore_messages]
         self._close_requested = False
+        self._shutdown_deadline = None
+        self._shutdown_phase = None
+        self._shutdown_timer = None
         self.registry = create_registry(self.controller, executors={
             "operations": self.operations, "stages": self.operations.stages,
             "services": self.services, "host": self, "session": SessionCommands()})
@@ -73,6 +76,8 @@ class RuntimeHost:
         agent.runtime_status_provider = self.snapshot
         self.controller.host = self
         self.operations.on_change = self._wake.set
+        if getattr(agent, "multi_agent", None) is not None:
+            agent.multi_agent.on_change = self._wake.set
         agent.stage_manager.completion_callback = self.complete_mission
         startup_cleanup = getattr(agent, "_startup_cleanup", None)
         self._owns_prepared_resources = isinstance(startup_cleanup, ExitStack)
@@ -182,7 +187,12 @@ class RuntimeHost:
             return public_data({"instance": self.instance_state, "execution": self.execution_state,
                                 "task_outcome": self.task_outcome, "close_reason": self.close_reason,
                                 "exit_code": self.exit_code, "errors": self.errors,
-                                "controls": sorted(self._controls)})
+                                "controls": sorted(self._controls),
+                                "shutdown": {"phase": self._shutdown_phase,
+                                    "grace_seconds": self.shutdown_timeout,
+                                    "grace_expired": self._shutdown_deadline is not None
+                                        and time.monotonic() >= self._shutdown_deadline
+                                        and not self._closed.is_set()}})
 
     def pause(self):
         """Prevent future rounds; the current call keeps its model reservation."""
@@ -202,20 +212,61 @@ class RuntimeHost:
             self.request_shutdown("mission_completed")
         self._wake.set()
 
+    def shutdown_status(self):
+        """Report live wait owners without acquiring their execution locks."""
+        state = self.snapshot()
+        pending = []
+        if state["instance"] == "closing":
+            for row in self.operations.list():
+                if row["state"] not in TERMINAL_STATES:
+                    pending.append(f"operation:{row['id']}:{row['command']} ({row['state']})")
+            service = getattr(self.agent, "multi_agent", None)
+            if service is not None:
+                for row in service.status()["tasks"]:
+                    if row["state"] in {"running", "cancelling", "submitted"}:
+                        pending.append(f"worker:{row['task_id']} ({row.get('activity') or row['state']})")
+            requests = getattr(getattr(self.agent, "backend", None), "requests", None)
+            request = requests.status() if requests is not None else None
+            if request:
+                pending.append(f"super/main:{request}")
+            if not pending:
+                pending.append(getattr(self.agent, "_cleanup_activity", None) or state["shutdown"]["phase"] or "cleanup")
+        return {**state["shutdown"], "pending": pending}
+
+    def _shutdown_expired(self):
+        """Keep the operator informed even when a synchronous cleanup callback blocks."""
+        if self._closed.is_set():
+            return
+        status = self.shutdown_status()
+        self.output.emit("Shutdown grace period expired; waiting for: " + "; ".join(status["pending"])
+                         + ". Continue waiting or enter q force to terminate without further cleanup.\n")
+
     def request_shutdown(self, reason="quit", *, exit_code=0):
-        """Record one close request and return immediately to the initiating tool or HTTP call."""
+        """Stop admission once and start one grace deadline without blocking the caller."""
         with self._lock:
-            if not self._close_requested:
+            first = not self._close_requested
+            if first:
                 self._close_requested = True
                 self.close_reason = reason
                 self.exit_code = exit_code
                 self.instance_state = "closing"
-        self.operations.stop_accepting()
-        self.services.stop_accepting()
+                self._shutdown_deadline = time.monotonic() + self.shutdown_timeout
+                self._shutdown_phase = "cancelling tasks"
+                self._shutdown_timer = threading.Timer(self.shutdown_timeout, self._shutdown_expired)
+                self._shutdown_timer.daemon = True
+        if first:
+            self.operations.stop_accepting()
+            self.services.stop_accepting()
+            self.output.emit(f"Shutting down: cancelling tasks; grace period {self.shutdown_timeout:g}s. "
+                             "Console remains available for q / q force.\n")
+            self._shutdown_timer.start()
         self._wake.set()
-        # A failed start may never have created the supervisor thread.
+        # Failed startup still closes in the background so force-exit remains usable.
         if self._thread is None or not self._thread.is_alive():
-            self._shutdown()
+            with self._lock:
+                if not self._closed.is_set() and (self._thread is None or not self._thread.is_alive()):
+                    self._thread = threading.Thread(target=self._supervise, name="ucagent-runtime", daemon=True)
+                    self._thread.start()
         return self.snapshot()
 
     def execute(self, command, arguments, session):
@@ -226,7 +277,8 @@ class RuntimeHost:
                     raise ControlError("unavailable", "This runtime does not own process termination.")
                 self.request_shutdown("forced_exit", exit_code=130)
                 self.force_exit(130)
-            return self.request_shutdown()
+            result = self.request_shutdown()
+            return {**result, "shutdown": self.shutdown_status()}
         raise ControlError("unknown_command", f"Unknown host command '{command}'.")
 
     def _supervise(self):
@@ -250,8 +302,21 @@ class RuntimeHost:
                                                 {"round_complete": "idle", "completed": "completed"}.get(reason, reason or "idle"))
                         if self.execution_state == "failed":
                             self.task_outcome = "failed"
+            service = getattr(self.agent, "multi_agent", None)
+            if service is not None and not any(row["model"] and row["state"] not in TERMINAL_STATES for row in records):
+                with self._lock:
+                    if self.task_outcome != "completed":
+                        if service.has_active():
+                            self.execution_state = "pausing" if self.agent.is_break() else "running"
+                        elif service.workflow_state in {"failed", "waiting_human", "paused"}:
+                            self.execution_state = service.workflow_state
+                            if service.workflow_state == "failed":
+                                self.task_outcome = "failed"
+                        elif service.workflow_state == "waiting_plan":
+                            self.execution_state = "idle"
             if (self.mode == "once" and self._seen_operations and not self.startup.active
                     and self.execution_state in {"idle", "failed"}
+                    and not (getattr(self.agent, "multi_agent", None) and self.agent.multi_agent.has_active())
                     and not any(row["model"] and row["state"] not in TERMINAL_STATES for row in records)):
                 self.request_shutdown("operation_finished", exit_code=int(self.execution_state == "failed"))
             if any(row["model"] and row["state"] not in TERMINAL_STATES for row in records):
@@ -266,9 +331,25 @@ class RuntimeHost:
 
     def _shutdown(self):
         """Drain operations before persistence, sync, services and restoration; retain pending owners."""
-        pending = self.operations.close(self.shutdown_timeout, cancel=self.close_reason != "mission_completed")
+        # Initiate cancellation across all owners before waiting on any one of them.
+        if "cancel" not in self._steps:
+            self._steps.add("cancel")
+            if self.close_reason != "mission_completed":
+                self.agent.set_break(True)
+            service = getattr(self.agent, "multi_agent", None)
+            if service is not None:
+                service.close(0)
+        remaining = max(0, self._shutdown_deadline - time.monotonic())
+        pending = self.operations.close(remaining, cancel=self.close_reason != "mission_completed")
         if not pending["closed"]:
-            return  # Operation completion wakes the supervisor for another cleanup attempt.
+            self._wake.wait(0.1)
+            self._wake.set()
+            return
+        service = getattr(self.agent, "multi_agent", None)
+        if service is not None and not service.close(max(0, self._shutdown_deadline - time.monotonic()))["closed"]:
+            self._wake.wait(0.1)
+            self._wake.set()
+            return
         steps = [("save", self.agent.stage_manager.save_stage_info),
                  ("sync", lambda: self.services.sync_workspace_back(reason="exit")),
                  ("notify", lambda: self.services.notify_exit(self.close_reason))]
@@ -276,6 +357,8 @@ class RuntimeHost:
             if name in self._steps:
                 continue
             self._steps.add(name)
+            self._shutdown_phase = name
+            self.output.emit(f"Shutting down: {name}.\n")
             try:
                 result = action()
                 if isinstance(result, list):
@@ -284,7 +367,8 @@ class RuntimeHost:
             except Exception as error:
                 self.errors.append({"step": name, "message": str(error)})
         try:
-            stopped = self.services.close(self.shutdown_timeout)
+            self._shutdown_phase = "closing services"
+            stopped = self.services.close(max(0, self._shutdown_deadline - time.monotonic()))
         except Exception as error:
             self.errors.append({"step": "services", "message": str(error)})
             stopped = {"closed": False}
@@ -298,6 +382,7 @@ class RuntimeHost:
             permission_cleanup = [] if self._owns_prepared_resources else [
                 lambda: chmode_rw(getattr(self.agent, "cwd_read_only_files", []))]
             for action in [*permission_cleanup, *reversed(self._cleanup)]:
+                self._shutdown_phase = "cleanup:" + getattr(action, "__qualname__", type(action).__name__)
                 try:
                     action()
                 except Exception as error:
@@ -306,6 +391,10 @@ class RuntimeHost:
             if self.errors:
                 self.exit_code = self.exit_code or 1
             self.instance_state = "failed" if self.errors else "closed"
+        self._shutdown_phase = "done"
+        if self._shutdown_timer is not None:
+            self._shutdown_timer.cancel()
+        self.output.emit("Shutdown complete.\n")
         self._closed.set()
 
     def wait(self, timeout=None):

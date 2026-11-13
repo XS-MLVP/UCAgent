@@ -54,6 +54,8 @@ ucagent <workspace> <dut_name> [options]
 | --sys-tips | | str | Empty | Override system prompt |
 | --loop | -l | flag | Off | Submit the automatic loop during initialization (supports --loop-msg) |
 | --loop-msg | | str | Empty | The first message injected when entering the loop |
+| --agent-mode | | single / multi | Unset | Select single or multi-agent mode, overriding configuration. See [Multi-agent](11_multi_agent.md). |
+| --max-subagents | | int | Unset | Positive run-wide limit for concurrently running workers in multi mode |
 | --backend | | str | None | Specify backend (overrides configuration file settings) |
 | --icmd | | str (repeatable) | [] | Initial commands to execute at startup, can be used multiple times |
 | --exit-on-completion | -eoc | flag | Off | Automatically exit the agent after task completion (after successful Exit tool call) |
