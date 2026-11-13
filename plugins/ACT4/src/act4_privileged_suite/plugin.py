@@ -1,8 +1,8 @@
-"""UCAgent plugin provider for ACT4 asset generation and extension review."""
+"""UCAgent plugin provider for ACT4 generation, extension review, and target handoff."""
 
 from pathlib import Path
 
-from ucagent.plugins import CommandRequirement, Plugin, PluginWorkflow
+from ucagent.plugins import Plugin, PluginWorkflow
 
 from . import __version__
 from .checkers.act4_ai_review_checker import ACT4AIReviewChecker
@@ -14,7 +14,10 @@ from .checkers.act4_manual_reference_checker import ACT4ManualReferenceChecker
 from .checkers.act4_switch_capability_checker import ACT4SwitchCapabilityChecker
 from .checkers.act4_test_asset_checker import ACT4TestAssetChecker
 from .checkers.act4_review_checker import ACT4ReviewChecker
-from .workspace import validate_input_paths
+from .checkers.act4_xiangshan_checker import ACT4XiangShanChecker
+from .checkers.act4_environment_checker import ACT4EnvironmentChecker
+from .workspace import validate_input_paths, validate_review_paths, validate_xiangshan_paths
+from .review_tools import create_review_tools
 
 
 def get_plugin() -> Plugin:
@@ -25,9 +28,10 @@ def get_plugin() -> Plugin:
         name="act4-privileged-suite",
         version=__version__,
         description=(
-            "Evidence-driven generation, review, and validation of RISC-V ACT4 test assets."
+            "Evidence-driven generation, review, validation, and XiangShan handoff of RISC-V ACT4 test assets."
         ),
         root=root,
+        tool_factories=(create_review_tools,),
         checkers=(
             ACT4AIReviewChecker,
             ACT4AssetChecker,
@@ -38,6 +42,8 @@ def get_plugin() -> Plugin:
             ACT4SwitchCapabilityChecker,
             ACT4TestAssetChecker,
             ACT4ReviewChecker,
+            ACT4XiangShanChecker,
+            ACT4EnvironmentChecker,
         ),
         workflows=(
             PluginWorkflow(
@@ -45,21 +51,18 @@ def get_plugin() -> Plugin:
                 config_file=root / "workflows" / "privileged-suite-generation.yaml",
                 guide_doc_paths=(root / "Guide_Doc",),
                 template_context_factory=validate_input_paths,
-                command_requirements=(
-                    CommandRequirement(name="Bash", alternatives=("bash",), version_args=("--version",)),
-                    CommandRequirement(name="Git", alternatives=("git",), version_args=("--version",)),
-                    CommandRequirement(name="Curl", alternatives=("curl",), version_args=("--version",)),
-                    CommandRequirement(name="GNU Make", alternatives=("make",), version_args=("--version",)),
-                ),
             ),
             PluginWorkflow(
                 name="extension-review",
                 config_file=root / "workflows" / "extension-review.yaml",
                 guide_doc_paths=(root / "Guide_Doc",),
-                template_context_factory=validate_input_paths,
-                command_requirements=(
-                    CommandRequirement(name="Git", alternatives=("git",), version_args=("--version",)),
-                ),
+                template_context_factory=validate_review_paths,
+            ),
+            PluginWorkflow(
+                name="xiangshan-v3-handoff",
+                config_file=root / "workflows" / "xiangshan-v3-handoff.yaml",
+                guide_doc_paths=(root / "Guide_Doc",),
+                template_context_factory=validate_xiangshan_paths,
             ),
         ),
         requires_ucagent=">=26.9.2.dev25",

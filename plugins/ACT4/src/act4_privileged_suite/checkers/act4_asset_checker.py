@@ -37,6 +37,7 @@ class ACT4AssetChecker(Checker):
         sheet_csv: str | None = None,
         normative_metadata: str | None = None,
         coverage_files: Any = None,
+        coverage_context_files: Any = None,
         coverage_patterns: Any = None,
         discover_coverage: bool = True,
         generator_files: Any = None,
@@ -86,6 +87,7 @@ class ACT4AssetChecker(Checker):
         self.sheet_csv = sheet_csv
         self.normative_metadata = normative_metadata
         self.coverage_files = coverage_files or []
+        self.coverage_context_files = coverage_context_files or []
         self.coverage_patterns = coverage_patterns or []
         if type(discover_coverage) is not bool:
             raise TypeError("discover_coverage must be a boolean")
@@ -189,6 +191,7 @@ class ACT4AssetChecker(Checker):
                     self.normative_metadata, root
                 ),
                 coverage_files=self._resolve_config_path(self.coverage_files, root),
+                coverage_context_files=self._resolve_config_path(self.coverage_context_files, root),
                 coverage_patterns=self.coverage_patterns,
                 discover_coverage=self.discover_coverage,
                 generator_files=self._resolve_config_path(self.generator_files, root),

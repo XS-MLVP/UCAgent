@@ -10,6 +10,7 @@ import os
 import re
 import stat
 import subprocess
+from ..environment import prepared_environment
 from pathlib import Path
 from typing import Any
 
@@ -739,6 +740,7 @@ class ACT4FileManifestChecker(Checker):
                     capture_output=True,
                     text=True,
                     timeout=30,
+                    env=prepared_environment(self._resolve(self.manifest_file).parent.parent / "environment", self.smanager_get_value if self.stage_manager else None),
                 ).stdout.strip()
             except (OSError, subprocess.SubprocessError) as exc:
                 self._add(findings, "manifest_git_check", f"unable to verify ACT4 Git HEAD: {exc}")

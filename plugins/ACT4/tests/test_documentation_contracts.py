@@ -64,6 +64,7 @@ def test_final_report_guide_complete_example(tmp_path: Path) -> None:
     """Validate the entire published report using the actual final-stage gate."""
     text = (GUIDES / "ACT4_Checker_Guide/ACT4FinalReportChecker.md").read_text(encoding="utf-8")
     report_text = re.search(r"````markdown\n(.*?)````", text, re.DOTALL).group(1)
+    report_text += "\n[Environment preparation](../environment/summary.md)\n"
     report_path = tmp_path / "act4_assets/H/reports/H_final_summary_report.md"
     report_path.parent.mkdir(parents=True)
     for target in re.findall(r"\[[^\]]+\]\(([^)]+)\)", report_text):
@@ -71,6 +72,9 @@ def test_final_report_guide_complete_example(tmp_path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("{}\n", encoding="utf-8")
     state = report_path.parent / "H_validation_state.yaml"
+    environment_summary = tmp_path / "act4_assets/H/environment/summary.md"
+    environment_summary.parent.mkdir(parents=True, exist_ok=True)
+    environment_summary.write_text("\n# Environment preparation\n\nFixture tools prepared.\n", encoding="utf-8")
     state.write_text(
         yaml.safe_dump({"contribution_ready": True, "generation_scope": {"status": "partial"}}),
         encoding="utf-8",

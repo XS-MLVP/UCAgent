@@ -21,6 +21,9 @@ mission:
       你会通过CurrentTips工具获取当前任务的最新提示信息。
       你会通过Check工具判断当前阶段的完成情况，通过Complete工具完成当前阶段进入下一个阶段，直到所有任务都完成。
       配套工作流指南、验收说明和阶段填写模板已复制到 Guide_Doc；先阅读当前阶段 reference_files 中的规范，规范与接口结论仍以本轮冻结的 ACT4 和 ISA manual 为准。
+      首先完成 prepare_environment。后续每次 shell 命令先 source {OUT}/{DUT}/environment/activate.sh；
+      工具版本以当前 ACT4 的依赖清单、CI 安装规则为准，不重复下载安装已通过复验的工具。
+      最终报告引用 environment/summary.md，区分环境准备结果、原生验证结果和未验证限制。
 
       所有阶段复用当前 stage journal 维护工作计划和执行记录：阅读本阶段所需资料后、开始相应实现前制定具体计划，按计划执行并在工作项完成或方案变化时更新。资料尚待发现时先计划资料获取，再根据实际内容细化后续工作；不要求预先读完后续所有阶段的资料。计划不增加独立文件、审批、checker 或审查 schema 字段，具体记录方式见各阶段共用提示。
 
@@ -213,6 +216,19 @@ tools:
 # 对于确实使用虚拟地址转换的测试，工作流可根据规范、coverage、ACT4 宏、链接脚本和目标配置生成 VM 资源契约；不得在通用测试中猜测或硬编码 DUT 的物理地址。
 
 stage:
+  - name: prepare_environment
+    desc: 探测、安装并复验可复用工具
+    task:
+      - 阅读 Guide_Doc/ACT4_Environment_Guide.md，调用 Check(stage_args={"action":"probe"})。
+      - 只读当前 riscv-arch-test 的 README、依赖清单和 CI 安装规则，创建 {OUT}/{DUT}/environment/plan.yaml；覆盖基础命令、uv、交叉编译器、参考模型和 lint。缺失公开工具填写 install，按当前提交选择匹配版本。
+      - 优先复用兼容系统工具；新工具安装到持久化用户目录，冲突版本或试验环境用 temporary。不得覆盖系统 Python、修改系统默认编译器或安装商业仿真器。
+      - 调用 Check(stage_args={"action":"prepare","timeout":3600})；检查实际日志，修正可解决的安装错误。失败依赖保留具体限制和恢复动作，不声称验证通过。
+      - 普通 Check 通过后 Complete，不带 action。后续 shell 命令先 source {OUT}/{DUT}/environment/activate.sh；Python 项目依赖在工作副本按锁文件同步，复用下载缓存。
+    reference_files: ["Guide_Doc/ACT4_Environment_Guide.md"]
+    checker:
+      - name: act4_environment
+        clss: ACT4EnvironmentChecker
+        args: {environment_dir: "{OUT}/{DUT}/environment"}
   - name: coverpoints file generation and testplan optimization
     desc: "生成覆盖点文件，并优化测试计划"
     task:
@@ -830,8 +846,9 @@ stage:
   - name: generate_final_human_report
     desc: "生成供检查人员阅读的最终入口报告"
     task:
+      - 在报告中引用 {OUT}/{DUT}/environment/summary.md，区分工具可用性、原生测试验证及未执行的 DUT/CI 验证。
       - "目标：在所有生成、构建、coverage 复评和贡献检查完成后，生成唯一的人类审查入口 `{OUT}/{DUT}/reports/{DUT}_final_summary_report.md`。报告必须引用并解释权威状态、provenance、contract、manifest 和 machine-readable checker 结果；不要求重复索引同一 checker 的 Markdown 副本、临时辅助脚本或其他中间文件。"
-      - "第1步：在 Report index 中索引 validation state、AI review、file manifest、switch audit、CTP/manual provenance、VM resource contract、experimental assets manifest，以及 `reports/act4_*_check/*.json` 的 machine-readable checker 结果。每项使用可点击的相对 Markdown 链接，写明用途、生成阶段和当前权威性。其他辅助材料可按审查价值选择性链接，不得为满足数量要求重复列出等价输出。"
+      - "第1步：在 Report index 中索引 environment summary、validation state、AI review、file manifest、switch audit、CTP/manual provenance、VM resource contract、experimental assets manifest，以及 `reports/act4_*_check/*.json` 的 machine-readable checker 结果。每项使用可点击的相对 Markdown 链接，写明用途、生成阶段和当前权威性。其他辅助材料可按审查价值选择性链接，不得为满足数量要求重复列出等价输出。"
       - "第2步：从 validation state 提取 contribution_ready、self-checking、generation_scope 和 Sail/RVVI 状态作为最终权威结论。明确区分源码/构建/Spike self-checking、Sail trace/RVVI 管线可用性，以及 UCDB/VDB coverage database 是否实际生成；不得把 trace 生成或 Spike 通过表述为 UCDB/VDB coverage 通过。"
       - "第3步：读取 AllStageJournal，并对照当前阶段 journal，在既有 Workflow summary 中按阶段简述计划目标、实际完成结果、主要偏差及遗留限制；引用工作项 ID 和已有证据路径，不复制所有日志或另建计划台账。增加 Evidence chronology，按阶段解释证据的时间关系，保留重要方案调整的原因和处置；仅汇总已实际执行的内容，不预写本阶段 Complete 通过。旧报告与最终状态冲突时标记 historical 或 superseded，并指向取代它的报告；不得静默选择有利结论。任务完成后出现的 stage index out of range 只可在确有日志证据时说明为生命周期提示，不得当作 checker 通过证据。"
       - "第4步：使用以下稳定标题：Executive conclusion、Final validation state、Workflow summary、Report index、Coverage scope、Evidence chronology、Limitations and non-claims、Human inspector checklist、Reproduction。正文可使用 {DOC_GEN_LANG}，但这些标题必须保留以便 checker 定位。Final validation state 小节必须包含一个 fenced YAML block，至少精确记录 `source_contribution_ready: <bool>` 和 `generation_scope_status: complete|partial`，值必须来自 validation state；结构性阻塞以 contribution_ready=false、partial scope、blocking issue 和 limitation 表达。该结构化块用于 checker 比对，不能只在叙述中出现关键词。"
@@ -874,6 +891,7 @@ stage:
           report_file: "{OUT}/{DUT}/reports/{DUT}_final_summary_report.md"
           validation_state: "{OUT}/{DUT}/reports/{DUT}_validation_state.yaml"
           required_reports:
+            - "{OUT}/{DUT}/environment/summary.md"
             - "{OUT}/{DUT}/reports/{DUT}_ai_review.yaml"
             - "{OUT}/{DUT}/reports/{DUT}_validation_state.yaml"
             - "{OUT}/{DUT}/reports/{DUT}_file_manifest.yaml"

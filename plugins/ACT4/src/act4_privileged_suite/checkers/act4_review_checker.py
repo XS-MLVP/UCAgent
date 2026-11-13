@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import difflib
+import copy
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -20,7 +21,9 @@ from typing import Any
 
 import yaml
 
-from ucagent.checkers.base import Checker
+from ucagent.checkers.base import Checker, UnityChipBatchTask
+from ucagent.util.log import warning
+from ..environment import prepared_environment
 
 from .act4_asset_checker import ACT4AssetChecker
 from .act4_asset_consistency import scan_systemverilog
@@ -72,6 +75,8 @@ def evidence_fingerprint(tree: Path, scope: dict[str, Any]) -> str:
     return digest({"tree": tree_state(tree), "assets": scope["assets"],
                    "targets": scope["targets"], "jobs": scope["jobs"],
                    "shared_assets": scope["shared_assets"],
+                   "context_files": scope["context_files"],
+                   "reference_scope": scope["reference_scope"],
                    "reference_files": scope["reference_files"]})
 
 
@@ -86,6 +91,36 @@ def safe_path(root: Path, value: str) -> Path:
     if path.resolve() == root.resolve() or not path.resolve().is_relative_to(root.resolve()):
         raise ValueError(f"Path escapes its artifact directory: {value}")
     return path
+
+
+def validate_references(workspace: Path, output: Path, files: Any, selections: Any) -> dict[str, list[str]]:
+    """Validate source-only reference selections and return their physical text lines."""
+    if not is_text_list(files, allow_empty=True) or len(set(files)) != len(files):
+        raise ValueError("reference_files must list unique workspace-relative inputs; use [] and report missing sources")
+    if not isinstance(selections, dict) or set(selections) != set(files):
+        raise ValueError("reference_scope must select reviewed_lines and excluded_reason for every reference_files path")
+    contents = {}
+    for name in files:
+        path = safe_path(workspace, name)
+        if path.resolve().is_relative_to(output.resolve()) or not path.is_file() or path.is_symlink():
+            raise ValueError(f"Reference inputs must be existing files outside the review output: {name}")
+        physical = path.read_text(encoding="utf-8").splitlines()
+        selection = selections[name]
+        if not isinstance(selection, dict) or set(selection) != {"reviewed_lines", "excluded_reason"}:
+            raise ValueError(f"reference_scope.{name} requires reviewed_lines and excluded_reason")
+        ranges = selection["reviewed_lines"]
+        if not isinstance(ranges, list) or not ranges:
+            raise ValueError(f"reference_scope.{name}.reviewed_lines must select relevant nonempty line ranges")
+        previous, selected = 0, 0
+        for bounds in ranges:
+            if not isinstance(bounds, list) or len(bounds) != 2 or any(type(number) is not int for number in bounds) or not previous < bounds[0] <= bounds[1] <= len(physical):
+                raise ValueError(f"reference_scope.{name}: ranges must be ordered, nonoverlapping existing physical lines")
+            previous = bounds[1]
+            selected += bounds[1] - bounds[0] + 1
+        if not isinstance(selection["excluded_reason"], str) or (selected < len(physical) and not is_text(selection["excluded_reason"])):
+            raise ValueError(f"reference_scope.{name}: explain why the unselected sections are outside this review")
+        contents[name] = physical
+    return contents
 
 
 def tree_state(root: Path, paths: list[str] | None = None) -> dict[str, Any]:
@@ -142,11 +177,16 @@ def artifact_paths(root: Path, artifact: dict[str, Any]) -> list[Path]:
 
 
 def execute_command(argv: list[str], cwd: Path, env: dict[str, str], log: Path,
-                    timeout: int, append: bool = False) -> dict[str, Any]:
+                    timeout: int, append: bool = False, deadline: float | None = None) -> dict[str, Any]:
     """Run a real command with a bounded lifetime and preserve startup and timeout failures."""
     started = time.monotonic()
     result: dict[str, Any] = {"argv": argv, "started_at": datetime.now(timezone.utc).isoformat()}
     with log.open("ab" if append else "wb") as stream:
+        if deadline is not None:
+            timeout = min(timeout, max(0, deadline - time.monotonic()))
+            if timeout <= 0:
+                stream.write(b"Experiment time budget exhausted before command startup\n")
+                return {**result, "status": "budget_exhausted", "reason": "Experiment time budget exhausted", "duration_seconds": 0}
         try:
             process = subprocess.Popen(argv, cwd=cwd, env=env, stdout=stream,
                                        stderr=subprocess.STDOUT, start_new_session=True)
@@ -177,20 +217,139 @@ def record_validation_failure(record: dict[str, Any], message: str) -> None:
         errors.append(message)
 
 
+def resolve_validation_plan(tree: Path, scope: dict[str, Any]) -> dict[str, Any]:
+    """Compare scoped jobs with frozen native target policy without claiming a full CI matrix."""
+    plan: dict[str, Any] = {"targets": {}, "jobs": {}, "errors": [], "full_matrix": False,
+                           "limitation": "Target policy and command alignment do not prove dynamic matrix selection or cross-suite coverage."}
+    for target in scope["targets"]:
+        safe_path(tree, target)
+        matches = sorted(path for path in (tree / "config").glob("*/*/test_config.yaml") if path.parent.name == target)
+        target_plan: dict[str, Any] = {"status": "unverified", "sources": {}, "reason": "No unique native target config was found"}
+        plan["targets"][target] = target_plan
+        if len(matches) != 1:
+            continue
+        config = matches[0]
+        policy_path = safe_path(tree, str(config.parent.parent.relative_to(tree) / "ci.yaml"))
+        runner_path = safe_path(tree, str(config.parent.relative_to(tree) / "run_cmd.txt"))
+        if not policy_path.is_file() or not runner_path.is_file():
+            target_plan["reason"] = "Target lacks ci.yaml or run_cmd.txt; execution is not established as native CI"
+            continue
+        policy = yaml.safe_load(policy_path.read_text(encoding="utf-8"))
+        if not isinstance(policy, dict) or type(policy.get("ci_enabled", True)) is not bool or any(
+            not is_text_list(policy.get(field, []), allow_empty=True) for field in ("exclude_configs", "exclude_extensions")
+        ):
+            raise ValueError(f"Unsupported native CI policy: {policy_path.relative_to(tree)}; inspect its current schema before running")
+        command = runner_path.read_text(encoding="utf-8").strip()
+        if not command:
+            raise ValueError(f"Empty native run command: {runner_path.relative_to(tree)}")
+        for source in (config, policy_path, runner_path, tree / ".github/scripts/ci_config.py"):
+            if source.is_file():
+                name = str(source.relative_to(tree))
+                target_plan["sources"][name] = hashlib.sha256(safe_path(tree, name).read_bytes()).hexdigest()
+        enabled = policy.get("ci_enabled", True) and target not in policy.get("exclude_configs", [])
+        target_plan.update(status="enabled" if enabled else "excluded", config=str(config.relative_to(tree)),
+                           run_command=command, exclude_extensions=policy.get("exclude_extensions", []),
+                           reason="Native target policy permits selection" if enabled else "Native CI disables this simulator or excludes this target")
+    for job in scope["jobs"]:
+        target_plan = plan["targets"][job["target"]]
+        alignment = {"kind": "unverified", "reason": target_plan["reason"], "issues": []}
+        plan["jobs"][job["id"]] = alignment
+        argv = job.get("argv", [])
+        if job["purpose"] == "environment":
+            alignment.update(kind="environment", reason="Tool probe; not a CI correctness result")
+        elif job["purpose"] == "lint":
+            source_text = safe_path(tree, job["source"]).read_text(encoding="utf-8")
+            command = shlex.join(argv)
+            if argv and job["source"].startswith(".github/workflows/") and command in source_text:
+                alignment.update(kind="native_subset", reason="Lint command occurs in the declared native workflow")
+            else:
+                alignment.update(kind="local_only", reason="Local lint is not evidence of the complete upstream lint workflow")
+        elif target_plan["status"] != "unverified":
+            extensions = {name for arg in argv if arg.startswith("EXTENSIONS=") for name in arg.split("=", 1)[1].split(",")}
+            extensions = extensions or {scope["suite"]}
+            if target_plan["status"] == "excluded":
+                alignment["issues"].append("Target is excluded from native CI")
+            if extensions & set(target_plan["exclude_extensions"]):
+                alignment["issues"].append("Selected extensions include native CI exclusions")
+            configs = [arg.split("=", 1)[1] for arg in argv if arg.startswith("CONFIG_FILES=")]
+            if configs and configs != [target_plan["config"]]:
+                alignment["issues"].append("Build configuration differs from the selected target")
+            if job["purpose"] == "reference_model" and job["disposition"] == "run":
+                positions = [index for index, arg in enumerate(argv) if Path(arg).name == "run_tests.py"]
+                expected = shlex.split(re.sub(r"\{debug:[^{}]*\}", "", target_plan["run_command"]))
+                if len(positions) != 1 or positions[0] + 1 >= len(argv) or shlex.split(re.sub(r"\{debug:[^{}]*\}", "", argv[positions[0] + 1])) != expected:
+                    alignment["issues"].append("Final ELF runner differs from run_cmd.txt; ref_model_exe for signature generation is not the final runner")
+                else:
+                    alignment.update(kind="native_subset", reason="Final ELF runner matches the selected target's native command")
+            elif job["purpose"] in {"generation", "build", "coverage"}:
+                alignment["reason"] = "Target policy checked; command and dynamic selection still require source-grounded review"
+        diagnostic = job.get("diagnostic_reason")
+        if diagnostic is not None and not is_text(diagnostic):
+            raise ValueError(f"Job {job['id']} diagnostic_reason must explain the intentional deviation")
+        if diagnostic:
+            alignment.update(kind="diagnostic", reason=diagnostic)
+        elif alignment["issues"] and job["disposition"] == "run":
+            plan["errors"].append({"job": job["id"], "issues": alignment["issues"],
+                                   "next_action": "Use the native target/runner or explicitly declare diagnostic_reason; do not attribute this experiment to upstream CI"})
+    return plan
+
+
+def experiment_sources(root: Path, receipts: dict[str, str], index_digest: str | None = None) -> dict[str, str]:
+    """Replay retained experiment identities before admitting their logs or source quotations."""
+    allowed = {"experiments.json": index_digest} if index_digest else {}
+    for name, identity in receipts.items():
+        path = safe_path(root, name)
+        content = path.read_bytes()
+        if hashlib.sha256(content).hexdigest() != identity:
+            raise ValueError(f"Experiment evidence changed: {name}; run a new declared experiment")
+        evidence = json.loads(content)
+        allowed[name] = identity
+        allowed.update(evidence["source_files"])
+        for job in evidence["jobs"]:
+            for field in ("log", "probe_log"):
+                if field in job:
+                    allowed[job[field]] = job[f"{field}_sha256"]
+            allowed.update({item["path"]: item["sha256"] for item in job.get("artifacts", []) + job.get("diagnostics", [])})
+    for name, identity in allowed.items():
+        if hashlib.sha256(safe_path(root, name).read_bytes()).hexdigest() != identity:
+            raise ValueError(f"Experiment source or artifact changed: {name}; preserve completed experiments and create a new ID")
+    return allowed
+
+
 class ACT4ReviewChecker(Checker):
     """Validate review and repair completeness while preserving unresolved findings."""
 
-    accepted_stage_args = ("run_commands", "refresh_tools")
+    accepted_stage_args = ("run_commands", "refresh_tools", "experiment")
 
     def __init__(self, phase: str, suite: str, review_dir: str,
-                 act4_root: str = "riscv-arch-test", **kwargs: Any) -> None:
+                 act4_root: str = "riscv-arch-test", batch_size: int = 12,
+                 max_stalled_checks: int = 8, max_experiments: int = 6,
+                 max_experiment_seconds: int = 1800, **kwargs: Any) -> None:
         """Store stage configuration without inspecting the live workspace."""
         super().__init__()
         kwargs.pop("cfg", None)
-        if kwargs or phase not in {"audit", "repair", "final"}:
+        if kwargs or phase not in {"plan", "audit", "repair", "final"}:
             raise ValueError("Invalid ACT4 review phase or checker arguments")
         self.phase, self.suite = phase, suite
         self.review_dir, self.act4_root = review_dir, act4_root
+        if type(batch_size) is not int or not 1 <= batch_size <= 50:
+            raise ValueError("Review batch_size must be an integer from 1 to 50")
+        if type(max_stalled_checks) is not int or max_stalled_checks < 1:
+            raise ValueError("Review max_stalled_checks must be a positive integer")
+        self.batch_size = batch_size
+        self.max_stalled_checks = max_stalled_checks
+        if type(max_experiments) is not int or not 1 <= max_experiments <= 50 or type(max_experiment_seconds) is not int or not 1 <= max_experiment_seconds <= 3600:
+            raise ValueError("Review experiment limits require max_experiments in 1..50 and max_experiment_seconds in 1..3600")
+        self.max_experiments, self.max_experiment_seconds = max_experiments, max_experiment_seconds
+        self._stalled_checks = 0
+        self._last_stall_signature = None
+        self.batch = UnityChipBatchTask(f"act4_review_{phase}", self)
+        self._review_tasks: dict[str, Any] = {}
+        self._review_completed: set[str] = set()
+
+    def get_template_data(self) -> dict[str, Any]:
+        """Expose only the cached, source-validated review batch progress."""
+        return self.batch.get_template_data("REVIEW_TOTAL", "REVIEW_COMPLETED", "REVIEW_CURRENT")
 
     def _state(self) -> dict[str, Any]:
         """Access persisted baseline, evidence fingerprints, and candidate preparation state."""
@@ -226,16 +385,122 @@ class ACT4ReviewChecker(Checker):
             raise ValueError(f"{path}: expected a schema_version: 1 mapping")
         return data
 
+    def _isa_plan(self, state: dict[str, Any], is_complete: bool) -> dict[str, Any]:
+        """Freeze an ISA-only test design before asset review and preserve its original identity."""
+        self._validation_section, self._validation_location = "isa_plan", "isa-plan.yaml"
+        plan_path = safe_path(self.output, "isa-plan.yaml")
+        if plan_path.is_symlink():
+            raise ValueError("isa-plan.yaml must be a regular file")
+        plan = self._load("isa-plan.yaml")
+        if plan.get("suite") != self.suite or not is_text(plan.get("target_context")):
+            raise ValueError("isa-plan.yaml needs this suite and target_context from the user, not existing tests or CI")
+        workspace = Path(self.workspace)
+        if is_text_list(plan.get("reference_files"), allow_empty=True):
+            for name in plan["reference_files"]:
+                if safe_path(workspace, name).resolve().is_relative_to(self.source.resolve()):
+                    raise ValueError("ISA-only planning cannot cite the asset input directory; supply ISA originals in a separate reference directory")
+        contents = validate_references(workspace, self.output, plan.get("reference_files"), plan.get("reference_scope"))
+        references = tree_state(workspace, plan["reference_files"])
+        frozen = self.output / "isa-references"
+        identity = {"references": references, "reference_scope": plan["reference_scope"], "target_context": plan["target_context"]}
+        if frozen.is_symlink():
+            raise ValueError("ISA reference snapshot must not be a symlink")
+        if "isa_inputs" not in state:
+            if self.phase != "plan" or frozen.exists():
+                raise ValueError("Complete review_plan before inspecting assets or validating execution plans; use a fresh output for a new ISA scope")
+            copy_sources(workspace, frozen, references)
+            state["isa_inputs"] = identity
+        if state["isa_inputs"] != identity or tree_state(frozen) != references:
+            raise ValueError("ISA scope or frozen sources changed; start a new review output rather than rewriting the independent baseline")
+        allowed = {f"isa-references/{name}": item["sha256"] for name, item in references.items()}
+        sources = {}
+        for name, physical in contents.items():
+            selected = plan["reference_scope"][name]["reviewed_lines"]
+            for first, end in selected:
+                for start in range(first, end + 1, 80):
+                    last = min(start + 79, end)
+                    sources[f"isa:{name}:{start}-{last}"] = {"path": f"isa-references/{name}", "lines": [start, last], "excluded": False}
+            previous = 0
+            for first, end in selected + [[len(physical) + 1, len(physical) + 1]]:
+                if first > previous + 1:
+                    sources[f"excluded:{name}:{previous + 1}-{first - 1}"] = {
+                        "path": f"isa-references/{name}", "lines": [previous + 1, first - 1], "excluded": True}
+                previous = end
+        context = {"schema_version": 1, "source_files": allowed, "sources": sources}
+        if "isa_context" not in state:
+            self._write("isa-plan-context.json", context)
+            state["isa_context"] = digest(context)
+        if digest(self._load("isa-plan-context.json")) != state["isa_context"] or digest(context) != state["isa_context"]:
+            raise ValueError("isa-plan-context.json changed; restore the original ISA context")
+        if not is_text_list(plan.get("limitations"), allow_empty=True) or (not references and not plan["limitations"]):
+            raise ValueError("ISA plan limitations must explain missing ISA sources; never claim completeness without sources")
+        requirements = plan.get("requirements")
+        if not isinstance(requirements, list):
+            raise ValueError("Write ISA-derived requirements after reading isa-plan-context.json; each needs I<number>, applicability, stimulus, observation and basis")
+        if not requirements and not plan["limitations"]:
+            raise ValueError("An empty ISA design requires limitations explaining missing sources or the absence of applicable requirements")
+        indexed, source_lines = {}, {}
+        for item in requirements:
+            if not isinstance(item, dict) or not is_text(item.get("id")) or not re.fullmatch(r"I[0-9]+", item["id"]) or item["id"] in indexed:
+                raise ValueError("ISA requirements need unique I<number> IDs")
+            if not all(is_text(item.get(field)) for field in ("requirement", "applicability", "stimulus", "observation")):
+                raise ValueError(f"ISA requirement {item['id']} needs requirement, applicability, stimulus and observation")
+            self._citations(item.get("basis"), allowed, source_lines)
+            for citation in item["basis"]:
+                if not any(not block["excluded"] and block["path"] == citation["path"] and
+                           max(block["lines"][0], citation["lines"][0]) <= min(block["lines"][1], citation["lines"][1]) for block in sources.values()):
+                    raise ValueError(f"ISA requirement {item['id']} must cite selected ISA lines, not an excluded section")
+            indexed[item["id"]] = item
+        reviews = plan.get("source_reviews")
+        if not isinstance(reviews, list):
+            raise ValueError("source_reviews must assess every selected and excluded ISA source block")
+        reviewed, linked = set(), set()
+        for item in reviews:
+            if not isinstance(item, dict) or not is_text(item.get("source")) or item["source"] not in sources or item["source"] in reviewed:
+                raise ValueError("source_reviews must reference each isa-plan-context.json source ID exactly once")
+            block = sources[item["source"]]
+            if not is_text_list(item.get("requirements"), allow_empty=True) or not set(item["requirements"]) <= indexed.keys() or not is_text(item.get("reason")):
+                raise ValueError("Each ISA source review needs known requirement IDs, or an empty list with a source-grounded exclusion reason")
+            self._citations(item.get("basis"), allowed, source_lines)
+            if not any(citation["path"] == block["path"] and block["lines"][0] <= citation["lines"][0] <= citation["lines"][1] <= block["lines"][1] for citation in item["basis"]):
+                raise ValueError(f"ISA source review must quote its own source block: {item['source']}")
+            if block["excluded"] and item["requirements"]:
+                raise ValueError("An excluded ISA section cannot introduce requirements; correct the scope in a new review")
+            for name in item["requirements"]:
+                if not any(citation["path"] == block["path"] and max(citation["lines"][0], block["lines"][0]) <= min(citation["lines"][1], block["lines"][1]) for citation in indexed[name]["basis"]):
+                    raise ValueError(f"ISA requirement {name} has no basis in its linked source block")
+            reviewed.add(item["source"])
+            linked.update(item["requirements"])
+        if reviewed != sources.keys() or linked != indexed.keys():
+            raise ValueError(f"Complete ISA source_reviews and link all requirements; missing sources: {sorted(sources.keys() - reviewed)[:12]}, requirements: {sorted(indexed.keys() - linked)[:12]}")
+        snapshot = {"schema_version": 1, "plan": plan, "sha256": hashlib.sha256(plan_path.read_bytes()).hexdigest(), "inputs": identity}
+        if "isa_plan" in state:
+            if digest(snapshot) != state["isa_plan"] or self._load("isa-plan-accepted.json") != snapshot:
+                raise ValueError("Accepted ISA plan changed; retain its original requirements and record later corrections in review obligations")
+        elif self.phase == "plan" and is_complete:
+            if any((self.output / name).exists() for name in ("baseline.json", "validation-plan.json", "evidence-before.json")):
+                raise ValueError("ISA planning must finish before asset validation; restart with a fresh output")
+            self._write("isa-plan-accepted.json", snapshot)
+            state["isa_plan"] = digest(snapshot)
+        elif self.phase != "plan":
+            raise ValueError("Complete review_plan to accept the independent ISA design before reviewing assets")
+        self._validation_section, self._validation_location = "scope", "scope.yaml"
+        return plan
+
     def _baseline(self, state: dict[str, Any], scope: dict[str, Any]) -> None:
         """Freeze actual dirty or clean source state and reject subsequent input drift."""
-        if self.source.is_symlink() or not (self.source / ".git").is_dir():
-            raise ValueError("riscv-arch-test must be an independent Git clone, not a worktree")
-        repositories = [self.source]
-        paths = {name for values in scope["assets"].values() for name in values}
+        if self.source.is_symlink() or not self.source.is_dir():
+            raise ValueError("Review input must be an existing workspace-relative directory, not a symlink")
+        git_input = (self.source / ".git").exists()
+        if git_input and not (self.source / ".git").is_dir():
+            raise ValueError("Git review input must be an independent clone, not a shared worktree")
+        repositories = [self.source] if git_input else []
+        paths = {name for values in scope["assets"].values() for name in values} | set(scope["context_files"])
         submodules = []
         for repository in repositories:
             index = subprocess.check_output(
                 ["git", "-C", str(repository), "ls-files", "--stage", "-z"],
+                env=self.environment,
             ).decode().split("\0")
             for entry in filter(None, index):
                 metadata, name = entry.split("\t", 1)
@@ -246,6 +511,7 @@ class ACT4ReviewChecker(Checker):
                     raise ValueError(f"Initialize the ACT4 submodule before reviewing: {name}")
             entries = subprocess.check_output(
                 ["git", "-C", str(repository), "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
+                env=self.environment,
             ).decode().split("\0")
             for name in filter(None, entries):
                 path = safe_path(repository, name)
@@ -256,12 +522,13 @@ class ACT4ReviewChecker(Checker):
                     submodules.append(str(path.relative_to(self.source)))
                 else:
                     paths.add(str(path.relative_to(self.source)))
-        current = tree_state(self.source, sorted(paths))
-        head = subprocess.check_output(["git", "-C", str(self.source), "rev-parse", "HEAD"], text=True).strip()
-        module_heads = {name: subprocess.check_output(["git", "-C", str(self.source / name), "rev-parse", "HEAD"], text=True).strip()
+        current = tree_state(self.source, sorted(paths) if git_input else None)
+        head = subprocess.check_output(["git", "-C", str(self.source), "rev-parse", "HEAD"], text=True, env=self.environment).strip() if git_input else None
+        module_heads = {name: subprocess.check_output(["git", "-C", str(self.source / name), "rev-parse", "HEAD"], text=True, env=self.environment).strip()
                         for name in submodules}
         references = tree_state(Path(self.workspace), scope["reference_files"])
-        identity = {"head": head, "submodules": module_heads, "files": current,
+        identity = {"input": {"root": self.act4_root, "kind": "git" if git_input else "directory"},
+                    "head": head, "submodules": module_heads, "files": current,
                     "references": references}
         baseline = self.output / "baseline"
         reference_root = self.output / "references"
@@ -297,6 +564,14 @@ class ACT4ReviewChecker(Checker):
                     raise ValueError(f"Missing review asset: {name}; use [] and report an omission")
         if not any(assets.values()):
             raise ValueError("Review requires existing test assets; use the generation workflow for a new suite")
+        context = scope.get("context_files")
+        if not is_text_list(context, allow_empty=True) or len(context) != len(set(context)):
+            raise ValueError("scope.context_files must list unique ACT4-relative reference-only files; use [] when none")
+        if set(context).intersection(name for paths in assets.values() for name in paths):
+            raise ValueError("A path cannot be both a reviewed asset and a reference-only context file")
+        for name in context:
+            if not safe_path(self.source, name).is_file():
+                raise ValueError(f"Missing context file: {name}; locate the actual shared definition")
         shared = scope.get("shared_assets")
         if not isinstance(shared, list):
             raise ValueError("scope.shared_assets must list shared paths, consumer suites and their review boundary; use [] when none")
@@ -305,20 +580,20 @@ class ACT4ReviewChecker(Checker):
             if not isinstance(item, dict) or not is_text(item.get("path")) or item["path"] in seen_shared:
                 raise ValueError("shared_assets requires unique path mappings")
             seen_shared.add(item["path"])
-            if not safe_path(self.source, item["path"]).is_file() or not any(item["path"] in paths for paths in assets.values()):
-                raise ValueError("Shared assets must be existing declared assets")
+            if not safe_path(self.source, item["path"]).is_file() or not (item["path"] in context or any(item["path"] in paths for paths in assets.values())):
+                raise ValueError("Shared assets must be existing declared assets or context_files")
             if not is_text_list(item.get("consumers")) or not is_text(item.get("boundary")):
                 raise ValueError("Shared assets require consumers and boundary explaining reviewed and excluded suites")
+        if set(context) - seen_shared:
+            raise ValueError(f"Declare the review boundary for context_files in shared_assets: {sorted(set(context) - seen_shared)}")
         for field in ("targets", "references", "discovery"):
             if not is_text_list(scope.get(field)):
                 raise ValueError(f"scope.{field} must document the complete review boundary as nonempty strings")
-        reference_files = scope.get("reference_files")
-        if not is_text_list(reference_files, allow_empty=True) or len(set(reference_files)) != len(reference_files):
-            raise ValueError("scope.reference_files must list unique workspace-relative specification inputs; use [] and report missing sources")
-        for name in reference_files:
-            path = safe_path(Path(self.workspace), name)
-            if path.resolve().is_relative_to(self.output.resolve()) or not path.is_file() or path.is_symlink():
-                raise ValueError(f"Reference inputs must be existing files outside the review output: {name}")
+        validate_references(Path(self.workspace), self.output, scope.get("reference_files"), scope.get("reference_scope"))
+        plan = self._load("isa-plan-accepted.json")["plan"]
+        for name in plan["reference_files"]:
+            if scope["reference_scope"].get(name) != plan["reference_scope"][name]:
+                raise ValueError(f"scope must retain the independent ISA selection: {name}; add further references without narrowing the original plan")
         jobs = scope.get("jobs")
         if not isinstance(jobs, list) or not jobs:
             raise ValueError("scope.jobs must cover native CI or explicitly document why it is unavailable")
@@ -441,11 +716,14 @@ class ACT4ReviewChecker(Checker):
                 provider = indexed.get(name, {})
                 if name not in ancestors[job["id"]] or provider.get("purpose") != "build" or provider.get("target") != job["target"]:
                     raise ValueError(f"ELF provider {name} must be a prerequisite build for {job['target']}")
+        plan = resolve_validation_plan(self.source, scope)
+        self._write("validation-plan.json", plan)
+        if plan["errors"]:
+            raise ValueError(f"Validation plan conflicts with native CI: {plan['errors']}; inspect validation-plan.json before executing")
         return scope
 
     def _environment(self, state: dict[str, Any], refresh: bool) -> dict[str, Any]:
         """Probe optional simulators before scope authoring and retain tamper-evident smoke results."""
-        path = self.output / "environment.json"
         if state.get("environment") and not refresh:
             data = self._load("environment.json")
             if digest(data) != state["environment"]:
@@ -455,9 +733,9 @@ class ACT4ReviewChecker(Checker):
                     if hashlib.sha256(safe_path(self.output, attempt["log"]).read_bytes()).hexdigest() != attempt["sha256"]:
                         raise ValueError("Optional simulator probe log changed; refresh_tools in review_audit")
             return data
-        if self.phase != "audit":
-            raise ValueError("Start in review_audit to probe optional tools before reviewing assets")
-        environment = dict(os.environ)
+        if self.phase not in {"plan", "audit"}:
+            raise ValueError("Start in review_plan to probe optional tools before reviewing assets")
+        environment = dict(self.environment)
         environment["PATH"] = str(self.output / "tools/bin") + os.pathsep + environment.get("PATH", "")
         data = {"schema_version": 1, "checked_at": datetime.now(timezone.utc).isoformat(), "tools": {}}
         smoke = ('module review_smoke;\nint value;\n'
@@ -501,10 +779,11 @@ class ACT4ReviewChecker(Checker):
         return data
 
     def _evidence(self, state: dict[str, Any], scope: dict[str, Any], tree: Path,
-                  label: str, run_commands: bool) -> dict[str, Any]:
+                  label: str, run_commands: bool, deadline: float | None = None) -> dict[str, Any]:
         """Reuse asset checks and record real isolated command results bound to input bytes."""
         fingerprint = digest({"sources": evidence_fingerprint(tree, scope),
-                              "references": state["baseline"]["references"], "environment": state["environment"]})
+                              "references": state["baseline"]["references"], "environment": state["environment"],
+                              "isa_plan": state["isa_plan"]})
         evidence_path = safe_path(self.output, f"evidence-{label}.json")
         cached = state.get(f"evidence-{label}")
         if not run_commands:
@@ -522,6 +801,9 @@ class ACT4ReviewChecker(Checker):
                     if hashlib.sha256(safe_path(self.output, artifact["path"]).read_bytes()).hexdigest() != artifact["sha256"]:
                         raise ValueError(f"Command artifact changed: {artifact['path']}; rerun validation")
             return evidence
+        validation_plan = resolve_validation_plan(tree, scope)
+        if validation_plan["errors"]:
+            raise ValueError(f"Candidate validation plan conflicts with native CI: {validation_plan['errors']}")
         results = []
         missing = sorted({name for names in scope["assets"].values() for name in names
                           if not safe_path(tree, name).is_file()})
@@ -530,9 +812,11 @@ class ACT4ReviewChecker(Checker):
             checker = ACT4AssetChecker(
                 suite=self.suite, act4_root=str(tree),
                 coverage_files=[str(tree / name) for name in scope["assets"]["coverage"]],
+                coverage_context_files=[str(tree / name) for name in scope["context_files"] if Path(name).suffix.lower() in {".sv", ".svh"}],
                 discover_coverage=False,
                 generator_files=[str(tree / name) for name in scope["assets"]["generators"]],
                 mapping=str(tree / mapping) if mapping else None,
+                compare_source_mapping=False,
                 assets=[{"path": str(tree / name)} for name in sorted({
                     name for names in scope["assets"].values() for name in names})],
                 require_standalone_generator=True,
@@ -552,26 +836,29 @@ class ACT4ReviewChecker(Checker):
                 duplicates.setdefault(hashlib.sha256(path.read_bytes()).hexdigest(), []).append(name)
         evidence = {"schema_version": 1, "fingerprint": fingerprint,
                     "act4_head": state["baseline"]["head"],
+                    "input": state["baseline"]["input"],
                     "environment": self._load("environment.json"), "targets": scope["targets"],
                     "static_passed": passed, "static": results, "missing_assets": missing, "coverpoints": points,
-                    "reachability": reachability,
+                    "reachability": reachability, "validation_plan": validation_plan,
                     "duplicate_assets": [sorted(names) for names in duplicates.values() if len(names) > 1], "jobs": []}
         with tempfile.TemporaryDirectory(prefix=f"run-{label}-", dir=self.output) as temporary:
             execution = Path(temporary) / "checkout"
-            subprocess.run(["git", "clone", "--quiet", "--no-hardlinks", "--no-checkout", str(self.source), str(execution)], check=True, capture_output=True)
-            subprocess.run(["git", "-C", str(execution), "read-tree", state["baseline"]["head"]], check=True, capture_output=True)
-            subprocess.run(["git", "-C", str(execution), "update-ref", "--no-deref", "HEAD", state["baseline"]["head"]], check=True, capture_output=True)
+            if state["baseline"]["input"]["kind"] == "git":
+                subprocess.run(["git", "clone", "--quiet", "--no-hardlinks", "--no-checkout", str(self.source), str(execution)], check=True, capture_output=True, env=self.environment)
+                subprocess.run(["git", "-C", str(execution), "read-tree", state["baseline"]["head"]], check=True, capture_output=True, env=self.environment)
+                subprocess.run(["git", "-C", str(execution), "update-ref", "--no-deref", "HEAD", state["baseline"]["head"]], check=True, capture_output=True, env=self.environment)
             for name, head in state["baseline"]["submodules"].items():
                 module = safe_path(execution, name)
-                subprocess.run(["git", "clone", "--quiet", "--no-hardlinks", "--no-checkout", str(self.source / name), str(module)], check=True, capture_output=True)
-                subprocess.run(["git", "-C", str(module), "read-tree", head], check=True, capture_output=True)
-                subprocess.run(["git", "-C", str(module), "update-ref", "--no-deref", "HEAD", head], check=True, capture_output=True)
+                subprocess.run(["git", "clone", "--quiet", "--no-hardlinks", "--no-checkout", str(self.source / name), str(module)], check=True, capture_output=True, env=self.environment)
+                subprocess.run(["git", "-C", str(module), "read-tree", head], check=True, capture_output=True, env=self.environment)
+                subprocess.run(["git", "-C", str(module), "update-ref", "--no-deref", "HEAD", head], check=True, capture_output=True, env=self.environment)
             copy_sources(tree, execution, tree_state(tree))
-            for repository in reversed([execution, *(execution / name for name in state["baseline"]["submodules"])]):
-                subprocess.run(["git", "-C", str(repository), "add", "--force", "--all"], check=True, capture_output=True)
+            repositories = [execution, *(execution / name for name in state["baseline"]["submodules"])] if state["baseline"]["input"]["kind"] == "git" else []
+            for repository in reversed(repositories):
+                subprocess.run(["git", "-C", str(repository), "add", "--force", "--all"], check=True, capture_output=True, env=self.environment)
             tools = safe_path(self.output, "tools")
             (tools / "bin").mkdir(parents=True, exist_ok=True)
-            environment = {**os.environ, "PATH": str(tools / "bin") + os.pathsep + os.environ.get("PATH", "")}
+            environment = {**self.environment, "PATH": str(tools / "bin") + os.pathsep + self.environment.get("PATH", "")}
             records: dict[str, dict[str, Any]] = {}
             pending = list(scope["jobs"])
             while pending:
@@ -579,7 +866,7 @@ class ACT4ReviewChecker(Checker):
                 pending.remove(job)
                 record = {"id": job["id"], "target": job["target"],
                           "purpose": job["purpose"], "status": job["disposition"],
-                          "optional": "optional_tool" in job}
+                          "optional": "optional_tool" in job, "ci_alignment": validation_plan["jobs"][job["id"]]}
                 optional = evidence["environment"]["tools"].get(job.get("optional_tool"))
                 if optional is not None:
                     record["optional_tool"] = job["optional_tool"]
@@ -611,16 +898,16 @@ class ACT4ReviewChecker(Checker):
                             output.unlink()
                     if job["purpose"] == "environment":
                         probe = [arg.replace("{TOOLS}", str(tools)) for arg in job["probe"]]
-                        attempts = [execute_command(probe, cwd, environment, log, job["timeout_seconds"])]
+                        attempts = [execute_command(probe, cwd, environment, log, job["timeout_seconds"], deadline=deadline)]
                         pattern = job.get("expected_output")
                         matched = attempts[-1]["status"] == "passed" and (
                             pattern is None or re.search(pattern, log.read_text(errors="replace")) is not None)
                         if not matched and "install" in job:
                             install = [arg.replace("{TOOLS}", str(tools)) for arg in job["install"]]
-                            attempts.append(execute_command(install, cwd, environment, log, job["timeout_seconds"], append=True))
+                            attempts.append(execute_command(install, cwd, environment, log, job["timeout_seconds"], append=True, deadline=deadline))
                             if attempts[-1]["status"] == "passed":
                                 probe_log = safe_path(self.output, f"{label}-{job['id']}-probe.log")
-                                attempts.append(execute_command(probe, cwd, environment, probe_log, job["timeout_seconds"]))
+                                attempts.append(execute_command(probe, cwd, environment, probe_log, job["timeout_seconds"], deadline=deadline))
                                 matched = attempts[-1]["status"] == "passed" and (
                                     pattern is None or re.search(pattern, probe_log.read_text(errors="replace")) is not None)
                                 record.update(probe_log=str(probe_log.relative_to(self.output)),
@@ -630,7 +917,7 @@ class ACT4ReviewChecker(Checker):
                         if not matched:
                             record["reason"] = job.get("reason", "Tool preparation failed; inspect the installation/probe log, provide the required tool version and rerun")
                     else:
-                        record.update(execute_command(job["argv"], cwd, environment, log, job["timeout_seconds"]))
+                        record.update(execute_command(job["argv"], cwd, environment, log, job["timeout_seconds"], deadline=deadline))
                         if job.get("elf_inputs"):
                             record["elf_count"] = len(inputs)
                             if not inputs:
@@ -686,13 +973,18 @@ class ACT4ReviewChecker(Checker):
                         "omitted_files": len(diagnostic_paths) - len(selected),
                         "truncated_files": sum(item["truncated"] for item in record["diagnostics"])}
             evidence["jobs"] = [records[job["id"]] for job in scope["jobs"]]
-        source_prefix = "baseline" if label == "before" else "candidate"
+        source_prefix = str(tree.relative_to(self.output))
         evidence["source_files"] = {
             f"{source_prefix}/{name}": identity["sha256"]
             for name, identity in tree_state(tree).items() if identity["kind"] == "file"}
         evidence["source_files"].update({
             f"references/{name}": identity["sha256"]
             for name, identity in state["baseline"]["references"].items() if identity["kind"] == "file"})
+        independent = self._load("isa-plan-accepted.json")
+        evidence["source_files"]["isa-plan.yaml"] = independent["sha256"]
+        evidence["source_files"].update(self._load("isa-plan-context.json")["source_files"])
+        evidence["isa_requirements"] = {item["id"]: item for item in independent["plan"]["requirements"]}
+        evidence["isa_plan_limitations"] = independent["plan"]["limitations"]
         evidence["implementation_sources"] = sorted({f"{source_prefix}/{name}"
             for kind in ("generators", "test_cases") for name in scope["assets"][kind] if (tree / name).is_file()})
         assembly = {f"{source_prefix}/{name}": name for name in scope["assets"]["test_cases"]
@@ -725,15 +1017,29 @@ class ACT4ReviewChecker(Checker):
                  for topic, question in sorted(SEMANTIC_QUESTIONS.items())}
         evidence["obligation_sources"] = {}
         inputs = [(f"{source_prefix}/{name}", "plan", name) for name in scope["assets"]["test_plans"] if (tree / name).is_file()]
-        inputs.extend((f"references/{name}", "specification", name) for name in scope["reference_files"])
+        plan_inputs = {safe_path(self.source, name).resolve() for name in scope["assets"]["test_plans"]}
+        inputs.extend((f"references/{name}", "specification", name) for name in scope["reference_files"]
+                      if safe_path(Path(self.workspace), name).resolve() not in plan_inputs)
         for path, kind, name in inputs:
             content = safe_path(self.output, path).read_bytes()
             try:
                 lines = content.decode("utf-8").splitlines()
             except UnicodeDecodeError:
                 lines = []
-            blocks = [(start + 1, min(start + 80, len(lines))) for start in range(0, len(lines), 80)
-                      if any(line.strip() for line in lines[start:start + 80])]
+            selected = scope["reference_scope"][name]["reviewed_lines"] if kind == "specification" else [[1, len(lines)]]
+            blocks = [(start + 1, min(start + 80, end)) for first, end in selected for start in range(first - 1, end, 80)
+                      if any(line.strip() for line in lines[start:min(start + 80, end)])]
+            if kind == "specification":
+                excluded, previous = [], 0
+                for first, end in selected + [[len(lines) + 1, len(lines) + 1]]:
+                    if first > previous + 1:
+                        excluded.append([previous + 1, first - 1])
+                    previous = end
+                if excluded:
+                    tasks[f"boundary:{name}"] = {"topic": "omissions", "path": path,
+                        "reviewed_lines": selected, "excluded_lines": excluded,
+                        "reason": scope["reference_scope"][name]["excluded_reason"],
+                        "question": "Verify the declared exclusion against the source and suite dependencies. Cite an excluded section; use not_applicable only with confirmed justification, otherwise report issues or unverified."}
             for start, end in blocks or [(0, 0)]:
                 identity = f"source:{kind}:{name}:{start}-{end}"
                 task = {"topic": "omissions", "path": path, "lines": [start, end], "kind": kind,
@@ -769,14 +1075,19 @@ class ACT4ReviewChecker(Checker):
                     "error": result["error"]}
             for finding_number, finding in enumerate(result.get("report", {}).get("findings", [])):
                 if finding.get("severity") in {"error", "warning"}:
-                    tasks[f"diagnostic:{report_number}:{finding_number}"] = {
+                    signature = {key: finding.get(key) for key in ("check", "severity", "message", "file", "line")}
+                    if isinstance(signature["file"], str) and Path(signature["file"]).resolve().is_relative_to(tree.resolve()):
+                        signature["file"] = str(Path(signature["file"]).resolve().relative_to(tree.resolve()))
+                    identity = digest(signature)[:16]
+                    task = tasks.setdefault(f"diagnostic:{identity}", {
                         "topic": "act4_compliance", "question": "Determine whether this diagnostic is an asset defect, scanner limitation, scope mismatch or unresolved issue; cite the relevant source.",
                         "check": finding["check"], "severity": finding["severity"],
-                        "message": finding["message"]}
+                        "message": finding["message"], "occurrences": []})
+                    task["occurrences"].append({"report": report_number, "finding": finding_number,
+                        **{key: finding[key] for key in ("target", "rule_names", "coverpoint") if key in finding}})
                     if isinstance(finding.get("file"), str):
                         path = Path(finding["file"])
                         if path.is_file() and path.resolve().is_relative_to(tree.resolve()):
-                            task = tasks[f"diagnostic:{report_number}:{finding_number}"]
                             task["path"] = f"{source_prefix}/{path.resolve().relative_to(tree.resolve())}"
                             if type(finding.get("line")) is int and finding["line"] > 0:
                                 task["line"] = finding["line"]
@@ -792,14 +1103,16 @@ class ACT4ReviewChecker(Checker):
                 "question": SEMANTIC_QUESTIONS["redundancy"]}
         evidence["review_tasks"] = tasks
         evidence["review_digest"] = digest(evidence)
+        self._isa_plan(state, is_complete=False)
         if digest({"sources": evidence_fingerprint(tree, scope),
-                   "references": state["baseline"]["references"], "environment": state["environment"]}) != fingerprint:
+                   "references": state["baseline"]["references"], "environment": state["environment"],
+                   "isa_plan": state["isa_plan"]}) != fingerprint:
             raise ValueError("Source changed during validation; discard results and retry")
         self._write(f"evidence-{label}.json", evidence)
         state[f"evidence-{label}"] = digest(evidence)
         return evidence
 
-    def _review(self, scope: dict[str, Any], evidence: dict[str, Any]) -> dict[str, Any]:
+    def _review(self, scope: dict[str, Any], evidence: dict[str, Any], partial: bool = False) -> dict[str, Any]:
         """Require full review topics, traceability, findings, and exact proposed changes."""
         review = self._load("review.yaml")
         if review.get("suite") != self.suite or not is_text(review.get("summary")):
@@ -825,6 +1138,8 @@ class ACT4ReviewChecker(Checker):
                 raise ValueError("Each finding needs a valid topic and severity")
             if not is_text_list(item.get("evidence")) or any(not is_text(item.get(field)) for field in ("location", "problem", "recommendation")):
                 raise ValueError(f"Finding {item['id']} needs textual location/problem/recommendation and a nonempty evidence string list")
+            if "root_cause_key" in item and (not is_text(item["root_cause_key"]) or not re.fullmatch(r"[A-Za-z0-9_.:-]{1,120}", item["root_cause_key"])):
+                raise ValueError("root_cause_key must be a stable 1..120 character rule/source identity; do not merge per-module evidence")
         for change in changes:
             if not isinstance(change, dict) or not is_text_list(change.get("findings")) or not set(change["findings"]) <= ids:
                 raise ValueError("Each change must reference existing finding ids")
@@ -839,6 +1154,35 @@ class ACT4ReviewChecker(Checker):
                 path = safe_path(self.source, name)
                 if path.is_symlink():
                     raise ValueError(f"Repair proposals must target regular source files: {name}")
+        experiments = review.get("experiments", [])
+        if not isinstance(experiments, list):
+            raise ValueError("review.experiments must be a list of bounded experimental plans")
+        experiment_ids = set()
+        for experiment in experiments:
+            if not isinstance(experiment, dict) or not isinstance(experiment.get("id"), str) or not re.fullmatch(r"E[0-9]+", experiment["id"]) or experiment["id"] in experiment_ids:
+                raise ValueError("Experiments require unique E<number> IDs")
+            experiment_ids.add(experiment["id"])
+            if not is_text_list(experiment.get("findings")) or not set(experiment["findings"]) <= ids or not all(is_text(experiment.get(field)) for field in ("question", "success_criterion")):
+                raise ValueError("Experiments need finding IDs, a concrete question and success_criterion, not an assumed verdict")
+            if not is_text_list(experiment.get("paths")) or not is_text_list(experiment.get("jobs")) or not set(experiment["jobs"]) <= {job["id"] for job in scope["jobs"]}:
+                raise ValueError("Experiments need exact editable paths and selected scope job IDs")
+            for name in experiment["paths"]:
+                path = safe_path(self.source, name)
+                if path.is_symlink() or name.startswith(("framework/", "tests/env/", ".github/")) or name in {"Makefile", "run_tests.py", "pyproject.toml", "uv.lock", ".mise.toml"} or name.startswith("tests/") and name.endswith(".S"):
+                    raise ValueError(f"Experiment cannot modify protected infrastructure or generated assembly: {name}")
+                reviewed = {item for paths in scope["assets"].values() for item in paths} | set(scope["context_files"])
+                if path.exists() and name not in reviewed and not name.startswith("config/"):
+                    raise ValueError(f"Declare the existing experiment dependency in assets/context_files before editing: {name}")
+            assets = experiment.get("assets")
+            if not isinstance(assets, dict) or set(assets) != ASSET_KINDS or any(not is_text_list(paths, allow_empty=True) for paths in assets.values()):
+                raise ValueError("Experiment assets must explicitly list all five asset categories")
+            for paths in assets.values():
+                for name in paths:
+                    safe_path(self.source, name)
+            original_assets = {name for paths in scope["assets"].values() for name in paths}
+            proposed_assets = {name for paths in assets.values() for name in paths}
+            if (original_assets ^ proposed_assets) - set(experiment["paths"]):
+                raise ValueError("Experimental asset additions/removals must be declared editable paths")
         post_assets = review.get("post_assets")
         if not isinstance(post_assets, dict) or set(post_assets) != ASSET_KINDS:
             raise ValueError(f"review.post_assets must declare all repaired asset categories: {sorted(ASSET_KINDS)}")
@@ -850,19 +1194,22 @@ class ACT4ReviewChecker(Checker):
                 safe_path(self.source, name)
             if (set(names) ^ set(scope["assets"][kind])) - allowed:
                 raise ValueError("Changed post-review asset membership must be within declared repair paths")
-        self._traceability(review.get("traceability"), evidence)
+        self._traceability(review.get("traceability"), evidence, partial=partial)
+        self._validation_section, self._validation_location = "conclusion", "review.yaml/checks"
         if checks["ci"]["status"] == "passed" and (not any(job["status"] == "passed" for job in evidence["jobs"]) or any(job["status"] not in {"passed", "not_applicable"} for job in evidence["jobs"])):
             raise ValueError("CI cannot be passed with failed, unavailable, or unexecuted jobs")
         if checks["act4_compliance"]["status"] == "passed" and not evidence["static_passed"]:
             raise ValueError("ACT4 compliance cannot pass while deterministic checks report errors")
         if checks["test_coverage"]["status"] == "passed" and (not review["traceability"] or any(item["coverage"] != "measured" for item in review["traceability"])):
             raise ValueError("Test coverage cannot pass while coverpoints have gaps or only static/unverified evidence")
-        self._semantic_review(review, evidence)
+        self._semantic_review(review, evidence, partial=partial)
         return review
 
     def _semantic_review(self, document: dict[str, Any], evidence: dict[str, Any],
-                         review: dict[str, Any] | None = None, changed: list[str] | None = None) -> None:
+                         review: dict[str, Any] | None = None, changed: list[str] | None = None,
+                         partial: bool = False) -> None:
         """Require source-grounded AI judgments for every unresolved semantic obligation."""
+        self._validation_section, self._validation_location = "semantic", "semantic_review"
         semantic = document.get("semantic_review")
         if not isinstance(semantic, dict) or semantic.get("reviewer") != "ai":
             raise ValueError("Write semantic_review with reviewer: ai using Guide_Doc/ACT4_Extension_Review_Guide.md")
@@ -888,14 +1235,31 @@ class ACT4ReviewChecker(Checker):
                 allowed.update({item["path"]: item["sha256"]
                                 for item in job.get("artifacts", []) + job.get("diagnostics", [])})
         allowed["environment.json"] = hashlib.sha256((json.dumps(evidence["environment"], indent=2) + "\n").encode()).hexdigest()
+        allowed.update(experiment_sources(self.output, self._state().get("experiment_receipts", {}), self._state().get("experiment_index")))
         for tool in evidence["environment"]["tools"].values():
             allowed.update({attempt["log"]: attempt["sha256"] for attempt in tool["attempts"]})
         source_lines = {}
         for finding in document["findings"]:
+            self._validation_section = "finding"
+            self._validation_location = f"findings/{finding['id']}"
             if finding.get("classification") not in {"confirmed_defect", "suspected_defect", "validation_gap", "not_a_defect"}:
                 raise ValueError(f"Finding {finding['id']} needs classification separating defects from suspicion and validation gaps")
             if finding.get("diagnosis") not in {"symptoms_only", "cause_identified", "repair_ready"}:
                 raise ValueError(f"Finding {finding['id']} needs diagnosis: symptoms_only/cause_identified/repair_ready")
+            if finding["classification"] == "confirmed_defect":
+                plan = finding.get("repair_plan")
+                if not isinstance(plan, dict) or not all(is_text(plan.get(field)) for field in (
+                    "expected_behavior", "stimulus", "observation", "resources", "restoration", "next_action"
+                )):
+                    raise ValueError(f"Finding {finding['id']} needs repair_plan: expected_behavior, stimulus, observation, resources, restoration and next_action; design the missing test instead of treating its absence as a blocker")
+                for field in ("paths", "validation_jobs"):
+                    if not is_text_list(plan.get(field), allow_empty=finding["diagnosis"] != "repair_ready"):
+                        raise ValueError(f"Finding {finding['id']} repair_plan.{field} must list exact identities; repair_ready requires nonempty lists")
+                for name in plan["paths"]:
+                    safe_path(self.source, name)
+                if not set(plan["validation_jobs"]) <= {job["id"] for job in evidence["jobs"]}:
+                    raise ValueError(f"Finding {finding['id']} repair_plan names unknown validation_jobs")
+                self._citations(plan.get("basis"), allowed, source_lines)
             attempts = finding.get("investigation")
             if not isinstance(attempts, list) or not attempts:
                 raise ValueError(f"Finding {finding['id']} needs investigation entries documenting work actually attempted, results and quoted evidence")
@@ -911,19 +1275,62 @@ class ACT4ReviewChecker(Checker):
                     raise ValueError("Unresolved findings require blocker detail, impact, why_not_resolved and owner: agent/user/upstream")
                 if blocker["owner"] == "user" and not all(is_text(blocker.get(field)) for field in ("request", "reason_user_needed")):
                     raise ValueError("User assistance needs a concrete request and reason_user_needed; ordinary investigation remains agent work")
+                stop = blocker.get("stop_reason")
+                if stop not in {"external_dependency", "unfinished_work", "budget_exhausted"}:
+                    raise ValueError(f"Finding {finding['id']} blocker.stop_reason must distinguish external_dependency, unfinished_work and budget_exhausted")
+                alternatives = blocker.get("alternatives")
+                if not isinstance(alternatives, list):
+                    raise ValueError("blocker.alternatives must list evaluated repair routes; use [] only for unfinished work or budget stops")
+                routes = set()
+                for alternative in alternatives:
+                    if not isinstance(alternative, dict) or alternative.get("route") not in {"suite_local", "positive_subset", "native_entrypoint", "validation_only"} or alternative["route"] in routes:
+                        raise ValueError("Blocker alternatives require unique suite_local/positive_subset/native_entrypoint/validation_only routes")
+                    routes.add(alternative["route"])
+                    if alternative.get("status") not in {"tried", "ruled_out", "pending"} or not is_text(alternative.get("result")):
+                        raise ValueError("Each alternative needs tried/ruled_out/pending and a specific result")
+                    self._citations(alternative.get("basis"), allowed, source_lines)
+                    if alternative["status"] == "tried":
+                        identity = alternative.get("experiment_id")
+                        attempted = self._state().get("experiments", {}).get(identity, {}) if isinstance(identity, str) else {}
+                        declared = next((plan for plan in review.get("experiments", []) if plan["id"] == identity and finding["id"] in plan["findings"]), None)
+                        if declared is None or attempted.get("status") != "completed" or not any(item["path"] == f"evidence-experiment-{identity}.json" or item["path"].startswith((f"artifacts-experiment-{identity}/", f"diagnostics-experiment-{identity}/", f"experiment-{identity}-")) for item in alternative["basis"]):
+                            raise ValueError("A tried alternative must name its completed experiment_id and quote its retained result; source-only exclusions use ruled_out")
+                if stop == "external_dependency":
+                    if blocker["owner"] == "agent" or routes != {"suite_local", "positive_subset", "native_entrypoint", "validation_only"} or any(item["status"] == "pending" for item in alternatives):
+                        raise ValueError("External blockers require an external owner and evidence for all four alternatives; unattempted agent work is unfinished_work, not impossibility")
+                elif blocker["owner"] != "agent":
+                    raise ValueError("Unfinished work and budget stops remain agent-owned; do not request external help for ordinary implementation")
+                if stop == "unfinished_work" and finding["classification"] == "confirmed_defect" and not any(item["status"] in {"tried", "ruled_out"} for item in alternatives):
+                    raise ValueError("Confirmed defects need a real minimal experiment or a source-grounded excluded route before stopping as unfinished_work; a plan alone is not an attempt")
+                if stop == "budget_exhausted":
+                    budget = blocker.get("budget")
+                    if not isinstance(budget, dict) or budget.get("resource") not in {"seconds", "tokens", "experiments"} or type(budget.get("limit")) is not int or budget["limit"] < 1 or type(budget.get("consumed")) is not int or budget["consumed"] < budget["limit"]:
+                        raise ValueError("Budget stops require resource seconds/tokens/experiments, positive limit and consumed >= limit, plus quoted usage evidence")
+                    self._citations(budget.get("basis"), allowed, source_lines)
+                    if budget["resource"] == "experiments":
+                        attempts = self._state().get("experiments", {})
+                        used = sum(item["status"] != "prepared" for item in attempts.values())
+                        if budget["limit"] != self.max_experiments or budget["consumed"] != used or not any(item["path"] == "experiments.json" for item in budget["basis"]):
+                            raise ValueError("Experiment budget claims must match the configured limit and actual attempts in experiments.json")
             if review is not None and finding["status"] == "fixed" and (finding["classification"] != "confirmed_defect" or finding["diagnosis"] != "repair_ready"):
                 raise ValueError("Only a confirmed_defect with repair_ready diagnosis and an actual validated source change can be fixed")
             if review is not None and finding["status"] == "dismissed" and finding["classification"] != "not_a_defect":
                 raise ValueError("A dismissed finding requires classification: not_a_defect and a source-grounded reassessment")
+        self._validation_section, self._validation_location = "obligation", "obligations"
         obligations = document.get("obligations")
         if not isinstance(obligations, list):
             raise ValueError("obligations must map every evidence.obligation_sources block to requirements or explicit exclusions")
         source_ids = set(evidence["obligation_sources"])
-        covered_sources, obligation_ids = set(), set()
+        covered_sources, obligation_ids, compared_plan = set(), set(), set()
         for item in obligations:
+            self._validation_section = "obligation"
+            self._validation_location = f"obligations/{item.get('id', 'unknown')}" if isinstance(item, dict) else "obligations"
             if not isinstance(item, dict) or not is_text(item.get("id")) or not re.fullmatch(r"O[0-9]+", item["id"]) or item["id"] in obligation_ids:
                 raise ValueError("Obligations require unique O<number> identities")
             obligation_ids.add(item["id"])
+            if not is_text_list(item.get("plan_items"), allow_empty=True) or len(item["plan_items"]) != len(set(item["plan_items"])) or not set(item["plan_items"]) <= evidence["isa_requirements"].keys():
+                raise ValueError(f"Obligation {item['id']} needs unique plan_items from the accepted ISA plan; use [] only for additional discoveries")
+            compared_plan.update(item["plan_items"])
             if not is_text_list(item.get("sources")) or not set(item["sources"]) <= source_ids:
                 raise ValueError(f"Obligation {item['id']} must cite current obligation_sources IDs")
             covered_sources.update(item["sources"])
@@ -941,18 +1348,90 @@ class ACT4ReviewChecker(Checker):
                 raise ValueError("Implemented obligations require both coverpoints and implementation source links; otherwise record a gap or unverified")
             tasks[f"obligation:{item['id']}"] = {"topic": "omissions",
                 "sources": sorted({evidence["obligation_sources"][name]["path"] for name in item["sources"]} | set(item["implementation"]) |
-                                  {tasks[f"point:{point}"]["path"] for point in item["coverpoints"]}),
+                                  {tasks[f"point:{point}"]["path"] for point in item["coverpoints"]} |
+                                  ({"isa-plan.yaml"} if item["plan_items"] else set()) |
+                                  {citation["path"] for name in item["plan_items"] for citation in evidence["isa_requirements"][name]["basis"]}),
                 "obligation_status": item["status"], "findings": item["findings"], "coverpoints": item["coverpoints"]}
-        if covered_sources != source_ids:
+        if not partial and covered_sources != source_ids:
             raise ValueError(f"Obligation inventory omits source blocks: {sorted(source_ids - covered_sources)[:12]}")
+        if not partial and compared_plan != evidence["isa_requirements"].keys():
+            raise ValueError(f"Compare every independent ISA requirement with current assets, including gaps or justified exclusions: {sorted(evidence['isa_requirements'].keys() - compared_plan)[:12]}")
         if review is not None and not {item["id"] for item in review["obligations"]} <= obligation_ids:
             raise ValueError("Final obligations must retain every original obligation ID; explain exclusions instead of dropping gaps")
+        self._validation_section, self._validation_location = "judgment", "semantic_review/judgments"
         judgments = semantic.get("judgments")
-        if not isinstance(judgments, list) or not judgments:
+        if isinstance(judgments, list) and any(isinstance(item, dict) and "reused_from" in item for item in judgments):
+            raise ValueError("Do not author reused_from provenance; use semantic_review.reused_tasks to reference eligible unchanged judgments")
+        requested_reuse = semantic.get("reused_tasks", [])
+        if not is_text_list(requested_reuse, allow_empty=True) or len(set(requested_reuse)) != len(requested_reuse) or requested_reuse and review is None:
+            raise ValueError("semantic_review.reused_tasks must list unique eligible final task IDs; audit judgments cannot be reused")
+        if review is not None:
+            reusable = {}
+            reason = "No accepted audit snapshot is available"
+            snapshot_id = self._state().get("audit_snapshot")
+            if snapshot_id:
+                content = safe_path(self.output, "review-accepted.json").read_bytes()
+                if hashlib.sha256(content).hexdigest() != snapshot_id:
+                    raise ValueError("Accepted audit snapshot changed; restore it before requesting final reuse")
+                snapshot = json.loads(content)
+                previous = snapshot["review"]
+                reason = "An executable input, configuration, reference, validation outcome or artifact changed; unknown dependencies require full re-review"
+                signatures = []
+                for run in (before, evidence):
+                    signatures.append([{key: job.get(key) for key in ("id", "target", "purpose", "status", "optional", "elf_count", "executed_tests", "ci_alignment")} |
+                        {"artifacts": [{key: artifact.get(key) for key in ("source_path", "sha256", "kind")} for artifact in job.get("artifacts", [])]}
+                        for job in run["jobs"]])
+                current_classes = {item["id"]: item["classification"] for item in document["findings"]}
+                previous_classes = {item["id"]: item["classification"] for item in previous["findings"]}
+                if snapshot["evidence_digest"] == before["review_digest"] and before["fingerprint"] == evidence["fingerprint"] and signatures[0] == signatures[1] and current_classes == previous_classes:
+                    reason = "Only judgments with identical dependency inputs, task definitions and quoted sources are eligible; findings and changes always require fresh review"
+                    for original in previous["semantic_review"]["judgments"]:
+                        for subject in original["tasks"]:
+                            current_subject = subject.replace("baseline/", "candidate/")
+                            if subject not in before["review_tasks"] or current_subject not in tasks:
+                                continue
+                            expected_task = json.loads(json.dumps(before["review_tasks"][subject]).replace("baseline/", "candidate/"))
+                            if expected_task != tasks[current_subject]:
+                                continue
+                            if any(item["id"] in original["findings"] and item.get("status") in {"fixed", "dismissed"} for item in document["findings"]):
+                                continue
+                            if subject.startswith("topic:") and any(
+                                json.dumps(previous.get(field), sort_keys=True).replace("baseline/", "candidate/") != json.dumps(document.get(field), sort_keys=True)
+                                for field in ("obligations", "traceability")
+                            ):
+                                continue
+                            retained = copy.deepcopy(original)
+                            retained["tasks"] = [current_subject]
+                            retained["diagnostics"] = {current_subject: original["diagnostics"][subject]} if subject.startswith("diagnostic:") else {}
+                            valid = True
+                            for citation in retained["basis"]:
+                                old_path = citation["path"]
+                                new_path = old_path.replace("baseline/", "candidate/").replace("artifacts-before/", "artifacts-after/").replace("diagnostics-before/", "diagnostics-after/")
+                                if old_path == "evidence-before.json":
+                                    valid = False
+                                    break
+                                if old_path not in allowed or new_path not in allowed or allowed[old_path] != allowed[new_path]:
+                                    valid = False
+                                    break
+                                citation["path"] = new_path
+                            if valid:
+                                retained["reused_from"] = {"artifact": "review-accepted.json", "sha256": snapshot_id,
+                                    "task": subject, "dependency_fingerprint": evidence["fingerprint"]}
+                                reusable[current_subject] = retained
+            self._write("reuse-final.json", {"schema_version": 1, "evidence_digest": evidence["review_digest"],
+                        "reason": reason, "judgments": reusable})
+            if set(requested_reuse) - reusable.keys():
+                raise ValueError(f"Requested final reuse is stale or ineligible: {sorted(set(requested_reuse) - reusable.keys())[:12]}; inspect reuse-final.json and review changed dependencies")
+            if isinstance(judgments, list):
+                judgments = judgments + [reusable[identity] for identity in requested_reuse]
+                semantic["judgments"] = judgments
+        if not isinstance(judgments, list) or (not partial and not judgments):
             raise ValueError("semantic_review.judgments must assess every evidence review_task; an empty or missing AI review cannot pass")
         observed = set()
         finding_ids = {item["id"] for item in document["findings"]}
-        for judgment in judgments:
+        for index, judgment in enumerate(judgments):
+            self._validation_section = "judgment"
+            self._validation_location = f"semantic_review/judgments/{index}"
             if not isinstance(judgment, dict) or not is_text_list(judgment.get("tasks")):
                 raise ValueError("Each AI judgment needs nonempty task IDs from evidence.review_tasks")
             subjects = judgment["tasks"]
@@ -986,6 +1465,8 @@ class ACT4ReviewChecker(Checker):
                 raise ValueError("AI judgment findings must name existing finding IDs; issues must be recorded as findings")
             basis = judgment.get("basis")
             self._citations(basis, allowed, source_lines)
+            self._validation_section = "judgment"
+            self._validation_location = f"semantic_review/judgments/{index}"
             diagnostics = {subject for subject in subjects if subject.startswith("diagnostic:")}
             dispositions = judgment.get("diagnostics", {})
             if not isinstance(dispositions, dict) or set(dispositions) != diagnostics or any(
@@ -1000,6 +1481,13 @@ class ACT4ReviewChecker(Checker):
                 raise ValueError("Passing specification-completeness or coverpoint-quality review needs a frozen reference citation; declare scope.reference_files or report unverified")
             for subject in subjects:
                 task = tasks[subject]
+                self._validation_location = subject
+                if subject.startswith("boundary:"):
+                    if status == "passed" or (status == "not_applicable" and confidence != "confirmed"):
+                        raise ValueError(f"Excluded source boundary {subject} needs confirmed not_applicable, or issues/unverified")
+                    if not any(item["path"] == task["path"] and any(first <= item["lines"][0] <= item["lines"][1] <= last
+                               for first, last in task["excluded_lines"]) for item in basis):
+                        raise ValueError(f"Boundary {subject} must cite an excluded source section to justify its exclusion")
                 if subject.startswith("source:") and task["lines"][0] and not any(
                     item["path"] == task["path"] and task["lines"][0] <= item["lines"][0] <= item["lines"][1] <= task["lines"][1]
                     for item in basis
@@ -1061,15 +1549,20 @@ class ACT4ReviewChecker(Checker):
                     topic = tasks[subject]["topic"]
                     if document["checks"][topic]["status"] == "passed":
                         raise ValueError(f"Topic {topic} cannot pass with an issues/unverified AI judgment")
-        if observed != tasks.keys():
+        if not partial and observed != tasks.keys():
             missing = sorted(tasks.keys() - observed)
             raise ValueError(f"AI review is incomplete: {len(missing)} tasks missing; first tasks: {missing[:12]}; read the complete evidence.review_tasks")
+        traced = {item["coverpoint"] for item in document["traceability"]}
+        completed = observed - (source_ids - covered_sources) - {f"point:{point}" for point in evidence["coverpoints"] if point not in traced}
+        self._review_tasks, self._review_completed = tasks, completed
 
     def _citations(self, basis: Any, allowed: dict[str, str], source_lines: dict[str, list[str]]) -> None:
         """Verify exact quotations for semantic judgments and documented investigation attempts."""
         if not isinstance(basis, list) or not basis:
             raise ValueError("Source evidence requires path, lines, exact quote and observation")
         for citation in basis:
+            self._validation_section = "citation_source"
+            self._validation_location = f"{citation.get('path')}:{citation.get('lines')}" if isinstance(citation, dict) else "basis"
             if not isinstance(citation, dict) or not is_text(citation.get("path")) or citation["path"] not in allowed:
                 raise ValueError("AI basis.path must name a frozen source/reference, current evidence JSON or retained command log/artifact; report text is not evidence")
             name = citation["path"]
@@ -1081,20 +1574,26 @@ class ACT4ReviewChecker(Checker):
                     source_lines[name] = content.decode("utf-8").splitlines()
                 except UnicodeDecodeError as exc:
                     raise ValueError(f"AI basis requires UTF-8 text: {name}; cite a retained textual report for binary artifacts") from exc
+            self._validation_section = "citation_lines"
             lines, physical = citation.get("lines"), source_lines[name]
             if not isinstance(lines, list) or len(lines) != 2 or any(type(number) is not int for number in lines) or not 1 <= lines[0] <= lines[1] <= len(physical) or lines[1] - lines[0] >= 100:
                 raise ValueError(f"AI basis.lines must select 1..100 existing physical lines: {name}")
+            self._validation_section = "citation_quote"
             if not is_text(citation.get("quote")) or citation["quote"] != "\n".join(physical[lines[0] - 1:lines[1]]):
                 raise ValueError(f"AI basis.quote must exactly match the selected source lines: {name}")
+            self._validation_section = "citation_observation"
             if not is_text(citation.get("observation")):
                 raise ValueError("AI basis.observation must explain what the quoted source establishes")
 
-    def _traceability(self, trace: Any, evidence: dict[str, Any]) -> None:
+    def _traceability(self, trace: Any, evidence: dict[str, Any], partial: bool = False) -> None:
         """Check complete coverpoint accounting without treating static presence as hits."""
+        self._validation_section, self._validation_location = "traceability", "traceability"
         if not isinstance(trace, list):
             raise ValueError("review.traceability must enumerate all defined coverpoints")
         observed = set()
         for item in trace:
+            self._validation_section = "traceability"
+            self._validation_location = item.get("coverpoint", "traceability") if isinstance(item, dict) else "traceability"
             if not isinstance(item, dict) or not is_text(item.get("coverpoint")) or item["coverpoint"] in observed:
                 raise ValueError("Coverpoint traceability entries must be unique mappings")
             observed.add(item.get("coverpoint"))
@@ -1113,8 +1612,70 @@ class ACT4ReviewChecker(Checker):
                              for artifact in job.get("artifacts", []) if artifact["kind"] == "coverage"}
                 if not artifacts.intersection(item["evidence"]):
                     raise ValueError("Measured coverpoints must reference retained coverage artifacts from passing commands")
-        if observed != set(evidence["coverpoints"]):
+        if observed - set(evidence["coverpoints"]) or (not partial and observed != set(evidence["coverpoints"])):
             raise ValueError("Traceability must list every scanned group/coverpoint exactly once")
+
+    def _review_batch(self, is_complete: bool) -> tuple[bool, dict[str, Any]]:
+        """Revalidate live records and expose one bounded batch plus the full missing-work index."""
+        tasks, completed = self._review_tasks, self._review_completed
+        previous = set(self.batch.gen_task_list)
+        self.batch.sync_source_task(sorted(tasks), [], "Review requirements changed")
+        self.batch.sync_gen_task(sorted(completed), [], "Validated review records changed")
+        self.batch.cmp_task_list = [task for task in self.batch.cmp_task_list if task in completed]
+        passed, result = self.batch.do_complete([], is_complete, "missing source-grounded review",
+                                               "unknown review task", "Read the current review batch; do not rerun native commands for document edits.")
+        missing = sorted(set(tasks) - completed)
+        current = list(self.batch.tbd_task_list)
+        current_inputs = {identity: dict(tasks[identity]) for identity in current}
+        for task in current_inputs.values():
+            if "occurrences" in task:
+                task["occurrence_count"] = len(task["occurrences"])
+                task["occurrences"] = task["occurrences"][:8]
+                task["full_evidence"] = "evidence-before.json" if self.phase == "audit" else "evidence-after.json"
+        progress = {"schema_version": 1, "phase": self.phase, "total": len(tasks), "completed": len(completed),
+                    "remaining": len(missing), "current_batch": current, "missing_tasks": missing,
+                    "tasks": current_inputs,
+                    "requirements": {"source": "Provide both extracted obligations (or a justified exclusion) and a source judgment.",
+                                     "point": "Provide both traceability and a definition-grounded judgment.",
+                                     "other": "Provide a source-grounded judgment; use ACT4ReviewDocument for exact quotations and structured updates."}}
+        self._write(f"progress-{self.phase}.json", progress)
+        if self.batch.checkpoint_error:
+            return False, result
+        if passed and not missing:
+            return True, {"completed": len(completed), "total": len(tasks)}
+        diagnostic = {"error_code": "act4_review_batch_pending", "error": f"{len(missing)} review tasks remain; complete the current batch of {len(current)}.",
+                      "location": f"{self.phase}/batch/{digest([identity for identity in current if identity not in completed])[:16]}", "artifact": f"{self.review_dir}/progress-{self.phase}.json",
+                      "observed": {"completed": len(completed), "total": len(tasks)}, "current_batch": current,
+                      "next_action": "Read progress for task-specific inputs, update obligations/traceability/judgments for this batch, then Check. Complete requires every batch and the final report."}
+        response = diagnostic
+        if completed - previous:
+            response["progress_summary"] = {"newly_validated": len(completed - previous), "completed": len(completed), "remaining": len(missing)}
+        return False, response
+
+    def _checked_result(self, passed: bool, result: dict[str, Any]) -> tuple[bool, dict[str, Any]]:
+        """Pause repeated failed Checks even inside one model turn without affecting other workflows."""
+        diagnostic = result.get("diagnostic", result)
+        if passed:
+            self._stalled_checks = 0
+            self._last_stall_signature = None
+        else:
+            signature = digest({key: diagnostic.get(key) for key in ("error_code", "error", "location", "observed")})
+            diagnostic["failure_key"] = signature
+            self._stalled_checks = self._stalled_checks + 1 if signature == self._last_stall_signature else 1
+            self._last_stall_signature = signature
+            diagnostic["stalled_checks"] = self._stalled_checks
+            if self._stalled_checks >= self.max_stalled_checks:
+                diagnostic["execution_paused"] = True
+                diagnostic["next_action"] = (
+                    f"Review paused after {self._stalled_checks} unchanged failed Checks. "
+                    "Inspect the reported artifact and current batch; resolve the blocker or ask the operator for the specific missing input before resuming. "
+                    "Do not rerun native commands merely to repair document fields."
+                )
+                agent = getattr(self.stage_manager, "agent", None)
+                if agent is not None:
+                    agent.set_break(True)
+                warning(f"ACT4 review paused: {self.review_dir}, {self.phase}, {diagnostic.get('location')}")
+        return passed, result
 
     def _changes(self, state: dict[str, Any], review: dict[str, Any]) -> list[str]:
         """Reject candidate changes outside declared repair paths, including modes and deletions."""
@@ -1129,6 +1690,12 @@ class ACT4ReviewChecker(Checker):
                   runs: list[tuple[str, dict[str, Any]]]) -> None:
         """Lead with outcomes, unresolved causes and useful requests before technical evidence."""
         text = f"\n# {title}\n\n{data.get('summary', '')}\n\n"
+        environment_summary = self.output.parent / "environment" / "summary.md"
+        if environment_summary.is_file():
+            receipt = json.loads((environment_summary.parent / "receipt.json").read_text(encoding="utf-8"))
+            ready = sum(tool["status"] == "ready" for tool in receipt["tools"].values())
+            total = len(receipt["tools"])
+            text += f"Environment preparation: **{ready}/{total} declared tools ready**. See [environment summary](../environment/summary.md) for unavailable tools and effects; these results do not replace asset validation.\n\n"
         structured = "final.yaml" if name == "final.md" else "review.yaml"
         originals = {item["id"]: item for item in data.get("original_review", data)["findings"]}
         findings = [{**originals[item["id"]], **item} for item in data["findings"]]
@@ -1143,13 +1710,59 @@ class ACT4ReviewChecker(Checker):
                      f"dismissed without a patch: **{outcomes['dismissed']}**. "
                      f"Source files changed: **{len(data['changed_paths'])}**. [Patch](changes.patch).\n\n")
         latest = runs[-1][1]
+        source = latest["input"]
+        text += f"Input: `{source['root']}` ({source['kind']}); patch paths are relative to this input root. "
+        if source["kind"] == "directory":
+            text += "Local source snapshot; no upstream commit identity or full upstream CI certification is implied. "
+        text += "\n\n"
         required = [job for job in latest["jobs"] if not job["optional"]]
         required_passed = any(job["status"] == "passed" for job in required) and all(job["status"] in {"passed", "not_applicable"} for job in required)
         optional_gaps = [job["id"] for job in latest["jobs"] if job["optional"] and job["status"] not in {"passed", "not_applicable"}]
-        text += f"Required native validation: **{'passed' if required_passed else 'incomplete or failed'}**. "
+        text += f"Required declared validation: **{'passed' if required_passed else 'incomplete or failed'}**. "
         if optional_gaps:
             text += f"Optional validation not completed: {', '.join(optional_gaps)}. "
         text += "Report completion does not certify every asset or establish measured coverage.\n"
+        if latest["isa_plan_limitations"]:
+            text += "\nISA-first planning limitations: " + "; ".join(latest["isa_plan_limitations"]) + "\n"
+        progress_labels = {"not_started": "Implementation not started", "designing": "Design/investigation in progress",
+                           "implemented": "Candidate implementation exists", "validated": "Repair validated", "not_applicable": "No repair required"}
+        stop_labels = {"external_dependency": "External dependency", "unfinished_work": "Agent work unfinished", "budget_exhausted": "Budget exhausted"}
+        if name == "final.md":
+            text += "\n## Repair summary\n\nModule-local findings are counted separately; shared root keys do not merge their evidence.\n\n"
+            text += "| Finding | Disposition | Repair progress | Why stopped | Owner / next action |\n| --- | --- | --- | --- | --- |\n"
+            for item in findings:
+                blocker = item.get("blocker", {})
+                action = item.get("next_action", "No remaining repair action")
+                cells = [item["id"], item["status"], progress_labels[item["repair_progress"]],
+                         stop_labels.get(blocker.get("stop_reason"), "Not stopped"), f"{blocker.get('owner', 'agent')}: {action[:160]}{'…' if len(action) > 160 else ''}"]
+                text += "| " + " | ".join(cell.replace("|", "\\|").replace("\n", " ") for cell in cells) + " |\n"
+            roots: dict[str, list[str]] = {}
+            for item in findings:
+                if item.get("root_cause_key"):
+                    roots.setdefault(item["root_cause_key"], []).append(item["id"])
+            if roots:
+                text += "\nShared issue identities (for correlation, not additional defects):\n"
+                for key, identities in sorted(roots.items()):
+                    text += f"\n- `{key}`: {', '.join(identities)}\n"
+        text += "\n## Help requested from the user\n\n"
+        requests = [item for item in findings if item.get("blocker", {}).get("owner") == "user"]
+        if not requests:
+            text += "No user input is currently required. Agent-owned unfinished work remains open; it is not a claim that repair is impossible.\n"
+        for item in requests:
+            blocker = item["blocker"]
+            text += f"- **{item['id']}**: {blocker['request']} Why user help is needed: {blocker['reason_user_needed']}\n"
+        text += "\n## Validation achieved\n\n"
+        text += f"Scope-wide static checks: **{'passed' if latest['static_passed'] else 'issues remain'}**. Upstream full CI: **not certified**.\n\n"
+        text += "| Target | Generation | ELF build | Self-check execution | Coverage job | Lint | CI alignment |\n| --- | --- | --- | --- | --- | --- | --- |\n"
+        for target in latest["targets"]:
+            jobs = [job for job in latest["jobs"] if job["target"] == target]
+            cells = [target]
+            for purpose in ("generation", "build", "reference_model", "coverage", "lint"):
+                states = sorted({job["status"] + (" (optional)" if job["optional"] else "") for job in jobs if job["purpose"] == purpose})
+                cells.append(", ".join(states) or "not run")
+            cells.append(", ".join(sorted({job["ci_alignment"]["kind"] for job in jobs if job["purpose"] != "environment"})))
+            text += "| " + " | ".join(cell.replace("|", "\\|").replace("\n", " ") for cell in cells) + " |\n"
+        text += "\nThese are scoped execution results, not proof that every finding is covered. Successful generation/build is not self-check success; a coverage job is not proof of complete bin hits. Local-only lint and diagnostic experiments are not upstream CI.\n"
         text += "\n## Findings and outcomes\n\n"
         if not findings:
             text += "No findings were recorded within the reviewed scope. The validation limits below still apply.\n"
@@ -1162,21 +1775,16 @@ class ACT4ReviewChecker(Checker):
                      f"**{classification} / {item.get('status', 'reviewed')}** · {item['severity']} · {item['location']}\n\n"
                      f"{item.get('reason', item['recommendation'])}\n\n"
                      f"Diagnosis: {diagnosis}.\n")
+            if item.get("repair_plan"):
+                text += f"\nExpected behavior: {item['repair_plan']['expected_behavior']}\n\nDistinguishing observation: {item['repair_plan']['observation']}\n"
             blocker = item.get("blocker")
             if blocker:
-                text += (f"\nStill missing or unfinished: {blocker['detail']}\n\n"
+                text += (f"\nStop reason: {stop_labels[blocker['stop_reason']]}.\n\nStill missing or unfinished: {blocker['detail']}\n\n"
                          f"Why it remains open: {blocker['why_not_resolved']}\n\n"
                          f"Impact: {blocker['impact']}\n\n"
                          f"Next action ({blocker['owner']}): {item['next_action']}\n")
             for attempt in item["investigation"]:
                 text += f"\n- Investigated: {attempt['action']} Result: {attempt['result']}\n"
-        text += "\n## Help requested from the user\n\n"
-        requests = [item for item in findings if item.get("blocker", {}).get("owner") == "user"]
-        if not requests:
-            text += "No user input is currently required. Remaining investigation and implementation actions are listed with their owners above.\n"
-        for item in requests:
-            blocker = item["blocker"]
-            text += f"- **{item['id']}**: {blocker['request']} Why user help is needed: {blocker['reason_user_needed']}\n"
         text += "\n## Validation limits and evidence\n\n"
         for risk in data.get("remaining_risks", []):
             text += f"- {risk}\n"
@@ -1193,8 +1801,9 @@ class ACT4ReviewChecker(Checker):
         for tool, record in latest["environment"]["tools"].items():
             text += f"\n- {tool}: **{record['status']}**. {record['reason']}\n"
         for label, evidence in runs:
+            source_identity = f"ACT4 HEAD: `{evidence['act4_head']}`" if evidence["act4_head"] else "Local directory snapshot (no Git HEAD)"
             text += (f"\n<details>\n<summary>Native validation ({label})</summary>\n\n"
-                     f"\n### Native validation ({label})\n\nACT4 HEAD: `{evidence['act4_head']}`. "
+                     f"\n### Native validation ({label})\n\n{source_identity}. "
                      f"Full evidence: [evidence-{label}.json](evidence-{label}.json).\n\n"
                      "Build task counts are not executed test counts. Only validated model results "
                      "populate the model-test column; blocked jobs have no execution result.\n\n"
@@ -1227,10 +1836,25 @@ class ACT4ReviewChecker(Checker):
         counts = {status: sum(len(item["tasks"]) for item in judgments if item["status"] == status)
                   for status in ("passed", "issues", "unverified", "not_applicable")}
         text += "\n## AI semantic review\n\n" + "; ".join(f"{status}: {count}" for status, count in counts.items()) + ".\n\n"
+        if name == "final.md":
+            reused = sum(len(item["tasks"]) for item in judgments if "reused_from" in item)
+            text += f"Reused unchanged judgments: **{reused}**; freshly assessed: **{sum(counts.values()) - reused}**. [Reuse provenance](reuse-final.json).\n\n"
+            if self._state().get("experiments"):
+                text += "[Experimental attempts and budgets](experiments.json) are separate from formal repair validation.\n\n"
         text += f"Every judgment's reasoning, confidence, source quotations and limitations are in [{structured}]({structured}).\n"
         trace = data.get("traceability", [])
         counts = {status: sum(item["coverage"] == status for item in trace)
                   for status in ("measured", "static", "gap", "unverified")}
+        if latest["isa_requirements"]:
+            text += "\n## Independent ISA plan comparison\n\n"
+            text += "[ISA-first design](isa-plan.yaml) is a review baseline, not proof of completeness. Later corrections retain the original requirement IDs.\n\n"
+            text += "| ISA requirement | Review obligations | Asset status | Findings |\n| --- | --- | --- | --- |\n"
+            for identity in latest["isa_requirements"]:
+                matches = [item for item in data["obligations"] if identity in item["plan_items"]]
+                cells = [identity, ", ".join(item["id"] for item in matches) or "Not compared",
+                         ", ".join(sorted({item["status"] for item in matches})),
+                         ", ".join(sorted({finding for item in matches for finding in item["findings"]})) or "None"]
+                text += "| " + " | ".join(cells) + " |\n"
         text += "\n## Coverpoint traceability\n\n" + "; ".join(f"{status}: {count}" for status, count in counts.items()) + ".\n\n"
         text += f"Every point's obligation, testcases and evidence are in [{structured}]({structured}).\n"
         text += f"\nSource-derived obligations: **{len(data['obligations'])}** across **{len(latest['obligation_sources'])}** source blocks; forward mappings and exclusions are in [{structured}]({structured}).\n"
@@ -1239,7 +1863,7 @@ class ACT4ReviewChecker(Checker):
         safe_path(self.output, name).write_text(text, encoding="utf-8")
 
     def _final(self, review: dict[str, Any],
-               evidence: dict[str, Any], changed: list[str]) -> dict[str, Any]:
+               evidence: dict[str, Any], changed: list[str], publish: bool = True) -> dict[str, Any]:
         """Validate all dispositions and generate a portable text-source patch and final report."""
         final = self._load("final.yaml")
         if final.get("suite") != self.suite or not is_text(final.get("summary")):
@@ -1255,6 +1879,21 @@ class ACT4ReviewChecker(Checker):
                 raise ValueError("Final findings need fixed/deferred/not_fixed/dismissed, a nonempty evidence string list, and textual reason")
             if item["status"] in {"deferred", "not_fixed"} and not is_text(item.get("next_action")):
                 raise ValueError(f"Finding {item['id']} needs next_action describing the missing information or follow-up required for repair")
+            progress = item.get("repair_progress")
+            expected = {"fixed": {"validated"}, "dismissed": {"not_applicable"},
+                        "deferred": {"not_started", "designing", "implemented"}, "not_fixed": {"not_started", "designing", "implemented"}}[item["status"]]
+            if progress not in expected:
+                raise ValueError(f"Finding {item['id']} repair_progress must be one of {sorted(expected)} for disposition {item['status']}")
+            if progress == "implemented":
+                formal = any(set(change["paths"]) & set(changed) for change in review["changes"] if item["id"] in change["findings"])
+                experimental = any(self._state().get("experiments", {}).get(plan["id"], {}).get("changed_paths") and
+                    self._state()["experiments"][plan["id"]]["status"] == "completed"
+                    for plan in review.get("experiments", []) if item["id"] in plan["findings"])
+                if not formal and not experimental:
+                    raise ValueError(f"Finding {item['id']} cannot claim implemented without a declared source change or retained experimental implementation")
+            original = next(finding for finding in review["findings"] if finding["id"] == item["id"])
+            if "root_cause_key" in item and item["root_cause_key"] != original.get("root_cause_key"):
+                raise ValueError("Update root_cause_key in the reviewed finding before using it for final correlation")
             if item["status"] == "fixed":
                 proposals = [change for change in review["changes"] if item["id"] in change["findings"]]
                 if not any(set(change["paths"]) & set(changed) for change in proposals):
@@ -1262,8 +1901,9 @@ class ACT4ReviewChecker(Checker):
                 required = {job for change in proposals for job in change["validation_jobs"]}
                 if any(job["status"] != "passed" for job in evidence["jobs"] if job["id"] in required):
                     raise ValueError(f"Finding {item['id']} cannot be fixed without passing its validation jobs")
-        self._traceability(final.get("traceability"), evidence)
-        self._semantic_review(final, evidence, review=review, changed=changed)
+        self._traceability(final.get("traceability"), evidence, partial=not publish)
+        self._semantic_review(final, evidence, review=review, changed=changed, partial=not publish)
+        self._validation_section, self._validation_location = "conclusion", "final.yaml"
         before_evidence = self._load("evidence-before.json")
         coverage_delta = set(before_evidence["coverpoints"]) ^ set(evidence["coverpoints"])
         ci_passed = any(job["status"] == "passed" for job in evidence["jobs"]) and all(job["status"] in {"passed", "not_applicable"} for job in evidence["jobs"])
@@ -1285,6 +1925,8 @@ class ACT4ReviewChecker(Checker):
                              for item in final["semantic_review"]["judgments"])
         if (not ci_passed or not evidence["static_passed"] or semantic_risks or any(item["status"] != "fixed" for item in results)) and not final["remaining_risks"]:
             raise ValueError("Unresolved findings, AI judgments or CI limitations must appear in remaining_risks")
+        if not publish:
+            return final
         patch = []
         for name in changed:
             before, after = self.output / "baseline" / name, self.output / "candidate" / name
@@ -1315,25 +1957,46 @@ class ACT4ReviewChecker(Checker):
         return final
 
     def do_check(self, is_complete: bool = False, run_commands: bool = False, refresh_tools: bool = False,
+                 experiment: dict[str, Any] | None = None,
                  **kwargs: Any) -> tuple[bool, dict[str, Any]]:
         """Validate current review evidence, scoped candidate repairs, and final dispositions."""
+        self._validation_section, self._validation_location = "scope", "scope.yaml"
         try:
             if type(run_commands) is not bool or type(refresh_tools) is not bool:
                 raise ValueError("run_commands and refresh_tools must be booleans")
-            if refresh_tools and self.phase != "audit":
-                raise ValueError("Refresh optional tools in review_audit, then recollect before and after evidence")
+            if experiment is not None and (not isinstance(experiment, dict) or set(experiment) != {"action", "id"} or experiment.get("action") not in {"prepare", "run", "status"} or is_complete or run_commands or refresh_tools):
+                raise ValueError("Use Check(stage_args={experiment: {action: prepare/run/status, id: E<number>}}) in audit/repair, without Complete or other execution arguments")
+            if self.phase == "plan" and (run_commands or experiment is not None):
+                raise ValueError("review_plan reads ISA sources only; finish the independent design before asset commands or experiments")
+            if refresh_tools and self.phase not in {"plan", "audit"}:
+                raise ValueError("Refresh optional tools in review_plan or review_audit, then recollect before and after evidence")
             workspace = Path(self.workspace).resolve()
             self.source = safe_path(workspace, self.act4_root)
             self.output = safe_path(workspace, self.review_dir)
+            self.environment = prepared_environment(self.output.parent / "environment", self.smanager_get_value if self.stage_manager else None)
             if self.output.resolve().is_relative_to(self.source.resolve()) or self.source.resolve().is_relative_to(self.output.resolve()):
                 raise ValueError("Review artifacts and input checkout must be separate")
             self.output.mkdir(parents=True, exist_ok=True)
             state = self._state()
+            if experiment is not None and self.phase == "final":
+                if experiment["id"] not in state.get("experiments", {}):
+                    raise ValueError("Prepare the experiment with the repair checker before inspecting final-stage status")
+                return self._checked_result(True, {"experiment": experiment["id"], "final_review": "not_checked",
+                    "next_action": "The experiment does not validate final.yaml; run ordinary Check and Complete after formal repair validation"})
             environment = self._environment(state, refresh_tools)
+            if self.phase == "plan" and not (self.output / "isa-plan.yaml").exists() and not is_complete:
+                return self._checked_result(True, {"environment": "environment.json",
+                    "next_action": "Create isa-plan.yaml from user scope and ISA only, then Check to obtain isa-plan-context.json. Do not read existing CTP, coverage, generators, mappings or CI yet."})
+            plan = self._isa_plan(state, is_complete)
+            if self.phase == "plan":
+                return self._checked_result(True, {"plan": "isa-plan.yaml", "requirements": len(plan["requirements"]),
+                    "accepted": "isa_plan" in state,
+                    "next_action": "Continue to review_audit and compare every ISA requirement with assets." if is_complete else "Call Complete to freeze the ISA-first design before reviewing assets."})
             if self.phase == "audit" and not (self.output / "scope.yaml").exists() and not is_complete:
-                return True, {"environment": "environment.json", "optional_tools": {name: item["status"] for name, item in environment["tools"].items()},
-                              "next_action": "Create scope.yaml using the detected capabilities; optional simulators must not be prerequisites of generation/build/model/lint."}
+                return self._checked_result(True, {"environment": "environment.json", "optional_tools": {name: item["status"] for name, item in environment["tools"].items()},
+                              "next_action": "Create scope.yaml using the detected capabilities; optional simulators must not be prerequisites of generation/build/model/lint."})
             scope = self._scope()
+            self._validation_section, self._validation_location = "baseline", "baseline.json"
             self._baseline(state, scope)
             candidate = self.output / "candidate"
             if candidate.is_symlink():
@@ -1341,14 +2004,83 @@ class ACT4ReviewChecker(Checker):
             if candidate.exists() and state.get("candidate_prepared") is not True:
                 raise ValueError("Candidate was not prepared from the frozen baseline by Check; use a fresh review output")
             if self.phase == "audit" and not run_commands and not is_complete and not state.get("evidence-before"):
-                return True, {"baseline": "baseline.json", "scope": "scope.yaml",
-                              "next_action": 'Run Check(stage_args={"run_commands": true}), then write review.yaml using evidence-before.json'}
+                return self._checked_result(True, {"baseline": "baseline.json", "scope": "scope.yaml",
+                              "next_action": 'Run Check(stage_args={"run_commands": true}), then write review.yaml using evidence-before.json'})
+            self._validation_section, self._validation_location = "evidence", "evidence-before.json"
             before = self._evidence(state, scope, self.output / "baseline", "before",
                                     run_commands and self.phase == "audit")
-            review = self._review(scope, before)
+            self._validation_section, self._validation_location = "document", "review.yaml"
+            review = self._review(scope, before, partial=self.phase == "audit")
+            if experiment is not None:
+                self._validation_section, self._validation_location = "experiment", str(experiment["id"])
+                plan = next((item for item in review.get("experiments", []) if item["id"] == experiment["id"]), None)
+                if plan is None:
+                    raise ValueError("Declare this experiment in review.yaml before preparing or running it")
+                directory = safe_path(self.output, f"experiments/{plan['id']}/candidate")
+                experiments = state.setdefault("experiments", {})
+                prepared = experiments.get(plan["id"])
+                if experiment["action"] == "status":
+                    status = {key: value for key, value in (prepared or {"status": "not_prepared"}).items() if key != "inputs"}
+                    return self._checked_result(True, {"experiment": plan["id"], "state": status, "acceptance": "Experiment status does not complete the review"})
+                if experiment["action"] == "prepare":
+                    if prepared is not None or directory.exists():
+                        raise ValueError("Experiment already prepared; use status/run, or declare a new ID for a different attempt")
+                    base = candidate if candidate.exists() else self.output / "baseline"
+                    if candidate.exists():
+                        self._changes(state, review)
+                    inputs = tree_state(base)
+                    copy_sources(base, directory, inputs)
+                    experiments[plan["id"]] = {"plan": digest(plan), "inputs": inputs, "status": "prepared"}
+                    return self._checked_result(True, {"experiment": plan["id"], "candidate": str(directory.relative_to(self.output)), "editable_paths": plan["paths"],
+                        "next_action": "Implement only the declared experimental paths, then Check with experiment action run; do not edit the formal candidate"})
+                if prepared is None or prepared["plan"] != digest(plan) or prepared["status"] != "prepared":
+                    raise ValueError("Experiment must be prepared, unchanged in declaration and not previously run; use a new ID after a completed or interrupted attempt")
+                current = tree_state(directory)
+                changed = {name for name in current.keys() | prepared["inputs"].keys() if current.get(name) != prepared["inputs"].get(name)}
+                if changed - set(plan["paths"]):
+                    raise ValueError(f"Experiment changed undeclared paths: {sorted(changed - set(plan['paths']))}")
+                used = sum(item["status"] != "prepared" for item in experiments.values())
+                elapsed = sum(item.get("seconds", self.max_experiment_seconds if item["status"] == "running" else 0) for item in experiments.values())
+                if used >= self.max_experiments or elapsed >= self.max_experiment_seconds:
+                    raise ValueError("Experiment budget exhausted; preserve partial results and report budget_exhausted with the next continuation action")
+                selected = set(plan["jobs"])
+                while True:
+                    expanded = selected | {name for job in scope["jobs"] if job["id"] in selected for name in job.get("needs", [])}
+                    if expanded == selected:
+                        break
+                    selected = expanded
+                experiment_scope = {**scope, "assets": plan["assets"], "jobs": [copy.deepcopy(job) for job in scope["jobs"] if job["id"] in selected]}
+                prepared["status"] = "running"
+                prepared["changed_paths"] = sorted(changed)
+                started = time.monotonic()
+                label = f"experiment-{plan['id']}"
+                try:
+                    receipt = self._evidence(state, experiment_scope, directory, label, True,
+                                             deadline=started + self.max_experiment_seconds - elapsed)
+                    prepared.update(status="completed", jobs={job["id"]: job["status"] for job in receipt["jobs"]})
+                    name = f"evidence-{label}.json"
+                    state.setdefault("experiment_receipts", {})[name] = hashlib.sha256(safe_path(self.output, name).read_bytes()).hexdigest()
+                finally:
+                    prepared["seconds"] = time.monotonic() - started
+                    if prepared["status"] == "running":
+                        prepared["status"] = "interrupted"
+                    self._write("experiments.json", {"schema_version": 1, "receipts": state.get("experiment_receipts", {}),
+                        "attempts": {identity: {key: value for key, value in item.items() if key != "inputs"} for identity, item in experiments.items()},
+                        "budget": {"max_experiments": self.max_experiments, "max_seconds": self.max_experiment_seconds}})
+                    state["experiment_index"] = hashlib.sha256(safe_path(self.output, "experiments.json").read_bytes()).hexdigest()
+                self._baseline(state, scope)
+                return self._checked_result(True, {"experiment": plan["id"], "evidence": name, "jobs": prepared["jobs"],
+                    "next_action": "Inspect generated sources, signatures and logs against success_criterion; update investigation before promoting a repair. This is not formal validation or stage completion."})
+            if self.phase == "audit":
+                passed, result = self._review_batch(is_complete)
+                if not passed:
+                    return self._checked_result(passed, result)
+                self._review(scope, before)
             self._markdown("review.md", "ACT4 Extension Review", review, [("before", before)])
             if self.phase == "audit":
-                return True, {"report": "review.md", "asset_health": before["static_passed"]}
+                self._write("review-accepted.json", {"schema_version": 1, "review": review, "evidence_digest": before["review_digest"]})
+                state["audit_snapshot"] = hashlib.sha256(safe_path(self.output, "review-accepted.json").read_bytes()).hexdigest()
+                return self._checked_result(True, {"report": "review.md", "asset_health": before["static_passed"]})
             if not candidate.exists():
                 if self.phase != "repair":
                     raise ValueError("Candidate missing; run Check in review_repair to prepare it")
@@ -1356,22 +2088,32 @@ class ACT4ReviewChecker(Checker):
                 state["candidate_prepared"] = True
             changed = self._changes(state, review)
             if self.phase == "repair" and not run_commands and not is_complete:
-                return True, {"candidate": str(candidate), "changed_paths": changed,
-                              "next_action": 'Repair evidence-supported review.changes paths; document unresolved findings, then Check(stage_args={"run_commands": true}) and create final.yaml'}
+                return self._checked_result(True, {"candidate": str(candidate), "changed_paths": changed,
+                              "next_action": 'Repair evidence-supported review.changes paths; document unresolved findings, then Check(stage_args={"run_commands": true}) and create final.yaml'})
             for kind in ASSET_KINDS:
                 for name in set(scope["assets"][kind]) - set(review["post_assets"][kind]):
                     if safe_path(candidate, name).exists():
                         raise ValueError(f"post_assets must not hide an existing reviewed asset: {name}")
             post_scope = {**scope, "assets": review["post_assets"]}
+            self._validation_section, self._validation_location = "evidence", "evidence-after.json"
             after = self._evidence(state, post_scope, candidate, "after", run_commands and self.phase == "repair")
             if self.phase == "final":
+                self._validation_section, self._validation_location = "document", "final.yaml"
+                self._final(review, after, changed, publish=False)
+                passed, result = self._review_batch(is_complete)
+                if not passed:
+                    return self._checked_result(passed, result)
                 self._final(review, after, changed)
             self._baseline(state, scope)
-            return True, {"report": "final.md" if self.phase == "final" else "evidence-after.json",
+            return self._checked_result(True, {"report": "final.md" if self.phase == "final" else "evidence-after.json",
                           "changed_paths": changed, "ci": [{key: value for key, value in job.items()
                               if key in {"id", "status", "purpose", "log", "reason", "elf_count", "executed_tests"}}
-                              for job in after["jobs"]]}
+                              for job in after["jobs"]]})
         except (ValueError, TypeError, KeyError, OSError, re.error, yaml.YAMLError, subprocess.SubprocessError) as exc:
-            return False, {"error_code": "act4_review_contract", "error": str(exc),
+            if isinstance(exc, yaml.YAMLError) and getattr(exc, "problem_mark", None):
+                self._validation_section = "yaml"
+                self._validation_location += f":{exc.problem_mark.line + 1}:{exc.problem_mark.column + 1}"
+            return self._checked_result(False, {"error_code": f"act4_review_{self._validation_section}", "error": str(exc),
+                           "location": self._validation_location,
                            "artifact": self.review_dir, "phase": self.phase,
-                           "next_action": "Correct the named review artifact and rerun Check; follow Guide_Doc/ACT4_Extension_Review_Guide.md"}
+                           "next_action": "Correct the named review artifact and rerun Check; follow Guide_Doc/ACT4_Extension_Review_Guide.md"})

@@ -3,7 +3,6 @@
 from dataclasses import replace
 import importlib.metadata
 from pathlib import Path
-import subprocess
 import tomllib
 
 import pytest
@@ -49,7 +48,8 @@ def test_workflow_checker_arguments_construct_with_plugin_registry() -> None:
         [LoadedPlugin(plugin, plugin.name, "test")]
     )
 
-    assert len(config["stage"]) == 7
+    assert len(config["stage"]) == 8
+    assert config["stage"][0]["name"] == "prepare_environment"
     assert config["stage"][-1]["name"] == "generate_final_human_report"
     for stage in config["stage"]:
         for checker in stage["checker"]:
@@ -75,6 +75,7 @@ def test_workflow_checker_names_are_plugin_short_names() -> None:
         "ACT4ManualReferenceChecker",
         "ACT4SwitchCapabilityChecker",
         "ACT4TestAssetChecker",
+        "ACT4EnvironmentChecker",
     }
 
 
@@ -91,7 +92,7 @@ def test_stages_reference_bundled_contracts() -> None:
         "privileged_validation_handoff_template.md",
         "privileged_validation_handoff_template.md",
     ]
-    for stage, template in zip(workflow["stage"], templates, strict=True):
+    for stage, template in zip(workflow["stage"][1:], templates, strict=True):
         references = stage["reference_files"]
         assert f"Guide_Doc/act4_template/{template}" in references
         for gate in stage["checker"]:
@@ -164,33 +165,16 @@ def test_missing_yaml_dependency_reports_requirement(monkeypatch) -> None:
         validate_plugin(get_plugin(), check_dependencies=True)
 
 
-def test_checker_activation_does_not_require_workflow_commands(monkeypatch) -> None:
-    """Allow static checkers without importing the generation workflow's host tools."""
+def test_workflow_startup_allows_environment_stage_to_prepare_tools(monkeypatch) -> None:
+    """Do not reject workflows before their own preparation stage can inspect missing tools."""
     monkeypatch.setattr("ucagent.plugins.shutil.which", lambda executable: None)
     validate_plugin(get_plugin(), check_dependencies=True)
     plugin = get_plugin()
-    with pytest.raises(PluginError, match="requires command"):
-        validate_workflow_dependencies(plugin.name, plugin.workflows[0])
-
-
-@pytest.mark.parametrize("failure", ["exit", "empty", "timeout"])
-@pytest.mark.parametrize("command,label", [("bash", "Bash"), ("git", "Git"), ("curl", "Curl"), ("make", "GNU Make")])
-def test_broken_command_version_fails_before_workflow(monkeypatch, failure, command, label) -> None:
-    """Reject unusable host tools even when their executables exist on PATH."""
-    real_run = subprocess.run
-
-    def probe(args, **kwargs):
-        """Fail just the selected host-tool version probe."""
-        if Path(args[0]).name == command and args[1:] == ["--version"]:
-            if failure == "timeout":
-                raise subprocess.TimeoutExpired(args, 10)
-            return subprocess.CompletedProcess(args, 1 if failure == "exit" else 0, "", "")
-        return real_run(args, **kwargs)
-
-    monkeypatch.setattr("ucagent.plugins.subprocess.run", probe)
-    plugin = get_plugin()
-    with pytest.raises(PluginError, match=f"(query {label} version|working {label} version command)"):
-        validate_workflow_dependencies(plugin.name, plugin.workflows[0])
+    for workflow in plugin.workflows:
+        validate_workflow_dependencies(plugin.name, workflow)
+        config = yaml.safe_load(workflow.config_file.read_text(encoding="utf-8"))
+        preparation_index = 1 if workflow.name == "xiangshan-v3-handoff" else 0
+        assert config["stage"][preparation_index]["name"] == "prepare_environment"
 
 
 def test_distribution_and_source_manifest_share_plugin_identity() -> None:
@@ -245,15 +229,15 @@ def test_agent_starts_with_complete_workflow(
     )
     try:
         stages = agent.stage_manager.stages
-        assert len(stages) == 7
-        assert len([checker for stage in stages for checker in stage.checker]) == 25
+        assert len(stages) == 8
+        assert len([checker for stage in stages for checker in stage.checker]) == 26
         for stage in stages:
             for checker in stage.checker:
                 assert isinstance(checker._cb_list, dict)
                 assert checker.stage is stage
                 assert checker.workspace == str(workspace)
                 checker.on_init()
-        manual_checker = stages[0].checker[1]
+        manual_checker = stages[1].checker[1]
         assert manual_checker.manual_root == expected_manual
         assert agent.cfg.un_write_dirs == ["Guide_Doc"]
         assert agent.cfg.write_dirs == ["act4_assets", "riscv-arch-test"]
@@ -322,18 +306,3 @@ def test_separate_output_and_readonly_manual_are_allowed(tmp_path, manual) -> No
     assert get_plugin().workflows[0].template_context_factory(
         config, {"WORKSPACE": str(workspace), "OUT": "generated/act4_assets"}
     ) == {}
-
-
-@pytest.mark.parametrize("command", ["bash", "git", "curl", "make"])
-def test_workflow_reports_missing_commands(monkeypatch, command) -> None:
-    """Report each unavailable workflow prerequisite before stage execution."""
-    import shutil
-
-    real_which = shutil.which
-    monkeypatch.setattr(
-        "ucagent.plugins.shutil.which",
-        lambda executable: None if executable == command else real_which(executable),
-    )
-    plugin = get_plugin()
-    with pytest.raises(PluginError, match="requires command"):
-        validate_workflow_dependencies(plugin.name, plugin.workflows[0])

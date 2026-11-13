@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import os
 import subprocess
+from ..environment import prepared_environment
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -490,6 +491,7 @@ class ACT4ManualReferenceChecker(Checker):
                     capture_output=True,
                     text=True,
                     timeout=30,
+                    env=prepared_environment(provenance_path.parent.parent / "environment", self.smanager_get_value if self.stage_manager else None),
                 ).stdout.strip()
             except (OSError, subprocess.SubprocessError) as exc:
                 if self.require_git_head:
