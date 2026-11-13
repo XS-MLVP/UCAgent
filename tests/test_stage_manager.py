@@ -2321,6 +2321,22 @@ def test_repeated_identical_failure_gains_escalation_note():
     assert "ESCALATION" not in again["next_action"]
 
 
+def test_checker_failure_key_distinguishes_errors_at_the_same_location():
+    """Honor an explicit diagnostic identity without changing unkeyed checker behavior."""
+    manager = StageManager.__new__(StageManager)
+    summary = {"error_code": "act4_review_scope", "location": "scope.yaml",
+               "failure_key": "missing-context", "next_action": "Supply the missing field"}
+    for _ in range(StageManager.REPEAT_FAILURE_ESCALATION_THRESHOLD):
+        result = manager._escalate_repeated_failure(0, summary)
+    assert result["repeat_failure_count"] == 8
+    changed = {**summary, "failure_key": "overlapping-ranges"}
+    assert "repeat_failure_count" not in manager._escalate_repeated_failure(0, changed)
+    unkeyed = {"error_code": "ordinary_checker", "location": "artifact", "next_action": "Repair it"}
+    for index in range(StageManager.REPEAT_FAILURE_ESCALATION_THRESHOLD):
+        result = manager._escalate_repeated_failure(1, {**unkeyed, "error": f"detail {index}"})
+    assert result["repeat_failure_count"] == 8
+
+
 def test_previous_stage_journal_carried_into_tips():
     """CurrentTips surfaces the completed previous stage's journal excerpt."""
 

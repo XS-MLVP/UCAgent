@@ -1254,9 +1254,10 @@ class StageManager(object):
     def _escalate_repeated_failure(self, stage_index, failure_summary):
         """Return the failure summary with an escalation note when looping.
 
-        Tracks consecutive failures carrying the same error_code and location
-        on one stage.  From the threshold-th repetition onward the diagnostic
-        gains an explicit stop-and-rethink instruction.
+        Tracks consecutive failures carrying the same error_code, location,
+        and optional Checker-authored failure_key on one stage. From the
+        threshold-th repetition onward the diagnostic gains an explicit
+        stop-and-rethink instruction.
         """
 
         if not isinstance(failure_summary, dict):
@@ -1264,6 +1265,7 @@ class StageManager(object):
         signature = (
             failure_summary.get("error_code"),
             failure_summary.get("location"),
+            failure_summary.get("failure_key"),
         )
         state = getattr(self, "_repeat_failure_state", None)
         if state is None:
