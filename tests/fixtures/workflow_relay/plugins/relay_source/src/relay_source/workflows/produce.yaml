@@ -1,0 +1,29 @@
+output: result_a
+template: null
+manager_tools: []
+write_dirs: ["{OUT}"]
+un_write_dirs: [inputs, Guide_Doc]
+skill:
+  use_skill: false
+runtime_options:
+  multi_agent_enabled: true
+vmanager:
+  llm_suggestion:
+    check_fail_refinement: {enable: false}
+    check_pass_refinement: {enable: false}
+mission:
+  name: relay-source
+  prompt:
+    system: "Produce a validated payload preserving the requested integer and operation."
+stage:
+  - name: produce
+    desc: Produce a validated payload preserving the requested integer and operation.
+    task:
+      - "Read inputs/request.json and Guide_Doc/source.md. Copy the exact value and operation into result_a/payload.json."
+      - "Record the stage journal, Check the artifact, then submit the result."
+    reference_files: [Guide_Doc/source.md]
+    output_files: ["{OUT}/payload.json"]
+    checker:
+      - name: validated_payload
+        clss: RelaySourceChecker
+        args: {}

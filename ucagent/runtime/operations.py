@@ -650,6 +650,8 @@ class OperationExecutor:
                     service = getattr(self.agent, "multi_agent", None)
                     if service is not None and service.workflow_state == "failed":
                         raise OperationFailure("delegation_failed", "Delegated workflow stopped; inspect TaskStatus.", service.status())
+                    if service is not None and service.handoff is not None and service.workflow_state in {"handoff", "paused"}:
+                        return {"reason": service.workflow_state, "invoke_round": self.agent.invoke_round}
                     self.agent._update_stalled_rounds(revision, index)
                     context.checkpoint()
                     if self.agent.is_exit():

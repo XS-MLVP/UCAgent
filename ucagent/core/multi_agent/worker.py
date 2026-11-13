@@ -167,6 +167,7 @@ class WorkerSession:
     def get_current_tips(self):
         """Expose the authorized step and cumulative budgets without changing ownership."""
         return {**self.service.driver.tips(self.record.lease),
+                "handoff_inputs": self.service.handoff.run["input_manifest"] if self.service.handoff else [],
                 "task": {"id": self.record.key, "role": self.record.spec.role,
                          "inputs": list(self.record.spec.inputs), "outputs": list(self.record.spec.outputs)},
                 "budget": self.record.budget_status(self.service.settings.limits)}

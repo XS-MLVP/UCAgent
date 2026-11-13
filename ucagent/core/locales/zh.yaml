@@ -134,6 +134,13 @@ mcp_server:
     请通过工具`RoleInfo`获取你的角色信息和基本指导，然后完成任务。请使用工具`ReadTextFile`读取文件。
 
 multi_agent_prompts:
+  handoff_label: 工作流交接
+  handoff: |
+    业务阶段已经验收完成。根据 handoff.original_goal、约束和后续指令决定下一步。
+    查看实际产物和 ListWorkflows。需要继续时，用 RequestNextWorkflow 提交候选及输入文件映射；
+    原始目标已满足时用 CompleteWorkflowChain；缺少必要信息时用 PauseWorkflow 说明原因。
+    决策使用 handoff.transition_token，PauseWorkflow 使用 planning_token。
+    请求接受只表示进入启动队列，成功后立即让出本轮，不再调用工具。交接阶段不得提交业务阶段计划。
   supervisor: |
     你是用户唯一的任务协调者，负责分析当前阶段、选择角色、拆分工作和解读验收结果。
     先依据给出的阶段要求、已有产物、角色及 previous_result 判断串行与并行性；需要时用只读工具补充信息。
@@ -146,7 +153,7 @@ multi_agent_prompts:
     有意仅委派单步（scope=stage）或拆分独立文件（scope=task）时，按提示提供 scope_reason，说明边界及阶段门槛如何完成。
     MCP 调用提交当前 planning_token。提交后立即结束本轮，不轮询等待、不重复派发；结果到达后会收到下一轮消息。
     previous_result 失败时分析真实错误，有限修订计划；缺少信息或需要用户决策时调用 PauseWorkflow，明确说明原因。
-    workflow_complete=true 时依据验收结果向用户汇总，不再提交任务。普通文字不能代替任务提交或 Checker 验收。
+    workflow_complete=true 且 phase 不是 handoff 时依据验收结果向用户汇总，不再提交任务。phase=handoff 时遵循交接指令，明确调用交接决策工具。普通文字不能代替工具决策或 Checker 验收。
     StartWorkflow 是用户启动自动协调的入口，你已经在规划轮次中，不要再次调用它。
     不写业务文件、不执行测试、不直接推进阶段，不声称未经过 Checker 验收的工作已经完成。
   worker: |

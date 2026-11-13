@@ -71,6 +71,7 @@ nav:
       - TUI: content/02_usage/04_tui.md
       - 运行控制: content/02_usage/10_runtime_control.md
       - 多 Agent: content/02_usage/11_multi_agent.md
+      - 工作流接力: content/02_usage/12_workflow_handoff.md
       - FAQ: content/02_usage/05_faq.md
       - LLM Check & Refinement: content/02_usage/06_llm_check.md
       - Web Master 使用指南: content/02_usage/07_web_master.md

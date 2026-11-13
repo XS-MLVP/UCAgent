@@ -102,6 +102,8 @@ def prepare_task(agent, options):
     agent.cfg = prepared.cfg
     from ucagent.core.multi_agent.contracts import load_settings
     agent.multi_agent_settings = load_settings(agent.cfg, agent.workspace)
+    from ucagent.core.workflow.contracts import load_handoff_settings
+    agent.workflow_handoff_settings = load_handoff_settings(agent.cfg)
     agent.plugins = list(prepared.plugins)
     agent.workflow_config_file = prepared.workflow_config_file or ''
     agent.plugin_workflow = prepared.plugin_workflow or ''
@@ -252,7 +254,8 @@ def assemble_tools(agent, options):
     conflicting_plugin_names = sorted((tool.name for tool in agent.tool_list_plugin if tool.name in non_plugin_names))
     if conflicting_plugin_names:
         raise ValueError(f'Plugin tool names conflict with registered UCAgent tools: {conflicting_plugin_names}')
-    os.environ['UCAGENT_WORKSPACE'] = agent.workspace
+    if not getattr(options, '_defer_workspace_activation', False):
+        os.environ['UCAGENT_WORKSPACE'] = agent.workspace
     agent.planning_tools = []
     agent.force_todo = options.force_todo
     if options.interaction_mode == 'standard' and options.force_todo or options.use_todo_tools:
@@ -326,9 +329,9 @@ def assemble_backend(agent, options):
         public_key = langfuse_cfg.get_value('public_key', '')
         secret_key = langfuse_cfg.get_value('secret_key', '')
         base_url = langfuse_cfg.get_value('base_url', '')
-        agent.langfuse = Langfuse(public_key=public_key, secret_key=secret_key, base_url=base_url)
-        agent._startup_cleanup.callback(close_agent_resource, agent, "Langfuse shutdown", agent.langfuse.shutdown)
-        assert agent.langfuse.auth_check(), "Can't connect to langfuse, please check your configuration"
+        from ucagent.core.agent.telemetry import acquire_trace_client
+        agent.langfuse, release_trace = acquire_trace_client(Langfuse, public_key=public_key, secret_key=secret_key, base_url=base_url)
+        agent._startup_cleanup.callback(close_agent_resource, agent, "Langfuse shutdown", release_trace)
         agent.langfuse_handler = CallbackHandler(public_key=public_key)
 
     if agent.multi_agent_settings is not None:

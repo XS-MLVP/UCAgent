@@ -52,8 +52,8 @@ def control_result(action, content):
 
 def planning_message(context):
     """Show the stage, user request and previous outcome without the planning envelope."""
-    parts = [control_result("tips", context)]
-    if context.get("workflow_complete"):
+    parts = [context.get("phase_label") or "Workflow handoff"] if context.get("phase") == "handoff" else [control_result("tips", context)]
+    if context.get("workflow_complete") and context.get("phase") != "handoff":
         parts.append("Workflow complete.")
     if context.get("user_instruction"):
         parts.append("User instruction:\n" + str(context["user_instruction"]))

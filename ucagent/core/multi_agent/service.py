@@ -131,6 +131,7 @@ class MultiAgentService:
         self._feedback = None
         self._instruction = None
         self._supervisor_question = None
+        self.handoff = None
 
     def emit(self, kind, **data):
         """Retain bounded structured events and wake attached runtime views."""
@@ -141,6 +142,9 @@ class MultiAgentService:
                         {"backend": self.agent.cfg.backend.key_name, "session_id": self.agent.session_id.hex})
             event = {"event": kind, "time": time.time(), **identity, **data}
             self._events.append(event)
+            if self.handoff is not None and kind in {"plan_submitted", "task_started", "task_finished", "scope_validated"}:
+                self.handoff.chain.event("workflow_" + kind, run_id=self.handoff.run["run_id"],
+                    **{key: value for key, value in event.items() if key not in {"event", "time"}})
             log_msg("multi_agent " + json.dumps(event, ensure_ascii=False, default=str))
             self._events = self._events[-500:]
             self._cv.notify_all()
@@ -530,6 +534,9 @@ class MultiAgentService:
                 result = self.driver.finish(lease, timeout,
                     summaries=[r.result["summary"] for r in records],
                     stage_args=records[0].result.get("stage_args") if len(records) == 1 else None)
+                if (result.get("complete") and self.handoff is not None
+                        and all(stage.is_completed() or stage.is_skipped() for stage in self.agent.stage_manager.stages)):
+                    self.handoff.record_artifacts()
         except Exception as exc:
             result = {"complete": False, "error": str(exc)}
         with self._cv:
@@ -571,6 +578,7 @@ class MultiAgentService:
                                             "Check, per-step journals and enabled Skill tools before submitting.",
                             "stage": "Only the current step; Check, journals and enabled Skill tools; then submit.",
                             "task": "Independent file artifacts only; no Check, Skill or stage journal tools."}},
+                    "handoff": self.handoff.context(self.planning["token"] if self.planning and self.planning.get("handoff") else None) if self.handoff else None,
                     "stage": self.agent.stage_manager.get_current_tips() if current is not None else None,
                     "stage_index": self.agent.stage_manager.stage_index,
                     "stage_name": getattr(current, "name", None),
@@ -589,6 +597,53 @@ class MultiAgentService:
                                     "Configured output rules and final stage Checker remain mandatory. "
                                     "Tests and shared protocol state require exclusive scope. "
                                     "Continuous subtree steps use auto/subtree, not separate stage plans."}
+
+    def validate_handoff(self, token):
+        """Authorize only the active completed Super's explicit handoff turn."""
+        turn = self.planning
+        if turn and turn.get("handoff") and turn["submitted"]:
+            if self._closed or self.agent._need_break or self._workflow_stop.is_set() or time.monotonic() >= turn["deadline"]:
+                raise PermissionError("Supervisor handoff was cancelled or expired")
+        else:
+            self.validate_planning()
+        if (self.handoff is None or not self.planning.get("handoff")
+                or self.handoff.run is not self.handoff.chain.current
+                or token != self.planning["token"]):
+            raise PermissionError("Use the current Super handoff transition_token")
+        if self.planning["blocked"]:
+            raise PermissionError("Handoff turn is paused")
+
+    def list_workflows(self):
+        """List trusted candidate metadata without loading tools into this Agent."""
+        if self.handoff is None:
+            raise RuntimeError("Workflow handoff runtime is not attached")
+        return self.handoff.chain.candidates(self.handoff.run)
+
+    def workflow_transition_status(self):
+        """Provide detached chain status for this run's control endpoint."""
+        if self.handoff is None:
+            raise RuntimeError("Workflow handoff runtime is not attached")
+        return self.handoff.chain.view()
+
+    def request_next_workflow(self, **arguments):
+        """Accept a structured peer request and yield without starting a candidate inline."""
+        from ucagent.core.workflow.contracts import NextWorkflow
+        request = NextWorkflow.model_validate(arguments)
+        with self._cv:
+            self.validate_handoff(request.transition_token)
+            result = self.handoff.chain.accept(self.handoff.run, request)
+            self.planning["submitted"] = result["transition_id"]
+            return result
+
+    def complete_workflow_chain(self, **arguments):
+        """Record a final Super decision after real business acceptance."""
+        from ucagent.core.workflow.contracts import EndChain
+        request = EndChain.model_validate(arguments)
+        with self._cv:
+            self.validate_handoff(request.transition_token)
+            result = self.handoff.chain.accept(self.handoff.run, request)
+            self.planning["submitted"] = result["transition_id"]
+            return result
 
     def validate_planning(self, token=None, *, submitting=False):
         """Fence stale callbacks, cancelled turns and extra submissions across both transports."""
@@ -613,11 +668,15 @@ class MultiAgentService:
             if self.planning is None:
                 return
             owned = PLANNING_OWNER.get() == self.planning["token"]
-            if action in {"status", "wait", "cancel"} and not owned:
+            if action in {"status", "wait", "cancel", "workflow_transition_status"} and not owned:
+                return
+            if self.planning["submitted"] and self.planning.get("handoff") and action in {"request_next_workflow", "complete_workflow_chain"}:
                 return
             self.validate_planning()
             if self.planning["submitted"] or self.planning["blocked"]:
                 raise PermissionError("Planning turn already submitted; wait for its result")
+            if self.planning.get("handoff"):
+                self.handoff.chain.charge(self.handoff.run, "tool_calls")
             self.planning["calls"] += 1
             if self.planning["calls"] > self.settings.limits.supervisor_tool_calls:
                 raise RuntimeError("Supervisor tool-call budget exhausted")
@@ -625,7 +684,12 @@ class MultiAgentService:
     def pause_workflow(self, reason, planning_token=None):
         """Yield to the user without manufacturing a task or accepting a stage."""
         with self._cv:
-            self.validate_planning(planning_token, submitting=True)
+            if self.planning and self.planning.get("handoff"):
+                self.validate_handoff(planning_token or PLANNING_OWNER.get())
+                self.handoff.chain.state["status"] = "paused"
+                self.handoff.chain.save()
+            else:
+                self.validate_planning(planning_token, submitting=True)
             self.planning["blocked"] = reason
             self._supervisor_question = reason
             self.agent._need_human = True
@@ -645,6 +709,8 @@ class MultiAgentService:
         with self._cv:
             self.validate_planning()
             turn = self.planning
+            if turn.get("handoff"):
+                self.handoff.chain.charge(self.handoff.run, "backend_turns")
             turn["backend_turns"] = turn.get("backend_turns", 0) + 1
             if turn["backend_turns"] > self.settings.limits.supervisor_backend_turns:
                 raise RuntimeError("Supervisor backend-turn budget exhausted")
@@ -665,7 +731,7 @@ class MultiAgentService:
         """A successful control tool, not provider text, decides whether Super must yield."""
         return bool(self.planning and (self.planning["submitted"] or self.planning["blocked"]))
 
-    def plan_turn(self, *, final=False):
+    def plan_turn(self, *, final=False, handoff=False):
         """Run one real bounded Super model turn; only its tools may produce a plan."""
         from ucagent.core.backends.blank import BlankBackend
         if isinstance(self.agent.backend, BlankBackend):
@@ -682,16 +748,25 @@ class MultiAgentService:
             self._planning_turns[key] = count + 1
             turn = {"token": uuid4().hex, "stage_index": self.agent.stage_manager.stage_index,
                     "deadline": time.monotonic() + self.settings.limits.supervisor_timeout_seconds,
-                    "rounds": 0, "calls": 0, "submitted": None, "blocked": None, "final": final}
+                    "rounds": 0, "calls": 0, "submitted": None, "blocked": None, "final": final or handoff, "handoff": handoff}
+            if handoff:
+                deadline = self.handoff.run["decision"]["deadline"]
+                remaining = self.handoff.chain.settings.decision_limits.timeout_seconds if deadline is None else max(0, deadline - time.time())
+                turn["deadline"] = min(turn["deadline"], time.monotonic() + remaining)
             self.planning = turn
         token = PLANNING_OWNER.set(turn["token"])
         failed = True
         try:
             self.emit("supervisor_started", stage_index=turn["stage_index"], final=final)
             context = {**self.planning_context(), "user_instruction": self._instruction,
-                       "previous_result": self._feedback, "workflow_complete": final}
+                       "previous_result": self._feedback, "workflow_complete": final or handoff,
+                       "phase": "handoff" if handoff else "business",
+                       "phase_label": self.agent.cfg.get_value("multi_agent_prompts.handoff_label", "Workflow handoff") if handoff else None}
             from .display import planning_message
-            messages = [self.agent.backend.get_system_message(self.agent._default_system_prompt),
+            prompt = self.agent._default_system_prompt
+            if handoff:
+                prompt += "\n\n" + self.agent.cfg.get_value("multi_agent_prompts.handoff", "")
+            messages = [self.agent.backend.get_system_message(prompt),
                         self.agent.backend.get_human_message(json.dumps(context, ensure_ascii=False, default=str),
                                                              display_text=planning_message(context))]
             config = self.agent.get_work_config()
@@ -700,7 +775,8 @@ class MultiAgentService:
                 if final or turn["submitted"] or turn["blocked"] or self.agent.is_break():
                     break
                 # A text-only turn does not surrender the planning lease or reset budgets.
-                context["continuation"] = "Continue this planning turn: submit SubAgentTool or PauseWorkflow."
+                context["continuation"] = ("Choose RequestNextWorkflow, CompleteWorkflowChain or PauseWorkflow." if handoff else
+                                           "Continue this planning turn: submit SubAgentTool or PauseWorkflow.")
                 messages = [self.agent.backend.get_human_message(
                     json.dumps(context, ensure_ascii=False, default=str), display_text=context["continuation"])]
             if time.monotonic() >= turn["deadline"]:
@@ -712,7 +788,7 @@ class MultiAgentService:
         finally:
             PLANNING_OWNER.reset(token)
             with self._cv:
-                if failed and turn["submitted"]:
+                if failed and turn["submitted"] and not handoff:
                     self.cancel(turn["submitted"], stop_workflow=False)
                 self.planning = None
                 self.emit("supervisor_finished", stage_index=turn["stage_index"],
@@ -753,13 +829,22 @@ class MultiAgentService:
         self._workflow_stop.clear()
         if message is not None:
             self._instruction = message
+            if self.handoff is not None:
+                if not self.handoff.chain.state["goal"]:
+                    self.handoff.chain.state["goal"] = message
+                elif message != self.handoff.chain.state["goal"]:
+                    self.handoff.chain.state["instructions"].append(message)
+                self.handoff.chain.save()
             if self._supervisor_question is not None:
                 self.agent._need_human = False
                 self._supervisor_question = None
         try:
             return self._drive_workflow()
         except Exception as exc:
-            self.workflow_state = "paused" if self.agent.is_break() or self._closed else "failed"
+            self.workflow_state = "paused" if self.agent.is_break() or self._closed or (self.handoff and self.handoff.run["business_status"] == "completed") else "failed"
+            if self.handoff:
+                self.handoff.chain.state["status"] = "paused"
+                self.handoff.chain.save()
             self.emit("workflow_failed", error=str(exc))
             return self.status()
         finally:
@@ -777,6 +862,22 @@ class MultiAgentService:
                 if latest is not None and latest["state"] != "completed":
                     self.workflow_state = "failed"
                     self.emit("workflow_completion_rejected", error="The last delegated scope was not accepted")
+                    return self.status()
+                if getattr(self.agent, "workflow_handoff_settings", None) is not None:
+                    if self.handoff is None:
+                        raise RuntimeError("Workflow handoff requires an application-owned executor")
+                    if (not all(stage.is_completed() or stage.is_skipped() for stage in self.agent.stage_manager.stages) or self._running or self._validating
+                            or self.driver.active_lease is not None or getattr(self.agent, "_need_human", False)):
+                        raise RuntimeError("Workflow handoff is waiting for business acceptance and writer teardown")
+                    self.agent.stage_manager.save_stage_info()
+                    if latest is None and self.handoff.run["business_status"] != "completed":
+                        self.handoff.record_artifacts()
+                    self.handoff.run["business_status"] = "completed"
+                    self.handoff.chain.save()
+                    # An accepted decision survives model return/cancellation; only runtime may consume it.
+                    if self.handoff.run["transition"] is None:
+                        self.plan_turn(handoff=True)
+                    self.workflow_state = "handoff" if self.handoff.run["transition"] else "waiting_human"
                     return self.status()
                 self.plan_turn(final=True)
                 if self.agent.is_break() or self._closed:

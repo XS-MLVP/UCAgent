@@ -39,6 +39,7 @@ class RuntimeHost:
         self.force_exit = force_exit
         self.mode = mode
         self.exit_on_completion = exit_on_completion
+        self.workflow_chain_owned = False
         self.shutdown_timeout = lifecycle_timeout(shutdown_timeout)
         self.instance_state = "starting"
         self.execution_state = "idle"
@@ -312,9 +313,11 @@ class RuntimeHost:
                             self.execution_state = service.workflow_state
                             if service.workflow_state == "failed":
                                 self.task_outcome = "failed"
+                        elif service.workflow_state == "handoff":
+                            self.execution_state = "handoff"
                         elif service.workflow_state == "waiting_plan":
                             self.execution_state = "idle"
-            if (self.mode == "once" and self._seen_operations and not self.startup.active
+            if (not self.workflow_chain_owned and self.mode == "once" and self._seen_operations and not self.startup.active
                     and self.execution_state in {"idle", "failed"}
                     and not (getattr(self.agent, "multi_agent", None) and self.agent.multi_agent.has_active())
                     and not any(row["model"] and row["state"] not in TERMINAL_STATES for row in records)):
