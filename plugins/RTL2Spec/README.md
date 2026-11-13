@@ -46,6 +46,16 @@ bash plugins/RTL2Spec/scripts/install.sh --python python --fmagent-root /path/to
 
 四个下游阶段分别读取原生资料中的 spec/info。进入草稿阶段时自动向 `{OUT}/specs/` 原样导出全部发现的 `*_spec.md`，保持原层级、文件名和字节，info 仅保留为可选参考。没有 spec 时创建空目录；不要求正文非空、格式或模块覆盖，不生成占位 spec，也不修订其正文。中文文档的原验收保持，specs 不纳入其质量签核。完整配置、直接 UCAgent 入口和失败处理见[参考手册](docs/reference.md)。
 
+## 可选接续完整 UnityTest
+
+在同一 YAML 中设置 `unitytest.enabled: true`，统一入口会自动完成文档生成、DUT 包准备和文档交接，再启动独立的完整默认 UnityTest。省略此字段或设为 `false` 时保持仅生成文档的行为。接续前需另行准备 PATH 中的 picker、Verilator 及 Python 仿真依赖；只支持 Verilator，波形使用 FST。
+
+`unitytest.workspace` 默认是上游工作区内的 `verification`；请选择无既有 DUT 包、准备记录或验证状态的新目录。Generic 继续使用现有 `rtl2spec.json` 的文件顺序、include、宏和参数。香山使用本次生成结果和完整生成器 filelist，不重复调用生成入口。
+
+复用已有文档时，将 `rtl2spec.mode` 改为 `reuse` 并设置 `rtl2spec.source` 为旧输出目录，同时保持 `unitytest.enabled: true`。`source` 相对 YAML 解析，只提供文档；硬件仍来自当前 workspace 的输入工程。此模式跳过整个生成 mission，忽略 FM-Agent 配置和环境，与 `fmagent.mode: reuse` 不同。
+
+下游 `{DUT}_Doc/` 包含全部 `specs/` 中递归发现的 `*_spec.md` 及 DUT 设计文档，平铺且字节原样；不按模块选择，不新增 spec 数量或质量门槛。同名冲突、构建或示例失败均停止并保留现场，不覆盖、不自动重试。配置隔离、参数支持条件和运行布局见[接续参考](docs/reference.md#完整-unitytest-接续)。
+
 ## 示例一：通用 RTL（Example: GenericBlock）
 
 ### 准备配置和输入
@@ -73,6 +83,11 @@ rtl2spec:
   module: GenericBlock                # [RTL 顶层模块名]
   workflow: generic-design-document
   output: outputs                     # [本次输出目录]
+  mode: run
+
+unitytest:
+  enabled: false
+  workspace: verification
 
 backend:
   key_name: codex                      # [已配置的后端]
@@ -147,6 +162,11 @@ rtl2spec:
   module: Sbuffer                       # [目标模块名]
   workflow: xiangshan-design-document
   output: outputs                       # [本次输出目录]
+  mode: run
+
+unitytest:
+  enabled: false
+  workspace: verification
 
 backend:
   key_name: codex                        # [已配置的后端]
@@ -248,7 +268,7 @@ rtl2spec --config ~/rtl2spec-runs/generic/rtl2spec.yaml
 | `evidence/` | RTL、精确端口清单、输入基线；`ports.md` 提供附录 A 骨架 |
 | `logs/` | 工具调用和阶段耗时 |
 
-先读设计文档，再查看质量报告与验收记录。验收覆盖文档结构、引用和证据一致性；本流程不执行仿真或形式化验证，未执行项目保留 `Unrun`/`Open`。常见报错与修复入口见[工具参考](docs/reference.md#常见问题)。
+先读设计文档，再查看质量报告与验收记录。文档生成的验收覆盖结构、引用和证据一致性，不等于仿真或形式化验证，未执行项目保留 `Unrun`/`Open`。启用 UnityTest 接续后，验证结果另见验证工作区中的默认阶段、测试报告与产物；常见报错与修复入口见[工具参考](docs/reference.md#常见问题)。
 
 流程不依赖 Skill。Mermaid 图保留在 Markdown 源码中，阅读时使用支持 Mermaid 的查看器即可。
 
