@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 from typing import TYPE_CHECKING
 
+from textual import work
 from textual.app import ComposeResult
 from textual.containers import VerticalScroll
+from textual.worker import Worker
 from textual.widgets import Static
 
 if TYPE_CHECKING:
@@ -17,8 +20,10 @@ class TaskPanel(VerticalScroll):
     """Panel displaying mission tasks, changed files, and tool status."""
 
     def __init__(self, **kwargs) -> None:
+        """Initialize the panel with no file scan in flight."""
         super().__init__(**kwargs)
         self.border_title = "Mission"
+        self._changed_files_worker: Worker[None] | None = None
 
     def compose(self) -> ComposeResult:
         """Compose the task panel content."""
@@ -59,7 +64,9 @@ class TaskPanel(VerticalScroll):
             Text.from_ansi("\n".join(task_lines))
         )
 
-        self._update_changed_files()
+        # A slow scan must neither block the UI nor accumulate on timer ticks.
+        if self._changed_files_worker is None or self._changed_files_worker.is_finished:
+            self._changed_files_worker = self._update_changed_files()
         self._update_tool_status()
         self._update_daemon_cmds()
         self._update_status_summary()
@@ -70,11 +77,14 @@ class TaskPanel(VerticalScroll):
             return []
         return mission_info[1:]
 
-    def _update_changed_files(self) -> None:
-        """Update changed files section."""
+    @work(group="changed-files", exit_on_error=False)
+    async def _update_changed_files(self) -> None:
+        """Scan off the UI thread, then render results on the event loop."""
         from ucagent.util.functions import fmt_time_stamp, fmt_time_deta
 
-        changed_files = self.app.vpdb.api_changed_files()[:5]
+        changed_files = (await asyncio.to_thread(self.app.vpdb.api_changed_files))[:5]
+        if not self.is_mounted:
+            return
         lines = []
         for delta, mtime, filename in changed_files:
             time_str = fmt_time_stamp(mtime)
