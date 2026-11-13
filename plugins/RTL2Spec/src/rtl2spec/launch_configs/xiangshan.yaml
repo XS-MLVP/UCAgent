@@ -3,6 +3,11 @@ rtl2spec:
   module: Sbuffer
   workflow: xiangshan-design-document
   output: outputs
+  mode: run
+
+unitytest:
+  enabled: false
+  workspace: verification
 
 backend:
   key_name: codex

@@ -3,6 +3,11 @@ rtl2spec:
   module: GenericBlock
   workflow: generic-design-document
   output: outputs
+  mode: run
+
+unitytest:
+  enabled: false
+  workspace: verification
 
 backend:
   key_name: codex

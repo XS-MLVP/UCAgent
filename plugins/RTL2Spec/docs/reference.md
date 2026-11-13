@@ -25,13 +25,31 @@
 | `rtl2spec.module` | 必填。精确顶层模块名 |
 | `rtl2spec.workflow` | 必填。`generic-design-document` 或 `xiangshan-design-document` |
 | `rtl2spec.output` | 默认 `outputs`。工作区内的空目录或尚不存在的目录 |
+| `rtl2spec.mode` | 默认 `run`；`reuse` 跳过整个上游生成，须提供 source 并启用 unitytest |
+| `rtl2spec.source` | reuse 的文档输出目录，相对 YAML 文件解析；不作为硬件来源 |
+| `unitytest.enabled` | 严格布尔值，默认 `false`；接续独立完整默认 UnityTest |
+| `unitytest.workspace` | 默认 `verification`，相对上游 workspace 解析，也支持绝对路径和 `~` |
 | `backend.key_name` | UCAgent 后端；两个模板均使用 `codex` |
 | `template_overwrite.GENERIC_CONFIG` | 通用 RTL 的文档配置标签；实际编译选项仍来自输入目录中的 `rtl2spec.json` |
 | `template_overwrite.XS_CONFIG` | 香山生成时使用的配置类名 |
 
-启动配置中直接写明的配置标签覆盖工作流的环境变量默认值，不需要额外 export。可在同一 YAML 中增加 UCAgent 支持的配置区块；`rtl2spec` 区块只接受上表四个启动字段。选择不同模块或不同参数时分别保存配置，并使用独立的工作区或输出目录。
+启动配置中直接写明的配置标签覆盖工作流的环境变量默认值，不需要额外 export。可在同一 YAML 中增加 UCAgent 支持的配置区块；`rtl2spec` 和 `unitytest` 区块只接受上表中的对应启动字段。选择不同模块或不同参数时分别保存配置，并使用独立的工作区或输出目录。
 
 启动器使用当前 Python 环境执行原有 `ucagent` CLI，固定启用 `--no-history` 和 `--mcp-server-no-file-tools`，使新任务从第一阶段开始并通过 UCAgent 工具读写文件。配置文件放在输入目录之外，避免被作为 DUT 源码捕获；它与工作区可以分别存放。
+
+## 完整 UnityTest 接续
+
+仅生成时保持原有 exec 启动行为；启用接续后，上游通过 `--loop --exit-on-completion` 作为子进程运行，完成后准备硬件和文档，最终 exec 默认 UnityTest。接续依据本次更新的 `.ucagent/ucagent_info.json` 中明确的 `all_completed` 和 DUT 信息；仅存在文档或退出码为 1 不代表完成。上游原始退出状态会打印保留，实际失败不会启动验证。默认验证阶段的原生启用和跳过规则不变。
+
+下游不加载 RTL2Spec 插件 workflow，也不继承上游 mission、stage、template、工具选择、目录权限及文档专用覆盖。共享的已解析配置为 backend、model_type、openai、anthropic、google_genai、embed、langfuse、conversation_summary、rate_limiter、cmd_timeout、loop_settings、lang 和 runtime_options；其他下游配置继续使用 UCAgent 原生配置层级。共享配置存放于验证目录 `.rtl2spec-unitytest/config.yaml`，权限为仅当前用户可读写，可能含服务凭据，请勿公开上传。CLI 原样继承进程环境，不加载 `.env`；FM-Agent 自身已有的环境处理保持。
+
+硬件输入来自当前工程。香山 fresh 直接读取 `.cache/generation-{DUT}.json` 的 RTL 路径及同目录 `filelist.f`，不再次调用生成脚本、不猜测缓存。整体 reuse 只在当前结果缺少可用 RTL/filelist 时调用一次既有入口。参数、模块或工作区不匹配时停止诊断。Generic 保留 `rtl2spec.json` 中的顺序、include、宏和参数；picker 的 slang 解析和仿真使用同一编译集合。
+
+Generic 参数覆盖使用 picker 的 `--sflag` 传给 slang；由于原生导出顶层包裹了 DUT，非空 parameters 还通过本次工作区内的模板副本向单个原生 DUT 实例写入确定性 `defparam`。模板由 picker `export --help` 广告的 `--sdir` 默认目录定位，要求原生 `lib/top.sv` 中保留唯一的 `{{__INNER_MODULES__}}` 标记；同时对副本 `lib/Makefile` 中唯一的原生 mem_direct `--source_dir` 模板参数补引号，以保留含空格路径。支持标记不满足时停止，不能静默使用默认参数。无参数时不复制或改写模板；安装模板和用户硬件均保持不变。
+
+验证目录包含 `{DUT}/`（Python DUT 包和导出示例）、`{DUT}_RTL/`（保持相对结构的分析源码）、`{DUT}_Doc/`（平铺文档）、`unity_test/`、`uc_test_report/` 和独立 `.ucagent/`。完整编译集合通过 filelist 传给 picker，不等于默认静态分析集合：Generic 仅列入配置明确列出的源文件；香山仅列入目标 RTL 及上游 evidence manifest 登记的相关源码，并从当前工程取文件。不新增依赖发现器。
+
+准备使用 Verilator、原生 mem_direct 访问和 FST，编译后执行导出 `example.py` 检查基本可运行性。`{DUT}/README.md` 提供目标、配置和文档路径，保留原有说明和 Generic 输入 README。全部 specs 与设计文档按原字节交接，不复制 info、报告、日志或 JSON；无 spec 时仍可继续，设计文档缺失则停止。同名来源或已有目标内容冲突在复制前报告，不能覆盖。已有 DUT 包、准备记录或运行状态需更换验证工作区；失败保留 `.rtl2spec-preparation/` 日志和部分产物，不自动重试。
 
 ## FM-Agent 管理
 
