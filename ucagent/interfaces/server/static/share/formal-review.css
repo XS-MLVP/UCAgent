@@ -1,0 +1,30 @@
+/* Formal-only visual density and local drafts; retain the existing shared pane sizing. */
+body.formal-workspace{height:100dvh;overflow:hidden}
+.formal-workspace #layout,.formal-workspace #fm,.formal-workspace #workspace-content,.formal-workspace #workspace-reports,.formal-workspace #function-map{min-height:0;overflow:hidden}
+.formal-workspace #report-file-list,.formal-workspace .function-map-detail{min-height:0;overscroll-behavior:contain}
+.formal-workspace #formal-overview{padding:12px var(--pane-inset);border-bottom:1px solid var(--pane-line)}
+.formal-workspace .formal-batch-controls{gap:8px;margin-bottom:10px}
+.formal-workspace .formal-result-filters{gap:7px}
+.formal-workspace .formal-result-filters .pane-action{padding:7px 10px;border:1px solid var(--border);border-radius:7px;font-variant-numeric:tabular-nums}
+.formal-workspace .formal-run-status,.formal-evidence-status{font-size:11px;color:var(--text-dim);overflow-wrap:anywhere}
+.formal-workspace #console-output{overscroll-behavior:contain}
+.formal-workspace #sb-resizer::after{inset:0 -5px}
+.formal-workspace #fm-resizer::after{inset:-5px 0}
+#formal-detail-resizer{flex:0 0 7px;touch-action:none;cursor:col-resize;position:relative}
+#formal-detail-resizer::after{content:'';position:absolute;left:3px;top:calc(50% - 20px);width:1px;height:40px;background:var(--text-dim)}
+#formal-detail-resizer:is(:hover,:focus-visible,.dragging){background:color-mix(in srgb,var(--accent) 14%,transparent)}
+.formal-workspace .function-map-detail{flex-basis:var(--formal-detail-width,clamp(290px,34%,380px))}
+.formal-local-review{width:min(780px,94vw);max-height:90dvh;overflow:hidden;padding:0;background:var(--bg2);color:var(--text);border:1px solid var(--border);border-radius:12px}
+.formal-local-review[open]{display:flex;flex-direction:column}.formal-local-review::backdrop{background:#0009}
+.formal-local-review>header{display:flex;justify-content:space-between;align-items:center;padding:15px 18px;border-bottom:1px solid var(--border);flex:none}
+.formal-local-review h2{font-size:16px}.formal-local-review h3{font-size:13px;margin:17px 0 9px}
+.formal-local-review-body{padding:16px 18px;overflow:auto;min-height:0;font-size:12px}
+.formal-local-notice{color:var(--text-dim);border-left:2px solid var(--accent);padding:8px 11px;margin-bottom:12px;background:var(--bg)}
+.formal-local-review :is(textarea,select){display:block;width:100%;min-width:0;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:5px;padding:8px;font:inherit}
+.formal-local-review textarea{min-height:90px;resize:vertical;max-height:35vh}.formal-local-review label{display:block;margin:12px 0 5px}
+.formal-local-actions{display:flex;flex-wrap:wrap;gap:7px;margin:12px 0}.formal-local-version{font:10px var(--mono);overflow-wrap:anywhere;color:var(--text-dim)}
+.formal-local-review article{padding:12px;border:1px solid var(--border);border-radius:7px;margin-bottom:9px}
+.formal-local-review article p{white-space:pre-wrap;overflow-wrap:anywhere;margin:9px 0}.formal-local-review small{color:var(--text-dim)}
+.formal-local-review pre{white-space:pre-wrap;overflow-wrap:anywhere;padding:10px;background:var(--bg)}.formal-local-error{color:var(--yellow);margin-top:10px}
+@container map-body (max-width:680px){#formal-detail-resizer{display:none}}
+@media(max-width:700px){.formal-workspace .formal-result-filters .pane-action{padding:4px 6px;font-size:11px}.formal-local-review{width:96vw}}

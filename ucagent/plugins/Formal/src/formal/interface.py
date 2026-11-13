@@ -160,6 +160,9 @@ def inspect_interface(workspace: str, out: str, dut: str, parameters: dict | Non
         assignments = ", ".join(f".{name}({literal})" for name, literal in overrides.items())
         harness = f"module {probe}; {dut}" + (f" #({assignments})" if assignments else "") + " __dut(); endmodule\n"
         options = slang.ast.CompilationOptions()
+        # Supply the parser's standard fallback for otherwise untimed modules;
+        # explicit RTL timeunit/timescale declarations retain their own values.
+        options.defaultTimeScale = slang.TimeScale.fromString("1ns/1ps")
         options.topModules = {probe}
         bag = slang.Bag()
         bag.compilationOptions = options

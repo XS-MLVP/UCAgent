@@ -24,6 +24,18 @@ def design(tmp_path, text, name="RouteSelector"):
     return name
 
 
+@pytest.mark.parametrize("timing", ["`timescale 10ns/1ns\n", ""])
+def test_probe_timing_does_not_reject_explicit_source_scales(tmp_path, timing):
+    """The generated delay-free probe must coexist with a timed source module."""
+    declaration = "" if timing else "timeunit 100ps; timeprecision 1ps; "
+    text = timing + "module RouteSelector #(parameter W=7)(input[W-1:0] a,output[W-1:0] y); " + declaration + "assign y=a; endmodule"
+    name = design(tmp_path, text)
+    before = (tmp_path / name / f"{name}.sv").read_bytes()
+    result = inspect_interface(str(tmp_path), "proof", name, {"W": 9})
+    assert [port["width"] for port in result["ports"]] == [9, 9]
+    assert (tmp_path / name / f"{name}.sv").read_bytes() == before
+
+
 def test_declared_defaults_recompute_after_override_and_preserve_zero(tmp_path):
     """Omitted dependent defaults must not be copied into explicit DUT overrides."""
     name = design(tmp_path, "module RouteSelector #(parameter LANES=4, WIDTH=LANES*2, MODE=1, localparam LIMIT=WIDTH+1)(input signed[WIDTH-1:0] left,right, output selected); assign selected=left[0]; endmodule")

@@ -17,6 +17,7 @@ class PreflightError(ValueError):
             "diagnostic_total": len(diagnostics),
             "diagnostics": diagnostics[:32],
             "error": "SVA preflight found blocking diagnostics; correct the referenced CK or source.",
+            "next_action": "Correct each named CK or source. Bind internal DUT values through spec.whitebox_signals and checker ports; then regenerate and retry.",
         }
         super().__init__(self.diagnostic["error"] + " " + str(diagnostics[:8]))
 
@@ -102,6 +103,31 @@ def check_generated(root: Path, output: str, dut: str, staged: Path, interface: 
         # generated, delay-free checker and wrapper modules.
         if diag.isError() and str(diag.code) != "DiagCode(MissingTimeScale)":
             errors.append(row)
+    if errors:
+        raise PreflightError("generated_design", errors)
+
+    # Hierarchical lookups can resolve upward through the wrapper in the standard
+    # elaborator while the proof engine rejects the same checker reference. Keep
+    # checker inputs explicit; RTL and wrapper binding hierarchies remain valid.
+    hierarchical = set()
+
+    def check_checker_hierarchy(node):
+        """Reject only elaborated external value references originating in the checker."""
+        if not isinstance(node, slang.ast.HierarchicalValueExpression):
+            return
+        row = location(node.sourceRange.start)
+        if row["path"] != f"{output}/tests/{checker.name}":
+            return
+        key = (row["line"], row["column"])
+        if key in hierarchical:
+            return
+        hierarchical.add(key)
+        errors.append({**row, "code": "formal_checker_hierarchy_unsupported",
+                       "reference": str(node.syntax).strip() if node.syntax is not None else node.symbol.name,
+                       "message": "Checker properties must use declared inputs instead of external hierarchical values.",
+                       "next_action": "Expose the required value through a supported spec.whitebox_signals declaration and wrapper binding, then reference the checker input. Do not remove the verification goal or modify DUT RTL to bypass this error."})
+
+    compilation.getRoot().visit(check_checker_hierarchy)
     if errors:
         raise PreflightError("generated_design", errors)
 

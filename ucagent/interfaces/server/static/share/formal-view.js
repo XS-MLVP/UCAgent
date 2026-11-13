@@ -19,10 +19,12 @@
   }
 
   function style(property) {
-    if (property.disposition === 'DEFERRED') return 'bug';
+    if (property.evidence_status === 'invalid') return 'bug';
+    if (property.disposition === 'DEFERRED') return 'neutral';
     if (attention.has(property.result) || property.state === 'ERROR') return 'fail';
     if (property.state === 'REVIEW') return 'bug';
-    return ['PROVEN', 'COVER_REACHED'].includes(property.result) ? 'pass' : 'neutral';
+    return property.evidence_status === 'verified' && property.input_freshness === 'current'
+      && ['PROVEN', 'COVER_REACHED'].includes(property.result) ? 'pass' : 'neutral';
   }
 
   function matches(property, filter) {
@@ -30,8 +32,9 @@
     if (filter === 'bugs') return property.bugs.length > 0;
     if (filter === 'counterexamples') return property.result === 'FALSIFIED' && property.counterexample;
     if (filter === 'review') return property.state === 'REVIEW' && property.disposition !== 'DEFERRED';
-    if (filter === 'UNPROVEN' && ['NOT_EXECUTED', 'QUEUED_FAST', 'RUNNING_FAST', 'RUNNING_SLOW', 'CANCELLED', 'ERROR'].includes(property.state)) return false;
-    if (filter === 'NOT_EXECUTED') return property.result === filter || property.state === filter;
+    if (filter === 'UNPROVEN' && ['NOT_EXECUTED', 'QUEUED_FAST', 'QUEUED_SLOW', 'RUNNING_FAST', 'RUNNING_SLOW', 'CANCELLED', 'ERROR'].includes(property.state)) return false;
+    if (filter === 'invalid_evidence') return property.evidence_status === 'invalid';
+    if (['NOT_EXECUTED','CANCELLED','QUEUED_FAST','QUEUED_SLOW','RUNNING_FAST','RUNNING_SLOW','ERROR'].includes(filter)) return property.result === filter || property.state === filter;
     return property.result === filter;
   }
 
@@ -43,7 +46,7 @@
       const {property, ...display} = node;
       let summary = {attention: 0, bugs: 0};
       if (property) {
-        properties.set(path, property);
+        properties.set(path, {...property, input_freshness: view.freshness});
         summary = {attention: Number(attention.has(property.result) || attention.has(property.state)), bugs: property.bugs.length};
       }
       display.children = node.children.map(child => {
@@ -83,14 +86,22 @@
     const result = element('p', property.kind.toUpperCase() + ' · ' + status(property), 'formal-property-status');
     result.dataset.outcome = style(property);
     section.append(result);
+    section.append(element('p', 'Evidence: ' + (property.evidence_status || 'unverified') + ' · Input: ' + view.freshness,
+      'formal-evidence-status'));
+    if (property.evidence_error) section.append(element('p', property.evidence_error.error || 'Evidence verification failed.'));
+    root.UCAgentFormalReview?.propertyButtons(section, property, view);
     if (property.name) section.append(element('code', property.name));
-    if (property.sva) section.append(element('pre', property.sva));
+    if (property.sva) {
+      const source = element('details');
+      source.append(element('summary', 'SVA expression'), element('pre', property.sva));
+      section.append(source);
+    }
     if (property.reason) section.append(element('p', property.reason));
     const links = element('div', null, 'formal-links');
     if (property.source) links.append(button('Open SVA', () => actions.openFile(property.source, property.line)));
     if (property.log) links.append(button('Attempt log', () => actions.openFile(property.log)));
     if (property.trace) links.append(button('Open waveform', () => actions.openTrace(view, property.name)));
-    if (property.name && !view.archived && view.freshness !== 'historical' && property.kind !== 'assume') {
+    if (property.name && !view.archived && view.freshness === 'current' && property.kind !== 'assume') {
       links.append(button('Run selected', () => actions.runSelected(property.name)));
     }
     section.append(links);
@@ -237,5 +248,5 @@
     dialog.showModal();
   }
 
-  root.UCAgentFormalView = {status, style, matches, tree, requestJSON, renderDetail, showComparison};
+  root.UCAgentFormalView = {labels, status, style, matches, tree, requestJSON, renderDetail, showComparison};
 })(globalThis);

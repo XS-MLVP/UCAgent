@@ -14,6 +14,16 @@ then invoke `update --request-file formal_test/data_update.json`. Requests conta
 `section`, `expected_sha256`, and exactly one of `data` or `bodies`; no inline
 shell JSON or field-by-field set sequence is required.
 
+`prepare` defaults to five pending items and a compact 18,000-character response
+budget. Each `items` entry joins the exact review identity, kind contract and
+original evidence summary; `ready_update` remains the canonical atomic update
+request. Initialization and last stored samples remain separate contexts. Long
+signals and excess observations are explicitly omitted with exact full-evidence
+and trace-discovery calls. No bit pattern or JSON is clipped to fit. Actual page
+size may be below the requested limit: follow `review_progress.next_offset`, and
+restart at zero after mutations. The budget does not authorize proof acceptance;
+complete original artifacts are still checked at update and final gates.
+
 `inspect` is read-only. `prepare analysis` / `prepare bugs` explicitly validates
 current stopped proof evidence, coordinates exact queues, and returns a
 `ready_update` request with original witness context. The Skill binds verified
@@ -243,6 +253,29 @@ results, partial failure, review and retry limits, cancellation, crash recovery,
 stale inputs, evidence tampering, MCP schemas, skill-independent generation, and
 write-policy boundaries. They do not benchmark production-scale proof
 convergence or exercise a real 20-minute workload.
+
+## Dashboard evidence and review drafts
+
+The projection distinguishes `evidence_status` (`verified`, `unverified`, `invalid`)
+from input `freshness`. Original final attempt logs and exported artifact hashes
+are checked read-only; neither opening a page nor verifying a stopped archive
+calls Check/export or starts a solver. Missing evidence and conflicting parsed
+verdicts are invalid, not green proof claims. Running/unexecuted targets and
+artifacts exceeding the aggregate read budget remain explicitly unverified.
+Top-level `counts` are run claims (`counts_basis`); `verified_counts` and
+`evidence_counts` are separate. Archive verification binds retained manifests,
+not independent cryptographic provenance if both artifacts and manifests were
+rewritten. The summary file's existence does not establish task acceptance.
+
+The Formal page uses viewport-contained panes and the shared sidebar/Output
+resizers. A third graph/detail splitter is available when the map is wide enough;
+narrow layouts retain the detail overlay. Layout preferences are local and reset
+through Reset UI. Local FG/CK comments and change proposals anchor workspace,
+exact node path, records revision, run and fingerprint. They can be exported but
+are **browser-only drafts**, not server annotations, author-data edits, accepted
+review decisions, or proof commands. Applying a proposal is not implemented:
+maintain the canonical task data, preflight, run selected diagnostics, then full
+regression and review through the existing public tools.
 
 ## Dashboard and diagnostic proof batches
 

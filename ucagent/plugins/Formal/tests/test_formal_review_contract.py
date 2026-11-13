@@ -93,8 +93,8 @@ def test_prepare_returns_exact_typed_minimal_patches_and_original_evidence(revie
     store, path = review_task()
     prepared = store.prepare("analysis")
     assert len(prepared["review_contracts"]) == 3
-    assert len(prepared["review_items"]) == 4
-    assert all(item["contract_id"] in prepared["review_contracts"] for item in prepared["review_items"])
+    assert len(prepared["items"]) == 4
+    assert all(item["contract_id"] in prepared["review_contracts"] for item in prepared["items"])
     envelopes = prepared["ready_update"]["data"]
     for entry in envelopes["fa_entries"]:
         fields = {"id", "prop_name", "analysis", "resolution"}
@@ -102,9 +102,9 @@ def test_prepare_returns_exact_typed_minimal_patches_and_original_evidence(revie
             fields |= {"expected_requirement", "reference_calculations"}
         assert set(entry) == fields
     assert set(envelopes["tt_entries"][0]) == {"id", "prop_name", "analysis", "root_cause", "action"}
-    assert len(prepared["evidence"]) == 4
-    assert {entry["property"] for entry in prepared["evidence"]} == {"left.A_SHARED", "right.A_SHARED", "control.A_TRIVIAL", "coverage.reachable"}
-    assert all("report_sha256" in entry["evidence_ref"] for entry in prepared["evidence"])
+    assert len(prepared["items"]) == 4
+    assert {entry["prop_name"] for entry in prepared["items"]} == {"left.A_SHARED", "right.A_SHARED", "control.A_TRIVIAL", "coverage.reachable"}
+    assert all("report_sha256" in entry["evidence_ref"] for entry in [item["evidence"] for item in prepared["items"]])
 
 
 def test_invalid_batch_reports_all_locations_and_leaves_records_unchanged(review_task):
@@ -161,17 +161,19 @@ def test_pending_pagination_cannot_silently_drop_work_after_update(review_task):
     """Updating twenty of forty targets invalidates the old pending-page offset clearly."""
     store, path = review_task([(f"branch.A_TARGET_{index:02d}", "assert", "Fail (1)") for index in range(40)])
     page = store.prepare("analysis", limit=20)
-    assert page["review_progress"]["next_offset"] == 20
+    count = page["review_progress"]["returned"]
+    assert 0 < count <= 20
+    assert page["review_progress"]["next_offset"] == count
     patches = page["ready_update"]["data"]
     for entry in patches["fa_entries"]:
         entry.update(analysis="Reviewed original tool report.", resolution="RTL_BUG", expected_requirement="Output preserves the specified routing obligation")
     store.update("analysis", patches, None, page["sha256"])
     with pytest.raises(ReviewUpdateError) as caught:
-        store.prepare("analysis", offset=20, limit=20)
+        store.prepare("analysis", offset=40 - count, limit=20)
     assert caught.value.diagnostic["issues"][0]["error_code"] == "review_pending_offset_stale"
     reset = store.prepare("analysis", offset=0, limit=20)
-    assert reset["review_progress"]["pending"] == 20
-    assert len(reset["ready_update"]["data"]["fa_entries"]) == 20
+    assert reset["review_progress"]["pending"] == 40 - count
+    assert len(reset["ready_update"]["data"]["fa_entries"]) == reset["review_progress"]["returned"]
     first = {entry["prop_name"] for entry in patches["fa_entries"]}
     assert not first & {entry["prop_name"] for entry in reset["ready_update"]["data"]["fa_entries"]}
 

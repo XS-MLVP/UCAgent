@@ -207,8 +207,8 @@ def test_real_proof_prepare_through_unchanged_skill_runner(skill_workspace):
         assert result["prepared"] is True
         assert result["ready_update"]["section"] == "analysis"
         assert "action" not in result["ready_update"]
-        assert result["review_items"][0]["prop_name"] == "u_checker.A_BAD"
-        assert result["evidence"][0]["evidence_ref"]["property"] == "u_checker.A_BAD"
+        assert result["items"][0]["prop_name"] == "u_checker.A_BAD"
+        assert result["items"][0]["evidence"]["evidence_ref"]["property"] == "u_checker.A_BAD"
         assert execution.status()["current_inputs"] is True
     finally:
         execution.cancel()

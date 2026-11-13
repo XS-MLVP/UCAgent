@@ -41,9 +41,9 @@
 {"commands":[["ext/formal/data","formal_data.py","prepare analysis"]]}
 ```
 
-prepare核验当前证据、协调精确队列并返回ready_update请求对象及原始witness上下文，不启动新证明。审阅真实输入、独立参考计算、观测输出及断言，填写ready_update中的人工分析，再将该对象写入请求文件调用update。证据由技能核验并绑定，不手工复制哈希，不把准备动作当作RTL_BUG归因。
+prepare核验当前证据，默认最多返回5项，并按字符预算缩小本页。`items`将精确id/prop_name、缺失字段和证据摘要放在同一项，`ready_update`是唯一更新请求模板，不启动新证明。摘要将初始化和保存采样分开；省略的信号或宽值用该项`full_evidence_call`读取，多周期分析先用`trace_discovery_call`查完整信号名，不从省略部分推断数值。完整契约按类型在同批共享，机器证据无需手抄。审阅真实输入、独立参考计算、观测输出及断言，填写ready_update中的人工分析，再将该对象写入请求文件调用update。证据由技能核验并绑定，不手工复制哈希，不把准备动作当作RTL_BUG归因。
 
-分析请求按类型分开：`review_items`用`contract_id`引用同批`review_contracts`中的共享契约，不能把不同类型字段混写。各项只有精确`id/prop_name`是定位字段：
+分析请求按类型分开：`items`用`contract_id`引用同批`review_contracts`中的共享契约，不能把不同类型字段混写。各项只有精确`id/prop_name`是定位字段：
 
 | 列表 | 必填人工字段 | 其他可填字段 | 当前允许决定 |
 | --- | --- | --- | --- |
@@ -55,9 +55,9 @@ FA的自由根因解释写在`analysis`中，不提交TT专用的`root_cause/act
 
 `evidence_ref/prop_type/sva_code`都是机器字段，不在请求里填写。批量请求有任何错误时整批不写入；`formal_data_review_invalid`一次列出有界的所有错误位置、允许字段和值，先修完整批再重试。真实RTL缺陷保留Fail；属性/参考计算错误修复后重新RunFormal。TRIVIALLY_FALSE保留静态失败，不能改弱目标。
 
-`prepare --offset/--limit`分页只适用于同一只读队列。**每次update后，按返回的`after_update_command`从offset 0重新取pending**，不要沿用更新前的next_offset。旧偏移越过当前非空队列时明确报`review_pending_offset_stale`，不能把空页当成全部完成。无待审项时ready_update才为null。
+`prepare --offset/--limit`分页只适用于同一只读队列。按`review_progress.returned/next_offset`翻页，实际返回数可能少于请求limit；不要自行把offset加limit。**每次update后，按返回的`after_update_command`从offset 0重新取pending**，不要沿用更新前的next_offset。旧偏移越过当前非空队列时明确报`review_pending_offset_stale`，不能把空页当成全部完成。无待审项时ready_update才为null。
 
-Bug阶段对应`prepare bugs`，保留精确id/property。`reused_analysis`直接带回首次分析及计算；规格关系和表达式不重复提交，只补缺失的共享根因、源码位置、修复建议和可选`impact_assessment`。观察描述由工具限定为当前反例或静态检查；影响范围推断始终标为人工评估，不由单个反例宣称所有输入的规律。一个共享根因的完整请求形状如下：
+Bug阶段对应`prepare bugs`，保留精确id/property。`items[].reviewed_analysis`直接带回首次分析及计算；规格关系和表达式不重复提交，只补缺失的共享根因、源码位置、修复建议和可选`impact_assessment`。观察描述由工具限定为当前反例或静态检查；影响范围推断始终标为人工评估，不由单个反例宣称所有输入的规律。一个共享根因的完整请求形状如下：
 
 ```json
 {

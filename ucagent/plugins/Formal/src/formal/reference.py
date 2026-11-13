@@ -128,8 +128,10 @@ def calculate_references(requests: list, evidence: dict) -> list[dict]:
         seen.add(identifier)
         if not isinstance(expression, str) or not expression.strip() or len(expression) > MAX_EXPRESSION_CHARS:
             raise ValueError(f"{location}.expression must contain 1..{MAX_EXPRESSION_CHARS} characters")
-        if not isinstance(bindings, dict) or len(bindings) > MAX_BINDINGS:
-            raise ValueError(f"{location}.bindings must contain at most {MAX_BINDINGS} explicit aliases")
+        if not isinstance(bindings, dict):
+            raise ValueError(f'{location}.bindings must be an object mapping aliases to {{"source": "initial|sample", "signal": "exact returned name"}}; observed {type(bindings).__name__}')
+        if len(bindings) > MAX_BINDINGS:
+            raise ValueError(f"{location}.bindings has {len(bindings)} aliases; maximum {MAX_BINDINGS}")
         aliases = {}
         values = {}
         for alias, binding in bindings.items():

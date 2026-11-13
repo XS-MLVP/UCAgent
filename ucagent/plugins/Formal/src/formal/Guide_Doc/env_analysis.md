@@ -9,7 +9,9 @@
 2. 技能可用且需要批量操作时，按Guide_Doc/formal_data.md加载ext/formal/data，通过原有RunSkillScript调用`formal_data.py prepare analysis`，取得精确队列、真实witness及ready_update。填写人工分析后写JSON请求文件并调用`update --request-file`，证据由技能验证并绑定。
 3. 技能关闭或缺失时，Check协调当前条目，用ReadTextFile读取YAML与RunFormal evidence，再用普通文件工具填写人工字段并原样使用该属性的当前证据引用。不得手动去重、重编号、改机器状态或制造引用。
 4. 首次FA分析在`analysis`描述当前观察与分类依据；归为RTL_BUG时一次填写`expected_requirement`及可选`reference_calculations`，用prepare返回的真实信号绑定执行参考计算，不另抄数字答案。结果随update返回，Bug和总结阶段直接复用，不重复读取反例或再执行同一计算；只有证据、参考表达式变化或发现矛盾时重新审阅。一次反例不证明所有输入的影响范围，普遍推断不能写成机器已证明事实。
-5. 完成后记录阶段日志并Complete，Check仅用于实际诊断；派生`07_{DUT}_env_analysis.md`不直接编辑。
+5. 先核验规格判据：一般性质与固定场景分开，异常标志、舍入、特殊值策略需有依据；参考表达式算对不代表判据正确。不能从无时钟推断无状态，工具报告的锁存器/状态需审查。
+6. 修复属性体后优先用RunFormal(scope="selected", property_names=[精确名称])诊断复验，再对新输入执行完整回归。定向状态和证据始终带返回的run_id/scope，不能给完整验收放行。证据省略时用返回的调用取得，不再手写脚本解析相同工具回复。
+7. 完成后记录阶段日志并Complete，Check仅用于实际诊断；派生`07_{DUT}_env_analysis.md`不直接编辑。
 
 ## 真、静态失败与未解决
 
@@ -33,7 +35,7 @@ FA根因解释是`analysis`里的自由文本，TT的`root_cause`才是枚举；
 
 ## 失败归因
 
-先问属性与参考计算是否正确，再问输入是否符合规格和DUT输出是否正确：
+先问属性与参考计算是否正确，再问输入是否符合规格和DUT输出是否正确。人工分析按 `Guide_Doc/bug_report.md`“问题表述要求”写明条件、位置、预期、实际与后果，不用自造术语代替事实；原因不确定时明确标注，不提前包装成已确认根因：
 
 - 属性/参考计算错误：修复属性，重跑至通过，不登记DUT Bug。
 - 规格确实禁止的环境输入：按规格补足输入约束，重跑，不能对DUT输出加assume掩盖行为。

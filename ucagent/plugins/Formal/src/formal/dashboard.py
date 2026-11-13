@@ -11,7 +11,7 @@ import yaml
 from ucagent.util.config import Config
 from ucagent.util.file_policy import normalize_relative_path
 
-from .execution import ACTIVE_RUNS, FormalExecution, query_run_trace, read_run
+from .execution import ACTIVE_RUNS, FINAL_RESULTS, FormalExecution, property_evidence, query_run_trace, read_run
 from .skills.lib.formal_tools import _ck_to_sv_names, extract_static_bugs, summary_bug_rows
 from .skills.lib.models import FormalRecords, semantic_inputs
 
@@ -93,8 +93,11 @@ class FormalDashboard:
         for path in sorted(self.root.glob("*/state.json"), key=lambda item: item.stat().st_mtime, reverse=True)[:50]:
             if not re.fullmatch(r"[a-f0-9]{32}", path.parent.name) or path.is_symlink() or path.parent.is_symlink():
                 continue
-            state = json.loads(path.read_text())
-            if state.get("run_id") != path.parent.name:
+            try:
+                state = json.loads(path.read_text())
+            except (ValueError, OSError):
+                continue
+            if not isinstance(state, dict) or state.get("run_id") != path.parent.name:
                 continue
             rows.append({key: state.get(key) for key in ("run_id", "status", "fingerprint", "created_at")}
                         | {"scope": state.get("scope", "full")})
@@ -102,13 +105,69 @@ class FormalDashboard:
 
     def view(self, scope="full", run_id=None):
         """Project FG/FC/CK, associated evidence, report files and independent status totals."""
-        directory, state = read_run(self.root, run_id, scope)
+        run_error = None
+        try:
+            directory, state = read_run(self.root, run_id, scope)
+            if state is not None and (not isinstance(state.get("properties"), dict) or
+                                      not isinstance(state.get("policy", {}), dict) or
+                                      not isinstance(state.get("fingerprint"), str) or
+                                      not all(isinstance(name, str) and isinstance(item, dict) and
+                                              all(isinstance(item.get(key), str) for key in ("result", "state", "kind")) and
+                                              isinstance(item.get("execution_elapsed_s", 0), (int, float)) and
+                                              isinstance(item.get("attempts", []), list) and
+                                              all(isinstance(attempt, dict) for attempt in item.get("attempts", []))
+                                              for name, item in state["properties"].items())):
+                raise ValueError("Invalid property records")
+        except (ValueError, OSError, KeyError, TypeError):
+            directory, state = None, None
+            run_error = {"code": "formal_run_invalid", "path": f"{self.output}/formal_runs",
+                         "error": "The requested proof record is missing, malformed, or does not match its identity."}
         freshness = self.freshness(state)
         current_groups = ((self.records.get("spec") or {}).get("function_groups") or [])
         groups = current_groups
         if state and freshness == "historical":
             groups = (((state.get("semantic_inputs") or {}).get("spec") or {}).get("function_groups") or [])
         properties = state["properties"] if state else {}
+        # These are artifact conclusions, independent of input freshness and tool
+        # availability. Never call Check/export: both can mutate task records.
+        evidence = {}
+        verified_counts = Counter()
+        read_bytes = 0
+        checked_paths = set()
+        for name, item in properties.items():
+            entry = {"status": "unverified", "proof": None, "error": None}
+            evidence[name] = entry
+            if item.get("result") not in FINAL_RESULTS or str(item.get("state", "")).startswith("RUNNING"):
+                continue
+            attempt = (item.get("attempts") or [None])[-1]
+            if isinstance(attempt, dict) and attempt.get("running"):
+                continue
+            relative = f"{directory.relative_to(self.workspace)}/state.json"
+            try:
+                if not isinstance(attempt, dict) or not isinstance(attempt.get("console"), str):
+                    raise ValueError("Missing final attempt")
+                console = directory / attempt["console"]
+                candidate_relative = str(console.relative_to(self.workspace))
+                _artifact(self.workspace, candidate_relative)
+                relative = candidate_relative
+                witness = console.parent / "avis" / name / (name + ".tb.v")
+                paths = [console, witness, witness.with_name(name + ".vcd")]
+                for artifact in paths:
+                    candidate = _artifact(self.workspace, str(artifact.relative_to(self.workspace)))
+                    if candidate.is_file() and candidate not in checked_paths:
+                        read_bytes += candidate.stat().st_size
+                        checked_paths.add(candidate)
+                if read_bytes > 128 * 1024 * 1024:
+                    entry["reason"] = "read_budget_exceeded"
+                    continue
+                entry["proof"] = property_evidence(directory, {**state, "workspace": str(self.workspace)},
+                                                     name, item, observations=False)
+                entry["status"] = "verified"
+                verified_counts[item["result"]] += 1
+            except (ValueError, OSError, KeyError, TypeError, IndexError):
+                entry["status"] = "invalid"
+                entry["error"] = {"code": "formal_evidence_invalid", "path": relative[:512],
+                                  "error": "The final result or retained artifacts do not match the original tool evidence."}
         by_label = {}
         for name in properties:
             by_label.setdefault(name.rsplit(".", 1)[-1], []).append(name)
@@ -128,7 +187,13 @@ class FormalDashboard:
             for bug in self.records.get("bugs") or []:
                 if bug.get("id") in validated:
                     bug_by_property.setdefault(bug.get("property"), []).append(bug)
-        result = state and self.execution._summary(directory, state)
+        try:
+            result = state and self.execution._summary(directory, state)
+        except (ValueError, OSError, KeyError, TypeError, IndexError):
+            result = {"run_id": state.get("run_id"), "scope": scope, "status": "INVALID",
+                      "proof_complete": False, "full_complete": False, "selected_complete": False}
+            run_error = {"code": "formal_run_invalid", "path": f"{self.output}/formal_runs",
+                         "error": "The proof record cannot provide a valid execution summary."}
         checker = f"{self.output}/tests/{self.dut}_checker.sv"
         if freshness == "historical" and state:
             checker = f"{directory.relative_to(self.workspace)}/inputs/{checker}"
@@ -154,9 +219,13 @@ class FormalDashboard:
                     log = None
                     if attempt and isinstance(attempt.get("console"), str):
                         candidate = f"{directory.relative_to(self.workspace)}/{attempt['console']}"
-                        if _artifact(self.workspace, candidate).is_file():
-                            log = candidate
-                    proof = (run_results.get("property_evidence") or {}).get(name, {}).get("evidence_ref")
+                        try:
+                            if _artifact(self.workspace, candidate).is_file():
+                                log = candidate
+                        except ValueError:
+                            pass
+                    verified = evidence.get(name, {"status": "unverified", "proof": None, "error": None})
+                    proof = (verified["proof"] or {}).get("evidence_ref")
                     analysis = analysis_by_property.get(name)
                     analysis = analysis if proof and analysis and analysis.get("evidence_ref") == proof else None
                     bugs = bug_by_property.get(name, []) if analysis and analysis.get("resolution") == "RTL_BUG" else []
@@ -170,8 +239,11 @@ class FormalDashboard:
                                      "depth": item.get("depth"), "active_s": item.get("execution_elapsed_s"),
                                      "remaining_s": max(0, state.get("policy", {}).get("property_cumulative_budget_s", 0)
                                                         - item.get("execution_elapsed_s", 0)) if item else None,
-                                     "attempts": attempts, "log": log, "trace": bool(attempt and attempt.get("trace_hash")),
-                                     "counterexample": bool(attempt and (attempt.get("trace_hash") or attempt.get("witness_hash"))),
+                                     "evidence_status": verified["status"], "evidence_error": verified["error"],
+                                     "evidence_reason": verified.get("reason"),
+                                     "attempts": attempts, "log": log, "trace": bool(verified["proof"] and verified["proof"].get("trace_sha256")),
+                                     "counterexample": bool(verified["proof"] and item.get("result") == "FALSIFIED" and
+                                                            (verified["proof"].get("trace_sha256") or verified["proof"].get("witness_sha256"))),
                                      "review_actions": review_queue.get(name, []) if not self.archived and freshness == "current" else [],
                                      "decisions": [entry for entry in (state or {}).get("decisions", []) if entry.get("property") == name],
                                      "analysis": analysis, "bugs": bugs},
@@ -181,7 +253,7 @@ class FormalDashboard:
             nodes.append({"id": group["id"], "kind": "FG", "label": group.get("name") or group["id"],
                           "description": group.get("description") or "", "children": functions})
         outputs = [
-            (f"{self.output}/05_{self.dut}_formal_summary.md", "Final report"),
+            (f"{self.output}/05_{self.dut}_formal_summary.md", "Verification summary (check acceptance)"),
             ((result or {}).get("report"), "Proof batch report"),
             (f"{self.output}/07_{self.dut}_env_analysis.md", "Environment analysis"),
             (f"{self.output}/04_{self.dut}_bug_report.md", "Bug report"),
@@ -192,19 +264,23 @@ class FormalDashboard:
         ]
         counts = Counter(
             row["state"] if row["result"] == "UNPROVEN" and row["state"] in {
-                "NOT_EXECUTED", "QUEUED_FAST", "RUNNING_FAST", "RUNNING_SLOW", "CANCELLED", "ERROR"
+                "NOT_EXECUTED", "QUEUED_FAST", "QUEUED_SLOW", "RUNNING_FAST", "RUNNING_SLOW", "CANCELLED", "ERROR"
             } else row["result"] for row in properties.values()
         )
         return {"schema_version": 1, "workflow": "formal", "dut": self.dut, "groups": nodes,
                 "records": str(self.records_path.relative_to(self.workspace)), "records_revision": self.records_revision,
                 "run": result, "fingerprint": state["fingerprint"] if state else None,
                 "freshness": freshness, "archived": self.archived, "history": self.history(), "counts": counts,
+                "counts_basis": "claimed_run_results", "verified_counts": dict(verified_counts),
+                "evidence_counts": dict(Counter(entry["status"] for entry in evidence.values())),
+                "evidence_error": run_error,
                 "assumptions": sum(check["property"]["kind"] == "assume" for group in nodes
                                    for fc in group["children"] for check in fc["children"]),
                 "static_candidates": {key: len(rows) for key, rows in extract_static_bugs(
                     str(_artifact(self.workspace, f"{self.output}/04_{self.dut}_static_bug_analysis.md"))).items()},
-                "counterexamples": sum(item.get("result") == "FALSIFIED" and bool(item.get("attempts") and
-                    (item["attempts"][-1].get("trace_hash") or item["attempts"][-1].get("witness_hash"))) for item in properties.values()),
+                "counterexamples": sum(item.get("result") == "FALSIFIED" and
+                    evidence[name]["status"] == "verified" and bool(evidence[name]["proof"].get("trace_sha256") or
+                    evidence[name]["proof"].get("witness_sha256")) for name, item in properties.items()),
                 "bugs": sum(len(check["property"]["bugs"]) for group in nodes for fc in group["children"] for check in fc["children"]),
                 "reports": [{"path": path, "name": Path(path).name, "type": Path(path).suffix[1:], "label": label}
                             for path, label in outputs if path and _artifact(self.workspace, path).is_file()]}

@@ -277,7 +277,9 @@ stage:
       - "目标：依据当前工具原因和真实证据分析恒真、静态失败及反例，修复实际属性/环境问题，保留真实RTL缺陷。"
       - "当前运行结束后，技能可用时通过数据技能 prepare analysis取得异常队列、真实证据和ready_update；无技能时调用Check协调条目，再用普通文件工具填写人工分析。"
       - "本阶段分析当前输入的完整机器证明结果与 FALSE/TRIVIALLY_TRUE，任何暂缓项仍为 UNPROVEN，不能分类成 RTL Bug 或通过。"
-      - "环境纠偏：参数/位宽错误时更新 YAML，不直接改派生 SV；分析异常结果后修正 spec 时再次调用 RunFormal(action=run) 获取新输入的证据。"
+      - "环境纠偏：参数/位宽错误更新 YAML，不直接改派生 SV。仅修正属性体时用 RunFormal(action=run, scope=selected, property_names=[精确完整名称])优先诊断复验，后续调用绑定run_id/scope；合并修复后对新输入运行完整批次，定向成功不代表完整验收。假设、RTL、参数或共享环境变化需重新验证受影响范围。"
+      - "prepare analysis默认小批返回items（逐项缺项与证据）和ready_update。省略事实用该项full_evidence_call；时序疑问用trace_discovery_call发现完整信号再按窗口查询，不写脚本解析同一工具回复。按next_offset读不变队列，更新后从offset 0继续。"
+      - "先检查规格判据与属性，再判断DUT；有限场景不推广为全输入规律，浮点异常等未明确策略不能由参考表达式算对替代规范依据。无时钟不代表无状态，锁存器与未初始化状态需依据实际证据审阅。"
       - "首次RTL_BUG分析一次填写expected_requirement和可选reference_calculations，绑定prepare返回的当前真实信号；结果随update返回，无技能时Check计算。后续Bug和总结直接复用，同一证据与表达式不重复读取或另起脚本计算；只有发现矛盾或输入变化才重审。"
       - "数据技能会绑定当前证据；无技能时用RunFormal evidence取得本条真实引用并原样填写。两条路径都保留精确id/prop_name，不重编号、不写机器字段，核对真实witness与独立参考计算。"
 
@@ -301,9 +303,10 @@ stage:
   - name: coverage_analysis_and_optimization
     desc: "覆盖率分析与断言优化"
     task:
-      - "目标：分析 fanin 覆盖率报告，为未覆盖信号补充断言以提升 COI。"
+      - "目标：依据真实结构覆盖缺口补充有独立规格意义的验证目标；COI不代表功能正确或规格完备，不用恒等式刷覆盖。"
+      - "报告缺少具体未覆盖对象时，先核对诊断中的artifact/next_action并补足定位；不能猜测信号、降低阈值或删除困难目标绕过门禁。白盒目标只引用已正确绑定的Checker端口，不从Checker直接跨实例引用u_dut。"
       - "按当前覆盖缺口决定是否新增独立目标；通过可选数据技能或普通文件工具维护spec，已达标且无缺口时不重复重跑。"
-      - "新增或修改属性后调用 RunFormal(action=run)，status等待结果，review处置未决项；目标齐备后记录日志并Complete，只有需定位实际缺口时调用Check。"
+      - "新增或修改属性体后先用RunFormal(action=run, scope=selected, property_names=[精确名称])诊断复验，随后对当前输入执行完整回归，status等待结果、review处置未决项；定向批次不能替代完整覆盖验收。目标齐备后记录日志并Complete，只有需定位实际缺口时调用Check。"
     reference_files:
       - "{OUT}/tests/{FANIN_REP}"
       - "{OUT}/tests/{DUT}_checker.sv"
@@ -351,7 +354,8 @@ stage:
       - "目标：对 RTL_BUG 属性进行深度分析并生成 BUG 报告。"
       - "技能可用时用数据技能 prepare bugs取得已核验RTL_BUG观测和ready_update；无技能时Check协调条目，再用普通文件工具填写相同bugs字段。"
       - "本阶段只负责维护 YAML 子树 `bugs`；`04_{DUT}_bug_report.md` 是派生产物。"
-      - "prepare bugs的reused_analysis复用已核验FA规格关系、参考计算和当前观察，本阶段只补缺失的共享根因、源码位置、修复建议和可选impact_assessment，不重新分析同一反例。description/expected_requirement/reference_calculations及计算结果均派生不可重填。观察限于当前证据；影响推断标为人工，不能把单例行为写为所有输入的已证结论。"
+      - "prepare bugs的items[].reviewed_analysis复用已核验FA规格关系、参考计算和当前观察，本阶段只补缺失的共享根因、源码位置、修复建议和可选impact_assessment，不重新分析同一反例。description/expected_requirement/reference_calculations及计算结果均派生不可重填。观察限于当前证据；影响推断标为人工，不能把单例行为写为所有输入的已证结论。"
+      - "报告与Bug记录先用一至几句白话写清触发条件、模块或信号位置、预期与实际差异、后果。必要术语首次解释，不自造故障名称或用标签代替事实；已观察行为、根因推测及未验证影响分开，原因未确认就明确写出。完整要求见Guide_Doc/bug_report.md“问题表述要求”。"
       - "显式root_cause_id关联共享根因；数据技能可用shared批量更新，无技能时在YAML各观测中填写一致共享值。失败属性数与根因数分开，不编造最小反例或修复结果。"
     reference_files:
       - "Guide_Doc/bug_report.md"

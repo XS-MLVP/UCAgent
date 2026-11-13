@@ -29,21 +29,25 @@ description: 批量维护 Formal 任务数据、准备当前分析队列并核�
 
 ## 准备分析与 Bug 记录
 
-先通过 `RunFormal(action="run")` 执行当前证明，再以 `RunFormal(action="status")` 等待结果。停止后可以一次准备完整队列：
+先通过 `RunFormal(action="run")` 执行当前证明，再以 `RunFormal(action="status")` 等待结果。停止后按小批准备当前待审项：
 
 ```json
 {"commands":[["ext/formal/data","formal_data.py","prepare analysis"]]}
 ```
 
-结果包含精确分析 ID、完整属性名、原始证据及可直接填写的 `ready_update`，不必先制造一次失败的 Check 来初始化。按证据和规格填写分析及分类；证据引用由脚本校验后绑定，不由请求文件填写。常量真可能是合法恒等式，常量假可能是静态契约失败，都不能仅为变绿而改弱目标。
+默认最多5项并受字符预算限制。`items`把精确分析ID、完整属性名和证据摘要放在一起；`full_evidence_call`取省略事实，`trace_discovery_call`用于时序疑问；`ready_update`可直接填写，不必先制造一次失败的 Check 来初始化。按证据和规格填写分析及分类；证据引用由脚本校验后绑定，不由请求文件填写。常量真可能是合法恒等式，常量假可能是静态契约失败，都不能仅为变绿而改弱目标。
 
-分析补丁用`review_items.contract_id`查询共享`review_contracts`：FA填写`analysis/resolution/action_detail`，assert归为RTL_BUG时同时填写`expected_requirement`和可选`reference_calculations`，首次完成规格关系与计算绑定，结果随update返回供后续复用。`resolution`按机器类型选assert的`RTL_BUG/ENV_PENDING`或cover的`COVER_EXPECTED_FAIL/ENV_PENDING`；FA不填TT的`root_cause/action/related_assume`。TT填写`analysis/root_cause/action`，仅`DESIGN_EXPECTED/ACCEPTED`可接受当前恒真。精确id/prop_name不变，机器引用与计算结果不填。批量有错整批不写入。
+分析补丁用`items.contract_id`查询共享`review_contracts`：FA填写`analysis/resolution/action_detail`，assert归为RTL_BUG时同时填写`expected_requirement`和可选`reference_calculations`，首次完成规格关系与计算绑定，结果随update返回供后续复用。`resolution`按机器类型选assert的`RTL_BUG/ENV_PENDING`或cover的`COVER_EXPECTED_FAIL/ENV_PENDING`；FA不填TT的`root_cause/action/related_assume`。TT填写`analysis/root_cause/action`，仅`DESIGN_EXPECTED/ACCEPTED`可接受当前恒真。精确id/prop_name不变，机器引用与计算结果不填。批量有错整批不写入。
 
-更新后pending集合会变化，按`after_update_command`从offset 0重新准备；next_offset只用于不变队列的只读翻页。不要因旧偏移返回空页就宣称完成，错误偏移会给出明确诊断。
+更新后pending集合会变化，按`after_update_command`从offset 0重新准备；next_offset只用于不变队列的只读翻页；实际条目数可能小于limit，使用返回的next_offset，不自行加limit。不要因旧偏移返回空页就宣称完成，错误偏移会给出明确诊断。
 
-环境分析完成后，用`prepare bugs`取得`reused_analysis`，无需重读同一反例、重新计算或再次填写规格。只补根因分组、源码位置、修复建议和可选`impact_assessment`；后者是人工影响推断，不能冒充所有输入上的证明。Bug的`description/trigger/actual/expected_requirement/reference_calculations/expected/reference_results`均派生，不提交。没有新证据或矛盾时，按现有已审内容继续，完整例子见`Guide_Doc/formal_data.md`。
+环境分析完成后，用`prepare bugs`取得`items[].reviewed_analysis`，无需重读同一反例、重新计算或再次填写规格。只补根因分组、源码位置、修复建议和可选`impact_assessment`；后者是人工影响推断，不能冒充所有输入上的证明。Bug的`description/trigger/actual/expected_requirement/reference_calculations/expected/reference_results`均派生，不提交。没有新证据或矛盾时，按现有已审内容继续，完整例子见`Guide_Doc/formal_data.md`。
 
-没有待填项时无需提交空请求。填写完成后，按阶段要求记录日志并调用 `Complete`；需要定位问题时才调用 `Check`。总结的统计和 Bug 表由已验证记录生成，不再填写 `severe_bugs`。
+没有待填项时无需提交空请求。人工分析、根因和总结遵循 `Guide_Doc/bug_report.md`“问题表述要求”：先用白话说清条件、位置、预期与实际差异及后果，必要术语首次解释，不自造名称、不以术语掩盖未确认原因。填写完成后，按阶段要求记录日志并调用 `Complete`；需要定位问题时才调用 `Check`。总结的统计和 Bug 表由已验证记录生成，不再填写 `severe_bugs`。
+
+## 属性修复后的复验
+
+属性体修正后，以精确property_names和scope=selected先复验修改目标；后续status/evidence/review/cancel均绑定返回的run_id和scope。定向批保留完整Assume，不替代完整验收；合并本轮修复后对新输入运行full回归。参数、RTL、假设或共享环境变化需要重新验证受影响范围，不沿用旧Pass。可将同一RunFormal请求写入JSON，调用`formal_data.py proof --request-file formal_test/proof_request.json`；其请求使用action/scope/property_names，不混入data更新的section封套。无技能时直接使用RunFormal。
 
 ## 边界与无技能路径
 

@@ -84,12 +84,12 @@ def test_generic_data_execution_evidence_analysis_and_summary(tmp_path):
         document = store.prepare("analysis")
         assert document["prepared"] is True
         assert "action" not in document["ready_update"]
-        pending = document["review_items"]
+        pending = document["items"]
         assert len(pending) == 2
         names = [entry["prop_name"] for entry in pending]
-        originals = {"items": document["evidence"]}
+        originals = {"items": [{"property": row["prop_name"], **row["evidence"]} for row in document["items"]]}
         references = {item["property"]: item["evidence_ref"] for item in originals["items"]}
-        assert any(item["initial_values"] for item in originals["items"] if item["result"] == "FALSIFIED")
+        assert any(item["initialization"]["values"] for item in originals["items"] if item["result"] == "FALSIFIED")
         patches = [{"id": item["id"], "prop_name": item["prop_name"], "resolution": "RTL_BUG",
                     "expected_requirement": "The independently stated interface requirement holds.",
                     "analysis": "Reviewed the original tool evidence against the independent interface requirement."} for item in pending]
@@ -105,7 +105,7 @@ def test_generic_data_execution_evidence_analysis_and_summary(tmp_path):
         assert reviewed["review_progress"]["pending"] == 0
         assert reviewed["review_progress"]["completed"] == 2
         assert reviewed["ready_update"] is None
-        assert reviewed["evidence"] == []
+        assert reviewed["items"] == []
         passed, details = env.do_check()
         assert passed, details
         bug_checker = BugReportConsistencyChecker(dut_name=name, cfg=cfg)
@@ -113,8 +113,8 @@ def test_generic_data_execution_evidence_analysis_and_summary(tmp_path):
         bug_checker.on_init()
         bugs = store.prepare("bugs")
         assert bugs["prepared"] is True
-        assert len(bugs["reused_analysis"]["items"]) == 2
-        assert any(item["reference_results"] for item in bugs["reused_analysis"]["items"])
+        assert len([row["reviewed_analysis"] for row in bugs["items"]]) == 2
+        assert any(item["reference_results"] for item in [row["reviewed_analysis"] for row in bugs["items"]])
         assert all(not ({"description", "expected_requirement", "reference_calculations"} & set(entry))
                    for entry in bugs["ready_update"]["data"]["entries"])
         entries = [{"id": entry["id"], "property": entry["property"], "root_cause_id": f"CAUSE_{index}",

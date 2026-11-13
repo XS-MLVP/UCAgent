@@ -9,6 +9,8 @@
 <script src="/static/share/stage-view.js"></script>
 <script src="/static/share/console-view.js"></script>
 <script src="/static/share/formal-view.js"></script>
+<script src="/static/share/formal-review.js"></script>
+<link rel="stylesheet" href="/static/share/formal-review.css">
 <script src="/static/share/function-map.js"></script>
 <script src="/static/share/function-map-results.js"></script>
 <script>
@@ -781,6 +783,7 @@ pre code.hljs,code.hljs{background:transparent!important;padding:0!important}
         <header class="pane-heading function-map-header">
           <h2 id="function-map-title">Function map</h2>
           <div class="pane-actions">
+            <button type="button" class="pane-action" id="formal-local-drafts" hidden onclick="UCAgentFormalReview.open()">Review drafts (local)</button>
             <button type="button" id="function-map-expand" class="pane-action" aria-pressed="false" onclick="toggleFunctionMapSize(this)" hidden>Enlarge map</button>
             <button type="button" id="function-map-source" class="pane-action" hidden>Open source report</button>
             <button type="button" id="function-map-back" class="pane-action" aria-controls="workspace-reports" onclick="toggleFunctionMap()"><span aria-hidden="true">←</span> Reports</button>
@@ -805,6 +808,7 @@ pre code.hljs,code.hljs{background:transparent!important;padding:0!important}
             </div>
           </div>
           </div>
+          <div id="formal-detail-resizer" role="separator" tabindex="0" aria-orientation="vertical" aria-label="Resize Formal graph and details" title="Drag or use arrow keys; double-click to reset" hidden></div>
           <aside class="function-map-detail" aria-labelledby="function-map-detail-title" hidden>
             <header class="function-map-detail-header">
               <h3 id="function-map-detail-title" aria-live="polite"></h3>
@@ -844,7 +848,7 @@ pre code.hljs,code.hljs{background:transparent!important;padding:0!important}
         <div class="console-controls" id="console-controls">
           <button class="con-btn active" id="console-autoscroll-btn" onclick="toggleAutoScroll()">Auto-scroll</button>
           <button class="con-btn" id="console-chat-btn" onclick="toggleConsoleChatMode()" disabled title="Enable chat mode (Shift+C when idle)">Chat</button>
-          <button class="con-btn cdanger" onclick="clearConsole()">Clear</button>
+          <button class="con-btn cdanger" onclick="clearConsole()" title="Clear this browser view only; retained output is not deleted">Clear view</button>
         </div>
       </div>
       <div id="console-content">
@@ -1164,6 +1168,7 @@ function resetUiLayout(){
     "ucagent.control.console.h",
     "ucagent.sidebar.w",
     "ucagent.sidebar.rows",
+    "ucagent.formal.detail.width",
     "ucagent.modal.drag",
     "ucagent.modal.resize",
     _FILE_DELETE_CONTROLS_KEY
@@ -2435,6 +2440,9 @@ function _refreshWorkspaceViews(){
   fetchTools();
   _reportFolders=[];
   _formalView=null;
+  document.body.classList.remove("formal-workspace");
+  qs("#formal-local-drafts").hidden=true;
+  UCAgentFormalReview.update(null,"");
   _formalSelection="";
   _formalFilter="";
   qs("#formal-overview").hidden=true;
@@ -2661,7 +2669,8 @@ function _renderFormalOverview(view){
   }
   choices.value=_formalSelection;
   choices.onchange=()=>{_formalSelection=choices.value;_formalFilter="";_refreshFormal();};
-  qs("#formal-run-status").textContent=run?[run.status,view.freshness,run.error].filter(Boolean).join(" · "):"Not started";
+  qs("#formal-run-status").textContent=(run?[run.status,view.freshness,run.error].filter(Boolean).join(" · "):"Not started")
+    +" · Counts are run claims; evidence verification is shown per checkpoint";
   const compare=qs("#formal-compare-button");
   const prior=run&&view.history.find(item=>item.scope===run.scope&&item.run_id!==run.run_id
     && item.created_at<view.history.find(row=>row.run_id===run.run_id)?.created_at);
@@ -2688,6 +2697,10 @@ function _renderFormalOverview(view){
     ["counterexamples", view.counterexamples+" counterexamples"],
     ["bugs", view.bugs+" verified bugs"]
   ];
+  for(const state of ["CANCELLED","NOT_EXECUTED","QUEUED_FAST","QUEUED_SLOW","RUNNING_FAST","RUNNING_SLOW","ERROR"]){
+    if(view.counts[state])metrics.push([state,view.counts[state]+" "+(UCAgentFormalView.labels[state]||state).toLowerCase()]);
+  }
+  if(view.evidence_counts?.invalid)metrics.push(["invalid_evidence",view.evidence_counts.invalid+" invalid evidence"]);
   const metricKey=JSON.stringify(metrics);
   if(controls.dataset.metrics===metricKey){
     [...controls.children].forEach((control,index)=>control.setAttribute("aria-pressed",String(metrics[index][0]===_formalFilter)));
@@ -2721,6 +2734,9 @@ async function _refreshFormal(){
     const response=await apiFetch("/api/formal/view"+query);
     if(request!==_formalRequest||workspace!==_subWorkspace||selected!==_formalSelection)return;
     const view=response.data;
+    document.body.classList.add("formal-workspace");
+    UCAgentFormalReview.update(view,location.pathname+"|"+workspace);
+    qs("#formal-local-drafts").hidden=false;
     const previous=_formalView;
     _formalView=view;
     if(view.schema_version!==1)throw new Error("Unsupported Formal dashboard schema.");
@@ -3933,6 +3949,36 @@ function setConsoleCollapsed(collapsed){
 qs(".console-tabs").addEventListener("click",event=>{
   if(event.target.closest("[role=tab]"))setConsoleCollapsed(false);
 },true);
+
+/* ── Formal graph/details split; existing sidebar/output splitters remain shared. ── */
+(function(){
+  const handle=qs("#formal-detail-resizer"),panel=qs(".function-map-detail"),body=qs(".function-map-body");
+  let width=null,drag=null;
+  try{const saved=Number(localStorage.getItem("ucagent.formal.detail.width"));if(saved>0)width=saved;}catch{}
+  function fit(){
+    handle.hidden=!document.body.classList.contains("formal-workspace")||panel.hidden||body.clientWidth<=680;
+    if(width!==null)panel.style.setProperty("--formal-detail-width",Math.max(240,Math.min(width,body.clientWidth-220))+"px");
+  }
+  function save(){try{localStorage.setItem("ucagent.formal.detail.width",width);}catch{}}
+  function resize(value){width=Math.max(240,Math.min(value,body.clientWidth-220));fit();}
+  handle.addEventListener("pointerdown",event=>{
+    if(event.button!==0)return;
+    drag={id:event.pointerId,x:event.clientX,width:panel.getBoundingClientRect().width};
+    handle.setPointerCapture(event.pointerId);handle.classList.add("dragging");
+  });
+  handle.addEventListener("pointermove",event=>{if(drag?.id===event.pointerId)resize(drag.width-(event.clientX-drag.x));});
+  function stop(){if(!drag)return;drag=null;handle.classList.remove("dragging");save();}
+  handle.addEventListener("pointerup",stop);handle.addEventListener("pointercancel",stop);handle.addEventListener("lostpointercapture",stop);
+  handle.addEventListener("keydown",event=>{
+    if(!["ArrowLeft","ArrowRight"].includes(event.key))return;
+    event.preventDefault();resize(panel.getBoundingClientRect().width+(event.key==="ArrowLeft"?8:-8));save();
+  });
+  handle.addEventListener("dblclick",()=>{width=null;panel.style.removeProperty("--formal-detail-width");try{localStorage.removeItem("ucagent.formal.detail.width");}catch{}fit();});
+  new MutationObserver(fit).observe(panel,{attributes:true,attributeFilter:["hidden"]});
+  new MutationObserver(fit).observe(document.body,{attributes:true,attributeFilter:["class"]});
+  if(typeof ResizeObserver!=="undefined")new ResizeObserver(fit).observe(body);else window.addEventListener("resize",fit);
+  fit();
+})();
 
 /* ── console resize (vertical drag) ── */
 (function(){

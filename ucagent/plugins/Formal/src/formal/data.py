@@ -358,8 +358,8 @@ class FormalDataStore:
             result["next_action"] = "Inspect the current author section or prepare its review queue; no proof or author state was changed."
         return result
 
-    def prepare(self, section: str, offset: int = 0, limit: int = 20) -> dict:
-        """Coordinate verified current review records and return one ready author patch."""
+    def prepare(self, section: str, offset: int = 0, limit: int = 5) -> dict:
+        """Return one bounded pending page with each item beside its verified facts."""
         if section not in {"analysis", "bugs"}:
             raise ValueError("prepare supports analysis or bugs only; inspect other author sections")
         if type(offset) is not int or offset < 0 or type(limit) is not int or not 1 <= limit <= 50:
@@ -390,8 +390,10 @@ class FormalDataStore:
             changed = auto_scaffold_bug_entries(model) or changed
         if changed:
             save_records(str(path), model)
+        from .review import compact_review
         result = self.inspect(section, offset, limit)
-        result.pop("pending_analysis", None)
+        for field in ("pending_analysis", "contract", "missing_fields", "content_command"):
+            result.pop(field, None)
         if section == "analysis":
             complete_rows = [{"entry_type": kind, **entry.model_dump()} for kind in ("tt_entries", "fa_entries")
                              for entry in getattr(model.analysis, kind)]
@@ -438,15 +440,19 @@ class FormalDataStore:
                     if field not in {"id", "prop_name"} and field in missing:
                         patch[field] = ""
                 if entry_type == "fa_entries" and machine["kind"] == "assert":
-                    patch["expected_requirement"] = row.get("expected_requirement") or ""
-                    patch["reference_calculations"] = row.get("reference_calculations") or []
+                    if not row.get("expected_requirement"):
+                        patch["expected_requirement"] = ""
+                    # Existing calculations remain in the canonical records; do not
+                    # reprint them on every pending page or require resubmission.
+                    if not row.get("reference_calculations"):
+                        patch["reference_calculations"] = []
                 patches.setdefault(entry_type, []).append(patch)
                 contract_id = f"{entry_type}:{machine['kind']}"
                 contracts[contract_id] = contract
                 items.append({"id": row["id"], "prop_name": row["prop_name"], "contract_id": contract_id,
                               "missing_fields": [field for field in missing if field != "evidence_ref"]})
             result["review_contracts"] = contracts
-            result["review_items"] = items
+            result["items"] = items
             selected = [row["prop_name"] for row in rows]
         else:
             result["reused_analysis"] = page([{"id": row["id"], "property": row["property"],
@@ -465,11 +471,7 @@ class FormalDataStore:
         result["ready_update"] = ({"section": section,
                                    "expected_sha256": result["sha256"], "data": patches} if rows else None)
         result["prepared"] = True
-        result["next_action"] = ("Use reused_analysis as the current reviewed source; fill only missing root/source/fix metadata. Do not reread or recalculate the same evidence unless a contradiction or changed input requires new review. Impact assessments are human hypotheses, not universal proof."
-            if section == "bugs" else
-            "Review the original evidence once; submit classification, specification relationship and optional reference expressions together. The update returns checked calculation results for reuse by Bug delivery; do not duplicate them with a second script.")
-        result["next_action"] += " Record the stage journal and Complete after the current queue is reviewed."
-        return result
+        return compact_review(result, rows, len(complete_rows), offset, limit)
 
     def update(self, section: str, data: dict | None, bodies: dict[str, str] | None, expected_sha256: str) -> dict:
         """Validate and atomically merge one section against an explicit current revision."""

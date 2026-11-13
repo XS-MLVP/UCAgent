@@ -447,6 +447,9 @@ class ScriptGenerationChecker(BaseFormalChecker):
                 un_write_dirs=self.cfg.get_value("un_write_dirs", None),
             )
         except Exception as exc:
+            diagnostic = getattr(exc, "diagnostic", None)
+            if isinstance(diagnostic, dict):
+                return False, diagnostic
             return self._fail(
                 "Formal environment could not be rendered from current records",
                 details=str(exc),
@@ -867,7 +870,8 @@ class CoverageAnalysisChecker(BaseFormalChecker):
         if "nets" in coi:
             report["Nets COI"] = f"{coi['nets']['pct']:.1f}% ({coi['nets']['covered']}/{coi['nets']['total']})"
         if "dffs" in coi:
-            report["Dffs COI"] = f"{coi['dffs']['pct']:.1f}% ({coi['dffs']['covered']}/{coi['dffs']['total']})"
+            report["Dffs COI"] = (f"{coi['dffs']['pct']:.1f}% ({coi['dffs']['covered']}/{coi['dffs']['total']})"
+                                  if coi["dffs"]["total"] else "N/A (no flip-flops)")
 
         if all_ok:
             return True, {
@@ -875,33 +879,6 @@ class CoverageAnalysisChecker(BaseFormalChecker):
                 "report": report
             }
         else:
-            issues = [
-                f"Insufficient COI: {overall_pct:.1f}% < {self.coi_threshold:.0f}%\n"
-                f"  → Check the 'FormalMC' output to find which logic is not influenced by assertions.\n"
-                f"  → Typically, you should write assertions monitoring the uncovered signals, or trace to find unused logic."
-            ]
-            if uncovered:
-                signal_list = "\n".join(f"    - {s}" for s in uncovered[:20])
-                issues.append(
-                    f"Uncovered signals ({len(uncovered)} total, showing first 20):\n"
-                    f"{signal_list}\n"
-                    f"  → Write assert/cover properties that reference these signals to increase COI.\n"
-                    f"  → If a signal is genuinely unreachable from the checker module ports, mark it as [UNREACHABLE] in the spec."
-                )
-
-            # Check if RTL_BUG exists — provide context but do NOT auto-bypass
-            try:
-                ctx = FormalStageContext.get_or_create(self)
-                rtl_bugs = ctx.get_rtl_bug_properties(self.paths.analysis)
-                if rtl_bugs:
-                    issues.append(
-                        f"ℹ️  Note: {len(rtl_bugs)} RTL_BUG(s) confirmed in env analysis ({', '.join(rtl_bugs[:5])}).\n"
-                        f"  COI is a structural metric and is NOT affected by property pass/fail status.\n"
-                        f"  If coverage is still low, add assertions referencing the uncovered signals listed above."
-                    )
-            except Exception:
-                pass  # Don't let context lookup failure block the checker
-
             # Add property count context to help LLM understand the current state
             try:
                 checker_path = self.paths.checker
@@ -914,16 +891,24 @@ class CoverageAnalysisChecker(BaseFormalChecker):
                     report["property_counts"] = {
                         "assert": n_assert, "cover": n_cover, "assume": n_assume
                     }
-                    # Check if uncovered signals only appear in cover but not assert
-                    if uncovered:
-                        issues.extend(analyze_signal_coverage_usage(checker_content, uncovered))
             except Exception:
                 pass
 
             return False, {
-                "error": "\n".join(issues),
+                "error_code": "formal_coverage_below_threshold",
+                "error": "Current structural COI coverage is below the configured threshold.",
+                "observed": {"overall_pct": overall_pct, "uncovered_signal_count": len(uncovered),
+                             "signal_detail_available": bool(uncovered),
+                             "uncovered_signals": uncovered[:30]},
+                "expected": {"overall_pct_min": self.coi_threshold},
+                "artifacts": {"coverage_report": fanin_path, "checker": checker_path,
+                              "run_id": exec_result.get("run_id")},
+                "next_action": (
+                    "Review the listed uncovered signals against the specification. Add independently justified properties using supported whitebox checker inputs, preflight, and rerun; preserve the configured coverage threshold."
+                    if uncovered else
+                    "The report contains coverage totals but no uncovered-signal detail. Inspect the coverage artifact and obtain a detailed cone or signal report before adding properties; do not infer full coverage from an empty list, lower the threshold, or add tautologies."
+                ),
                 "report": report,
-                "suggestion": f"View complete list of uncovered signals: {fanin_path}"
             }
 
 

@@ -32,7 +32,7 @@ def main() -> int:
         prepare.add_argument("section", choices=("analysis", "bugs"))
         for operation in (inspect, prepare):
             operation.add_argument("--offset", type=int, default=0)
-            operation.add_argument("--limit", type=int, default=20)
+            operation.add_argument("--limit", type=int, default=5 if operation is prepare else 20)
         update = commands.add_parser("update")
         update.add_argument("--request-file", required=True)
         commands.add_parser("proof").add_argument("--request-file", required=True)
@@ -79,7 +79,7 @@ def main() -> int:
                 if not isinstance(payload, dict) or not required <= set(payload) or set(payload) - required not in ({"data"}, {"bodies"}):
                     raise ValueError("Update JSON must contain exactly section, expected_sha256, and one of data or bodies")
                 result = store.update(payload["section"], payload.get("data"), payload.get("bodies"), payload["expected_sha256"])
-        print(json.dumps(result, ensure_ascii=False, indent=2))
+        print(json.dumps(result, ensure_ascii=False, separators=(",", ":")))
         return 0 if result.get("status") not in {"error", "conflict"} else 2
     except (ValueError, TypeError, KeyError, OSError) as exc:
         diagnostic = getattr(exc, "diagnostic", None)
