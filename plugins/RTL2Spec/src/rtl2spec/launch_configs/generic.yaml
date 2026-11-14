@@ -4,6 +4,7 @@ rtl2spec:
   workflow: generic-design-document
   output: outputs
   mode: run
+  export_docs: true
 
 unitytest:
   enabled: false

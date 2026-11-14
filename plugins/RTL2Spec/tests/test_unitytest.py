@@ -92,28 +92,47 @@ def test_handoff_all_bytes_and_zero_specs(tmp_path, specs):
     """Flat handoff preserves all document bytes and leaves originals untouched."""
     source = tmp_path / "source"
     documents(source, specs=specs)
+    if specs:
+        (source / "specs/Empty_spec.md").write_bytes(b"")
     before = {path.relative_to(source): path.read_bytes() for path in source.rglob("*") if path.is_file()}
     destination = tmp_path / "Block_Doc"
+    destination.mkdir()
+    (destination / "keep.txt").write_bytes(b"user data")
     handoff_documents(source, destination, "Block")
+    timestamps = {path.name: path.stat().st_mtime_ns for path in destination.iterdir()}
     handoff_documents(source, destination, "Block")
-    assert {path.name for path in destination.iterdir()} == ({"Block_design_document_zh.md", "Child_spec.md"} if specs else {"Block_design_document_zh.md"})
-    for path in destination.iterdir():
+    assert timestamps == {path.name: path.stat().st_mtime_ns for path in destination.iterdir()}
+    assert (destination / "keep.txt").read_bytes() == b"user data"
+    delivered = [path for path in destination.iterdir() if path.name != "keep.txt"]
+    assert {path.name for path in delivered} == ({"Block_design_document_zh.md", "Child_spec.md", "Empty_spec.md"} if specs else {"Block_design_document_zh.md"})
+    for path in delivered:
         assert path.read_bytes() == next(value for name, value in before.items() if name.name == path.name)
     assert before == {path.relative_to(source): path.read_bytes() for path in source.rglob("*") if path.is_file()}
 
 
-@pytest.mark.parametrize("failure", ["duplicate", "target", "missing"])
+@pytest.mark.parametrize("failure", ["duplicate", "same-duplicate", "target", "missing", "target-directory", "destination-file", "target-symlink", "source-directory"])
 def test_handoff_preflights_without_partial_copy(tmp_path, failure):
     """Name conflicts or missing design input never leave partial document delivery."""
     source, target = tmp_path / "source", tmp_path / "target"
     documents(source)
-    if failure == "duplicate":
-        (source / "specs/Child_spec.md").write_text("duplicate")
+    if failure in {"duplicate", "same-duplicate"}:
+        (source / "specs/Child_spec.md").write_bytes(b"duplicate" if failure == "duplicate" else b"spec\r\n\x00")
     elif failure == "target":
         target.mkdir()
         (target / "Block_design_document_zh.md").write_text("user data")
-    else:
+    elif failure == "missing":
         (source / "Block_design_document_zh.md").unlink()
+    elif failure == "destination-file":
+        target.write_text("keep")
+    elif failure == "source-directory":
+        (source / "specs/Directory_spec.md").mkdir()
+    else:
+        target.mkdir()
+        conflict = target / "Block_design_document_zh.md"
+        if failure == "target-directory":
+            conflict.mkdir()
+        else:
+            conflict.symlink_to(source / "Block_design_document_zh.md")
     with pytest.raises(ValueError):
         handoff_documents(source, target, "Block")
     assert not (target / "Child_spec.md").exists()
@@ -311,7 +330,7 @@ def test_two_missions_default_workflow_isolation(tmp_path, monkeypatch, mode, ex
 @pytest.mark.parametrize("patch", [
     {"rtl2spec": {"workspace": ".", "module": "Block", "workflow": "generic-design-document", "mode": "bad"}},
     {"unitytest": {"enabled": "true"}}, {"unitytest": {"enabled": True, "workspace": 2}},
-    {"unitytest": {"enabled": False}},
+    {"rtl2spec": {"workspace": ".", "module": "Block", "workflow": "generic-design-document", "mode": "reuse", "source": "saved", "export_docs": False}, "unitytest": {"enabled": False}},
 ])
 def test_invalid_continuation_settings(tmp_path, patch):
     """Strict new switches fail before any external operation."""
@@ -450,6 +469,7 @@ def test_preparation_failure_never_starts_downstream(tmp_path, monkeypatch):
     assert (verification / "Block/example.py").is_file()
     assert (verification / ".rtl2spec-preparation/example.log").is_file()
     assert not (verification / "Block_Doc").exists()
+    assert (tmp_path / "workspace/Block_Doc/Child_spec.md").read_bytes() == b"spec\r\n\x00"
 
 
 def test_copied_package_imports_without_source_cwd(tmp_path):
@@ -464,18 +484,29 @@ def test_copied_package_imports_without_source_cwd(tmp_path):
     assert result.returncode == 0, result.stdout + result.stderr
 
 
-def test_stale_completed_mission_cannot_continue(tmp_path, monkeypatch):
+@pytest.mark.parametrize("verify", [False, True])
+@pytest.mark.parametrize("failure", ["old", "wrong-dut", "no-stages"])
+def test_stale_completed_mission_cannot_continue(tmp_path, monkeypatch, verify, failure):
     """An old complete record must not turn a newly failed child into success."""
     from rtl2spec import unitytest
 
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
-    config = launch_config(tmp_path, mode="run")
+    config = launch_config(tmp_path, mode="run", unitytest={"enabled": verify})
     info = tmp_path / "workspace/.ucagent/ucagent_info.json"
     info.parent.mkdir(parents=True)
-    info.write_text(json.dumps({"all_completed": True, "dut_name": "Block", "stages_info": {"0": {}}}))
-    monkeypatch.setattr(unitytest.subprocess, "run", lambda *args, **kwargs: SimpleNamespace(returncode=1))
+    payload = {"all_completed": True, "dut_name": "Other" if failure == "wrong-dut" else "Block",
+               "stages_info": {} if failure == "no-stages" else {"0": {}}}
+    info.write_text(json.dumps(payload))
+
+    def run(*args, **kwargs):
+        if failure != "old":
+            os.utime(info, ns=(info.stat().st_atime_ns, info.stat().st_mtime_ns + 1000000))
+        return SimpleNamespace(returncode=1)
+
+    monkeypatch.setattr(unitytest.subprocess, "run", run)
     monkeypatch.setattr(unitytest, "prepare_hardware", lambda *args, **kwargs: pytest.fail("stale record reached preparation"))
     assert main(["--config", str(config)]) == 1
+    assert not (tmp_path / "workspace/Block_Doc").exists()
 
 
 def test_xiangshan_fresh_chain_never_regenerates_downstream(tmp_path, monkeypatch):
@@ -531,3 +562,107 @@ def test_parameter_makefile_marker_fails_closed(tmp_path, monkeypatch, marker_co
         parameter_template({"WIDTH": 19}, "Block", tmp_path / "copy")
     assert (native / "lib/Makefile").read_bytes() == original
     assert not (tmp_path / "copy").exists()
+
+
+@pytest.mark.parametrize("mode", ["run", "reuse"])
+@pytest.mark.parametrize("export,verify", [(False, False), (True, False), (False, True), (True, True)])
+def test_export_and_verification_switch_matrix(tmp_path, monkeypatch, mode, export, verify):
+    """Independent switches choose one upstream, optional package and isolated downstream."""
+    from rtl2spec import unitytest
+
+    config = launch_config(tmp_path, mode, unitytest={"enabled": verify})
+    data = yaml.safe_load(config.read_text())
+    data["rtl2spec"]["export_docs"] = export
+    config.write_text(yaml.safe_dump(data))
+    workspace = tmp_path / "workspace"
+    source = tmp_path / "saved" if mode == "reuse" else workspace / "outputs"
+    documents(source)
+    events = []
+
+    def run(command, **kwargs):
+        """Publish a current native completion without running a workflow."""
+        events.append("upstream")
+        info = workspace / ".ucagent/ucagent_info.json"
+        info.parent.mkdir(parents=True, exist_ok=True)
+        info.write_text(json.dumps({"all_completed": True, "dut_name": "Block", "stages_info": {"0": {}}}))
+        return SimpleNamespace(returncode=1)
+
+    def prepare(*args, **kwargs):
+        """Require the independent package to precede hardware when selected."""
+        events.append("hardware")
+        assert (workspace / "Block_Doc").exists() == export
+
+    monkeypatch.setattr(unitytest.subprocess, "run", run)
+    monkeypatch.setattr(unitytest, "prepare_hardware", prepare)
+    monkeypatch.setattr(unitytest.os, "execv", lambda *args: events.append("exec"))
+    if mode == "reuse" and not (export or verify):
+        with pytest.raises(SystemExit) as error:
+            main(["--config", str(config)])
+        assert error.value.code == 2
+        assert not events
+        return
+    assert main(["--config", str(config)]) == 0
+    assert events == ((["upstream"] if export or verify else ["exec"]) if mode == "run" else []) + (["hardware", "exec"] if verify else [])
+    assert (workspace / "Block_Doc").exists() == export
+    assert (workspace / "verification/Block_Doc").exists() == verify
+
+
+@pytest.mark.parametrize("workflow", ["generic-design-document", "xiangshan-design-document"])
+def test_pure_reuse_has_no_agent_hardware_or_state_dependencies(tmp_path, monkeypatch, workflow):
+    """Only YAML launch fields and source bytes matter for document-only reuse."""
+    from rtl2spec import unitytest
+
+    config = launch_config(tmp_path, unitytest={"enabled": False}, fmagent="invalid-unused", backend="invalid-unused", template_overwrite="invalid-unused")
+    data = yaml.safe_load(config.read_text())
+    data["rtl2spec"]["workflow"] = workflow
+    config.write_text(yaml.safe_dump(data))
+    documents(tmp_path / "saved")
+    state = tmp_path / "workspace/verification/.ucagent"
+    state.mkdir(parents=True)
+    (state / "keep").write_text("old mission")
+    monkeypatch.setattr("ucagent.util.config.get_config", lambda *args, **kwargs: pytest.fail("loaded agent configuration"))
+    monkeypatch.setattr("ucagent.util.functions.load_ucagent_info", lambda *args: pytest.fail("read old mission"))
+    monkeypatch.setattr(unitytest, "prepare_hardware", lambda *args, **kwargs: pytest.fail("prepared hardware"))
+    monkeypatch.setattr(unitytest.subprocess, "run", lambda *args, **kwargs: pytest.fail("started external process"))
+    monkeypatch.setattr(unitytest.os, "execv", lambda *args: pytest.fail("started agent"))
+    monkeypatch.setenv("PATH", "")
+    assert main(["--config", str(config)]) == 0
+    assert (state / "keep").read_text() == "old mission"
+    assert (tmp_path / "workspace/Block_Doc/Child_spec.md").read_bytes() == b"spec\r\n\x00"
+
+
+@pytest.mark.parametrize("protected", ["source", "source-parent", "output", "verification", "verification-parent", "symlink"])
+def test_export_overlap_rejected_before_execution(tmp_path, monkeypatch, protected):
+    """Resolved overlaps in either direction fail even with UnityTest disabled."""
+    config = launch_config(tmp_path, "run", unitytest={"enabled": False})
+    data = yaml.safe_load(config.read_text())
+    if protected.startswith("source"):
+        data["rtl2spec"].update(mode="reuse", source="workspace/Block_Doc" if protected == "source" else "workspace")
+    elif protected == "output":
+        data["rtl2spec"]["output"] = "Block_Doc/nested"
+    elif protected.startswith("verification"):
+        data["unitytest"]["workspace"] = "Block_Doc/nested" if protected == "verification" else "."
+    else:
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        (workspace / "Block_Doc").symlink_to(workspace / "outputs", target_is_directory=True)
+    config.write_text(yaml.safe_dump(data))
+    monkeypatch.setattr("rtl2spec.unitytest.subprocess.run", lambda *args, **kwargs: pytest.fail("overlap reached upstream"))
+    with pytest.raises(SystemExit) as error:
+        main(["--config", str(config)])
+    assert error.value.code == 2
+
+
+def test_export_conflict_blocks_hardware(tmp_path, monkeypatch):
+    """A package conflict prevents hardware and downstream execution without cleanup."""
+    config = launch_config(tmp_path)
+    documents(tmp_path / "saved")
+    target = tmp_path / "workspace/Block_Doc"
+    target.mkdir(parents=True)
+    (target / "Child_spec.md").write_bytes(b"keep")
+    monkeypatch.setattr("rtl2spec.unitytest.prepare_hardware", lambda *args, **kwargs: pytest.fail("export failure reached hardware"))
+    with pytest.raises(SystemExit) as error:
+        main(["--config", str(config)])
+    assert error.value.code == 2
+    assert (target / "Child_spec.md").read_bytes() == b"keep"
+    assert not (target / "Block_design_document_zh.md").exists()

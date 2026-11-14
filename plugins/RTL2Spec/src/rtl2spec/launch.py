@@ -26,6 +26,7 @@ class LaunchSettings(BaseModel):
     workflow: Literal["generic-design-document", "xiangshan-design-document"]
     output: str = Field(default="outputs", min_length=1)
     mode: Literal["run", "reuse"] = "run"
+    export_docs: bool = True
     source: str | None = Field(default=None, min_length=1)
 
 
@@ -44,8 +45,8 @@ def read_settings(config_file: Path) -> tuple[dict, LaunchSettings, UnityTestSet
         raise ValueError("Expected a YAML mapping with an rtl2spec section; create one with --init")
     settings = LaunchSettings.model_validate(data["rtl2spec"])
     unitytest = UnityTestSettings.model_validate(data.get("unitytest", {}))
-    if settings.mode == "reuse" and (not settings.source or not unitytest.enabled):
-        raise ValueError("rtl2spec.mode reuse requires source and unitytest.enabled")
+    if settings.mode == "reuse" and (not settings.source or not (settings.export_docs or unitytest.enabled)):
+        raise ValueError("rtl2spec.mode reuse requires source and export_docs or unitytest.enabled")
     return data, settings, unitytest
 
 
@@ -90,7 +91,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         config_file = args.config.expanduser().resolve(strict=True)
         _, settings, unitytest = read_settings(config_file)
-        if unitytest.enabled:
+        if settings.export_docs or unitytest.enabled:
             from .unitytest import continue_to_unitytest
 
             return continue_to_unitytest(config_file, settings, unitytest)

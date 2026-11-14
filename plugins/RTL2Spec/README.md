@@ -46,13 +46,19 @@ bash plugins/RTL2Spec/scripts/install.sh --python python --fmagent-root /path/to
 
 四个下游阶段分别读取原生资料中的 spec/info。进入草稿阶段时自动向 `{OUT}/specs/` 原样导出全部发现的 `*_spec.md`，保持原层级、文件名和字节，info 仅保留为可选参考。没有 spec 时创建空目录；不要求正文非空、格式或模块覆盖，不生成占位 spec，也不修订其正文。中文文档的原验收保持，specs 不纳入其质量签核。完整配置、直接 UCAgent 入口和失败处理见[参考手册](docs/reference.md)。
 
+## 轻量文档包导出
+
+默认将全部 specs 和 DUT 设计文档原样平铺到 `<workspace>/<DUT>_Doc/`，保留原 outputs；设置 `rtl2spec.export_docs: false` 可关闭。旧配置省略该字段也会开启导出，与 UnityTest 开关独立。
+
+仅导出已有文档时，设置 `rtl2spec.mode: reuse`、`rtl2spec.source: ../previous-workspace/outputs`，保持 `unitytest.enabled: false`，无需工程、硬件工具或模型环境。文档包可用于原生 `examples/<DUT>/Doc/`；硬件与验证由用户准备。路径与冲突规则见[参考手册](docs/reference.md#轻量文档包导出)。
+
 ## 可选接续完整 UnityTest
 
-在同一 YAML 中设置 `unitytest.enabled: true`，统一入口会自动完成文档生成、DUT 包准备和文档交接，再启动独立的完整默认 UnityTest。省略此字段或设为 `false` 时保持仅生成文档的行为。接续前需另行准备 PATH 中的 picker、Verilator 及 Python 仿真依赖；只支持 Verilator，波形使用 FST。
+在同一 YAML 中设置 `unitytest.enabled: true`，统一入口会自动完成文档生成、DUT 包准备和文档交接，再启动独立的完整默认 UnityTest。省略此字段或设为 `false` 时不启动验证，默认仍导出文档包。接续前需另行准备 PATH 中的 picker、Verilator 及 Python 仿真依赖；只支持 Verilator，波形使用 FST。
 
 `unitytest.workspace` 默认是上游工作区内的 `verification`；请选择无既有 DUT 包、准备记录或验证状态的新目录。Generic 继续使用现有 `rtl2spec.json` 的文件顺序、include、宏和参数。香山使用本次生成结果和完整生成器 filelist，不重复调用生成入口。
 
-复用已有文档时，将 `rtl2spec.mode` 改为 `reuse` 并设置 `rtl2spec.source` 为旧输出目录，同时保持 `unitytest.enabled: true`。`source` 相对 YAML 解析，只提供文档；硬件仍来自当前 workspace 的输入工程。此模式跳过整个生成 mission，忽略 FM-Agent 配置和环境，与 `fmagent.mode: reuse` 不同。
+复用已有文档并接续验证时，将 `rtl2spec.mode` 改为 `reuse` 并设置 `rtl2spec.source` 为旧输出目录，同时设置 `unitytest.enabled: true`。`source` 相对 YAML 解析，只提供文档；硬件仍来自当前 workspace 的输入工程。此模式跳过整个生成 mission，忽略 FM-Agent 配置和环境，与 `fmagent.mode: reuse` 不同。
 
 下游 `{DUT}_Doc/` 包含全部 `specs/` 中递归发现的 `*_spec.md` 及 DUT 设计文档，平铺且字节原样；不按模块选择，不新增 spec 数量或质量门槛。同名冲突、构建或示例失败均停止并保留现场，不覆盖、不自动重试。配置隔离、参数支持条件和运行布局见[接续参考](docs/reference.md#完整-unitytest-接续)。
 
@@ -84,6 +90,7 @@ rtl2spec:
   workflow: generic-design-document
   output: outputs                     # [本次输出目录]
   mode: run
+  export_docs: true
 
 unitytest:
   enabled: false
@@ -163,6 +170,7 @@ rtl2spec:
   workflow: xiangshan-design-document
   output: outputs                       # [本次输出目录]
   mode: run
+  export_docs: true
 
 unitytest:
   enabled: false

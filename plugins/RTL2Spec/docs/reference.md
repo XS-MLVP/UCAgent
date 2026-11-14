@@ -25,7 +25,8 @@
 | `rtl2spec.module` | 必填。精确顶层模块名 |
 | `rtl2spec.workflow` | 必填。`generic-design-document` 或 `xiangshan-design-document` |
 | `rtl2spec.output` | 默认 `outputs`。工作区内的空目录或尚不存在的目录 |
-| `rtl2spec.mode` | 默认 `run`；`reuse` 跳过整个上游生成，须提供 source 并启用 unitytest |
+| `rtl2spec.mode` | 默认 `run`；`reuse` 跳过整个上游生成，须提供 source 且导出或 unitytest 至少开启一项 |
+| `rtl2spec.export_docs` | 严格布尔值，默认 `true`；额外平铺导出到固定 `<workspace>/<DUT>_Doc/` |
 | `rtl2spec.source` | reuse 的文档输出目录，相对 YAML 文件解析；不作为硬件来源 |
 | `unitytest.enabled` | 严格布尔值，默认 `false`；接续独立完整默认 UnityTest |
 | `unitytest.workspace` | 默认 `verification`，相对上游 workspace 解析，也支持绝对路径和 `~` |
@@ -37,9 +38,21 @@
 
 启动器使用当前 Python 环境执行原有 `ucagent` CLI，固定启用 `--no-history` 和 `--mcp-server-no-file-tools`，使新任务从第一阶段开始并通过 UCAgent 工具读写文件。配置文件放在输入目录之外，避免被作为 DUT 源码捕获；它与工作区可以分别存放。
 
+## 轻量文档包导出
+
+`export_docs` 默认开启，固定导出到 `<workspace>/<DUT>_Doc/`，原 outputs 不变。run 在本次生成完成后导出；reuse 从相对 YAML 解析的 source 导出。纯 reuse 只需启动字段和源文档，workspace 可新建、workflow 仍必填；无需工程、agent 配置、旧 mission、硬件或模型环境，不重新验收源文档。
+
+导出规则：
+
+- 递归选取 `specs/**/*_spec.md` 和必需的 `<DUT>_design_document_zh.md`，按原文件名、原字节平铺；零 spec 和空 spec 允许，其他产物不导出。
+- 来源同名即失败；目标同名同内容则保留，不同内容或类型冲突则失败。全部预检后复制，不覆盖冲突、不清理其他文件、不自动重试或回滚。
+- 导出目录不得与 source、outputs 或 verification 双向重叠。成功打印来源和目标，纯导出返回 0。
+
+导出与 UnityTest 独立：都开启时先导出，再接续验证；导出失败阻断接续，后续失败保留文档包。都关闭时 run 保持原仅生成行为，reuse 报配置错误。
+
 ## 完整 UnityTest 接续
 
-仅生成时保持原有 exec 启动行为；启用接续后，上游通过 `--loop --exit-on-completion` 作为子进程运行，完成后准备硬件和文档，最终 exec 默认 UnityTest。接续依据本次更新的 `.ucagent/ucagent_info.json` 中明确的 `all_completed` 和 DUT 信息；仅存在文档或退出码为 1 不代表完成。上游原始退出状态会打印保留，实际失败不会启动验证。默认验证阶段的原生启用和跳过规则不变。
+导出与接续均关闭时保持原有 exec 启动行为；任一开启时，上游通过 `--loop --exit-on-completion` 作为子进程运行一次，完成后按开关导出、准备硬件和文档，最终可 exec 默认 UnityTest。导出与接续依据本次更新的 `.ucagent/ucagent_info.json` 中明确的 `all_completed` 和 DUT 信息；仅存在文档或退出码为 1 不代表完成。上游原始退出状态会打印保留，实际失败不会导出或启动验证。默认验证阶段的原生启用和跳过规则不变。
 
 下游不加载 RTL2Spec 插件 workflow，也不继承上游 mission、stage、template、工具选择、目录权限及文档专用覆盖。共享的已解析配置为 backend、model_type、openai、anthropic、google_genai、embed、langfuse、conversation_summary、rate_limiter、cmd_timeout、loop_settings、lang 和 runtime_options；其他下游配置继续使用 UCAgent 原生配置层级。共享配置存放于验证目录 `.rtl2spec-unitytest/config.yaml`，权限为仅当前用户可读写，可能含服务凭据，请勿公开上传。CLI 原样继承进程环境，不加载 `.env`；FM-Agent 自身已有的环境处理保持。
 

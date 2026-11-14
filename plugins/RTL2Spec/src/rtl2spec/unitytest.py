@@ -1,4 +1,4 @@
-"""Sequence independent document and default UnityTest missions without model calls here."""
+"""Sequence independent document export and default UnityTest missions."""
 
 from __future__ import annotations
 
@@ -22,30 +22,30 @@ SHARED_CONFIG_KEYS = (
 
 def continue_to_unitytest(config_file: Path, settings: LaunchSettings,
                          unitytest: UnityTestSettings) -> int:
-    """Stop on failures, preserve artifacts, and exec only a prepared default mission."""
-    from ucagent.util.config import get_config
-    from ucagent.util.functions import load_ucagent_info
-
+    """Export completed documents and optionally exec an independent default mission."""
     workspace = Path(settings.workspace).expanduser()
     workspace = (config_file.parent / workspace).resolve()
     output = output_root(workspace, settings.output)
     source = output if settings.mode == "run" else (config_file.parent / Path(settings.source).expanduser()).resolve()
     verification = (workspace / Path(unitytest.workspace).expanduser()).resolve()
-    project = workspace / (f"inputs/{settings.module}" if settings.workflow.startswith("generic") else "third_party/XiangShan")
-    for protected in (workspace, project, output, source):
-        if protected.is_relative_to(verification) or (verification.is_relative_to(protected) and protected != workspace):
-            raise ValueError(f"UnityTest workspace overlaps inputs/output: {verification}; {protected}")
-    for name in (".ucagent", "unity_test", "uc_test_report", settings.module, ".rtl2spec-unitytest", ".rtl2spec-preparation"):
-        if (verification / name).exists() or (verification / name).is_symlink():
-            raise ValueError(f"Existing UnityTest state: {verification / name}; choose a new workspace")
+    destination = workspace / f"{settings.module}_Doc"
+    if settings.export_docs:
+        resolved_destination = destination.resolve()
+        for protected in (source, output, verification):
+            if resolved_destination.is_relative_to(protected) or protected.is_relative_to(resolved_destination):
+                raise ValueError(f"Document directory overlaps source/output/verification: {destination}; {protected}")
+    if unitytest.enabled:
+        project = workspace / (f"inputs/{settings.module}" if settings.workflow.startswith("generic") else "third_party/XiangShan")
+        for protected in (workspace, project, output, source):
+            if protected.is_relative_to(verification) or (verification.is_relative_to(protected) and protected != workspace):
+                raise ValueError(f"UnityTest workspace overlaps inputs/output: {verification}; {protected}")
+        for name in (".ucagent", "unity_test", "uc_test_report", settings.module, ".rtl2spec-unitytest", ".rtl2spec-preparation"):
+            if (verification / name).exists() or (verification / name).is_symlink():
+                raise ValueError(f"Existing UnityTest state: {verification / name}; choose a new workspace")
 
-    workflow_file = Path(__file__).parent / "workflows" / f"{settings.workflow}.yaml"
-    cfg = get_config(str(config_file), workspace=str(workspace), workflow_config_file=str(workflow_file))
-    field = "GENERIC_CONFIG" if settings.workflow.startswith("generic") else "XS_CONFIG"
-    config = cfg.get_value(f"template_overwrite.{field}")
-    if not isinstance(config, str) or not config:
-        raise ValueError(f"Missing resolved template_overwrite.{field}")
     if settings.mode == "run":
+        from ucagent.util.functions import load_ucagent_info
+
         info_path = workspace / ".ucagent/ucagent_info.json"
         before = info_path.stat().st_mtime_ns if info_path.exists() else None
         command = [*build_command(config_file), "--loop", "--exit-on-completion", "--mcp-server-port", "-1"]
@@ -56,8 +56,22 @@ def continue_to_unitytest(config_file: Path, settings: LaunchSettings,
         if result.returncode not in (0, 1) or not completed:
             print(f"RTL2Spec stopped (exit status {result.returncode}); no current completed mission for {settings.module}. Preserve {workspace} and inspect .ucagent/ucagent_info.json.", file=sys.stderr)
             return result.returncode or 1
-        print(f"RTL2Spec completed (upstream exit status {result.returncode}); continuing to UnityTest", flush=True)
+        print(f"RTL2Spec completed (upstream exit status {result.returncode})", flush=True)
 
+    if settings.export_docs:
+        handoff_documents(source, destination, settings.module)
+        print(f"RTL2Spec documents: {source} -> {destination}", flush=True)
+    if not unitytest.enabled:
+        return 0
+
+    from ucagent.util.config import get_config
+
+    workflow_file = Path(__file__).parent / "workflows" / f"{settings.workflow}.yaml"
+    cfg = get_config(str(config_file), workspace=str(workspace), workflow_config_file=str(workflow_file))
+    field = "GENERIC_CONFIG" if settings.workflow.startswith("generic") else "XS_CONFIG"
+    config = cfg.get_value(f"template_overwrite.{field}")
+    if not isinstance(config, str) or not config:
+        raise ValueError(f"Missing resolved template_overwrite.{field}")
     prepare_hardware(workspace, verification, source, settings.module, config,
                      generic=settings.workflow.startswith("generic"), fresh=settings.mode == "run")
     handoff_documents(source, verification / f"{settings.module}_Doc", settings.module)
