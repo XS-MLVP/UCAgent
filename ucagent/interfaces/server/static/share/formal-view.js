@@ -80,65 +80,86 @@
       .then(response => response.data);
   }
 
+  /** Render one conclusion with supporting evidence and execution history in disclosures. */
   function renderDetail(section, property, view, actions) {
     const {run} = view;
-    section.replaceChildren(element('h4', 'Formal property'));
+    const live = !view.archived && view.freshness === 'current';
+    section.replaceChildren();
     const result = element('p', property.kind.toUpperCase() + ' · ' + status(property), 'formal-property-status');
-    result.dataset.outcome = style(property);
+    result.dataset.outcome = style({...property, input_freshness: view.freshness});
     section.append(result);
     section.append(element('p', 'Evidence: ' + (property.evidence_status || 'unverified') + ' · Input: ' + view.freshness,
       'formal-evidence-status'));
     if (property.evidence_error) section.append(element('p', property.evidence_error.error || 'Evidence verification failed.'));
-    root.UCAgentFormalReview?.propertyButtons(section, property, view);
-    if (property.name) section.append(element('code', property.name));
-    if (property.sva) {
-      const source = element('details');
-      source.append(element('summary', 'SVA expression'), element('pre', property.sva));
-      section.append(source);
-    }
+    if (property.kind === 'assume') section.append(element('p', 'Environment assumption, not a proved design requirement.'));
     if (property.reason) section.append(element('p', property.reason));
-    const links = element('div', null, 'formal-links');
-    if (property.source) links.append(button('Open SVA', () => actions.openFile(property.source, property.line)));
-    if (property.log) links.append(button('Attempt log', () => actions.openFile(property.log)));
-    if (property.trace) links.append(button('Open waveform', () => actions.openTrace(view, property.name)));
-    if (property.name && !view.archived && view.freshness === 'current' && property.kind !== 'assume') {
-      links.append(button('Run selected', () => actions.runSelected(property.name)));
-    }
-    section.append(links);
-    if (property.attempts.length) {
-      const attempts = element('details');
-      attempts.append(element('summary', 'Attempts · ' + property.attempts.length));
-      attempts.append(element('p', 'Proof time ' + Math.round(property.active_s) + ' s · Remaining ' + Math.floor(property.remaining_s) + ' s'));
-      if (property.depth != null) attempts.append(element('p', 'Reported depth ' + property.depth));
-      const rows = element('ol');
-      for (const attempt of property.attempts) {
-        const time = attempt.active_s == null ? 'Running' : Math.round(attempt.active_s) + ' s';
-        rows.append(element('li', attempt.lane + ' · ' + time + ' / ' + attempt.budget_s + ' s'
-          + (attempt.forced ? ' · ' + attempt.forced : '')));
-      }
-      attempts.append(rows);
-      for (const decision of property.decisions) {
-        attempts.append(element('p', decision.action + ' · ' + decision.reason + ' · ' + decision.next_action));
-      }
-      section.append(attempts);
-    }
     if (property.analysis) {
-      const analysis = element('details');
-      analysis.append(element('summary', 'Reviewed analysis'));
+      const analysis = element('section', null, 'formal-analysis');
+      analysis.append(element('h4', 'Analysis'));
       for (const key of ['resolution', 'expected_requirement', 'analysis', 'action_detail']) {
         if (property.analysis[key]) analysis.append(element('p', property.analysis[key]));
       }
       section.append(analysis);
     }
-    for (const bug of property.bugs) {
-      const entry = element('details');
-      entry.append(element('summary', bug.id + ' · ' + (bug.root_cause_id || 'Recorded Bug')));
-      if (bug.description) entry.append(element('p', bug.description));
+    for (const bug of property.bugs || []) {
+      const entry = element('details', null, 'formal-supporting-detail');
+      entry.dataset.section = 'bug:' + bug.id;
+      entry.append(element('summary', bug.id + ' · ' + (bug.root_cause_id || 'Recorded observation')));
+      entry.append(element('p', 'Recorded human interpretation; evidence integrity does not establish root-cause correctness.', 'formal-evidence-status'));
+      for (const [key, title] of [['description', 'Observation'], ['expected_requirement', 'Expected requirement'],
+        ['root_cause', 'Root-cause interpretation'], ['impact_assessment', 'Impact assessment'], ['fix', 'Proposed fix (not reverified)']]) {
+        if (bug[key]) entry.append(element('h5', title), element('p', bug[key]));
+      }
       if (bug.rtl_file) entry.append(button('Open RTL', () => actions.openFile(bug.rtl_file, bug.rtl_line)));
       section.append(entry);
     }
-    if (property.trace && run) section.append(traceControls(view, property.name, actions.trace));
-    if (property.review_actions.length && run) {
+    const source = element('details', null, 'formal-supporting-detail');
+    source.dataset.section = 'property';
+    source.append(element('summary', 'Property · expression and source'));
+    if (property.name) source.append(element('code', property.name));
+    source.append(element('pre', property.sva || 'No property expression available.'));
+    if (property.source) source.append(button('Open SVA', () => actions.openFile(property.source, property.line)));
+    section.append(source);
+    const evidence = element('details', null, 'formal-supporting-detail');
+    evidence.dataset.section = 'evidence';
+    evidence.append(element('summary', 'Evidence · original logs and observations'));
+    evidence.append(element('p', 'Stored samples are not automatically the failure cycle. Unavailable values are not zero.'));
+    if (property.log) evidence.append(button('Attempt log', () => actions.openFile(property.log)));
+    for (const bug of property.bugs || []) {
+      for (const [key, title] of [['trigger', 'Original initialization'], ['actual', 'Original observation']]) {
+        if (bug[key]) evidence.append(element('h5', title + ' · ' + bug.id), element('pre', bug[key]));
+      }
+    }
+    if (property.trace && run && property.evidence_status === 'verified') {
+      evidence.append(button('Open waveform', () => actions.openTrace(view, property.name)));
+      evidence.append(traceControls(view, property.name, actions.trace));
+    }
+    if (!property.log && !property.trace && !(property.bugs || []).length) evidence.append(element('p', 'No original observation is available in this projection.'));
+    section.append(evidence);
+    const attempts = element('details', null, 'formal-supporting-detail');
+    attempts.dataset.section = 'attempts';
+    attempts.append(element('summary', 'Execution · ' + (property.attempts || []).length + ' attempts'));
+    attempts.append(element('p', 'Proof time ' + (property.active_s == null ? 'unavailable' : Math.round(property.active_s) + ' s')
+      + ' · Remaining ' + (property.remaining_s == null ? 'unavailable' : Math.floor(property.remaining_s) + ' s')));
+    if (property.depth != null) attempts.append(element('p', 'Reported depth ' + property.depth));
+    const rows = element('ol');
+    for (const attempt of property.attempts || []) {
+      const time = attempt.active_s == null ? 'Running' : Math.round(attempt.active_s) + ' s';
+      rows.append(element('li', attempt.lane + ' · ' + time + ' / ' + attempt.budget_s + ' s'
+        + (attempt.forced ? ' · ' + attempt.forced : '')));
+    }
+    attempts.append(rows);
+    for (const decision of property.decisions || []) {
+      attempts.append(element('p', decision.action + ' · ' + decision.reason + ' · ' + decision.next_action));
+    }
+    section.append(attempts);
+    const controls = element('div', null, 'formal-links');
+    root.UCAgentFormalReview?.propertyButtons(controls, property, view);
+    if (property.name && live && property.kind !== 'assume') {
+      controls.append(button('Run selected', () => actions.runSelected(property.name, view)));
+    }
+    section.append(controls);
+    if ((property.review_actions || []).length && run && live) {
       const form = element('form', null, 'formal-review-form');
       const reason = element('input');
       reason.placeholder = 'Reason';
@@ -165,7 +186,8 @@
 
   function traceControls(view, name, query) {
     const disclosure = element('details', null, 'formal-trace');
-    disclosure.append(element('summary', 'Signal samples'));
+    disclosure.dataset.section = 'trace';
+    disclosure.append(element('summary', 'Trace query · signals and time window'));
     const results = element('div');
     results.setAttribute('aria-live', 'polite');
     const catalog = element('input');

@@ -10,7 +10,15 @@
 <script src="/static/share/console-view.js"></script>
 <script src="/static/share/formal-view.js"></script>
 <script src="/static/share/formal-review.js"></script>
+<script src="/static/share/formal-report.js"></script>
+<link rel="stylesheet" href="/static/share/formal-report.css">
 <link rel="stylesheet" href="/static/share/formal-review.css">
+<link rel="stylesheet" href="/static/share/task-workbench.css">
+<link rel="stylesheet" href="/static/share/task-suggestions.css">
+<link rel="stylesheet" href="/static/share/chat-composer.css">
+<link rel="stylesheet" href="/static/share/quote-comments.css">
+<script src="/static/share/task-suggestion-examples.js"></script>
+<script src="/static/share/task-suggestions.js"></script>
 <script src="/static/share/function-map.js"></script>
 <script src="/static/share/function-map-results.js"></script>
 <script>
@@ -704,18 +712,8 @@ pre code.hljs,code.hljs{background:transparent!important;padding:0!important}
       </div>
     <div class="sb-panel-resizer" id="sidebar-panel-resizer" role="separator" tabindex="0" aria-orientation="horizontal" aria-label="Resize stages and agent information" aria-controls="mission-section sidebar-information" title="Drag or use arrow keys to adjust height"></div>
     <div class="sb-section" id="sidebar-information">
-      <div id="sidebar-tabs" role="tablist" aria-label="Agent information">
-        <button type="button" class="sidebar-tab" id="sidebar-tools-tab" role="tab" aria-selected="true" aria-controls="tools-section">Tools</button>
-        <button type="button" class="sidebar-tab" id="sidebar-workspace-tab" role="tab" aria-selected="false" aria-controls="workspace-sidebar" tabindex="-1">Workspace</button>
-        <button type="button" class="sidebar-tab" id="sidebar-status-tab" role="tab" aria-selected="false" aria-controls="agent-status-section" tabindex="-1">Agent Status</button>
-      </div>
-      <div class="sb-panel-body" id="agent-status-section" role="tabpanel" aria-labelledby="sidebar-status-tab" tabindex="0" hidden>
-        <div id="status-text">Loading…</div>
-      </div>
-      <div class="sb-panel-body" id="tools-section" role="tabpanel" aria-labelledby="sidebar-tools-tab" tabindex="0">
-        <div id="tools-list">Loading…</div>
-      </div>
-      <section class="sb-section" id="workspace-sidebar" role="tabpanel" aria-labelledby="sidebar-workspace-tab" hidden>
+      <header class="pane-heading workspace-status-heading"><h2>Workspace</h2><details id="agent-status-section"><summary>Agent Status</summary><div id="status-text">Loading…</div></details></header>
+      <section class="sb-section" id="workspace-sidebar" aria-label="Workspace files">
         <div class="workspace-toolbar">
           <nav id="breadcrumb" class="directory-breadcrumb" aria-label="Workspace directory"></nav>
           <button type="button" class="con-btn" onclick="fetchFiles(_curPath)" aria-label="Refresh directory">↻</button>
@@ -734,6 +732,7 @@ pre code.hljs,code.hljs{background:transparent!important;padding:0!important}
 
   <!-- verification reports and file preview -->
   <div id="fm">
+    <nav id="workbench-content-tabs" aria-label="Task content"><button type="button" aria-pressed="true" data-workbench-view="reports">Verification report</button><button type="button" aria-pressed="false" data-workbench-view="file">File content</button><span id="workbench-file-name"></span></nav>
     <div id="workspace-content">
       <section id="workspace-reports" aria-labelledby="reports-title">
         <header id="fm-bar" class="pane-heading">
@@ -779,6 +778,8 @@ pre code.hljs,code.hljs{background:transparent!important;padding:0!important}
         <nav id="reports-breadcrumb" class="directory-breadcrumb" aria-label="Reports directory" hidden></nav>
         <div id="report-file-list" tabindex="-1"><p class="report-message">Loading reports…</p></div>
       </section>
+      <section id="formal-report" aria-label="Formal report" hidden></section>
+      <section id="workbench-file" aria-label="File content" hidden><div class="workbench-file-toolbar"><button type="button" onclick="UCAgentWorkbench.showReports()">Back to report</button><span id="workbench-file-path"></span></div><div id="workbench-file-content"></div></section>
       <section id="function-map" aria-labelledby="function-map-title">
         <header class="pane-heading function-map-header">
           <h2 id="function-map-title">Function map</h2>
@@ -835,7 +836,8 @@ pre code.hljs,code.hljs{background:transparent!important;padding:0!important}
     <!-- console resize handle -->
     <div id="fm-resizer"></div>
 
-    <!-- console output panel -->
+    <!-- Output and tools share the lower workbench row. -->
+    <div id="workbench-bottom">
     <div id="console-panel">
       <div id="console-bar">
         <button type="button" id="console-toggle" aria-expanded="true" aria-controls="console-content" onclick="setConsoleCollapsed(this.getAttribute('aria-expanded')==='true')">Output</button>
@@ -862,17 +864,21 @@ pre code.hljs,code.hljs{background:transparent!important;padding:0!important}
         <div id="console-output-wrap">
           <div id="console-output"></div>
         </div>
+        <p id="runtime-chat-context" role="status" hidden></p>
         <div id="runtime-cmd-bar">
           <span id="runtime-status-badge">&#8226; idle</span>
           <div style="position:relative;flex:1;display:flex">
             <div id="runtime-autocomplete"></div>
-            <input id="runtime-cmd-input" type="text" placeholder="Runtime command…" autocomplete="off"
-                   onkeydown="handleCmdKeydown(event)" onblur="setTimeout(_acHide,150)" style="flex:1">
+            <textarea id="runtime-cmd-input" rows="2" placeholder="Runtime command…" autocomplete="off"
+                   onkeydown="handleCmdKeydown(event)" onblur="setTimeout(_acHide,150)" style="flex:1" aria-label="Chat or runtime command"></textarea>
           </div>
           <button id="runtime-cmd-send" onclick="sendRuntimeCmd()">Send</button>
           <button id="runtime-interrupt-btn" onclick="sendRuntimeInterrupt()" title="Pause after the current call">&#9632; Pause</button>
         </div>
       </div>
+    </div>
+    <div id="tools-resizer" role="separator" tabindex="0" aria-orientation="vertical" aria-label="Resize Output and Tools" title="Drag or use arrow keys; double-click to reset"></div>
+    <section id="tools-section" aria-labelledby="tools-title"><header class="pane-heading"><h2 id="tools-title">Tools</h2><input id="tools-search" type="search" placeholder="Search tools" aria-label="Search tools"></header><div id="tools-list">Loading…</div></section>
     </div>
   </div>
 </div>
@@ -1169,6 +1175,8 @@ function resetUiLayout(){
     "ucagent.sidebar.w",
     "ucagent.sidebar.rows",
     "ucagent.formal.detail.width",
+    "ucagent.workbench.tools.width",
+    "ucagent.formal.report.nav.width",
     "ucagent.modal.drag",
     "ucagent.modal.resize",
     _FILE_DELETE_CONTROLS_KEY
@@ -2155,7 +2163,7 @@ function _openFilePreview(name){
   _viewIsStageFile=false;
   _viewIsCurrentStageFile=false;
   _stageDiffRefreshing=false;
-  openModal("view-modal");
+  if(window.UCAgentWorkbench)UCAgentWorkbench.openFile(name);else openModal("view-modal");
   qs("#view-modal .modal-close").focus({preventScroll:true});
   return ++_viewRequest;
 }
@@ -2164,6 +2172,7 @@ function closeFileView(){
   _viewRequest++;
   if(qs("#view-modal").classList.contains("hidden"))return;
   closeModal("view-modal");
+  window.UCAgentWorkbench?.showReports();
   qs("#view-body").replaceChildren();
   if(_viewOpener?.isConnected)_viewOpener.focus({preventScroll:true});
   _viewOpener=null;
@@ -2176,7 +2185,7 @@ document.addEventListener("keydown",event=>{
     event.preventDefault();
     event.stopPropagation();
     closeFileView();
-  }else if(event.key==="Tab"){
+  }else if(event.key==="Tab"&&!modal.classList.contains("workbench-docked")){
     const controls=[...modal.querySelectorAll("button, a[href], iframe, [tabindex='0']")]
       .filter(element=>!element.disabled&&element.getClientRects().length);
     const edge=event.shiftKey?controls[0]:controls.at(-1);
@@ -2406,15 +2415,17 @@ function _renderStageUnifiedDiff(diff){
 
 /* ── tools ── */
 async function fetchTools(){
+  const workspace=_subWorkspace;
   try{
     const j=await apiFetch("/api/tools");
+    if(workspace!==_subWorkspace)return;
     let html="";
     for(const t of (j.data||[])){
       const hot=t.is_hot?"hot":"";
       html+=`<div class="tool-chip ${hot}" title="${esc(t.name)}: ${t.call_count} calls">${esc(t.name)}<span style="opacity:.6;font-size:10px"> ×${t.call_count}</span></div>`;
     }
     qs("#tools-list").innerHTML=html||'<p class="report-message">No recorded tool calls.</p>';
-  }catch(e){qs("#tools-list").textContent="(unavailable)";}
+  }catch(e){if(workspace===_subWorkspace)qs("#tools-list").textContent="(unavailable)";}
 }
 
 async function _syncConsoleWorkspace(){
@@ -2429,7 +2440,12 @@ async function _syncConsoleWorkspace(){
 
 function _refreshWorkspaceViews(){
   closeFileView();
-  setConsoleCollapsed(!!_subWorkspace);
+  window.UCAgentWorkbench?.reset();
+  _formalReport?.clear();
+  UCAgentTaskSuggestions.clear();
+  window.UCAgentQuoteComments?.clear();
+  qs("#formal-report").hidden=true;
+  setConsoleCollapsed(false);
   _selectedStages.clear();
   _lastFileMeta={};
   delete qs("#workspace-file-scroll").dataset.workspace;
@@ -2558,6 +2574,7 @@ let _functionMap;
 let _formalView=null;
 let _formalSelection="";
 let _formalFilter="";
+let _formalReport=null;
 let _formalRequest=0;
 let _fileListRequest=0;
 const _REPORT_DIRECTORIES=new Set(["unit_test","unity_test","uc_test_report","reports","report","coverage","coverage_data","line_dat"]);
@@ -2695,7 +2712,7 @@ function _renderFormalOverview(view){
     ["UNPROVEN", (view.counts.UNPROVEN||0)+" unproven"],
     ["review", (run?.needs_review||0)+" to review"],
     ["counterexamples", view.counterexamples+" counterexamples"],
-    ["bugs", view.bugs+" verified bugs"]
+    ["bugs", view.bugs+" recorded observations"]
   ];
   for(const state of ["CANCELLED","NOT_EXECUTED","QUEUED_FAST","QUEUED_SLOW","RUNNING_FAST","RUNNING_SLOW","ERROR"]){
     if(view.counts[state])metrics.push([state,view.counts[state]+" "+(UCAgentFormalView.labels[state]||state).toLowerCase()]);
@@ -2716,7 +2733,7 @@ function _renderFormalOverview(view){
     button.onclick=()=>{
       _formalFilter=key;
       [...controls.children].forEach(control=>control.setAttribute("aria-pressed",String(control===button)));
-      _functionMap?.setFormal(_formalView,UCAgentFormalView.tree(_formalView),key);
+      _formalReport?.setFilter(key);
       if(getComputedStyle(qs("#function-map")).display==="none")toggleFunctionMap();
     };
     return button;
@@ -2750,20 +2767,22 @@ async function _refreshFormal(){
         list.replaceChildren(table);
       }else list.textContent="No Formal reports have been generated yet.";
     }
-    if(!view.groups.length){_showFunctionMapMessage("No Formal checkpoints in this snapshot.");return;}
-    qs("#function-map-counts").textContent=view.groups.length+" groups · "
-      +view.groups.flatMap(group=>group.children).flatMap(functionPoint=>functionPoint.children).length+" checkpoints";
-    qs("#function-map-search").hidden=false;
-    qs("#function-map-expand").hidden=false;
-    qs("#function-map-status").hidden=true;
-    qs("#function-map .function-map-body").hidden=false;
-    const source=qs("#function-map-source");
-    source.hidden=false;
-    source.onclick=()=>_openFormalFile(view.records);
-    const graph=_getFunctionMap();
-    const projection=UCAgentFormalView.tree(view);
-    graph.setData(view.dut,projection.groups);
-    graph.setFormal(view,projection,_formalFilter);
+    const report=qs("#formal-report");
+    report.hidden=false;
+    if(!_formalReport)_formalReport=UCAgentFormalReport.create(report,{
+      openFile:_openFormalFile,openTrace:_openFormalTrace,trace:_queryFormalTrace,
+      runSelected:name=>_formalAction({action:"run",scope:"selected",property_names:[name]},true),
+      review:(view,name,disposition,reason,nextAction)=>_formalAction({action:"review",scope:view.run.scope,
+        run_id:view.run.run_id,property_names:[name],disposition,reason,next_action:nextAction}),
+      onFilterChange:filter=>{_formalFilter=filter;_renderFormalOverview(_formalView);}
+    });
+    _formalReport.update(view,{filter:_formalFilter,workspaceKey:location.pathname+"|"+workspace});
+    window.UCAgentQuoteComments?.update(view,location.pathname+"|"+workspace);
+    const controls=qs("#formal-overview");
+    if(controls.parentElement!==report)report.prepend(controls);
+    const stage=_missionData?.stages?.find(item=>item.index===_missionData.current_index);
+    UCAgentTaskSuggestions.update(view,{workspaceKey:location.pathname+"|"+workspace,stage:stage?.title||(_missionData?.all_completed?"流程已完成":"当前阶段")});
+
   }catch(error){
     if(request===_formalRequest&&workspace===_subWorkspace)_showFunctionMapMessage("Unable to load Formal data. "+error.message);
   }
@@ -3080,7 +3099,8 @@ async function fetchReports(refreshMap=true){
 }
 
 async function fetchFiles(path){
-  _selectSidebarTab(qs("#sidebar-workspace-tab"));
+  // Workspace files remain visible alongside Agent Status.
+
   const request=++_fileListRequest;
   const workspace=_subWorkspace;
   const scroll=qs("#workspace-file-scroll");
@@ -3653,6 +3673,30 @@ function toggleConsoleChatMode() {
   if (input && !input.disabled) input.focus();
 }
 
+/** Bring explicit review decisions into the one existing Chat composer without sending. */
+function prepareSuggestionChat(text,key,previewOnly=true){
+  const input=qs("#runtime-cmd-input");
+  if(!_consoleChatToggleAvailable()||input.disabled||(!_consoleChatMode&&input.value.trim()))return false;
+  _consoleChatMode=true;_updateConsoleChatControl();
+  input.value=[input.value.trim(),text].filter(Boolean).join("\n\n");
+  previewOnly=previewOnly||input.dataset.suggestionDemo==="true";
+  input.dataset.suggestionKey=key;input.dataset.suggestionDemo=String(previewOnly);
+  const hint=qs("#runtime-chat-context");hint.hidden=false;hint.textContent=previewOnly?"示例或归档内容已带入 Chat · 仅预览，不发送；Shift+Enter 换行":"人工批注已带入 Chat · 可补充后点击 Send · 尚未发送";
+  setConsoleCollapsed(false);qs("#workbench-bottom")?.classList.remove("show-tools");
+  for(const button of qs("#workbench-bottom-tabs")?.children||[])button.setAttribute("aria-pressed",String(button.textContent==="Output"));
+  globalThis.UCAgentChatComposer?.expand();
+  input.focus();return true;
+}
+
+/** Remove task-bound review text on context changes, never a separately authored message. */
+function clearSuggestionChat(){
+  const input=qs("#runtime-cmd-input");
+  if(!input?.dataset.suggestionKey)return;
+  input.value="";delete input.dataset.suggestionKey;delete input.dataset.suggestionDemo;
+  qs("#runtime-chat-context").hidden=true;
+  globalThis.UCAgentChatComposer?.reset();
+}
+
 function _focusRuntimeCmdInputSoon(force=false) {
   const input = qs("#runtime-cmd-input");
   if (!input || input.disabled) return;
@@ -3746,6 +3790,9 @@ async function _acComplete() {
   } catch(e) { _acHide(); }
 }
 
+/** Preserve ordinary textarea caret navigation when reading a multiline Chat. */
+function inputIsMultiline(input){return String(input?.value||"").includes("\n");}
+
 function handleCmdKeydown(event) {
   const ac = qs("#runtime-autocomplete");
   const visible = ac.style.display !== "none" && _acItems.length > 0;
@@ -3771,7 +3818,9 @@ function handleCmdKeydown(event) {
     _acPick(_acIdx);
     return;
   }
-  if (event.key === "Enter") { _acHide(); sendRuntimeCmd(); return; }
+  if(event.key==="Enter"&&event.shiftKey&&_consoleChatMode)return;
+  if (event.key === "Enter") { event.preventDefault(); _acHide(); sendRuntimeCmd(); return; }
+  if(_consoleChatMode&&inputIsMultiline(event.target))return;
   // Command history: Up/Down when autocomplete is not visible
   if (!visible && event.key === "ArrowUp") {
     event.preventDefault();
@@ -3877,7 +3926,9 @@ async function fetchRuntimeStatus() {
 async function sendRuntimeCmd() {
   const input = qs("#runtime-cmd-input");
   const rawCmd = input.value.trim();
+  const reviewKey=input.dataset.suggestionKey;
   if (!rawCmd) return;
+  if(input.dataset.suggestionDemo==="true"){showErr("这是示例或归档内容，未发送到运行任务。请清空输入后使用正常 Chat。");return;}
   try {
     const cmd = _commandForConsoleMode(rawCmd);
     if (!cmd) return;
@@ -3895,6 +3946,7 @@ async function sendRuntimeCmd() {
       accepted = await submit(true);
     }
     _submittedOperations.add(accepted.operation_id);
+    if(reviewKey&&input.dataset.suggestionKey===reviewKey){delete input.dataset.suggestionKey;delete input.dataset.suggestionDemo;qs("#runtime-chat-context").hidden=true;}
     // Record in local history (dedup consecutive)
     if (!_cmdHistory.length || _cmdHistory[_cmdHistory.length - 1] !== rawCmd) _cmdHistory.push(rawCmd);
     _cmdHistoryIdx = -1;
@@ -3936,6 +3988,7 @@ function setConsoleCollapsed(collapsed){
   const wasCollapsed=panel.classList.contains("is-collapsed");
   if(collapsed&&!wasCollapsed)_consoleView.states[_consoleView.view].scroll=_consoleView.output.scrollTop;
   panel.classList.toggle("is-collapsed",collapsed);
+  qs("#workbench-bottom")?.classList.toggle("console-collapsed",collapsed);
   qs("#console-content").hidden=collapsed;
   qs("#console-controls").hidden=collapsed;
   qs("#fm-resizer").hidden=collapsed;
@@ -3985,9 +4038,10 @@ qs(".console-tabs").addEventListener("click",event=>{
   const resizer=document.getElementById("fm-resizer");
   const panel=document.getElementById("console-panel");
   if(!resizer||!panel)return;
-  const minConsoleHeight=160;
+  const container=document.getElementById("workbench-bottom");
+  const minConsoleHeight=120;
   function getMaxConsoleHeight(){
-    const parent=panel.parentElement;
+    const parent=container?.parentElement||panel.parentElement;
     if(!parent)return 320;
     return Math.max(minConsoleHeight, Math.floor(parent.clientHeight*0.6));
   }
@@ -3995,9 +4049,13 @@ qs(".console-tabs").addEventListener("click",event=>{
     return Math.max(minConsoleHeight, Math.min(h, getMaxConsoleHeight()));
   }
   const savedH=+localStorage.getItem('ucagent.control.console.h');
-  const initialH=Number.isFinite(savedH)&&savedH>0?savedH:220;
-  let expandedHeight=initialH;
-  const fitHeight=()=>panel.style.setProperty("--console-height",clampConsoleHeight(expandedHeight)+"px");
+  let expandedHeight=Number.isFinite(savedH)&&savedH>0?savedH:null;
+  const fitHeight=()=>{
+    const available=(container?.parentElement||panel.parentElement)?.clientHeight||650;
+    const preferred=expandedHeight??Math.max(180,Math.min(360,available*0.34));
+    const height=clampConsoleHeight(preferred)+"px";
+    panel.style.setProperty("--console-height",height);if(container)container.style.height=height;
+  };
   fitHeight();
   let startY,startH;
   resizer.addEventListener("pointerdown",e=>{
@@ -4033,6 +4091,7 @@ qs(".console-tabs").addEventListener("click",event=>{
 /* ── sidebar information tabs ── */
 /** Switch panels without recreating the contents. */
 function _selectSidebarTab(tab){
+  if(!tab)return;
   for(const button of document.querySelectorAll("#sidebar-tabs [role=tab]")){
     const selected=button===tab;
     button.setAttribute("aria-selected",String(selected));
@@ -4066,7 +4125,7 @@ function _selectSidebarTab(tab){
   const handle=document.getElementById("sidebar-panel-resizer");
   if(!sidebar||!stages||!handle)return;
   const storageKey="ucagent.sidebar.rows";
-  let stageShare=0.70;
+  let stageShare=0.46;
   try{
     const saved=JSON.parse(localStorage.getItem(storageKey));
     if(Array.isArray(saved)&&(saved.length===2||saved.length===3)&&saved.every(value=>Number.isFinite(value)&&value>0)){
@@ -4404,7 +4463,7 @@ document.addEventListener("keydown",function(e){
 });
 
 /* ── init ── */
-setConsoleCollapsed(!!_subWorkspace);_initMissionSettings();_initFileDeleteControls();_initMasterBtn();fetchStatus();fetchMission();fetchTools();refreshFiles();fetchChangedFiles();fetchConsole();fetchRuntimeStatus();fetchServerInfo();
+setConsoleCollapsed(false);_initMissionSettings();_initFileDeleteControls();_initMasterBtn();fetchStatus();fetchMission();fetchTools();refreshFiles();fetchChangedFiles();fetchConsole();fetchRuntimeStatus();fetchServerInfo();
 if(_subWorkspace)_syncConsoleWorkspace();
 setInterval(()=>{fetchStatus();fetchMission();fetchTools();},8000);
 setInterval(fetchChangedFiles,15000);
@@ -4417,5 +4476,9 @@ setInterval(fetchServerInfo,5000);
 <script>
 window.UCAgentShell.init({actionsSelector:'#header-more-actions',metaUrl:'/api/ui-meta',fixedFooter:true});
 </script>
+<script src="/static/share/task-workbench.js"></script>
+<script src="/static/share/chat-composer.js"></script>
+<script src="/static/share/quote-comments.js"></script>
+<script>if(_formalView)UCAgentQuoteComments.update(_formalView,location.pathname+"|"+_subWorkspace);</script>
 </body>
 </html>

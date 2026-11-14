@@ -83,7 +83,7 @@ test('Legacy proportions merge the lower panels, and keyboard resizing remains b
 
 test('Invalid stored sizes fall back and Reset UI clears the height preference',()=>{
   for(const saved of [[1,-1,2],[1],{height:100},[0,0,0]]){
-    assert(sidebar(saved).heights().every((height,index)=>Math.abs(height-[420,180][index])<0.001));
+    assert(sidebar(saved).heights().every((height,index)=>Math.abs(height-[276,324][index])<0.001));
   }
   const reset=html.slice(html.indexOf('function resetUiLayout()'),html.indexOf('function _updateSubWorkspaceUrl()'));
   const removed=[];
