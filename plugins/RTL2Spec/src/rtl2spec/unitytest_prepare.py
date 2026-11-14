@@ -18,20 +18,22 @@ from .runtime import SCRIPTS
 
 def handoff_documents(source: Path, destination: Path, module: str) -> None:
     """Preflight all flattened names and conflicts before copying any document bytes."""
+    if destination.is_symlink() or destination.exists() and not destination.is_dir():
+        raise ValueError(f"Document directory conflict: {destination}")
     design = source / f"{module}_design_document_zh.md"
     if not design.is_file():
         raise ValueError(f"Missing design document: {design}")
     documents = [*sorted((source / "specs").rglob("*_spec.md")), design]
     copies = {}
     for path in documents:
+        if not path.is_file():
+            raise ValueError(f"Document source is not a file: {path}")
         target = destination / path.name
         if target in copies:
             raise ValueError(f"Flattened document name collision: {copies[target]} and {path}")
         if target.is_symlink() or target.exists() and (not target.is_file() or target.read_bytes() != path.read_bytes()):
             raise ValueError(f"Document target conflict: {path} -> {target}")
         copies[target] = path
-    if destination.is_symlink():
-        raise ValueError(f"Document directory is redirected: {destination}")
     destination.mkdir(parents=True, exist_ok=True)
     for target, path in copies.items():
         if not target.exists():

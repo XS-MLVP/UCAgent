@@ -40,6 +40,7 @@ def test_exec_routing_never_probes_environment(tmp_path, monkeypatch, profile, e
     assert main(["--init", profile, "--config", str(target)]) == 0
     data = yaml.safe_load(target.read_text())
     data["fmagent"].update(enabled=enabled, mode=mode)
+    data["rtl2spec"]["export_docs"] = False
     target.write_text(yaml.safe_dump(data))
     monkeypatch.setattr(fmagent_config, "resolve_paths", lambda *args: pytest.fail("launcher cannot resolve environment"))
     monkeypatch.setattr(fmagent, "local_status", lambda *args: pytest.fail("launcher cannot probe environment"))
@@ -61,3 +62,12 @@ def test_invalid_options_stop_before_exec(tmp_path, monkeypatch, settings):
     with pytest.raises(SystemExit) as error:
         main(["--config", str(target)])
     assert error.value.code == 2
+
+
+def test_unmocked_default_export_cannot_start_real_agent(tmp_path):
+    """The shared safety guard stops a forgotten subprocess mock before process creation."""
+    target = tmp_path / "run.yaml"
+    assert main(["--init", "generic", "--config", str(target)]) == 0
+    with pytest.raises(pytest.fail.Exception, match="Real agent process forbidden"):
+        main(["--config", str(target)])
+    assert not (tmp_path / "generic-spec-workspace").exists()

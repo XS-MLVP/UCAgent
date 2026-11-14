@@ -148,6 +148,10 @@ def test_default_config_starts_ucagent(tmp_path, monkeypatch):
     """Running without arguments starts the task configured in the current directory."""
     monkeypatch.chdir(tmp_path)
     main(["--init", "generic"])
+    config = Path("rtl2spec.yaml")
+    data = yaml.safe_load(config.read_text())
+    data["rtl2spec"]["export_docs"] = False
+    config.write_text(yaml.safe_dump(data))
     launched = []
 
     def record_exec(executable, command):
@@ -163,6 +167,9 @@ def test_launch_uses_the_current_python_and_exact_argument_list(tmp_path, monkey
     """The child inherits the terminal and process lifecycle without a shell intermediary."""
     config_file = tmp_path / "run.yaml"
     main(["--init", "generic", "--config", str(config_file)])
+    data = yaml.safe_load(config_file.read_text())
+    data["rtl2spec"]["export_docs"] = False
+    config_file.write_text(yaml.safe_dump(data))
     launched = []
 
     def record_exec(executable, command):
@@ -276,3 +283,28 @@ def test_launch_does_not_import_an_uninstalled_core_from_the_current_directory(t
     result = subprocess.run([*command[:4], "--help"], cwd=tmp_path, capture_output=True, text=True, timeout=30)
     assert result.returncode == 0, result.stdout + result.stderr
     assert "--plugin-workflow" in result.stdout
+
+
+@pytest.mark.parametrize("value", ["true", "false", 0, 1, None, [], {}])
+def test_export_switch_is_strict_boolean(tmp_path, value):
+    """Only actual YAML booleans can enable or disable document export."""
+    from rtl2spec.launch import read_settings
+
+    config = tmp_path / "run.yaml"
+    config.write_text(yaml.safe_dump({"rtl2spec": {"workspace": ".", "module": "Top", "workflow": "generic-design-document", "export_docs": value}}))
+    with pytest.raises(ValueError):
+        read_settings(config)
+
+
+def test_omitted_export_switch_defaults_on_and_reuse_needs_source(tmp_path):
+    """Old run configurations acquire export, but reuse never guesses its source."""
+    from rtl2spec.launch import read_settings
+
+    config = tmp_path / "run.yaml"
+    data = {"rtl2spec": {"workspace": ".", "module": "Top", "workflow": "generic-design-document"}}
+    config.write_text(yaml.safe_dump(data))
+    assert read_settings(config)[1].export_docs is True
+    data["rtl2spec"]["mode"] = "reuse"
+    config.write_text(yaml.safe_dump(data))
+    with pytest.raises(ValueError, match="source"):
+        read_settings(config)

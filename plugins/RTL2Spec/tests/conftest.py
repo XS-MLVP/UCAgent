@@ -1,5 +1,6 @@
 """Use a real Git checkout and RTL artifacts with only the expensive compiler replaced."""
 
+import os
 import platform
 import json
 import re
@@ -30,6 +31,27 @@ def executable(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text)
     path.chmod(0o755)
+
+
+@pytest.fixture(autouse=True)
+def forbid_real_workflow_processes(monkeypatch):
+    """Require explicit mocks for agent execution, including subprocess launch paths."""
+    original_popen = subprocess.Popen
+
+    def guarded_popen(command, *args, **kwargs):
+        """Allow local tools and CLI help, never an actual model-backed mission."""
+        arguments = command if isinstance(command, (list, tuple)) else [str(command)]
+        agent_command = any(Path(str(argument)).name in {"codex", "opencode", "ucagent", "rtl2spec"} or str(argument) == "ucagent.cli" for argument in arguments)
+        if agent_command and "--help" not in arguments:
+            pytest.fail(f"Real agent process forbidden in tests: {arguments[:5]}")
+        return original_popen(command, *args, **kwargs)
+
+    def forbidden_exec(*args, **kwargs):
+        """Process replacement must always be captured by the individual test."""
+        pytest.fail("Real execv forbidden in tests")
+
+    monkeypatch.setattr(subprocess, "Popen", guarded_popen)
+    monkeypatch.setattr(os, "execv", forbidden_exec)
 
 
 @pytest.fixture
