@@ -39,6 +39,7 @@
     /** Switch tabs without resetting their cursors or another tab's reading position. */
     select(view){
       if(!Object.hasOwn(this.states,view))return;
+      this.activitySelection=null;
       this.states[this.view].scroll=this.output.scrollTop;
       this.view=view;
       for(const [name,button] of Object.entries(this.tabs)){
@@ -130,10 +131,10 @@
             summary.textContent='Result · expand to view';details.append(summary,content);node.append(details);
           }else node.append(content);
           if(['WARNING','ERROR','CRITICAL'].includes(event.level))node.classList.add('console-event-alert');
-          row={node,content,key,text:''};state.rows.push(row);
+          row={node,content,key,text:'',firstId:event.id};state.rows.push(row);
           if(this.view===view)this.output.append(node);
         }
-        row.text+=event.text;state.bytes+=event.text.length;
+        row.lastId=event.id;row.text+=event.text;state.bytes+=event.text.length;
         if(view==='raw')row.content.innerHTML=this.renderAnsi(row.text);
         else row.content.textContent=strip(row.text);
         if(event.truncated)state.message='An oversized output record was truncated.';
@@ -156,6 +157,49 @@
 
     /** Resume following the active view after an explicit scroll-to-latest action. */
     scrollToEnd(){this.output.scrollTop=this.output.scrollHeight;this.newButton.hidden=true;}
+
+    /** Focus the original tool event, reading it by cursor if the Activity tab has not loaded it. */
+    async revealActivity(id,generation){
+      this.checkScope();
+      this.select('activity');
+      const state=this.states.activity,epoch=this.epoch,version=state.version;
+      const token={};
+      this.activitySelection=token;
+      state.follow=false;
+      const find=()=>state.generation===generation&&state.rows.find(row=>row.firstId<=id&&id<=row.lastId);
+      let row=find();
+      if(!row){
+        try{
+          const params=new URLSearchParams({view:'activity',after:String(id-1),limit:'1',generation});
+          const page=await this.request(eventsUrl+'?'+params);
+          if(this.activitySelection!==token||this.scope()!==this.scopeValue||
+              epoch!==this.epoch||version!==state.version||this.view!=='activity')return;
+          row=find();
+          const event=page.data?.[0];
+          if(!row&&page.generation===generation&&event?.id===id){
+            const selected=this.makeState();
+            this.append(selected,[event],'activity');
+            row=selected.rows[0];
+            this.output.querySelector('[data-activity-selection]')?.remove();
+            row.node.dataset.activitySelection='';
+            this.output.prepend(row.node);
+          }
+        }catch{
+          if(this.activitySelection!==token||this.scope()!==this.scopeValue||
+              epoch!==this.epoch||version!==state.version||this.view!=='activity')return;
+        }
+      }
+      if(!row){
+        state.message='This activity record is no longer available.';
+        this.notice.textContent=state.message;
+        return;
+      }
+      const details=row.content.closest('details');
+      if(details)details.open=true;
+      row.node.tabIndex=-1;
+      row.node.focus({preventScroll:true});
+      row.node.scrollIntoView({block:'nearest'});
+    }
 
     /** Move this browser's cursor to the latest record; never clear runtime buffers. */
     async clear(){

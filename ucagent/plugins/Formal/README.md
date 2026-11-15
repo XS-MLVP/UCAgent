@@ -39,4 +39,5 @@ ucagent <workspace> <DUT> --plugin formal --plugin-workflow formal:formal --outp
 - `formal-workbench.css` 负责 Formal 的布局和宿主控件适配。组件样式先加载，便于在更新 FlowCanvas 时单独核对 Formal 的差异。
 - `flowcanvas-coverage-actions.js` 和同名 CSS 提供可复用的目标操作组件。它接受目标上下文和提交回调。
 - `formal-workbench.js` 将组件接到当前任务的 FG／FC／CK、证明批次、阶段审阅、工具和 Chat。现有任务 API 负责访问工作区和执行。
+- `task-overview.js` 将任务起止时间、工作流进度、阶段目标和最近工具活动汇总到默认页。活动条目打开右侧原始记录，产物条目打开工作区文件。
 - `workbench-entry.js` 是任务页的加载入口。从 Master 和命令服务直连打开时，资源与当前任务使用同一服务路径。

@@ -46,7 +46,44 @@
 </div>
 
 <p class="fc-workflow-project"></p>
-<span class="center-title fc-center-title">验证模板</span>
+<span class="center-title fc-center-title">任务概览</span>
+<button type="button" class="fc-return-overview" hidden>回到任务概览</button>
+<section class="fc-task-overview" aria-labelledby="fc-task-title" hidden>
+  <article class="fc-task-sheet">
+    <header>
+      <h1 id="fc-task-title" tabindex="-1">正在连接任务…</h1>
+      <div class="fc-task-meta">
+        <span data-task-status role="status"></span>
+        <button type="button" data-task-progress hidden></button>
+      </div>
+      <dl class="fc-task-facts">
+        <div><dt>验证模块</dt><dd data-task-module></dd></div>
+        <div><dt>Agent 后端</dt><dd data-task-backend></dd></div>
+        <div><dt>求解器</dt><dd data-task-solver></dd></div>
+        <div><dt>任务累计用时</dt><dd data-task-elapsed></dd></div>
+      </dl>
+    </header>
+    <section class="fc-task-stage" aria-labelledby="fc-current-stage" hidden>
+      <p class="fc-kicker" data-stage-number>当前阶段</p>
+      <h2 id="fc-current-stage"></h2>
+      <div class="fc-task-meta">
+        <span data-stage-elapsed></span>
+        <span data-stage-last-activity></span>
+      </div>
+      <h3>本阶段目标</h3>
+      <p data-stage-objective></p>
+      <button type="button" data-stage-review hidden>查看阶段审阅</button>
+    </section>
+    <section class="fc-task-section" aria-labelledby="fc-recent-activity">
+      <h3 id="fc-recent-activity">最近活动</h3>
+      <div data-task-activity></div>
+    </section>
+    <section class="fc-task-section" aria-labelledby="fc-recent-artifacts">
+      <h3 id="fc-recent-artifacts">最近产物</h3>
+      <div data-task-artifacts></div>
+    </section>
+  </article>
+</section>
 <button type="button" class="icon-button detail-toggle fc-toggle-right" aria-controls="fc-right-pane" aria-label="切换右侧栏" title="切换右侧栏"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M15 4v16"/><path class="sidebar-fill fc-sidebar-fill" d="M15 5h3a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-3Z"/></svg></button>
 <div class="fc-quote-tools" hidden>
   <button type="button" class="fc-quote-action">添加到对话</button>

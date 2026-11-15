@@ -7,7 +7,7 @@
 <link rel="icon" type="image/svg+xml" href="/static/share/ucagent-favicon.svg">
 <link rel="stylesheet" href="/static/share/ucagent-shell.css">
 <script src="/static/share/stage-view.js"></script>
-<script src="/static/share/console-view.js"></script>
+<script src="/static/share/console-view.js?v=task-overview"></script>
 <link rel="stylesheet" href="/static/share/task-workbench.css">
 <link rel="stylesheet" href="/static/share/chat-composer.css">
 <link rel="stylesheet" href="/static/share/workbench-polish.css">
@@ -1792,6 +1792,7 @@ async function openStageTask(stageIndex){
 }
 
 let _missionData={};
+let _runtimeStatus, _runtimeStatusRequest=0;
 let _missionRequest=0;
 let _missionPosition=null;
 let _stageInfoRequest=0;
@@ -2432,6 +2433,9 @@ async function _syncConsoleWorkspace(){
 }
 
 function _refreshWorkspaceViews(){
+  _missionData={};
+  _runtimeStatus=undefined;
+  _runtimeStatusRequest++;
   closeFileView();
   window.UCAgentWorkbench?.reset();
   _formalReport?.clear();
@@ -2740,16 +2744,16 @@ async function _refreshFormal(){
   const [scope,runId]=selected.split(":");
   const query=runId?"?"+new URLSearchParams({scope,run_id:runId}):"";
   try{
-    const response=await apiFetch("/api/formal/view"+query);
-    if(request!==_formalRequest||workspace!==_subWorkspace||selected!==_formalSelection)return;
     const {coverageActions,chatQuotes}=await UCAgentWorkbench.loadFormal();
     if(request!==_formalRequest||workspace!==_subWorkspace||selected!==_formalSelection)return;
-    const view=response.data;
     _formalChatQuotes=chatQuotes;
     document.body.classList.add("formal-workspace");
+    const response=await apiFetch("/api/formal/view"+query);
+    if(request!==_formalRequest||workspace!==_subWorkspace||selected!==_formalSelection)return;
+    const view=response.data;
+    if(view.schema_version!==1)throw new Error("Unsupported Formal dashboard schema.");
     const previous=_formalView;
     _formalView=view;
-    if(view.schema_version!==1)throw new Error("Unsupported Formal dashboard schema.");
     _renderFormalOverview(view);
     if(!previous||JSON.stringify(previous.reports)!==JSON.stringify(view.reports)){
       const files=view.reports.map(file=>_reportFileRow(file));
@@ -3867,10 +3871,12 @@ function _setRuntimeBusy(busy, inTui) {
 
 async function fetchRuntimeStatus() {
   const workspace=_subWorkspace;
+  const request=++_runtimeStatusRequest;
   try {
     const j = await apiFetch("/api/runtime/status");
-    if(workspace!==_subWorkspace)return;
+    if(workspace!==_subWorkspace||request!==_runtimeStatusRequest)return;
     const d = j.data || {};
+    _runtimeStatus=d;
     const inTui = false;
     const operations = d.operations || [];
     const busy = operations.some(op => !["succeeded", "failed", "cancelled"].includes(op.state));
@@ -3915,7 +3921,9 @@ async function fetchRuntimeStatus() {
         details.append(summary,body);return details;
       }));
     }
-  } catch(e) {}
+  } catch(e) {
+    if(workspace===_subWorkspace&&request===_runtimeStatusRequest)_runtimeStatus=null;
+  }
 }
 
 async function sendRuntimeCmd() {
@@ -4466,7 +4474,7 @@ setConsoleCollapsed(false);_initMissionSettings();_initFileDeleteControls();_ini
 if(_subWorkspace)_syncConsoleWorkspace();
 setInterval(()=>{fetchStatus();fetchMission();fetchTools();},8000);
 setInterval(fetchChangedFiles,15000);
-setInterval(()=>{if(_formalView&&!document.hidden)_refreshFormal();},8000);
+setInterval(()=>{if(document.body.classList.contains("formal-workspace")&&!document.hidden)_refreshFormal();},8000);
 setInterval(fetchConsole,2000);
 setInterval(fetchRuntimeStatus,2000);
 setInterval(fetchServerInfo,5000);
@@ -4475,7 +4483,7 @@ setInterval(fetchServerInfo,5000);
 <script>
 window.UCAgentShell.init({actionsSelector:'#header-more-actions',metaUrl:'/api/ui-meta',fixedFooter:true});
 </script>
-<script src="/static/share/task-workbench.js?v=flowcanvas-plugin-15"></script>
+<script src="/static/share/task-workbench.js?v=task-overview"></script>
 <script src="/static/share/chat-composer.js"></script>
 <script src="/static/share/workbench-polish.js"></script>
 </body>

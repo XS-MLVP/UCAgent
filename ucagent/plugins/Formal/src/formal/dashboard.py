@@ -267,21 +267,35 @@ class FormalDashboard:
             nodes.append({"id": group["id"], "kind": "FG", "label": group.get("name") or group["id"],
                           "description": group.get("description") or "", "children": functions})
         outputs = [
-            (f"{self.output}/05_{self.dut}_formal_summary.md", "Verification summary (check acceptance)"),
-            ((result or {}).get("report"), "Proof batch report"),
-            (f"{self.output}/07_{self.dut}_env_analysis.md", "Environment analysis"),
-            (f"{self.output}/04_{self.dut}_bug_report.md", "Bug report"),
-            (f"{self.output}/04_{self.dut}_static_bug_analysis.md", "Static candidates"),
-            (f"{self.output}/03_{self.dut}_functions_and_checks.md", "Functions and checkpoints"),
-            (f"{self.output}/tests/test_{self.dut}_counterexample.py", "Counterexample reproduction"),
-            (f"{self.output}/tests/sva_preflight.json", "SVA preflight"),
+            (f"{self.output}/05_{self.dut}_formal_summary.md", "Verification summary (check acceptance)", "summary"),
+            ((result or {}).get("report"), "Proof batch report", None),
+            (f"{self.output}/07_{self.dut}_env_analysis.md", "Environment analysis", None),
+            (f"{self.output}/04_{self.dut}_bug_report.md", "Bug report", None),
+            (f"{self.output}/04_{self.dut}_static_bug_analysis.md", "Static candidates", None),
+            (f"{self.output}/03_{self.dut}_functions_and_checks.md", "Functions and checkpoints", None),
+            (f"{self.output}/02_{self.dut}_basic_info.md", "DUT overview", "basic_info"),
+            (f"{self.output}/01_{self.dut}_verification_needs_and_plan.md", "Verification plan", "planning"),
+            (f"{self.output}/tests/test_{self.dut}_counterexample.py", "Counterexample reproduction", None),
+            (f"{self.output}/tests/sva_preflight.json", "SVA preflight", None),
         ]
         counts = Counter(
             row["state"] if row["result"] == "UNPROVEN" and row["state"] in {
                 "NOT_EXECUTED", "QUEUED_FAST", "QUEUED_SLOW", "RUNNING_FAST", "RUNNING_SLOW", "CANCELLED", "ERROR"
             } else row["result"] for row in properties.values()
         )
+        reports = []
+        for path, label, section in outputs:
+            artifact = _artifact(self.workspace, path) if path else None
+            if artifact and artifact.is_file():
+                try:
+                    modified_at = artifact.stat().st_mtime
+                except FileNotFoundError:
+                    continue
+                reports.append({"path": path, "name": artifact.name, "type": artifact.suffix[1:],
+                                "label": label, "modified_at": modified_at,
+                                "template_only": section in self.records and not self.records[section]})
         return {"schema_version": 1, "workflow": "formal", "dut": self.dut, "groups": nodes,
+                "solver": "FormalMC",
                 "records": str(self.records_path.relative_to(self.workspace)), "records_revision": self.records_revision,
                 "run": result, "fingerprint": state["fingerprint"] if state else None,
                 "freshness": freshness, "archived": self.archived, "history": self.history(), "counts": counts,
@@ -296,8 +310,7 @@ class FormalDashboard:
                     evidence[name]["status"] == "verified" and bool(evidence[name]["proof"].get("trace_sha256") or
                     evidence[name]["proof"].get("witness_sha256")) for name, item in properties.items()),
                 "bugs": sum(len(check["property"]["bugs"]) for group in nodes for fc in group["children"] for check in fc["children"]),
-                "reports": [{"path": path, "name": Path(path).name, "type": Path(path).suffix[1:], "label": label}
-                            for path, label in outputs if path and _artifact(self.workspace, path).is_file()]}
+                "reports": reports}
 
     def compare(self, before_id, before_scope, after_id, after_scope):
         """Compare frozen inputs and matching Cover outcomes as independent observations."""

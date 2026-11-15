@@ -322,6 +322,10 @@ class WorkspaceQueries:
         stage_list = task_data["task_list"]["stage_list"]
         ret = collections.OrderedDict({
             "mission_name": task_data["mission_name"],
+            "task": {"module": info.get("dut_name") or info.get("DUT"),
+                     "agent_backend": info.get("agent_backend"),
+                     "started_at": info.get("time_begin"),
+                     "finished_at": info.get("time_end")},
             "current_index": current_index,
             "all_completed": bool(info.get("all_completed", False)),
             "is_waiting_for_review": workspace_lifecycle(info) == "waiting",

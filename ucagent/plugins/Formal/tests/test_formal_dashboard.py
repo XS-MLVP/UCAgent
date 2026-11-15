@@ -165,9 +165,27 @@ def test_workbench_assets_are_served_from_the_plugin():
     assert layout.status_code == 200
     assert layout.headers["content-type"].startswith("text/html")
     assert 'class="activity-bar fc-rail"' in layout.text
+    assert client.get("/static/formal/task-overview.js").status_code == 200
     assert client.get("/static/formal/missing.js").status_code == 404
     assert client.get("/static/formal/.formal_records.yaml").status_code == 404
     assert client.get("/static/formal/%2E%2E%2Fdashboard.py").status_code == 404
+
+
+def test_overview_identifies_unfilled_formal_reports(tmp_path):
+    """Distinguish generated placeholders, authored reports and older archives."""
+    records, _ = write_saved_formal(tmp_path)
+    output = tmp_path / "formal_test"
+    (output / "01_Adder_verification_needs_and_plan.md").write_text("# Planning template\n")
+    (output / "02_Adder_basic_info.md").write_text("# Adder interfaces\n")
+    records.update(planning={}, basic_info={"interface_summary": "Adder inputs a and b"})
+    (output / ".formal_records.yaml").write_text(yaml.safe_dump(records))
+    view = FormalDashboard(tmp_path, archived=True).view()
+    reports = {report["name"]: report for report in view["reports"]}
+    assert view["solver"] == "FormalMC"
+    assert reports["01_Adder_verification_needs_and_plan.md"]["template_only"]
+    assert not reports["02_Adder_basic_info.md"]["template_only"]
+    assert not reports["05_Adder_formal_summary.md"]["template_only"]
+    assert reports["02_Adder_basic_info.md"]["modified_at"] > 0
 
 
 def test_fc_review_metadata_tracks_current_and_frozen_specs(tmp_path):

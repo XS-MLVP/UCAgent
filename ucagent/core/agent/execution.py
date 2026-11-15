@@ -226,6 +226,7 @@ class VerifyAgent:
             "seed": self.seed,
             "dut_name": self.dut_name,
             "DUT": self.dut_name,
+            "agent_backend": getattr(self.cfg.get_value("backend"), "key_name", None),
             "config_file": self.config_file,
             "config_arg": self.config_file,
             "workflow_config_file": self.workflow_config_file,

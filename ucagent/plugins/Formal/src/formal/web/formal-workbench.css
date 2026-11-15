@@ -52,7 +52,33 @@ html[data-theme="light"] #layout.fc-formal {
 .fc-formal #workspace-content { background: var(--surface); position: relative; }
 .fc-formal #workspace-content.show-workbench-file #workbench-file { display: flex; }
 .fc-formal #formal-report { flex: 1; background: transparent; }
-.fc-formal #formal-report.fc-review-open { display: none; }
+.fc-formal #formal-report.fc-report-inactive { display: none; }
+.fc-task-overview { flex: 1; min-width: 0; overflow: auto; scrollbar-gutter: stable; }
+.fc-task-sheet { width: min(100%, 800px); margin-inline: auto; padding: 24px var(--fc-report-inset) 66px; }
+.fc-task-sheet h1 { margin: 0; font-size: clamp(20px, 2vw, 27px); letter-spacing: -.035em; line-height: 1.35; }
+.fc-task-sheet h2 { margin: 3px 0 0; font-size: 20px; line-height: 1.35; }
+.fc-task-sheet h3 { margin: 0 0 6px; font-size: 14px; }
+.fc-task-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 14px; margin-top: 7px; color: var(--fc-muted); font-size: 12px; }
+[data-task-status]::before { content: ''; display: inline-block; width: 6px; height: 6px; margin-inline-end: 5px; border-radius: 50%; background: currentColor; vertical-align: .1em; }
+[data-task-status][data-tone=running], [data-task-status][data-tone=done] { color: var(--green); }
+[data-task-status][data-tone=waiting] { color: var(--orange); }
+[data-task-status][data-tone=failed] { color: var(--red); }
+.fc-task-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 108px), 1fr)); gap: 12px 16px; margin: 15px 0 0; padding: 12px 0 16px; border-block: 1px solid var(--fc-line); }
+.fc-task-facts dt { color: var(--fc-muted); font-size: 12px; }
+.fc-task-facts dd { margin: 4px 0 0; font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.fc-task-stage { margin-top: 18px; }
+.fc-task-stage .fc-kicker { margin: 0; }
+.fc-task-stage h3 { margin-top: 18px; }
+.fc-task-stage [data-stage-objective] { margin: 0; line-height: 1.7; overflow-wrap: anywhere; }
+.fc-task-stage [data-stage-review] { margin-top: 8px; }
+.fc-task-section { border-top: 1px solid var(--fc-line); margin-top: 16px; padding-top: 14px; }
+.fc-task-section > div { color: var(--fc-muted); line-height: 1.6; }
+.fc-task-section > div > div { display: flex; align-items: baseline; gap: 12px; margin: 5px 0; }
+.fc-task-section time { min-width: 8ch; font-size: 12px; font-variant-numeric: tabular-nums; }
+.fc-task-sheet button, .fc-formal .fc-return-overview { border: 0; padding: 1px 0; background: none; color: var(--fc-accent); font: inherit; text-align: left; overflow-wrap: anywhere; }
+.fc-task-sheet button:hover, .fc-formal .fc-return-overview:hover { text-decoration: underline; }
+.fc-formal .fc-return-overview { flex: none; font-size: 12px; }
+.console-event[data-activity-selection], .console-event:focus { outline: 1px solid var(--accent); outline-offset: -1px; }
 .fc-formal .formal-report-body { display: block; }
 .fc-formal .formal-report-detail { display: block; height: 100%; overflow-y: auto; scrollbar-gutter: stable; }
 .fc-formal :is(.formal-report-heading,.formal-report-pager,.formal-report-content) {

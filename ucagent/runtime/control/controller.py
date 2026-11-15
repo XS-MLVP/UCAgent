@@ -15,6 +15,7 @@ from ucagent.core.tools.fileops import BaseReadWrite
 from ucagent.util.file_policy import write_entry_has_wildcards
 from ucagent.util.config import Config
 from ucagent.util.functions import list_files_by_mtime
+from ucagent.util.output import publish_output
 from ucagent.version import __version__
 from ucagent.runtime.workspace.access import WorkspaceAccess
 from ucagent.runtime.workspace.queries import WorkspaceQueries
@@ -226,7 +227,7 @@ class Controller:
         return self.tool_timeout_list()
 
     def tool_invoke(self, name, arguments=None):
-        """Validate a JSON object against the tool schema, then use normal invoke."""
+        """Validate and invoke a task tool with the same Activity events as MCP."""
         tool = self._tool(name)
         arguments = {} if arguments is None else arguments
         if not isinstance(arguments, dict):
@@ -235,7 +236,14 @@ class Controller:
             validated = tool.tool_call_schema(**arguments)
         except ValueError as exc:
             raise ControlError("invalid_argument", str(exc), tool=name) from exc
-        return public_data(tool.invoke(validated.model_dump()))
+        publish_output(f"{tool.name}: started\n", source="tool", kind="call")
+        try:
+            result = public_data(tool.invoke(validated.model_dump()))
+        except Exception as error:
+            publish_output(f"{tool.name}: {error}\n", source="tool", kind="result", level="ERROR")
+            raise
+        publish_output(f"{tool.name}: {result}\n", source="tool", kind="result")
+        return result
 
     def task_status(self):
         """Read the mission and current stage status as detached data."""
@@ -270,9 +278,14 @@ class Controller:
         for row, stage in zip(stages, manager.stages):
             index = row["index"]
             row["is_current"] = stage is current
+            row["started_at"] = getattr(stage, "time_start", None)
             row["can_edit_flags"] = index > manager.stage_index and not stage.is_completed()
             row["outcome"] = public_data(stage.get_stage_outcome()) if index <= manager.stage_index else None
         return {"mission_name": result["mission_name"], "current_index": manager.stage_index,
+                "task": {"module": getattr(self.agent, "dut_name", None),
+                         "agent_backend": getattr(self.agent.cfg.get_value("backend"), "key_name", None),
+                         "started_at": getattr(manager, "time_begin", None),
+                         "finished_at": getattr(manager, "time_end", None)},
                 "all_completed": result["task_list"]["all_completed"],
                 "is_waiting_for_review": result["task_list"].get("is_waiting_for_review", False),
                 "enable_llm_fail_suggestion": manager.llm_fail_suggestion is not None,

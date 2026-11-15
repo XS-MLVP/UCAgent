@@ -154,7 +154,14 @@ def test_mission_preserves_structured_state_for_live_and_saved_views(api, tmp_pa
     """Both views retain presentation fields and respect explicit incomplete saved stages."""
     client, _, runtime = api
     runtime.manager.stages[0].fail_count = 2
+    runtime.agent.dut_name = "LiveDut"
+    runtime.agent.cfg.set_value("backend", {"key_name": "codex"})
+    runtime.manager.time_begin = 100.0
+    runtime.manager.stages[0].time_start = 101.0
     live = client.get("/api/mission", params={"strip_ansi": strip_ansi}).json()["data"]
+    assert live["task"] == {"module": "LiveDut", "agent_backend": "codex",
+                            "started_at": 100.0, "finished_at": None}
+    assert live["stages"][0]["started_at"] == 101.0
     assert live["stages"][0]["fail_count"] == 2
     assert live["stages"][0]["is_current"] is True
     assert live["stages"][0]["section_index"] == "1"
@@ -163,7 +170,8 @@ def test_mission_preserves_structured_state_for_live_and_saved_views(api, tmp_pa
     assert "time_cost" in live["stages"][0]
     child = tmp_path / "saved"
     (child / ".ucagent").mkdir(parents=True)
-    snapshot = {"mission_name": "Saved mission", "stage_index": 2, "stages_info": {
+    snapshot = {"mission_name": "Saved mission", "DUT": "SavedDut",
+                "time_begin": 10.0, "time_end": 20.0, "stage_index": 2, "stages_info": {
         "0": {"is_completed": False, "fail_count": 3, "time_cost": 12,
               "task": {"title": "Unfinished earlier stage", "skill_list": {"review": []}}},
         "1": {"is_completed": True, "section_index": "2.1", "stage_name": "fixture",
@@ -173,7 +181,10 @@ def test_mission_preserves_structured_state_for_live_and_saved_views(api, tmp_pa
     (child / ".ucagent/ucagent_info.json").write_text(json.dumps(snapshot))
     response = client.get("/api/mission", params={"sub_workspace": "saved", "strip_ansi": strip_ansi})
     assert response.status_code == 200, response.text
-    rows = response.json()["data"]["stages"]
+    saved = response.json()["data"]
+    assert saved["task"] == {"module": "SavedDut", "agent_backend": None,
+                             "started_at": 10.0, "finished_at": 20.0}
+    rows = saved["stages"]
     assert rows[0]["is_completed"] is False
     assert rows[0]["fail_count"] == 3 and rows[0]["time_cost"]
     assert rows[0]["skill_list"] == ["review"]

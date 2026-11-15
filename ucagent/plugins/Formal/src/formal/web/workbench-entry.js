@@ -13,7 +13,7 @@ export async function load() {
   });
 
   try {
-    const [markup, workbench, coverage, flowcanvas, quote] = await Promise.all([
+    const [markup, workbench, coverage, flowcanvas, quote, overview] = await Promise.all([
       fetch(asset('workbench.html')).then(response => {
         if (!response.ok) throw new Error('Unable to load the Formal workbench layout.');
         return response.text();
@@ -22,6 +22,7 @@ export async function load() {
       import(asset('flowcanvas-coverage-actions.js')),
       import(asset('flowcanvas-ui.js')),
       import(asset('chat-quote.js')),
+      import(asset('task-overview.js')),
       ...['formal-view.js', 'formal-report.js',
         'task-suggestions.js', 'task-suggestion-examples.js'].map(name => import(asset(name))),
       ...styles.map(link => new Promise((resolve, reject) => {
@@ -30,7 +31,8 @@ export async function load() {
         document.head.append(link);
       }))
     ]);
-    return workbench.mount(markup, coverage.createCoverageActions, flowcanvas, quote.mountChatQuote);
+    return workbench.mount(markup, coverage.createCoverageActions, flowcanvas, quote.mountChatQuote,
+      overview.mountTaskOverview);
   } catch (error) {
     for (const link of styles) link.remove();
     throw error;

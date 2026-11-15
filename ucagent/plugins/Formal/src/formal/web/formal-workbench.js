@@ -1,6 +1,6 @@
 /** Connect the FlowCanvas shell to the Formal task and its live command API. */
 /** Bind task state to the packaged layout and reuse its existing live controls. */
-export function mount(markup,createCoverageActions,{bindTabs,createTaskCard},mountChatQuote){
+export function mount(markup,createCoverageActions,{bindTabs,createTaskCard},mountChatQuote,mountTaskOverview){
   const q=selector=>document.querySelector(selector);
   const scriptUrl=import.meta.url;
   const layout=document.createElement('template');
@@ -10,6 +10,8 @@ export function mount(markup,createCoverageActions,{bindTabs,createTaskCard},mou
   const restored=new Map();
   const finished=new Set(['cancelled','failed','succeeded']);
   let enabled=false, leftMode='template', workspace, stageIndex, previousChatMode, defaultedChat;
+  let reportSelected=false, objectiveKey='', objective='', objectiveRequest=null;
+  const recentActivity=[];
   let reviewRequest=0, reviewSignature='', reviewBusy=false, revisionRequest=0, waitKey='';
   let toolSignature='', toolList=[], toolRun=null, messageCursor=null, messageGeneration=null, messageRequest=null;
 
@@ -132,7 +134,11 @@ export function mount(markup,createCoverageActions,{bindTabs,createTaskCard},mou
     if(!addChatDraft(draft,'formal:'+path,preview))showErr('请先切换到 Chat 或清空现有命令草稿。');
   }
   template.addEventListener('click',event=>{
-    if(compactLayout.matches&&event.target.closest('.formal-report-function'))task.classList.remove('fc-show-left');
+    if(!event.target.closest('.formal-report-function'))return;
+    reportSelected=true;
+    closeFileView();
+    task.classList.remove('fc-show-left');
+    updateContent();
   });
 
   const targetPopover=part('#coverage-task-popover');
@@ -224,6 +230,21 @@ export function mount(markup,createCoverageActions,{bindTabs,createTaskCard},mou
   });
 
   const centerTitle=part('.fc-center-title'), toggleRight=part('.fc-toggle-right');
+  const overview=part('.fc-task-overview'), returnOverview=part('.fc-return-overview');
+  const taskOverview=mountTaskOverview(overview,{
+    openWorkflow:()=>revealRight('workflow'),
+    openReview:()=>selectLeft('suggestions'),
+    openActivity:event=>{
+      revealRight('output');
+      _consoleView.revealActivity(event.id,event.generation);
+    },
+    openFile:_openFormalFile
+  });
+  returnOverview.addEventListener('click',()=>{
+    reportSelected=false;
+    selectLeft('template');
+    taskOverview.focus();
+  });
   function syncRightToggle(){
     const open=rightOverlay.matches?task.classList.contains('fc-show-right'):!task.classList.contains('fc-hide-right');
     toggleRight.setAttribute('aria-expanded',String(open));
@@ -253,6 +274,7 @@ export function mount(markup,createCoverageActions,{bindTabs,createTaskCard},mou
     leftTitle.textContent={template:'验证模板',suggestions:'阶段审阅',files:'Worktree'}[mode];
     task.classList.remove('fc-show-left');
     if(mode==='files')return;
+    closeFileView();
     UCAgentWorkbench.showReports();
     if(mode==='suggestions')refreshReview();
     updateContent();
@@ -260,15 +282,26 @@ export function mount(markup,createCoverageActions,{bindTabs,createTaskCard},mou
   function updateContent(){
     if(!enabled)return;
     const fileOpen=q('#workspace-content').classList.contains('show-workbench-file');
-    centerTitle.textContent=fileOpen?'文件预览':leftMode==='suggestions'?'阶段审阅':'验证模板';
     review.hidden=fileOpen||leftMode!=='suggestions';
-    report.classList.toggle('fc-review-open',!review.hidden);
+    overview.hidden=fileOpen||!review.hidden||reportSelected;
+    returnOverview.hidden=!overview.hidden;
+    centerTitle.textContent=fileOpen?'文件预览':!review.hidden?'阶段审阅':overview.hidden?'验证模板':'任务概览';
+    report.classList.toggle('fc-report-inactive',fileOpen||!review.hidden||!overview.hidden);
     floating.hidden=fileOpen;
-    source.hidden=leftMode==='suggestions';
+    source.hidden=!overview.hidden||leftMode==='suggestions';
     move(pause,fileOpen?fileToolbar:floating);
+    if(!overview.hidden)refreshOverview();
   }
   function selectRight(mode){
     selectTab(right.querySelector('#fc-tab-'+mode));
+  }
+
+  /** Open a destination from the overview even when the right pane is collapsed. */
+  function revealRight(mode){
+    selectRight(mode);
+    task.classList.remove('fc-hide-right','fc-show-left');
+    if(rightOverlay.matches)task.classList.add('fc-show-right');
+    syncRightToggle();
   }
 
   /** Move persistent widgets so file previews, keyboard actions and command sessions keep working. */
@@ -284,6 +317,7 @@ export function mount(markup,createCoverageActions,{bindTabs,createTaskCard},mou
     center.append(chat);
     const centerHeader=q('#workbench-content-tabs');
     centerHeader.prepend(centerTitle);
+    centerTitle.after(returnOverview);
     move(q('#status-bar'),centerHeader);
     move(headerActions,centerHeader);
     headerActions.classList.add('conversation-tools');
@@ -328,7 +362,7 @@ export function mount(markup,createCoverageActions,{bindTabs,createTaskCard},mou
       _consoleChatMode=true;
       _updateConsoleChatControl();
     }
-    report.before(review);
+    report.before(overview,review);
     q('#workspace-content').append(floating);
     move(q('#formal-overview'),coverage);
     mountReport();
@@ -340,6 +374,8 @@ export function mount(markup,createCoverageActions,{bindTabs,createTaskCard},mou
   }
   function disable(){
     enabled=false;
+    workspace=undefined;
+    objectiveRequest=null;
     chatQuotes.clear();
     headerMenu.open=false;
     headerActions.classList.remove('conversation-tools');
@@ -348,7 +384,7 @@ export function mount(markup,createCoverageActions,{bindTabs,createTaskCard},mou
     toolDialog?.close();
     for(const [node,marker] of [...restored].reverse())marker.replaceWith(node);
     restored.clear();
-    for(const node of [left,right,review,chat,floating,toolResult,centerTitle,toggleRight,workflowLabel,toolToolbar,composerFooter,targetPopover,quoteTools])node.remove();
+    for(const node of [left,right,overview,returnOverview,review,chat,floating,toolResult,centerTitle,toggleRight,workflowLabel,toolToolbar,composerFooter,targetPopover,quoteTools])node.remove();
     q('#mission-header h2').textContent='Workflow';
     const send=q('#runtime-cmd-send');
     send.classList.remove('send-button');
@@ -356,7 +392,7 @@ export function mount(markup,createCoverageActions,{bindTabs,createTaskCard},mou
     send.removeAttribute('aria-label');
     document.body.classList.remove('fc-workbench-active');
     task.classList.remove('fc-formal','fc-show-left','fc-show-right','fc-hide-right');
-    report.classList.remove('fc-review-open');
+    report.classList.remove('fc-report-inactive');
     if(defaultedChat&&!q('#runtime-cmd-input').value.trim()){
       _consoleChatMode=previousChatMode;
       _updateConsoleChatControl();
@@ -379,7 +415,7 @@ export function mount(markup,createCoverageActions,{bindTabs,createTaskCard},mou
     if(controls&&controls.parentElement!==coverage)move(controls,coverage);
     emptyTemplate.hidden=!!_formalView?.groups?.length;
     coverageNote.textContent=_formalView?.run?'':'等待形式化证明批次。';
-    projectName.textContent=_formalView?.dut||'';
+    projectName.textContent=_missionData.task?.module||_formalView?.dut||'';
     project.hidden=!projectName.textContent;
     workflowProject.textContent=projectName.textContent?projectName.textContent+' · Formal':'Formal';
     const llmStatus=[...q('#status-text').querySelectorAll('.status-item')]
@@ -421,6 +457,49 @@ export function mount(markup,createCoverageActions,{bindTabs,createTaskCard},mou
       meta.append(el('span',captions[label]||label,'fc-stage-caption'));
       row.append(meta);
     }
+  }
+
+  /** Refresh the task overview and load the objective once per active stage. */
+  function refreshOverview(){
+    if(!enabled||overview.hidden)return;
+    const mission=_missionData;
+    const {stages=[],current_index,all_completed} = mission;
+    const stage=all_completed?null:stages.find(row=>UCAgentStageView.isCurrent(row,current_index));
+    const key=stage?JSON.stringify([workspace,mission.mission_name,stage.index,stage.title]):'';
+    if(!stage||(key!==objectiveKey && objectiveRequest?.key!==key)){
+      objectiveKey='';
+      objectiveRequest=null;
+      objective='';
+      if(stage){
+        const request={key,scope:workspace};
+        objectiveRequest=request;
+        _fetchStageTask(stage.index).then(data=>{
+          if(objectiveRequest!==request||request.scope!==_subWorkspace)return;
+          const description=_stageTaskPayload(data).task.description;
+          const lines=Array.isArray(description)?description:[description];
+          const isGoal=text=>/^\s*(?:目标|Goal|Objective)\s*[:：]/i.test(text);
+          const entries=lines.filter(text=>typeof text==='string'&&text.trim());
+          const goal=entries.find(isGoal)||entries[0]||'';
+          objective=goal.replace(/^\s*(?:目标|Goal|Objective)\s*[:：]\s*/i,'').trim();
+          objectiveKey=key;
+          refreshOverview();
+        }).catch(()=>{
+          if(objectiveRequest===request&&request.scope===_subWorkspace){
+            objective='阶段目标暂不可用。';
+            refreshOverview();
+          }
+        }).finally(()=>{
+          if(objectiveRequest===request)objectiveRequest=null;
+        });
+      }
+    }
+    taskOverview.update({
+      mission,runtime:_runtimeStatus,view:_formalView,archived:!!workspace,
+      summary:UCAgentStageView.summarize(stages,current_index,all_completed),
+      stage,stageName:stage?formalStageName(stage):'',
+      objective:objective||(objectiveKey===key?'该阶段没有填写目标。':'正在读取阶段目标…'),
+      activity:recentActivity
+    });
   }
 
   /** Read the selected stage's persisted Check and LLM records, guarding workspace and selection. */
@@ -738,14 +817,31 @@ export function mount(markup,createCoverageActions,{bindTabs,createTaskCard},mou
         if(messageGeneration)params.set('generation',messageGeneration);
         const page=await callApi('api/events?'+params);
         if(!enabled||_subWorkspace||messageRequest!==token)return;
-        if(page.reset)sent.replaceChildren();
+        if(page.reset){
+          sent.replaceChildren();
+          recentActivity.length=0;
+        }
         const following=sent.scrollHeight-sent.clientHeight-sent.scrollTop<24;
         for(const event of page.data||[]){
+          if(event.source==='tool'&&['call','result'].includes(event.kind)){
+            const name=event.text.match(/^([A-Za-z_]\w*):/)?.[1];
+            if(name){
+              const read=name==='ReadTextFile'&&event.text.match(/\bRead \d+\/\d+ lines from '([^'\r\n]+)' \(lines (\d+)-(\d+)\)/);
+              const detail=read?read[1].split('/').at(-1)+' 第 '+read[2]+'–'+read[3]+' 行':
+                event.level==='ERROR'?'执行失败':event.kind==='call'?'开始执行':'返回结果';
+              if(event.kind==='result'&&recentActivity[0]?.call&&recentActivity[0].name===name&&
+                 recentActivity[0].operation===event.operation_id)recentActivity.shift();
+              recentActivity.unshift({id:event.id,generation:page.generation,time:event.time,
+                label:name+' · '+detail,name,call:event.kind==='call',operation:event.operation_id});
+              if(recentActivity.length>32)recentActivity.pop();
+            }
+          }
           if(event.source!=='command'||event.kind!=='input'||event.session_id!==_commandSession)continue;
           const match=event.text.match(/^ucagent> chat\s+([\s\S]+)$/);
           if(match)appendSentMessage(match[1],event.operation_id);
         }
         updateSentHistory(following);
+        refreshOverview();
         messageCursor=page.cursor;
         messageGeneration=page.generation;
         more=page.has_more;
@@ -791,6 +887,11 @@ export function mount(markup,createCoverageActions,{bindTabs,createTaskCard},mou
       chatQuotes.clear();
       workspace=_subWorkspace;
       stageIndex=undefined;
+      reportSelected=false;
+      objectiveKey='';
+      objective='';
+      objectiveRequest=null;
+      recentActivity.length=0;
       reviewSignature='';
       waitKey='';
       delete decision.dataset.revision;
