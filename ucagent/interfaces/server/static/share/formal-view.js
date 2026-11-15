@@ -81,23 +81,29 @@
   }
 
   /** Render one conclusion with supporting evidence and execution history in disclosures. */
-  function renderDetail(section, property, view, actions) {
+  function renderDetail(section, property, view, actions, options = {}) {
     const {run} = view;
     const live = !view.archived && view.freshness === 'current';
     section.replaceChildren();
     const result = element('p', property.kind.toUpperCase() + ' · ' + status(property), 'formal-property-status');
     result.dataset.outcome = style({...property, input_freshness: view.freshness});
-    section.append(result);
+    if (!options.cardHeader) section.append(result);
     section.append(element('p', 'Evidence: ' + (property.evidence_status || 'unverified') + ' · Input: ' + view.freshness,
       'formal-evidence-status'));
     if (property.evidence_error) section.append(element('p', property.evidence_error.error || 'Evidence verification failed.'));
     if (property.kind === 'assume') section.append(element('p', 'Environment assumption, not a proved design requirement.'));
-    if (property.reason) section.append(element('p', property.reason));
+    if (property.reason && !['(-)', '-', 'unknown'].includes(property.reason.trim())) section.append(element('p', property.reason));
     if (property.analysis) {
       const analysis = element('section', null, 'formal-analysis');
       analysis.append(element('h4', 'Analysis'));
       for (const key of ['resolution', 'expected_requirement', 'analysis', 'action_detail']) {
-        if (property.analysis[key]) analysis.append(element('p', property.analysis[key]));
+        if (!property.analysis[key]) continue;
+        const paragraph=element('p',property.analysis[key]);
+        if(key==='resolution'){paragraph.className='formal-analysis-classification';paragraph.textContent='人工分类 · '+property.analysis[key];}
+        if(key==='expected_requirement')analysis.append(element('h5','Expected requirement'));
+        if(key==='analysis')analysis.append(element('h5','Observed behavior and interpretation'));
+        if(key==='action_detail')analysis.append(element('h5','Next action'));
+        analysis.append(paragraph);
       }
       section.append(analysis);
     }
@@ -113,6 +119,7 @@
       if (bug.rtl_file) entry.append(button('Open RTL', () => actions.openFile(bug.rtl_file, bug.rtl_line)));
       section.append(entry);
     }
+    if(!options.inlineExpression){
     const source = element('details', null, 'formal-supporting-detail');
     source.dataset.section = 'property';
     source.append(element('summary', 'Property · expression and source'));
@@ -120,6 +127,7 @@
     source.append(element('pre', property.sva || 'No property expression available.'));
     if (property.source) source.append(button('Open SVA', () => actions.openFile(property.source, property.line)));
     section.append(source);
+    }else if(property.source){section.append(button('Open SVA',()=>actions.openFile(property.source,property.line)));}
     const evidence = element('details', null, 'formal-supporting-detail');
     evidence.dataset.section = 'evidence';
     evidence.append(element('summary', 'Evidence · original logs and observations'));

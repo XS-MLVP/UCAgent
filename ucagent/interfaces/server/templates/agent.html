@@ -8,15 +8,16 @@
 <link rel="stylesheet" href="/static/share/ucagent-shell.css">
 <script src="/static/share/stage-view.js"></script>
 <script src="/static/share/console-view.js"></script>
-<script src="/static/share/formal-view.js"></script>
+<script src="/static/share/formal-view.js?v=fc-cards-3"></script>
 <script src="/static/share/formal-review.js"></script>
-<script src="/static/share/formal-report.js"></script>
-<link rel="stylesheet" href="/static/share/formal-report.css">
+<script src="/static/share/formal-report.js?v=fc-cards-3"></script>
+<link rel="stylesheet" href="/static/share/formal-report.css?v=fc-cards-3">
 <link rel="stylesheet" href="/static/share/formal-review.css">
 <link rel="stylesheet" href="/static/share/task-workbench.css">
 <link rel="stylesheet" href="/static/share/task-suggestions.css">
 <link rel="stylesheet" href="/static/share/chat-composer.css">
 <link rel="stylesheet" href="/static/share/quote-comments.css">
+<link rel="stylesheet" href="/static/share/workbench-polish.css">
 <script src="/static/share/task-suggestion-examples.js"></script>
 <script src="/static/share/task-suggestions.js"></script>
 <script src="/static/share/function-map.js"></script>
@@ -2686,8 +2687,9 @@ function _renderFormalOverview(view){
   }
   choices.value=_formalSelection;
   choices.onchange=()=>{_formalSelection=choices.value;_formalFilter="";_refreshFormal();};
-  qs("#formal-run-status").textContent=(run?[run.status,view.freshness,run.error].filter(Boolean).join(" · "):"Not started")
-    +" · Counts are run claims; evidence verification is shown per checkpoint";
+  const runStatus=qs("#formal-run-status");
+  runStatus.textContent=(run?[run.status,view.freshness,run.error].filter(Boolean).join(" · "):"Not started");
+  runStatus.title=[run?.error,"Counts are run claims; evidence verification is shown per checkpoint, not confirmation of human Bug interpretations."].filter(Boolean).join(" · ");
   const compare=qs("#formal-compare-button");
   const prior=run&&view.history.find(item=>item.scope===run.scope&&item.run_id!==run.run_id
     && item.created_at<view.history.find(row=>row.run_id===run.run_id)?.created_at);
@@ -4480,5 +4482,6 @@ window.UCAgentShell.init({actionsSelector:'#header-more-actions',metaUrl:'/api/u
 <script src="/static/share/chat-composer.js"></script>
 <script src="/static/share/quote-comments.js"></script>
 <script>if(_formalView)UCAgentQuoteComments.update(_formalView,location.pathname+"|"+_subWorkspace);</script>
+<script src="/static/share/workbench-polish.js"></script>
 </body>
 </html>

@@ -14,7 +14,7 @@
     for(const fg of view.groups||[]){
       const group={id:fg.id,path:fg.id,label:fg.label||fg.id,description:fg.description||'',functions:[],rows:[]};
       for(const fc of fg.children||[]){
-        const point={id:fc.id,path:fg.id+'/'+fc.id,label:fc.label||fc.id,rows:[]};
+        const point={id:fc.id,path:fg.id+'/'+fc.id,label:fc.label||fc.id,description:fc.description||'',group,rows:[]};
         for(const ck of fc.children||[]){
           const row={id:ck.id,path:point.path+'/'+ck.id,label:ck.label||ck.id,description:ck.description||'',group,point,
             property:{...ck.property,input_freshness:view.freshness}};
@@ -66,13 +66,13 @@
       savedDetail.set(detailIdentity,{scroll:content.scrollTop,open:[...content.querySelectorAll('details[data-section]')].filter(node=>node.open).map(node=>node.dataset.section)});
     }
 
-    /** Select a CK or FG without forcing extra FC expansion or resetting the search. */
+    /** Select a functional group, function point or exact checkpoint without clearing search context. */
     function select(pathValue){
-      if(!rows.some(row=>row.path===pathValue)&&!groups.some(group=>group.path===pathValue))return false;
+      if(!rows.some(row=>row.path===pathValue)&&!groups.some(group=>group.path===pathValue||group.functions.some(point=>point.path===pathValue)))return false;
       rememberDetail();selection=pathValue;if(rows.some(row=>row.path===pathValue))expanded.add(rows.find(row=>row.path===pathValue).group.path);detailSignature='';render();return true;
     }
 
-    /** Render compact FG headers; FC is a plain heading, not another disclosure control. */
+    /** Render only FG and selectable FC nodes; checkpoint bodies live in the function detail. */
     function renderNavigation(visible){
       const scroll=nav.scrollTop;const focusedPath=nav.contains(document.activeElement)?document.activeElement?.dataset.path:null;
       nav.replaceChildren();
@@ -92,14 +92,10 @@
         if(open){
           for(const point of group.functions){
             const children=matches.filter(row=>row.point===point);if(!children.length)continue;
-            const pointSection=element('section',null,'formal-report-point');
-            const pointTitle=element('h4',point.label,'formal-report-point-title');pointTitle.setAttribute('data-review-path',point.path);pointTitle.setAttribute('data-review-field','function-title');pointSection.append(pointTitle);
-            for(const row of children){
-              const item=button('',()=>select(row.path),'formal-report-checkpoint');item.dataset.path=row.path;item.dataset.outcome=api.style(row.property);
-              item.setAttribute('aria-current',row.path===selection?'true':'false');
-              const text=element('span',null,'formal-report-checkpoint-text');text.append(element('span',row.label,'formal-report-checkpoint-title'),element('span',row.id,'formal-report-checkpoint-id'));
-              item.append(text,element('span',api.status(row.property),'formal-report-checkpoint-status'));pointSection.append(item);
-            }
+            const pointSection=button('',()=>select(point.path),'formal-report-function');
+            pointSection.dataset.path=point.path;pointSection.setAttribute('aria-current',selection===point.path||children.some(row=>row.path===selection)?'true':'false');
+            const pointTitle=element('span',point.label,'formal-report-function-title');pointTitle.setAttribute('data-review-path',point.path);pointTitle.setAttribute('data-review-field','function-title');
+            pointSection.append(pointTitle,element('span',children.length+' CK','formal-report-function-count'));
             block.append(pointSection);
           }
         }
@@ -112,9 +108,9 @@
 
     /** Preserve exact version/run references for every action exposed by the current detail. */
     function renderConclusion(visible){
-      const row=rows.find(item=>item.path===selection),group=groups.find(item=>item.path===selection);
+      const row=rows.find(item=>item.path===selection),group=groups.find(item=>item.path===selection),point=groups.flatMap(item=>item.functions).find(item=>item.path===selection);
       const identity=JSON.stringify([workspaceKey,view?.run?.scope,view?.run?.run_id,view?.fingerprint,selection]);
-      const nextSignature=JSON.stringify([identity,view?.records_revision,view?.freshness,view?.archived,row?.property,group?.description,group?.rows.map(item=>item.property)]);
+      const nextSignature=JSON.stringify([identity,view?.records_revision,view?.freshness,view?.archived,row?.property,group?.description,group?.rows.map(item=>item.property),point?.rows.map(item=>item.property)]);
       const currentIndex=visible.findIndex(item=>item.path===selection);
       pager.replaceChildren();pager.hidden=!row;
       if(row){
@@ -122,9 +118,15 @@
         const next=button('Next ›',()=>select(visible[currentIndex+1].path));next.disabled=currentIndex<0||currentIndex+1>=visible.length;
         pager.append(previous,element('span',(currentIndex+1)+' / '+visible.length+' · '+row.point.label),next);
       }
+      if(point){
+        const points=groups.flatMap(group=>group.functions).filter(item=>visible.some(row=>row.point===item)),index=points.indexOf(point);
+        const previous=button('‹ 上一功能点',()=>select(points[index-1].path));previous.disabled=index<=0;
+        const next=button('下一功能点 ›',()=>select(points[index+1].path));next.disabled=index+1>=points.length;
+        pager.hidden=false;pager.replaceChildren(previous,element('span',(index+1)+' / '+points.length+' FC · '+point.rows.length+' CK'),next);
+      }
       if(nextSignature===detailSignature)return;
       rememberDetail();detailIdentity=identity;detailSignature=nextSignature;
-      title.textContent=row?.label||group?.label||'Conclusion';path.textContent=selection||'';
+      title.textContent=row?.label||point?.label||group?.label||'Conclusion';path.textContent=selection||'';
       title.setAttribute('data-review-path',selection||'');title.setAttribute('data-review-field','title');
       content.setAttribute('data-review-path',selection||'');content.setAttribute('data-review-field','rendered-detail');
       if(row){
@@ -132,15 +134,30 @@
         /** Reject controls retained from a replaced workspace, run or selected checkpoint. */
         const guarded=Object.fromEntries(Object.entries(actions).map(([name,fn])=>[name,(...args)=>{if(detailIdentity===capturedIdentity&&view?.records_revision===capturedView.records_revision&&view?.freshness===capturedView.freshness&&view?.archived===capturedView.archived)return fn(...args);} ]));
         api.renderDetail(content,row.property,capturedView,guarded);
+      }else if(point){
+        content.replaceChildren(element('p',summarize(point.rows),'formal-report-group-summary'));
+        if(point.description)content.append(element('p',point.description));
+        content.append(element('p','本功能点全部检查点与断言；筛选只定位功能点，不隐藏其余检查点。','formal-evidence-status'));
+        for(const child of point.rows){
+          const card=element('section',null,'formal-report-ck-card');card.setAttribute('data-review-path',child.path);card.setAttribute('data-review-field','checkpoint');
+          const header=element('header',null,'formal-report-ck-heading');
+          const labels=element('div');labels.append(element('h4',child.label),element('p',child.id,'formal-report-path'));
+          const outcome=element('span',api.status(child.property),'formal-report-ck-outcome');outcome.dataset.outcome=api.style(child.property);header.append(labels,outcome);
+          card.append(header,element('p','断言 / 验证表达式','formal-report-section-label'),element('pre',child.property.sva||'尚未填写断言','formal-report-inline-sva'));
+          const more=element('details',null,'formal-report-ck-results');more.open=true;more.dataset.section='checkpoint:'+child.path;more.append(element('summary','结果与分析'));
+          const target=element('div');more.append(target);card.append(more);content.append(card);
+          const capturedView=view,capturedIdentity=identity;
+          const guarded=Object.fromEntries(Object.entries(actions).map(([name,fn])=>[name,(...args)=>{if(detailIdentity===capturedIdentity&&view?.records_revision===capturedView.records_revision&&view?.freshness===capturedView.freshness&&view?.archived===capturedView.archived)return fn(...args);}]));
+          api.renderDetail(target,child.property,capturedView,guarded,{cardHeader:true,inlineExpression:true});
+        }
       }else if(group){
         content.replaceChildren(element('p',summarize(group.rows),'formal-report-group-summary'));
         if(group.description)content.append(element('p',group.description));
         content.append(button('Comment / propose change (local)',()=>root.UCAgentFormalReview?.open(group.path)));
-        content.append(element('p','Select a checkpoint below to read its conclusion and supporting evidence.','formal-evidence-status'));
+        content.append(element('p','选择功能点，集中查看其全部检查点与断言。','formal-evidence-status'));
         for(const point of group.functions){
-          const children=visible.filter(item=>item.point===point);if(!children.length)continue;
-          const pointTitle=element('h4',point.label,'formal-report-point-title');pointTitle.setAttribute('data-review-path',point.path);pointTitle.setAttribute('data-review-field','function-title');content.append(pointTitle);
-          for(const child of children)content.append(button(child.label+' · '+api.status(child.property),()=>select(child.path),'formal-report-group-checkpoint'));
+          if(!visible.some(item=>item.point===point))continue;
+          content.append(button(point.label+' · '+point.rows.length+' CK',()=>select(point.path),'formal-report-group-checkpoint'));
         }
       }else content.replaceChildren(element('p',visible.length?'Choose a functional group or checkpoint.':'No checkpoint selected.','formal-report-empty'));
       const saved=savedDetail.get(identity);
@@ -151,8 +168,8 @@
     /** Reconcile selection with filters while keeping groups initially collapsed. */
     function render(){
       const visible=visibleRows();
-      if(selection&&!visible.some(row=>row.path===selection)&&!groups.some(group=>group.path===selection&&visible.some(row=>row.group===group)))selection=null;
-      if(!selection&&visible.length)selection=(visible.find(row=>['FALSIFIED','TRIVIALLY_FALSE'].includes(row.property.result))||visible[0]).path;
+      if(selection&&!visible.some(row=>row.path===selection)&&!groups.some(group=>(group.path===selection&&visible.some(row=>row.group===group))||group.functions.some(point=>point.path===selection&&visible.some(row=>row.point===point))))selection=null;
+      if(!selection&&visible.length)selection=(visible.find(row=>['FALSIFIED','TRIVIALLY_FALSE'].includes(row.property.result))||visible[0]).point.path;
       visibleCount.textContent=visible.length+' / '+rows.length+' checkpoints';all.hidden=!filter&&!query;
       renderNavigation(visible);renderConclusion(visible);
     }
@@ -161,7 +178,9 @@
     detail.addEventListener('keydown',event=>{
       if(event.altKey||event.ctrlKey||event.metaKey||document.querySelector('dialog[open]')||event.target.matches('input,textarea,select,[contenteditable="true"]'))return;
       if(!['ArrowLeft','ArrowRight'].includes(event.key))return;
-      const visible=visibleRows(),index=visible.findIndex(row=>row.path===selection),next=visible[index+(event.key==='ArrowRight'?1:-1)];
+      const visible=visibleRows(),points=groups.flatMap(group=>group.functions).filter(point=>visible.some(row=>row.point===point));
+      const domain=points.some(point=>point.path===selection)?points:visible;
+      const index=domain.findIndex(row=>row.path===selection),next=domain[index+(event.key==='ArrowRight'?1:-1)];
       if(index>=0&&next){event.preventDefault();select(next.path);}
     });
 

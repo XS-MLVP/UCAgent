@@ -50,45 +50,51 @@ function fixture(){
 /** Locate a literal action without depending on its wrapping layout. */
 function action(node,label){return node.querySelectorAll('button').find(child=>child.textContent===label);}
 
- test('FGs start closed, FC headings are plain, selection and next traverse without repeated disclosure',()=>{
-  const h=harness(),view=fixture();h.report.update(view,{workspaceKey:'/task/a|child'});
-  const toggles=h.container.querySelectorAll('.formal-report-group-toggle');assert.equal(toggles.length,2);assert(toggles.every(n=>n.getAttribute('aria-expanded')==='false'));
-  assert.equal(h.report.getSelection(),'FG-A/FC-A1/CK-FAIL');assert.equal(h.container.querySelectorAll('.formal-report-checkpoint').length,0);
-  toggles[0].click();assert.equal(h.report.getSelection(),'FG-A');assert.equal(h.container.querySelectorAll('.formal-report-point-title').length,4);assert.equal(h.container.querySelectorAll('.formal-report-checkpoint').length,3);
-  const first=h.container.querySelector('.formal-report-checkpoint');first.click();assert.equal(h.report.getSelection(),'FG-A/FC-A1/CK-FAIL');
-  action(h.container,'Next ›').click();assert.equal(h.report.getSelection(),'FG-A/FC-A1/CK-PASS');action(h.container,'Next ›').click();assert.equal(h.report.getSelection(),'FG-A/FC-A2/CK-OTHER');action(h.container,'Next ›').click();assert.equal(h.report.getSelection(),'FG-B/FC-B/CK-LAST');assert(action(h.container,'Next ›').disabled);
-  assert(h.container.textContent.includes('<img onerror=alert(1)>'));assert.equal(h.container.querySelectorAll('img').length,0);
+ test('Navigation is FG to FC only; selecting FC displays all CK expressions without extra navigation',()=>{
+  const h=harness(),view=fixture();h.report.update(view,{workspaceKey:'one'});
+  assert.equal(h.report.getSelection(),'FG-A/FC-A1');assert.equal(h.container.querySelectorAll('.formal-report-ck-card').length,2);
+  assert(h.container.querySelectorAll('.formal-report-ck-results').every(node=>node.open));
+  assert.equal(h.container.querySelectorAll('.formal-property-status').length,0);
+  assert.equal(h.container.querySelectorAll('.formal-report-ck-outcome').length,2);
+  assert.equal(h.container.querySelectorAll('details[data-section]').filter(node=>node.dataset.section==='property').length,0);
+  assert(h.container.textContent.includes('Observed literal <script>never execute</script>'));
+  assert(h.container.querySelectorAll('.formal-report-inline-sva').every(node=>node.textContent==='a == b;'));
+  const toggles=h.container.querySelectorAll('.formal-report-group-toggle');assert(toggles.every(n=>n.getAttribute('aria-expanded')==='false'));
+  toggles[0].click();assert.equal(h.container.querySelectorAll('.formal-report-function').length,2);assert.equal(h.container.querySelectorAll('.formal-report-checkpoint').length,0);
+  h.container.querySelector('.formal-report-function').click();assert.equal(h.report.getSelection(),'FG-A/FC-A1');
+  action(h.container,'下一功能点 ›').click();assert.equal(h.report.getSelection(),'FG-A/FC-A2');assert.equal(h.container.querySelectorAll('.formal-report-ck-card').length,1);
+  h.report.setFilter('FALSIFIED');assert.equal(h.report.getSelection(),'FG-A/FC-A1');assert.equal(h.container.querySelectorAll('.formal-report-ck-card').length,2);
  });
 
  test('One conclusion exposes literal analysis and collapsed SVA/evidence/trace/attempts without four tabs',()=>{
-  const h=harness(),view=fixture();h.report.update(view,{workspaceKey:'one'});
+  const h=harness(),view=fixture();h.report.update(view,{workspaceKey:'one'});h.report.select('FG-A/FC-A1/CK-FAIL');
   const content=h.container.querySelector('.formal-report-content');assert(content.textContent.includes('Observed literal <script>never execute</script>'));assert.equal(content.querySelectorAll('script').length,0);
   assert.equal(content.querySelectorAll('details[data-section]').length,4);assert(content.querySelectorAll('details[data-section]').every(d=>!d.open));assert(content.querySelector('details[data-section]').textContent.includes('Property'));
   action(content,'Open SVA').click();assert.deepEqual(h.calls[0],['file','tests/checker.sv',17]);action(content,'Local draft').click();assert.deepEqual(h.drafts,['top.CK-FAIL']);
  });
 
  test('Polling, node changes and filtering preserve context without losing forms or admitting stale workspace actions',()=>{
-  const h=harness(),view=fixture();h.report.update(view,{workspaceKey:'one'});const content=h.container.querySelector('.formal-report-content');
+  const h=harness(),view=fixture();h.report.update(view,{workspaceKey:'one'});h.report.select('FG-A/FC-A1/CK-FAIL');const content=h.container.querySelector('.formal-report-content');
   const source=content.querySelector('details[data-section]');source.open=true;content.scrollTop=77;const before=content.children[0];const run=action(content,'Run selected');
   h.report.update(JSON.parse(JSON.stringify(view)),{workspaceKey:'one'});assert.equal(content.children[0],before);run.click();assert.equal(h.calls.at(-1)[0],'run');
   h.report.select('FG-A/FC-A1/CK-PASS');h.report.select('FG-A/FC-A1/CK-FAIL');assert(content.querySelector('details[data-section]').open);assert.equal(content.scrollTop,77);
-  const search=h.container.querySelector('input');search.value='CK-LAST';search.dispatch('input');assert.equal(h.report.getSelection(),'FG-B/FC-B/CK-LAST');assert.equal(h.container.querySelectorAll('.formal-report-checkpoint').length,1);assert(action(h.container,'Next ›').disabled);
-  h.report.update(view,{workspaceKey:'two',filter:'FALSIFIED'});assert.equal(search.value,'');assert.equal(h.report.getSelection(),'FG-A/FC-A1/CK-FAIL');const count=h.calls.length;run.click();assert.equal(h.calls.length,count);
+  const search=h.container.querySelector('input');search.value='CK-LAST';search.dispatch('input');assert.equal(h.report.getSelection(),'FG-B/FC-B');assert.equal(h.container.querySelectorAll('.formal-report-function').length,1);assert.equal(h.container.querySelectorAll('.formal-report-ck-card').length,1);
+  h.report.update(view,{workspaceKey:'two',filter:'FALSIFIED'});assert.equal(search.value,'');assert.equal(h.report.getSelection(),'FG-A/FC-A1');const count=h.calls.length;run.click();assert.equal(h.calls.length,count);
   h.report.clear();assert.equal(h.report.getSelection(),null);assert.equal(content.children.length,0);
  });
 
  test('Exact scope/run accompany trace and review; archives and historical inputs never offer live actions or green claims',async()=>{
-  const h=harness(),view=fixture(),p=view.groups[0].children[0].children[0].property;p.state='REVIEW';p.review_actions=['retry','defer'];h.report.update(view,{workspaceKey:'one'});
+  const h=harness(),view=fixture(),p=view.groups[0].children[0].children[0].property;p.state='REVIEW';p.review_actions=['retry','defer'];h.report.update(view,{workspaceKey:'one'});h.report.select('FG-A/FC-A1/CK-FAIL');
   const content=h.container.querySelector('.formal-report-content');action(content,'Find signals').click();await Promise.resolve();await Promise.resolve();assert.equal(h.calls[0][0],'trace');assert.equal(h.calls[0][1].run.scope,'selected');assert.equal(h.calls[0][1].run.run_id,'run-1');assert.equal(h.calls[0][2],'top.CK-FAIL');
   const form=content.querySelector('form');form.children[0].value='Strategy changed';form.children[1].value='Try new budget';form.onsubmit({preventDefault(){},submitter:{value:'retry'}});const review=h.calls.find(x=>x[0]==='review');assert.equal(review[1].run.run_id,'run-1');assert.equal(review[1].run.scope,'selected');assert.deepEqual(review.slice(2),['top.CK-FAIL','retry','Strategy changed','Try new budget']);
-  view.archived=true;h.report.update(view,{workspaceKey:'one'});assert.equal(action(content,'Run selected'),undefined);assert.equal(content.querySelector('form'),null);
-  view.freshness='historical';h.report.update(view,{workspaceKey:'one'});h.report.select('FG-A/FC-A1/CK-PASS');assert.equal(content.querySelector('.formal-property-status').dataset.outcome,'neutral');
-  view.archived=false;view.freshness='current';view.groups[0].children[0].children[1].property.evidence_status='unverified';h.report.update(view,{workspaceKey:'one'});assert.equal(content.querySelector('.formal-property-status').dataset.outcome,'neutral');assert.equal(action(content,'Open waveform'),undefined);
+  view.archived=true;h.report.update(view,{workspaceKey:'one'});h.report.select('FG-A/FC-A1/CK-FAIL');assert.equal(action(content,'Run selected'),undefined);assert.equal(content.querySelector('form'),null);
+  view.freshness='historical';h.report.update(view,{workspaceKey:'one'});h.report.select('FG-A/FC-A1/CK-FAIL');h.report.select('FG-A/FC-A1/CK-PASS');assert.equal(content.querySelector('.formal-property-status').dataset.outcome,'neutral');
+  view.archived=false;view.freshness='current';view.groups[0].children[0].children[1].property.evidence_status='unverified';h.report.update(view,{workspaceKey:'one'});h.report.select('FG-A/FC-A1/CK-PASS');assert.equal(content.querySelector('.formal-property-status').dataset.outcome,'neutral');assert.equal(action(content,'Open waveform'),undefined);
  });
 
  test('Changes elsewhere retain active review/query state, and late trace replies cannot enter another checkpoint',async()=>{
   const h=harness(),view=fixture(),p=view.groups[0].children[0].children[0].property;
-  p.review_actions=['retry'];p.state='REVIEW';let resolveTrace;h.actions.trace=()=>new Promise(resolve=>{resolveTrace=resolve;});h.report.update(view,{workspaceKey:'one'});
+  p.review_actions=['retry'];p.state='REVIEW';let resolveTrace;h.actions.trace=()=>new Promise(resolve=>{resolveTrace=resolve;});h.report.update(view,{workspaceKey:'one'});h.report.select('FG-A/FC-A1/CK-FAIL');
   const content=h.container.querySelector('.formal-report-content'),form=content.querySelector('form');form.children[0].value='Keep this unfinished strategy';
   const search=content.querySelector('input[aria-label="Signal search"]');search.value='top.counter';const pending=action(content,'Find signals').click();
   const changed=JSON.parse(JSON.stringify(view));changed.groups[1].children[0].children[0].property.reason='Other property progress';h.report.update(changed,{workspaceKey:'one'});
@@ -100,7 +106,7 @@ function action(node,label){return node.querySelectorAll('button').find(child=>c
 
  test('Recorded Bug interpretations remain labeled and literal, never a confirmed-root banner',()=>{
   const h=harness(),view=fixture(),p=view.groups[0].children[0].children[0].property;
-  p.bugs=[{id:'BG-1',root_cause_id:'ROOT-1',description:'Observed one failure',root_cause:'<img onerror=alert(1)>',fix:'Proposed only',trigger:'a=1',actual:'Stored sample=0',rtl_file:'dut.v',rtl_line:4}];h.report.update(view,{workspaceKey:'one'});
+  p.bugs=[{id:'BG-1',root_cause_id:'ROOT-1',description:'Observed one failure',root_cause:'<img onerror=alert(1)>',fix:'Proposed only',trigger:'a=1',actual:'Stored sample=0',rtl_file:'dut.v',rtl_line:4}];h.report.update(view,{workspaceKey:'one'});h.report.select('FG-A/FC-A1/CK-FAIL');
   const content=h.container.querySelector('.formal-report-content');assert(content.textContent.includes('does not establish root-cause correctness'));assert(content.textContent.includes('Proposed fix (not reverified)'));assert(content.textContent.includes('<img onerror=alert(1)>'));assert.equal(content.querySelectorAll('img').length,0);action(content,'Open RTL').click();assert.deepEqual(h.calls.at(-1),['file','dut.v',4]);
  });
 
