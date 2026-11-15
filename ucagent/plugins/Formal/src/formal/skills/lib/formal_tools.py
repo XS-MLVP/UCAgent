@@ -774,9 +774,15 @@ def _render_to_file(template_name: str, context: dict, output_path: str) -> None
             os.unlink(temporary)
 
 def generate_spec_doc(records: FormalRecords, op: str) -> None:
+    groups = records.spec.function_groups if records.spec else []
     context = {
         "DUT": records.dut,
-        "function_groups": records.spec.function_groups if records.spec else []
+        "function_groups": [
+            group.model_copy(update={"functions": sorted(
+                group.functions, key=lambda fc: (fc.review_order is None, fc.review_order or 0)
+            )})
+            for group in groups
+        ],
     }
     _render_to_file("functions_and_checks.md", context, op)
 

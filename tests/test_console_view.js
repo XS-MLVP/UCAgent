@@ -64,6 +64,23 @@ test('Tabs keep independent cursors and warn about unread system errors',async()
   assert.equal(f.view.states.system.cursor,4);
 });
 
+test('A model projection retains its own cursor and can clear without clearing Activity',async()=>{
+  const f=fixture(path=>path.includes('tail=true')?page([],{cursor:7}):page([
+    event(1,'tool diagnostics',{source:'tool'}),event(2,'model reply')
+  ]));
+  await settle();
+  const tab=new Element();
+  f.view.addProjection('llm',tab,row=>row.source==='model');
+  tab.listeners.click();
+  await settle();
+  assert(f.output.textContent.includes('model reply'));
+  assert(!f.output.textContent.includes('tool diagnostics'));
+  await f.view.clear();
+  assert(f.calls.at(-1).endsWith('view=activity&tail=true'));
+  assert.equal(f.view.states.llm.cursor,7);
+  assert.equal(f.view.states.activity.cursor,2);
+});
+
 test('Restart replaces old content and eviction is visible',async()=>{
   const responses=[page([event(100,'old process')]),page([event(1,'new process')],{generation:'two',reset:true}),page([event(8,'recent')],{generation:'two',gap:true})];
   const f=fixture(()=>responses.shift());await settle();await f.view.poll();

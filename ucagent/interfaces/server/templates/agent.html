@@ -8,18 +8,9 @@
 <link rel="stylesheet" href="/static/share/ucagent-shell.css">
 <script src="/static/share/stage-view.js"></script>
 <script src="/static/share/console-view.js"></script>
-<script src="/static/share/formal-view.js?v=fc-cards-3"></script>
-<script src="/static/share/formal-review.js"></script>
-<script src="/static/share/formal-report.js?v=fc-cards-3"></script>
-<link rel="stylesheet" href="/static/share/formal-report.css?v=fc-cards-3">
-<link rel="stylesheet" href="/static/share/formal-review.css">
 <link rel="stylesheet" href="/static/share/task-workbench.css">
-<link rel="stylesheet" href="/static/share/task-suggestions.css">
 <link rel="stylesheet" href="/static/share/chat-composer.css">
-<link rel="stylesheet" href="/static/share/quote-comments.css">
 <link rel="stylesheet" href="/static/share/workbench-polish.css">
-<script src="/static/share/task-suggestion-examples.js"></script>
-<script src="/static/share/task-suggestions.js"></script>
 <script src="/static/share/function-map.js"></script>
 <script src="/static/share/function-map-results.js"></script>
 <script>
@@ -61,6 +52,7 @@ a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
 #task-context{display:flex;align-items:baseline;gap:8px;min-width:0;padding-inline-start:12px;border-inline-start:1px solid var(--border)}
 #mission-name{font-size:14px;font-weight:600;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #uc-shell-header-actions{margin-inline-start:auto;flex:none}
+#uc-shell-header-actions .uc-header-icon{display:none}
 #hdr #workspace-mode-label{white-space:nowrap}
 @media (max-width:660px){#hdr #workspace-mode-label{display:none}}
 @media (max-width:480px){#hdr{gap:8px;padding-inline:8px}#hdr .logo > span:last-child{display:none}#task-context{padding-inline-start:8px}}
@@ -504,8 +496,8 @@ html[data-theme="light"] #console-output{color:#e6edf5!important}
 #runtime-cmd-input{flex:1;background:var(--bg3);border:1px solid var(--border);color:var(--text);font-family:var(--mono);font-size:12px;padding:3px 8px;border-radius:4px;outline:none}
 #runtime-cmd-input:focus{border-color:var(--accent)}
 #runtime-cmd-input:disabled{opacity:.45;cursor:not-allowed}
-#runtime-cmd-send{background:var(--accent);border:none;color:#fff;padding:3px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap}
-#runtime-cmd-send:disabled{opacity:.45;cursor:not-allowed}
+#runtime-cmd-send:not(.send-button){background:var(--accent);border:none;color:#fff;padding:3px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap}
+#runtime-cmd-send:not(.send-button):disabled{opacity:.45;cursor:not-allowed}
 #runtime-interrupt-btn{background:none;border:1px solid var(--red);color:var(--red);padding:3px 10px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap}
 #runtime-interrupt-btn:hover{background:rgba(248,114,114,.12)}
 #runtime-status-badge{font-size:10px;white-space:nowrap;padding:2px 7px;border-radius:10px;border:1px solid var(--border);color:var(--text-dim)}
@@ -671,9 +663,9 @@ pre code.hljs,code.hljs{background:transparent!important;padding:0!important}
   <div id="status-bar" role="status"></div>
   <div id="uc-shell-header-actions" class="uc-shell-actions">
     <a id="master-btn" class="master-btn" href="/" style="display:none" title="Go to Master Dashboard">Master</a>
-    <button id="refresh-btn" onclick="refreshAll()">&#8635; Refresh</button>
+    <button id="refresh-btn" onclick="refreshAll()" aria-label="刷新任务" title="刷新任务"><svg class="uc-header-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 10a8 8 0 1 0-.8 6.5M20 4v6h-6"/></svg><span class="uc-header-label">&#8635; Refresh</span></button>
     <details id="header-more">
-      <summary class="master-btn">More <span aria-hidden="true">⌄</span></summary>
+      <summary class="master-btn" aria-label="更多操作" title="更多操作"><svg class="uc-header-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg><span class="uc-header-label">More <span aria-hidden="true">⌄</span></span></summary>
       <div id="header-more-actions">
         <a id="complete-btn" class="master-btn" href="/complete/" style="display:none" title="Open sub-workspace completion dashboard">Completed Task</a>
         <button id="web-terminal-btn" class="web-terminal-btn" disabled title="Web Terminal not running. Use 'terminal_api_start' command to start.">Web Terminal</button>
@@ -785,7 +777,6 @@ pre code.hljs,code.hljs{background:transparent!important;padding:0!important}
         <header class="pane-heading function-map-header">
           <h2 id="function-map-title">Function map</h2>
           <div class="pane-actions">
-            <button type="button" class="pane-action" id="formal-local-drafts" hidden onclick="UCAgentFormalReview.open()">Review drafts (local)</button>
             <button type="button" id="function-map-expand" class="pane-action" aria-pressed="false" onclick="toggleFunctionMapSize(this)" hidden>Enlarge map</button>
             <button type="button" id="function-map-source" class="pane-action" hidden>Open source report</button>
             <button type="button" id="function-map-back" class="pane-action" aria-controls="workspace-reports" onclick="toggleFunctionMap()"><span aria-hidden="true">←</span> Reports</button>
@@ -2416,17 +2407,18 @@ function _renderStageUnifiedDiff(diff){
 
 /* ── tools ── */
 async function fetchTools(){
+  if(document.body.classList.contains("fc-workbench-active"))return;
   const workspace=_subWorkspace;
   try{
     const j=await apiFetch("/api/tools");
-    if(workspace!==_subWorkspace)return;
+    if(workspace!==_subWorkspace||document.body.classList.contains("fc-workbench-active"))return;
     let html="";
     for(const t of (j.data||[])){
       const hot=t.is_hot?"hot":"";
       html+=`<div class="tool-chip ${hot}" title="${esc(t.name)}: ${t.call_count} calls">${esc(t.name)}<span style="opacity:.6;font-size:10px"> ×${t.call_count}</span></div>`;
     }
     qs("#tools-list").innerHTML=html||'<p class="report-message">No recorded tool calls.</p>';
-  }catch(e){if(workspace===_subWorkspace)qs("#tools-list").textContent="(unavailable)";}
+  }catch(e){if(workspace===_subWorkspace&&!document.body.classList.contains("fc-workbench-active"))qs("#tools-list").textContent="(unavailable)";}
 }
 
 async function _syncConsoleWorkspace(){
@@ -2443,8 +2435,7 @@ function _refreshWorkspaceViews(){
   closeFileView();
   window.UCAgentWorkbench?.reset();
   _formalReport?.clear();
-  UCAgentTaskSuggestions.clear();
-  window.UCAgentQuoteComments?.clear();
+  window.UCAgentTaskSuggestions?.clear();
   qs("#formal-report").hidden=true;
   setConsoleCollapsed(false);
   _selectedStages.clear();
@@ -2458,8 +2449,6 @@ function _refreshWorkspaceViews(){
   _reportFolders=[];
   _formalView=null;
   document.body.classList.remove("formal-workspace");
-  qs("#formal-local-drafts").hidden=true;
-  UCAgentFormalReview.update(null,"");
   _formalSelection="";
   _formalFilter="";
   qs("#formal-overview").hidden=true;
@@ -2752,10 +2741,10 @@ async function _refreshFormal(){
   try{
     const response=await apiFetch("/api/formal/view"+query);
     if(request!==_formalRequest||workspace!==_subWorkspace||selected!==_formalSelection)return;
+    const {coverageActions}=await UCAgentWorkbench.loadFormal();
+    if(request!==_formalRequest||workspace!==_subWorkspace||selected!==_formalSelection)return;
     const view=response.data;
     document.body.classList.add("formal-workspace");
-    UCAgentFormalReview.update(view,location.pathname+"|"+workspace);
-    qs("#formal-local-drafts").hidden=false;
     const previous=_formalView;
     _formalView=view;
     if(view.schema_version!==1)throw new Error("Unsupported Formal dashboard schema.");
@@ -2772,6 +2761,7 @@ async function _refreshFormal(){
     const report=qs("#formal-report");
     report.hidden=false;
     if(!_formalReport)_formalReport=UCAgentFormalReport.create(report,{
+      coverageActions,
       openFile:_openFormalFile,openTrace:_openFormalTrace,trace:_queryFormalTrace,
       runSelected:name=>_formalAction({action:"run",scope:"selected",property_names:[name]},true),
       review:(view,name,disposition,reason,nextAction)=>_formalAction({action:"review",scope:view.run.scope,
@@ -2779,7 +2769,6 @@ async function _refreshFormal(){
       onFilterChange:filter=>{_formalFilter=filter;_renderFormalOverview(_formalView);}
     });
     _formalReport.update(view,{filter:_formalFilter,workspaceKey:location.pathname+"|"+workspace});
-    window.UCAgentQuoteComments?.update(view,location.pathname+"|"+workspace);
     const controls=qs("#formal-overview");
     if(controls.parentElement!==report)report.prepend(controls);
     const stage=_missionData?.stages?.find(item=>item.index===_missionData.current_index);
@@ -3663,7 +3652,8 @@ function _updateConsoleChatControl() {
     btn.title = available ? "Toggle chat mode (Shift+C)" : "Chat mode can be toggled when console is idle";
   }
   if (input) {
-    input.placeholder = _consoleChatMode ? "Chat message..." : "Runtime command...";
+    const inWorkbench = document.body.classList.contains("fc-workbench-active");
+    input.placeholder = _consoleChatMode ? (inWorkbench ? "有问题，尽管问" : "Chat message...") : "Runtime command...";
   }
 }
 
@@ -3683,7 +3673,7 @@ function prepareSuggestionChat(text,key,previewOnly=true){
   input.value=[input.value.trim(),text].filter(Boolean).join("\n\n");
   previewOnly=previewOnly||input.dataset.suggestionDemo==="true";
   input.dataset.suggestionKey=key;input.dataset.suggestionDemo=String(previewOnly);
-  const hint=qs("#runtime-chat-context");hint.hidden=false;hint.textContent=previewOnly?"示例或归档内容已带入 Chat · 仅预览，不发送；Shift+Enter 换行":"人工批注已带入 Chat · 可补充后点击 Send · 尚未发送";
+  const hint=qs("#runtime-chat-context");hint.hidden=false;hint.textContent=previewOnly?"示例或归档内容已带入 Chat · 仅预览，不发送；Shift+Enter 换行":"上下文已带入 Chat · 可补充后发送";
   setConsoleCollapsed(false);qs("#workbench-bottom")?.classList.remove("show-tools");
   for(const button of qs("#workbench-bottom-tabs")?.children||[])button.setAttribute("aria-pressed",String(button.textContent==="Output"));
   globalThis.UCAgentChatComposer?.expand();
@@ -4478,10 +4468,8 @@ setInterval(fetchServerInfo,5000);
 <script>
 window.UCAgentShell.init({actionsSelector:'#header-more-actions',metaUrl:'/api/ui-meta',fixedFooter:true});
 </script>
-<script src="/static/share/task-workbench.js"></script>
+<script src="/static/share/task-workbench.js?v=flowcanvas-plugin-12"></script>
 <script src="/static/share/chat-composer.js"></script>
-<script src="/static/share/quote-comments.js"></script>
-<script>if(_formalView)UCAgentQuoteComments.update(_formalView,location.pathname+"|"+_subWorkspace);</script>
 <script src="/static/share/workbench-polish.js"></script>
 </body>
 </html>

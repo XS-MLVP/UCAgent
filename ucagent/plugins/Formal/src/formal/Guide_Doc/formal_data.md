@@ -160,7 +160,9 @@ spec:
       name: 资格判断
       functions:
         - id: FC-PACKET
-          description: 全输入组合关系
+          title: 检查资格输出是否跟随请求
+          description: 对 request 的全部合法取值，eligible 在同周期等于 request。
+          review_order: 1
           check_points:
             - {id: CK-PACKET-ELIGIBLE, style: Comb, description: 输出跟随请求, sva_body: '(eligible == request);'}
 analysis: {tt_entries: [], fa_entries: []}

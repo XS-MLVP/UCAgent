@@ -4,7 +4,7 @@ const fs=require('node:fs');
 const path=require('node:path');
 const test=require('node:test');
 const vm=require('node:vm');
-const share=path.join(__dirname,'../ucagent/interfaces/server/static/share');
+const share=path.join(__dirname,'../ucagent/plugins/Formal/src/formal/web');
 
 /** Minimal literal DOM with event dispatch, focus and disclosure state for report behavior. */
 class Node{
@@ -31,13 +31,13 @@ class Node{
 /** Load source modules with isolated DOM/storage and deterministic action recorders. */
 function harness(){
   const document={activeElement:null,createElement(tag){return new Node(tag,this);},querySelector(s){return this.body.querySelector(s);}};document.body=new Node('body',document);
-  const storage=new Map(),calls=[],drafts=[];
-  const context=vm.createContext({document,console,localStorage:{getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)},UCAgentFormalReview:{open:path=>drafts.push(path),propertyButtons(section,property){const button=document.createElement('button');button.textContent='Local draft';button.onclick=()=>drafts.push(property.name);section.append(button);}}});
+  const storage=new Map(),calls=[];
+  const context=vm.createContext({document,console,localStorage:{getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)}});
   for(const file of ['formal-view.js','formal-report.js'])vm.runInContext(fs.readFileSync(path.join(share,file),'utf8'),context);
   const container=document.createElement('div');document.body.append(container);
   const actions={openFile:(...args)=>calls.push(['file',...args]),openTrace:(...args)=>calls.push(['wave',...args]),runSelected:(...args)=>calls.push(['run',...args]),review:(...args)=>calls.push(['review',...args]),trace:async(...args)=>{calls.push(['trace',...args]);return {first_tick:'0',last_tick:'10',time_magnitude:'1',time_unit:'ns',total:1,signals:[{path:'top.clk',width:1}],next_cursor:null};}};
   const report=context.UCAgentFormalReport.create(container,actions);
-  return {document,container,report,actions,calls,drafts,storage,api:context.UCAgentFormalView};
+  return {document,container,report,actions,calls,storage,api:context.UCAgentFormalView};
 }
 
 /** Construct current canonical FG/FC/CK identities with evidence-rich and unresolved goals. */
@@ -53,31 +53,54 @@ function action(node,label){return node.querySelectorAll('button').find(child=>c
  test('Navigation is FG to FC only; selecting FC displays all CK expressions without extra navigation',()=>{
   const h=harness(),view=fixture();h.report.update(view,{workspaceKey:'one'});
   assert.equal(h.report.getSelection(),'FG-A/FC-A1');assert.equal(h.container.querySelectorAll('.formal-report-ck-card').length,2);
-  assert(h.container.querySelectorAll('.formal-report-ck-results').every(node=>node.open));
+  const results=h.container.querySelectorAll('.formal-report-ck-results');
+  assert.equal(results.length,2);
+  assert(results.every(node=>node.querySelectorAll('details').length===0));
+  assert(results.every(node=>node.querySelector('.formal-trace')));
+  assert(results[0].textContent.includes('Proof time 2 s'));
+  assert(action(results[0],'Attempt log'));
+  assert(action(results[0],'Open waveform'));
   assert.equal(h.container.querySelectorAll('.formal-property-status').length,0);
   assert.equal(h.container.querySelectorAll('.formal-report-ck-outcome').length,2);
   assert.equal(h.container.querySelectorAll('details[data-section]').filter(node=>node.dataset.section==='property').length,0);
   assert(h.container.textContent.includes('Observed literal <script>never execute</script>'));
   assert(h.container.querySelectorAll('.formal-report-inline-sva').every(node=>node.textContent==='a == b;'));
   const toggles=h.container.querySelectorAll('.formal-report-group-toggle');assert(toggles.every(n=>n.getAttribute('aria-expanded')==='false'));
-  toggles[0].click();assert.equal(h.container.querySelectorAll('.formal-report-function').length,2);assert.equal(h.container.querySelectorAll('.formal-report-checkpoint').length,0);
+  toggles[0].click();assert.equal(h.report.getSelection(),'FG-A/FC-A1');assert.equal(h.container.querySelectorAll('.formal-report-function').length,2);assert.equal(h.container.querySelectorAll('.formal-report-checkpoint').length,0);
   h.container.querySelector('.formal-report-function').click();assert.equal(h.report.getSelection(),'FG-A/FC-A1');
   action(h.container,'下一功能点 ›').click();assert.equal(h.report.getSelection(),'FG-A/FC-A2');assert.equal(h.container.querySelectorAll('.formal-report-ck-card').length,1);
   h.report.setFilter('FALSIFIED');assert.equal(h.report.getSelection(),'FG-A/FC-A1');assert.equal(h.container.querySelectorAll('.formal-report-ck-card').length,2);
  });
 
- test('One conclusion exposes literal analysis and collapsed SVA/evidence/trace/attempts without four tabs',()=>{
+ test('One-line goals and explicit review order drive both the navigation and the pager',()=>{
+  const h=harness(),view=fixture();
+  const [later,first]=view.groups[0].children;
+  Object.assign(later,{title:'验证满后拒绝入队',review_order:2});
+  Object.assign(first,{title:'验证单次入队',description:'复位释放后，写入一条数据。检查计数和队头。',review_order:1});
+  h.report.update(view,{workspaceKey:'one'});
+  assert.equal(h.report.getSelection(),'FG-A/FC-A2');
+  assert.equal(h.container.querySelector('h3').textContent,'1.1 验证单次入队');
+  assert.equal(h.container.querySelector('.formal-report-description').textContent,first.description);
+  action(h.container,'全部展开').click();
+  assert.deepEqual(h.container.querySelectorAll('.formal-report-function-title').map(node=>node.textContent),[first.title,later.title,'Other function']);
+  action(h.container,'下一功能点 ›').click();
+  assert.equal(h.report.getSelection(),'FG-A/FC-A1');
+ });
+
+ test('An individual checkpoint displays SVA, evidence, trace and attempts immediately',()=>{
   const h=harness(),view=fixture();h.report.update(view,{workspaceKey:'one'});h.report.select('FG-A/FC-A1/CK-FAIL');
   const content=h.container.querySelector('.formal-report-content');assert(content.textContent.includes('Observed literal <script>never execute</script>'));assert.equal(content.querySelectorAll('script').length,0);
-  assert.equal(content.querySelectorAll('details[data-section]').length,4);assert(content.querySelectorAll('details[data-section]').every(d=>!d.open));assert(content.querySelector('details[data-section]').textContent.includes('Property'));
-  action(content,'Open SVA').click();assert.deepEqual(h.calls[0],['file','tests/checker.sv',17]);action(content,'Local draft').click();assert.deepEqual(h.drafts,['top.CK-FAIL']);
+  assert.equal(content.querySelectorAll('details').length,0);
+  assert.equal(content.querySelectorAll('.formal-report-inline-sva').length,1);
+  assert(content.querySelector('.formal-trace'));
+  action(content,'Open SVA').click();assert.deepEqual(h.calls[0],['file','tests/checker.sv',17]);
  });
 
  test('Polling, node changes and filtering preserve context without losing forms or admitting stale workspace actions',()=>{
   const h=harness(),view=fixture();h.report.update(view,{workspaceKey:'one'});h.report.select('FG-A/FC-A1/CK-FAIL');const content=h.container.querySelector('.formal-report-content');
-  const source=content.querySelector('details[data-section]');source.open=true;content.scrollTop=77;const before=content.children[0];const run=action(content,'Run selected');
+  content.scrollTop=77;const before=content.children[0];const run=action(content,'Run selected');
   h.report.update(JSON.parse(JSON.stringify(view)),{workspaceKey:'one'});assert.equal(content.children[0],before);run.click();assert.equal(h.calls.at(-1)[0],'run');
-  h.report.select('FG-A/FC-A1/CK-PASS');h.report.select('FG-A/FC-A1/CK-FAIL');assert(content.querySelector('details[data-section]').open);assert.equal(content.scrollTop,77);
+  h.report.select('FG-A/FC-A1/CK-PASS');h.report.select('FG-A/FC-A1/CK-FAIL');assert.equal(content.scrollTop,77);
   const search=h.container.querySelector('input');search.value='CK-LAST';search.dispatch('input');assert.equal(h.report.getSelection(),'FG-B/FC-B');assert.equal(h.container.querySelectorAll('.formal-report-function').length,1);assert.equal(h.container.querySelectorAll('.formal-report-ck-card').length,1);
   h.report.update(view,{workspaceKey:'two',filter:'FALSIFIED'});assert.equal(search.value,'');assert.equal(h.report.getSelection(),'FG-A/FC-A1');const count=h.calls.length;run.click();assert.equal(h.calls.length,count);
   h.report.clear();assert.equal(h.report.getSelection(),null);assert.equal(content.children.length,0);
@@ -110,8 +133,8 @@ function action(node,label){return node.querySelectorAll('button').find(child=>c
   const content=h.container.querySelector('.formal-report-content');assert(content.textContent.includes('does not establish root-cause correctness'));assert(content.textContent.includes('Proposed fix (not reverified)'));assert(content.textContent.includes('<img onerror=alert(1)>'));assert.equal(content.querySelectorAll('img').length,0);action(content,'Open RTL').click();assert.deepEqual(h.calls.at(-1),['file','dut.v',4]);
  });
 
- test('Empty filter result, exact FG drafts and report-only resizing have bounded recovery paths',()=>{
-  const h=harness();h.report.update(fixture(),{workspaceKey:'one'});h.report.select('FG-A');action(h.container,'Comment / propose change (local)').click();assert.deepEqual(h.drafts,['FG-A']);
+ test('Empty filter result and report-only resizing have bounded recovery paths',()=>{
+  const h=harness();h.report.update(fixture(),{workspaceKey:'one'});h.report.select('FG-A');
   h.report.setFilter('ERROR');assert.equal(h.report.getSelection(),null);assert(h.container.textContent.includes('No matching checkpoints'));action(h.container,'Clear filters').click();assert(h.report.getSelection());
   const divider=h.container.querySelector('.formal-report-divider');divider.dispatch('pointerdown',{button:0,clientX:300,pointerId:1});divider.dispatch('pointermove',{clientX:9999});divider.dispatch('pointerup');assert.equal(h.container.style.values['--formal-report-nav-width'],'620px');assert(h.storage.has('ucagent.formal.report.nav.width'));divider.dispatch('keydown',{key:'ArrowLeft'});assert.equal(h.container.style.values['--formal-report-nav-width'],'620px');h.report.resetLayout();assert.equal(h.container.style.values['--formal-report-nav-width'],undefined);
  });

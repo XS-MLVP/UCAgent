@@ -29,6 +29,7 @@ formal = [
     "Guide_Doc/*.md",
     "templates/**/*",
     "skills/**/*",
+    "web/*",
 ]
 
 [tool.setuptools.exclude-package-data]

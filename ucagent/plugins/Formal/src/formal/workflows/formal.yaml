@@ -208,6 +208,8 @@ stage:
     desc: "功能规格分析与形式化策略定义{COUNT_FG}/{COUNT_FC}/{COUNT_CK}"
     task:
       - "目标：基于DUT基础信息设计独立验证目标，一次维护FG/FC/CK完整层次与参数；可选数据技能提供批量更新，无技能时用普通文件工具。"
+      - "每个 FC 填写 title、description 和 review_order。title 用一行短句说清想验证的行为或场景（最多 60 字）；description 补充适用条件、预期行为与边界。"
+      - "先按依赖关系排列 FG，再给各组 FC 分配组内唯一的正整数 review_order。先审阅前置条件与基本行为，再看边界与异常。同组例如 1 单次入队，2 入队至满，3 满后再尝试入队；按实际规格设计。"
       - "使用可选数据技能 inspect spec/结构化update，或用普通文件工具维护完整spec；Complete统一校验FG/FC/CK所有层次，不重复分阶段填表。"
       - "本阶段只负责维护 YAML 子树 `spec`；`03_{DUT}_functions_and_checks.md` 是派生产物，禁止直接编辑。"
       - "参考 `Guide_Doc/functions_and_checks.md` 的标签规范与高级模式。"
@@ -223,6 +225,7 @@ stage:
         args:
           dut_name: "{DUT}"
           check_level: "ck"
+          require_fc_review_metadata: true
     need_human_check: $(HUMAN_CHECK_CK: false)
 
     

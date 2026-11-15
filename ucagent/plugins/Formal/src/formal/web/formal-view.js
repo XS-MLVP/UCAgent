@@ -80,16 +80,31 @@
       .then(response => response.data);
   }
 
-  /** Render one conclusion with supporting evidence and execution history in disclosures. */
-  function renderDetail(section, property, view, actions, options = {}) {
+  /** Render one checkpoint with its evidence and controls in the same flow. */
+  function renderDetail(section, property, view, actions, {inline = false, cardHeader = inline, inlineExpression = inline} = {}) {
     const {run} = view;
     const live = !view.archived && view.freshness === 'current';
+    const bugs = property.bugs || [];
+    const observations = bugs.flatMap(bug => [['trigger', 'Original initialization'], ['actual', 'Original observation']]
+      .filter(([key]) => bug[key]).map(([key, title]) => [title + ' · ' + bug.id, bug[key]]));
+    const hasTrace = property.trace && run && property.evidence_status === 'verified';
+    const controls = element('div', null, 'formal-links');
     section.replaceChildren();
-    const result = element('p', property.kind.toUpperCase() + ' · ' + status(property), 'formal-property-status');
-    result.dataset.outcome = style({...property, input_freshness: view.freshness});
-    if (!options.cardHeader) section.append(result);
-    section.append(element('p', 'Evidence: ' + (property.evidence_status || 'unverified') + ' · Input: ' + view.freshness,
-      'formal-evidence-status'));
+    if (!cardHeader) {
+      const result = element('p', property.kind.toUpperCase() + ' · ' + status(property), 'formal-property-status');
+      result.dataset.outcome = style({...property, input_freshness: view.freshness});
+      section.append(result);
+    }
+    if (!inlineExpression) {
+      section.append(element('p', 'SVA', 'formal-report-section-label'));
+      if (property.name) section.append(element('code', property.name));
+      section.append(element('pre', property.sva || '尚未填写断言', 'formal-report-inline-sva'));
+    }
+    const noEvidence = view.freshness === 'not_started' && !property.evidence_error;
+    const evidenceStatus = 'Evidence: ' + (property.evidence_status || 'unverified') + ' · Input: ' + view.freshness;
+    if (!noEvidence || property.kind !== 'assume') {
+      section.append(element('p', noEvidence ? '暂无运行证据' : evidenceStatus, 'formal-evidence-status'));
+    }
     if (property.evidence_error) section.append(element('p', property.evidence_error.error || 'Evidence verification failed.'));
     if (property.kind === 'assume') section.append(element('p', 'Environment assumption, not a proved design requirement.'));
     if (property.reason && !['(-)', '-', 'unknown'].includes(property.reason.trim())) section.append(element('p', property.reason));
@@ -107,10 +122,9 @@
       }
       section.append(analysis);
     }
-    for (const bug of property.bugs || []) {
-      const entry = element('details', null, 'formal-supporting-detail');
-      entry.dataset.section = 'bug:' + bug.id;
-      entry.append(element('summary', bug.id + ' · ' + (bug.root_cause_id || 'Recorded observation')));
+    for (const bug of bugs) {
+      const entry = element('section', null, 'formal-inline-support');
+      entry.append(element('h5', bug.id + ' · ' + (bug.root_cause_id || 'Recorded observation')));
       entry.append(element('p', 'Recorded human interpretation; evidence integrity does not establish root-cause correctness.', 'formal-evidence-status'));
       for (const [key, title] of [['description', 'Observation'], ['expected_requirement', 'Expected requirement'],
         ['root_cause', 'Root-cause interpretation'], ['impact_assessment', 'Impact assessment'], ['fix', 'Proposed fix (not reverified)']]) {
@@ -119,54 +133,44 @@
       if (bug.rtl_file) entry.append(button('Open RTL', () => actions.openFile(bug.rtl_file, bug.rtl_line)));
       section.append(entry);
     }
-    if(!options.inlineExpression){
-    const source = element('details', null, 'formal-supporting-detail');
-    source.dataset.section = 'property';
-    source.append(element('summary', 'Property · expression and source'));
-    if (property.name) source.append(element('code', property.name));
-    source.append(element('pre', property.sva || 'No property expression available.'));
-    if (property.source) source.append(button('Open SVA', () => actions.openFile(property.source, property.line)));
-    section.append(source);
-    }else if(property.source){section.append(button('Open SVA',()=>actions.openFile(property.source,property.line)));}
-    const evidence = element('details', null, 'formal-supporting-detail');
-    evidence.dataset.section = 'evidence';
-    evidence.append(element('summary', 'Evidence · original logs and observations'));
-    evidence.append(element('p', 'Stored samples are not automatically the failure cycle. Unavailable values are not zero.'));
-    if (property.log) evidence.append(button('Attempt log', () => actions.openFile(property.log)));
-    for (const bug of property.bugs || []) {
-      for (const [key, title] of [['trigger', 'Original initialization'], ['actual', 'Original observation']]) {
-        if (bug[key]) evidence.append(element('h5', title + ' · ' + bug.id), element('pre', bug[key]));
+    if (observations.length) {
+      section.append(element('p', 'Stored samples are not automatically the failure cycle. Unavailable values are not zero.', 'formal-evidence-status'));
+      for (const [title, value] of observations) section.append(element('h5', title), element('pre', value));
+    }
+    if (property.source) controls.append(button('Open SVA', () => actions.openFile(property.source, property.line)));
+    if (property.log) controls.append(button('Attempt log', () => actions.openFile(property.log)));
+    if (hasTrace) controls.append(button('Open waveform', () => actions.openTrace(view, property.name)));
+
+    const attempts = property.attempts || [];
+    const decisions = property.decisions || [];
+    const times = [
+      property.active_s == null ? null : 'Proof time ' + Math.round(property.active_s) + ' s',
+      property.remaining_s == null ? null : 'Remaining ' + Math.floor(property.remaining_s) + ' s',
+      property.depth == null ? null : 'Reported depth ' + property.depth
+    ].filter(Boolean);
+    if (attempts.length || decisions.length || times.length) {
+      const execution = element('section', null, 'formal-inline-support');
+      execution.append(element('h5', 'Execution · ' + attempts.length + ' attempts'));
+      if (times.length) execution.append(element('p', times.join(' · ')));
+      if (attempts.length) {
+        const rows = element('ol');
+        for (const attempt of attempts) {
+          const time = attempt.active_s == null ? 'Running' : Math.round(attempt.active_s) + ' s';
+          rows.append(element('li', attempt.lane + ' · ' + time + ' / ' + attempt.budget_s + ' s'
+            + (attempt.forced ? ' · ' + attempt.forced : '')));
+        }
+        execution.append(rows);
       }
+      for (const decision of decisions) {
+        execution.append(element('p', decision.action + ' · ' + decision.reason + ' · ' + decision.next_action));
+      }
+      section.append(execution);
     }
-    if (property.trace && run && property.evidence_status === 'verified') {
-      evidence.append(button('Open waveform', () => actions.openTrace(view, property.name)));
-      evidence.append(traceControls(view, property.name, actions.trace));
-    }
-    if (!property.log && !property.trace && !(property.bugs || []).length) evidence.append(element('p', 'No original observation is available in this projection.'));
-    section.append(evidence);
-    const attempts = element('details', null, 'formal-supporting-detail');
-    attempts.dataset.section = 'attempts';
-    attempts.append(element('summary', 'Execution · ' + (property.attempts || []).length + ' attempts'));
-    attempts.append(element('p', 'Proof time ' + (property.active_s == null ? 'unavailable' : Math.round(property.active_s) + ' s')
-      + ' · Remaining ' + (property.remaining_s == null ? 'unavailable' : Math.floor(property.remaining_s) + ' s')));
-    if (property.depth != null) attempts.append(element('p', 'Reported depth ' + property.depth));
-    const rows = element('ol');
-    for (const attempt of property.attempts || []) {
-      const time = attempt.active_s == null ? 'Running' : Math.round(attempt.active_s) + ' s';
-      rows.append(element('li', attempt.lane + ' · ' + time + ' / ' + attempt.budget_s + ' s'
-        + (attempt.forced ? ' · ' + attempt.forced : '')));
-    }
-    attempts.append(rows);
-    for (const decision of property.decisions || []) {
-      attempts.append(element('p', decision.action + ' · ' + decision.reason + ' · ' + decision.next_action));
-    }
-    section.append(attempts);
-    const controls = element('div', null, 'formal-links');
-    root.UCAgentFormalReview?.propertyButtons(controls, property, view);
     if (property.name && live && property.kind !== 'assume') {
       controls.append(button('Run selected', () => actions.runSelected(property.name, view)));
     }
-    section.append(controls);
+    if (controls.children.length) section.append(controls);
+    if (hasTrace) section.append(traceControls(view, property.name, actions.trace));
     if ((property.review_actions || []).length && run && live) {
       const form = element('form', null, 'formal-review-form');
       const reason = element('input');
@@ -193,9 +197,8 @@
   }
 
   function traceControls(view, name, query) {
-    const disclosure = element('details', null, 'formal-trace');
-    disclosure.dataset.section = 'trace';
-    disclosure.append(element('summary', 'Trace query · signals and time window'));
+    const panel = element('section', null, 'formal-trace');
+    panel.append(element('h5', 'Trace query · signals and time window'));
     const results = element('div');
     results.setAttribute('aria-live', 'polite');
     const catalog = element('input');
@@ -252,12 +255,12 @@
         if (number === requestNumber) results.textContent = error.message;
       }
     }
-    disclosure.append(catalog, button('Find signals', () => load({mode: 'signals', signal_query: catalog.value.trim() || '**'})),
+    panel.append(catalog, button('Find signals', () => load({mode: 'signals', signal_query: catalog.value.trim() || '**'})),
       selected, start, end, clock, edge, button('Read samples', () => load({
         mode: 'samples', signals: selected.value.split('\n').map(path => path.trim()).filter(Boolean),
         start: start.value.trim(), end: end.value.trim(), clock: clock.value.trim() || null, edge: edge.value,
       })), results);
-    return disclosure;
+    return panel;
   }
 
   function showComparison(dialog, data) {

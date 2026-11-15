@@ -1,6 +1,6 @@
 """Canonical YAML models for Formal task inputs, typed results, and analysis."""
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import List, Optional, Dict, Union, Any
 
 class CheckPoint(BaseModel):
@@ -11,14 +11,40 @@ class CheckPoint(BaseModel):
 
 class FunctionPoint(BaseModel):
     id: str
+    title: Optional[str] = None
     description: str = ""
+    review_order: Optional[int] = Field(None, strict=True, gt=0)
     check_points: List[CheckPoint] = []
+
+    @field_validator("title")
+    @classmethod
+    def validate_title(cls, title: Optional[str]) -> Optional[str]:
+        if title is None:
+            return None
+        lines = title.splitlines()
+        title = title.strip()
+        if len(lines) != 1 or not title or len(title) > 60:
+            raise ValueError("FC title must be one nonempty line of at most 60 characters")
+        return title
 
 class FunctionGroup(BaseModel):
     id: str
     name: str = ""
     description: str = ""
     functions: List[FunctionPoint] = []
+
+    @field_validator("functions")
+    @classmethod
+    def validate_review_order(cls, functions: List[FunctionPoint]) -> List[FunctionPoint]:
+        orders = set()
+        for function in functions:
+            order = function.review_order
+            if order is None:
+                continue
+            if order in orders:
+                raise ValueError(f"{function.id}: review_order {order} is already used in this FG")
+            orders.add(order)
+        return functions
 
 class FormalSpec(BaseModel):
     parameters: Optional[Dict[str, Union[int, str]]] = Field(None, description="Global parameters like WIDTH, NUM_PORTS")
@@ -113,6 +139,10 @@ def semantic_inputs(records: Union[Dict[str, Any], FormalRecords]) -> Dict[str, 
     """Canonicalize proof inputs before fingerprinting, ignoring generated and review state."""
     model = records if isinstance(records, FormalRecords) else FormalRecords.model_validate(records)
     values = model.model_dump(exclude_none=True)
+    for group in (values.get("spec") or {}).get("function_groups", []):
+        for function in group["functions"]:
+            function.pop("title", None)
+            function.pop("review_order", None)
     return {key: values.get(key) for key in ("dut", "basic_info", "spec", "extra_config")}
 
 

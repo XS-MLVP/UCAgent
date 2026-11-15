@@ -1,0 +1,49 @@
+/* FlowCanvas verification target actions and floating task form, scoped to the Formal shell. */
+.fc-formal .coverage-tree-row { --count-width: 36px; }
+.fc-formal :is(.coverage-actions, .coverage-commands) { display: flex; align-items: center; gap: 2px; flex: none; }
+.fc-formal .coverage-action { display: grid; place-items: center; border: 0; border-radius: 4px; background: transparent; color: var(--fc-muted); cursor: pointer; }
+.fc-formal :is(.coverage-actions .coverage-action, .coverage-root-action) { width: 21px; height: 25px; padding: 2px; margin: 0; }
+.fc-formal .coverage-action:is(:hover, :focus-visible, [aria-expanded=true]) { background: var(--fc-hover); color: var(--fc-accent); }
+.fc-formal .coverage-root-action { grid-column: 3; grid-row: 1; width: 27px; align-self: start; margin-top: 12px; }
+.fc-formal .target-icon-action svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.fc-formal .target-icon-action.case-ai-action svg { width: 16px; height: 16px; overflow: visible; }
+.fc-formal .target-icon-action .case-ai-spark { fill: #9865e8; stroke: #9865e8; stroke-width: .6; transform-box: fill-box; transform-origin: center; transition: transform .3s cubic-bezier(.2,.8,.2,1); }
+.fc-formal .target-icon-action.case-ai-action:hover:enabled .case-ai-spark { transform: rotate(10deg) scale(1.1); }
+@media (prefers-reduced-motion: reduce) {
+  .fc-formal .target-icon-action.case-ai-action .case-ai-spark { transition: none; transform: none; }
+}
+.fc-formal .coverage-reveal { display: none; color: var(--fc-muted); border: 0; border-radius: 4px; background: transparent; font: inherit; min-width: 26px; min-height: 26px; }
+@media (hover: hover) and (pointer: fine) {
+  .fc-formal :is(.coverage-tree-row, .formal-report-ck-heading) .coverage-commands { opacity: 0; pointer-events: none; }
+  .fc-formal :is(.coverage-tree-row, .formal-report-ck-heading):is(:hover, :focus-within, :has(.coverage-action[aria-expanded=true])) .coverage-commands { opacity: 1; pointer-events: auto; }
+  .fc-formal .coverage-tree-row > .coverage-actions { position: absolute; right: var(--count-width); inset-block-start: 50%; transform: translateY(-50%); z-index: 1; pointer-events: none; }
+  .fc-formal .coverage-tree-row .coverage-commands { background: var(--surface2); border-radius: 5px; }
+}
+@media (hover: none), (pointer: coarse) {
+  .fc-formal .coverage-actions { position: relative; }
+  .fc-formal .coverage-reveal { display: block; }
+  .fc-formal .coverage-reveal[aria-expanded=false] + .coverage-commands { display: none; }
+  .fc-formal .coverage-reveal[aria-expanded=true] + .coverage-commands { position: absolute; z-index: 9; right: 0; top: calc(100% + 2px); padding: 3px; background: var(--surface); border: 1px solid var(--fc-line); border-radius: 6px; box-shadow: 0 4px 12px #2341; }
+  .fc-formal .coverage-commands .coverage-action { width: 29px; height: 29px; }
+}
+#coverage-task-popover {
+  position: fixed;
+  inset: auto;
+  width: min(310px, calc(100vw - 16px));
+  max-height: calc(100dvh - 16px);
+  margin: 0;
+  padding: 10px 12px;
+  overflow: auto;
+  color: var(--text);
+  font: inherit;
+}
+#coverage-task-popover header { display: flex; align-items: center; justify-content: space-between; }
+#coverage-task-popover header strong { letter-spacing: -.01em; }
+#coverage-task-popover header button { border: 0; background: transparent; color: var(--fc-muted); font-size: 19px; cursor: pointer; }
+#coverage-task-popover .ai-task-objective { font-size: 11px; }
+#coverage-task-popover .ai-design-scope { padding: 5px 7px; background: var(--surface2); border-radius: 5px; overflow-wrap: anywhere; font-size: 11px; }
+#coverage-task-popover textarea { display: block; width: 100%; margin-top: 8px; padding: 6px 7px; resize: vertical; font: inherit; font-size: 12px; color: var(--text); background: var(--surface); border: 1px solid var(--fc-line); border-radius: 6px; }
+#coverage-task-popover .coverage-task-error { margin: 5px 0; color: var(--red); }
+#coverage-task-popover .coverage-task-error:empty { display: none; }
+#coverage-task-popover footer { display: flex; justify-content: flex-end; margin-top: 8px; }
+#coverage-task-popover .ai-task-send { min-height: 25px; border: 0; border-radius: 9px; padding: 4px 9px 4px 11px; background: var(--fc-accent); color: #fff; font: inherit; cursor: pointer; }

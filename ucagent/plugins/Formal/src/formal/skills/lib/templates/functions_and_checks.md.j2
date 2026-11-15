@@ -10,6 +10,7 @@
 ## 功能分组与检测点
 
 {% for fg in function_groups %}
+{% set group_number = loop.index %}
 
 ### {{ loop.index }}. {{ fg.name or fg.id }}
 
@@ -17,9 +18,13 @@
 
 {% for fc in fg.functions %}
 
-#### {{ fc.description or fc.id }}
+#### {{ group_number }}.{{ loop.index }} {{ fc.title or fc.id }}
 
 <{{ fc.id }}>
+
+{% if fc.description %}
+{{ fc.description }}
+{% endif %}
 
 **检测点：**
 {% for ck in fc.check_points %}

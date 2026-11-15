@@ -6,7 +6,7 @@ instead of directly editing JSON.
 
 Usage:
   python3 update_spec.py -action add_fg -id FG-API -name "验证环境约束"
-  python3 update_spec.py -action add_fc -fg FG-API -id FC-API-INPUT -desc "输入约束"
+  python3 update_spec.py -action add_fc -fg FG-API -id FC-API-INPUT -title "限定合法输入" -review-order 1 -desc "详细说明适用条件和允许的输入"
   python3 update_spec.py -action add_ck -fc FC-API-INPUT -id CK-API-NO-X -style Assume -desc "输入不能X态"
   python3 update_spec.py -action update -id CK-API-NO-X -style Comb -desc "更新描述"
   python3 update_spec.py -action delete -id CK-API-NO-X
@@ -87,10 +87,13 @@ def _action_add_fc(records: FormalRecords, args):
     if _find_fc_in_fg(fg, args.id):
         return str_error(f"FC '{args.id}' already exists in {args.fg}")
     
-    fg.functions.append(FunctionPoint(
+    function = FunctionPoint(
         id=args.id,
+        title=args.title,
         description=args.desc or "",
-    ))
+        review_order=args.review_order,
+    )
+    fg.functions = FunctionGroup.validate_review_order([*fg.functions, function])
     return str_info(f"✅ Added FC: {args.id} → {args.fg}")
 
 
@@ -134,7 +137,15 @@ def _action_update(records: FormalRecords, args):
             return str_info(f"✅ Updated FG: {target_id}")
         for fc in fg.functions:
             if fc.id == target_id:
-                if args.desc: fc.description = args.desc
+                updated = FunctionPoint(
+                    id=fc.id, title=fc.title if args.title is None else args.title,
+                    description=args.desc or fc.description,
+                    review_order=fc.review_order if args.review_order is None else args.review_order,
+                    check_points=fc.check_points,
+                )
+                fg.functions = FunctionGroup.validate_review_order(
+                    [updated if function is fc else function for function in fg.functions]
+                )
                 return str_info(f"✅ Updated FC: {target_id}")
             for ck in fc.check_points:
                 if ck.id == target_id:
@@ -284,6 +295,8 @@ def main():
     parser.add_argument("-fg", default="", help="Parent FG id (for add_fc)")
     parser.add_argument("-fc", default="", help="Parent FC id (for add_ck)")
     parser.add_argument("-name", default="", help="Name (for FG)")
+    parser.add_argument("-title", help="One-line verification goal (for FC)")
+    parser.add_argument("-review-order", type=int, help="Positive review order within the FG (for FC)")
     parser.add_argument("-desc", default="", help="Description (for FC/CK/Signal)")
     parser.add_argument("-style", default="", help="Style: Assume/Comb/Seq/Cover (for CK)")
     parser.add_argument("-value", default="", help="Value (for set_param)")
@@ -298,7 +311,10 @@ def main():
     if not records:
         records = FormalRecords(dut=paths.dut, spec=FormalSpec())
     
-    result = ACTIONS[args.action](records, args)
+    try:
+        result = ACTIONS[args.action](records, args)
+    except ValueError as error:
+        parser.error(str(error))
     print(result)
 
     if args.action != "show":

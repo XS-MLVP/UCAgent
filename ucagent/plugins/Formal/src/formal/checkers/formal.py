@@ -201,10 +201,11 @@ class FormalSpecJsonChecker(BaseFormalChecker):
 
     _VALID_STYLES = {"assume", "comb", "seq", "cover"}
 
-    def __init__(self, dut_name, check_level="ck", **kwargs):
+    def __init__(self, dut_name, check_level="ck", require_fc_review_metadata=False, **kwargs):
         super().__init__(dut_name, **kwargs)
         self._counts = {"fg": 0, "fc": 0, "ck": 0}
         self._check_level = check_level.lower() if check_level else "ck"
+        self._require_fc_review_metadata = require_fc_review_metadata
 
     def do_check(self, timeout=0, **kwargs) -> tuple[bool, object]:
         """Validates the formal specification structure and content."""
@@ -262,6 +263,12 @@ class FormalSpecJsonChecker(BaseFormalChecker):
                     errors.append(f"Duplicate function point ID: {fc_id}")
                 fc_ids.add(fc_id)
                 fc_count += 1
+                if self._require_fc_review_metadata and self._check_level in ("fc", "ck"):
+                    missing = [name for name, value in (
+                        ("title", fc.title), ("description", fc.description.strip()), ("review_order", fc.review_order)
+                    ) if not value]
+                    if missing:
+                        errors.append(f"{fc_id}: Missing required FC fields: {', '.join(missing)}.")
 
                 # CK-level checks (ck level only)
                 if self._check_level == "ck":

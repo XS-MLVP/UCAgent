@@ -29,3 +29,14 @@ ucagent <workspace> <DUT> --plugin formal --plugin-workflow formal:formal --outp
 也可以把 `ucagent/core/locales/zh.yaml`（或 `~/.ucagent/setting.yaml`）中的 `workflow` 指针改为本工作流，使其成为默认任务工作流（源码树用路径，安装后用 `formal:workflows/formal.yaml`）。
 
 受管理证明的运行预算、慢属性处置和工具限制见[运行说明](docs/execution.md)。
+
+## FlowCanvas 任务页
+
+任务页前端位于 `src/formal/web/`，随 Formal 插件分发。工作台布局和目标操作沿用 [FlowCanvas 5bb2cda](https://github.com/Miical/UCAgent/tree/5bb2cda5f9f4758953108ffdc0d0664398c0f313/plugins/FlowCanvas) 及此前的 Formal 静态原型。对应的 Apache 2.0 许可和声明随前端资源附带。
+
+- `workbench.html` 保留 FlowCanvas 的三栏结构，并在导航、工具栏、页签和对话区域沿用组件类名。
+- `flowcanvas-ui.css` 和同名 JS 从上述版本提取基础组件。页签通过 `aria-controls` 绑定面板，已发任务卡接收调用方提供的标题、状态和正文。
+- `formal-workbench.css` 负责 Formal 的布局和宿主控件适配。组件样式先加载，便于在更新 FlowCanvas 时单独核对 Formal 的差异。
+- `flowcanvas-coverage-actions.js` 和同名 CSS 提供可复用的目标操作组件。它接受目标上下文和提交回调。
+- `formal-workbench.js` 将组件接到当前任务的 FG／FC／CK、证明批次、阶段审阅、工具和 Chat。现有任务 API 负责访问工作区和执行。
+- `workbench-entry.js` 是任务页的加载入口。从 Master 和命令服务直连打开时，资源与当前任务使用同一服务路径。

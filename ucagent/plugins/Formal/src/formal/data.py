@@ -38,7 +38,7 @@ BUG_FIELDS = {"root_cause_id", "ck_id", "fg_id", "fc_id", "rtl_file", "rtl_line"
 BUG_REQUIRED_FIELDS = BUG_FIELDS - {"impact_assessment"}
 SECTION_CONTRACTS = {
     "extra_config": {"format": "tcl:{timeout:positive integer,extra_commands:[string]}. tcl is replaced as a unit."},
-    "spec": {"format": "parameters mapping, whitebox_signals list, function_groups:[{id,name,description,functions:[{id,description,check_points:[{id,style,description,sva_body}]}]}]. Lists replace the complete named list. Use bodies for a CK-ID to SVA-body batch."},
+    "spec": {"format": "parameters mapping, whitebox_signals list, function_groups:[{id,name,description,functions:[{id,title,description,review_order,check_points:[{id,style,description,sva_body}]}]}]. Each new FC needs a one-line title (up to 60 characters), a detailed description, and a positive review_order unique within the FG (lowest first). Lists replace the complete named list. Use bodies for a CK-ID to SVA-body batch."},
     "analysis": {"format": "Use the exact kind-specific required_fields, allowed_fields and allowed_values returned with each current property. FA and TT envelopes are disjoint; evidence references are tool-owned."},
     "bugs": {"format": "entries list of exact id/property patches; optional shared:{root_cause_id,root_cause,fix,severity,confidence} applies one explicit group. Shared fields cannot conflict with entries. Use prepare to coordinate current observations."},
 }
@@ -733,8 +733,8 @@ class FormalDataStore:
                         raise ValueError("FG/FC/CK IDs must be unique and use their canonical prefixes")
                     ids.add(identity)
                 for function in group.get("functions", []):
-                    if not isinstance(function, dict) or set(function) - {"id", "description", "check_points"}:
-                        raise ValueError("Each FC must contain only id/description/check_points")
+                    if not isinstance(function, dict) or set(function) - {"id", "title", "description", "review_order", "check_points"}:
+                        raise ValueError("Each FC must contain only id/title/description/review_order/check_points")
                     identity = function.get("id")
                     if not isinstance(identity, str) or not identity.startswith("FC-") or identity in ids:
                         raise ValueError("FG/FC/CK IDs must be unique and use their canonical prefixes")

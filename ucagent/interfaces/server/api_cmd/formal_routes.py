@@ -4,6 +4,7 @@ from importlib import import_module
 from pathlib import Path
 
 from fastapi import HTTPException, Request
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict
 
 from ucagent.core.plugins import PluginError, configured_plugin_search_paths, load_plugin
@@ -22,13 +23,11 @@ class FormalTraceBody(BaseModel):
 def register_formal_routes(app, agent, request_workspace):
     """Bind the plugin read view and live proof actions to workspace access."""
 
-    def provider(request):
-        """Resolve a trusted plugin from the server installation, never the task files."""
-        workspace, _, archived = request_workspace(request)
-        tool = None if archived else agent.get_tool_by_name("RunFormal")
+    def formal_module(name):
+        """Resolve the installed or source-tree plugin without consulting task files."""
         try:
             try:
-                module = import_module("formal.dashboard")
+                return import_module(name)
             except ModuleNotFoundError as exc:
                 if exc.name != "formal":
                     raise
@@ -37,12 +36,33 @@ def register_formal_routes(app, agent, request_workspace):
                     load_plugin(str(project), check_dependencies=False)
                 else:
                     load_plugin("formal", search_paths=configured_plugin_search_paths(agent.cfg), check_dependencies=False)
-                module = import_module("formal.dashboard")
-            return module.FormalDashboard(workspace, archived=archived or tool is None, cfg=getattr(tool, "_cfg", None)), tool
+                return import_module(name)
         except (FileNotFoundError, PluginError, ModuleNotFoundError) as exc:
+            raise HTTPException(404, str(exc)) from exc
+
+    def provider(request):
+        """Bind the trusted plugin dashboard to the authorized workspace."""
+        workspace, _, archived = request_workspace(request)
+        tool = None if archived else agent.get_tool_by_name("RunFormal")
+        try:
+            module = formal_module("formal.dashboard")
+            return module.FormalDashboard(workspace, archived=archived or tool is None, cfg=getattr(tool, "_cfg", None)), tool
+        except FileNotFoundError as exc:
             raise HTTPException(404, str(exc)) from exc
         except (ValueError, OSError, TypeError, KeyError) as exc:
             raise HTTPException(422, str(exc)) from exc
+
+    @app.get("/static/formal/{name}", include_in_schema=False)
+    def asset(name: str):
+        """Serve the plugin's workbench assets from its packaged web directory."""
+        media_type = {".js": "text/javascript", ".css": "text/css", ".html": "text/html"}.get(Path(name).suffix)
+        if not media_type:
+            raise HTTPException(404, "Formal asset not found.")
+        web = Path(formal_module("formal").__file__).resolve().parent / "web"
+        path = (web / name).resolve()
+        if path.parent != web or not path.is_file():
+            raise HTTPException(404, "Formal asset not found.")
+        return FileResponse(path, media_type=media_type)
 
     @app.get("/api/formal/view")
     def view(request: Request, scope: str = "full", run_id: str | None = None):

@@ -126,7 +126,18 @@ class FormalDashboard:
         current_groups = ((self.records.get("spec") or {}).get("function_groups") or [])
         groups = current_groups
         if state and freshness == "historical":
-            groups = (((state.get("semantic_inputs") or {}).get("spec") or {}).get("function_groups") or [])
+            frozen = state.get("semantic_inputs") or {}
+            groups = ((frozen.get("spec") or {}).get("function_groups") or [])
+            if frozen:
+                try:
+                    archived = _artifact(self.workspace, str(directory.relative_to(self.workspace) /
+                                         "inputs" / self.output / ".formal_records.yaml"))
+                    if archived.is_file() and archived.stat().st_size <= 16 * 1024 * 1024:
+                        snapshot = yaml.safe_load(archived.read_bytes())
+                        if semantic_inputs(snapshot) == frozen:
+                            groups = (snapshot.get("spec") or {}).get("function_groups") or []
+                except (ValueError, OSError, yaml.YAMLError):
+                    pass
         properties = state["properties"] if state else {}
         # These are artifact conclusions, independent of input freshness and tool
         # availability. Never call Check/export: both can mutate task records.
@@ -248,7 +259,9 @@ class FormalDashboard:
                                      "decisions": [entry for entry in (state or {}).get("decisions", []) if entry.get("property") == name],
                                      "analysis": analysis, "bugs": bugs},
                     })
-                functions.append({"id": function["id"], "kind": "FC", "label": function.get("description") or function["id"],
+                functions.append({"id": function["id"], "kind": "FC",
+                                  "label": function.get("title") or function.get("description") or function["id"],
+                                  "title": function.get("title"), "review_order": function.get("review_order"),
                                   "description": function.get("description") or "", "children": checks})
             nodes.append({"id": group["id"], "kind": "FG", "label": group.get("name") or group["id"],
                           "description": group.get("description") or "", "children": functions})

@@ -14,7 +14,7 @@
     constructor({output,notice,newButton,tabs,request,scope=()=>'',renderAnsi=strip}){
       Object.assign(this,{output,notice,newButton,tabs,request,scope,renderAnsi});
       this.view='activity';this.epoch=0;this.scopeValue=scope();this.autoScroll=true;
-      this.states={};this.systemSeen=0;this.systemNotice=null;
+      this.states={};this.projections={};this.systemSeen=0;this.systemNotice=null;
       for(const view of views)this.states[view]=this.makeState();
       for(const [view,button] of Object.entries(tabs))button.addEventListener('click',()=>this.select(view));
       output.addEventListener('scroll',()=>{
@@ -30,9 +30,15 @@
     /** Allocate independent cursor, content, expansion and scrolling state for one tab. */
     makeState(){return {generation:null,cursor:null,rows:[],bytes:0,scroll:0,follow:true,busy:false,version:0,message:''};}
 
+    /** Derive a separate, cursor-scoped view from the same retained server transcript. */
+    addProjection(view,button,filter){
+      this.projections[view]=filter;this.states[view]=this.makeState();this.tabs[view]=button;
+      button.addEventListener('click',()=>this.select(view));
+    }
+
     /** Switch tabs without resetting their cursors or another tab's reading position. */
     select(view){
-      if(!views.includes(view))return;
+      if(!Object.hasOwn(this.states,view))return;
       this.states[this.view].scroll=this.output.scrollTop;
       this.view=view;
       for(const [name,button] of Object.entries(this.tabs)){
@@ -50,7 +56,7 @@
       const value=this.scope();
       if(value===this.scopeValue)return;
       this.scopeValue=value;this.epoch++;this.systemSeen=0;this.systemNotice=null;
-      for(const view of views)this.states[view]=this.makeState();
+      for(const view of Object.keys(this.states))this.states[view]=this.makeState();
       this.output.replaceChildren();this.notice.textContent='';this.updateBadge();
     }
 
@@ -62,7 +68,8 @@
       state.busy=true;
       let more=false;
       try{
-        const params=new URLSearchParams({view,limit:'200'});
+        const filter=this.projections[view];
+        const params=new URLSearchParams({view:filter?'activity':view,limit:'200'});
         if(state.cursor!==null)params.set('after',String(state.cursor));
         if(state.generation)params.set('generation',state.generation);
         const page=await this.request(eventsUrl+'?'+params);
@@ -78,7 +85,8 @@
         else if(state.message.startsWith('Connection unavailable:'))state.message='';
         const following=state.follow&&this.autoScroll;
         const oldScroll=this.output.scrollTop;
-        const removed=this.append(state,page.data||[],view);
+        const events=filter?(page.data||[]).filter(filter):page.data||[];
+        const removed=this.append(state,events,view);
         state.cursor=page.cursor;state.generation=page.generation;
         more=!!page.has_more;
         this.systemNotice=page.system_notice;
@@ -89,7 +97,7 @@
           if(following)this.scrollToEnd();
           else {
             if(removed)this.output.scrollTop=Math.max(0,oldScroll-removed.height);
-            if((page.data||[]).length)this.newButton.hidden=false;
+            if(events.length)this.newButton.hidden=false;
           }
         }
       }catch(error){
@@ -155,7 +163,7 @@
       const view=this.view,state=this.states[view],epoch=this.epoch;
       state.version++;const version=state.version;state.busy=true;
       try{
-        const page=await this.request(eventsUrl+'?view='+view+'&tail=true');
+        const page=await this.request(eventsUrl+'?view='+(this.projections[view]?'activity':view)+'&tail=true');
         if(this.scope()!==this.scopeValue)this.checkScope();
         if(epoch!==this.epoch||version!==state.version)return;
         state.rows=[];state.bytes=0;state.cursor=page.cursor??null;state.generation=page.generation??null;

@@ -9,6 +9,7 @@ import yaml
 
 from formal.checkers.formal import FormalSpecJsonChecker
 from formal.plugin import create_tools, get_plugin
+from formal.skills.lib.models import FormalRecords, semantic_inputs
 from ucagent.core.plugins import PluginContext
 from ucagent.core.stage.vstage import get_root_stage
 from ucagent.core.tools.fileops import ReadTextFile
@@ -103,6 +104,41 @@ def test_merged_specification_gate_still_requires_all_hierarchy_levels(tmp_path)
     assert ok, details
     assert "FG+FC+CK" in details
     assert (output / "03_PacketGate_functions_and_checks.md").exists()
+
+
+def test_spec_workflow_checks_review_fields_and_renders_in_review_order(tmp_path):
+    output = tmp_path / "proofs"
+    output.mkdir()
+    path = output / ".formal_records.yaml"
+    workflow = load_yaml_with_env_vars(str(WORKFLOW))
+    stage = next(stage for stage in workflow["stage"] if stage["name"] == "functional_specification_analysis")
+    args = {**stage["checker"][0]["args"], "dut_name": "PacketGate"}
+    checker = FormalSpecJsonChecker(**args, cfg=Config({"output": "proofs"}))
+    checker.set_workspace(str(tmp_path))
+    checker.on_init()
+    later = {"id": "FC-LATER", "description": "Boundary details", "check_points": [
+        {"id": "CK-LATER", "style": "Comb", "description": "Check boundary"}]}
+    first = {"id": "FC-FIRST", "description": "Nominal details", "check_points": [
+        {"id": "CK-FIRST", "style": "Comb", "description": "Check nominal"}]}
+    data = {"dut": "PacketGate", "spec": {"function_groups": [
+        {"id": "FG-QUEUE", "functions": [later, first]}]}}
+    path.write_text(yaml.safe_dump(data), encoding="utf-8")
+    result, details = checker.do_check()
+    assert not result
+    assert "FC-FIRST: Missing required FC fields: title, review_order" in details["details"]
+    baseline = semantic_inputs(data)
+    later.update(title="Check full queue", review_order=2)
+    first.update(title="Check one enqueue", review_order=1)
+    assert semantic_inputs(data) == baseline
+    path.write_text(yaml.safe_dump(data), encoding="utf-8")
+    result, details = checker.do_check()
+    assert result, details
+    report = (output / "03_PacketGate_functions_and_checks.md").read_text(encoding="utf-8")
+    assert report.index("#### 1.1 Check one enqueue") < report.index("#### 1.2 Check full queue")
+    assert report.index("#### 1.1 Check one enqueue") < report.index("Nominal details") < report.index("<CK-FIRST>")
+    first["review_order"] = 2
+    with pytest.raises(ValueError, match="review_order 2 is already used"):
+        FormalRecords.model_validate(data)
 
 
 def test_runtime_guidance_uses_prepare_and_derived_bug_summary():

@@ -148,6 +148,56 @@ def test_full_sva_preflight_reports_width_and_preserves_previous_artifacts(tmp_p
     assert checker.read_bytes() == original
 
 
+def test_workbench_assets_are_served_from_the_plugin():
+    """An asset request reads packaged UI without loading a task workspace."""
+    app = FastAPI()
+
+    def fail_workspace(_request):
+        pytest.fail("Packaged assets should not require a task workspace")
+
+    register_formal_routes(app, None, fail_workspace)
+    client = TestClient(app)
+    entry = client.get("/static/formal/workbench-entry.js")
+    assert entry.status_code == 200
+    assert entry.headers["content-type"].startswith("text/javascript")
+    assert "export async function load" in entry.text
+    layout = client.get("/static/formal/workbench.html")
+    assert layout.status_code == 200
+    assert layout.headers["content-type"].startswith("text/html")
+    assert 'class="activity-bar fc-rail"' in layout.text
+    assert client.get("/static/formal/missing.js").status_code == 404
+    assert client.get("/static/formal/.formal_records.yaml").status_code == 404
+    assert client.get("/static/formal/%2E%2E%2Fdashboard.py").status_code == 404
+
+
+def test_fc_review_metadata_tracks_current_and_frozen_specs(tmp_path):
+    records, _ = write_saved_formal(tmp_path)
+    output = tmp_path / "formal_test"
+    path = output / ".formal_records.yaml"
+    fc = records["spec"]["function_groups"][0]["functions"][0]
+    fc.update(title="Check the low bits of sum", review_order=1)
+    frozen = output / "formal_runs" / FULL / "inputs" / "formal_test"
+    frozen.mkdir(parents=True)
+    (frozen / path.name).write_text(yaml.safe_dump(records))
+    fc.update(title="Check the truncated sum", review_order=2)
+    path.write_text(yaml.safe_dump(records))
+    app = FastAPI()
+    register_formal_routes(app, None, lambda request: (tmp_path, "", True))
+    client = TestClient(app)
+    view = client.get("/api/formal/view").json()["data"]
+    assert view["freshness"] == "archived"
+    point = view["groups"][0]["children"][0]
+    assert (point["title"], point["review_order"], point["description"]) == (
+        "Check the truncated sum", 2, "Compare sum outputs")
+
+    fc["check_points"][0]["sva_body"] = "sum == a + 1;"
+    path.write_text(yaml.safe_dump(records))
+    view = client.get("/api/formal/view").json()["data"]
+    assert view["freshness"] == "historical"
+    point = view["groups"][0]["children"][0]
+    assert (point["title"], point["review_order"]) == ("Check the low bits of sum", 1)
+
+
 def test_archived_view_and_trace_api_share_exact_evidence(tmp_path):
     """Saved browsing follows current archive identity and refuses mutated VCD evidence."""
     pytest.importorskip("wavekit")

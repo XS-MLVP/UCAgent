@@ -1,6 +1,7 @@
 /** Arrange existing task controls without replacing their workspace-scoped APIs. */
 (function(root){
   'use strict';
+  const source=document.currentScript?.src;
   const q=selector=>document.querySelector(selector);
   const content=q('#workspace-content'),file=q('#workbench-file'),modal=q('#view-modal');
   const reports=document.createElement('details');reports.id='workbench-report-files';
@@ -25,7 +26,7 @@
   for(const button of document.querySelectorAll('[data-workbench-view]'))button.addEventListener('click',()=>select(button.dataset.workbenchView));
   q('#tools-search').addEventListener('input',filterTools);
   /** Search existing tool cards while preserving their original controls. */
-  function filterTools(){const query=q('#tools-search').value.trim().toLowerCase();for(const item of q('#tools-list').children)item.hidden=!!query&&!item.textContent.toLowerCase().includes(query);}
+  function filterTools(){if(document.body.classList.contains('fc-workbench-active'))return;const query=q('#tools-search').value.trim().toLowerCase();for(const item of q('#tools-list').children)item.hidden=!!query&&!item.textContent.toLowerCase().includes(query);}
   new MutationObserver(filterTools).observe(q('#tools-list'),{childList:true});
   const bottom=q('#workbench-bottom'),handle=q('#tools-resizer');let width=260,drag=null,customWidth=false;
   const mobilePanels=document.createElement('nav');mobilePanels.id='workbench-bottom-tabs';mobilePanels.setAttribute('aria-label','Output and Tools');
@@ -44,5 +45,13 @@
   handle.addEventListener('keydown',event=>{if(!['ArrowLeft','ArrowRight'].includes(event.key))return;event.preventDefault();customWidth=true;resize(width+(event.key==='ArrowLeft'?8:-8));try{localStorage.setItem('ucagent.workbench.tools.width',String(width));}catch{}});
   handle.addEventListener('dblclick',()=>{customWidth=false;fitTools();try{localStorage.removeItem('ucagent.workbench.tools.width');}catch{}});
   new ResizeObserver(fitTools).observe(bottom);
-  root.UCAgentWorkbench={openFile,showReports:()=>select('reports'),reset};
+  let formal;
+  /** Load the optional workbench through the task's own command API mount. */
+  function loadFormal(){
+    const url=new URL('../formal/workbench-entry.js',source);
+    url.search=new URL(source).search;
+    formal??=import(url.href).then(entry=>entry.load()).catch(error=>{formal=null;throw error;});
+    return formal;
+  }
+  root.UCAgentWorkbench={openFile,showReports:()=>select('reports'),reset,loadFormal};
 })(globalThis);
