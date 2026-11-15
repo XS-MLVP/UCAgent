@@ -266,6 +266,16 @@
   function showComparison(dialog, data) {
     const content = dialog.querySelector('.formal-comparison-content');
     content.replaceChildren(element('p', 'Input changes and observed outcomes are listed independently. Causality pending diagnosis.'));
+    if (data.scope_review?.length) {
+      const review = element('ul');
+      for (const change of data.scope_review) {
+        const action = {assumption: 'Assumption changed', removed_target: 'Target removed', modified_target: 'Target modified'}[change.change];
+        review.append(element('li', action + ' · ' + change.ck + ' · ' +
+          (change.before_style || 'Absent') + ' → ' + (change.after_style || 'Absent') +
+          (change.expression_changed ? ' · Expression changed' : '')));
+      }
+      content.append(element('h3', 'Verification scope to review'), review);
+    }
     const inputs = element('details');
     inputs.open = true;
     inputs.append(element('summary', 'Input changes'));

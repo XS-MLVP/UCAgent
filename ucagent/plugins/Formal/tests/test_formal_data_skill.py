@@ -91,7 +91,44 @@ def test_update_request_has_one_canonical_envelope(skill_workspace, payload):
     path = request_file(skill_workspace, payload)
     result = call_skill(skill_workspace, f"update --request-file {path}")
     assert "Command failed with exit code 2:" in result
-    assert "exactly section, expected_sha256" in result
+    error = json.loads(result.split("\n", 1)[1])
+    assert error["error_code"] == "formal_data_skill_invalid"
+    assert "bodies" in error["error"]
+
+
+def test_skill_batches_sva_and_checks_whitebox_before_publication(skill_workspace):
+    """Discovery, staged authoring, and joint submission use one revision."""
+    rtl = skill_workspace / "PacketRouter" / "PacketRouter.sv"
+    rtl.write_text("module PacketRouter(input [2:0] a, output [2:0] y);\n"
+                   "wire [2:0] buffered = a; assign y = buffered; endmodule\n")
+    records = skill_workspace / "verification" / ".formal_records.yaml"
+    records.write_text("dut: PacketRouter\nspec:\n  function_groups:\n  - id: FG-ROUTE\n"
+                       "    functions:\n    - id: FC-PASS\n      check_points:\n"
+                       "      - {id: CK-PASS, style: Comb, description: Output follows input}\n"
+                       "  - id: FG-COVER\n    functions:\n    - id: FC-REACH\n      check_points:\n"
+                       "      - {id: CK-REACH, style: Cover, description: Response is reachable}\n")
+    discovery = json.loads(call_skill(skill_workspace, "inspect signals --query buffered"))
+    signal = discovery["signals"]["items"][0]
+    assert (signal["path"], signal["width"], signal["line"]) == ("PacketRouter.buffered", 3, 2)
+    batch = json.loads(call_skill(skill_workspace, "prepare sva"))
+    assert batch["fg_id"] == "FG-ROUTE"
+    assert batch["progress"] == {"implemented": 0, "total": 2}
+    payload = batch["ready_update"]
+    payload["bodies"]["CK-PASS"] = "(y == buffered);"
+    payload["data"] = {"whitebox_signals": ["logic [2:0] fv_buffered"]}
+    before = records.read_bytes()
+    path = request_file(skill_workspace, payload)
+    error = json.loads(call_skill(skill_workspace, f"update --request-file {path}").split("\n", 1)[1])
+    assert error["layer"] == "whitebox"
+    assert error["diagnostics"][0]["signal"] == "fv_buffered"
+    assert records.read_bytes() == before
+    payload["data"]["whitebox_signals"] = ["logic [2:0] buffered"]
+    request_file(skill_workspace, payload)
+    updated = json.loads(call_skill(skill_workspace, f"update --request-file {path}"))
+    assert updated["after_update_command"] == "prepare sva"
+    following = json.loads(call_skill(skill_workspace, "prepare sva"))
+    assert following["fg_id"] == "FG-COVER"
+    assert following["progress"] == {"implemented": 1, "total": 2}
 
 
 def test_request_revision_conflict_is_nonzero(skill_workspace):

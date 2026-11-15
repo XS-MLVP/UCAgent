@@ -116,12 +116,23 @@ class BugEntry(BaseModel):
     severity: str = "[LLM-TODO]"
     confidence: str = "[LLM-TODO]"
 
+class AnalysisReviewDraft(BaseModel):
+    """Prior author notes retained for review against a different proof batch."""
+
+    source_fingerprint: str
+    run_id: Optional[str] = None
+    analysis: str
+    expected_requirement: str = ""
+    decision: str = ""
+
+
 class AnalysisData(BaseModel):
     """Current-input analysis keyed by exact machine property identities."""
 
     source_fingerprint: Optional[str] = None
     tt_entries: List[AnalysisEntry] = []
     fa_entries: List[AnalysisEntry] = []
+    previous_reviews: Dict[str, AnalysisReviewDraft] = Field(default_factory=dict)
 
 class FormalRecords(BaseModel):
     dut: str
@@ -156,6 +167,8 @@ def _normalize_value(schema: Dict[str, Any], value: Any, location: str) -> Any:
                "boolean": type(value) is bool, "null": value is None}
     if expected is not None and not any(matches.get(kind, False) for kind in types):
         raise ValueError(f"{location} must be {expected}")
+    if "enum" in schema and value not in schema["enum"]:
+        raise ValueError(f"{location} must be one of {schema['enum']}")
     if isinstance(value, dict) and "object" in types:
         properties = schema.get("properties", {})
         if schema.get("additionalProperties") is False and set(value) - set(properties):
@@ -204,6 +217,9 @@ def author_section_contract(section: str) -> Dict[str, Any]:
             "parameters": rows({"name": text, "default": scalar, "range": text, "desc": text}),
             "core_functions": strings, "correctness_requirements": strings,
             "clock_reset": mapping({"clock_count": {"type": ["integer", "null"], "minimum": 0, "default": None},
+                "reset_active_level": {"type": "string", "enum": ["", "low", "high"], "default": ""},
+                "reset_assertion": {"type": "string", "enum": ["", "sync", "async"], "default": ""},
+                "reset_release": {"type": "string", "enum": ["", "sync", "async"], "default": ""},
                 **{key: text for key in ("clock_signal", "clock_type", "cdc_note", "reset_signal", "reset_type", "reset_init_state")}}),
             "architecture": mapping({key: text for key in ("ascii_diagram", "datapath", "control_logic")}),
             "parameter_impact": strings,

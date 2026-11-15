@@ -13,11 +13,11 @@ import jinja2
 
 from formal.interface import inspect_interface
 from formal.execution import atomic_json, input_lock
-from formal.preflight import check_generated
+from formal.preflight import PreflightError, check_generated
 from formal.skills.lib.formal_paths import FormalPaths
 from formal.skills.lib.formal_tools import (
     load_records, incremental_merge_checker, build_whitebox_signal_context,
-    build_clock_reset_alias_context,
+    build_clock_reset_alias_context, validate_extra_config_against_design,
 )
 
 
@@ -46,12 +46,16 @@ def generate(paths: FormalPaths, mode: str, staged: Path) -> dict:
     interface = inspect_interface(paths.workspace, paths.out, paths.dut, records.spec.parameters if records.spec else {})
     context = build_clock_reset_alias_context(records)
     port_info = interface["port_info"]
+    mismatches = validate_extra_config_against_design(records, port_info)
+    if mismatches:
+        error = PreflightError("clock_reset", [
+            {"path": f"{paths.out}/.formal_records.yaml", "field": "basic_info.clock_reset", "message": message}
+            for message in mismatches
+        ])
+        error.diagnostic["next_action"] = "Correct basic_info.clock_reset using the actual DUT input ports and reset polarity, then retry."
+        raise error
     clock, reset = context["env_clock"], context["env_reset"]
     actual_clock, actual_reset = context["actual_clock"], context["actual_reset"]
-    names = {name for name, _ in port_info}
-    for name in (actual_clock, actual_reset):
-        if name and name not in names:
-            raise ValueError(f"Configured clock/reset port {name} does not exist in the resolved DUT interface")
     if records.spec is None:
         raise ValueError("Implement the current spec before generating a Formal environment")
     # Effective constants belong to the generated checker only. Never persist
@@ -81,8 +85,11 @@ def generate(paths: FormalPaths, mode: str, staged: Path) -> dict:
         checker_connections.extend(f".{name}({name})" for name, _ in port_info if name not in {clock, reset, actual_clock, actual_reset})
         whitebox = build_whitebox_signal_context(records.spec.whitebox_signals)
         checker_connections.extend(f".{signal['name']}({signal['name']})" for signal in whitebox)
+        dut_ports = {name: name for name, _ in port_info}
+        if actual_reset == reset and context["reset_active_level"] == "high":
+            dut_ports[actual_reset] = f"~{reset}"
         wrapper_context = {"DUT": records.dut, "internal_decls": internal,
-                           "dut_connections": [f".{name}({name})" for name, _ in port_info],
+                           "dut_connections": [f".{name}({expression})" for name, expression in dut_ports.items()],
                            "checker_connections": checker_connections,
                            "parameter_items": list(interface["effective_parameters"].items()),
                            "dut_parameter_items": list(interface["explicit_overrides"].items()),
@@ -93,7 +100,7 @@ def generate(paths: FormalPaths, mode: str, staged: Path) -> dict:
         wrapper.write_text(rendered, encoding="utf-8")
     if mode == "full" or not tcl.exists():
         rendered = environment.get_template("tests/formal.tcl.j2").render(
-            DUT=records.dut, extra_config=records.extra_config, basic_info=records.basic_info or {},
+            DUT=records.dut, extra_config=records.extra_config, has_clock=context["has_clock"], has_reset=context["has_reset"],
             source_files=interface["source_files"], include_dirs=interface["include_dirs"])
         tcl.write_text(rendered, encoding="utf-8")
     preflight = check_generated(Path(paths.workspace).resolve(), paths.out, paths.dut, staged, interface, records)

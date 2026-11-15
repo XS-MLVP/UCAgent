@@ -80,6 +80,32 @@ def test_changed_input_invalidates_conclusions():
     assert ft.auto_scaffold_analysis_entries(records, ft.typed_run_results(records), checker_source())
     assert all(e.analysis == "[LLM-TODO]" for e in records.analysis.fa_entries)
     assert records.bugs == []
+    assert records.analysis.previous_reviews["left.A_CHECK"].analysis == "old"
+    assert records.analysis.previous_reviews["left.A_CHECK"].source_fingerprint == "revision-1"
+    assert records.analysis.fa_entries[0].evidence_ref is None
+
+
+def test_bug_gate_reports_pending_analysis_instead_of_no_defects(tmp_path, monkeypatch):
+    """Scaffolded counterexamples remain unresolved even when the Bug list is empty."""
+    from formal.checkers.formal import BugReportConsistencyChecker
+
+    records = records_for()
+    records.analysis = AnalysisData(source_fingerprint="revision-1", fa_entries=[
+        AnalysisEntry(id=f"FA-{index:03d}", prop_name=name, resolution="[LLM-TODO]")
+        for index, name in enumerate(records.run_results.failing_properties, 1)
+    ])
+    output = tmp_path / "out"
+    output.mkdir()
+    (output / ".formal_records.yaml").write_text("present")
+    checker = BugReportConsistencyChecker("Synthetic", cfg=Config({"output": "out"}))
+    checker.set_workspace(str(tmp_path))
+    checker.on_init()
+    monkeypatch.setattr(checker, "_execution", lambda: SimpleNamespace(check=lambda: (True, {})))
+    monkeypatch.setattr("formal.checkers.formal.load_records", lambda _: records)
+    ok, result = checker.do_check()
+    assert not ok and result["error_code"] == "formal_analysis_pending"
+    assert result["observed"]["pending_total"] == 2
+    assert [entry["property"] for entry in result["observed"]["pending"]] == records.run_results.failing_properties
 
 
 def test_declaration_lookup_is_explicit_and_unambiguous():

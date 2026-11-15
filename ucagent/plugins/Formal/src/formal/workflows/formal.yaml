@@ -234,10 +234,10 @@ stage:
     desc: "SVA 属性实现与自动同步"
     task:
       - "目标：将 `.formal_records.yaml.spec` 中的 `sva_body` 占位符替换为真实的 SVA 断言代码。"
-      - "技能可用时通过数据技能 inspect spec取得参数、端口及missing_bodies，用bodies映射批量实现；技能不可用时直接填写YAML中各CK的sva_body。"
+      - "技能可用时用 prepare sva 领取当前功能组的 CK，按 ready_update 分批提交。技能不可用时按功能组填写 YAML 中的 sva_body。"
       - "参数由实际RTL预检展开：spec.parameters仅为显式整数覆盖，缺省沿用声明默认值；不要重复抄写默认值或通过basic_info说明字段修复生成绑定。技能可用时inspect spec查看effective_interface。"
       - "本阶段只负责维护 YAML 子树 `spec.*.check_points[*].sva_body`。"
-      - "1. 数据技能请求形状为section/spec、expected_sha256及bodies映射，写入请求文件后经RunSkillScript调用；无技能时用普通文件工具编辑相同字段。"
+      - "1. 白盒信号使用实际 DUT 内部信号名称。技能可用时用 inspect signals 查名称和位宽，可在同一次 spec 更新中提交 whitebox_signals 与 bodies。"
       - "2. **禁止直接修改 .sv 文件**，系统会自动 full refresh 渲染生成验证环境。"
       - "3. 参考 `Guide_Doc/sva_property.md` 了解编码规范。"
     reference_files:
@@ -258,7 +258,7 @@ stage:
     task:
       - "目标：基于 `.formal_records.yaml.basic_info.clock_reset` 与 `.formal_records.yaml.extra_config.tcl` 自动渲染 `wrapper/checker/formal.tcl`。"
       - "使用任务basic_info核对真实时钟复位；可选数据技能inspect/update或普通文件工具均可维护，运行预算沿用配置，不直接修改派生TCL。"
-      - "本阶段确认 `basic_info.clock_reset` 与 `extra_config.tcl`，生成的 formal.tcl、wrapper.sv、checker.sv 不直接编辑。"
+      - "本阶段确认 `basic_info.clock_reset` 与 `extra_config.tcl`。用 reset_active_level、reset_assertion、reset_release 分别记录复位极性、断言和释放方式。生成的 formal.tcl、wrapper.sv、checker.sv 不直接编辑。"
       - "检查生成脚本后，显式调用 RunFormal(action=run) 启动当前输入证明，RunFormal(action=status) 查看运行状态和 5/20 分钟快照。"
       - "对 20 分钟未解决属性逐一分析并使用 RunFormal(action=review, property_names=[...], disposition=retry 或 defer, reason=..., next_action=...) 记录处置。暂缓不等于证明通过。"
       - "只有当前输入的所有未决项已有处置时，调用 Complete；Checker 不会隐式运行 TCL。"
@@ -280,7 +280,8 @@ stage:
       - "目标：依据当前工具原因和真实证据分析恒真、静态失败及反例，修复实际属性/环境问题，保留真实RTL缺陷。"
       - "当前运行结束后，技能可用时通过数据技能 prepare analysis取得异常队列、真实证据和ready_update；无技能时调用Check协调条目，再用普通文件工具填写人工分析。"
       - "本阶段分析当前输入的完整机器证明结果与 FALSE/TRIVIALLY_TRUE，任何暂缓项仍为 UNPROVEN，不能分类成 RTL Bug 或通过。"
-      - "环境纠偏：参数/位宽错误更新 YAML，不直接改派生 SV。仅修正属性体时用 RunFormal(action=run, scope=selected, property_names=[精确完整名称])优先诊断复验，后续调用绑定run_id/scope；合并修复后对新输入运行完整批次，定向成功不代表完整验收。假设、RTL、参数或共享环境变化需重新验证受影响范围。"
+      - "环境纠偏：参数/位宽错误更新 YAML，不直接改派生 SV。仅修正属性体时用 RunFormal(action=run, scope=selected, property_names=[精确完整名称])复验，后续调用使用返回的 run_id。合并修复后对新输入运行完整批次。假设、RTL、参数或共享环境变化需重新验证受影响范围。"
+      - "对照规格审阅删除或改写的目标及新增、改写的 Assume，在阶段日志说明依据。按精确 CK 对比批次结果。"
       - "prepare analysis默认小批返回items（逐项缺项与证据）和ready_update。省略事实用该项full_evidence_call；时序疑问用trace_discovery_call发现完整信号再按窗口查询，不写脚本解析同一工具回复。按next_offset读不变队列，更新后从offset 0继续。"
       - "先检查规格判据与属性，再判断DUT；有限场景不推广为全输入规律，浮点异常等未明确策略不能由参考表达式算对替代规范依据。无时钟不代表无状态，锁存器与未初始化状态需依据实际证据审阅。"
       - "首次RTL_BUG分析一次填写expected_requirement和可选reference_calculations，绑定prepare返回的当前真实信号；结果随update返回，无技能时Check计算。后续Bug和总结直接复用，同一证据与表达式不重复读取或另起脚本计算；只有发现矛盾或输入变化才重审。"
@@ -356,7 +357,7 @@ stage:
     task:
       - "目标：对 RTL_BUG 属性进行深度分析并生成 BUG 报告。"
       - "技能可用时用数据技能 prepare bugs取得已核验RTL_BUG观测和ready_update；无技能时Check协调条目，再用普通文件工具填写相同bugs字段。"
-      - "本阶段只负责维护 YAML 子树 `bugs`；`04_{DUT}_bug_report.md` 是派生产物。"
+      - "当前批次仍有待归因项时，先逐项复审 `analysis` 并绑定当前证据。随后维护 `bugs`，由验收生成 `04_{DUT}_bug_report.md`。"
       - "prepare bugs的items[].reviewed_analysis复用已核验FA规格关系、参考计算和当前观察，本阶段只补缺失的共享根因、源码位置、修复建议和可选impact_assessment，不重新分析同一反例。description/expected_requirement/reference_calculations及计算结果均派生不可重填。观察限于当前证据；影响推断标为人工，不能把单例行为写为所有输入的已证结论。"
       - "报告与Bug记录先用一至几句白话写清触发条件、模块或信号位置、预期与实际差异、后果。必要术语首次解释，不自造故障名称或用标签代替事实；已观察行为、根因推测及未验证影响分开，原因未确认就明确写出。完整要求见Guide_Doc/bug_report.md“问题表述要求”。"
       - "显式root_cause_id关联共享根因；数据技能可用shared批量更新，无技能时在YAML各观测中填写一致共享值。失败属性数与根因数分开，不编造最小反例或修复结果。"

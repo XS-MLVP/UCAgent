@@ -8,6 +8,19 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
+class TraceWindowError(ValueError):
+    """Report exact available bounds for an out-of-range sample request."""
+
+    def __init__(self, start: int, end: int, first: int, last: int):
+        """Retain native ticks as strings for lossless tool and browser use."""
+        message = "Sample window is outside the recorded trace range."
+        self.diagnostic = {"status": "error", "error_code": "formal_trace_window_out_of_range", "error": message,
+                           "observed": {"start": str(start), "end": str(end)},
+                           "expected": {"first_tick": str(first), "last_tick": str(last)},
+                           "next_action": "Choose start and end within the returned native ticks and retry the same batch and property."}
+        super().__init__(f"{message} Available native ticks: {first}..{last}.")
+
+
 class TraceQuery(BaseModel):
     """Describe signal discovery or one exact native-time sample window."""
 
@@ -89,7 +102,7 @@ def trace_page(path: Path, digest: str, query: TraceQuery) -> dict:
         else:
             start, end = int(query.start), int(query.end)
             if start < reader.begin_time or end > reader.end_time:
-                raise ValueError("Sample window is outside the recorded VCD range.")
+                raise TraceWindowError(start, end, reader.begin_time, reader.end_time)
             traces, missing = {}, []
             for name in dict.fromkeys([*query.signals, *([query.clock] if query.clock else [])]):
                 # Search accepts globs for discovery. Sampling binds only an exact returned path.

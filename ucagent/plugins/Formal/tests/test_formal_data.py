@@ -113,6 +113,25 @@ def test_structured_body_batch_preserves_other_sections_and_special_characters(t
     assert updated["spec"]["function_groups"][0]["functions"][0]["check_points"][0]["sva_body"] == body
 
 
+def test_descriptive_port_edits_keep_proof_current_and_scope_edits_are_reported(task):
+    """Only proof input changes stale the batch and changed scope is explicit."""
+    store, path, _ = task
+    install_run(task)
+    inspected = store.inspect("spec")
+    assert inspected["machine"]["current_inputs"]
+    store.update("basic_info", {"ports": {"inputs": [{"name": "a", "signal_type": "descriptive"}]}},
+                 None, inspected["sha256"])
+    inspected = store.inspect("spec")
+    assert inspected["machine"]["current_inputs"]
+    groups = yaml.safe_load(path.read_text())["spec"]["function_groups"]
+    points = groups[0]["functions"][0]["check_points"]
+    points.pop(0)
+    points.append({"id": "CK-ENV", "style": "Assume", "description": "Qualification constraint", "sva_body": "a;"})
+    result = store.update("spec", {"function_groups": groups}, None, inspected["sha256"])
+    assert {item["change"] for item in result["scope_review"]["items"]} == {"removed_target", "assumption"}
+    assert not store.inspect("spec")["machine"]["current_inputs"]
+
+
 def test_optimistic_conflict_never_clobbers_external_change(task):
     """Stale expected hashes fail atomically and preserve concurrent author work."""
     store, path, _ = task

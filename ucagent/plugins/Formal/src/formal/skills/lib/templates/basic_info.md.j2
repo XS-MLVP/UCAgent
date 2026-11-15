@@ -69,6 +69,11 @@
 |------|----------|
 | 复位信号 | {{ basic_info.clock_reset.reset_signal or "" }} |
 | 复位类型 | {{ basic_info.clock_reset.reset_type or "" }} |
+{% if basic_info.clock_reset.reset_active_level or basic_info.clock_reset.reset_assertion or basic_info.clock_reset.reset_release -%}
+| 复位极性 | {{ basic_info.clock_reset.reset_active_level }} |
+| 断言方式 | {{ basic_info.clock_reset.reset_assertion }} |
+| 释放方式 | {{ basic_info.clock_reset.reset_release }} |
+{% endif -%}
 | 初始值 | {{ basic_info.clock_reset.reset_init_state or "" }} |
 
 ## 5. 核心组成部分

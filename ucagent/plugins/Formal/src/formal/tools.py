@@ -15,7 +15,7 @@ from ucagent.util.file_policy import is_file_writeable, normalize_relative_path
 
 from .execution import FormalExecution
 from .preflight import PreflightError
-from .trace import TraceQuery
+from .trace import TraceQuery, TraceWindowError
 
 
 def render_environment(
@@ -43,12 +43,8 @@ def render_environment(
             raise ValueError(reason)
         if (generated / "tests" / name).is_symlink():
             raise ValueError("Generated formal inputs must not be symlinks")
-    from .interface import inspect_interface
-    from .skills.lib.formal_tools import load_records
-    records = load_records(str(generated / ".formal_records.yaml"))
-    if records is None:
+    if not (generated / ".formal_records.yaml").is_file():
         raise ValueError("Formal task records are missing; initialize the current workflow before rendering")
-    inspect_interface(workspace, output_dir, dut, records.spec.parameters if records.spec else {})
     script = Path(__file__).resolve().parent / "skills" / "sva-gen" / "scripts" / "generate_formal_env.py"
     import ucagent
     import_roots = [str(Path(ucagent.__file__).resolve().parent.parent), str(Path(__file__).resolve().parent.parent)]
@@ -100,7 +96,8 @@ class RunFormalArgs(BaseModel):
         default_factory=list,
         description="Exact Assert/Cover names for a selected run, or exact property names for review or evidence.",
     )
-    scope: Literal["full", "selected"] = Field(default="full", description="Use selected for a diagnostic proof batch.")
+    scope: Literal["full", "selected"] | None = Field(
+        default=None, description="For run, use selected for a diagnostic batch. Other actions infer scope from an exact run_id when omitted.")
     run_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$",
                                 description="Exact batch for status, inventory, review, cancel or evidence.")
     trace_query: TraceQuery | None = Field(default=None, description="Optional signal discovery or sample window for one evidence property.")
@@ -161,7 +158,7 @@ class RunFormal(UCTool):
         reason: str = "",
         next_action: str = "",
         wait_s: int = 300,
-        scope: str = "full",
+        scope: str | None = None,
         run_id: str | None = None,
         trace_query: TraceQuery | dict | None = None,
     ) -> dict:
@@ -174,7 +171,7 @@ class RunFormal(UCTool):
             write_dirs=self.write_dirs,
             un_write_dirs=self.un_write_dirs,
         )
-        batch = {"run_id": run_id, "scope": scope} if run_id or scope != "full" else {}
+        batch = {"run_id": run_id, "scope": scope} if run_id or scope == "selected" else {}
         if trace_query is not None and action != "evidence":
             raise ValueError("trace_query is available only with evidence.")
         if action == "run":
@@ -203,7 +200,10 @@ class RunFormal(UCTool):
         if action == "evidence":
             if trace_query is not None:
                 batch["trace_query"] = TraceQuery.model_validate(trace_query)
-            return execution.evidence(property_names or [], **batch)
+            try:
+                return execution.evidence(property_names or [], **batch)
+            except TraceWindowError as exc:
+                return exc.diagnostic
         return execution.review(
             property_names=property_names or [],
             action=disposition,

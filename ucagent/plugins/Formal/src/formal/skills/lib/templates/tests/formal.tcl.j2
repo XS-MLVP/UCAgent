@@ -27,9 +27,6 @@ read_design -top {{ DUT }}_wrapper -sysv -mfcu -incdir $INCLUDE_DIRS $RTL_FILES
 
 # Clock and Reset
 # Generic env signals `clk` / `rst_n` are only emitted when DUT actually has clock/reset.
-{%- set clock_reset = basic_info.get("clock_reset") or {} %}
-{%- set has_clock = clock_reset.get("clock_count") and clock_reset.get("clock_count") != '0' %}
-{%- set has_reset = clock_reset.get("reset_signal") and clock_reset.get("reset_signal") not in ['无', '不适用', 'None', 'N/A'] %}
 {%- if has_clock %}
 def_clk clk
 {%- endif %}

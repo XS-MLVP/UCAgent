@@ -81,6 +81,19 @@ def test_no_trace_or_parser_failure_does_not_invent_values(tmp_path, monkeypatch
     assert "operator" in result["next_action"]
 
 
+def test_out_of_range_trace_error_returns_native_bounds(tmp_path):
+    """A retry can use exact native window limits from the original trace."""
+    from formal.trace import TraceQuery, TraceWindowError, trace_page
+
+    pytest.importorskip("wavekit")
+    path = tmp_path / "original.vcd"
+    write_trace(path)
+    query = TraceQuery(mode="samples", signals=["PacketShell.ready"], start=0, end=31)
+    with pytest.raises(TraceWindowError) as caught:
+        trace_page(path, hashlib.sha256(path.read_bytes()).hexdigest(), query)
+    assert caught.value.diagnostic["expected"] == {"first_tick": "0", "last_tick": "30"}
+
+
 def test_initialization_is_bounded_and_never_claims_full_waveform(tmp_path):
     """More than 64 original inputs explicitly marks the projection as partial."""
     path = tmp_path / "original.tb.v"

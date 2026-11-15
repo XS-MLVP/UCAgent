@@ -18,7 +18,7 @@ description: 批量维护 Formal 任务数据、准备当前分析队列并核�
 可查看 `overview`、`planning`、`basic_info`、`spec`、`analysis`、`bugs`、`summary`。先用默认视图只看缺项和最小请求；需要修改既有正文时加`--full`，需要完整契约才加`--schema`，所有节选项一致。可选事实表不必重复填满。更新成功后直接使用返回的新sha256、剩余缺项和下一步，不必为确认写入再inspect。分页用`--offset/--limit`；basic_info.clock_count未知需核实，确无时钟才填0。
 
 1. 用普通文件工具把填好的 `ready_update` 写入输出目录下的 JSON 请求文件，例如 `formal_test/data_update.json`。
-2. 请求文件只有 `section`、`expected_sha256`，以及 `data` 或 `bodies` 二选一；不要加入 `action`，不要把整段 JSON 拼进命令参数。
+2. 请求文件包含 `section`、`expected_sha256` 及 `data` 或 `bodies`。白盒绑定和属性可按指南中的 spec 请求一起提交。用文件路径调用 update。
 3. 调用：
 
 ```json
@@ -45,9 +45,11 @@ description: 批量维护 Formal 任务数据、准备当前分析队列并核�
 
 没有待填项时无需提交空请求。人工分析、根因和总结遵循 `Guide_Doc/bug_report.md`“问题表述要求”：先用白话说清条件、位置、预期与实际差异及后果，必要术语首次解释，不自造名称、不以术语掩盖未确认原因。填写完成后，按阶段要求记录日志并调用 `Complete`；需要定位问题时才调用 `Check`。总结的统计和 Bug 表由已验证记录生成，不再填写 `severe_bugs`。
 
-## 属性修复后的复验
+## 分批实现与复验
 
-属性体修正后，以精确property_names和scope=selected先复验修改目标；后续status/evidence/review/cancel均绑定返回的run_id和scope。定向批保留完整Assume，不替代完整验收；合并本轮修复后对新输入运行full回归。参数、RTL、假设或共享环境变化需要重新验证受影响范围，不沿用旧Pass。可将同一RunFormal请求写入JSON，调用`formal_data.py proof --request-file formal_test/proof_request.json`；其请求使用action/scope/property_names，不混入data更新的section封套。无技能时直接使用RunFormal。
+用 `prepare sva` 取得单个功能组的待补检查点及 `ready_update`，提交后继续领取下一批。用 `inspect signals --query 名称` 查白盒信号的实际名称和位宽。相关绑定与属性可同批提交，格式见 `Guide_Doc/formal_data.md`。
+
+属性体修正后，以精确 property_names 和 scope=selected 复验修改目标。后续 status/evidence/review/cancel 使用返回的 run_id。定向批保留完整 Assume，合并本轮修复后对当前输入运行完整批次。可将同一 RunFormal 请求写入 JSON，调用 `formal_data.py proof --request-file formal_test/proof_request.json`。无技能时直接使用 RunFormal。
 
 ## 边界与无技能路径
 

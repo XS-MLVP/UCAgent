@@ -73,6 +73,30 @@ def checkpoint_rows(records: dict) -> list:
     return rows
 
 
+def checkpoint_review_changes(before: dict, after: dict) -> list[dict]:
+    """Identify removed targets, edited properties, and changes to assumptions."""
+    old, new = ({row["id"]: row for row in checkpoint_rows(records)} for records in (before, after))
+    changes = []
+    for identity in sorted(old.keys() | new.keys()):
+        left, right = old.get(identity), new.get(identity)
+        previous_style = left["style"].lower() if left else None
+        current_style = right["style"].lower() if right else None
+        expression_changed = bool(left and right and (left.get("sva_body") or "") != (right.get("sva_body") or ""))
+        if previous_style == current_style and not expression_changed:
+            continue
+        if left is None and current_style != "assume":
+            continue
+        if expression_changed and left["body_missing"] and previous_style == current_style:
+            continue
+        row = right or left
+        changes.append({"ck": f"{row['fg_id']}/{row['fc_id']}/{identity}",
+                        "before_style": previous_style, "after_style": current_style,
+                        "expression_changed": expression_changed,
+                        "change": "assumption" if "assume" in (previous_style, current_style)
+                        else "removed_target" if right is None else "modified_target"})
+    return changes
+
+
 def review_contract(kind: str, property_kind: str) -> dict:
     """Describe the exact editable envelope for one current machine review kind."""
     if kind not in {"fa_entries", "tt_entries"} or property_kind not in {"assert", "cover"}:
@@ -247,14 +271,25 @@ class FormalDataStore:
         except (ValueError, OSError):
             return False
 
-    def inspect(self, section: str = "overview", offset: int = 0, limit: int = 20, *, include_schema: bool = False, include_content: bool = False) -> dict:
+    def inspect(self, section: str = "overview", offset: int = 0, limit: int = 20, *,
+                include_schema: bool = False, include_content: bool = False, query: str = "") -> dict:
         """Inspect missing work by default; opt in to full schemas or existing author content."""
         if type(include_schema) is not bool or type(include_content) is not bool:
             raise ValueError("Inspect schema and content flags must be booleans")
-        if section not in SECTIONS | {"overview"} or type(offset) is not int or offset < 0 or type(limit) is not int or not 1 <= limit <= 50:
+        if section not in SECTIONS | {"overview", "signals"} or type(offset) is not int or offset < 0 or type(limit) is not int or not 1 <= limit <= 50:
             raise ValueError("Inspect requires a public section, nonnegative offset, and limit 1..50")
+        if not isinstance(query, str) or len(query) > 200 or query and section != "signals":
+            raise ValueError("Use a signal-name filter of at most 200 characters with inspect signals.")
         output = normalize_relative_path(self.output_dir)
         path, content, records = self._records()
+        if section == "signals":
+            from .interface import inspect_interface
+            interface = inspect_interface(str(self.workspace), self.output_dir, self.dut,
+                                          (records.get("spec") or {}).get("parameters"), include_signals=True)
+            signals = [row for row in interface["signals"] if query.lower() in row["path"].lower()]
+            return {"status": "ok", "section": section, "sha256": hashlib.sha256(content).hexdigest(),
+                    "signals": page(signals, offset, limit),
+                    "next_action": "Use exact DUT signal names in spec.whitebox_signals and SVA. Check the resolved width and signedness."}
         run, machine = self._run()
         machine["current_inputs"] = self._current_run(run, records)
         ck_rows = checkpoint_rows(records)
@@ -358,17 +393,35 @@ class FormalDataStore:
             result["next_action"] = "Inspect the current author section or prepare its review queue; no proof or author state was changed."
         return result
 
-    def prepare(self, section: str, offset: int = 0, limit: int = 5) -> dict:
+    def prepare(self, section: str, offset: int = 0, limit: int = 5, *, group: str | None = None) -> dict:
         """Return one bounded pending page with each item beside its verified facts."""
-        if section not in {"analysis", "bugs"}:
-            raise ValueError("prepare supports analysis or bugs only; inspect other author sections")
         if type(offset) is not int or offset < 0 or type(limit) is not int or not 1 <= limit <= 50:
             raise ValueError("prepare requires a nonnegative offset and limit 1..50")
+        if section == "sva":
+            path, content, records = self._records()
+            checkpoints = checkpoint_rows(records)
+            missing = [row for row in checkpoints if row["body_missing"]]
+            if group is not None and group not in {item["id"] for item in (records.get("spec") or {}).get("function_groups", [])}:
+                raise ValueError("Use an exact FG ID from inspect spec.")
+            selected_group = group if group is not None else missing[0]["fg_id"] if missing else None
+            rows = [{key: row[key] for key in ("id", "fc_id", "style", "description")}
+                    for row in missing if row["fg_id"] == selected_group]
+            batch = page(rows, offset, limit)
+            digest = hashlib.sha256(content).hexdigest()
+            return {"status": "ok", "section": "sva", "records_artifact": str(path.relative_to(self.workspace)),
+                    "fg_id": selected_group, "check_points": batch,
+                    "progress": {"implemented": len(checkpoints) - len(missing), "total": len(checkpoints)},
+                    "ready_update": {"section": "spec", "expected_sha256": digest,
+                                     "bodies": {row["id"]: "" for row in rows[offset:offset + limit]}} if batch["items"] else None,
+                    "next_action": "Fill and submit just this batch, then run prepare sva again for the next pending CKs."
+                    if missing else "Review the generated inputs with Complete."}
+        if section not in {"analysis", "bugs"} or group is not None:
+            raise ValueError("prepare supports sva, analysis, and bugs. Use --group only with sva.")
         if self.cfg is None:
             raise ValueError("Current resolved Formal configuration is required for prepare")
         from .execution import FormalExecution
         from .skills.lib.formal_tools import (auto_scaffold_analysis_entries, auto_scaffold_bug_entries, bug_root_groups,
-                                             load_records, save_records, typed_run_results, validate_analysis_evidence,
+                                             load_records, save_records, typed_run_results, require_completed_analysis,
                                              refresh_analysis_references)
         execution = FormalExecution(str(self.workspace), self.output_dir, self.dut, self.cfg,
                                     self.write_dirs, self.un_write_dirs)
@@ -379,19 +432,24 @@ class FormalDataStore:
             raise ValueError("Proof inputs changed; run the current revision before prepare")
         self._path(f"{self.output_dir}/.formal_records.yaml", write=True)
         self._path(f"{self.output_dir}/.formal_data.lock", write=True)
-        execution.export_results()
+        verified = execution.export_results(expected_run_id=state["run_id"])
         path, _, _ = self._records()
         model = load_records(str(path))
+        if not model.run_results or model.run_results.run_id != state["run_id"]:
+            raise ValueError("The current proof batch changed during preparation; refresh status and retry.")
         checker = self._path(f"{self.output_dir}/tests/{self.dut}_checker.sv")
         changed = auto_scaffold_analysis_entries(model, typed_run_results(model), checker.read_text(encoding="utf-8"))
         changed = refresh_analysis_references(model) or changed
-        if section == "bugs":
-            validate_analysis_evidence(model)
-            changed = auto_scaffold_bug_entries(model) or changed
         if changed:
             save_records(str(path), model)
+        if section == "bugs":
+            require_completed_analysis(model)
+            if auto_scaffold_bug_entries(model):
+                save_records(str(path), model)
         from .review import compact_review
         result = self.inspect(section, offset, limit)
+        if result["sha256"] != model._source_sha256 or result["machine"].get("run_id") != state["run_id"] or not result["machine"]["current_inputs"]:
+            raise ValueError("The task or proof batch changed during preparation; refresh status and retry.")
         for field in ("pending_analysis", "contract", "missing_fields", "content_command"):
             result.pop(field, None)
         if section == "analysis":
@@ -449,8 +507,12 @@ class FormalDataStore:
                 patches.setdefault(entry_type, []).append(patch)
                 contract_id = f"{entry_type}:{machine['kind']}"
                 contracts[contract_id] = contract
-                items.append({"id": row["id"], "prop_name": row["prop_name"], "contract_id": contract_id,
-                              "missing_fields": [field for field in missing if field != "evidence_ref"]})
+                item = {"id": row["id"], "prop_name": row["prop_name"], "contract_id": contract_id,
+                        "missing_fields": [field for field in missing if field != "evidence_ref"]}
+                draft = model.analysis.previous_reviews.get(row["prop_name"])
+                if draft is not None:
+                    item["previous_review"] = bounded(draft.model_dump(), maximum=1200)
+                items.append(item)
             result["review_contracts"] = contracts
             result["items"] = items
             selected = [row["prop_name"] for row in rows]
@@ -464,10 +526,7 @@ class FormalDataStore:
                    if row.get(field) is None or isinstance(row.get(field), str) and (not row[field].strip() or "[LLM-TODO]" in row[field])
                    or field == "rtl_line" and (type(row.get(field)) is not int or row[field] < 1)}} for row in rows]
             selected = [row["property"] for row in rows]
-        evidence = []
-        for start in range(0, len(selected), 20):
-            evidence.extend(execution.evidence(selected[start:start + 20])["items"])
-        result["evidence"] = evidence
+        result["evidence"] = [{"property": name, **verified[name]} for name in selected]
         result["ready_update"] = ({"section": section,
                                    "expected_sha256": result["sha256"], "data": patches} if rows else None)
         result["prepared"] = True
@@ -477,10 +536,11 @@ class FormalDataStore:
         """Validate and atomically merge one section against an explicit current revision."""
         if section not in SECTIONS or not re.fullmatch(r"[a-f0-9]{64}", expected_sha256 or ""):
             raise ValueError("Update requires an editable section and expected_sha256 from data Skill inspect")
-        if (data is None) == (bodies is None) or (data is not None and not isinstance(data, dict)):
-            raise ValueError("Provide exactly one nonempty structured data object or spec bodies mapping")
-        payload = data if data is not None else bodies
-        if not payload or len(json.dumps(payload, ensure_ascii=False)) > 262144:
+        if (data is not None and not isinstance(data, dict)) or (bodies is not None and not isinstance(bodies, dict)):
+            raise ValueError("data and bodies must be objects")
+        if data is not None and bodies is not None and (section != "spec" or set(data) != {"whitebox_signals"}):
+            raise ValueError("A combined spec request accepts data.whitebox_signals and bodies only")
+        if not (data or bodies) or len(json.dumps([data, bodies], ensure_ascii=False)) > 262144:
             raise ValueError("Update payload must be nonempty and at most 262144 characters")
         output = normalize_relative_path(self.output_dir)
         target = self._path(f"{output}/.formal_records.yaml", write=True)
@@ -496,8 +556,16 @@ class FormalDataStore:
             if section in INPUT_SECTIONS and run and run.get("status") in {"PREPARING", "RUNNING", "CANCELLING"}:
                 raise ValueError("A proof run is active. Wait for completion or cancel it before updating proof inputs.")
             candidate = copy.deepcopy(records)
+            if data is not None:
+                if section in SECTION_FIELDS:
+                    unknown = set(data) - SECTION_FIELDS[section]
+                    if unknown:
+                        raise ValueError(f"Unsupported {section} fields: {sorted(unknown)}; inspect the section contract")
+                    candidate[section] = {**(candidate.get(section) or {}), **data}
+                else:
+                    self._review_update(candidate, section, data, run)
             if bodies is not None:
-                if section != "spec" or not all(isinstance(key, str) and isinstance(value, str) and value.strip() for key, value in bodies.items()):
+                if section != "spec" or not bodies or not all(isinstance(key, str) and isinstance(value, str) and value.strip() for key, value in bodies.items()):
                     raise ValueError("bodies is only a nonempty CK-ID to SVA-body string mapping for section=spec")
                 targets = {}
                 for group in (candidate.get("spec") or {}).get("function_groups", []):
@@ -511,13 +579,6 @@ class FormalDataStore:
                     raise ValueError(f"Unknown CK IDs: {unknown[:20]}; inspect spec for exact identities")
                 for key, value in bodies.items():
                     targets[key]["sva_body"] = value
-            elif section in SECTION_FIELDS:
-                unknown = set(data) - SECTION_FIELDS[section]
-                if unknown:
-                    raise ValueError(f"Unsupported {section} fields: {sorted(unknown)}; inspect the section contract")
-                candidate[section] = {**(candidate.get(section) or {}), **data}
-            else:
-                self._review_update(candidate, section, data, run)
             if section == "extra_config":
                 tcl = candidate["extra_config"]["tcl"]
                 if (not isinstance(tcl, dict) or set(tcl) - {"timeout", "extra_commands"}
@@ -531,6 +592,28 @@ class FormalDataStore:
                 check_bodies({row["id"]: row.get("sva_body") for row in checkpoint_rows(candidate)
                               if previous.get(row["id"]) != row.get("sva_body")}, f"{output}/.formal_records.yaml")
             self._validate(candidate, section)
+            if section == "spec" and set(data or {}) & {"whitebox_signals", "parameters"}:
+                from .interface import inspect_interface
+                from .preflight import PreflightError
+                from .skills.lib.formal_tools import build_whitebox_signal_context
+                spec = candidate["spec"]
+                bindings = build_whitebox_signal_context(spec.get("whitebox_signals"))
+                if bindings:
+                    interface = inspect_interface(str(self.workspace), self.output_dir, self.dut, spec.get("parameters"), include_signals=True)
+                    names = {item["name"] for item in interface["signals"]}
+                    seen = set()
+                    diagnostics = []
+                    for index, binding in enumerate(bindings):
+                        name = binding["name"]
+                        if name not in names or name in seen or name in {"clk", "rst_n"}:
+                            diagnostics.append({"path": f"{output}/.formal_records.yaml",
+                                                "field": f"spec.whitebox_signals[{index}]", "signal": name,
+                                                "message": "Expected a unique, existing internal DUT signal name without a wrapper alias."})
+                        seen.add(name)
+                    if diagnostics:
+                        error = PreflightError("whitebox", diagnostics)
+                        error.diagnostic["next_action"] = "Use inspect signals to find actual DUT names and widths, then resubmit the bindings and any affected bodies."
+                        raise error
             encoded = yaml.safe_dump(candidate, sort_keys=False, allow_unicode=True).encode("utf-8")
             # All cooperating updates serialize on the lock; recheck external writers
             # immediately before atomic publication instead of clobbering their data.
@@ -548,7 +631,7 @@ class FormalDataStore:
                 if temporary is not None and temporary.exists():
                     temporary.unlink()
         result = {"status": "updated", "section": section, "sha256": hashlib.sha256(encoded).hexdigest(),
-                  "records_artifact": f"{output}/.formal_records.yaml", "updated_fields": sorted(payload),
+                  "records_artifact": f"{output}/.formal_records.yaml", "updated_fields": sorted(set(data or {}) | set(bodies or {})),
                   "validation_scope": "author_fields_only; Complete still checks current evidence and the stage",
                   "next_action": "Review the update summary and required references, record the stage journal, then Complete. Do not repeat inspect solely to confirm this successful write."}
         if section in {"planning", "basic_info", "summary"}:
@@ -583,9 +666,16 @@ class FormalDataStore:
             rows = checkpoint_rows(candidate)
             result["checkpoint_count"] = len(rows)
             result["missing_bodies"] = page([row["id"] for row in rows if row["body_missing"]], 0, 20)
-            result["after_update_command"] = "inspect spec" if result["missing_bodies"]["total"] else None
+            result["after_update_command"] = "prepare sva" if result["missing_bodies"]["total"] else None
+            if run:
+                changes = checkpoint_review_changes(records, candidate)
+                if changes:
+                    result["scope_review"] = page(changes, 0, 20)
         if result.get("after_update_command"):
             result["next_action"] = f"Address the remaining author work using {result['after_update_command']}; after any update restart pending pagination at offset 0."
+        if result.get("scope_review"):
+            result["next_action"] = ("Review the listed scope and assumption changes against the specification. Record the reasons in the stage journal. "
+                                     + result["next_action"])
         return result
 
     def _review_update(self, candidate: dict, section: str, data: dict, run: dict | None) -> None:

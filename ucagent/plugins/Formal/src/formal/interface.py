@@ -96,7 +96,8 @@ def compile_context(workspace: str, dut: str) -> dict:
             "compilation_context": "ordered_filelist_or_direct_sources_single_preprocessing_unit_local_includes"}
 
 
-def inspect_interface(workspace: str, out: str, dut: str, parameters: dict | None = None) -> dict:
+def inspect_interface(workspace: str, out: str, dut: str, parameters: dict | None = None,
+                      *, include_signals: bool = False) -> dict:
     """Return resolved scalar integral ports and effective constants without writes.
 
     spec.parameters contains explicit public parameter overrides only. Omitted
@@ -223,9 +224,25 @@ def inspect_interface(workspace: str, out: str, dut: str, parameters: dict | Non
                           "left": left, "right": right, "declaration": declaration_text})
         if not ports or any(isinstance(symbol, slang.ast.InterfacePortSymbol) for symbol in instance.body):
             raise ValueError("DUT must expose a nonempty scalar-integral port list; interface ports are unsupported")
-        return {"dut": dut, **context,
-                "parameters": resolved, "effective_parameters": constants, "explicit_overrides": overrides,
-                "ports": ports, "port_info": [(port["name"], port["declaration"]) for port in ports]}
+        result = {"dut": dut, **context,
+                  "parameters": resolved, "effective_parameters": constants, "explicit_overrides": overrides,
+                  "ports": ports, "port_info": [(port["name"], port["declaration"]) for port in ports]}
+        if include_signals:
+            port_names = {port["name"] for port in ports}
+            signals = []
+            for symbol in instance.body:
+                if (not isinstance(symbol, (slang.ast.NetSymbol, slang.ast.VariableSymbol))
+                        or symbol.name in port_names or not IDENTIFIER.fullmatch(symbol.name)):
+                    continue
+                kind = symbol.type.canonicalType
+                location = manager.getFullyOriginalLoc(symbol.location)
+                source = Path(manager.getFileName(location))
+                signals.append({"name": symbol.name, "path": f"{dut}.{symbol.name}", "width": kind.bitWidth or None,
+                                "signed": kind.isSigned, "type": str(kind),
+                                "source": str(source.relative_to(root)) if source.is_relative_to(root) else str(source),
+                                "line": manager.getLineNumber(location)})
+            result["signals"] = signals
+        return result
     except ValueError:
         raise
     except Exception as exc:

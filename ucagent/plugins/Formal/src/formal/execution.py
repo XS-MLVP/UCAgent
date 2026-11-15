@@ -92,14 +92,14 @@ def input_lock(output: Path):
         yield
 
 
-def read_run(root: Path, run_id: str | None = None, scope: str = "full"):
+def read_run(root: Path, run_id: str | None = None, scope: str | None = "full"):
     """Read one exact run or a scope-specific pointer without recovering processes."""
-    if scope not in RUN_POINTERS:
+    if scope is not None and scope not in RUN_POINTERS:
         raise ValueError("Formal run scope must be full or selected.")
     if root.is_symlink():
         raise ValueError("Invalid Formal run root")
     if run_id is None:
-        pointer = root / RUN_POINTERS[scope]
+        pointer = root / RUN_POINTERS[scope or "full"]
         if pointer.is_symlink():
             raise ValueError("Invalid Formal run pointer")
         if not pointer.is_file():
@@ -112,7 +112,9 @@ def read_run(root: Path, run_id: str | None = None, scope: str = "full"):
     if run_dir.is_symlink() or state_path.is_symlink() or not state_path.is_file():
         raise ValueError("Formal run record is unavailable")
     state = read_json(state_path)
-    if state.get("run_id") != run_id or state.get("scope", "full") != scope:
+    recorded_scope = state.get("scope", "full")
+    if (state.get("run_id") != run_id or not isinstance(recorded_scope, str) or recorded_scope not in RUN_POINTERS
+            or (scope is not None and recorded_scope != scope)):
         raise ValueError("Formal run does not match the requested identity and scope")
     return run_dir, state
 
@@ -338,7 +340,7 @@ def property_evidence(run_dir: Path, state: dict, name: str, item: dict, *, obse
 
 def query_run_trace(workspace: Path, run_dir: Path, state: dict, name: str, query, current_inputs) -> dict:
     """Resolve and verify one sealed trace for tool, skill and dashboard clients."""
-    from formal.trace import trace_page
+    from formal.trace import TraceWindowError, trace_page
 
     item = state["properties"].get(name)
     if not item:
@@ -349,7 +351,11 @@ def query_run_trace(workspace: Path, run_dir: Path, state: dict, name: str, quer
     path = workspace / evidence["trace_artifact"]
     result = {}
     if query.mode != "artifact":
-        result = trace_page(path, evidence["trace_sha256"], query)
+        try:
+            result = trace_page(path, evidence["trace_sha256"], query)
+        except TraceWindowError as exc:
+            exc.diagnostic.update(run_id=state["run_id"], scope=state.get("scope", "full"), property=name)
+            raise
         with path.open("rb") as stream:
             if hashlib.file_digest(stream, "sha256").hexdigest() != evidence["trace_sha256"]:
                 raise ValueError("Original trace changed during analysis.")
@@ -430,8 +436,8 @@ class FormalExecution:
             records = yaml.safe_load(records_path.read_text(encoding="utf-8"))
             if not isinstance(records, dict):
                 raise ValueError("Formal records must be a mapping")
-            from formal.skills.lib.models import semantic_inputs
-            semantic = semantic_inputs(records)
+            from formal.skills.lib.formal_tools import proof_inputs
+            semantic = proof_inputs(records)
         tool = Path(executable).resolve()
         identity = {"path": str(tool), "size": tool.stat().st_size, "mtime_ns": tool.stat().st_mtime_ns}
         fingerprint = hashlib.sha256(json.dumps({"files": manifest, "semantic": semantic, "policy": asdict(self.policy), "tool": identity}, sort_keys=True).encode()).hexdigest()
@@ -518,11 +524,12 @@ class FormalExecution:
             records_path = target / ".formal_records.yaml"
             if records_path.exists():
                 import yaml
-                records = yaml.safe_load(records_path.read_text(encoding="utf-8"))
+                content = records_path.read_bytes()
+                records = yaml.safe_load(content)
                 from formal.skills.lib.models import semantic_inputs as canonical_inputs
                 semantic_inputs = canonical_inputs(records)
                 archived = inputs / self.output_dir / ".formal_records.yaml"
-                archived.write_bytes(records_path.read_bytes())
+                archived.write_bytes(content)
             receipt = target / "tests" / "sva_preflight.json"
             if receipt.is_file():
                 preflight = read_json(receipt)
@@ -586,7 +593,7 @@ class FormalExecution:
                 return {"status": "NOT_STARTED"}
             if state["status"] in ACTIVE_RUNS:
                 (run_dir / "cancel").touch()
-                return {"status": "CANCELLING", "run_id": state["run_id"], "scope": scope, "next_action": "Call RunFormal action=status after cleanup."}
+                return {"status": "CANCELLING", "run_id": state["run_id"], "scope": state.get("scope", "full"), "next_action": "Call RunFormal action=status after cleanup."}
             return self._summary(run_dir, state)
 
     def review(self, property_names: list[str], action: str, reason: str, next_action: str = "", *, run_id=None, scope="full") -> dict:
@@ -686,7 +693,7 @@ class FormalExecution:
         _, state = read_run(root, run_id, scope)
         if not state:
             return {"status": "NOT_STARTED", "properties": []}
-        return {"run_id": state["run_id"], "scope": scope, "status": state["status"],
+        return {"run_id": state["run_id"], "scope": state.get("scope", "full"), "status": state["status"],
                 "properties": [{"name": name, "kind": item["kind"], "result": item["result"]}
                                for name, item in state["properties"].items()]}
 
@@ -772,7 +779,7 @@ class FormalExecution:
         return False, {**result, "error_code": "formal_execution_pending", "error": "Current formal results require execution or review.",
                        "next_action": result.get("next_action", "Call RunFormal action=run, then Check.")}
 
-    def export_results(self, *, expected_run_id=None) -> None:
+    def export_results(self, *, expected_run_id=None) -> dict:
         """Publish only the current stopped full result under the snapshot lock."""
         from formal.skills.lib.formal_tools import load_records, save_records, update_records_run_results
 
@@ -795,6 +802,7 @@ class FormalExecution:
             log = target / "tests" / "avis.log"
             log.write_text("\n".join(lines) + "\n", encoding="utf-8")
             records = load_records(str(target / ".formal_records.yaml"))
+            verified = {}
             if records:
                 if not records.run_results or records.run_results.run_id != state["run_id"] or records.run_results.log_hash != hashlib.sha256(log.read_bytes()).hexdigest():
                     update_records_run_results(records, parsed, str(log))
@@ -806,8 +814,9 @@ class FormalExecution:
                 records.run_results.run_id = state["run_id"]
                 records.run_results.input_fingerprint = state["fingerprint"]
                 records.run_results.property_kinds = {name: item["kind"] for name, item in state["properties"].items()}
-                records.run_results.property_evidence = {name: property_evidence(run_dir, state, name, item)
-                                                       for name, item in state["properties"].items() if item["result"] in FINAL_RESULTS}
+                verified = {name: property_evidence(run_dir, state, name, item)
+                            for name, item in state["properties"].items() if item["result"] in FINAL_RESULTS}
+                records.run_results.property_evidence = verified
                 records.run_results.stats = {"pass_count": len(parsed["pass"]), "tt_count": len(parsed["trivially_true"]),
                                             "fail_count": len(parsed["false"]), "cover_pass_count": len(parsed["cover_pass"]),
                                             "cover_fail_count": len(parsed["cover_fail"]),
@@ -818,6 +827,7 @@ class FormalExecution:
                 destination = target / "tests" / "avis" / "fanin.rep"
                 destination.parent.mkdir(exist_ok=True)
                 shutil.copyfile(coverage, destination)
+            return verified
 
 def controller(run_dir: Path) -> None:
     """Own all children, assign fair turns, publish checkpoints, and clean up on exit."""

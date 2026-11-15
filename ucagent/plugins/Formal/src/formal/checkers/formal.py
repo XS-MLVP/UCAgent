@@ -52,6 +52,8 @@ from formal.skills.lib.formal_tools import (
     parse_avis_log,
     typed_run_results,
     validate_analysis_evidence,
+    require_completed_analysis,
+    AnalysisPendingError,
     refresh_analysis_references,
     bug_root_groups,
     extract_property_code,
@@ -411,6 +413,9 @@ class PropertyStructureChecker(BaseFormalChecker):
                 un_write_dirs=self.cfg.get_value("un_write_dirs", None),
             )
         except Exception as exc:
+            diagnostic = getattr(exc, "diagnostic", None)
+            if isinstance(diagnostic, dict):
+                return False, diagnostic
             return self._fail(
                 "Formal environment generation failed",
                 details=str(exc),
@@ -440,11 +445,9 @@ class ScriptGenerationChecker(BaseFormalChecker):
         clock_cfg, reset_cfg = get_primary_clock_reset(records)
         mismatches = validate_extra_config_against_design(records)
         if mismatches:
-            return self._fail(
-                "❌ basic_info.clock_reset does not match DUT interface description",
-                details="\n".join(f"  - {item}" for item in mismatches),
-                suggestion="Update .formal_records.yaml.basic_info.clock_reset and related input port signal_type fields before rendering formal.tcl and wrapper.",
-            )
+            return False, {"error_code": "formal_clock_reset_invalid", "error": "Formal clock/reset configuration is invalid.",
+                           "observed": mismatches, "artifact": self.paths.records_yaml,
+                           "next_action": "Correct basic_info.clock_reset and retry Check."}
 
         try:
             from formal.tools import render_environment
@@ -1098,6 +1101,18 @@ class BugReportConsistencyChecker(BaseFormalChecker):
         if not records:
             return self._fail(f"❌ .formal_records.yaml not found at {records_path}")
 
+        try:
+            if records.analysis is None or records.analysis.source_fingerprint != records.run_results.input_fingerprint:
+                with open(self.paths.checker, encoding="utf-8") as stream:
+                    if auto_scaffold_analysis_entries(records, typed_run_results(records), stream.read()):
+                        save_records(records_path, records)
+            require_completed_analysis(records)
+        except AnalysisPendingError as exc:
+            return False, exc.diagnostic
+        except (AttributeError, OSError, ValueError) as exc:
+            return False, {"error_code": "formal_bug_analysis_invalid", "error": str(exc),
+                           "next_action": "Review the current analysis queue before reporting defects."}
+
         # --- Auto Scaffolding: YAML bug entries ---
         try:
             if auto_scaffold_bug_entries(records):
@@ -1105,11 +1120,6 @@ class BugReportConsistencyChecker(BaseFormalChecker):
                 info("🏗️ Automatically scaffolded [LLM-TODO] bug entries in .formal_records.yaml")
         except Exception as exc:
             return self._fail("Bug identities are invalid", details=str(exc), suggestion="Use exact machine property identities and current analysis.")
-
-        try:
-            validate_analysis_evidence(records)
-        except ValueError as exc:
-            return self._fail("Bug analysis evidence is invalid", details=str(exc), suggestion="Review current machine evidence before writing Bug conclusions.")
 
         # Step 1: Extract RTL defects from analysis
         if not records or not records.analysis:

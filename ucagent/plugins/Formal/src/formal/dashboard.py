@@ -61,8 +61,9 @@ class FormalDashboard:
         """Distinguish verified current input, changed input, and archived evidence."""
         if not state:
             return "not_started"
+        from .skills.lib.formal_tools import proof_inputs
         frozen = state.get("semantic_inputs")
-        if frozen is not None and frozen != semantic_inputs(self.records):
+        if frozen is not None and proof_inputs(frozen) != proof_inputs(self.records):
             return "historical"
         if not self.archived:
             try:
@@ -366,7 +367,9 @@ class FormalDashboard:
                          if before_files.get(key) != after_files.get(key)]
         if changed_files:
             inputs["changed_source_files"] = changed_files
+        from .data import checkpoint_review_changes
         return {"before": before_id, "after": after_id, "inputs": inputs, "changed_properties": changed,
+                "scope_review": checkpoint_review_changes(before["semantic_inputs"], after["semantic_inputs"]),
                 "cover_changes": outcomes, "causality": "pending_diagnosis"}
 
     def export(self):

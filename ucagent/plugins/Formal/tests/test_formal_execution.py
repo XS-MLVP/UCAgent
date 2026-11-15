@@ -564,6 +564,12 @@ def test_selected_scope_cannot_change_full_pointer_or_cancel_full(execution_fact
     result = selected_status()
     assert result["selected_complete"] and not result["full_complete"]
     assert result["counts"] == {"PROVEN": 1, "NOT_EXECUTED": 1}
+    from dataclasses import asdict
+    from formal.tools import RunFormal
+    tool = RunFormal(str(workspace), "output", "DUT", Config(asdict(execution.policy)))
+    resolved = tool.invoke({"action": "status", "run_id": selected["run_id"], "wait_s": 0})
+    assert resolved["scope"] == "selected" and resolved["counts"] == result["counts"]
+    assert resolved["current_inputs"]
     assert execution.check()[0] is False
     with pytest.raises(ValueError, match="scope"):
         execution.cancel(run_id=full["run_id"], scope="selected")

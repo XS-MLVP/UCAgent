@@ -31,7 +31,9 @@
 }
 ```
 
-更新指定节时`data`和`bodies`选一个。planning/basic_info/spec/summary只替换提供的顶层字段，嵌套对象和列表整体替换，因此须保留全部需要项。bodies只用于已有唯一CK-ID的完整属性体。成功更新会返回新sha256、剩余作者缺项或待审项；没有缺项时不必再次inspect确认写入，审阅摘要、记录阶段日志后调用Complete。返回仅说明作者字段校验，不代表证明或阶段已经通过。冲突不会覆盖较新内容，重新inspect再写请求。机器计数、运行状态与证据文件不能由请求改写。
+更新指定节时使用 `data` 或 `bodies`。planning/basic_info/spec/summary 仅替换提供的顶层字段，嵌套对象和列表整体替换。SVA 阶段使用 `prepare sva` 按功能组领取待补属性，填入 `ready_update.bodies`。可用 `--group FG-ID` 指定功能组。用 `inspect signals --query 名称` 查实际内部信号与位宽。更新绑定时，可在同一 spec 请求里同时写 `data.whitebox_signals` 和 `bodies`，两者一起校验和提交。更新后使用返回的新 sha256 和待办继续。移除或改写目标及修改 Assume 时，审阅 `scope_review` 并在阶段日志中记录理由。
+
+在 `basic_info.clock_reset` 中分别填写 `reset_active_level`（low/high）、`reset_assertion` 和 `reset_release`（sync/async）。字段可在未确定时留空，`reset_type` 可说明 RTL 行为。
 
 ## 准备分析与Bug队列
 
@@ -110,6 +112,8 @@ Bug阶段对应`prepare bugs`，保留精确id/property。`items[].reviewed_anal
 
 初始化与保存采样是不同上下文，均不自动代表失败周期。计算结果只核验“所写表达式在这些绑定值上的结果”，不证明表达式就是正确规格。规格解释和根因仍需人工审阅；不要在其他自由文本中再抄写一个未经检查的计算结果，也不要仅凭COI/Cover断言规格完备。
 
+输入变化后，`prepare analysis` 可返回 `previous_review` 草稿。审阅当前证据后再填写提交字段。若 `prepare bugs` 返回 `formal_analysis_pending`，先完成所列当前归因，再填写 Bug。
+
 ## 技能关闭或缺失时
 
 不调用ListSkill、RunSkillScript或SetSkillUsage。使用ReadTextFile读取当前`.formal_records.yaml`和阶段输入，以EditTextFile/ReplaceStringInFile编辑本阶段拥有的YAML子树，保留其它节，不修改run_results和运行文件。用读取得到的文件哈希防止覆盖并发修改。
@@ -176,7 +180,7 @@ summary: null
 
 可用 `RunFormal(action="inventory")` 列出已枚举批次的精确属性名。使用
 `RunFormal(action="run", scope="selected", property_names=[...])` 发起定向
-复验。后续查询、审阅、取消和证据读取均使用返回的 `run_id` 和 `scope`。
+复验。后续查询、审阅、取消和证据读取均使用返回的 `run_id`，可一并提供 `scope`。
 定向批次使用完整 Assume，未选目标为 `NOT_EXECUTED`。完整验收仍通过当前
 输入的完整批次。
 
@@ -185,7 +189,7 @@ property_names=[...], trace_query={"mode":"signals","signal_query":"**"})`
 查找完整信号路径。然后用 `mode="samples"`、`signals` 和包含端点的
 `start`、`end` 取样。有明确采样时钟时再指定完整路径 `clock` 与
 `edge`。按返回的 `next_cursor` 继续同一查询。原始时间戳与求解器报告的
-失败深度分别使用。
+失败深度分别使用。窗口越界时，按返回的 `first_tick` 和 `last_tick` 修正范围。
 
 数据 Skill 可将同一工具请求写为 OUT 下的 JSON 文件，再调用
 `formal_data.py proof --request-file <path>`。用 `inspect extra_config --full`

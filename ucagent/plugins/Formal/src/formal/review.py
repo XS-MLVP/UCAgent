@@ -42,8 +42,11 @@ def review_evidence(evidence: dict, property_name: str) -> dict:
     total = observation.get("total_signals", len(signals))
     result["stored_sample"].update(signals=selected, total_signals=total,
         omitted_count=max(0, total - len(selected)), source_truncated=bool(observation.get("truncated")))
-    result["full_evidence_call"] = {"action": "evidence", "property_names": [property_name]}
-    result["trace_discovery_call"] = {"action": "evidence", "property_names": [property_name],
+    call = {"action": "evidence", "property_names": [property_name]}
+    if evidence.get("run_id"):
+        call["run_id"] = evidence["run_id"]
+    result["full_evidence_call"] = call
+    result["trace_discovery_call"] = {**call,
         "trace_query": {"mode": "signals", "signal_query": "**", "limit": 30}}
     return result
 

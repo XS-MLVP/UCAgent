@@ -17,7 +17,8 @@ from ucagent.util.markdown import ensure_markdown_heading_spacing
 from .formal_paths import FormalPaths
 from .models import (
     FormalRecords, CheckPoint, FunctionGroup, FunctionPoint, 
-    AnalysisEntry, BugEntry, RunResults, IterationEntry, AnalysisData, normalize_summary, normalize_author_section
+    AnalysisEntry, BugEntry, RunResults, IterationEntry, AnalysisData, AnalysisReviewDraft, author_section_contract,
+    normalize_summary, normalize_author_section,
 )
 
 __all__ = [
@@ -294,6 +295,37 @@ def typed_run_results(records: FormalRecords) -> dict:
                     raise ValueError(f"Machine type data disagrees with {key} verdict for {name}.")
     return buckets
 
+
+class AnalysisPendingError(ValueError):
+    """Expose the unresolved current evidence queue before Bug reporting."""
+
+    def __init__(self, pending: list[dict]):
+        """Retain item count and a bounded set of exact identities."""
+        message = "Bug reporting requires completed current failure review and trivial-proof review."
+        self.diagnostic = {
+            "status": "error",
+            "error_code": "formal_analysis_pending",
+            "error": message,
+            "observed": {"pending_total": len(pending), "pending": pending[:40]},
+            "next_action": "Run prepare analysis --offset 0 or review the exact pending entries in .formal_records.yaml, then continue with Bug reporting.",
+        }
+        super().__init__(message)
+
+
+def require_completed_analysis(records: FormalRecords) -> None:
+    """Require resolved, evidence-backed current reviews before deriving reports."""
+    validate_analysis_evidence(records)
+    pending = []
+    for entry in records.analysis.tt_entries:
+        if entry.action != "ACCEPTED" or entry.root_cause != "DESIGN_EXPECTED" or not entry.analysis.strip() or "[LLM-TODO]" in entry.analysis:
+            pending.append({"id": entry.id, "property": entry.prop_name, "required": "ACCEPTED with DESIGN_EXPECTED and analysis"})
+    for entry in records.analysis.fa_entries:
+        expected = "COVER_EXPECTED_FAIL" if records.run_results.property_kinds.get(entry.prop_name) == "cover" else "RTL_BUG"
+        if entry.resolution != expected or not entry.analysis.strip() or "[LLM-TODO]" in entry.analysis:
+            pending.append({"id": entry.id, "property": entry.prop_name, "required": f"{expected} with analysis"})
+    if pending:
+        raise AnalysisPendingError(pending)
+
 def parse_coverage(tests_dir: str) -> dict:
     empty = {"covered": 0, "total": 0, "pct": 0.0}
     res = {"inputs": dict(empty), "outputs": dict(empty), "dffs": dict(empty), "nets": dict(empty), "uncovered": [], "overall_pct": 0.0}
@@ -562,74 +594,19 @@ def build_clock_reset_alias_context(records: FormalRecords) -> dict:
     }
 
 
-def _normalize_port_decl(port_decl: str) -> str:
-    return " ".join(port_decl.strip().rstrip(",;").split())
-
-
-def _find_basic_info_input_ports(records: FormalRecords) -> List[dict]:
-    basic_info = records.basic_info or {}
-    ports = basic_info.get("ports", {}) if isinstance(basic_info, dict) else {}
-    inputs = ports.get("inputs", []) if isinstance(ports, dict) else []
-    return [port for port in inputs if isinstance(port, dict)]
-
-
 def validate_extra_config_against_design(records: FormalRecords, port_info: Optional[List[Tuple[str, str]]] = None) -> List[str]:
-    mismatches: List[str] = []
-    clock_cfg, reset_cfg = get_primary_clock_reset(records)
-
-    basic_info = records.basic_info or {}
-    clock_reset = basic_info.get("clock_reset", {}) if isinstance(basic_info, dict) else {}
-    normalized_ports = {name: _normalize_port_decl(decl) for name, decl in (port_info or [])}
-
-    def _meaningful_text(value) -> Optional[str]:
-        if value is None:
-            return None
-        text = str(value).strip()
-        if not text or text in {"无", "不适用", "N/A", "None"}:
-            return None
-        return text
-
-    expected_clock = _meaningful_text(clock_reset.get("clock_signal"))
-    expected_reset = _meaningful_text(clock_reset.get("reset_signal"))
-
-    clock_count = _meaningful_text(clock_reset.get("clock_count"))
-    has_design_clock = expected_clock is not None or (clock_count not in {None, "0"})
-    has_design_reset = expected_reset is not None
-
-    configured_clock = str(clock_cfg.get("signal", "")).strip()
-    configured_reset = str(reset_cfg.get("signal", "")).strip()
-
-    if has_design_clock and expected_clock and configured_clock and configured_clock != expected_clock:
-        mismatches.append(
-            f"clock signal mismatch: basic_info.clock_reset.clock_signal declares '{expected_clock}' but renderer resolved '{configured_clock}'"
-        )
-    if has_design_reset and expected_reset and configured_reset and configured_reset != expected_reset:
-        mismatches.append(
-            f"reset signal mismatch: basic_info.clock_reset.reset_signal declares '{expected_reset}' but renderer resolved '{configured_reset}'"
-        )
-
-    reset_type = _meaningful_text(clock_reset.get("reset_type"))
-    configured_style = str(reset_cfg.get("style", "")).strip().lower()
-    if reset_type and configured_style:
-        if "同步" in reset_type and configured_style != "sync":
-            mismatches.append(
-                f"reset style mismatch: extra_config uses '{configured_style}' but basic_info reset_type is '{reset_type}'"
-            )
-        if "异步" in reset_type and configured_style != "async":
-            mismatches.append(
-                f"reset style mismatch: extra_config uses '{configured_style}' but basic_info reset_type is '{reset_type}'"
-            )
-
-    configured_active_level = str(reset_cfg.get("active_level", "")).strip().lower()
-    inferred_active_level = None
-    if has_design_reset and expected_reset:
-        inferred_active_level = "low" if expected_reset.lower().endswith("_n") else "high"
-    if inferred_active_level and configured_active_level and configured_active_level != inferred_active_level:
-        mismatches.append(
-            f"reset polarity mismatch: extra_config uses '{configured_active_level}' but reset signal '{expected_reset}' implies '{inferred_active_level}'"
-        )
-
-    return list(dict.fromkeys(mismatches))
+    """Validate the declared clock and reset against the resolved compiler inputs."""
+    clock_reset = (records.basic_info or {}).get("clock_reset") or {}
+    schema = author_section_contract("basic_info")["json_schema"]["properties"]["clock_reset"]["properties"]
+    mismatches = [f"basic_info.clock_reset.{field} must be one of {schema[field]['enum']}"
+                  for field in ("reset_active_level", "reset_assertion", "reset_release")
+                  if clock_reset.get(field, "") not in schema[field]["enum"]]
+    if port_info is not None:
+        inputs = {name for name, declaration in port_info if declaration.lstrip().startswith("input ")}
+        for name, config in zip(("clock", "reset"), get_primary_clock_reset(records)):
+            if config and config["signal"] not in inputs:
+                mismatches.append(f"basic_info.clock_reset.{name}_signal must name a resolved DUT input: {config['signal']}")
+    return mismatches
 
 def auto_scaffold_analysis_entries(records: FormalRecords, lr: dict, cc: str) -> bool:
     """Reconcile current exact machine identities, invalidating changed-input analysis."""
@@ -637,7 +614,19 @@ def auto_scaffold_analysis_entries(records: FormalRecords, lr: dict, cc: str) ->
     before = records.analysis.model_dump() if records.analysis else None
     changed_inputs = bool(records.analysis and records.analysis.source_fingerprint != fingerprint and fingerprint)
     if changed_inputs:
-        records.analysis = AnalysisData(source_fingerprint=fingerprint)
+        previous = records.analysis
+        drafts = dict(previous.previous_reviews)
+        if previous.source_fingerprint:
+            for entry in previous.tt_entries + previous.fa_entries:
+                if entry.analysis.strip() and "[LLM-TODO]" not in entry.analysis:
+                    drafts[entry.prop_name] = AnalysisReviewDraft(
+                        source_fingerprint=previous.source_fingerprint,
+                        run_id=(entry.evidence_ref or {}).get("run_id"),
+                        analysis=entry.analysis,
+                        expected_requirement=entry.expected_requirement,
+                        decision=entry.resolution or entry.action or "",
+                    )
+        records.analysis = AnalysisData(source_fingerprint=fingerprint, previous_reviews=drafts)
         records.bugs = []
     if records.analysis is None:
         records.analysis = AnalysisData(source_fingerprint=fingerprint)
@@ -885,14 +874,7 @@ def summary_bug_rows(records: FormalRecords) -> list[dict]:
     run = records.run_results
     abnormal = bool(run and (run.failing_properties or run.tt_properties))
     if abnormal or records.bugs:
-        validate_analysis_evidence(records)
-        for entry in records.analysis.tt_entries:
-            if entry.action != "ACCEPTED" or entry.root_cause != "DESIGN_EXPECTED" or not entry.analysis.strip() or "[LLM-TODO]" in entry.analysis:
-                raise ValueError(f"Summary requires completed current trivial-proof review for {entry.prop_name}.")
-        for entry in records.analysis.fa_entries:
-            expected = "COVER_EXPECTED_FAIL" if run.property_kinds.get(entry.prop_name) == "cover" else "RTL_BUG"
-            if entry.resolution != expected or not entry.analysis.strip() or "[LLM-TODO]" in entry.analysis:
-                raise ValueError(f"Summary requires completed current failure review for {entry.prop_name}; unresolved environment results cannot be summarized as accepted.")
+        require_completed_analysis(records)
     claims = [entry.prop_name for entry in (records.analysis.fa_entries if records.analysis else [])
               if entry.resolution == "RTL_BUG"]
     observations = records.bugs or []
@@ -976,10 +958,14 @@ def generate_summary_doc(records: FormalRecords, op: str, coverage: Optional[dic
     _render_to_file("formal_summary.md", context, op)
 
 def get_primary_clock_reset(records: FormalRecords) -> tuple[dict, dict]:
+    """Resolve one primary clock and reset for wrapper generation."""
     basic_info = records.basic_info or {}
     clock_reset = basic_info.get("clock_reset", {}) if isinstance(basic_info, dict) else {}
     clock_port = str(clock_reset.get("clock_signal", "") or "").strip()
     reset_port = str(clock_reset.get("reset_signal", "") or "").strip()
+    absent = {"无", "不适用", "N/A", "None"}
+    clock_port = "" if clock_port in absent else clock_port
+    reset_port = "" if reset_port in absent else reset_port
 
     reset_type = str(clock_reset.get("reset_type", "") or "").strip()
     active_level = "low" if reset_port.lower().endswith("_n") else "high"
@@ -988,15 +974,22 @@ def get_primary_clock_reset(records: FormalRecords) -> tuple[dict, dict]:
     elif "高" in reset_type:
         active_level = "high"
 
-    style = ""
-    if "同步" in reset_type:
-        style = "sync"
-    elif "异步" in reset_type:
-        style = "async"
-
     clock = {"signal": clock_port, "edge": "posedge", "period": 10} if clock_port else {}
-    reset = {"signal": reset_port, "active_level": active_level, "style": style, "init_cycles": 1} if reset_port else {}
+    reset = {"signal": reset_port, "active_level": clock_reset.get("reset_active_level") or active_level,
+             "assertion": clock_reset.get("reset_assertion") or "", "release": clock_reset.get("reset_release") or "",
+             "init_cycles": 1} if reset_port else {}
     return clock, reset
+
+
+def proof_inputs(records: dict | FormalRecords) -> dict:
+    """Project the settings consumed by generators, independently of authored observations."""
+    from .models import semantic_inputs
+
+    model = records if isinstance(records, FormalRecords) else FormalRecords.model_validate(records)
+    values = semantic_inputs(model)
+    values.pop("basic_info")
+    values["clock_reset"] = build_clock_reset_alias_context(model)
+    return values
 
 # =============================================================================
 # YAML → SV Merging

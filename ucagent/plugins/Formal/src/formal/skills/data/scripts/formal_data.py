@@ -25,11 +25,13 @@ def main() -> int:
         parser = Arguments(description=__doc__)
         commands = parser.add_subparsers(dest="action", required=True, parser_class=Arguments)
         inspect = commands.add_parser("inspect")
-        inspect.add_argument("section", choices=("overview", "planning", "basic_info", "spec", "analysis", "bugs", "summary", "extra_config"))
+        inspect.add_argument("section", choices=("overview", "planning", "basic_info", "spec", "signals", "analysis", "bugs", "summary", "extra_config"))
+        inspect.add_argument("--query", default="", help="Filter resolved internal DUT signals by name")
         inspect.add_argument("--schema", action="store_true", help="Include the complete author contract for this section")
         inspect.add_argument("--full", action="store_true", help="Include existing author content for focused review or revision")
         prepare = commands.add_parser("prepare")
-        prepare.add_argument("section", choices=("analysis", "bugs"))
+        prepare.add_argument("section", choices=("sva", "analysis", "bugs"))
+        prepare.add_argument("--group", help="Exact FG ID for SVA authoring")
         for operation in (inspect, prepare):
             operation.add_argument("--offset", type=int, default=0)
             operation.add_argument("--limit", type=int, default=5 if operation is prepare else 20)
@@ -49,9 +51,10 @@ def main() -> int:
                       "write_dirs": policy["write_dirs"], "un_write_dirs": policy["un_write_dirs"]})
         store = FormalDataStore(str(workspace), output, dut, cfg=cfg, **policy)
         if args.action == "inspect":
-            result = store.inspect(args.section, args.offset, args.limit, include_schema=args.schema, include_content=args.full)
+            result = store.inspect(args.section, args.offset, args.limit, include_schema=args.schema,
+                                   include_content=args.full, query=args.query)
         elif args.action == "prepare":
-            result = store.prepare(args.section, args.offset, args.limit)
+            result = store.prepare(args.section, args.offset, args.limit, group=args.group)
         else:
             relative = normalize_relative_path(args.request_file)
             relative_path = Path(relative)
@@ -76,8 +79,8 @@ def main() -> int:
                 result = RunFormal(str(workspace), output, dut, cfg, **policy).invoke(payload)
             else:
                 required = {"section", "expected_sha256"}
-                if not isinstance(payload, dict) or not required <= set(payload) or set(payload) - required not in ({"data"}, {"bodies"}):
-                    raise ValueError("Update JSON must contain exactly section, expected_sha256, and one of data or bodies")
+                if not isinstance(payload, dict) or not required < set(payload) or set(payload) - required - {"data", "bodies"}:
+                    raise ValueError("Update JSON requires section, expected_sha256, and data or bodies. A combined spec request accepts data.whitebox_signals and bodies only.")
                 result = store.update(payload["section"], payload.get("data"), payload.get("bodies"), payload["expected_sha256"])
         print(json.dumps(result, ensure_ascii=False, separators=(",", ":")))
         return 0 if result.get("status") not in {"error", "conflict"} else 2
