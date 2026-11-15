@@ -217,8 +217,6 @@ html[data-theme="light"] #layout.fc-formal {
 .fc-workflow-tab { display: flex; align-items: center; gap: 5px; }
 .fc-formal .fc-workflow-tab #runtime-status-badge { display: inline-block; padding: 1px 5px; }
 .fc-workflow-tab button { align-self: stretch; }
-.fc-formal .fc-right-tabs #runtime-interrupt-btn { flex: none; align-self: center; margin-inline-start: auto; padding: 3px 6px; border: 1px solid var(--fc-line); border-radius: 5px; font-size: 11px; }
-.fc-formal .fc-right-tabs #runtime-interrupt-btn:hover { color: var(--red); }
 .fc-workflow, .fc-output, .fc-coverage { flex: 1; min-height: 0; }
 .fc-workflow { overflow: auto; }
 .fc-formal #mission-section { display: flex; flex: 1; min-height: 100px; }
@@ -315,7 +313,7 @@ html[data-theme="light"] #layout.fc-formal {
 .fc-tool-dialog .fc-empty:empty { display: none; }
 .fc-tool-dialog button { border-color: var(--border); margin-inline-end: 6px; }
 
-.fc-review { width: min(100%, 880px); margin-inline: auto; padding: 22px clamp(16px, 4vw, 52px); overflow: auto; }
+.fc-review { width: min(100%, 880px); margin-inline: auto; padding: 22px clamp(16px, 4vw, 52px) 53px; overflow: auto; }
 .fc-review h2 { font-size: 22px; margin: 0 0 13px; }
 .fc-review h3 { font-size: 14px; margin: 15px 0 7px; }
 .fc-review pre { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--bg2); padding: 9px; }
@@ -324,6 +322,104 @@ html[data-theme="light"] #layout.fc-formal {
 .fc-kicker { padding-inline: 0; }
 .fc-floating { position: absolute; inset-inline-end: clamp(15px, 3.5vw, 37px); bottom: 11px; display: flex; gap: 5px; z-index: 8; }
 .fc-formal .fc-floating button { min-height: 31px; background: var(--surface); border-color: var(--fc-line); box-shadow: 0 2px 9px #19305417; font-size: 12px; }
+.fc-formal #runtime-interrupt-btn {
+  flex: none;
+  min-height: 31px;
+  height: auto;
+  padding: 5px 8px;
+  border: 1px solid var(--fc-line);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--red);
+  font-size: 12px;
+}
+.fc-formal #runtime-interrupt-btn:hover { background: color-mix(in srgb, var(--red) 10%, var(--surface)); }
+.fc-formal .workbench-file-toolbar #runtime-interrupt-btn { margin-inline-start: auto; }
+.fc-quote-tools { position: fixed; z-index: 42; }
+.fc-formal ::highlight(formal-quote-selection) { background: color-mix(in srgb, var(--fc-accent) 32%, var(--surface)); }
+.fc-quote-action {
+  padding: 7px 11px;
+  border: 1px solid var(--fc-line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 3px 14px #19305426;
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.fc-quote-action:hover { background: var(--surface2); }
+.fc-quote-editor {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: min(330px, calc(100vw - 16px));
+  min-height: 44px;
+  margin: 0;
+  padding: 4px 5px 4px 12px;
+  border: 1px solid var(--fc-line);
+  border-radius: 22px;
+  background: var(--surface);
+  box-shadow: 0 3px 14px #19305426;
+}
+.fc-quote-editor:focus-within { border-color: color-mix(in srgb, var(--fc-accent) 30%, var(--fc-line)); }
+.fc-quote-editor textarea {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  padding: 5px 1px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  line-height: 20px;
+  resize: none;
+}
+.fc-quote-editor textarea:focus { outline: none; }
+.fc-quote-editor button {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--fc-muted);
+  font: inherit;
+  font-size: 16px;
+  cursor: pointer;
+}
+.fc-quote-editor button:hover { background: var(--surface2); color: var(--text); }
+.fc-quote-editor .fc-quote-confirm { background: var(--text); color: var(--surface); }
+.fc-quote-editor .fc-quote-confirm:hover { background: var(--fc-accent); color: #fff; }
+.fc-chat-quotes {
+  display: flex;
+  flex-direction: column;
+  width: min(calc(100% - 2 * clamp(12px, 2vw, 25px)), 340px);
+  max-height: min(232px, 26vh);
+  margin: 0 clamp(12px, 2vw, 25px) 7px auto;
+}
+.fc-quote-count { flex: none; margin: 0 0 4px 4px; color: var(--fc-muted); font-size: 11px; }
+.fc-quote-cards { display: flex; flex-direction: column; gap: 6px; min-height: 0; padding: 2px; overflow: auto; scrollbar-width: thin; }
+.fc-formal .fc-chat-quotes .fc-chat-quote { flex: none; width: 100%; padding: 7px 10px; }
+.fc-quote-content + .fc-quote-content { margin-top: 6px; padding-top: 4px; border-top: 1px solid var(--fc-line); }
+.fc-chat-quote blockquote { max-height: 52px; overflow: auto; }
+.fc-chat-quote button {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  color: var(--fc-muted);
+  background: transparent;
+  font: inherit;
+  font-size: 17px;
+  cursor: pointer;
+}
+.fc-chat-quote button:hover { color: var(--text); background: var(--surface2); }
+.fc-quote-question, .fc-quote-comment { margin: 5px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.fc-quote-comment { max-height: 52px; overflow: auto; }
 .fc-chat { flex: none; background: var(--surface); }
 .fc-chat-split { cursor: ns-resize; height: 10px; position: relative; touch-action: none; border-block-start: 1px solid var(--fc-line); }
 .fc-chat-split::after { content: ''; width: 34px; height: 3px; border-radius: 2px; background: #c0c8d5; position: absolute; inset: 3px auto auto calc(50% - 17px); }

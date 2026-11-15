@@ -1,6 +1,6 @@
 /** Connect the FlowCanvas shell to the Formal task and its live command API. */
 /** Bind task state to the packaged layout and reuse its existing live controls. */
-export function mount(markup,createCoverageActions,{bindTabs,createTaskCard}){
+export function mount(markup,createCoverageActions,{bindTabs,createTaskCard},mountChatQuote){
   const q=selector=>document.querySelector(selector);
   const scriptUrl=import.meta.url;
   const layout=document.createElement('template');
@@ -107,8 +107,9 @@ export function mount(markup,createCoverageActions,{bindTabs,createTaskCard}){
     filesMenu.open=true;
     filesMenu.querySelector('summary').focus({preventScroll:true});
   });
-  const cite=button('引用到 Chat',()=>citeTarget(_formalReport?.getSelection(),q('.formal-report-heading h3')?.textContent));
-  floating.append(source,cite);
+  const pause=q('#runtime-interrupt-btn');
+  const fileToolbar=q('.workbench-file-toolbar');
+  floating.append(source);
 
   function addChatDraft(text,key,preview){
     if(prepareSuggestionChat(text,key,preview))return true;
@@ -174,6 +175,27 @@ export function mount(markup,createCoverageActions,{bindTabs,createTaskCard}){
   const history=part('.fc-history'), historyTitle=part('.fc-history > summary');
   const sent=part('#fc-sent'), composer=part('.fc-composer');
   const composerFooter=part('.fc-composer-footer'), composerActions=part('.fc-composer-actions');
+  const quoteTools=part('.fc-quote-tools'), draftList=part('.fc-chat-quotes');
+  const chatQuotes=mountChatQuote({
+    container:task,toolbar:quoteTools,draftList,cardTemplate:part('.fc-chat-quote-template'),
+    context:()=>enabled&&_formalView?{
+      workspace:_subWorkspace,
+      previewOnly:!!_subWorkspace||_formalView.archived||_formalView.freshness==='historical'
+    }:null,
+    activateChat(){
+      const input=q('#runtime-cmd-input');
+      if(input.disabled||(!_consoleChatMode&&(!_consoleChatToggleAvailable()||input.value.trim()))){
+        showErr('请先切换到 Chat 或清空现有命令草稿。');
+        return false;
+      }
+      _consoleChatMode=true;
+      _updateConsoleChatControl();
+      chatQuotes.setMode(true);
+      input.focus();
+      return true;
+    },
+    recordSend:appendSentQuotes
+  });
   const attach=el('details',null,'fc-composer-attach');
   const attachToggle=el('summary',null,'model-trigger attach-trigger');
   attachToggle.innerHTML='<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4v12M4 10h12"/></svg>';
@@ -181,7 +203,10 @@ export function mount(markup,createCoverageActions,{bindTabs,createTaskCard}){
   attachToggle.title='添加对话上下文';
   const attachMenu=el('div',null,'fc-attach-menu');
   attachMenu.append(
-    button('引用当前验证目标',()=>{attach.open=false;cite.click();}),
+    button('引用当前验证目标',()=>{
+      attach.open=false;
+      citeTarget(_formalReport?.getSelection(),q('.formal-report-heading h3')?.textContent);
+    }),
     button('浏览工作区',()=>{attach.open=false;selectLeft('files');if(compactLayout.matches)task.classList.add('fc-show-left');})
   );
   attach.append(attachToggle,attachMenu);
@@ -233,12 +258,14 @@ export function mount(markup,createCoverageActions,{bindTabs,createTaskCard}){
     updateContent();
   }
   function updateContent(){
+    if(!enabled)return;
     const fileOpen=q('#workspace-content').classList.contains('show-workbench-file');
     centerTitle.textContent=fileOpen?'文件预览':leftMode==='suggestions'?'阶段审阅':'验证模板';
     review.hidden=fileOpen||leftMode!=='suggestions';
     report.classList.toggle('fc-review-open',!review.hidden);
-    floating.hidden=fileOpen||leftMode==='suggestions';
-    cite.hidden=!_formalReport?.getSelection();
+    floating.hidden=fileOpen;
+    source.hidden=leftMode==='suggestions';
+    move(pause,fileOpen?fileToolbar:floating);
   }
   function selectRight(mode){
     selectTab(right.querySelector('#fc-tab-'+mode));
@@ -251,7 +278,7 @@ export function mount(markup,createCoverageActions,{bindTabs,createTaskCard}){
     task.classList.add('fc-formal');
     task.prepend(left);
     task.append(right);
-    task.append(targetPopover);
+    task.append(targetPopover,quoteTools);
     const brandMark=q('#hdr .uc-shell-brand-mark');
     move(brandMark,rail.querySelector('.brand-home'));
     center.append(chat);
@@ -265,7 +292,6 @@ export function mount(markup,createCoverageActions,{bindTabs,createTaskCard}){
     move(masterLink,headerItems);
     move(reportItems,headerItems);
     headerItems.prepend(reportItems,masterLink);
-    move(q('#runtime-interrupt-btn'),right.querySelector('.fc-right-tabs'));
     move(q('#runtime-status-badge'),workflowTab);
     move(q('#sidebar-information'),files);
     move(q('#mission-section'),workflow);
@@ -314,6 +340,7 @@ export function mount(markup,createCoverageActions,{bindTabs,createTaskCard}){
   }
   function disable(){
     enabled=false;
+    chatQuotes.clear();
     headerMenu.open=false;
     headerActions.classList.remove('conversation-tools');
     for(const icon of headerIcons)icon.classList.remove('icon-button');
@@ -321,7 +348,7 @@ export function mount(markup,createCoverageActions,{bindTabs,createTaskCard}){
     toolDialog?.close();
     for(const [node,marker] of [...restored].reverse())marker.replaceWith(node);
     restored.clear();
-    for(const node of [left,right,review,chat,floating,toolResult,centerTitle,toggleRight,workflowLabel,toolToolbar,composerFooter,targetPopover])node.remove();
+    for(const node of [left,right,review,chat,floating,toolResult,centerTitle,toggleRight,workflowLabel,toolToolbar,composerFooter,targetPopover,quoteTools])node.remove();
     q('#mission-header h2').textContent='Workflow';
     const send=q('#runtime-cmd-send');
     send.classList.remove('send-button');
@@ -663,17 +690,30 @@ export function mount(markup,createCoverageActions,{bindTabs,createTaskCard}){
 
   const sentTasks=new Map();
 
+  /** Show all excerpts from one acknowledged Chat message together in history. */
+  function appendSentQuotes(quotes,question,operation){
+    if(!enabled||_subWorkspace)return;
+    sentTasks.set(operation,{quotes,question});
+    if(sentTasks.size>100)sentTasks.delete(sentTasks.keys().next().value);
+    appendSentMessage(question,operation);
+    history.open=true;
+    updateSentHistory(true);
+  }
+
   /** Reconcile accepted task cards with the command transcript by operation ID. */
   function appendSentMessage(text,operation){
     const task=sentTasks.get(operation);
     const previous=operation&&Array.from(sent.children).find(node=>node.dataset.operation===operation);
     if(previous&&(!task||previous.classList.contains('ai-task-sent')))return;
-    const message=task?createTaskCard({
+    let message;
+    if(task?.quotes)message=chatQuotes.renderSent(task.quotes,task.question);
+    else if(task)message=createTaskCard({
       title:task.title,
       objective:task.objective,
       requirements:[task.scope,task.requirements].filter(Boolean).join('\n'),
       status:'已提交'
-    }):el('p',text,'fc-sent-message');
+    });
+    else message=el('p',text,'fc-sent-message');
     if(operation)message.dataset.operation=operation;
     if(previous)previous.replaceWith(message);
     else sent.append(message);
@@ -717,9 +757,9 @@ export function mount(markup,createCoverageActions,{bindTabs,createTaskCard}){
     }
   }
 
-  let height=106, drag;
+  let height=124, drag;
   function setHeight(value){
-    const max=Math.max(44,center.clientHeight-composer.offsetHeight-190);
+    const max=Math.max(44,center.clientHeight-composer.offsetHeight-draftList.offsetHeight-190);
     height=Math.round(Math.min(max,Math.max(44,value)));
     history.style.setProperty('--fc-history-height',height+'px');
     splitter.setAttribute('aria-valuemin','44');
@@ -743,10 +783,12 @@ export function mount(markup,createCoverageActions,{bindTabs,createTaskCard}){
   const chatResize=new ResizeObserver(()=>{if(enabled)setHeight(height);});
   chatResize.observe(center);
   chatResize.observe(composer);
+  chatResize.observe(draftList);
 
   function refresh(){
     if(!enabled)return;
     if(workspace!==_subWorkspace){
+      chatQuotes.clear();
       workspace=_subWorkspace;
       stageIndex=undefined;
       reviewSignature='';
@@ -786,5 +828,5 @@ export function mount(markup,createCoverageActions,{bindTabs,createTaskCard}){
   new MutationObserver(updateContent).observe(q('#workspace-content'),{attributes:true,attributeFilter:['class']});
   setInterval(refresh,3000);
   sync();
-  return {coverageActions};
+  return {coverageActions,chatQuotes};
 }

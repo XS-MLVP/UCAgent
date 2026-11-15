@@ -2565,6 +2565,7 @@ let _formalView=null;
 let _formalSelection="";
 let _formalFilter="";
 let _formalReport=null;
+let _formalChatQuotes=null;
 let _formalRequest=0;
 let _fileListRequest=0;
 const _REPORT_DIRECTORIES=new Set(["unit_test","unity_test","uc_test_report","reports","report","coverage","coverage_data","line_dat"]);
@@ -2741,9 +2742,10 @@ async function _refreshFormal(){
   try{
     const response=await apiFetch("/api/formal/view"+query);
     if(request!==_formalRequest||workspace!==_subWorkspace||selected!==_formalSelection)return;
-    const {coverageActions}=await UCAgentWorkbench.loadFormal();
+    const {coverageActions,chatQuotes}=await UCAgentWorkbench.loadFormal();
     if(request!==_formalRequest||workspace!==_subWorkspace||selected!==_formalSelection)return;
     const view=response.data;
+    _formalChatQuotes=chatQuotes;
     document.body.classList.add("formal-workspace");
     const previous=_formalView;
     _formalView=view;
@@ -3655,6 +3657,7 @@ function _updateConsoleChatControl() {
     const inWorkbench = document.body.classList.contains("fc-workbench-active");
     input.placeholder = _consoleChatMode ? (inWorkbench ? "有问题，尽管问" : "Chat message...") : "Runtime command...";
   }
+  _formalChatQuotes?.setMode(_consoleChatMode);
 }
 
 function toggleConsoleChatMode() {
@@ -3919,10 +3922,13 @@ async function sendRuntimeCmd() {
   const input = qs("#runtime-cmd-input");
   const rawCmd = input.value.trim();
   const reviewKey=input.dataset.suggestionKey;
-  if (!rawCmd) return;
+  const quote = _consoleChatMode && !rawCmd.startsWith("/") ? _formalChatQuotes?.get() : null;
+  if (!rawCmd && !quote?.hasComment) return;
   if(input.dataset.suggestionDemo==="true"){showErr("这是示例或归档内容，未发送到运行任务。请清空输入后使用正常 Chat。");return;}
+  const workspace = _subWorkspace;
+  if(quote?.previewOnly){showErr("请移除来自归档或历史批次的引用后再发送。");return;}
   try {
-    const cmd = _commandForConsoleMode(rawCmd);
+    const cmd = _commandForConsoleMode(quote ? [quote.text, rawCmd].filter(Boolean).join("\n\n") : rawCmd);
     if (!cmd) return;
     input.value = "";
     _runtimeFocusAfterBusy = true;
@@ -3934,20 +3940,21 @@ async function sendRuntimeCmd() {
     });
     try { accepted = await submit(false); }
     catch (error) {
-      if (error.code !== "confirmation_required" || !window.confirm("Run this command?\n" + cmd)) throw error;
+      if (error.code !== "confirmation_required" || workspace !== _subWorkspace || !window.confirm("Run this command?\n" + cmd)) throw error;
       accepted = await submit(true);
     }
     _submittedOperations.add(accepted.operation_id);
+    if(quote&&workspace===_subWorkspace)_formalChatQuotes?.accept(quote.references,rawCmd,accepted.operation_id);
     if(reviewKey&&input.dataset.suggestionKey===reviewKey){delete input.dataset.suggestionKey;delete input.dataset.suggestionDemo;qs("#runtime-chat-context").hidden=true;}
     // Record in local history (dedup consecutive)
-    if (!_cmdHistory.length || _cmdHistory[_cmdHistory.length - 1] !== rawCmd) _cmdHistory.push(rawCmd);
+    if (rawCmd && _cmdHistory.at(-1) !== rawCmd) _cmdHistory.push(rawCmd);
     _cmdHistoryIdx = -1;
     _setRuntimeBusy(true);
     _focusRuntimeCmdInputSoon(true);
   } catch(e) {
     showErr(e.message);
     _runtimeFocusAfterBusy = false;
-    if (!String(input.value || "").trim()) input.value = rawCmd;
+    if ((!quote||workspace===_subWorkspace)&&!String(input.value || "").trim()) input.value = rawCmd;
     _focusRuntimeCmdInputSoon(true);
   }
 }
@@ -4468,7 +4475,7 @@ setInterval(fetchServerInfo,5000);
 <script>
 window.UCAgentShell.init({actionsSelector:'#header-more-actions',metaUrl:'/api/ui-meta',fixedFooter:true});
 </script>
-<script src="/static/share/task-workbench.js?v=flowcanvas-plugin-12"></script>
+<script src="/static/share/task-workbench.js?v=flowcanvas-plugin-15"></script>
 <script src="/static/share/chat-composer.js"></script>
 <script src="/static/share/workbench-polish.js"></script>
 </body>
