@@ -22,7 +22,7 @@ import yaml
 
 from ucagent.util.file_policy import is_file_writeable, normalize_relative_path
 
-from .skills.lib.models import FormalRecords, author_section_contract, missing_author_fields, normalize_author_section
+from .skills.lib.models import FormalRecords, author_section_contract, has_sva_body, missing_author_fields, normalize_author_section
 
 
 SECTIONS = {"planning", "basic_info", "spec", "analysis", "bugs", "summary", "extra_config"}
@@ -38,7 +38,7 @@ BUG_FIELDS = {"root_cause_id", "ck_id", "fg_id", "fc_id", "rtl_file", "rtl_line"
 BUG_REQUIRED_FIELDS = BUG_FIELDS - {"impact_assessment"}
 SECTION_CONTRACTS = {
     "extra_config": {"format": "tcl:{timeout:positive integer,extra_commands:[string]}. tcl is replaced as a unit."},
-    "spec": {"format": "parameters mapping, whitebox_signals list, function_groups:[{id,name,description,functions:[{id,title,description,review_order,check_points:[{id,style,description,sva_body}]}]}]. Each new FC needs a one-line title (up to 60 characters), a detailed description, and a positive review_order unique within the FG (lowest first). Lists replace the complete named list. Use bodies for a CK-ID to SVA-body batch."},
+    "spec": {"format": "parameters mapping, whitebox_signals list, function_groups:[{id,name,description,functions:[{id,title,description,review_order,check_points:[{id,style,description,sva_body,baseline,parent_ck_id}]}]}]. Assume is always baseline. Mark a shared Assert/Cover with baseline:true. Child checks can link to an existing parent_ck_id. Each new FC needs a one-line title (up to 60 characters), a detailed description, and a positive review_order unique within the FG (lowest first). Lists replace the complete named list. Use bodies for a CK-ID to SVA-body batch."},
     "analysis": {"format": "Use the exact kind-specific required_fields, allowed_fields and allowed_values returned with each current property. FA and TT envelopes are disjoint; evidence references are tool-owned."},
     "bugs": {"format": "entries list of exact id/property patches; optional shared:{root_cause_id,root_cause,fix,severity,confidence} applies one explicit group. Shared fields cannot conflict with entries. Use prepare to coordinate current observations."},
 }
@@ -69,7 +69,7 @@ def checkpoint_rows(records: dict) -> list:
             for item in function.get("check_points", []):
                 body = item.get("sva_body")
                 rows.append({"fg_id": group["id"], "fc_id": function["id"], **item,
-                             "body_missing": not isinstance(body, str) or not body.strip() or "[LLM-TODO]" in body})
+                             "body_missing": not has_sva_body(body)})
     return rows
 
 
@@ -393,30 +393,50 @@ class FormalDataStore:
             result["next_action"] = "Inspect the current author section or prepare its review queue; no proof or author state was changed."
         return result
 
-    def prepare(self, section: str, offset: int = 0, limit: int = 5, *, group: str | None = None) -> dict:
+    def prepare(self, section: str, offset: int = 0, limit: int = 5, *, group: str | None = None,
+                function: str | None = None, baseline: bool = False) -> dict:
         """Return one bounded pending page with each item beside its verified facts."""
         if type(offset) is not int or offset < 0 or type(limit) is not int or not 1 <= limit <= 50:
             raise ValueError("prepare requires a nonnegative offset and limit 1..50")
         if section == "sva":
             path, content, records = self._records()
             checkpoints = checkpoint_rows(records)
-            missing = [row for row in checkpoints if row["body_missing"]]
-            if group is not None and group not in {item["id"] for item in (records.get("spec") or {}).get("function_groups", [])}:
+            groups = (records.get("spec") or {}).get("function_groups", [])
+            if group is not None and group not in {item["id"] for item in groups}:
                 raise ValueError("Use an exact FG ID from inspect spec.")
-            selected_group = group if group is not None else missing[0]["fg_id"] if missing else None
+            functions = [item for fg in groups if group in (None, fg["id"]) for item in
+                         sorted(fg["functions"], key=lambda fc: fc.get("review_order") or float("inf"))]
+            order = {item["id"]: index for index, item in enumerate(functions)}
+            if function is not None and function not in order:
+                raise ValueError("Use an exact FC ID from the selected verification plan.")
+            from .execution import batched_sva_enabled
+
+            batched = batched_sva_enabled(self.cfg)
+            missing = [row for row in checkpoints if row["body_missing"]]
+            pending = [row for row in missing if row["fc_id"] in order and
+                       (not (batched or baseline) or baseline == (row.get("baseline", False) or row["style"].lower() == "assume"))]
+            pending.sort(key=lambda row: order[row["fc_id"]])
+            selected_function = function or (pending[0]["fc_id"] if batched and not baseline and pending else None)
+            selected_group = group or next((row["fg_id"] for row in pending
+                                            if selected_function in (None, row["fc_id"])), None)
             rows = [{key: row[key] for key in ("id", "fc_id", "style", "description")}
-                    for row in missing if row["fg_id"] == selected_group]
+                    for row in pending if row["fg_id"] == selected_group and selected_function in (None, row["fc_id"])]
+            from .skills.lib.formal_tools import _ck_to_sv_names
+            for row in rows:
+                _, label, kind = _ck_to_sv_names(row["id"], row["style"])
+                if kind != "assume":
+                    row["property_name"] = f"u_checker.{label}"
             batch = page(rows, offset, limit)
             digest = hashlib.sha256(content).hexdigest()
             return {"status": "ok", "section": "sva", "records_artifact": str(path.relative_to(self.workspace)),
-                    "fg_id": selected_group, "check_points": batch,
+                    "fg_id": selected_group, "fc_id": selected_function, "check_points": batch,
                     "progress": {"implemented": len(checkpoints) - len(missing), "total": len(checkpoints)},
                     "ready_update": {"section": "spec", "expected_sha256": digest,
                                      "bodies": {row["id"]: "" for row in rows[offset:offset + limit]}} if batch["items"] else None,
                     "next_action": "Fill and submit just this batch, then run prepare sva again for the next pending CKs."
-                    if missing else "Review the generated inputs with Complete."}
-        if section not in {"analysis", "bugs"} or group is not None:
-            raise ValueError("prepare supports sva, analysis, and bugs. Use --group only with sva.")
+                    if batch["items"] else "This selection has no pending SVA bodies."}
+        if section not in {"analysis", "bugs"} or group is not None or function is not None or baseline:
+            raise ValueError("FG, FC and baseline filters are available only with prepare sva.")
         if self.cfg is None:
             raise ValueError("Current resolved Formal configuration is required for prepare")
         from .execution import FormalExecution
@@ -545,7 +565,9 @@ class FormalDataStore:
         output = normalize_relative_path(self.output_dir)
         target = self._path(f"{output}/.formal_records.yaml", write=True)
         lock_path = self._path(f"{output}/.formal_data.lock", write=True)
-        with lock_path.open("a+") as lock:
+        from .execution import input_lock
+
+        with lock_path.open("a+") as lock, input_lock(target.parent):
             fcntl.flock(lock, fcntl.LOCK_EX)
             path, content, records = self._records()
             actual = hashlib.sha256(content).hexdigest()
@@ -592,6 +614,9 @@ class FormalDataStore:
                 check_bodies({row["id"]: row.get("sva_body") for row in checkpoint_rows(candidate)
                               if previous.get(row["id"]) != row.get("sva_body")}, f"{output}/.formal_records.yaml")
             self._validate(candidate, section)
+            if section in INPUT_SECTIONS:
+                from .baseline import verify_baseline
+                verify_baseline(target.parent / "formal_runs", candidate)
             if section == "spec" and set(data or {}) & {"whitebox_signals", "parameters"}:
                 from .interface import inspect_interface
                 from .preflight import PreflightError
@@ -830,8 +855,8 @@ class FormalDataStore:
                         raise ValueError("FG/FC/CK IDs must be unique and use their canonical prefixes")
                     ids.add(identity)
                     for item in function.get("check_points", []):
-                        if not isinstance(item, dict) or set(item) - {"id", "style", "description", "sva_body"}:
-                            raise ValueError("Each CK must contain only id/style/description/sva_body")
+                        if not isinstance(item, dict) or set(item) - {"id", "style", "description", "sva_body", "baseline", "parent_ck_id"}:
+                            raise ValueError("Each CK must contain only id/style/description/sva_body/baseline/parent_ck_id")
                         identity = item.get("id")
                         if not isinstance(identity, str) or not identity.startswith("CK-") or identity in ids:
                             raise ValueError("FG/FC/CK IDs must be unique and use their canonical prefixes")

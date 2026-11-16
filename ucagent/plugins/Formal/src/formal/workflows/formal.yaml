@@ -14,6 +14,7 @@ skill:
 
 # Managed proof budgets (seconds), overridable through resolved configuration.
 runtime_options:
+  formal_batched_sva: true
   formal_execution:
     first_pass_budget_s: 300
     analysis_threshold_s: 1200
@@ -108,7 +109,7 @@ mission:
       | DeleteTextLines | 仅在大量文本修改时，先按`line_blocks`批量删除完整行；重新读取后再用`ReplaceStringInFile`精确编辑 |
       | ReplaceStringInFile | 局部替换已有文件；可用`line_blocks`限定搜索范围，默认全文 |
       | RunSkillScript | 技能可用时调用 ext/formal/data 的 formal_data.py，结构化批量维护任务数据 |
-      | RunFormal | run启动当前输入；status等待结果；evidence取得完整属性的真实证据；review处置未决项；cancel取消 |
+      | RunFormal | preflight编译与基础Cover；run启动当前输入；status等待结果；evidence取得完整属性的真实证据；review处置未决项；cancel取消 |
       | SetCurrentStageJournal | 阶段日志记录（推进前必调；mode=append 增量追加）|
       | Detail / Status | Mission 详情 / 摘要与阶段状态 |
 
@@ -229,42 +230,35 @@ stage:
     need_human_check: $(HUMAN_CHECK_CK: false)
 
     
-  # ========== Stage 4: SVA Property Implementation ==========
+  # ========== Stage 4: SVA Batch Planning ==========
   - name: property_generation
-    desc: "SVA 属性实现与自动同步"
+    desc: "SVA 批次与信号规划"
     task:
-      - "目标：将 `.formal_records.yaml.spec` 中的 `sva_body` 占位符替换为真实的 SVA 断言代码。"
-      - "技能可用时用 prepare sva 领取当前功能组的 CK，按 ready_update 分批提交。技能不可用时按功能组填写 YAML 中的 sva_body。"
-      - "参数由实际RTL预检展开：spec.parameters仅为显式整数覆盖，缺省沿用声明默认值；不要重复抄写默认值或通过basic_info说明字段修复生成绑定。技能可用时inspect spec查看effective_interface。"
-      - "本阶段只负责维护 YAML 子树 `spec.*.check_points[*].sva_body`。"
-      - "1. 白盒信号使用实际 DUT 内部信号名称。技能可用时用 inspect signals 查名称和位宽，可在同一次 spec 更新中提交 whitebox_signals 与 bodies。"
-      - "2. **禁止直接修改 .sv 文件**，系统会自动 full refresh 渲染生成验证环境。"
-      - "3. 参考 `Guide_Doc/sva_property.md` 了解编码规范。"
+      - "核对已有 FG/FC/CK 的规格依据和 review_order。每个 FC 以一个功能目标组织 CK，按 review_order 实现。"
+      - "在 spec 中标记少量共享基础检查点为 baseline: true。Assume 自动归入基础，说明接口义务和规格依据。至少准备一个能证明基本事务可达的基础 Cover，有复位时覆盖释放后的基本交互。"
+      - "在 .formal_records.yaml 记录需要的白盒绑定、有效参数和真实时钟复位。查询实际接口和位宽，阶段 5 会依据这些输入编译基础环境。"
     reference_files:
       - "{OUT}/.formal_records.yaml"
       - "Guide_Doc/sva_property.md"
     output_files:
       - "{OUT}/.formal_records.yaml"
     checker:
-      - name: property_structure_check
-        clss: "PropertyStructureChecker"
+      - name: formal_batch_plan_check
+        clss: "FormalBatchPlanChecker"
         args:
           dut_name: "{DUT}"
 
-
-  # ========== Stage 5: Verification Script Generation ==========
+  # ========== Stage 5: Baseline SVA and Preflight ==========
   - name: script_generation
-    desc: "验证脚本校验"
+    desc: "基础 SVA 与 FormalMC 预检"
     task:
-      - "目标：基于 `.formal_records.yaml.basic_info.clock_reset` 与 `.formal_records.yaml.extra_config.tcl` 自动渲染 `wrapper/checker/formal.tcl`。"
-      - "使用任务basic_info核对真实时钟复位；可选数据技能inspect/update或普通文件工具均可维护，运行预算沿用配置，不直接修改派生TCL。"
-      - "本阶段确认 `basic_info.clock_reset` 与 `extra_config.tcl`。用 reset_active_level、reset_assertion、reset_release 分别记录复位极性、断言和释放方式。生成的 formal.tcl、wrapper.sv、checker.sv 不直接编辑。"
-      - "检查生成脚本后，显式调用 RunFormal(action=run) 启动当前输入证明，RunFormal(action=status) 查看运行状态和 5/20 分钟快照。"
-      - "对 20 分钟未解决属性逐一分析并使用 RunFormal(action=review, property_names=[...], disposition=retry 或 defer, reason=..., next_action=...) 记录处置。暂缓不等于证明通过。"
-      - "只有当前输入的所有未决项已有处置时，调用 Complete；Checker 不会隐式运行 TCL。"
+      - "只实现基础 CK。可用 prepare sva --baseline 领取基础 CK，或用普通文件工具填写对应 sva_body。Assume 全部属于基础。"
+      - "确认真实时钟、复位、参数、白盒绑定和 TCL 配置。生成的 Tcl、Wrapper 和 Checker 由插件维护。"
+      - "调用 RunFormal(action=preflight)。FormalMC 使用当前输入编译并列举属性，只求解已标记的基础 Cover。用返回的 run_id 查询 status，依据 diagnostics 修复属性或配置。"
+      - "基础 Cover 达到预期可达性后调用 Complete，系统冻结基础 CK 和共用配置。后续修改基础约定时，回到本阶段修订 YAML、重新预检并接受新基线。"
     reference_files:
       - "{OUT}/.formal_records.yaml"
-      - "{OUT}/tests/{DUT}_checker.sv"
+      - "Guide_Doc/formal_execution.md"
     output_files:
       - "{OUT}/.formal_records.yaml"
     checker:
@@ -273,50 +267,41 @@ stage:
         args:
           dut_name: "{DUT}"
 
-  # ========== Stage 6: Verification Environment Debugging and Iterative Fixing ==========
+  # ========== Stage 6: Function Point Implementation ==========
   - name: environment_debugging_iteration
-    desc: "验证环境调试与迭代修复{MAX_ITERATION: 5}"
+    desc: "按功能点实现 SVA 与定向验证"
     task:
-      - "目标：依据当前工具原因和真实证据分析恒真、静态失败及反例，修复实际属性/环境问题，保留真实RTL缺陷。"
-      - "当前运行结束后，技能可用时通过数据技能 prepare analysis取得异常队列、真实证据和ready_update；无技能时调用Check协调条目，再用普通文件工具填写人工分析。"
-      - "本阶段分析当前输入的完整机器证明结果与 FALSE/TRIVIALLY_TRUE，任何暂缓项仍为 UNPROVEN，不能分类成 RTL Bug 或通过。"
-      - "环境纠偏：参数/位宽错误更新 YAML，不直接改派生 SV。仅修正属性体时用 RunFormal(action=run, scope=selected, property_names=[精确完整名称])复验，后续调用使用返回的 run_id。合并修复后对新输入运行完整批次。假设、RTL、参数或共享环境变化需重新验证受影响范围。"
-      - "对照规格审阅删除或改写的目标及新增、改写的 Assume，在阶段日志说明依据。按精确 CK 对比批次结果。"
-      - "prepare analysis默认小批返回items（逐项缺项与证据）和ready_update。省略事实用该项full_evidence_call；时序疑问用trace_discovery_call发现完整信号再按窗口查询，不写脚本解析同一工具回复。按next_offset读不变队列，更新后从offset 0继续。"
-      - "先检查规格判据与属性，再判断DUT；有限场景不推广为全输入规律，浮点异常等未明确策略不能由参考表达式算对替代规范依据。无时钟不代表无状态，锁存器与未初始化状态需依据实际证据审阅。"
-      - "首次RTL_BUG分析一次填写expected_requirement和可选reference_calculations，绑定prepare返回的当前真实信号；结果随update返回，无技能时Check计算。后续Bug和总结直接复用，同一证据与表达式不重复读取或另起脚本计算；只有发现矛盾或输入变化才重审。"
-      - "数据技能会绑定当前证据；无技能时用RunFormal evidence取得本条真实引用并原样填写。两条路径都保留精确id/prop_name，不重编号、不写机器字段，核对真实witness与独立参考计算。"
-
+      - "按 FC 领取待实现属性。技能可用时使用 prepare sva，指定 FC 用 --function。无技能时按记录中的 review_order 选择一个 FC，仅填写该批 SVA。"
+      - "提交一批后对其已实现的 Assert/Cover 定向运行。使用精确工具属性名 u_checker.<label>，记录 run_id。未选和待实现目标保持各自状态。"
+      - "每条属性先运行 5 分钟，慢队列补到累计 20 分钟。REVIEW 就绪时查看属性、报告和日志。结合规格选择局部修订、带依据的延长求解或暂缓，然后推进后续 FC。暂缓仍为 UNPROVEN。"
+      - "反例先核对规格、属性和证据。工作流保持基础 CK、共享 Assume、时钟复位和依赖绑定冻结。拆分时在补充 CK 填 parent_ck_id，保留原目标和原目标的未决状态。"
+      - "本阶段检查所有 CK 已实现，以及当前各功能属性均有可追溯的定向尝试。完整回归和正式反例归因在下一阶段。完整批次的证据由可选 prepare analysis 或普通工具维护。"
     reference_files:
       - "{OUT}/.formal_records.yaml"
-      - "{OUT}/tests/{LOG_FILE}"
-      - "{OUT}/tests/{DUT}_checker.sv"
-      - "{OUT}/tests/{DUT}_wrapper.sv"
-      - "Guide_Doc/env_analysis.md"
+      - "Guide_Doc/sva_property.md"
+      - "Guide_Doc/formal_execution.md"
     output_files:
-      - "{OUT}/tests/{DUT}_checker.sv"
-      - "{OUT}/tests/{DUT}_wrapper.sv"
+      - "{OUT}/.formal_records.yaml"
     checker:
-      - name: environment_analysis_check
-        clss: "EnvironmentAnalysisChecker"
+      - name: formal_function_batch_check
+        clss: "FunctionBatchChecker"
         args:
           dut_name: "{DUT}"
-          accepted_ratio_threshold: 100.0
 
-  # ========== Stage 7: Coverage Analysis and Assertion Optimization ==========
+  # ========== Stage 7: Coverage Analysis and Closure ==========
   - name: coverage_analysis_and_optimization
-    desc: "覆盖率分析与断言优化"
+    desc: "完整验证与覆盖率收敛"
     task:
-      - "目标：依据真实结构覆盖缺口补充有独立规格意义的验证目标；COI不代表功能正确或规格完备，不用恒等式刷覆盖。"
-      - "报告缺少具体未覆盖对象时，先核对诊断中的artifact/next_action并补足定位；不能猜测信号、降低阈值或删除困难目标绕过门禁。白盒目标只引用已正确绑定的Checker端口，不从Checker直接跨实例引用u_dut。"
-      - "按当前覆盖缺口决定是否新增独立目标；通过可选数据技能或普通文件工具维护spec，已达标且无缺口时不重复重跑。"
-      - "新增或修改属性体后先用RunFormal(action=run, scope=selected, property_names=[精确名称])诊断复验，随后对当前输入执行完整回归，status等待结果、review处置未决项；定向批次不能替代完整覆盖验收。目标齐备后记录日志并Complete，只有需定位实际缺口时调用Check。"
+      - "先对当前版本运行一轮完整 Formal。继续处置实验中的 UNPROVEN；汇总仍未决项并记录恢复条件。定向证据用于修订，最终验收读取完整批次。"
+      - "技能可用时用 prepare analysis 领取当前反例、恒真和不可达 Cover，一次性核对规格、前提和真实证据。无技能时用 RunFormal evidence 和普通文件工具维护 analysis。首次 RTL_BUG 分析记录 expected_requirement 和当前证据绑定，供 Bug 报告和总结复用。"
+      - "根据当前完整批次的结构覆盖缺口与规格补充独立目标。仅修订相关 CK 时先定向复验，确认后合入完整批次。规格未要求的场景记录处置依据；COI 与功能证明状态分别核对。"
+      - "依据最新完整批次的 fanin 和证明证据完成覆盖验收与分析。输入版本一致时复用完整批次，暂缓项继续标为 UNPROVEN。"
     reference_files:
-      - "{OUT}/tests/{FANIN_REP}"
-      - "{OUT}/tests/{DUT}_checker.sv"
       - "{OUT}/.formal_records.yaml"
+      - "Guide_Doc/env_analysis.md"
     output_files:
-      - "{OUT}/tests/{DUT}_checker.sv"
+      - "{OUT}/.formal_records.yaml"
+      - "{OUT}/07_{DUT}_env_analysis.md"
     checker:
       - name: property_structure_check
         clss: "PropertyStructureChecker"
@@ -327,7 +312,11 @@ stage:
         args:
           dut_name: "{DUT}"
           coi_threshold: 90.0
-
+      - name: environment_analysis_check
+        clss: "EnvironmentAnalysisChecker"
+        args:
+          dut_name: "{DUT}"
+          accepted_ratio_threshold: 100.0
 
   # ========== Stage 8: Counterexample Python Test Generation ==========
   - name: counterexample_python_testgen

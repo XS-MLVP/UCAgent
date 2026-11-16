@@ -87,8 +87,8 @@ class RunFormalArgs(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    action: Literal["run", "status", "cancel", "review", "evidence", "inventory"] = Field(
-        description="Run or inspect the current proof batch, cancel it, or review unresolved properties."
+    action: Literal["run", "preflight", "status", "cancel", "review", "evidence", "inventory"] = Field(
+        description="Compile with preflight, start a proof run, or inspect and review an existing batch."
     )
     wait_s: int = Field(default=300, ge=0, le=1200,
                         description="For status, wait for a new result checkpoint or completion, up to this many seconds; use 0 for an immediate query.")
@@ -96,7 +96,7 @@ class RunFormalArgs(BaseModel):
         default_factory=list,
         description="Exact Assert/Cover names for a selected run, or exact property names for review or evidence.",
     )
-    scope: Literal["full", "selected"] | None = Field(
+    scope: Literal["full", "selected", "preflight"] | None = Field(
         default=None, description="For run, use selected for a diagnostic batch. Other actions infer scope from an exact run_id when omitted.")
     run_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$",
                                 description="Exact batch for status, inventory, review, cancel or evidence.")
@@ -106,6 +106,7 @@ class RunFormalArgs(BaseModel):
         description="Review decision: defer with an explicit validation gap or retry after correction.",
     )
     reason: str = Field(default="", description="Concrete evidence-based reason for a review decision.")
+    retry_budget_s: int | None = Field(default=None, gt=0, description="Optional uninterrupted retry budget within the property's remaining cumulative budget.")
     next_action: str = Field(default="", description="Next corrective step or condition for reactivation.")
 
 
@@ -115,6 +116,7 @@ class RunFormal(UCTool):
     name: str = "RunFormal"
     description: str = (
         "Manage FormalMC verification of the current DUT's assertion batch. "
+        "Use action=preflight to compile the current environment and check baseline reachability. "
         "Use action=run to submit the current-input batch once, status to wait for new "
         "proof results (wait_s=300 by default, 0 for immediate status), cancel to stop it, and review with exact "
         "property_names, disposition (defer/retry), reason and next_action for "
@@ -161,6 +163,7 @@ class RunFormal(UCTool):
         scope: str | None = None,
         run_id: str | None = None,
         trace_query: TraceQuery | dict | None = None,
+        retry_budget_s: int | None = None,
     ) -> dict:
         """Dispatch one bounded request to the shared managed proof executor."""
         execution = FormalExecution(
@@ -171,11 +174,15 @@ class RunFormal(UCTool):
             write_dirs=self.write_dirs,
             un_write_dirs=self.un_write_dirs,
         )
-        batch = {"run_id": run_id, "scope": scope} if run_id or scope == "selected" else {}
+        batch = {"run_id": run_id, "scope": scope} if run_id or scope in {"selected", "preflight"} else {}
         if trace_query is not None and action != "evidence":
             raise ValueError("trace_query is available only with evidence.")
-        if action == "run":
-            if run_id is not None or (scope == "selected") != bool(property_names):
+        if retry_budget_s is not None and (action != "review" or disposition != "retry"):
+            raise ValueError("retry_budget_s is available only for a review retry.")
+        if action in {"run", "preflight"}:
+            if action == "preflight" and (run_id or property_names or scope not in (None, "preflight")):
+                raise ValueError("Preflight compiles the current inputs and derives baseline targets.")
+            if action == "run" and (run_id is not None or scope == "preflight" or (scope == "selected") != bool(property_names)):
                 raise ValueError("Submit a full run without property names or a selected run with exact property names.")
             try:
                 preflight = render_environment(
@@ -184,7 +191,10 @@ class RunFormal(UCTool):
                 )
             except PreflightError as error:
                 return error.diagnostic
-            result = execution.run(property_names) if scope == "selected" else execution.run()
+            if action == "preflight":
+                result = execution.run(preflight=True)
+            else:
+                result = execution.run(property_names) if scope == "selected" else execution.run()
             if preflight and preflight["warning_total"]:
                 result["preflight"] = preflight
             return result
@@ -206,6 +216,7 @@ class RunFormal(UCTool):
                 return exc.diagnostic
         return execution.review(
             property_names=property_names or [],
+            **({"retry_budget_s": retry_budget_s} if retry_budget_s is not None else {}),
             action=disposition,
             reason=reason,
             next_action=next_action,

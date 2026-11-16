@@ -995,6 +995,50 @@ def proof_inputs(records: dict | FormalRecords) -> dict:
 # YAML → SV Merging
 # =============================================================================
 
+# Temporal operators that must NOT appear in Comb-style properties
+_COMB_TEMPORAL_OPS = (
+    '@(posedge', '@(negedge', '##', '$past', '$rose', '$fell',
+    '$changed', '$stable',  # $stable is temporal in Comb context
+    '|=>', 's_eventually',
+)
+
+def sva_body_issue(ck) -> str | None:
+    """Reject pending and constant-true properties and temporal Comb bodies."""
+    body = re.sub(r"/\*.*?\*/|//[^\n]*", "", ck.sva_body or "", flags=re.DOTALL).strip()
+    expression = body.rstrip(";").strip()
+    while expression.startswith("(") and expression.endswith(")"):
+        depth = 0
+        outer = True
+        for index, char in enumerate(expression):
+            depth += (char == "(") - (char == ")")
+            if depth == 0 and index < len(expression) - 1:
+                outer = False
+                break
+        if not outer:
+            break
+        expression = expression[1:-1].strip()
+    literal = re.fullmatch(r"(?:(\d+)?'[sS]?([bBdDhH])([0-9a-fA-F_]+)|(\d+))", expression)
+    constant_true = expression.lower() in {"true", "'1"}
+    if literal:
+        base = {"b": 2, "d": 10, "h": 16}.get((literal.group(2) or "d").lower())
+        try:
+            value = int((literal.group(3) or literal.group(4)).replace("_", ""), base)
+            if literal.group(1):
+                value &= (1 << int(literal.group(1))) - 1
+            constant_true = value != 0
+        except ValueError:
+            constant_true = False
+    no_op = re.search(r"\|(?:->|=>)\s*\(*\s*(?:1|true|1'[bBdDhH]1)\s*\)*$", expression, re.IGNORECASE)
+    if not expression or re.search(r"\[LLM-TODO\]|\bTODO\b", expression) or constant_true or no_op:
+        return f"Missing or constant-true placeholder SVA body for '{ck.id}'"
+    if ck.style.lower() == "comb":
+        temporal = any(token in body for token in _COMB_TEMPORAL_OPS)
+        if temporal or re.search(r"@|\[\s*(?:\*|=|->)", body):
+            return (f"Comb property '{ck.id}' uses a clock, sampled history, or delayed sequence. "
+                    "Use a current-state boolean expression or same-cycle boolean implication.")
+    return None
+
+
 def _ck_to_sv_names(ck_id: str, style: str) -> tuple:
     pn = ck_id.replace("-", "_")
     p = STYLE_PREFIX_MAP.get(style.lower(), "A_CK_")
@@ -1015,12 +1059,15 @@ def update_records_sva_body(records: FormalRecords, im: dict) -> bool:
     return c
 
 def incremental_merge_checker(records: FormalRecords, sv_path: str, port_info: Optional[List[Tuple[str, str]]] = None, mode: str = "full") -> str:
-    # 1. Prepare common data
+    from .models import has_sva_body
+
     check_points_data = []
     if records.spec:
         for fg in records.spec.function_groups:
             for fc in fg.functions:
                 for ck in fc.check_points:
+                    if not has_sva_body(ck.sva_body):
+                        continue
                     pn, l, k = _ck_to_sv_names(ck.id, ck.style)
                     check_points_data.append({
                         "id": ck.id,
@@ -1029,7 +1076,7 @@ def incremental_merge_checker(records: FormalRecords, sv_path: str, port_info: O
                         "kind": k,
                         "style": ck.style,
                         "description": ck.description,
-                        "sva_body": ck.sva_body if ck.sva_body else "    1'b1; // [LLM-TODO] Fill SVA body",
+                        "sva_body": ck.sva_body,
                     })
 
     cr_ctx = build_clock_reset_alias_context(records)

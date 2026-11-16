@@ -35,15 +35,14 @@ class Config:
 
     def get_value(self, name, default=None):
         """Return only the canonical Formal execution configuration."""
-        assert name == "runtime_options.formal_execution"
-        return self.values
+        return self.values if name == "runtime_options.formal_execution" else default
 
 
-def wait_for(execution, predicate, timeout=15):
+def wait_for(execution, predicate, timeout=15, **batch):
     """Wait within a bounded test deadline while the independent controller runs."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        status = execution.status()
+        status = execution.status(**batch)
         if predicate(status):
             return status
         time.sleep(0.05)
@@ -84,6 +83,13 @@ def rows(kind=None, target=None, status='NotRun(-1)'):
 
 match = re.search(r'^prove\s+"([^"\n]+)"', script, re.M)
 if not match:
+    if os.environ.get('FAKE_FORMAL_COMPILE_ERROR'):
+        original = Path(re.search(r'source "([^"]+)"', script).group(1))
+        checker = original.with_name('DUT_checker.sv')
+        lines = checker.read_text().splitlines()
+        index = next(i for i, line in enumerate(lines, 1) if re.search(r'property\s+.*CK_READY\b', line))
+        print(f'Error: {checker}({index + 1}): invalid property expression', flush=True)
+        sys.exit(2)
     print('UCAGENT_ASSERT_BEGIN', flush=True)
     rows('assert')
     print('UCAGENT_ASSERT_END', flush=True)
@@ -134,7 +140,7 @@ print('UCAGENT_RESULT_END', flush=True)
         (tests / "DUT_formal.tcl").write_text(
             "# setup\n# UCAGENT_PROOF_BEGIN\nprove\nshow_prop -summary\nexit\n"
         )
-        props = [{"name": name, "kind": "cover" if name.startswith("reach") else "assert"} for name in names]
+        props = [{"name": name, "kind": "cover" if name.startswith(("reach", "u_checker.C_CK_")) else "assert"} for name in names]
         monkeypatch.setenv("FAKE_FORMAL_PROPERTIES", json.dumps(props))
         policy = dict(first_pass_budget_s=1, analysis_threshold_s=2,
                       max_active_workers=1, slow_queue_max_workers=1,
@@ -226,7 +232,7 @@ def test_unknown_status_isolated_without_changing_goals(execution_factory):
     assert state["properties"]["first.UNSUPPORTED"]["attempts"][0]["ended_at"]
     assert execution.check()[0] is False
     assert "Preserve the original properties" in done["next_action"]
-    with pytest.raises(ValueError, match="budget-exhausted"):
+    with pytest.raises(ValueError, match="in REVIEW"):
         execution.review(["first.UNSUPPORTED"], "defer", "Parser does not support output", "Fix tool adapter")
 
 
@@ -324,7 +330,7 @@ def test_crash_preserves_partial_results_and_cannot_be_deferred(execution_factor
     assert state["properties"]["A_FAST"]["result"] == "PROVEN"
     assert state["properties"]["A_CRASH"]["state"] == "ERROR"
     assert execution.check()[0] is False
-    with pytest.raises(ValueError, match="budget-exhausted"):
+    with pytest.raises(ValueError, match="in REVIEW"):
         execution.review(["A_CRASH"], "defer", "Tool crashed", "Ask operator to repair runtime")
 
 
@@ -463,11 +469,14 @@ def test_retry_keeps_attempts_and_cumulative_budget(execution_factory):
     execution.run()
     previous = wait_for(execution, lambda item: item["status"] not in ACTIVE_RUNS)
     before = state_for(workspace, previous)["properties"]["A_SLOW"]["execution_elapsed_s"]
-    execution.review(["A_SLOW"], "retry", "Check a second bounded attempt", "Review remaining depth")
+    with pytest.raises(ValueError, match="exceeds the remaining"):
+        execution.review(["A_SLOW"], "retry", "Try longer", "Review remaining depth", retry_budget_s=9)
+    execution.review(["A_SLOW"], "retry", "Check a longer bounded attempt", "Review remaining depth", retry_budget_s=3)
     done = wait_for(execution, lambda item: item["status"] not in ACTIVE_RUNS)
     item = state_for(workspace, done)["properties"]["A_SLOW"]
     assert len(item["attempts"]) == 3
     assert item["review_round"] == 2
+    assert item["attempts"][-1]["budget_s"] == 3
     assert item["execution_elapsed_s"] > before
     with pytest.raises(ValueError, match="Retry budget exhausted"):
         execution.review(["A_SLOW"], "retry", "Again", "Inspect")
@@ -649,3 +658,94 @@ def test_repair_then_selected_proof_and_full_regression(execution_factory):
     assert execution.check()[0] is True
     saved = yaml.safe_load(records.read_text())
     assert saved["run_results"]["run_id"] != selected["run_id"]
+
+
+def test_frozen_preflight_and_function_batches_are_separate_from_full_acceptance(execution_factory, monkeypatch):
+    """Exercise phase 5–7 receipts across two incremental FC revisions."""
+    import yaml
+    from formal.baseline import function_batch_progress
+    from formal.data import FormalDataStore
+    from formal.skills.lib.models import FormalRecords
+    from formal.tools import RunFormal, render_environment
+    from ucagent.util.config import Config as RuntimeConfig
+
+    cover = "u_checker.C_CK_READY"
+    first = "u_checker.A_CK_FIRST"
+    second = "u_checker.A_CK_SECOND"
+    execution, workspace = execution_factory((cover,))
+    runtime_cfg = RuntimeConfig({"runtime_options": {"formal_batched_sva": True,
+                                                        "formal_execution": vars(execution.policy)}})
+    execution.batched_sva = True
+    (workspace / "DUT" / "dut.sv").write_text(
+        "module DUT(input logic clk, input logic a, input logic b, output logic y); assign y = a & b; endmodule\n")
+    out = workspace / "output"
+    path = out / ".formal_records.yaml"
+    shared = {"id": "CK-READY", "style": "Cover", "description": "Check one attainable transaction",
+              "sva_body": "@(posedge clk) a;", "baseline": True}
+    ck_first = {"id": "CK-FIRST", "style": "Comb", "description": "No output when input is clear"}
+    ck_second = {"id": "CK-SECOND", "style": "Comb", "description": "Both inputs assert output"}
+    records = {"dut": "DUT", "basic_info": {"clock_reset": {"clock_signal": "clk"}}, "spec": {"function_groups": [
+        {"id": "FG-FUNCTION", "functions": [
+            {"id": "FC-SECOND", "review_order": 2, "check_points": [ck_second]},
+            {"id": "FC-BASE", "review_order": 3, "check_points": [shared]},
+            {"id": "FC-FIRST", "review_order": 1, "check_points": [ck_first]},
+        ]}
+    ]}}
+    path.write_text(yaml.safe_dump(records))
+    tool = RunFormal(str(workspace), "output", "DUT", runtime_cfg)
+    store = FormalDataStore(str(workspace), "output", "DUT", cfg=runtime_cfg)
+    monkeypatch.setenv("FAKE_FORMAL_COMPILE_ERROR", "1")
+    bad = tool.invoke({"action": "preflight"})
+    failed = wait_for(execution, lambda item: item["status"] not in ACTIVE_RUNS,
+                      scope="preflight", run_id=bad["run_id"])
+    assert failed["error_code"] == "formal_tool_compile_error", failed
+    assert failed["diagnostics"][0]["ck_id"] == "CK-READY"
+    assert failed["diagnostics"][0]["path"] == "output/tests/DUT_checker.sv"
+    monkeypatch.delenv("FAKE_FORMAL_COMPILE_ERROR")
+    preflight = tool.invoke({"action": "preflight"})
+    smoke = wait_for(execution, lambda item: item["status"] not in ACTIVE_RUNS,
+                     scope="preflight", run_id=preflight["run_id"])
+    assert smoke["status"] == "COMPLETED", smoke
+    assert smoke["counts"] == {"COVER_REACHED": 1}
+    assert "CK_FIRST" not in (out / "tests" / "DUT_checker.sv").read_text()
+    assert execution.status()["status"] == "NOT_STARTED"
+    assert execution.freeze_baseline(accept=False)["preflight_complete"]
+    assert not (out / "formal_runs" / "baseline.json").exists()
+    assert execution.freeze_baseline()["preflight_complete"]
+    assert store.prepare("sva")["fc_id"] == "FC-FIRST"
+    assert store.prepare("sva", function="FC-SECOND")["check_points"]["items"][0]["property_name"] == second
+    with pytest.raises(ValueError, match="Frozen Formal baseline changed"):
+        store.update("spec", None, {"CK-READY": "@(posedge clk) b;"}, store.inspect("spec")["sha256"])
+
+    def run_selected(name, known):
+        """Generate a real checker and record exactly the diagnostic target."""
+        monkeypatch.setenv("FAKE_FORMAL_PROPERTIES", json.dumps(
+            [{"name": cover, "kind": "cover"}, *({"name": n, "kind": "assert"} for n in known)]))
+        result = tool.invoke({"action": "run", "scope": "selected", "property_names": [name]})
+        done = wait_for(execution, lambda item: item["status"] not in ACTIVE_RUNS,
+                        scope="selected", run_id=result["run_id"])
+        assert done["status"] == "COMPLETED", done
+        assert done["counts"]["PROVEN"] == 1
+        assert not done["proof_complete"]
+
+    ck_first["sva_body"] = "!a |-> !y;"
+    path.write_text(yaml.safe_dump(records))
+    run_selected(first, [first])
+    assert function_batch_progress(execution, FormalRecords.model_validate(records))["pending"] == ["CK-SECOND"]
+    with pytest.raises(ValueError, match="Complete all SVA"):
+        tool.invoke({"action": "run"})
+    ck_second["sva_body"] = "(a && b) |-> y;"
+    path.write_text(yaml.safe_dump(records))
+    run_selected(second, [first, second])
+    current = FormalRecords.model_validate(records)
+    assert function_batch_progress(execution, current)["pending"] == []
+    assert execution.status()["status"] == "NOT_STARTED"
+    ck_first["sva_body"] = "!b |-> !y;"
+    path.write_text(yaml.safe_dump(records))
+    render_environment(str(workspace), "output", "DUT")
+    assert function_batch_progress(execution, FormalRecords.model_validate(records))["pending"] == ["CK-FIRST"]
+
+    shared["sva_body"] = "@(posedge clk) b;"
+    path.write_text(yaml.safe_dump(records))
+    with pytest.raises(ValueError, match="Frozen Formal baseline changed"):
+        tool.invoke({"action": "run", "scope": "selected", "property_names": [first]})

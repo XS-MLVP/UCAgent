@@ -45,11 +45,12 @@ from ucagent.util.log import info, warning
 
 
 # Shared utilities – single source of truth
-from formal.execution import FormalExecution
+from formal.execution import FormalExecution, batched_sva_enabled
 from formal.skills.lib.formal_paths import FormalPaths
 from formal.skills.lib.models import normalize_summary, normalize_author_section, missing_author_fields
 from formal.skills.lib.formal_tools import (
     parse_avis_log,
+    sva_body_issue,
     typed_run_results,
     validate_analysis_evidence,
     require_completed_analysis,
@@ -335,13 +336,6 @@ class FormalSpecJsonChecker(BaseFormalChecker):
 class PropertyStructureChecker(BaseFormalChecker):
     """Validates the consistency of SVA property structure with the specification document."""
 
-    # Temporal operators that must NOT appear in Comb-style properties
-    _TEMPORAL_OPS = (
-        '@(posedge', '@(negedge', '##', '$past', '$rose', '$fell',
-        '$changed', '$stable',  # $stable is temporal in Comb context
-        '|=>', 's_eventually',
-    )
-
     def do_check(self, timeout=0, **kwargs) -> tuple[bool, object]:
         """Validates that SVA properties are defined in YAML and then renders SV files."""
         records_path = self.paths.records_yaml
@@ -360,40 +354,9 @@ class PropertyStructureChecker(BaseFormalChecker):
             for fc_item in fg.functions:
                 for ck in fc_item.check_points:
                     ck_count += 1
-                    body = re.sub(r"/\*.*?\*/|//[^\n]*", "", ck.sva_body or "", flags=re.DOTALL).strip()
-                    expression = body.rstrip(";").strip()
-                    while expression.startswith("(") and expression.endswith(")"):
-                        depth = 0
-                        outer = True
-                        for index, char in enumerate(expression):
-                            depth += (char == "(") - (char == ")")
-                            if depth == 0 and index < len(expression) - 1:
-                                outer = False
-                                break
-                        if not outer:
-                            break
-                        expression = expression[1:-1].strip()
-                    literal = re.fullmatch(r"(?:(\d+)?'[sS]?([bBdDhH])([0-9a-fA-F_]+)|(\d+))", expression)
-                    constant_true = expression.lower() in {"true", "'1"}
-                    if literal:
-                        base = {"b": 2, "d": 10, "h": 16}.get((literal.group(2) or "d").lower())
-                        try:
-                            value = int((literal.group(3) or literal.group(4)).replace("_", ""), base)
-                            if literal.group(1):
-                                value &= (1 << int(literal.group(1))) - 1
-                            constant_true = value != 0
-                        except ValueError:
-                            constant_true = False
-                    no_op = re.search(r"\|(?:->|=>)\s*\(*\s*(?:1|true|1'[bBdDhH]1)\s*\)*$", expression, re.IGNORECASE)
-                    if not expression or re.search(r"\[LLM-TODO\]|\bTODO\b", expression) or constant_true or no_op:
-                        errors.append(f"Missing or constant-true placeholder SVA body for '{ck.id}'")
+                    if issue := sva_body_issue(ck):
+                        errors.append(issue)
                         continue
-                    if ck.style.lower() == "comb":
-                        # Same-cycle boolean |-> is accepted; delayed sequences are not.
-                        temporal = any(token in body for token in self._TEMPORAL_OPS)
-                        if temporal or re.search(r"@|\[\s*(?:\*|=|->)", body):
-                            errors.append(f"Comb property '{ck.id}' uses a clock, sampled history, or delayed sequence; use a current-state boolean expression or same-cycle boolean implication.")
-                            continue
                     implemented_count += 1
 
 
@@ -433,6 +396,40 @@ class PropertyStructureChecker(BaseFormalChecker):
 # =============================================================================
 # Script Generation Checker  (Stage 6)
 # =============================================================================
+
+class FormalBatchPlanChecker(BaseFormalChecker):
+    """Confirm the plan includes a reachability witness before any SVA is required."""
+
+    def do_check(self, timeout=0, **kwargs):
+        """Require at least one deliberately selected baseline Cover."""
+        records = load_records(self.paths.records_yaml)
+        if not records or not records.spec or not any(
+            ck.is_baseline and ck.style.lower() == "cover"
+            for fg in records.spec.function_groups for fc in fg.functions for ck in fc.check_points
+        ):
+            return self._fail("Mark a specification-backed Cover as baseline before entering the preflight stage.")
+        return self._pass("Formal plan includes a baseline reachability check.")
+
+
+class FunctionBatchChecker(PropertyStructureChecker):
+    """Require implemented CKs and matching diagnostic coverage before the full regression."""
+
+    def do_check(self, timeout=0, **kwargs):
+        """Validate one current specification and preserve exact FC attempt identities."""
+        completed, progress = super().do_check(timeout=timeout, **kwargs)
+        if not completed:
+            return completed, progress
+        from formal.baseline import function_batch_progress
+
+        try:
+            progress = function_batch_progress(self._execution(), load_records(self.paths.records_yaml))
+        except (ValueError, OSError) as exc:
+            return self._fail(str(exc))
+        if progress["pending"] or progress["active"]:
+            return False, {"error_code": "formal_fc_batches_pending", **progress,
+                           "next_action": "Use exact CK targets for a selected run and review UNPROVEN items before Complete."}
+        return True, progress
+
 
 class ScriptGenerationChecker(BaseFormalChecker):
     """Integrated checker for the script_generation stage."""
@@ -488,8 +485,16 @@ class ScriptGenerationChecker(BaseFormalChecker):
             )
         info("✅ Step 1/2 Passed: TCL script keywords OK")
 
+        execution = self._execution()
+        if batched_sva_enabled(self.cfg):
+            try:
+                result = execution.freeze_baseline(accept=bool(kwargs.get("is_complete", False)))
+            except (ValueError, OSError) as exc:
+                return self._fail(str(exc), suggestion="Run FormalMC preflight and resolve its baseline diagnostics.")
+            return result["preflight_complete"], result
+
         # An explicit RunFormal run owns proof execution and its auditable results.
-        passed, evidence = self._execution().check()
+        passed, evidence = execution.check()
         if not passed:
             return False, {
                 "error": "Formal script is valid, but current-input proof evidence is incomplete",

@@ -13,7 +13,7 @@ from ucagent.util.file_policy import normalize_relative_path
 
 from .execution import ACTIVE_RUNS, FINAL_RESULTS, FormalExecution, property_evidence, query_run_trace, read_run
 from .skills.lib.formal_tools import _ck_to_sv_names, extract_static_bugs, summary_bug_rows
-from .skills.lib.models import FormalRecords, semantic_inputs
+from .skills.lib.models import FormalRecords, has_sva_body, semantic_inputs
 
 
 def _artifact(workspace: Path, relative: str) -> Path:
@@ -98,7 +98,8 @@ class FormalDashboard:
                 state = json.loads(path.read_text())
             except (ValueError, OSError):
                 continue
-            if not isinstance(state, dict) or state.get("run_id") != path.parent.name:
+            if (not isinstance(state, dict) or state.get("run_id") != path.parent.name
+                    or state.get("scope") == "preflight"):
                 continue
             rows.append({key: state.get(key) for key in ("run_id", "status", "fingerprint", "created_at")}
                         | {"scope": state.get("scope", "full")})
@@ -216,6 +217,12 @@ class FormalDashboard:
                      if (match := re.match(r"\s*property\s+(\w+)\s*;", line))}
         nodes = []
         review_queue = {item["property"]: item["actions"] for item in (result or {}).get("review_queue", [])}
+        children_by_ck = {}
+        for group in groups:
+            for function in group.get("functions", []):
+                for check in function.get("check_points", []):
+                    if parent := check.get("parent_ck_id"):
+                        children_by_ck.setdefault(parent, []).append(check["id"])
         for group in groups:
             functions = []
             for function in group.get("functions", []):
@@ -246,7 +253,11 @@ class FormalDashboard:
                         "description": ck.get("description") or "", "children": [],
                         "property": {"name": name, "kind": kind, "sva": ck.get("sva_body"), "source": checker if definition in lines else None,
                                      "line": lines.get(definition), "result": item.get("result"),
-                                     "state": item.get("state") or ("AMBIGUOUS" if candidates else "NOT_STARTED"),
+                                     "baseline": bool(ck.get("baseline") or kind == "assume"),
+                                     "parent_ck_id": ck.get("parent_ck_id"),
+                                     "derived_ck_ids": children_by_ck.get(ck["id"], []),
+                                     "state": item.get("state") or ("AMBIGUOUS" if candidates else
+                                              "NOT_STARTED" if has_sva_body(ck.get("sva_body")) else "NOT_IMPLEMENTED"),
                                      "disposition": item.get("disposition"), "reason": item.get("reason") or item.get("error"),
                                      "depth": item.get("depth"), "active_s": item.get("execution_elapsed_s"),
                                      "remaining_s": max(0, state.get("policy", {}).get("property_cumulative_budget_s", 0)

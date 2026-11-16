@@ -5,13 +5,14 @@
   const labels = {
     PROVEN: 'Proven', FALSIFIED: 'Falsified', TRIVIALLY_TRUE: 'Trivially true',
     TRIVIALLY_FALSE: 'Trivially false', COVER_REACHED: 'Reachable', COVER_UNREACHABLE: 'Unreachable',
-    UNPROVEN: 'Unproven', NOT_EXECUTED: 'Not executed', NOT_STARTED: 'Not started',
+    UNPROVEN: 'Unproven', NOT_EXECUTED: 'Not executed', NOT_STARTED: 'Not started', NOT_IMPLEMENTED: '待实现',
     AMBIGUOUS: 'Check mapping', QUEUED_FAST: 'Queued', QUEUED_SLOW: 'Queued',
     RUNNING_FAST: 'Running', RUNNING_SLOW: 'Running', REVIEW: 'Review', ERROR: 'Error', CANCELLED: 'Cancelled',
   };
   const attention = new Set(['FALSIFIED', 'TRIVIALLY_FALSE', 'COVER_UNREACHABLE', 'REVIEW', 'ERROR']);
 
   function status(property) {
+    if (property.state === 'NOT_IMPLEMENTED') return labels.NOT_IMPLEMENTED;
     if (property.kind === 'assume') return 'Assumption';
     if (property.disposition === 'DEFERRED') return 'Unproven · Deferred';
     const key = property.result === 'UNPROVEN' ? property.state : property.result || property.state;
@@ -100,6 +101,12 @@
       if (property.name) section.append(element('code', property.name));
       section.append(element('pre', property.sva || '尚未填写断言', 'formal-report-inline-sva'));
     }
+    const relations = [
+      property.baseline ? '基础属性' : null,
+      property.parent_ck_id ? '原检查点 ' + property.parent_ck_id : null,
+      property.derived_ck_ids?.length ? '补充检查点 ' + property.derived_ck_ids.join('、') : null
+    ].filter(Boolean);
+    if (relations.length) section.append(element('p', relations.join(' · '), 'formal-evidence-status'));
     const noEvidence = view.freshness === 'not_started' && !property.evidence_error;
     const evidenceStatus = 'Evidence: ' + (property.evidence_status || 'unverified') + ' · Input: ' + view.freshness;
     if (!noEvidence || property.kind !== 'assume') {
@@ -182,6 +189,16 @@
       next.setAttribute('aria-label', 'Review next action');
       next.required = true;
       form.append(reason, next);
+      let budget;
+      if (property.review_actions.includes('retry')) {
+        budget = element('input');
+        budget.type = 'number';
+        budget.min = '1';
+        if (property.remaining_s != null) budget.max = String(Math.floor(property.remaining_s));
+        budget.placeholder = '重试秒数（可选）';
+        budget.setAttribute('aria-label', '重试预算秒数');
+        form.append(budget);
+      }
       for (const disposition of property.review_actions) {
         const control = element('button', disposition === 'retry' ? 'Retry' : 'Defer', 'act-btn');
         control.type = 'submit';
@@ -190,7 +207,10 @@
       }
       form.onsubmit = event => {
         event.preventDefault();
-        actions.review(view, property.name, event.submitter.value, reason.value, next.value);
+        const disposition = event.submitter.value;
+        const retryBudget = disposition === 'retry' && budget?.value ? Number(budget.value) : undefined;
+        actions.review(view, property.name, disposition, reason.value, next.value,
+          ...(retryBudget === undefined ? [] : [retryBudget]));
       };
       section.append(form);
     }

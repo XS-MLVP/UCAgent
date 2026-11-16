@@ -29,7 +29,7 @@ import uuid
 
 
 FINAL_RESULTS = {"PROVEN", "FALSIFIED", "TRIVIALLY_TRUE", "TRIVIALLY_FALSE", "COVER_REACHED", "COVER_UNREACHABLE"}
-RUN_POINTERS = {"full": "current.json", "selected": "selected.json"}
+RUN_POINTERS = {"full": "current.json", "selected": "selected.json", "preflight": "preflight.json"}
 PROOF_MARKER = "# UCAGENT_PROOF_BEGIN"
 ACTIVE_RUNS = {"PREPARING", "RUNNING", "CANCELLING"}
 ROW = re.compile(r"^\s*(\d+)\s+(\S+)\s*:\s*(.*?)\s*$", re.MULTILINE)
@@ -71,6 +71,14 @@ class ExecutionPolicy:
         return cls(**values)
 
 
+def batched_sva_enabled(cfg) -> bool:
+    """Read the opt-in flag, including older configs without runtime options."""
+    try:
+        return bool(cfg.get_value("runtime_options.formal_batched_sva", False))
+    except AttributeError:
+        return False
+
+
 def atomic_json(path: Path, value) -> None:
     """Atomically publish a complete JSON object without exposing partial writes."""
     temporary = path.with_name(path.name + ".tmp")
@@ -95,7 +103,7 @@ def input_lock(output: Path):
 def read_run(root: Path, run_id: str | None = None, scope: str | None = "full"):
     """Read one exact run or a scope-specific pointer without recovering processes."""
     if scope is not None and scope not in RUN_POINTERS:
-        raise ValueError("Formal run scope must be full or selected.")
+        raise ValueError("Formal run scope must be full, selected, or preflight.")
     if root.is_symlink():
         raise ValueError("Invalid Formal run root")
     if run_id is None:
@@ -156,6 +164,7 @@ def apply_decisions(state: dict, decisions: list[dict]) -> None:
         if action == "retry":
             item["review_round"] += 1
             item["round_elapsed_s"] = 0.0
+            item["round_budget_s"] = decision.get("retry_budget_s")
             item["state"] = "QUEUED_SLOW"
 
 
@@ -372,6 +381,7 @@ class FormalExecution:
         self.workspace = Path(workspace).resolve()
         self.output_dir, self.dut = output_dir, dut
         self.policy = ExecutionPolicy.from_cfg(cfg)
+        self.batched_sva = batched_sva_enabled(cfg)
         self.write_dirs, self.un_write_dirs = write_dirs, un_write_dirs
 
     def _paths(self, create: bool = True):
@@ -392,7 +402,7 @@ class FormalExecution:
         if not allowed:
             raise ValueError(reason)
         root = target / "formal_runs"
-        for planned in (root, target / "tests", target / ".formal_records.yaml", target / "tests" / "avis.log", target / "tests" / "avis" / "fanin.rep"):
+        for planned in (root, root / "baseline.json", target / "tests", target / ".formal_records.yaml", target / "tests" / "avis.log", target / "tests" / "avis" / "fanin.rep"):
             allowed, reason = is_file_writeable(str(planned.relative_to(self.workspace)), self.un_write_dirs, self.write_dirs)
             if not allowed:
                 raise ValueError(reason)
@@ -481,7 +491,7 @@ class FormalExecution:
         # The controller waits for this publication before reading state.
         (run_dir / "ready").touch()
 
-    def run(self, property_names: list[str] | None = None) -> dict:
+    def run(self, property_names: list[str] | None = None, *, preflight: bool = False) -> dict:
         """Start current immutable inputs once, or return the existing current run."""
         if property_names is not None and (
             not property_names or len(property_names) != len(set(property_names))
@@ -489,13 +499,38 @@ class FormalExecution:
         ):
             raise ValueError("Selected proof requires unique, exact property names.")
         selected = sorted(property_names) if property_names is not None else []
-        scope = "selected" if selected else "full"
+        scope = "preflight" if preflight else "selected" if selected else "full"
         target, _, root = self._paths()
         with input_lock(target), (root / "control.lock").open("a+") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
             target, root, executable, files, fingerprint = self._inputs()
+            from .baseline import baseline_contract, baseline_targets, batch_context, verify_baseline
+            from .skills.lib.formal_tools import _ck_to_sv_names
+            from .skills.lib.models import FormalRecords, has_sva_body
+            import yaml
+
+            records_path = target / ".formal_records.yaml"
+            records = yaml.safe_load(records_path.read_bytes()) if records_path.is_file() else None
+            contract = baseline_contract(records) if preflight and self.batched_sva else None
+            smoke_labels = baseline_targets(records) if contract is not None else []
+            context = None
+            if self.batched_sva and not preflight:
+                baseline = verify_baseline(root, records, required=True)
+                source_hashes = {name: digest for name, digest in files.items() if name.startswith(f"{self.dut}/")}
+                if source_hashes != baseline["source_hashes"]:
+                    raise ValueError("DUT inputs changed since the frozen baseline. Reopen the baseline preflight stage.")
+                if scope == "full":
+                    model = FormalRecords.model_validate(records)
+                    missing = [ck.id for fg in model.spec.function_groups for fc in fg.functions
+                               for ck in fc.check_points if not has_sva_body(ck.sva_body)]
+                    if missing:
+                        raise ValueError(f"Complete all SVA bodies before full verification: {missing[:20]}")
+                checker = f"{self.output_dir}/tests/{self.dut}_checker.sv"
+                context = batch_context(files, checker, executable, self.policy, baseline["input_fingerprint"])
             previous_dir, previous = self._load(root, scope=scope)
-            if (previous and previous["fingerprint"] == fingerprint and previous.get("selected_properties", []) == selected
+            if (previous and previous["fingerprint"] == fingerprint
+                    and (preflight or previous.get("selected_properties", []) == selected)
+                    and previous.get("batch_context") == context
                     and previous["status"] not in {"ERROR", "INTERRUPTED", "CANCELLED"}):
                 return self._summary(previous_dir, previous)
             if previous and previous["status"] in ACTIVE_RUNS:
@@ -521,29 +556,33 @@ class FormalExecution:
             checker_text = (frozen_tests / f"{self.dut}_checker.sv").read_text(encoding="utf-8")
             expected_labels = re.findall(r"\b([A-Za-z_][A-Za-z_0-9]*)\s*:\s*(?:assert|cover)\s+property\b", checker_text)
             semantic_inputs = None
-            records_path = target / ".formal_records.yaml"
+            checkpoint_ids = {}
             if records_path.exists():
-                import yaml
                 content = records_path.read_bytes()
                 records = yaml.safe_load(content)
                 from formal.skills.lib.models import semantic_inputs as canonical_inputs
                 semantic_inputs = canonical_inputs(records)
+                model = FormalRecords.model_validate(records)
+                checkpoint_ids = {_ck_to_sv_names(ck.id, ck.style)[0]: ck.id
+                                  for fg in (model.spec.function_groups if model.spec else [])
+                                  for fc in fg.functions for ck in fc.check_points}
                 archived = inputs / self.output_dir / ".formal_records.yaml"
                 archived.write_bytes(content)
             receipt = target / "tests" / "sva_preflight.json"
             if receipt.is_file():
-                preflight = read_json(receipt)
+                local_preflight = read_json(receipt)
                 semantic_hash = hashlib.sha256(json.dumps(semantic_inputs, sort_keys=True).encode()).hexdigest()
                 generated = {Path(path).name: digest for path, digest in files.items()
                              if Path(path).parent == Path(self.output_dir) / "tests"}
-                if semantic_hash != preflight["semantic_sha256"] or generated != preflight["generated"]:
+                if semantic_hash != local_preflight["semantic_sha256"] or generated != local_preflight["generated"]:
                     raise ValueError("Generated Formal inputs changed after preflight; render them again before proof.")
             if self._inputs()[-1] != fingerprint:
                 raise ValueError("Formal inputs changed while freezing the run; retry RunFormal.")
             state = {"run_id": run_id, "fingerprint": fingerprint, "status": "PREPARING",
                      "scope": scope, "selected_properties": selected,
-                     "semantic_inputs": semantic_inputs,
-                     "expected_labels": expected_labels,
+                     "semantic_inputs": semantic_inputs, "baseline_contract": contract,
+                     "baseline_smoke_labels": smoke_labels, "batch_context": context,
+                     "expected_labels": expected_labels, "checkpoint_ids": checkpoint_ids,
                      "workspace": str(self.workspace), "output_dir": self.output_dir, "dut": self.dut,
                      "executable": executable, "policy": asdict(self.policy), "created_at": time.time(),
                      "files": files, "properties": {}, "decisions": [], "checkpoints": [], "error": None}
@@ -552,6 +591,26 @@ class FormalExecution:
             atomic_json(root / RUN_POINTERS[scope], {"run_id": run_id})
             self._launch(run_dir, state)
             return self._summary(run_dir, state)
+
+    def freeze_baseline(self, *, accept: bool = True) -> dict:
+        """Validate current baseline evidence and freeze it when completing the stage."""
+        target, _, root = self._paths()
+        with input_lock(target), (root / "control.lock").open("a+") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            _, _, _, _, fingerprint = self._inputs()
+            directory, state = self._load(root, scope="preflight")
+            if not state or state["fingerprint"] != fingerprint:
+                raise ValueError("Run RunFormal(action=preflight) for the current Formal environment.")
+            result = self._summary(directory, state)
+            if not result["preflight_complete"]:
+                return result
+            for name in state["selected_properties"]:
+                property_evidence(directory, state, name, state["properties"][name], observations=False)
+            if accept:
+                source_hashes = {name: digest for name, digest in state["files"].items() if name.startswith(f"{self.dut}/")}
+                atomic_json(root / "baseline.json", {"run_id": state["run_id"], "input_fingerprint": fingerprint,
+                                                    "contract": state["baseline_contract"], "source_hashes": source_hashes})
+            return result
 
     def status(self, wait_s: int = 0, *, run_id=None, scope="full") -> dict:
         """Return progress, optionally waiting for a new checkpoint without busy LLM polling."""
@@ -596,10 +655,13 @@ class FormalExecution:
                 return {"status": "CANCELLING", "run_id": state["run_id"], "scope": state.get("scope", "full"), "next_action": "Call RunFormal action=status after cleanup."}
             return self._summary(run_dir, state)
 
-    def review(self, property_names: list[str], action: str, reason: str, next_action: str = "", *, run_id=None, scope="full") -> dict:
+    def review(self, property_names: list[str], action: str, reason: str, next_action: str = "", *,
+               run_id=None, scope="full", retry_budget_s: int | None = None) -> dict:
         """Record bounded batch decisions; deferral preserves UNPROVEN and retry is capped."""
         if action not in {"defer", "retry"} or not reason.strip() or not next_action.strip():
             raise ValueError("review requires defer/retry, a reason, and a concrete next_action")
+        if retry_budget_s is not None and (action != "retry" or type(retry_budget_s) is not int or retry_budget_s < 1):
+            raise ValueError("retry_budget_s must be a positive integer for retry.")
         if not property_names or len(set(property_names)) != len(property_names):
             raise ValueError("review requires a nonempty unique property_names list")
         if len(reason) > 2000 or len(next_action) > 2000:
@@ -610,6 +672,8 @@ class FormalExecution:
             run_dir, state = self._load(root, run_id, scope)
             if not state or state["fingerprint"] != fingerprint:
                 raise ValueError("Review requires results for current inputs; call RunFormal action=run.")
+            if state.get("scope") == "preflight":
+                raise ValueError("Repair any baseline smoke failure and submit a fresh preflight.")
             active = state["status"] in ACTIVE_RUNS
             pending_path = run_dir / "review_requests.json"
             pending = read_json(pending_path) if pending_path.is_file() else []
@@ -625,10 +689,13 @@ class FormalExecution:
                     raise ValueError(f"A decision is already pending: {name}")
                 if action not in review_actions(item, self.policy):
                     if action == "defer":
-                        raise ValueError(f"Only unreviewed budget-exhausted UNPROVEN properties can be deferred: {name}")
+                        raise ValueError(f"Only UNPROVEN properties in REVIEW can be deferred: {name}")
                     raise ValueError(f"Retry budget exhausted or property is still running: {name}")
+                if retry_budget_s is not None and retry_budget_s > self.policy.property_cumulative_budget_s - item["execution_elapsed_s"]:
+                    raise ValueError(f"Retry budget exceeds the remaining proof time for {name}.")
                 decisions.append({"property": name, "action": action, "reason": reason.strip(),
-                                  "next_action": next_action.strip(), "timestamp": time.time()})
+                                  "next_action": next_action.strip(), "timestamp": time.time(),
+                                  **({"retry_budget_s": retry_budget_s} if retry_budget_s is not None else {})})
             if active:
                 atomic_json(pending_path, pending + decisions)
                 return {**self._summary(run_dir, state), "review_pending": True}
@@ -657,10 +724,10 @@ class FormalExecution:
                  for name, item in properties.items() if item["result"] == "UNPROVEN"]
         for row in queue:
             item = properties[row["property"]]
-            row["actions"] = [] if row["property"] in pending else review_actions(item, policy)
+            row["actions"] = [] if state.get("scope") == "preflight" or row["property"] in pending else review_actions(item, policy)
             row["remaining_s"] = max(0, policy.property_cumulative_budget_s - row["active_s"])
             row["attempts"] = len(item["attempts"])
-        ready = [row for row in queue if row["state"] == "REVIEW" and row["disposition"] != "DEFERRED"]
+        ready = [row for row in queue if row["state"] == "REVIEW" and row["disposition"] != "DEFERRED" and row["actions"]]
         scope = state.get("scope", "full")
         executed = [item for item in properties.values() if item["result"] != "NOT_EXECUTED"]
         resolved = bool(executed) and all(item["result"] in FINAL_RESULTS for item in executed)
@@ -671,6 +738,9 @@ class FormalExecution:
                 "full_complete": scope == "full" and resolved, "counts": dict(collections.Counter(item["result"] for item in properties.values())),
                 "states": dict(collections.Counter(item["state"] for item in properties.values())), "total": len(properties),
                 "proof_complete": scope == "full" and resolved,
+                "preflight_complete": scope == "preflight" and state["status"] == "COMPLETED",
+                "baseline_fingerprint": (state.get("batch_context") or {}).get("baseline"),
+                "diagnostics": state.get("diagnostics", []),
                 "deferred_total": sum(item.get("disposition") == "DEFERRED" for item in properties.values()),
                 "deferred_properties": [name for name, item in properties.items() if item.get("disposition") == "DEFERRED"][:20],
                 "review_queue": (ready + [row for row in queue if row not in ready])[:20],
@@ -681,10 +751,12 @@ class FormalExecution:
                 "coverage_artifact": str((run_dir / "inventory" / "avis" / "fanin.rep").relative_to(self.workspace)) if (run_dir / "inventory" / "avis" / "fanin.rep").is_file() else None,
                 "checkpoints": state["checkpoints"][-10:], "checkpoint_total": len(state["checkpoints"]),
                 "next_action": (
-                    "Wait for progress using RunFormal action=status; do not restart active work." if state["status"] in ACTIVE_RUNS else
+                    "Review each ready property using its available actions. Other properties may continue running."
+                    if ready else
+                    "Wait for progress using RunFormal action=status." if state["status"] in ACTIVE_RUNS else
                     "Preserve the original properties. Inspect the named attempt reports and ask the operator to repair the tool/environment; only retry after repair. Do not replace proof goals to evade an execution error."
                     if state["status"] in {"ERROR", "NEEDS_OPERATOR", "INTERRUPTED", "CANCELLED"} else
-                    "Review current results through the optional ext/formal/data Skill or ordinary file tools. RunFormal action=evidence provides original evidence for analysis. For budget-exhausted UNPROVEN targets, record reason and next_action with review; deferred never means proved."
+                    "Review results using the data Skill or file tools. Use evidence for original proof observations. A deferred property remains UNPROVEN."
                 )}
 
     def inventory(self, *, run_id=None, scope="full") -> dict:
@@ -735,7 +807,14 @@ class FormalExecution:
         """Gate current evidence without starting a proof or treating a deferred item as Pass."""
         result = self.status()
         ready = result.get("current_inputs") and result["status"] not in ACTIVE_RUNS | {"INTERRUPTED", "ERROR", "NEEDS_OPERATOR", "CANCELLED"} and result.get("total", 0) > 0
-        _, _, root = self._paths()
+        target, _, root = self._paths()
+        if self.batched_sva:
+            from .baseline import verify_baseline
+            import yaml
+            try:
+                verify_baseline(root, yaml.safe_load((target / ".formal_records.yaml").read_bytes()), required=True)
+            except (ValueError, OSError) as exc:
+                return False, {"error_code": "formal_baseline_invalid", "error": str(exc)}
         run_dir, state = self._load(root, result.get("run_id"))
         if ready:
             inventory = parse_properties((run_dir / "inventory" / "console.log").read_text(encoding="utf-8", errors="replace"))
@@ -898,7 +977,35 @@ def controller(run_dir: Path) -> None:
                 return
             if process.returncode != 0 or re.search(r"blackboxes\s*:\s*[1-9]|^\s*(?:Error:|Error-|Fatal)", content, re.M):
                 state["error_code"] = "formal_tool_compile_error"
-                raise ValueError("Formal environment preparation failed; inspect inventory/console.log and repair inputs before retrying.")
+                ck_ids = state.get("checkpoint_ids", {})
+                checker = setup.with_name(f"{state['dut']}_checker.sv")
+                definitions = {}
+                source_lines = checker.read_text().splitlines()
+                current = None
+                for line_number, line in enumerate(source_lines, 1):
+                    if match := re.match(r"\s*property\s+(\w+)\s*;", line):
+                        current = ck_ids.get(match[1])
+                    if current:
+                        definitions[line_number] = current
+                    if "endproperty" in line:
+                        current = None
+                diagnostics = []
+                for line in content.splitlines():
+                    if not re.match(r"\s*(?:Error:|Error-|Fatal|blackboxes\s*:)", line):
+                        continue
+                    row = {"message": line.strip()[:850]}
+                    if location := re.search(r"([^\s:]+\.(?:sv|svh|v|tcl))\((\d+)\)", line):
+                        source = Path(location[1])
+                        number = int(location[2])
+                        if source.is_relative_to(run_dir / "inputs"):
+                            row.update(path=str(source.relative_to(run_dir / "inputs")), line=number)
+                        if source.name == checker.name and number in definitions:
+                            row["ck_id"] = definitions[number]
+                    diagnostics.append(row)
+                    if len(diagnostics) == 8:
+                        break
+                state["diagnostics"] = diagnostics
+                raise ValueError("Formal environment preparation failed. Review the diagnostics and inventory/console.log.")
             parsed = parse_properties(content)
             if not parsed:
                 raise ValueError("No properties were enumerated; inspect inventory/console.log and the generated environment.")
@@ -906,7 +1013,20 @@ def controller(run_dir: Path) -> None:
             missing = [label for label in state.get("expected_labels", []) if observed[label] != 1]
             if missing:
                 raise ValueError(f"Expected checker properties missing or ambiguous in inventory: {missing[:20]}")
-            selected = set(state.get("selected_properties", []))
+            if state.get("scope") == "preflight":
+                labels = set(state["baseline_smoke_labels"])
+                selected = {name for name, item in parsed.items()
+                            if name.rsplit(".", 1)[-1] in labels and item["kind"] == "cover"}
+                if len(selected) != len(labels):
+                    raise ValueError("Baseline smoke Cover identities did not resolve in the real-tool inventory.")
+                if not selected:
+                    state["properties"] = {name: {**item, "state": "NOT_EXECUTED", "result": "NOT_EXECUTED", "attempts": []}
+                                           for name, item in parsed.items()}
+                    state["status"] = "COMPLETED"
+                    return
+                state["selected_properties"] = sorted(selected)
+            else:
+                selected = set(state.get("selected_properties", []))
             unknown = sorted(selected - parsed.keys())
             if unknown:
                 raise ValueError(f"Unknown or non-Assert/Cover property names: {unknown[:20]}")
@@ -1012,7 +1132,10 @@ def controller(run_dir: Path) -> None:
                     if valid:
                         item.update(final)
                     item["result"] = "UNPROVEN"
-                    item["state"] = "QUEUED_SLOW" if worker["lane"] == "fast" and item["execution_elapsed_s"] < policy.property_cumulative_budget_s else "REVIEW"
+                    item["state"] = "QUEUED_SLOW" if (
+                        state.get("scope") != "preflight" and worker["lane"] == "fast"
+                        and item["execution_elapsed_s"] < policy.property_cumulative_budget_s
+                    ) else "REVIEW"
                     item["error"] = None
                 else:
                     item["state"] = "ERROR"
@@ -1026,7 +1149,8 @@ def controller(run_dir: Path) -> None:
                     break
                 item = state["properties"][name]
                 lane = "fast" if item["state"] == "QUEUED_FAST" else "slow"
-                limit = policy.first_pass_budget_s if lane == "fast" else policy.analysis_threshold_s - item["round_elapsed_s"]
+                round_limit = item.get("round_budget_s") or policy.analysis_threshold_s
+                limit = policy.first_pass_budget_s if lane == "fast" else round_limit - item["round_elapsed_s"]
                 budget = min(limit, policy.property_cumulative_budget_s - item["execution_elapsed_s"])
                 if budget <= 0:
                     item["state"] = "REVIEW"
@@ -1068,6 +1192,13 @@ def controller(run_dir: Path) -> None:
                     if any(item["state"] == "ERROR" for item in state["properties"].values()):
                         state["status"] = "NEEDS_OPERATOR"
                         state["error"] = "Some property attempts need tool or environment repair; preserve the verification goals."
+                    elif state.get("scope") == "preflight":
+                        failed = [name for name in state["selected_properties"]
+                                  if state["properties"][name]["result"] != "COVER_REACHED"]
+                        state["status"] = "ERROR" if failed else "COMPLETED"
+                        if failed:
+                            state["error_code"] = "formal_baseline_smoke_incomplete"
+                            state["error"] = f"Baseline reachability smoke checks need review: {failed}"
                     else:
                         unresolved = any(item["result"] not in FINAL_RESULTS | {"NOT_EXECUTED"}
                                          for item in state["properties"].values())

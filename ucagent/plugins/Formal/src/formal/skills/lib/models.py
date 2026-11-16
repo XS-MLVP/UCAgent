@@ -1,6 +1,6 @@
 """Canonical YAML models for Formal task inputs, typed results, and analysis."""
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, StrictBool, field_validator, model_validator
 from typing import List, Optional, Dict, Union, Any
 
 class CheckPoint(BaseModel):
@@ -8,6 +8,18 @@ class CheckPoint(BaseModel):
     style: str
     description: str
     sva_body: Optional[str] = Field(None, description="SVA code body, synced from .sv file")
+    baseline: StrictBool = False
+    parent_ck_id: Optional[str] = None
+
+    @property
+    def is_baseline(self) -> bool:
+        """Identify a shared contract property, including every environment assumption."""
+        return self.baseline or self.style.lower() == "assume"
+
+
+def has_sva_body(body: str | None) -> bool:
+    """Distinguish an implemented body from pending author work."""
+    return isinstance(body, str) and bool(body.strip()) and "[LLM-TODO]" not in body
 
 class FunctionPoint(BaseModel):
     id: str
@@ -50,6 +62,20 @@ class FormalSpec(BaseModel):
     parameters: Optional[Dict[str, Union[int, str]]] = Field(None, description="Global parameters like WIDTH, NUM_PORTS")
     whitebox_signals: Optional[List[str]] = Field(None, description="Extra signal declarations for whitebox verification (e.g. 'logic [31:0] state_r')")
     function_groups: List[FunctionGroup] = []
+
+    @model_validator(mode="after")
+    def validate_checkpoint_parents(self):
+        """Require every proof decomposition link to have an existing acyclic parent."""
+        parents = {ck.id: ck.parent_ck_id for fg in self.function_groups for fc in fg.functions for ck in fc.check_points}
+        for child, parent in parents.items():
+            seen = {child}
+            while parent is not None:
+                if parent not in parents or parent in seen:
+                    raise ValueError(f"{child}: invalid or cyclic parent_ck_id {parent}")
+                seen.add(parent)
+                parent = parents[parent]
+        return self
+
 
 class IterationEntry(BaseModel):
     timestamp: str
@@ -154,6 +180,12 @@ def semantic_inputs(records: Union[Dict[str, Any], FormalRecords]) -> Dict[str, 
         for function in group["functions"]:
             function.pop("title", None)
             function.pop("review_order", None)
+            for check in function["check_points"]:
+                # Preserve the input identity of tasks recorded before baseline tagging.
+                if not check.get("baseline"):
+                    check.pop("baseline", None)
+                # Parent links document proof intent, independently of the expression.
+                check.pop("parent_ck_id", None)
     return {key: values.get(key) for key in ("dut", "basic_info", "spec", "extra_config")}
 
 

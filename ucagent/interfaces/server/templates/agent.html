@@ -2623,8 +2623,8 @@ function _getFunctionMap(){
     showFormal:(section,property,view)=>UCAgentFormalView.renderDetail(section,property,view,{
       openFile:_openFormalFile, openTrace:_openFormalTrace, trace:_queryFormalTrace,
       runSelected:name=>_formalAction({action:"run",scope:"selected",property_names:[name]},true),
-      review:(view,name,disposition,reason,nextAction)=>_formalAction({action:"review",scope:view.run.scope,
-        run_id:view.run.run_id,property_names:[name],disposition,reason,next_action:nextAction})
+      review:(view,name,disposition,reason,nextAction,retryBudget)=>_formalAction({action:"review",scope:view.run.scope,
+        run_id:view.run.run_id,property_names:[name],disposition,reason,next_action:nextAction,retry_budget_s:retryBudget})
     })
   });
   return _functionMap;
@@ -2770,8 +2770,8 @@ async function _refreshFormal(){
       coverageActions,
       openFile:_openFormalFile,openTrace:_openFormalTrace,trace:_queryFormalTrace,
       runSelected:name=>_formalAction({action:"run",scope:"selected",property_names:[name]},true),
-      review:(view,name,disposition,reason,nextAction)=>_formalAction({action:"review",scope:view.run.scope,
-        run_id:view.run.run_id,property_names:[name],disposition,reason,next_action:nextAction}),
+      review:(view,name,disposition,reason,nextAction,retryBudget)=>_formalAction({action:"review",scope:view.run.scope,
+        run_id:view.run.run_id,property_names:[name],disposition,reason,next_action:nextAction,retry_budget_s:retryBudget}),
       onFilterChange:filter=>{_formalFilter=filter;_renderFormalOverview(_formalView);}
     });
     _formalReport.update(view,{filter:_formalFilter,workspaceKey:location.pathname+"|"+workspace});

@@ -15,6 +15,9 @@
 - **证明结论全部已判定**: {{ "是" if machine.proof_complete else "否；存在未证明属性" }}
 - **完整运行 ID**: `{{ machine.run_id | default("未记录", true) }}`
 - **输入指纹**: `{{ machine.input_fingerprint | default("未记录", true) }}`
+{% if machine.baseline_fingerprint | default %}
+- **基础预检输入指纹**: `{{ machine.baseline_fingerprint }}`
+{% endif %}
 - **Cover 可达**: {{ machine.counts.COVER_REACHED or 0 }}
 - **Cover 不可达**: {{ machine.counts.COVER_UNREACHABLE or 0 }}
 - **已证明**: {{ machine.counts.PROVEN or 0 }}
