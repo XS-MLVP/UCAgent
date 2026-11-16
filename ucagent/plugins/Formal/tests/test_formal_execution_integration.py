@@ -139,7 +139,7 @@ def test_renderer_rejects_symlinked_records_and_source(tmp_path, monkeypatch):
 
 
 def test_runformal_plugin_factory_dispatch_and_mcp_contract(tmp_path, monkeypatch):
-    """One plugin tool exposes strict local and MCP argument contracts."""
+    """The plugin tools expose strict local and MCP argument contracts."""
     monkeypatch.setattr(formal_tools, "FormalExecution", FakeExecution)
     monkeypatch.setattr(formal_tools, "render_environment", lambda *args, **kwargs: None)
     FakeExecution.calls.clear()
@@ -148,7 +148,7 @@ def test_runformal_plugin_factory_dispatch_and_mcp_contract(tmp_path, monkeypatc
         un_write_dirs=("DUT",), cfg=Config({"output": "proof_output"}),
         plugin_root=Path(formal_tools.__file__).parent, dut_name="DUT",
     )
-    (tool,) = create_tools(context)
+    tool, diagnostics = create_tools(context)
     assert tool.name == "RunFormal"
     assert tool.invoke({"action": "run"}) == {"status": "RUNNING"}
     assert tool.invoke({"action": "status"}) == {"status": "RUNNING"}
@@ -165,6 +165,14 @@ def test_runformal_plugin_factory_dispatch_and_mcp_contract(tmp_path, monkeypatc
     assert asyncio.run(converted.run({"action": "status"}, context=None)) == {"status": "RUNNING"}
     with pytest.raises(ToolError):
         asyncio.run(converted.run({"action": "status", "typo": True}, context=None))
+    monkeypatch.setattr(formal_tools, "analyze", lambda *args: {"mode": args[2]})
+    request = {"mode": "overconstraint", "run_id": "a" * 32, "depth": 10}
+    diagnostic_tool = to_mcp_tool(diagnostics)
+    assert asyncio.run(diagnostic_tool.run(request, context=None)) == {"mode": "overconstraint"}
+    with pytest.raises(ValidationError):
+        formal_tools.AnalyzeFormalArgs.model_validate({**request, "depth": 101})
+    with pytest.raises(ToolError):
+        asyncio.run(diagnostic_tool.run({**request, "depth": 101}, context=None))
 
 
 def test_script_check_requires_explicit_run_and_never_starts_proof(tmp_path, monkeypatch):
@@ -203,6 +211,23 @@ def test_coverage_gate_rejects_stale_report_without_current_artifact(tmp_path, m
     ok, result = checker.do_check()
     assert not ok
     assert result["error_code"] == "formal_coverage_missing"
+
+
+def test_native_coi_report_lists_uncovered_signals_from_latest_cover_section(tmp_path):
+    """Use FormalMC's typed rows and keep a later fan-in report out of coverage."""
+    from formal.skills.lib.formal_tools import parse_coverage
+
+    folder = tmp_path / "avis"
+    folder.mkdir()
+    (folder / "fanin.rep").write_text(
+        "[1] fanin -cover -list -dump+\nNets : 1 / 4 25%\nNet : previous\n"
+        "[2] fanin -cover -list -dump+\nNets : 3 / 4 75%\nDff : state\n"
+        "Net : state\nNet : u_dut.queue[1].valid\n"
+        "[3] fanin -assertion A -list -dump+\nInput : unrelated\n"
+    )
+    data = parse_coverage(str(tmp_path))
+    assert data["overall_pct"] == 75
+    assert data["uncovered"] == ["state", "u_dut.queue[1].valid"]
 
 
 def test_summary_rejects_unreported_deferred_gap(tmp_path, monkeypatch):

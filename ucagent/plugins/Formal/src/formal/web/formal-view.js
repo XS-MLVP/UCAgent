@@ -147,6 +147,9 @@
     if (property.source) controls.append(button('Open SVA', () => actions.openFile(property.source, property.line)));
     if (property.log) controls.append(button('Attempt log', () => actions.openFile(property.log)));
     if (hasTrace) controls.append(button('Open waveform', () => actions.openTrace(view, property.name)));
+    if (!view.archived && hasTrace && property.result === 'FALSIFIED' && actions.diagnose) {
+      controls.append(button('回放反例', () => actions.diagnose('replay', run.run_id, property.name)));
+    }
 
     const attempts = property.attempts || [];
     const decisions = property.decisions || [];
@@ -174,7 +177,18 @@
       section.append(execution);
     }
     if (property.name && live && property.kind !== 'assume') {
-      controls.append(button('Run selected', () => actions.runSelected(property.name, view)));
+      controls.append(button('Run selected', () => actions.runSelected(property.name, view, property.ck_id)));
+      if (run?.run_id && actions.diagnose && property.kind === 'assert') {
+        if (property.result === 'TRIVIALLY_TRUE') {
+          controls.append(button('检查空泛性', () => actions.diagnose('sanity', run.run_id, property.name)));
+        }
+        if (['TRIVIALLY_TRUE', 'UNPROVEN'].includes(property.result) && attempts.length) {
+          controls.append(button('查看信号依赖', () => actions.diagnose('fanin', run.run_id, property.name)));
+        }
+      }
+      if (run?.run_id && actions.diagnose && property.result === 'COVER_UNREACHABLE') {
+        controls.append(button('分析不可达', () => actions.diagnose('unreachable', run.run_id, property.name)));
+      }
     }
     if (controls.children.length) section.append(controls);
     if (hasTrace) section.append(traceControls(view, property.name, actions.trace));

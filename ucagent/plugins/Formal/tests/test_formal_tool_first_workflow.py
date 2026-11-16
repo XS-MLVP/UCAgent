@@ -52,7 +52,7 @@ def test_tool_first_stages_resolve_without_skill_directory(tmp_path, monkeypatch
     context = PluginContext(workspace=tmp_path, output_dir="proofs", dut_name="PacketGate",
                             cfg=cfg, write_dirs=("proofs",), un_write_dirs=("PacketGate",),
                             plugin_root=plugin.root)
-    assert {tool.name for tool in create_tools(context)} == {"RunFormal"}
+    assert {tool.name for tool in create_tools(context)} == {"RunFormal", "AnalyzeFormal"}
     assert plugin.workflows[0].skill_paths == (WORKFLOW.parent.parent / "skills",)
 
 

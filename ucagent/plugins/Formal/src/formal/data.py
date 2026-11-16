@@ -428,12 +428,18 @@ class FormalDataStore:
                     row["property_name"] = f"u_checker.{label}"
             batch = page(rows, offset, limit)
             digest = hashlib.sha256(content).hexdigest()
+            run_call = (
+                {"action": "run", "scope": "selected", "fc_id": selected_function}
+                if batched and selected_function and not baseline else None
+            )
             return {"status": "ok", "section": "sva", "records_artifact": str(path.relative_to(self.workspace)),
                     "fg_id": selected_group, "fc_id": selected_function, "check_points": batch,
                     "progress": {"implemented": len(checkpoints) - len(missing), "total": len(checkpoints)},
+                    "run_call": run_call,
                     "ready_update": {"section": "spec", "expected_sha256": digest,
                                      "bodies": {row["id"]: "" for row in rows[offset:offset + limit]}} if batch["items"] else None,
-                    "next_action": "Fill and submit just this batch, then run prepare sva again for the next pending CKs."
+                    "next_action": ("Fill and submit this batch, then pass run_call to RunFormal and inspect the returned run."
+                                    if run_call else "Fill and submit just this batch, then run prepare sva again for the next pending CKs.")
                     if batch["items"] else "This selection has no pending SVA bodies."}
         if section not in {"analysis", "bugs"} or group is not None or function is not None or baseline:
             raise ValueError("FG, FC and baseline filters are available only with prepare sva.")

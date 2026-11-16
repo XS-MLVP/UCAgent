@@ -24,6 +24,7 @@ runtime_options:
     stop_grace_s: 10
     max_review_rounds: 3
     property_cumulative_budget_s: 3600
+    session_max_properties: 2
 
 # ---------- Template Variables ----------
 template_overwrite:
@@ -255,6 +256,7 @@ stage:
       - "只实现基础 CK。可用 prepare sva --baseline 领取基础 CK，或用普通文件工具填写对应 sva_body。Assume 全部属于基础。"
       - "确认真实时钟、复位、参数、白盒绑定和 TCL 配置。生成的 Tcl、Wrapper 和 Checker 由插件维护。"
       - "调用 RunFormal(action=preflight)。FormalMC 使用当前输入编译并列举属性，只求解已标记的基础 Cover。用返回的 run_id 查询 status，依据 diagnostics 修复属性或配置。"
+      - "基础 Cover 异常时，用 AnalyzeFormal(mode=environment, run_id=...) 检查实际时钟、复位和约束，必要时用 mode=overconstraint 做有界诊断。"
       - "基础 Cover 达到预期可达性后调用 Complete，系统冻结基础 CK 和共用配置。后续修改基础约定时，回到本阶段修订 YAML、重新预检并接受新基线。"
     reference_files:
       - "{OUT}/.formal_records.yaml"
@@ -272,9 +274,13 @@ stage:
     desc: "按功能点实现 SVA 与定向验证"
     task:
       - "按 FC 领取待实现属性。技能可用时使用 prepare sva，指定 FC 用 --function。无技能时按记录中的 review_order 选择一个 FC，仅填写该批 SVA。"
-      - "提交一批后对其已实现的 Assert/Cover 定向运行。使用精确工具属性名 u_checker.<label>，记录 run_id。未选和待实现目标保持各自状态。"
+      - "用 RunFormal(action=run, scope=selected, fc_id=...) 定向运行该 FC 已实现的功能 Assert/Cover。只复验部分目标时改传 ck_ids。记录 run_id，未选目标保持未执行。"
+      - "已有定向结果时，先用 RunFormal(action=pending) 查看当前基线下的待复验 CK，按首个可执行批次返回的 run_call 提交。"
       - "每条属性先运行 5 分钟，慢队列补到累计 20 分钟。REVIEW 就绪时查看属性、报告和日志。结合规格选择局部修订、带依据的延长求解或暂缓，然后推进后续 FC。暂缓仍为 UNPROVEN。"
+      - "分析空泛性或慢断言时，用 AnalyzeFormal(mode=sanity 或 fanin, run_id=..., property_name=...) 获取工具诊断，再结合规格决定是否修订。"
+      - "怀疑慢断言存在有限深度的反例时，可以用 AnalyzeFormal(mode=bounded_search, run_id=..., property_name=..., depth=...) 在隔离环境搜索。"
       - "反例先核对规格、属性和证据。工作流保持基础 CK、共享 Assume、时钟复位和依赖绑定冻结。拆分时在补充 CK 填 parent_ck_id，保留原目标和原目标的未决状态。"
+      - "修改单时钟安全断言后，可以用 AnalyzeFormal(mode=replay, run_id=原批次, property_name=原属性名) 在旧反例上检查修改，再做定向证明。"
       - "本阶段检查所有 CK 已实现，以及当前各功能属性均有可追溯的定向尝试。完整回归和正式反例归因在下一阶段。完整批次的证据由可选 prepare analysis 或普通工具维护。"
     reference_files:
       - "{OUT}/.formal_records.yaml"
@@ -296,6 +302,7 @@ stage:
       - "技能可用时用 prepare analysis 领取当前反例、恒真和不可达 Cover，一次性核对规格、前提和真实证据。无技能时用 RunFormal evidence 和普通文件工具维护 analysis。首次 RTL_BUG 分析记录 expected_requirement 和当前证据绑定，供 Bug 报告和总结复用。"
       - "根据当前完整批次的结构覆盖缺口与规格补充独立目标。仅修订相关 CK 时先定向复验，确认后合入完整批次。规格未要求的场景记录处置依据；COI 与功能证明状态分别核对。"
       - "依据最新完整批次的 fanin 和证明证据完成覆盖验收与分析。输入版本一致时复用完整批次，暂缓项继续标为 UNPROVEN。"
+      - "对已证明不可达的 Cover，可用 AnalyzeFormal(mode=unreachable, run_id=..., property_name=...) 查看原生诊断。诊断结果与正式批次分别记录。"
     reference_files:
       - "{OUT}/.formal_records.yaml"
       - "Guide_Doc/env_analysis.md"

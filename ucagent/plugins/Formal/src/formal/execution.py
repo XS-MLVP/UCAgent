@@ -47,6 +47,7 @@ class ExecutionPolicy:
     stop_grace_s: int = 10
     max_review_rounds: int = 3
     property_cumulative_budget_s: int = 3600
+    session_max_properties: int = 1
 
     @classmethod
     def from_cfg(cls, cfg):
@@ -68,6 +69,8 @@ class ExecutionPolicy:
             raise ValueError("slow_queue_max_workers must not exceed max_active_workers")
         if values["property_cumulative_budget_s"] < values["analysis_threshold_s"]:
             raise ValueError("property_cumulative_budget_s must cover analysis_threshold_s")
+        if values["session_max_properties"] > 8:
+            raise ValueError("session_max_properties must be at most 8")
         return cls(**values)
 
 
@@ -491,15 +494,21 @@ class FormalExecution:
         # The controller waits for this publication before reading state.
         (run_dir / "ready").touch()
 
-    def run(self, property_names: list[str] | None = None, *, preflight: bool = False) -> dict:
+    def run(self, property_names: list[str] | None = None, *, preflight: bool = False,
+            ck_ids: list[str] | None = None, fc_id: str | None = None, retry_prepare: bool = False) -> dict:
         """Start current immutable inputs once, or return the existing current run."""
         if property_names is not None and (
             not property_names or len(property_names) != len(set(property_names))
             or any(not isinstance(name, str) or not name.strip() for name in property_names)
         ):
             raise ValueError("Selected proof requires unique, exact property names.")
-        selected = sorted(property_names) if property_names is not None else []
-        scope = "preflight" if preflight else "selected" if selected else "full"
+        if ck_ids is not None and (not ck_ids or len(ck_ids) != len(set(ck_ids)) or any(not ck.strip() for ck in ck_ids)):
+            raise ValueError("Selected proof requires unique, nonblank CK IDs.")
+        selectors = sum(value is not None for value in (property_names, ck_ids, fc_id))
+        if selectors > 1 or (preflight and selectors):
+            raise ValueError("Select one kind of target for a diagnostic run. Preflight derives its own targets.")
+        selected = sorted(property_names or [])
+        scope = "preflight" if preflight else "selected" if selectors else "full"
         target, _, root = self._paths()
         with input_lock(target), (root / "control.lock").open("a+") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
@@ -511,6 +520,37 @@ class FormalExecution:
 
             records_path = target / ".formal_records.yaml"
             records = yaml.safe_load(records_path.read_bytes()) if records_path.is_file() else None
+            selected_labels = {}
+            selected_ck_ids = []
+            unimplemented_ck_ids = []
+            if ck_ids or fc_id is not None:
+                if not records:
+                    raise ValueError("Create Formal specification records before selecting CK or FC IDs.")
+                spec = FormalRecords.model_validate(records).spec
+                functions = [fc for fg in spec.function_groups for fc in fg.functions] if spec else []
+                if fc_id is not None:
+                    matching = [fc for fc in functions if fc.id == fc_id]
+                    if len(matching) != 1:
+                        raise ValueError(f"Expected one FC matching {fc_id!r}; available IDs: {[fc.id for fc in functions][:20]}")
+                    candidates = [ck for ck in matching[0].check_points if not ck.is_baseline]
+                else:
+                    candidates = []
+                    for ck_id in ck_ids:
+                        matching = [ck for fc in functions for ck in fc.check_points if ck.id == ck_id]
+                        if len(matching) != 1:
+                            raise ValueError(f"Expected one check with CK ID {ck_id!r}; verify the specification records.")
+                        candidates.append(matching[0])
+                for ck in candidates:
+                    _, label, kind = _ck_to_sv_names(ck.id, ck.style)
+                    if kind == "assume":
+                        raise ValueError(f"{ck.id} is an Assume. It is included in the environment of every run.")
+                    if not has_sva_body(ck.sva_body):
+                        unimplemented_ck_ids.append(ck.id)
+                        continue
+                    selected_labels[label] = kind
+                    selected_ck_ids.append(ck.id)
+                if not selected_labels or (ck_ids and unimplemented_ck_ids):
+                    raise ValueError(f"Implement the selected Assert/Cover checks before running them: {unimplemented_ck_ids[:20]}")
             contract = baseline_contract(records) if preflight and self.batched_sva else None
             smoke_labels = baseline_targets(records) if contract is not None else []
             context = None
@@ -528,11 +568,14 @@ class FormalExecution:
                 checker = f"{self.output_dir}/tests/{self.dut}_checker.sv"
                 context = batch_context(files, checker, executable, self.policy, baseline["input_fingerprint"])
             previous_dir, previous = self._load(root, scope=scope)
-            if (previous and previous["fingerprint"] == fingerprint
-                    and (preflight or previous.get("selected_properties", []) == selected)
-                    and previous.get("batch_context") == context
-                    and previous["status"] not in {"ERROR", "INTERRUPTED", "CANCELLED"}):
-                return self._summary(previous_dir, previous)
+            if previous and previous["fingerprint"] == fingerprint and previous.get("batch_context") == context:
+                if previous.get("compile_failure_input_bound") and previous["status"] == "ERROR" and not retry_prepare:
+                    return {**self._summary(previous_dir, previous), "reused_compile_failure": True}
+                same_targets = (preflight or
+                                (previous.get("selected_labels") == selected_labels if selected_labels else
+                                 previous.get("selected_properties", []) == selected))
+                if same_targets and previous["status"] not in {"ERROR", "INTERRUPTED", "CANCELLED"}:
+                    return self._summary(previous_dir, previous)
             if previous and previous["status"] in ACTIVE_RUNS:
                 raise ValueError("A different input revision is still running. Cancel it before starting the current revision.")
             run_id = uuid.uuid4().hex
@@ -579,7 +622,8 @@ class FormalExecution:
             if self._inputs()[-1] != fingerprint:
                 raise ValueError("Formal inputs changed while freezing the run; retry RunFormal.")
             state = {"run_id": run_id, "fingerprint": fingerprint, "status": "PREPARING",
-                     "scope": scope, "selected_properties": selected,
+                     "scope": scope, "selected_properties": selected, "selected_labels": selected_labels,
+                     "selected_ck_ids": selected_ck_ids, "unimplemented_ck_ids": unimplemented_ck_ids,
                      "semantic_inputs": semantic_inputs, "baseline_contract": contract,
                      "baseline_smoke_labels": smoke_labels, "batch_context": context,
                      "expected_labels": expected_labels, "checkpoint_ids": checkpoint_ids,
@@ -733,6 +777,8 @@ class FormalExecution:
         resolved = bool(executed) and all(item["result"] in FINAL_RESULTS for item in executed)
         return {"run_id": state["run_id"], "status": state["status"], "scope": scope,
                 "selected_properties": state.get("selected_properties", []),
+                "selected_ck_ids": state.get("selected_ck_ids", []),
+                "unimplemented_ck_ids": state.get("unimplemented_ck_ids", []),
                 "input_fingerprint": state["fingerprint"],
                 "selected_complete": scope == "selected" and resolved,
                 "full_complete": scope == "full" and resolved, "counts": dict(collections.Counter(item["result"] for item in properties.values())),
@@ -754,6 +800,8 @@ class FormalExecution:
                     "Review each ready property using its available actions. Other properties may continue running."
                     if ready else
                     "Wait for progress using RunFormal action=status." if state["status"] in ACTIVE_RUNS else
+                    "Fix the indicated source and resubmit. After an operator repairs external compilation conditions, use retry_prepare=true."
+                    if state.get("compile_failure_input_bound") else
                     "Preserve the original properties. Inspect the named attempt reports and ask the operator to repair the tool/environment; only retry after repair. Do not replace proof goals to evade an execution error."
                     if state["status"] in {"ERROR", "NEEDS_OPERATOR", "INTERRUPTED", "CANCELLED"} else
                     "Review results using the data Skill or file tools. Use evidence for original proof observations. A deferred property remains UNPROVEN."
@@ -918,6 +966,9 @@ def controller(run_dir: Path) -> None:
     state = read_json(run_dir / "state.json")
     policy = ExecutionPolicy(**state["policy"])
     active = []
+    idle_sessions = []
+    custom_setup = (((state.get("semantic_inputs") or {}).get("extra_config") or {}).get("tcl") or {}).get("extra_commands")
+    reuse_sessions = policy.session_max_properties > 1 and state["scope"] == "selected" and not custom_setup
     inventory_child = None
     inventory_log = None
     inventory_slot = None
@@ -975,8 +1026,8 @@ def controller(run_dir: Path) -> None:
             if interrupted or (run_dir / "cancel").exists():
                 state["status"] = "CANCELLED"
                 return
-            if process.returncode != 0 or re.search(r"blackboxes\s*:\s*[1-9]|^\s*(?:Error:|Error-|Fatal)", content, re.M):
-                state["error_code"] = "formal_tool_compile_error"
+            blackboxes = re.search(r"blackboxes\s*:\s*[1-9]", content)
+            if process.returncode != 0 or blackboxes or re.search(r"^\s*(?:Error:|Error-|Fatal)", content, re.M):
                 ck_ids = state.get("checkpoint_ids", {})
                 checker = setup.with_name(f"{state['dut']}_checker.sv")
                 definitions = {}
@@ -1005,6 +1056,9 @@ def controller(run_dir: Path) -> None:
                     if len(diagnostics) == 8:
                         break
                 state["diagnostics"] = diagnostics
+                input_bound = process.returncode >= 0 and bool(blackboxes or any("path" in row for row in diagnostics))
+                state["compile_failure_input_bound"] = input_bound
+                state["error_code"] = "formal_tool_compile_error" if input_bound else "formal_tool_preparation_error"
                 raise ValueError("Formal environment preparation failed. Review the diagnostics and inventory/console.log.")
             parsed = parse_properties(content)
             if not parsed:
@@ -1024,6 +1078,13 @@ def controller(run_dir: Path) -> None:
                                            for name, item in parsed.items()}
                     state["status"] = "COMPLETED"
                     return
+                state["selected_properties"] = sorted(selected)
+            elif labels := state.get("selected_labels"):
+                resolved = {name.rsplit(".", 1)[-1]: name for name, item in parsed.items()
+                            if labels.get(name.rsplit(".", 1)[-1]) == item["kind"]}
+                if set(resolved) != set(labels) or any(observed[label] != 1 for label in labels):
+                    raise ValueError("Selected CKs did not resolve to unique, matching Assert/Cover identities in the real-tool inventory.")
+                selected = set(resolved.values())
                 state["selected_properties"] = sorted(selected)
             else:
                 selected = set(state.get("selected_properties", []))
@@ -1048,14 +1109,16 @@ def controller(run_dir: Path) -> None:
             for worker in list(active):
                 now = time.monotonic()
                 process = worker["process"]
+                session = worker["session"]
                 item = state["properties"][worker["name"]]
                 attempt = item["attempts"][-1]
                 if now - worker["member_check"] >= 1:
                     attempt["members"] = group_members(process.pid)
                     worker["member_check"] = now
-                with worker["console_path"].open("r", encoding="utf-8", errors="replace") as stream:
+                output_path = session.path if session else worker["console_path"]
+                with output_path.open("rb") as stream:
                     stream.seek(worker["output_offset"])
-                    console = stream.read()
+                    console = stream.read().decode("utf-8", errors="replace")
                     worker["output_offset"] = stream.tell()
                 console = worker["output_tail"] + console
                 worker["output_tail"] = console[-256:]
@@ -1068,19 +1131,26 @@ def controller(run_dir: Path) -> None:
                     attempt["proof_started_at"] = time.time() - (now - worker["proof_start"])
                 elapsed = now - worker["proof_start"] if worker["proof_start"] is not None else 0.0
                 forced = None
-                if process.poll() is None:
+                session_done = bool(session and re.search(rf"^UCAGENT_SESSION_DONE {worker['index']}\r?$", console, re.M))
+                if process.poll() is None and not session_done:
                     if worker["proof_start"] is None and now - worker["start"] >= policy.setup_timeout_s:
                         forced = "SETUP_TIMEOUT"
                     elif worker["proof_start"] is not None and elapsed >= worker["budget"] + policy.stop_grace_s:
                         forced = "PROOF_TIMEOUT"
                     if forced:
-                        stop_process(process.pid, attempt["identity"], policy.stop_grace_s, attempt.get("members", []))
-                        process.wait()
+                        if session:
+                            session.close(graceful=False)
+                        else:
+                            stop_process(process.pid, attempt["identity"], policy.stop_grace_s, attempt.get("members", []))
+                            process.wait()
                     else:
                         item["execution_elapsed_s"] = worker["base_elapsed"] + elapsed
                         continue
-                worker["log"].close()
-                worker["slot"].close()
+                if session:
+                    session.seal(worker["name"], worker["console_path"], worker["session_offset"], session_done)
+                else:
+                    worker["log"].close()
+                    worker["slot"].close()
                 console = worker["console_path"].read_text(encoding="utf-8", errors="replace")
                 result_block = re.search(r"^UCAGENT_RESULT_BEGIN\r?\n(.*?)^UCAGENT_RESULT_END\r?$", console, re.MULTILINE | re.DOTALL)
                 final, parse_error = None, None
@@ -1112,14 +1182,21 @@ def controller(run_dir: Path) -> None:
                     trace_hash = None
                 else:
                     trace_hash = hashlib.sha256(trace.read_bytes()).hexdigest() if trace.is_file() else None
+                returncode = 0 if session_done and process.returncode is None else process.returncode
                 attempt.update({"running": False, "ended_at": time.time(), "active_s": charged,
                                 "trace_hash": trace_hash,
                                 "witness_hash": witness_hash,
                                 "console_hash": hashlib.sha256(worker["console_path"].read_bytes()).hexdigest(),
-                                "returncode": process.returncode, "forced": forced})
+                                "returncode": returncode, "forced": forced})
                 valid = (final and final["raw_status"].split("(")[0].strip() != "NotRun"
-                         and "UCAGENT_PROOF_FINISHED" in console and process.returncode == 0
+                         and "UCAGENT_PROOF_FINISHED" in console and returncode == 0
+                         and (not session or session_done)
                          and not re.search(r"^\s*(?:Error:|Error-|Fatal)", console, re.MULTILINE))
+                if session:
+                    if valid and final["result"] in FINAL_RESULTS and not parse_error and session.jobs < policy.session_max_properties:
+                        idle_sessions.append(session)
+                    else:
+                        session.close(graceful=session_done)
                 if parse_error:
                     item["state"] = "ERROR"
                     item["error_code"] = "formal_tool_result_unsupported"
@@ -1137,6 +1214,10 @@ def controller(run_dir: Path) -> None:
                         and item["execution_elapsed_s"] < policy.property_cumulative_budget_s
                     ) else "REVIEW"
                     item["error"] = None
+                elif session and worker["proof_start"] is None and not forced and returncode is not None and returncode >= 0:
+                    reuse_sessions = False
+                    attempt["fallback_reason"] = "Shared session ended before the proof started."
+                    item["state"] = "QUEUED_FAST"
                 else:
                     item["state"] = "ERROR"
                     item["error_code"] = "formal_attempt_failed"
@@ -1155,31 +1236,66 @@ def controller(run_dir: Path) -> None:
                 if budget <= 0:
                     item["state"] = "REVIEW"
                     continue
-                slot = take_worker_slot(run_dir.parent, policy.max_active_workers)
+                reusable = (reuse_sessions and lane == "fast"
+                            and item["kind"] == "assert" and re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.$:]*", name))
+                if not reusable and idle_sessions:
+                    idle_sessions.pop().close(graceful=True)
+                session = idle_sessions[-1] if reusable and idle_sessions else None
+                slot = session.slot if session else take_worker_slot(run_dir.parent, policy.max_active_workers)
                 if slot is None:
                     break
                 index = sum(len(prop["attempts"]) for prop in state["properties"].values()) + 1
                 directory = run_dir / "attempts" / f"{index:06d}"
                 directory.mkdir(parents=True)
-                script = directory / "prove.tcl"
-                script.write_text(f"source {tcl_word(str(setup))}\nset_opt -timeout {max(1, math.ceil(budget))}s\nset_opt -bfd on\n"
-                                  f"puts [list UCAGENT_PROOF_STARTED [clock milliseconds]]\nflush stdout\nprove {tcl_word(name)}\n"
-                                  "puts [list UCAGENT_PROOF_FINISHED [clock milliseconds]]\nflush stdout\nputs UCAGENT_RESULT_BEGIN\nshow_prop -time -engine -reason\nputs UCAGENT_RESULT_END\nexit\n", encoding="utf-8")
                 console_path = directory / "console.log"
-                log = console_path.open("w")
-                process = subprocess.Popen([state["executable"], "-f", str(script), "-override", "-work_dir", str(directory)],
-                                           stdout=log, stderr=subprocess.STDOUT, start_new_session=True,
-                                           pass_fds=(slot.fileno(),))
+                commands = (f"set_opt -timeout {max(1, math.ceil(budget))}s\nset_opt -bfd on\n"
+                            f"puts [list UCAGENT_PROOF_STARTED [clock milliseconds]]\nflush stdout\nprove {tcl_word(name)}\n"
+                            "puts [list UCAGENT_PROOF_FINISHED [clock milliseconds]]\nflush stdout\n"
+                            "puts UCAGENT_RESULT_BEGIN\nshow_prop -time -engine -reason\nputs UCAGENT_RESULT_END\n")
+                script = directory / "prove.tcl"
+                if not session and reusable and any(
+                    other != name and prop["state"] == "QUEUED_FAST" and prop["kind"] == "assert"
+                    for other, prop in state["properties"].items()
+                ):
+                    from formal.session import ProofSession
+                    try:
+                        session = ProofSession(run_dir / "sessions" / f"{index:06d}", tcl_word(str(setup)),
+                                               state["executable"], slot)
+                    except BaseException:
+                        slot.close()
+                        raise
+                    idle_sessions.append(session)
+                start_offset = 0
+                log = None
+                if session:
+                    job = f"reset {tcl_word(name)}\n" + commands + f"puts [list UCAGENT_SESSION_DONE {index}]\nflush stdout\n"
+                    session.clear_witness(name)
+                    script.write_text(job, encoding="utf-8")
+                    console_path.touch()
+                    start_offset = session.submit(job)
+                    process = session.process
+                else:
+                    script.write_text(f"source {tcl_word(str(setup))}\n" + commands + "exit\n", encoding="utf-8")
+                    log = console_path.open("w")
+                    process = subprocess.Popen([state["executable"], "-f", str(script), "-override", "-work_dir", str(directory)],
+                                               stdout=log, stderr=subprocess.STDOUT, start_new_session=True,
+                                               pass_fds=(slot.fileno(),))
                 item["attempts"].append({"pid": process.pid, "identity": process_identity(process.pid), "running": True,
                                          "members": group_members(process.pid),
                                          "lane": lane, "budget_s": budget, "started_at": time.time(),
-                                         "console": str(console_path.relative_to(run_dir))})
+                                         "console": str(console_path.relative_to(run_dir)),
+                                         **({"session": str(session.directory.relative_to(run_dir))} if session else {})})
                 item["state"] = "RUNNING_FAST" if lane == "fast" else "RUNNING_SLOW"
                 active.append({"name": name, "lane": lane, "index": index, "process": process, "log": log,
-                               "console_path": console_path, "output_offset": 0, "output_tail": "", "slot": slot,
+                               "console_path": console_path, "output_offset": start_offset, "output_tail": "", "slot": slot,
+                               "session": session, "session_offset": start_offset,
                                "start": time.monotonic(), "member_check": time.monotonic(), "proof_start": None,
                                "budget": budget, "base_elapsed": item["execution_elapsed_s"]})
+                if session:
+                    idle_sessions.remove(session)
                 atomic_json(run_dir / "state.json", state)
+            while idle_sessions:
+                idle_sessions.pop().close(graceful=True)
             with (run_dir.parent / "control.lock").open("a+") as lock:
                 fcntl.flock(lock, fcntl.LOCK_EX)
                 requests = run_dir / "review_requests.json"
@@ -1226,12 +1342,18 @@ def controller(run_dir: Path) -> None:
             inventory_slot.close()
         if inventory_log is not None:
             inventory_log.close()
+        for session in idle_sessions:
+            session.close(graceful=False)
         for worker in active:
             attempt = state["properties"][worker["name"]]["attempts"][-1]
-            stop_process(worker["process"].pid, attempt["identity"], policy.stop_grace_s, attempt.get("members", []))
-            worker["process"].wait()
-            worker["log"].close()
-            worker["slot"].close()
+            if worker["session"]:
+                worker["session"].close(graceful=False)
+                worker["session"].seal(worker["name"], worker["console_path"], worker["session_offset"], completed=False)
+            else:
+                stop_process(worker["process"].pid, attempt["identity"], policy.stop_grace_s, attempt.get("members", []))
+                worker["process"].wait()
+                worker["log"].close()
+                worker["slot"].close()
             attempt["running"] = False
             state["properties"][worker["name"]]["state"] = "CANCELLED" if state["status"] == "CANCELLED" else "ERROR"
         for item in state["properties"].values():

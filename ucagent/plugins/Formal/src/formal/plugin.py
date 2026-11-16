@@ -6,7 +6,7 @@ from ucagent.core.plugins import Plugin, PluginContext, PluginWorkflow
 
 from .execution import ExecutionPolicy
 from .runtime import FormalDataRuntimeHook
-from .tools import RunFormal
+from .tools import AnalyzeFormal, RunFormal
 
 from .checkers import (
     BasicInfoStructureChecker,
@@ -32,14 +32,15 @@ def create_tools(context: PluginContext) -> list[object]:
     ExecutionPolicy.from_cfg(context.cfg)
     if not context.dut_name:
         raise ValueError("RunFormal requires a resolved DUT name")
-    return [RunFormal(
+    options = dict(
         workspace=str(context.workspace),
         output_dir=context.output_dir,
         dut=context.dut_name,
         cfg=context.cfg,
         write_dirs=list(context.write_dirs),
         un_write_dirs=list(context.un_write_dirs),
-    )]
+    )
+    return [RunFormal(**options), AnalyzeFormal(**options)]
 
 
 def get_plugin() -> Plugin:

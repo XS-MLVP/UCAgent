@@ -6,7 +6,7 @@ from pathlib import Path
 import re
 
 from .skills.lib.formal_tools import _ck_to_sv_names, proof_inputs, sva_body_issue
-from .skills.lib.models import CheckPoint, FormalRecords
+from .skills.lib.models import CheckPoint, FormalRecords, has_sva_body
 
 
 def baseline_contract(records: dict) -> dict:
@@ -63,6 +63,7 @@ def function_batch_progress(execution, records: FormalRecords) -> dict:
     baseline = verify_baseline(root, records.model_dump(exclude_none=True), required=True)
     checker = f"{execution.output_dir}/tests/{execution.dut}_checker.sv"
     context = batch_context(files, checker, executable, execution.policy, baseline["input_fingerprint"])
+    custom_setup = ((records.extra_config or {}).get("tcl") or {}).get("extra_commands")
     pending = {
         ck.id: (fg.id, fc.id, ck.style, ck.description, ck.sva_body)
         for fg in records.spec.function_groups for fc in fg.functions
@@ -83,6 +84,9 @@ def function_batch_progress(execution, records: FormalRecords) -> dict:
             active = True
             continue
         if state.get("status") not in {"COMPLETED", "AWAITING_REVIEW"}:
+            continue
+        if custom_setup and state.get("files", {}).get(checker) != files[checker]:
+            # Custom Tcl can promote a functional property into the shared environment.
             continue
         old = FormalRecords.model_validate(state["semantic_inputs"])
         by_label = {name.rsplit(".", 1)[-1]: (name, item) for name, item in state["properties"].items()}
@@ -108,8 +112,17 @@ def function_batch_progress(execution, records: FormalRecords) -> dict:
                     except (ValueError, OSError, KeyError):
                         continue
                     pending.pop(ck.id)
+    batches = []
+    for fg in records.spec.function_groups:
+        for fc in sorted(fg.functions, key=lambda point: point.review_order or float("inf")):
+            ready = [ck.id for ck in fc.check_points if ck.id in pending and has_sva_body(ck.sva_body)]
+            missing = [ck.id for ck in fc.check_points if ck.id in pending and not has_sva_body(ck.sva_body)]
+            if ready or missing:
+                batches.append({"fg_id": fg.id, "fc_id": fc.id, "ready_ck_ids": ready,
+                                "unimplemented_ck_ids": missing,
+                                "run_call": {"action": "run", "scope": "selected", "ck_ids": ready} if ready and not active else None})
     return {"total": total, "reviewed": total - len(pending), "pending": sorted(pending),
-            "active": active}
+            "active": active, "batches": batches, "baseline_fingerprint": baseline["input_fingerprint"]}
 
 
 def baseline_targets(records: dict) -> list[str]:

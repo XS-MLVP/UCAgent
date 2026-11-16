@@ -49,7 +49,7 @@ description: 批量维护 Formal 任务数据、准备当前分析队列并核�
 
 用 `prepare sva` 取得单个功能组的待补检查点及 `ready_update`，提交后继续领取下一批。用 `inspect signals --query 名称` 查白盒信号的实际名称和位宽。相关绑定与属性可同批提交，格式见 `Guide_Doc/formal_data.md`。
 
-属性体修正后，以精确 property_names 和 scope=selected 复验修改目标。后续 status/evidence/review/cancel 使用返回的 run_id。定向批保留完整 Assume，合并本轮修复后对当前输入运行完整批次。可将同一 RunFormal 请求写入 JSON，调用 `formal_data.py proof --request-file formal_test/proof_request.json`。无技能时直接使用 RunFormal。
+属性体修正后，以精确 ck_ids 和 scope=selected 复验修改目标。完整功能批次改用 fc_id。后续 status/evidence/review/cancel 使用返回的 run_id。定向批保留完整 Assume，合并本轮修复后对当前输入运行完整批次。可将同一 RunFormal 请求写入 JSON，调用 `formal_data.py proof --request-file formal_test/proof_request.json`。无技能时直接使用 RunFormal。
 
 ## 边界与无技能路径
 

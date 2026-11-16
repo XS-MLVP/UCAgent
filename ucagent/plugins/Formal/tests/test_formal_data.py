@@ -246,7 +246,7 @@ def test_data_backend_is_not_a_separate_mcp_tool(task):
     context = PluginContext(workspace=store.workspace, output_dir="proof", dut_name="PacketGate",
                             cfg=Config({"runtime_options": {}}), write_dirs=("proof",),
                             un_write_dirs=("PacketGate",), plugin_root=Path(formal_tools.__file__).parent)
-    assert [tool.name for tool in create_tools(context)] == ["RunFormal"]
+    assert [tool.name for tool in create_tools(context)] == ["RunFormal", "AnalyzeFormal"]
     assert not hasattr(formal_tools, "FormalData")
     assert not hasattr(formal_tools, "FormalDataArgs")
     assert not (store.workspace / ".ucagent" / "skills").exists()
@@ -344,7 +344,7 @@ def test_public_data_path_is_same_with_skills_enabled_or_absent(task, tmp_path, 
     context = PluginContext(workspace=store.workspace, output_dir="proof", dut_name="PacketGate", cfg=cfg,
                             write_dirs=("proof",), un_write_dirs=("PacketGate",), plugin_root=workflow.parent.parent)
     tools = create_tools(context)
-    assert [tool.name for tool in tools] == ["RunFormal"]
+    assert [tool.name for tool in tools] == ["RunFormal", "AnalyzeFormal"]
     inspected = store.inspect("spec")
     assert inspected["status"] == "ok"
     assert not (store.workspace / ".ucagent" / "skills").exists()

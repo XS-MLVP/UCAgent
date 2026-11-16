@@ -2622,7 +2622,7 @@ function _getFunctionMap(){
     openBug:bug=>openView(bug.file.path,bug.file.name,bug.file.type,0,bug.anchor),
     showFormal:(section,property,view)=>UCAgentFormalView.renderDetail(section,property,view,{
       openFile:_openFormalFile, openTrace:_openFormalTrace, trace:_queryFormalTrace,
-      runSelected:name=>_formalAction({action:"run",scope:"selected",property_names:[name]},true),
+      runSelected:_runFormalCheckpoint,
       review:(view,name,disposition,reason,nextAction,retryBudget)=>_formalAction({action:"review",scope:view.run.scope,
         run_id:view.run.run_id,property_names:[name],disposition,reason,next_action:nextAction,retry_budget_s:retryBudget})
     })
@@ -2633,6 +2633,12 @@ function _getFunctionMap(){
 function _openFormalFile(path,line=0){
   const name=path.split("/").at(-1);
   openView(path,name,name.split(".").at(-1),line);
+}
+
+/** Submit a checkpoint by its specification identity. */
+function _runFormalCheckpoint(name,view,ckId){
+  const target=ckId?{ck_ids:[ckId]}:{property_names:[name]};
+  return _formalAction({action:"run",scope:"selected",...target},true);
 }
 
 /** Query the exact proof artifact used by the model-facing Formal evidence tool. */
@@ -2744,7 +2750,7 @@ async function _refreshFormal(){
   const [scope,runId]=selected.split(":");
   const query=runId?"?"+new URLSearchParams({scope,run_id:runId}):"";
   try{
-    const {coverageActions,chatQuotes}=await UCAgentWorkbench.loadFormal();
+    const {coverageActions,chatQuotes,diagnose}=await UCAgentWorkbench.loadFormal();
     if(request!==_formalRequest||workspace!==_subWorkspace||selected!==_formalSelection)return;
     _formalChatQuotes=chatQuotes;
     document.body.classList.add("formal-workspace");
@@ -2767,9 +2773,9 @@ async function _refreshFormal(){
     const report=qs("#formal-report");
     report.hidden=false;
     if(!_formalReport)_formalReport=UCAgentFormalReport.create(report,{
-      coverageActions,
+      coverageActions,diagnose,
       openFile:_openFormalFile,openTrace:_openFormalTrace,trace:_queryFormalTrace,
-      runSelected:name=>_formalAction({action:"run",scope:"selected",property_names:[name]},true),
+      runSelected:_runFormalCheckpoint,
       review:(view,name,disposition,reason,nextAction,retryBudget)=>_formalAction({action:"review",scope:view.run.scope,
         run_id:view.run.run_id,property_names:[name],disposition,reason,next_action:nextAction,retry_budget_s:retryBudget}),
       onFilterChange:filter=>{_formalFilter=filter;_renderFormalOverview(_formalView);}

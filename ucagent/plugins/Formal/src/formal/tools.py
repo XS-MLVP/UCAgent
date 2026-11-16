@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 from ucagent.core.tools.uctool import UCTool
 from ucagent.util.file_policy import is_file_writeable, normalize_relative_path
 
+from .diagnostics import analyze
 from .execution import FormalExecution
 from .preflight import PreflightError
 from .trace import TraceQuery, TraceWindowError
@@ -87,7 +88,7 @@ class RunFormalArgs(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    action: Literal["run", "preflight", "status", "cancel", "review", "evidence", "inventory"] = Field(
+    action: Literal["run", "preflight", "status", "cancel", "review", "evidence", "inventory", "pending"] = Field(
         description="Compile with preflight, start a proof run, or inspect and review an existing batch."
     )
     wait_s: int = Field(default=300, ge=0, le=1200,
@@ -96,6 +97,11 @@ class RunFormalArgs(BaseModel):
         default_factory=list,
         description="Exact Assert/Cover names for a selected run, or exact property names for review or evidence.",
     )
+    ck_ids: list[str] = Field(default_factory=list, description="For a selected run, submit implemented Assert/Cover CK IDs.")
+    fc_id: str | None = Field(default=None, min_length=1,
+                              description="For a selected run, submit all implemented functional Assert/Cover checks in this FC.")
+    retry_prepare: bool = Field(default=False,
+                                description="Repeat a cached native compile failure after an operator has corrected the environment.")
     scope: Literal["full", "selected", "preflight"] | None = Field(
         default=None, description="For run, use selected for a diagnostic batch. Other actions infer scope from an exact run_id when omitted.")
     run_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$",
@@ -164,6 +170,9 @@ class RunFormal(UCTool):
         run_id: str | None = None,
         trace_query: TraceQuery | dict | None = None,
         retry_budget_s: int | None = None,
+        ck_ids: list[str] | None = None,
+        fc_id: str | None = None,
+        retry_prepare: bool = False,
     ) -> dict:
         """Dispatch one bounded request to the shared managed proof executor."""
         execution = FormalExecution(
@@ -179,11 +188,31 @@ class RunFormal(UCTool):
             raise ValueError("trace_query is available only with evidence.")
         if retry_budget_s is not None and (action != "review" or disposition != "retry"):
             raise ValueError("retry_budget_s is available only for a review retry.")
+        if (ck_ids or fc_id) and (action != "run" or scope != "selected"):
+            raise ValueError("ck_ids and fc_id require action=run and scope=selected.")
+        if retry_prepare and action not in {"run", "preflight"}:
+            raise ValueError("retry_prepare is available only for run or preflight.")
+        if action == "pending":
+            if run_id or scope or property_names:
+                raise ValueError("The pending plan is derived from the current frozen baseline.")
+            if not execution.batched_sva:
+                raise ValueError("The pending plan requires the batched Formal workflow and a frozen baseline.")
+            import yaml
+            from .baseline import function_batch_progress
+            from .skills.lib.models import FormalRecords
+
+            target, _, _ = execution._paths(create=False)
+            records = FormalRecords.model_validate(yaml.safe_load((target / ".formal_records.yaml").read_bytes()))
+            if records.spec is None:
+                raise ValueError("Complete the Formal specification before requesting the pending plan.")
+            result = function_batch_progress(execution, records)
+            return {"status": "ok", **result}
         if action in {"run", "preflight"}:
             if action == "preflight" and (run_id or property_names or scope not in (None, "preflight")):
                 raise ValueError("Preflight compiles the current inputs and derives baseline targets.")
-            if action == "run" and (run_id is not None or scope == "preflight" or (scope == "selected") != bool(property_names)):
-                raise ValueError("Submit a full run without property names or a selected run with exact property names.")
+            selectors = sum(map(bool, (property_names, ck_ids, fc_id)))
+            if action == "run" and (run_id is not None or scope == "preflight" or selectors != int(scope == "selected")):
+                raise ValueError("Submit a full run without targets or a selected run with one of ck_ids, fc_id, or property_names.")
             try:
                 preflight = render_environment(
                     self.workspace, self.output_dir, self.dut,
@@ -191,10 +220,17 @@ class RunFormal(UCTool):
                 )
             except PreflightError as error:
                 return error.diagnostic
+            options = {"retry_prepare": True} if retry_prepare else {}
+            if ck_ids:
+                options["ck_ids"] = ck_ids
+            if fc_id:
+                options["fc_id"] = fc_id
             if action == "preflight":
-                result = execution.run(preflight=True)
+                result = execution.run(preflight=True, **options)
+            elif property_names:
+                result = execution.run(property_names, **options)
             else:
-                result = execution.run(property_names) if scope == "selected" else execution.run()
+                result = execution.run(**options)
             if preflight and preflight["warning_total"]:
                 result["preflight"] = preflight
             return result
@@ -222,3 +258,37 @@ class RunFormal(UCTool):
             next_action=next_action,
             **batch,
         )
+
+
+class AnalyzeFormalArgs(BaseModel):
+    """Select an exact proof snapshot and one native diagnostic."""
+
+    model_config = ConfigDict(extra="forbid")
+    mode: Literal["environment", "overconstraint", "sanity", "fanin", "unreachable", "replay", "bounded_search"] = Field(
+        description="Inspect the environment, overconstraint, vacuity, fan-in or an unreachable Cover, or replay a safety counterexample.")
+    run_id: str = Field(pattern=r"^[a-f0-9]{32}$", description="Exact RunFormal batch to analyze.")
+    property_name: str | None = Field(default=None, description="Exact property for an individual diagnostic.")
+    depth: int | None = Field(default=None, strict=True, ge=1, le=100,
+                              description="Depth for overconstraint (default 10) or bounded_search (default 20).")
+
+
+class AnalyzeFormal(UCTool):
+    """Expose native FormalMC diagnostics without changing proof acceptance."""
+
+    name: str = "AnalyzeFormal"
+    description: str = (
+        "Inspect one archived RunFormal input snapshot with environment (clock, reset and assumptions), "
+        "overconstraint (bounded search), sanity (vacuity), fanin (signal dependencies), unreachable (Cover), "
+        "replay (compare a recorded counterexample against the current safety CK), or bounded_search (BMC). "
+        "Use observations to guide review. They do not change the proof verdict."
+    )
+    args_schema: type[BaseModel] = AnalyzeFormalArgs
+    execution: Any = Field(exclude=True)
+
+    def __init__(self, **context) -> None:
+        """Bind diagnostics to the same proof workspace and limits as RunFormal."""
+        super().__init__(execution=FormalExecution(**context), call_time_out=90, sync_block_log_to_client=True)
+
+    def _run(self, mode: str, run_id: str, property_name: str | None = None, depth: int | None = None) -> dict:
+        """Return bounded native output with a link to its complete log."""
+        return analyze(self.execution, run_id, mode, property_name, depth)

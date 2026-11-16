@@ -178,9 +178,9 @@ summary: null
 
 ## 定向证明与多周期证据
 
-可用 `RunFormal(action="inventory")` 列出已枚举批次的精确属性名。使用
-`RunFormal(action="run", scope="selected", property_names=[...])` 发起定向
-复验。后续查询、审阅、取消和证据读取均使用返回的 `run_id`，可一并提供 `scope`。
+用 `RunFormal(action="run", scope="selected", fc_id="FC-...")` 执行一个功能批次，
+或改用 `ck_ids=["CK-..."]` 定向复验。可用 `RunFormal(action="inventory")` 列出
+已枚举批次的精确属性名。后续查询、审阅、取消和证据读取均使用返回的 `run_id`，可一并提供 `scope`。
 定向批次使用完整 Assume，未选目标为 `NOT_EXECUTED`。完整验收仍通过当前
 输入的完整批次。
 

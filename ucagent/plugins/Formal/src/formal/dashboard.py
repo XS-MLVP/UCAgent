@@ -251,7 +251,8 @@ class FormalDashboard:
                     checks.append({
                         "id": ck["id"], "kind": "CK", "label": ck.get("description") or ck["id"],
                         "description": ck.get("description") or "", "children": [],
-                        "property": {"name": name, "kind": kind, "sva": ck.get("sva_body"), "source": checker if definition in lines else None,
+                        "property": {"name": name, "ck_id": ck["id"], "kind": kind, "sva": ck.get("sva_body"),
+                                     "source": checker if definition in lines else None,
                                      "line": lines.get(definition), "result": item.get("result"),
                                      "baseline": bool(ck.get("baseline") or kind == "assume"),
                                      "parent_ck_id": ck.get("parent_ck_id"),

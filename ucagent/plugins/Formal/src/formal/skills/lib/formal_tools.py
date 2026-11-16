@@ -327,18 +327,29 @@ def require_completed_analysis(records: FormalRecords) -> None:
         raise AnalysisPendingError(pending)
 
 def parse_coverage(tests_dir: str) -> dict:
+    """Parse counts and uncovered names from the native FormalMC cone report."""
     empty = {"covered": 0, "total": 0, "pct": 0.0}
     res = {"inputs": dict(empty), "outputs": dict(empty), "dffs": dict(empty), "nets": dict(empty), "uncovered": [], "overall_pct": 0.0}
     fp = coverage_report_path(tests_dir)
     if not fp or not os.path.exists(fp): return res
     with open(fp, 'r', encoding='utf-8', errors='ignore') as f: content = f.read()
+    reports = list(re.finditer(r"^\[\d+\] fanin -cover\b[^\n]*$", content, re.MULTILINE))
+    if reports:
+        content = re.split(r"^\[\d+\] fanin\b", content[reports[-1].end():], maxsplit=1, flags=re.MULTILINE)[0]
     _NAME_MAP = {'input': 'inputs', 'inputs': 'inputs', 'output': 'outputs', 'outputs': 'outputs', 'dff': 'dffs', 'dffs': 'dffs', 'net': 'nets', 'nets': 'nets'}
     for m in re.finditer(r'(Inputs?|Outputs?|Dffs?|Nets?)\s*:\s*(\d+)\s*/\s*(\d+)\s+(\d+(?:\.\d+)?)%', content, re.IGNORECASE):
         key = _NAME_MAP.get(m.group(1).lower())
         if key:
             pct = float(m.group(4)); res[key] = {"covered": int(m.group(2)), "total": int(m.group(3)), "pct": pct}
             if key == "nets": res["overall_pct"] = pct
-    res["uncovered"] = re.findall(r'^\s*-\s+(\S+)', content, re.MULTILINE)
+    if reports:
+        # A signal can appear in both the Net and another category.
+        res["uncovered"] = list(dict.fromkeys(re.findall(
+            r"^[ \t]*(?:Undriven|Input|Output|Dff|Latch|Net|Cut)[ \t]*:[ \t]+([^\s/]+)[ \t]*$",
+            content, re.MULTILINE,
+        )))
+    else:
+        res["uncovered"] = list(dict.fromkeys(re.findall(r'^\s*-\s+(\S+)', content, re.MULTILINE)))
     return res
 
 # =============================================================================

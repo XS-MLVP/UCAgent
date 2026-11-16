@@ -35,7 +35,7 @@ function harness(){
   const context=vm.createContext({document,console,localStorage:{getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)}});
   for(const file of ['formal-view.js','formal-report.js'])vm.runInContext(fs.readFileSync(path.join(share,file),'utf8'),context);
   const container=document.createElement('div');document.body.append(container);
-  const actions={openFile:(...args)=>calls.push(['file',...args]),openTrace:(...args)=>calls.push(['wave',...args]),runSelected:(...args)=>calls.push(['run',...args]),review:(...args)=>calls.push(['review',...args]),trace:async(...args)=>{calls.push(['trace',...args]);return {first_tick:'0',last_tick:'10',time_magnitude:'1',time_unit:'ns',total:1,signals:[{path:'top.clk',width:1}],next_cursor:null};}};
+  const actions={openFile:(...args)=>calls.push(['file',...args]),openTrace:(...args)=>calls.push(['wave',...args]),runSelected:(...args)=>calls.push(['run',...args]),review:(...args)=>calls.push(['review',...args]),diagnose:(...args)=>calls.push(['diagnose',...args]),trace:async(...args)=>{calls.push(['trace',...args]);return {first_tick:'0',last_tick:'10',time_magnitude:'1',time_unit:'ns',total:1,signals:[{path:'top.clk',width:1}],next_cursor:null};}};
   const report=context.UCAgentFormalReport.create(container,actions);
   return {document,container,report,actions,calls,storage,api:context.UCAgentFormalView};
 }
@@ -94,6 +94,36 @@ function action(node,label){return node.querySelectorAll('button').find(child=>c
   assert.equal(content.querySelectorAll('.formal-report-inline-sva').length,1);
   assert(content.querySelector('.formal-trace'));
   action(content,'Open SVA').click();assert.deepEqual(h.calls[0],['file','tests/checker.sv',17]);
+ });
+
+ test('Native diagnostic actions target the visible current run and property',()=>{
+  const h=harness(),view=fixture(),ck=view.groups[0].children[0].children[0];
+  ck.property.result='TRIVIALLY_TRUE';
+  h.report.update(view,{workspaceKey:'one'});
+  action(h.container,'检查空泛性').click();
+  action(h.container,'查看信号依赖').click();
+  assert.deepEqual(h.calls,[
+    ['diagnose','sanity','run-1','top.CK-FAIL'],
+    ['diagnose','fanin','run-1','top.CK-FAIL']
+  ]);
+  h.report.update({...view,freshness:'historical'},{workspaceKey:'one'});
+  assert.equal(action(h.container,'检查空泛性'),undefined);
+  assert.equal(action(h.container,'查看信号依赖'),undefined);
+ });
+
+ test('Recorded failures can be replayed from live history and unreachable Covers can be opened',()=>{
+  const h=harness(),view=fixture(),checks=view.groups[0].children[0].children;
+  Object.assign(checks[1].property,{kind:'cover',result:'COVER_UNREACHABLE'});
+  h.report.update(view,{workspaceKey:'one'});
+  action(h.container,'分析不可达').click();
+  h.report.update({...view,freshness:'historical'},{workspaceKey:'one'});
+  action(h.container,'回放反例').click();
+  assert.deepEqual(h.calls,[
+    ['diagnose','unreachable','run-1','top.CK-PASS'],
+    ['diagnose','replay','run-1','top.CK-FAIL']
+  ]);
+  h.report.update({...view,archived:true},{workspaceKey:'one'});
+  assert.equal(action(h.container,'回放反例'),undefined);
  });
 
  test('Polling, node changes and filtering preserve context without losing forms or admitting stale workspace actions',()=>{

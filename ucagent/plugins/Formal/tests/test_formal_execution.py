@@ -82,7 +82,17 @@ def rows(kind=None, target=None, status='NotRun(-1)'):
         print(f" {index} {prop['name']} : {value}\tpdrx\t0.01\t(-)", flush=True)
 
 match = re.search(r'^prove\s+"([^"\n]+)"', script, re.M)
-if not match:
+if "UCAGENT_DIAG_BEGIN_" in script:
+    for line in script.splitlines():
+        if line.startswith("puts UCAGENT_DIAG_"):
+            print(line.removeprefix("puts "), flush=True)
+        elif line.startswith(("clk_ana", "rst_ana", "show_cons", "check_overcons", "prop_sanity", "fanin")):
+            print(f"Native observation for {line}", flush=True)
+    sys.exit(0)
+if not match and 'file rename -force request.tcl active.tcl' not in script:
+    if os.environ.get('FAKE_FORMAL_PREPARATION_ERROR'):
+        print('Error: license server unavailable', flush=True)
+        sys.exit(2)
     if os.environ.get('FAKE_FORMAL_COMPILE_ERROR'):
         original = Path(re.search(r'source "([^"]+)"', script).group(1))
         checker = original.with_name('DUT_checker.sv')
@@ -98,28 +108,58 @@ if not match:
     print('UCAGENT_COVER_END', flush=True)
     sys.exit(0)
 
-name = match.group(1)
-budget = int(re.search(r'set_opt -timeout\s+(\d+)s', script).group(1))
-print('UCAGENT_PROOF_STARTED', flush=True)
-if 'CRASH' in name:
-    time.sleep(0.15)
-    print('Error: proof worker failed', flush=True)
-    sys.exit(2)
-if 'SLOW' in name:
-    time.sleep(budget)
-    result = 'Undet (42)'
-else:
-    time.sleep(0.15)
-    result = 'TrivF (0)' if 'STATIC_FALSE' in name else 'Unsupported' if 'UNSUPPORTED' in name else 'Fail (2)' if 'WITNESS' in name else 'Pass'
-if 'WITNESS' in name:
+def prove_script(script):
+    """Simulate one exact tool job and publish its test outputs."""
+    match = re.search(r'^prove\s+"([^"\n]+)"', script, re.M)
+    name = match.group(1)
+    budget = int(re.search(r'set_opt -timeout\s+(\d+)s', script).group(1))
+    print('UCAGENT_PROOF_STARTED', flush=True)
+    if 'CRASH' in name:
+        time.sleep(0.15)
+        print('Error: proof worker failed', flush=True)
+        sys.exit(2)
+    if 'SLOW' in name:
+        time.sleep(budget)
+        result = 'Undet (42)'
+    else:
+        time.sleep(0.15)
+        result = 'TrivF (0)' if 'STATIC_FALSE' in name else 'Unsupported' if 'UNSUPPORTED' in name else 'Fail (2)' if 'WITNESS' in name else 'Pass'
+    if 'WITNESS' in name:
+        work = Path(sys.argv[sys.argv.index('-work_dir') + 1])
+        witness = work / 'avis' / name / (name + '.tb.v')
+        witness.parent.mkdir(parents=True, exist_ok=True)
+        witness.write_text("// initialization\ninitial begin\ninput_data <= 8'b10100101;\nvalid <= 1'b1;\nend\n")
+        if os.environ.get("FAKE_FORMAL_REPLAY"):
+            trace = witness.with_name(name + ".vcd")
+            trace.write_text(
+                "$timescale 1 ns $end\n$scope module DUT_wrapper $end\n"
+                "$var wire 1 ! clk $end\n$var wire 1 # req $end\n"
+                "$var wire 1 $ ack $end\n$var wire 1 % rst_n $end\n"
+                "$upscope $end\n$enddefinitions $end\n"
+                "#0\n0!\n1#\n0$\n1%\n#5\n1!\n#10\n0!\n#15\n1!\n"
+            )
+    print('UCAGENT_PROOF_FINISHED', flush=True)
+    print('UCAGENT_RESULT_BEGIN', flush=True)
+    rows(target=name, status=result)
+    print('UCAGENT_RESULT_END', flush=True)
+
+if 'file rename -force request.tcl active.tcl' in script:
     work = Path(sys.argv[sys.argv.index('-work_dir') + 1])
-    witness = work / 'avis' / name / (name + '.tb.v')
-    witness.parent.mkdir(parents=True, exist_ok=True)
-    witness.write_text("// initialization\ninitial begin\ninput_data <= 8'b10100101;\nvalid <= 1'b1;\nend\n")
-print('UCAGENT_PROOF_FINISHED', flush=True)
-print('UCAGENT_RESULT_BEGIN', flush=True)
-rows(target=name, status=result)
-print('UCAGENT_RESULT_END', flush=True)
+    request = work / 'request.tcl'
+    active = work / 'active.tcl'
+    while True:
+        if not request.is_file():
+            time.sleep(0.015)
+            continue
+        request.replace(active)
+        job = active.read_text()
+        if job.strip() == 'exit':
+            sys.exit(0)
+        prove_script(job)
+        marker = re.search(r'puts \[list UCAGENT_SESSION_DONE (\d+)\]', job)
+        print(f'UCAGENT_SESSION_DONE {marker[1]}', flush=True)
+else:
+    prove_script(script)
 ''',
         encoding="utf-8",
     )
@@ -266,6 +306,108 @@ def test_run_is_idempotent_and_preserves_cover_type(execution_factory):
     assert execution.run()["run_id"] == first["run_id"]
     state = state_for(workspace, done)
     assert all(len(item["attempts"]) == 1 for item in state["properties"].values())
+
+
+def test_native_diagnostics_use_frozen_inputs_and_preserve_proof(execution_factory):
+    """Bound native commands to a stored run and reject a modified snapshot."""
+    from formal.tools import AnalyzeFormal
+
+    execution, workspace = execution_factory(("A_FAST",))
+    submitted = execution.run()
+    done = wait_for(execution, lambda item: item["status"] == "COMPLETED")
+    tool = AnalyzeFormal(workspace=str(workspace), output_dir="output", dut="DUT",
+                         cfg=Config(vars(execution.policy)))
+    before = (workspace / done["state_artifact"]).read_bytes()
+    request = {"run_id": submitted["run_id"]}
+    env = tool.invoke({**request, "mode": "environment"})
+    assert env["status"] == "completed", env
+    assert env["observations"]["reset"]["lines"] == ["Native observation for rst_ana"]
+    assert (workspace / env["log"]).is_file()
+    depth = tool.invoke({**request, "mode": "overconstraint", "depth": 7})
+    assert depth["search_depth"] == 7
+    assert depth["observations"]["overconstraint"]["lines"] == ["Native observation for check_overcons -depth 7"]
+    for mode, command in (("sanity", 'prop_sanity -vac2 "A_FAST"'), ("fanin", 'fanin -assertion "A_FAST" -list -disp')):
+        result = tool.invoke({**request, "mode": mode, "property_name": "A_FAST"})
+        assert result["observations"][mode]["command"] == command
+    with pytest.raises(ValueError, match="exact Assert/Cover name"):
+        tool.invoke({**request, "mode": "fanin", "property_name": "A_*"})
+    assert (workspace / done["state_artifact"]).read_bytes() == before
+    setup = (workspace / done["state_artifact"]).parent / "inputs" / "output" / "tests" / "setup.tcl"
+    setup.write_text("exit\n")
+    with pytest.raises(ValueError, match="does not match the input snapshot"):
+        tool.invoke({**request, "mode": "environment"})
+
+
+def test_fast_assertions_share_only_a_bounded_session_and_keep_separate_receipts(execution_factory):
+    """A timeout leaves a fresh slow turn and a combined session preserves distinct evidence."""
+    execution, workspace = execution_factory(("A_FAST", "A_WITNESS", "A_SLOW"), session_max_properties=2)
+    run = execution.run(["A_FAST", "A_WITNESS", "A_SLOW"])
+    batch = {"scope": "selected", "run_id": run["run_id"]}
+    finished = wait_for(execution, lambda item: item["status"] not in ACTIVE_RUNS, **batch)
+    assert finished["status"] == "AWAITING_REVIEW", finished
+    props = state_for(workspace, finished)["properties"]
+    fast, witness = (props[name]["attempts"][0] for name in ("A_FAST", "A_WITNESS"))
+    assert fast["pid"] == witness["pid"]
+    assert fast["console"] != witness["console"]
+    assert not any("session" in attempt for attempt in props["A_SLOW"]["attempts"])
+    assert [attempt["lane"] for attempt in props["A_SLOW"]["attempts"]] == ["fast", "slow"]
+    evidence = execution.evidence(["A_FAST", "A_WITNESS"], **batch)["items"]
+    assert [(item["result"], bool(item["witness_sha256"])) for item in evidence] == [("PROVEN", False), ("FALSIFIED", True)]
+
+
+def test_cancel_cleans_a_running_shared_session(execution_factory):
+    """Cancelling the selected scope reclaims the shared process before any later CK runs."""
+    execution, workspace = execution_factory(("A_SLOW", "A_FAST"), session_max_properties=2, first_pass_budget_s=4,
+                                             analysis_threshold_s=6)
+    run = execution.run(["A_SLOW", "A_FAST"])
+    batch = {"scope": "selected", "run_id": run["run_id"]}
+    wait_for(execution, lambda item: item["states"].get("RUNNING_FAST"), **batch)
+    execution.cancel(**batch)
+    stopped = wait_for(execution, lambda item: item["status"] == "CANCELLED", **batch)
+    props = state_for(workspace, stopped)["properties"]
+    assert props["A_SLOW"]["attempts"][0]["session"]
+    assert not props["A_SLOW"]["attempts"][0]["running"]
+    assert not props["A_FAST"]["attempts"]
+
+
+def test_replay_reproduces_old_failure_before_checking_current_body(execution_factory, monkeypatch):
+    """Use the sealed witness across body edits, and reject a baseline or source change."""
+    import yaml
+    from formal.tools import AnalyzeFormal
+
+    pytest.importorskip("wavekit")
+    pytest.importorskip("pyslang")
+    name = "u_checker.A_CK_WITNESS"
+    execution, workspace = execution_factory((name,))
+    monkeypatch.setenv("FAKE_FORMAL_REPLAY", "1")
+    output = workspace / "output"
+    (output / "tests" / "DUT_wrapper.sv").write_text("  u_checker (.clk(clk), .rst_n(rst_n), .req(req), .ack(ack));")
+    ck = {"id": "CK-WITNESS", "style": "Seq", "description": "Request acknowledged",
+          "sva_body": "@(posedge clk) disable iff (!rst_n) req |-> ack;"}
+    records = {"dut": "DUT", "spec": {"function_groups": [{"id": "FG-REQUEST", "functions": [
+        {"id": "FC-ACK", "check_points": [ck]},
+    ]}]}}
+    records_file = output / ".formal_records.yaml"
+    records_file.write_text(yaml.safe_dump(records))
+    submitted = execution.run()
+    finished = wait_for(execution, lambda item: item["status"] == "COMPLETED")
+    tool = AnalyzeFormal(workspace=str(workspace), output_dir="output", dut="DUT", cfg=Config(vars(execution.policy)))
+    request = {"mode": "replay", "run_id": submitted["run_id"], "property_name": name}
+    replayed = tool.invoke(request)
+    assert replayed["status"] == "still_fails", replayed
+    assert replayed["check_tick"] == "5"
+    ck["sva_body"] = "@(posedge clk) disable iff (!rst_n) req |-> !ack;"
+    records_file.write_text(yaml.safe_dump(records))
+    changed = tool.invoke(request)
+    assert changed["status"] == "triggered_no_failure_in_trace", changed
+    assert changed["checked"] == 2
+    assert state_for(workspace, finished)["properties"][name]["result"] == "FALSIFIED"
+    ck["sva_body"] = "@(posedge clk) req |-> s_eventually ack;"
+    records_file.write_text(yaml.safe_dump(records))
+    assert tool.invoke(request)["status"] == "insufficient_evidence"
+    (workspace / "DUT" / "dut.sv").write_text("module DUT; logic changed; endmodule\n")
+    rejected = tool.invoke(request)
+    assert rejected["status"] == "insufficient_evidence" and "RTL" in rejected["reason"]
 
 
 def test_long_target_yields_to_fast_targets_then_needs_review(execution_factory):
@@ -522,7 +664,8 @@ def test_actual_formalmc_short_design(tmp_path):
         "module DUT(input logic clk,rst_n,en,input logic [3:0] d);\n"
         "logic [3:0] q; always @(posedge clk) if(!rst_n) q<=0; else if(en) q<=d;\n"
         "A_HOLD: assert property (@(posedge clk) disable iff(!rst_n) !en |=> $stable(q));\n"
-        "A_BAD: assert property (@(posedge clk) disable iff(!rst_n) q==0);\nendmodule\n"
+        "A_BAD: assert property (@(posedge clk) disable iff(!rst_n) q==0);\n"
+        "C_NEVER: cover property (@(posedge clk) disable iff(!rst_n) en && !en);\nendmodule\n"
     )
     tests = workspace / "output" / "tests"
     tests.mkdir(parents=True)
@@ -537,7 +680,7 @@ def test_actual_formalmc_short_design(tmp_path):
     policy = dict(first_pass_budget_s=1, analysis_threshold_s=2,
                   max_active_workers=1, slow_queue_max_workers=1,
                   setup_timeout_s=10, stop_grace_s=1,
-                  max_review_rounds=1, property_cumulative_budget_s=3)
+                  max_review_rounds=1, property_cumulative_budget_s=3, session_max_properties=2)
     execution = FormalExecution(str(workspace), "output", "DUT", Config(policy))
     try:
         execution.run()
@@ -546,10 +689,90 @@ def test_actual_formalmc_short_design(tmp_path):
         assert done["status"] == "COMPLETED", state
         assert state["properties"]["A_HOLD"]["result"] == "PROVEN"
         assert state["properties"]["A_BAD"]["result"] == "FALSIFIED"
+        assert state["properties"]["C_NEVER"]["result"] == "COVER_UNREACHABLE"
         assert execution.check()[0] is True
+        from formal.tools import AnalyzeFormal
+        tool = AnalyzeFormal(workspace=str(workspace), output_dir="output", dut="DUT", cfg=Config(policy))
+        request = {"run_id": done["run_id"]}
+        env = tool.invoke({**request, "mode": "environment"})
+        assert env["status"] == "completed", env
+        assert "posedge, clk" in env["observations"]["clock"]["lines"]
+        bounded = tool.invoke({**request, "mode": "overconstraint", "depth": 7})
+        assert bounded["status"] == "completed", bounded
+        cone = tool.invoke({**request, "mode": "fanin", "property_name": "A_HOLD"})
+        assert cone["status"] == "completed", cone
+        assert {"kind": "input", "signal": "en"} in cone["signals"]
+        sanity = tool.invoke({**request, "mode": "sanity", "property_name": "A_HOLD"})
+        if sanity["status"] == "unavailable":
+            assert sanity["required_feature"] == "FormalVac"
+        else:
+            assert sanity["status"] == "completed", sanity
+        unreachable = tool.invoke({**request, "mode": "unreachable", "property_name": "C_NEVER"})
+        assert unreachable["observed_cover_result"] == "COVER_UNREACHABLE", unreachable
+        bounded_search = tool.invoke({**request, "mode": "bounded_search", "property_name": "A_BAD", "depth": 7})
+        assert bounded_search["search_outcome"] == "counterexample", bounded_search
+        assert bounded_search["requested_depth"] == 7
+        assert execution.check()[0] is True
+        selected = execution.run(["A_HOLD", "A_BAD"])
+        batch = {"run_id": selected["run_id"], "scope": "selected"}
+        finished = wait_for(execution, lambda item: item["status"] not in ACTIVE_RUNS, timeout=25, **batch)
+        assert finished["status"] == "COMPLETED", state_for(workspace, finished)
+        isolated_results = execution.evidence(["A_HOLD", "A_BAD"], **batch)
+        assert {row["result"] for row in isolated_results["items"]} == {"PROVEN", "FALSIFIED"}
+        attempts = state_for(workspace, finished)["properties"]
+        assert attempts["A_HOLD"]["attempts"][0]["pid"] == attempts["A_BAD"]["attempts"][0]["pid"]
+        assert execution.status()["run_id"] == done["run_id"]
     finally:
         execution.cancel()
         wait_for(execution, lambda item: item["status"] not in ACTIVE_RUNS)
+
+
+@pytest.mark.skipif(os.environ.get("FORMALMC_INTEGRATION") != "1", reason="Requires licensed FormalMC")
+def test_actual_formalmc_counterexample_replay(tmp_path):
+    """Replay a real native VCD against a revised assertion in the generated checker."""
+    import yaml
+    from formal.tools import AnalyzeFormal, RunFormal
+    from ucagent.util.config import Config as RuntimeConfig
+
+    if not shutil.which("FormalMC"):
+        pytest.skip("FormalMC is unavailable")
+    workspace = tmp_path
+    (workspace / "DUT").mkdir()
+    (workspace / "DUT" / "DUT.sv").write_text(
+        "module DUT(input logic clk, rst_n, req, output logic armed, ack);\n"
+        "logic startup;\n"
+        "always @(posedge clk) if (!rst_n) begin startup <= 0; armed <= 0; end\n"
+        "else begin startup <= 1; armed <= startup; end\n"
+        "assign ack = !req;\nendmodule\n"
+    )
+    (workspace / "output").mkdir()
+    path = workspace / "output" / ".formal_records.yaml"
+    ck = {"id": "CK-ACK", "style": "Seq", "description": "Active request is acknowledged",
+          "sva_body": "@(posedge clk) disable iff (!rst_n) (armed && req) |-> ack;"}
+    records = {"dut": "DUT", "basic_info": {"clock_reset": {
+        "clock_signal": "clk", "clock_count": "1", "reset_signal": "rst_n", "reset_type": "低有效同步",
+    }}, "spec": {"function_groups": [{"id": "FG-IO", "functions": [{"id": "FC-ACK", "check_points": [ck]}]}]}}
+    path.write_text(yaml.safe_dump(records))
+    cfg = RuntimeConfig({"runtime_options": {"formal_execution": {"max_active_workers": 1}}})
+    arguments = {"workspace": str(workspace), "output_dir": "output", "dut": "DUT", "cfg": cfg}
+    tool = RunFormal(**arguments)
+    run = tool.invoke({"action": "run", "scope": "selected", "ck_ids": ["CK-ACK"]})
+    batch = {"run_id": run["run_id"], "scope": "selected"}
+    execution = FormalExecution(**arguments)
+    try:
+        finished = wait_for(execution, lambda item: item["status"] not in ACTIVE_RUNS, **batch)
+        assert finished["counts"] == {"FALSIFIED": 1}, state_for(workspace, finished)
+        request = {"mode": "replay", "run_id": run["run_id"], "property_name": finished["selected_properties"][0]}
+        analyzer = AnalyzeFormal(**arguments)
+        before = analyzer.invoke(request)
+        assert before["status"] == "still_fails", before
+        ck["sva_body"] = "@(posedge clk) disable iff (!rst_n) (armed && req) |-> !ack;"
+        path.write_text(yaml.safe_dump(records))
+        after = analyzer.invoke(request)
+        assert after["status"] == "triggered_no_failure_in_trace", after
+        assert after["original_failure"]["check_tick"] == before["check_tick"]
+    finally:
+        execution.cancel(**batch)
 
 
 def test_selected_scope_cannot_change_full_pointer_or_cancel_full(execution_factory):
@@ -670,7 +893,7 @@ def test_frozen_preflight_and_function_batches_are_separate_from_full_acceptance
     from ucagent.util.config import Config as RuntimeConfig
 
     cover = "u_checker.C_CK_READY"
-    first = "u_checker.A_CK_FIRST"
+    first = "top.u_checker.A_CK_FIRST"
     second = "u_checker.A_CK_SECOND"
     execution, workspace = execution_factory((cover,))
     runtime_cfg = RuntimeConfig({"runtime_options": {"formal_batched_sva": True,
@@ -701,8 +924,19 @@ def test_frozen_preflight_and_function_batches_are_separate_from_full_acceptance
     assert failed["error_code"] == "formal_tool_compile_error", failed
     assert failed["diagnostics"][0]["ck_id"] == "CK-READY"
     assert failed["diagnostics"][0]["path"] == "output/tests/DUT_checker.sv"
+    cached = tool.invoke({"action": "preflight"})
+    assert cached["run_id"] == bad["run_id"]
+    assert cached["reused_compile_failure"]
     monkeypatch.delenv("FAKE_FORMAL_COMPILE_ERROR")
+    monkeypatch.setenv("FAKE_FORMAL_PREPARATION_ERROR", "1")
+    transient = tool.invoke({"action": "preflight", "retry_prepare": True})
+    assert transient["run_id"] != bad["run_id"]
+    status = wait_for(execution, lambda item: item["status"] not in ACTIVE_RUNS,
+                      scope="preflight", run_id=transient["run_id"])
+    assert status["error_code"] == "formal_tool_preparation_error"
+    monkeypatch.delenv("FAKE_FORMAL_PREPARATION_ERROR")
     preflight = tool.invoke({"action": "preflight"})
+    assert preflight["run_id"] != transient["run_id"]
     smoke = wait_for(execution, lambda item: item["status"] not in ACTIVE_RUNS,
                      scope="preflight", run_id=preflight["run_id"])
     assert smoke["status"] == "COMPLETED", smoke
@@ -712,31 +946,41 @@ def test_frozen_preflight_and_function_batches_are_separate_from_full_acceptance
     assert execution.freeze_baseline(accept=False)["preflight_complete"]
     assert not (out / "formal_runs" / "baseline.json").exists()
     assert execution.freeze_baseline()["preflight_complete"]
-    assert store.prepare("sva")["fc_id"] == "FC-FIRST"
+    first_batch = store.prepare("sva")
+    assert first_batch["fc_id"] == "FC-FIRST"
+    assert first_batch["run_call"] == {"action": "run", "scope": "selected", "fc_id": "FC-FIRST"}
     assert store.prepare("sva", function="FC-SECOND")["check_points"]["items"][0]["property_name"] == second
+    with pytest.raises(ValueError, match="Implement the selected Assert/Cover"):
+        tool.invoke({"action": "run", "scope": "selected", "ck_ids": ["CK-SECOND"]})
     with pytest.raises(ValueError, match="Frozen Formal baseline changed"):
         store.update("spec", None, {"CK-READY": "@(posedge clk) b;"}, store.inspect("spec")["sha256"])
 
-    def run_selected(name, known):
+    def run_selected(name, known, **selector):
         """Generate a real checker and record exactly the diagnostic target."""
         monkeypatch.setenv("FAKE_FORMAL_PROPERTIES", json.dumps(
             [{"name": cover, "kind": "cover"}, *({"name": n, "kind": "assert"} for n in known)]))
-        result = tool.invoke({"action": "run", "scope": "selected", "property_names": [name]})
+        request = {"action": "run", "scope": "selected", **selector}
+        result = tool.invoke(request)
         done = wait_for(execution, lambda item: item["status"] not in ACTIVE_RUNS,
                         scope="selected", run_id=result["run_id"])
         assert done["status"] == "COMPLETED", done
         assert done["counts"]["PROVEN"] == 1
+        assert done["selected_properties"] == [name]
         assert not done["proof_complete"]
+        assert tool.invoke(request)["run_id"] == result["run_id"]
 
     ck_first["sva_body"] = "!a |-> !y;"
     path.write_text(yaml.safe_dump(records))
-    run_selected(first, [first])
+    run_selected(first, [first], ck_ids=["CK-FIRST"])
     assert function_batch_progress(execution, FormalRecords.model_validate(records))["pending"] == ["CK-SECOND"]
+    plan = tool.invoke({"action": "pending"})
+    assert plan["batches"] == [{"fg_id": "FG-FUNCTION", "fc_id": "FC-SECOND", "ready_ck_ids": [],
+                                "unimplemented_ck_ids": ["CK-SECOND"], "run_call": None}]
     with pytest.raises(ValueError, match="Complete all SVA"):
         tool.invoke({"action": "run"})
     ck_second["sva_body"] = "(a && b) |-> y;"
     path.write_text(yaml.safe_dump(records))
-    run_selected(second, [first, second])
+    run_selected(second, [first, second], fc_id="FC-SECOND")
     current = FormalRecords.model_validate(records)
     assert function_batch_progress(execution, current)["pending"] == []
     assert execution.status()["status"] == "NOT_STARTED"
@@ -744,6 +988,8 @@ def test_frozen_preflight_and_function_batches_are_separate_from_full_acceptance
     path.write_text(yaml.safe_dump(records))
     render_environment(str(workspace), "output", "DUT")
     assert function_batch_progress(execution, FormalRecords.model_validate(records))["pending"] == ["CK-FIRST"]
+    plan = tool.invoke({"action": "pending"})
+    assert plan["batches"][0]["run_call"] == {"action": "run", "scope": "selected", "ck_ids": ["CK-FIRST"]}
 
     shared["sva_body"] = "@(posedge clk) b;"
     path.write_text(yaml.safe_dump(records))

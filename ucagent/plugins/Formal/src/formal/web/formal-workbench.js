@@ -929,5 +929,6 @@ export function mount(markup,createCoverageActions,{bindTabs,createTaskCard},mou
   new MutationObserver(updateContent).observe(q('#workspace-content'),{attributes:true,attributeFilter:['class']});
   setInterval(refresh,3000);
   sync();
-  return {coverageActions,chatQuotes};
+  return {coverageActions,chatQuotes,
+    diagnose:(mode,runId,propertyName)=>invoke('AnalyzeFormal',{mode,run_id:runId,property_name:propertyName})};
 }
