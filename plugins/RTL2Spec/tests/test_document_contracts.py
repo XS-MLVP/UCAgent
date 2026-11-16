@@ -120,6 +120,51 @@ def test_runtime_guide_example_satisfies_the_draft_contract(tmp_path):
     assert result["ok"], result
 
 
+@pytest.mark.parametrize("public_status", [False, True])
+def test_public_status_table_keeps_the_existing_structure(documents, public_status):
+    """Synthetic public encodings and an evidence-backed empty table keep draft structure valid."""
+    design, _ = artifact_paths(documents, "Sbuffer")
+    text = design.read_text(encoding="utf-8")
+    if public_status:
+        header = "| 状态/编码 ID | 名称或编码 | 进入条件 | 退出条件 | reset 值 / 复位行为 | 证据 |"
+        table = header + "\n| --- | --- | --- | --- | --- | --- |"
+        text = text.replace(table, table + "\n| `STATE-STATUS` | public response status: OK=0 | response accepted | next response | response invalid during reset | `E-RTL-01` |")
+        text = text.replace("没有公开状态或协议编码，本表不适用，依据 E-RTL-01；复位电平不改变输出关系。",
+                            "Synthetic structure-only example: public response status encoding; no hardware behavior is proved.")
+    else:
+        assert "`STATE-01`" not in text
+        assert "本表不适用" in text
+    design.write_text(text, encoding="utf-8")
+    update_metadata(documents, "Sbuffer", "Generic", generic=True)
+    result = validate(documents, "Sbuffer", "Generic", "draft", generic=True)
+    assert result["ok"], result
+
+
+def test_generation_resources_preserve_the_behavioral_boundary():
+    """Writing rules agree without adding a runtime semantic or keyword gate."""
+    template = TEMPLATE.read_text(encoding="utf-8")
+    generation = (TEMPLATE.parent / "generation-guide.md").read_text(encoding="utf-8")
+    review = (TEMPLATE.parent / "source-review-guide.md").read_text(encoding="utf-8")
+    for text in (template, generation, review):
+        for obligation in ("内部控制 FSM", "事务历史", "P/CK/COV/CASE"):
+            assert obligation in text
+    for guide in (generation, review):
+        assert "Guide_Doc/chip_design_document_template_zh.md" in guide
+    for obligation in ("公开状态", "payload 保持", "吞吐"):
+        assert obligation in template
+    for text in (template, review):
+        for obligation in ("公开输出的实际驱动式", "完整条件及寄存延迟",
+                           "内部控制退出条件与公开完成输出", "控制阶段进入/退出"):
+            assert obligation in text
+    assert "配置对输出的作用须有驱动路径依据" in template
+    assert "确认配置分支确实影响该输出" in review
+    assert "semantic_review.json" in review and "真实内部 RTL 表达" in review
+    timing = next(section for section in ARTIFACT_TEXT["contract"]["required_prose_sections"]
+                  if section["title"] == "时序与状态")
+    assert "内部控制 FSM" in timing["description"]
+    assert "仍须描述接口时序" in timing["description"]
+
+
 def test_quality_report_blocks_keep_canonical_order_and_level(documents):
     """The six audit blocks cannot be hidden by reordering or demoting headings."""
     _, report = artifact_paths(documents, "Sbuffer")
