@@ -418,18 +418,7 @@ html[data-theme="light"] #layout.fc-formal {
 .fc-quote-editor button:hover { background: var(--surface2); color: var(--text); }
 .fc-quote-editor .fc-quote-confirm { background: var(--text); color: var(--surface); }
 .fc-quote-editor .fc-quote-confirm:hover { background: var(--fc-accent); color: #fff; }
-.fc-chat-quotes {
-  display: flex;
-  flex-direction: column;
-  width: min(calc(100% - 2 * clamp(12px, 2vw, 25px)), 340px);
-  max-height: min(232px, 26vh);
-  margin: 0 clamp(12px, 2vw, 25px) 7px auto;
-}
-.fc-quote-count { flex: none; margin: 0 0 4px 4px; color: var(--fc-muted); font-size: 11px; }
-.fc-quote-cards { display: flex; flex-direction: column; gap: 6px; min-height: 0; padding: 2px; overflow: auto; scrollbar-width: thin; }
-.fc-formal .fc-chat-quotes .fc-chat-quote { flex: none; width: 100%; padding: 7px 10px; }
 .fc-quote-content + .fc-quote-content { margin-top: 6px; padding-top: 4px; border-top: 1px solid var(--fc-line); }
-.fc-chat-quote blockquote { max-height: 52px; overflow: auto; }
 .fc-chat-quote button {
   flex: none;
   width: 22px;
@@ -450,15 +439,38 @@ html[data-theme="light"] #layout.fc-formal {
 .fc-chat-split { cursor: ns-resize; height: 10px; position: relative; touch-action: none; border-block-start: 1px solid var(--fc-line); }
 .fc-chat-split::after { content: ''; width: 34px; height: 3px; border-radius: 2px; background: #c0c8d5; position: absolute; inset: 3px auto auto calc(50% - 17px); }
 .fc-chat-split:hover::after, .fc-chat-split:focus-visible::after { background: var(--accent); opacity: 1; }
-.fc-history { margin: 1px clamp(12px, 2vw, 25px) 5px; font-size: 11px; }
-.fc-history summary { width: fit-content; cursor: pointer; color: var(--fc-muted); line-height: 16px; }
-.fc-sent { height: var(--fc-history-height, 106px); margin-top: 4px; padding-inline: 2px; overflow: auto; }
-.fc-sent { counter-reset: sent-message; }
+.fc-history { margin: 1px clamp(12px, 2vw, 25px) 5px; font-size: 11px; container-type: inline-size; }
+.fc-history-controls { display: flex; align-items: center; gap: 10px; color: var(--fc-muted); }
+.fc-history-toggle { padding: 0; border: 0; background: transparent; color: inherit; font: inherit; line-height: 16px; cursor: pointer; }
+.fc-history-toggle::before { content: '▸'; margin-inline-end: 4px; }
+.fc-history-toggle[aria-expanded=true]::before { content: '▾'; }
+.fc-chat-items {
+  display: none;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-auto-rows: max-content;
+  align-items: start;
+  gap: 8px;
+  max-height: var(--fc-history-height, 180px);
+  margin-top: 4px;
+  padding: 2px 3px 5px;
+  overflow: auto;
+  scrollbar-width: thin;
+  counter-reset: sent-message;
+}
+.fc-chat-items:has(> :not([hidden]) > *) { display: grid; }
+.fc-chat-items > :is(.fc-sent, .fc-chat-quotes) { display: contents; }
+@container (max-width: 520px) {
+  .fc-chat-items { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@container (max-width: 340px) {
+  .fc-chat-items { grid-template-columns: minmax(0, 1fr); }
+}
 .fc-sent > * { counter-increment: sent-message; }
-.fc-sent-message { margin: 0 0 7px; color: var(--fc-muted); white-space: pre-wrap; overflow-wrap: anywhere; }
+.fc-sent-message { grid-column: 1 / -1; margin: 0; color: var(--fc-muted); white-space: pre-wrap; overflow-wrap: anywhere; }
 .fc-sent-message::before { content: counter(sent-message) '. '; }
-.fc-formal .fc-sent .ai-task-sent { width: min(100%, 340px); margin: 2px 0 5px auto; padding: 7px 10px; }
-.fc-sent .ai-task-requirements { max-height: 43px; overflow: auto; }
+.fc-formal .fc-chat-items .ai-task-sent { box-sizing: border-box; min-width: 0; width: 100%; padding: 7px 10px; box-shadow: 0 1px 4px #00000012; }
+.fc-chat-items :is(.ai-task-title, .ai-task-objective) { min-width: 0; overflow-wrap: anywhere; }
+.fc-chat-items .ai-task-requirements { max-height: 52px; overflow: auto; scrollbar-width: thin; }
 .fc-formal .fc-composer { margin: 0 clamp(12px, 2vw, 25px) 10px; padding: 8px 12px; }
 .fc-formal #runtime-chat-context { padding: 3px 9px; }
 .fc-formal #runtime-cmd-bar {

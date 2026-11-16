@@ -1,10 +1,8 @@
 /** Keep selected excerpts separate from the user's draft until Chat sends them. */
-export function mountChatQuote({container, toolbar, draftList, cardTemplate, context, activateChat, recordSend}){
+export function mountChatQuote({container, toolbar, draftList, count, scrollArea, cardTemplate, context, activateChat, recordSend}){
   const action=toolbar.querySelector('.fc-quote-action');
   const editor=toolbar.querySelector('form');
   const input=editor.querySelector('textarea');
-  const cards=draftList.querySelector('.fc-quote-cards');
-  const count=draftList.querySelector('.fc-quote-count');
   const highlightName='formal-quote-selection';
   const sourceSelector='.formal-report-detail, .fc-review, #workbench-file-content, #console-output';
   let candidate=null, pending=null, quotes=[], frame=0, chatMode=false;
@@ -100,18 +98,18 @@ export function mountChatQuote({container, toolbar, draftList, cardTemplate, con
   }
 
   function render(follow=false){
-    const scrollTop=cards.scrollTop;
+    const scrollTop=scrollArea.scrollTop;
     draftList.hidden=!quotes.length||!chatMode;
-    count.hidden=quotes.length<2;
+    count.hidden=draftList.hidden||quotes.length<2;
     count.textContent=quotes.length+' 条引用';
-    cards.replaceChildren(...quotes.map(quote=>
+    draftList.replaceChildren(...quotes.map(quote=>
       createCard([quote],quote.previewOnly?'仅预览':'待发送',()=>{
         quotes=quotes.filter(item=>item!==quote);
         render();
         container.querySelector('#runtime-cmd-input')?.focus();
       })
     ));
-    cards.scrollTop=follow?cards.scrollHeight:scrollTop;
+    scrollArea.scrollTop=follow?scrollArea.scrollHeight:scrollTop;
   }
 
   function formatQuote(quote){

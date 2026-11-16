@@ -94,14 +94,16 @@
   </form>
 </div>
 <div class="fc-chat">
-  <div class="fc-chat-split" tabindex="0" role="separator" aria-orientation="horizontal" aria-label="调整已发消息区域高度" aria-controls="fc-sent"></div>
-  <details class="fc-history">
-    <summary>已发消息 · 0</summary>
-    <div id="fc-sent" class="fc-sent" tabindex="0"></div>
-  </details>
-  <div class="fc-chat-quotes" role="group" aria-label="待发送的引用" hidden>
-    <p class="fc-quote-count" role="status" hidden></p>
-    <div class="fc-quote-cards"></div>
+  <div class="fc-chat-split" tabindex="0" role="separator" aria-orientation="horizontal" aria-label="调整消息卡片区域高度" aria-controls="fc-chat-items"></div>
+  <div class="fc-history">
+    <div class="fc-history-controls">
+      <button type="button" class="fc-history-toggle" aria-expanded="false" aria-controls="fc-sent">已发消息 · 0</button>
+      <span class="fc-quote-count" role="status" hidden></span>
+    </div>
+    <div id="fc-chat-items" class="fc-chat-items" tabindex="0" role="region" aria-label="消息和引用卡片">
+      <div id="fc-sent" class="fc-sent" hidden></div>
+      <div class="fc-chat-quotes" hidden></div>
+    </div>
   </div>
   <template class="fc-chat-quote-template">
     <section class="ai-task-surface ai-task-sent fc-chat-quote" role="group" aria-label="引用原文">

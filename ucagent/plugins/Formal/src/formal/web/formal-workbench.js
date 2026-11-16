@@ -171,19 +171,21 @@ export function mount(markup,createCoverageActions,{bindTabs,createTaskCard},mou
       sentTasks.set(operation_id,{title,objective,requirements,scope:context.scope});
       if(sentTasks.size>100)sentTasks.delete(sentTasks.keys().next().value);
       appendSentMessage(text,operation_id);
-      history.open=true;
+      setHistoryExpanded(true);
       updateSentHistory(true);
       _consoleView.select('llm');
     }
   });
 
   const chat=part('.fc-chat'), splitter=part('.fc-chat-split');
-  const history=part('.fc-history'), historyTitle=part('.fc-history > summary');
+  const history=part('.fc-history'), historyTitle=part('.fc-history-toggle');
+  const chatItems=part('#fc-chat-items');
   const sent=part('#fc-sent'), composer=part('.fc-composer');
   const composerFooter=part('.fc-composer-footer'), composerActions=part('.fc-composer-actions');
   const quoteTools=part('.fc-quote-tools'), draftList=part('.fc-chat-quotes');
   const chatQuotes=mountChatQuote({
     container:task,toolbar:quoteTools,draftList,cardTemplate:part('.fc-chat-quote-template'),
+    count:part('.fc-quote-count'),scrollArea:chatItems,
     context:()=>enabled&&_formalView?{
       workspace:_subWorkspace,
       previewOnly:!!_subWorkspace||_formalView.archived||_formalView.freshness==='historical'
@@ -202,6 +204,12 @@ export function mount(markup,createCoverageActions,{bindTabs,createTaskCard},mou
     },
     recordSend:appendSentQuotes
   });
+  /** Toggle sent messages independently of the visible quote drafts. */
+  function setHistoryExpanded(expanded){
+    sent.hidden=!expanded;
+    historyTitle.setAttribute('aria-expanded',String(expanded));
+  }
+  historyTitle.addEventListener('click',()=>setHistoryExpanded(sent.hidden));
   const attach=el('details',null,'fc-composer-attach');
   const attachToggle=el('summary',null,'model-trigger attach-trigger');
   attachToggle.innerHTML='<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4v12M4 10h12"/></svg>';
@@ -775,7 +783,7 @@ export function mount(markup,createCoverageActions,{bindTabs,createTaskCard},mou
     sentTasks.set(operation,{quotes,question});
     if(sentTasks.size>100)sentTasks.delete(sentTasks.keys().next().value);
     appendSentMessage(question,operation);
-    history.open=true;
+    setHistoryExpanded(true);
     updateSentHistory(true);
   }
 
@@ -802,7 +810,7 @@ export function mount(markup,createCoverageActions,{bindTabs,createTaskCard},mou
   function updateSentHistory(following){
     while(sent.children.length>100)sent.firstElementChild.remove();
     historyTitle.textContent='已发消息 · '+sent.children.length;
-    if(following)sent.scrollTop=sent.scrollHeight;
+    if(following)chatItems.scrollTop=chatItems.scrollHeight;
   }
 
   async function refreshMessages(){
@@ -821,7 +829,7 @@ export function mount(markup,createCoverageActions,{bindTabs,createTaskCard},mou
           sent.replaceChildren();
           recentActivity.length=0;
         }
-        const following=sent.scrollHeight-sent.clientHeight-sent.scrollTop<24;
+        const following=chatItems.scrollHeight-chatItems.clientHeight-chatItems.scrollTop<24;
         for(const event of page.data||[]){
           if(event.source==='tool'&&['call','result'].includes(event.kind)){
             const name=event.text.match(/^([A-Za-z_]\w*):/)?.[1];
@@ -853,9 +861,9 @@ export function mount(markup,createCoverageActions,{bindTabs,createTaskCard},mou
     }
   }
 
-  let height=124, drag;
+  let height=180, drag;
   function setHeight(value){
-    const max=Math.max(44,center.clientHeight-composer.offsetHeight-draftList.offsetHeight-190);
+    const max=Math.max(44,center.clientHeight-composer.offsetHeight-190);
     height=Math.round(Math.min(max,Math.max(44,value)));
     history.style.setProperty('--fc-history-height',height+'px');
     splitter.setAttribute('aria-valuemin','44');
@@ -864,7 +872,7 @@ export function mount(markup,createCoverageActions,{bindTabs,createTaskCard},mou
   }
   splitter.addEventListener('pointerdown',event=>{
     if(event.button!==0)return;
-    history.open=true;
+    if(!chatItems.clientHeight)setHistoryExpanded(true);
     drag={id:event.pointerId,y:event.clientY,height};
     splitter.setPointerCapture(event.pointerId);
   });
@@ -873,13 +881,12 @@ export function mount(markup,createCoverageActions,{bindTabs,createTaskCard},mou
   splitter.addEventListener('keydown',event=>{
     if(!['ArrowUp','ArrowDown'].includes(event.key))return;
     event.preventDefault();
-    history.open=true;
+    if(!chatItems.clientHeight)setHistoryExpanded(true);
     setHeight(height+(event.key==='ArrowUp'?16:-16));
   });
   const chatResize=new ResizeObserver(()=>{if(enabled)setHeight(height);});
   chatResize.observe(center);
   chatResize.observe(composer);
-  chatResize.observe(draftList);
 
   function refresh(){
     if(!enabled)return;
