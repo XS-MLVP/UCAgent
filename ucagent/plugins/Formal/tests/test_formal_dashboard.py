@@ -9,13 +9,15 @@ from fastapi.testclient import TestClient
 import pytest
 import yaml
 
+from formal.checkers.formal import ScriptGenerationChecker
 from formal.dashboard import FormalDashboard
-from formal.execution import ExecutionPolicy
+from formal.execution import ExecutionPolicy, FormalExecution
 from formal.preflight import PreflightError, check_bodies
 from formal.skills.lib.models import semantic_inputs
-from formal.tools import render_environment
+from formal.tools import RunFormal, render_environment
 from formal.trace import TraceQuery
 from ucagent.interfaces.server.api_cmd.formal_routes import register_formal_routes
+from ucagent.util.config import Config
 
 
 FULL = "a" * 32
@@ -122,6 +124,68 @@ def test_local_sva_diagnostics_collect_ck_positions():
         check_bodies({"CK-A": "(valid == ;", "CK-B": "ready |-> ;"}, "formal_test/.formal_records.yaml")
     assert {item["ck_id"] for item in error.value.diagnostic["diagnostics"]} == {"CK-A", "CK-B"}
     assert error.value.diagnostic["layer"] == "property_body"
+
+
+@pytest.mark.parametrize("use_macro", [False, True])
+def test_joint_assumption_is_reported_without_blocking_preflight(tmp_path, monkeypatch, use_macro):
+    """Check reports a cost warning before a run and RunFormal can still dispatch."""
+    calls = []
+
+    def dispatch(execution, *, preflight):
+        """Record native dispatch without running the solver."""
+        calls.append(preflight)
+        return {"status": "RUNNING"}
+
+    def missing_baseline(execution, *, accept):
+        """Represent an environment without current native preflight results."""
+        assert not accept
+        raise ValueError("Current baseline proof is missing.")
+
+    monkeypatch.setattr(FormalExecution, "run", dispatch)
+    monkeypatch.setattr(FormalExecution, "freeze_baseline", missing_baseline)
+    rtl = tmp_path / "Adder"
+    rtl.mkdir()
+    fair = "((a && b) |-> s_eventually c) and (c |-> s_eventually a)"
+    (rtl / "adder.sv").write_text(f"`define FAIR {fair}\n"
+                                "module Adder(input clk,rst_n,a,b,c, output sum,carry); "
+                                "assign sum=a; assign carry=a; endmodule\n")
+    output = tmp_path / "formal_test"
+    output.mkdir()
+    path = output / ".formal_records.yaml"
+    records = records_fixture()
+    records["basic_info"]["clock_reset"] = {
+        "clock_count": 1, "clock_signal": "clk", "reset_signal": "rst_n", "reset_type": "low",
+    }
+    points = records["spec"]["function_groups"][0]["functions"][0]["check_points"]
+    clock = "@(posedge clk) disable iff (!rst_n) "
+    body = clock + ("`FAIR" if use_macro else fair) + ";"
+    points[-1]["sva_body"] = body
+    points.extend([
+        {"id": "CK-BOUNDED", "style": "Assume", "description": "Bounded responses",
+         "sva_body": clock + "(a |-> ##[1:8] b) and (c |-> s_eventually [1:8] a);"},
+        {"id": "CK-SINGLE", "style": "Assume", "description": "One eventual response",
+         "sva_body": clock + "((a && b) |-> s_eventually c) and (a |=> b);"},
+        {"id": "CK-ASSERT", "style": "Seq", "description": "Assertion with two eventual responses",
+         "sva_body": body},
+    ])
+    path.write_text(yaml.safe_dump(records))
+    cfg = Config({"output": "formal_test", "runtime_options": {"formal_batched_sva": True}})
+    checker = ScriptGenerationChecker("Adder", cfg=cfg)
+    checker.set_workspace(str(tmp_path))
+    checker.on_init()
+    passed, check = checker.do_check()
+    assert not passed and not calls
+    assert check["error"] == "Current baseline proof is missing."
+    result = RunFormal(str(tmp_path), "formal_test", "Adder", cfg=cfg).invoke({"action": "preflight"})
+    assert result["status"] == "RUNNING" and calls == [True]
+    assert result["preflight"] == check["preflight"]
+    row, = result["preflight"]["warnings"]
+    assert (row["code"], row["ck_id"], row["path"]) == (
+        "formal_combined_unbounded_assume", "CK-LEGAL", "formal_test/tests/Adder_checker.sv",
+    )
+    assert row["line"] > 0 and row["column"] > 0
+    assert body in (output / "tests" / "Adder_checker.sv").read_text()
+    assert yaml.safe_load(path.read_text()) == records
 
 
 def test_full_sva_preflight_reports_width_and_preserves_previous_artifacts(tmp_path):

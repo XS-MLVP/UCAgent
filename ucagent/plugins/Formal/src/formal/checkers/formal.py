@@ -448,7 +448,7 @@ class ScriptGenerationChecker(BaseFormalChecker):
 
         try:
             from formal.tools import render_environment
-            render_environment(
+            preflight = render_environment(
                 self.workspace, self.paths.out, self.dut_name,
                 write_dirs=self.cfg.get_value("write_dirs", None),
                 un_write_dirs=self.cfg.get_value("un_write_dirs", None),
@@ -490,8 +490,12 @@ class ScriptGenerationChecker(BaseFormalChecker):
             try:
                 result = execution.freeze_baseline(accept=bool(kwargs.get("is_complete", False)))
             except (ValueError, OSError) as exc:
-                return self._fail(str(exc), suggestion="Run FormalMC preflight and resolve its baseline diagnostics.")
-            return result["preflight_complete"], result
+                passed, result = self._fail(str(exc), suggestion="Run FormalMC preflight and resolve its baseline diagnostics.")
+            else:
+                passed = result["preflight_complete"]
+            if preflight["warning_total"]:
+                result["preflight"] = preflight
+            return passed, result
 
         # An explicit RunFormal run owns proof execution and its auditable results.
         passed, evidence = execution.check()

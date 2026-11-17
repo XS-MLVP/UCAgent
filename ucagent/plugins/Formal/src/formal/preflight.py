@@ -22,6 +22,47 @@ class PreflightError(ValueError):
         super().__init__(self.diagnostic["error"] + " " + str(diagnostics[:8]))
 
 
+def combined_unbounded_assume(expr):
+    """Locate a property conjunction with unbounded operators in multiple branches."""
+    from pyslang.syntax import SyntaxKind as Kind
+
+    # A shared clock or implication consequent can still contain a conjunction.
+    while expr.kind in {Kind.ParenthesizedPropertyExpr, Kind.ClockingPropertyExpr, Kind.ImplicationPropertyExpr}:
+        expr = expr.right if expr.kind == Kind.ImplicationPropertyExpr else expr.expr
+    if expr.kind != Kind.AndPropertyExpr:
+        return None
+
+    found = False
+
+    def find_unbounded(node):
+        """Recognize temporal operators with no finite upper bound."""
+        nonlocal found
+        kind = node.kind
+        if kind == Kind.UnaryPropertyExpr:
+            found |= node.op.rawText in {"eventually", "s_eventually"}
+        elif kind == Kind.SimpleRangeSelect:
+            found |= node.right.kind == Kind.WildcardLiteralExpression
+        elif kind in {Kind.UntilPropertyExpr, Kind.UntilWithPropertyExpr, Kind.SUntilPropertyExpr, Kind.SUntilWithPropertyExpr}:
+            found = True
+
+    unbounded = 0
+    branches = [expr]
+    while branches:
+        branch = branches.pop()
+        while branch.kind == Kind.ParenthesizedPropertyExpr:
+            branch = branch.expr
+        if branch.kind == Kind.AndPropertyExpr:
+            branches.extend((branch.right, branch.left))
+            continue
+        found = False
+        branch.visit(find_unbounded)
+        if found:
+            unbounded += 1
+            if unbounded == 2:
+                return expr.op.location
+    return None
+
+
 def check_bodies(bodies: dict, source: str) -> None:
     """Validate one property fragment without requiring its declarations or macros."""
     import pyslang as slang
@@ -75,13 +116,14 @@ def check_generated(root: Path, output: str, dut: str, staged: Path, interface: 
     compilation = slang.ast.Compilation(bag)
     compilation.addSyntaxTree(tree)
 
-    names = {_ck_to_sv_names(ck.id, ck.style)[0]: ck.id for fg in records.spec.function_groups
-             for fc in fg.functions for ck in fc.check_points}
+    checkpoints = {_ck_to_sv_names(ck.id, ck.style)[0]: ck for fg in records.spec.function_groups
+                   for fc in fg.functions for ck in fc.check_points}
     ranges = []
     for match in re.finditer(r"^\s*property ([\w]+);.*?\bendproperty\b", checker.read_text(), re.M | re.S):
         text = match.string
+        ck = checkpoints.get(match[1])
         ranges.append((text.count("\n", 0, match.start()) + 1, text.count("\n", 0, match.end()) + 1,
-                       names.get(match[1])))
+                       ck.id if ck else None))
 
     def location(loc):
         """Map generated positions back to stable output paths and CK identities."""
@@ -105,6 +147,24 @@ def check_generated(root: Path, output: str, dut: str, staged: Path, interface: 
             errors.append(row)
     if errors:
         raise PreflightError("generated_design", errors)
+
+    def check_checker_assume(node):
+        """Report potential solver cost in expanded Assume expressions."""
+        if not isinstance(node, slang.syntax.PropertyDeclarationSyntax):
+            return
+        ck = checkpoints.get(node.name.rawText)
+        if ck is None or ck.style.lower() != "assume" or manager.getFullPath(node.name.location.buffer) != checker:
+            return
+        loc = combined_unbounded_assume(node.propertySpec.expr)
+        if loc is not None:
+            row = location(manager.getFullyExpandedLoc(loc))
+            warnings.append({
+                **row, "ck_id": ck.id, "code": "formal_combined_unbounded_assume",
+                "message": "This Assume joins multiple unbounded branches with property-level 'and', which may increase solver cost.",
+                "next_action": "Check the protocol. Use separate CKs for independent obligations and preserve any required joint behavior. See Guide_Doc/sva_property.md section 3.6.",
+            })
+
+    tree.root.visit(check_checker_assume)
 
     # Hierarchical lookups can resolve upward through the wrapper in the standard
     # elaborator while the proof engine rejects the same checker reference. Keep

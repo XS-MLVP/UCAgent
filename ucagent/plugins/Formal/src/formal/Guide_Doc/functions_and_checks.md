@@ -12,7 +12,7 @@
 **2. 独立性原则**：检测点之间应尽可能独立，避免逻辑交叉覆盖，确保 Bug 定位的精准性。
 
 **3. 高质量形式化断言设计指南 (Design Philosophy)**：
-   - **合法输入边界**：只对规格明确禁止的环境行为添加Assume；无协议约束的设计允许输入自由变化，不为排除真实反例添加假设。
+   - **合法输入边界**：Assume 来自规格明确规定的合法输入边界或环境承诺。若目标仅是确认某种交互可达，使用 Cover。
    - **完备性 (Check Completeness)**：
      - **Safety (安全性)**：坏事永远不发生（例如：FIFO 永不溢出，One-hot 信号永不多选）。
      - **Liveness (活性)**：好事最终会发生（例如：请求最终被响应）。
@@ -20,6 +20,28 @@
      - **正向**：在特定条件下，状态**必须**发生变化（例如：写使能 -> 计数器+1）。
      - **负向 (Frame Conditions)**：在非特定条件下，状态**必须**保持不变（例如：无写使能 -> 计数器 $stable）。这是 Formal 发现隐蔽 Bug 的利器。
    - **X 态悲观 (X-Pessimism)**：必须显式验证关键控制信号（如 Valid, Ready, Grant, State）在任何时候都不为 X 态。
+
+### 环境义务规划
+
+第 3 阶段在 `.formal_records.yaml` 的 `spec` 中把环境义务记在「验证环境约束」功能组下。用一个 FC 表达共同目的，每个 CK 对应一项环境义务。描述中写明受约束的接口、开始条件、预期行为和规格依据。第 4 阶段规划基线 Cover，第 5 阶段填写 `sva_body` 并检查环境约束。
+
+例如，假设接口规格第 4.2 节规定外部端口 A 和 B 各自负责响应本端口已接受的命令，可以规划为以下 FC 条目：
+
+```yaml
+id: FC-ENV-RESPONSE
+title: 外部响应端口的环境义务
+description: 核对 A、B 两个外部端口各自承担的响应义务。
+review_order: 1
+check_points:
+  - id: CK-ENV-PORT-A-RESP
+    style: Assume
+    description: 按接口规格第 4.2 节，A 端口接受命令后最终拉高本端口的响应 valid。
+  - id: CK-ENV-PORT-B-RESP
+    style: Assume
+    description: 按接口规格第 4.2 节，B 端口接受命令后最终拉高本端口的响应 valid。
+```
+
+实际任务使用规格中的端口和章节。若同一事务的完成条件由多个端口共同决定，保留这项跨端口义务，并在描述中说明端口之间的依赖。按已规划的 CK 逐条编写，见 `Guide_Doc/sva_property.md` 3.6 节。
 
 ## 文档结构层次
 

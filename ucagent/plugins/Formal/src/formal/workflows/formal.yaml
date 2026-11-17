@@ -213,6 +213,7 @@ stage:
       - "每个 FC 填写 title、description 和 review_order。title 用一行短句说清想验证的行为或场景（最多 60 字）；description 补充适用条件、预期行为与边界。"
       - "先按依赖关系排列 FG，再给各组 FC 分配组内唯一的正整数 review_order。先审阅前置条件与基本行为，再看边界与异常。同组例如 1 单次入队，2 入队至满，3 满后再尝试入队；按实际规格设计。"
       - "使用可选数据技能 inspect spec/结构化update，或用普通文件工具维护完整spec；Complete统一校验FG/FC/CK所有层次，不重复分阶段填表。"
+      - "把有规格依据的环境义务记在「验证环境约束」功能组的 CK 计划中，记录接口、触发条件和预期行为。第 5 阶段实现并验证这些约束。参照 Guide_Doc/functions_and_checks.md 的环境义务规划示例。"
       - "本阶段只负责维护 YAML 子树 `spec`；`03_{DUT}_functions_and_checks.md` 是派生产物，禁止直接编辑。"
       - "参考 `Guide_Doc/functions_and_checks.md` 的标签规范与高级模式。"
     reference_files:
@@ -236,7 +237,7 @@ stage:
     desc: "SVA 批次与信号规划"
     task:
       - "核对已有 FG/FC/CK 的规格依据和 review_order。每个 FC 以一个功能目标组织 CK，按 review_order 实现。"
-      - "在 spec 中标记少量共享基础检查点为 baseline: true。Assume 自动归入基础，说明接口义务和规格依据。至少准备一个能证明基本事务可达的基础 Cover，有复位时覆盖释放后的基本交互。"
+      - "在 spec 中标记少量共享基础检查点为 baseline: true。Assume 自动归入基础。为第 5 阶段选定至少一个能检查基本事务可达性的基础 Cover，有复位时覆盖释放后的基本交互。"
       - "在 .formal_records.yaml 记录需要的白盒绑定、有效参数和真实时钟复位。查询实际接口和位宽，阶段 5 会依据这些输入编译基础环境。"
     reference_files:
       - "{OUT}/.formal_records.yaml"
@@ -251,15 +252,17 @@ stage:
 
   # ========== Stage 5: Baseline SVA and Preflight ==========
   - name: script_generation
-    desc: "基础 SVA 与 FormalMC 预检"
+    desc: "验证环境约束与 FormalMC 预检"
     task:
       - "只实现基础 CK。可用 prepare sva --baseline 领取基础 CK，或用普通文件工具填写对应 sva_body。Assume 全部属于基础。"
+      - "在「验证环境约束」功能组中实现有规格依据的环境义务。独立端口各自握手并响应时，在同一 FC 下按端口各写一个 Assume CK。若计划把独立义务合在一个 CK 中，先修正条目再写 sva_body。按规格保留跨端口依赖和响应时限。参照 Guide_Doc/sva_property.md 的多端口公平性约束示例。"
       - "确认真实时钟、复位、参数、白盒绑定和 TCL 配置。生成的 Tcl、Wrapper 和 Checker 由插件维护。"
-      - "调用 RunFormal(action=preflight)。FormalMC 使用当前输入编译并列举属性，只求解已标记的基础 Cover。用返回的 run_id 查询 status，依据 diagnostics 修复属性或配置。"
+      - "调用 RunFormal(action=preflight)。加载全部基础 Assume，用已标记的基础 Cover 检查约束下的关键交互是否可达。FormalMC 编译并列举属性，只求解这些 Cover。用返回的 run_id 查询 status，依据 diagnostics 修复属性或配置。"
       - "基础 Cover 异常时，用 AnalyzeFormal(mode=environment, run_id=...) 检查实际时钟、复位和约束，必要时用 mode=overconstraint 做有界诊断。"
       - "基础 Cover 达到预期可达性后调用 Complete，系统冻结基础 CK 和共用配置。后续修改基础约定时，回到本阶段修订 YAML、重新预检并接受新基线。"
     reference_files:
       - "{OUT}/.formal_records.yaml"
+      - "Guide_Doc/sva_property.md"
       - "Guide_Doc/formal_execution.md"
     output_files:
       - "{OUT}/.formal_records.yaml"

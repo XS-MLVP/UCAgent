@@ -113,6 +113,20 @@ def test_structured_body_batch_preserves_other_sections_and_special_characters(t
     assert updated["spec"]["function_groups"][0]["functions"][0]["check_points"][0]["sva_body"] == body
 
 
+def test_structured_update_accepts_joint_assumption(task):
+    """A specification-backed joint obligation can be submitted without rewriting it."""
+    store, path, records = task
+    checks = records["spec"]["function_groups"][0]["functions"][0]["check_points"]
+    checks.append({"id": "CK-JOINT-RESPONSE", "style": "Assume", "description": "Both peers respond to a joint request."})
+    path.write_text(yaml.safe_dump(records))
+    revision = hashlib.sha256(path.read_bytes()).hexdigest()
+    body = "@(posedge clk) req |-> ((s_eventually rsp_a) and (s_eventually rsp_b));"
+    result = store.update("spec", None, {"CK-JOINT-RESPONSE": body}, revision)
+    assert result["status"] == "updated"
+    saved = yaml.safe_load(path.read_text())
+    assert saved["spec"]["function_groups"][0]["functions"][0]["check_points"][-1]["sva_body"] == body
+
+
 def test_descriptive_port_edits_keep_proof_current_and_scope_edits_are_reported(task):
     """Only proof input changes stale the batch and changed scope is explicit."""
     store, path, _ = task

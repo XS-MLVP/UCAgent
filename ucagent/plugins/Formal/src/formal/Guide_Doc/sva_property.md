@@ -225,7 +225,7 @@ A_CK_REQ_EVENTUALLY_GRANTED: assert property (CK_REQ_EVENTUALLY_GRANTED);
 
 **注意事项**：
 - `s_eventually` 在无界模型检查中可能导致引擎超时。对于简单设计可跳过。
-- 如果引擎返回 `UNDETERMINED`，可能需要添加公平性约束（fairness constraint）来保证环境的活性假设。
+- 公平性约束需要独立的环境规格依据。遇到 `UNDETERMINED` 时，先核对目标、环境和实际求解证据。
 - 对于纯组合逻辑设计（如 Adder），Liveness 不适用。
 
 ---
@@ -233,6 +233,17 @@ A_CK_REQ_EVENTUALLY_GRANTED: assert property (CK_REQ_EVENTUALLY_GRANTED);
 ## 3.6 Assume 约束的禁忌（过约束防范）
 
 所有 assume 都必须来源于 spec 文档 (`03_{DUT}_functions_and_checks.md`) 中标注为 `(Style: Assume)` 的检测点。
+
+### 多端口公平性约束
+
+第 5 阶段按 `Guide_Doc/functions_and_checks.md` 中「验证环境约束」功能组的计划实现这些义务。写 `sva_body` 前，若发现一个 CK 的描述列了多个独立端口的义务，先拆成同一 FC 下的多个 CK，再分别填写属性。每条属性保留该端口自己的触发握手、响应条件、时钟和复位。基础预检加载全部 Assume，通过基础 Cover 检查约束下的关键事务可达性。
+
+| CK | `sva_body` |
+| --- | --- |
+| `CK-ENV-PORT-A-RESP` | `@(posedge clk) disable iff (!rst_n) (a_cmd_valid && a_cmd_ready) \|-> s_eventually a_rsp_valid;` |
+| `CK-ENV-PORT-B-RESP` | `@(posedge clk) disable iff (!rst_n) (b_cmd_valid && b_cmd_ready) \|-> s_eventually b_rsp_valid;` |
+
+若规格规定的是跨端口的联合行为，保留共同条件和端口之间的依赖。生成 Checker 时，预检会对用属性级 `and` 组合多条无界分支的 Assume 报告求解开销提示。根据协议判断分支是否独立，必需的联合行为可继续执行。握手条件内的布尔 `&&` 可以正常使用。响应时限取自规格。验证某种响应场景可以发生时，使用 Cover 检查可达性。
 
 ### 常见的过约束错误（绝对禁止）
 

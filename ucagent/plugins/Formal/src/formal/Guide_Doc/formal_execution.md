@@ -5,7 +5,7 @@
 
 ## 基础预检与功能批次
 
-1. 在属性计划中用 `baseline: true` 标识共用基础 Assert/Cover。所有 Assume 都属于基础。第 5 阶段实现这些目标，用 `RunFormal(action="preflight")` 编译，并检查标记为基础的 Cover。通过阶段检查后冻结基础表达式、时钟复位、参数、绑定和 Tcl 配置。确需修订时回到第 5 阶段，修订 YAML 后重新预检与验收。
+1. 在属性计划中用 `baseline: true` 标识共用基础 Assert/Cover。所有 Assume 都属于基础。第 5 阶段实现「验证环境约束」功能组中的 Assume 和其他基础目标，用 `RunFormal(action="preflight")` 编译并加载全部 Assume，再求解基础 Cover，检查约束下的关键交互是否可达。通过阶段检查后冻结基础表达式、时钟复位、参数、绑定和 Tcl 配置。确需修订时回到第 5 阶段，修订 YAML 后重新预检与验收。
 2. 第 6 阶段按 FC 编写与定向运行。用 `RunFormal(action="run", scope="selected", fc_id="FC-...")` 执行该 FC 已实现的功能 Assert/Cover，或改用 `ck_ids=["CK-..."]` 指定已实现的子集。未实现的 FC 检查列在 `unimplemented_ck_ids`。同批保留完整基础假设。用运行 ID 和枚举出的完整属性名查证据、审阅和取消。原 CK 改写时保留 ID，拆分时记录补充目标及其证明关系。
 3. 第 7 阶段对当前输入运行完整批次，再分析反例、恒真和覆盖缺口。修改功能属性时复用同样的定向验证流程。完整验收以当前输入的完整批次为依据。
 
