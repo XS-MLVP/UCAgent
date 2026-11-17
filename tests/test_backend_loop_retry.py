@@ -262,3 +262,48 @@ def test_http_error_can_resume_after_real_tool_result_recovery(retry_probe, stat
     assert isinstance(messages[0], HumanMessage) and len(messages[1].tool_calls) == 2
     assert messages[-1].tool_call_id == "missing" and messages[-1].status == "error"
     assert backend._pending_tool_calls(messages) == {}
+
+
+@pytest.mark.parametrize("mode", ["enhanced", "advanced", "advanced_fallback"])
+def test_interaction_modes_propagate_stop_to_outer_loop(retry_probe, mode):
+    """Permanent failures stop after one request through real interaction handlers."""
+    from ucagent.interaction.enhanced import EnhancedInteractionLogic
+    from ucagent.interaction.advanced import AdvancedInteractionLogic, AdvancedInteractionState
+
+    agent = retry_probe.agent
+    agent.interaction_mode = "advanced" if mode.startswith("advanced") else mode
+    agent.set_continue_msg = lambda message: None
+    agent.get_current_tips = lambda: "inspect input"
+    agent.get_work_config = lambda: {}
+    agent.is_exit = lambda: False
+    agent._tool__call_error = False
+    agent.stage_manager = SimpleNamespace(get_current_tips=agent.get_current_tips)
+    enhanced = EnhancedInteractionLogic.__new__(EnhancedInteractionLogic)
+    enhanced.agent = agent
+    enhanced._determine_interaction_strategy = lambda: "standard_execution"
+    agent.enhanced_logic = enhanced
+    advanced = AdvancedInteractionLogic.__new__(AdvancedInteractionLogic)
+    advanced.agent = agent
+    advanced.state = AdvancedInteractionState()
+    advanced.tool_orchestrator = None
+    agent.advanced_logic = advanced
+    if mode == "advanced_fallback":
+        def broken_advanced(message):
+            """Trigger enhanced fallback before issuing any backend request."""
+            raise RuntimeError("interaction failure")
+        advanced.advanced_one_loop = broken_advanced
+    calls = []
+
+    def rejected_request(*args):
+        """Count every actual provider submission, including hidden fallbacks."""
+        calls.append(400)
+        raise _HTTPError(400)
+
+    agent.do_work_values = rejected_request
+    agent.run_loop = agent.one_loop
+    retry_probe.controller.do_loop("")
+    assert calls == [400]
+    assert retry_probe.waits == []
+    assert agent.invoke_round == 0
+    assert not agent.is_work_busy()
+    assert any("retries stopped" in message for message in retry_probe.messages)

@@ -1437,6 +1437,8 @@ class VerifyAgent:
         if self.interaction_mode == "advanced" and self.advanced_logic:
             try:
                 return self.advanced_logic.advanced_one_loop(msg)
+            except NonRetryableBackendError:
+                raise
             except Exception as e:
                 warning(
                     f"Advanced interaction logic failed, falling back to enhanced: {e}"
@@ -1445,6 +1447,8 @@ class VerifyAgent:
                 if self.enhanced_logic:
                     try:
                         return self.enhanced_logic.enhanced_one_loop(msg)
+                    except NonRetryableBackendError:
+                        raise
                     except Exception as e2:
                         warning(
                             f"Enhanced interaction logic also failed, using standard: {e2}"
@@ -1454,6 +1458,8 @@ class VerifyAgent:
         elif self.interaction_mode == "enhanced" and self.enhanced_logic:
             try:
                 return self.enhanced_logic.enhanced_one_loop(msg)
+            except NonRetryableBackendError:
+                raise
             except Exception as e:
                 warning(
                     f"Enhanced interaction logic failed, falling back to standard: {e}"
