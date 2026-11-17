@@ -5,6 +5,10 @@
 `coverage_files` 保持为空；默认自动发现 ACT4 原生 coverage 路径。显式配置的文件或
 patterns 仍会检查，不把其他 extension 的默认 coverage 集合当成本轮目标。
 
+需要解析共享 mapping 的外部 group/point/bin 时，可显式提供 `coverage_context_files`。
+这些文件只补充 mapping 的符号查找，不加入本轮 coverage/generator 完整性目标，也不对其执行
+privileged coverage 语义要求。默认列表为空，已有生成阶段的扫描范围和验收规则不变。
+
 适配器：`act4_privileged_suite/checkers/act4_asset_checker.py`
 
 核心：`act4_privileged_suite/checkers/act4_asset_consistency.py`

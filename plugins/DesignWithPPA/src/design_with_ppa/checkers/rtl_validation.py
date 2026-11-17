@@ -2058,12 +2058,10 @@ class RTLBackendBuildChecker(Checker):
                 "\n".join(str(path) for path in python_dut_files) + "\n",
                 encoding="utf-8",
             )
-            # ``--vflag`` is picker's simulator passthrough: the tokens are
-            # forwarded verbatim to verilator by the generated build.  The
-            # pip console launcher re-joins argv through a shell, which
-            # would split a multi-token value back into picker arguments,
-            # while a cmake-installed raw binary receives argv untouched;
-            # only the script launcher therefore needs embedded quoting.
+            # Picker receives one --vflag value through argv, then CMake
+            # splits it into simulator tokens. Embedded quotes would turn
+            # the entire value into one Verilator option, including when a
+            # Python or shell launcher correctly preserves argv.
             verilator_args = self.rtl_config.python_dut_options["verilator_args"]
             command = [
                 picker,
@@ -2079,17 +2077,7 @@ class RTLBackendBuildChecker(Checker):
                 "ucagent.fst",
             ]
             if verilator_args:
-                vflag = " ".join(verilator_args)
-                if len(verilator_args) > 1:
-                    try:
-                        launcher_is_script = (
-                            Path(picker).read_bytes()[:2] == b"#!"
-                        )
-                    except OSError:
-                        launcher_is_script = False
-                    if launcher_is_script:
-                        vflag = f"'{vflag}'"
-                command += ["--vflag", vflag]
+                command += ["--vflag", " ".join(verilator_args)]
             command += ["--tdir", str(build_target)]
             export_environment: dict[str, str] | None = None
             if self.rtl_config.python_dut_options["ccache_enabled"]:

@@ -79,7 +79,7 @@ def test_optional_skill_scripts_use_runtime_snapshot_and_remain_read_only(
     _write_json(
         tmp_path / "output" / "reports" / "ppa" / "current.json",
         {
-            "schema_version": "1.1",
+            "schema_version": "1.2",
             "report_id": "ppa-" + "1" * 32,
             "status": "success",
             "summary": {"area": {"total": 10.0}},

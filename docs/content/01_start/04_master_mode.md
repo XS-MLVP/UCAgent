@@ -54,3 +54,10 @@ ucagent --as-master-persist --as-master
 最终是否有 Bug、波形或覆盖率报告取决于工作流、测试结果和配置。请以工作区的真实产物、Checker 返回值和 `uc_test_report/` 为准，不要把页面显示的完成状态当作 DUT 正确性的证明。
 
 更多页面能力、代理和访问控制见 [Web Master 使用指南](../02_usage/07_web_master.md)。
+
+## 4.5 Docker Swarm 部署
+
+需要让 Master 和子 Agent 运行在 Docker Swarm 中时，按 [Docker Swarm 部署](../02_usage/11_docker_swarm.md)
+搭建 2-3 节点集群，并在 manager 上执行 `make swarm_master`。该目标会启动
+Master Web、创建 overlay 网络，并把 Launch 页的默认启动模式设置为
+`docker_swarm`。集群网络、镜像、Docker socket 和持久化目录要求见部署指南。

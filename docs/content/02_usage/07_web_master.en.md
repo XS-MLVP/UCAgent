@@ -59,6 +59,10 @@ Starting Master itself does not require a model address, API Key, or model name.
 
 The `--backend` flag in Master mode is used to set the default backend when launching child Agents from the Launch page; the current Master process always uses a model-less backend.
 
+When Master and child Agents should run in Docker Swarm, follow the [Docker Swarm deployment guide](11_docker_swarm.md)
+to prepare a 2- or 3-node cluster, then run `make swarm_master` on a manager. The
+target starts Master Web and sets `docker_swarm` as the Launch page's default mode.
+
 ### 2.2 Connecting Agent to Master
 
 ```bash

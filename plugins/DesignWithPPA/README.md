@@ -8,6 +8,8 @@
 - `unit-design-tdd`：从 README 和设计 Spec 开始，生成并验证 Verilog 或 Chisel 单元模块，并执行 PPA 优化；
 - [`repo-module-tdd`](docs/repo-module-tdd.md)：使用已有仓库提供的源码和依赖，在独立副本中优化或新增模块，完成单元测试、PPA 和补丁交付。入口为 `make run-repo SOURCE_PATH=... CASE=...`。
 
+两个工作流的逐轮优化方向、改动和实测结果可通过自动生成的 [PPA 优化日志](docs/ppa-optimization-log.md)查看。
+
 Python 发行包名为 `ucagent-design-with-ppa`，插件 ID 为 `design-with-ppa`，要求 Python 3.11 及以上和 `UCAgent>=26.9.2.dev6`。
 
 ## 构建与安装
@@ -38,7 +40,7 @@ python3 -m pip install -e .
 ucagent --validate-plugin design-with-ppa
 ```
 
-PPA 分析需要环境中的 `yosys` 和 OpenSTA（`sta` 或 `opensta`）。运行设计工作流还需要 `picker`。Chisel 模式使用插件锁定的 Chisel 7.15.0（Scala 2.13.18）工具链，另外需要 JDK 17 及 Mill 0.4.2；Verilog 模式不依赖 Chisel 工具链。
+默认 PPA 后端需要环境中的 `yosys` 和 OpenSTA（`sta` 或 `opensta`）。其他分析工具与工艺的配置见 [PPA 后端与 PDK 接入](docs/ppa-backends.md)。运行设计工作流还需要 `picker`。Chisel 模式使用插件锁定的 Chisel 7.15.0（Scala 2.13.18）工具链，另外需要 JDK 17 及 Mill 0.4.2；Verilog 模式不依赖 Chisel 工具链。
 
 ### 安装依赖（Ubuntu）
 

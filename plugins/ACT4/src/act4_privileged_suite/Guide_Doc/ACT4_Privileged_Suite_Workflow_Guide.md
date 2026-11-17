@@ -211,7 +211,7 @@ G-stage：GPA --hgatp--> PA
 | --- | --- | --- |
 | RISC-V 规范 | 指令/CSR 语义、异常、地址翻译顺序 | 使用本轮复制的规范与 metadata |
 | 当前 ACT4 | registry API、TestChunk、构建目标、配置字段 | 使用冻结 Git HEAD 的源码和 Developer Guide |
-| 本插件工作流 | 七阶段报告、保护基线、人类 testplan、证据 schema | 使用当前 YAML 和 checker |
+| 本插件工作流 | 环境准备、七个资产阶段、保护基线、人类 testplan、证据 schema | 使用当前 YAML 和 checker |
 
 工作流不会假设 ACT4 接口永远不变。每轮都先冻结 Git HEAD，再从该版本读取：
 
@@ -225,7 +225,8 @@ G-stage：GPA --hgatp--> PA
 
 ## 4. 工作流总览
 
-工作流固定为七个阶段。每个阶段先阅读相关资料、在当前 stage journal 中制定工作计划，
+工作流先执行 `prepare_environment` 环境阶段，再运行七个资产阶段。环境准备契约见
+`Guide_Doc/ACT4_Environment_Guide.md`。每个资产阶段先阅读相关资料、在当前 stage journal 中制定工作计划，
 再按计划生产或更新资产并记录进度，由现有 checker 验证后进入下一阶段。
 
 | 阶段 | 核心问题 | 关键输出 | 完成门禁 |

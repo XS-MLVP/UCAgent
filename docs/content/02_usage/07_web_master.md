@@ -55,6 +55,10 @@ Master 启动本身不要求模型地址、API Key 或模型名称。若需要�
 
 Master 模式下的 `--backend` 用于设置 Launch 页启动子 Agent 时的默认 backend；Master 当前进程始终使用无模型 backend。
 
+如果 Master 和子 Agent 需要运行在 Docker Swarm 中，请按 [Docker Swarm 部署](11_docker_swarm.md)
+完成 2-3 节点集群准备，并在 manager 上执行 `make swarm_master`。该目标会启动
+Master Web 并将 Launch 页默认模式设置为 `docker_swarm`。
+
 ### 2.2 连接 Agent 到 Master
 
 ```bash

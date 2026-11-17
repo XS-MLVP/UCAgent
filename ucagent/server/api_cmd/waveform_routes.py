@@ -52,6 +52,8 @@ _DEFAULT_VIEWERS = {
     "vcd": {"kind": "web", "url": "/surfer/"},
     "fsdb": {"kind": "xpra", "script": "verdi/launch_verdi.py",
              "args": ["--meta", "{wave_meta}", "--verdi", "verdi"]},
+    "usdb": {"kind": "xpra", "script": "uvd/launch_uvd.py",
+             "args": ["--meta", "{wave_meta}", "--uvd", "uvd"]},
 }
 
 

@@ -36,6 +36,8 @@ act4_privileged_suite = [
   "Guide_Doc/ACT4_Checker_Guide/*.md",
   "Guide_Doc/act4_template/*.md",
   "workflows/*.yaml",
+  "handoff/*.md",
+  "handoff/Makefile",
 ]
 
 [tool.pytest.ini_options]

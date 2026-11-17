@@ -1,0 +1,146 @@
+# Resolve a XiangShan function into upstream-first ACT assets and a traceable delivery.
+template_overwrite:
+  PROJECT: act4_xiangshan_v3_handoff
+  DOC_GEN_LANG: "中文"
+  ACT4_INPUT_ROOT: "$(ACT4_INPUT_ROOT: riscv-arch-test)"
+  ACT4_FRAMEWORK_ROOT: "$(ACT4_FRAMEWORK_ROOT: riscv-arch-test)"
+  ACT4_XIANGSHAN_ROOT: "$(ACT4_XIANGSHAN_ROOT: XiangShan)"
+  ACT4_MANUAL_ROOT: "$(ACT4_MANUAL_ROOT: riscv-isa-manual)"
+template: ""
+guide_doc:
+  enable: true
+  core_copy_policy:
+    default_action: ignore
+    retain: []
+    override: []
+    ignore: []
+write_dirs: ["{OUT}"]
+un_write_dirs: ["{GUIDE_DOC}"]
+tools:
+  ignore_tools: [WorkCommit]
+loop_settings:
+  max_stalled_rounds: 8
+hooks:
+  continue: >
+    使用 CurrentTips 和 StageJournal 恢复当前任务。普通 Check 只核对现有证据；仅在输入或依赖变化后显式执行对应 action。
+    不启动商业仿真器安装，不擅自编译整个香山工程；缺少 emu 时交付已构建但未在 RTL 运行的资产。
+mission:
+  name: ACT4 Kunminghu V3 asset handoff
+  prompt:
+    tips:
+      always:
+        - "遵循 Guide_Doc/ACT4_XiangShan_Handoff_Guide.md；只写 {OUT}/{DUT}，交付资料放 handoff/，环境资料放 environment/。已有输入资产、ACT 框架和香山源码只读。"
+        - "目标是整核 SimTop 的可交付测试程序；不得声称生成了独立 CSR/MMU/LSU 模块 testbench。"
+        - "生成 ELF 必须使用原生 Sail 期望值与自检重编译流程；不得将 .sig.elf 当作最终测试。"
+        - "现有 KMHv2 配置只能作为参考；目标配置、内存、启动、中断和结束机制均需 V3 当前源码依据。"
+        - "Check 接受 action、timeout、jobs、emulator、cycles、queries、generation_id；Complete 不带 action，不重复执行长命令。"
+      random: []
+    system: >
+      用户指定的是香山模块 {DUT}，不是 ACT suite 名。先从香山源码和 ISA 分解它的架构可观察功能，
+      自行检索 riscv-arch-test，映射到一个或多个 ACT suite 或其中的具体部分，不要求用户提供 ACT 名称。
+      优先复用上游现成资产；只有生成器而没有 .S 时，运行上游原生生成器，不视为需要 AI 新建资产。
+      明确上游缺项后才补充本地资产或调用插件的 privileged-suite-generation。该生成流程只支持具备 CTP/Sheet 的新 privileged suite，
+      不支持的 unprivileged 缺口、已有 suite 修改或微架构场景明确列为未交付，不臆造支持能力、规范规则或覆盖点。
+      同一香山模块可能对应多套 ACT 资产；只挑选适用的配置和功能，不宣称能替代独立模块 testbench。
+      {ACT4_FRAMEWORK_ROOT} 是匹配输入资产版本的完整 ACT 框架，{ACT4_XIANGSHAN_ROOT} 是已检出的 kunminghu-v3 源码。
+      两个 ACT 路径可以相同，也允许输入是无 Git 的本地生成资产目录。只读取需要的源码，保留输入不变。
+      不依赖 Skill；所有契约在 Guide_Doc/ACT4_XiangShan_Handoff_Guide.md。
+      输入存在 .S 时直接复用，不重写测试意图、检查或签名。只有生成器时在隔离副本运行该版本的原生生成命令。
+      核对 suite 与输入归属，明确所有排除和依赖。配置只描述硬件真实能力，不为通过而删除有效测试或改期望值。
+      不把编译通过、Sail 运行通过、香山仿真通过和功能覆盖率混为一谈。
+      优先交付 ELF；缺少构建依赖先在输出内补齐公开依赖并重试，不能自动降级为源码包掩盖构建错误。
+      确实无法完成时，可在 target.yaml 明确 allow_source_only: true，并在 limitations 说明具体缺项与修复动作；
+      仍必须记录一次真实构建尝试，最终报告会明确 source_only、不可直接运行。无需 Questa/VCS/Xcelium。
+      有用户提供的匹配 emu 时执行验证；没有时正常交付 built_not_run，不伪造 RTL 验证。
+      所有运行收据、manifest 和归档由 Check 生成，不手工编辑。包内 README 是操作指南，TESTS.md 是唯一测试索引。
+      日志、signature、中间 ELF、精确引用收据和 AI 生成记录留在插件输出，不放入 delivery 或压缩包。
+      保留 ACT suite 路径、testcase 和 covergroup/coverpoint 标识；香山功能列表仅辅助导航，不重新组织测试。
+      每个交付 .S 内的 testcase 均需解释设计、激励与预期结果，并映射到真实 coverpoint；每个 coverpoint 解释意图并连接 norm rule。
+      summary、preconditions、setup、exercise、check、limitations、description、stimulus、expected、intent、reason 使用清晰中文，保留实际符号、文件名和逐字引文。
+      使用精确原文引文区分上游原生映射与 ISA 推导映射，不将静态设计对应宣称为实际 bin 命中。
+      通过 traceability.yaml 统一生成索引和文件注释，不手改 bundle 或 delivery；ELF 使用非加载描述 note，不再另附逐文件说明报告，不向二进制开头拼接文字。
+stage:
+  - name: handoff_scope
+    desc: 从香山功能确定 ACT 范围并优先发现上游资产
+    task:
+      - 阅读 Guide_Doc/ACT4_XiangShan_Handoff_Guide.md section 1；调用 Check(stage_args={"action":"fetch"})，已有输入只读复用，缺省目录不存在时下载到输出内的独立目录。
+      - 读取 {OUT}/{DUT}/handoff/acquisition-paths.json 中的实际路径，分析用户指定的香山模块，不把物理模块名直接当 ACT suite 名。
+      - 依据模块源码、相关指令和功能别名调用 Check(stage_args={"action":"discover","queries":["功能或ISA关键词"]})；检查 discovery.json 中候选计划、覆盖定义、映射和生成器，必要时扩大查询。
+      - 创建 scope.yaml，对每个架构功能记录香山依据、ACT suites/部分、实际检索、上游已具备和缺失内容、复用或补全决定。微架构场景与生成流程不支持的缺口写 unavailable 和具体原因。
+      - 上游足够时只能 reuse；需补全时优先检查用户本地资产。只有确实可由新 privileged suite 生成的缺项才声明 generation_jobs，并说明 CTP/Sheet 适用条件。普通 Check 后 Complete。
+    reference_files: ["Guide_Doc/ACT4_XiangShan_Handoff_Guide.md"]
+    checker:
+      - name: handoff_scope_gate
+        clss: ACT4XiangShanChecker
+        args: {phase: scope, suite: "{DUT}", handoff_dir: "{OUT}/{DUT}/handoff", input_root: "{ACT4_INPUT_ROOT}", framework_root: "{ACT4_FRAMEWORK_ROOT}", xiangshan_root: "{ACT4_XIANGSHAN_ROOT}", manual_root: "{ACT4_MANUAL_ROOT}"}
+  - name: prepare_environment
+    desc: 准备香山资产构建所需工具
+    task:
+      - 阅读 Guide_Doc/ACT4_Environment_Guide.md，调用 Check(stage_args={"action":"probe"})。
+      - 按 {OUT}/{DUT}/handoff/acquisition-paths.json 中实际 checkout 的依赖清单和 CI 安装说明创建 {OUT}/{DUT}/environment/plan.yaml；准备 uv、RISC-V 编译器、Sail、基础命令及 lint，按实际依赖增加辅助工具。
+      - 优先复用兼容系统工具及持久化用户安装，冲突版本用 temporary。调用 Check(stage_args={"action":"prepare","timeout":3600})，检查安装及复验日志。
+      - 不安装商业仿真器，不自动编译完整香山；emu 由用户提供。环境准备不等于 ELF 或 RTL 验证通过。
+      - 普通 Check 通过后 Complete，不带 action；后续 shell 命令先 source {OUT}/{DUT}/environment/activate.sh。原生构建会使用准备好的 PATH，并在包内工作副本同步锁定的 Python 依赖。
+    reference_files: ["Guide_Doc/ACT4_Environment_Guide.md"]
+    checker:
+      - name: act4_environment
+        clss: ACT4EnvironmentChecker
+        args: {environment_dir: "{OUT}/{DUT}/environment"}
+  - name: handoff_inputs
+    desc: 选择现有资产并隔离原生生成
+    task:
+      - 阅读 Guide_Doc/ACT4_XiangShan_Handoff_Guide.md section 1，核对输入 suite、框架版本、依赖和已有 .S。
+      - 对 scope.yaml 声明的每个缺口生成任务调用 Check(stage_args={"action":"synthesize","generation_id":"任务ID","timeout":7200})，在隔离 clone 执行现有生成工作流，不重写上游资产。失败阅读日志，不把未完成输出当正式资产。
+      - 创建 {OUT}/{DUT}/handoff/input.yaml；framework_paths 只选构建源码、许可证与 tests/env，imports 指定 origin、source、destination、features，支持 upstream、local、manual 和 generated:任务ID 混合输入。保留 norm 原文和 SV 定义作为报告证据。
+      - 如需生成 .S，根据当前框架原生入口声明 generation argv；不重写现有 .S、不绕过原生生成器。已有 .S 则 generation 为空。
+      - 调用 Check(stage_args={"action":"prepare"})；需要生成时再调用 Check(stage_args={"action":"generate","timeout":1800})，阅读日志并修复依赖。
+      - 核对 input-inventory.json 与实际模块范围；普通 Check 通过后 Complete。
+    reference_files: ["Guide_Doc/ACT4_XiangShan_Handoff_Guide.md"]
+    checker:
+      - name: handoff_input_gate
+        clss: ACT4XiangShanChecker
+        args: {phase: inputs, suite: "{DUT}", handoff_dir: "{OUT}/{DUT}/handoff", input_root: "{ACT4_INPUT_ROOT}", framework_root: "{ACT4_FRAMEWORK_ROOT}", xiangshan_root: "{ACT4_XIANGSHAN_ROOT}", manual_root: "{ACT4_MANUAL_ROOT}"}
+  - name: handoff_target
+    desc: 根据 V3 源码建立目标适配
+    task:
+      - 按 Guide_Doc/ACT4_XiangShan_Handoff_Guide.md section 5 完成 traceability.yaml；每个程序说明前置条件、初始化、执行逻辑、检查机制和限制。selection.yaml 完成后用 Check(stage_args={"action":"inventory"}) 枚举全部 testcase，不得仅用文件摘要代替逐条测试说明。
+      - 标签与展开后的 SV 点名不同，按同一指南保留标签并给出 mapping_reason、同组 cp_asm_count 和真实指令证据；只建立指令级映射时明确专用覆盖缺口，不宣称具体 bin 命中。
+      - 阅读 Guide_Doc/ACT4_XiangShan_Handoff_Guide.md section 2；核对实际 kunminghu-v3 commit、Scala 配置类和 SimTop。不要假定存在名为 KunminghuV3Config 的类。
+      - 在 {OUT}/{DUT}/handoff 创建 target.yaml、selection.yaml 和 config/ 下五个目标文件；逐项引用当前 V3 源码原文和行号。
+      - 保留 ACT 链接布局，匹配 RAM、UART、结束宏、定时器、中断和 PMA；为 Sail 单独配置参考模型设备，不复制 DUT MMIO 地址替代 Sail 专用中断发生器。
+      - target.yaml 的八项 decisions 均解释选择；不适用的中断能力说明范围及依据。逐个 .S 记录 include/exclude/support，任何排除都保留理由。
+      - compiler_exe、ref_model_exe、objdump_exe 使用 PATH 中的可移植命令名；objdump/objcopy 必须来自匹配工具链；ref_model_exe 仍为 Sail。allow_source_only 默认 false。
+      - 调用 Check(stage_args={"action":"adapt"}) 验收并生成 build-plan.json；核对选中的测试数量和 target-evidence.json 后 Complete。
+    reference_files: ["Guide_Doc/ACT4_XiangShan_Handoff_Guide.md"]
+    checker:
+      - name: handoff_target_gate
+        clss: ACT4XiangShanChecker
+        args: {phase: target, suite: "{DUT}", handoff_dir: "{OUT}/{DUT}/handoff", input_root: "{ACT4_INPUT_ROOT}", framework_root: "{ACT4_FRAMEWORK_ROOT}", xiangshan_root: "{ACT4_XIANGSHAN_ROOT}", manual_root: "{ACT4_MANUAL_ROOT}"}
+  - name: handoff_build
+    desc: 构建自检 ELF 并可选执行香山验证
+    task:
+      - 阅读 Guide_Doc/ACT4_XiangShan_Handoff_Guide.md section 3；确认 uv、匹配版本的编译器、Sail 及 UDB 构建依赖可用。
+      - 调用 Check(stage_args={"action":"build","timeout":3600,"jobs":1})；读取 bundle/build-result.json 和真实命令日志。
+      - 处理依赖、配置或合法目标参数错误，不修改通用框架、断言和期望值。需要改配置时修改原始 config/ 与 target.yaml，调用 action=adapt，再 action=build；旧证据会失效。
+      - ELF 数量必须与 include 列表完全一致，不能把空集合或被条件全部过滤当作通过。检查最终 ELF、由它导出的 bin/disass、Sail signature/results 与自检链。
+      - 若用户提供匹配的 emu，调用 Check(stage_args={"action":"run","emulator":"XiangShan/build/emu","timeout":14400,"cycles":20000000})。路径相对工作区，按实际位置填写。
+      - 没有 emu 不阻塞交付；运行失败保留每个失败和日志，不称为通过，不自动归因为 RTL Bug。普通 Check 通过后 Complete。
+    reference_files: ["Guide_Doc/ACT4_XiangShan_Handoff_Guide.md"]
+    checker:
+      - name: handoff_build_gate
+        clss: ACT4XiangShanChecker
+        args: {phase: build, suite: "{DUT}", handoff_dir: "{OUT}/{DUT}/handoff", input_root: "{ACT4_INPUT_ROOT}", framework_root: "{ACT4_FRAMEWORK_ROOT}", xiangshan_root: "{ACT4_XIANGSHAN_ROOT}", manual_root: "{ACT4_MANUAL_ROOT}"}
+  - name: handoff_delivery
+    desc: 生成可迁移交付包和摘要
+    task:
+      - 阅读 Guide_Doc/ACT4_XiangShan_Handoff_Guide.md section 4；补充 target.yaml 的实际 limitations 应在构建阶段重新 adapt/build 后完成。
+      - 调用 Check(stage_args={"action":"package"}) 生成 delivery/、{DUT}-kunminghu-v3.tar.gz 和插件输出中的 handoff-report.md/json，并进行异目录核验。
+      - 交付说明开头直接说明 source_only、built_not_run、emulator_passed 或 emulator_failed，列出未完成验证与设计人员下一步操作。
+      - 检查 delivery/TESTS.md 覆盖全部 testcase、coverpoints 和 norm rules，每个测试有设计解释；README 说明环境、批量/单程序构建运行、修改后重建、查阅报告和定位失败。源码与 elf/bin/disass 按原 ACT 相对路径对应。
+      - 确认 delivery 与压缩包不包含运行日志、signature、中间文件、重复报告和 AI 记录；这些只保留在插件输出。接收方运行后新产生的文件写入 local/。
+      - 不上传、不提交到香山仓库；交付本地压缩包、报告路径及运行命令。Complete 不带 action。
+    reference_files: ["Guide_Doc/ACT4_XiangShan_Handoff_Guide.md"]
+    checker:
+      - name: handoff_delivery_gate
+        clss: ACT4XiangShanChecker
+        args: {phase: delivery, suite: "{DUT}", handoff_dir: "{OUT}/{DUT}/handoff", input_root: "{ACT4_INPUT_ROOT}", framework_root: "{ACT4_FRAMEWORK_ROOT}", xiangshan_root: "{ACT4_XIANGSHAN_ROOT}", manual_root: "{ACT4_MANUAL_ROOT}"}

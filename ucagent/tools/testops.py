@@ -417,6 +417,8 @@ class RunPyTest(UCTool):
             if isinstance(value, bool):
                 if value:
                     args.append(f"--{key}")
+            elif isinstance(value, (list, tuple)):
+                args.extend(f"--{key}={item}" for item in value)
             else:
                 args.append(f"--{key}={value}")
         return args
@@ -595,6 +597,7 @@ class RunUnityChipTest(RunPyTest):
             "toffee-report": True,
             "report-dump-json": True,
             "report-name": "index.html",
+            "report-custom": ["coverage-gui-xpra"],
         })
         self.result_dir = report_dir
         if workspace is None:

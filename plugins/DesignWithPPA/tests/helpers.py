@@ -16,6 +16,7 @@ import subprocess
 from types import ModuleType, SimpleNamespace
 from typing import Any
 import yaml
+from design_with_ppa.ppa import AnalyzePPA, PPAConfig
 from design_with_ppa.checkers import (  # noqa: E402
     DesignAllPassBatchTestsChecker,
     DesignArchitectureChecker,
@@ -126,7 +127,7 @@ def _config(
                 "options": {},
             },
         },
-        "ppa": {"waveform_scope": "tb.dut"},
+        "ppa": {**PPAConfig().model_dump(), "waveform_scope": "tb.dut"},
         "score_weights": {"timing": 1.0, "area": 1.0, "power": 1.0},
     }
     if no_regression is not None:
@@ -324,7 +325,7 @@ def _report(
     delay: float = 1.0,
     baseline_report_id: str | None = None,
 ) -> dict:
-    """Build one complete comparable schema-1.1 PPA report fixture."""
+    """Build one complete comparable schema-1.2 PPA report fixture."""
 
     comparison = {
         "status": "not_requested" if baseline_report_id is None else "success",
@@ -332,12 +333,12 @@ def _report(
         "current_report_id": report_id,
     }
     return {
-        "schema_version": "1.1",
+        "schema_version": "1.2",
         "report_id": report_id,
         "status": "success",
         "summary": {
             "design_type": "combinational",
-            "area": {"total": area},
+            "area": {"total": area, "unit": "liberty_area_unit"},
             "timing": {
                 "metric_kind": "critical_path_delay",
                 "critical_path_delay_ns": delay,
@@ -364,14 +365,15 @@ def _report(
         "details": {"area_by_cell_type": {"BUF_X1": 1}},
         "diagnostics": [],
         "provenance": {
+            **AnalyzePPA().analysis_identity(),
             "rtl_files": rtl_rows,
             "rtl_libraries": [],
             "waveform_files": [
                 {"path": waveform_path, "sha256": waveform_hash}
             ],
             "top_module": "dut",
-            "liberty_file": "bundled:NangateOpenCellLibrary_typical.lib",
-            "liberty_sha256": "a" * 64,
+            "liberty_file": "bundled:asap7sc7p5t_28_RVT_TT_nldm_merged.lib",
+            "liberty_sha256": "5d5d792741a15885a918cb1634de8124f0256e3f6d5b1f5a4d3c8a358e8597a0",
             "sdc_file": None,
             "sdc_sha256": None,
             "clock_constraint": None,

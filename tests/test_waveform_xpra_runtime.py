@@ -31,6 +31,7 @@ import requests
 from ucagent.server.api_cmd import PdbCmdApiServer
 from ucagent.util.config import Config
 from ucagent.util import waveform_viewer
+from runtime_requirements import require_xpra_runtime
 
 
 pytestmark = pytest.mark.skipif(
@@ -131,6 +132,7 @@ def waveform_service(root, host='127.0.0.1', port=0):
 @pytest.fixture
 def runtime(tmp_path):
     """Create isolated signed fixtures and clean every real server/application process."""
+    require_xpra_runtime(tk=True)
     with waveform_service(tmp_path) as service:
         yield service
 
