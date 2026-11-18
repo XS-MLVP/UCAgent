@@ -32,6 +32,7 @@ FINAL_RESULTS = {"PROVEN", "FALSIFIED", "TRIVIALLY_TRUE", "TRIVIALLY_FALSE", "CO
 RUN_POINTERS = {"full": "current.json", "selected": "selected.json", "preflight": "preflight.json"}
 PROOF_MARKER = "# UCAGENT_PROOF_BEGIN"
 ACTIVE_RUNS = {"PREPARING", "RUNNING", "CANCELLING"}
+LICENSE_WAIT = re.compile(r"^Info:\s+waiting for license(?:\(-?\d+\))?(?:\.{3})?\s*$", re.IGNORECASE | re.MULTILINE)
 ROW = re.compile(r"^\s*(\d+)\s+(\S+)\s*:\s*(.*?)\s*$", re.MULTILINE)
 
 
@@ -281,15 +282,23 @@ def choose_next(properties: dict, active: list[dict], policy: ExecutionPolicy):
 def write_report(run_dir: Path, state: dict) -> None:
     """Render a complete derived report without concealing deferred proof gaps."""
     deferred = sum(item.get("disposition") == "DEFERRED" for item in state["properties"].values())
-    complete = bool(state["properties"]) and all(item["result"] in FINAL_RESULTS for item in state["properties"].values())
+    scope = state.get("scope", "full")
+    resolved = bool(state["properties"]) and all(item["result"] in FINAL_RESULTS for item in state["properties"].values())
     lines = ["", "# Formal execution report", "", "## Run", "",
-             f"- Run: `{state['run_id']}`", f"- Scope: `{state.get('scope', 'full')}`", f"- State: `{state['status']}`",
-             f"- Fingerprint: `{state['fingerprint']}`", f"- Proof complete: `{str(complete).lower()}`",
-             f"- Deferred: {deferred}", "", "## Results", "",
-             "| Property | Result | State | Active seconds | Disposition |",
-             "| --- | --- | --- | ---: | --- |"]
+             f"- Run: `{state['run_id']}`", f"- Scope: `{scope}`", f"- State: `{state['status']}`",
+             f"- Fingerprint: `{state['fingerprint']}`", f"- Proof complete: `{str(scope == 'full' and resolved).lower()}`"]
+    if scope == "preflight":
+        lines.append(f"- Toolchain smoke complete: `{str(state['status'] == 'COMPLETED').lower()}`")
+    lines += [f"- Deferred: {deferred}", "", "## Results", "",
+             "| Property | Result | State | Attempt wall seconds | Solver-reported seconds | License wait reported | Disposition |",
+             "| --- | --- | --- | ---: | ---: | --- | --- |"]
     for name, item in state["properties"].items():
-        lines.append(f"| `{name}` | {item['result']} | {item['state']} | {item['execution_elapsed_s']:.2f} | {item.get('disposition') or '-'} |")
+        elapsed = item["execution_elapsed_s"]
+        reported = item.get("solver_reported_time_s")
+        solver_time = f"{reported:.2f}" if reported is not None else "—"
+        license_wait = "Yes" if any(attempt.get("license_wait_reported") for attempt in item.get("attempts", ())) else "—"
+        lines.append(f"| `{name}` | {item['result']} | {item['state']} | {elapsed:.2f} | {solver_time} | "
+                     f"{license_wait} | {item.get('disposition') or '-'} |")
     lines += ["", "## Decisions", ""]
     decisions = state.get("decisions", [])
     if not decisions:
@@ -818,6 +827,9 @@ class FormalExecution:
             row["remaining_s"] = max(0, policy.property_cumulative_budget_s - row["active_s"])
             row["attempts"] = len(item["attempts"])
         ready = [row for row in queue if row["state"] == "REVIEW" and row["disposition"] != "DEFERRED" and row["actions"]]
+        license_reports = [(name, attempt) for name, item in properties.items()
+                           for attempt in item.get("attempts", ()) if attempt.get("license_wait_reported")]
+        active_license_reports = [name for name, attempt in license_reports if attempt.get("running")]
         scope = state.get("scope", "full")
         executed = [item for item in properties.values() if item["result"] != "NOT_EXECUTED"]
         resolved = bool(executed) and all(item["result"] in FINAL_RESULTS for item in executed)
@@ -837,6 +849,8 @@ class FormalExecution:
                 "deferred_properties": [name for name, item in properties.items() if item.get("disposition") == "DEFERRED"][:20],
                 "review_queue": (ready + [row for row in queue if row not in ready])[:20],
                 "review_queue_total": len(queue), "needs_review": len(ready),
+                "license_wait": {"reported_attempts": len(license_reports),
+                                 "active_properties": active_license_reports[:20]},
                 "error": state.get("error"), "error_code": state.get("error_code"),
                 "report": str((run_dir / "report.md").relative_to(self.workspace)),
                 "state_artifact": str((run_dir / "state.json").relative_to(self.workspace)),
@@ -847,6 +861,8 @@ class FormalExecution:
                     if scope == "preflight" and state["status"] == "COMPLETED" else
                     "Review each ready property using its available actions. Other properties may continue running."
                     if ready else
+                    "FormalMC reported license waiting in active attempts. Use RunFormal action=status; check license availability if the wait persists."
+                    if active_license_reports and state["status"] in ACTIVE_RUNS else
                     "Wait for progress using RunFormal action=status." if state["status"] in ACTIVE_RUNS else
                     "Fix the indicated source and resubmit. After an operator repairs external compilation conditions, use retry_prepare=true."
                     if state.get("compile_failure_input_bound") else
@@ -1163,6 +1179,8 @@ def controller(run_dir: Path) -> None:
                     worker["output_offset"] = stream.tell()
                 console = worker["output_tail"] + console
                 worker["output_tail"] = console[-256:]
+                if not attempt.get("license_wait_reported") and LICENSE_WAIT.search(console):
+                    attempt["license_wait_reported"] = True
                 if worker["proof_start"] is None and "UCAGENT_PROOF_STARTED" in console:
                     worker["proof_start"] = now
                     marker = re.search(r"^UCAGENT_PROOF_STARTED (\d+)\r?$", console, re.MULTILINE)

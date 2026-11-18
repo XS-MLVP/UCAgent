@@ -114,6 +114,9 @@ def prove_script(script):
     name = match.group(1)
     budget = int(re.search(r'set_opt -timeout\s+(\d+)s', script).group(1))
     print('UCAGENT_PROOF_STARTED', flush=True)
+    if os.environ.get("FAKE_FORMAL_LICENSE_WAIT"):
+        print("Info: waiting for license(-4)...", flush=True)
+        time.sleep(0.6)
     if 'CRASH' in name:
         time.sleep(0.15)
         print('Error: proof worker failed', flush=True)
@@ -941,6 +944,9 @@ def test_disposable_preflight_and_function_batches_are_separate_from_full_accept
                      scope="preflight", run_id=preflight["run_id"])
     assert smoke["status"] == "COMPLETED", smoke
     assert smoke["counts"] == {"COVER_REACHED": 1}
+    smoke_report = (workspace / smoke["report"]).read_text()
+    assert "Toolchain smoke complete: `true`" in smoke_report
+    assert "Proof complete: `false`" in smoke_report
     assert "CK_FIRST" not in (out / "formal_runs" / preflight["run_id"] / "inputs/output/tests/DUT_checker.sv").read_text()
     assert execution.status()["status"] == "NOT_STARTED"
     assert execution.check_smoke()["preflight_complete"]
@@ -995,3 +1001,20 @@ def test_disposable_preflight_and_function_batches_are_separate_from_full_accept
     shared["sva_body"] = "@(posedge clk) b;"
     path.write_text(yaml.safe_dump(records))
     assert tool.invoke({"action": "run", "scope": "selected", "property_names": [first]})["scope"] == "selected"
+
+
+
+def test_native_license_wait_is_reported_separately_from_solver_result(execution_factory, monkeypatch):
+    """A wait is observable during execution and does not downgrade the eventual proof."""
+    monkeypatch.setenv("FAKE_FORMAL_LICENSE_WAIT", "1")
+    execution, workspace = execution_factory()
+    execution.run()
+    waiting = wait_for(execution, lambda status: bool(status["license_wait"]["active_properties"]))
+    assert waiting["license_wait"] == {"reported_attempts": 1, "active_properties": ["A_FAST"]}
+    assert "license waiting" in waiting["next_action"]
+    finished = wait_for(execution, lambda status: status["status"] == "COMPLETED")
+    assert finished["counts"] == {"PROVEN": 1}
+    assert finished["license_wait"] == {"reported_attempts": 1, "active_properties": []}
+    report = (workspace / finished["report"]).read_text()
+    assert "Attempt wall seconds | Solver-reported seconds | License wait reported" in report
+    assert " | Yes | " in report
