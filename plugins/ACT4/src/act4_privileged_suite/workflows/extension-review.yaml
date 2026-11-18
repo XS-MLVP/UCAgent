@@ -119,6 +119,8 @@ stage:
         先读取 validation-plan.json，核对 ci.yaml 的启用/排除、目标配置与 run_cmd.txt。
         签名生成的 ref_model_exe 不是最终 ELF 执行器。偏离原生入口的实验必须写 diagnostic_reason，不能称为上游 CI。
         local_only lint 不等于完整 lint workflow；动态目标选择和跨 suite 回归仍须按来源说明范围。
+        校验失败时按 errors 中各 field 的 next_action 一起修复后再 Check；
+        errors_omitted 非零或父字段格式错误时，修复后继续读取下一轮诊断。
       - 要求（资产与规范）：不存在的资产用空列表记录并作为遗漏审查；至少必须有一项现存测试资产。
         无法取得规范原文时 reference_files 写 []，后续不得把完整性和覆盖点语义审查标为通过。
       - 要求（环境）：probe 必须实测工具版本和可运行性，缺失时执行 install 并再次 probe；
