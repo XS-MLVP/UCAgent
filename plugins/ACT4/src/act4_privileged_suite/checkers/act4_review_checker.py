@@ -115,6 +115,73 @@ def safe_path(root: Path, value: str) -> Path:
     return path
 
 
+class CitationValidationError(ValueError):
+    """Identify the failing citation field without losing the caller's document location."""
+
+    def __init__(self, field: str, message: str) -> None:
+        """Retain a field category shared by document editing and ordinary review checks."""
+        super().__init__(message)
+        self.field = field
+        self.location = "basis"
+
+
+def review_citation_sources(evidence: dict[str, Any], evidence_name: str,
+                            before: dict[str, Any] | None = None) -> dict[str, str]:
+    """Collect current and retained baseline sources, including jobs and tool discovery."""
+    allowed = {}
+    runs = [("evidence-before.json", before)] if before is not None else []
+    for name, run in [*runs, (evidence_name, evidence)]:
+        if not isinstance(run, dict) or type(run.get("schema_version")) is not int or run["schema_version"] != 1:
+            raise ValueError(f"Collect {name} using the current stage's Check before citing its sources")
+        if not isinstance(run.get("source_files"), dict) or not isinstance(run.get("jobs"), list):
+            raise ValueError(f"{name} requires recorded source_files and jobs; collect current evidence with Check")
+        environment = run.get("environment")
+        if not isinstance(environment, dict) or not isinstance(environment.get("tools"), dict):
+            raise ValueError(f"{name} requires recorded environment tools; collect current evidence with Check")
+        allowed.update(run["source_files"])
+        allowed[name] = hashlib.sha256((json.dumps(run, indent=2) + "\n").encode()).hexdigest()
+        for job in run["jobs"]:
+            if not isinstance(job, dict):
+                raise ValueError(f"{name} contains an invalid job record; collect current evidence with Check")
+            for field in ("log", "probe_log"):
+                if field in job:
+                    allowed[job[field]] = job[f"{field}_sha256"]
+            allowed.update({item["path"]: item["sha256"]
+                            for item in job.get("artifacts", []) + job.get("diagnostics", [])})
+        for tool in environment["tools"].values():
+            allowed.update({attempt["log"]: attempt["sha256"] for attempt in tool["attempts"]})
+    allowed["environment.json"] = hashlib.sha256((json.dumps(evidence["environment"], indent=2) + "\n").encode()).hexdigest()
+    return allowed
+
+
+def read_review_quote(root: Path, citation: Any, allowed: dict[str, str],
+                      source_lines: dict[str, list[str]], *, require_quote: bool = True) -> str:
+    """Validate a retained UTF-8 citation and return its exact one-to-one-hundred-line quote."""
+    if not isinstance(citation, dict) or not is_text(citation.get("path")) or citation["path"] not in allowed:
+        raise CitationValidationError("source", "AI basis.path must name a frozen source/reference, current evidence JSON or retained command log/artifact; report text is not evidence")
+    name = citation["path"]
+    if name not in source_lines:
+        try:
+            content = safe_path(root, name).read_bytes()
+        except (OSError, ValueError) as error:
+            raise CitationValidationError("source", str(error)) from error
+        if hashlib.sha256(content).hexdigest() != allowed[name]:
+            raise CitationValidationError("source", f"AI basis source changed: {name}; recollect evidence")
+        try:
+            source_lines[name] = content.decode("utf-8").splitlines()
+        except UnicodeDecodeError as error:
+            raise CitationValidationError("source", f"AI basis requires UTF-8 text: {name}; cite a retained textual report for binary artifacts") from error
+    lines, physical = citation.get("lines"), source_lines[name]
+    if not isinstance(lines, list) or len(lines) != 2 or any(type(number) is not int for number in lines) or not 1 <= lines[0] <= lines[1] <= len(physical) or lines[1] - lines[0] >= 100:
+        raise CitationValidationError("lines", f"AI basis.lines must select 1..100 existing physical lines: {name}")
+    quote = "\n".join(physical[lines[0] - 1:lines[1]])
+    if not is_text(quote) or ((require_quote or "quote" in citation) and citation.get("quote") != quote):
+        raise CitationValidationError("quote", f"AI basis.quote must exactly match nonblank selected source lines: {name}")
+    if not is_text(citation.get("observation")):
+        raise CitationValidationError("observation", "AI basis.observation must explain what the quoted source establishes")
+    return quote
+
+
 def validate_references(workspace: Path, output: Path, files: Any, selections: Any) -> dict[str, list[str]]:
     """Validate source-only reference selections and return their physical text lines."""
     if not is_text_list(files, allow_empty=True) or len(set(files)) != len(files):
@@ -1337,24 +1404,10 @@ class ACT4ReviewChecker(Checker):
         if review is not None:
             tasks.update({f"finding:{item['id']}": {"topic": item["topic"]} for item in review["findings"]})
             tasks.update({f"change:{name}": {"topic": "contribution_quality"} for name in changed or []})
-        allowed = dict(evidence["source_files"])
         evidence_name = "evidence-before.json" if review is None else "evidence-after.json"
-        allowed[evidence_name] = hashlib.sha256((json.dumps(evidence, indent=2) + "\n").encode()).hexdigest()
-        if review is not None:
-            before = self._load("evidence-before.json")
-            allowed.update(before["source_files"])
-            allowed["evidence-before.json"] = hashlib.sha256((json.dumps(before, indent=2) + "\n").encode()).hexdigest()
-        for run in ([before, evidence] if review is not None else [evidence]):
-            for job in run["jobs"]:
-                for field in ("log", "probe_log"):
-                    if field in job:
-                        allowed[job[field]] = job[f"{field}_sha256"]
-                allowed.update({item["path"]: item["sha256"]
-                                for item in job.get("artifacts", []) + job.get("diagnostics", [])})
-        allowed["environment.json"] = hashlib.sha256((json.dumps(evidence["environment"], indent=2) + "\n").encode()).hexdigest()
+        before = self._load("evidence-before.json") if review is not None else None
+        allowed = review_citation_sources(evidence, evidence_name, before)
         allowed.update(experiment_sources(self.output, self._state().get("experiment_receipts", {}), self._state().get("experiment_index")))
-        for tool in evidence["environment"]["tools"].values():
-            allowed.update({attempt["log"]: attempt["sha256"] for attempt in tool["attempts"]})
         source_lines = {}
         for finding in document["findings"]:
             self._validation_section = "finding"
@@ -1680,27 +1733,12 @@ class ACT4ReviewChecker(Checker):
         for citation in basis:
             self._validation_section = "citation_source"
             self._validation_location = f"{citation.get('path')}:{citation.get('lines')}" if isinstance(citation, dict) else "basis"
-            if not isinstance(citation, dict) or not is_text(citation.get("path")) or citation["path"] not in allowed:
-                raise ValueError("AI basis.path must name a frozen source/reference, current evidence JSON or retained command log/artifact; report text is not evidence")
-            name = citation["path"]
-            if name not in source_lines:
-                content = safe_path(self.output, name).read_bytes()
-                if hashlib.sha256(content).hexdigest() != allowed[name]:
-                    raise ValueError(f"AI basis source changed: {name}; recollect evidence")
-                try:
-                    source_lines[name] = content.decode("utf-8").splitlines()
-                except UnicodeDecodeError as exc:
-                    raise ValueError(f"AI basis requires UTF-8 text: {name}; cite a retained textual report for binary artifacts") from exc
-            self._validation_section = "citation_lines"
-            lines, physical = citation.get("lines"), source_lines[name]
-            if not isinstance(lines, list) or len(lines) != 2 or any(type(number) is not int for number in lines) or not 1 <= lines[0] <= lines[1] <= len(physical) or lines[1] - lines[0] >= 100:
-                raise ValueError(f"AI basis.lines must select 1..100 existing physical lines: {name}")
-            self._validation_section = "citation_quote"
-            if not is_text(citation.get("quote")) or citation["quote"] != "\n".join(physical[lines[0] - 1:lines[1]]):
-                raise ValueError(f"AI basis.quote must exactly match the selected source lines: {name}")
+            try:
+                read_review_quote(self.output, citation, allowed, source_lines)
+            except CitationValidationError as error:
+                self._validation_section = f"citation_{error.field}"
+                raise
             self._validation_section = "citation_observation"
-            if not is_text(citation.get("observation")):
-                raise ValueError("AI basis.observation must explain what the quoted source establishes")
 
     def _traceability(self, trace: Any, evidence: dict[str, Any], partial: bool = False) -> None:
         """Check complete coverpoint accounting without treating static presence as hits."""

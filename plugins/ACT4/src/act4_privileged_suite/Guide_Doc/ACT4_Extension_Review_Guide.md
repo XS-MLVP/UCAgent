@@ -240,6 +240,8 @@ source 任务同时需要义务清单关联和原文判断；point 任务同时�
 用 `ACT4ReviewDocument(action="quote", citations=[{"path": "baseline/generators/H.py", "lines": [1, 2],
 "observation": "这两行说明的具体事实"}])` 提取原文。每次最多 12 处，每处最多 100 行。
 工具验证保留来源的字节后填入 quote，避免手工抄写缩进、引号和换行。
+quote 只能选取非空 UTF-8 原文；提供了 quote 时也必须逐字一致。final 的引用可以包含修复前后的
+evidence JSON、命令日志与产物；环境探测和已保留实验的证据同样可以引用。
 
 用 `ACT4ReviewDocument(action="update", document="review", expected_sha256="status返回的SHA-256",
 changes={...})` 合入本批记录。findings、obligations 按 id 更新，traceability 按 coverpoint 更新，
@@ -248,6 +250,9 @@ checks 可逐主题更新，其他字段整体替换。basis 中提供 path、li
 推理、结论、状态、置信度和限制必须自己填写。工具不会替你生成语义裁定或完成标记。
 修复后的 final.yaml 使用 `document="final"` 和 after 的 evidence_digest；不存在时 update 的
 expected_sha256 为空，并按下方完整示例提供文档字段。若其他操作已修改文件，先重新 status，不能覆盖外部改动。
+写入期间若证据、引用来源或报告变化，本次更新会被拒绝并保留原报告或外部修改。
+重新读取指出的文件；来源变化时先 Check 收集当前证据，再复核受影响判断并提交当前 evidence_digest。
+不能只替换 digest 沿用旧结论。写入成功只表示记录已保存，仍须普通 Check 验收。
 
 每批更新后普通 Check，当前批次通过后继续下一批；所有批次及完整报告通过后才能 Complete。
 错误会定位具体文档字段、任务或引用；先处理该位置，不要因为文档缺项而重跑原生命令。
