@@ -1018,3 +1018,37 @@ def test_native_license_wait_is_reported_separately_from_solver_result(execution
     report = (workspace / finished["report"]).read_text()
     assert "Attempt wall seconds | Solver-reported seconds | License wait reported" in report
     assert " | Yes | " in report
+
+
+
+def test_selected_fc_retry_uses_short_budget_until_full_verification(execution_factory):
+    """Keep an unchanged target from monopolizing stage 6, and retain later retry capacity."""
+    execution, workspace = execution_factory(("A_SLOW",), first_pass_budget_s=3,
+                                             analysis_threshold_s=4, property_cumulative_budget_s=15,
+                                             max_review_rounds=3)
+    execution.batched_sva = True
+    info = workspace / ".ucagent/ucagent_info.json"
+    info.parent.mkdir()
+    info.write_text('{"current_stage_name": "environment_debugging_iteration"}')
+    (workspace / "output/.formal_records.yaml").write_text("dut: DUT\nspec:\n  function_groups: []\n")
+    run = execution.run(["A_SLOW"])
+    batch = {"scope": "selected", "run_id": run["run_id"]}
+    waiting = wait_for(execution, lambda result: result["status"] == "AWAITING_REVIEW", **batch)
+    budget = waiting["review_queue"][0]["max_retry_budget_s"]
+    assert 0 < budget <= 3
+    with pytest.raises(ValueError, match="stage-6 retry"):
+        execution.review(["A_SLOW"], "retry", "Check the observed depth", "Defer if unresolved",
+                         retry_budget_s=6, **batch)
+
+    execution.review(["A_SLOW"], "retry", "Check the observed depth", "Defer if unresolved", **batch)
+    finished = wait_for(execution, lambda result: result["status"] == "AWAITING_REVIEW", **batch)
+    state = json.loads((workspace / finished["state_artifact"]).read_bytes())
+    assert state["decisions"][-1]["retry_budget_s"] == budget
+    assert finished["review_queue"][0]["actions"] == ["defer"]
+    assert finished["counts"] == {"UNPROVEN": 1}
+
+    info.write_text('{"current_stage_name": "coverage_analysis_and_optimization"}')
+    assert "retry" in execution.status(**batch)["review_queue"][0]["actions"]
+    execution.review(["A_SLOW"], "retry", "Apply the full-stage budget", "Review full results",
+                     retry_budget_s=6, **batch)
+    execution.cancel(**batch)

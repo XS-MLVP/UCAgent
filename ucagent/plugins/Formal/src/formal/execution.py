@@ -158,6 +158,11 @@ def review_actions(item: dict, policy: ExecutionPolicy) -> list[str]:
     return actions
 
 
+def fc_retry_budget_s(item: dict, policy: ExecutionPolicy) -> int:
+    """Limit short selected retries during FC implementation using resolved proof budgets."""
+    total = min(policy.property_cumulative_budget_s, policy.analysis_threshold_s + policy.first_pass_budget_s)
+    return max(0, min(policy.first_pass_budget_s, math.floor(total - item["execution_elapsed_s"])))
+
 def apply_decisions(state: dict, decisions: list[dict]) -> None:
     """Apply already validated decisions to only their target properties."""
     for decision in decisions:
@@ -754,6 +759,11 @@ class FormalExecution:
                 return {"status": "CANCELLING", "run_id": state["run_id"], "scope": state.get("scope", "full"), "next_action": "Call RunFormal action=status after cleanup."}
             return self._summary(run_dir, state)
 
+    def _limits_fc_retry(self, scope):
+        from .baseline import phase_six
+
+        return scope == "selected" and self.batched_sva and phase_six(self.workspace)
+
     def review(self, property_names: list[str], action: str, reason: str, next_action: str = "", *,
                run_id=None, scope="full", retry_budget_s: int | None = None) -> dict:
         """Record bounded batch decisions; deferral preserves UNPROVEN and retry is capped."""
@@ -779,6 +789,7 @@ class FormalExecution:
             if active and ((run_dir / "closing").exists() or (run_dir / "cancel").exists()):
                 raise ValueError("The batch is finishing; refresh its status before reviewing.")
             pending_names = {row["property"] for row in pending} if active else set()
+            limit_fc_retry = self._limits_fc_retry(state.get("scope"))
             decisions = []
             for name in property_names:
                 item = state["properties"].get(name)
@@ -792,9 +803,17 @@ class FormalExecution:
                     raise ValueError(f"Retry budget exhausted or property is still running: {name}")
                 if retry_budget_s is not None and retry_budget_s > self.policy.property_cumulative_budget_s - item["execution_elapsed_s"]:
                     raise ValueError(f"Retry budget exceeds the remaining proof time for {name}.")
+                budget = retry_budget_s
+                if action == "retry" and limit_fc_retry:
+                    limit = fc_retry_budget_s(item, self.policy)
+                    if limit == 0:
+                        raise ValueError(f"{name} exhausted the stage-6 retry budget. Defer with a concrete gap and revisit in full verification.")
+                    if budget is not None and budget > limit:
+                        raise ValueError(f"{name} has at most {limit}s left for a stage-6 retry. Use the reported budget or defer the unresolved target.")
+                    budget = limit if budget is None else budget
                 decisions.append({"property": name, "action": action, "reason": reason.strip(),
                                   "next_action": next_action.strip(), "timestamp": time.time(),
-                                  **({"retry_budget_s": retry_budget_s} if retry_budget_s is not None else {})})
+                                  **({"retry_budget_s": budget} if budget is not None else {})})
             if active:
                 atomic_json(pending_path, pending + decisions)
                 return {**self._summary(run_dir, state), "review_pending": True}
@@ -821,9 +840,14 @@ class FormalExecution:
                   "depth": item.get("depth"), "engine": item.get("engine"), "raw_status": item.get("raw_status"),
                   "reason": item.get("error") or item.get("reason"), "error_code": item.get("error_code"), "disposition": item.get("disposition")}
                  for name, item in properties.items() if item["result"] == "UNPROVEN"]
+        limit_fc_retry = self._limits_fc_retry(state.get("scope"))
         for row in queue:
             item = properties[row["property"]]
             row["actions"] = [] if state.get("scope") == "preflight" or row["property"] in pending else review_actions(item, policy)
+            if limit_fc_retry:
+                row["max_retry_budget_s"] = fc_retry_budget_s(item, policy) if "retry" in row["actions"] else 0
+                if row["max_retry_budget_s"] == 0 and "retry" in row["actions"]:
+                    row["actions"].remove("retry")
             row["remaining_s"] = max(0, policy.property_cumulative_budget_s - row["active_s"])
             row["attempts"] = len(item["attempts"])
         ready = [row for row in queue if row["state"] == "REVIEW" and row["disposition"] != "DEFERRED" and row["actions"]]

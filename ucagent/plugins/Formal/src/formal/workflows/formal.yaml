@@ -278,7 +278,7 @@ stage:
       - "用 RunFormal(action=pending) 领取 current_fc 及其下一步。技能可用时 prepare sva 领取同一 FC 的待填表达式，无技能时仅用普通文件工具实现 current_fc。当前 FC 未完成运行与异常处置前，不实现后续 FC，不提前填写整套 SVA。"
       - "直接提交 current_fc.run_call。它只包含本轮待运行的 CK，每个请求只传一种目标选择器。记录返回的 run_id；未选目标不进入该批。"
       - "已有定向结果时，先用 RunFormal(action=pending) 查看当前公共输入下的待复验 CK，按首个可执行批次返回的 run_call 提交。"
-      - "每条属性先运行 5 分钟，慢队列补到累计 20 分钟。pending 返回 solver_review 时，按其 status_call 查询原批的 review_queue；用 action=review 处理原批，无新策略时用 RunFormal review 的 defer 记录依据及恢复条件，保留 UNPROVEN 后推进，不仅因兄弟属性通过就反复延长。确有新诊断或策略才 retry。"
+      - "每条属性先运行 5 分钟，慢队列补到累计 20 分钟。pending 返回 solver_review 时，按其 status_call 查询原批的 review_queue；用 action=review 处理原批，无新策略时用 RunFormal review 的 defer 记录依据及恢复条件，保留 UNPROVEN 后推进，不仅因兄弟属性通过就反复延长。确有新诊断或策略才 retry，时长遵守 review_queue 的 max_retry_budget_s。定向阶段累计至分析阈值加一次首轮预算（默认 25 分钟）；需要更长求解入第 7 阶段复核。"
       - "分析空泛性或慢断言时，用 AnalyzeFormal(mode=sanity 或 fanin, run_id=..., property_name=...) 获取工具诊断，再结合规格决定是否修订。"
       - "怀疑慢断言存在有限深度的反例时，可以用 AnalyzeFormal(mode=bounded_search, run_id=..., property_name=..., depth=...) 在隔离环境搜索。"
       - "每个 FC 完成实现、定向验证和问题处置的小闭环：先排除属性或环境错误，保留有依据的真实 Fail 与未证明缺口。发现共享 Assume 或配置错误可按规格修订，并重新验证受影响目标，在当前阶段补验证，不跳回第 5 阶段，也不沿用不适用的旧 Pass。拆分时用 parent_ck_id 保留原目标关系。"
