@@ -261,6 +261,12 @@ class RunFormal(UCTool):
                 allowed = set(current["ready_ck_ids"]) if current else set()
                 if scope != "selected" or not current or (fc_id and fc_id != current["fc_id"]) or (ck_ids and not set(ck_ids) <= allowed):
                     raise ValueError("In phase 6, run only the current FC returned by action=pending; complete its local review before advancing.")
+                if current["solver_review"]:
+                    raise ValueError(progress["next_action"])
+                if fc_id:
+                    if not allowed:
+                        raise ValueError("No current CK requires a new run. Use the next action returned by pending.")
+                    ck_ids, fc_id = current["ready_ck_ids"], None
                 if property_names:
                     from .skills.lib.formal_tools import _ck_to_sv_names
                     styles = {c.id: c.style for g in records.spec.function_groups for f in g.functions for c in f.check_points}

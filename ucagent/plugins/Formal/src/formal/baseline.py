@@ -54,7 +54,7 @@ def target_receipts(execution, records: FormalRecords) -> tuple[dict, dict, bool
     required = [root.parent / "tests" / f"{execution.dut}_{suffix}" for suffix in ("checker.sv", "wrapper.sv", "formal.tcl")]
     if not all(path.is_file() for path in required):
         return targets, {"shared_environment": shared}, False
-    _, root, executable, files, _ = execution._inputs()
+    _, root, executable, files, fingerprint = execution._inputs()
     checker = f"{execution.output_dir}/tests/{execution.dut}_checker.sv"
     context = batch_context(files, checker, executable, execution.policy, shared)
     custom_setup = ((records.extra_config or {}).get("tcl") or {}).get("extra_commands")
@@ -84,14 +84,23 @@ def target_receipts(execution, records: FormalRecords) -> tuple[dict, dict, bool
             if item.get("attempts"):
                 # A newer matching attempt supersedes prior interpretations, even if its evidence is damaged.
                 target.pop("receipt", None)
+                target.pop("solver_review", None)
                 target["active"] = False
             if state["status"] in ACTIVE_RUNS:
                 active = True
             if state["status"] in ACTIVE_RUNS and item.get("state") in {"RUNNING_FAST", "RUNNING_SLOW", "QUEUED_FAST", "QUEUED_SLOW"}:
                 active = True
                 target.pop("receipt", None)
+                target.pop("solver_review", None)
                 target["active"] = True
                 continue
+            if (state["status"] in {"RUNNING", "AWAITING_REVIEW"} and state["fingerprint"] == fingerprint
+                    and item.get("state") == "REVIEW" and item.get("result") == "UNPROVEN"
+                    and item.get("disposition") != "DEFERRED"):
+                target["solver_review"] = {
+                    "ck_id": ck_id, "run_id": state["run_id"], "property": name,
+                    "status_call": {"action": "status", "run_id": state["run_id"], "wait_s": 0},
+                }
             if state["status"] not in {"COMPLETED", "AWAITING_REVIEW"}:
                 continue
             try:
@@ -141,13 +150,17 @@ def function_batch_progress(execution, records: FormalRecords) -> dict:
             checks = [ck for ck in fc.check_points if ck.id in targets]
             if not checks:
                 continue
-            missing = []; ready = []; reviews = []; gaps = []; closed = []
+            missing, ready, reviews, solver_review, gaps, closed = [], [], [], [], [], []
             for ck in checks:
-                receipt = targets[ck.id].get("receipt")
+                target = targets[ck.id]
+                receipt = target.get("receipt")
                 if not has_sva_body(ck.sva_body):
                     missing.append(ck.id)
+                elif target.get("solver_review"):
+                    solver_review.append(target["solver_review"])
                 elif not receipt:
-                    ready.append(ck.id)
+                    if not target.get("active"):
+                        ready.append(ck.id)
                 elif receipt["result"] in {"PROVEN", "COVER_REACHED"}:
                     closed.append(ck.id)
                 elif receipt["deferred"]:
@@ -162,17 +175,34 @@ def function_batch_progress(execution, records: FormalRecords) -> dict:
                         reviews.append({"ck_id": ck.id, "run_id": receipt["run_id"], "property": receipt["property"],
                                         "result": receipt["result"], "classification": review.get("classification")
                                         if review.get("binding") == receipt["binding"] else None,
-                                        "evidence_ref": receipt["evidence_ref"]})
-            phase = "implement" if missing else "running" if any(targets[c.id].get("active") for c in checks) else "run" if ready else "review" if reviews else "closed"
+                                        "evidence_ref": receipt["evidence_ref"],
+                                        "evidence_call": {"action": "evidence", "run_id": receipt["run_id"],
+                                                          "property_names": [receipt["property"]]}})
+            if solver_review:
+                phase = "solver_review"
+            elif any(targets[ck.id].get("active") for ck in checks):
+                phase = "running"
+            elif missing:
+                phase = "implement"
+            elif ready:
+                phase = "run"
+            else:
+                phase = "review" if reviews else "closed"
             closed_ck.extend(closed)
             batches.append({"fg_id": fg.id, "fc_id": fc.id, "phase": phase, "closed_ck_ids": closed,
                             "unimplemented_ck_ids": missing, "ready_ck_ids": ready, "needs_review": reviews,
-                            "deferred_ck_ids": gaps,
-                            "run_call": {"action": "run", "scope": "selected", "fc_id": fc.id} if phase == "run" and not active else None,
+                            "solver_review": solver_review, "deferred_ck_ids": gaps,
+                            "run_call": {"action": "run", "scope": "selected", "ck_ids": ready} if phase == "run" and not active else None,
                             "review_call": {"action": "review_fc", "fc_id": fc.id,
                                             "reviews": [{"ck_id": row["ck_id"], "run_id": row["run_id"], "classification": "", "reason": ""} for row in reviews]} if phase == "review" else None})
     current = next((batch for batch in batches if batch["phase"] != "closed"), None)
     pending = [ck for ck in targets if ck not in closed_ck]
+    if current is None:
+        next_action = "All FCs are locally closed. Record remaining UNPROVEN gaps and Complete; final acceptance still requires a full run."
+    elif current["phase"] == "solver_review":
+        next_action = "Call solver_review.status_call, then use RunFormal action=review on the existing run. Retry with a justified strategy or defer with a documented gap."
+    else:
+        next_action = "Complete the current FC's implementation, selected proof and local review before the next FC."
     return {"total": len(targets), "reviewed": len(closed_ck), "pending": sorted(pending), "active": active,
             "batches": [batch for batch in batches if batch["phase"] != "closed"], "current_fc": current, "missing_assumptions": [], "shared_environment": context["shared_environment"],
-            "next_action": "Complete the current FC's implementation, selected proof and local review before the next FC." if current else "All FCs are locally closed. Record remaining UNPROVEN gaps and Complete; final acceptance still requires a full run."}
+            "next_action": next_action}

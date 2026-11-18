@@ -90,6 +90,9 @@ def test_fc_cannot_advance_after_implementation_or_failure_without_review(task):
     prepared = store.prepare('sva')
     assert prepared['fc_id'] == 'FC-FIRST' and prepared['ready_update'] is None
     assert prepared['review_call']['reviews'][0]['run_id'] == run_id
+    assert prepared['current_fc']['needs_review'][0]['evidence_call'] == {
+        'action': 'evidence', 'run_id': run_id, 'property_names': ['u_checker.A_CK_FIRST'],
+    }
     with pytest.raises(ValueError, match='exact matching run_id'):
         review_fc(execution, FormalRecords.model_validate(records), 'FC-FIRST', [
             {'ck_id': 'CK-FIRST', 'run_id': 'f' * 32, 'classification': 'RTL_BUG', 'reason': 'output disagrees'}])
@@ -230,3 +233,38 @@ def test_new_attempt_invalidates_old_local_review_even_when_new_evidence_is_dama
     assert progress['current_fc']['fc_id'] == 'FC-FIRST'
     assert progress['current_fc']['phase'] == 'run'
     assert not matching_reviews(execution, FormalRecords.model_validate(records))
+
+
+
+def test_pending_uses_the_existing_solver_review_and_runs_only_uncovered_ck(task, monkeypatch):
+    """A slow CK has an exact review path; a resolved sibling stays out of the next run."""
+    execution, records, path, cfg = task
+    first(records)['sva_body'] = 'a;'
+    records['spec']['function_groups'][0]['functions'][0]['check_points'].append(
+        {'id': 'CK-SIBLING', 'style': 'Comb', 'description': 'sibling behavior', 'sva_body': 'y == a;'})
+    path.write_text(yaml.safe_dump(records))
+    publish(execution, records, ck_id='CK-SIBLING', result='PROVEN')
+    run_id = publish(execution, records, result='UNPROVEN', number=2)
+    state_path = path.parent / 'formal_runs' / run_id / 'state.json'
+    state = json.loads(state_path.read_text())
+    state['status'] = 'AWAITING_REVIEW'
+    state['fingerprint'] = execution._inputs()[-1]
+    state['properties']['u_checker.A_CK_FIRST']['state'] = 'REVIEW'
+    state_path.write_text(json.dumps(state))
+    tool = RunFormal(str(execution.workspace), 'output', 'DUT', cfg)
+    monkeypatch.setattr('formal.tools.render_environment', lambda *args, **kw: {'warning_total': 0})
+    current = tool.invoke({'action': 'pending'})['current_fc']
+    assert current['phase'] == 'solver_review'
+    assert current['closed_ck_ids'] == ['CK-SIBLING']
+    assert current['run_call'] is None
+    assert current['solver_review'][0]['status_call'] == {'action': 'status', 'run_id': run_id, 'wait_s': 0}
+    with pytest.raises(ValueError, match='existing run'):
+        tool.invoke({'action': 'run', 'scope': 'selected', 'fc_id': 'FC-FIRST'})
+
+    first(records)['sva_body'] = 'y;'
+    path.write_text(yaml.safe_dump(records))
+    current = tool.invoke({'action': 'pending'})['current_fc']
+    assert current['closed_ck_ids'] == ['CK-SIBLING']
+    assert current['run_call'] == {'action': 'run', 'scope': 'selected', 'ck_ids': ['CK-FIRST']}
+    monkeypatch.setattr(FormalExecution, 'run', lambda self, **options: options)
+    assert tool.invoke({'action': 'run', 'scope': 'selected', 'fc_id': 'FC-FIRST'}) == {'ck_ids': ['CK-FIRST']}

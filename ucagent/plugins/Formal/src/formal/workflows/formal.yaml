@@ -276,14 +276,14 @@ stage:
     task:
       - "第 5 阶段的临时属性不复用。先按规划实现有规格依据的正式环境 Assume，技能可用时用 prepare sva --assumptions 领取，否则用普通文件工具填写；再按 FC 实现正式 Assert/Cover。独立端口的环境义务各有独立 CK，保留真实协议依赖；不限制 DUT 输出来消除反例。"
       - "用 RunFormal(action=pending) 领取 current_fc 及其下一步。技能可用时 prepare sva 领取同一 FC 的待填表达式，无技能时仅用普通文件工具实现 current_fc。当前 FC 未完成运行与异常处置前，不实现后续 FC，不提前填写整套 SVA。"
-      - "用 RunFormal(action=run, scope=selected, fc_id=...) 定向运行该 FC 已实现的功能 Assert/Cover。只复验部分目标时改传 ck_ids。记录 run_id，未选目标保持未执行。"
+      - "直接提交 current_fc.run_call。它只包含本轮待运行的 CK，每个请求只传一种目标选择器。记录返回的 run_id；未选目标不进入该批。"
       - "已有定向结果时，先用 RunFormal(action=pending) 查看当前公共输入下的待复验 CK，按首个可执行批次返回的 run_call 提交。"
-      - "每条属性先运行 5 分钟，慢队列补到累计 20 分钟。REVIEW 时优先检查目标、逻辑锥与环境；无新策略时用 RunFormal review 的 defer 记录依据及恢复条件，保留 UNPROVEN 后推进，不仅因兄弟属性通过就反复延长。确有新诊断或策略才 retry。"
+      - "每条属性先运行 5 分钟，慢队列补到累计 20 分钟。pending 返回 solver_review 时，按其 status_call 查询原批的 review_queue；用 action=review 处理原批，无新策略时用 RunFormal review 的 defer 记录依据及恢复条件，保留 UNPROVEN 后推进，不仅因兄弟属性通过就反复延长。确有新诊断或策略才 retry。"
       - "分析空泛性或慢断言时，用 AnalyzeFormal(mode=sanity 或 fanin, run_id=..., property_name=...) 获取工具诊断，再结合规格决定是否修订。"
       - "怀疑慢断言存在有限深度的反例时，可以用 AnalyzeFormal(mode=bounded_search, run_id=..., property_name=..., depth=...) 在隔离环境搜索。"
       - "每个 FC 完成实现、定向验证和问题处置的小闭环：先排除属性或环境错误，保留有依据的真实 Fail 与未证明缺口。发现共享 Assume 或配置错误可按规格修订，并重新验证受影响目标，在当前阶段补验证，不跳回第 5 阶段，也不沿用不适用的旧 Pass。拆分时用 parent_ck_id 保留原目标关系。"
       - "修改单时钟安全断言后，可以用 AnalyzeFormal(mode=replay, run_id=原批次, property_name=原属性名) 在旧反例上检查修改，再做定向证明。"
-      - "使用 RunFormal(action=review_fc, fc_id=..., reviews=...) 提交当前 FC 的异常分类与依据，具体请求采用 pending 返回的模板。ENV_PENDING 表示环境/属性问题未解决，不可关闭当前 FC；修订后局部复验。真实 RTL 反例保持 Fail，平凡证明和不可达 Cover 要有明确审阅，暂缓保留缺口，不要求全部 Pass。所有 FC 都有当前有效处置后才 Complete。"
+      - "用 needs_review 中的 evidence_call 读取原批证据。使用 RunFormal(action=review_fc) 并采用 pending 返回的 review_call 模板提交当前 FC 的异常分类与依据。ENV_PENDING 表示环境/属性问题未解决，不可关闭当前 FC；修订后局部复验。真实 RTL 反例保持 Fail，平凡证明和不可达 Cover 要有明确审阅，暂缓保留缺口，不要求全部 Pass。所有 FC 都有当前有效处置后才 Complete。"
     reference_files:
       - "{OUT}/.formal_records.yaml"
       - "Guide_Doc/sva_property.md"
