@@ -102,6 +102,16 @@ build 依赖 generation，执行依赖同 target 的非空 ELF 构建产物，
 日志、产物和候选内容变化会使证据失效。静态结果与 measured coverage 分开，通用门禁
 只能核验 coverage 产物来源，具体 bins/义务等价仍需 AI 与人类结合原生产物审查。
 
+review_audit 在独立 ISA 计划验收及 scope 校验后支持
+`Check(stage_args={"prepare_environment": true})`。它与正式取证共用命令执行器，保留 Git/本地目录
+输入、首阶段准备的环境、可选工具语义和实验时限。所有 environment jobs 优先执行，且只能依赖
+其他 environment jobs；预检只执行这些 jobs，并按子进程 cwd 和 PATH 检查其余命令的启动路径。
+可选工具不可用和已声明不可用的 lane 保留为限制；可能由原生依赖创建的路径标为 deferred。
+单独的 execution-preparation.json 和 prepare-before-* 日志不进入正式证据，也不推进审查批次。
+此操作不能与 Complete 或其他执行参数组合；真实取证仍重探环境并检查产物与测试结果。
+预检额外增加一次隔离与探测，收益是提前发现启动错误，不保证成功路径或完整工作流加速。
+具体调用、报告字段及恢复动作见 `Guide_Doc/ACT4_Extension_Review_Guide.md`。
+
 review 在保留现有资产检查的基础上启用完整声明资产的格式解析、generator 独立性及现有
 cross default-bin/bitwalk 结构检查，
 复用 assembly 条件分析建立源码/本轮生成用例的 descriptor-label 对应；条件未知、确定不可达
