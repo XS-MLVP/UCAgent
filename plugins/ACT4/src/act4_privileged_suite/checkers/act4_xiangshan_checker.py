@@ -22,6 +22,7 @@ from ucagent.checkers.base import Checker
 
 from .. import xiangshan_bundle as bundle
 from .. import xiangshan_delivery
+from ..resources import copy_on_write, resolve_source
 from ..environment import prepared_environment, read_plan
 from ..xiangshan_acquisition import XiangShanAcquisition
 from ..xiangshan_trace import testcase_inventory, validate_trace
@@ -66,7 +67,7 @@ class ACT4XiangShanChecker(Checker):
     accepted_stage_args = ("action", "timeout", "jobs", "emulator", "cycles", "queries", "generation_id")
 
     def __init__(self, phase: str, suite: str, handoff_dir: str, input_root: str,
-                 framework_root: str, xiangshan_root: str, manual_root: str = "riscv-isa-manual", cfg=None, **kwargs):
+                 framework_root: str, xiangshan_root: str, result_dir: str, manual_root: str = "riscv-isa-manual", cfg=None, **kwargs):
         """Store stage parameters without reading workspace or deriving live state."""
         super().__init__()
         if phase not in {"scope", "inputs", "target", "build", "delivery"} or kwargs:
@@ -74,6 +75,7 @@ class ACT4XiangShanChecker(Checker):
         self.phase, self.suite, self.handoff_dir = phase, suite, handoff_dir
         self.input_root, self.framework_root, self.xiangshan_root = input_root, framework_root, xiangshan_root
         self.manual_root = manual_root
+        self.result_dir = result_dir
         self.cfg = cfg
         self._cancelled = False
         self._active_log = None
@@ -208,7 +210,7 @@ class ACT4XiangShanChecker(Checker):
             for name, source in {**{name: bundle.safe_path(self.framework, name) for name in framework}, **import_files}.items():
                 target = bundle.safe_path(self.package / "act4", name)
                 target.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(source, target)
+                copy_on_write(source, target)
             state["inputs"] = fingerprint
             state["snapshot"] = source_files(self.package / "act4", list(framework) + list(destinations))
             provenance = {}
@@ -467,12 +469,12 @@ class ACT4XiangShanChecker(Checker):
                   "build": {key: result[key] for key in ("status", "errors", "log")},
                   "failed_tests": [test for test in run["tests"] if test["status"] != "passed"] if run else [],
                   "requested_module": self.scope["request"], "functions": self.scope["features"],
-                  "traceability": {"report": "delivery/TESTS.md", "data": "bundle/traceability.json",
+                  "traceability": {"report": os.path.relpath(self.results / "delivery/TESTS.md", self.output), "data": "bundle/traceability.json",
                                    "testcases": sum(len(test["cases"]) for test in trace["tests"]),
                                    "coverpoints": len(trace["coverpoints"]), "norm_rules": len(trace["rules"]),
                                    "evidence_level": trace["evidence_level"]}}
-        delivery = bundle.safe_path(self.output, "delivery")
-        archive_path = bundle.safe_path(self.output, f"{self.suite}-kunminghu-v3.tar.gz")
+        delivery = bundle.safe_path(self.results, "delivery")
+        archive_path = bundle.safe_path(self.results, f"{self.suite}-kunminghu-v3.tar.gz")
         if action == "package":
             environment = read_plan(self.output.parent / "environment")["tools"]
             with tempfile.TemporaryDirectory(dir=self.output) as temporary:
@@ -508,10 +510,10 @@ class ACT4XiangShanChecker(Checker):
                 archive_temp.replace(archive_path)
             state["delivery"] = {"manifest": bundle.sha256(delivery / "manifest.json"), "archive": bundle.sha256(archive_path)}
             bundle.write_json(self.output / "handoff-report.json", report)
-            (self.output / "handoff-report.md").write_text(
+            (self.results / "final.md").write_text(
                 f"\n# {self.suite} handoff\n\n{summary}\n\n"
                 + "Recipient guide: delivery/README.md. ACT index: delivery/TESTS.md.\n\n"
-                + "Producer evidence: bundle/build-result.json, optional bundle/run-result.json, traceability.yaml and target.yaml.\n",
+                + f"Producer evidence: [{self.output.relative_to(self.results)}]({self.output.relative_to(self.results)}).\n",
                 encoding="utf-8")
         if not state.get("delivery"):
             raise ValueError('Call Check(stage_args={"action":"package"}) to create and verify the recipient package')
@@ -537,12 +539,17 @@ class ACT4XiangShanChecker(Checker):
                 raise ValueError("Use a single XiangShan module identifier, such as Vector or LSU, without path separators")
             workspace = Path(self.workspace).resolve()
             self.output = bundle.safe_path(workspace, self.handoff_dir)
+            self.results = bundle.safe_path(workspace, self.result_dir)
+            self.results.mkdir(parents=True, exist_ok=True)
             self.environment = prepared_environment(self.output.parent / "environment", self.smanager_get_value if self.stage_manager else None)
-            self.source = bundle.safe_path(workspace, self.input_root)
-            self.framework = bundle.safe_path(workspace, self.framework_root)
-            self.xiangshan = bundle.safe_path(workspace, self.xiangshan_root)
-            manual = bundle.safe_path(workspace, self.manual_root)
-            if any(self.output.is_relative_to(root) or root.is_relative_to(self.output) for root in (self.source, self.framework, self.xiangshan, manual)):
+            resources = self.output.parent / "resources"
+            get_value = self.smanager_get_value if self.stage_manager else None
+            self.source = resolve_source(workspace, self.input_root, resources, get_value)
+            self.framework = resolve_source(workspace, self.framework_root, resources, get_value)
+            self.xiangshan = resolve_source(workspace, self.xiangshan_root, resources, get_value)
+            manual = resolve_source(workspace, self.manual_root, resources, get_value)
+            if any(directory.is_relative_to(root) or root.is_relative_to(directory)
+                   for directory in (self.output, self.results) for root in (self.source, self.framework, self.xiangshan, manual)):
                 raise ValueError("Handoff output must not overlap read-only inputs")
             self.package = bundle.safe_path(self.output, "bundle")
             self.output.mkdir(parents=True, exist_ok=True)
@@ -551,20 +558,13 @@ class ACT4XiangShanChecker(Checker):
             key = f"act4_xiangshan:{self.handoff_dir}:{self.suite}"
             state = self.smanager_get_value(key, {})
             roots = {"upstream": self.framework, "local": self.source, "xiangshan": self.xiangshan, "manual": manual}
-            defaults = {"upstream": (self.framework_root, "riscv-arch-test"), "xiangshan": (self.xiangshan_root, "XiangShan"), "manual": (self.manual_root, "riscv-isa-manual")}
-            for origin, (configured, default) in defaults.items():
-                if not roots[origin].exists() and configured == default:
-                    roots[origin] = bundle.safe_path(self.output, f"repositories/{default}")
             self.framework, self.xiangshan = roots["upstream"], roots["xiangshan"]
             acquisition = XiangShanAcquisition(self.output, roots, state, self.environment, self._track_process)
-            allowed = {"scope": {"", "fetch", "discover"}, "inputs": {"", "prepare", "generate", "synthesize"}, "target": {"", "inventory", "adapt"}, "build": {"", "adapt", "build", "run"}, "delivery": {"", "package"}}
+            allowed = {"scope": {"", "discover"}, "inputs": {"", "prepare", "generate", "synthesize"}, "target": {"", "inventory", "adapt"}, "build": {"", "adapt", "build", "run"}, "delivery": {"", "package"}}
             if action not in allowed[self.phase]:
                 raise ValueError(f"Actions for this stage: {sorted(allowed[self.phase])}")
             try:
-                bundle.write_json(self.output / "acquisition-paths.json", {key: str(path.relative_to(workspace)) for key, path in roots.items()})
-                if action == "fetch":
-                    acquisition.fetch(timeout)
-                    return True, {"next_action": "Read acquisition-paths.json and the requested XiangShan module; discover matching ACT suites and specific subfeatures."}
+                bundle.write_json(self.output / "acquisition-paths.json", {key: str(path) for key, path in roots.items()})
                 if action == "discover":
                     return True, acquisition.discover(queries)
                 self.scope = acquisition.validate(self.suite)

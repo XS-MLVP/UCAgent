@@ -14,14 +14,10 @@ import yaml
 import ucagent
 
 from . import xiangshan_bundle as bundle
+from .resources import clone_local
 from .xiangshan_trace import citation, records_by_id, require_text
 
 
-REPOSITORIES = {
-    "upstream": ("https://github.com/riscv/riscv-arch-test.git", "act4"),
-    "xiangshan": ("https://github.com/OpenXiangShan/XiangShan.git", "kunminghu-v3"),
-    "manual": ("https://github.com/riscv/riscv-isa-manual.git", None),
-}
 ASSET_DIRS = ("tests", "testplans", "coverpoints", "generators")
 
 
@@ -52,30 +48,6 @@ class XiangShanAcquisition:
         """Store the current check's paths and receipts without doing discovery or launching tools."""
         self.output, self.roots, self.state = output, roots, state
         self.environment, self.process_started = environment, process_started
-
-    def fetch(self, timeout: int) -> None:
-        """Fetch missing public repositories only into owned output; never update user checkouts."""
-        deadline = time.monotonic() + timeout
-        for origin in ("upstream", "xiangshan", "manual"):
-            destination = self.roots[origin]
-            if destination.is_dir():
-                continue
-            if not destination.is_relative_to(self.output / "repositories"):
-                raise ValueError(f"Missing user-specified {origin} checkout: {destination}")
-            url, branch = REPOSITORIES[origin]
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            temporary = destination.with_name(f"{destination.name}-{uuid.uuid4().hex}")
-            argv = ["git", "clone"] + (["--branch", branch] if branch else [])
-            if origin == "upstream":
-                argv.append("--recurse-submodules")
-            remaining = int(deadline - time.monotonic())
-            if remaining < 1:
-                raise ValueError("Repository preparation budget exhausted; completed checkouts are retained for retry")
-            result = bundle.execute([*argv, url, str(temporary)], self.output,
-                                    self.output / f"fetch-{origin}.log", remaining, self.process_started, self.environment)
-            if result["status"] != "passed":
-                raise ValueError(f"Cannot fetch {origin}; inspect fetch-{origin}.log or supply a complete pinned local checkout")
-            temporary.rename(destination)
 
     def discover(self, queries: list[str]) -> dict:
         """Persist complete candidate lists and source fingerprints for explicit search terms."""
@@ -183,10 +155,7 @@ class XiangShanAcquisition:
         attempt = self.output / "generation" / identifier / uuid.uuid4().hex
         attempt.mkdir(parents=True)
         checkout = attempt / "riscv-arch-test"
-        cloned = bundle.execute(["git", "clone", "--no-hardlinks", "--recurse-submodules", str(self.roots["upstream"]), str(checkout)],
-                                attempt, attempt / "clone.log", timeout, self.process_started, self.environment)
-        if cloned["status"] != "passed":
-            raise ValueError(f"Cannot prepare isolated generation clone; inspect {attempt / 'clone.log'}")
+        clone_local(self.roots["upstream"], checkout, attempt, deadline, self.process_started)
         for relative, expected in json.loads((self.output / "discovery.json").read_text(encoding="utf-8"))["files"].items():
             path = bundle.safe_path(checkout, relative)
             if not path.is_file() or bundle.identity(path) != expected:
@@ -224,12 +193,12 @@ class XiangShanAcquisition:
                     f"coverpoints/norm/{job['suite']}.yaml"]
         if any(name not in files for name in required) or not any(name.startswith("tests/") and name.endswith(".S") and job["suite"] in name for name in files):
             raise ValueError("Generation completion lacks the actual new suite generator, coverage, norm mapping or assembly; do not import incomplete outputs")
-        report_root = attempt / "act4_assets" / job["suite"] / "reports"
+        report_root = attempt / "act4_assets" / "intermediate" / job["suite"] / "reports"
         reports = {}
-        for name in (f"{job['suite']}_final_summary_report.md", f"{job['suite']}_validation_state.yaml", f"{job['suite']}_file_manifest.yaml"):
-            path = bundle.safe_path(report_root, name)
+        for path in (attempt / "act4_assets/final.md", attempt / "act4_assets/changes.patch",
+                     report_root / f"{job['suite']}_validation_state.yaml", report_root / f"{job['suite']}_file_manifest.yaml"):
             if not path.is_file() or not path.stat().st_size:
-                raise ValueError(f"Generation is missing its authoritative report: {name}")
+                raise ValueError(f"Generation is missing its authoritative report: {path.name}")
             reports[str(path.relative_to(self.output))] = bundle.identity(path)
         receipts[identifier] = {"root": str(checkout.relative_to(self.output)), "files": files,
                                 "reports": reports,

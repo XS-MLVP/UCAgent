@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from ucagent.plugins import PluginError
+from .resources import input_path
 
 
 def validate_input_paths(cfg: Any, context: Mapping[str, Any]) -> dict[str, Any]:
@@ -44,12 +45,15 @@ def validate_review_paths(cfg: Any, context: Mapping[str, Any]) -> dict[str, Any
     workspace = Path(context["WORKSPACE"]).resolve()
     directories = []
     for label, value in (("input", cfg.get_value("template_overwrite.ACT4_REVIEW_ROOT")), ("output", context["OUT"])):
-        if not isinstance(value, str) or not value.strip() or Path(value).is_absolute() or ".." in Path(value).parts:
-            raise PluginError(f"ACT4 review {label} must be a nonempty workspace-relative directory")
-        path = workspace / value
+        if not isinstance(value, str) or not value.strip() or (label == "output" and Path(value).is_absolute()) or ".." in Path(value).parts:
+            raise PluginError(f"ACT4 review {label} must be an explicit directory; output must be workspace-relative")
+        try:
+            path = input_path(workspace, value)
+        except ValueError as error:
+            raise PluginError(str(error)) from error
         directory = path.resolve()
-        if path.is_symlink() or directory == workspace or not directory.is_relative_to(workspace):
-            raise PluginError(f"ACT4 review {label} must remain inside the workspace without a symlink root")
+        if path.is_symlink() or directory == workspace or (label == "output" and not directory.is_relative_to(workspace)):
+            raise PluginError(f"ACT4 review {label} must not be a symlink or the workspace root; output must stay inside it")
         directories.append(directory)
     source, output = directories
     if source.is_relative_to(output) or output.is_relative_to(source):
@@ -72,7 +76,7 @@ def validate_xiangshan_paths(cfg: Any, context: Mapping[str, Any]) -> dict[str, 
     try:
         output = safe_path(workspace, context["OUT"])
         for field in ("ACT4_INPUT_ROOT", "ACT4_FRAMEWORK_ROOT", "ACT4_XIANGSHAN_ROOT", "ACT4_MANUAL_ROOT"):
-            source = safe_path(workspace, cfg.get_value(f"template_overwrite.{field}"))
+            source = input_path(workspace, cfg.get_value(f"template_overwrite.{field}"))
             if output.is_relative_to(source) or source.is_relative_to(output):
                 raise ValueError(f"Handoff output must be separate from read-only {field}")
     except (ValueError, TypeError) as error:

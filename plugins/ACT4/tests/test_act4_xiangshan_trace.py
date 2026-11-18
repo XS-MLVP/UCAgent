@@ -154,10 +154,10 @@ def test_every_native_testcase_has_its_own_design_and_comment(harness):
     assert selected.count("// ACT4 testcase ") == 2
     assert "// Stimulus: Set a0 to one" in selected
     assert harness.checker("delivery").do_check(action="package")[0]
-    report = (harness.output / "delivery/TESTS.md").read_text()
+    report = (harness.results / "delivery/TESTS.md").read_text()
     assert "Sstc_cg_cp_timer_second" in report and "Set a0 to one" in report
     assert "timer_enabled" in report and "Observe timer enable selection" in report
-    with tarfile.open(harness.output / "Sstc-kunminghu-v3.tar.gz") as archive:
+    with tarfile.open(harness.results / "Sstc-kunminghu-v3.tar.gz") as archive:
         assert not any(name.endswith(".elf.md") for name in archive.getnames())
         assert "Sstc-kunminghu-v3/TESTS.md" in archive.getnames()
 
@@ -169,7 +169,7 @@ def test_isa_reasoned_mapping_remains_explicit_and_source_bound(harness):
     harness.write("traceability.yaml", harness.trace)
     harness.built()
     assert harness.checker("delivery").do_check(action="package")[0]
-    assert "isa_reasoned" in (harness.output / "delivery/TESTS.md").read_text()
+    assert "isa_reasoned" in (harness.results / "delivery/TESTS.md").read_text()
 
 
 def test_point_must_belong_to_the_cited_group(harness):
@@ -228,8 +228,8 @@ def test_describe_works_after_relocation_without_ucagent(harness, tmp_path):
     """Read the exact embedded description using the standalone standard-library runner."""
     harness.built()
     assert harness.checker("delivery").do_check(action="package")[0]
-    result = json.loads((harness.output / "delivery/manifest.json").read_text())
-    command = subprocess.run([sys.executable, str(harness.output / "delivery/handoff.py"), "describe", result["tests"][0]["elf"]],
+    result = json.loads((harness.results / "delivery/manifest.json").read_text())
+    command = subprocess.run([sys.executable, str(harness.results / "delivery/handoff.py"), "describe", result["tests"][0]["elf"]],
                              cwd=tmp_path, capture_output=True, text=True, check=True)
     description = json.loads(command.stdout)
     assert description["coverpoints"][0]["rules"] == ["timer_enabled"]

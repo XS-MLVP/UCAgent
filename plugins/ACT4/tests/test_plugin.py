@@ -48,8 +48,8 @@ def test_workflow_checker_arguments_construct_with_plugin_registry() -> None:
         [LoadedPlugin(plugin, plugin.name, "test")]
     )
 
-    assert len(config["stage"]) == 8
-    assert config["stage"][0]["name"] == "prepare_environment"
+    assert len(config["stage"]) == 9
+    assert config["stage"][0]["name"] == "prepare_resources"
     assert config["stage"][-1]["name"] == "generate_final_human_report"
     for stage in config["stage"]:
         for checker in stage["checker"]:
@@ -76,6 +76,7 @@ def test_workflow_checker_names_are_plugin_short_names() -> None:
         "ACT4SwitchCapabilityChecker",
         "ACT4TestAssetChecker",
         "ACT4EnvironmentChecker",
+        "ACT4ResourceChecker",
     }
 
 
@@ -92,7 +93,7 @@ def test_stages_reference_bundled_contracts() -> None:
         "privileged_validation_handoff_template.md",
         "privileged_validation_handoff_template.md",
     ]
-    for stage, template in zip(workflow["stage"][1:], templates, strict=True):
+    for stage, template in zip(workflow["stage"][2:], templates, strict=True):
         references = stage["reference_files"]
         assert f"Guide_Doc/act4_template/{template}" in references
         for gate in stage["checker"]:
@@ -173,7 +174,7 @@ def test_workflow_startup_allows_environment_stage_to_prepare_tools(monkeypatch)
     for workflow in plugin.workflows:
         validate_workflow_dependencies(plugin.name, workflow)
         config = yaml.safe_load(workflow.config_file.read_text(encoding="utf-8"))
-        preparation_index = 1 if workflow.name == "xiangshan-v3-handoff" else 0
+        preparation_index = 2 if workflow.name == "xiangshan-v3-handoff" else 1
         assert config["stage"][preparation_index]["name"] == "prepare_environment"
 
 
@@ -229,15 +230,15 @@ def test_agent_starts_with_complete_workflow(
     )
     try:
         stages = agent.stage_manager.stages
-        assert len(stages) == 8
-        assert len([checker for stage in stages for checker in stage.checker]) == 26
+        assert len(stages) == 9
+        assert len([checker for stage in stages for checker in stage.checker]) == 27
         for stage in stages:
             for checker in stage.checker:
                 assert isinstance(checker._cb_list, dict)
                 assert checker.stage is stage
                 assert checker.workspace == str(workspace)
                 checker.on_init()
-        manual_checker = stages[1].checker[1]
+        manual_checker = stages[2].checker[1]
         assert manual_checker.manual_root == expected_manual
         assert agent.cfg.un_write_dirs == ["Guide_Doc"]
         assert agent.cfg.write_dirs == ["act4_assets", "riscv-arch-test"]

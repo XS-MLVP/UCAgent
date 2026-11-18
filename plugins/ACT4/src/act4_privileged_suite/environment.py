@@ -17,6 +17,7 @@ import time
 import yaml
 
 from .xiangshan_bundle import execute, safe_path, sha256, write_json
+from .resources import discover_resources
 
 
 TOOL_IDS = {"python", "bash", "git", "curl", "make", "uv", "compiler", "reference", "lint"}
@@ -154,10 +155,26 @@ def prepare(directory: Path, plan: dict, timeout: int, process_started=None) -> 
     deadline = time.monotonic() + timeout
     environment = dict(os.environ)
     records, paths, files = {}, [], {}
+    existing, seen = [], set()
+    sources = directory.parent / "resources/receipt.json"
+    if sources.is_file():
+        search = Path(json.loads(sources.read_text(encoding="utf-8"))["search_root"])
+        for previous in discover_resources(search, {"environment"}, max_depth=8):
+            try:
+                saved = json.loads((previous / "receipt.json").read_text(encoding="utf-8"))
+                for name, tool in saved["tools"].items():
+                    executable = Path(tool.get("executable", ""))
+                    if ((name, str(executable)) not in seen and tool.get("status") == "ready" and ".venv" not in executable.parts
+                            and not (executable.parent.parent / "pyvenv.cfg").exists() and executable.is_file()
+                            and os.access(executable, os.X_OK) and sha256(executable) == tool.get("executable_sha256")):
+                        existing.append((name, tool))
+                        seen.add((name, str(executable)))
+            except (OSError, ValueError, KeyError, TypeError):
+                continue
     files["plan.yaml"] = sha256(directory / "plan.yaml")
     for tool in plan["tools"]:
         identifier = tool["id"]
-        recipe = json.dumps(tool, sort_keys=True).encode()
+        recipe = json.dumps({key: tool[key] for key in ("id", "version", "probe", "install", "bin_dirs")}, sort_keys=True).encode()
         key = f"{identifier}-{hashlib.sha256(recipe).hexdigest()[:20]}"
         base = (Path.home() / ".local/share/ucagent/act4/tools" if tool["storage"] == "persistent"
                 else Path(tempfile.gettempdir()) / f"ucagent-act4-{os.getuid()}")
@@ -168,10 +185,15 @@ def prepare(directory: Path, plan: dict, timeout: int, process_started=None) -> 
         probe = [arg.replace("{PREFIX}", str(prefix)).replace("{PYTHON}", sys.executable) for arg in tool["probe"]]
         record = {"status": "needs_install", "prefix": str(prefix), "attempts": [], "version": tool["version"], "basis": tool["basis"]}
         records[identifier] = record
-        candidates = [("host", environment), ("cache", {**environment, "PATH": os.pathsep.join([*bins, environment["PATH"]])})]
+        candidates = [("host", environment)]
+        for name, saved in existing:
+            if name == identifier and saved.get("version") == tool["version"] and saved.get("command") == probe[0]:
+                candidates.append(("existing_output", {**environment, "PATH": str(Path(saved["executable"]).parent) + os.pathsep + environment["PATH"]}))
+        candidates.append(("cache", {**environment, "PATH": os.pathsep.join([*bins, environment["PATH"]])}))
         try:
-            for location, candidate in candidates:
-                log = directory / f"{identifier}-{location}.log"
+            for attempt_number, (location, candidate) in enumerate(candidates):
+                suffix = f"-{attempt_number}" if location == "existing_output" else ""
+                log = directory / f"{identifier}-{location}{suffix}.log"
                 remaining = int(deadline - time.monotonic())
                 if remaining <= 0:
                     raise TimeoutError("Preparation time budget exhausted; retry preparation to finish remaining tools")
@@ -183,11 +205,11 @@ def prepare(directory: Path, plan: dict, timeout: int, process_started=None) -> 
                 if result["status"] == "passed" and executable and tool["version"] in output and re.search(tool["expected_output"], output):
                     selected = str(Path(executable).absolute())
                     record.update(status="ready", origin=location, command=probe[0], executable=selected, executable_sha256=sha256(Path(selected)))
-                    additions = bins if location != "host" else [str(Path(selected).parent)]
+                    additions = bins if location in {"cache", "installed"} else [str(Path(selected).parent)]
                     paths = list(dict.fromkeys([*additions, *paths]))
                     environment["PATH"] = os.pathsep.join([*paths, os.environ.get("PATH", "")])
                     break
-                if location == "host":
+                if location in {"host", "existing_output"}:
                     continue
                 if location == "installed":
                     record.update(status="unavailable", reason="Installed tool failed its version/capability probe; inspect the probe log and correct the recipe")

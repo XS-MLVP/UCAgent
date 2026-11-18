@@ -41,11 +41,11 @@ def test_local_directory_review_repair_and_patch(local_review: ReviewHarness) ->
         "coverage_changes": [], "traceability": []})
     passed, result = harness.checker("final").do_check(is_complete=True)
     assert passed, result
-    subprocess.run(["git", "apply", "--check", str(harness.output / "changes.patch")], cwd=harness.source, check=True)
+    subprocess.run(["git", "apply", "--check", str(harness.results / "changes.patch")], cwd=harness.source, check=True)
     assert "VALUE = 1" in (harness.source / "generators/H.py").read_text()
     assert not (harness.source / "result.txt").exists()
     assert not (harness.source / ".git").exists()
-    assert "Local source snapshot" in (harness.output / "final.md").read_text()
+    assert "Local source snapshot" in (harness.results / "final.md").read_text()
 
 
 @pytest.mark.parametrize("mutation", ["source", "baseline", "mode", "new_dependency"])
@@ -88,7 +88,7 @@ def test_review_path_contract(tmp_path: Path, source: str, output: str, manual: 
     """Validate configurable input boundaries before any workflow initialization writes."""
     values = {"template_overwrite.ACT4_REVIEW_ROOT": source, "template_overwrite.ACT4_MANUAL_ROOT": manual}
     config = SimpleNamespace(get_value=values.__getitem__)
-    if (source, output, manual) == ("local-module", "reports", "manual"):
+    if (source, output, manual) in {("local-module", "reports", "manual"), ("/absolute", "reports", "manual")}:
         assert validate_review_paths(config, {"WORKSPACE": str(tmp_path), "OUT": output}) == {}
     else:
         with pytest.raises(PluginError):
@@ -129,5 +129,5 @@ def test_local_assets_with_missing_validation_entrypoints(local_review: ReviewHa
         "ci_passed": False, "remaining_risks": ["Local validation is unavailable; no upstream CI claim"], "coverage_changes": [], "traceability": []})
     passed, result = harness.checker("final").do_check(is_complete=True)
     assert passed, result
-    assert not (harness.output / "changes.patch").read_text()
-    assert "incomplete or failed" in (harness.output / "final.md").read_text()
+    assert not (harness.results / "changes.patch").read_text()
+    assert "incomplete or failed" in (harness.results / "final.md").read_text()

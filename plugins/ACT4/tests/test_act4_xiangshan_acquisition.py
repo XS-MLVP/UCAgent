@@ -8,6 +8,7 @@ import pytest
 import yaml
 
 from act4_privileged_suite import xiangshan_bundle as bundle
+from act4_privileged_suite import xiangshan_acquisition
 from act4_privileged_suite.xiangshan_acquisition import XiangShanAcquisition
 from test_act4_xiangshan_handoff import HandoffHarness
 
@@ -53,7 +54,7 @@ def test_module_can_resolve_multiple_act_suites_and_preserve_unavailable_parts(h
     passed, report = harness.checker("delivery").do_check(action="package")
     assert passed, report
     assert report["functions"][1]["resolution"] == "unavailable"
-    assert "Internal timing scenario" in (harness.output / "delivery/TESTS.md").read_text()
+    assert "Internal timing scenario" in (harness.results / "delivery/TESTS.md").read_text()
 
 
 def test_mixed_imports_cannot_bypass_upstream_reuse(harness):
@@ -77,37 +78,6 @@ def test_discovery_is_a_real_catalog_and_normal_check_does_not_refetch(harness, 
     assert harness.checker("scope").do_check(is_complete=True)[0]
 
 
-def test_fetch_owns_new_paths_and_never_changes_provided_checkout(tmp_path, monkeypatch):
-    """Download fixed public inputs only into fresh owned directories and reuse completed fetches."""
-    output = tmp_path / "out"
-    output.mkdir()
-    existing = tmp_path / "existing"
-    existing.mkdir()
-    marker = existing / "unchanged"
-    marker.write_text("user checkout")
-    roots = {"upstream": output / "repositories/riscv-arch-test", "xiangshan": existing,
-             "manual": output / "repositories/riscv-isa-manual"}
-    calls = []
-
-    def clone(argv, cwd, log, timeout, *args):
-        """Materialize a fixed-public-source clone fixture without accessing the network."""
-        calls.append(argv)
-        assert argv[:2] == ["git", "clone"]
-        assert argv[-2].startswith("https://github.com/riscv/")
-        Path(argv[-1]).mkdir()
-        log.write_text("clone fixture")
-        return {"status": "passed"}
-
-    monkeypatch.setattr(bundle, "execute", clone)
-    acquisition = XiangShanAcquisition(output, roots, {}, {}, None)
-    acquisition.fetch(30)
-    acquisition.fetch(30)
-    assert len(calls) == 2 and marker.read_text() == "user checkout"
-    roots["upstream"] = tmp_path / "missing-user-path"
-    with pytest.raises(ValueError, match="user-specified"):
-        acquisition.fetch(30)
-
-
 @pytest.mark.parametrize("outcome", ["passed", "failed", "timeout", "skipped", "incomplete", "wrong_workflow"])
 def test_gap_generation_runs_existing_workflow_and_requires_completed_stages(harness, monkeypatch, outcome):
     """Invoke a private child workflow and reject failed, skipped, interrupted or substituted completion."""
@@ -119,7 +89,7 @@ def test_gap_generation_runs_existing_workflow_and_requires_completed_stages(har
     manual = harness.root / "manual"
     manual.mkdir()
     roots = {"upstream": harness.framework, "local": harness.source, "xiangshan": harness.xs, "manual": manual}
-    state = harness.state["act4_xiangshan:out/Sstc/handoff:Sstc"]
+    state = harness.state["act4_xiangshan:out/intermediate/Sstc/handoff:Sstc"]
     acquisition = XiangShanAcquisition(harness.output, roots, state, {}, None)
     scope = acquisition.validate("Sstc")
     workflow_path = Path(__file__).resolve().parents[1] / "src/act4_privileged_suite/workflows/privileged-suite-generation.yaml"
@@ -151,12 +121,20 @@ def test_gap_generation_runs_existing_workflow_and_requires_completed_stages(har
             path = cwd / "riscv-arch-test" / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text("generated fixture")
-        for name in ("NewTimer_final_summary_report.md", "NewTimer_validation_state.yaml", "NewTimer_file_manifest.yaml"):
-            path = cwd / "act4_assets/NewTimer/reports" / name
+        for name in ("NewTimer_validation_state.yaml", "NewTimer_file_manifest.yaml"):
+            path = cwd / "act4_assets/intermediate/NewTimer/reports" / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text("fixture report")
+        (cwd / "act4_assets/final.md").write_text("fixture final")
+        (cwd / "act4_assets/changes.patch").write_text("fixture patch")
         return {"status": outcome if outcome in {"failed", "timeout"} else "passed", "exit_code": 0}
 
+    def clone_fixture(source, destination, *args):
+        """Isolate child-workflow orchestration from the independently tested Git acquisition."""
+        calls.append(["git", "clone", str(source), str(destination)])
+        shutil.copytree(source, destination)
+
+    monkeypatch.setattr(xiangshan_acquisition, "clone_local", clone_fixture)
     monkeypatch.setattr(bundle, "execute", child)
     if outcome != "passed":
         with pytest.raises(ValueError, match="did not finish|without completing"):

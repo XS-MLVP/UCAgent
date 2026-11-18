@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import glob
+import hashlib
 import os
 import re
+import subprocess
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote
@@ -15,6 +17,7 @@ except ImportError:  # pragma: no cover - reported by the checker.
     yaml = None  # type: ignore[assignment]
 
 from ucagent.checkers.base import Checker
+from ..xiangshan_bundle import safe_path
 
 
 _MARKDOWN_LINK = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
@@ -30,11 +33,17 @@ class ACT4FinalReportChecker(Checker):
         required_sections: Any = None,
         required_phrases: Any = None,
         validation_state: str | None = None,
+        contribution_manifest: str | None = None,
+        patch_file: str | None = None,
+        act4_root: str | None = None,
         need_human_check: bool = False,
         cfg: Any = None,
         **kwargs: Any,
     ) -> None:
         super().__init__()
+        if any((contribution_manifest, patch_file, act4_root)) and not all((contribution_manifest, patch_file, act4_root)):
+            raise ValueError("Patch publication requires contribution_manifest, patch_file and act4_root")
+        self.contribution_manifest, self.patch_file, self.act4_root = contribution_manifest, patch_file, act4_root
         if kwargs:
             raise TypeError(
                 f"unsupported ACT4FinalReportChecker arguments: {sorted(kwargs)}"
@@ -301,6 +310,45 @@ class ACT4FinalReportChecker(Checker):
                 )
 
         state_checks = self._validate_state(text, findings)
+        if not any(item["severity"] == "error" for item in findings) and self.patch_file:
+            try:
+                workspace = Path(self.workspace).resolve()
+                checkout = safe_path(workspace, self.act4_root)
+                manifest_path = safe_path(workspace, self.contribution_manifest)
+                patch_path = safe_path(workspace, self.patch_file)
+                if patch_path.is_relative_to(checkout) or patch_path in {manifest_path, report_path}:
+                    raise ValueError("Publish the patch separately from source files, the manifest and the final report")
+                manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+                baseline = manifest["baseline"]["git_head"]
+                if baseline is not None and (not isinstance(baseline, str) or not re.fullmatch(r"[0-9a-f]{40,64}", baseline)):
+                    raise ValueError("Use the exact Git baseline commit or null for a non-Git new-source contribution")
+                records = {item["path"]: item for item in manifest["files"]}
+                pieces = []
+                for name in manifest["contribution_set"]:
+                    source = safe_path(workspace, name)
+                    relative = source.relative_to(checkout).as_posix()
+                    record = records[name]
+                    if record["category"] != "contribution_source":
+                        raise ValueError(f"Not a contribution source: {name}")
+                    original = (subprocess.run(["git", "-C", str(checkout), "show", f"{baseline}:{relative}"], capture_output=True, timeout=30)
+                                if baseline else None)
+                    if record["existed_before"]:
+                        if original is None or original.returncode or hashlib.sha256(original.stdout).hexdigest() != record["sha256_before"]:
+                            raise ValueError(f"Git baseline differs from preexisting user content: {name}; retain the candidate and supply its exact original source")
+                        command = ["git", "diff", "--binary", baseline, "--", relative]
+                    else:
+                        if original is not None and original.returncode == 0:
+                            raise ValueError(f"Manifest calls a baseline file new: {name}")
+                        command = ["git", "diff", "--no-index", "--binary", "--", "/dev/null", relative]
+                    if source.exists() and hashlib.sha256(source.read_bytes()).hexdigest() != record["sha256_after"]:
+                        raise ValueError(f"Contribution changed since its manifest snapshot: {name}")
+                    diff = subprocess.run(command, cwd=checkout, capture_output=True, timeout=60)
+                    if diff.returncode not in {0, 1}:
+                        raise ValueError(f"Cannot produce the declared contribution patch: {name}")
+                    pieces.append(diff.stdout)
+                patch_path.write_bytes(b"".join(pieces))
+            except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as error:
+                self._add(findings, "error", "contribution_patch", str(error))
         errors = sum(item["severity"] == "error" for item in findings)
         warnings = sum(item["severity"] == "warning" for item in findings)
         report = {

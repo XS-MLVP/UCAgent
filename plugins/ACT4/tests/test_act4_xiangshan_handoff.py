@@ -46,7 +46,8 @@ class HandoffHarness:
     def __init__(self, root: Path, monkeypatch):
         """Prepare a local module, matching framework, V3 references and native CLI fixture."""
         self.root = root
-        self.output = root / "out/Sstc/handoff"
+        self.results = root / "out"
+        self.output = root / "out/intermediate/Sstc/handoff"
         self.output.mkdir(parents=True)
         self.source = root / "local"
         self.source.mkdir()
@@ -211,7 +212,7 @@ else:
 
     def checker(self, phase: str) -> ACT4XiangShanChecker:
         """Construct a fresh stage checker sharing persisted controller receipts."""
-        checker = ACT4XiangShanChecker(phase, "Sstc", "out/Sstc/handoff", "local", "framework", "XiangShan")
+        checker = ACT4XiangShanChecker(phase, "Sstc", "out/intermediate/Sstc/handoff", "local", "framework", "XiangShan", result_dir="out")
         checker.set_workspace(str(self.root))
         checker.stage_manager = self.manager
         checker.on_init()
@@ -249,7 +250,7 @@ def test_local_source_build_archive_and_relocated_run(harness, tmp_path):
     harness.built()
     passed, report = harness.checker("delivery").do_check(action="package")
     assert passed and report["status"] == "built_not_run", report
-    archive = harness.output / "Sstc-kunminghu-v3.tar.gz"
+    archive = harness.results / "Sstc-kunminghu-v3.tar.gz"
     destination = tmp_path / "received"
     with tarfile.open(archive) as stream:
         assert not any(name.endswith(".sig.elf") or "/.venv/" in name for name in stream.getnames())
@@ -286,8 +287,8 @@ def test_source_only_delivery_requires_real_attempt_and_states_missing_build(har
     assert harness.checker("build").do_check(action="build", timeout=30)[0]
     passed, report = harness.checker("delivery").do_check(action="package")
     assert passed and report["status"] == "source_only", report
-    assert "NOT ready to run" in (harness.output / "delivery/README.md").read_text()
-    with tarfile.open(harness.output / "Sstc-kunminghu-v3.tar.gz") as stream:
+    assert "NOT ready to run" in (harness.results / "delivery/README.md").read_text()
+    with tarfile.open(harness.results / "Sstc-kunminghu-v3.tar.gz") as stream:
         assert not any(name.endswith(".elf") for name in stream.getnames())
 
 
@@ -464,12 +465,12 @@ def test_workflow_initializes_with_optional_skills_and_environment(tmp_path, mon
                         cfg_override=[{"backend.key_name": "blank"}, {"skill.use_skill": skills}, {"langfuse.enable": False}],
                         no_embed_tools=True, no_history=True)
     try:
-        assert len(agent.stage_manager.stages) == 6
+        assert len(agent.stage_manager.stages) == 7
         assert agent.cfg.write_dirs == ["handoffs"]
         assert agent.cfg.un_write_dirs == ["Guide_Doc"]
         if not skills:
             assert not (workspace / ".ucagent/skills").exists()
-        for stage in [agent.stage_manager.stages[0], *agent.stage_manager.stages[2:]]:
+        for stage in [agent.stage_manager.stages[1], *agent.stage_manager.stages[3:]]:
             assert len(stage.checker) == 1
             checker = stage.checker[0]
             checker.on_init()
@@ -496,7 +497,7 @@ def test_relocated_package_can_rebuild_with_its_own_framework(harness, tmp_path)
     harness.built()
     assert harness.checker("delivery").do_check(action="package")[0]
     destination = tmp_path / "different-machine"
-    with tarfile.open(harness.output / "Sstc-kunminghu-v3.tar.gz") as archive:
+    with tarfile.open(harness.results / "Sstc-kunminghu-v3.tar.gz") as archive:
         archive.extractall(destination, filter="data")
     package = destination / "Sstc-kunminghu-v3"
     command = subprocess.run([sys.executable, str(package / "handoff.py"), "build", "--timeout", "30"], cwd=tmp_path)
@@ -619,6 +620,6 @@ def test_archive_mutation_blocks_complete(harness):
     """Seal the archive itself, not just loose files in the producer workspace."""
     harness.built()
     assert harness.checker("delivery").do_check(action="package")[0]
-    with (harness.output / "Sstc-kunminghu-v3.tar.gz").open("ab") as stream:
+    with (harness.results / "Sstc-kunminghu-v3.tar.gz").open("ab") as stream:
         stream.write(b"changed")
     assert not harness.checker("delivery").do_check(is_complete=True)[0]

@@ -38,7 +38,7 @@ def received(harness, tmp_path):
     passed, result = harness.checker("delivery").do_check(action="package")
     assert passed, result
     destination = tmp_path / "recipient with spaces"
-    with tarfile.open(harness.output / "Sstc-kunminghu-v3.tar.gz") as archive:
+    with tarfile.open(harness.results / "Sstc-kunminghu-v3.tar.gz") as archive:
         archive.extractall(destination, filter="data")
     return destination / "Sstc-kunminghu-v3"
 
@@ -165,9 +165,9 @@ def test_failed_run_retains_diagnosis_without_shipping_logs(harness):
     assert harness.checker("build").do_check(action="run", emulator="emu", timeout=30)[0]
     passed, result = harness.checker("delivery").do_check(action="package")
     assert passed and result["status"] == "emulator_failed", result
-    report = (harness.output / "delivery/TESTS.md").read_text()
+    report = (harness.results / "delivery/TESTS.md").read_text()
     assert "Run diagnosis:" in report and "failed" in report
-    assert not list((harness.output / "delivery").rglob("*.log"))
+    assert not list((harness.results / "delivery").rglob("*.log"))
     assert list((harness.output / "bundle/runs").rglob("*.log"))
 
 
@@ -175,10 +175,10 @@ def test_unrecorded_delivery_log_blocks_completion(harness):
     """The final directory, not only the archive, must remain free of unrecorded output."""
     harness.built()
     assert harness.checker("delivery").do_check(action="package")[0]
-    (harness.output / "delivery/extra.log").write_text("unwanted intermediate output\n")
+    (harness.results / "delivery/extra.log").write_text("unwanted intermediate output\n")
     assert not harness.checker("delivery").do_check(is_complete=True)[0]
     assert harness.checker("delivery").do_check(action="package")[0]
-    assert not (harness.output / "delivery/extra.log").exists()
+    assert not (harness.results / "delivery/extra.log").exists()
 
 
 def test_setup_reuses_tools_and_records_missing_dependencies(received, monkeypatch):
@@ -205,7 +205,7 @@ def test_setup_installs_missing_tool_in_local_prefix(harness, monkeypatch):
     plan_path.write_text(yaml.safe_dump(plan))
     harness.built()
     assert harness.checker("delivery").do_check(action="package")[0]
-    package = harness.output / "delivery"
+    package = harness.results / "delivery"
     fake_download = harness.bin / "curl"
     payload = f"#!{sys.executable}\nprint('riscv64-unknown-elf-gcc fixture 1.0')\n"
     fake_download.write_text(f"#!{sys.executable}\nfrom pathlib import Path\nimport sys\nPath(sys.argv[sys.argv.index('-o')+1]).write_text({payload!r})\n")
@@ -229,7 +229,7 @@ def test_producer_local_installer_is_not_shipped(harness):
     plan_path.write_text(yaml.safe_dump(plan))
     harness.built()
     assert harness.checker("delivery").do_check(action="package")[0]
-    manifest = json.loads((harness.output / "delivery/manifest.json").read_text())
+    manifest = json.loads((harness.results / "delivery/manifest.json").read_text())
     compiler = next(tool for tool in manifest["environment"] if tool["id"] == "compiler")
     assert compiler["install"] == [] and "unavailable_reason" in compiler
     assert "/producer/private" not in json.dumps(manifest)

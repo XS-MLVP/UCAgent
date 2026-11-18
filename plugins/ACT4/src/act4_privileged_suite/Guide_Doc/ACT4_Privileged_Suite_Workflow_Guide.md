@@ -15,6 +15,8 @@ ACT4 测试资产。初学者可以按章节顺序阅读；熟悉 ACT4 的工程
 
 配套资料：
 
+- 先完成 `Guide_Doc/ACT4_Resources_Guide.md` 的资源准备，再准备工具环境；共享规范用 ACT4Resources 读取，写操作仅使用独立 ACT checkout；
+- 最终入口为 `{OUT}/final.md` 和 `{OUT}/changes.patch`，其他草稿与证据放在 `{OUT}/intermediate/{DUT}/`；
 - [当前 ACT4 checker 总览](ACT4_Checker_Guide/README.md)；
 - [阶段设计模板](act4_template/README.md)：coverage、generator、VM/resource、验证与交付；
 - `workflows/privileged-suite-generation.yaml`；
@@ -76,7 +78,7 @@ ACT4 Python generator -> 自动生成 .S -> 构建 ELF
 | 使用了哪些开关、由谁定义、是否允许 | `{DUT}_switch_capability_audit.yaml` | 必须先于相关生成/构建动作更新 |
 | profile、地址域和 VM 资源 | `{DUT}_vm_resource_contract.yaml` | generator 的资源契约，不是运行结果 |
 | 贡献源码、证据文件和框架完整性 | `{DUT}_file_manifest.yaml` | 最终 inventory 与贡献边界 |
-| 人类最终入口 | `{DUT}_final_summary_report.md` | 索引并解释权威状态，不另造状态 |
+| 人类最终入口 | `{OUT}/final.md` | 索引并解释权威状态，不另造状态 |
 
 较早阶段出现“尚未运行”是当时的真实状态。后续证据完成后，最终报告必须明确标注
 该结论为 historical 或 superseded，并指向新的权威文件。generator/coverage/contract

@@ -18,9 +18,9 @@ kunminghu-v3 的单 hart SimTop；不能将 ELF 直接交给独立 CSR/MMU/LSU �
 - `ACT4_XIANGSHAN_ROOT`：检出 `kunminghu-v3` 的香山 checkout，默认 `XiangShan`；引用子模块源码时需先初始化对应子模块。
 - `ACT4_MANUAL_ROOT`：ISA manual 和 norm rule 定义，默认 `riscv-isa-manual`。
 
-用户的 `{DUT}` 是香山模块标识，例如 Vector，不必等于 ACT suite 名。调用
-`Check(stage_args={"action":"fetch"})` 准备缺失的默认 checkout；新目录只写入
-`{OUT}/{DUT}/handoff/repositories/`。读取 acquisition-paths.json 获得实际路径。
+用户的 `{DUT}` 是香山模块标识，例如 Vector，不必等于 ACT suite 名。先完成
+`Guide_Doc/ACT4_Resources_Guide.md` 的 prepare_resources，复用共享 checkout。
+通过 ACT4Resources 的 list/read 读取输入；acquisition-paths.json 记录实际来源，不自行复制整个仓库。
 已有用户目录不会被更新到别的提交，显式指定但不存在的非默认路径需要补齐。
 
 阅读香山模块的源码、ISA 依赖和用户范围，拆分架构可观察功能，再调用
@@ -92,7 +92,7 @@ ucagent "$ACT4_WORKSPACE" Timer \
   --output act4_xiangshan --backend langchain --tui
 ```
 
-以下所有文档写在 `{OUT}/{DUT}/handoff/`。创建完整的 `input.yaml`：
+以下所有文档写在 `{OUT}/intermediate/{DUT}/handoff/`。创建完整的 `input.yaml`：
 
 ```yaml
 schema_version: 1
@@ -352,11 +352,12 @@ not_run。runner 使用 `-i ELF --no-diff -C N`，同时要求自检 PASSED 与 
 `{DUT}-kunminghu-v3.tar.gz`。以下是完整交付布局示例，程序仍使用原 ACT 路径：
 
 ```text
-handoff/
+out/
   Sstc-kunminghu-v3.tar.gz
-  handoff-report.md
-  handoff-report.json
-  bundle/                         原始资产、构建日志、Sail 结果、执行证据，仅供交付方
+  final.md
+  intermediate/Sstc/handoff/
+    handoff-report.json
+    bundle/                       原始资产、构建日志、Sail 结果、执行证据，仅供交付方
   delivery/
     README.md                     唯一操作指南
     TESTS.md                      唯一测试索引和逐用例设计报告
@@ -410,7 +411,7 @@ setup 复用匹配工具或按交付配方安装到 local/tools/，缺少基础�
 整个 .S 中的 ACT 测试序列保持不变，不自动切割内部 testcase。构建后再次修改输入会阻止 LOCAL 运行。
 
 交付状态为 source_only、built_not_run、emulator_passed 或 emulator_failed。
-插件输出的 handoff-report.md/json 保留总结及审计入口，不再放入交付包形成重复报告。
+根目录 final.md 是总结入口，intermediate 中的 handoff-report.json 保留机器审计信息，不放入交付包形成重复报告。
 没有匹配 emu 时可以交付 built_not_run，但必须向接收方说明尚未执行。
 
 ## 5. 逐用例设计、覆盖点与规范追溯

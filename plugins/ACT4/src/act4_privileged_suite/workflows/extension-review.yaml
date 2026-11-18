@@ -1,5 +1,9 @@
 # Existing extensions are audited without changing the input checkout.
 template_overwrite:
+  ACT4_RESOURCE_ROOT: "$(ACT4_RESOURCE_ROOT: )"
+  ACT4_ACT_REF: "$(ACT4_ACT_REF: act4)"
+  ACT4_MANUAL_REF: "$(ACT4_MANUAL_REF: HEAD)"
+  ACT4_XIANGSHAN_REF: "$(ACT4_XIANGSHAN_REF: kunminghu-v3)"
   PROJECT: act4_extension_review
   DOC_GEN_LANG: "英文"
   ACT4_MANUAL_ROOT: "$(ACT4_MANUAL_ROOT: riscv-isa-manual)"
@@ -36,7 +40,7 @@ mission:
     system: >
       全面审查 {ACT4_REVIEW_ROOT} 中 {DUT} 已有的测试资产；输入可以是 riscv-arch-test 独立 clone，也可以是用户指定的本地模块资产目录，无需 Git。
       先阅读Guide_Doc/ACT4_Extension_Review_Guide.md，按其中的完整契约交付审查和修复报告。
-      原始资产目录和规范输入始终只读；所有分析、命令副本、候选修复和报告写入{OUT}/{DUT}/review。不得修改 Guide_Doc、原始源码、基线快照或 checker 生成的证据。
+      原始资产目录和规范输入始终只读；所有分析、命令副本、候选修复和报告写入{OUT}/intermediate/{DUT}/review。不得修改 Guide_Doc、原始源码、基线快照或 checker 生成的证据。
       不依赖 Skill。review_plan 仅依据 ISA 原文和用户给定范围独立设计测试；不读已有 CTP、coverage、generator、用例、mapping、CI 或旧报告。
       独立计划冻结后才读取当前 ACT4 的文档、CI、目标配置和实际源码，不套用另一版本的命令。
       既支持 privileged 也支持 unprivileged 资产；无法适用的检查必须说明依据，不可伪报通过。
@@ -45,7 +49,7 @@ mission:
       资产审查时审核全部 evidence.review_tasks；AI 不能用自己的判断覆盖失败的机器结果或补造命中证据。
       编译成功、静态标签可达和真实 coverpoint 命中是三种不同证据。
       首先完成 prepare_environment；环境阶段仅阅读依赖清单和安装说明，不阅读 CTP、coverpoints、generator 或测试内容。
-      后续 shell 命令先 source {OUT}/{DUT}/environment/activate.sh。公共工具复用首阶段的安装；
+      后续 shell 命令先 source {OUT}/intermediate/{DUT}/environment/activate.sh。公共工具复用首阶段的安装；
       独立计划完成后，在命令副本内按锁文件同步项目 Python 环境，不向原始输入安装依赖。
       开始先调用 Check，读取 environment.json 中 Questa/VCS/Xcelium 的实际探测结果。这些工具可选，不安装商业工具；缺失或许可不可用时继续审查及独立验证。
       依赖商业仿真器的 job 声明 optional_tool，generation/build/reference_model/lint 不依赖这些可选 job；未测 coverage 保留限制，不当作资产缺陷。
@@ -66,24 +70,42 @@ mission:
       新发现的问题先更新 findings、changes 和 post_assets 并校验，再实施有充分依据的修复。
       最终提供完整报告和补丁，原始仓库保持不变。
 stage:
+  - name: prepare_resources
+    desc: "复用固定版本源码，仅在需要写入时准备独立副本"
+    task:
+      - 'Check(stage_args={"action":"prepare"}) 复用共享资源及既有 output 中的干净 checkout，缺失才下载，不更新用户输入。'
+      - '用 ACT4Resources(action="status") 查看实际来源，list/read 读取共享源码，不自行 clone 或复制整库。'
+      - '需要工作区相对引用的 ISA 文件用 ACT4Resources(action="snapshot", resource="manual", path="具体文件") 保留，使用返回路径。'
+      - '共享源码只读；生成流程使用独立 riscv-arch-test，review 和香山执行副本由后续 Check 按需准备。'
+      - 'Complete 后继续；独立 ISA 计划验收前不读取既有测试内容。最终结果放 {OUT}/，过程资料放 {OUT}/intermediate/{DUT}/。'
+    reference_files: ["Guide_Doc/ACT4_Resources_Guide.md"]
+    checker:
+      - name: reusable_source_inputs
+        clss: ACT4ResourceChecker
+        args:
+          resource_dir: "{OUT}/intermediate/{DUT}/resources"
+          cache_root: "{ACT4_RESOURCE_ROOT}"
+          workflow: "review"
+          inputs: {act4: "{ACT4_REVIEW_ROOT}", manual: "{ACT4_MANUAL_ROOT}"}
+          refs: {act4: "{ACT4_ACT_REF}", manual: "{ACT4_MANUAL_REF}", xiangshan: "{ACT4_XIANGSHAN_REF}"}
   - name: prepare_environment
     desc: 在独立 ISA 计划前准备工具环境
     task:
       - 阅读 Guide_Doc/ACT4_Environment_Guide.md，调用 Check(stage_args={"action":"probe"})。
       - 仅阅读 {ACT4_REVIEW_ROOT} 的 README 中安装段、依赖清单和 CI 安装段；不得阅读 CTP、coverpoints、testgen 或已有测试内容。仅本地资产没有依赖说明时记录缺项，不推测版本。
-      - 创建 {OUT}/{DUT}/environment/plan.yaml，覆盖基础命令、uv、编译器、参考模型和 lint；依据实际版本约束填写缺失公开工具的 install。
+      - 创建 {OUT}/intermediate/{DUT}/environment/plan.yaml，覆盖基础命令、uv、编译器、参考模型和 lint；依据实际版本约束填写缺失公开工具的 install。
       - 优先复用系统工具及持久化用户安装，冲突环境用 temporary；不安装商业工具。调用 Check(stage_args={"action":"prepare","timeout":3600})，阅读日志并处理可修复的错误。
       - 普通 Check 通过后 Complete，不带 action；项目特定的 Python 导入检查在 ISA 计划冻结后的命令副本执行。环境限制进入最终摘要，不降低资产审查范围。
     reference_files: ["Guide_Doc/ACT4_Environment_Guide.md"]
     checker:
       - name: act4_environment
         clss: ACT4EnvironmentChecker
-        args: {environment_dir: "{OUT}/{DUT}/environment"}
+        args: {environment_dir: "{OUT}/intermediate/{DUT}/environment"}
   - name: review_plan
     desc: 仅依据 ISA 和用户范围独立设计验证计划，冻结后再接触已有资产
     task:
       - 第一步：读取 Guide_Doc/ACT4_Extension_Review_Guide.md section 10，调用 Check 探测可选工具。此阶段不读取既有测试资产、CI 和旧审查报告。
-      - 第二步：用普通文件工具创建 {OUT}/{DUT}/review/isa-plan.yaml，填写 suite、用户给定的 target_context、ISA 原文 reference_files 和 reference_scope。
+      - 第二步：用普通文件工具创建 {OUT}/intermediate/{DUT}/review/isa-plan.yaml，填写 suite、用户给定的 target_context、ISA 原文 reference_files 和 reference_scope。
         requirements、source_reviews 先写空列表，limitations 如实说明范围或输入缺失。普通 Check 生成 isa-plan-context.json 和只读 isa-references 后提示补齐设计。
       - 第三步：仅阅读这些 ISA 来源及用户范围，为每条规则独立设计 I<number> 条目，写 requirement、applicability、stimulus、observation 和准确 basis。
         主动考虑正常行为、异常、边界值、特权级、XLEN、扩展依赖和状态切换；适用性未知时写明条件，不按已有用例决定是否需要测试。
@@ -96,7 +118,7 @@ stage:
     checker:
       - name: review_isa_design
         clss: ACT4ReviewChecker
-        args: {phase: plan, suite: "{DUT}", review_dir: "{OUT}/{DUT}/review", act4_root: "{ACT4_REVIEW_ROOT}"}
+        args: {phase: plan, suite: "{DUT}", review_dir: "{OUT}/intermediate/{DUT}/review", result_dir: "{OUT}", act4_root: "{ACT4_REVIEW_ROOT}"}
   - name: review_audit
     desc: 冻结资产与版本，全面审查并形成有证据支持的修复计划
     task:
@@ -104,7 +126,7 @@ stage:
         .github/workflows、规范和该 extension 的资产，确定当前版本的审查契约与原生验证入口。
       - 第二步：盘点 {ACT4_REVIEW_ROOT} 下已有资产；Git 输入记录实际 HEAD 和 dirty 输入，本地目录记录路径和文件快照，不虚构上游提交。
         scope 中所有资产、共享背景和命令来源路径均相对于该输入目录；缺失的依赖或验证入口如实记录，不把本地验证声称为完整上游 CI。
-      - 第三步：创建 {OUT}/{DUT}/review/scope.yaml，逐项填写 test_plans、coverage、generators、
+      - 第三步：创建 {OUT}/intermediate/{DUT}/review/scope.yaml，逐项填写 test_plans、coverage、generators、
         test_cases、mappings，列出所有选定 XLEN/目标配置及适用原生 CI jobs；shared_assets 写共享路径、消费者和审查边界，无共享项写 []。
       - 第四步：在 reference_files 中登记实际读取的规范/CTP/元数据文件；reference_scope 为每份文件填写
         reviewed_lines 和 excluded_reason。必须保留独立 ISA 计划的规范和原选区，可新增其他参考文件。保留完整原文，排除部分仍须核验。
@@ -130,7 +152,7 @@ stage:
       - 要求（资产与规范）：不存在的资产用空列表记录并作为遗漏审查；至少必须有一项现存测试资产。
         无法取得规范原文时 reference_files 写 []，后续不得把完整性和覆盖点语义审查标为通过。
       - 要求（环境）：probe 必须实测工具版本和可运行性，缺失时执行 install 并再次 probe；
-        先复用首阶段准备的公共工具；install 仅用于副本内项目依赖或需要隔离的补充环境，使用 {OUT}/{DUT}/review/tools，不重复安装公共编译器和模型。
+        先复用首阶段准备的公共工具；install 仅用于副本内项目依赖或需要隔离的补充环境，使用 {OUT}/intermediate/{DUT}/review/tools，不重复安装公共编译器和模型。
         Python 探测应确认导入的是本轮命令副本内的 ACT4 模块。不适用或安装后仍不可用也须记录理由，不能省略。
         environment 只依赖其他 environment jobs；全部环境任务先于生成、编译和其他验证任务。
       - 要求（执行与证据）：build 必须依赖环境和 generation，并声明非空 ELF 产物；
@@ -178,7 +200,7 @@ stage:
     checker:
       - name: review_evidence
         clss: ACT4ReviewChecker
-        args: {phase: audit, suite: "{DUT}", review_dir: "{OUT}/{DUT}/review", act4_root: "{ACT4_REVIEW_ROOT}"}
+        args: {phase: audit, suite: "{DUT}", review_dir: "{OUT}/intermediate/{DUT}/review", result_dir: "{OUT}", act4_root: "{ACT4_REVIEW_ROOT}"}
   - name: review_repair
     desc: 修复有充分依据的问题，复验并交付最终报告及补丁
     task:
@@ -224,7 +246,7 @@ stage:
     checker:
       - name: review_candidate_changes
         clss: ACT4ReviewChecker
-        args: {phase: repair, suite: "{DUT}", review_dir: "{OUT}/{DUT}/review", act4_root: "{ACT4_REVIEW_ROOT}"}
+        args: {phase: repair, suite: "{DUT}", review_dir: "{OUT}/intermediate/{DUT}/review", result_dir: "{OUT}", act4_root: "{ACT4_REVIEW_ROOT}"}
       - name: review_final_report
         clss: ACT4ReviewChecker
-        args: {phase: final, suite: "{DUT}", review_dir: "{OUT}/{DUT}/review", act4_root: "{ACT4_REVIEW_ROOT}"}
+        args: {phase: final, suite: "{DUT}", review_dir: "{OUT}/intermediate/{DUT}/review", result_dir: "{OUT}", act4_root: "{ACT4_REVIEW_ROOT}"}

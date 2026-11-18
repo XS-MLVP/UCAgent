@@ -289,5 +289,5 @@ def create_review_tools(context: PluginContext) -> list[UCTool]:
         return []
     suite = context.cfg.get_value("_temp_cfg")["DUT"]
     return [ACT4ReviewDocument(workspace=str(context.workspace), suite=suite,
-        review_dir=f"{context.output_dir}/{suite}/review", write_dirs=list(context.write_dirs),
+        review_dir=f"{context.output_dir}/intermediate/{suite}/review", write_dirs=list(context.write_dirs),
         un_write_dirs=list(context.un_write_dirs))]

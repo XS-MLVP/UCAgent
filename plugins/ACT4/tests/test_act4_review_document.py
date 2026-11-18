@@ -18,7 +18,7 @@ from test_act4_review_isa_plan import isa_review
 @pytest.fixture
 def citation_case(tmp_path: Path) -> SimpleNamespace:
     """Provide recorded text, tool discovery, and a revision-bound unfinished review."""
-    root = tmp_path / "reports/H/review"
+    root = tmp_path / "reports/intermediate/H/review"
     (root / "baseline").mkdir(parents=True)
     source = root / "baseline/source.txt"
     source.write_bytes(('first: "quoted" # value\r\n  second: \'text\' \\ path  \r\n' +
@@ -37,7 +37,7 @@ def citation_case(tmp_path: Path) -> SimpleNamespace:
               "semantic_review": {"reviewer": "ai", "evidence_digest": "current-digest", "judgments": []}}
     path = root / "review.yaml"
     path.write_text(yaml.safe_dump(report))
-    tool = ACT4ReviewDocument(workspace=str(tmp_path), review_dir="reports/H/review", suite="H", write_dirs=["reports"])
+    tool = ACT4ReviewDocument(workspace=str(tmp_path), review_dir="reports/intermediate/H/review", suite="H", write_dirs=["reports"])
     citation = {"path": "baseline/source.txt", "lines": [1, 2], "observation": "The source includes quoted and indented text"}
     changes = {"findings": [{"id": "F1", "investigation": [{"basis": [citation]}]}]}
     return SimpleNamespace(root=root, source=source, evidence=evidence, report=report, path=path, tool=tool,
@@ -254,7 +254,7 @@ def test_plan_update_cannot_race_source_selection_or_acceptance(isa_review, monk
     """ISA-only editing cannot publish against changed selections or a newly frozen plan."""
     harness, _ = isa_review
     assert harness.checker("plan").do_check()[0]
-    tool = ACT4ReviewDocument(workspace=str(harness.root), review_dir="reports/H/review", suite="H", write_dirs=["reports"])
+    tool = ACT4ReviewDocument(workspace=str(harness.root), review_dir="reports/intermediate/H/review", suite="H", write_dirs=["reports"])
     original = (harness.output / "isa-plan.yaml").read_bytes()
     status = tool.invoke({"action": "status", "document": "isa-plan"})
     dump = yaml.safe_dump
@@ -294,7 +294,7 @@ def test_written_report_still_requires_ordinary_checker_acceptance(tmp_path: Pat
     """Native evidence is reused, but publishing inferred judgments cannot make Check pass."""
     harness = ReviewHarness(tmp_path)
     report = harness.audit()
-    tool = ACT4ReviewDocument(workspace=str(tmp_path), review_dir="reports/H/review", suite="H", write_dirs=["reports"])
+    tool = ACT4ReviewDocument(workspace=str(tmp_path), review_dir="reports/intermediate/H/review", suite="H", write_dirs=["reports"])
     for judgment in report["semantic_review"]["judgments"]:
         for citation in judgment["basis"]:
             citation.pop("quote", None)

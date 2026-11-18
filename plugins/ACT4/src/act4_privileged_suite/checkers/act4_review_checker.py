@@ -25,6 +25,7 @@ import yaml
 from ucagent.checkers.base import Checker, UnityChipBatchTask
 from ucagent.util.log import warning
 from ..environment import prepared_environment
+from ..resources import copy_on_write, resolve_source
 
 from .act4_asset_checker import ACT4AssetChecker
 from .act4_asset_consistency import scan_systemverilog
@@ -249,7 +250,7 @@ def copy_sources(source: Path, target: Path, state: dict[str, Any]) -> None:
         if identity["kind"] == "symlink":
             destination.symlink_to(os.readlink(original))
         else:
-            shutil.copy2(original, destination)
+            copy_on_write(original, destination)
 
 
 def artifact_paths(root: Path, artifact: dict[str, Any]) -> list[Path]:
@@ -430,7 +431,7 @@ class ACT4ReviewChecker(Checker):
 
     accepted_stage_args = ("run_commands", "refresh_tools", "experiment", "prepare_environment")
 
-    def __init__(self, phase: str, suite: str, review_dir: str,
+    def __init__(self, phase: str, suite: str, review_dir: str, result_dir: str,
                  act4_root: str = "riscv-arch-test", batch_size: int = 12,
                  max_stalled_checks: int = 8, max_experiments: int = 6,
                  max_experiment_seconds: int = 1800, **kwargs: Any) -> None:
@@ -441,6 +442,7 @@ class ACT4ReviewChecker(Checker):
             raise ValueError("Invalid ACT4 review phase or checker arguments")
         self.phase, self.suite = phase, suite
         self.review_dir, self.act4_root = review_dir, act4_root
+        self.result_dir = result_dir
         if type(batch_size) is not int or not 1 <= batch_size <= 50:
             raise ValueError("Review batch_size must be an integer from 1 to 50")
         if type(max_stalled_checks) is not int or max_stalled_checks < 1:
@@ -599,7 +601,7 @@ class ACT4ReviewChecker(Checker):
     def _baseline(self, state: dict[str, Any], scope: dict[str, Any]) -> None:
         """Freeze actual dirty or clean source state and reject subsequent input drift."""
         if self.source.is_symlink() or not self.source.is_dir():
-            raise ValueError("Review input must be an existing workspace-relative directory, not a symlink")
+            raise ValueError("Review input must be an existing configured directory, not a symlink")
         git_input = (self.source / ".git").exists()
         if git_input and not (self.source / ".git").is_dir():
             raise ValueError("Git review input must be an independent clone, not a shared worktree")
@@ -1926,6 +1928,8 @@ class ACT4ReviewChecker(Checker):
         latest = runs[-1][1]
         source = latest["input"]
         text += f"Input: `{source['root']}` ({source['kind']}); patch paths are relative to this input root. "
+        if self.source.resolve() != (Path(self.workspace) / self.act4_root).resolve():
+            text += f"Prepared shared source: `{self.source}`. Keep it read-only; apply the patch to a separate checkout of the recorded baseline. "
         if source["kind"] == "directory":
             text += "Local source snapshot; no upstream commit identity or full upstream CI certification is implied. "
         text += "\n\n"
@@ -2074,7 +2078,13 @@ class ACT4ReviewChecker(Checker):
         text += f"\nSource-derived obligations: **{len(data['obligations'])}** across **{len(latest['obligation_sources'])}** source blocks; forward mappings and exclusions are in [{structured}]({structured}).\n"
         if not data.get("changes", data.get("changed_paths", [])):
             text += "\nNo source changes are included. Unresolved findings remain documented with reasons and follow-up actions.\n"
-        safe_path(self.output, name).write_text(text, encoding="utf-8")
+        destination = self.results if name == "final.md" else self.output
+        if name == "final.md":
+            prefix = Path(os.path.relpath(self.output, self.results)).as_posix()
+            text = re.sub(r"(?<=\]\()([^\s)]+)(?=\))",
+                          lambda match: match[1] if match[1] == "changes.patch" or "://" in match[1] or match[1].startswith("#")
+                          else prefix + "/" + match[1], text)
+        safe_path(destination, name).write_text(text, encoding="utf-8")
 
     def _final(self, review: dict[str, Any],
                evidence: dict[str, Any], changed: list[str], publish: bool = True) -> dict[str, Any]:
@@ -2161,7 +2171,7 @@ class ACT4ReviewChecker(Checker):
             for line in difflib.unified_diff(old, new, fromfile=f"a/{name}" if before.exists() else "/dev/null",
                                              tofile=f"b/{name}" if after.exists() else "/dev/null"):
                 patch.append(line if line.endswith("\n") else line + "\n\\ No newline at end of file\n")
-        safe_path(self.output, "changes.patch").write_bytes("".join(patch).encode("utf-8"))
+        safe_path(self.results, "changes.patch").write_bytes("".join(patch).encode("utf-8"))
         final.update(changed_paths=changed,
                      asset_checks_passed=evidence["static_passed"],
                      original_review=review, before=before_evidence, after=evidence,
@@ -2191,10 +2201,14 @@ class ACT4ReviewChecker(Checker):
             if refresh_tools and self.phase not in {"plan", "audit"}:
                 raise ValueError("Refresh optional tools in review_plan or review_audit, then recollect before and after evidence")
             workspace = Path(self.workspace).resolve()
-            self.source = safe_path(workspace, self.act4_root)
             self.output = safe_path(workspace, self.review_dir)
+            self.results = safe_path(workspace, self.result_dir)
+            self.results.mkdir(parents=True, exist_ok=True)
+            self.source = resolve_source(workspace, self.act4_root, self.output.parent / "resources",
+                                         self.smanager_get_value if self.stage_manager else None)
             self.environment = prepared_environment(self.output.parent / "environment", self.smanager_get_value if self.stage_manager else None)
-            if self.output.resolve().is_relative_to(self.source.resolve()) or self.source.resolve().is_relative_to(self.output.resolve()):
+            if any(directory.resolve().is_relative_to(self.source.resolve()) or self.source.resolve().is_relative_to(directory.resolve())
+                   for directory in (self.output, self.results)):
                 raise ValueError("Review artifacts and input checkout must be separate")
             self.output.mkdir(parents=True, exist_ok=True)
             state = self._state()
@@ -2360,7 +2374,7 @@ class ACT4ReviewChecker(Checker):
                     return self._checked_result(passed, result)
                 self._final(review, after, changed)
             self._baseline(state, scope)
-            return self._checked_result(True, {"report": "final.md" if self.phase == "final" else "evidence-after.json",
+            return self._checked_result(True, {"report": str(self.results / "final.md") if self.phase == "final" else "evidence-after.json",
                           "changed_paths": changed, "ci": [{key: value for key, value in job.items()
                               if key in {"id", "status", "purpose", "log", "reason", "elf_count", "executed_tests"}}
                               for job in after["jobs"]]})

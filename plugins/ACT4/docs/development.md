@@ -19,17 +19,17 @@
 `itgen/checker/act4_*.py` 与相应指南及测试。原有 `work_itgen_<Suite>` 构建目录名继续使用。
 checker 使用包内导入，所有 Checker 构造函数调用核心基类初始化，不依赖
 `sys.path` 注入、ITGen checkout 或顶层模块别名。
-生成工作流为 8 个阶段（含环境准备）、25 个资产 gate。环境 checker 先记录并复验工具，
+生成工作流为 9 个阶段（含资源与环境准备）、25 个资产 gate。资源 checker 固定共享输入，环境 checker 记录并复验工具，
 后续执行使用校验过的持久/临时工具 PATH。插件特有适配为
 checker 短名注册、manual 路径配置和静态规范引用；生成器独立性校验另外拒绝
 `act4_privileged_suite` 私有导入/路径及 `ACT4_MANUAL_ROOT`，允许 ACT4 原生输入。
 UCAgent 版本下限采用实际测试的 `26.9.2.dev25`。
 
 `xiangshan-v3-handoff` 只追加注册，生成与 review 的配置和工具启用条件不变。
-`ACT4XiangShanChecker` 管理范围选择、输入、目标、构建、交付五个阶段，另有环境准备，完整运行契约见
+`ACT4XiangShanChecker` 管理范围选择、输入、目标、构建、交付五个阶段，另有资源和环境准备，完整运行契约见
 `Guide_Doc/ACT4_XiangShan_Handoff_Guide.md`。输入可为无 Git 的本地目录；匹配 ACT 框架、
-用户输入资产与 checkout 在输出目录之外；缺省输入缺失时，`xiangshan_acquisition.py` 将公开仓库
-下载到自身 `repositories/`，不修改用户 checkout。write_dirs 只开放输出，不对输入执行 chmod。
+用户输入资产与 checkout 在输出目录之外；缺省输入缺失时，由 `resources.py` 在共享缓存中复用或取得固定版本。
+`ACT4Resources` 只读取已配置输入和保留必要 ISA 引用，不扩大核心文件工具的权限。write_dirs 只开放输出，不对输入执行 chmod。
 scope 用真实上游搜索清单和香山引文约束优先复用；补全在独立 clone 中调用现有生成工作流，
 保留实际执行、阶段完成及资产指纹。缺口生成不扩大原生成工作流的新 privileged suite 能力范围。
 生成命令只在显式 prepare/generate 后的副本执行；此隔离是工作区约定，不是 OS 沙箱，
@@ -87,7 +87,7 @@ deferred/not_fixed，但须记录分类、诊断进度、带精确引文的调�
 关联验证通过和当前语义复核。更新修复计划时重新校验报告，执行输入变化时重新取证。
 规范示例见独立运行指南，避免在生成工作流文档中复制另一套契约。
 
-review 专用 ACT4_REVIEW_ROOT 默认为 riscv-arch-test，支持工作区内的独立 Git clone 或无 Git 的
+review 专用 ACT4_REVIEW_ROOT 默认为 riscv-arch-test，支持显式相对/绝对路径的独立 Git clone 或无 Git 的
 本地模块目录；使用独立路径验证入口，不改变 generation 的初始化规则。目录输入完整指纹化，
 没有虚构的 HEAD，缺少 Git 不阻止目录 review 启动；Git 输入实际冻结时才需要 Git 命令。
 原生命令在独立副本运行：Git 输入保留提交及索引语义，本地目录直接复制冻结源码，无共享

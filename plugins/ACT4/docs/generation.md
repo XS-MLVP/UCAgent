@@ -7,23 +7,16 @@
 
 ## 1. 准备独立工作区
 
-本工作流共 8 个阶段：`prepare_environment` 加七个资产生成阶段。
-
-用户提供选定版本的 ACT4 checkout 和 ISA 规范，工具软件由启动后的首阶段自动准备，详见 [环境准备](environment.md)。
-
-每个 suite 使用独立、可写的 ACT4 Git clone。不要把插件源码、共享 ACT4 checkout、
-符号链接或 Git worktree 作为 `riscv-arch-test/` 输入，避免生成操作影响其他任务。
-以下命令从 UCAgent 根目录执行：
+本工作流共 9 个阶段：`prepare_resources`、`prepare_environment` 加七个资产生成阶段。
+资源阶段复用 [共享源码](environment.md)，只为需要写入的 ACT4 生成树创建独立 clone；ISA 规范保持共享只读。
+无需每轮手动 clone 两个仓库，启动前创建独立工作区即可：
 
 ```bash
 ACT4_WORKSPACE="$PWD/output/act4-H"
 mkdir -p "$ACT4_WORKSPACE"
-git clone --branch act4 https://github.com/riscv/riscv-arch-test.git \
-  "$ACT4_WORKSPACE/riscv-arch-test"
-git -C "$ACT4_WORKSPACE/riscv-arch-test" submodule update --init --recursive
-git clone https://github.com/riscv/riscv-isa-manual.git \
-  "$ACT4_WORKSPACE/riscv-isa-manual"
 ```
+
+需要使用自己的精确版本时，仍可在启动前提供独立、可写的 `riscv-arch-test/`；不要使用共享工作树或符号链接。
 
 运行前确认所选 ACT4 版本具有 `generators/testgen/src/testgen/priv/`、`coverpoints/priv/`
 及相应的原生生成、构建入口；manual 版本必须包含 `src/**/*.adoc` 和
@@ -40,15 +33,15 @@ git -C "$ACT4_WORKSPACE/riscv-arch-test" checkout --detach \
 git -C "$ACT4_WORKSPACE/riscv-arch-test" submodule update --init --recursive
 ```
 
-两种 ACT4 准备方式选其一；目标目录必须尚不存在。本地 clone 使用提交内容，
-不复制源工作区未提交的改动。manual 也可独立 clone，或通过下一节的配置复用只读副本。
+显式准备 ACT4 时目标目录必须尚不存在；未提供时由资源阶段准备。本地 clone 使用提交内容，
+不复制源工作区未提交的改动。manual 默认从共享缓存读取，也可通过下一节的配置指定只读副本。
 
 工作区结构如下：
 
 ```text
 act4-H/
 ├── riscv-arch-test/       # 独立 ACT4 副本，生成的正式资产写入此处
-└── riscv-isa-manual/      # 只读规范输入
+└── act4_assets/           # final.md、changes.patch 及 intermediate/，规范默认在共享缓存
 ```
 
 ## 2. 运行生成
@@ -68,11 +61,11 @@ ucagent "$ACT4_WORKSPACE" H \
 
 `--output` 必须是工作区内非空相对目录，与 `riscv-arch-test/` 分离；不能使用工作区
 根目录、绝对路径或解析后越出工作区的路径（包括符号链接）。最终报告在
-`act4_assets/H/reports/`。
+`act4_assets/final.md`，贡献补丁为 `act4_assets/changes.patch`。
 默认输出文档为英文，任务提示和配套指南为中文。无需额外传入 ITGen 的
 `--config`、`--append-py-path`、`--guid-doc-path` 或模板路径。
 
-manual 默认从工作区的 `riscv-isa-manual/` 读取。复用外部只读规范库时，可用环境变量：
+manual 优先使用工作区已有的 `riscv-isa-manual/`，否则复用共享来源。复用外部只读规范库时，可用环境变量：
 
 ```bash
 ACT4_MANUAL_ROOT="$HOME/tmp/ITGen/itgen/spec/RISCV/origin_full/riscv-isa-manual" \
@@ -118,6 +111,7 @@ ucagent "$ACT4_WORKSPACE" H \
 
 | 阶段 | 主要工作 |
 | --- | --- |
+| prepare_resources | 复用固定版本源码，为生成准备独立可写副本 |
 | prepare_environment | 复用工具、安装缺项并复验，保留环境报告 |
 | 01 coverpoints | 冻结 ACT4 基线，获取 CTP/Sheet 和 manual 证据，重建 testplan 并生成 coverage |
 | 02 norm mapping | 建立 normative rule 到 coverpoint 的映射 |
@@ -131,11 +125,12 @@ ucagent "$ACT4_WORKSPACE" H \
 
 | 路径 | 内容 |
 | --- | --- |
-| `<OUT>/<Suite>/` | CSV、人类 testplan、coverage 草稿、VM/resource 和 coverage intent 契约 |
-| `<OUT>/<Suite>/references/` | 本轮 CTP、原始 Sheet CSV、选定规范和 metadata 快照 |
-| `<OUT>/<Suite>/reports/<Suite>_final_summary_report.md` | 人工复核入口、结论、复现命令及限制 |
-| `<OUT>/<Suite>/reports/` | 累积 AI review、validation state、基线、switch audit、file manifest 和 checker 报告 |
-| `<OUT>/<Suite>/experimental/` | 与正式生成链隔离的实验资产 |
+| `<OUT>/intermediate/<Suite>/` | CSV、人类 testplan、coverage 草稿、VM/resource 和 coverage intent 契约 |
+| `<OUT>/intermediate/<Suite>/references/` | 本轮 CTP、原始 Sheet CSV、选定规范和 metadata 快照 |
+| `<OUT>/final.md` | 人工复核入口、结论、复现命令及限制 |
+| `<OUT>/changes.patch` | 仅包含 contribution_set 的贡献补丁，不混入构建与工具产物 |
+| `<OUT>/intermediate/<Suite>/reports/` | 累积 AI review、validation state、基线、switch audit、file manifest 和 checker 报告 |
+| `<OUT>/intermediate/<Suite>/experimental/` | 与正式生成链隔离的实验资产 |
 | `riscv-arch-test/coverpoints/{priv,norm}/` | 正式 coverage/init 和 normative mapping |
 | `riscv-arch-test/generators/testgen/src/testgen/priv/extensions/<Suite>.py` | 正式 generator |
 | `riscv-arch-test/tests/priv/<Suite>/` | ACT4 原生生成的汇编测试 |

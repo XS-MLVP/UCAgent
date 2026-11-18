@@ -156,7 +156,7 @@ def test_every_workflow_prepares_environment_before_asset_execution() -> None:
     """Allow read-only XiangShan scope discovery before tool setup; keep generation/review unchanged."""
     for workflow in get_plugin().workflows:
         config = yaml.safe_load(workflow.config_file.read_text(encoding="utf-8"))
-        first = config["stage"][1 if workflow.name == "xiangshan-v3-handoff" else 0]
+        first = config["stage"][2 if workflow.name == "xiangshan-v3-handoff" else 1]
         assert first["name"] == "prepare_environment"
         gate = first["checker"][0]
         assert gate["clss"] == "ACT4EnvironmentChecker"

@@ -1,17 +1,19 @@
 
 # ACT4 已有 Extension 审查与自动修复
 
-目标是增量审查和优化已有测试资产，而不是为新 suite 生成一套替代资产。输入为工作区内的
+目标是增量审查和优化已有测试资产，而不是为新 suite 生成一套替代资产。输入为用户提供或共享缓存中的
 独立 Git clone 或用户指定的本地模块资产目录，以及只读 ISA 规范；支持 privileged/unprivileged 资产。
-`ACT4_REVIEW_ROOT` 默认为 `riscv-arch-test`，也可指定工作区内的本地目录，不要求它有 Git 历史。
-输出全部位于 `{OUT}/{DUT}/review/`，原始资产始终不修改。
+`ACT4_REVIEW_ROOT` 默认为 `riscv-arch-test`，也可指定本地目录的相对或绝对路径，不要求它有 Git 历史。
+最终报告 `{OUT}/final.md` 和补丁 `{OUT}/changes.patch` 放在输出根目录；其余审查资料位于
+`{OUT}/intermediate/{DUT}/review/`，原始资产始终不修改。
 不要求在线 CTP 必须有 Google Sheet；现有计划、CTP、规范和当前版本的源码共同确定边界。
 Skill 不参与必需流程。
 
 ## 1. 范围与证据
 
-先运行 `prepare_environment`，详见 `Guide_Doc/ACT4_Environment_Guide.md`；工具摘要位于
-`{OUT}/{DUT}/environment/summary.md`。之后按 `review_plan → review_audit → review_repair` 自动推进。先按
+先运行 `prepare_resources`，通过 `ACT4Resources` 浏览共享输入并保留选定 ISA 引用，详见
+`Guide_Doc/ACT4_Resources_Guide.md`；再运行 `prepare_environment`，详见 `Guide_Doc/ACT4_Environment_Guide.md`；工具摘要位于
+`{OUT}/intermediate/{DUT}/environment/summary.md`。之后按 `review_plan → review_audit → review_repair` 自动推进。先按
 `Guide_Doc/ACT4_Extension_Review_Guide.md section 10` 仅用 ISA 和用户范围形成独立测试设计，
 Complete 冻结后才能读取已有 CTP、coverage、generator、用例、mapping、CI 和旧报告。
 审查阶段包含范围盘点与基线验证，修复阶段包含复验与最终报告。
@@ -66,7 +68,7 @@ scope 必须保留 isa-plan.yaml 中的 ISA reference_files 及原 reference_sco
 每个 target 的 `environment` job 用 `probe: [程序, 参数, ...]` 检查本轮命令副本内项目模块的
 导入路径和实际可运行性；可用 `expected_output` 检查明确的成功标记。该 job 是项目级复核，
 不替代首阶段的公共工具准备。uv、编译器、参考模型等复用
-`{OUT}/{DUT}/environment/activate.sh` 中的安装，不得在每个 target 重复下载。
+`{OUT}/intermediate/{DUT}/environment/activate.sh` 中的安装，不得在每个 target 重复下载。
 不能沿用外部 editable 安装或继承的 `PYTHONPATH` 指向另一份 ACT4；Python 依赖按选定版本锁文件
 在隔离命令副本中同步。`{TOOLS}` 仅供额外项目专属工具和临时文件，其 `bin` 位于共享工具 PATH 之前。
 所有安装不得写入原始输入或修改其版本校验。
@@ -392,7 +394,7 @@ dismissed 用于经过调查排除的疑点，必须 classification 为 not_a_de
 修改项引用 candidate 中的源码，删除项引用 baseline；可同时引用基线进行前后比较。
 fixed finding 的 AI 复核必须为 passed/confirmed，仍为 issues/unverified 的结论不能称为已修复。
 所有未解决的语义疑点及推断也须写入 remaining_risks，即使命令均通过也不能省略。
-Check 生成 `final.md` 和 `changes.patch`，包含原始审查、前后验证、逐项处置、精确变更、
+Check 在 `{OUT}/` 生成 `final.md` 和 `changes.patch`，包含原始审查、前后验证、逐项处置、精确变更、
 未修复原因、后续动作及风险。修复阶段 Complete 要求这些报告通过校验；已完整披露的
 未修复项允许交付，无可安全修复项时输出空补丁。补丁支持 UTF-8 文本源码及模式变更，
 不支持二进制或符号链接变更。
@@ -876,9 +878,9 @@ ISA 独立设计或证明覆盖完整。上面无修复的完整 review/final �
 
 ## 11. 本地模块入口
 
-操作员将输入和规范置于同一工作区的不同目录，例如 `my-assets/` 和 `riscv-isa-manual/`，
-输出为另一个目录。若已有绝对本地路径，选择其父目录作为工作区，并把目录名作为
-ACT4_REVIEW_ROOT；不要用逃逸路径或符号链接绕过工作区限制。
+输入可以是工作区内 `my-assets/`，也可由 ACT4_REVIEW_ROOT 指定既有资产的绝对路径，
+无需复制到当前运行目录；输入与输出、ISA 来源必须分离。外部输入通过 ACT4Resources 只读浏览，
+不要用父目录逃逸路径或符号链接访问未配置来源。
 
 ```bash
 ACT4_REVIEW_ROOT=my-assets ucagent /path/to/workspace Sstc \

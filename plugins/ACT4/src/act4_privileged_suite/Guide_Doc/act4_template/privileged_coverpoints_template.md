@@ -16,14 +16,14 @@
 | baseline、switch audit | 首次 ACT4 写入前已记录，使用的能力/控制有证据 |
 
 阶段 01 的 coverage 只写入：
-- `{OUT}/{DUT}/coverpoints/priv/{DUT}_coverage.svh`
-- `{OUT}/{DUT}/coverpoints/priv/{DUT}_coverage_init.svh`
+- `{OUT}/intermediate/{DUT}/coverpoints/priv/{DUT}_coverage.svh`
+- `{OUT}/intermediate/{DUT}/coverpoints/priv/{DUT}_coverage_init.svh`
 
 辅助产物使用工作流规定的精确名字：
-- `{OUT}/{DUT}/{DUT}.csv`、`{DUT}_testplan.md`、`{DUT}_normative_rules.csv`
-- `{OUT}/{DUT}/{DUT}_coverage_intent.yaml`
-- `{OUT}/{DUT}/reports/sheet_manual_sv_mapping.md`
-- `{OUT}/{DUT}/reports/coverage_gaps_and_conflicts.md`
+- `{OUT}/intermediate/{DUT}/{DUT}.csv`、`{DUT}_testplan.md`、`{DUT}_normative_rules.csv`
+- `{OUT}/intermediate/{DUT}/{DUT}_coverage_intent.yaml`
+- `{OUT}/intermediate/{DUT}/reports/sheet_manual_sv_mapping.md`
+- `{OUT}/intermediate/{DUT}/reports/coverage_gaps_and_conflicts.md`
 - provenance、baseline、switch audit 和累计 AI review
 
 阶段 02 在内部目录生成 `coverpoints/norm/{DUT}.yaml`。阶段 04 才把经审查的

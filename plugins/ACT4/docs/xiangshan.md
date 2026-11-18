@@ -23,7 +23,7 @@ ucagent "$ACT4_WORKSPACE" Vector \
 在任务描述中说明希望覆盖的功能和已知目标约束。向量模块不会直接等同于 Vx：工作流应检查
 整数、浮点、访存及适用的状态/异常相关资产，并逐项说明选择、排除和未交付内容。
 
-可提供以下工作区相对目录，已有输入保持只读且不自动切换提交：
+可提供以下工作区相对目录或外部绝对目录，已有输入保持只读且不自动切换提交：
 
 | 设置 | 默认目录 | 用途 |
 | --- | --- | --- |
@@ -32,8 +32,8 @@ ucagent "$ACT4_WORKSPACE" Vector \
 | `ACT4_XIANGSHAN_ROOT` | `XiangShan` | Kunminghu V3 源码及目标依据 |
 | `ACT4_MANUAL_ROOT` | `riscv-isa-manual` | norm rule 原文及新 suite 生成规范 |
 
-默认 checkout 缺失时，`fetch` 将其下载到输出的 `handoff/repositories/` 内；实际位置记录在
-`acquisition-paths.json`。显式指定但缺失的非默认目录会报错，不擅自替换用户版本。
+默认 checkout 缺失时，`prepare_resources` 按 [共享资源规则](environment.md) 先复用再下载；实际位置记录在
+`intermediate/<模块>/resources/receipt.json` 和 `handoff/acquisition-paths.json`。显式指定但缺失的非默认目录会报错，不擅自替换用户版本。
 需联网下载时保留失败日志；可提供完整本地 checkout 后重新运行。输入和输出目录不得重叠。
 
 本地补充示例：设置 `ACT4_INPUT_ROOT=local-assets/vector`，其余启动参数不变。
@@ -43,6 +43,7 @@ ucagent "$ACT4_WORKSPACE" Vector \
 
 | 阶段 | 工作 |
 | --- | --- |
+| prepare_resources | 复用固定版本的 ACT、规范及香山源码，缺失才下载 |
 | handoff_scope | 准备源码、分析香山模块、检索 ACT，冻结逐功能范围和缺口 |
 | prepare_environment | 根据实际选定输入准备构建依赖，复用兼容软件 |
 | handoff_inputs | 混合导入上游/本地资产；必要时调用隔离的生成子流程；执行原生 testgen |
@@ -58,7 +59,7 @@ ucagent "$ACT4_WORKSPACE" Vector \
 
 ## 报告与文件说明
 
-最终目录为 `<OUT>/<香山模块>/handoff/delivery/`，压缩包为同级的 `<模块>-kunminghu-v3.tar.gz`。
+根目录 `<OUT>/final.md` 是本轮摘要；交付目录为 `<OUT>/delivery/`，压缩包为 `<OUT>/<模块>-kunminghu-v3.tar.gz`。
 包内仅保留两个人工阅读入口：`README.md` 操作指南与 `TESTS.md` 测试索引。
 指南说明环境准备、批量/单程序编译运行、修改后重建、阅读报告和定位失败；索引提供程序总表、
 逐 testcase 设计、coverpoint 反向关系和 norm rule 解释，功能范围与缺口仅用于导航。
@@ -69,7 +70,7 @@ ucagent "$ACT4_WORKSPACE" Vector \
 ELF 保留非加载的 `.note.ucagent.act4`，用 `python3 handoff.py describe <包内ELF路径>` 读取。
 
 不另交付逐 ELF 报告、原始源码副本、日志、signature、中间 ELF、AI 记录或追溯收据。
-这些证据保留在插件输出的 bundle/ 和 handoff-report.md/json；脚本必需的参数与文件摘要合并在 manifest.json。
+这些证据保留在 `intermediate/<模块>/handoff/` 的 bundle/ 和 handoff-report.json；脚本必需的参数与文件摘要合并在 manifest.json。
 静态映射区分上游原生关系和 ISA 推导关系，不代表实测 coverpoint/bin 命中或完整手册覆盖。
 原生 testcase 标签与参数展开后的 SV 点名不一致时，保留标签并记录映射说明；若只能核实
 同一指令组的 `cp_asm_count`，报告明确标出专用覆盖关系尚未核实，不把指令计数当作专用场景覆盖。

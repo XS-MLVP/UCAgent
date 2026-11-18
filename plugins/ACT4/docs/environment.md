@@ -1,18 +1,42 @@
 
 # 工作流的环境准备与复用
 
-三个工作流都在执行测试资产生成或构建前运行 `prepare_environment`；香山交付先完成
-`handoff_scope` 的源码准备与功能范围选择，以确定实际依赖。用户提供选定版本的输入源码和规范，
-香山交付也可将缺失的默认 checkout 下载到自身输出目录；AI 读取
+三个工作流先运行 `prepare_resources`，再执行工具准备和资产工作；香山交付在资源准备后先完成
+`handoff_scope` 的功能范围选择，以确定实际依赖。AI 读取
 该版本的依赖清单及 CI 安装说明，生成工具计划，执行真实探测、缺项安装及安装后复验。
 UCAgent、ACT4 插件和模型连接需要在启动前可用，工作流不会安装自己的运行宿主。
+
+## 源码资源复用
+
+默认共享目录是最近一层 `output/.act4-cache/`；工作区不位于 `output` 下时使用工作区父目录的
+`.act4-cache/`。可用 `ACT4_RESOURCE_ROOT` 指定其他共享目录。资源与每轮运行的证据分开，
+不会把整套共享仓库重复放进每轮输出或交付包。
+
+顺序为：已有显式输入 → 共享的固定版本 checkout → 既有输出中完整、干净且来源/版本匹配的
+checkout → 下载缺项。导入旧 checkout 时只复制提交内容和匹配的子模块，不复制 `.venv`、
+构建树或未提交修改；旧输出保持原样。缓存按仓库 URL 与所选 ref 区分，并记录实际 HEAD 和
+子模块提交。默认 ACT ref 是 `act4`，香山 ref 是 `kunminghu-v3`，规范默认采用首次取得的 HEAD。
+后续不会自动 pull；这保证复现性，不代表跟踪上游最新。需要另一版本时可用
+`ACT4_ACT_REF`、`ACT4_MANUAL_REF`、`ACT4_XIANGSHAN_REF` 选取分支/标签，或显式提供固定提交的输入。
+
+共享源码只读，准备时有互斥锁，未完成的下载不发布为可复用资源。输入被改动、ACT 必需子模块不完整、
+准备收据被修改时会报错，不自动 reset 或替用户删除文件。
+ISA manual 和香山源码仅供读取，不为文档构建或完整 RTL 仿真自动下载全部可选子模块；
+保留原有已初始化子模块及缺项记录。若所选范围确实依赖缺少的源码，需提供包含它的固定版本输入，不能编造其内容。
+生成需要可写 Git checkout，因此从共享源创建独立副本；review 和香山只在需要冻结证据、
+执行原生命令或修复时建立副本。普通文件优先使用 reflink，文件系统不支持时退化为独立复制，
+不使用会互相污染的可写硬链接。必要的规范引用只保留选中的文件。
+
+`ACT4Resources` 提供受限的只读浏览和 ISA 文件快照，不扩大 UCAgent 通用文件工具的工作区权限。
+详细操作见 [资源运行指南](../src/act4_privileged_suite/Guide_Doc/ACT4_Resources_Guide.md)。
 
 ## 安装位置
 
 1. 先探测当前 PATH 中的软件，版本/能力匹配就直接复用，包括已经安装到系统的软件。
-2. 缺失软件默认安装到 `~/.local/share/ucagent/act4/tools/<工具>-<配方摘要>/`。
+2. 再查既有输出的环境收据，对候选工具重新核对可执行文件摘要、版本和探测结果；不复用项目 editable 虚拟环境。
+3. 缺失软件默认安装到 `~/.local/share/ucagent/act4/tools/<工具>-<配方摘要>/`。
    这是持久化用户安装，通常不需要管理员权限；同用户下后续工作区和模块可复用，使用前仍然探测。
-3. 存在版本冲突、需要试验或不宜长期保留的依赖，设置 `storage: temporary`，安装到
+4. 存在版本冲突、需要试验或不宜长期保留的依赖，设置 `storage: temporary`，安装到
    系统临时目录下的 `ucagent-act4-<uid>/<工具>-<配方摘要>/`。不会覆盖已有工具或更改系统默认版本。
 
 无需为每轮重新下载编译器和模型。安装命令依据输入项目选定版本编写，不强制追随“最新版”。
@@ -30,12 +54,12 @@ UCAgent、ACT4 插件和模型连接需要在启动前可用，工作流不会�
 AI 根据实际依赖补充安装计划，`Check` 执行计划并保存退出码、版本输出和安装日志。
 成功退出但版本不符仍不算准备完成。共享安装有进程锁；另一个任务正在安装时记录重试动作。
 
-产物位于 `<OUT>/<模块>/environment/`：`host.json` 是初次探测，`plan.yaml` 是安装计划，
+产物位于 `<OUT>/intermediate/<模块>/environment/`：`host.json` 是初次探测，`plan.yaml` 是安装计划，
 `receipt.json` 和日志是实测证据，`summary.md` 是摘要，`activate.sh` 用于后续 shell 命令。
 review 和香山原生命令自动使用准备好的 PATH；生成流程及外部代理执行 shell 时先运行：
 
 ```bash
-source act4_assets/Sstc/environment/activate.sh
+source act4_assets/intermediate/Sstc/environment/activate.sh
 ```
 
 按实际输出路径替换。环境只传给对应任务的子进程，不修改 UCAgent 进程的全局 PATH。

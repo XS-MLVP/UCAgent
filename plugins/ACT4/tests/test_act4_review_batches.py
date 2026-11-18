@@ -140,7 +140,7 @@ def test_batches_require_current_records_and_reconcile_restart(tmp_path: Path) -
     judgments = copy.deepcopy(review["semantic_review"]["judgments"])
     review["semantic_review"]["judgments"] = []
     harness.write("review.yaml", review)
-    checker = ACT4ReviewChecker("audit", "H", "reports/H/review", batch_size=2).set_workspace(str(tmp_path)).set_stage_manager(harness.manager)
+    checker = ACT4ReviewChecker("audit", "H", "reports/intermediate/H/review", result_dir="reports", batch_size=2).set_workspace(str(tmp_path)).set_stage_manager(harness.manager)
     checker.set_stage(SimpleNamespace(name="review_audit", title=lambda: "review_audit"))
     passed, result = checker.do_check(is_complete=True)
     assert not passed and result["error_code"] == "act4_review_batch_pending"
@@ -154,7 +154,7 @@ def test_batches_require_current_records_and_reconcile_restart(tmp_path: Path) -
         passed, result = checker.do_check(is_complete=True)
     review["semantic_review"]["judgments"].pop()
     harness.write("review.yaml", review)
-    resumed = ACT4ReviewChecker("audit", "H", "reports/H/review", batch_size=2).set_workspace(str(tmp_path)).set_stage_manager(harness.manager)
+    resumed = ACT4ReviewChecker("audit", "H", "reports/intermediate/H/review", result_dir="reports", batch_size=2).set_workspace(str(tmp_path)).set_stage_manager(harness.manager)
     resumed.set_stage(SimpleNamespace(name="review_audit", title=lambda: "review_audit"))
     passed, result = resumed.do_check(is_complete=True)
     assert not passed and result["observed"]["completed"] < result["observed"]["total"]
@@ -186,7 +186,7 @@ def document_tool(tmp_path: Path) -> tuple[ReviewHarness, ACT4ReviewDocument]:
     harness = ReviewHarness(tmp_path)
     assert harness.checker("audit").do_check()[0]
     harness.checker("audit").do_check(run_commands=True)
-    tool = ACT4ReviewDocument(workspace=str(tmp_path), review_dir="reports/H/review", suite="H", write_dirs=["reports"], un_write_dirs=["riscv-arch-test"])
+    tool = ACT4ReviewDocument(workspace=str(tmp_path), review_dir="reports/intermediate/H/review", suite="H", write_dirs=["reports"], un_write_dirs=["riscv-arch-test"])
     return harness, tool
 
 
@@ -231,7 +231,7 @@ def test_document_tool_rejects_unsafe_or_unverifiable_updates(document_tool, def
     elif defect in {"too_many_lines", "boolean_lines"}:
         citation["lines"] = [1, 101] if defect == "too_many_lines" else [True, 1]
     elif defect == "protected":
-        tool.un_write_dirs = ["reports/H/review"]
+        tool.un_write_dirs = ["reports/intermediate/H/review"]
     elif defect == "symlink":
         outside = tmp_path / "outside.json"
         outside.write_text("{}")
@@ -287,17 +287,17 @@ def test_final_review_batches_cannot_publish_partial_delivery(tmp_path: Path) ->
     judgments = copy.deepcopy(final["semantic_review"]["judgments"])
     final["semantic_review"]["judgments"] = []
     harness.write("final.yaml", final)
-    checker = ACT4ReviewChecker("final", "H", "reports/H/review", batch_size=3).set_workspace(str(tmp_path)).set_stage_manager(harness.manager)
+    checker = ACT4ReviewChecker("final", "H", "reports/intermediate/H/review", result_dir="reports", batch_size=3).set_workspace(str(tmp_path)).set_stage_manager(harness.manager)
     passed, result = checker.do_check(is_complete=True)
-    assert not passed and not (harness.output / "final.md").exists()
-    assert not (harness.output / "changes.patch").exists()
+    assert not passed and not (harness.results / "final.md").exists()
+    assert not (harness.results / "changes.patch").exists()
     assert len(result["current_batch"]) == 3
     final["semantic_review"]["judgments"] = judgments
     harness.write("final.yaml", final)
     passed, result = checker.do_check(is_complete=True)
     assert passed, result
-    assert (harness.output / "final.md").is_file()
-    assert (harness.output / "changes.patch").read_bytes() == b""
+    assert (harness.results / "final.md").is_file()
+    assert (harness.results / "changes.patch").read_bytes() == b""
 
 
 @pytest.mark.parametrize("defect", ["overlap", "no_boundary", "missing_file"])
@@ -326,7 +326,7 @@ def test_review_pauses_repeated_checks_inside_one_model_turn(tmp_path: Path, fai
     harness.write("review.yaml", review)
     pauses = []
     harness.manager.agent = SimpleNamespace(set_break=pauses.append)
-    checker = ACT4ReviewChecker("audit", "H", "reports/H/review", max_stalled_checks=2).set_workspace(str(tmp_path)).set_stage_manager(harness.manager)
+    checker = ACT4ReviewChecker("audit", "H", "reports/intermediate/H/review", result_dir="reports", max_stalled_checks=2).set_workspace(str(tmp_path)).set_stage_manager(harness.manager)
     assert not checker.do_check()[0]
     passed, result = checker.do_check()
     assert not passed and result["execution_paused"] is True and pauses == [True]
@@ -346,7 +346,7 @@ def test_batch_progress_resets_per_check_stall_detection(tmp_path: Path) -> None
     harness.write("review.yaml", review)
     pauses = []
     harness.manager.agent = SimpleNamespace(set_break=pauses.append)
-    checker = ACT4ReviewChecker("audit", "H", "reports/H/review", max_stalled_checks=2).set_workspace(str(tmp_path)).set_stage_manager(harness.manager)
+    checker = ACT4ReviewChecker("audit", "H", "reports/intermediate/H/review", result_dir="reports", max_stalled_checks=2).set_workspace(str(tmp_path)).set_stage_manager(harness.manager)
     assert not checker.do_check()[0]
     review["semantic_review"]["judgments"] = [judgments[0]]
     harness.write("review.yaml", review)
@@ -358,11 +358,11 @@ def test_batch_progress_resets_per_check_stall_detection(tmp_path: Path) -> None
 def test_review_stall_limit_requires_a_positive_integer(limit) -> None:
     """Reject ambiguous or disabled per-Check review protection."""
     with pytest.raises(ValueError, match="max_stalled_checks"):
-        ACT4ReviewChecker("audit", "H", "reports/H/review", max_stalled_checks=limit)
+        ACT4ReviewChecker("audit", "H", "reports/intermediate/H/review", result_dir="reports", max_stalled_checks=limit)
 
 
 @pytest.mark.parametrize("batch_size", [0, 51, True, "12"])
 def test_review_batch_size_is_bounded(batch_size) -> None:
     """Reject invalid or unbounded review batch configuration before workspace access."""
     with pytest.raises(ValueError, match="batch_size"):
-        ACT4ReviewChecker("audit", "H", "reports/H/review", batch_size=batch_size)
+        ACT4ReviewChecker("audit", "H", "reports/intermediate/H/review", result_dir="reports", batch_size=batch_size)

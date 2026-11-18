@@ -3,7 +3,7 @@
 # ACT4 Privileged VM / Resource Contract 模板
 
 适用阶段：03_vm_resources，供 generator 和 build 复核。
-输出 `{OUT}/{DUT}/{DUT}_vm_resource_contract.yaml`，并维护 switch audit 和
+输出 `{OUT}/intermediate/{DUT}/{DUT}_vm_resource_contract.yaml`，并维护 switch audit 和
 `experimental/{DUT}_experimental_assets.yaml`。本模板按 consumer 填写资源，不能按
 扩展名自动开启页表。使用约定见 [README](README.md)。
 

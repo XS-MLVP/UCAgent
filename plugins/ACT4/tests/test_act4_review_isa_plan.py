@@ -130,7 +130,7 @@ def test_plan_document_tool_uses_only_isa_and_preserves_acceptance(isa_review) -
     harness.write("isa-plan.yaml", {**plan, "requirements": [], "source_reviews": []})
     assert not harness.checker("plan").do_check()[0]
     assert (harness.output / "isa-plan-context.json").exists()
-    tool = ACT4ReviewDocument(workspace=str(harness.root), review_dir="reports/H/review", suite="H", write_dirs=["reports"])
+    tool = ACT4ReviewDocument(workspace=str(harness.root), review_dir="reports/intermediate/H/review", suite="H", write_dirs=["reports"])
     assert "isa-plan" in to_mcp_tool(tool).parameters["properties"]["document"]["enum"]
     status = tool._run(action="status", document="isa-plan")
     assert status["ok"] and status["progress"]["source_count"] == 1
@@ -207,7 +207,7 @@ def test_final_retains_isa_comparison_and_reports_limitations(isa_review, local_
     harness.write_final(final)
     passed, result = harness.checker("final").do_check(is_complete=True)
     assert passed, result
-    text = (harness.output / "final.md").read_text()
+    text = (harness.results / "final.md").read_text()
     assert "Independent ISA plan comparison" in text and "| I1 | O1 |" in text
     assert "Synthetic rule" in text
     final["obligations"][0]["plan_items"] = []

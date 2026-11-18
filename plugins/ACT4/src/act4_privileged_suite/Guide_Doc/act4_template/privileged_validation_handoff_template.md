@@ -135,7 +135,7 @@ Complete。检查通过的版本与最终交付文件须一致；不预写 Compl
 
 ## 5. 最终报告提纲
 
-输出 `{OUT}/{DUT}/reports/{DUT}_final_summary_report.md`，采用以下九个固定标题。
+输出 `{OUT}/final.md`，采用以下九个固定标题。
 下方用四反引号包住模板，保留最终 Markdown 内部的 YAML fence：
 
 ````markdown

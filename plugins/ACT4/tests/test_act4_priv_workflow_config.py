@@ -48,9 +48,10 @@ def test_priv_workflow_has_unique_keys_and_environment_preparation_first() -> No
     workflow = _load_workflow()
     stages = workflow["stage"]
 
-    assert len(stages) == 8
-    assert stages[0]["name"] == "prepare_environment"
-    stages = stages[1:]
+    assert len(stages) == 9
+    assert stages[0]["name"] == "prepare_resources"
+    assert stages[1]["name"] == "prepare_environment"
+    stages = stages[2:]
     checker_names = [
         checker["name"] for stage in stages for checker in stage["checker"]
     ]
@@ -70,7 +71,7 @@ def test_priv_workflow_checkers_accept_ucagent_cfg_injection() -> None:
 
 
 def test_priv_workflow_enables_review_regression_gates() -> None:
-    stages = _load_workflow()["stage"][1:]
+    stages = _load_workflow()["stage"][2:]
     norm_args = _checker(stages[1], "act4_norm_mapping_asset_check")["args"]
     generator_args = _checker(stages[3], "act4_generator_asset_check")["args"]
     build_args = _checker(stages[4], "act4_generated_test_asset_check")["args"]
@@ -81,7 +82,7 @@ def test_priv_workflow_enables_review_regression_gates() -> None:
         stages[5], "act4_file_manifest_completeness_check"
     )["args"]
 
-    metadata = "{OUT}/{DUT}/references/{DUT}_normative_rule_defs.yaml"
+    metadata = "{OUT}/intermediate/{DUT}/references/{DUT}_normative_rule_defs.yaml"
     for args in (norm_args, generator_args):
         assert args["require_norm_metadata"] is True
         assert args["normative_metadata"] == metadata
@@ -97,7 +98,7 @@ def test_priv_workflow_enables_review_regression_gates() -> None:
             assert redundant not in args
     assert generator_args["require_priv_coverage_semantics"] is True
     assert generator_args["require_standalone_generator"] is True
-    intent = "{OUT}/{DUT}/{DUT}_coverage_intent.yaml"
+    intent = "{OUT}/intermediate/{DUT}/{DUT}_coverage_intent.yaml"
     assert generator_args["coverage_intent_contract"] == intent
     assert _checker(stages[0], "act4_coverage_asset_check")["args"][
         "coverage_intent_contract"
@@ -145,8 +146,8 @@ def test_priv_workflow_enables_review_regression_gates() -> None:
     final_args = _checker(
         stages[-1], "act4_final_human_report_check"
     )["args"]
-    assert "{OUT}/{DUT}/environment/summary.md" in final_args["required_reports"]
-    assert "{OUT}/{DUT}/reports/**/*" not in final_args["required_reports"]
+    assert "{OUT}/intermediate/{DUT}/environment/summary.md" in final_args["required_reports"]
+    assert "{OUT}/intermediate/{DUT}/reports/**/*" not in final_args["required_reports"]
     assert "required_phrases" not in final_args
 
 
@@ -158,7 +159,7 @@ def test_contribution_gate_requires_ci_review_without_blocking_tool_limits(
     tmp_path: Path, ci_state: str, expected_pass: bool,
 ) -> None:
     args = _checker(
-        _load_workflow()["stage"][6], "act4_contribution_ai_review"
+        _load_workflow()["stage"][-2], "act4_contribution_ai_review"
     )["args"]
     names = args["required_check_names"]
     assert "local_ci_reproduction" in names
@@ -219,7 +220,7 @@ def test_contribution_gate_requires_ci_review_without_blocking_tool_limits(
         )
 
 def test_priv_workflow_prevents_reference_model_scope_degradation() -> None:
-    stages = _load_workflow()["stage"][1:]
+    stages = _load_workflow()["stage"][2:]
     vm_text = "\n".join(stages[2]["task"])
     build_text = "\n".join(stages[4]["task"])
 
@@ -237,20 +238,20 @@ def test_priv_workflow_prevents_reference_model_scope_degradation() -> None:
 
 def test_priv_workflow_discovers_ctp_sheet_and_manual_references() -> None:
     workflow = _load_workflow()
-    stages = workflow["stage"][1:]
+    stages = workflow["stage"][2:]
     first = stages[0]
     ctp_args = _checker(first, "act4_ctp_reference_check")["args"]
     manual_args = _checker(first, "act4_manual_reference_check")["args"]
-    specification = "{OUT}/{DUT}/references/{DUT}_specification.adoc"
-    metadata = "{OUT}/{DUT}/references/{DUT}_normative_rule_defs.yaml"
+    specification = "{OUT}/intermediate/{DUT}/references/{DUT}_specification.adoc"
+    metadata = "{OUT}/intermediate/{DUT}/references/{DUT}_normative_rule_defs.yaml"
     assert ctp_args["require_request_regions"] is True
     assert ctp_args["require_full_boundary_review"] is True
     manual_provenance = (
-        "{OUT}/{DUT}/reports/{DUT}_manual_reference_provenance.yaml"
+        "{OUT}/intermediate/{DUT}/reports/{DUT}_manual_reference_provenance.yaml"
     )
-    ctp_provenance = "{OUT}/{DUT}/reports/{DUT}_ctp_reference_provenance.yaml"
-    normative_table = "{OUT}/{DUT}/{DUT}_normative_rules.csv"
-    raw_testplan = "{OUT}/{DUT}/references/{DUT}_ctp_raw.csv"
+    ctp_provenance = "{OUT}/intermediate/{DUT}/reports/{DUT}_ctp_reference_provenance.yaml"
+    normative_table = "{OUT}/intermediate/{DUT}/{DUT}_normative_rules.csv"
+    raw_testplan = "{OUT}/intermediate/{DUT}/references/{DUT}_ctp_raw.csv"
 
     native_references = [
         [path for path in stage["reference_files"] if not path.startswith("Guide_Doc/")]
@@ -264,11 +265,11 @@ def test_priv_workflow_discovers_ctp_sheet_and_manual_references() -> None:
     ]
     assert ctp_args == {
         "suite": "{DUT}",
-        "ctp_snapshot": "{OUT}/{DUT}/references/ctp.html",
+        "ctp_snapshot": "{OUT}/intermediate/{DUT}/references/ctp.html",
         "provenance_file": ctp_provenance,
         "raw_testplan": raw_testplan,
-        "optimized_testplan": "{OUT}/{DUT}/{DUT}.csv",
-        "human_readable_testplan": "{OUT}/{DUT}/{DUT}_testplan.md",
+        "optimized_testplan": "{OUT}/intermediate/{DUT}/{DUT}.csv",
+        "human_readable_testplan": "{OUT}/intermediate/{DUT}/{DUT}_testplan.md",
         "normative_table": normative_table,
         "normative_metadata": metadata,
         "ctp_url": "https://riscv.github.io/riscv-arch-test/ctp.html",
@@ -279,6 +280,7 @@ def test_priv_workflow_discovers_ctp_sheet_and_manual_references() -> None:
         "suite": "{DUT}",
         "testplan": raw_testplan,
         "manual_root": "{ACT4_MANUAL_ROOT}",
+        "resource_dir": "{OUT}/intermediate/{DUT}/resources",
         "spec_copy": specification,
         "metadata_copy": metadata,
         "provenance_file": manual_provenance,
@@ -291,7 +293,7 @@ def test_priv_workflow_discovers_ctp_sheet_and_manual_references() -> None:
         ctp_provenance,
         normative_table,
         raw_testplan,
-        "{OUT}/{DUT}/{DUT}_testplan.md",
+        "{OUT}/intermediate/{DUT}/{DUT}_testplan.md",
     }.issubset(first["output_files"])
     assert workflow["guide_doc"]["enable"] is True
     assert workflow["guide_doc"]["core_copy_policy"]["default_action"] == "ignore"

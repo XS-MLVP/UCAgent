@@ -6,6 +6,7 @@ import hashlib
 import os
 import subprocess
 from ..environment import prepared_environment
+from ..resources import resolve_source
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -130,6 +131,7 @@ class ACT4ManualReferenceChecker(Checker):
         spec_copy: str,
         metadata_copy: str,
         provenance_file: str,
+        resource_dir: str | None = None,
         require_git_head: bool = True,
         need_human_check: bool = False,
         cfg: Any = None,
@@ -146,6 +148,7 @@ class ACT4ManualReferenceChecker(Checker):
         self.spec_copy = spec_copy
         self.metadata_copy = metadata_copy
         self.provenance_file = provenance_file
+        self.resource_dir = resource_dir
         self.require_git_head = bool(require_git_head)
         if hasattr(self, "set_human_check_needed"):
             self.set_human_check_needed(need_human_check)
@@ -315,7 +318,13 @@ class ACT4ManualReferenceChecker(Checker):
         """Validate manual discovery, copied sources, and provenance evidence."""
         findings: list[dict[str, Any]] = []
         testplan = self._resolve(self.testplan)
-        manual_root = self._resolve(self.manual_root)
+        try:
+            manual_root = (resolve_source(self._workspace(), self.manual_root, self._resolve(self.resource_dir),
+                                         self.smanager_get_value if self.stage_manager else None)
+                           if self.resource_dir else self._resolve(self.manual_root))
+        except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as error:
+            return False, {"error_code": "act4_manual_source", "error": str(error), "artifact": self.resource_dir,
+                           "next_action": "Restore the recorded manual source or start a new run with stable inputs; do not replace cited evidence."}
         spec_copy = self._resolve(self.spec_copy)
         metadata_copy = self._resolve(self.metadata_copy)
         provenance_path = self._resolve(self.provenance_file)

@@ -1,13 +1,13 @@
 
 # ACT4 工作流环境准备指南
 
-每个 ACT4 工作流从 `prepare_environment` 开始。用户选择 ACT4、规范和目标源码版本；
-先阅读该版本的依赖清单与 CI 安装说明，再探测、安装缺项并复验。环境准备不是测试验证，
+先按 `Guide_Doc/ACT4_Resources_Guide.md` 完成 `prepare_resources`，固定 ACT4、规范和目标源码版本。
+在 `prepare_environment` 用 ACT4Resources 读取该版本的依赖清单与 CI 安装说明，再探测、安装缺项并复验。环境准备不是测试验证，
 不得把“工具已安装”写成“资产已通过构建/运行”。
 
 ## 1. 操作顺序
 
-1. 检查当前 host probes。已存在且版本/能力满足选定输入的工具直接复用。
+1. 检查当前 host probes。已存在且版本/能力满足选定输入的工具直接复用；准备动作也会核对既有输出中的工具证据和持久化安装，不自行复制工具到本轮目录。
 2. 只阅读当前工作流输入中依赖软件的安装说明；审查工作流此时不读取 CTP、coverpoints、testgen 或用例。
 3. 创建下面完整 schema 的 `plan.yaml`，为每项写明版本依据、实测探测和复验规则。
 4. 对缺失的公开软件提供安装命令并实际执行；无公开安装介质、许可证或平台支持时写明原因。
@@ -16,7 +16,7 @@
 
 ## 2. 安装计划格式
 
-文件路径：`{OUT}/{DUT}/environment/plan.yaml`。`tools` 必须列出 python、bash、git、curl、make、uv、compiler、reference、lint；可添加由所选 workflow CI 或依赖文档要求的公开工具。`bin_dirs` 相对 `{PREFIX}`。命令使用 argv 数组，不使用 shell 字符串。`{PREFIX}` 是独立版本安装目录，`{PYTHON}` 是当前 UCAgent 所用 Python。
+文件路径：`{OUT}/intermediate/{DUT}/environment/plan.yaml`。`tools` 必须列出 python、bash、git、curl、make、uv、compiler、reference、lint；可添加由所选 workflow CI 或依赖文档要求的公开工具。`bin_dirs` 相对 `{PREFIX}`。命令使用 argv 数组，不使用 shell 字符串。`{PREFIX}` 是独立版本安装目录，`{PYTHON}` 是当前 UCAgent 所用 Python。
 
 下面是结构完整的格式示例。版本、正则和安装 argv 是示意输入，不是可照抄的依赖结论；必须根据本轮冻结的 ACT4、香山源码或本地资产依赖说明替换。已匹配的 host 工具可以 `install: []`；无法获得的可选 lane 使用 `unavailable_reason`。
 
@@ -114,7 +114,7 @@ tools:
 
 成功的 `Check` 返回 `prepared` 或 `prepared_with_limitations`。只要计划明确记录缺失能力和影响，
 环境阶段可继续；后续依赖该工具的 build/run 必须保留其自身失败或未验证结果。只给出安装失败日志
-而未说明影响不构成最终报告。将 `{OUT}/{DUT}/environment/summary.md` 纳入最终报告。
+而未说明影响不构成最终报告。将 `{OUT}/intermediate/{DUT}/environment/summary.md` 纳入最终报告。
 
 `activate.sh` 仅为后续 shell 命令提供 PATH，不改 UCAgent 主进程环境。插件内部 review 和 handoff
 命令从验证后的收据加载同一 PATH；Python 项目依赖仍在隔离工作副本通过锁文件准备。

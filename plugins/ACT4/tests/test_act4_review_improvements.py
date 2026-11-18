@@ -148,7 +148,7 @@ def test_experiment_isolation_dependencies_receipts_and_context(experiment_harne
     assert not checker.do_check(is_complete=True, experiment={"action": "run", "id": "E1"})[0]
     assert not checker.do_check(experiment={"action": "run", "id": "E1"})[0]
     assert harness.checker("final").do_check(experiment={"action": "status", "id": "E1"})[1]["final_review"] == "not_checked"
-    tool = ACT4ReviewDocument(workspace=str(harness.root), review_dir="reports/H/review", suite="H", write_dirs=["reports"])
+    tool = ACT4ReviewDocument(workspace=str(harness.root), review_dir="reports/intermediate/H/review", suite="H", write_dirs=["reports"])
     context = tool.invoke({"action": "context", "finding_id": "F1"})
     assert context["ok"] and "experiments/E1/candidate/generators/H.py" in context["source_candidates"]
     quote = tool.invoke({"action": "quote", "citations": [{"path": "experiments/E1/candidate/generators/H.py", "lines": [2, 2], "observation": "Experimental fixture changed VALUE"}]})
@@ -190,12 +190,12 @@ def test_experiment_rejects_unsafe_or_stale_work(experiment_harness, defect: str
 def test_experiment_budget_survives_checker_reconstruction(experiment_harness) -> None:
     """Count completed attempts across Check instances rather than resetting a local counter."""
     harness, review = experiment_harness
-    checker = ACT4ReviewChecker("audit", "H", "reports/H/review", max_experiments=1).set_workspace(str(harness.root)).set_stage_manager(harness.manager)
+    checker = ACT4ReviewChecker("audit", "H", "reports/intermediate/H/review", result_dir="reports", max_experiments=1).set_workspace(str(harness.root)).set_stage_manager(harness.manager)
     assert checker.do_check(experiment={"action": "prepare", "id": "E1"})[0]
     assert checker.do_check(experiment={"action": "run", "id": "E1"})[0]
     review["experiments"].append({**copy.deepcopy(review["experiments"][0]), "id": "E2"})
     harness.write("review.yaml", review)
-    checker = ACT4ReviewChecker("audit", "H", "reports/H/review", max_experiments=1).set_workspace(str(harness.root)).set_stage_manager(harness.manager)
+    checker = ACT4ReviewChecker("audit", "H", "reports/intermediate/H/review", result_dir="reports", max_experiments=1).set_workspace(str(harness.root)).set_stage_manager(harness.manager)
     assert checker.do_check(experiment={"action": "prepare", "id": "E2"})[0]
     passed, result = checker.do_check(experiment={"action": "run", "id": "E2"})
     assert not passed and "budget exhausted" in result["error"]
@@ -253,7 +253,7 @@ def test_final_reuse_is_bound_to_accepted_dependency_inputs(tmp_path: Path, chan
     fresh = [item for item in final["semantic_review"]["judgments"] if not set(item["tasks"]) <= set(reuse["judgments"])]
     final["semantic_review"]["judgments"] = fresh
     harness.write("final.yaml", final)
-    tool = ACT4ReviewDocument(workspace=str(harness.root), review_dir="reports/H/review", suite="H", write_dirs=["reports"])
+    tool = ACT4ReviewDocument(workspace=str(harness.root), review_dir="reports/intermediate/H/review", suite="H", write_dirs=["reports"])
     status = tool.invoke({"action": "status", "document": "final"})
     updated = tool.invoke({"action": "reuse", "document": "final", "expected_sha256": status["sha256"]})
     assert updated["ok"], updated
@@ -283,7 +283,7 @@ def test_report_progress_cannot_overclaim_implementation(tmp_path: Path, progres
     passed, result = harness.checker("final").do_check(is_complete=True)
     assert passed is valid, result
     if valid:
-        report = (harness.output / "final.md").read_text()
+        report = (harness.results / "final.md").read_text()
         assert report.index(final["summary"]) < report.index("## Repair summary") < report.index("## Help requested") < report.index("## Findings and outcomes")
         assert "Agent work unfinished" in report and "Upstream full CI: **not certified**" in report
         assert "fixture.missing_boundary" in report and "local_only" in report

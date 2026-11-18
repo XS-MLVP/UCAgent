@@ -52,6 +52,8 @@ validation state 的 contribution readiness 和 generation scope。
 以下为 H 的示例报告，假定所链接文件均真实存在，且权威状态为 true/partial。
 本例展示全部章节及索引；实际命令、版本、限制和文件必须替换为本轮证据。
 
+最终入口保存到 `{OUT}/final.md`。Check 根据 contribution_set 在 `{OUT}/changes.patch` 生成补丁；根目录报告中的证据链接需从根目录指向 intermediate 子目录。
+
 ````markdown
 
 # H Final Summary
@@ -75,18 +77,20 @@ passed the selected reference run; guest work remains outside the delivered scop
 
 ## Report index
 
-- [Validation state](H_validation_state.yaml): current readiness and scope.
-- [AI review](H_ai_review.yaml): cumulative stage conclusions.
-- [File manifest](H_file_manifest.yaml): source inventory and integrity evidence.
-- [Switch audit](H_switch_capability_audit.yaml): allowed and blocked controls.
-- [CTP provenance](H_ctp_reference_provenance.yaml): plan source and snapshot.
-- [Manual provenance](H_manual_reference_provenance.yaml): selected normative sources.
-- [VM contract](../H_vm_resource_contract.yaml): generated and blocked profiles.
-- [Experimental manifest](../experimental/H_experimental_assets.yaml): isolated work.
-- [Coverage check](act4_coverage_check/H.asset-consistency.json): static source checks.
-- [Mapping check](act4_norm_mapping_check/H.asset-consistency.json): rule linkage.
-- [Generator check](act4_generator_check/H.asset-consistency.json): source consistency.
-- [Test asset check](act4_test_asset_check/test-assets.json): selected run evidence.
+- [Environment preparation](intermediate/H/environment/summary.md): measured tool availability.
+- [Contribution patch](changes.patch): declared source changes only.
+- [Validation state](intermediate/H/reports/H_validation_state.yaml): current readiness and scope.
+- [AI review](intermediate/H/reports/H_ai_review.yaml): cumulative stage conclusions.
+- [File manifest](intermediate/H/reports/H_file_manifest.yaml): source inventory and integrity evidence.
+- [Switch audit](intermediate/H/reports/H_switch_capability_audit.yaml): allowed and blocked controls.
+- [CTP provenance](intermediate/H/reports/H_ctp_reference_provenance.yaml): plan source and snapshot.
+- [Manual provenance](intermediate/H/reports/H_manual_reference_provenance.yaml): selected normative sources.
+- [VM contract](intermediate/H/H_vm_resource_contract.yaml): generated and blocked profiles.
+- [Experimental manifest](intermediate/H/experimental/H_experimental_assets.yaml): isolated work.
+- [Coverage check](intermediate/H/reports/act4_coverage_check/H.asset-consistency.json): static source checks.
+- [Mapping check](intermediate/H/reports/act4_norm_mapping_check/H.asset-consistency.json): rule linkage.
+- [Generator check](intermediate/H/reports/act4_generator_check/H.asset-consistency.json): source consistency.
+- [Test asset check](intermediate/H/reports/act4_test_asset_check/test-assets.json): selected run evidence.
 
 ## Coverage scope
 

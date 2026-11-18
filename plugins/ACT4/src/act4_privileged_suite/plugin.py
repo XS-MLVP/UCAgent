@@ -18,6 +18,8 @@ from .checkers.act4_xiangshan_checker import ACT4XiangShanChecker
 from .checkers.act4_environment_checker import ACT4EnvironmentChecker
 from .workspace import validate_input_paths, validate_review_paths, validate_xiangshan_paths
 from .review_tools import create_review_tools
+from .resource_tools import create_resource_tools
+from .checkers.act4_resource_checker import ACT4ResourceChecker
 
 
 def get_plugin() -> Plugin:
@@ -31,7 +33,7 @@ def get_plugin() -> Plugin:
             "Evidence-driven generation, review, validation, and XiangShan handoff of RISC-V ACT4 test assets."
         ),
         root=root,
-        tool_factories=(create_review_tools,),
+        tool_factories=(create_review_tools, create_resource_tools),
         checkers=(
             ACT4AIReviewChecker,
             ACT4AssetChecker,
@@ -44,6 +46,7 @@ def get_plugin() -> Plugin:
             ACT4ReviewChecker,
             ACT4XiangShanChecker,
             ACT4EnvironmentChecker,
+            ACT4ResourceChecker,
         ),
         workflows=(
             PluginWorkflow(

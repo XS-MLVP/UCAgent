@@ -64,15 +64,14 @@ def test_final_report_guide_complete_example(tmp_path: Path) -> None:
     """Validate the entire published report using the actual final-stage gate."""
     text = (GUIDES / "ACT4_Checker_Guide/ACT4FinalReportChecker.md").read_text(encoding="utf-8")
     report_text = re.search(r"````markdown\n(.*?)````", text, re.DOTALL).group(1)
-    report_text += "\n[Environment preparation](../environment/summary.md)\n"
-    report_path = tmp_path / "act4_assets/H/reports/H_final_summary_report.md"
+    report_path = tmp_path / "act4_assets/final.md"
     report_path.parent.mkdir(parents=True)
     for target in re.findall(r"\[[^\]]+\]\(([^)]+)\)", report_text):
         path = report_path.parent / target
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("{}\n", encoding="utf-8")
-    state = report_path.parent / "H_validation_state.yaml"
-    environment_summary = tmp_path / "act4_assets/H/environment/summary.md"
+    state = report_path.parent / "intermediate/H/reports/H_validation_state.yaml"
+    environment_summary = tmp_path / "act4_assets/intermediate/H/environment/summary.md"
     environment_summary.parent.mkdir(parents=True, exist_ok=True)
     environment_summary.write_text("\n# Environment preparation\n\nFixture tools prepared.\n", encoding="utf-8")
     state.write_text(
@@ -80,6 +79,8 @@ def test_final_report_guide_complete_example(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     report_path.write_text(report_text, encoding="utf-8")
+    manifest = state.parent / "H_file_manifest.yaml"
+    manifest.write_text(yaml.safe_dump({"baseline": {"git_head": None}, "files": [], "contribution_set": []}), encoding="utf-8")
     workflow = yaml.safe_load(get_plugin().workflows[0].config_file.read_text(encoding="utf-8"))
     gate = next(
         gate for gate in workflow["stage"][-1]["checker"]
