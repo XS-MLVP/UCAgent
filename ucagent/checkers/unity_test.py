@@ -8,6 +8,7 @@ import re
 import subprocess
 import sys
 import tempfile
+from pathlib import Path
 from typing import Tuple
 import ucagent.util.functions as fc
 from ucagent.util.config import Config, load_current_test_report
@@ -1524,6 +1525,33 @@ class BaseUnityChipCheckerTestCase(Checker):
                 warning(f"Test directory '{self.test_dir}' does not exist in workspace.")
         return self
 
+    def _line_coverage_file(self):
+        """Resolve this run's checker JSON and validate an optional expected path."""
+        from toffee_test import gate_toffee_test_file
+
+        report_file = os.path.join(self.run_test.result_dir, self.run_test.result_json_path)
+        path = gate_toffee_test_file(report_file, "coverage_json")
+        if path is None:
+            raise ValueError("The current test report does not provide a coverage JSON; enable code coverage and rerun tests")
+        root = Path(self.workspace).resolve()
+        path = Path(path)
+        if path.is_symlink() or not path.is_file() or not path.resolve().is_relative_to(root):
+            raise ValueError("The current coverage JSON must be a regular non-symlink file inside the workspace")
+        expected = self.extra_kwargs.get("coverage_json")
+        if expected is not None:
+            if not isinstance(expected, (str, os.PathLike)) or not os.fspath(expected):
+                raise ValueError("coverage_json must be a nonempty expected path or null")
+            configured = Path(expected)
+            if not configured.is_absolute():
+                configured = root / configured
+            if configured.resolve() != path.resolve():
+                raise ValueError(
+                    f"coverage_json configuration {expected!s} differs from the current report artifact {path}; "
+                    "remove the override or update the expected path"
+                )
+        # Existing coverage parsers accept workspace-relative strings.
+        return os.path.relpath(path, root)
+
     def get_waveform_tool_for_checker(self):
         """Return the active WaveInfo instance whose real calls carry receipts."""
 
@@ -1868,18 +1896,11 @@ class UnityChipCheckerTestFree(BaseUnityChipCheckerTestCase):
             if b not in unhit_checkpoints
         ]
         if return_line_coverage:
-            line_coverage_data = {}
-            line_coverage_file = self.extra_kwargs.get("coverage_json", "uc_test_report/line_dat/code_coverage.json")
-            if not os.path.exists(self.get_path(line_coverage_file)):
-                line_coverage_data["error"] = f"Line coverage file '{line_coverage_file}' does not exist in workspace."
-            else:
-                try:
-                    line_coverage_data = fc.parse_un_coverage_json(
-                        line_coverage_file,
-                        self.workspace
-                    )
-                except Exception as e:
-                    line_coverage_data["error"] = f"Failed to parse line coverage file '{line_coverage_file}': {str(e)}."
+            try:
+                line_coverage_file = self._line_coverage_file()
+                line_coverage_data = fc.parse_un_coverage_json(line_coverage_file, self.workspace)
+            except (OSError, ValueError, RuntimeError, TypeError, KeyError, AssertionError) as exc:
+                line_coverage_data = {"error": f"Cannot read the current test run's line coverage: {exc}"}
         ret = OrderedDict({
             "REPORT": free_report})
         if not detail:
@@ -3248,11 +3269,15 @@ class UnityChipCheckerTestCaseWithLineCoverage(UnityChipCheckerTestCase):
         assert cfg is not None, "cfg is required."
         self.update_dut_name(cfg)
         dut_name = self.dut_name
-        self.coverage_json =     self.extra_kwargs.get("coverage_json",    "uc_test_report/line_dat/code_coverage.json")
         self.coverage_analysis = self.extra_kwargs.get("coverage_analysis", f"unity_test/{dut_name}_line_coverage_analysis.md")
         self.coverage_ignore =   self.extra_kwargs.get("coverage_ignore",   f"unity_test/tests/{dut_name}.ignore")
         self.min_line_coverage = self.extra_kwargs.get("min_line_coverage", 0.8)
         self.cur_line_coverage = None
+
+    @property
+    def coverage_json(self):
+        """Expose the current artifact to subclasses without storing a stale path."""
+        return self._line_coverage_file()
 
     def on_init(self):
         self.cur_line_coverage = 0.0
@@ -3269,10 +3294,24 @@ class UnityChipCheckerTestCaseWithLineCoverage(UnityChipCheckerTestCase):
 
     def do_check(self, timeout=0, **kw) -> Tuple[bool, str]:
         """check test case and line coverage."""
+        self.cur_line_coverage = None
         ret, msg = super().do_check(timeout=timeout, **kw)
         if not ret:
             return ret, msg
-        ret, msg, self.cur_line_coverage = check_line_coverage(self.workspace, self.coverage_json, self.coverage_ignore, self.coverage_analysis, self.min_line_coverage)
+        coverage_file = None
+        try:
+            coverage_file = self._line_coverage_file()
+            ret, msg, self.cur_line_coverage = check_line_coverage(
+                self.workspace, coverage_file, self.coverage_ignore,
+                self.coverage_analysis, self.min_line_coverage,
+            )
+        except (OSError, ValueError, RuntimeError, TypeError, KeyError, AssertionError) as exc:
+            return False, {
+                "error_code": "LINE_COVERAGE_ARTIFACT_INVALID",
+                "error": f"Cannot check the current test run's line coverage: {exc}",
+                "next_action": "Regenerate the current test report and coverage with the required toffee-test version; check coverage_json configuration if provided.",
+                "artifact": coverage_file or os.path.join(self.run_test.result_dir, self.run_test.result_json_path),
+            }
         return ret, msg
 
 

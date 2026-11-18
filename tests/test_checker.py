@@ -3,6 +3,7 @@
 """Self-contained tests for representative checker modules."""
 
 import json
+import pytest
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -575,7 +576,8 @@ def test_test_function_naming_scope_only_checks_configured_stage_files(tmp_path)
 
 
 def test_checker_line_coverage_uses_temporary_workspace(tmp_path, monkeypatch):
-    coverage_file = tmp_path / "uc_test_report" / "line_dat" / "code_coverage.json"
+    report_dir = tmp_path / "arbitrary reports" / "current"
+    coverage_file = report_dir / "observations" / "measured.json"
     coverage_file.parent.mkdir(parents=True)
     coverage_file.write_text(
         json.dumps({
@@ -584,9 +586,13 @@ def test_checker_line_coverage_uses_temporary_workspace(tmp_path, monkeypatch):
                 "miss": {"line": 1},
             },
             "uncovered": {"data": {}},
+            "artifacts": {},
         }),
         encoding="utf-8",
     )
+    (report_dir / "execution.json").write_text(json.dumps({
+        "coverages": {"line": {"coverage_json": "observations/measured.json"}, "functional": {}},
+    }), encoding="utf-8")
     monkeypatch.setattr(
         UnityChipCheckerTestCase,
         "do_check",
@@ -600,6 +606,8 @@ def test_checker_line_coverage_uses_temporary_workspace(tmp_path, monkeypatch):
         min_line_coverage=0.8,
     ).set_workspace(str(tmp_path))
 
+    checker.run_test.result_dir = str(report_dir)
+    checker.run_test.result_json_path = "execution.json"
     assert checker.test_func_rules == "standard"
     assert checker._resolved_test_func_rules()[0]["prefixes"] == (
         "test_api_Demo_env_"
@@ -610,3 +618,125 @@ def test_checker_line_coverage_uses_temporary_workspace(tmp_path, monkeypatch):
     assert passed is True
     assert "90.00% >= 80.00%" in message
     assert checker.cur_line_coverage == 0.9
+
+
+def _publish(report, name="observations/current.json", misses=1, error=None):
+    """Write a real report and independent full checker JSON in arbitrary folders."""
+    report.parent.mkdir(parents=True, exist_ok=True)
+    summary = report.parent / name
+    summary.parent.mkdir(parents=True, exist_ok=True)
+    summary.write_text(json.dumps({
+        "overview": {"total": {"line": 10}, "miss": {"line": misses}},
+        "uncovered": {"data": {}}, "artifacts": {},
+    }), encoding="utf-8")
+    line = {"coverage_json": name}
+    if error:
+        line["error"] = error
+    report.write_text(json.dumps({"coverages": {"line": line, "functional": {}}}), encoding="utf-8")
+    return summary
+
+
+def _checker(tmp_path, monkeypatch, kind, **options):
+    """Create a real runner while replacing only the preceding functional gate."""
+    if kind == "threshold":
+        checker = UnityChipCheckerTestCaseWithLineCoverage(
+            cfg={"_temp_cfg": {"DUT": "Demo"}}, min_line_coverage=0.8,
+            **options,
+        ).set_workspace(str(tmp_path))
+        monkeypatch.setattr(UnityChipCheckerTestCase, "do_check", lambda self, **kw: (True, "passed"))
+    else:
+        checker = UnityChipCheckerTestFree(**options).set_workspace(str(tmp_path))
+        monkeypatch.setattr(BaseUnityChipCheckerTestCase, "do_check", lambda self, **kw: (
+            {"run_test_success": True, "tests": {"total": 1, "fails": 0}}, "stdout", "stderr",
+        ))
+    checker.run_test.result_dir = str(tmp_path / "custom execution" / "reports")
+    checker.run_test.result_json_path = "test-result.json"
+    report = Path(checker.run_test.result_dir) / checker.run_test.result_json_path
+    return checker, report
+
+
+def _run(checker, kind):
+    """Request optional coverage in the free checker and required coverage otherwise."""
+    return checker.do_check(**({"return_line_coverage": True} if kind == "free" else {}))
+
+
+@pytest.mark.parametrize("kind", ["free", "threshold"])
+def test_current_report_paths_refresh_between_runs_and_remain_read_only(tmp_path, monkeypatch, kind):
+    """Repeated checks follow new references, preserving both original JSON files."""
+    checker, report = _checker(tmp_path, monkeypatch, kind)
+    first = _publish(report, "first data/stats.json", misses=1)
+    original = first.read_bytes()
+    report_bytes = report.read_bytes()
+    passed, result = _run(checker, kind)
+    assert passed is True
+    assert first.read_bytes() == original
+    assert report.read_bytes() == report_bytes
+    if kind == "free":
+        assert result["LINE_COVERAGE"]["coverage_rate"] == 0.9
+    else:
+        assert checker.cur_line_coverage == 0.9
+        assert checker.coverage_json == first.relative_to(tmp_path).as_posix()
+    second = _publish(report, "second output/new-statistics.json", misses=5)
+    second_original = second.read_bytes()
+    passed, result = _run(checker, kind)
+    if kind == "free":
+        assert passed is True
+        assert result["LINE_COVERAGE"]["coverage_rate"] == 0.5
+    else:
+        assert passed is False
+        assert checker.cur_line_coverage == 0.5
+        assert checker.coverage_json == second.relative_to(tmp_path).as_posix()
+        assert "Insufficient Line Coverage" in str(result)
+    assert first.read_bytes() == original
+    assert second.read_bytes() == second_original
+
+
+@pytest.mark.parametrize("kind", ["free", "threshold"])
+@pytest.mark.parametrize("failure", ["missing", "unsupported", "conversion", "mismatch"])
+def test_coverage_lookup_failures_are_diagnostic_not_stale_success(tmp_path, monkeypatch, kind, failure):
+    """Unavailable current artifacts never read old output or bypass path assertions."""
+    options = {"coverage_json": "unrelated/old.json"} if failure == "mismatch" else {}
+    checker, report = _checker(tmp_path, monkeypatch, kind, **options)
+    summary = _publish(report, error="native converter failed" if failure == "conversion" else None)
+    if kind == "threshold":
+        checker.cur_line_coverage = 0.99
+    if failure == "missing":
+        report.write_text(json.dumps({"coverages": {"line": {"coverage_json": "missing.json"}, "functional": {}}}))
+    elif failure == "unsupported":
+        report.write_text(json.dumps({"coverages": {"line": {}, "functional": {}}}))
+    before = summary.read_bytes()
+    passed, result = _run(checker, kind)
+    if kind == "free":
+        assert passed is True
+        assert isinstance(result["LINE_COVERAGE"]["error"], str)
+        assert result["LINE_COVERAGE"]["error"]
+    else:
+        assert passed is False
+        assert isinstance(result, dict)
+        assert result.get("error_code") or result.get("diagnostic", {}).get("error_code")
+        assert checker.cur_line_coverage is None
+    if failure == "conversion":
+        assert "native converter failed" in str(result)
+    assert summary.read_bytes() == before
+
+
+@pytest.mark.parametrize("kind", ["free", "threshold"])
+def test_original_functional_failure_is_not_masked_by_coverage_lookup(tmp_path, monkeypatch, kind):
+    """No report is needed after the functional gate already rejected the run."""
+    checker, report = _checker(tmp_path, monkeypatch, kind)
+    if kind == "threshold":
+        original = {"error": "original DUT assertion failure"}
+        monkeypatch.setattr(UnityChipCheckerTestCase, "do_check", lambda self, **kw: (False, original))
+        checker.cur_line_coverage = 0.99
+        passed, result = _run(checker, kind)
+        assert passed is False
+        assert result is original
+        assert checker.cur_line_coverage is None
+    else:
+        original = {"error": "original runtime failure"}
+        monkeypatch.setattr(BaseUnityChipCheckerTestCase, "do_check", lambda self, **kw: ({}, "", "original runtime failure"))
+        monkeypatch.setattr("ucagent.checkers.unity_test.fc.is_run_report_pass", lambda *args: (False, original))
+        passed, result = _run(checker, kind)
+        assert passed is False
+        assert result is original
+    assert not report.exists()

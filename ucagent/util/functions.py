@@ -480,7 +480,10 @@ def load_toffee_report(
         )
     # coverages
     # functional coverage
-    fc_data = data.get("coverages", {}).get("functional", {})
+    coverages = data.get("coverages")
+    if not isinstance(coverages, dict) or not isinstance(coverages.get("functional"), dict):
+        raise ValueError("Expected coverages and coverages.functional to be JSON objects")
+    fc_data = data["coverages"]["functional"]
     ret_data["total_funct_point"] = fc_data.get("point_num_total", 0)
     ret_data["total_check_point"] = fc_data.get("bin_num_total",   0)
     # ``hints`` counts coverage-bin hits, so these fields mean "not hit in this

@@ -13,6 +13,67 @@ from ucagent.util.functions import find_files_by_glob, find_files_by_regex, find
 import ucagent.util.functions as fc
 
 
+def test_load_toffee_report_accepts_empty_functional_coverage(tmp_path):
+    """An explicit empty coverage object represents no registered coverage."""
+    coverages = {"line": {}, "functional": {}}
+    report = tmp_path / "toffee_report.json"
+    report.write_text(json.dumps({
+        "test_abstract_info": {}, "tests": [], "coverages": coverages,
+    }), encoding="utf-8")
+    result = fc.load_toffee_report(str(report), str(tmp_path), False, True, True)
+    assert result["run_test_success"] is False
+    assert result["total_funct_point"] == 0
+    assert result["total_check_point"] == 0
+    assert result["unhit_funct_point"] == 0
+    assert result["unhit_check_point"] == 0
+    assert result["all_check_point_list"] == []
+    assert result["tests"]["total"] == 0
+
+
+@pytest.mark.parametrize("coverages", [None, [], "invalid", {"functional": None}, {"functional": []}, {"functional": False}])
+def test_load_toffee_report_rejects_malformed_coverage(tmp_path, coverages):
+    """The current report contract requires explicit JSON objects, never null."""
+    report = tmp_path / "toffee_report.json"
+    report.write_text(json.dumps({
+        "test_abstract_info": {}, "tests": [], "coverages": coverages,
+    }), encoding="utf-8")
+    with pytest.raises(ValueError, match="Expected coverages"):
+        fc.load_toffee_report(str(report), str(tmp_path), False, True)
+
+
+@pytest.mark.parametrize("payload", [{}, {"coverages": {}}, {"coverages": {"line": {}}}])
+def test_load_toffee_report_requires_explicit_coverage_fields(tmp_path, payload):
+    """Missing canonical coverage fields are invalid, not silently synthesized."""
+    report = tmp_path / "toffee_report.json"
+    report.write_text(json.dumps({"test_abstract_info": {}, "tests": [], **payload}), encoding="utf-8")
+    with pytest.raises(ValueError, match="Expected coverages"):
+        fc.load_toffee_report(str(report), str(tmp_path), False, True)
+
+
+@pytest.mark.parametrize("phase", ["setup", "call", "teardown"])
+def test_load_toffee_report_empty_coverage_preserves_failed_phase(tmp_path, phase):
+    """Empty coverage leaves the original FAILED phase exception intact."""
+    source = tmp_path / "test_failed.py"
+    source.write_text("def test_failed():\n    assert False\n", encoding="utf-8")
+    key = f"{source}:1-2::test_failed"
+    report = tmp_path / "toffee_report.json"
+    report.write_text(json.dumps({
+        "test_abstract_info": {key: "FAILED"},
+        "tests": [{"phases": [{
+            "status": {"word": "FAILED"},
+            "exception": {"phase": phase, "type": "RuntimeError", "message": "original failure"},
+        }]}],
+        "coverages": {"line": {}, "functional": {}},
+    }), encoding="utf-8")
+    result = fc.load_toffee_report(str(report), str(tmp_path), False, True, True)
+    assert result["tests"]["fails"] == 1
+    assert list(result["tests"]["test_cases"].values()) == ["FAILED"]
+    detail = next(iter(result["tests"]["test_case_details"].values()))
+    assert detail["phase"] == phase
+    assert detail["exception_type"] == "RuntimeError"
+    assert "original failure" in detail["exception"]
+
+
 def test_run_report_preserves_test_function_contract_diagnostic():
     diagnostic = {
         "error": "test function naming failed",
@@ -274,7 +335,7 @@ def test_parse_line_ignore_file():
 
 def test_parse_un_coverage_json(tmp_path):
     """Test the parse_un_coverage_json function."""
-    test_file = tmp_path / "uc_test_report" / "line_dat" / "code_coverage.json"
+    test_file = tmp_path / "arbitrary results" / "observations" / "lines.json"
     test_file.parent.mkdir(parents=True)
     source_file = tmp_path / "Demo_RTL" / "Demo.v"
     test_file.write_text(
@@ -301,7 +362,7 @@ def test_parse_un_coverage_json(tmp_path):
     )
 
     coverage = fc.parse_un_coverage_json(
-        "uc_test_report/line_dat/code_coverage.json",
+        str(test_file.relative_to(tmp_path)),
         str(tmp_path),
     )
 

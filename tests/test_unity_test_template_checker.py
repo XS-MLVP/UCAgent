@@ -722,7 +722,7 @@ def test_load_toffee_report_optionally_extracts_failure_type(tmp_path):
                         ]
                     }
                 ],
-                "coverages": {"functional": {}},
+                "coverages": {"line": {}, "functional": {}},
             }
         ),
         encoding="utf-8",
@@ -757,6 +757,7 @@ def test_load_toffee_report_normalizes_symlinked_workspace_coverage_paths(tmp_pa
             {
                 "test_abstract_info": {test_id: "PASSED"},
                 "coverages": {
+                    "line": {},
                     "functional": {
                         "point_num_total": 1,
                         "point_num_hints": 1,
@@ -812,7 +813,7 @@ def test_load_toffee_report_reads_transported_exception_fields(tmp_path, phase, 
         "test_abstract_info": {key: status},
         "tests": [{"phases": [{"status": {"word": status},
             "exception": {"phase": phase, "type": exception_type, "message": message}}]}],
-        "coverages": {"functional": {}},
+        "coverages": {"line": {}, "functional": {}},
     }), encoding="utf-8")
     report = load_toffee_report(str(path), str(tmp_path), run_test_success=True,
                                return_all_checks=True, return_test_details=True)

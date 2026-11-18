@@ -169,6 +169,8 @@ def test_runtime_file_error_is_not_mislabeled_as_a_missing_pytest_target():
     [
         (None, "TOFFEE_REPORT_MISSING"),
         ("{invalid json", "TOFFEE_REPORT_INVALID"),
+        (json.dumps({"test_abstract_info": {}, "tests": []}), "TOFFEE_REPORT_INVALID"),
+        (json.dumps({"test_abstract_info": {}, "tests": [], "coverages": {"line": {}, "functional": None}}), "TOFFEE_REPORT_INVALID"),
     ],
 )
 def test_unity_test_reports_missing_or_invalid_toffee_output(
@@ -250,7 +252,7 @@ def test_unity_test_publishes_current_report_with_invocation_context(
             json.dumps(
                 {
                     "test_abstract_info": {abstract_key: "FAILED"},
-                    "coverages": {"functional": {}},
+                    "coverages": {"line": {}, "functional": {}},
                 }
             ),
             encoding="utf-8",
@@ -307,7 +309,7 @@ def test_toffee_report_lists_only_failed_parameterized_instances(tmp_path):
                     raw_test("test_value[0]", "PASSED"),
                     raw_test("test_value[1]", "FAILED"),
                 ],
-                "coverages": {"functional": {}},
+                "coverages": {"line": {}, "functional": {}},
             }
         ),
         encoding="utf-8",
