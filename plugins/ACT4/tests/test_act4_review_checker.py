@@ -937,6 +937,8 @@ def test_review_workflow_initializes_without_skill_dependency(tmp_path: Path, mo
         audit = agent.stage_manager.stages[2]
         final = agent.stage_manager.stages[-1]
         assert "semantic_review" in str(audit.task()) and "review_tasks" in str(audit.task())
+        assert '"prepare_environment": true' in str(audit.task())
+        assert "prepare_environment" in audit.checker[0].accepted_stage_args
         assert "finding:<ID>" in str(final.task())
         if not skill_enabled:
             assert not (tmp_path / ".ucagent/skills").exists()
@@ -987,6 +989,14 @@ def test_real_complete_advances_automatically_and_resumes_repairs(tmp_path: Path
         gate.set_reference_file_status({name: "Readed" for name in gate.reference_files})
         gate.meta_set_journal({"summary": "Review and proposal delivered"})
         gate.need_pass_llm_suggestion = False
+        result = manager.check(timeout=30, stage_args={"prepare_environment": True})
+        assert result["check_pass"], result
+        assert manager.stage_index == 2
+        if not skill_enabled:
+            assert not (tmp_path / ".ucagent/skills").exists()
+        result = manager.complete(timeout=30, stage_args={"prepare_environment": True})
+        assert not result.get("complete", result.get("check_pass")), result
+        assert manager.stage_index == 2
         result = manager.complete(timeout=30)
         assert result["complete"], result
         assert not agent._need_human

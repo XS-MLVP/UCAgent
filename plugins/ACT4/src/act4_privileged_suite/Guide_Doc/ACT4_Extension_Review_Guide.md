@@ -80,10 +80,26 @@ scope 必须保留 isa-plan.yaml 中的 ISA reference_files 及原 reference_sco
 普通 Check 复用已保存的探测，不重复占用许可。许可证在探测后失效时，实际 job 仍可能失败，保留真实结果。
 
 `needs: [job-id, ...]` 声明依赖，按依赖顺序执行而非列表顺序；未知依赖和循环依赖会失败。
-每个可运行 job 都依赖本 target 的环境；build 还必须依赖 generation。
+environment 只依赖其他 environment jobs，全部环境任务先于其他 lane。
+每个可运行的非 environment job 都依赖本 target 的环境；build 还必须依赖 generation。
 没有 ELF 时先原生生成测试，再构建签名 ELF、运行 Sail 生成签名、重编译为自检 ELF，然后实际执行。
 不能用旧 ELF、空目录或仅一次编译替代该流程。任一前置 job 失败/不可用时，依赖 job 记录
 `blocked`，不会空跑；修复环境后显式重新收集证据。
+
+在 review_audit 完成 scope 校验后，调用 `Check(stage_args={"prepare_environment": true})`。
+该调用复用首阶段已准备的工具，在命令副本内执行 environment 的 probe、必要的 install 和复验，
+检查其他可运行命令的 cwd 与启动程序；不执行 generation、build、reference_model、coverage 或 lint。
+Python probe 应核验当前 ACT4 要求的版本及实际模块导入来源。不要重复安装首阶段的公共工具。
+结果写入 `execution-preparation.json`，日志使用 `prepare-before-*` 前缀，不覆盖正式证据或审查报告。
+返回最多 20 项失败任务和 20 项限制，以及各自总数、省略数；完整任务结果在该报告中。
+可选仿真器不可用只增加 limitations，不使预检失败；明确声明不可用的验证 lane 也保留为限制。
+修复可处理的必需环境或路径问题后重复预检；无法补齐的必需工具进入正式证据和审查限制，
+仍需执行 `Check(stage_args={"run_commands": true})` 收集可用验证和阻塞记录，不在预检中反复重试。
+其他 lane 的 status 为 `not_run`：`preparation.status: entry_ready` 只表示目录和启动程序可用；
+`deferred` 表示缺失路径可能由原生前置任务生成，正式执行必须复查；`blocked` 表示环境前置未通过。
+预检不能验证包装命令内部程序、命令参数、产物或测试正确性，也不替代正式取证及完整审查。
+`prepare_environment` 必须为布尔值，仅允许 review_audit 的 Check，须先验收独立 ISA 计划并创建 scope；
+不能与 run_commands、refresh_tools、experiment 或 Complete 同用。正式取证仍重新执行环境任务。
 
 `artifacts: [{path: ..., kind: ...}]` 中 kind 为 `coverage/elf/signature/results/generated/other`。
 path 为命令副本内精确相对路径，也可指定目录与 `pattern: "**/*.elf"`，禁止越界匹配。
