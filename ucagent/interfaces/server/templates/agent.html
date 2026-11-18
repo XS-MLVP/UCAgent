@@ -8,8 +8,10 @@
 <link rel="stylesheet" href="/static/share/ucagent-shell.css">
 <script src="/static/share/stage-view.js"></script>
 <script src="/static/share/console-view.js?v=task-overview"></script>
-<link rel="stylesheet" href="/static/share/task-workbench.css">
-<link rel="stylesheet" href="/static/share/chat-composer.css">
+<link rel="stylesheet" href="/static/share/task-workbench.css?v=shared-conversation">
+<link rel="stylesheet" href="/static/share/task-conversation.css">
+<script src="/static/share/conversation-quotes.js"></script>
+<script src="/static/share/task-conversation.js"></script>
 <link rel="stylesheet" href="/static/share/workbench-polish.css">
 <script src="/static/share/function-map.js"></script>
 <script src="/static/share/function-map-results.js"></script>
@@ -492,12 +494,7 @@ html[data-theme="light"] #console-output{color:#e6edf5!important}
 .con-btn.active:disabled{border-color:var(--green);color:var(--green)}
 .con-btn.cdanger:hover{border-color:var(--red);color:var(--red)}
 /* ── runtime command input bar ── */
-#runtime-cmd-bar{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;align-items:center;padding:4px 8px;background:var(--bg2);border-top:1px solid var(--border);gap:6px;flex-shrink:0;min-height:36px;position:relative;z-index:61;margin-top:auto}
-#runtime-cmd-input{flex:1;background:var(--bg3);border:1px solid var(--border);color:var(--text);font-family:var(--mono);font-size:12px;padding:3px 8px;border-radius:4px;outline:none}
-#runtime-cmd-input:focus{border-color:var(--accent)}
 #runtime-cmd-input:disabled{opacity:.45;cursor:not-allowed}
-#runtime-cmd-send:not(.send-button){background:var(--accent);border:none;color:#fff;padding:3px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap}
-#runtime-cmd-send:not(.send-button):disabled{opacity:.45;cursor:not-allowed}
 #runtime-interrupt-btn{background:none;border:1px solid var(--red);color:var(--red);padding:3px 10px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap}
 #runtime-interrupt-btn:hover{background:rgba(248,114,114,.12)}
 #runtime-status-badge{font-size:10px;white-space:nowrap;padding:2px 7px;border-radius:10px;border:1px solid var(--border);color:var(--text-dim)}
@@ -841,7 +838,6 @@ pre code.hljs,code.hljs{background:transparent!important;padding:0!important}
         <span class="csep"></span>
         <div class="console-controls" id="console-controls">
           <button class="con-btn active" id="console-autoscroll-btn" onclick="toggleAutoScroll()">Auto-scroll</button>
-          <button class="con-btn" id="console-chat-btn" onclick="toggleConsoleChatMode()" disabled title="Enable chat mode (Shift+C when idle)">Chat</button>
           <button class="con-btn cdanger" onclick="clearConsole()" title="Clear this browser view only; retained output is not deleted">Clear view</button>
         </div>
       </div>
@@ -856,23 +852,68 @@ pre code.hljs,code.hljs{background:transparent!important;padding:0!important}
         <div id="console-output-wrap">
           <div id="console-output"></div>
         </div>
-        <p id="runtime-chat-context" role="status" hidden></p>
-        <div id="runtime-cmd-bar">
-          <span id="runtime-status-badge">&#8226; idle</span>
-          <div style="position:relative;flex:1;display:flex">
-            <div id="runtime-autocomplete"></div>
-            <textarea id="runtime-cmd-input" rows="2" placeholder="Runtime command…" autocomplete="off"
-                   onkeydown="handleCmdKeydown(event)" onblur="setTimeout(_acHide,150)" style="flex:1" aria-label="Chat or runtime command"></textarea>
-          </div>
-          <button id="runtime-cmd-send" onclick="sendRuntimeCmd()">Send</button>
-          <button id="runtime-interrupt-btn" onclick="sendRuntimeInterrupt()" title="Pause after the current call">&#9632; Pause</button>
-        </div>
       </div>
     </div>
     <div id="tools-resizer" role="separator" tabindex="0" aria-orientation="vertical" aria-label="Resize Output and Tools" title="Drag or use arrow keys; double-click to reset"></div>
     <section id="tools-section" aria-labelledby="tools-title"><header class="pane-heading"><h2 id="tools-title">Tools</h2><input id="tools-search" type="search" placeholder="Search tools" aria-label="Search tools"></header><div id="tools-list">Loading…</div></section>
     </div>
+    <section id="task-conversation" aria-label="Chat and runtime commands">
+      <div class="conversation-split" tabindex="0" role="separator" aria-orientation="horizontal" aria-label="调整消息卡片区域高度" aria-controls="conversation-items"></div>
+      <div class="conversation-history">
+        <div class="conversation-history-controls">
+          <button type="button" class="conversation-history-toggle" aria-expanded="false" aria-controls="conversation-sent">已发消息 · 0</button>
+          <span class="conversation-quote-count" role="status" hidden></span>
+        </div>
+        <div id="conversation-items" class="conversation-items" tabindex="0" role="region" aria-label="消息和引用卡片">
+          <div id="conversation-sent" class="conversation-sent" hidden></div>
+          <div class="conversation-quote-drafts" hidden></div>
+        </div>
+      </div>
+      <template class="conversation-quote-card-template">
+        <section class="ai-task-surface ai-task-sent conversation-quote-card" role="group" aria-label="引用原文">
+          <div class="ai-task-heading">
+            <strong class="ai-task-title">“ 引用原文</strong>
+            <span class="ai-task-run-status"></span>
+            <button type="button" aria-label="移除引用" title="移除引用">×</button>
+          </div>
+          <div class="conversation-quote-content">
+            <p class="ai-task-objective"></p>
+            <blockquote class="ai-task-requirements" tabindex="0"></blockquote>
+            <p class="conversation-quote-comment" hidden></p>
+          </div>
+        </section>
+      </template>
+      <div class="conversation-composer">
+        <p id="runtime-chat-context" role="status" hidden></p>
+        <div id="runtime-cmd-bar">
+          <div class="conversation-input">
+            <div id="runtime-autocomplete"></div>
+            <textarea id="runtime-cmd-input" rows="2" placeholder="Runtime command…" autocomplete="off"
+                      onkeydown="handleCmdKeydown(event)" onblur="setTimeout(_acHide,150)" aria-label="Chat or runtime command"></textarea>
+          </div>
+          <footer class="conversation-footer">
+            <div class="conversation-attachments"></div>
+            <span class="conversation-backend" hidden></span>
+            <span id="runtime-status-badge">&#8226; idle</span>
+            <div class="conversation-actions">
+              <button class="con-btn" id="console-chat-btn" onclick="toggleConsoleChatMode()" disabled title="Enable chat mode (Shift+C when idle)">Chat</button>
+              <button id="runtime-interrupt-btn" onclick="sendRuntimeInterrupt()" title="Pause after the current call">&#9632; Pause</button>
+              <button class="send-button" id="runtime-cmd-send" onclick="sendRuntimeCmd()" aria-label="发送" title="发送">↑</button>
+            </div>
+          </footer>
+        </div>
+      </div>
+    </section>
   </div>
+</div>
+
+<div class="conversation-quote-tools" hidden>
+  <button type="button" class="conversation-quote-action">添加到对话</button>
+  <form class="conversation-quote-editor" role="dialog" aria-label="引用评论" hidden>
+    <textarea rows="1" aria-label="添加可选评论" placeholder="添加可选评论…"></textarea>
+    <button type="button" aria-label="取消引用" title="取消引用">×</button>
+    <button type="submit" class="conversation-quote-confirm" aria-label="确认引用" title="确认引用">✓</button>
+  </form>
 </div>
 
 <dialog id="formal-compare" class="mission-dialog" aria-labelledby="formal-compare-title">
@@ -1245,8 +1286,10 @@ async function apiFetch(path,opts){
 
 /* ── status ── */
 async function fetchStatus(){
+  const scope=_taskConversation.scope();
   try{
     const j=await apiFetch("/api/status");
+    if(scope!==_taskConversation.scope())return;
     // Saved workspaces return lines; live agents return structured statistics.
     const entries=typeof j.data === "string"
       ? _stripAnsi(j.data).split(/\r?\n/).filter(line=>line.trim()).map(line=>{
@@ -1271,9 +1314,12 @@ async function fetchStatus(){
       item.appendChild(content);
       fragment.appendChild(item);
     }
+    _taskConversation.setBackend(_stripAnsi(entries.find(([key])=>key==="LLM")?.[1]||""));
     qs("#status-text").replaceChildren(fragment);
     qs("#status-bar").textContent="";
   }catch(e){
+    if(scope!==_taskConversation.scope())return;
+    _taskConversation.setBackend("");
     qs("#status-text").textContent="(unavailable)";
     qs("#status-bar").textContent="Agent unreachable";
   }
@@ -2438,6 +2484,9 @@ function _refreshWorkspaceViews(){
   _runtimeStatusRequest++;
   closeFileView();
   window.UCAgentWorkbench?.reset();
+  clearSuggestionChat();
+  _taskConversation.reset();
+  _consoleView.checkScope();
   _formalReport?.clear();
   window.UCAgentTaskSuggestions?.clear();
   qs("#formal-report").hidden=true;
@@ -2569,7 +2618,6 @@ let _formalView=null;
 let _formalSelection="";
 let _formalFilter="";
 let _formalReport=null;
-let _formalChatQuotes=null;
 let _formalRequest=0;
 let _fileListRequest=0;
 const _REPORT_DIRECTORIES=new Set(["unit_test","unity_test","uc_test_report","reports","report","coverage","coverage_data","line_dat"]);
@@ -2750,9 +2798,8 @@ async function _refreshFormal(){
   const [scope,runId]=selected.split(":");
   const query=runId?"?"+new URLSearchParams({scope,run_id:runId}):"";
   try{
-    const {coverageActions,chatQuotes,diagnose}=await UCAgentWorkbench.loadFormal();
+    const {coverageActions,diagnose}=await UCAgentWorkbench.loadFormal();
     if(request!==_formalRequest||workspace!==_subWorkspace||selected!==_formalSelection)return;
-    _formalChatQuotes=chatQuotes;
     document.body.classList.add("formal-workspace");
     const response=await apiFetch("/api/formal/view"+query);
     if(request!==_formalRequest||workspace!==_subWorkspace||selected!==_formalSelection)return;
@@ -3664,10 +3711,9 @@ function _updateConsoleChatControl() {
     btn.title = available ? "Toggle chat mode (Shift+C)" : "Chat mode can be toggled when console is idle";
   }
   if (input) {
-    const inWorkbench = document.body.classList.contains("fc-workbench-active");
-    input.placeholder = _consoleChatMode ? (inWorkbench ? "有问题，尽管问" : "Chat message...") : "Runtime command...";
+    input.placeholder = _consoleChatMode ? "有问题，尽管问" : "Runtime command…";
   }
-  _formalChatQuotes?.setMode(_consoleChatMode);
+  _taskConversation.setMode(_consoleChatMode);
 }
 
 function toggleConsoleChatMode() {
@@ -3687,8 +3733,6 @@ function prepareSuggestionChat(text,key,previewOnly=true){
   previewOnly=previewOnly||input.dataset.suggestionDemo==="true";
   input.dataset.suggestionKey=key;input.dataset.suggestionDemo=String(previewOnly);
   const hint=qs("#runtime-chat-context");hint.hidden=false;hint.textContent=previewOnly?"示例或归档内容已带入 Chat · 仅预览，不发送；Shift+Enter 换行":"上下文已带入 Chat · 可补充后发送";
-  setConsoleCollapsed(false);qs("#workbench-bottom")?.classList.remove("show-tools");
-  for(const button of qs("#workbench-bottom-tabs")?.children||[])button.setAttribute("aria-pressed",String(button.textContent==="Output"));
   globalThis.UCAgentChatComposer?.expand();
   input.focus();return true;
 }
@@ -3936,15 +3980,16 @@ async function sendRuntimeCmd() {
   const input = qs("#runtime-cmd-input");
   const rawCmd = input.value.trim();
   const reviewKey=input.dataset.suggestionKey;
-  const quote = _consoleChatMode && !rawCmd.startsWith("/") ? _formalChatQuotes?.get() : null;
+  const quote = _consoleChatMode && !rawCmd.startsWith("/") ? _taskConversation.get() : null;
   if (!rawCmd && !quote?.hasComment) return;
   if(input.dataset.suggestionDemo==="true"){showErr("这是示例或归档内容，未发送到运行任务。请清空输入后使用正常 Chat。");return;}
-  const workspace = _subWorkspace;
+  const conversationScope = _taskConversation.scope();
   if(quote?.previewOnly){showErr("请移除来自归档或历史批次的引用后再发送。");return;}
   try {
     const cmd = _commandForConsoleMode(quote ? [quote.text, rawCmd].filter(Boolean).join("\n\n") : rawCmd);
     if (!cmd) return;
     input.value = "";
+    globalThis.UCAgentChatComposer?.fit();
     _runtimeFocusAfterBusy = true;
     _focusRuntimeCmdInputSoon(true);
     let accepted;
@@ -3954,11 +3999,13 @@ async function sendRuntimeCmd() {
     });
     try { accepted = await submit(false); }
     catch (error) {
-      if (error.code !== "confirmation_required" || workspace !== _subWorkspace || !window.confirm("Run this command?\n" + cmd)) throw error;
+      if (error.code !== "confirmation_required" || conversationScope!==_taskConversation.scope() || !window.confirm("Run this command?\n" + cmd)) throw error;
       accepted = await submit(true);
     }
     _submittedOperations.add(accepted.operation_id);
-    if(quote&&workspace===_subWorkspace)_formalChatQuotes?.accept(quote.references,rawCmd,accepted.operation_id);
+    if(conversationScope!==_taskConversation.scope())return;
+    if(quote)_taskConversation.accept(quote.references,rawCmd,accepted.operation_id);
+    else if(/^chat\s+\S/.test(cmd))_taskConversation.record(accepted.operation_id,cmd.replace(/^chat\s+/,""));
     if(reviewKey&&input.dataset.suggestionKey===reviewKey){delete input.dataset.suggestionKey;delete input.dataset.suggestionDemo;qs("#runtime-chat-context").hidden=true;}
     // Record in local history (dedup consecutive)
     if (rawCmd && _cmdHistory.at(-1) !== rawCmd) _cmdHistory.push(rawCmd);
@@ -3966,9 +4013,13 @@ async function sendRuntimeCmd() {
     _setRuntimeBusy(true);
     _focusRuntimeCmdInputSoon(true);
   } catch(e) {
+    if(conversationScope!==_taskConversation.scope())return;
     showErr(e.message);
     _runtimeFocusAfterBusy = false;
-    if ((!quote||workspace===_subWorkspace)&&!String(input.value || "").trim()) input.value = rawCmd;
+    if (!String(input.value || "").trim()){
+      input.value = rawCmd;
+      globalThis.UCAgentChatComposer?.fit();
+    }
     _focusRuntimeCmdInputSoon(true);
   }
 }
@@ -4476,6 +4527,21 @@ document.addEventListener("keydown",function(e){
 });
 
 /* ── init ── */
+const _taskConversation=UCAgentTaskConversation.mount({
+  layout:qs("#layout"),
+  workspace:()=>_subWorkspace,
+  activateChat(){
+    const input=qs("#runtime-cmd-input");
+    if(input.disabled||(!_consoleChatMode&&(!_consoleChatToggleAvailable()||input.value.trim()))){
+      showErr("请先切换到 Chat 或清空现有命令草稿。");
+      return false;
+    }
+    _consoleChatMode=true;
+    _updateConsoleChatControl();
+    input.focus({preventScroll:true});
+    return true;
+  }
+});
 setConsoleCollapsed(false);_initMissionSettings();_initFileDeleteControls();_initMasterBtn();fetchStatus();fetchMission();fetchTools();refreshFiles();fetchChangedFiles();fetchConsole();fetchRuntimeStatus();fetchServerInfo();
 if(_subWorkspace)_syncConsoleWorkspace();
 setInterval(()=>{fetchStatus();fetchMission();fetchTools();},8000);
@@ -4489,8 +4555,8 @@ setInterval(fetchServerInfo,5000);
 <script>
 window.UCAgentShell.init({actionsSelector:'#header-more-actions',metaUrl:'/api/ui-meta',fixedFooter:true});
 </script>
-<script src="/static/share/task-workbench.js?v=task-overview"></script>
-<script src="/static/share/chat-composer.js"></script>
+<script src="/static/share/task-workbench.js?v=shared-conversation"></script>
+<script src="/static/share/chat-composer.js?v=shared-conversation"></script>
 <script src="/static/share/workbench-polish.js"></script>
 </body>
 </html>

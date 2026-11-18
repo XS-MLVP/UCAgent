@@ -63,7 +63,12 @@ def test_console_script_and_event_reads_share_the_mounted_cmd_prefix(console_ser
     with httpx.Client(auth=("user", password), timeout=5) as client:
         response = client.get(base + prefix + "/")
         assert response.status_code == 200
-        script_path = re.search(r'<script src="([^"]*/static/share/console-view.js)"', response.text).group(1)
+        assert response.text.count('id="runtime-cmd-input"') == 1
+        for asset in ("conversation-quotes.js", "task-conversation.js", "task-conversation.css"):
+            path = prefix + "/static/share/" + asset
+            assert path in response.text
+            assert client.get(base + path).status_code == 200
+        script_path = re.search(r'<script src="([^"?]*/static/share/console-view\.js)(?:\?[^"]*)?"', response.text).group(1)
         assert script_path == prefix + "/static/share/console-view.js"
         script = client.get(base + script_path)
         assert script.status_code == 200

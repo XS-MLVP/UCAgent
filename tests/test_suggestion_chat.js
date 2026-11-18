@@ -21,23 +21,26 @@ test('Human comments may use normal Chat only when current, without weakening an
 test('Demonstration guard precedes sending; Shift Enter remains a newline and only one composer exists',()=>{const send=html.slice(html.indexOf('async function sendRuntimeCmd()'),html.indexOf('async function sendRuntimeInterrupt()'));assert(send.indexOf('suggestionDemo')<send.indexOf('const submit'));assert(send.indexOf('suggestionDemo')<send.indexOf('input.value = ""'));assert(html.includes('event.shiftKey&&_consoleChatMode'));assert(html.includes('event.preventDefault(); _acHide(); sendRuntimeCmd()'));assert.equal((html.match(/id="runtime-cmd-input"/g)||[]).length,1);assert(html.includes('<textarea id="runtime-cmd-input"'));});
 
 test('A quote follows only normal Chat and remains attached after a rejected send',async()=>{
- const requests=[],errors=[],cleared=[];
+ const requests=[],errors=[],cleared=[],sent=[];
  const references=[{},{}];
  const input={value:'Explain the excerpt',dataset:{}};
- let previewOnly=false,reject=true,comment='';
+ let previewOnly=false,reject=true,comment='',scope=0,changeWorkspace=false,hasQuote=true;
  const context=vm.createContext({
    qs:()=>input,_consoleChatMode:true,_subWorkspace:'',_commandSession:'test-session',
-   _formalChatQuotes:{
-     get:()=>({
+   _taskConversation:{
+     scope:()=>scope,
+     record:(operation,text)=>sent.push([operation,text]),
+     get:()=>hasQuote?({
        references,hasComment:!!comment,previewOnly,
        text:'引用原文（Formal）\n> a + b'+(comment?'\n\n引用评论\n'+comment:'')
-     }),
+     }):null,
      accept:(quote,question,operation)=>cleared.push([quote,question,operation])
    },
    apiFetch:async(path,opts)=>{
      assert.equal(path,'/api/cmd');
      requests.push(JSON.parse(opts.body).cmd);
      if(reject)throw Error('busy');
+     if(changeWorkspace)scope++;
      return {operation_id:'op'};
    },
    showErr:message=>errors.push(message),
@@ -72,4 +75,13 @@ test('A quote follows only normal Chat and remains attached after a rejected sen
  assert.equal(requests[3],'chat 引用原文（Formal）\n> a + b\n\n引用评论\nCheck the operator');
  assert.deepEqual(cleared.at(-1),[references,'','op']);
  assert.deepEqual(Array.from(context._cmdHistory),['Explain the excerpt','/status']);
+ assert.deepEqual(sent,[]);
+ hasQuote=false;
+ input.value='Normal Chat message';
+ await context.sendRuntimeCmd();
+ assert.deepEqual(sent,[['op','Normal Chat message']]);
+ input.value='Reply for previous workspace';
+ changeWorkspace=true;
+ await context.sendRuntimeCmd();
+ assert.deepEqual(sent,[['op','Normal Chat message']]);
 });

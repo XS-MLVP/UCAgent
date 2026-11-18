@@ -1,8 +1,61 @@
-/** Long feedback is edited in the one existing composer; log state is not destroyed. */
+/** Long feedback is edited in the one existing composer. */
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
 const source=fs.readFileSync(path.join(__dirname,'../ucagent/interfaces/server/static/share/chat-composer.js'),'utf8');
-/** Minimal composer DOM with controllable content height and resize events. */
-function fixture(){const events={},classes=new Set(),input={style:{},scrollHeight:52,scrollTop:0,value:'',addEventListener:(n,f)=>events[n]=f,focus(){}},bottom={classList:{toggle:(k,v)=>v?classes.add(k):classes.delete(k)}},controls=[],bar={append:n=>controls.push(n)},rootEvents={};const c=vm.createContext({innerHeight:1000,document:{querySelector:s=>({'#runtime-cmd-input':input,'#runtime-cmd-bar':bar,'#workbench-bottom':bottom})[s],createElement:()=>({attrs:{},setAttribute(k,v){this.attrs[k]=v;},addEventListener(n,f){this[n]=f;}})},addEventListener:(n,f)=>rootEvents[n]=f});vm.runInContext(source,c);return {api:c.UCAgentChatComposer,input,control:controls[0],classes,events,rootEvents,c};}
-test('Short messages grow only up to a bounded height, then scroll internally',()=>{const {input,events}=fixture();assert.equal(input.style.height,'52px');input.scrollHeight=900;events.input();assert.equal(input.style.height,'150px');assert.equal(input.style.overflowY,'auto');input.scrollHeight=44;events.input();assert.equal(input.style.height,'44px');});
-test('Expanded editing uses the same input and collapsing restores normal sizing without clearing text',()=>{const {api,input,control,classes}=fixture();input.value='human message';api.expand();assert(classes.has('chat-compose-expanded'));assert.equal(control.attrs['aria-expanded'],'true');assert.equal(input.scrollTop,0);assert.equal(input.style.height,'100%');control.click();assert(!classes.has('chat-compose-expanded'));assert.equal(input.value,'human message');assert.equal(input.style.height,'52px');api.expand();api.reset();assert.equal(control.attrs['aria-expanded'],'false');});
-test('Resize refits normal messages and never creates a second message input or sends',()=>{const {input,rootEvents,c}=fixture();c.innerHeight=400;input.scrollHeight=500;rootEvents.resize();assert.equal(input.style.height,'80px');assert(!/fetch\(|sendRuntimeCmd\(|createElement\('textarea'\)/.test(source));});
+
+function fixture(){
+  const events={},classes=new Set(),controls=[],rootEvents={};
+  const input={id:'runtime-cmd-input',style:{},scrollHeight:56,scrollTop:0,value:'',
+    addEventListener:(name,listener)=>events[name]=listener,focus(){}};
+  const actions={prepend:node=>controls.unshift(node)};
+  const panel={
+    classList:{toggle:(name,active)=>active?classes.add(name):classes.delete(name)},
+    querySelector:selector=>({'#runtime-cmd-input':input,'.conversation-actions':actions})[selector]
+  };
+  const document={
+    querySelector:selector=>selector==='#task-conversation'?panel:null,
+    createElement:()=>({attrs:{},setAttribute(key,value){this.attrs[key]=value;},
+      addEventListener(name,listener){this[name]=listener;}})
+  };
+  const context=vm.createContext({innerHeight:1000,document,addEventListener:(name,listener)=>rootEvents[name]=listener});
+  vm.runInContext(source,context);
+  return {api:context.UCAgentChatComposer,input,control:controls[0],classes,events,rootEvents,context};
+}
+
+test('Short messages grow to a bounded height, then scroll internally',()=>{
+  const {input,events}=fixture();
+  assert.equal(input.style.height,'56px');
+  input.scrollHeight=900;
+  events.input();
+  assert.equal(input.style.height,'150px');
+  assert.equal(input.style.overflowY,'auto');
+  input.scrollHeight=44;
+  events.input();
+  assert.equal(input.style.height,'52px');
+});
+
+test('Expanding and collapsing keeps the same draft and restores normal sizing',()=>{
+  const {api,input,control,classes}=fixture();
+  input.value='human message';
+  api.expand();
+  assert(classes.has('chat-compose-expanded'));
+  assert.equal(control.attrs['aria-expanded'],'true');
+  assert.equal(input.scrollTop,0);
+  assert.equal(input.style.overflowY,'auto');
+  assert.notEqual(input.style.height,'56px');
+  control.click();
+  assert(!classes.has('chat-compose-expanded'));
+  assert.equal(input.value,'human message');
+  assert.equal(input.style.height,'56px');
+  api.expand();
+  api.reset();
+  assert.equal(control.attrs['aria-expanded'],'false');
+});
+
+test('Resize refits the same editor and leaves submission to the host',()=>{
+  const {input,rootEvents,context}=fixture();
+  context.innerHeight=400;
+  input.scrollHeight=500;
+  rootEvents.resize();
+  assert.equal(input.style.height,'80px');
+  assert(!/fetch\(|sendRuntimeCmd\(|createElement\('textarea'\)/.test(source));
+});

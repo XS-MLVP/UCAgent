@@ -1,19 +1,19 @@
 /** Connect the FlowCanvas shell to the Formal task and its live command API. */
 /** Bind task state to the packaged layout and reuse its existing live controls. */
-export function mount(markup,createCoverageActions,{bindTabs,createTaskCard},mountChatQuote,mountTaskOverview){
+export function mount(markup,createCoverageActions,{bindTabs,createTaskCard},mountTaskOverview){
   const q=selector=>document.querySelector(selector);
   const scriptUrl=import.meta.url;
   const layout=document.createElement('template');
   layout.innerHTML=markup;
   const part=selector=>layout.content.querySelector(selector);
-  const task=q('#layout'), center=q('#fm'), report=q('#formal-report');
+  const task=q('#layout'), report=q('#formal-report');
   const restored=new Map();
   const finished=new Set(['cancelled','failed','succeeded']);
   let enabled=false, leftMode='template', workspace, stageIndex, previousChatMode, defaultedChat;
   let reportSelected=false, objectiveKey='', objective='', objectiveRequest=null;
   const recentActivity=[];
   let reviewRequest=0, reviewSignature='', reviewBusy=false, revisionRequest=0, waitKey='';
-  let toolSignature='', toolList=[], toolRun=null, messageCursor=null, messageGeneration=null, messageRequest=null;
+  let toolSignature='', toolList=[], toolRun=null, activityCursor=null, activityGeneration=null, activityRequest=null;
 
   function el(tag,text,cls){
     const node=document.createElement(tag);
@@ -164,52 +164,21 @@ export function mount(markup,createCoverageActions,{bindTabs,createTaskCard},mou
       if(!enabled||!_formalView||context.snapshot!==reviewContext())return '验证目标已更新，请重新打开操作。';
       if(_subWorkspace||_formalView.archived||_formalView.freshness==='historical')return '请切换到当前运行任务和批次后发送。';
       const text=[title+' · '+context.scope,objective,requirements].filter(Boolean).join('\n');
+      const conversationScope=_taskConversation.scope();
       const {operation_id}=await post('api/cmd',{cmd:'chat '+text,session_id:_commandSession});
       _submittedOperations.add(operation_id);
-      if(!enabled||_subWorkspace)return;
+      if(!enabled||conversationScope!==_taskConversation.scope())return;
       _setRuntimeBusy(true);
-      sentTasks.set(operation_id,{title,objective,requirements,scope:context.scope});
-      if(sentTasks.size>100)sentTasks.delete(sentTasks.keys().next().value);
-      appendSentMessage(text,operation_id);
-      setHistoryExpanded(true);
-      updateSentHistory(true);
+      _taskConversation.record(operation_id,text,createTaskCard({
+        title,
+        objective,
+        requirements:[context.scope,requirements].filter(Boolean).join('\n'),
+        status:'已提交'
+      }));
       _consoleView.select('llm');
     }
   });
 
-  const chat=part('.fc-chat'), splitter=part('.fc-chat-split');
-  const history=part('.fc-history'), historyTitle=part('.fc-history-toggle');
-  const chatItems=part('#fc-chat-items');
-  const sent=part('#fc-sent'), composer=part('.fc-composer');
-  const composerFooter=part('.fc-composer-footer'), composerActions=part('.fc-composer-actions');
-  const quoteTools=part('.fc-quote-tools'), draftList=part('.fc-chat-quotes');
-  const chatQuotes=mountChatQuote({
-    container:task,toolbar:quoteTools,draftList,cardTemplate:part('.fc-chat-quote-template'),
-    count:part('.fc-quote-count'),scrollArea:chatItems,
-    context:()=>enabled&&_formalView?{
-      workspace:_subWorkspace,
-      previewOnly:!!_subWorkspace||_formalView.archived||_formalView.freshness==='historical'
-    }:null,
-    activateChat(){
-      const input=q('#runtime-cmd-input');
-      if(input.disabled||(!_consoleChatMode&&(!_consoleChatToggleAvailable()||input.value.trim()))){
-        showErr('请先切换到 Chat 或清空现有命令草稿。');
-        return false;
-      }
-      _consoleChatMode=true;
-      _updateConsoleChatControl();
-      chatQuotes.setMode(true);
-      input.focus();
-      return true;
-    },
-    recordSend:appendSentQuotes
-  });
-  /** Toggle sent messages independently of the visible quote drafts. */
-  function setHistoryExpanded(expanded){
-    sent.hidden=!expanded;
-    historyTitle.setAttribute('aria-expanded',String(expanded));
-  }
-  historyTitle.addEventListener('click',()=>setHistoryExpanded(sent.hidden));
   const attach=el('details',null,'fc-composer-attach');
   const attachToggle=el('summary',null,'model-trigger attach-trigger');
   attachToggle.innerHTML='<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4v12M4 10h12"/></svg>';
@@ -224,8 +193,19 @@ export function mount(markup,createCoverageActions,{bindTabs,createTaskCard},mou
     button('浏览工作区',()=>{attach.open=false;selectLeft('files');if(compactLayout.matches)task.classList.add('fc-show-left');})
   );
   attach.append(attachToggle,attachMenu);
-  composerFooter.prepend(attach);
-  const backend=el('span',null,'fc-composer-backend');
+  const conversationPresentation={
+    attachments:[attach],
+    previewOnly:()=>!_formalView||_formalView.archived||_formalView.freshness==='historical',
+    sources:{
+      '.fc-review':surface=>surface.querySelector('h2')?.textContent||'阶段审阅',
+      '.formal-report-detail':(surface,start,end)=>{
+        const path=surface.querySelector('.formal-report-heading .formal-report-path')?.textContent;
+        const checkpoint=start.closest('.formal-report-ck-card');
+        const ck=checkpoint?.contains(end)?checkpoint.querySelector('.formal-report-ck-labels code')?.textContent:'';
+        return [path,ck].filter(Boolean).join('/')||'验证模板';
+      }
+    }
+  };
   const headerActions=q('#uc-shell-header-actions'), headerMenu=q('#header-more');
   const headerItems=q('#header-more-actions'), reportItems=q('#workbench-report-menu > .workbench-menu-items');
   const masterLink=q('#master-btn');
@@ -319,10 +299,10 @@ export function mount(markup,createCoverageActions,{bindTabs,createTaskCard},mou
     task.classList.add('fc-formal');
     task.prepend(left);
     task.append(right);
-    task.append(targetPopover,quoteTools);
+    task.append(targetPopover);
+    _taskConversation.setPresentation(conversationPresentation);
     const brandMark=q('#hdr .uc-shell-brand-mark');
     move(brandMark,rail.querySelector('.brand-home'));
-    center.append(chat);
     const centerHeader=q('#workbench-content-tabs');
     centerHeader.prepend(centerTitle);
     centerTitle.after(returnOverview);
@@ -353,17 +333,6 @@ export function mount(markup,createCoverageActions,{bindTabs,createTaskCard},mou
     toolsList.before(toolToolbar);
     move(toolSearch,toolToolbar);
     toolSignature='';
-    move(q('#runtime-chat-context'),composer);
-    const commandBar=q('#runtime-cmd-bar');
-    move(commandBar,composer);
-    commandBar.append(composerFooter);
-    move(q('#console-chat-btn'),composerActions);
-    composerActions.append(backend);
-    const send=q('#runtime-cmd-send');
-    move(send,composerActions);
-    send.classList.add('send-button');
-    send.textContent='↑';
-    send.setAttribute('aria-label','发送');
     previousChatMode=_consoleChatMode;
     defaultedChat=!_subWorkspace&&!q('#runtime-cmd-input').value.trim();
     if(defaultedChat){
@@ -384,7 +353,8 @@ export function mount(markup,createCoverageActions,{bindTabs,createTaskCard},mou
     enabled=false;
     workspace=undefined;
     objectiveRequest=null;
-    chatQuotes.clear();
+    attach.open=false;
+    _taskConversation.setPresentation();
     headerMenu.open=false;
     headerActions.classList.remove('conversation-tools');
     for(const icon of headerIcons)icon.classList.remove('icon-button');
@@ -392,12 +362,8 @@ export function mount(markup,createCoverageActions,{bindTabs,createTaskCard},mou
     toolDialog?.close();
     for(const [node,marker] of [...restored].reverse())marker.replaceWith(node);
     restored.clear();
-    for(const node of [left,right,overview,returnOverview,review,chat,floating,toolResult,centerTitle,toggleRight,workflowLabel,toolToolbar,composerFooter,targetPopover,quoteTools])node.remove();
+    for(const node of [left,right,overview,returnOverview,review,floating,toolResult,centerTitle,toggleRight,workflowLabel,toolToolbar,targetPopover])node.remove();
     q('#mission-header h2').textContent='Workflow';
-    const send=q('#runtime-cmd-send');
-    send.classList.remove('send-button');
-    send.textContent='Send';
-    send.removeAttribute('aria-label');
     document.body.classList.remove('fc-workbench-active');
     task.classList.remove('fc-formal','fc-show-left','fc-show-right','fc-hide-right');
     report.classList.remove('fc-report-inactive');
@@ -426,10 +392,6 @@ export function mount(markup,createCoverageActions,{bindTabs,createTaskCard},mou
     projectName.textContent=_missionData.task?.module||_formalView?.dut||'';
     project.hidden=!projectName.textContent;
     workflowProject.textContent=projectName.textContent?projectName.textContent+' · Formal':'Formal';
-    const llmStatus=[...q('#status-text').querySelectorAll('.status-item')]
-      .find(item=>item.querySelector('.status-key')?.textContent==='LLM:');
-    backend.textContent=llmStatus?.querySelector('.status-value')?.textContent||'';
-    backend.hidden=!backend.textContent;
     updateContent();
   }
 
@@ -775,61 +737,19 @@ export function mount(markup,createCoverageActions,{bindTabs,createTaskCard},mou
     }
   }
 
-  const sentTasks=new Map();
-
-  /** Show all excerpts from one acknowledged Chat message together in history. */
-  function appendSentQuotes(quotes,question,operation){
-    if(!enabled||_subWorkspace)return;
-    sentTasks.set(operation,{quotes,question});
-    if(sentTasks.size>100)sentTasks.delete(sentTasks.keys().next().value);
-    appendSentMessage(question,operation);
-    setHistoryExpanded(true);
-    updateSentHistory(true);
-  }
-
-  /** Reconcile accepted task cards with the command transcript by operation ID. */
-  function appendSentMessage(text,operation){
-    const task=sentTasks.get(operation);
-    const previous=operation&&Array.from(sent.children).find(node=>node.dataset.operation===operation);
-    if(previous&&(!task||previous.classList.contains('ai-task-sent')))return;
-    let message;
-    if(task?.quotes)message=chatQuotes.renderSent(task.quotes,task.question);
-    else if(task)message=createTaskCard({
-      title:task.title,
-      objective:task.objective,
-      requirements:[task.scope,task.requirements].filter(Boolean).join('\n'),
-      status:'已提交'
-    });
-    else message=el('p',text,'fc-sent-message');
-    if(operation)message.dataset.operation=operation;
-    if(previous)previous.replaceWith(message);
-    else sent.append(message);
-  }
-
-  /** Maintain the bounded history and follow new messages when requested. */
-  function updateSentHistory(following){
-    while(sent.children.length>100)sent.firstElementChild.remove();
-    historyTitle.textContent='已发消息 · '+sent.children.length;
-    if(following)chatItems.scrollTop=chatItems.scrollHeight;
-  }
-
-  async function refreshMessages(){
-    if(workspace||messageRequest)return;
+  async function refreshRecentActivity(){
+    if(workspace||activityRequest)return;
     const token={};
-    messageRequest=token;
+    activityRequest=token;
     try{
       let more;
       do{
         const params=new URLSearchParams({view:'activity',limit:'500'});
-        if(messageCursor!==null)params.set('after',messageCursor);
-        if(messageGeneration)params.set('generation',messageGeneration);
+        if(activityCursor!==null)params.set('after',activityCursor);
+        if(activityGeneration)params.set('generation',activityGeneration);
         const page=await callApi('api/events?'+params);
-        if(!enabled||_subWorkspace||messageRequest!==token)return;
-        if(page.reset){
-          sent.replaceChildren();
-          recentActivity.length=0;
-        }
-        const following=chatItems.scrollHeight-chatItems.clientHeight-chatItems.scrollTop<24;
+        if(!enabled||_subWorkspace||activityRequest!==token)return;
+        if(page.reset)recentActivity.length=0;
         for(const event of page.data||[]){
           if(event.source==='tool'&&['call','result'].includes(event.kind)){
             const name=event.text.match(/^([A-Za-z_]\w*):/)?.[1];
@@ -844,54 +764,22 @@ export function mount(markup,createCoverageActions,{bindTabs,createTaskCard},mou
               if(recentActivity.length>32)recentActivity.pop();
             }
           }
-          if(event.source!=='command'||event.kind!=='input'||event.session_id!==_commandSession)continue;
-          const match=event.text.match(/^ucagent> chat\s+([\s\S]+)$/);
-          if(match)appendSentMessage(match[1],event.operation_id);
         }
-        updateSentHistory(following);
         refreshOverview();
-        messageCursor=page.cursor;
-        messageGeneration=page.generation;
+        activityCursor=page.cursor;
+        activityGeneration=page.generation;
         more=page.has_more;
       }while(more);
     }catch{
       // The live Output panel owns service-error notices.
     }finally{
-      if(messageRequest===token)messageRequest=null;
+      if(activityRequest===token)activityRequest=null;
     }
   }
-
-  let height=180, drag;
-  function setHeight(value){
-    const max=Math.max(44,center.clientHeight-composer.offsetHeight-190);
-    height=Math.round(Math.min(max,Math.max(44,value)));
-    history.style.setProperty('--fc-history-height',height+'px');
-    splitter.setAttribute('aria-valuemin','44');
-    splitter.setAttribute('aria-valuemax',String(max));
-    splitter.setAttribute('aria-valuenow',String(height));
-  }
-  splitter.addEventListener('pointerdown',event=>{
-    if(event.button!==0)return;
-    if(!chatItems.clientHeight)setHistoryExpanded(true);
-    drag={id:event.pointerId,y:event.clientY,height};
-    splitter.setPointerCapture(event.pointerId);
-  });
-  splitter.addEventListener('pointermove',event=>{if(drag?.id===event.pointerId)setHeight(drag.height+drag.y-event.clientY);});
-  splitter.addEventListener('lostpointercapture',()=>{drag=null;});
-  splitter.addEventListener('keydown',event=>{
-    if(!['ArrowUp','ArrowDown'].includes(event.key))return;
-    event.preventDefault();
-    if(!chatItems.clientHeight)setHistoryExpanded(true);
-    setHeight(height+(event.key==='ArrowUp'?16:-16));
-  });
-  const chatResize=new ResizeObserver(()=>{if(enabled)setHeight(height);});
-  chatResize.observe(center);
-  chatResize.observe(composer);
 
   function refresh(){
     if(!enabled)return;
     if(workspace!==_subWorkspace){
-      chatQuotes.clear();
       workspace=_subWorkspace;
       stageIndex=undefined;
       reportSelected=false;
@@ -910,11 +798,9 @@ export function mount(markup,createCoverageActions,{bindTabs,createTaskCard},mou
       toolRun=null;
       renderTools();
       toolResult.hidden=true;
-      messageRequest=null;
-      messageCursor=null;
-      messageGeneration=null;
-      sent.replaceChildren();
-      historyTitle.textContent='已发消息 · 0';
+      activityRequest=null;
+      activityCursor=null;
+      activityGeneration=null;
       selectLeft('template');
     }
     mountReport();
@@ -922,7 +808,7 @@ export function mount(markup,createCoverageActions,{bindTabs,createTaskCard},mou
     if(leftMode==='suggestions')refreshReview();
     refreshDecision();
     refreshTools();
-    refreshMessages();
+    refreshRecentActivity();
   }
   function sync(){
     const formal=document.body.classList.contains('formal-workspace');
@@ -936,6 +822,6 @@ export function mount(markup,createCoverageActions,{bindTabs,createTaskCard},mou
   new MutationObserver(updateContent).observe(q('#workspace-content'),{attributes:true,attributeFilter:['class']});
   setInterval(refresh,3000);
   sync();
-  return {coverageActions,chatQuotes,
+  return {coverageActions,
     diagnose:(mode,runId,propertyName)=>invoke('AnalyzeFormal',{mode,run_id:runId,property_name:propertyName})};
 }

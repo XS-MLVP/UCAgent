@@ -101,10 +101,11 @@ for(const [name,data] of [
   ['saved','UCAgent: 0.9\nWorkspace: /tmp/a:b\nAll Completed: True\nextra note'],
 ]){
   test(`Compact ${name} status preserves each field without interpreting markup`,async()=>{
-    const target=node(),bar={};
+    const target=node(),bar={},backends=[];
     const context=vm.createContext({
       apiFetch:async()=>({data}),document:{createDocumentFragment:node,createElement:node},
       qs:id=>id==='#status-text'?target:bar,_stripAnsi:value=>value,
+      _taskConversation:{scope:()=>0,setBackend:name=>backends.push(name)},
     });
     vm.runInContext(statusScript,context);
     await vm.runInContext('fetchStatus()',context);
@@ -113,5 +114,6 @@ for(const [name,data] of [
     else assert.deepEqual(values,['UCAgent: 0.9','Workspace: /tmp/a:b','All Completed: True','extra note']);
     assert(target.children.every(item=>item.className==='status-item'));
     assert.equal(bar.textContent,'');
+    assert.deepEqual(backends,[name==='live'?'<model>':'']);
   });
 }

@@ -12,17 +12,20 @@ The FlowCanvas workbench opens on the existing Formal task detail page, both thr
 
 ## Source and integration
 
-Paths are relative to the repository. The app packages the browser assets and Apache 2.0 attribution with the Formal plugin.
+The default and Formal task workbenches use the same conversation panel in the CMD page. The host supplies the current workspace and the existing command API. Formal contributes report and stage-review citation sources, the validated target attachment action, and a guard for historical batches. Sent history shows submissions acknowledged from this page. The Output panel still owns execution status and model responses.
+
+Paths are relative to the repository. The core distribution and the Formal plugin both carry the Apache 2.0 attribution for their FlowCanvas extracts.
 
 | File | Responsibility |
 | --- | --- |
 | `ucagent/plugins/Formal/src/formal/web/workbench.html` | Three-pane shell and target-action form. |
-| `ucagent/plugins/Formal/src/formal/web/flowcanvas-ui.{css,js}` | Navigation, header controls, tab styling and keyboard behavior, composer styling, and task card rendering extracted from [FlowCanvas 5bb2cda](https://github.com/Miical/UCAgent/tree/5bb2cda5f9f4758953108ffdc0d0664398c0f313/plugins/FlowCanvas). |
+| `ucagent/plugins/Formal/src/formal/web/flowcanvas-ui.{css,js}` | Navigation, header controls, tab styling and keyboard behavior, and task card rendering extracted from [FlowCanvas 5bb2cda](https://github.com/Miical/UCAgent/tree/5bb2cda5f9f4758953108ffdc0d0664398c0f313/plugins/FlowCanvas). |
 | `ucagent/plugins/Formal/src/formal/web/flowcanvas-coverage-actions.{css,js}` | Target action buttons and popup. The adapter provides target context, action text and submission. |
-| `ucagent/plugins/Formal/src/formal/web/formal-workbench.{css,js}` | Layout, host control mounting and restore, Formal stage review, tool invocation and Chat history. |
+| `ucagent/plugins/Formal/src/formal/web/formal-workbench.{css,js}` | Layout, host control mounting and restore, Formal stage review, tool invocation and Formal citation sources. |
 | `ucagent/plugins/Formal/src/formal/web/formal-report.{css,js}` and `formal-view.js` | FG/FC selection and order, CK presentation, proof state, evidence and run controls. |
 | `ucagent/plugins/Formal/src/formal/web/workbench-entry.js` | Loads versioned CSS and modules through the task origin. Component styles load before the Formal overrides. |
 | `ucagent/interfaces/server/templates/agent.html` and `static/share/task-workbench.js` under the same server directory | Resolve the Formal view and load the optional plugin on demand. The existing controls supply workspace, command session, file viewing and runtime state. |
+| `ucagent/interfaces/server/static/share/task-conversation.{css,js}`, `conversation-quotes.js` and `chat-composer.js` in the same directory | Shared composer, resizable sent history, selection and quote cards. `setPresentation` registers workflow-specific citation sources and attachment controls. |
 | `ucagent/interfaces/server/api_cmd/formal_routes.py` | Serves plugin assets at `/static/formal/` using the installed or source-tree plugin. |
 
 Use the pinned FlowCanvas revision when refreshing component extracts and put Formal-specific behavior in the adapter. Preserve the task's API mount and workspace scoping for direct access and Master proxy paths. Tool runs use the existing `tool_invoke` runtime command, and parameterized tools take a JSON object. Scope checks keep tool execution and approval controls confined to the live task. A change to route registration requires restarting the command service.

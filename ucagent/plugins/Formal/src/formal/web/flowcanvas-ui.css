@@ -145,39 +145,6 @@
 .fc-formal .target-card-head:hover { background: color-mix(in srgb, var(--text) 5%, var(--surface)); }
 .fc-formal .target-card-head:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 
-.fc-formal .composer {
-  flex-shrink: 0;
-  margin: 10px 18px 18px;
-  padding: 14px 15px 10px;
-  border: 1px solid transparent;
-  border-radius: 26px;
-  background: var(--surface2);
-  box-shadow: 0 2px 8px #00000008, 0 10px 30px #0000000a;
-}
-.fc-formal .composer:focus-within { border-color: var(--border); }
-html[data-theme="light"] .fc-formal .composer { background: #fff; border-color: #e7e7e7; color: #303030; box-shadow: 0 2px 6px #00000006, 0 8px 28px #0000000c; }
-html[data-theme="light"] .fc-formal .composer:focus-within { border-color: #dedede; }
-html[data-theme="light"] .fc-formal .composer textarea::placeholder { color: #898989; }
-html:is([data-theme="dark"], [data-theme="graphite"]) .fc-formal .composer { background: #303030; border-color: #3b3b3b; box-shadow: 0 3px 10px #0003, 0 12px 32px #0002; color: #ececec; }
-.fc-formal .composer-footer { display: flex; justify-content: space-between; align-items: center; gap: 6px; margin-top: 8px; }
-.fc-formal .composer-selectors { display: flex; align-items: center; gap: 4px; min-width: 0; flex-wrap: wrap; }
-.fc-formal .composer-right { margin-inline-start: auto; justify-content: flex-end; flex: 0 1 auto; }
-.fc-formal .send-button {
-  flex: none;
-  width: 34px;
-  height: 34px;
-  padding: 0;
-  border: 0;
-  border-radius: 50%;
-  background: var(--text);
-  color: var(--surface);
-  font-size: 24px;
-  line-height: 1;
-  cursor: pointer;
-  transition: transform .15s, background .15s;
-}
-.fc-formal .send-button:enabled:hover { transform: translateY(-1px); }
-.fc-formal .send-button:disabled { opacity: .3; cursor: not-allowed; }
 .fc-formal .model-trigger {
   display: flex;
   align-items: center;
@@ -194,34 +161,3 @@ html:is([data-theme="dark"], [data-theme="graphite"]) .fc-formal .composer { bac
 .fc-formal .model-trigger:hover { background: color-mix(in srgb, var(--text) 6%, transparent); color: var(--text); }
 .fc-formal .attach-trigger { width: 30px; height: 30px; display: grid; place-items: center; padding: 6px; }
 .fc-formal .attach-trigger svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; }
-
-.fc-formal .ai-task-surface {
-  border: 1px solid color-mix(in srgb, var(--text) 11%, var(--surface));
-  border-radius: 18px;
-  background: linear-gradient(145deg, color-mix(in srgb, var(--accent) 3%, var(--surface)), var(--surface) 65%);
-  box-shadow: 0 1px 3px #00000004, 0 8px 24px #0000000b, 0 20px 46px #00000005;
-}
-.fc-formal .ai-task-sent { width: 284px; max-width: 100%; padding: 10px 12px; text-align: left; }
-.fc-formal .ai-task-heading { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; min-width: 0; }
-.fc-formal .ai-task-heading .ai-task-title { margin: 0; font-size: 12px; }
-.fc-formal .ai-task-heading .ai-task-run-status {
-  margin-inline-start: auto;
-  flex-shrink: 0;
-  font-size: 8px;
-  line-height: 16px;
-  color: var(--text-dim);
-  white-space: nowrap;
-}
-.fc-formal .ai-task-objective { margin: 3px 0 7px; font-size: 10px; line-height: 1.55; color: var(--text-dim); }
-.fc-formal .ai-task-requirements {
-  margin: 0;
-  padding: 7px 8px;
-  background: rgb(128 128 128 / 3%);
-  border: 1px solid rgb(128 128 128 / 10%);
-  border-radius: 10px;
-  font-size: 10px;
-  line-height: 1.6;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-html:not([data-theme="light"]) .fc-formal .ai-task-requirements { background: rgb(255 255 255 / 3%); border-color: rgb(255 255 255 / 8%); }
