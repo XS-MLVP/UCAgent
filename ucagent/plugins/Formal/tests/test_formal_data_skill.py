@@ -56,9 +56,11 @@ def test_real_skill_inspect_and_structured_update_ignore_environment(skill_works
     inspected = json.loads(call_skill(skill_workspace, "inspect planning"))
     assert inspected["dut"] == "PacketRouter"
     assert inspected["records_artifact"] == "verification/.formal_records.yaml"
-    path = request_file(skill_workspace, {"section": "planning", "expected_sha256": inspected["sha256"],
-                                         "data": {"project_overview": "Independent routing verification"}})
-    updated = json.loads(call_skill(skill_workspace, f"update --request-file {path}"))
+    assert inspected["request_artifact"] == "verification/data_update.json"
+    path = skill_workspace / inspected["request_artifact"]
+    payload = {**inspected["ready_update"], "data": {"project_overview": "Independent routing verification"}}
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    updated = json.loads(RunSkillScript(workspace=str(skill_workspace)).invoke(inspected["update_call"]))
     assert updated["status"] == "updated"
     inspected = json.loads(call_skill(skill_workspace, "inspect planning --full --offset 0 --limit 5"))
     assert any(item["field"] == "project_overview" for item in inspected["data"]["items"])
@@ -152,6 +154,8 @@ def test_request_must_be_under_allowed_output_and_not_symlink(skill_workspace, t
         result = call_skill(skill_workspace, f"update --request-file {relative}")
         assert result.startswith("Command failed with exit code 2:")
         assert "not-to-be-read" not in result
+        if relative == "PacketRouter/private.json":
+            assert "verification/data_update.json" in result
     link = skill_workspace / "verification" / "linked.json"
     link.symlink_to(secret)
     assert "symlink" in call_skill(skill_workspace, "update --request-file verification/linked.json")

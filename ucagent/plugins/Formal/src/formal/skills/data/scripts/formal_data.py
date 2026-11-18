@@ -3,6 +3,7 @@
 import argparse
 import json
 from pathlib import Path
+from shlex import join
 import sys
 
 from formal.data import FormalDataStore
@@ -62,7 +63,9 @@ def main() -> int:
             relative = normalize_relative_path(args.request_file)
             relative_path = Path(relative)
             if not relative_path.is_relative_to(Path(output)):
-                raise ValueError("The update request file must be inside the current OUT directory")
+                name = "proof_request.json" if args.action == "proof" else "data_update.json"
+                suggested = (Path(output) / name).as_posix()
+                raise ValueError(f"The request file must be inside {output}. Save it as {suggested} and retry.")
             allowed, reason = is_file_writeable(relative, policy["un_write_dirs"], policy["write_dirs"])
             if not allowed:
                 raise ValueError(reason)
@@ -85,6 +88,11 @@ def main() -> int:
                 if not isinstance(payload, dict) or not required < set(payload) or set(payload) - required - {"data", "bodies"}:
                     raise ValueError("Update JSON requires section, expected_sha256, and data or bodies. A combined spec request accepts data.whitebox_signals and bodies only.")
                 result = store.update(payload["section"], payload.get("data"), payload.get("bodies"), payload["expected_sha256"])
+        if result.get("ready_update"):
+            request_artifact = (Path(output) / "data_update.json").as_posix()
+            result["request_artifact"] = request_artifact
+            arguments = join(("update", "--request-file", request_artifact))
+            result["update_call"] = {"commands": [["ext/formal/data", "formal_data.py", arguments]]}
         print(json.dumps(result, ensure_ascii=False, separators=(",", ":")))
         return 0 if result.get("status") not in {"error", "conflict"} else 2
     except (ValueError, TypeError, KeyError, OSError) as exc:

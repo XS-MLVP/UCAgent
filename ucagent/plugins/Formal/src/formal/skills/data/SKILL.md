@@ -17,9 +17,9 @@ description: 批量维护 Formal 任务数据、准备当前分析队列并核�
 
 可查看 `overview`、`planning`、`basic_info`、`spec`、`analysis`、`bugs`、`summary`。先用默认视图只看缺项和最小请求；需要修改既有正文时加`--full`，需要完整契约才加`--schema`，所有节选项一致。可选事实表不必重复填满。更新成功后直接使用返回的新sha256、剩余缺项和下一步，不必为确认写入再inspect。分页用`--offset/--limit`；basic_info.clock_count未知需核实，确无时钟才填0。
 
-1. 用普通文件工具把填好的 `ready_update` 写入输出目录下的 JSON 请求文件，例如 `formal_test/data_update.json`。
+1. 用普通文件工具把填好的 `ready_update` 写入工具返回的 `request_artifact`。路径随当前任务的 OUT 变化。
 2. 请求文件包含 `section`、`expected_sha256` 及 `data` 或 `bodies`。白盒绑定和属性可按指南中的 spec 请求一起提交。用文件路径调用 update。
-3. 调用：
+3. 使用同一响应返回的 `update_call`。例如：
 
 ```json
 {"commands":[["ext/formal/data","formal_data.py","update --request-file formal_test/data_update.json"]]}
