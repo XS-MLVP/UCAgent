@@ -39,15 +39,17 @@ def context(execution):
     config = {"parameters": records.spec.parameters if records.spec else {},
               "whitebox_signals": records.spec.whitebox_signals if records.spec else [],
               "clock_reset": build_clock_reset_alias_context(records), "extra_config": records.extra_config}
-    identity = {"files": files, "config": config, "policy": asdict(execution.policy),
+    identity = {"input_manifest_version": 2, "files": files, "config": config, "policy": asdict(execution.policy),
                 "tool": [str(tool), tool.stat().st_size, tool.stat().st_mtime_ns]}
     fingerprint = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
     return target, root, records, interface, executable, files, config, fingerprint
 
 
 def generate(execution, directory, records, interface, files):
-    """Build temporary wrapper/checker/Tcl only under this smoke run's frozen inputs."""
+    """Freeze smoke inputs and return the hashes of the generated solver files."""
     import jinja2
+
+    from .execution import PROOF_MARKER
 
     inputs = directory / "inputs"
     for name, digest in files.items():
@@ -83,10 +85,19 @@ def generate(execution, directory, records, interface, files):
     checker = "module " + execution.dut + "_checker" + (" #(" + parameters + ")" if parameters else "")
     checker += "(input logic " + env_clock + ");\n" if clock["has_clock"] else "();\n"
     checker += LABEL + ": cover property (" + ("@(posedge " + env_clock + ") " if clock["has_clock"] else "") + "1'b1);\nendmodule\n"
-    (tests / f"{execution.dut}_checker.sv").write_text(checker)
-    (tests / f"{execution.dut}_wrapper.sv").write_text(wrapper)
     tcl = env.get_template("tests/formal.tcl.j2").render(
         DUT=execution.dut, extra_config=records.extra_config, has_clock=clock["has_clock"], has_reset=clock["has_reset"],
         source_files=interface["source_files"], include_dirs=interface["include_dirs"])
-    (tests / f"{execution.dut}_formal.tcl").write_text(tcl)
-    (tests / "setup.tcl").write_text(tcl.split("# UCAGENT_PROOF_BEGIN")[0])
+    generated = {
+        f"{execution.dut}_checker.sv": checker,
+        f"{execution.dut}_wrapper.sv": wrapper,
+        f"{execution.dut}_formal.tcl": tcl,
+        "setup.tcl": tcl.split(PROOF_MARKER, 1)[0],
+    }
+    hashes = {}
+    for name, text in generated.items():
+        path = tests / name
+        content = text.encode("utf-8")
+        path.write_bytes(content)
+        hashes[str(path.relative_to(inputs))] = hashlib.sha256(content).hexdigest()
+    return hashes

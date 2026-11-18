@@ -9,6 +9,7 @@ import time
 import pytest
 import yaml
 
+from formal.diagnostics import analyze
 from formal.execution import FormalExecution, ACTIVE_RUNS
 from formal.tools import RunFormal
 from ucagent.util.config import Config
@@ -51,6 +52,20 @@ def test_actual_toolchain_smoke_has_no_official_ck_or_generation(tmp_path, clock
         assert complete["status"] == "COMPLETED", complete
         assert complete["preflight_complete"] and not complete["proof_complete"]
         assert complete["counts"] == {"COVER_REACHED": 1}
+        run_dir = output / "formal_runs" / result["run_id"]
+        manifest = json.loads((run_dir / "state.json").read_text())["files"]
+        for name in ("DUT_formal.tcl", "setup.tcl", "DUT_checker.sv", "DUT_wrapper.sv"):
+            relative = f"proofs/tests/{name}"
+            frozen = run_dir / "inputs" / relative
+            assert manifest[relative] == hashlib.sha256(frozen.read_bytes()).hexdigest()
+        if clocked:
+            diagnostic = analyze(execution, result["run_id"], "environment", None, None)
+            assert diagnostic["status"] == "completed", diagnostic
+            assert all(row["complete"] for row in diagnostic["observations"].values())
+            wrapper = run_dir / "inputs/proofs/tests/DUT_wrapper.sv"
+            wrapper.write_text(wrapper.read_text() + "\n// Altered after freezing.")
+            with pytest.raises(ValueError, match="archived Formal inputs have changed"):
+                analyze(execution, result["run_id"], "environment", None, None)
         assert execution.check_smoke()["preflight_complete"]
         assert path.read_bytes() == before
         assert not (output / "tests").exists()

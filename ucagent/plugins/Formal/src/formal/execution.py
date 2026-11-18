@@ -668,14 +668,14 @@ class FormalExecution:
             run_id = uuid.uuid4().hex
             directory = root / run_id
             directory.mkdir()
-            generate(self, directory, records, interface, files)
+            generated = generate(self, directory, records, interface, files)
             state = {"run_id": run_id, "fingerprint": fingerprint, "status": "PREPARING",
                      "scope": "preflight", "selected_properties": [], "selected_labels": {},
                      "selected_ck_ids": [], "unimplemented_ck_ids": [], "semantic_inputs": None,
                      "smoke_labels": [LABEL], "batch_context": None, "smoke_config": config,
                      "expected_labels": [LABEL], "checkpoint_ids": {}, "workspace": str(self.workspace),
                      "output_dir": self.output_dir, "dut": self.dut, "executable": executable,
-                     "policy": asdict(self.policy), "created_at": time.time(), "files": files,
+                     "policy": asdict(self.policy), "created_at": time.time(), "files": {**files, **generated},
                      "properties": {}, "decisions": [], "checkpoints": [], "error": None}
             atomic_json(directory / "state.json", state)
             write_report(directory, state)
