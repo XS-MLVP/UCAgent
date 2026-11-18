@@ -706,15 +706,6 @@ function syncSkillPathControl() {
   extraSkillPath.disabled = !enabled;
 }
 
-function syncBackendMcpFileToolsOption() {
-  const backend = document.getElementById('backend')?.value.trim().toLowerCase();
-  const noFileTools = document.querySelector('[data-launch-key="mcp_server_no_file_tools"]');
-  if (!backend || !noFileTools) return;
-  if (backend !== 'langchain') {
-    noFileTools.checked = true;
-  }
-}
-
 function getExtraArgsField() {
   return document.querySelector('[data-launch-key="extra_args"]');
 }
@@ -784,7 +775,6 @@ function syncCfgBashOverrideExtraArgs() {
 }
 
 function collectDynamicLaunchOptions() {
-  syncBackendMcpFileToolsOption();
   syncSkillPathControl();
   const fields = [...document.querySelectorAll('[data-launch-key]')];
   const options = {};
@@ -1290,6 +1280,7 @@ function buildBatchCommandPreview() {
   if (dynamicOptions.human) args.push('-hm');
   if (dynamicOptions.tui) args.push('--tui');
   if (dynamicOptions.loop) args.push('-l');
+  if (dynamicOptions.mcp_server) args.push('--mcp-server');
   if (dynamicOptions.mcp_server_no_file_tools) args.push('--mcp-server-no-file-tools');
   const backend = document.getElementById('backend').value.trim();
   if (backend) args.push('--backend', backend);
@@ -2568,6 +2559,7 @@ function buildCommandPreview() {
   if (dynamicOptions.human) args.push('-hm');
   if (dynamicOptions.tui) args.push('--tui');
   if (dynamicOptions.loop) args.push('-l');
+  if (dynamicOptions.mcp_server) args.push('--mcp-server');
   if (dynamicOptions.mcp_server_no_file_tools) args.push('--mcp-server-no-file-tools');
   if (dynamicOptions.use_skill === true) args.push('--use-skill');
   if (dynamicOptions.use_skill === false) args.push('--no-use-skill');
@@ -2582,7 +2574,7 @@ function buildCommandPreview() {
   for (const [key, value] of Object.entries(meta)) {
     args.push('--meta', `${key}=${value}`);
   }
-  const consumedKeys = new Set(['stream_output', 'human', 'tui', 'loop', 'mcp_server_no_file_tools', 'use_skill', 'extra_skill_path', 'use_zip_workspace', 'workspace_base']);
+  const consumedKeys = new Set(['stream_output', 'human', 'tui', 'loop', 'mcp_server', 'mcp_server_no_file_tools', 'use_skill', 'extra_skill_path', 'use_zip_workspace', 'workspace_base']);
   for (const [key, value] of Object.entries(dynamicOptions)) {
     if (consumedKeys.has(key)) continue;
     if (key === 'extra_args' && Array.isArray(value) && value.length) {
@@ -2910,7 +2902,6 @@ function applyLaunchYamlFields(spec) {
     setSelectValueIfAvailable('launch-mode', fields.launch_mode);
     renderLaunchModeStatus();
   }
-  syncBackendMcpFileToolsOption();
   syncCfgBashOverrideExtraArgs();
   updateLaunchState();
 }
@@ -3932,7 +3923,6 @@ function applyLaunchDefaults(config, options = {}) {
   }
   setSelectValueIfAvailable('launch-mode', firstLaunchModeValue(config.launch_mode));
   applyWorkspaceBaseDefault(true);
-  syncBackendMcpFileToolsOption();
   syncCfgBashOverrideExtraArgs();
   renderLaunchModeStatus();
   syncRelaunchForceStageIndex();
@@ -4216,7 +4206,6 @@ document.addEventListener('change', async (event) => {
       'task-name', 'dut-name', 'config-path', 'backend', 'launch-mode', 'output', 'workspace-base', 'master-override', 'picker-args',
     ].includes(target.id)) {
       if (target.id === 'backend') {
-        syncBackendMcpFileToolsOption();
         syncCfgBashOverrideExtraArgs();
       }
       if (target.id === 'launch-mode') {
@@ -4273,7 +4262,6 @@ document.addEventListener('input', async (event) => {
       state.manualWorkspaceBase = true;
     }
     if (event.target.id === 'backend') {
-      syncBackendMcpFileToolsOption();
       syncCfgBashOverrideExtraArgs();
     }
     if (event.target.id === 'launch-mode') {

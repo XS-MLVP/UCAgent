@@ -153,7 +153,7 @@ test('applying unrelated launch defaults preserves a manual simulator selection'
   const page = launchPage();
   page.choose('vcs');
   page.evaluate(`renderDynamicLaunchSettings = () => {}; setSelectValueIfAvailable = () => {};
-    applyWorkspaceBaseDefault = () => {}; syncBackendMcpFileToolsOption = () => {};
+    applyWorkspaceBaseDefault = () => {};
     syncCfgBashOverrideExtraArgs = () => {}; renderLaunchModeStatus = () => {};
     syncRelaunchForceStageIndex = () => {}; syncRelaunchLockedFields = () => {};
     applyLaunchDefaults({output: 'other-output'});`);

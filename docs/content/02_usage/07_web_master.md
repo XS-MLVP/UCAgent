@@ -125,6 +125,12 @@ launch:
 
 仿真器选择适用于单任务和批量编译。批量运行期间，每个编译与启动请求均使用开始时勾选的仿真器。切换仿真器后须重新编译才能启动任务。任务启动与 Relaunch 复用已有编译产物记录的仿真器，不再检测编译工具是否可用。单任务 YAML 导入使用顶层 `simulator: vcs`，编译 API 使用字符串请求字段 `simulator`，省略时按配置顺序选择第一个可用项；批量任务统一使用表单选择。附加 `picker_args` 用于其他参数，不能覆盖 `--sim`、`--rw` / `--access-mode` 或 `-w` / `--wave_file_name`。
 
+Launch 默认设置 `mcp_server: true`、`mcp_server_no_file_tools: false`，为新任务启动包含文件工具的 MCP；实际工具仍受工作流注册、`tools.ignore_tools` / `tools.selected_tools` 和文件权限约束。切换 backend、生成命令预览与提交单个或批量任务均保留文件工具开关的当前选择。
+
+普通任务工作流可以用 `runtime_options.required_mcp_tools` 声明必需的 MCP 工具名列表，默认空列表表示没有额外要求。MCP 启动前检查最终工具集合；缺失必需工具时返回缺失项与恢复方式。UnitTest 的 unittest、incremental、vibe 工作流要求 `ReadTextFile`、`EditTextFile`、`ReplaceStringInFile`、`DeleteTextLines`，因此不能使用禁用文件工具的 MCP 模式。多 Agent 监督器的 MCP 端点按委派权限提供工具，不套用业务工作流的这份清单。
+
+默认配置只影响新启动的任务。已有任务需先暂停执行，在该任务自己的 Console 中停止 MCP，再使用 `start_mcp_server`（不带 `--no-file-ops`）按原 host/port 启动；确认 `mcp_server_status` 的 `no_file_ops` 为 false，并让客户端重新连接、发现工具后继续。仅刷新 Launch 页面不会更新运行中任务的工具列表。
+
 ### 4.2 建议实践
 
 1. 每次调整主模块后重新编译

@@ -36,6 +36,23 @@ def _collect_mcp_tools(agent: Any, no_file_ops: bool) -> List[Any]:
             from ucagent.util.functions import get_tools_from_cfg
 
             tools = get_tools_from_cfg(tools, tool_config)
+    # Workflow requirements apply to the business endpoint; supervisors above
+    # deliberately expose delegation tools instead of the workers' file tools.
+    runtime_options = getattr(getattr(agent, "cfg", None), "runtime_options", {})
+    if hasattr(runtime_options, "as_dict"):
+        runtime_options = runtime_options.as_dict()
+    required = runtime_options.get("required_mcp_tools", [])
+    if not isinstance(required, list) or any(not isinstance(name, str) or not name.strip() for name in required):
+        raise ValueError("runtime_options.required_mcp_tools must be a list of nonempty tool names")
+    available = {tool.name for tool in tools}
+    missing = sorted(set(required) - available)
+    if missing:
+        raise ValueError(
+            f"Required workflow MCP tools are unavailable: {', '.join(missing)}. "
+            "Start MCP with --mcp-server without --mcp-server-no-file-tools "
+            "(Console: start_mcp_server without --no-file-ops), and check "
+            "tools.ignore_tools/selected_tools and the workflow tool registrations."
+        )
     return tools
 
 
