@@ -221,6 +221,7 @@ launch:
     human: true                       # -hm flag
     tui: true                         # --tui flag
     backend: "opencode"               # --backend flag, options: langchain, claude, opencode, copilot, qwen, iflow, kilo, codex
+    mcp_server: true                  # start MCP independently of file-tool visibility
     mcp_server_no_file_tools: false
     force_stage_index: 0              # stage index to start
     exit_on_completion: true          # --exit-on-completion flag
@@ -539,6 +540,7 @@ vibe_coding:
 
 # Disabled mode retains the existing agent, tools and execution loop.
 runtime_options:
+  required_mcp_tools: []  # exact tool names required by a single-agent workflow MCP endpoint
   multi_agent_enabled: false
   workflow_handoff_enabled: false
 

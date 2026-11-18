@@ -21,6 +21,7 @@ mission:
         - 多个工具都能完成一个任务时，优先使用更适合的工具，或者同时使用多个工具来完成任务。
 
 runtime_options:
+  required_mcp_tools: [ReadTextFile, EditTextFile, ReplaceStringInFile, DeleteTextLines]
   need_ref_model: $(NEED_REF_MODEL: false)
   mock_components_enabled: not $(IGNORE_MOCK_COMPONENT: true)
   # Ordered enabled formats. Register a reader before adding another extension.

@@ -67,9 +67,10 @@ def build_launch_plan(request: LaunchRequest, cfg) -> LaunchPlan:
     managed = (cfg.get_value("runtime_options.multi_agent_enabled", False)
                and backend_class.capabilities.managed_sessions)
     if model_requested and backend_class.requires_mcp and not start_mcp and not managed:
-        raise ValueError(f"backend={cfg.backend.key_name!r} requires '--mcp-server-no-file-tools' or '--mcp-server': "
+        raise ValueError(f"backend={cfg.backend.key_name!r} requires '--mcp-server' or '--mcp-server-no-file-tools': "
                          "command-line backends communicate with UCAgent through MCP; "
-                         "enable '--mcp-server-no-file-tools' (recommended).")
+                         "enable '--mcp-server' for the full configured tool set. Use '--mcp-server-no-file-tools' "
+                         "only when the workflow does not require file tools.")
     return LaunchPlan(mode, cfg.backend.key_name, request.interface, request.services,
         request.service_commands, request.commands, default_model, model_requested,
         not request.task_options.get("no_embed_tools", False),

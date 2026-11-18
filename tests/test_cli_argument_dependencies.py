@@ -1,3 +1,5 @@
+"""Validate CLI option dependencies and service startup ordering."""
+
 from ucagent.application.plan import LaunchRequest
 import os
 import sys
@@ -118,8 +120,10 @@ def test_command_backend_requires_mcp_after_final_config(tmp_path):
     config = tmp_path / "launch.yaml"
     config.write_text("workflow: null\nbackend:\n  key_name: claude\n")
     args = _parse_args(str(tmp_path), "DUT", "--config", str(config))
-    with pytest.raises(ValueError, match="requires.*--mcp-server-no-file-tools"):
+    with pytest.raises(ValueError, match="requires.*--mcp-server") as error:
         prepare_launch(LaunchRequest(**parse_launch_options(args)))
+    assert "enable '--mcp-server' for the full configured tool set" in str(error.value)
+    assert "--mcp-server-no-file-tools' (recommended)" not in str(error.value)
 
 
 @pytest.mark.parametrize("mcp_option", ["--mcp-server", "--mcp-server-no-file-tools"])
