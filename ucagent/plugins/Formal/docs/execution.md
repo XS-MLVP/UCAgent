@@ -79,6 +79,42 @@ the manifest and headers, so edits invalidate current evidence. Scalar packed
 integral ports remain the supported interface. This is not a full SystemVerilog
 project build system.
 
+## Disposable smoke and official verification
+
+Stage 5 uses `RunFormal(action="preflight")` as a tool-generated, isolated smoke
+check. It compiles the DUT with its effective interface/parameter context and
+starts a minimal solver check; it does not require implemented official CKs or
+consume their Assume/Assert/Cover expressions. Smoke artifacts remain separate
+from official checker inputs, proof counts, Bug analysis and coverage acceptance.
+This is toolchain health evidence, not a functional or environment-soundness proof.
+
+Stage 6 first implements the planned official assumptions (`prepare sva
+--assumptions` when using the optional data Skill), then implements and verifies
+FCs. Each batch performs normal preflight. Local property/binding corrections do
+not require a stage-5 rewind. Shared environment changes invalidate incompatible
+batch evidence; unchanged results must still match actual inputs and original
+artifacts before reuse. No official property is frozen as part of smoke.
+
+Stage 6 exposes one `current_fc` through `RunFormal(action="pending")`.
+Implementation, an exact selected run, and disposition of its exceptions precede
+advancing to another FC. `review_fc` accepts `{ck_id, run_id, classification,
+reason}` entries, validates original evidence and current shared inputs, and
+records local interpretation without publishing a full-run verdict. PROVEN and
+COVER_REACHED need no manual acknowledgement; ENV_PENDING cannot close a FC.
+A formally deferred UNPROVEN target remains a disclosed gap, not a proof or Bug.
+
+The local reviews are tied to target semantics and shared execution context.
+Changing a single target reopens its work; changing assumptions/setup invalidates
+incompatible reviews. They are context for stage-7 analysis, not automatically
+translated RTL_BUG conclusions against a different full-run witness.
+
+Stage 7 runs the final official full input, reviews new/different outcomes and
+closes meaningful coverage gaps. Any necessary repair remains within the current
+stage: no automatic GoToStage rewind is used as a validation repair mechanism.
+Reuse applicable prior analysis, but never merge selected results or smoke success
+into full acceptance. Authentic DUT failures remain failures and deferred targets
+remain UNPROVEN.
+
 ## Configuration
 
 Override the resolved workflow configuration, for example:

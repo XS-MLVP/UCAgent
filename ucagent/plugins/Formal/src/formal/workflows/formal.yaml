@@ -213,7 +213,7 @@ stage:
       - "每个 FC 填写 title、description 和 review_order。title 用一行短句说清想验证的行为或场景（最多 60 字）；description 补充适用条件、预期行为与边界。"
       - "先按依赖关系排列 FG，再给各组 FC 分配组内唯一的正整数 review_order。先审阅前置条件与基本行为，再看边界与异常。同组例如 1 单次入队，2 入队至满，3 满后再尝试入队；按实际规格设计。"
       - "使用可选数据技能 inspect spec/结构化update，或用普通文件工具维护完整spec；Complete统一校验FG/FC/CK所有层次，不重复分阶段填表。"
-      - "把有规格依据的环境义务记在「验证环境约束」功能组的 CK 计划中，记录接口、触发条件和预期行为。第 5 阶段实现并验证这些约束。参照 Guide_Doc/functions_and_checks.md 的环境义务规划示例。"
+      - "把有规格依据的环境义务记在「验证环境约束」功能组的 CK 计划中，记录接口、触发条件和预期行为。第 6 阶段实现并验证这些正式约束；第 5 阶段临时冒烟不使用它们。参照 Guide_Doc/functions_and_checks.md 的环境义务规划示例。"
       - "本阶段只负责维护 YAML 子树 `spec`；`03_{DUT}_functions_and_checks.md` 是派生产物，禁止直接编辑。"
       - "参考 `Guide_Doc/functions_and_checks.md` 的标签规范与高级模式。"
     reference_files:
@@ -237,8 +237,8 @@ stage:
     desc: "SVA 批次与信号规划"
     task:
       - "核对已有 FG/FC/CK 的规格依据和 review_order。每个 FC 以一个功能目标组织 CK，按 review_order 实现。"
-      - "在 spec 中标记少量共享基础检查点为 baseline: true。Assume 自动归入基础。为第 5 阶段选定至少一个能检查基本事务可达性的基础 Cover，有复位时覆盖释放后的基本交互。"
-      - "在 .formal_records.yaml 记录需要的白盒绑定、有效参数和真实时钟复位。查询实际接口和位宽，阶段 5 会依据这些输入编译基础环境。"
+      - "核对规划中的正式 Assume、Assert 和 Cover 均有独立规格依据。按依赖顺序安排环境义务和功能点；第 5 阶段的临时冒烟由工具自动生成，不为它规划正式 CK。"
+      - "在 .formal_records.yaml 记录需要的白盒绑定、有效参数和真实时钟复位。查询实际接口和位宽，阶段 5 会依据这些输入做独立工具链冒烟。"
     reference_files:
       - "{OUT}/.formal_records.yaml"
       - "Guide_Doc/sva_property.md"
@@ -250,16 +250,14 @@ stage:
         args:
           dut_name: "{DUT}"
 
-  # ========== Stage 5: Baseline SVA and Preflight ==========
+  # ========== Stage 5: Disposable Toolchain Smoke ==========
   - name: script_generation
-    desc: "验证环境约束与 FormalMC 预检"
+    desc: "工具链编译与启动冒烟"
     task:
-      - "只实现基础 CK。可用 prepare sva --baseline 领取基础 CK，或用普通文件工具填写对应 sva_body。Assume 全部属于基础。"
-      - "在「验证环境约束」功能组中实现有规格依据的环境义务。独立端口各自握手并响应时，在同一 FC 下按端口各写一个 Assume CK。若计划把独立义务合在一个 CK 中，先修正条目再写 sva_body。按规格保留跨端口依赖和响应时限。参照 Guide_Doc/sva_property.md 的多端口公平性约束示例。"
-      - "确认真实时钟、复位、参数、白盒绑定和 TCL 配置。生成的 Tcl、Wrapper 和 Checker 由插件维护。"
-      - "调用 RunFormal(action=preflight)。加载全部基础 Assume，用已标记的基础 Cover 检查约束下的关键交互是否可达。FormalMC 编译并列举属性，只求解这些 Cover。用返回的 run_id 查询 status，依据 diagnostics 修复属性或配置。"
-      - "基础 Cover 异常时，用 AnalyzeFormal(mode=environment, run_id=...) 检查实际时钟、复位和约束，必要时用 mode=overconstraint 做有界诊断。"
-      - "基础 Cover 达到预期可达性后调用 Complete，系统冻结基础 CK 和共用配置。后续修改基础约定时，回到本阶段修订 YAML、重新预检并接受新基线。"
+      - "本阶段只确认原始 RTL、接口参数、时钟复位配置与 FormalMC 工具链可编译、展开并启动。不要实现正式 CK，不编写功能断言或 Assume 来完成冒烟。"
+      - "调用 RunFormal(action=preflight)。工具在隔离目录自动创建临时最小环境和冒烟属性，不采用正式 CK 的表达式；用返回的 run_id 查询 status，按 diagnostics 修正具体源码依赖、参数或工具运行问题。"
+      - "成功后记录日志并 Complete。冒烟结果只代表工具链可用，不代表设计正确、环境约束合理或功能可达；其临时属性不参与正式 CK 结果、分析及覆盖验收。"
+      - "接口和配置供后续复用，但不冻结正式属性或 Assume。后续每批自动预检，局部语法/绑定错误就地修复，不因修改正式属性退回本阶段。"
     reference_files:
       - "{OUT}/.formal_records.yaml"
       - "Guide_Doc/sva_property.md"
@@ -276,15 +274,16 @@ stage:
   - name: environment_debugging_iteration
     desc: "按功能点实现 SVA 与定向验证"
     task:
-      - "按 FC 领取待实现属性。技能可用时使用 prepare sva，指定 FC 用 --function。无技能时按记录中的 review_order 选择一个 FC，仅填写该批 SVA。"
+      - "第 5 阶段的临时属性不复用。先按规划实现有规格依据的正式环境 Assume，技能可用时用 prepare sva --assumptions 领取，否则用普通文件工具填写；再按 FC 实现正式 Assert/Cover。独立端口的环境义务各有独立 CK，保留真实协议依赖；不限制 DUT 输出来消除反例。"
+      - "用 RunFormal(action=pending) 领取 current_fc 及其下一步。技能可用时 prepare sva 领取同一 FC 的待填表达式，无技能时仅用普通文件工具实现 current_fc。当前 FC 未完成运行与异常处置前，不实现后续 FC，不提前填写整套 SVA。"
       - "用 RunFormal(action=run, scope=selected, fc_id=...) 定向运行该 FC 已实现的功能 Assert/Cover。只复验部分目标时改传 ck_ids。记录 run_id，未选目标保持未执行。"
-      - "已有定向结果时，先用 RunFormal(action=pending) 查看当前基线下的待复验 CK，按首个可执行批次返回的 run_call 提交。"
-      - "每条属性先运行 5 分钟，慢队列补到累计 20 分钟。REVIEW 就绪时查看属性、报告和日志。结合规格选择局部修订、带依据的延长求解或暂缓，然后推进后续 FC。暂缓仍为 UNPROVEN。"
+      - "已有定向结果时，先用 RunFormal(action=pending) 查看当前公共输入下的待复验 CK，按首个可执行批次返回的 run_call 提交。"
+      - "每条属性先运行 5 分钟，慢队列补到累计 20 分钟。REVIEW 时优先检查目标、逻辑锥与环境；无新策略时用 RunFormal review 的 defer 记录依据及恢复条件，保留 UNPROVEN 后推进，不仅因兄弟属性通过就反复延长。确有新诊断或策略才 retry。"
       - "分析空泛性或慢断言时，用 AnalyzeFormal(mode=sanity 或 fanin, run_id=..., property_name=...) 获取工具诊断，再结合规格决定是否修订。"
       - "怀疑慢断言存在有限深度的反例时，可以用 AnalyzeFormal(mode=bounded_search, run_id=..., property_name=..., depth=...) 在隔离环境搜索。"
-      - "反例先核对规格、属性和证据。工作流保持基础 CK、共享 Assume、时钟复位和依赖绑定冻结。拆分时在补充 CK 填 parent_ck_id，保留原目标和原目标的未决状态。"
+      - "每个 FC 完成实现、定向验证和问题处置的小闭环：先排除属性或环境错误，保留有依据的真实 Fail 与未证明缺口。发现共享 Assume 或配置错误可按规格修订，并重新验证受影响目标，在当前阶段补验证，不跳回第 5 阶段，也不沿用不适用的旧 Pass。拆分时用 parent_ck_id 保留原目标关系。"
       - "修改单时钟安全断言后，可以用 AnalyzeFormal(mode=replay, run_id=原批次, property_name=原属性名) 在旧反例上检查修改，再做定向证明。"
-      - "本阶段检查所有 CK 已实现，以及当前各功能属性均有可追溯的定向尝试。完整回归和正式反例归因在下一阶段。完整批次的证据由可选 prepare analysis 或普通工具维护。"
+      - "使用 RunFormal(action=review_fc, fc_id=..., reviews=...) 提交当前 FC 的异常分类与依据，具体请求采用 pending 返回的模板。ENV_PENDING 表示环境/属性问题未解决，不可关闭当前 FC；修订后局部复验。真实 RTL 反例保持 Fail，平凡证明和不可达 Cover 要有明确审阅，暂缓保留缺口，不要求全部 Pass。所有 FC 都有当前有效处置后才 Complete。"
     reference_files:
       - "{OUT}/.formal_records.yaml"
       - "Guide_Doc/sva_property.md"
@@ -302,9 +301,9 @@ stage:
     desc: "完整验证与覆盖率收敛"
     task:
       - "先对当前版本运行一轮完整 Formal。继续处置实验中的 UNPROVEN；汇总仍未决项并记录恢复条件。定向证据用于修订，最终验收读取完整批次。"
-      - "技能可用时用 prepare analysis 领取当前反例、恒真和不可达 Cover，一次性核对规格、前提和真实证据。无技能时用 RunFormal evidence 和普通文件工具维护 analysis。首次 RTL_BUG 分析记录 expected_requirement 和当前证据绑定，供 Bug 报告和总结复用。"
+      - "收尾以完整回归和覆盖缺口为主，核对第 6 阶段的局部结果与当前完整批次是否一致；版本与证据仍适用的分析复用，只有新增/变化的反例或跨 FC 问题重新审阅。技能可用时 prepare analysis 领取正式待审队列，否则用 RunFormal evidence 和普通文件工具维护 analysis。首次 RTL_BUG 分析记录规格关系与当前证据绑定，不将失败属性数直接当 Bug 数。"
       - "根据当前完整批次的结构覆盖缺口与规格补充独立目标。仅修订相关 CK 时先定向复验，确认后合入完整批次。规格未要求的场景记录处置依据；COI 与功能证明状态分别核对。"
-      - "依据最新完整批次的 fanin 和证明证据完成覆盖验收与分析。输入版本一致时复用完整批次，暂缓项继续标为 UNPROVEN。"
+      - "依据最新完整批次的 fanin 和证明证据完成覆盖验收与分析。输入版本一致时复用完整批次，暂缓项继续标为 UNPROVEN。新增目标只为规格和真实覆盖缺口服务，不为提高断言数量。集成发现环境或属性问题时在本阶段修复、定向复验后完整回归，不跳回第 5 或第 6 阶段；仍未解决的环境问题不可冒充 RTL Bug 或完成。"
       - "对已证明不可达的 Cover，可用 AnalyzeFormal(mode=unreachable, run_id=..., property_name=...) 查看原生诊断。诊断结果与正式批次分别记录。"
     reference_files:
       - "{OUT}/.formal_records.yaml"

@@ -97,7 +97,7 @@ if not match and 'file rename -force request.tcl active.tcl' not in script:
         original = Path(re.search(r'source "([^"]+)"', script).group(1))
         checker = original.with_name('DUT_checker.sv')
         lines = checker.read_text().splitlines()
-        index = next(i for i, line in enumerate(lines, 1) if re.search(r'property\s+.*CK_READY\b', line))
+        index = next(i for i, line in enumerate(lines, 1) if 'C_UCAGENT_TOOLCHAIN_SMOKE' in line or re.search(r'property\s+.*CK_READY\b', line))
         print(f'Error: {checker}({index + 1}): invalid property expression', flush=True)
         sys.exit(2)
     print('UCAGENT_ASSERT_BEGIN', flush=True)
@@ -883,7 +883,7 @@ def test_repair_then_selected_proof_and_full_regression(execution_factory):
     assert saved["run_results"]["run_id"] != selected["run_id"]
 
 
-def test_frozen_preflight_and_function_batches_are_separate_from_full_acceptance(execution_factory, monkeypatch):
+def test_disposable_preflight_and_function_batches_are_separate_from_full_acceptance(execution_factory, monkeypatch):
     """Exercise phase 5–7 receipts across two incremental FC revisions."""
     import yaml
     from formal.baseline import function_batch_progress
@@ -904,7 +904,7 @@ def test_frozen_preflight_and_function_batches_are_separate_from_full_acceptance
     out = workspace / "output"
     path = out / ".formal_records.yaml"
     shared = {"id": "CK-READY", "style": "Cover", "description": "Check one attainable transaction",
-              "sva_body": "@(posedge clk) a;", "baseline": True}
+              "sva_body": "@(posedge clk) a;"}
     ck_first = {"id": "CK-FIRST", "style": "Comb", "description": "No output when input is clear"}
     ck_second = {"id": "CK-SECOND", "style": "Comb", "description": "Both inputs assert output"}
     records = {"dut": "DUT", "basic_info": {"clock_reset": {"clock_signal": "clk"}}, "spec": {"function_groups": [
@@ -917,16 +917,16 @@ def test_frozen_preflight_and_function_batches_are_separate_from_full_acceptance
     path.write_text(yaml.safe_dump(records))
     tool = RunFormal(str(workspace), "output", "DUT", runtime_cfg)
     store = FormalDataStore(str(workspace), "output", "DUT", cfg=runtime_cfg)
+    monkeypatch.setenv("FAKE_FORMAL_PROPERTIES", json.dumps([{"name": "C_UCAGENT_TOOLCHAIN_SMOKE", "kind": "cover"}]))
     monkeypatch.setenv("FAKE_FORMAL_COMPILE_ERROR", "1")
     bad = tool.invoke({"action": "preflight"})
     failed = wait_for(execution, lambda item: item["status"] not in ACTIVE_RUNS,
                       scope="preflight", run_id=bad["run_id"])
     assert failed["error_code"] == "formal_tool_compile_error", failed
-    assert failed["diagnostics"][0]["ck_id"] == "CK-READY"
     assert failed["diagnostics"][0]["path"] == "output/tests/DUT_checker.sv"
     cached = tool.invoke({"action": "preflight"})
     assert cached["run_id"] == bad["run_id"]
-    assert cached["reused_compile_failure"]
+    assert cached["status"] == "ERROR"
     monkeypatch.delenv("FAKE_FORMAL_COMPILE_ERROR")
     monkeypatch.setenv("FAKE_FORMAL_PREPARATION_ERROR", "1")
     transient = tool.invoke({"action": "preflight", "retry_prepare": True})
@@ -935,25 +935,24 @@ def test_frozen_preflight_and_function_batches_are_separate_from_full_acceptance
                       scope="preflight", run_id=transient["run_id"])
     assert status["error_code"] == "formal_tool_preparation_error"
     monkeypatch.delenv("FAKE_FORMAL_PREPARATION_ERROR")
-    preflight = tool.invoke({"action": "preflight"})
+    preflight = tool.invoke({"action": "preflight", "retry_prepare": True})
     assert preflight["run_id"] != transient["run_id"]
     smoke = wait_for(execution, lambda item: item["status"] not in ACTIVE_RUNS,
                      scope="preflight", run_id=preflight["run_id"])
     assert smoke["status"] == "COMPLETED", smoke
     assert smoke["counts"] == {"COVER_REACHED": 1}
-    assert "CK_FIRST" not in (out / "tests" / "DUT_checker.sv").read_text()
+    assert "CK_FIRST" not in (out / "formal_runs" / preflight["run_id"] / "inputs/output/tests/DUT_checker.sv").read_text()
     assert execution.status()["status"] == "NOT_STARTED"
-    assert execution.freeze_baseline(accept=False)["preflight_complete"]
+    assert execution.check_smoke()["preflight_complete"]
     assert not (out / "formal_runs" / "baseline.json").exists()
-    assert execution.freeze_baseline()["preflight_complete"]
+    assert execution.check_smoke()["preflight_complete"]
     first_batch = store.prepare("sva")
     assert first_batch["fc_id"] == "FC-FIRST"
     assert first_batch["run_call"] == {"action": "run", "scope": "selected", "fc_id": "FC-FIRST"}
     assert store.prepare("sva", function="FC-SECOND")["check_points"]["items"][0]["property_name"] == second
     with pytest.raises(ValueError, match="Implement the selected Assert/Cover"):
         tool.invoke({"action": "run", "scope": "selected", "ck_ids": ["CK-SECOND"]})
-    with pytest.raises(ValueError, match="Frozen Formal baseline changed"):
-        store.update("spec", None, {"CK-READY": "@(posedge clk) b;"}, store.inspect("spec")["sha256"])
+    # Smoke never freezes official properties or consumes their results.
 
     def run_selected(name, known, **selector):
         """Generate a real checker and record exactly the diagnostic target."""
@@ -972,26 +971,27 @@ def test_frozen_preflight_and_function_batches_are_separate_from_full_acceptance
     ck_first["sva_body"] = "!a |-> !y;"
     path.write_text(yaml.safe_dump(records))
     run_selected(first, [first], ck_ids=["CK-FIRST"])
-    assert function_batch_progress(execution, FormalRecords.model_validate(records))["pending"] == ["CK-SECOND"]
+    assert function_batch_progress(execution, FormalRecords.model_validate(records))["pending"] == ["CK-READY", "CK-SECOND"]
     plan = tool.invoke({"action": "pending"})
-    assert plan["batches"] == [{"fg_id": "FG-FUNCTION", "fc_id": "FC-SECOND", "ready_ck_ids": [],
-                                "unimplemented_ck_ids": ["CK-SECOND"], "run_call": None}]
+    assert plan["batches"][0]["fc_id"] == "FC-SECOND"
+    assert plan["batches"][0]["phase"] == "implement"
+    assert plan["batches"][0]["unimplemented_ck_ids"] == ["CK-SECOND"]
+    assert plan["batches"][0]["run_call"] is None
     with pytest.raises(ValueError, match="Complete all SVA"):
         tool.invoke({"action": "run"})
     ck_second["sva_body"] = "(a && b) |-> y;"
     path.write_text(yaml.safe_dump(records))
     run_selected(second, [first, second], fc_id="FC-SECOND")
     current = FormalRecords.model_validate(records)
-    assert function_batch_progress(execution, current)["pending"] == []
+    assert function_batch_progress(execution, current)["pending"] == ["CK-READY"]
     assert execution.status()["status"] == "NOT_STARTED"
     ck_first["sva_body"] = "!b |-> !y;"
     path.write_text(yaml.safe_dump(records))
     render_environment(str(workspace), "output", "DUT")
-    assert function_batch_progress(execution, FormalRecords.model_validate(records))["pending"] == ["CK-FIRST"]
+    assert function_batch_progress(execution, FormalRecords.model_validate(records))["pending"] == ["CK-FIRST", "CK-READY"]
     plan = tool.invoke({"action": "pending"})
-    assert plan["batches"][0]["run_call"] == {"action": "run", "scope": "selected", "ck_ids": ["CK-FIRST"]}
+    assert plan["batches"][0]["run_call"] == {"action": "run", "scope": "selected", "fc_id": "FC-FIRST"}
 
     shared["sva_body"] = "@(posedge clk) b;"
     path.write_text(yaml.safe_dump(records))
-    with pytest.raises(ValueError, match="Frozen Formal baseline changed"):
-        tool.invoke({"action": "run", "scope": "selected", "property_names": [first]})
+    assert tool.invoke({"action": "run", "scope": "selected", "property_names": [first]})["scope"] == "selected"

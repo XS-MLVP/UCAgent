@@ -33,7 +33,7 @@ def main() -> int:
         prepare.add_argument("section", choices=("sva", "analysis", "bugs"))
         prepare.add_argument("--group", help="Exact FG ID for SVA authoring")
         prepare.add_argument("--function", help="Exact FC ID for SVA authoring")
-        prepare.add_argument("--baseline", action="store_true", help="Prepare shared assumptions and baseline checks")
+        prepare.add_argument("--assumptions", action="store_true", help="Prepare official shared environment assumptions")
         for operation in (inspect, prepare):
             operation.add_argument("--offset", type=int, default=0)
             operation.add_argument("--limit", type=int, default=5 if operation is prepare else 20)
@@ -57,7 +57,7 @@ def main() -> int:
                                    include_content=args.full, query=args.query)
         elif args.action == "prepare":
             result = store.prepare(args.section, args.offset, args.limit, group=args.group,
-                                   function=args.function, baseline=args.baseline)
+                                   function=args.function, assumptions=args.assumptions)
         else:
             relative = normalize_relative_path(args.request_file)
             relative_path = Path(relative)

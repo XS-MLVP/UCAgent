@@ -398,17 +398,17 @@ class PropertyStructureChecker(BaseFormalChecker):
 # =============================================================================
 
 class FormalBatchPlanChecker(BaseFormalChecker):
-    """Confirm the plan includes a reachability witness before any SVA is required."""
+    """Confirm official FC targets are planned without requiring phase-five throwaway CKs."""
 
     def do_check(self, timeout=0, **kwargs):
-        """Require at least one deliberately selected baseline Cover."""
+        """Require a nonempty official verification plan before compiler smoke."""
         records = load_records(self.paths.records_yaml)
         if not records or not records.spec or not any(
-            ck.is_baseline and ck.style.lower() == "cover"
-            for fg in records.spec.function_groups for fc in fg.functions for ck in fc.check_points
+            ck.style.lower() != "assume" for fg in records.spec.function_groups
+            for fc in fg.functions for ck in fc.check_points
         ):
-            return self._fail("Mark a specification-backed Cover as baseline before entering the preflight stage.")
-        return self._pass("Formal plan includes a baseline reachability check.")
+            return self._fail("Plan at least one official Assert/Cover check before implementation.")
+        return self._pass("Official verification targets are planned; smoke properties are tool-generated.")
 
 
 class FunctionBatchChecker(PropertyStructureChecker):
@@ -416,19 +416,20 @@ class FunctionBatchChecker(PropertyStructureChecker):
 
     def do_check(self, timeout=0, **kwargs):
         """Validate one current specification and preserve exact FC attempt identities."""
-        completed, progress = super().do_check(timeout=timeout, **kwargs)
-        if not completed:
-            return completed, progress
         from formal.baseline import function_batch_progress
 
         try:
-            progress = function_batch_progress(self._execution(), load_records(self.paths.records_yaml))
+            records = load_records(self.paths.records_yaml)
+            if records is None or records.spec is None:
+                raise ValueError("Complete the official FC plan before implementation.")
+            progress = function_batch_progress(self._execution(), records)
         except (ValueError, OSError) as exc:
-            return self._fail(str(exc))
+            return False, {"error_code": "formal_fc_inputs_invalid", "error": str(exc),
+                           "next_action": "Correct the named FC or shared input, then request RunFormal action=pending in this stage."}
         if progress["pending"] or progress["active"]:
-            return False, {"error_code": "formal_fc_batches_pending", **progress,
-                           "next_action": "Use exact CK targets for a selected run and review UNPROVEN items before Complete."}
-        return True, progress
+            return False, {"error_code": "formal_fc_batches_pending", "error": "Current FC implementation, proof or local review is unfinished.", **progress}
+        completed, structure = super().do_check(timeout=timeout, **kwargs)
+        return (True, progress) if completed else (completed, structure)
 
 
 class ScriptGenerationChecker(BaseFormalChecker):
@@ -439,64 +440,24 @@ class ScriptGenerationChecker(BaseFormalChecker):
         if not records:
             return self._fail("❌ .formal_records.yaml not found", suggestion="Run previous stages first.")
 
-        clock_cfg, reset_cfg = get_primary_clock_reset(records)
-        mismatches = validate_extra_config_against_design(records)
-        if mismatches:
-            return False, {"error_code": "formal_clock_reset_invalid", "error": "Formal clock/reset configuration is invalid.",
-                           "observed": mismatches, "artifact": self.paths.records_yaml,
-                           "next_action": "Correct basic_info.clock_reset and retry Check."}
+        if batched_sva_enabled(self.cfg):
+            try:
+                result = self._execution().check_smoke()
+            except Exception as exc:
+                diagnostic = getattr(exc, "diagnostic", None)
+                return False, diagnostic if isinstance(diagnostic, dict) else {
+                    "error_code": "formal_smoke_required", "error": str(exc),
+                    "next_action": "Correct the named source/configuration and call RunFormal(action=preflight), then retry Complete."}
+            return result["preflight_complete"], result
 
         try:
             from formal.tools import render_environment
-            preflight = render_environment(
-                self.workspace, self.paths.out, self.dut_name,
-                write_dirs=self.cfg.get_value("write_dirs", None),
-                un_write_dirs=self.cfg.get_value("un_write_dirs", None),
-            )
+            preflight = render_environment(self.workspace, self.paths.out, self.dut_name,
+                write_dirs=self.cfg.get_value("write_dirs", None), un_write_dirs=self.cfg.get_value("un_write_dirs", None))
         except Exception as exc:
             diagnostic = getattr(exc, "diagnostic", None)
-            if isinstance(diagnostic, dict):
-                return False, diagnostic
-            return self._fail(
-                "Formal environment could not be rendered from current records",
-                details=str(exc),
-                suggestion="Correct .formal_records.yaml, then call RunFormal(action='run').",
-            )
-
-        # --- Step 1: TCL keyword check ---
-        info("📝 Step 1/2: Checking TCL script keywords...")
-        tcl_path = self.paths.tcl
-        if not os.path.exists(tcl_path):
-            return self._fail(f"TCL script not found: {tcl_path}")
-
-        with open(tcl_path, 'r', encoding='utf-8') as f:
-            tcl_content = f.read()
-
-        required_cmds = ["read_design", "prove"]
-        if clock_cfg.get("signal"):
-            required_cmds.append("def_clk")
-        if reset_cfg.get("signal"):
-            required_cmds.append("def_rst")
-        missing = [k for k in required_cmds if k not in tcl_content]
-        if missing:
-            return self._fail(
-                f"❌ Step 1/2 Failed: TCL script missing required commands: {missing}",
-                details=f"Please add the missing commands to {tcl_path}",
-            )
-        info("✅ Step 1/2 Passed: TCL script keywords OK")
-
+            return False, diagnostic if isinstance(diagnostic, dict) else {"error": str(exc)}
         execution = self._execution()
-        if batched_sva_enabled(self.cfg):
-            try:
-                result = execution.freeze_baseline(accept=bool(kwargs.get("is_complete", False)))
-            except (ValueError, OSError) as exc:
-                passed, result = self._fail(str(exc), suggestion="Run FormalMC preflight and resolve its baseline diagnostics.")
-            else:
-                passed = result["preflight_complete"]
-            if preflight["warning_total"]:
-                result["preflight"] = preflight
-            return passed, result
-
         # An explicit RunFormal run owns proof execution and its auditable results.
         passed, evidence = execution.check()
         if not passed:

@@ -76,7 +76,9 @@ def test_workflow_has_no_default_skill_ceremony_or_partial_spec_stages():
     assert "SetCurrentStageJournal记录日志" in system
     analysis = next(stage for stage in raw["stage"] if stage["name"] == "environment_debugging_iteration")
     bugs = next(stage for stage in raw["stage"] if stage["name"] == "formal_execution")
-    assert "prepare analysis" in " ".join(analysis["task"])
+    closure = next(stage for stage in raw["stage"] if stage["name"] == "coverage_analysis_and_optimization")
+    assert "prepare analysis" in " ".join(closure["task"])
+    assert "定向验证" in " ".join(analysis["task"])
     assert "无技能" in " ".join(analysis["task"])
     assert "prepare bugs" in " ".join(bugs["task"])
     assert "无技能" in " ".join(bugs["task"])

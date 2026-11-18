@@ -31,7 +31,7 @@
 }
 ```
 
-更新指定节时使用 `data` 或 `bodies`。planning/basic_info/spec/summary 仅替换提供的顶层字段，嵌套对象和列表整体替换。第 5 阶段用 `prepare sva --baseline` 领取基础 CK。第 6 阶段的 `prepare sva` 默认按 FC 的审阅顺序领取功能 CK，可用 `--function FC-<ID>` 指定功能点。所有 Assume 和显式 `baseline: true` 的 CK 属于基础。 将实现填入 `ready_update.bodies`。用 `inspect signals --query 名称` 查实际内部信号与位宽。更新绑定时，可在同一 spec 请求里同时写 `data.whitebox_signals` 和 `bodies`，两者一起校验和提交。更新后使用返回的新 sha256 和待办继续。移除或改写目标及修改 Assume 时，审阅 `scope_review` 并在阶段日志中记录理由。
+更新指定节时使用 `data` 或 `bodies`。planning/basic_info/spec/summary 仅替换提供的顶层字段，嵌套对象和列表整体替换。第 5 阶段直接用 RunFormal preflight 做独立工具冒烟，不领取或实现正式 CK。第 6 阶段先用 `prepare sva --assumptions` 完成正式环境 Assume，再用 `prepare sva` 按 FC 审阅顺序领取正式检查点，当前 FC 由 RunFormal pending 返回，未关闭前不得提前实现后续 FC；可用 `--function FC-<ID>` 领取当前功能点。运行后按 pending 的 review_fc 请求模板处理异常，ENV_PENDING 需在当前阶段修复。将实现填入 `ready_update.bodies`。用 `inspect signals --query 名称` 查实际内部信号与位宽。更新绑定时，可在同一 spec 请求里同时写 `data.whitebox_signals` 和 `bodies`，两者一起校验和提交。更新后使用返回的新 sha256 和待办继续。移除或改写目标及修改 Assume 时，审阅 `scope_review` 并在阶段日志中记录理由。
 
 在 `basic_info.clock_reset` 中分别填写 `reset_active_level`（low/high）、`reset_assertion` 和 `reset_release`（sync/async）。字段可在未确定时留空，`reset_type` 可说明 RTL 行为。
 

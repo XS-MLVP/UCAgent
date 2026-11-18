@@ -47,9 +47,9 @@ description: 批量维护 Formal 任务数据、准备当前分析队列并核�
 
 ## 分批实现与复验
 
-用 `prepare sva` 取得单个功能组的待补检查点及 `ready_update`，提交后继续领取下一批。用 `inspect signals --query 名称` 查白盒信号的实际名称和位宽。相关绑定与属性可同批提交，格式见 `Guide_Doc/formal_data.md`。
+先用 RunFormal(action="pending") 获取 current_fc，再用 `prepare sva` 取得该 FC 的待补检查点及 `ready_update`。填写后定向运行，按返回模板用 RunFormal(action="review_fc") 处理异常，关闭当前 FC 后才能领取下一批。ENV_PENDING 必须在当前阶段修复，不能以曾运行或文字完成标记替代。用 `inspect signals --query 名称` 查白盒信号的实际名称和位宽。相关绑定与属性可同批提交，格式见 `Guide_Doc/formal_data.md`。
 
-用 `prepare sva --baseline` 领取基础 CK。写 Assume 前逐项对照返回的 `description` 和规格。遇到描述中混合了独立端口义务的 CK，先按 `Guide_Doc/functions_and_checks.md` 调整 spec，然后重新领取这些 CK 并逐条填写 `sva_body`。
+第 5 阶段直接调用 RunFormal(action="preflight") 完成自动临时冒烟，不填写正式 CK；临时结果不参加功能验收。第 6 阶段用 `prepare sva --assumptions` 领取正式环境 Assume，再用 `prepare sva --function FC-<ID>` 实现功能点。写 Assume 前逐项对照返回的 `description` 和规格。遇到描述中混合了独立端口义务的 CK，先按 `Guide_Doc/functions_and_checks.md` 调整 spec，然后重新领取这些 CK 并逐条填写 `sva_body`。
 
 属性体修正后，以精确 ck_ids 和 scope=selected 复验修改目标。完整功能批次改用 fc_id。后续 status/evidence/review/cancel 使用返回的 run_id。定向批保留完整 Assume，合并本轮修复后对当前输入运行完整批次。可将同一 RunFormal 请求写入 JSON，调用 `formal_data.py proof --request-file formal_test/proof_request.json`。无技能时直接使用 RunFormal。
 

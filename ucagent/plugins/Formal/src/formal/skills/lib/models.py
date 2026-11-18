@@ -1,6 +1,6 @@
 """Canonical YAML models for Formal task inputs, typed results, and analysis."""
 
-from pydantic import BaseModel, Field, StrictBool, field_validator, model_validator
+from pydantic import BaseModel, Field, ConfigDict, field_validator, model_validator
 from typing import List, Optional, Dict, Union, Any
 
 class CheckPoint(BaseModel):
@@ -8,13 +8,8 @@ class CheckPoint(BaseModel):
     style: str
     description: str
     sva_body: Optional[str] = Field(None, description="SVA code body, synced from .sv file")
-    baseline: StrictBool = False
     parent_ck_id: Optional[str] = None
-
-    @property
-    def is_baseline(self) -> bool:
-        """Identify a shared contract property, including every environment assumption."""
-        return self.baseline or self.style.lower() == "assume"
+    model_config = ConfigDict(extra="forbid")
 
 
 def has_sva_body(body: str | None) -> bool:
@@ -181,9 +176,6 @@ def semantic_inputs(records: Union[Dict[str, Any], FormalRecords]) -> Dict[str, 
             function.pop("title", None)
             function.pop("review_order", None)
             for check in function["check_points"]:
-                # Preserve the input identity of tasks recorded before baseline tagging.
-                if not check.get("baseline"):
-                    check.pop("baseline", None)
                 # Parent links document proof intent, independently of the expression.
                 check.pop("parent_ck_id", None)
     return {key: values.get(key) for key in ("dut", "basic_info", "spec", "extra_config")}

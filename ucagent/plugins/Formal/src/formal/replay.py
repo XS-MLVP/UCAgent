@@ -4,7 +4,7 @@ from bisect import bisect_right
 from hashlib import file_digest, sha256
 import re
 
-from .baseline import baseline_contract
+from .baseline import shared_contract
 from .execution import property_evidence
 from .skills.lib.formal_tools import _ck_to_sv_names
 from .skills.lib.models import FormalRecords
@@ -168,7 +168,7 @@ def replay_counterexample(execution, run_dir, state: dict, name: str) -> dict:
         current_file = target / ".formal_records.yaml"
         current_bytes = current_file.read_bytes()
         current = FormalRecords.model_validate(yaml.safe_load(current_bytes))
-        if not old.spec or not current.spec or baseline_contract(old) != baseline_contract(current):
+        if not old.spec or not current.spec or shared_contract(old) != shared_contract(current):
             raise ReplayUnavailable("The shared clock, reset, bindings, parameters or assumptions changed.")
         if ((old.extra_config or {}).get("tcl") or {}).get("extra_commands"):
             raise ReplayUnavailable("Replay cannot validate the environment effects of custom Tcl commands.")

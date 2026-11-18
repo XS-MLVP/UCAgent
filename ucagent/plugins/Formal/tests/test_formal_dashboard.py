@@ -131,18 +131,17 @@ def test_joint_assumption_is_reported_without_blocking_preflight(tmp_path, monke
     """Check reports a cost warning before a run and RunFormal can still dispatch."""
     calls = []
 
-    def dispatch(execution, *, preflight):
+    def dispatch(execution, *, preflight, retry_prepare=False):
         """Record native dispatch without running the solver."""
         calls.append(preflight)
         return {"status": "RUNNING"}
 
-    def missing_baseline(execution, *, accept):
+    def missing_smoke(execution):
         """Represent an environment without current native preflight results."""
-        assert not accept
-        raise ValueError("Current baseline proof is missing.")
+        raise ValueError("Current toolchain smoke is missing.")
 
     monkeypatch.setattr(FormalExecution, "run", dispatch)
-    monkeypatch.setattr(FormalExecution, "freeze_baseline", missing_baseline)
+    monkeypatch.setattr(FormalExecution, "check_smoke", missing_smoke)
     rtl = tmp_path / "Adder"
     rtl.mkdir()
     fair = "((a && b) |-> s_eventually c) and (c |-> s_eventually a)"
@@ -175,15 +174,14 @@ def test_joint_assumption_is_reported_without_blocking_preflight(tmp_path, monke
     checker.on_init()
     passed, check = checker.do_check()
     assert not passed and not calls
-    assert check["error"] == "Current baseline proof is missing."
+    assert check["error"] == "Current toolchain smoke is missing."
     result = RunFormal(str(tmp_path), "formal_test", "Adder", cfg=cfg).invoke({"action": "preflight"})
     assert result["status"] == "RUNNING" and calls == [True]
-    assert result["preflight"] == check["preflight"]
-    row, = result["preflight"]["warnings"]
-    assert (row["code"], row["ck_id"], row["path"]) == (
-        "formal_combined_unbounded_assume", "CK-LEGAL", "formal_test/tests/Adder_checker.sv",
-    )
-    assert row["line"] > 0 and row["column"] > 0
+    # Official property warnings belong to official rendering, never to disposable smoke.
+    from formal.tools import render_environment
+    official = render_environment(str(tmp_path), "formal_test", "Adder")
+    row, = [warning for warning in official["warnings"] if warning["code"] == "formal_combined_unbounded_assume"]
+    assert row["ck_id"] == "CK-LEGAL"
     assert body in (output / "tests" / "Adder_checker.sv").read_text()
     assert yaml.safe_load(path.read_text()) == records
 

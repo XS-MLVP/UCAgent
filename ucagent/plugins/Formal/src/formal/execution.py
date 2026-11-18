@@ -405,7 +405,7 @@ class FormalExecution:
         if not allowed:
             raise ValueError(reason)
         root = target / "formal_runs"
-        for planned in (root, root / "baseline.json", target / "tests", target / ".formal_records.yaml", target / "tests" / "avis.log", target / "tests" / "avis" / "fanin.rep"):
+        for planned in (root, target / "tests", target / ".formal_records.yaml", target / "tests" / "avis.log", target / "tests" / "avis" / "fanin.rep"):
             allowed, reason = is_file_writeable(str(planned.relative_to(self.workspace)), self.un_write_dirs, self.write_dirs)
             if not allowed:
                 raise ValueError(reason)
@@ -483,10 +483,24 @@ class FormalExecution:
 
     def _launch(self, run_dir, state):
         """Start a controller whose lifetime is independent of a single tool request."""
+        import ucagent
+        from ucagent.util.config import load_runtime_config
+        roots = [str(Path(ucagent.__file__).resolve().parent.parent), str(Path(__file__).resolve().parent.parent)]
+        snapshot = self.workspace / ".ucagent/runtime_config.json"
+        if snapshot.is_file():
+            saved = load_runtime_config(str(self.workspace))
+            roots.extend(saved.get("plugin_python_paths", []))
+        else:
+            # Source-tree Formal also declares its sibling UnitTest import dependency.
+            sibling = Path(__file__).resolve().parents[3] / "UnitTest/src"
+            if sibling.is_dir():
+                roots.append(str(sibling))
+        roots.extend(os.environ.get("PYTHONPATH", "").split(os.pathsep))
+        child_env = {**os.environ, "PYTHONPATH": os.pathsep.join(dict.fromkeys(path for path in roots if path))}
         with (run_dir / "controller.log").open("ab") as log:
             process = subprocess.Popen([sys.executable, str(Path(__file__).resolve()), "--worker", str(run_dir)],
                                        stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
-                                       start_new_session=True, close_fds=True)
+                                       start_new_session=True, close_fds=True, env=child_env)
         threading.Thread(target=process.wait, daemon=True).start()
         state["controller_pid"] = process.pid
         state["controller_identity"] = process_identity(process.pid)
@@ -509,17 +523,26 @@ class FormalExecution:
             raise ValueError("Select one kind of target for a diagnostic run. Preflight derives its own targets.")
         selected = sorted(property_names or [])
         scope = "preflight" if preflight else "selected" if selectors else "full"
+        if preflight:
+            return self._smoke(retry_prepare=retry_prepare)
         target, _, root = self._paths()
         with input_lock(target), (root / "control.lock").open("a+") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
             target, root, executable, files, fingerprint = self._inputs()
-            from .baseline import baseline_contract, baseline_targets, batch_context, verify_baseline
+            from .baseline import batch_context, shared_contract
             from .skills.lib.formal_tools import _ck_to_sv_names
             from .skills.lib.models import FormalRecords, has_sva_body
             import yaml
 
             records_path = target / ".formal_records.yaml"
             records = yaml.safe_load(records_path.read_bytes()) if records_path.is_file() else None
+            if self.batched_sva and records:
+                model = FormalRecords.model_validate(records)
+                missing_assumptions = [ck.id for fg in (model.spec.function_groups if model.spec else [])
+                                       for fc in fg.functions for ck in fc.check_points
+                                       if ck.style.lower() == "assume" and not has_sva_body(ck.sva_body)]
+                if missing_assumptions:
+                    raise ValueError(f"Implement all planned shared Assume checks before an official run: {missing_assumptions[:20]}; use prepare sva --assumptions.")
             selected_labels = {}
             selected_ck_ids = []
             unimplemented_ck_ids = []
@@ -532,7 +555,7 @@ class FormalExecution:
                     matching = [fc for fc in functions if fc.id == fc_id]
                     if len(matching) != 1:
                         raise ValueError(f"Expected one FC matching {fc_id!r}; available IDs: {[fc.id for fc in functions][:20]}")
-                    candidates = [ck for ck in matching[0].check_points if not ck.is_baseline]
+                    candidates = [ck for ck in matching[0].check_points if ck.style.lower() != "assume"]
                 else:
                     candidates = []
                     for ck_id in ck_ids:
@@ -551,14 +574,8 @@ class FormalExecution:
                     selected_ck_ids.append(ck.id)
                 if not selected_labels or (ck_ids and unimplemented_ck_ids):
                     raise ValueError(f"Implement the selected Assert/Cover checks before running them: {unimplemented_ck_ids[:20]}")
-            contract = baseline_contract(records) if preflight and self.batched_sva else None
-            smoke_labels = baseline_targets(records) if contract is not None else []
             context = None
-            if self.batched_sva and not preflight:
-                baseline = verify_baseline(root, records, required=True)
-                source_hashes = {name: digest for name, digest in files.items() if name.startswith(f"{self.dut}/")}
-                if source_hashes != baseline["source_hashes"]:
-                    raise ValueError("DUT inputs changed since the frozen baseline. Reopen the baseline preflight stage.")
+            if self.batched_sva:
                 if scope == "full":
                     model = FormalRecords.model_validate(records)
                     missing = [ck.id for fg in model.spec.function_groups for fc in fg.functions
@@ -566,7 +583,7 @@ class FormalExecution:
                     if missing:
                         raise ValueError(f"Complete all SVA bodies before full verification: {missing[:20]}")
                 checker = f"{self.output_dir}/tests/{self.dut}_checker.sv"
-                context = batch_context(files, checker, executable, self.policy, baseline["input_fingerprint"])
+                context = batch_context(files, checker, executable, self.policy, shared_contract(records))
             previous_dir, previous = self._load(root, scope=scope)
             if previous and previous["fingerprint"] == fingerprint and previous.get("batch_context") == context:
                 if previous.get("compile_failure_input_bound") and previous["status"] == "ERROR" and not retry_prepare:
@@ -624,8 +641,7 @@ class FormalExecution:
             state = {"run_id": run_id, "fingerprint": fingerprint, "status": "PREPARING",
                      "scope": scope, "selected_properties": selected, "selected_labels": selected_labels,
                      "selected_ck_ids": selected_ck_ids, "unimplemented_ck_ids": unimplemented_ck_ids,
-                     "semantic_inputs": semantic_inputs, "baseline_contract": contract,
-                     "baseline_smoke_labels": smoke_labels, "batch_context": context,
+                     "semantic_inputs": semantic_inputs, "smoke_labels": [], "batch_context": context,
                      "expected_labels": expected_labels, "checkpoint_ids": checkpoint_ids,
                      "workspace": str(self.workspace), "output_dir": self.output_dir, "dut": self.dut,
                      "executable": executable, "policy": asdict(self.policy), "created_at": time.time(),
@@ -636,25 +652,50 @@ class FormalExecution:
             self._launch(run_dir, state)
             return self._summary(run_dir, state)
 
-    def freeze_baseline(self, *, accept: bool = True) -> dict:
-        """Validate current baseline evidence and freeze it when completing the stage."""
-        target, _, root = self._paths()
+    def _smoke(self, *, retry_prepare=False):
+        """Run a temporary tool-owned goal without generating or freezing official CKs."""
+        from .smoke import context, generate, LABEL
+
+        target, root, records, interface, executable, files, config, fingerprint = context(self)
         with input_lock(target), (root / "control.lock").open("a+") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
-            _, _, _, _, fingerprint = self._inputs()
-            directory, state = self._load(root, scope="preflight")
-            if not state or state["fingerprint"] != fingerprint:
-                raise ValueError("Run RunFormal(action=preflight) for the current Formal environment.")
-            result = self._summary(directory, state)
-            if not result["preflight_complete"]:
-                return result
+            previous_dir, previous = self._load(root, scope="preflight")
+            if previous and previous["fingerprint"] == fingerprint:
+                if previous["status"] not in {"ERROR", "INTERRUPTED", "CANCELLED"} or not retry_prepare:
+                    return self._summary(previous_dir, previous)
+            if previous and previous["status"] in ACTIVE_RUNS:
+                raise ValueError("A smoke revision is still running; cancel it before starting another.")
+            run_id = uuid.uuid4().hex
+            directory = root / run_id
+            directory.mkdir()
+            generate(self, directory, records, interface, files)
+            state = {"run_id": run_id, "fingerprint": fingerprint, "status": "PREPARING",
+                     "scope": "preflight", "selected_properties": [], "selected_labels": {},
+                     "selected_ck_ids": [], "unimplemented_ck_ids": [], "semantic_inputs": None,
+                     "smoke_labels": [LABEL], "batch_context": None, "smoke_config": config,
+                     "expected_labels": [LABEL], "checkpoint_ids": {}, "workspace": str(self.workspace),
+                     "output_dir": self.output_dir, "dut": self.dut, "executable": executable,
+                     "policy": asdict(self.policy), "created_at": time.time(), "files": files,
+                     "properties": {}, "decisions": [], "checkpoints": [], "error": None}
+            atomic_json(directory / "state.json", state)
+            write_report(directory, state)
+            atomic_json(root / RUN_POINTERS["preflight"], {"run_id": run_id})
+            self._launch(directory, state)
+            return self._summary(directory, state)
+
+    def check_smoke(self):
+        """Gate toolchain health only; a successful smoke is not a design proof."""
+        from .smoke import context
+
+        _, root, _, _, _, _, _, fingerprint = context(self)
+        directory, state = self._load(root, scope="preflight")
+        if not state or state["fingerprint"] != fingerprint:
+            raise ValueError("Run RunFormal(action=preflight) for the current RTL and tool configuration.")
+        result = self._summary(directory, state)
+        if result["preflight_complete"]:
             for name in state["selected_properties"]:
                 property_evidence(directory, state, name, state["properties"][name], observations=False)
-            if accept:
-                source_hashes = {name: digest for name, digest in state["files"].items() if name.startswith(f"{self.dut}/")}
-                atomic_json(root / "baseline.json", {"run_id": state["run_id"], "input_fingerprint": fingerprint,
-                                                    "contract": state["baseline_contract"], "source_hashes": source_hashes})
-            return result
+        return result
 
     def status(self, wait_s: int = 0, *, run_id=None, scope="full") -> dict:
         """Return progress, optionally waiting for a new checkpoint without busy LLM polling."""
@@ -674,12 +715,17 @@ class FormalExecution:
                     time.sleep(min(0.5, max(0, deadline - time.monotonic())))
                 return self.status(run_id=initial["run_id"], scope=scope)
             return initial
-        _, root, _, _, fingerprint = self._inputs()
+        _, _, root = self._paths()
         with (root / "control.lock").open("a+") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
             run_dir, state = self._load(root, run_id, scope)
             if state is None:
                 return {"status": "NOT_STARTED", "next_action": "Call RunFormal action=run."}
+            if state.get("scope") == "preflight":
+                from .smoke import context
+                fingerprint = context(self)[-1]
+            else:
+                fingerprint = self._inputs()[-1]
             result = self._summary(run_dir, state)
             result["current_inputs"] = state["fingerprint"] == fingerprint
             if not result["current_inputs"]:
@@ -717,7 +763,7 @@ class FormalExecution:
             if not state or state["fingerprint"] != fingerprint:
                 raise ValueError("Review requires results for current inputs; call RunFormal action=run.")
             if state.get("scope") == "preflight":
-                raise ValueError("Repair any baseline smoke failure and submit a fresh preflight.")
+                raise ValueError("Repair the toolchain smoke failure and submit a fresh preflight.")
             active = state["status"] in ACTIVE_RUNS
             pending_path = run_dir / "review_requests.json"
             pending = read_json(pending_path) if pending_path.is_file() else []
@@ -785,7 +831,7 @@ class FormalExecution:
                 "states": dict(collections.Counter(item["state"] for item in properties.values())), "total": len(properties),
                 "proof_complete": scope == "full" and resolved,
                 "preflight_complete": scope == "preflight" and state["status"] == "COMPLETED",
-                "baseline_fingerprint": (state.get("batch_context") or {}).get("baseline"),
+                "shared_environment": (state.get("batch_context") or {}).get("shared_environment"),
                 "diagnostics": state.get("diagnostics", []),
                 "deferred_total": sum(item.get("disposition") == "DEFERRED" for item in properties.values()),
                 "deferred_properties": [name for name, item in properties.items() if item.get("disposition") == "DEFERRED"][:20],
@@ -797,6 +843,8 @@ class FormalExecution:
                 "coverage_artifact": str((run_dir / "inventory" / "avis" / "fanin.rep").relative_to(self.workspace)) if (run_dir / "inventory" / "avis" / "fanin.rep").is_file() else None,
                 "checkpoints": state["checkpoints"][-10:], "checkpoint_total": len(state["checkpoints"]),
                 "next_action": (
+                    "Toolchain compile and solver smoke completed. This is not a design proof; implement official FC checks next."
+                    if scope == "preflight" and state["status"] == "COMPLETED" else
                     "Review each ready property using its available actions. Other properties may continue running."
                     if ready else
                     "Wait for progress using RunFormal action=status." if state["status"] in ACTIVE_RUNS else
@@ -856,13 +904,6 @@ class FormalExecution:
         result = self.status()
         ready = result.get("current_inputs") and result["status"] not in ACTIVE_RUNS | {"INTERRUPTED", "ERROR", "NEEDS_OPERATOR", "CANCELLED"} and result.get("total", 0) > 0
         target, _, root = self._paths()
-        if self.batched_sva:
-            from .baseline import verify_baseline
-            import yaml
-            try:
-                verify_baseline(root, yaml.safe_load((target / ".formal_records.yaml").read_bytes()), required=True)
-            except (ValueError, OSError) as exc:
-                return False, {"error_code": "formal_baseline_invalid", "error": str(exc)}
         run_dir, state = self._load(root, result.get("run_id"))
         if ready:
             inventory = parse_properties((run_dir / "inventory" / "console.log").read_text(encoding="utf-8", errors="replace"))
@@ -1068,7 +1109,7 @@ def controller(run_dir: Path) -> None:
             if missing:
                 raise ValueError(f"Expected checker properties missing or ambiguous in inventory: {missing[:20]}")
             if state.get("scope") == "preflight":
-                labels = set(state["baseline_smoke_labels"])
+                labels = set(state["smoke_labels"])
                 selected = {name for name, item in parsed.items()
                             if name.rsplit(".", 1)[-1] in labels and item["kind"] == "cover"}
                 if len(selected) != len(labels):
@@ -1313,7 +1354,7 @@ def controller(run_dir: Path) -> None:
                                   if state["properties"][name]["result"] != "COVER_REACHED"]
                         state["status"] = "ERROR" if failed else "COMPLETED"
                         if failed:
-                            state["error_code"] = "formal_baseline_smoke_incomplete"
+                            state["error_code"] = "formal_toolchain_smoke_incomplete"
                             state["error"] = f"Baseline reachability smoke checks need review: {failed}"
                     else:
                         unresolved = any(item["result"] not in FINAL_RESULTS | {"NOT_EXECUTED"}

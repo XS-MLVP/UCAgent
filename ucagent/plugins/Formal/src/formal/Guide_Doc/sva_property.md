@@ -236,7 +236,7 @@ A_CK_REQ_EVENTUALLY_GRANTED: assert property (CK_REQ_EVENTUALLY_GRANTED);
 
 ### 多端口公平性约束
 
-第 5 阶段按 `Guide_Doc/functions_and_checks.md` 中「验证环境约束」功能组的计划实现这些义务。写 `sva_body` 前，若发现一个 CK 的描述列了多个独立端口的义务，先拆成同一 FC 下的多个 CK，再分别填写属性。每条属性保留该端口自己的触发握手、响应条件、时钟和复位。基础预检加载全部 Assume，通过基础 Cover 检查约束下的关键事务可达性。
+第 6 阶段按 `Guide_Doc/functions_and_checks.md` 中「验证环境约束」功能组的计划实现正式环境义务；第 5 阶段只做独立临时工具冒烟。写 `sva_body` 前，若发现一个 CK 的描述列了多个独立端口的义务，先拆成同一 FC 下的多个 CK，再分别填写属性。每条属性保留该端口自己的触发握手、响应条件、时钟和复位。正式功能批次加载全部已实现的 Assume，并用有规格意义的 Cover 检查其场景可达性；冒烟通过不能替代约束语义审阅。
 
 | CK | `sva_body` |
 | --- | --- |

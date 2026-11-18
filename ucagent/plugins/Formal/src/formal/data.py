@@ -38,7 +38,7 @@ BUG_FIELDS = {"root_cause_id", "ck_id", "fg_id", "fc_id", "rtl_file", "rtl_line"
 BUG_REQUIRED_FIELDS = BUG_FIELDS - {"impact_assessment"}
 SECTION_CONTRACTS = {
     "extra_config": {"format": "tcl:{timeout:positive integer,extra_commands:[string]}. tcl is replaced as a unit."},
-    "spec": {"format": "parameters mapping, whitebox_signals list, function_groups:[{id,name,description,functions:[{id,title,description,review_order,check_points:[{id,style,description,sva_body,baseline,parent_ck_id}]}]}]. Assume is always baseline. Mark a shared Assert/Cover with baseline:true. Child checks can link to an existing parent_ck_id. Each new FC needs a one-line title (up to 60 characters), a detailed description, and a positive review_order unique within the FG (lowest first). Lists replace the complete named list. Use bodies for a CK-ID to SVA-body batch."},
+    "spec": {"format": "parameters mapping, whitebox_signals list, function_groups:[{id,name,description,functions:[{id,title,description,review_order,check_points:[{id,style,description,sva_body,parent_ck_id}]}]}]. All implemented Assume checks define the shared official environment. Child checks can link to an existing parent_ck_id. Each new FC needs a one-line title (up to 60 characters), a detailed description, and a positive review_order unique within the FG (lowest first). Lists replace the complete named list. Use bodies for a CK-ID to SVA-body batch."},
     "analysis": {"format": "Use the exact kind-specific required_fields, allowed_fields and allowed_values returned with each current property. FA and TT envelopes are disjoint; evidence references are tool-owned."},
     "bugs": {"format": "entries list of exact id/property patches; optional shared:{root_cause_id,root_cause,fix,severity,confidence} applies one explicit group. Shared fields cannot conflict with entries. Use prepare to coordinate current observations."},
 }
@@ -394,7 +394,7 @@ class FormalDataStore:
         return result
 
     def prepare(self, section: str, offset: int = 0, limit: int = 5, *, group: str | None = None,
-                function: str | None = None, baseline: bool = False) -> dict:
+                function: str | None = None, assumptions: bool = False) -> dict:
         """Return one bounded pending page with each item beside its verified facts."""
         if type(offset) is not int or offset < 0 or type(limit) is not int or not 1 <= limit <= 50:
             raise ValueError("prepare requires a nonnegative offset and limit 1..50")
@@ -413,10 +413,32 @@ class FormalDataStore:
 
             batched = batched_sva_enabled(self.cfg)
             missing = [row for row in checkpoints if row["body_missing"]]
+            if batched and function is None and any(row["style"].lower() == "assume" for row in missing):
+                assumptions = True
+            current_fc = None
+            if batched and not assumptions:
+                from .baseline import function_batch_progress, phase_six
+                from .execution import FormalExecution
+                from .skills.lib.models import FormalRecords
+                execution = FormalExecution(str(self.workspace), self.output_dir, self.dut, self.cfg,
+                                            self.write_dirs, self.un_write_dirs)
+                progress = function_batch_progress(execution, FormalRecords.model_validate(records))
+                current_fc = progress.get("current_fc")
+                if current_fc and (function is None or phase_six(self.workspace)):
+                    if function is not None and function != current_fc["fc_id"]:
+                        raise ValueError(f"Close current FC {current_fc['fc_id']} before preparing {function}; use RunFormal action=pending.")
+                    function = current_fc["fc_id"]
+                    if current_fc["phase"] != "implement":
+                        return {"status": "ok", "section": "sva", "fc_id": function,
+                                "records_artifact": str(path.relative_to(self.workspace)),
+                                "sha256": hashlib.sha256(content).hexdigest(),
+                                "check_points": page([], 0, limit), "ready_update": None,
+                                "run_call": current_fc["run_call"], "review_call": current_fc["review_call"],
+                                "current_fc": current_fc, "next_action": progress["next_action"]}
             pending = [row for row in missing if row["fc_id"] in order and
-                       (not (batched or baseline) or baseline == (row.get("baseline", False) or row["style"].lower() == "assume"))]
+                       (not (batched or assumptions) or assumptions == (row["style"].lower() == "assume"))]
             pending.sort(key=lambda row: order[row["fc_id"]])
-            selected_function = function or (pending[0]["fc_id"] if batched and not baseline and pending else None)
+            selected_function = function or (pending[0]["fc_id"] if batched and not assumptions and pending else None)
             selected_group = group or next((row["fg_id"] for row in pending
                                             if selected_function in (None, row["fc_id"])), None)
             rows = [{key: row[key] for key in ("id", "fc_id", "style", "description")}
@@ -430,7 +452,7 @@ class FormalDataStore:
             digest = hashlib.sha256(content).hexdigest()
             run_call = (
                 {"action": "run", "scope": "selected", "fc_id": selected_function}
-                if batched and selected_function and not baseline else None
+                if batched and selected_function and not assumptions else None
             )
             return {"status": "ok", "section": "sva", "records_artifact": str(path.relative_to(self.workspace)),
                     "fg_id": selected_group, "fc_id": selected_function, "check_points": batch,
@@ -441,8 +463,8 @@ class FormalDataStore:
                     "next_action": ("Fill and submit this batch, then pass run_call to RunFormal and inspect the returned run."
                                     if run_call else "Fill and submit just this batch, then run prepare sva again for the next pending CKs.")
                     if batch["items"] else "This selection has no pending SVA bodies."}
-        if section not in {"analysis", "bugs"} or group is not None or function is not None or baseline:
-            raise ValueError("FG, FC and baseline filters are available only with prepare sva.")
+        if section not in {"analysis", "bugs"} or group is not None or function is not None or assumptions:
+            raise ValueError("FG, FC and assumption filters are available only with prepare sva.")
         if self.cfg is None:
             raise ValueError("Current resolved Formal configuration is required for prepare")
         from .execution import FormalExecution
@@ -513,6 +535,8 @@ class FormalDataStore:
             from .reference import REFERENCE_CONTRACT
             result["reference_contract"] = copy.deepcopy(REFERENCE_CONTRACT)
             contracts, items = {}, []
+            from .fc_review import matching_reviews
+            local_reviews = matching_reviews(execution, model)
             for row in rows:
                 entry_type = row["entry_type"]
                 machine = state["properties"][row["prop_name"]]
@@ -538,6 +562,9 @@ class FormalDataStore:
                 draft = model.analysis.previous_reviews.get(row["prop_name"])
                 if draft is not None:
                     item["previous_review"] = bounded(draft.model_dump(), maximum=1200)
+                if row["prop_name"] in local_reviews:
+                    item["prior_fc_review"] = bounded(local_reviews[row["prop_name"]], maximum=1800)
+                    item["prior_fc_review_requires_current_full_recheck"] = True
                 items.append(item)
             result["review_contracts"] = contracts
             result["items"] = items
@@ -607,6 +634,23 @@ class FormalDataStore:
                     raise ValueError(f"Unknown CK IDs: {unknown[:20]}; inspect spec for exact identities")
                 for key, value in bodies.items():
                     targets[key]["sva_body"] = value
+            if section == "spec":
+                from .baseline import phase_six, function_batch_progress
+                from .execution import FormalExecution, batched_sva_enabled
+                from .skills.lib.models import FormalRecords
+                if batched_sva_enabled(self.cfg) and phase_six(self.workspace):
+                    before = {row["id"]: row for row in checkpoint_rows(records)}
+                    changed = [row for row in checkpoint_rows(candidate)
+                               if row["style"].lower() != "assume" and not row["body_missing"]
+                               and before.get(row["id"], {}).get("sva_body") != row.get("sva_body")]
+                    if changed:
+                        execution = FormalExecution(str(self.workspace), self.output_dir, self.dut, self.cfg,
+                                                    self.write_dirs, self.un_write_dirs)
+                        progress = function_batch_progress(execution, FormalRecords.model_validate(records))
+                        current = progress.get("current_fc")
+                        allowed_fc = current["fc_id"] if current else changed[0]["fc_id"]
+                        if progress.get("missing_assumptions") or any(row["fc_id"] != allowed_fc for row in changed):
+                            raise ValueError("Implement only the current FC's bodies after completing planned assumptions; call RunFormal action=pending for the current FC. No changes were written.")
             if section == "extra_config":
                 tcl = candidate["extra_config"]["tcl"]
                 if (not isinstance(tcl, dict) or set(tcl) - {"timeout", "extra_commands"}
@@ -620,9 +664,6 @@ class FormalDataStore:
                 check_bodies({row["id"]: row.get("sva_body") for row in checkpoint_rows(candidate)
                               if previous.get(row["id"]) != row.get("sva_body")}, f"{output}/.formal_records.yaml")
             self._validate(candidate, section)
-            if section in INPUT_SECTIONS:
-                from .baseline import verify_baseline
-                verify_baseline(target.parent / "formal_runs", candidate)
             if section == "spec" and set(data or {}) & {"whitebox_signals", "parameters"}:
                 from .interface import inspect_interface
                 from .preflight import PreflightError
@@ -861,8 +902,8 @@ class FormalDataStore:
                         raise ValueError("FG/FC/CK IDs must be unique and use their canonical prefixes")
                     ids.add(identity)
                     for item in function.get("check_points", []):
-                        if not isinstance(item, dict) or set(item) - {"id", "style", "description", "sva_body", "baseline", "parent_ck_id"}:
-                            raise ValueError("Each CK must contain only id/style/description/sva_body/baseline/parent_ck_id")
+                        if not isinstance(item, dict) or set(item) - {"id", "style", "description", "sva_body", "parent_ck_id"}:
+                            raise ValueError("Each CK must contain only id/style/description/sva_body/parent_ck_id")
                         identity = item.get("id")
                         if not isinstance(identity, str) or not identity.startswith("CK-") or identity in ids:
                             raise ValueError("FG/FC/CK IDs must be unique and use their canonical prefixes")

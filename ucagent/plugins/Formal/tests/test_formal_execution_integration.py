@@ -28,6 +28,7 @@ class FakeExecution:
     """Record dispatch and return bounded machine-style summaries."""
 
     calls = []
+    batched_sva = False
 
     def __init__(self, **kwargs):
         """Keep the resolved input context for assertions."""

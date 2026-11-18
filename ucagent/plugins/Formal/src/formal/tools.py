@@ -83,14 +83,26 @@ def render_environment(
     return json.loads((tests / "sva_preflight.json").read_text())
 
 
+class FCReviewArgs(BaseModel):
+    """Classify a current exceptional CK against an exact completed selected run."""
+
+    model_config = ConfigDict(extra="forbid")
+    ck_id: str = Field(min_length=1, description="Exact exceptional CK from the current FC review queue.")
+    run_id: str = Field(pattern=r"^[a-f0-9]{32}$", description="Exact selected run supplying this CK's current evidence.")
+    classification: Literal["RTL_BUG", "DESIGN_EXPECTED", "COVER_EXPECTED_FAIL", "ENV_PENDING"] = Field(
+        description="Local interpretation: RTL failure, expected trivial truth, expected unreachable Cover, or an environment/property issue still needing repair.")
+    reason: str = Field(min_length=1, description="Concrete specification and original-evidence basis; local classification is not final Bug acceptance.")
+
+
 class RunFormalArgs(BaseModel):
     """Select a managed proof action and its optional disposition details."""
 
     model_config = ConfigDict(extra="forbid")
 
-    action: Literal["run", "preflight", "status", "cancel", "review", "evidence", "inventory", "pending"] = Field(
+    action: Literal["run", "preflight", "status", "cancel", "review", "evidence", "inventory", "pending", "review_fc"] = Field(
         description="Compile with preflight, start a proof run, or inspect and review an existing batch."
     )
+    reviews: list[FCReviewArgs] = Field(default_factory=list, description="For review_fc, classify current exceptional CKs using exact run evidence.")
     wait_s: int = Field(default=300, ge=0, le=1200,
                         description="For status, wait for a new result checkpoint or completion, up to this many seconds; use 0 for an immediate query.")
     property_names: list[str] = Field(
@@ -99,7 +111,7 @@ class RunFormalArgs(BaseModel):
     )
     ck_ids: list[str] = Field(default_factory=list, description="For a selected run, submit implemented Assert/Cover CK IDs.")
     fc_id: str | None = Field(default=None, min_length=1,
-                              description="For a selected run, submit all implemented functional Assert/Cover checks in this FC.")
+                              description="Exact FC for a selected run, or the current FC for review_fc.")
     retry_prepare: bool = Field(default=False,
                                 description="Repeat a cached native compile failure after an operator has corrected the environment.")
     scope: Literal["full", "selected", "preflight"] | None = Field(
@@ -122,11 +134,14 @@ class RunFormal(UCTool):
     name: str = "RunFormal"
     description: str = (
         "Manage FormalMC verification of the current DUT's assertion batch. "
-        "Use action=preflight to compile the current environment and check baseline reachability. "
+        "Use action=preflight to run a disposable toolchain compile and solver smoke check. "
         "Use action=run to submit the current-input batch once, status to wait for new "
         "proof results (wait_s=300 by default, 0 for immediate status), cancel to stop it, and review with exact "
         "property_names, disposition (defer/retry), reason and next_action for "
-        "unresolved properties. Deferred means UNPROVEN, never PASS. "
+        "unresolved properties. Use pending for the current FC and its next run/review call. "
+        "Use review_fc with fc_id and reviews containing ck_id, exact run_id, classification and reason "
+        "to close exceptional local results before the next FC. ENV_PENDING requires local repair. "
+        "Deferred means UNPROVEN, never PASS. "
         "See Guide_Doc/formal_execution.md for the complete workflow."
     )
     args_schema: type[BaseModel] = RunFormalArgs
@@ -173,6 +188,7 @@ class RunFormal(UCTool):
         ck_ids: list[str] | None = None,
         fc_id: str | None = None,
         retry_prepare: bool = False,
+        reviews: list[FCReviewArgs | dict] | None = None,
     ) -> dict:
         """Dispatch one bounded request to the shared managed proof executor."""
         execution = FormalExecution(
@@ -188,15 +204,26 @@ class RunFormal(UCTool):
             raise ValueError("trace_query is available only with evidence.")
         if retry_budget_s is not None and (action != "review" or disposition != "retry"):
             raise ValueError("retry_budget_s is available only for a review retry.")
-        if (ck_ids or fc_id) and (action != "run" or scope != "selected"):
+        if ck_ids and (action != "run" or scope != "selected") or fc_id and action != "review_fc" and (action != "run" or scope != "selected"):
             raise ValueError("ck_ids and fc_id require action=run and scope=selected.")
         if retry_prepare and action not in {"run", "preflight"}:
             raise ValueError("retry_prepare is available only for run or preflight.")
+        if reviews and action != "review_fc":
+            raise ValueError("reviews is available only with review_fc.")
+        if action == "review_fc":
+            if not fc_id or run_id or scope or property_names or ck_ids:
+                raise ValueError("review_fc requires fc_id and reviews with an exact run_id per CK, without batch selectors.")
+            import yaml
+            from .fc_review import review_fc
+            from .skills.lib.models import FormalRecords
+            target, _, _ = execution._paths(create=False)
+            records = FormalRecords.model_validate(yaml.safe_load((target / ".formal_records.yaml").read_bytes()))
+            return review_fc(execution, records, fc_id, [FCReviewArgs.model_validate(row).model_dump() for row in reviews or []])
         if action == "pending":
             if run_id or scope or property_names:
-                raise ValueError("The pending plan is derived from the current frozen baseline.")
+                raise ValueError("The pending plan is derived from the current official inputs.")
             if not execution.batched_sva:
-                raise ValueError("The pending plan requires the batched Formal workflow and a frozen baseline.")
+                raise ValueError("The pending plan requires the batched Formal workflow.")
             import yaml
             from .baseline import function_batch_progress
             from .skills.lib.models import FormalRecords
@@ -209,10 +236,12 @@ class RunFormal(UCTool):
             return {"status": "ok", **result}
         if action in {"run", "preflight"}:
             if action == "preflight" and (run_id or property_names or scope not in (None, "preflight")):
-                raise ValueError("Preflight compiles the current inputs and derives baseline targets.")
+                raise ValueError("Preflight generates an isolated tool-owned smoke property; do not select official targets.")
             selectors = sum(map(bool, (property_names, ck_ids, fc_id)))
             if action == "run" and (run_id is not None or scope == "preflight" or selectors != int(scope == "selected")):
                 raise ValueError("Submit a full run without targets or a selected run with one of ck_ids, fc_id, or property_names.")
+            if action == "preflight":
+                return execution.run(preflight=True, retry_prepare=retry_prepare)
             try:
                 preflight = render_environment(
                     self.workspace, self.output_dir, self.dut,
@@ -220,6 +249,24 @@ class RunFormal(UCTool):
                 )
             except PreflightError as error:
                 return error.diagnostic
+            from .baseline import phase_six, function_batch_progress
+            if execution.batched_sva and phase_six(Path(self.workspace)):
+                import yaml
+                from .skills.lib.models import FormalRecords
+                records = FormalRecords.model_validate(yaml.safe_load((Path(self.workspace) / self.output_dir / ".formal_records.yaml").read_bytes()))
+                progress = function_batch_progress(execution, records)
+                current = progress["current_fc"]
+                if progress.get("missing_assumptions"):
+                    raise ValueError(progress["next_action"])
+                allowed = set(current["ready_ck_ids"]) if current else set()
+                if scope != "selected" or not current or (fc_id and fc_id != current["fc_id"]) or (ck_ids and not set(ck_ids) <= allowed):
+                    raise ValueError("In phase 6, run only the current FC returned by action=pending; complete its local review before advancing.")
+                if property_names:
+                    from .skills.lib.formal_tools import _ck_to_sv_names
+                    styles = {c.id: c.style for g in records.spec.function_groups for f in g.functions for c in f.check_points}
+                    labels = {"u_checker." + _ck_to_sv_names(ck, styles[ck])[1] for ck in allowed}
+                    if not set(property_names) <= labels:
+                        raise ValueError("Select only current-FC properties returned by action=pending.")
             options = {"retry_prepare": True} if retry_prepare else {}
             if ck_ids:
                 options["ck_ids"] = ck_ids
