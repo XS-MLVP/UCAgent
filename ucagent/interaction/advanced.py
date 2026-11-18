@@ -10,6 +10,7 @@ import statistics
 from typing import Dict, Any, List, Optional, Tuple
 from enum import Enum
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, ToolMessage
+from ucagent.abackend.base import NonRetryableBackendError
 from ucagent.util.log import info, warning, error
 from ucagent.util.functions import yam_str
 
@@ -407,6 +408,8 @@ class AdvancedInteractionLogic:
             self.agent.invoke_round += 1
             return self.agent
             
+        except NonRetryableBackendError:
+            raise
         except Exception as e:
             error(f"Error in advanced interaction logic: {e}")
             # Fallback to standard execution
@@ -434,6 +437,8 @@ class AdvancedInteractionLogic:
                 # Fallback
                 self.agent.one_loop()
                 return True
+        except NonRetryableBackendError:
+            raise
         except Exception as e:
             error(f"Error executing {strategy.value} strategy: {e}")
             return False

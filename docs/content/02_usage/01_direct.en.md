@@ -114,6 +114,17 @@ tool_invoke KillCheck
 
 For a complete command reference, see [Human-Machine Collaborative Verification](./02_assit.md) and [TUI](./04_tui.md).
 
+### Model Request Failures and Retries
+
+When a LangChain automatic loop receives a non-retryable HTTP 4xx rejection,
+it stops the current loop immediately and retains the original error for inspection.
+Correct the service URL, model/credentials, or conversation/tool messages, then enter `loop` again.
+HTTP 408, 409, 429, 5xx, and unclassified connection/runtime errors retain the existing retry limits and delays.
+A request may be retried after missing tool results have actually been recorded,
+so the model can handle the recorded tool failure. If a later request is still
+rejected without further recovery progress, the loop stops.
+Stopping retries does not clear the conversation, advance stages, or bypass Check, Complete, or human authorization.
+
 ## 5. Artifacts and Next Steps
 
 Default artifacts are located in `<workspace>/unity_test/`, and toffee-test reports (if tests have been run) are located in `<workspace>/uc_test_report/`. The workflow determines the specific documentation and test file names; do not assume that Bug, waveform, or coverage files will necessarily be generated.

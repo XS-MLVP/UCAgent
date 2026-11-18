@@ -2,6 +2,7 @@
 """Assemble verification agents and coordinate tools, prompts, and work loops."""
 
 from curses import echo
+from .abackend.base import NonRetryableBackendError
 from .tools.context import ArbitContextSummary
 from .util.config import get_config, save_runtime_config
 from .util.log import echo_g, echo_r, info, message, warning, error, msg_msg
@@ -1436,6 +1437,8 @@ class VerifyAgent:
         if self.interaction_mode == "advanced" and self.advanced_logic:
             try:
                 return self.advanced_logic.advanced_one_loop(msg)
+            except NonRetryableBackendError:
+                raise
             except Exception as e:
                 warning(
                     f"Advanced interaction logic failed, falling back to enhanced: {e}"
@@ -1444,6 +1447,8 @@ class VerifyAgent:
                 if self.enhanced_logic:
                     try:
                         return self.enhanced_logic.enhanced_one_loop(msg)
+                    except NonRetryableBackendError:
+                        raise
                     except Exception as e2:
                         warning(
                             f"Enhanced interaction logic also failed, using standard: {e2}"
@@ -1453,6 +1458,8 @@ class VerifyAgent:
         elif self.interaction_mode == "enhanced" and self.enhanced_logic:
             try:
                 return self.enhanced_logic.enhanced_one_loop(msg)
+            except NonRetryableBackendError:
+                raise
             except Exception as e:
                 warning(
                     f"Enhanced interaction logic failed, falling back to standard: {e}"
@@ -1577,10 +1584,16 @@ class VerifyAgent:
             else:
                 self.do_work_values(instructions, config)
         except Exception as work_error:
+            recovered_tool_calls = 0
             try:
-                self.backend.recover_pending_tool_calls(work_error)
+                recovered_tool_calls = self.backend.recover_pending_tool_calls(work_error)
             except Exception as recovery_error:
                 warning(f"Failed to recover tool call state: {recovery_error}")
+            if not self.backend.should_retry_loop_error(work_error, recovered_tool_calls):
+                raise NonRetryableBackendError(
+                    "Correct the rejected backend request, provider/model settings or "
+                    "conversation/tool history, then resume with loop."
+                ) from work_error
             raise
         finally:
             self._is_work_busy = False

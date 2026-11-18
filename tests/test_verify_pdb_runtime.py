@@ -20,6 +20,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(current_dir, "..")))
 
 from ucagent.verify_pdb import VerifyPDB
 from ucagent.verify_agent import VerifyAgent
+from ucagent.abackend.base import AgentBackendBase
 from ucagent.util.config import load_yaml_with_env_vars
 from ucagent.util.log import info
 from ucagent.util.markdown import markdown_heading_spacing_errors
@@ -1257,7 +1258,7 @@ def test_cli_preserves_real_user_interrupt_exit(monkeypatch):
 
 
 def test_do_work_recovers_pending_tool_calls_before_reraising():
-    class _Backend:
+    class _Backend(AgentBackendBase):
         def __init__(self):
             self.errors = []
 
