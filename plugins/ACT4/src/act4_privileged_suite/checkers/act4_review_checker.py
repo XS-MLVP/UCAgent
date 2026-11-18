@@ -596,6 +596,48 @@ class ACT4ReviewChecker(Checker):
             with scope_field(errors, "scope.assets"):
                 if not any(assets.values()):
                     raise ValueError("Review requires existing test assets; use the generation workflow for a new suite")
+        context = scope.get("context_files")
+        with scope_field(errors, "scope.context_files"):
+            if not is_text_list(context, allow_empty=True) or len(context) != len(set(context)):
+                raise ValueError("scope.context_files must list unique ACT4-relative reference-only files; use [] when none")
+        declared = {name for paths in assets.values() if is_text_list(paths, allow_empty=True) for name in paths} if isinstance(assets, dict) else set()
+        if is_text_list(context, allow_empty=True):
+            for index, name in enumerate(context):
+                with scope_field(errors, f"scope.context_files[{index}]"):
+                    if name in declared:
+                        raise ValueError("A path cannot be both a reviewed asset and a reference-only context file")
+                    if not safe_path(self.source, name).is_file():
+                        raise ValueError(f"Missing context file: {name}; locate the actual shared definition")
+            declared.update(context)
+        shared = scope.get("shared_assets")
+        with scope_field(errors, "scope.shared_assets"):
+            if not isinstance(shared, list):
+                raise ValueError("scope.shared_assets must list shared paths, consumer suites and their review boundary; use [] when none")
+        seen_shared = set()
+        for index, item in enumerate(shared if isinstance(shared, list) else []):
+            field = f"scope.shared_assets[{index}]"
+            with scope_field(errors, field):
+                if not isinstance(item, dict):
+                    raise ValueError("Each shared asset must be a mapping with path, consumers and boundary")
+            if not isinstance(item, dict):
+                continue
+            with scope_field(errors, f"{field}.path"):
+                name = item.get("path")
+                if not is_text(name) or name in seen_shared:
+                    raise ValueError("shared_assets requires unique path mappings")
+                seen_shared.add(name)
+                if not safe_path(self.source, name).is_file() or name not in declared:
+                    raise ValueError("Shared assets must be existing declared assets or context_files")
+            with scope_field(errors, f"{field}.consumers"):
+                if not is_text_list(item.get("consumers")):
+                    raise ValueError("Shared assets require consumer suite names")
+            with scope_field(errors, f"{field}.boundary"):
+                if not is_text(item.get("boundary")):
+                    raise ValueError("Shared assets require a boundary explaining reviewed and excluded suites")
+        if is_text_list(context, allow_empty=True) and isinstance(shared, list):
+            with scope_field(errors, "scope.shared_assets"):
+                if set(context) - seen_shared:
+                    raise ValueError(f"Declare the review boundary for context_files in shared_assets: {sorted(set(context) - seen_shared)}")
         for field in ("targets", "references", "discovery"):
             with scope_field(errors, f"scope.{field}"):
                 if not is_text_list(scope.get(field)):
@@ -604,12 +646,22 @@ class ACT4ReviewChecker(Checker):
         with scope_field(errors, "scope.reference_files"):
             if not is_text_list(reference_files, allow_empty=True) or len(set(reference_files)) != len(reference_files):
                 raise ValueError("scope.reference_files must list unique workspace-relative specification inputs; use [] and report missing sources")
-        if is_text_list(reference_files, allow_empty=True):
-            for index, name in enumerate(reference_files):
-                with scope_field(errors, f"scope.reference_files[{index}]"):
-                    path = safe_path(Path(self.workspace), name)
-                    if path.resolve().is_relative_to(self.output.resolve()) or not path.is_file() or path.is_symlink():
-                        raise ValueError(f"Reference inputs must be existing files outside the review output: {name}")
+        selections = scope.get("reference_scope")
+        with scope_field(errors, "scope.reference_scope"):
+            if not isinstance(selections, dict):
+                raise ValueError("reference_scope must select reviewed_lines and excluded_reason for every reference_files path")
+            if is_text_list(reference_files, allow_empty=True) and set(selections) != set(reference_files):
+                raise ValueError("reference_scope must select exactly the declared reference_files")
+        if is_text_list(reference_files, allow_empty=True) and isinstance(selections, dict):
+            for name in reference_files:
+                with scope_field(errors, f"scope.reference_scope.{name}"):
+                    validate_references(Path(self.workspace), self.output, [name], {name: selections.get(name)})
+        if isinstance(selections, dict):
+            plan = self._load("isa-plan-accepted.json")["plan"]
+            for name in plan["reference_files"]:
+                with scope_field(errors, f"scope.reference_scope.{name}"):
+                    if selections.get(name) != plan["reference_scope"][name]:
+                        raise ValueError(f"scope must retain the independent ISA selection: {name}; add further references without narrowing the original plan")
         jobs = scope.get("jobs")
         with scope_field(errors, "scope.jobs"):
             if not isinstance(jobs, list) or not jobs:
@@ -652,6 +704,12 @@ class ACT4ReviewChecker(Checker):
                     raise ValueError("CI disposition must be run, not_applicable, or unavailable")
                 if job.get("purpose") == "environment" and job["disposition"] != "run":
                     raise ValueError("Environment jobs must run a real probe before reporting unavailable tools")
+            if "optional_tool" in job:
+                with scope_field(errors, f"{field}.optional_tool"):
+                    if not is_text(job["optional_tool"]) or job["optional_tool"] not in OPTIONAL_SIMULATORS or job.get("purpose") not in ("coverage", "environment"):
+                        raise ValueError("optional_tool must identify questa/vcs/xcelium for a coverage or simulator environment job")
+                    if job.get("disposition") != "run" or "install" in job:
+                        raise ValueError("Optional simulator jobs must use disposition: run without install; availability comes from environment.json")
             if job.get("disposition") in ("not_applicable", "unavailable"):
                 with scope_field(errors, f"{field}.reason"):
                     if not is_text(job.get("reason")):
@@ -757,9 +815,12 @@ class ACT4ReviewChecker(Checker):
             if not remaining:
                 indexed = {job["id"]: job for job in jobs}
                 for job in ordered:
+                    field = f"scope.jobs[{jobs.index(job)}]"
+                    with scope_field(errors, f"{field}.needs"):
+                        if "optional_tool" not in job and any("optional_tool" in indexed[name] for name in ancestors[job["id"]]):
+                            raise ValueError(f"Required job {job['id']} must not depend on an optional simulator; keep generation/build/model/lint independent")
                     if job["disposition"] != "run" or job["purpose"] == "environment":
                         continue
-                    field = f"scope.jobs[{jobs.index(job)}]"
                     prerequisites = [indexed[name] for name in ancestors[job["id"]]]
                     for purpose in ({"environment", "generation"} if job["purpose"] == "build" else {"environment"}):
                         with scope_field(errors, f"{field}.needs"):
@@ -772,6 +833,10 @@ class ACT4ReviewChecker(Checker):
                                 raise ValueError(f"ELF provider {name} must be a prerequisite build for {job['target']}")
         if errors:
             raise ScopeValidationError(errors)
+        plan = resolve_validation_plan(self.source, scope)
+        self._write("validation-plan.json", plan)
+        if plan["errors"]:
+            raise ValueError(f"Validation plan conflicts with native CI: {plan['errors']}; inspect validation-plan.json before executing")
         return scope
 
     def _environment(self, state: dict[str, Any], refresh: bool) -> dict[str, Any]:
@@ -2160,7 +2225,7 @@ class ACT4ReviewChecker(Checker):
             return self._checked_result(True, {"report": "final.md" if self.phase == "final" else "evidence-after.json",
                           "changed_paths": changed, "ci": [{key: value for key, value in job.items()
                               if key in {"id", "status", "purpose", "log", "reason", "elf_count", "executed_tests"}}
-                              for job in after["jobs"]]}
+                              for job in after["jobs"]]})
         except ScopeValidationError as exc:
             return False, {"error_code": "act4_review_contract", "error": str(exc),
                            "artifact": f"{self.review_dir}/scope.yaml", "phase": self.phase,

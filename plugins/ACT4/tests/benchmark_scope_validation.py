@@ -48,7 +48,7 @@ def main() -> None:
         harness = ReviewHarness(Path(directory))
         valid = deepcopy(harness.scope)
         valid["jobs"][1]["cwd"] = "."
-        checker = harness.checker("inventory")
+        checker = harness.checker("audit")
         checker.source, checker.output = harness.source, harness.output
         # Alternate order to reduce warm-cache and scheduling bias; setup is outside timing.
         for repeat in range(args.repeats):

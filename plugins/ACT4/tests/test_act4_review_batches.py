@@ -66,7 +66,49 @@ def test_reference_ranges_reject_ambiguous_scope(tmp_path: Path, defect: str) ->
         selection["reviewed_lines"] = {"overlap": [[1, 20], [20, 30]], "outside": [[1, 101]], "bool": [[True, 20]], "unordered": [[20, 30], [1, 10]]}[defect]
     harness.write("scope.yaml", harness.scope)
     passed, result = harness.checker("audit").do_check()
-    assert not passed and result["error_code"] == "act4_review_scope"
+    assert not passed and result["error_code"] == "act4_review_contract"
+
+
+def test_scope_reports_reference_and_shared_boundary_errors_together(tmp_path: Path, monkeypatch) -> None:
+    """Reject independent invalid boundaries together before freezing inputs or running jobs."""
+    harness = ReviewHarness(tmp_path)
+    for name in ("first.adoc", "second.adoc"):
+        (tmp_path / name).write_text("Rule\n" * 5)
+    harness.scope.update(reference_files=["first.adoc", "second.adoc"], reference_scope={
+        "first.adoc": {"reviewed_lines": [[1, 6]], "excluded_reason": ""},
+        "second.adoc": {"reviewed_lines": [[1, 3], [3, 5]], "excluded_reason": ""},
+    }, context_files=["generators/H.py"], shared_assets=[{
+        "path": "generators/H.py", "consumers": [], "boundary": "",
+    }])
+    harness.write("scope.yaml", harness.scope)
+
+    def unexpected_command(*args, **kwargs):
+        """Invalid scope cannot start any native validation command."""
+        pytest.fail("Invalid scope executed a command")
+
+    monkeypatch.setattr("act4_privileged_suite.checkers.act4_review_checker.execute_command", unexpected_command)
+    passed, result = harness.checker("audit").do_check(run_commands=True)
+    assert not passed and result["error_code"] == "act4_review_contract"
+    fields = {item["field"] for item in result["errors"]}
+    assert fields >= {"scope.reference_scope.first.adoc", "scope.reference_scope.second.adoc",
+                      "scope.context_files[0]", "scope.shared_assets[0].consumers", "scope.shared_assets[0].boundary"}
+    assert not (harness.output / "baseline.json").exists()
+
+
+@pytest.mark.parametrize("field,value", [
+    ("context_files", None), ("context_files", {}), ("context_files", [None]),
+    ("shared_assets", None), ("shared_assets", {}), ("shared_assets", [None]),
+    ("shared_assets", [{"path": [], "consumers": [], "boundary": ""}]),
+    ("reference_scope", []),
+])
+def test_scope_malformed_boundary_parents_return_field_errors(tmp_path: Path, field: str, value) -> None:
+    """Malformed boundary containers must yield bounded diagnostics instead of bypasses or crashes."""
+    harness = ReviewHarness(tmp_path)
+    harness.scope[field] = value
+    harness.write("scope.yaml", harness.scope)
+    passed, result = harness.checker("audit").do_check()
+    assert not passed and result["error_code"] == "act4_review_contract"
+    assert any(item["field"].startswith(f"scope.{field}") for item in result["errors"])
 
 
 def test_reference_selection_keeps_exclusions_and_deduplicates_plans(tmp_path: Path) -> None:

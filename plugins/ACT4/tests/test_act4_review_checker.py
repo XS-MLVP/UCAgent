@@ -236,19 +236,6 @@ class ReviewHarness:
         assert passed, result
         return review
 
-    def authorize(self) -> ACT4ReviewChecker:
-        """Model the real operator approval followed by successful stage completion."""
-        gate = self.checker("authorize")
-        passed, result = gate.do_check(is_complete=True)
-        assert passed, result
-        self.human, self.message = True, result["digest"]
-        assert gate.do_check(is_complete=True)[0]
-        self.completed = True
-        for callback in self.callbacks:
-            callback(self.gate)
-        return gate
-
-
 def test_scope_reports_independent_fields_without_freezing(tmp_path: Path, monkeypatch) -> None:
     """Report root, asset, reference and same-job failures together before any baseline work."""
     harness = ReviewHarness(tmp_path)
@@ -258,7 +245,7 @@ def test_scope_reports_independent_fields_without_freezing(tmp_path: Path, monke
     harness.scope["reference_files"] = ["missing.adoc"]
     harness.scope["jobs"][0].update(timeout_seconds=0, argv="python check.py", cwd="../outside")
     harness.write("scope.yaml", harness.scope)
-    checker = harness.checker("inventory")
+    checker = harness.checker("audit")
     with monkeypatch.context() as patch:
         def unexpected_baseline(*args):
             """Fail if an invalid scope reaches baseline creation or source fingerprinting."""
@@ -271,9 +258,9 @@ def test_scope_reports_independent_fields_without_freezing(tmp_path: Path, monke
     fields = {item["field"] for item in result["errors"]}
     assert fields == {"scope.suite", "scope.references", "scope.discovery",
                       "scope.assets.generators[0]", "scope.assets.generators[1]",
-                      "scope.reference_files[0]", "scope.jobs[0].timeout_seconds",
+                      "scope.reference_scope", "scope.reference_scope.missing.adoc", "scope.jobs[0].timeout_seconds",
                       "scope.jobs[0].argv", "scope.jobs[0].cwd"}
-    assert result["error_count"] == 9 and result["errors_omitted"] == 0
+    assert result["error_count"] == 10 and result["errors_omitted"] == 0
     assert all(item["next_action"] and item["error"] for item in result["errors"])
     assert result["artifact"] == "reports/H/review/scope.yaml"
     assert not (harness.output / "baseline").exists()
@@ -292,7 +279,7 @@ def test_scope_invalid_parent_preserves_unrelated_diagnostics(tmp_path: Path, fi
     harness.scope[field] = value
     harness.scope["references"] = []
     harness.write("scope.yaml", harness.scope)
-    passed, result = harness.checker("inventory").do_check()
+    passed, result = harness.checker("audit").do_check()
     assert not passed, result
     fields = {item["field"] for item in result["errors"]}
     assert "scope.references" in fields
@@ -312,7 +299,7 @@ def test_scope_invalid_job_field_does_not_hide_sibling_error(tmp_path: Path, fie
     harness = ReviewHarness(tmp_path)
     harness.scope["jobs"][0].update({field: value, "cwd": "../outside"})
     harness.write("scope.yaml", harness.scope)
-    passed, result = harness.checker("inventory").do_check()
+    passed, result = harness.checker("audit").do_check()
     assert not passed, result
     fields = {item["field"] for item in result["errors"]}
     assert "scope.jobs[0].cwd" in fields
@@ -325,12 +312,12 @@ def test_scope_bounds_diagnostics_and_exposes_remaining_errors(tmp_path: Path) -
     harness = ReviewHarness(tmp_path)
     harness.scope["assets"]["generators"] = [f"missing-{index}.py" for index in range(25)]
     harness.write("scope.yaml", harness.scope)
-    passed, result = harness.checker("inventory").do_check()
+    passed, result = harness.checker("audit").do_check()
     assert not passed and result["error_count"] == 25
     assert len(result["errors"]) == 20 and result["errors_omitted"] == 5
     for index in range(20):
         (harness.source / f"missing-{index}.py").write_text("VALUE = 1\n")
-    passed, result = harness.checker("inventory").do_check()
+    passed, result = harness.checker("audit").do_check()
     assert not passed and result["error_count"] == 5 and result["errors_omitted"] == 0
     assert len(result["errors"]) == 5
 
