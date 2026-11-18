@@ -188,11 +188,15 @@ def function_batch_progress(execution, records: FormalRecords) -> dict:
                 phase = "run"
             else:
                 phase = "review" if reviews else "closed"
+            run_call = None
+            if phase == "run" and not active:
+                target = {"fc_id": fc.id} if len(ready) == len(checks) else {"ck_ids": ready}
+                run_call = {"action": "run", "scope": "selected", **target}
             closed_ck.extend(closed)
             batches.append({"fg_id": fg.id, "fc_id": fc.id, "phase": phase, "closed_ck_ids": closed,
                             "unimplemented_ck_ids": missing, "ready_ck_ids": ready, "needs_review": reviews,
                             "solver_review": solver_review, "deferred_ck_ids": gaps,
-                            "run_call": {"action": "run", "scope": "selected", "ck_ids": ready} if phase == "run" and not active else None,
+                            "run_call": run_call,
                             "review_call": {"action": "review_fc", "fc_id": fc.id,
                                             "reviews": [{"ck_id": row["ck_id"], "run_id": row["run_id"], "classification": "", "reason": ""} for row in reviews]} if phase == "review" else None})
     current = next((batch for batch in batches if batch["phase"] != "closed"), None)
