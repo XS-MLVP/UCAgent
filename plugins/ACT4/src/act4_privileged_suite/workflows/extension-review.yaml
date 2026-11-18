@@ -138,6 +138,7 @@ stage:
         对失败项分析根因，提出修复建议或说明暂缓所需证据。
       - '第十一步：调用 ACT4ReviewDocument(action="initialize") 创建未完成的 review.yaml 骨架，再普通 Check 获取当前批次。'
       - 第十二步：用 ACT4ReviewDocument 的 status 查看当前 review_tasks 批次、quote 提取原文、update 按 ID 合入自己的 semantic_review.judgments；
+        更新携带当前 expected_sha256 和 evidence_digest；写入冲突时读取变更后的文件，来源变化先 Check 再复核受影响判断，不能只替换 digest。
         每批完成后普通 Check，所有缺项索引在 progress-audit.json。没有文档工具时使用普通文件工具编辑同一契约的 review.yaml；
         从 obligation_sources 的每个规范/计划区块提取 obligations，逐项映射目标配置、覆盖点和实现源码，排除项说明理由；
         每条 obligation 填 plan_items，逐项对照全部 I<number>；缺失项关联 finding，不能删除独立计划项来匹配已有资产。

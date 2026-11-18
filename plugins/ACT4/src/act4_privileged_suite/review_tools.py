@@ -17,7 +17,10 @@ from ucagent.plugins import PluginContext
 from ucagent.tools.fileops import is_file_writeable
 from ucagent.tools.uctool import UCTool
 
-from .checkers.act4_review_checker import TOPICS, experiment_sources, safe_path
+from .checkers.act4_review_checker import (
+    TOPICS, CitationValidationError, experiment_sources, read_review_quote,
+    review_citation_sources, safe_path,
+)
 
 
 class ReviewDocumentArgs(BaseModel):
@@ -27,36 +30,33 @@ class ReviewDocumentArgs(BaseModel):
     action: Literal["status", "initialize", "quote", "update", "context", "reuse"] = Field(description="Read progress, initialize, quote, update, collect finding context, or reference unchanged audit judgments approved for final reuse by Check.")
     finding_id: str = Field(default="", description="For context only: an existing F<number> finding to investigate; no semantic verdict is generated.")
     document: Literal["isa-plan", "review", "final"] = Field(default="review", description="Independent ISA design, audit review, or post-repair final document. isa-plan supports status/quote/update before acceptance.")
-    expected_sha256: str = Field(default="", description="For update, the document revision returned by status; an empty value requires an absent document.")
+    expected_sha256: str = Field(default="", description="For update/reuse, the document revision returned by status; an empty value requires an absent document.")
     changes: dict[str, Any] = Field(default_factory=dict, description="Top-level document fields. findings/obligations/traceability and semantic_review.judgments are upserted by their IDs. Supply semantic reasoning yourself; citation quote text may be omitted for exact extraction.")
     citations: list[dict[str, Any]] = Field(default_factory=list, max_length=12, description="For quote: up to 12 citations with frozen path, inclusive lines [start,end] (at most 100), and observation.")
 
 
-def extract_citations(value: Any, root: Path, allowed: dict[str, str]) -> None:
+def extract_citations(value: Any, root: Path, allowed: dict[str, str],
+                      source_lines: dict[str, list[str]], location: str, *, citation_list: bool = False) -> None:
     """Fill exact quotations recursively, rejecting stale sources and conflicting supplied text."""
+    if citation_list and (not isinstance(value, list) or not value):
+        error = CitationValidationError("source", "Provide a nonempty basis list with path, lines and observation")
+        error.location = location
+        raise error
     if isinstance(value, list):
-        for item in value:
-            extract_citations(item, root, allowed)
+        for index, item in enumerate(value):
+            selected = f"{location}[{index}]"
+            if citation_list:
+                try:
+                    quote = read_review_quote(root, item, allowed, source_lines, require_quote=False)
+                    item["quote"] = quote
+                except CitationValidationError as error:
+                    error.location = selected
+                    raise
+            else:
+                extract_citations(item, root, allowed, source_lines, selected)
     elif isinstance(value, dict):
-        if {"path", "lines", "observation"} <= value.keys():
-            name, bounds = value["path"], value["lines"]
-            if not isinstance(name, str) or name not in allowed:
-                raise ValueError(f"Citation path is not a retained evidence source: {name}")
-            content = safe_path(root, name).read_bytes()
-            if hashlib.sha256(content).hexdigest() != allowed[name]:
-                raise ValueError(f"Citation source changed: {name}; rerun Check before updating evidence")
-            physical = content.decode("utf-8").splitlines()
-            if not isinstance(bounds, list) or len(bounds) != 2 or any(type(number) is not int for number in bounds) or not 1 <= bounds[0] <= bounds[1] <= len(physical) or bounds[1] - bounds[0] >= 100:
-                raise ValueError(f"Citation lines must select 1..100 existing physical lines: {name}")
-            quote = "\n".join(physical[bounds[0] - 1:bounds[1]])
-            if "quote" in value and value["quote"] != quote:
-                raise ValueError(f"Supplied quote disagrees with source: {name}:{bounds}; read the current source")
-            if not isinstance(value["observation"], str) or not value["observation"].strip():
-                raise ValueError("Each citation needs your observation of what the source establishes")
-            value["quote"] = quote
-        else:
-            for item in value.values():
-                extract_citations(item, root, allowed)
+        for key, item in value.items():
+            extract_citations(item, root, allowed, source_lines, f"{location}.{key}", citation_list=key == "basis")
 
 
 class ACT4ReviewDocument(UCTool):
@@ -101,6 +101,7 @@ class ACT4ReviewDocument(UCTool):
             if path.is_symlink():
                 raise ValueError("Review documents must be regular files, not symlinks")
             original = path.read_bytes() if path.exists() else None
+            mode = path.stat().st_mode & 0o7777 if original is not None else None
             revision = hashlib.sha256(original).hexdigest() if original is not None else ""
             if args.document == "isa-plan" and args.action == "update" and (root / "isa-plan-accepted.json").exists():
                 raise ValueError("Accepted ISA plan is frozen; record later corrections in review obligations without rewriting the original design")
@@ -116,28 +117,31 @@ class ACT4ReviewDocument(UCTool):
                         "exists": original is not None, "progress": progress,
                         "next_action": "Read ISA sources in isa-plan-context.json, write requirements and source_reviews, then Check and Complete before reading assets."
                         if args.document == "isa-plan" else "Review the batch inputs, update its records, then Check; progress reflects the last Check."}
-            allowed: dict[str, str] = {}
-            labels = () if args.document == "isa-plan" else (("before",) if args.document == "review" else ("before", "after"))
-            if args.document == "isa-plan" and (root / "isa-plan-context.json").is_file():
-                allowed.update(json.loads((root / "isa-plan-context.json").read_text())["source_files"])
-            for label in labels:
-                evidence_path = safe_path(root, f"evidence-{label}.json")
-                content = evidence_path.read_bytes()
-                evidence = json.loads(content)
-                allowed.update(evidence["source_files"])
-                allowed[evidence_path.name] = hashlib.sha256(content).hexdigest()
-                allowed["environment.json"] = hashlib.sha256((json.dumps(evidence["environment"], indent=2) + "\n").encode()).hexdigest()
-                for tool in evidence["environment"]["tools"].values():
-                    allowed.update({attempt["log"]: attempt["sha256"] for attempt in tool["attempts"]})
-                for job in evidence["jobs"]:
-                    for field in ("log", "probe_log"):
-                        if field in job:
-                            allowed[job[field]] = job[f"{field}_sha256"]
-                    allowed.update({item["path"]: item["sha256"] for item in job.get("artifacts", []) + job.get("diagnostics", [])})
-            index_path = safe_path(root, "experiments.json")
-            experiment_index = json.loads(index_path.read_text()) if index_path.exists() and args.document != "isa-plan" else {"receipts": {}, "attempts": {}}
-            if args.document != "isa-plan":
-                allowed.update(experiment_sources(root, experiment_index["receipts"], hashlib.sha256(index_path.read_bytes()).hexdigest() if index_path.exists() else None))
+            snapshots: dict[str, bytes | None] = {}
+
+            def read_snapshot(name: str, *, required: bool = True) -> bytes | None:
+                """Retain metadata bytes or absence so publication can detect later changes."""
+                source = safe_path(root, name)
+                content = source.read_bytes() if required or source.exists() else None
+                snapshots[name] = content
+                return content
+
+            source_lines: dict[str, list[str]] = {}
+            if args.document == "isa-plan":
+                allowed = json.loads(read_snapshot("isa-plan-context.json"))["source_files"]
+                if read_snapshot("isa-plan-accepted.json", required=False) is not None and args.action == "update":
+                    raise ValueError("Accepted ISA plan is frozen; record later corrections in review obligations")
+            else:
+                before = json.loads(read_snapshot("evidence-before.json"))
+                evidence_name = "evidence-before.json" if args.document == "review" else "evidence-after.json"
+                evidence = before if args.document == "review" else json.loads(read_snapshot(evidence_name))
+                allowed = review_citation_sources(evidence, evidence_name, before if args.document == "final" else None)
+                index_content = read_snapshot("experiments.json", required=False)
+                experiment_index = json.loads(index_content) if index_content is not None else {"receipts": {}, "attempts": {}}
+                for name in experiment_index["receipts"]:
+                    read_snapshot(name)
+                allowed.update(experiment_sources(root, experiment_index["receipts"],
+                    hashlib.sha256(index_content).hexdigest() if index_content is not None else None))
             if args.action == "context":
                 data = yaml.safe_load(original) if original else {}
                 finding = next((item for item in data.get("findings", []) if item["id"] == args.finding_id), None)
@@ -158,19 +162,29 @@ class ACT4ReviewDocument(UCTool):
                         "experiment_count": len(experiment_index["attempts"]),
                         "next_action": "Quote and read the named sources; declare a minimal experiment in review.yaml and use Check(stage_args={experiment: {action: prepare, id: E1}}). Context is bounded and is not a completeness judgment."}
             if args.action == "quote":
-                if not args.citations or any(not {"path", "lines", "observation"} <= item.keys() for item in args.citations):
+                if not args.citations:
                     raise ValueError("quote requires citations with path, lines and observation")
                 quoted = copy.deepcopy(args.citations)
-                extract_citations(quoted, root, allowed)
+                extract_citations(quoted, root, allowed, source_lines, "citations", citation_list=True)
                 return {"ok": True, "citations": quoted}
             relative = str(path.relative_to(Path(self.workspace).resolve()))
-            permitted, reason = is_file_writeable(relative, self.un_write_dirs, self.write_dirs)
-            if not permitted:
-                raise ValueError(f"Document write denied: {relative}: {reason}")
+
+            def check_write_target() -> None:
+                """Enforce write policy and reject symlink components before each publication step."""
+                permitted, reason = is_file_writeable(relative, self.un_write_dirs, self.write_dirs)
+                if not permitted:
+                    raise ValueError(f"Document write denied: {relative}: {reason}")
+                current = Path(self.workspace).resolve()
+                for part in Path(relative).parts:
+                    current /= part
+                    if current.is_symlink():
+                        raise ValueError(f"Document write denied through a symlink: {relative}")
+
+            check_write_target()
             if args.action == "initialize":
                 if args.document != "review" or original is not None:
                     raise ValueError("initialize requires an absent review.yaml; use status/update for existing or final documents")
-                scope = yaml.safe_load(safe_path(root, "scope.yaml").read_text())
+                scope = yaml.safe_load(read_snapshot("scope.yaml"))
                 data = {"schema_version": 1, "suite": self.suite, "summary": "Audit in progress; no completed review conclusion yet.",
                         "checks": {topic: {"status": "unverified", "evidence": ["evidence-before.json"], "conclusion": "Pending source-grounded review."} for topic in sorted(TOPICS)},
                         "findings": [], "changes": [], "post_assets": scope["assets"], "obligations": [], "traceability": [],
@@ -183,7 +197,7 @@ class ACT4ReviewDocument(UCTool):
                     raise ValueError("Document must be this suite's schema_version: 1 mapping")
                 updates = copy.deepcopy(args.changes)
                 if args.action == "reuse":
-                    reuse = json.loads(safe_path(root, "reuse-final.json").read_text())
+                    reuse = json.loads(read_snapshot("reuse-final.json"))
                     if reuse["evidence_digest"] != evidence["review_digest"]:
                         raise ValueError("Reuse plan is stale; run ordinary final Check before requesting reuse")
                     assessed = {identity for item in data.get("semantic_review", {}).get("judgments", []) for identity in item["tasks"]}
@@ -194,7 +208,7 @@ class ACT4ReviewDocument(UCTool):
                     permitted_fields = {"target_context", "reference_files", "reference_scope", "requirements", "source_reviews", "limitations"}
                 if not updates or set(updates) - permitted_fields:
                     raise ValueError(f"update requires current document fields from {sorted(permitted_fields)}")
-                extract_citations(updates, root, allowed)
+                extract_citations(updates, root, allowed, source_lines, "changes")
                 collections = {"findings": "id", "obligations": "id", "traceability": "coverpoint", "experiments": "id", "requirements": "id", "source_reviews": "source"}
                 for key, value in updates.items():
                     if key in collections:
@@ -234,13 +248,29 @@ class ACT4ReviewDocument(UCTool):
                         data.setdefault(key, {}).update(value)
                     else:
                         data[key] = value
+            if args.document != "isa-plan" and "semantic_review" in data:
+                semantic = data["semantic_review"]
+                if not isinstance(semantic, dict) or semantic.get("evidence_digest") != evidence["review_digest"]:
+                    raise ValueError(f"Review {evidence_name} and supply its current review_digest; do not reuse stale judgments")
             rendered = yaml.safe_dump(data, allow_unicode=True, sort_keys=False).encode("utf-8")
             descriptor, temporary = tempfile.mkstemp(dir=root, prefix=".review-document-")
             try:
                 with os.fdopen(descriptor, "wb") as stream:
+                    if mode is not None:
+                        os.fchmod(stream.fileno(), mode)
                     stream.write(rendered)
+                for name, snapshot in snapshots.items():
+                    source = safe_path(root, name)
+                    if (source.read_bytes() if source.exists() else None) != snapshot:
+                        raise ValueError(f"{name} changed while preparing the update; read current evidence and retry")
+                for name in source_lines:
+                    if hashlib.sha256(safe_path(root, name).read_bytes()).hexdigest() != allowed[name]:
+                        raise ValueError(f"Citation source changed while preparing the update: {name}; recollect evidence")
+                check_write_target()
                 if (path.read_bytes() if path.exists() else None) != original or path.is_symlink():
                     raise ValueError("Document changed while preparing the update; call status and retry")
+                if mode is not None and path.stat().st_mode & 0o7777 != mode:
+                    raise ValueError("Document permissions changed while preparing the update; call status and retry")
                 os.replace(temporary, path)
             finally:
                 if os.path.exists(temporary):
@@ -249,6 +279,7 @@ class ACT4ReviewDocument(UCTool):
                     "next_action": "Call Check to validate these records and get the next batch; this write is not acceptance."}
         except (ValueError, TypeError, KeyError, OSError, yaml.YAMLError) as error:
             return {"ok": False, "error_code": "act4_review_document", "error": str(error),
+                    "artifact": f"{self.review_dir}/{document}.yaml", "location": getattr(error, "location", "document"),
                     "next_action": "Read status and the named artifact, correct the structured arguments, then retry. Collect native evidence with Check before citing it."}
 
 
