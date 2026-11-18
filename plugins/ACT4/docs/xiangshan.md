@@ -15,8 +15,8 @@
 ACT4_WORKSPACE="$PWD/output/xiangshan-Vector"
 mkdir -p "$ACT4_WORKSPACE"
 ucagent "$ACT4_WORKSPACE" Vector \
-  --plugin act4-privileged-suite \
-  --plugin-workflow act4-privileged-suite:xiangshan-v3-handoff \
+  --plugin act4 \
+  --plugin-workflow act4:xiangshan-v3-handoff \
   --output act4_xiangshan --backend langchain --tui
 ```
 
@@ -52,9 +52,11 @@ ucagent "$ACT4_WORKSPACE" Vector \
 | handoff_delivery | 精简交付目录，输出操作指南、ACT 测试索引及构建运行资产，异目录核验 |
 
 上游只有生成器而没有 `.S` 时，运行已有原生生成器即可，不启动 AI 重新设计。
-真正的缺口才调用现有 `privileged-suite-generation`：在独立 clone 中创建新 privileged suite，
-必须满足其 CTP/Sheet、规范和全部验收条件。该生成工作流不支持任意 unprivileged 新套件或
-覆盖已有 suite；这种缺口以及微架构场景应明确列为 unavailable。不能通过删改生成门槛伪装已补全。
+真正的缺口才在独立 clone 调用生成工作流：scope 的 `generation_style: table` 选择
+`unprivileged-suite-generation`，`scenario` 选择 `privileged-suite-generation`。
+依据原生测试结构与 trap 需求判断，不仅依据 ISA 特权类别；两者都须满足自己的规范、
+原生资产及全部阶段验收，并保留原生验证收据。已有实现先用 review 增量修复，不覆盖输入。
+原生接口不支持的缺口与微架构场景列为 unavailable，不通过删改生成门槛伪装补全。
 生成子流程需要已配置的模型后端及额度；生成和 review 工作流自身的契约不变。
 
 ## 报告与文件说明
@@ -93,4 +95,4 @@ TEST 使用实际 `make list` 中的完整 ACT 程序路径。省略 TEST 为批
 运行现成 ELF 需要 Python 3.11+ 和匹配 emu，不需要 UCAgent、Sail 或商业仿真器。
 状态严格区分 `source_only`、`built_not_run`、`emulator_passed`、`emulator_failed`。
 没有 emu 时可以交付，但必须说明尚未运行 RTL。环境规则见 [环境说明](environment.md)，
-完整产物格式见 [运行指南](../src/act4_privileged_suite/Guide_Doc/ACT4_XiangShan_Handoff_Guide.md)。
+完整产物格式见 [运行指南](../src/ucagent_act4/Guide_Doc/ACT4_XiangShan_Handoff_Guide.md)。

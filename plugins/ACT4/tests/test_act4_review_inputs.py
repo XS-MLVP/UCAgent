@@ -7,8 +7,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from act4_privileged_suite.workspace import validate_review_paths
-from act4_privileged_suite.plugin import get_plugin
+from ucagent_act4.workspace import validate_review_paths
+from ucagent_act4.plugin import get_plugin
 from ucagent.plugins import PluginError
 from test_act4_review_checker import ReviewHarness
 from test_act4_review_checker import isolate_optional_simulators as isolate_optional_simulators

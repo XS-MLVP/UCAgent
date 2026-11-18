@@ -9,10 +9,10 @@ from types import SimpleNamespace
 import pytest
 import yaml
 
-from act4_privileged_suite.checkers.act4_asset_checker import ACT4AssetChecker
-from act4_privileged_suite.checkers.act4_review_checker import ACT4ReviewChecker
-from act4_privileged_suite.plugin import get_plugin
-from act4_privileged_suite.review_tools import ACT4ReviewDocument, create_review_tools
+from ucagent_act4.checkers.act4_asset_checker import ACT4AssetChecker
+from ucagent_act4.checkers.act4_review_checker import ACT4ReviewChecker
+from ucagent_act4.plugin import get_plugin
+from ucagent_act4.review_tools import ACT4ReviewDocument, create_review_tools
 from ucagent.plugins import PluginContext
 from ucagent.tools.uctool import to_mcp_tool
 from ucagent.util.config import Config
@@ -86,7 +86,7 @@ def test_scope_reports_reference_and_shared_boundary_errors_together(tmp_path: P
         """Invalid scope cannot start any native validation command."""
         pytest.fail("Invalid scope executed a command")
 
-    monkeypatch.setattr("act4_privileged_suite.checkers.act4_review_checker.execute_command", unexpected_command)
+    monkeypatch.setattr("ucagent_act4.checkers.act4_review_checker.execute_command", unexpected_command)
     passed, result = harness.checker("audit").do_check(run_commands=True)
     assert not passed and result["error_code"] == "act4_review_contract"
     fields = {item["field"] for item in result["errors"]}

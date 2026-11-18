@@ -7,8 +7,8 @@ import sys
 
 import pytest
 
-from act4_privileged_suite.checkers import act4_review_checker as module
-from act4_privileged_suite import environment
+from ucagent_act4.checkers import act4_review_checker as module
+from ucagent_act4 import environment
 from test_act4_environment import plan_for
 from test_act4_review_checker import ReviewHarness
 from test_act4_review_checker import isolate_optional_simulators as isolate_optional_simulators

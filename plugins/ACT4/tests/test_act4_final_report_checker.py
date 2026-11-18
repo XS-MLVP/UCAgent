@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from act4_privileged_suite.checkers.act4_final_report_checker import ACT4FinalReportChecker
+from ucagent_act4.checkers.act4_final_report_checker import ACT4FinalReportChecker
 
 
 def _write_inputs(tmp_path: Path) -> None:

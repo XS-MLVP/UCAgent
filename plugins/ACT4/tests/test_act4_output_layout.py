@@ -9,10 +9,10 @@ import subprocess
 import pytest
 import yaml
 
-from act4_privileged_suite import environment, resources
-from act4_privileged_suite.checkers.act4_final_report_checker import ACT4FinalReportChecker
-from act4_privileged_suite.checkers.act4_resource_checker import ACT4ResourceChecker
-from act4_privileged_suite.resource_tools import ACT4Resources
+from ucagent_act4 import environment, resources
+from ucagent_act4.checkers.act4_final_report_checker import ACT4FinalReportChecker
+from ucagent_act4.checkers.act4_resource_checker import ACT4ResourceChecker
+from ucagent_act4.resource_tools import ACT4Resources
 from ucagent.tools.uctool import to_mcp_tool
 
 from test_act4_environment import plan_for

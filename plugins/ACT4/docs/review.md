@@ -17,8 +17,8 @@
 ACT4_WORKSPACE="$PWD/output/review-Sstc"
 mkdir -p "$ACT4_WORKSPACE"
 ucagent "$ACT4_WORKSPACE" Sstc \
-  --plugin act4-privileged-suite \
-  --plugin-workflow act4-privileged-suite:extension-review \
+  --plugin act4 \
+  --plugin-workflow act4:extension-review \
   --output act4_review --backend langchain --tui
 ```
 
@@ -28,8 +28,8 @@ ucagent "$ACT4_WORKSPACE" Sstc \
 ```bash
 ACT4_REVIEW_ROOT=local-assets/Sstc \
 ucagent "$ACT4_WORKSPACE" Sstc \
-  --plugin act4-privileged-suite \
-  --plugin-workflow act4-privileged-suite:extension-review \
+  --plugin act4 \
+  --plugin-workflow act4:extension-review \
   --output local_review --backend langchain --tui
 ```
 
@@ -58,4 +58,4 @@ Questa/VCS/Xcelium 会探测且均为可选；缺少程序或许可证不妨碍�
 缺少 ISA/框架能力依据的问题保留具体原因，不通过猜测更改预期值。
 本地执行与远端 CI 通过、真实 DUT 验证分别记录。
 
-完整产物格式及核验规则见 [运行指南](../src/act4_privileged_suite/Guide_Doc/ACT4_Extension_Review_Guide.md)。
+完整产物格式及核验规则见 [运行指南](../src/ucagent_act4/Guide_Doc/ACT4_Extension_Review_Guide.md)。

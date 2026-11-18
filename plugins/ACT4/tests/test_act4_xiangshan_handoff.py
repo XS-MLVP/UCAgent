@@ -14,11 +14,11 @@ from types import SimpleNamespace
 import pytest
 import yaml
 
-from act4_privileged_suite import xiangshan_bundle as bundle
-from act4_privileged_suite import environment
-from act4_privileged_suite.checkers.act4_xiangshan_checker import ACT4XiangShanChecker, TARGET_TOPICS
-from act4_privileged_suite.plugin import get_plugin
-from act4_privileged_suite.workspace import validate_xiangshan_paths
+from ucagent_act4 import xiangshan_bundle as bundle
+from ucagent_act4 import environment
+from ucagent_act4.checkers.act4_xiangshan_checker import ACT4XiangShanChecker, TARGET_TOPICS
+from ucagent_act4.plugin import get_plugin
+from ucagent_act4.workspace import validate_xiangshan_paths
 from ucagent.plugins import PluginError, load_plugin
 from ucagent.verify_agent import VerifyAgent
 
@@ -51,7 +51,7 @@ class HandoffHarness:
         self.output.mkdir(parents=True)
         self.source = root / "local"
         self.source.mkdir()
-        (self.source / "sample.S").write_text("// START_TEST_CONFIG\n// NEEDS_SIGNATURE: true\n// END_TEST_CONFIG\naddi a0, zero, 0\n")
+        (self.source / "sample.S").write_text("// START_TEST_CONFIG\n// REQUIRED_EXTENSIONS: [I, Sstc]\n// MARCH: rv64i_zicsr\n// NEEDS_SIGNATURE: true\n// END_TEST_CONFIG\naddi a0, zero, 0\n")
         self.framework = root / "framework"
         for name in ("README.md", "pyproject.toml", "uv.lock", "framework/src/act/act.py", "tests/env/rvtest_macros.h"):
             destination = self.framework / name
@@ -96,7 +96,7 @@ class HandoffHarness:
                 "limitations": "No hardware validation in this fixture",
                 "cases": [{"id": "file", "description": "Synthetic zero-result fixture", "stimulus": "Write zero to a0",
                     "expected": "Fixture success; not an ISA validation", "coverpoints": ["Sstc_cg/cp_timer"],
-                    "evidence": {"path": "tests/priv/Sstc/sample.S", "lines": [4, 4], "quote": "addi a0, zero, 0"}}]}]}
+                    "evidence": {"path": "tests/priv/Sstc/sample.S", "lines": [6, 6], "quote": "addi a0, zero, 0"}}]}]}
         self.write("traceability.yaml", self.trace)
         self.write("input.yaml", self.plan)
         self.target = {"schema_version": 1, "family": "kunminghu-v3", "commit": self.commit,
@@ -292,6 +292,20 @@ def test_source_only_delivery_requires_real_attempt_and_states_missing_build(har
         assert not any(name.endswith(".elf") for name in stream.getnames())
 
 
+@pytest.mark.parametrize("replacement,code", [
+    ("MARCH: invalid", "test_config_march"),
+    ("MARCH: rv64i_zicsr\n// params: []", "test_config_params"),
+    ("MARCH: rv64i_zicsr\n// MIN_HARTS: 0", "test_config_harts"),
+])
+def test_handoff_rejects_invalid_native_header_before_build(harness, replacement, code):
+    """Do not package selected tests with invalid filtering metadata or defer errors to recipients."""
+    source = harness.source / "sample.S"
+    source.write_text(source.read_text().replace("MARCH: rv64i_zicsr", replacement))
+    assert harness.checker("inputs").do_check(action="prepare")[0]
+    passed, result = harness.checker("target").do_check(action="adapt")
+    assert not passed and code in result["error"], result
+
+
 @pytest.mark.parametrize("output,code,expected", [
     ("RVCP-SUMMARY: TEST PASSED\nHIT GOOD TRAP", 0, "passed"),
     ("HIT GOOD TRAP", 0, "failed"),
@@ -335,6 +349,23 @@ def test_modified_evidence_invalidates_completion(harness, mutation):
         stream.write(b"\nchanged\n")
     passed, result = harness.checker("build").do_check(is_complete=True)
     assert not passed, result
+
+
+@pytest.mark.parametrize("resource", ["scripts/handoff.py", "xiangshan_bundle.py", "handoff/Makefile"])
+def test_delivery_resources_remain_bound_to_target_evidence(harness, monkeypatch, resource):
+    """Invalidate old builds when a shipped script or template changes after adaptation."""
+    harness.built()
+    changed = get_plugin().root / resource
+    original_sha256 = bundle.sha256
+
+    def changed_resource_sha256(path):
+        """Simulate changed delivery bytes without editing the plugin source under test."""
+        return "0" * 64 if Path(path) == changed else original_sha256(path)
+
+    monkeypatch.setattr(bundle, "sha256", changed_resource_sha256)
+    passed, result = harness.checker("build").do_check(is_complete=True)
+    assert not passed, result
+    assert "adapt" in str(result)
 
 
 def test_read_only_checks_do_not_rerun_and_adaptation_requires_rebuild(harness, monkeypatch):
@@ -384,7 +415,7 @@ def test_target_and_input_boundaries(harness, failure):
 def test_native_generator_is_explicit_and_preserves_input(harness):
     """Support generator-only local assets without regenerating an already imported .S."""
     generator = harness.source / "generator.py"
-    generator.write_text('"""Synthetic local module generator."""\nfrom pathlib import Path\npath = Path("tests/priv/Sstc/sample.S")\npath.parent.mkdir(parents=True, exist_ok=True)\npath.write_text("// START_TEST_CONFIG\\n// NEEDS_SIGNATURE: true\\n// END_TEST_CONFIG\\naddi a0, zero, 0\\n")\n')
+    generator.write_text('"""Synthetic local module generator."""\nfrom pathlib import Path\npath = Path("tests/priv/Sstc/sample.S")\npath.parent.mkdir(parents=True, exist_ok=True)\npath.write_text("// START_TEST_CONFIG\\n// REQUIRED_EXTENSIONS: [I, Sstc]\\n// MARCH: rv64i_zicsr\\n// NEEDS_SIGNATURE: true\\n// END_TEST_CONFIG\\naddi a0, zero, 0\\n")\n')
     harness.plan["imports"] = [asset_import("generator.py", "generators/testgen/generator.py"), *harness.plan["imports"][1:]]
     harness.plan["generation"] = [["python3", "generators/testgen/generator.py"]]
     harness.write("input.yaml", harness.plan)
@@ -485,7 +516,7 @@ def test_workflow_initializes_with_optional_skills_and_environment(tmp_path, mon
 def test_generation_and_review_registration_stay_separate():
     """Add one opt-in workflow without changing the existing entry point order or requirements."""
     plugin = get_plugin()
-    assert [item.name for item in plugin.workflows] == ["privileged-suite-generation", "extension-review", "xiangshan-v3-handoff"]
+    assert [item.name for item in plugin.workflows] == ["privileged-suite-generation", "extension-review", "xiangshan-v3-handoff", "unprivileged-suite-generation"]
     assert not plugin.workflows[0].command_requirements
     assert not plugin.workflows[2].command_requirements
     for workflow in plugin.workflows[:2]:

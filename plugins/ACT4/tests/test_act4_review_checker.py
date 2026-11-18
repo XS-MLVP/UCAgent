@@ -11,11 +11,11 @@ from types import SimpleNamespace
 import pytest
 import yaml
 
-from act4_privileged_suite.checkers.act4_review_checker import ACT4ReviewChecker, ASSET_KINDS
-from act4_privileged_suite.checkers import act4_review_checker
-from act4_privileged_suite.checkers.act4_asset_checker import ACT4AssetChecker
-from act4_privileged_suite import environment
-from act4_privileged_suite.plugin import get_plugin
+from ucagent_act4.checkers.act4_review_checker import ACT4ReviewChecker, ASSET_KINDS
+from ucagent_act4.checkers import act4_review_checker
+from ucagent_act4.checkers.act4_asset_checker import ACT4AssetChecker
+from ucagent_act4 import environment
+from ucagent_act4.plugin import get_plugin
 from ucagent.plugins import LoadedPlugin, create_plugin_checker_registry, load_plugin
 from ucagent.verify_agent import VerifyAgent
 
@@ -1302,6 +1302,42 @@ def test_review_reuses_format_checks_and_queues_diagnostics(tmp_path: Path, exte
     expected = set(evidence["review_tasks"]) | {f"finding:{item['id']}" for item in review["findings"]} | {f"obligation:{item['id']}" for item in review["obligations"]}
     assert {task for item in review["semantic_review"]["judgments"] for task in item["tasks"]} == expected
     assert harness.checker("audit").do_check(is_complete=True)[0]
+
+
+@pytest.mark.parametrize("generated", [True, False])
+@pytest.mark.parametrize("valid", [True, False])
+@pytest.mark.parametrize("suffix", [".S", ".c"])
+def test_review_headers_cover_declared_and_generated_sources(tmp_path: Path, generated: bool, valid: bool, suffix: str) -> None:
+    """Keep header defects as located, reviewable facts rather than rejecting the entire audit."""
+    harness = ReviewHarness(tmp_path)
+    text = "// START_TEST_CONFIG\n// REQUIRED_EXTENSIONS: [I]\n// MARCH: rv64i\n// params:\n//   MXLEN: 64\n// END_TEST_CONFIG\n.text\n"
+    if not valid:
+        text = text.replace("// MARCH: rv64i\n", "")
+    name = f"H-00{suffix}"
+    if suffix == ".c":
+        text = text.replace(".text\n", "int main(void) { return 0; }\n")
+    if generated:
+        script = harness.source / "check.py"
+        script.write_text(script.read_text() + f'Path({name!r}).write_text({text!r})\n')
+        harness.scope["jobs"][0]["artifacts"].append({"path": name, "kind": "generated"})
+        retained = f"artifacts-before/generation/{name}"
+    else:
+        (harness.source / name).write_text(text)
+        harness.scope["assets"]["test_cases"] = [name]
+        retained = f"baseline/{name}"
+    harness.write("scope.yaml", harness.scope)
+    harness.audit()
+    evidence = json.loads((harness.output / "evidence-before.json").read_text())
+    header = evidence["test_headers"][retained]
+    assert bool(header["findings"]) is not valid
+    if suffix == ".c":
+        assert retained not in evidence["reachability"]
+    if valid:
+        assert header["metadata"]["params"] == {"MXLEN": 64}
+    else:
+        assert not evidence["static_passed"]
+        assert any(task.get("check") == "test_config_march" and task.get("path") == retained
+                   and task["line"] > 0 for task in evidence["review_tasks"].values())
 
 
 @pytest.mark.parametrize("generated", [True, False])

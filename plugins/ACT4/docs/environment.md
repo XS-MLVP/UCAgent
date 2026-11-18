@@ -28,7 +28,7 @@ ISA manual 和香山源码仅供读取，不为文档构建或完整 RTL 仿真�
 不使用会互相污染的可写硬链接。必要的规范引用只保留选中的文件。
 
 `ACT4Resources` 提供受限的只读浏览和 ISA 文件快照，不扩大 UCAgent 通用文件工具的工作区权限。
-详细操作见 [资源运行指南](../src/act4_privileged_suite/Guide_Doc/ACT4_Resources_Guide.md)。
+详细操作见 [资源运行指南](../src/ucagent_act4/Guide_Doc/ACT4_Resources_Guide.md)。
 
 ## 安装位置
 
@@ -78,4 +78,4 @@ covergroup 编译/仿真探测许可证与功能；这不等于 ACT 原生 cover
 审查流程的环境阶段只读安装资料，不接触已有 CTP、coverage、testgen 或测试内容；
 独立 ISA 计划冻结后才分析现有测试，避免环境准备打破独立设计顺序。
 
-安装计划完整格式见 [环境运行指南](../src/act4_privileged_suite/Guide_Doc/ACT4_Environment_Guide.md)。
+安装计划完整格式见 [环境运行指南](../src/ucagent_act4/Guide_Doc/ACT4_Environment_Guide.md)。

@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from act4_privileged_suite.checkers.act4_file_manifest_checker import ACT4FileManifestChecker
+from ucagent_act4.checkers.act4_file_manifest_checker import ACT4FileManifestChecker
 
 
 def _sha(path: Path) -> str:
@@ -179,7 +179,7 @@ def test_local_asset_cannot_be_relabelled_as_act4_contribution(tmp_path):
 
 
 @pytest.mark.parametrize(("suffix", "content"), [
-    (".py", "from act4_privileged_suite.checkers import load_contract"),
+    (".py", "from ucagent_act4.checkers import load_contract"),
     (".py", 'from pathlib import Path\np = Path("out/artifact.txt")\np.read_text()'),
     (".py", 'import os\nos.getenv("ITGEN_WORKSPACE")'),
     (".svh", '`include "../../../unity_test/H/local.svh"'),

@@ -10,9 +10,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from act4_privileged_suite import resources
-from act4_privileged_suite.checkers.act4_resource_checker import ACT4ResourceChecker
-from act4_privileged_suite.resource_tools import ACT4Resources
+from ucagent_act4 import resources
+from ucagent_act4.checkers.act4_resource_checker import ACT4ResourceChecker
+from ucagent_act4.resource_tools import ACT4Resources
 
 
 def repository(root: Path, name: str, branch: str = "act4") -> Path:

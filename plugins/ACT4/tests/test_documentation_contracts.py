@@ -6,14 +6,40 @@ import re
 
 import yaml
 
-from act4_privileged_suite.checkers.act4_file_manifest_checker import ACT4FileManifestChecker
-from act4_privileged_suite.checkers.act4_final_report_checker import ACT4FinalReportChecker
-from act4_privileged_suite.checkers.act4_test_asset_checker import ACT4TestAssetChecker
-from act4_privileged_suite.checkers import act4_asset_consistency
-from act4_privileged_suite.plugin import get_plugin
+from ucagent_act4.checkers.act4_file_manifest_checker import ACT4FileManifestChecker
+from ucagent_act4.checkers.act4_final_report_checker import ACT4FinalReportChecker
+from ucagent_act4.checkers.act4_test_asset_checker import ACT4TestAssetChecker
+from ucagent_act4.checkers import act4_asset_consistency
+from ucagent_act4.plugin import get_plugin
+from ucagent_act4.test_headers import inspect_test_header
 
 
-GUIDES = Path(__file__).resolve().parents[1] / "src/act4_privileged_suite/Guide_Doc"
+GUIDES = Path(__file__).resolve().parents[1] / "src/ucagent_act4/Guide_Doc"
+
+
+def test_shared_authoring_header_is_a_complete_native_example() -> None:
+    """Keep the shared recipe executable as a full header with nested native constraints."""
+    guide = (GUIDES / "ACT4_Asset_Authoring_Guide.md").read_text(encoding="utf-8")
+    examples = re.findall(r"```asm\n(.*?)```", guide, re.DOTALL)
+    assert len(examples) == 1
+    result = inspect_test_header(examples[0], "documented-example.S")
+    assert not result["findings"], result
+    assert result["metadata"]["REQUIRED_EXTENSIONS"][-1] == ["Sm", "U"]
+    assert result["metadata"]["params"]["NUM_PMP_ENTRIES"] == ">0"
+
+
+def test_all_workflows_expose_shared_guidance_without_skills() -> None:
+    """Share the task contract while keeping the independent review plan free of asset guidance."""
+    shared = "Guide_Doc/ACT4_Asset_Authoring_Guide.md"
+    for workflow in get_plugin().workflows:
+        config = yaml.safe_load(workflow.config_file.read_text(encoding="utf-8"))
+        assert any(shared in stage.get("reference_files", []) for stage in config["stage"])
+        assert not any(stage.get("skill_list") for stage in config["stage"])
+        assert not workflow.skill_paths
+        assert (workflow.guide_doc_paths[0] / "act4_template/native_asset_design_template.md").is_file()
+        if workflow.name == "extension-review":
+            plan = next(stage for stage in config["stage"] if stage["name"] == "review_plan")
+            assert shared not in plan["reference_files"]
 
 
 def test_runtime_heading_spacing() -> None:

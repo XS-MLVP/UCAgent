@@ -1,15 +1,16 @@
 
 # UCAgent ACT4 插件
 
-为 RISC-V ACT4 测试资产提供三个独立工作流。选择其中一个即可，无需依次运行。
+为 RISC-V ACT4 测试资产提供四个独立工作流。选择其中一个即可，无需依次运行。
 
 | 工作流 | 用途 | 独立介绍与运行方法 |
 | --- | --- | --- |
-| `privileged-suite-generation` | 从 CTP/ISA 创建新的 privileged suite | [资产生成](docs/generation.md) |
+| `privileged-suite-generation` | 从原生计划/ISA 创建场景型 suite，支持状态序列和异常 | [资产生成](docs/generation.md) |
+| `unprivileged-suite-generation` | 从指令矩阵/ISA 生成无 trap 的表驱动测试资产 | [资产生成](docs/generation.md#非特权指令生成) |
 | `extension-review` | 审查并增量修复上游或本地已有模块资产 | [资产审查](docs/review.md) |
 | `xiangshan-v3-handoff` | 按香山模块选择上游 ACT 资产、补全适用缺口并交付可追溯源码/ELF | [香山交付](docs/xiangshan.md) |
 
-三个工作流均在资产生成或构建前准备环境：探测已有工具，按所选 ACT4 版本安装缺项并复验。
+四个工作流均在资产生成或构建前准备环境：探测已有工具，按所选 ACT4 版本安装缺项并复验。
 优先复用系统和用户已安装的软件，默认新增工具放在持久化用户目录，存在冲突的环境可放临时目录。
 工具准备、原生验证与真实 DUT 验证是不同结论，不能相互替代。
 安装位置、版本选择、权限/网络失败和中断恢复见 [环境准备与复用](docs/environment.md)。
@@ -22,7 +23,7 @@
 python3 -m pip install .
 python3 -m pip install ./plugins/ACT4
 ucagent --list-plugins
-ucagent --validate-plugin act4-privileged-suite
+ucagent --validate-plugin act4
 ```
 
 已有兼容 UCAgent 时可跳过核心安装。开发时可用 `python3 -m pip install -e ./plugins/ACT4`，
@@ -47,6 +48,6 @@ ucagent --validate-plugin act4-privileged-suite
 中断后使用同一工作区、模块、输出和工作流参数重启，先恢复 journal，再继续当前阶段。
 成功安装的软件通过实际版本探测复用；临时目录被清理或工具被替换时需重新准备，不能沿用旧结论。
 
-规范与产物契约位于 [运行指南目录](src/act4_privileged_suite/Guide_Doc/)，测试与打包见
+规范与产物契约位于 [运行指南目录](src/ucagent_act4/Guide_Doc/)，测试与打包见
 [开发说明](docs/development.md)。本插件沿用仓库根目录的 [许可证](../../LICENSE)、
 [贡献流程](../../CONTRIBUTING.md)和[漏洞报告渠道](../../SECURITY.md)。

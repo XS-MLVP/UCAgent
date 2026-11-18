@@ -2,7 +2,7 @@ from pathlib import Path
 
 import yaml
 
-from act4_privileged_suite.checkers.act4_ai_review_checker import ACT4AIReviewChecker
+from ucagent_act4.checkers.act4_ai_review_checker import ACT4AIReviewChecker
 
 
 def test_checker_has_ucagent_description() -> None:

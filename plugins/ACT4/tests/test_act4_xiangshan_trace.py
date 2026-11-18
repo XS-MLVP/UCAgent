@@ -13,8 +13,8 @@ import tarfile
 import pytest
 import yaml
 
-from act4_privileged_suite import xiangshan_bundle as bundle
-from act4_privileged_suite.xiangshan_trace import testcase_inventory as inventory_cases, validate_trace
+from ucagent_act4 import xiangshan_bundle as bundle
+from ucagent_act4.xiangshan_trace import testcase_inventory as inventory_cases, validate_trace
 from test_act4_xiangshan_handoff import HandoffHarness
 
 
@@ -82,7 +82,7 @@ def test_annotation_preserves_only_native_configuration_delimiters():
 
 def test_frozen_trace_reuses_validation_only_for_unchanged_inputs(harness, monkeypatch):
     """Large traces need no reparsing after adapt, but changed evidence still invalidates the target."""
-    from act4_privileged_suite.checkers import act4_xiangshan_checker
+    from ucagent_act4.checkers import act4_xiangshan_checker
 
     harness.ready()
 
@@ -139,12 +139,13 @@ def test_trace_rejects_incomplete_or_fabricated_links(harness, mutation):
 def test_every_native_testcase_has_its_own_design_and_comment(harness):
     """A file with two ACT labels needs two explanations and preserves the original bytes."""
     path = harness.source / "sample.S"
+    first_line = len(path.read_text().splitlines()) + 1
     original = path.read_text() + "Sstc_cg_cp_timer_first:\naddi a0, zero, 0\nSstc_cg_cp_timer_second:\naddi a0, zero, 1\n"
     path.write_text(original)
     case = harness.trace["tests"][0]["cases"][0]
     harness.trace["tests"][0]["cases"] = [
-        {**case, "id": "Sstc_cg_cp_timer_first", "evidence": {"path": "tests/priv/Sstc/sample.S", "lines": [5, 6], "quote": "Sstc_cg_cp_timer_first:\naddi a0, zero, 0"}},
-        {**case, "id": "Sstc_cg_cp_timer_second", "stimulus": "Set a0 to one", "expected": "a0 equals one", "evidence": {"path": "tests/priv/Sstc/sample.S", "lines": [7, 8], "quote": "Sstc_cg_cp_timer_second:\naddi a0, zero, 1"}},
+        {**case, "id": "Sstc_cg_cp_timer_first", "evidence": {"path": "tests/priv/Sstc/sample.S", "lines": [first_line, first_line + 1], "quote": "Sstc_cg_cp_timer_first:\naddi a0, zero, 0"}},
+        {**case, "id": "Sstc_cg_cp_timer_second", "stimulus": "Set a0 to one", "expected": "a0 equals one", "evidence": {"path": "tests/priv/Sstc/sample.S", "lines": [first_line + 2, first_line + 3], "quote": "Sstc_cg_cp_timer_second:\naddi a0, zero, 1"}},
     ]
     harness.write("traceability.yaml", harness.trace)
     harness.built()
@@ -277,7 +278,7 @@ def test_real_riscv_link_preserves_instructions_and_nonallocated_note(tmp_path):
 
 def test_complete_guide_trace_example(tmp_path):
     """Exercise the published complete trace document against its stated example sources."""
-    guide = Path(__file__).resolve().parents[1] / "src/act4_privileged_suite/Guide_Doc/ACT4_XiangShan_Handoff_Guide.md"
+    guide = Path(__file__).resolve().parents[1] / "src/ucagent_act4/Guide_Doc/ACT4_XiangShan_Handoff_Guide.md"
     text = guide.read_text(encoding="utf-8").split("## 5.", 1)[1]
     document = yaml.safe_load(re.search(r"```yaml\n(.*?)```", text, re.DOTALL)[1])
     sources = {"tests/priv/Fixture/one.S": "Fixture_cg_cp_zero_case0:\naddi a0, zero, 0\n",

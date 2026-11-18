@@ -8,8 +8,8 @@ import tempfile
 import pytest
 import yaml
 
-from act4_privileged_suite import environment
-from act4_privileged_suite.plugin import get_plugin
+from ucagent_act4 import environment
+from ucagent_act4.plugin import get_plugin
 
 
 def plan_for(tmp_path: Path, optional_failure: bool = False) -> dict:
@@ -142,7 +142,7 @@ def test_python_placeholder_installer_is_accepted(tmp_path) -> None:
 
 def test_environment_guide_plan_example_matches_checker_contract(tmp_path) -> None:
     """Keep the documented complete plan schema executable by the validator."""
-    guide = Path(__file__).resolve().parents[1] / "src/act4_privileged_suite/Guide_Doc/ACT4_Environment_Guide.md"
+    guide = Path(__file__).resolve().parents[1] / "src/ucagent_act4/Guide_Doc/ACT4_Environment_Guide.md"
     text = guide.read_text(encoding="utf-8")
     example = text.split("```yaml\n", 1)[1].split("```", 1)[0]
     (tmp_path / "plan.yaml").write_text(example, encoding="utf-8")

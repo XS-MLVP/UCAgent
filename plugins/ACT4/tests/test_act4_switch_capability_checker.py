@@ -2,7 +2,7 @@ from pathlib import Path
 
 import yaml
 
-from act4_privileged_suite.checkers.act4_switch_capability_checker import ACT4SwitchCapabilityChecker
+from ucagent_act4.checkers.act4_switch_capability_checker import ACT4SwitchCapabilityChecker
 
 
 def _write(path: Path, data: dict) -> None:

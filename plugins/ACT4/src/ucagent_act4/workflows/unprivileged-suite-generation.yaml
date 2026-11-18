@@ -1,0 +1,189 @@
+template_overwrite:
+  PROJECT: act4_unprivileged_generate
+  DOC_GEN_LANG: English
+  ACT4_RESOURCE_ROOT: "$(ACT4_RESOURCE_ROOT: )"
+  ACT4_ACT_REF: "$(ACT4_ACT_REF: act4)"
+  ACT4_MANUAL_REF: "$(ACT4_MANUAL_REF: HEAD)"
+  ACT4_MANUAL_ROOT: "$(ACT4_MANUAL_ROOT: riscv-isa-manual)"
+
+mission:
+  name: ACT4 unprivileged instruction asset generation
+  prompt:
+    system: |
+      为 {DUT} 生成可贡献给 ACT 的表驱动指令测试资产。遵循 Guide_Doc/ACT4_Generation_Guide.md
+      和 Guide_Doc/ACT4_Asset_Authoring_Guide.md。此路线仅用于不发生 trap 的指令测试；
+      需要异常处理或非规则状态序列时，说明依据并选择 privileged-suite-generation，不删除测试意图来适配本路线。
+      以原生 testplans/{DUT}.csv 为权威计划；不要套用特权行为型 CSV、VM contract 或 priv generator。
+      先准备共享资源、工具环境及固定输入，再修改独立 riscv-arch-test 副本。每次 shell 命令先
+      source {OUT}/intermediate/{DUT}/environment/activate.sh。禁止修改共享资源和规范原文。
+      使用 CurrentTips、StageJournal 维护本阶段计划，通过 Check 和 Complete 推进。技能不是前提。
+      在资产修改前记录原始 HEAD 和受保护文件基线，持续维护 schema_version=2 的 file manifest，
+      格式见 Guide_Doc/ACT4_Checker_Guide/ACT4FileManifestChecker.md。阶段记录分别使用
+      01_coverpoints、04_generator、06_contribution、07_final_report。
+      仅扩展原生模板、coverpoint generators、formatter types 和 decoder，不改框架、构建、签名或
+      验收逻辑以掩盖失败。声明 extension_sources，修改共享模板或 decoder 时说明受影响的其他 suite。
+      不手改生成的 SV 或 .S，不伪造运行日志、签名、coverage 或人工审批。规范决定生成范围，
+      模型能力只决定验证范围；不得因模型不支持而删掉指令、XLEN 或测试点。
+      可选商业工具不可用须明确列为未验证限制。编译失败、零 ELF、生成不一致不是通过。
+      最终只在 {OUT}/ 放 final.md 和 changes.patch，其余契约、计划和证据放 intermediate/{DUT}/。
+
+hooks:
+  continue: "用 CurrentTips、StageJournal 恢复当前阶段，依据 Check 反馈修复，再 Complete。"
+
+un_write_dirs: ["{GUIDE_DOC}"]
+write_dirs: ["{OUT}", riscv-arch-test]
+guide_doc:
+  enable: true
+  core_copy_policy: {default_action: ignore, retain: [], override: [], ignore: []}
+template: ""
+tools:
+  ignore_tools: [WorkCommit]
+
+stage:
+  - name: prepare_resources
+    desc: 复用固定版本源码，准备独立写入副本
+    task:
+      - '调用 Check(stage_args={"action":"prepare"})，再 Complete。用 ACT4Resources list/read 查找规范原文，不自行重复 clone。'
+    reference_files: ["Guide_Doc/ACT4_Resources_Guide.md"]
+    checker:
+      - name: reusable_source_inputs
+        clss: ACT4ResourceChecker
+        args:
+          resource_dir: "{OUT}/intermediate/{DUT}/resources"
+          cache_root: "{ACT4_RESOURCE_ROOT}"
+          workflow: generation
+          inputs: {act4: riscv-arch-test, manual: "{ACT4_MANUAL_ROOT}"}
+          refs: {act4: "{ACT4_ACT_REF}", manual: "{ACT4_MANUAL_REF}"}
+  - name: prepare_environment
+    desc: 准备可复用工具和原生项目依赖
+    task:
+      - '阅读固定 ACT 的 README、CONTRIBUTING、CI 和依赖锁文件，调用 Check(stage_args={"action":"probe"})。'
+      - "创建 {OUT}/intermediate/{DUT}/environment/plan.yaml，覆盖 make、git、uv、mise、prek、Ruby/Bundler/UDB、交叉编译器、参考模型及 CTP 渲染工具。商业覆盖工具可选。优先复用已安装版本；公开工具缺失时按当前仓库规则安装到持久用户目录，冲突版本使用 temporary。"
+      - '调用 Check(stage_args={"action":"prepare","timeout":3600})，查看日志并修复可解决的依赖，再 Complete。不得覆盖系统默认 Python 或编译器。'
+    reference_files: ["Guide_Doc/ACT4_Environment_Guide.md"]
+    checker:
+      - name: act4_environment
+        clss: ACT4EnvironmentChecker
+        args: {environment_dir: "{OUT}/intermediate/{DUT}/environment"}
+  - name: prepare_generation_inputs
+    desc: 冻结 ISA 规则和原生指令计划
+    task:
+      - "用 ACT4Resources list/read 选定全部相关 src/*.adoc；用 Check 的 action=prepare、manual_files=[实际相对路径] 捕获原文、正式规则 JSON 和原生 CSV，然后 Complete。原生计划不存在时允许创建新 suite；缺规范规则不能编造。"
+    reference_files: ["Guide_Doc/ACT4_Checker_Guide/ACT4GenerationInputsChecker.md"]
+    checker:
+      - name: generation_inputs
+        clss: ACT4GenerationInputsChecker
+        args:
+          suite: "{DUT}"
+          kind: unprivileged
+          input_dir: "{OUT}/intermediate/{DUT}/inputs"
+          manual_root: "{ACT4_MANUAL_ROOT}"
+  - name: instruction_plan
+    desc: 建立指令、XLEN、覆盖点与变体矩阵
+    task:
+      - "首次写入前冻结受保护文件基线并创建 {OUT}/intermediate/{DUT}/reports/{DUT}_file_manifest.yaml。声明可扩展边界，不能用当前内容重建修改前基线。"
+      - "核对 inputs/ 中的原文和规则文本；创建或完善 testplans/{DUT}.csv，使用 Instruction,Type,RV32,RV64、可选 ExtraExtensions 和 coverpoint 列。保留原计划所有指令、XLEN 和变体，补充规范内的遗漏，不照搬特权行格式。"
+      - "阅读现有 formatter、sample 模板及 decoder，确认每条指令的类型、编码、额外扩展。为每个测试点解释刺激、边界、预期和可观察结果。Check 生成阅读视图，Complete 后进入实现。"
+    reference_files: ["Guide_Doc/ACT4_Generation_Guide.md", "Guide_Doc/ACT4_Checker_Guide/ACT4NativeAssetsChecker.md", "Guide_Doc/ACT4_Checker_Guide/ACT4FileManifestChecker.md"]
+    checker:
+      - name: native_instruction_plan
+        clss: ACT4NativeAssetsChecker
+        args:
+          suite: "{DUT}"
+          kind: unprivileged
+          input_dir: "{OUT}/intermediate/{DUT}/inputs"
+          contract_file: "{OUT}/intermediate/{DUT}/asset_contract.yaml"
+          phase: plan
+          human_plan: "{OUT}/intermediate/{DUT}/{DUT}_testplan.md"
+  - name: instruction_assets
+    desc: 实现原生生成链并补齐规则、参数和 CTP
+    task:
+      - "按 Guide_Doc/ACT4_Asset_Authoring_Guide.md section 3 核对原生扩展点和共享消费者，再实现本 suite 所需的 template、generator、formatter 或 decoder。"
+      - "运行原生 make tests EXTENSIONS={DUT} EXCLUDE_EXTENSIONS=，检查 coverpoints/unpriv/{DUT}_coverage*.svh 以及 tests/rv32、tests/rv64 下实际生成的汇编；逐条核对非空、自检、签名更新及 coverpoint 注释。禁止手改生成结果。"
+      - "创建 coverpoints/norm/{DUT}.yaml；有 ISA/UDB 参数时创建 coverpoints/param/{DUT}.yaml，无参数需说明依据。更新真实 CTP 章节的 plan/norm includes。创建 asset_contract.yaml，列明参数、章节、extension_sources 和适用 native validation_configs。"
+      - "参考 Guide_Doc/act4_template/native_asset_design_template.md，在 reports/design_review.md 按指令/coverpoint 记录规则、可区分错误实现的激励与观察、实现依据、共享消费者回归及未验证范围；按 Guide_Doc/ACT4_Asset_Authoring_Guide.md section 4 核对生成 header。Check 后修复，再 Complete。"
+    reference_files: ["Guide_Doc/ACT4_Generation_Guide.md", "Guide_Doc/ACT4_Asset_Authoring_Guide.md", "Guide_Doc/act4_template/native_asset_design_template.md", "Guide_Doc/ACT4_Checker_Guide/ACT4NativeAssetsChecker.md"]
+    checker:
+      - name: native_instruction_assets
+        clss: ACT4NativeAssetsChecker
+        args:
+          suite: "{DUT}"
+          kind: unprivileged
+          input_dir: "{OUT}/intermediate/{DUT}/inputs"
+          contract_file: "{OUT}/intermediate/{DUT}/asset_contract.yaml"
+          output_file: "{OUT}/intermediate/{DUT}/reports/native-assets.json"
+  - name: prepare_to_contribute
+    desc: 核对原生贡献集合和受保护文件
+    task:
+      - "完善 file manifest。贡献集包含变更的原生 CSV、规则/参数映射、CTP、必要扩展源码，以及 Git 规则要求提交的生成 SV/.S；忽略的 .S、ELF、日志、工具和本地契约不进入 patch。未修改且存在于固定 HEAD 的依赖无需重复提交。"
+      - "对照 CONTRIBUTING 核对许可证、源码 hooks、相关 CI 配置；DCO、提交签名、维护者审批留给真正贡献者。更新全量基线和改动清单，不隐藏受保护文件写入。Check 后 Complete。"
+    reference_files: ["Guide_Doc/ACT4_Generation_Guide.md", "Guide_Doc/ACT4_Checker_Guide/ACT4FileManifestChecker.md"]
+    checker:
+      - name: instruction_manifest
+        clss: ACT4FileManifestChecker
+        args:
+          manifest_file: "{OUT}/intermediate/{DUT}/reports/{DUT}_file_manifest.yaml"
+          expected_suite: "{DUT}"
+          require_contribution_set: true
+          protected_act4_exclude_patterns:
+            - generators/coverage/src/covergroupgen/templates/*.sv
+            - generators/testgen/src/testgen/coverpoints/*.py
+            - generators/testgen/src/testgen/formatters/types/*.py
+            - framework/src/act/fcov/disassemble.svh
+          inventory_patterns:
+            - "{OUT}/intermediate/{DUT}/reports/**/*"
+            - "{OUT}/intermediate/{DUT}/asset_contract.yaml"
+            - "riscv-arch-test/testplans/{DUT}.csv"
+            - "riscv-arch-test/coverpoints/unpriv/{DUT}_coverage*.svh"
+            - "riscv-arch-test/coverpoints/norm/{DUT}.yaml"
+            - "riscv-arch-test/coverpoints/param/{DUT}.yaml"
+            - "riscv-arch-test/tests/rv*/{DUT}/*.S"
+  - name: validate_native_contribution
+    desc: 在独立副本只应用贡献集并运行原生消费者
+    task:
+      - '调用 Check(stage_args={"action":"validate","timeout":3600})，根据具体日志修复后重跑。不要在隔离验证副本修改文件；回到源资产修改，并更新贡献集与 hash。普通 Check 通过后 Complete。'
+      - "检查生成一致性、hooks、UDB 参数、CTP、各配置编译和运行结果。缺工具不能标成通过，零 ELF 不能当成功，模型支持范围不能替代生成范围。"
+    reference_files: ["Guide_Doc/ACT4_Checker_Guide/ACT4NativeValidationChecker.md"]
+    checker:
+      - name: native_contribution_validation
+        clss: ACT4NativeValidationChecker
+        args:
+          suite: "{DUT}"
+          kind: unprivileged
+          input_dir: "{OUT}/intermediate/{DUT}/inputs"
+          contract_file: "{OUT}/intermediate/{DUT}/asset_contract.yaml"
+          manifest_file: "{OUT}/intermediate/{DUT}/reports/{DUT}_file_manifest.yaml"
+          output_dir: "{OUT}/intermediate/{DUT}/native-validation"
+          environment_dir: "{OUT}/intermediate/{DUT}/environment"
+  - name: generate_final_human_report
+    desc: 输出可读摘要和可贡献的 patch
+    task:
+      - "按 Guide_Doc/ACT4_Generation_Guide.md 写 {OUT}/final.md：先概述生成了什么、验证了什么、未验证原因及需要的人工帮助，再给覆盖/文件索引和复现方法；包含与实际 receipt 一致的 generation_result YAML。"
+      - "链接 environment/summary.md、native-validation/receipt.json、原生输入收据、design_review.md 和 file manifest。Check 会发布 {OUT}/changes.patch。不要称 AI 自审等同于维护者审批或上游完整 CI。"
+    reference_files: ["Guide_Doc/ACT4_Generation_Guide.md", "Guide_Doc/ACT4_Checker_Guide/ACT4NativeValidationChecker.md", "Guide_Doc/ACT4_Checker_Guide/ACT4FinalReportChecker.md"]
+    checker:
+      - name: native_report_evidence
+        clss: ACT4NativeValidationChecker
+        args:
+          suite: "{DUT}"
+          kind: unprivileged
+          input_dir: "{OUT}/intermediate/{DUT}/inputs"
+          contract_file: "{OUT}/intermediate/{DUT}/asset_contract.yaml"
+          manifest_file: "{OUT}/intermediate/{DUT}/reports/{DUT}_file_manifest.yaml"
+          output_dir: "{OUT}/intermediate/{DUT}/native-validation"
+          environment_dir: "{OUT}/intermediate/{DUT}/environment"
+          final_report: "{OUT}/final.md"
+      - name: instruction_final_report
+        clss: ACT4FinalReportChecker
+        args:
+          report_file: "{OUT}/final.md"
+          patch_file: "{OUT}/changes.patch"
+          contribution_manifest: "{OUT}/intermediate/{DUT}/reports/{DUT}_file_manifest.yaml"
+          act4_root: riscv-arch-test
+          required_sections: [Executive conclusion, Coverage scope, Report index, Limitations and non-claims, Reproduction]
+          required_reports:
+            - "{OUT}/intermediate/{DUT}/environment/summary.md"
+            - "{OUT}/intermediate/{DUT}/native-validation/receipt.json"
+            - "{OUT}/intermediate/{DUT}/inputs/receipt.json"
+            - "{OUT}/intermediate/{DUT}/reports/design_review.md"
+            - "{OUT}/intermediate/{DUT}/reports/{DUT}_file_manifest.yaml"

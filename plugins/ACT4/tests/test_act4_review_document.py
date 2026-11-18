@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import pytest
 import yaml
 
-from act4_privileged_suite.review_tools import ACT4ReviewDocument
+from ucagent_act4.review_tools import ACT4ReviewDocument
 from test_act4_review_checker import ReviewHarness
 from test_act4_review_checker import isolate_optional_simulators as isolate_optional_simulators
 from test_act4_review_isa_plan import isa_review
@@ -174,7 +174,7 @@ def test_document_detects_changes_during_serialization(citation_case, monkeypatc
             case.path.symlink_to(other)
         return content
 
-    monkeypatch.setattr("act4_privileged_suite.review_tools.yaml.safe_dump", concurrent_dump)
+    monkeypatch.setattr("ucagent_act4.review_tools.yaml.safe_dump", concurrent_dump)
     result = case.tool.invoke({"action": "update", "expected_sha256": case.revision, "changes": case.changes})
     assert not result["ok"], result
     assert case.path.read_bytes() == (b"External report edit\n" if conflict == "report" else original)
@@ -243,7 +243,7 @@ def test_initialize_rechecks_scope_before_creating_report(citation_case, monkeyp
         scope.write_text("New scope\n")
         return content
 
-    monkeypatch.setattr("act4_privileged_suite.review_tools.yaml.safe_dump", concurrent_dump)
+    monkeypatch.setattr("ucagent_act4.review_tools.yaml.safe_dump", concurrent_dump)
     result = case.tool.invoke({"action": "initialize"})
     assert not result["ok"] and "scope.yaml changed" in result["error"]
     assert not case.path.exists()
@@ -265,7 +265,7 @@ def test_plan_update_cannot_race_source_selection_or_acceptance(isa_review, monk
         (harness.output / changed).write_text("Updated plan evidence\n")
         return content
 
-    monkeypatch.setattr("act4_privileged_suite.review_tools.yaml.safe_dump", concurrent_dump)
+    monkeypatch.setattr("ucagent_act4.review_tools.yaml.safe_dump", concurrent_dump)
     result = tool.invoke({"action": "update", "document": "isa-plan", "expected_sha256": status["sha256"],
                           "changes": {"limitations": ["Additional design limitation"]}})
     assert not result["ok"] and changed in result["error"]
@@ -310,7 +310,7 @@ def test_written_report_still_requires_ordinary_checker_acceptance(tmp_path: Pat
         """Report editing and ordinary Check must not rerun cached native validation."""
         pytest.fail("Report editing started a native command")
 
-    monkeypatch.setattr("act4_privileged_suite.checkers.act4_review_checker.execute_command", unexpected_command)
+    monkeypatch.setattr("ucagent_act4.checkers.act4_review_checker.execute_command", unexpected_command)
     result = tool.invoke({"action": "update", "expected_sha256": tool.invoke({"action": "status"})["sha256"], "changes": changes})
     assert result["ok"], result
     assert harness.checker("audit").do_check()[0]

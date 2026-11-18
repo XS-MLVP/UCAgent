@@ -1,19 +1,23 @@
+"""Validate static ACT asset relationships and native normative-rule authority."""
+
+import json
 from pathlib import Path
 
 import pytest
 import yaml
 
-from act4_privileged_suite.checkers import act4_asset_consistency as consistency
-from act4_privileged_suite.checkers.act4_asset_checker import ACT4AssetChecker
+from ucagent_act4.checkers import act4_asset_consistency as consistency
+from ucagent_act4.checkers.act4_asset_checker import ACT4AssetChecker
+from ucagent_act4.scripts.check_assets import build_arg_parser
 
 
 @pytest.mark.parametrize(
     "source",
     [
-        "import act4_privileged_suite",
-        "from act4_privileged_suite.checkers import act4_asset_consistency",
-        "import importlib\nimportlib.import_module('act4_privileged_suite')",
-        "open('act4_privileged_suite/data.json')",
+        "import ucagent_act4",
+        "from ucagent_act4.checkers import act4_asset_consistency",
+        "import importlib\nimportlib.import_module('ucagent_act4')",
+        "open('ucagent_act4/data.json')",
     ],
 )
 def test_generator_cannot_depend_on_plugin_package(tmp_path, source):
@@ -44,7 +48,7 @@ def load_contract():
     'import pathlib as pl\np = pl.Path("unity_test") / "H" / "data.json"\ndata = p.read_text()',
     'import os.path as op\np = op.join("unity_test", "H", "data.json")\nopen(p)',
     'from io import open as read_file\nread_file(file="../unity_test/H/data.json")',
-    'from act4_privileged_suite.checkers import validate_contract',
+    'from ucagent_act4.checkers import validate_contract',
     'try:\n    import ucagent\nexcept ImportError:\n    pass',
     'import importlib as imp\nimp.import_module("itgen.checker")',
     'import sys\nfrom pathlib import Path\nsys.path.insert(0, str(Path(__file__).parents[7] / "unity_test/H"))',
@@ -112,7 +116,7 @@ def test_standalone_generator_check_is_opt_in(tmp_path):
         act4_root=tmp_path, generator_files=[generator], check_consistency=False,
     )
     assert report["summary"]["errors"] == 0
-    assert consistency.build_arg_parser().parse_args([
+    assert build_arg_parser().parse_args([
         "--require-standalone-generator",
     ]).require_standalone_generator
 
@@ -550,10 +554,10 @@ def make_h(test_data) -> list[TestChunk]:
     )
 
 
-def test_normative_metadata_rejects_invented_rule(tmp_path: Path) -> None:
+def test_norm_rules_rejects_invented_rule(tmp_path: Path) -> None:
     coverage = tmp_path / "H_coverage.svh"
     mapping = tmp_path / "H.yaml"
-    metadata = tmp_path / "hypervisor.yaml"
+    metadata = tmp_path / "norm-rules.json"
     coverage.write_text(
         """covergroup H_cg with function sample(ins_t ins);
 cp_one: coverpoint ins.current.insn { bins one = {1}; }
@@ -572,15 +576,10 @@ endgroup
         encoding="utf-8",
     )
     metadata.write_text(
-        yaml.safe_dump(
+        json.dumps(
             {
-                "chapter_name": "H Extension",
-                "normative_rule_definitions": [
-                    {
-                        "names": ["real_h_rule", "real_h_rule_alias"],
-                        "tags": ["norm:real_h_rule"],
-                    }
-                ],
+                "normative_rules": [{"name": "real_h_rule", "text": "A real rule"},
+                                    {"name": "real_h_rule_alias", "text": "Another rule"}],
             }
         ),
         encoding="utf-8",
@@ -590,13 +589,13 @@ endgroup
         suite="H",
         act4_root=tmp_path,
         mapping=mapping,
-        normative_metadata=metadata,
+        norm_rules=metadata,
         coverage_files=[coverage],
-        require_norm_metadata=True,
+        require_norm_rules=True,
         checker_type="all",
     )
 
-    assert report["checks"]["normative_metadata"] == str(metadata)
+    assert report["checks"]["norm_rules"] == str(metadata)
     assert any(
         item["check"] == "mapping_rule_exists"
         and item.get("rule") == "invented_h_rule"
@@ -604,18 +603,18 @@ endgroup
     )
 
 
-def test_required_normative_metadata_cannot_fall_back_to_prose(
+def test_required_norm_rules_cannot_fall_back_to_prose(
     tmp_path: Path,
 ) -> None:
     report = consistency.run_asset_checks(
         suite="H",
         act4_root=tmp_path,
-        require_norm_metadata=True,
+        require_norm_rules=True,
         checker_type="all",
     )
 
     assert any(
-        item["check"] == "norm_metadata_exists" for item in report["findings"]
+        item["check"] == "norm_rules_exists" for item in report["findings"]
     )
 
 
@@ -831,16 +830,16 @@ def test_missing_priv_testcase_limit_is_an_error(tmp_path: Path) -> None:
     assert [item["check"] for item in findings] == ["generator_auto_split_limit"]
 
 
-def test_normative_metadata_cli_arguments(tmp_path: Path) -> None:
-    metadata = tmp_path / "hypervisor.yaml"
+def test_norm_rules_cli_arguments(tmp_path: Path) -> None:
+    metadata = tmp_path / "norm-rules.json"
 
-    args = consistency.build_arg_parser().parse_args(
+    args = build_arg_parser().parse_args(
         [
-            "--normative-metadata",
+            "--norm-rules",
             str(metadata),
-            "--require-norm-metadata",
+            "--require-norm-rules",
         ]
     )
 
-    assert args.normative_metadata == metadata
-    assert args.require_norm_metadata is True
+    assert args.norm_rules == metadata
+    assert args.require_norm_rules is True

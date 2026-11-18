@@ -3,8 +3,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from act4_privileged_suite.checkers import act4_testcase_reachability as reachability
-from act4_privileged_suite.checkers.act4_test_asset_checker import ACT4TestAssetChecker
+from ucagent_act4.checkers import act4_testcase_reachability as reachability
+from ucagent_act4.checkers.act4_test_asset_checker import ACT4TestAssetChecker
 
 
 def _source(code: str, labels=("case_a",)) -> str:

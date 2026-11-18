@@ -1,4 +1,4 @@
-"""Focused tests for the ACT4 privileged-suite plugin descriptor."""
+"""Focused tests for the ACT4 plugin descriptor and its independent workflows."""
 
 from dataclasses import replace
 import importlib.metadata
@@ -8,7 +8,7 @@ import tomllib
 import pytest
 import yaml
 
-from act4_privileged_suite.plugin import get_plugin
+from ucagent_act4.plugin import get_plugin
 from ucagent.plugins import (
     LoadedPlugin,
     collect_plugin_resources,
@@ -26,7 +26,7 @@ from ucagent.verify_agent import VerifyAgent
 def test_plugin_descriptor_and_resources_validate() -> None:
     """Validate the opt-in workflow and locate every declared resource root."""
     plugin = validate_plugin(get_plugin(), check_dependencies=False)
-    assert plugin.name == "act4-privileged-suite"
+    assert plugin.name == "act4"
     assert plugin.workflows[0].name == "privileged-suite-generation"
     assert plugin.workflows[0].config_file.is_file()
     assert plugin.workflows[0].guide_doc_paths[0].is_dir()
@@ -48,13 +48,13 @@ def test_workflow_checker_arguments_construct_with_plugin_registry() -> None:
         [LoadedPlugin(plugin, plugin.name, "test")]
     )
 
-    assert len(config["stage"]) == 9
+    assert len(config["stage"]) == 11
     assert config["stage"][0]["name"] == "prepare_resources"
     assert config["stage"][-1]["name"] == "generate_final_human_report"
     for stage in config["stage"]:
         for checker in stage["checker"]:
             checker_class = registry[checker["clss"]]
-            checker_class(**checker["args"], cfg=config)
+            checker_class(**{key: value.replace("{DUT}", "ExampleSuite") if isinstance(value, str) else value for key, value in checker["args"].items()}, cfg=config)
 
 
 def test_workflow_checker_names_are_plugin_short_names() -> None:
@@ -69,10 +69,11 @@ def test_workflow_checker_names_are_plugin_short_names() -> None:
     assert classes == {
         "ACT4AIReviewChecker",
         "ACT4AssetChecker",
-        "ACT4CTPReferenceChecker",
+        "ACT4GenerationInputsChecker",
+        "ACT4NativeAssetsChecker",
+        "ACT4NativeValidationChecker",
         "ACT4FileManifestChecker",
         "ACT4FinalReportChecker",
-        "ACT4ManualReferenceChecker",
         "ACT4SwitchCapabilityChecker",
         "ACT4TestAssetChecker",
         "ACT4EnvironmentChecker",
@@ -93,7 +94,7 @@ def test_stages_reference_bundled_contracts() -> None:
         "privileged_validation_handoff_template.md",
         "privileged_validation_handoff_template.md",
     ]
-    for stage, template in zip(workflow["stage"][2:], templates, strict=True):
+    for stage, template in zip([stage for stage in workflow["stage"][3:] if stage["name"] != "validate_native_contribution"], templates, strict=True):
         references = stage["reference_files"]
         assert f"Guide_Doc/act4_template/{template}" in references
         for gate in stage["checker"]:
@@ -111,11 +112,11 @@ def test_configured_search_path_finds_plugin(monkeypatch, parent_search) -> None
     config = Config({"plugin": {"search_paths": [str(search_root)]}})
     monkeypatch.setattr("ucagent.plugins._entry_points", lambda: ())
     loaded = load_plugin(
-        "act4-privileged-suite",
+        "act4",
         search_paths=configured_plugin_search_paths(config),
     )
     assert Path(loaded.source) == project_root / "ucagent-plugin.toml"
-    assert loaded.plugin.name == "act4-privileged-suite"
+    assert loaded.plugin.name == "act4"
 
 
 @pytest.mark.parametrize("checker_class", get_plugin().checkers, ids=lambda item: item.__name__)
@@ -151,18 +152,19 @@ def test_ucagent_compatibility_matches_verified_baseline(monkeypatch, version, c
             validate_plugin(get_plugin(), check_dependencies=False)
 
 
-def test_missing_yaml_dependency_reports_requirement(monkeypatch) -> None:
+@pytest.mark.parametrize("dependency", ["PyYAML", "jsonschema"])
+def test_missing_dependency_reports_requirement(monkeypatch, dependency) -> None:
     """Diagnose missing distribution metadata before activating checkers."""
     real_version = importlib.metadata.version
 
     def installed_version(name):
-        """Hide only PyYAML while keeping the rest of the environment available."""
-        if name == "PyYAML":
+        """Hide one required distribution while keeping the rest of the environment available."""
+        if name == dependency:
             raise importlib.metadata.PackageNotFoundError(name)
         return real_version(name)
 
     monkeypatch.setattr(importlib.metadata, "version", installed_version)
-    with pytest.raises(PluginError, match="requires Python package PyYAML"):
+    with pytest.raises(PluginError, match=f"requires Python package {dependency}"):
         validate_plugin(get_plugin(), check_dependencies=True)
 
 
@@ -185,6 +187,11 @@ def test_distribution_and_source_manifest_share_plugin_identity() -> None:
     manifest = tomllib.loads((project_root / "ucagent-plugin.toml").read_text())
     plugin = get_plugin()
     assert plugin.name == manifest["name"]
+    assert project["name"] == "ucagent-act4"
+    assert manifest["entry"] == "ucagent_act4.plugin:get_plugin"
+    assert plugin.root.name == "ucagent_act4"
+    assert (plugin.root / "scripts/check_assets.py").is_file()
+    assert (plugin.root / "scripts/handoff.py").is_file()
     assert project["entry-points"]["ucagent.plugins"][plugin.name] == manifest["entry"]
     assert project["version"] == plugin.version
     assert f"UCAgent{plugin.requires_ucagent}" in project["dependencies"]
@@ -193,14 +200,15 @@ def test_distribution_and_source_manifest_share_plugin_identity() -> None:
 
 @pytest.mark.parametrize("skill_enabled", [True, False])
 @pytest.mark.parametrize("manual_setting", ["default", "environment", "override"])
+@pytest.mark.parametrize("workflow_name", ["privileged-suite-generation", "unprivileged-suite-generation"])
 def test_agent_starts_with_complete_workflow(
-    tmp_path, monkeypatch, skill_enabled, manual_setting
+    tmp_path, monkeypatch, skill_enabled, manual_setting, workflow_name
 ) -> None:
     """Initialize actual stages with both Skill settings and resolved manual paths."""
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.delenv("ACT4_MANUAL_ROOT", raising=False)
     loaded = load_plugin(str(Path(__file__).resolve().parents[1]))
-    workflow = loaded.plugin.workflows[0]
+    workflow = next(item for item in loaded.plugin.workflows if item.name == workflow_name)
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     expected_manual = "riscv-isa-manual"
@@ -230,15 +238,16 @@ def test_agent_starts_with_complete_workflow(
     )
     try:
         stages = agent.stage_manager.stages
-        assert len(stages) == 9
-        assert len([checker for stage in stages for checker in stage.checker]) == 27
+        expected_stages, expected_checkers = (11, 30) if workflow_name == "privileged-suite-generation" else (8, 9)
+        assert len(stages) == expected_stages
+        assert len([checker for stage in stages for checker in stage.checker]) == expected_checkers
         for stage in stages:
             for checker in stage.checker:
                 assert isinstance(checker._cb_list, dict)
                 assert checker.stage is stage
                 assert checker.workspace == str(workspace)
                 checker.on_init()
-        manual_checker = stages[2].checker[1]
+        manual_checker = stages[2].checker[0]
         assert manual_checker.manual_root == expected_manual
         assert agent.cfg.un_write_dirs == ["Guide_Doc"]
         assert agent.cfg.write_dirs == ["act4_assets", "riscv-arch-test"]
@@ -246,6 +255,8 @@ def test_agent_starts_with_complete_workflow(
         guide = workspace / "Guide_Doc"
         assert (guide / "ACT4_Privileged_Suite_Workflow_Guide.md").is_file()
         assert (guide / "act4_template/README.md").is_file()
+        assert (guide / "ACT4_Asset_Authoring_Guide.md").is_file()
+        assert (guide / "act4_template/native_asset_design_template.md").is_file()
         for stage in agent.cfg.stage:
             for reference in stage.reference_files:
                 if reference.startswith("Guide_Doc/"):
@@ -253,6 +264,9 @@ def test_agent_starts_with_complete_workflow(
         assert not (guide / "dut_fixture.md").exists()
         assert not (workspace / "act4_assets/tests").exists()
         assert agent.cfg.skill.use_skill is skill_enabled
+        if not skill_enabled:
+            assert not (workspace / ".ucagent/skills").exists()
+            assert not any(stage.get_value("skill_list", []) for stage in agent.cfg.stage)
     finally:
         agent.exit()
 

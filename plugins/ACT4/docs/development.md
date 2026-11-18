@@ -1,28 +1,52 @@
 
 # ACT4 插件开发
 
-插件实现位于 `src/act4_privileged_suite/`，不修改 UCAgent 核心的默认 workflow、
+插件实现位于 `src/ucagent_act4/`，不修改 UCAgent 核心的默认 workflow、
 依赖或 checker 导出。`ucagent-plugin.toml` 支持源码加载，`pyproject.toml` 的
 `ucagent.plugins` entry point 支持安装态发现；两者指向相同 provider。
 
+发行包名为 `ucagent-act4`，Python 包名为 `ucagent_act4`，插件 ID 为 `act4`。
+四个工作流名称保持独立，例如 `--workflow act4:extension-review`；源码和安装态使用同一 ID。
+
+```text
+plugins/ACT4/
+  src/ucagent_act4/
+    plugin.py            插件注册
+    checkers/            验收与确定性分析
+    workflows/           四个工作流配置
+    Guide_Doc/           运行指南与模板
+    scripts/             独立命令与接收方脚本
+    handoff/             交付 README 和 Makefile 模板
+    *.py                 资源、环境、生成和交付共用库
+  scripts/               仅供开发者使用的辅助脚本
+  tests/                 回归测试及其合成资产
+  docs/                  操作与开发文档
+```
+
 ## 资源和注册
 
-- `plugin.py` 声明三个工作流、10 类 checker、依赖和 Guide_Doc。
+- `plugin.py` 声明四个独立工作流、各自的 checker、依赖和 Guide_Doc。
 - `workflows/privileged-suite-generation.yaml` 保留 ITGen 七个资产阶段及其验收规则，
   使用插件 registry 的 checker 短名。
-- `checkers/` 包含资产一致性、CTP/manual 来源、审查、switch、manifest 和最终报告校验。
+- `checkers/` 包含原生输入/资产/验证、资产一致性、审查、switch、manifest 和最终报告校验。
 - `Guide_Doc/` 包含运行指南、checker 说明和阶段填写模板，仅在选择本工作流后复制。
 - 各阶段 `reference_files` 列出当前模板及所用 gate 的说明，保留原有 ACT4 原生输入。
+- `Guide_Doc/ACT4_Asset_Authoring_Guide.md` 集中维护生成机制、原生 API、测试选择和验证边界；
+  `act4_template/native_asset_design_template.md` 复用设计问题，不增加重复运行报告。
+  必需知识不放在可选 Skill 中；工作流只保留阶段动作和验收入口。
+- `test_headers.py` 为生成、review 和香山适配提供同一语法预检，保留 YAML 缩进并报告所有
+  字段问题。它不执行输入源码、不替代固定版本 ACT 的 UDB 筛选和构建。
 - `tests/` 保留 ITGen 的 ACT4 checker 回归，并增加插件描述、阶段生命周期及配置测试。
 
 这些文件迁移自 ITGen 的 `itgen/lang/zh/config/act4_priv_suite_generate.yaml`、
 `itgen/checker/act4_*.py` 与相应指南及测试。原有 `work_itgen_<Suite>` 构建目录名继续使用。
 checker 使用包内导入，所有 Checker 构造函数调用核心基类初始化，不依赖
 `sys.path` 注入、ITGen checkout 或顶层模块别名。
-生成工作流为 9 个阶段（含资源与环境准备）、25 个资产 gate。资源 checker 固定共享输入，环境 checker 记录并复验工具，
+特权生成工作流为 11 阶段，新增独立的 8 阶段非特权指令生成工作流。原生输入、资产和隔离验证由 GenerationInputs、NativeAssets、NativeValidation 共同检查；特权 VM/签名门槛保留。资源 checker 固定共享输入，环境 checker 记录并复验工具，
+原生验证只在子进程环境中信任本次临时 checkout 的 mise 配置，不放宽全局信任路径，也不要求为每个临时副本手工执行 trust。
 后续执行使用校验过的持久/临时工具 PATH。插件特有适配为
 checker 短名注册、manual 路径配置和静态规范引用；生成器独立性校验另外拒绝
-`act4_privileged_suite` 私有导入/路径及 `ACT4_MANUAL_ROOT`，允许 ACT4 原生输入。
+`ucagent_act4` 私有导入/路径及 `ACT4_MANUAL_ROOT`，允许 ACT4 原生输入。
 UCAgent 版本下限采用实际测试的 `26.9.2.dev25`。
 
 `xiangshan-v3-handoff` 只追加注册，生成与 review 的配置和工具启用条件不变。
@@ -31,13 +55,16 @@ UCAgent 版本下限采用实际测试的 `26.9.2.dev25`。
 用户输入资产与 checkout 在输出目录之外；缺省输入缺失时，由 `resources.py` 在共享缓存中复用或取得固定版本。
 `ACT4Resources` 只读取已配置输入和保留必要 ISA 引用，不扩大核心文件工具的权限。write_dirs 只开放输出，不对输入执行 chmod。
 scope 用真实上游搜索清单和香山引文约束优先复用；补全在独立 clone 中调用现有生成工作流，
-保留实际执行、阶段完成及资产指纹。缺口生成不扩大原生成工作流的新 privileged suite 能力范围。
+保留实际执行、所选工作流阶段完成、原生验证报告及资产指纹。`generation_style` 显式选择
+表驱动或场景型入口；缺口生成不覆盖已有实现，增量修改仍走 review。
 生成命令只在显式 prepare/generate 后的副本执行；此隔离是工作区约定，不是 OS 沙箱，
 只应执行已审阅的可信原生生成器。目标引用要求实际 V3 checkout 的提交、逐行引文和源文件内容一致；
 它验证出处和契约完整性，不机械证明 AI 对硬件参数的推导正确。
 
-`xiangshan_bundle.py` 仅使用标准库，作为交付包的 `act4_driver.py`；`xiangshan_recipient.py` 提供
-独立的 `handoff.py` 命令。构建固定调用包内 ACT
+`xiangshan_bundle.py` 是多个工作流共用的标准库实现，保留在包根目录，同时作为交付包的
+`act4_driver.py`；`scripts/handoff.py` 按原名复制到交付根目录，与驱动一起提供接收方命令，
+不在插件源码目录直接运行。交付脚本、驱动和模板仍计入目标证据摘要；修改后必须重新适配和构建。
+构建固定调用包内 ACT
 workspace 的 `uv run --frozen act`，重新生成 Sail signature 和最终 selfcheck ELF，使用每次新建的
 build 目录，逐项核对实际 ELF 与选中测试。原生框架版本不支持该 CLI 时明确失败，不引入旧协议兼容分支。
 build/run 收据摘要保存在阶段状态中；Check/Complete 验证当前输入、输出与收据，普通调用不重跑命令。
@@ -190,6 +217,54 @@ manual 路径由工作流的 `template_overwrite.ACT4_MANUAL_ROOT` 提供，加�
 只验证已安装核心时，应在仓库外运行 `ucagent --validate-plugin`，以绝对路径加载
 本插件；测试同样使用绝对路径，并加 `--import-mode=importlib`，避免仓库根目录
 进入导入路径。记录实际使用的核心版本，不把安装态回归说成当前核心源码回归。
+
+## 脚本入口
+
+安装插件后，可独立运行资产静态检查；从源码执行时，在仓库根目录加上
+`PYTHONPATH=plugins/ACT4/src`。命令层负责解析参数与输出报告，分析逻辑仍由工作流共用，
+不在脚本中重复实现：
+
+```bash
+python3 -m ucagent_act4.scripts.check_assets --help
+python3 -m ucagent_act4.scripts.check_assets \
+  --act4-root /path/to/riscv-arch-test --suite Sstc \
+  --output-dir /tmp/act4-check
+```
+
+报告为 `Sstc.asset-consistency.json` 和 `Sstc.asset-consistency.md`。检查通过返回 0，
+输入读取或契约错误返回 1，发现资产错误或启用 `--fail-on-warning` 后有警告返回 2；
+命令参数错误也返回 2。该命令不执行原生构建或模拟器，不能替代工作流完整验收。
+
+`scripts/benchmark_scope_validation.py` 是开发用性能比较脚本，不随 wheel 安装，也不在
+正常工作流中运行。它复用 `tests/` 中的合成工作区，需安装开发依赖，并从仓库根目录运行：
+
+```bash
+PYTHONPATH=plugins/ACT4/src:plugins/ACT4/tests:. \
+  python3 plugins/ACT4/scripts/benchmark_scope_validation.py \
+  --base-ref HEAD --base-path path/at/that/revision/act4_review_checker.py \
+  --repeats 30 --output /tmp/act4-scope-benchmark.json
+```
+
+将 `--base-ref` 和 `--base-path` 改为实际 Git 版本及该版本的源码路径；路径默认指向
+`plugins/ACT4/src/ucagent_act4/checkers/act4_review_checker.py`，不猜测历史目录。
+比较会执行该 Git 版本中的验证方法，仅使用可信版本。它测量合成输入的检查/修复耗时，
+不代表模型调用、原生构建或端到端运行速度。
+
+## 安装元数据
+
+`src/*.egg-info/` 是 setuptools 在构建或可编辑安装时自动生成的发行包元数据，包含名称、
+版本、依赖、入口和文件清单，不是插件实现或测试资产。仓库已忽略该目录；陈旧副本可以删除，
+下次构建或安装会重新生成。不要手工维护其中的文件，也不要删除当前 Python 环境的
+`site-packages/*.dist-info/` 来替代卸载。
+
+曾安装旧发行包的环境，应在仓库根目录用运行 UCAgent 的同一 Python 重新安装，避免同时发现
+两份插件。目录改名不会自动更新已安装的 wheel 或可编辑安装元数据：
+
+```bash
+python3 -m pip uninstall ucagent-act4-privileged-suite
+python3 -m pip install -e ./plugins/ACT4
+ucagent --validate-plugin act4
+```
 
 ## 验证与打包
 

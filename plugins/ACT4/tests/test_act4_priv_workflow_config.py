@@ -1,21 +1,22 @@
-import hashlib
+"""Regression contracts for privileged generation without weakening its existing gates."""
+
 from pathlib import Path
 
 import pytest
 import yaml
 
-from act4_privileged_suite.checkers.act4_ai_review_checker import ACT4AIReviewChecker
-from act4_privileged_suite.checkers.act4_manual_reference_checker import ACT4ManualReferenceChecker
-from act4_privileged_suite.plugin import get_plugin
+from ucagent_act4.checkers.act4_ai_review_checker import ACT4AIReviewChecker
+from ucagent_act4.plugin import get_plugin
 
 WORKFLOW = get_plugin().workflows[0].config_file
 
 
 class UniqueKeyLoader(yaml.SafeLoader):
-    pass
+    """Load workflow YAML without allowing later keys to hide earlier requirements."""
 
 
 def _construct_unique_mapping(loader, node, deep=False):
+    """Reject repeated YAML keys at their original source location."""
     mapping = {}
     for key_node, value_node in node.value:
         key = loader.construct_object(key_node, deep=deep)
@@ -37,21 +38,24 @@ UniqueKeyLoader.add_constructor(
 
 
 def _load_workflow():
+    """Read the privileged workflow while checking mapping uniqueness."""
     return yaml.load(WORKFLOW.read_text(encoding="utf-8"), Loader=UniqueKeyLoader)
 
 
 def _checker(stage, name):
+    """Select the exact stage gate whose contract a regression test exercises."""
     return next(item for item in stage["checker"] if item["name"] == name)
 
 
 def test_priv_workflow_has_unique_keys_and_environment_preparation_first() -> None:
+    """Require resource/environment/input preparation before asset work."""
     workflow = _load_workflow()
     stages = workflow["stage"]
 
-    assert len(stages) == 9
+    assert len(stages) == 11
     assert stages[0]["name"] == "prepare_resources"
     assert stages[1]["name"] == "prepare_environment"
-    stages = stages[2:]
+    stages = stages[3:]
     checker_names = [
         checker["name"] for stage in stages for checker in stage["checker"]
     ]
@@ -67,11 +71,12 @@ def test_priv_workflow_checkers_accept_ucagent_cfg_injection() -> None:
     for stage in workflow["stage"]:
         for checker in stage["checker"]:
             checker_class = registry[checker["clss"]]
-            checker_class(**checker["args"], cfg=workflow)
+            checker_class(**{key: value.replace("{DUT}", "ExampleSuite") if isinstance(value, str) else value for key, value in checker["args"].items()}, cfg=workflow)
 
 
 def test_priv_workflow_enables_review_regression_gates() -> None:
-    stages = _load_workflow()["stage"][2:]
+    """Retain privileged coverage, VM, signature and model-scope safeguards."""
+    stages = _load_workflow()["stage"][3:]
     norm_args = _checker(stages[1], "act4_norm_mapping_asset_check")["args"]
     generator_args = _checker(stages[3], "act4_generator_asset_check")["args"]
     build_args = _checker(stages[4], "act4_generated_test_asset_check")["args"]
@@ -82,10 +87,10 @@ def test_priv_workflow_enables_review_regression_gates() -> None:
         stages[5], "act4_file_manifest_completeness_check"
     )["args"]
 
-    metadata = "{OUT}/intermediate/{DUT}/references/{DUT}_normative_rule_defs.yaml"
+    metadata = "{OUT}/intermediate/{DUT}/inputs/norm-rules.json"
     for args in (norm_args, generator_args):
-        assert args["require_norm_metadata"] is True
-        assert args["normative_metadata"] == metadata
+        assert args["require_norm_rules"] is True
+        assert args["norm_rules"] == metadata
         for redundant in (
             "require_ctp",
             "exact_sheet_rules",
@@ -118,7 +123,7 @@ def test_priv_workflow_enables_review_regression_gates() -> None:
     assert "require_contribution_ready" not in build_args
     assert contribution_args["require_contribution_ready"] is True
     assert manifest_args["require_contribution_set"] is True
-    assert _checker(stages[6], "act4_final_report_manifest_completeness_check")["args"]["require_contribution_set"] is True
+    assert _checker(stages[-1], "act4_final_report_manifest_completeness_check")["args"]["require_contribution_set"] is True
     assert _checker(stages[4], "act4_build_file_manifest_check")["args"][
         "inventory_patterns"
     ]
@@ -158,8 +163,9 @@ def test_priv_workflow_enables_review_regression_gates() -> None:
 def test_contribution_gate_requires_ci_review_without_blocking_tool_limits(
     tmp_path: Path, ci_state: str, expected_pass: bool,
 ) -> None:
+    """Separate genuine asset failures from explicitly unexecuted optional checks."""
     args = _checker(
-        _load_workflow()["stage"][-2], "act4_contribution_ai_review"
+        _load_workflow()["stage"][-3], "act4_contribution_ai_review"
     )["args"]
     names = args["required_check_names"]
     assert "local_ci_reproduction" in names
@@ -220,7 +226,8 @@ def test_contribution_gate_requires_ci_review_without_blocking_tool_limits(
         )
 
 def test_priv_workflow_prevents_reference_model_scope_degradation() -> None:
-    stages = _load_workflow()["stage"][2:]
+    """Require scope-preserving diagnosis before using a fallback reference model."""
+    stages = _load_workflow()["stage"][3:]
     vm_text = "\n".join(stages[2]["task"])
     build_text = "\n".join(stages[4]["task"])
 
@@ -236,261 +243,18 @@ def test_priv_workflow_prevents_reference_model_scope_degradation() -> None:
     assert "generation_vs_validation_scope" in build_text
 
 
-def test_priv_workflow_discovers_ctp_sheet_and_manual_references() -> None:
+def test_native_inputs_and_validation_are_gated():
+    """Native plans and rule snapshots replace brittle external spreadsheet discovery."""
     workflow = _load_workflow()
-    stages = workflow["stage"][2:]
-    first = stages[0]
-    ctp_args = _checker(first, "act4_ctp_reference_check")["args"]
-    manual_args = _checker(first, "act4_manual_reference_check")["args"]
-    specification = "{OUT}/intermediate/{DUT}/references/{DUT}_specification.adoc"
-    metadata = "{OUT}/intermediate/{DUT}/references/{DUT}_normative_rule_defs.yaml"
-    assert ctp_args["require_request_regions"] is True
-    assert ctp_args["require_full_boundary_review"] is True
-    manual_provenance = (
-        "{OUT}/intermediate/{DUT}/reports/{DUT}_manual_reference_provenance.yaml"
-    )
-    ctp_provenance = "{OUT}/intermediate/{DUT}/reports/{DUT}_ctp_reference_provenance.yaml"
-    normative_table = "{OUT}/intermediate/{DUT}/{DUT}_normative_rules.csv"
-    raw_testplan = "{OUT}/intermediate/{DUT}/references/{DUT}_ctp_raw.csv"
-
-    native_references = [
-        [path for path in stage["reference_files"] if not path.startswith("Guide_Doc/")]
-        for stage in stages
-    ]
-    assert native_references[0] == [
-        "riscv-arch-test/docs/DeveloperGuide.md",
-        "riscv-arch-test/README.md",
-        "riscv-arch-test/coverpoints/priv/ExceptionsSm_coverage.svh",
-        "riscv-arch-test/coverpoints/priv/ExceptionsSm_coverage_init.svh",
-    ]
-    assert ctp_args == {
-        "suite": "{DUT}",
-        "ctp_snapshot": "{OUT}/intermediate/{DUT}/references/ctp.html",
-        "provenance_file": ctp_provenance,
-        "raw_testplan": raw_testplan,
-        "optimized_testplan": "{OUT}/intermediate/{DUT}/{DUT}.csv",
-        "human_readable_testplan": "{OUT}/intermediate/{DUT}/{DUT}_testplan.md",
-        "normative_table": normative_table,
-        "normative_metadata": metadata,
-        "ctp_url": "https://riscv.github.io/riscv-arch-test/ctp.html",
-        "require_request_regions": True,
-        "require_full_boundary_review": True,
-    }
-    assert manual_args == {
-        "suite": "{DUT}",
-        "testplan": raw_testplan,
-        "manual_root": "{ACT4_MANUAL_ROOT}",
-        "resource_dir": "{OUT}/intermediate/{DUT}/resources",
-        "spec_copy": specification,
-        "metadata_copy": metadata,
-        "provenance_file": manual_provenance,
-        "require_git_head": True,
-    }
-    assert {
-        specification,
-        metadata,
-        manual_provenance,
-        ctp_provenance,
-        normative_table,
-        raw_testplan,
-        "{OUT}/intermediate/{DUT}/{DUT}_testplan.md",
-    }.issubset(first["output_files"])
-    assert workflow["guide_doc"]["enable"] is True
-    assert workflow["guide_doc"]["core_copy_policy"]["default_action"] == "ignore"
-    forbidden_tokens = ("http://", "https://", "..", "*", "{OUT}", "{DUT}")
+    stages = workflow["stage"]
+    assert stages[2]["name"] == "prepare_generation_inputs"
+    assert stages[2]["checker"][0]["clss"] == "ACT4GenerationInputsChecker"
+    assert stages[-2]["checker"][0]["clss"] == "ACT4NativeValidationChecker"
+    assert stages[-1]["checker"][0]["args"]["final_report"] == "{OUT}/final.md"
+    assert _checker(stages[3], "act4_native_plan_check")["args"]["phase"] == "plan"
+    assert _checker(stages[-3], "act4_native_contribution_assets")["args"]["kind"] == "privileged"
     for stage in stages:
         for reference in stage["reference_files"]:
-            assert not any(token in reference for token in forbidden_tokens)
-
-    assert native_references[1] == [
-        "riscv-arch-test/docs/DeveloperGuide.md"
-    ]
-    assert native_references[2] == [
-        "riscv-arch-test/tests/env/rvtest_setup.h",
-        "riscv-arch-test/tests/env/rvtest_macros.h",
-        "riscv-arch-test/tests/env/rvtest_trap_handler.h",
-    ]
-    assert native_references[3][-1] == (
-        "riscv-arch-test/generators/testgen/src/testgen/priv/extensions/ExceptionsSm.py"
-    )
-    assert native_references[4] == ["riscv-arch-test/README.md"]
-    assert native_references[5] == []
-    assert native_references[6] == []
-
-    assert all(
-        "need_human_check" not in checker["args"]
-        for stage in stages
-        for checker in stage["checker"]
-    )
-    assert not any(
-        checker["name"] == "act4_final_report_protected_integrity_check"
-        for checker in stages[-1]["checker"]
-    )
-
-    workflow_text = WORKFLOW.read_text(encoding="utf-8")
-    assert "norm-rules.json" not in workflow_text
-    assert "Table 246" not in workflow_text
-    assert "262865576" not in workflow_text
-    assert "1DWBEoprndjQzLTXQTzPI8jW1HydtkYRR3tg58q59fdk" not in workflow_text
-    for h_specific in ("TNAME=H", "VGEIN", "vscause", "vsstatus", "HLVX", "HSV"):
-        assert h_specific not in workflow_text
-
-
-def _sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-def _manual_reference_fixture(tmp_path: Path) -> dict:
-    testplan = tmp_path / "Guide_Doc/H.csv"
-    manual = tmp_path / "manual"
-    specification = manual / "src/priv/hypervisor.adoc"
-    other_specification = manual / "src/priv/machine.adoc"
-    other_specification = manual / "src/priv/machine.adoc"
-    metadata = manual / "normative_rule_defs/hypervisor.yaml"
-    spec_copy = tmp_path / "out/H/references/H_specification.adoc"
-    metadata_copy = tmp_path / "out/H/references/H_normative_rule_defs.yaml"
-    provenance = tmp_path / "out/H/reports/H_manual_reference_provenance.yaml"
-    for path in (
-        testplan,
-        specification,
-        other_specification,
-        metadata,
-        spec_copy,
-        metadata_copy,
-        provenance,
-    ):
-        path.parent.mkdir(parents=True, exist_ok=True)
-
-    testplan.write_text("feature,csr\nH extension,hstatus\n", encoding="utf-8")
-    other_specification.write_text("= Machine\n", encoding="utf-8")
-    other_specification.write_text("= Machine\n", encoding="utf-8")
-    specification.write_text(
-        "= Hypervisor Extension\n[#norm:hstatus_op]#hstatus is accessible.#\n",
-        encoding="utf-8",
-    )
-    metadata.write_text(
-        yaml.safe_dump(
-            {
-                "chapter_name": "H Extension",
-                "normative_rule_definitions": [
-                    {"name": "hstatus_op", "tags": ["norm:hstatus_op"]}
-                ],
-            }
-        ),
-        encoding="utf-8",
-    )
-    spec_copy.write_bytes(specification.read_bytes())
-    metadata_copy.write_bytes(metadata.read_bytes())
-    provenance.write_text(
-        yaml.safe_dump(
-            {
-                "schema_version": 1,
-                "suite": "H",
-                "manual_git_head": None,
-                "testplan": {
-                    "source_path": "Guide_Doc/H.csv",
-                    "sha256": _sha256(testplan),
-                },
-                "discovery": {
-                    "csv_terms": ["H extension", "hstatus"],
-                    "spec_candidates": [
-                        {
-                            "path": "src/priv/hypervisor.adoc",
-                            "score": 10,
-                            "matched_terms": ["H extension", "hstatus"],
-                        },
-                        {
-                            "path": "src/priv/machine.adoc",
-                            "score": 1,
-                            "matched_terms": [],
-                        },
-                    ],
-                    "metadata_candidates": [
-                        {
-                            "path": "normative_rule_defs/hypervisor.yaml",
-                            "score": 10,
-                            "matched_terms": ["H extension", "hstatus"],
-                        }
-                    ],
-                    "selection_reason": "unique best CSV term and tag match",
-                    "unmatched_metadata_tags": [],
-                    "unmatched_metadata_tag_reason": "none",
-                },
-                "specification": {
-                    "source_path": "src/priv/hypervisor.adoc",
-                    "copied_path": "out/H/references/H_specification.adoc",
-                    "sha256": _sha256(specification),
-                },
-                "metadata": {
-                    "source_path": "normative_rule_defs/hypervisor.yaml",
-                    "copied_path": "out/H/references/H_normative_rule_defs.yaml",
-                    "sha256": _sha256(metadata),
-                },
-            }
-        ),
-        encoding="utf-8",
-    )
-    return {
-        "testplan": testplan,
-        "manual": manual,
-        "spec_copy": spec_copy,
-        "metadata_copy": metadata_copy,
-        "provenance": provenance,
-    }
-
-
-def _manual_checker(tmp_path: Path, fixture: dict) -> ACT4ManualReferenceChecker:
-    return ACT4ManualReferenceChecker(
-        suite="H",
-        testplan=str(fixture["testplan"]),
-        manual_root=str(fixture["manual"]),
-        spec_copy=str(fixture["spec_copy"]),
-        metadata_copy=str(fixture["metadata_copy"]),
-        provenance_file=str(fixture["provenance"]),
-        require_git_head=False,
-    ).set_workspace(str(tmp_path))
-
-
-def test_manual_reference_checker_accepts_exact_csv_driven_pair(
-    tmp_path: Path,
-) -> None:
-    fixture = _manual_reference_fixture(tmp_path)
-
-    passed, report = _manual_checker(tmp_path, fixture).do_check()
-
-    assert passed
-    assert report["summary"] == {"errors": 0, "warnings": 0}
-    assert report["checks"]["rules"] == 1
-
-
-def test_manual_reference_checker_rejects_non_exact_copy(tmp_path: Path) -> None:
-    fixture = _manual_reference_fixture(tmp_path)
-    fixture["spec_copy"].write_text("changed\n", encoding="utf-8")
-
-    passed, report = _manual_checker(tmp_path, fixture).do_check()
-
-    assert not passed
-    assert any(
-        finding["check"] == "manual_copy_exact"
-        for finding in report["findings"]
-    )
-
-
-def test_manual_reference_checker_requires_selected_candidate_evidence(
-    tmp_path: Path,
-) -> None:
-    fixture = _manual_reference_fixture(tmp_path)
-    provenance = yaml.safe_load(fixture["provenance"].read_text(encoding="utf-8"))
-    provenance["discovery"]["spec_candidates"][0]["matched_terms"] = []
-    fixture["provenance"].write_text(
-        yaml.safe_dump(provenance),
-        encoding="utf-8",
-    )
-
-    passed, report = _manual_checker(tmp_path, fixture).do_check()
-
-    assert not passed
-    assert any(
-        finding["check"] == "manual_discovery_evidence"
-        for finding in report["findings"]
-    )
+            assert not any(token in reference for token in ("http://", "https://", "..", "*", "{OUT}", "{DUT}"))
+        for checker in stage["checker"]:
+            assert not any("coverpoints/param/" in path for path in checker["args"].get("required_artifacts", []))
