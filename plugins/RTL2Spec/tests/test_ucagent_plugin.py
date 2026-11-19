@@ -256,8 +256,7 @@ def test_checker_registration_rejects_conflicts_without_global_mutation(monkeypa
     name = "RTL2SpecArtifactsChecker"
     assert not hasattr(core_checkers, name)
     assert create_plugin_checker_registry([loaded]) == {
-        name: RTL2SpecArtifactsChecker,
-        "RTL2SpecGenericArtifactsChecker": plugin.checkers[1],
+        checker.__name__: checker for checker in plugin.checkers
     }
     assert not hasattr(core_checkers, name)
     other = LoadedPlugin(replace(plugin, name="another-plugin"), "another-plugin", "test")

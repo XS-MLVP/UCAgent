@@ -3,9 +3,22 @@ rtl2spec:
   module: Sbuffer
   workflow: xiangshan-design-document
   output: outputs
+  mode: run
+  export_docs: true
+
+unitytest:
+  enabled: false
+  workspace: verification
 
 backend:
   key_name: codex
 
 template_overwrite:
   XS_CONFIG: DefaultConfig
+
+fmagent:
+  enabled: false
+  mode: run
+  resume: false
+  isolate: false
+  submodule: src/main/scala/xiangshan/mem/sbuffer
