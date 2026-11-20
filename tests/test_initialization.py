@@ -192,7 +192,7 @@ def test_grouped_help_covers_public_options_and_hides_internal_transport():
     expected = {
         "Task and workspace": {"workspace", "dut", "workspace_base", "output"},
         "Configuration and workflows": {"config", "override", "plugin", "plugin_workflow"},
-        "Execution and models": {"backend", "loop", "loop_msg", "interaction_mode", "icmd", "exit_on_completion", "seed", "sys_tips"},
+        "Execution and models": {"agent_mode", "max_subagents", "backend", "loop", "loop_msg", "interaction_mode", "icmd", "exit_on_completion", "seed", "sys_tips"},
         "Interface and display": {"human", "tui", "stream_output", "web_console", "web_terminal"},
         "Stages and history": {"force_stage_index", "skip", "unskip", "ref", "no_history"},
         "Documents, templates and file protection": {"template_dir", "template_overwrite", "template_cfg_override", "guid_doc_path", "gen_instruct_file", "no_write"},
@@ -471,7 +471,7 @@ def test_model_free_queries_and_first_work_prepare_once(tmp_path):
         agent.backend.do_work_values({}, {})
         agent.backend.do_work_stream({}, {})
         assert probe.call_count == 1 and create_model.call_count == 2 and create_graph.call_count == 1
-        assert agent.message_manage_node.model is model
+        assert agent.message_manage_node.model.model is model
         agent._startup_cleanup.close()
 
 

@@ -89,7 +89,7 @@ class Console:
         if not self.input.isatty() or os.name != "posix":
             self.output.write(prompt)
             self.output.flush()
-            while self.host.snapshot()["instance"] == "ready":
+            while self.host.snapshot()["instance"] in {"ready", "closing"}:
                 self._flush_output()
                 if select.select([fd], [], [], 0.1)[0]:
                     return self.input.readline()
@@ -106,7 +106,7 @@ class Console:
             # A visible prompt promises that control keys will reach our reader.
             self.output.write(prompt)
             self.output.flush()
-            while self.host.snapshot()["instance"] == "ready":
+            while self.host.snapshot()["instance"] in {"ready", "closing"}:
                 self._flush_output(text, cursor)
                 if not select.select([fd], [], [], 0.1)[0]:
                     continue
@@ -182,15 +182,18 @@ class Console:
 
     def run(self):
         """Read a TTY or pipe until EOF or host shutdown; UI never installs process signals."""
-        if self.host.snapshot()["instance"] != "ready":
+        if self.host.snapshot()["instance"] not in {"ready", "closing"}:
             return
-        self.host.attach_control(self._control_id, interrupt=self.frontend.cancel_foreground)
+        if self.host.snapshot()["instance"] == "ready":
+            self.host.attach_control(self._control_id, interrupt=self.frontend.cancel_foreground)
         self.host.output.install()
         self.host.output.terminal_attached = True
         self.host.startup.release()
         try:
-            while self.host.snapshot()["instance"] == "ready":
-                line = self._readline(self.prompt)
+            while self.host.snapshot()["instance"] in {"ready", "closing"}:
+                prompt = "(closing: q=status, q force=terminate) " if self.host.snapshot()["instance"] == "closing" else self.frontend.prompt
+                self.prompt = prompt
+                line = self._readline(prompt)
                 if not line:
                     return
                 self.frontend.record_console_command(line.strip())
@@ -207,6 +210,7 @@ class Console:
                 self.display_result(result)
                 self.output.flush()
         finally:
+            self._flush_output()
             self.host.output.terminal_attached = False
             self.frontend.save_cmd_history()
             self.host.detach_control(self._control_id)

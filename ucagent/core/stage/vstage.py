@@ -29,6 +29,9 @@ def coordinated_stage_mutation(kind, *, manager=False):
         def guarded(self, *args, **kwargs):
             """Reserve mutation ownership without holding a lock during domain work."""
             owner = self if manager else getattr(self, "vmanager", None)
+            access = getattr(owner, "multi_agent_access", None)
+            if access is not None:
+                access(kind)
             guard = getattr(owner, "control_guard", None)
             with output_context(source="stage"), (guard(kind, stage=None if manager else self) if guard is not None else nullcontext()):
                 return method(self, *args, **kwargs)

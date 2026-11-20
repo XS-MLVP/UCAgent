@@ -1,6 +1,7 @@
 """Construct and serve MCP transports with per-instance notification draining and logging."""
 
 import logging
+import secrets
 import threading
 
 import anyio
@@ -8,6 +9,23 @@ from ucagent.core.tools.uctool import to_mcp_tool
 from ucagent.util.log import info
 import uvicorn
 from starlette.responses import PlainTextResponse
+
+
+class _BearerMcpApp:
+    """Bind a worker endpoint to a random per-attempt transport credential."""
+
+    def __init__(self, app, token):
+        """Keep credentials in server memory, outside tool parameters and prompts."""
+        self.app, self.expected = app, ("Bearer " + token).encode()
+
+    async def __call__(self, scope, receive, send):
+        """Reject unauthenticated HTTP calls while preserving application lifespan."""
+        if scope["type"] == "http":
+            authorization = dict(scope.get("headers", [])).get(b"authorization", b"")
+            if not secrets.compare_digest(authorization, self.expected):
+                await PlainTextResponse("Unauthorized", status_code=401)(scope, receive, send)
+                return
+        await self.app(scope, receive, send)
 
 
 class _DrainableMcpApp:
@@ -18,6 +36,9 @@ class _DrainableMcpApp:
         self.app = app
         self._streams = set()
         self._stopping = False
+        self.responses_idle = threading.Event()
+        self.responses_idle.set()
+        self._posts = 0
 
     def drain(self) -> None:
         """End this instance's notification streams on their owning event loop."""
@@ -34,7 +55,16 @@ class _DrainableMcpApp:
             await PlainTextResponse('MCP server is shutting down.', status_code=503)(scope, receive, send)
             return
         if scope['method'] != 'GET':
-            await self.app(scope, receive, send)
+            # The control tool may set yielded before its HTTP reply is written.
+            # Keep execution ownership until this response has left the transport.
+            self._posts += 1
+            self.responses_idle.clear()
+            try:
+                await self.app(scope, receive, send)
+            finally:
+                self._posts -= 1
+                if not self._posts:
+                    self.responses_idle.set()
             return
 
         response_started = False
@@ -80,15 +110,18 @@ class McpHttpServer(uvicorn.Server):
         await super().shutdown(sockets=sockets)
 
 
-def create_verify_mcps(mcp_tools: list, host: str, port: int, logger=None):
+def create_verify_mcps(mcp_tools: list, host: str, port: int, logger=None, bearer_token=None):
     """Build an instance-drained MCP server without replacing global logging."""
     from mcp.server.mcpserver import MCPServer
 
     converted_tools = [to_mcp_tool(tool) for tool in mcp_tools]
     info(f"create MCP server with tools: {[tool.name for tool in converted_tools]}")
     mcp = MCPServer("UCAgent", tools=converted_tools)
+    app = mcp.streamable_http_app(host=host)
+    if bearer_token is not None:
+        app = _BearerMcpApp(app, bearer_token)
     config = uvicorn.Config(
-        mcp.streamable_http_app(host=host),
+        app,
         host=host,
         port=port,
         # All embedded servers share logging with the enclosing application.

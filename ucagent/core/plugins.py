@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from importlib import import_module, metadata
 from pathlib import Path
 import json
@@ -104,6 +104,18 @@ class PluginWorkflow:
         Callable[[Any, Mapping[str, Any]], Mapping[str, Any]] | None
     ) = None
     runtime_config_keys: tuple[str, ...] = ()
+    purpose: str = ""
+    inputs: Mapping[str, str] = field(default_factory=dict)
+    outputs: Mapping[str, str] = field(default_factory=dict)
+
+    def __post_init__(self):
+        """Normalize optional catalog metadata without registering any business tools."""
+        for name in ("inputs", "outputs"):
+            value = getattr(self, name)
+            if not isinstance(value, Mapping) or any(not isinstance(k, str) or not isinstance(v, str) for k, v in value.items()):
+                raise PluginError(f"Workflow {name} must map file paths to descriptions")
+        if not isinstance(self.purpose, str):
+            raise PluginError("Workflow purpose must be a string")
 
 
 @dataclass(frozen=True)
@@ -777,6 +789,7 @@ def validate_plugin(plugin: Plugin, *, check_dependencies: bool = True) -> Plugi
                 template_target=workflow.template_target,
                 template_context_factory=workflow.template_context_factory,
                 runtime_config_keys=workflow_runtime_config_keys,
+                purpose=workflow.purpose, inputs=dict(workflow.inputs), outputs=dict(workflow.outputs),
             )
         )
     assets = tuple(

@@ -1,0 +1,201 @@
+{
+  "date": "2026-11-13",
+  "mode": "configured real model",
+  "test": "tests/test_workflow_relay.py::test_configured_real_model_relay",
+  "pytest": "1 passed in 49.44s",
+  "chain_id": "526790af8d5f4e8a9e74be34e9cf98b7",
+  "status": "completed",
+  "quiescent": true,
+  "runs": [
+    {
+      "run_id": "c36ecdba5df64032a563c8d7e57224c2",
+      "workflow_ref": "relay-source:produce",
+      "business_status": "completed",
+      "super_session_ids": [
+        "f37ea2d0c0c64698b3baf5b69db9fb38"
+      ],
+      "worker_session_ids": [
+        "e7528c8422304d1da60b47b9defabae4"
+      ],
+      "stage_index": 1,
+      "all_completed": true
+    },
+    {
+      "run_id": "96b921c6da1b4dd99f56d471a4307016",
+      "workflow_ref": "relay-sink:consume",
+      "business_status": "completed",
+      "super_session_ids": [
+        "43c4f654ca0e48bda36a416421600170"
+      ],
+      "worker_session_ids": [
+        "79553e4393f94ecc9018e7d1d94d7b56"
+      ],
+      "stage_index": 1,
+      "all_completed": true
+    }
+  ],
+  "result": {
+    "value": 8,
+    "source_sha256": "1b58b6620fe6c9f8b3ba5427f71e14357f7810fed05cbf3fe5a10a10450ab5d7"
+  },
+  "input_sha256": "1b58b6620fe6c9f8b3ba5427f71e14357f7810fed05cbf3fe5a10a10450ab5d7",
+  "lifecycle_events": [
+    {
+      "event": "run_attached",
+      "time": 1794546745.8534987,
+      "run_id": "c36ecdba5df64032a563c8d7e57224c2",
+      "pid": 4056519,
+      "session_id": "f37ea2d0c0c64698b3baf5b69db9fb38"
+    },
+    {
+      "event": "workflow_plan_submitted",
+      "time": 1794546753.1464136,
+      "run_id": "c36ecdba5df64032a563c8d7e57224c2",
+      "backend": "langchain",
+      "session_id": "f37ea2d0c0c64698b3baf5b69db9fb38",
+      "plan_id": "produce-stage-1",
+      "scope": "auto",
+      "scope_root": "produce",
+      "substages": []
+    },
+    {
+      "event": "workflow_task_started",
+      "time": 1794546753.1494465,
+      "run_id": "c36ecdba5df64032a563c8d7e57224c2",
+      "backend": "langchain",
+      "session_id": null,
+      "attempt": 1,
+      "task_id": "produce-stage-1/produce-payload",
+      "role": "worker"
+    },
+    {
+      "event": "workflow_task_finished",
+      "time": 1794546763.0049033,
+      "run_id": "c36ecdba5df64032a563c8d7e57224c2",
+      "backend": "langchain",
+      "session_id": "e7528c8422304d1da60b47b9defabae4",
+      "attempt": 1,
+      "task_id": "produce-stage-1/produce-payload",
+      "state": "verified",
+      "stage_index": 0,
+      "budget": {
+        "backend_turns_used": 1,
+        "backend_turns_limit": 80,
+        "model_rounds_used": 6,
+        "model_rounds_limit": 80,
+        "tool_calls_used": 7,
+        "tool_calls_limit": 200,
+        "seconds_remaining": 110.14
+      }
+    },
+    {
+      "event": "workflow_scope_validated",
+      "time": 1794546763.0173364,
+      "run_id": "c36ecdba5df64032a563c8d7e57224c2",
+      "backend": "langchain",
+      "session_id": "f37ea2d0c0c64698b3baf5b69db9fb38",
+      "complete": true,
+      "retry": false
+    },
+    {
+      "event": "decision_accepted",
+      "time": 1794546767.5562,
+      "run_id": "c36ecdba5df64032a563c8d7e57224c2",
+      "transition_id": "9e732d04a2d84a05974e21b90b09dcf3",
+      "decision_kind": "next"
+    },
+    {
+      "event": "candidate_preparing",
+      "time": 1794546767.5728538,
+      "run_id": "c36ecdba5df64032a563c8d7e57224c2",
+      "target_run_id": "96b921c6da1b4dd99f56d471a4307016"
+    },
+    {
+      "event": "candidate_ready",
+      "time": 1794546768.2689018,
+      "run_id": "c36ecdba5df64032a563c8d7e57224c2",
+      "target_run_id": "96b921c6da1b4dd99f56d471a4307016",
+      "pid": 4056519,
+      "session_id": "43c4f654ca0e48bda36a416421600170"
+    },
+    {
+      "event": "handoff_committed",
+      "time": 1794546768.2894013,
+      "run_id": "c36ecdba5df64032a563c8d7e57224c2",
+      "target_run_id": "96b921c6da1b4dd99f56d471a4307016"
+    },
+    {
+      "event": "source_retired",
+      "time": 1794546768.3303185,
+      "run_id": "c36ecdba5df64032a563c8d7e57224c2"
+    },
+    {
+      "event": "successor_activated",
+      "time": 1794546768.3510108,
+      "run_id": "96b921c6da1b4dd99f56d471a4307016",
+      "pid": 4056519
+    },
+    {
+      "event": "workflow_plan_submitted",
+      "time": 1794546776.0718505,
+      "run_id": "96b921c6da1b4dd99f56d471a4307016",
+      "backend": "langchain",
+      "session_id": "43c4f654ca0e48bda36a416421600170",
+      "plan_id": "consume-stage1",
+      "scope": "auto",
+      "scope_root": "consume",
+      "substages": []
+    },
+    {
+      "event": "workflow_task_started",
+      "time": 1794546776.0748327,
+      "run_id": "96b921c6da1b4dd99f56d471a4307016",
+      "backend": "langchain",
+      "session_id": null,
+      "attempt": 1,
+      "task_id": "consume-stage1/consume-result-b",
+      "role": "worker"
+    },
+    {
+      "event": "workflow_task_finished",
+      "time": 1794546788.926395,
+      "run_id": "96b921c6da1b4dd99f56d471a4307016",
+      "backend": "langchain",
+      "session_id": "79553e4393f94ecc9018e7d1d94d7b56",
+      "attempt": 1,
+      "task_id": "consume-stage1/consume-result-b",
+      "state": "verified",
+      "stage_index": 0,
+      "budget": {
+        "backend_turns_used": 1,
+        "backend_turns_limit": 80,
+        "model_rounds_used": 8,
+        "model_rounds_limit": 80,
+        "tool_calls_used": 8,
+        "tool_calls_limit": 200,
+        "seconds_remaining": 1787.15
+      }
+    },
+    {
+      "event": "workflow_scope_validated",
+      "time": 1794546788.9389057,
+      "run_id": "96b921c6da1b4dd99f56d471a4307016",
+      "backend": "langchain",
+      "session_id": "43c4f654ca0e48bda36a416421600170",
+      "complete": true,
+      "retry": false
+    },
+    {
+      "event": "decision_accepted",
+      "time": 1794546793.4105742,
+      "run_id": "96b921c6da1b4dd99f56d471a4307016",
+      "transition_id": "797c95a559ac44fb97b0cf8671bd7880",
+      "decision_kind": "complete"
+    },
+    {
+      "event": "chain_completed",
+      "time": 1794546793.4317675,
+      "run_id": "96b921c6da1b4dd99f56d471a4307016"
+    }
+  ]
+}

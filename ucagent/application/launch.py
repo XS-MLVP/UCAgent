@@ -20,6 +20,9 @@ def run_application(request: LaunchRequest):
 
     with ExitStack() as workspace_cleanup:
         prepared, plan, agent_options = prepare_launch(request, cleanup=workspace_cleanup)
+        if prepared.cfg.get_value("runtime_options.workflow_handoff_enabled", False) and not request.emulate_config:
+            from ucagent.application.workflow_handoff import run_workflow_application
+            return run_workflow_application(request, prepared, plan, agent_options)
         agent = VerifyAgent(**agent_options)
         # The workspace is released last, after backend and file-policy cleanup.
         acquired = workspace_cleanup.pop_all()
@@ -93,6 +96,9 @@ def configure_services(services):
     from ucagent.interfaces.server.api_mcp import McpServer, _collect_mcp_tools
     from ucagent.interfaces.server.api_terminal import WebTerminalServer
 
+    if getattr(services.agent, "multi_agent", None) is not None:
+        from ucagent.interfaces.server.worker_mcp import worker_endpoint
+        services.agent.multi_agent.endpoint_factory = worker_endpoint
     services.client_factory = MasterClient
     services.master_factory = MasterApiServer
     services.terminal_factory = WebTerminalServer

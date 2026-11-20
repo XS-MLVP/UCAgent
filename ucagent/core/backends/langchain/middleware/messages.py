@@ -1,12 +1,13 @@
 """Messages summarization middleware."""
 
 import math
+import json
 import threading
 import time
 from collections import OrderedDict
-from typing import Any, Dict, Union
+from typing import Any, Dict
 
-from langchain.agents.middleware import SummarizationMiddleware
+from langchain.agents.middleware import SummarizationMiddleware, hook_config
 from langchain.agents.middleware.types import AgentMiddleware, AgentState
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.messages import (
@@ -19,10 +20,9 @@ from langchain_core.messages import (
 )
 from langchain_core.messages.utils import count_tokens_approximately
 from langgraph.graph.message import REMOVE_ALL_MESSAGES
-from pydantic import BaseModel
 from typing_extensions import override
 
-from ucagent.util.functions import fill_dlist_none
+from ucagent.core.backends.langchain.content import content_text, text_message
 from ucagent.util.log import info, warning
 
 
@@ -462,18 +462,6 @@ def _usage_input_tokens(message: BaseMessage) -> int | None:
     return value if isinstance(value, int) and value > 0 else None
 
 
-def _summary_text(response_content) -> str:
-    if isinstance(response_content, str):
-        return response_content
-    if isinstance(response_content, list):
-        return "".join(
-            block.get("text", "")
-            for block in response_content
-            if isinstance(block, dict) and block.get("type") == "text"
-        )
-    return str(response_content)
-
-
 def _truncate_to_token_budget(text: str, token_budget: int) -> str:
     """Deterministically cap text when a provider ignores its output limit."""
     if token_budget < 1:
@@ -498,48 +486,11 @@ def _summary_invoke_kwargs(model, token_budget: int) -> dict:
     return {"max_tokens": token_budget}
 
 
-def fix_tool_call_args(input: Union[Dict[str, Any], BaseModel]) -> Dict[str, Any]:
-    for msg in input["messages"][-4:]:
-        if not isinstance(msg, AIMessage):
-            continue
-        if hasattr(msg, "additional_kwargs"):
-            msg.additional_kwargs = fill_dlist_none(msg.additional_kwargs, '{}', "arguments", ["arguments"])
-        if hasattr(msg, "invalid_tool_calls"):
-            msg.invalid_tool_calls = fill_dlist_none(msg.invalid_tool_calls, '{}', "args", ["args"])
-
-
-def _strip_thinking_blocks(messages):
-    """Remove Anthropic 'thinking' content blocks from AIMessage content.
-
-    When extended thinking is enabled, Anthropic models return AIMessages whose
-    ``content`` is a list that includes dicts of the form
-    ``{'type': 'thinking', 'thinking': '...', 'index': N}``.  LangChain's
-    message-coercion logic does not recognise these dicts (they lack ``role``
-    and ``content`` keys) and raises ``ValueError`` when the messages are
-    reused as model input.  This function strips those blocks so that only
-    ``text``-type content remains.
-    """
-    result = []
-    for msg in messages:
-        if isinstance(msg, AIMessage) and isinstance(msg.content, list):
-            clean_content = [
-                block for block in msg.content
-                if not (isinstance(block, dict) and block.get("type") == "thinking")
-            ]
-            if not clean_content:
-                clean_content = ""
-            msg = msg.model_copy(update={"content": clean_content})
-        result.append(msg)
-    return result
-
-
 def summarize_messages(messages, summarization_size, model, msg_stat=None):
     """Summarize messages to reduce their token count."""
     if not isinstance(summarization_size, int) or summarization_size < 1:
         raise ValueError("max_summary_tokens must be a positive integer")
-    # Strip Anthropic thinking blocks before passing messages to the model to
-    # avoid LangChain message-coercion errors.
-    messages = _strip_thinking_blocks(messages)
+    messages = [text_message(message) for message in messages]
     instruction = (f"Summarize the conversation in less than {summarization_size} tokens, keeping the important information and context. Be concise and clear. "
                    "You must follow the rules below:\n"
                    "1. The system message should be preserved as much as possible.\n"
@@ -569,7 +520,7 @@ def summarize_messages(messages, summarization_size, model, msg_stat=None):
         msg_stat.update_message(summary_response, usage_source="summary")
     # The summarization response may itself contain thinking blocks; extract
     # only the text parts to produce a plain string for the HumanMessage.
-    response_content = _summary_text(summary_response.content)
+    response_content = content_text(summary_response.content)
     estimated_output_tokens = _raw_estimated_tokens(response_content)
     provider_output_tokens = None
     if summary_response.usage_metadata:
@@ -789,13 +740,15 @@ class TrimAndSummaryMiddleware(AgentMiddleware):
         return self
 
     @override
-    async def abefore_model(self, state, runtime) -> dict[str, Any] | None:
+    async def abefore_model(self, state, runtime=None) -> dict[str, Any] | None:
+        """Apply the same history filtering and compression for asynchronous models."""
         return self.before_model(state)
 
     @override
     def before_model(self, state: AgentState[Any]) -> dict[str, Any] | None:
-        fix_tool_call_args(state)
-        messages = state["messages"]
+        """Normalize message bodies before estimating or compressing the next model context."""
+        messages = [text_message(message) for message in state["messages"]]
+        content_changed = any(clean is not original for clean, original in zip(messages, state["messages"]))
         system_was_missing = not (
             messages and isinstance(messages[0], SystemMessage)
         )
@@ -966,13 +919,65 @@ class TrimAndSummaryMiddleware(AgentMiddleware):
                 "after_messages": len(self.summary_data),
             }
             self._mark_existing_usage_stale(role_info + self.summary_data)
-        if system_was_missing and self.system_message and "messages" not in ret:
+        if (content_changed or (system_was_missing and self.system_message)) and "messages" not in ret:
             ret["messages"] = (
                 [RemoveMessage(id=REMOVE_ALL_MESSAGES)] + effective_messages
             )
         self.msg_stat.update_message(role_info + rebuilt_skill_msgs + self.summary_data + tail_msgs)
         return ret
     
+    @override
+    @hook_config(can_jump_to=["model"])
+    def after_model(self, state, runtime=None):
+        """Normalize text and return invalid tool arguments to the model without executing them."""
+        message = state["messages"][-1]
+        clean = text_message(message)
+        if not isinstance(clean, AIMessage) or not clean.invalid_tool_calls:
+            return {"messages": [clean]} if clean is not message else None
+
+        feedback = []
+        answered = {msg.tool_call_id for msg in state["messages"] if isinstance(msg, ToolMessage)}
+        for call in clean.invalid_tool_calls:
+            call_id, name = call.get("id"), call.get("name") or "unknown"
+            if call_id and call_id in answered:
+                continue
+            detail = "Arguments must be a valid JSON object."
+            try:
+                json.loads(call.get("args"))
+            except json.JSONDecodeError as exc:
+                detail = f"{exc.msg} at line {exc.lineno}, column {exc.colno}."
+            except TypeError:
+                pass
+            text = (f"INVALID_TOOL_ARGUMENTS: {name} was not executed. {detail} "
+                    "Resend this call with a complete JSON object matching its tool schema. "
+                    "Inside JSON strings, escape literal backslashes; braces need no escaping. "
+                    "Do not repeat sibling calls that already succeeded.")
+            if call_id:
+                feedback.append(ToolMessage(content=text, name=name, tool_call_id=call_id, status="error"))
+                answered.add(call_id)
+            else:
+                # A provider call without an ID cannot have a matched ToolMessage.
+                feedback.append(HumanMessage(content=text))
+        clean = clean.model_copy(update={
+            "invalid_tool_calls": [{**call, "args": call.get("args") or ""}
+                                   for call in clean.invalid_tool_calls if call.get("id")],
+            # Parsed call fields are authoritative. Keeping the raw provider copy
+            # could reintroduce ID-less calls in serializers that use it as fallback.
+            "additional_kwargs": {key: value for key, value in clean.additional_kwargs.items() if key != "tool_calls"},
+        })
+        result = {"messages": [clean, *feedback]}
+        if not clean.tool_calls:
+            # Go through before_model again, retaining cancellation and round budgets.
+            # Mixed responses first execute their valid sibling calls via the ToolNode.
+            result["jump_to"] = "model"
+        return result
+
+    @override
+    @hook_config(can_jump_to=["model"])
+    async def aafter_model(self, state, runtime=None):
+        """Apply the same response-body policy for asynchronous execution."""
+        return self.after_model(state, runtime)
+
     def set_arbit_summary(self, summary_text):
         """Set chat summary"""
         if isinstance(summary_text, str):
