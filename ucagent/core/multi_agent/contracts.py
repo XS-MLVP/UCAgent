@@ -102,10 +102,13 @@ class TaskSpec(StrictModel):
     role: str | None = None
     depends_on: list[str] = Field(default_factory=list)
     inputs: list[str] = Field(default_factory=list, description=
-        "Exact read-only input files; no globs or directories. Input producers must be explicit dependencies.")
+        "Exact existing input files; no globs or directories. Stage/auto/subtree scopes inherit workflow "
+        "file permissions and may update writable inputs without listing them as outputs. In task scope, "
+        "inputs are read-only unless also listed as outputs. Producers in other tasks must be explicit dependencies.")
     outputs: list[str] = Field(default_factory=list, description=
-        "Exact output files; no globs or directories. Required for task scope; "
-        "stage/auto may omit this list and rely on the stage Checker for dynamic outputs.")
+        "Exact output files; no globs or directories. Required and write-restricting for task scope. "
+        "Stage/auto/subtree scopes may omit or partially list outputs; workflow file permissions and "
+        "the stage Checker remain authoritative.")
     contract: str | None = None
     resources: list[str] = Field(default_factory=list)
 

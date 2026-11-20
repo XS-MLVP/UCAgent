@@ -282,6 +282,8 @@ stage:
 
   - name: update_test_env_and_api
     desc: "更新测试环境与API"
+    output_files:
+      - "{OUT}/tests/{DUT}_api.py"
     task:
       - "输入：设计/需求变更（`WorkDiff`）与 {OUT}/{DUT}_functions_and_checks.md。"
       - "步骤："
