@@ -494,6 +494,8 @@ stage:
     stage:
      - name: dut_creation_implementation
        desc: "DUT创建函数实现"
+       output_files:
+         - "{OUT}/tests/{DUT}_api.py"
        task:
          - "在文件{OUT}/tests/{DUT}_api.py实现create_dut(request)函数，仅完成DUT实例的创建"
          - "不要对DUT的任何引脚/接口进行赋值操作"
@@ -512,6 +514,8 @@ stage:
          - "Guide_Doc/dut_function_coverage_def.md"
      - name: pytest_fixture_dut_implementation
        desc: "dut fixture实现"
+       output_files:
+         - "{OUT}/tests/{DUT}_api.py"
        task:
          - "实现dut fixture，包含完整的生命周期管理"
          - "请按已有模板确保:"
@@ -643,6 +647,8 @@ stage:
        skip: $(SKIP_ENV_HUMAN_CHECK: true) # 复杂DUT时建议不要跳过该人工检查阶段
      - name: bundle_wrapper_design
        desc: "引脚封装设计"
+       output_files:
+         - "{OUT}/tests/{DUT}_api.py"
        task:
          - "分析{DUT}的引脚定义，确定引脚封装方式"
          - "如果存在多个分组，且有共同前缀，则按分组定义toffee.Bundle子类，通过from_prefix接口进行关联"
@@ -694,6 +700,8 @@ stage:
        ignore: $(IGNORE_MOCK_COMPONENT: true)
      - name: mock_fixture_implementation
        desc: "Mock fixture实现"
+       output_files:
+         - "{OUT}/tests/{DUT}_api.py"
        task:
         - "请参考文档：Guide_Doc/dut_mock_test.md，实现mock_dut fixture"
         - "- 需要在文件{OUT}/tests/{DUT}_api.py中实现mock_dut fixture"
@@ -770,6 +778,8 @@ stage:
 
      - name: env_fixture_implementation
        desc: "env fixture实现"
+       output_files:
+         - "{OUT}/tests/{DUT}_api.py"
        task:
          - "实现env fixture，包含需要的必要引脚封装"
          - "1. 对dut的引脚进行分析，确定哪些是输入，哪些是输出，有哪些分组（请通过文件 {DUT}/__init__.py获取所有引脚）"
@@ -838,6 +848,8 @@ stage:
 
   - name: basic_api_implementation
     desc: "基础API实现"
+    output_files:
+      - "{OUT}/tests/{DUT}_api.py"
     task:
       - "请参考文档：Guide_Doc/dut_api_instruction.md创建API"
       - "所有API必须以'api_{DUT}_'前缀开头，用于封装DUT对应Env的常用操作（注意前缀大小写敏感）"
@@ -1023,8 +1035,8 @@ stage:
       - "参考Guide_Doc/dut_test_template.md了解模板格式"
       - "当前批次测点与对应说明节选如下": "{LIST_CK_FILE_BLOCKS}"
       - "完成进度：{COVERED_CKS}/{TOTAL_CKS}个测试用例模板已完成"
-    skill_list:
-      - "ext/unittest/create-test-case-templates"
+    # skill_list:
+    #   - "ext/unittest/create-test-case-templates"
     checker:
       - name: no_conftest_file
         clss: FilesMustNotExist

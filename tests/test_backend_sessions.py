@@ -1,6 +1,7 @@
 """Focused backend contract, inheritance and session lifecycle regressions."""
 
 import threading
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -72,13 +73,13 @@ def test_managed_backend_launch_does_not_depend_on_interface():
         build_launch_plan(LaunchRequest(task_options={}), cfg)
 
 
-def test_single_cli_endpoint_uses_ready_service_url(tmp_path):
+def test_single_cli_endpoint_uses_ready_service_url(tmp_path, monkeypatch):
     """Single CLI keeps the existing public-service contract and adds the MCP route once."""
     from ucagent.core.backends.cmdline import SessionCommandBackend
     from ucagent.util.config import Config
-    owner = SimpleNamespace(workspace=str(tmp_path), services=SimpleNamespace(
+    owner = SimpleNamespace(workspace=str(tmp_path), is_break=lambda: False, services=SimpleNamespace(
         require_endpoint=lambda name: {"url": "http://127.0.0.1:12345", "port": 12345}))
-    backend = SessionCommandBackend(owner, Config({}), argv=["adapter"])
+    backend = SessionCommandBackend(owner, Config({}), argv=[sys.executable])
     backend.init()
     try:
         backend.prepare()
@@ -91,7 +92,11 @@ def test_single_cli_endpoint_uses_ready_service_url(tmp_path):
     from pathlib import Path
     cfg = Config(load_yaml_with_env_vars(Path(__file__).parents[1] / "ucagent/setting.yaml"))
     cfg.set_value("backend.key_name", "codex")
+    cfg.set_value("backend.codex.args.executable", sys.executable)
     backend = get_backend(owner, cfg)
+    monkeypatch.setattr(backend, "_capture", lambda argv, env:
+        [{"name": "ucagent_" + backend.session_key, "enabled": True}]
+        if any("mcp_servers." in arg for arg in argv) else [])
     backend.init()
     try:
         backend.prepare()

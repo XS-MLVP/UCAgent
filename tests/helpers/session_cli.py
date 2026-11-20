@@ -73,6 +73,7 @@ async def main():
     else:
         assert 'mcp_servers={"other_agent"={enabled=false}}' in options
         assert 'features.shell_tool=false' in options and 'sandbox_mode="read-only"' in options
+        assert 'include_permissions_instructions=false' in options
         assert any('approval_mode="approve"' in arg for arg in options)
         resumed = "resume" in options
         session_id = options[options.index("resume") + 1] if resumed else str(uuid4())

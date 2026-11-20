@@ -3,6 +3,8 @@
   "-c", {{ ('sandbox_mode=' ~ ('read-only' if managed else 'workspace-write') | tojson) | tojson }},
   "-c", "approval_policy=\"never\""
   {% if managed %}
+  {# MCP tools enforce task file policy; native sandbox limits must not describe their authority. #}
+  , "-c", "include_permissions_instructions=false"
   , "-c", "web_search=\"disabled\""
   {% for feature in ['shell_tool', 'unified_exec', 'apply_patch_freeform', 'apps', 'plugins', 'multi_agent', 'multi_agent_v2', 'js_repl', 'code_mode', 'code_mode_only', 'request_permissions_tool', 'image_generation', 'tool_search'] %}
   , "-c", {{ ('features.' ~ feature ~ '=false') | tojson }}
