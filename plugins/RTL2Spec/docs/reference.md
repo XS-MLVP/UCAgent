@@ -70,7 +70,7 @@ Generic 参数覆盖使用 picker 的 `--sflag` 传给 slang；由于原生导�
 
 | 命令 | 参数与行为 |
 | --- | --- |
-| `rtl2spec fmagent fetch` | `--fmagent-root`、`--repo`、`--branch`；默认获取 `https://github.com/fmagent-project/FM-Agent` 的固定提交 `3e42260b25a8edb9b799b9fad126bc6aa2ca9d5d`（detached HEAD）到插件 `third_party/FM-Agent`，已有有效 checkout 仅复用，不更新、安装或绑定 |
+| `rtl2spec fmagent fetch` | `--fmagent-root`、`--repo`、`--branch`；默认获取 `https://github.com/fmagent-project/FM-Agent` 的固定提交 `716d7753b2fb699f2f979d47720f009d48dd5cf2`（detached HEAD）到插件 `third_party/FM-Agent`，已有有效 checkout 仅复用，不更新、安装或绑定 |
 | `rtl2spec fmagent install` | `--fmagent-root`；要求已有源码，调用其 `bash install.sh` 准备 `root/.venv`，可显式透传 `--with-dsh`、`--with-erlang`、`--with-chisel` |
 | `rtl2spec fmagent bind` | `--fmagent-root`、`--fmagent-python`；仅保存路径，可绑定尚未准备依赖的源码并提醒；缺源码报错 |
 | `rtl2spec fmagent status` | `--fmagent-root`、`--fmagent-python`；显示路径及来源，本地短时检查源码、解释器、Python 导入和原生配置 |
