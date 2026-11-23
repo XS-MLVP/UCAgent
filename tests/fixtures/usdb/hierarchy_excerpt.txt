@@ -1,0 +1,32 @@
+UniVista Simulator Plus (UVS+)
+Version: UVS2026.06.P3 (Release, amd64)
+
+Var:tb.cola1 Bits:1 Idcode:1 Type:Wire
+Var:tb.cola2 Bits:1 Idcode:2 Type:Wire
+Var:tb.cola3 Bits:1 Idcode:3 Type:Wire
+Var:tb.cola4 Bits:1 Idcode:4 Type:Wire
+Var:tb.cola5 Bits:1 Idcode:5 Type:Wire
+Var:tb.cola6 Bits:1 Idcode:6 Type:Wire
+Var:tb.syclk Bits:1 Idcode:7 Type:Wire
+Var:tb.sys_clk Bits:1 Idcode:8 Type:Reg
+Var:tb.sys_rst_n Bits:1 Idcode:9 Type:Reg
+Var:tb.money Bits:1 Idcode:10 Type:Reg
+Var:tb.state_name1 P:[87:0] Bits:88 Idcode:11 Type:Reg
+Var:tb.state_name_cur2 P:[39:0] Bits:40 Idcode:12 Type:Reg
+Var:tb.state_name_next2 P:[39:0] Bits:40 Idcode:13 Type:Reg
+Var:tb.state_name_cur3 P:[39:0] Bits:40 Idcode:14 Type:Reg
+Var:tb.state_name_next3 P:[39:0] Bits:40 Idcode:15 Type:Reg
+Var:tb.state_name4 Bits:32 Idcode:16 Type:Enum(Int)
+Var:tb.state_name_cur5 P:[31:0] Bits:32 Idcode:17 Type:Reg
+Var:tb.state_name_next5 P:[31:0] Bits:32 Idcode:18 Type:Reg
+Var:tb.state_name_cur6 P:[39:0] Bits:40 Idcode:19 Type:Reg
+Var:tb.state_name_next6 P:[39:0] Bits:40 Idcode:20 Type:Reg
+Var:tb.FSM_Moore_1_ins.sys_clk Bits:1 Idcode:7 Type:Wire
+Var:tb.FSM_Moore_1_ins.sys_rst_n Bits:1 Idcode:9 Type:Wire
+Var:tb.FSM_Moore_1_ins.money Bits:1 Idcode:10 Type:Wire
+Var:tb.FSM_Moore_1_ins.cola Bits:1 Idcode:21 Type:Reg
+Var:tb.FSM_Moore_1_ins.a Bits:32 Idcode:22 Type:Int
+Var:tb.FSM_Moore_1_ins.aa U:[1:0] Bits:32 Idcode:0 Type:Int
+Var:tb.FSM_Moore_1_ins.ab U:[3:0][3:0] Bits:32 Idcode:0 Type:Int
+Var:tb.FSM_Moore_1_ins.b U:[1:0] Bits:64 Idcode:0 Type:Real
+Var:tb.FSM_Moore_1_ins.state1 P:[7:0] Bits:8 Idcode:43 Type:Reg

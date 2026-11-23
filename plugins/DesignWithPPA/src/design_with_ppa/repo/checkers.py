@@ -15,7 +15,8 @@ from .delivery import best_record, deliver
 from .models import TaskContract, read_model
 from .snapshot import snapshot_repository
 from .validation import (child_environment, current_identity, module_checkpoints,
-                         reference_check, seal, unseal, validate_unit, validated_records)
+                         reference_check, seal, unseal, validate_unit, validated_records,
+                         write_repo_optimization_log)
 
 
 
@@ -81,10 +82,12 @@ class RepoModuleChecker(Checker):
             if self.phase == "baseline":
                 result = validate_unit(paths, baseline=True)
                 return True, {"baseline": result["variant_id"], "ppa_metrics": result["ppa_metrics"],
+                              "optimization_log": f"{paths.output.relative_to(paths.workspace)}/repo/reports/optimization_log.html",
                               "dashboard": f"{paths.output.relative_to(paths.workspace)}/design_with_ppa_dashboard.html"}
             records = validated_records(paths)
             if not records:
                 raise ValueError("No measured baseline; complete the baseline stage first")
+            write_repo_optimization_log(paths, records)
             if self.phase == "test_cases":
                 checkpoints = module_checkpoints(paths)
                 tests_dir = inside(paths.edit, "tests")

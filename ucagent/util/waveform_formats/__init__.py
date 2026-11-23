@@ -24,6 +24,7 @@ from .registry import (
     validate_waveform_analysis_backend_priority,
 )
 from .read_vcd import WellenVcdReader, WavekitVcdReader
+from .read_usdb import UsdbReader
 
 
 register_waveform_reader("fst", WellenFstReader, backend="pywellen")
@@ -31,6 +32,7 @@ register_waveform_reader("fst", WavekitFstReader, backend="wavekit")
 register_waveform_reader("vcd", WellenVcdReader, backend="pywellen")
 register_waveform_reader("vcd", WavekitVcdReader, backend="wavekit")
 register_waveform_reader("fsdb", WavekitFsdbReader, backend="wavekit")
+register_waveform_reader("usdb", UsdbReader, backend="uvd")
 
 __all__ = [
     "DEFAULT_WAVEFORM_ANALYSIS_FORMAT_PRIORITY",

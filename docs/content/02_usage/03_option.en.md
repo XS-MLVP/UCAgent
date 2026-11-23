@@ -259,7 +259,7 @@ UCAgent supports configuring various parameters via environment variables. Envir
 | `HUMAN_CHECK_CK` | Whether to enable human review of check points when verifying complex DUTs | `false` |
 | `UC_ENV_CMD_BACKEND_EX_ARGS` | Additional arguments for command-line backend execution | None |
 
-`loop_settings.max_stalled_rounds` in `ucagent/setting.yaml` controls the stall protection for the external Agent loop, with a default value of `0` (disabled). It is only enabled when manually set to a positive integer via the configuration file or `--override loop_settings.max_stalled_rounds=VALUE`. Once enabled, accumulation occurs only if Check/Complete is actually called within a round, and the stage, Checker, and Checker explicit structured diagnostics are all identical to the previous counting round. Stage or batch progression, check passes, or diagnostic changes will reset the counter; rounds with no new checks are not counted. Upon reaching the threshold, UCAgent pauses `--loop` and waits for human intervention, without exiting the task, modifying artifacts, or adding fields to `status`. Other values must be non-negative integers.
+`loop_settings.max_stalled_rounds` defaults to `18` and limits consecutive stalled rounds in `--loop`. Set it to `0` to disable, or override it with `--override loop_settings.max_stalled_rounds=VALUE`. See [Loop Stall Protection](../03_develop/03_workflow.en.md#9-loop-stall-protection) for counting and recovery rules.
 
 ### Test Tool Configuration
 

@@ -72,8 +72,10 @@ nav:
       - FAQ: content/02_usage/05_faq.md
       - LLM Check & Refinement: content/02_usage/06_llm_check.md
       - Web Master 使用指南: content/02_usage/07_web_master.md
+      - Docker Swarm 部署: content/02_usage/11_docker_swarm.md
       - 技能 SKILL: content/02_usage/08_skill.md
       - Xpra 图形应用: content/02_usage/09_web_xpra.md
+      - 使用 VCS 验证与查看结果: content/02_usage/10_vcs.md
   - 定制开发:
       - 概览: content/03_develop/00_index.md
       - 定制开发入门: content/03_develop/01_quick_start.md
@@ -168,8 +170,10 @@ plugins:
             人机协同验证: Human–Agent Collaboration
             参数说明: CLI Options
             Web Master 使用指南: Web Master Guide
+            Docker Swarm 部署: Docker Swarm Deployment
             技能 SKILL: Skills
             Xpra 图形应用: Graphical Applications with Xpra
+            使用 VCS 验证与查看结果: Verify with VCS and Inspect Results
             定制开发: Development
             概览: Overview
             定制开发入门: Development Quick Start

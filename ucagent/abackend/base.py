@@ -4,6 +4,11 @@
 Agent backend base module.
 """
 
+
+class NonRetryableBackendError(RuntimeError):
+    """Stop automatic loop retries until the rejected request or configuration is corrected."""
+
+
 class AgentBackendBase(object):
     """
     Agent backend base class.
@@ -185,3 +190,7 @@ class AgentBackendBase(object):
     def recover_pending_tool_calls(self, error) -> int:
         """Record failed outputs for tool calls left pending by an exception."""
         return 0
+
+    def should_retry_loop_error(self, error: Exception, recovered_tool_calls: int = 0) -> bool:
+        """Preserve bounded loop retries unless the backend identifies a permanent failure."""
+        return True

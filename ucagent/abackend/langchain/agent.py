@@ -257,6 +257,22 @@ class UCAgentLangChainBackend(AgentBackendBase):
         warning(f"Recovered {len(recovery_messages)} pending tool call(s).")
         return len(recovery_messages)
 
+    def should_retry_loop_error(self, error: Exception, recovered_tool_calls: int = 0) -> bool:
+        """Stop permanent HTTP rejections unless missing tool results were actually repaired."""
+        # A recorded tool failure lets the model continue, including when the tool raised HTTP 4xx.
+        if recovered_tool_calls > 0:
+            return True
+        seen = set()
+        while error is not None and id(error) not in seen:
+            seen.add(id(error))
+            status = getattr(error, "status_code", None)
+            if status is None:
+                status = getattr(getattr(error, "response", None), "status_code", None)
+            if isinstance(status, int) and 400 <= status < 600:
+                return status >= 500 or status in {408, 409, 429}
+            error = error.__cause__ or (None if error.__suppress_context__ else error.__context__)
+        return True
+
     def get_work_config(self):
         work_config = {
             "configurable": {"thread_id": f"{self.vagent.thread_id}"},

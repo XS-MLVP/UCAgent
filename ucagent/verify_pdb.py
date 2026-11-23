@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Specialized PDB debugger for UCAgent verification."""
 
+import ast
 import ctypes
 import codecs
 from dataclasses import dataclass
@@ -25,6 +26,7 @@ from typing import TYPE_CHECKING
 
 from ucagent.tui.utils import PersistentConsoleMirror
 from ucagent.util.config import Config
+from ucagent.abackend.base import NonRetryableBackendError
 from ucagent.tools.fileops import write_entry_has_wildcards
 
 DEFAULT_CMD_IDLE_TIMEOUT = 1200.0
@@ -839,8 +841,9 @@ class VerifyPDB(Pdb):
             # cmd.Cmd.cmdloop.  Pdb._cmdloop catches the resulting
             # KeyboardInterrupt and restarts cmdloop(), which re-checks
             # cmdqueue at the top of its loop – executing our commands.
-            self._api_wakeup = True
-            os.kill(os.getpid(), signal.SIGINT)
+            if threading.current_thread() is not threading.main_thread():
+                self._api_wakeup = True
+                os.kill(os.getpid(), signal.SIGINT)
 
     @staticmethod
     def _is_exit_command(cmd: str) -> bool:
@@ -991,29 +994,43 @@ class VerifyPDB(Pdb):
         return self.api_complite_workspace_file(text)
 
     def api_parse_args(self, arg):
-        """Parse arguments for the command
-
-        Args:
-            arg (string): Arguments string, eg: a,b,c,key1=value1,key2=value2
-
-        Returns:
-            tuple: (args, kwargs)
-        """
+        """Read positional and named Python literals without evaluating expressions."""
         arg = arg.strip()
         if not arg:
             return (), {}
-        k = {}
-        a = []
-        for v in arg.split(","):
-            v = v.strip()
-            if "=" in v:
-                key, value = v.split("=", 1)
-                key = key.strip()
-                value = value.strip().replace(";", ",")
-                k[key] = eval(value)
+        try:
+            # Separate wrapper lines keep input comments from hiding its closing parenthesis.
+            call = ast.parse(f"_tool(\n{arg}\n)", mode="eval").body
+        except SyntaxError as exc:
+            raise ValueError(
+                f"Invalid argument syntax at line {max(1, (exc.lineno or 2) - 1)}, "
+                f"column {exc.offset or 1}: {exc.msg}. "
+                "Use comma-separated Python literals or name=value; check quotes and brackets."
+            ) from None
+        if not isinstance(call, ast.Call) or not isinstance(call.func, ast.Name) or call.func.id != "_tool":
+            raise ValueError("Use only comma-separated Python literals or name=value arguments")
+        if any(isinstance(node, ast.Starred) for node in call.args) or any(item.arg is None for item in call.keywords):
+            raise ValueError("Argument unpacking is not supported; provide literal values or explicit name=value arguments")
+        args, kwargs = [], {}
+        values = [(None, node) for node in call.args] + [(item.arg, item.value) for item in call.keywords]
+        for key, node in values:
+            if key is not None and key in kwargs:
+                raise ValueError(f"Duplicate argument '{key}'; provide each argument once")
+            label = f"positional argument {len(args) + 1}" if key is None else f"argument '{key}'"
+            try:
+                if any(isinstance(child, ast.Call) for child in ast.walk(node)):
+                    raise ValueError("Function calls are not literals")
+                value = ast.literal_eval(node)
+            except (ValueError, TypeError):
+                raise ValueError(
+                    f"Invalid {label} at line {node.lineno - 1}; use a Python literal "
+                    "such as 'text', 1, True, None, a list or a dict. Expressions are not supported."
+                ) from None
+            if key is None:
+                args.append(value)
             else:
-                a.append(eval(v.strip()))
-        return tuple(a), k
+                kwargs[key] = value
+        return tuple(args), kwargs
 
     def do_ls(self, arg):
         """
@@ -1279,6 +1296,9 @@ class VerifyPDB(Pdb):
                 return None
             except Exception as e:
                 echo_y(f"Error during loop execution: {e}\n{traceback.format_exc()}")
+                if isinstance(e, NonRetryableBackendError):
+                    echo_r("Automatic loop retries stopped; correct the reported backend error before resuming.")
+                    return None
                 delay_time = random.randint(self.retry_delay_start, self.retry_delay_end)
                 while delay_time > 0:
                     echo_y(f"[{try_count}]Retrying in {delay_time} seconds...")
@@ -1423,7 +1443,7 @@ class VerifyPDB(Pdb):
             name (str): Name of the tool to invoke.
             args (str): Arguments to pass to the tool
         """
-        args = arg.strip().split()
+        args = arg.strip().split(maxsplit=1)
         if not args:
             echo("Usage: tool_invoke <tool_name> [arg1,arg2,arg3,key1=value1,key2=value2, ...]")
             return
@@ -1433,12 +1453,26 @@ class VerifyPDB(Pdb):
             echo_y(f"Tool '{tool_name}' not found.")
             return
         tool = tool[0]
-        input_a = " ".join(args[1:])
+        input_a = args[1] if len(args) > 1 else ""
         try:
             a, k = self.api_parse_args(input_a)
-            for (x, y) in zip(get_func_arg_list(tool._run), a):
-                k[x] = y
-            k = tool.tool_call_schema(**k)  # Validate arguments against the tool's schema
+            schema = tool.tool_call_schema
+            parameters = [name for name in get_func_arg_list(tool._run) if name in schema.model_fields]
+            if len(a) > len(parameters):
+                raise ValueError(f"Tool '{tool_name}' accepts at most {len(parameters)} positional arguments; use its public named arguments")
+            for index, value in enumerate(a):
+                name = parameters[index]
+                field = schema.model_fields[name]
+                public_name = field.validation_alias if isinstance(field.validation_alias, str) else field.alias or name
+                if name in k or public_name in k:
+                    raise ValueError(f"Duplicate argument '{name}'; provide it by position or by name, once")
+                k[public_name] = value
+            if schema.model_config.get("extra") != "allow":
+                input_names = schema.model_fields.keys() | schema.model_json_schema().get("properties", {}).keys()
+                unknown = k.keys() - input_names
+                if unknown:
+                    raise ValueError(f"Unknown arguments: {', '.join(sorted(unknown))}; use 'tool_list {tool_name}' to inspect public arguments")
+            k = schema(**k)
         except Exception as e:
             echo_r(f"Error parsing arguments: {e}")
             return
@@ -1628,7 +1662,8 @@ class VerifyPDB(Pdb):
                 "need_pass_llm_suggestion": stage.get("need_pass_llm_suggestion", False),
                 "can_edit_flags": (i > current_index) and (vstage is not None) and (not is_current_stage) and (not is_completed_stage),
             }
-            if current_index >= i:
+            # Text-only polling must not perform unused history comparisons.
+            if return_dict and current_index >= i:
                 if vstage:
                     vstage_data["out_come"] = vstage.get_stage_outcome(current_index != i)
             ret_dict["stages"].append(vstage_data)

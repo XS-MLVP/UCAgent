@@ -35,8 +35,7 @@ PICKER_VERILATOR_ARGS_DEFAULT: tuple[str, ...] = ("--output-split", "2000")
 
 # One verilator argument token: flags, values, and paths only.  Whitespace,
 # quotes, and shell/Makefile metacharacters are rejected because the
-# passthrough value is re-split and re-expanded by picker's launcher and
-# generated build files.
+# passthrough value is split and expanded inside the generated build files.
 _VERILATOR_ARG_TOKEN_RE = re.compile(r"[A-Za-z0-9_+.=,:/-]+")
 
 
@@ -187,10 +186,10 @@ class RTLLanguageBackend(ABC):
         the managed picker export forwards through ``--vflag``; an absent
         key selects the canonical output-split default, and every configured
         entry must be one metacharacter-free token because the value is
-        re-split by a shell-based launcher and expanded inside the generated
-        build files.  ``ccache_enabled`` defaults to using ccache whenever
-        the command is installed (the build warns and proceeds uncached
-        otherwise) and must be explicitly disabled to opt out.
+        split by CMake inside the generated build. No shell quoting belongs
+        in the configured tokens. ``ccache_enabled`` defaults to using ccache
+        whenever the command is installed (the build warns and proceeds
+        uncached otherwise) and must be explicitly disabled to opt out.
         """
 
         unknown = sorted(set(options) - {"verilator_args", "ccache_enabled"})

@@ -2226,6 +2226,7 @@ def run_asset_checks(
     sheet_csv: str | Path | None = None,
     normative_metadata: str | Path | None = None,
     coverage_files: Any = None,
+    coverage_context_files: Any = None,
     coverage_patterns: Any = None,
     discover_coverage: bool = True,
     generator_files: Any = None,
@@ -2548,6 +2549,13 @@ def run_asset_checks(
     checks["coverage_intent"] = coverage_intent_summary
 
     expected_group = f"{suite}_cg" if suite else ""
+    mapping_groups = dict(coverage.get("groups", {}))
+    if coverage_context_files and profile["mapping"] and check_consistency:
+        context_paths = _discover_paths(root, coverage_context_files, None, [])
+        context_coverage = scan_systemverilog(context_paths, findings)
+        for group_name, group_data in context_coverage["groups"].items():
+            if group_name not in mapping_groups:
+                mapping_groups[group_name] = group_data
     if profile["suite_group"] and require_suite_group and check_consistency and suite and expected_group not in coverage.get("groups", {}):
         _add(findings, "error", "suite_covergroup_exists", f"suite covergroup is missing: {expected_group}")
 
@@ -2559,7 +2567,7 @@ def run_asset_checks(
         if group is None:
             matches = [
                 group_name
-                for group_name, group_data in coverage.get("groups", {}).items()
+                for group_name, group_data in mapping_groups.items()
                 if cp in group_data.get("coverpoints", [])
             ]
             if not matches:
@@ -2587,7 +2595,7 @@ def run_asset_checks(
         suite_owned = bool(suite and (resolved_group == expected_group or resolved_group.startswith(f"{suite}_")))
         if strict_ownership and expected_group and not suite_owned and resolved_group not in allow_cross_suite_groups:
             _add(findings, "error", "mapping_suite_ownership", f"mapping target belongs to {group}, expected a {suite}_* covergroup", target=target.get("raw"), rule_names=rule_names)
-        group_data = coverage.get("groups", {}).get(resolved_group)
+        group_data = mapping_groups.get(resolved_group)
         if group_data is None:
             _add(findings, "error", "mapping_group_exists", f"coverage group does not exist: {group}", target=target.get("raw"), rule_names=rule_names)
             continue

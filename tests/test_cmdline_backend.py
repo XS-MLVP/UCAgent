@@ -11,6 +11,8 @@ import time
 import tomllib
 from types import SimpleNamespace
 
+import pytest
+
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.abspath(os.path.join(current_dir, "..")))
 
@@ -206,12 +208,13 @@ def test_render_config_files_uses_context_and_creates_parent_dir(tmp_path, monke
     )
 
 
-def test_opencode_template_denies_shell_and_external_workspace_access(
-    tmp_path, monkeypatch
+@pytest.mark.parametrize("directory", ["workspace", 'workspace with \"quotes\"'])
+def test_opencode_template_denies_shell_and_runtime_state_edits(
+    tmp_path, monkeypatch, directory
 ):
     """Rendered OpenCode sessions must use MCP gates inside the DUT workspace."""
 
-    workspace = tmp_path / "workspace"
+    workspace = tmp_path / directory
     workspace.mkdir()
     template_file = os.path.abspath(
         os.path.join(current_dir, "..", "ucagent", "assets", "mcp_opencode.json")
@@ -233,6 +236,12 @@ def test_opencode_template_denies_shell_and_external_workspace_access(
     assert rendered["permission"] == {
         "bash": "deny",
         "external_directory": "deny",
+        "edit": {
+            ".ucagent": "deny",
+            ".ucagent/**": "deny",
+            f"{workspace}/.ucagent": "deny",
+            f"{workspace}/.ucagent/**": "deny",
+        },
     }
     assert rendered["provider"]["ucagent"]["options"]["apiKey"] == (
         "{env:OPENAI_API_KEY}"
@@ -380,13 +389,21 @@ def test_backend_templates_omit_context_size_when_unset(tmp_path, monkeypatch):
     assert "mcpServers" in iflow
 
 
-def test_idle_timeout_suppressed_by_workspace_file_changes(tmp_path):
+@pytest.mark.parametrize("linked_output", [False, True])
+def test_idle_timeout_suppressed_by_workspace_file_changes(tmp_path, linked_output):
     """A silent process that keeps writing files is forward progress."""
 
-    output_dir = tmp_path / "output"
-    output_dir.mkdir()
-    agent = _FakeAgent(workspace=str(tmp_path))
-    agent.output_dir = str(output_dir)
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    output_dir = workspace / "output"
+    if linked_output:
+        external = tmp_path / "external"
+        external.mkdir()
+        output_dir.symlink_to(external, target_is_directory=True)
+    else:
+        output_dir.mkdir()
+    agent = _FakeAgent(workspace=str(workspace))
+    agent.output_dir = str(workspace)
     backend = UCAgentCmdLineBackend(
         agent, config=object(), cli_cmd_ctx="", command_idle_timeout=0.3
     )

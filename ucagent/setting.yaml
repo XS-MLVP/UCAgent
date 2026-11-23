@@ -7,12 +7,13 @@ lang: "zh"
 
 runtime_options:
   # Ordered enabled formats. Register a reader before adding another extension.
-  waveform_analysis_format_priority: [fst, vcd, fsdb]
+  waveform_analysis_format_priority: [fst, vcd, fsdb, usdb]
   # Reader libraries for the selected file; missing dependencies try the next entry.
   waveform_analysis_backend_priority:
     fst: [pywellen, wavekit]
     vcd: [pywellen, wavekit]
     fsdb: [wavekit]
+    usdb: [uvd]
 
 # init commands to run at the start of the agent
 init_cmds: []
@@ -126,6 +127,12 @@ cmd_api:
       args: ["--meta", "{wave_meta}", "--verdi", "verdi"]
       env: {}
       idle_timeout: -1
+    usdb:
+      kind: xpra
+      script: uvd/launch_uvd.py
+      args: ["--meta", "{wave_meta}", "--uvd", "uvd"]
+      env: {}
+      idle_timeout: -1
   xpra:
     executable: xpra
     max_sessions: 5
@@ -183,7 +190,6 @@ master_api:
       - "*.pyc"
       - "*.pyd"
       - "*.dat"
-      - "*.vdb"
       - "*.fst"
       - "*.fdb"
       - "*.vcd"
@@ -397,7 +403,7 @@ tui:
 
 loop_settings:
   max_loop_retry: 10       # maximum number of retries for a loop
-  max_stalled_rounds: 0    # disabled by default; positive values pause after unchanged Checker diagnostics
+  max_stalled_rounds: 18   # pause after repeated failures or rounds without validation/artifact progress; 0 disables
   retry_delay_start: 5     # initial delay time in seconds before retrying
   retry_delay_end: 10      # maximum delay time in seconds before retrying
   loop_alive_time: 120     # active time before completed agent rounds may refresh retry count

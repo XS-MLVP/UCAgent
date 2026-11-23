@@ -3532,6 +3532,17 @@ def get_bug_ck_list_from_doc(workspace: str, bug_analysis_file: str, target_ck_p
     """Parse bug analysis documentation to extract marked bug analysis points."""
     try:
         marked_bugs = fc.get_unity_chip_doc_marks(os.path.join(workspace, bug_analysis_file), leaf_node="BG")
+    except UnicodeDecodeError as exc:
+        return False, {
+            "error_code": "DOCUMENT_ENCODING_ERROR",
+            "error": "The document could not be decoded; this is not a tag hierarchy error.",
+            "artifact": bug_analysis_file,
+            "observed": {"encoding": exc.encoding, "start": exc.start, "end": exc.end},
+            "expected": "UTF-8 document read with explicit UTF-8 encoding",
+            "next_action": "Check the document bytes and reader encoding. Preserve valid UTF-8 content; "
+                           "fix the reader and restart the affected process if it used another encoding. "
+                           "If the file is not valid UTF-8, save it as UTF-8 without changing its tags, then rerun Check.",
+        }
     except Exception as e:
         warning(traceback.format_exc())
         return False, [f"[Parse Error] Bug analysis document '{bug_analysis_file}' failed to parse: {str(e)}",
@@ -3562,8 +3573,20 @@ def get_bug_ck_list_from_doc(workspace: str, bug_analysis_file: str, target_ck_p
 
 
 def get_doc_ck_list_from_doc(workspace: str, doc_file: str, target_ck_prefix:str):
+    """Read checkpoint tags while distinguishing encoding failures from malformed structure."""
     try:
         marked_checks = fc.get_unity_chip_doc_marks(os.path.join(workspace, doc_file), leaf_node="CK")
+    except UnicodeDecodeError as exc:
+        return False, {
+            "error_code": "DOCUMENT_ENCODING_ERROR",
+            "error": "The document could not be decoded; this is not a tag hierarchy error.",
+            "artifact": doc_file,
+            "observed": {"encoding": exc.encoding, "start": exc.start, "end": exc.end},
+            "expected": "UTF-8 document read with explicit UTF-8 encoding",
+            "next_action": "Check the document bytes and reader encoding. Preserve valid UTF-8 content; "
+                           "fix the reader and restart the affected process if it used another encoding. "
+                           "If the file is not valid UTF-8, save it as UTF-8 without changing its tags, then rerun Check.",
+        }
     except Exception as e:
         return False, [f"[Parse Error] Functions document '{doc_file}' failed to parse: {str(e)}",
                         "[Required] Use one canonical <FG-*> -> <FC-*> -> <CK-*> hierarchy with each tag on its own semantic heading line.",

@@ -6,6 +6,7 @@ import os
 import readline
 import signal
 import shlex
+import subprocess
 import sys
 import threading
 import time
@@ -19,6 +20,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(current_dir, "..")))
 
 from ucagent.verify_pdb import VerifyPDB
 from ucagent.verify_agent import VerifyAgent
+from ucagent.abackend.base import AgentBackendBase
 from ucagent.util.config import load_yaml_with_env_vars
 from ucagent.util.log import info
 from ucagent.util.markdown import markdown_heading_spacing_errors
@@ -1182,8 +1184,81 @@ def test_exit_on_completion_defers_until_work_finishes():
     assert agent.pdb.cmds == [["sleep 5", "quit", "quit", "quit"]]
 
 
+@pytest.mark.parametrize("background", [False, True])
+def test_add_cmds_only_interrupts_another_thread(probe_pdb, monkeypatch, background):
+    """Do not interrupt an active main-thread command; still wake blocked console input from APIs."""
+    signals = []
+    monkeypatch.setattr(os, "kill", lambda process, number: signals.append((process, number)))
+    if background:
+        thread = threading.Thread(target=probe_pdb.add_cmds, args=(["quit"],))
+        thread.start()
+        thread.join(timeout=5)
+        assert not thread.is_alive()
+    else:
+        probe_pdb.add_cmds(["quit"])
+    assert probe_pdb.cmdqueue == ["quit"]
+    assert signals == ([(os.getpid(), signal.SIGINT)] if background else [])
+
+
+def test_initial_loop_completion_does_not_escape_as_user_interrupt():
+    """Run initial loop, completion, real queued quit, and CLI exit in an isolated process."""
+    script = '''
+import sys
+import tempfile
+from pathlib import Path
+from types import SimpleNamespace
+from ucagent import cli
+from ucagent.verify_agent import VerifyAgent
+from ucagent.verify_pdb import VerifyPDB
+
+with tempfile.TemporaryDirectory(prefix='act4-clean-exit-') as temporary:
+    agent = VerifyAgent.__new__(VerifyAgent)
+    agent.workspace = temporary
+    agent._exit_on_completion = True
+    agent._exit_on_completion_pending = False
+    agent._exit_on_completion_queued = False
+    agent._is_work_busy = False
+    agent._need_break = False
+    agent._break_threads = set()
+    agent.stream_output = False
+    events = []
+    agent.stage_manager = SimpleNamespace(save_stage_info=lambda: events.append('saved'))
+    agent.exit = lambda: events.append('exited')
+    agent.do_work_values = lambda instructions, config: agent.try_exit_on_completion()
+    agent.run_loop = lambda message: agent.do_work({}, {})
+    debugger = VerifyPDB(agent, init_cmd=['loop'], max_loop_retry=1, retry_delay=[0, 0])
+    debugger.history_file = str(Path(temporary) / 'history')
+    debugger._interruptible_sleep = lambda duration: True
+    debugger.reset()
+    agent.pdb = debugger
+    cli.run = lambda: debugger.interaction(sys._getframe(), None)
+    cli.main()
+    assert events == ['saved', 'exited'], events
+    print('completion returned normally')
+'''
+    result = subprocess.run([sys.executable, "-B", "-c", script], capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "completion returned normally" in result.stdout
+    assert "Stage information saved. Exiting debugger." in result.stdout
+    assert "interrupted by user" not in result.stdout
+
+
+def test_cli_preserves_real_user_interrupt_exit(monkeypatch):
+    """A real KeyboardInterrupt must still produce the documented nonzero CLI exit."""
+    from ucagent import cli
+
+    def interrupt():
+        """Simulate the interruption of a running CLI invocation."""
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(cli, "run", interrupt)
+    with pytest.raises(SystemExit) as error:
+        cli.main()
+    assert error.value.code == 1
+
+
 def test_do_work_recovers_pending_tool_calls_before_reraising():
-    class _Backend:
+    class _Backend(AgentBackendBase):
         def __init__(self):
             self.errors = []
 
@@ -1255,6 +1330,7 @@ def test_loop_retry_budget_can_refresh_after_agent_progress(probe_pdb):
 
 
 def _failure_result(error="same actionable failure"):
+    """Return a complete explicit Checker diagnostic for stall accounting."""
     return {
         "check_pass": False,
         "failure_summary": {
@@ -1269,6 +1345,7 @@ def _failure_result(error="same actionable failure"):
 
 
 def _stall_probe(max_stalled_rounds=3):
+    """Build an idle agent with only the loop-control state under test."""
     agent = VerifyAgent.__new__(VerifyAgent)
     agent._max_stalled_rounds = max_stalled_rounds
     agent._stalled_rounds = 0
@@ -1283,6 +1360,7 @@ def _stall_probe(max_stalled_rounds=3):
 
 
 def _record_validation_round(agent, result, stage_index=19):
+    """Finish one round that publishes a new Check or Complete result."""
     previous_revision = agent.stage_manager.validation_revision
     previous_stage_index = agent.stage_manager.stage_index
     agent.stage_manager.validation_revision += 1
@@ -1338,34 +1416,129 @@ def test_validation_progress_resets_stalled_round_count():
     assert agent._last_stall_signature is None
 
 
-def test_round_without_new_validation_does_not_count_as_stalled():
+def test_round_without_new_validation_retains_current_failure_count():
+    """A CLI final response cannot erase an unresolved Checker failure."""
     agent = _stall_probe(max_stalled_rounds=2)
     _record_validation_round(agent, _failure_result())
 
     revision = agent.stage_manager.validation_revision
     agent._update_stalled_rounds(revision, agent.stage_manager.stage_index)
 
-    assert agent._stalled_rounds == 1
-    assert agent._need_human is False
+    assert agent._stalled_rounds == 2
+    assert agent._need_human is True
 
 
 def test_disabled_stall_protection_does_not_pause_agent():
+    """An explicit zero limit disables both validation and idle-round counting."""
     agent = _stall_probe(max_stalled_rounds=0)
 
     for _ in range(4):
         _record_validation_round(agent, _failure_result())
+        agent._update_stalled_rounds(agent.stage_manager.validation_revision, 19)
 
     assert agent._stalled_rounds == 0
     assert agent._need_human is False
 
 
-def test_default_config_disables_stalled_checker_pause():
-    """Keep automatic Checker-stall escalation opt-in at repository defaults."""
+@pytest.mark.parametrize("last_result", [{}, {"check_pass": True}])
+def test_idle_rounds_pause_even_without_a_current_failure(last_result):
+    """An earlier passing Check cannot keep later empty rounds alive forever."""
+    agent = _stall_probe(max_stalled_rounds=2)
+    agent.stage_manager.last_check_info = last_result
+
+    for _ in range(2):
+        agent._update_stalled_rounds(0, 19, ())
+
+    assert agent._stalled_rounds == 2
+    assert agent._need_human is True
+
+
+@pytest.mark.parametrize("change", ["create", "edit", "delete"])
+def test_output_changes_reset_rounds_without_validation(tmp_path, change):
+    """Creating, repairing, or removing a task artifact counts as observable work."""
+    agent = _stall_probe()
+    agent.output_dir = str(tmp_path)
+    artifact = tmp_path / "design.v"
+    if change != "create":
+        artifact.write_text("old", encoding="utf-8")
+    _record_validation_round(agent, _failure_result())
+    previous = agent._loop_artifact_state()
+
+    if change == "delete":
+        artifact.unlink()
+    else:
+        artifact.write_text("updated design", encoding="utf-8")
+    agent._update_stalled_rounds(agent.stage_manager.validation_revision, 19, previous)
+
+    assert agent._stalled_rounds == 0
+    assert agent._last_stall_signature is None
+
+
+def test_internal_state_and_transient_files_do_not_reset_idle_rounds(tmp_path):
+    """Runtime bookkeeping, logs, waveforms, and read activity cannot hide a stall."""
+    agent = _stall_probe(max_stalled_rounds=2)
+    agent.output_dir = str(tmp_path)
+    (tmp_path / "design.v").write_text("design", encoding="utf-8")
+    previous = agent._loop_artifact_state()
+    agent._update_stalled_rounds(0, 19, previous)
+
+    (tmp_path / ".ucagent").mkdir()
+    (tmp_path / ".ucagent" / "status.json").write_text("{}", encoding="utf-8")
+    for name in ["build.log", "wave.fst", "wave.vcd", "wave.fsdb", "wave.usdb",
+                 "coverage.dat", "cache.pyc", "cache.pyo", "scratch.tmp"]:
+        (tmp_path / name).write_bytes(b"transient output")
+    (tmp_path / "__pycache__").mkdir()
+    (tmp_path / "__pycache__" / "cache.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "linked-design.v").symlink_to(tmp_path / "design.v")
+    (tmp_path / "design.v").read_text(encoding="utf-8")
+    agent._update_stalled_rounds(0, 19, previous)
+
+    assert agent._loop_artifact_state() == previous
+    assert agent._need_human is True
+
+
+def test_stage_change_without_validation_resets_stall_budget():
+    """A stage transition counts as progress independently of Check revisions."""
+    agent = _stall_probe()
+    _record_validation_round(agent, _failure_result())
+    agent.stage_manager.stage_index = 20
+
+    agent._update_stalled_rounds(agent.stage_manager.validation_revision, 19, ())
+
+    assert agent._stalled_rounds == 0
+
+
+@pytest.mark.parametrize("max_rounds", [3, 18])
+def test_run_loop_pauses_and_explicit_resume_starts_a_fresh_budget(max_rounds):
+    """Successful CLI exits stop after the limit and a PDB resume gets a new budget."""
+    agent = _stall_probe(max_stalled_rounds=max_rounds)
+    agent.invoke_round = 0
+    agent.is_exit = lambda: False
+    agent.is_break = lambda: False
+    agent.check_pdb_trace = lambda: None
+
+    def finish_backend_round():
+        """Model a normal CLI exit that produces no new task evidence."""
+        agent.invoke_round += 1
+        assert agent.invoke_round <= 2 * max_rounds, "the loop failed to pause"
+
+    agent.one_loop = finish_backend_round
+    agent.run_loop()
+    assert agent.invoke_round == max_rounds
+    assert agent._need_human is True
+
+    agent.run_loop()
+    assert agent.invoke_round == 2 * max_rounds
+    assert agent._need_human is True
+
+
+def test_default_config_enables_stalled_round_pause():
+    """Bound unchanged backend rounds without requiring an operator override."""
     config_path = os.path.join(current_dir, "..", "ucagent", "setting.yaml")
 
     config = load_yaml_with_env_vars(config_path)
 
-    assert config["loop_settings"]["max_stalled_rounds"] == 0
+    assert config["loop_settings"]["max_stalled_rounds"] == 18
 
 
 def test_swarm_launch_does_not_force_human_check():
@@ -1395,6 +1568,6 @@ def test_max_stalled_rounds_rejects_ambiguous_values(value):
         VerifyAgent._validated_max_stalled_rounds(value)
 
 
-@pytest.mark.parametrize("value", [0, 1, 3])
+@pytest.mark.parametrize("value", [0, 1, 3, 18])
 def test_max_stalled_rounds_accepts_non_negative_integers(value):
     assert VerifyAgent._validated_max_stalled_rounds(value) == value

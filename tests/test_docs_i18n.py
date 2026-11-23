@@ -94,6 +94,14 @@ class DocumentationLanguagesTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         """Reuse a CI build or build the actual site in a temporary directory."""
+        modules = (
+            "material", "pymdownx", "mdx_truly_sane_lists", "mkdocs_static_i18n",
+            "mermaid2", "mkdocs_minify_plugin", "mkdocs_git_revision_date_localized_plugin",
+            "mkdocs_glightbox", "mkdocs_redirects",
+        )
+        missing = [name for name in modules if importlib.util.find_spec(name) is None]
+        if missing:
+            raise unittest.SkipTest("Install docs/requirements-docs.txt; missing: " + ", ".join(missing))
         from mkdocs.config import load_config
 
         cls.config = load_config(str(ROOT / "mkdocs.yml"))

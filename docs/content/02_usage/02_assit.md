@@ -138,10 +138,16 @@ tool_invoke GoToStage 2
 tool_invoke <tool_name> [arg1,arg2,key=value,...]
 ```
 
-参数用逗号分隔，字符串使用 Python 引号，布尔值使用 `True/False`。`RunTestCases.target` 相对于当前测试目录（默认 `unity_test/tests/`），不要重复添加该目录前缀。例如：
+参数使用 Python 字面量，布尔值写 `True/False`，空值写 `None`；支持带引号的字符串、数字、列表、字典及嵌套结构。逗号只分隔顶层参数，字符串中的空白、逗号、等号和分号保持原样。函数调用、变量引用、表达式和 `*`/`**` 参数展开不接受。
+
+位置参数按工具方法签名中的公开参数顺序绑定；多余位置参数、重复赋值或未声明参数会报错（工具明确允许额外字段时除外）。使用 `tool_list <tool_name>` 查看公开参数；类型和必填项仍按工具 schema 校验，校验通过后才调用工具。
+
+`RunTestCases.target` 相对于当前测试目录（默认 `unity_test/tests/`），不要重复添加该目录前缀。例如：
 
 ```text
 tool_invoke RunTestCases target='test_adder.py::test_add',timeout=120
+tool_invoke Check stage_args={"full_output": True},timeout=120
+tool_invoke SetCurrentStageJournal journal='Checked A, B; results recorded'
 ```
 
 ## 7. Master 页面

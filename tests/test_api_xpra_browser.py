@@ -11,6 +11,7 @@ import os
 import uuid
 
 import pytest
+from runtime_requirements import launch_browser
 
 
 _URLS = os.environ.get("UCAGENT_XPRA_BROWSER_URLS", "").split()
@@ -171,6 +172,8 @@ def check_terminal_clipboard(page):
 def test_full_agent_right_click_and_reconnect(base, browser_kind, tmp_path):
     """Exercise application context menus through direct CMD and Master entrypoints."""
     playwright_api = pytest.importorskip("playwright.sync_api")
+    if not os.environ.get("UCAGENT_XPRA_BROWSER_PASSWORD"):
+        pytest.skip("Requires UCAGENT_XPRA_BROWSER_PASSWORD for the external Xpra server")
     credentials = {
         "username": os.environ.get("UCAGENT_XPRA_BROWSER_USERNAME", "ucagent"),
         "password": os.environ["UCAGENT_XPRA_BROWSER_PASSWORD"],
@@ -182,7 +185,7 @@ def test_full_agent_right_click_and_reconnect(base, browser_kind, tmp_path):
     if browser_kind == "chromium" and executable:
         options["executable_path"] = executable
     with playwright_api.sync_playwright() as playwright:
-        browser = getattr(playwright, browser_kind).launch(headless=True, **options)
+        browser = launch_browser(playwright, browser_kind, **options)
         context = browser.new_context(http_credentials=credentials, viewport={"width": 1280, "height": 900})
         try:
             tasks = context.request.get(base.removesuffix("api/xpra/") + "api/tasks")

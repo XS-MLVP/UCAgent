@@ -6,6 +6,7 @@ from __future__ import annotations
 from pathlib import Path
 import subprocess
 import sys
+from runtime_requirements import require_commands
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -143,6 +144,8 @@ def test_refresh_validates_all_targets_before_removing_any_cache(tmp_path):
 
 
 def test_make_refresh_target_uses_explicit_workspace(tmp_path):
+    """Exercise the real Make target only when Make is installed."""
+    require_commands("make")
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     preserved = _populate_workspace(workspace)

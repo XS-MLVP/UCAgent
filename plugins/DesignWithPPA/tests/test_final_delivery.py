@@ -523,7 +523,7 @@ def test_final_delivery_curve_marks_rejected_candidate_and_zero_baseline(
             "current_value": 1.0,
             "delta": 1.0,
             "percent_change": None,
-            "unit": "library_area",
+            "unit": "liberty_area_unit",
             "direction": "min",
         }
     ]

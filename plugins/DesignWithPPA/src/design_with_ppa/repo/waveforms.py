@@ -18,7 +18,7 @@ def waveform_as_vcd(raw: Path, scratch: Path) -> Path:
     if raw.suffix != ".fst":
         return raw
     converted = scratch / (raw.stem + ".vcd")
-    from ..ppa import _convert_fst_to_vcd
+    from ..ppa.activity import _convert_fst_to_vcd
 
     _convert_fst_to_vcd(raw, converted)
     return converted

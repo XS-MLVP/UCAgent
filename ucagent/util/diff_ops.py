@@ -5,6 +5,7 @@ from contextlib import contextmanager
 import difflib
 import git
 import os
+import stat
 
 
 @contextmanager
@@ -214,6 +215,25 @@ def get_worktree_changed_file_statuses(path: str) -> dict[str, str]:
         raise ValueError(f"The path '{path}' is not a valid Git repository.")
 
 
+def _read_worktree_node(path: str, file_path: str) -> tuple[bytes, int]:
+    """Read a regular file or link text inside a real root, never through link parents."""
+    root = os.path.abspath(path)
+    full_path = os.path.abspath(os.path.join(root, file_path))
+    if (os.path.realpath(root) != root
+            or os.path.commonpath([root, full_path]) != root
+            or os.path.realpath(os.path.dirname(full_path)) != os.path.dirname(full_path)):
+        raise ValueError("History paths must remain in their root without symlink parents")
+    mode = os.lstat(full_path).st_mode
+    if stat.S_ISLNK(mode):
+        return os.fsencode(os.readlink(full_path)), 0o120000
+    if stat.S_ISDIR(mode):
+        raise IsADirectoryError(full_path)
+    if not stat.S_ISREG(mode):
+        raise ValueError(f"Unsupported history node: {file_path}")
+    with open(full_path, "rb") as stream:
+        return stream.read(), 0o100755 if mode & stat.S_IXUSR else 0o100644
+
+
 def get_worktree_file_content_and_diff(path: str, file_path: str) -> dict:
     """Get current worktree file content and diff compared with HEAD/index.
 
@@ -223,10 +243,10 @@ def get_worktree_file_content_and_diff(path: str, file_path: str) -> dict:
     try:
         with _open_repo(path) as repo:
             full_file_path = os.path.join(path, file_path)
-            file_exists = os.path.exists(full_file_path)
+            file_exists = os.path.lexists(full_file_path)
             current_content = ""
             if file_exists:
-                if os.path.isdir(full_file_path):
+                if not os.path.islink(full_file_path) and os.path.isdir(full_file_path):
                     return {
                         "is_text": False,
                         "content": "",
@@ -234,9 +254,8 @@ def get_worktree_file_content_and_diff(path: str, file_path: str) -> dict:
                         "error": f"'{file_path}' is a directory, not a file.",
                         "exists": True,
                     }
-                with open(full_file_path, "rb") as f:
-                    current_content_bytes = f.read()
-                if not _is_text_file(current_content_bytes):
+                current_content_bytes, node_mode = _read_worktree_node(path, file_path)
+                if node_mode != 0o120000 and not _is_text_file(current_content_bytes):
                     return {
                         "is_text": False,
                         "content": "",
@@ -478,7 +497,7 @@ def get_commit_file_content_and_diff(path: str, commit_hash: str, file_path: str
                     'error': f"File '{file_path}' not found in commit '{commit_hash}'"
                 }
             content = blob.data_stream.read()
-            if not _is_text_file(content):
+            if blob.mode != 0o120000 and not _is_text_file(content):
                 return {
                     'is_text': False,
                     'error': f"File '{file_path}' is not a text file"
@@ -525,7 +544,7 @@ def get_current_file_content_and_diff_from_commit(path: str, commit_hash: str, f
     try:
         with _open_repo(path) as repo:
             full_file_path = os.path.join(path, file_path)
-            if not os.path.exists(full_file_path):
+            if not os.path.lexists(full_file_path):
                 rel_file_path = file_path.replace(os.sep, "/")
                 try:
                     diff = repo.git.diff(commit_hash, "--", rel_file_path)
@@ -544,9 +563,8 @@ def get_current_file_content_and_diff_from_commit(path: str, commit_hash: str, f
                     'is_text': False,
                     'error': f"File '{file_path}' does not exist in working directory"
                 }
-            with open(full_file_path, 'rb') as f:
-                current_content_bytes = f.read()
-            if not _is_text_file(current_content_bytes):
+            current_content_bytes, node_mode = _read_worktree_node(path, file_path)
+            if node_mode != 0o120000 and not _is_text_file(current_content_bytes):
                 return {
                     'is_text': False,
                     'error': f"File '{file_path}' is not a text file"

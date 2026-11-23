@@ -252,5 +252,9 @@ def test_viewer_config_environment_and_template_resolution(monkeypatch, enabled)
     viewer = cfg.cmd_api.waveform_viewers.fsdb
     assert viewer.args == ['--meta','{wave_meta}','--verdi','verdi']
     assert viewer.script == 'verdi/launch_verdi.py' and viewer.idle_timeout == -1
+    viewer = cfg.cmd_api.waveform_viewers.usdb
+    assert viewer.args == ['--meta','{wave_meta}','--uvd','uvd']
+    assert viewer.script == 'uvd/launch_uvd.py' and viewer.idle_timeout == -1
+    assert (root/'ucagent/scripts'/viewer.script).is_file()
     localized = load_yaml_with_env_vars(str(root/'ucagent/lang/zh/config/default.yaml'))
     assert 'source_files' in localized['mission']['prompt']['system']

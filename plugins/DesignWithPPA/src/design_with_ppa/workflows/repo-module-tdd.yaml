@@ -39,6 +39,23 @@ design_with_ppa:
         # disable the cache entirely.
         ccache_enabled: true
   ppa:
+    backend: yosys_opensta
+    backend_options: {}
+    pdk:
+      name: asap7sc7p5t_28
+      corner: RVT_TT_0p7V_25C
+      files: {}
+      tie_high: null
+      tie_low: null
+      parameters: {}
+    # To use bundled Nangate45, replace the pdk block above with:
+    # pdk:
+    #   name: nangate45
+    #   corner: typical
+    #   files: {}
+    #   tie_high: {cell: LOGIC1_X1, port: Z}
+    #   tie_low: {cell: LOGIC0_X1, port: Z}
+    #   parameters: {}
     liberty_file: null
     sdc_file: null
     # OpenSTA detail depth for every measured candidate; same keys as unit-design-tdd.
@@ -159,7 +176,7 @@ stage:
       - "第2步：candidate.yaml 中 optimize 模式的 changes 必须为空；add 模式用 action: add 把首个实现写入 candidate/files 的目标相对路径。"
       - "第3步：调用 Check 或 RunRepoValidation(baseline=true)；必须真实通过参考自测、公开引脚协议测试、全部场景单元测试和 PPA 测量，PPA HTML 报告（design/design_with_ppa_dashboard.html）随之刷新。按诊断修正后 Complete。"
     reference_files: ["{OUT}/repo/functions_and_checks.md", "{OUT}/repo/contract.yaml", "{OUT}/repo/verification/*", "{OUT}/repo/coverage.json", "Guide_Doc/repo_module.md"]
-    output_files: ["{OUT}/repo/candidate/**/*", "{OUT}/repo/reports/*"]
+    output_files: ["{OUT}/repo/candidate/**/*", "{OUT}/repo/reports/**/*"]
     checker:
       - name: measured_baseline
         clss: RepoModuleChecker
@@ -181,12 +198,13 @@ stage:
     desc: "模块 PPA 迭代：探索实现与接口候选"
     task:
       - "目标：在冻结的语义与测量条件下进行模块 PPA 迭代，探索实现与接口候选，每轮产出完整、可复现的实测记录。"
-      - "第1步：提出明确假设，用新的 variant_id 更新 candidate.yaml 与 candidate/files；改变引脚或协议时使用新的 interface.version 并同步 adapter.py、protocol.py。"
+      - "第1步：在 candidate.yaml 的 hypothesis 中明确写出优化方向、具体结构改动与预期指标影响，用新的 variant_id 更新 candidate/files；改变引脚或协议时使用新的 interface.version 并同步 adapter.py、protocol.py。"
       - "第2步：保持 contract.yaml、verification/ 与 tests/ 不变；调用 Check 或 RunRepoValidation 测量当前候选——Check 会自动测量尚未记录的候选，被拒绝的候选同样计入已测轮次。"
       - "第3步：所有必要硬件适配包含在本模块测量顶层内；调用方影响写入说明，不宣称系统集成通过。"
+      - "查看 {OUT}/repo/reports/optimization_log.html（或同名 .md）：每轮自动记录方向、实际源码/接口改动、diff、实测结果与拒绝原因；测量启动或失败记录不计入有效轮次。PPA 看板提供 Optimization log 入口；不要手写日志或测量结论。"
       - "第4步：达到配置的最少轮数且连续无改进（耐心条件）或到达轮数上限后结束；以 Check 返回的剩余轮次为准，全部完成后再 Complete。"
     reference_files: ["{OUT}/repo/functions_and_checks.md", "{OUT}/repo/contract.yaml", "{OUT}/repo/verification/*", "{OUT}/repo/tests/*", "{OUT}/repo/reports/*", "Guide_Doc/repo_module.md"]
-    output_files: ["{OUT}/repo/candidate/**/*", "{OUT}/repo/reports/*"]
+    output_files: ["{OUT}/repo/candidate/**/*", "{OUT}/repo/reports/**/*"]
     checker:
       - name: measured_candidates
         clss: RepoModuleChecker

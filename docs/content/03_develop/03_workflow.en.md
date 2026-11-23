@@ -3,6 +3,8 @@
 
 A workflow consists of a set of stages executed in sequence. Each stage describes tasks, reference files, expected outputs, and a Checker; the Agent can call `Check` to view feedback, then use `Complete` to perform final acceptance and proceed. If a stage fails, it should first be fixed according to the Checker's diagnosis before retrying.
 
+Before completing a stage, use `SetCurrentStageJournal` to record the work summary, artifacts, check results, and unresolved issues. A successful `Check` prompts for a missing journal; `Complete` returns immediately without running Checkers when the journal is missing. Record it and call `Complete` again to run final validation and applicable gates.
+
 ## 1. Default Workflow
 
 The default Chinese configuration is located at `ucagent/lang/zh/config/default.yaml`, which currently has 20 top-level stages; indented entries are sub-stages. The runtime Stage Manager flattens parent and child stages, therefore indices used by `--skip`, `hmcheck_set`, and `GoToStage` must be based on the current `status` or `hmcheck_list` in the active run.
@@ -68,6 +70,10 @@ stage:
 - `skip`: Whether to default skip; suitable only for stages clearly not applicable.
 - `need_human_check`: Wait for human review after passing the Checker.
 - `skill_list`: Specialized skills for the current stage. When a skill is enabled and the list is non-empty, a real list/read/use evidence is required by default; `force_use_skill: false` makes it optional.
+
+### Files and Links in Stage History
+
+Stage history stores regular output files and symbolic links themselves. Directory links are not traversed; file, dangling, absolute, and external links retain their original target strings, which are also used for history comparisons and content views. Targets inside the output tree are archived at their real paths. External targets are not included automatically, so storing a link does not establish target availability or successful execution. Sync roots and their ancestors must be real directories, and source and destination must not overlap. Avoid concurrent modifications to the output tree during archiving.
 
 ## 3. Configuration Loading and Template Variables
 
@@ -163,5 +169,15 @@ When adding a new stage, provide the task, reference document, output, and Check
 ## 8. Runtime Snapshot
 
 After configuration parsing, UCAgent writes `.ucagent/runtime_config.json` to the workspace. It contains only parsed, non-sensitive fields, such as `DUT`, `OUT`, `runtime_options`, `current_test_report`, and `ucagent_python_path`. Skill scripts should read this snapshot; do not guess the source code path from the script location or re-interpret environment variables. The `ucagent_python_path` in the snapshot must be an absolute path containing the current `ucagent/__init__.py`.
+
+The workspace `.ucagent/` directory and all its contents are read-only to the Agent/LLM. The shared system prompt prohibits creating, editing, deleting, moving, or changing permissions on these files through file tools, backend-native tools, shell commands, or scripts. Custom system prompts retain this rule. Built-in file tools reject writes, and the generated opencode configuration also denies native edits to this directory; reads remain available. UCAgent and public workflow tools can still maintain snapshots, progress, and evidence. When the runtime environment blocks work, the model should report the diagnostic and required operator action. The operator repairs configuration or the environment and restarts UCAgent; the model must not edit runtime state or framework/plugin source to repair the environment. Running processes do not automatically reload configuration, system prompts, or backend permissions.
+
+## 9. Loop Stall Protection
+
+`loop_settings.max_stalled_rounds` accepts a nonnegative integer, defaults to `18`, and can be disabled with `0`. It detects stalls after each completed model round: repeated identical explicit Checker diagnostics in the same stage accumulate, as do rounds with no new Check/Complete and no changes to task files in the output directory. A normal CLI exit or read-only file activity does not count as progress.
+
+A stage transition, a new passing check, or batch progress resets the counter; a changed explicit diagnostic starts a new count at `1`. Without a new check, creating, modifying, or deleting an output task file also resets it. File changes use path, size, and modification time; hidden directories, symlinks, caches, logs, temporary files, and waveform data do not count as progress. If a new check still returns the same diagnostic, writing a file does not cancel that failure.
+
+At the limit, UCAgent pauses `--loop`, displays the latest diagnostic when available, and preserves the task and artifacts for operator intervention. After repairing task inputs, enter `loop` in the console to resume with a fresh counter. Configuration or runtime environment changes require restarting UCAgent. This protection applies to completed model rounds; a single blocked backend call remains subject to backend timeout and interruption controls.
 
 Next: Run the [Mini Example](08_mini_example.md) first, then learn [Custom Tools](05_customize.md), [Template Files](04_template.md), and [Plugins](09_plugins.md) as needed.

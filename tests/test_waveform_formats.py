@@ -119,7 +119,7 @@ sys.modules['wavekit'] = None
 sys.modules['pywellen'] = None
 from ucagent.util.waveform_formats import registered_waveform_formats
 from ucagent.util.config import Config
-assert registered_waveform_formats() == ('fst', 'vcd', 'fsdb')
+assert registered_waveform_formats() == ('fst', 'vcd', 'fsdb', 'usdb')
 """
     subprocess.run([sys.executable, "-c", script], check=True, cwd=Path(__file__).parents[1])
 

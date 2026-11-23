@@ -62,6 +62,7 @@ UCAgent 是面向数字电路单元测试的 AI 验证代理。它读取 DUT 和
 - **[FAQ](./02_usage/05_faq.md)**：常见问题
 - **[LLM Check & Refinement](./02_usage/06_llm_check.md)**：LLM 阶段结果检查与建议
 - **[Web Master 使用指南](./02_usage/07_web_master.md)**：Master 模式 Web 界面详解
+- **[Docker Swarm 部署](./02_usage/11_docker_swarm.md)**：搭建 2-3 节点集群并启动 Swarm Master Web
 - **[技能 SKILL](./02_usage/08_skill.md)**：技能机制与使用
 
 ### 定制开发
