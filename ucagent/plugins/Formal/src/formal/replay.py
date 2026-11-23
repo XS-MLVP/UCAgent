@@ -4,7 +4,7 @@ from bisect import bisect_right
 from hashlib import file_digest, sha256
 import re
 
-from .baseline import baseline_contract
+from .baseline import shared_contract
 from .execution import property_evidence
 from .skills.lib.formal_tools import _ck_to_sv_names
 from .skills.lib.models import FormalRecords
@@ -16,7 +16,7 @@ class ReplayUnavailable(ValueError):
 
 
 def parse_safety(body: str):
-    """Parse an explicit single-edge property and compile its one-bit expression subset."""
+    """Parse the finite expression subset used for offline single-edge replay."""
     from pyslang.syntax import SyntaxKind as Kind, SyntaxTree
 
     if len(body) > 8192:
@@ -39,7 +39,7 @@ def parse_safety(body: str):
               Kind.EqualityExpression: "eq", Kind.InequalityExpression: "ne"}
 
     def compile_expr(node):
-        """Translate only expressions with defined one-bit replay semantics."""
+        """Translate expressions with defined finite replay semantics."""
         kind = node.kind
         if kind in (Kind.SimplePropertyExpr, Kind.ParenthesizedPropertyExpr):
             return compile_expr(node.expr)
@@ -61,10 +61,8 @@ def parse_safety(body: str):
         if kind == Kind.InvocationExpression and str(node.left).strip() == "$past":
             args = node.arguments.parameters
             if len(args) == 1 and args[0].kind == Kind.OrderedArgument:
-                operand = compile_expr(args[0].expr)
-                if operand[0] == "signal":
-                    return ("past", operand)
-        raise ReplayUnavailable(f"SVA syntax outside the finite one-bit replay subset: {kind.name}.")
+                return ("past", compile_expr(args[0].expr))
+        raise ReplayUnavailable(f"SVA syntax outside the finite replay subset: {kind.name}.")
 
     expr = prop.expr
     while expr.kind == Kind.ParenthesizedPropertyExpr:
@@ -86,6 +84,26 @@ def evaluate_replay(parsed, traces: dict, first_tick: int, last_tick: int) -> di
     from unit_test.waveform_formats.sampling import is_clock_edge
 
     clock, edge, _, condition, consequent, delay, guard = parsed
+
+    def width(node):
+        """Accept vectors only in equal-width comparisons, independent of signedness."""
+        operation, *operands = node
+        if operation == "bit":
+            return 1
+        if operation == "signal":
+            return traces[operands[0]].width
+        widths = [width(operand) for operand in operands]
+        if operation == "past":
+            return widths[0]
+        if operation in {"eq", "ne"}:
+            if widths[0] != widths[1]:
+                raise ReplayUnavailable("Replay requires equal-width operands for equality comparisons.")
+        elif any(bits != 1 for bits in widths):
+            raise ReplayUnavailable("Replay requires one-bit operands for Boolean expressions.")
+        return 1
+
+    if traces[clock].width != 1 or any(width(node) != 1 for node in (condition, consequent, guard) if node):
+        raise ReplayUnavailable("Replay requires a one-bit clock, reset, trigger, and outcome.")
     waveform = traces[clock]
     if any(value.x_mask or value.z_mask for value in waveform.states):
         raise ReplayUnavailable("The recorded clock contains an unknown interval.")
@@ -94,9 +112,9 @@ def evaluate_replay(parsed, traces: dict, first_tick: int, last_tick: int) -> di
     if not ticks or len(ticks) > 2000:
         raise ReplayUnavailable("Replay requires 1 to 2000 recorded clock edges.")
 
-    def bit(sample):
+    def known(sample):
         """Keep missing or unknown four-state values distinct from zero."""
-        return None if sample is None or sample.x_mask or sample.z_mask else bool(sample.value)
+        return None if sample is None or sample.x_mask or sample.z_mask else sample.value
 
     def value(node, cycle):
         """Evaluate one restricted expression using pre-edge samples."""
@@ -104,9 +122,11 @@ def evaluate_replay(parsed, traces: dict, first_tick: int, last_tick: int) -> di
         if operation == "bit":
             return operands[0]
         if operation == "signal":
-            return bit(traces[operands[0]].value_at(ticks[cycle] - 1)) if cycle >= 0 else None
+            trace = traces[operands[0]]
+            sample = known(trace.value_at(ticks[cycle] - 1))
+            return bool(sample) if sample is not None and trace.width == 1 else sample
         if operation == "past":
-            return value(operands[0], cycle - 1)
+            return value(operands[0], cycle - 1) if cycle > 0 else None
         left = value(operands[0], cycle)
         if operation == "not":
             return None if left is None else not left
@@ -126,7 +146,7 @@ def evaluate_replay(parsed, traces: dict, first_tick: int, last_tick: int) -> di
             first = bisect_right(reset.wave_steps, tick)
             end = bisect_right(reset.wave_steps, through)
             states = [reset.value_at(tick), *reset.states[first:end]]
-            guard_bits = [bit(state) for state in states]
+            guard_bits = [known(state) for state in states]
             disabled = False if guard[0] == "not" else True
             if disabled in guard_bits:
                 continue
@@ -168,7 +188,7 @@ def replay_counterexample(execution, run_dir, state: dict, name: str) -> dict:
         current_file = target / ".formal_records.yaml"
         current_bytes = current_file.read_bytes()
         current = FormalRecords.model_validate(yaml.safe_load(current_bytes))
-        if not old.spec or not current.spec or baseline_contract(old) != baseline_contract(current):
+        if not old.spec or not current.spec or shared_contract(old) != shared_contract(current):
             raise ReplayUnavailable("The shared clock, reset, bindings, parameters or assumptions changed.")
         if ((old.extra_config or {}).get("tcl") or {}).get("extra_commands"):
             raise ReplayUnavailable("Replay cannot validate the environment effects of custom Tcl commands.")
@@ -197,8 +217,8 @@ def replay_counterexample(execution, run_dir, state: dict, name: str) -> dict:
         if before[:2] != after[:2]:
             raise ReplayUnavailable("The assertion clock or edge changed.")
         signals = before[2] | after[2] | {before[0]}
-        if len(signals) > 24:
-            raise ReplayUnavailable("The assertion requires more than 24 signals for replay.")
+        if len(signals) > 32:
+            raise ReplayUnavailable("The assertion requires more than 32 signals for replay.")
         path = execution.workspace / evidence["trace_artifact"]
         if path.stat().st_size > 32 * 1024 * 1024:
             raise ReplayUnavailable("The original waveform exceeds the offline analysis limit.")
@@ -221,14 +241,16 @@ def replay_counterexample(execution, run_dir, state: dict, name: str) -> dict:
                 if binding := bindings.get(signal):
                     candidates.append(f"{wrapper_scope}.{binding}")
                 for full_name in candidates:
-                    matches = reader.get_matched_signals(full_name, limit=8)["signals"]
-                    match = next((row for row in matches.values() if row.full_name == full_name), None)
-                    if match is not None and match.width == 1:
+                    candidates_page = reader.get_matched_signals(full_name, limit=2)
+                    declaration = re.compile(re.escape(full_name) + r"(?:\[-?\d+:-?\d+\])?")
+                    matches = [row for row in candidates_page["signals"].values() if declaration.fullmatch(row.full_name)]
+                    if len(matches) == 1 and candidates_page["total"] == 1 and 1 <= matches[0].width <= 4096:
+                        match = matches[0]
                         traces[signal] = load_signal_trace(reader, match)
-                        paths[signal] = full_name
+                        paths[signal] = match.full_name
                         break
                 if signal not in traces:
-                    raise ReplayUnavailable(f"Missing exact one-bit checker signal: {signal}.")
+                    raise ReplayUnavailable(f"Missing unique, supported checker signal: {signal}.")
             observed = evaluate_replay(before, traces, reader.begin_time, reader.end_time)
             if observed["status"] != "still_fails":
                 raise ReplayUnavailable("Offline sampling did not reproduce the original failure.")

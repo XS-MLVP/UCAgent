@@ -110,16 +110,18 @@ def test_stage_script_check_preserves_preflight_diagnostic(tmp_path):
 
 
 @pytest.mark.parametrize("uncovered", [[], ["some_internal_net"]])
-def test_coverage_insufficient_explains_missing_detail_without_fabricating_signals(tmp_path, monkeypatch, uncovered):
+def test_coverage_insufficient_explains_missing_detail_without_fabricating_signals(tmp_path, uncovered):
     """Low coverage stays blocking, with distinct next actions when the tool supplies no cone detail."""
     checker = CoverageAnalysisChecker("RouteUnit", coi_threshold=90)
     from formal.skills.lib.formal_paths import FormalPaths
     checker.paths = FormalPaths(dut="RouteUnit", out="proof", workspace=str(tmp_path))
-    checker._require_execution = lambda: (True, {"run_id": "a" * 32, "coverage_artifact": "proof/fanin.rep"})
-    monkeypatch.setattr(checks, "parse_coverage", lambda _: {
+    coi = {
         "overall_pct": 87.38, "uncovered": uncovered,
         "nets": {"covered": 1184, "total": 1355, "pct": 87.38},
-        "dffs": {"covered": 0, "total": 0, "pct": 0.0}})
+        "dffs": {"covered": 0, "total": 0, "pct": 0.0}}
+    checker._require_execution = lambda: (True, {"coverage": {"status": "verified", "run_id": "a" * 32,
+        "input_fingerprint": "b" * 64, "report": "proof/formal_runs/original/fanin.rep", "sha256": "c" * 64,
+        "metrics": coi}})
     passed, result = checker.do_check()
     assert passed is False
     assert result["error_code"] == "formal_coverage_below_threshold"

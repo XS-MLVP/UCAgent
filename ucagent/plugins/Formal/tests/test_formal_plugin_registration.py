@@ -21,6 +21,8 @@ CHECKER_NAMES = (
     "BasicInfoStructureChecker",
     "FormalSpecJsonChecker",
     "FormalBatchPlanChecker",
+    "FormalCaseTemplateChecker",
+    "SlowPropertyReviewChecker",
     "PropertyStructureChecker",
     "FunctionBatchChecker",
     "ScriptGenerationChecker",

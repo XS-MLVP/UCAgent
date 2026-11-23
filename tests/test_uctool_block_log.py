@@ -4,6 +4,7 @@ import asyncio
 import os
 import re
 import sys
+import threading
 from types import SimpleNamespace
 
 import pytest
@@ -24,6 +25,48 @@ class _IdleTool(UCTool):
 
     def _run(self):
         return "unused"
+
+
+def test_disconnected_streaming_call_releases_tool_after_its_worker_stops(monkeypatch):
+    """A new request waits for a disconnected tool's actual synchronous work to finish."""
+    import ucagent.core.tools.uctool as implementation
+
+    class ClientContext:
+        """Stand in for an MCP connection on the streaming path."""
+
+    monkeypatch.setattr(implementation, "Context", ClientContext)
+    entered = threading.Event()
+    finish = threading.Event()
+
+    class RunningTool(UCTool):
+        name: str = "RunningTool"
+        description: str = "Wait for a known completion point in the worker."
+
+        def _run(self, mode: str):
+            if mode == "initial":
+                entered.set()
+                assert finish.wait(4)
+            return mode
+
+    async def scenario():
+        tool = RunningTool()
+        first = asyncio.create_task(tool.ainvoke({"mode": "initial", "ctx": ClientContext()}))
+        try:
+            assert await asyncio.to_thread(entered.wait, 2)
+            first.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await first
+            second = asyncio.create_task(tool.ainvoke({"mode": "next", "ctx": ClientContext()}))
+            await asyncio.sleep(0.05)
+            assert not second.done()
+            assert tool.is_in_streaming
+        finally:
+            finish.set()
+        assert await asyncio.wait_for(second, timeout=5) == "next"
+        assert not tool.is_busy()
+        assert not tool.async_lock.locked()
+
+    asyncio.run(scenario())
 
 
 _BLOCKING_RE = re.compile(r"is blocking, wait (\d+)/(\d+) seconds")

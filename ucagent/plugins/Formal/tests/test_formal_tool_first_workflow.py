@@ -42,17 +42,21 @@ def test_tool_first_stages_resolve_without_skill_directory(tmp_path, monkeypatch
     assert not (tmp_path / ".ucagent/skills").exists()
     assert cfg.get_value("skill.use_skill") is enabled
     assert len(root.substages) == 9
-    for stage in root.substages:
+    assert [s.name for s in root.substages[5].substages] == ["create_formal_case_templates", "implement_formal_case_batches"]
+    assert root.substages[7].name == "slow_property_review"
+    assert root.substages[8].substages[-1].name == "verification_review_and_summary"
+    for stage in root.get_substages():
         assert stage.skill_list == {}
         assert not stage.substages
         assert "skill_list" not in stage.task_info()
+        assert stage.detail()["stage_name"] == stage.name
     specification = next(stage for stage in root.substages if stage.name == "functional_specification_analysis")
     assert len(specification.checker) == 1
     assert specification.checker[0]._check_level == "ck"
     context = PluginContext(workspace=tmp_path, output_dir="proofs", dut_name="PacketGate",
                             cfg=cfg, write_dirs=("proofs",), un_write_dirs=("PacketGate",),
                             plugin_root=plugin.root)
-    assert {tool.name for tool in create_tools(context)} == {"RunFormal", "AnalyzeFormal"}
+    assert {tool.name for tool in create_tools(context)} == {"RunFormal", "AnalyzeFormal", "FormalData"}
     assert plugin.workflows[0].skill_paths == (WORKFLOW.parent.parent / "skills",)
 
 
@@ -64,6 +68,9 @@ def test_workflow_has_no_default_skill_ceremony_or_partial_spec_stages():
     for stage in walk_stages(raw["stage"]):
         assert "skill_list" not in stage
         assert "force_use_skill" not in stage
+    planning, understanding = raw["stage"][:2]
+    assert planning["reference_files"] == ["{DUT}/README.md"]
+    assert understanding["reference_files"] == ["{RTL_PATH}/*.v", "{RTL_PATH}/*.sv"]
     specification = next(stage for stage in raw["stage"] if stage["name"] == "functional_specification_analysis")
     assert "stage" not in specification
     assert specification["checker"][0]["args"]["check_level"] == "ck"
@@ -74,9 +81,14 @@ def test_workflow_has_no_default_skill_ceremony_or_partial_spec_stages():
     assert "ext/formal/data" in system
     assert "普通文件工具" in system
     assert "SetCurrentStageJournal记录日志" in system
-    analysis = next(stage for stage in raw["stage"] if stage["name"] == "environment_debugging_iteration")
-    bugs = next(stage for stage in raw["stage"] if stage["name"] == "formal_execution")
-    assert "prepare analysis" in " ".join(analysis["task"])
+    leaves = [stage for parent in raw["stage"] for stage in parent.get("stage", [parent])]
+    analysis = next(stage for stage in leaves if stage["name"] == "implement_formal_case_batches")
+    bugs = next(stage for stage in leaves if stage["name"] == "formal_execution")
+    closure = next(stage for stage in raw["stage"] if stage["name"] == "coverage_analysis_and_optimization")
+    assert "prepare analysis" in " ".join(closure["task"])
+    assert "定向验证" in " ".join(analysis["task"])
+    assert "{OUT}/.formal_records.yaml" not in analysis["reference_files"]
+    assert "inspect_ports_call" in " ".join(analysis["task"])
     assert "无技能" in " ".join(analysis["task"])
     assert "prepare bugs" in " ".join(bugs["task"])
     assert "无技能" in " ".join(bugs["task"])
@@ -150,7 +162,7 @@ def test_runtime_guidance_uses_prepare_and_derived_bug_summary():
     assert "只读查看" in data
     assert "update --request-file formal_test/data_update.json" in data
     assert "技能关闭或缺失时" in data
-    assert "不存在独立的FormalData工具" in data
+    assert '{"request":{"action":"inspect","section":"planning"}}' in data
     assert "不手工复制哈希" in data
     assert "不再填写severe_bugs" in data
     examples = [json.loads(block) for block in re.findall(r"```json\n(.*?)\n```", data, re.DOTALL)]

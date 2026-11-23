@@ -106,6 +106,8 @@ endproperty
 A_CK_NAME: assert property (CK_NAME);
 ```
 
+跨拍义务在实际触发拍启动。例如，仅在运行态接受事务后检查下一拍输出时，使用 `disable iff (!rst_n) (cmd_valid && cmd_ready) |=> expected_response`。如果用 `$past(cmd_valid && cmd_ready)` 作当前拍前件，还要在规格要求下核对前一拍处于运行态。当前拍的 `disable iff` 可以放行在复位释放首拍读取的复位期历史。复位释放首拍本身的要求单独保留。
+
 ### 2.3 覆盖属性模板 (Style: Cover)
 
 **适用**: 验证场景是否可达，或者特定序列是否发生。
@@ -228,6 +230,8 @@ A_CK_REQ_EVENTUALLY_GRANTED: assert property (CK_REQ_EVENTUALLY_GRANTED);
 - 公平性约束需要独立的环境规格依据。遇到 `UNDETERMINED` 时，先核对目标、环境和实际求解证据。
 - 对于纯组合逻辑设计（如 Adder），Liveness 不适用。
 
+单在途、按序接口若要求每笔事务的首个响应正确，可以用 `req_handshake |-> (!rsp_handshake s_until (rsp_handshake && payload_ok));`。这里响应必须到达，首个交付就要满足字段检查。依据规格核对时钟、同拍响应和复位的口径，并单独验证在途容量。允许多笔在途或乱序时，用独立于 DUT 的事务历史明确匹配响应与请求，再检查对应字段和活性。
+
 ---
 
 ## 3.6 Assume 约束的禁忌（过约束防范）
@@ -236,7 +240,7 @@ A_CK_REQ_EVENTUALLY_GRANTED: assert property (CK_REQ_EVENTUALLY_GRANTED);
 
 ### 多端口公平性约束
 
-第 5 阶段按 `Guide_Doc/functions_and_checks.md` 中「验证环境约束」功能组的计划实现这些义务。写 `sva_body` 前，若发现一个 CK 的描述列了多个独立端口的义务，先拆成同一 FC 下的多个 CK，再分别填写属性。每条属性保留该端口自己的触发握手、响应条件、时钟和复位。基础预检加载全部 Assume，通过基础 Cover 检查约束下的关键事务可达性。
+第 6 阶段按 `Guide_Doc/functions_and_checks.md` 中「验证环境约束」功能组的计划实现正式环境义务；第 5 阶段只做独立临时工具冒烟。写 `sva_body` 前，若发现一个 CK 的描述列了多个独立端口的义务，先拆成同一 FC 下的多个 CK，再分别填写属性。每条属性保留该端口自己的触发握手、响应条件、时钟和复位。正式功能批次加载全部已实现的 Assume，并用有规格意义的 Cover 检查其场景可达性；冒烟通过不能替代约束语义审阅。
 
 | CK | `sva_body` |
 | --- | --- |
@@ -244,6 +248,8 @@ A_CK_REQ_EVENTUALLY_GRANTED: assert property (CK_REQ_EVENTUALLY_GRANTED);
 | `CK-ENV-PORT-B-RESP` | `@(posedge clk) disable iff (!rst_n) (b_cmd_valid && b_cmd_ready) \|-> s_eventually b_rsp_valid;` |
 
 若规格规定的是跨端口的联合行为，保留共同条件和端口之间的依赖。生成 Checker 时，预检会对用属性级 `and` 组合多条无界分支的 Assume 报告求解开销提示。根据协议判断分支是否独立，必需的联合行为可继续执行。握手条件内的布尔 `&&` 可以正常使用。响应时限取自规格。验证某种响应场景可以发生时，使用 Cover 检查可达性。
+
+`formal_unguarded_until_assume` 表示该时序义务在每个启用的采样重新开始。若规格只在复位释放或事务事件启动义务，先补正确触发条件，并验证正常的延迟场景仍可达。生成 Checker 时会按 RTL 的实际方向拒绝直接使 DUT 输出已知的 Assume，包括连接向量中的输出。环境约束的触发条件仍可读取 DUT 输出。
 
 ### 常见的过约束错误（绝对禁止）
 

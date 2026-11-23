@@ -35,6 +35,17 @@ class TraceQuery(BaseModel):
     limit: int = Field(default=50, ge=1, le=200)
     cursor: str | None = Field(default=None, max_length=140)
 
+    @model_validator(mode="before")
+    @classmethod
+    def infer_sample_mode(cls, value):
+        """Use sample mode for an explicit window when the caller omits mode."""
+        if isinstance(value, dict) and "mode" not in value and (
+            value.get("signals") or value.get("start") is not None
+            or value.get("end") is not None or value.get("clock")
+        ):
+            return {**value, "mode": "samples"}
+        return value
+
     @model_validator(mode="after")
     def validate_window(self):
         """Require explicit bounds and exact signal names for samples."""

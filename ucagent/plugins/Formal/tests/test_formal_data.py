@@ -13,6 +13,7 @@ import yaml
 
 from formal.data import FormalDataStore
 from formal.skills.lib.models import semantic_inputs
+from formal.tools import FormalData, FormalDataArgs
 
 
 @pytest.fixture
@@ -47,6 +48,137 @@ def task(tmp_path, monkeypatch):
     path.write_text(yaml.safe_dump(records, sort_keys=False))
     store = FormalDataStore(str(tmp_path), "proof", "PacketGate", ["proof"], ["PacketGate"])
     return store, path, records
+
+
+def test_exact_ck_inspection_and_metadata_patch_preserve_other_targets(task):
+    """A CK can gain a parent and body atomically without replacing its function group."""
+    store, path, records = task
+    inspected = store.inspect("spec", query="CK-GATE-PASS")
+    assert inspected["check_point"]["fc_id"] == "FC-GATE"
+    assert inspected["check_point"]["id"] == "CK-GATE-PASS"
+    with pytest.raises(ValueError, match="exact CK ID"):
+        store.inspect("spec", query="CK-GATE")
+    request = inspected["ready_update"]
+    fields = request["data"]["checkpoint_metadata"]["CK-GATE-PASS"]
+    fields["parent_ck_id"] = "CK-GATE-REACH"
+    assert store.update(**request, bodies={"CK-GATE-PASS": "y == a;"})["status"] == "updated"
+    actual = yaml.safe_load(path.read_bytes())
+    expected = records["spec"]["function_groups"][0]["functions"][0]["check_points"][0]
+    expected.update(parent_ck_id="CK-GATE-REACH", sva_body="y == a;")
+    assert actual == records
+    request = store.inspect("spec", query="CK-GATE-PASS")["ready_update"]
+    request["data"]["checkpoint_metadata"]["CK-GATE-PASS"]["style"] = "Assume"
+    with pytest.raises(ValueError, match="metadata edit"):
+        store.update(**request, bodies=None)
+    assert yaml.safe_load(path.read_bytes()) == actual
+
+
+@pytest.mark.parametrize("stage_name, review_text", [
+    ("functional_specification_analysis", "review order"),
+    ("property_generation", "resolved bindings"),
+])
+def test_planning_updates_report_scope_without_queuing_sva(task, stage_name, review_text):
+    """The planning-stage reply gives scope and the next gate without starting authoring early."""
+    store, path, records = task
+    stage_info = store.workspace / ".ucagent/ucagent_info.json"
+    stage_info.parent.mkdir()
+    stage_info.write_text(json.dumps({"stage_index": 9, "stages_info": {"9": {"stage_name": stage_name}}}))
+    tool = FormalData(str(store.workspace), "proof", "PacketGate", cfg=None)
+    request = {"action": "update", "section": "spec", "data": {"parameters": {}},
+               "expected_sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
+    result = tool.invoke({"request": request})
+    assert result["planned_scope"] == {"fg": 1, "fc": 1, "ck_by_style": {"comb": 1, "cover": 1}}
+    assert result["after_update_command"] is None
+    assert "missing_bodies" not in result
+    assert review_text in result["next_action"] and "call Complete" in result["next_action"]
+    stage_info.write_text(json.dumps({"stage_index": 5, "current_stage_name": "environment_debugging_iteration"}))
+    result = tool.invoke({"request": {**request, "expected_sha256": result["sha256"]}})
+    assert result["after_update_command"] == "prepare sva"
+    assert result["missing_bodies"]["items"] == ["CK-GATE-PASS"]
+    assert yaml.safe_load(path.read_bytes()) == records
+
+
+def test_reset_stability_assume_uses_the_normalized_reset_and_requires_explicit_override(task):
+    """The optional recipe rejects a default-disabled condition for an active-high DUT."""
+    from formal.baseline import shared_contract
+
+    store, path, records = task
+    (store.workspace / "PacketGate/PacketGate.sv").write_text(
+        "module PacketGate(input clk, reset, a, output y); assign y = a && !reset; endmodule\n")
+    records["basic_info"]["clock_reset"] = {"clock_signal": "clk", "reset_signal": "reset", "reset_active_level": "high"}
+    function = records["spec"]["function_groups"][0]["functions"][0]
+    function["check_points"].append({"id": "CK-STABLE", "style": "Assume", "description": "Released reset is stable"})
+    path.write_text(yaml.safe_dump(records))
+    assert "reset_stable_after_release" not in shared_contract(records)["checks"]["CK-STABLE"]
+    tool = FormalData(str(store.workspace), "proof", "PacketGate", cfg=None)
+    ready = store.inspect("spec", query="CK-STABLE")["ready_update"]
+    ready["data"]["checkpoint_metadata"]["CK-STABLE"] = {"reset_stable_after_release": True}
+    assert tool.invoke({"request": {"action": "update", **ready}})["status"] == "updated"
+    prepared = tool.invoke({"request": {"action": "prepare", "section": "sva", "assumptions": True}})
+    request = prepared["ready_update"]
+    expected = "@(posedge clk) disable iff (1'b0) rst_n |=> rst_n;"
+    assert request["bodies"] == {"CK-STABLE": expected}
+    original = path.read_bytes()
+    invalid = tool.invoke({"request": {"action": "update", **request,
+                                     "bodies": {"CK-STABLE": "@(posedge clk) rst_n |=> rst_n;"}}})
+    assert invalid["status"] == "error" and "generated reset_stable_after_release" in invalid["error"]
+    assert repr(expected) in invalid["error"]
+    assert path.read_bytes() == original
+    assert tool.invoke({"request": {"action": "update", **request}})["status"] == "updated"
+
+
+def test_interface_filter_batch_and_unknown_ck_repair(task):
+    """Long lists of precise port terms stay bounded, and misspelled IDs are never applied."""
+    store, path, _ = task
+    tool = FormalData(str(store.workspace), "proof", "PacketGate", cfg=None)
+    query = ",".join([*(f"unmatched_signal_segment_{index}" for index in range(10)), "y"])
+    assert len(query) > 200
+    request = {"action": "inspect", "section": "ports", "query": query, "limit": 1}
+    ports = tool.invoke({"request": request})["ports"]
+    assert [row["name"] for row in ports["items"]] == ["y"] and ports["total"] == 1
+    assert tool.invoke({"request": {**request, "query": ",".join(["a"] * 51)}})["status"] == "error"
+    previous = path.read_bytes()
+    result = tool.invoke({"request": {"action": "update", "section": "spec", "bodies": {"CK-GAT-PASS": "y == a;"},
+                                     "expected_sha256": hashlib.sha256(previous).hexdigest()}})
+    assert result["status"] == "error" and "'CK-GAT-PASS': ['CK-GATE-PASS']" in result["error"]
+    assert path.read_bytes() == previous
+
+
+def test_formal_data_argument_errors_only_describe_the_selected_action():
+    """An invalid field in prepare does not expose three unrelated action schemas."""
+    with pytest.raises(ValidationError) as error:
+        FormalDataArgs.model_validate({"request": {"action": "prepare", "section": "sva", "include_schema": True}})
+    assert [item["loc"] for item in error.value.errors()] == [("request", "prepare", "include_schema")]
+
+
+def test_draft_transfer_uses_exact_widths_and_explicit_reset_on_existing_seq_ck(task):
+    """A transfer draft leaves files untouched and can be applied through normal SVA update."""
+    store, path, records = task
+    rtl = store.workspace / "PacketGate/PacketGate.sv"
+    rtl.write_text("module PacketGate(input clk, rst_n, req, ready, input [7:0] data_in, "
+                   "output logic done, output logic [7:0] data_out);\n"
+                   "wire [7:0] payload = data_in;\n"
+                   "always @(posedge clk) if (!rst_n) done <= 0; else begin\n"
+                   "done <= req && ready; if (req && ready) data_out <= payload; end\nendmodule\n")
+    records["basic_info"]["clock_reset"] = {"clock_count": 1, "clock_signal": "clk", "reset_signal": "rst_n",
+                                             "reset_active_level": "low", "reset_assertion": "sync", "reset_release": "sync"}
+    records["spec"]["whitebox_signals"] = ["logic [7:0] payload"]
+    ck = records["spec"]["function_groups"][0]["functions"][0]["check_points"][0]
+    ck["style"] = "Seq"
+    path.write_text(yaml.safe_dump(records))
+    original = path.read_bytes()
+    tool = FormalData(str(store.workspace), "proof", "PacketGate", cfg=None)
+    params = {"action": "draft_transfer", "ck_id": ck["id"], "source_valid": "req", "source_ready": "ready",
+              "result_valid": "done", "during_reset": "suspend", "fields": [{"before": "payload", "after": "data_out"}]}
+    draft = tool.invoke({"request": params})
+    body = "@(posedge clk) disable iff (!rst_n) (req && ready) |=> (done && (data_out == $past(payload)));"
+    assert draft["sva_body"] == body and path.read_bytes() == original
+    assert "disable iff (1'b0)" in tool.invoke({"request": {**params, "during_reset": "check"}})["sva_body"]
+    bad = tool.invoke({"request": {**params, "fields": [{"before": "req", "after": "data_out"}]}})
+    assert bad["status"] == "error" and "equal-width" in bad["error"]
+    assert tool.invoke({"request": draft["ready_update"]})["status"] == "updated"
+    ck["sva_body"] = body
+    assert yaml.safe_load(path.read_bytes()) == records
 
 
 def install_run(task, status="COMPLETED"):
@@ -250,19 +382,26 @@ def test_policy_symlinks_and_traversal_rejected_before_writes(task, tmp_path):
         escape.inspect()
 
 
-def test_data_backend_is_not_a_separate_mcp_tool(task):
-    """Data maintenance is exposed only through the optional plugin Skill."""
+def test_data_tool_validates_atomic_updates_without_request_files(task):
+    """The public tool applies the data-store contract and rejects stale updates."""
     from formal import tools as formal_tools
     from formal.plugin import create_tools
     from ucagent.core.plugins import PluginContext
     from ucagent.util.config import Config
-    store, _, _ = task
+    store, path, _ = task
     context = PluginContext(workspace=store.workspace, output_dir="proof", dut_name="PacketGate",
                             cfg=Config({"runtime_options": {}}), write_dirs=("proof",),
                             un_write_dirs=("PacketGate",), plugin_root=Path(formal_tools.__file__).parent)
-    assert [tool.name for tool in create_tools(context)] == ["RunFormal", "AnalyzeFormal"]
-    assert not hasattr(formal_tools, "FormalData")
-    assert not hasattr(formal_tools, "FormalDataArgs")
+    tool = next(tool for tool in create_tools(context) if tool.name == "FormalData")
+    inspect = tool.invoke({"request": {"action": "inspect", "section": "planning"}})
+    assert inspect["status"] == "ok"
+    request = {"request": {"action": "update", "section": "planning", "expected_sha256": inspect["sha256"],
+                           "data": {"project_overview": "New independent scope"}}}
+    assert tool.invoke(request)["status"] == "updated"
+    assert yaml.safe_load(path.read_bytes())["planning"]["project_overview"] == "New independent scope"
+    after = path.read_bytes()
+    assert tool.invoke(request)["status"] == "conflict"
+    assert path.read_bytes() == after
     assert not (store.workspace / ".ucagent" / "skills").exists()
 
 
@@ -358,11 +497,13 @@ def test_public_data_path_is_same_with_skills_enabled_or_absent(task, tmp_path, 
     context = PluginContext(workspace=store.workspace, output_dir="proof", dut_name="PacketGate", cfg=cfg,
                             write_dirs=("proof",), un_write_dirs=("PacketGate",), plugin_root=workflow.parent.parent)
     tools = create_tools(context)
-    assert [tool.name for tool in tools] == ["RunFormal", "AnalyzeFormal"]
-    inspected = store.inspect("spec")
-    assert inspected["status"] == "ok"
+    tool = next(tool for tool in tools if tool.name == "FormalData")
+    prepared = tool.invoke({"request": {"action": "prepare", "section": "sva"}})
+    assert prepared["status"] == "ok"
     assert not (store.workspace / ".ucagent" / "skills").exists()
-    updated = store.update("spec", None, {"CK-GATE-PASS": "y == a;"}, inspected["sha256"])
+    request = prepared["ready_update"]
+    request["bodies"]["CK-GATE-PASS"] = "y == a;"
+    updated = tool.invoke({"request": {"action": "update", **request}})
     assert updated["status"] == "updated"
     assert cfg.get_value("skill.use_skill") is enabled
 
@@ -392,3 +533,32 @@ def test_exact_run_fingerprint_invalidates_added_sources_and_tool_replacement(ta
     assert store.inspect("analysis")["machine"]["current_inputs"] is False
     with pytest.raises(ValueError, match="current-input"):
         store.update("analysis", {"fa_entries": [{"id": "FA-001", "prop_name": "left.A_CK_GATE_PASS", "analysis": "stale"}]}, None, store.inspect()["sha256"])
+
+
+def test_shared_extra_commands_keep_proof_out_of_setup():
+    from formal.skills.lib.formal_tools import validate_managed_setup
+    validate_managed_setup({"tcl": {"extra_commands": ["# prove is managed", "set_opt -bfd on"]}})
+    with pytest.raises(ValueError, match="retry_engine"):
+        validate_managed_setup({"tcl": {"extra_commands": ['set_opt -engine ind\nprove "u.target"']}})
+
+
+def test_inspect_fc_and_ck_union_reads_frozen_inputs_without_editing(task):
+    store, path, records = task
+    rid = 'f' * 32
+    root = path.parent / 'formal_runs' / rid
+    archive = root / 'inputs/proof/.formal_records.yaml'
+    archive.parent.mkdir(parents=True)
+    archive.write_bytes(path.read_bytes())
+    (root / 'state.json').write_text(json.dumps({'run_id': rid, 'semantic_inputs': semantic_inputs(records)}))
+    records['spec']['function_groups'][0]['functions'][0]['check_points'][1]['sva_body'] = '!a;'
+    path.write_text(yaml.safe_dump(records))
+    tool = FormalData(str(store.workspace), 'proof', 'PacketGate', None)
+    request = {'action': 'inspect', 'section': 'spec', 'query': 'FC-GATE,CK-GATE-*', 'limit': 1, 'offset': 1}
+    live = tool.invoke({'request': request})
+    old = tool.invoke({'request': {**request, 'run_id': rid}})
+    assert old['check_points']['total'] == 2 and old['check_points']['items'][0]['sva_body'] == 'a;'
+    assert live['check_points']['items'][0]['sva_body'] == '!a;'
+    assert old['origin'] == 'archived_batch' and old['run_id'] == rid and 'ready_update' not in old
+    archive.write_bytes(path.read_bytes())
+    failure = tool.invoke({'request': {**request, 'run_id': rid}})
+    assert failure['status'] == 'error' and 'do not match' in failure['error']

@@ -25,15 +25,15 @@ def main() -> int:
         parser = Arguments(description=__doc__)
         commands = parser.add_subparsers(dest="action", required=True, parser_class=Arguments)
         inspect = commands.add_parser("inspect")
-        inspect.add_argument("section", choices=("overview", "planning", "basic_info", "spec", "signals", "analysis", "bugs", "summary", "extra_config"))
-        inspect.add_argument("--query", default="", help="Filter resolved internal DUT signals by name")
+        inspect.add_argument("section", choices=("overview", "planning", "basic_info", "spec", "ports", "signals", "analysis", "bugs", "summary", "extra_config"))
+        inspect.add_argument("--query", default="", help="Exact CK ID for spec, or a DUT signal-name filter (comma-separated terms for ports)")
         inspect.add_argument("--schema", action="store_true", help="Include the complete author contract for this section")
         inspect.add_argument("--full", action="store_true", help="Include existing author content for focused review or revision")
         prepare = commands.add_parser("prepare")
         prepare.add_argument("section", choices=("sva", "analysis", "bugs"))
         prepare.add_argument("--group", help="Exact FG ID for SVA authoring")
         prepare.add_argument("--function", help="Exact FC ID for SVA authoring")
-        prepare.add_argument("--baseline", action="store_true", help="Prepare shared assumptions and baseline checks")
+        prepare.add_argument("--assumptions", action="store_true", help="Prepare official shared environment assumptions")
         for operation in (inspect, prepare):
             operation.add_argument("--offset", type=int, default=0)
             operation.add_argument("--limit", type=int, default=5 if operation is prepare else 20)
@@ -57,7 +57,7 @@ def main() -> int:
                                    include_content=args.full, query=args.query)
         elif args.action == "prepare":
             result = store.prepare(args.section, args.offset, args.limit, group=args.group,
-                                   function=args.function, baseline=args.baseline)
+                                   function=args.function, assumptions=args.assumptions)
         else:
             relative = normalize_relative_path(args.request_file)
             relative_path = Path(relative)
@@ -83,7 +83,7 @@ def main() -> int:
             else:
                 required = {"section", "expected_sha256"}
                 if not isinstance(payload, dict) or not required < set(payload) or set(payload) - required - {"data", "bodies"}:
-                    raise ValueError("Update JSON requires section, expected_sha256, and data or bodies. A combined spec request accepts data.whitebox_signals and bodies only.")
+                    raise ValueError("Update JSON requires section, expected_sha256, and data or bodies.")
                 result = store.update(payload["section"], payload.get("data"), payload.get("bodies"), payload["expected_sha256"])
         print(json.dumps(result, ensure_ascii=False, separators=(",", ":")))
         return 0 if result.get("status") not in {"error", "conflict"} else 2

@@ -6,7 +6,7 @@ from ucagent.core.plugins import Plugin, PluginContext, PluginWorkflow
 
 from .execution import ExecutionPolicy
 from .runtime import FormalDataRuntimeHook
-from .tools import AnalyzeFormal, RunFormal
+from .tools import AnalyzeFormal, FormalData, RunFormal
 
 from .checkers import (
     BasicInfoStructureChecker,
@@ -16,6 +16,8 @@ from .checkers import (
     EnvironmentAnalysisChecker,
     FormalSpecJsonChecker,
     FormalBatchPlanChecker,
+    FormalCaseTemplateChecker,
+    SlowPropertyReviewChecker,
     FormalSummaryChecker,
     PlanningStructureChecker,
     PropertyStructureChecker,
@@ -40,7 +42,7 @@ def create_tools(context: PluginContext) -> list[object]:
         write_dirs=list(context.write_dirs),
         un_write_dirs=list(context.un_write_dirs),
     )
-    return [RunFormal(**options), AnalyzeFormal(**options)]
+    return [RunFormal(**options), AnalyzeFormal(**options), FormalData(**options)]
 
 
 def get_plugin() -> Plugin:
@@ -57,6 +59,8 @@ def get_plugin() -> Plugin:
             BasicInfoStructureChecker,
             FormalSpecJsonChecker,
             FormalBatchPlanChecker,
+            FormalCaseTemplateChecker,
+            SlowPropertyReviewChecker,
             PropertyStructureChecker,
             FunctionBatchChecker,
             ScriptGenerationChecker,

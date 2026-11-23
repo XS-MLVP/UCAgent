@@ -94,6 +94,29 @@ def test_out_of_range_trace_error_returns_native_bounds(tmp_path):
     assert caught.value.diagnostic["expected"] == {"first_tick": "0", "last_tick": "30"}
 
 
+def test_trace_window_without_mode_matches_explicit_sample_query(tmp_path):
+    """The public tool accepts a complete window without a redundant mode flag."""
+    from formal.tools import RunFormalArgs
+    from formal.trace import trace_page
+
+    pytest.importorskip("wavekit")
+    path = tmp_path / "original.vcd"
+    write_trace(path)
+    request = {"action": "evidence", "property_names": ["u_checker.A_REQUIRED"],
+               "run_id": "a" * 32, "trace_query": {"signals": ["PacketShell.ready"], "start": 0, "end": 30}}
+    inferred = RunFormalArgs.model_validate(request).trace_query
+    explicit = RunFormalArgs.model_validate(
+        {**request, "trace_query": {**request["trace_query"], "mode": "samples"}}
+    ).trace_query
+    assert inferred == explicit
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    assert trace_page(path, digest, inferred) == trace_page(path, digest, explicit)
+    with pytest.raises(ValueError, match="nonnegative native start/end"):
+        RunFormalArgs.model_validate({**request, "trace_query": {"signals": ["PacketShell.ready"], "start": 0}})
+    with pytest.raises(ValueError, match="Signal discovery uses"):
+        RunFormalArgs.model_validate({**request, "trace_query": {**request["trace_query"], "mode": "signals"}})
+
+
 def test_initialization_is_bounded_and_never_claims_full_waveform(tmp_path):
     """More than 64 original inputs explicitly marks the projection as partial."""
     path = tmp_path / "original.tb.v"
@@ -105,8 +128,17 @@ def test_initialization_is_bounded_and_never_claims_full_waveform(tmp_path):
     assert result["initial_values_only"] is True
 
 
-def test_trace_hash_is_current_machine_provenance(tmp_path):
-    """A changed stored observation cannot retain an earlier evidence reference."""
+def test_trace_hash_is_current_machine_provenance(tmp_path, monkeypatch):
+    """Repeated reads decode once, while mutations to the returned view or raw trace stay visible."""
+    wavekit = pytest.importorskip("wavekit")
+    reader = wavekit.VcdReader
+    opened = []
+
+    def counted(path):
+        opened.append(path)
+        return reader(path)
+
+    monkeypatch.setattr(wavekit, "VcdReader", counted)
     name = "u_checker.A_REQUIRED"
     run = tmp_path / "run"
     console = run / "attempts" / "000001" / "console.log"
@@ -125,6 +157,11 @@ def test_trace_hash_is_current_machine_provenance(tmp_path):
     evidence = property_evidence(run, state, name, item)
     assert evidence["evidence_ref"]["trace_sha256"] == attempt["trace_hash"]
     assert evidence["trace_observations"]["status"] == "available"
+    expected = property_evidence(run, state, name, item)
+    evidence["trace_observations"]["signals"].clear()
+    assert expected["trace_observations"]["signals"]
+    assert expected == property_evidence(run, state, name, item)
+    assert len(opened) == 1
     trace.write_text(trace.read_text() + "#31\n")
     with pytest.raises(ValueError, match="trace changed"):
         property_evidence(run, state, name, item)

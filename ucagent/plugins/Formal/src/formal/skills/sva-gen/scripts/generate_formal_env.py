@@ -11,13 +11,14 @@ import tempfile
 
 import jinja2
 
-from formal.interface import inspect_interface
+from formal.interface import checker_signal_widths, inspect_interface
 from formal.execution import atomic_json, input_lock
 from formal.preflight import PreflightError, check_generated
 from formal.skills.lib.formal_paths import FormalPaths
 from formal.skills.lib.formal_tools import (
+    INITIAL_RESET_SAMPLE, implemented_initial_reset,
     load_records, incremental_merge_checker, build_whitebox_signal_context,
-    build_clock_reset_alias_context, validate_extra_config_against_design,
+    build_clock_reset_alias_context, validate_extra_config_against_design, validate_managed_setup,
 )
 
 
@@ -43,7 +44,11 @@ def generate(paths: FormalPaths, mode: str, staged: Path) -> dict:
     records = load_records(paths.records_yaml)
     if records is None:
         raise ValueError("Current .formal_records.yaml is missing; initialize the Formal task first")
-    interface = inspect_interface(paths.workspace, paths.out, paths.dut, records.spec.parameters if records.spec else {})
+    validate_managed_setup(records.extra_config)
+    internal = any(ck.latest_transfer or any(rule.binding == "internal" for rule in (ck.transaction_balance or []))
+                   for fg in (records.spec.function_groups if records.spec else []) for fc in fg.functions for ck in fc.check_points)
+    interface = inspect_interface(paths.workspace, paths.out, paths.dut, records.spec.parameters if records.spec else {},
+                                  include_signals=internal)
     context = build_clock_reset_alias_context(records)
     port_info = interface["port_info"]
     mismatches = validate_extra_config_against_design(records, port_info)
@@ -68,7 +73,13 @@ def generate(paths: FormalPaths, mode: str, staged: Path) -> dict:
             if path.is_file():
                 shutil.copyfile(path, staged / name)
     checker, wrapper, tcl = (staged / Path(path).name for path in (paths.checker, paths.wrapper, paths.tcl))
-    incremental_merge_checker(checker_records, str(checker), port_info=port_info, mode=mode)
+    initial_sample = INITIAL_RESET_SAMPLE if implemented_initial_reset(records) else ""
+    if checker.is_file() and "uca_latest_" in checker.read_text(encoding="utf-8"):
+        mode = "full"
+    if initial_sample or (tcl.is_file() and f"add_init u_checker.{INITIAL_RESET_SAMPLE} -one" in tcl.read_text(encoding="utf-8")):
+        mode = "full"
+    signal_widths = checker_signal_widths(interface, records.spec.whitebox_signals)
+    incremental_merge_checker(checker_records, str(checker), port_info=port_info, mode=mode, signal_widths=signal_widths)
     templates = Path(__file__).resolve().parents[2] / "lib" / "templates"
     environment = jinja2.Environment(loader=jinja2.FileSystemLoader(str(templates)),
                                     undefined=jinja2.StrictUndefined, keep_trailing_newline=True)
@@ -101,9 +112,13 @@ def generate(paths: FormalPaths, mode: str, staged: Path) -> dict:
     if mode == "full" or not tcl.exists():
         rendered = environment.get_template("tests/formal.tcl.j2").render(
             DUT=records.dut, extra_config=records.extra_config, has_clock=context["has_clock"], has_reset=context["has_reset"],
-            source_files=interface["source_files"], include_dirs=interface["include_dirs"])
+            source_files=interface["source_files"], include_dirs=interface["include_dirs"], initial_sample=initial_sample)
         tcl.write_text(rendered, encoding="utf-8")
-    preflight = check_generated(Path(paths.workspace).resolve(), paths.out, paths.dut, staged, interface, records)
+    try:
+        preflight = check_generated(Path(paths.workspace).resolve(), paths.out, paths.dut, staged, interface, records)
+    except PreflightError as error:
+        error.attach_candidate_sources(paths.out, checker, wrapper)
+        raise
     if Path(paths.records_yaml).read_bytes() != original:
         raise ValueError("Formal records changed during generation; retry with the latest revision.")
     Path(paths.tests).mkdir(parents=True, exist_ok=True)

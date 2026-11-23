@@ -126,23 +126,47 @@ def test_local_sva_diagnostics_collect_ck_positions():
     assert error.value.diagnostic["layer"] == "property_body"
 
 
+@pytest.mark.parametrize(("boolean_operator", "property_operator"), [("&&", "and"), ("||", "or")])
+def test_local_sva_diagnostic_identifies_temporal_property_operator(boolean_operator, property_operator):
+    """A misplaced Boolean operator between properties has a targeted syntax hint."""
+    expression = f"@(posedge clk) ((a |-> b)\n  {boolean_operator} (c |=> d));"
+    with pytest.raises(PreflightError) as error:
+        check_bodies({"CK-TEMPORAL": expression}, "formal_test/.formal_records.yaml")
+    first = error.value.diagnostic["diagnostics"][0]
+    assert first["ck_id"] == "CK-TEMPORAL" and first["body_line"] == 1
+    assert f"property operator '{property_operator}'" in first["hint"]
+    check_bodies({"CK-TEMPORAL": expression.replace(boolean_operator, property_operator),
+                  "CK-BOOLEAN": f"(a {boolean_operator} c) |-> b;"}, "formal_test/.formal_records.yaml")
+
+
+def test_assume_until_warning_distinguishes_event_trigger_from_continuously_armed_branch():
+    """A per-sample until can outlaw delayed behavior allowed by a transaction rule."""
+    bodies = {"CK-UNGUARDED": "@(posedge clk) disable iff (!rst_n) ((a |-> s_eventually b) and (!b until a));",
+              "CK-GUARDED": "@(posedge clk) disable iff (!rst_n) (retire |=> (!b until a));",
+              "CK-ASSERT": "@(posedge clk) (!b until a);"}
+    alerts = check_bodies(bodies, "out/.formal_records.yaml", assume_ids={"CK-UNGUARDED", "CK-GUARDED"})
+    warning, = alerts
+    assert warning["ck_id"] == "CK-UNGUARDED" and warning["body_line"] == 1
+    assert warning["code"] == "formal_unguarded_until_assume"
+    assert "every enabled sample" in warning["message"]
+
+
 @pytest.mark.parametrize("use_macro", [False, True])
 def test_joint_assumption_is_reported_without_blocking_preflight(tmp_path, monkeypatch, use_macro):
     """Check reports a cost warning before a run and RunFormal can still dispatch."""
     calls = []
 
-    def dispatch(execution, *, preflight):
+    def dispatch(execution, *, preflight, retry_prepare=False):
         """Record native dispatch without running the solver."""
         calls.append(preflight)
         return {"status": "RUNNING"}
 
-    def missing_baseline(execution, *, accept):
+    def missing_smoke(execution):
         """Represent an environment without current native preflight results."""
-        assert not accept
-        raise ValueError("Current baseline proof is missing.")
+        raise ValueError("Current toolchain smoke is missing.")
 
     monkeypatch.setattr(FormalExecution, "run", dispatch)
-    monkeypatch.setattr(FormalExecution, "freeze_baseline", missing_baseline)
+    monkeypatch.setattr(FormalExecution, "check_smoke", missing_smoke)
     rtl = tmp_path / "Adder"
     rtl.mkdir()
     fair = "((a && b) |-> s_eventually c) and (c |-> s_eventually a)"
@@ -175,15 +199,14 @@ def test_joint_assumption_is_reported_without_blocking_preflight(tmp_path, monke
     checker.on_init()
     passed, check = checker.do_check()
     assert not passed and not calls
-    assert check["error"] == "Current baseline proof is missing."
+    assert check["error"] == "Current toolchain smoke is missing."
     result = RunFormal(str(tmp_path), "formal_test", "Adder", cfg=cfg).invoke({"action": "preflight"})
     assert result["status"] == "RUNNING" and calls == [True]
-    assert result["preflight"] == check["preflight"]
-    row, = result["preflight"]["warnings"]
-    assert (row["code"], row["ck_id"], row["path"]) == (
-        "formal_combined_unbounded_assume", "CK-LEGAL", "formal_test/tests/Adder_checker.sv",
-    )
-    assert row["line"] > 0 and row["column"] > 0
+    # Official property warnings belong to official rendering, never to disposable smoke.
+    from formal.tools import render_environment
+    official = render_environment(str(tmp_path), "formal_test", "Adder")
+    row, = [warning for warning in official["warnings"] if warning["code"] == "formal_combined_unbounded_assume"]
+    assert row["ck_id"] == "CK-LEGAL"
     assert body in (output / "tests" / "Adder_checker.sv").read_text()
     assert yaml.safe_load(path.read_text()) == records
 
@@ -207,9 +230,44 @@ def test_full_sva_preflight_reports_width_and_preserves_previous_artifacts(tmp_p
     path.write_text(yaml.safe_dump(records))
     with pytest.raises(PreflightError) as error:
         render_environment(str(tmp_path), "formal_test", "Adder")
-    assert any(item.get("ck_id") == "CK-VALUE" and "undeclared" in item["message"]
-               for item in error.value.diagnostic["diagnostics"])
+    detail = next(item for item in error.value.diagnostic["diagnostics"]
+                  if item.get("ck_id") == "CK-VALUE" and "undeclared" in item["message"])
+    assert "sum == undeclared;" in detail["candidate_source"]["text"]
+    assert detail["candidate_source"]["first_column"] <= detail["column"]
+    assert error.value.diagnostic["inspect_calls"] == [{"request": {"action": "inspect", "section": "spec", "query": "CK-VALUE"}}]
     assert checker.read_bytes() == original
+
+
+def test_assume_knownness_rejects_bound_dut_outputs(tmp_path):
+    """The rendered port directions, including a reversed handshake, define the environment boundary."""
+    dut = tmp_path / "Adder"
+    dut.mkdir()
+    (dut / "adder.sv").write_text(
+        "module Adder(input clk,rst_n,a, output [1:0] sum, output carry); "
+        "assign sum={a,a}; assign carry=a; endmodule\n"
+    )
+    output = tmp_path / "formal_test"
+    output.mkdir()
+    path = output / ".formal_records.yaml"
+    records = records_fixture()
+    records["basic_info"]["clock_reset"] = {"clock_count": 1, "clock_signal": "clk", "reset_signal": "rst_n", "reset_type": "low"}
+    points = records["spec"]["function_groups"][0]["functions"][0]["check_points"]
+    assumption = next(point for point in points if point["style"] == "Assume")
+    assumption["sva_body"] = "@(posedge clk) !$isunknown({a, carry, sum[0]});"
+    path.write_text(yaml.safe_dump(records))
+    with pytest.raises(PreflightError) as caught:
+        render_environment(str(tmp_path), "formal_test", "Adder")
+    failures = caught.value.diagnostic["diagnostics"]
+    assert {row["signal"] for row in failures} == {"carry", "sum"}
+    assert all(row["ck_id"] == assumption["id"] and row["code"] == "formal_assume_output_known" for row in failures)
+    assumption["sva_body"] = "@(posedge clk) !$isunknown(a);"
+    points += [
+        {"id": "CK-OUTPUT-TIMING", "style": "Assume", "description": "DUT output triggers an input protocol obligation",
+         "sva_body": "@(posedge clk) carry |=> a;"},
+        {"id": "CK-OUTPUT-VALID", "style": "Comb", "description": "DUT output must be known", "sva_body": "!$isunknown(sum);"},
+    ]
+    path.write_text(yaml.safe_dump(records))
+    assert render_environment(str(tmp_path), "formal_test", "Adder")["status"] == "passed"
 
 
 def test_workbench_assets_are_served_from_the_plugin():
@@ -318,3 +376,128 @@ def test_archived_view_and_trace_api_share_exact_evidence(tmp_path):
     assert client.get("/api/formal/view").json()["data"]["freshness"] == "historical"
     vcd.write_text(vcd.read_text() + "\n#30\n")
     assert client.post("/api/formal/trace", json=body).status_code == 422
+
+
+def test_preflight_matches_explicit_planned_output_and_sampling():
+    """A different pin or a different handshake sample cannot satisfy the recorded goal."""
+    plan = {
+        "CK-RELEASE": {"description": "After reset release, busy must be low."},
+        "CK-TRANSFER": {"description": "接受（valid & ready）后下一拍，输出保持已接受的数据。"},
+    }
+    def check(key, body):
+        return check_bodies({key: body}, "proof/.formal_records.yaml", plan=plan, outputs={"busy"})
+
+    with pytest.raises(PreflightError, match="busy"):
+        check("CK-RELEASE", "@(posedge clk) (!req && !fifo_busy) |=> !fifo_busy; // busy")
+    with pytest.raises(PreflightError, match="next sample"):
+        check("CK-TRANSFER", "@(posedge clk) (valid && ready) |-> (out_data == in_data);")
+    with pytest.raises(PreflightError, match="next sample"):
+        check("CK-TRANSFER", "(((valid && ready && sel) |-> (a == b)) and ((valid && ready && !sel) |-> (a == c)));")
+    with pytest.raises(PreflightError, match="next sample"):
+        check("CK-TRANSFER", "(!(valid && ready && sel) || (left == data)) && (!(valid && ready && !sel) || (right == data));")
+    assert check("CK-TRANSFER", "(!($past(valid && ready)) || posted);") == []
+    assert check("CK-TRANSFER", "(valid && ready)[*2] |-> posted;") == []
+    assert check("CK-TRANSFER", "((valid && ready) |-> legal) and ((valid && ready) |=> posted);") == []
+    assert check("CK-RELEASE", "@(posedge clk) $rose(rst_n) |-> !busy;") == []
+    assert check("CK-TRANSFER", "@(posedge clk) (valid && ready) |=> (out_data == $past(in_data));") == []
+    assert check("CK-TRANSFER", "@(posedge clk) $past(valid && ready) |-> (out_data == $past(in_data));") == []
+
+
+def test_source_tracking_and_corresponding_response_scope():
+    """Current handshakes and a later matching response cannot by themselves identify the request."""
+    plan = {"CK-SOURCE": {"description": "检查器跟踪最近一次请求选择（route_tag 记录值），比较响应来源。"},
+            "CK-REPLY": {"description": "An accepted request must deliver its response with the specified payload."}}
+    with pytest.raises(PreflightError, match="route_tag"):
+        check_bodies({"CK-SOURCE": "(rsp_valid && rsp_ready) |-> $onehot0({left_ready, right_ready});"},
+                     "out/.formal_records.yaml", plan=plan)
+    body = "(rsp_valid && rsp_ready) |-> (!route_tag || (rsp_data == lane_data));"
+    with pytest.raises(PreflightError, match="independent request history"):
+        check_bodies({"CK-SOURCE": body}, "records.yaml", plan=plan, outputs={"rsp_valid", "rsp_data"},
+                     data_inputs={"rsp_ready", "lane_data"}, internal_signals={"route_tag"})
+    assert check_bodies({"CK-SOURCE": "(rsp_valid && rsp_ready) |-> (route_tag == independently_saved);"},
+                        "records.yaml", plan=plan, outputs={"rsp_valid"}, data_inputs={"rsp_ready"},
+                        internal_signals={"route_tag"}) == []
+    warning, = check_bodies({"CK-REPLY": "(req_valid && req_ready) |-> s_eventually (rsp_valid && rsp_ok);"},
+                            "out/.formal_records.yaml", plan=plan)
+    assert warning["code"] == "formal_response_matching"
+    assert check_bodies({"CK-REPLY": "accepted |-> (!delivered s_until (delivered && rsp_ok));"},
+                        "out/.formal_records.yaml", plan=plan) == []
+
+
+def test_unconditional_release_scope_does_not_depend_on_idle_inputs():
+    body = "@(posedge clk) disable iff (!reset_n) ((!start && !queue_busy) |-> !active);"
+    def check(requirement, expression):
+        return check_bodies({"CK-RST": expression}, "out/.formal_records.yaml", outputs={"active"},
+                            data_inputs={"start"}, plan={"CK-RST": {"description": requirement}})
+
+    unconditional = "After reset release, active must be low, and the idle state must keep it low."
+    with pytest.raises(PreflightError, match="pass vacuously.*start"):
+        check(unconditional, body)
+    with pytest.raises(PreflightError, match="masked: start=1"):
+        check(unconditional, "(start || !active) && (!$rose(reset_n) || (active == (start || other)));")
+    assert check("After reset release, active must be low when idle.", body) == []
+    assert check(unconditional, "@(posedge clk) ($rose(reset_n) |-> !active) and (!start |-> !active);") == []
+    assert check(unconditional, "@(posedge clk) !active;") == []
+
+
+@pytest.mark.parametrize(("description", "pin", "level"), [
+    ("At the first sample POR must be high.", "POR", "high"),
+    ("假设验证初始 cold_reset_n 为低（初始复位有效）。", "cold_reset_n", "low"),
+])
+def test_planned_first_reset_rejects_unanchored_eventuality(description, pin, level):
+    clock = {"has_clock": True, "has_reset": True, "actual_reset": pin, "reset_active_level": level}
+    def check(body, requirement=description):
+        return check_bodies({"CK-START": body}, "records.yaml", assume_ids={"CK-START"},
+                            plan={"CK-START": {"description": requirement}}, clock_reset=clock)
+
+    with pytest.raises(PreflightError, match="first sample"):
+        check("@(posedge clk) disable iff (1'b0) (s_eventually (!rst_n));")
+    assert check("initial_sample |-> !rst_n;") == []
+    assert check("recover |-> s_eventually (!rst_n);") == []
+    assert check("s_eventually [0:0] (!rst_n);") == []
+    assert check("s_eventually (!rst_n);", f"Initially {pin} is high if cold boot was selected.") == []
+    assert check("s_eventually (!rst_n);", f"Initially {pin} is high (unless resuming).") == []
+    assert check("s_eventually (!rst_n);", "At the first sample other_reset is high.") == []
+    assert check("s_eventually (!rst_n);", "When a reset is requested it must eventually be asserted.") == []
+
+
+def test_planned_stall_assume_allows_independent_pin_values():
+    requirement = "Keep offer and payload stable while backpressured."
+    hold = "(offer && !accept) |=> ($stable(offer) && $stable(payload))"
+    rule = "!(offer && accept) || (new_item && available)"
+    def check(body, intent=requirement):
+        return check_bodies({"CK-STALL": body}, "records.yaml", assume_ids={"CK-STALL"},
+                            plan={"CK-STALL": {"description": intent}}, outputs={"accept", "new_item"},
+                            data_inputs={"offer", "payload", "available"}, internal_signals={"winner"})
+    with pytest.raises(PreflightError, match="rejects those constant values"):
+        check(f"({hold}) and ({rule});")
+    with pytest.raises(PreflightError, match="winner=0"):
+        check(f"({hold}) and ((!offer) || ($onehot(winner) && winner[3]));")
+    assert check(hold + ";") == []
+    assert check(f"({hold}) and ((offer || !offer) || (accept && available));") == []
+    assert check(f"({hold}) and ({rule});", requirement + " Additionally require grant and available for each transfer.") == []
+
+
+def test_release_boolean_escape_and_current_valid_do_not_meet_planned_obligations():
+    release = {"CK-WAKE": {"description": "After reset release, busy must be low."}}
+    with pytest.raises(PreflightError, match="launch=1"):
+        check_bodies({"CK-WAKE": "@(posedge clk) ((launch || !busy) && ((!$rose(reset_n) || launch) || !busy));"},
+                     "records.yaml", plan=release, outputs={"busy"}, data_inputs={"launch"})
+    assert check_bodies({"CK-WAKE": "@(posedge clk) ((!$rose(reset_n) || !busy) && (launch || !busy));"},
+                        "records.yaml", plan=release, outputs={"busy"}, data_inputs={"launch"}) == []
+    route = {"CK-SRC": {"description": "检查器跟踪：交付（out_valid & out_ready）当拍，匹配请求（tag 记录值）。"}}
+    with pytest.raises(PreflightError, match="captured identity"):
+        check_bodies({"CK-SRC": "(accepted && tag && valid_b) |-> out_valid;"}, "records.yaml", plan=route)
+    assert check_bodies({"CK-SRC": "(out_valid && out_ready) |-> (observed_tag == $past(tag));"},
+                        "records.yaml", plan=route) == []
+
+
+def test_new_response_contract_requires_history_when_restricting_input_by_dut_choice():
+    description = {"CK-LEGAL": "No unsolicited responses; a command must have been accepted."}
+    def check(body, claims=description):
+        return check_bodies({"CK-LEGAL": body}, "records.yaml", assume_ids={"CK-LEGAL"}, data_inputs={"reply"},
+                            internal_signals={"select_now"}, new_assume_descriptions=claims)
+    with pytest.raises(PreflightError, match="earlier handshakes"):
+        check("!reply || select_now;")
+    assert check("!reply || select_now;", {"CK-LEGAL": "During isolation the response input is disabled."}) == []
+    assert check("!reply || (|independent_outstanding);") == []

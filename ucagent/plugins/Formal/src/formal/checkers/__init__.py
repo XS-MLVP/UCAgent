@@ -8,6 +8,8 @@ from .formal import (
     EnvironmentAnalysisChecker,
     FormalSpecJsonChecker,
     FormalBatchPlanChecker,
+    FormalCaseTemplateChecker,
+    SlowPropertyReviewChecker,
     FormalSummaryChecker,
     FunctionBatchChecker,
     PlanningStructureChecker,

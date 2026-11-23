@@ -17,6 +17,13 @@ IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_$]*\Z")
 INTEGER_LITERAL = re.compile(r"(?:[+-]?\d+|[+-]?(?:\d+)?'[sS]?[bBoOdDhH][0-9a-fA-F_]+)\Z")
 
 
+def logic_declaration(kind, name: str) -> str:
+    """Format an already validated scalar or single packed integral HDL type."""
+    selected = kind.fixedRange
+    dimensions = f" [{selected.left}:{selected.right}]" if kind.bitWidth > 1 or kind.isPackedArray else ""
+    return f"logic{' signed' if kind.isSigned else ''}{dimensions} {name}"
+
+
 def compile_context(workspace: str, dut: str) -> dict:
     """Admit ordered, local RTL sources and literal include dependencies without writes."""
     root = Path(workspace).resolve()
@@ -94,6 +101,20 @@ def compile_context(workspace: str, dut: str) -> dict:
             "dependency_files": sorted(str(path.relative_to(root)) for path in dependencies),
             "source_manifest": str(manifest.relative_to(root)) if manifest.exists() else None,
             "compilation_context": "ordered_filelist_or_direct_sources_single_preprocessing_unit_local_includes"}
+
+
+def checker_signal_widths(interface, whitebox_signals):
+    """Return public ports and whitebox bindings matching an elaborated signal declaration."""
+    from .skills.lib.formal_tools import build_whitebox_signal_context, whitebox_decl_to_input_decl
+
+    widths = {row["name"]: row["width"] for row in interface["ports"]}
+    declared = {row["name"]: whitebox_decl_to_input_decl(row["declaration"]).replace(" ", "")
+                for row in build_whitebox_signal_context(whitebox_signals)}
+    for row in interface.get("signals", []):
+        actual = row["whitebox_declaration"]
+        if actual and declared.get(row["name"]) == whitebox_decl_to_input_decl(actual).replace(" ", ""):
+            widths[row["name"]] = row["width"]
+    return widths
 
 
 def inspect_interface(workspace: str, out: str, dut: str, parameters: dict | None = None,
@@ -218,10 +239,14 @@ def inspect_interface(workspace: str, out: str, dut: str, parameters: dict | Non
                 raise ValueError(f"DUT port {symbol.name} has an invalid or excessive resolved width")
             selected = kind.fixedRange
             left, right = selected.left, selected.right
-            dimensions = f" [{left}:{right}]" if width > 1 or kind.isPackedArray else ""
-            declaration_text = f"{direction} logic{' signed' if kind.isSigned else ''}{dimensions} {symbol.name}"
+            declaration_text = f"{direction} {logic_declaration(kind, symbol.name)}"
             ports.append({"name": symbol.name, "direction": direction, "width": width, "signed": kind.isSigned,
                           "left": left, "right": right, "declaration": declaration_text})
+            if include_signals:
+                location = manager.getFullyOriginalLoc(symbol.location)
+                source = Path(manager.getFullPath(location.buffer))
+                if source.is_relative_to(root):
+                    ports[-1].update(source=str(source.relative_to(root)), line=manager.getLineNumber(location))
         if not ports or any(isinstance(symbol, slang.ast.InterfacePortSymbol) for symbol in instance.body):
             raise ValueError("DUT must expose a nonempty scalar-integral port list; interface ports are unsupported")
         result = {"dut": dut, **context,
@@ -235,10 +260,14 @@ def inspect_interface(workspace: str, out: str, dut: str, parameters: dict | Non
                         or symbol.name in port_names or not IDENTIFIER.fullmatch(symbol.name)):
                     continue
                 kind = symbol.type.canonicalType
+                simple_integral = (kind.isIntegral and not (kind.isUnpackedArray or kind.isStruct or kind.isEnum)
+                                   and not (kind.isPackedArray and kind.elementType.isPackedArray))
+                directly_bindable = simple_integral and "$" not in symbol.name and symbol.name not in {"clk", "rst_n"}
                 location = manager.getFullyOriginalLoc(symbol.location)
-                source = Path(manager.getFileName(location))
+                source = Path(manager.getFullPath(location.buffer))
                 signals.append({"name": symbol.name, "path": f"{dut}.{symbol.name}", "width": kind.bitWidth or None,
                                 "signed": kind.isSigned, "type": str(kind),
+                                "whitebox_declaration": logic_declaration(kind, symbol.name) if directly_bindable else None,
                                 "source": str(source.relative_to(root)) if source.is_relative_to(root) else str(source),
                                 "line": manager.getLineNumber(location)})
             result["signals"] = signals

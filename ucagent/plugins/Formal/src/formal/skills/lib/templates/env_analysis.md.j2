@@ -47,5 +47,11 @@
 - **解决状态**: {{ e.resolution or '' }}
 - **反例/分析**: {{ e.analysis }}
 - **修复说明**: {{ e.action_detail }}
+{% if e.resolution == "SPEC_GAP" and e.spec_gap %}
+- 规格依据 · {{ e.spec_gap.requirement_ref }}
+- 待确认 · {{ e.spec_gap.question }}
+- 后续验证 · {{ e.spec_gap.follow_up }}
+- 完整批次 · `{{ e.evidence_ref.run_id }}`
+{% endif %}
 
 {% endfor %}

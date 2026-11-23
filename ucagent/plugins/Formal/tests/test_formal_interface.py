@@ -64,6 +64,29 @@ def test_large_signed_values_and_ascending_port_range(tmp_path):
     assert result["ports"][0]["declaration"] == "input logic [0:7] request"
 
 
+def test_inspect_signals_publishes_usable_whitebox_declarations(tmp_path):
+    """Bind an actual RTL name with its effective width instead of guessing an alias."""
+    from formal.data import FormalDataStore
+
+    name = design(tmp_path, """module RouteSelector #(parameter W=3)(input [0:W-1] req, output ack);
+      logic signed [0:W-1] state;
+      logic [7:0] storage [0:3];
+      assign state = req;
+      assign ack = state[0];
+    endmodule""")
+    out = tmp_path / "proof"
+    out.mkdir()
+    records = out / ".formal_records.yaml"
+    records.write_text(yaml.safe_dump({"dut": name, "spec": {"parameters": {"W": 6}}}))
+    store = FormalDataStore(str(tmp_path), "proof", name)
+    info = store.inspect("signals")
+    signals = {row["name"]: row["whitebox_declaration"] for row in info["signals"]["items"]}
+    assert signals["state"] == "logic signed [0:5] state"
+    assert signals["storage"] is None
+    update = store.update("spec", {"whitebox_signals": [signals["state"]]}, None, info["sha256"])
+    assert update["status"] == "updated"
+
+
 def test_top_selection_ordered_packages_and_nonansi_ports(tmp_path):
     """An unrelated root module cannot replace the named DUT during inspection."""
     source = tmp_path / "Mailbox"

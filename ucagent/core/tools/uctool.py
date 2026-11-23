@@ -141,6 +141,7 @@ class UCTool(BaseTool):
     )
     _async_lock: asyncio.Lock = PrivateAttr(default=None)
     _sync_lock: Any = PrivateAttr(default_factory=threading.RLock)
+    _async_operations: set[asyncio.Task] = PrivateAttr(default_factory=set)
 
     @property
     def async_lock(self) -> asyncio.Lock:
@@ -364,6 +365,7 @@ class UCTool(BaseTool):
             fc.info(f"Alive loop error: {e}")
         finally:
             loop.close()
+            self.is_alive_loop = False
 
     async def __async_alive_loop(self, timeout: int, ctx: Context):
         self.is_alive_loop = True
@@ -423,8 +425,13 @@ class UCTool(BaseTool):
             deadline = asyncio.get_running_loop().time() + self.lock_time_out
             for call_lock in call_locks:
                 remaining = deadline - asyncio.get_running_loop().time()
-                await asyncio.wait_for(call_lock.acquire(), timeout=max(0, remaining))
+                async with asyncio.timeout(max(0, remaining)):
+                    await call_lock.acquire()
                 acquired_locks.append(call_lock)
+        except asyncio.CancelledError:
+            for call_lock in reversed(acquired_locks):
+                call_lock.release()
+            raise
         except asyncio.TimeoutError:
             error_msg = f"[ERROR] Tool ({self.__class__.__name__}) is busy, get lock timeout ({self.lock_time_out} seconds). Please try again later."
             fc.warning(error_msg)
@@ -437,21 +444,35 @@ class UCTool(BaseTool):
             for call_lock in reversed(acquired_locks):
                 call_lock.release()
             return self._error_output(input, error_msg)
-        alive_thread = None
+        started = False
+
+        async def invoke_with_ownership():
+            """Keep call ownership until the underlying tool and heartbeat stop."""
+            nonlocal started
+            started = True
+            return await self._ainvoke(input, config, **kwargs)
+
+        def release_call(done):
+            """Release ownership even if the original MCP request disconnected."""
+            self._async_operations.discard(done)
+            for call_lock in reversed(acquired_locks):
+                call_lock.release()
+            if not done.cancelled():
+                done.exception()
+
+        operation = asyncio.create_task(invoke_with_ownership())
+        self._async_operations.add(operation)
+        operation.add_done_callback(release_call)
         try:
-            data, alive_thread = await self._ainvoke(input, config, **kwargs)
-            return data
+            return await asyncio.shield(operation)
+        except asyncio.CancelledError:
+            if not started:
+                operation.cancel()
+            raise
         except Exception as e:
             error_msg = f"[ERROR] Tool ({self.__class__.__name__}) ainvoke error: {str(e)}"
             fc.warning(error_msg)
             return self._error_output(input, error_msg)
-        finally:
-            try:
-                if alive_thread is not None:
-                    alive_thread.join()
-            finally:
-                for call_lock in reversed(acquired_locks):
-                    call_lock.release()
 
     async def _ainvoke(self, input, config = None, **kwargs):
         self.call_count += 1
@@ -464,7 +485,7 @@ class UCTool(BaseTool):
         if not isinstance(ctx, Context) or self.call_lock_arguments:
             try:
                 self.is_in_call = True
-                return await super().ainvoke(tool_input, config, **kwargs), None
+                return await super().ainvoke(tool_input, config, **kwargs)
             finally:
                 self.is_in_call = False
                 self.last_call_time = time.time()
@@ -478,27 +499,29 @@ class UCTool(BaseTool):
         if self.is_in_streaming:
             error_msg = f"[ERROR] Tool ({self.__class__.__name__}) is already running. Please wait until it finishes."
             fc.info(error_msg)
-            return error_msg, None
+            return error_msg
         if self.is_alive_loop:
             error_msg = f"[ERROR] Tool ({self.__class__.__name__}) is in the process of terminating. Please wait until it finishes."
             fc.info(error_msg)
-            return error_msg, None
+            return error_msg
         self.is_in_streaming = True
         self.last_call_time = time.time()
         self.reset_force_exit()
         alive_thread = threading.Thread(target=copy_context().run, args=(self.__alive_loop, timeout, ctx), daemon=True)
-        alive_thread.start()
         try:
-            data = await super().ainvoke(tool_input, config, **kwargs)
+            alive_thread.start()
+            return await super().ainvoke(tool_input, config, **kwargs)
         except Exception as e:
             import traceback
             fc.info(f"error: {e}")
             fc.info(traceback.format_exc())
-            data = f"[ERROR] {str(e)}"
-        self.is_in_streaming = False
-        self.last_call_time = time.time()
-        fc.info(f"call {self.__class__.__name__} exit Stream-MPC mode")
-        return data, alive_thread
+            return f"[ERROR] {str(e)}"
+        finally:
+            self.is_in_streaming = False
+            self.last_call_time = time.time()
+            if alive_thread.ident is not None:
+                await asyncio.to_thread(alive_thread.join)
+            fc.info(f"call {self.__class__.__name__} exit Stream-MPC mode")
 
     def pre_call(self, *args, **kwargs):
         if self.pre_call_back is None:

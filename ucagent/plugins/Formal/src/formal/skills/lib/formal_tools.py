@@ -18,6 +18,7 @@ from .formal_paths import FormalPaths
 from .models import (
     FormalRecords, CheckPoint, FunctionGroup, FunctionPoint, 
     AnalysisEntry, BugEntry, RunResults, IterationEntry, AnalysisData, AnalysisReviewDraft, author_section_contract,
+    validate_specification_gap,
     normalize_summary, normalize_author_section,
 )
 
@@ -252,20 +253,23 @@ def validate_analysis_evidence(records: FormalRecords) -> None:
         for entry in entries:
             if entry.prop_name not in expected:
                 raise ValueError(f"Unknown current analysis property: {entry.prop_name}")
-            if entry.resolution and entry.resolution not in {"RTL_BUG", "ENV_FIXED", "ENV_PENDING", "COVER_EXPECTED_FAIL", "[LLM-TODO]"}:
+            if entry.resolution and entry.resolution not in {"RTL_BUG", "ENV_FIXED", "ENV_PENDING", "COVER_EXPECTED_FAIL", "SPEC_GAP", "[LLM-TODO]"}:
                 raise ValueError(f"Noncanonical analysis resolution for {entry.prop_name}")
             if entry.action and entry.action not in {"FIXED", "ACCEPTED", "[LLM-TODO]"}:
                 raise ValueError(f"Noncanonical analysis action for {entry.prop_name}")
             if entry.resolution == "RTL_BUG" and records.run_results.property_kinds.get(entry.prop_name) != "assert":
                 raise ValueError(f"RTL_BUG requires a current failed assertion, not a cover result: {entry.prop_name}")
-            if entry.resolution != "RTL_BUG" and entry.action != "ACCEPTED":
+            if entry.resolution not in {"RTL_BUG", "SPEC_GAP"} and entry.action != "ACCEPTED":
                 continue
-            reference = records.run_results.property_evidence.get(entry.prop_name, {}).get("evidence_ref")
+            evidence = records.run_results.property_evidence.get(entry.prop_name, {})
+            reference = evidence.get("evidence_ref")
             if (not reference or entry.evidence_ref != reference
                     or reference.get("property") != entry.prop_name
                     or reference.get("run_id") != records.run_results.run_id
                     or reference.get("input_fingerprint") != records.run_results.input_fingerprint):
-                raise ValueError(f"Current evidence_ref is required for {entry.prop_name}; call RunFormal action=evidence and copy its evidence_ref before classifying RTL_BUG or accepting a trivial proof.")
+                raise ValueError(f"Current evidence_ref is required for {entry.prop_name}; bind the latest full proof before accepting its analysis.")
+            if entry.resolution == "SPEC_GAP":
+                validate_specification_gap(entry.spec_gap, evidence.get("result"), reference)
             if entry.resolution == "RTL_BUG":
                 from formal.reference import derive_expected
                 if not entry.expected_requirement.strip() or "[LLM-TODO]" in entry.expected_requirement:
@@ -321,18 +325,24 @@ def require_completed_analysis(records: FormalRecords) -> None:
             pending.append({"id": entry.id, "property": entry.prop_name, "required": "ACCEPTED with DESIGN_EXPECTED and analysis"})
     for entry in records.analysis.fa_entries:
         expected = "COVER_EXPECTED_FAIL" if records.run_results.property_kinds.get(entry.prop_name) == "cover" else "RTL_BUG"
-        if entry.resolution != expected or not entry.analysis.strip() or "[LLM-TODO]" in entry.analysis:
-            pending.append({"id": entry.id, "property": entry.prop_name, "required": f"{expected} with analysis"})
+        if entry.resolution not in {expected, "SPEC_GAP"} or not entry.analysis.strip() or "[LLM-TODO]" in entry.analysis:
+            pending.append({"id": entry.id, "property": entry.prop_name, "required": f"{expected} or evidenced SPEC_GAP with analysis"})
     if pending:
         raise AnalysisPendingError(pending)
 
 def parse_coverage(tests_dir: str) -> dict:
     """Parse counts and uncovered names from the native FormalMC cone report."""
+    fp = coverage_report_path(tests_dir)
+    if not fp or not os.path.exists(fp):
+        return parse_coverage_text("")
+    with open(fp, "r", encoding="utf-8", errors="ignore") as stream:
+        return parse_coverage_text(stream.read())
+
+
+def parse_coverage_text(content: str) -> dict:
+    """Parse coverage from the same report bytes used to verify the snapshot."""
     empty = {"covered": 0, "total": 0, "pct": 0.0}
     res = {"inputs": dict(empty), "outputs": dict(empty), "dffs": dict(empty), "nets": dict(empty), "uncovered": [], "overall_pct": 0.0}
-    fp = coverage_report_path(tests_dir)
-    if not fp or not os.path.exists(fp): return res
-    with open(fp, 'r', encoding='utf-8', errors='ignore') as f: content = f.read()
     reports = list(re.finditer(r"^\[\d+\] fanin -cover\b[^\n]*$", content, re.MULTILINE))
     if reports:
         content = re.split(r"^\[\d+\] fanin\b", content[reports[-1].end():], maxsplit=1, flags=re.MULTILINE)[0]
@@ -605,6 +615,16 @@ def build_clock_reset_alias_context(records: FormalRecords) -> dict:
     }
 
 
+def validate_managed_setup(extra_config):
+    """Keep explicit prove commands out of the setup shared by every managed job."""
+    commands = ((extra_config or {}).get("tcl") or {}).get("extra_commands") or []
+    for command in commands:
+        if any(re.match(r"^\s*(?:::)?prove(?:\s|;|$)", line) for line in command.splitlines()):
+            raise ValueError("Shared Tcl setup executes during inventory and before every managed attempt. "
+                             "Remove prove from extra_commands. Use a selected run or review retry with retry_engine "
+                             "for the named target.")
+
+
 def validate_extra_config_against_design(records: FormalRecords, port_info: Optional[List[Tuple[str, str]]] = None) -> List[str]:
     """Validate the declared clock and reset against the resolved compiler inputs."""
     clock_reset = (records.basic_info or {}).get("clock_reset") or {}
@@ -636,6 +656,7 @@ def auto_scaffold_analysis_entries(records: FormalRecords, lr: dict, cc: str) ->
                         analysis=entry.analysis,
                         expected_requirement=entry.expected_requirement,
                         decision=entry.resolution or entry.action or "",
+                        spec_gap=entry.spec_gap,
                     )
         records.analysis = AnalysisData(source_fingerprint=fingerprint, previous_reviews=drafts)
         records.bugs = []
@@ -959,6 +980,7 @@ def generate_summary_doc(records: FormalRecords, op: str, coverage: Optional[dic
         "summary": summary,
         "clock_reset": ((records.basic_info or {}).get("clock_reset") or {}),
         "scope_exclusions": ((records.planning or {}).get("verification_scope") or {}).get("excluded") or [],
+        "specification_gaps": [entry for entry in records.analysis.fa_entries if entry.resolution == "SPEC_GAP"] if records.analysis else [],
         "checkpoint_facts": [{"fg_id": fg.id, "fc_id": fc.id, "ck_id": ck.id,
                               "style": ck.style, "sva_body": ck.sva_body or ""}
                              for fg in (records.spec.function_groups if records.spec else [])
@@ -992,6 +1014,58 @@ def get_primary_clock_reset(records: FormalRecords) -> tuple[dict, dict]:
     return clock, reset
 
 
+INITIAL_RESET_SAMPLE = "ucagent_initial_reset_sample"
+
+
+def initial_reset_body(clock_reset: dict) -> str:
+    """Author the assumption for a tool-initialized flag that clears after one sample."""
+    if not clock_reset["has_clock"] or not clock_reset["has_reset"]:
+        raise ValueError("An initial_reset Assume requires resolved clock and reset inputs.")
+    clock = f"{clock_reset['clock_edge']} {clock_reset['env_clock']}"
+    return f"@({clock}) disable iff (1'b0) {INITIAL_RESET_SAMPLE} |-> !{clock_reset['env_reset']};"
+
+
+def implemented_initial_reset(records: FormalRecords):
+    """Validate the optional first-sample implementation when its body is present."""
+    from .models import has_sva_body
+
+    ck = next((ck for fg in (records.spec.function_groups if records.spec else [])
+               for fc in fg.functions for ck in fc.check_points if ck.initial_reset and has_sva_body(ck.sva_body)), None)
+    if ck:
+        body = initial_reset_body(build_clock_reset_alias_context(records))
+        if re.sub(r"\s+", "", ck.sva_body) != re.sub(r"\s+", "", body):
+            raise ValueError(
+                f"{ck.id}: use the generated initial_reset assumption. "
+                f"Submit bodies['{ck.id}'] = {body!r} in the same spec update as the metadata."
+            )
+    return ck
+
+
+def reset_stability_body(clock_reset: dict) -> str:
+    """Keep reset inactive at the next sample whenever it is inactive now."""
+    if not clock_reset["has_clock"] or not clock_reset["has_reset"]:
+        raise ValueError("A reset_stable_after_release Assume requires resolved clock and reset inputs.")
+    clock = f"{clock_reset['clock_edge']} {clock_reset['env_clock']}"
+    inactive = clock_reset["env_reset"]
+    return f"@({clock}) disable iff (1'b0) {inactive} |=> {inactive};"
+
+
+def validate_reset_stability(records: FormalRecords, clock_reset: dict) -> None:
+    """Enforce the planned reset assumption's generated body when implemented."""
+    from .models import has_sva_body
+
+    for fg in records.spec.function_groups if records.spec else []:
+        for fc in fg.functions:
+            for ck in fc.check_points:
+                if ck.reset_stable_after_release and has_sva_body(ck.sva_body):
+                    body = reset_stability_body(clock_reset)
+                    if re.sub(r"\s+", "", ck.sva_body) != re.sub(r"\s+", "", body):
+                        raise ValueError(
+                            f"{ck.id}: use the generated reset_stable_after_release assumption. "
+                            f"Submit bodies['{ck.id}'] = {body!r} in the same spec update as the metadata."
+                        )
+
+
 def proof_inputs(records: dict | FormalRecords) -> dict:
     """Project the settings consumed by generators, independently of authored observations."""
     from .models import semantic_inputs
@@ -1000,6 +1074,12 @@ def proof_inputs(records: dict | FormalRecords) -> dict:
     values = semantic_inputs(model)
     values.pop("basic_info")
     values["clock_reset"] = build_clock_reset_alias_context(model)
+    clock, reset = get_primary_clock_reset(model)
+    if model.spec and any(ck.transaction_balance and ck.style.lower() == "assume" for fg in model.spec.function_groups
+                          for fc in fg.functions for ck in fc.check_points):
+        values["clock_reset"]["observer_reset_assertion"] = reset.get("assertion")
+    if clock and reset.get("release") in {"sync", "async"}:
+        values["reset_release_required"] = True
     return values
 
 # =============================================================================
@@ -1069,16 +1149,46 @@ def update_records_sva_body(records: FormalRecords, im: dict) -> bool:
                     if ck.sva_body != b: ck.sva_body = b; c = True
     return c
 
-def incremental_merge_checker(records: FormalRecords, sv_path: str, port_info: Optional[List[Tuple[str, str]]] = None, mode: str = "full") -> str:
+def incremental_merge_checker(records: FormalRecords, sv_path: str, port_info: Optional[List[Tuple[str, str]]] = None,
+                              mode: str = "full", *, signal_widths: dict[str, int | None] | None = None) -> str:
+    """Render properties and their verification-only transaction observers."""
     from .models import has_sva_body
+    from formal.transaction import transaction_context, latest_transfer_body, latest_transfer_context
 
+    cr_ctx = build_clock_reset_alias_context(records)
+    whitebox_context = build_whitebox_signal_context(records.spec.whitebox_signals if records.spec else None)
+    internal_signals = {sig["name"] for sig in whitebox_context
+                        if (signal_widths or {}).get(sig["name"]) == 1 and re.fullmatch(
+                            rf"(?:logic|wire|reg|bit)(?: signed)?(?:\s+\[\s*(-?\d+)\s*:\s*\1\s*\])?\s+{re.escape(sig['name'])}",
+                            sig["declaration"])}
+    reserved = {name for name, _ in (port_info or ())} | {sig["name"] for sig in whitebox_context}
+    if records.spec:
+        reserved.update(records.spec.parameters or {})
+    initial_sample = ""
+    initial = implemented_initial_reset(records)
+    validate_reset_stability(records, cr_ctx)
+    if initial:
+        if INITIAL_RESET_SAMPLE in reserved:
+            raise ValueError("The initial_reset monitor name conflicts with a DUT port, parameter or whitebox input.")
+        initial_sample = INITIAL_RESET_SAMPLE
+        reserved.add(initial_sample)
     check_points_data = []
+    observers = []
+    latest_observers = []
     if records.spec:
         for fg in records.spec.function_groups:
             for fc in fg.functions:
                 for ck in fc.check_points:
                     if not has_sva_body(ck.sva_body):
                         continue
+                    if ck.transaction_balance:
+                        observers.extend(transaction_context(ck, cr_ctx, port_info or (), reserved, internal_signals,
+                                                             reset_assertion=get_primary_clock_reset(records)[1].get("assertion")))
+                    if ck.latest_transfer:
+                        if ck.sva_body != latest_transfer_body(ck, cr_ctx["clock_edge"]):
+                            raise ValueError(f"{ck.id}: use the generated latest_transfer body from prepare sva")
+                        latest_observers.append(latest_transfer_context(
+                            ck, cr_ctx, signal_widths or {}, reserved, get_primary_clock_reset(records)[1].get("assertion")))
                     pn, l, k = _ck_to_sv_names(ck.id, ck.style)
                     check_points_data.append({
                         "id": ck.id,
@@ -1090,14 +1200,13 @@ def incremental_merge_checker(records: FormalRecords, sv_path: str, port_info: O
                         "sva_body": ck.sva_body,
                     })
 
-    cr_ctx = build_clock_reset_alias_context(records)
     clock_signal = cr_ctx["env_clock"]
     reset_signal = cr_ctx["env_reset"]
     actual_clock = cr_ctx["actual_clock"]
     actual_reset = cr_ctx["actual_reset"]
 
     # 2. Case: Full Rendering (Stages 3-5)
-    if mode == "full" or not os.path.exists(sv_path):
+    if mode == "full" or observers or latest_observers or initial_sample or not os.path.exists(sv_path):
         hp = []
         if cr_ctx["has_clock"]:
             hp.append(f"input {clock_signal}")
@@ -1107,7 +1216,6 @@ def incremental_merge_checker(records: FormalRecords, sv_path: str, port_info: O
             for n, pd in port_info:
                 if n not in {clock_signal, reset_signal, actual_clock, actual_reset}:
                     hp.append(re.sub(r"^(input|output|inout)\s+", "input ", pd.strip()))
-        whitebox_context = build_whitebox_signal_context(records.spec.whitebox_signals if records.spec else None)
         if whitebox_context:
             hp.extend(whitebox_decl_to_input_decl(sig["declaration"]) for sig in whitebox_context)
 
@@ -1115,6 +1223,9 @@ def incremental_merge_checker(records: FormalRecords, sv_path: str, port_info: O
             "DUT": records.dut,
             "header_ports": hp,
             "check_points": check_points_data,
+            "transaction_observers": observers,
+            "latest_observers": latest_observers,
+            "initial_sample": initial_sample,
             "parameter_items": list((records.spec.parameters or {}).items()) if records.spec and records.spec.parameters else [],
             "whitebox_signals": whitebox_context,
             "extra_config": records.extra_config,

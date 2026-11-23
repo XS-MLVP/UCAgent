@@ -1,6 +1,7 @@
 """Integration tests for the managed Formal workflow boundary."""
 
 import asyncio
+import json
 from pathlib import Path
 import sys
 from types import SimpleNamespace
@@ -28,6 +29,7 @@ class FakeExecution:
     """Record dispatch and return bounded machine-style summaries."""
 
     calls = []
+    batched_sva = False
 
     def __init__(self, **kwargs):
         """Keep the resolved input context for assertions."""
@@ -148,7 +150,7 @@ def test_runformal_plugin_factory_dispatch_and_mcp_contract(tmp_path, monkeypatc
         un_write_dirs=("DUT",), cfg=Config({"output": "proof_output"}),
         plugin_root=Path(formal_tools.__file__).parent, dut_name="DUT",
     )
-    tool, diagnostics = create_tools(context)
+    tool, diagnostics, authoring = create_tools(context)
     assert tool.name == "RunFormal"
     assert tool.invoke({"action": "run"}) == {"status": "RUNNING"}
     assert tool.invoke({"action": "status"}) == {"status": "RUNNING"}
@@ -159,6 +161,10 @@ def test_runformal_plugin_factory_dispatch_and_mcp_contract(tmp_path, monkeypatc
     assert FakeExecution.calls[0][1]["output_dir"] == "proof_output"
     assert FakeExecution.calls[0][1]["un_write_dirs"] == ["DUT"]
     assert FakeExecution.calls[-1][1]["action"] == "defer"
+    tool.invoke({"action": "review", "property_names": ["top.A_CK_SLOW"], "disposition": "retry",
+                 "retry_engine": "ind", "reason": "Test induction", "next_action": "Review the native result"})
+    assert FakeExecution.calls[-1][1]["retry_engine"] == "ind"
+
     with pytest.raises(ValidationError):
         formal_tools.RunFormalArgs.model_validate({"action": "status", "typo": True})
     converted = to_mcp_tool(tool)
@@ -173,6 +179,18 @@ def test_runformal_plugin_factory_dispatch_and_mcp_contract(tmp_path, monkeypatc
         formal_tools.AnalyzeFormalArgs.model_validate({**request, "depth": 101})
     with pytest.raises(ToolError):
         asyncio.run(diagnostic_tool.run({**request, "depth": 101}, context=None))
+    output = tmp_path / "proof_output"
+    output.mkdir()
+    path = output / ".formal_records.yaml"
+    path.write_text("dut: DUT\n")
+    data_tool = to_mcp_tool(authoring)
+    inspected = asyncio.run(data_tool.run({"request": {"action": "inspect", "section": "planning"}}, context=None))
+    updated = asyncio.run(data_tool.run({"request": {
+        "action": "update", "section": "planning", "expected_sha256": inspected["sha256"],
+        "data": {"project_overview": "Verify the top-level interface"},
+    }}, context=None))
+    assert updated["status"] == "updated"
+    assert yaml.safe_load(path.read_bytes())["planning"]["project_overview"] == "Verify the top-level interface"
 
 
 def test_script_check_requires_explicit_run_and_never_starts_proof(tmp_path, monkeypatch):
@@ -230,6 +248,23 @@ def test_native_coi_report_lists_uncovered_signals_from_latest_cover_section(tmp
     assert data["uncovered"] == ["state", "u_dut.queue[1].valid"]
 
 
+def test_coi_receipt_rejects_a_different_revision_or_selected_scope(tmp_path):
+    """Exact raw report bytes cannot authorize coverage under another proof identity."""
+    from formal.coi import coverage_snapshot, seal_coverage
+
+    artifact = "inventory/avis/fanin.rep"
+    report = tmp_path / artifact
+    report.parent.mkdir(parents=True)
+    report.write_text("[1] fanin -cover -list -dump+\nNets : 4 / 4 100%\n")
+    state = {"run_id": "a" * 32, "output_dir": "proof", "scope": "full", "fingerprint": "b" * 64}
+    seal_coverage(tmp_path, state, artifact)
+    current, payload = coverage_snapshot(tmp_path, state)
+    assert current["status"] == "verified" and payload == report.read_bytes()
+    for mismatch in ({"run_id": "c" * 32}, {"fingerprint": "d" * 64}, {"scope": "selected"}):
+        invalid, payload = coverage_snapshot(tmp_path, {**state, **mismatch})
+        assert invalid["error_code"] == "formal_coverage_invalid" and payload is None
+
+
 def test_summary_rejects_unreported_deferred_gap(tmp_path, monkeypatch):
     """A hand-written success claim cannot conceal machine UNPROVEN evidence."""
     summary = {"core_function": "queue", "overall_result": "全部通过",
@@ -238,7 +273,7 @@ def test_summary_rejects_unreported_deferred_gap(tmp_path, monkeypatch):
     monkeypatch.setattr(BaseFormalChecker, "_execution", lambda _: SimpleNamespace(
         check=lambda: (True, {"proof_complete": False, "deferred_total": 1})
     ))
-    monkeypatch.setattr("formal.checkers.formal.load_records", lambda path: SimpleNamespace(summary=summary))
+    monkeypatch.setattr("formal.checkers.formal.load_records", lambda path: SimpleNamespace(summary=summary, analysis=None))
     checker = FormalSummaryChecker(dut_name="DUT")
     checker.cfg = Config({"output": "proof_output"})
     checker.set_workspace(str(tmp_path))
@@ -299,3 +334,26 @@ def test_plugin_factory_rejects_invalid_budget_at_startup(tmp_path):
                             plugin_root=Path(formal_tools.__file__).parent)
     with pytest.raises(ValueError, match="positive integers"):
         create_tools(context)
+
+
+def test_selected_coverage_compares_counts_without_publishing_acceptance(tmp_path):
+    from formal.coi import coverage_snapshot, seal_coverage, selected_coverage_preview
+
+    full_id, local_id = "1" * 32, "2" * 32
+    full = {"run_id": full_id, "scope": "full", "fingerprint": "old", "output_dir": "out",
+            "batch_context": {"rtl": "stable"}, "created_at": 1}
+    local = {**full, "run_id": local_id, "scope": "selected", "fingerprint": "new",
+             "created_at": 2, "status": "COMPLETED"}
+    artifact = "inventory/avis/fanin.rep"
+    for state in (full, local):
+        run = tmp_path / state["run_id"]
+        (run / artifact).parent.mkdir(parents=True)
+        (run / artifact).write_text("[1] fanin -cover -list -dump+\nNets : 3 / 4 75%\n")
+        (run / "state.json").write_text(json.dumps(state))
+    (tmp_path / "current.json").write_text(json.dumps({"run_id": full_id}))
+    seal_coverage(tmp_path / full_id, full, artifact)
+    preview = selected_coverage_preview(tmp_path / local_id, local)
+    assert preview["prior_full_nets"] == preview["nets"]
+    assert "same covered and total" in preview["next_action"]
+    assert coverage_snapshot(tmp_path / local_id, local)[0]["status"] == "missing"
+    assert selected_coverage_preview(tmp_path / local_id, {**local, "batch_context": {"rtl": "other"}}) is None

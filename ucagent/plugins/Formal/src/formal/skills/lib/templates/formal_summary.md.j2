@@ -35,6 +35,51 @@
 {% endfor %}
 {% endif %}
 
+{% if machine.original_scope is defined and machine.original_scope.status == "review_required" %}
+**原规划范围需要复核。** 当前结果适用于本次完整回归输入。已变更的要求、假设或历史反例见下列记录。
+{% for row in machine.original_scope.rewritten_targets %}
+- `{{ row.ck_id }}` 的阶段 4 要求为「{{ row.previous }}」，当前要求为「{{ row.current }}」。
+{% endfor %}
+{% endif %}
+{% if machine.original_scope is defined and machine.original_scope.assumption_changes %}
+## 第 4 阶段后变更的环境假设
+
+当前结论使用变更后的环境。下列规格说明取自各版本的任务记录，当前生效表达式见后文 Assume 清单。
+
+{% for row in machine.original_scope.assumption_changes -%}
+- `{{ row.ck_id }}` {% if row.previous is none %}为新增假设。{{ row.current }}{% elif row.current is none %}已移除。原要求为「{{ row.previous }}」。{% else %}的原要求为「{{ row.previous }}」，当前要求为「{{ row.current }}」。{% endif %}
+
+{% endfor %}
+{% endif %}
+
+{% if machine.revision_history is defined and (machine.revision_history.observations or machine.revision_history.unreadable_batches) %}
+## 已修改输入的历史反例
+
+下表列出当前完整批次已证明、历史批次曾报告反例的检测点。请对照两版性质、公共输入与第 4 阶段规格审阅结论变化。上方统计使用当前完整批次。
+
+| 检测点 | 当前结论 | 变化字段 | 历史批次 | 历史报告 SHA256 |
+| --- | --- | --- | --- | --- |
+{% for row in machine.revision_history.observations -%}
+| {{ row.ck_id }} | {{ row.current_result }} | {{ row.changed | join(", ") }} | {{ row.scope }} `{{ row.previous_run }}` | {{ row.evidence_ref.report_sha256 if row.evidence_ref is defined else "原始证据未能核验" }} |
+{% endfor %}
+{% for row in machine.revision_history.observations if row.previous_description is defined %}
+- `{{ row.ck_id }}` 的历史要求为「{{ row.previous_description }}」，当前要求为「{{ row.current_description }}」。
+{% endfor %}
+{% if machine.revision_history.unreadable_batches %}
+历史记录无法读取的批次为 {{ machine.revision_history.unreadable_batches | join(", ") }}。
+{% endif %}
+{% endif %}
+
+{% if specification_gaps %}
+## 待确认的规格缺口
+
+以下目标保留当前完整批次的失败或不可达判定。
+
+{% for entry in specification_gaps %}
+- `{{ entry.prop_name }}` · {{ entry.spec_gap.question }}。依据 {{ entry.spec_gap.requirement_ref }}。后续 {{ entry.spec_gap.follow_up }}。完整批次 `{{ entry.evidence_ref.run_id }}`。
+{% endfor %}
+{% endif %}
+
 ## 2. 断言与属性统计
 
 以下检测点及表达式直接来自本次验证输入；Cover 名称或描述不能替代其实际条件。

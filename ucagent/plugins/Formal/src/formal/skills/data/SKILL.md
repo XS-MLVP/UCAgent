@@ -7,6 +7,8 @@ description: 批量维护 Formal 任务数据、准备当前分析队列并核�
 
 这是可选的数据维护路径，不是独立工具，也不替代规格理解、断言设计或反例分析。使用现有 `ListSkill` 获取本技能，再用 `ReadTextFile` 阅读本文件；后续各阶段可复用该方法，不需要为每阶段重新登记技能使用。
 
+6.1 由 Check 从固定规划生成用例模板。6.2 优先使用 pending 返回的 `case_batch.prepare_call` 和 `case_batch.run_call` 跨 FC 分页，每页最多 10 个正式目标。短目标异常仍按 FC 审阅，标记的慢目标留给第 8 阶段。
+
 ## 查看字段与批量更新
 
 通过现有 `RunSkillScript` 调用脚本，`commands` 中每一项仍是 `[技能ID, 脚本名, 参数字符串]`：
@@ -47,9 +49,9 @@ description: 批量维护 Formal 任务数据、准备当前分析队列并核�
 
 ## 分批实现与复验
 
-用 `prepare sva` 取得单个功能组的待补检查点及 `ready_update`，提交后继续领取下一批。用 `inspect signals --query 名称` 查白盒信号的实际名称和位宽。相关绑定与属性可同批提交，格式见 `Guide_Doc/formal_data.md`。
+先用 RunFormal(action="pending") 获取 case_batch，按 prepare_call 取得这一页所有 FG/FC 的模板及 `ready_update`。填齐本页再提交 run_call；每个异常仍交给所属 FC，用 RunFormal(action="review_fc") 按证据处置。旧任务回执仅有 current_fc 时按其指示处理。ENV_PENDING 必须在当前阶段修复，不能以曾运行或文字完成标记替代。用 `inspect ports --query 名称片段1,名称片段2` 查看端口方向和位宽，用 `inspect signals --query 名称` 查白盒信号的实际名称和位宽。相关绑定与属性可同批提交，格式见 `Guide_Doc/formal_data.md`。
 
-用 `prepare sva --baseline` 领取基础 CK。写 Assume 前逐项对照返回的 `description` 和规格。遇到描述中混合了独立端口义务的 CK，先按 `Guide_Doc/functions_and_checks.md` 调整 spec，然后重新领取这些 CK 并逐条填写 `sva_body`。
+第 5 阶段直接调用 RunFormal(action="preflight") 完成自动临时冒烟，不填写正式 CK；临时结果不参加功能验收。第 6 阶段用 `prepare sva --assumptions --limit 20` 领取正式环境 Assume，再用 `prepare sva --function FC-<ID>` 实现功能点。写 Assume 前逐项对照返回的 `description` 和规格。遇到描述中混合了独立端口义务的 CK，先按 `Guide_Doc/functions_and_checks.md` 调整 spec，然后重新领取这些 CK 并逐条填写 `sva_body`。
 
 属性体修正后，以精确 ck_ids 和 scope=selected 复验修改目标。完整功能批次改用 fc_id。后续 status/evidence/review/cancel 使用返回的 run_id。定向批保留完整 Assume，合并本轮修复后对当前输入运行完整批次。可将同一 RunFormal 请求写入 JSON，调用 `formal_data.py proof --request-file formal_test/proof_request.json`。无技能时直接使用 RunFormal。
 

@@ -28,7 +28,43 @@ module {{ DUT }}_checker
   default disable iff ({{ reset_disable_expr or '!rst_n' }});
 {%- endif %}
 
-{% for ck in check_points %}
+{% if initial_sample | default("") %}
+  logic {{ initial_sample }};
+  always @({{ clock_edge }} {{ clock_signal }}) {{ initial_sample }} <= 1'b0;
+{% endif %}
+{% for observer in transaction_observers | default([]) %}
+  logic [{{ observer.counter_bits - 1 }}:0] {{ observer.name }}_pending;
+  logic {{ observer.name }}_overflow;
+  wire {{ observer.name }}_command = {{ observer.command_valid }} && {{ observer.command_ready }};
+  wire {{ observer.name }}_response = {{ observer.response_valid }} && {{ observer.response_ready }};
+  wire {{ observer.name }}_retire = {{ observer.name }}_response &&
+    ((|{{ observer.name }}_pending){% if observer.zero_cycle_when %} || ({{ observer.name }}_command && ({{ observer.zero_cycle_when }})){% endif %});
+  always @({{ clock_edge }} {{ clock_signal }}{% if not observer.synchronous_reset | default(false) %} or negedge {{ reset_signal }}{% endif %}) begin
+    if (!{{ reset_signal }}) begin
+      {{ observer.name }}_pending <= '0;
+      {{ observer.name }}_overflow <= 1'b0;
+    end else if ({{ observer.name }}_command && !{{ observer.name }}_retire) begin
+      if (&{{ observer.name }}_pending) {{ observer.name }}_overflow <= 1'b1;
+      else {{ observer.name }}_pending <= {{ observer.name }}_pending + 1'b1;
+    end else if ({{ observer.name }}_retire && !{{ observer.name }}_command)
+      {{ observer.name }}_pending <= {{ observer.name }}_pending - 1'b1;
+  end
+
+{% endfor %}
+{% for observer in latest_observers | default([]) %}
+  logic {{ observer.name }}_seen;
+  logic [{{ observer.width - 1 }}:0] {{ observer.name }}_value;
+  always @({{ clock_edge }} {{ clock_signal }}{% if observer.reset_assertion == "async" %} or negedge {{ reset_signal }}{% endif %}) begin
+    if (!{{ reset_signal }}) begin
+      {{ observer.name }}_seen <= 1'b0;
+      {{ observer.name }}_value <= '0;
+    end else if ({{ observer.capture_valid }} && {{ observer.capture_ready }}) begin
+      {{ observer.name }}_seen <= 1'b1;
+      {{ observer.name }}_value <= {{ observer.captured }};
+    end
+  end
+
+{% endfor %}{% for ck in check_points %}
   // {{ ck.description }}
   // Style: {{ ck.style }}{{ "  [AUTO-ADDED]" if ck.is_new else "" }}
   property {{ ck.prop_name }};

@@ -16,7 +16,8 @@ def test_plain_language_report_contract_is_in_resolved_stage(tmp_path, monkeypat
     monkeypatch.setenv("HOME", str(tmp_path))
     cfg = get_config(workflow_config_file=str(SOURCE / "workflows/formal.yaml"),
                      cfg_override=[{"skill.use_skill": enabled}])
-    stage = next(item for item in cfg.get_value("stage") if item["name"] == "formal_execution")
+    reports = next(item for item in cfg.get_value("stage") if item["name"] == "findings_and_summary")
+    stage = next(item for item in reports["stage"] if item["name"] == "formal_execution")
     text = "\n".join(stage["task"])
     assert "触发条件" in text and "预期与实际差异" in text and "后果" in text
     assert "必要术语首次解释" in text and "不自造故障名称" in text

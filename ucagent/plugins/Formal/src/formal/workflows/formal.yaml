@@ -109,6 +109,7 @@ mission:
       | EditTextFile | 通过`path`和`content`创建或覆盖完整文件；仅追加时传`append=true` |
       | DeleteTextLines | 仅在大量文本修改时，先按`line_blocks`批量删除完整行；重新读取后再用`ReplaceStringInFile`精确编辑 |
       | ReplaceStringInFile | 局部替换已有文件；可用`line_blocks`限定搜索范围，默认全文 |
+      | FormalData | 检查字段、领取当前工作、直接提交结构化更新 |
       | RunSkillScript | 技能可用时调用 ext/formal/data 的 formal_data.py，结构化批量维护任务数据 |
       | RunFormal | preflight编译与基础Cover；run启动当前输入；status等待结果；evidence取得完整属性的真实证据；review处置未决项；cancel取消 |
       | SetCurrentStageJournal | 阶段日志记录（推进前必调；mode=append 增量追加）|
@@ -123,7 +124,7 @@ mission:
       - 推进前必须调用 SetCurrentStageJournal 记录阶段日志。
       - 根据 Complete/Check 的结果调整工作，目标是所有检查都通过。
       - 除非 Checker 要求人工确认，否则不需要人工介入或询问。
-      - 数据技能是可选捷径：通过原有RunSkillScript调用formal_data.py inspect，再写结构化请求JSON并调用update --request-file；技能不可用时用普通文件工具编辑同一YAML。完整两条路径见Guide_Doc/formal_data.md。
+      - 通过 FormalData 的 request.action=inspect 或 prepare 获取当前数据和 ready_update。填写后在一次 request.action=update 中提交这些字段和 expected_sha256。数据技能和普通文件工具仍可维护同一 YAML，示例见 Guide_Doc/formal_data.md。
       - 不读取插件实现、不拼接逐字段shell命令、不直接编辑派生文件或机器证据。数据冲突重新读取；证明失败先核对真实反例和独立参考计算。
       - 中途接入时: CurrentTips → Status → AllStageJournal 获取上下文。
       **指导文档领域知识速查：**
@@ -134,7 +135,7 @@ mission:
       - bug_report.md           — 故障归因聚类与报告结构
       - coi_coverage.md         — COI 概念、映射表与 Cover/Assert 差异
       - formal_summary.md       — 验证总结报告格式
-      - formal_execution.md     — RunFormal 5/20 分钟分批结果、慢属性处置与未证明缺口
+      - formal_execution.md     — RunFormal 定向和完整批次、慢属性处置与未证明缺口
       - formal_data.md          — 可选数据技能、普通文件等价路径与完整示例
       (均位于 Guide_Doc/ 目录)
 
@@ -148,7 +149,7 @@ mission:
         - "TRIVIALLY_TRUE先核对工具原因，不总是过约束；TRIVIALLY_FALSE不得用较弱目标替换静态检查"
         - "FALSE 属性需区分【环境欠约束】和【RTL 缺陷】，先判断再决定修复方向"
         - "每个 CK 检测点都必须有对应的 SVA 属性实现，不允许遗漏"
-        - "验证由 RunFormal(action=run) 管理：先查 status；执行达到 5 分钟收集首轮属性结果、20 分钟形成未解决清单；Check/Complete 只校验当前输入证据，不会启动长证明。"
+        - "验证由 RunFormal(action=run) 管理：先查 status；完整批次清点每个目标，对有当前有效来源的超时项记录 UNPROVEN，对其余项目执行当前求解。第 8 阶段统一复核慢目标。Check/Complete 只校验当前输入证据，不会启动长证明。"
         - "对未解决属性用 RunFormal(action=review, property_names=[...], disposition=retry 或 defer, reason=..., next_action=...) 记录决定；defer 仍是 UNPROVEN，不得写成 Pass。详见 Guide_Doc/formal_execution.md。"
         - "正式证明批次只能通过 RunFormal 工具运行，避免绕过证据与队列。"
         - "判断是否完成阶段任务时，优先使用Complete工具，其次是Check工具"
@@ -168,14 +169,12 @@ stage:
     desc: "需求分析与验证规划"
     task:
       - "目标：将验证规划写入 `.formal_records.yaml.planning`，并由系统自动渲染 `01_{DUT}_verification_needs_and_plan.md`。"
-      - "技能可用时用数据技能 inspect planning，写一次结构化请求再update --request-file；否则用普通文件工具维护planning，完整字段与示例见Guide_Doc/formal_data.md。"
+      - "用 FormalData(request={action: inspect, section: planning}) 查看必填字段。按 ready_update 一次提交规划；字段、引用和阶段日志就绪后调用 Complete。"
       - "本阶段只负责维护 YAML 子树 `planning`；`01_{DUT}_verification_needs_and_plan.md` 是派生产物，禁止直接编辑。"
-      - "阅读 `{DUT}` 目录下的 README 和 RTL 源文件，提炼项目概述、验证范围、策略、交付物、风险与初步缺陷线索。"
+      - "依据 `{DUT}` 目录下的 README 和可用规格界定验证范围、策略、交付物及风险。规格缺失时查相关顶层 RTL，注明待核实的行为。完整 RTL 阅读、接口和状态梳理在下一阶段完成。"
       - "强调形式化验证目标是发现设计缺陷，属性失败（Fail）是重要输出。"
     reference_files:
       - "{DUT}/README.md"
-      - "{RTL_PATH}/*.v"
-      - "{RTL_PATH}/*.sv"
     output_files:
       - "{OUT}/.formal_records.yaml"
     checker:
@@ -189,12 +188,10 @@ stage:
     desc: "{DUT}功能理解"
     task:
       - "目标：将 DUT 基本信息写入 `.formal_records.yaml.basic_info`，并由系统自动渲染 `02_{DUT}_basic_info.md`。"
-      - "技能可用时通过数据技能 inspect basic_info/批量update维护真实接口、参数、时钟复位和正确性要求；否则用普通文件工具编辑同一basic_info。"
+      - "用 FormalData 检查和批量更新 basic_info 的真实接口、参数、时钟复位和正确性要求。"
       - "本阶段只负责维护 YAML 子树 `basic_info`；`02_{DUT}_basic_info.md` 是派生产物，禁止直接编辑。"
-      - "通读代码，梳理 input/output、参数、时钟域、复位域、核心功能与潜在明显缺陷。"
-      - "可选数据技能接受一个结构化JSON请求；技能不可用时用普通文件工具编辑YAML，不直接编辑派生Markdown。"
+      - "承接阶段 1 的范围与风险，阅读 RTL，梳理实际接口、核心功能、状态和跨时钟域行为。需确认端口位宽及方向时，用 FormalData inspect ports 按名称查询有效接口。记录规格与 RTL 的不一致，供阶段 3 规划独立目标。"
     reference_files:
-      - "{DUT}/README.md"
       - "{RTL_PATH}/*.v"
       - "{RTL_PATH}/*.sv"
     output_files:
@@ -209,11 +206,12 @@ stage:
   - name: functional_specification_analysis
     desc: "功能规格分析与形式化策略定义{COUNT_FG}/{COUNT_FC}/{COUNT_CK}"
     task:
-      - "目标：基于DUT基础信息设计独立验证目标，一次维护FG/FC/CK完整层次与参数；可选数据技能提供批量更新，无技能时用普通文件工具。"
+      - "基于规格和 DUT 基本信息设计独立验证目标，一次维护 FG/FC/CK 完整层次与参数。"
       - "每个 FC 填写 title、description 和 review_order。title 用一行短句说清想验证的行为或场景（最多 60 字）；description 补充适用条件、预期行为与边界。"
       - "先按依赖关系排列 FG，再给各组 FC 分配组内唯一的正整数 review_order。先审阅前置条件与基本行为，再看边界与异常。同组例如 1 单次入队，2 入队至满，3 满后再尝试入队；按实际规格设计。"
-      - "使用可选数据技能 inspect spec/结构化update，或用普通文件工具维护完整spec；Complete统一校验FG/FC/CK所有层次，不重复分阶段填表。"
-      - "把有规格依据的环境义务记在「验证环境约束」功能组的 CK 计划中，记录接口、触发条件和预期行为。第 5 阶段实现并验证这些约束。参照 Guide_Doc/functions_and_checks.md 的环境义务规划示例。"
+      - "用 FormalData inspect spec 获取当前版本与有效接口，再提交规格更新。Complete 统一校验 FG/FC/CK 所有层次。"
+      - "在目标描述中注明需要观察的内部行为。实际白盒信号的展开与绑定留到阶段 4。"
+      - "把有规格依据的环境义务记在「验证环境约束」功能组的 CK 计划中，记录接口、触发条件和预期行为。第 6 阶段实现并验证这些正式约束；第 5 阶段临时冒烟不使用它们。参照 Guide_Doc/functions_and_checks.md 的环境义务规划示例。"
       - "本阶段只负责维护 YAML 子树 `spec`；`03_{DUT}_functions_and_checks.md` 是派生产物，禁止直接编辑。"
       - "参考 `Guide_Doc/functions_and_checks.md` 的标签规范与高级模式。"
     reference_files:
@@ -231,14 +229,20 @@ stage:
           require_fc_review_metadata: true
     need_human_check: $(HUMAN_CHECK_CK: false)
 
-    
+
   # ========== Stage 4: SVA Batch Planning ==========
   - name: property_generation
     desc: "SVA 批次与信号规划"
     task:
-      - "核对已有 FG/FC/CK 的规格依据和 review_order。每个 FC 以一个功能目标组织 CK，按 review_order 实现。"
-      - "在 spec 中标记少量共享基础检查点为 baseline: true。Assume 自动归入基础。为第 5 阶段选定至少一个能检查基本事务可达性的基础 Cover，有复位时覆盖释放后的基本交互。"
-      - "在 .formal_records.yaml 记录需要的白盒绑定、有效参数和真实时钟复位。查询实际接口和位宽，阶段 5 会依据这些输入编译基础环境。"
+      - "使用阶段 3 的 FG/FC/CK 和 review_order，检查实现所需的接口、绑定和依赖。若发现目标缺少规格依据或顺序不满足依赖，定位到具体 CK/FC 并修订。第 5 阶段的临时冒烟由工具自动生成。"
+      - "对请求与响应关联目标，在 CK 中写清响应匹配方式、完成握手、时限、允许同拍的条件。多笔在途或乱序接口规划独立事务历史，并记录可观测标识。"
+      - "在 .formal_records.yaml 记录白盒绑定、有效参数和真实时钟复位。第 5 阶段只用 DUT 源码、参数及端口时钟复位建立冒烟环境，正式观察点与 Tcl 留到第 6 阶段。"
+      - "用 FormalData inspect ports 核对各接口的实际方向，再规划已知性 Assume。双向协议不同端点的同名后缀可以对应不同方向。输出已知性按规格单独验为 Assert。"
+      - "使用 FormalData inspect signals 获取实际顶层内部信号，复制适用的 whitebox_declaration。记录尚需绑定的子模块信号与使用依据。"
+      - "如规格要求验证起点处于复位，将该义务单独规划为标记 initial_reset: true 的 Assume。如规格还明确要求释放后不重新进入复位，另设 reset_stable_after_release: true 的 Assume。分别记录依据，保留释放及释放后的独立目标。"
+      - "若规格要求检查在途容量或无对应命令的响应，在对应 Seq CK 规划 transaction_balance 数组。为每对握手写明绑定角色、适用的容量上限和同拍例外的规格依据。正式 sva_body 留到第 6 阶段实现。参见 Guide_Doc/formal_data.md 的独立事务计数。"
+      - "若规格要求在交付时核对历史标签或来源，阶段 4 写明捕获和交付的握手、两侧独立可观测值、同拍顺序、复位以及对应的规格条款。通道位图应区分有效与实际传输。核对所需白盒声明后可规划 latest_transfer 元数据，阶段 6.2 再实现。"
+      - "Complete 留存目标 ID、原始描述及归属，供后续复核范围。实现、约束修复与覆盖补缺在相应阶段进行。"
     reference_files:
       - "{OUT}/.formal_records.yaml"
       - "Guide_Doc/sva_property.md"
@@ -250,20 +254,14 @@ stage:
         args:
           dut_name: "{DUT}"
 
-  # ========== Stage 5: Baseline SVA and Preflight ==========
+  # ========== Stage 5: Disposable Toolchain Smoke ==========
   - name: script_generation
-    desc: "验证环境约束与 FormalMC 预检"
+    desc: "工具链编译与启动冒烟"
     task:
-      - "只实现基础 CK。可用 prepare sva --baseline 领取基础 CK，或用普通文件工具填写对应 sva_body。Assume 全部属于基础。"
-      - "在「验证环境约束」功能组中实现有规格依据的环境义务。独立端口各自握手并响应时，在同一 FC 下按端口各写一个 Assume CK。若计划把独立义务合在一个 CK 中，先修正条目再写 sva_body。按规格保留跨端口依赖和响应时限。参照 Guide_Doc/sva_property.md 的多端口公平性约束示例。"
-      - "确认真实时钟、复位、参数、白盒绑定和 TCL 配置。生成的 Tcl、Wrapper 和 Checker 由插件维护。"
-      - "调用 RunFormal(action=preflight)。加载全部基础 Assume，用已标记的基础 Cover 检查约束下的关键交互是否可达。FormalMC 编译并列举属性，只求解这些 Cover。用返回的 run_id 查询 status，依据 diagnostics 修复属性或配置。"
-      - "基础 Cover 异常时，用 AnalyzeFormal(mode=environment, run_id=...) 检查实际时钟、复位和约束，必要时用 mode=overconstraint 做有界诊断。"
-      - "基础 Cover 达到预期可达性后调用 Complete，系统冻结基础 CK 和共用配置。后续修改基础约定时，回到本阶段修订 YAML、重新预检并接受新基线。"
-    reference_files:
-      - "{OUT}/.formal_records.yaml"
-      - "Guide_Doc/sva_property.md"
-      - "Guide_Doc/formal_execution.md"
+      - "本阶段只确认原始 RTL、接口参数、时钟复位配置与 FormalMC 工具链可编译、展开并启动。不要实现正式 CK，不编写功能断言或 Assume 来完成冒烟。"
+      - "调用 RunFormal(action=preflight)。工具在隔离目录自动创建临时最小环境和冒烟属性，不采用正式 CK 的表达式；用返回的 run_id 查询 status，按 diagnostics 修正具体源码依赖、参数或工具运行问题。"
+      - "成功后记录日志并 Complete。冒烟结果只代表工具链可用，不代表设计正确、环境约束合理或功能可达；其临时属性不参与正式 CK 结果、分析及覆盖验收。"
+      - "接口和配置供后续复用，但不冻结正式属性或 Assume。后续每批自动预检，局部语法/绑定错误就地修复，不因修改正式属性退回本阶段。"
     output_files:
       - "{OUT}/.formal_records.yaml"
     checker:
@@ -272,39 +270,73 @@ stage:
         args:
           dut_name: "{DUT}"
 
-  # ========== Stage 6: Function Point Implementation ==========
+  # Stage 6 uses native UCAgent substages.
   - name: environment_debugging_iteration
-    desc: "按功能点实现 SVA 与定向验证"
+    desc: "SVA 模板与分批验证"
     task:
-      - "按 FC 领取待实现属性。技能可用时使用 prepare sva，指定 FC 用 --function。无技能时按记录中的 review_order 选择一个 FC，仅填写该批 SVA。"
-      - "用 RunFormal(action=run, scope=selected, fc_id=...) 定向运行该 FC 已实现的功能 Assert/Cover。只复验部分目标时改传 ck_ids。记录 run_id，未选目标保持未执行。"
-      - "已有定向结果时，先用 RunFormal(action=pending) 查看当前基线下的待复验 CK，按首个可执行批次返回的 run_call 提交。"
-      - "每条属性先运行 5 分钟，慢队列补到累计 20 分钟。REVIEW 就绪时查看属性、报告和日志。结合规格选择局部修订、带依据的延长求解或暂缓，然后推进后续 FC。暂缓仍为 UNPROVEN。"
-      - "分析空泛性或慢断言时，用 AnalyzeFormal(mode=sanity 或 fanin, run_id=..., property_name=...) 获取工具诊断，再结合规格决定是否修订。"
-      - "怀疑慢断言存在有限深度的反例时，可以用 AnalyzeFormal(mode=bounded_search, run_id=..., property_name=..., depth=...) 在隔离环境搜索。"
-      - "反例先核对规格、属性和证据。工作流保持基础 CK、共享 Assume、时钟复位和依赖绑定冻结。拆分时在补充 CK 填 parent_ck_id，保留原目标和原目标的未决状态。"
-      - "修改单时钟安全断言后，可以用 AnalyzeFormal(mode=replay, run_id=原批次, property_name=原属性名) 在旧反例上检查修改，再做定向证明。"
-      - "本阶段检查所有 CK 已实现，以及当前各功能属性均有可追溯的定向尝试。完整回归和正式反例归因在下一阶段。完整批次的证据由可选 prepare analysis 或普通工具维护。"
-    reference_files:
-      - "{OUT}/.formal_records.yaml"
-      - "Guide_Doc/sva_property.md"
-      - "Guide_Doc/formal_execution.md"
-    output_files:
-      - "{OUT}/.formal_records.yaml"
-    checker:
-      - name: formal_function_batch_check
-        clss: "FunctionBatchChecker"
-        args:
-          dut_name: "{DUT}"
+      - "6.1 生成并核对规划模板，6.2 分批实现并验证。"
+    stage:
+      - name: create_formal_case_templates
+        desc: "6.1 创建 SVA 测试用例模板"
+        task:
+          - "调用 Check 生成按固定规划排列的 SVA 模板。检查规格描述、FG/FC/CK、性质类型、父目标及绑定是否对应，逐项实现留给 6.2。模板占位不参加编译和证明。"
+        output_files:
+          - "{OUT}/formal_runs/case_templates.json"
+        checker:
+          - name: formal_case_template_check
+            clss: "FormalCaseTemplateChecker"
+            args:
+              dut_name: "{DUT}"
+      - name: implement_formal_case_batches
+        desc: "6.2 分批实现 SVA 并验证"
+        task:
+          - "先按规划实现有规格依据的正式环境 Assume。用 FormalData(request={action: prepare, section: sva, assumptions: true, limit: 20}) 领取同页的共享 Assume 和更新模板。随后按 case_batch 分批实现正式 Assert/Cover，按所属 FC 审阅。独立端口的环境义务各有独立 CK，保留真实协议依赖；不限制 DUT 输出来消除反例。"
+          - "从 FormalData prepare sva 返回的当前 CK 和 clock_reset 开始。先查本页 signal_bindings 中已展开的方向、位宽和源码行；缺少的信号再一次性用 inspect_ports_call 按逗号分隔查询。对正式 Assume 核对被约束的信号由环境驱动，并依据规格处理计划中的方向或场景错误。"
+          - "已标记的复位稳定 Assume 使用 prepare sva 的正文。它保留显式 disable iff (1'b0)，因此重新进入复位时仍会检查。"
+          - "若规格要求外部端点只能应答已接受的命令，用该端点公开的命令与响应握手独立记账。FormalData 支持带 transaction_balance、binding=egress 的 Assume。按规格选择是否允许零周期；在合法延迟响应以及无请求响应两种场景下核实。不能用当前命令译码或 DUT 当前 valid 代替在途记录来消除反例。缺少协议依据时保留原始失败并登记 SPEC_GAP。"
+          - "若当前 CK 的规划含 transaction_balance，使用 pending 的 current_fc.planned_bodies 或 prepare sva 返回的预填 body。工具按接口握手独立统计在途事务，越界使性质失败，允许同拍响应的唯一条件来自规划。核对端口、复位和例外的规格依据；遇到不一致应报告问题并在本阶段修正，不以 DUT 的 active 输出替代独立计数。"
+          - "若规格规定一次握手后下一拍转发有效位和字段，可用 FormalData 的 draft_transfer 草拟该 Seq CK。明确复位范围，核对同一时钟、延迟和字段对应后提交 ready_update，再定向验证。"
+          - "若要求交付值匹配最近一次接受的请求，可用 FormalData 的 draft_latest_transfer。按规格绑定捕获与交付的握手、值、复位和同拍优先级。响应可能延迟多拍；属性要覆盖没有新请求时的交付。多笔在途按队头匹配时需要队列模型。"
+          - "用 RunFormal(action=pending) 领取 case_batch，按其中 CK ID 和 FG/FC 路径读取 6.1 模板。一次实现最多 10 条 Assert/Cover。无技能时也可用普通文件工具按模板填写正文，再提交 case_batch.run_call；失败、恒真和覆盖异常按所属 FC 核对。"
+          - "填齐当前页后提交 FormalData 更新结果或 case_batch.run_call，定向验证本页需要执行的 CK。局部复验可在 fc_id 下指定属于该 FC 的 ck_ids。记录 run_id，未选目标保持未执行。"
+          - "公共输入更新后，FormalData 返回已重新打开的 CK 和当前 FC 动作。优先提交返回的 run_call 或 prepare_call；手工修改输入或缺少下一步时，用 RunFormal(action=pending) 查询。"
+          - "收到 formal_unguarded_until_assume 时，核对时间起点。无前置触发的 until 每拍重新开始，可能误排已在途事务的合法延迟响应。先结合规格和合法场景的可达证据复核该约束，再重验受影响 FC。"
+          - "定向 run_call 最多等待 5 秒，短批次可在同次调用返回 fc_progress。批次仍在运行时按 status_call 等新进度；结束后按 fc_progress 的 prepare_call、run_call 或 review_call 继续。需要反例时先按 evidence_call 查看该 CK 正文、时钟复位和对应信号。核对当批假设时，用 FormalData inspect spec 传入该 run_id 和对应的 FC/CK 查询，可一次比较多项。要查看完整波形时按 trace_call 查询。只有没有当前进度提示时才调用 pending。"
+          - "规划声明同步或异步复位释放时，首个正式批次结束后按 environment_check.analyze_call 检查释放可达性。诊断返回 fc_progress 时直接按其中的当前动作继续。可达后才接受该环境的 FC 结果。不可达时修复共享条件并重跑当前 FC。"
+          - "第 6.2 阶段对每个目标做有界首轮。单批最多 10 项、墙钟最多 20 分钟。短属性或环境确有问题就修正并局部验证。已进入证明的慢目标记录 UNPROVEN、原始输入和日志，继续下一批；未执行项继续排队。第 8 阶段集中审阅慢目标。"
+          - "第 6.2 阶段保留原性质与反例。求解器未决和无反例的信息都不能排除属性、RTL 或环境问题。"
+          - "分析空泛性或慢断言时，用 AnalyzeFormal(mode=sanity 或 fanin, run_id=..., property_name=...) 获取工具诊断，再结合规格决定是否修订。"
+          - "怀疑慢断言存在有限深度的反例时，可以用 AnalyzeFormal(mode=bounded_search, run_id=..., property_name=..., depth=...) 在隔离环境搜索。"
+          - "写每个正式 CK 前对照第 4 阶段原描述，核对触发事件、观察端口、采样拍、握手字段与例外条件。复位释放当拍与后续空闲分别检查。计划要求握手后下一拍交付时，按该拍与已接受的字段比较。对首个对应响应的义务，检查第一次交付。预检指出遗漏时在当前 FC 修复；若实现与规划冲突，保留原性质和反例并按规格证据处置。"
+          - "若原始反例显示 RTL 合法行为与阶段 4 文字有冲突，保留原规划性质及其 Fail，用 SPEC_GAP 登记规格出处、待决定问题和复验条件。另一个时序或场景的补充属性使用新的 CK 并链接原项。修正纯编码错误时，应能说明原规格为何仍由修正版覆盖。"
+          - "当前批逐项审阅有证据的短目标异常。共享环境修订后重新验证受影响义务，环境或属性错误未解决时保持待处理。"
+          - "对支持回放的单时钟安全断言，按异常条目中的 replay_call 用 AnalyzeFormal 重现失败拍，修改后可复用同一反例快速核查，然后做定向证明。回放证据不足时按 trace_call 查看原始波形。"
+          - "使用 RunFormal(action=review_fc, fc_id=..., reviews=...) 提交当前 FC 的异常分类与依据。异常可由 pending 的 review_call 提交，确认属性错误后按 FormalData prepare sva 返回的 repair_update 修订对应 CK 并重跑。ENV_PENDING 表示环境或属性问题未解决，不可关闭当前 FC。真实 RTL 反例保持 Fail，平凡证明和不可达 Cover 要有明确审阅，暂缓保留缺口，不要求全部 Pass。所有 FC 都有当前有效处置后才 Complete。"
+          - "如果合法的真实工具结果揭示规格缺失或互相矛盾，用 SPEC_GAP 记录待确认事项并继续下一个 FC。reason 说明当前环境、属性和结果何以有效，spec_gap 填 requirement_ref、question、follow_up。保留当前失败与原目标。不用此处置代替修复已定位的环境或属性错误，或把证据充分的 RTL 缺陷当成待确认。"
+          - "异常的 prior_review_draft 可作为相同性质和判定的复审线索。核对当前环境与证据，用 review_call 中当前 run_id 提交审阅。"
+        reference_files:
+          - "Guide_Doc/sva_property.md"
+          - "Guide_Doc/formal_execution.md"
+        output_files:
+          - "{OUT}/.formal_records.yaml"
+        checker:
+          - name: formal_function_batch_check
+            clss: "FunctionBatchChecker"
+            args:
+              dut_name: "{DUT}"
+
 
   # ========== Stage 7: Coverage Analysis and Closure ==========
   - name: coverage_analysis_and_optimization
     desc: "完整验证与覆盖率收敛"
     task:
-      - "先对当前版本运行一轮完整 Formal。继续处置实验中的 UNPROVEN；汇总仍未决项并记录恢复条件。定向证据用于修订，最终验收读取完整批次。"
-      - "技能可用时用 prepare analysis 领取当前反例、恒真和不可达 Cover，一次性核对规格、前提和真实证据。无技能时用 RunFormal evidence 和普通文件工具维护 analysis。首次 RTL_BUG 分析记录 expected_requirement 和当前证据绑定，供 Bug 报告和总结复用。"
-      - "根据当前完整批次的结构覆盖缺口与规格补充独立目标。仅修订相关 CK 时先定向复验，确认后合入完整批次。规格未要求的场景记录处置依据；COI 与功能证明状态分别核对。"
-      - "依据最新完整批次的 fanin 和证明证据完成覆盖验收与分析。输入版本一致时复用完整批次，暂缓项继续标为 UNPROVEN。"
+      - "按完整批次的 environment_check 处理复位释放可达性。新增属性可以复用同环境的诊断；共享条件变化时按新批次复查。"
+      - "对当前正式输入运行完整回归，清点全部目标并取得本批原生 COI。工具核对已暂缓目标的原始尝试、日志摘要、正文和共享环境。仍适用的缺口在完整批次列为 UNPROVEN，交给第 8 阶段。其余目标执行本批首轮。按原 CK 及派生 CK 分列实际求解和引用的缺口，保留累计成本。"
+      - "收尾以完整回归和覆盖缺口为主，核对第 6 阶段的局部结果与当前完整批次是否一致；版本与证据仍适用的分析复用，只有新增/变化的反例或跨 FC 问题重新审阅。用 FormalData prepare analysis 领取正式待审队列。首次 RTL_BUG 分析记录规格关系与当前证据绑定，不将失败属性数直接当 Bug 数。"
+      - "若完整结果仍暴露真实的规格待确认项，用当前完整证据填写 resolution=SPEC_GAP 与 spec_gap。原始失败和不可达继续计入各自统计，这些事项单列在分析及总结中。旧定向处置仅供复核。"
+      - "用 prepare analysis 的 full_vs_local 对照本次完整批次和适用的局部判定。原始轨迹字节相同，或 trace_payload=same_except_export_date 时，可复查并复用已有解释。其他差异应查看实际采样。最终分析必须绑定本次完整批次。"
+      - "根据当前完整批次的结构覆盖缺口与规格补充独立目标。仅修订相关 CK 时先定向复验，定向回执中的 coverage_preview 提供当前清单的原生 Nets 与先前完整批次对照。若结构覆盖仍低于门槛且未增加，先核对未覆盖功能和规格依据，再启动完整回归。保留有功能价值的 Cover。规格未要求的场景记录处置依据；COI 与功能证明状态分别核对。"
+      - "依据最新完整批次的 fanin 和证明证据完成覆盖验收与分析。输入版本一致时复用完整批次，COI 报告缺失或失效时按 Check 返回的 refresh_call 恢复同批次覆盖。暂缓项继续标为 UNPROVEN。新增目标只为规格和真实覆盖缺口服务，不为提高断言数量。集成发现环境或属性问题时在本阶段修复、定向复验后完整回归，不跳回第 5 或第 6 阶段；仍未解决的环境问题不可冒充 RTL Bug 或完成。"
       - "对已证明不可达的 Cover，可用 AnalyzeFormal(mode=unreachable, run_id=..., property_name=...) 查看原生诊断。诊断结果与正式批次分别记录。"
     reference_files:
       - "{OUT}/.formal_records.yaml"
@@ -328,97 +360,120 @@ stage:
           dut_name: "{DUT}"
           accepted_ratio_threshold: 100.0
 
-  # ========== Stage 8: Counterexample Python Test Generation ==========
-  - name: counterexample_python_testgen
-    desc: "形式化反例 Python 测试用例生成"
+  - name: slow_property_review
+    desc: "慢 SVA 复核与定向优化"
     task:
-      - "目标：为 RTL_BUG 属性编写引脚级 Python 测试用例复现 Bug。"
-      - "参考 Guide_Doc/counterexample.md，根据当前真实反例用普通文件工具填写引脚测试；不依赖技能目录或脚本。"
-      - "注：Checker 已自动生成 `{OUT}/tests/test_{DUT}_counterexample.py` 骨架，你只需填充引脚驱动和断言。"
-    reference_files:
-      - "{OUT}/.formal_records.yaml"
-      - "Guide_Doc/counterexample.md"
-      - "{OUT}/tests/{DUT}_checker.sv"
-      - "{OUT}/tests/{DUT}_wrapper.sv"
-      - "{OUT}/tests/{LOG_FILE}"
-    output_files:
-      - "{OUT}/tests/test_{DUT}_counterexample.py"
+      - "Check 列出当前完整批次中尚待复核的超时目标。逐个检查规格、环境、可达性与累计成本。需要时用 RunFormal review 在当前完整批次上做单目标策略试验，或保留 UNPROVEN 并用 defer 记录剩余风险及恢复条件。"
+      - "只有原生证明支持时将 Cover 记为不可达。修改环境或性质后重新运行必要的当前完整回归，重新检查第 7 阶段覆盖及分析门禁。"
     checker:
-      - name: counterexample_testgen_check
-        clss: "CounterexampleTestgenChecker"
+      - name: slow_property_review_check
+        clss: "SlowPropertyReviewChecker"
         args:
           dut_name: "{DUT}"
-    ignore: $(CEX_CHECK: true)
-  # ========== Stage 9: RTL Defect Analysis and Reporting ==========
-  # (Renumbered from Stage 10 after merging env-gen into property_generation)
-  - name: formal_execution
-    desc: "RTL缺陷分析与报告"
-    task:
-      - "目标：对 RTL_BUG 属性进行深度分析并生成 BUG 报告。"
-      - "技能可用时用数据技能 prepare bugs取得已核验RTL_BUG观测和ready_update；无技能时Check协调条目，再用普通文件工具填写相同bugs字段。"
-      - "当前批次仍有待归因项时，先逐项复审 `analysis` 并绑定当前证据。随后维护 `bugs`，由验收生成 `04_{DUT}_bug_report.md`。"
-      - "prepare bugs的items[].reviewed_analysis复用已核验FA规格关系、参考计算和当前观察，本阶段只补缺失的共享根因、源码位置、修复建议和可选impact_assessment，不重新分析同一反例。description/expected_requirement/reference_calculations及计算结果均派生不可重填。观察限于当前证据；影响推断标为人工，不能把单例行为写为所有输入的已证结论。"
-      - "报告与Bug记录先用一至几句白话写清触发条件、模块或信号位置、预期与实际差异、后果。必要术语首次解释，不自造故障名称或用标签代替事实；已观察行为、根因推测及未验证影响分开，原因未确认就明确写出。完整要求见Guide_Doc/bug_report.md“问题表述要求”。"
-      - "显式root_cause_id关联共享根因；数据技能可用shared批量更新，无技能时在YAML各观测中填写一致共享值。失败属性数与根因数分开，不编造最小反例或修复结果。"
-    reference_files:
-      - "Guide_Doc/bug_report.md"
-      - "{OUT}/.formal_records.yaml"
-      - "{OUT}/tests/{LOG_FILE}"
-      - "{OUT}/tests/{DUT}_checker.sv"
-    output_files:
-      - "{OUT}/.formal_records.yaml"
-    checker:
-      - name: bug_report_consistency_check
-        clss: "BugReportConsistencyChecker"
+      - name: current_coverage_check
+        clss: "CoverageAnalysisChecker"
         args:
           dut_name: "{DUT}"
+          coi_threshold: 90.0
+      - name: current_environment_analysis_check
+        clss: "EnvironmentAnalysisChecker"
+        args:
+          dut_name: "{DUT}"
+          accepted_ratio_threshold: 100.0
 
-  - name: static_bug_validation
-    desc: "静态分析Bug与形式化验证结果关联"
+  - name: findings_and_summary
+    desc: "缺陷分析、证据复核与总结"
     task:
-      - "核对静态候选与当前完整批次的精确属性和已核验 Bug。每个静态候选保留独立的关联标签。"
-      - "已确认使用 <LINK-BUG-[BG-XXX-NNN]>，引用当前已核验 Bug；多个观察可以在同一标签内列出。"
-      - "已有证据排除使用 <LINK-BUG-[BG-RULED-OUT]>，另写 Evidence: `完整属性名` — 说明该当前已证明断言如何排除候选。证据适用范围随当前假设和配置。"
-      - "未执行、UNPROVEN、覆盖缺口或其他证据不足情形使用 <LINK-BUG-[BG-UNVERIFIED]>。已有 BG-NA 作为未验证保留。"
-      - "汇总分别列出已确认、已有证据排除和尚未验证，清理未处理的 BG-TBD 占位。"
-    reference_files:
-      - "{OUT}/04_{DUT}_static_bug_analysis.md"
-      - "{OUT}/04_{DUT}_bug_report.md"
-      - "{OUT}/tests/{LOG_FILE}"
-    output_files:
-      - "{OUT}/04_{DUT}_static_bug_analysis.md"
-    checker:
-      - name: static_formal_bug_linkage_check
-        clss: "StaticFormalBugLinkageChecker"
-        args:
-          dut_name: "{DUT}"
-    ignore: $(IGNORE_STATIC_CHECK: true)
-          
-  # ========== Stage 11: Verification Summary and Review ==========
-  - name: verification_review_and_summary
-    desc: "验证总结与审查"
-    task:
-      - "目标：将最终总结写入 `.formal_records.yaml.summary`，并自动渲染 `05_{DUT}_formal_summary.md`。"
-      - "通过可选数据技能 inspect summary/批量update或普通文件工具维护人工结论、completeness与coi_assessment；严重缺陷表从已核验Bug记录生成，不填写severe_bugs或机器统计。"
-      - "先查询 RunFormal(action=status)，以机器证据填写总体结果和验证缺口；若有暂缓，必须明确 UNPROVEN，不能声称全部证明通过。最终报告由 Checker 生成。"
-      - "结合 `run_results`、覆盖率、Bug 报告与验证规划，填写总体结果、完备性评估、严重漏洞汇总和验收结论。"
-      - "总结中的检测点、Cover实际表达式与Bug观察表直接来自当前输入和已核验分析，不重新手抄常量、边界或计算结果。人工字段仅补验收判断和范围风险，不再次分析相同反例；不能将单例行为或COI/Cover达标泛化为所有输入的已证结论。"
-      - "禁止直接编辑 Markdown 总结文档。"
-    reference_files:
-      - "{OUT}/01_{DUT}_verification_needs_and_plan.md"
-      - "{OUT}/tests/{LOG_FILE}"
-      - "{OUT}/tests/{FANIN_REP}"
-      - "{OUT}/.formal_records.yaml"
-      - "{OUT}/tests/test_{DUT}_counterexample.py"
-      - "Guide_Doc/formal_summary.md"
-    output_files:
-      - "{OUT}/.formal_records.yaml"
-      - "{OUT}/formal_view.json"
-    checker:
-      - name: formal_summary_check
-        clss: "FormalSummaryChecker"
-        args:
-          dut_name: "{DUT}"
+      - "使用当前完整批次和第 8 阶段记录完成缺陷分析与总结。"
+    stage:
+      - name: counterexample_python_testgen
+        desc: "形式化反例 Python 测试用例生成"
+        task:
+          - "目标：为 RTL_BUG 属性编写引脚级 Python 测试用例复现 Bug。"
+          - "参考 Guide_Doc/counterexample.md，根据当前真实反例用普通文件工具填写引脚测试；不依赖技能目录或脚本。"
+          - "注：Checker 已自动生成 `{OUT}/tests/test_{DUT}_counterexample.py` 骨架，你只需填充引脚驱动和断言。"
+        reference_files:
+          - "{OUT}/.formal_records.yaml"
+          - "Guide_Doc/counterexample.md"
+          - "{OUT}/tests/{DUT}_checker.sv"
+          - "{OUT}/tests/{DUT}_wrapper.sv"
+          - "{OUT}/tests/{LOG_FILE}"
+        output_files:
+          - "{OUT}/tests/test_{DUT}_counterexample.py"
+        checker:
+          - name: counterexample_testgen_check
+            clss: "CounterexampleTestgenChecker"
+            args:
+              dut_name: "{DUT}"
+        ignore: $(CEX_CHECK: true)
+      - name: formal_execution
+        desc: "RTL缺陷分析与报告"
+        task:
+          - "目标：对 RTL_BUG 属性进行深度分析并生成 BUG 报告。"
+          - "技能可用时用数据技能 prepare bugs取得已核验RTL_BUG观测和ready_update；无技能时Check协调条目，再用普通文件工具填写相同bugs字段。"
+          - "当前批次仍有待归因项时，先逐项复审 `analysis` 并绑定当前证据。随后维护 `bugs`，由验收生成 `04_{DUT}_bug_report.md`。"
+          - "prepare bugs的items[].reviewed_analysis复用已核验FA规格关系、参考计算和当前观察，本阶段只补缺失的共享根因、源码位置、修复建议和可选impact_assessment，不重新分析同一反例。description/expected_requirement/reference_calculations及计算结果均派生不可重填。观察限于当前证据；影响推断标为人工，不能把单例行为写为所有输入的已证结论。"
+          - "报告与Bug记录先用一至几句白话写清触发条件、模块或信号位置、预期与实际差异、后果。必要术语首次解释，不自造故障名称或用标签代替事实；已观察行为、根因推测及未验证影响分开，原因未确认就明确写出。完整要求见Guide_Doc/bug_report.md“问题表述要求”。"
+          - "显式root_cause_id关联共享根因；数据技能可用shared批量更新，无技能时在YAML各观测中填写一致共享值。失败属性数与根因数分开，不编造最小反例或修复结果。"
+        reference_files:
+          - "Guide_Doc/bug_report.md"
+          - "{OUT}/.formal_records.yaml"
+          - "{OUT}/tests/{LOG_FILE}"
+          - "{OUT}/tests/{DUT}_checker.sv"
+        output_files:
+          - "{OUT}/.formal_records.yaml"
+        checker:
+          - name: bug_report_consistency_check
+            clss: "BugReportConsistencyChecker"
+            args:
+              dut_name: "{DUT}"
+
+      - name: static_bug_validation
+        desc: "静态分析Bug与形式化验证结果关联"
+        task:
+          - "核对静态候选与当前完整批次的精确属性和已核验 Bug。每个静态候选保留独立的关联标签。"
+          - "已确认使用 <LINK-BUG-[BG-XXX-NNN]>，引用当前已核验 Bug；多个观察可以在同一标签内列出。"
+          - "已有证据排除使用 <LINK-BUG-[BG-RULED-OUT]>，另写 Evidence: `完整属性名` — 说明该当前已证明断言如何排除候选。证据适用范围随当前假设和配置。"
+          - "未执行、UNPROVEN、覆盖缺口或其他证据不足情形使用 <LINK-BUG-[BG-UNVERIFIED]>。已有 BG-NA 作为未验证保留。"
+          - "汇总分别列出已确认、已有证据排除和尚未验证，清理未处理的 BG-TBD 占位。"
+        reference_files:
+          - "{OUT}/04_{DUT}_static_bug_analysis.md"
+          - "{OUT}/04_{DUT}_bug_report.md"
+          - "{OUT}/tests/{LOG_FILE}"
+        output_files:
+          - "{OUT}/04_{DUT}_static_bug_analysis.md"
+        checker:
+          - name: static_formal_bug_linkage_check
+            clss: "StaticFormalBugLinkageChecker"
+            args:
+              dut_name: "{DUT}"
+        ignore: $(IGNORE_STATIC_CHECK: true)
+
+      - name: verification_review_and_summary
+        desc: "验证总结与审查"
+        task:
+          - "目标：将最终总结写入 `.formal_records.yaml.summary`，并自动渲染 `05_{DUT}_formal_summary.md`。"
+          - "通过可选数据技能 inspect summary/批量update或普通文件工具维护人工结论、completeness与coi_assessment；严重缺陷表从已核验Bug记录生成，不填写severe_bugs或机器统计。"
+          - "先查询 RunFormal(action=status)，以机器证据填写总体结果和验证缺口；若有暂缓，必须明确 UNPROVEN，不能声称全部证明通过。最终报告由 Checker 生成。"
+          - "结合 `run_results`、覆盖率、Bug 报告与验证规划，填写总体结果、完备性评估、严重漏洞汇总和验收结论。"
+          - "总结中的检测点、Cover实际表达式与Bug观察表直接来自当前输入和已核验分析，不重新手抄常量、边界或计算结果。人工字段仅补验收判断和范围风险，不再次分析相同反例；不能将单例行为或COI/Cover达标泛化为所有输入的已证结论。"
+          - "禁止直接编辑 Markdown 总结文档。"
+        reference_files:
+          - "{OUT}/01_{DUT}_verification_needs_and_plan.md"
+          - "{OUT}/tests/{LOG_FILE}"
+          - "{OUT}/tests/{FANIN_REP}"
+          - "{OUT}/.formal_records.yaml"
+          - "{OUT}/tests/test_{DUT}_counterexample.py"
+          - "Guide_Doc/formal_summary.md"
+        output_files:
+          - "{OUT}/.formal_records.yaml"
+          - "{OUT}/formal_view.json"
+        checker:
+          - name: formal_summary_check
+            clss: "FormalSummaryChecker"
+            args:
+              dut_name: "{DUT}"
+
 
 ################## Check Fail LLM & Complete Pass LLM 配置 ##################
 

@@ -110,6 +110,10 @@ def test_skill_batches_sva_and_checks_whitebox_before_publication(skill_workspac
     discovery = json.loads(call_skill(skill_workspace, "inspect signals --query buffered"))
     signal = discovery["signals"]["items"][0]
     assert (signal["path"], signal["width"], signal["line"]) == ("PacketRouter.buffered", 3, 2)
+    ports = json.loads(call_skill(skill_workspace, "inspect ports --query a,y"))
+    assert [(p["name"], p["direction"], p["width"]) for p in ports["ports"]["items"]] == [
+        ("a", "input", 3), ("y", "output", 3)]
+    assert json.loads(call_skill(skill_workspace, "inspect ports --query buffered"))["ports"]["total"] == 0
     batch = json.loads(call_skill(skill_workspace, "prepare sva"))
     assert batch["fg_id"] == "FG-ROUTE"
     assert batch["progress"] == {"implemented": 0, "total": 2}

@@ -1,20 +1,110 @@
 """Canonical YAML models for Formal task inputs, typed results, and analysis."""
 
-from pydantic import BaseModel, Field, StrictBool, field_validator, model_validator
-from typing import List, Optional, Dict, Union, Any
+from pydantic import BaseModel, Field, ConfigDict, field_validator, model_validator
+from typing import Annotated, List, Optional, Dict, Union, Any, Literal
+
+class TransactionBalance(BaseModel):
+    """Handshake roles for one independent source of outstanding transactions."""
+
+    model_config = ConfigDict(extra="forbid")
+    command_valid: str = Field(pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")
+    command_ready: str = Field(pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")
+    response_valid: str = Field(pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")
+    response_ready: str = Field(pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")
+    counter_bits: int = Field(default=6, strict=True, ge=1, le=32)
+    binding: Optional[Literal["ingress", "egress", "internal"]] = None
+    max_pending: Optional[int] = Field(None, strict=True, ge=1, description="Check command acceptance below this outstanding limit")
+    reuse_on_response: Optional[Literal[True]] = Field(None, description="Allow an accepted response to free a slot in the same sample")
+    zero_cycle_when: Optional[str] = Field(
+        None, max_length=2000, pattern=r"^[A-Za-z0-9_ `'~!&|^<>=():\[\]+*/%?.-]+$",
+        description="Optional specification-backed Boolean guard for a same-cycle command and response.",
+    )
+
+    @field_validator("zero_cycle_when")
+    @classmethod
+    def validate_guard(cls, guard):
+        """Keep the zero-cycle exception a single expression, without comments."""
+        if guard is not None and (not guard.strip() or any(x in guard for x in ("//", "/*", "*/"))):
+            raise ValueError("zero_cycle_when must be a Boolean expression without comments")
+        return guard
+
+    @model_validator(mode="after")
+    def validate_capacity(self):
+        """Keep capacity limits representable and reuse scoped to capacity checks."""
+        if self.max_pending is not None and self.max_pending >= (1 << self.counter_bits):
+            raise ValueError("max_pending must fit in counter_bits")
+        if self.reuse_on_response and self.max_pending is None:
+            raise ValueError("reuse_on_response requires max_pending")
+        return self
+
+
+SignalName = Annotated[str, Field(pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")]
+
+
+class TransferLane(BaseModel):
+    """One transferred-bit observation, sampled on a lane's valid and ready."""
+
+    model_config = ConfigDict(extra="forbid")
+    valid: SignalName
+    ready: SignalName
+
+
+class PackedTransferLanes(BaseModel):
+    """Corresponding bits in these vectors identify per-lane handshakes."""
+
+    model_config = ConfigDict(extra="forbid")
+    valid_vector: SignalName
+    ready_vector: SignalName
+
+
+class LatestTransfer(BaseModel):
+    """Compare each delivered value against the latest accepted sample since reset."""
+
+    model_config = ConfigDict(extra="forbid")
+    capture_valid: SignalName
+    capture_ready: SignalName
+    captured: SignalName
+    delivery_valid: SignalName
+    delivery_ready: SignalName
+    observed: SignalName | PackedTransferLanes | Annotated[list[TransferLane], Field(min_length=1, max_length=64)]
+    simultaneous: Literal["previous", "current"]
+    reset_assertion: Literal["sync", "async"]
+
 
 class CheckPoint(BaseModel):
     id: str
     style: str
     description: str
     sva_body: Optional[str] = Field(None, description="SVA code body, synced from .sv file")
-    baseline: StrictBool = False
     parent_ck_id: Optional[str] = None
+    transaction_balance: Optional[List[TransactionBalance]] = Field(None, min_length=1, max_length=16)
+    latest_transfer: Optional[LatestTransfer] = None
+    initial_reset: Optional[Literal[True]] = Field(None, description="An Assume requiring reset on the initial proof sample only")
+    reset_stable_after_release: Optional[Literal[True]] = Field(None, description="An Assume requiring the primary reset to stay inactive after a sampled release")
+    model_config = ConfigDict(extra="forbid")
 
-    @property
-    def is_baseline(self) -> bool:
-        """Identify a shared contract property, including every environment assumption."""
-        return self.baseline or self.style.lower() == "assume"
+    @model_validator(mode="after")
+    def validate_monitor_style(self):
+        """Require each verification-only monitor to have its supported check kind."""
+        import re
+        if self.transaction_balance:
+            if self.style.lower() not in {"seq", "assume"} or not re.fullmatch(r"CK-[A-Za-z0-9_-]+", self.id):
+                raise ValueError("transaction_balance requires a Seq or egress Assume CK with a valid identifier")
+            if self.initial_reset or self.reset_stable_after_release:
+                raise ValueError("Use a separate Assume CK for a reset rule and for transaction_balance")
+            if self.style.lower() == "assume" and any(
+                rule.binding != "egress" or rule.max_pending is not None or rule.zero_cycle_when not in {None, "1'b1"}
+                for rule in self.transaction_balance
+            ):
+                raise ValueError("An environment transaction_balance requires public egress handshakes, no capacity constraint, "
+                                 "and either no same-cycle exception or the explicitly allowed 1'b1")
+        if self.latest_transfer and (self.transaction_balance or self.style.lower() != "seq" or not re.fullmatch(r"CK-[A-Za-z0-9_-]+", self.id)):
+            raise ValueError("latest_transfer requires a distinct Seq CK with a valid identifier")
+        if self.initial_reset and self.style.lower() != "assume":
+            raise ValueError("initial_reset requires an Assume CK")
+        if self.reset_stable_after_release and (self.initial_reset or self.style.lower() != "assume"):
+            raise ValueError("reset_stable_after_release requires a separate Assume CK")
+        return self
 
 
 def has_sva_body(body: str | None) -> bool:
@@ -66,7 +156,10 @@ class FormalSpec(BaseModel):
     @model_validator(mode="after")
     def validate_checkpoint_parents(self):
         """Require every proof decomposition link to have an existing acyclic parent."""
-        parents = {ck.id: ck.parent_ck_id for fg in self.function_groups for fc in fg.functions for ck in fc.check_points}
+        checks = [ck for fg in self.function_groups for fc in fg.functions for ck in fc.check_points]
+        if sum(ck.initial_reset is True for ck in checks) > 1:
+            raise ValueError("Only one initial_reset Assume may define the initial proof sample")
+        parents = {ck.id: ck.parent_ck_id for ck in checks}
         for child, parent in parents.items():
             seen = {child}
             while parent is not None:
@@ -101,6 +194,31 @@ class RunResults(BaseModel):
     uncovered_signals: List[str] = []
     iteration_history: List[IterationEntry] = []
 
+class SpecificationGap(BaseModel):
+    """Open decision about a requirement tied to a current tool result."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    requirement_ref: str = Field(min_length=1, max_length=1000, description="The exact specification or planned CK whose meaning is incomplete")
+    question: str = Field(min_length=1, max_length=1000, description="The concrete behavior that needs a specification decision")
+    follow_up: str = Field(min_length=1, max_length=1000, description="What decision is needed and when to revalidate the property")
+
+    @field_validator("requirement_ref", "question", "follow_up")
+    @classmethod
+    def reject_placeholders(cls, value: str) -> str:
+        if "[LLM-TODO" in value:
+            raise ValueError("Record a concrete specification gap and follow-up.")
+        return value
+
+
+def validate_specification_gap(gap, result: str, evidence: dict) -> SpecificationGap:
+    """Require a current abnormal result and its native evidence before deferring a decision."""
+    if result not in {"FALSIFIED", "TRIVIALLY_FALSE", "COVER_UNREACHABLE"} or not evidence.get("report_sha256"):
+        raise ValueError("SPEC_GAP requires a current failed assertion or unreachable Cover and its native report.")
+    if result == "FALSIFIED" and not evidence.get("trace_sha256"):
+        raise ValueError("SPEC_GAP for a dynamic failure requires the original native counterexample trace.")
+    return SpecificationGap.model_validate(gap)
+
+
 class AnalysisEntry(BaseModel):
     """Manual analysis layer: Filled by LLM, Checker only appends, never overwrites"""
     id: str
@@ -113,7 +231,8 @@ class AnalysisEntry(BaseModel):
     related_assume: Optional[str] = None
     prop_type: Optional[str] = None
     sva_code: Optional[str] = None
-    resolution: Optional[str] = Field(None, description="FA: Resolution: RTL_BUG, ENV_PENDING, COVER_EXPECTED_FAIL")
+    resolution: Optional[str] = Field(None, description="FA: Resolution: RTL_BUG, SPEC_GAP, ENV_PENDING, COVER_EXPECTED_FAIL")
+    spec_gap: Optional[SpecificationGap] = None
     expected_requirement: str = Field("", description="FA RTL_BUG author-provided specification requirement; not machine-proven")
     reference_calculations: List[Dict[str, Any]] = Field(default_factory=list, description="FA optional evidence-bound integer expressions")
     reference_results: List[Dict[str, Any]] = Field(default_factory=list, description="Machine-derived results for this FA review")
@@ -150,6 +269,7 @@ class AnalysisReviewDraft(BaseModel):
     analysis: str
     expected_requirement: str = ""
     decision: str = ""
+    spec_gap: Optional[SpecificationGap] = None
 
 
 class AnalysisData(BaseModel):
@@ -181,9 +301,6 @@ def semantic_inputs(records: Union[Dict[str, Any], FormalRecords]) -> Dict[str, 
             function.pop("title", None)
             function.pop("review_order", None)
             for check in function["check_points"]:
-                # Preserve the input identity of tasks recorded before baseline tagging.
-                if not check.get("baseline"):
-                    check.pop("baseline", None)
                 # Parent links document proof intent, independently of the expression.
                 check.pop("parent_ck_id", None)
     return {key: values.get(key) for key in ("dut", "basic_info", "spec", "extra_config")}

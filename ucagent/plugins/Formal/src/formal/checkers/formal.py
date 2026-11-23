@@ -66,8 +66,6 @@ from formal.skills.lib.formal_tools import (
     analyze_signal_coverage_usage,
     FormalStageContext,
     log_filename,
-    coverage_report_path,
-    parse_coverage,
     required_script_commands,
     load_records,
     get_all_ck_from_records,
@@ -346,6 +344,15 @@ class PropertyStructureChecker(BaseFormalChecker):
         if not records or not records.spec:
             return self._fail("No spec found in records.")
 
+        if batched_sva_enabled(self.cfg):
+            from formal.baseline import require_planned_scope
+
+            try:
+                _, _, root = self._execution()._paths(create=False)
+                require_planned_scope(root, records)
+            except (ValueError, OSError) as exc:
+                return self._fail("Original verification scope could not be confirmed.", details=str(exc))
+
         errors = []
         ck_count = 0
         implemented_count = 0
@@ -398,17 +405,77 @@ class PropertyStructureChecker(BaseFormalChecker):
 # =============================================================================
 
 class FormalBatchPlanChecker(BaseFormalChecker):
-    """Confirm the plan includes a reachability witness before any SVA is required."""
+    """Confirm official FC targets are planned without requiring phase-five throwaway CKs."""
 
-    def do_check(self, timeout=0, **kwargs):
-        """Require at least one deliberately selected baseline Cover."""
+    def do_check(self, timeout=0, is_complete=False, **kwargs):
+        """Require a nonempty official verification plan before compiler smoke."""
         records = load_records(self.paths.records_yaml)
         if not records or not records.spec or not any(
-            ck.is_baseline and ck.style.lower() == "cover"
-            for fg in records.spec.function_groups for fc in fg.functions for ck in fc.check_points
+            ck.style.lower() != "assume" for fg in records.spec.function_groups
+            for fc in fg.functions for ck in fc.check_points
         ):
-            return self._fail("Mark a specification-backed Cover as baseline before entering the preflight stage.")
-        return self._pass("Formal plan includes a baseline reachability check.")
+            return self._fail("Plan at least one official Assert/Cover check before implementation.")
+        if is_complete and batched_sva_enabled(self.cfg):
+            from formal.baseline import planned_checkpoints
+            from formal.execution import atomic_json, input_lock
+
+            output, _, root = self._execution()._paths()
+            with input_lock(output):
+                current = load_records(self.paths.records_yaml)
+                if current != records:
+                    return self._fail("Verification planning changed during completion. Review it and retry Complete.")
+                atomic_json(root / "plan_scope.json", {"dut": records.dut, "checkpoints": planned_checkpoints(records)})
+        return self._pass("Official verification targets are planned; smoke properties are tool-generated.")
+
+
+class FormalCaseTemplateChecker(BaseFormalChecker):
+    """Generate plan-bound templates without creating executable properties or proof receipts."""
+
+    def do_check(self, timeout=0, **kwargs):
+        """Generate one unimplemented SVA template per accepted Stage 4 checkpoint."""
+        from formal.baseline import require_planned_scope
+        from formal.case_batches import case_templates
+        from formal.execution import atomic_json, input_lock
+
+        out, _, root = self._execution()._paths()
+        try:
+            with input_lock(out):
+                records = load_records(self.paths.records_yaml)
+                plan = require_planned_scope(root, records) if records and records.spec else {}
+                if not plan:
+                    return self._fail("Restore the accepted Stage 4 scope before creating SVA templates.")
+                from formal.skills.lib.models import has_sva_body
+                if any(has_sva_body(ck.sva_body) for fg in records.spec.function_groups for fc in fg.functions for ck in fc.check_points):
+                    return self._fail("Stage 6.1 requires unimplemented SVA templates. Preserve the Stage 4 planning baseline.")
+                templates = case_templates(records, plan)
+                atomic_json(root / "case_templates.json", templates)
+            return True, {"artifact": str((root / "case_templates.json").relative_to(self._execution().workspace)),
+                          "templates": len(templates["templates"]), "batch_size": templates["case_count"]}
+        except (ValueError, OSError) as exc:
+            return self._fail(str(exc))
+
+
+class SlowPropertyReviewChecker(BaseFormalChecker):
+    """Require a current full batch and an explicit Stage 8 decision on each remaining timeout."""
+
+    def do_check(self, timeout=0, **kwargs):
+        """Check fresh resolutions or explicit residual risk for every recorded timeout."""
+        from formal.case_batches import SLOW
+        execution = self._execution()
+        ok, report = execution.check()
+        if not ok:
+            return False, report
+        _, _, root = execution._paths(create=False)
+        _, state = execution._load(root, report["run_id"])
+        reviewed = {r["property"] for r in state.get("decisions", [])
+                    if r.get("stage") == SLOW and r["action"] == "defer"}
+        pending = [n for n, item in state["properties"].items() if item["result"] == "UNPROVEN" and n not in reviewed]
+        if pending:
+            return False, {"error_code": "formal_slow_review_pending", "properties": pending,
+                           "run_id": state["run_id"], "next_action": "Use the current target evidence, scope and cost. "
+                           "Retry with a justified strategy or record remaining risk and a specific resume condition "
+                           "using RunFormal review, disposition=defer. Unproven is distinct from unreachable."}
+        return True, {"run_id": state["run_id"], "still_unproven": sorted(reviewed & set(state["properties"]))}
 
 
 class FunctionBatchChecker(PropertyStructureChecker):
@@ -416,19 +483,20 @@ class FunctionBatchChecker(PropertyStructureChecker):
 
     def do_check(self, timeout=0, **kwargs):
         """Validate one current specification and preserve exact FC attempt identities."""
-        completed, progress = super().do_check(timeout=timeout, **kwargs)
-        if not completed:
-            return completed, progress
         from formal.baseline import function_batch_progress
 
         try:
-            progress = function_batch_progress(self._execution(), load_records(self.paths.records_yaml))
+            records = load_records(self.paths.records_yaml)
+            if records is None or records.spec is None:
+                raise ValueError("Complete the official FC plan before implementation.")
+            progress = function_batch_progress(self._execution(), records)
         except (ValueError, OSError) as exc:
-            return self._fail(str(exc))
+            return False, {"error_code": "formal_fc_inputs_invalid", "error": str(exc),
+                           "next_action": "Correct the named FC or shared input, then request RunFormal action=pending in this stage."}
         if progress["pending"] or progress["active"]:
-            return False, {"error_code": "formal_fc_batches_pending", **progress,
-                           "next_action": "Use exact CK targets for a selected run and review UNPROVEN items before Complete."}
-        return True, progress
+            return False, {"error_code": "formal_fc_batches_pending", "error": "Current FC implementation, proof or local review is unfinished.", **progress}
+        completed, structure = super().do_check(timeout=timeout, **kwargs)
+        return (True, progress) if completed else (completed, structure)
 
 
 class ScriptGenerationChecker(BaseFormalChecker):
@@ -439,64 +507,24 @@ class ScriptGenerationChecker(BaseFormalChecker):
         if not records:
             return self._fail("❌ .formal_records.yaml not found", suggestion="Run previous stages first.")
 
-        clock_cfg, reset_cfg = get_primary_clock_reset(records)
-        mismatches = validate_extra_config_against_design(records)
-        if mismatches:
-            return False, {"error_code": "formal_clock_reset_invalid", "error": "Formal clock/reset configuration is invalid.",
-                           "observed": mismatches, "artifact": self.paths.records_yaml,
-                           "next_action": "Correct basic_info.clock_reset and retry Check."}
+        if batched_sva_enabled(self.cfg):
+            try:
+                result = self._execution().check_smoke()
+            except Exception as exc:
+                diagnostic = getattr(exc, "diagnostic", None)
+                return False, diagnostic if isinstance(diagnostic, dict) else {
+                    "error_code": "formal_smoke_required", "error": str(exc),
+                    "next_action": "Correct the named source/configuration and call RunFormal(action=preflight), then retry Complete."}
+            return result["preflight_complete"], result
 
         try:
             from formal.tools import render_environment
-            preflight = render_environment(
-                self.workspace, self.paths.out, self.dut_name,
-                write_dirs=self.cfg.get_value("write_dirs", None),
-                un_write_dirs=self.cfg.get_value("un_write_dirs", None),
-            )
+            preflight = render_environment(self.workspace, self.paths.out, self.dut_name,
+                write_dirs=self.cfg.get_value("write_dirs", None), un_write_dirs=self.cfg.get_value("un_write_dirs", None))
         except Exception as exc:
             diagnostic = getattr(exc, "diagnostic", None)
-            if isinstance(diagnostic, dict):
-                return False, diagnostic
-            return self._fail(
-                "Formal environment could not be rendered from current records",
-                details=str(exc),
-                suggestion="Correct .formal_records.yaml, then call RunFormal(action='run').",
-            )
-
-        # --- Step 1: TCL keyword check ---
-        info("📝 Step 1/2: Checking TCL script keywords...")
-        tcl_path = self.paths.tcl
-        if not os.path.exists(tcl_path):
-            return self._fail(f"TCL script not found: {tcl_path}")
-
-        with open(tcl_path, 'r', encoding='utf-8') as f:
-            tcl_content = f.read()
-
-        required_cmds = ["read_design", "prove"]
-        if clock_cfg.get("signal"):
-            required_cmds.append("def_clk")
-        if reset_cfg.get("signal"):
-            required_cmds.append("def_rst")
-        missing = [k for k in required_cmds if k not in tcl_content]
-        if missing:
-            return self._fail(
-                f"❌ Step 1/2 Failed: TCL script missing required commands: {missing}",
-                details=f"Please add the missing commands to {tcl_path}",
-            )
-        info("✅ Step 1/2 Passed: TCL script keywords OK")
-
+            return False, diagnostic if isinstance(diagnostic, dict) else {"error": str(exc)}
         execution = self._execution()
-        if batched_sva_enabled(self.cfg):
-            try:
-                result = execution.freeze_baseline(accept=bool(kwargs.get("is_complete", False)))
-            except (ValueError, OSError) as exc:
-                passed, result = self._fail(str(exc), suggestion="Run FormalMC preflight and resolve its baseline diagnostics.")
-            else:
-                passed = result["preflight_complete"]
-            if preflight["warning_total"]:
-                result["preflight"] = preflight
-            return passed, result
-
         # An explicit RunFormal run owns proof execution and its auditable results.
         passed, evidence = execution.check()
         if not passed:
@@ -527,7 +555,7 @@ class EnvironmentAnalysisChecker(BaseFormalChecker):
 
     VALID_TT_ROOT_CAUSES = {"ASSUME_TOO_STRONG", "SIGNAL_CONSTANT", "WRAPPER_ERROR", "DESIGN_EXPECTED"}
     VALID_TT_ACTIONS = {"FIXED", "ACCEPTED"}
-    VALID_FA_RESOLUTIONS = {"RTL_BUG", "ENV_FIXED", "ENV_PENDING", "COVER_EXPECTED_FAIL"}
+    VALID_FA_RESOLUTIONS = {"RTL_BUG", "ENV_FIXED", "ENV_PENDING", "COVER_EXPECTED_FAIL", "SPEC_GAP"}
 
     def __init__(self, dut_name, accepted_ratio_threshold=100.0, **kwargs):
         super().__init__(dut_name, **kwargs)
@@ -635,8 +663,8 @@ class EnvironmentAnalysisChecker(BaseFormalChecker):
             errors.append(
                 f"❌ {len(unresolved_env)} ENV_PENDING properties are analyzed but NOT yet resolved:\n"
                 + "\n".join(f"  - '{p}'" for p in unresolved_env) + "\n"
-                f"  Hint: Re-run verification after adding/modifying assume constraints, "
-                f"then update the 'resolution' field to 'ENV_FIXED'."
+                "  Repair the affected assertion or environment with specification evidence. "
+                "Run the affected targets, then run the complete current batch before completing this stage."
             )
 
         return errors, warnings
@@ -693,25 +721,7 @@ class EnvironmentAnalysisChecker(BaseFormalChecker):
                 code = extract_property_code(checker_content, prop)
                 info(f"❌ FALSE: {prop}\n  SVA code:\n{code}")
 
-        # Step 2: Convergence Check
         history = run_res.iteration_history
-        conv_msg = ""
-        if len(history) >= 2:
-            prev, curr = history[-2], history[-1]
-            prev_fail = prev.fail_count + prev.cover_fail
-            curr_fail = curr.fail_count + curr.cover_fail
-            prev_pass = prev.pass_count + prev.cover_pass
-            curr_pass = curr.pass_count + curr.cover_pass
-            
-            if curr_pass < prev_pass:
-                conv_msg += f"⚠️  REGRESSION: Pass count decreased ({prev_pass} → {curr_pass}).\n"
-            if curr_fail > prev_fail:
-                conv_msg += f"⚠️  DEGRADATION: Fail count increased ({prev_fail} → {curr_fail}).\n"
-            if curr_fail >= prev_fail and len(history) >= 3:
-                # Basic stagnation check
-                p2_fail = history[-3].fail_count + history[-3].cover_fail
-                if p2_fail <= prev_fail:
-                    conv_msg += "⚠️  STAGNATION: Fail count has not decreased for 3 iterations.\n"
 
         # --- Auto Scaffolding: YAML analysis entries ---
         # Note: raw log_result converted back to dict for the helper if needed, 
@@ -744,11 +754,9 @@ class EnvironmentAnalysisChecker(BaseFormalChecker):
                 f"📊 Log Summary: {run_res.stats.get('pass_count')} pass, {run_res.stats.get('tt_count')} TT, "
                 f"{run_res.stats.get('fail_count')} assert fail, {run_res.stats.get('cover_fail_count')} cover fail",
             ]
-            if conv_msg: summary_lines.append(f"\n{conv_msg}")
-
             return False, {
                 "error": "❌ Environment analysis not found in .formal_records.yaml",
-                "details": f"Run sva-audit to fill analysis entries.",
+                "details": "Call FormalData with request action=prepare and section=analysis, then fill the current entries.",
                 "log_summary": "\n".join(summary_lines),
                 "iteration": len(history),
             }
@@ -768,11 +776,10 @@ class EnvironmentAnalysisChecker(BaseFormalChecker):
         quality_errors, warnings = self._validate_entry_quality(tt_entries, fa_entries)
         errors.extend(quality_errors)
 
-        # --- 6f: Convergence warnings ---
-        if conv_msg:
-            warnings.append(conv_msg)
-
         # Build report
+        rtl_bug_property_count = sum(1 for entry in fa_entries.values()
+                                     if entry.get("resolution", "").strip().upper() == "RTL_BUG")
+        specification_gaps = [e for e in records.analysis.fa_entries if e.resolution == "SPEC_GAP"]
         report = {
             "log_summary": {
                 "assert_pass": run_res.stats.get("pass_count", 0),
@@ -784,9 +791,10 @@ class EnvironmentAnalysisChecker(BaseFormalChecker):
             "doc_summary": {
                 "tt_entries": len(tt_entries),
                 "fa_entries": len(fa_entries),
-                "rtl_bug_count": sum(1 for e in fa_entries.values()
-                                     if e.get("resolution", "").strip().upper() == "RTL_BUG"),
+                "rtl_bug_property_count": rtl_bug_property_count,
+                "spec_gap_count": len(specification_gaps),
             },
+            "specification_complete": not specification_gaps,
             "iteration": len(history),
         }
 
@@ -814,8 +822,6 @@ class EnvironmentAnalysisChecker(BaseFormalChecker):
                        if e.get("action", "").strip().upper() == "FIXED")
         tt_accepted = sum(1 for e in tt_entries.values()
                           if e.get("action", "").strip().upper() == "ACCEPTED")
-        fa_rtl_bug = sum(1 for e in fa_entries.values()
-                         if e.get("resolution", "").strip().upper() == "RTL_BUG")
         fa_env_fixed = sum(1 for e in fa_entries.values()
                            if e.get("resolution", "").strip().upper() == "ENV_FIXED")
         fa_env_pending = sum(1 for e in fa_entries.values()
@@ -828,9 +834,9 @@ class EnvironmentAnalysisChecker(BaseFormalChecker):
             f"  TRIVIALLY_TRUE: {len(tt_entries)} analyzed "
             f"({tt_fixed} fixed, {tt_accepted} accepted)\n"
             f"  FALSE: {len(fa_entries)} analyzed "
-            f"({fa_rtl_bug} RTL_BUG, "
+            f"({rtl_bug_property_count} properties classified RTL_BUG, "
             f"{fa_env_fixed} ENV_FIXED, {fa_env_pending} ENV_PENDING, "
-            f"{fa_cover_expected} COVER_EXPECTED_FAIL)"
+            f"{fa_cover_expected} COVER_EXPECTED_FAIL, {len(specification_gaps)} SPEC_GAP)"
         )
         if warnings:
             report["message"] += "\n  " + "\n  ".join(warnings)
@@ -856,23 +862,23 @@ class CoverageAnalysisChecker(BaseFormalChecker):
 
 
         checker_path = self.paths.checker
-        fanin_path = coverage_report_path(self.paths.tests)
 
         # Step 1: Ensure TCL is executed if dependency files changed
         exec_success, exec_result = self._require_execution()
         if not exec_success:
             return False, exec_result
-        if not exec_result.get("coverage_artifact"):
-            return False, {
-                "error_code": "formal_coverage_missing",
-                "error": "Current proof run did not produce a COI coverage report.",
-                "observed": {"run_id": exec_result.get("run_id"), "coverage_artifact": None},
-                "next_action": "Inspect RunFormal(action='status') report and rerun after fixing coverage generation.",
-            }
+        coverage = exec_result.get("coverage")
+        if not coverage:
+            return False, {"error_code": "formal_coverage_missing", "error": "The complete batch has no verified native COI report.",
+                           "run_id": exec_result.get("run_id"),
+                           "next_action": "Use AnalyzeFormal mode=coverage for the complete current run_id."}
+        if coverage["status"] != "verified":
+            return False, coverage
 
         # Step 2: Parse coverage via adapter
         info(f"🔍 Parsing COI coverage report...")
-        coi = parse_coverage(self.paths.tests)
+        coi = coverage["metrics"]
+        coverage_ref = {key: coverage[key] for key in ("run_id", "input_fingerprint", "report", "sha256")}
 
         overall_pct = coi.get("overall_pct", 0.0)
         uncovered = coi.get("uncovered", [])
@@ -895,7 +901,8 @@ class CoverageAnalysisChecker(BaseFormalChecker):
         if all_ok:
             return True, {
                 "message": f"✅ COI coverage reached threshold: {overall_pct:.1f}%",
-                "report": report
+                "report": report,
+                "coverage_evidence": coverage_ref,
             }
         else:
             # Add property count context to help LLM understand the current state
@@ -920,8 +927,9 @@ class CoverageAnalysisChecker(BaseFormalChecker):
                              "signal_detail_available": bool(uncovered),
                              "uncovered_signals": uncovered[:30]},
                 "expected": {"overall_pct_min": self.coi_threshold},
-                "artifacts": {"coverage_report": fanin_path, "checker": checker_path,
-                              "run_id": exec_result.get("run_id")},
+                "artifacts": {"coverage_report": coverage["report"], "checker": checker_path,
+                              "run_id": coverage["run_id"]},
+                "coverage_evidence": coverage_ref,
                 "next_action": (
                     "Review the listed uncovered signals against the specification. Add independently justified properties using supported whitebox checker inputs, preflight, and rerun; preserve the configured coverage threshold."
                     if uncovered else
@@ -1132,7 +1140,7 @@ class BugReportConsistencyChecker(BaseFormalChecker):
 
         # Step 1: Extract RTL defects from analysis
         if not records or not records.analysis:
-            return self._fail("❌ No analysis in .formal_records.yaml. Run sva-audit first.")
+            return self._fail("❌ No analysis in .formal_records.yaml. Complete FormalData prepare analysis for the current proof batch first.")
 
         if not isinstance(records.analysis, dict):
             fa_list = records.analysis.fa_entries
@@ -1230,10 +1238,13 @@ class FormalSummaryChecker(BaseFormalChecker):
             return False, diagnostic
         records.summary = summary
         errors = []
+        gap_count = sum(entry.resolution == "SPEC_GAP" for entry in records.analysis.fa_entries) if records.analysis else 0
+        gap_text = f"{summary.get('overall_result', '')} {summary.get('acceptance_conclusion', '')}".upper()
         if proof.get("proof_complete") is False:
-            gap_text = f"{summary.get('overall_result', '')} {summary.get('acceptance_conclusion', '')}".upper()
             if "UNPROVEN" not in gap_text:
                 errors.append("Deferred properties remain UNPROVEN; overall_result or acceptance_conclusion must disclose the validation gap")
+        if gap_count and "SPEC_GAP" not in gap_text:
+            errors.append("Disclose the open SPEC_GAP items in overall_result or acceptance_conclusion.")
 
         if errors:
             return self._fail(
@@ -1241,9 +1252,21 @@ class FormalSummaryChecker(BaseFormalChecker):
                 details="\n".join(f"  - {e}" for e in errors),
             )
 
-        coverage = parse_coverage(self.paths.tests)
+        coverage = proof.get("coverage", {})
+        if batched_sva_enabled(self.cfg) and coverage.get("status") != "verified":
+            return False, coverage or {"error_code": "formal_coverage_missing", "error": "Current native COI coverage is unavailable.",
+                                       "next_action": "Use AnalyzeFormal mode=coverage for the complete current run_id."}
         try:
-            generate_summary_doc(records, self.paths.summary, coverage=coverage, machine=proof)
+            from pathlib import Path
+            from formal.baseline import require_planned_scope, summary_scope_review, superseded_counterexamples
+            from formal.execution import read_run
+
+            root = Path(self.paths.base) / "formal_runs"
+            if proof.get("run_id") and root.is_dir():
+                _, current = read_run(root, proof["run_id"], "full")
+                proof["revision_history"] = superseded_counterexamples(root, current)
+                proof["original_scope"] = summary_scope_review(require_planned_scope(root, records), records, proof["revision_history"])
+            generate_summary_doc(records, self.paths.summary, coverage=coverage.get("metrics"), machine=proof)
         except Exception as exc:
             return False, {"error_code": "formal_summary_delivery_invalid", "error": str(exc)[:2000],
                            "artifact": self.paths.summary,
@@ -1266,6 +1289,9 @@ class FormalSummaryChecker(BaseFormalChecker):
             "message": "Summary section rendered with current machine proof status.",
             "proof_complete": proof.get("proof_complete"),
             "deferred_total": proof.get("deferred_total", 0),
+            "spec_gap_count": gap_count,
+            "specification_complete": gap_count == 0 and (proof.get("original_scope") or {}).get("status") != "review_required",
+            "original_scope": proof.get("original_scope"),
             "evidence_report": proof.get("report"),
             "dashboard": dashboard,
         }

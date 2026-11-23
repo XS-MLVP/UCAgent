@@ -1,9 +1,21 @@
 
-# Formal 任务数据技能
+# Formal 任务数据
 
-任务数据存放在 `.formal_records.yaml`。数据技能 `ext/formal/data` 是可选的批量更新捷径，通过现有 `RunSkillScript` 执行；不存在独立的FormalData工具。`RunFormal`负责证明和真实证据，`Complete`验收推进，`Check`用于定位缺口。技能关闭或目录缺失时，用普通文件工具完成同一YAML和相同验收，不能跳过任务。
+任务数据存放在 `.formal_records.yaml`。用 `FormalData` 检查、领取和更新任务数据。`RunFormal` 负责证明和真实证据，`Complete` 验收并推进，`Check` 定位缺口。
 
-## 技能可用时：一次加载，结构化请求
+## 直接调用 FormalData
+
+先检查当前规划字段：
+
+```json
+{"request":{"action":"inspect","section":"planning"}}
+```
+
+将填好的 `ready_update` 字段放到 `request`，增加 `"action":"update"` 后一次提交。使用返回的 `expected_sha256` 检查版本。用 `{"request":{"action":"prepare","section":"sva","assumptions":true,"limit":20}}` 领取共享 Assume。所有调用共用下文的数据契约，数据技能与普通文件工具仍可用于同一任务。
+
+第 3 阶段在 CK 描述中注明内部观测需求。第 4 阶段用 `inspect signals` 查实际顶层信号，按需复制其中的 `whitebox_declaration` 到 `spec.whitebox_signals`。工具使用有效参数展开位宽并保留索引方向和符号。子模块层级路径和需要特殊类型的观测应单独记录依赖，当前顶层绑定要求信号使用与 RTL 相同的名字。
+
+## 使用数据技能
 
 需要使用数据技能时，先ListSkill并读取`.ucagent/skills/ext/formal/data/SKILL.md`；默认阶段没有强制技能列表，不要求每阶段重复加载或SetSkillUsage。所有脚本调用沿用原有RunSkillScript格式：
 
@@ -31,9 +43,27 @@
 }
 ```
 
-更新指定节时使用 `data` 或 `bodies`。planning/basic_info/spec/summary 仅替换提供的顶层字段，嵌套对象和列表整体替换。第 5 阶段用 `prepare sva --baseline` 领取基础 CK。第 6 阶段的 `prepare sva` 默认按 FC 的审阅顺序领取功能 CK，可用 `--function FC-<ID>` 指定功能点。所有 Assume 和显式 `baseline: true` 的 CK 属于基础。 将实现填入 `ready_update.bodies`。用 `inspect signals --query 名称` 查实际内部信号与位宽。更新绑定时，可在同一 spec 请求里同时写 `data.whitebox_signals` 和 `bodies`，两者一起校验和提交。更新后使用返回的新 sha256 和待办继续。移除或改写目标及修改 Assume 时，审阅 `scope_review` 并在阶段日志中记录理由。
+更新指定节时使用 `data` 或 `bodies`。planning/basic_info/spec/summary 仅替换提供的顶层字段，嵌套对象和列表整体替换。第 3、4 阶段保存 spec 后，使用 `planned_scope` 核对 FG、FC 和各类 CK 数量，审阅当前阶段要求后记录日志并调用 Complete。第 5 阶段直接用 RunFormal preflight 做独立工具冒烟，不领取或实现正式 CK。第 6 阶段先用 `prepare sva --assumptions --limit 20` 完成正式环境 Assume，再用 `prepare sva` 按 FC 审阅顺序领取正式检查点，当前 FC 由 RunFormal pending 返回，未关闭前不得提前实现后续 FC；可用 `--function FC-<ID>` 领取当前功能点。运行后按 pending 的 review_fc 请求模板处理异常，ENV_PENDING 需在当前阶段修复。将实现填入 `ready_update.bodies`。用 `inspect ports --query 名称片段1,名称片段2` 查看端口方向和位宽，用 `inspect signals --query 名称` 查实际内部信号与位宽。更新绑定时，可在同一 spec 请求里同时写 `data.whitebox_signals` 和 `bodies`，两者一起校验和提交。更新后使用返回的新 sha256 和待办继续。移除或改写目标及修改 Assume 时，审阅 `scope_review` 并在阶段日志中记录理由。
 
 在 `basic_info.clock_reset` 中分别填写 `reset_active_level`（low/high）、`reset_assertion` 和 `reset_release`（sync/async）。字段可在未确定时留空，`reset_type` 可说明 RTL 行为。
+
+## 初始复位
+
+仅在规格要求验证起点处于复位时，为对应的单条 `Assume` 设置 `initial_reset: true`。第 4 阶段记录规格依据，第 6 阶段用 `prepare sva` 提供的正文。FormalMC 初始化验证专用标记，标记经过第一个时钟采样后清零，Assume 只在该采样约束复位。工具检查标记的原生初始化记录。顶层复位极性使用已配置的映射；释放后的行为按原规格分别验证。
+
+规格明示释放后不得再次进入复位时，另设带 `reset_stable_after_release: true` 的 Assume。使用 `prepare sva` 返回的正文。每次采到非复位状态都要求下一拍保持非复位，显式关闭默认复位中止，使再次拉低的拍也受检查。
+
+用 `inspect spec --query CK-...` 查一条现有 CK，并取得只更新该 CK 的请求模板。该请求可更新 `initial_reset`、`reset_stable_after_release`、`parent_ck_id` 和 `transaction_balance`，也可同时提交相关 `bodies`。
+
+第 6 阶段修订公共证明输入后，更新回执中的 `reopened_ck_ids` 列出此前已处置、现在需重新验证的 CK。按回执提供的 `run_call` 或 `prepare_call` 处理当前 FC。手工修改后用 `RunFormal(action=pending)` 重新取得当前进度。
+
+## 独立事务计数
+
+`transaction_balance` 默认检查响应是否对应在途命令。规划接受上限时为相应 Seq CK 设置 `max_pending`，工具在命令握手前核对在途量，并检查计数溢出。握手始终由 `valid && ready` 形成。只有规格允许同拍响应归还满容量的一格时才设置 `reuse_on_response: true`。顶层出口可设 `binding: egress`，已在 `whitebox_signals` 中绑定的内部标量握手可设 `binding: internal`。生成器核对内部实际位宽。
+
+当规格要求“无在途命令不能响应”时，在对应 Seq CK 中为每个需要独立跟踪的发起端规划一个 `transaction_balance` 条目。字段 `command_valid`、`command_ready`、`response_valid`、`response_ready` 使用已展开的单比特 DUT 接口端口。可选 `counter_bits` 默认 6。计数器溢出会使性质失败，不通过假设限制命令数。只有规格允许无在途命令的同拍响应时，才增加 `zero_cycle_when`，填写须同时满足的布尔条件。省略该字段将禁止这类响应。验证器被动采样端口，不驱动 DUT。
+
+第 4 阶段保存条目和规格依据，保留 `sva_body` 为空。第 6 阶段使用 `prepare sva` 返回的预填 body，按同一 FC 提交更新并定向证明。技能不可用时，将 `RunFormal(action="pending")` 的 `current_fc.planned_bodies` 写入同一 CK。报告命令、响应、复位及同拍例外所依据的规格；不要用 DUT 内部计数或 active 输出替代独立监视状态。
 
 ## 准备分析与Bug队列
 
@@ -178,8 +208,31 @@ summary: null
 
 ## 定向证明与多周期证据
 
+用 `FormalData inspect spec` 查询同批 CK。`query` 接受最多十个以逗号分隔的 CK、FC、FG 标识，前缀匹配需以星号结尾。带上原始 `run_id` 可读该批封存的 SVA 和 Assume，返回结果标明来源并可分页。省略批次时读取当前记录。
+
+对规格明确为「接受事务后下一拍呈现输出」的 Seq CK，调用 `FormalData` 的 `draft_transfer`。提交现有 `ck_id`、`source_valid`、`source_ready`、`result_valid`，并为 `fields` 中的每项指定 `before` 和 `after` 信号。`during_reset` 根据规格选择 `suspend` 或 `check`。工具核对展开后位宽和绑定，生成 `|=>` 及前拍字段比较。返回的 `ready_update` 供审阅后提交，草拟过程保持只读。
+
+若规格明确要求外部应答端只能响应已接受的请求，给相应 Assume CK 添加 `transaction_balance`。每个独立通道使用一项。下面的例子允许同拍完成命令与响应，是否允许由接口规格决定。
+
+```json
+{"transaction_balance":[{"binding":"egress","command_valid":"request_valid","command_ready":"request_ready","response_valid":"reply_valid","response_ready":"reply_ready","zero_cycle_when":"1'b1","counter_bits":6}]}
+```
+
+`prepare sva` 生成正文。监听器从复位开始，在命令握手时增加在途计数，在响应握手时减少。只要还有在途请求，外部端点就可以在后续任意拍给出响应，即使没有新命令。未允许同拍时省略 `zero_cycle_when`。计数超出可表示范围后，本复位周期内放开该条约束，以免误排合法流量。若分析需要精确覆盖该范围，用独立 Assert 检查规格中的容量上界并核对证据。新增假设应记录协议依据和对原反例的影响。
+
+对于“每次交付必须匹配复位以来最近一次接受值”的 Seq CK，`FormalData` 的 `draft_latest_transfer` 接收现有 `ck_id` 和 `rule`。下面用独立标签通道说明绑定。结合规格核对后可一次提交返回的 `ready_update`，再定向验证。
+
+```json
+{"action":"draft_latest_transfer","ck_id":"CK-RESPONSE-TAG","rule":{"capture_valid":"req_valid","capture_ready":"req_ready","captured":"req_tag","delivery_valid":"rsp_valid","delivery_ready":"rsp_ready","observed":"rsp_tag","simultaneous":"previous","reset_assertion":"sync"}}
+```
+
+检查器保存已握手的值，在全部交付拍比较。若规格以通道位图编码来源，`observed` 也可填写按最低位至最高位排列的 `{"valid":"lane_valid","ready":"lane_ready"}` 列表，每位表示该通道当拍实际完成握手。若 RTL 已提供成组位图，可直接绑定 `{"valid_vector":"lanes_valid","ready_vector":"lanes_ready"}`，逐位与后和捕获值比较。按规格选 `previous` 或 `current` 决定同拍捕获且交付时使用的值，并指定 `sync` 或 `async` 清除历史。没有历史的交付会失败，同拍直通仅在选择 `current` 且当拍完成捕获时成立。对于允许多笔在途且按队头交付的协议，应使用与队列深度和顺序相符的独立模型。
+
+
 用 `RunFormal(action="run", scope="selected", fc_id="FC-...")` 执行一个功能批次，
-或改用 `ck_ids=["CK-..."]` 定向复验。可用 `RunFormal(action="inventory")` 列出
+或传入 `ck_ids=["CK-..."]` 定向复验。同时指定 `fc_id` 时，所有 CK 须属于该 FC。
+第 6 阶段优先提交更新结果中的 `run_call`，当前 FC 仍有正文待填时按 `prepare_call` 继续。
+可用 `RunFormal(action="inventory")` 列出
 已枚举批次的精确属性名。后续查询、审阅、取消和证据读取均使用返回的 `run_id`，可一并提供 `scope`。
 定向批次使用完整 Assume，未选目标为 `NOT_EXECUTED`。完整验收仍通过当前
 输入的完整批次。

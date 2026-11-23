@@ -254,7 +254,7 @@ class FormalDashboard:
                         "property": {"name": name, "ck_id": ck["id"], "kind": kind, "sva": ck.get("sva_body"),
                                      "source": checker if definition in lines else None,
                                      "line": lines.get(definition), "result": item.get("result"),
-                                     "baseline": bool(ck.get("baseline") or kind == "assume"),
+                                     "environment_assumption": kind == "assume",
                                      "parent_ck_id": ck.get("parent_ck_id"),
                                      "derived_ck_ids": children_by_ck.get(ck["id"], []),
                                      "state": item.get("state") or ("AMBIGUOUS" if candidates else

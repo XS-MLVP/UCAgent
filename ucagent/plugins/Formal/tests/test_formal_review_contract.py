@@ -78,10 +78,10 @@ def test_contracts_are_disjoint_and_type_specific():
     assertion = review_contract("fa_entries", "assert")
     cover = review_contract("fa_entries", "cover")
     trivial = review_contract("tt_entries", "assert")
-    assert set(assertion["allowed_fields"]) == {"id", "prop_name", "analysis", "resolution", "action_detail", "expected_requirement", "reference_calculations"}
+    assert set(assertion["allowed_fields"]) == {"id", "prop_name", "analysis", "resolution", "action_detail", "expected_requirement", "reference_calculations", "spec_gap"}
     assert "root_cause" not in assertion["allowed_fields"]
-    assert assertion["allowed_values"]["resolution"] == ["RTL_BUG", "ENV_PENDING"]
-    assert cover["allowed_values"]["resolution"] == ["COVER_EXPECTED_FAIL", "ENV_PENDING"]
+    assert assertion["allowed_values"]["resolution"] == ["RTL_BUG", "ENV_PENDING", "SPEC_GAP"]
+    assert cover["allowed_values"]["resolution"] == ["COVER_EXPECTED_FAIL", "ENV_PENDING", "SPEC_GAP"]
     assert trivial["allowed_values"]["action"] == ["ACCEPTED"]
     assert "resolution" not in trivial["allowed_fields"]
     with pytest.raises(ValueError, match="trivial assertion"):

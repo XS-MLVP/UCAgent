@@ -23,6 +23,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import uuid
@@ -33,6 +34,8 @@ RUN_POINTERS = {"full": "current.json", "selected": "selected.json", "preflight"
 PROOF_MARKER = "# UCAGENT_PROOF_BEGIN"
 ACTIVE_RUNS = {"PREPARING", "RUNNING", "CANCELLING"}
 ROW = re.compile(r"^\s*(\d+)\s+(\S+)\s*:\s*(.*?)\s*$", re.MULTILINE)
+LICENSE_WAIT = re.compile(r"^Info: waiting for license\(-?\d+\)\.\.\.\r?$", re.MULTILINE)
+NATIVE_VERIFY_STARTED = re.compile(r"^Info-P012: verifying property \S+", re.MULTILINE)
 
 
 @dataclass(frozen=True)
@@ -143,12 +146,45 @@ def take_worker_slot(root: Path, limit: int):
     return None
 
 
-def review_actions(item: dict, policy: ExecutionPolicy) -> list[str]:
+def retry_waits_for_other_fcs(state: dict, item: dict) -> bool:
+    """Yield after a timed-out retry if other FCs still lack implemented first attempts."""
+    attempts = item.get("attempts") or []
+    return bool(state.get("first_pass_review") and state.get("unimplemented_other_fcs")
+                and item["state"] == "REVIEW" and item["review_round"] > 1
+                and attempts and attempts[-1].get("forced") == "PROOF_TIMEOUT"
+                and attempts[-1].get("native_report_complete") is False)
+
+
+def family_review_budget(state, name, policy, *, reserve_slow=False):
+    """Charge the original CK and its derived checks across local and full batches."""
+    history = state.get("family_history_at_start", {})
+    target = history.get(name.rsplit(".", 1)[-1])
+    if not target:
+        return None
+    spent = sum(target["solver_seconds"].values())
+    reserved = 0
+    for sibling, item in state["properties"].items():
+        entry = history.get(sibling.rsplit(".", 1)[-1])
+        if not entry or entry["root_ck_id"] != target["root_ck_id"]:
+            continue
+        spent += item["execution_elapsed_s"]
+        if reserve_slow and sibling != name and item["state"] == "RUNNING_SLOW":
+            # Active time already charged here is part of this attempt's reservation.
+            attempt = item["attempts"][-1]
+            prior = sum(a.get("active_s", 0) for a in item["attempts"][:-1])
+            reserved += max(0, attempt["budget_s"] - max(0, item["execution_elapsed_s"] - prior))
+    return {"root_ck_id": target["root_ck_id"], "charged_s": round(spent, 2),
+            "review_at_s": policy.analysis_threshold_s,
+            "budget_to_review_s": max(0, math.floor(policy.analysis_threshold_s - spent - reserved))}
+
+
+def review_actions(item: dict, policy: ExecutionPolicy, state: dict | None = None) -> list[str]:
     """Return the current actions for a genuinely unresolved proof target."""
     if item["result"] != "UNPROVEN":
         return []
     actions = []
     if (item["state"] in {"REVIEW", "ERROR", "CANCELLED", "NOT_EXECUTED"}
+            and not retry_waits_for_other_fcs(state or {}, item)
             and item["review_round"] < policy.max_review_rounds
             and item["execution_elapsed_s"] < policy.property_cumulative_budget_s):
         actions.append("retry")
@@ -168,6 +204,7 @@ def apply_decisions(state: dict, decisions: list[dict]) -> None:
             item["review_round"] += 1
             item["round_elapsed_s"] = 0.0
             item["round_budget_s"] = decision.get("retry_budget_s")
+            item["retry_engine"] = decision.get("retry_engine")
             item["state"] = "QUEUED_SLOW"
 
 
@@ -290,6 +327,26 @@ def write_report(run_dir: Path, state: dict) -> None:
              "| --- | --- | --- | ---: | --- |"]
     for name, item in state["properties"].items():
         lines.append(f"| `{name}` | {item['result']} | {item['state']} | {item['execution_elapsed_s']:.2f} | {item.get('disposition') or '-'} |")
+    licensed_waiters = [(name, item) for name, item in state["properties"].items()
+                        if any("license_wait_s" in attempt for attempt in item["attempts"])]
+    if licensed_waiters:
+        lines += ["", "## Native license waits", ""]
+        for name, item in licensed_waiters:
+            waited = sum(attempt.get("license_wait_s", 0.0) for attempt in item["attempts"])
+            retried = " Retried once with one worker." if item.get("license_serial_retry") else ""
+            lines.append(f"- `{name}`: {waited:.2f}s observed outside verification.{retried}")
+    prior_deferrals = state.get("prior_local_deferrals", {})
+    if prior_deferrals:
+        lines += ["", "## Prior unresolved evidence", ""]
+        for name, row in prior_deferrals.items():
+            prop = state["properties"].get(name, {})
+            if prop.get("carried_gap") and not prop.get("attempts"):
+                detail = "Verified earlier timeout, carried as UNPROVEN; no fresh proof attempt."
+            elif prop.get("attempts"):
+                detail = "Fresh attempt in this batch."
+            else:
+                detail = "Awaiting current inventory or first attempt."
+            lines.append(f"- `{name}` from batch `{row['run_id']}`. {detail}")
     lines += ["", "## Decisions", ""]
     decisions = state.get("decisions", [])
     if not decisions:
@@ -339,7 +396,18 @@ def property_evidence(run_dir: Path, state: dict, name: str, item: dict, *, obse
             trace_hash = hashlib.file_digest(stream, "sha256").hexdigest()
     if trace_hash != attempt.get("trace_hash"):
         raise ValueError(f"Original trace changed after execution: {name}")
-    return {**original_inputs(witness), "trace_observations": trace_observations(trace) if observations else None,
+    clock = ((state.get("batch_context") or {}).get("shared_environment") or {}).get("clock_reset") or {}
+    reset_context = {}
+    if observations and clock.get("has_reset"):
+        sample = state.get("initial_reset_sample")
+        reset_context = {"reset_input": clock["actual_reset"], "active_level": clock["reset_active_level"],
+                         "first_sample_monitor": sample,
+                         "monitor_confirmed_in_attempt": (
+                             f'forced "{sample}" to reset value 1\'b1' in text if sample else None),
+                         "scope": "The marker describes initialization of the generated first-sample monitor. "
+                                  "A release cover alone does not establish the initial reset value."}
+    return {**original_inputs(witness), **({"reset_context": reset_context} if reset_context else {}),
+            "trace_observations": trace_observations(trace, verified_sha256=trace_hash) if observations else None,
             "trace_artifact": str(trace.relative_to(Path(state["workspace"]))) if trace_hash else None,
             "trace_sha256": trace_hash,
             "run_id": state["run_id"], "attempt_console": str(console.relative_to(Path(state["workspace"]))),
@@ -405,18 +473,36 @@ class FormalExecution:
         if not allowed:
             raise ValueError(reason)
         root = target / "formal_runs"
-        for planned in (root, root / "baseline.json", target / "tests", target / ".formal_records.yaml", target / "tests" / "avis.log", target / "tests" / "avis" / "fanin.rep"):
+        for planned in (root, target / "tests", target / ".formal_records.yaml", target / "tests" / "avis.log", target / "tests" / "avis" / "fanin.rep"):
             allowed, reason = is_file_writeable(str(planned.relative_to(self.workspace)), self.un_write_dirs, self.write_dirs)
             if not allowed:
                 raise ValueError(reason)
+        directories = []
         for destination in (root, target / "tests"):
-            if destination.exists():
-                for path in (destination, *destination.rglob("*")):
-                    if path.is_symlink():
+            if destination.is_symlink():
+                raise ValueError("Formal artifact paths must not contain symlinks")
+            if destination.is_dir():
+                directories.append(str(destination.relative_to(self.workspace)))
+        while directories:
+            directory = directories.pop()
+            directory_path = self.workspace / directory
+            if directory_path.is_symlink():
+                raise ValueError("Formal artifact paths must not contain symlinks")
+            try:
+                listing = os.scandir(directory_path)
+            except FileNotFoundError:
+                # A concurrent controller may have removed its temporary directory.
+                continue
+            with listing as entries:
+                for entry in entries:
+                    if entry.is_symlink():
                         raise ValueError("Formal artifact paths must not contain symlinks")
-                    allowed, reason = is_file_writeable(str(path.relative_to(self.workspace)), self.un_write_dirs, self.write_dirs)
+                    relative = f"{directory}/{entry.name}"
+                    allowed, reason = is_file_writeable(relative, self.un_write_dirs, self.write_dirs)
                     if not allowed:
                         raise ValueError(reason)
+                    if entry.is_dir(follow_symlinks=False):
+                        directories.append(relative)
         if create:
             root.mkdir(parents=True, exist_ok=True)
         return target, source, root
@@ -483,10 +569,24 @@ class FormalExecution:
 
     def _launch(self, run_dir, state):
         """Start a controller whose lifetime is independent of a single tool request."""
+        import ucagent
+        from ucagent.util.config import load_runtime_config
+        roots = [str(Path(ucagent.__file__).resolve().parent.parent), str(Path(__file__).resolve().parent.parent)]
+        snapshot = self.workspace / ".ucagent/runtime_config.json"
+        if snapshot.is_file():
+            saved = load_runtime_config(str(self.workspace))
+            roots.extend(saved.get("plugin_python_paths", []))
+        else:
+            # Source-tree Formal also declares its sibling UnitTest import dependency.
+            sibling = Path(__file__).resolve().parents[3] / "UnitTest/src"
+            if sibling.is_dir():
+                roots.append(str(sibling))
+        roots.extend(os.environ.get("PYTHONPATH", "").split(os.pathsep))
+        child_env = {**os.environ, "PYTHONPATH": os.pathsep.join(dict.fromkeys(path for path in roots if path))}
         with (run_dir / "controller.log").open("ab") as log:
             process = subprocess.Popen([sys.executable, str(Path(__file__).resolve()), "--worker", str(run_dir)],
                                        stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
-                                       start_new_session=True, close_fds=True)
+                                       start_new_session=True, close_fds=True, env=child_env)
         threading.Thread(target=process.wait, daemon=True).start()
         state["controller_pid"] = process.pid
         state["controller_identity"] = process_identity(process.pid)
@@ -509,17 +609,41 @@ class FormalExecution:
             raise ValueError("Select one kind of target for a diagnostic run. Preflight derives its own targets.")
         selected = sorted(property_names or [])
         scope = "preflight" if preflight else "selected" if selectors else "full"
+        if preflight:
+            return self._smoke(retry_prepare=retry_prepare)
         target, _, root = self._paths()
         with input_lock(target), (root / "control.lock").open("a+") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
             target, root, executable, files, fingerprint = self._inputs()
-            from .baseline import baseline_contract, baseline_targets, batch_context, verify_baseline
-            from .skills.lib.formal_tools import _ck_to_sv_names
+            from .baseline import batch_context, phase_six, require_planned_scope, shared_contract
+            from .skills.lib.formal_tools import INITIAL_RESET_SAMPLE, _ck_to_sv_names, implemented_initial_reset, validate_managed_setup
             from .skills.lib.models import FormalRecords, has_sva_body
             import yaml
 
+            first_pass_review = scope == "selected" and self.batched_sva and phase_six(self.workspace)
+            from .case_batches import IMPLEMENT, COVERAGE, SLOW, CASE_COUNT
+            from .baseline import current_formal_stage
+            case_stage = current_formal_stage(self.workspace)
+            if case_stage == "create_formal_case_templates":
+                raise ValueError("Stage 6.1 creates unimplemented templates. Run official proof cases during Stage 6.2.")
+            timed_cases = (self.batched_sva and (case_stage == IMPLEMENT or
+                           case_stage in {COVERAGE, SLOW} and (root / "case_templates.json").is_file()))
+            if timed_cases and scope == "selected" and max(len(ck_ids or []), len(selected)) > CASE_COUNT:
+                raise ValueError("A directed case batch contains at most ten checks. Use the current page of CK IDs.")
             records_path = target / ".formal_records.yaml"
             records = yaml.safe_load(records_path.read_bytes()) if records_path.is_file() else None
+            if records:
+                validate_managed_setup(records.get("extra_config"))
+            if self.batched_sva and not records and (root / "plan_scope.json").is_file():
+                raise ValueError("Restore the formal records for the accepted Stage 4 plan before running proofs.")
+            if self.batched_sva and records:
+                model = FormalRecords.model_validate(records)
+                require_planned_scope(root, model)
+                missing_assumptions = [ck.id for fg in (model.spec.function_groups if model.spec else [])
+                                       for fc in fg.functions for ck in fc.check_points
+                                       if ck.style.lower() == "assume" and not has_sva_body(ck.sva_body)]
+                if missing_assumptions:
+                    raise ValueError(f"Implement all planned shared Assume checks before an official run: {missing_assumptions[:20]}; use prepare sva --assumptions.")
             selected_labels = {}
             selected_ck_ids = []
             unimplemented_ck_ids = []
@@ -532,7 +656,7 @@ class FormalExecution:
                     matching = [fc for fc in functions if fc.id == fc_id]
                     if len(matching) != 1:
                         raise ValueError(f"Expected one FC matching {fc_id!r}; available IDs: {[fc.id for fc in functions][:20]}")
-                    candidates = [ck for ck in matching[0].check_points if not ck.is_baseline]
+                    candidates = [ck for ck in matching[0].check_points if ck.style.lower() != "assume"]
                 else:
                     candidates = []
                     for ck_id in ck_ids:
@@ -551,14 +675,21 @@ class FormalExecution:
                     selected_ck_ids.append(ck.id)
                 if not selected_labels or (ck_ids and unimplemented_ck_ids):
                     raise ValueError(f"Implement the selected Assert/Cover checks before running them: {unimplemented_ck_ids[:20]}")
-            contract = baseline_contract(records) if preflight and self.batched_sva else None
-            smoke_labels = baseline_targets(records) if contract is not None else []
+            if timed_cases and len(selected_labels) > CASE_COUNT:
+                raise ValueError("Select up to ten CK IDs from this FC.")
+            unimplemented_other_fcs = []
+            if first_pass_review and records and model.spec:
+                selected_ids = set(selected_ck_ids)
+                selected_names = {name.rsplit(".", 1)[-1] for name in selected}
+                for group in model.spec.function_groups:
+                    for function in group.functions:
+                        checks = [ck for ck in function.check_points if ck.style.lower() != "assume"]
+                        if any(ck.id in selected_ids or _ck_to_sv_names(ck.id, ck.style)[1] in selected_names for ck in checks):
+                            continue
+                        if checks and all(not has_sva_body(ck.sva_body) for ck in checks):
+                            unimplemented_other_fcs.append(function.id)
             context = None
-            if self.batched_sva and not preflight:
-                baseline = verify_baseline(root, records, required=True)
-                source_hashes = {name: digest for name, digest in files.items() if name.startswith(f"{self.dut}/")}
-                if source_hashes != baseline["source_hashes"]:
-                    raise ValueError("DUT inputs changed since the frozen baseline. Reopen the baseline preflight stage.")
+            if self.batched_sva:
                 if scope == "full":
                     model = FormalRecords.model_validate(records)
                     missing = [ck.id for fg in model.spec.function_groups for fc in fg.functions
@@ -566,9 +697,18 @@ class FormalExecution:
                     if missing:
                         raise ValueError(f"Complete all SVA bodies before full verification: {missing[:20]}")
                 checker = f"{self.output_dir}/tests/{self.dut}_checker.sv"
-                context = batch_context(files, checker, executable, self.policy, baseline["input_fingerprint"])
+                context = batch_context(files, checker, executable, self.policy, shared_contract(records))
             previous_dir, previous = self._load(root, scope=scope)
-            if previous and previous["fingerprint"] == fingerprint and previous.get("batch_context") == context:
+            if context and context["shared_environment"].get("reset_release_required"):
+                from .diagnostics import reset_release_gate
+
+                environment = reset_release_gate(root, {"batch_context": context, "files": files,
+                                                        "dut": self.dut, "output_dir": self.output_dir,
+                                                        "run_id": previous["run_id"] if previous else None})
+                if environment["status"] == "unreachable":
+                    return {**environment, "scope": scope}
+            if (previous and previous["fingerprint"] == fingerprint and previous.get("batch_context") == context
+                    and previous.get("first_pass_review", False) == first_pass_review):
                 if previous.get("compile_failure_input_bound") and previous["status"] == "ERROR" and not retry_prepare:
                     return {**self._summary(previous_dir, previous), "reused_compile_failure": True}
                 same_targets = (preflight or
@@ -578,6 +718,43 @@ class FormalExecution:
                     return self._summary(previous_dir, previous)
             if previous and previous["status"] in ACTIVE_RUNS:
                 raise ValueError("A different input revision is still running. Cancel it before starting the current revision.")
+            prior_local_deferrals = {}
+            past_full_review = {}
+            if scope == "full" and self.batched_sva and model.spec:
+                from .baseline import previous_full_defer_review, target_receipts
+
+                past_full_review = previous_full_defer_review(previous, model)
+                try:
+                    targets, _, _ = target_receipts(self, model, root)
+                    for target_info in targets.values():
+                        receipt = target_info.get("receipt")
+                        if receipt and receipt["deferred"]:
+                            evidence = receipt["evidence_ref"]
+                            prior_local_deferrals[receipt["property"]] = {
+                                "run_id": receipt["run_id"], "input_fingerprint": evidence["input_fingerprint"],
+                                "report_sha256": evidence["report_sha256"],
+                                "resume_condition": evidence["defer"]["next_action"],
+                            }
+                    if timed_cases and previous:
+                        from .case_batches import valid_carried_gap
+                        from .skills.lib.models import semantic_inputs as current_inputs
+                        frozen_context = {"batch_context": context, "semantic_inputs": current_inputs(records)}
+                        for name, prop in previous.get("properties", {}).items():
+                            if name in prior_local_deferrals or prop.get("disposition") != "DEFERRED":
+                                continue
+                            if prop.get("carried_gap") and not prop["attempts"]:
+                                ref = previous.get("prior_local_deferrals", {}).get(name)
+                            elif prop["attempts"]:
+                                ref = {"run_id": previous["run_id"], "input_fingerprint": previous["fingerprint"],
+                                       "report_sha256": prop["attempts"][-1].get("console_hash"),
+                                       "resume_condition": "Review the unresolved target in Stage 8."}
+                            else:
+                                continue
+                            if ref and valid_carried_gap(root, {**frozen_context, "prior_local_deferrals": {name: ref}}, name):
+                                prior_local_deferrals[name] = ref
+                except (OSError, ValueError, KeyError):
+                    # Optional local context cannot prevent a fresh full regression.
+                    prior_local_deferrals = {}
             run_id = uuid.uuid4().hex
             run_dir = root / run_id
             run_dir.mkdir()
@@ -600,12 +777,15 @@ class FormalExecution:
             expected_labels = re.findall(r"\b([A-Za-z_][A-Za-z_0-9]*)\s*:\s*(?:assert|cover)\s+property\b", checker_text)
             semantic_inputs = None
             checkpoint_ids = {}
+            initial_reset_sample = None
             if records_path.exists():
                 content = records_path.read_bytes()
                 records = yaml.safe_load(content)
                 from formal.skills.lib.models import semantic_inputs as canonical_inputs
                 semantic_inputs = canonical_inputs(records)
                 model = FormalRecords.model_validate(records)
+                if implemented_initial_reset(model):
+                    initial_reset_sample = f"u_checker.{INITIAL_RESET_SAMPLE}"
                 checkpoint_ids = {_ck_to_sv_names(ck.id, ck.style)[0]: ck.id
                                   for fg in (model.spec.function_groups if model.spec else [])
                                   for fc in fg.functions for ck in fc.check_points}
@@ -621,11 +801,27 @@ class FormalExecution:
                     raise ValueError("Generated Formal inputs changed after preflight; render them again before proof.")
             if self._inputs()[-1] != fingerprint:
                 raise ValueError("Formal inputs changed while freezing the run; retry RunFormal.")
+            family_history = {}
+            if timed_cases and records and model.spec:
+                from .baseline import proof_history
+                names = set(selected_labels) | {name.rsplit(".", 1)[-1] for name in selected}
+                labels = {_ck_to_sv_names(ck.id, ck.style)[1]: ck.id
+                          for fg in model.spec.function_groups for fc in fg.functions for ck in fc.check_points
+                          if ck.style.lower() != "assume"}
+                targets = {label: ck for label, ck in labels.items() if not names or label in names}
+                costs = proof_history(root, model, set(targets.values()))
+                family_history = {label: costs[ck] for label, ck in targets.items() if ck in costs}
             state = {"run_id": run_id, "fingerprint": fingerprint, "status": "PREPARING",
-                     "scope": scope, "selected_properties": selected, "selected_labels": selected_labels,
+                     **({"family_history_at_start": family_history} if family_history else {}),
+                     "scope": scope, "first_pass_review": first_pass_review,
+                     **({"timed_case_stage": case_stage} if timed_cases else {}),
+                     "unimplemented_other_fcs": unimplemented_other_fcs,
+                     **({"previous_full_defer_review": past_full_review} if past_full_review else {}),
+                     **({"prior_local_deferrals": prior_local_deferrals} if prior_local_deferrals else {}),
+                     "selected_properties": selected, "selected_labels": selected_labels,
                      "selected_ck_ids": selected_ck_ids, "unimplemented_ck_ids": unimplemented_ck_ids,
-                     "semantic_inputs": semantic_inputs, "baseline_contract": contract,
-                     "baseline_smoke_labels": smoke_labels, "batch_context": context,
+                     "semantic_inputs": semantic_inputs, "smoke_labels": [], "batch_context": context,
+                     "initial_reset_sample": initial_reset_sample,
                      "expected_labels": expected_labels, "checkpoint_ids": checkpoint_ids,
                      "workspace": str(self.workspace), "output_dir": self.output_dir, "dut": self.dut,
                      "executable": executable, "policy": asdict(self.policy), "created_at": time.time(),
@@ -636,50 +832,81 @@ class FormalExecution:
             self._launch(run_dir, state)
             return self._summary(run_dir, state)
 
-    def freeze_baseline(self, *, accept: bool = True) -> dict:
-        """Validate current baseline evidence and freeze it when completing the stage."""
-        target, _, root = self._paths()
+    def _smoke(self, *, retry_prepare=False):
+        """Run a temporary tool-owned goal without generating or freezing official CKs."""
+        from .smoke import context, generate, LABEL
+
+        target, root, records, interface, executable, files, config, fingerprint = context(self)
         with input_lock(target), (root / "control.lock").open("a+") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
-            _, _, _, _, fingerprint = self._inputs()
-            directory, state = self._load(root, scope="preflight")
-            if not state or state["fingerprint"] != fingerprint:
-                raise ValueError("Run RunFormal(action=preflight) for the current Formal environment.")
-            result = self._summary(directory, state)
-            if not result["preflight_complete"]:
-                return result
+            previous_dir, previous = self._load(root, scope="preflight")
+            if previous and previous["fingerprint"] == fingerprint:
+                if previous["status"] not in {"ERROR", "INTERRUPTED", "CANCELLED"} or not retry_prepare:
+                    return self._summary(previous_dir, previous)
+            if previous and previous["status"] in ACTIVE_RUNS:
+                raise ValueError("A smoke revision is still running; cancel it before starting another.")
+            run_id = uuid.uuid4().hex
+            directory = root / run_id
+            directory.mkdir()
+            frozen_files = generate(self, directory, records, interface, files)
+            state = {"run_id": run_id, "fingerprint": fingerprint, "status": "PREPARING",
+                     "scope": "preflight", "selected_properties": [], "selected_labels": {},
+                     "selected_ck_ids": [], "unimplemented_ck_ids": [], "semantic_inputs": None,
+                     "smoke_labels": [LABEL], "batch_context": None, "smoke_config": config,
+                     "expected_labels": [LABEL], "checkpoint_ids": {}, "workspace": str(self.workspace),
+                     "output_dir": self.output_dir, "dut": self.dut, "executable": executable,
+                     "policy": asdict(self.policy), "created_at": time.time(), "files": frozen_files,
+                     "properties": {}, "decisions": [], "checkpoints": [], "error": None}
+            atomic_json(directory / "state.json", state)
+            write_report(directory, state)
+            atomic_json(root / RUN_POINTERS["preflight"], {"run_id": run_id})
+            self._launch(directory, state)
+            return self._summary(directory, state)
+
+    def check_smoke(self):
+        """Gate toolchain health only; a successful smoke is not a design proof."""
+        from .smoke import context
+
+        _, root, _, _, _, _, _, fingerprint = context(self)
+        directory, state = self._load(root, scope="preflight")
+        if not state or state["fingerprint"] != fingerprint:
+            raise ValueError("Run RunFormal(action=preflight) for the current RTL and tool configuration.")
+        result = self._summary(directory, state)
+        if result["preflight_complete"]:
             for name in state["selected_properties"]:
                 property_evidence(directory, state, name, state["properties"][name], observations=False)
-            if accept:
-                source_hashes = {name: digest for name, digest in state["files"].items() if name.startswith(f"{self.dut}/")}
-                atomic_json(root / "baseline.json", {"run_id": state["run_id"], "input_fingerprint": fingerprint,
-                                                    "contract": state["baseline_contract"], "source_hashes": source_hashes})
-            return result
+        return result
 
-    def status(self, wait_s: int = 0, *, run_id=None, scope="full") -> dict:
-        """Return progress, optionally waiting for a new checkpoint without busy LLM polling."""
+    def status(self, wait_s: int = 0, *, run_id=None, scope="full", until_complete=False) -> dict:
+        """Return progress after a bounded wait for a checkpoint or a stopped batch."""
         if type(wait_s) is not int or not 0 <= wait_s <= 1200:
             raise ValueError("wait_s must be an integer between 0 and 1200")
         if wait_s:
             initial = self.status(run_id=run_id, scope=scope)
-            if initial["status"] in ACTIVE_RUNS:
+            if initial["status"] in ACTIVE_RUNS and not initial["needs_review"]:
                 _, _, root = self._paths()
                 deadline = time.monotonic() + wait_s
                 while time.monotonic() < deadline:
                     with (root / "control.lock").open("a+") as lock:
                         fcntl.flock(lock, fcntl.LOCK_EX)
                         _, latest = self._load(root, initial["run_id"], scope)
-                    if latest["status"] != initial["status"] or len(latest["checkpoints"]) != initial["checkpoint_total"]:
+                    if latest["status"] not in ACTIVE_RUNS or (not until_complete and (
+                            latest["status"] != initial["status"] or len(latest["checkpoints"]) != initial["checkpoint_total"])):
                         break
                     time.sleep(min(0.5, max(0, deadline - time.monotonic())))
                 return self.status(run_id=initial["run_id"], scope=scope)
             return initial
-        _, root, _, _, fingerprint = self._inputs()
+        _, _, root = self._paths()
         with (root / "control.lock").open("a+") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
             run_dir, state = self._load(root, run_id, scope)
             if state is None:
                 return {"status": "NOT_STARTED", "next_action": "Call RunFormal action=run."}
+            if state.get("scope") == "preflight":
+                from .smoke import context
+                fingerprint = context(self)[-1]
+            else:
+                fingerprint = self._inputs()[-1]
             result = self._summary(run_dir, state)
             result["current_inputs"] = state["fingerprint"] == fingerprint
             if not result["current_inputs"]:
@@ -700,12 +927,14 @@ class FormalExecution:
             return self._summary(run_dir, state)
 
     def review(self, property_names: list[str], action: str, reason: str, next_action: str = "", *,
-               run_id=None, scope="full", retry_budget_s: int | None = None) -> dict:
+               run_id=None, scope="full", retry_budget_s: int | None = None, retry_engine: str | None = None) -> dict:
         """Record bounded batch decisions; deferral preserves UNPROVEN and retry is capped."""
         if action not in {"defer", "retry"} or not reason.strip() or not next_action.strip():
             raise ValueError("review requires defer/retry, a reason, and a concrete next_action")
         if retry_budget_s is not None and (action != "retry" or type(retry_budget_s) is not int or retry_budget_s < 1):
             raise ValueError("retry_budget_s must be a positive integer for retry.")
+        if retry_engine is not None and (action != "retry" or retry_engine not in {"ind", "pdrx"}):
+            raise ValueError("retry_engine requires a review retry with either ind or pdrx.")
         if not property_names or len(set(property_names)) != len(property_names):
             raise ValueError("review requires a nonempty unique property_names list")
         if len(reason) > 2000 or len(next_action) > 2000:
@@ -717,29 +946,53 @@ class FormalExecution:
             if not state or state["fingerprint"] != fingerprint:
                 raise ValueError("Review requires results for current inputs; call RunFormal action=run.")
             if state.get("scope") == "preflight":
-                raise ValueError("Repair any baseline smoke failure and submit a fresh preflight.")
+                raise ValueError("Repair the toolchain smoke failure and submit a fresh preflight.")
             active = state["status"] in ACTIVE_RUNS
             pending_path = run_dir / "review_requests.json"
             pending = read_json(pending_path) if pending_path.is_file() else []
             if active and ((run_dir / "closing").exists() or (run_dir / "cancel").exists()):
                 raise ValueError("The batch is finishing; refresh its status before reviewing.")
             pending_names = {row["property"] for row in pending} if active else set()
+            from .baseline import current_formal_stage
+            from .case_batches import SLOW
+            slow_stage = current_formal_stage(self.workspace) == SLOW
             decisions = []
             for name in property_names:
                 item = state["properties"].get(name)
+                if (state.get("timed_case_stage") and not slow_stage and action == "retry"
+                        and item and item.get("state") == "REVIEW"):
+                    raise ValueError("This unresolved SVA is recorded for Stage 8. Continue the current case batch or coverage work.")
                 if not item or item["result"] in FINAL_RESULTS or item["result"] == "NOT_EXECUTED":
                     raise ValueError(f"Property is missing or already resolved: {name}")
                 if name in pending_names:
                     raise ValueError(f"A decision is already pending: {name}")
-                if action not in review_actions(item, self.policy):
+                reconfirm = slow_stage and action == "defer" and item["state"] == "REVIEW" and item.get("disposition") == "DEFERRED"
+                if not reconfirm and action not in review_actions(item, self.policy, state):
+                    if action == "retry" and retry_waits_for_other_fcs(state, item):
+                        raise ValueError(f"{name}: the retry exhausted its budget without a new native result. Other FCs await first verification. Use review_queue[].defer_call with the risk and resume condition; the original target enters full regression.")
                     if action == "defer":
                         raise ValueError(f"Only UNPROVEN properties in REVIEW can be deferred: {name}")
                     raise ValueError(f"Retry budget exhausted or property is still running: {name}")
                 if retry_budget_s is not None and retry_budget_s > self.policy.property_cumulative_budget_s - item["execution_elapsed_s"]:
                     raise ValueError(f"Retry budget exceeds the remaining proof time for {name}.")
+                budget = retry_budget_s
+                family = family_review_budget(state, name, self.policy) if action == "retry" else None
+                if family:
+                    limit = family["budget_to_review_s"]
+                    if not limit:
+                        tested = {a.get("requested_engine") for a in item["attempts"]} | {item.get("engine")}
+                        if item["state"] == "REVIEW" and (not retry_engine or retry_engine in tested):
+                            raise ValueError(f"{name}: family {family['root_ck_id']} has used {family['charged_s']}s "
+                                             f"at its {family['review_at_s']}s review point. Record an evidenced deferral "
+                                             "or use a different target-specific retry_engine for a short strategy probe.")
+                        limit = self.policy.first_pass_budget_s
+                    budget = min(budget or self.policy.analysis_threshold_s, limit)
                 decisions.append({"property": name, "action": action, "reason": reason.strip(),
                                   "next_action": next_action.strip(), "timestamp": time.time(),
-                                  **({"retry_budget_s": retry_budget_s} if retry_budget_s is not None else {})})
+                                  **({"stage": SLOW} if slow_stage else {}),
+                                  **({"retry_budget_s": budget} if budget is not None else {}),
+                                  **({"requested_budget_s": retry_budget_s} if retry_budget_s and budget != retry_budget_s else {}),
+                                  **({"retry_engine": retry_engine} if retry_engine else {})})
             if active:
                 atomic_json(pending_path, pending + decisions)
                 return {**self._summary(run_dir, state), "review_pending": True}
@@ -748,6 +1001,9 @@ class FormalExecution:
             atomic_json(run_dir / "state.json", state)
             write_report(run_dir, state)
             if action == "retry":
+                if slow_stage:
+                    state["slow_stage_retry"] = True
+                    atomic_json(run_dir / "state.json", state)
                 for marker in ("ready", "cancel", "closing", "review_requests.json"):
                     (run_dir / marker).unlink(missing_ok=True)
                 self._launch(run_dir, state)
@@ -768,14 +1024,115 @@ class FormalExecution:
                  for name, item in properties.items() if item["result"] == "UNPROVEN"]
         for row in queue:
             item = properties[row["property"]]
-            row["actions"] = [] if state.get("scope") == "preflight" or row["property"] in pending else review_actions(item, policy)
+            row["actions"] = [] if state.get("scope") == "preflight" or row["property"] in pending else review_actions(item, policy, state)
             row["remaining_s"] = max(0, policy.property_cumulative_budget_s - row["active_s"])
             row["attempts"] = len(item["attempts"])
+            if item["attempts"]:
+                attempt = item["attempts"][-1]
+                if "license_wait_s" in attempt:
+                    row["native_license"] = {"waiting": bool(attempt.get("running") and attempt.get("license_waiting")),
+                                             "wait_s": round(attempt["license_wait_s"], 2),
+                                             "serial_retry": bool(item.get("license_serial_retry"))}
+                if attempt.get("forced") in {"SETUP_TIMEOUT", "REPORT_TIMEOUT", "EXIT_TIMEOUT",
+                                             "LICENSE_TIMEOUT", "LICENSE_UNAVAILABLE"} or attempt.get("license_waiting"):
+                    row["attempt_console"] = str((run_dir / attempt["console"]).relative_to(self.workspace))
+            if "defer" in row["actions"]:
+                row["defer_call"] = {"action": "review", "run_id": state["run_id"],
+                                     "property_names": [row["property"]], "disposition": "defer",
+                                     "reason": "", "next_action": ""}
+                row["next_action"] = ("Review the attempt report and record the unresolved risk and a specific resume condition "
+                                      "in defer_call. A retry starts a new proof attempt. Choose it when new target-specific "
+                                      "evidence or a changed proof strategy justifies spending the additional budget now.")
+                if state.get("first_pass_review") and state.get("unimplemented_other_fcs"):
+                    row["unimplemented_other_fcs"] = state["unimplemented_other_fcs"]
+                    row["next_action"] = ("Other FCs are waiting for first verification. Use defer_call after checking this "
+                                          "target, its environment and the remaining risk. A budget-only retry begins again "
+                                          "from the start. For a target-specific strategy change, set retry_engine to ind or pdrx in the "
+                                          "review call. Keep the shared Tcl unchanged for this experiment.")
+                if retry_waits_for_other_fcs(state, item):
+                    row["next_action"] = ("The retry exhausted its budget without a new native result. Record the remaining risk and "
+                                          "resume condition in defer_call so the listed FCs receive their first verification. "
+                                          "The full regression will run this original target again.")
+                if item["attempts"] and item["attempts"][-1].get("console"):
+                    row["attempt_console"] = str((run_dir / item["attempts"][-1]["console"]).relative_to(self.workspace))
+            history = state.get("previous_full_defer_review", {}).get(row["property"])
+            if history:
+                row["previous_full_defer_review"] = history
+                if item["state"] == "REVIEW":
+                    row["next_action"] = ("Review the fresh full attempt against the current environment. The previous full "
+                                          "run deferred this unchanged target. Its resume condition is scheduling history. "
+                                          "Record a new decision for this batch; retry_engine is available for a strategy change.")
+            family = family_review_budget(state, row["property"], policy) if row["actions"] else None
+            if family:
+                row["family_budget"] = family
+                if not family["budget_to_review_s"]:
+                    row["next_action"] = ("The original CK and its derived checks reached the cumulative review point. "
+                                          "Defer with the remaining risk or use a different target-specific retry_engine "
+                                          "for a bounded probe. A fresh full first attempt is still required.")
+            if state.get("timed_case_stage") and item.get("disposition") == "DEFERRED":
+                row["stage8_worklist"] = True
+                from .baseline import current_formal_stage
+                from .case_batches import SLOW
+                if current_formal_stage(self.workspace) == SLOW:
+                    row["actions"] = list(dict.fromkeys([*row["actions"], "defer"]))
+                    row["next_action"] = "Review the evidence, then record the residual risk and resume condition or try a justified target-specific strategy."
+                else:
+                    row["actions"] = []
+                    row.pop("defer_call", None)
+                    row["next_action"] = "The unresolved native attempt is recorded for Stage 8. Continue the current implementation or coverage work."
+                row["evidence_origin"] = "prior_bound_timeout" if item.get("carried_gap") and not item["attempts"] else "current_attempt"
+            prior = state.get("prior_local_deferrals", {}).get(row["property"])
+            if prior:
+                row["prior_local_deferral"] = prior
+                if item["state"] == "REVIEW" and item.get("disposition") != "DEFERRED":
+                    row["next_action"] = ("The current regression carries forward a verified UNPROVEN gap for Stage 8."
+                                          if item.get("carried_gap") and not item["attempts"] else
+                                          "The current attempt remains UNPROVEN. Review the recorded risk and resume condition.")
         ready = [row for row in queue if row["state"] == "REVIEW" and row["disposition"] != "DEFERRED" and row["actions"]]
         scope = state.get("scope", "full")
+        preview = None
+        if scope == "selected" and self.batched_sva:
+            from .coi import selected_coverage_preview
+            preview = selected_coverage_preview(run_dir, state)
+        queue_total = len(queue)
+        queue = (ready + [row for row in queue if row not in ready])[:20]
+        if scope == "full" and queue and self.batched_sva:
+            plan = run_dir / "inputs" / self.output_dir / ".formal_records.yaml"
+            if plan.is_file():
+                from .baseline import proof_history
+                from .skills.lib.formal_tools import _ck_to_sv_names
+                from .skills.lib.models import FormalRecords
+                import yaml
+
+                try:
+                    records = FormalRecords.model_validate(yaml.safe_load(plan.read_bytes()))
+                    labels = {_ck_to_sv_names(ck.id, ck.style)[1]: ck.id
+                              for fg in (records.spec.function_groups if records.spec else [])
+                              for fc in fg.functions for ck in fc.check_points}
+                    row_ids = {row["property"]: labels.get(row["property"].rsplit(".", 1)[-1]) for row in queue}
+                    history = proof_history(run_dir.parent, records, set(row_ids.values()) - {None})
+                    for row in queue:
+                        ck_id = row_ids[row["property"]]
+                        if ck_id in history:
+                            row.update(ck_id=ck_id, proof_history=history[ck_id])
+                except (OSError, ValueError, yaml.YAMLError):
+                    # Historical timing is optional and never affects proof or review status.
+                    pass
         executed = [item for item in properties.values() if item["result"] != "NOT_EXECUTED"]
         resolved = bool(executed) and all(item["result"] in FINAL_RESULTS for item in executed)
+        environment = None
+        if self.batched_sva and scope in {"selected", "full"} and state["status"] in {"COMPLETED", "AWAITING_REVIEW"}:
+            from .diagnostics import reset_release_gate
+
+            environment = reset_release_gate(run_dir.parent, state)
+        environment_blocked = environment and environment["status"] != "reachable"
+        if environment_blocked:
+            resolved = False
         return {"run_id": state["run_id"], "status": state["status"], "scope": scope,
+                **({"case_windows": state.get("case_windows", [])} if state.get("timed_case_stage") else {}),
+                **({"environment_check": environment} if environment else {}),
+                **({"status_call": {"action": "status", "run_id": state["run_id"], "scope": scope}}
+                   if state["status"] in ACTIVE_RUNS else {}),
                 "selected_properties": state.get("selected_properties", []),
                 "selected_ck_ids": state.get("selected_ck_ids", []),
                 "unimplemented_ck_ids": state.get("unimplemented_ck_ids", []),
@@ -785,20 +1142,25 @@ class FormalExecution:
                 "states": dict(collections.Counter(item["state"] for item in properties.values())), "total": len(properties),
                 "proof_complete": scope == "full" and resolved,
                 "preflight_complete": scope == "preflight" and state["status"] == "COMPLETED",
-                "baseline_fingerprint": (state.get("batch_context") or {}).get("baseline"),
                 "diagnostics": state.get("diagnostics", []),
                 "deferred_total": sum(item.get("disposition") == "DEFERRED" for item in properties.values()),
                 "deferred_properties": [name for name, item in properties.items() if item.get("disposition") == "DEFERRED"][:20],
-                "review_queue": (ready + [row for row in queue if row not in ready])[:20],
-                "review_queue_total": len(queue), "needs_review": len(ready),
+                "review_queue": queue,
+                "review_queue_total": queue_total, "needs_review": len(ready),
+                **({"coverage_preview": preview} if preview else {}),
                 "error": state.get("error"), "error_code": state.get("error_code"),
+                **({"inventory_timing": state["inventory_timing"]} if "inventory_timing" in state else {}),
                 "report": str((run_dir / "report.md").relative_to(self.workspace)),
                 "state_artifact": str((run_dir / "state.json").relative_to(self.workspace)),
                 "coverage_artifact": str((run_dir / "inventory" / "avis" / "fanin.rep").relative_to(self.workspace)) if (run_dir / "inventory" / "avis" / "fanin.rep").is_file() else None,
                 "checkpoints": state["checkpoints"][-10:], "checkpoint_total": len(state["checkpoints"]),
                 "next_action": (
-                    "Review each ready property using its available actions. Other properties may continue running."
+                    environment["next_action"] if environment_blocked else
+                    "Toolchain compile and solver smoke completed. This is not a design proof; implement official FC checks next."
+                    if scope == "preflight" and state["status"] == "COMPLETED" else
+                    "Use review_queue[].defer_call for unresolved goals with no new basis to retry. Fill in the risk and resume condition. Other targets can continue."
                     if ready else
+                    preview["next_action"] if preview else
                     "Wait for progress using RunFormal action=status." if state["status"] in ACTIVE_RUNS else
                     "Fix the indicated source and resubmit. After an operator repairs external compilation conditions, use retry_prepare=true."
                     if state.get("compile_failure_input_bound") else
@@ -817,7 +1179,7 @@ class FormalExecution:
                 "properties": [{"name": name, "kind": item["kind"], "result": item["result"]}
                                for name, item in state["properties"].items()]}
 
-    def evidence(self, property_names: list[str], *, run_id=None, scope="full", trace_query=None) -> dict:
+    def evidence(self, property_names: list[str], *, run_id=None, scope="full", trace_query=None, evidence_view=None) -> dict:
         """Return bounded original proof witnesses; never invent or minimize trace inputs."""
         if not property_names or len(property_names) > 20 or len(set(property_names)) != len(property_names):
             raise ValueError("evidence requires between 1 and 20 unique exact property_names")
@@ -838,31 +1200,32 @@ class FormalExecution:
         with (root / "control.lock").open("a+") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
             run_dir, state = self._load(root, run_id, scope)
-            if not state or state["fingerprint"] != fingerprint or state["status"] in ACTIVE_RUNS:
-                raise ValueError("Evidence requires current stopped inputs; inspect RunFormal status first")
+            if not state or state["status"] in ACTIVE_RUNS or (
+                state["fingerprint"] != fingerprint and not (run_id and evidence_view in {"property_signals", "full"})
+            ):
+                raise ValueError("Evidence requires current stopped inputs or an explicit historical view and run_id; inspect RunFormal status first")
             items = []
             for name in property_names:
                 if name not in state["properties"]:
                     raise ValueError(f"Exact property identity not found: {name}")
                 item = state["properties"][name]
                 evidence = property_evidence(run_dir, state, name, item)
+                if evidence_view == "property_signals":
+                    from .evidence import focus_property_observations
+                    evidence = focus_property_observations(evidence, state, name)
                 items.append({"property": name, **evidence,
                               "next_action": "Use the original recorded input and signal observations with the stated specification. The last stored sample is not necessarily the failure cycle; no expected behavior or alternate example has been computed."})
-            return {"run_id": state["run_id"], "items": items,
+            return {"run_id": state["run_id"], "items": items, "current_inputs": state["fingerprint"] == fingerprint,
                     "verification_scope": "tool_report_and_original_witness_only; intended specification semantics remain to be reviewed"}
 
     def check(self) -> tuple[bool, dict]:
         """Gate current evidence without starting a proof or treating a deferred item as Pass."""
         result = self.status()
+        environment = result.get("environment_check")
+        if result.get("current_inputs") and environment and environment["status"] != "reachable":
+            return False, {**result, "error_code": environment["error_code"], "next_action": environment["next_action"]}
         ready = result.get("current_inputs") and result["status"] not in ACTIVE_RUNS | {"INTERRUPTED", "ERROR", "NEEDS_OPERATOR", "CANCELLED"} and result.get("total", 0) > 0
         target, _, root = self._paths()
-        if self.batched_sva:
-            from .baseline import verify_baseline
-            import yaml
-            try:
-                verify_baseline(root, yaml.safe_load((target / ".formal_records.yaml").read_bytes()), required=True)
-            except (ValueError, OSError) as exc:
-                return False, {"error_code": "formal_baseline_invalid", "error": str(exc)}
         run_dir, state = self._load(root, result.get("run_id"))
         if ready:
             inventory = parse_properties((run_dir / "inventory" / "console.log").read_text(encoding="utf-8", errors="replace"))
@@ -870,6 +1233,10 @@ class FormalExecution:
                 ready = False
             for name, item in state["properties"].items():
                 if not item["attempts"]:
+                    if item.get("carried_gap") and item.get("result") == "UNPROVEN" and item.get("disposition") == "DEFERRED":
+                        from .case_batches import valid_carried_gap
+                        if valid_carried_gap(root, state, name):
+                            continue
                     ready = False
                     continue
                 attempt = item["attempts"][-1]
@@ -894,30 +1261,46 @@ class FormalExecution:
                     ready = False
                 else:
                     try:
-                        property_evidence(run_dir, state, name, item)
+                        property_evidence(run_dir, state, name, item, observations=False)
                     except ValueError:
                         ready = False
         if ready:
-            self.export_results(expected_run_id=state["run_id"])
+            _, coverage = self._export_results(expected_run_id=state["run_id"])
             if self._inputs()[-1] != state["fingerprint"]:
                 return False, {"error_code": "formal_inputs_changed_during_check", "error": "Formal inputs changed while validating evidence.",
                                "next_action": "Inspect the changed task inputs and run the current revision before completing the stage."}
+            result["coverage"] = coverage
+            result["coverage_artifact"] = coverage.get("report")
             return True, result
         return False, {**result, "error_code": "formal_execution_pending", "error": "Current formal results require execution or review.",
                        "next_action": result.get("next_action", "Call RunFormal action=run, then Check.")}
 
-    def export_results(self, *, expected_run_id=None) -> dict:
+    def export_results(self, *, expected_run_id=None, include_coverage=True) -> dict:
         """Publish only the current stopped full result under the snapshot lock."""
+        evidence, _ = self._export_results(expected_run_id=expected_run_id, include_coverage=include_coverage)
+        return evidence
+
+    def _export_results(self, *, expected_run_id=None, include_coverage=True) -> tuple[dict, dict]:
+        """Project proof and coverage from the same current full batch."""
         from formal.skills.lib.formal_tools import load_records, save_records, update_records_run_results
+        from formal.coi import COI_REPORT, coverage_snapshot
 
         target, _, root = self._paths()
         with input_lock(target), (root / "control.lock").open("a+") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
             target, root, _, _, fingerprint = self._inputs()
             run_dir, state = self._load(root)
-            if (not state or state["fingerprint"] != fingerprint or state["status"] in ACTIVE_RUNS
+            if (not state or state["status"] in ACTIVE_RUNS
                     or expected_run_id is not None and state["run_id"] != expected_run_id):
                 raise ValueError("Only current, stopped full results can be published")
+            if state["fingerprint"] != fingerprint:
+                raise ValueError("Proof inputs changed. Run the current revision before publishing results.")
+            if self.batched_sva:
+                from .diagnostics import reset_release_gate
+
+                environment = reset_release_gate(root, state)
+                if environment and environment["status"] != "reachable":
+                    raise ValueError(environment["next_action"])
             parsed = {key: [] for key in ("pass", "trivially_true", "false", "cover_pass", "cover_fail")}
             mapping = {"PROVEN": "pass", "TRIVIALLY_TRUE": "trivially_true", "FALSIFIED": "false", "TRIVIALLY_FALSE": "false", "COVER_REACHED": "cover_pass", "COVER_UNREACHABLE": "cover_fail"}
             lines = []
@@ -927,11 +1310,14 @@ class FormalExecution:
                 status = {"PROVEN": "Pass", "TRIVIALLY_TRUE": "TrivT", "TRIVIALLY_FALSE": "TrivF", "FALSIFIED": "Fail", "COVER_REACHED": "Pass", "COVER_UNREACHABLE": "Fail"}.get(item["result"], "Undec")
                 lines.append(f" {number} {name} : {status}\tunknown\t{item['execution_elapsed_s']:.2f}\t(-)")
             log = target / "tests" / "avis.log"
-            log.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            projected_log = ("\n".join(lines) + "\n").encode("utf-8")
+            if not log.is_file() or log.read_bytes() != projected_log:
+                log.write_bytes(projected_log)
             records = load_records(str(target / ".formal_records.yaml"))
             verified = {}
             if records:
-                if not records.run_results or records.run_results.run_id != state["run_id"] or records.run_results.log_hash != hashlib.sha256(log.read_bytes()).hexdigest():
+                previous = records.run_results.model_copy() if records.run_results else None
+                if not records.run_results or records.run_results.run_id != state["run_id"] or records.run_results.log_hash != hashlib.sha256(projected_log).hexdigest():
                     update_records_run_results(records, parsed, str(log))
                 # Rebuild every machine field even if a task writer kept the old run/log IDs.
                 records.run_results.assert_failing_properties = parsed["false"]
@@ -948,13 +1334,49 @@ class FormalExecution:
                                             "fail_count": len(parsed["false"]), "cover_pass_count": len(parsed["cover_pass"]),
                                             "cover_fail_count": len(parsed["cover_fail"]),
                                             "trivially_false_count": sum(item["result"] == "TRIVIALLY_FALSE" for item in state["properties"].values())}
-                save_records(str(target / ".formal_records.yaml"), records)
-            coverage = run_dir / "inventory" / "avis" / "fanin.rep"
-            if coverage.exists():
-                destination = target / "tests" / "avis" / "fanin.rep"
+                if records.run_results != previous:
+                    save_records(str(target / ".formal_records.yaml"), records)
+            if not include_coverage:
+                return verified, {}
+            coverage, payload = coverage_snapshot(run_dir, state)
+            if payload is not None:
+                destination = target / "tests" / COI_REPORT
                 destination.parent.mkdir(exist_ok=True)
-                shutil.copyfile(coverage, destination)
-            return verified
+                if not destination.is_file() or destination.read_bytes() != payload:
+                    with tempfile.NamedTemporaryFile(dir=destination.parent, delete=False) as stream:
+                        temporary = Path(stream.name)
+                        try:
+                            stream.write(payload)
+                            stream.flush()
+                            os.replace(temporary, destination)
+                        finally:
+                            temporary.unlink(missing_ok=True)
+            return verified, coverage
+
+def observed_marker_time(console: str, marker: str, earliest: float, now: float) -> float | None:
+    """Translate a complete native milestone into the controller's monotonic clock."""
+    match = re.search(rf"^{marker}(?: (\d+))?\r?$", console, re.MULTILINE)
+    if not match:
+        return None
+    lag = max(0.0, time.time() - int(match[1]) / 1000) if match[1] else 0.0
+    return max(earliest, now - lag)
+
+
+def attempt_timeout(worker, attempt, policy, now):
+    """Apply each deadline to its own phase, keeping the solver budget unchanged."""
+    if worker["proof_start"] is None:
+        return "SETUP_TIMEOUT" if now - worker["start"] >= policy.setup_timeout_s else None
+    if worker.get("report_end") is not None:
+        return "EXIT_TIMEOUT" if now - worker["report_end"] >= policy.stop_grace_s else None
+    if worker["proof_finish"] is not None:
+        return "REPORT_TIMEOUT" if now - worker["proof_finish"] >= policy.stop_grace_s else None
+    elapsed = now - worker["proof_start"]
+    if elapsed < worker["budget"] + policy.stop_grace_s:
+        return None
+    if attempt.get("license_waiting") or elapsed - attempt.get("license_wait_s", 0.0) < worker["budget"]:
+        return "LICENSE_TIMEOUT"
+    return "PROOF_TIMEOUT"
+
 
 def controller(run_dir: Path) -> None:
     """Own all children, assign fair turns, publish checkpoints, and clean up on exit."""
@@ -963,7 +1385,9 @@ def controller(run_dir: Path) -> None:
         if time.monotonic() > deadline:
             return
         time.sleep(0.05)
+    from formal.case_batches import WALL_SECONDS, next_window, record_timeout, valid_carried_gap
     state = read_json(run_dir / "state.json")
+    timed = state.get("timed_case_stage") and not state.get("slow_stage_retry")
     policy = ExecutionPolicy(**state["policy"])
     active = []
     idle_sessions = []
@@ -988,37 +1412,49 @@ def controller(run_dir: Path) -> None:
             inventory.mkdir(exist_ok=True)
             script = inventory / "inventory.tcl"
             script.write_text(f"source {tcl_word(str(setup))}\n"
+                              "puts UCAGENT_INVENTORY_SETUP_DONE\nflush stdout\n"
                               "puts UCAGENT_ASSERT_BEGIN\nshow_prop -only_assert -time -engine -reason\nputs UCAGENT_ASSERT_END\n"
                               "puts UCAGENT_COVER_BEGIN\nshow_prop -only_cover -time -engine -reason\nputs UCAGENT_COVER_END\n"
-                              "fanin -cover -list -dump\nexit\n", encoding="utf-8")
+                              "fanin -cover -list -dump\nputs UCAGENT_INVENTORY_FINISHED\nflush stdout\nexit\n", encoding="utf-8")
 
+            queued_at = time.monotonic()
             while inventory_slot is None:
+                if timed and time.time() - state["created_at"] >= WALL_SECONDS:
+                    raise ValueError("The case batch reached its wall limit waiting for an inventory worker. No goal was attempted.")
                 if interrupted or (run_dir / "cancel").exists():
                     state["status"] = "CANCELLED"
                     return
                 inventory_slot = take_worker_slot(run_dir.parent, policy.max_active_workers)
                 if inventory_slot is None:
                     time.sleep(0.1)
+            state["inventory_timing"] = {"wait_for_worker_s": time.monotonic() - queued_at}
             console = (inventory / "console.log").open("w")
             process = subprocess.Popen([state["executable"], "-f", str(script), "-override", "-work_dir", str(inventory)],
                                        stdout=console, stderr=subprocess.STDOUT, start_new_session=True,
                                        pass_fds=(inventory_slot.fileno(),))
             inventory_child, inventory_log = process, console
             token = process_identity(process.pid)
+            started = time.monotonic()
             state["inventory_process"] = {"pid": process.pid, "identity": token, "members": group_members(process.pid)}
             atomic_json(run_dir / "state.json", state)
-            started = time.monotonic()
             member_check = started
+            timed_out = False
             while process.poll() is None:
                 if time.monotonic() - member_check >= 1:
                     state["inventory_process"]["members"] = group_members(process.pid)
                     atomic_json(run_dir / "state.json", state)
                     member_check = time.monotonic()
-                if interrupted or (run_dir / "cancel").exists() or time.monotonic() - started > policy.setup_timeout_s:
+                timed_out = (time.monotonic() - started > policy.setup_timeout_s or
+                             timed and time.time() - state["created_at"] >= WALL_SECONDS)
+                if interrupted or (run_dir / "cancel").exists() or timed_out:
+                    if process.poll() is not None:
+                        timed_out = False
+                        break
                     stop_process(process.pid, token, policy.stop_grace_s, state["inventory_process"].get("members", []))
                     process.wait()
                     break
                 time.sleep(0.1)
+            state["inventory_timing"]["process_s"] = time.monotonic() - started
             console.close()
             inventory_slot.close()
             state.pop("inventory_process", None)
@@ -1026,6 +1462,18 @@ def controller(run_dir: Path) -> None:
             if interrupted or (run_dir / "cancel").exists():
                 state["status"] = "CANCELLED"
                 return
+            if timed_out:
+                phase = ("exit" if re.search(r"^UCAGENT_INVENTORY_FINISHED\r?$", content, re.M)
+                         else "reporting" if re.search(r"^UCAGENT_INVENTORY_SETUP_DONE\r?$", content, re.M)
+                         else "setup")
+                state["inventory_timing"]["timeout_phase"] = phase
+                state["error_code"] = "formal_inventory_timeout"
+                raise ValueError(f"Formal inventory timed out during {phase}. Inspect inventory/console.log before retrying.")
+            setup_output = re.split(r"^UCAGENT_INVENTORY_SETUP_DONE\r?$", content, maxsplit=1, flags=re.M)[0]
+            if NATIVE_VERIFY_STARTED.search(setup_output):
+                state["error_code"] = "formal_proof_in_setup"
+                raise ValueError("The shared inventory setup ran a proof before managed verification. Remove the proof "
+                                 "from shared Tcl and use review retry with retry_engine for the target.")
             blackboxes = re.search(r"blackboxes\s*:\s*[1-9]", content)
             if process.returncode != 0 or blackboxes or re.search(r"^\s*(?:Error:|Error-|Fatal)", content, re.M):
                 ck_ids = state.get("checkpoint_ids", {})
@@ -1060,6 +1508,10 @@ def controller(run_dir: Path) -> None:
                 state["compile_failure_input_bound"] = input_bound
                 state["error_code"] = "formal_tool_compile_error" if input_bound else "formal_tool_preparation_error"
                 raise ValueError("Formal environment preparation failed. Review the diagnostics and inventory/console.log.")
+            sample = state.get("initial_reset_sample")
+            if sample and f'forced "{sample}" to reset value 1\'b1' not in content:
+                state["error_code"] = "formal_initial_reset_not_bound"
+                raise ValueError("FormalMC did not confirm initialization of the first-sample monitor. Inspect inventory/console.log.")
             parsed = parse_properties(content)
             if not parsed:
                 raise ValueError("No properties were enumerated; inspect inventory/console.log and the generated environment.")
@@ -1068,7 +1520,7 @@ def controller(run_dir: Path) -> None:
             if missing:
                 raise ValueError(f"Expected checker properties missing or ambiguous in inventory: {missing[:20]}")
             if state.get("scope") == "preflight":
-                labels = set(state["baseline_smoke_labels"])
+                labels = set(state["smoke_labels"])
                 selected = {name for name, item in parsed.items()
                             if name.rsplit(".", 1)[-1] in labels and item["kind"] == "cover"}
                 if len(selected) != len(labels):
@@ -1091,6 +1543,15 @@ def controller(run_dir: Path) -> None:
             unknown = sorted(selected - parsed.keys())
             if unknown:
                 raise ValueError(f"Unknown or non-Assert/Cover property names: {unknown[:20]}")
+            if state["scope"] == "full":
+                from formal.coi import COI_REPORT, seal_coverage
+
+                artifact = Path("inventory") / COI_REPORT
+                if (run_dir / artifact).is_file():
+                    try:
+                        seal_coverage(run_dir, state, artifact.as_posix())
+                    except (OSError, ValueError) as exc:
+                        state["coverage_error"] = str(exc)
             for name, result in parsed.items():
                 included = not selected or name in selected
                 state["properties"][name] = {**result,
@@ -1098,6 +1559,8 @@ def controller(run_dir: Path) -> None:
                     "result": "UNPROVEN" if included else "NOT_EXECUTED",
                     "execution_elapsed_s": 0.0, "round_elapsed_s": 0.0,
                     "review_round": 1, "attempts": [], "disposition": None}
+                if timed and included and name in state.get("prior_local_deferrals", {}) and valid_carried_gap(run_dir.parent, state, name):
+                    state["properties"][name].update(state="REVIEW", disposition="DEFERRED", carried_gap=True)
         state["status"] = "RUNNING"
         started_batch = time.monotonic()
         checkpoint_due = list(sorted(set((policy.first_pass_budget_s, policy.analysis_threshold_s))))
@@ -1106,6 +1569,7 @@ def controller(run_dir: Path) -> None:
                 state["status"] = "CANCELLED"
                 break
             now = time.monotonic()
+            window = next_window(state, time.time()) if timed else None
             for worker in list(active):
                 now = time.monotonic()
                 process = worker["process"]
@@ -1122,21 +1586,48 @@ def controller(run_dir: Path) -> None:
                     worker["output_offset"] = stream.tell()
                 console = worker["output_tail"] + console
                 worker["output_tail"] = console[-256:]
-                if worker["proof_start"] is None and "UCAGENT_PROOF_STARTED" in console:
-                    worker["proof_start"] = now
-                    marker = re.search(r"^UCAGENT_PROOF_STARTED (\d+)\r?$", console, re.MULTILINE)
-                    if marker:
-                        lag = max(0.0, time.time() - int(marker.group(1)) / 1000)
-                        worker["proof_start"] = max(worker["start"], now - lag)
-                    attempt["proof_started_at"] = time.time() - (now - worker["proof_start"])
+                if worker["proof_start"] is None:
+                    worker["proof_start"] = observed_marker_time(console, "UCAGENT_PROOF_STARTED", worker["start"], now)
+                    if worker["proof_start"] is not None:
+                        attempt["proof_started_at"] = time.time() - (now - worker["proof_start"])
+                if worker["proof_start"] is not None and worker["proof_finish"] is None:
+                    worker["proof_finish"] = observed_marker_time(console, "UCAGENT_PROOF_FINISHED", worker["proof_start"], now)
+                    if worker["proof_finish"] is not None:
+                        attempt["proof_finished_at"] = time.time() - (now - worker["proof_finish"])
+                if worker["proof_start"] is not None:
+                    if NATIVE_VERIFY_STARTED.search(console):
+                        worker["native_verify_started"] = True
+                    if worker["license_start"] is None and not worker["native_verify_started"] and LICENSE_WAIT.search(console):
+                        worker["license_start"] = now
+                    if worker["license_start"] is not None:
+                        waiting = not worker["native_verify_started"] and worker["proof_finish"] is None
+                        if attempt.get("license_waiting", True):
+                            attempt["license_wait_s"] = max(0.0, (worker["proof_finish"] or now) - worker["license_start"])
+                        attempt["license_waiting"] = waiting
+                if not attempt.get("report_finished") and re.search(r"^UCAGENT_RESULT_END\r?$", console, re.MULTILINE):
+                    attempt["report_finished"] = True
+                    worker["report_end"] = now
+                    attempt["report_finished_at"] = time.time()
                 elapsed = now - worker["proof_start"] if worker["proof_start"] is not None else 0.0
+                active_elapsed = (worker["proof_finish"] - worker["proof_start"]
+                                  if worker["proof_finish"] is not None else elapsed)
                 forced = None
                 session_done = bool(session and re.search(rf"^UCAGENT_SESSION_DONE {worker['index']}\r?$", console, re.M))
                 if process.poll() is None and not session_done:
-                    if worker["proof_start"] is None and now - worker["start"] >= policy.setup_timeout_s:
-                        forced = "SETUP_TIMEOUT"
-                    elif worker["proof_start"] is not None and elapsed >= worker["budget"] + policy.stop_grace_s:
-                        forced = "PROOF_TIMEOUT"
+                    if attempt.get("license_waiting") and len(active) > 1 and not item.get("license_serial_retry"):
+                        forced = "LICENSE_CONTENTION"
+                        state["license_serialized"] = True
+                    else:
+                        forced = attempt_timeout(worker, attempt, policy, now)
+                        if window and time.time() >= window["proof_deadline"] and not forced:
+                            if worker["proof_start"] is None:
+                                forced = "SETUP_TIMEOUT"
+                            elif attempt.get("license_waiting"):
+                                forced = "LICENSE_TIMEOUT"
+                            elif worker["proof_finish"] is None:
+                                forced = "PROOF_TIMEOUT"
+                            else:
+                                forced = "EXIT_TIMEOUT" if attempt.get("report_finished") else "REPORT_TIMEOUT"
                     if forced:
                         if session:
                             session.close(graceful=False)
@@ -1144,7 +1635,8 @@ def controller(run_dir: Path) -> None:
                             stop_process(process.pid, attempt["identity"], policy.stop_grace_s, attempt.get("members", []))
                             process.wait()
                     else:
-                        item["execution_elapsed_s"] = worker["base_elapsed"] + elapsed
+                        solver_elapsed = 0.0 if attempt.get("license_waiting") else max(0.0, active_elapsed - attempt.get("license_wait_s", 0.0))
+                        item["execution_elapsed_s"] = worker["base_elapsed"] + solver_elapsed
                         continue
                 if session:
                     session.seal(worker["name"], worker["console_path"], worker["session_offset"], session_done)
@@ -1160,14 +1652,16 @@ def controller(run_dir: Path) -> None:
                     except ValueError as exc:
                         parse_error = str(exc)
                 # Count active wall time, not queue time or summed parallel CPU times.
-                charged = elapsed
+                charged = active_elapsed
                 markers = re.search(r"^UCAGENT_PROOF_STARTED (\d+)\r?$.*?^UCAGENT_PROOF_FINISHED (\d+)\r?$", console, re.MULTILINE | re.DOTALL)
                 if markers:
                     duration = (int(markers.group(2)) - int(markers.group(1))) / 1000
                     if 0 <= duration <= now - worker["start"] + 1:
                         charged = duration
-                if worker["proof_start"] is None:
+                if worker["proof_start"] is None or attempt.get("license_waiting"):
                     charged = 0.0
+                else:
+                    charged = max(0.0, charged - attempt.get("license_wait_s", 0.0))
                 item["execution_elapsed_s"] = worker["base_elapsed"] + charged
                 item["round_elapsed_s"] += charged
                 witness = worker["console_path"].parent / "avis" / worker["name"] / (worker["name"] + ".tb.v")
@@ -1192,6 +1686,7 @@ def controller(run_dir: Path) -> None:
                          and "UCAGENT_PROOF_FINISHED" in console and returncode == 0
                          and (not session or session_done)
                          and not re.search(r"^\s*(?:Error:|Error-|Fatal)", console, re.MULTILINE))
+                attempt["native_report_complete"] = bool(valid and not parse_error)
                 if session:
                     if valid and final["result"] in FINAL_RESULTS and not parse_error and session.jobs < policy.session_max_properties:
                         idle_sessions.append(session)
@@ -1201,6 +1696,10 @@ def controller(run_dir: Path) -> None:
                     item["state"] = "ERROR"
                     item["error_code"] = "formal_tool_result_unsupported"
                     item["error"] = parse_error
+                elif forced == "LICENSE_CONTENTION":
+                    item["license_serial_retry"] = True
+                    item["state"] = "QUEUED_FAST" if worker["lane"] == "fast" else "QUEUED_SLOW"
+                    attempt["fallback_reason"] = "Native license wait before verification; retrying once with one worker in this batch."
                 elif valid and final["result"] in FINAL_RESULTS:
                     item.update(final)
                     item["state"] = "RESOLVED"
@@ -1208,9 +1707,16 @@ def controller(run_dir: Path) -> None:
                 elif valid or forced == "PROOF_TIMEOUT":
                     if valid:
                         item.update(final)
+                    else:
+                        # A watchdog expiry supplies no new native depth or engine verdict.
+                        item.update(raw_status=None, depth=None, engine=None, solver_reported_time_s=None,
+                                    reason="Proof budget expired before a complete native property report.")
                     item["result"] = "UNPROVEN"
                     item["state"] = "QUEUED_SLOW" if (
                         state.get("scope") != "preflight" and worker["lane"] == "fast"
+                        and not state.get("first_pass_review")
+                        and worker["name"] not in state.get("prior_local_deferrals", {})
+                        and worker["name"] not in state.get("previous_full_defer_review", {})
                         and item["execution_elapsed_s"] < policy.property_cumulative_budget_s
                     ) else "REVIEW"
                     item["error"] = None
@@ -1219,20 +1725,46 @@ def controller(run_dir: Path) -> None:
                     attempt["fallback_reason"] = "Shared session ended before the proof started."
                     item["state"] = "QUEUED_FAST"
                 else:
+                    if attempt.get("license_waiting") and forced is None:
+                        forced = "LICENSE_UNAVAILABLE"
+                        attempt["forced"] = forced
                     item["state"] = "ERROR"
-                    item["error_code"] = "formal_attempt_failed"
-                    item["error"] = "Attempt failed or did not produce a complete property report; inspect its console.log."
+                    item["error_code"] = f"formal_tool_{forced.lower()}" if forced else "formal_attempt_failed"
+                    if forced in {"LICENSE_TIMEOUT", "LICENSE_UNAVAILABLE"}:
+                        item["error"] = "Native license remained unavailable before verification. Check the license and retry this target."
+                    else:
+                        item["error"] = (f"Formal tool timed out during {forced.removesuffix('_TIMEOUT').lower()}. Inspect this attempt's console.log."
+                                         if forced else "Attempt failed or did not produce a complete property report; inspect its console.log.")
+                if timed and item["result"] == "UNPROVEN" and (valid or forced == "PROOF_TIMEOUT") and item["state"] in {"REVIEW", "QUEUED_SLOW"}:
+                    record_timeout(state, worker["name"], item)
                 active.remove(worker)
                 snapshot(run_dir, state, f"property-{worker['index']}-{worker['lane']}")
-            while len(active) < policy.max_active_workers:
-                name = choose_next(state["properties"], active, policy)
+            while len(active) < (1 if state.get("license_serialized") else policy.max_active_workers):
+                if timed and (not window or time.time() >= window["proof_deadline"]):
+                    break
+                eligible = ({n: state["properties"][n] for n in window["properties"]} if window else state["properties"])
+                name = choose_next(eligible, active, policy)
                 if name is None:
                     break
                 item = state["properties"][name]
                 lane = "fast" if item["state"] == "QUEUED_FAST" else "slow"
                 round_limit = item.get("round_budget_s") or policy.analysis_threshold_s
                 limit = policy.first_pass_budget_s if lane == "fast" else round_limit - item["round_elapsed_s"]
+                if lane == "slow":
+                    family = family_review_budget(state, name, policy, reserve_slow=True)
+                    if family:
+                        remaining = family["budget_to_review_s"]
+                        if remaining or item["review_round"] == 1:
+                            limit = min(limit, remaining)
+                        else:
+                            # Only a reviewed strategy probe or tool-error recovery can reach this branch.
+                            limit = min(limit, policy.first_pass_budget_s)
                 budget = min(limit, policy.property_cumulative_budget_s - item["execution_elapsed_s"])
+                if window:
+                    remaining_wall = window["proof_deadline"] - time.time()
+                    if remaining_wall < 1:
+                        break
+                    budget = min(budget, remaining_wall)
                 if budget <= 0:
                     item["state"] = "REVIEW"
                     continue
@@ -1248,7 +1780,9 @@ def controller(run_dir: Path) -> None:
                 directory = run_dir / "attempts" / f"{index:06d}"
                 directory.mkdir(parents=True)
                 console_path = directory / "console.log"
-                commands = (f"set_opt -timeout {max(1, math.ceil(budget))}s\nset_opt -bfd on\n"
+                engine = item.get("retry_engine") if lane == "slow" else None
+                engine_option = f"set_opt -engine {engine}\n" if engine else ""
+                commands = (f"{engine_option}set_opt -timeout {max(1, math.ceil(budget))}s\nset_opt -bfd on\n"
                             f"puts [list UCAGENT_PROOF_STARTED [clock milliseconds]]\nflush stdout\nprove {tcl_word(name)}\n"
                             "puts [list UCAGENT_PROOF_FINISHED [clock milliseconds]]\nflush stdout\n"
                             "puts UCAGENT_RESULT_BEGIN\nshow_prop -time -engine -reason\nputs UCAGENT_RESULT_END\n")
@@ -1283,13 +1817,15 @@ def controller(run_dir: Path) -> None:
                 item["attempts"].append({"pid": process.pid, "identity": process_identity(process.pid), "running": True,
                                          "members": group_members(process.pid),
                                          "lane": lane, "budget_s": budget, "started_at": time.time(),
+                                         **({"requested_engine": engine} if engine else {}),
                                          "console": str(console_path.relative_to(run_dir)),
                                          **({"session": str(session.directory.relative_to(run_dir))} if session else {})})
                 item["state"] = "RUNNING_FAST" if lane == "fast" else "RUNNING_SLOW"
                 active.append({"name": name, "lane": lane, "index": index, "process": process, "log": log,
                                "console_path": console_path, "output_offset": start_offset, "output_tail": "", "slot": slot,
                                "session": session, "session_offset": start_offset,
-                               "start": time.monotonic(), "member_check": time.monotonic(), "proof_start": None,
+                               "start": time.monotonic(), "member_check": time.monotonic(), "proof_start": None, "proof_finish": None,
+                               "license_start": None, "native_verify_started": False,
                                "budget": budget, "base_elapsed": item["execution_elapsed_s"]})
                 if session:
                     idle_sessions.remove(session)
@@ -1304,6 +1840,8 @@ def controller(run_dir: Path) -> None:
                     atomic_json(run_dir / "state.json", state)
                     requests.unlink()
                 if not active and not any(item["state"].startswith("QUEUED") for item in state["properties"].values()):
+                    if timed:
+                        next_window(state, time.time())
                     (run_dir / "closing").touch()
                     if any(item["state"] == "ERROR" for item in state["properties"].values()):
                         state["status"] = "NEEDS_OPERATOR"
@@ -1313,7 +1851,7 @@ def controller(run_dir: Path) -> None:
                                   if state["properties"][name]["result"] != "COVER_REACHED"]
                         state["status"] = "ERROR" if failed else "COMPLETED"
                         if failed:
-                            state["error_code"] = "formal_baseline_smoke_incomplete"
+                            state["error_code"] = "formal_toolchain_smoke_incomplete"
                             state["error"] = f"Baseline reachability smoke checks need review: {failed}"
                     else:
                         unresolved = any(item["result"] not in FINAL_RESULTS | {"NOT_EXECUTED"}
@@ -1345,7 +1883,11 @@ def controller(run_dir: Path) -> None:
         for session in idle_sessions:
             session.close(graceful=False)
         for worker in active:
-            attempt = state["properties"][worker["name"]]["attempts"][-1]
+            item = state["properties"][worker["name"]]
+            attempt = item["attempts"][-1]
+            # Keep the last sampled solver time. Shutdown, license wait and queued
+            # work must not inflate the cumulative cost of a cancelled target.
+            observed = max(0.0, item["execution_elapsed_s"] - worker["base_elapsed"])
             if worker["session"]:
                 worker["session"].close(graceful=False)
                 worker["session"].seal(worker["name"], worker["console_path"], worker["session_offset"], completed=False)
@@ -1354,8 +1896,12 @@ def controller(run_dir: Path) -> None:
                 worker["process"].wait()
                 worker["log"].close()
                 worker["slot"].close()
-            attempt["running"] = False
-            state["properties"][worker["name"]]["state"] = "CANCELLED" if state["status"] == "CANCELLED" else "ERROR"
+            item["round_elapsed_s"] += observed
+            stopped = "CANCELLED" if state["status"] == "CANCELLED" else "ERROR"
+            attempt.update(running=False, ended_at=time.time(), active_s=observed, partial=True,
+                           native_report_complete=False, forced=stopped)
+            item.update(state=stopped, raw_status=None, depth=None, engine=None, solver_reported_time_s=None,
+                        reason="Attempt stopped before a complete native result. See the earlier attempt snapshots.")
         for item in state["properties"].values():
             if item["state"].startswith("QUEUED"):
                 item["state"] = "NOT_EXECUTED"

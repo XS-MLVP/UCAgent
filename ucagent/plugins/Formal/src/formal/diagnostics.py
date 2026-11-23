@@ -1,5 +1,6 @@
 """Run bounded native FormalMC diagnostics on a frozen verification snapshot."""
 
+import fcntl
 import hashlib
 import os
 import re
@@ -10,7 +11,100 @@ import uuid
 
 from ucagent.util.file_policy import is_file_writeable
 
-from .execution import PROOF_MARKER, parse_properties, property_evidence, read_run, take_worker_slot, tcl_word
+from .execution import PROOF_MARKER, atomic_json, input_lock, parse_properties, property_evidence, read_json, read_run, take_worker_slot, tcl_word
+
+RESET_RELEASE = "u_checker.C_UCAGENT_DIAGNOSTIC_RESET_RELEASE"
+
+
+def reset_release_verdict(console):
+    """Parse only the complete native report for the tool-owned observation."""
+    text = console.decode("utf-8", errors="replace")
+    parts = re.findall(r"^UCAGENT_DIAG_BEGIN_reset_release\r?\n(.*?)^UCAGENT_DIAG_END_reset_release\r?$", text, re.M | re.S)
+    if len(parts) != 1 or re.search(r"^\s*(?:Error:|Error-|Fatal)", text, re.M):
+        return None
+    try:
+        return parse_properties(parts[0], "cover").get(RESET_RELEASE, {}).get("result")
+    except ValueError:
+        return None
+
+
+def reset_release_gate(root, state):
+    """Check a native receipt from the current shared setup before accepting proof results."""
+    context = state.get("batch_context") or {}
+    shared = context.get("shared_environment") or {}
+    if not shared.get("reset_release_required"):
+        return None
+    checker = f"{state['output_dir']}/tests/{state['dut']}_checker.sv"
+    extra_commands = ((shared.get("extra_config") or {}).get("tcl") or {}).get("extra_commands")
+    result = {"status": "pending", "error_code": "formal_reset_release_pending",
+              "analyze_call": {"mode": "reset_release", "run_id": state["run_id"]},
+              "next_action": "Run the supplied AnalyzeFormal call before accepting proofs under this shared environment."}
+    for path in root.glob("*/reset_release.json"):
+        if not re.fullmatch(r"[a-f0-9]{32}", path.parent.name) or path.parent.is_symlink() or path.is_symlink():
+            continue
+        try:
+            receipt = read_json(path)
+            source, owner = read_run(root, path.parent.name, scope=None)
+            if (not owner or owner.get("scope") not in {"selected", "full"}
+                    or owner.get("batch_context") != context
+                    or receipt["input_fingerprint"] != owner["fingerprint"]
+                    or extra_commands and owner["files"].get(checker) != state["files"].get(checker)):
+                continue
+            relative = receipt["log"]
+            if not re.fullmatch(r"diagnostic-[a-f0-9]{32}/console\.log", relative):
+                continue
+            log = source / relative
+            if log.is_symlink() or log.parent.is_symlink():
+                continue
+            console = log.read_bytes()
+            if hashlib.sha256(console).hexdigest() != receipt["log_sha256"]:
+                continue
+            verdict = reset_release_verdict(console)
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+        if verdict == "COVER_UNREACHABLE":
+            return {"status": "unreachable", "error_code": "formal_reset_release_unreachable",
+                    "log": f"{state['output_dir']}/formal_runs/{log.relative_to(root).as_posix()}",
+                    "next_action": "Reset release is unreachable under these inputs. Repair the shared reset setup or Assume checks, then rerun verification for the current inputs."}
+        if verdict == "COVER_REACHED":
+            result = {"status": "reachable", "log": f"{state['output_dir']}/formal_runs/{log.relative_to(root).as_posix()}"}
+    return result
+
+
+def reset_probe_setup(inputs, directory, setup, state, clock):
+    """Compile the frozen official environment with one isolated reachability cover."""
+    snapshot = directory / "inputs"
+    for relative in state["files"]:
+        destination = snapshot / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(inputs / relative, destination)
+    probe_setup = snapshot / setup.relative_to(inputs)
+    shutil.copyfile(setup, probe_setup)
+    checker = probe_setup.with_name(f"{state['dut']}_checker.sv")
+    body = checker.read_text(encoding="utf-8")
+    endings = list(re.finditer(r"^\s*endmodule\b", body, re.MULTILINE))
+    if len(endings) != 1 or RESET_RELEASE.rsplit(".", 1)[-1] in body:
+        raise ValueError("Reset release diagnosis requires a single generated Formal checker.")
+    name = RESET_RELEASE.rsplit(".", 1)[-1]
+    cover = f"{name}: cover property (@({clock['clock_edge']} {clock['env_clock']}) $rose({clock['env_reset']}));"
+    index = endings[0].start()
+    checker.write_text(body[:index] + "\n  " + cover + "\n" + body[index:], encoding="utf-8")
+    return probe_setup
+
+
+def verified_setup(run_dir, state):
+    """Locate a matching native setup and authenticate all of its frozen inputs."""
+    inputs = run_dir / "inputs"
+    for relative, expected in state["files"].items():
+        path = inputs / relative
+        if not path.resolve().is_relative_to(inputs) or hashlib.sha256(path.read_bytes()).hexdigest() != expected:
+            raise ValueError("The archived Formal inputs have changed. Select a run with intact inputs.")
+    tcl = inputs / state["output_dir"] / "tests" / f"{state['dut']}_formal.tcl"
+    setup = tcl.with_name("setup.tcl")
+    if (str(tcl.relative_to(inputs)) not in state["files"] or setup.is_symlink()
+            or setup.read_text() != tcl.read_text().split(PROOF_MARKER, 1)[0]):
+        raise ValueError("The archived Formal setup does not match the input snapshot.")
+    return inputs, setup
 
 
 def analyze(execution, run_id: str, mode: str, property_name: str | None, depth: int | None) -> dict:
@@ -38,6 +132,27 @@ def analyze(execution, run_id: str, mode: str, property_name: str | None, depth:
             property_evidence(run_dir, {**state, "workspace": str(execution.workspace)}, property_name, item, observations=False)
     elif property_name is not None:
         raise ValueError("This diagnostic does not take a property_name.")
+    if mode == "coverage":
+        if state.get("scope") != "full":
+            raise ValueError("Coverage recovery requires the current full proof batch.")
+        ready, current = execution.check()
+        if not ready or current["run_id"] != run_id:
+            raise ValueError("Coverage recovery requires reviewed proof evidence from the current stopped full batch. Review its status before retrying.")
+        if current["coverage"]["status"] == "verified":
+            return {"mode": mode, "run_id": run_id, "status": "completed", "coverage": current["coverage"],
+                    "next_action": "Use this current structural coverage report for Check."}
+
+    clock = None
+    if mode == "reset_release":
+        from .skills.lib.formal_tools import build_clock_reset_alias_context
+        from .skills.lib.models import FormalRecords
+
+        if state.get("scope") == "preflight" or not state.get("semantic_inputs"):
+            raise ValueError("Reset release diagnosis requires a frozen official run with its actual Assume checks.")
+        clock = build_clock_reset_alias_context(FormalRecords.model_validate(state["semantic_inputs"]))
+        if not clock["has_clock"] or not clock["has_reset"]:
+            return {"run_id": run_id, "mode": mode, "status": "not_applicable",
+                    "next_action": "This run has no declared clocked reset. Review the scenarios in its specification."}
 
     commands = {
         "environment": {"clock": "clk_ana", "reset": "rst_ana", "constraints": "show_cons"},
@@ -48,20 +163,13 @@ def analyze(execution, run_id: str, mode: str, property_name: str | None, depth:
                         "unreachable": f"analyze_unreachable {tcl_word(property_name or '')} -preserve_pin_constraint"},
         "bounded_search": {"bounded_search": f"set_opt -engine bmc -depth {depth or 20} -timeout 30s\n"
                            f"prove {tcl_word(property_name or '')}\nshow_prop -only_assert -time -engine -reason"},
+        "reset_release": {"reset_release": f"set_opt -timeout 20s\nprove {tcl_word(RESET_RELEASE)}\nshow_prop -only_cover -reason"},
+        "coverage": {"coverage": "fanin -cover -list -dump"},
     }[mode]
     executable = shutil.which("FormalMC")
     if not executable:
         raise ValueError("FormalMC is unavailable. Ask the operator to restore it and retry AnalyzeFormal.")
-    inputs = run_dir / "inputs"
-    for relative, expected in state["files"].items():
-        path = inputs / relative
-        if not path.resolve().is_relative_to(inputs) or hashlib.sha256(path.read_bytes()).hexdigest() != expected:
-            raise ValueError("The archived Formal inputs have changed. Select a run with intact inputs.")
-    tcl = inputs / state["output_dir"] / "tests" / f"{state['dut']}_formal.tcl"
-    setup = tcl.with_name("setup.tcl")
-    if (str(tcl.relative_to(inputs)) not in state["files"] or setup.is_symlink()
-            or setup.read_text() != tcl.read_text().split(PROOF_MARKER, 1)[0]):
-        raise ValueError("The archived Formal setup does not match the input snapshot.")
+    inputs, setup = verified_setup(run_dir, state)
 
     limits = execution.policy
     slot = take_worker_slot(root, limits.max_active_workers)
@@ -83,7 +191,8 @@ def analyze(execution, run_id: str, mode: str, property_name: str | None, depth:
             if not allowed:
                 raise ValueError(reason)
         directory.mkdir()
-        tcl_commands = [f"source {tcl_word(str(setup))}"]
+        diagnostic_setup = reset_probe_setup(inputs, directory, setup, state, clock) if clock else setup
+        tcl_commands = [f"source {tcl_word(str(diagnostic_setup))}"]
         for name, command in commands.items():
             tcl_commands.extend([f"puts UCAGENT_DIAG_BEGIN_{name}", command, f"puts UCAGENT_DIAG_END_{name}"])
         script.write_text("\n".join([*tcl_commands, "exit", ""]), encoding="utf-8")
@@ -141,13 +250,38 @@ def analyze(execution, run_id: str, mode: str, property_name: str | None, depth:
                     verdict_row = line
     result["log"] = str(log.relative_to(execution.workspace))
     if license_required:
-        next_action = ("Check the trigger with a specification-backed Cover, or ask the operator to enable the vacuity diagnostic."
+        next_action = ("Review the original result with the CK and source. For a conditional goal, check its trigger with a "
+                       "specification-backed Cover. For an unconditional invariant, cite the structural relation that holds "
+                       "for the allowed inputs. Use the current review if the available evidence is sufficient."
                        if mode == "sanity" else "Ask the operator to enable this FormalMC diagnostic.")
         return {**result, "status": "unavailable", "error_code": "formal_diagnostic_license_unavailable",
                 "required_feature": license_required, "next_action": next_action}
     if mode == "fanin":
         result.update(signals=signals, signals_truncated=signals_truncated)
     complete = returncode == 0 and not errors and all(section["complete"] for section in sections.values())
+    if mode == "coverage" and complete:
+        from .coi import COI_RECEIPT, COI_REPORT, coverage_snapshot, seal_coverage
+
+        receipt = run_dir / COI_RECEIPT
+        allowed, reason = is_file_writeable(str(receipt.relative_to(execution.workspace)), execution.un_write_dirs, execution.write_dirs)
+        if not allowed:
+            raise ValueError(reason)
+        output, _, _ = execution._paths(create=False)
+        with input_lock(output), (root / "control.lock").open("a+") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            _, latest = read_run(root)
+            if (not latest or latest["run_id"] != run_id or latest["status"] != state["status"]
+                    or latest["properties"] != state["properties"] or execution._inputs(create=False)[-1] != state["fingerprint"]):
+                raise ValueError("Formal inputs or proof state changed during coverage recovery. Use the current stopped full batch.")
+            verified_setup(run_dir, state)
+            try:
+                seal_coverage(run_dir, state, (directory.relative_to(run_dir) / COI_REPORT).as_posix())
+            except (OSError, ValueError) as exc:
+                return {**result, "status": "error", "error_code": "formal_coverage_invalid",
+                        "next_action": "Inspect the native coverage log and restore report generation.", "diagnostics": [str(exc)]}
+            coverage, _ = coverage_snapshot(run_dir, state)
+        return {**result, "status": "completed", "coverage": coverage,
+                "next_action": "Use this current structural coverage report for Check."}
     if mode == "unreachable" and complete:
         try:
             verdict = parse_properties(verdict_row or "", "cover").get(property_name, {}).get("result")
@@ -157,6 +291,22 @@ def analyze(execution, run_id: str, mode: str, property_name: str | None, depth:
             return {**result, "status": "inconclusive", "observed_cover_result": verdict,
                     "next_action": "The diagnostic did not reconfirm unreachability within its budget. Inspect the log."}
         result["observed_cover_result"] = verdict
+    if mode == "reset_release" and complete:
+        payload = log.read_bytes()
+        verdict = reset_release_verdict(payload)
+        if verdict not in {"COVER_REACHED", "COVER_UNREACHABLE"}:
+            return {**result, "status": "inconclusive", "observed_cover_result": verdict,
+                    "next_action": "Inspect the native report before drawing a conclusion about reset reachability."}
+        receipt = run_dir / "reset_release.json"
+        allowed, reason = is_file_writeable(str(receipt.relative_to(execution.workspace)),
+                                            execution.un_write_dirs, execution.write_dirs)
+        if not allowed or receipt.is_symlink():
+            raise ValueError(reason or "Reset release receipt must be an ordinary file.")
+        atomic_json(receipt, {"input_fingerprint": state["fingerprint"], "log": log.relative_to(run_dir).as_posix(),
+                              "log_sha256": hashlib.sha256(payload).hexdigest()})
+        return {**result, "status": "completed", "observed_cover_result": verdict,
+                "next_action": ("Review shared clock, reset and Assume inputs before closing FCs that require reset release."
+                                if verdict == "COVER_UNREACHABLE" else "Use this reachability evidence with the current shared environment.")}
     if mode == "bounded_search" and complete:
         try:
             observed = parse_properties(verdict_row or "", "assert").get(property_name, {})
