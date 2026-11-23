@@ -34,6 +34,7 @@ class TaskConfiguration:
     template_context_factory: Callable | None
     template_context: dict
     runtime_config_keys: tuple[str, ...]
+    initial_workflow: str | None = None
 
 
 def resolve_task_configuration(workspace, dut_name, output=None, config_file=None, cfg_override=None,
@@ -44,6 +45,54 @@ def resolve_task_configuration(workspace, dut_name, output=None, config_file=Non
     workspace = os.path.abspath(workspace)
     discovery = get_config(config_file, discovery_overrides(cfg_override), workspace)
     discovery.update_template({"WORKSPACE": workspace, "DUT": dut_name, "OUT": output or ""})
+    from ucagent.core.multi_agent.mode import agent_role
+    initial_workflow = None
+    if agent_role(discovery) == "global":
+        # Discover task candidates without activating their stages or resources on Global.
+        catalog = {item.plugin.name: item for item in plugins or ()}
+        requested = list(dict.fromkeys([
+            *plugin_selectors, *discovery.get_value("global_agent.plugin_selectors", [])]))
+        for item in load_plugins(requested, search_paths=configured_plugin_search_paths(discovery)):
+            previous = catalog.get(item.plugin.name)
+            if previous and previous.plugin.root != item.plugin.root:
+                raise ValueError("Conflicting plugin sources in multi workflow catalog")
+            catalog[item.plugin.name] = item
+        if not catalog:
+            candidates = []
+            pointer = discovery.get_value("workflow", None)
+            if pointer:
+                load_pointer_workflow_plugin(
+                    resolve_workflow_pointer_path(pointer, discovery.get_value("lang", "zh")), candidates)
+            if not candidates:
+                bundled = Path(__file__).resolve().parents[2] / "plugins" / "UnitTest"
+                candidates = load_plugins([str(bundled) if bundled.is_dir() else "unittest"])
+            catalog = {item.plugin.name: item for item in candidates}
+        if plugin_workflow:
+            owner, selected = resolve_plugin_workflow(list(catalog.values()), plugin_workflow)
+            initial_workflow = f"{owner.plugin.name}:{selected.name}"
+        available = [f"{item.plugin.name}:{wf.name}" for item in catalog.values() for wf in item.plugin.workflows]
+        allowed = discovery.get_value("global_agent.allowed_workflows", [])
+        if not isinstance(allowed, list):
+            raise ValueError("global_agent.allowed_workflows must be a list")
+        allowed = allowed or available
+        if initial_workflow and initial_workflow not in allowed:
+            raise ValueError(f"Requested workflow {initial_workflow!r} is outside global_agent.allowed_workflows")
+        normalized = [str(Path(item.selector).resolve()) if Path(item.selector).exists() else item.selector
+                      for item in catalog.values()]
+        workflow_config_file = str(Path(__file__).resolve().parents[1] / "multi_agent" / "global_agent" / "workflow.yaml")
+        cfg_override = list(cfg_override or []) if isinstance(cfg_override, list) else [cfg_override or {}]
+        cfg_override.append({
+            "global_agent.plugin_selectors": normalized,
+            "global_agent.allowed_workflows": list(allowed),
+            "workflow": workflow_config_file,
+            "stage": [], "manager_tools": [], "template": None,
+            "output": "mission", "write_dirs": ["mission"],
+            "skill.use_skill": False, "ex_tools": [],
+            "runtime_options.required_mcp_tools": [],
+        })
+        plugins, plugin_selectors, plugin_workflow = (), (), None
+        plugin_guide_doc_paths, plugin_skill_paths, plugin_runtime_config_keys = (), (), ()
+        template_dir = template_target = template_context_factory = output = None
     loaded = list(plugins or ())
     if plugin_selectors:
         loaded.extend(load_plugins(plugin_selectors, search_paths=configured_plugin_search_paths(discovery)))
@@ -88,15 +137,15 @@ def resolve_task_configuration(workspace, dut_name, output=None, config_file=Non
     cfg.seed = seed if seed is not None else random.randint(1, 999999)
     cfg._temp_cfg = values
     cfg.freeze()
-    from ucagent.core.multi_agent.contracts import load_settings
+    from ucagent.core.multi_agent.super_agent.contracts import load_settings
     load_settings(cfg, workspace)
     from ucagent.core.workflow.contracts import load_handoff_settings
     load_handoff_settings(cfg)
-    from ucagent.core.global_agent.session_contracts import load_global_settings
+    from ucagent.core.multi_agent.global_agent.session_contracts import load_global_settings
     load_global_settings(cfg)
     resolve_guide_doc_copy_policy(cfg)
     resolve_plugin_guide_doc_copy_policy(cfg)
     return TaskConfiguration(cfg, workspace, dut_name, output, tuple(loaded), workflow_config_file,
         plugin_workflow, docs, skills, template_dir, template_target, template_context_factory,
-        context, tuple(dict.fromkeys(keys)))
+        context, tuple(dict.fromkeys(keys)), initial_workflow)
 

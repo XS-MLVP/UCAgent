@@ -10,7 +10,7 @@ import subprocess
 import sys
 import time
 
-from ucagent.core.global_agent.session_contracts import (
+from ucagent.core.multi_agent.global_agent.session_contracts import (
     SuperProfile, PROTECTED_OVERRIDES, GlobalSettings, SuperSpec,
 )
 
@@ -25,7 +25,7 @@ class SubprocessSuperLauncher:
         self.settings = settings
         self.session_root = Path(session_root).resolve()
         self.source_workspace = Path(source_workspace).resolve()
-        self.config_file = config_file
+        self.config_file = str(Path(config_file).resolve()) if config_file and Path(config_file).is_file() else config_file
         self.python_executable = python_executable or sys.executable
         self.dut_name = str(dut_name).strip() if dut_name else None
         self._backend_traits: dict[tuple[str, bool, str | None, str | None], tuple[bool, bool]] = {}
@@ -97,7 +97,7 @@ class SubprocessSuperLauncher:
             cli_path,
             str(Path(workspace).resolve()),
             run.dut_name or self.dut_name or "DUT",
-            "--agent-mode", "multi",
+            "--internal-super",
             "--backend", profile.backend,
             "--max-subagents", str(profile.max_subagents),
             "--plugin-workflow", run.workflow_ref,
@@ -121,9 +121,9 @@ class SubprocessSuperLauncher:
         for selector in self.settings.plugin_selectors:
             argv.extend(["--plugin", self._resolve_plugin(selector)])
         overrides = {
-            "runtime_options.global_agent_enabled": False,
+            "runtime_options.agent_mode": "multi",
+            "agent_run.role": "super",
             "runtime_options.workflow_handoff_enabled": False,
-            "runtime_options.multi_agent_enabled": True,
             "agent_run.id": run.agent_id,
             "agent_run.attempt": attempt,
             "agent_run.result_path": str(Path(result_path).resolve()),

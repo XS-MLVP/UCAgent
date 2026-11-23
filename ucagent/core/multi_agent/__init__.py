@@ -1,1 +1,1 @@
-"""Role-scoped delegation, stage orchestration and bounded worker execution."""
+"""Three-layer execution: Global workflow orchestration and Super/Sub delegation."""

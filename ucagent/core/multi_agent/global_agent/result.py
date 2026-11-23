@@ -7,8 +7,8 @@ import json
 import os
 from pathlib import Path
 
-from ucagent.core.global_agent.session_contracts import SuperSpec
-from ucagent.core.global_agent.contracts import (
+from ucagent.core.multi_agent.global_agent.session_contracts import SuperSpec
+from ucagent.core.multi_agent.global_agent.contracts import (
     ArtifactReceipt,
     StageReceipt,
     WorkflowRunResult,
@@ -79,7 +79,7 @@ def _collect_artifacts(agent, result_path: Path) -> list[ArtifactReceipt]:
 
 def write_workflow_run_result(agent, status: str, *, error: str | None = None):
     """Write the trusted result from the child runtime after its stage gate has returned."""
-    from ucagent.core.global_agent.contracts import WorkflowRunResult
+    from ucagent.core.multi_agent.global_agent.contracts import WorkflowRunResult
 
     result_path = agent.cfg.get_value("agent_run.result_path", None)
     agent_id = agent.cfg.get_value("agent_run.id", None)

@@ -4,6 +4,8 @@ from ucagent.core.agent.configuration import resolve_task_configuration
 from ucagent.application.plan import LaunchRequest, build_launch_plan
 from ucagent.application.workspace import prepare_workspace
 from ucagent.util.log import init_log_logger, init_msg_logger
+from ucagent.util.config import resolve_user_config_file
+import os
 
 
 def prepare_launch(request: LaunchRequest, *, cleanup=None):
@@ -37,6 +39,10 @@ def prepare_launch(request: LaunchRequest, *, cleanup=None):
             "plugin_runtime_config_keys", "seed",
         ) if key in options},
     )
+    from ucagent.core.multi_agent.mode import agent_role
+    if agent_role(prepared.cfg) == "global":
+        options["config_file"] = resolve_user_config_file(
+            options.get("config_file"), os.path.expanduser("~"), prepared.cfg.get_value("lang", "zh"))
     plan = build_launch_plan(request, prepared.cfg)
     options.update(
         template_dir=prepared.template_dir, plugins=list(prepared.plugins),

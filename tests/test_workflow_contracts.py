@@ -78,10 +78,10 @@ def test_flag_is_strict(value):
 def test_disabled_is_inert_and_single_blank_are_rejected():
     """Disabled mode ignores unused policy; enabled mode fails without a managed Super."""
     assert load_handoff_settings(Config({"runtime_options": {}, "workflow_handoff": {"bad": True}})) is None
-    for cfg in ({"runtime_options": {}}, {"runtime_options": {"multi_agent_enabled": True}, "backend": {"key_name": "blank"}}):
+    for cfg in ({"runtime_options": {}}, {"runtime_options": {"agent_mode": "multi"}, "agent_run": {"role": "super"}, "backend": {"key_name": "blank"}}):
         value = Config(cfg)
         value.set_value("runtime_options.workflow_handoff_enabled", True)
-        with pytest.raises(ValueError, match="managed multi"):
+        with pytest.raises(ValueError, match="internal non-blank Super"):
             load_handoff_settings(value)
 
 

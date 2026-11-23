@@ -915,7 +915,7 @@ class MultiAgentService:
             return self._drive_workflow()
         except Exception as exc:
             try:
-                from ucagent.core.global_agent.result import write_workflow_run_result
+                from ucagent.core.multi_agent.global_agent.result import write_workflow_run_result
                 write_workflow_run_result(self.agent, "failed", error=str(exc))
             except Exception:
                 pass
@@ -963,7 +963,7 @@ class MultiAgentService:
                     break
                 with self.driver.ownership():
                     result = self.agent.stage_manager.exit()
-                from ucagent.core.global_agent.result import write_workflow_run_result
+                from ucagent.core.multi_agent.global_agent.result import write_workflow_run_result
                 write_workflow_run_result(
                     self.agent,
                     "succeeded" if result.get("exit") else "failed",

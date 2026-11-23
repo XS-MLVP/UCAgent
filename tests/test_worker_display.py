@@ -11,7 +11,7 @@ from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
 from test_multi_agent import make_agent, parallel_agent, parallel_plan, stage, tool, finish
-from ucagent.core.multi_agent.display import tool_body
+from ucagent.core.multi_agent.super_agent.display import tool_body
 from ucagent.interfaces.server.worker_mcp import worker_endpoint
 from ucagent.runtime.agent_view import LocalAgentView
 from ucagent.runtime.host import RuntimeHost
@@ -93,7 +93,7 @@ def test_parallel_mcp_workers_keep_tools_files_and_logs_separate(tmp_path):
     roles = {name: {"backend": "codex", "system": name + " task", "allowed_tools": ["ReadTextFile", "EditTextFile"]}
              for name in ("author", "reviewer")}
     agent = parallel_agent(tmp_path, count=2, roles=roles,
-                           config_overrides={"agent_run": {"id": "super-a", "attempt": 1}})
+                           config_overrides={"agent_run": {"role": "super", "id": "super-a", "attempt": 1}})
     host = RuntimeHost(agent)
     host.start()
     host.attach_control("test-display", messages=True)

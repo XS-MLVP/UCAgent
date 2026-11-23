@@ -1,38 +1,48 @@
-# 多 Agent：统一后端会话
 
-multi-agent 管理规划、任务依赖、并发和验收；`backend` 决定 Agent 如何执行。Super 和每个 Sub 都通过同一个 `get_backend()` 工厂创建独立后端。TUI 是交互界面，MCP 是工具传输，不选择另一套调度流程。默认仍为 single。
+# 多 Agent：Global / Super / Sub
 
-## 启动
+`multi` 启动三层 Agent：Global 接收自然语言并编排工作流；每个 Super 执行一个工作流；Sub 执行授权阶段或任务。`single` 为默认模式。TUI 和 MCP 不改变 Agent 的职责。
+
+## 两种启动方式
 
 ```bash
-# 单 Agent 保持原入口
-ucagent ./workspace DUT --agent-mode single
+# 只启动 Global，进入窗口后输入任务
+ucagent ./workspace --agent-mode multi --backend codex --config ./config.yaml
 
-# LangChain Super + 独立 LangChain Sub
-ucagent ./workspace DUT --agent-mode multi --backend langchain --max-subagents 2 --no-embed-tools
+# 命令行指定模块和工作流，启动 Global 后自动创建 Super
+ucagent ./output/workspace_Adder Adder --agent-mode multi --backend codex \
+  --plugin-workflow unittest:unittest --max-subagents 2 --config ./config.yaml
 
-# 外部 CLI Super + 独立外部 CLI Sub；主、子进程均由框架管理
-ucagent ./workspace DUT --agent-mode multi --backend codex --max-subagents 2 --no-embed-tools
-
-# 原 Adder 工作区和 TUI 入口，默认开启日志
+# 准备 Adder 工作区并执行同一条三层链路
 make test_multi_Adder BACKEND=langchain MAX_SUBAGENTS=2
 make mcp_multi_Adder BACKEND=codex MAX_SUBAGENTS=2
-make mcp_multi_Adder BACKEND=opencode MAX_SUBAGENTS=2
+
+# 通用交互入口；不准备 DUT 或调用 picker
+make multi MULTI_WORKSPACE=output/workspace_Adder MULTI_BACKEND=codex
+make multi_unit MULTI_WORKSPACE=output/workspace_Adder MULTI_DUT=Adder MULTI_BACKEND=codex
 ```
 
-`test_multi_*` 默认 `BACKEND=langchain`，`mcp_multi_*` 默认 `BACKEND=codex`，均可覆盖。后者还开放主 MCP 服务；二者都启动托管规划闭环，支持原 `CFG / SIM / CWD / ARGS`。TUI 与 backend 可自由组合，无需在另一个终端维持 Super。执行前须准备所选后端的模型连接或 CLI 登录配置。
+无初始任务时只有 Global，默认进入 TUI，不调用模型、不创建 Super/Sub。`--human` 选择 Console。`--loop-msg "任务"` 提供一次初始自然语言输入；没有指定工作流的 `--loop` 提交一次验证当前 DUT 的请求。
 
-托管 CLI 的会话专属 MCP 端点由应用注入，执行前等待 ready；不要求用户另开主 MCP 服务。单 Agent 的原 CLI 入口仍要求显式启动 MCP。框架不会因为 `--tui` 或 `--mcp-server` 自动改变 backend。
+同时给出 DUT 和 `--plugin-workflow` 时，Global 自动按指定工作流创建任务，不再等待输入，也不让模型重新选择工作流。此时 `--loop-msg` 是该任务的补充要求。任务结束后默认继续接收指令；加 `--exit-on-completion` 则在子任务完成、结果验收及 Global 最终回复后退出，失败返回非零退出码。
 
-`--agent-mode single|multi` 控制 `runtime_options.multi_agent_enabled`。single 不读角色文件、不创建队列或 Sub；`--max-subagents` 只用于 multi，范围 1—128。运行中不能切换模式。并发数是上限，是否拆分由 Super 分析依赖决定，测试/波形等共享状态仍独占执行。
+`--plugin` 扩展 Global 的工作流目录，不在 Global 上激活业务工具、模板或阶段。未指定插件时，从配置的默认工作流加载所属插件，无法确定时使用内置 UnitTest。`global_agent.allowed_workflows` 可进一步限制目录；显式任务不得超出限制。
 
-手动外部 Super 仍可使用 `--backend blank --mcp-server`，但必须在角色中明确指定已注册的执行 backend。此模式没有内部规划模型，客户端自行调用 `SubAgentTool`；执行后显示 `waiting_plan`。它不支持自动 `loop/StartWorkflow`，也不是托管 CLI 模式。
+`--agent-mode single|multi` 覆盖 `runtime_options.agent_mode`，也可仅在 YAML 或工作区配置中设置模式。`agent_run.role` 是内部子进程身份，不是另一个公开模式。运行中不能切换模式。
+
+`--backend` 默认由 Global、Super、Sub 继承；启动 profile 可显式指定 Super 后端，其 Subs 使用同一后端。`--max-subagents` 范围为 1—128，覆盖各 profile 的每个 Super 并发上限；`global_agent.max_parallel_supers` 单独限制 Super 并发。并发数是上限，实际任务拆分由 Super 决定。
+
+CLI 后端的 Global MCP 服务自动启用，默认分配本机端口；Super/Sub 使用各自的会话端点。单 Agent 的 CLI 后端仍需显式启用 MCP。执行前须准备所选后端的模型连接或 CLI 登录配置。
+
+`test_multi_*` 默认 `BACKEND=langchain`，`mcp_multi_*` 默认 `BACKEND=codex`，两者均直接提交指定工作流，支持 `CFG / SIM / CWD / ARGS / MULTI_WORKFLOW`。通用 `make multi` 及工作流专用目标使用 `MULTI_*` 变量，详见 `make multi_help`。工作流目录、profile、界面导航和产物管理见 [Global Agent](13_global_agent.md)。
 
 ## 架构与职责
 
 ```mermaid
 flowchart TB
-    U[用户 · TUI / Console] --> S[Super AgentSession]
+    U[用户 · TUI / Console / CLI 任务] --> A[Global：自然语言与工作流编排]
+    A -->|StartSuper| S[Super AgentSession]
+    S -->|经校验的工作流结果| A
     S -->|SubAgentTool：规划与选角色| Q[MultiAgentService：队列 · 依赖 · 并发 · 预算]
     Q --> W[Sub AgentSession × N]
     S --> F[同一个 get_backend 工厂与执行契约]
@@ -48,7 +58,9 @@ flowchart TB
 ```
 
 - `core/agent/session.py` 组合 owner 和 backend，统一执行轮次；复用唯一 StageManager，不重复准备工作区。
-- `core/multi_agent` 管理授权、角色、任务、队列、依赖和结果；不启动 CLI、不直接访问 LangChain 图。
+- `core/multi_agent/global_agent` 管理工作流目录、启动契约与结果验收；应用和 runtime 负责 Super 进程的生命周期。
+- `core/multi_agent/super_agent` 管理阶段授权、角色、Sub 任务、队列、依赖和预算；不启动 CLI、不直接访问 LangChain 图。
+- `core/multi_agent/mode.py` 统一解析公开模式与内部角色。
 - `AgentBackendBase` 提供 `run_turn / cancel / wait_idle / close` 和能力声明。一次只执行一轮，取消通知不等于实际退出。
 - LangChain backend 管理模型图、中间件、上下文与模型取消；`SessionCommandBackend` 管理 argv、进程组、私有文件与端点生命周期。CLI 的启动、恢复、MCP 配置和公开事件字段由 YAML/模板声明；新增 CLI 无需新增 Python 后端类。
 - `application` 注入端点工厂，`interfaces/server/worker_mcp.py` 实现传输，runtime 管理统一退出；core 不反向导入外层包。
@@ -58,10 +70,13 @@ flowchart TB
 ## 配置与角色
 
 ```yaml
-backend: {key_name: langchain}       # 同时作用于 Super/Sub，可用 --backend 覆盖
-runtime_options: {multi_agent_enabled: true}
+backend: {key_name: langchain}       # 默认作用于三层，可用 --backend 覆盖
+runtime_options: {agent_mode: multi}
+global_agent:
+  launch_profiles:
+    standard:
+      max_subagents: 2
 multi_agent:
-  max_workers: 2
   default_role: analyst
   delegation_scope: auto
   stage_roles: {review: reviewer}   # 实际阶段 name
@@ -89,9 +104,9 @@ multi_agent:
 
 工具权限取角色白名单与工作流工具交集，生命周期工具由框架绑定身份。Super 仅有规划/状态和有限只读工具；Sub 不能再委派或全局跳阶段。每个 Sub 都有独立工具对象、backend、会话及取消状态。
 
-外部 backend 尚未适配内部 embedding 与阶段 LLM 辅助审核。multi 外部执行要求 `--no-embed-tools`；启用不兼容的 `vmanager.llm_suggestion.*.enable` 会明确报错，不静默跳过审核或启动 LangChain。要保留这些审核，应使用支持它们的后端。
+外部 backend 尚未适配内部 embedding 与阶段 LLM 辅助审核。外部执行自动选择不使用内部 embedding 的工具路径；启用不兼容的 `vmanager.llm_suggestion.*.enable` 会明确报错，不静默跳过审核或启动 LangChain。要保留这些审核，应使用支持它们的后端。
 
-最小阶段示例见 [multi-agent.yaml](../../examples/multi-agent.yaml)，展示一个 Sub 连续完成两个子阶段，再由下一个 Sub 汇总。
+最小三层启动配置见 [multi-agent.yaml](../../examples/multi-agent.yaml)。阶段和验收条件由选定的插件工作流提供。
 
 ## 规划、连续执行与验收
 
@@ -168,9 +183,8 @@ LangChain Super/Sub 的 Langfuse callback 独立、共享同一个 run/session �
 
 ## 验收边界
 
-本轮定向验收使用真实子进程/MCP、三种配置的模拟 CLI（Codex/OpenCode/client_a）：主子隔离、跨轮恢复、连续子阶段和后续规划；另验证 LangChain/CLI 的 A/B→C 调度、取消与失败，以及 single 配置。已用本机 Codex/OpenCode 做无模型调用的有效 MCP 配置检查。此前专用后端的真实模型最小闭环属于历史记录，不能代替本轮回归；本轮没有运行真实模型闭环、实际 Adder 或全量测试。
+自动化测试覆盖两种三层启动入口、独立子进程和 MCP 传输、真实 Checker 与产物回执、结果返回 Global 后退出，以及 Super/Sub 的依赖调度、连续子阶段和取消。端到端进程测试使用离线 CLI 决策脚本，不能替代真实模型或实际 Adder/EDA 验证。
 
-工作流自动切换、运行中自然语言收件箱、队列重启恢复、嵌套 Sub 和 Master 尚未实施。实现完全位于 UCAgent，不导入旁边的旧 SubAgent 项目。
+Sub 队列重启恢复、嵌套 Sub 和 multi 与 Master 联用尚不支持。
 
-
-跨工作流串行执行见[工作流接力](12_workflow_handoff.md)：当前 Super 在业务验收后选择后继，应用进程保持存活，每个后继使用新实例与独立工作区。
+跨工作流串联由 Global 在上游验收后创建后续 Super，见[工作流接力](12_workflow_handoff.md)。

@@ -27,7 +27,7 @@ class WorkflowInstanceFactory:
         entry = self.catalog.entries[run["workflow_ref"]]
         if workflow_fingerprint(entry, self.catalog.settings.target_configs.get(entry.ref)) != run["fingerprint"]:
             raise ValueError("Successor workflow sources changed; refusing checkpoint recovery")
-        overrides = {**self.execution, "runtime_options.multi_agent_enabled": True,
+        overrides = {**self.execution, "runtime_options.agent_mode": "multi", "agent_run.role": "super",
                      "runtime_options.workflow_handoff_enabled": True,
                      "workflow_handoff": self.catalog.settings.model_dump()}
         config = self.catalog.settings.target_configs.get(run["workflow_ref"], str(self.empty_config))

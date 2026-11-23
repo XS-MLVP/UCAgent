@@ -42,7 +42,7 @@ ucagent <workspace> <dut_name> [options]
 | --- | --- | --- | --- | --- |
 | --config | | path | None | Path to the configuration file, e.g., `--config config.yaml` |
 | --plugin | | name/path (repeatable) | [] | Activate installed plugin ID or local plugin project path |
-| --plugin-workflow | | [plugin:]workflow | None | Use the workflow configuration layer declared by the activated plugin; can be used with `--config` |
+| --plugin-workflow | | [plugin:]workflow | None | Select a workflow declared by a plugin; can be used with `--config` |
 | --override | | A.B.C=VALUE[,X.Y=VAL2,...] | None | Override configuration using dot-path notation, can be used repeatedly; values are parsed as Python literals, booleans should be written as `True/False`, unparsed values are treated as strings |
 
 ### Execution and models
@@ -54,8 +54,8 @@ ucagent <workspace> <dut_name> [options]
 | --sys-tips | | str | Empty | Override system prompt |
 | --loop | -l | flag | Off | Submit the automatic loop during initialization (supports --loop-msg) |
 | --loop-msg | | str | Empty | The first message injected when entering the loop |
-| --agent-mode | | single / multi / global | Unset | Select single, Super+Sub, or persistent Global conversation mode. See [Multi-agent](11_multi_agent.md) and [Global Agent](13_global_agent.md). |
-| --max-subagents | | int | Unset | Positive run-wide limit for concurrently running workers in multi mode |
+| --agent-mode | | single / multi | Unset | Select single Agent or three-layer Global/Super/Sub execution; overrides configuration. See [Multi-agent](11_multi_agent.md) and [Global Agent](13_global_agent.md). |
+| --max-subagents | | int | Unset | Per-Super limit for concurrently running Sub agents in multi mode (1–128) |
 | --backend | | str | None | Specify backend (overrides configuration file settings) |
 | --icmd | | str (repeatable) | [] | Initial commands to execute at startup, can be used multiple times |
 | --exit-on-completion | -eoc | flag | Off | Automatically exit the agent after task completion (after successful Exit tool call) |

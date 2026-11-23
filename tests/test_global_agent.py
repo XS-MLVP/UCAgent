@@ -5,9 +5,9 @@ import hashlib
 import json
 import time
 import pytest
-from ucagent.core.global_agent.session_contracts import GlobalSettings, SuperRequest, SuperSpec
-from ucagent.core.global_agent.service import GlobalAgentService
-from ucagent.core.global_agent.result import verify_workflow_run_result
+from ucagent.core.multi_agent.global_agent.session_contracts import GlobalSettings, SuperRequest, SuperSpec
+from ucagent.core.multi_agent.global_agent.service import GlobalAgentService
+from ucagent.core.multi_agent.global_agent.result import verify_workflow_run_result
 from ucagent.core.tools.global_agent import global_tools
 from ucagent.core.tools.uctool import to_mcp_tool
 from ucagent.runtime.agent_sessions import AgentSessions
@@ -252,3 +252,43 @@ def test_source_copy_handles_links_without_traversing_generated_state(runtime, t
         assert row["status"] == "running"
         assert not (Path(row["workspace"]) / ".venv").exists()
         if kind == "file": assert (Path(row["workspace"]) / "link").read_text() == (source / "dut.v").read_text()
+
+
+@pytest.mark.parametrize("failed,exit_after", [(False, False), (False, True), (True, True)])
+def test_direct_task_waits_for_result_and_global_reply(runtime, tmp_path, failed, exit_after):
+    """Exact startup tasks share result delivery and keep the requested lifetime semantics."""
+    from test_runtime_host import make_host
+    from ucagent.runtime.agent_events import GlobalInbox
+    host, _ = make_host(tmp_path / "host", mode="console")
+    host.exit_on_completion = exit_after
+    host.agent_sessions = runtime
+    runtime.host = host
+    runtime.inbox = GlobalInbox(host, runtime.root, runtime.events)
+    runtime.launcher.fail = failed
+    seen = []
+    host.agent.one_loop = lambda text=None: seen.append(text)
+    host.start(); host.startup.release()
+    try:
+        result = runtime.start_initial_task(workflow_ref="p:produce", dut_name="DUT", instruction="Exact request")
+        assert not seen and not runtime.inbox.items
+        assert runtime.runs[result["agent_id"]]["spec"]["instruction"] == "Exact request"
+        deadline = time.monotonic() + 4
+        while not seen or runtime.inbox.pending() or runtime.has_active():
+            runtime.tick()
+            assert time.monotonic() < deadline
+            time.sleep(.01)
+        runtime.tick()
+        assert len(seen) == 1 and "Super finished" in seen[0]
+        assert "Exact request" in seen[0]
+        if exit_after:
+            assert host.wait(3)["exit_code"] == int(failed)
+        else:
+            assert host.snapshot()["instance"] == "ready"
+            runtime.submit_input("Next user request")
+            while len(seen) < 2:
+                runtime.tick()
+                assert time.monotonic() < deadline
+                time.sleep(.01)
+            assert seen[-1] == "Next user request"
+    finally:
+        host.request_shutdown(); host.wait(3)

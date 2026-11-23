@@ -10,8 +10,8 @@ import threading
 import time
 from uuid import uuid4
 
-from ucagent.core.global_agent.session_contracts import SuperRequest, SuperSpec, TERMINAL_STATES
-from ucagent.core.global_agent.result import sha256_file, verify_workflow_run_result, _artifact_path
+from ucagent.core.multi_agent.global_agent.session_contracts import SuperRequest, SuperSpec, TERMINAL_STATES
+from ucagent.core.multi_agent.global_agent.result import sha256_file, verify_workflow_run_result, _artifact_path
 from ucagent.core.workflow.contracts import canonical_file
 from ucagent.runtime.agent_events import AgentEvents, GlobalInbox, atomic_json
 
@@ -65,6 +65,16 @@ class AgentSessions:
     def submit_input(self, text):
         if not self.inbox: raise RuntimeError("Conversation runtime is not attached")
         return self.inbox.submit(text)
+
+    def start_initial_task(self, *, workflow_ref, dut_name, instruction=None):
+        """Launch an exact CLI task once, without a model reinterpreting its constraints."""
+        text = instruction or f"Verify {dut_name} using the selected workflow {workflow_ref}."
+        request_id = uuid4().hex
+        result = self.start_super(SuperRequest(workflow_ref=workflow_ref, dut_name=dut_name,
+                                              instruction=text), request_id=request_id)
+        self.events.append("global", "user_input", request_id=request_id, text=text)
+        self.events.append("global", "message", text=f"Started {result['agent_id']}: {workflow_ref} ({dut_name})")
+        return result
 
     def _entry(self, spec):
         if spec.workflow_ref not in self.catalog.entries:
@@ -251,14 +261,17 @@ class AgentSessions:
             preview[path] = artifact
         detail = {"agent_id": run["agent_id"], "attempt": run["attempt"], "workflow_ref": run["workflow_ref"],
                   "status": status, "error": run["error"], "artifacts": preview,
+                  "dut_name": run["spec"].get("dut_name"),
+                  "instruction": run["spec"]["instruction"][:4000],
+                  "instruction_truncated": len(run["spec"]["instruction"]) > 4000,
                   "artifact_count": len(run["artifacts"]), "artifacts_truncated": len(preview) < len(run["artifacts"])}
-        if detail["artifacts_truncated"]:
-            detail["next_action"] = "Use AgentStatus for the complete accepted artifact index."
+        if detail["artifacts_truncated"] or detail["instruction_truncated"]:
+            detail["next_action"] = "Use AgentStatus for the full task instruction and accepted artifact index."
         event = self.events.append(run["agent_id"], "result", attempt=run["attempt"], parent_id="global",
                                    **{key: value for key, value in detail.items() if key not in {"agent_id", "attempt"}})
         self.save()
         if self.inbox and not self.closed:
-            self.inbox.submit("A Super finished. Report its verified result and perform any requested next work.\n" + json.dumps(detail),
+            self.inbox.submit("A Super finished. Report its verified result and perform any requested next work.\n" + json.dumps(detail, ensure_ascii=False),
                               request_id=run["request_id"], event_id=event["seq"])
 
     def tick(self):

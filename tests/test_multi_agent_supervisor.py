@@ -313,10 +313,10 @@ def test_new_multi_agent_modules_are_loaded_from_target_repo_only():
     import inspect
     from pathlib import Path
     import ucagent.core.tools.delegation as delegation
-    import ucagent.core.multi_agent.service as service
+    import ucagent.core.multi_agent.super_agent.service as service
     root = Path(__file__).resolve().parents[1]
     assert Path(inspect.getfile(delegation)).resolve() == root / "ucagent/core/tools/delegation.py"
-    assert Path(inspect.getfile(service)).resolve() == root / "ucagent/core/multi_agent/service.py"
+    assert Path(inspect.getfile(service)).resolve() == root / "ucagent/core/multi_agent/super_agent/service.py"
     for source in [root / "ucagent/core/tools/delegation.py", *(root / "ucagent/core/multi_agent").glob("*.py")]:
         for node in ast.walk(ast.parse(source.read_text())):
             if isinstance(node, ast.Import):

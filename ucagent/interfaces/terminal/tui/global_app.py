@@ -9,7 +9,7 @@ from textual.containers import Horizontal
 from textual.widgets import Input, Static, Tree, Footer
 from ucagent.interfaces.terminal.tui.widgets.messages_panel import MessagesPanel
 from ucagent.interfaces.terminal.tui.agent_view import SuperAgentView, SubAgentView
-from ucagent.core.global_agent.display import session_summary
+from ucagent.core.multi_agent.global_agent.display import session_summary
 from ucagent.interfaces.terminal.tui.agent_screen import AgentScreen
 
 SESSION_CSS = """

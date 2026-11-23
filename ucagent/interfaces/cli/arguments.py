@@ -364,7 +364,7 @@ def build_argument_parser() -> argparse.ArgumentParser:
         "--no-embed-tools",
         nargs="?",
         const=True,
-        default=True,
+        default=argparse.SUPPRESS,
         metavar="true_or_false",
         type=lambda x: x.lower() not in ("false", "0", "no"),
         help="Disable embedded tools in the agent. Bare '--no-embed-tools' (or '--no-embed-tools true') disables them; '--no-embed-tools false' keeps them enabled."
@@ -461,10 +461,11 @@ def build_argument_parser() -> argparse.ArgumentParser:
         help="Path to the custom Guide_Doc directory or file to append (can be used multiple times). If no path specified, the default Guide_Doc from the package will be used."
     )
 
-    execution.add_argument("--agent-mode", choices=["single", "multi", "global"], default=None,
-                        help="Select single, multi (Super+Sub), or global (persistent workflow assistant) execution")
+    execution.add_argument("--agent-mode", choices=["single", "multi"], default=None,
+                        help="Select single Agent or multi (Global/Super/Sub) execution")
+    parser.add_argument("--internal-super", action="store_true", help=argparse.SUPPRESS)
     execution.add_argument("--max-subagents", type=int, default=None,
-                        help="Maximum concurrently running sub-agents in multi mode")
+                        help="Maximum concurrently running Sub agents per Super in multi mode")
     execution.add_argument(
         "--backend",
         type=str,
@@ -651,6 +652,9 @@ def get_args(argv=None) -> argparse.Namespace:
     """Parse supplied arguments, preserving explicit flags and override order."""
     parser = build_argument_parser()
     args = parser.parse_args(argv)
+    args._no_embed_tools_explicit = hasattr(args, "no_embed_tools")
+    if not args._no_embed_tools_explicit:
+        args.no_embed_tools = True
     args._use_skill_explicit = hasattr(args, "use_skill")
     if not args._use_skill_explicit:
         args.use_skill = True

@@ -100,11 +100,11 @@ def prepare_task(agent, options):
         plugin_runtime_config_keys=options.plugin_runtime_config_keys, seed=options.seed,
     )
     agent.cfg = prepared.cfg
-    from ucagent.core.multi_agent.contracts import load_settings
+    from ucagent.core.multi_agent.super_agent.contracts import load_settings
     agent.multi_agent_settings = load_settings(agent.cfg, agent.workspace)
     from ucagent.core.workflow.contracts import load_handoff_settings
     agent.workflow_handoff_settings = load_handoff_settings(agent.cfg)
-    from ucagent.core.global_agent.session_contracts import load_global_settings
+    from ucagent.core.multi_agent.global_agent.session_contracts import load_global_settings
     agent.global_agent_settings = load_global_settings(agent.cfg)
     agent_run_id = agent.cfg.get_value("agent_run.id", None)
     if agent.global_agent_settings is not None:
@@ -337,7 +337,7 @@ def assemble_backend(agent, options):
     trace_models = agent.backend.capabilities.model_rounds
     if agent.multi_agent_settings is not None:
         from ucagent.core.backends import get_backend_class
-        from ucagent.core.multi_agent.contracts import role_backend_config
+        from ucagent.core.multi_agent.super_agent.contracts import role_backend_config
         trace_models = trace_models or any(
             get_backend_class(role_backend_config(agent.cfg, role)).capabilities.model_rounds
             for role in agent.multi_agent_settings.roles.values())
@@ -352,12 +352,12 @@ def assemble_backend(agent, options):
         agent.langfuse_handler = CallbackHandler(public_key=public_key)
 
     if getattr(agent, "global_agent_settings", None) is not None:
-        from ucagent.core.global_agent.service import GlobalAgentService
+        from ucagent.core.multi_agent.global_agent.service import GlobalAgentService
         from ucagent.core.tools.global_agent import global_tools
         agent.global_service = GlobalAgentService(agent, agent.global_agent_settings)
         agent.test_tools = global_tools(agent)
     elif agent.multi_agent_settings is not None:
-        from ucagent.core.multi_agent.service import MultiAgentService
+        from ucagent.core.multi_agent.super_agent.service import MultiAgentService
         from ucagent.core.tools.delegation import supervisor_tools
         agent.multi_agent_business_tools = list(agent.test_tools)
         agent.multi_agent_business_names = {tool.name for tool in agent.test_tools}

@@ -732,7 +732,7 @@ class VerifyAgent:
         """Get a tool by its name."""
         tools = self.test_tools
         if getattr(self, "multi_agent", None) is not None:
-            from ucagent.core.multi_agent.supervisor import STAGE_OWNER
+            from ucagent.core.multi_agent.super_agent.supervisor import STAGE_OWNER
             if STAGE_OWNER.get() is self.multi_agent.driver:
                 tools = self.multi_agent_business_tools
         tool = next((tool for tool in tools if tool.name == tool_name), None)

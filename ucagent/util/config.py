@@ -979,7 +979,7 @@ def resolve_workflow_pointer_path(workflow_selector, lang):
     )
 
 
-def _find_user_config_file(config_file, user_home, lang):
+def resolve_user_config_file(config_file, user_home, lang):
     """Resolve the explicit --config file (default: config.yaml) against the
     standard search paths: cwd, ~/.ucagent/, application presets for the selected language, repo root.
     """
@@ -1081,7 +1081,7 @@ def get_config(
             info(f"Workspace config file '{cwd_setting_file}' not found, ignore.")
 
     # 6. find user specified config file
-    user_config_file_path = _find_user_config_file(config_file, user_home, lang)
+    user_config_file_path = resolve_user_config_file(config_file, user_home, lang)
     if config_file is not None:
         assert user_config_file_path is not None, f"Config file '{config_file}' not found in current directory or default config path."
     if user_config_file_path is None:
@@ -1135,5 +1135,8 @@ def discovery_overrides(
             # here, --override workflow=... could not redirect or null the
             # default task workflow
             or key == "workflow"
+            or key == "runtime_options" or key.startswith("runtime_options.")
+            or key == "agent_run" or key.startswith("agent_run.")
+            or key == "global_agent" or key.startswith("global_agent.")
         )
     ]

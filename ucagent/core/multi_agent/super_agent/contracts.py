@@ -141,12 +141,8 @@ def role_backend_config(cfg, role):
 
 def load_settings(cfg, workspace):
     """Validate the mode first; disabled mode never loads or reads role resources."""
-    enabled = cfg.get_value("runtime_options.multi_agent_enabled", False)
-    if type(enabled) is not bool:
-        raise ValueError("runtime_options.multi_agent_enabled must be boolean")
-    if not enabled:
-        if cfg.get_value("multi_agent_cli_limit", False):
-            raise ValueError("--max-subagents requires runtime_options.multi_agent_enabled=true")
+    from ucagent.core.multi_agent.mode import agent_role
+    if agent_role(cfg) != "super":
         return None
     raw = cfg.get_value("multi_agent", {})
     settings = Settings.model_validate(raw.as_dict() if hasattr(raw, "as_dict") else raw)

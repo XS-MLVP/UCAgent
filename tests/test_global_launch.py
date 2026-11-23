@@ -5,17 +5,17 @@ import pytest
 import yaml
 from ucagent.interfaces.cli.arguments import get_args
 from ucagent.interfaces.cli.options import parse_launch_options
-from ucagent.core.global_agent.session_contracts import GlobalSettings
+from ucagent.core.multi_agent.global_agent.session_contracts import GlobalSettings
 
 ROOT = Path(__file__).resolve().parents[1]
 
 def test_global_defaults_to_idle_tui(tmp_path):
-    options = parse_launch_options(get_args([str(tmp_path), "--agent-mode", "global"]))
+    options = parse_launch_options(get_args([str(tmp_path), "--agent-mode", "multi"]))
     assert options["interface"] == "tui"
     assert not any(c.startswith(("chat ", "loop", "continue")) for c in options["commands"])
 
 def test_global_initial_prompt_is_one_turn(tmp_path):
-    options = parse_launch_options(get_args([str(tmp_path), "--agent-mode", "global", "--loop", "--loop-msg", "do this", "--exit-on-completion"]))
+    options = parse_launch_options(get_args([str(tmp_path), "--agent-mode", "multi", "--loop", "--loop-msg", "do this", "--exit-on-completion"]))
     assert options["interface"] == "none"
     assert "chat 'do this'" in options["commands"]
     assert not any(c.startswith("loop") for c in options["commands"])
@@ -39,15 +39,15 @@ def test_documented_policy_loads_unittest_catalog(backend, external):
 
 
 @pytest.mark.parametrize("target,prompt,interface", [
-    ("global", False, "--tui"), ("global_tui", False, "--tui"),
-    ("global_interactive", False, "--human"), ("global_unit", True, "--tui"),
+    ("multi", False, "--tui"), ("multi_tui", False, "--tui"),
+    ("multi_interactive", False, "--human"), ("multi_unit", True, "--tui"),
 ])
 def test_make_entry_contract(target, prompt, interface, tmp_path):
     """Normal launch targets preserve idle startup and their selected interface."""
-    result = subprocess.run(["make", "-n", target, "GLOBAL_WORKSPACE=" + str(tmp_path)],
+    result = subprocess.run(["make", "-n", target, "MULTI_WORKSPACE=" + str(tmp_path)],
                             cwd=ROOT, capture_output=True, text=True, check=True)
     launch = result.stdout.strip().splitlines()[-1]
-    assert "--agent-mode global" in launch
+    assert "--agent-mode multi" in launch
     assert "unittest:unittest" in launch
     assert ("--loop-msg" in launch) is prompt
     assert interface in launch
@@ -58,13 +58,13 @@ def test_make_entry_contract(target, prompt, interface, tmp_path):
 def test_make_accepts_codex_and_headless_request(tmp_path):
     """The ordinary entry supports both backend scopes and one-shot requests."""
     result = subprocess.run([
-        "make", "-n", "global", "GLOBAL_WORKSPACE=" + str(tmp_path), "GLOBAL_UI=",
-        "GLOBAL_PROMPT=Verify the DUT", "GLOBAL_BACKEND=codex",
-        "GLOBAL_ARGS=--backend codex --exit-on-completion",
+        "make", "-n", "multi", "MULTI_WORKSPACE=" + str(tmp_path), "MULTI_UI=",
+        "MULTI_PROMPT=Verify the DUT", "MULTI_BACKEND=codex",
+        "MULTI_ARGS=--backend codex --exit-on-completion",
     ], cwd=ROOT, capture_output=True, text=True, check=True)
     launch = result.stdout.strip().splitlines()[-1]
     assert '--loop-msg "Verify the DUT"' in launch
-    assert "--backend codex" in launch and "global_agent.launch_profiles.standard.backend=codex" in launch
+    assert "--backend codex" in launch
     assert "--exit-on-completion" in launch
     assert "--tui" not in launch and "--human" not in launch
 
@@ -72,7 +72,7 @@ def test_make_accepts_codex_and_headless_request(tmp_path):
 def test_global_mcp_prompt_uses_available_tools(tmp_path):
     """External Global backends must not be directed to removed business-stage tools."""
     from ucagent.util.config import get_config
-    cfg = get_config(workspace=str(tmp_path), workflow_config_file=str(ROOT / "ucagent/core/global_agent/workflow.yaml"))
+    cfg = get_config(workspace=str(tmp_path), workflow_config_file=str(ROOT / "ucagent/core/multi_agent/global_agent/workflow.yaml"))
     prompt = cfg.get_value("mcp_server.init_prompt")
     assert "StartSuper" in prompt and "ListWorkflows" in prompt
     assert "RoleInfo" not in prompt and "ReadTextFile" not in prompt

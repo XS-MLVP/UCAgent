@@ -5220,7 +5220,7 @@
       "review_scope": "inspect_command_usage"
     },
     {
-      "path": "ucagent/core/multi_agent/service.py",
+      "path": "ucagent/core/multi_agent/super_agent/service.py",
       "markers": [
         "business_command"
       ],
@@ -5231,7 +5231,7 @@
       "review_scope": "inspect_command_usage"
     },
     {
-      "path": "ucagent/core/multi_agent/view.py",
+      "path": "ucagent/core/multi_agent/super_agent/view.py",
       "markers": [
         "business_command"
       ],

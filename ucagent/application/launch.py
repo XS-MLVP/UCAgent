@@ -74,6 +74,12 @@ def run_application(request: LaunchRequest):
                             else:
                                 remaining.append(command)
                         commands = remaining
+                    if prepared.initial_workflow and not request.emulate_config:
+                        host.agent_sessions.start_initial_task(
+                            workflow_ref=prepared.initial_workflow,
+                            dut_name=prepared.dut_name,
+                            instruction=request.initial_instruction,
+                        )
                     if request.emulate_config:
                         agent.emulate_config()
                         host.request_shutdown("emulation_finished")

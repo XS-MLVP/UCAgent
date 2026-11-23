@@ -8,7 +8,7 @@ from ucagent.core.workflow.contracts import canonical_file
 ID_PATTERN = r"^[A-Za-z0-9_-]{1,80}$"
 TERMINAL_STATES = frozenset({"succeeded", "failed", "cancelled"})
 PROTECTED_OVERRIDES = frozenset({
-    "workflow", "runtime_options.global_agent_enabled", "runtime_options.multi_agent_enabled",
+    "workflow", "runtime_options", "runtime_options.agent_mode", "agent_run", "agent_run.role",
     "runtime_options.workflow_handoff_enabled", "agent_run.id", "agent_run.attempt",
     "agent_run.result_path", "agent_run.session_dir",
 })
@@ -122,14 +122,16 @@ class AgentView(Protocol):
     def cancel_operation(self) -> dict: ...
 
 def load_global_settings(cfg):
-    enabled = cfg.get_value("runtime_options.global_agent_enabled", False)
-    if type(enabled) is not bool:
-        raise ValueError("runtime_options.global_agent_enabled must be boolean")
-    if not enabled:
+    """Resolve Global policy only for the root of a multi session."""
+    from ucagent.core.multi_agent.mode import agent_role
+    if agent_role(cfg) != "global":
         return None
     if cfg.get_value("runtime_options.workflow_handoff_enabled", False):
-        raise ValueError("Global sessions cannot enable workflow handoff")
-    if cfg.get_value("runtime_options.multi_agent_enabled", False):
-        raise ValueError("Global uses single execution; its Supers use multi execution")
+        raise ValueError("Multi workflow chaining belongs to Global; disable workflow_handoff_enabled")
+    import copy
     raw = cfg.get_value("global_agent", {})
-    return GlobalSettings.model_validate(raw.as_dict() if hasattr(raw, "as_dict") else raw)
+    raw = copy.deepcopy(raw.as_dict() if hasattr(raw, "as_dict") else raw)
+    for profile in raw.get("launch_profiles", {}).values():
+        if profile.get("backend") is None:
+            profile["backend"] = cfg.get_value("backend.key_name", "langchain")
+    return GlobalSettings.model_validate(raw)

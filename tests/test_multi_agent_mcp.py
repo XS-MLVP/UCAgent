@@ -14,7 +14,7 @@ from mcp.client.streamable_http import streamable_http_client
 
 from ucagent.interfaces.server.api_mcp import McpServer, _collect_mcp_tools
 from ucagent.interfaces.server.worker_mcp import worker_endpoint
-from ucagent.core.multi_agent.worker import WorkerSession
+from ucagent.core.multi_agent.super_agent.worker import WorkerSession
 from test_multi_agent import make_agent, parallel_agent, parallel_plan, tool, finish
 
 

@@ -110,8 +110,9 @@ def load_handoff_settings(cfg):
         raise ValueError("runtime_options.workflow_handoff_enabled must be boolean")
     if not enabled:
         return None
-    if not cfg.get_value("runtime_options.multi_agent_enabled", False) or cfg.get_value("backend.key_name") == "blank":
-        raise ValueError("Workflow handoff requires managed multi mode with a non-blank Super")
+    from ucagent.core.multi_agent.mode import agent_role
+    if agent_role(cfg) != "super" or cfg.get_value("backend.key_name") == "blank":
+        raise ValueError("Workflow handoff requires an internal non-blank Super; multi workflow chaining belongs to Global")
     raw = cfg.get_value("workflow_handoff", {})
     return HandoffSettings.model_validate(raw.as_dict() if hasattr(raw, "as_dict") else raw)
 

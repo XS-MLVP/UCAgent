@@ -25,6 +25,7 @@ def relay_request(tmp_path, *, backend="langchain", goal="increment the supplied
     config = tmp_path / "launch.yaml"
     config.write_text("{}\n")
     overrides = {"backend.key_name": backend, "runtime_options.workflow_handoff_enabled": True,
+        "runtime_options.agent_mode": "multi", "agent_run.role": "super",
         "langfuse.enable": False, "workflow_handoff": {
             "goal": goal, "chain_root": str(tmp_path / "chain"),
             "plugin_selectors": [str(PLUGINS / "relay_sink")],

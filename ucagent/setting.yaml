@@ -546,9 +546,8 @@ vibe_coding:
 # Disabled mode retains the existing agent, tools and execution loop.
 runtime_options:
   required_mcp_tools: []  # exact tool names required by a single-agent workflow MCP endpoint
-  multi_agent_enabled: false
+  agent_mode: single  # multi starts Global; child roles are assigned internally
   workflow_handoff_enabled: false
-  global_agent_enabled: false
 
 global_agent:
   plugin_selectors: []
@@ -561,7 +560,7 @@ global_agent:
   root: null
   launch_profiles:
     standard:
-      backend: langchain
+      backend: null  # inherit the resolved Global backend
       max_subagents: 2
       max_attempts: 2
       no_embed_tools: false
@@ -579,6 +578,7 @@ global_agent_prompts:
     task complete. You do not edit DUT files, execute stages, or dispatch Subs directly.
 
 agent_run:
+  role: null  # internal child launch only
   id: null
   attempt: 1
   result_path: null

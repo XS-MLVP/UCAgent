@@ -7,7 +7,7 @@ import os
 import threading
 import time
 from uuid import uuid4
-from ucagent.core.global_agent.service import CURRENT_REQUEST
+from ucagent.core.multi_agent.global_agent.service import CURRENT_REQUEST
 from ucagent.runtime.control.controller import ControlError
 from ucagent.runtime.operations import TERMINAL_STATES
 

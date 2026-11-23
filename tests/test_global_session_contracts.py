@@ -1,7 +1,7 @@
 """Direct Super requests and operator policy boundaries."""
 import pytest
 from pydantic import ValidationError
-from ucagent.core.global_agent.session_contracts import (
+from ucagent.core.multi_agent.global_agent.session_contracts import (
     SuperRequest, SuperProfile, GlobalSettings, load_global_settings,
 )
 from ucagent.util.config import Config
@@ -38,14 +38,14 @@ def test_profile_secrets_are_not_in_catalog():
     profile = SuperProfile(overrides={"openai.api_key": "test-secret"})
     assert "test-secret" not in str(profile.describe())
 
-@pytest.mark.parametrize("key", ["agent_run.id", "workflow", "runtime_options.global_agent_enabled"])
+@pytest.mark.parametrize("key", ["agent_run.id", "workflow", "runtime_options.agent_mode"])
 def test_protected_profile_values(key):
     with pytest.raises(ValidationError):
         SuperProfile(overrides={key: "value"})
 
 def test_enabled_and_disabled_settings():
-    assert load_global_settings(Config({"runtime_options": {"global_agent_enabled": False}})) is None
-    cfg = Config({"runtime_options": {"global_agent_enabled": True}, "global_agent": policy().model_dump()})
+    assert load_global_settings(Config({"runtime_options": {"agent_mode": "single"}})) is None
+    cfg = Config({"runtime_options": {"agent_mode": "multi"}, "global_agent": policy().model_dump()})
     assert load_global_settings(cfg).max_parallel_supers == 2
     with pytest.raises(ValueError):
-        load_global_settings(Config({"runtime_options": {"global_agent_enabled": "false"}}))
+        load_global_settings(Config({"runtime_options": {"agent_mode": "invalid"}}))

@@ -62,13 +62,14 @@ def test_managed_backend_launch_does_not_depend_on_interface():
     from ucagent.util.config import Config
     cfg = Config({"backend": {"key_name": "external", "external": {
         "clss": "ucagent.core.backends.cmdline.SessionCommandBackend", "args": {"argv": ["adapter"]}}},
-        "runtime_options": {"multi_agent_enabled": True},
+        "runtime_options": {"agent_mode": "multi"}, "agent_run": {"role": "super"},
         "vmanager": {"llm_suggestion": {"check_fail_refinement": {"enable": False},
                                            "check_pass_refinement": {"enable": False}}}})
     for interface, services in [("none", ()), ("tui", ()), ("tui", ("mcp",))]:
         plan = build_launch_plan(LaunchRequest(task_options={}, interface=interface, services=services, commands=("loop",)), cfg)
         assert plan.backend == "external" and plan.model_requested
-    cfg.set_value("runtime_options.multi_agent_enabled", False)
+    cfg.set_value("runtime_options.agent_mode", "single")
+    cfg.set_value("agent_run.role", None)
     with pytest.raises(ValueError, match="requires"):
         build_launch_plan(LaunchRequest(task_options={}), cfg)
 

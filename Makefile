@@ -53,4 +53,4 @@ include make/workspace.mk
 include make/master.mk
 -include docs/Makefile
 include make/formal.mk
-include make/global.mk
+include make/multi.mk

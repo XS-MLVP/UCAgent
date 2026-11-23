@@ -42,7 +42,7 @@ ucagent <workspace> <dut_name> [options]
 | --- | --- | --- | --- | --- |
 | --config                |      | path                       | 无         | 配置文件路径，如 `--config config.yaml`                         |
 | --plugin                |      | name/path（可多次）        | []         | 激活已安装插件 ID 或本地插件项目路径                            |
-| --plugin-workflow       |      | [plugin:]workflow          | 无         | 使用已激活插件声明的工作流配置层；可与 `--config` 同时使用      |
+| --plugin-workflow       |      | [plugin:]workflow          | 无         | 选择插件声明的工作流；可与 `--config` 同时使用      |
 | --override              |      | A.B.C=VALUE[,X.Y=VAL2,...] | 无         | 以点号路径覆盖配置，可重复使用；值按 Python 字面量解析，布尔值写 `True/False`，未解析的值作为字符串 |
 
 ### 执行与模型
@@ -54,8 +54,8 @@ ucagent <workspace> <dut_name> [options]
 | --sys-tips           |      | str                        | 空       | 覆盖系统提示词                                                |
 | --loop               | -l   | flag                       | 关闭     | 初始化时提交自动执行循环（可配合 --loop-msg） |
 | --loop-msg           |      | str                        | 空       | 进入循环时注入的首条消息                                      |
-| --agent-mode | | single / multi / global | 未指定 | 选择单 Agent、Super+Sub 或 Global 常驻对话模式；覆盖配置。详见[多 Agent](11_multi_agent.md)与 [Global Agent](13_global_agent.md) |
-| --max-subagents | | int | 未指定 | 多 Agent 的运行中 worker 总上限，必须为正整数 |
+| --agent-mode | | single / multi | 未指定 | 选择单 Agent 或 Global→Super→Sub 三层模式；覆盖配置。详见[多 Agent](11_multi_agent.md)与 [Global Agent](13_global_agent.md) |
+| --max-subagents | | int | 未指定 | 每个 Super 的 Sub 并发上限，范围 1—128 |
 | --backend               |      | str                        | 无         | 指定后端（覆盖配置文件设置）                                    |
 | --icmd               |      | str（可多次）              | []       | 启动时执行的初始命令，可多次使用                              |
 | --exit-on-completion | -eoc | flag                       | 关闭     | 任务完成后自动退出代理（Exit 工具调用成功后）                 |

@@ -4,7 +4,7 @@ import asyncio
 from typing import Any
 from pydantic import Field
 
-from ucagent.core.multi_agent.contracts import StrictModel, TaskPlan
+from ucagent.core.multi_agent.super_agent.contracts import StrictModel, TaskPlan
 from ucagent.core.tools.uctool import UCTool
 
 
@@ -52,7 +52,7 @@ class SupervisorTool(UCTool):
 
     def display_result(self, content):
         """Use readable orchestration output while preserving read-tool bodies."""
-        from ucagent.core.multi_agent.display import control_result
+        from ucagent.core.multi_agent.super_agent.display import control_result
         return control_result(self.action, content)
 
     def _run(self, **kwargs):
@@ -70,7 +70,7 @@ class SupervisorTool(UCTool):
                         "next_action": "Correct the plan and resubmit within this planning turn"}
         if self.action == "roles":
             from ucagent.core.backends import get_backend_class
-            from ucagent.core.multi_agent.contracts import role_backend_config
+            from ucagent.core.multi_agent.super_agent.contracts import role_backend_config
             return {name: {"description": role.description, "backend": role.backend,
                            "allowed_tools": sorted(set(role.allowed_tools) & self.service.agent.multi_agent_business_names),
                            "budgets": {"model_rounds": get_backend_class(

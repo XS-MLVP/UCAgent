@@ -5,7 +5,7 @@
 
 UCAgent 自带基于 Textual 构建的终端界面（TUI），用于在本地交互式观察任务进度、消息流与控制台输出，并直接输入命令（如启动循环、查询状态、执行工具和服务控制命令等）。
 
-以下介绍 single/multi 模式的执行界面。Global 模式提供自然语言对话和 Agent 树，可切换到 Super/Sub 页面；导航及独立终端连接见 [Global Agent](13_global_agent.md)。
+以下介绍 single 及 Super/Sub 的执行界面。multi 的 Global 首页提供自然语言对话和 Agent 树，可切换到 Super/Sub 页面；导航及独立终端连接见 [Global Agent](13_global_agent.md)。
 
 ### 界面组成
 

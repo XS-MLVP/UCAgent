@@ -5,6 +5,7 @@ from typing import Any
 import shlex
 
 from ucagent.core.backends import get_backend_class
+from ucagent.core.multi_agent.mode import agent_role
 from ucagent.runtime.control.commands import DEFERRED_COMMANDS
 
 
@@ -14,6 +15,7 @@ class LaunchRequest:
 
     task_options: dict[str, Any] = field(repr=False)
     plugin_selectors: tuple[str, ...] = ()
+    initial_instruction: str | None = field(default=None, repr=False)
     workspace_base: str = "/tmp/ucagent_workspace_base"
     temporary_prefix: str | None = None
     create_workspace: bool = False
@@ -52,21 +54,21 @@ class LaunchPlan:
 
 def build_launch_plan(request: LaunchRequest, cfg) -> LaunchPlan:
     """Validate actual backend needs and derive startup policy without creating runtime owners."""
-    if request.master and cfg.get_value("runtime_options.multi_agent_enabled", False):
+    role = agent_role(cfg)
+    if request.master and role != "single":
         raise ValueError("Multi-agent execution is not supported in Master mode")
     backend_class = get_backend_class(cfg)
     start_mcp = "mcp" in request.services
     mode = ("master" if request.master else "console" if request.interface != "none"
             else "service" if request.services else "once")
     default_model = (mode == "once" and not request.emulate_config
-                     and not cfg.get_value("runtime_options.global_agent_enabled", False))
+                     and role != "global")
     model_commands = {name for spec in DEFERRED_COMMANDS if spec.model
                       for name in (spec.name, *spec.aliases)}
     commands = [*request.commands, *cfg.get_value("init_cmds", [])]
     model_requested = not request.emulate_config and (default_model or any(
         tokens and tokens[0] in model_commands for tokens in (shlex.split(command) for command in commands)))
-    managed = (cfg.get_value("runtime_options.multi_agent_enabled", False)
-               and backend_class.capabilities.managed_sessions)
+    managed = role == "super" and backend_class.capabilities.managed_sessions
     if model_requested and backend_class.requires_mcp and not start_mcp and not managed:
         raise ValueError(f"backend={cfg.backend.key_name!r} requires '--mcp-server' or '--mcp-server-no-file-tools': "
                          "command-line backends communicate with UCAgent through MCP; "

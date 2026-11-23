@@ -10,9 +10,9 @@ import pytest
 
 from multi_agent_fakes import install_planner
 from ucagent import VerifyAgent
-from ucagent.core.multi_agent.contracts import Settings, load_settings
+from ucagent.core.multi_agent.super_agent.contracts import Settings, load_settings
 from ucagent.core.backends.langchain.middleware.execution import ExecutionBudget
-from ucagent.core.multi_agent.service import MultiAgentService
+from ucagent.core.multi_agent.super_agent.service import MultiAgentService
 from ucagent.core.tools.uctool import to_mcp_tool
 from ucagent.interfaces.server.api_mcp import _collect_mcp_tools
 from ucagent.util.config import Config
@@ -27,7 +27,8 @@ def make_agent(tmp_path, *, stages=None, multi=True, config_overrides=None, **se
     """Use production construction with framework-only resources in a temporary workspace."""
     cfg = {
         "workflow": None, "backend.key_name": "blank", "langfuse.enable": False,
-        "skill.use_skill": False, "runtime_options.multi_agent_enabled": multi,
+        "skill.use_skill": False, "runtime_options.agent_mode": "multi" if multi else "single",
+        "agent_run.role": "super" if multi else None,
         "output": "out", "write_dirs": ["out"], "un_write_dirs": [], "template": None,
         "stage": stages or [stage("one", output_files=["out/result.md"])],
         "vmanager.llm_suggestion.check_fail_refinement.enable": False,
@@ -71,11 +72,11 @@ def finish(service, plan_id, timeout=5):
 
 def test_single_mode_and_configuration_validation(tmp_path):
     """Default/single construction never reads unused role files or creates workers."""
-    cfg = Config({"runtime_options": {"multi_agent_enabled": False},
+    cfg = Config({"runtime_options": {"agent_mode": "single"},
                   "multi_agent": {"roles": {"bad": {"system_file": "missing"}}}})
     assert load_settings(cfg, tmp_path) is None
-    cfg.set_value("runtime_options.multi_agent_enabled", "false")
-    with pytest.raises(ValueError, match="boolean"):
+    cfg.set_value("runtime_options.agent_mode", "invalid")
+    with pytest.raises(ValueError, match="single or multi"):
         load_settings(cfg, tmp_path)
     single = make_agent(tmp_path, multi=False, max_workers=0)
     try:
@@ -94,13 +95,13 @@ def test_cli_override_and_max_limit(tmp_path):
     from ucagent.application.preparation import prepare_launch
     from ucagent.application.plan import LaunchRequest
     config = tmp_path / "launch.yaml"
-    config.write_text("workflow: null\nbackend: {key_name: blank}\nruntime_options: {multi_agent_enabled: true}\nmulti_agent: {roles: {worker: {backend: langchain}}}\n")
+    config.write_text("workflow: null\nbackend: {key_name: langchain}\nruntime_options: {agent_mode: multi}\nmulti_agent: {roles: {worker: {backend: langchain}}}\n")
     args = get_args([str(tmp_path), "DUT", "--config", str(config), "--agent-mode", "single"])
     prepared, _, _ = prepare_launch(LaunchRequest(**parse_launch_options(args)))
-    assert prepared.cfg.get_value("runtime_options.multi_agent_enabled") is False
+    assert prepared.cfg.get_value("runtime_options.agent_mode") == "single"
     args = get_args([str(tmp_path), "DUT", "--config", str(config), "--max-subagents", "2"])
     prepared, _, _ = prepare_launch(LaunchRequest(**parse_launch_options(args)))
-    assert prepared.cfg.get_value("multi_agent.max_workers") == 2
+    assert prepared.cfg.get_value("global_agent.launch_profiles.standard.max_subagents") == 2
     args = get_args([str(tmp_path), "DUT", "--agent-mode", "single", "--max-subagents", "2"])
     with pytest.raises(ValueError, match="multi mode"):
         parse_launch_options(args)
@@ -309,7 +310,7 @@ def test_budget_and_constructor_failure_release_capacity(agent, monkeypatch):
     def broken(*args):
         """Fail before any runner cleanup object exists."""
         raise RuntimeError("construction failed")
-    monkeypatch.setattr("ucagent.core.multi_agent.worker.WorkerSession", broken)
+    monkeypatch.setattr("ucagent.core.multi_agent.super_agent.worker.WorkerSession", broken)
     service.submit({"plan_id": "broken", "tasks": [{"id": "t", "instruction": "run"}]})
     result = finish(service, "broken")
     assert result["tasks"][0]["attempt"] == 2
@@ -319,9 +320,9 @@ def test_budget_and_constructor_failure_release_capacity(agent, monkeypatch):
 
 def test_model_budget_and_submission_stop(agent):
     """Production middleware ends submitted graphs before another model call."""
-    from ucagent.core.multi_agent.worker import WorkerSession
-    from ucagent.core.multi_agent.service import TaskRecord
-    from ucagent.core.multi_agent.contracts import TaskSpec
+    from ucagent.core.multi_agent.super_agent.worker import WorkerSession
+    from ucagent.core.multi_agent.super_agent.service import TaskRecord
+    from ucagent.core.multi_agent.super_agent.contracts import TaskSpec
     service = agent.multi_agent
     lease = service.driver.acquire("stage")
     record = TaskRecord("p/t", TaskSpec(id="t", instruction="work"), "p", lease, False,
@@ -502,9 +503,9 @@ def test_new_plan_id_cannot_refresh_exhausted_logical_budget(agent):
 
 def test_role_files_and_model_overrides_are_resolved_without_widening_policy(tmp_path):
     """Relative role prompts resolve in the workspace and model overrides cannot edit policy."""
-    from ucagent.core.multi_agent.contracts import Role
+    from ucagent.core.multi_agent.super_agent.contracts import Role
     (tmp_path / "role.md").write_text("custom role prompt")
-    cfg = Config({"backend": {"key_name": "langchain", "langchain": {"clss": "ucagent.core.backends.langchain.UCAgentLangChainBackend", "args": {}}}, "runtime_options": {"multi_agent_enabled": True}, "multi_agent": {
+    cfg = Config({"backend": {"key_name": "langchain", "langchain": {"clss": "ucagent.core.backends.langchain.UCAgentLangChainBackend", "args": {}}}, "runtime_options": {"agent_mode": "multi"}, "agent_run": {"role": "super"}, "multi_agent": {
         "roles": {"worker": {"system_file": "role.md"}}}})
     assert load_settings(cfg, tmp_path).roles["worker"].system == "custom role prompt"
     with pytest.raises(ValueError, match="model_overrides"):

@@ -2,7 +2,7 @@
 from typing import Any
 from pydantic import Field
 from ucagent.core.tools.uctool import UCTool, EmptyArgs
-from ucagent.core.global_agent.session_contracts import SuperRequest, StrictContract
+from ucagent.core.multi_agent.global_agent.session_contracts import SuperRequest, StrictContract
 
 class AgentArgs(StrictContract):
     agent_id: str = Field(min_length=1, description="Agent identity returned by StartSuper or ListAgents.")
@@ -34,7 +34,7 @@ class GlobalTool(UCTool):
                     "next_action": "Inspect ListWorkflows or AgentStatus and correct the request."}
 
     def display_result(self, content):
-        from ucagent.core.global_agent.display import session_summary
+        from ucagent.core.multi_agent.global_agent.display import session_summary
         return session_summary(content)
 
 def global_tools(agent):

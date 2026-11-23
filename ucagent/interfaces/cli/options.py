@@ -10,6 +10,8 @@ import yaml
 
 from ucagent.interfaces.cli.arguments import OverrideDict, OverrideValues, get_list_from_str, parse_reference_files
 from ucagent.util.functions import append_python_path
+from ucagent.util.config import get_config, discovery_overrides
+from ucagent.core.multi_agent.mode import agent_role
 
 
 def _append_override(overrides: Optional[OverrideValues], key: str, value: Any) -> List[OverrideDict]:
@@ -27,6 +29,7 @@ def _append_override(overrides: Optional[OverrideValues], key: str, value: Any) 
 def parse_launch_options(args) -> dict:
     """Map parsed flags to shared launch data without preparing files or constructing an Agent."""
     agent_mode = getattr(args, "agent_mode", None)
+    task_overrides = list(args.override or [])
     temporary_prefix = None
     create_workspace = False
     create_dut = False
@@ -50,11 +53,28 @@ def parse_launch_options(args) -> dict:
         args.workspace = None
         args.dut = "DUT_TEST"
         create_dut = True
-    if args.dut is None and agent_mode == "global":
+    internal_super = getattr(args, "internal_super", False)
+    if internal_super:
+        if agent_mode is not None:
+            raise ValueError("Internal Super launches must not specify --agent-mode")
+        args.override = _append_override(args.override, "runtime_options.agent_mode", "multi")
+        args.override = _append_override(args.override, "agent_run.role", "super")
+    elif agent_mode is not None:
+        args.override = _append_override(args.override, "runtime_options.agent_mode", agent_mode)
+    discovery = get_config(args.config, discovery_overrides(args.override), args.workspace)
+    role = agent_role(discovery)
+    if role == "super" and not internal_super:
+        raise ValueError("agent_run.role is reserved for internal Super launches; use --agent-mode multi")
+    if internal_super and not all(discovery.get_value("agent_run." + key, None) for key in ("id", "result_path")):
+        raise ValueError("Internal Super launches require agent_run.id and agent_run.result_path")
+    agent_mode = discovery.get_value("runtime_options.agent_mode", "single")
+    if args.dut is None and role == "global":
+        if args.plugin_workflow:
+            raise ValueError("A startup --plugin-workflow requires a DUT name")
         args.dut = "mission"
     if args.dut is None or (args.workspace is None and temporary_prefix is None):
         argparse.ArgumentParser(prog="ucagent").error("the following arguments are required: workspace, dut")
-    if agent_mode == "global" and not args.human and not args.exit_on_completion and not args.emulate_config:
+    if role == "global" and not args.human and not args.exit_on_completion and not args.emulate_config:
         args.tui = True
     # Prepare initial commands
     init_cmds = []
@@ -75,33 +95,50 @@ def parse_launch_options(args) -> dict:
         else:
             init_cmds += [f"terminal_api_start {addr_part}{extra_web_term_opts}"]
 
+    profiles = discovery.get_value("global_agent.launch_profiles", {})
+    profile_names = profiles.as_dict() if hasattr(profiles, "as_dict") else profiles
     max_subagents = getattr(args, "max_subagents", None)
-    if agent_mode is not None:
-        if agent_mode == "global":
-            if args.as_master is not None:
-                raise ValueError("Global mission mode cannot run as a Master process")
-            if getattr(args, "plugin_workflow", None):
-                raise ValueError(
-                    "Global mission mode starts workflows through StartSuper; "
-                    "--plugin-workflow is only valid for a Super run"
-                )
-            global_workflow = Path(__file__).resolve().parents[2] / "core" / "global_agent" / "workflow.yaml"
-            args.override = _append_override(args.override, "runtime_options.global_agent_enabled", True)
-            args.override = _append_override(args.override, "runtime_options.multi_agent_enabled", False)
-            args.override = _append_override(args.override, "runtime_options.workflow_handoff_enabled", False)
-            args.override = _append_override(args.override, "workflow", str(global_workflow))
-        else:
-            args.override = _append_override(args.override, "runtime_options.multi_agent_enabled", agent_mode == "multi")
-    if max_subagents is not None:
-        if agent_mode == "global":
-            raise ValueError("--max-subagents selects Super workers; configure global_agent.launch_profiles instead")
-        if max_subagents <= 0 or agent_mode == "single":
-            raise ValueError("--max-subagents requires multi mode and a positive integer")
-        args.override = _append_override(args.override, "multi_agent.max_workers", max_subagents)
-        # Validate after all config layers have resolved, even when mode came from YAML.
-        args.override = _append_override(args.override, "multi_agent_cli_limit", True)
     if args.as_master is not None and agent_mode == "multi":
         raise ValueError("Multi-agent execution is not supported in Master mode")
+    if max_subagents is not None:
+        if not 1 <= max_subagents <= 128 or agent_mode != "multi":
+            raise ValueError("--max-subagents requires multi mode and an integer in 1..128")
+        if role == "global":
+            for name in profile_names:
+                args.override = _append_override(args.override, f"global_agent.launch_profiles.{name}.max_subagents", max_subagents)
+        else:
+            args.override = _append_override(args.override, "multi_agent.max_workers", max_subagents)
+    if role == "global":
+        child_no_embed_tools = args.no_embed_tools
+        # Global's CLI backend needs its tools even when the first task comes later.
+        from ucagent.core.backends import get_backend_class
+        backend_cfg = get_config(args.config, _append_override(args.override, "backend.key_name", args.backend)
+                                 if args.backend else args.override, args.workspace)
+        backend_class = get_backend_class(backend_cfg)
+        if backend_class.requires_mcp:
+            args.mcp_server = True
+            if args.mcp_server_port is None:
+                args.mcp_server_port = 0
+        if not backend_class.capabilities.model_rounds:
+            args.no_embed_tools = True
+        from ucagent.core.multi_agent.global_agent.session_contracts import PROTECTED_OVERRIDES
+        inherited = {key: value for item in task_overrides for key, value in item.items()
+                     if key not in PROTECTED_OVERRIDES and not key.startswith(("global_agent", "agent_run.", "mcp_server."))}
+        if args.output is not None:
+            inherited["output"] = args.output
+            args.output = None
+        if args._use_skill_explicit:
+            inherited["skill.use_skill"] = args.use_skill
+        if args.extra_skill_path:
+            inherited["skill.extra_skill_path"] = str(Path(args.extra_skill_path).resolve())
+            if not args._use_skill_explicit:
+                inherited["skill.use_skill"] = True
+        for name, profile in profile_names.items():
+            if inherited:
+                values = {**profile.get("overrides", {}), **inherited}
+                args.override = _append_override(args.override, f"global_agent.launch_profiles.{name}.overrides", values)
+            if args._no_embed_tools_explicit:
+                args.override = _append_override(args.override, f"global_agent.launch_profiles.{name}.no_embed_tools", child_no_embed_tools)
     # Handle MCP server commands
     args.override = args.override or []
     if args.mcp_server_port == -1:
@@ -210,9 +247,10 @@ def parse_launch_options(args) -> dict:
     if args.icmd:
         init_cmds += args.icmd
 
-    if agent_mode == "global" and args.loop_msg:
-        init_cmds += ["chat " + shlex.quote(args.loop_msg)]
-    elif args.loop and agent_mode != "global":
+    if role == "global" and (args.loop_msg or args.loop) and not args.plugin_workflow:
+        message = args.loop_msg or f"Verify {args.dut} using an appropriate configured workflow."
+        init_cmds += ["chat " + shlex.quote(message)]
+    elif args.loop and role != "global":
         suffix = f" {shlex.quote(args.loop_msg)}" if args.loop_msg else ""
         init_cmds += ["loop" + suffix]
 
@@ -263,6 +301,7 @@ def parse_launch_options(args) -> dict:
     if args.web_console_session_host is not None or args.web_console_session_port is not None:
         web_console_session = {"host": args.web_console_session_host, "port": args.web_console_session_port}
     return dict(
+        initial_instruction=args.loop_msg if role == "global" and args.plugin_workflow else None,
         task_options=agent_options, plugin_selectors=tuple(args.plugin), workspace_base=args.workspace_base,
         temporary_prefix=temporary_prefix, create_workspace=create_workspace, create_dut=create_dut,
         master=args.as_master is not None, emulate_config=args.emulate_config, interface="tui" if args.tui else "console" if args.human else "none",

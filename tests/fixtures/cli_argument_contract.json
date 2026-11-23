@@ -347,7 +347,7 @@
     "options": [
       "--no-embed-tools"
     ],
-    "default": true,
+    "default": "==SUPPRESS==",
     "const": true,
     "nargs": "?",
     "type": "<lambda>",
@@ -814,8 +814,7 @@
     "type": null,
     "choices": [
       "single",
-      "multi",
-      "global"
+      "multi"
     ],
     "required": false,
     "hidden": false
@@ -831,5 +830,17 @@
     "choices": null,
     "required": false,
     "hidden": false
+  },
+  "internal_super": {
+    "options": [
+      "--internal-super"
+    ],
+    "default": false,
+    "const": true,
+    "nargs": 0,
+    "type": null,
+    "choices": null,
+    "required": false,
+    "hidden": true
   }
 }

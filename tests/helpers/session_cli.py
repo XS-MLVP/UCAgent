@@ -82,7 +82,8 @@ async def main():
     directory = Path(os.environ["UCAGENT_WORKER_SESSION_DIR"])
     with (directory / "invocations.jsonl").open("a") as stream:
         stream.write(json.dumps({"session_id": session_id, "pid": os.getpid(), "resumed": resumed}) + "\n")
-    async with httpx2.AsyncClient(headers={"Authorization": "Bearer " + os.environ["UCAGENT_WORKER_MCP_TOKEN"]}) as client:
+    token = os.environ["UCAGENT_WORKER_MCP_TOKEN"]
+    async with httpx2.AsyncClient(headers={"Authorization": "Bearer " + token} if token else {}) as client:
         async with streamable_http_client(os.environ["UCAGENT_WORKER_MCP_URL"], http_client=client) as (read, write):
             async with ClientSession(read, write, read_timeout_seconds=5) as session:
                 await session.initialize()
@@ -103,6 +104,17 @@ async def main():
                     except json.JSONDecodeError:
                         return result.content[0].text
 
+                if "StartSuper" in names:
+                    agents = await call("ListAgents")
+                    if not agents["agents"]:
+                        workflows = await call("ListWorkflows")
+                        await call("StartSuper", workflow_ref=workflows["workflows"][0]["workflow_ref"],
+                                   dut_name="DUT", instruction="Complete the requested evidence workflow")
+                    else:
+                        assert all(agent["status"] == "succeeded" for agent in agents["agents"]), agents
+                    emit("item.completed", item={"type": "agent_message", "text": "Verified results received."})
+                    emit("turn.completed", usage={"input_tokens": 10, "output_tokens": 4})
+                    return
                 tips = await call("CurrentTips")
                 if "--relay-fixture" in options:
                     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))

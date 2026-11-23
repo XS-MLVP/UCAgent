@@ -5,7 +5,7 @@
 
 UCAgent includes a built-in terminal user interface (TUI) based on Textual, designed for local interactive observation of task progress, message streams, and console output, as well as for directly entering commands (such as starting loops, querying state, invoking tools, and controlling services).
 
-The sections below describe the execution UI for single/multi mode. Global mode has a conversation and an Agent tree with separate Super/Sub pages; see [Global Agent](13_global_agent.md) for navigation and attaching another terminal.
+The sections below describe the single-Agent and Super/Sub execution UI. The Global home screen in multi mode has a conversation and an Agent tree with separate Super/Sub pages; see [Global Agent](13_global_agent.md) for navigation and attaching another terminal.
 
 ### Interface Components
 

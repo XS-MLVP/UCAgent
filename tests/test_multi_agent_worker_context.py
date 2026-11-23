@@ -14,7 +14,7 @@ from pydantic import Field
 
 from multi_agent_fakes import install_planner
 from test_multi_agent import make_agent, stage, tool, finish
-from ucagent.core.multi_agent.worker import WorkerSession
+from ucagent.core.multi_agent.super_agent.worker import WorkerSession
 
 
 class ContextModel(BaseChatModel):

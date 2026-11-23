@@ -5,8 +5,6 @@ write_dirs: ["{OUT}"]
 un_write_dirs: [inputs, Guide_Doc]
 skill:
   use_skill: false
-runtime_options:
-  multi_agent_enabled: true
 vmanager:
   llm_suggestion:
     check_fail_refinement: {enable: false}

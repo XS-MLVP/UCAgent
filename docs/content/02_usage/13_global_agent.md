@@ -5,17 +5,11 @@ Global 是自然语言入口：根据你的指令选择工作流，按需启动 
 
 ## 启动与输入
 
-```bash
-ucagent ./workspace --agent-mode global --config ./config.yaml
-```
+Global 是 `multi` 的顶层角色。交互启动与命令行直接指定任务使用同一条 Global → Super → Sub 链路，命令和参数见[多 Agent 启动](11_multi_agent.md)。
 
-交互启动默认进入 Global TUI，也可以显式传入 `--tui`。`--human` 选择 Console。无需初始任务或 `--loop`；没有输入时不调用模型。
+在输入框描述任务，例如“用 unittest 工作流验证 Adder”。Global 查询可用工作流，信息充分后启动 Super；信息不足时先澄清。Super 在后台执行，Global 可继续接收其他任务和状态询问。任务结果自动返回，完成后可继续输入。
 
-在输入框描述任务，例如“用 unittest 工作流验证当前 DUT”。Global 查询可用工作流，信息充分后直接启动 Super；信息不足时先澄清。Super 在后台执行，Global 可继续接收其他任务和状态询问。
-
-`--loop-msg "自然语言任务"` 在 Global 模式下只作为一次初始输入。需要无界面的单次执行时，同时指定 `--exit-on-completion`；当前请求的子任务、结果事件及最终回复全部处理后退出，失败使用非零退出码。
-
-Global 本身使用 single-agent 执行，启动的 Super 使用 multi-agent。Global 不能与 Master、workflow handoff 或 `--plugin-workflow` 合用；工作流由会话中的 StartSuper 选择，子级并发通过启动配置指定。
+`multi` 不能与 Master 合用。跨工作流选择由 Global 负责；不能在公开入口启用 `workflow_handoff_enabled`。Super 通过内部角色启动，只负责当前工作流。
 
 ## 配置工作流目录
 
@@ -43,9 +37,10 @@ global_agent:
         - simulator
 ```
 
-- `allowed_workflows` 必须能从已加载插件或 `plugin_selectors` 解析；目录列出用途、输入、输出及不可用原因。
+- `allowed_workflows` 非空时限制可启动的工作流；留空则使用目录中全部工作流。条目必须能从 `--plugin` 或 `plugin_selectors` 解析，默认目录来自配置的工作流所属插件或内置 UnitTest。目录列出用途、输入、输出及不可用原因。
+- profile 的 `backend: null`（默认值）继承 Global 后端；显式值固定该 profile 的 Super/Sub 后端。
 - `launch_profiles` 是操作者定义的启动参数。Global 选择名称，不提供任意 shell、argv 或配置覆盖。目录查询不会返回 profile 的秘密配置值。
-- 子级配置优先级为 `target_configs[workflow]`、profile 的 `config_ref`、Global 启动配置。
+- 子级配置文件优先级为 `target_configs[workflow]`、profile 的 `config_ref`、Global 启动配置。CLI 的任务配置覆盖、输出目录和显式 Skill 开关传给子级；启动模式与进程身份由框架固定。
 - `no_embed_tools: false` 根据 backend 能力选择工具路径；`true` 强制使用外部工具。需要 MCP 时监听本机动态分配端口。
 - `max_parallel_supers` 限制同时执行的 Super；profile 的 `max_subagents` 限制该 Super 的 Sub 数量。
 - profile 的 `resources` 消耗同名容量。例如 simulator 容量为 1 时，相关 Super 串行执行。

@@ -1,4 +1,5 @@
 """Interactive Global layout, persistent Agent pages and message identity routing."""
+import asyncio
 import json
 from pathlib import Path
 import pytest
@@ -28,6 +29,24 @@ def global_session(runtime, tmp_path):
 def panel_text(panel):
     state = panel.export_state()
     return "\n".join(row.plain for row in state.render_history) + state.current_line_buffer
+
+
+async def wait_for_agent_messages(pilot, agent_id, expected):
+    """Wait for asynchronous page delivery instead of assuming a fixed render latency."""
+    deadline = asyncio.get_running_loop().time() + 3
+    observed = ""
+    while asyncio.get_running_loop().time() < deadline:
+        await pilot.pause(.02)
+        page = pilot.app.screen
+        if not isinstance(page, AgentScreen) or page.view.agent_id != agent_id:
+            continue
+        panels = list(page.query(MessagesPanel))
+        if panels:
+            observed = panel_text(panels[0])
+            if expected in observed:
+                return
+    pytest.fail(f"Agent {agent_id} did not display {expected!r}; observed {observed!r}")
+
 
 def saved_output(runtime, agent_id):
     run = runtime.runs[agent_id]
@@ -95,7 +114,7 @@ async def test_independent_super_sub_pages_and_draft(global_session):
         assert "\n" not in node.label.plain
         assert node.children[0].label.plain == "running · task"
         app.open_agent(a)
-        await pilot.pause(.4)
+        await wait_for_agent_messages(pilot, a, "SUPER DETAILS")
         assert isinstance(app.screen, AgentScreen)
         assert "SUPER DETAILS" in panel_text(app.screen.query_one("#messages-panel", MessagesPanel))
         from xml.etree import ElementTree
@@ -104,14 +123,14 @@ async def test_independent_super_sub_pages_and_draft(global_session):
         app.screen.action_back()
         await pilot.pause(.1)
         app.open_agent(b)
-        await pilot.pause(.3)
+        await wait_for_agent_messages(pilot, b, "SUPER DETAILS")
         assert app.screen.query_one("#console-input", Input).value == ""
         app.screen.action_back()
         app.open_agent(a)
-        await pilot.pause(.3)
+        await wait_for_agent_messages(pilot, a, "SUPER DETAILS")
         assert app.screen.query_one("#console-input", Input).value == "saved draft"
         app.open_view(SubAgentView(SuperAgentView(runtime.agent_status, a), child))
-        await pilot.pause(.3)
+        await wait_for_agent_messages(pilot, child, "SUB DETAILS")
         text = panel_text(app.screen.query_one("#messages-panel", MessagesPanel))
         assert "SUB DETAILS" in text and "SUPER DETAILS" not in text
         assert "Produce the verified task artifact" not in str(app.screen.query_one("#task-detail", Static).render())
@@ -205,7 +224,7 @@ async def test_execution_layout_splitters_and_global_remain_independent(global_s
         global_regions = {key: app.query_one(key).region for key in
                           ("#global-conversation", "#agent-tree", "#global-input")}
         app.open_agent(agent_id)
-        await pilot.pause(.3)
+        await wait_for_agent_messages(pilot, agent_id, "SUPER DETAILS")
         parent = app.screen
         for selector, widget_type in (("#task-panel", TaskPanel), ("#messages-panel", MessagesPanel),
                                       ("#console", ConsoleWidget), ("#status-bar", StatusBar)):
@@ -281,7 +300,7 @@ async def test_execution_history_completion_and_console_are_page_local(global_se
         assert field.value == ""
         assert calls == [("status", True), ("consider the timing constraint", False)]
         app.open_view(SubAgentView(parent.view, child))
-        await pilot.pause(.3)
+        await wait_for_agent_messages(pilot, child, "FILE BODY")
         sub = app.screen
         sub_field = sub.query_one("#console-input", Input)
         await pilot.press("up")
@@ -344,7 +363,7 @@ async def test_super_and_sub_missions_console_and_details_are_scoped(global_sess
     async with app.run_test(size=(160, 48)) as pilot:
         await pilot.pause(.2)
         app.open_agent(agent_id)
-        await pilot.pause(.3)
+        await wait_for_agent_messages(pilot, agent_id, "SUPER DETAILS")
         parent = app.screen
         assert "later" in rendered(parent, "#task-list")
         assert not parent.query("#daemon-cmds")
@@ -357,7 +376,7 @@ async def test_super_and_sub_missions_console_and_details_are_scoped(global_sess
         assert "SERVICE READY" in console(parent)
         assert "SUB EXECUTION LOG" not in console(parent) and "SIBLING LOG" not in console(parent)
         app.open_view(SubAgentView(parent.view, child))
-        await pilot.pause(.3)
+        await wait_for_agent_messages(pilot, child, "FILE BODY")
         sub = app.screen
         assert "prepare" in rendered(sub, "#task-list") and "later" not in rendered(sub, "#task-list")
         assert not sub.query("#daemon-cmds")

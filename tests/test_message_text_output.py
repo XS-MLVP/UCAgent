@@ -16,7 +16,7 @@ from ucagent.core.agent.execution import VerifyAgent
 from ucagent.core.backends.langchain.agent import UCAgentLangChainBackend
 from ucagent.core.backends.langchain.content import content_text, format_message
 from ucagent.core.backends.langchain.middleware.messages import summarize_messages
-from ucagent.core.multi_agent.worker import BoundTool, WorkerSession
+from ucagent.core.multi_agent.super_agent.worker import BoundTool, WorkerSession
 from ucagent.util.config import Config
 import ucagent.util.log as log_util
 
@@ -386,9 +386,9 @@ def test_runtime_forwarding_records_each_message_once(message_log, capsys, view_
 
 def test_display_projection_preserves_protocol_and_user_json():
     """Only explicitly marked prompts and control tools may hide orchestration envelopes."""
-    from ucagent.core.multi_agent.display import planning_message
+    from ucagent.core.multi_agent.super_agent.display import planning_message
     from ucagent.core.tools.delegation import SupervisorTool, NoArgs
-    from ucagent.core.multi_agent.worker import BoundTool
+    from ucagent.core.multi_agent.super_agent.worker import BoundTool
 
     output = io.StringIO()
     backend = make_output_backend([], output)
@@ -422,7 +422,7 @@ def test_display_projection_preserves_protocol_and_user_json():
 
 def test_control_results_keep_failures_and_validation_details():
     """Queue summaries omit metrics/budgets while preserving outcomes and actionable diagnostics."""
-    from ucagent.core.multi_agent.display import control_result
+    from ucagent.core.multi_agent.super_agent.display import control_result
 
     result = {"plans": {"p": {"state": "failed", "tasks": ["p/t"], "validation": {
         "complete": False, "diagnostic": {"stage": "evidence-stage", "error": "artifact missing",
