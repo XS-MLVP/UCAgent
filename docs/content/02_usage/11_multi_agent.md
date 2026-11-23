@@ -107,6 +107,10 @@ Super 必须真实调用模型，通过 `SubAgentTool` 提交计划。框架不�
 - `stage`：只处理当前步骤，完成实现与日志后提交。对子树缩小 scope 必须说明 `scope_reason`。
 - `task`：独立文件任务，可并行；必须声明具体 inputs/outputs，输出不重叠，依赖无环，输入生产者是显式依赖。不开放 Check、阶段日志和 Skill 完成工具。已有产物契约及最终阶段 Checker 仍执行。
 
+`auto/stage/subtree` 委派继承工作流的 `write_dirs / un_write_dirs`；`inputs` 表示必须存在的输入，不会额外冻结工作流允许修改的文件。`outputs` 可省略或只列出部分产物，不会缩小这些委派的写入范围；产物仍由阶段 Checker 验收。例如，后续阶段可继续编辑作为输入的 API 文件，无须重复将其声明为输出。工作流禁止修改的输入仍受写入检查及结束时的内容校验保护。
+
+`scope=task` 拆分任务必须声明具体输出，且只能写入这些输出；`inputs` 中未同时列入 `outputs` 的文件只读，需要原地修改时将同一路径列入两者。同任务的原地更新不需要自依赖；其他任务生产的输入仍必须声明依赖。Sub 的 `CurrentTips.file_access` 返回文件工具实际采用的权限；拆分任务可创建其输出所需的父目录，但不能写入未分配的其他文件。隔离任务回传已有文件时保留其原有权限。
+
 队列不截断超额任务。A/B 通过产物验收后才能解锁依赖它们的 C。构造中、执行中、已提交但未退出、取消但未退出都占 Sub 名额。Super 不占该名额。重试、重新规划、换 plan/task ID 不能刷新同一逻辑任务的累计预算或绝对时限。
 
 **Check 由独占 Sub 发起；子阶段 Complete 也由 Sub 发起；授权根阶段的最终 Complete 由框架在所有 Sub 退出后执行。** 这些操作始终经过同一个 StageDriver、StageManager 和 Checker。纯分组节点不追加父 Checker。Skill、人工审核、BatchTask 和签名证据门槛保持有效。`SubmitTaskResult` 或进程零退出码都不代表验收通过。最后一个子阶段推进完但尚未提交的超时任务也不能让工作流成功结束。
@@ -152,7 +156,7 @@ backend:
 
 上例是接口示意；命令参数、MCP 配置格式、凭据替换语法和事件字段应按目标 CLI 填写。MCP 统一工具调用，不统一 CLI 的启动与恢复参数。提示词默认经 stdin 传入，同时提供 `prompt_file`。支持纯文本 CLI，无需实现 JSONL；这类客户端可通过 `session_dir` 内独立的历史存储及 `resume_args` 续接，不能在共享目录中无隔离地使用“最近会话”。缺少续接配置或需要的 session ID 时明确报错，不创建替代会话冒充恢复。
 
-内置 Codex 配置声明明确 session ID、只读原生沙箱、受限工具授权；OpenCode 配置声明明确 session ID、关闭外部插件、独立命名 Agent 的工具权限。两者都禁用继承的其他 MCP 端点，保留 CLI 自身的模型/登录配置。单 Agent 的原生工具策略单独配置，不被 multi 权限误伤。新增 CLI 还应配置原生工具权限：MCP 服务端只能限制经自身执行的工具，私有 cwd 本身不是系统沙箱。
+内置 Codex 配置声明明确 session ID、只读原生沙箱、受限工具授权。托管会话设置 `include_permissions_instructions=false`，避免将原生进程的只读沙箱提示误用于 MCP 文件操作；原生沙箱仍生效，MCP 文件权限由 UCAgent 的任务授权与工具校验执行。OpenCode 配置声明明确 session ID、关闭外部插件、独立命名 Agent 的工具权限。两者都禁用继承的其他 MCP 端点，保留 CLI 自身的模型/登录配置。单 Agent 的原生工具策略单独配置，不被 multi 权限误伤。新增 CLI 还应配置原生工具权限：MCP 服务端只能限制经自身执行的工具，私有 cwd 本身不是系统沙箱。
 
 提交后先等 MCP 响应收拢，再让通用 CLI 后端结束本轮；CLI 取消作用于其进程组。实际模型请求、子进程、在途工具未退出时继续显示 pending，不提前释放资源。Console 的退出宽限与强退见[运行控制](10_runtime_control.md)。
 

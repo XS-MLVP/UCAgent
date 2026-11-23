@@ -311,6 +311,7 @@ class VerifyAgent:
                 "No files specified to un-protect, restoring all read-only files to read-write"
             )
             fc.chmode_rw(self.cwd_read_only_files)
+            self.cwd_read_only_files.clear()
         else:
             fc.chmode_rw(off_files)
 

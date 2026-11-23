@@ -6,6 +6,7 @@ import hashlib
 from glob import has_magic
 import json
 import os
+import stat
 from pathlib import Path
 import threading
 import time
@@ -267,7 +268,8 @@ class MultiAgentService:
                             ancestors.add(dep)
                             todo.append(dep)
                 for producer in plan.tasks:
-                    if set(task.inputs) & set(producer.outputs) and producer.id not in ancestors:
+                    if (producer.id != task.id and set(task.inputs) & set(producer.outputs)
+                            and producer.id not in ancestors):
                         raise ValueError("An input producer must be an explicit task dependency")
             current = self.agent.stage_manager.get_current_stage()
             budget_root = current
@@ -452,7 +454,19 @@ class MultiAgentService:
                 raise RuntimeError("Worker exited without SubmitTaskResult")
             if record.result.get("status") == "blocked":
                 raise RuntimeError("Worker blocked: " + record.result["summary"])
+            # Stage owners may update workflow-writable inputs without enumerating outputs.
+            # Split input-only artifacts and workflow-protected inputs remain immutable.
             for name, digest in record.inputs.items():
+                if record.split:
+                    if name in record.spec.outputs:
+                        continue
+                else:
+                    try:
+                        self.path(name, writing=True)
+                    except PermissionError:
+                        pass
+                    else:
+                        continue
                 if hashlib.sha256(self.path(name).read_bytes()).hexdigest() != digest:
                     raise RuntimeError("Input artifact changed while the task was running")
             contents = {name: worker.artifact_path(name).read_bytes() for name in record.spec.outputs}
@@ -484,6 +498,8 @@ class MultiAgentService:
                         temporary = target.with_name(target.name + "." + uuid4().hex + ".tmp")
                         try:
                             temporary.write_bytes(content)
+                            if target.exists():
+                                temporary.chmod(stat.S_IMODE(target.stat().st_mode))
                             os.replace(temporary, target)
                         finally:
                             temporary.unlink(missing_ok=True)

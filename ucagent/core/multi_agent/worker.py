@@ -164,10 +164,20 @@ class WorkerSession:
         prefix = f"[{self.record.key}]\n" if text[leading:] else ""
         self.parent.message_echo(text[:leading] + prefix + text[leading:], end=end)
 
+    def file_access_policy(self):
+        """Describe task-local file authority independently of a backend native sandbox."""
+        spec = self.record.spec
+        readonly = list(self.cfg.get_value("un_write_dirs", []))
+        if self.record.split:
+            readonly.extend(name for name in spec.inputs if name not in spec.outputs)
+        return {"write_dirs": list(spec.outputs if self.record.split else self.cfg.write_dirs),
+                "un_write_dirs": list(dict.fromkeys(readonly))}
+
     def get_current_tips(self):
         """Expose the authorized step and cumulative budgets without changing ownership."""
         return {**self.service.driver.tips(self.record.lease),
                 "handoff_inputs": self.service.handoff.run["input_manifest"] if self.service.handoff else [],
+                "file_access": self.file_access_policy(),
                 "task": {"id": self.record.key, "role": self.record.spec.role,
                          "inputs": list(self.record.spec.inputs), "outputs": list(self.record.spec.outputs)},
                 "budget": self.record.budget_status(self.service.settings.limits)}
@@ -178,8 +188,8 @@ class WorkerSession:
         from ucagent.core.plugins import PluginContext, create_plugin_tools
         from ucagent.core.stage.vmanager import ArgsDoCheck
         r = self.record
-        writes = r.spec.outputs if r.split else self.cfg.write_dirs
-        readonly = self.cfg.get_value("un_write_dirs", [])
+        policy = self.file_access_policy()
+        writes, readonly = policy["write_dirs"], policy["un_write_dirs"]
         tools = []
         file_names = {"ReadTextFile", "PathList", "FindFiles", "SearchText", "GetFileInfo",
                       "EditTextFile", "ReplaceStringInFile", "DeleteTextLines", "DeleteFile",
@@ -194,6 +204,10 @@ class WorkerSession:
         for name in sorted(allowed & file_names & parent_names):
             cls = getattr(fileops, name)
             kwargs = {"write_dirs": writes, "un_write_dirs": readonly} if name in writable else {}
+            if name == "CreateDirectory" and r.split:
+                # Permit scaffolding for exact output files; invoke still fences each directory.
+                kwargs["write_dirs"] = sorted({str(parent) for output in writes
+                    for parent in Path(output).parents if str(parent) != "."})
             if name in {"EditTextFile", "ReplaceStringInFile", "DeleteTextLines"}:
                 kwargs["heading_companions"] = tuple(self.cfg.get_value("markdown.heading_companions", []))
             tool = cls(self.workspace, **kwargs)
@@ -311,6 +325,8 @@ class WorkerSession:
                         "DeleteFile", "CopyFile", "MoveFile", "CreateDirectory"}:
                     if key == "source_path" and tool.name == "CopyFile":
                         continue
+                    if r.split and arguments[key] in r.inputs and arguments[key] not in r.spec.outputs:
+                        raise PermissionError("Write target is a read-only input; declare it as an output to update it")
                     path = self.service.path(arguments[key], writing=True)
                     self.artifact_path(arguments[key])
                     if r.split and str(path.relative_to(self.service.workspace)) not in r.spec.outputs:
