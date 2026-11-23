@@ -14,8 +14,9 @@ if TYPE_CHECKING:
 class VerticalSplitter(Static):
     """Draggable vertical splitter to resize columns."""
 
-    def __init__(self, target: str, **kwargs) -> None:
+    def __init__(self, target: str, *, owner=None, **kwargs) -> None:
         super().__init__(**kwargs)
+        self._owner = owner
         self._target = target
         self._dragging = False
         self._start_pos = 0
@@ -31,7 +32,7 @@ class VerticalSplitter(Static):
         self._dragging = True
         self.capture_mouse()
         self._start_pos = event.screen_x
-        self._start_value = getattr(self.app, self._target)
+        self._start_value = getattr(self._owner if self._owner is not None else self.app, self._target)
         event.stop()
 
     def on_mouse_up(self, event: events.MouseUp) -> None:
@@ -48,7 +49,7 @@ class VerticalSplitter(Static):
         delta = current - self._start_pos
         new_value = self._start_value + delta
         new_value = _clamp_split_value(self._target, new_value)
-        setattr(self.app, self._target, new_value)
+        setattr(self._owner if self._owner is not None else self.app, self._target, new_value)
 
     def _refresh_line(self) -> None:
         height = max(1, self.size.height)
@@ -58,8 +59,9 @@ class VerticalSplitter(Static):
 class HorizontalSplitter(Static):
     """Draggable horizontal splitter to resize rows."""
 
-    def __init__(self, target: str, invert: bool = False, **kwargs) -> None:
+    def __init__(self, target: str, invert: bool = False, *, owner=None, **kwargs) -> None:
         super().__init__(**kwargs)
+        self._owner = owner
         self._target = target
         self._invert = invert
         self._dragging = False
@@ -76,7 +78,7 @@ class HorizontalSplitter(Static):
         self._dragging = True
         self.capture_mouse()
         self._start_pos = event.screen_y
-        self._start_value = getattr(self.app, self._target)
+        self._start_value = getattr(self._owner if self._owner is not None else self.app, self._target)
         event.stop()
 
     def on_mouse_up(self, event: events.MouseUp) -> None:
@@ -95,7 +97,7 @@ class HorizontalSplitter(Static):
             delta = -delta
         new_value = self._start_value + delta
         new_value = _clamp_split_value(self._target, new_value)
-        setattr(self.app, self._target, new_value)
+        setattr(self._owner if self._owner is not None else self.app, self._target, new_value)
 
     def _refresh_line(self) -> None:
         width = max(1, self.size.width)

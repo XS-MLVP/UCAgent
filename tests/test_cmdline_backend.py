@@ -16,7 +16,7 @@ import pytest
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.abspath(os.path.join(current_dir, "..")))
 
-from ucagent.core.backends.cmdline import UCAgentCmdLineBackend
+from ucagent.core.backends.cmdline import SessionCommandBackend, UCAgentCmdLineBackend
 
 
 class _FakeAgent:
@@ -34,6 +34,21 @@ class _FakeAgent:
 
     def set_break(self, value=True) -> None:
         self._break = value
+
+
+def test_command_backend_attributes_multi_agent_text():
+    """Command backends expose Global/Super/Sub ownership but leave single-Agent text unchanged."""
+    agent = _FakeAgent()
+    agent.message_sender = "Super:prepare-a"
+    backend = SessionCommandBackend(agent, config=object(), argv=["client"], output={"format": "text"})
+    backend.process_output("working on stage")
+    backend.process_output("[Super:prepare-a] already attributed")
+    assert agent.messages == ["[Super:prepare-a] working on stage",
+                              "[Super:prepare-a] already attributed"]
+
+    agent.message_sender = "Agent"
+    backend.process_output("single agent text")
+    assert agent.messages[-1] == "single agent text"
 
 
 def test_process_bash_cmd_interrupts_silent_process():

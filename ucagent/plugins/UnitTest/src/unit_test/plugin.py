@@ -147,6 +147,7 @@ def get_plugin() -> Plugin:
             PluginWorkflow(
                 name="unittest",
                 config_file=root / "workflows" / "unittest.yaml",
+                purpose="Generate and execute unit tests, then produce verified coverage and bug analysis.",
                 template_dir=root / "templates" / "unit_test",
                 skill_paths=(root / "skills",),
                 guide_doc_paths=(root / "Guide_Doc",),
@@ -154,6 +155,7 @@ def get_plugin() -> Plugin:
             PluginWorkflow(
                 name="incremental",
                 config_file=root / "workflows" / "incremental.yaml",
+                purpose="Incrementally add or refine verification against an existing test workspace.",
                 template_dir=root / "templates" / "unit_test",
                 skill_paths=(root / "skills",),
                 guide_doc_paths=(root / "Guide_Doc",),
@@ -161,6 +163,7 @@ def get_plugin() -> Plugin:
             PluginWorkflow(
                 name="vibe",
                 config_file=root / "workflows" / "vibe.yaml",
+                purpose="Perform a lightweight general-purpose coding or investigation task.",
                 skill_paths=(root / "skills",),
                 guide_doc_paths=(root / "Guide_Doc",),
             ),

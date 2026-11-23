@@ -148,6 +148,7 @@ def test_codex_managed_sandbox_banner_does_not_override_mcp_file_authority(manag
     else:
         assert 'sandbox_mode="workspace-write"' in argv
         assert "include_permissions_instructions=false" not in argv
+        assert 'mcp_servers.ucagent_test.tools.EditTextFile.approval_mode="approve"' in argv
 
 
 @pytest.mark.parametrize("declare_output", [False, True])

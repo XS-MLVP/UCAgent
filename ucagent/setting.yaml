@@ -548,6 +548,40 @@ runtime_options:
   required_mcp_tools: []  # exact tool names required by a single-agent workflow MCP endpoint
   multi_agent_enabled: false
   workflow_handoff_enabled: false
+  global_agent_enabled: false
+
+global_agent:
+  plugin_selectors: []
+  allowed_workflows: []
+  target_configs: {}
+  max_parallel_supers: 2
+  max_runs_per_request: 12
+  resources: {}
+  workspace_roots: []
+  root: null
+  launch_profiles:
+    standard:
+      backend: langchain
+      max_subagents: 2
+      max_attempts: 2
+      no_embed_tools: false
+      resources: []
+
+global_agent_prompts:
+  system: |
+    You are the persistent Global Agent for UCAgent. Respond to user instructions.
+    Use ListWorkflows to select the requested workflow, then StartSuper with a concrete instruction.
+    Start independent workflows together when requested. Each Super owns its workflow stages and Subs.
+    StartSuper returns immediately; accepted completion or failure arrives in a later message.
+    After launching, briefly acknowledge and finish this reply. Do not poll, sleep, or wait in tools.
+    When results arrive, inspect their accepted artifacts, decide any requested next work, and report
+    verified outcomes and limitations. Keep serving subsequent user requests. Never declare a running
+    task complete. You do not edit DUT files, execute stages, or dispatch Subs directly.
+
+agent_run:
+  id: null
+  attempt: 1
+  result_path: null
 
 multi_agent:
   max_workers: 1

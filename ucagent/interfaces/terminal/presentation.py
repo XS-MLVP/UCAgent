@@ -76,7 +76,9 @@ def format_result(result, *, use_skills=False):
         commands = data if isinstance(data, list) else [data]
         return "\n".join(f"{row['usage']}\n  {row['summary']}" + (
             f" (aliases: {', '.join(row['aliases'])})" if row['aliases'] else "") for row in commands)
-    if isinstance(data, dict) and "id" in data and "state" in data:
+    if result.command == "message":
+        return f"[{data['id']}] Message: {data['state']}"
+    if isinstance(data, dict) and {"id", "state", "command"} <= data.keys():
         return f"[{data['id']}] {data['command']}: {data['state']}"
     if result.command in {"pwd", "cd", "chcwd"} and isinstance(data, dict):
         return "\n".join(f"{key}: {value}" for key, value in data.items())

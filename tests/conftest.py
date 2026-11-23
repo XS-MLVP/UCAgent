@@ -25,8 +25,11 @@ from unittest.mock import patch
 @pytest.fixture
 def cli_runtime():
     """Isolate argument-plumbing tests; real CLI lifecycle lives in test_runtime_cli."""
-    with patch("ucagent.runtime.host.RuntimeHost") as factory, patch("ucagent.interfaces.terminal.console.Console") as console:
+    with patch("ucagent.runtime.host.RuntimeHost") as factory, patch("ucagent.interfaces.terminal.console.Console") as console, \
+         patch("ucagent.application.launch.configure_agent_sessions"):
+
         host = factory.return_value
+        host.agent_sessions = None
         host.snapshot.return_value = {"instance": "closed"}
         host.wait.return_value = {"exit_code": 0}
         host.services.start_mcp.return_value = {"ok": True}

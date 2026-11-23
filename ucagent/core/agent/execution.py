@@ -191,8 +191,10 @@ class VerifyAgent:
         if self._tool__call_error:
             return {"messages": copy.deepcopy(self._tool__call_error)}
         tips = self._continue_msg
+        display_text = None
         if self._continue_msg is None:
-            tips = yam_str(self.stage_manager.get_current_tips())
+            service = getattr(self, "global_service", None)
+            tips = service.planning_context() if service is not None else yam_str(self.stage_manager.get_current_tips())
         else:
             self._continue_msg = None
         self._tip_index += 1
@@ -201,7 +203,8 @@ class VerifyAgent:
         if self._system_message:
             msg.append(self.backend.get_system_message(copy.copy(self._system_message)))
             self._system_message = None
-        msg.append(self.backend.get_human_message(tips))
+        msg.append(self.backend.get_human_message(tips, display_text=display_text)
+                   if display_text is not None else self.backend.get_human_message(tips))
         return {"messages": msg}
 
     def set_system_message(self, msg: str):

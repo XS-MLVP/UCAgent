@@ -36,6 +36,9 @@ def _extract_web_console_capture_path(argv: Optional[List[str]] = None) -> str:
 
 def run() -> None:
     """Main entry point for UCAgent CLI."""
+    if sys.argv[1:2] == ["attach"]:
+        from ucagent.interfaces.cli.attach import attach
+        return attach(sys.argv[2:])
     args = get_args()
 
     if run_management_commands(args):

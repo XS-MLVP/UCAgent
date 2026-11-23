@@ -34,6 +34,15 @@ class Console:
 
     def execute_line(self, line, *, confirmed=False):
         """Handle local display actions, forwarding task and instance commands to the session."""
+        line = line.strip()
+        sessions = getattr(self.host, "agent_sessions", None)
+        if sessions is not None:
+            if not line:
+                return None
+            if line.startswith("/"):
+                line = line[1:]
+            elif line.split(maxsplit=1)[0] not in {"q", "quit", "exit", "shutdown", "tui", "clear", "help"}:
+                return CommandResult("message", sessions.submit_input(line))
         name, *tail = line.strip().split(maxsplit=1) or [""]
         if name in {"tui", "clear"}:
             self.frontend.registry.resolve(name).parse(tail[0] if tail else "")

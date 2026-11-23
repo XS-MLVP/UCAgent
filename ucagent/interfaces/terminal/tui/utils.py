@@ -74,3 +74,23 @@ def create_ui_logger(ui: "VerifyApp", level: int | str = logging.INFO) -> UIMsgL
         UIMsgLogger instance.
     """
     return UIMsgLogger(ui, level)
+
+
+def agent_display_name(agent: Any) -> str:
+    """Return a stable, user-facing identity for the current Agent or worker."""
+    explicit = getattr(agent, "message_sender", None)
+    if isinstance(explicit, str) and explicit.strip():
+        return explicit.strip()
+    cfg = getattr(agent, "cfg", None)
+    mission_id = cfg.get_value("agent_run.id", None) if cfg is not None else None
+    if getattr(agent, "global_agent_settings", None) is not None:
+        return "Global"
+    if getattr(agent, "multi_agent_settings", None) is not None:
+        return f"Super:{mission_id or 'DUT'}"
+    return "Agent"
+
+
+def format_check_result(check_info: Any, sender: str) -> str:
+    """Render the latest Check result as compact, attributable context."""
+    from ucagent.core.stage.display import format_check_result as render
+    return render(check_info, sender=sender)

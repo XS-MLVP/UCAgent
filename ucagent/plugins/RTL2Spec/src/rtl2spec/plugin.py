@@ -79,6 +79,7 @@ def get_plugin() -> Plugin:
             PluginWorkflow(
                 name="xiangshan-design-document",
                 config_file=root / "workflows" / "xiangshan-design-document.yaml",
+                purpose="Generate an evidence-backed XiangShan design and functional-checkpoint document.",
                 guide_doc_paths=(root / "Guide_Doc",),
                 template_context_factory=prepare_generation,
                 command_requirements=(
@@ -101,6 +102,7 @@ def get_plugin() -> Plugin:
             PluginWorkflow(
                 name="generic-design-document",
                 config_file=root / "workflows" / "generic-design-document.yaml",
+                purpose="Generate a design and functional-checkpoint document for a configured RTL project.",
                 guide_doc_paths=(root / "Guide_Doc",),
                 template_context_factory=prepare_generic_generation,
             ),

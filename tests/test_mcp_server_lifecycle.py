@@ -397,7 +397,7 @@ def test_get_stream_preserves_external_failures(failure):
 
 @pytest.mark.parametrize('kind', ['cmd', 'master'])
 def test_embedded_api_start_preserves_shared_uvicorn_logging(tmp_path, kind, short_socket_dir):
-    """Starting either API listener leaves existing MCP loggers and handlers intact."""
+    """Listeners preserve the runtime logging bridge and release it with their owner."""
     from ucagent.interfaces.server.api_cmd import ControlApiServer
     from ucagent.interfaces.server.api_master import MasterApiServer
 
@@ -410,6 +410,9 @@ def test_embedded_api_start_preserves_shared_uvicorn_logging(tmp_path, kind, sho
         server = ControlApiServer(Controller(pdb.agent), port=_available_port(), sock=str(short_socket_dir / 'cmd.sock'))
     else:
         server = MasterApiServer(workspace=str(tmp_path), cfg=cfg, port=_available_port(), sock=str(short_socket_dir / 'master.sock'))
+    # Constructing a standalone control API owns an OutputBuffer bridge.
+    # Starting listeners must not reconfigure that already installed bridge.
+    owned = [(logger.level, tuple(logger.handlers), logger.propagate, logger.disabled) for logger in loggers]
     threads = []
     try:
         ok, message = server.start()
@@ -420,12 +423,13 @@ def test_embedded_api_start_preserves_shared_uvicorn_logging(tmp_path, kind, sho
             time.sleep(0.01)
         assert server._tcp_server.started and server._sock_server.started
         after = [(logger.level, tuple(logger.handlers), logger.propagate, logger.disabled) for logger in loggers]
-        assert after == before
+        assert after == owned
     finally:
         server.stop()
         for thread in threads:
             thread.join(timeout=2)
             assert not thread.is_alive()
+    assert [(logger.level, tuple(logger.handlers), logger.propagate, logger.disabled) for logger in loggers] == before
 
 
 @pytest.fixture
@@ -450,7 +454,9 @@ def test_mcp_logging_bridge_is_thread_scoped_and_removed_on_stop(caplog):
             ok, message = server.start(timeout=3)
             assert ok, message
             assert logging.getLogger is get_logger
-            assert all(len(logger.handlers) == len(handlers) + 1 for logger, handlers in zip(loggers, before))
+            # Custom UI sinks receive service diagnostics only; access logs stay system output.
+            assert len(loggers[0].handlers) == len(before[0]) + 1
+            assert tuple(loggers[1].handlers) == before[1]
             loggers[0].warning('different-server-thread')
             assert not any('different-server-thread' in str(record) for record in received)
             assert server.stop(timeout=2)[0] is True

@@ -317,7 +317,7 @@ class RuntimeHost:
                             self.execution_state = "handoff"
                         elif service.workflow_state == "waiting_plan":
                             self.execution_state = "idle"
-            if (not self.workflow_chain_owned and self.mode == "once" and self._seen_operations and not self.startup.active
+            if (not getattr(self, "agent_sessions", None) and not self.workflow_chain_owned and self.mode == "once" and self._seen_operations and not self.startup.active
                     and self.execution_state in {"idle", "failed"}
                     and not (getattr(self.agent, "multi_agent", None) and self.agent.multi_agent.has_active())
                     and not any(row["model"] and row["state"] not in TERMINAL_STATES for row in records)):
@@ -337,6 +337,9 @@ class RuntimeHost:
         # Initiate cancellation across all owners before waiting on any one of them.
         if "cancel" not in self._steps:
             self._steps.add("cancel")
+            sessions = getattr(self, "agent_sessions", None)
+            if sessions is not None:
+                sessions.close()
             if self.close_reason != "mission_completed":
                 self.agent.set_break(True)
             service = getattr(self.agent, "multi_agent", None)

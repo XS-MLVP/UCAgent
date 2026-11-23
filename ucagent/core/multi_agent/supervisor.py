@@ -99,15 +99,15 @@ class StageDriver:
                     "stage_index": self.manager.stage_index,
                     "tips": self.manager.get_current_tips()}
 
-    def check(self, lease, timeout, stage_args):
+    def check(self, lease, timeout, stage_args, actor=None):
         """Run Check under the single mutation owner, including batch transitions."""
         with self.ownership():
             self.validate(lease)
             if lease.steps and self.manager.get_current_stage() not in lease.steps:
                 raise PermissionError("Subtree work is finished; submit the task result")
-            return self.manager.check(timeout, stage_args=stage_args)
+            return self.manager.check(timeout, stage_args=stage_args, actor=actor)
 
-    def complete_substage(self, lease, step_token, timeout, stage_args):
+    def complete_substage(self, lease, step_token, timeout, stage_args, actor=None):
         """Advance one authorized descendant and rotate the per-step token."""
         with self.ownership():
             self.validate(lease)
@@ -117,7 +117,7 @@ class StageDriver:
                         **self.tips(lease)}
             if self.manager.get_current_stage() not in lease.steps:
                 raise PermissionError("Only delegated descendants can be completed")
-            result = self.manager.complete(timeout, stage_args=stage_args)
+            result = self.manager.complete(timeout, stage_args=stage_args, actor=actor)
             lease.expected_index = self.manager.stage_index
             lease.token = uuid4().hex
             return {"validation": result, **self.tips(lease)}

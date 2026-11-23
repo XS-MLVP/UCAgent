@@ -104,6 +104,18 @@ def prepare_task(agent, options):
     agent.multi_agent_settings = load_settings(agent.cfg, agent.workspace)
     from ucagent.core.workflow.contracts import load_handoff_settings
     agent.workflow_handoff_settings = load_handoff_settings(agent.cfg)
+    from ucagent.core.global_agent.session_contracts import load_global_settings
+    agent.global_agent_settings = load_global_settings(agent.cfg)
+    agent_run_id = agent.cfg.get_value("agent_run.id", None)
+    if agent.global_agent_settings is not None:
+        agent.message_sender = "Global"
+    elif agent.multi_agent_settings is not None:
+        super_name = str(agent_run_id or options.dut_name or "DUT")
+        if agent_run_id:
+            super_name += f"/attempt-{agent.cfg.get_value('agent_run.attempt', 1)}"
+        agent.message_sender = f"Super:{super_name}"
+    else:
+        agent.message_sender = "Agent"
     agent.plugins = list(prepared.plugins)
     agent.workflow_config_file = prepared.workflow_config_file or ''
     agent.plugin_workflow = prepared.plugin_workflow or ''
@@ -174,6 +186,11 @@ def assemble_stage_tools(agent, options, history):
     agent._business_system_prompt = agent._default_system_prompt
     if agent.multi_agent_settings is not None:
         agent._default_system_prompt = agent.cfg.get_value("multi_agent_prompts.supervisor", "")
+    if getattr(agent, "global_agent_settings", None) is not None:
+        agent._default_system_prompt = agent.cfg.get_value(
+            "global_agent_prompts.system",
+            "You are a persistent Global Agent. Start trusted workflows on demand and report verified results.",
+        )
     agent.tool_list_base = [agent.tool_read_text, RoleInfo(agent._default_system_prompt)]
     if not options.no_embed_tools:
         from ucagent.core.backends import get_backend_class
@@ -334,7 +351,12 @@ def assemble_backend(agent, options):
         agent._startup_cleanup.callback(close_agent_resource, agent, "Langfuse shutdown", release_trace)
         agent.langfuse_handler = CallbackHandler(public_key=public_key)
 
-    if agent.multi_agent_settings is not None:
+    if getattr(agent, "global_agent_settings", None) is not None:
+        from ucagent.core.global_agent.service import GlobalAgentService
+        from ucagent.core.tools.global_agent import global_tools
+        agent.global_service = GlobalAgentService(agent, agent.global_agent_settings)
+        agent.test_tools = global_tools(agent)
+    elif agent.multi_agent_settings is not None:
         from ucagent.core.multi_agent.service import MultiAgentService
         from ucagent.core.tools.delegation import supervisor_tools
         agent.multi_agent_business_tools = list(agent.test_tools)

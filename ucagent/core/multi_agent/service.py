@@ -12,7 +12,7 @@ import threading
 import time
 from uuid import uuid4
 
-from ucagent.util.log import log_msg
+from ucagent.util.log import log_msg, warning
 from ucagent.util.file_policy import normalize_relative_path, is_file_writeable
 from .contracts import TaskPlan
 from .supervisor import StageDriver
@@ -60,6 +60,7 @@ class TaskRecord:
     activity: str | None = None
     session_id: str | None = None
     model_rounds_available: bool = False
+    display_state: dict = field(default_factory=dict)
 
     def budget_status(self, limits):
         """Report consumed logical budgets across attempts without exposing connection data."""
@@ -131,8 +132,30 @@ class MultiAgentService:
         self._workflow_stop = threading.Event()
         self._feedback = None
         self._instruction = None
+        self.operator_instructions = []
         self._supervisor_question = None
         self.handoff = None
+
+    def queue_instruction(self, message):
+        """Queue operator guidance for the next safe Super planning boundary."""
+        from uuid import uuid4
+        if not message.strip():
+            raise ValueError("Instruction cannot be empty")
+        with self._cv:
+            item = {"id": uuid4().hex, "message": message, "state": "queued"}
+            self.operator_instructions.append(item)
+            self._cv.notify_all()
+            return dict(item)
+
+    def _consume_operator_instructions(self):
+        """Incorporate guidance between plans without changing an active worker task."""
+        with self._cv:
+            for item in self.operator_instructions:
+                if item["state"] != "queued":
+                    continue
+                self._instruction = (self._instruction or "") + "\nOperator guidance: " + item["message"]
+                item["state"] = "delivered"
+                self.emit("instruction_delivered", instruction_id=item["id"])
 
     def emit(self, kind, **data):
         """Retain bounded structured events and wake attached runtime views."""
@@ -310,6 +333,7 @@ class MultiAgentService:
                             "tasks": list(value["tasks"])} for key, value in self.plans.items()
                      if plan_id is None or key == plan_id}
             tasks = [{"task_id": r.key, "state": r.state, "attempt": r.attempt,
+                      "instruction": r.spec.instruction,
                       "summary": (r.result or {}).get("summary"), "artifacts": dict(r.artifacts),
                       "error": r.error, "role": r.spec.role or self.settings.default_role,
                       "budget": r.budget_status(self.settings.limits),
@@ -323,6 +347,21 @@ class MultiAgentService:
                                 "worker_starts": sum(r.attempt for r in self.records.values()),
                                 "planning_turns": sum(self._planning_turns.values())},
                     "events": list(self._events[-30:])}
+
+    def worker_snapshots(self):
+        """Expose detached worker views separately from the planner's task summaries."""
+        import copy
+        from .view import scope_mission
+        with self._cv:
+            records = [(r, r.worker, r.display_state) for r in self.records.values()]
+        views = {}
+        for record, worker, saved in records:
+            views[record.key] = (worker.display.snapshot() if worker is not None else copy.deepcopy(saved))
+            if not views[record.key]:
+                views[record.key] = {"mission": scope_mission(self.agent.stage_manager,
+                    (record.lease.root, *record.lease.steps)), "tools": [], "changed_files": [],
+                    "statistics": {}, "backend": record.role.backend}
+        return views
 
     def wait(self, plan_id, timeout=30):
         """Provide bounded event waiting for MCP clients, never an unbounded tool call."""
@@ -412,6 +451,7 @@ class MultiAgentService:
                     self._running += 1
                     r.state, r.attempt = "running", r.attempt + 1
                     r.result, r.error = None, None
+                    r.display_state = {}
                     r.started = time.monotonic()
                     # Absolute time is per logical task, not reset by a repair attempt.
                     if r.deadline is None:
@@ -430,6 +470,12 @@ class MultiAgentService:
                 self._accept_scope(validation)
 
     def _execute(self, record):
+        """Attribute the worker's whole lifetime, including construction and teardown logs."""
+        from .view import worker_output
+        with worker_output(self.agent, record):
+            self._execute_worker(record)
+
+    def _execute_worker(self, record):
         """Retain capacity through construction, tool draining, and runner teardown."""
         from .worker import WorkerSession
         worker = timer = None
@@ -515,6 +561,11 @@ class MultiAgentService:
                     worker.close()
                 except Exception as exc:
                     state, error, error_type = "failed", f"Worker cleanup failed: {exc}", type(exc).__name__
+            if worker is not None:
+                try:
+                    record.display_state = worker.display.snapshot(final=True)
+                except Exception as display_error:
+                    warning(f"Worker display snapshot failed: {display_error}")
             with self._cv:
                 record.state, record.error = state, error
                 if record.cancel.is_set():
@@ -555,7 +606,13 @@ class MultiAgentService:
                     self.handoff.record_artifacts()
         except Exception as exc:
             result = {"complete": False, "error": str(exc)}
+        from .view import scope_mission
         with self._cv:
+            for record in records:
+                mission = record.display_state.get("mission", {})
+                indices = {row["index"] for row in mission.get("stages", [])}
+                record.display_state = {**record.display_state, "mission": scope_mission(
+                    self.agent.stage_manager, [stage for i, stage in enumerate(self.agent.stage_manager.stages) if i in indices])}
             retry = (not result.get("complete") and not self._closed
                      and not getattr(self.agent, "_need_human", False)
                      and all(r.state == "verified" and r.attempt < self.settings.limits.task_max_attempts
@@ -857,6 +914,11 @@ class MultiAgentService:
         try:
             return self._drive_workflow()
         except Exception as exc:
+            try:
+                from ucagent.core.global_agent.result import write_workflow_run_result
+                write_workflow_run_result(self.agent, "failed", error=str(exc))
+            except Exception:
+                pass
             self.workflow_state = "paused" if self.agent.is_break() or self._closed or (self.handoff and self.handoff.run["business_status"] == "completed") else "failed"
             if self.handoff:
                 self.handoff.chain.state["status"] = "paused"
@@ -871,6 +933,7 @@ class MultiAgentService:
         """Wake Super at stage/result boundaries and block on worker completion between turns."""
         self.workflow_state = "running"
         while not self._closed and not self.agent.is_break() and not self._workflow_stop.is_set():
+            self._consume_operator_instructions()
             if self.agent.stage_manager.get_current_stage() is None:
                 # Completing the last child can exhaust the stage list before its
                 # worker submits. A failed scope must never become overall success.
@@ -900,6 +963,12 @@ class MultiAgentService:
                     break
                 with self.driver.ownership():
                     result = self.agent.stage_manager.exit()
+                from ucagent.core.global_agent.result import write_workflow_run_result
+                write_workflow_run_result(
+                    self.agent,
+                    "succeeded" if result.get("exit") else "failed",
+                    error=None if result.get("exit") else result.get("message"),
+                )
                 self.workflow_state = "completed" if result.get("exit") else "failed"
                 return result
             if getattr(self.agent, "_need_human", False):

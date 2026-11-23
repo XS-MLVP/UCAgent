@@ -58,7 +58,8 @@ def build_launch_plan(request: LaunchRequest, cfg) -> LaunchPlan:
     start_mcp = "mcp" in request.services
     mode = ("master" if request.master else "console" if request.interface != "none"
             else "service" if request.services else "once")
-    default_model = mode == "once" and not request.emulate_config
+    default_model = (mode == "once" and not request.emulate_config
+                     and not cfg.get_value("runtime_options.global_agent_enabled", False))
     model_commands = {name for spec in DEFERRED_COMMANDS if spec.model
                       for name in (spec.name, *spec.aliases)}
     commands = [*request.commands, *cfg.get_value("init_cmds", [])]

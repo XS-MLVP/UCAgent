@@ -34,7 +34,14 @@ def coordinated_stage_mutation(kind, *, manager=False):
                 access(kind)
             guard = getattr(owner, "control_guard", None)
             with output_context(source="stage"), (guard(kind, stage=None if manager else self) if guard is not None else nullcontext()):
-                return method(self, *args, **kwargs)
+                result = method(self, *args, **kwargs)
+                agent = getattr(owner, "agent", None)
+                if (manager and method.__name__ in {"check", "complete"}
+                        and getattr(agent, "suppress_tool_result_messages", False)):
+                    from ucagent.core.stage.display import format_check_result
+                    sender = kwargs.get("actor") or getattr(agent, "message_sender", "Agent")
+                    agent.message_echo(format_check_result(result, sender, tool=method.__name__.title()))
+                return result
         return guarded
     return decorate
 

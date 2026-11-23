@@ -2,12 +2,14 @@
 
 import argparse
 import os
+import shlex
 import sys
+from pathlib import Path
 from typing import Any, List, Optional
 import yaml
 
 from ucagent.interfaces.cli.arguments import OverrideDict, OverrideValues, get_list_from_str, parse_reference_files
-from ucagent.util.functions import append_python_path, find_available_port
+from ucagent.util.functions import append_python_path
 
 
 def _append_override(overrides: Optional[OverrideValues], key: str, value: Any) -> List[OverrideDict]:
@@ -24,6 +26,7 @@ def _append_override(overrides: Optional[OverrideValues], key: str, value: Any) 
 
 def parse_launch_options(args) -> dict:
     """Map parsed flags to shared launch data without preparing files or constructing an Agent."""
+    agent_mode = getattr(args, "agent_mode", None)
     temporary_prefix = None
     create_workspace = False
     create_dut = False
@@ -47,8 +50,12 @@ def parse_launch_options(args) -> dict:
         args.workspace = None
         args.dut = "DUT_TEST"
         create_dut = True
+    if args.dut is None and agent_mode == "global":
+        args.dut = "mission"
     if args.dut is None or (args.workspace is None and temporary_prefix is None):
         argparse.ArgumentParser(prog="ucagent").error("the following arguments are required: workspace, dut")
+    if agent_mode == "global" and not args.human and not args.exit_on_completion and not args.emulate_config:
+        args.tui = True
     # Prepare initial commands
     init_cmds = []
     if getattr(args, 'web_terminal', None) is not None:
@@ -59,7 +66,7 @@ def parse_launch_options(args) -> dict:
             addr_part, passwd_part = addr_part.split(" ", 1)
             passwd_part = passwd_part.strip()
         if passwd_part:
-            extra_web_term_opts += f" --passwd {passwd_part}"
+            extra_web_term_opts += f" --passwd {shlex.quote(passwd_part)}"
         if addr_part == "":
             init_cmds += [f"terminal_api_start{extra_web_term_opts}".strip()]
         elif ":" in addr_part:
@@ -68,11 +75,26 @@ def parse_launch_options(args) -> dict:
         else:
             init_cmds += [f"terminal_api_start {addr_part}{extra_web_term_opts}"]
 
-    agent_mode = getattr(args, "agent_mode", None)
     max_subagents = getattr(args, "max_subagents", None)
     if agent_mode is not None:
-        args.override = _append_override(args.override, "runtime_options.multi_agent_enabled", agent_mode == "multi")
+        if agent_mode == "global":
+            if args.as_master is not None:
+                raise ValueError("Global mission mode cannot run as a Master process")
+            if getattr(args, "plugin_workflow", None):
+                raise ValueError(
+                    "Global mission mode starts workflows through StartSuper; "
+                    "--plugin-workflow is only valid for a Super run"
+                )
+            global_workflow = Path(__file__).resolve().parents[2] / "core" / "global_agent" / "workflow.yaml"
+            args.override = _append_override(args.override, "runtime_options.global_agent_enabled", True)
+            args.override = _append_override(args.override, "runtime_options.multi_agent_enabled", False)
+            args.override = _append_override(args.override, "runtime_options.workflow_handoff_enabled", False)
+            args.override = _append_override(args.override, "workflow", str(global_workflow))
+        else:
+            args.override = _append_override(args.override, "runtime_options.multi_agent_enabled", agent_mode == "multi")
     if max_subagents is not None:
+        if agent_mode == "global":
+            raise ValueError("--max-subagents selects Super workers; configure global_agent.launch_profiles instead")
         if max_subagents <= 0 or agent_mode == "single":
             raise ValueError("--max-subagents requires multi mode and a positive integer")
         args.override = _append_override(args.override, "multi_agent.max_workers", max_subagents)
@@ -80,11 +102,11 @@ def parse_launch_options(args) -> dict:
         args.override = _append_override(args.override, "multi_agent_cli_limit", True)
     if args.as_master is not None and agent_mode == "multi":
         raise ValueError("Multi-agent execution is not supported in Master mode")
-
     # Handle MCP server commands
     args.override = args.override or []
     if args.mcp_server_port == -1:
-        args.mcp_server_port = find_available_port()
+        # Let the listener reserve its port atomically; probing first races parallel launches.
+        args.mcp_server_port = 0
     if args.mcp_server_port is not None:
         args.override = _append_override(args.override, "mcp_server.port", args.mcp_server_port)
     if args.mcp_server_host is not None:
@@ -136,9 +158,9 @@ def parse_launch_options(args) -> dict:
     if args.as_master is not None:
         extra_master_opts = ""
         if getattr(args, 'as_master_key', None):
-            extra_master_opts += f" --key {args.as_master_key}"
+            extra_master_opts += f" --key {shlex.quote(str(args.as_master_key))}"
         if getattr(args, 'as_master_password', None):
-            extra_master_opts += f" --password {args.as_master_password}"
+            extra_master_opts += f" --password {shlex.quote(str(args.as_master_password))}"
         if args.as_master == "":
             init_cmds += [f"master_api_start{extra_master_opts}".strip()]
         else:
@@ -159,7 +181,7 @@ def parse_launch_options(args) -> dict:
             addr_part, passwd_part = addr_part.split(" ", 1)
             passwd_part = passwd_part.strip()
         if passwd_part:
-            extra_cmd_api_opts += f" --passwd {passwd_part}"
+            extra_cmd_api_opts += f" --passwd {shlex.quote(passwd_part)}"
         if addr_part == "":
             init_cmds += [f"cmd_api_start{extra_cmd_api_opts}".strip()]
         elif ":" in addr_part:
@@ -173,9 +195,9 @@ def parse_launch_options(args) -> dict:
     for master_tokens in args.master:
         master_addr = master_tokens[0]
         access_key = master_tokens[1] if len(master_tokens) > 1 else ""
-        extra_client_opts = f" --key {access_key}" if access_key else ""
+        extra_client_opts = f" --key {shlex.quote(str(access_key))}" if access_key else ""
         if args.client_id:
-            extra_client_opts += f" --id {args.client_id}"
+            extra_client_opts += f" --id {shlex.quote(str(args.client_id))}"
         if ":" in master_addr:
             m_host, m_port = master_addr.rsplit(":", 1)
             master_cmd = f"connect_master_to {m_host} {m_port}{extra_client_opts}"
@@ -188,8 +210,11 @@ def parse_launch_options(args) -> dict:
     if args.icmd:
         init_cmds += args.icmd
 
-    if args.loop:
-        init_cmds += ["loop " + args.loop_msg]
+    if agent_mode == "global" and args.loop_msg:
+        init_cmds += ["chat " + shlex.quote(args.loop_msg)]
+    elif args.loop and agent_mode != "global":
+        suffix = f" {shlex.quote(args.loop_msg)}" if args.loop_msg else ""
+        init_cmds += ["loop" + suffix]
 
     if args.append_py_path:
         append_python_path(args.append_py_path)

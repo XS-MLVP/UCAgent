@@ -142,6 +142,7 @@ def get_plugin() -> Plugin:
             PluginWorkflow(
                 name="unit-design-tdd",
                 config_file=root / "workflows" / "unit-design-tdd.yaml",
+                purpose="Design a unit RTL module through TDD, coverage closure and PPA optimization.",
                 guide_doc_paths=(root / "Guide_Doc",),
                 template_dir=root / "templates" / "unit_design",
                 template_target="{OUT}",
@@ -182,6 +183,7 @@ def get_plugin() -> Plugin:
             PluginWorkflow(
                 name="repo-module-tdd",
                 config_file=root / "workflows" / "repo-module-tdd.yaml",
+                purpose="Run repository or module TDD with snapshots, interface evolution and PPA optimization.",
                 guide_doc_paths=(root / "Guide_Doc",),
                 template_dir=root / "templates" / "repo_module",
                 template_target="{OUT}",

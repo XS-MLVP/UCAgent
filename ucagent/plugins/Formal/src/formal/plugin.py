@@ -45,6 +45,7 @@ def get_plugin() -> Plugin:
             PluginWorkflow(
                 name="formal",
                 config_file=root / "workflows" / "formal.yaml",
+                purpose="Generate formal properties, scripts, coverage evidence and bug reports for RTL.",
                 template_dir=root / "templates" / "formal_test",
                 skill_paths=(root / "skills",),
                 guide_doc_paths=(root / "Guide_Doc",),

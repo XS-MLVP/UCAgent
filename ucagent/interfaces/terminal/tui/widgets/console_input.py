@@ -34,7 +34,7 @@ class BusyIndicator(Widget):
 
     def on_mouse_down(self, event: MouseDown) -> None:
         """Forward focus to the console input when clicked."""
-        self.app.query_one("#console-input", Input).focus()
+        self.screen.query_one("#console-input", Input).focus()
         event.stop()
 
 
@@ -70,8 +70,9 @@ class ConsoleInput(Vertical):
 
     is_busy: reactive[bool] = reactive(False)
 
-    def __init__(self, prompt: str = "(UnityChip) ", **kwargs) -> None:
+    def __init__(self, prompt: str = "(UnityChip) ", *, owner=None, **kwargs) -> None:
         super().__init__(**kwargs)
+        self._owner = owner
         self.prompt = prompt
         self._page_mode: bool = False
         self._suggestions_visible: bool = False
@@ -81,6 +82,11 @@ class ConsoleInput(Vertical):
         self._running_cmds_height: int = 0
         self._suggestions_height: int = 0
         self._has_running_commands: bool = False
+
+    @property
+    def owner(self):
+        """Resolve history, completion and output against this input's page."""
+        return self._owner if self._owner is not None else self.app
 
     def compose(self) -> ComposeResult:
         """Compose the input and suggestion widgets."""
@@ -176,7 +182,7 @@ class ConsoleInput(Vertical):
 
         is_cycling = self._completion.state.has_items and self._suggestions_visible
         new_text, suggestions, selected_index = self._completion.handle_tab(
-            current_text, self.app.key_handler, is_cycling
+            current_text, self.owner.key_handler, is_cycling
         )
 
         if new_text is not None:
@@ -189,19 +195,19 @@ class ConsoleInput(Vertical):
 
     def _handle_history_up(self) -> None:
         """Handle up arrow for command history."""
-        console = self.app.query_one("#console")
+        console = self.owner.query_one("#console")
         if console.page_scroll(1):
             return
-        cmd = self.app.key_handler.get_history_item(-1)
+        cmd = self.owner.key_handler.get_history_item(-1)
         if cmd is not None:
             self.set_text(cmd)
 
     def _handle_history_down(self) -> None:
         """Handle down arrow for command history."""
-        console = self.app.query_one("#console")
+        console = self.owner.query_one("#console")
         if console.page_scroll(-1):
             return
-        cmd = self.app.key_handler.get_history_item(1)
+        cmd = self.owner.key_handler.get_history_item(1)
         if cmd is not None:
             self.set_text(cmd)
 
@@ -234,7 +240,7 @@ class ConsoleInput(Vertical):
     def update_running_commands(self, commands: list[str] | None = None) -> None:
         """Update the running commands display."""
         if commands is None:
-            commands = self.app.frontend.get_running_commands()
+            commands = self.owner.frontend.get_running_commands()
 
         if not commands:
             self._hide_running_commands()

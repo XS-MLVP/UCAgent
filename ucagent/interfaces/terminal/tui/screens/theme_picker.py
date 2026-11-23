@@ -14,6 +14,32 @@ from textual.widgets import OptionList, Static
 class ThemePickerScreen(ModalScreen[str | None]):
     """Modal screen for selecting a theme."""
 
+    CSS = """
+    ThemePickerScreen {
+        align: center middle;
+        background: transparent;
+    }
+
+    #theme-picker {
+        width: 34;
+        max-width: 40;
+        height: auto;
+        border: solid $primary;
+        background: $panel;
+        padding: 1 1;
+    }
+
+    #theme-picker-title {
+        text-style: bold;
+        margin: 0 0 1 0;
+    }
+
+    #theme-picker OptionList {
+        max-height: 10;
+        width: 1fr;
+    }
+    """
+
     BINDINGS: ClassVar[list[Binding]] = [
         Binding("escape", "cancel", "Cancel", show=False),
         Binding("enter", "accept", "Accept theme", show=False),

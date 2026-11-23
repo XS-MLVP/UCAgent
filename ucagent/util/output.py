@@ -53,3 +53,7 @@ def publish_output(text, **metadata):
     sink = OUTPUT_SINK.get()
     if sink is not None:
         sink(text, **{**OUTPUT_METADATA.get(), **metadata})
+
+
+# Structured actor identity is independent from display source/stream metadata.
+AGENT_ACTOR = ContextVar("agent_actor", default=None)

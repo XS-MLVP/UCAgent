@@ -28,10 +28,11 @@ def text_message(message):
     return message.model_copy(update={"content": content_text(message.content)})
 
 
-def format_message(message, *, body=None):
+def format_message(message, *, body=None, sender=None):
     """Render one complete message, with tool invocations shown once outside its body."""
     title = "AI" if isinstance(message, AIMessage) else message.type.title()
-    parts = [f" {title} Message ".center(80, "=")]
+    attribution = f" · {sender}" if sender else ""
+    parts = [f" {title} Message{attribution} ".center(80, "=")]
     if isinstance(message, ToolMessage) and message.name:
         parts.append(f"Name: {message.name}")
     text = body if body is not None else message.response_metadata.get("ucagent_display_text")

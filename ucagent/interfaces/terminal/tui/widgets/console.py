@@ -39,13 +39,19 @@ class ConsoleWidget(AutoScrollMixin, Vertical):
         Binding("shift+right", "clear_console", "Clear console", show=False),
     ]
 
-    def __init__(self, prompt: str = "(UnityChip) ", **kwargs) -> None:
+    def __init__(self, prompt: str = "(UnityChip) ", *, owner=None, **kwargs) -> None:
         super().__init__(**kwargs)
+        self._owner = owner
         self.border_title = "Console"
         self._prompt = prompt
         self._extra_height: int = 0
         self._batch_queue: queue.SimpleQueue[str] = queue.SimpleQueue()
         self._entries: list[ConsoleEntry] = []
+
+    @property
+    def owner(self):
+        """Use the page owning this console, or the standalone application."""
+        return self._owner if self._owner is not None else self.app
 
     def compose(self) -> ComposeResult:
         yield RichLog(
@@ -56,7 +62,7 @@ class ConsoleWidget(AutoScrollMixin, Vertical):
             markup=False,
             highlight=False,
         )
-        yield ConsoleInput(prompt=self._prompt)
+        yield ConsoleInput(prompt=self._prompt, owner=self._owner)
 
     def _get_scrollable(self) -> Any:
         return self.query_one("#console-output", RichLog)
@@ -65,8 +71,8 @@ class ConsoleWidget(AutoScrollMixin, Vertical):
         self.query_one(ConsoleInput).set_page_mode(manual)
 
     def on_mount(self) -> None:
-        self.watch(self.app, "console_height", self._apply_console_height)
-        self._apply_console_height(self.app.console_height)
+        self.watch(self.owner, "console_height", self._apply_console_height)
+        self._apply_console_height(self.owner.console_height)
         self._tick()
         self.set_interval(0.2, self._tick)
 
@@ -75,7 +81,9 @@ class ConsoleWidget(AutoScrollMixin, Vertical):
         self._auto_update()
 
     def _auto_update(self) -> None:
-        self.app.flush_console_output()
+        flush = getattr(self.owner, "flush_console_output", None)
+        if flush is not None:
+            flush()
         self.refresh_prompt()
 
     def _apply_console_height(self, value: int) -> None:
@@ -87,7 +95,7 @@ class ConsoleWidget(AutoScrollMixin, Vertical):
         self._extra_height = max(0, extra_lines)
         if not self.is_mounted:
             return
-        self.styles.height = self.app.console_height + self._extra_height
+        self.styles.height = self.owner.console_height + self._extra_height
 
     def queue_output(self, text: str) -> None:
         if not text:
@@ -143,7 +151,7 @@ class ConsoleWidget(AutoScrollMixin, Vertical):
             else:
                 self._entries.append(ConsoleEntry("output", text))
         if sync_to_console:
-            console = getattr(self.app, "frontend", None)
+            console = getattr(self.owner, "frontend", None)
             if console is not None and hasattr(console, "record_console_output"):
                 console.record_console_output(text)
 
@@ -171,7 +179,7 @@ class ConsoleWidget(AutoScrollMixin, Vertical):
         if record:
             self._entries.append(ConsoleEntry("command", cmd))
         if sync_to_console:
-            console = getattr(self.app, "frontend", None)
+            console = getattr(self.owner, "frontend", None)
             if console is not None and hasattr(console, "record_console_command"):
                 console.record_console_command(cmd)
         output_log = self.query_one("#console-output", RichLog)
@@ -192,7 +200,7 @@ class ConsoleWidget(AutoScrollMixin, Vertical):
         self._entries.clear()
         self._exit_manual_scroll()
         if sync_to_console:
-            console = getattr(self.app, "frontend", None)
+            console = getattr(self.owner, "frontend", None)
             if console is not None and hasattr(console, "clear_console_state"):
                 console.clear_console_state()
 
@@ -214,11 +222,11 @@ class ConsoleWidget(AutoScrollMixin, Vertical):
         return True
 
     def action_console_page_prev(self) -> None:
-        delta = -self.app.console_height
+        delta = -self.owner.console_height
         self.page_scroll(delta, auto_enter=True)
 
     def action_console_page_next(self) -> None:
-        delta = self.app.console_height
+        delta = self.owner.console_height
         self.page_scroll(delta, auto_enter=True)
 
     def action_exit_page_mode(self) -> None:

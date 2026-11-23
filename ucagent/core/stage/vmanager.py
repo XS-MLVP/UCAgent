@@ -368,6 +368,11 @@ class ToolDoCheck(ManagerTool):
     )
     args_schema: Optional[ArgsSchema] = ArgsDoCheck
 
+    def display_result(self, content):
+        """Render actionable validation context instead of the complete tool payload."""
+        from ucagent.core.stage.display import format_check_result
+        return format_check_result(content)
+
     def _run(self, timeout=0, stage_args=None,
              run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
         """
@@ -1337,7 +1342,7 @@ class StageManager(object):
             ret_data["action"] = f"{ret_data['action']} {warning}"
 
     @coordinated_stage_mutation("validation", manager=True)
-    def check(self, timeout, stage_args=None):
+    def check(self, timeout, stage_args=None, *, actor=None):
         """Run the existing Check gates under the injected mutation reservation."""
         if not self.stage_index < len(self.stages):
             return OrderedDict({
@@ -1677,7 +1682,7 @@ class StageManager(object):
             self.llm_pass_suggestion.on_stage_complete(stage)
 
     @coordinated_stage_mutation("validation", manager=True)
-    def complete(self, timeout, stage_args=None):
+    def complete(self, timeout, stage_args=None, *, actor=None):
         """Apply all completion gates before advancing the coordinated stage."""
         if self.stage_index >= len(self.stages):
             return self._public_check_result({

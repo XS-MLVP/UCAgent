@@ -9,6 +9,7 @@ the other application services.
 """
 
 import math
+from contextvars import copy_context
 import threading
 import time
 from typing import Any, List, Optional, Tuple
@@ -17,6 +18,8 @@ from typing import Any, List, Optional, Tuple
 def _collect_mcp_tools(agent: Any, no_file_ops: bool) -> List[Any]:
     """Return configuration-filtered MCP tools, optionally without file operations."""
 
+    if getattr(agent, "global_service", None) is not None:
+        return list(agent.test_tools)
     if getattr(agent, "multi_agent", None) is not None:
         file_names = {tool.name for tool in agent.tool_list_file} | {"ReadTextFile"}
         return [tool for tool in agent.test_tools if not no_file_ops or tool.name not in file_names]
@@ -114,7 +117,7 @@ class McpServer:
                 except BaseException as error:
                     self._startup_error = error
 
-            self._thread = threading.Thread(target=_run, daemon=True, name="ucagent-mcp-server")
+            self._thread = threading.Thread(target=copy_context().run, args=(_run,), daemon=True, name="ucagent-mcp-server")
             # Preserve ownership even if startup times out before the loop exits.
             self._thread.start()
             deadline = time.monotonic() + float(timeout)

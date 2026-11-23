@@ -215,11 +215,12 @@ async def test_model_and_mcp_messages_during_detach_are_replayed_once(console):
     console.host.output.write("output-between\n")
     restored = VerifyApp(console)
     async with restored.run_test() as pilot:
-        await observe(pilot, lambda: len(restored.query_one(MessagesPanel)._render_history) >= 3)
+        await observe(pilot, lambda: len(restored.query_one(MessagesPanel)._render_history) >= 2)
         text = "\n".join(line.plain for line in restored.query_one(MessagesPanel)._render_history)
         assert text.count("first") == 1
         assert text.count("between views") == 1
-        assert text.count("mcp-between") == 1
+        assert "mcp-between" not in text
+        assert console.render_console_entries_since().count("mcp-between") == 1
         assert console.render_console_entries_since().count("output-between") == 1
 
 
@@ -295,14 +296,17 @@ async def test_detach_replays_new_output_appended_to_existing_entry(console):
 
 @pytest.mark.asyncio
 async def test_pending_messages_before_mount_are_not_cleared_by_restore(console):
-    """Service logs buffered before TUI construction survive widget state restoration."""
-    console.agent._mcps_logger.info("before-mount-message")
+    """Buffered model messages and system logs survive restoration in their own views."""
+    console.agent.message_echo_handler("before-mount-message")
+    console.agent._mcps_logger.info("before-mount-service")
     console.host.output.write("before-mount-output\n")
     app = VerifyApp(console)
     async with app.run_test() as pilot:
         await observe(pilot, lambda: bool(app.query_one(MessagesPanel)._render_history))
         text = "\n".join(line.plain for line in app.query_one(MessagesPanel)._render_history)
         assert text.count("before-mount-message") == 1
+        assert "before-mount-service" not in text
+        assert console.render_console_entries_since().count("before-mount-service") == 1
         assert console.render_console_entries_since().count("before-mount-output") == 1
 
 

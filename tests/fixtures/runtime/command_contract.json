@@ -4531,7 +4531,8 @@
         "pdb_attribute",
         "pdb_mention",
         "pdb_service",
-        "pdb_type"
+        "pdb_type",
+        "business_command"
       ],
       "batches": [
         "B04"
@@ -5096,6 +5097,149 @@
       ],
       "kind": "source_or_configuration",
       "review_scope": "inspect_command_usage"
+    },
+    {
+      "path": "docs/content/02_usage/12_workflow_handoff.md",
+      "markers": [
+        "business_command"
+      ],
+      "batches": [
+        "B09"
+      ],
+      "kind": "documentation",
+      "review_scope": "inspect_command_usage"
+    },
+    {
+      "path": "docs/content/02_usage/13_global_agent.md",
+      "markers": [
+        "business_command"
+      ],
+      "batches": [
+        "B09"
+      ],
+      "kind": "documentation",
+      "review_scope": "inspect_command_usage"
+    },
+    {
+      "path": "tests/test_cli_sessions.py",
+      "markers": [
+        "business_command"
+      ],
+      "batches": [
+        "B02"
+      ],
+      "kind": "test",
+      "review_scope": "inspect_command_usage"
+    },
+    {
+      "path": "tests/test_multi_agent_file_access.py",
+      "markers": [
+        "business_command"
+      ],
+      "batches": [
+        "B02"
+      ],
+      "kind": "test",
+      "review_scope": "inspect_command_usage"
+    },
+    {
+      "path": "ucagent/application/launch.py",
+      "markers": [
+        "business_command"
+      ],
+      "batches": [
+        "B09"
+      ],
+      "kind": "source_or_configuration",
+      "review_scope": "inspect_command_usage"
+    },
+    {
+      "path": "ucagent/interfaces/terminal/tui/global_app.py",
+      "markers": [
+        "business_command"
+      ],
+      "batches": [
+        "B07"
+      ],
+      "kind": "source_or_configuration",
+      "review_scope": "inspect_command_usage"
+    },
+    {
+      "path": "ucagent/runtime/workflow_control.py",
+      "markers": [
+        "business_command"
+      ],
+      "batches": [
+        "B02"
+      ],
+      "kind": "source_or_configuration",
+      "review_scope": "inspect_command_usage"
+    },
+    {
+      "path": "ucagent/runtime/agent_view.py",
+      "markers": [
+        "business_command"
+      ],
+      "batches": [
+        "B07"
+      ],
+      "kind": "source_or_configuration",
+      "review_scope": "inspect_command_usage"
+    },
+    {
+      "path": "ucagent/interfaces/terminal/tui/agent_screen.py",
+      "markers": [
+        "business_command"
+      ],
+      "batches": [
+        "B07"
+      ],
+      "kind": "source_or_configuration",
+      "review_scope": "inspect_command_usage"
+    },
+    {
+      "path": "tests/test_global_tui.py",
+      "markers": [
+        "business_command"
+      ],
+      "batches": [
+        "B07"
+      ],
+      "kind": "source_or_configuration",
+      "review_scope": "inspect_command_usage"
+    },
+    {
+      "path": "tests/test_worker_display.py",
+      "markers": [
+        "business_command"
+      ],
+      "batches": [
+        "B07"
+      ],
+      "kind": "source_or_configuration",
+      "review_scope": "inspect_command_usage"
+    },
+    {
+      "path": "ucagent/core/multi_agent/service.py",
+      "markers": [
+        "business_command"
+      ],
+      "batches": [
+        "B07"
+      ],
+      "kind": "source_or_configuration",
+      "review_scope": "inspect_command_usage"
+    },
+    {
+      "path": "ucagent/core/multi_agent/view.py",
+      "markers": [
+        "business_command"
+      ],
+      "batches": [
+        "B07"
+      ],
+      "kind": "source_or_configuration",
+      "review_scope": "inspect_command_usage"
     }
   ],
   "test_migrations": [
@@ -5392,6 +5536,15 @@
             "test_idle_timeout_suppressed_by_workspace_file_changes",
             "test_idle_timeout_fires_without_file_changes"
           ]
+        },
+        {
+          "disposition": "retain",
+          "batch": "B02",
+          "target_file": "tests/test_cmdline_backend.py",
+          "tests": [
+            "test_command_backend_attributes_multi_agent_text"
+          ],
+          "contract": "Retain qualified Super/Sub identity in command backend messages."
         }
       ]
     },
@@ -5513,6 +5666,15 @@
             "test_mcp_conversion_rejects_injected_arguments",
             "test_mcp_server_reports_missing_sdk"
           ]
+        },
+        {
+          "disposition": "retain",
+          "batch": "B04",
+          "target_file": "tests/test_mcps.py",
+          "tests": [
+            "test_mcp_file_tools_create_read_and_edit_with_workflow_requirements"
+          ],
+          "contract": "Verify workflow-required file tools through the MCP boundary."
         }
       ]
     },
@@ -5568,6 +5730,17 @@
             "TestSoftWrap::test_soft_wrap_cjk_text",
             "TestSoftWrap::test_soft_wrap_minimum_width"
           ]
+        },
+        {
+          "disposition": "retain",
+          "batch": "B07",
+          "target_file": "tests/test_messages_panel.py",
+          "tests": [
+            "test_check_messages_publish_every_result_with_the_executing_identity",
+            "test_check_result_message_is_attributed_and_actionable",
+            "test_three_layer_messages_survive_tui_reentry"
+          ],
+          "contract": "Preserve attributed Check/Complete outcomes and three-layer message replay across TUI attachment."
         }
       ]
     },

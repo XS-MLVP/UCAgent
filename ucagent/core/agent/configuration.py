@@ -92,6 +92,8 @@ def resolve_task_configuration(workspace, dut_name, output=None, config_file=Non
     load_settings(cfg, workspace)
     from ucagent.core.workflow.contracts import load_handoff_settings
     load_handoff_settings(cfg)
+    from ucagent.core.global_agent.session_contracts import load_global_settings
+    load_global_settings(cfg)
     resolve_guide_doc_copy_policy(cfg)
     resolve_plugin_guide_doc_copy_policy(cfg)
     return TaskConfiguration(cfg, workspace, dut_name, output, tuple(loaded), workflow_config_file,

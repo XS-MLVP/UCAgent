@@ -108,6 +108,8 @@ class VerifyApp(App):
         """Restore display state and subscribe through existing agent message callbacks."""
         self._console_widget = self.query_one(ConsoleWidget)
         self._messages_widget = self.query_one(MessagesPanel)
+        self._previous_tool_suppression = getattr(self.host.agent, "suppress_tool_result_messages", False)
+        self.host.agent.suppress_tool_result_messages = True
         self.host.attach_control(self._control_id, interrupt=self.frontend.cancel_foreground, messages=True)
         self._stream_capture = self.host.output.capture()
         self._stream_capture.__enter__()
@@ -180,7 +182,8 @@ class VerifyApp(App):
     def on_ready(self):
         """Size the initial split from the terminal, matching the original layout."""
         self.task_width = self.query_one(TaskPanel).size.width
-        self.console_height = self.size.height // 2
+        mission = getattr(self.host.agent, "global_service", None)
+        self.console_height = self.size.height // (4 if mission is not None else 2)
         self.host.startup.release()
         self.refresh_runtime_state()
 
@@ -218,6 +221,7 @@ class VerifyApp(App):
                                    if transcript.startswith(self._replay_prefix) else transcript)
         finally:
             self._cleaned = True
+            self.host.agent.suppress_tool_result_messages = self._previous_tool_suppression
             self.host.startup.release()
             self.host.detach_control(self._control_id)
 

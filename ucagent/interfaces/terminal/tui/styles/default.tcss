@@ -273,27 +273,3 @@ ScrollBar > .scrollbar--bar-hover {
     border-title-color: $text;
     border-title-style: bold;
 }
-
-ThemePickerScreen {
-    align: center middle;
-    background: transparent;
-}
-
-#theme-picker {
-    width: 34;
-    max-width: 40;
-    height: auto;
-    border: solid $primary;
-    background: $panel;
-    padding: 1 1;
-}
-
-#theme-picker-title {
-    text-style: bold;
-    margin: 0 0 1 0;
-}
-
-#theme-picker OptionList {
-    max-height: 10;
-    width: 1fr;
-}

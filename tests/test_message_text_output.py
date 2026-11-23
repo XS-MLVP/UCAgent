@@ -16,7 +16,8 @@ from ucagent.core.agent.execution import VerifyAgent
 from ucagent.core.backends.langchain.agent import UCAgentLangChainBackend
 from ucagent.core.backends.langchain.content import content_text, format_message
 from ucagent.core.backends.langchain.middleware.messages import summarize_messages
-from ucagent.core.multi_agent.worker import WorkerSession
+from ucagent.core.multi_agent.worker import BoundTool, WorkerSession
+from ucagent.util.config import Config
 import ucagent.util.log as log_util
 
 
@@ -137,22 +138,39 @@ def test_file_output_preserves_exact_stream_endings(message_log, capsys, custom_
 
 
 def test_parallel_worker_blocks_do_not_share_partial_buffers(message_log):
-    """Task tags stay on headers and complete worker blocks remain independently readable."""
-    owner = SimpleNamespace(message_echo_handler=lambda text, end: None)
+    """Sub identities stay on headers and complete worker blocks remain independently readable."""
+    owner = SimpleNamespace(message_echo_handler=lambda text, end: None, cfg=Config({"agent_run": {"id": None, "attempt": 1}}))
     owner.message_echo = MethodType(VerifyAgent.message_echo, owner)
 
     def emit(index):
         """Write a complete task message through the actual worker and agent log path."""
         worker = WorkerSession.__new__(WorkerSession)
-        worker.parent, worker.record = owner, SimpleNamespace(key=f"plan/task-{index}")
-        worker.message_echo(format_message(AIMessage(content=f"body-{index}\nend-{index}")))
+        worker.parent, worker.record = owner, SimpleNamespace(key=f"plan/task-{index}", attempt=1)
+        worker.message_sender = f"Sub:plan/task-{index}"
+        worker.message_echo(format_message(
+            AIMessage(content=f"body-{index}\nend-{index}"),
+            sender=worker.message_sender,
+        ))
 
     with ThreadPoolExecutor(max_workers=4) as pool:
         list(pool.map(emit, range(20)))
     text = message_log.read_text()
     for index in range(20):
-        header = f"\n[plan/task-{index}]\n" + " AI Message ".center(80, "=")
+        header = "\n" + f" AI Message · Sub:plan/task-{index} ".center(80, "=")
         assert header + f"\n\nbody-{index}\nend-{index}\n" in text
+
+
+def test_worker_raw_output_is_attributed_once():
+    """Command backends gain one Sub prefix without duplicating formatted headers."""
+    messages = []
+    worker = WorkerSession.__new__(WorkerSession)
+    worker.parent = SimpleNamespace(message_echo=lambda text, end="\n": messages.append(text), cfg=Config({"agent_run": {"id": None, "attempt": 1}}))
+    worker.record = SimpleNamespace(key="prepare-a/task-1", attempt=1)
+    worker.message_sender = "Sub:prepare-a/task-1"
+    worker.message_echo("working on fragment")
+    worker.message_echo("\n" + " AI Message · Sub:prepare-a/task-1 ".center(80, "=") + "\nbody")
+    assert messages[0] == "[Sub:prepare-a/task-1] working on fragment"
+    assert messages[1].count("Sub:prepare-a/task-1") == 1
 
 
 def make_output_backend(events, output):
@@ -206,6 +224,68 @@ def test_value_output_keeps_each_tool_result_and_deduplicates_updated_ids():
     assert text.count("first\nsecond") == 1 and "opaque" not in text
     assert text.count(" Tool Message ") == 2
     assert all(text.count(f"result-{i}") == 1 for i in (1, 2))
+
+
+def test_focused_tui_display_suppresses_raw_tool_results():
+    """TUI routes Check through its dedicated card and hides other tool payloads."""
+    backend = UCAgentLangChainBackend.__new__(UCAgentLangChainBackend)
+    backend.vagent = SimpleNamespace(
+        suppress_tool_result_messages=True, test_tools=[],
+        message_sender="Super:prepare_a",
+    )
+    message = ToolMessage(content="raw read result", name="ReadTextFile", tool_call_id="read")
+    assert backend.format_message(message) == ""
+
+    worker = SimpleNamespace(parent=SimpleNamespace(suppress_tool_result_messages=True),
+                             test_tools=[], message_sender="Sub:task")
+    backend.vagent = worker
+    assert backend.format_message(message) == ""
+
+
+def test_check_tool_result_uses_readable_context():
+    """Check tool rendering extracts stage/error/next action instead of dumping YAML."""
+    from ucagent.core.stage.display import format_check_result
+
+    raw = json.dumps({
+        "check_pass": False,
+        "failure_summary": {
+            "stage_index": 1,
+            "stage_name": "verify",
+            "error": "missing output",
+            "next_action": "create try_out/result.txt",
+            "observed": {
+                "missing": ["try_out/result.txt"],
+                "invalid": [{"path": "try_out/other.txt", "problem": "marker missing"}],
+                "files": {"try_out/result.txt": {"size": 3}},
+            },
+            "expected": {"files": {"try_out/result.txt": "ready"}},
+        },
+        "check_info": {"internal": "must-not-render"},
+    })
+    rendered = format_check_result(raw)
+    assert rendered.startswith("Check | FAIL")
+    assert "Stage 1: verify" in rendered
+    assert "Error: missing output" in rendered
+    assert "Next: create try_out/result.txt" in rendered
+    assert "Missing: try_out/result.txt" in rendered
+    assert "Invalid: Path: try_out/other.txt | Problem: marker missing" in rendered
+    assert "try_out/result.txt: size: 3" in rendered
+    assert "try_out/result.txt: ready" in rendered
+    assert "internal" not in rendered
+
+
+def test_bound_worker_check_display_uses_readable_context():
+    """A Sub's bound Check tool projects the same actionable fields as a direct Check."""
+    raw = json.dumps({
+        "check_pass": False,
+        "failure_summary": {"error": "fragment missing", "next_action": "write the fragment"},
+        "check_info": {"internal": "must-not-render"},
+    })
+    rendered = BoundTool.display_result(SimpleNamespace(action="check"), raw)
+    assert rendered.startswith("Check | FAIL")
+    assert "Error: fragment missing" in rendered
+    assert "Next: write the fragment" in rendered
+    assert "internal" not in rendered
 
 
 @pytest.mark.parametrize("body", ["", "first line"])
@@ -426,8 +506,8 @@ def test_real_multi_messages_keep_protocol_in_model_and_render_readable_bodies(t
         agent.one_loop("Please verify the artifact.")
         assert agent.multi_agent.workflow_state == "completed", agent.multi_agent.status()
         rendered = output.getvalue()
-        assert rendered.count(" AI Message ") == 7
-        assert "[readable/task]\n" + " Human Message ".center(80, "=") + "\n\n" + instruction in rendered
+        assert rendered.count(" AI Message · ") == 7
+        assert " Human Message · Sub:DUT/task ".center(80, "=") + "\n\n" + instruction in rendered
         assert "Please verify the artifact." in rendered
         assert "Previous result:\nworkflow: running" in rendered
         assert "Workflow verified." in rendered

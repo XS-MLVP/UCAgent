@@ -52,8 +52,38 @@ class BoundTool(UCTool):
 
     def display_result(self, content):
         """Project task-control replies without filtering delegated file or Checker text."""
-        from .display import control_result
-        return control_result(self.action, content)
+        from .display import control_result, tool_body
+        if self.action == "check":
+            from ucagent.core.stage.display import format_check_result
+            return tool_body(format_check_result(content))
+        return tool_body(control_result(self.action, content))
+
+    def invoke(self, input, config=None, **kwargs):
+        """Bind MCP calls to their Sub and expose CLI tool bodies only to its detail view."""
+        from .view import worker_output
+        from ucagent.util.functions import format_message_value
+        from ucagent.util.output import output_context
+        external = not self.worker.backend_class.capabilities.model_rounds
+        started = time.monotonic()
+        with worker_output(self.worker.parent, self.worker.record):
+            if external:
+                arguments = self._tool_arguments(input)
+                if isinstance(arguments, dict):
+                    arguments = {key: value for key, value in arguments.items() if key != "ctx"}
+                with output_context(source="tool", kind="detail"):
+                    self.worker.message_echo(f"\nTool Call: {self.name}\n{format_message_value(arguments)}")
+            try:
+                result = super().invoke(input, config, **kwargs)
+            except Exception as error:
+                if external:
+                    with output_context(source="tool", kind="detail"):
+                        self.worker.message_echo(f"\nTool Error: {self.name}\n{error}")
+                raise
+            if external:
+                with output_context(source="tool", kind="detail"):
+                    self.worker.message_echo(f"\nTool Result: {self.name} ({time.monotonic() - started:.2f}s)\n"
+                                             + self.display_result(result))
+            return result
 
     def _run(self, **kwargs):
         """Check ownership on every invocation, including calls after submission."""
@@ -78,6 +108,8 @@ class WorkerSession:
         """Create fresh mutable tools and backend state for one task attempt."""
         self.service, self.record = service, record
         self.parent = service.agent
+        super_name = getattr(self.parent, "message_sender", "Super:DUT").removeprefix("Super:")
+        self.message_sender = f"Sub:{super_name}/{record.spec.id}"
         from .contracts import role_backend_config
         self.cfg = role_backend_config(self.parent.cfg, record.role)
         from ucagent.core.backends import get_backend_class
@@ -126,6 +158,9 @@ class WorkerSession:
         self.backend = None
         self.closed = False
         self.test_tools = []
+        self.suppress_tool_result_messages = False
+        from .view import WorkerDisplay
+        self.display = WorkerDisplay(self)
 
     def artifact_path(self, name):
         """Reject symlink outputs even when an external process wrote the private copy."""
@@ -160,9 +195,14 @@ class WorkerSession:
 
     def message_echo(self, text, end="\n"):
         """Attribute worker output without exposing model or connection configuration."""
-        leading = len(text) - len(text.lstrip("\n"))
-        prefix = f"[{self.record.key}]\n" if text[leading:] else ""
-        self.parent.message_echo(text[:leading] + prefix + text[leading:], end=end)
+        rendered = str(text)
+        sender = self.message_sender
+        if (rendered and not rendered.isspace() and f"· {sender}" not in rendered
+                and not rendered.lstrip().startswith(f"[{sender}]")):
+            rendered = f"[{self.message_sender}] {rendered}"
+        from .view import worker_output
+        with worker_output(self.parent, self.record):
+            self.parent.message_echo(rendered, end=end)
 
     def file_access_policy(self):
         """Describe task-local file authority independently of a backend native sandbox."""
@@ -311,10 +351,11 @@ class WorkerSession:
                 raise PermissionError("Human review is pending; submit status=blocked")
             if action == "check":
                 return driver.check(r.lease, arguments.get("timeout") or self.cfg.get_value("call_time_out", 300),
-                                    arguments.get("stage_args"))
+                                    arguments.get("stage_args"), actor=self.message_sender)
             if action == "substage":
                 result = driver.complete_substage(r.lease, arguments["step_token"],
-                    arguments.get("timeout") or self.cfg.get_value("call_time_out", 300), arguments.get("stage_args"))
+                    arguments.get("timeout") or self.cfg.get_value("call_time_out", 300), arguments.get("stage_args"),
+                    actor=self.message_sender)
                 return {**result, "budget": r.budget_status(self.service.settings.limits)}
             if r.lease.steps and self.stage_manager.get_current_stage() not in r.lease.steps:
                 raise PermissionError("Subtree finished; only SubmitTaskResult is available")
@@ -340,6 +381,7 @@ class WorkerSession:
     def run(self, runner_factory=None):
         """Execute through an injected test runner or a role-selected production backend."""
         self.ensure_active()
+        self.display.start()
         self.build_tools()
         if runner_factory is not None:
             runner_factory(self)

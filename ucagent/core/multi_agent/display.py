@@ -60,3 +60,35 @@ def planning_message(context):
     if context.get("previous_result"):
         parts.append("Previous result:\n" + control_result("status", context["previous_result"]))
     return "\n\n".join(parts)
+
+
+def tool_body(content):
+    """Render body fields from tool envelopes, without altering the actual tool reply."""
+    from langchain_core.messages import ToolMessage
+    if isinstance(content, ToolMessage):
+        content = content.content
+    if isinstance(content, str):
+        try:
+            parsed = json.loads(content)
+        except (ValueError, TypeError):
+            return content
+        if isinstance(parsed, (dict, list)):
+            return tool_body(parsed)
+        return content
+    if isinstance(content, list):
+        return "\n".join(tool_body(part["text"]) if isinstance(part, dict) and part.get("type") == "text"
+                         else tool_body(part) for part in content)
+    if isinstance(content, dict):
+        # Prefer the task's body, including structured ReadTextFile and MCP text blocks.
+        for key in ("context", "content", "text"):
+            if key in content:
+                value = content[key]
+                # Once an envelope supplies literal text, preserve it byte-for-byte:
+                # a JSON file body is task content, not another protocol envelope.
+                body = value if isinstance(value, str) else tool_body(value)
+                errors = [f"{key}: {format_message_value(content[key])}" for key in
+                          ("error", "error_code", "next_action") if content.get(key)]
+                return "\n".join([body, *errors])
+        # A domain result without a body remains useful as labeled fields, never a repr dict.
+        return format_message_value(content)
+    return "" if content is None else str(content)

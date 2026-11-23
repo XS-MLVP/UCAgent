@@ -49,12 +49,14 @@ def get_plugin() -> Plugin:
             PluginWorkflow(
                 name="privileged-suite-generation",
                 config_file=root / "workflows" / "privileged-suite-generation.yaml",
+                purpose="Generate privileged RISC-V ACT4 test assets from the configured manual.",
                 guide_doc_paths=(root / "Guide_Doc",),
                 template_context_factory=validate_input_paths,
             ),
             PluginWorkflow(
                 name="extension-review",
                 config_file=root / "workflows" / "extension-review.yaml",
+                purpose="Audit existing ACT4 extension assets without changing the input checkout.",
                 guide_doc_paths=(root / "Guide_Doc",),
                 template_context_factory=validate_review_paths,
             ),

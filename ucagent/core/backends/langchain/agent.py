@@ -146,15 +146,27 @@ class UCAgentLangChainBackend(AgentBackendBase):
         """Extract only text from provider content blocks."""
         return content_text(msg)
 
+    def _suppress_tool_result_messages(self):
+        """Let a focused display surface route tool results through its own Check view."""
+        setting = getattr(self.vagent, "suppress_tool_result_messages", None)
+        if setting is not None:
+            return bool(setting)
+        parent = getattr(self.vagent, "parent", None)
+        return bool(getattr(parent, "suppress_tool_result_messages", False))
+
     def format_message(self, msg):
         """Apply tool-owned display policies to live output and history views alike."""
+        if isinstance(msg, HumanMessage) and getattr(self.vagent, "suppress_human_message_echo", False):
+            return ""
+        if isinstance(msg, ToolMessage) and self._suppress_tool_result_messages():
+            return ""
         body = None
         if isinstance(msg, ToolMessage):
             tool = next((tool for tool in getattr(self.vagent, "test_tools", ()) if tool.name == msg.name), None)
             formatter = getattr(tool, "display_result", None)
             if formatter is not None:
                 body = formatter(content_text(msg.content))
-        return format_message(msg, body=body)
+        return format_message(msg, body=body, sender=getattr(self.vagent, "message_sender", None))
 
     def echo_message(self, msg):
         """Emit one complete text message under its model/tool output attribution."""
@@ -188,7 +200,9 @@ class UCAgentLangChainBackend(AgentBackendBase):
                     # This graph has one serial main-model node. Its final values
                     # event commits the response; provider chunk IDs may change.
                     if not streamed_text:
-                        self.vagent.message_echo("\n" + " AI Message ".center(80, "=") + "\n")
+                        sender = getattr(self.vagent, "message_sender", None)
+                        title = f" AI Message{(' · ' + sender) if sender else ''} "
+                        self.vagent.message_echo("\n" + title.center(80, "=") + "\n")
                     self.vagent.message_echo(text, end="")
                     streamed_text += text
                     line_open = not text.endswith("\n")

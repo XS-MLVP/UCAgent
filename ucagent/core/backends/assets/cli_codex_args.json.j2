@@ -19,9 +19,7 @@
   {% if mcp_token %}
   , "-c", {{ ('mcp_servers.' ~ server_name ~ '.bearer_token_env_var="UCAGENT_WORKER_MCP_TOKEN"') | tojson }}
   {% endif %}
-  {% if managed %}
   {% for tool in tools %}
   , "-c", {{ ('mcp_servers.' ~ server_name ~ '.tools.' ~ tool ~ '.approval_mode="approve"') | tojson }}
   {% endfor %}
-  {% endif %}
 ]

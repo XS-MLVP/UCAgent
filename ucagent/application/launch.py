@@ -3,9 +3,11 @@
 from contextlib import ExitStack
 import os
 import sys
+import shlex
 
 from ucagent.application.preparation import prepare_launch
 from ucagent.application.plan import LaunchRequest
+from ucagent.application.global_agent import configure_agent_sessions
 
 
 def run_application(request: LaunchRequest):
@@ -36,6 +38,7 @@ def run_application(request: LaunchRequest):
             host = RuntimeHost(agent, mode=mode, exit_on_completion=request.task_options.get("exit_on_completion", False), force_exit=os._exit)
             try:
                 configure_services(host.services)
+                configure_agent_sessions(agent, prepared)
                 session = RuntimeSession(host, result_formatter=format_result, operation_formatter=format_operation)
                 console = (Console(host, session=session, tui_factory=enter_tui)
                            if mode == "console" or (request.interface == "tui") or (mode == "master" and sys.stdin.isatty()) else None)
@@ -61,6 +64,16 @@ def run_application(request: LaunchRequest):
                             raise RuntimeError(result.data.get("message", "Service startup failed"))
                     commands = [command for command in plan.commands if command != "tui"]
                     commands.extend(agent.cfg.get_value("init_cmds", []))
+                    if getattr(host, "agent_sessions", None) is not None:
+                        remaining = []
+                        for command in commands:
+                            words = shlex.split(command)
+                            if words and words[0] in {"chat", "loop", "continue_with_message", "next_round_with_message"}:
+                                if len(words) > 1:
+                                    host.agent_sessions.submit_input(" ".join(words[1:]))
+                            else:
+                                remaining.append(command)
+                        commands = remaining
                     if request.emulate_config:
                         agent.emulate_config()
                         host.request_shutdown("emulation_finished")

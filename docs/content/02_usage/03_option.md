@@ -54,7 +54,7 @@ ucagent <workspace> <dut_name> [options]
 | --sys-tips           |      | str                        | 空       | 覆盖系统提示词                                                |
 | --loop               | -l   | flag                       | 关闭     | 初始化时提交自动执行循环（可配合 --loop-msg） |
 | --loop-msg           |      | str                        | 空       | 进入循环时注入的首条消息                                      |
-| --agent-mode | | single / multi | 未指定 | 选择单或多 Agent 模式；覆盖配置。详见[多 Agent](11_multi_agent.md) |
+| --agent-mode | | single / multi / global | 未指定 | 选择单 Agent、Super+Sub 或 Global 常驻对话模式；覆盖配置。详见[多 Agent](11_multi_agent.md)与 [Global Agent](13_global_agent.md) |
 | --max-subagents | | int | 未指定 | 多 Agent 的运行中 worker 总上限，必须为正整数 |
 | --backend               |      | str                        | 无         | 指定后端（覆盖配置文件设置）                                    |
 | --icmd               |      | str（可多次）              | []       | 启动时执行的初始命令，可多次使用                              |

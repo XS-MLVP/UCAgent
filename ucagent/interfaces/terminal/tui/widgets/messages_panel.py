@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import queue
+import re
 from collections import deque
 from dataclasses import dataclass
 from typing import Any, ClassVar
@@ -252,7 +253,7 @@ class MessagesPanel(AutoScrollMixin, ScrollView, can_focus=True):
             self._lines.append(Strip.blank(width))
             self._lines_per_entry.append(1)
         else:
-            text = Text.from_ansi(self._current_line_buffer)
+            text = self._message_text(self._current_line_buffer)
             self._render_history.append(text.copy())
 
             wrap_width = max(1, self.scrollable_content_region.width or 80)
@@ -282,7 +283,7 @@ class MessagesPanel(AutoScrollMixin, ScrollView, can_focus=True):
             self._pending_strips = []
             return
 
-        text = Text.from_ansi(self._current_line_buffer)
+        text = self._message_text(self._current_line_buffer)
         wrap_width = max(1, self.scrollable_content_region.width or 80)
         wrapped = self._soft_wrap_text(text, wrap_width)
 
@@ -290,6 +291,23 @@ class MessagesPanel(AutoScrollMixin, ScrollView, can_focus=True):
         for wrapped_text in wrapped:
             strips = self._render_text_to_strips(wrapped_text)
             self._pending_strips.extend(strips)
+
+    @staticmethod
+    def _message_text(line: str) -> Text:
+        """Compact model banners and distinguish the three Agent roles visually."""
+        text = Text.from_ansi(line)
+        header = re.fullmatch(r"=+\s*(AI|Human|Tool|System) Message(?: · (.+?))?\s*=+", text.plain)
+        if header:
+            kind, sender = header.groups()
+            text = Text(f"[{sender or 'Agent'}] {kind}")
+        for match in re.finditer(r"(?:Global|Super:[^\] |]+|Sub:[^\] |]+)", text.plain):
+            name = match.group()
+            color = "cyan" if name == "Global" else "magenta" if name.startswith("Super:") else "green"
+            text.stylize(f"bold {color}", match.start(), match.end())
+        if text.plain.startswith(("[Check]", "[Complete]")):
+            for match in re.finditer(r"\b(PASS|FAIL)\b", text.plain):
+                text.stylize("bold green" if match.group() == "PASS" else "bold red", match.start(), match.end())
+        return text
 
     def _update_title(self) -> None:
         self.border_title = "Messages"

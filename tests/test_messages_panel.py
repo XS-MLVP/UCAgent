@@ -4,6 +4,7 @@
 
 import os
 import sys
+from types import SimpleNamespace
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.abspath(os.path.join(current_dir, "..")))
@@ -19,6 +20,7 @@ from ucagent.interfaces.terminal.tui.widgets.console import ConsoleEntry, Consol
 from ucagent.interfaces.terminal.tui.widgets.console_input import ConsoleInput
 from ucagent.interfaces.terminal.tui.widgets.messages_panel import MessagesPanel
 from ucagent.interfaces.terminal.tui.widgets.status_bar import StatusBar
+from ucagent.interfaces.terminal.tui.utils import agent_display_name, format_check_result
 
 
 class TestMessagesPanelPayloadProcessing:
@@ -650,3 +652,79 @@ class TestVerifyAppShutdown:
         async with app.run_test():
             app.action_quit()
         assert console.host.operations.get(operation["id"])["state"] == "running"
+
+
+def test_check_result_message_is_attributed_and_actionable():
+    """TUI Check output names its sender and keeps only actionable context."""
+    rendered = format_check_result({
+        "check_pass": False,
+        "failure_summary": {
+            "error": "missing try_out/prepare_a.txt",
+            "next_action": "create the file and run Check again",
+        },
+        "check_info": {"internal-noise": "must-not-be-rendered"},
+    }, "Super:prepare_a")
+
+    assert rendered.startswith("[Check] Super:prepare_a | FAIL")
+    assert "missing try_out/prepare_a.txt" in rendered
+    assert "create the file and run Check again" in rendered
+    assert "internal-noise" not in rendered
+    assert '{"' not in rendered
+
+    context = format_check_result({
+        "check_pass": False,
+        "check_info": {"last_msg": {
+            "error": "artifact is empty",
+            "expected": "nonempty marker file",
+        }},
+    }, "Sub:prepare-a/task-1")
+    assert "Error: artifact is empty" in context
+    assert "Expected: nonempty marker file" in context
+    assert "last_msg" not in context
+
+    agent = type("Agent", (), {"message_sender": "Global"})()
+    assert agent_display_name(agent) == "Global"
+
+
+def test_check_messages_publish_every_result_with_the_executing_identity(tmp_path):
+    """Fast Check/Complete calls publish events instead of overwriting a polled UI slot."""
+    from test_multi_agent import make_agent
+
+    agent = make_agent(tmp_path)
+    messages = []
+    agent.suppress_tool_result_messages = True
+    agent.set_message_echo_handler(lambda text, end="\n": messages.append(text))
+    try:
+        with agent.multi_agent.driver.ownership():
+            agent.stage_manager.check(5, actor="Sub:DUT/fragment")
+            agent.stage_manager.check(5, actor="Sub:DUT/fragment")
+        assert len(messages) == 2
+        assert all(text.startswith("[Check] Sub:DUT/fragment |") for text in messages)
+    finally:
+        agent._startup_cleanup.close()
+
+
+@pytest.mark.asyncio
+async def test_three_layer_messages_survive_tui_reentry(console):
+    """The same TUI shows qualified Global, Super and Sub messages without losing attribution."""
+    app = VerifyApp(console)
+    async with app.run_test() as pilot:
+        app.message_echo("[Global] plan accepted")
+        app.message_echo(" AI Message · Super:prepare_a/attempt-1 ".center(80, "="))
+        app.message_echo("[Sub:prepare_a/attempt-1/fragment-a1] wrote fragment")
+        app.message_echo("[Sub:prepare_b/attempt-1/fragment-b1] wrote fragment")
+        app.message_echo("[Complete] Super:prepare_a/attempt-1 | PASS")
+        await pilot.pause(0.25)
+        app.cleanup()
+    state = console.tui_messages_state
+    text = "\n".join(row.plain for row in state.render_history)
+    assert "[Global]" in text and "[Super:prepare_a/attempt-1] AI" in text
+    assert "Sub:prepare_a/attempt-1/fragment-a1" in text
+    assert "Sub:prepare_b/attempt-1/fragment-b1" in text
+    assert "====" not in text
+    assert all(row.spans for row in state.render_history if row.plain)
+    restored = VerifyApp(console)
+    async with restored.run_test() as pilot:
+        await pilot.pause(0.15)
+        panel = restored.query_one(MessagesPanel)
+        assert [row.plain for row in panel._render_history] == [row.plain for row in state.render_history]

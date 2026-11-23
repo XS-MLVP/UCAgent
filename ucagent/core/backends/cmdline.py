@@ -39,6 +39,18 @@ def _idle_timeout(config, value):
     return value
 
 
+def _agent_text(vagent, text):
+    """Prefix command-backend text once when a multi-layer Agent owns it."""
+    if not isinstance(text, str) or not text.strip():
+        return text
+    sender = getattr(vagent, "message_sender", None)
+    if not isinstance(sender, str) or not sender.startswith(("Global", "Super:", "Sub:")):
+        return text
+    if f"· {sender}" in text or text.lstrip().startswith(f"[{sender}]"):
+        return text
+    return f"[{sender}] {text}"
+
+
 class UCAgentCmdLineBackend(AgentBackendBase):
     """
     Command-line based agent backend implementation.
@@ -74,10 +86,14 @@ class UCAgentCmdLineBackend(AgentBackendBase):
         asset_path = os.path.join(current_path, "core", "backends", "assets")
         return os.path.abspath(asset_path)
 
+    def _attributed_text(self, text):
+        """Prefix command-backend text once when a multi-layer Agent owns it."""
+        return _agent_text(self.vagent, text)
+
     @output_source("backend")
     def _echo_message(self, txt):
         """Retain external CLI text as backend output without guessing its message type."""
-        self.vagent.message_echo(txt)
+        self.vagent.message_echo(self._attributed_text(txt))
 
     def _get_mcp_port(self):
         """Require the actual ready MCP endpoint instead of guessing from configuration."""
@@ -488,12 +504,12 @@ class SessionCommandBackend(AgentBackendBase):
             event = json.loads(line)
         except (ValueError, TypeError):
             if self.output.get("format", "text") == "text" and line:
-                self.vagent.message_echo(line)
+                self.vagent.message_echo(_agent_text(self.vagent, line))
             return
         if self.output.get("format", "text") == "text":
             text = event.get("text") if isinstance(event, dict) else None
             if isinstance(text, str):
-                self.vagent.message_echo(text)
+                self.vagent.message_echo(_agent_text(self.vagent, text))
             return
         for rule in self.output.get("events", []):
             if not all(self._field(event, key) == value for key, value in rule.get("match", {}).items()):
@@ -509,7 +525,7 @@ class SessionCommandBackend(AgentBackendBase):
             if "text" in rule:
                 text = self._field(event, rule["text"])
                 if isinstance(text, str) and text:
-                    self.vagent.message_echo(text)
+                    self.vagent.message_echo(_agent_text(self.vagent, text))
                     self._stat_msg_count_ai += 1
             if rule.get("tool"):
                 self._stat_msg_count_tool += 1
