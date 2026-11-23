@@ -13,7 +13,7 @@ from urllib.parse import unquote, urlsplit
 
 DEFAULT_REPO = "https://github.com/fmagent-project/FM-Agent"
 DEFAULT_BRANCH = "main"
-DEFAULT_COMMIT = "3e42260b25a8edb9b799b9fad126bc6aa2ca9d5d"
+DEFAULT_COMMIT = "716d7753b2fb699f2f979d47720f009d48dd5cf2"
 
 
 def plugin_source_root() -> Path:
