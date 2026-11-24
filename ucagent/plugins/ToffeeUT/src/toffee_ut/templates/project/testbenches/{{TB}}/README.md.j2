@@ -1,0 +1,9 @@
+
+# {{DUT}} testbench
+
+- 设计规格：`../../docs/spec/design/{{DUT}}.md`（从工程根查看 `docs/spec/design/`）。
+- 验证规格：`docs/spec/verification/{{DUT}}.md`。
+- 实现归属：当前 testbench 的 env、transactions、model、checker、coverage、tests。
+- 小模块用单文件；复杂后展开同名包，不为凑齐层次创建空壳。
+- 真实 DUT 包：工程根的 `dut/{{DUT}}/`；运行证据：`results/`。
+- 此骨架尚未实现验证；占位用例有意失败，不能作为硬件通过证据。

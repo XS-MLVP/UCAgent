@@ -1,0 +1,56 @@
+"""Single pytest fixture registration point for the project."""
+
+import importlib.util
+import sys
+
+import pytest
+import pytest_asyncio
+
+from {{PACKAGE}} import ROOT
+from {{PACKAGE}}.testbenches.{{TB}}.env import DUTEnvironment
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    """Forward a real body error to environment cleanup without losing independent errors."""
+    yield
+    if call.when == "call":
+        item._ut_body_error = call.excinfo.value if call.excinfo is not None else None
+
+
+@pytest.fixture
+def seed(request):
+    """Expose the same reproducible seed passed to native simulation."""
+    return request.config.getoption("toffee_ut_seed", default=1)
+
+
+@pytest.fixture
+def native_dut(request, toffee_register_dut, seed):
+    """Own one real native DUT, register coverage and release it after each test."""
+    package = ROOT / "dut" / "{{DUT}}"
+    spec = importlib.util.spec_from_file_location(
+        "toffee_native_{{TB}}", package / "__init__.py", submodule_search_locations=[str(package)])
+    if spec is None or spec.loader is None:
+        raise RuntimeError("Provide the real Picker package at dut/{{DUT}}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    argv = module.xsp.StringVector(["{{DUT}}", f"+verilator+seed+{seed}"])
+    dut = getattr(module, "DUT{{EXPORT_NAME}}")(argv, coverage_filename="")
+    try:
+        toffee_register_dut(dut)
+        request.node.user_properties.append(("toffee_ut_seed", seed))
+        yield dut
+    finally:
+        dut.Finish()
+
+
+@pytest_asyncio.fixture
+async def env(native_dut, request):
+    """Own the environment/Execution; tests use transactions rather than native pins."""
+    environment = await DUTEnvironment(native_dut).__aenter__()
+    try:
+        yield environment
+    finally:
+        error = getattr(request.node, "_ut_body_error", None)
+        await environment.__aexit__(type(error) if error else None, error, error.__traceback__ if error else None)

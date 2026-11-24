@@ -1,0 +1,77 @@
+output: ut_project
+template: null
+manager_tools: []
+runtime_options:
+  ut_task: ""
+  ut_task_stages: null
+write_dirs: ['{OUT}/docs/reviews/{DUT}-adoption.md']
+un_write_dirs: ['{GUIDE_DOC}', .ucagent/toffee_ut.key]
+tools:
+  ignore_tools: [WorkDiff, WorkCommit, RunBashCommand, UTProject, BuildToffeeDUT, RunToffee, WaveInfo, CoverageInfo]
+  selected_tools: []
+guide_doc:
+  enable: true
+  core_copy_policy:
+    default_action: ignore
+    retain: []
+    override: []
+    ignore: []
+  plugin_copy_policy:
+    default_action: ignore
+    retain: [ut-adoption.md, ut-methods.md]
+    ignore: []
+skill:
+  general_skill_list: []
+mission:
+  name: '{DUT} task adoption'
+  prompt:
+    system: |
+      你正在接入 {OUT} 中的已有项目，先明确这一次用户希望处理什么，再确定相关工作范围；不是对全部已有阶段做准入认证。
+      本次任务数据：{UT_TASK}。先调用 CurrentTips，按 Guide_Doc/ut-adoption.md 维护 {ADOPTION_REPORT}，其他工程文件只读，不覆盖已有规格、fixture、用例或验证报告，不用文件工具编辑阶段历史。
+      盘点只覆盖本次任务相关的资料、代码和证据；不调用 scaffold、构建或仿真，不要求全量基线，不为缺少统一布局而迁移工程。历史 PASS、文件存在和接入完成均不等于当前验证通过。
+      阶段选择来自本次任务，不使用固定可跳过名单；可以只重做一个子阶段。先复用现有正确成果；缺必要依赖时说明影响、建议动作及需用户决定之处，不自行扩大范围。
+      报告使用现有工件路径；重验建议区分代码变化、RTL/构建变化和仅分析说明，不把所有接入变成全量回归。Skill 可用时仅按问题参考，不可用时直接按当前任务与 Guide 完成，不改变标准。
+      每阶段调用 Check、记录 SetCurrentStageJournal 后 Complete；最后向用户展示任务范围、所选阶段和复验建议，等待实际人工确认。接入只交接，不自动切换工作流、标记主流程完成或执行生成配置。
+      以下是主流程可选择的稳定阶段名，选父阶段包括其已启用子阶段；选子阶段不授权父阶段汇总及无关兄弟阶段。选择次序不重排原流程：
+      {UT_STAGE_CATALOG}
+    tips:
+      always:
+        - 有文件不等于已经验证；不在本次范围不等于通过，依赖冲突交用户决定。
+      random: []
+stage:
+  - name: adoption_task_scope
+    desc: 明确本次任务与验收边界
+    task:
+      - '阅读 Guide_Doc/ut-adoption.md，依据本轮用户请求在 {ADOPTION_REPORT} 写 task、acceptance 和 out_of_scope，使用 kind: task_adoption；保持原任务，不默认补完全部 DUT 验证。'
+      - 用户已明确要处理的文件、失败节点和现象直接记录；目标有歧义或需要扩大任务时先询问，不靠现有工程完成度反推本次授权。
+    reference_files: [Guide_Doc/ut-adoption.md]
+    output_files: ['{ADOPTION_REPORT}']
+    checker:
+      - name: task_scope_check
+        clss: ToffeeUTAdoptionChecker
+        args: {phase: task, project: '{OUT}', dut: '{DUT}'}
+  - name: adoption_related_assets
+    desc: 盘点相关成果与必要依赖
+    task:
+      - 只读本任务涉及的规格、环境、测试或历史原件，在同一报告 assets 中引用实际工作区文件；按 reuse、inspect、repair 说明用途与证据限制，不为无关阶段补材料。
+      - 把缺少的前提和范围冲突写入 dependencies；没有可用文件时也可以如实记录缺失原因，不伪造当前执行、不要求先建完整环境或取得全量 PASS。
+    reference_files: [Guide_Doc/ut-adoption.md]
+    output_files: ['{ADOPTION_REPORT}']
+    checker:
+      - name: related_assets_check
+        clss: ToffeeUTAdoptionChecker
+        args: {phase: inventory, project: '{OUT}', dut: '{DUT}'}
+  - name: adoption_stage_handoff
+    desc: 提出阶段选择并交用户确认
+    task:
+      - 在 selected_stages 提出本次需要处理的主流程阶段名，不列固定安全名单，也不要求每个旧阶段有完成结论；在 revalidation 写清必要复验或无需新执行的原因。
+      - 向用户展示任务、复用/修复对象、所选阶段、依赖和复验建议；按 Guide_Doc/ut-adoption.md 给出 ut_task 与 ut_task_stages 配置建议，不自动启用可选模块或绕过当前检查。
+      - 等待实际人工批准后完成接入。切换到主流程须由操作者停止当前实例、保留需要的旧进度并显式不加载另一流程的阶段历史；不要用接入文件伪造或迁移主流程完成记录。
+    reference_files: [Guide_Doc/ut-adoption.md]
+    output_files: ['{ADOPTION_REPORT}']
+    checker:
+      - name: stage_handoff_check
+        clss: ToffeeUTAdoptionChecker
+        args: {phase: handoff, project: '{OUT}', dut: '{DUT}'}
+      - name: scope_confirmation
+        clss: HumanChecker

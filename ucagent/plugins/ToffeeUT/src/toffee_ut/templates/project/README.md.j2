@@ -1,0 +1,19 @@
+
+# {{DUT}} UT project
+
+当前骨架未完成验证。先完成 `docs/spec/design/{{DUT}}.md` 与
+`docs/spec/verification/{{DUT}}.md`，再实现 `testbenches/{{TB}}/`。
+
+- `conftest.py` 是统一 fixture 注册入口。
+- DUT 实现和用例归 `testbenches/{{TB}}/`；真正共享时才建立 `testbenches/shared/`。
+- 规格归 `docs/spec/{design,verification}/`，问题归 `docs/bugs/{open,closed}/`。
+- RTL、原生包、运行产物分别归 `rtl/`、`dut/`、`results/`。
+- 自动结果入口为 `docs/README.md`；历史运行不得覆盖。
+
+安装 requirements 后，在工程父目录保留项目包导入根，可直接运行，不需要启动 UCAgent：
+
+```bash
+PYTHONPATH={{IMPORT_ROOT}} toffee run testbenches --output results/<new-run-id>
+```
+
+独立运行不会生成 ToffeeUT 的签名阶段收据，不能冒充工作流内的 RunToffee 验收。

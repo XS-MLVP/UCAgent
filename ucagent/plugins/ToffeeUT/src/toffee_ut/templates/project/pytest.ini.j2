@@ -1,0 +1,6 @@
+[pytest]
+testpaths = testbenches
+asyncio_mode = auto
+markers =
+    scenario(*ids): verification specification scenario identifiers
+    selftest: environment/model/checker self-check; not DUT functional credit

@@ -1,0 +1,6 @@
+uc-toffee[runner]
+wavekit
+PyYAML>=6,<7
+packaging>=24,<27
+pydantic>=2.7,<3
+Jinja2>=3.1.6,<4
