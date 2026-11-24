@@ -69,17 +69,18 @@ def _record_validation_round(agent, result, stage_index=19):
     agent.stage_manager.validation_revision += 1
     agent.stage_manager.stage_index = stage_index
     agent.stage_manager.last_check_info = result
-    agent._update_stalled_rounds(previous_revision, previous_stage_index)
+    return agent._update_stalled_rounds(previous_revision, previous_stage_index)
 
 
 def test_unchanged_checker_diagnostic_pauses_agent_loop():
     agent = _stall_probe(max_stalled_rounds=3)
 
-    for _ in range(3):
-        _record_validation_round(agent, _failure_result())
+    assert not _record_validation_round(agent, _failure_result())
+    assert not _record_validation_round(agent, _failure_result())
+    assert _record_validation_round(agent, _failure_result())
 
     assert agent._stalled_rounds == 3
-    assert agent._need_human is True
+    assert agent._need_human is False
 
 
 def test_changed_checker_diagnostic_resets_stalled_round_count():
@@ -100,10 +101,10 @@ def test_dynamic_summary_metadata_does_not_hide_unchanged_failure():
     second["failure_summary"]["details"] = {"attempt": 2}
 
     _record_validation_round(agent, first)
-    _record_validation_round(agent, second)
+    assert _record_validation_round(agent, second)
 
     assert agent._stalled_rounds == 2
-    assert agent._need_human is True
+    assert agent._need_human is False
 
 
 def test_validation_progress_resets_stalled_round_count():

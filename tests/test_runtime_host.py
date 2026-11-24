@@ -44,6 +44,19 @@ def test_waiting_human_persists_blocked_without_review_entry(tmp_path):
         host.start()
 
 
+def test_checker_stall_does_not_request_human_review(tmp_path):
+    host, runtime = make_host(tmp_path, mode="once")
+    runtime.agent.one_loop = lambda message=None: None
+    runtime.agent._update_stalled_rounds = lambda revision, index: True
+    host.start()
+    op = host.registry.execute("continue", runtime.session).data
+    result = host.operations.wait(op["id"], 2)["result"]
+    assert result["reason"] == "paused" and result["stop_reason"] == "checker_stall"
+    state = host.wait(3)
+    assert state["close_reason"] == "checker_stall" and state["exit_code"] == 2
+    assert not runtime.agent._need_human
+
+
 @pytest.mark.parametrize("mode", ["console", "service", "master"])
 def test_review_entry_keeps_host_alive_and_domain_gates_still_apply(tmp_path, mode):
     """Human review does not equate to Complete, and premature Exit cannot close the host."""

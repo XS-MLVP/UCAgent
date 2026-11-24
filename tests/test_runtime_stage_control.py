@@ -58,6 +58,7 @@ class Agent:
     def __init__(self, workspace, cfg):
         """Initialize model scheduling, pause and checkpoint state."""
         self.workspace = str(workspace)
+        self.dut_name = "demo"
         self.output_dir = str(workspace / "out")
         self.cfg = cfg
         self.backend = SimpleNamespace(on_stage_complete=Mock())
@@ -109,13 +110,15 @@ class Agent:
         return None
 
 
-def build_runtime(workspace, *, saved=None, batch=False):
+def build_runtime(workspace, *, saved=None, batch=False, autonomous=False):
     """Assemble real stages, Checker and persistence in a temporary workspace."""
     workspace.mkdir(exist_ok=True)
     (workspace / "out").mkdir(exist_ok=True)
     cfg = Config({
         "mission": {"name": "Stage control tests"}, "skill": {"use_skill": False},
         "hist_ignore_pattern": [], "cmd_timeout": 2,
+        "loop_settings": {"autonomous_stage_work": autonomous},
+        "multi_agent": {"limits": {"checker_repeat_failures": 3}},
         "vmanager": {"llm_suggestion": {"check_fail_refinement": {"enable": False},
                                         "check_pass_refinement": {"enable": False}}},
         "stage": [{"name": f"stage-{i}", "desc": "Evidence review", "task": ["Verify evidence"],

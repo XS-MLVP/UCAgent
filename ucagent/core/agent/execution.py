@@ -370,12 +370,12 @@ class VerifyAgent:
 
     def _update_stalled_rounds(self, previous_revision, previous_stage_index):
         if self._max_stalled_rounds == 0:
-            return
+            return False
         current_revision = getattr(
             self.stage_manager, "validation_revision", previous_revision
         )
         if current_revision == previous_revision:
-            return
+            return False
         current_stage_index = getattr(
             self.stage_manager, "stage_index", previous_stage_index
         )
@@ -386,11 +386,11 @@ class VerifyAgent:
             or check_result.get("progress_summary")
         ):
             self._reset_stalled_rounds()
-            return
+            return False
         signature = self._checker_failure_signature(check_result)
         if signature is None:
             self._reset_stalled_rounds()
-            return
+            return False
         if signature == self._last_stall_signature:
             self._stalled_rounds += 1
         else:
@@ -399,12 +399,13 @@ class VerifyAgent:
         if self._stalled_rounds >= self._max_stalled_rounds:
             summary = check_result["failure_summary"]
             warning(
-                "Pausing the agent loop after "
+                "Detected no Checker progress after "
                 f"{self._stalled_rounds} rounds with unchanged Checker diagnostic "
                 f"{summary['error_code']} in stage {summary['stage_index']} "
                 f"({summary['stage_name']})."
             )
-            self._need_human = True
+            return True
+        return False
 
     def one_loop(self, msg=None):
         """Enhanced one loop with intelligent interaction logic based on configured mode"""

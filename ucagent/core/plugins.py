@@ -1277,8 +1277,12 @@ def create_plugin_runtime_hooks(plugins: Sequence[LoadedPlugin]) -> list[Any]:
 
     A hook factory takes no arguments; the returned object may duck-type
     ``snapshot_sections(cfg)``, ``validate_runtime_snapshot(data)``, and
-    ``on_stage_start(workspace)``. The same hook class registered through
-    several plugins (a shared library) instantiates exactly once.
+    ``on_stage_start(workspace)``. For autonomous StageWork, an optional
+    ``stage_work_handoff_blocker(manager)`` runs before an external-input
+    pause or a completed-stage exit. It must be read-only and return None
+    (no objection) or a nonempty continuation instruction. A veto is subject
+    to existing stall limits and does not approve a check, exit or human review.
+    The same hook class registered through several plugins instantiates once.
     """
     hooks: list[Any] = []
     owners: dict[str, tuple[str, type]] = {}

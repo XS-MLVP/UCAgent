@@ -25,6 +25,7 @@ from ucagent.util.config import Config
 from ucagent.util.log import info, warning
 from ucagent.core.stage.llm_suggestion.base_suggestion import get_llm_check_instance
 from ucagent.core.tools.skill import _list_skills, list_skills_in_format
+from ucagent.core.stage.work import StageWork, stage_work_handoff_blocker
 
 
 # Fields the manager injects itself and stage_args must not override.  The
@@ -459,6 +460,28 @@ class ToolDoExit(ManagerTool):
     )
 
 
+class StageWorkArgs(BaseModel):
+    action: Literal["show", "ready", "done", "human", "review"]
+    item_id: str = Field(default="", max_length=80)
+    detail: str = Field(default="", max_length=1600)
+    evidence: str = Field(default="", max_length=1600)
+
+
+class ToolStageWork(ManagerTool):
+    name: str = "StageWork"
+    description: str = (
+        "Track independent verification work. Use show to read outstanding items. "
+        "Use ready for a concrete next action, done only with checked evidence, and human only for "
+        "an exact decision or input unavailable to this agent. Use stable IDs; operate at the relevant stage. "
+        "Use review after inspecting the entire remaining in-scope inventory, not just the first failing check. "
+        "This tool never passes a test, waives coverage or approves a stage."
+    )
+    args_schema: Optional[ArgsSchema] = StageWorkArgs
+
+    def _run(self, action, item_id="", detail="", evidence="", run_manager=None):
+        return self.function(action, item_id, detail, evidence)
+
+
 class StageManager(object):
     """Own verification rules and accept an optional runtime mutation coordinator."""
 
@@ -493,6 +516,9 @@ class StageManager(object):
         self.runtime_hooks = list(runtime_hooks or [])
         self.manager_tool_registry = dict(manager_tool_registry or {})
         self.agent = agent
+        self.stage_work = (StageWork(workspace, agent.dut_name)
+                           if cfg.has_attr("loop_settings") and cfg.get_value("loop_settings.autonomous_stage_work", False)
+                           and getattr(agent, "multi_agent_settings", None) is None else None)
         self.completion_callback = None
         self.tool_read_text = tool_read_text
         self.ucagent_info = ucagent_info
@@ -834,7 +860,23 @@ class StageManager(object):
         ]
         if self.agent.cfg.skill.use_skill:
             tools.append(ToolSetSkillUsage().set_function(self.tool_set_skill_usage))
+        if self.stage_work is not None:
+            tools.append(ToolStageWork().set_function(self.tool_stage_work))
         return tools
+
+    @coordinated_stage_mutation("tool", manager=True)
+    def tool_stage_work(self, action, item_id="", detail="", evidence=""):
+        try:
+            result = self.stage_work.update(self.stages, self.stage_index, action, item_id, detail, evidence)
+            return make_llm_tool_ret(result)
+        except ValueError as error:
+            return make_llm_tool_ret({"error": str(error)})
+
+    def _stage_work_view(self):
+        work = getattr(self, "stage_work", None)
+        if work is None:
+            return None
+        return work.view(self.stages, self.stage_index)
 
     def _previous_stage_journal(self, stage_index, limit=800):
         """Return a bounded excerpt of the previous stage's recorded journal.
@@ -858,7 +900,13 @@ class StageManager(object):
         return excerpt
 
     def get_current_tips(self):
+        work = self._stage_work_view()
         if self.stage_index >= len(self.stages):
+            if work is not None:
+                return ("Configured stages have reached delivery. The report is not hardware acceptance. "
+                        "Use StageWork(show), inspect the report and real artifacts, and continue any independent work. "
+                        "For prior work use GoToStage on a reached stage. A remaining human dependency is not a pass. "
+                        "Use StageWork(review) only after reviewing all remaining in-scope work.")
             return "Your mission is completed. No more stages available. You can use `Exit` tool to exit the mission or `GoToStage` tool to go to a specific stage to review."
         cstage = self.stages[self.stage_index]
         tips = OrderedDict()
@@ -877,6 +925,10 @@ class StageManager(object):
         previous_journal = self._previous_stage_journal(self.stage_index)
         if previous_journal:
             tips["previous_stage_journal"] = previous_journal
+        if work is not None:
+            tips["remaining_work"] = {key: len(work[key]) for key in ("ready", "human", "stalled")}
+            tips["work_instruction"] = ("Use StageWork(show) and continue the first ready item. Keep missing inputs separate; "
+                                        "review all remaining independent work, not just the first failing gate.")
         ref_files = []
         for k, v in cstage.reference_files.items():
             if v:
@@ -1735,6 +1787,9 @@ class StageManager(object):
         if ck_pass and stage.is_hmcheck_needed():
             hm_passed, ck_msg = stage.get_hmcheck_state()
             if hm_passed is None:
+                work = self._stage_work_view()
+                if work is not None and not work["reviewed"]:
+                    return {"complete": False, "error": "Formal approval is required. First finish and review independent work in StageWork; the approval gate is unchanged."}
                 self.agent._need_human = True
                 return {"error": ("Now you have passed the self check of this stage, but human check is needed before completing this stage. "
                                   "Please give a bref introduction of your work to help the human reviewer understand your implementation. "
@@ -1784,7 +1839,9 @@ class StageManager(object):
             self._stage_complete(self.stages[self.stage_index])
             self.next_stage()
             if self.all_completed:
-                message = ("All stages completed successfully. "
+                message = ("Stage checks reached delivery. Use StageWork to finish and review independent work before Exit."
+                           if self._stage_work_view() is not None else
+                           "All stages completed successfully. "
                            "Now you should review your work to check if everything is correct and all the users needs are matched. "
                            "When you are confident that everything is fine, you can use the `Exit` tool to exit the mission. "
                            )
@@ -1828,6 +1885,13 @@ class StageManager(object):
         Exit the agent and end the mission after all stages are completed.
         """
         if self._refresh_all_completed():
+            work = self._stage_work_view()
+            if work is not None and (not work["reviewed"] or work["human"]):
+                return {"exit": False, "message": "Review remaining work in StageWork. Human dependencies stay open; report delivery is not acceptance."}
+            if work is not None:
+                blocker = stage_work_handoff_blocker(self)
+                if blocker is not None:
+                    return {"exit": False, "message": blocker}
             self.time_end = time.time()
             if self.completion_callback is not None:
                 self.completion_callback()

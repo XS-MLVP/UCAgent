@@ -43,6 +43,7 @@ class RuntimeHost:
         self.shutdown_timeout = lifecycle_timeout(shutdown_timeout)
         self.instance_state = "starting"
         self.execution_state = "idle"
+        self.stop_reason = None
         self.task_outcome = None
         self.close_reason = None
         self.exit_code = 0
@@ -186,6 +187,7 @@ class RuntimeHost:
         """Detach instance, execution and mission state without waiting for domain calls."""
         with self._lock:
             return public_data({"instance": self.instance_state, "execution": self.execution_state,
+                                "stop_reason": self.stop_reason,
                                 "task_outcome": self.task_outcome, "close_reason": self.close_reason,
                                 "exit_code": self.exit_code, "errors": self.errors,
                                 "controls": sorted(self._controls),
@@ -200,6 +202,7 @@ class RuntimeHost:
         self.agent.set_break(True)
         with self._lock:
             self.execution_state = "pausing" if self.operations._model_id else "paused"
+            self.stop_reason = None
         self._wake.set()
         return self.snapshot()
 
@@ -291,6 +294,7 @@ class RuntimeHost:
                 self._shutdown()
                 continue
             records = self.operations.list()
+            active_models = any(row["model"] and row["state"] not in TERMINAL_STATES for row in records)
             for record in records:
                 if not record["model"] or record["state"] not in TERMINAL_STATES or record["id"] in self._seen_operations:
                     continue
@@ -303,6 +307,8 @@ class RuntimeHost:
                         self.execution_state = ("failed" if record["state"] == "failed" else
                                                 "paused" if record["state"] == "cancelled" else
                                                 {"round_complete": "idle", "completed": "completed"}.get(reason, reason or "idle"))
+                        self.stop_reason = (record["result"].get("stop_reason")
+                                            if isinstance(record["result"], dict) else None)
                         if self.execution_state == "failed":
                             multi = getattr(self.agent, "multi_agent", None)
                             if multi is not None and multi.issue:
@@ -328,15 +334,20 @@ class RuntimeHost:
                     and not (getattr(self.agent, "multi_agent", None) and self.agent.multi_agent.has_active())
                     and not any(row["model"] and row["state"] not in TERMINAL_STATES for row in records)):
                 self.request_shutdown("operation_finished", exit_code=int(self.execution_state == "failed"))
-            if any(row["model"] and row["state"] not in TERMINAL_STATES for row in records):
+            if active_models:
                 with self._lock:
                     self.execution_state = "pausing" if self.agent.is_break() else "running"
+                    self.stop_reason = None
             with self._lock:
                 waiting = self.execution_state == "waiting_human"
                 has_control = bool(self._controls) or self.services.status("cmd")["state"] == "ready"
             if waiting and not has_control and self.mode == "once":
                 self.task_outcome = "blocked"
                 self.request_shutdown("human_review_unavailable", exit_code=2)
+            elif (self.stop_reason in {"checker_stall", "human_input_required"} and self.mode == "once"
+                  and not self.workflow_chain_owned and not self.startup.active and not active_models):
+                self.task_outcome = "blocked"
+                self.request_shutdown(self.stop_reason, exit_code=2)
 
     def _shutdown(self):
         """Drain operations before persistence, sync, services and restoration; retain pending owners."""

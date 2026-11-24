@@ -74,6 +74,8 @@ exclude = [
     "ucagent.plugins.Formal*",
     "ucagent.plugins.DesignWithPPA*",
     "ucagent.plugins.RTL2Spec*",
+    "ucagent.plugins.ACT4*",
+    "ucagent.plugins.ToffeeUT*",
 ]
 
 [tool.setuptools.package-data]

@@ -628,6 +628,8 @@ class OperationExecutor:
 
     def _loop(self, context, message):
         """Schedule domain rounds and retry failures without entering a debugger."""
+        from ucagent.core.stage.work import StageWorkLoop
+
         service = getattr(self.agent, "multi_agent", None)
         if service is not None and service.issue:
             service.recover({"issue_id": service.issue["id"], "action": "reply" if message else "resume",
@@ -638,6 +640,9 @@ class OperationExecutor:
         if message:
             self.agent.set_continue_msg(message)
         self.agent._need_human = False
+        manager = self.agent.stage_manager
+        workflow = (StageWorkLoop(manager, self.agent._max_stalled_rounds)
+                    if getattr(manager, "stage_work", None) is not None else None)
         while True:
             context.checkpoint()
             started = self._clock()
@@ -651,13 +656,14 @@ class OperationExecutor:
                         return {"reason": "paused", "invoke_round": self.agent.invoke_round}
                     revision = self.agent.stage_manager.validation_revision
                     index = self.agent.stage_manager.stage_index
+                    before = workflow.before_round() if workflow else None
                     self.agent.one_loop()
                     service = getattr(self.agent, "multi_agent", None)
                     if service is not None and service.workflow_state == "failed":
                         raise OperationFailure("delegation_failed", "Delegated workflow stopped; inspect TaskStatus.", service.status())
                     if service is not None and service.handoff is not None and service.workflow_state in {"handoff", "paused"}:
                         return {"reason": service.workflow_state, "invoke_round": self.agent.invoke_round}
-                    self.agent._update_stalled_rounds(revision, index)
+                    stalled = self.agent._update_stalled_rounds(revision, index)
                     context.checkpoint()
                     if self.agent.is_exit():
                         return {"reason": "completed", "invoke_round": self.agent.invoke_round}
@@ -665,6 +671,20 @@ class OperationExecutor:
                         return {"reason": "paused", "invoke_round": self.agent.invoke_round}
                     if self.agent._need_human:
                         return {"reason": "waiting_human", "invoke_round": self.agent.invoke_round}
+                    if workflow is not None:
+                        reason, next_instruction = workflow.after_round(
+                            before, stalled, manager.validation_revision != revision)
+                        if reason:
+                            return {"reason": "paused", "stop_reason": reason,
+                                    "invoke_round": self.agent.invoke_round}
+                        if next_instruction:
+                            self.agent.set_continue_msg(next_instruction)
+                        if stalled:
+                            self.agent._reset_stalled_rounds()
+                        continue
+                    if stalled:
+                        return {"reason": "paused", "stop_reason": "checker_stall",
+                                "invoke_round": self.agent.invoke_round}
                 return {"reason": "completed", "invoke_round": self.agent.invoke_round}
             except (OperationCancelled, OperationFailure):
                 raise
